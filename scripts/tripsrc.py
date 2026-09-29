@@ -7,18 +7,18 @@ mark). Bucketed by phase of a refill cycle, so a pulsed pile (`food=30 refill=60
 once the pile is gone. Built 2026-09-29 (`Reports/ant-scenes-2026-09-23.md` section 22t): 46% of returns on the
 granary were home-band pickups after a 16-cell roam.
 
-Needs traces with the `trip_load` and `forage_max` columns (trailfollow from 2026-09-29).
+Needs traces with the `trip_load` and `forage_max` columns (trailfollow from 2026-09-29); reads `.csv` or `.csv.gz`.
 usage: python3 scripts/tripsrc.py <csv dir> <gap> <refill cycle, frames>"""
-import csv, glob, sys, collections as C, statistics as st
+import csv, glob, gzip, sys, collections as C, statistics as st
 D, GAP, CYC = sys.argv[1], int(sys.argv[2]), int(sys.argv[3]); BAND, NEAR = 26, 10
 B = 6; W = CYC / B
 tab = C.Counter(); held = C.defaultdict(list); depth = C.defaultdict(list); n = 0; ate_between = C.Counter()
 def where(x, nx):
     d = x - nx
     return 'pile' if abs(x - (nx + GAP)) <= NEAR else ('home band' if abs(d) <= BAND else ('road' if 0 < d < GAP else 'west/past'))
-for path in sorted(glob.glob(D + '/*.csv')):
+for path in sorted(glob.glob(D + '/*.csv') + glob.glob(D + '/*.csv.gz')):
     prev = {}; mark = {}
-    with open(path) as fh:
+    with (gzip.open(path, 'rt') if path.endswith('.gz') else open(path)) as fh:
         rd = csv.reader(fh); h = next(rd); ix = {k: i for i, k in enumerate(h)}
         for r in rd:
             f = int(r[ix['frame']]); a = r[ix['id']]; x = int(r[ix['x']]); nx = int(r[ix['nest_x']])

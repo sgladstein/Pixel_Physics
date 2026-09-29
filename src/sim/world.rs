@@ -2106,6 +2106,18 @@ pub struct CreatureStats {
     /// one per trip, at its first put-down at home. What the forage drive's
     /// `returns` need reads, counted whatever the need.
     pub forage_returns: u64,
+    /// **Loads the trip-reach rule does not count as a trip**
+    /// (`creature::trip_reach_of`): delivered crops whose every marking
+    /// pickup was loose food within the reach of a door. Counted whatever
+    /// the switch -- off, it is what the rule would remove; on, what it
+    /// removed. Same unit as `forage_returns`: one per crop at its first
+    /// put-down at home.
+    pub trip_returns_near: u64,
+    /// **Crops holding a living-tissue pickup taken within the reach of a
+    /// door** (`creature::trip_source`), counted whatever the switch. An
+    /// upper bound on the tissue exemption: a crop that also holds a far
+    /// pickup would have booked without it.
+    pub trip_returns_tissue_near: u64,
     /// **Not a trip counter, and not a sessility guard — read
     /// `forage_trips` for either.** It increments on any move made while
     /// nest-adjacent, guarded on `OrganismState::since_nest > 0`; but
@@ -3703,6 +3715,11 @@ pub struct World {
     /// this world** (`creature::store_lunch_of`). `None` follows the
     /// environment; a field for the reason `chooser` is one.
     pub store_lunch: Option<bool>,
+    /// **How far from every door loose food must be taken to count as a trip,
+    /// overriding `PIXEL_PHYSICS_TRIP_REACH` for this world**
+    /// (`creature::trip_reach_of`). `None` follows the environment;
+    /// `Some(None)` is the rule off (a trip judged by the roam alone).
+    pub trip_reach: Option<Option<i32>>,
     /// **Whether a birth counts food in reach at what its bite is certain to
     /// pay, overriding `PIXEL_PHYSICS_BIRTH_PRICE` for this world**
     /// (`creature::birth_price_of`). `None` follows the environment, which is
@@ -6069,6 +6086,7 @@ impl World {
             carry_patience: None,
             packed_lunch: None,
             store_lunch: None,
+            trip_reach: None,
             birth_price: None,
             blocked_tissue_by_material: Vec::new(),
             energy_ledger: EnergyLedger::default(),
@@ -7091,6 +7109,7 @@ impl World {
             nest_bound_until: 0,
             lunch: false,
             trip_load: false,
+            trip_src: 0,
             eat_lunch_now: false,
             hungry_home: false,
             // Zero is "no memory yet"; the first tick's read sees `live - 0`,
