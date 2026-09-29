@@ -6229,6 +6229,14 @@ pub struct OrganismState {
     /// roam gate; cleared with `trip_load` at the first put-down at home. It
     /// only feeds the `trip_returns_*` counters and the trace.
     pub trip_src: u8,
+    /// **Ticks since this crop's last trip pickup** -- the pickup that set
+    /// `trip_load`, so topping up at the pile starts it again. Meaningful
+    /// only while `trip_load` is set; it is a plain saturating counter with
+    /// no sentinel, since a counter can reach any sentinel. Counted where
+    /// `since_nest` is. Written always and read, today, only by the decision
+    /// trace (`creature::DecisionRow::since_trip`): the age of the cargo that
+    /// a food-charged trail would lay by (`Reports/food-trail-plan-2026-09-29.md`).
+    pub since_trip: u16,
     /// **Finish the packed lunch this tick** (`creature::carries_lunch`):
     /// set by `act` when a lunch meets food its crop cannot swallow, read and
     /// cleared by the same tick's digestion, which completes the cell in
