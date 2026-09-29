@@ -3,7 +3,11 @@
 **Status:** plan, proposed 2026-09-29 for the owner's reading. No step of it is
 in the code yet. The one code change it asks for before anything else is B0a,
 a crash fix. Written against `main` at `2274e347`. Tag: `engine` — the
-mechanism is shared, and §7 says what each of the three games turns on.
+mechanism is shared, and §7 says what each of the three games turns on. The
+owner answered three of §10's six questions the same day: the evolution lab
+gets the full life cycle, breeders may be marked, and breeders may live
+longer. They are recorded in §2a and §10 and folded into the steps, with B4b
+new.
 
 **How this was put together:** the code was read directly for `try_bud`,
 `place_creature`, the breeding regimes, old age, founding and the
@@ -22,7 +26,8 @@ full-grown copy of itself on the spot, wherever it stands. Every ant breeds.
 There is no egg, no brood and no queen, and a colony never starts another
 colony.
 
-This plan replaces that, in six shippable steps, with the ant life cycle:
+This plan replaces that, in seven shippable steps (B1–B6, plus B4b, added
+2026-09-29), with the ant life cycle:
 
 - New ants come from **eggs laid in the nest**. The eggs lie in a pile in a
   chamber and hatch after a delay.
@@ -33,6 +38,7 @@ This plan replaces that, in six shippable steps, with the ant life cycle:
   their brood.
 - **Young ants stay home, pale**, before they go out. How a larva was fed
   decides what it grows into.
+- **An ant raised to breed lives far longer** than the workers around it.
 - A colony that is big and well fed **raises winged breeders that fly off and
   found colonies of their own**. Most of those foundings fail.
 
@@ -68,6 +74,7 @@ So **nothing below names a queen**:
 | **B2** graded fertility on | breeding gathers onto one or a few animals per nest | the existing `graded` regime, swept, with the breeder's eggs as a second signal source | small |
 | **B3** brood that must be fed | a brood pile in three colours (egg, larva, cocoon) with nurses crowding it. In famine the pile thins before the workers die. Dig into a chamber and ants carry the brood away | larvae with a bank that nurses fill through the existing `Share` verb. Laying becomes cheap and growing an ant is what costs | 2–3 sessions |
 | **B4** what the young become | callow ants pale and at home, turning into foragers one by one. Richly fed larvae become different ants | `made` from how a larva was fed, the developmental block wired, a stochastic callow release | 1–2 sessions |
+| **B4b** breeders live longer | the breeder in the chamber outlasts generations of her workers | a heritable, priced lifespan slot that the caste channel lifts in richly reared animals (owner, 2026-09-29) | 1 session |
 | **B5** the founding rule | a colony starts as one well-provisioned breeder in its chamber plus a cohort, not 52 identical strangers | a per-species founding rule in `ant.ron`, and a nest-bound founder | 1 session |
 | **B6** colonies found colonies | winged breeders leave the mound after rain. New mounds appear across the world, descended from the old | `(Made, Fly)` alates and a founding verb shared with the fission design's budding party | 2–3 sessions |
 
@@ -75,11 +82,22 @@ So **nothing below names a queen**:
 
 - **Mating and males.** The world stays asexual: a standing dead end, because
   asexual budding is what keeps lineages diverging.
-- **Breeders that outlive their workers.** This has to be priced before it can
-  be inherited.
 - **A bigger queen body.** Longer bodies do not survive in this engine.
 
-§5 B7 says what each would take.
+§5 B7 says what each would take. Breeders that outlive their workers were on
+this list until the owner asked for them on 2026-09-29; they are B4b now.
+
+**Queens were tested and turned down before, twice, for two different
+reasons.** §2d says what each was, why it failed, and what has changed since.
+In short: the failure was the box, not the queen. One nest, no dispersal and
+no rival colonies meant a lineage could only move on when its one breeder
+died.
+
+- **Rival colonies now exist**: foundings have been strangers since round
+  35/36.
+- **Dispersal still does not.** That is why B6 is in this plan.
+- **B6 is now required in the lab**, not optional. The lab gets the full life
+  cycle and breeders live longer, and both slow that same clock.
 
 **Found on the way, and confirmed by a run:** a refused birth by any animal in
 organism slot 4,096 or above crashes the game (§1d). It is one line from B0's
@@ -228,6 +246,9 @@ the second trap).
 | *"Not too many ants in your tests"*, *"snapshots at multiple times"*, *"just use a simpler test environment for now"*, *"we eventually do want our nests to work for larger colonies"*, *"track food in the room over time, not at a single instance"* | 2026-09-26/28 | nest lane | §6's protocol: the colony bed at 20 founders, plus 80 founders and `digbox` at 200 ants, read as time series |
 | *"I cannot review the queue, post questions/images in this chat."* | 2026-09-29 | `claude/ant-nest-mouth-4f6s79`, lane note (unlanded) | post GIFs in the session chat, or on the queue where the owner reads it |
 | A target of **60–70 evolutionary generations per session** | 2026-09 | `evolution-lab-direction-2026-09-09.md` L69 | every step reports `gen` and `bgen` in the lab. §7's per-game defaults exist because of this |
+| *"Evolution Lab gets full life cycle."* | 2026-09-29 | this session's chat, answering §10 Q1; recorded here | the lab runs every step (§7), and its clock cost is now accepted rather than a reason to hold a step off. It stays reported at every step. **B6 is required in the lab**, because it is what keeps a lineage moving (§2d) |
+| *"You can mark breeder."* | 2026-09-29 | same, §10 Q2 | B2 ships the mark: a render readout of `children > 0` that the engine never reads |
+| *"Breeders can live longer."* | 2026-09-29 | same, §10 Q3 | B4b: a heritable, priced lifespan that the caste channel lifts in richly reared animals. Still no type |
 
 ### 2b. Measurements that bound the design
 
@@ -275,6 +296,95 @@ the second trap).
 
 **Re-run each switch's own A/B when its condition is met.** Do not assume the
 old verdict holds.
+
+### 2d. Queens: what was turned down, why, and whether it makes sense now
+
+The owner asked this on 2026-09-29: *"We have tested and rejected queens in
+the past. Why and does it make sense now?"* Queens were turned down twice, for
+different reasons. A third failure, breeding only at the nest, looked like the
+same thing and was not.
+
+**1. The queen as a kind of animal** (`creature-direction.md` §7b, Stage 4,
+2026-08-17). The design:
+
+- a queen was its own slow, large creature species, laying egg cells;
+- workers hatched as exact clones of her, with no mutation;
+- a daughter queen was made only when the colony's stores crossed a threshold.
+
+It was never built. It was **overruled on principle** on 2026-09-09. A queen
+the engine knows by name decides the outcome in advance, instead of letting
+it arise from simple rules. The ruling kept the queen and changed how she is
+made: *"three authored values over mechanisms that exist … never a type the
+engine knows"*. **This objection has not changed, and the plan obeys it.**
+
+**2. Queen-only breeding** (`PIXEL_PHYSICS_BREEDING=queen`). It was built and
+measured on 2026-09-10 (`evolution-lab-breeding-clock-2026-09-10.md` §5). The
+rule: while one member of a colony is breeding, nobody else in it may.
+
+| regime | generations, median | breeder chain, median | births | deaths |
+|---|---:|---:|---:|---:|
+| individual budding | 13.5 | 12.5 | 273 | 146 |
+| graded | 8.5 | 7.5 | 162 | 36 |
+| queen-only | **1.0** | **0** | 11 | 2 |
+
+*(6 seeds, 120,000 frames, played bed.)*
+
+- On five seeds of six, **no ant born in the box ever bred**. The colony was
+  the queen and her first brood, and there it stopped.
+- **The cause was structural, not the implementation.** In a box with one nest,
+  no way for a colony to start another, and every colony one family (at the
+  time `scent_spread` was 0), a lineage can move forward only when the single
+  breeder dies and another takes over. So **the evolutionary clock is the queen
+  replacement rate**. Every improvement — feeding her first, a larger reserve,
+  guarding her — makes her live longer, and so makes the clock slower.
+- The report's verdict was *"likely dead, and not worth a playtest now"*. It
+  also named the condition for re-opening it: **"the moment the box has
+  dispersal and colony competition."**
+- The owner then leaned **graded** instead. Graded cost a third of the clock
+  and cut deaths to a quarter.
+- A side finding, since fixed: the queen rule was blind to animals in recycled
+  organism slots, so two breeders could appear. With that fixed, the headline
+  did not move.
+
+**Not a queen rejection, but often read as one: breeding only at the nest**
+(`PIXEL_PHYSICS_BUD_SITE=nest`, `ant-scenes-2026-09-23.md` §9–10).
+
+- It took births **1,592 → 0**.
+- Ready ants were away from the nest 89–98% of the time.
+- **A whole adult-length child fits at the nest 0–7% of the time.** That is a
+  geometry failure, and an egg removes it.
+
+**What has changed since 2026-09-10:**
+
+| the condition | then | now |
+|---|---|---|
+| **Colony competition** | `scent_spread` 0: every colony one family | **Met.** `scent_spread` 2.0, shipped on by owner ruling 2026-09-14 (#423, rounds 35/36; `why-colonies-do-not-fight-2026-09-14.md`). Separate foundings are strangers on 11 of 12 seeds. Strangers are food, and eating one raises the alarm that starts fights: deaths +99 median, up on 11 of 12 seeds (`ant.ron`'s own record) |
+| **Dispersal** — a colony founding a colony | none | **Still none.** No creature verb founds a nest; the fission design's party was never built. **This plan's B6** |
+| A breeder's home | a painted strip | a founding cut with a chamber and a storeroom where a breeder can sit and be fed (2026-09-28/29) |
+| A child that fits at the nest | no — a whole body in a straight line | **B1's egg**, one cell |
+| The absolute numbers | 13.5 / 8.5 / 1.0 | **Stale.** Taken before the #366 cull fix and §Z36, which cut lab depth 28 → 18. **B0d re-takes them** |
+
+**So: does it make sense now?**
+
+- **Queen-only as a colony's rule: not yet.** It would fail exactly as it did,
+  because the missing half of the condition — dispersal — is still missing.
+  Re-run the §5 sweep once B6 exists, as the report itself requires.
+- **A colony built around its breeder: yes, as this plan builds it.** Graded
+  fertility is not queen-only: breeding gathers around the breeder, but
+  workers far from her, or in a nest that has lost her, still breed. So the
+  clock keeps ticking through workers, which is the owner's 2026-09-09
+  *"graded fertility, not a sterile bit"*.
+- **The 2026-09-29 answers raise the stakes on B6.**
+  - Longer-lived breeders (B4b) are exactly the change the 2026-09-10 report
+    found slows a breeder-centred clock.
+  - The lab now runs the full life cycle, so that slowdown lands in the lab.
+  - Without B6, a lab lineage moves on only through workers escaping
+    suppression and breeders dying. With B6, it also moves on every time a
+    colony founds a colony — the way real ants' lineages move.
+- **The price, stated plainly.** Expect fewer generations per lab session
+  than budding gives today. At budding's 13.5 per 120,000 frames, 60–70
+  generations need about 530,000 frames. Under the full life cycle the number
+  is unmeasured, and B0 and each step after it put a figure on it.
 
 ---
 
@@ -622,7 +732,9 @@ hatched / lost / standing, and births with eggs off, as the paired number.
 
 - **Outdoors**: `live` and starvation within the arm's own noise on the colony
   bed (24 paired seeds), and no `ascii` worst-frame regression.
-- **Lab**: the `gen`/`bgen` cost stated, and the owner rules (§10 Q1).
+- **Lab**: on, by the owner's 2026-09-29 ruling that the lab gets the full
+  life cycle. The `gen`/`bgen` cost is stated beside it against B0d's
+  baseline. It is a number the owner reads, not a gate.
 
 **Docs, same commit:** the reference (§1 step 9, §9, §12), `wiki/ants.md`
 ("New ants, and why you will not see any yet" becomes eggs, with a freshness
@@ -665,9 +777,18 @@ others breed again.
   - effect: **a queenless nest full of brood stays suppressed until the brood
     hatches**, a graded delay rather than an instant resumption.
   - Measured as its own arm (`graded` against `graded,brood`).
-- **The breeder, readable on screen** (§10 Q2). A render readout, not an
-  engine fact: any animal with `children > 0` gets a mark under a render
-  toggle, and the CELL page shows "BRED n".
+- **The breeder, readable on screen.** The owner approved this on
+  2026-09-29 (*"you can mark breeder"*). Any animal with `children > 0` gets a
+  mark, and the CELL page shows "BRED n".
+  - **It is a render readout, not an engine fact.** Nothing in the simulation
+    reads it, so it cannot become the queen type the 2026-09-09 ruling
+    forbids.
+  - Draw it two ways, e.g. a paler abdomen cell or a one-pixel light ring, as
+    a runtime selector.
+  - Put a blind A/B in front of the owner at play zoom, where a two-cell ant
+    is nearly invisible.
+  - It is a pure look, so it stays behind its toggle until the owner has seen
+    it (the 2026-09-12 rule), then ships on.
 
 **Economy:** unchanged. Watch where the suppressed workers' surplus goes, in
 `colonybooks`.
@@ -695,7 +816,8 @@ nest crop with breeders marked. `meta`: breeders per colony, the top breeder's
 share.
 
 **Gate.** The owner's ruling ("I lean graded") plus the sweep → on for nesting
-species outdoors. The lab's default waits on §10 Q1.
+species in all three games; the lab is included by the 2026-09-29 ruling.
+The mark ships on once the owner has seen it.
 
 **Size:** small, given B0b and B0e.
 
@@ -866,6 +988,108 @@ ants, callows, and `made` by bucket.
 
 **Size:** 1–2 sessions.
 
+### B4b — Breeders that live longer
+
+**What it does.** An ant raised to breed — a richly fed larva, or a colony's
+founding breeder — lives far longer than a worker. The breeder in the chamber
+therefore outlasts several generations of the workers who feed her. Real
+queens live about ten times as long as their workers (Jemielity 2005). The
+owner asked for this on 2026-09-29.
+
+**Why not something simpler.** Both shortcuts break a ruling.
+
+- *"An animal that has bred ages slowly"* keys lifespan on the breeder fact.
+  That is a rule deciding an outcome, which is the queen type by another name.
+  It is also not heritable, so no lineage could choose it.
+- A species constant for breeders would need the engine to know who is one.
+
+So longevity goes through the same channel as fertility: **a heritable
+lifespan that the caste channel expresses.**
+
+**Mechanism.**
+
+- **Append `TRAIT_LONGEVITY` as creature trait slot 14** (`CREATURE_TRAITS`
+  14 → 15), under the positional law: append, never renumber. The
+  developmental block reserves 64 slots, so its layout does not move.
+- **The individual's median lifespan** is `life_half_life × 10^(expressed
+  longevity)`, clamped to the axis.
+  - An allele of 0 is today's ant exactly; +1 lives ten times as long; −1 a
+    tenth as long.
+  - `plant::old_age_chance_over` already takes the median as an argument, so
+    the hazard is untouched and only the argument changes. It is read through
+    `expressed_traits`, so `made` reaches it.
+  - The age it is read against is `hatched_frame` (B1).
+- **What `ant.ron` authors:**
+  - the ancestral allele at 0, so workers are unchanged;
+  - a developmental weight that lifts it with `made`, so richly reared animals
+    live long.
+
+  B5's founding rule gives a founding breeder a `made` that expresses it.
+
+  **The reproductive then becomes a bundle** — fertile (B4), long-lived (B4b),
+  winged (B6) — all from one number that a larva's feeders set, with nothing
+  named.
+- **Priced**, because *"priced before it is inherited"* stands, and an unpriced
+  lifespan can only ratchet upward (`creature-locked-fields-2026-09-05.md`).
+  - Add a standing upkeep that rises with the expressed allele, as armour's
+    does (`armour_fraction`): idle cost × (1 + k × max(0, expressed)).
+  - A long life then costs food every tick. A breeder the colony feeds can
+    afford it; a worker lineage that drifted toward it starves sooner.
+  - First guess: k such that a +1 allele doubles the idle cost. Swept.
+- **The principle check**, mirroring sterility's: zero the developmental
+  weight on this slot and every ant lives as it does today.
+
+**Two traps, both found while writing this step:**
+
+- **Eleven species files author 14-value `traits:` and `trait_variance:`
+  tuples, and serde's fixed-size array demands exactly `CREATURE_TRAITS`
+  values.** A 15th slot fails every one of them at load, unless each gains a
+  value in the same commit or the field gets a padding deserializer.
+  - Grep `traits: (` in `assets/species/`.
+  - Run the `species_export` round trip.
+- **`born_with`'s high byte 14 already means "no trait moved but synapses
+  did"** (`try_bud` writes it; `lab/plainspeak.rs` reads it). A trait at slot
+  14 collides with it.
+  - Move the non-trait codes (14, 20, 21, 22) above the 64-slot trait reserve
+    in one commit, reader and writer together, so no later trait append
+    collides again.
+
+**Smaller:**
+
+- A new slot with non-zero `trait_variance` adds a draw at the end of each
+  birth's trait jitter. Breeding tests pin `mutation_rate = 0.0` regardless
+  (L1158).
+- The shelf's manifest check sees the new slot
+  (`creature-genome-flexibility-2026-09-02.md` §8).
+- The lab's CELL and parameter pages list traits by slot. Add a plain-speak
+  name for it.
+
+**What it does to the lab's clock**, stated before it is built. A longer-lived
+breeder means a slower breeder-centred clock: the 2026-09-10 report's own
+finding (§2d). Measure `gen` and `bgen` with the developmental weight on and
+off. The cost is expected, and B6 is what pays it back.
+
+**Counters:**
+
+- lifespan at death, by `made` bucket;
+- breeder tenure (from B2);
+- successions per colony per 100,000 frames.
+
+**Guards:**
+
+- An allele of 0 is bit-identical to today (hash).
+- The median lifespan at +1, over N animals, is within tolerance of 10 ×
+  40,000 frames: the shape of
+  `the_hazard_is_a_property_of_the_half_life_not_the_interval`.
+- The upkeep is charged and booked.
+- The principle check.
+
+**What the owner sees.** A long time-lapse of one nest with the breeder
+marked: workers turning over around one long-lived breeder. `meta`: the
+breeder's age, workers born, workers died.
+
+**Size:** one session, most of it the two traps.
+
 ### B5 — The founding rule, and the breeder who stays home
 
 **What it does.** A colony starts the way its species says. For the ant that
@@ -877,7 +1101,12 @@ laying, and the colony's size follows its food from then on.
 **Mechanism.**
 
 - **`CreatureDef::founding`** in `ant.ron`. First guess: `(breeders: 1,
-  breeder_reserve: 3000, cohort: 51, brood: 8)`.
+  breeder_reserve: 3000, breeder_made: 1.0, cohort: 51, brood: 8)`.
+  - `breeder_made` is the founding breeder's `made`. Through the developmental
+    block it gives her the reproductive bundle a richly reared larva gets: the
+    low breeding bar (B4) and the long life (B4b). A founder has no feeders to
+    set it, so the species authors it — one of the ruling's "three authored
+    values".
   - The cohort keeps `founder_reserve_spread`.
   - **The `Y` key still places 52 animals.** *"Fifty looks like a colony,
     five looks like a bug"* (`ant-sim-research-review` §2.1).
@@ -1017,15 +1246,8 @@ own re-open condition.
     shelf.
   - **Re-open only on the owner's word.** The cost is a second 12,416-float
     genome per mated breeder (~50 KB), male alates, and a mating event.
-- **Breeders that outlive workers** (~10× in ants, Jemielity 2005). There is
-  no role-based lifespan without a type. Two engine-native routes exist, both
-  to be priced first:
-  1. a longevity slot the developmental block moves with `made`, with a
-     standing cost like armour's, or it ratchets;
-  2. wear-based ageing (age accrues with activity), which re-calibrates every
-     ant.
-
-  Decide after B5's succession numbers say whether breeder churn matters.
+- *(Breeders that outlive workers were listed here until the owner asked for
+  them on 2026-09-29. They are B4b.)*
 - **A bigger queen body.** Bodies longer than two cells do not survive
   (`wiki/ants.md`; `creature-articulated-body-2026-09-09.md`), and heritable
   body size ratchets (`creature-reproduction-economics` §5.4). B2's render
@@ -1086,13 +1308,14 @@ own re-open condition.
 
 | step | outdoor sandbox (`Y`) | evolution lab | held world (`--bin druid`) |
 |---|---|---|---|
-| B0 | the fix lands everywhere | the clock re-take is the lab's | **the crash is most likely here** |
-| B1 egg | on | on if the owner accepts the measured clock cost (§10 Q1); otherwise a short `egg_frames` | on. `C` founds through `found_colony_of`, so it inherits it |
-| B2 graded | on | owner's call on the re-taken clock | on |
+| B0 | the fix lands everywhere | the clock re-take is the lab's baseline for every step after | **the crash is most likely here** |
+| B1 egg | on | **on** — the owner, 2026-09-29: *"Evolution Lab gets full life cycle"*. The clock cost is reported, not a gate | on. `C` founds through `found_colony_of`, so it inherits it |
+| B2 graded + breeder mark | on | **on**, at the sweep's setting | on |
 | B3 brood | on | on; every constant is a dial on the parameter page | on |
 | B4 castes, callows | on | on | on |
+| B4b long-lived breeders | on | **on**; its clock cost measured with the developmental weight on and off | on |
 | B5 founding rule | `Y` = 1 breeder + 51 + a little brood | colony entries in scenarios carry the rule | the `C` offer gets a breeder option, priced from the pool |
-| B6 dispersal | nuptial flights, weather-triggered | the walking party (B6b), or a state trigger (§10 Q4) | flights |
+| B6 dispersal | nuptial flights, weather-triggered | **required here** (§2d): the walking party (B6b), or a state trigger — §10 Q4 is still open | flights |
 
 **The one real divergence risk is constants, not code**
 (`two-games-one-repo-2026-08-30.md` §4). Every brood timing goes in the
@@ -1139,10 +1362,14 @@ block, in that order.
 
 ## 9. Risks, ranked
 
-1. **The lab's evolutionary clock.** Breeder-centred breeding and a
-   development delay both slow it. Mitigations: dispersal (B6), per-game
-   defaults (§7), and `gen`/`bgen` reported at every step so the price is
-   always a number in front of the owner.
+1. **The lab's evolutionary clock.** Breeder-centred breeding, a development
+   delay and long-lived breeders all slow it. The owner accepted the cost on
+   2026-09-29 by giving the lab the full life cycle. What is left is to keep
+   it a number and to pay it back:
+   - `gen` and `bgen` are reported at every step, against B0d's baseline;
+   - **B6 is required in the lab**, and it must not slip behind the steps that
+     slow the clock;
+   - queen-only is re-measured once B6 exists (§2d).
 2. **The economy re-derivation** (D11.3).
    - A correct egg or brood at inherited constants reads as *"eggs killed the
      colony"*.
@@ -1177,14 +1404,20 @@ block, in that order.
 These need no picture, so they are for the chat. That is the owner's standing
 instruction of 2026-09-10.
 
+**Answered 2026-09-29**, and folded into the steps (§2a):
+
 1. **The lab clock.** Should the evolution lab run the full life cycle and
-   accept fewer generations per session, measured at B0, B1 and B2? Or keep
-   budding there while the outdoor game and the held world get the life
-   cycle? Or run it with short brood timings?
+   accept fewer generations per session? → ***"Evolution Lab gets full life
+   cycle."*** Every step runs in the lab (§7), and B6 is required there
+   (§2d).
 2. **A breeder you can spot.** OK to mark any animal that has bred, as a
-   render readout that the engine never reads?
-3. **Breeders that outlive workers.** Wanted, priced and heritable? Or one
-   lifespan for all?
+   render readout the engine never reads? → ***"You can mark breeder."***
+   Built in B2, behind a toggle until seen.
+3. **Breeders that outlive workers.** Wanted? → ***"Breeders can live
+   longer."*** B4b: heritable and priced, through the caste channel.
+
+**Still open:**
+
 4. **Dispersal in the sealed lab.** It has no weather. A walking party
    (budding), or flights triggered by the colony's state?
 5. **Asexual world.** Confirm the standing dead end stands: no mating, no
