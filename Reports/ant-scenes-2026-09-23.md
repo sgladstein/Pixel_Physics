@@ -2706,6 +2706,16 @@ stop making it.** It is the same finding as `scripts/antidle.py`'s of
   the colony, and the retired fall between the definitions: lunch or load,
   home as touching nest material or as near it.
 
+**Correction, 2026-09-29 (the test-bed review):** "life after its last
+delivery" counts an ant still alive at the end of the run as retired from its
+last delivery to frame 24,000, so it is partly censoring, and the censored
+share shrinks as loops speed up -- which flatters any change that shortens
+the wait at home, store lunch's 47% -> 36% included. Retirement itself is
+real (door on: 65% of ants made 2+ loops, 14% made 4+, though a loop and its
+wait take about 3,100 of 24,000 frames); read it by **loops per 10,000
+ant-frames** and the **drive's reach over fed time at home**, which censoring
+cannot produce, not by the share.
+
 **Price is not the limit** (`trailfollow burn=0.5`, the ant's idle and
 walking cost halved, nothing else). The colony grows and starves less, and
 each ant works no more:
@@ -2790,3 +2800,62 @@ both on.
 | 9 | `burn=0.5`, bed 90, door on, traced | loops per ant-time within +-10%; life after the last delivery not below 41%; starved down, born up | 0.93 -> 0.91 (right); 41.3% -> 39.4% (unchanged, strictly wrong); starved 15 -> 6 and born 150 -> 468 (right) |
 
 Data: `Reports/data/store-lunch-2026-09-28.txt.gz`.
+
+### 22s. The drive's off-switch, and store lunch shipped with it
+
+*Added 2026-09-29.* §22r held store lunch off because the lab starved more
+with it: a colony that forages harder strips a finite box sooner, and
+nothing tells a fed forager to stop when the box is bare. This is that
+off-switch, and with it both ship on.
+
+**The rule** (`PIXEL_PHYSICS_FORAGE_DRIVE=returns`, `ForageNeed::Returns`):
+a fed forager is driven out while its nest has seen a forager come home
+with food from a trip within one round trip (`RETURN_WINDOW`, 1,400 frames,
+the median loop of §22r), then less and less
+(`e^-(age - W)/W`). Harvester ants set their outflow by the rate at which
+foragers come back with food (Gordon 2002, *Am Nat* 159:509); the colony's
+need, which the 09-27 forms read, cannot see a bare box because the colony
+keeps its food in its bodies. A return is booked once per trip
+(`OrganismState::trip_load`, set by a pickup away from home past
+`FORAGE_TRIP_MIN`, cleared at the first put-down at home), so a crumb put
+down and re-taken at the nest cannot read as food coming home: keyed on
+every delivery, one cell booked 12 returns in its guard. A new nest starts
+as though food had just come home, so a founding colony forages.
+
+**The first form was wrong, and a trace said why.** Fading from the return
+itself (`e^-age/W`) cost the bed 15% of the food taken on a pile that never
+runs out (4,566 -> 3,892 at 90 cells, 4,264 -> 3,620 at 140, 5/19; born
+144 -> 98). Traced per decision: before the first delivery the drive was 0
+on 99% of fed decisions, and after it returns came in clumps that held it at
+0.37-0.9 on 60% of them. A trip's length at full drive, and a new nest's
+clock started at founding, made it inert where the pile pays: 4,566 ->
+4,430 (5/9) and 4,264 -> 4,162 (7/9) alone, and **byte-identical to
+`always` with store lunch on**, 24 of 24 seeds at both distances.
+
+**The lab, tree after #512, 24 seeds:**
+
+| | births | starved | alive at the end | food eaten | ant-time | died out |
+|---|---:|---:|---:|---:|---:|---:|
+| shipped (`always`, store lunch off) | 373 | 195 | 112 | 1,051k J | 9.8M | 4 |
+| store lunch | 572 (16/8) | 220 (17/7, p 0.06) | 62 | 1,419k (18/6) | 12.7M (19/5) | 2 |
+| store lunch + `returns` | **749** (18/6) | 282 (15/9, p 0.31) | 124 | **1,745k** (19/5) | **15.1M** (19/5) | 3 |
+
+With both, the colony lives 54% more ant-time and breeds twice as much, and
+starves less per ant-time lived (19.8 -> 18.7 per million ant-frames). Under
+the owner's rule -- on unless a measured harm -- both ship on. The baseline
+itself moved with #512 (starved 137 -> 195, died out 1 -> 4 on the same
+seeds), which is the lab measuring the nest lane's heap-cue change, not the
+loop.
+
+**Predictions** (written in the lane note before the runs):
+
+| # | run | prediction | right? |
+|---|---|---|---|
+| 10 | `returns` vs `always`, bed 90/140 | taken 5-15% lower, born a little lower, starved within the spread | first form: taken -15% both (right), born 144 -> 98 (right), starved 83 -> 104 (right). The plateau made it inert (-3%, -2%) |
+| 11 | store lunch with `returns` vs with `always` | within 10% | first form -12% / -11% (wrong); plateau: identical (right) |
+| 12 | lab: store lunch alone, then with `returns` | alone: starved up, more die out; with `returns`: both back in the baseline's spread, births above | alone: starved up (17/7) but died out 4 -> 2 (half right); with `returns`: died out 3, starved 15/9, births 18/6 above (right) |
+
+**Still open.** With the nest lane's door, store lunch sends 41% of ant-time
+west of the nest (§22r): a driven forager has no bearing. The door is off
+by default; when it ships, which way to go is the next thing to fix.
+Data: `Reports/data/returns-drive-2026-09-29.txt.gz`.

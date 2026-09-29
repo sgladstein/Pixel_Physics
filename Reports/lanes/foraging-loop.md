@@ -53,59 +53,46 @@ commands and the traps.*
 
 ## Live question
 
-**Shipped on** (`=off`, or `face`, is the ant before it, bit for bit):
-`FORAGE_DRIVE=always`, `CARRY_PATIENCE=pickup` (Z35), `PACKED_LUNCH=on`,
-`BIRTH_PRICE=guaranteed` (Z36) -- all `PIXEL_PHYSICS_`.
+**Shipped on** (`=off`, or `face`, `always`, is the ant before it):
+`FORAGE_DRIVE=returns`, `CARRY_PATIENCE=pickup` (Z35), `PACKED_LUNCH=on`,
+`STORE_LUNCH=on`, `BIRTH_PRICE=guaranteed` (Z36) -- all `PIXEL_PHYSICS_`.
 
-**Foragers retire (§22r, the owner's "is the loop broken or the economy too
-hard?").** Neither: the trip works and pays ~11x its cost, and foragers stop
-making it. 41% of a forager's life comes after its last delivery, 70% of that
-fed at home, and the drive reaches 19% of it: the retiree holds store food
-that is not a lunch (taken just off nest material, or a lunch turned load by
-a later cell) or a pellet. Halving the cost of living (`burn=0.5`) moves the
-loop rate 0.93 -> 0.91 per 10,000 ant-frames: price is not the limit.
+**Foragers retire, and now go back out (§22r, §22s).** The trip pays ~11x
+its cost; foragers stopped after 1-3 loops because store food they held was
+not a lunch. Store lunch makes it one; the `returns` drive stands fed
+foragers down when no food has come home for a round trip, which is what
+the lab needed. Bed, today's nest, 90 cells: food taken 4,566 -> 19,117,
+born 144 -> 1,391. Lab: births 373 -> 749, ant-time +54%, died out 4 -> 3.
+Price is not the limit (`burn=0.5`: loop rate 0.93 -> 0.91).
 
-**`STORE_LUNCH=on` is built and held off.** Food taken before an ant has been
-8 cells out since its last nest contact is a lunch. Bed, door off: food taken
-4,574 -> 19,732 (24/0), loops per 10,000 ant-frames 0.78 -> 1.46, starved flat.
-With the door it sends 41% of ant-time west (open problem 3). **The lab flags
-it**: starved 137 -> 263 (17/7), died out 1 -> 5 -- boom and bust in a finite
-box. **Next: the off-switch** (open problem 1), then the lab with both on.
+**Next:** why each ant fetches less in a bigger colony (open problem 5),
+and which way to go once the door ships (open problem 3).
 
 - **Read food taken, and food standing at the nest** (`FOOD STORE`'s
   `nest food`, mean from 6,000); "net food into home" overcounts (§22j).
 
-## Baseline (`main` after #511: drive, carry patience, packed lunch, birth price, dig down)
+## Baseline (`main` with store lunch and the `returns` drive, 2026-09-29)
 
-Colony bed, no trail, 24 seeds (seeds 1-24), measured 2026-09-28:
+Colony bed, no trail, 24 seeds, tree after #512:
 
-| food distance | food taken from the pile | food at the nest | starved of 480 | born |
+| food distance | food taken from the pile | food at the nest | starved | born |
 |---|---:|---:|---:|---:|
-| 90 | 4,574 | 7,743 J | 93 | 151 |
-| 140 | 4,174 | 7,554 J | 89 | 91 |
-| 90, `NEST_DOOR=2` | 5,611 | 6,279 J | 15 | 150 |
-| 140, `NEST_DOOR=2` | 5,046 | 4,773 J | 38 | 82 |
+| 90 | 19,117 | 8,530 J | 74 | 1,391 |
+| 140 | 13,233 | 8,586 J | 73 | 712 |
+| 90, both off (the ant of #512) | 4,566 | 8,003 J | 83 | 144 |
+| 140, both off | 4,264 | 7,903 J | 87 | 100 |
 
-After #512 (the heap cue lets a room deepen) the 90-cell row reads 4,566 /
-8,003 J / 83 / 144 (within the spread; reproduces the nest lane's figure
-exactly); the switch results here were measured before it. The door rows are
-the nest lane's switch (§22r). Lab box, 24 seeds, median,
-same tree: food eaten 1,149k J, births 408, starved 137, alive at the end 78,
-ant-frames lived 10.5M; died out 1, under 10 at the end 6. With the door:
-1,053k J, 406, 156, 113, 9.4M; 2 and 2 (no sign test below p 0.15).
-
-Before #508 (dig down) and #510 the 90-cell bed read 5,377 / 8,591 J / 64 /
-185 and 140 read 4,859 / 7,827 J / 79 / 115; packed lunch off on that tree
-3,744 / 7,160 J / 83 / 59. #507 (founding shaft, heap cue) moved the bed by
-itself, so numbers from before it are a different tree.
+Lab box, 24 seeds, medians: births 749, starved 282, alive at the end 124,
+food eaten 1,745k J, ant-time 15.1M; died out 3, under 10 at the end 6.
+Both off: 373, 195, 112, 1,051k J, 9.8M; 4 and 5. The nest lane's door
+(`NEST_DOOR=2`, off) cuts starvation on the bed and sends store-lunch
+foragers west (§22r).
 
 ## Ranked open problems
 
-1. **The drive has no off-switch.** In the lab, ants starve out in a grazed
-   box (55% more than 128 cells from the nest, a third beside corpse, litter
-   or buried crumbs), and store lunch doubles it (§22r). Harvesters stop when
-   returning foragers stop bringing food (Gordon 2002, *Am Nat* 159:509):
-   read that, not a clock. Blocks `STORE_LUNCH`.
+1. **Lab starvation out in a grazed box** is now damped by the `returns`
+   drive (§22s), not gone: starved per ant-time 19.8 -> 18.7 per million.
+   The ants that die out there are hungry scouts, which no drive reaches.
 2. **Early deaths.** Founders that never reach the food die around frame
    3,800; #507's founding shaft cut them to 58 of 480 by frame 6,000 at 140.
    Only the road and the nest (§17b, §19), or a founding store, reach them.
@@ -195,10 +182,8 @@ filtered out (note the leading spaces), and compare the decision CSVs too.
 
 ## Predictions (written before each run)
 
-Rows 1-3 are scored in `ant-scenes-2026-09-23.md` §22o, rows 4-9 in §22r.
+Rows 1-3 are scored in `ant-scenes-2026-09-23.md` §22o, 4-9 in §22r, 10-12
+in §22s.
 
 | # | run | prediction | right? |
 |---|---|---|---|
-| 10 | `FORAGE_DRIVE=returns` vs `always`, bed 90/140, tree after #512 | food taken 5-15% lower, born a little lower, starved within the spread | |
-| 11 | `STORE_LUNCH=on` with `returns` vs with `always`, same bed | within 10% on taken, born, starved | |
-| 12 | lab, 24 seeds: baseline, `STORE_LUNCH=on`, both with `returns` | store lunch alone: starved up, more die out; with `returns`: both back in the baseline's spread, births still above | |

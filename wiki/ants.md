@@ -1,6 +1,18 @@
 # Ants
 
-*Current as of: 2026-09-28, when **a birth stopped killing its parent.** An
+*Current as of: 2026-09-29, when **foragers stopped retiring, and started
+standing down when the food runs out.** A forager used to make one to three
+trips and then stay at the nest for the rest of its life, nibbling the store,
+because a piece it picked up a step off the nest's own ground, or down the
+shaft, counted as a load to carry home rather than a lunch to take out. Now
+any food it picks up before it has gone out on a trip is a packed lunch, so
+it heads back out. And it keeps going back out only while other foragers are
+bringing food home: when no food has come home for about one round trip, the
+fed ones stand down. In a test colony with food 90 cells away, each ant makes
+nearly twice as many trips, four times as much food comes off the heap and
+ten times as many young are born; in the lab box, twice the young, two thirds
+more food eaten, and no more boxes dying out.
+Earlier, on 2026-09-28, **a birth stopped killing its parent.** An
 ant a little short of the price of young makes up the rest from food beside
 it, and it used to count seeds at their full worth though a bitten seed often
 survives and gives only a quarter; it paid anyway and died a moment later with

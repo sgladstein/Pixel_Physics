@@ -14324,11 +14324,11 @@ fn parse_forage_drive(raw: &str) -> ForageDrive {
         Some("off") => ForageNeed::Off,
         Some("hunger") => ForageNeed::Hunger,
         Some("larder") => ForageNeed::Larder,
-        Some("returns") => ForageNeed::Returns,
-        Some("always" | "") | None => ForageNeed::Always,
+        Some("returns" | "") | None => ForageNeed::Returns,
+        Some("always") => ForageNeed::Always,
         Some(other) => {
-            eprintln!("PIXEL_PHYSICS_FORAGE_DRIVE={raw:?}: unknown need {other:?}, read as always (off, hunger, larder, returns, always)");
-            ForageNeed::Always
+            eprintln!("PIXEL_PHYSICS_FORAGE_DRIVE={raw:?}: unknown need {other:?}, read as returns (off, hunger, larder, returns, always)");
+            ForageNeed::Returns
         }
     };
     let mods: Vec<&str> = parts.collect();
@@ -14404,9 +14404,13 @@ impl ForageDrive {
     /// No drive: the ant before 2026-09-27, `PIXEL_PHYSICS_FORAGE_DRIVE=off`.
     pub const OFF: ForageDrive = ForageDrive { need: ForageNeed::Off, pace: true, keep: false, fed: false };
 
-    /// The shipped drive, what an unset switch reads: `always`, paced, with
-    /// no `,keep` and no `,fed`.
-    pub const SHIPPED: ForageDrive = ForageDrive { need: ForageNeed::Always, pace: true, keep: false, fed: false };
+    /// The shipped drive, what an unset switch reads: `returns` (since
+    /// 2026-09-29), paced, with no `,keep` and no `,fed`.
+    pub const SHIPPED: ForageDrive = ForageDrive { need: ForageNeed::Returns, pace: true, keep: false, fed: false };
+    /// `always`, paced: the drive shipped 2026-09-27 to 2026-09-29, and the
+    /// one a test means when it needs a fed forager sent out with no food
+    /// coming home in its scene.
+    pub const ALWAYS: ForageDrive = ForageDrive { need: ForageNeed::Always, pace: true, keep: false, fed: false };
 
     /// Whether any drive is on.
     pub fn on(self) -> bool {
@@ -14533,11 +14537,11 @@ pub fn packed_lunch_of(world: &World) -> bool {
 pub fn store_lunch_from_env() -> bool {
     static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *V.get_or_init(|| match std::env::var("PIXEL_PHYSICS_STORE_LUNCH").unwrap_or_default().trim() {
-        "on" => true,
-        "off" | "" => false,
+        "on" | "" => true,
+        "off" => false,
         other => {
-            eprintln!("PIXEL_PHYSICS_STORE_LUNCH={other:?}: unknown, read as off (off, on)");
-            false
+            eprintln!("PIXEL_PHYSICS_STORE_LUNCH={other:?}: unknown, read as on (off, on)");
+            true
         }
     })
 }
@@ -26953,7 +26957,7 @@ mod tests {
             }
             w.chooser = Some(Chooser::TrailAway);
             w.scout = Some(SCOUT_DEFAULT);
-            w.forage_drive = Some(ForageDrive::SHIPPED);
+            w.forage_drive = Some(ForageDrive::ALWAYS);
             w.packed_lunch = Some(rule);
             w.register_nest_site(20, 40, 4);
             let crumbs = w.materials.id_of("crumbs").expect("crumbs.ron must be registered");
@@ -27084,8 +27088,8 @@ mod tests {
         assert_eq!(w.nest_last_return, vec![w.frame], "a nest the drive had not seen did not start its clock");
         assert!((level(&w) - 1.0).abs() < 1e-6, "a nest just seen should send its fed foragers, read {}", level(&w));
         w.nest_last_return.clear();
-        w.forage_drive = Some(ForageDrive::SHIPPED);
-        assert_eq!(level(&w), 1.0, "the shipped drive needs no return");
+        w.forage_drive = Some(ForageDrive::ALWAYS);
+        assert_eq!(level(&w), 1.0, "`always` needs no return");
     }
 
     /// **A load from a trip books one return at its nest, and a load from
@@ -27202,7 +27206,7 @@ mod tests {
                 }
             }
             w.chooser = Some(Chooser::TrailAway);
-            w.forage_drive = Some(ForageDrive::SHIPPED);
+            w.forage_drive = Some(ForageDrive::ALWAYS);
             w.packed_lunch = Some(rule);
             w.register_nest_site(20, 40, 4);
             let crumbs = w.materials.id_of("crumbs").expect("crumbs.ron must be registered");
@@ -27420,8 +27424,9 @@ mod tests {
     #[test]
     fn the_forage_drive_and_carry_patience_ship_on_and_off_turns_them_off() {
         assert_eq!(parse_forage_drive(""), ForageDrive::SHIPPED, "unset must be the shipped drive");
-        assert_eq!(ForageDrive::SHIPPED, ForageDrive { need: ForageNeed::Always, pace: true, keep: false, fed: false });
-        assert_eq!(parse_forage_drive("always"), ForageDrive::SHIPPED);
+        assert_eq!(ForageDrive::SHIPPED, ForageDrive { need: ForageNeed::Returns, pace: true, keep: false, fed: false });
+        assert_eq!(parse_forage_drive("returns"), ForageDrive::SHIPPED);
+        assert_eq!(parse_forage_drive("always"), ForageDrive::ALWAYS);
         assert_eq!(parse_forage_drive("off"), ForageDrive::OFF, "off must be the ant before the drive");
         assert!(!parse_forage_drive("off").on());
         assert_eq!(parse_forage_drive("hunger,nopace,fed"), ForageDrive { need: ForageNeed::Hunger, pace: false, keep: false, fed: true });
