@@ -81,7 +81,8 @@ the haul aimed inside the shaft, and the laden pace read 0 at the mouth.
 Now 1.5 entrances at 40 ants and 3 at 200, but the nest does not grow
 through one 2-wide shaft: 43 and 70 cells against the lift's 207.5 and
 613.5. Bed: starvation no worse, births lower (160 against 223 at 20
-founders). Card `…2d6747` asks: relay the soil up through nest workers,
+founders). Lab: births 0.76 per seed; the walked mouth ends under its own
+loose soil, pellets set on its rim run back in (open 1 of 12 against 6). Card `…2d6747` asks: relay the soil up through nest workers,
 or let the colony open more mouths beside the door?
 
 - **The granary does not scale.** On the bed at 80 founders: starved 848 ->
@@ -195,4 +196,4 @@ the reports each one names.
 - `0415980a`, and the entrance work on top of it — digbox founds as the game
   does; the opening ledger and time budget; `SPOIL_OUT`, `SPOIL_LIFT=out`.
 - `74f581cb` merges main (#515) in; `86adc504` fixes the walked cycle and
-  adds `TRIPS` / `decisions=` to digbox.
+  adds `TRIPS` / `decisions=` to digbox; `3f6f7224` merges #516; PR #517.

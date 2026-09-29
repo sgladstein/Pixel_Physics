@@ -15,7 +15,7 @@ here that did not survive is corrected in §0 and §4**: what made the first
 build's nest grow with the colony was a carrier giving up the walk and
 posting its pellet up through the roof, not the trip back.
 
-Lane note: [lanes/nest-mouth.md](lanes/nest-mouth.md). Predictions 168-204
+Lane note: [lanes/nest-mouth.md](lanes/nest-mouth.md). Predictions 168-206
 were written before their runs; they are in §8 with their scores.
 
 ## 0. What was found, in world terms
@@ -267,6 +267,8 @@ placement rules), so it waits on the owner.
 | 202 | bed, branch unset against main, 20 founders | byte for byte | holds |
 | 203 | bed, walked cycle, 20 founders | starved at most +15%; born at least 85% | split (37 against 73; 160 against 223) |
 | 204 | the same, 80 founders | starved at most +25% | holds (1,097 against 1,102) |
+| 205 | lab, walked cycle against off | births within 25% per seed | holds, barely (0.756) |
+| 206 | the same, labshot's census at frame 119,700 | the mouth open on at least as many seeds | fails (1 of 12 against 6) |
 
 188-189 were first written for `energy=20000`, digbox's own default; eight
 runs had started when it was noticed that at that energy every ant buds past
@@ -368,6 +370,21 @@ one main seed bore 40). At 80 founders it starved 1,097 against 1,102 and
 bore 40 against 70 (more on 7, fewer on 12). Fewer births, no more
 starvation. The owner's ruling that colony numbers do not veto a nest step
 stands; the cost is recorded.
+
+**In the lab box** (`labforage` and `labshot`, `scenario=played_bed`, 12
+seeds, 120,000 frames, the tree with main's #516 merged in; seeds 6-12
+were re-run after a container restart killed them, same binaries): births
+per seed 0.756 of today's (median 439 against 619; more on 5 seeds, fewer
+on 7), deaths 1.04, food eaten 0.96 -- inside the spread of twelve seeds.
+The nest is not: the walked colony digs a shallow layer under ground it
+leaves whole, where today's opens a wide pit with spoil spires over it,
+and **the founding mouth is under the colony's own loose soil**. Open to
+the surface at the last stop on 1 of 12 walked seeds against 6 of 12
+today, and the cut holds 115 cells of loose soil against 44 (more on 9
+seeds, fewer on 2). A walked carrier puts its pellet down on the first
+ground outside the cut, which is the rim of the mouth, and the pellet
+turns loose and runs back in. Today's "open" is often part of the pit,
+not a mouth.
 
 All three are off unless `PIXEL_PHYSICS_SPOIL_OUT` is set;
 `PIXEL_PHYSICS_SPOIL_HAUL` alone keeps its old target. Unset, every build
