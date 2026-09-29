@@ -78,23 +78,24 @@ when food stops; what is left is its clock (open problem 2).
 - **Read food taken, and food standing at the nest** (`FOOD STORE`'s
   `nest food`, mean from 6,000); "net food into home" overcounts (§22j).
 
-## Baseline (`main` with the granary, `returns` and the trip reach, 2026-09-29)
+## Baseline (`main` at 2274e347, after #518)
 
-Colony bed, no trail, 24 seeds (e9d6562f, the shipped build), unlimited pile:
+Colony bed, no trail, 24 seeds, shipped defaults, unlimited pile:
 
 | | food taken from the pile | food at the nest | starved | born |
 |---|---:|---:|---:|---:|
-| 90 cells | 5,806 | 11,971 J | 82 | 179 |
-| 140 cells | 4,602 | 9,294 J | 110 | 87 |
-| 80 founders at 135 | 8,106 | 8,726 J | 1,102 | 58 |
-| 90, `TRIP_REACH=off` (`main` at ac8644fe) | 5,992 | 12,147 J | 73 | 223 |
+| 90 cells | 6,062 | 12,414 J | 57 | 188 |
+| 140 cells | 4,287 | 8,112 J | 127 | 63 |
+| 80 founders at 135 | 8,298 | 9,159 J | 1,109 | 74 |
 
-Unlimited 90 is noisy: 48 more seeds starved 206 -> 206.
-Pulsed pile at 90 (`food=30 refill=6000`): 2,602 / 275 / 35 (off 2,680 /
-273 / 46). Lab box (`played_bed`, 120,000 frames, 24
-seeds, rain), medians off -> on: births 428 -> 522.5, food eaten 1,122k ->
-1,283k J, ant-frames 9.5M -> 10.6M, starved per million ant-frames 9.2 ->
-10.4 (none at p < 0.05). No earlier lab number is comparable.
+Pulsed pile at 90 (`food=30 refill=6000`): 2,588 / 286 / 39 (taken,
+starved, born). #518 moved it from 59338afd: starved 82 ->
+57 at 90 cells (5/16, p 0.03); 110 -> 127 at 140 and pulsed nest food
+lower on 17/24 (p 0.06), neither significant (data:
+`foraging-baseline-518-2026-09-29.txt.gz`). Lab box (`played_bed`,
+120,000 frames, 24 seeds, rain, 59338afd), medians off -> on: births 428
+-> 522.5, food eaten 1,122k -> 1,283k J, ant-frames 9.5M -> 10.6M, starved
+per million ant-frames 9.2 -> 10.4 (none at p < 0.05).
 
 ## Ranked open problems
 
