@@ -92,7 +92,9 @@ will be.
   side (`turn_toward`, `half_turn_left`) and the founding cut's jaw and
   corpses (`is_diggable_ground`, `founding_dig_force`,
   `paint_nest_patch_with`). §7 and §10 on 2026-09-29 for who lays trail B
-  (`CarryingFood`, `carries_lunch`: a lunch carrier lays it), and §15 that
+  (`CarryingFood`, `carries_lunch`: a lunch carrier lays it), §7, §10 and
+  §12 that day for the food trail's lay switch (`food_trail_lay`,
+  `FoodTrail`), and §15 that
   day for the trail columns (`since_trip`, `DecisionRow::emit_b_laid`,
   `b_near`, `score`).
   Update this line whenever a section is re-checked against the code.
@@ -650,6 +652,12 @@ The channels carry no meaning in the engine; the meaning is in the wiring.
     trail. That is laden foragers walking home, and also packed-lunch
     carriers walking out (empty to the chooser, §6d, but their crop holds
     food) and nest workers and foragers carrying store food in the crop.
+    **Under `PIXEL_PHYSICS_FOOD_TRAIL=lay`** (off by default) that rate is
+    multiplied by 1 while the crop holds food marked as a trip load
+    (`trip_load`, §6d) and by 0 otherwise (`food_trail_lay`), so only a
+    forager bringing food back from a trip lays it; `t=<ticks>` adds an
+    odometer, `T / (T + since_trip)`. It multiplies, so a genome with
+    `EmitB` silenced still lays nothing.
 - **Spreading and fading**, every `PHEROMONE_INTERVAL = 12` frames, every
   awake tile: each cell becomes `here + 0.25 × (mean of its 3×3 − here)`,
   then fades by `× (1 − rho)` with a forced minimum drop of 1 raw unit.
@@ -817,7 +825,7 @@ either plane: the other trail inputs are computed and wired to nothing (§3).
 | `HomeAligned` → `Move +3.0` | 1 whenever off the anchor, whichever way it faces | 0 |
 | What picks the heading | every usable heading, scored by going on, trail A where it would step, and home at `patience` | every usable heading, scored by going on, trail B where it would step, and away from home on a route |
 | Reversal when boxed in | yes, but a jam of creatures is waited out first | yes, at once |
-| Lays trail B | 0.714 on every step | no, except a packed-lunch carrier: its crop holds food, so `CarryingFood` reads 1 |
+| Lays trail B | 0.714 on every step (under `FOOD_TRAIL=lay`, only a trip load) | no, except a packed-lunch carrier: its crop holds food, so `CarryingFood` reads 1 (not under `FOOD_TRAIL=lay`) |
 | Lays trail A | at the odometer's (by then faded) level | at the odometer's level, strongest just out of the nest |
 | Digs | never (`act` returns first) | when the dig roll wins |
 | Drops | food at the nest, about 0.25 a tick when fed, never below ~40% energy | spoil, if holding it |
@@ -880,6 +888,7 @@ Read once per process from the environment. The default is what ships.
 | `PIXEL_PHYSICS_PACKED_LUNCH` | on | `off`: a crop filled only at home counts as a load, so the forage drive does not reach its carrier (§6d); `World::packed_lunch` for one world |
 | `PIXEL_PHYSICS_TRIP_REACH` | on (16) | `off`: a pickup away from home marks a trip once the ant has been `FORAGE_TRIP_MIN` cells from its last nest contact, wherever the food lay; on, the food must also be living tissue or loose food more than the reach (authored cells, scaled; an integer sets it) from every nest's door (§6d); `World::trip_reach` for one world |
 | `PIXEL_PHYSICS_RETURN_WINDOW` | 1400 | `<frames>`: the `returns` drive's window (§6d) |
+| `PIXEL_PHYSICS_FOOD_TRAIL` | off | the food trail's recipe (`FoodTrail`): `lay` lays trail B only on a trip load (§7), `t=<ticks>` adds an odometer; `read`, `giveup`, `gain=`, `reach=2\|6` and `follow=all` parse and do nothing yet; `on` is all three parts; `World::food_trail` for one world |
 | `PIXEL_PHYSICS_STORE_LUNCH` | off | `on`: a cell taken before the ant has been `FORAGE_TRIP_MIN` (8) cells from its last nest contact counts as taken at home for the packed lunch, wherever it stood; off, a crop is a lunch only while every cell in it was taken with the head beside nest material (§6d); `World::store_lunch` for one world |
 | `PIXEL_PHYSICS_HAUL_BITE` | on | `off`: an animal holding spoil cannot swallow or load food; `fed`: only one at or above `start_energy` (§9) |
 | `PIXEL_PHYSICS_BIRTH_PRICE` | `guaranteed` | `face`: a birth counts a bare seed in reach at its full worth, though a bite that spares it pays a quarter, so the top-up can leave the parent overdrawn (§9); `World::birth_price` for one world |

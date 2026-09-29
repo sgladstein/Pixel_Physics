@@ -3734,6 +3734,10 @@ pub struct World {
     /// (`creature::trip_reach_of`). `None` follows the environment;
     /// `Some(None)` is the rule off (a trip judged by the roam alone).
     pub trip_reach: Option<Option<i32>>,
+    /// **The food trail's recipe for this world, overriding
+    /// `PIXEL_PHYSICS_FOOD_TRAIL`** (`creature::food_trail_of`). `None`
+    /// follows the environment.
+    pub food_trail: Option<crate::sim::creature::FoodTrail>,
     /// **Whether a birth counts food in reach at what its bite is certain to
     /// pay, overriding `PIXEL_PHYSICS_BIRTH_PRICE` for this world**
     /// (`creature::birth_price_of`). `None` follows the environment, which is
@@ -6101,6 +6105,7 @@ impl World {
             packed_lunch: None,
             store_lunch: None,
             trip_reach: None,
+            food_trail: None,
             birth_price: None,
             blocked_tissue_by_material: Vec::new(),
             energy_ledger: EnergyLedger::default(),

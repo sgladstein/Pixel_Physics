@@ -1558,7 +1558,7 @@ fn main() {
         world.species.set_creature(sid, def);
     }
     println!(
-        "  {} crop_capacity = {} face J; LOAD_SCALE={} LOAD_BY={} SCOUT={} HUNGRY_HOME={} FORAGE_DRIVE={} ({:?}) CARRY_PATIENCE={} PACKED_LUNCH={} STORE_LUNCH={} TRIP_REACH={:?} RETURN_WINDOW={} BIRTH_PRICE={} NEST_DOOR={} STOREROOM={} COLONY_SPACING={} STACK_DEPTH={} BUD_SITE={}",
+        "  {} crop_capacity = {} face J; LOAD_SCALE={} LOAD_BY={} SCOUT={} HUNGRY_HOME={} FORAGE_DRIVE={} ({:?}) CARRY_PATIENCE={} PACKED_LUNCH={} STORE_LUNCH={} TRIP_REACH={:?} RETURN_WINDOW={} BIRTH_PRICE={} NEST_DOOR={} STOREROOM={} COLONY_SPACING={} STACK_DEPTH={} BUD_SITE={} FOOD_TRAIL={} ({:?})",
         spec.colony_species,
         world.species.id_of(&spec.colony_species).and_then(|id| world.species.get(id).creature.as_ref().map(|d| d.crop_capacity)).unwrap_or(0.0),
         std::env::var("PIXEL_PHYSICS_LOAD_SCALE").unwrap_or_else(|_| "shipped".into()),
@@ -1584,7 +1584,9 @@ fn main() {
         // (2026-09-28); the header could not show it.
         std::env::var("PIXEL_PHYSICS_COLONY_SPACING").unwrap_or_else(|_| "shipped".into()),
         std::env::var("PIXEL_PHYSICS_STACK_DEPTH").unwrap_or_else(|_| "shipped".into()),
-        std::env::var("PIXEL_PHYSICS_BUD_SITE").unwrap_or_else(|_| "shipped".into())
+        std::env::var("PIXEL_PHYSICS_BUD_SITE").unwrap_or_else(|_| "shipped".into()),
+        std::env::var("PIXEL_PHYSICS_FOOD_TRAIL").unwrap_or_else(|_| "unset".into()),
+        pixel_physics::sim::creature::food_trail_from_env()
     );
     // **The colony bed's founding levers are refused, not only echoed**
     // (the test-bed review, 2026-09-29). Echoing them did not stop the run

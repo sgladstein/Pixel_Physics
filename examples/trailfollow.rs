@@ -5330,7 +5330,7 @@ fn main() {
     // `ant-forage-bed-and-gates-2026-09-21.md` is run with, echoed so a log
     // that does not name them was written by a binary that never had them.
     println!(
-        "  breadoff={} wire={} decisioncsv={} dtag={} COLONY_SPACING={} STACK_DEPTH={} DROP_REACH={} LOAD_BY={} LOAD_SCALE={} NEST_DOOR={} NEST_DOOR_FOUNDERS={} NEST_SHAFT={} NEST_HOME={} SCOUT={} HUNGRY_HOME={} FORAGE_DRIVE={} ({:?}) CARRY_PATIENCE={} PACKED_LUNCH={} BIRTH_PRICE={} STOREROOM={} HAUL_BITE={:?} STORE_LUNCH={} TRIP_REACH={:?} RETURN_WINDOW={} layfrom={} FOOD_TRAIL={} shadow={} shadowfault={} cf={} dwide={} gifoverlay={}",
+        "  breadoff={} wire={} decisioncsv={} dtag={} COLONY_SPACING={} STACK_DEPTH={} DROP_REACH={} LOAD_BY={} LOAD_SCALE={} NEST_DOOR={} NEST_DOOR_FOUNDERS={} NEST_SHAFT={} NEST_HOME={} SCOUT={} HUNGRY_HOME={} FORAGE_DRIVE={} ({:?}) CARRY_PATIENCE={} PACKED_LUNCH={} BIRTH_PRICE={} STOREROOM={} HAUL_BITE={:?} STORE_LUNCH={} TRIP_REACH={:?} RETURN_WINDOW={} layfrom={} FOOD_TRAIL={} ({:?}) shadow={} shadowfault={} cf={} dwide={} gifoverlay={}",
         flag("breadoff"),
         arg_str("wire").unwrap_or_else(|| "shipped".into()),
         flag("decisioncsv"),
@@ -5358,6 +5358,7 @@ fn main() {
         creature::return_window(),
         arg_str("layfrom").unwrap_or_else(|| "nest".into()),
         std::env::var("PIXEL_PHYSICS_FOOD_TRAIL").unwrap_or_else(|_| "unset".into()),
+        creature::food_trail_from_env(),
         flag("shadow"),
         arg_str("shadowfault").unwrap_or_else(|| "0".into()),
         arg_str("cf").unwrap_or_else(|| "-".into()),
