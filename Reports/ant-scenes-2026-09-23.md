@@ -3158,3 +3158,218 @@ above with the command that made it) and
 `Reports/data/lab-tripreach-2026-09-29.tar.gz` (the lab's off, first-build
 and 1,750 arms, 72 logs) and `Reports/data/lab-tripfix-2026-09-29.tar.gz`
 (the shipped build, 24 logs).
+
+### 22v. Why the trail does not lead a fed forager to food, and why today it costs the colony
+
+**Asked by the owner (2026-09-29): "Shouldn't the pheromone trail lead the
+ants to the food? Why doesn't it?"** Answered by a workflow (a code reader,
+a history reader, a colony-bed measurement on `main` at 2274e347, a
+synthesis, three refuters who withdrew three of its claims).
+
+**It cannot say where the food is, by design.** The shipped walk (the
+chooser) reads trail B only as *presence*, one or two cells ahead, with no
+direction (§6d, §7). Direction along a trail comes from "away from home",
+and at the five-column door that is undefined: every nest contact
+re-anchors `forage_anchor` on the ant, so the away term and scouting both
+return nothing, and turning round scores 0. The side a fed forager leaves by
+is the heading it carries. B's own slope points home, not to food (laid
+homeward; a reader that climbed it would walk ants back, and a descending
+reader cannot acquire a trail, `pheromone-trail-direction-2026-09-16.md`
+§6.1).
+
+**Measured on the colony bed** (gap 90, seeds 1-8 traced, `self` = the ants'
+own trail, `mute` = no trail B, `hand` = a painted road):
+- **The trail does not change which way a fed forager leaves.** East share
+  0.667 own trail, 0.704 none, 0.728 painted road; of the west-goers, 0/53,
+  0/50 and 0/40 reached the pile. At the door the trail reads the same for
+  ants about to go east and west (0.877 against 0.893), because food is
+  handled there: B at departure is 0.99-1.00 whatever the age of the last
+  return (median 432 frames between laden returns against a 273-frame
+  half-life).
+- **Arriving from the east barely moves the exit** (37.5% leave west after
+  an east trip, 28% after a west one), so "walks straight across the door"
+  is a minor path.
+- **On the east road the ants' own trail does not help either**: east-goers
+  reach the pile 92/106 own trail against 102/119 none, in 750 against 720
+  frames. Ants walk on it (72-81% of steps east of the door pick a trailed
+  heading), and it does not get them there more often or faster.
+- **Food scent is laid west of the door, where there is none**: 13.9% of all
+  B-laying steps. Anything with food in its crop lays B (`CarryingFood`),
+  so lunch carriers walking out, and ants holding store food, lay it; by
+  trip mark only 6% of the west laying and 4% at the door comes from a load
+  from a trip.
+- **An ant on a trail cannot give up**: the away term has no patience, and
+  the scout's give-up pull home is scaled by `1 - presence`. After giving
+  up, a west-going ant takes 1,392 frames to get home against 504 with no
+  trail, and still heads outward on 43% of its steps against 11% (8/8
+  seeds; gap 140 replicates, 1,569 against 1,127, 8/8).
+
+**So today the colony's own trail is a net cost.** Silencing it (24 seeds,
+paired): at 90 cells food taken 6,062 -> 7,512 (21/3), born 188 -> 282
+(17/6, p 0.035), starved 57 -> 29; at 140 taken 4,287 -> 5,412, starved
+127 -> 54 (p 0.06-0.08). The energy spent laying is about 15% of the
+difference; the rest is steering. Which of the two faults carries most of
+it is not decomposed.
+
+**What follows.** Two trail fixes sit inside standing rulings and have the
+mute arm as their bar: only a load from a trip lays food scent (which would
+also let the door's trail carry news), and an ant on a trail can give up.
+Neither gives a bearing at the door: about 30% of fed foragers leave west
+whatever the trail, even a painted road. That needs either a memory of the
+last food (the 2026-09-22 ruling "food memory for empty ants: no, for now"
+was made before the drive, the lunch and the door, and needs re-asking) or
+a trail that is allowed to turn an ant at the door. Superseded here: the
+dated view that a trail helps an ant already on the road (§12's 61 of 63
+arrivals recorded co-occurrence on an older bed, not benefit).
+Data: `Reports/data/trail-2026-09-29.tar.gz` (FINDINGS.md, the scripts,
+the per-departure tables, the mute logs).
+
+### 23a. The trail instruments, and what the expected trail says before any rule is built
+
+Stage 0 of `Reports/food-trail-plan-2026-09-29.md`: instruments that let the
+trail be watched over time, replayed exactly, and compared with the trail a
+lay rule *should* leave. Written before the counterfactual readouts below
+were opened.
+
+**What was built.** `trailfollow` now prints the trail as a band of rows
+(`surface-3..=surface+1`, both channels, west of the door to past the pile)
+with the arm, the gate and the food-trail switch in every row, the shaft's
+B by depth (`BSHAFT`), a replayed copy of the planes (`shadow`), copies laid
+under other rules on the same paths (`cf=`), a fixed-scale trail overlay for
+GIFs (`gifoverlay=b`), and the chooser's view of trail B in the decision
+CSV (`dwide`: what was laid, the cargo's age `since_trip`, B one, two and
+six cells along each heading, each option's score). `onetrail mode=stream`
+is the design model: a stream of returners at a traced pace on the real
+plane. Scripts: `btrailchart.py` (`--stats`, `--door`, `--expect`),
+`trailclimb.py`, `trailpace.py`.
+
+**Gate G0, measured.**
+
+| | result |
+|---|---|
+| G0.1 identity, no new flag | log and 8 decision CSVs byte-identical to `main`'s `b518p` trace (pulsed 90, seeds 1-8) |
+| G0.2 replay = live | every cell of A and B, every 100 frames: self, mute, hand x gaps 90, 140 x 2 seeds (12 runs, 80 checks each, 178,259 logged moves); `shadowfault=10` panics at frame 100; outcome lines identical with and without the instruments |
+| G0.3 rows reproduce `b_profile` | exact, `[4649,2255,2561,2203,491]` both ways |
+| G0.4 trace self-consistency | 114 columns on every row; laid B = cast of the brain's `EmitB` on all 11,248 moves; every pick inside its option mask; scores present exactly for options. The draw check (`trailclimb.py`) is read with the cf runs |
+| G0.5 `cf=brain` = replay | 480 of 480 rows identical |
+
+Engine guards, each watched red: `a_replayed_plane_equals_the_live_one`,
+`since_trip_counts_from_the_last_trip_pickup`, and the decision-trace
+identity test with the new columns' vacuity checks.
+
+**The design model overturns two of the plan's registered predictions
+before they were tested.** `onetrail mode=stream` at the traced pace
+(`trailpace.py`: 0.69 cells a tick and a return every 416 frames at 90
+cells, 0.72 and 585 at 140), dwell 5 or 20 ticks at the door:
+
+| lay rule | snapshot rising share | time-mean slope | door gradient, reach 2 | reach 6 |
+|---|---:|---:|---:|---:|
+| constant (the gate alone) | 0.06-0.08 | -0.001 to -0.005 | +0.09 to +0.22 | **+0.45 to +0.54** |
+| odometer T=16 | 0.24-0.28 | +0.014 to +0.020 | +0.04 to +0.11 | +0.08 to +0.14 |
+| odometer T=32 | 0.10-0.12 | +0.011 to +0.015 | +0.06 to +0.14 | +0.14 to +0.23 |
+| odometer T=48 | 0.08-0.09 | +0.009 to +0.012 | +0.07 to +0.16 | +0.18 to +0.28 |
+
+- **No lay rule makes the trail an ant reads rise toward the food.** Each
+  returner's fresh line fades behind it by about 14% a cell (the blend's
+  vertical spread plus decay), and the odometer tilts it by 1.4/(T+age), a
+  few percent. The odometer lifts the *time-mean* slope, but an ant reads a
+  snapshot. So a reader that compares the way ahead with the way back walks
+  followers home under every rule, which is the old uphill reader's failure
+  (`dead-ends.md`) and not a property of the constant rate. P0.6 as the
+  plan registered it ("odo32 rises, share >= 0.6") is withdrawn: the model
+  puts it at 0.10-0.12.
+- **At the door the gate alone is the strongest signal, read at reach 6.**
+  The odometer weakens exactly the deposits near the door. Dwell at the door
+  halves the reach-2 gradient and barely touches reach 6.
+- **The T criterion cannot be met.** At the p90 cargo age (244 ticks at 90
+  cells, about 400 at 140) T=32 lays 847 raw, under `TRAIL_HALF`; only T=48
+  clears it at 90 and no T does at 140.
+
+**Consequences for the plan** (edited there): Stage 1 lays by the gate at the
+brain's rate, the odometer kept as an experimental knob (`t=`); Stage 2's
+reader compares only headings that are not straight back, except at the
+door, where it compares every level heading at reach 6 as well as 2 (in the
+working NetLogo model the reader looks ahead-left, ahead and ahead-right
+only). The trail's job along the road is then to keep a follower from giving
+up (Stage 3), not to point.
+
+**Registered predictions for the counterfactual planes on today's paths**
+(unlimited pile, gaps 90 and 140, seeds 1-8, 24,000 frames, self arm unless
+named; `btrailchart.py --late`, the second half of each run; row
+`surface+1`, where 65% of empty heads walk and 42% of B is laid, unless
+named; "per gap" means the bar holds at each gap separately):
+
+- **P0.4** today's trail falls toward the food in a snapshot: live rising <
+  0.5 on >= 7/8 seeds per gap.
+- **P0.5** (control of the metric) the hand-laid ramp rises: hand arm, row
+  `surface-2`, rising > 0.9 on >= 7/8 per gap.
+- **P0.6** (replaces the withdrawn one) the odometer does not make the
+  snapshot rise: `cf=odo32` rising < 0.5 on >= 6/8 per gap; its time-mean
+  slope exceeds `cf=gate`'s on >= 7/8 per gap, paired.
+- **P0.7** the gate clears the ground west of the door: time-mean B over the
+  band's five rows at x < the nest's west edge falls >= 90% against live on
+  >= 7/8 per gap; door B (the nest's columns, row `surface+1`) falls >= 50%
+  on >= 6/8.
+- **P0.8** the gate makes the door readable: median reach-6 gradient
+  (`--door`), `cf=gate` above live on >= 7/8 per gap and above +0.3 on >=
+  6/8 per gap; reach 2, above live on >= 6/8 per gap.
+- **P0.9** the odometer weakens the door: `cf=odo32`'s median reach-6
+  gradient below `cf=gate`'s on >= 7/8 per gap.
+- **P0.10** a gated door carries news: Spearman correlation between the
+  food-side B at reach 6 (row `surface+1`) and frames since the last return
+  (a row with `trip_load` 1 followed, for the same ant, by 0 at the nest),
+  below -0.3 on >= 6/8 per gap for `cf=gate`; for live, within +-0.2 on >=
+  6/8.
+
+**Lay-rule choice (replaces the T criterion):** the gate, unless an odometer
+T beats it on the reach-6 door gradient on >= 6/8 seeds at both gaps (P0.9
+predicts none will). Seen before registration: nothing from the cf runs but
+their pooled totals over all arms (brain 505.3M, gate 480.9M raw), which the
+hand arm's paint dominates.
+
+**Scored** (opened after the registration commit `5576fde5`; 16 runs per
+arm, `Reports/data/trail-instruments-2026-09-29.tar.gz`):
+
+| | gap 90 | gap 140 | verdict |
+|---|---|---|---|
+| P0.4 live rising < 0.5 | 8/8 (median 0.397) | 8/8 (0.394) | right |
+| P0.5 hand rising > 0.9, row `surface-2` | 2/8 (0.886) | 8/8 (0.926) | **wrong at 90** |
+| P0.6 `odo32` rising < 0.5; slope above the gate's | 8/8 (0.310); 8/8 | 8/8 (0.247); 8/8 | right |
+| P0.7 west of the door cut >= 90%; door cut >= 50% | 8/8 (92.0-99.7%); 8/8 (92.3-97.9%) | 7/8 (85.4-99.9%); 8/8 (93.6-96.1%) | right |
+| P0.8 time-median reach 6: gate above live; above +0.3; reach 2 above live | 6/8; 5/8; 6/8 | 6/8; 3/8; 3/8 | **wrong** |
+| P0.9 `odo32` reach 6 below the gate's | 8/8 | 8/8 | right |
+| P0.10 gate: rho < -0.3; live: within +-0.2 | 8/8 (-0.53 to -0.82); 3/8 | 8/8 (-0.68 to -0.85); 1/8 | gate right, **live wrong** |
+
+- **The gate is the lay rule.** No odometer (T = 16, 24, 32, 48) and no
+  distance odometer beat it on the reach-6 door gradient on a single seed of
+  sixteen. Gating also makes the snapshot fall toward the food *more*
+  (rising 0.265 / 0.226 against live 0.397 / 0.394), as the design model
+  said it would (0.06-0.08 for a constant rate).
+- **P0.8 was wrong for a reason the design model could not see.** A gated
+  door is empty between returns, so its median over time is the empty
+  door; today's door is kept lit by every fed ant walking out, mostly east,
+  which is a record of where ants went, not of food. What a reader needs is
+  the door at the moment an ant leaves. Read there (post hoc, not
+  registered; the plane sample at or before each empty ant's departure from
+  the nest band, workers excluded, at the nest's centre), the gated plane
+  says "food side" at reach 6 on **78%** of departures at 90 cells against
+  67% today, and **57%** against 43% at 140; higher on 7/8 seeds at each gap.
+  The ant's own head, read by `trailclimb.py` today, sees it on 39% and 32%,
+  and the side it takes does not follow that read (reach 6 above 0.1: 40% go
+  east; below -0.1: 52%).
+- **P0.10's live half was wrong**: today's reach-6 door read also falls with
+  the age of the last return (rho down to -0.68), weaker and less
+  consistent than the gate's. §22v's flat 0.99-1.00 was trail *presence* at
+  the door, which saturates; B six cells out does not.
+- **P0.5, the hand control, failed at 90 cells** at 0.886 against its 0.9
+  bar: the painted ramp's ends (the colony's own deposits piling up at the
+  door, and the paint's last cells at the pile). The metric's own controls
+  pass (`btrailchart.py --selftest`, and the design model read back through
+  it to the printed digit); the bar was set without trimming the ends.
+- **G0.4, the draw check**: the logged scores reproduce the ant's choices
+  on all 641,296 decisions of the self arm at both gaps (99% over the
+  family of classes).
+
+**Next, Stage 1 (the lay switch) is unchanged in shape and simpler**: only a
+load from a trip lays food scent, at the brain's rate. Its registered
+predictions P1.1-P1.7 stand, P1.1 read against `cf=gate`.

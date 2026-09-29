@@ -7141,6 +7141,7 @@ impl World {
             lunch: false,
             trip_load: false,
             trip_src: 0,
+            since_trip: 0,
             eat_lunch_now: false,
             hungry_home: false,
             // Zero is "no memory yet"; the first tick's read sees `live - 0`,
