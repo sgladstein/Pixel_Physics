@@ -1238,6 +1238,9 @@ struct AntBefore {
     /// so a soil grain falling into the gallery is never read as one.
     pellet: MaterialId,
     crop_empty: bool,
+    /// A nest worker (`OrganismState::nest_bound_until` still ahead): one ant
+    /// in four under the shipped storeroom, at home in the founding cut.
+    nest_bound: bool,
 }
 
 /// What the funnel needs of an ant after the frame. Separate from the world
@@ -1355,6 +1358,9 @@ struct NestFunnel {
     /// spoil near, spoil cells, fresh spoil cells], within `SPOIL_NEAR` of
     /// the cut.
     cut_kind_spoil: [[u64; 5]; 5],
+    /// Of each `cut_kind_spoil` row's cuts, those a nest worker made: who
+    /// opens the mouths, the caste that lives in the cut or the foragers.
+    cut_kind_worker: [u64; 5],
     /// **A refill that stays**: a dug cell still ground `REFILL_STANDING`
     /// frames after it filled. [by a fall, by a pellet put there].
     refill_standing: [u64; 2],
@@ -1467,6 +1473,7 @@ impl NestFunnel {
                     holding: st.spoil.is_some(),
                     pellet: st.spoil.map_or(material::EMPTY, |p| p.cell.material),
                     crop_empty: st.crop.is_none(),
+                    nest_bound: st.nest_bound_until > world.frame,
                 },
             );
         }
@@ -1603,6 +1610,7 @@ impl NestFunnel {
                         }
                     };
                     let (cells, fresh_cells) = Self::spoil_cells_of(&self.grid, &self.put_frame, b, spoil_id, frame, tx, ty);
+                    self.cut_kind_worker[kind] += u64::from(pre.nest_bound);
                     let k = &mut self.cut_kind_spoil[kind];
                     k[0] += 1;
                     k[1] += u64::from(cells > 0);
@@ -1951,6 +1959,12 @@ impl NestFunnel {
             })
             .collect();
         println!("LEDGER frame={frame} spoil within {SPOIL_NEAR} cells of the cut, by where it opened: {}", kinds.join(" | "));
+        let by_worker: Vec<String> = ["new mouth from the surface", "new mouth from below", "a mouth already open", "below the old surface", "in the heaps"]
+            .iter()
+            .zip(self.cut_kind_spoil.iter().zip(self.cut_kind_worker.iter()))
+            .map(|(name, (row, &w))| format!("{name} {w} of {}", row[0]))
+            .collect();
+        println!("LEDGER frame={frame} cuts made by nest workers, by where it opened: {}", by_worker.join(" | "));
         // Who to trace: a few ids stopped at each stage.
         for (i, name) in FUNNEL_STAGES.iter().enumerate().skip(1) {
             let stuck: Vec<String> = self.ants.iter().filter(|(_, t)| t.stage == i).take(6).map(|(id, _)| id.to_string()).collect();
@@ -1987,7 +2001,7 @@ fn funnel_selftest(b: &Box2) {
     let mut frame = 0u64;
     let mut digs = 0u32;
     let ant = |heading: u8, digs: u32, holding: bool| {
-        std::collections::BTreeMap::from([(id, AntBefore { head, heading, digs, holding, pellet: if holding { spoil } else { material::EMPTY }, crop_empty: true })])
+        std::collections::BTreeMap::from([(id, AntBefore { head, heading, digs, holding, pellet: if holding { spoil } else { material::EMPTY }, crop_empty: true, nest_bound: false })])
     };
     let after = |digs: u32, holding: bool| std::collections::BTreeMap::from([(id, AntAfter { digs, holding })]);
     // One dig by hand: face `dir`, cut the cell ahead, take the pellet.
@@ -2133,7 +2147,7 @@ fn funnel_selftest(b: &Box2) {
         let mut w = build(b);
         let mut f = NestFunnel::default();
         let rec = |head: (i32, i32), heading: u8, digs: u32, holding: bool| {
-            std::collections::BTreeMap::from([(id, AntBefore { head, heading, digs, holding, pellet: if holding { spoil } else { material::EMPTY }, crop_empty: true })])
+            std::collections::BTreeMap::from([(id, AntBefore { head, heading, digs, holding, pellet: if holding { spoil } else { material::EMPTY }, crop_empty: true, nest_bound: false })])
         };
         let aft = |digs: u32, holding: bool| std::collections::BTreeMap::from([(id, AntAfter { digs, holding })]);
         let hy = b.surface - 1;
@@ -2183,7 +2197,7 @@ fn funnel_selftest(b: &Box2) {
         let mut w = build(b);
         let mut f = NestFunnel::default();
         let rec = |head: (i32, i32), heading: u8, holding: bool| {
-            std::collections::BTreeMap::from([(id, AntBefore { head, heading, digs: 0, holding, pellet: if holding { spoil } else { material::EMPTY }, crop_empty: true })])
+            std::collections::BTreeMap::from([(id, AntBefore { head, heading, digs: 0, holding, pellet: if holding { spoil } else { material::EMPTY }, crop_empty: true, nest_bound: false })])
         };
         let aft = |holding: bool| std::collections::BTreeMap::from([(id, AntAfter { digs: 0, holding })]);
         let (hx, hy) = (b.w / 2 + 40, b.surface - 1);
@@ -2209,7 +2223,7 @@ fn funnel_selftest(b: &Box2) {
         let mut w = build(b);
         let mut f = NestFunnel::default();
         let rec = |head: (i32, i32), heading: u8, holding: bool| {
-            std::collections::BTreeMap::from([(id, AntBefore { head, heading, digs: 0, holding, pellet: if holding { spoil } else { material::EMPTY }, crop_empty: true })])
+            std::collections::BTreeMap::from([(id, AntBefore { head, heading, digs: 0, holding, pellet: if holding { spoil } else { material::EMPTY }, crop_empty: true, nest_bound: false })])
         };
         let aft = |digs: u32| std::collections::BTreeMap::from([(id, AntAfter { digs, holding: false })]);
         let (x0, s) = (b.w / 2 - 60, b.surface);
@@ -2337,6 +2351,12 @@ fn charge(world: &World) -> (usize, f32) {
 /// seeds reading 4 of 4 and twelve reading 16 of 33.
 struct Trickle {
     colony: Option<u32>,
+    /// **Where each ant is homed**: the door, as the game founds under one
+    /// (`World::door_anchor`), or `None` -- the strip -- where each ant keeps
+    /// the cell it landed on as home, which is also what founding does there.
+    /// Before 2026-09-29 the trickle homed every ant where it landed even
+    /// under a door, so a door arm here was not the game's door.
+    anchor: Option<(i32, i32)>,
     placed: usize,
     target: usize,
     /// How many to try per frame. The cap is space, not this.
@@ -2348,7 +2368,7 @@ struct Trickle {
 }
 
 impl Trickle {
-    fn new(target: usize, rate: usize, seed: u64, span: i32) -> Self {
+    fn new(target: usize, rate: usize, seed: u64, span: i32, anchor: Option<(i32, i32)>) -> Self {
         let mut order = Vec::new();
         if seed > 0 {
             use pixel_physics::sim::rng;
@@ -2358,7 +2378,7 @@ impl Trickle {
                 order.swap(i, draw.below(i as u32 + 1) as usize);
             }
         }
-        Trickle { colony: None, placed: 0, target, rate, cursor: 0, order }
+        Trickle { colony: None, anchor, placed: 0, target, rate, cursor: 0, order }
     }
 
     fn done(&self) -> bool {
@@ -2389,7 +2409,7 @@ impl Trickle {
             let col = if self.order.is_empty() { self.cursor } else { self.order[self.cursor as usize] };
             let x = cx - half + col;
             let y = b.surface - 1;
-            if let Some(site) = pixel_physics::sim::creature::plant_creature_seed_in(world, x, y, "ant", self.colony) {
+            if let Some(site) = pixel_physics::sim::creature::plant_founder_in(world, x, y, "ant", self.colony, self.anchor) {
                 if self.colony.is_none() {
                     self.colony = pixel_physics::sim::creature::colony_of_site(world, &site);
                 }
@@ -2729,7 +2749,9 @@ fn main() {
     world.paint_nest_patch(b.w / 2, b.surface - 1);
     let seed: u64 = arg("seed").unwrap_or(0);
     let span = 26.min(b.w / 2 - 2) * 2 + 1;
-    let mut trickle = Trickle::new(ants as usize, arg("rate").unwrap_or(4), seed, span);
+    // Read after the paint, which cuts the founding shaft the anchor sits on.
+    let door_anchor = world.door_anchor(b.w / 2, b.surface - 1, "ant");
+    let mut trickle = Trickle::new(ants as usize, arg("rate").unwrap_or(4), seed, span, door_anchor);
 
     // The endowment horizon, printed rather than assumed -- a run past it is
     // measuring starvation, not digging.
@@ -2768,6 +2790,14 @@ fn main() {
         ),
         None => println!("  founding: painted strip only, nothing dug (PIXEL_PHYSICS_NEST_SHAFT=off)"),
     }
+    // **The door and the storeroom, echoed** for the reason the shaft is: both
+    // ship on since 2026-09-29, and a log that does not name them cannot say
+    // which founding it ran.
+    match pixel_physics::sim::creature::nest_door_of(&world) {
+        Some(d) => println!("  door: half-width {d} painted (PIXEL_PHYSICS_NEST_DOOR), every ant homed at {door_anchor:?}, as founding homes them"),
+        None => println!("  door: the strip (PIXEL_PHYSICS_NEST_DOOR=off), every ant homed where it lands"),
+    }
+    println!("  storeroom: {} (PIXEL_PHYSICS_STOREROOM)", pixel_physics::sim::creature::storeroom_of(&world));
     println!("  {}", pixel_physics::sim::creature::spoil_switches_line());
     match pixel_physics::sim::creature::nest_home(&world) {
         pixel_physics::sim::creature::NestHome::Material => {}

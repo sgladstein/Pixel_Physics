@@ -1641,6 +1641,21 @@ pub fn plant_creature_seed_in(world: &mut World, x: i32, y: i32, species_name: &
     place_creature(world, x, y, species_id, material_id, &def, false, Origin::Founder { colony })
 }
 
+/// **[`plant_creature_seed_in`], homed the way founding homes a founder**:
+/// at `anchor` when there is one -- the door, [`World::door_anchor`] -- else
+/// where it landed. [`World::found_colony_with`] places every founder through
+/// it, and so does a harness that lays its own founders down
+/// (`examples/digbox`'s trickle), so the two cannot home them differently.
+pub fn plant_founder_in(world: &mut World, x: i32, y: i32, species_name: &str, colony: Option<u32>, anchor: Option<(i32, i32)>) -> Option<ActiveSite> {
+    let site = plant_creature_seed_in(world, x, y, species_name, colony)?;
+    if let (Some(anchor), ActiveKind::Creature { organism }) = (anchor, site.kind) {
+        if let Some(state) = world.organism_mut(organism) {
+            state.forage_anchor = anchor;
+        }
+    }
+    Some(site)
+}
+
 /// The colony an active site's animal was placed into, for a caller
 /// laying out a group one station at a time: the first placed animal's
 /// label is what every later station joins.
@@ -4634,6 +4649,32 @@ impl World {
         self.found_colony_with(x, y, species, ants, nest_door_of(self), nest_door_pile())
     }
 
+    /// **Where a founder's home is under a door**: the cell above the door's
+    /// centre, founded at `(x, y)` -- `None` without a door. The one copy of
+    /// the rule: [`World::found_colony_with`] homes every founder here, and a
+    /// harness that places its own founders (`examples/digbox`'s trickle)
+    /// calls [`World::door_anchor`] to found the way the game does. See
+    /// `found_colony_with` for why it reads the surface the founding shaft
+    /// was sunk from rather than the ground under the centre now. `nesting`:
+    /// whether the species declared a nest; one that did not registered no
+    /// site, so the nearest site's cut would be a neighbour's.
+    fn door_anchor_with(&self, x: i32, y: i32, nesting: bool, door: Option<i32>) -> Option<(i32, i32)> {
+        door.and_then(|_| {
+            let cut_top = if nesting { self.nearest_nest_site(x, y).and_then(|i| self.nest_sites[i].shaft).map(|cut| cut.top) } else { None };
+            cut_top.or_else(|| colony_surface(self, x, y))
+        })
+        .map(|sy| (x, sy - 1))
+    }
+
+    /// [`World::door_anchor_with`] for `species` founded at `(x, y)` under the
+    /// door in force ([`nest_door_of`]): where the game homes every founder.
+    /// `None` without a door, or for a species nobody loaded.
+    pub fn door_anchor(&self, x: i32, y: i32, species: &str) -> Option<(i32, i32)> {
+        let id = self.species.id_of(species)?;
+        let nesting = self.species.get(id).creature.as_ref().is_some_and(|c| !c.nest.is_empty());
+        self.door_anchor_with(x, y, nesting, nest_door_of(self))
+    }
+
     /// [`World::found_colony_of`] with the nest-door switches passed in rather
     /// than read from the environment, so a test can set them: `door` is
     /// [`nest_door`]'s half-width, `pile` is [`nest_door_pile`]. `(None, _)`
@@ -4705,12 +4746,7 @@ impl World {
         // is `colony_surface` exactly as before. **Only for a species that
         // declared a nest**: one that did not registered no site here, so the
         // nearest site's cut would be a neighbour's.
-        let door_anchor = door
-            .and_then(|_| {
-                let cut_top = if nest.is_empty() { None } else { self.nearest_nest_site(x, y).and_then(|i| self.nest_sites[i].shaft).map(|cut| cut.top) };
-                cut_top.or_else(|| colony_surface(self, x, y))
-            })
-            .map(|sy| (x, sy - 1));
+        let door_anchor = self.door_anchor_with(x, y, !nest.is_empty(), door);
         // **One colony per founding.** The first animal that fits founds it
         // and every later station joins; a founding in which nothing fits
         // claims nothing. See `OrganismState::colony`.
@@ -4718,17 +4754,12 @@ impl World {
         let mut founders: Vec<OrganismId> = Vec::new();
         for (cx, cy) in stations {
             let before = self.get(cx, cy).organism_id();
-            if let Some(site) = plant_creature_seed_in(self, cx, cy, species, colony) {
+            if let Some(site) = plant_founder_in(self, cx, cy, species, colony, door_anchor) {
                 if colony.is_none() {
                     colony = colony_of_site(self, &site);
                 }
                 if let ActiveKind::Creature { organism } = site.kind {
                     founders.push(organism);
-                }
-                if let (Some(anchor), ActiveKind::Creature { organism }) = (door_anchor, site.kind) {
-                    if let Some(state) = self.organism_mut(organism) {
-                        state.forage_anchor = anchor;
-                    }
                 }
                 self.schedule_active_site(site);
             }
