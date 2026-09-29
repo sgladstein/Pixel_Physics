@@ -123,9 +123,12 @@ foragers west (§22r).
   keep foraging -- loops per forager, waits, a forager's life after its first
   loop (fed/hungry x home/out, food held off the nest). `--vs` pairs these,
   the target quantities, by seed. **Give it the gap**; 90 is the default.
-- **`scripts/labpair.py`**: lab arms paired by seed on net food into home.
-  The lab's end-of-run `alive` is one frame of a boom-and-bust: read the whole
-  curve (`labforage`'s 900-frame table; peak, ant-frames, when it grazed out).
+- **`scripts/labpair.py dir base new`**: the lab box's **pre-ship regression
+  check** (`played_bed`, 120,000 frames, 24 seeds), paired by seed. Gate:
+  births, food eaten, ant-frames, old age, **starved per million
+  ant-frames** (raw starved beside it). Died out / alive at the end are
+  **crash timing, not harm** (the box peaks ~90,000 and grazes out), in their
+  own block; net food into home is last, an overcount (§22j).
 - **`trailfollow decisioncsv dtag=`**: the per-decision trace. Since 09-27 it
   carries `energy_j` (`energy` is clamped at the 200 J grant) and `drive`,
   `scout_w`, `scout_patience`, `scout_home`. `gifants framesdir=` for cards.
@@ -140,7 +143,7 @@ The colony bed. Run from anywhere; keep the env exactly this. Three batches of
 
 ```
 export RAYON_NUM_THREADS=1 PIXEL_PHYSICS_COLONY_SPACING=2 PIXEL_PHYSICS_STACK_DEPTH=4 PIXEL_PHYSICS_BUD_SITE=nest
-B="mode=gap gate=shipped frames=24000 ants=20 relay=60 near=10 food=400 refill=400 stop=6000 layfrom=founders arms=self gaps=90"
+B="mode=gap gate=shipped frames=24000 ants=20 near=10 food=400 refill=400 arms=self gaps=90"
 ./trailfollow $B decisioncsv dtag=mine seeds=8 seed0=1 > mine-1.log   # and seed0=9, seed0=17
 # decision CSVs land in /tmp as trailfollow-decisions-seed<S>-gap<G>-self-<dtag>.csv
 python3 scripts/antloop.py <csv dir> --log mine.log --vs base.log
@@ -153,6 +156,10 @@ The lab box **must run from the repo root** (it reads `assets/`). A round of
 ```
 RAYON_NUM_THREADS=1 labforage scenario=played_bed frames=120000 seed=N
 ```
+
+Since 2026-09-29 it rains at the scenario's own rate (`rain=` defaults to
+the spec's Light; `rain=off` reproduces the dry runs before that, line for
+line), and it refuses to start with the bed's env set unless given `bedenv`.
 
 **Identity first:** every new switch, unset, must reproduce the default line
 for line. Diff the logs with lines matching `^\s*(trailfollow:|breadoff=|ant.ron:|DECISIONS:)`
@@ -167,8 +174,8 @@ filtered out (note the leading spaces), and compare the decision CSVs too.
 - **Never export the bed's env (`COLONY_SPACING`, `STACK_DEPTH`, `BUD_SITE`)
   in a script that also runs the lab.** A lab run inherited them on
   2026-09-28, founded 52 where the lab places 41, and every box died by frame
-  35,000 -- read as a harm of the change under test. `labforage` now echoes
-  all three; check the header says `shipped`.
+  35,000 -- read as a harm of the change under test. `labforage` now refuses
+  to start with any of them set unless given `bedenv`.
 - **Key every parse by seed.** `carry->nest` is cell-steps, not food.
 - **The `energy` trace column is clamped at 200 J.** "At full energy" in it
   means *at or above the grant*; read `energy_j`. A forager "resting fed" was

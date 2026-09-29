@@ -16,8 +16,11 @@ rebuilding four scripts.
     # 2. read it:
     python3 scripts/antloop.py /tmp --tag mine --log run.log
     python3 scripts/antloop.py --selftest      # the positive control
-    # 3. against a baseline run, seed by seed (starved and net food into home):
+    # 3. against a baseline run, seed by seed (food taken, food at the nest,
+    #    bodies, born, starved by / after frame 6,000, old age; the logs alone
+    #    are enough, so drop the CSV directory for a run without decisioncsv):
     python3 scripts/antloop.py /tmp --tag mine --log run.log --vs base.log
+    python3 scripts/antloop.py --log run.log --vs base.log
 
 Sections: the loop funnel; GOING OUT (the colony's first delivery, who ever
 left home toward the food, when reachers last set out, who ever stepped onto a
@@ -184,15 +187,44 @@ def read(paths, near, end):
     return ants
 
 
+def causes(s):
+    """A `DEATHS BY CAUSE` list -> {label: count}: 'STARVED 2, OLD AGE 1' ->
+    {'STARVED': 2, 'OLD AGE': 1}, '' -> {}. 'not reached' (a run shorter than
+    6,000 frames) -> None, so a missing count is never read as a zero."""
+    if s.strip() == 'not reached':
+        return None
+    return {lab: int(n) for lab, n in re.findall(r'([A-Z][A-Z ]*?) (\d+)', s)}
+
+
 def harness(logs):
-    """Per (gap, seed): starved count, absorbed J, food on the nest series, near=, frames=."""
-    out, params = {}, {}
+    """Per (gap, seed): starved count, absorbed J, food on the nest series, near=, frames=.
+
+    **Which line belongs to which run.** A run's block -- FOOD STORE, BIRTHS,
+    DEATHS BY CAUSE, FOOD BUDGET -- is printed BEFORE that run's table row
+    (`   90    1  self ...`), so it is held in `pend` until the row names the
+    run; the `founded ... born N died N (starved N)` and `food into home` lines
+    come AFTER the row and go to the row just read. Getting this backwards
+    gives every seed its neighbour's numbers, and the table still looks right
+    (`--selftest` checks it both ways). `params` also carries what the pairing
+    needs to say whether it pooled anything: keys read twice (`dups`), the arms
+    and founder counts seen, and a trailing block with no row after it
+    (`orphans`: a log still being written, or cut short)."""
+    out, params = {}, {'dups': [], 'orphans': 0}
     last = None
     for log in logs:
         pend = {}
+        last = None
+        founders = None
         for line in open(log):
             m = re.search(r'frames=(\d+) .*near=(\d+)', line)
             if m and 'trailfollow: mode=' in line:
+                # Founders are the header's `ants=`, per segment (a log is often
+                # three `seed0=` batches concatenated, each with its own header).
+                # NOT the 'N of M founders born on it' line: its M is
+                # `ants_seen`, every ant alive at any sample -- founders + born,
+                # equal in 96 of 96 runs checked 2026-09-29.
+                a_ = re.search(r' ants=(\d+)', line)
+                founders = int(a_.group(1)) if a_ else None
                 params['frames'], params['near'] = int(m.group(1)), int(m.group(2))
                 # **The crop size is read, never assumed.** Fill is worth over
                 # capacity, so a run at `cropcap=5760` read at the shipped 2880
@@ -209,10 +241,14 @@ def harness(logs):
             m = re.search(r'ant\.ron: crop_capacity=([0-9.]+)', line)
             if m and 'cropcap' not in params:
                 params['shipped_cropcap'] = float(m.group(1))
-            m = re.search(r'DEATHS BY CAUSE -- by frame 6000: \[[^\]]*\] \| whole run: \[([^\]]*)\]', line)
+            m = re.search(r'DEATHS BY CAUSE -- by frame 6000: \[([^\]]*)\] \| whole run: \[([^\]]*)\]', line)
             if m:
-                mm = re.search(r'STARVED (\d+)', m.group(1))
-                pend['starved'] = int(mm.group(1)) if mm else 0
+                pend['causes_6000'] = causes(m.group(1))
+                pend['causes'] = causes(m.group(2)) or {}
+                pend['starved'] = pend['causes'].get('STARVED', 0)
+            m = re.search(r'BIRTHS (\d+) \| buds held', line)
+            if m:
+                pend['births'] = int(m.group(1))
             m = re.search(r'FOOD STORE \(larder cells\) -- (.*)', line)
             if m:
                 pend['store'] = [(int(f), int(a), float(j), int(c), float(b)) for f, a, j, c, b in re.findall(
@@ -228,12 +264,21 @@ def harness(logs):
             m = re.match(r'^\s+(\d+)\s+(\d+)\s+(\w+)\s+\S+\s+(\d+)', line)
             if m and m.group(3) in ('hand', 'self', 'hmute', 'mute', 'homeA', 'flatN', 'flatF'):
                 last = (int(m.group(1)), int(m.group(2)))
-                out[last] = dict(pend, ate=int(m.group(4)))
+                if last in out:
+                    params['dups'].append(last)
+                out[last] = dict(pend, ate=int(m.group(4)), arm=m.group(3), founders=founders,
+                                 log=os.path.basename(log))
                 pend = {}
-            # Printed after its run's table row, so it belongs to that row.
+            # Printed after its run's table row, so they belong to that row.
             m = re.search(r'food into home: delivered (\d+) picked up at home (\d+) -> net (-?\d+)(?: \| turned home hungry (\d+))?', line)
-            if m and out:
+            if m and last is not None:
                 out[last].update(net_home=int(m.group(3)), hungry_turns=int(m.group(4) or 0))
+            m = re.search(r'founded x .*?(\d+) of (\d+) founders born on it.*born\s+(\d+) died\s+(\d+) \(starved\s+(\d+)\)', line)
+            if m and last is not None:
+                out[last].update(seen=int(m.group(2)), born=int(m.group(3)), died=int(m.group(4)),
+                                 starved_line=int(m.group(5)))
+        if pend:
+            params['orphans'] += 1
     return out, params
 
 
@@ -404,19 +449,134 @@ def sign_p(better, worse):
     return min(1.0, 2 * sum(math.comb(n, i) for i in range(k + 1)) / 2 ** n) if n else 1.0
 
 
-def versus(runs, base, gap):
-    """Paired by seed against a baseline run's logs: starved and net food
-    into home, the two numbers that do not move with how big home is."""
-    keys = sorted(k for k in runs if k[0] == gap and k in base)
-    print(f"\nPAIRED AGAINST THE BASELINE, seed by seed ({len(keys)} seeds at gap {gap})")
-    for name, field, lower in (("starved", 'starved', True), ("net food into home, cells", 'net_home', False)):
-        pairs = [(base[k][field], runs[k][field]) for k in keys if field in base[k] and field in runs[k]]
-        if not pairs:
+def _nest_mean(r, i):
+    """Mean of one FOOD STORE column over the samples at frame >= 6,000 (the
+    first 6,000 are the founding, before the colony has a store to keep)."""
+    v = [smp[i] for smp in r.get('store', []) if smp[0] >= 6000]
+    return st.mean(v) if v else None
+
+
+def _lived(r):
+    """Ants that lived: founders (the header's `ants=`) + born."""
+    return r['founders'] + r['born'] if r.get('founders') is not None and 'born' in r else None
+
+
+def _cause(r, label, when='causes'):
+    c = r.get(when)
+    return None if c is None else c.get(label, 0)
+
+
+def _starved_after(r):
+    a, b = _cause(r, 'STARVED'), _cause(r, 'STARVED', 'causes_6000')
+    return None if a is None or b is None else a - b
+
+
+# (label, per-run value, how runs add up: 'sum' a count, 'mean' a per-run mean,
+# 'share' a count also read over the ants that lived). Order is the printed order;
+# net food into home stays last, labelled, because it counts the same crumbs
+# again (ant-scenes-2026-09-23.md §22j).
+PAIRED = [
+    ("food taken from the pile, cells", lambda r: r.get('taken'), 'sum'),
+    ("food standing at the nest, face J", lambda r: _nest_mean(r, 2), 'mean'),
+    ("in the ants' bodies, J", lambda r: _nest_mean(r, 4), 'mean'),
+    ("born", lambda r: r.get('born'), 'sum'),
+    ("ants that lived (founders + born)", _lived, 'sum'),
+    ("starved, whole run", lambda r: _cause(r, 'STARVED'), 'share'),
+    ("  starved by frame 6,000", lambda r: _cause(r, 'STARVED', 'causes_6000'), 'share'),
+    ("  starved after frame 6,000", _starved_after, 'share'),
+    ("  died of old age", lambda r: _cause(r, 'OLD AGE'), 'share'),
+    ("net food into home, cells -- OVERCOUNTS 3.4-4.6x, s22j", lambda r: r.get('net_home'), 'sum'),
+]
+
+
+def pair_rows(runs, base, keys):
+    """The paired table as data, so `--selftest` can check the arithmetic.
+    One dict per PAIRED row (and a share row under each 'share' row): the
+    per-seed values of the baseline `a` and this run `b`, and the sign counts."""
+    rows = []
+    for label, get, kind in PAIRED:
+        ks = [k for k in keys if get(base[k]) is not None and get(runs[k]) is not None]
+        a = [get(base[k]) for k in ks]
+        b = [get(runs[k]) for k in ks]
+        rows.append(dict(label=label, kind=kind, n=len(ks), a=a, b=b,
+                         hi=sum(y > x for x, y in zip(a, b)), lo=sum(y < x for x, y in zip(a, b))))
+        if kind == 'share':
+            ks = [k for k in ks if _lived(base[k]) and _lived(runs[k])]
+            ca, cb = [get(base[k]) for k in ks], [get(runs[k]) for k in ks]
+            la, lb = [_lived(base[k]) for k in ks], [_lived(runs[k]) for k in ks]
+            a = [c / n for c, n in zip(ca, la)]
+            b = [c / n for c, n in zip(cb, lb)]
+            rows.append(dict(label="    as a share of ants that lived", kind='pct', n=len(ks), a=a, b=b,
+                             pooled=(sum(ca) / sum(la) if la else None, sum(cb) / sum(lb) if lb else None),
+                             hi=sum(y > x for x, y in zip(a, b)), lo=sum(y < x for x, y in zip(a, b))))
+    return rows
+
+
+def versus(runs, rparams, base, bparams, gap=None):
+    """Paired by (gap, seed) against a baseline run's logs, from the two logs
+    alone: food taken from the pile, food standing at the nest, the ants'
+    bodies, born, and the deaths split three ways (starved by frame 6,000,
+    starved after it, old age), each dead count also as a share of the ants
+    that lived -- a colony eleven times the size starves more ants and a
+    smaller share of them, and only the share says which. Net food into home
+    last, because it overcounts (§22j)."""
+    ra = {k: v for k, v in runs.items() if gap is None or k[0] == gap}
+    rb = {k: v for k, v in base.items() if gap is None or k[0] == gap}
+    keys = sorted(set(ra) & set(rb))
+    logs = lambda d: ", ".join(sorted({v['log'] for v in d.values()})) or "-"
+    print(f"\nPAIRED AGAINST THE BASELINE, seed by seed, from the two logs"
+          + (f" (gap {gap})" if gap is not None else ""))
+    # A parse is a measurement: print the key's cardinality against what the runs swept.
+    print(f"  keyed (gap, seed): baseline {len(rb)} runs [{logs(rb)}], this {len(ra)} runs [{logs(ra)}]; "
+          f"paired {len(keys)} = " + ", ".join(f"gap {g} x {n} seeds" for g, n in
+                                                 sorted(C.Counter(k[0] for k in keys).items())))
+    for name, d in (("baseline", rb), ("this", ra)):
+        only = sorted(set(d) - set(keys))
+        if only:
+            print(f"  UNPAIRED in {name}: {len(only)} runs {only[:6]}{' ...' if len(only) > 6 else ''}")
+    print(f"  arms: baseline {sorted({v['arm'] for v in rb.values()})}, this {sorted({v['arm'] for v in ra.values()})}; "
+          f"founders (header ants=): baseline {sorted({v['founders'] for v in rb.values()}, key=str)}, "
+          f"this {sorted({v['founders'] for v in ra.values()}, key=str)}")
+    for name, p in (("baseline", bparams), ("this", rparams)):
+        if p and p.get('dups'):
+            print(f"  WARNING: the {name} log(s) hold {len(p['dups'])} (gap, seed) keys twice -- last write wins, "
+                  f"so those runs are POOLED: {sorted(set(p['dups']))[:6]}")
+        if p and p.get('orphans'):
+            print(f"  WARNING: the {name} log(s) end with {p['orphans']} run block(s) and no table row -- "
+                  f"still being written, or cut short")
+    both = [d[k] for d in (ra, rb) for k in keys]
+    seen = [r for r in both if 'seen' in r and _lived(r) is not None]
+    births = [r for r in both if 'births' in r and 'born' in r]
+    sl = [r for r in both if 'starved_line' in r and 'causes' in r]
+    print(f"  reconciled per run: the founded line's 'of M founders' = header founders + born in "
+          f"{sum(r['seen'] == _lived(r) for r in seen)} of {len(seen)} (so M counts every ant seen; "
+          f"founders come from ants=); BIRTHS = its born in {sum(r['births'] == r['born'] for r in births)} "
+          f"of {len(births)}; DEATHS BY CAUSE STARVED = its starved in "
+          f"{sum(r['starved_line'] == r['causes'].get('STARVED', 0) for r in sl)} of {len(sl)}")
+    print(f"  FOOD STORE samples at frame >= 6,000 per run: "
+          f"{sorted(C.Counter(sum(s_[0] >= 6000 for s_ in r.get('store', [])) for r in both).items())} "
+          f"(count: runs); nest food and bodies are each run's mean over them")
+    other = C.Counter()
+    for r in both:
+        other.update({c: n for c, n in (r.get('causes') or {}).items() if c not in ('STARVED', 'OLD AGE')})
+    if other:
+        print(f"  NOTE: other causes of death in these runs, not in the split: {dict(other)}")
+    print(f"  {'':<54} {'':<6} {'baseline':>10}    {'this':>10}   {'median by seed':>21}   this higher / lower by seed")
+    for r in pair_rows(ra, rb, keys):
+        if not r['n']:
+            print(f"  {r['label']:<54} not in both logs")
             continue
-        better = sum((b_ < a_) if lower else (b_ > a_) for a_, b_ in pairs)
-        worse = sum((b_ > a_) if lower else (b_ < a_) for a_, b_ in pairs)
-        print(f"  {name:<28} {sum(a_ for a_, _ in pairs):>7} -> {sum(b_ for _, b_ in pairs):>7}   "
-              f"better on {better} seeds, worse on {worse}, sign p {sign_p(better, worse):.3f}")
+        tail = (f"{r['hi']:>3} / {r['lo']:<3} tie {r['n'] - r['hi'] - r['lo']:<3} "
+                f"sign p {sign_p(r['hi'], r['lo']):.3f}  (n {r['n']})")
+        if r['kind'] == 'pct':
+            word, fmt = "pooled", (lambda x: f"{100 * x:.1f}%")
+            ta, tb = r['pooled']
+        else:
+            word, fmt = ("mean", "total")[r['kind'] != 'mean'], (lambda x: f"{x:,.0f}")
+            agg = st.mean if r['kind'] == 'mean' else sum
+            ta, tb = agg(r['a']), agg(r['b'])
+        print(f"  {r['label']:<54} {word:<6} {fmt(ta):>10} -> {fmt(tb):>10}   "
+              f"{fmt(st.median(r['a'])):>9} -> {fmt(st.median(r['b'])):>9}   {tail}")
 
 
 def selftest():
@@ -466,6 +626,43 @@ def selftest():
         (ants[5]['hungry_home'] == 1 and ants[5]['hungry_home_food'] == 1 and ants[5]['hungry_home_took'] == 1,
          f"ant 5 hungry at home beside food, ate it: {ants[5]['hungry_home']}, {ants[5]['hungry_home_food']}, {ants[5]['hungry_home_took']}"),
     ]
+    # The logs: two runs whose blocks differ, so a block given to the wrong row
+    # is caught. A run's block is printed BEFORE its table row and the founded
+    # line AFTER it; seed 1 took 100 cells, seed 2 took 300.
+    def run(seed, taken, births, by6, whole, nest, net):
+        store = " | ".join(f"{f}: nest ground 0, crops 1, elsewhere 1, crumbs 1, ants 20, nest food {j} J (1 crumbs), "
+                           f"ant bodies {j // 2} J" for f, j in zip((3000, 6000, 9000), nest))
+        return (f"    FOOD STORE (larder cells) -- {store}\n"
+                f"    BIRTHS {births} | buds held for the nest 0 (PIXEL_PHYSICS_BUD_SITE=nest) | parents overdrawn by a birth 0\n"
+                f"    DEATHS BY CAUSE -- by frame 6000: [{by6}] | whole run: [{whole}]\n"
+                f"    FOOD BUDGET (cells, one cell = 960 face): taken from the pile {taken}; chewed 1\n"
+                f"   90 {seed:>4}  self   23/19       38007     1500        0\n"
+                f"                founded x   30..68   (nest cursor 48 MATERIAL x 26..70 19 of {20 + births} founders born on it; "
+                f"food 138)  occupancy/1k [1]  carry->nest 1  born {births:>4} died    6 (starved {causes(whole).get('STARVED', 0)})\n"
+                f"                food into home: delivered 10 picked up at home 4 -> net {net} | turned home hungry 0\n")
+    hdr = "trailfollow: mode=gap gate=shipped frames=24000 seeds=2 seed0=1 ants=20 relay=60 near=10 food=400\n"
+    lb = os.path.join(d, 'base.log')
+    lt = os.path.join(d, 'this.log')
+    with open(lb, 'w') as fh:
+        fh.write(hdr + run(1, 100, 5, "STARVED 1", "STARVED 4, OLD AGE 2", (100, 200, 400), 6)
+                 + run(2, 300, 9, "", "STARVED 1", (900, 900, 900), 8))
+    with open(lt, 'w') as fh:
+        fh.write(hdr + run(1, 200, 30, "", "STARVED 5, OLD AGE 1", (100, 100, 100), 7)
+                 + run(2, 600, 50, "STARVED 2", "STARVED 2, OLD AGE 3", (900, 900, 900), 9))
+    base, _ = harness([lb])
+    this, _ = harness([lt])
+    b1, b2 = base[(90, 1)], base[(90, 2)]
+    checks.append((b1.get('taken') == 100 and b2.get('taken') == 300 and b1.get('born') == 5 and b2.get('born') == 9
+                   and b1.get('causes_6000') == {'STARVED': 1} and _starved_after(b1) == 3 and _cause(b1, 'OLD AGE') == 2
+                   and _nest_mean(b1, 2) == 300 and _lived(b1) == 25 and b1.get('net_home') == 6,
+                   "log attribution: a pre-row block belongs to the NEXT row, the founded line to the one before: "
+                   f"seed 1 {b1}"))
+    rows = {r['label']: r for r in pair_rows(this, base, [(90, 1), (90, 2)])}
+    sh = [r for r in pair_rows(this, base, [(90, 1), (90, 2)]) if r['kind'] == 'pct'][1]   # starved by 6,000
+    checks.append((rows["food taken from the pile, cells"]['hi'] == 2 and rows["born"]['b'] == [30, 50]
+                   and rows["  starved by frame 6,000"]['a'] == [1, 0] and rows["  starved by frame 6,000"]['b'] == [0, 2]
+                   and sh['pooled'] == (1 / 54, 2 / 120) and (sh['hi'], sh['lo']) == (1, 1),
+                   f"pairing: taken {rows['food taken from the pile, cells']}, starved by 6,000 share {sh}"))
     bad = [msg for ok, msg in checks if not ok]
     for msg in bad:
         print("SELFTEST FAIL:", msg)
@@ -481,15 +678,23 @@ def main():
     ap.add_argument('--log', nargs='*', default=[], help="the trailfollow run log(s), for the economy and the death reconciliation")
     ap.add_argument('--near', type=int, default=None, help="cells from the food that count as at it (default: from --log, else 10)")
     ap.add_argument('--cropcap', type=float, default=None, help="crop capacity in face J (default: from --log, else ant.ron's 5760; a log from before 2026-09-25 needs --cropcap 2880)")
-    ap.add_argument('--vs', nargs='*', default=[], help="a baseline run's trailfollow log(s): pairs starved and net food into home seed by seed")
+    ap.add_argument('--vs', nargs='*', default=[], help="a baseline run's trailfollow log(s): pairs, by (gap, seed), food taken from the pile, food at the nest, "
+                    "the ants' bodies, born, and starved by / after frame 6,000 and old age (counts and shares of ants that lived). "
+                    "Needs only the logs: `--log this.log --vs base.log` with no CSV directory")
     ap.add_argument('--selftest', action='store_true')
     args = ap.parse_args()
     if args.selftest:
         sys.exit(selftest())
-    if not args.csv_dir:
-        ap.error("give the directory of decision CSVs, or --selftest")
     global CAP
     runs, params = harness(args.log)
+    if not args.csv_dir:
+        # The paired table needs only the two logs: a bed run without
+        # `decisioncsv` can still be compared seed by seed.
+        if args.vs and args.log:
+            base, bparams = harness(args.vs)
+            versus(runs, params, base, bparams, args.gap)
+            return
+        ap.error("give the directory of decision CSVs (or --log X --vs BASE for the paired table alone), or --selftest")
     CAP = args.cropcap or params.get('cropcap', params.get('shipped_cropcap', CAP))
     near = args.near or params.get('near', 10)
     end = params.get('frames', 24000) - 10
@@ -509,11 +714,11 @@ def main():
           + f"; arms {sorted({k[2] for k in keys})}; near={near}; crop {CAP:.0f} face J")
     if len({k[2] for k in keys}) > 1 or len({k[3] for k in keys}) > 1:
         print("antloop: WARNING -- more than one arm or tag in these files; they are pooled below. Pass --tag.")
-    base = harness(args.vs)[0] if args.vs else None
+    base, bparams = harness(args.vs) if args.vs else (None, None)
     for g in sorted(by_gap):
         report(ants, runs, g)
         if base:
-            versus(runs, base, g)
+            versus(runs, params, base, bparams, g)
 
 
 if __name__ == '__main__':
