@@ -1,0 +1,96 @@
+{
+  "id": "20260929T052517482Z-2d6747",
+  "created": "2026-09-29T05:25:17Z",
+  "board": "nest",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics/.claude/worktrees/nest57",
+    "branch": "nest57-local",
+    "commit": "86adc504",
+    "agent": null,
+    "session_id": "02cfa3f7-cc46-597e-8f90-5488d21d3601",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics/.claude/worktrees/nest57"
+  },
+  "title": "Walking the spoil out, fixed: one mouth at 40 ants, but a small nest; at 200 the one shaft jams",
+  "question": "Is a small nest with one mouth the right direction at 40 ants? For bigger colonies, should nest workers relay the soil up (the granary in reverse: diggers leave pellets in the entrance chamber, nest workers carry them out), or should the colony be allowed a second or third mouth beside the door?",
+  "context_md": "You picked 'walk it out, then back to the dig'. Built and traced (digbox, 24 seeds, frames 6,000 / 12,000 / 18,000 / 24,000; seeds 4 and 10 sit on both arms' medians).\n\n**Fixed on the way:** a carrier that gave up the walk used to post its pellet up through the roof, and that alone made the earlier version grow (at 200 ants: 17,110 pellets lifted from inside, now 21). Two bugs in the walk itself: the haul aimed at a cell inside the shaft, and at the mouth the carrier lost its hurry (it read itself as home). Now a trip out takes 78 frames, not 111.\n\n| | entrances 40 ants | nest cells | entrances 200 ants | nest cells |\n|---|---:|---:|---:|---:|\n| today (the lift) | 7 | 207 | 9.5 | 613 |\n| walked out and back | **1.5** | 43 | **3** | 70 |\n\nWhile the box's colony is still fed (frame 6,000, 40 ants) the walked nest is half today's (35 against 73) with 1 mouth. At 200 ants it barely grows: every pellet goes out through one 2-wide shaft. All switches are off; the colony bed (20 / 80 founders) is running.",
+  "kind": "frames",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "today, 40 ants",
+      "files": [
+        "20260929T052517482Z-2d6747/000-new-a40-s4-f6000.png",
+        "20260929T052517482Z-2d6747/001-new-a40-s4-f12000.png",
+        "20260929T052517482Z-2d6747/002-new-a40-s4-f18000.png",
+        "20260929T052517482Z-2d6747/003-new-a40-s4-f24000.png"
+      ],
+      "caption": "the lift posts each pellet straight up over its gallery",
+      "meta": {
+        "entrances (this seed)": 7,
+        "nest cells (this seed)": 197,
+        "median entrances, 24 seeds": 7,
+        "median nest cells, 24 seeds": 207.5
+      },
+      "focus": null
+    },
+    {
+      "label": "walked out and back, 40 ants",
+      "files": [
+        "20260929T052517482Z-2d6747/004-pace-a40-s4-f6000.png",
+        "20260929T052517482Z-2d6747/005-pace-a40-s4-f12000.png",
+        "20260929T052517482Z-2d6747/006-pace-a40-s4-f18000.png",
+        "20260929T052517482Z-2d6747/007-pace-a40-s4-f24000.png"
+      ],
+      "caption": "carried out of the door at the laden pace, then back to the face",
+      "meta": {
+        "entrances (this seed)": 1,
+        "nest cells (this seed)": 42,
+        "median entrances, 24 seeds": 1.5,
+        "median nest cells, 24 seeds": 43
+      },
+      "focus": null
+    },
+    {
+      "label": "today, 200 ants",
+      "files": [
+        "20260929T052517482Z-2d6747/008-new-a200-s10-f6000.png",
+        "20260929T052517482Z-2d6747/009-new-a200-s10-f12000.png",
+        "20260929T052517482Z-2d6747/010-new-a200-s10-f18000.png",
+        "20260929T052517482Z-2d6747/011-new-a200-s10-f24000.png"
+      ],
+      "caption": "the lift, 200 ants",
+      "meta": {
+        "entrances (this seed)": 10,
+        "nest cells (this seed)": 617,
+        "median entrances, 24 seeds": 9.5,
+        "median nest cells, 24 seeds": 613.5
+      },
+      "focus": null
+    },
+    {
+      "label": "walked out and back, 200 ants",
+      "files": [
+        "20260929T052517482Z-2d6747/012-pace-a200-s10-f6000.png",
+        "20260929T052517482Z-2d6747/013-pace-a200-s10-f12000.png",
+        "20260929T052517482Z-2d6747/014-pace-a200-s10-f18000.png",
+        "20260929T052517482Z-2d6747/015-pace-a200-s10-f24000.png"
+      ],
+      "caption": "the one 2-wide shaft jams: carriers spend 40-72% of a trip in the founding cut",
+      "meta": {
+        "entrances (this seed)": 3,
+        "nest cells (this seed)": 70,
+        "median entrances, 24 seeds": 3,
+        "median nest cells, 24 seeds": 69.5
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
