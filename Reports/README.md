@@ -4045,6 +4045,22 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   entrances at 40 ants and 3 at 200, and its nest does not grow through one
   2-wide shaft (43 and 70 cells against 207.5 and 613.5). Lane note:
   [lanes/nest-mouth.md](lanes/nest-mouth.md).
+- [week-review-2026-09-29.md](week-review-2026-09-29.md) —
+  **review, read-only to the engine, 2026-09-29. `engine`/`lab`.** An adversarial read of the 34 PRs
+  the ant lines self-merged on green CI between 22 and 29 September (#485-#518, pinned at `2274e347`; #520
+  landed after the pin and is not covered), with runs on fresh seeds. **No blocker; the stack works on seeds
+  nobody tuned on** (the old ant starves out on the colony bed, the shipped one takes 5,513 cells and ends
+  with 442 ants; with the walk left on, the other thirteen defaults still add 2.6x the food and 4.5x the
+  births), **but the evidence, the guards and the records are thinner than they read.** Ranked findings: the
+  lab's sign-test gate cannot see a 15-25% loss and "no gate fired" is being written as "neutral"; **the
+  granary undid the week's one-entrance nest (3 -> 6 entrances, nest-like 20 -> 0 of 24) and leaves it leaning
+  west on 24 of 24 seeds**, because the storeroom's side is fixed (#518's title says the lean stopped);
+  12 of the 14 shipped defaults, the walk among them, are pinned by no test; the nest scorer reads an arm that stops digging as `0/0`; a colony founded over a surface
+  corpse erases it; putting `NEST_SHAFT` back alone leaves a nest that cannot dig; three defaults cost the bed
+  something at HEAD and a fourth leans the same way. Includes the 34-row PR table, the default-flip ledger, and the controls (reader
+  sensitivity, identity with positive controls, a walk-on mediating arm, two skeptic passes) that caught the
+  review's own mistakes. Lane notes: [lanes/foraging-loop.md](lanes/foraging-loop.md),
+  [lanes/nest-mouth.md](lanes/nest-mouth.md).
 - [nest-colony-size-2026-09-28.md](nest-colony-size-2026-09-28.md) —
   **measurement, 2026-09-28. `engine`.** The nest and the colony at 40, 80
   and 200 ants, the owner's question. Lane note:
