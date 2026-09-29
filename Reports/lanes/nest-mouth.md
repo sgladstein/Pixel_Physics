@@ -172,25 +172,12 @@ exploratory and carry none.
 
 ## Cards with the owner
 
-- 2026-09-26: `…52a96c` (one hole), `…77bab8` (gray is lining), `…e86359`
-  withdrawn; `…a29145` (blind: painted door against dug mouth), `…0211cf`
-  (four foundings: which reads as a nest?), `…ec6018` (the lab's buried
-  mouth).
-
-- `20260926T160641891Z-86d16b` — home that climbs the pile: every lab colony
-  builds a food tower over its door; reverting (seed 7 at five stops, all 12
-  seeds at three, the fixed mouth as control).
-- `20260929T011756489Z-b929b7` — the full granary as the default, bed
-  before and after (#513).
-- `20260929T031008312Z-5d7b1a` — one entrance round the door: shipped, walk
-  it out, out and back, lift out the nearest hole (seed 2, four stops); asks
-  which, and whether the lift may carry spoil to the door.
-- `20260929T171054067Z-ce5b22` — the nest no longer leans west (R3: the
-  half turn's coin), seeds 1 and 20 before and after.
-- `20260929T174447550Z-04be5b` — correction to `…2d6747`: the walked colony
-  buries its own door; asks for the carry away from the mouth.
-- `20260929T194807849Z-ca2baa` — tunnels two cells wide, today against
-  widened, and the stacking numbers.
+**2026-09-29: "I cannot review the queue, post questions/images in this
+chat."** Show pictures with `SendUserFile` and ask in chat; the queue cards
+below are the record, not the channel. Open in chat: the carry
+(`…04be5b`), widening (`…ca2baa`), stacking by default. Superseded by
+§11's trace: `…2d6747` (relay) and `…f4ca75` (the lab's buried mouth).
+Older cards are named in the reports that posted them.
 
 ## Head SHAs
 
