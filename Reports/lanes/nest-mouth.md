@@ -78,12 +78,14 @@ the live question, what is addressed to another lane, predictions and heads.*
 `SPOIL_OUT` fixed (`86adc504`): a carrier that gave up posted its pellet up
 through the roof (that, not the trip back, was the first build's growth),
 the haul aimed inside the shaft, and the laden pace read 0 at the mouth.
-Now 1.5 entrances at 40 ants and 3 at 200, but the nest does not grow
-through one 2-wide shaft: 43 and 70 cells against the lift's 207.5 and
-613.5. Bed: starvation no worse, births lower (160 against 223 at 20
-founders). Lab: births 0.76 per seed; the walked mouth ends under its own
-loose soil, pellets set on its rim run back in (open 1 of 12 against 6). Card `…2d6747` asks: relay the soil up through nest workers,
-or let the colony open more mouths beside the door?
+Now 1.5 entrances at 40 ants and 3 at 200, but a small nest: 43 and 70
+cells against the lift's 207.5 and 613.5. Bed: starvation no worse, births
+lower (160 against 223 at 20 founders). Lab: births 0.76 per seed; the
+mouth ends under its own loose soil (open 1 of 12 against 6). **Traced
+(§11): not a shaft jam.** Carriers put pellets on the mouth's rim and bury
+their own exit (53% of top-cell decisions have no way up); card `…2d6747`'s
+relay would not help (dead end creatures:112). Card `…04be5b` asks: may a
+carrier walk its pellet away from the mouth first (a crater ring)?
 
 - **The granary does not scale.** On the bed at 80 founders: starved 848 ->
   1,102, fewer alive at the end on 21 of 24. At 20 it pays (born 144 ->
@@ -94,9 +96,8 @@ or let the colony open more mouths beside the door?
   scouting there. Read late stops with that in mind.
 
 **Next** (2026-09-29):
-1. The owner's answer on `…2d6747`; then the relay (diggers leave pellets in
-   the entrance chamber, nest workers carry them out: the granary in
-   reverse) or more mouths, the lab, tests, and a PR.
+1. The owner's answer on `…04be5b`; then the carry away from the mouth as a
+   switch, off, at 40 and 200 ants, the bed and the lab, and a PR.
 2. **Nest workers who go out when the colony is hungry** (the scale cost;
    harvester workers switch tasks with the colony's need).
 3. The brain input for the cue (owner's order), planned with the lab lines.
@@ -181,6 +182,8 @@ exploratory and carry none.
   which, and whether the lift may carry spoil to the door.
 - `20260929T171054067Z-ce5b22` — the nest no longer leans west (R3: the
   half turn's coin), seeds 1 and 20 before and after.
+- `20260929T174447550Z-04be5b` — correction to `…2d6747`: the walked colony
+  buries its own door; asks for the carry away from the mouth.
 
 ## Head SHAs
 

@@ -4029,8 +4029,11 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   growth with the colony (304 cells at 200 ants) was carriers giving up and
   lifting through the roof. Traced and fixed (no lift from inside, the haul
   aimed at the door, the laden pace kept to the mouth), it keeps 1.5
-  entrances at 40 ants and 3 at 200, and its nest does not grow through one
-  2-wide shaft (43 and 70 cells against 207.5 and 613.5). Lane note:
+  entrances at 40 ants and 3 at 200, but a small nest (43 and 70 cells
+  against 207.5 and 613.5). **§11 corrects §10's reading of the limit**:
+  traced, it is not a queue in the shaft; the carriers put their pellets on
+  the mouth's rim and bury their own exit (53% of top-cell decisions have no
+  way up), so a relay through nest workers would not help. Lane note:
   [lanes/nest-mouth.md](lanes/nest-mouth.md).
 - [nest-colony-size-2026-09-28.md](nest-colony-size-2026-09-28.md) —
   **measurement, 2026-09-28. `engine`.** The nest and the colony at 40, 80

@@ -2829,6 +2829,21 @@ struct TripLog {
     /// an animal made holding a pellet -- which headings were usable, the move
     /// roll against `p_move`, what came of it, the chooser's patience.
     decisions: Option<std::io::BufWriter<std::fs::File>>,
+    /// **Who a carrier stood facing** (`JAM`), by what that animal was doing
+    /// ([`TripAnt::role`]), and of those how many stood still themselves.
+    /// The report said carriers stood "behind one another" in the shaft at
+    /// 200 ants and never traced it: a queue of carriers, nest workers at
+    /// home in the cut and diggers on their way down want different fixes.
+    stood_by: [u64; 4],
+    stood_by_still: [u64; 4],
+    /// Heads in the founding shaft each frame, summed by role, over
+    /// `shaft_frames` frames; and in the rest of the founding cut.
+    shaft_pop: [u64; 4],
+    cut_pop: [u64; 4],
+    shaft_frames: u64,
+    /// The same stands by where the carrier was ([`TripAnt::place`]) and
+    /// what it faced: an animal by role, then ground, then nothing.
+    stood_at: [[u64; 6]; 4],
 }
 
 #[derive(Clone, Copy)]
@@ -2839,7 +2854,22 @@ struct TripAnt {
     patience: f32,
     covered: bool,
     in_cut: bool,
+    /// Its head in the shaft proper, not the chamber or the side room.
+    in_shaft: bool,
+    /// What it is doing: 0 carrying a pellet, 1 a store load, 2 nest-bound
+    /// with nothing held, 3 anything else (a digger, a scout, an idler).
+    role: u8,
+    /// Where: 0 at the mouth (the rim and the shaft's top rows,
+    /// `ShaftFootprint::touches_mouth`), 1 lower in the shaft, 2 elsewhere in
+    /// the founding cut (the chamber, the side room), 3 outside the cut.
+    place: u8,
 }
+
+/// [`TripAnt::place`]'s names, for `JAM`.
+const JAM_PLACES: [&str; 4] = ["at the mouth", "lower in the shaft", "in the chamber or side room", "outside the cut"];
+
+/// [`TripAnt::role`]'s names, for `JAM`.
+const JAM_ROLES: [&str; 4] = ["carrying a pellet", "a store load", "nest-bound, empty", "other, empty"];
 
 #[derive(Clone, Copy, Default)]
 struct Trip {
@@ -2879,10 +2909,24 @@ impl TripLog {
                 let c = world.get(hx, hy - dy);
                 c.material != material::EMPTY && c.organism_id() == 0 && matches!(world.materials.kind(c.material), MaterialKind::Powder | MaterialKind::Solid)
             });
-            let in_cut = world.nearest_nest_site(hx, hy).and_then(|i| world.nest_sites.get(i)).and_then(|s| s.shaft).is_some_and(|c| c.contains(hx, hy));
+            let cut = world.nearest_nest_site(hx, hy).and_then(|i| world.nest_sites.get(i)).and_then(|s| s.shaft);
+            let in_cut = cut.is_some_and(|c| c.contains(hx, hy));
+            let in_shaft = cut.is_some_and(|c| c.in_shaft(hx, hy));
+            let place = match cut {
+                Some(c) if c.touches_mouth(hx, hy) => 0,
+                Some(c) if c.in_shaft(hx, hy) => 1,
+                Some(c) if c.contains(hx, hy) => 2,
+                _ => 3,
+            };
+            let role = match st.spoil {
+                Some(p) if !p.store => 0,
+                Some(_) => 1,
+                None if st.nest_bound_until > world.frame => 2,
+                None => 3,
+            };
             out.insert(
                 id,
-                TripAnt { head: (hx, hy), heading: st.heading, holding: st.spoil.is_some_and(|p| !p.store), patience: st.home_patience, covered, in_cut },
+                TripAnt { head: (hx, hy), heading: st.heading, holding: st.spoil.is_some_and(|p| !p.store), patience: st.home_patience, covered, in_cut, in_shaft, role, place },
             );
         }
         out
@@ -2979,6 +3023,19 @@ impl TripLog {
                     2 => t.stood_ground += 1,
                     _ => t.stood_open += 1,
                 }
+                if ahead >= 2 {
+                    self.stood_at[pre.place as usize][2 + ahead as usize] += 1;
+                }
+                if ahead == 1 {
+                    let (dx, dy) = DIRS[pre.heading as usize % 8];
+                    let bid = world.get(pre.head.0 + dx, pre.head.1 + dy).organism_id();
+                    let role = self.before.get(&bid).map_or(3, |a| a.role) as usize;
+                    self.stood_by[role] += 1;
+                    self.stood_at[pre.place as usize][role] += 1;
+                    if self.before.get(&bid).zip(now.get(&bid)).is_some_and(|(a, q)| a.head == q.head) {
+                        self.stood_by_still[role] += 1;
+                    }
+                }
                 if let Some(w) = self.csv.as_mut() {
                     let _ = writeln!(
                         w,
@@ -3004,10 +3061,49 @@ impl TripLog {
                 }
             }
         }
+        for a in now.values() {
+            if a.in_shaft {
+                self.shaft_pop[a.role as usize] += 1;
+            } else if a.in_cut {
+                self.cut_pop[a.role as usize] += 1;
+            }
+        }
+        self.shaft_frames += 1;
         self.before = now;
     }
 
     fn print(&self, frame: u64) {
+        let stood = self.stood_by.iter().sum::<u64>().max(1) as f64;
+        let by = (0..4)
+            .map(|r| format!("{} {:.1}% (itself still {:.1}%)", JAM_ROLES[r], 100.0 * self.stood_by[r] as f64 / stood, 100.0 * self.stood_by_still[r] as f64 / self.stood_by[r].max(1) as f64))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let mean = |pop: &[u64; 4]| (0..4).map(|r| format!("{} {:.2}", JAM_ROLES[r], pop[r] as f64 / self.shaft_frames.max(1) as f64)).collect::<Vec<_>>().join(", ");
+        println!(
+            "JAM frame={frame} carrying frames standing facing an animal {}: it was {by} | heads in the founding shaft, mean over frames: {} | in the rest of the founding cut: {}",
+            self.stood_by.iter().sum::<u64>(),
+            mean(&self.shaft_pop),
+            mean(&self.cut_pop)
+        );
+        let all = self.stood_at.iter().flatten().sum::<u64>().max(1) as f64;
+        let at = (0..4)
+            .map(|p| {
+                let r = &self.stood_at[p];
+                format!(
+                    "{} {:.1}% (facing a carrier {}, a store load {}, nest-bound {}, other {}, ground {}, nothing {})",
+                    JAM_PLACES[p],
+                    100.0 * r.iter().sum::<u64>() as f64 / all,
+                    r[0],
+                    r[1],
+                    r[2],
+                    r[3],
+                    r[4],
+                    r[5]
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(" | ");
+        println!("JAMAT frame={frame} carrying frames standing, by where the carrier stood: {at}");
         let c = &self.closed;
         let n = c.len();
         let q = |mut v: Vec<u64>, p: f64| -> u64 {

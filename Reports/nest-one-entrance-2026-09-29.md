@@ -1,7 +1,8 @@
 # One entrance round the door (2026-09-29)
 
 **Status: measurement and switches, all off; the owner picked the walked
-cycle (§7), traced and fixed in §10.** The nest lane's live question after the granary shipped
+cycle (§7), traced and fixed in §10; what holds it at 200 ants traced in
+§11.** The nest lane's live question after the granary shipped
 (#513): with a five-column door instead of the old 53-column strip of nest
 paint, a colony in `digbox` opens 6-7 entrances where it used to open 2.
 This report finds why, builds three ways to fix it behind switches, and
@@ -15,8 +16,12 @@ here that did not survive is corrected in §0 and §4**: what made the first
 build's nest grow with the colony was a carrier giving up the walk and
 posting its pellet up through the roof, not the trip back.
 
+**§11 corrects §10's reading of the 200-ant limit**: the walked carriers are
+not queueing in the shaft, they are shut in by their own spoil on the mouth.
+
 Lane note: [lanes/nest-mouth.md](lanes/nest-mouth.md). Predictions 168-206
-were written before their runs; they are in §8 with their scores.
+and 215-217 were written before their runs; they are in §8 with their
+scores.
 
 ## 0. What was found, in world terms
 
@@ -43,6 +48,14 @@ were written before their runs; they are in §8 with their scores.
   roof** (§10). Without that, the walked cycle keeps 1.5 entrances at 40
   ants and 3 at 200, and its nest barely grows with the colony: 43 cells
   and 70.
+- **At 200 ants the walked colony buries its own door** (§11). A walked
+  carrier puts its pellet down on the first ground outside, the mouth's
+  rim, and a mound grows over the mouth; at the shaft's top cell 53% of a
+  carrier's decisions have no way up. §10 read the carriers' standing time
+  as a queue in the shaft. It is not one: they step on 78% of their
+  decisions and wander the storeroom and galleries, as often down as up.
+  So a relay through nest workers would bring the same pellets to the same
+  rim.
 - **Sending the lift out through the passages instead of up the column**
   keeps the digger at its face and digs more than today, but puts each
   pellet out of whichever hole is nearest, so every hole grows a heap: 5
@@ -269,6 +282,9 @@ placement rules), so it waits on the owner.
 | 204 | the same, 80 founders | starved at most +25% | holds (1,097 against 1,102) |
 | 205 | lab, walked cycle against off | births within 25% per seed | holds, barely (0.756) |
 | 206 | the same, labshot's census at frame 119,700 | the mouth open on at least as many seeds | fails (1 of 12 against 6) |
+| 215 | walked, 200 ants, frames 0-6,000, 6 seeds | a carrier standing facing an animal faces another carrier at least half the time | holds (59%, 44-65 by seed) |
+| 216 | the same | nest workers with nothing held at least a quarter of the heads in the shaft | fails (8-17%) |
+| 217 | walked, 40 ants | the shaft holds under 2 heads on average | holds (1.29) |
 
 188-189 were first written for `energy=20000`, digbox's own default; eight
 runs had started when it was noticed that at that energy every ant buds past
@@ -293,6 +309,13 @@ any finished or was read, deleted, and the arm changed to scouting off.
   walk faults in §10; the `TRIPS` shares alone did not.
 - `digbox`'s site line: the nest site, its cut, and whether the haul's
   target lies inside the cut.
+- `digbox`'s `JAM` and `JAMAT` lines (§11): when a carrier stood facing an
+  animal, what that animal was doing (carrying a pellet, a store load, a
+  nest worker with nothing held, anything else) and whether it stood too;
+  the mean heads in the shaft and the rest of the cut by the same roles; and
+  every standing frame by where the carrier was (at the mouth, lower in the
+  shaft, in the chamber or side room, outside the cut) and what it faced.
+  Frames, like `TRIPS`, so read it for where, not for how often.
 - The tallies are scratch scripts (`openings.py`, `caste.py`, `arms.py`);
   `nestscore.py` reads the scoreboard and funnel as before, and its pellet
   line is unchanged (pellets carried out count as lifted, with their own
@@ -390,3 +413,56 @@ All three are off unless `PIXEL_PHYSICS_SPOIL_OUT` is set;
 `PIXEL_PHYSICS_SPOIL_HAUL` alone keeps its old target. Unset, every build
 reproduced the run before it line for line in `digbox` (seed 1, 40 and 200
 ants) and byte for byte on the bed.
+
+## 11. What holds the walked carriers at 200 ants: their own spoil on the mouth
+
+*Later on 2026-09-29, before building either answer on card `…2d6747`
+(nest workers relay the soil up, or more mouths beside the door).
+`digbox` with the `JAM` and `JAMAT` lines (§9), `SPOIL_OUT=on`, 200 ants,
+energy 1,000, frames 0-6,000 while the box is fed, seeds 1-6; the lift
+beside it; seed 1's carriers traced decision by decision with
+`decisions=`.*
+
+**Not a queue in the shaft.** §10 read the carriers' standing time in the
+founding cut as a queue in its two-wide shaft, and the card asked on that
+reading. Traced, the reading was wrong:
+
+- **Where they stand.** Of a carrier's standing frames, 12-16% are at the
+  mouth (its rim and top rows), 5-9% lower in the shaft, 37-47% in the
+  chamber and the side room, and 30-41% in the galleries. The ants a stood
+  carrier faces are other carriers (median 59%), ants with nothing held
+  (34%) and nest workers (6%); the shaft holds 3.5 heads on average.
+- **They are not stuck, they are lost.** Seed 1, 10,410 carrier decisions:
+  they step on 78% of them. 77% of the decisions are in the side room and
+  the galleries off it (58% in the side room's three rows alone), where
+  they go up 2,362 times and down 2,262, and the step taken points at the
+  door no better than chance (mean cosine 0.08; 0.12 lower in the shaft,
+  -0.03 at the mouth).
+- **What shuts them in is the mouth.** At the shaft's top cell, 53% of a
+  carrier's decisions have no way up at all (north, north-east and
+  north-west all blocked); one row down, 62%. Ant 20 took its pellet in the
+  chamber at frame 847, was at the top of the shaft by 1,033, shuttled
+  between the top rows until 1,123 because the only way on was back,
+  wandered back down past the passage, fell into the chamber at 1,249, and
+  was still holding at 1,261.
+- **What covers the mouth is the colony's own spoil.** A walked carrier
+  puts its pellet down on the first ground outside the cut, which is the
+  mouth's rim (§3; §10's buried mouth in the lab box is the same thing
+  over 120,000 frames). At 200 ants a mound of spoil and ants covers the
+  mouth by frame 2,000; at 40 ants a heap sits on it by frame 4,000
+  (card `…04be5b`, seed 1).
+
+**So a relay would not help.** It brings the same pellets up the same shaft
+to the same rim, and the nest workers who would carry them are 6% of what
+stands in a carrier's way. More mouths beside the door would each grow the
+same mound. **The lever is where a pellet goes down.** Harvester ants carry
+soil some way from the entrance and leave a crater ring round an open mouth
+(the drop-distance `p(r)` in `nest-entrance-dimensions-2026-09-19.md` §1).
+Here that would be the ant's own walk: a carrier outside the nest keeps
+walking away from the mouth for a distance it draws before it may put the
+pellet down, as it carries food home before it may drop it. That is the ant
+carrying, not a rule placing soil, but it is close to the owner's ruling of
+2026-08-31 on where spoil goes, so it is put to the owner on card
+`…04be5b` before it is built. Dead end: the relay, sized by this trace and
+not built.
+
