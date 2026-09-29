@@ -1,18 +1,6 @@
 # Ants
 
-*Current as of: 2026-09-29, when **foragers stopped retiring, and started
-standing down when the food runs out.** A forager used to make one to three
-trips and then stay at the nest for the rest of its life, nibbling the store,
-because a piece it picked up a step off the nest's own ground, or down the
-shaft, counted as a load to carry home rather than a lunch to take out. Now
-any food it picks up before it has gone out on a trip is a packed lunch, so
-it heads back out. And it keeps going back out only while other foragers are
-bringing food home: when no food has come home for about one round trip, the
-fed ones stand down. In a test colony with food 90 cells away, each ant makes
-nearly twice as many trips, four times as much food comes off the heap and
-ten times as many young are born; in the lab box, twice the young, two thirds
-more food eaten, and no more boxes dying out.
-The same day, **a colony got one front door and a
+*Current as of: 2026-09-29, when **a colony got one front door and a
 granary.** A new colony used to paint a long strip of nest along the ground,
 and each founder called the spot it happened to be standing on home. Now it
 paints a small door, five cells wide, over the shaft it digs, and every
@@ -29,6 +17,13 @@ gain is small, because a quarter of the colony no longer goes out for food.
 In the lab box a colony now stays smaller and steadier: it raises half as many
 young, but far fewer starve, none of a dozen test boxes died out, and it
 leaves most of the plants standing instead of grazing the box bare.
+The same day, **fed foragers started standing down when no food is
+coming home.** A forager that has eaten goes back out while other foragers
+keep bringing food in; when none has come home for about one round trip, the
+fed ones stay home. Where food keeps arriving nothing changes. A second
+change, letting a forager take the nest's own food out with it as a lunch,
+was tried the same day and held back: with the new front door it walks out
+west with its lunch, where there is nothing to find, digs, and starves.
 On 2026-09-28, **a birth stopped killing its parent.** An
 ant a little short of the price of young makes up the rest from food beside
 it, and it used to count seeds at their full worth though a bitten seed often
@@ -58,7 +53,8 @@ downward (below). A forager used to go out only
 when it was hungry itself. It brought a load home, ate its fill off the nest
 floor and sat at home until hunger sent it out again, so food never built up at
 the nest. Now an ant that has once picked up food out in the world keeps going
-back for more, hungry or fed. And a loaded forager used to lose its sense of
+back for more, hungry or fed, for as long as foragers keep bringing food
+home; when none has for about one round trip, the fed ones stay in. And a loaded forager used to lose its sense of
 the way home while it filled up at a heap, because climbing the heap counted as
 failing to get nearer home. Some walked off the far side of the heap and away.
 Now each mouthful restarts its sense of home and it turns for the nest. In a

@@ -14727,14 +14727,24 @@ pub fn packed_lunch_of(world: &World) -> bool {
 /// below which an outing is loitering at home, not a trip -- counts as
 /// taken at home for the lunch. Only the lunch reads it: `foraged` and
 /// `pickups_at_nest` keep the nest-contact rule. Read once per process.
+///
+/// **Off by default, on a measured harm** (2026-09-29, §22t). Before the
+/// nest lane's granary it tripled what came off the pile; on the granary
+/// (#513: door, storeroom, nest workers, `keep`) it is the whole of a loss,
+/// 24 seeds at 90 cells: starved 75 -> 215 (more on 20), food taken 6,088 ->
+/// 4,726 (less on 20). Traced ant by ant: a forager that takes food at the
+/// door now leaves with it as a lunch at full drive, with no bearing, and on
+/// the door's open ground west of the nest it digs until it starves -- the
+/// granary alone has that ant carry the food home and live off the room.
+/// What it lacks is a way out, not a reason to go.
 pub fn store_lunch_from_env() -> bool {
     static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *V.get_or_init(|| match std::env::var("PIXEL_PHYSICS_STORE_LUNCH").unwrap_or_default().trim() {
-        "on" | "" => true,
-        "off" => false,
+        "on" => true,
+        "off" | "" => false,
         other => {
-            eprintln!("PIXEL_PHYSICS_STORE_LUNCH={other:?}: unknown, read as on (off, on)");
-            true
+            eprintln!("PIXEL_PHYSICS_STORE_LUNCH={other:?}: unknown, read as off (off, on)");
+            false
         }
     })
 }
