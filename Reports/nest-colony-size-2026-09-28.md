@@ -79,11 +79,29 @@ larger ones the same as without it: 27%, 43% and 50% starved, born 0.06,
 - Why each ant fetches less in a bigger colony was not traced. It belongs to
   the foraging lane's region, and is passed to it.
 
-## 3. What it says
+## 3. What scales and what does not
 
-- The nest's one-entrance rules hold at 40 ants and not beyond. A bigger
-  colony needs its extra digging kept below the crust, not only its
-  entrances limited.
+The owner, on these numbers: develop at one size and expand later, but the
+nests must eventually work for larger colonies, not only 20-ant ones. **So
+from here on every nest measurement also runs at 200 ants in `digbox`, and
+every colony measurement at 80 founders on the bed**, beside the small
+colony, so that a mechanism that only works small shows the day it is built.
+
+What each piece the lane has built does as the colony grows:
+
+| piece | how it is sized | what 200 ants do to it |
+|---|---|---|
+| founding shaft (6 rows, 2 wide, a 7-cell chamber) | fixed at founding, as a queen's first burrow | the colony enlarges it: dug cells per ant hold at 1.2-1.7 |
+| heap cue (an opening needs a heap beside it) | a rule each cut applies | openings cut from the surface: 14 a run, against 2 at 40 ants. At 40 and 80 ants every one had spoil within 2 cells; at 200 the median seed's had spoil near on 26% (mean 0.3 cells). So the extra openings get past the cue some other way -- not traced |
+| dig-down turn (an enclosed ant turns down) | a rule each ant applies | the nest deepens a little (90th-percentile depth 9 -> 13 rows), and the rest of the digging spreads sideways under the crust (pictures) |
+| storeroom (`side`: one room, 7 columns) | fixed at founding | not measured at size. One room cannot hold a big colony's store; real granaries are many chambers, added as the colony grows |
+| nest-worker caste (one ant in `k`) | a share of the colony | grows with it; not measured at size |
+| the door (5 painted columns) | fixed | every forager of a big colony converges on 5 columns; not measured |
+
+- **The first scale question for the nest is what opens the surface at 200
+  ants**, since it is not the heap: a per-cut trace, before any lever.
+- **A scale-ready storeroom grows**: store space dug when the room is full
+  (the carry already counts `store_room_full`), rather than one room cut at
+  founding.
 - Every colony number this lane and the foraging lane have quoted is a
-  20-founder number. The storeroom (`nest-granary-2026-09-28.md` §8j) was
-  measured at that size too.
+  20-founder number, the storeroom's included.

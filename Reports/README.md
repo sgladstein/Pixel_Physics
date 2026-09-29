@@ -4051,8 +4051,10 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   - **A storeroom off one side of the entrance tunnel (`side`, §8j)**, the
     owner's yes: five times as many loads get down (31.5 a run against 5.5)
     and births rise 144 -> 203 with the mouth under the door, but the room
-    holds about what the chamber at the tunnel's foot did: the colony uses
-    the food.
+    holds about what the chamber at the tunnel's foot did: traced, the nest
+    workers eat it as it comes in, fed or not. **Kept for the hungry**
+    (`keep`, §8k), the room becomes a granary (4.9 cells against 1.8, more
+    on 21 of 24) with the same births and starvation, at 80 founders too.
 - [nest-heap-cue-2026-09-28.md](nest-heap-cue-2026-09-28.md) —
   **measurement and a default change, 2026-09-28. `engine`/`lab`.** One
   entrance instead of ten: a dig that would open the ground to the sky needs

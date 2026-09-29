@@ -39,7 +39,9 @@ are the fed ants that also breed. Found on the way: the door alone now helps
 the bed a great deal (starved 93 -> 15). **With a nest-worker caste and the
 storeroom off one side of the entrance tunnel** (§8j), five times as many
 loads get down and births rise 144 -> 203, but the room holds about as much
-as the chamber at the tunnel's foot did: the colony uses the food.
+as the chamber at the tunnel's foot did: the nest workers eat it as it comes
+in, fed or not. **Kept for the hungry** (`keep`, §8k), the room holds 4.9
+cells on average against 1.8, with the same births and starvation.
 
 ## 1. Where this sits
 
@@ -212,6 +214,9 @@ form the store's food is drawn two ways.
 | 154 | side room against the foot chamber, mouth beside the door, nest workers walking (§8j) | room food (time-averaged) higher on at least 14 of 24 | 8 of 24 (under the door: 11) | wrong |
 | 155 | same | food taken within ±10%; starved within ±25 | +4%; 92 against 89 | right |
 | 156 | same | loads delivered a run at least twice the foot chamber's | 30.5 against 8 (under the door 31.5 against 5.5) | right |
+| 157 | `keep`, side room, mouth under the door (§8k) | room food higher than without `keep` on at least 16 of 24; median at least 3 cells | 21 of 24; 4.87 | right |
+| 158 | same | births below 203 | 226 (10 / 12) | wrong |
+| 159 | `keep` at 80 founders | room food higher than without `keep` on at least 16 of 24 | 21 of 24 | right |
 
 ## 8. B, built: foragers drop at the door, ants at home carry it in
 
@@ -518,5 +523,52 @@ born.
 - **The shaft still holds 4-6 food cells in every arm**, with a storeroom or
   without: that food comes down from the door, not from the store.
 
-**Next**: trace where the side room's food goes, per load, before tuning
-it. The arm to take forward is the side room with the mouth under the door.
+### 8k. Where the stored food went, and a store kept for the hungry
+
+**Traced bite by bite** (a scratch build logging every food cell an ant took
+out of the storeroom, and who took it; the traced runs reproduce the measured
+ones seed for seed). Side room, mouth under the door, 24 runs:
+
+| food taken out of the room | side room | chamber at the foot |
+|---|---:|---:|
+| loads delivered in | 739 | 179 |
+| bites by fed nest workers | 4,676 (69%) | 1,048 (41%) |
+| bites by hungry nest workers | 703 (10%) | 669 (26%) |
+| bites by fed foragers (a packed lunch) | 1,081 (16%) | 467 (18%) |
+| bites by hungry foragers | 210 (3%) | 313 (12%) |
+| dug out as spoil, or spent on a birth | 153 | 42 |
+
+**The nest workers ate the store as it came in, fed or not.** A bite is a
+mouthful, not a cell, so the rows count how often each kind of ant ate there.
+
+**`keep`: food in the storeroom is eaten only by a hungry ant**
+(`store_kept`, a part of `PIXEL_PHYSICS_STOREROOM`, off). A fed ant's won
+feed roll on a storeroom cell takes nothing. Its "it fired" counter,
+`store_kept`, reads 762-1,574 refusals on the first two seeds. Off, it reads
+the switch and nothing else: the bed's default is unchanged on 24 of 24
+seeds.
+
+| side room, mouth under the door, 24 seeds | 20 founders | + `keep` | 80 founders | + `keep` |
+|---|---:|---:|---:|---:|
+| food in the room, frames 3,000-24,000 (median) | 1.76 | **4.87** | 2.43 | **3.66** |
+| ... more than without `keep` | | 21 of 24 | | 21 of 24 |
+| time with 3+ cells in the room | 27% | 64% | 36% | 57% |
+| loads delivered a run | 31.5 | 15.5 | 32 | 27.5 |
+| food taken from the pile | 5,900 | 6,088 | 8,413 | 8,218 |
+| starved | 75 | 75 | 1,088 | 1,102 |
+| born | 203 | 226 (10 / 12) | 73 | 72 |
+
+- **The room becomes a granary**: in pictures it fills with food from about
+  frame 12,000, where without `keep` it stays nearly empty.
+- **Births and starvation do not move**, at 20 founders or at 80. Food
+  standing at the nest rises 10,112 -> 12,536 J (higher on 19 of 24).
+- **Fewer loads are needed** (31.5 -> 15.5 a run): the room holds what it is
+  given.
+- The rule is in the foraging lane's region (what an ant eats), so it lands
+  as a switch they review. The whole granary is
+  `NEST_DOOR=2 STOREROOM=on,caste=4,workerhome,side,keep`.
+
+**Next**: whether the granary should come on by default is the owner's call
+with the foraging lane: it costs the colony bed starvation (75 against 23 for
+the door alone, the caste's cost) and raises births (226 against 136). And
+at scale the room is one room: a bigger colony's store will need more.

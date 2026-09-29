@@ -3085,8 +3085,8 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
                     || ", STOREROOM no cut".to_string(),
                     |([ch, sh, up, down, cch, csh, cup, cdown, bound], fill)| {
                         format!(
-                            ", STOREROOM room {ch} shaft {sh} surface {up} under {down}; pickups {} delivered {} held {} released {} full {}; carriers {cch}/{csh}/{cup}/{cdown}; nestbound {bound}; post misses {:?}; shaft holds {fill:?}",
-                            cs.store_pickups, cs.store_delivered, cs.store_held, cs.store_released, cs.store_room_full, cs.store_post_misses
+                            ", STOREROOM room {ch} shaft {sh} surface {up} under {down}; pickups {} delivered {} held {} released {} full {}; carriers {cch}/{csh}/{cup}/{cdown}; nestbound {bound}; post misses {:?}; shaft holds {fill:?}; kept {}",
+                            cs.store_pickups, cs.store_delivered, cs.store_held, cs.store_released, cs.store_room_full, cs.store_post_misses, cs.store_kept
                         )
                     },
                 )

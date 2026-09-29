@@ -59,6 +59,12 @@ the live question, what is addressed to another lane, predictions and heads.*
   Just use a simpler test environment for now." The granary is developed on
   the colony bed (`trailfollow`: soil, one food pile, 20 founders, no plants
   or weather) and `digbox`, not the lab box.
+- **2026-09-28: build at one size, then expand -- to larger colonies.** "It
+  is fine if we develop the next on a certain ant size and then expand it
+  ... We eventually do want our nests to work for larger colonies." Every
+  nest measurement also runs at 200 ants in `digbox`, and every colony one
+  at 80 founders on the bed; what scales is in
+  [`../nest-colony-size-2026-09-28.md`](../nest-colony-size-2026-09-28.md) §3.
 
 ## Live question
 
@@ -92,9 +98,9 @@ and since 2026-09-28 that is the shipped ant**
 
 **Next** (2026-09-28):
 1. **The storeroom off one side of the tunnel** (`side`, report §8j; the
-   owner said yes). Nest workers get five times as many loads down (31.5 a
-   run) and births rise 144 -> 203 with the mouth under the door; the room
-   holds about what the foot chamber did. Next: trace where its food goes.
+   owner said yes): five times the loads, births 144 -> 203, but the nest
+   workers ate the store as it came. `keep` (§8k: only the hungry eat it)
+   makes it a granary, 4.9 cells against 1.8, births and starvation same.
    Colony size (`../nest-colony-size-2026-09-28.md`): every number here is
    a 20-founder number; one entrance no longer holds from 80 ants.
 2. **Dig down's bed cost, traced** (report §16, packed lunch on; shares of
@@ -174,14 +180,10 @@ exploratory and carry none.
 
 ## Cards with the owner
 
-- 2026-09-26: `…52a96c` (one hole, 40 ants), `…77bab8` (gray is lining);
-  `…e86359` withdrawn.
-- `20260926T061431136Z-a29145` — blind: the painted door against the dug
-  mouth with no paint, as GIFs of ants coming home (bed, seed 1).
-- `20260926T064019633Z-0211cf` — four foundings on the colony bed, five
-  stops, with both beds' counts in meta: which reads as a nest?
-- `20260926T064023411Z-ec6018` — the dug mouth in the lab box, buried by the
-  colony's own food: should a lab nest keep its mouth open?
+- 2026-09-26: `…52a96c` (one hole), `…77bab8` (gray is lining), `…e86359`
+  withdrawn; `…a29145` (blind: painted door against dug mouth), `…0211cf`
+  (four foundings: which reads as a nest?), `…ec6018` (the lab's buried
+  mouth).
 
 - `20260926T160641891Z-86d16b` — home that climbs the pile: every lab colony
   builds a food tower over its door; reverting (seed 7 at five stops, all 12
@@ -193,10 +195,8 @@ Older heads, from the branch cut (`636612c6`, 2026-09-26) through #507
 (`97129556`) and the dig-down work merged as #508, are in `git log` and in
 the reports each one names.
 
-- `34e07b86` (#508) — merged: dig down on for an enclosed digger, refused
-  only where there is no way down. GitHub deleted the branch; restarted
-  from `main` the same day, same name.
-- `f703472a` — `main` merged in (#509, packed lunch on). The bed baseline:
-  4,574 taken / 93 starved / 151 born, reproduced exactly here.
+- `7933010e` (#512) — merged: the storeroom (off), castes, the room
+  series, the heap cue's floor fix. Branch restarted from `main`.
+- `e3296aaa` (#513) — the side storeroom (off) and colony size.
 - `828ce885` — the storeroom (B) as `PIXEL_PHYSICS_STOREROOM`, off; `off`
   is `main`'s bed line for line; the suite passes on it.

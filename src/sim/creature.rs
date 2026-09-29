@@ -3034,11 +3034,15 @@ pub struct Storeroom {
     /// not apply, since nothing can be handed down a shaft into a room beside
     /// it.
     pub side: bool,
+    /// `keep`: **food in the storeroom is eaten only by a hungry ant**
+    /// ([`store_kept`]), so the room holds food rather than feeding whoever
+    /// lives beside it.
+    pub keep: bool,
 }
 
 impl Storeroom {
     /// No storeroom: the ant as shipped.
-    pub const OFF: Storeroom = Storeroom { carry: false, room_home: false, once: false, post: false, nest_bound: 0, nest_bound_founders: 0, caste: 0, worker_home: false, side: false };
+    pub const OFF: Storeroom = Storeroom { carry: false, room_home: false, once: false, post: false, nest_bound: 0, nest_bound_founders: 0, caste: 0, worker_home: false, side: false, keep: false };
 
     /// Whether food is carried into the room under this rule.
     pub fn carries(self) -> bool {
@@ -3060,7 +3064,7 @@ impl Storeroom {
 /// The switch's own spelling: `off`, or its parts joined by commas.
 impl std::fmt::Display for Storeroom {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let mut parts: Vec<String> = [(self.carry, "on"), (self.room_home, "home"), (self.once, "once"), (self.post, "post"), (self.worker_home, "workerhome"), (self.side, "side")].iter().filter(|(on, _)| *on).map(|&(_, name)| name.to_string()).collect();
+        let mut parts: Vec<String> = [(self.carry, "on"), (self.room_home, "home"), (self.once, "once"), (self.post, "post"), (self.worker_home, "workerhome"), (self.side, "side"), (self.keep, "keep")].iter().filter(|(on, _)| *on).map(|&(_, name)| name.to_string()).collect();
         if self.caste > 0 {
             parts.push(format!("caste={}", self.caste));
         }
@@ -3148,6 +3152,7 @@ fn parse_storeroom(raw: &str) -> Storeroom {
             "nestbound" => out.nest_bound = NEST_BOUND_FRAMES,
             "workerhome" => out.worker_home = true,
             "side" => out.side = true,
+            "keep" => out.keep = true,
             other if other.starts_with("caste=") => match other["caste=".len()..].parse::<u32>() {
                 Ok(k) if k > 0 => out.caste = k,
                 _ => {
@@ -3170,7 +3175,7 @@ fn parse_storeroom(raw: &str) -> Storeroom {
                 }
             }
             other => {
-                eprintln!("PIXEL_PHYSICS_STOREROOM={raw:?}: unknown part {other:?}, read as off (off, or any of on, home, once, post, nestbound[=<frames>[/<k>]], caste=<k>, workerhome, side)");
+                eprintln!("PIXEL_PHYSICS_STOREROOM={raw:?}: unknown part {other:?}, read as off (off, or any of on, home, once, post, nestbound[=<frames>[/<k>]], caste=<k>, workerhome, side, keep)");
                 return Storeroom::OFF;
             }
         }
@@ -3417,6 +3422,25 @@ fn store_pickup_ok(world: &mut World, organism: OrganismId, def: &CreatureDef, (
         return false;
     }
     true
+}
+
+/// **Whether a bite of the storeroom's food is refused** (`keep`,
+/// [`storeroom_of`]): the cell lies in a storeroom and the animal is fed, at
+/// or above its `start_energy`. A hungry animal eats from the store as
+/// before.
+///
+/// **Why the rule is needed** (`Reports/nest-granary-2026-09-28.md` §8k,
+/// traced bite by bite on the colony bed, 2026-09-28). With the side room
+/// the nest workers got five times as many loads down, and the room still
+/// held under two cells on the median run, because **the animals beside the
+/// store ate it**: of 6,823 bites taken from the room over 24 runs, 69%
+/// were by fed nest workers, 10% by hungry ones and 16% by fed foragers
+/// topping up a packed lunch. Refusing the fed, the room holds 4.9 cells
+/// (more on 21 of 24) and births and starvation do not move.
+fn store_kept(world: &World, organism: OrganismId, def: &CreatureDef, (fx, fy): (i32, i32)) -> bool {
+    storeroom_of(world).keep
+        && world.organism(organism).is_some_and(|s| s.energy >= def.start_energy)
+        && world.nest_sites.iter().filter_map(|n| n.shaft).any(|room| room.in_store(fx, fy))
 }
 
 /// **Food around the storeroom, in cells**, for a harness census: loose food
@@ -11753,6 +11777,15 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
                 // call, so a picture of the food in a world cannot disagree
                 // with what an animal gets for biting it.
                 let bite = world.get(fxx, fyy);
+                // **The store is kept for the hungry** ([`store_kept`],
+                // `PIXEL_PHYSICS_STOREROOM=keep`): a fed animal's won roll on
+                // a storeroom cell takes nothing, and the turn ends as the
+                // store's own pick-up below ends it. Off, this reads the
+                // switch and nothing else.
+                if store_kept(world, organism, def, (fxx, fyy)) {
+                    world.creature_stats.store_kept += 1;
+                    return did;
+                }
                 // **Home is read before the mouthful leaves**, for
                 // `pickups_at_nest` below, on the predicate the drop's
                 // `deliveries` uses. **They do not subtract to food brought
@@ -21205,6 +21238,33 @@ mod tests {
         assert!(bare * 2 < n, "control: an unlined side room must fall in, yet {bare} of {n} cells are open");
         let (lined, n) = open_after(true);
         assert!(lined * 10 >= n * 9, "a lined side room must stand: only {lined} of {n} cells are open after 120 frames");
+    }
+
+    /// **`keep`: the storeroom's food is refused to a fed animal and open to
+    /// a hungry one** ([`store_kept`]). A cell outside the store is never
+    /// refused, and with the part off nothing is: the rule reads the switch
+    /// first, which is what keeps every arm without it bit-exact.
+    #[test]
+    fn the_store_is_kept_for_the_hungry() {
+        let mut w = founding_bed();
+        w.cut_founding_shaft_with(60, 38, 6, 2, true, Some(-1));
+        let fp = w.nest_sites[0].shaft.expect("the cut records its footprint");
+        let floor = fp.store_floor();
+        w.plant_ant(30, 38);
+        let ant = w.get(30, 38).organism_id();
+        assert_ne!(ant, 0, "the ant was not placed");
+        let species = w.species.id_of("ant").expect("ant species");
+        let def = w.species.get(species).creature.as_ref().expect("creature").clone();
+        let set_energy = |w: &mut World, e: f32| w.organism_mut(ant).expect("the ant").energy = e;
+        w.storeroom = Some(Storeroom { carry: true, side: true, keep: true, ..Storeroom::OFF });
+        set_energy(&mut w, def.start_energy);
+        assert!(store_kept(&w, ant, &def, floor), "a fed ant must be refused the store's food");
+        assert!(!store_kept(&w, ant, &def, (30, 39)), "food outside the store is not the store's");
+        set_energy(&mut w, def.start_energy * 0.5);
+        assert!(!store_kept(&w, ant, &def, floor), "a hungry ant eats from the store");
+        set_energy(&mut w, def.start_energy);
+        w.storeroom = Some(Storeroom { carry: true, side: true, ..Storeroom::OFF });
+        assert!(!store_kept(&w, ant, &def, floor), "without `keep` nothing is refused");
     }
 
     /// **A store load is walked to a side room through its passage**
@@ -36245,8 +36305,8 @@ mod tests {
     fn the_storeroom_parses_its_spellings_and_refuses_the_rest() {
         assert_eq!(parse_storeroom(""), Storeroom::OFF);
         assert_eq!(parse_storeroom("off"), Storeroom::OFF);
-        let all = parse_storeroom("on,home,once,post,workerhome,side,caste=4,nestbound=8000/4");
-        assert!(all.carry && all.room_home && all.once && all.post && all.worker_home && all.side, "{all:?}");
+        let all = parse_storeroom("on,home,once,post,workerhome,side,keep,caste=4,nestbound=8000/4");
+        assert!(all.carry && all.room_home && all.once && all.post && all.worker_home && all.side && all.keep, "{all:?}");
         assert_eq!((all.caste, all.nest_bound, all.nest_bound_founders), (4, 8000, 4));
         assert_eq!(parse_storeroom(&all.to_string()), all, "the spelling it prints must read back as itself");
         assert!(!all.posts(), "nothing is handed down a shaft into a room beside it");

@@ -1761,6 +1761,10 @@ pub struct CreatureStats {
     pub store_released: u64,
     /// Store pickups refused because the chamber had no empty cell.
     pub store_room_full: u64,
+    /// **Bites of the storeroom's food refused to a fed animal**
+    /// (`PIXEL_PHYSICS_STOREROOM=keep`, `creature::store_kept`): the "it
+    /// fired" count beside the room's standing food, which is the effect.
+    pub store_kept: u64,
     /// **Why a won hand-down did not happen** (`post`), by the first test it
     /// failed: the head was not at the mouth; a shaft row had no open cell;
     /// the chamber had no empty cell.
