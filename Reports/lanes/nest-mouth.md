@@ -86,27 +86,31 @@ the live question, what is addressed to another lane, predictions and heads.*
 
 ## Live question
 
-**Tamped blocks and sealed chambers: the nest refilling itself**
-([`../nest-one-entrance-2026-09-29.md`](../nest-one-entrance-2026-09-29.md)
-§15). Pellets put down with nothing solid under them (on ants, over air)
-crumble to loose soil that pours back into the tunnels; ants re-cut the
-fill (half of today's cuts) and every cut tamps its eight neighbours, so
-old walls and fill become blocks and pockets are cut off. Fed and stacked,
-today's nest seals off ~120 cells at 40 and 200 ants alike. "Pellets only
-on real ground" (`SPOIL_FOOTING=ground`) removes most of it at a cost in
-digging; being swept over 8 seeds, today's nest and the walked one.
+**Stacking at 4 by default** (owner: yes). The foraging lane's gate is a
+24-seed lab pair and a bed pair. The lab pair first failed (20 of 24 boxes
+extinct) on one engine bug, parted tissue written back over a stacked
+nestmate: traced 7 of 7 and fixed (`close_or_hand_over`,
+[`../creature-stacking-design-2026-09-17.md`](../creature-stacking-design-2026-09-17.md)
+§12; cap 1 byte-identical on 24 seeds). After the fix: 3 of 24 extinct, no
+kills, but births 418 -> 224.5 (lower on 19 of 24). Bed pair: no harm. Not
+flipped until that cost is traced or the owner rules.
+
+**Tamped blocks and sealed chambers** (report §15): walking the soil out
+with the carry cuts most of them. Asked the owner (2026-09-29, night)
+whether walked + carry + "pellets only on real ground" becomes the default.
 
 **Next** (2026-09-29, night):
-1. The refill fix, on the sweep; pictures to the owner.
-2. Stacking by default: the lab pair is running. The foraging lane (reply
-   21:09Z, their note at `bd8b2079`): no objection; gate is the 24-seed
-   lab pair plus a bed pair (their bed already runs 4, so it does not
-   move). Land after the lab pair.
-3. Resting inside (their reply): a joint switch measured on their bed
-   (food taken, starved, fed departures); keep `trip_load` semantics, the
-   door's geometry and `NestSite::surface` (their food-trail plan reads
-   all three); poke before it lands.
-4. The land PR (jam trace, carry on, widening off, instruments).
+1. Land this branch (the fix, instruments, reports): PR, merge on green.
+2. The lab cost of stacking: trace where a stacked colony loses its young
+   (per ant it eats the same; it moves 14% less and visits the nest 3x as
+   often), then the default flip as its own PR. It reaches all three games,
+   including the lab's BOX dial ("AT 1, THE SHIPPED SETTING"); poke first.
+3. The refill fix as a default, when the owner answers.
+4. Resting inside (owner: yes), joint with the foraging lane. Their terms:
+   a switch measured on their bed (food taken, starved, fed departures);
+   keep `trip_load`, the door's geometry and `NestSite::surface`; poke
+   before it lands. The lever: `home_pull` gives a fed ant that is not a
+   nest worker no pull home, so it rests wherever it stops.
 
 ## Working agreement with the foraging lane (2026-09-27)
 

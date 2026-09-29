@@ -1259,7 +1259,9 @@ drift that two of these documents still reflect.**
   and tables restored with no word changed.
 - [creature-stacking-design-2026-09-17.md](creature-stacking-design-2026-09-17.md)
   — **design 2026-09-17, built and landed as PR #465; four review follow-ups
-  closed 2026-09-19 in §11. `engine`.** How many creatures of one
+  closed 2026-09-19 in §11; §12 (2026-09-29) fixes the lab deaths at cap 4
+  (parted tissue closed over a stacked nestmate) and measures what remains,
+  a lab colony that raises about half the young. `engine`.** How many creatures of one
   colony come to share a cell, and where the 2nd..Nth ant's identity lives.
   Exclusivity is the **grid's** invariant and not a creature rule: `Cell` holds
   one `organism_id`, so `classify_step` reads an ant exactly the way it reads

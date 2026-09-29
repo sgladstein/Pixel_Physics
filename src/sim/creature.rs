@@ -20113,9 +20113,17 @@ fn restore_parted(world: &mut World, entry: &organism::Parted) {
 /// that, the oldest rider, which is exactly who `stamp_as_corpse` promotes
 /// when the leaver is dying and still owns the cell.
 ///
-/// **A no-op at a stack cap of 1** on every path the engine takes. A body
-/// that steps off a cell has already cleared it to `EMPTY` by the time this
-/// runs, and no riders exist, so nobody else can be standing there.
+/// **At a stack cap of 1 it changes one case, and only that one.** A body
+/// that steps off or dies in a cell it still owns leaves it `EMPTY`, or is
+/// its own occupant, and no riders exist, so the tissue closes exactly as it
+/// always did. The exception is tissue held for a cell the body had already
+/// *lost*, bitten or burned out of it, when another animal has since walked
+/// into that cell. The unconditional write killed the newcomer; now it holds
+/// the tissue instead. That case needs a body to lose a cell inside foliage
+/// and a second animal to walk into it before the first one's next step,
+/// and it never occurred in the 24-seed lab check at cap 1, which
+/// reproduced the pre-fix logs byte for byte
+/// (`Reports/creature-stacking-design-2026-09-17.md` §12).
 fn close_or_hand_over(world: &mut World, leaving: OrganismId, entry: organism::Parted) {
     let p = (entry.x, entry.y);
     let cell = world.get(p.0, p.1);
