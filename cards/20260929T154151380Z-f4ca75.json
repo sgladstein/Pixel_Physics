@@ -1,0 +1,73 @@
+{
+  "id": "20260929T154151380Z-f4ca75",
+  "created": "2026-09-29T15:41:51Z",
+  "board": "nest",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics/.claude/worktrees/nest57",
+    "branch": "nest57-local",
+    "commit": "ba68a0c9",
+    "agent": null,
+    "session_id": "02cfa3f7-cc46-597e-8f90-5488d21d3601",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics/.claude/worktrees/nest57"
+  },
+  "title": "The walked colony in the lab box: ground left whole, a small nest, and its mouth under its own loose soil",
+  "question": "In the lab, is the walked colony (bottom rows) going the right way against today's open pit and spoil spires? Its mouth ends buried on 11 of 12 seeds, because pellets set on the rim run back in.",
+  "context_md": "The lab box (the owner's second game), 12 seeds, 120,000 frames, the walked cycle (`SPOIL_OUT=on`) against today. Seed 3, five stops, cropped round the founding mouth; the last item is the final stop on four more seeds.\n\n- **Births**: 0.76 of today's per seed (more on 5 seeds, fewer on 7), inside the spread of twelve seeds.\n- **The mouth** at the last stop: open to the surface on **1 of 12** walked seeds against 6 of 12 today. The cut holds 115 cells of loose soil against 44. A walked carrier sets its pellet on the first ground outside the cut, the mouth's rim, and it turns loose and runs back in.\n- Today's \"open\" is often part of a wide pit with spoil spires, not a mouth.\n\nAll switches off. PR #517 carries this; the question on card `…2d6747` (relay the soil or more mouths) still stands.",
+  "kind": "frames",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "today (the lift), seed 3",
+      "files": [
+        "20260929T154151380Z-f4ca75/000-lab-off-s3-f6300.png",
+        "20260929T154151380Z-f4ca75/001-lab-off-s3-f12600.png",
+        "20260929T154151380Z-f4ca75/002-lab-off-s3-f30600.png",
+        "20260929T154151380Z-f4ca75/003-lab-off-s3-f60300.png",
+        "20260929T154151380Z-f4ca75/004-lab-off-s3-f119700.png"
+      ],
+      "caption": "frames 6,300 / 12,600 / 30,600 / 60,300 / 119,700",
+      "meta": {
+        "mouth open at the last stop (12 seeds)": "6 of 12",
+        "loose soil in the cut (summed)": 44,
+        "births (median)": 619
+      },
+      "focus": null
+    },
+    {
+      "label": "walked out and back, seed 3",
+      "files": [
+        "20260929T154151380Z-f4ca75/005-lab-walk-s3-f6300.png",
+        "20260929T154151380Z-f4ca75/006-lab-walk-s3-f12600.png",
+        "20260929T154151380Z-f4ca75/007-lab-walk-s3-f30600.png",
+        "20260929T154151380Z-f4ca75/008-lab-walk-s3-f60300.png",
+        "20260929T154151380Z-f4ca75/009-lab-walk-s3-f119700.png"
+      ],
+      "caption": "the same frames",
+      "meta": {
+        "mouth open at the last stop (12 seeds)": "1 of 12",
+        "loose soil in the cut (summed)": 115,
+        "births (median)": 439
+      },
+      "focus": null
+    },
+    {
+      "label": "frame 119,700, seeds 2, 7, 10, 12 (today top, walked bottom)",
+      "files": [
+        "20260929T154151380Z-f4ca75/010-lab-last-4seeds.png"
+      ],
+      "caption": "the last stop on four more seeds",
+      "meta": {
+        "seeds": 4
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
