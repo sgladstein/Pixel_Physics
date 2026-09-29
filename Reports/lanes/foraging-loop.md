@@ -98,12 +98,13 @@ seeds, rain), medians off -> on: births 428 -> 522.5, food eaten 1,122k ->
 
 ## Ranked open problems
 
-1. **Which way to go.** A driven forager has no bearing. Before the
-   granary the strip of nest paint covered the ground west of the nest;
-   the door leaves it open, and a forager sent out with a lunch digs there
+1. **Which way to go.** A driven forager has no bearing. The door leaves
+   open ground west of the nest, where a forager sent out with a lunch digs
    until it starves (§22t; 32% of ant-time west against 14%). A memory of
    where its last load came from would aim it, as desert ants aim by the
-   vector that paid. Store lunch waits on it.
+   vector that paid. Store lunch waits on it. A nest contact re-anchors
+   `forage_anchor` where the ant stands (`HomeAligned` reads 0 at the
+   nest): the memory must survive it.
 2. **The drive's clock hears of food only at the door** (§22u). The trip
    reach stopped food beside the door booking returns; what is left is a
    false stand-down on a paying pile (seed 7: 83% of its low-drive rows had
