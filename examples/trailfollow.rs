@@ -2638,7 +2638,7 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
                 // 0.0000 on every row of a run where it was nonzero, and a
                 // parse of that column called it exactly zero.
                 decision_rows.push(format!(
-                    "{seed},{gap},{arm_name},{},{},{},{},{:.4},{},{},{},{},{},{},{},{},{},{:.4},{:.4},{},{:.4},{:.4},{:.5},{:.5},{},{:.4},{},{},{:.4},{:.4},{:e},{:.4},{:.4},{},{},{:.4},{},{},{:.4},{:.4},{},{},{},{},{:.4},{:.4},{:.4},{},{},{:.4},{:.4},{:.4},{:.2},{:.4},{:.4},{:.4},{},{},{}",
+                    "{seed},{gap},{arm_name},{},{},{},{},{:.4},{},{},{},{},{},{},{},{},{},{:.4},{:.4},{},{:.4},{:.4},{:.5},{:.5},{},{:.4},{},{},{:.4},{:.4},{:e},{:.4},{:.4},{},{},{:.4},{},{},{:.4},{:.4},{},{},{},{},{:.4},{:.4},{:.4},{},{},{:.4},{:.4},{:.4},{:.2},{:.4},{:.4},{:.4},{},{},{},{},{}",
                     decision_tag,
                     r.frame,
                     r.id,
@@ -2695,6 +2695,12 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
                     u8::from(r.scout_home),
                     u8::from(r.trip_load),
                     r.forage_max,
+                    // The trip reach's food cell (`bite_x,bite_y,bite_tissue,
+                    // bite_door`, `-` with no pickup away from home) and the
+                    // crop's `trip_src` bits, appended so the first 66
+                    // columns stay what they were.
+                    r.bite.map_or_else(|| "-,-,-,-".to_string(), |(bx, by, t, d)| format!("{bx},{by},{},{d}", u8::from(t))),
+                    r.trip_src,
                 ));
             }
         }
@@ -4567,7 +4573,7 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
             let suffix = if decision_tag.is_empty() { String::new() } else { format!("-{decision_tag}") };
             let path = format!("{decision_dir}/trailfollow-decisions-seed{seed}-gap{gap}-{arm_name}{suffix}.csv");
             let mut out = String::from(
-                "seed,gap,arm,tag,frame,id,leg,fill,x,y,x2,y2,heading,heading2,usable,setting,ax,ay,energy,home_aligned,at_nest,crowding,stillness,along_a,along_b,food_adjacent,kin_need,nest_x,move_out,p_move,turn,roll_move,roll_tumble,outcome,homeward,home_cos,moved,drop,drop_roll,drop_p,free8,n_nw,n_n,n_ne,n_w,n_e,n_sw,n_s,n_se,nbr_self,nbr_other,cone_l,cone_s,cone_r,pick,drop_reach,patience,chosen_cos,chosen_route,energy_j,drive,scout_w,scout_patience,scout_home,trip_load,forage_max\n",
+                "seed,gap,arm,tag,frame,id,leg,fill,x,y,x2,y2,heading,heading2,usable,setting,ax,ay,energy,home_aligned,at_nest,crowding,stillness,along_a,along_b,food_adjacent,kin_need,nest_x,move_out,p_move,turn,roll_move,roll_tumble,outcome,homeward,home_cos,moved,drop,drop_roll,drop_p,free8,n_nw,n_n,n_ne,n_w,n_e,n_sw,n_s,n_se,nbr_self,nbr_other,cone_l,cone_s,cone_r,pick,drop_reach,patience,chosen_cos,chosen_route,energy_j,drive,scout_w,scout_patience,scout_home,trip_load,forage_max,bite_x,bite_y,bite_tissue,bite_door,trip_src\n",
             );
             out.push_str(&decision_rows.join("\n"));
             out.push('\n');
@@ -4662,6 +4668,14 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
             w.creature_stats.births_overdrawn,
             w.creature_stats.haul_bites_refused,
             w.creature_stats.forage_returns
+        );
+        // **What the trip reach removes, or would** (`creature::trip_reach_of`,
+        // counted whatever the switch), on its own line so every line above
+        // stays byte-identical for an identity diff.
+        println!(
+            "    TRIP REACH: returns of loose food taken within the reach of a door {} | returns kept only because the food was living tissue {}",
+            w.creature_stats.trip_returns_near,
+            w.creature_stats.trip_returns_tissue_near
         );
         // **Trophallaxis, the pair `CLAUDE.md` asks for**: `shares` fired,
         // `shared_j` moved. Added 2026-09-24 when breaking the carriers'
@@ -4994,7 +5008,7 @@ fn main() {
     // `ant-forage-bed-and-gates-2026-09-21.md` is run with, echoed so a log
     // that does not name them was written by a binary that never had them.
     println!(
-        "  breadoff={} wire={} decisioncsv={} dtag={} COLONY_SPACING={} STACK_DEPTH={} DROP_REACH={} LOAD_BY={} LOAD_SCALE={} NEST_DOOR={} NEST_DOOR_FOUNDERS={} NEST_SHAFT={} NEST_HOME={} SCOUT={} HUNGRY_HOME={} FORAGE_DRIVE={} ({:?}) CARRY_PATIENCE={} PACKED_LUNCH={} BIRTH_PRICE={} STOREROOM={} HAUL_BITE={:?} STORE_LUNCH={} layfrom={}",
+        "  breadoff={} wire={} decisioncsv={} dtag={} COLONY_SPACING={} STACK_DEPTH={} DROP_REACH={} LOAD_BY={} LOAD_SCALE={} NEST_DOOR={} NEST_DOOR_FOUNDERS={} NEST_SHAFT={} NEST_HOME={} SCOUT={} HUNGRY_HOME={} FORAGE_DRIVE={} ({:?}) CARRY_PATIENCE={} PACKED_LUNCH={} BIRTH_PRICE={} STOREROOM={} HAUL_BITE={:?} STORE_LUNCH={} TRIP_REACH={:?} RETURN_WINDOW={} layfrom={}",
         flag("breadoff"),
         arg_str("wire").unwrap_or_else(|| "shipped".into()),
         flag("decisioncsv"),
@@ -5018,6 +5032,8 @@ fn main() {
         creature::storeroom_from_env(),
         creature::haul_bite_from_env(),
         if creature::store_lunch_from_env() { "on" } else { "off" },
+        creature::trip_reach_from_env(),
+        creature::return_window(),
         arg_str("layfrom").unwrap_or_else(|| "nest".into())
     );
     println!("  {LANDED_NOTE}\n");

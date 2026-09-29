@@ -671,6 +671,11 @@ pub struct DecisionScratch {
     /// tick's `heading`, not the state -- so a step or a tumble replaces the
     /// turn, and a lost move roll leaves the turned heading standing.
     pub dig_turned: bool,
+    /// **The food cell of this tick's pickup away from home**
+    /// (`trip_source`): its position, whether it was living tissue, and its
+    /// Chebyshev distance from the nearest door (`-1` with no nest site).
+    /// `None` when there was no such pickup.
+    pub bite: Option<(i32, i32, bool, i32)>,
 }
 
 impl Default for DecisionScratch {
@@ -696,6 +701,7 @@ impl Default for DecisionScratch {
             scout_patience: f32::NAN,
             scout_home: false,
             dig_turned: false,
+            bite: None,
         }
     }
 }
@@ -810,6 +816,9 @@ pub struct DecisionRow {
     /// excursion since the last nest contact that decided it. Trace-only.
     pub trip_load: bool,
     pub forage_max: u16,
+    /// `DecisionScratch::bite`, and `OrganismState::trip_src` after `act`.
+    pub bite: Option<(i32, i32, bool, i32)>,
+    pub trip_src: u8,
 }
 
 fn worm_tick(world: &mut World, x: i32, y: i32, organism: OrganismId) -> Vec<ActiveSite> {
@@ -6615,7 +6624,7 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
         let st = world.organism(organism);
         let head_after = st.and_then(|s| s.chain.first().copied()).unwrap_or(head);
         let heading_after = st.map_or(heading, |s| s.heading);
-        let (trip_load, forage_max) = st.map_or((false, 0), |s| (s.trip_load, s.forage_max));
+        let (trip_load, forage_max, trip_src) = st.map_or((false, 0, 0), |s| (s.trip_load, s.forage_max, s.trip_src));
         let sc = world.decision_scratch;
         world.creature_stats.decision_census[leg][setting_class(usable)][sc.outcome as usize] += 1;
         use brain::BrainInput as I;
@@ -6670,6 +6679,8 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
             dig_turned: sc.dig_turned,
             trip_load,
             forage_max,
+            bite: sc.bite,
+            trip_src,
         };
         if let Some(log) = world.decision_log.as_mut() {
             log.push(row);
@@ -12152,6 +12163,14 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
                 // `store_lunch_of`: read before the borrow below.
                 let trip_min = scaled_cells(world, FORAGE_TRIP_MIN as i32).clamp(0, u16::MAX as i32) as u16;
                 let trip_bar = store_lunch_of(world).then_some(trip_min);
+                // **Where the food was taken** (`trip_reach_of`), judged at
+                // the food cell; computed whatever the switch, so the
+                // counters say what the rule would do with it off.
+                let trip_reach = trip_reach_of(world);
+                let src_bits = if picked_at_home { 0 } else { trip_source(world, fxx, fyy, bite, trip_reach.unwrap_or(TRIP_REACH_SHIPPED)) };
+                if !picked_at_home && world.decision_log.is_some() {
+                    world.decision_scratch.bite = Some((fxx, fyy, is_living_tissue(world, bite), door_distance(world, fxx, fyy).unwrap_or(-1)));
+                }
                 let first = if let Some(state) = world.organism_mut(organism) {
                     state.life.bites += 1;
                     // **A carry is measured from the last cell loaded**
@@ -12170,8 +12189,13 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
                         state.store_carried = false;
                         // **Food from a trip** (`ForageNeed::Returns`):
                         // booked at the nest when it is first put down there.
+                        // Under the trip reach it must also have come from
+                        // far from every door, or be living tissue.
                         if state.forage_max >= trip_min {
-                            state.trip_load = true;
+                            state.trip_src |= src_bits;
+                            if trip_reach.is_none() || src_bits & TRIP_SRC_FAR != 0 {
+                                state.trip_load = true;
+                            }
                         }
                     }
                     // **A crop filled only at home is a packed lunch**
@@ -12399,10 +12423,19 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
                         site.larder = Some(site.larder.map_or((fx, fy), |(lx, ly)| (lx + LARDER_EMA * (fx - lx), ly + LARDER_EMA * (fy - ly))));
                     }
                     world.creature_stats.deliveries += 1;
-                    let returned = world.organism_mut(organism).is_some_and(|state| {
+                    let (returned, src) = world.organism_mut(organism).map_or((false, 0), |state| {
                         state.life.deliveries += 1;
-                        std::mem::take(&mut state.trip_load)
+                        (std::mem::take(&mut state.trip_load), std::mem::take(&mut state.trip_src))
                     });
+                    // **What the trip reach removes, or would** (counted
+                    // whatever the switch): a crop whose every marking
+                    // pickup was loose food beside a door.
+                    if src & TRIP_SRC_NEAR != 0 && src & TRIP_SRC_FAR == 0 {
+                        world.creature_stats.trip_returns_near += 1;
+                    }
+                    if src & TRIP_SRC_TISSUE_NEAR != 0 {
+                        world.creature_stats.trip_returns_tissue_near += 1;
+                    }
                     // **A forager home with food from a trip**, once per trip
                     // (`ForageNeed::Returns`). Written whatever the need.
                     if returned {
@@ -14585,8 +14618,25 @@ pub const RETURN_WINDOW: f32 = 1400.0;
 /// principle stated plainly: no food home for a round trip, start standing
 /// down.
 fn returns_drive(age: u64) -> f32 {
-    let over = age as f32 - RETURN_WINDOW;
-    if over <= 0.0 { 1.0 } else { (-over / RETURN_WINDOW).exp() }
+    let w = return_window();
+    let over = age as f32 - w;
+    if over <= 0.0 { 1.0 } else { (-over / w).exp() }
+}
+
+/// **`PIXEL_PHYSICS_RETURN_WINDOW=<frames>`, the `returns` drive's window**,
+/// read once per process; unset (or unreadable, reported) is
+/// `RETURN_WINDOW`. A knob for the sweep the trip reach may need: with the
+/// home-band double count gone, the honest return rate on a slow pile may
+/// not fill 1,400 frames (§22u).
+pub fn return_window() -> f32 {
+    static V: std::sync::OnceLock<f32> = std::sync::OnceLock::new();
+    *V.get_or_init(|| match std::env::var("PIXEL_PHYSICS_RETURN_WINDOW").unwrap_or_default().trim() {
+        "" => RETURN_WINDOW,
+        raw => raw.parse::<f32>().ok().filter(|w| *w > 0.0).unwrap_or_else(|| {
+            eprintln!("PIXEL_PHYSICS_RETURN_WINDOW={raw:?}: unknown, read as unset ({RETURN_WINDOW})");
+            RETURN_WINDOW
+        }),
+    })
 }
 
 /// **The forage drive's form** (`forage_drive_from_env`): whose need;
@@ -14762,6 +14812,56 @@ pub fn store_lunch_from_env() -> bool {
 /// environment's (`store_lunch_from_env`).
 pub fn store_lunch_of(world: &World) -> bool {
     world.store_lunch.unwrap_or_else(store_lunch_from_env)
+}
+
+/// **The trip reach, in authored cells** (`PIXEL_PHYSICS_TRIP_REACH=on`):
+/// loose food taken within this Chebyshev distance of any door is not food
+/// from a trip. Chosen in a measured gap, 2026-09-29: on the colony bed's
+/// pulsed pile, marking pickups by distance from the door read 13:55,
+/// 14:10, 15:0, 16:0, 17:1 (`Reports/ant-scenes-2026-09-23.md` §22u), and
+/// every cell of the founding cut lies within 11 of the door's centre.
+pub const TRIP_REACH_SHIPPED: i32 = 16;
+
+/// What `PIXEL_PHYSICS_TRIP_REACH` unset means: off, the ant before it,
+/// while the paired arms run.
+const TRIP_REACH_UNSET: Option<i32> = None;
+
+/// **`PIXEL_PHYSICS_TRIP_REACH`: a trip is judged by where the food was
+/// taken, not by how far the ant roamed.** Off (the ant before it), a load
+/// is from a trip when its pickup is away from home and the ant has been
+/// `FORAGE_TRIP_MIN` cells from its last nest contact. On, that pickup must
+/// also be living tissue, or loose food taken more than the reach from the
+/// centre of every nest's door (`trip_source`). Why (traced 2026-09-29,
+/// §22t): on the granary 46% of the returns that hold the `returns` drive
+/// up were food lying beside the five-column door, picked up by an ant that
+/// had wandered 16 cells, so the drive read 0.92-0.97 with the pile empty.
+/// `on` is `TRIP_REACH_SHIPPED`; an integer is a reach in authored cells; a
+/// value it cannot read is reported and read as unset.
+fn parse_trip_reach(raw: &str) -> Option<i32> {
+    match raw.trim() {
+        "" => TRIP_REACH_UNSET,
+        "off" => None,
+        "on" => Some(TRIP_REACH_SHIPPED),
+        other => match other.parse::<i32>() {
+            Ok(n) if n >= 0 => Some(n),
+            _ => {
+                eprintln!("PIXEL_PHYSICS_TRIP_REACH={other:?}: unknown, read as unset (off, on, or a reach >= 0)");
+                TRIP_REACH_UNSET
+            }
+        },
+    }
+}
+
+/// `PIXEL_PHYSICS_TRIP_REACH`, read once per process ([`parse_trip_reach`]).
+pub fn trip_reach_from_env() -> Option<i32> {
+    static V: std::sync::OnceLock<Option<i32>> = std::sync::OnceLock::new();
+    *V.get_or_init(|| parse_trip_reach(&std::env::var("PIXEL_PHYSICS_TRIP_REACH").unwrap_or_default()))
+}
+
+/// This world's trip reach: `World::trip_reach` if set, else the
+/// environment's.
+pub fn trip_reach_of(world: &World) -> Option<i32> {
+    world.trip_reach.unwrap_or_else(trip_reach_from_env)
 }
 
 /// **This animal carries a packed lunch the rule lets out**
@@ -17113,6 +17213,42 @@ fn home_weighted_pick_why(
 /// exists to say trunks are the problem.
 fn is_living_tissue(world: &World, cell: Cell) -> bool {
     cell.organism_id() != 0 && world.materials.kind(cell.material) == MaterialKind::Plant
+}
+
+/// Loose food within the trip reach of a door ([`trip_source`]).
+pub const TRIP_SRC_NEAR: u8 = 1;
+/// Food that is a trip under the trip-reach rule.
+pub const TRIP_SRC_FAR: u8 = 2;
+/// Living tissue within the reach: a trip only because it is alive.
+pub const TRIP_SRC_TISSUE_NEAR: u8 = 4;
+
+/// **Chebyshev distance from a cell to the nearest nest's door**, measured
+/// from each site's centre column and **founding surface** row
+/// (`NestSite::surface`) -- never `NestSite::y`, which is the gesture's
+/// row. `None` with no nest site. O(number of sites).
+fn door_distance(world: &World, fx: i32, fy: i32) -> Option<i32> {
+    world.nest_sites.iter().map(|s| (fx - s.x).abs().max((fy - s.surface).abs())).min()
+}
+
+/// **Where a pickup's food came from, for the trip test**
+/// (`PIXEL_PHYSICS_TRIP_REACH`): `TRIP_SRC_FAR` for loose food more than
+/// `reach` (authored, scaled) from every door, or with no nest site at all;
+/// `TRIP_SRC_NEAR` for loose food within it; living tissue is a trip
+/// wherever it grows (`TRIP_SRC_FAR | TRIP_SRC_TISSUE_NEAR` within the
+/// reach), because in the lab box plants grow round the door and a bite of
+/// one is foraging, not food moved about at home. Judged at the food cell,
+/// not the head. **Known limits**: a live animal bitten within the reach is
+/// not a trip; a lab release point registers a site, so loose food near one
+/// counts as home; under the strip door (`NEST_DOOR=off`, 26 each side) the
+/// default reach lies inside the strip; a plant cell carrying a dead plant's
+/// id still counts as tissue.
+fn trip_source(world: &World, fx: i32, fy: i32, bite: Cell, reach: i32) -> u8 {
+    let near = door_distance(world, fx, fy).is_some_and(|d| d <= scaled_cells(world, reach));
+    match (near, is_living_tissue(world, bite)) {
+        (false, _) => TRIP_SRC_FAR,
+        (true, true) => TRIP_SRC_FAR | TRIP_SRC_TISSUE_NEAR,
+        (true, false) => TRIP_SRC_NEAR,
+    }
 }
 
 /// **May a body move through this cell?**
@@ -27565,6 +27701,238 @@ mod tests {
         let (deliveries, returns, _) = delivered(false);
         assert!(deliveries > 0, "the unmarked load was never put down: the control cannot show anything");
         assert_eq!(returns, 0, "a load from home booked {returns} returns");
+    }
+
+    /// **`PIXEL_PHYSICS_TRIP_REACH` reads its spellings, and a value it
+    /// cannot read is unset, never on** (`parse_trip_reach`).
+    #[test]
+    fn parse_trip_reach_reads_its_spellings() {
+        assert_eq!(parse_trip_reach(""), TRIP_REACH_UNSET, "unset");
+        assert_eq!(parse_trip_reach("off"), None, "off");
+        assert_eq!(parse_trip_reach("on"), Some(TRIP_REACH_SHIPPED), "on");
+        assert_eq!(parse_trip_reach(" 12 "), Some(12), "a reach");
+        assert_eq!(parse_trip_reach("0"), Some(0), "a reach of 0");
+        assert_eq!(parse_trip_reach("-1"), TRIP_REACH_UNSET, "a negative reach is unreadable");
+        assert_eq!(parse_trip_reach("far"), TRIP_REACH_UNSET, "a word it does not know is unset");
+    }
+
+    /// A stone floor from row 41 over `w`'s width, and a nest site
+    /// registered at `(site_x, 40)` -- its founding surface is the floor's
+    /// top row, 41. No nest material is laid, so no pickup is at home.
+    fn trip_reach_floor(w: &mut World, site_x: &[i32]) {
+        let stone = Cell::new(material::STONE, 0).with_attached(true);
+        for x in 0..160 {
+            for y in 41..64 {
+                w.set(x, y, stone);
+            }
+        }
+        for &sx in site_x {
+            w.register_nest_site(sx, 40, 4);
+        }
+        for s in &w.nest_sites {
+            assert_eq!(s.surface, 41, "the site at {} was founded on row {}, not the floor's top", s.x, s.surface);
+        }
+    }
+
+    /// One crumb beside the head of an ant at `x`, the ant `forage_max`
+    /// cells into an outing, one `act` with `Feed` 1: the crop's
+    /// `(trip_load, trip_src)` after it. `east` puts the crumb on the side
+    /// away from the site at x 20.
+    fn trip_reach_bite(site_x: &[i32], x: i32, forage_max: u16, reach: Option<i32>, east: Option<bool>) -> (bool, u8) {
+        let mut w = World::new(Rect::new(0, 0, 159, 63));
+        trip_reach_floor(&mut w, site_x);
+        w.trip_reach = Some(reach);
+        let crumbs = w.materials.id_of("crumbs").expect("crumbs material");
+        let a = spawn(&mut w, "ant", x, 40);
+        let (hx, hy) = w.organism(a).expect("live").chain[0];
+        let spot = NEIGHBOURS_8
+            .iter()
+            .map(|&(dx, dy)| (hx + dx, hy + dy))
+            .filter(|&(sx, _)| east.is_none_or(|e| if e { sx > hx } else { sx < hx }))
+            .find(|&(sx, sy)| w.get(sx, sy).is_empty() && !w.get(sx, sy + 1).is_empty())
+            .expect("an empty cell on the floor beside the head");
+        w.set(spot.0, spot.1, Cell::new(crumbs, 0).with_aux(480));
+        w.organism_mut(a).expect("live").forage_max = forage_max;
+        let def = w.species.get(w.organism(a).expect("live").species).creature.clone().expect("a creature");
+        let mut outputs = [0.0f32; brain::BRAIN_OUTPUTS];
+        outputs[brain::BrainOutput::Feed as usize] = 1.0;
+        let mut draw = rng::stream(1, a as u64, 0, RNG_SLOT_MOVE);
+        act(&mut w, hx, hy, a, &def, &outputs, &mut draw);
+        assert!(w.get(spot.0, spot.1).is_empty(), "the ant at x {x} did not take the crumb beside it: the scene cannot show a mark");
+        let st = w.organism(a).expect("live");
+        (st.trip_load, st.trip_src)
+    }
+
+    /// **Food beside a door is not a trip under the reach, food from afar
+    /// is, and the roam gate still stands** (`PIXEL_PHYSICS_TRIP_REACH`). A
+    /// site at x 20, an ant 20 cells into an outing: a crumb taken at x ~30
+    /// (11 from the door) marks no trip with the rule on, and does with it
+    /// off -- which shows the scene carries the defect the rule is for; one
+    /// at x ~100 marks either way; one at x ~100 two cells into an outing
+    /// marks nothing. **Watched red** with the far test dropped from the
+    /// mark (the near crumb marked) and with the roam gate removed (the
+    /// two-cell outing marked).
+    #[test]
+    fn food_beside_a_door_marks_no_trip_and_food_from_afar_does() {
+        let on = Some(TRIP_REACH_SHIPPED);
+        assert_eq!(trip_reach_bite(&[20], 30, 20, on, None), (false, TRIP_SRC_NEAR), "a crumb 11 cells from the door, rule on");
+        assert!(trip_reach_bite(&[20], 100, 20, on, None).0, "a crumb 80 cells from the door, rule on, marked no trip");
+        assert!(trip_reach_bite(&[20], 30, 20, None, None).0, "rule off: the crumb beside the door is a trip, as before");
+        assert!(!trip_reach_bite(&[20], 100, 2, on, None).0, "a crumb taken 2 cells into an outing marked a trip: the roam gate is gone");
+    }
+
+    /// **The reach is judged at the food cell, not the head.** The site
+    /// sits 17 columns west of the ant's head: a crumb west of the head is
+    /// 16 from the door (near), one east of it 18 (far). **Watched red**
+    /// with the head's position passed for the food cell's.
+    #[test]
+    fn a_trip_is_judged_at_the_food_cell_not_the_head() {
+        let on = Some(TRIP_REACH_SHIPPED);
+        let probe = |east: bool| {
+            // The head's column is not the spawn column for every body, so
+            // place the site from where the head actually is.
+            let mut w = World::new(Rect::new(0, 0, 159, 63));
+            trip_reach_floor(&mut w, &[]);
+            let a = spawn(&mut w, "ant", 100, 40);
+            let hx = w.organism(a).expect("live").chain[0].0;
+            trip_reach_bite(&[hx - 17], 100, 20, on, Some(east))
+        };
+        assert_eq!(probe(false), (false, TRIP_SRC_NEAR), "a crumb 16 from the door (west of the head, which is 17) marked a trip");
+        assert_eq!(probe(true), (true, TRIP_SRC_FAR), "a crumb 18 from the door (east of the head) marked no trip");
+    }
+
+    /// **Living tissue is a trip wherever it grows; loose food only far from
+    /// a door** (`trip_source`). A leaf owned by a plant within the reach is
+    /// far-and-tissue; ownerless fruit, an owned windfall (`Powder`, as a
+    /// seeded windfall is written) and crumbs are near; all four are far
+    /// beyond the reach. **Watched red** with ownership (`organism_id != 0`)
+    /// in place of `is_living_tissue`: the owned windfall read as tissue.
+    #[test]
+    fn living_tissue_is_a_trip_wherever_it_grows() {
+        let mut w = World::new(Rect::new(0, 0, 159, 63));
+        trip_reach_floor(&mut w, &[20]);
+        let id = |name: &str| w.materials.id_of(name).unwrap_or_else(|| panic!("{name} material"));
+        let leaf = Cell::new(id("leaf"), 0).with_organism_id(7);
+        let fruit = Cell::new(id("fruit"), 0);
+        let windfall = Cell::new(id("windfall"), 0).with_organism_id(7);
+        let crumbs = Cell::new(id("crumbs"), 0);
+        let r = TRIP_REACH_SHIPPED;
+        assert_eq!(trip_source(&w, 25, 40, leaf, r), TRIP_SRC_FAR | TRIP_SRC_TISSUE_NEAR, "a living leaf beside the door");
+        assert_eq!(trip_source(&w, 25, 40, fruit, r), TRIP_SRC_NEAR, "ownerless fruit beside the door");
+        assert_eq!(trip_source(&w, 25, 40, windfall, r), TRIP_SRC_NEAR, "an owned windfall beside the door");
+        assert_eq!(trip_source(&w, 25, 40, crumbs, r), TRIP_SRC_NEAR, "crumbs beside the door");
+        for (name, c) in [("leaf", leaf), ("fruit", fruit), ("windfall", windfall), ("crumbs", crumbs)] {
+            assert_eq!(trip_source(&w, 100, 40, c, r) & TRIP_SRC_FAR, TRIP_SRC_FAR, "{name} 80 cells out is not a trip");
+        }
+    }
+
+    /// **Food beside any nest is not a trip**, not only beside the first or
+    /// the ant's own: two sites, food by the second. **Watched red** with
+    /// only the first site measured.
+    #[test]
+    fn food_beside_any_nest_is_not_a_trip() {
+        let mut w = World::new(Rect::new(0, 0, 159, 63));
+        trip_reach_floor(&mut w, &[20, 120]);
+        let crumbs = Cell::new(w.materials.id_of("crumbs").expect("crumbs"), 0);
+        assert_eq!(trip_source(&w, 125, 40, crumbs, TRIP_REACH_SHIPPED), TRIP_SRC_NEAR, "food beside the second nest's door");
+        assert_eq!(trip_source(&w, 70, 40, crumbs, TRIP_REACH_SHIPPED), TRIP_SRC_FAR, "food midway between the two");
+    }
+
+    /// **The reach is measured from the founding surface, not the gesture's
+    /// row** (`NestSite::surface`, not `NestSite::y`). A site gestured at
+    /// row 20 over a floor at 41: food at (30, 40) is 10 from the door.
+    /// **Watched red** with `NestSite::y` in place of `surface`.
+    #[test]
+    fn the_reach_is_measured_from_the_founding_surface() {
+        let mut w = World::new(Rect::new(0, 0, 159, 63));
+        trip_reach_floor(&mut w, &[]);
+        w.register_nest_site(20, 20, 4);
+        assert_eq!((w.nest_sites[0].y, w.nest_sites[0].surface), (20, 41), "the site's gesture row and surface");
+        let crumbs = Cell::new(w.materials.id_of("crumbs").expect("crumbs"), 0);
+        assert_eq!(door_distance(&w, 30, 40), Some(10), "distance from (20, 41)");
+        assert_eq!(trip_source(&w, 30, 40, crumbs, TRIP_REACH_SHIPPED), TRIP_SRC_NEAR, "food 10 from the door's surface");
+    }
+
+    /// **The reach scales with the cell** (`scaled_cells`): food 20 from the
+    /// door is far at scale 1 and near at scale 2, where the reach is 32.
+    /// **Watched red** with the reach compared unscaled.
+    #[test]
+    fn the_trip_reach_scales_with_the_cell() {
+        let mut w = World::new(Rect::new(0, 0, 159, 63));
+        trip_reach_floor(&mut w, &[20]);
+        let crumbs = Cell::new(w.materials.id_of("crumbs").expect("crumbs"), 0);
+        assert_eq!(trip_source(&w, 40, 40, crumbs, TRIP_REACH_SHIPPED), TRIP_SRC_FAR, "20 from the door at scale 1");
+        w.set_cell_scale(2.0);
+        assert_eq!(trip_source(&w, 40, 40, crumbs, TRIP_REACH_SHIPPED), TRIP_SRC_NEAR, "20 from the door at scale 2");
+    }
+
+    /// **With no nest site at all, every pickup away from home is still a
+    /// trip** -- the rule has nothing to measure from, so it is the ant
+    /// before it. **Watched red** with no site read as within the reach.
+    #[test]
+    fn no_nest_site_keeps_every_away_pickup_a_trip() {
+        let mut w = World::new(Rect::new(0, 0, 159, 63));
+        trip_reach_floor(&mut w, &[]);
+        let crumbs = Cell::new(w.materials.id_of("crumbs").expect("crumbs"), 0);
+        assert_eq!(door_distance(&w, 30, 40), None);
+        assert_eq!(trip_source(&w, 30, 40, crumbs, TRIP_REACH_SHIPPED), TRIP_SRC_FAR);
+    }
+
+    /// **A load the reach declined books no return and is counted once;
+    /// the counters are per crop** (`CreatureStats::trip_returns_near`,
+    /// `trip_returns_tissue_near`). The delivery scene of
+    /// `a_load_from_a_trip_books_one_return_and_a_load_from_home_books_none`,
+    /// three crops: all near and unmarked (no return, one near); near and
+    /// far and marked (one return, no near); far only because it was
+    /// tissue, marked (one return, one tissue). **Watched red** with
+    /// `trip_src` copied at the put-down instead of taken: the declined crop
+    /// counted once per re-delivery.
+    #[test]
+    fn a_declined_load_books_nothing_and_counts_once() {
+        let delivered = |marked: bool, src: u8| -> (u64, u64, u64, u64) {
+            let stone = Cell::new(material::STONE, 0).with_attached(true);
+            let mut w = World::new(Rect::new(0, 0, 159, 63));
+            for x in 0..160 {
+                for y in 41..64 {
+                    w.set(x, y, stone);
+                }
+            }
+            let nest = w.materials.id_of("nest").expect("nest is compiled in");
+            for x in 90..111 {
+                w.set(x, 41, Cell::new(nest, 0).with_attached(true));
+            }
+            w.chooser = Some(Chooser::TrailAway);
+            w.register_nest_site(100, 40, 10);
+            let fruit = w.materials.id_of("fruit").expect("fruit.ron must be registered");
+            let ant = spawn(&mut w, "ant", 100, 40);
+            let energy = w.species.get(w.organism(ant).expect("live").species).creature.as_ref().expect("a creature").start_energy;
+            {
+                let st = w.organism_mut(ant).expect("live");
+                st.crop = Some(Crop { material: fruit, cells: 1, digesting: 0.0, unit: 960.0, shade: 0, passenger: None });
+                st.trip_load = marked;
+                st.trip_src = src;
+                st.foraged = true;
+            }
+            for _ in 0..1500 {
+                if let Some(st) = w.organism_mut(ant) {
+                    st.energy = energy;
+                }
+                w.begin_step();
+                scheduler::step(&mut w);
+                w.end_step();
+            }
+            let cs = &w.creature_stats;
+            (cs.deliveries, cs.forage_returns, cs.trip_returns_near, cs.trip_returns_tissue_near)
+        };
+        let (d, returns, near, tissue) = delivered(false, TRIP_SRC_NEAR);
+        assert!(d > 0, "the load was never put down at the nest: the scene cannot show a booking");
+        assert_eq!((returns, near, tissue), (0, 1, 0), "a declined load over {d} deliveries");
+        let (d, returns, near, tissue) = delivered(true, TRIP_SRC_NEAR | TRIP_SRC_FAR);
+        assert!(d > 0);
+        assert_eq!((returns, near, tissue), (1, 0, 0), "a crop topped up from afar over {d} deliveries");
+        let (d, returns, near, tissue) = delivered(true, TRIP_SRC_FAR | TRIP_SRC_TISSUE_NEAR);
+        assert!(d > 0);
+        assert_eq!((returns, near, tissue), (1, 0, 1), "a crop of living tissue beside the door over {d} deliveries");
     }
 
     /// **A packed lunch is finished beside food it cannot swallow, so the

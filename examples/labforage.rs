@@ -1558,7 +1558,7 @@ fn main() {
         world.species.set_creature(sid, def);
     }
     println!(
-        "  {} crop_capacity = {} face J; LOAD_SCALE={} LOAD_BY={} SCOUT={} HUNGRY_HOME={} FORAGE_DRIVE={} ({:?}) CARRY_PATIENCE={} PACKED_LUNCH={} STORE_LUNCH={} BIRTH_PRICE={} NEST_DOOR={} STOREROOM={} COLONY_SPACING={} STACK_DEPTH={} BUD_SITE={}",
+        "  {} crop_capacity = {} face J; LOAD_SCALE={} LOAD_BY={} SCOUT={} HUNGRY_HOME={} FORAGE_DRIVE={} ({:?}) CARRY_PATIENCE={} PACKED_LUNCH={} STORE_LUNCH={} TRIP_REACH={:?} BIRTH_PRICE={} NEST_DOOR={} STOREROOM={} COLONY_SPACING={} STACK_DEPTH={} BUD_SITE={}",
         spec.colony_species,
         world.species.id_of(&spec.colony_species).and_then(|id| world.species.get(id).creature.as_ref().map(|d| d.crop_capacity)).unwrap_or(0.0),
         std::env::var("PIXEL_PHYSICS_LOAD_SCALE").unwrap_or_else(|_| "shipped".into()),
@@ -1573,6 +1573,7 @@ fn main() {
         // drive on the granary had arms differing only in this switch and
         // could not show it in a header -- the lane checked it at the source.
         if pixel_physics::sim::creature::store_lunch_from_env() { "on" } else { "off" },
+        pixel_physics::sim::creature::trip_reach_from_env(),
         if pixel_physics::sim::creature::birth_price_from_env() { "guaranteed" } else { "face" },
         std::env::var("PIXEL_PHYSICS_NEST_DOOR").unwrap_or_else(|_| "shipped".into()),
         pixel_physics::sim::creature::storeroom_from_env(),
@@ -2743,8 +2744,8 @@ fn main() {
     // `SUMMARY` keys an identity check compares are the same with it unset
     // (`creature::forage_drive_from_env`).
     println!(
-        "FORAGE seed={} scouted={} paced={} kept={} returns={}",
-        spec.seed, st.forage_scouted, st.forage_paced, st.forage_kept, st.forage_returns
+        "FORAGE seed={} scouted={} paced={} kept={} returns={} returns_near={} tissue_near={}",
+        spec.seed, st.forage_scouted, st.forage_paced, st.forage_kept, st.forage_returns, st.trip_returns_near, st.trip_returns_tissue_near
     );
     // **What the move drive itself was**, over every creature decision tick
     // of the run -- the probe §Z13 named and left for whoever owns
