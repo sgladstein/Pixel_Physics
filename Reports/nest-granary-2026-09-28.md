@@ -13,8 +13,8 @@ carries food from the door into it, where only a hungry ant eats it. On the
 colony bed with the food 90 cells out it is a clear gain (food taken +33%,
 born 144 -> 226, starvation flat); at 140 cells it is close to a wash; **at 80
 founders it costs the colony** (starved 848 -> 1,102, fewer alive at the end
-on 21 of 24 seeds), because a quarter of a big colony staying home is more
-than its foragers can feed. In the lab box the colony is smaller and
+on 21 of 24 seeds); the door alone was neutral at that size, so the cost is
+the storeroom's, which part not traced. In the lab box the colony is smaller and
 steadier: none of 12 dies out against 2, an eighth as many starve, half as
 many are born. **And in `digbox` it costs the nest**: at 40 ants
 7 entrances against 2 and no seed more nest-like than random digging, half
@@ -641,9 +641,11 @@ in `nest-colony-size-2026-09-28.md`:
 - **A big colony pays for it.** At 80 founders the colony takes 12% less
   food, starves 30% more and ends smaller on 21 of 24 seeds. The door alone
   was neutral at that size (43% of every ant starved against 42%,
-  `nest-colony-size-2026-09-28.md` §2), so the cost is the nest workers: 20
-  of 80 founders never forage, and the colony's intake per ant already falls
-  as it grows. **This is the granary's first scale problem**, the kind the
+  `nest-colony-size-2026-09-28.md` §2), so the cost is the storeroom's. Which
+  part is not traced: 20 of 80 founders never forage, but at 20 founders the
+  caste alone did not raise starvation and the carry did (§8h). The colony's
+  intake per ant already falls as it grows. **This is the granary's first
+  scale problem**, the kind the
   lane's scale practice exists to catch the day a mechanism is built
   (`nest-colony-size-2026-09-28.md` §3). Harvester ants do not hold their
   nest workers home for life: workers switch tasks as the colony's needs

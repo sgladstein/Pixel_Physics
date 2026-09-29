@@ -9965,8 +9965,9 @@ old default is both switches `off`):
   workers, whose home is the whole founding cut, or the room cut off the
   shaft -- not yet traced which. On the colony bed, where there is food to
   fetch, the nest reads as one entrance with a mound over the storeroom.
-- **It does not scale yet.** At 80 founders a quarter of the colony staying
-  home is more than its foragers can feed. One storeroom, cut at founding,
+- **It does not scale yet.** At 80 founders the storeroom costs the colony
+  (the door alone was neutral there); whether through the quarter that stays
+  home or the carry is not traced. One storeroom, cut at founding,
   cannot hold a big colony's store, and the rules that keep one entrance were
   tuned at 40 ants: at 200 in `digbox` a colony opens about a dozen
   (`Reports/nest-colony-size-2026-09-28.md`).

@@ -13,7 +13,7 @@ lying on its floor, where before food at a nest was eaten about as fast as it
 arrived. In a test colony with food 90 cells away, a third more food comes
 off the heap, half again as much stands at the nest and half again as many
 young are born; about as many ants starve. With the food 140 cells away the
-gain is small, because a quarter of the colony no longer goes out for food.
+gain is small, and a colony of eighty starts to pay for it.
 In the lab box a colony now stays smaller and steadier: it raises half as many
 young, but far fewer starve, none of a dozen test boxes died out, and it
 leaves most of the plants standing instead of grazing the box bare.
@@ -811,14 +811,14 @@ fast as it arrived. Harvester ants divide the work the same way: foragers
 leave the harvest at the entrance, and nest workers take it down into chambers
 off the main tunnel.
 
-**What it costs is foragers.** A quarter of the colony no longer goes out.
-Where food is close that is more than repaid: in a test colony with the food
+**What it costs.** A quarter of the colony no longer goes out for food.
+Where food is close the granary more than repays that: in a test colony with the food
 90 cells away, a third more food comes off the heap and half again as many
 young are born, with about as many ants starving. Where food is far it is
 close to a wash: 140 cells away, a tenth more food comes in, and seed for seed
-the colony breeds and starves no differently. A colony of eighty pays for it: a
-quarter of it staying home is more than the rest can feed, so more of it
-starves and it ends smaller. And a big colony still
+the colony breeds and starves no differently. A colony of eighty pays for it:
+more of it starves and it ends smaller, for a reason still being traced. And a
+big colony still
 has one small storeroom, which it outgrows.
 
 **What is not right yet: the door is not a roof.** Ants cannot dig through
