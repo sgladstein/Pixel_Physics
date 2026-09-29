@@ -109,7 +109,11 @@ number is comparable: no rain, no granary.
    it reads 0.92-0.97 (§22t). Traced to the booking: 46% of returns are food
    picked up inside the home band by an ant that roamed 16 cells from nest
    contact, past `FORAGE_TRIP_MIN` (8). Judge a trip by where the food was
-   taken (beyond the home band), not by how far the ant roamed.
+   taken, not by how far the ant roamed. Nest lane (09-29): the founding
+   cut lies within 11 Chebyshev of the door's centre (side room x-11..x-5)
+   and 8 rows of the surface; judge home by structure (`ShaftFootprint::
+   touches`, the door ring, the food spill beside the door) or radius 12 --
+   not 26, which in the lab calls the plants round the door home.
 3. **Early deaths.** Founders that never reach the food die early (35% of
    the starved on the granary at 90 cells). Only the road and the nest
    (§17b, §19), or a founding store, reach them.
