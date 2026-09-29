@@ -7,8 +7,8 @@ This note keeps the owner's rulings, the live question, the baseline, the
 commands and the traps.*
 
 - **Previous session:** `session_01Pt5N39pfcix13hMycPN9Xs`, branch
-  `claude/ant-foraging-loop-handoff-986v7n` (2026-09-27): the forage drive and
-  carry patience, both shipped on (§22, §22m).
+  `claude/ant-foraging-loop-handoff-986v7n` (2026-09-28): packed lunch, the
+  birth price, why food does not build up (§22q), foragers retire (§22r).
 - **Peer lanes:** the nest-mouth lane ([`nest-mouth.md`](nest-mouth.md))
   shipped dig down for an enclosed digger (#508, 2026-09-28). With packed
   lunch it costs the loop (below); the owner ruled a nest step is not blocked
@@ -19,9 +19,16 @@ commands and the traps.*
 
 - **The goal:** foragers earn enough to feed themselves *and* extra for the
   colony (2026-09-25). "All we care about is the loop is improving."
-- **Test in both games**, the colony bed (`trailfollow`) and the lab box
-  (`labforage`), and at 140 cells, before asking for any ruling. The lab
-  caught the painted door (§19) and the forage drive's early crashes (§22h).
+- **The colony bed decides; the lab box is the pre-ship check** (09-28,
+  replacing "test in both games before any ruling"). Develop and rule on
+  loop changes on the bed (`trailfollow`) at 90 *and* 140 cells, traced.
+  Before a change ships, run the lab (`labforage`, 24 seeds) once as a
+  regression check: died out, starved, births, alive at the end. It is not
+  evidence the loop improved: it came back neutral on the drive, carry
+  patience, packed lunch and the door, and costs ~25x the bed per arm. What
+  it caught was harm the bed cannot contain: the birth overdraw (Z36, seeds),
+  the forage drive's early crashes (§22h), the painted door's lab loss (§19,
+  gone on the 09-28 ant).
 - **Lead with the specific quantity a change targets**; colony totals
   (starved, net food into home) are the check, not the headline (09-26).
 - **Features default on unless there is a good reason not to** (09-27,
@@ -46,70 +53,66 @@ commands and the traps.*
 
 ## Live question
 
-**Four forage switches ship on** (§22m, §22o, §22p); `=off` (`face` for the
-birth price) on each is the ant before it, bit for bit:
-`PIXEL_PHYSICS_FORAGE_DRIVE=always` (a forager goes back out fed or hungry),
-`PIXEL_PHYSICS_CARRY_PATIENCE=pickup` (Z35), `PIXEL_PHYSICS_PACKED_LUNCH=on`
-(a fed forager takes store food out and eats it on the road; food taken
-3,744 -> 5,377 at 90) and `PIXEL_PHYSICS_BIRTH_PRICE=guaranteed` (a birth no
-longer overdraws its parent, Z36; lab starved 257 -> 137, generations
-28 -> 18; bed byte-identical).
+**Shipped on** (`=off`, or `face`, is the ant before it, bit for bit):
+`FORAGE_DRIVE=always`, `CARRY_PATIENCE=pickup` (Z35), `PACKED_LUNCH=on`,
+`BIRTH_PRICE=guaranteed` (Z36) -- all `PIXEL_PHYSICS_`.
 
-**Why so little food builds up at the nest (§22q, owner's question):** the
-colony keeps its food in its bodies. Fed ants at home take the store, eat
-from it and put it back (a quarter of all decisions), and that is how banks
-fill for births and lunches fuel trips. Stopping it doubles the floor store
-and drops births 151 -> 7-16. The limit is trips: loopers make about two in
-24,000 frames. Levers, not built: a load topped up at home becomes a lunch;
-a digger holding a pellet does not eat; a lunch carrier is not held by food
-beside it.
+**Foragers retire (§22r, the owner's "is the loop broken or the economy too
+hard?").** Neither: the trip works and pays ~11x its cost, and foragers stop
+making it. 41% of a forager's life comes after its last delivery, 70% of that
+fed at home, and the drive reaches 19% of it: the retiree holds store food
+that is not a lunch (taken just off nest material, or a lunch turned load by
+a later cell) or a pellet. Halving the cost of living (`burn=0.5`) moves the
+loop rate 0.93 -> 0.91 per 10,000 ant-frames: price is not the limit.
 
-**Then:** the lab's remaining starvation is ordinary. Most starved ants die
-out in the box (55% more than 128 cells from the nest) after it is grazed
-down, and a third die within 3 cells of food that is mostly corpse, litter
-or buried crumbs. Traced with `labforage lifetrace=`. Behind it:
-an off-switch that reads what the lab is short of, food out there (Gordon
-2002, *Am Nat* 159:509: harvesters stop when returning foragers stop
-bringing food).
+**`STORE_LUNCH=on` is built and held off.** Food taken before an ant has been
+8 cells out since its last nest contact is a lunch. Bed, door off: food taken
+4,574 -> 19,732 (24/0), loops per 10,000 ant-frames 0.78 -> 1.46, starved flat.
+With the door it sends 41% of ant-time west (open problem 3). **The lab flags
+it**: starved 137 -> 263 (17/7), died out 1 -> 5 -- boom and bust in a finite
+box. **Next: the off-switch** (open problem 1), then the lab with both on.
 
-- **"Net food into home" overcounts 3.4-4.6x** (§22j); read food taken, and
-  food standing at the nest (`FOOD STORE`'s `nest food`, mean from frame
-  6,000).
+- **Read food taken, and food standing at the nest** (`FOOD STORE`'s
+  `nest food`, mean from 6,000); "net food into home" overcounts (§22j).
 
-## Baseline (the shipped default: drive, carry patience and packed lunch on)
+## Baseline (`main` after #511: drive, carry patience, packed lunch, birth price, dig down)
 
-Colony bed, no trail, 24 seeds (seeds 1-24):
+Colony bed, no trail, 24 seeds (seeds 1-24), measured 2026-09-28:
 
 | food distance | food taken from the pile | food at the nest | starved of 480 | born |
 |---|---:|---:|---:|---:|
-| 90 | 5,377 | 8,591 J | 64 | 185 |
-| 140 | 4,859 | 7,827 J | 79 | 115 |
-| 90, with #508's dig down | **4,574** | 7,743 J | 93 | 151 |
+| 90 | 4,574 | 7,743 J | 93 | 151 |
+| 140 | 4,174 | 7,554 J | 89 | 91 |
+| 90, `NEST_DOOR=2` | 5,611 | 6,279 J | 15 | 150 |
+| 140, `NEST_DOOR=2` | 5,046 | 4,773 J | 38 | 82 |
 
-The first two rows are `main` after #507; the third is this branch merged
-with #508's head (24 seeds, 90 cells only; 140 and the lab not yet re-run
-with both). Against the first row, dig down takes less off the pile on 21 of
-24 seeds and starves more on 12 (5 fewer). Neither switch on that tree:
-3,744, 7,160 J, 83, 59; dig down alone 3,057, 6,670 J, 152, 30.
+After #512 (the heap cue lets a room deepen) the 90-cell row reads 4,566 /
+8,003 J / 83 / 144 (within the spread; reproduces the nest lane's figure
+exactly); the switch results here were measured before it. The door rows are
+the nest lane's switch (§22r). Lab box, 24 seeds, median,
+same tree: food eaten 1,149k J, births 408, starved 137, alive at the end 78,
+ant-frames lived 10.5M; died out 1, under 10 at the end 6. With the door:
+1,053k J, 406, 156, 113, 9.4M; 2 and 2 (no sign test below p 0.15).
 
-Packed lunch `=off` on the same tree: 90 cells 3,744, 7,160 J, 83, 59; 140
-cells 3,797, 6,762 J, 79, 55. #507 (founding shaft, heap cue) moved the bed
-by itself, so numbers from before it are a different tree. Lab box, 24 seeds,
-median, shipped: food eaten 1,150k J, births 482, alive at the end 55,
-ant-frames lived 10.9M; died out 3, under 10 at the end 6. Packed lunch off:
-1,170k J, 515, 48, 9.8M; 1 and 3.
+Before #508 (dig down) and #510 the 90-cell bed read 5,377 / 8,591 J / 64 /
+185 and 140 read 4,859 / 7,827 J / 79 / 115; packed lunch off on that tree
+3,744 / 7,160 J / 83 / 59. #507 (founding shaft, heap cue) moved the bed by
+itself, so numbers from before it are a different tree.
 
 ## Ranked open problems
 
-1. **Lab starvation out in a grazed box** (above). `labforage lifetrace=`
-   traces it per ant. The birth-overdraw quarter of it is fixed (Z36). Then
-   the drive's off-switch, lab first.
+1. **The drive has no off-switch.** In the lab, ants starve out in a grazed
+   box (55% more than 128 cells from the nest, a third beside corpse, litter
+   or buried crumbs), and store lunch doubles it (§22r). Harvesters stop when
+   returning foragers stop bringing food (Gordon 2002, *Am Nat* 159:509):
+   read that, not a clock. Blocks `STORE_LUNCH`.
 2. **Early deaths.** Before #507, at 140 cells, 171–177 of ~207 starved never
    reached the food and died around frame 3,800, before any forager existed;
    #507's founding shaft cut starvation to 79 of 480 there, 58 by frame 6,000. Only the road
    and the nest (§17b, §19), or a colony founded with a store, can reach them.
 3. **Which way to go.** A driven forager leaving the nest's west end walks
-   the dead end (§20). A memory of where its last load came from would aim
+   the dead end (§20); with the door and store lunch, 41% of ant-time is west
+   of the nest (§22r). A memory of where its last load came from would aim
    it, as desert ants aim by the vector that paid.
 4. **Food at home to the hungry.** The tether pays at 90 on top of `always`
    (201 → 123) and kills at 140 (429): the leash is the problem, not the store.
@@ -187,10 +190,7 @@ filtered out (note the leading spaces), and compare the decision CSVs too.
 
 ## Predictions (written before each run)
 
-Rows 1-3 (packed lunch, scored) are in `ant-scenes-2026-09-23.md` §22o.
+Rows 1-3 are scored in `ant-scenes-2026-09-23.md` §22o, rows 4-9 in §22r.
 
 | # | run | prediction | right? |
 |---|---|---|---|
-| 4 | `BIRTH_PRICE=guaranteed` vs `face`, lab 24 seeds (2026-09-28, this branch after #508) | parents killed by their own birth ~0 (from 11-15% of births); starved deaths down ~20-25% over the run; births up a little; alive at the end up; died out no worse | overdrawn 88.5 -> 0 (right); starved -47% (right way, twice the size); births -33% (wrong); alive at the end flat (wrong); died out 2 -> 1 (right) |
-| 5 | same, bed 90 and 140, 24 seeds | neutral: bed births are paid at the nest in crumbs, not seeds; starved and born within the spread | right: byte-identical at both distances (no seeds in the bed's diet) |
-| 6 | `wire=AtNest:Feed:-0.7,Energy:Feed:-0.7` on `main` after #510, bed 90, 24 seeds (2026-09-28): fed ants at home stop re-taking the store | food standing on the nest at least 2x (1,400-2,800 J to an ant today); food taken off the pile up 5-15%; starved within the spread; ants' bodies hold less | food on the nest 7,743 -> 13,832 J (right); taken 4,574 -> 2,523, lower on 24 (wrong); starved 93 -> 180 (wrong); bodies 8,038 -> 2,124 J (right); born 151 -> 7. s22q |
