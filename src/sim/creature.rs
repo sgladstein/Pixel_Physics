@@ -208,6 +208,10 @@ const RNG_SLOT_HALF_TURN: u64 = 9;
 /// other draw.
 const RNG_SLOT_SPOIL_RING: u64 = 10;
 
+/// The widening stream ([`dig_widen_of`]): which wall of a one-cell passage
+/// a digger cuts. A slot of its own so the switch moves no other draw.
+const RNG_SLOT_DIG_WIDEN: u64 = 11;
+
 /// **The cap `grow_body` walks a `Segmented` body's `FateGenome` to.** With
 /// laterals that is at most 16 cells; both shipped bodies land at 7-8, well
 /// under it, and the cap exists only to bound a mutated genome that never
@@ -10987,6 +10991,118 @@ fn way_down(world: &World, def: &CreatureDef, organism: OrganismId, x: i32, y: i
     })
 }
 
+/// **Tunnels one body length wide**: `PIXEL_PHYSICS_DIG_WIDEN=on`, off
+/// unless set; [`World::dig_widen`] for one world.
+///
+/// **Why.** The dig cuts the one cell ahead of the head, so every passage the
+/// colony digs is one cell wide: a line of pixels, not a tunnel, and a queue
+/// that two ants cannot pass in. The owner, 2026-09-29: *"tunnels should be
+/// wider than 1 pixel, for crowding and aesthetics."* A real tunnel is about
+/// one body length across (Gravish et al. 2013, via
+/// `Reports/nest-entrance-dimensions-2026-09-19.md` §2), and the ant is two
+/// cells long.
+///
+/// **What it does.** On a won dig roll, a digger walking along a passage
+/// (the cell ahead of it open, [`ahead_is_open`]) whose head stands where
+/// the passage is one cell wide -- ground both above and below it, or both
+/// on either side -- cuts one of those walls instead of turning down and
+/// cutting ahead ([`dig_widen_site`]). A digger at a face digs on as before,
+/// so galleries still run and descend; the tunnel behind the face widens,
+/// most where the traffic is. A passage already two wide is left alone, so
+/// the rule stops at one body length and never hollows a room. The cut is an
+/// ordinary cut from there on: the heap cue judges it if it would open the
+/// sky, the jaw must be able to take it, and its pellet is carried like any
+/// other.
+///
+/// **Widening at the face too was the first form, and it lost the nest**:
+/// seed 1, 40 ants, frame 12,000, a digger at a one-cell face cut its wall
+/// before it went on, every advance cost two cuts and the dig-down turn gave
+/// way to the widening, and the galleries stopped: 106 cells dug against 179,
+/// 90th-percentile depth 7 rows against 13, a shallow blob round the door.
+pub fn dig_widen_of(world: &World) -> bool {
+    world.dig_widen.unwrap_or_else(dig_widen)
+}
+
+/// `PIXEL_PHYSICS_DIG_WIDEN`: `on` turns [`dig_widen_of`] on; unset and
+/// `off` leave it off; anything else is reported and read as off.
+fn dig_widen() -> bool {
+    static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *V.get_or_init(|| parse_dig_widen(&std::env::var("PIXEL_PHYSICS_DIG_WIDEN").unwrap_or_default()))
+}
+
+fn parse_dig_widen(raw: &str) -> bool {
+    match raw.trim() {
+        "on" => true,
+        "" | "off" => false,
+        v => {
+            eprintln!("PIXEL_PHYSICS_DIG_WIDEN={v:?}: not `on` or `off`; read as off");
+            false
+        }
+    }
+}
+
+/// **Whether the cell ahead of `organism`'s head is open** -- empty, or an
+/// animal -- so that it is walking along a passage rather than standing at
+/// a face ([`dig_widen_of`]).
+fn ahead_is_open(world: &World, organism: OrganismId, x: i32, y: i32) -> bool {
+    let h = world.organism(organism).map_or(0, |s| s.heading);
+    let (dx, dy) = DIRS[h as usize % 8];
+    let c = world.get(x + dx, y + dy);
+    c.material == material::EMPTY || matches!(world.materials.kind(c.material), MaterialKind::Creature)
+}
+
+/// **The wall a digger at `(x, y)` widens its passage by**, or `None` when
+/// the passage is not one cell wide there. A cell is a wall when it holds
+/// ground (not empty, not an animal); the passage is one wide where both
+/// cells across it are walls -- above and below, or left and right, or both
+/// (a diagonal step, a dead end). Of those walls, the ones this animal's
+/// jaw can take ([`jaw_can_cut`]) are candidates, and its own stream picks
+/// one.
+fn dig_widen_site(world: &World, def: &CreatureDef, organism: OrganismId, (x, y): (i32, i32)) -> Option<(i32, i32)> {
+    let wall = |cx: i32, cy: i32| {
+        let c = world.get(cx, cy);
+        c.material != material::EMPTY && !matches!(world.materials.kind(c.material), MaterialKind::Creature)
+    };
+    let across_v = wall(x, y - 1) && wall(x, y + 1);
+    let across_h = wall(x - 1, y) && wall(x + 1, y);
+    let mut sides: Vec<(i32, i32)> = Vec::with_capacity(4);
+    if across_v {
+        sides.extend([(x, y - 1), (x, y + 1)]);
+    }
+    if across_h {
+        sides.extend([(x - 1, y), (x + 1, y)]);
+    }
+    sides.retain(|&(cx, cy)| jaw_can_cut(world, def, organism, world.get(cx, cy)));
+    if sides.is_empty() {
+        return None;
+    }
+    let mut draw = rng::stream(world.seed, u64::from(organism), world.frame, RNG_SLOT_DIG_WIDEN);
+    Some(sides[draw.below(sides.len() as u32) as usize])
+}
+
+/// **The shoulder a digger at a face cuts** ([`dig_widen_of`]): on half its
+/// rolls (its own stream, keyed a frame on from the passage wall's), a cell
+/// beside the cell ahead, across the heading -- for a diagonal heading the
+/// two corners between the head and the cell ahead, for a straight one the
+/// two cells either side of the cell ahead. `None` when the coin says
+/// advance, when the cell ahead is not ground (not a face), or when neither
+/// shoulder is ground this animal's jaw can take.
+fn dig_shoulder_site(world: &World, def: &CreatureDef, organism: OrganismId, (x, y): (i32, i32), (dx, dy): (i32, i32)) -> Option<(i32, i32)> {
+    if !jaw_can_cut(world, def, organism, world.get(x + dx, y + dy)) {
+        return None;
+    }
+    let mut draw = rng::stream(world.seed, u64::from(organism), world.frame + 1, RNG_SLOT_DIG_WIDEN);
+    if !draw.flip() {
+        return None;
+    }
+    let shoulders: [(i32, i32); 2] = if dx != 0 && dy != 0 { [(x + dx, y), (x, y + dy)] } else { [(x + dx - dy, y + dy + dx), (x + dx + dy, y + dy - dx)] };
+    let open: Vec<(i32, i32)> = shoulders.into_iter().filter(|&(cx, cy)| jaw_can_cut(world, def, organism, world.get(cx, cy))).collect();
+    if open.is_empty() {
+        return None;
+    }
+    Some(open[draw.below(open.len() as u32) as usize])
+}
+
 /// **Gravity in the dig, as a turn rather than as a target.**
 ///
 /// `PIXEL_PHYSICS_DIG_DOWN=<0.0..1.0>` makes a digger rotate one octant
@@ -13106,12 +13222,19 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
         // came out would be `digs` again under another name. See
         // `CreatureStats::dig_rolls`.
         world.creature_stats.dig_rolls += 1;
+        // **A one-cell passage is widened by the traffic through it**
+        // ([`dig_widen_of`]): a digger whose way ahead is open is walking
+        // along a passage, not standing at a face, and if the passage is one
+        // cell wide there it cuts the wall beside it -- instead of turning
+        // down, which is the face's business. At a face the dig goes on as
+        // before. Off, no read and no draw.
+        let widen_to = if dig_widen_of(world) && ahead_is_open(world, organism, x, y) { dig_widen_site(world, def, organism, (x, y)) } else { None };
         // **The digger turns downward before it cuts, rather than cutting a
         // cell it will never enter.** On for an enclosed digger since
         // 2026-09-28, and `off` is bit-exact with the ant before; see
         // [`dig_down_bias`] for the whole argument and for why the two
         // obvious places to put this are both wrong.
-        if let Some(dd) = dig_down_of(world) {
+        if let Some(dd) = dig_down_of(world).filter(|_| widen_to.is_none()) {
             let h = world.organism(organism).map_or(0, |s| s.heading);
             let turned = turn_toward(h, DOWN_DIR, half_turn_left(world.seed, organism, world.frame));
             let may_turn = turned != h
@@ -13148,7 +13271,19 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
         }
         let heading = world.organism(organism).map_or(0, |s| s.heading);
         let (dx, dy) = DIRS[heading as usize];
-        let (tx, ty) = (x + dx, y + dy);
+        let (mut tx, mut ty) = (x + dx, y + dy);
+        // **...and a face is cut two cells wide** ([`dig_widen_of`]): at a
+        // face, on half its rolls, the digger cuts a shoulder beside the cell
+        // ahead, along its heading after any dig-down turn, so the gallery
+        // advances as a band two cells across rather than a line one cell
+        // across ([`dig_shoulder_site`]).
+        let widen_to = widen_to.or_else(|| if dig_widen_of(world) { dig_shoulder_site(world, def, organism, (x, y), (dx, dy)) } else { None });
+        // The widening cut: everything below judges and takes the wall as it
+        // would the cell ahead.
+        if let Some(side) = widen_to {
+            (tx, ty) = side;
+            world.creature_stats.digs_widened += 1;
+        }
         let target = world.get(tx, ty);
         // **A heap draws where digging starts** ([`SpoilCue`], on since
         // 2026-09-28, [`spoil_cue_of`]): a cut that would open the ground to the sky goes
@@ -22636,6 +22771,83 @@ mod tests {
             })
             .collect();
         assert_eq!(sides, [-1, 1].into_iter().collect(), "a carrier out of the middle went one way only");
+    }
+
+    /// `PIXEL_PHYSICS_DIG_WIDEN`'s spellings: `on`, and off for everything
+    /// else.
+    #[test]
+    fn dig_widen_parses_on_and_reads_the_rest_as_off() {
+        assert!(parse_dig_widen("on"));
+        assert!(parse_dig_widen(" on "));
+        for off in ["", "off", "yes", "1", "On"] {
+            assert!(!parse_dig_widen(off), "{off:?} turned widening on");
+        }
+    }
+
+    /// A digger facing east at `(60, 60)` in a tunnel cut through soil
+    /// (`rows` of it, from row 60 down, columns 50 to `end`), one `act`
+    /// with `Dig` 1 at `frame` with widening `widen` and no dig-down turn:
+    /// the cells it cut, and `digs_widened`.
+    fn widen_dig(rows: i32, end: i32, widen: bool, frame: u64) -> (Vec<(i32, i32)>, u64) {
+        let mut w = World::new(Rect::new(0, 0, 119, 99));
+        founding_ground(&mut w);
+        for yy in 60..60 + rows {
+            for xx in 50..=end {
+                w.set(xx, yy, Cell::EMPTY);
+            }
+        }
+        w.dig_widen = Some(widen);
+        w.dig_down = Some(None);
+        w.frame = frame;
+        let a = spawn(&mut w, "ant", 60, 60);
+        w.organism_mut(a).expect("live").heading = 0;
+        let (hx, hy) = w.organism(a).expect("live").chain[0];
+        let def = w.species.get(w.organism(a).expect("live").species).creature.clone().expect("a creature");
+        let before: Vec<(i32, i32)> = (40..92).flat_map(|y| (1..119).map(move |x| (x, y))).filter(|&(x, y)| w.get(x, y).material != material::EMPTY && w.get(x, y).organism_id() == 0).collect();
+        let mut outputs = [0.0f32; brain::BRAIN_OUTPUTS];
+        outputs[brain::BrainOutput::Dig as usize] = 1.0;
+        let mut draw = rng::stream(1, a as u64, frame, RNG_SLOT_MOVE);
+        act(&mut w, hx, hy, a, &def, &outputs, &mut draw);
+        let cut = before.into_iter().filter(|&(x, y)| w.get(x, y).material == material::EMPTY).collect();
+        (cut, w.creature_stats.digs_widened)
+    }
+
+    /// **A digger walking a one-cell passage cuts its wall** ([`dig_widen_of`]),
+    /// above or below it; with widening off the same roll cuts nothing, the
+    /// way ahead being open -- the control that says the cut is the switch's.
+    #[test]
+    fn a_digger_walking_a_one_cell_passage_cuts_its_wall() {
+        let (cut, n) = widen_dig(1, 70, true, 0);
+        assert_eq!(n, 1, "the widening did not fire");
+        assert!(cut.len() == 1 && (cut[0] == (60, 59) || cut[0] == (60, 61)), "the digger cut {cut:?}, not the wall above or below it");
+        let (cut, n) = widen_dig(1, 70, false, 0);
+        assert!(cut.is_empty() && n == 0, "with widening off a digger with its way open cut {cut:?}");
+    }
+
+    /// **A passage two cells across is left alone**: the rule stops at one
+    /// body length, so it never hollows a room.
+    #[test]
+    fn a_passage_two_cells_wide_is_left_alone() {
+        let (cut, n) = widen_dig(2, 70, true, 0);
+        assert!(cut.is_empty() && n == 0, "a digger in a passage two cells high widened it: {cut:?}");
+    }
+
+    /// **A face is cut two cells wide**: at the end of a one-cell tunnel,
+    /// over sixteen frames, a digger cuts a shoulder beside the cell ahead on
+    /// some rolls and the cell ahead on others, and nothing else.
+    #[test]
+    fn a_face_is_cut_two_cells_wide() {
+        let mut ahead = 0;
+        let mut shoulder = 0;
+        for f in 0..16 {
+            let (cut, _) = widen_dig(1, 60, true, f);
+            match cut.as_slice() {
+                [(61, 60)] => ahead += 1,
+                [(61, 59)] | [(61, 61)] => shoulder += 1,
+                other => panic!("frame {f}: the digger at the face cut {other:?}"),
+            }
+        }
+        assert!(ahead >= 3 && shoulder >= 3, "over 16 rolls at a face: {ahead} cuts ahead, {shoulder} shoulders");
     }
 
     fn run(w: &mut World, frames: usize) {

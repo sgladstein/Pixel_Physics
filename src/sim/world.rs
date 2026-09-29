@@ -1740,6 +1740,13 @@ pub struct CreatureStats {
     /// downward has nothing for this lever to add, and the gap between this
     /// and `dig_rolls * w` is how much of the time that was true.
     pub digs_aimed_down: u64,
+    /// **Dig rolls turned into a cut of a passage's wall** under
+    /// `PIXEL_PHYSICS_DIG_WIDEN` (`creature::dig_widen_of`): the digger stood
+    /// in a passage one cell wide and cut the wall beside it rather than the
+    /// cell ahead. Counted when the side is chosen, before the heap cue and
+    /// the jaw judge it; the cut itself is in `digs`. 0 unless the switch is
+    /// on.
+    pub digs_widened: u64,
     /// **Dig rolls whose downward turn was refused because there is no way
     /// down** (`creature::way_down`): all three cells under the animal are
     /// ground it cannot cut -- stone, bedrock, nest paint. Those rolls dig
@@ -3702,6 +3709,11 @@ pub struct World {
     /// `Some(None)` turns it off. A field so a guard can take both arms in
     /// one process.
     pub spoil_ring: Option<Option<crate::sim::creature::SpoilRing>>,
+    /// **Tunnel widening, overriding `PIXEL_PHYSICS_DIG_WIDEN` for this
+    /// world** (`creature::dig_widen_of`). `None` follows the environment,
+    /// which is off unless it says `on`. A field so a guard can take both
+    /// arms in one process.
+    pub dig_widen: Option<bool>,
     /// **The storeroom, overriding `PIXEL_PHYSICS_STOREROOM` for this world**
     /// (`creature::storeroom_of`). `None` follows the environment, which is
     /// `creature::Storeroom::SHIPPED` unless it says `off`.
@@ -6107,6 +6119,7 @@ impl World {
             spoil_cue: None,
             dig_down: None,
             spoil_ring: None,
+            dig_widen: None,
             storeroom: None,
             nest_door: None,
             scout: None,

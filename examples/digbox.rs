@@ -3199,6 +3199,70 @@ fn crater(world: &World, b: &Box2, frame: u64) -> String {
     )
 }
 
+/// **How wide the nest's passages are** (`WIDTH`, every stop): every open
+/// cell below the old surface -- empty, or an animal standing in it -- by
+/// the width of the passage it sits in, the shorter of its open runs across
+/// and down, capped at 3. A passage the dig cut one cell at a time reads 1;
+/// `PIXEL_PHYSICS_DIG_WIDEN` (`creature::dig_widen_of`) is for making it 2,
+/// and its counter is beside the census as the "it fired" half.
+fn widths(world: &World, b: &Box2, frame: u64) -> String {
+    let open = |x: i32, y: i32| {
+        if x < 0 || x >= b.w || y < b.surface || y >= b.floor {
+            return false;
+        }
+        let c = world.get(x, y);
+        c.material == material::EMPTY || matches!(world.materials.kind(c.material), MaterialKind::Creature)
+    };
+    let run = |x: i32, y: i32, (sx, sy): (i32, i32)| {
+        let mut n = 1;
+        for sign in [-1, 1] {
+            let mut k = 1;
+            while n < 3 && open(x + sign * sx * k, y + sign * sy * k) {
+                n += 1;
+                k += 1;
+            }
+        }
+        n.min(3)
+    };
+    let mut by = [0u32; 3];
+    // **Thick**: the cell is one of a 2x2 block of open cells, which a
+    // passage one cell across never has, straight or diagonal. The run test
+    // above reads a diagonal band two cells across as 1 (its vertical run is
+    // one), so this is the reading for how a gallery looks. **Corner-only**:
+    // open, with no open cell beside it but one at a corner -- a diagonal
+    // line of single cells, the thinnest thing the dig makes.
+    let (mut thick, mut corner_only) = (0u32, 0u32);
+    for y in b.surface..b.floor {
+        for x in 0..b.w {
+            if open(x, y) {
+                let w = run(x, y, (1, 0)).min(run(x, y, (0, 1)));
+                by[(w - 1) as usize] += 1;
+                if [(-1, -1), (0, -1), (-1, 0), (0, 0)].iter().any(|&(ox, oy)| (0..2).all(|i| (0..2).all(|j| open(x + ox + i, y + oy + j)))) {
+                    thick += 1;
+                }
+                if !(open(x - 1, y) || open(x + 1, y) || open(x, y - 1) || open(x, y + 1)) && (open(x - 1, y - 1) || open(x + 1, y - 1) || open(x - 1, y + 1) || open(x + 1, y + 1)) {
+                    corner_only += 1;
+                }
+            }
+        }
+    }
+    let total = by.iter().sum::<u32>().max(1) as f64;
+    format!(
+        "WIDTH frame={frame} open cells below the old surface by passage width: 1 cell {} ({:.0}%), 2 cells {} ({:.0}%), 3 or more {} ({:.0}%) | in a 2x2 open block {} ({:.0}%), joined at a corner only {} ({:.0}%) | walls cut to widen a passage (DIG_WIDEN) {}",
+        by[0],
+        100.0 * by[0] as f64 / total,
+        by[1],
+        100.0 * by[1] as f64 / total,
+        by[2],
+        100.0 * by[2] as f64 / total,
+        thick,
+        100.0 * thick as f64 / total,
+        corner_only,
+        100.0 * corner_only as f64 / total,
+        world.creature_stats.digs_widened
+    )
+}
+
 fn trace(world: &World) {
     use pixel_physics::sim::brain::{BrainInput as I, BrainOutput as O};
     let Some(sid) = world.species.id_of("ant") else { return };
@@ -3597,6 +3661,7 @@ fn main() {
                 println!("{line}");
             }
             println!("{}", crater(&world, &b, f));
+            println!("{}", widths(&world, &b, f));
             if flag("trace") {
                 trace(&world);
             }

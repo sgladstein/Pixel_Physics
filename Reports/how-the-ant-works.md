@@ -91,7 +91,9 @@ will be.
   `return_window`). §5 step 6 and §8 on 2026-09-29 for the half turn's
   side (`turn_toward`, `half_turn_left`) and the founding cut's jaw and
   corpses (`is_diggable_ground`, `founding_dig_force`,
-  `paint_nest_patch_with`).
+  `paint_nest_patch_with`). §12 again that day: the walked cycle's and the
+  lift's rows, which #517 left out, and the carry away from the mouth
+  (`SpoilOut`, `spoil_lift_mode`, `spoil_ring`).
   Update this line whenever a section is re-checked against the code.
 - **Edit it in place. Never append history.** When you change a mechanism
   described here, update the section in the same commit. When you find this
@@ -883,6 +885,9 @@ Read once per process from the environment. The default is what ships.
 | `PIXEL_PHYSICS_NEST_SHAFT_OFFSET` | 0 | `<cells>`: the founding shaft is cut that many columns from the founding point (negative is west), so a door (`PIXEL_PHYSICS_NEST_DOOR`) has the mouth beside it (§8) |
 | `PIXEL_PHYSICS_DIG_DOWN` | `1.0,enclosed` | `off` (or `0`): no turn, the ant before 2026-09-28; `<w>`: the turn with chance `w` for any digger; `<w>,enclosed`: only an enclosed one (§5 step 6) |
 | `PIXEL_PHYSICS_SPOIL_HAUL`, `_SPOIL_DROP_COVER`, `_TRAFFIC_DEFER`, `_COLONY_SPACING` | unset | haulage re-roll to the nest door, spoil held under cover, jam deferral length, founder spacing |
+| `PIXEL_PHYSICS_SPOIL_OUT` | off | the excavation cycle walked (`SpoilOut`): parts, comma-joined, or `on` for all four. `haul`: a pellet carrier is pulled to the door over the mouth (`spoil_haul_target`); `pace`: at the laden pace, `HomeAligned` read against that target (`spoil_pace_target`); `keep`: inside the nest (`inside_nest`: under cover, or in the founding cut) the pellet is not put down while patience lasts, and is never lifted from there (`spoil_kept_inside`, `spoil_kept_no_lift`); `back`: a digger not hungry walks back to the cell it cut once its pellet is down (`OrganismState::dig_return`, `dig_return_target`) |
+| `PIXEL_PHYSICS_SPOIL_LIFT` | `climb` | where a pellet with no cell beside its carrier goes: `climb` up the carrier's column as far as it could have walked (`lift_reach`); `out` through the passages to the nearest cell in the open that holds a pellet (`lift_out`, `spoil_lifted_out`); `none`, `dig`, `unbounded` the older reaches |
+| `PIXEL_PHYSICS_SPOIL_RING` | off | `<shape>,<scale>`: the first time a carrier stands outside the nest with its pellet it draws a column on its own side, the door's half-width plus one plus a Gamma(shape, scale) draw from the nest's centre (`spoil_ring_column`, `OrganismState::spoil_ring`, its own stream), is pulled along the ground to it (`spoil_haul_target`), and its drop roll is held until its head is that far out (`spoil_ring_holds`; `spoil_ring_drawn`, `spoil_ring_held`); `World::spoil_ring` for one world |
 
 ## 13. Where the implementation lives
 
