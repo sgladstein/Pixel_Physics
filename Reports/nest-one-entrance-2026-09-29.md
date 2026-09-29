@@ -179,9 +179,13 @@ All in `creature.rs` unless named, all off unless set:
   cut.
 
 Unset, each build reproduced the run before it byte for byte in `digbox`
-(seeds 1-3, against the binary before the change); the colony bed and the
-lab were not run. No test covers the new switches yet; they are candidates,
-not ship arms.
+(seeds 1-3, against the binary before the change), and the finished branch
+reproduces the colony bed (`trailfollow`, 20 founders at 90 cells, seeds 1-2)
+byte for byte against the pre-change binary; with `SPOIL_OUT=on` the same
+bed run differs, so the identical one is evidence. The lab was not run. The
+full suite passes on the branch (library 1,930, 0 failed; `tests/
+determinism.rs` 4; `tests/worldgen.rs` 44); no test covers the new switches
+yet: they are candidates, not ship arms.
 
 ## 7. The choice
 
