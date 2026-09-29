@@ -1,0 +1,92 @@
+{
+  "id": "20260929T031008312Z-5d7b1a",
+  "created": "2026-09-29T03:10:08Z",
+  "board": "nest",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/ant-nest-mouth-4f6s79",
+    "commit": "72383e39",
+    "agent": null,
+    "session_id": "02cfa3f7-cc46-597e-8f90-5488d21d3601",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "One entrance round the door: three ways to carry the spoil out",
+  "question": "Which of these reads most like the nest you want, and is one entrance worth a much smaller nest? Or may the lift carry spoil out to the door (your 2026-08-31 placement ruling)?",
+  "context_md": "Since the granary shipped, a colony under the five-column door opens 6-7 entrances where the old strip allowed 2. Traced: **the roof breaks under the colony's own spoil heaps**. A dug pellet is posted straight up over its gallery, so every gallery grows a heap, and the heap cue cannot see a cut under a heap (314 of 444 crust breaks). The storeroom adds no entrances.\n\nSame colony, seed 2 (on each arm's median), 40 ants in digbox, frames 6,000 / 12,000 / 18,000 / 24,000. Medians over 24 seeds:\n\n| | entrances at 40 ants | cells dug | entrances at 200 ants | cells dug |\n|---|---:|---:|---:|---:|\n| shipped | 6.5 | 204 | 9.5 | 618 |\n| walk it out | **1** | 41 | **3** | 74 |\n| walk it out and back | **2** | 51 | 7 | 304 |\n| lift it out the nearest hole | 5 | 286 | 12 | 764 |\n\nNot built: the lift carrying spoil to the door. It would put the heaps at the door and keep the diggers at their faces, but it is a rule about where the colony's spoil lands, which you ruled against. All three built forms are switches, off. Report: .",
+  "kind": "frames",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "shipped (door + granary)",
+      "files": [
+        "20260929T031008312Z-5d7b1a/000-new-s2-f6000.png",
+        "20260929T031008312Z-5d7b1a/001-new-s2-f12000.png",
+        "20260929T031008312Z-5d7b1a/002-new-s2-f18000.png",
+        "20260929T031008312Z-5d7b1a/003-new-s2-f24000.png"
+      ],
+      "caption": "the lift posts each pellet straight up over its gallery",
+      "meta": {
+        "entrances": 7,
+        "room (cells)": 265,
+        "median entrances over 24 seeds": 6.5
+      },
+      "focus": null
+    },
+    {
+      "label": "walk it out",
+      "files": [
+        "20260929T031008312Z-5d7b1a/004-new-hpc0-s2-f6000.png",
+        "20260929T031008312Z-5d7b1a/005-new-hpc0-s2-f12000.png",
+        "20260929T031008312Z-5d7b1a/006-new-hpc0-s2-f18000.png",
+        "20260929T031008312Z-5d7b1a/007-new-hpc0-s2-f24000.png"
+      ],
+      "caption": "carried out through the door at the laden pace, nothing put down inside",
+      "meta": {
+        "entrances": 3,
+        "room (cells)": 71,
+        "median entrances over 24 seeds": 1
+      },
+      "focus": null
+    },
+    {
+      "label": "walk it out and back",
+      "files": [
+        "20260929T031008312Z-5d7b1a/008-new-cycle-s2-f6000.png",
+        "20260929T031008312Z-5d7b1a/009-new-cycle-s2-f12000.png",
+        "20260929T031008312Z-5d7b1a/010-new-cycle-s2-f18000.png",
+        "20260929T031008312Z-5d7b1a/011-new-cycle-s2-f24000.png"
+      ],
+      "caption": "PIXEL_PHYSICS_SPOIL_OUT=on: carried out, then the digger walks back to its face",
+      "meta": {
+        "entrances": 2,
+        "room (cells)": 80,
+        "median entrances over 24 seeds": 2
+      },
+      "focus": null
+    },
+    {
+      "label": "lift it out the nearest hole",
+      "files": [
+        "20260929T031008312Z-5d7b1a/012-new-out-s2-f6000.png",
+        "20260929T031008312Z-5d7b1a/013-new-out-s2-f12000.png",
+        "20260929T031008312Z-5d7b1a/014-new-out-s2-f18000.png",
+        "20260929T031008312Z-5d7b1a/015-new-out-s2-f24000.png"
+      ],
+      "caption": "PIXEL_PHYSICS_SPOIL_LIFT=out: the lift follows the passages to the nearest hole",
+      "meta": {
+        "entrances": 5,
+        "room (cells)": 356,
+        "median entrances over 24 seeds": 5
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
