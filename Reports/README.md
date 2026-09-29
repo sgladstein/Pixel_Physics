@@ -1210,11 +1210,14 @@ drift that two of these documents still reflect.**
   organism-owned `Powder` is food, spoil and footing to four verbs today;
   eggs as organisms reach 222 + 36 + 57 census call sites) and a records
   fallback, and B4b's two (11 species files with fixed 14-value trait
-  tuples; `born_with`'s code 14). **Found on the way, confirmed by a run:**
-  `World::note_birth_denied` indexes a 4,096-bit array with a 20-bit slot, so
-  a refused birth in slot 4,096 or above panics, which the held world's grown
-  start can reach. Three questions still open in §10; the real-ant biology
-  checked against 13 papers, with DOIs.
+  tuples; `born_with`'s code 14). **Found on the way, confirmed by a run, and
+  fixed in the same pull request (B0a):** `World::note_birth_denied` indexed a
+  4,096-bit array with a 20-bit slot, so a refused birth in slot 4,096 or
+  above panicked, which the held world's grown start could reach; the array
+  now grows to the slot and
+  `a_refused_birth_past_the_old_4096_slot_ceiling_is_counted_not_a_crash`
+  guards it. Three questions still open in §10; the real-ant biology checked
+  against 13 papers, with DOIs.
 - [ant-sim-research-review-2026-09-19.md](ant-sim-research-review-2026-09-19.md)
   — **review, 2026-09-19, docs only. `engine`/`lab`.** An outside literature
   survey on ant simulation, checked section by section against the tree and

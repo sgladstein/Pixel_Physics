@@ -2427,8 +2427,8 @@ pub struct CreatureStats {
     /// stops it being invisible while it is, so S8 can read how often it
     /// actually bites before it decides what to replace it with.
     ///
-    /// **Not the slot ceiling** — a birth refused because all 4,095
-    /// organism slots are live books to `World::organisms_refused`
+    /// **Not the slot ceiling** — a birth refused because every organism
+    /// slot is live books to `World::organisms_refused`
     /// instead, and the two must stay separate: one is a property of the
     /// terrain around the parent and the other is a property of the
     /// engine's address space.
@@ -3902,7 +3902,7 @@ pub struct World {
     /// and this is a list, and the count is the one that never ages out.
     pub graveyard: Graveyard,
     /// **Germinations refused because every organism slot was live** — the
-    /// other half of making the 4,095 ceiling a real check rather than a
+    /// other half of making the slot ceiling a real check rather than a
     /// `debug_assert` (see `push_organism`).
     ///
     /// A counter rather than a panic because refusing one birth is a
@@ -3932,17 +3932,30 @@ pub struct World {
     /// what this bed can evolve; the ratio is real and what it measures is
     /// the *wait*, not a birth that never happened.
     ///
-    /// 4,096 slots, so 64 words and no allocation. Slots are recycled, so a
-    /// slot reused by a second denied animal is counted once — this is a
-    /// **lower** bound on distinct animals, which is the conservative
-    /// direction for the "is it a few ants or all of them" question it
-    /// exists to settle.
-    denied_seen: [u64; 64],
-    /// How many times a reused slot's 4-bit generation has wrapped back to
+    /// **Grown on first write to reach the highest slot denied so far**, so a
+    /// world that never refuses a birth allocates nothing and a full index
+    /// (1,048,575 slots) costs 128 KiB at most. It was `[u64; 64]` -- 4,096
+    /// bits, one per slot of the old 12-bit index -- and the widening to
+    /// 20 bits (`ORGANISM_INDEX_BITS`) did not reach it, so a refused birth
+    /// by any animal in slot 4,096 or above indexed past the array and
+    /// panicked. The held world's grown start makes 4,093 organisms, so ants
+    /// founded after it could get there
+    /// (`a_refused_birth_past_the_old_4096_slot_ceiling_is_counted_not_a_crash`;
+    /// `Reports/ant-breeding-plan-2026-09-29.md` §1d). This is the same miss
+    /// as the "two by-hand `1..4096` scans" `organism_slot_usage` names:
+    /// anything sized to the ceiling rather than read from it.
+    ///
+    /// Slots are recycled, so a slot reused by a second denied animal is
+    /// counted once — this is a **lower** bound on distinct animals, which is
+    /// the conservative direction for the "is it a few ants or all of them"
+    /// question it exists to settle.
+    denied_seen: Vec<u64>,
+    /// How many times a reused slot's 12-bit generation has wrapped back to
     /// zero — see `push_organism`, which is the only writer.
     ///
     /// A wrap is the single case the generational check cannot catch: a
-    /// reference stale by exactly 16 reuses reads as live again. That was
+    /// reference stale by exactly 4,096 reuses reads as live again (16 when
+    /// the generation was 4 bits, before the `Cell` widening). That was
     /// accepted (`encode_organism_id`'s doc) on the grounds that it needs a
     /// bug compounded with exactly the wrong reuse count — but "accepted"
     /// should mean "known quantity", not "unobservable". With creatures
@@ -6118,7 +6131,7 @@ impl World {
             line_stats: std::collections::BTreeMap::new(),
             graveyard: Graveyard::default(),
             organisms_refused: 0,
-            denied_seen: [0; 64],
+            denied_seen: Vec::new(),
             organism_generation_wraps: 0,
             next_lineage: 1,
             next_colony: 1,
@@ -6943,13 +6956,14 @@ impl World {
     /// populates that list.
     ///
     /// **The generation bump lives here and only here.** Freeing does not
-    /// bump; reuse does. Two bumps per life-cycle would spend the 4 bits at
+    /// bump; reuse does. Two bumps per life-cycle would spend the 12 bits at
     /// double rate for no extra staleness detection, since nothing can hold
     /// a reference to a slot between the free and the reuse that the free
     /// alone would have invalidated.
     ///
     /// Returns the encoded `organism_id` to stamp onto `Cell::organism_id`,
-    /// or **`None` when the 4,095 slots are all live** — see
+    /// or **`None` when every slot is live** (`ORGANISM_INDEX_MASK`,
+    /// 1,048,575; 4,095 before the `Cell` widening) — see
     /// `organisms_refused`. Every caller has a refusal path already (they
     /// all check the target cell is free first and return early when it is
     /// not); the `Option` is what makes the compiler insist they use it,
@@ -6966,9 +6980,11 @@ impl World {
 
         // **The ceiling is a real check now, not a `debug_assert`.**
         //
-        // `Cell::organism_id` gives 12 bits to the slot index, so there are
-        // 4,095 of them, and `encode_organism_id` does not mask: a 4,096th
-        // slot index would set bit 12, which is the *generation*'s low bit.
+        // `Cell::organism_id` gives 20 bits to the slot index
+        // (`ORGANISM_INDEX_BITS`; 12 before the `Cell` widening), so there
+        // are 1,048,575 of them, and `encode_organism_id` does not mask: one
+        // more slot index would set bit 20, which is the *generation*'s low
+        // bit.
         // In a release build that is silent — the new organism reads as a
         // different, live organism, and every cell that already pointed at
         // that identity now points at this one. `Reports/open-bugs-
@@ -7405,9 +7421,11 @@ impl World {
     /// moss's `Divide` never touches `OrganismState` after creation, and
     /// trees are planted by hand, so `organisms` growing forever was a
     /// bounded leak nobody could reach. Creatures end that. A colony that
-    /// lays eggs allocates on its own schedule, and the 12-bit slot index
-    /// caps concurrent organisms at 4,095 — one long session of a laying
-    /// queen exhausts it (`Reports/creature-direction.md` §2b).
+    /// lays eggs allocates on its own schedule, and the slot index caps
+    /// concurrent organisms — at 4,095 when this was written, where "one
+    /// long session of a laying queen exhausts it"
+    /// (`Reports/creature-direction.md` §2b), and at 1,048,575 since the
+    /// `Cell` widening.
     ///
     /// Generation-checked exactly like `organism`/`organism_mut`: a stale
     /// id, or one already freed, is a **silent no-op** — never a panic, and
@@ -7574,8 +7592,13 @@ impl World {
     pub fn note_birth_denied(&mut self, organism: OrganismId) {
         let slot = (organism & ORGANISM_INDEX_MASK) as usize;
         let (word, bit) = (slot / 64, slot % 64);
-        // `ORGANISM_INDEX_MASK` is 12 bits, so `word` is 0..64 by
-        // construction and this cannot index out of range.
+        // **Grown to reach the slot, never assumed to.** This comment used to
+        // say `ORGANISM_INDEX_MASK` was 12 bits and so `word` could not index
+        // out of range; the mask became 20 bits and the array did not, which
+        // is the crash `denied_seen`'s doc records.
+        if word >= self.denied_seen.len() {
+            self.denied_seen.resize(word + 1, 0);
+        }
         if self.denied_seen[word] & (1 << bit) == 0 {
             self.denied_seen[word] |= 1 << bit;
             self.creature_stats.births_denied_animals += 1;
@@ -7637,7 +7660,7 @@ impl World {
     }
 
     /// How many organism slots are currently allocated, and how many of
-    /// those are live — the high-water reading the 4,095 ceiling is judged
+    /// those are live — the high-water reading the slot ceiling is judged
     /// against.
     ///
     /// The live half is `live_organism_count` rather than a second copy of
@@ -8534,9 +8557,11 @@ impl World {
     }
 
     /// Births refused at the slot ceiling — see `organisms_refused`. Zero
-    /// on every world that has not reached 4,095 live organisms, which is
-    /// every world measured to date; a non-zero reading means the ceiling
-    /// is now a live design constraint and not a footnote.
+    /// on every world that has not filled the slot index: 1,048,575 live
+    /// organisms since the `Cell` widening. It was 4,095 before, and the held
+    /// world's grown start reached that (`Reports/open-bugs-handoff.md`
+    /// §Z21). A non-zero reading means the ceiling is a live design
+    /// constraint and not a footnote.
     pub fn organisms_refused(&self) -> u64 {
         self.organisms_refused
     }
@@ -11808,6 +11833,50 @@ mod tests {
     }
     use super::*;
 
+    /// **A refused birth past the old 4,096-slot ceiling is counted, not a
+    /// crash** (`Reports/ant-breeding-plan-2026-09-29.md` §1d, step B0a).
+    ///
+    /// `denied_seen` was a `[u64; 64]` -- one bit per slot of the old 12-bit
+    /// index -- and the index is 20 bits, so `note_birth_denied` on any slot
+    /// from 4,096 up indexed past it and panicked. **Red on the old array**,
+    /// measured 2026-09-29: `note_birth_denied(4095)` passed and
+    /// `note_birth_denied(4096)` panicked with *"index out of bounds: the len
+    /// is 64 but the index is 64"*. Real handles from the allocator rather
+    /// than bare slot numbers, so the generation bits above the slot are
+    /// masked off exactly as they are for the parent `try_bud` hands over;
+    /// plus the top slot the mask allows, and a recycled slot, which the
+    /// field's doc says is counted once (a lower bound on animals).
+    #[test]
+    fn a_refused_birth_past_the_old_4096_slot_ceiling_is_counted_not_a_crash() {
+        let mut w = World::new(Rect::new(0, 0, 31, 31));
+        let species = w.species.id_of("moss").expect("moss is compiled in");
+        let handles: Vec<OrganismId> = (0..5_000).map(|_| w.push_organism(species).expect("a slot is free")).collect();
+        // New slots are numbered from 1, so `handles[k]` is slot `k + 1`.
+        let (last_old, first_new) = (handles[4094], handles[4095]);
+        assert_eq!((last_old & ORGANISM_INDEX_MASK, first_new & ORGANISM_INDEX_MASK), (4095, 4096));
+        let counts = |w: &World| (w.creature_stats.births_denied_animals, w.creature_stats.births_denied_no_space);
+
+        w.note_birth_denied(last_old);
+        assert_eq!(counts(&w), (1, 1), "the last slot the old array held");
+        w.note_birth_denied(first_new);
+        assert_eq!(counts(&w), (2, 2), "the first slot past it -- the one that panicked");
+        w.note_birth_denied(first_new);
+        assert_eq!(counts(&w), (2, 3), "the same animal again is one more attempt and no new animal");
+
+        // A recycled slot carries a bumped generation in its high bits and is
+        // still the same slot here -- the documented lower bound.
+        w.free_organism(first_new);
+        let reused = w.push_organism(species).expect("the freed slot comes back");
+        assert_ne!(reused, first_new, "the reuse must carry a new generation for this arm to mean anything");
+        assert_eq!(reused & ORGANISM_INDEX_MASK, 4096);
+        w.note_birth_denied(reused);
+        assert_eq!(counts(&w), (2, 4), "a recycled slot is counted once, as `denied_seen`'s doc says");
+
+        // The top of the index, which the array has to grow all the way to.
+        w.note_birth_denied(encode_organism_id(ORGANISM_INDEX_MASK, 7));
+        assert_eq!(counts(&w), (3, 5), "the highest slot the mask allows");
+    }
+
     fn test_world() -> World {
         World::new(Rect::new(0, 0, 127, 127))
     }
@@ -12258,8 +12327,8 @@ mod tests {
 
     /// **One individual's timeline is filtered by identity, not by handle.**
     ///
-    /// `id` is a 12-bit slot plus a 4-bit generation and is reused after 16
-    /// turns, so a log filtered on the handle alone hands the roster a dead
+    /// `id` is a 20-bit slot plus a 12-bit generation and is reused after
+    /// 4,096 turns, so a log filtered on the handle alone hands the roster a dead
     /// animal's history under a living one's name -- and it reads as a rich
     /// life rather than as a bug. Red by dropping the `born_frame` term from
     /// `RunLog::about`.

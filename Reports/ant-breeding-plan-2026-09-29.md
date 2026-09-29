@@ -1,8 +1,8 @@
 # Ants that breed like ants: eggs, brood, a colony's own breeder, and colonies that found colonies — an implementable plan, 2026-09-29
 
-**Status:** plan, proposed 2026-09-29 for the owner's reading. No step of it is
-in the code yet. The one code change it asks for before anything else is B0a,
-a crash fix. Written against `main` at `2274e347`. Tag: `engine` — the
+**Status:** plan, proposed 2026-09-29 for the owner's reading. Of its steps,
+only B0a is in the code: the crash fix it asked for first, done in the same
+pull request (§1d). Written against `main` at `2274e347`. Tag: `engine` — the
 mechanism is shared, and §7 says what each of the three games turns on. The
 owner answered three of §10's six questions the same day: the evolution lab
 gets the full life cycle, breeders may be marked, and breeders may live
@@ -15,7 +15,8 @@ seed-dormancy substrate. Five parallel reads covered the reports: reproduction
 economics, castes and biology, genetics, the registers (`dead-ends.md`,
 `open-bugs-handoff.md`, `PLAN.md`, README), and the in-flight lanes. The
 real-ant biology in §3 was checked against papers retrieved from PubMed, cited
-with DOIs in §11. One claim was run rather than read: the crash in §1d.
+with DOIs in §11. One claim was run rather than read: the crash in §1d, which
+is now fixed and guarded.
 
 ---
 
@@ -69,7 +70,7 @@ So **nothing below names a queen**:
 
 | step | what you see | what it builds | size |
 |---|---|---|---|
-| **B0** before anything | nothing, except the held world no longer crashes | the crash fix, the owed `GRADED_MAX_SUPPRESSION` sweep, a re-taken breeding clock, the switch documented | 1 session |
+| **B0** before anything | nothing, except the held world no longer crashes | the crash fix (**done, in this PR**), the owed `GRADED_MAX_SUPPRESSION` sweep, a re-taken breeding clock, the switch documented (done) | 1 session |
 | **B1** the egg | pale grains piling on the chamber floor beside the ants that laid them, hatching into ants | a birth lays one egg cell instead of a whole adult. Budding's economy is otherwise unchanged (`nest-biology` D11.2) | 1–2 sessions |
 | **B2** graded fertility on | breeding gathers onto one or a few animals per nest | the existing `graded` regime, swept, with the breeder's eggs as a second signal source | small |
 | **B3** brood that must be fed | a brood pile in three colours (egg, larva, cocoon) with nurses crowding it. In famine the pile thins before the workers die. Dig into a chamber and ants carry the brood away | larvae with a bank that nurses fill through the existing `Share` verb. Laying becomes cheap and growing an ant is what costs | 2–3 sessions |
@@ -77,6 +78,19 @@ So **nothing below names a queen**:
 | **B4b** breeders live longer | the breeder in the chamber outlasts generations of her workers | a heritable, priced lifespan slot that the caste channel lifts in richly reared animals (owner, 2026-09-29) | 1 session |
 | **B5** the founding rule | a colony starts as one well-provisioned breeder in its chamber plus a cohort, not 52 identical strangers | a per-species founding rule in `ant.ron`, and a nest-bound founder | 1 session |
 | **B6** colonies found colonies | winged breeders leave the mound after rain. New mounds appear across the world, descended from the old | `(Made, Fly)` alates and a founding verb shared with the fission design's budding party | 2–3 sessions |
+
+**In all, about 10–14 sessions**, in the table's order.
+
+- B0's measurements can run beside B1's build.
+- B3 onward is sequential.
+- B6 depends on B3–B5, so it lands last. **In the lab, B4b's longevity
+  weight therefore waits for B6.** The mechanism ships when it is built; the
+  weight, a genome value, is set in the lab when dispersal exists. So
+  long-lived breeders never run in the lab without the dispersal that pays
+  back what they cost its clock.
+
+§8 says who owns which files while the nest and foraging lanes are also in
+`creature.rs`.
 
 **Deliberately out of it (B7):**
 
@@ -93,15 +107,15 @@ In short: the failure was the box, not the queen. One nest, no dispersal and
 no rival colonies meant a lineage could only move on when its one breeder
 died.
 
-- **Rival colonies now exist**: foundings have been strangers since round
-  35/36.
+- **Rival colonies now exist**: separate foundings have been strangers to
+  each other since the owner's 2026-09-14 ruling (`scent_spread` 2.0).
 - **Dispersal still does not.** That is why B6 is in this plan.
 - **B6 is now required in the lab**, not optional. The lab gets the full life
   cycle and breeders live longer, and both slow that same clock.
 
-**Found on the way, and confirmed by a run:** a refused birth by any animal in
-organism slot 4,096 or above crashes the game (§1d). It is one line from B0's
-fix.
+**Found on the way, confirmed by a run, and fixed in the same pull request:**
+a refused birth by any animal in organism slot 4,096 or above crashed the game
+(§1d, B0a).
 
 ---
 
@@ -186,12 +200,12 @@ fix.
   the individual-against-graded trade should be re-taken before the owner
   rules on it (B0d).
 
-### 1d. Two defects found while reading
+### 1d. Two defects found while reading — both fixed in this pull request
 
-**A refused birth in organism slot 4,096 or above crashes the game.** Confirmed
-by a run: `World::note_birth_denied(4095)` passes, and `note_birth_denied(4096)`
-panics with *"index out of bounds: the len is 64 but the index is 64"* at
-`world.rs:7579`.
+**A refused birth in organism slot 4,096 or above crashed the game.** Confirmed
+by a run before the fix: `World::note_birth_denied(4095)` passed, and
+`note_birth_denied(4096)` panicked with *"index out of bounds: the len is 64
+but the index is 64"* at `world.rs:7579`.
 
 - `World::denied_seen` is `[u64; 64]`, which is 4,096 bits: one per slot of
   the old 12-bit organism index.
@@ -199,20 +213,39 @@ panics with *"index out of bounds: the len is 64 but the index is 64"* at
   (`world.rs` L38–62).
 - So any creature allocated past slot 4,095 that is refused a birth for want
   of room indexes past the array.
-- **The held world is where this bites.** Its grown start makes 4,093
+- **The held world is where this bit.** Its grown start makes 4,093
   organisms (the same `world.rs` doc, citing §Z21), so ants founded with `C`
   after it land in slots 4,094 and up, and the first one refused a birth
-  crashes the game.
+  crashed the game.
 
-This was not observed in a played session. The arithmetic is confirmed; the
-path to it is read from the allocator. The fix is B0a.
+This was not observed in a played session. The arithmetic was confirmed; the
+path to it is read from the allocator.
 
-**Three comments still say the ceiling is 4,095**:
+**Fixed in this pull request (B0a).**
+
+- `denied_seen` is now a `Vec<u64>` that grows to the slot it is asked about.
+- `a_refused_birth_past_the_old_4096_slot_ceiling_is_counted_not_a_crash`
+  guards it. It uses real allocator handles at slots 4,095 and 4,096, a
+  recycled 4,096, and the top slot 1,048,575. The guard was red on the old
+  array, as the run above shows.
+
+**The comments that still called the ceiling 4,095 are corrected in the same
+pull request.** Three of them misled readers:
 
 - `push_organism` ("`None` when the 4,095 slots are all live")
 - `World::free_organism`'s doc ("caps concurrent organisms at 4,095 — one long
   session of a laying queen exhausts it")
 - `note_birth_denied` ("`ORGANISM_INDEX_MASK` is 12 bits")
+
+The rest of the correction:
+
+- the other allocator and birth-refusal comments in `world.rs`, which named a
+  4,095 ceiling, a 4-bit generation or 16 reuses as current;
+- `OrganismState::lineage` and `born_frame` in `organism.rs`, which described
+  the same old 12/4 split.
+
+Comments elsewhere that describe 4,095 as history ("4,095 then") are accurate
+and are left alone.
 
 **Three of the five readers that surveyed the reports for this plan quoted the
 stale ceiling back as a live constraint on eggs**, which is exactly the failure
@@ -495,13 +528,16 @@ Each step is written as follows:
 cannot fit a child, and it takes the two numbers the owner's rulings made
 prerequisites for graded breeding.
 
-- **B0a, the crash (`world.rs`).**
-  - Make `denied_seen` a `Vec<u64>` grown to `slot / 64 + 1` on first write,
-    or a `FxHashSet<OrganismId>`.
-  - Correct the three stale 4,095 comments (§1d).
-  - Guard: `note_birth_denied` on slots 4,095, 4,096 and 1,000,000 counts each
-    animal once. The positive control is the panic above. B1's hatch-refusal
-    bitset must reuse the same structure.
+- **B0a, the crash (`world.rs`). Done, in this pull request.**
+  - `denied_seen` is a `Vec<u64>`, grown to `slot / 64 + 1` on first write.
+    It is empty on a world that never refuses a birth, and at most 128 KiB.
+  - The stale 4,095 comments are corrected (§1d).
+  - **Guard:**
+    `a_refused_birth_past_the_old_4096_slot_ceiling_is_counted_not_a_crash`.
+    Real allocator handles at slots 4,095 and 4,096, a recycled 4,096 and the
+    top slot 1,048,575. It checks that each distinct animal is counted once
+    and every attempt counted. The positive control is the panic in §1d.
+  - B1's hatch-refusal counter must reuse the same structure.
 - **B0b, the switch in reach of a guard.**
   - Add `World::breeding: Option<(BreedingRegime, radius, max)>` overriding
     the environment for one world, with the `World::bud_at_nest` pattern, so
@@ -583,9 +619,12 @@ cell fits where two in a line never do** (§1b, `BUD_SITE`).
    - No room → `note_birth_denied`, as today.
 4. **The tick.** Schedule the egg as `ActiveKind::Creature` at `frame +
    egg_frames`.
-   - In `creature_tick`, **before `reconcile_chain`** (which would kill an
-     organism with an empty chain), send a brood organism to `brood_tick` and
-     return.
+   - At the very top of `creature_tick`, **before anything reads the body**,
+     send a brood organism to `brood_tick` and return.
+     - `reconcile_chain` passes an empty chain as alive (its first check
+       returns `true`).
+     - Everything after it — the old-age roll, `sense`, the brain, `act`, the
+       walk — assumes a head at `chain[0]`.
    - `brood_tick` finds its cell. If the cell is gone, the egg was destroyed:
      free the organism and count `eggs_lost` by cause. If the egg is due, try
      to hatch. Otherwise reschedule for when it is due.
@@ -1067,7 +1106,9 @@ lifespan that the caste channel expresses.**
 **What it does to the lab's clock**, stated before it is built. A longer-lived
 breeder means a slower breeder-centred clock: the 2026-09-10 report's own
 finding (§2d). Measure `gen` and `bgen` with the developmental weight on and
-off. The cost is expected, and B6 is what pays it back.
+off. The cost is expected, and B6 is what pays it back — which is why, **in
+the lab, the weight stays 0 until B6 lands** (§0, §7). Outdoors and in the held
+world it ships on with the step.
 
 **Counters:**
 
@@ -1308,12 +1349,12 @@ own re-open condition.
 
 | step | outdoor sandbox (`Y`) | evolution lab | held world (`--bin druid`) |
 |---|---|---|---|
-| B0 | the fix lands everywhere | the clock re-take is the lab's baseline for every step after | **the crash is most likely here** |
+| B0 | the crash fix is in this PR, for all three games | the clock re-take is the lab's baseline for every step after | **the crash was most likely here**; fixed |
 | B1 egg | on | **on** — the owner, 2026-09-29: *"Evolution Lab gets full life cycle"*. The clock cost is reported, not a gate | on. `C` founds through `found_colony_of`, so it inherits it |
 | B2 graded + breeder mark | on | **on**, at the sweep's setting | on |
 | B3 brood | on | on; every constant is a dial on the parameter page | on |
 | B4 castes, callows | on | on | on |
-| B4b long-lived breeders | on | **on**; its clock cost measured with the developmental weight on and off | on |
+| B4b long-lived breeders | on | **on once B6 lands**; until then its developmental weight stays 0 in the lab (§0). Its clock cost is measured with the weight on and off | on |
 | B5 founding rule | `Y` = 1 breeder + 51 + a little brood | colony entries in scenarios carry the rule | the `C` offer gets a breeder option, priced from the pool |
 | B6 dispersal | nuptial flights, weather-triggered | **required here** (§2d): the walking party (B6b), or a state trigger — §10 Q4 is still open | flights |
 
