@@ -540,6 +540,14 @@ as home (`PIXEL_PHYSICS_NEST_HOME`; `nest-mouth-2026-09-26.md`). Home is the
 foraging lane's walk as much as this lane's founding, so it is put to the
 owner and that lane before it is built.
 
+**Shipped on, 2026-09-29** (owner: "Q1 - Yes", §14): the carry defaults to
+`2,2` and acts **only while the walked cycle is on** -- `spoil_ring_of`
+reads it as absent with `PIXEL_PHYSICS_SPOIL_OUT` unset, because the drop's
+hold reads the carry for any carrier outside the nest and the shipped lift
+must not change under it. Guarded by
+`the_shipped_carry_is_inert_without_the_walked_cycle` (watched red with the
+gate removed).
+
 ## 13. Crowding: stacking, and tunnels two cells wide (owner, 2026-09-29)
 
 *The owner, mid-session: "For crowding issues, have you looked at the

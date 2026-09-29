@@ -10431,9 +10431,12 @@ fn inside_nest(world: &World, x: i32, y: i32) -> bool {
 }
 
 /// **How far a carrier walks its pellet from the nest before it lets go**:
-/// `PIXEL_PHYSICS_SPOIL_RING=<shape>,<scale>`, off unless set. On top of
-/// [`SpoilOut`] (whose haul pulls the carrier, and whose `keep` holds the
-/// pellet inside the nest).
+/// `PIXEL_PHYSICS_SPOIL_RING=<shape>,<scale>`, **on by default at
+/// [`SpoilRing::SHIPPED`] and acting only under the walked cycle**
+/// ([`SpoilOut`], whose haul pulls the carrier and whose `keep` holds the
+/// pellet inside the nest): with `PIXEL_PHYSICS_SPOIL_OUT` unset the carry
+/// reads as absent whatever this says ([`spoil_ring_of`]), so the shipped
+/// lift is untouched. `off` turns it off under the walked cycle too.
 ///
 /// **Why.** Walked out with nothing more, a carrier puts its pellet down on
 /// the first ground outside the founding cut, which is the mouth's rim, and
@@ -10468,33 +10471,59 @@ pub struct SpoilRing {
     pub scale: f32,
 }
 
-/// The carry in force for this world: [`World::spoil_ring`] when a test set
-/// it, else [`spoil_ring`].
-pub fn spoil_ring_of(world: &World) -> Option<SpoilRing> {
-    world.spoil_ring.unwrap_or_else(spoil_ring)
+impl SpoilRing {
+    /// **The shipped carry, `2,2`** -- the owner, asked in chat with the
+    /// pictures (2026-09-29) whether a carrier may walk its pellet a little
+    /// way from the mouth before dropping it: "Q1 - Yes". The arm they saw:
+    /// in `digbox` at 40 ants the walked nest roughly doubled (42.5 -> 84
+    /// cells, more on 24 of 24 seeds) and spoil on the door fell 0.77 ->
+    /// 0.03 cells a column (`Reports/nest-one-entrance-2026-09-29.md` §12).
+    pub const SHIPPED: SpoilRing = SpoilRing { shape: 2, scale: 2.0 };
 }
 
-/// The carry this process runs ([`SpoilRing`]): `None` unless
-/// `PIXEL_PHYSICS_SPOIL_RING` names one.
+/// The carry in force for this world: [`World::spoil_ring`] when a test set
+/// it; else, **only while the walked cycle is on** ([`spoil_out`]), the
+/// process's [`spoil_ring`]; else none.
+///
+/// **The gate is load-bearing.** The drop's hold reads this for any carrier
+/// standing outside the nest, walked or not, so without it a default carry
+/// would hold the shipped lift's pellets too -- a change the owner was never
+/// shown, and one that every measurement of the carry (all taken with
+/// `SPOIL_OUT=on`) says nothing about. A world's own setting still wins, so
+/// the unit tests below can hold the carry on without the process switch.
+pub fn spoil_ring_of(world: &World) -> Option<SpoilRing> {
+    match world.spoil_ring {
+        Some(set) => set,
+        None if spoil_out().any() => spoil_ring(),
+        None => None,
+    }
+}
+
+/// The carry this process names ([`SpoilRing`]): [`SpoilRing::SHIPPED`]
+/// unless `PIXEL_PHYSICS_SPOIL_RING` names another or `off`. Read through
+/// [`spoil_ring_of`], which applies it only under the walked cycle.
 pub fn spoil_ring() -> Option<SpoilRing> {
     static V: std::sync::OnceLock<Option<SpoilRing>> = std::sync::OnceLock::new();
     *V.get_or_init(|| parse_spoil_ring(&std::env::var("PIXEL_PHYSICS_SPOIL_RING").unwrap_or_default()))
 }
 
-/// `PIXEL_PHYSICS_SPOIL_RING`'s value: unset and `off` are `None`,
-/// `<shape>,<scale>` a carry. A value it cannot read is reported and read as
-/// unset.
+/// `PIXEL_PHYSICS_SPOIL_RING`'s value: unset is [`SpoilRing::SHIPPED`], `off`
+/// is `None`, `<shape>,<scale>` a carry. A value it cannot read is reported
+/// and read as unset.
 fn parse_spoil_ring(raw: &str) -> Option<SpoilRing> {
     let v = raw.trim();
-    if v.is_empty() || v == "off" {
+    if v.is_empty() {
+        return Some(SpoilRing::SHIPPED);
+    }
+    if v == "off" {
         return None;
     }
     let parsed = v.split_once(',').and_then(|(k, s)| Some((k.trim().parse::<u8>().ok()?, s.trim().parse::<f32>().ok()?)));
     match parsed {
         Some((shape, scale)) if (1..=8).contains(&shape) && scale > 0.0 && scale.is_finite() => Some(SpoilRing { shape, scale }),
         _ => {
-            eprintln!("PIXEL_PHYSICS_SPOIL_RING={raw:?}: not `off` or `<shape 1-8>,<scale>`; read as unset");
-            None
+            eprintln!("PIXEL_PHYSICS_SPOIL_RING={raw:?}: not `off` or `<shape 1-8>,<scale>`; read as unset (the shipped 2,2)");
+            Some(SpoilRing::SHIPPED)
         }
     }
 }
@@ -22695,13 +22724,32 @@ mod tests {
     /// nothing else.
     #[test]
     fn the_spoil_ring_parses_its_spellings_and_refuses_the_rest() {
-        assert_eq!(parse_spoil_ring(""), None);
+        assert_eq!(parse_spoil_ring(""), Some(SpoilRing::SHIPPED), "unset is the shipped carry");
+        assert_eq!(SpoilRing::SHIPPED, SpoilRing { shape: 2, scale: 2.0 }, "the owner's arm");
         assert_eq!(parse_spoil_ring("off"), None);
         assert_eq!(parse_spoil_ring("2,2"), Some(SpoilRing { shape: 2, scale: 2.0 }));
         assert_eq!(parse_spoil_ring(" 3, 1.5 "), Some(SpoilRing { shape: 3, scale: 1.5 }));
         for bad in ["0,2", "9,2", "2,0", "2,-1", "2", "on", "2,x", "x,2"] {
-            assert_eq!(parse_spoil_ring(bad), None, "{bad:?} was read as a carry");
+            assert_eq!(parse_spoil_ring(bad), Some(SpoilRing::SHIPPED), "{bad:?} was not read as unset");
         }
+    }
+
+    /// **The shipped carry does nothing outside the walked cycle.** The drop's
+    /// hold reads [`spoil_ring_of`] for any carrier outside the nest, so a
+    /// default carry that leaked past its gate would hold the shipped lift's
+    /// pellets: a carrier on the open surface right beside the door, `DropSpoil`
+    /// at 1, must still put its pellet down with no world setting, as it did
+    /// before the carry existed. Needs `PIXEL_PHYSICS_SPOIL_OUT` unset, as every
+    /// other test here does. Written after the gate: watched red by dropping
+    /// the gate's `spoil_out().any()` arm.
+    #[test]
+    fn the_shipped_carry_is_inert_without_the_walked_cycle() {
+        assert!(!spoil_out().any(), "this test reads the shipped ant: PIXEL_PHYSICS_SPOIL_OUT must be unset");
+        let w = World::new(Rect::new(0, 0, 119, 99));
+        assert_eq!(spoil_ring_of(&w), None, "the carry reached a world with no walked cycle");
+        let (dropped, drawn) = ring_drop_world_default(62);
+        assert!(dropped, "a carrier by the door held its pellet with no walked cycle");
+        assert_eq!(drawn, None, "a carry column was drawn with no walked cycle");
     }
 
     /// A carrier on the open surface at `x`, holding a pellet of soil beside a
@@ -22709,10 +22757,20 @@ mod tests {
     /// column already: one `act` with `DropSpoil` 1, and whether the pellet
     /// went down, and the column it held after.
     fn ring_drop(ring: Option<SpoilRing>, x: i32, drawn: Option<i32>) -> (bool, Option<i32>) {
+        ring_drop_in(Some(ring), x, drawn)
+    }
+
+    /// [`ring_drop`] with the world's own setting left alone, so the carry in
+    /// force is the process's ([`spoil_ring_of`]'s gate and default).
+    fn ring_drop_world_default(x: i32) -> (bool, Option<i32>) {
+        ring_drop_in(None, x, None)
+    }
+
+    fn ring_drop_in(world_ring: Option<Option<SpoilRing>>, x: i32, drawn: Option<i32>) -> (bool, Option<i32>) {
         let mut w = World::new(Rect::new(0, 0, 119, 99));
         founding_ground(&mut w);
         w.register_nest_site(60, 38, 2);
-        w.spoil_ring = Some(ring);
+        w.spoil_ring = world_ring;
         let a = spawn(&mut w, "ant", x, 39);
         let soil = w.materials.id_of("soil").expect("soil material");
         {

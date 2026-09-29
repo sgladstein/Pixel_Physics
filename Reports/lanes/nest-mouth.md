@@ -98,10 +98,15 @@ digging; being swept over 8 seeds, today's nest and the walked one.
 
 **Next** (2026-09-29, night):
 1. The refill fix, on the sweep; pictures to the owner.
-2. Stacking by default: the lab pair is running, the foraging lane poked
-   (20:58Z); land after both.
-3. The colony lives inside its nest (owner: yes), joint with the foraging
-   lane; then the land PR (jam trace, carry on, widening off, instruments).
+2. Stacking by default: the lab pair is running. The foraging lane (reply
+   21:09Z, their note at `bd8b2079`): no objection; gate is the 24-seed
+   lab pair plus a bed pair (their bed already runs 4, so it does not
+   move). Land after the lab pair.
+3. Resting inside (their reply): a joint switch measured on their bed
+   (food taken, starved, fed departures); keep `trip_load` semantics, the
+   door's geometry and `NestSite::surface` (their food-trail plan reads
+   all three); poke before it lands.
+4. The land PR (jam trace, carry on, widening off, instruments).
 
 ## Working agreement with the foraging lane (2026-09-27)
 
