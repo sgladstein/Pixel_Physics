@@ -6214,8 +6214,14 @@ pub struct OrganismState {
     /// by its first put-down at home, which books a return at that nest
     /// (`World::nest_last_return`). Written whatever
     /// `PIXEL_PHYSICS_FORAGE_DRIVE` says, and read by nothing but that
-    /// booking.
+    /// booking. Under `PIXEL_PHYSICS_TRIP_REACH` a pickup must also be far
+    /// from every door, or living tissue (`creature::trip_source`).
     pub trip_load: bool,
+    /// **Where this crop's marking pickups were taken**, as
+    /// `creature::TRIP_SRC_*` bits OR-ed over every pickup that passed the
+    /// roam gate; cleared with `trip_load` at the first put-down at home. It
+    /// only feeds the `trip_returns_*` counters and the trace.
+    pub trip_src: u8,
     /// **Finish the packed lunch this tick** (`creature::carries_lunch`):
     /// set by `act` when a lunch meets food its crop cannot swallow, read and
     /// cleared by the same tick's digestion, which completes the cell in

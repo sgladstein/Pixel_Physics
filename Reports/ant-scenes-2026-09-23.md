@@ -2991,3 +2991,170 @@ to 30 cells every 6,000.
 Data: `Reports/data/granary-loop-2026-09-29.txt.gz` (the bed, the traces'
 readouts) and `Reports/data/lab-granary-2026-09-29.tar.gz` (the 48 lab logs, pip
 listing stripped).
+
+### 22u. The trip reach: a trip judged by where the food was taken
+
+**Why.** §22t traced why the `returns` drive barely fades on the granary:
+46% of the returns that hold it up were food lying beside the five-column
+door, picked up by an ant that had wandered 16 cells from its last nest
+contact -- past `FORAGE_TRIP_MIN` (8), so it counted as a trip. The nest lane
+confirmed it from the code: "at home" for a pickup is only the door's
+7-column ring.
+
+**The rule** (`PIXEL_PHYSICS_TRIP_REACH`, `trip_source`): a pickup that
+passes today's roam gate marks a trip only if the food was living tissue,
+or loose food more than 16 Chebyshev (scaled) from the centre of every
+nest's door, measured from the founding surface at the food cell. A trip
+mark belongs to its crop: a pickup into an empty crop starts unmarked.
+Designed by a workflow before any code: three readers (the pickup code, the
+nest geometry, a per-return table from the §22t traces), three proposals
+(the nest's structure, a radius, how far the load was carried), two
+refuters on each, and a judge who took the radius, the tissue exemption
+from the third and "every door" from the first. Where 16 sits, from the
+off arms' marking pickups by distance of the *food cell* from the door
+(`drivefade.py gap`): on the pulsed pile a gap, 12:34 13:44 14:0 15:0 16:0
+17:0 18:1; on the unlimited pile a sparse tail rather than a gap, 13:56
+14:2 15:5 16:3 17:1 18:2. Eleven guards; ten watched red under their own
+fault, and the eleventh is the parser, a deterministic table.
+
+**The review's fix.** A review workflow found a mark could outlive its
+crop: cleared only at the put-down at home, it survived a crop digested to
+nothing, so the next crop -- wherever it was taken -- booked a return. On
+the first on arm that was 28 of 744 bookings, 15 of them refilled beside a
+door or at home. Every number below is the build with the fix; it moved
+no outcome by more than seed noise (the first build read 21 home bookings
+where this one reads 20, starved 279 where this reads 275).
+
+**Identity first.** Off reproduces `main` line for line and the first 66
+CSV columns byte for byte (24 pulsed seeds, 8 unlimited); `TRIP_REACH=1000`
+books 0 returns; the counter of what the rule removes read 600 / 393, equal
+to a walk of the new `trip_src` trace column. After the flip, unset equals
+`on` and `off` equals `main` on every outcome line of pulsed seeds 1-8 (48
+lines). The lab's off arm, run
+in another container, matched §22t's lab baseline on 23 of 24 seeds'
+`SUMMARY` lines; seed 9 differs only in its last table row (249 alive
+against 251 at frame 119,700).
+
+**Colony bed**, 24 seeds per arm, off -> on (the window unchanged, 1,400):
+
+| | off | on |
+|---|---:|---:|
+| pulsed 90: returns booked away from the pile | 629 | **20** |
+| pile returns per seed, on/off (median) | | 1.00 |
+| drive over the cycle's last third | 0.933 | **0.750** |
+| drive once the pile has stopped paying (median) | 0.994 | **0.614** |
+| drive while the pile is worked | 0.993 | 0.963 |
+| drive in the first 1,000 frames after a refill | 0.936 | **0.613** |
+| fed ants setting out, by third of the cycle | 96 / 119 / 173 | 63 / 81 / 128 |
+| refill to the first pile return, median / p90 | 966 / 2,112 | 1,056 / 2,172 |
+| pulsed 90: food taken / starved / born | 2,680 / 273 / 46 | 2,602 / 275 / 35 |
+| pulsed 140 | 2,528 / 269 / 17 | 2,569 / 258 / 18 |
+| unlimited 90 | 5,992 / 73 / 223 | 5,806 / **82** / 179 |
+| unlimited 140 | 4,598 / 107 / 76 | 4,602 / 110 / 87 |
+| 80 founders at 135 | 8,174 / 1,102 / 70 | 8,106 / 1,102 / 58 |
+| unlimited 90: drive, pooled / worst seed | 0.998 / 0.938 | 0.964 / **0.754** |
+| unlimited 140: drive, pooled / worst seed | 0.989 / 0.886 | 0.973 / 0.819 |
+
+The rule does what it is for: the drive falls when food stops and stays up
+while the pile is worked. Two things it does not do cleanly. **Fed ants
+set out less in every third of the cycle**, not only the empty one, and
+the last third's drop is not significant paired by seed (10 higher / 12
+lower, p 0.83). And **the drive is at its lowest just after the pile
+refills** (0.613 pooled; lower than off on 57 of 71 seed-refills),
+because nothing has yet reached the door to tell it:
+the same fault, seen seed by seed on the unlimited pile at 90 cells, is
+what it costs there. Seed 7 stood down while food was on the road -- 83% of
+its fed, driven rows with drive under 0.5 came while another ant, seen in
+the last 30 frames, carried a load marked at the pile between the nest and
+the pile, against 14% of all its fed, driven rows (`drivefade.py trace`).
+A false stand-down: the drive's clock hears of food only when it reaches
+the door. Seed 20 sagged in a lull the stand-down fed (17% against 23%).
+**The loop itself barely moves**, read ant by ant on the pulsed pile at 90
+cells (`antloop.py`, 480 founders an arm): full loops 796 -> 776, 2+ loops
+225 -> 218, starved 271 -> 274. The one stage that moved is the first:
+founders who never reached the food 45 -> 57 (more on 9 seeds, fewer on 2,
+p 0.065). Traced, it is not the drive standing them down: most of them
+never took food away from home (30 of 45 off, 30 of 57 on), and of those
+the drive reached at all (10 off, 19 on) its median read 1.0 in every seed
+but one. Why they stay home is not traced further.
+
+**The pre-registered rule said, on a harm-bar failure through a sagging
+drive, try a window of 1,750.** Measured on the first build, it passed
+the fallback's bed test -- P5 on every arm (unlimited 90 starved +9.6%)
+and a stand-down median of 0.891 against the fallback's 0.90; worst seed
+0.884 -- though not all of P3 (last third 0.858 against 0.85, and 0.891
+clears only the fallback's relaxed bar, not P3's 0.80). And it **leaned
+worse on every lab gate**, none
+significantly: against off the best was starved per million ant-frames,
+9.2 -> 13.9 (16/8, p 0.15); paired directly against the 1,400 arm, births
+and food eaten were lower on 17 of 24 seeds (p 0.064) and starved per
+million ant-frames 9.0 -> 13.9 (15/9). A longer window keeps fed foragers
+out while a box grazes bare -- the case the drive exists for. So the
+rejection rests on consistent but non-significant leans, and it is
+recorded as such in `dead-ends.md`.
+
+**Lab box**, 24 seeds, rain, medians (`labpair.py`):
+
+| | off | on, 1,400 (shipped) | on, 1,750 (first build) |
+|---|---:|---:|---:|
+| births | 428 | 522.5 (11/12) | 365.5 (12/12) |
+| food eaten | 1,122k J | 1,283k (11/12) | 995k (11/13) |
+| ant-frames | 9.5M | 10.6M (13/10) | 9.0M (11/13) |
+| starved per million ant-frames | 9.2 | 10.4 (13/10, p 0.68) | 13.9 (16/8, p 0.15) |
+
+The shipped build passes the lab's pre-ship check -- no gate moves at p
+< 0.05, the registered bar -- but it is not the clean "even or better" the
+first build read: births, food eaten and ant-frames are higher at the
+median with the seeds split evenly, and starved per million ant-frames
+leans worse (13 of 24). Boxes falling below a quarter of their peak went 3
+-> 6 (crash timing, not a gate). The first build read 453.5 / 1,147k /
+10.1M / 9.0 against the same off arm, and the two builds differ on no gate
+at p < 0.05 (starved per million 9.0 -> 10.4, 14/9, p 0.41) -- the lab's
+own spread. The crop reset removes more in the lab than on the bed:
+returns 10,234 off, 4,889 on the first build, 3,522 shipped (per seed, 0.37
+of off against 0.54). The first build's tissue count was inflated by the
+same stale marks (crops holding tissue from within the reach: 342, on 23
+of 24 seeds; shipped 101, on 16). Why the lab carried more stale marks is
+not traced.
+
+**And the bed failure did not replicate.** 48 new seeds of unlimited 90
+(not pre-registered; run to test it): starved 206 -> 206 (10 higher / 11
+lower), food taken 11,022 -> 10,781 (18/26, p 0.29), food standing at the
+nest 537k -> 517k J (17/27, p 0.17), born 339 -> 305 (14/22, p 0.24). All
+72 seeds pooled: starved +3.2% (17/14), food taken -2.5% (27/36, p 0.31),
+nest food -3.0% (27/37, p 0.26), born 562 -> 484 (22/33, p 0.18) -- inside
+the harm bars, and every one of them leaning the same way. **So the trip
+reach ships on with the window at 1,400, against the registered tree on
+two counts**: P5 failed on the unlimited pile at 90 cells and the tree's
+fallback was not adopted, for the reasons above; and three of P8's four
+sub-predictions were wrong, though its gate held.
+
+**Predictions** (registered 06:40 UTC, before any comparison; scored on the
+shipped build):
+
+| # | prediction | right? |
+|---|---|---|
+| 1 | off: bookings as `main`; removed 585-615 pulsed, 375-405 unlimited | right (identical; 600, 393) |
+| 2 | on: home-band <= 60, pile ratio 0.85-1.15, removed >= 400 | right (20; 1.00; 554) |
+| 3 | pulsed 90: last third <= 0.85, >= 0.9 on <= 70%, stand-down <= 0.80 | right (0.750; 50.5%; 0.614) |
+| 4 | unlimited 90 pooled >= 0.93, worst seed >= 0.85; worked >= 0.95 | pooled right (0.964), **worst seed wrong (0.754)**, worked right (0.963) |
+| 5 | food taken within -5%, starved within +10%, on every arm; refill to first pile return <= 1,450 / 3,200 | **wrong on unlimited 90** (starved +12.3%, 7 higher / 3 lower / 14 tied; 72 seeds +3.2%); every other arm and the refill bar right (1,056 / 2,172) |
+| 6 | unlimited 140 pooled >= 0.90 | right (0.973) |
+| 7 | 80 founders: on-arm home-band returns <= 10%; off-arm loose pickups at 17-26 <= 10% | right on the eight seeds traced (1-8 of 24): 36 of 690 (5.2%); 16 of 1,305 (1.2%) |
+| 8 | lab: no gate lower at p<0.05; near share <= 0.30; returns ratio >= 0.70; tissue on >= 20/24 | gates right; **near share wrong (0.49)**, **ratio wrong (0.37)**, **tissue wrong (16/24**; the first build's 23/24 was inflated by stale marks) |
+
+The lab's food is not mostly living plants, as the design argued: half its
+returns were loose food beside a door, and removing them moved no lab gate
+at p < 0.05. **Still open**: births lean lower
+at 90 cells on the bed (pulsed 46 -> 35; unlimited, 72 seeds, 562 -> 484;
+neither significant), and on the unlimited pile food standing at the nest
+leans lower with them (72 seeds -3.0%, 27/37; on the pulsed pile it rose,
+5,073 -> 5,567 J, 12/12);
+and the false stand-down, which is the drive's clock rather than the trip
+rule: it learns of food only at the door, so at 20 founders a window can
+pass with loads on the road, and most refills start with the drive down.
+Data: `Reports/data/tripreach-2026-09-29.txt.gz` (the bed, every readout
+above with the command that made it) and
+`Reports/data/lab-tripreach-2026-09-29.tar.gz` (the lab's off, first-build
+and 1,750 arms, 72 logs) and `Reports/data/lab-tripfix-2026-09-29.tar.gz`
+(the shipped build, 24 logs).
