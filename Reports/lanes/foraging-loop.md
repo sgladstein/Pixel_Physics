@@ -102,9 +102,10 @@ Lab box, 24 seeds, rain Light: LABBASE
    where its last load came from would aim it, as desert ants aim by the
    vector that paid. Store lunch waits on it.
 2. **The `returns` drive barely fades on the granary**: with the pile empty
-   it reads 0.92-0.97 (§22t), and 97% of loads put down at home then were
-   picked up in the home band. `FORAGE_TRIP_MIN` (8 cells) is likely too
-   short a trip on a five-column door; not yet traced to the booking.
+   it reads 0.92-0.97 (§22t). Traced to the booking: 46% of returns are food
+   picked up inside the home band by an ant that roamed 16 cells from nest
+   contact, past `FORAGE_TRIP_MIN` (8). Judge a trip by where the food was
+   taken (beyond the home band), not by how far the ant roamed.
 3. **Early deaths.** Founders that never reach the food die early (35% of
    the starved on the granary at 90 cells). Only the road and the nest
    (§17b, §19), or a founding store, reach them.
@@ -135,7 +136,8 @@ Lab box, 24 seeds, rain Light: LABBASE
   own block; net food into home is last, an overcount (§22j).
 - **`trailfollow decisioncsv dtag=`**: the per-decision trace. Since 09-27 it
   carries `energy_j` (`energy` is clamped at the 200 J grant) and `drive`,
-  `scout_w`, `scout_patience`, `scout_home`. `gifants framesdir=` for cards.
+  `scout_w`, `scout_patience`, `scout_home`; since 09-29 `trip_load` and
+  `forage_max` (what the `returns` drive books: `scripts/tripsrc.py`). `gifants framesdir=` for cards.
 - **`labforage`**: its `SUMMARY seed=` line, and `FORAGE seed=` for the drive.
 - **`scripts/deadendindex.py --touching`** before a PR (needs an unshallowed
   clone to regenerate); **`scripts/branchcheck.sh --who-touched <file>`**.

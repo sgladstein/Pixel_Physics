@@ -804,6 +804,12 @@ pub struct DecisionRow {
     /// `DecisionScratch::dig_turned`. `heading` is still the one the move
     /// was decided from.
     pub dig_turned: bool,
+    /// **What the `returns` drive will book**, read after `act`:
+    /// `OrganismState::trip_load` (the crop holds a load from a trip, so its
+    /// first put-down at home books a return) and `forage_max`, the
+    /// excursion since the last nest contact that decided it. Trace-only.
+    pub trip_load: bool,
+    pub forage_max: u16,
 }
 
 fn worm_tick(world: &mut World, x: i32, y: i32, organism: OrganismId) -> Vec<ActiveSite> {
@@ -6609,6 +6615,7 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
         let st = world.organism(organism);
         let head_after = st.and_then(|s| s.chain.first().copied()).unwrap_or(head);
         let heading_after = st.map_or(heading, |s| s.heading);
+        let (trip_load, forage_max) = st.map_or((false, 0), |s| (s.trip_load, s.forage_max));
         let sc = world.decision_scratch;
         world.creature_stats.decision_census[leg][setting_class(usable)][sc.outcome as usize] += 1;
         use brain::BrainInput as I;
@@ -6661,6 +6668,8 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
             scout_patience: sc.scout_patience,
             scout_home: sc.scout_home,
             dig_turned: sc.dig_turned,
+            trip_load,
+            forage_max,
         };
         if let Some(log) = world.decision_log.as_mut() {
             log.push(row);

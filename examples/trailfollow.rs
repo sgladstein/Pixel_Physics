@@ -2638,7 +2638,7 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
                 // 0.0000 on every row of a run where it was nonzero, and a
                 // parse of that column called it exactly zero.
                 decision_rows.push(format!(
-                    "{seed},{gap},{arm_name},{},{},{},{},{:.4},{},{},{},{},{},{},{},{},{},{:.4},{:.4},{},{:.4},{:.4},{:.5},{:.5},{},{:.4},{},{},{:.4},{:.4},{:e},{:.4},{:.4},{},{},{:.4},{},{},{:.4},{:.4},{},{},{},{},{:.4},{:.4},{:.4},{},{},{:.4},{:.4},{:.4},{:.2},{:.4},{:.4},{:.4},{}",
+                    "{seed},{gap},{arm_name},{},{},{},{},{:.4},{},{},{},{},{},{},{},{},{},{:.4},{:.4},{},{:.4},{:.4},{:.5},{:.5},{},{:.4},{},{},{:.4},{:.4},{:e},{:.4},{:.4},{},{},{:.4},{},{},{:.4},{:.4},{},{},{},{},{:.4},{:.4},{:.4},{},{},{:.4},{:.4},{:.4},{:.2},{:.4},{:.4},{:.4},{},{},{}",
                     decision_tag,
                     r.frame,
                     r.id,
@@ -2693,6 +2693,8 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
                     r.scout_w,
                     r.scout_patience,
                     u8::from(r.scout_home),
+                    u8::from(r.trip_load),
+                    r.forage_max,
                 ));
             }
         }
@@ -4565,7 +4567,7 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
             let suffix = if decision_tag.is_empty() { String::new() } else { format!("-{decision_tag}") };
             let path = format!("{decision_dir}/trailfollow-decisions-seed{seed}-gap{gap}-{arm_name}{suffix}.csv");
             let mut out = String::from(
-                "seed,gap,arm,tag,frame,id,leg,fill,x,y,x2,y2,heading,heading2,usable,setting,ax,ay,energy,home_aligned,at_nest,crowding,stillness,along_a,along_b,food_adjacent,kin_need,nest_x,move_out,p_move,turn,roll_move,roll_tumble,outcome,homeward,home_cos,moved,drop,drop_roll,drop_p,free8,n_nw,n_n,n_ne,n_w,n_e,n_sw,n_s,n_se,nbr_self,nbr_other,cone_l,cone_s,cone_r,pick,drop_reach,patience,chosen_cos,chosen_route,energy_j,drive,scout_w,scout_patience,scout_home\n",
+                "seed,gap,arm,tag,frame,id,leg,fill,x,y,x2,y2,heading,heading2,usable,setting,ax,ay,energy,home_aligned,at_nest,crowding,stillness,along_a,along_b,food_adjacent,kin_need,nest_x,move_out,p_move,turn,roll_move,roll_tumble,outcome,homeward,home_cos,moved,drop,drop_roll,drop_p,free8,n_nw,n_n,n_ne,n_w,n_e,n_sw,n_s,n_se,nbr_self,nbr_other,cone_l,cone_s,cone_r,pick,drop_reach,patience,chosen_cos,chosen_route,energy_j,drive,scout_w,scout_patience,scout_home,trip_load,forage_max\n",
             );
             out.push_str(&decision_rows.join("\n"));
             out.push('\n');
