@@ -3373,3 +3373,53 @@ arm, `Reports/data/trail-instruments-2026-09-29.tar.gz`):
 **Next, Stage 1 (the lay switch) is unchanged in shape and simpler**: only a
 load from a trip lays food scent, at the brain's rate. Its registered
 predictions P1.1-P1.7 stand, P1.1 read against `cf=gate`.
+
+### 23c. Stage 1, only a load from a trip lays food scent: registered
+
+**Built** (`PIXEL_PHYSICS_FOOD_TRAIL=lay`, `FoodTrail::lay`, off by default):
+trail B is laid at the brain's rate times 1 while the crop holds food marked
+as a trip load (`trip_load`), else times 0. It multiplies, so `mute` stays
+the control. Unset and `off` must be byte-identical to the Stage 0 build.
+**Measured before the runs below:** unset and `off` reproduce `main`'s
+`b518p` trace (pulsed 90, seeds 1-8) line for line and all 16 decision CSVs
+byte for byte. **`mute` under `lay` equals `mute` on 6 of 8 runs, not 8**
+(unlimited pile, seeds 1-4, gaps 90 and 140): `mute` zeroes the founders'
+`EmitB` wires, and an ant born with a mutation that re-arms one lays a
+trace (seed 4 at 90: ant 24, born near frame 21,500, `EmitB` at most
+0.004, 40 raw a step against 10,240 for one full deposit). The lay rule
+gates that trace and the two runs part. So `mute` is "no B laid by the
+founders", and a run that breeds can carry a whisper of it; the bar is
+unchanged.
+
+**Runs.** Arms `off` (unset), `lay`, `mute` (trail B silenced: the bar).
+Unlimited pile (`food=400 refill=400`) and pulsed pile (`food=30
+refill=6000`), gaps 90 and 140, seeds 1-24, 24,000 frames, the bed's env.
+Seeds 1-8 on the unlimited pile, `off` and `lay`, are traced: `decisioncsv
+dwide btrail btrailevery=100 cf=gate shadow`. Paired within seed.
+
+**Predictions** (written before any Stage 1 run; row `surface+1`, late half):
+
+- **P1.1** `lay`'s live trail is the gate counterfactual read on `off`'s
+  paths: Pearson r >= 0.8 between the two time-mean profiles over the
+  `BTRAIL` range, on >= 6/8 seeds per gap.
+- **P1.2** B west of the door (the band's five rows, x < the nest's west
+  edge, time-mean) under `lay` is <= 10% of `off`'s on >= 7/8 per gap.
+- **P1.3** the door carries news: at empty departures (`trailclimb.py` §3)
+  the door's median B in the ">2000 frames since a return" bin is 0 under
+  `lay` at both gaps, and the 774-2000 bin's median is at most half the
+  0-270 bin's (`off` at 90: 11,141 against 14,536).
+- **P1.4** laying alone gives no bearing: the east share of empty
+  departures is within 5 points of `off` at each gap (pooled, 8 seeds).
+- **P1.5** a forager that gives up west comes home sooner: median frames
+  from giving up to reaching home (`giveup.py`) <= 800 at 90 cells (§22v:
+  1,392 today, 504 muted), lower than `off` on >= 6/8 seeds.
+- **P1.6** food taken from the pile (unlimited): `lay` above `off` on >=
+  16/24 at 90; `lay` against `mute` not different at 90 (sign test p >
+  0.05); at 140 `lay` not below `off` (above on >= 12/24).
+- **P1.7** trail laying costs less: the `BURN` line's trail-laying joules
+  under `lay` below `off` on >= 22/24 per gap (unlimited).
+- **Harm bars:** starved not higher than `off` at p < 0.1 on any bed, and
+  food taken on the pulsed pile not lower than `off` at p < 0.1.
+
+**Gate** (the plan's): P1.1-P1.3 hold and no harm bar fails. If P1.1
+fails, stop and trace before Stage 2.
