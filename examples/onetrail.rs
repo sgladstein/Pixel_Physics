@@ -11,6 +11,7 @@
 //! cargo run --release --example onetrail                 # arithmetic, then the bed
 //! cargo run --release --example onetrail -- mode=arith   # the arithmetic alone
 //! cargo run --release --example onetrail -- seeds=24 frames=6000
+//! cargo run --release --example onetrail -- mode=stream lay=odo t=32   # the food trail a stream of returns SHOULD leave
 //! ```
 //!
 //! # What is removed, and why each one had to go
@@ -472,8 +473,213 @@ fn timing_mode(per_cell: u64, span: i32, peak: f32, w_cells: i32, reverse: bool)
     println!("    PheroBAlong facing nest: {}", grads.join(""));
 }
 
+/// **The food trail a stream of returning ants SHOULD leave**, on the real
+/// plane -- the design-level expected profile that `trailfollow`'s live
+/// `BTRAIL` rows are read against (`Reports/food-trail-plan-2026-09-29.md`
+/// Stage 0c). `timing_mode` above is one walk, laid once and read once; this
+/// is the standing state, because a trail an empty ant can climb has to exist
+/// *between* returns, and only a stream of them says what it looks like then.
+///
+/// Every piece is the engine's: `Pheromones::new` with channel B's shipped
+/// `DECAY_RHO` and `DIFFUSE`, a pass every `PHEROMONE_INTERVAL` frames gated
+/// by `Pheromones::step` itself, the deposit landing on the head the ant
+/// arrived on, and the same `(emit * DEPOSIT as f32) as Scent` truncation
+/// `creature.rs` makes. What is *not* the engine's is the animal: no brain, no
+/// RNG, one row, and a pace and interval set by hand -- so a disagreement with
+/// the live bed is a statement about the ants, not about the plane.
+///
+/// `lay=const` is today's rule (every step laid at `emit`); `lay=odo` is the
+/// proposed one, `emit * T / (T + ticks since pickup)`, which pays its biggest
+/// deposits near the pile and is the only one of the two that can make the
+/// trail rise toward the food. `dwell` is the shuffling at the door that the
+/// live trace shows, and it lays wherever the odometer has got to.
+fn stream_mode() {
+    let span: i32 = arg("span", 90);
+    let speed: f64 = arg("speed", 0.7);
+    let tickframes: u64 = arg("tickframes", 6);
+    let every: u64 = arg("every", 432);
+    let lay = arg_str("lay", "const");
+    let t: f32 = arg("t", 32.0);
+    // 0.714 lays 7,311 raw; the live ant's 7,314 is an `EmitB` of 0.71426,
+    // which `emit=` reproduces when a bit-level match matters.
+    let emit: f32 = arg("emit", 0.714);
+    let dwell: u64 = arg("dwell", 0);
+    let frames: u64 = arg("frames", 24000);
+    let sample: u64 = arg("sample", 500);
+    let reverse = arg_str("reverse", "off") == "on";
+    assert!(lay == "const" || lay == "odo", "lay= is const or odo, got {lay:?}");
+    // The engine moves a head at most one cell a decision, so a faster pace
+    // would be a different animal rather than a faster one.
+    assert!(speed > 0.0 && speed <= 1.0, "speed= is cells per tick in (0, 1], got {speed}");
+    assert!(span > 6 && tickframes > 0 && every > 0 && sample > 0 && t > 0.0, "span > 6, and tickframes, every, sample and t > 0");
+    let odo = lay == "odo";
+
+    // One row, with room all round: the plane diffuses in 2D and knows
+    // nothing of ground, so the rows above and below and the cells past each
+    // end are where the live trail's spill goes too. A margin the spill never
+    // reaches keeps the plane's absorbing edge out of every number.
+    let margin = 32i32;
+    let (w, h) = (span + 2 * margin + 1, 2 * margin + 1);
+    let row = margin;
+    let mut plane = pheromone::Pheromones::new(Rect::new(0, 0, w - 1, h - 1));
+    // `reverse` mirrors x about the middle, so the geometry, the plane's
+    // edges and its tiles are the same run seen from the other side. Every
+    // statistic is taken in distance-toward-the-food, so it must come out
+    // identical; if it does not, the number is the harness.
+    let (nest_x, food_x) = if reverse { (margin + span, margin) } else { (margin, margin + span) };
+    let toward_food = (food_x - nest_x).signum();
+    let (x0, x1) = (nest_x.min(food_x) - 10, nest_x.max(food_x) + 10);
+    let rule = if odo { format!("odo{t}") } else { "const".to_string() };
+    let laid = |age: u64| -> pheromone::Scent {
+        let e = if odo { emit * (t / (t + age as f32)) } else { emit };
+        (e.clamp(0.0, 1.0) * pheromone::DEPOSIT as f32) as pheromone::Scent
+    };
+    // Cells walked by the end of tick `age`. The loop below steps on this and
+    // the echo reads it too: at speed < 1 the first step lands on tick 1, not
+    // 0, so an echo priced at `laid(0)` claimed a first deposit the odometer
+    // never lays (7,311 against 6,881 at t=16).
+    let cells_by = |age: u64| (((age + 1) as f64 * speed) + 1e-9).floor() as i32;
+    let first_tick = (0u64..).find(|&a| cells_by(a) >= 1).expect("speed > 0 steps eventually");
+    let arrive_tick = (0u64..).find(|&a| cells_by(a) >= span).expect("speed > 0 arrives eventually");
+    let walk_ticks = arrive_tick + 1;
+    println!(
+        "onetrail: mode=stream span={span} speed={speed} tickframes={tickframes} every={every} lay={lay} t={t} emit={emit} dwell={dwell} frames={frames} sample={sample} reverse={} nest={nest_x} food={food_x} y={row} interval={} deposit={}",
+        if reverse { "on" } else { "off" },
+        pheromone::PHEROMONE_INTERVAL,
+        pheromone::DEPOSIT
+    );
+    println!(
+        "  one ant leaves the food every {every} frames and walks {span} cells home in ~{walk_ticks} ticks, laying {} raw on its first step and {} on arrival",
+        laid(first_tick),
+        laid(arrive_tick)
+    );
+
+    // An ant is (frame it left the food, cells walked, ticks of dwell left).
+    // Its position is recomputed from the tick count rather than accumulated,
+    // so 0.7 cells a tick cannot drift a cell over a long walk.
+    let mut ants: Vec<(u64, i32, u64)> = Vec::new();
+    let read = |p: &pheromone::Pheromones, u: i32| f64::from(p.sample(Channel::B, nest_x + u * toward_food, row));
+    let (mut rise_up, mut rise_lit) = (0u64, 0u64);
+    let (mut slope_sum, mut pile_sum, mut door_sum, mut r2_sum, mut r6_sum, mut n_samples) = (0.0f64, 0.0f64, 0.0f64, 0.0f64, 0.0f64, 0u64);
+    for frame in 1..=frames {
+        // Departures on frame 1, 1 + every, ... -- so an `every` that is not a
+        // multiple of the pass interval gives each ant its own phase against
+        // the plane, as the live colony's staggered ticks do.
+        if (frame - 1).is_multiple_of(every) {
+            ants.push((frame, 0, dwell));
+        }
+        // Ants act before the pass, the order `frame::step` runs them in.
+        for ant in ants.iter_mut() {
+            let (left, walked, dwell_left) = ant;
+            if !(frame - *left).is_multiple_of(tickframes) {
+                continue;
+            }
+            let age = (frame - *left) / tickframes;
+            if *walked < span {
+                if cells_by(age) > *walked {
+                    *walked += 1;
+                    // The head it arrived on, which is where `creature.rs`
+                    // lays under the shipped `DEPOSIT_AT=head`.
+                    plane.deposit(Channel::B, food_x - *walked * toward_food, row, laid(age));
+                }
+            } else if *dwell_left > 0 {
+                *dwell_left -= 1;
+                plane.deposit(Channel::B, nest_x, row, laid(age));
+            }
+        }
+        ants.retain(|&(_, walked, dwell_left)| walked < span || dwell_left > 0);
+        plane.step(frame, pheromone::PHEROMONE_INTERVAL);
+
+        if !frame.is_multiple_of(sample) {
+            continue;
+        }
+        let prof: Vec<pheromone::Scent> = (x0..=x1).map(|x| plane.sample(Channel::B, x, row)).collect();
+        println!(
+            "BTRAIL seed=0 arm=design gate=- ft=- piles={} stop=0 gap={span} layfrom=nest nest={nest_x} target={food_x} ch=B kind=design rule={rule} y={row} x0={x0} x1={x1} frame={frame} hand=0 cells={} peak={} prof={}",
+            if reverse { "west" } else { "east" },
+            prof.iter().filter(|&&v| v > 0).count(),
+            prof.iter().copied().max().unwrap_or(0),
+            prof.iter().map(|v| v.to_string()).collect::<Vec<_>>().join(",")
+        );
+        // The standing state, not the build-up: only the second half counts.
+        if frame * 2 <= frames {
+            continue;
+        }
+        n_samples += 1;
+        // `TRAIL_HALF / 4`: below it the chooser's presence reads under 0.2
+        // and an increase is a rounding step, not something an ant could
+        // climb.
+        let lit = f64::from(pheromone::DEPOSIT) / 10.0 / 4.0;
+        let b: Vec<f64> = (0..=span).map(|u| read(&plane, u)).collect();
+        for pair in b.windows(2) {
+            if pair[0] >= lit && pair[1] >= lit {
+                rise_lit += 1;
+                rise_up += u64::from(pair[1] > pair[0]);
+            }
+        }
+        // OLS of ln(1 + B) on distance toward the food, over the whole route.
+        //
+        // **Under `lay=const` this reads near zero, and that is not a bug.**
+        // A steady stream lays every cell once per ant, so every cell has
+        // the same time-mean age and the time-mean profile is flat: -0.0004
+        // per cell at the defaults. The nest-high trail is a *sawtooth*, one
+        // tooth per ant on the route, falling toward the food behind each
+        // animal, and only a per-snapshot readout sees it -- `rising` (0.108)
+        // does. The slope says what the envelope does; the teeth are what an
+        // ant stands on.
+        //
+        // **And that -0.0004 has its sign from one cell.** u = span is the
+        // pile's own cell, which no ant lays (the first step lands one off
+        // it), so it reads spill only; fitted over the laid cells 0..span-1
+        // the same const run reads **+0.00045**. So `slope` cannot tell
+        // `lay=const` from a flat trail -- read `rising` for that -- and an
+        // odometer's slope has to clear this edge (worth under 0.001) to mean anything
+        // (t=16: +0.0221 with the cell, +0.0227 without). Kept in the fit so
+        // the design row reads the same nest..target span the live rows do.
+        let n = b.len() as f64;
+        let mean_u = (n - 1.0) / 2.0;
+        let lb: Vec<f64> = b.iter().map(|&v| v.ln_1p()).collect();
+        let mean_l = lb.iter().sum::<f64>() / n;
+        let (sxy, sxx) = lb.iter().enumerate().fold((0.0, 0.0), |(sxy, sxx), (u, &l)| {
+            let du = u as f64 - mean_u;
+            (sxy + du * (l - mean_l), sxx + du * du)
+        });
+        slope_sum += sxy / sxx;
+        // Within 3 cells of each end, on both sides of it: the pile and the
+        // door are places, and an ant arriving at either reads the spill past
+        // it as much as the route before it.
+        let window = |c: i32| (-3..=3).map(|d| read(&plane, c + d)).sum::<f64>() / 7.0;
+        pile_sum += window(span);
+        door_sum += window(0);
+        // The door read an empty ant leaving the nest would make, food side
+        // against the other: reach 2 is `trail_presence`'s pair of cells,
+        // reach 6 the sensor point.
+        let r2 = (read(&plane, 1).max(read(&plane, 2)), read(&plane, -1).max(read(&plane, -2)));
+        let r6 = (read(&plane, 6), read(&plane, -6));
+        let half = f64::from(pheromone::DEPOSIT) / 10.0;
+        r2_sum += (r2.0 - r2.1) / (r2.0 + r2.1 + half);
+        r6_sum += (r6.0 - r6.1) / (r6.0 + r6.1 + half);
+    }
+    let ns = n_samples.max(1) as f64;
+    println!(
+        "STREAM lay={lay} t={t} every={every} speed={speed} dwell={dwell} rising={:.3} slope={:+.5} pile_door={:.3} door_r2={:+.4} door_r6={:+.4} samples={n_samples} lit_pairs={rise_lit} reverse={}",
+        if rise_lit == 0 { f64::NAN } else { rise_up as f64 / rise_lit as f64 },
+        slope_sum / ns,
+        (pile_sum / ns) / (door_sum / ns),
+        r2_sum / ns,
+        r6_sum / ns,
+        if reverse { "on" } else { "off" }
+    );
+}
+
 fn main() {
     let mode = arg_str("mode", "both");
+    // Before the shared header: its defaults (frames, span) are the bed's,
+    // and the stream's first line has to echo the stream's own.
+    if mode == "stream" {
+        stream_mode();
+        return;
+    }
     let frames: u64 = arg("frames", 4000);
     let seeds: u64 = arg("seeds", 12);
     let seed0: u64 = arg("seed", 1);

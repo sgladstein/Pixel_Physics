@@ -7,8 +7,7 @@ This note keeps the owner's rulings, the live question, the baseline, the
 commands and the traps.*
 
 - **Previous session:** `session_01Pt5N39pfcix13hMycPN9Xs`, branch
-  `claude/ant-foraging-loop-handoff-986v7n` (2026-09-28/29): §22o-§22u,
-  packed lunch through the `returns` drive and the trip reach.
+  `claude/ant-foraging-loop-handoff-986v7n` (09-28/29): §22o-§23a.
 - **Peer lanes:** the nest-mouth lane ([`nest-mouth.md`](nest-mouth.md))
   shipped the granary (#513, 2026-09-29: a door, a storeroom, nest workers,
   `keep`). Every baseline before it is a different ant; its `keep` and
@@ -44,8 +43,7 @@ commands and the traps.*
   it helps at 90 cells and kills at 140 whatever home holds (§21, §22g).
 - **Agents: judge each situation, use them where they help, never
   wastefully** (09-28; no default count, and not scale for its own sake
-  under a thoroughness mode). A 39-agent run cost 9.4M where its 3 tracers
-  cost 1.35M (`agent-strategy.md` s4).
+  under a thoroughness mode; `agent-strategy.md` s4).
 - **Sub-agents allowed** (09-27): in-process agents for reading and surveys
   (not runs: they share this box's 4 cores); a cloud session for a run that
   would otherwise queue, via the `lab-coordinator` skill with `model:` set.
@@ -63,14 +61,15 @@ commands and the traps.*
 `BIRTH_PRICE=guaranteed` (Z36) -- all `PIXEL_PHYSICS_`; and the nest lane's
 granary (#513: `NEST_DOOR`, `STOREROOM`). **`STORE_LUNCH` is off** (§22t).
 
-**Which way to go is the loop's blocker (§22t), and the trail should
-answer it but costs the colony today (§22v):** muting the ants' own trail
-B takes food 6,062 -> 7,512 (21/3), starved 57 -> 29. **Next: the food-trail
-plan** (`Reports/food-trail-plan-2026-09-29.md`, owner-agreed 09-29): lay
-(only a trip load, strongest near the food), read (hungry or driven ants
-climb it, the door included), give up; instruments first (the plane over
-time, a bit-exact replay, counterfactual lay rules); a two-pile bed; bar =
-`mute`. Store lunch waits on it.
+**Which way to go is the loop's blocker (§22t); the trail costs the
+colony today (§22v):** muting it takes food 6,062 -> 7,512, starved 57 ->
+29. **The food-trail plan** (`food-trail-plan-2026-09-29.md`, owner-agreed
+09-29), bar = `mute`. **Stage 0 done (§23a):** the lay rule is the gate
+(only a trip load lays B, at the brain's rate; no odometer beat it); no lay
+rule makes the trail an ant reads rise toward the food, so the reader must
+never compare ahead with straight back, and reads the door at reach 6.
+**Next:** Stage 1, the lay switch (`PIXEL_PHYSICS_FOOD_TRAIL`), and the
+two-pile bed. Store lunch waits on it.
 
 **To the nest lane (09-29 evening):** stacking at 4 by default -- no
 objection (this bed runs 4; your lab and bed pairs are the right
@@ -78,8 +77,8 @@ gate). Resting ants inside the nest: a joint switch, measured on this
 bed; keep `trip_load` and the door's geometry as they are, and poke first:
 the trail plan reads B at the door.
 
-- **Read food taken, and food standing at the nest** (`FOOD STORE`'s
-  `nest food`, mean from 6,000); "net food into home" overcounts (§22j).
+- **Read food taken and food at the nest** (`FOOD STORE`'s `nest food`,
+  mean from 6,000); "net food into home" overcounts (§22j).
 
 ## Baseline (`main` at 2274e347, after #518)
 
@@ -147,14 +146,16 @@ per million ant-frames 9.2 -> 10.4 (none at p < 0.05).
   `forage_max` (what the `returns` drive books: `scripts/tripsrc.py`), and
   `bite_x,bite_y,bite_tissue,bite_door,trip_src` (the trip reach's food cell;
   `scripts/drivefade.py` reads the drive's fade). `gifants framesdir=` for cards.
+  Trail (09-29): `dwide`, `shadow`, `cf=gate`, `btrail`, `gifoverlay=b`;
+  `scripts/btrailchart.py --stats --door`, `trailclimb.py`, `trailpace.py`.
 - **`labforage`**: its `SUMMARY seed=` line, and `FORAGE seed=` for the drive.
 - **`scripts/deadendindex.py --touching`** before a PR (needs an unshallowed
   clone to regenerate); **`scripts/branchcheck.sh --who-touched <file>`**.
 
 ## Commands
 
-The colony bed. Run from anywhere; keep the env exactly this. Three batches of
-8 seeds in parallel take about 5 minutes on this box.
+The colony bed. Run from anywhere; keep the env exactly this. Eight seeds
+take about a minute on this box.
 
 ```
 export RAYON_NUM_THREADS=1 PIXEL_PHYSICS_COLONY_SPACING=2 PIXEL_PHYSICS_STACK_DEPTH=4 PIXEL_PHYSICS_BUD_SITE=nest
@@ -178,14 +179,14 @@ line), and it refuses to start with the bed's env set unless given `bedenv`.
 
 **Identity first:** every new switch, unset, must reproduce the default line
 for line. Diff the logs with lines matching `^\s*(trailfollow:|breadoff=|ant.ron:|DECISIONS:)`
-filtered out (note the leading spaces), and compare the decision CSVs too.
+filtered out, and compare the decision CSVs too.
 
 ## Traps that cost time here
 
 - **Stale binaries.** Build only the two harnesses (`cargo build --release
   --example trailfollow --example labforage`, ~2 minutes incremental), copy
   them into the run directory, and `grep -c` the binary for the switch name.
-- **Don't edit source while a build runs**, and never `pgrep -f`/`pkill -f`.
+- **Don't edit source while a build runs.**
 - **Never export the bed's env (`COLONY_SPACING`, `STACK_DEPTH`, `BUD_SITE`)
   in a script that also runs the lab.** A lab run inherited them on
   2026-09-28, founded 52 where the lab places 41, and every box died by frame

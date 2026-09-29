@@ -92,7 +92,9 @@ will be.
   side (`turn_toward`, `half_turn_left`) and the founding cut's jaw and
   corpses (`is_diggable_ground`, `founding_dig_force`,
   `paint_nest_patch_with`). §7 and §10 on 2026-09-29 for who lays trail B
-  (`CarryingFood`, `carries_lunch`: a lunch carrier lays it).
+  (`CarryingFood`, `carries_lunch`: a lunch carrier lays it), and §15 that
+  day for the trail columns (`since_trip`, `DecisionRow::emit_b_laid`,
+  `b_near`, `score`).
   Update this line whenever a section is re-checked against the code.
 - **Edit it in place. Never append history.** When you change a mechanism
   described here, update the section in the same commit. When you find this
@@ -933,6 +935,15 @@ is on, every walking decision, the move stage of `creature_tick`, pushes one
 - the animal's energy in joules (`energy_j`: `energy` is the clamped input),
   the forage drive it felt (`drive`, NaN when off or carrying), and scouting
   as the chooser scored it (`scout_w`, `scout_patience`, `scout_home`).
+- the trail it laid and read: the raw amounts actually deposited on each
+  channel (`emit_a_laid`, `emit_b_laid`), the brain's `EmitB` before the cast
+  (`emit_b_brain`), the cell laid on (`deposit_at`), and the cargo's age
+  (`since_trip`, `OrganismState::since_trip`: ticks since the pickup that set
+  `trip_load`, counted beside `since_nest`); and under the chooser, trail B
+  one and two cells along each of the eight headings (`b_near`, `b_far`, the
+  cells `trail_presence` reads) and at the six-cell sensor point (`b_six`),
+  the option mask, whether a crossing forced the pick, the blend `k`, every
+  option's score, the heading chosen and whether the trail was read.
 
 `CreatureStats::decision_census` counts the same decisions by leg × setting
 × outcome, and only while the trace is on, because the setting needs all
@@ -958,12 +969,19 @@ are always on.
     and `the_cone_discards_a_turn_with_nowhere_to_go_and_follows_one_with_somewhere`,
     which feeds `Turn` directly because the shipped ant's is near 0 at
     ordinary temperatures;
+  - `a_replayed_plane_equals_the_live_one`: a copy of the planes fed only
+    the traced deposits equals the world's, cell for cell, so the trace
+    carries every trail write;
   - three chooser scenes, each against the shipped walk as its control:
     `the_chooser_walks_a_laden_ant_out_of_a_dead_end_and_patience_is_what_lets_it`,
     `under_the_chooser_an_unsupported_ant_falls_whatever_the_step_roll` and
     `an_empty_ant_keeps_going_under_the_chooser_and_turns_round_under_the_shipped_walk`.
 - **In the harness:** `trailfollow decisioncsv` writes the rows and repeats
   those reconciliations at the end of every run; `decisionnorows` keeps only
-  the census. `scripts/decisioncensus.py` reads the rows, including the drop
-  and cone columns.
+  the census; `dwide` appends the trail columns. `shadow` replays the logged
+  deposits into a copy of the planes and asserts it equals the world every
+  100 frames, and `cf=<rules>` lays copies under other rules along the same
+  paths. `scripts/decisioncensus.py` reads the rows, including the drop and
+  cone columns; `scripts/trailclimb.py` checks the logged scores reproduce
+  the draws and reads the climb and the door departures.
 

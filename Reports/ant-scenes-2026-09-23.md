@@ -3326,3 +3326,50 @@ T beats it on the reach-6 door gradient on >= 6/8 seeds at both gaps (P0.9
 predicts none will). Seen before registration: nothing from the cf runs but
 their pooled totals over all arms (brain 505.3M, gate 480.9M raw), which the
 hand arm's paint dominates.
+
+**Scored** (opened after the registration commit `5576fde5`; 16 runs per
+arm, `Reports/data/trail-instruments-2026-09-29.tar.gz`):
+
+| | gap 90 | gap 140 | verdict |
+|---|---|---|---|
+| P0.4 live rising < 0.5 | 8/8 (median 0.397) | 8/8 (0.394) | right |
+| P0.5 hand rising > 0.9, row `surface-2` | 2/8 (0.886) | 8/8 (0.926) | **wrong at 90** |
+| P0.6 `odo32` rising < 0.5; slope above the gate's | 8/8 (0.310); 8/8 | 8/8 (0.247); 8/8 | right |
+| P0.7 west of the door cut >= 90%; door cut >= 50% | 8/8 (92.0-99.7%); 8/8 (92.3-97.9%) | 7/8 (85.4-99.9%); 8/8 (93.6-96.1%) | right |
+| P0.8 time-median reach 6: gate above live; above +0.3; reach 2 above live | 6/8; 5/8; 6/8 | 6/8; 3/8; 3/8 | **wrong** |
+| P0.9 `odo32` reach 6 below the gate's | 8/8 | 8/8 | right |
+| P0.10 gate: rho < -0.3; live: within +-0.2 | 8/8 (-0.53 to -0.82); 3/8 | 8/8 (-0.68 to -0.85); 1/8 | gate right, **live wrong** |
+
+- **The gate is the lay rule.** No odometer (T = 16, 24, 32, 48) and no
+  distance odometer beat it on the reach-6 door gradient on a single seed of
+  sixteen. Gating also makes the snapshot fall toward the food *more*
+  (rising 0.265 / 0.226 against live 0.397 / 0.394), as the design model
+  said it would (0.06-0.08 for a constant rate).
+- **P0.8 was wrong for a reason the design model could not see.** A gated
+  door is empty between returns, so its median over time is the empty
+  door; today's door is kept lit by every fed ant walking out, mostly east,
+  which is a record of where ants went, not of food. What a reader needs is
+  the door at the moment an ant leaves. Read there (post hoc, not
+  registered; the plane sample at or before each empty ant's departure from
+  the nest band, workers excluded, at the nest's centre), the gated plane
+  says "food side" at reach 6 on **78%** of departures at 90 cells against
+  67% today, and **57%** against 43% at 140; higher on 7/8 seeds at each gap.
+  The ant's own head, read by `trailclimb.py` today, sees it on 39% and 32%,
+  and the side it takes does not follow that read (reach 6 above 0.1: 40% go
+  east; below -0.1: 52%).
+- **P0.10's live half was wrong**: today's reach-6 door read also falls with
+  the age of the last return (rho down to -0.68), weaker and less
+  consistent than the gate's. §22v's flat 0.99-1.00 was trail *presence* at
+  the door, which saturates; B six cells out does not.
+- **P0.5, the hand control, failed at 90 cells** at 0.886 against its 0.9
+  bar: the painted ramp's ends (the colony's own deposits piling up at the
+  door, and the paint's last cells at the pile). The metric's own controls
+  pass (`btrailchart.py --selftest`, and the design model read back through
+  it to the printed digit); the bar was set without trimming the ends.
+- **G0.4, the draw check**: the logged scores reproduce the ant's choices
+  on all 641,296 decisions of the self arm at both gaps (99% over the
+  family of classes).
+
+**Next, Stage 1 (the lay switch) is unchanged in shape and simpler**: only a
+load from a trip lays food scent, at the brain's rate. Its registered
+predictions P1.1-P1.7 stand, P1.1 read against `cf=gate`.

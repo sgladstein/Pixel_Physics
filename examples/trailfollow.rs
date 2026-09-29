@@ -353,12 +353,15 @@ fn arithmetic(base: &[f32]) {
 /// is the shape `EmitA` off a nest-charged, distance-decaying unit 4 would
 /// draw. The ants' own `EmitA` is left alone in every arm -- only `EmitB` is
 /// ever muted -- so this supplements their homing rather than replacing it.
-fn lay_home(w: &mut pixel_physics::sim::world::World, nest_x: i32, target_x: i32, surface: i32) {
+///
+/// Painted through `sink` rather than into a world, so `shadow` and `cf=` can
+/// paint their own planes with exactly what the world got.
+fn lay_home(sink: &mut impl FnMut(Channel, i32, i32, pheromone::Scent), nest_x: i32, target_x: i32, surface: i32) {
     for x in nest_x..=target_x {
         let t = 1.0 - (x - nest_x) as f32 / (target_x - nest_x) as f32;
         let amount = (t * pheromone::DEPOSIT as f32) as pheromone::Scent;
         for y in (surface - 3)..=(surface + 1) {
-            w.deposit_pheromone(Channel::A, x, y, amount);
+            sink(Channel::A, x, y, amount);
         }
     }
 }
@@ -395,10 +398,10 @@ fn lay_home(w: &mut pixel_physics::sim::world::World, nest_x: i32, target_x: i32
 /// they are produced here by a field with **no ramp in it at all**. If they
 /// come out, the `||` metric cannot tell a ramp from a blob's position and §7.15
 /// falls.
-fn lay_flat(w: &mut pixel_physics::sim::world::World, from_x: i32, to_x: i32, surface: i32) {
+fn lay_flat(sink: &mut impl FnMut(Channel, i32, i32, pheromone::Scent), from_x: i32, to_x: i32, surface: i32) {
     for x in from_x..=to_x {
         for y in (surface - 3)..=(surface + 1) {
-            w.deposit_pheromone(Channel::A, x, y, pheromone::DEPOSIT as pheromone::Scent);
+            sink(Channel::A, x, y, pheromone::DEPOSIT as pheromone::Scent);
         }
     }
 }
@@ -504,15 +507,98 @@ fn move_terms(
 /// what an ant reads walking *back*, and an ant that has not yet reached the
 /// food has no homeward leg to be lost on. The stage this fixes is the walk
 /// *out*, which is channel B's.
-fn lay(w: &mut pixel_physics::sim::world::World, foot_x: i32, target_x: i32, surface: i32) {
+fn lay(sink: &mut impl FnMut(Channel, i32, i32, pheromone::Scent), foot_x: i32, target_x: i32, surface: i32) {
     let span = (target_x - foot_x).max(1) as f32;
     for x in foot_x..=target_x {
         let t = (x - foot_x) as f32 / span;
         let amount = (t * pheromone::DEPOSIT as f32) as pheromone::Scent;
         for y in (surface - 3)..=(surface + 1) {
-            w.deposit_pheromone(Channel::B, x, y, amount);
+            sink(Channel::B, x, y, amount);
         }
     }
+}
+
+/// **A counterfactual lay rule, for the `cf=` planes** (`Reports/food-trail-plan-2026-09-29.md`
+/// Stage 0): trail B as the ants would have laid it under a different rule,
+/// walking exactly the paths they walked. Each is its own copy of the planes,
+/// painted with what the harness painted and fed the recomputed amount at every
+/// logged deposit cell, so it answers "what would the plane look like" before
+/// any rule is built. **Open-loop**: a rule that changed where ants walk would
+/// also change the paths, so this predicts a lay rule alone, never a reader.
+#[derive(Clone, Debug)]
+enum CfRule {
+    /// The brain's own `EmitB`, recomputed from the logged value: must equal
+    /// the live plane exactly, and is the pipeline's own identity check.
+    Brain,
+    /// Only a load from a trip lays (`trip_load` and food in the crop).
+    Gate,
+    /// `Gate`, at `T / (T + since_trip)`: strongest just after the pickup.
+    Odo(f32),
+    /// `Gate`, at `T / (T + steps since the pickup)`: a distance odometer.
+    Step(f32),
+    /// The genome-side form: `squash(w * T / (T + since_trip))`, gated.
+    Sq(f32, f32),
+}
+
+impl CfRule {
+    fn name(&self) -> String {
+        match self {
+            CfRule::Brain => "brain".into(),
+            CfRule::Gate => "gate".into(),
+            CfRule::Odo(t) => format!("odo{t}"),
+            CfRule::Step(t) => format!("step{t}"),
+            CfRule::Sq(w, t) => format!("sq{w}_{t}"),
+        }
+    }
+
+    /// The raw amount this rule lays for one logged decision; `steps` is the
+    /// ant's steps since its trip pickup. The same cast the engine uses, so
+    /// `Brain` is bit-exact.
+    fn amount(&self, r: &creature::DecisionRow, steps: u32) -> pheromone::Scent {
+        if !r.moved {
+            return 0;
+        }
+        let brain = r.emit_b_brain;
+        let gate = r.trip_load && r.fill > 0.0;
+        let age = f32::from(r.since_trip);
+        let e = match *self {
+            CfRule::Brain => brain,
+            _ if !gate => 0.0,
+            CfRule::Gate => brain,
+            CfRule::Odo(t) => brain * t / (t + age),
+            CfRule::Step(t) => brain * t / (t + steps as f32),
+            CfRule::Sq(wt, t) => {
+                let x = wt * t / (t + age);
+                x / (1.0 + x.abs())
+            }
+        };
+        (e.clamp(0.0, 1.0) * pheromone::DEPOSIT as f32) as pheromone::Scent
+    }
+}
+
+/// `cf=brain,gate,odo32,step32,sq2.5_32`: the counterfactual planes to keep.
+fn parse_cf(raw: &str) -> Vec<CfRule> {
+    raw.split(',')
+        .map(str::trim)
+        .filter(|t| !t.is_empty())
+        .map(|t| {
+            let num = |s: &str| s.parse::<f32>().unwrap_or_else(|_| panic!("cf={raw}: {t:?} has no number"));
+            if t == "brain" {
+                CfRule::Brain
+            } else if t == "gate" {
+                CfRule::Gate
+            } else if let Some(v) = t.strip_prefix("odo") {
+                CfRule::Odo(num(v))
+            } else if let Some(v) = t.strip_prefix("step") {
+                CfRule::Step(num(v))
+            } else if let Some(v) = t.strip_prefix("sq") {
+                let (a, b) = v.split_once('_').unwrap_or_else(|| panic!("cf={raw}: {t:?} is sq<w>_<t>"));
+                CfRule::Sq(num(a), num(b))
+            } else {
+                panic!("cf={raw}: {t:?} is not brain, gate, odo<T>, step<T> or sq<w>_<T>")
+            }
+        })
+        .collect()
 }
 
 /// What one arm reports.
@@ -2135,6 +2221,33 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
     // `gifcount=N`: stop capturing after N frames.
     let gif_count: usize = arg("gifcount").unwrap_or(usize::MAX);
     let gif_ants = flag("gifants");
+    // **The food-trail instruments** (`Reports/food-trail-plan-2026-09-29.md`
+    // Stage 0). `dwide` appends the trail columns to the decision CSV: what
+    // each decision laid, the cargo's age, and trail B one, two and six cells
+    // along every heading with the score each option was drawn at. `shadow`
+    // keeps a copy of the planes fed only the logged deposits and the
+    // harness's own paints, and asserts it equals the live planes cell for
+    // cell every 100 frames -- the positive control that the trace sees every
+    // writer. `shadowfault=N` drops every N-th logged deposit from it, to
+    // watch that assertion go red. `cf=<rules>` keeps counterfactual planes
+    // (`CfRule`), printed as `BTRAIL kind=cf` rows. `gifoverlay=b` paints
+    // trail B into the GIF on a fixed log scale, `gifoverlay=cf:<rule>` a
+    // counterfactual plane.
+    let dwide = flag("dwide");
+    let shadow = flag("shadow");
+    let shadow_fault: u64 = arg("shadowfault").unwrap_or(0);
+    assert!(shadow_fault == 0 || shadow, "shadowfault drops deposits from the shadow plane, so it needs `shadow`");
+    let cf_rules: Vec<CfRule> = arg_str("cf").map(|s| parse_cf(&s)).unwrap_or_default();
+    let gif_overlay: Option<String> = arg_str("gifoverlay");
+    // The food-trail switch as the process sees it, echoed into every trail
+    // row so a parse can key on it (`CLAUDE.md`: a parse inherits every
+    // dimension the run swept). `unset` when absent.
+    let food_trail_env = std::env::var("PIXEL_PHYSICS_FOOD_TRAIL").map_or_else(|_| "unset".to_string(), |v| v.trim().replace(' ', "_"));
+    assert!(!dwide || decision_csv, "dwide adds columns to the decision CSV, so it needs `decisioncsv`");
+    if let Some(ov) = gif_overlay.as_deref() {
+        let known = ov == "b" || ov.strip_prefix("cf:").is_some_and(|r| cf_rules.iter().any(|c| c.name() == r));
+        assert!(known, "gifoverlay={ov}: `b`, or `cf:<rule>` naming one of cf={:?}", cf_rules.iter().map(CfRule::name).collect::<Vec<_>>());
+    }
     assert!(!laden_csv || tracing, "ladencsv needs `trace`: the brain evaluation it records is gated on it, so without it every row would be missing");
     // **Asserted rather than documented, because the failure is silent.** The
     // emit site sits inside the existing every-100-frames sample block, so a
@@ -2144,6 +2257,9 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
     // knob nobody can see the value of is a knob nobody can tell is
     // disconnected.
     let btrail_every: u64 = arg("btrailevery").unwrap_or(500);
+    // The rows are printed from inside the every-100-frames sample block, so
+    // any other period would print at the common multiple, silently.
+    assert!(btrail_every > 0 && btrail_every.is_multiple_of(100), "btrailevery={btrail_every} must be a multiple of 100");
     assert!(
         btrail_every > 0 && btrail_every.is_multiple_of(100),
         "btrailevery={btrail_every} must be a positive multiple of 100: the sampler it rides on runs \
@@ -2444,7 +2560,10 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
     // raise that barely moves a pick weighted at (0.1 + s)^2.
     let mut turn_max_abs = 0.0f32;
     let stats_at_trace_start = w.creature_stats;
-    if decision_csv {
+    // The shadow and counterfactual planes are fed from the decision rows, so
+    // they turn the log on even without `decisioncsv`; the rows then go no
+    // further than those planes.
+    if decision_csv || shadow || !cf_rules.is_empty() {
         w.decision_log = Some(Vec::new());
     }
     let arm_name = match (trail, mute, paint) {
@@ -2574,6 +2693,14 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
     let mut live_cells_lit = 0u64;
     let mut legs: Vec<u64> = Vec::new();
     let mut laden_legs: Vec<u64> = Vec::new();
+    // Taken here, after every rider has set its rates and before the first
+    // frame, so the copies start as the live planes do.
+    let mut replay: Option<pheromone::Pheromones> = shadow.then(|| w.pheromones.clone());
+    let mut cf_planes: Vec<(CfRule, pheromone::Pheromones)> = cf_rules.iter().map(|r| (r.clone(), w.pheromones.clone())).collect();
+    // Per ant: `since_trip` last seen, and steps since the trip pickup, for
+    // `CfRule::Step`. A reset of `since_trip` is a new pickup.
+    let mut cf_steps: std::collections::HashMap<_, (u16, u32)> = std::collections::HashMap::new();
+    let (mut shadow_n, mut shadow_checks) = (0u64, 0u64);
     for f in 1..=frames {
         // **`stop` is what turns this from a pull arm into a loop arm.** Up to
         // `stop` the trail is guaranteed, which breaks the circularity -- a
@@ -2581,22 +2708,60 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
         // worth following. After it, the only channel B in the world is what
         // the ants themselves put down.
         if (stop == 0 || f <= stop) && (f == 1 || f.is_multiple_of(relay)) {
+            // One sink paints the world and every copy the same cells.
+            let mut sink = |c: Channel, x: i32, y: i32, a: pheromone::Scent| {
+                w.deposit_pheromone(c, x, y, a);
+                if let Some(r) = replay.as_mut() {
+                    r.deposit(c, x, y, a);
+                }
+                for (_, p) in cf_planes.iter_mut() {
+                    p.deposit(c, x, y, a);
+                }
+            };
             if trail {
-                lay(&mut w, lay_foot_x, target_x, surface);
+                lay(&mut sink, lay_foot_x, target_x, surface);
             }
             match paint {
                 PaintA::None => {}
-                PaintA::Ramp => lay_home(&mut w, nest_x, target_x, surface),
+                PaintA::Ramp => lay_home(&mut sink, nest_x, target_x, surface),
                 // Half the route each, split at the midpoint the occupancy
                 // bands already use, so the blob sits where a real colony's
                 // channel A sits in each of the two cases the metric separates.
-                PaintA::FlatNest => lay_flat(&mut w, nest_x, (nest_x + target_x) / 2, surface),
-                PaintA::FlatFood => lay_flat(&mut w, (nest_x + target_x) / 2, target_x, surface),
+                PaintA::FlatNest => lay_flat(&mut sink, nest_x, (nest_x + target_x) / 2, surface),
+                PaintA::FlatFood => lay_flat(&mut sink, (nest_x + target_x) / 2, target_x, surface),
             }
         }
         frame::step(&mut w, &mut particles, &mut blasts, player::PlayerInput::default(), &tuning);
         if let Some(log) = w.decision_log.as_mut() {
             for r in log.drain(..) {
+                if r.moved {
+                    if let Some(rp) = replay.as_mut() {
+                        shadow_n += 1;
+                        if shadow_fault == 0 || !shadow_n.is_multiple_of(shadow_fault) {
+                            let (dx, dy) = r.deposit_at;
+                            rp.deposit(Channel::A, dx, dy, r.emit_a_laid);
+                            rp.deposit(Channel::B, dx, dy, r.emit_b_laid);
+                        }
+                    }
+                }
+                if !cf_planes.is_empty() {
+                    let e = cf_steps.entry(r.id).or_insert((r.since_trip, 0));
+                    if r.since_trip < e.0 {
+                        e.1 = 0;
+                    }
+                    e.0 = r.since_trip;
+                    if r.moved {
+                        e.1 += 1;
+                    }
+                    let steps = e.1;
+                    for (rule, p) in cf_planes.iter_mut() {
+                        let (dx, dy) = r.deposit_at;
+                        p.deposit(Channel::B, dx, dy, rule.amount(&r, steps));
+                    }
+                }
+                if !decision_csv {
+                    continue;
+                }
                 decision_recount[r.leg as usize][creature::setting_class(r.usable)][r.outcome as usize] += 1;
                 homeward_recount[r.homeward as usize] += 1;
                 if matches!(r.homeward, creature::HomewardWhy::Fired | creature::HomewardWhy::FiredHaul) {
@@ -2637,7 +2802,7 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
                 // `Turn` is printed in full (`{:e}`). At four decimals it read
                 // 0.0000 on every row of a run where it was nonzero, and a
                 // parse of that column called it exactly zero.
-                decision_rows.push(format!(
+                let mut row = format!(
                     "{seed},{gap},{arm_name},{},{},{},{},{:.4},{},{},{},{},{},{},{},{},{},{:.4},{:.4},{},{:.4},{:.4},{:.5},{:.5},{},{:.4},{},{},{:.4},{:.4},{:e},{:.4},{:.4},{},{},{:.4},{},{},{:.4},{:.4},{},{},{},{},{:.4},{:.4},{:.4},{},{},{:.4},{:.4},{:.4},{:.2},{:.4},{:.4},{:.4},{},{},{},{},{}",
                     decision_tag,
                     r.frame,
@@ -2701,7 +2866,52 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
                     // columns stay what they were.
                     r.bite.map_or_else(|| "-,-,-,-".to_string(), |(bx, by, t, d)| format!("{bx},{by},{},{d}", u8::from(t))),
                     r.trip_src,
-                ));
+                );
+                // **`dwide`: the food-trail columns**, appended so every
+                // column before them stays what it was. What this decision
+                // laid on each channel (raw, after the cast) and the brain's
+                // `EmitB` before it, where it laid, the cargo's age in ticks
+                // since its trip pickup, and the chooser's view of trail B:
+                // the option mask and whether a crossing forced the pick, the
+                // blend `k`, the heading chosen, whether the trail was read,
+                // then B one and two cells along each heading (`bn*`, `bf*`,
+                // what `trail_presence` reads), B at the six-sensor point
+                // (`b6*`), and each option's score (`sc*`, NaN for a heading
+                // that was not an option). Headings in `DIRS` order.
+                if dwide {
+                    let join = |v: &[u16; 8]| v.iter().map(u16::to_string).collect::<Vec<_>>().join(",");
+                    row.push_str(&format!(
+                        ",{},{},{:.5},{},{},{},{},{},{:.4},{},{},{},{},{},{}",
+                        r.emit_a_laid,
+                        r.emit_b_laid,
+                        r.emit_b_brain,
+                        r.deposit_at.0,
+                        r.deposit_at.1,
+                        r.since_trip,
+                        r.opts,
+                        u8::from(r.cross),
+                        r.k,
+                        if r.chose == creature::NO_PICK { "-".to_string() } else { r.chose.to_string() },
+                        u8::from(r.reads_b),
+                        join(&r.b_near),
+                        join(&r.b_far),
+                        join(&r.b_six),
+                        r.score.iter().map(|v| format!("{v:.4}")).collect::<Vec<_>>().join(","),
+                    ));
+                }
+                decision_rows.push(row);
+            }
+        }
+        // The copies take the pass the live planes just took, at the same
+        // frame and interval, after the same deposits: paints, then the
+        // ants' laying, then the blend and decay (`frame::step`'s order).
+        if replay.is_some() || !cf_planes.is_empty() {
+            let interval = w.clock.creature_interval(pheromone::PHEROMONE_INTERVAL);
+            if let Some(rp) = replay.as_mut() {
+                rp.step(w.frame, interval);
+            }
+            for (_, p) in cf_planes.iter_mut() {
+                p.step(w.frame, interval);
             }
         }
         if food > 0 && refill > 0 && f.is_multiple_of(refill) {
@@ -2736,23 +2946,86 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
                 // report a clean empty plane. The row is long; it is a log for
                 // a parser (`scripts/btrailchart.py`), not for reading by eye,
                 // and the summary columns beside it are the by-eye version.
-                let mut prof: Vec<String> = Vec::with_capacity((target_x - lay_foot_x + 1).max(0) as usize);
-                let (mut live, mut peak) = (0usize, 0u32);
-                for x in lay_foot_x..=target_x {
-                    let v = w.pheromone_at(Channel::B, x, surface) as u32;
-                    if v > 0 {
-                        live += 1;
+                //
+                // **A band of rows, both channels, and the ground either side
+                // of the route** (`Reports/food-trail-plan-2026-09-29.md` Stage
+                // 0). The first version read one row at `surface`, from the lay
+                // foot to the pile, channel B only, and printed the gate's name
+                // as `arm=`. But ants walk `surface-3..=surface+1` (the band the
+                // hand-laid trail paints), 13.9% of the colony's own B is laid
+                // west of the door (§22v), and "does B rise toward the food"
+                // needs the ground past the pile to see where it stops.
+                // `kind=live` is the world's plane; `kind=cf rule=<r>` is a
+                // counterfactual plane (`CfRule`), channel B only. `hand=` is 1
+                // only while a hand-laid trail is being painted.
+                let bx0 = ((if nest_hi > 0 { nest_lo } else { nest_x }) - 10).max(0).min(lay_foot_x);
+                let bx1 = (target_x + near + 10).min(width - 1);
+                let hand = u8::from(trail && (stop == 0 || f <= stop));
+                let row = |kind: &str, rule: &str, ch: Channel, y: i32, sample: &dyn Fn(i32) -> u32| {
+                    let mut prof: Vec<String> = Vec::with_capacity((bx1 - bx0 + 1).max(0) as usize);
+                    let (mut live, mut peak) = (0usize, 0u32);
+                    for x in bx0..=bx1 {
+                        let v = sample(x);
+                        if v > 0 {
+                            live += 1;
+                        }
+                        peak = peak.max(v);
+                        prof.push(v.to_string());
                     }
-                    peak = peak.max(v);
-                    prof.push(v.to_string());
+                    println!(
+                        "BTRAIL seed={seed} arm={arm_name} gate={} ft={food_trail_env} piles=east stop={stop} gap={gap} layfrom={layfrom} \
+                         nest={nest_x} target={target_x} ch={ch:?} kind={kind} rule={rule} y={y} x0={bx0} x1={bx1} frame={f} hand={hand} \
+                         cells={live} peak={peak} prof={}",
+                        gate.name,
+                        prof.join(",")
+                    );
+                };
+                for y in (surface - 3)..=(surface + 1) {
+                    for ch in [Channel::B, Channel::A] {
+                        row("live", "-", ch, y, &|x| u32::from(w.pheromone_at(ch, x, y)));
+                    }
+                    for (rule, p) in cf_planes.iter() {
+                        row("cf", &rule.name(), Channel::B, y, &|x| u32::from(p.sample(Channel::B, x, y)));
+                    }
                 }
-                println!(
-                    "BTRAIL seed={seed} arm={} stop={stop} gap={gap} layfrom={layfrom} x0={lay_foot_x} x1={target_x} \
-                     frame={f} hand={} cells={live} peak={peak} prof={}",
-                    gate.name,
-                    u8::from(stop == 0 || f <= stop),
-                    prof.join(",")
-                );
+                // **Down the shaft**: the loudest B in each row of the shaft and
+                // its chamber, from the mouth down. A follower that climbs B
+                // must not be led underground by deliveries laid in the shaft,
+                // and this is where that shows (plan risk: "the shaft pulls
+                // followers").
+                if let Some(sh) = w.nest_sites.iter().find_map(|n| n.shaft) {
+                    let (xlo, xhi) = (sh.x0.min(sh.chamber_x0), sh.x1.max(sh.chamber_x1));
+                    let prof: Vec<String> = (sh.top..=sh.bottom.max(sh.chamber_bottom))
+                        .map(|y| (xlo..=xhi).map(|x| w.pheromone_at(Channel::B, x, y)).max().unwrap_or(0).to_string())
+                        .collect();
+                    println!(
+                        "BSHAFT seed={seed} arm={arm_name} gate={} ft={food_trail_env} ch=B kind=live frame={f} xlo={xlo} xhi={xhi} y0={} prof={}",
+                        gate.name,
+                        sh.top,
+                        prof.join(",")
+                    );
+                }
+            }
+            // **The replay equals the world, every cell of both trail planes.**
+            // A trace that misses a writer -- a deposit the decision log does
+            // not carry, a harness paint the copy was not given -- makes every
+            // profile read off it wrong while looking plausible, so the copy is
+            // checked against the world rather than trusted. `shadowfault=N`
+            // puts that fault in on purpose, and this must panic.
+            if let Some(rp) = replay.as_ref() {
+                for ch in [Channel::A, Channel::B] {
+                    for y in 0..spec.height {
+                        for x in 0..width {
+                            let (a, b) = (rp.sample(ch, x, y), w.pheromone_at(ch, x, y));
+                            assert!(
+                                a == b,
+                                "SHADOW: the replayed plane left the live one at frame {f}, channel {ch:?}, cell ({x},{y}): replay {a}, live {b}, \
+                                 after {shadow_n} logged moves (shadowfault={shadow_fault})"
+                            );
+                        }
+                    }
+                }
+                shadow_checks += 1;
             }
             let mut amt = 0u32;
             let mut cells = 0usize;
@@ -3162,6 +3435,35 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
             renderer.camera_x = cx - vw / 2;
             renderer.camera_y = cy - vh / 2;
             renderer.draw(&w, &particles, &touched, &mut full, (vw as u32, vh as u32), true);
+            // **`gifoverlay=b`: trail B over the frame, on a fixed log scale**,
+            // so one deposit and a crowded doorway are both visible and a
+            // frame can be compared with any other. A full replace on a fixed
+            // dark-to-bright ramp, never a blend into the cell's own colour
+            // (`CLAUDE.md`: a blended canopy sheet read as blank). Brightness
+            // is `ln(1+v/256)/ln(1+4*DEPOSIT/256)`, saturating at four fresh
+            // deposits on one cell. Unlit cells keep the world's colour; ants
+            // go on top (`gifants`). `gifoverlay=cf:<rule>` paints a
+            // counterfactual plane instead.
+            if let Some(ov) = gif_overlay.as_deref() {
+                let plane = if ov == "b" { &w.pheromones } else { &cf_planes.iter().find(|(r, _)| Some(r.name().as_str()) == ov.strip_prefix("cf:")).expect("checked at parse").1 };
+                let top = (1.0 + 4.0 * pheromone::DEPOSIT as f32 / 256.0).ln();
+                let (x0, y0) = (renderer.camera_x, renderer.camera_y);
+                for py in 0..vh {
+                    for px in 0..vw {
+                        let v = plane.sample(Channel::B, x0 + px, y0 + py);
+                        if v == 0 {
+                            continue;
+                        }
+                        let t = ((1.0 + f32::from(v) / 256.0).ln() / top).min(1.0);
+                        // Deep violet -> red -> pale yellow.
+                        let (a, b, u) = if t < 0.5 { ([40.0, 0.0, 90.0], [220.0, 40.0, 40.0], t * 2.0) } else { ([220.0, 40.0, 40.0], [255.0, 245.0, 120.0], t * 2.0 - 1.0) };
+                        let i = ((py * vw + px) * 4) as usize;
+                        for k in 0..3 {
+                            full[i + k] = (a[k] + (b[k] - a[k]) * u) as u8;
+                        }
+                    }
+                }
+            }
             // **`gifants=1`: every ant painted over the frame, magenta while
             // empty and cyan while carrying food**, so the loop reads as colour
             // going out and coming back. Owner, 2026-09-24: an ant blends into
@@ -4041,6 +4343,13 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
             }
         }
     }
+    // **The replay is a control only if it could fail**, so a log says it ran
+    // and how much it checked, and a planted fault that reached the end unseen
+    // is a blind check rather than a pass.
+    if shadow {
+        assert!(shadow_fault == 0, "shadowfault={shadow_fault} dropped logged deposits and the replay check never saw it: the check is blind");
+        println!("  SHADOW: the replayed planes equalled the live ones on both trail channels, every cell, at {shadow_checks} checks over {shadow_n} logged moves");
+    }
     // The ants' own trail at the end: how much of the route still holds
     // anything, and which way it climbs. Read on the surface row, where it was
     // laid. **Positive `natural_along` = the trail climbs toward the NEST**,
@@ -4455,7 +4764,11 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
             }
         }
         if !laden_rows.is_empty() {
-            let path = format!("/tmp/trailfollow-laden-seed{seed}-gap{gap}.csv");
+            // Arm, food-trail switch and `dtag` in the name, so two arms of one
+            // seed and gap no longer write the same file, last one wins.
+            let ft = if food_trail_env == "unset" { String::new() } else { format!("-ft{}", food_trail_env.replace([',', '='], "")) };
+            let tag = if decision_tag.is_empty() { String::new() } else { format!("-{decision_tag}") };
+            let path = format!("/tmp/trailfollow-laden-seed{seed}-gap{gap}-{arm_name}{ft}{tag}.csv");
             // The header names `dx_home` for what it is -- cells moved TOWARD
             // the nest this tick, positive homeward -- because "dx" on its own
             // has been read with the wrong sign in this file before.
@@ -4573,8 +4886,17 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
             let suffix = if decision_tag.is_empty() { String::new() } else { format!("-{decision_tag}") };
             let path = format!("{decision_dir}/trailfollow-decisions-seed{seed}-gap{gap}-{arm_name}{suffix}.csv");
             let mut out = String::from(
-                "seed,gap,arm,tag,frame,id,leg,fill,x,y,x2,y2,heading,heading2,usable,setting,ax,ay,energy,home_aligned,at_nest,crowding,stillness,along_a,along_b,food_adjacent,kin_need,nest_x,move_out,p_move,turn,roll_move,roll_tumble,outcome,homeward,home_cos,moved,drop,drop_roll,drop_p,free8,n_nw,n_n,n_ne,n_w,n_e,n_sw,n_s,n_se,nbr_self,nbr_other,cone_l,cone_s,cone_r,pick,drop_reach,patience,chosen_cos,chosen_route,energy_j,drive,scout_w,scout_patience,scout_home,trip_load,forage_max,bite_x,bite_y,bite_tissue,bite_door,trip_src\n",
+                "seed,gap,arm,tag,frame,id,leg,fill,x,y,x2,y2,heading,heading2,usable,setting,ax,ay,energy,home_aligned,at_nest,crowding,stillness,along_a,along_b,food_adjacent,kin_need,nest_x,move_out,p_move,turn,roll_move,roll_tumble,outcome,homeward,home_cos,moved,drop,drop_roll,drop_p,free8,n_nw,n_n,n_ne,n_w,n_e,n_sw,n_s,n_se,nbr_self,nbr_other,cone_l,cone_s,cone_r,pick,drop_reach,patience,chosen_cos,chosen_route,energy_j,drive,scout_w,scout_patience,scout_home,trip_load,forage_max,bite_x,bite_y,bite_tissue,bite_door,trip_src",
             );
+            if dwide {
+                out.push_str(",emit_a_laid,emit_b_laid,emit_b_brain,dep_x,dep_y,since_trip,opts,cross,k,chose,reads_b");
+                for pre in ["bn", "bf", "b6", "sc"] {
+                    for d in 0..8 {
+                        out.push_str(&format!(",{pre}{d}"));
+                    }
+                }
+            }
+            out.push('\n');
             out.push_str(&decision_rows.join("\n"));
             out.push('\n');
             match std::fs::write(&path, out) {
@@ -5008,7 +5330,7 @@ fn main() {
     // `ant-forage-bed-and-gates-2026-09-21.md` is run with, echoed so a log
     // that does not name them was written by a binary that never had them.
     println!(
-        "  breadoff={} wire={} decisioncsv={} dtag={} COLONY_SPACING={} STACK_DEPTH={} DROP_REACH={} LOAD_BY={} LOAD_SCALE={} NEST_DOOR={} NEST_DOOR_FOUNDERS={} NEST_SHAFT={} NEST_HOME={} SCOUT={} HUNGRY_HOME={} FORAGE_DRIVE={} ({:?}) CARRY_PATIENCE={} PACKED_LUNCH={} BIRTH_PRICE={} STOREROOM={} HAUL_BITE={:?} STORE_LUNCH={} TRIP_REACH={:?} RETURN_WINDOW={} layfrom={}",
+        "  breadoff={} wire={} decisioncsv={} dtag={} COLONY_SPACING={} STACK_DEPTH={} DROP_REACH={} LOAD_BY={} LOAD_SCALE={} NEST_DOOR={} NEST_DOOR_FOUNDERS={} NEST_SHAFT={} NEST_HOME={} SCOUT={} HUNGRY_HOME={} FORAGE_DRIVE={} ({:?}) CARRY_PATIENCE={} PACKED_LUNCH={} BIRTH_PRICE={} STOREROOM={} HAUL_BITE={:?} STORE_LUNCH={} TRIP_REACH={:?} RETURN_WINDOW={} layfrom={} FOOD_TRAIL={} shadow={} shadowfault={} cf={} dwide={} gifoverlay={}",
         flag("breadoff"),
         arg_str("wire").unwrap_or_else(|| "shipped".into()),
         flag("decisioncsv"),
@@ -5034,7 +5356,13 @@ fn main() {
         if creature::store_lunch_from_env() { "on" } else { "off" },
         creature::trip_reach_from_env(),
         creature::return_window(),
-        arg_str("layfrom").unwrap_or_else(|| "nest".into())
+        arg_str("layfrom").unwrap_or_else(|| "nest".into()),
+        std::env::var("PIXEL_PHYSICS_FOOD_TRAIL").unwrap_or_else(|_| "unset".into()),
+        flag("shadow"),
+        arg_str("shadowfault").unwrap_or_else(|| "0".into()),
+        arg_str("cf").unwrap_or_else(|| "-".into()),
+        flag("dwide"),
+        arg_str("gifoverlay").unwrap_or_else(|| "-".into())
     );
     println!("  {LANDED_NOTE}\n");
 
