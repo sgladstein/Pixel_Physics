@@ -671,3 +671,104 @@ lining on undug walls), `PILE` and `antscsv=PATH` (every live animal: place,
 caste, pellet, home replayed, frames still, and its last decision row's
 `AtNest`, crowding, energy, outcome, scouting), `tintout=`'s corpse (green)
 and refilled-soil (violet) classes, and `fed`.
+
+## 15. Tamped blocks and sealed chambers: the nest refilling itself (2026-09-29, night)
+
+*The owner: "Yes and Yes, but the tamped tunnel walls and the nest
+refilling itself are both big issues? the tamped tunnel is not just walls
+around a tunnel or chamber. You have chambers fully enclosed by tamped soil
+and big blocks of tamped soil." Then: "Make sure you look at the image to
+see the actual issue for yourself." §14 had called the borders intended and
+stopped there; zoomed in, the sheet says otherwise.*
+
+**What the picture shows.** At 40 ants (hungry, walked + carry) the nest is
+black tunnels with a one-cell cyan wall, as designed. At 200 ants it is a
+sponge: tamped cells, ants and small holes mixed through the whole dug
+region; by frame 24,000 a solid tamped mass pocked with holes, most of them
+cut off from one another. Fed, even 40 ants in today's nest turn half their
+nest into a block by 24,000.
+
+**Measured** (`gridout=` and a script over it, `blocks.py`; positive
+control a hand-made grid read back exactly). Thickness of tamped soil is
+its distance from the nearest open cell (1 = a wall, 2+ = inside a block);
+a pocket is sealed when none of its open cells reaches the open air above
+the old ground line. The Q3 run (200 ants, hungry, walked + carry +
+stacking, seed 6) at frame 24,000: 112 of its 182 open cells in 18 sealed
+pockets (the largest 47), and 252 of its 563 tamped cells inside blocks; at
+12,000, while alive, 14 ants were shut in sealed pockets.
+
+**How they form** (a per-cell trace of every packing, and the refill
+ledger). A cell is tamped only as the neighbour of a cut, so it starts as a
+wall beside open space; every block cell in the Q3 run was tamped as a wall
+(162) or as fill in a dug cell (87), and lies deep because **the tunnel
+beside it filled**. What fills them: today's dig puts about **half its
+pellets down inside the nest** -- beside the digger's head in the tunnel it
+has just cut, or posted up the shaft onto whatever stands there -- and a
+pellet with nothing solid under it crumbles to loose soil and pours on
+down. The colony re-cuts the fill (about half of all its cuts) and every
+cut tamps its eight neighbours, so fill and old walls cement into blocks
+and the pockets beyond them are cut off, ants and all.
+
+Today's nest, fed, stacking 4, 8 seeds, frame 24,000 (medians; "8/8" is
+the count of seeds that moved that way):
+
+| | 40 ants | 200 ants |
+|---|---:|---:|
+| pellets put down / inside the nest / into a dug hole | 968 / 507 / 399.5 | 2,653.5 / 1,036.5 / 899 |
+| cuts re-cutting fill, of all cuts | 528.5 | 1,014 |
+| share of the dug cells refilled | 47% | 39% |
+| sealed-off cells (pockets) | 36.5 (6.5) | 123.5 (13) |
+| ants shut in sealed pockets | 7.5 | 27 |
+| tamped cells inside blocks | 103 | 226 |
+
+**Pellets only on real ground** (`PIXEL_PHYSICS_SPOIL_FOOTING=ground`, the
+2026-09-27 switch, off): a pellet is set down only with ground straight
+beneath it. Same 8 seeds:
+
+| today's nest + footing, frame 24,000 | 40 ants | 200 ants |
+|---|---:|---:|
+| sealed-off cells | 36.5 -> 26.5 (lower on 5, higher on 3) | 123.5 -> 7 (8/8) |
+| ants shut in | 7.5 -> 5 | 27 -> 2 |
+| tamped cells inside blocks | 103 -> 67.5 (6/8) | 226 -> 94 (8/8) |
+| pellets put inside the nest | 507 -> 315.5 | 1,036.5 -> 181.5 |
+| new ground dug | 373.5 -> 269 | 1,309.5 -> 382.5 (8/8) |
+| new ground by frame 12,000 | 157.5 -> 94 | 275.5 -> 35.5 (8/8) |
+
+At 200 ants it clears the sealed pockets but the colony nearly stops
+digging while the mouth is covered in ants -- there is no ground there to
+set a pellet on. At 40 ants it is mixed, because it does not stop the
+largest source: pellets set down inside the nest on ground that is there.
+
+**Walking the soil out** (the owner's pick for one mouth, `SPOIL_OUT=on`,
+with the carry `SPOIL_RING=2,2`; off by default) never puts a pellet down
+inside the nest by design, and it answers most of this. Same 8 seeds, fed
+and stacked, frame 24,000, against today's nest:
+
+| | 40 ants | 200 ants |
+|---|---:|---:|
+| pellets put inside the nest | 507 -> 56.5 (8/8) | 1,036.5 -> 108 (8/8) |
+| sealed-off cells | 36.5 -> 1.5 (8/8) | 123.5 -> 9 (8/8) |
+| ants shut in | 7.5 -> 0 | 27 -> 7 (8/8) |
+| tamped cells inside blocks | 103 -> 51.5 (8/8) | 226 -> 65.5 (8/8) |
+| cuts re-cutting fill | 528.5 -> 55.5 | 1,014 -> 155 |
+| open cells | 235.5 -> 138 | 851 -> 193 |
+| new ground dug | 373.5 -> 129 | 1,309.5 -> 232 |
+
+And **walked out + only on real ground**, against walked out alone: blocks
+51.5 -> 26.5 at 40 ants and 65.5 -> 28.5 at 200 (8/8 both), sealed-off
+cells 1.5 -> 2 and 9 -> 1.5 (7/8), the share of dug cells refilled 36% ->
+26% and 41% -> 17% (8/8), for new ground 129 -> 92.5 and 232 -> 138.5.
+
+**Reading it.** Today's nest is large because it is a sponge: half of what
+it digs is its own fill, dug again, and at 200 ants a seventh of its open
+space is sealed off with 27 ants inside. The walked-out nest is a third to
+a quarter the size and reads as tunnels: the pictures (seeds nearest the
+median of today's sealed cells, by rule: 3 at 40 ants, 1 at 200) show a
+compact nest with a low crater and no towers of pellets over the mouth,
+where today's nest stacks them into columns. At 200 ants the walked-out nest
+is too small for the colony -- packed with ants, the rest lying on the
+surface -- which is the owner's other yes, the colony living inside its
+nest and digging as it crowds.
+
+Predictions 235-238 (one seed an arm, fed and stacked): 235, 236, 237 hold;
+238 fails -- the refill is not a 200-ant problem once the colony lives.

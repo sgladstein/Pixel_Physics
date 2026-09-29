@@ -69,6 +69,14 @@ the live question, what is addressed to another lane, predictions and heads.*
   ants... Everything again is broken at 200-ants so no impact on Q2 but
   needs more thinking." The 200-ant pile is the owner's "huge problem"
   (report §14).
+- **2026-09-29 (night): the dig box fed; the colony lives inside its
+  nest.** "Yes and Yes" -- `digbox` keeps its colony fed by default
+  (`hungry` for the old box), and the next nest step is resting ants
+  living inside the nest. "But the tamped tunnel walls and the nest
+  refilling itself are both big issues? ... chambers fully enclosed by
+  tamped soil and big blocks of tamped soil." And: "Make sure you look at
+  the image to see the actual issue for yourself" -- zoom the sheet before
+  describing it.
 - **2026-09-28: build at one size, then expand -- to larger colonies.** "It
   is fine if we develop the next on a certain ant size and then expand it
   ... We eventually do want our nests to work for larger colonies." Every
@@ -78,24 +86,22 @@ the live question, what is addressed to another lane, predictions and heads.*
 
 ## Live question
 
-**The 200-ant pile** ([`../nest-one-entrance-2026-09-29.md`](../nest-one-entrance-2026-09-29.md)
-§14). Traced per animal (`PILE`, `antscsv=`): not a queue and not ants at
-home but hungry scouts (the box is hungry from frame 1), 38 of 50 nest
-workers among them. Fed (`fed`), the heap flattens but the ants rest on the
-surface round the mouth, and the colony digs far slower (3,001 digs by
-frame 12,000 hungry against 273 fed, 200 ants with stacking). **Every
-dig-box nest so far was dug by a starving colony.** The gaps: nothing takes
-a resting ant inside (a forager's home is the door on the surface), and
-digging follows restlessness, not the crowd inside. Asked the owner: a fed
-box, then "the colony lives inside its nest" with the foraging lane.
+**Tamped blocks and sealed chambers: the nest refilling itself**
+([`../nest-one-entrance-2026-09-29.md`](../nest-one-entrance-2026-09-29.md)
+§15). Pellets put down with nothing solid under them (on ants, over air)
+crumble to loose soil that pours back into the tunnels; ants re-cut the
+fill (half of today's cuts) and every cut tamps its eight neighbours, so
+old walls and fill become blocks and pockets are cut off. Fed and stacked,
+today's nest seals off ~120 cells at 40 and 200 ants alike. "Pellets only
+on real ground" (`SPOIL_FOOTING=ground`) removes most of it at a cost in
+digging; being swept over 8 seeds, today's nest and the walked one.
 
-**Next** (2026-09-29, evening):
-1. Land the branch (jam trace, carry on, widening off, the dig box's new
-   instruments); stacking by default after the foraging lane has had its
-   say (poked).
-2. On the owner's answer: the dig box fed by default, then the step above.
-3. Nest workers who go out when the colony is hungry; the brain input for
-   the cue (owner's order), planned with the lab lines.
+**Next** (2026-09-29, night):
+1. The refill fix, on the sweep; pictures to the owner.
+2. Stacking by default: the lab pair is running, the foraging lane poked
+   (20:58Z); land after both.
+3. The colony lives inside its nest (owner: yes), joint with the foraging
+   lane; then the land PR (jam trace, carry on, widening off, instruments).
 
 ## Working agreement with the foraging lane (2026-09-27)
 
