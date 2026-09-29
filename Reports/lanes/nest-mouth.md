@@ -96,8 +96,13 @@ carrier walk its pellet away from the mouth first (a crater ring)?
   scouting there. Read late stops with that in mind.
 
 **Next** (2026-09-29):
-1. The owner's answer on `…04be5b`; then the carry away from the mouth as a
-   switch, off, at 40 and 200 ants, the bed and the lab, and a PR.
+1. **Handoff (2026-09-29 evening):** branch `nest57-local` in worktree
+   `.claude/worktrees/nest57`, pushed as `claude/ant-nest-mouth-4f6s79`,
+   carries the jam trace (report §11), the carry `SPOIL_RING` (§12) and
+   widening `DIG_WIDEN` (§13), all off, WIP commits to squash. Still to do:
+   the bed identity (trailfollow unset vs main), full tests, clippy, PR.
+   Owner cards open: `…04be5b` (carry), `…ca2baa` (widening); stacking
+   (§13) is a big win at 200 ants and ships off: ask whether to default it.
 2. **Nest workers who go out when the colony is hungry** (the scale cost;
    harvester workers switch tasks with the colony's need).
 3. The brain input for the cue (owner's order), planned with the lab lines.
@@ -184,18 +189,14 @@ exploratory and carry none.
   half turn's coin), seeds 1 and 20 before and after.
 - `20260929T174447550Z-04be5b` — correction to `…2d6747`: the walked colony
   buries its own door; asks for the carry away from the mouth.
+- `20260929T194807849Z-ca2baa` — tunnels two cells wide, today against
+  widened, and the stacking numbers.
 
 ## Head SHAs
 
-Older heads, from the branch cut (`636612c6`, 2026-09-26) through #507
-(`97129556`) and the dig-down work merged as #508, are in `git log` and in
-the reports each one names.
+Older heads (branch cut `636612c6` through #512 and #513) are in `git log`
+and the reports each one names.
 
-- `7933010e` (#512) — merged: the storeroom (off), castes, the room
-  series, the heap cue's floor fix. Branch restarted from `main`.
-- `72383e39` (#513) — merged: the full granary on by default (the door,
-  the side storeroom, `keep`, nest workers), colony size. Branch restarted
-  from `main`.
 - `7ee0e338` (#517) — merged: the entrance ledger, `SPOIL_OUT` and
   `SPOIL_LIFT=out` (off), `TRIPS` / `decisions=` in digbox. Branch
   restarted from `main`.

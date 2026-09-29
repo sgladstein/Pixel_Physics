@@ -540,3 +540,47 @@ as home (`PIXEL_PHYSICS_NEST_HOME`; `nest-mouth-2026-09-26.md`). Home is the
 foraging lane's walk as much as this lane's founding, so it is put to the
 owner and that lane before it is built.
 
+## 13. Crowding: stacking, and tunnels two cells wide (owner, 2026-09-29)
+
+*The owner, mid-session: "For crowding issues, have you looked at the
+stacking feature (PIXEL_PHYSICS_STACK_DEPTH). Also tunnels should be wider
+than 1 pixel, for crowding and aesthetics." `digbox`, 24 seeds, 40 and 200
+ants, frame 24,000 unless stated.*
+
+**Stacking** (`PIXEL_PHYSICS_STACK_DEPTH=4`, as the colony bed runs it; the
+game ships 1, where a nestmate is as solid as rock). No `digbox` run in this
+report had it on.
+
+| dug space (entrances), 24 seeds | depth 1 | depth 4 |
+|---|---:|---:|
+| 200 ants, walked | 69.5 (3) | **181** (5), more on 24 |
+| 200 ants, walked + carry | 91 (2) | **181.5** (4), more on 24 |
+| 200 ants, today's lift | 583.5 (9.5) | 1,265 (16), more on 24 |
+| 40 ants, walked | 42.5 (2) | 69.5 (2), more on 18 |
+| 40 ants, walked + carry | 84 (2) | 91 (2), more on 20 |
+
+At 200 ants by frame 6,000, 164 pellets are out against 24 walked, and 90
+against 10 with the carry: stacked ants no longer shut the mouth. Entrances
+rise with the digging. Predictions 224 holds, 225 and 226 fail (the heads
+over the mouth rose, 4.2 at frame 6,000, because a stacked ant no longer
+blocks; and it helps at 40 ants too).
+
+**Tunnels two cells wide** (`PIXEL_PHYSICS_DIG_WIDEN=on`, off; see
+`how-the-ant-works.md` §12 and `dig_widen_of`). A digger walking a one-cell
+passage cuts its wall, and at a face cuts a shoulder beside the cell ahead
+on half its rolls; a passage two wide is left alone. The first form widened
+at the face on every roll and lost the galleries (seed 1: dug 179 -> 106,
+depth 13 -> 7); the second, walls only, barely moved the width.
+
+| 24 seeds, frame 24,000 | today | widened |
+|---|---:|---:|
+| 40 ants: open cells in one-cell passages | 25% | 20% |
+| 40 ants: dug / depth90 / entrances | 260 / 15 / 6 | 263.5 / 14 / 7 |
+| 200 ants: dug / depth90 / entrances | 583.5 / 18 / 9.5 | 647 / 17 / 11 |
+| 200 ants, walked + carry + stack: dug / depth90 / entrances | 181.5 / 17 / 4 | 172 / 14 / 5.5 |
+
+The census moves little because most open cells are the founding cut and
+chambers, already wide; the galleries are what reads as thin, and the
+pictures (card `…ca2baa`, seeds by rule) are the judgement. Predictions 227
+holds, 228 and 229 fail (§8's list continues in the lane's scratch).
+

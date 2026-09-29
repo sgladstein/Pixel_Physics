@@ -92,8 +92,9 @@ will be.
   side (`turn_toward`, `half_turn_left`) and the founding cut's jaw and
   corpses (`is_diggable_ground`, `founding_dig_force`,
   `paint_nest_patch_with`). §12 again that day: the walked cycle's and the
-  lift's rows, which #517 left out, and the carry away from the mouth
-  (`SpoilOut`, `spoil_lift_mode`, `spoil_ring`).
+  lift's rows, which #517 left out, the carry away from the mouth
+  (`SpoilOut`, `spoil_lift_mode`, `spoil_ring`), and tunnel widening
+  (`dig_widen_of`, `dig_widen_site`, `dig_shoulder_site`).
   Update this line whenever a section is re-checked against the code.
 - **Edit it in place. Never append history.** When you change a mechanism
   described here, update the section in the same commit. When you find this
@@ -888,6 +889,7 @@ Read once per process from the environment. The default is what ships.
 | `PIXEL_PHYSICS_SPOIL_OUT` | off | the excavation cycle walked (`SpoilOut`): parts, comma-joined, or `on` for all four. `haul`: a pellet carrier is pulled to the door over the mouth (`spoil_haul_target`); `pace`: at the laden pace, `HomeAligned` read against that target (`spoil_pace_target`); `keep`: inside the nest (`inside_nest`: under cover, or in the founding cut) the pellet is not put down while patience lasts, and is never lifted from there (`spoil_kept_inside`, `spoil_kept_no_lift`); `back`: a digger not hungry walks back to the cell it cut once its pellet is down (`OrganismState::dig_return`, `dig_return_target`) |
 | `PIXEL_PHYSICS_SPOIL_LIFT` | `climb` | where a pellet with no cell beside its carrier goes: `climb` up the carrier's column as far as it could have walked (`lift_reach`); `out` through the passages to the nearest cell in the open that holds a pellet (`lift_out`, `spoil_lifted_out`); `none`, `dig`, `unbounded` the older reaches |
 | `PIXEL_PHYSICS_SPOIL_RING` | off | `<shape>,<scale>`: the first time a carrier stands outside the nest with its pellet it draws a column on its own side, the door's half-width plus one plus a Gamma(shape, scale) draw from the nest's centre (`spoil_ring_column`, `OrganismState::spoil_ring`, its own stream), is pulled along the ground to it (`spoil_haul_target`), and its drop roll is held until its head is that far out (`spoil_ring_holds`; `spoil_ring_drawn`, `spoil_ring_held`); `World::spoil_ring` for one world |
+| `PIXEL_PHYSICS_DIG_WIDEN` | off | `on`: tunnels one body length (two cells) wide. On a won dig roll, a digger whose way ahead is open and whose head stands where its passage is one cell wide (ground above and below, or either side) cuts one of those walls instead of turning down and cutting ahead (`ahead_is_open`, `dig_widen_site`); a digger at a face cuts a shoulder beside the cell ahead on half its rolls (`dig_shoulder_site`), so a gallery advances two cells across. A passage two wide is left alone. Both cuts are ordinary cuts after that: the heap cue and the jaw judge them (`digs_widened`; `World::dig_widen` for one world) |
 
 ## 13. Where the implementation lives
 
