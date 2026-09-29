@@ -2991,3 +2991,101 @@ to 30 cells every 6,000.
 Data: `Reports/data/granary-loop-2026-09-29.txt.gz` (the bed, the traces'
 readouts) and `Reports/data/lab-granary-2026-09-29.tar.gz` (the 48 lab logs, pip
 listing stripped).
+
+### 22u. The trip reach: a trip judged by where the food was taken
+
+**Why.** §22t traced why the `returns` drive barely fades on the granary:
+46% of the returns that hold it up were food lying beside the five-column
+door, picked up by an ant that had wandered 16 cells from its last nest
+contact -- past `FORAGE_TRIP_MIN` (8), so it counted as a trip. The nest lane
+confirmed it from the code: "at home" for a pickup is only the door's
+7-column ring.
+
+**The rule** (`PIXEL_PHYSICS_TRIP_REACH`, `trip_source`): a pickup that
+passes today's roam gate marks a trip only if the food was living tissue,
+or loose food more than 16 Chebyshev (scaled) from the centre of every
+nest's door, measured from the founding surface at the food cell. Designed
+by a workflow before any code: three readers (the pickup code, the nest
+geometry, a per-return table from the §22t traces), three proposals (the
+nest's structure, a radius, how far the load was carried), two refuters on
+each, and a judge who took the radius, the tissue exemption from the third
+and "every door" from the first. 16 sits in a gap: marking pickups by
+distance from the door read 13:55, 14:10, 15:0, 16:0, 17:1. Nine guards,
+each watched red under its own fault.
+
+**Identity first.** Off reproduces `main` line for line and the first 66
+CSV columns byte for byte (24 pulsed seeds, 8 unlimited); `TRIP_REACH=1000`
+books 0 returns; the counter of what the rule removes read 600 / 393, equal
+to a walk of the new `trip_src` trace column. After the flip, unset equals
+`on` and `off` equals `main` on every outcome line.
+
+**Colony bed**, 24 seeds per arm, off -> on (the window unchanged, 1,400):
+
+| | off | on |
+|---|---:|---:|
+| pulsed 90: returns booked from beside the door | 629 | **21** |
+| pile returns per seed, on/off (median) | | 1.00 |
+| drive over the cycle's last third | 0.933 | **0.771** |
+| drive once the pile has stopped paying (median) | 0.994 | **0.615** |
+| drive while the pile is worked | 0.993 | 0.963 |
+| fed ants setting out, last third of the cycle | 173 | **121** |
+| refill to the first pile return, median / p90 | 966 / 2,112 | 1,056 / 2,304 |
+| pulsed 90: food taken / starved / born | 2,680 / 273 / 46 | 2,576 / 279 / 31 |
+| pulsed 140 | 2,528 / 269 / 17 | 2,562 / 254 / 19 |
+| unlimited 90 | 5,992 / 73 / 223 | 5,824 / **82** / 180 |
+| unlimited 140 | 4,598 / 107 / 76 | 4,610 / 110 / 85 |
+| 80 founders at 135 | 8,174 / 1,102 / 70 | 8,184 / 1,094 / 59 |
+| unlimited 90: drive, pooled / worst seed | 0.998 / 0.938 | 0.965 / **0.754** |
+
+The rule does what it is for: the drive falls when food stops and stays up
+while the pile is worked. **What it costs is on the unlimited pile at 90
+cells**, where with the double count gone the honest return rate is thinner
+than the window: traced seed by seed, seed 7 stood down while food was on
+the road (83% of its low-drive rows had a pile load between the nest and
+the pile, against 14% of all its rows) -- a false stand-down, because the
+drive's clock hears of food only when it reaches the door; seed 20 sagged
+in a lull the stand-down fed (17% against 23%).
+
+**The pre-registered rule said, on that failure, try a window of 1,750.**
+It passed every bar on the bed (unlimited 90 worst seed 0.884, starved
++9.6%; stand-down median 0.891) -- and cost the lab box on every gate, which
+the bed cannot contain. **Lab box**, 24 seeds, rain, medians:
+
+| | off | on (1,400) | on (1,750) |
+|---|---:|---:|---:|
+| births | 428 | 453.5 (12/11) | 365.5 (12/12) |
+| food eaten | 1,122k J | 1,147k (13/10) | 995k (11/13) |
+| ant-frames | 9.5M | 10.1M (14/9) | 9.0M (11/13) |
+| starved per million ant-frames | 9.2 | 9.0 (12/11) | **13.9 (16/8, p 0.15)** |
+
+A longer window keeps fed foragers out while a box grazes bare -- the case
+the drive exists for. And the bed failure it was meant to fix **did not
+replicate**: 48 new seeds of unlimited 90 (not pre-registered, run to test
+it) read starved 206 -> 209 (11/11), taken 11,022 -> 10,694 (16/28, p
+0.10), born 339 -> 300; 72 seeds pooled, starved +4.3% and taken -2.9%,
+inside the bars. **So the trip reach ships on with the window at 1,400**,
+against the letter of the registered tree, for the reasons above. The lab's
+off arm reproduced the day's earlier lab baseline on every seed checked, on
+another machine.
+
+**Predictions** (registered 06:40 UTC, before any comparison):
+
+| # | prediction | right? |
+|---|---|---|
+| 1 | off: bookings as `main`; removed 585-615 pulsed, 375-405 unlimited | right (identical; 600, 393) |
+| 2 | on: home-band <= 60, pile ratio 0.85-1.15, removed >= 400 | right (21; 1.00; 560) |
+| 3 | pulsed 90: last third <= 0.85, >= 0.9 on <= 70%, stand-down <= 0.80 | right (0.771; 55%; 0.615) |
+| 4 | unlimited 90 pooled >= 0.93, worst seed >= 0.85; worked >= 0.95 | pooled right (0.965), **worst seed wrong (0.754)**, worked right (0.963) |
+| 5 | food taken within -5%, starved within +10%, on every arm | right but unlimited 90 starved (+12.3%; 72 seeds +4.3%) |
+| 6 | unlimited 140 pooled >= 0.90 | right (0.975) |
+| 7 | 80 founders: loose pickups at 17-26 <= 10% | right (1.2%) |
+| 8 | lab: no gate lower at p<0.05; near share <= 0.30; returns ratio >= 0.70; tissue on >= 20/24 | gates right; **near share wrong (0.49)**, **ratio wrong (0.54)**; tissue right (23/24) |
+
+The lab's food is not mostly living plants, as the design argued: half its
+returns were loose food beside a door, and removing them left every lab gate
+even or better. **Still open**: births lean lower at 90 cells on the bed
+(pulsed 46 -> 31; unlimited, 72 seeds, 562 -> 480; neither significant),
+and the false stand-down: the drive's clock learns of food only at the door,
+so at 20 founders one window can pass with loads on the road.
+Data: `Reports/data/tripreach-2026-09-29.txt.gz` (the bed) and
+`Reports/data/lab-tripreach-2026-09-29.tar.gz` (72 lab logs).

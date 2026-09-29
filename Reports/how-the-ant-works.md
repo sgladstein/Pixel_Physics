@@ -86,7 +86,9 @@ will be.
   `parse_storeroom`), and §6d, §8 and §12 that day for the `returns` drive
   shipped on and store lunch held off (`returns_drive`, `RETURN_WINDOW`,
   `trip_load`, `nest_last_return`, `step_nest_need`, `ForageDrive::ALWAYS`,
-  `store_lunch_from_env`).
+  `store_lunch_from_env`), and §6d and §12 again that day for the trip reach
+  shipped on (`trip_reach_of`, `trip_source`, `door_distance`, `trip_src`,
+  `return_window`).
   Update this line whenever a section is re-checked against the code.
 - **Edit it in place. Never append history.** When you change a mechanism
   described here, update the section in the same commit. When you find this
@@ -590,11 +592,20 @@ The drive is the nest's need (`World::nest_need`, §8), found from
   (`ForageDrive::ALWAYS`);
 - `returns` (the default, `ForageDrive::SHIPPED`): 1 while its nest last saw
   a forager come home with food from a trip under `RETURN_WINDOW` (1,400)
-  frames ago, then `e^-(age - W)/W` (`returns_drive`). A return is booked once
-  per trip, at the first put-down at home of a crop marked
-  `OrganismState::trip_load` (a pickup away from home past `FORAGE_TRIP_MIN`),
-  into `World::nest_last_return`; `World::step_nest_need` starts a new nest's
-  clock when it first sees it.
+  frames ago, then `e^-(age - W)/W` (`returns_drive`; `W` is
+  `return_window`, `PIXEL_PHYSICS_RETURN_WINDOW`, unset 1,400). A return is
+  booked once per trip, at the first put-down at home of a crop marked
+  `OrganismState::trip_load`, into `World::nest_last_return`;
+  `World::step_nest_need` starts a new nest's clock when it first sees it. A
+  pickup marks a trip when it is away from home, the ant has been
+  `FORAGE_TRIP_MIN` (8) cells from its last nest contact, and -- under
+  `PIXEL_PHYSICS_TRIP_REACH`, on -- the food was living tissue or loose food
+  taken more than `TRIP_REACH_SHIPPED` (16, scaled) Chebyshev from the
+  centre of every nest's door, measured from `NestSite::surface` at the food
+  cell (`trip_source`, `door_distance`). So food moved about beside a door
+  books nothing. `OrganismState::trip_src` records where a crop's marking
+  pickups were taken, for `CreatureStats::trip_returns_near` and
+  `trip_returns_tissue_near`.
 **A nest worker (§8) is never driven**: `forage_drive_level` reads 0 for a
 nest-bound animal, and fed it takes no away term and is pulled home when it
 strays (`home_pull`); hungry, it scouts for food as any ant does.
@@ -849,6 +860,8 @@ Read once per process from the environment. The default is what ships.
 | `PIXEL_PHYSICS_HUNGRY_HOME` | off | `on`/`refed` or `tether`: an empty ant too hungry to be out is pulled home to its nest's larder (§6d, §8); `World::hungry_home` for one world |
 | `PIXEL_PHYSICS_FORAGE_DRIVE` | `returns` | `off`, `hunger`, `larder`, `returns` or `always`, then optionally `,nopace`, `,keep` and `,fed` (only foragers at or above `start_energy`): a fed forager goes out when its nest needs food (§6d), and with `,keep` leaves the store at home (§5); `World::forage_drive` for one world |
 | `PIXEL_PHYSICS_PACKED_LUNCH` | on | `off`: a crop filled only at home counts as a load, so the forage drive does not reach its carrier (§6d); `World::packed_lunch` for one world |
+| `PIXEL_PHYSICS_TRIP_REACH` | on (16) | `off`: a pickup away from home marks a trip once the ant has been `FORAGE_TRIP_MIN` cells from its last nest contact, wherever the food lay; on, the food must also be living tissue or loose food more than the reach (authored cells, scaled; an integer sets it) from every nest's door (§6d); `World::trip_reach` for one world |
+| `PIXEL_PHYSICS_RETURN_WINDOW` | 1400 | `<frames>`: the `returns` drive's window (§6d) |
 | `PIXEL_PHYSICS_STORE_LUNCH` | off | `on`: a cell taken before the ant has been `FORAGE_TRIP_MIN` (8) cells from its last nest contact counts as taken at home for the packed lunch, wherever it stood; off, a crop is a lunch only while every cell in it was taken with the head beside nest material (§6d); `World::store_lunch` for one world |
 | `PIXEL_PHYSICS_HAUL_BITE` | on | `off`: an animal holding spoil cannot swallow or load food; `fed`: only one at or above `start_energy` (§9) |
 | `PIXEL_PHYSICS_BIRTH_PRICE` | `guaranteed` | `face`: a birth counts a bare seed in reach at its full worth, though a bite that spares it pays a quarter, so the top-up can leave the parent overdrawn (§9); `World::birth_price` for one world |

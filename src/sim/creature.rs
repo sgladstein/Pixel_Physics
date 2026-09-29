@@ -14625,9 +14625,12 @@ fn returns_drive(age: u64) -> f32 {
 
 /// **`PIXEL_PHYSICS_RETURN_WINDOW=<frames>`, the `returns` drive's window**,
 /// read once per process; unset (or unreadable, reported) is
-/// `RETURN_WINDOW`. A knob for the sweep the trip reach may need: with the
-/// home-band double count gone, the honest return rate on a slow pile may
-/// not fill 1,400 frames (§22u).
+/// `RETURN_WINDOW`. A knob for sweeping the window, measured once
+/// (2026-09-29, §22u): with the trip reach on, 1,750 kept the colony bed's
+/// unlimited pile safer (worst seed's drive 0.754 -> 0.884) and cost the
+/// lab box on every gate (starved per million ant-frames 9.2 -> 13.9, 16/8;
+/// food eaten -11%), because a longer window keeps fed foragers out while a
+/// box grazes bare -- the case the drive exists for. 1,400 stays.
 pub fn return_window() -> f32 {
     static V: std::sync::OnceLock<f32> = std::sync::OnceLock::new();
     *V.get_or_init(|| match std::env::var("PIXEL_PHYSICS_RETURN_WINDOW").unwrap_or_default().trim() {
@@ -14822,12 +14825,20 @@ pub fn store_lunch_of(world: &World) -> bool {
 /// every cell of the founding cut lies within 11 of the door's centre.
 pub const TRIP_REACH_SHIPPED: i32 = 16;
 
-/// What `PIXEL_PHYSICS_TRIP_REACH` unset means: off, the ant before it,
-/// while the paired arms run.
-const TRIP_REACH_UNSET: Option<i32> = None;
+/// What `PIXEL_PHYSICS_TRIP_REACH` unset means: **on, since 2026-09-29**
+/// (§22u). `off` is the ant before it. Colony bed, 24 seeds each, off -> on:
+/// home-band returns 629 -> 21 on a pulsed pile, pile returns unchanged
+/// (per-seed ratio 1.00); the drive once the pile stops paying 0.994 ->
+/// 0.615, fed ants setting out late in an empty cycle 173 -> 121; food
+/// taken and starved inside +-5% / +10% on every arm but unlimited 90 cells
+/// (starved 73 -> 82 on the registered seeds; 48 more read 206 -> 209, 72
+/// pooled +4.3%); births lean lower at 90 cells (72 seeds 562 -> 480, not
+/// significant). Lab box, 24 seeds with rain: every gate even or better
+/// (births 428 -> 453.5, starved per million ant-frames 9.2 -> 9.0).
+const TRIP_REACH_UNSET: Option<i32> = Some(TRIP_REACH_SHIPPED);
 
 /// **`PIXEL_PHYSICS_TRIP_REACH`: a trip is judged by where the food was
-/// taken, not by how far the ant roamed.** Off (the ant before it), a load
+/// taken, not by how far the ant roamed** (on by default). Off (the ant before it), a load
 /// is from a trip when its pickup is away from home and the ant has been
 /// `FORAGE_TRIP_MIN` cells from its last nest contact. On, that pickup must
 /// also be living tissue, or loose food taken more than the reach from the
@@ -27707,7 +27718,7 @@ mod tests {
     /// cannot read is unset, never on** (`parse_trip_reach`).
     #[test]
     fn parse_trip_reach_reads_its_spellings() {
-        assert_eq!(parse_trip_reach(""), TRIP_REACH_UNSET, "unset");
+        assert_eq!(parse_trip_reach(""), Some(TRIP_REACH_SHIPPED), "unset is on");
         assert_eq!(parse_trip_reach("off"), None, "off");
         assert_eq!(parse_trip_reach("on"), Some(TRIP_REACH_SHIPPED), "on");
         assert_eq!(parse_trip_reach(" 12 "), Some(12), "a reach");
