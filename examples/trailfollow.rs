@@ -5373,8 +5373,11 @@ fn main() {
                 }
             }
         }
-        println!("\n  larder put out, over the whole sweep: {supply_lo:.0}-{supply_hi:.0} J, against a need near 46,800 J");
-        println!("    for 52 ants over 24,000 frames -- so these colonies are provisioned, not starved.");
+        // The need is the 52-ant figure the sweep was first sized on (46,800 J
+        // over 24,000 frames, `run`'s pile comment), scaled to `ants=`: it was
+        // printed unscaled for 20-ant beds until 2026-09-29.
+        println!("\n  larder put out, over the whole sweep: {supply_lo:.0}-{supply_hi:.0} J, against a need near {:.0} J", 46_800.0 * f64::from(ants) / 52.0);
+        println!("    for {ants} ants over 24,000 frames (the 52-ant rate) -- so these colonies are provisioned, not starved.");
         println!("  intake off anything that is not the larder is ASSERTED to be 0 in every row, not printed.");
         println!("\n  `self` vs `mute` is the real question: do the ants' OWN trails do anything?");
         println!("  `visitors` is DISTINCT ants that reached the food over distinct ants that ever lived --");

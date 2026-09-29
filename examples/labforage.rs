@@ -1578,6 +1578,34 @@ fn main() {
         std::env::var("PIXEL_PHYSICS_STACK_DEPTH").unwrap_or_else(|_| "shipped".into()),
         std::env::var("PIXEL_PHYSICS_BUD_SITE").unwrap_or_else(|_| "shipped".into())
     );
+    // **The colony bed's founding levers are refused, not only echoed**
+    // (the test-bed review, 2026-09-29). Echoing them did not stop the run
+    // of 2026-09-28 that inherited them from a bed script's exports, founded
+    // 52 where the lab places 41, and read every dead box as a harm of the
+    // change under test. A lab arm that means to vary one passes `bedenv`.
+    let bed_env: Vec<&str> = ["PIXEL_PHYSICS_COLONY_SPACING", "PIXEL_PHYSICS_STACK_DEPTH", "PIXEL_PHYSICS_BUD_SITE"].into_iter().filter(|k| std::env::var(k).is_ok()).collect();
+    assert!(
+        bed_env.is_empty() || std::env::args().any(|a| a == "bedenv"),
+        "{bed_env:?} set: these are the colony bed's founding levers, and a lab run that inherits them is a different box -- unset them, or pass `bedenv` to vary one on purpose"
+    );
+    // **The game's rain** (`lab::rain::tick`, which `Lab::tick` calls right
+    // after `frame::step`). This harness never called it until 2026-09-29,
+    // so the pre-ship check ran the played bed dry while the lab game waters
+    // it: the review measured the check's box losing up to 16.5% of its soil
+    // water by frame 120,000 where the game's gains 7%, on a check whose live
+    // harm is grazing out. Unset it is the scenario's own rate (the played
+    // bed names none, so `Rain::default()`, Light, as in the game); `rain=off`
+    // is the harness before this, bit for bit (`tick` returns before any
+    // draw).
+    let rain = match arg::<String>("rain").as_deref() {
+        None => spec.rain,
+        Some("off") => pixel_physics::lab::rain::Rain::Off,
+        Some("light") => pixel_physics::lab::rain::Rain::Light,
+        Some("steady") => pixel_physics::lab::rain::Rain::Steady,
+        Some("heavy") => pixel_physics::lab::rain::Rain::Heavy,
+        Some(other) => panic!("rain={other}: expected off, light, steady or heavy"),
+    };
+    println!("labforage: rain={} (the lab game's mister, lab::rain::tick)", rain.label());
     // **Same block, same reason, same refusal.** See `wire_rider`'s own doc:
     // before founding, because `place_creature` copies the genome at
     // placement -- and it asserts that the write actually moved a slot,
@@ -2075,6 +2103,7 @@ fn main() {
         }
         if f < frames {
             frame::step(&mut world, &mut particles, &mut blasts, player::PlayerInput::default(), &tuning);
+            pixel_physics::lab::rain::tick(&mut world, &spec, rain);
         }
     }
 
