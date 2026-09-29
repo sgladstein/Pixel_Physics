@@ -3158,3 +3158,68 @@ above with the command that made it) and
 `Reports/data/lab-tripreach-2026-09-29.tar.gz` (the lab's off, first-build
 and 1,750 arms, 72 logs) and `Reports/data/lab-tripfix-2026-09-29.tar.gz`
 (the shipped build, 24 logs).
+
+### 22v. Why the trail does not lead a fed forager to food, and why today it costs the colony
+
+**Asked by the owner (2026-09-29): "Shouldn't the pheromone trail lead the
+ants to the food? Why doesn't it?"** Answered by a workflow (a code reader,
+a history reader, a colony-bed measurement on `main` at 2274e347, a
+synthesis, three refuters who withdrew three of its claims).
+
+**It cannot say where the food is, by design.** The shipped walk (the
+chooser) reads trail B only as *presence*, one or two cells ahead, with no
+direction (§6d, §7). Direction along a trail comes from "away from home",
+and at the five-column door that is undefined: every nest contact
+re-anchors `forage_anchor` on the ant, so the away term and scouting both
+return nothing, and turning round scores 0. The side a fed forager leaves by
+is the heading it carries. B's own slope points home, not to food (laid
+homeward; a reader that climbed it would walk ants back, and a descending
+reader cannot acquire a trail, `pheromone-trail-direction-2026-09-16.md`
+§6.1).
+
+**Measured on the colony bed** (gap 90, seeds 1-8 traced, `self` = the ants'
+own trail, `mute` = no trail B, `hand` = a painted road):
+- **The trail does not change which way a fed forager leaves.** East share
+  0.667 own trail, 0.704 none, 0.728 painted road; of the west-goers, 0/53,
+  0/50 and 0/40 reached the pile. At the door the trail reads the same for
+  ants about to go east and west (0.877 against 0.893), because food is
+  handled there: B at departure is 0.99-1.00 whatever the age of the last
+  return (median 432 frames between laden returns against a 273-frame
+  half-life).
+- **Arriving from the east barely moves the exit** (37.5% leave west after
+  an east trip, 28% after a west one), so "walks straight across the door"
+  is a minor path.
+- **On the east road the ants' own trail does not help either**: east-goers
+  reach the pile 92/106 own trail against 102/119 none, in 750 against 720
+  frames. Ants walk on it (72-81% of steps east of the door pick a trailed
+  heading), and it does not get them there more often or faster.
+- **Food scent is laid west of the door, where there is none**: 13.9% of all
+  B-laying steps. Anything with food in its crop lays B (`CarryingFood`),
+  so lunch carriers walking out, and ants holding store food, lay it; by
+  trip mark only 6% of the west laying and 4% at the door comes from a load
+  from a trip.
+- **An ant on a trail cannot give up**: the away term has no patience, and
+  the scout's give-up pull home is scaled by `1 - presence`. After giving
+  up, a west-going ant takes 1,392 frames to get home against 504 with no
+  trail, and still heads outward on 43% of its steps against 11% (8/8
+  seeds; gap 140 replicates, 1,569 against 1,127, 8/8).
+
+**So today the colony's own trail is a net cost.** Silencing it (24 seeds,
+paired): at 90 cells food taken 6,062 -> 7,512 (21/3), born 188 -> 282
+(17/6, p 0.035), starved 57 -> 29; at 140 taken 4,287 -> 5,412, starved
+127 -> 54 (p 0.06-0.08). The energy spent laying is about 15% of the
+difference; the rest is steering. Which of the two faults carries most of
+it is not decomposed.
+
+**What follows.** Two trail fixes sit inside standing rulings and have the
+mute arm as their bar: only a load from a trip lays food scent (which would
+also let the door's trail carry news), and an ant on a trail can give up.
+Neither gives a bearing at the door: about 30% of fed foragers leave west
+whatever the trail, even a painted road. That needs either a memory of the
+last food (the 2026-09-22 ruling "food memory for empty ants: no, for now"
+was made before the drive, the lunch and the door, and needs re-asking) or
+a trail that is allowed to turn an ant at the door. Superseded here: the
+dated view that a trail helps an ant already on the road (§12's 61 of 63
+arrivals recorded co-occurrence on an older bed, not benefit).
+Data: `Reports/data/trail-2026-09-29.tar.gz` (FINDINGS.md, the scripts,
+the per-departure tables, the mute logs).

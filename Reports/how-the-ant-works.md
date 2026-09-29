@@ -91,7 +91,8 @@ will be.
   `return_window`). §5 step 6 and §8 on 2026-09-29 for the half turn's
   side (`turn_toward`, `half_turn_left`) and the founding cut's jaw and
   corpses (`is_diggable_ground`, `founding_dig_force`,
-  `paint_nest_patch_with`).
+  `paint_nest_patch_with`). §7 and §10 on 2026-09-29 for who lays trail B
+  (`CarryingFood`, `carries_lunch`: a lunch carrier lays it).
   Update this line whenever a section is re-checked against the code.
 - **Edit it in place. Never append history.** When you change a mechanism
   described here, update the section in the same commit. When you find this
@@ -642,8 +643,11 @@ The channels carry no meaning in the engine; the meaning is in the wiring.
   - **Trail A:** every ant, laden or empty, at the unit-4 odometer's
     strength: strong just after leaving the nest, fading with time away.
     It works as nest scent.
-  - **Trail B:** only laden ants, at a constant 0.714. It works as the food
-    trail.
+  - **Trail B:** any ant with food in its crop (`CarryingFood`, which is 1
+    whenever `crop_fill > 0`), at a constant 0.714. It works as the food
+    trail. That is laden foragers walking home, and also packed-lunch
+    carriers walking out (empty to the chooser, §6d, but their crop holds
+    food) and nest workers and foragers carrying store food in the crop.
 - **Spreading and fading**, every `PHEROMONE_INTERVAL = 12` frames, every
   awake tile: each cell becomes `here + 0.25 × (mean of its 3×3 − here)`,
   then fades by `× (1 − rho)` with a forced minimum drop of 1 raw unit.
@@ -811,7 +815,7 @@ either plane: the other trail inputs are computed and wired to nothing (§3).
 | `HomeAligned` → `Move +3.0` | 1 whenever off the anchor, whichever way it faces | 0 |
 | What picks the heading | every usable heading, scored by going on, trail A where it would step, and home at `patience` | every usable heading, scored by going on, trail B where it would step, and away from home on a route |
 | Reversal when boxed in | yes, but a jam of creatures is waited out first | yes, at once |
-| Lays trail B | 0.714 on every step | no |
+| Lays trail B | 0.714 on every step | no, except a packed-lunch carrier: its crop holds food, so `CarryingFood` reads 1 |
 | Lays trail A | at the odometer's (by then faded) level | at the odometer's level, strongest just out of the nest |
 | Digs | never (`act` returns first) | when the dig roll wins |
 | Drops | food at the nest, about 0.25 a tick when fed, never below ~40% energy | spoil, if holding it |
