@@ -14,7 +14,9 @@ colony bed with the food 90 cells out it is a clear gain (food taken +33%,
 born 144 -> 226, starvation flat); at 140 cells it is close to a wash; **at 80
 founders it costs the colony** (starved 848 -> 1,102, fewer alive at the end
 on 21 of 24 seeds), because a quarter of a big colony staying home is more
-than its foragers can feed. **And in `digbox` it costs the nest**: at 40 ants
+than its foragers can feed. In the lab box the colony is smaller and
+steadier: none of 12 dies out against 2, an eighth as many starve, half as
+many are born. **And in `digbox` it costs the nest**: at 40 ants
 7 entrances against 2 and no seed more nest-like than random digging, half
 of it because the old strip of nest paint was a roof the colony could not
 dig through. The rest of this section is how it got there.
@@ -238,7 +240,7 @@ form the store's food is drawn two ways.
 | 164 | same, 80 founders at 135 cells | starved higher on at least 16 of 24; food taken lower on at least 14 | 20; 16 | right |
 | 165 | same, `digbox` at 40 ants | entrances at frame 24,000 within ±1 of the old default (median) | 7 against 2 (more on 21 of 24) | wrong |
 | 166 | same, `digbox` at 200 ants | entrances at frame 24,000 lower on at least 14 of 24 (a quarter of the ants stay home) | 18 of 24 | right |
-| 167 | same, the lab box | births within ±20% (median); died out within ±2 | P167 | P167R |
+| 167 | same, the lab box | births within ±20% (median); died out within ±2 | births -49% (443 -> 226); died out 2 -> 0 | half |
 
 ## 8. B, built: foragers drop at the door, ants at home carry it in
 
@@ -693,6 +695,29 @@ nest-like at that size, as before.
 - **Next for the lane: one entrance without the strip's roof.** That is now
   the nest problem the default leaves.
 
-LAB
+**The lab box** (`labforage scenario=played_bed`, 120,000 frames, 12 seeds,
+paired; the foraging lane's pre-ship check, run although the lab is set
+aside for this work because the default reaches it):
+
+| lab box, 12 seeds (median) | old default | new default |
+|---|---:|---:|
+| colonies that died out | 2 | **0** |
+| starved | 206 | **26** (fewer on 9) |
+| born | 443 | 226 (fewer on 9) |
+| alive at the end | 128 | 97 (fewer on 9) |
+| ant-frames lived | 9.72 M | 7.42 M (fewer on 9) |
+| peak population | 232 | 124 (lower on 8) |
+| food eaten (intake) | 1,102,518 J | 764,062 J (less on 9) |
+| plants standing at the end | 152 | **626** (more on 10) |
+
+- **The granary colony is smaller and steadier.** It eats a third less,
+  raises half the young and peaks at half the size, and it does not graze
+  the box bare: at the end four times as many plants stand. An eighth as
+  many ants starve, and no colony dies out against two. None of the four
+  colony columns clears a sign test at 12 seeds (p 0.15 each); only the
+  deliveries do (p 0.04), and those count churn.
+- Why it breeds less here was not traced. The quarter of the colony at home
+  does not forage, and in the lab food at the nest is what births are paid
+  from.
 
 Predictions 160-167 (§7) were written before any run of the flipped binary.

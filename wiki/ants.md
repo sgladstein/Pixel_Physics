@@ -14,6 +14,9 @@ arrived. In a test colony with food 90 cells away, a third more food comes
 off the heap, half again as much stands at the nest and half again as many
 young are born; about as many ants starve. With the food 140 cells away the
 gain is small, because a quarter of the colony no longer goes out for food.
+In the lab box a colony now stays smaller and steadier: it raises half as many
+young, but far fewer starve, none of a dozen test boxes died out, and it
+leaves most of the plants standing instead of grazing the box bare.
 The day before, **a birth stopped killing its parent.** An
 ant a little short of the price of young makes up the rest from food beside
 it, and it used to count seeds at their full worth though a bitten seed often

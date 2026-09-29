@@ -9937,9 +9937,9 @@ first opening and the digging gathers there; and an ant already enclosed turns
 down before it cuts (dig down). At 40 ants in `digbox` that is one nest with
 one or two entrances.
 
-**What the granary does** (the colony bed, `trailfollow`, with one food pile;
-and `digbox`, with none; 24 seeds each, paired by seed; the old default is
-both switches `off`):
+**What the granary does** (the colony bed, `trailfollow`, with one food pile,
+and `digbox`, with none, 24 seeds each; the lab box, 12; paired by seed; the
+old default is both switches `off`):
 
 | | old default (both `off`) | new default |
 |---|---:|---:|
@@ -9953,6 +9953,8 @@ both switches `off`):
 | starved / alive at the end (median) | 848 / 38 | **1,102 / 29** (fewer alive on 21) |
 | **`digbox`, 40 ants, no food**: entrances | 2 | **7** (more on 21 of 24) |
 | cells dug / more nest-like than random digging | 57 / 21 of 24 | 156 / **0 of 24** |
+| **lab box, 12 seeds**: died out / starved (median) | 2 / 206 | **0 / 26** |
+| born / alive at the end (median) | 443 / 128 | 226 / 97 (fewer on 9) |
 
 **Known limitations.**
 - **It costs the nest's shape in a foodless box.** In `digbox` at 40 ants the
