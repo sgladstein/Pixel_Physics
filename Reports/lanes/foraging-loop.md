@@ -23,7 +23,11 @@ commands and the traps.*
   replacing "test in both games before any ruling"). Develop and rule on
   loop changes on the bed (`trailfollow`) at 90 *and* 140 cells, traced.
   Before a change ships, run the lab (`labforage`, 24 seeds) once as a
-  regression check: died out, starved, births, alive at the end. It is not
+  regression check, read with `scripts/labpair.py`: births, food eaten,
+  ant-frames, **starved per million ant-frames** (died out and alive at the
+  end time the grazing crash; they are not the gate). A change that acts at
+  home also gets one bed pair at `STACK_DEPTH=1`, the game's cap (the bed
+  runs 4); only an opposite sign at p<0.05 counts against it. It is not
   evidence the loop improved: it came back neutral on the drive, carry
   patience, packed lunch and the door, and costs ~25x the bed per arm. What
   it caught was harm the bed cannot contain: the birth overdraw (Z36, seeds),
