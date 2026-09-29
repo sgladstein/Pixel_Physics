@@ -3223,3 +3223,106 @@ dated view that a trail helps an ant already on the road (§12's 61 of 63
 arrivals recorded co-occurrence on an older bed, not benefit).
 Data: `Reports/data/trail-2026-09-29.tar.gz` (FINDINGS.md, the scripts,
 the per-departure tables, the mute logs).
+
+### 23a. The trail instruments, and what the expected trail says before any rule is built
+
+Stage 0 of `Reports/food-trail-plan-2026-09-29.md`: instruments that let the
+trail be watched over time, replayed exactly, and compared with the trail a
+lay rule *should* leave. Written before the counterfactual readouts below
+were opened.
+
+**What was built.** `trailfollow` now prints the trail as a band of rows
+(`surface-3..=surface+1`, both channels, west of the door to past the pile)
+with the arm, the gate and the food-trail switch in every row, the shaft's
+B by depth (`BSHAFT`), a replayed copy of the planes (`shadow`), copies laid
+under other rules on the same paths (`cf=`), a fixed-scale trail overlay for
+GIFs (`gifoverlay=b`), and the chooser's view of trail B in the decision
+CSV (`dwide`: what was laid, the cargo's age `since_trip`, B one, two and
+six cells along each heading, each option's score). `onetrail mode=stream`
+is the design model: a stream of returners at a traced pace on the real
+plane. Scripts: `btrailchart.py` (`--stats`, `--door`, `--expect`),
+`trailclimb.py`, `trailpace.py`.
+
+**Gate G0, measured.**
+
+| | result |
+|---|---|
+| G0.1 identity, no new flag | log and 8 decision CSVs byte-identical to `main`'s `b518p` trace (pulsed 90, seeds 1-8) |
+| G0.2 replay = live | every cell of A and B, every 100 frames: self, mute, hand x gaps 90, 140 x 2 seeds (12 runs, 80 checks each, 178,259 logged moves); `shadowfault=10` panics at frame 100; outcome lines identical with and without the instruments |
+| G0.3 rows reproduce `b_profile` | exact, `[4649,2255,2561,2203,491]` both ways |
+| G0.4 trace self-consistency | 114 columns on every row; laid B = cast of the brain's `EmitB` on all 11,248 moves; every pick inside its option mask; scores present exactly for options. The draw check (`trailclimb.py`) is read with the cf runs |
+| G0.5 `cf=brain` = replay | 480 of 480 rows identical |
+
+Engine guards, each watched red: `a_replayed_plane_equals_the_live_one`,
+`since_trip_counts_from_the_last_trip_pickup`, and the decision-trace
+identity test with the new columns' vacuity checks.
+
+**The design model overturns two of the plan's registered predictions
+before they were tested.** `onetrail mode=stream` at the traced pace
+(`trailpace.py`: 0.69 cells a tick and a return every 416 frames at 90
+cells, 0.72 and 585 at 140), dwell 5 or 20 ticks at the door:
+
+| lay rule | snapshot rising share | time-mean slope | door gradient, reach 2 | reach 6 |
+|---|---:|---:|---:|---:|
+| constant (the gate alone) | 0.06-0.08 | -0.001 to -0.005 | +0.09 to +0.22 | **+0.45 to +0.54** |
+| odometer T=16 | 0.24-0.28 | +0.014 to +0.020 | +0.04 to +0.11 | +0.08 to +0.14 |
+| odometer T=32 | 0.10-0.12 | +0.011 to +0.015 | +0.06 to +0.14 | +0.14 to +0.23 |
+| odometer T=48 | 0.08-0.09 | +0.009 to +0.012 | +0.07 to +0.16 | +0.18 to +0.28 |
+
+- **No lay rule makes the trail an ant reads rise toward the food.** Each
+  returner's fresh line fades behind it by about 14% a cell (the blend's
+  vertical spread plus decay), and the odometer tilts it by 1.4/(T+age), a
+  few percent. The odometer lifts the *time-mean* slope, but an ant reads a
+  snapshot. So a reader that compares the way ahead with the way back walks
+  followers home under every rule, which is the old uphill reader's failure
+  (`dead-ends.md`) and not a property of the constant rate. P0.6 as the
+  plan registered it ("odo32 rises, share >= 0.6") is withdrawn: the model
+  puts it at 0.10-0.12.
+- **At the door the gate alone is the strongest signal, read at reach 6.**
+  The odometer weakens exactly the deposits near the door. Dwell at the door
+  halves the reach-2 gradient and barely touches reach 6.
+- **The T criterion cannot be met.** At the p90 cargo age (244 ticks at 90
+  cells, about 400 at 140) T=32 lays 847 raw, under `TRAIL_HALF`; only T=48
+  clears it at 90 and no T does at 140.
+
+**Consequences for the plan** (edited there): Stage 1 lays by the gate at the
+brain's rate, the odometer kept as an experimental knob (`t=`); Stage 2's
+reader compares only headings that are not straight back, except at the
+door, where it compares every level heading at reach 6 as well as 2 (in the
+working NetLogo model the reader looks ahead-left, ahead and ahead-right
+only). The trail's job along the road is then to keep a follower from giving
+up (Stage 3), not to point.
+
+**Registered predictions for the counterfactual planes on today's paths**
+(unlimited pile, gaps 90 and 140, seeds 1-8, 24,000 frames, self arm unless
+named; `btrailchart.py --late`, the second half of each run; row
+`surface+1`, where 65% of empty heads walk and 42% of B is laid, unless
+named; "per gap" means the bar holds at each gap separately):
+
+- **P0.4** today's trail falls toward the food in a snapshot: live rising <
+  0.5 on >= 7/8 seeds per gap.
+- **P0.5** (control of the metric) the hand-laid ramp rises: hand arm, row
+  `surface-2`, rising > 0.9 on >= 7/8 per gap.
+- **P0.6** (replaces the withdrawn one) the odometer does not make the
+  snapshot rise: `cf=odo32` rising < 0.5 on >= 6/8 per gap; its time-mean
+  slope exceeds `cf=gate`'s on >= 7/8 per gap, paired.
+- **P0.7** the gate clears the ground west of the door: time-mean B over the
+  band's five rows at x < the nest's west edge falls >= 90% against live on
+  >= 7/8 per gap; door B (the nest's columns, row `surface+1`) falls >= 50%
+  on >= 6/8.
+- **P0.8** the gate makes the door readable: median reach-6 gradient
+  (`--door`), `cf=gate` above live on >= 7/8 per gap and above +0.3 on >=
+  6/8 per gap; reach 2, above live on >= 6/8 per gap.
+- **P0.9** the odometer weakens the door: `cf=odo32`'s median reach-6
+  gradient below `cf=gate`'s on >= 7/8 per gap.
+- **P0.10** a gated door carries news: Spearman correlation between the
+  food-side B at reach 6 (row `surface+1`) and frames since the last return
+  (a row with `trip_load` 1 followed, for the same ant, by 0 at the nest),
+  below -0.3 on >= 6/8 per gap for `cf=gate`; for live, within +-0.2 on >=
+  6/8.
+
+**Lay-rule choice (replaces the T criterion):** the gate, unless an odometer
+T beats it on the reach-6 door gradient on >= 6/8 seeds at both gaps (P0.9
+predicts none will). Seen before registration: nothing from the cf runs but
+their pooled totals over all arms (brain 505.3M, gate 480.9M raw), which the
+hand arm's paint dominates.

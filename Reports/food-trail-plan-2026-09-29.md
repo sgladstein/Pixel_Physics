@@ -128,6 +128,8 @@ This project built each part on a different ant and judged each alone:
 
 **T criterion (registered):** the largest T ∈ {16, 24, 32, 48} such that P0.6 holds at both gaps and a single deposit at the p90 trip age still clears `TRAIL_HALF` (1,024 raw). The prior is T = 32. Time-based wins unless `stepT` clearly beats it on the door gradient.
 
+**Amended 2026-09-29, before any counterfactual readout was opened** (`Reports/ant-scenes-2026-09-23.md` §23a). The design model (`onetrail mode=stream` at the traced pace) says no lay rule makes the trail an ant *reads* rise toward the food: a snapshot's rising share is 0.06-0.08 for the gate alone and 0.10-0.12 for the odometer at T=32, because each returner's fresh line fades behind it faster than the odometer tilts it. The odometer lifts only the time-mean slope. It also weakens the door, where the gate alone reads +0.45 to +0.54 at reach 6 against +0.14 to +0.23. And at the p90 cargo age T=32 lays 847 raw, under `TRAIL_HALF`. So P0.6 as written is withdrawn and the T criterion cannot be met; both are replaced in §23a (P0.4-P0.10 there, and the lay-rule choice: the gate unless an odometer beats it on the reach-6 door gradient). Stages 1 and 2 below are amended to match.
+
 ## Stage 1: LAY — PR-C, commit 1 (switch off by default)
 
 **Switch.** `PIXEL_PHYSICS_FOOD_TRAIL`, parsed as `FoodTrail { lay, read, giveup, t, gain, reach, follow_all }`. It follows the `parse_forage_drive` parts template (creature.rs:14957-14979) and the `trip_reach` shape (15266-15291).
@@ -141,6 +143,8 @@ This project built each part on a different ant and judged each alone:
 
 `emit_b = emit_b_brain × (lay ? [trip_load && crop>0] × T'/(T' + since_trip) : 1)`, with T' = T × `cell_scale`.
 
+*Amended (§23a):* the odometer factor is off by default (`t=0`, factor 1), so `lay` is the gate at the brain's rate; `t=<T>` keeps the odometer as an experimental arm.
+
 Consequences:
 - The emit cost prices what is actually laid.
 - A returner stops laying at its first drop, when `trip_load` clears (12726-12729).
@@ -153,7 +157,7 @@ Consequences:
 - `food_trail_off_is_the_ant_before_it`, using template 28795.
 
 **Predictions:**
-- P1.1: the live profile matches `cf=odoT` (r ≥ 0.8 on ≥ 6/8).
+- P1.1: the live profile matches `cf=gate` (the chosen rule's counterfactual; r ≥ 0.8 on ≥ 6/8).
 - P1.2: laying west of the door falls ≥ 90%.
 - P1.3: door B at fed departures falls from 0.99 to ≤ 0.8 and tracks return age.
 - P1.4: the east share of departures is unchanged (lay alone gives no bearing).
@@ -169,6 +173,7 @@ Consequences:
 - `b(d) = max(B[head+d], B[head+2d])` as raw values; never "here" (Z29). With reach=6, also B at `trail_sample_point` gated by `trail_could_be_here`.
 - Level options only (vertical headings get no term: the shaft, and the level-cosine lesson).
 - `grad(d) = (b(d) − mean_{o≠d} b(o)) / (b(d) + mean + TRAIL_HALF)`.
+- *Amended (§23a):* away from the door the comparison leaves out the heading straight back (the options compared are those within 90° of the current heading), because a snapshot of any lay rule falls toward the food and a reader that compares ahead with behind walks followers home. At the door, where "back" means nothing, every level option is compared, at reach 6 as well as 2 (`b(d)` takes the larger), since dwell at the door flattens reach 2 and not reach 6. On the bed's surface corridor this makes the term act at the door and at forks only; along the road the trail keeps a follower from giving up (Stage 3).
 - `follow(d) = FOLLOW_GAIN(3) × want × fpat × grad(d)`, where `want = max(hunger, forage_drive_level)` (the owner ruled: hungry or driven ants only) and `fpat = 1` until Stage 3.
 - It is additive because `TURN_PREF[4] = 0`. Worked example at the door, facing west, with B 5000 to the east against 1000: P(east) ≈ 0.81 per decision.
 - `b[8]` is computed once per decision, and only when read is on.
