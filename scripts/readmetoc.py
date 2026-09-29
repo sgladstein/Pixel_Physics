@@ -231,6 +231,9 @@ TOPICS = {
         # ...and the seen half of the same ask: the books say what a colony
         # ate, this says where it came out of the ground and how it travelled.
         "Food road status — the trail the colony actually walks, and the box that was not there",
+        # What a colony builds: the door, the dug entrance and the digging
+        # rules that keep it one nest, and the granary with its nest workers.
+        "Nest status — one door, a dug entrance, and a granary kept for the hungry",
     ],
     "structural collapse, felling and rigid bodies": [
         "M17 status",

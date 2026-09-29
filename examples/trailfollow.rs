@@ -2463,9 +2463,10 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
     // in a crop feeds its carrier and, through sharing, its neighbours, while
     // a cell on the ground feeds only whoever stands beside it.
     let mut store_series: Vec<String> = Vec::new();
-    // **Food in the founding chamber over the whole run** (`roomevery=<frames>`,
-    // the nest lane's storeroom work): the chamber's and the shaft's food cells
-    // every `<frames>`, whatever the switches, so a room is read over time
+    // **Food in the storeroom over the whole run** (`roomevery=<frames>`, the
+    // nest lane's storeroom work): the room's food cells -- the chamber at the
+    // shaft's foot, or a side room under `PIXEL_PHYSICS_STOREROOM=side` -- and
+    // the shaft's, every `<frames>`, whatever the switches, so a room is read over time
     // rather than at one frame. Off unless asked, so a log without it is the
     // shipped log.
     let room_every: Option<u64> = arg("roomevery").filter(|&n: &u64| n > 0);
@@ -3086,9 +3087,10 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
                 }
             }
             // **Where the nest's food lies, under the storeroom** (the nest
-            // lane's `PIXEL_PHYSICS_STOREROOM`): food cells in the founding
-            // chamber, the shaft, on or above the mouth's row, and below it
-            // elsewhere, and the carry's counters. Printed only with the
+            // lane's `PIXEL_PHYSICS_STOREROOM`): food cells in the storeroom
+            // (the chamber at the shaft's foot, or a side room under `side`),
+            // the shaft, on or above the mouth's row, and below it elsewhere,
+            // and the carry's counters. Printed only with the
             // switch on, so a log without it is the shipped line exactly.
             let storeroom = if creature::storeroom_of(&w) != creature::Storeroom::OFF {
                 let cs = &w.creature_stats;
@@ -3096,8 +3098,8 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
                     || ", STOREROOM no cut".to_string(),
                     |([ch, sh, up, down, cch, csh, cup, cdown, bound], fill)| {
                         format!(
-                            ", STOREROOM chamber {ch} shaft {sh} surface {up} under {down}; pickups {} delivered {} held {} released {} full {}; carriers {cch}/{csh}/{cup}/{cdown}; nestbound {bound}; post misses {:?}; shaft holds {fill:?}",
-                            cs.store_pickups, cs.store_delivered, cs.store_held, cs.store_released, cs.store_room_full, cs.store_post_misses
+                            ", STOREROOM room {ch} shaft {sh} surface {up} under {down}; pickups {} delivered {} held {} released {} full {}; carriers {cch}/{csh}/{cup}/{cdown}; nestbound {bound}; post misses {:?}; shaft holds {fill:?}; kept {}",
+                            cs.store_pickups, cs.store_delivered, cs.store_held, cs.store_released, cs.store_room_full, cs.store_post_misses, cs.store_kept
                         )
                     },
                 )
@@ -4601,7 +4603,7 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
         let chamber: Vec<String> = room_series.iter().map(|&(_, c, _)| c.to_string()).collect();
         let shaft: Vec<String> = room_series.iter().map(|&(_, _, s)| s.to_string()).collect();
         println!(
-            "    ROOM SERIES every {n} from frame {}: chamber [{}] shaft [{}]",
+            "    ROOM SERIES every {n} from frame {}: room [{}] shaft [{}]",
             room_series.first().map_or(0, |r| r.0),
             chamber.join(","),
             shaft.join(",")

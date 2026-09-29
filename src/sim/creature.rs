@@ -2996,7 +2996,8 @@ pub fn nest_home(world: &World) -> NestHome {
 }
 
 /// **The storeroom** -- `PIXEL_PHYSICS_STOREROOM`, read by [`storeroom_of`]:
-/// three independent parts, all off unless named. See there for each.
+/// independent parts, joined by commas. Unset is [`Storeroom::SHIPPED`];
+/// a value that names parts is exactly those parts. See there for each.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Storeroom {
     /// `on`: food lying at home is carried into the founding chamber by fed
@@ -3027,11 +3028,33 @@ pub struct Storeroom {
     /// nest-bound ant, and only to it, so it lives, eats, digs and breeds
     /// there while foragers keep the door.
     pub worker_home: bool,
+    /// `side`: **the storeroom is a room off one side of the entrance
+    /// shaft, not the chamber at its foot** -- cut at founding
+    /// ([`World::cut_founding_shaft_with`], [`crate::sim::world::SideRoom`]),
+    /// on the side away from the door. Loads are walked to it; `post` does
+    /// not apply, since nothing can be handed down a shaft into a room beside
+    /// it.
+    pub side: bool,
+    /// `keep`: **food in the storeroom is eaten only by a hungry ant**
+    /// ([`store_kept`]), so the room holds food rather than feeding whoever
+    /// lives beside it.
+    pub keep: bool,
 }
 
 impl Storeroom {
-    /// No storeroom: the ant as shipped.
-    pub const OFF: Storeroom = Storeroom { carry: false, room_home: false, once: false, post: false, nest_bound: 0, nest_bound_founders: 0, caste: 0, worker_home: false };
+    /// No storeroom: the ant before the granary shipped, bit for bit
+    /// (`PIXEL_PHYSICS_STOREROOM=off`).
+    pub const OFF: Storeroom = Storeroom { carry: false, room_home: false, once: false, post: false, nest_bound: 0, nest_bound_founders: 0, caste: 0, worker_home: false, side: false, keep: false };
+
+    /// **The storeroom the ant ships with, since 2026-09-29: the full
+    /// granary** (`on,caste=4,workerhome,side,keep`) -- the owner: *"Full
+    /// granary on my default."* One ant in four, founders and young alike,
+    /// is a nest worker for life and lives in the founding cut; the nest
+    /// workers carry food from the door into a room off one side of the
+    /// entrance shaft, and only a hungry ant eats it there. It ships with the
+    /// door ([`NEST_DOOR_SHIPPED`]). What it measured, against the strip and
+    /// no storeroom: `Reports/nest-granary-2026-09-28.md` §9.
+    pub const SHIPPED: Storeroom = Storeroom { carry: true, room_home: false, once: false, post: false, nest_bound: 0, nest_bound_founders: 0, caste: 4, worker_home: true, side: true, keep: true };
 
     /// Whether food is carried into the room under this rule.
     pub fn carries(self) -> bool {
@@ -3042,12 +3065,18 @@ impl Storeroom {
     pub fn room_is_home(self) -> bool {
         self.room_home
     }
+
+    /// Whether a load is handed down the shaft ([`store_post_site`]): `post`,
+    /// and only into the chamber at the shaft's foot.
+    pub fn posts(self) -> bool {
+        self.post && !self.side
+    }
 }
 
 /// The switch's own spelling: `off`, or its parts joined by commas.
 impl std::fmt::Display for Storeroom {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let mut parts: Vec<String> = [(self.carry, "on"), (self.room_home, "home"), (self.once, "once"), (self.post, "post"), (self.worker_home, "workerhome")].iter().filter(|(on, _)| *on).map(|&(_, name)| name.to_string()).collect();
+        let mut parts: Vec<String> = [(self.carry, "on"), (self.room_home, "home"), (self.once, "once"), (self.post, "post"), (self.worker_home, "workerhome"), (self.side, "side"), (self.keep, "keep")].iter().filter(|(on, _)| *on).map(|&(_, name)| name.to_string()).collect();
         if self.caste > 0 {
             parts.push(format!("caste={}", self.caste));
         }
@@ -3066,8 +3095,8 @@ impl std::fmt::Display for Storeroom {
 /// storeroom** -- the owner's choice of the two granary forms, 2026-09-28
 /// (`Reports/nest-granary-2026-09-28.md` §6, B, and §8 for what the forms
 /// below measured). `PIXEL_PHYSICS_STOREROOM=<parts>` or [`World::storeroom`]
-/// for one world; [`Storeroom::OFF`] unless set, and then nothing here reads
-/// or writes anything.
+/// for one world; [`Storeroom::SHIPPED`] unless set, since 2026-09-29. Under
+/// `off` ([`Storeroom::OFF`]) nothing here reads or writes anything.
 ///
 /// **Why the mandibles and not the crop.** In this engine carrying is eating:
 /// a crop digests while it is carried (§9 of `how-the-ant-works.md`), so a
@@ -3101,6 +3130,15 @@ impl std::fmt::Display for Storeroom {
 /// of the room. Anywhere else it is held, until the carrier gives up (still
 /// for [`STORE_STUCK_TICKS`], or home patience under [`SCOUT_GIVE_UP`]) and
 /// lets it go where it stands.
+///
+/// **Where the room is** (`side`): the chamber at the shaft's foot, or a room
+/// cut off one side of the shaft ([`crate::sim::world::SideRoom`]). Every
+/// rule here reads [`crate::sim::world::ShaftFootprint::store_rect`], which is
+/// the chamber's own rectangle when no side room was cut, so an arm without
+/// `side` is the storeroom as it was, bit for bit. The chamber at the foot
+/// filled the entrance with food: the nest workers who lived in the cut set
+/// crumbs down in the shaft, and a load that could not get past was let go at
+/// the mouth and fell in (`Reports/nest-granary-2026-09-28.md` §8h).
 pub fn storeroom_of(world: &World) -> Storeroom {
     world.storeroom.unwrap_or_else(storeroom_from_env)
 }
@@ -3111,10 +3149,17 @@ pub fn storeroom_from_env() -> Storeroom {
     *V.get_or_init(|| parse_storeroom(&std::env::var("PIXEL_PHYSICS_STOREROOM").unwrap_or_default()))
 }
 
-/// `PIXEL_PHYSICS_STOREROOM`'s value read as the rule; an unset variable
-/// reads as `""`. **A value it does not know reads as off, and says so**, so
-/// a typo cannot put an arm in a sweep wearing another's label.
+/// `PIXEL_PHYSICS_STOREROOM`'s value read as the rule: unset (or `""`) is
+/// [`Storeroom::SHIPPED`], `off` is [`Storeroom::OFF`], and parts name the
+/// rule from nothing, so `on` alone is the carry with none of the rest.
+/// **A value it does not know is reported and read as unset, never as
+/// off**, as the shaft, the cue and the door read theirs: a typo cannot put
+/// an arm in a sweep wearing another's label. Until the granary shipped, an
+/// unknown value read as off, because off was unset.
 fn parse_storeroom(raw: &str) -> Storeroom {
+    if raw.trim().is_empty() {
+        return Storeroom::SHIPPED;
+    }
     let mut out = Storeroom::OFF;
     for part in raw.split(',').map(str::trim).filter(|p| !p.is_empty()) {
         match part {
@@ -3125,11 +3170,13 @@ fn parse_storeroom(raw: &str) -> Storeroom {
             "post" => out.post = true,
             "nestbound" => out.nest_bound = NEST_BOUND_FRAMES,
             "workerhome" => out.worker_home = true,
+            "side" => out.side = true,
+            "keep" => out.keep = true,
             other if other.starts_with("caste=") => match other["caste=".len()..].parse::<u32>() {
                 Ok(k) if k > 0 => out.caste = k,
                 _ => {
-                    eprintln!("PIXEL_PHYSICS_STOREROOM={raw:?}: bad {other:?}, read as off (caste=<k>, k >= 1)");
-                    return Storeroom::OFF;
+                    eprintln!("PIXEL_PHYSICS_STOREROOM={raw:?}: bad {other:?}, read as unset (caste=<k>, k >= 1)");
+                    return Storeroom::SHIPPED;
                 }
             },
             other if other.starts_with("nestbound=") => {
@@ -3141,14 +3188,14 @@ fn parse_storeroom(raw: &str) -> Storeroom {
                         out.nest_bound_founders = k.unwrap_or(0);
                     }
                     _ => {
-                        eprintln!("PIXEL_PHYSICS_STOREROOM={raw:?}: bad {other:?}, read as off (nestbound=<frames>[/<k>])");
-                        return Storeroom::OFF;
+                        eprintln!("PIXEL_PHYSICS_STOREROOM={raw:?}: bad {other:?}, read as unset (nestbound=<frames>[/<k>])");
+                        return Storeroom::SHIPPED;
                     }
                 }
             }
             other => {
-                eprintln!("PIXEL_PHYSICS_STOREROOM={raw:?}: unknown part {other:?}, read as off (off, or any of on, home, once, post, nestbound[=<frames>[/<k>]], caste=<k>, workerhome)");
-                return Storeroom::OFF;
+                eprintln!("PIXEL_PHYSICS_STOREROOM={raw:?}: unknown part {other:?}, read as unset (off, or any of on, home, once, post, nestbound[=<frames>[/<k>]], caste=<k>, workerhome, side, keep)");
+                return Storeroom::SHIPPED;
             }
         }
     }
@@ -3212,7 +3259,17 @@ fn store_target(world: &World, state: &crate::sim::organism::OrganismState) -> O
     let room = storeroom_near(world, ax, ay)?;
     let (hx, hy) = state.chain.first().copied().unwrap_or((ax, ay));
     let mouth = ((room.x0 + room.x1) / 2, room.top);
-    Some(if storeroom_of(world).post || !(room.in_shaft(hx, hy) || room.in_chamber(hx, hy)) { mouth } else { room.chamber_floor() })
+    if storeroom_of(world).posts() || !(room.in_shaft(hx, hy) || room.in_chamber(hx, hy) || room.side.is_some_and(|s| s.in_passage(hx, hy) || s.in_room(hx, hy))) {
+        return Some(mouth);
+    }
+    // **A side room is reached through its passage**: from the shaft or the
+    // chamber below it, the pull is at the passage's far floor cell, one step
+    // from the room, so a carrier walks along the shaft and turns in rather
+    // than pressing into a wall toward a floor it cannot reach straight.
+    Some(match room.side {
+        Some(s) if !(s.in_passage(hx, hy) || s.in_room(hx, hy)) => (if s.passage_x0 < room.x0 { s.passage_x0 } else { s.passage_x1 }, s.passage_bottom),
+        _ => room.store_floor(),
+    })
 }
 
 /// **Where a load handed down the shaft lands** (`post`): the first empty
@@ -3273,8 +3330,9 @@ const STORE_STUCK_TICKS: u16 = 48;
 /// room that is home, so asking for a cell empty *now* read a room of four
 /// food cells as full on 36 pick-ups a run.
 fn storeroom_has_room(world: &World, room: crate::sim::world::ShaftFootprint) -> bool {
-    (room.chamber_top..=room.chamber_bottom).any(|y| {
-        (room.chamber_x0..=room.chamber_x1).any(|x| {
+    let (x0, x1, top, bottom) = room.store_rect();
+    (top..=bottom).any(|y| {
+        (x0..=x1).any(|x| {
             let m = world.get(x, y).material;
             m == material::EMPTY || matches!(world.materials.kind(m), MaterialKind::Creature)
         })
@@ -3289,7 +3347,7 @@ fn storeroom_drop_site(world: &World, x: i32, y: i32) -> Option<(i32, i32)> {
     let mut best: Option<(i32, i32)> = None;
     for &(dx, dy) in NEIGHBOURS_8.iter() {
         let (px, py) = (x + dx, y + dy);
-        if room.in_chamber(px, py) && world.get(px, py).material == material::EMPTY && world.is_empty(px, py) && best.is_none_or(|(_, by)| py > by) {
+        if room.in_store(px, py) && world.get(px, py).material == material::EMPTY && world.is_empty(px, py) && best.is_none_or(|(_, by)| py > by) {
             best = Some((px, py));
         }
     }
@@ -3317,8 +3375,8 @@ fn store_drop(world: &mut World, organism: OrganismId, (x, y): (i32, i32), spoil
     // 15,000) six carriers at once stood in the room holding, while their
     // colony starved. A carrier within a cell of the chamber that has no chamber cell
     // beside it puts the load on any empty neighbour, which is the room's rim.
-    let in_room = storeroom_near(world, x, y).is_some_and(|room| room.touches_chamber(x, y));
-    let posted = if storeroom_of(world).post { store_post_site(world, (x, y)) } else { None };
+    let in_room = storeroom_near(world, x, y).is_some_and(|room| room.touches_store(x, y));
+    let posted = if storeroom_of(world).posts() { store_post_site(world, (x, y)) } else { None };
     let site = match posted.or_else(|| storeroom_drop_site(world, x, y)).or_else(|| in_room.then(|| food_drop_site(world, x, y, drop_through_bodies()).map(|(p, _)| p)).flatten()) {
         Some(p) => {
             world.creature_stats.store_delivered += 1;
@@ -3339,7 +3397,7 @@ fn store_drop(world: &mut World, organism: OrganismId, (x, y): (i32, i32), spoil
             }
         }
     };
-    let delivered = site.is_some() && (in_room || storeroom_near(world, x, y).is_some_and(|room| room.in_chamber(x, y)));
+    let delivered = site.is_some() && (in_room || storeroom_near(world, x, y).is_some_and(|room| room.in_store(x, y)));
     if let Some((px, py)) = site {
         world.set(px, py, spoil.cell);
         if let Some(state) = world.organism_mut(organism) {
@@ -3375,7 +3433,7 @@ fn store_pickup_ok(world: &mut World, organism: OrganismId, def: &CreatureDef, (
     let Some(room) = storeroom_near(world, x, y) else {
         return false;
     };
-    if room.touches_chamber(fx, fy) {
+    if room.touches_store(fx, fy) {
         return false;
     }
     if !storeroom_has_room(world, room) {
@@ -3385,9 +3443,29 @@ fn store_pickup_ok(world: &mut World, organism: OrganismId, def: &CreatureDef, (
     true
 }
 
+/// **Whether a bite of the storeroom's food is refused** (`keep`,
+/// [`storeroom_of`]): the cell lies in a storeroom and the animal is fed, at
+/// or above its `start_energy`. A hungry animal eats from the store as
+/// before.
+///
+/// **Why the rule is needed** (`Reports/nest-granary-2026-09-28.md` §8k,
+/// traced bite by bite on the colony bed, 2026-09-28). With the side room
+/// the nest workers got five times as many loads down, and the room still
+/// held under two cells on the median run, because **the animals beside the
+/// store ate it**: of 6,823 bites taken from the room over 24 runs, 69%
+/// were by fed nest workers, 10% by hungry ones and 16% by fed foragers
+/// topping up a packed lunch. Refusing the fed, the room holds 4.9 cells
+/// (more on 21 of 24) and births and starvation do not move.
+fn store_kept(world: &World, organism: OrganismId, def: &CreatureDef, (fx, fy): (i32, i32)) -> bool {
+    storeroom_of(world).keep
+        && world.organism(organism).is_some_and(|s| s.energy >= def.start_energy)
+        && world.nest_sites.iter().filter_map(|n| n.shaft).any(|room| room.in_store(fx, fy))
+}
+
 /// **Food around the storeroom, in cells**, for a harness census: loose food
-/// (worth something, owned by no organism) in the chamber, in the shaft, at
-/// or above the mouth's row, and anywhere else below it, over the box
+/// (worth something, owned by no organism) in the storeroom (the chamber, or
+/// a side room under `side`), in the shaft, at or above the mouth's row, and
+/// anywhere else below it, over the box
 /// `x_lo..=x_hi` by `y_lo..=y_hi`, at the first nest site that has a founding
 /// cut. `None` with no cut.
 /// The second four count the animals holding a store load, by where the
@@ -3423,7 +3501,7 @@ pub fn storeroom_census_full(world: &World, (x_lo, x_hi): (i32, i32), (y_lo, y_h
 
 fn storeroom_census_counts(world: &World, room: crate::sim::world::ShaftFootprint, (x_lo, x_hi): (i32, i32), (y_lo, y_hi): (i32, i32)) -> Option<[u32; 9]> {
     let place = |x: i32, y: i32| -> usize {
-        if room.in_chamber(x, y) {
+        if room.in_store(x, y) {
             0
         } else if room.in_shaft(x, y) {
             1
@@ -3460,7 +3538,10 @@ fn storeroom_census_counts(world: &World, room: crate::sim::world::ShaftFootprin
 /// **`PIXEL_PHYSICS_NEST_DOOR=<half-width>`: the nest as a door, not a strip.**
 /// Founding paints `2 * half-width + 1` columns of nest, unbroken, instead of
 /// the 53-column masked strip, and anchors every founder's home at its centre
-/// ([`World::found_colony_of`]). Unset is the shipped strip, bit-exact.
+/// ([`World::found_colony_of`]). **On since 2026-09-29**, at
+/// [`NEST_DOOR_SHIPPED`]: `off` is the strip, bit for bit, and a value it
+/// cannot read is reported and read as unset ([`parse_nest_door`]).
+/// [`World::nest_door`] sets it for one world.
 ///
 /// **What it is for** (`Reports/ant-scenes-2026-09-23.md` §17b, §19). The
 /// colony's road starts where the first laden ant reaches nest ground: the
@@ -3477,8 +3558,50 @@ fn storeroom_census_counts(world: &World, room: crate::sim::world::ShaftFootprin
 /// *material*, so `AtNest` stays the shipped 8-neighbour contact test.
 pub fn nest_door() -> Option<i32> {
     static D: std::sync::OnceLock<Option<i32>> = std::sync::OnceLock::new();
-    *D.get_or_init(|| std::env::var("PIXEL_PHYSICS_NEST_DOOR").ok().and_then(|v| v.parse::<i32>().ok()).filter(|v| *v >= 0))
+    *D.get_or_init(|| parse_nest_door(&std::env::var("PIXEL_PHYSICS_NEST_DOOR").unwrap_or_default()))
 }
+
+/// **The door's half-width when `PIXEL_PHYSICS_NEST_DOOR` is unset: a door
+/// five columns wide, on since 2026-09-29** with the storeroom
+/// ([`Storeroom::SHIPPED`]) -- the owner: *"Full granary on my default."*
+/// The two ship together because the storeroom is built round one mouth: its
+/// room is cut on the side of the shaft away from the door, and the nest
+/// workers carry food in from the door (`Reports/nest-granary-2026-09-28.md`
+/// §8j-§8k, and §9 for what the pair does against the strip).
+pub const NEST_DOOR_SHIPPED: i32 = 2;
+
+/// The door in force in `world`: its [`World::nest_door`] override, else the
+/// process's [`nest_door`].
+pub fn nest_door_of(world: &World) -> Option<i32> {
+    world.nest_door.unwrap_or_else(nest_door)
+}
+
+/// `PIXEL_PHYSICS_NEST_DOOR`'s value read as a half-width ([`nest_door`]):
+/// unset is [`NEST_DOOR_SHIPPED`], `off` the strip, `<cells>` (0 or more) a
+/// door that wide. **A value it cannot read is reported and read as unset,
+/// never as the strip**, as the shaft and the cue read theirs: a typo that
+/// turned the door off would put the control in a sweep wearing another
+/// arm's label. Until the door shipped, an unreadable value read as the
+/// strip, because the strip was unset.
+fn parse_nest_door(raw: &str) -> Option<i32> {
+    match raw.trim() {
+        "" => Some(NEST_DOOR_SHIPPED),
+        "off" => None,
+        v => match v.parse::<i32>() {
+            Ok(d) if d >= 0 => Some(d),
+            _ => {
+                eprintln!("PIXEL_PHYSICS_NEST_DOOR={v:?}: not `off` or a half-width in cells; read as unset ({NEST_DOOR_SHIPPED})");
+                Some(NEST_DOOR_SHIPPED)
+            }
+        },
+    }
+}
+
+/// **The shortest passage from the entrance shaft to a side storeroom**, in
+/// columns ([`crate::sim::world::SideRoom`]): two, so the room's food lies a
+/// body length from the way in. It runs longer where the room would
+/// otherwise sit over the chamber at the shaft's foot.
+pub const SIDE_PASSAGE_COLS: i32 = 2;
 
 /// **`PIXEL_PHYSICS_NEST_SHAFT_OFFSET=<cells>`: the founding shaft cut that
 /// many columns from the founding point** (negative is west), so a door
@@ -4508,13 +4631,14 @@ impl World {
     /// derived from the body plan's own width, floored at the shipped value
     /// so the ant is byte-identical.
     pub fn found_colony_of(&mut self, x: i32, y: i32, species: &str, ants: i32) -> usize {
-        self.found_colony_with(x, y, species, ants, nest_door(), nest_door_pile())
+        self.found_colony_with(x, y, species, ants, nest_door_of(self), nest_door_pile())
     }
 
     /// [`World::found_colony_of`] with the nest-door switches passed in rather
     /// than read from the environment, so a test can set them: `door` is
     /// [`nest_door`]'s half-width, `pile` is [`nest_door_pile`]. `(None, _)`
-    /// is the shipped founding.
+    /// is the strip (`PIXEL_PHYSICS_NEST_DOOR=off`), the founding before the
+    /// door shipped on 2026-09-29.
     fn found_colony_with(&mut self, x: i32, y: i32, species: &str, ants: i32, door: Option<i32>, pile: bool) -> usize {
         // **A species nobody loaded places nobody, and says so by returning
         // 0** -- the same contract as no ground and no nest material. A
@@ -4657,7 +4781,7 @@ impl World {
     /// opens with -- `open-bugs-handoff.md` §R2 is what a second copy of a
     /// placement rule cost last time.
     pub fn colony_stations(&self, x: i32, y: i32, species_id: SpeciesId, ants: i32) -> Vec<(i32, i32)> {
-        self.colony_stations_with(x, y, species_id, ants, nest_door(), nest_door_pile())
+        self.colony_stations_with(x, y, species_id, ants, nest_door_of(self), nest_door_pile())
     }
 
     /// [`World::colony_stations`] with the nest-door switches passed in; see
@@ -4701,8 +4825,8 @@ impl World {
         // standing along a strip. They fall and settle as a heap on the door;
         // an ant walks over a nestmate (`climbs_over_kin`), which is the change
         // since the 27,386-blocked-tick gridlock above that makes a heap worth
-        // trying. The colony bed's blocked counts are the check. Only under
-        // `PIXEL_PHYSICS_NEST_DOOR`; otherwise the shipped layout.
+        // trying. The colony bed's blocked counts are the check. Only with a
+        // door; otherwise, and by default, the spread layout.
         if let (Some(d), true) = (door, pile) {
             let d = scaled_cells(self, d);
             let cols: Vec<(i32, i32)> = ((x - d)..=(x + d))
@@ -4863,18 +4987,18 @@ impl World {
     /// the bottom of a nest wall (`a_nest_still_stops_him`). This loop is the
     /// one place the repair costs nothing anywhere else.
     pub fn paint_nest_patch(&mut self, x: i32, y: i32) -> usize {
-        self.paint_nest_patch_with(x, y, nest_door())
+        self.paint_nest_patch_with(x, y, nest_door_of(self))
     }
 
     /// [`World::paint_nest_patch`] with [`nest_door`]'s half-width passed in;
-    /// `None` is the shipped strip.
+    /// `None` is the strip, as painted before the door shipped.
     fn paint_nest_patch_with(&mut self, x: i32, y: i32, door: Option<i32>) -> usize {
         let Some(nest) = self.materials.id_of("nest") else {
             return 0;
         };
         // **`PIXEL_PHYSICS_NEST_DOOR=<half-width>` paints a door instead of the
-        // strip** -- see [`nest_door`]. Unset takes the shipped width and the
-        // shipped mask, bit-exact.
+        // strip** -- see [`nest_door`]; unset is the shipped door. `off` takes
+        // the strip's width and mask, bit-exact with the ant before the door.
         let door = door.map(|d| scaled_cells(self, d));
         let half_width = door.unwrap_or_else(|| scaled_cells(self, COLONY_HALF_WIDTH));
         // **The patch is a place that holds an odour, and this is where it
@@ -4933,7 +5057,11 @@ impl World {
         // ([`nest_shaft_offset`]): under a door every delivery lands on the
         // mouth and its crumbs fall down the shaft.
         let off = nest_shaft_offset().map_or(0, |o| o.signum() * scaled_cells(self, o.abs()));
-        self.dig_founding_shaft(x + off, y);
+        // **A side storeroom goes on the side away from the door**: beyond a
+        // mouth cut beside the door, and west of one under it -- away from the
+        // food on the colony bed, which lies east.
+        let side = storeroom_of(self).side.then_some(if off > 0 { 1 } else { -1 });
+        self.dig_founding_shaft(x + off, y, side);
         painted
     }
 
@@ -5014,15 +5142,23 @@ impl World {
     /// founding in the running game, after frame 1, always cut into frozen
     /// ground; freezing first makes the harness's shaft the game's shaft.
     /// Every freeze is idempotent, so a world already stepped is untouched.
-    fn dig_founding_shaft(&mut self, x: i32, y: i32) {
+    fn dig_founding_shaft(&mut self, x: i32, y: i32, side: Option<i32>) {
         let Some(rows) = self.nest_shaft.or_else(nest_shaft_rows) else { return };
-        self.cut_founding_shaft(x, y, rows, nest_shaft_width(), lining_enabled());
+        self.cut_founding_shaft_with(x, y, rows, nest_shaft_width(), lining_enabled(), side);
     }
 
     /// [`World::dig_founding_shaft`] with its dials passed in, so a test can
     /// take both arms in one process -- the switches are `OnceLock` reads
-    /// and cannot be toggled. Returns how many cells it removed.
+    /// and cannot be toggled. Returns how many cells it removed. No side room.
+    #[cfg(test)]
     fn cut_founding_shaft(&mut self, x: i32, y: i32, rows: i32, width: i32, lined: bool) -> usize {
+        self.cut_founding_shaft_with(x, y, rows, width, lined, None)
+    }
+
+    /// [`World::cut_founding_shaft`], and with `side` of `-1` (west) or `1`
+    /// (east) a storeroom off that side of the shaft
+    /// ([`crate::sim::world::SideRoom`], `PIXEL_PHYSICS_STOREROOM=side`).
+    fn cut_founding_shaft_with(&mut self, x: i32, y: i32, rows: i32, width: i32, lined: bool, side: Option<i32>) -> usize {
         if rows <= 0 || width <= 0 {
             return 0;
         }
@@ -5130,6 +5266,53 @@ impl World {
                 }
             }
         }
+        // **A storeroom off one side of the shaft** (`PIXEL_PHYSICS_STOREROOM=side`,
+        // [`crate::sim::world::SideRoom`]): a passage two rows tall leaves the
+        // shaft's wall halfway down, and beyond it a room as wide as the
+        // chamber whose floor is a row lower, level with the shaft's last
+        // row. Two rows, for the ant whose legs ride a row above its spine;
+        // three in the room, under `SPOIL_HEADROOM`, so its floor is no place
+        // to dump tailings. The same cutting rule as the shaft's: only ground
+        // the founders could dig, and only if the shaft got down to it.
+        let mut side_room = None;
+        let passage_top = top + depth / 2;
+        if let Some(dir) = side.filter(|_| reached && passage_top + 2 < top + depth) {
+            // **The room clears the chamber by a column**: over it, the
+            // room's floor would be the chamber's ceiling and its food would
+            // fall through, so the passage runs on past the chamber's end.
+            let room_cols = 2 * chamber_half + 1;
+            let (px0, px1, rx0, rx1) = if dir < 0 {
+                let rx1 = (x0 - SIDE_PASSAGE_COLS - 1).min(x - chamber_half - 2);
+                (rx1 + 1, x0 - 1, rx1 - room_cols + 1, rx1)
+            } else {
+                let rx0 = (x0 + span + SIDE_PASSAGE_COLS).max(x + chamber_half + 2);
+                (x0 + span, rx0 - 1, rx0, rx0 + room_cols - 1)
+            };
+            let room = crate::sim::world::SideRoom {
+                passage_x0: px0,
+                passage_x1: px1,
+                passage_top,
+                passage_bottom: passage_top + 1,
+                x0: rx0,
+                x1: rx1,
+                top: passage_top,
+                bottom: passage_top + 2,
+            };
+            let before = cut.len();
+            let cells: Vec<(i32, i32)> = (room.passage_top..=room.passage_bottom)
+                .flat_map(|cy| (room.passage_x0..=room.passage_x1).map(move |cx| (cx, cy)))
+                .chain((room.top..=room.bottom).flat_map(|cy| (room.x0..=room.x1).map(move |cx| (cx, cy))))
+                .collect();
+            for (cx, cy) in cells {
+                if self.in_bounds(cx, cy) && self.is_diggable_ground(cx, cy) && founders_cut(self, cx, cy) {
+                    self.set(cx, cy, Cell::EMPTY);
+                    cut.push((cx, cy));
+                }
+            }
+            if cut.len() > before {
+                side_room = Some(room);
+            }
+        }
         // **No cut, no footprint.** A founding on ground too hard to open is
         // a painted nest with no hole, and a footprint over it would have
         // `NEST_HOME` and every census treat rock as a mouth.
@@ -5151,6 +5334,7 @@ impl World {
                 chamber_x1: x + chamber_half,
                 chamber_top: floor,
                 chamber_bottom: floor + 1,
+                side: side_room,
             });
         }
 
@@ -10652,7 +10836,7 @@ fn adjacent_nest(world: &World, x: i32, y: i32, def: &CreatureDef) -> bool {
     // **The storeroom is home** ([`storeroom_of`], `home` or `onhome`):
     // within one cell of the founding chamber. Under `on` the room is home to
     // the pick-up alone (`act`'s `picked_at_home`). Off, one branch.
-    if storeroom_of(world).room_is_home() && world.nest_sites.iter().filter_map(|s| s.shaft).any(|cut| cut.touches_chamber(x, y)) {
+    if storeroom_of(world).room_is_home() && world.nest_sites.iter().filter_map(|s| s.shaft).any(|cut| cut.touches_store(x, y)) {
         return true;
     }
     // **The site branch: home is a place, not a cell.** No `World::get` at
@@ -11660,6 +11844,15 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
                 // call, so a picture of the food in a world cannot disagree
                 // with what an animal gets for biting it.
                 let bite = world.get(fxx, fyy);
+                // **The store is kept for the hungry** ([`store_kept`],
+                // `PIXEL_PHYSICS_STOREROOM=keep`): a fed animal's won roll on
+                // a storeroom cell takes nothing, and the turn ends as the
+                // store's own pick-up below ends it. Off, this reads the
+                // switch and nothing else.
+                if store_kept(world, organism, def, (fxx, fyy)) {
+                    world.creature_stats.store_kept += 1;
+                    return did;
+                }
                 // **Home is read before the mouthful leaves**, for
                 // `pickups_at_nest` below, on the predicate the drop's
                 // `deliveries` uses. **They do not subtract to food brought
@@ -11680,7 +11873,7 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
                 // there would take it back out to the door as a load, not
                 // carry it off as a packed lunch.
                 let picked_at_home = nest_within_reach(world, organism, x, y, def)
-                    || (storeroom_of(world).carries() && storeroom_near(world, x, y).is_some_and(|room| room.touches_chamber(x, y)));
+                    || (storeroom_of(world).carries() && storeroom_near(world, x, y).is_some_and(|room| room.touches_store(x, y)));
                 // **The storeroom's pick-up** ([`storeroom_of`], `on`): an ant
                 // that stays home takes the cell whole into its mandibles and
                 // carries it into the chamber uneaten, where this branch
@@ -20474,17 +20667,24 @@ mod tests {
         }
         let before: Vec<(i32, u8)> = (0..=63).map(|x| (x, w.get(x, ground).shade)).collect();
         assert!(before.iter().any(|&(_, s)| s != before[0].1), "the bed's soil is all one shade; this guard cannot tell an inherited byte from a constant");
-        w.paint_nest_patch(32, ground - 1);
+        // **Both paints**: the strip (`NEST_DOOR=off`), whose many cells give
+        // this guard its power, and the shipped door, whose five columns
+        // lose two to the founding shaft's mouth and leave three.
         let nest_id = w.materials.id_of("nest").expect("nest is compiled in");
-        let mut checked = 0;
-        for &(x, shade) in &before {
-            if w.get(x, ground).material != nest_id {
-                continue;
+        for (door, least) in [(None, 5), (Some(NEST_DOOR_SHIPPED), 3)] {
+            let mut w = w.clone();
+            w.nest_door = Some(door);
+            w.paint_nest_patch(32, ground - 1);
+            let mut checked = 0;
+            for &(x, shade) in &before {
+                if w.get(x, ground).material != nest_id {
+                    continue;
+                }
+                checked += 1;
+                assert_eq!(w.get(x, ground).shade, shade, "column {x} took a fresh shade instead of the ground's own (door {door:?})");
             }
-            checked += 1;
-            assert_eq!(w.get(x, ground).shade, shade, "column {x} took a fresh shade instead of the ground's own");
+            assert!(checked >= least, "only {checked} cells were painted (door {door:?}); this guard would pass on nothing");
         }
-        assert!(checked > 4, "only {checked} cells were painted; this guard would pass on nothing");
     }
 
     /// **The barcode, as an assertion.** Owner playtest, 2026-09-14: *"when I
@@ -20812,6 +21012,10 @@ mod tests {
         // and the shaft that ships on since 2026-09-28 would put its mouth in
         // the middle of that core. The cut has its own tests.
         w.nest_shaft = Some(0);
+        // **And the strip, not the door.** The comb is the strip's
+        // (`PIXEL_PHYSICS_NEST_DOOR=off`); the door that ships since
+        // 2026-09-29 is five columns, unbroken, and has no drains to test.
+        w.nest_door = Some(None);
         w.paint_nest_patch(96, 99);
         let nest = w.materials.id_of("nest").expect("nest is compiled in");
         let patch: Vec<(i32, i32)> = (0..=191).flat_map(|x| (95..105).map(move |y| (x, y))).filter(|&(x, y)| w.get(x, y).material == nest).collect();
@@ -21115,6 +21319,165 @@ mod tests {
             let (lined, n) = open_after(true, parallel);
             assert!(lined * 10 >= n * 9, "a lined founding cut must stand (parallel={parallel}): only {lined} of {n} cells are open after 120 frames");
         }
+    }
+
+    /// The founding-shaft tests' bed: soil from row 40 over a stone floor,
+    /// stone at both edges, and a nest site at column 60.
+    fn founding_bed() -> World {
+        let mut w = World::new(Rect::new(0, 0, 119, 99));
+        let soil = w.materials.id_of("soil").expect("soil material");
+        for x in 0..=119 {
+            for y in 40..=99 {
+                let stone = y >= 92 || x == 0 || x == 119;
+                let cell = if stone { Cell::new(material::STONE, 0) } else { Cell::new(soil, 0) };
+                w.set(x, y, cell.with_attached(true));
+            }
+        }
+        w.register_nest_site(60, 38, 2);
+        w
+    }
+
+    /// **A side storeroom is cut off one side of the entrance shaft, not at
+    /// its foot** (`PIXEL_PHYSICS_STOREROOM=side`, the owner's choice of
+    /// 2026-09-28): within the shaft's rows, joined to its wall by a
+    /// passage, clear of the chamber below, on the side asked for, its floor
+    /// a row under the passage's -- and it stands once lined, where the
+    /// unlined control falls in. **With no side room the storeroom is the
+    /// chamber, cell for cell**, which is the whole of why every storeroom arm
+    /// measured before stays bit-exact: every storeroom rule reads the store
+    /// rectangle, and here it is checked equal to the chamber's everywhere.
+    #[test]
+    fn a_side_storeroom_is_cut_off_the_shaft_not_at_its_foot() {
+        let mut plain = founding_bed();
+        assert!(plain.cut_founding_shaft_with(60, 38, 6, 2, true, None) > 0, "the plain cut removed nothing");
+        let fp = plain.nest_sites[0].shaft.expect("the cut records its footprint");
+        assert_eq!(fp.side, None, "no side room was asked for");
+        for y in 30..60 {
+            for x in 40..80 {
+                assert_eq!(fp.in_store(x, y), fp.in_chamber(x, y), "without a side room the store must be the chamber at ({x}, {y})");
+                assert_eq!(fp.touches_store(x, y), fp.touches_chamber(x, y), "and so must its rim at ({x}, {y})");
+            }
+        }
+        assert_eq!(fp.store_floor(), fp.chamber_floor());
+
+        for dir in [-1, 1] {
+            let mut w = founding_bed();
+            let removed = w.cut_founding_shaft_with(60, 38, 6, 2, true, Some(dir));
+            let fp = w.nest_sites[0].shaft.expect("the cut records its footprint");
+            let s = fp.side.expect("a side room was asked for on open soil and not cut");
+            let cells = fp.cells();
+            assert_eq!(removed, cells.len(), "the cut removed {removed} cells but its footprint holds {}", cells.len());
+            assert!(cells.iter().all(|&(x, y)| w.get(x, y).material == material::EMPTY), "a footprint cell was left standing");
+            assert!(s.top > fp.top && s.bottom <= fp.bottom, "the room must lie within the shaft's rows ({}..{}), not below its foot: {}..{}", fp.top, fp.bottom, s.top, s.bottom);
+            if dir < 0 {
+                assert_eq!(s.passage_x1, fp.x0 - 1, "the passage must leave the shaft's west wall");
+                assert!(s.x1 < s.passage_x0, "the room must lie west of the passage");
+            } else {
+                assert_eq!(s.passage_x0, fp.x1 + 1, "the passage must leave the shaft's east wall");
+                assert!(s.x0 > s.passage_x1, "the room must lie east of the passage");
+            }
+            for y in s.top..=s.bottom {
+                for x in s.x0..=s.x1 {
+                    assert!(!fp.touches_chamber(x, y), "the room at ({x}, {y}) touches the chamber: food on its floor would fall through");
+                }
+            }
+            assert_eq!(s.bottom, s.passage_bottom + 1, "the room's floor must be a row under the passage's");
+            let (fx, fy) = fp.store_floor();
+            assert!(s.in_room(fx, fy) && fp.in_store(fx, fy), "the store floor must be in the side room");
+            let (cx, cy) = fp.chamber_floor();
+            assert!(!fp.in_store(cx, cy), "with a side room the chamber is no longer the store");
+        }
+
+        // It stands once lined, and the unlined arm is the control that
+        // says this bed can collapse it at all.
+        let open_after = |lined: bool| -> (usize, usize) {
+            let mut w = founding_bed();
+            w.cut_founding_shaft_with(60, 38, 6, 2, lined, Some(-1));
+            let s = w.nest_sites[0].shaft.and_then(|f| f.side).expect("a side room");
+            let room: Vec<(i32, i32)> = (s.top..=s.bottom).flat_map(|y| (s.x0..=s.x1).map(move |x| (x, y))).collect();
+            for _ in 0..120 {
+                crate::sim::parallel::step(&mut w);
+            }
+            (room.iter().filter(|&&(x, y)| w.get(x, y).material == material::EMPTY).count(), room.len())
+        };
+        let (bare, n) = open_after(false);
+        assert!(bare * 2 < n, "control: an unlined side room must fall in, yet {bare} of {n} cells are open");
+        let (lined, n) = open_after(true);
+        assert!(lined * 10 >= n * 9, "a lined side room must stand: only {lined} of {n} cells are open after 120 frames");
+    }
+
+    /// **`keep`: the storeroom's food is refused to a fed animal and open to
+    /// a hungry one** ([`store_kept`]). A cell outside the store is never
+    /// refused, and with the part off nothing is: the rule reads the switch
+    /// first, which is what keeps every arm without it bit-exact.
+    #[test]
+    fn the_store_is_kept_for_the_hungry() {
+        let mut w = founding_bed();
+        w.cut_founding_shaft_with(60, 38, 6, 2, true, Some(-1));
+        let fp = w.nest_sites[0].shaft.expect("the cut records its footprint");
+        let floor = fp.store_floor();
+        w.plant_ant(30, 38);
+        let ant = w.get(30, 38).organism_id();
+        assert_ne!(ant, 0, "the ant was not placed");
+        let species = w.species.id_of("ant").expect("ant species");
+        let def = w.species.get(species).creature.as_ref().expect("creature").clone();
+        let set_energy = |w: &mut World, e: f32| w.organism_mut(ant).expect("the ant").energy = e;
+        w.storeroom = Some(Storeroom { carry: true, side: true, keep: true, ..Storeroom::OFF });
+        set_energy(&mut w, def.start_energy);
+        assert!(store_kept(&w, ant, &def, floor), "a fed ant must be refused the store's food");
+        assert!(!store_kept(&w, ant, &def, (30, 39)), "food outside the store is not the store's");
+        set_energy(&mut w, def.start_energy * 0.5);
+        assert!(!store_kept(&w, ant, &def, floor), "a hungry ant eats from the store");
+        set_energy(&mut w, def.start_energy);
+        w.storeroom = Some(Storeroom { carry: true, side: true, ..Storeroom::OFF });
+        assert!(!store_kept(&w, ant, &def, floor), "without `keep` nothing is refused");
+    }
+
+    /// **A store load is walked to a side room through its passage**
+    /// ([`store_target`]): above ground, the mouth; in the shaft or the
+    /// chamber below it, the passage's far floor cell; in the passage or the
+    /// room, the room's floor. A load is set down in the room
+    /// ([`storeroom_drop_site`]), never in the passage. With no side room the
+    /// same carrier is sent to the chamber, as before.
+    #[test]
+    fn a_store_load_is_walked_through_the_passage_into_a_side_room() {
+        let mut w = founding_bed();
+        w.cut_founding_shaft_with(60, 38, 6, 2, true, Some(-1));
+        w.storeroom = Some(Storeroom { carry: true, side: true, ..Storeroom::OFF });
+        let fp = w.nest_sites[0].shaft.expect("the cut records its footprint");
+        let s = fp.side.expect("a side room");
+        w.plant_ant(30, 38);
+        let ant = w.get(30, 38).organism_id();
+        assert_ne!(ant, 0, "the ant was not placed");
+        let crumbs = w.materials.id_of("crumbs").expect("crumbs");
+        let carrier = |w: &World, head: (i32, i32)| {
+            let mut st = w.organism(ant).expect("the ant").clone();
+            st.spoil = Some(super::super::organism::Spoil { cell: Cell::new(crumbs, 0), store: true });
+            st.chain = vec![head, (head.0 + 1, head.1)];
+            st.forage_anchor = (60, 38);
+            st
+        };
+        let mouth = ((fp.x0 + fp.x1) / 2, fp.top);
+        let passage_end = (s.passage_x0, s.passage_bottom);
+        assert_eq!(store_target(&w, &carrier(&w, (40, 37))), Some(mouth), "above ground a carrier makes for the mouth");
+        assert_eq!(store_target(&w, &carrier(&w, (fp.x0, fp.top + 1))), Some(passage_end), "in the shaft, for the passage");
+        assert_eq!(store_target(&w, &carrier(&w, (fp.chamber_x0, fp.chamber_bottom))), Some(passage_end), "in the chamber, back up for the passage");
+        assert_eq!(store_target(&w, &carrier(&w, (s.passage_x1, s.passage_top))), Some(fp.store_floor()), "in the passage, for the room's floor");
+        // Set down beside a carrier standing in the room's doorway: on the
+        // room's floor, and not in the passage behind it.
+        let site = storeroom_drop_site(&w, s.x1, s.bottom - 1).expect("a carrier in the room has somewhere to set its load");
+        assert!(s.in_room(site.0, site.1) && !s.in_passage(site.0, site.1), "the load went to {site:?}, not into the room");
+        // The control: the same carrier with no side room is sent to the chamber.
+        let mut plain = founding_bed();
+        plain.cut_founding_shaft_with(60, 38, 6, 2, true, None);
+        plain.storeroom = Some(Storeroom { carry: true, ..Storeroom::OFF });
+        plain.plant_ant(30, 38);
+        let fpp = plain.nest_sites[0].shaft.expect("the cut records its footprint");
+        let mut st = plain.organism(plain.get(30, 38).organism_id()).expect("the ant").clone();
+        st.spoil = Some(super::super::organism::Spoil { cell: Cell::new(crumbs, 0), store: true });
+        st.chain = vec![(fpp.x0, fpp.top + 1), (fpp.x0 + 1, fpp.top + 1)];
+        st.forage_anchor = (60, 38);
+        assert_eq!(store_target(&plain, &st), Some(fpp.chamber_floor()), "with no side room a carrier in the shaft makes for the chamber");
     }
 
     /// **Under `PIXEL_PHYSICS_NEST_HOME=shaft` the founding cut is home, and
@@ -36151,6 +36514,50 @@ mod tests {
         assert_eq!(parse_dig_down("1.0,enclsoed"), Some(DigDown { w: 1.0, enclosed_only: false }));
         for bad in ["x", "-1", "on"] {
             assert_eq!(parse_dig_down(bad), Some(DIG_DOWN_SHIPPED), "{bad:?} must read as unset, which is the shipped turn");
+        }
+    }
+
+    /// `PIXEL_PHYSICS_STOREROOM`'s spellings ([`parse_storeroom`]): unset is
+    /// the shipped granary and `off` is off, every part reads as itself and
+    /// prints back as it was spelled, and a part it does not know reads as
+    /// unset -- never as some other storeroom, which would put an arm in a
+    /// sweep wearing another's label. `post` does not apply to a side room
+    /// ([`Storeroom::posts`]).
+    #[test]
+    fn the_storeroom_parses_its_spellings_and_refuses_the_rest() {
+        // Shipped on since 2026-09-29, as the whole granary: the parts it was
+        // measured as, spelled the way the report's arms spelled them.
+        assert_eq!(parse_storeroom(""), Storeroom::SHIPPED);
+        assert_eq!(parse_storeroom("  "), Storeroom::SHIPPED);
+        assert_eq!(Storeroom::SHIPPED, parse_storeroom("on,caste=4,workerhome,side,keep"), "the shipped storeroom is the measured recipe");
+        assert_eq!(parse_storeroom(&Storeroom::SHIPPED.to_string()), Storeroom::SHIPPED, "the shipped spelling must read back as itself");
+        assert_eq!(parse_storeroom("off"), Storeroom::OFF);
+        assert_eq!(parse_storeroom("on"), Storeroom { carry: true, ..Storeroom::OFF }, "parts name the rule from nothing, not on top of the shipped one");
+        let all = parse_storeroom("on,home,once,post,workerhome,side,keep,caste=4,nestbound=8000/4");
+        assert!(all.carry && all.room_home && all.once && all.post && all.worker_home && all.side && all.keep, "{all:?}");
+        assert_eq!((all.caste, all.nest_bound, all.nest_bound_founders), (4, 8000, 4));
+        assert_eq!(parse_storeroom(&all.to_string()), all, "the spelling it prints must read back as itself");
+        assert!(!all.posts(), "nothing is handed down a shaft into a room beside it");
+        assert!(parse_storeroom("on,post").posts());
+        assert_eq!(parse_storeroom("nestbound").nest_bound, NEST_BOUND_FRAMES);
+        for bad in ["sid", "on,sideways", "caste=0", "caste=x", "nestbound=0", "nestbound=8000/x"] {
+            assert_eq!(parse_storeroom(bad), Storeroom::SHIPPED, "{bad:?} must read as unset, which is the shipped granary");
+        }
+    }
+
+    /// `PIXEL_PHYSICS_NEST_DOOR`'s spellings ([`parse_nest_door`]): shipped on
+    /// since 2026-09-29 with the granary. Unset is the five-column door,
+    /// `off` the strip, a half-width reads as itself (0 is a one-column
+    /// door), and a typo reads as unset rather than as the strip.
+    #[test]
+    fn the_nest_door_parses_its_spellings_and_refuses_the_rest() {
+        assert_eq!(parse_nest_door(""), Some(NEST_DOOR_SHIPPED));
+        assert_eq!(NEST_DOOR_SHIPPED, 2, "the half-width every figure in the granary report was measured at");
+        assert_eq!(parse_nest_door("off"), None);
+        assert_eq!(parse_nest_door("0"), Some(0));
+        assert_eq!(parse_nest_door(" 4 "), Some(4));
+        for bad in ["x", "-1", "2.5", "strip"] {
+            assert_eq!(parse_nest_door(bad), Some(NEST_DOOR_SHIPPED), "{bad:?} must read as unset, which is the shipped door");
         }
     }
 

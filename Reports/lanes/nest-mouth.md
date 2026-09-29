@@ -59,53 +59,46 @@ the live question, what is addressed to another lane, predictions and heads.*
   Just use a simpler test environment for now." The granary is developed on
   the colony bed (`trailfollow`: soil, one food pile, 20 founders, no plants
   or weather) and `digbox`, not the lab box.
+- **2026-09-29: "Full granary on my default."** The door
+  (`NEST_DOOR_SHIPPED`, 2) and the whole storeroom
+  (`Storeroom::SHIPPED`, `on,caste=4,workerhome,side,keep`) ship on; `off`
+  on either is the ant before.
+- **2026-09-28: build at one size, then expand -- to larger colonies.** "It
+  is fine if we develop the next on a certain ant size and then expand it
+  ... We eventually do want our nests to work for larger colonies." Every
+  nest measurement also runs at 200 ants in `digbox`, and every colony one
+  at 80 founders on the bed; what scales is in
+  [`../nest-colony-size-2026-09-28.md`](../nest-colony-size-2026-09-28.md) §3.
 
 ## Live question
 
-**Is the colony building a nest? It digs one nest with one entrance area,
-and since 2026-09-28 that is the shipped ant**
-([`../nest-heap-cue-2026-09-28.md`](../nest-heap-cue-2026-09-28.md)).
-- **2026-09-28, shipped:** the dig wiring, `(Bias, Dig, -0.3)` with
-  `(SurfaceCurvature, Dig, -1.0)` (#505). Openings 27.5 -> 10, digging in
-  one place ([`../nest-dig-wiring-2026-09-28.md`](../nest-dig-wiring-2026-09-28.md)).
-- **2026-09-28, shipped on (#507):** the founding shaft (6 rows) and the
-  heap cue (`K` 5, floor 0): a dig that would open the ground to the sky
-  needs a heap beside it. Dig box openings 10 -> 4 (12 of 12); colony bed
-  starved 201 -> 83; lab ties, and its founding mouth is buried by frame
-  30,600 on 12 of 12 seeds under food and plants. A cut into the floor
-  under a roof is left alone (report §17); leaving every roofed digger
-  alone opened more mouths (17 of 24): the cue holds the crust.
-- **Dig down ships on for an enclosed digger** (#508), refused only
-  where there is no way down (`way_down`): the creep stops (2 openings
-  against 6 at frame 24,000 over 24 seeds, 22 of 24 nest-like against 12),
-  and the colony bed pays (starved 83 -> 152, born 59 -> 30). Shipped on
-  the lane's ruling; the turn everywhere stays off (starved 295). Refusing
-  the turn more widely was measured six ways and every one lost the nest
-  (report §13): the turn's nest and its price are one mechanism.
-- **Food in a chamber: the owner chose B** (foragers drop at the door, ants
-  at home carry it in). Built as `PIXEL_PHYSICS_STOREROOM`, off
-  ([`../nest-granary-2026-09-28.md`](../nest-granary-2026-09-28.md) §8): the
-  room fills (3+ cells at mid-run on 14 of 24 with a door), and against the
-  door alone it costs 14% of food taken and a third of the young. No ants
-  stay home here, so the carriers are the fed ants that breed. The door
-  alone now helps the bed a lot (starved 93 -> 15).
+**Does the colony build a nest, and keep one entrance, now that the door
+ships?** Since 2026-09-29 every colony has the door and the granary
+([`../nest-granary-2026-09-28.md`](../nest-granary-2026-09-28.md) §9;
+README *Nest status*). What ships, in order: the dig wiring (#505), the
+founding shaft and the heap cue (#507), dig down for an enclosed digger
+(#508), and the granary (#512-#513 as switches, on by default since
+2026-09-29).
+- **The door is not a roof.** In `digbox` at 40 ants the new default opens
+  7 entrances against 2, and no seed is more nest-like than random digging
+  (21 of 24 before). Half of it is the door: nest paint cannot be dug, so
+  the old strip was a roof the lane's one entrance was measured under. Half
+  is the storeroom (alone it opens 6): its nest workers or its room, not yet
+  traced which. On the bed, with food to fetch, the nest reads as one entrance.
+- **The granary does not scale.** On the bed at 80 founders: starved 848 ->
+  1,102, fewer alive at the end on 21 of 24. At 20 it pays (born 144 ->
+  226).
 
-**Next** (2026-09-28):
-1. **The storeroom (B), with a nest-worker caste** (report §8g-§8h). One
-   ant in four is a nest worker for life, and the cut is its home. The
-   caste costs 11% of food taken; the workers get only 7-9 loads a run
-   down, because the entrance shaft is plugged, mostly by crumbs they set
-   down there. Proposed to the owner: a storeroom off to the side of the
-   entrance. Their region's pieces are switches the foraging lane reviews.
-2. **Dig down's bed cost, traced** (report §16, packed lunch on; shares of
-   episodes, not ants). When food is wanted, 47% of fed foragers' episodes
-   at home start inside the nest with dig down, against 35%; from inside
-   13-17% go out first, against 53-56%. Food lying inside pins them (the
-   foraging lane: `FoodAdjacent` on `Move`). The hunger gate is a dead end
-   (report §11).
-3. **The brain input** for the cue (owner's order); 24 genome slots, so
-   planned with the lab lines.
-4. **Chambers** need contents (brood or a granary), which the dig box lacks.
+**Next** (2026-09-29):
+1. **One entrance round the door**: trace which ants open the extra
+   entrances, cut by cut, then a lever. Measure at 40 and 200 ants. First
+   make `digbox` found as the game now does: its trickle still spawns ants
+   across the old strip's 53 columns, homed where they land.
+2. **Nest workers who go out when the colony is hungry** (the scale cost;
+   harvester workers switch tasks with the colony's need).
+3. R3 of the foraging lane's review: the dig-down guard test, the
+   north-facing turn's west bias, founding-cut meat and founding force.
+4. The brain input for the cue (owner's order), planned with the lab lines.
 
 ## Working agreement with the foraging lane (2026-09-27)
 
@@ -147,8 +140,6 @@ asked the two sessions to agree who owns what.
   **Channel:** a poke (`create_trigger(persistent_session_id=…)` then
   `fire_trigger` bare) works both ways, but waits until the other's turn ends:
   15:30 → about 17:50 once. Files pushed to origin are the record.
-- **Sequencing:** settled 2026-09-27: door + dug mouth stays off, so there
-  is no new baseline for the forage drive; the foraging lane was poked.
 - **Food in a chamber (2026-09-28, their reply):** no objection; the drop
   and home-target pieces land as switches the foraging lane reviews. One
   definition of home for the drop, the pickup and the packed lunch: a
@@ -174,14 +165,10 @@ exploratory and carry none.
 
 ## Cards with the owner
 
-- 2026-09-26: `…52a96c` (one hole, 40 ants), `…77bab8` (gray is lining);
-  `…e86359` withdrawn.
-- `20260926T061431136Z-a29145` — blind: the painted door against the dug
-  mouth with no paint, as GIFs of ants coming home (bed, seed 1).
-- `20260926T064019633Z-0211cf` — four foundings on the colony bed, five
-  stops, with both beds' counts in meta: which reads as a nest?
-- `20260926T064023411Z-ec6018` — the dug mouth in the lab box, buried by the
-  colony's own food: should a lab nest keep its mouth open?
+- 2026-09-26: `…52a96c` (one hole), `…77bab8` (gray is lining), `…e86359`
+  withdrawn; `…a29145` (blind: painted door against dug mouth), `…0211cf`
+  (four foundings: which reads as a nest?), `…ec6018` (the lab's buried
+  mouth).
 
 - `20260926T160641891Z-86d16b` — home that climbs the pile: every lab colony
   builds a food tower over its door; reverting (seed 7 at five stops, all 12
@@ -193,10 +180,9 @@ Older heads, from the branch cut (`636612c6`, 2026-09-26) through #507
 (`97129556`) and the dig-down work merged as #508, are in `git log` and in
 the reports each one names.
 
-- `34e07b86` (#508) — merged: dig down on for an enclosed digger, refused
-  only where there is no way down. GitHub deleted the branch; restarted
-  from `main` the same day, same name.
-- `f703472a` — `main` merged in (#509, packed lunch on). The bed baseline:
-  4,574 taken / 93 starved / 151 born, reproduced exactly here.
+- `7933010e` (#512) — merged: the storeroom (off), castes, the room
+  series, the heap cue's floor fix. Branch restarted from `main`.
+- `e3296aaa`, `72987899`, `f6ae02b1` (#513) — the side storeroom and
+  `keep` (off), colony size, main (#514) merged in.
 - `828ce885` — the storeroom (B) as `PIXEL_PHYSICS_STOREROOM`, off; `off`
   is `main`'s bed line for line; the suite passes on it.
