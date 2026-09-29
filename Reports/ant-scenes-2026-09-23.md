@@ -3423,3 +3423,71 @@ dwide btrail btrailevery=100 cf=gate shadow`. Paired within seed.
 
 **Gate** (the plan's): P1.1-P1.3 hold and no harm bar fails. If P1.1
 fails, stop and trace before Stage 2.
+
+**Scored** (the runs launched after the registration commit `de605027`;
+`Reports/data/food-trail-lay-2026-09-29.tar.gz`):
+
+| | gap 90 | gap 140 | verdict |
+|---|---|---|---|
+| P1.1 `lay` live profile vs `off`'s `cf=gate`, r >= 0.8 | 8/8 (0.83-0.97) | 7/8 (0.79-0.96) | right |
+| P1.2 west-of-door B under `lay` <= 10% of `off` | 5/8 (0.5-15.9%) | 5/8 (2.3-26.5%) | **wrong** |
+| P1.3 door B: >2000 bin 0; 774-2000 <= half of 0-270 | 0; 84 vs 1,517 | 0; 128 vs 1,714 | right |
+| P1.4 east share of empty departures within 5 points | 44% -> 50% | 43% -> 53% | **wrong, the good way** |
+| P1.5 given-up west foragers home <= 800 frames, lower on >= 6/8 | 1,392 -> 510, 8/8 | 903 -> 546, 7/8 | right |
+| P1.6 taken above `off` >= 16/24; ties `mute` | 23/1; beats `mute` 22/2 | 21/2; 17/7 vs `mute` | right; **"ties mute" wrong, the good way** |
+| P1.7 trail-laying J lower on >= 22/24 | 19/24 (-17%) | 20/24 (-13%) | **wrong** |
+
+Colony outcomes, 24 seeds per arm, paired within seed (`off` / `mute` / `lay`):
+
+| | taken | starved | born | nest food, J |
+|---|---|---|---|---|
+| unlimited 90 | 6,062 / 7,512 / **9,217** | 57 / 29 / **14** | 188 / 282 / **416** | 297,943 / 329,413 / **371,102** |
+| unlimited 140 | 4,287 / 5,412 / **6,374** | 127 / 54 / **50** | 63 / 107 / **157** | 194,687 / 239,007 / **265,158** |
+| pulsed 90 | 2,588 / 2,803 / 2,760 | 286 / 220 / 250 | 39 / 47 / 54 | 107,916 / 157,131 / 176,284 |
+| pulsed 140 | 2,630 / 2,806 / 2,827 | 254 / 206 / 200 | 20 / 20 / 27 | 108,030 / 144,365 / 168,475 |
+
+`lay` against `off`, by seed: taken 23/1 and 21/2 on the unlimited pile,
+13/8 and 16/3 (p 0.004) pulsed; starved lower 17/2 (p 0.001), 15/3, 14/7,
+16/2 (p 0.001). Against `mute` it is higher on taken 22/2 at 90 and 17/7 at
+140 (p 0.064). On the pulsed pile it does not separate from `mute`: at 90
+taken 2,803 -> 2,760 (lower on 13, higher on 7, p 0.26) and starved 220 ->
+250 (14/9, p 0.41); at 140 taken 11/7 and starved 9/12. **No harm bar
+fails.**
+
+- **For the first time the colony's own trail helps**: silencing it was
+  worth +24% food at 90 cells (§22v); gating who lays it is worth +52%.
+- **The funnel** (traced seeds 1-8, 90 cells, `antloop.py`): full loops 429
+  -> 566, food taken 2,125 -> 3,037 (8/0), starved 24 -> 2 (0/6), ants that
+  lived 230 -> 283. The share of ants completing a loop hardly moves (79.7%
+  -> 80.7%): the gain is a better-fed, larger colony doing the same loop.
+- **Why laying alone gives a bearing (P1.4)**: today's chooser multiplies
+  going on by trail presence (`TRAIL_GAIN`), so a trail laid west of the
+  door by lunch carriers pulled departures west. With no B west of the
+  door, a west-facing ant leaving the nest finds nothing to hold it, and
+  an east-facing one finds the road. West departures fall 23% -> 18% and
+  30% -> 22%.
+- **Why a given-up forager gets home (P1.5)**: after giving up, the share of
+  its steps on a trail falls 0.64 -> 0.05 and its steps outward 0.43 ->
+  0.10 (`giveup.py`); it walks home as fast as a `mute` ant (504).
+- **P1.2's residue is a homing failure, traced**: every cell of B laid west
+  of the door under `lay` was laid by an ant carrying a trip load, cargo a
+  median ~500 ticks old, most of it climbing the world's west edge wall
+  (rows 4-90) and at 140 cells underground. They are loaded foragers that
+  walked past home; the lay rule is doing what it says. It is 2.6% (90) and
+  6.0% (140) of all B laid.
+- **P1.7**: trail laying costs 17% and 13% less, but not on 22/24 seeds; a
+  colony with more ants lays more channel A.
+
+**80 founders at 135 cells** (24 seeds, `off` / `mute` / `lay`): taken
+8,298 / 9,625 / **12,350** (`lay` above `off` on 24/24, above `mute` 21/3);
+starved 1,109 / 933 / **645** (lower than `off` on 24/24, than `mute` 21/3);
+energy held in the ants' bodies 232,572 / 230,605 / 342,311 J (23/1 both).
+**Born leans the other way**: 74 / 42 / 48, lower than `off` on 14 seeds
+and higher on 5 (p 0.064), tied with `mute` (10/10). Not a harm bar, and
+recorded as the one lean against it.
+
+**Gate**: P1.1 and P1.3 hold, P1.2 fails on the homing residue above, no
+harm bar fails on any of the five beds. **Next, per the plan (amended
+2026-09-29):** the lab-box pair and the frame cost, and if both hold, `lay`
+ships on by default; the reader and the give-up are then built on top of
+it.
