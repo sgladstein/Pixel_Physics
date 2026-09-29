@@ -1,6 +1,20 @@
 # Ants
 
-*Current as of: 2026-09-28, when **a birth stopped killing its parent.** An
+*Current as of: 2026-09-29, when **a colony got one front door and a
+granary.** A new colony used to paint a long strip of nest along the ground,
+and each founder called the spot it happened to be standing on home. Now it
+paints a small door, five cells wide, over the shaft it digs, and every
+founder's home is that door. Halfway down the shaft a short passage leads off
+to one side, to a storeroom. One ant in four is a nest worker for life: it
+stays in the nest, and when food lies at the door it carries it down into the
+storeroom whole instead of eating it, and only a hungry ant will eat from the
+storeroom. So the room fills: from about the middle of a run there is food
+lying on its floor, where before food at a nest was eaten about as fast as it
+arrived. In a test colony with food 90 cells away, a third more food comes
+off the heap, half again as much stands at the nest and half again as many
+young are born; about as many ants starve. With the food 140 cells away the
+gain is small, because a quarter of the colony no longer goes out for food.
+The day before, **a birth stopped killing its parent.** An
 ant a little short of the price of young makes up the rest from food beside
 it, and it used to count seeds at their full worth though a bitten seed often
 survives and gives only a quarter; it paid anyway and died a moment later with
@@ -767,6 +781,53 @@ The home scent's volume is turned up now, and it shows: draw a trail from a
 patch back to the nest and ants carrying food run it. That is why the scent
 tool starts on the home scent.
 
+### One door, and a granary under it
+
+**A colony has one front door.** Founding paints a small patch of nest, five
+cells wide, over the top of the shaft the colony starts with, and every
+founder takes that door as home. Until 2026-09-29 a colony painted a strip of
+nest fifty cells long instead, and each founder called home whatever part of
+it was under its feet, so food came home to whichever end of the strip faced
+the heap and the ants born at the far end rarely found the road out.
+
+**Some ants never leave.** One ant in four, among the founders and in every
+generation after them, is a nest worker for its whole life. It lives in the
+dug part of the nest, the shaft and the rooms off it, eats and breeds there,
+and the colony never sends it out for food. The other three in four are
+foragers, and for them home is the door.
+
+**The nest workers keep a granary.** Halfway down the shaft a short passage
+leads off to one side, away from the door, into a room the colony cut when it
+was founded, its floor a step below the passage. When a forager drops food at
+the door, a nest worker that has eaten picks it up whole, carries it down the
+shaft and along the passage, and puts it down on the storeroom floor. A
+well-fed ant that tries to eat there gets nothing; a hungry one eats. So the
+room holds food: watch a colony for a while and the storeroom floor fills from
+about the middle of the run, where before food at the nest was eaten about as
+fast as it arrived. Harvester ants divide the work the same way: foragers
+leave the harvest at the entrance, and nest workers take it down into chambers
+off the main tunnel.
+
+**What it costs is foragers.** A quarter of the colony no longer goes out.
+Where food is close that is more than repaid: in a test colony with the food
+90 cells away, a third more food comes off the heap and half again as many
+young are born, with about as many ants starving. Where food is far it is
+close to a wash: 140 cells away, a tenth more food comes in, and seed for seed
+the colony breeds and starves no differently. A colony of eighty pays for it: a
+quarter of it staying home is more than the rest can feed, so more of it
+starves and it ends smaller. And a big colony still
+has one small storeroom, which it outgrows.
+
+**What is not right yet: the door is not a roof.** Ants cannot dig through
+painted nest, so the old strip roofed the nest across fifty columns and a
+colony could only dig beneath it. Round the small door the ground is ordinary
+earth. Watched in a test colony with food to fetch, the nest still reads as
+one entrance under the door; but a colony with nothing else to do hollows a
+wide nest just under the surface, with
+several holes up through it and spires of spoil over them, and the nest
+workers, at home in the dug rooms, dig there too. Keeping one entrance without
+the strip's help is the next thing to fix.
+
 ### They lay two scents, and the two do not keep
 
 **The way home and the way to dinner are not the same kind of fact, and since
@@ -797,14 +858,15 @@ is slow enough for a walk. A busy route stays sharp because it is re-laid;
 a route nobody uses fades on its own, which is what you want.
 
 **There is a bill, and on a hungry bed you can see it.** Ants that walk their
-dinner home are ants that are not eating it where they found it, and nothing at
-the nest banks what they bring — a delivered crumb lies on the floor like any
-other. Where food is plentiful this costs nothing you can measure. Where it is
-scarce the colony comes out smaller: fewer born, less eaten, though the trips
-home still go up. So this is a trade rather than a straight gain, and what
-settles it is a **granary** — somewhere a delivered load is worth having
-delivered. Until that exists, a colony that navigates better is a colony
-spending more on the journey.
+dinner home are ants that are not eating it where they found it, and until
+2026-09-29 nothing at the nest banked what they brought — a delivered crumb lay
+on the floor like any other. Where food is plentiful this costs nothing you can
+measure. Where it is scarce the colony comes out smaller: fewer born, less
+eaten, though the trips home still go up. So this is a trade rather than a
+straight gain, and what settles it is a **granary** — somewhere a delivered
+load is worth having delivered. A colony has had one since 2026-09-29 (*One
+door, and a granary under it*, above); whether it settles this particular trade
+has not been measured.
 
 **The food scent still fades on the old schedule, and it has to.** It is news
 — *there is food here now* — and the whole failure it guards against is a
@@ -1815,10 +1877,10 @@ colours an ant and a flitter look much alike.
 
 ## Placing a colony, and watching what they smell
 
-Press **Y** to found a colony on the ground under the cursor: it lays a nest
-patch along whatever surface is there, digs a short shaft down from the
-middle of it -- the colony's first entrance -- and stands about fifty ants on
-it.
+Press **Y** to found a colony on the ground under the cursor: it paints a
+small nest door, five cells wide, on whatever surface is there, digs a short
+shaft down under it -- the colony's first entrance -- with a storeroom off to
+one side of it, and stands about fifty ants on the ground around it.
 Fifty, not one, because fewer than that does not look like ants. It follows
 the terrain, so it works on a hillside or in a cave mouth as well as on flat
 ground.

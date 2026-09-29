@@ -3659,8 +3659,15 @@ pub struct World {
     /// one process.
     pub dig_down: Option<Option<crate::sim::creature::DigDown>>,
     /// **The storeroom, overriding `PIXEL_PHYSICS_STOREROOM` for this world**
-    /// (`creature::storeroom_of`). `None` follows the environment.
+    /// (`creature::storeroom_of`). `None` follows the environment, which is
+    /// `creature::Storeroom::SHIPPED` unless it says `off`.
     pub storeroom: Option<crate::sim::creature::Storeroom>,
+    /// **The nest door, overriding `PIXEL_PHYSICS_NEST_DOOR` for this world**
+    /// (`creature::nest_door_of`): its half-width, read at founding. `None`
+    /// follows the environment, which is `creature::NEST_DOOR_SHIPPED` unless
+    /// it says `off`; `Some(None)` paints the strip. A field so a guard can
+    /// take both arms in one process.
+    pub nest_door: Option<Option<i32>>,
     /// **How hard a hungry empty ant off a route is drawn away from home,
     /// overriding `PIXEL_PHYSICS_SCOUT` for this world** (`creature::scout_of`).
     /// `None` follows the environment, which is 0 (no pull) unless set; a
@@ -6046,6 +6053,7 @@ impl World {
             spoil_cue: None,
             dig_down: None,
             storeroom: None,
+            nest_door: None,
             scout: None,
             hungry_home: None,
             forage_drive: None,

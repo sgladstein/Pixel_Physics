@@ -1,9 +1,23 @@
 # Food in a chamber: a prototype, and the trade it runs into
 
-*2026-09-28. The nest lane (`lanes/nest-mouth.md`). A measurement of a
-scratch prototype. Nothing here is on a branch or in the game.*
+*2026-09-28; the granary shipped on 2026-09-29 (§9). The nest lane
+(`lanes/nest-mouth.md`). §2-§5 measure a scratch prototype; §8 the storeroom
+built from it as switches; §9 the full granary as the shipped default.*
 
 ## 0. The answer
+
+**Since 2026-09-29 every colony has a granary** (§9, the owner: *"Full
+granary on my default."*): a door five columns wide over the founding shaft,
+a storeroom off one side of the shaft, and one ant in four a nest worker who
+carries food from the door into it, where only a hungry ant eats it. On the
+colony bed with the food 90 cells out it is a clear gain (food taken +33%,
+born 144 -> 226, starvation flat); at 140 cells it is close to a wash; **at 80
+founders it costs the colony** (starved 848 -> 1,102, fewer alive at the end
+on 21 of 24 seeds), because a quarter of a big colony staying home is more
+than its foragers can feed. **And in `digbox` it costs the nest**: at 40 ants
+7 entrances against 2 and no seed more nest-like than random digging, half
+of it because the old strip of nest paint was a roof the colony could not
+dig through. The rest of this section is how it got there.
 
 **Food can be carried into a chamber, and when it is the doorstep stays
 clear. But in this engine carrying is eating, so every version tried either
@@ -217,6 +231,14 @@ form the store's food is drawn two ways.
 | 157 | `keep`, side room, mouth under the door (§8k) | room food higher than without `keep` on at least 16 of 24; median at least 3 cells | 21 of 24; 4.87 | right |
 | 158 | same | births below 203 | 226 (10 / 12) | wrong |
 | 159 | `keep` at 80 founders | room food higher than without `keep` on at least 16 of 24 | 21 of 24 | right |
+| 160 | the full granary as default against the old default (§9), 20 founders, 90 cells | food taken higher on at least 18 of 24 | 22 of 24 | right |
+| 161 | same | starved within ±30 | 75 against 83 | right |
+| 162 | same | born higher on at least 14 of 24 | 20 of 24 | right |
+| 163 | same, 140 cells | food taken higher on at least 16 of 24; starved within ±40 | 15 of 24; 105 against 87 | half |
+| 164 | same, 80 founders at 135 cells | starved higher on at least 16 of 24; food taken lower on at least 14 | 20; 16 | right |
+| 165 | same, `digbox` at 40 ants | entrances at frame 24,000 within ±1 of the old default (median) | 7 against 2 (more on 21 of 24) | wrong |
+| 166 | same, `digbox` at 200 ants | entrances at frame 24,000 lower on at least 14 of 24 (a quarter of the ants stay home) | 18 of 24 | right |
+| 167 | same, the lab box | births within ±20% (median); died out within ±2 | P167 | P167R |
 
 ## 8. B, built: foragers drop at the door, ants at home carry it in
 
@@ -572,3 +594,105 @@ seeds.
 with the foraging lane: it costs the colony bed starvation (75 against 23 for
 the door alone, the caste's cost) and raises births (226 against 136). And
 at scale the room is one room: a bigger colony's store will need more.
+
+## 9. The full granary on by default (2026-09-29)
+
+The owner, on §8k: *"Full granary on my default."* So the door and the whole
+storeroom ship together, the mouth under the door (no offset):
+
+- **`PIXEL_PHYSICS_NEST_DOOR`**: unset is a door of half-width 2
+  (`NEST_DOOR_SHIPPED`, five columns), `off` the strip.
+- **`PIXEL_PHYSICS_STOREROOM`**: unset is `on,caste=4,workerhome,side,keep`
+  (`Storeroom::SHIPPED`), `off` no storeroom and no nest workers. A value
+  that names parts is exactly those parts, so `on` alone is the carry and
+  nothing else.
+- A value either cannot read is reported and read as unset, never as off, as
+  the shaft, the heap cue and dig down read theirs. `World::nest_door` is new
+  beside `World::storeroom`, so a test can take either arm in one process.
+
+**Identity, on the flipped binary.** Both switches `off` reproduce the
+pre-flip default line for line (the colony bed, seeds 1-8; `digbox`, seeds
+1-2), and unset reproduces the pre-flip
+`NEST_DOOR=2 STOREROOM=on,caste=4,workerhome,side,keep` line for line, which
+is the arm measured in §8k. The two arms differ from each other (a positive
+control): the door paints columns 46-50 where the strip painted 26-70.
+
+**The colony bed, the old default (both `off`) against the new**, 24 seeds
+each, paired by seed; the food moved out with the colony at 80 founders, as
+in `nest-colony-size-2026-09-28.md`:
+
+| | 20 founders, food 90 cells | 20 founders, 140 cells | 80 founders, 135 cells |
+|---|---:|---:|---:|
+| food taken from the pile | 4,566 -> **6,088** (more on 22 of 24) | 4,264 -> 4,696 (15 / 9) | 9,319 -> 8,218 (less on 16) |
+| food standing at the nest (median, J) | 8,003 -> **12,536** (23 / 1) | 7,903 -> 8,581 (15 / 9) | 8,691 -> 8,650 (10 / 14) |
+| food in the storeroom (time-averaged, cells) | 0.01 -> 4.87 | 0.00 -> 2.91 | 0.02 -> 3.66 |
+| ... time with 3+ cells in it | 0% -> 64% | 0% -> 41% | 0% -> 57% |
+| born | 144 -> **226** (more on 20) | 100 -> 79 (10 / 11) | 114 -> 72 (9 / 14) |
+| starved | 83 -> 75 (10 / 9) | 87 -> 105 (11 / 12) | 848 -> **1,102** (more on 20) |
+| alive at the end (median) | 18.5 -> 21 (more on 17) | 17 -> 16.5 (11 / 11) | 38 -> **29** (fewer on 21) |
+
+- **With the food close the granary pays**: a third more food comes off the
+  pile, half as much again stands at the nest, and half as many young again
+  are born, with starvation flat. These are the §8k numbers, arm for arm.
+- **With the food far it is close to a wash**: 10% more food taken, and
+  births, starvation and survivors split seed for seed.
+- **A big colony pays for it.** At 80 founders the colony takes 12% less
+  food, starves 30% more and ends smaller on 21 of 24 seeds. The door alone
+  was neutral at that size (43% of every ant starved against 42%,
+  `nest-colony-size-2026-09-28.md` §2), so the cost is the nest workers: 20
+  of 80 founders never forage, and the colony's intake per ant already falls
+  as it grows. **This is the granary's first scale problem**, the kind the
+  lane's scale practice exists to catch the day a mechanism is built
+  (`nest-colony-size-2026-09-28.md` §3). Harvester ants do not hold their
+  nest workers home for life: workers switch tasks as the colony's needs
+  change (D. M. Gordon's task-allocation studies of *Pogonomyrmex
+  barbatus*), so a nest worker that goes out when the colony is hungry is
+  the next form to try. Not built.
+
+**`digbox`, the nest's own yardstick** (24 seeds, frame 24,000, no food; the
+lane's scale practice runs 40 and 200 ants). The door and the storeroom were
+also each run alone at 40 ants, to say which half moves what:
+
+| 40 ants | cells dug | entrances | roofed share | more nest-like than as many random walkers |
+|---|---:|---:|---:|---:|
+| the old default | 57 | 2 | 0.96 | 21 of 24 |
+| the door alone | 120 | 5 | 0.82 | 0 of 24 |
+| the storeroom alone (strip) | 114 | 6 | 0.86 | 12 of 24 |
+| **the new default** | **156** | **7** | 0.77 | **0 of 24** |
+
+At 200 ants the new default digs 521 cells against 337 (more on 24 of 24) and
+opens 11.5 entrances against 15.5 (fewer on 18 of 24); neither arm is
+nest-like at that size, as before.
+
+- **At 40 ants the nest is worse by every measure the lane judges a nest
+  step on**: more entrances on 21 of 24 seeds, less of the dug room roofed,
+  and no seed more nest-like than random digging, against 21. In pictures
+  the colony hollows a wide cavity just under the surface round the founding
+  cut, with spires of spoil over it, where the old default dug a small
+  roofed nest.
+- **Half of it is the door, and that half says something about every earlier
+  `digbox` result.** Nest paint cannot be dug (`jaw_can_cut`), so the old
+  53-column strip was a roof the colony could only dig under: the lane's one
+  entrance at 40 ants was measured under that roof. Round a five-column door
+  the ground is plain soil, and the heap cue and dig down do not hold one
+  entrance there on their own.
+- **The other half is the nest workers.** A nest worker reads the whole
+  founding cut as its nest (`workerhome`, `nest_within_reach`), and at the
+  nest the ant's crowding term drives digging (`ant.ron`'s hidden units 5-6),
+  so ten nest workers packed in the cut dig; with no food in the box they
+  have nothing else to do. Not traced per ant.
+- **On the colony bed, where there is food, the nest does not look like
+  this**: one entrance under the door, with a mound of spoil over the
+  storeroom's side (seed 8, the median seed on food in the storeroom, frames
+  every 4,000). The bed has no entrance census, so that is a picture, not a
+  number.
+- **`digbox` does not yet found as the game now does.** Its trickle spawns
+  ants across the old strip's 53 columns, each homed where it lands, where
+  the game homes every founder at the door. So its door arms measure the
+  door's ground, not the door's founding.
+- **Next for the lane: one entrance without the strip's roof.** That is now
+  the nest problem the default leaves.
+
+LAB
+
+Predictions 160-167 (§7) were written before any run of the flipped binary.

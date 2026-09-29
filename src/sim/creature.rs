@@ -2996,7 +2996,8 @@ pub fn nest_home(world: &World) -> NestHome {
 }
 
 /// **The storeroom** -- `PIXEL_PHYSICS_STOREROOM`, read by [`storeroom_of`]:
-/// three independent parts, all off unless named. See there for each.
+/// independent parts, joined by commas. Unset is [`Storeroom::SHIPPED`];
+/// a value that names parts is exactly those parts. See there for each.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Storeroom {
     /// `on`: food lying at home is carried into the founding chamber by fed
@@ -3041,8 +3042,19 @@ pub struct Storeroom {
 }
 
 impl Storeroom {
-    /// No storeroom: the ant as shipped.
+    /// No storeroom: the ant before the granary shipped, bit for bit
+    /// (`PIXEL_PHYSICS_STOREROOM=off`).
     pub const OFF: Storeroom = Storeroom { carry: false, room_home: false, once: false, post: false, nest_bound: 0, nest_bound_founders: 0, caste: 0, worker_home: false, side: false, keep: false };
+
+    /// **The storeroom the ant ships with, since 2026-09-29: the full
+    /// granary** (`on,caste=4,workerhome,side,keep`) -- the owner: *"Full
+    /// granary on my default."* One ant in four, founders and young alike,
+    /// is a nest worker for life and lives in the founding cut; the nest
+    /// workers carry food from the door into a room off one side of the
+    /// entrance shaft, and only a hungry ant eats it there. It ships with the
+    /// door ([`NEST_DOOR_SHIPPED`]). What it measured, against the strip and
+    /// no storeroom: `Reports/nest-granary-2026-09-28.md` §9.
+    pub const SHIPPED: Storeroom = Storeroom { carry: true, room_home: false, once: false, post: false, nest_bound: 0, nest_bound_founders: 0, caste: 4, worker_home: true, side: true, keep: true };
 
     /// Whether food is carried into the room under this rule.
     pub fn carries(self) -> bool {
@@ -3083,8 +3095,8 @@ impl std::fmt::Display for Storeroom {
 /// storeroom** -- the owner's choice of the two granary forms, 2026-09-28
 /// (`Reports/nest-granary-2026-09-28.md` §6, B, and §8 for what the forms
 /// below measured). `PIXEL_PHYSICS_STOREROOM=<parts>` or [`World::storeroom`]
-/// for one world; [`Storeroom::OFF`] unless set, and then nothing here reads
-/// or writes anything.
+/// for one world; [`Storeroom::SHIPPED`] unless set, since 2026-09-29. Under
+/// `off` ([`Storeroom::OFF`]) nothing here reads or writes anything.
 ///
 /// **Why the mandibles and not the crop.** In this engine carrying is eating:
 /// a crop digests while it is carried (§9 of `how-the-ant-works.md`), so a
@@ -3137,10 +3149,17 @@ pub fn storeroom_from_env() -> Storeroom {
     *V.get_or_init(|| parse_storeroom(&std::env::var("PIXEL_PHYSICS_STOREROOM").unwrap_or_default()))
 }
 
-/// `PIXEL_PHYSICS_STOREROOM`'s value read as the rule; an unset variable
-/// reads as `""`. **A value it does not know reads as off, and says so**, so
-/// a typo cannot put an arm in a sweep wearing another's label.
+/// `PIXEL_PHYSICS_STOREROOM`'s value read as the rule: unset (or `""`) is
+/// [`Storeroom::SHIPPED`], `off` is [`Storeroom::OFF`], and parts name the
+/// rule from nothing, so `on` alone is the carry with none of the rest.
+/// **A value it does not know is reported and read as unset, never as
+/// off**, as the shaft, the cue and the door read theirs: a typo cannot put
+/// an arm in a sweep wearing another's label. Until the granary shipped, an
+/// unknown value read as off, because off was unset.
 fn parse_storeroom(raw: &str) -> Storeroom {
+    if raw.trim().is_empty() {
+        return Storeroom::SHIPPED;
+    }
     let mut out = Storeroom::OFF;
     for part in raw.split(',').map(str::trim).filter(|p| !p.is_empty()) {
         match part {
@@ -3156,8 +3175,8 @@ fn parse_storeroom(raw: &str) -> Storeroom {
             other if other.starts_with("caste=") => match other["caste=".len()..].parse::<u32>() {
                 Ok(k) if k > 0 => out.caste = k,
                 _ => {
-                    eprintln!("PIXEL_PHYSICS_STOREROOM={raw:?}: bad {other:?}, read as off (caste=<k>, k >= 1)");
-                    return Storeroom::OFF;
+                    eprintln!("PIXEL_PHYSICS_STOREROOM={raw:?}: bad {other:?}, read as unset (caste=<k>, k >= 1)");
+                    return Storeroom::SHIPPED;
                 }
             },
             other if other.starts_with("nestbound=") => {
@@ -3169,14 +3188,14 @@ fn parse_storeroom(raw: &str) -> Storeroom {
                         out.nest_bound_founders = k.unwrap_or(0);
                     }
                     _ => {
-                        eprintln!("PIXEL_PHYSICS_STOREROOM={raw:?}: bad {other:?}, read as off (nestbound=<frames>[/<k>])");
-                        return Storeroom::OFF;
+                        eprintln!("PIXEL_PHYSICS_STOREROOM={raw:?}: bad {other:?}, read as unset (nestbound=<frames>[/<k>])");
+                        return Storeroom::SHIPPED;
                     }
                 }
             }
             other => {
-                eprintln!("PIXEL_PHYSICS_STOREROOM={raw:?}: unknown part {other:?}, read as off (off, or any of on, home, once, post, nestbound[=<frames>[/<k>]], caste=<k>, workerhome, side, keep)");
-                return Storeroom::OFF;
+                eprintln!("PIXEL_PHYSICS_STOREROOM={raw:?}: unknown part {other:?}, read as unset (off, or any of on, home, once, post, nestbound[=<frames>[/<k>]], caste=<k>, workerhome, side, keep)");
+                return Storeroom::SHIPPED;
             }
         }
     }
@@ -3519,7 +3538,10 @@ fn storeroom_census_counts(world: &World, room: crate::sim::world::ShaftFootprin
 /// **`PIXEL_PHYSICS_NEST_DOOR=<half-width>`: the nest as a door, not a strip.**
 /// Founding paints `2 * half-width + 1` columns of nest, unbroken, instead of
 /// the 53-column masked strip, and anchors every founder's home at its centre
-/// ([`World::found_colony_of`]). Unset is the shipped strip, bit-exact.
+/// ([`World::found_colony_of`]). **On since 2026-09-29**, at
+/// [`NEST_DOOR_SHIPPED`]: `off` is the strip, bit for bit, and a value it
+/// cannot read is reported and read as unset ([`parse_nest_door`]).
+/// [`World::nest_door`] sets it for one world.
 ///
 /// **What it is for** (`Reports/ant-scenes-2026-09-23.md` §17b, §19). The
 /// colony's road starts where the first laden ant reaches nest ground: the
@@ -3536,7 +3558,43 @@ fn storeroom_census_counts(world: &World, room: crate::sim::world::ShaftFootprin
 /// *material*, so `AtNest` stays the shipped 8-neighbour contact test.
 pub fn nest_door() -> Option<i32> {
     static D: std::sync::OnceLock<Option<i32>> = std::sync::OnceLock::new();
-    *D.get_or_init(|| std::env::var("PIXEL_PHYSICS_NEST_DOOR").ok().and_then(|v| v.parse::<i32>().ok()).filter(|v| *v >= 0))
+    *D.get_or_init(|| parse_nest_door(&std::env::var("PIXEL_PHYSICS_NEST_DOOR").unwrap_or_default()))
+}
+
+/// **The door's half-width when `PIXEL_PHYSICS_NEST_DOOR` is unset: a door
+/// five columns wide, on since 2026-09-29** with the storeroom
+/// ([`Storeroom::SHIPPED`]) -- the owner: *"Full granary on my default."*
+/// The two ship together because the storeroom is built round one mouth: its
+/// room is cut on the side of the shaft away from the door, and the nest
+/// workers carry food in from the door (`Reports/nest-granary-2026-09-28.md`
+/// §8j-§8k, and §9 for what the pair does against the strip).
+pub const NEST_DOOR_SHIPPED: i32 = 2;
+
+/// The door in force in `world`: its [`World::nest_door`] override, else the
+/// process's [`nest_door`].
+pub fn nest_door_of(world: &World) -> Option<i32> {
+    world.nest_door.unwrap_or_else(nest_door)
+}
+
+/// `PIXEL_PHYSICS_NEST_DOOR`'s value read as a half-width ([`nest_door`]):
+/// unset is [`NEST_DOOR_SHIPPED`], `off` the strip, `<cells>` (0 or more) a
+/// door that wide. **A value it cannot read is reported and read as unset,
+/// never as the strip**, as the shaft and the cue read theirs: a typo that
+/// turned the door off would put the control in a sweep wearing another
+/// arm's label. Until the door shipped, an unreadable value read as the
+/// strip, because the strip was unset.
+fn parse_nest_door(raw: &str) -> Option<i32> {
+    match raw.trim() {
+        "" => Some(NEST_DOOR_SHIPPED),
+        "off" => None,
+        v => match v.parse::<i32>() {
+            Ok(d) if d >= 0 => Some(d),
+            _ => {
+                eprintln!("PIXEL_PHYSICS_NEST_DOOR={v:?}: not `off` or a half-width in cells; read as unset ({NEST_DOOR_SHIPPED})");
+                Some(NEST_DOOR_SHIPPED)
+            }
+        },
+    }
 }
 
 /// **The shortest passage from the entrance shaft to a side storeroom**, in
@@ -4573,13 +4631,14 @@ impl World {
     /// derived from the body plan's own width, floored at the shipped value
     /// so the ant is byte-identical.
     pub fn found_colony_of(&mut self, x: i32, y: i32, species: &str, ants: i32) -> usize {
-        self.found_colony_with(x, y, species, ants, nest_door(), nest_door_pile())
+        self.found_colony_with(x, y, species, ants, nest_door_of(self), nest_door_pile())
     }
 
     /// [`World::found_colony_of`] with the nest-door switches passed in rather
     /// than read from the environment, so a test can set them: `door` is
     /// [`nest_door`]'s half-width, `pile` is [`nest_door_pile`]. `(None, _)`
-    /// is the shipped founding.
+    /// is the strip (`PIXEL_PHYSICS_NEST_DOOR=off`), the founding before the
+    /// door shipped on 2026-09-29.
     fn found_colony_with(&mut self, x: i32, y: i32, species: &str, ants: i32, door: Option<i32>, pile: bool) -> usize {
         // **A species nobody loaded places nobody, and says so by returning
         // 0** -- the same contract as no ground and no nest material. A
@@ -4722,7 +4781,7 @@ impl World {
     /// opens with -- `open-bugs-handoff.md` §R2 is what a second copy of a
     /// placement rule cost last time.
     pub fn colony_stations(&self, x: i32, y: i32, species_id: SpeciesId, ants: i32) -> Vec<(i32, i32)> {
-        self.colony_stations_with(x, y, species_id, ants, nest_door(), nest_door_pile())
+        self.colony_stations_with(x, y, species_id, ants, nest_door_of(self), nest_door_pile())
     }
 
     /// [`World::colony_stations`] with the nest-door switches passed in; see
@@ -4766,8 +4825,8 @@ impl World {
         // standing along a strip. They fall and settle as a heap on the door;
         // an ant walks over a nestmate (`climbs_over_kin`), which is the change
         // since the 27,386-blocked-tick gridlock above that makes a heap worth
-        // trying. The colony bed's blocked counts are the check. Only under
-        // `PIXEL_PHYSICS_NEST_DOOR`; otherwise the shipped layout.
+        // trying. The colony bed's blocked counts are the check. Only with a
+        // door; otherwise, and by default, the spread layout.
         if let (Some(d), true) = (door, pile) {
             let d = scaled_cells(self, d);
             let cols: Vec<(i32, i32)> = ((x - d)..=(x + d))
@@ -4928,18 +4987,18 @@ impl World {
     /// the bottom of a nest wall (`a_nest_still_stops_him`). This loop is the
     /// one place the repair costs nothing anywhere else.
     pub fn paint_nest_patch(&mut self, x: i32, y: i32) -> usize {
-        self.paint_nest_patch_with(x, y, nest_door())
+        self.paint_nest_patch_with(x, y, nest_door_of(self))
     }
 
     /// [`World::paint_nest_patch`] with [`nest_door`]'s half-width passed in;
-    /// `None` is the shipped strip.
+    /// `None` is the strip, as painted before the door shipped.
     fn paint_nest_patch_with(&mut self, x: i32, y: i32, door: Option<i32>) -> usize {
         let Some(nest) = self.materials.id_of("nest") else {
             return 0;
         };
         // **`PIXEL_PHYSICS_NEST_DOOR=<half-width>` paints a door instead of the
-        // strip** -- see [`nest_door`]. Unset takes the shipped width and the
-        // shipped mask, bit-exact.
+        // strip** -- see [`nest_door`]; unset is the shipped door. `off` takes
+        // the strip's width and mask, bit-exact with the ant before the door.
         let door = door.map(|d| scaled_cells(self, d));
         let half_width = door.unwrap_or_else(|| scaled_cells(self, COLONY_HALF_WIDTH));
         // **The patch is a place that holds an odour, and this is where it
@@ -20608,17 +20667,24 @@ mod tests {
         }
         let before: Vec<(i32, u8)> = (0..=63).map(|x| (x, w.get(x, ground).shade)).collect();
         assert!(before.iter().any(|&(_, s)| s != before[0].1), "the bed's soil is all one shade; this guard cannot tell an inherited byte from a constant");
-        w.paint_nest_patch(32, ground - 1);
+        // **Both paints**: the strip (`NEST_DOOR=off`), whose many cells give
+        // this guard its power, and the shipped door, whose five columns
+        // lose two to the founding shaft's mouth and leave three.
         let nest_id = w.materials.id_of("nest").expect("nest is compiled in");
-        let mut checked = 0;
-        for &(x, shade) in &before {
-            if w.get(x, ground).material != nest_id {
-                continue;
+        for (door, least) in [(None, 5), (Some(NEST_DOOR_SHIPPED), 3)] {
+            let mut w = w.clone();
+            w.nest_door = Some(door);
+            w.paint_nest_patch(32, ground - 1);
+            let mut checked = 0;
+            for &(x, shade) in &before {
+                if w.get(x, ground).material != nest_id {
+                    continue;
+                }
+                checked += 1;
+                assert_eq!(w.get(x, ground).shade, shade, "column {x} took a fresh shade instead of the ground's own (door {door:?})");
             }
-            checked += 1;
-            assert_eq!(w.get(x, ground).shade, shade, "column {x} took a fresh shade instead of the ground's own");
+            assert!(checked >= least, "only {checked} cells were painted (door {door:?}); this guard would pass on nothing");
         }
-        assert!(checked > 4, "only {checked} cells were painted; this guard would pass on nothing");
     }
 
     /// **The barcode, as an assertion.** Owner playtest, 2026-09-14: *"when I
@@ -20946,6 +21012,10 @@ mod tests {
         // and the shaft that ships on since 2026-09-28 would put its mouth in
         // the middle of that core. The cut has its own tests.
         w.nest_shaft = Some(0);
+        // **And the strip, not the door.** The comb is the strip's
+        // (`PIXEL_PHYSICS_NEST_DOOR=off`); the door that ships since
+        // 2026-09-29 is five columns, unbroken, and has no drains to test.
+        w.nest_door = Some(None);
         w.paint_nest_patch(96, 99);
         let nest = w.materials.id_of("nest").expect("nest is compiled in");
         let patch: Vec<(i32, i32)> = (0..=191).flat_map(|x| (95..105).map(move |y| (x, y))).filter(|&(x, y)| w.get(x, y).material == nest).collect();
@@ -36447,15 +36517,22 @@ mod tests {
         }
     }
 
-    /// `PIXEL_PHYSICS_STOREROOM`'s spellings ([`parse_storeroom`]): unset and
-    /// `off` are off, every part reads as itself and prints back as it was
-    /// spelled, and a part it does not know reads as off -- never as some
-    /// other storeroom, which would put an arm in a sweep wearing another's
-    /// label. `post` does not apply to a side room ([`Storeroom::posts`]).
+    /// `PIXEL_PHYSICS_STOREROOM`'s spellings ([`parse_storeroom`]): unset is
+    /// the shipped granary and `off` is off, every part reads as itself and
+    /// prints back as it was spelled, and a part it does not know reads as
+    /// unset -- never as some other storeroom, which would put an arm in a
+    /// sweep wearing another's label. `post` does not apply to a side room
+    /// ([`Storeroom::posts`]).
     #[test]
     fn the_storeroom_parses_its_spellings_and_refuses_the_rest() {
-        assert_eq!(parse_storeroom(""), Storeroom::OFF);
+        // Shipped on since 2026-09-29, as the whole granary: the parts it was
+        // measured as, spelled the way the report's arms spelled them.
+        assert_eq!(parse_storeroom(""), Storeroom::SHIPPED);
+        assert_eq!(parse_storeroom("  "), Storeroom::SHIPPED);
+        assert_eq!(Storeroom::SHIPPED, parse_storeroom("on,caste=4,workerhome,side,keep"), "the shipped storeroom is the measured recipe");
+        assert_eq!(parse_storeroom(&Storeroom::SHIPPED.to_string()), Storeroom::SHIPPED, "the shipped spelling must read back as itself");
         assert_eq!(parse_storeroom("off"), Storeroom::OFF);
+        assert_eq!(parse_storeroom("on"), Storeroom { carry: true, ..Storeroom::OFF }, "parts name the rule from nothing, not on top of the shipped one");
         let all = parse_storeroom("on,home,once,post,workerhome,side,keep,caste=4,nestbound=8000/4");
         assert!(all.carry && all.room_home && all.once && all.post && all.worker_home && all.side && all.keep, "{all:?}");
         assert_eq!((all.caste, all.nest_bound, all.nest_bound_founders), (4, 8000, 4));
@@ -36464,7 +36541,23 @@ mod tests {
         assert!(parse_storeroom("on,post").posts());
         assert_eq!(parse_storeroom("nestbound").nest_bound, NEST_BOUND_FRAMES);
         for bad in ["sid", "on,sideways", "caste=0", "caste=x", "nestbound=0", "nestbound=8000/x"] {
-            assert_eq!(parse_storeroom(bad), Storeroom::OFF, "{bad:?} must read as off");
+            assert_eq!(parse_storeroom(bad), Storeroom::SHIPPED, "{bad:?} must read as unset, which is the shipped granary");
+        }
+    }
+
+    /// `PIXEL_PHYSICS_NEST_DOOR`'s spellings ([`parse_nest_door`]): shipped on
+    /// since 2026-09-29 with the granary. Unset is the five-column door,
+    /// `off` the strip, a half-width reads as itself (0 is a one-column
+    /// door), and a typo reads as unset rather than as the strip.
+    #[test]
+    fn the_nest_door_parses_its_spellings_and_refuses_the_rest() {
+        assert_eq!(parse_nest_door(""), Some(NEST_DOOR_SHIPPED));
+        assert_eq!(NEST_DOOR_SHIPPED, 2, "the half-width every figure in the granary report was measured at");
+        assert_eq!(parse_nest_door("off"), None);
+        assert_eq!(parse_nest_door("0"), Some(0));
+        assert_eq!(parse_nest_door(" 4 "), Some(4));
+        for bad in ["x", "-1", "2.5", "strip"] {
+            assert_eq!(parse_nest_door(bad), Some(NEST_DOOR_SHIPPED), "{bad:?} must read as unset, which is the shipped door");
         }
     }
 

@@ -4028,9 +4028,18 @@ design guide's §7b-i calls "already data" are Rust `const`s.
     food moved out with the colony's width; not supply, not the founding
     energy, and not traced further.
 - [nest-granary-2026-09-28.md](nest-granary-2026-09-28.md) —
-  **measurement of a scratch prototype, 2026-09-28. `engine`.** Food carried
-  into the founding chamber instead of dropped on the doorstep, the owner's
-  "Food in chamber". Lane note: [lanes/nest-mouth.md](lanes/nest-mouth.md).
+  **measurement, a scratch prototype, switches and a default change,
+  2026-09-28/29. `engine`/`lab`.** Food carried into the nest instead of
+  dropped on the doorstep, the owner's "Food in chamber". Lane note:
+  [lanes/nest-mouth.md](lanes/nest-mouth.md).
+  - **Shipped on 2026-09-29 as the whole granary (§9)**, the owner's "Full
+    granary on my default": the door (five columns) and the storeroom
+    (`on,caste=4,workerhome,side,keep`); `off` on either is the ant before.
+    On the colony bed at 20 founders it pays (food taken +33%, born 144 ->
+    226, starvation flat), at 140 cells it is close to a wash, and **at 80
+    founders it costs** (starved 848 -> 1,102, fewer alive on 21 of 24). In
+    `digbox` at 40 ants it opens 7 entrances against 2, half of it because
+    the old strip of nest paint was a roof the colony could not dig through.
   - **It can be done, and the doorstep stays clear**, but carrying is eating:
     everyone carrying in takes half again as much food off the pile and
     starves fewer, while births fall 54 -> 11 and time carrying spoil to a
