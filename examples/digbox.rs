@@ -21,6 +21,12 @@
 //! sets it to zero by construction, so what is left is the nest mechanism
 //! alone.
 //!
+//! **Fed, since 2026-09-29** ([`feed`]): every ant is topped up to its start
+//! energy each frame, so nothing starves and no ant is hungry. Before that the
+//! box starved its colony from the first tick, and a hungry colony scouts and
+//! digs as a restless one (report `nest-one-entrance-2026-09-29.md` §14);
+//! `hungry` restores it. The paragraph below is that box's arithmetic.
+//!
 //! **Nothing starves, because the run fits inside the endowment.** `ant.ron`
 //! authors `start_energy: 200` against `idle_cost_per_cell: 0.05` on a
 //! two-cell body, so an idle ant lives `200/0.1 = 2,000` decision ticks —
@@ -1279,6 +1285,13 @@ struct AntTrack {
 
 #[derive(Default)]
 struct NestFunnel {
+    /// `gridout=`: trace every cell's packing -- the frame it last became
+    /// `packedsoil` (`u64::MAX`: not since frame 0) and what it was just
+    /// before, as [`PACKED_FROM`] indexes. Off unless asked: a whole-box
+    /// scan a frame.
+    pack_trace: bool,
+    packed_frame: Vec<u64>,
+    packed_from: Vec<u8>,
     ants: std::collections::BTreeMap<u32, AntTrack>,
     before: std::collections::BTreeMap<u32, AntBefore>,
     /// The box as it stood before the frame: `None` is an organism's cell.
@@ -1578,6 +1591,8 @@ impl NestFunnel {
             self.cut_frame = vec![u64::MAX; n];
             self.put_frame = vec![u64::MAX; n];
             self.put_by = vec![0; n];
+            self.packed_frame = vec![u64::MAX; n];
+            self.packed_from = vec![0; n];
         }
         self.grid.clear();
         self.grid_org.clear();
@@ -2017,6 +2032,37 @@ impl NestFunnel {
                 if let Some(t) = self.ants.get_mut(&id) {
                     t.stage = t.stage.max(6);
                     t.cycles += 1;
+                }
+            }
+        }
+        // **Where each packed cell came from** (`gridout=`): a cell that is
+        // `packedsoil` now and was not before the frame was packed by this
+        // frame's digs, and `grid` still says what it was.
+        if self.pack_trace {
+            if let Some(packed) = world.materials.id_of("packedsoil") {
+                let soil = world.materials.id_of("soil");
+                for y in 0..b.h {
+                    for x in 0..b.w {
+                        let i = at(x, y);
+                        let c = world.get(x, y);
+                        if c.material != packed || c.organism_id() != 0 {
+                            continue;
+                        }
+                        let was = self.grid.get(i).copied().flatten();
+                        if was == Some(packed) {
+                            continue;
+                        }
+                        self.packed_frame[i] = frame;
+                        self.packed_from[i] = if y < b.surface {
+                            3
+                        } else if was == soil && self.dug[i] {
+                            2
+                        } else if was == soil {
+                            1
+                        } else {
+                            4
+                        };
+                    }
                 }
             }
         }
@@ -3636,10 +3682,19 @@ fn main() {
         let _ = writeln!(w, "frame,id,trip_start,hx,hy,heading,ahead,patience,inside,in_cut");
         trips.csv = Some(w);
     }
-    // **`fed`: every ant held at its start energy** -- see [`feed`].
-    let fed = flag("fed");
+    // **`gridout=PATH`: the whole box at every stop** -- see [`write_grid`].
+    let mut grid_out = arg::<String>("gridout").map(|path| std::io::BufWriter::new(std::fs::File::create(&path).expect("gridout: cannot create the file")));
+    funnel.pack_trace = grid_out.is_some();
+    // **Fed by default since 2026-09-29** -- see [`feed`]. The owner, asked
+    // whether the box should keep its colony fed so every picture shows a
+    // living colony: "Yes". `hungry` restores the starving box every run
+    // before that date was taken on; `fed` is still accepted and does
+    // nothing more.
+    let fed = !flag("hungry");
     if fed {
-        println!("  fed: every ant topped up to start_energy each frame (booked as granted); no food on the ground, so FoodAdjacent stays 0");
+        println!("  fed: every ant topped up to start_energy each frame (booked as granted); no food on the ground, so FoodAdjacent stays 0 (`hungry` for the starving box)");
+    } else {
+        println!("  hungry: no ant is fed, so the colony is below start_energy from its first tick and starves (the box before 2026-09-29)");
     }
     // **`pile` / `antscsv=PATH`: who stands where, and why** -- see
     // [`pile_census`]. Both switch the engine's decision log on.
@@ -3711,6 +3766,10 @@ fn main() {
             }
             if funnel_on && f > 0 {
                 println!("{}", fill_census(&world, &b, &funnel.dug, f));
+                if let Some(w) = grid_out.as_mut() {
+                    write_grid(w, &world, &b, &funnel, f);
+                    println!("{}", pack_census(&world, &funnel, f));
+                }
                 if pile_on {
                     println!("{}", pile_census(&world, &b, &trips, f, ants_csv.as_mut()));
                 }
@@ -4163,8 +4222,9 @@ impl LabLook {
     }
 }
 
-/// **`fed`: every ant topped up to its start energy each frame**, as though
-/// the colony ate from a store, booked to the colony's ledger as granted.
+/// **Every ant topped up to its start energy each frame** -- the box's
+/// default since 2026-09-29 (`hungry` turns it off) -- as though the colony
+/// ate from a store, booked to the colony's ledger as granted.
 ///
 /// Built 2026-09-29 by tracing the 200-ant pile the owner saw on the mouth
 /// (`PILE`): the box sets `start_energy` to `energy=` and puts no food in it,
@@ -4193,6 +4253,112 @@ fn feed(world: &mut World) {
         world.set_organism_energy(id, start);
         world.book(colony, Account::Granted, f64::from(short));
     }
+}
+
+/// What a packed cell was just before it was packed, for `gridout=`'s
+/// `PACKED_FROM` block: `0` packed before the trace began (the founding
+/// cut's lining), `1` undug soil below the old ground line (a wall), `2`
+/// soil standing in a cell dug since frame 0 (a hole that refilled and was
+/// then tamped), `3` anything above the old ground line (a heap), `4` other.
+const PACKED_FROM: [&str; 5] = ["before the trace", "undug soil (a wall)", "soil back in a dug cell (a refill)", "above the old ground line (a heap)", "other"];
+
+/// One `PACK` line: every packed cell standing now, by what it was just
+/// before it was packed ([`PACKED_FROM`]).
+fn pack_census(world: &World, funnel: &NestFunnel, frame: u64) -> String {
+    let packed = world.materials.id_of("packedsoil");
+    let mut n = [0u32; 5];
+    for (i, &from) in funnel.packed_from.iter().enumerate() {
+        let (w, _) = world.bounds().map_or((0, 0), |r| (r.max_x - r.min_x + 1, r.max_y - r.min_y + 1));
+        if w <= 0 {
+            break;
+        }
+        let (x, y) = ((i as i32) % w, (i as i32) / w);
+        if Some(world.get(x, y).material) == packed {
+            n[usize::from(from).min(4)] += 1;
+        }
+    }
+    let total: u32 = n.iter().sum();
+    let parts: Vec<String> = PACKED_FROM.iter().zip(n).map(|(name, c)| format!("{name} {c}")).collect();
+    format!("PACK frame={frame} packed cells standing {total}, by what they were: {}", parts.join(", "))
+}
+
+/// **`gridout=PATH`: the whole box at every stop, as text**, for questions
+/// the fixed census lines were not written to answer.
+///
+/// Built 2026-09-29 for the owner, on the tinted Q3 sheet: *"the tamped
+/// tunnel is not just walls around a tunnel or chamber. You have chambers
+/// fully enclosed by tamped soil and big blocks of tamped soil."* How thick
+/// the tamped ground is, which voids are sealed off from the mouth, and
+/// what each packed cell was before it was tamped are all questions about
+/// shape, so the shape is written out and read in a script. Per stop:
+/// `GRID` (one character a cell: `.` empty, `s` soil, `P` packed, `o`
+/// spoil, `a` a live animal, `#` stone, `c` corpse, `n` nest, `?` other),
+/// `DUG` (cells cut since frame 0), `PACKED_FROM` ([`PACKED_FROM`]'s index,
+/// `-` where the cell is not packed) and `PACKED_FRAME` (the frame it was
+/// packed, `-1` if before the trace).
+fn write_grid(w: &mut std::io::BufWriter<std::fs::File>, world: &World, b: &Box2, funnel: &NestFunnel, frame: u64) {
+    use std::io::Write;
+    let id = |n: &str| world.materials.id_of(n);
+    let (soil, packed, spoil, corpse, nest) = (id("soil"), id("packedsoil"), id("spoil"), id("corpse"), id("nest"));
+    let _ = writeln!(w, "GRID frame={frame} w={} h={} surface={} floor={}", b.w, b.h, b.surface, b.floor);
+    for y in 0..b.h {
+        let row: String = (0..b.w)
+            .map(|x| {
+                let c = world.get(x, y);
+                let m = Some(c.material);
+                if c.material == material::EMPTY {
+                    '.'
+                } else if c.organism_id() != 0 && world.materials.kind(c.material) == MaterialKind::Creature {
+                    'a'
+                } else if c.material == material::STONE {
+                    '#'
+                } else if m == soil {
+                    's'
+                } else if m == packed {
+                    'P'
+                } else if m == spoil {
+                    'o'
+                } else if m == corpse {
+                    'c'
+                } else if m == nest {
+                    'n'
+                } else {
+                    '?'
+                }
+            })
+            .collect();
+        let _ = writeln!(w, "{row}");
+    }
+    let at = |x: i32, y: i32| (y * b.w + x) as usize;
+    let _ = writeln!(w, "DUG");
+    for y in 0..b.h {
+        let row: String = (0..b.w).map(|x| if funnel.dug.get(at(x, y)).copied().unwrap_or(false) { '1' } else { '0' }).collect();
+        let _ = writeln!(w, "{row}");
+    }
+    let _ = writeln!(w, "PACKED_FROM");
+    for y in 0..b.h {
+        let row: String = (0..b.w)
+            .map(|x| {
+                if Some(world.get(x, y).material) != packed {
+                    '-'
+                } else {
+                    char::from(b'0' + funnel.packed_from.get(at(x, y)).copied().unwrap_or(0))
+                }
+            })
+            .collect();
+        let _ = writeln!(w, "{row}");
+    }
+    let _ = writeln!(w, "PACKED_FRAME");
+    for y in 0..b.h {
+        let row: Vec<String> = (0..b.w)
+            .map(|x| match funnel.packed_frame.get(at(x, y)).copied().unwrap_or(u64::MAX) {
+                u64::MAX => "-1".to_string(),
+                f => f.to_string(),
+            })
+            .collect();
+        let _ = writeln!(w, "{}", row.join(" "));
+    }
+    let _ = w.flush();
 }
 
 /// How far either side of the site's column the mound over the mouth is
