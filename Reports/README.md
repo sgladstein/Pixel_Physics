@@ -4016,10 +4016,30 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   from theirs), **contents exist without eggs** via the `live_seed` guard, the
   brain-input pricing as the argument *for* their call-site route, and the
   landing discipline. **Treat their plan as the plan.**
+- [nest-colony-size-2026-09-28.md](nest-colony-size-2026-09-28.md) —
+  **measurement, 2026-09-28. `engine`.** The nest and the colony at 40, 80
+  and 200 ants, the owner's question. Lane note:
+  [lanes/nest-mouth.md](lanes/nest-mouth.md).
+  - **A bigger colony's nest stops reading as one nest**: in `digbox`,
+    entrances 2 -> 5 -> 15.5 and roofed share 0.96 -> 0.90 -> 0.80; the
+    one-entrance rules were tuned at 40.
+  - **On the colony bed a bigger colony starves more and breeds less per
+    ant** (starved 13% -> 52% of every ant, 20 to 200 founders), with the
+    food moved out with the colony's width; not supply, not the founding
+    energy, and not traced further.
 - [nest-granary-2026-09-28.md](nest-granary-2026-09-28.md) —
-  **measurement of a scratch prototype, 2026-09-28. `engine`.** Food carried
-  into the founding chamber instead of dropped on the doorstep, the owner's
-  "Food in chamber". Lane note: [lanes/nest-mouth.md](lanes/nest-mouth.md).
+  **measurement, a scratch prototype, switches and a default change,
+  2026-09-28/29. `engine`/`lab`.** Food carried into the nest instead of
+  dropped on the doorstep, the owner's "Food in chamber". Lane note:
+  [lanes/nest-mouth.md](lanes/nest-mouth.md).
+  - **Shipped on 2026-09-29 as the whole granary (§9)**, the owner's "Full
+    granary on my default": the door (five columns) and the storeroom
+    (`on,caste=4,workerhome,side,keep`); `off` on either is the ant before.
+    On the colony bed at 20 founders it pays (food taken +33%, born 144 ->
+    226, starvation flat), at 140 cells it is close to a wash, and **at 80
+    founders it costs** (starved 848 -> 1,102, fewer alive on 21 of 24). In
+    `digbox` at 40 ants it opens 7 entrances against 2, half of it because
+    the old strip of nest paint was a roof the colony could not dig through.
   - **It can be done, and the doorstep stays clear**, but carrying is eating:
     everyone carrying in takes half again as much food off the pile and
     starves fewer, while births fall 54 -> 11 and time carrying spoil to a
@@ -4037,6 +4057,13 @@ design guide's §7b-i calls "already data" are Rust `const`s.
     93 -> 15 on the bed. A nest-worker caste (§8h) costs 11% of food taken
     and still gets few loads down: the entrance shaft is plugged with the
     workers' own crumbs.
+  - **A storeroom off one side of the entrance tunnel (`side`, §8j)**, the
+    owner's yes: five times as many loads get down (31.5 a run against 5.5)
+    and births rise 144 -> 203 with the mouth under the door, but the room
+    holds about what the chamber at the tunnel's foot did: traced, the nest
+    workers eat it as it comes in, fed or not. **Kept for the hungry**
+    (`keep`, §8k), the room becomes a granary (4.9 cells against 1.8, more
+    on 21 of 24) with the same births and starvation, at 80 founders too.
 - [nest-heap-cue-2026-09-28.md](nest-heap-cue-2026-09-28.md) —
   **measurement and a default change, 2026-09-28. `engine`/`lab`.** One
   entrance instead of ten: a dig that would open the ground to the sky needs

@@ -75,12 +75,17 @@ will be.
   `chooser_step`'s `away_from`), its caste and worker-home parts
   (`nest_within_reach`), and `nest_shaft_offset`. §5 step 6 again that day
   for the heap cue standing aside for a cut into the floor under a roof
-  (`spoil_cue_factor`). §6d and §12 again that day for the store-lunch switch
+  (`spoil_cue_factor`). §12 again that day for the storeroom's `side` part
+  (`SideRoom`, `ShaftFootprint::store_rect`, `store_target`,
+  `World::cut_founding_shaft_with`), and its `keep` part (`store_kept`, in
+  `act`'s feed branch); §6d and §12 again that day for the store-lunch switch
   (`store_lunch_of`, `act`'s pickup `from_home`) and the pellet switch
-  (`haul_bite_blocks` in `act`'s feed branch). §6d, §8 and §12 on 2026-09-29
-  for the `returns` drive and store lunch shipped on (`returns_drive`,
-  `RETURN_WINDOW`, `trip_load`, `nest_last_return`, `step_nest_need`,
-  `ForageDrive::ALWAYS`).
+  (`haul_bite_blocks` in `act`'s feed branch). §5, §6d, §8 and §12 on
+  2026-09-29 for the door and the full storeroom shipped on (`parse_nest_door`,
+  `nest_door_of`, `World::nest_door`, `Storeroom::SHIPPED`,
+  `parse_storeroom`), and §6d, §8 and §12 that day for the `returns` drive
+  and store lunch shipped on (`returns_drive`, `RETURN_WINDOW`, `trip_load`,
+  `nest_last_return`, `step_nest_need`, `ForageDrive::ALWAYS`).
   Update this line whenever a section is re-checked against the code.
 - **Edit it in place. Never append history.** When you change a mechanism
   described here, update the section in the same commit. When you find this
@@ -277,7 +282,20 @@ the tick: the ant still gets its move roll (§6) afterwards.
    store for the hungry and unloads rather than re-taking; below
    `start_energy` it eats as before.
    A successful feed roll **removes one adjacent food cell from the world
-   into the crop**, and `act` returns. **The crop is both the cargo and the
+   into the crop**, and `act` returns. **Two storeroom rules come first**
+   (since 2026-09-29, §8; `PIXEL_PHYSICS_STOREROOM=off` removes both). A fed
+   animal's won roll on a cell of the storeroom takes nothing and ends
+   `act`: **the store is kept for the hungry** (`store_kept`, counted in
+   `CreatureStats::store_kept`). And a nest worker at home, fed (at or above
+   `start_energy`), with an empty crop and empty mandibles, that wins its
+   roll beside loose food (not meat) lying more than a cell from the
+   storeroom, while the room has space, **takes the cell whole into its
+   mandibles instead of swallowing it** (`store_pickup_ok`), walks
+   it down the shaft and along the passage to the room's floor
+   (`store_target`) and puts it down there on a `DropSpoil` roll
+   (`store_drop`); it lets the load go where it stands after 48 still
+   decisions or when patience runs out, and is then pulled back up to the
+   mouth (`store_return_target`). **The crop is both the cargo and the
    stomach** (§9). `crop_capacity: 5760` worth units is six fruit cells
    (960 each), which is 1,440 J to an ant at the neutral gut.
 4. **Drop food**, whenever the crop holds anything, then **return**. The roll
@@ -576,6 +594,9 @@ The drive is the nest's need (`World::nest_need`, §8), found from
   `OrganismState::trip_load` (a pickup away from home past `FORAGE_TRIP_MIN`),
   into `World::nest_last_return`; `World::step_nest_need` starts a new nest's
   clock when it first sees it.
+**A nest worker (§8) is never driven**: `forage_drive_level` reads 0 for a
+nest-bound animal, and fed it takes no away term and is pulled home when it
+strays (`home_pull`); hungry, it scouts for food as any ant does.
 `,keep` adds the store rule in §5. `,fed` drives only an animal at or above
 its `start_energy`; below it the level reads 0 and the animal goes out on its
 own hunger. Without `,fed` the drive reaches hungry foragers too, and early in
@@ -621,7 +642,9 @@ either plane: the other trail inputs are computed and wired to nothing (§3).
 
 - **Nest material** is the species' `nest: "nest"` material. Being next to it
   drives `AtNest`, which is the only way the ant knows it is home. Founding
-  paints it on the surface as a strip of up to 53 columns (±26, a masked
+  paints it on the surface as **a door five columns wide, unbroken, since
+  2026-09-29** (`NEST_DOOR_SHIPPED`, a half-width of 2; before it, and under
+  `PIXEL_PHYSICS_NEST_DOOR=off`, a strip of up to 53 columns, ±26, a masked
   comb with an unbroken core), and **since 2026-09-28 also cuts a shaft**
   `NEST_SHAFT_ROWS` (6) rows deep and 2 wide under the founding point, with
   an entrance chamber at the bottom, lined, and records it in
@@ -631,13 +654,18 @@ either plane: the other trail inputs are computed and wired to nothing (§3).
   the nest paint over its mouth): a column opens only where the cell under
   the paint is not empty and not too hard, it stops at stone, gravel or sand,
   the chamber is cut only if a column reached it, and on rock the nest is
-  painted and nothing is cut. Under
-  `PIXEL_PHYSICS_NEST_DOOR=<d>` it paints `2d + 1` columns, unbroken, instead:
-  a door (§12).
+  painted and nothing is cut. `PIXEL_PHYSICS_NEST_DOOR=<d>` paints `2d + 1`
+  columns (§12). **Since 2026-09-29 the cut also holds a storeroom**
+  (`Storeroom::SHIPPED`'s `side`; `SideRoom`, `cut_founding_shaft_with`): a
+  passage two rows tall leaves the shaft's wall halfway down, on the side
+  away from the door (west when the mouth is under it), and runs past the
+  chamber's end to a room as wide as the chamber (7 columns), its floor a
+  row below the passage's, so food on it lies under the level ants walk at.
+  It is cut only where the shaft was, on the same rules.
 - **`forage_anchor`** is a world coordinate. It is set to the spawn cell at
-  birth (for a founder under `PIXEL_PHYSICS_NEST_DOOR`, to the cell above the
-  door's centre instead, read from the surface the founding started on, so a
-  founding shaft through the door leaves it at the mouth), and **reset to the new head cell on every step that lands next to
+  birth (for a founder, to the cell above the door's centre instead, read
+  from the surface the founding started on, so a founding shaft through the
+  door leaves it at the mouth; under `NEST_DOOR=off`, its spawn cell), and **reset to the new head cell on every step that lands next to
   nest material** (in `step_chain`, not after falls, swaps or reversals).
   So the anchor is the last cell the ant stood on **beside** the nest, and
   leaving a wide nest anchors it at the edge it left from, not at the
@@ -658,7 +686,16 @@ either plane: the other trail inputs are computed and wired to nothing (§3).
 - **`NestSite::larder`** is where a nest keeps its food: a running mean of
   the cells food is delivered onto (each new delivery weighs `LARDER_EMA`,
   0.05). Only the hungry-home switch reads it (§6d). On the colony bed
-  deliveries land at the end of the strip facing the food.
+  deliveries land on the door (under `NEST_DOOR=off`, at the end of the strip
+  facing the food).
+- **Nest workers** (since 2026-09-29, `Storeroom::SHIPPED`'s `caste=4` and
+  `workerhome`): one ant in four, by id, founders and the born alike, is
+  nest-bound for life (`OrganismState::nest_bound_until` at `u64::MAX`,
+  `is_nest_bound`). The founding cut (shaft, chamber, side room and the rim
+  of the mouth) is home to a nest worker and only to it
+  (`nest_within_reach`), so it lives, eats, digs and breeds there while the
+  foragers keep the door. The forage drive never reaches it (§6d), and it
+  alone carries food into the storeroom (§5 step 3).
 - **`World::nest_last_return`**, one per nest site, is the frame a forager
   last came home to it with food from a trip, read by the shipped `returns`
   drive (§6d); `World::step_nest_need` stamps a site it has not seen with the
@@ -805,7 +842,7 @@ Read once per process from the environment. The default is what ships.
 | `CROSS_TRUNK`, `TISSUE_PARTING` | on | `0` |
 | `PIXEL_PHYSICS_DIGEST` | continuous | `lump`: pays out per whole cell |
 | `PIXEL_PHYSICS_LOAD_BY` | joules | `cells`: a load weighs the cells in the crop, not its worth ÷ 480 (§9) |
-| `PIXEL_PHYSICS_NEST_DOOR` | strip | `<d>`: founding paints a door of `2d + 1` columns instead of the strip, and every founder's home is the door (§8) |
+| `PIXEL_PHYSICS_NEST_DOOR` | 2 | `off`: founding paints the strip of up to 53 columns and every founder's home is its spawn cell, the ant before 2026-09-29; `<d>`: a door of `2d + 1` columns, every founder's home the door (§8); a value it cannot read is read as unset; `World::nest_door` for one world |
 | `PIXEL_PHYSICS_NEST_DOOR_FOUNDERS` | spread | `pile`: under the door, founders start heaped on it instead of spread along the ground (§8) |
 | `PIXEL_PHYSICS_SCOUT` | 2 | `<gain>`: under `trailaway`, a hungry empty ant off a route runs out from home and back (§6d); `0` turns it off; `World::scout` for one world |
 | `PIXEL_PHYSICS_HUNGRY_HOME` | off | `on`/`refed` or `tether`: an empty ant too hungry to be out is pulled home to its nest's larder (§6d, §8); `World::hungry_home` for one world |
@@ -816,7 +853,7 @@ Read once per process from the environment. The default is what ships.
 | `PIXEL_PHYSICS_BIRTH_PRICE` | `guaranteed` | `face`: a birth counts a bare seed in reach at its full worth, though a bite that spares it pays a quarter, so the top-up can leave the parent overdrawn (§9); `World::birth_price` for one world |
 | `PIXEL_PHYSICS_CARRY_PATIENCE` | `pickup` | `off`: a carry's home patience restarts only at the first pickup, not at every one (§6d step 5, bug Z35); `World::carry_patience` for one world |
 | `PIXEL_PHYSICS_LOAD_SCALE` | 1.0 | `<f>`: every food load weighs `f` times as much again, on top of the species' `food_weight` (§9) |
-| `PIXEL_PHYSICS_STOREROOM` | off | parts, comma-joined: `on`, a fed ant at home with an empty crop and empty mandibles, on a won `Feed` roll beside loose food more than a cell from its nest's founding chamber, takes the cell whole into its mandibles instead of swallowing it (`store_pickup_ok`); the load is pulled home to the chamber (`home_pull`, `home_target`, `HomeAligned` read as laden), goes down on a `DropSpoil` roll only in or beside the chamber (`store_drop`), is let go where it stands after 48 still decisions or when patience runs out, and its carrier is pulled back up to the mouth (`store_return_target`); a pick-up within a cell of the chamber reads as at home. `home`: the chamber is home to `adjacent_nest` (§8). `once`: one load until the next pick-up away from home. `post`: the load is handed down the open shaft from the mouth instead of walked down (`store_post_site`). `nestbound=<frames>[/<k>]` (bare: 8,000): an ant born in the colony, and with `/<k>` one founder in `k`, is nest-bound for its first `<frames>` (`OrganismState::nest_bound_until`, `is_nest_bound`): the forage drive reads 0 for it, fed it takes no away term and is pulled home when it strays (`home_pull`), and only it carries. `caste=<k>`: one ant in `k`, by id, founders and born, is nest-bound for life. `workerhome`: the founding cut is home to a nest-bound ant only (`nest_within_reach`). `World::storeroom` for one world |
+| `PIXEL_PHYSICS_STOREROOM` | `on,caste=4,workerhome,side,keep` | `off`: no storeroom and no nest workers, the ant before 2026-09-29. Otherwise parts, comma-joined, naming the whole rule (so `on` alone is the carry and nothing else), and a value it cannot read is read as unset: `on`, a fed ant at home with an empty crop and empty mandibles, on a won `Feed` roll beside loose food more than a cell from its nest's founding chamber, takes the cell whole into its mandibles instead of swallowing it (`store_pickup_ok`); the load is pulled home to the chamber (`home_pull`, `home_target`, `HomeAligned` read as laden), goes down on a `DropSpoil` roll only in or beside the chamber (`store_drop`), is let go where it stands after 48 still decisions or when patience runs out, and its carrier is pulled back up to the mouth (`store_return_target`); a pick-up within a cell of the chamber reads as at home. `home`: the chamber is home to `adjacent_nest` (§8). `once`: one load until the next pick-up away from home. `post`: the load is handed down the open shaft from the mouth instead of walked down (`store_post_site`). `nestbound=<frames>[/<k>]` (bare: 8,000): an ant born in the colony, and with `/<k>` one founder in `k`, is nest-bound for its first `<frames>` (`OrganismState::nest_bound_until`, `is_nest_bound`): the forage drive reads 0 for it, fed it takes no away term and is pulled home when it strays (`home_pull`), and only it carries. `caste=<k>`: one ant in `k`, by id, founders and born, is nest-bound for life. `workerhome`: the founding cut is home to a nest-bound ant only (`nest_within_reach`). `side`: the storeroom is a room cut at founding off one side of the entrance shaft (`SideRoom`), on the side away from the door, joined to the shaft by a passage two rows tall halfway down, its floor a row lower; every rule above reads its rectangle in place of the chamber's (`ShaftFootprint::store_rect`), a carrier in the shaft or the chamber is pulled to the passage's far floor cell and then the room's floor (`store_target`), and `post` does not apply. `keep`: a fed animal's won `Feed` roll on a storeroom cell takes nothing and ends its turn, so only a hungry one eats the store (`store_kept`, counted in `CreatureStats::store_kept`). `World::storeroom` for one world |
 | `PIXEL_PHYSICS_NEST_SHAFT_OFFSET` | 0 | `<cells>`: the founding shaft is cut that many columns from the founding point (negative is west), so a door (`PIXEL_PHYSICS_NEST_DOOR`) has the mouth beside it (§8) |
 | `PIXEL_PHYSICS_DIG_DOWN` | `1.0,enclosed` | `off` (or `0`): no turn, the ant before 2026-09-28; `<w>`: the turn with chance `w` for any digger; `<w>,enclosed`: only an enclosed one (§5 step 6) |
 | `PIXEL_PHYSICS_SPOIL_HAUL`, `_SPOIL_DROP_COVER`, `_TRAFFIC_DEFER`, `_COLONY_SPACING` | unset | haulage re-roll to the nest door, spoil held under cover, jam deferral length, founder spacing |
