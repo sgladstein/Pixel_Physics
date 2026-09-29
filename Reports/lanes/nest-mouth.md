@@ -63,6 +63,12 @@ the live question, what is addressed to another lane, predictions and heads.*
   (`NEST_DOOR_SHIPPED`, 2) and the whole storeroom
   (`Storeroom::SHIPPED`, `on,caste=4,workerhome,side,keep`) ship on; `off`
   on either is the ant before.
+- **2026-09-29: the carry yes, stacking yes, widening waits.** "Q1 - Yes"
+  (carry pellets away from the mouth); "Q3 - this seems much better for the
+  200 ant tests" (stacking); widening "looks slightly better with the 40
+  ants... Everything again is broken at 200-ants so no impact on Q2 but
+  needs more thinking." The 200-ant pile is the owner's "huge problem"
+  (report §14).
 - **2026-09-28: build at one size, then expand -- to larger colonies.** "It
   is fine if we develop the next on a certain ant size and then expand it
   ... We eventually do want our nests to work for larger colonies." Every
@@ -72,40 +78,24 @@ the live question, what is addressed to another lane, predictions and heads.*
 
 ## Live question
 
-**One entrance round the door: the walked cycle, traced**
-([`../nest-one-entrance-2026-09-29.md`](../nest-one-entrance-2026-09-29.md)
-§10). The owner picked "walk it out, then back to the dig". Three faults in
-`SPOIL_OUT` fixed (`86adc504`): a carrier that gave up posted its pellet up
-through the roof (that, not the trip back, was the first build's growth),
-the haul aimed inside the shaft, and the laden pace read 0 at the mouth.
-Now 1.5 entrances at 40 ants and 3 at 200, but a small nest: 43 and 70
-cells against the lift's 207.5 and 613.5. Bed: starvation no worse, births
-lower (160 against 223 at 20 founders). Lab: births 0.76 per seed; the
-mouth ends under its own loose soil (open 1 of 12 against 6). **Traced
-(§11): not a shaft jam.** Carriers put pellets on the mouth's rim and bury
-their own exit (53% of top-cell decisions have no way up); card `…2d6747`'s
-relay would not help (dead end creatures:112). Card `…04be5b` asks: may a
-carrier walk its pellet away from the mouth first (a crater ring)?
+**The 200-ant pile** ([`../nest-one-entrance-2026-09-29.md`](../nest-one-entrance-2026-09-29.md)
+§14). Traced per animal (`PILE`, `antscsv=`): not a queue and not ants at
+home but hungry scouts (the box is hungry from frame 1), 38 of 50 nest
+workers among them. Fed (`fed`), the heap flattens but the ants rest on the
+surface round the mouth, and the colony digs far slower (3,001 digs by
+frame 12,000 hungry against 273 fed, 200 ants with stacking). **Every
+dig-box nest so far was dug by a starving colony.** The gaps: nothing takes
+a resting ant inside (a forager's home is the door on the surface), and
+digging follows restlessness, not the crowd inside. Asked the owner: a fed
+box, then "the colony lives inside its nest" with the foraging lane.
 
-- **The granary does not scale.** On the bed at 80 founders: starved 848 ->
-  1,102, fewer alive at the end on 21 of 24. At 20 it pays (born 144 ->
-  226).
-- **The lane's box starves its colony**: at `energy=1000` and no food the 40
-  ants are at a quarter of their energy by frame 12,000 and nearly all dead
-  by 24,000; anything that brings ants to the surface meets hunger's
-  scouting there. Read late stops with that in mind.
-
-**Next** (2026-09-29):
-1. **Handoff (2026-09-29 evening):** branch `nest57-local` in worktree
-   `.claude/worktrees/nest57`, pushed as `claude/ant-nest-mouth-4f6s79`,
-   carries the jam trace (report §11), the carry `SPOIL_RING` (§12) and
-   widening `DIG_WIDEN` (§13), all off, WIP commits to squash. Still to do:
-   the bed identity (trailfollow unset vs main), full tests, clippy, PR.
-   Owner cards open: `…04be5b` (carry), `…ca2baa` (widening); stacking
-   (§13) is a big win at 200 ants and ships off: ask whether to default it.
-2. **Nest workers who go out when the colony is hungry** (the scale cost;
-   harvester workers switch tasks with the colony's need).
-3. The brain input for the cue (owner's order), planned with the lab lines.
+**Next** (2026-09-29, evening):
+1. Land the branch (jam trace, carry on, widening off, the dig box's new
+   instruments); stacking by default after the foraging lane has had its
+   say (poked).
+2. On the owner's answer: the dig box fed by default, then the step above.
+3. Nest workers who go out when the colony is hungry; the brain input for
+   the cue (owner's order), planned with the lab lines.
 
 ## Working agreement with the foraging lane (2026-09-27)
 
@@ -174,9 +164,9 @@ exploratory and carry none.
 
 **2026-09-29: "I cannot review the queue, post questions/images in this
 chat."** Show pictures with `SendUserFile` and ask in chat; the queue cards
-below are the record, not the channel. Same day: digbox sheets in the
-lab's colours (`look=lab`, default; render-only, logs identical). Open in chat: the carry
-(`…04be5b`), widening (`…ca2baa`), stacking by default. Superseded by
+are the record, not the channel. Same day: digbox sheets in the lab's
+colours (`look=lab`, default; render-only). Answered in chat: the carry
+(`…04be5b`) yes, stacking yes, widening (`…ca2baa`) waits. Superseded by
 §11's trace: `…2d6747` (relay) and `…f4ca75` (the lab's buried mouth).
 Older cards are named in the reports that posted them.
 

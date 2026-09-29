@@ -584,3 +584,90 @@ chambers, already wide; the galleries are what reads as thin, and the
 pictures (card `…ca2baa`, seeds by rule) are the judgement. Predictions 227
 holds, 228 and 229 fail (§8's list continues in the lane's scratch).
 
+
+## 14. The owner's answers, and the 200-ant pile traced (2026-09-29, evening)
+
+*Asked in chat with the pictures redrawn in the lab's colours (`digbox`
+`look=lab`, render-only, logs identical). The owner: "Q1 - Yes. This also
+exposes a huge problem with the 200-ant colony. It is just a huge pile of
+ants at the entrance and they totally fill the nest. Q2 - Looks slightly
+better with the 40 ants (although might be within normal variability).
+Everything again is broken at 200-ants so no impact on Q2 but needs more
+thinking. Q3 - this seems much better for the 200 ant tests. What is the
+darker brown in the nest the borders/edges the tunnels? In Q3 bottom right
+image, it looks like the tunnels have filled in with the darker brown
+material."* So the carry is approved, stacking is approved, and widening
+waits for 200 ants to work.
+
+**The darker brown** (`FILL` and `tintout=`'s two new classes, corpses and
+soil back in a dug cell). The borders are **tamped lining**: every tunnel
+wall an ant presses turns to `packedsoil`, whose palette is greyer and
+darker than `soil`'s. The filled tunnels are **the nest refilling
+itself**. In the Q3 run (200 ants, walked + carry + stacking, seed 6), of
+477 cells dug below the old ground line by frame 24,000, 147 are still
+open: 146 lining, 129 loose soil, 54 pellets. Half of it had refilled while
+the colony was alive (191 of 388 by frame 12,000). Carriers that cannot get
+out let go inside (306 pellets inside against 221 outside by 18,000, and
+138 died holding one), and a pellet crumbles to soil and is then tamped
+into the wall. At 40 ants the same nest stays open: 72 of 105. And that
+bottom row was a dead colony: the box has no food, and 6 of the 200 were
+alive at frame 24,000.
+
+**Who is in the pile** (`PILE`, `antscsv=`: every live animal at each stop
+booked by where its head is and by its own last decision). Today's nest,
+200 ants, seed 21, frame 6,000: 149 of 200 above the old ground line, 98 of
+them 5 or more rows up (standing on one another), all within 15 columns of
+the mouth. **None of the pile is queuing to get in, and none is at home**
+(`AtNest` 0, the home test replayed: 0 of 88 on the mound); none has stood
+still for 60 frames. They are **scouts**: the chooser's scouting weight
+reads 0.5 at frame 6,000 and 1.3 by 12,000. **38 of the 50 nest workers are
+up there too.** The box sets `start_energy` to `energy=` and holds no food,
+so every ant is below its start energy from its first tick and the engine
+reads the whole colony as hungry for the whole run; a hungry empty ant
+scouts, and a nest worker is pulled home only while fed (`home_pull`, and
+`chooser_step`'s way out). At 40 ants the same scouts spread across the box
+(22 of 29 above ground stood 40+ columns from the mouth); at 200 their
+loops overlap on the mouth.
+
+**Fed** (`fed`: every ant topped up to `start_energy` each frame, booked as
+granted; still no food on the ground). The heap flattens to a carpet (5+
+rows up: 98 -> 25, and 7 with stacking) but does not go: **fed ants rest
+where they stop**, and they stop on the surface round the mouth (79 of 126
+had stood still 60+ frames at frame 6,000, 112 of the 126 above ground).
+Nest workers are still out (24 of 31). And **a fed colony digs far
+slower**:
+
+| seed 21 (40 ants: seed 2) | hungry | fed |
+|---|---:|---:|
+| 200 ants + stacking: digs by frame 12,000 | 3,001 | 273 |
+| cells dug below ground by 12,000 / 24,000 | 1,574 / 2,347 | 163 / 1,130 |
+| alive at 24,000 (of 200) | 4 | 169 |
+| underground at 24,000 | 2 | 97 |
+| 40 ants: digs by 12,000 / 24,000 | 488 / 680 | 289 / 708 |
+
+So **every nest judged in this box was dug by a starving, restless
+colony**. Two gaps come out of it, and neither is the mouth. A resting ant
+rests where it stops, and nothing takes it inside: three ants in four
+(the foragers) have the door on the surface as home, and the nest is a
+place they dig, not a place they live. And digging follows restlessness,
+not the crowd: the hungry colony dug the whole box and died, the fed one
+barely dug while it rested on the surface. A real colony keeps most of its
+workers inside, the idle ones resting in chambers, and digs in proportion
+to its numbers, stopping when there is room for everyone (Rasse and
+Deneubourg 2001, *Lasius niger*: excavation slows as the room per ant
+grows; Buhl et al. 2004, *Messor sancta*: volume dug grows with group
+size). The fed box's 200-ant nest at frame 24,000 (97 of
+169 underground, 1,130 cells dug) is the nearest picture of that so far.
+
+Predictions 230-234 (written before the fed runs) scored: 230, 231 and 234
+fail, 232 fails narrowly, 233 holds; the fed colony's slow digging was not
+predicted. One run per arm; the pile census is per animal, so it is
+the trace, not a split, and the fed/hungry digging gap is large enough to
+read from one seed a size, but it has not been swept.
+
+**Instruments added** (`digbox`, all read-only; runs are identical with
+them on): `FILL` (what stands in every cell dug since frame 0, and the
+lining on undug walls), `PILE` and `antscsv=PATH` (every live animal: place,
+caste, pellet, home replayed, frames still, and its last decision row's
+`AtNest`, crowding, energy, outcome, scouting), `tintout=`'s corpse (green)
+and refilled-soil (violet) classes, and `fed`.
