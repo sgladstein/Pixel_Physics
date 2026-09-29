@@ -9961,8 +9961,9 @@ old default is both switches `off`):
   colony opens 7 entrances against 2. Half of that is the door: nest paint
   cannot be dug, so the old 53-column strip was a roof the colony could only
   dig under, and round a five-column door the ground is plain soil. The other
-  half is the nest workers, who read the whole founding cut as their nest,
-  where crowding drives digging. On the colony bed, where there is food to
+  half is the storeroom (alone, with the strip kept, it gives 6): its nest
+  workers, whose home is the whole founding cut, or the room cut off the
+  shaft -- not yet traced which. On the colony bed, where there is food to
   fetch, the nest reads as one entrance with a mound over the storeroom.
 - **It does not scale yet.** At 80 founders a quarter of the colony staying
   home is more than its foragers can feed. One storeroom, cut at founding,

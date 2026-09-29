@@ -83,8 +83,8 @@ founding shaft and the heap cue (#507), dig down for an enclosed digger
   7 entrances against 2, and no seed is more nest-like than random digging
   (21 of 24 before). Half of it is the door: nest paint cannot be dug, so
   the old strip was a roof the lane's one entrance was measured under. Half
-  is the nest workers, whose home is the whole cut, where crowding drives
-  digging. On the bed, with food to fetch, the nest reads as one entrance.
+  is the storeroom (alone it opens 6): its nest workers or its room, not yet
+  traced which. On the bed, with food to fetch, the nest reads as one entrance.
 - **The granary does not scale.** On the bed at 80 founders: starved 848 ->
   1,102, fewer alive at the end on 21 of 24. At 20 it pays (born 144 ->
   226).

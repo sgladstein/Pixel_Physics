@@ -678,11 +678,12 @@ nest-like at that size, as before.
   entrance at 40 ants was measured under that roof. Round a five-column door
   the ground is plain soil, and the heap cue and dig down do not hold one
   entrance there on their own.
-- **The other half is the nest workers.** A nest worker reads the whole
-  founding cut as its nest (`workerhome`, `nest_within_reach`), and at the
-  nest the ant's crowding term drives digging (`ant.ron`'s hidden units 5-6),
-  so ten nest workers packed in the cut dig; with no food in the box they
-  have nothing else to do. Not traced per ant.
+- **The other half is the storeroom**: alone, with the strip kept, it opens
+  6. Which of its parts does it is not traced: the nest workers, who read the
+  whole founding cut as their nest (`workerhome`, `nest_within_reach`), where
+  the ant's crowding term drives digging (`ant.ron`'s hidden units 5-6), or
+  the room cut off the shaft. (A first draft of this line said the nest
+  workers, as fact; nothing had traced it.)
 - **On the colony bed, where there is food, the nest does not look like
   this**: one entrance under the door, with a mound of spoil over the
   storeroom's side (seed 8, the median seed on food in the storeroom, frames

@@ -827,9 +827,9 @@ colony could only dig beneath it. Round the small door the ground is ordinary
 earth. Watched in a test colony with food to fetch, the nest still reads as
 one entrance under the door; but a colony with nothing else to do hollows a
 wide nest just under the surface, with
-several holes up through it and spires of spoil over them, and the nest
-workers, at home in the dug rooms, dig there too. Keeping one entrance without
-the strip's help is the next thing to fix.
+several holes up through it and spires of spoil over them; the storeroom adds
+to that, in a way still being traced. Keeping one entrance without the strip's
+help is the next thing to fix.
 
 ### They lay two scents, and the two do not keep
 
