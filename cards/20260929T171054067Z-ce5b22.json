@@ -1,0 +1,96 @@
+{
+  "id": "20260929T171054067Z-ce5b22",
+  "created": "2026-09-29T17:10:54Z",
+  "board": "nest",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics/.claude/worktrees/nest57",
+    "branch": "nest57-local",
+    "commit": "7ee0e338",
+    "agent": null,
+    "session_id": "02cfa3f7-cc46-597e-8f90-5488d21d3601",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics/.claude/worktrees/nest57"
+  },
+  "title": "The nest no longer leans west",
+  "question": "The fixed nest spreads its galleries down both sides of the door. Does it read better, the same, or worse than today’s one-sided nest?",
+  "context_md": "**What changed.** An ant already underground turns one step toward straight down before it digs (shipped 2026-09-28). An ant facing straight *up* has no shorter way round, and the rule always took the same side, so every such digger came down through the west. The other lane's review found it; now each such turn takes either side by a coin of its own.\n\n**What it did to the nest** (dig box, 40 ants, 24 seeds, frame 24,000):\n\n| | today | this change |\n|---|---:|---:|\n| nest leans west of the door (seeds) | **24 of 24** | 22 of 24 |\n| median lean, columns | -11 | -8 |\n| dug cells standing (median) | 207.5 | 260 (more on 20 of 24) |\n| entrances (median) | 6.5 | 6 |\n| turns down booked (sum) | 16,188 | 16,829 |\n\n**Most of the lean that is left is the storeroom**, which the founding cuts on the west side: the founding cut alone reads -5. With the storeroom off, today's nest leans west on 19 of 24 and the fixed one on 10 (12 east, median +0.5). At 200 ants: west on 21 of 24 today, 15 with the change.\n\nAlso in this PR, invisible here: the founding cut leaves a corpse where it lies (it used to delete it, and its food value with it), and a species founds with its own jaw (a beetle colony used to dig the ants' shaft). Colony bed: born 179 -> 188, starved 82 -> 57.",
+  "kind": "frames",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "before: every digger facing up turns down through the west (seed 1)",
+      "files": [
+        "20260929T171054067Z-ce5b22/000-main-s1-f6000.png",
+        "20260929T171054067Z-ce5b22/001-main-s1-f12000.png",
+        "20260929T171054067Z-ce5b22/002-main-s1-f18000.png",
+        "20260929T171054067Z-ce5b22/003-main-s1-f24000.png"
+      ],
+      "caption": "main today; frames 6,000 / 12,000 / 18,000 / 24,000",
+      "meta": {
+        "turns down booked": 671,
+        "nest centre, columns from the door (negative = west)": -10,
+        "dug cells standing": 208,
+        "entrances": 6
+      },
+      "focus": null
+    },
+    {
+      "label": "after: it turns down through either side (seed 1)",
+      "files": [
+        "20260929T171054067Z-ce5b22/004-r3-s1-f6000.png",
+        "20260929T171054067Z-ce5b22/005-r3-s1-f12000.png",
+        "20260929T171054067Z-ce5b22/006-r3-s1-f18000.png",
+        "20260929T171054067Z-ce5b22/007-r3-s1-f24000.png"
+      ],
+      "caption": "this change; frames 6,000 / 12,000 / 18,000 / 24,000",
+      "meta": {
+        "turns down booked": 782,
+        "nest centre, columns from the door (negative = west)": -1,
+        "dug cells standing": 258,
+        "entrances": 7
+      },
+      "focus": null
+    },
+    {
+      "label": "before: every digger facing up turns down through the west (seed 20)",
+      "files": [
+        "20260929T171054067Z-ce5b22/008-main-s20-f6000.png",
+        "20260929T171054067Z-ce5b22/009-main-s20-f12000.png",
+        "20260929T171054067Z-ce5b22/010-main-s20-f18000.png",
+        "20260929T171054067Z-ce5b22/011-main-s20-f24000.png"
+      ],
+      "caption": "main today; frames 6,000 / 12,000 / 18,000 / 24,000",
+      "meta": {
+        "turns down booked": 847,
+        "nest centre, columns from the door (negative = west)": -10,
+        "dug cells standing": 210,
+        "entrances": 7
+      },
+      "focus": null
+    },
+    {
+      "label": "after: it turns down through either side (seed 20)",
+      "files": [
+        "20260929T171054067Z-ce5b22/012-r3-s20-f6000.png",
+        "20260929T171054067Z-ce5b22/013-r3-s20-f12000.png",
+        "20260929T171054067Z-ce5b22/014-r3-s20-f18000.png",
+        "20260929T171054067Z-ce5b22/015-r3-s20-f24000.png"
+      ],
+      "caption": "this change; frames 6,000 / 12,000 / 18,000 / 24,000",
+      "meta": {
+        "turns down booked": 631,
+        "nest centre, columns from the door (negative = west)": -9,
+        "dug cells standing": 262,
+        "entrances": 4
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
