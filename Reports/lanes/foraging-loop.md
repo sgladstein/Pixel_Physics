@@ -7,10 +7,8 @@ This note keeps the owner's rulings, the live question, the baseline, the
 commands and the traps.*
 
 - **Previous session:** `session_01Pt5N39pfcix13hMycPN9Xs`, branch
-  `claude/ant-foraging-loop-handoff-986v7n` (2026-09-28/29): packed lunch,
-  the birth price, why food does not build up (§22q), foragers retire
-  (§22r), the `returns` drive (§22s), store lunch held off on the granary
-  and the test-bed review (§22t).
+  `claude/ant-foraging-loop-handoff-986v7n` (2026-09-28/29): §22o-§22u,
+  packed lunch through the `returns` drive and the trip reach.
 - **Peer lanes:** the nest-mouth lane ([`nest-mouth.md`](nest-mouth.md))
   shipped the granary (#513, 2026-09-29: a door, a storeroom, nest workers,
   `keep`). Every baseline before it is a different ant; its `keep` and
@@ -74,28 +72,29 @@ The granary alone keeps that ant home. So a lunch needs a bearing before it
 can ship.
 
 **Next:** give a driven forager a bearing out of the nest (open problem 1);
-then store lunch again. The `returns` drive barely fades on the granary
-(open problem 2).
+then store lunch again. The trip reach (§22u) made the `returns` drive fade
+when food stops; what is left is its clock (open problem 2).
 
 - **Read food taken, and food standing at the nest** (`FOOD STORE`'s
   `nest food`, mean from 6,000); "net food into home" overcounts (§22j).
 
 ## Baseline (`main` with the granary, `returns` and the trip reach, 2026-09-29)
 
-Colony bed, no trail, 24 seeds (a1c561f3, `TRIP_REACH=on`):
+Colony bed, no trail, 24 seeds (e9d6562f, the shipped build), unlimited pile:
 
 | | food taken from the pile | food at the nest | starved | born |
 |---|---:|---:|---:|---:|
-| 90 cells | 5,824 | 11,990 J | 82 | 180 |
-| 140 cells | 4,610 | 9,321 J | 110 | 85 |
-| 80 founders at 135 | 8,184 | 8,801 J | 1,094 | 59 |
-| 90, `TRIP_REACH=off` (before 09-29) | 5,992 | 12,147 J | 73 | 223 |
+| 90 cells | 5,806 | 11,971 J | 82 | 179 |
+| 140 cells | 4,602 | 9,294 J | 110 | 87 |
+| 80 founders at 135 | 8,106 | 8,726 J | 1,102 | 58 |
+| 90, `TRIP_REACH=off` (`main` at ac8644fe) | 5,992 | 12,147 J | 73 | 223 |
 
-Unlimited 90 is noisy at 24 seeds: 48 more read starved 206 -> 209 off/on.
-Lab box (`played_bed`, 120,000 frames, 24 seeds, rain), medians: births
-453.5, food eaten 1,147k J, ant-frames 10.1M, starved per million
-ant-frames 9.0. Off: 428, 1,122k, 9.5M, 9.2. No earlier lab number is
-comparable (no rain, no granary).
+Unlimited 90 is noisy: 48 more seeds read starved 206 -> 206.
+Pulsed pile at 90 (`food=30 refill=6000`): 2,602 / 275 / 35 (off 2,680 /
+273 / 46). Lab box (`played_bed`, 120,000 frames, 24
+seeds, rain), medians off -> on: births 428 -> 522.5, food eaten 1,122k ->
+1,283k J, ant-frames 9.5M -> 10.6M, starved per million ant-frames 9.2 ->
+10.4 (none at p < 0.05). No earlier lab number is comparable.
 
 ## Ranked open problems
 
@@ -108,8 +107,11 @@ comparable (no rain, no granary).
 2. **The drive's clock hears of food only at the door** (§22u). The trip
    reach (on) stopped food beside the door booking returns; what is left is
    a false stand-down at 20 founders on a paying pile (seed 7: 83% of its
-   low-drive time had a load on the road). A longer window fixed the bed and
-   cost the lab. Births lean lower at 90 cells (72 seeds 562 -> 480).
+   low-drive time had a load on the road), and every refill of the pulsed
+   pile starts with the drive down (0.613 in the first 1,000 frames, against
+   0.936 off). A longer window fixed the bed and leaned worse on every lab
+   gate, none significant. Births lean lower at 90 cells (72 seeds 562 ->
+   484), food standing at the nest with them (27/37).
 3. **Early deaths.** Founders that never reach the food die early (35% of
    the starved on the granary at 90 cells). Only the road and the nest
    (§17b, §19), or a founding store, reach them.
@@ -139,7 +141,7 @@ comparable (no rain, no granary).
   **crash timing, not harm** (the box peaks ~90,000 and grazes out), in their
   own block; net food into home is last, an overcount (§22j).
 - **`trailfollow decisioncsv dtag=`**: the per-decision trace. Since 09-27 it
-  carries `energy_j` (`energy` is clamped at the 200 J grant) and `drive`,
+  carries `energy_j` and `drive`,
   `scout_w`, `scout_patience`, `scout_home`; since 09-29 `trip_load` and
   `forage_max` (what the `returns` drive books: `scripts/tripsrc.py`), and
   `bite_x,bite_y,bite_tissue,bite_door,trip_src` (the trip reach's food cell;

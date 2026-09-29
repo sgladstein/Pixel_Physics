@@ -22,7 +22,9 @@ coming home.** A forager that has eaten goes back out while other foragers
 keep bringing food in; when none has come home for about one round trip, the
 fed ones stay home -- and only food carried in from out in the world counts:
 food shuffled about beside the door by ants at home does not. Where food
-keeps arriving nothing changes. A second
+keeps arriving they keep going, with one weak spot: the nest only hears of
+food when it reaches the door, so a slow trickle, or a heap that has just
+filled again, can read as none for a while and the fed hold back. A second
 change, letting a forager take the nest's own food out with it as a lunch,
 was tried the same day and held back: with the new front door it walks out
 west with its lunch, where there is nothing to find, digs, and starves.

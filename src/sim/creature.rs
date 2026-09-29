@@ -14641,10 +14641,12 @@ fn returns_drive(age: u64) -> f32 {
 /// read once per process; unset (or unreadable, reported) is
 /// `RETURN_WINDOW`. A knob for sweeping the window, measured once
 /// (2026-09-29, §22u): with the trip reach on, 1,750 kept the colony bed's
-/// unlimited pile safer (worst seed's drive 0.754 -> 0.884) and cost the
-/// lab box on every gate (starved per million ant-frames 9.2 -> 13.9, 16/8;
-/// food eaten -11%), because a longer window keeps fed foragers out while a
-/// box grazes bare -- the case the drive exists for. 1,400 stays.
+/// unlimited pile safer (worst seed's drive 0.754 -> 0.884) and leaned worse
+/// on every lab-box gate, none significantly (starved per million
+/// ant-frames 9.2 -> 13.9, 16/8, p 0.15; against the 1,400 arm, births and
+/// food eaten lower on 17 of 24, p 0.064), because a longer window keeps fed
+/// foragers out while a box grazes bare -- the case the drive exists for.
+/// 1,400 stays; the rejection rests on those leans (`dead-ends.md`).
 pub fn return_window() -> f32 {
     static V: std::sync::OnceLock<f32> = std::sync::OnceLock::new();
     *V.get_or_init(|| match std::env::var("PIXEL_PHYSICS_RETURN_WINDOW").unwrap_or_default().trim() {
@@ -14833,22 +14835,27 @@ pub fn store_lunch_of(world: &World) -> bool {
 
 /// **The trip reach, in authored cells** (`PIXEL_PHYSICS_TRIP_REACH=on`):
 /// loose food taken within this Chebyshev distance of any door is not food
-/// from a trip. Chosen in a measured gap, 2026-09-29: on the colony bed's
-/// pulsed pile, marking pickups by distance from the door read 13:55,
-/// 14:10, 15:0, 16:0, 17:1 (`Reports/ant-scenes-2026-09-23.md` §22u), and
-/// every cell of the founding cut lies within 11 of the door's centre.
+/// from a trip. Chosen 2026-09-29 from the colony bed's marking pickups by
+/// distance of the food cell from the door (`scripts/drivefade.py gap`,
+/// `Reports/ant-scenes-2026-09-23.md` §22u): on the pulsed pile a gap,
+/// 12:34 13:44 14:0 15:0 16:0 17:0 18:1; on the unlimited pile a sparse tail,
+/// not a gap, 13:56 14:2 15:5 16:3 17:1. Every cell of the founding cut lies
+/// within 11 of the door's centre.
 pub const TRIP_REACH_SHIPPED: i32 = 16;
 
 /// What `PIXEL_PHYSICS_TRIP_REACH` unset means: **on, since 2026-09-29**
 /// (§22u). `off` is the ant before it. Colony bed, 24 seeds each, off -> on:
-/// home-band returns 629 -> 21 on a pulsed pile, pile returns unchanged
-/// (per-seed ratio 1.00); the drive once the pile stops paying 0.994 ->
-/// 0.615, fed ants setting out late in an empty cycle 173 -> 121; food
-/// taken and starved inside +-5% / +10% on every arm but unlimited 90 cells
-/// (starved 73 -> 82 on the registered seeds; 48 more read 206 -> 209, 72
-/// pooled +4.3%); births lean lower at 90 cells (72 seeds 562 -> 480, not
-/// significant). Lab box, 24 seeds with rain: every gate even or better
-/// (births 428 -> 453.5, starved per million ant-frames 9.2 -> 9.0).
+/// returns booked away from the pile 629 -> 20 on a pulsed pile, pile
+/// returns unchanged (per-seed ratio 1.00); the drive once the pile stops
+/// paying 0.994 -> 0.614, but also at its lowest just after a refill (0.613
+/// in the first 1,000 frames, against 0.936), because it hears of food only
+/// at the door. Food taken and starved inside -5% / +10% on every arm but
+/// unlimited 90 cells (starved 73 -> 82 on the registered seeds; 48 more
+/// read 206 -> 206, 72 pooled +3.2%); births lean lower at 90 cells (72
+/// seeds 562 -> 484, not significant). Lab box, 24 seeds with rain:
+/// no gate moves at p < 0.05 (births 428 -> 522.5 and food eaten +14% at the
+/// median, seeds split 11/12; starved per million ant-frames 9.2 -> 10.4,
+/// worse on 13 of 24).
 const TRIP_REACH_UNSET: Option<i32> = Some(TRIP_REACH_SHIPPED);
 
 /// **`PIXEL_PHYSICS_TRIP_REACH`: a trip is judged by where the food was

@@ -603,9 +603,13 @@ The drive is the nest's need (`World::nest_need`, §8), found from
   taken more than `TRIP_REACH_SHIPPED` (16, scaled) Chebyshev from the
   centre of every nest's door, measured from `NestSite::surface` at the food
   cell (`trip_source`, `door_distance`). So food moved about beside a door
-  books nothing. `OrganismState::trip_src` records where a crop's marking
-  pickups were taken, for `CreatureStats::trip_returns_near` and
-  `trip_returns_tissue_near`.
+  books nothing. A mark belongs to its crop: under the reach, a pickup into
+  an empty crop clears `trip_load` and `trip_src` first, so a crop digested
+  to nothing, or put down away from home, leaves no mark for the next one.
+  `OrganismState::trip_src` records where a crop's marking pickups were
+  taken, for `CreatureStats::trip_returns_near` and
+  `trip_returns_tissue_near` (an upper bound on the tissue exemption: any
+  crop holding tissue taken within the reach).
 **A nest worker (§8) is never driven**: `forage_drive_level` reads 0 for a
 nest-bound animal, and fed it takes no away term and is pulled home when it
 strays (`home_pull`); hungry, it scouts for food as any ant does.
