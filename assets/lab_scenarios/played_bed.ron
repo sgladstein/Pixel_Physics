@@ -20,7 +20,10 @@
 //             patchy rather than uniform, so distance to food is a real
 //             quantity in it.
 //
-// **No tree, and that was measured rather than assumed.** A tree was in the
+// **One tree, on the owner's ruling (2026-09-10: "Both are fine. I think a
+// mix is best"), at the east edge (x 455, below).** This note used to say
+// "no tree"; the measurement that led it still stands, which is why there
+// is one and it sits far from the colony: a tree was in the
 // first reading of the owner's answer, so it was rendered before anything
 // was run on it: one tree founder becomes 79 plants and shades the bench to
 // **0.008** of lamp light by frame 30,000 -- thirty times darker than the
@@ -115,10 +118,11 @@
         Plant(species: "tree",      x: 455),
     ],
     timeline: [
-        // **Clear the nest site one frame before the colony lands.**
-        //
-        // Without this the scenario asks for 52 founders and `found_colony_of`
-        // seats **8**: by frame 6,000 a grown grass bed has laid ~750
+        // **No `Clear` before the colony lands** (tried and dropped, see
+        // above: it bought 3 founders and cost three grown plants). The bare
+        // band the colony lands on is kept by where the plants are placed.
+        // Without that band the scenario asks for 52 founders and
+        // `found_colony_of` seats **8**: by frame 6,000 a grown grass bed has laid ~750
         // ungerminated seeds across the surface, every one of them an
         // occupied cell, and a colony needs bare footing. The run then reads
         // as a colony that will not breed, which looks exactly like a broken
@@ -126,9 +130,8 @@
         // that contradicts the code will look like a bug in the code",
         // caught by the founder count and by nothing else in the output.
         //
-        // A player does this by eye: you click bare ground. The band is 112
-        // columns of the bed's middle, cleared to 8 rows above the soil,
-        // which is where the seed litter sits.
+        // A player does this by eye: you click bare ground. It seats about
+        // 41 of the 52 on the median seed, and it varies with the seed.
         (at: 6000, every: 0, until: 0, what: Colony(species: "ant", x: 256, count: 52)),
     ],
     horizon: 120000,

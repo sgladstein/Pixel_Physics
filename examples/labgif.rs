@@ -18,7 +18,7 @@
 //! ```
 //!
 //! **`rain=` overrides the scenario's own saved rate** (`played_bed.ron`
-//! ships `Off`, the shipped default) so this can render any rate on demand
+//! names none, so it takes `Rain::default()`, Light) so this can render any rate on demand
 //! without a throwaway scenario file for each one. **`start=`** advances the
 //! box before capturing begins -- default 30,000, past the point the played
 //! bed's own population has established (`Reports/...`: plant cells and
