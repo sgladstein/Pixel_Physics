@@ -2859,3 +2859,135 @@ loop.
 west of the nest (§22r): a driven forager has no bearing. The door is off
 by default; when it ships, which way to go is the next thing to fix.
 Data: `Reports/data/returns-drive-2026-09-29.txt.gz`.
+
+### 22t. On the granary, store lunch starves the colony; the off-switch ships alone
+
+**What changed under it.** The nest lane's granary (#513: a five-column
+door, a storeroom off the shaft, one ant in four a nest worker for life, and
+`keep`) became the default the same day §22s flipped store lunch and the
+`returns` drive on, and neither lane had measured the two together. Measured
+on the merged tree (`0002baad`), with the granary default ant as the
+baseline (`STORE_LUNCH=off FORAGE_DRIVE=always`). **Identity first:** that
+baseline reproduces the nest lane's own granary numbers exactly -- 6,088
+food cells taken, 75 starved, 226 born at 90 cells; 1,102 starved at 80
+founders.
+
+**Store lunch is a harm on the granary, and it is all of the harm.** Colony
+bed, 24 seeds, higher / lower by seed against the granary alone:
+
+| | starved | share of ants that lived | food taken | food at the nest | born |
+|---|---:|---:|---:|---:|---:|
+| 90 cells, granary alone | 75 | 10.6% | 6,088 | 12,379 J | 226 |
+| + store lunch | **215** (20/4) | 33.2% | 4,726 (4/20) | 6,214 J (2/22) | 168 |
+| + `returns` | 73 (0/1, 23 tied) | 10.4% | 5,992 | 12,147 J | 223 |
+| + both | **224** (20/3) | 34.3% | 4,767 (4/20) | 6,257 J (1/23) | 173 |
+| 140 cells, both | 105 -> **207** (19/5) | 18.8% -> 37.2% | 4,696 -> 3,689 (6/18) | 8,759 -> 4,351 J | 79 -> 77 |
+| 140 cells, `returns` | 105 -> 107 (19 tied) | 19.2% | 4,598 | 9,064 J | 76 |
+| 80 founders at 135, both | 1,102 -> **1,561** (23/1) | 55.3% -> 76.8% | 8,218 -> 6,373 (6/18) | 8,669 -> 5,989 J | 72 -> 112 |
+| 80 founders, `returns` | 1,102 -> 1,102 (20 tied) | 55.4% | 8,174 | 8,726 J | 70 |
+| 90 cells at `STACK_DEPTH=1`, both | 85 -> 131 (13/8) | 13.6% -> 20.4% | 5,597 -> 5,029 (8/16) | 10,223 -> 6,219 J (5/19) | 143 -> 161 |
+
+**Why, traced ant by ant** (`decisioncsv`, 90 cells, both arms). The
+experienced foragers are the ones that die: on the granary alone 3.6% of
+ants with 2-3 loops starve and 0.9% with 4+; with store lunch, 28.7% and
+15.9%. Time west of the nest -- away from the food -- goes from 14% of all
+ant-time to 32%, and 13% of all ant-time is an ant carrying food west. The
+71 starved ants with 2+ loops spent their last 5,000 frames 46% west of the
+nest and 36% holding a dirt pellet: each took food at the door, which store
+lunch now counts as a packed lunch, left with it at full drive and no
+bearing, and on the open ground west of the door -- ground the old strip of
+nest paint covered, and nest paint cannot be dug -- dug and hauled spoil
+14-17 cells out until its energy ran down, dying there or back on the nest
+with an empty crop (1% of the starved held a quarter-full crop). **And the
+granary loses its food with them**: food in the storeroom from frame 9,000,
+median over runs, 6.1 cells -> 0.4, and loads the nest workers carried in
+15.5 -> 9.5 -- the door's food leaves as lunch before a nest worker can take
+it down. On the granary alone the same foragers carry it home: 35% of
+ant-time is at home laden against 22%.
+
+**So store lunch goes back off** (`store_lunch_from_env`, unset = off, as
+on `main` before the flip). What it fixed before the granary -- a forager
+whose store food was a load, not a lunch, retired at home -- the granary
+now handles by keeping that food home, and a lunch without a bearing sends
+the forager where there is nothing to find. **It is blocked by which way to
+go** (the lane note's open problem 1), not refuted: before the granary it was the lane's
+largest gain (§22s), and the same ant with a bearing out of the nest is
+the next thing to build.
+
+**The `returns` drive ships on alone.** On the unlimited pile it is inert
+(starved tied on 19-23 of 24 seeds at every distance and size), because food keeps
+coming home. **Where the pile runs out it barely fades on the granary**,
+and why is the thing to fix next. Pulsed pile, 30 cells every 6,000 frames,
+store lunch off in both arms (the pile stands at a median 0 cells three
+thousand frames after a refill early in the run): the drive among foraged
+ants reads 0.92-0.97 through the whole cycle against 1.0 under `always`, and
+set-outs by fed ants in the cycle's last third are not lower (173 against
+116). **Traced to the booking** (`decisioncsv` now carries `trip_load` and
+`forage_max`; identical logs and CSV otherwise, checked on 8 + 24 seeds):
+of 1,357 returns, **620 (46%) were booked by food picked up inside the home
+band** (within 26 cells of the nest) by an ant that had roamed a median 16
+cells from its last nest contact, past `FORAGE_TRIP_MIN` (8); in the
+cycle's last third they are two-thirds of the bookings (131 against 68 from
+the pile). Loads marked at the pile stand a median 798 frames, and only 22
+of 725 were eaten before the put-down that booked them, so stale marks are
+not the cause. The trip test asks how far the ant has roamed, and on a
+five-column door an ant roams that far without leaving home; it should ask
+where the food was taken. The same split holds on the unlimited pile (404
+home-band returns of 818). Outcomes are no worse and
+births better: taken 2,656 -> 2,680 (9/9), starved 266 -> 273 (9/3, p
+0.15), born 30 -> 46 (15/3, p 0.008). Under the owner's rule it ships on,
+neutral where food never stops and slightly ahead where it does.
+
+**The lab box, the pre-ship check** (24 seeds, 120,000 frames, the game's
+rain, on the granary; run in a cloud session from `0002baad`, gated with
+`scripts/labpair.py`), granary alone -> with `returns`:
+
+| | granary alone | + `returns` | higher / lower | sign p |
+|---|---:|---:|---:|---:|
+| births | 481.5 | 428 | 8/16 | 0.15 |
+| food eaten | 1,171k J | 1,122k J | 8/16 | 0.15 |
+| ant-frames lived | 9.8M | 9.5M | 9/15 | 0.31 |
+| died of old age | 134.5 | 144.5 | 11/12 | 1.00 |
+| starved per million ant-frames | 11.4 | 9.2 | 11/13 | 0.84 |
+| crash timing: died out; fell below a quarter of peak | 1; 8 | 2; 3 | | |
+
+No gate clears a sign test; births and food eaten lean lower on 16 of 24
+seeds, starvation per ant-time leans lower. Under the owner's rule -- on
+unless a measured harm -- it ships, with that lean stated. This is also the
+lab's new baseline: the first with rain, and on the granary; no earlier lab
+number is comparable to it. The lane that ran it caught that `labforage`
+never echoed `STORE_LUNCH` -- the arm the whole run turned on -- and checked
+it at the source instead; the header now prints it, `NEST_DOOR` and
+`STOREROOM`. And rain made the round-28 pip listing 344,000 lines a run
+(logs of 38-83 MB); it is capped at 40 rows now, `pipchecks=all` for every
+one.
+
+**Predictions** (written down before each run, at 01:58 and 02:35 UTC, in
+the session's notes):
+
+| # | prediction | right? |
+|---|---|---|
+| 17 | bed 90, both: taken >= 2x, higher on >= 20/24; born up; starved share down | **wrong**: taken 0.78x (lower on 20), starved share 10.6% -> 34.3% |
+| 18 | bed 140, both: taken and born higher on >= 16/24 | **wrong**: taken lower on 18, born 11/9 |
+| 19 | 80 founders, both: starved share down and alive up, each >= 15/24 | **wrong**: starved share 55% -> 77% (21/3) |
+| 20 | cap 1: every outcome of 17 keeps its sign | right in the letter (the harm keeps its sign), wrong in the spirit: 17 was wrong |
+| 21 | lab, both on: starved per ant-frame not higher, births and food eaten not lower, at p<0.05 | run on `returns` alone instead, once store lunch was out: right in the letter (nothing at p<0.05), births and food eaten lower on 16/24 |
+| 22 | west: both >= 30% of ant-time west of the nest, granary alone <= 15% | right: 31.6% against 13.9% |
+| 13-16 | pulsed pile, returns vs `always` (store lunch off): drive < 0.5 late in the cycle; fed set-outs a third lower; taken not lower; starved not higher | 13 **wrong** (0.92-0.97); 14 **wrong** (173 vs 116); 15 right (9/9); 16 right (9/3, p 0.15) |
+
+**The test-bed review, done** (the owner's "yes to all", 2026-09-29).
+`scripts/labpair.py` gates the lab on births, food eaten, ant-frames and
+starved per million ant-frames, with died out and alive at the end moved to
+a crash-timing block; `scripts/antloop.py --vs` pairs the outcomes and
+splits starvation early / late / old age as shares of ants that lived;
+`labforage` runs the game's rain (Light) and refuses the bed's env; a change
+that acts at home gets a `STACK_DEPTH=1` pair. Identity held for each:
+`rain=off` reproduces the dry lab line for line, and the new defaults unset
+reproduce the explicit arms on 24 of 24 bed seeds. **The first pulsed pile
+was vacuous**: 100 cells every 4,200 frames never ran dry (50-70 cells stood
+on it at every sample, 20 ants take ~60 a cycle), so the drive sat at
+0.98-0.99 all cycle and the pair was a tidy null about nothing -- re-sized
+to 30 cells every 6,000.
+Data: `Reports/data/granary-loop-2026-09-29.txt.gz` (the bed, the traces'
+readouts) and `Reports/data/lab-granary-2026-09-29.tar.gz` (the 48 lab logs, pip
+listing stripped).

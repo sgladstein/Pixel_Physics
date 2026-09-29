@@ -91,7 +91,11 @@ Colony bed, no trail, 24 seeds, merged tree `0002baad`:
 | 80 founders at 135 | 8,174 | 8,726 J | 1,102 | 70 |
 | 90, `always` (the granary as #513 shipped it) | 6,088 | 12,379 J | 75 | 226 |
 
-Lab box, 24 seeds, rain Light: LABBASE
+Lab box (`played_bed`, 120,000 frames, 24 seeds, the game's rain since
+09-29), medians: births 428, food eaten 1,122k J, ant-frames 9.5M, starved
+per million ant-frames 9.2, died out 2. Under `always`: 481.5, 1,171k J,
+9.8M, 11.4, 1 (lower births and food on 16/24, p 0.15). No earlier lab
+number is comparable: no rain, no granary.
 
 ## Ranked open problems
 
