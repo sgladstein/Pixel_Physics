@@ -1227,6 +1227,16 @@ const SPOIL_NEAR: i32 = 2;
 /// stops drawing digging within about an hour; an ant here decides every
 /// six frames, so a thousand frames is some 170 decisions.
 const SPOIL_FRESH: u64 = 1_000;
+/// The causes `NestFunnel::surf_opened` books an opening of the old surface
+/// row under, in its order.
+const SURF_CAUSES: usize = 5;
+/// How far up the time budget looks for cover: `creature::under_cover`'s own
+/// reach.
+const COVER_ROWS: i32 = 20;
+/// ...and how near the door, in columns, counts as at it.
+const DOOR_NEAR: i32 = 8;
+const SURF_CAUSE_NAMES: [&str; SURF_CAUSES] =
+    ["cut from above, open sky", "cut from above, under a heap", "cut from level or below, open sky", "cut from level or below, under a heap", "no cut: the ground fell away"];
 
 #[derive(Clone, Copy)]
 struct AntBefore {
@@ -1238,6 +1248,9 @@ struct AntBefore {
     /// so a soil grain falling into the gallery is never read as one.
     pellet: MaterialId,
     crop_empty: bool,
+    /// A nest worker (`OrganismState::nest_bound_until` still ahead): one ant
+    /// in four under the shipped storeroom, at home in the founding cut.
+    nest_bound: bool,
 }
 
 /// What the funnel needs of an ant after the frame. Separate from the world
@@ -1259,6 +1272,9 @@ struct AntTrack {
     cycles: u32,
     /// Every cut this ant made, placed or not by stage.
     cuts: u32,
+    /// The frame it last put a pellet down in the open, until it is next
+    /// under cover: the return trip `NestFunnel::back_under` times.
+    open_drop: Option<u64>,
 }
 
 #[derive(Default)]
@@ -1355,6 +1371,55 @@ struct NestFunnel {
     /// spoil near, spoil cells, fresh spoil cells], within `SPOIL_NEAR` of
     /// the cut.
     cut_kind_spoil: [[u64; 5]; 5],
+    /// Of each `cut_kind_spoil` row's cuts, those a nest worker made: who
+    /// opens the mouths, the caste that lives in the cut or the foragers.
+    cut_kind_worker: [u64; 5],
+    /// **What opened each cell of the old surface row**, the row the panel's
+    /// mouths are runs of: every frame a cell of it goes from ground to room
+    /// (empty, or an animal standing in it), by cause -- [a cut by an ant
+    /// whose head was above the row, into a cell open to the sky; the same
+    /// under cover (ground above the cell, a heap); a cut from level or
+    /// below, open to the sky; the same under cover; no cut there this frame,
+    /// the ground fell away] -- and whether it started a run of room along
+    /// the row or widened one (a neighbour in the row was room before the
+    /// frame). The heap cue ([`creature::spoil_cue_factor`]) judges only a
+    /// cut into a cell open to the sky; a cut under cover by an enclosed
+    /// digger, or into the floor below a roofed one, it leaves alone, and a
+    /// fall it never sees. So the split says which openings a cue can close.
+    surf_opened: [[u64; 2]; SURF_CAUSES],
+    /// ...by distance from the door's centre column: [3-4, beside the paint;
+    /// 5-8; 9-16; 17 or more].
+    surf_opened_dist: [[u64; 4]; SURF_CAUSES],
+    /// ...and the pellets within `SPOIL_NEAR` of each opening cut, summed, so
+    /// the cue's saturation can be read per cause.
+    surf_opened_pellets: [u64; SURF_CAUSES],
+    /// The latest opening's cause per column (`u8::MAX`: not opened since
+    /// frame 0), for the stops' census of the room standing in the row.
+    surf_last: Vec<u8>,
+    /// **The crust's own break**: the cause of each column's *first* opening
+    /// (`u8::MAX`: never), since every later one is loose ground that fell
+    /// into the hole passing through it again -- a grain falling down a dug
+    /// shaft books one opening per cell it leaves.
+    surf_first: Vec<u8>,
+    /// First openings by cause, and for the falls, by what fell: [soil,
+    /// lining, spoil, anything else].
+    surf_first_n: [u64; SURF_CAUSES],
+    surf_first_fell: [u64; 4],
+    /// This frame's placed cuts: (x, y, the digger's head row).
+    cuts_this_frame: Vec<(i32, i32, i32)>,
+    /// **Where the colony's time goes**: ant-frames by where the head was
+    /// before the frame -- [under cover (ground within `COVER_ROWS` above it
+    /// in its column), in the open within `DOOR_NEAR` columns of the door, in
+    /// the open further out] -- and [empty-jawed, holding a pellet]; and the
+    /// cuts made from each place. A dig rate that falls is either fewer
+    /// ant-frames where digging happens or fewer cuts per such frame, and the
+    /// two want different levers.
+    time_at: [[u64; 2]; 3],
+    cuts_at: [u64; 3],
+    /// **The trip back**: for every pellet put down in the open, frames until
+    /// its carrier was next under cover. Carriers still out when the run ends
+    /// (or that died out there) are the ants whose `open_drop` is still set.
+    back_under: Vec<u64>,
     /// **A refill that stays**: a dug cell still ground `REFILL_STANDING`
     /// frames after it filled. [by a fall, by a pellet put there].
     refill_standing: [u64; 2],
@@ -1388,6 +1453,15 @@ struct NestFunnel {
     // The pellet ledger.
     put_beside: u64,
     put_lifted: u64,
+    /// Of `put_lifted`, the pellets found neither beside the head nor up its
+    /// column: carried out through the passages (`SPOIL_LIFT=out`).
+    put_out: u64,
+    /// **Where a pellet posted up the column left from**: the carrier's head
+    /// before the frame -- [in the founding cut, under cover 1-4 rows below the
+    /// old surface, 5-8, 9-16, 17 or more, not under cover]. Under
+    /// `PIXEL_PHYSICS_SPOIL_OUT` a lift is a carrier that gave up the walk out,
+    /// and where it gave up says whether the way out jammed or lost it.
+    lift_from: [u64; 6],
     put_above: u64,
     put_below: u64,
     /// Of `put_below`, landed in a cell dug since frame 0: the hole refilled.
@@ -1467,6 +1541,7 @@ impl NestFunnel {
                     holding: st.spoil.is_some(),
                     pellet: st.spoil.map_or(material::EMPTY, |p| p.cell.material),
                     crop_empty: st.crop.is_none(),
+                    nest_bound: st.nest_bound_until > world.frame,
                 },
             );
         }
@@ -1531,7 +1606,26 @@ impl NestFunnel {
             if pre.holding {
                 self.held_frames += 1;
             }
+            // Where the head was before the frame: under cover, or in the
+            // open near the door or out beyond it.
+            let place = {
+                let (hx, hy) = pre.head;
+                let covered = (1..=COVER_ROWS).any(|dy| inside(hx, hy - dy) && matches!(self.grid[at(hx, hy - dy)], Some(m) if Self::is_ground(world, m)));
+                if covered {
+                    0
+                } else if (hx - b.w / 2).abs() <= DOOR_NEAR {
+                    1
+                } else {
+                    2
+                }
+            };
+            self.time_at[place][usize::from(pre.holding)] += 1;
             let track = self.ants.get_mut(&id).expect("registered in before");
+            if place == 0 {
+                if let Some(t0) = track.open_drop.take() {
+                    self.back_under.push(frame - t0);
+                }
+            }
             let (dx, dy) = DIRS[pre.heading as usize % 8];
             let (tx, ty) = (pre.head.0 + dx, pre.head.1 + dy);
             // N1: at the moment act ran, jaws free and diggable ground ahead.
@@ -1583,6 +1677,8 @@ impl NestFunnel {
                     }
                 };
                 if let Some((tx, ty)) = target {
+                    self.cuts_this_frame.push((tx, ty, pre.head.1));
+                    self.cuts_at[place] += 1;
                     let (near, fresh) = Self::spoil_near_of(&self.grid, &self.put_frame, b, spoil_id, frame, tx, ty);
                     self.spoil_near[1][0] += 1;
                     self.spoil_near[1][1] += u64::from(near);
@@ -1603,6 +1699,7 @@ impl NestFunnel {
                         }
                     };
                     let (cells, fresh_cells) = Self::spoil_cells_of(&self.grid, &self.put_frame, b, spoil_id, frame, tx, ty);
+                    self.cut_kind_worker[kind] += u64::from(pre.nest_bound);
                     let k = &mut self.cut_kind_spoil[kind];
                     k[0] += 1;
                     k[1] += u64::from(cells > 0);
@@ -1665,14 +1762,57 @@ impl NestFunnel {
                     .iter()
                     .map(|&(ox, oy)| (hx + ox, hy + oy))
                     .find(|&(x, y)| appeared(x, y));
-                let site = beside.map(|s| (s, false)).or_else(|| (1..=160).map(|dy| (hx, hy - dy)).find(|&(x, y)| appeared(x, y)).map(|s| (s, true)));
+                // ...and failing both, carried out through the passages
+                // (`PIXEL_PHYSICS_SPOIL_LIFT=out`): the nearest cell in the
+                // box where one appeared that no earlier ant this frame has
+                // claimed.
+                let carried_out = || {
+                    let mut best: Option<(i32, (i32, i32))> = None;
+                    for y in 0..b.h {
+                        for x in 0..b.w {
+                            if appeared(x, y) && !self.put_sites.contains(&at(x, y)) {
+                                let d = (x - hx).abs().max((y - hy).abs());
+                                if best.is_none_or(|(bd, _)| d < bd) {
+                                    best = Some((d, (x, y)));
+                                }
+                            }
+                        }
+                    }
+                    best.map(|(_, s)| s)
+                };
+                let site = beside
+                    .map(|s| (s, false))
+                    .or_else(|| (1..=160).map(|dy| (hx, hy - dy)).find(|&(x, y)| appeared(x, y)).map(|s| (s, true)))
+                    .or_else(|| {
+                        let s = carried_out()?;
+                        self.put_out += 1;
+                        Some((s, true))
+                    });
                 match site {
                     None => self.site_not_found += 1,
                     Some(((sx, sy), lifted)) => {
                         if lifted {
                             self.put_lifted += 1;
+                            let (hx, hy) = pre.head;
+                            let in_cut = world.nest_sites.iter().any(|s| s.shaft.is_some_and(|c| c.contains(hx, hy)));
+                            let depth = hy - b.surface;
+                            self.lift_from[if in_cut {
+                                0
+                            } else if place != 0 {
+                                5
+                            } else {
+                                match depth {
+                                    ..=4 => 1,
+                                    5..=8 => 2,
+                                    9..=16 => 3,
+                                    _ => 4,
+                                }
+                            }] += 1;
                         } else {
                             self.put_beside += 1;
+                        }
+                        if place != 0 {
+                            track.open_drop = Some(frame);
                         }
                         let out = sy < b.surface;
                         if out {
@@ -1716,9 +1856,59 @@ impl NestFunnel {
                 }
             }
         }
+        // The opening ledger: every cell of the old surface row that was
+        // ground before the frame and is room after it, by what opened it.
+        let room = |c: Option<MaterialId>| matches!(c, None | Some(material::EMPTY));
+        if self.surf_last.len() != b.w as usize {
+            self.surf_last = vec![u8::MAX; b.w as usize];
+            self.surf_first = vec![u8::MAX; b.w as usize];
+        }
+        let door_x = b.w / 2;
+        let sy = b.surface;
+        for x in 0..b.w {
+            let was = self.grid[at(x, sy)];
+            if !matches!(was, Some(m) if Self::is_ground(world, m)) {
+                continue;
+            }
+            let now = world.get(x, sy);
+            if now.organism_id() == 0 && now.material != material::EMPTY {
+                continue;
+            }
+            let covered = (0..sy).any(|yy| matches!(self.grid[at(x, yy)], Some(m) if Self::is_ground(world, m)));
+            let cause = match self.cuts_this_frame.iter().find(|c| c.0 == x && c.1 == sy) {
+                Some(&(_, _, head_y)) => usize::from(head_y >= sy) * 2 + usize::from(covered),
+                None => 4,
+            };
+            let widen = (x > 0 && room(self.grid[at(x - 1, sy)])) || (x + 1 < b.w && room(self.grid[at(x + 1, sy)]));
+            self.surf_opened[cause][usize::from(widen)] += 1;
+            let bin = match (x - door_x).abs() {
+                0..=4 => 0,
+                5..=8 => 1,
+                9..=16 => 2,
+                _ => 3,
+            };
+            self.surf_opened_dist[cause][bin] += 1;
+            if cause < 4 {
+                self.surf_opened_pellets[cause] += Self::spoil_cells_of(&self.grid, &self.put_frame, b, spoil_id, frame, x, sy).0;
+            }
+            self.surf_last[x as usize] = cause as u8;
+            if self.surf_first[x as usize] == u8::MAX {
+                self.surf_first[x as usize] = cause as u8;
+                self.surf_first_n[cause] += 1;
+                if cause == 4 {
+                    let name = was.map(|m| world.materials.get(m).name.as_str());
+                    self.surf_first_fell[match name {
+                        Some("soil") => 0,
+                        Some("packedsoil") => 1,
+                        Some("spoil") => 2,
+                        _ => 3,
+                    }] += 1;
+                }
+            }
+        }
+        self.cuts_this_frame.clear();
         // The refill scan: every dug cell that was room before the frame and
         // is ground now, unless a pellet was put there (the pellet ledger's).
-        let room = |c: Option<MaterialId>| matches!(c, None | Some(material::EMPTY));
         for &i in &self.dug_list {
             if !room(self.grid[i]) || self.put_sites.contains(&i) {
                 continue;
@@ -1832,6 +2022,57 @@ impl NestFunnel {
         }
     }
 
+    /// **The room standing in the old surface row now, by what last opened
+    /// each cell**, and its runs (the panel's mouths, the founding cut's own
+    /// mouth aside) by their nearest column to the door.
+    fn print_openings(&self, frame: u64, world: &World, b: &Box2, portal: &dyn Fn(i32, i32) -> bool) {
+        if self.surf_last.len() != b.w as usize {
+            return;
+        }
+        let door_x = b.w / 2;
+        let sy = b.surface;
+        let open = |x: i32| {
+            let c = world.get(x, sy);
+            (c.material == material::EMPTY || c.organism_id() != 0) && !portal(x, sy)
+        };
+        let mut by_cause = [0u64; SURF_CAUSES + 1];
+        let mut by_first = [0u64; SURF_CAUSES + 1];
+        let mut runs = [0u64; 4];
+        let mut run_near: Option<i32> = None;
+        for x in 1..b.w - 1 {
+            if open(x) {
+                let c = self.surf_last[x as usize];
+                by_cause[if c == u8::MAX { SURF_CAUSES } else { c as usize }] += 1;
+                let c = self.surf_first[x as usize];
+                by_first[if c == u8::MAX { SURF_CAUSES } else { c as usize }] += 1;
+                let d = (x - door_x).abs();
+                run_near = Some(run_near.map_or(d, |n| n.min(d)));
+            }
+            if !open(x) || x == b.w - 2 {
+                if let Some(d) = run_near.take() {
+                    runs[match d {
+                        0..=4 => 0,
+                        5..=8 => 1,
+                        9..=16 => 2,
+                        _ => 3,
+                    }] += 1;
+                }
+            }
+        }
+        let causes: Vec<String> = SURF_CAUSE_NAMES.iter().zip(by_cause.iter()).map(|(n, v)| format!("{n} {v}")).collect();
+        println!(
+            "OPENINGS frame={frame} room standing in the old surface row, by what last opened it: {} | not booked {}; runs of it (mouths, the founding cut's aside) by the nearest column to the door: 3-4 {}, 5-8 {}, 9-16 {}, 17+ {}",
+            causes.join(" | "),
+            by_cause[SURF_CAUSES],
+            runs[0],
+            runs[1],
+            runs[2],
+            runs[3]
+        );
+        let causes: Vec<String> = SURF_CAUSE_NAMES.iter().zip(by_first.iter()).map(|(n, v)| format!("{n} {v}")).collect();
+        println!("OPENINGS frame={frame} the same room, by what first broke its column's crust: {} | not booked {}", causes.join(" | "), by_first[SURF_CAUSES]);
+    }
+
     fn print(&self, frame: u64, world: &World) {
         let st = world.creature_stats;
         let total = self.ants.len();
@@ -1899,6 +2140,12 @@ impl NestFunnel {
             self.put_below,
             self.put_refill
         );
+        println!("LEDGER frame={frame} of the pellets posted up, carried out through the passages {} (engine spoil_lifted_out {})", self.put_out, st.spoil_lifted_out);
+        let l = self.lift_from;
+        println!(
+            "LIFTS frame={frame} pellets posted up the column, by where the carrier stood: in the founding cut {} | under cover 1-4 rows below the old surface {} | 5-8 {} | 9-16 {} | 17+ {} | not under cover {}; drop rolls held inside the nest (SPOIL_OUT keep) {}, and after patience ran out with no room beside, kept carrying {}",
+            l[0], l[1], l[2], l[3], l[4], l[5], st.spoil_kept_inside, st.spoil_kept_no_lift
+        );
         println!(
             "LEDGER frame={frame} dug cells refilled: by a pellet {}, fell in {} (spoil {}, soil {}, other {}; from the cell above {}, from the side {}); still ground {REFILL_STANDING} frames later: by a fall {}, by a pellet {}; worked ground turned loose in place: lining {} below and {} above the old surface, pellets {} below and {} above",
             self.put_refill,
@@ -1951,6 +2198,54 @@ impl NestFunnel {
             })
             .collect();
         println!("LEDGER frame={frame} spoil within {SPOIL_NEAR} cells of the cut, by where it opened: {}", kinds.join(" | "));
+        let by_worker: Vec<String> = ["new mouth from the surface", "new mouth from below", "a mouth already open", "below the old surface", "in the heaps"]
+            .iter()
+            .zip(self.cut_kind_spoil.iter().zip(self.cut_kind_worker.iter()))
+            .map(|(name, (row, &w))| format!("{name} {w} of {}", row[0]))
+            .collect();
+        println!("LEDGER frame={frame} cuts made by nest workers, by where it opened: {}", by_worker.join(" | "));
+        let opened: Vec<String> = SURF_CAUSE_NAMES
+            .iter()
+            .enumerate()
+            .map(|(c, name)| {
+                let [new, widen] = self.surf_opened[c];
+                let d = self.surf_opened_dist[c];
+                let pellets = if c < 4 { format!(", pellets near {:.1}", self.surf_opened_pellets[c] as f64 / (new + widen).max(1) as f64) } else { String::new() };
+                format!("{name} {} (new {new}, widened {widen}; from the door 3-4 {}, 5-8 {}, 9-16 {}, 17+ {}{pellets})", new + widen, d[0], d[1], d[2], d[3])
+            })
+            .collect();
+        println!("OPENINGS frame={frame} cells of the old surface row opened, by what opened them: {}", opened.join(" | "));
+        let places = ["under cover", "in the open at the door", "in the open beyond it"];
+        let budget: Vec<String> = places
+            .iter()
+            .enumerate()
+            .map(|(p, name)| {
+                let [empty, holding] = self.time_at[p];
+                format!("{name} {} ant-frames ({holding} holding a pellet), {} cuts", empty + holding, self.cuts_at[p])
+            })
+            .collect();
+        let mut back = self.back_under.clone();
+        back.sort_unstable();
+        let q = |f: f64| back.get(((back.len() as f64 - 1.0) * f).round() as usize).copied().unwrap_or(0);
+        let out_now = self.ants.values().filter(|t| t.open_drop.is_some()).count();
+        println!(
+            "TIME frame={frame} where the colony's time went: {} | pellets put down in the open whose carrier came back under cover {}: frames to get back, median {} p90 {}; carriers still out (or died out) {}",
+            budget.join(" | "),
+            back.len(),
+            q(0.5),
+            q(0.9),
+            out_now
+        );
+        let first: Vec<String> = SURF_CAUSE_NAMES.iter().zip(self.surf_first_n.iter()).map(|(n, v)| format!("{n} {v}")).collect();
+        let f = self.surf_first_fell;
+        println!(
+            "OPENINGS frame={frame} columns whose crust broke, by what broke it first: {} (the falls were soil {}, lining {}, spoil {}, other {})",
+            first.join(" | "),
+            f[0],
+            f[1],
+            f[2],
+            f[3]
+        );
         // Who to trace: a few ids stopped at each stage.
         for (i, name) in FUNNEL_STAGES.iter().enumerate().skip(1) {
             let stuck: Vec<String> = self.ants.iter().filter(|(_, t)| t.stage == i).take(6).map(|(id, _)| id.to_string()).collect();
@@ -1987,7 +2282,7 @@ fn funnel_selftest(b: &Box2) {
     let mut frame = 0u64;
     let mut digs = 0u32;
     let ant = |heading: u8, digs: u32, holding: bool| {
-        std::collections::BTreeMap::from([(id, AntBefore { head, heading, digs, holding, pellet: if holding { spoil } else { material::EMPTY }, crop_empty: true })])
+        std::collections::BTreeMap::from([(id, AntBefore { head, heading, digs, holding, pellet: if holding { spoil } else { material::EMPTY }, crop_empty: true, nest_bound: false })])
     };
     let after = |digs: u32, holding: bool| std::collections::BTreeMap::from([(id, AntAfter { digs, holding })]);
     // One dig by hand: face `dir`, cut the cell ahead, take the pellet.
@@ -2133,7 +2428,7 @@ fn funnel_selftest(b: &Box2) {
         let mut w = build(b);
         let mut f = NestFunnel::default();
         let rec = |head: (i32, i32), heading: u8, digs: u32, holding: bool| {
-            std::collections::BTreeMap::from([(id, AntBefore { head, heading, digs, holding, pellet: if holding { spoil } else { material::EMPTY }, crop_empty: true })])
+            std::collections::BTreeMap::from([(id, AntBefore { head, heading, digs, holding, pellet: if holding { spoil } else { material::EMPTY }, crop_empty: true, nest_bound: false })])
         };
         let aft = |digs: u32, holding: bool| std::collections::BTreeMap::from([(id, AntAfter { digs, holding })]);
         let hy = b.surface - 1;
@@ -2183,7 +2478,7 @@ fn funnel_selftest(b: &Box2) {
         let mut w = build(b);
         let mut f = NestFunnel::default();
         let rec = |head: (i32, i32), heading: u8, holding: bool| {
-            std::collections::BTreeMap::from([(id, AntBefore { head, heading, digs: 0, holding, pellet: if holding { spoil } else { material::EMPTY }, crop_empty: true })])
+            std::collections::BTreeMap::from([(id, AntBefore { head, heading, digs: 0, holding, pellet: if holding { spoil } else { material::EMPTY }, crop_empty: true, nest_bound: false })])
         };
         let aft = |holding: bool| std::collections::BTreeMap::from([(id, AntAfter { digs: 0, holding })]);
         let (hx, hy) = (b.w / 2 + 40, b.surface - 1);
@@ -2209,7 +2504,7 @@ fn funnel_selftest(b: &Box2) {
         let mut w = build(b);
         let mut f = NestFunnel::default();
         let rec = |head: (i32, i32), heading: u8, holding: bool| {
-            std::collections::BTreeMap::from([(id, AntBefore { head, heading, digs: 0, holding, pellet: if holding { spoil } else { material::EMPTY }, crop_empty: true })])
+            std::collections::BTreeMap::from([(id, AntBefore { head, heading, digs: 0, holding, pellet: if holding { spoil } else { material::EMPTY }, crop_empty: true, nest_bound: false })])
         };
         let aft = |digs: u32| std::collections::BTreeMap::from([(id, AntAfter { digs, holding: false })]);
         let (x0, s) = (b.w / 2 - 60, b.surface);
@@ -2337,6 +2632,12 @@ fn charge(world: &World) -> (usize, f32) {
 /// seeds reading 4 of 4 and twelve reading 16 of 33.
 struct Trickle {
     colony: Option<u32>,
+    /// **Where each ant is homed**: the door, as the game founds under one
+    /// (`World::door_anchor`), or `None` -- the strip -- where each ant keeps
+    /// the cell it landed on as home, which is also what founding does there.
+    /// Before 2026-09-29 the trickle homed every ant where it landed even
+    /// under a door, so a door arm here was not the game's door.
+    anchor: Option<(i32, i32)>,
     placed: usize,
     target: usize,
     /// How many to try per frame. The cap is space, not this.
@@ -2348,7 +2649,7 @@ struct Trickle {
 }
 
 impl Trickle {
-    fn new(target: usize, rate: usize, seed: u64, span: i32) -> Self {
+    fn new(target: usize, rate: usize, seed: u64, span: i32, anchor: Option<(i32, i32)>) -> Self {
         let mut order = Vec::new();
         if seed > 0 {
             use pixel_physics::sim::rng;
@@ -2358,7 +2659,7 @@ impl Trickle {
                 order.swap(i, draw.below(i as u32 + 1) as usize);
             }
         }
-        Trickle { colony: None, placed: 0, target, rate, cursor: 0, order }
+        Trickle { colony: None, anchor, placed: 0, target, rate, cursor: 0, order }
     }
 
     fn done(&self) -> bool {
@@ -2389,7 +2690,7 @@ impl Trickle {
             let col = if self.order.is_empty() { self.cursor } else { self.order[self.cursor as usize] };
             let x = cx - half + col;
             let y = b.surface - 1;
-            if let Some(site) = pixel_physics::sim::creature::plant_creature_seed_in(world, x, y, "ant", self.colony) {
+            if let Some(site) = pixel_physics::sim::creature::plant_founder_in(world, x, y, "ant", self.colony, self.anchor) {
                 if self.colony.is_none() {
                     self.colony = pixel_physics::sim::creature::colony_of_site(world, &site);
                 }
@@ -2503,6 +2804,257 @@ fn local_senses(world: &World, x: i32, y: i32, me: u32) -> [f32; 5] {
         open / open_total,   // how open it is right here
         face / 8.0,          // how much wall is within reach
     ]
+}
+
+/// **Every pellet's trip, from the cut to where it went down** (`TRIPS`).
+///
+/// Built 2026-09-29 for the question the ledgers could not answer: under
+/// `PIXEL_PHYSICS_SPOIL_OUT` with `keep` never lifting from inside the nest,
+/// three quarters of the colony's ant-frames under cover were spent holding a
+/// pellet, some 680 a pellet at 200 ants, to carry it out of a nest ten rows
+/// deep. A rate says how often, never why (`CLAUDE.md`, *tracing
+/// individuals*), so each trip is followed frame by frame: did the head move,
+/// and if it stood, what was in the cell it faced -- an animal, ground, or
+/// nothing (it chose not to step) -- and was the carrier's patience under the
+/// give-up line. Reads the world between frames and writes nothing.
+/// `tripcsv=PATH` also writes one row per carrier per frame.
+#[derive(Default)]
+struct TripLog {
+    open: std::collections::BTreeMap<u32, Trip>,
+    closed: Vec<Trip>,
+    before: std::collections::BTreeMap<u32, TripAnt>,
+    csv: Option<std::io::BufWriter<std::fs::File>>,
+    /// `decisions=PATH`: the engine's own per-decision row
+    /// (`creature::DecisionRow`, via `World::decision_log`) for every decision
+    /// an animal made holding a pellet -- which headings were usable, the move
+    /// roll against `p_move`, what came of it, the chooser's patience.
+    decisions: Option<std::io::BufWriter<std::fs::File>>,
+}
+
+#[derive(Clone, Copy)]
+struct TripAnt {
+    head: (i32, i32),
+    heading: u8,
+    holding: bool,
+    patience: f32,
+    covered: bool,
+    in_cut: bool,
+}
+
+#[derive(Clone, Copy, Default)]
+struct Trip {
+    start: u64,
+    /// Rows below the old surface of the head when the pellet was taken up.
+    depth: i32,
+    in_cut_start: bool,
+    frames: u64,
+    moved: u64,
+    stood_ant: u64,
+    stood_ground: u64,
+    stood_open: u64,
+    low_patience: u64,
+    in_cut: u64,
+    covered: u64,
+    open_air: u64,
+    /// Frames from taking the pellet up to the first frame outside the nest.
+    left_after: Option<u64>,
+    /// 0 put down outside the nest, 1 put down inside it, 2 died holding.
+    end: u8,
+}
+
+/// Patience under which `SPOIL_OUT`'s `keep` lets a carrier go
+/// (`creature::DIG_RETURN_GIVE_UP`, private there).
+const TRIP_GIVE_UP: f32 = 0.1;
+
+impl TripLog {
+    fn ants(world: &World) -> std::collections::BTreeMap<u32, TripAnt> {
+        let mut out = std::collections::BTreeMap::new();
+        for id in world.live_organism_ids() {
+            let Some(st) = world.organism(id) else { continue };
+            if world.species.get(st.species).creature.is_none() {
+                continue;
+            }
+            let Some(&(hx, hy)) = st.chain.first() else { continue };
+            let covered = (1..=COVER_ROWS).any(|dy| {
+                let c = world.get(hx, hy - dy);
+                c.material != material::EMPTY && c.organism_id() == 0 && matches!(world.materials.kind(c.material), MaterialKind::Powder | MaterialKind::Solid)
+            });
+            let in_cut = world.nearest_nest_site(hx, hy).and_then(|i| world.nest_sites.get(i)).and_then(|s| s.shaft).is_some_and(|c| c.contains(hx, hy));
+            out.insert(
+                id,
+                TripAnt { head: (hx, hy), heading: st.heading, holding: st.spoil.is_some_and(|p| !p.store), patience: st.home_patience, covered, in_cut },
+            );
+        }
+        out
+    }
+
+    fn before(&mut self, world: &World) {
+        self.before = Self::ants(world);
+    }
+
+    /// Drains the frame's decision rows, keeping those of animals that held a
+    /// pellet before the frame. Call between the step and [`Self::after`].
+    fn log_decisions(&mut self, world: &mut World) {
+        use pixel_physics::sim::creature::{DECISION_OUTCOME_NAMES, DROP_WHY_NAMES};
+        use std::io::Write;
+        let Some(log) = world.decision_log.as_mut() else { return };
+        let rows = std::mem::take(log);
+        let Some(w) = self.decisions.as_mut() else { return };
+        for r in rows {
+            if !self.before.get(&r.id).is_some_and(|a| a.holding) {
+                continue;
+            }
+            let _ = writeln!(
+                w,
+                "{},{},{},{},{},{},{},{},{:08b},{},{},{:.3},{:.3},{:.3},{:.3},{},{:.3},{:.3},{},{:.3},{:.3},{:.3},{:.3},{:.3},{:.1}",
+                r.frame,
+                r.id,
+                r.head.0,
+                r.head.1,
+                r.head_after.0,
+                r.head_after.1,
+                r.heading,
+                r.heading_after,
+                r.usable,
+                r.anchor.0,
+                r.anchor.1,
+                r.home_aligned,
+                r.p_move,
+                r.roll_move,
+                r.roll_tumble,
+                DECISION_OUTCOME_NAMES[r.outcome as usize],
+                r.patience,
+                r.chosen_cos,
+                DROP_WHY_NAMES[r.drop as usize],
+                r.drop_roll,
+                r.drop_p,
+                r.at_nest,
+                r.crowding,
+                r.energy,
+                r.energy_j
+            );
+        }
+    }
+
+    fn after(&mut self, world: &World, b: &Box2, frame: u64) {
+        use pixel_physics::sim::creature::DIRS;
+        use std::io::Write;
+        let now = Self::ants(world);
+        for (&id, pre) in &self.before {
+            let post = now.get(&id);
+            if pre.holding {
+                let t = self.open.entry(id).or_insert_with(|| Trip { start: frame, depth: pre.head.1 - b.surface, in_cut_start: pre.in_cut, ..Trip::default() });
+                t.frames += 1;
+                let inside = pre.covered || pre.in_cut;
+                if pre.in_cut {
+                    t.in_cut += 1;
+                } else if pre.covered {
+                    t.covered += 1;
+                } else {
+                    t.open_air += 1;
+                    t.left_after.get_or_insert(frame.saturating_sub(t.start));
+                }
+                if pre.patience < TRIP_GIVE_UP {
+                    t.low_patience += 1;
+                }
+                // 0 moved; else what stood in the cell it faced: 1 an animal,
+                // 2 ground, 3 nothing.
+                let ahead = match post {
+                    Some(q) if q.head != pre.head => 0u8,
+                    _ => {
+                        let (dx, dy) = DIRS[pre.heading as usize % 8];
+                        let c = world.get(pre.head.0 + dx, pre.head.1 + dy);
+                        if c.organism_id() != 0 {
+                            1
+                        } else if c.material != material::EMPTY && matches!(world.materials.kind(c.material), MaterialKind::Powder | MaterialKind::Solid) {
+                            2
+                        } else {
+                            3
+                        }
+                    }
+                };
+                match ahead {
+                    0 => t.moved += 1,
+                    1 => t.stood_ant += 1,
+                    2 => t.stood_ground += 1,
+                    _ => t.stood_open += 1,
+                }
+                if let Some(w) = self.csv.as_mut() {
+                    let _ = writeln!(
+                        w,
+                        "{frame},{id},{},{},{},{},{ahead},{:.3},{},{}",
+                        t.start,
+                        pre.head.0,
+                        pre.head.1,
+                        pre.heading,
+                        pre.patience,
+                        u8::from(inside),
+                        u8::from(pre.in_cut)
+                    );
+                }
+                let ended = match post {
+                    None => Some(2),
+                    Some(q) if !q.holding => Some(u8::from(inside)),
+                    _ => None,
+                };
+                if let Some(end) = ended {
+                    let mut t = self.open.remove(&id).expect("opened above");
+                    t.end = end;
+                    self.closed.push(t);
+                }
+            }
+        }
+        self.before = now;
+    }
+
+    fn print(&self, frame: u64) {
+        let c = &self.closed;
+        let n = c.len();
+        let q = |mut v: Vec<u64>, p: f64| -> u64 {
+            if v.is_empty() {
+                return 0;
+            }
+            v.sort_unstable();
+            v[((v.len() - 1) as f64 * p).round() as usize]
+        };
+        let ends = |e: u8| c.iter().filter(|t| t.end == e).count();
+        let durs: Vec<u64> = c.iter().map(|t| t.frames).collect();
+        let left: Vec<u64> = c.iter().filter_map(|t| t.left_after).collect();
+        let sum = |f: &dyn Fn(&Trip) -> u64| c.iter().map(f).sum::<u64>();
+        let all = sum(&|t| t.frames).max(1) as f64;
+        let pct = |v: u64| 100.0 * v as f64 / all;
+        let by = |lo: i32, hi: i32| {
+            let v: Vec<u64> = c.iter().filter(|t| !t.in_cut_start && (lo..=hi).contains(&t.depth)).map(|t| t.frames).collect();
+            format!("{}/{}", v.len(), q(v, 0.5))
+        };
+        let cut: Vec<u64> = c.iter().filter(|t| t.in_cut_start).map(|t| t.frames).collect();
+        println!(
+            "TRIPS frame={frame} pellets carried and let go {n} (outside the nest {}, inside it {}, died holding {}), still held {} | frames a trip median {} p90 {} | left the nest on {} of them, frames to leave median {} p90 {} | of the carrying frames: moving {:.1}%, standing facing an animal {:.1}%, facing ground {:.1}%, facing nothing {:.1}% | patience under the give-up line {:.1}% | in the founding cut {:.1}%, under cover elsewhere {:.1}%, in the open {:.1}% | trips by where the pellet was taken up (n/median frames): in the cut {}/{}, 1-4 rows down {}, 5-8 {}, 9-16 {}, 17+ {}",
+            ends(0),
+            ends(1),
+            ends(2),
+            self.open.len(),
+            q(durs.clone(), 0.5),
+            q(durs, 0.9),
+            left.len(),
+            q(left.clone(), 0.5),
+            q(left, 0.9),
+            pct(sum(&|t| t.moved)),
+            pct(sum(&|t| t.stood_ant)),
+            pct(sum(&|t| t.stood_ground)),
+            pct(sum(&|t| t.stood_open)),
+            pct(sum(&|t| t.low_patience)),
+            pct(sum(&|t| t.in_cut)),
+            pct(sum(&|t| t.covered)),
+            pct(sum(&|t| t.open_air)),
+            cut.len(),
+            q(cut, 0.5),
+            by(i32::MIN, 4),
+            by(5, 8),
+            by(9, 16),
+            by(17, i32::MAX),
+        );
+    }
 }
 
 fn trace(world: &World) {
@@ -2729,7 +3281,9 @@ fn main() {
     world.paint_nest_patch(b.w / 2, b.surface - 1);
     let seed: u64 = arg("seed").unwrap_or(0);
     let span = 26.min(b.w / 2 - 2) * 2 + 1;
-    let mut trickle = Trickle::new(ants as usize, arg("rate").unwrap_or(4), seed, span);
+    // Read after the paint, which cuts the founding shaft the anchor sits on.
+    let door_anchor = world.door_anchor(b.w / 2, b.surface - 1, "ant");
+    let mut trickle = Trickle::new(ants as usize, arg("rate").unwrap_or(4), seed, span, door_anchor);
 
     // The endowment horizon, printed rather than assumed -- a run past it is
     // measuring starvation, not digging.
@@ -2768,6 +3322,26 @@ fn main() {
         ),
         None => println!("  founding: painted strip only, nothing dug (PIXEL_PHYSICS_NEST_SHAFT=off)"),
     }
+    // **Where the site and its cut are**, since `SPOIL_OUT`'s haul pulls a
+    // carrier to `(site.x, site.surface)`: a log that does not say whether
+    // that point is inside the cut cannot say where the walk out ends.
+    for s in &world.nest_sites {
+        match s.shaft {
+            Some(c) => println!(
+                "  site: x {} surface {} | shaft columns {}..{} rows {}..{} (mouth to {}) | chamber columns {}..{} rows {}..{} | the haul's target ({}, {}) inside the cut: {}",
+                s.x, s.surface, c.x0, c.x1, c.top, c.bottom, c.mouth_bottom, c.chamber_x0, c.chamber_x1, c.chamber_top, c.chamber_bottom, s.x, s.surface, c.contains(s.x, s.surface)
+            ),
+            None => println!("  site: x {} surface {} | no cut", s.x, s.surface),
+        }
+    }
+    // **The door and the storeroom, echoed** for the reason the shaft is: both
+    // ship on since 2026-09-29, and a log that does not name them cannot say
+    // which founding it ran.
+    match pixel_physics::sim::creature::nest_door_of(&world) {
+        Some(d) => println!("  door: half-width {d} painted (PIXEL_PHYSICS_NEST_DOOR), every ant homed at {door_anchor:?}, as founding homes them"),
+        None => println!("  door: the strip (PIXEL_PHYSICS_NEST_DOOR=off), every ant homed where it lands"),
+    }
+    println!("  storeroom: {} (PIXEL_PHYSICS_STOREROOM)", pixel_physics::sim::creature::storeroom_of(&world));
     println!("  {}", pixel_physics::sim::creature::spoil_switches_line());
     match pixel_physics::sim::creature::nest_home(&world) {
         pixel_physics::sim::creature::NestHome::Material => {}
@@ -2824,17 +3398,35 @@ fn main() {
     // the run; its LEDGER lines reconcile with the engine's own counters.
     let funnel_on = !flag("nofunnel");
     let mut funnel = NestFunnel::default();
+    // **Every pellet's trip** (see [`TripLog`]), with the funnel.
+    let mut trips = TripLog::default();
+    if let Some(path) = arg::<String>("tripcsv") {
+        use std::io::Write;
+        let mut w = std::io::BufWriter::new(std::fs::File::create(&path).expect("tripcsv: cannot create the file"));
+        let _ = writeln!(w, "frame,id,trip_start,hx,hy,heading,ahead,patience,inside,in_cut");
+        trips.csv = Some(w);
+    }
+    if let Some(path) = arg::<String>("decisions") {
+        use std::io::Write;
+        let mut w = std::io::BufWriter::new(std::fs::File::create(&path).expect("decisions: cannot create the file"));
+        let _ = writeln!(w, "frame,id,hx,hy,hx_after,hy_after,heading,heading_after,usable,anchor_x,anchor_y,home_aligned,p_move,roll_move,roll_tumble,outcome,patience,chosen_cos,drop,drop_roll,drop_p,at_nest,crowding,energy,energy_j");
+        trips.decisions = Some(w);
+        world.decision_log = Some(Vec::new());
+    }
     for f in 0..=frames {
         if f > 0 {
             if funnel_on {
                 funnel.before(&world, &b);
+                trips.before(&world);
             }
             parallel::step(&mut world);
             world.step_active_sites();
             world.step_fields();
             world.step_pheromones();
             if funnel_on {
+                trips.log_decisions(&mut world);
                 funnel.after(&world, &b, f);
+                trips.after(&world, &b, f);
             }
         }
         trickle.step(&mut world, &b);
@@ -2867,6 +3459,9 @@ fn main() {
             }
             if funnel_on && f > 0 {
                 funnel.print(f, &world);
+                trips.print(f);
+                let cut = world.nest_sites.iter().find_map(|s| s.shaft);
+                funnel.print_openings(f, &world, &b, &|x, y| cut.is_some_and(|c| c.contains(x, y)));
             }
             if let Some(g) = &ground {
                 let cut = world.nest_sites.iter().find_map(|s| s.shaft);

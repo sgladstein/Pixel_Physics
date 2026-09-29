@@ -1656,6 +1656,21 @@ pub fn plant_creature_seed_in(world: &mut World, x: i32, y: i32, species_name: &
     place_creature(world, x, y, species_id, material_id, &def, false, Origin::Founder { colony })
 }
 
+/// **[`plant_creature_seed_in`], homed the way founding homes a founder**:
+/// at `anchor` when there is one -- the door, [`World::door_anchor`] -- else
+/// where it landed. [`World::found_colony_with`] places every founder through
+/// it, and so does a harness that lays its own founders down
+/// (`examples/digbox`'s trickle), so the two cannot home them differently.
+pub fn plant_founder_in(world: &mut World, x: i32, y: i32, species_name: &str, colony: Option<u32>, anchor: Option<(i32, i32)>) -> Option<ActiveSite> {
+    let site = plant_creature_seed_in(world, x, y, species_name, colony)?;
+    if let (Some(anchor), ActiveKind::Creature { organism }) = (anchor, site.kind) {
+        if let Some(state) = world.organism_mut(organism) {
+            state.forage_anchor = anchor;
+        }
+    }
+    Some(site)
+}
+
 /// The colony an active site's animal was placed into, for a caller
 /// laying out a group one station at a time: the first placed animal's
 /// label is what every later station joins.
@@ -4649,6 +4664,32 @@ impl World {
         self.found_colony_with(x, y, species, ants, nest_door_of(self), nest_door_pile())
     }
 
+    /// **Where a founder's home is under a door**: the cell above the door's
+    /// centre, founded at `(x, y)` -- `None` without a door. The one copy of
+    /// the rule: [`World::found_colony_with`] homes every founder here, and a
+    /// harness that places its own founders (`examples/digbox`'s trickle)
+    /// calls [`World::door_anchor`] to found the way the game does. See
+    /// `found_colony_with` for why it reads the surface the founding shaft
+    /// was sunk from rather than the ground under the centre now. `nesting`:
+    /// whether the species declared a nest; one that did not registered no
+    /// site, so the nearest site's cut would be a neighbour's.
+    fn door_anchor_with(&self, x: i32, y: i32, nesting: bool, door: Option<i32>) -> Option<(i32, i32)> {
+        door.and_then(|_| {
+            let cut_top = if nesting { self.nearest_nest_site(x, y).and_then(|i| self.nest_sites[i].shaft).map(|cut| cut.top) } else { None };
+            cut_top.or_else(|| colony_surface(self, x, y))
+        })
+        .map(|sy| (x, sy - 1))
+    }
+
+    /// [`World::door_anchor_with`] for `species` founded at `(x, y)` under the
+    /// door in force ([`nest_door_of`]): where the game homes every founder.
+    /// `None` without a door, or for a species nobody loaded.
+    pub fn door_anchor(&self, x: i32, y: i32, species: &str) -> Option<(i32, i32)> {
+        let id = self.species.id_of(species)?;
+        let nesting = self.species.get(id).creature.as_ref().is_some_and(|c| !c.nest.is_empty());
+        self.door_anchor_with(x, y, nesting, nest_door_of(self))
+    }
+
     /// [`World::found_colony_of`] with the nest-door switches passed in rather
     /// than read from the environment, so a test can set them: `door` is
     /// [`nest_door`]'s half-width, `pile` is [`nest_door_pile`]. `(None, _)`
@@ -4720,12 +4761,7 @@ impl World {
         // is `colony_surface` exactly as before. **Only for a species that
         // declared a nest**: one that did not registered no site here, so the
         // nearest site's cut would be a neighbour's.
-        let door_anchor = door
-            .and_then(|_| {
-                let cut_top = if nest.is_empty() { None } else { self.nearest_nest_site(x, y).and_then(|i| self.nest_sites[i].shaft).map(|cut| cut.top) };
-                cut_top.or_else(|| colony_surface(self, x, y))
-            })
-            .map(|sy| (x, sy - 1));
+        let door_anchor = self.door_anchor_with(x, y, !nest.is_empty(), door);
         // **One colony per founding.** The first animal that fits founds it
         // and every later station joins; a founding in which nothing fits
         // claims nothing. See `OrganismState::colony`.
@@ -4733,17 +4769,12 @@ impl World {
         let mut founders: Vec<OrganismId> = Vec::new();
         for (cx, cy) in stations {
             let before = self.get(cx, cy).organism_id();
-            if let Some(site) = plant_creature_seed_in(self, cx, cy, species, colony) {
+            if let Some(site) = plant_founder_in(self, cx, cy, species, colony, door_anchor) {
                 if colony.is_none() {
                     colony = colony_of_site(self, &site);
                 }
                 if let ActiveKind::Creature { organism } = site.kind {
                     founders.push(organism);
-                }
-                if let (Some(anchor), ActiveKind::Creature { organism }) = (door_anchor, site.kind) {
-                    if let Some(state) = self.organism_mut(organism) {
-                        state.forage_anchor = anchor;
-                    }
                 }
                 self.schedule_active_site(site);
             }
@@ -7556,8 +7587,22 @@ fn sense(
         // **A store carrier reads it too** ([`storeroom_of`]): it has a home to
         // head for, the storeroom's floor or, coming back, the mouth, so it
         // walks at the laden pace.
-        inputs[I::HomeAligned as usize] = if crop_fill > 0.0 || is_store_load(world, state.spoil) || store_return_target(world, state).is_some() {
-            let (ax, ay) = home_target(world, state);
+        // **So does a pellet carrier under `PIXEL_PHYSICS_SPOIL_HAUL`**
+        // ([`spoil_haul_pace`]): the haul gives it the door to head for, and
+        // without the laden pace it walked there at an empty fed ant's one
+        // step in five decisions.
+        // **...and it reads the bearing to where that carrier is going**
+        // ([`spoil_pace_target`]): the door for a hauled pellet, the face for
+        // a digger walking back. Read against `home_target` -- the forage
+        // anchor, which every contact with the nest re-sets to where the ant
+        // stands -- a carrier at the mouth was always standing on its own
+        // anchor, read 0, and lost the laden pace exactly where it had to
+        // climb out: `P(move)` 0.36-0.46 in the mouth's two rows and at the
+        // door against 0.77-0.79 a row deeper, and 30-45% of its decisions a
+        // step against 75-86% (`examples/digbox`, 40 ants, seed 1,
+        // 2026-09-29).
+        inputs[I::HomeAligned as usize] = if crop_fill > 0.0 || is_store_load(world, state.spoil) || store_return_target(world, state).is_some() || spoil_haul_pace(world, def, state) {
+            let (ax, ay) = spoil_pace_target(world, def, state, (x, y)).unwrap_or_else(|| home_target(world, state));
             let (vx, vy) = ((ax - x) as f32, (ay - y) as f32);
             let len = (vx * vx + vy * vy).sqrt();
             // **Standing on the anchor is not a direction** -- the guard
@@ -10204,6 +10249,9 @@ const COVER_REACH: i32 = 20;
 /// with digging falling 42% because a held pellet blocks the next dig. The
 /// drop rule is the second half of a mechanism whose first half did not
 /// exist, which is why it read as a regression when measured alone.
+///
+/// **`PIXEL_PHYSICS_SPOIL_OUT`'s `haul` part ([`SpoilOut`]) reads as `1.0`**
+/// when this variable is unset, so the cycle's pull is this one.
 fn spoil_haul() -> Option<f32> {
     static W: std::sync::OnceLock<Option<f32>> = std::sync::OnceLock::new();
     *W.get_or_init(|| {
@@ -10211,8 +10259,192 @@ fn spoil_haul() -> Option<f32> {
             .ok()
             .and_then(|v| v.parse::<f32>().ok())
             .filter(|v| (0.0..=1.0).contains(v))
+            .or(spoil_out().haul.then_some(1.0))
     })
 }
+
+/// **Where [`spoil_haul`] takes a pellet**: the nearest nest site's door.
+///
+/// **Under `SPOIL_OUT` that is the door every ant is homed to**
+/// ([`World::door_anchor`]: a row above the mouth), not `site.surface`, which
+/// over a founding cut is the mouth's own row and so inside the nest, where
+/// `keep` will not let the pellet go. Traced in `examples/digbox` (`TRIPS`,
+/// 2026-09-29): with the old target a carrier climbed the shaft in a handful
+/// of steps, reached the target, lost its pull (standing on a target is not a
+/// direction) and milled in the mouth -- 77% of the carrying frames at 200
+/// ants in the founding cut, 64% at 40. `PIXEL_PHYSICS_SPOIL_HAUL` alone keeps
+/// its old target, the one its measurements were taken with.
+fn spoil_haul_target(world: &World, head: (i32, i32)) -> Option<(i32, i32)> {
+    let site = world.nearest_nest_site(head.0, head.1).and_then(|i| world.nest_sites.get(i))?;
+    Some(match site.shaft {
+        Some(cut) if spoil_out().haul => (site.x, cut.top - 1),
+        _ => (site.x, site.surface),
+    })
+}
+
+/// **The excavation cycle, walked**: `PIXEL_PHYSICS_SPOIL_OUT`, off unless
+/// set. Grab, climb out, put down, go back -- the cycle the excavation
+/// reference describes, of which the shipped ant walks only the first and
+/// abstracts the rest into the lift ([`lift_reach`]).
+///
+/// **Why the lift is the thing it replaces.** A pellet the lift posts up the
+/// carrier's column lands on the ground right over the gallery it came from,
+/// so a colony working under a door grows a heap over every gallery; the heap
+/// cue ([`spoil_cue_factor`]) reads ground above a cell as a roof, so a cut
+/// into the crust under a heap is never judged as opening the sky, and heaps
+/// make the ground between them curve in, which the dig wiring reads as
+/// enclosed. Traced in `examples/digbox` (door alone, 40 ants, 24 seeds,
+/// 2026-09-29): of 444 times the crust over the nest broke, 314 were cuts into
+/// ground with a heap on it and 48 were cuts into open sky; 208 of the 263
+/// holes standing at the end were first broken under a heap. Sending the lift
+/// out through the passages instead (`SPOIL_LIFT=out`) put each pellet out of
+/// whichever hole was nearest and grew a heap on every hole: 5 entrances at 40
+/// ants and 12 at 200. Walked, the pellets leave by the door.
+///
+/// Parts, each alone or together (`on` is all four):
+/// - `haul`: a pellet carrier is pulled to its nest's door, as under
+///   `PIXEL_PHYSICS_SPOIL_HAUL=1.0` ([`spoil_haul`]);
+/// - `pace`: ...at the laden pace, as is a digger walking back
+///   ([`spoil_haul_pace`]);
+/// - `keep`: inside the nest ([`inside_nest`]) the pellet is not put down --
+///   no drop beside the carrier and no lift -- until the haul's patience runs
+///   out on it, so it goes down outside; and a carrier that has run out of
+///   patience inside may lay it beside itself where a cell will hold it but
+///   is **never lifted**, up its column or out through the passages -- it
+///   keeps carrying;
+/// - `back`: once it is down, a digger that is not hungry walks back to the
+///   cell it cut (`OrganismState::dig_return`, [`dig_return_target`]).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct SpoilOut {
+    pub haul: bool,
+    pub pace: bool,
+    pub keep: bool,
+    pub back: bool,
+}
+
+impl SpoilOut {
+    /// Every part: `PIXEL_PHYSICS_SPOIL_OUT=on`.
+    pub const ON: SpoilOut = SpoilOut { haul: true, pace: true, keep: true, back: true };
+
+    /// Any part at all.
+    pub fn any(self) -> bool {
+        self.haul || self.pace || self.keep || self.back
+    }
+}
+
+/// The cycle this process runs ([`SpoilOut`]): off unless
+/// `PIXEL_PHYSICS_SPOIL_OUT` names it.
+pub fn spoil_out() -> SpoilOut {
+    static V: std::sync::OnceLock<SpoilOut> = std::sync::OnceLock::new();
+    *V.get_or_init(|| parse_spoil_out(&std::env::var("PIXEL_PHYSICS_SPOIL_OUT").unwrap_or_default()))
+}
+
+/// `PIXEL_PHYSICS_SPOIL_OUT`'s value read as a [`SpoilOut`]: unset and `off`
+/// are the shipped ant, `on` every part, and a comma list exactly the parts it
+/// names. A value it cannot read is reported and read as unset.
+fn parse_spoil_out(raw: &str) -> SpoilOut {
+    match raw.trim() {
+        "" | "off" => SpoilOut::default(),
+        "on" => SpoilOut::ON,
+        v => {
+            let mut out = SpoilOut::default();
+            for part in v.split(',').map(str::trim) {
+                match part {
+                    "haul" => out.haul = true,
+                    "pace" => out.pace = true,
+                    "keep" => out.keep = true,
+                    "back" => out.back = true,
+                    _ => {
+                        eprintln!("PIXEL_PHYSICS_SPOIL_OUT={raw:?}: {part:?} is not `on`, `off` or a part (haul, pace, keep, back); read as unset");
+                        return SpoilOut::default();
+                    }
+                }
+            }
+            out
+        }
+    }
+}
+
+/// **Inside the nest**, for [`SpoilOut`]: ground over the cell within
+/// `COVER_REACH` rows ([`under_cover`]), **or inside the founding cut** of the
+/// nearest nest site. The second clause is what a cover test alone gets wrong:
+/// the founding shaft is a hole open to the sky, so an ant standing in it has
+/// nothing overhead, and a rule keyed on cover alone let a carrier put its
+/// pellet down the shaft and pulled an ant walking back up out of it.
+fn inside_nest(world: &World, x: i32, y: i32) -> bool {
+    under_cover(world, x, y) || world.nearest_nest_site(x, y).and_then(|i| world.nest_sites.get(i)).and_then(|s| s.shaft).is_some_and(|c| c.contains(x, y))
+}
+
+/// **A hauled pellet is carried at the laden pace** ([`SpoilOut`]'s `pace`):
+/// `HomeAligned` reads as it does for a load of food, so the step roll is the
+/// laden ant's (0.76 a decision) rather than an empty fed ant's (0.20), for a
+/// carrier under the haul and for a digger walking back to its face. The haul
+/// alone gave the carrier a door to head for and none of the urgency of a
+/// load. A store load already walks this way ([`is_store_load`]).
+fn spoil_haul_pace(world: &World, def: &CreatureDef, state: &crate::sim::organism::OrganismState) -> bool {
+    spoil_out().pace && ((spoil_haul().is_some() && state.spoil.is_some_and(|s| !s.store)) || dig_return_target(world, def, state).is_some())
+}
+
+/// Where a carrier under [`spoil_haul_pace`] is going, for its `HomeAligned`
+/// bearing: the haul's door ([`spoil_haul_target`]) for a pellet, the face
+/// ([`dig_return_target`]) for a digger walking back; `None` for everyone
+/// else, who reads `home_target` as before.
+fn spoil_pace_target(world: &World, def: &CreatureDef, state: &crate::sim::organism::OrganismState, head: (i32, i32)) -> Option<(i32, i32)> {
+    if !spoil_out().pace {
+        return None;
+    }
+    if spoil_haul().is_some() && state.spoil.is_some_and(|s| !s.store) {
+        return spoil_haul_target(world, head);
+    }
+    dig_return_target(world, def, state)
+}
+
+/// **The trip back to the face** ([`SpoilOut`]'s `back`).
+///
+/// Measured before it was built (`examples/digbox`, 40 ants, 2026-09-29):
+/// with the pellet hauled out to the door and never put down under cover, the
+/// colony cut at the same rate per ant-frame underground as under the lift
+/// (3.8 and 3.3 per thousand) and spent a quarter of the ant-frames there,
+/// because 19 of the 40 carriers that put a pellet down in the open never went
+/// back under. The lift had hidden the trip: a pellet posted up the column
+/// leaves its digger at the face.
+fn spoil_back() -> bool {
+    spoil_out().back
+}
+
+/// Where [`spoil_back`] pulls this animal, or `None`: it must hold nothing,
+/// not be hungry (at least [`DIG_RETURN_FED`] of its `start_energy` -- a
+/// hungry digger goes to eat), and carry a `dig_return`. Outside its nest the
+/// target is the nest's door, the way in; inside ([`inside_nest`]), the cell
+/// it cut.
+fn dig_return_target(world: &World, def: &CreatureDef, state: &crate::sim::organism::OrganismState) -> Option<(i32, i32)> {
+    let site = state.dig_return?;
+    if !spoil_back() || state.spoil.is_some() || state.crop.is_some_and(|c| c.worth() > 0.0) || state.energy < DIG_RETURN_FED * def.start_energy {
+        return None;
+    }
+    let &(hx, hy) = state.chain.first()?;
+    if inside_nest(world, hx, hy) {
+        Some(site)
+    } else {
+        let ns = world.nearest_nest_site(site.0, site.1).and_then(|i| world.nest_sites.get(i))?;
+        Some((ns.x, ns.surface))
+    }
+}
+
+/// Patience below which [`spoil_back`]'s trip is given up, as a scout gives
+/// up its excursion (`SCOUT_GIVE_UP`); and below which [`SpoilOut`]'s `keep`
+/// lets a stuck carrier put its pellet down where it is.
+const DIG_RETURN_GIVE_UP: f32 = 0.1;
+
+/// **The share of `start_energy` below which a digger does not go back to
+/// the face** but about its hunger. Not the `start_energy` or more that a
+/// nest worker's stray pull reads as fed: energy only falls between meals, so
+/// that test holds for a moment after each one and a digger at nine tenths is
+/// not hungry; and in `digbox`, whose colony has no food at all, it never
+/// holds, which made the first build of this rule move nothing -- byte for
+/// byte (2026-09-29). Half is where the brain's own `Drop` has nearly closed
+/// on a hungry ant (0 below about 40%, §4 of `how-the-ant-works.md`).
+const DIG_RETURN_FED: f32 = 0.5;
 
 fn spoil_drop_cover() -> Option<f32> {
     static W: std::sync::OnceLock<Option<f32>> = std::sync::OnceLock::new();
@@ -12513,12 +12745,24 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
         //
         // Default `None`, which takes no extra read and no draw. See
         // [`spoil_drop_cover`].
-        let cover_scale = match spoil_drop_cover() {
-            Some(w) if under_cover(world, x, y) => {
-                world.creature_stats.spoil_holds_under_cover += 1;
-                w
+        // **Kept until it is out** ([`SpoilOut`]'s `keep`): inside the nest
+        // the roll is not won, so the pellet is neither laid beside the
+        // carrier nor lifted, while the haul still has patience. A carrier
+        // that has stuck may lay it beside itself where a cell will hold it,
+        // and is never lifted: see `no_lift` below.
+        let keep_inside = spoil_out().keep && inside_nest(world, x, y);
+        let kept_inside = keep_inside && world.organism(organism).is_some_and(|s| s.home_patience >= DIG_RETURN_GIVE_UP);
+        let cover_scale = if kept_inside {
+            world.creature_stats.spoil_kept_inside += 1;
+            0.0
+        } else {
+            match spoil_drop_cover() {
+                Some(w) if under_cover(world, x, y) => {
+                    world.creature_stats.spoil_holds_under_cover += 1;
+                    w
+                }
+                _ => 1.0,
             }
-            _ => 1.0,
         };
         if draw.unit_f32() < dump_urge * cover_scale {
             // **Ground under it and air over it** -- a pellet goes down where
@@ -12609,8 +12853,26 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
             // walk rather than teleportation -- `CLAUDE.md`'s second law, *there
             // must be a verb, and it must deliver something*. The rule is
             // #221's and is ported with it; `lift_reach` carries the argument.
-            let reach = lift_reach(world, x, y, dig_force_of(def, &traits_of(world, organism, def), world.trait_reach), spoil_lift_mode());
-            let site = beside.or_else(|| (1..=reach).map(|dy| (x, y - dy)).find(|&(px, py)| open(px, py)));
+            let mode = spoil_lift_mode();
+            let reach = lift_reach(world, x, y, dig_force_of(def, &traits_of(world, organism, def), world.trait_reach), mode);
+            // **...or out through the passages** under `SpoilLift::Out`
+            // ([`lift_out`]), the column only when that search finds nothing.
+            //
+            // **Never lifted from inside the nest under `keep`**: a carrier
+            // that gave up the walk out there and has no cell beside it keeps
+            // carrying. The first build let it go as it always had, and at 200
+            // ants (`examples/digbox`, 2026-09-29) that release posted 81% of
+            // all pellets up the column -- from everywhere in the nest, not
+            // only the shaft: 165-293 a seed from 1-4 rows under the old
+            // surface and 59-244 from 9-16 rows (seeds 1-4) -- and the heaps
+            // over the galleries broke 7 entrances (24 seeds), against 3 for
+            // the walk out with no trip back.
+            let no_lift = keep_inside;
+            let out = if lifted && !no_lift && mode == SpoilLift::Out { lift_out(world, x, y, footed) } else { None };
+            let site = beside.or_else(|| if no_lift { None } else { out.or_else(|| (1..=reach).map(|dy| (x, y - dy)).find(|&(px, py)| open(px, py))) });
+            if site.is_none() && no_lift {
+                world.creature_stats.spoil_kept_no_lift += 1;
+            }
             world.creature_stats.spoil_drop_candidates += candidates;
             world.creature_stats.spoil_drop_candidates_by_spoil += candidates_by_spoil;
             if candidates > 0 && candidates_by_spoil > 0 && candidates_by_spoil < candidates {
@@ -12626,6 +12888,7 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
                 if lifted {
                     let rows = (y - py).max(0) as u32;
                     world.creature_stats.spoil_lifted += 1;
+                    world.creature_stats.spoil_lifted_out += u64::from(out.is_some());
                     world.creature_stats.spoil_lift_max = world.creature_stats.spoil_lift_max.max(rows);
                     world.creature_stats.spoil_lift_rows += u64::from(rows);
                 }
@@ -12828,8 +13091,16 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
             // cannot fail for the fault it is named after is blind, not weak
             // (`CLAUDE.md`), and this comment is what is left instead. A
             // separate lookup is the price of the count meaning what it says.
+            //
+            // **The face to come back to** ([`spoil_back`]): a cut made inside
+            // the nest is remembered, and one made in the open forgets it, so
+            // a digger that worked a heap is pulled nowhere.
+            let back_to = spoil_back().then(|| inside_nest(world, x, y).then_some((tx, ty)));
             if let Some(state) = world.organism_mut(organism) {
                 state.life.digs += 1;
+                if let Some(back_to) = back_to {
+                    state.dig_return = back_to;
+                }
             }
             line_burrow(world, tx, ty);
             return Did { dug: 1, ..did };
@@ -12903,7 +13174,7 @@ fn lift_reach(world: &World, x: i32, y: i32, dig_force: f32, mode: SpoilLift) ->
             // climbable when something solid stands beside it. In the open sky
             // over a mound there is nothing to hold and the scan stops, which
             // is the case the second law is about.
-            if mode == SpoilLift::Climb && !has_wall_beside(world, x, y - dy) {
+            if matches!(mode, SpoilLift::Climb | SpoilLift::Out) && !has_wall_beside(world, x, y - dy) {
                 return dy;
             }
             continue;
@@ -12925,6 +13196,52 @@ fn lift_reach(world: &World, x: i32, y: i32, dig_force: f32, mode: SpoilLift) ->
 /// §Z18 describes.
 fn has_wall_beside(world: &World, x: i32, y: i32) -> bool {
     world.get(x - 1, y).material != material::EMPTY || world.get(x + 1, y).material != material::EMPTY
+}
+
+/// How many cells [`lift_out`] may visit before it gives the pellet to the
+/// column lift. A colony of 200 in `digbox` holds about 600 cells of dug room,
+/// and past the mouth the search spills into open air, where the first cell
+/// that will hold a pellet is a few rows off; so the cap bounds the search's
+/// work and a colony that reaches it gets the old walk, not a lost pellet.
+const LIFT_OUT_CELLS: usize = 4_096;
+
+/// **Where a pellet carried out through the passages is set down**
+/// (`SpoilLift::Out`): the nearest cell, by steps through open passage from
+/// the carrier's head -- empty cells and animals, eight ways, the moves an ant
+/// makes -- that is in the open (no ground over it in `COVER_REACH` rows,
+/// [`under_cover`]) and passes the drop test itself ([`spoil_site_open`]).
+/// From a gallery that is up the passages and out through the mouth, to the
+/// first place beside it a pellet can lie. `None` when no such cell lies
+/// within [`LIFT_OUT_CELLS`] of it -- a sealed pocket, or a nest bigger than
+/// the search -- and the column lift takes the pellet as it always has.
+///
+/// Breadth first in `NEIGHBOURS_8`'s fixed order, so the tie between two
+/// cells equally far is settled the same way every run.
+fn lift_out(world: &World, x: i32, y: i32, footed: bool) -> Option<(i32, i32)> {
+    let mut seen: std::collections::HashSet<(i32, i32)> = std::collections::HashSet::with_capacity(256);
+    let mut queue: std::collections::VecDeque<(i32, i32)> = std::collections::VecDeque::with_capacity(256);
+    seen.insert((x, y));
+    queue.push_back((x, y));
+    while let Some((cx, cy)) = queue.pop_front() {
+        for &(dx, dy) in NEIGHBOURS_8.iter() {
+            let (nx, ny) = (cx + dx, cy + dy);
+            if seen.len() >= LIFT_OUT_CELLS {
+                return None;
+            }
+            if !world.in_bounds(nx, ny) || !seen.insert((nx, ny)) {
+                continue;
+            }
+            let c = world.get(nx, ny);
+            if c.material != material::EMPTY && world.materials.kind(c.material) != MaterialKind::Creature {
+                continue;
+            }
+            if spoil_site_open(world, nx, ny, footed) && !under_cover(world, nx, ny) {
+                return Some((nx, ny));
+            }
+            queue.push_back((nx, ny));
+        }
+    }
+    None
 }
 
 /// The ablation switch for the bound above, **fully on by default** (the lab's
@@ -12974,6 +13291,28 @@ enum SpoilLift {
     /// arm is for.** Do not ship it without measuring what it costs: an ant
     /// that cannot put a pellet anywhere may simply carry it for ever.
     None,
+    /// **Out the way it came in** (`PIXEL_PHYSICS_SPOIL_LIFT=out`): the
+    /// pellet goes to the nearest cell reached through open passage that is
+    /// in the open and would hold it ([`lift_out`]), and up the column as
+    /// under `Climb` only when the search finds none.
+    ///
+    /// **Why the column was the wrong walk to abstract.** Straight up from a
+    /// gallery is not the way out of it: the way out is along the gallery and
+    /// up the shaft, through the mouth. Posted up the column, every pellet from
+    /// a gallery lands on the ground right over it, so a colony working under
+    /// a door grows a heap over each gallery; and the heap cue
+    /// ([`spoil_cue_factor`]) reads ground above a cell as a roof, so a cut
+    /// into the crust under a heap is never judged as opening the sky. Traced
+    /// in `examples/digbox` (door alone, 40 ants, 24 seeds, 2026-09-29): of
+    /// 444 times the crust over the nest broke, 314 were cuts into ground
+    /// with a heap on it, 82 unlined soil falling, 48 cuts into open sky --
+    /// and 208 of the 263 holes standing at the end were first broken under a
+    /// heap. Carrying the pellet out by walking (`PIXEL_PHYSICS_SPOIL_HAUL`
+    /// with no drop under cover) closed the holes and cut the dig by
+    /// four fifths, because every carrier then left its face; this keeps the
+    /// digger at the face, as the column lift does, and moves only where the
+    /// pellet ends up.
+    Out,
 }
 
 fn spoil_lift_mode() -> SpoilLift {
@@ -12982,6 +13321,7 @@ fn spoil_lift_mode() -> SpoilLift {
         Ok("unbounded") => SpoilLift::Unbounded,
         Ok("dig") => SpoilLift::Dig,
         Ok("none") => SpoilLift::None,
+        Ok("out") => SpoilLift::Out,
         _ => SpoilLift::Climb,
     })
 }
@@ -15268,13 +15608,16 @@ fn home_pull(world: &World, organism: OrganismId, def: &CreatureDef, head: (i32,
         return Some((home_target(world, state), def.home_bias));
     }
     match spoil_haul().filter(|_| state.spoil.is_some()) {
-        Some(w) => {
-            let site = world.nearest_nest_site(head.0, head.1).and_then(|i| world.nest_sites.get(i))?;
-            Some(((site.x, site.surface), w))
-        }
+        Some(w) => Some((spoil_haul_target(world, head)?, w)),
         None => {
             if def.home_bias <= 0.0 {
                 return None;
+            }
+            // **Back to the face** ([`spoil_back`]), at the haul's gain: an
+            // empty digger that is not hungry, its pellet down, walks back the
+            // way the pellet came out.
+            if let Some(target) = dig_return_target(world, def, state) {
+                return Some((target, spoil_haul().unwrap_or(1.0)));
             }
             // Too hungry to be out (`update_hungry_home`): home as if laden,
             // to where the food is kept. A packed lunch is not a load
@@ -15366,6 +15709,22 @@ fn chooser_step(
         if let Some(s) = world.organism_mut(organism) {
             if s.spoil.is_none() {
                 s.store_return = false;
+            }
+        }
+    }
+    // **The trip back to the face ends** ([`spoil_back`]) on arrival --
+    // under cover and within two cells of the cell it cut -- when patience
+    // has run out on it, or when the animal is no longer an empty digger that
+    // is not hungry (food in the crop, or below [`DIG_RETURN_FED`]), which
+    // [`dig_return_target`] reads.
+    if let Some(s) = world.organism(organism).filter(|s| s.dig_return.is_some() && s.spoil.is_none()) {
+        let (sx, sy) = s.dig_return.expect("filtered above");
+        let target = dig_return_target(world, def, s);
+        let arrived = target == Some((sx, sy)) && (hx - sx).abs() <= 2 && (hy - sy).abs() <= 2;
+        let gave_up = target.is_some_and(|t| s.home_best_for == t) && s.home_patience < DIG_RETURN_GIVE_UP;
+        if arrived || gave_up || target.is_none() {
+            if let Some(s) = world.organism_mut(organism) {
+                s.dig_return = None;
             }
         }
     }
