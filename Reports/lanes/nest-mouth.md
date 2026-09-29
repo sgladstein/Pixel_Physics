@@ -174,7 +174,8 @@ exploratory and carry none.
 
 **2026-09-29: "I cannot review the queue, post questions/images in this
 chat."** Show pictures with `SendUserFile` and ask in chat; the queue cards
-below are the record, not the channel. Open in chat: the carry
+below are the record, not the channel. Same day: digbox sheets in the
+lab's colours (`look=lab`, default; render-only, logs identical). Open in chat: the carry
 (`…04be5b`), widening (`…ca2baa`), stacking by default. Superseded by
 §11's trace: `…2d6747` (relay) and `…f4ca75` (the lab's buried mouth).
 Older cards are named in the reports that posted them.

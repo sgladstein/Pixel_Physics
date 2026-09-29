@@ -5447,10 +5447,18 @@ pub struct World {
     ///
     /// Read by the renderer, which draws the air inside it as an interior —
     /// walls, panel seams and the pools under the grow lights — instead of
-    /// as sky. Nothing in the simulation reads it: it is a fact *about* the
-    /// scene, declared by whatever built the shell, and the geometry it
-    /// carries (`sim::enclosure::Enclosure`) has no colours in it for the
-    /// same reason `Clock::sky_hold` has none.
+    /// as sky. It is a fact *about* the scene, declared by whatever built the
+    /// shell, and the geometry it carries (`sim::enclosure::Enclosure`) has
+    /// no colours in it for the same reason `Clock::sky_hold` has none.
+    ///
+    /// **Two simulation passes read it too**, and this said none did until
+    /// 2026-09-29: `evaporation::is_enclosed` picks the sealed-box vapour
+    /// rate (260 per cell against 2 in open air), and
+    /// `weather::condense_under_a_lid` drips what the box banked back down
+    /// from the ceiling. Declaring a room therefore changes how fast soil
+    /// dries and rains water into it; a harness that wants only the look
+    /// sets it around `Renderer::draw` and clears it before the next step
+    /// (`examples/digbox.rs`'s `LabLook`).
     ///
     /// It lives on the world rather than on the `Renderer` because
     /// `Renderer::draw` takes `&World` and nothing else, so a scene that
@@ -10668,9 +10676,10 @@ impl World {
     /// **Declare this world a sealed room**, or open country again.
     ///
     /// The renderer draws the air inside a room as an interior rather than
-    /// as sky — see [`World::enclosure`] and `sim::enclosure`. Purely a
-    /// statement about the scene: no simulation pass reads it, so setting it
-    /// changes not one cell.
+    /// as sky — see [`World::enclosure`] and `sim::enclosure`. **Not only a
+    /// statement about the picture**: soil drying and the lid's condensation
+    /// read it as well (see the field's doc), so setting it on a world that
+    /// is then stepped changes the run.
     pub fn set_enclosure(&mut self, enclosure: Option<crate::sim::enclosure::Enclosure>) {
         self.enclosure = enclosure;
     }

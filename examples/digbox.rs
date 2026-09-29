@@ -3367,6 +3367,12 @@ fn main() {
     // See [`tint`] for the colours and why they are a full replace.
     let tint_out: Option<String> = arg("tintout");
     let scale: u32 = arg("scale").unwrap_or(3);
+    // **`look=` picks the colours a sheet is drawn in**: `lab` (the default,
+    // owner 2026-09-29: "match the lab colors, not sky background, easier to
+    // see ants and tunnels") or `sky`, the open-country look every sheet
+    // before that date was drawn in. Pictures only -- see [`LabLook`] for why
+    // the numbers cannot move.
+    let lab_look = arg::<String>("look").is_none_or(|v| v != "sky");
 
     let wet: u16 = arg("wet").unwrap_or(material::SOIL_FIELD_CAPACITY);
     let grad: Option<(u16, u16)> = arg::<String>("wetgrad").map(|v| {
@@ -3573,6 +3579,9 @@ fn main() {
 
     let particles = ParticleSystem::default();
     let mut renderer = Renderer::new();
+    if lab_look {
+        renderer.creature_colour = pixel_physics::render::CreatureColour::Colony;
+    }
     let mut blasts = Blasts::default();
     let _ = &mut blasts;
     // **`stops=` names the frames outright**, because a run whose sheet is
@@ -3686,7 +3695,11 @@ fn main() {
                 let (vw, vh) = (b.w as u32, b.h as u32);
                 let mut buf = vec![0u8; (vw * vh * 4) as usize];
                 let touched = world.take_touched_chunks();
+                let look = lab_look.then(|| LabLook::dress(&mut world, &b));
                 renderer.draw(&world, &particles, &touched, &mut buf, (vw, vh), true);
+                if let Some(look) = look {
+                    look.undress(&mut world);
+                }
                 if tint_out.is_some() {
                     let mut tinted = buf.clone();
                     tint(&world, &b, &mut tinted);
@@ -4039,6 +4052,76 @@ fn write_sheet(path: &str, shots: &[Vec<u8>], b: &Box2, scale: u32) {
     }
     image::save_buffer(path, &sheet, sw, sh, image::ColorType::Rgba8).expect("writing the sheet");
     println!("wrote {path} ({sw}x{sh}, {} stops top to bottom)", shots.len());
+}
+
+/// **The lab's colours, worn for the one instant a picture is taken.**
+///
+/// Owner, 2026-09-29: *"change your test/images to match the lab colors? Not
+/// sky background, easier to see ants and tunnels."* Outdoors, dug void draws
+/// as the sky carried underground -- a dark blue -- the air over the box is
+/// a bright band that takes the eye off the ground, and the ant's own
+/// palette (`ant.ron`, 28-52 on every channel) is a near-black brown within a
+/// few steps of both the soil and the tunnel. The lab answers all three, and
+/// this wears its three answers:
+///
+/// - **the air is a room**, a dark slate wall, and dug space below the bench
+///   line is warm near-black earth (`sky::Interior`), so a tunnel reads as a
+///   hole in the ground rather than as a strip of night;
+/// - **each colony wears its group colour** (`CreatureColour::Colony`, what
+///   `Lab::new` opens on), amber for the first, so an ant stands off both
+///   the soil and the tunnel it is walking in;
+/// - **the painted nest is worked earth** (`lab::earth_toned_nest`, whose
+///   tones this copies, since that function is private to the lab), so the
+///   door is not a second tan-and-amber thing to tell apart from the ants.
+///
+/// **No lamps.** The lab's pools of light sit under a ceiling many rows above
+/// the bench and are out of frame wherever the ground is; this box has 24
+/// rows of air, so the same pools would sit in every picture as a bright
+/// band -- the thing this replaces. An empty lamp list is the room unlit by
+/// fixtures, which at the bench is what the lab looks like.
+///
+/// **Worn only around `Renderer::draw` and taken off before the next frame
+/// is simulated.** `World::set_enclosure`'s doc said no simulation pass
+/// reads the room; two do. `evaporation::is_enclosed` values the water a
+/// drying cell releases at the sealed-box rate (260 against 2 in open air),
+/// which humidifies the air over the soil and brakes further drying, and
+/// `weather::condense_under_a_lid` drips banked water back from the ceiling
+/// -- and the dig wiring reads soil moisture (`(MoistureGrad, Dig, -0.55)`
+/// in the module doc). Measured 2026-09-29 with a scratch binary that left
+/// the room declared for the whole run (walked 40 ants seed 9, today's 40
+/// ants seed 2 and 200 ants seed 21, 24,000 frames each): **every census
+/// line identical**, and the only trace is surface and floor soil drawn 1-2
+/// colour steps apart from frame 18,000 on -- the soil is wetter, and no ant
+/// has yet read the difference. Harmless in these runs, and not guaranteed
+/// in a longer or wetter one, so the room stays on for the draw alone:
+/// declared there, nothing that steps the world can see it. The colony
+/// colour is the renderer's own setting and reaches nothing else.
+struct LabLook {
+    nest: Option<(MaterialId, Vec<[u8; 4]>, usize)>,
+}
+
+impl LabLook {
+    const WORKED_EARTH: [[u8; 4]; 4] = [[48, 38, 32, 255], [56, 45, 38, 255], [42, 33, 28, 255], [62, 50, 42, 255]];
+
+    fn dress(world: &mut World, b: &Box2) -> Self {
+        world.set_enclosure(Some(pixel_physics::sim::enclosure::Enclosure::new(0, b.surface)));
+        let nest = world.materials.id_of("nest").map(|id| {
+            let def = world.materials.get_mut(id);
+            let old = (id, std::mem::replace(&mut def.palette, Self::WORKED_EARTH.to_vec()), def.base_shades);
+            def.base_shades = Self::WORKED_EARTH.len();
+            old
+        });
+        LabLook { nest }
+    }
+
+    fn undress(self, world: &mut World) {
+        world.set_enclosure(None);
+        if let Some((id, palette, shades)) = self.nest {
+            let def = world.materials.get_mut(id);
+            def.palette = palette;
+            def.base_shades = shades;
+        }
+    }
 }
 
 /// **Every class of ground painted flat**, so a sheet says *what* each pixel
