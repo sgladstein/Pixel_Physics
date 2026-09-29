@@ -3029,7 +3029,8 @@ where this one reads 20, starved 279 where this reads 275).
 CSV columns byte for byte (24 pulsed seeds, 8 unlimited); `TRIP_REACH=1000`
 books 0 returns; the counter of what the rule removes read 600 / 393, equal
 to a walk of the new `trip_src` trace column. After the flip, unset equals
-`on` and `off` equals `main` on every outcome line. The lab's off arm, run
+`on` and `off` equals `main` on every outcome line of pulsed seeds 1-8 (48
+lines). The lab's off arm, run
 in another container, matched §22t's lab baseline on 23 of 24 seeds'
 `SUMMARY` lines; seed 9 differs only in its last table row (249 alive
 against 251 at frame 119,700).
@@ -3059,7 +3060,8 @@ while the pile is worked. Two things it does not do cleanly. **Fed ants
 set out less in every third of the cycle**, not only the empty one, and
 the last third's drop is not significant paired by seed (10 higher / 12
 lower, p 0.83). And **the drive is at its lowest just after the pile
-refills** (0.613), because nothing has yet reached the door to tell it:
+refills** (0.613 pooled; lower than off on 57 of 71 seed-refills),
+because nothing has yet reached the door to tell it:
 the same fault, seen seed by seed on the unlimited pile at 90 cells, is
 what it costs there. Seed 7 stood down while food was on the road -- 83% of
 its fed, driven rows with drive under 0.5 came while another ant, seen in
@@ -3072,14 +3074,17 @@ cells (`antloop.py`, 480 founders an arm): full loops 796 -> 776, 2+ loops
 225 -> 218, starved 271 -> 274. The one stage that moved is the first:
 founders who never reached the food 45 -> 57 (more on 9 seeds, fewer on 2,
 p 0.065). Traced, it is not the drive standing them down: most of them
-never took food away from home, so the drive never reached them (35 off,
-38 on), and of those it did reach (10 off, 19 on) its median read 1.0 in
-every seed but one. Why they stay home is not traced further.
+never took food away from home (30 of 45 off, 30 of 57 on), and of those
+the drive reached at all (10 off, 19 on) its median read 1.0 in every seed
+but one. Why they stay home is not traced further.
 
 **The pre-registered rule said, on a harm-bar failure through a sagging
 drive, try a window of 1,750.** Measured on the first build, it passed
-every bar on the bed (unlimited 90 worst seed 0.884, starved +9.6%;
-stand-down median 0.891) -- and **leaned worse on every lab gate**, none
+the fallback's bed test -- P5 on every arm (unlimited 90 starved +9.6%)
+and a stand-down median of 0.891 against the fallback's 0.90; worst seed
+0.884 -- though not all of P3 (last third 0.858 against 0.85, and 0.891
+clears only the fallback's relaxed bar, not P3's 0.80). And it **leaned
+worse on every lab gate**, none
 significantly: against off the best was starved per million ant-frames,
 9.2 -> 13.9 (16/8, p 0.15); paired directly against the 1,400 arm, births
 and food eaten were lower on 17 of 24 seeds (p 0.064) and starved per
@@ -3142,10 +3147,12 @@ The lab's food is not mostly living plants, as the design argued: half its
 returns were loose food beside a door, and removing them moved no lab gate
 at p < 0.05. **Still open**: births lean lower
 at 90 cells on the bed (pulsed 46 -> 35; unlimited, 72 seeds, 562 -> 484;
-neither significant), and food standing at the nest leans lower with them;
+neither significant), and on the unlimited pile food standing at the nest
+leans lower with them (72 seeds -3.0%, 27/37; on the pulsed pile it rose,
+5,073 -> 5,567 J, 12/12);
 and the false stand-down, which is the drive's clock rather than the trip
 rule: it learns of food only at the door, so at 20 founders a window can
-pass with loads on the road, and every refill starts with the drive down.
+pass with loads on the road, and most refills start with the drive down.
 Data: `Reports/data/tripreach-2026-09-29.txt.gz` (the bed, every readout
 above with the command that made it) and
 `Reports/data/lab-tripreach-2026-09-29.tar.gz` (the lab's off, first-build

@@ -14848,8 +14848,8 @@ pub const TRIP_REACH_SHIPPED: i32 = 16;
 /// returns booked away from the pile 629 -> 20 on a pulsed pile, pile
 /// returns unchanged (per-seed ratio 1.00); the drive once the pile stops
 /// paying 0.994 -> 0.614, but also at its lowest just after a refill (0.613
-/// in the first 1,000 frames, against 0.936), because it hears of food only
-/// at the door. Food taken and starved inside -5% / +10% on every arm but
+/// over the first 1,000 frames against 0.936, pooled; lower on 57 of 71
+/// seed-refills), because it hears of food only at the door. Food taken and starved inside -5% / +10% on every arm but
 /// unlimited 90 cells (starved 73 -> 82 on the registered seeds; 48 more
 /// read 206 -> 206, 72 pooled +3.2%); births lean lower at 90 cells (72
 /// seeds 562 -> 484, not significant). Lab box, 24 seeds with rain:

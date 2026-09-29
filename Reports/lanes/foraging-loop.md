@@ -89,7 +89,7 @@ Colony bed, no trail, 24 seeds (e9d6562f, the shipped build), unlimited pile:
 | 80 founders at 135 | 8,106 | 8,726 J | 1,102 | 58 |
 | 90, `TRIP_REACH=off` (`main` at ac8644fe) | 5,992 | 12,147 J | 73 | 223 |
 
-Unlimited 90 is noisy: 48 more seeds read starved 206 -> 206.
+Unlimited 90 is noisy: 48 more seeds starved 206 -> 206.
 Pulsed pile at 90 (`food=30 refill=6000`): 2,602 / 275 / 35 (off 2,680 /
 273 / 46). Lab box (`played_bed`, 120,000 frames, 24
 seeds, rain), medians off -> on: births 428 -> 522.5, food eaten 1,122k ->
@@ -105,13 +105,12 @@ seeds, rain), medians off -> on: births 428 -> 522.5, food eaten 1,122k ->
    where its last load came from would aim it, as desert ants aim by the
    vector that paid. Store lunch waits on it.
 2. **The drive's clock hears of food only at the door** (§22u). The trip
-   reach (on) stopped food beside the door booking returns; what is left is
-   a false stand-down at 20 founders on a paying pile (seed 7: 83% of its
-   low-drive time had a load on the road), and every refill of the pulsed
-   pile starts with the drive down (0.613 in the first 1,000 frames, against
-   0.936 off). A longer window fixed the bed and leaned worse on every lab
-   gate, none significant. Births lean lower at 90 cells (72 seeds 562 ->
-   484), food standing at the nest with them (27/37).
+   reach stopped food beside the door booking returns; what is left is a
+   false stand-down on a paying pile (seed 7: 83% of its low-drive rows had
+   a load on the road), and most refills start with the drive down (0.613
+   against 0.936, pooled; lower on 57 of 71). A longer window fixed the bed
+   and leaned worse on every lab gate. Births lean lower at 90 cells (72
+   seeds 562 -> 484), and on the unlimited pile food at the nest (27/37).
 3. **Early deaths.** Founders that never reach the food die early (35% of
    the starved on the granary at 90 cells). Only the road and the nest
    (§17b, §19), or a founding store, reach them.
