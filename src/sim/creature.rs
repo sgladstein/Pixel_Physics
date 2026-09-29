@@ -686,6 +686,29 @@ pub struct DecisionScratch {
     /// Chebyshev distance from the nearest door (`-1` with no nest site).
     /// `None` when there was no such pickup.
     pub bite: Option<(i32, i32, bool, i32)>,
+    /// **What the chooser could read of trail B, heading by heading**, in
+    /// `DIRS` order: the raw scent one and two cells along each heading (the
+    /// cells `trail_presence` reads, before its saturation), and at the
+    /// six-cell sensor point (`trail_sample_point`). Raw, because presence
+    /// saturates at about one fresh deposit and cannot carry a gradient.
+    /// Trail B whatever the animal carries. Zeros when the chooser did not
+    /// choose. Trace-only reads (`Reports/food-trail-plan-2026-09-29.md` 0a).
+    pub b_near: [u16; 8],
+    pub b_far: [u16; 8],
+    pub b_six: [u16; 8],
+    /// Bit `d` set if heading `d` was one of the chooser's options; `cross`
+    /// if the last option was a trunk crossing (scored at `heading`'s slot).
+    pub opts: u8,
+    pub cross: bool,
+    /// The score each option was drawn with (`choose_weighted`, at `k`), in
+    /// `DIRS` order; NaN for a heading that was not an option.
+    pub score: [f32; 8],
+    pub k: f32,
+    /// The heading the chooser drew, or `NO_PICK`.
+    pub chose: u8,
+    /// Whether the chooser read trail B for this decision (it was not laden:
+    /// an empty ant, or one carrying a packed lunch, `carries_lunch`).
+    pub reads_b: bool,
 }
 
 impl Default for DecisionScratch {
@@ -712,6 +735,15 @@ impl Default for DecisionScratch {
             scout_home: false,
             dig_turned: false,
             bite: None,
+            b_near: [0; 8],
+            b_far: [0; 8],
+            b_six: [0; 8],
+            opts: 0,
+            cross: false,
+            score: [f32::NAN; 8],
+            k: f32::NAN,
+            chose: NO_PICK,
+            reads_b: false,
         }
     }
 }
@@ -829,6 +861,28 @@ pub struct DecisionRow {
     /// `DecisionScratch::bite`, and `OrganismState::trip_src` after `act`.
     pub bite: Option<(i32, i32, bool, i32)>,
     pub trip_src: u8,
+    /// **The trail this decision laid**: the amounts actually handed to
+    /// `deposit_pheromone` on A and B (0 when it did not move), the brain's
+    /// clamped `EmitB` before any rule scaled it (NaN when it did not move),
+    /// and the cell they went on. Replaying these into a copy of the planes
+    /// reproduces the live planes exactly -- `trailfollow shadow` asserts it.
+    pub emit_a_laid: u16,
+    pub emit_b_laid: u16,
+    pub emit_b_brain: f32,
+    pub deposit_at: (i32, i32),
+    /// `OrganismState::since_trip` after `act`: the cargo's age in ticks.
+    pub since_trip: u16,
+    /// The chooser's trail-B readings, options, scores and draw: see
+    /// `DecisionScratch::b_near`.
+    pub b_near: [u16; 8],
+    pub b_far: [u16; 8],
+    pub b_six: [u16; 8],
+    pub opts: u8,
+    pub cross: bool,
+    pub score: [f32; 8],
+    pub k: f32,
+    pub chose: u8,
+    pub reads_b: bool,
 }
 
 fn worm_tick(world: &mut World, x: i32, y: i32, organism: OrganismId) -> Vec<ActiveSite> {
@@ -6576,6 +6630,8 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
     }
 
     // --- deposit, only on a successful move (P-11) ----------------------
+    // What was laid, for the decision trace (`DecisionRow::emit_b_laid`).
+    let mut laid: (u16, u16, f32, (i32, i32)) = (0, 0, f32::NAN, (x, y));
     if moved {
         let (hx, hy) = world.organism(organism).and_then(|s| s.chain.first().copied()).unwrap_or((x, y));
         // **Both channels are now just brain outputs, and that is the
@@ -6654,8 +6710,11 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
         // the physical reading of laying a trail as you go. It does not touch
         // P-11 -- the deposit still happens only on a successful move.
         let (dx_, dy_) = if deposit_at_vacated() { (x, y) } else { (hx, hy) };
-        world.deposit_pheromone(Channel::A, dx_, dy_, (emit_a * pheromone::DEPOSIT as f32) as pheromone::Scent);
-        world.deposit_pheromone(Channel::B, dx_, dy_, (emit_b * pheromone::DEPOSIT as f32) as pheromone::Scent);
+        let amount_a = (emit_a * pheromone::DEPOSIT as f32) as pheromone::Scent;
+        let amount_b = (emit_b * pheromone::DEPOSIT as f32) as pheromone::Scent;
+        world.deposit_pheromone(Channel::A, dx_, dy_, amount_a);
+        world.deposit_pheromone(Channel::B, dx_, dy_, amount_b);
+        laid = (amount_a, amount_b, emit_b, (dx_, dy_));
         // **Laying a trail costs, and until 2026-09-05 it did not.** Charged
         // on the sum of both planes and in proportion to what was actually
         // put down, so a whisper is cheaper than a shout -- a per-event
@@ -6693,7 +6752,7 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
         let st = world.organism(organism);
         let head_after = st.and_then(|s| s.chain.first().copied()).unwrap_or(head);
         let heading_after = st.map_or(heading, |s| s.heading);
-        let (trip_load, forage_max, trip_src) = st.map_or((false, 0, 0), |s| (s.trip_load, s.forage_max, s.trip_src));
+        let (trip_load, forage_max, trip_src, since_trip) = st.map_or((false, 0, 0, 0), |s| (s.trip_load, s.forage_max, s.trip_src, s.since_trip));
         let sc = world.decision_scratch;
         world.creature_stats.decision_census[leg][setting_class(usable)][sc.outcome as usize] += 1;
         use brain::BrainInput as I;
@@ -6750,6 +6809,20 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
             forage_max,
             bite: sc.bite,
             trip_src,
+            emit_a_laid: laid.0,
+            emit_b_laid: laid.1,
+            emit_b_brain: laid.2,
+            deposit_at: laid.3,
+            since_trip,
+            b_near: sc.b_near,
+            b_far: sc.b_far,
+            b_six: sc.b_six,
+            opts: sc.opts,
+            cross: sc.cross,
+            score: sc.score,
+            k: sc.k,
+            chose: sc.chose,
+            reads_b: sc.reads_b,
         };
         if let Some(log) = world.decision_log.as_mut() {
             log.push(row);
@@ -6763,6 +6836,7 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
         const PHERO_A_MEM_RECURRENCE: f32 = 0.995;
         state.phero_a_mem = PHERO_A_MEM_RECURRENCE * state.phero_a_mem + (1.0 - PHERO_A_MEM_RECURRENCE) * phero_a_live;
         state.since_nest = state.since_nest.saturating_add(1);
+        state.since_trip = state.since_trip.saturating_add(1);
         // **The other odometer, and the one that gives a rest an end.**
         // Reset by a step or a launch, counted up by anything else --
         // including a refused step, which is correct: an animal shoving at a
@@ -12495,6 +12569,7 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
                             state.trip_src |= src_bits;
                             if trip_reach.is_none() || src_bits & TRIP_SRC_FAR != 0 {
                                 state.trip_load = true;
+                                state.since_trip = 0;
                             }
                         }
                     }
@@ -15932,12 +16007,41 @@ fn chooser_step(
     // `TrailAway` too (negative: outward).
     let picked_cos = home_cos(options[pick]).or_else(|| away_home_cos(options[pick])).unwrap_or(f32::NAN);
     if world.decision_log.is_some() {
-        world.decision_scratch.patience = patience;
-        world.decision_scratch.chosen_cos = picked_cos;
-        world.decision_scratch.chosen_route = picked_route;
-        world.decision_scratch.scout_w = scout_w;
-        world.decision_scratch.scout_patience = scout_patience;
-        world.decision_scratch.scout_home = scout_home;
+        // Trace-only reads: trail B one, two and six cells along every
+        // heading, whether or not it was an option, and the scores drawn.
+        let mut b_near = [0u16; 8];
+        let mut b_far = [0u16; 8];
+        let mut b_six = [0u16; 8];
+        let project = sensor_projected();
+        for d in 0..8u8 {
+            let (dx, dy) = DIRS[d as usize];
+            b_near[d as usize] = world.pheromone_at(Channel::B, hx + dx, hy + dy);
+            b_far[d as usize] = world.pheromone_at(Channel::B, hx + 2 * dx, hy + 2 * dy);
+            let (sx, sy) = trail_sample_point(hx, hy, d, def.sensor_offset, false, project);
+            b_six[d as usize] = world.pheromone_at(Channel::B, sx, sy);
+        }
+        let mut opts = 0u8;
+        let mut score_by = [f32::NAN; 8];
+        for (i, &d) in options.iter().enumerate() {
+            opts |= 1 << d;
+            score_by[d as usize] = scores[i];
+        }
+        let s = &mut world.decision_scratch;
+        s.patience = patience;
+        s.chosen_cos = picked_cos;
+        s.chosen_route = picked_route;
+        s.scout_w = scout_w;
+        s.scout_patience = scout_patience;
+        s.scout_home = scout_home;
+        s.b_near = b_near;
+        s.b_far = b_far;
+        s.b_six = b_six;
+        s.opts = opts;
+        s.cross = crossing.is_some();
+        s.score = score_by;
+        s.k = k;
+        s.chose = options[pick];
+        s.reads_b = reads_trail && !laden;
     }
 
     if pick == usable.len() {
@@ -17308,6 +17412,7 @@ fn step_flight(world: &mut World, organism: OrganismId, def: &CreatureDef) -> Ve
         // by a red PR rather than by the check meant to prevent it.
         if frame.is_multiple_of(interval) {
             state.since_nest = state.since_nest.saturating_add(1);
+            state.since_trip = state.since_trip.saturating_add(1);
         }
         // **A creature in the air is not resting**, whatever the walk half
         // of the tick did -- `BrainInput::Stillness` asks whether the body
@@ -27415,7 +27520,60 @@ mod tests {
             assert!(off_stats.moves > 100 && turned > 100, "{mode:?}: moves {} tumbles {}: the bed barely moved, so equality proves nothing", off_stats.moves, off_stats.tumbles);
             assert!(on_rows.len() > 1000, "{mode:?}: only {} decisions traced", on_rows.len());
             assert!(on_rows.iter().any(|r| r.leg == 1), "{mode:?}: no laden decision was traced, so the laden half of the trace is untested here");
+            // The food-trail columns (`Reports/food-trail-plan-2026-09-29.md`
+            // Stage 0) must have been filled, or their half of the trace is
+            // untested: a laid B, and under the chooser an option set with
+            // its scores.
+            assert!(on_rows.iter().any(|r| r.emit_b_laid > 0), "{mode:?}: no traced decision laid trail B");
+            if mode == Chooser::TrailAway {
+                assert!(on_rows.iter().any(|r| r.opts != 0 && r.score.iter().any(|v| v.is_finite())), "{mode:?}: no chooser options were traced");
+            }
             assert_eq!(off, on, "{mode:?}: turning the decision trace on changed the world it records");
+        }
+    }
+
+    /// **A copy of the trail planes fed only the traced deposits stays equal
+    /// to the world's, cell for cell** (`DecisionRow::emit_a_laid`,
+    /// `emit_b_laid`, `deposit_at`). This is the claim every replayed or
+    /// counterfactual plane in `trailfollow` rests on: that the decision
+    /// trace carries every trail write the engine makes. One colony bed,
+    /// 9,000 frames (at 3,000 no ant had eaten, so no B was laid and the
+    /// vacuity check below refused), the copy stepped as the world's is,
+    /// compared on both channels at the end. **Watched red** with laden rows'
+    /// trail B left out of the replay (B differed at (144,108)); skipping
+    /// laden rows whole trips the vacuity check instead, since every row
+    /// that laid B on this bed was laden.
+    #[test]
+    fn a_replayed_plane_equals_the_live_one() {
+        let (mut w, low) = colony_bed();
+        assert!(w.found_colony(200, low - 32) > 0, "the bed placed no ants -- the scene is wrong, not the rule");
+        w.decision_log = Some(Vec::new());
+        let mut replay = w.pheromones.clone();
+        let (mut laid_a, mut laid_b) = (0u64, 0u64);
+        for _ in 0..9000 {
+            run(&mut w, 1);
+            w.step_pheromones();
+            for r in w.decision_log.as_mut().expect("on").drain(..) {
+                if r.moved {
+                    let (dx, dy) = r.deposit_at;
+                    replay.deposit(Channel::A, dx, dy, r.emit_a_laid);
+                    replay.deposit(Channel::B, dx, dy, r.emit_b_laid);
+                    laid_a += u64::from(r.emit_a_laid);
+                    laid_b += u64::from(r.emit_b_laid);
+                }
+            }
+            replay.step(w.frame, w.clock.creature_interval(pheromone::PHEROMONE_INTERVAL));
+        }
+        assert!(laid_a > 0 && laid_b > 0, "the bed laid A {laid_a} and B {laid_b}: nothing to replay, so equality proves nothing");
+        let b = w.bounds().expect("the bed sets bounds");
+        let lit = (b.min_y..=b.max_y).flat_map(|y| (b.min_x..=b.max_x).map(move |x| (x, y))).filter(|&(x, y)| w.pheromone_at(Channel::B, x, y) > 0).count();
+        assert!(lit > 20, "only {lit} cells of trail B at the end: too little plane to compare");
+        for ch in [Channel::A, Channel::B] {
+            for y in b.min_y..=b.max_y {
+                for x in b.min_x..=b.max_x {
+                    assert_eq!(replay.sample(ch, x, y), w.pheromone_at(ch, x, y), "{ch:?} at ({x},{y}): the replay missed a trail write");
+                }
+            }
         }
     }
 
@@ -28323,6 +28481,14 @@ mod tests {
     /// trip_src, cells of crumbs already held)` -- 0 cells is an empty crop,
     /// as one digested on the road or set down away from home leaves it.
     fn trip_reach_bite_primed(site_x: &[i32], x: i32, forage_max: u16, reach: Option<i32>, east: Option<bool>, prime: (bool, u8, u16)) -> (bool, u8) {
+        let (w, a) = trip_reach_bite_world(site_x, x, forage_max, reach, east, prime, 0);
+        let st = w.organism(a).expect("live");
+        (st.trip_load, st.trip_src)
+    }
+
+    /// [`trip_reach_bite_primed`] with `since_trip` primed too, returning the
+    /// world and the ant after the bite.
+    fn trip_reach_bite_world(site_x: &[i32], x: i32, forage_max: u16, reach: Option<i32>, east: Option<bool>, prime: (bool, u8, u16), since_trip: u16) -> (World, OrganismId) {
         let mut w = World::new(Rect::new(0, 0, 159, 63));
         trip_reach_floor(&mut w, site_x);
         w.trip_reach = Some(reach);
@@ -28342,6 +28508,7 @@ mod tests {
             st.trip_load = prime.0;
             st.trip_src = prime.1;
             st.crop = (prime.2 > 0).then_some(Crop { material: crumbs, cells: prime.2, digesting: 0.0, unit: 480.0, shade: 0, passenger: None });
+            st.since_trip = since_trip;
         }
         let def = w.species.get(w.organism(a).expect("live").species).creature.clone().expect("a creature");
         let mut outputs = [0.0f32; brain::BRAIN_OUTPUTS];
@@ -28349,8 +28516,35 @@ mod tests {
         let mut draw = rng::stream(1, a as u64, 0, RNG_SLOT_MOVE);
         act(&mut w, hx, hy, a, &def, &outputs, &mut draw);
         assert!(w.get(spot.0, spot.1).is_empty(), "the ant at x {x} did not take the crumb beside it: the scene cannot show a mark");
-        let st = w.organism(a).expect("live");
-        (st.trip_load, st.trip_src)
+        (w, a)
+    }
+
+    /// **`since_trip` counts ticks from the pickup that made the crop a trip
+    /// load, and nothing else resets it** (`OrganismState::since_trip`, the
+    /// cargo's age a food-charged trail would lay by). An ant primed 700
+    /// ticks old: a crumb taken far from the door into an empty crop starts
+    /// it at 0; a far crop topped up far out starts it again; a far crop
+    /// topped up beside the door keeps its age, since that pickup is no trip;
+    /// and from the pickup it rises one per tick, beside `since_nest`.
+    /// **Watched red** with the reset at a trip pickup deleted (the far
+    /// crumb read 700).
+    #[test]
+    fn since_trip_counts_from_the_last_trip_pickup() {
+        let on = Some(TRIP_REACH_SHIPPED);
+        let age = |x: i32, prime: (bool, u8, u16)| {
+            let (w, a) = trip_reach_bite_world(&[20], x, 20, on, None, prime, 700);
+            let st = w.organism(a).expect("live");
+            (st.trip_load, st.since_trip)
+        };
+        assert_eq!(age(100, (false, 0, 0)), (true, 0), "a crumb 80 cells out, into an empty crop");
+        assert_eq!(age(100, (true, TRIP_SRC_FAR, 1)), (true, 0), "a far crop topped up far out");
+        assert_eq!(age(30, (true, TRIP_SRC_FAR, 1)), (true, 700), "a far crop topped up beside the door: no trip pickup, so the cargo keeps its age");
+        let (mut w, a) = trip_reach_bite_world(&[20], 100, 20, on, None, (false, 0, 0), 700);
+        let nest0 = w.organism(a).expect("live").since_nest;
+        run(&mut w, 300);
+        let st = w.organism(a).expect("the ant lived 300 frames");
+        assert!(st.since_nest > nest0 + 5, "since_nest moved {} in 300 frames: the ant barely ticked, so the count proves nothing", st.since_nest - nest0);
+        assert_eq!(st.since_trip, st.since_nest - nest0, "since_trip must rise one per tick from the pickup, beside since_nest");
     }
 
     /// **Food beside a door is not a trip under the reach, food from afar

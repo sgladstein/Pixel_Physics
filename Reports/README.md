@@ -3423,6 +3423,19 @@ design guide's §7b-i calls "already data" are Rust `const`s.
     ant is predicted to reverse as often as it steps), to treat the
     blocked drop as possibly a nest-digging problem, and to leave
     digesting the crop in transit as an open question for the owner.
+- [food-trail-plan-2026-09-29.md](food-trail-plan-2026-09-29.md)
+  — **plan of record, 2026-09-29, agreed with the owner. `engine`. Nothing
+  built yet.** Why the ants' food trail has never led them to food: the
+  working recipe has three parts (a trail strongest near the food, a reader
+  that turns toward the stronger side, a give-up), and each was built on a
+  different ant and judged alone (§22v). The plan builds all three behind
+  one switch, `PIXEL_PHYSICS_FOOD_TRAIL`, after instruments that record the
+  trail plane over time, replay it bit for bit from the logged deposits, and
+  compare it with the profile a candidate lay rule would give on the same
+  paths. A two-pile bed whose stocked pile alternates tests what a trail is
+  for; the bar on the colony bed is the trail switched off. Owner rulings:
+  lay rule engine-side first and genome-side if it wins; only hungry or
+  driven ants follow; ship if better than today without harm.
 - [what-controls-creature-movement-2026-09-22.md](what-controls-creature-movement-2026-09-22.md)
   — **reference, 2026-09-22. `engine`. SUPERSEDED the same day by
   [`how-the-ant-works.md`](how-the-ant-works.md)**, the living reference,
