@@ -1,0 +1,51 @@
+{
+  "id": "20260929T194807849Z-ca2baa",
+  "created": "2026-09-29T19:48:07Z",
+  "board": "nest",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics/.claude/worktrees/nest57",
+    "branch": "nest57-local",
+    "commit": "19a0e659",
+    "agent": null,
+    "session_id": "02cfa3f7-cc46-597e-8f90-5488d21d3601",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics/.claude/worktrees/nest57"
+  },
+  "title": "Tunnels two cells wide (switch, off): today against widened",
+  "question": "Do the widened tunnels read better? Worth turning on by default?",
+  "context_md": "You asked for tunnels wider than 1 pixel. Built as a switch, off (`PIXEL_PHYSICS_DIG_WIDEN=on`): an ant walking through a one-cell passage cuts the wall beside it, and at the digging face it cuts a \"shoulder\" beside the cell ahead on half its rolls, so galleries advance two cells across. It stops at two (one body length, as real tunnels are), so it never hollows out rooms.\n\nEach image: top row today, bottom row widened; frames 6,000 / 12,000 / 24,000. Seeds chosen by rule (nearest the median effect), not by eye.\n\n| dig box, 24 seeds, frame 24,000 | today | widened |\n|---|---:|---:|\n| 40 ants: one-cell passages, share of open cells | 25% | 20% |\n| 40 ants: nest size / depth (rows) / entrances | 260 / 15 / 6 | 263.5 / 14 / 7 |\n| 200 ants: nest size / depth / entrances | 583.5 / 18 / 9.5 | 647 / 17 / 11 |\n\nStacking (your other question), at depth 4 against today's 1: the walked-out colony at 200 ants digs 181 cells against 69.5 (bigger on 24 of 24), because ants stop jamming at the mouth; entrances rise with the digging (3 -> 5).",
+  "kind": "gallery",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "40 ants, seed 2 (top today, bottom widened)",
+      "files": [
+        "20260929T194807849Z-ca2baa/000-widen-a40-s2.png"
+      ],
+      "caption": "",
+      "meta": {
+        "walls cut to widen (seed 2)": "see report",
+        "median widening cuts, 24 seeds": 532
+      },
+      "focus": null
+    },
+    {
+      "label": "200 ants, seed 21 (top today, bottom widened)",
+      "files": [
+        "20260929T194807849Z-ca2baa/001-widen-a200-s21.png"
+      ],
+      "caption": "",
+      "meta": {
+        "median widening cuts, 24 seeds": 2664
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
