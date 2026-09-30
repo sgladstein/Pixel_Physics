@@ -1180,6 +1180,52 @@ drift that two of these documents still reflect.**
 
 ## Creatures and ecology  ·  `engine`
 
+- [ant-breeding-plan-2026-09-29.md](ant-breeding-plan-2026-09-29.md)
+  — **plan, 2026-09-29, for the owner's reading; read it before any work on
+  ant eggs, brood, castes, a colony's breeder or colonies founding colonies.
+  `engine`, with a per-game rollout in §7.** Seven steps from today's budding
+  (every fed ant splits off a full-grown copy wherever it stands) to the ant
+  life cycle, under the 2026-09-09 rulings that a queen is never a type the
+  engine knows and that fertility is graded. **B1** a birth lays one egg
+  cell — an organism-owned, seed-shaped `Powder`, as `nest-biology` D11
+  asked — which alone makes nest-only breeding geometrically possible.
+  **B2** the existing `graded` regime on, after the owed
+  `GRADED_MAX_SUPPRESSION` sweep, with a breeder's eggs as a second signal
+  source (the *Lasius niger* queen pheromone rides on her eggs). **B3**
+  larvae that nurses fill through the existing `Share`, so laying is cheap
+  and growing an ant is what costs the colony. **B4** `made` from how a larva
+  was fed, and pale callows released by a constant hazard. **B4b** breeders
+  that live longer, through a heritable, priced lifespan slot the caste
+  channel lifts. **B5** a per-species founding rule: one provisioned breeder
+  plus a cohort. **B6** `(Made, Fly)` alates and one founding output, `Leave`,
+  shared with the fission design's budding party — the dispersal the breeding
+  clock named as its re-open condition, which lets a breeder's lineage move on
+  without her dying; it is not expected to restore budding's clock. **§2d is the queen
+  history**: the queen as a species was overruled on principle (2026-09-09),
+  and queen-only breeding was measured at median generation 1 against 13.5
+  (2026-09-10) because the box had no dispersal and no rival colonies; rival
+  colonies exist since 2026-09-14 and dispersal is B6. **Owner rulings
+  2026-09-29, recorded in §2a**: the evolution lab gets the full life cycle,
+  breeders may be marked, breeders may live longer — which makes B6
+  required in the lab. Names the traps that decide B1's cost (the seed
+  encoding already closes the jaw, the founding cut and footing, but a
+  non-kin mouth would price an egg as powder rather than at its bank, and
+  eggs as organisms reach hundreds of census call sites) with a records
+  fallback, and B4b's (a genome append that moves the mutable surface 942 →
+  943 and every breeding scene's draws; 11 species files with fixed 14-value
+  trait tuples; `born_with`'s code 14). **Found on the way, confirmed by a run, and
+  fixed in the same pull request (B0a):** `World::note_birth_denied` indexed a
+  4,096-bit array with a 20-bit slot, so a refused birth in slot 4,096 or
+  above panicked, which the held world's grown start could reach; the array
+  now grows to the slot and
+  `a_refused_birth_past_the_old_4096_slot_ceiling_is_counted_not_a_crash`
+  guards it. An adversarial review the same day corrected the steps against
+  the code; among its finds, B4's first caste wiring would have given every
+  larva the same caste, because `Energy` reads 1.0 for every nurse able to
+  feed. Five of §10's eight questions are open, two of them new: whether to
+  hold long-lived breeders at 0 in the lab until B6 (Q7), and how a winged
+  breeder keeps her founding reserve (Q8). The real-ant biology checked
+  against 13 papers, with DOIs.
 - [ant-sim-research-review-2026-09-19.md](ant-sim-research-review-2026-09-19.md)
   — **review, 2026-09-19, docs only. `engine`/`lab`.** An outside literature
   survey on ant simulation, checked section by section against the tree and
