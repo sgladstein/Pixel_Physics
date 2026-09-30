@@ -1025,3 +1025,11 @@ foraging lane's economy. Per seed the switch is a coin toss against cap 4
 alone (higher on 12, lower on 11). Against cap 1 it closes the gap to
 something no longer significant: births lower on 15 of 24 and higher on 9,
 where cap 4 alone was 19 and 5 (p ~ 0.007).
+
+Predictions for the switch (written before its runs, scored at the
+2026-09-30 handoff): 243 half holds (births 224.5 -> 342, past the predicted
+330, but higher than cap 4 alone on 12 of 24, not the predicted 18); 244
+holds (1 box extinct); 245 was not measured (intake per ant-frame was not
+read out); 246 fails (the colony at 54,000 is 30, nearer cap 4's 27 than cap
+1's 63, which is what "the late run, not the dip" means); 247 holds (seeds
+1-2 byte-identical with the switch off).

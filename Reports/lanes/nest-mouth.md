@@ -15,10 +15,8 @@ the live question, what is addressed to another lane, predictions and heads.*
 ## Standing owner rulings for this lane
 
 - **2026-09-26: "Make sure you are not using too many ants in your tests and
-  always take snapshots at multiple times."** `digbox` runs at 40 ants with
-  `energy=1000` (under the 1,100 budding threshold, no food, so the count
-  stays 40); every picture is several stops. Results taken at 300 ants (which
-  breed past 800) are marked as such in the report.
+  always take snapshots at multiple times."** `digbox` at 40 ants with
+  `energy=1000` (under the budding threshold); every picture several stops.
 - **2026-09-27: "In general, I prefer options on by default unless there is
   a good reason not to."** It restates 2026-09-12's "You can ship everything
   on. I will tell you to change it if I don't like it", whose carve-out keeps
@@ -37,23 +35,14 @@ the live question, what is addressed to another lane, predictions and heads.*
   scent tested negative in ants, Bruce 2015) becomes a brain input once a
   switch shows it works.
 
-- **2026-09-28: food goes into a chamber.** Asked whether the lab's buried
-  mouth should be kept clear or the food taken inside, the owner answered
-  "Food in chamber". A joint step with the foraging lane (the drop and the
-  homing are theirs); prototyped in scratch first.
-- **2026-09-28: granary form B.** "Go ahead with B: Foragers drop food at
-  the door; ants that stay home carry it into the storeroom." Then: "Some
-  ants should stay home... we should have two different types of ants or
-  castes" -- castes, built as a switch first (report §8h).
+- **2026-09-28/29: the granary.** "Food in chamber"; form B (foragers drop
+  at the door, ants that stay home carry it in, castes); then "Full granary
+  on my default", so the door and the whole storeroom ship on.
 - **2026-09-28: a simple test environment for this work.** "I don't think we
   should worry about plants or the standard lab bed during this development.
   Just use a simpler test environment for now." The granary is developed on
   the colony bed (`trailfollow`: soil, one food pile, 20 founders, no plants
   or weather) and `digbox`, not the lab box.
-- **2026-09-29: "Full granary on my default."** The door
-  (`NEST_DOOR_SHIPPED`, 2) and the whole storeroom
-  (`Storeroom::SHIPPED`, `on,caste=4,workerhome,side,keep`) ship on; `off`
-  on either is the ant before.
 - **2026-09-29: the carry yes, stacking yes, widening waits.** "Q1 - Yes"
   (carry pellets away from the mouth); "Q3 - this seems much better for the
   200 ant tests" (stacking); widening "looks slightly better with the 40
@@ -95,12 +84,9 @@ ants and 47.5 -> 9.5 at 200; the nest 77% and 52% of today's open space; the
 lab no worse (births 13 / 11, extinct 2 -> 3, starved 101.5 -> 31).
 
 **Next, in order:**
-1. Re-run the lab pair with the latched carry (§17's lab ran the old one):
-   `labforage scenario=played_bed frames=120000 bedenv`, 24 seeds, the env
-   above plus `PIXEL_PHYSICS_STACK_DEPTH=4`, against the same with nothing
-   set.
-2. The colony bed pair for the package (the foraging lane's recipe:
-   `COLONY_SPACING=2 BUD_SITE=nest`, gap 90, 20 founders, 24,000 frames).
+1. Re-run the lab gate with the latched carry (§17's lab ran the old
+   one): the package env plus `STACK_DEPTH=4` and `bedenv`, against none.
+2. The colony bed pair for the package (both as in the method below).
 3. Show the owner today vs the package, 40 and 200 ants, zoomed, several
    stops (`SendUserFile`; they cannot use the review queue).
 4. The flip, as its own PR: `default_stack_cap` 4 (the lab's
@@ -117,6 +103,35 @@ lab no worse (births 13 / 11, extinct 2 -> 3, starved 101.5 -> 31).
 
 "Pellets only on real ground" (`SPOIL_FOOTING=ground`) stays off; widening
 (`DIG_WIDEN`) waits for the owner.
+
+## How this lane measures
+
+Every tool below is committed; nothing depends on a session's scratch.
+`RAYON_NUM_THREADS=1` on every run whose counts are compared. Before a long
+sweep, copy the example binary into the run directory so a rebuild cannot
+swap it mid-run.
+
+- **The nest**: `digbox fed nulls=0 energy=1000 w=200 soil=60
+  frames=24000 stops=0,12000,24000 seed=S gridout=D/<arm>-a<N>-s<S>.grid
+  out=D/<arm>-a<N>-s<S>.png > D/<arm>-a<N>-s<S>.log`, 8 seeds at 40 and at
+  200 ants; `python3 scripts/nestgrid.py --pair D 24000 base new`.
+- **The lab gate**: `labforage scenario=played_bed frames=120000 seed=S
+  > D/<arm>-S.log`, 24 seeds; `python3 scripts/labpair.py D base new`. A
+  lab arm that sets `STACK_DEPTH` must pass `bedenv`; never export the bed's
+  `COLONY_SPACING` or `BUD_SITE` into it.
+- **The colony bed**: `PIXEL_PHYSICS_COLONY_SPACING=2
+  PIXEL_PHYSICS_BUD_SITE=nest trailfollow mode=gap gate=shipped
+  frames=24000 ants=20 near=10 food=400 refill=400 arms=self gaps=90
+  seeds=24 seed0=1`, one log an arm; `scripts/antloop.py --log new.log --vs
+  base.log`.
+- **Why an ant did something**: a temporary env-gated `eprintln` at the
+  decision, the run's stdout checked identical to the untraced run, parsed
+  per individual, removed before the commit (report §17's carry trace).
+- **Pictures**: crop each stop to the nest and upscale 2-3x (nearest), today
+  beside the arm at 12,000 and 24,000; the whole sheet is unreadable.
+- **Predictions** are written before each run and scored in the report.
+- **This cloud harness**: never `cd` in a command (it moves the session to
+  the main checkout); absolute paths and `git -C`.
 
 ## Working agreement with the foraging lane (2026-09-27)
 
@@ -158,18 +173,12 @@ asked the two sessions to agree who owns what.
   **Channel:** a poke (`create_trigger(persistent_session_id=…)` then
   `fire_trigger` bare) works both ways, but waits until the other's turn ends:
   15:30 → about 17:50 once. Files pushed to origin are the record.
-- **Food in a chamber (2026-09-28, their reply):** no objection; the drop
-  and home-target pieces land as switches the foraging lane reviews. One
-  definition of home for the drop, the pickup and the packed lunch: a
-  pickup in the chamber must read as at home (`picked_at_home` on the same
-  predicate as the chamber-as-home piece), or a fed ant ferries chamber food
-  back out to the strip. Once #509 lands, colony baselines are taken with
-  packed lunch on (`=off` for runs before it).
-- **Still open for the foraging lane:** `trailfollow`'s header echoes
-  `PIXEL_PHYSICS_NEST_DOOR` / `_SHAFT` / `_HOME` and prints
-  `pickups_at_nest` (both done on their side), but reads the raw variable:
-  an unset shaft prints `shipped`, which since #507 means on (6 rows), and
-  `PIXEL_PHYSICS_SPOIL_CUE` is not echoed at all. Raised in the #507 poke.
+- **Their standing term (2026-09-28):** one definition of home for the
+  drop, the pickup and the packed lunch, or a fed ant ferries chamber food
+  back out.
+- **Still open for the foraging lane:** `trailfollow`'s header prints an
+  unset shaft as `shipped` (on since #507) and does not echo
+  `PIXEL_PHYSICS_SPOIL_CUE`. Raised in the #507 poke.
 
 ## Predictions (written before each run)
 
@@ -196,7 +205,6 @@ Older heads (branch cut `636612c6` through #512, #513 and #517) are in
 - `da0b7b41` (#522): merged. Stacked ants are no longer killed by parted
   tissue; the dig box is fed and in lab colours; the carry is on under the
   walked cycle; reports §11-§15. Branch restarted from `main`.
-- **#524** (open at handoff, head `6d4475d9` plus this note): report §16,
-  births on nestmates (`9e31d6fc`), stacking §13, the carry's latch
-  (`3910021e`) and report §17, `main` merged in. All off by default. Merge
-  it on green before starting the handoff order above.
+- `6ec36431` (#524): merged. Births on nestmates, the carry's latch, report
+  §16-§17, stacking §13; all off by default. The next PR on this branch
+  carries `scripts/nestgrid.py` and this note's method section.
