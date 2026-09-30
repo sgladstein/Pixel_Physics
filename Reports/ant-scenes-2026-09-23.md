@@ -3668,3 +3668,21 @@ presence >= `HUNGRY_ROUTE` (0.5) and the head past `FORAGE_TRIP_MIN` (8)
 cells from home; a dark step is still one whose heading carries no trail.
 Same runs, same bars, `LG2` against `L`; the first scoring above stands as
 recorded.
+
+**Second scoring (`LG2`, binary `761a5b0b`, against the same `L` runs):**
+
+| | taken | starved | other |
+|---|---|---|---|
+| unlimited 90 | 7,792 -> 8,081 (13/11) | 26 -> 19 (6/8) | born 287 -> 350 (15/8) |
+| unlimited 140 | 5,352 -> 5,767 (19/5, p 0.007) | 71 -> 61 (7/8) | food at the nest up 17/7 (p 0.064) |
+| pulsed 90 | 2,758 -> 2,715 (6/14, p 0.115) | 230 -> 238 (10/10); vs `M` 13/8 | |
+| pulsed 140 | 2,812 -> 2,761 (8/11) | 198 -> 217 (12/9); vs `M` 13/10 | food at the nest down 5/19 (p 0.007) |
+| 80 founders | 11,743 -> 11,164 (**6/18, p 0.023**) | 718 -> 779 (**17/6, p 0.035**) | born 33 -> 35 |
+| B5 | 8,729 -> 7,919 (**7/17, p 0.064**) | | early take 2,792 -> 2,334 (**4/20, p 0.002**); stale 13/11 |
+
+West scouting is restored (dark walk 38 / 35 cells, as `L`). PG1 right
+(0.053 / 0.031); PG2 right at 140 (366) and 4 frames over at 90 (804).
+**`LG2` fails three bars (80 founders taken and starved, B5 taken) and PG5,
+so it does not ship either.** The first arm's win at 80 founders (starved
+718 -> 507) came from the defect: west scouts sent home early. What costs the
+two-pile bed's early take once scouting is restored is not yet traced.
