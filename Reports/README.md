@@ -1259,7 +1259,9 @@ drift that two of these documents still reflect.**
   and tables restored with no word changed.
 - [creature-stacking-design-2026-09-17.md](creature-stacking-design-2026-09-17.md)
   — **design 2026-09-17, built and landed as PR #465; four review follow-ups
-  closed 2026-09-19 in §11. `engine`.** How many creatures of one
+  closed 2026-09-19 in §11; §12 (2026-09-29) fixes the lab deaths at cap 4
+  (parted tissue closed over a stacked nestmate) and measures what remains,
+  a lab colony that raises about half the young. `engine`.** How many creatures of one
   colony come to share a cell, and where the 2nd..Nth ant's identity lives.
   Exclusivity is the **grid's** invariant and not a creature rule: `Cell` holds
   one `organism_id`, so `classify_step` reads an ant exactly the way it reads
@@ -4030,7 +4032,8 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   brain-input pricing as the argument *for* their call-site route, and the
   landing discipline. **Treat their plan as the plan.**
 - [nest-one-entrance-2026-09-29.md](nest-one-entrance-2026-09-29.md) —
-  **measurement and switches (all off), 2026-09-29. `engine`/`lab`. The
+  **measurement and switches (off, but for the carry under the walked
+  cycle), 2026-09-29. `engine`/`lab`. The
   owner picked walking the soil out and back (§7); §10 traces it.** Why a
   colony under the five-column door opens 6-7 entrances where the old strip
   allowed 2: the storeroom adds none, and the roof breaks under the colony's
@@ -4042,8 +4045,22 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   growth with the colony (304 cells at 200 ants) was carriers giving up and
   lifting through the roof. Traced and fixed (no lift from inside, the haul
   aimed at the door, the laden pace kept to the mouth), it keeps 1.5
-  entrances at 40 ants and 3 at 200, and its nest does not grow through one
-  2-wide shaft (43 and 70 cells against 207.5 and 613.5). Lane note:
+  entrances at 40 ants and 3 at 200, but a small nest (43 and 70 cells
+  against 207.5 and 613.5). **§11 corrects §10's reading of the limit**:
+  traced, it is not a queue in the shaft; the carriers put their pellets on
+  the mouth's rim and bury their own exit (53% of top-cell decisions have no
+  way up), so a relay through nest workers would not help. **§12 the
+  carry** (`SPOIL_RING`, shipped on at `2,2` and acting only under the
+  walked cycle; owner "yes"): a carrier walks its pellet a Gamma draw past
+  the door, and the 40-ant walked nest goes 42.5 -> 84 cells. **§13
+  crowding**: stacking (`STACK_DEPTH=4`) doubles the 200-ant walked nest;
+  tunnels two cells wide (`DIG_WIDEN`, off) wait for 200 ants to work.
+  **§14 the 200-ant pile, traced ant by ant**: hungry scouts, not a queue --
+  the dig box starved its colony from the first tick, and now keeps it
+  fed. **§15 tamped blocks and sealed chambers are the nest refilling
+  itself**: today's dig puts about half its pellets down inside the nest,
+  re-digs the fill and tamps it; walking the soil out cuts sealed-off space
+  123.5 -> 9 cells at 200 ants (8 seeds, fed, stacked). Lane note:
   [lanes/nest-mouth.md](lanes/nest-mouth.md).
 - [nest-colony-size-2026-09-28.md](nest-colony-size-2026-09-28.md) —
   **measurement, 2026-09-28. `engine`.** The nest and the colony at 40, 80
