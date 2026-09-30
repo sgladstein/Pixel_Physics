@@ -171,6 +171,8 @@ src/sim/creature.rs` and re-find them.
    reproduce 0.295 / 0.300 and 1,253 / 1,086 frames on the `s1lay` traces as
    the positive control before registering. Define "give-ups after a stray
    reversal" and "east legs that load" in code, or drop them.
+   **Done 2026-09-30:** `scripts/giveup.py` reproduces both pairs exactly;
+   the two undefined readouts are dropped.
 8. **The negative control D is unmeasurable as registered.** Trace D on seeds
    1-8 with `dread` and its own `dtag`, or withdraw that half of P2.10. Make
    bare `read` mean `lay,read` and spell D as `read,nolay`.

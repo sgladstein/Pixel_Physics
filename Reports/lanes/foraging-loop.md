@@ -143,6 +143,8 @@ starved per million ant-frames 7.6 (13.1).
   visible, show it in the chat (ruling above).
 - **`scripts/antloop.py`**: the loop ant by ant (funnel, who starved and
   where, time budget, economy). `--vs base.log` pairs the checks by seed.
+- **`scripts/giveup.py <csvs>`**: the scout's give-up per excursion (Stage 3's
+  instrument, M7); needs `decisioncsv dwide`.
 - **`scripts/antidle.py '<glob>' <gap> [--vs '<base glob>']`**: do foragers
   keep foraging -- loops per forager, waits, a forager's life after its first
   loop (fed/hungry x home/out, food held off the nest). `--vs` pairs these,
