@@ -241,14 +241,50 @@ jobs:
   # blocks. Delete the exclusion the day its bug closes -- and the paired job
   # is what tells you that day arrived. No such job exists as of 2026-08-23;
   # the paragraphs above record how the last three went.
+  # **Sharded, because it was the whole critical path** (2026-09-30). One
+  # `cargo test --release` took ~34 min against ~16 for the next job, and
+  # ~25 of those minutes were the *build*, not the tests: the lib suite ran
+  # in 367 s and `tests/worldgen.rs` in 145 s (run 36770079744). Under
+  # `lto = "thin"` + `codegen-units = 1` every one of the ~120 examples is
+  # its own LTO link, and plain `cargo test` builds them all.
+  #
+  # The shards together cover exactly what the single command did, no more:
+  # the lib's tests, the bins' and `tests/*.rs` (`--test '*'`, not `--tests`,
+  # which would run the lib's suite a second time), doctests, and a *build* of
+  # every example. `cargo test` compiles examples but does not run their
+  # `#[test]`s (examples default to `test = false`), so the example shards
+  # use `cargo build`, not `cargo test --examples` -- the latter would start
+  # running `thicket_probe`'s tests, which this job never ran. The two
+  # example shards split `examples/*.rs` by alternating sorted name, so a
+  # new example lands in one of them without editing this file.
   test:
-    name: cargo test (release)
+    name: cargo test (release, ${{ matrix.shard }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [lib, bins-tests-doc, examples-1, examples-2]
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@1.98
       - uses: Swatinem/rust-cache@v2
-      - run: cargo test --release --locked
+      - name: run shard
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "${{ matrix.shard }}" in
+            lib)            cargo test --release --locked --lib ;;
+            bins-tests-doc) cargo test --release --locked --bins --test '*'
+                            cargo test --release --locked --doc ;;
+            examples-*)
+              n="${{ matrix.shard }}"; n="${n#examples-}"
+              args=()
+              for f in $(ls examples/*.rs | sort | awk -v n="$n" 'NR % 2 == n % 2'); do
+                args+=(--example "$(basename "$f" .rs)")
+              done
+              echo "building $(( ${#args[@]} / 2 )) examples"
+              cargo build --release --locked "${args[@]}" ;;
+          esac
 
   test-debug:
     # The release profile compiles `debug_assert!` out, and this codebase
