@@ -77,10 +77,14 @@ heritable since 09-30 (`World::mute_emit_b`), so the control no longer leaks.
 1. **B5 is built** (#526, 2026-09-30, `pile2=west`; numbers in its commit).
    Oracle beats mute 21/3, so the bed can reward a trail; oracle beats self
    18/6 on the take in the first 1,500 frames after a swap, which is the
-   reader's headroom. **P4.3 failed: east phases take ~2x west in every
-   arm**, not the storeroom and not the founding. At 80 founders the
-   ants that never reach the food walk west and die there (135 cells, seeds
-   1-8). Trace the east/west lean ant by ant before building the reader.
+   reader's headroom. **The east lean is fixed (#526):** east phases took
+   ~2x west because every food drop scanned north-west first, so loads
+   landed west of the carrier and the colony walked out east. Drops now
+   pick a side at random (`PIXEL_PHYSICS_DROP_SIDE`, `even`); B5 E/W is
+   1.04-1.25 and no arm's take moved. The single-pile beds lost the free
+   lean (their food is east): B1 taken 9,217 -> 7,792, B3 starved 645 ->
+   718. The control `DROP_SIDE=east` (lean away) gives B1 6,878 and B3
+   839, so `even` is the unbiased middle. The baseline below is re-taken.
 2. **Stages 2-3 from `food-trail-reader-design-2026-09-30.md`**: fix its
    eight must-fix defects first, port `giveup.py`/`departures.py` (in
    `data/food-trail-lay-2026-09-29.tar.gz`) into `trailclimb.py` §6, register
@@ -94,15 +98,17 @@ reader will read B across the door.
 - **Read food taken and food at the nest** (`FOOD STORE`'s `nest food`,
   mean from 6,000); "net food into home" overcounts (§22j).
 
-## Baseline (`FOOD_TRAIL=lay` on, 09-30; `off` in brackets, #518)
+## Baseline (even food drop, #526, 09-30; before it in brackets)
 
-Colony bed, 24 seeds, shipped defaults, unlimited pile:
+Colony bed, 24 seeds, shipped defaults, unlimited pile. The bracketed
+numbers are `FOOD_TRAIL=lay` with the west-first drop, which leaned the
+colony toward the (east) pile; `off` is in #518.
 
 | | food taken from the pile | food at the nest | starved | born |
 |---|---:|---:|---:|---:|
-| 90 cells | 9,217 (6,062) | 15,463 (12,414) J | 14 (57) | 416 (188) |
-| 140 cells | 6,374 (4,287) | 11,048 (8,112) J | 50 (127) | 157 (63) |
-| 80 founders at 135 | 12,350 (8,298) | 10,549 (9,159) J | 645 (1,109) | 48 (74) |
+| 90 cells | 7,792 (9,217) | 14,177 (15,463) J | 26 (14) | 287 (416) |
+| 140 cells | 5,352 (6,374) | 9,943 (11,048) J | 71 (50) | 110 (157) |
+| 80 founders at 135 | 11,743 (12,350) | 9,792 (10,549) J | 718 (645) | 33 (48) |
 
 Pulsed pile at 90 (`food=30 refill=6000`): 2,760 / 250 / 54 (taken,
 starved, born). Runs: `food-trail-lay-2026-09-29.tar.gz`. Lab box
