@@ -202,6 +202,16 @@ const RNG_SLOT_OLD_AGE: u64 = 8;
 /// coin changes the heading and nothing else in any stream.
 const RNG_SLOT_HALF_TURN: u64 = 9;
 
+/// The carry stream ([`spoil_ring`]): how far from the nest this carrier
+/// walks its pellet, and which way when it came out of the middle. Keyed on
+/// the animal and the frame, and a slot of its own so the switch moves no
+/// other draw.
+const RNG_SLOT_SPOIL_RING: u64 = 10;
+
+/// The widening stream ([`dig_widen_of`]): which wall of a one-cell passage
+/// a digger cuts. A slot of its own so the switch moves no other draw.
+const RNG_SLOT_DIG_WIDEN: u64 = 11;
+
 /// **The cap `grow_body` walks a `Segmented` body's `FateGenome` to.** With
 /// laterals that is at most 16 cells; both shipped bodies land at 7-8, well
 /// under it, and the cap exists only to bound a mutated genome that never
@@ -10390,8 +10400,15 @@ fn spoil_haul() -> Option<f32> {
 /// direction) and milled in the mouth -- 77% of the carrying frames at 200
 /// ants in the founding cut, 64% at 40. `PIXEL_PHYSICS_SPOIL_HAUL` alone keeps
 /// its old target, the one its measurements were taken with.
-fn spoil_haul_target(world: &World, head: (i32, i32)) -> Option<(i32, i32)> {
+///
+/// **Outside the nest under [`spoil_ring`], the column the carrier drew**, on
+/// the row over the nest's surface: the pellet is walked out that far before
+/// it may go down, so the pull is along the ground, away from the door.
+fn spoil_haul_target(world: &World, state: &crate::sim::organism::OrganismState, head: (i32, i32)) -> Option<(i32, i32)> {
     let site = world.nearest_nest_site(head.0, head.1).and_then(|i| world.nest_sites.get(i))?;
+    if let Some(col) = state.spoil_ring.filter(|_| spoil_ring_of(world).is_some() && !inside_nest(world, head.0, head.1)) {
+        return Some((col, site.surface - 1));
+    }
     Some(match site.shaft {
         Some(cut) if spoil_out().haul => (site.x, cut.top - 1),
         _ => (site.x, site.surface),
@@ -10491,6 +10508,135 @@ fn inside_nest(world: &World, x: i32, y: i32) -> bool {
     under_cover(world, x, y) || world.nearest_nest_site(x, y).and_then(|i| world.nest_sites.get(i)).and_then(|s| s.shaft).is_some_and(|c| c.contains(x, y))
 }
 
+/// **How far a carrier walks its pellet from the nest before it lets go**:
+/// `PIXEL_PHYSICS_SPOIL_RING=<shape>,<scale>`, **on by default at
+/// [`SpoilRing::SHIPPED`] and acting only under the walked cycle**
+/// ([`SpoilOut`], whose haul pulls the carrier and whose `keep` holds the
+/// pellet inside the nest): with `PIXEL_PHYSICS_SPOIL_OUT` unset the carry
+/// reads as absent whatever this says ([`spoil_ring_of`]), so the shipped
+/// lift is untouched. `off` turns it off under the walked cycle too.
+///
+/// **Why.** Walked out with nothing more, a carrier puts its pellet down on
+/// the first ground outside the founding cut, which is the mouth's rim, and
+/// the colony buries its own door: at 200 ants in `digbox` a mound of spoil
+/// and ants covers the mouth by frame 2,000, and at the shaft's top cell 53%
+/// of a carrier's decisions have no way up (seed 1, 2026-09-29;
+/// `Reports/nest-one-entrance-2026-09-29.md` §11). This file's own record of
+/// the placement rules has the same failure from 2026-08-31: *the first cell
+/// with clear sky above plugs the shafts, because a shaft mouth has clear
+/// sky by definition*.
+///
+/// **When to let go, not where it lies.** The owner's ruling stands (the
+/// spoil drop's comment in [`act`]): a carrier that has come out draws a
+/// distance, and until its head is that many columns from the nest site's
+/// centre, on the side it came out, the drop roll is held; past it, the roll
+/// and the cell predicate are exactly as before. Harvester ants leave a
+/// crater ring round an open entrance this way, each carrying some distance
+/// from the hole (`Reports/nest-entrance-dimensions-2026-09-19.md` §3).
+///
+/// **The distance** is the door's half-width plus one, so no pellet is set
+/// on the door, plus a Gamma(`shape`, `scale`) draw in cells. That section
+/// report's §3 is why `shape` is a knob: in a slice, mass dropped at `r`
+/// lands at two points, not round a circle, so the flat form `p(r)` draws a
+/// ridge with a dip before the hole, and a slice through a real mound is
+/// `p(r)/r` -- for a Gamma of shape `k`, a Gamma of shape `k - 1`. It is
+/// judged by eye.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SpoilRing {
+    /// Integer, 1-8: the draw is the sum of this many exponentials.
+    pub shape: u8,
+    /// Cells, the mean of each exponential.
+    pub scale: f32,
+}
+
+impl SpoilRing {
+    /// **The shipped carry, `2,2`** -- the owner, asked in chat with the
+    /// pictures (2026-09-29) whether a carrier may walk its pellet a little
+    /// way from the mouth before dropping it: "Q1 - Yes". The arm they saw:
+    /// in `digbox` at 40 ants the walked nest roughly doubled (42.5 -> 84
+    /// cells, more on 24 of 24 seeds) and spoil on the door fell 0.77 ->
+    /// 0.03 cells a column (`Reports/nest-one-entrance-2026-09-29.md` §12).
+    pub const SHIPPED: SpoilRing = SpoilRing { shape: 2, scale: 2.0 };
+}
+
+/// The carry in force for this world: [`World::spoil_ring`] when a test set
+/// it; else, **only while the walked cycle is on** ([`spoil_out`]), the
+/// process's [`spoil_ring`]; else none.
+///
+/// **The gate is load-bearing.** The drop's hold reads this for any carrier
+/// standing outside the nest, walked or not, so without it a default carry
+/// would hold the shipped lift's pellets too -- a change the owner was never
+/// shown, and one that every measurement of the carry (all taken with
+/// `SPOIL_OUT=on`) says nothing about. A world's own setting still wins, so
+/// the unit tests below can hold the carry on without the process switch.
+pub fn spoil_ring_of(world: &World) -> Option<SpoilRing> {
+    match world.spoil_ring {
+        Some(set) => set,
+        None if spoil_out().any() => spoil_ring(),
+        None => None,
+    }
+}
+
+/// The carry this process names ([`SpoilRing`]): [`SpoilRing::SHIPPED`]
+/// unless `PIXEL_PHYSICS_SPOIL_RING` names another or `off`. Read through
+/// [`spoil_ring_of`], which applies it only under the walked cycle.
+pub fn spoil_ring() -> Option<SpoilRing> {
+    static V: std::sync::OnceLock<Option<SpoilRing>> = std::sync::OnceLock::new();
+    *V.get_or_init(|| parse_spoil_ring(&std::env::var("PIXEL_PHYSICS_SPOIL_RING").unwrap_or_default()))
+}
+
+/// `PIXEL_PHYSICS_SPOIL_RING`'s value: unset is [`SpoilRing::SHIPPED`], `off`
+/// is `None`, `<shape>,<scale>` a carry. A value it cannot read is reported
+/// and read as unset.
+fn parse_spoil_ring(raw: &str) -> Option<SpoilRing> {
+    let v = raw.trim();
+    if v.is_empty() {
+        return Some(SpoilRing::SHIPPED);
+    }
+    if v == "off" {
+        return None;
+    }
+    let parsed = v.split_once(',').and_then(|(k, s)| Some((k.trim().parse::<u8>().ok()?, s.trim().parse::<f32>().ok()?)));
+    match parsed {
+        Some((shape, scale)) if (1..=8).contains(&shape) && scale > 0.0 && scale.is_finite() => Some(SpoilRing { shape, scale }),
+        _ => {
+            eprintln!("PIXEL_PHYSICS_SPOIL_RING={raw:?}: not `off` or `<shape 1-8>,<scale>`; read as unset (the shipped 2,2)");
+            Some(SpoilRing::SHIPPED)
+        }
+    }
+}
+
+/// **The column a carrier standing at `(x, y)` walks its pellet out to**
+/// ([`SpoilRing`]): on its own side of the nest site's centre (a coin in the
+/// middle), the door's half-width plus one plus a Gamma draw from the
+/// carrier's own stream. `None` with no nest site.
+fn spoil_ring_column(world: &World, organism: OrganismId, (x, y): (i32, i32), ring: SpoilRing) -> Option<i32> {
+    let site = world.nearest_nest_site(x, y).and_then(|i| world.nest_sites.get(i))?;
+    let mut draw = rng::stream(world.seed, u64::from(organism), world.frame, RNG_SLOT_SPOIL_RING);
+    let side = match (x - site.x).signum() {
+        0 => {
+            if draw.flip() {
+                1
+            } else {
+                -1
+            }
+        }
+        s => s,
+    };
+    let gamma: f32 = (0..ring.shape).map(|_| -ring.scale * (1.0 - draw.unit_f32()).ln()).sum();
+    let door = scaled_cells(world, nest_door_of(world).unwrap_or(NEST_DOOR_SHIPPED));
+    Some(site.x + side * (door + 1 + gamma.round() as i32))
+}
+
+/// **Whether a carrier at `(x, y)` is still short of its drawn column**
+/// ([`spoil_ring`]): the pellet is held until the head is as far from the
+/// nest site's centre as the column is.
+fn spoil_ring_holds(world: &World, state: &crate::sim::organism::OrganismState, (x, y): (i32, i32)) -> bool {
+    let Some(col) = state.spoil_ring.filter(|_| spoil_ring_of(world).is_some()) else { return false };
+    let Some(site) = world.nearest_nest_site(x, y).and_then(|i| world.nest_sites.get(i)) else { return false };
+    (x - site.x).abs() < (col - site.x).abs()
+}
+
 /// **A hauled pellet is carried at the laden pace** ([`SpoilOut`]'s `pace`):
 /// `HomeAligned` reads as it does for a load of food, so the step roll is the
 /// laden ant's (0.76 a decision) rather than an empty fed ant's (0.20), for a
@@ -10510,7 +10656,7 @@ fn spoil_pace_target(world: &World, def: &CreatureDef, state: &crate::sim::organ
         return None;
     }
     if spoil_haul().is_some() && state.spoil.is_some_and(|s| !s.store) {
-        return spoil_haul_target(world, head);
+        return spoil_haul_target(world, state, head);
     }
     dig_return_target(world, def, state)
 }
@@ -10950,6 +11096,118 @@ fn way_down(world: &World, def: &CreatureDef, organism: OrganismId, x: i32, y: i
         let c = world.get(x + dx, y + dy);
         c.material == material::EMPTY || matches!(world.materials.kind(c.material), MaterialKind::Creature) || jaw_can_cut(world, def, organism, c)
     })
+}
+
+/// **Tunnels one body length wide**: `PIXEL_PHYSICS_DIG_WIDEN=on`, off
+/// unless set; [`World::dig_widen`] for one world.
+///
+/// **Why.** The dig cuts the one cell ahead of the head, so every passage the
+/// colony digs is one cell wide: a line of pixels, not a tunnel, and a queue
+/// that two ants cannot pass in. The owner, 2026-09-29: *"tunnels should be
+/// wider than 1 pixel, for crowding and aesthetics."* A real tunnel is about
+/// one body length across (Gravish et al. 2013, via
+/// `Reports/nest-entrance-dimensions-2026-09-19.md` §2), and the ant is two
+/// cells long.
+///
+/// **What it does.** On a won dig roll, a digger walking along a passage
+/// (the cell ahead of it open, [`ahead_is_open`]) whose head stands where
+/// the passage is one cell wide -- ground both above and below it, or both
+/// on either side -- cuts one of those walls instead of turning down and
+/// cutting ahead ([`dig_widen_site`]). A digger at a face digs on as before,
+/// so galleries still run and descend; the tunnel behind the face widens,
+/// most where the traffic is. A passage already two wide is left alone, so
+/// the rule stops at one body length and never hollows a room. The cut is an
+/// ordinary cut from there on: the heap cue judges it if it would open the
+/// sky, the jaw must be able to take it, and its pellet is carried like any
+/// other.
+///
+/// **Widening at the face too was the first form, and it lost the nest**:
+/// seed 1, 40 ants, frame 12,000, a digger at a one-cell face cut its wall
+/// before it went on, every advance cost two cuts and the dig-down turn gave
+/// way to the widening, and the galleries stopped: 106 cells dug against 179,
+/// 90th-percentile depth 7 rows against 13, a shallow blob round the door.
+pub fn dig_widen_of(world: &World) -> bool {
+    world.dig_widen.unwrap_or_else(dig_widen)
+}
+
+/// `PIXEL_PHYSICS_DIG_WIDEN`: `on` turns [`dig_widen_of`] on; unset and
+/// `off` leave it off; anything else is reported and read as off.
+fn dig_widen() -> bool {
+    static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *V.get_or_init(|| parse_dig_widen(&std::env::var("PIXEL_PHYSICS_DIG_WIDEN").unwrap_or_default()))
+}
+
+fn parse_dig_widen(raw: &str) -> bool {
+    match raw.trim() {
+        "on" => true,
+        "" | "off" => false,
+        v => {
+            eprintln!("PIXEL_PHYSICS_DIG_WIDEN={v:?}: not `on` or `off`; read as off");
+            false
+        }
+    }
+}
+
+/// **Whether the cell ahead of `organism`'s head is open** -- empty, or an
+/// animal -- so that it is walking along a passage rather than standing at
+/// a face ([`dig_widen_of`]).
+fn ahead_is_open(world: &World, organism: OrganismId, x: i32, y: i32) -> bool {
+    let h = world.organism(organism).map_or(0, |s| s.heading);
+    let (dx, dy) = DIRS[h as usize % 8];
+    let c = world.get(x + dx, y + dy);
+    c.material == material::EMPTY || matches!(world.materials.kind(c.material), MaterialKind::Creature)
+}
+
+/// **The wall a digger at `(x, y)` widens its passage by**, or `None` when
+/// the passage is not one cell wide there. A cell is a wall when it holds
+/// ground (not empty, not an animal); the passage is one wide where both
+/// cells across it are walls -- above and below, or left and right, or both
+/// (a diagonal step, a dead end). Of those walls, the ones this animal's
+/// jaw can take ([`jaw_can_cut`]) are candidates, and its own stream picks
+/// one.
+fn dig_widen_site(world: &World, def: &CreatureDef, organism: OrganismId, (x, y): (i32, i32)) -> Option<(i32, i32)> {
+    let wall = |cx: i32, cy: i32| {
+        let c = world.get(cx, cy);
+        c.material != material::EMPTY && !matches!(world.materials.kind(c.material), MaterialKind::Creature)
+    };
+    let across_v = wall(x, y - 1) && wall(x, y + 1);
+    let across_h = wall(x - 1, y) && wall(x + 1, y);
+    let mut sides: Vec<(i32, i32)> = Vec::with_capacity(4);
+    if across_v {
+        sides.extend([(x, y - 1), (x, y + 1)]);
+    }
+    if across_h {
+        sides.extend([(x - 1, y), (x + 1, y)]);
+    }
+    sides.retain(|&(cx, cy)| jaw_can_cut(world, def, organism, world.get(cx, cy)));
+    if sides.is_empty() {
+        return None;
+    }
+    let mut draw = rng::stream(world.seed, u64::from(organism), world.frame, RNG_SLOT_DIG_WIDEN);
+    Some(sides[draw.below(sides.len() as u32) as usize])
+}
+
+/// **The shoulder a digger at a face cuts** ([`dig_widen_of`]): on half its
+/// rolls (its own stream, keyed a frame on from the passage wall's), a cell
+/// beside the cell ahead, across the heading -- for a diagonal heading the
+/// two corners between the head and the cell ahead, for a straight one the
+/// two cells either side of the cell ahead. `None` when the coin says
+/// advance, when the cell ahead is not ground (not a face), or when neither
+/// shoulder is ground this animal's jaw can take.
+fn dig_shoulder_site(world: &World, def: &CreatureDef, organism: OrganismId, (x, y): (i32, i32), (dx, dy): (i32, i32)) -> Option<(i32, i32)> {
+    if !jaw_can_cut(world, def, organism, world.get(x + dx, y + dy)) {
+        return None;
+    }
+    let mut draw = rng::stream(world.seed, u64::from(organism), world.frame + 1, RNG_SLOT_DIG_WIDEN);
+    if !draw.flip() {
+        return None;
+    }
+    let shoulders: [(i32, i32); 2] = if dx != 0 && dy != 0 { [(x + dx, y), (x, y + dy)] } else { [(x + dx - dy, y + dy + dx), (x + dx + dy, y + dy - dx)] };
+    let open: Vec<(i32, i32)> = shoulders.into_iter().filter(|&(cx, cy)| jaw_can_cut(world, def, organism, world.get(cx, cy))).collect();
+    if open.is_empty() {
+        return None;
+    }
+    Some(open[draw.below(open.len() as u32) as usize])
 }
 
 /// **Gravity in the dig, as a turn rather than as a target.**
@@ -12883,7 +13141,26 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
         // carrier nor lifted, while the haul still has patience. A carrier
         // that has stuck may lay it beside itself where a cell will hold it,
         // and is never lifted: see `no_lift` below.
-        let keep_inside = spoil_out().keep && inside_nest(world, x, y);
+        // **Walked out a distance first** ([`spoil_ring`]): the first time a
+        // carrier stands outside the nest with its pellet it draws how far to
+        // take it, and until it is that far out the pellet is held as it is
+        // inside. Unset, no read and no draw.
+        let ring_hold = match spoil_ring_of(world) {
+            Some(ring) => {
+                if !inside_nest(world, x, y) && world.organism(organism).is_some_and(|s| s.spoil_ring.is_none()) {
+                    let col = spoil_ring_column(world, organism, (x, y), ring);
+                    if let Some(state) = world.organism_mut(organism) {
+                        state.spoil_ring = col;
+                    }
+                    world.creature_stats.spoil_ring_drawn += u64::from(col.is_some());
+                }
+                let holds = world.organism(organism).is_some_and(|s| spoil_ring_holds(world, s, (x, y)));
+                world.creature_stats.spoil_ring_held += u64::from(holds);
+                holds
+            }
+            None => false,
+        };
+        let keep_inside = (spoil_out().keep && inside_nest(world, x, y)) || ring_hold;
         let kept_inside = keep_inside && world.organism(organism).is_some_and(|s| s.home_patience >= DIG_RETURN_GIVE_UP);
         let cover_scale = if kept_inside {
             world.creature_stats.spoil_kept_inside += 1;
@@ -13016,6 +13293,7 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
                 world.set(px, py, spoil.cell);
                 if let Some(state) = world.organism_mut(organism) {
                     state.spoil = None;
+                    state.spoil_ring = None;
                 }
                 world.creature_stats.spoil_dumped += 1;
                 if lifted {
@@ -13052,12 +13330,19 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
         // came out would be `digs` again under another name. See
         // `CreatureStats::dig_rolls`.
         world.creature_stats.dig_rolls += 1;
+        // **A one-cell passage is widened by the traffic through it**
+        // ([`dig_widen_of`]): a digger whose way ahead is open is walking
+        // along a passage, not standing at a face, and if the passage is one
+        // cell wide there it cuts the wall beside it -- instead of turning
+        // down, which is the face's business. At a face the dig goes on as
+        // before. Off, no read and no draw.
+        let widen_to = if dig_widen_of(world) && ahead_is_open(world, organism, x, y) { dig_widen_site(world, def, organism, (x, y)) } else { None };
         // **The digger turns downward before it cuts, rather than cutting a
         // cell it will never enter.** On for an enclosed digger since
         // 2026-09-28, and `off` is bit-exact with the ant before; see
         // [`dig_down_bias`] for the whole argument and for why the two
         // obvious places to put this are both wrong.
-        if let Some(dd) = dig_down_of(world) {
+        if let Some(dd) = dig_down_of(world).filter(|_| widen_to.is_none()) {
             let h = world.organism(organism).map_or(0, |s| s.heading);
             let turned = turn_toward(h, DOWN_DIR, half_turn_left(world.seed, organism, world.frame));
             let may_turn = turned != h
@@ -13094,7 +13379,19 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
         }
         let heading = world.organism(organism).map_or(0, |s| s.heading);
         let (dx, dy) = DIRS[heading as usize];
-        let (tx, ty) = (x + dx, y + dy);
+        let (mut tx, mut ty) = (x + dx, y + dy);
+        // **...and a face is cut two cells wide** ([`dig_widen_of`]): at a
+        // face, on half its rolls, the digger cuts a shoulder beside the cell
+        // ahead, along its heading after any dig-down turn, so the gallery
+        // advances as a band two cells across rather than a line one cell
+        // across ([`dig_shoulder_site`]).
+        let widen_to = widen_to.or_else(|| if dig_widen_of(world) { dig_shoulder_site(world, def, organism, (x, y), (dx, dy)) } else { None });
+        // The widening cut: everything below judges and takes the wall as it
+        // would the cell ahead.
+        if let Some(side) = widen_to {
+            (tx, ty) = side;
+            world.creature_stats.digs_widened += 1;
+        }
         let target = world.get(tx, ty);
         // **A heap draws where digging starts** ([`SpoilCue`], on since
         // 2026-09-28, [`spoil_cue_of`]): a cut that would open the ground to the sky goes
@@ -15881,7 +16178,7 @@ fn home_pull(world: &World, organism: OrganismId, def: &CreatureDef, head: (i32,
         return Some((home_target(world, state), def.home_bias));
     }
     match spoil_haul().filter(|_| state.spoil.is_some()) {
-        Some(w) => Some((spoil_haul_target(world, head)?, w)),
+        Some(w) => Some((spoil_haul_target(world, state, head)?, w)),
         None => {
             if def.home_bias <= 0.0 {
                 return None;
@@ -19880,6 +20177,10 @@ fn relocate_chain(world: &mut World, organism: OrganismId, def: &CreatureDef, au
     // and after `from` is cleared -- so a leaf owed back to a cell the body
     // is stepping off lands in ground that is empty again. Anything still
     // under the new body stays held and is carried forward below.
+    //
+    // **"Empty again" is not true of a cell a nestmate is still standing in**,
+    // and `close_or_hand_over` is what stops the leaf coming back on top of it
+    // -- see its doc for the seven lab deaths this was.
     let held = world.organism(organism).map_or(Vec::new(), |state| state.parted.clone());
     let mut still_held: Vec<organism::Parted> = Vec::new();
     for entry in held {
@@ -19887,7 +20188,7 @@ fn relocate_chain(world: &mut World, organism: OrganismId, def: &CreatureDef, au
             still_held.push(entry);
             continue;
         }
-        restore_parted(world, &entry);
+        close_or_hand_over(world, organism, entry);
     }
 
     // **Arriving where somebody already stands registers a rider instead of
@@ -20020,6 +20321,73 @@ fn restore_parted(world: &mut World, entry: &organism::Parted) {
     }
 }
 
+/// **Tissue closes only over a cell nobody is standing in; while a nestmate
+/// is still there, it goes on holding it.** The one exit for held tissue,
+/// shared by the step (`relocate_chain`) and the death (`return_parted`).
+///
+/// Parting was written when a body owned every cell it stood in, so "the
+/// animal has left the cell" and "the cell is empty" were the same fact and
+/// `restore_parted` could write unconditionally. Stacking split them. An ant
+/// that parted a grass root, and then had a nestmate step onto it, handed the
+/// cell to that nestmate on the way out (`relocate_chain`'s promotion) and
+/// then wrote the root straight back over it. The nestmate's head cell was
+/// now plant, so `reconcile_chain` found its vital cell gone and booked it
+/// `Killed`, with any rider still standing there killed the same way. The
+/// death exit did the same thing in the other order: `return_parted` put the
+/// tissue back before `stamp_as_corpse` promoted the rider, so the rider was
+/// promoted into a cell that no longer held an animal.
+///
+/// **Traced, not reasoned**: `labshot scenario=played_bed seed=3` at a stack
+/// cap of 4 booked **7 `Killed` by frame 12,000**, with a grass root (6) or a
+/// leaf (1) in the head cell (`World::vital_losses`). **All seven** followed
+/// a restore over a live nestmate in the same cell, on the same frame or the
+/// victim's next tick. Five came down the step path and two down the death
+/// path, and they cascade: an ant killed this way dies holding tissue of its
+/// own, and its death put that back over whoever was riding it. At a
+/// cap of 1 the same seed restored over an animal **zero** times and killed
+/// none. Over the foraging lane's 24-seed lab pair it was the whole
+/// regression that kept stacking off by default: births **418 -> 2**, 20 of
+/// 24 colonies lost.
+///
+/// **Handed over rather than kept back or dropped.** Keeping it with the
+/// animal that walked away leaves it holding a cell it is not in, and the
+/// next step writes it back anyway. Dropping it deletes a leaf, which
+/// `an_ant_walking_through_foliage_leaves_it_intact` exists to forbid. The
+/// nestmate now standing in the cell is the one body the tissue is really
+/// under, so it holds it and closes it when it leaves, or passes it on if
+/// somebody is still there.
+///
+/// Who that is: the cell's grid owner if it is another animal (a promoted
+/// rider after a step, or the host when the leaver was only riding). Failing
+/// that, the oldest rider, which is exactly who `stamp_as_corpse` promotes
+/// when the leaver is dying and still owns the cell.
+///
+/// **At a stack cap of 1 it changes one case, and only that one.** A body
+/// that steps off or dies in a cell it still owns leaves it `EMPTY`, or is
+/// its own occupant, and no riders exist, so the tissue closes exactly as it
+/// always did. The exception is tissue held for a cell the body had already
+/// *lost*, bitten or burned out of it, when another animal has since walked
+/// into that cell. The unconditional write killed the newcomer; now it holds
+/// the tissue instead. That case needs a body to lose a cell inside foliage
+/// and a second animal to walk into it before the first one's next step,
+/// and it never occurred in the 24-seed lab check at cap 1, which
+/// reproduced the pre-fix logs byte for byte
+/// (`Reports/creature-stacking-design-2026-09-17.md` §12).
+fn close_or_hand_over(world: &mut World, leaving: OrganismId, entry: organism::Parted) {
+    let p = (entry.x, entry.y);
+    let cell = world.get(p.0, p.1);
+    let owner = cell.organism_id();
+    let standing = if owner != 0 && owner != leaving && is_animal_cell(world, cell) {
+        Some(owner)
+    } else {
+        world.riders_at(p.0, p.1).iter().map(|r| r.organism).find(|&r| r != leaving)
+    };
+    match standing.and_then(|who| world.organism_mut(who)) {
+        Some(state) => state.parted.push(entry),
+        None => restore_parted(world, &entry),
+    }
+}
+
 /// **Everything this animal is holding out of the world, given back.**
 ///
 /// The death exit named in `OrganismState::parted`'s doc. Called before the
@@ -20027,10 +20395,15 @@ fn restore_parted(world: &mut World, entry: &organism::Parted) {
 /// laid only where there is room for it: a bush closes over an ant that
 /// dies inside it, which is both the right picture and the only ordering
 /// that cannot leave a leaf deleted.
+///
+/// **A bush closes over the dying ant only if nobody else is standing in the
+/// cell.** With a nestmate riding there, the tissue passes to it instead
+/// ([`close_or_hand_over`]); `stamp_as_corpse` then promotes that same
+/// nestmate into the cell and lays the corpse beside it.
 fn return_parted(world: &mut World, organism: OrganismId) {
     let held = world.organism(organism).map_or(Vec::new(), |state| state.parted.clone());
-    for entry in &held {
-        restore_parted(world, entry);
+    for entry in held {
+        close_or_hand_over(world, organism, entry);
     }
     if let Some(state) = world.organism_mut(organism) {
         state.parted.clear();
@@ -22670,6 +23043,194 @@ mod tests {
         let (west, east) = (headings.iter().filter(|&&h| h == 3).count(), headings.iter().filter(|&&h| h == 1).count());
         assert_eq!(west + east, 32, "a digger facing north did not turn one octant toward down every time: {headings:?}");
         assert!(west >= 8 && east >= 8, "a digger facing north turned down through the west {west} times and the east {east} of 32");
+    }
+
+    /// `PIXEL_PHYSICS_SPOIL_RING`'s spellings: off, a shape and a scale, and
+    /// nothing else.
+    #[test]
+    fn the_spoil_ring_parses_its_spellings_and_refuses_the_rest() {
+        assert_eq!(parse_spoil_ring(""), Some(SpoilRing::SHIPPED), "unset is the shipped carry");
+        assert_eq!(SpoilRing::SHIPPED, SpoilRing { shape: 2, scale: 2.0 }, "the owner's arm");
+        assert_eq!(parse_spoil_ring("off"), None);
+        assert_eq!(parse_spoil_ring("2,2"), Some(SpoilRing { shape: 2, scale: 2.0 }));
+        assert_eq!(parse_spoil_ring(" 3, 1.5 "), Some(SpoilRing { shape: 3, scale: 1.5 }));
+        for bad in ["0,2", "9,2", "2,0", "2,-1", "2", "on", "2,x", "x,2"] {
+            assert_eq!(parse_spoil_ring(bad), Some(SpoilRing::SHIPPED), "{bad:?} was not read as unset");
+        }
+    }
+
+    /// **The shipped carry does nothing outside the walked cycle.** The drop's
+    /// hold reads [`spoil_ring_of`] for any carrier outside the nest, so a
+    /// default carry that leaked past its gate would hold the shipped lift's
+    /// pellets: a carrier on the open surface right beside the door, `DropSpoil`
+    /// at 1, must still put its pellet down with no world setting, as it did
+    /// before the carry existed. Needs `PIXEL_PHYSICS_SPOIL_OUT` unset, as every
+    /// other test here does. Written after the gate: watched red by dropping
+    /// the gate's `spoil_out().any()` arm.
+    #[test]
+    fn the_shipped_carry_is_inert_without_the_walked_cycle() {
+        assert!(!spoil_out().any(), "this test reads the shipped ant: PIXEL_PHYSICS_SPOIL_OUT must be unset");
+        let w = World::new(Rect::new(0, 0, 119, 99));
+        assert_eq!(spoil_ring_of(&w), None, "the carry reached a world with no walked cycle");
+        let (dropped, drawn) = ring_drop_world_default(62);
+        assert!(dropped, "a carrier by the door held its pellet with no walked cycle");
+        assert_eq!(drawn, None, "a carry column was drawn with no walked cycle");
+    }
+
+    /// A carrier on the open surface at `x`, holding a pellet of soil beside a
+    /// nest site centred at column 60, with `ring` in force and `drawn` as its
+    /// column already: one `act` with `DropSpoil` 1, and whether the pellet
+    /// went down, and the column it held after.
+    fn ring_drop(ring: Option<SpoilRing>, x: i32, drawn: Option<i32>) -> (bool, Option<i32>) {
+        ring_drop_in(Some(ring), x, drawn)
+    }
+
+    /// [`ring_drop`] with the world's own setting left alone, so the carry in
+    /// force is the process's ([`spoil_ring_of`]'s gate and default).
+    fn ring_drop_world_default(x: i32) -> (bool, Option<i32>) {
+        ring_drop_in(None, x, None)
+    }
+
+    fn ring_drop_in(world_ring: Option<Option<SpoilRing>>, x: i32, drawn: Option<i32>) -> (bool, Option<i32>) {
+        let mut w = World::new(Rect::new(0, 0, 119, 99));
+        founding_ground(&mut w);
+        w.register_nest_site(60, 38, 2);
+        w.spoil_ring = world_ring;
+        let a = spawn(&mut w, "ant", x, 39);
+        let soil = w.materials.id_of("soil").expect("soil material");
+        {
+            let st = w.organism_mut(a).expect("live");
+            st.spoil = Some(Spoil { cell: Cell::new(soil, 0), store: false });
+            st.spoil_ring = drawn;
+        }
+        let (hx, hy) = w.organism(a).expect("live").chain[0];
+        assert!(!inside_nest(&w, hx, hy), "test setup: the carrier at ({hx}, {hy}) is not outside the nest");
+        let def = w.species.get(w.organism(a).expect("live").species).creature.clone().expect("a creature");
+        let mut outputs = [0.0f32; brain::BRAIN_OUTPUTS];
+        outputs[brain::BrainOutput::DropSpoil as usize] = 1.0;
+        let mut draw = rng::stream(1, a as u64, 0, RNG_SLOT_MOVE);
+        act(&mut w, hx, hy, a, &def, &outputs, &mut draw);
+        let st = w.organism(a).expect("live");
+        (st.spoil.is_none(), st.spoil_ring)
+    }
+
+    /// **A carried pellet is held until its carrier is its distance out**
+    /// ([`spoil_ring`]). Two columns from the nest's centre, with the carry
+    /// off, the pellet goes down -- the control that says the scene lets it;
+    /// with a carry of three columns (the door's half-width plus one, and a
+    /// draw of nothing) it is held and the column is drawn on the carrier's
+    /// own side; four columns out it goes down, and the column is cleared.
+    #[test]
+    fn a_carried_pellet_is_held_until_its_carrier_is_its_distance_out() {
+        let near = SpoilRing { shape: 1, scale: 0.001 };
+        assert_eq!(ring_drop(None, 62, None), (true, None), "test setup: with no carry the pellet did not go down, so the scene cannot show one held");
+        assert_eq!(ring_drop(Some(near), 62, None), (false, Some(63)), "two columns out, short of a carry of three, the pellet was not held on the carrier's side");
+        assert_eq!(ring_drop(Some(near), 64, None), (true, None), "four columns out, past a carry of three, the pellet was not put down");
+        assert_eq!(ring_drop(Some(near), 62, Some(66)), (false, Some(66)), "a carrier short of the column it drew let go");
+    }
+
+    /// **The carry's distance**: never onto the door (at least its half-width
+    /// plus one from the centre), on the carrier's side, both sides from the
+    /// middle, and a mean near the door plus `shape * scale`.
+    #[test]
+    fn a_carry_goes_past_the_door_on_the_carriers_side() {
+        let mut w = World::new(Rect::new(0, 0, 119, 99));
+        founding_ground(&mut w);
+        w.register_nest_site(60, 38, 2);
+        let ring = SpoilRing { shape: 2, scale: 2.0 };
+        let cols: Vec<i32> = (0..400u64)
+            .map(|f| {
+                w.frame = f;
+                spoil_ring_column(&w, 7, (61, 39), ring).expect("a site")
+            })
+            .collect();
+        assert!(cols.iter().all(|&c| c >= 63), "a carry east of the centre landed on the door or west of it: {:?}", cols.iter().min());
+        let mean = cols.iter().map(|&c| f64::from(c - 60)).sum::<f64>() / cols.len() as f64;
+        assert!((6.0..=8.0).contains(&mean), "the mean carry was {mean:.2} columns, not about 3 + 2 * 2");
+        let sides: std::collections::BTreeSet<i32> = (0..64u64)
+            .map(|f| {
+                w.frame = f;
+                (spoil_ring_column(&w, 7, (60, 39), ring).expect("a site") - 60).signum()
+            })
+            .collect();
+        assert_eq!(sides, [-1, 1].into_iter().collect(), "a carrier out of the middle went one way only");
+    }
+
+    /// `PIXEL_PHYSICS_DIG_WIDEN`'s spellings: `on`, and off for everything
+    /// else.
+    #[test]
+    fn dig_widen_parses_on_and_reads_the_rest_as_off() {
+        assert!(parse_dig_widen("on"));
+        assert!(parse_dig_widen(" on "));
+        for off in ["", "off", "yes", "1", "On"] {
+            assert!(!parse_dig_widen(off), "{off:?} turned widening on");
+        }
+    }
+
+    /// A digger facing east at `(60, 60)` in a tunnel cut through soil
+    /// (`rows` of it, from row 60 down, columns 50 to `end`), one `act`
+    /// with `Dig` 1 at `frame` with widening `widen` and no dig-down turn:
+    /// the cells it cut, and `digs_widened`.
+    fn widen_dig(rows: i32, end: i32, widen: bool, frame: u64) -> (Vec<(i32, i32)>, u64) {
+        let mut w = World::new(Rect::new(0, 0, 119, 99));
+        founding_ground(&mut w);
+        for yy in 60..60 + rows {
+            for xx in 50..=end {
+                w.set(xx, yy, Cell::EMPTY);
+            }
+        }
+        w.dig_widen = Some(widen);
+        w.dig_down = Some(None);
+        w.frame = frame;
+        let a = spawn(&mut w, "ant", 60, 60);
+        w.organism_mut(a).expect("live").heading = 0;
+        let (hx, hy) = w.organism(a).expect("live").chain[0];
+        let def = w.species.get(w.organism(a).expect("live").species).creature.clone().expect("a creature");
+        let before: Vec<(i32, i32)> = (40..92).flat_map(|y| (1..119).map(move |x| (x, y))).filter(|&(x, y)| w.get(x, y).material != material::EMPTY && w.get(x, y).organism_id() == 0).collect();
+        let mut outputs = [0.0f32; brain::BRAIN_OUTPUTS];
+        outputs[brain::BrainOutput::Dig as usize] = 1.0;
+        let mut draw = rng::stream(1, a as u64, frame, RNG_SLOT_MOVE);
+        act(&mut w, hx, hy, a, &def, &outputs, &mut draw);
+        let cut = before.into_iter().filter(|&(x, y)| w.get(x, y).material == material::EMPTY).collect();
+        (cut, w.creature_stats.digs_widened)
+    }
+
+    /// **A digger walking a one-cell passage cuts its wall** ([`dig_widen_of`]),
+    /// above or below it; with widening off the same roll cuts nothing, the
+    /// way ahead being open -- the control that says the cut is the switch's.
+    #[test]
+    fn a_digger_walking_a_one_cell_passage_cuts_its_wall() {
+        let (cut, n) = widen_dig(1, 70, true, 0);
+        assert_eq!(n, 1, "the widening did not fire");
+        assert!(cut.len() == 1 && (cut[0] == (60, 59) || cut[0] == (60, 61)), "the digger cut {cut:?}, not the wall above or below it");
+        let (cut, n) = widen_dig(1, 70, false, 0);
+        assert!(cut.is_empty() && n == 0, "with widening off a digger with its way open cut {cut:?}");
+    }
+
+    /// **A passage two cells across is left alone**: the rule stops at one
+    /// body length, so it never hollows a room.
+    #[test]
+    fn a_passage_two_cells_wide_is_left_alone() {
+        let (cut, n) = widen_dig(2, 70, true, 0);
+        assert!(cut.is_empty() && n == 0, "a digger in a passage two cells high widened it: {cut:?}");
+    }
+
+    /// **A face is cut two cells wide**: at the end of a one-cell tunnel,
+    /// over sixteen frames, a digger cuts a shoulder beside the cell ahead on
+    /// some rolls and the cell ahead on others, and nothing else.
+    #[test]
+    fn a_face_is_cut_two_cells_wide() {
+        let mut ahead = 0;
+        let mut shoulder = 0;
+        for f in 0..16 {
+            let (cut, _) = widen_dig(1, 60, true, f);
+            match cut.as_slice() {
+                [(61, 60)] => ahead += 1,
+                [(61, 59)] | [(61, 61)] => shoulder += 1,
+                other => panic!("frame {f}: the digger at the face cut {other:?}"),
+            }
+        }
+        assert!(ahead >= 3 && shoulder >= 3, "over 16 rolls at a face: {ahead} cuts ahead, {shoulder} shoulders");
     }
 
     fn run(w: &mut World, frames: usize) {
@@ -25441,6 +26002,101 @@ mod tests {
             "a strike that killed the creature on top also killed the one under it -- the cell changed hands, it was not consumed"
         );
         assert_eq!(w.get(at2.0, at2.1).organism_id(), rider2, "and the survivor now owns the cell");
+    }
+
+    /// Two nestmates stacked in a leaf the one underneath is holding: the
+    /// state a host is in when it parted a leaf and a nestmate then stepped
+    /// onto it. `host` is a two-cell chain, head `(11,5)` and tail `(10,5)`;
+    /// `rider` is a one-cell body riding the host's tail, where the host holds
+    /// a live plant's leaf with carbon in it. Built by hand rather than walked
+    /// into, so the order of events is the one under test and not whatever a
+    /// crowd happens to produce. Returns the host, the rider, the leaf's
+    /// material and the shared cell.
+    fn stacked_in_a_parted_leaf(w: &mut World) -> (OrganismId, OrganismId, material::MaterialId, (i32, i32)) {
+        w.set_stack_cap(20);
+        let ant = w.species.id_of("ant").expect("ant species");
+        let ant_material = w.materials.id_of("ant").expect("ant material");
+        let leaf = w.materials.id_of("leaf").expect("leaf is compiled in");
+        let tree = w.species.id_of("tree").expect("tree species");
+        let plant = w.push_organism(tree).expect("a slot for the plant");
+        let host = w.push_organism(ant).expect("a slot for the host");
+        let rider = w.push_organism(ant).expect("a slot for the rider");
+        let body = |id: OrganismId, cell_type: CellType| Cell::new(ant_material, 0).with_organism_id(id).with_aux(pack_cell_type(cell_type));
+        let (head, shared) = ((11, 5), (10, 5));
+        w.set(head.0, head.1, body(host, CellType::Head));
+        w.set(shared.0, shared.1, body(host, CellType::Segment));
+        w.add_rider(shared.0, shared.1, rider, body(rider, CellType::Head));
+        for (id, chain) in [(host, vec![head, shared]), (rider, vec![shared])] {
+            let st = w.organism_mut(id).expect("live");
+            st.colony = 7;
+            st.chain = chain;
+        }
+        // What `relocate_chain`'s arrival loop gives a rider: the position in
+        // its own record, which is what keeps it alive (`reconcile_chain`
+        // resolves against `cells`, not the grid).
+        w.organism_mut(rider).expect("live").cells.insert(shared, organism::OrganismCell::default());
+        let scalars = organism::OrganismCell { carbon: 0.5, ..Default::default() };
+        let held = organism::Parted { x: shared.0, y: shared.1, cell: Cell::new(leaf, 0).with_organism_id(plant), scalars };
+        w.organism_mut(host).expect("live").parted.push(held);
+        assert_eq!(w.get(shared.0, shared.1).organism_id(), host, "test setup: the host holds the shared cell");
+        assert_eq!(w.riders_at(shared.0, shared.1).len(), 1, "test setup: one nestmate rides it");
+        (host, rider, leaf, shared)
+    }
+
+    fn holds_leaf_at(w: &World, id: OrganismId, leaf: material::MaterialId, p: (i32, i32)) -> bool {
+        w.organism(id).is_some_and(|s| s.parted.iter().any(|h| (h.x, h.y) == p && h.cell.material == leaf))
+    }
+
+    /// **A leaf closes behind an ant only once nobody is left standing in
+    /// it** -- the step half of `close_or_hand_over`, and five of the seven
+    /// lab deaths that kept stacking off by default.
+    ///
+    /// The host steps east off the shared cell, which hands the cell to the
+    /// rider. The leaf the host was holding there must pass to the rider, not
+    /// be written back over it. Then the rider steps off with nobody behind
+    /// it and the leaf comes back, carbon and all -- the half that says the
+    /// hand-over did not simply delete the leaf.
+    ///
+    /// Watched red against the unconditional restore: the rider is killed on
+    /// its first `reconcile_chain`, with a leaf in its head cell.
+    #[test]
+    fn a_leaf_does_not_close_over_a_nestmate_still_standing_in_it() {
+        let mut w = test_world();
+        let (host, rider, leaf, shared) = stacked_in_a_parted_leaf(&mut w);
+        let def = w.species.get(w.organism(host).expect("live").species).creature.clone().expect("a creature");
+
+        let from = w.organism(host).expect("live").chain.clone();
+        let to = [(12, 5), (11, 5)];
+        relocate_chain(&mut w, host, &def, &[], BodySide { cells: &from, groups: &[] }, BodySide { cells: &to, groups: &[] });
+
+        let now = w.materials.get(w.get(shared.0, shared.1).material).name.clone();
+        assert!(reconcile_chain(&mut w, rider), "the rider died when its host stepped off -- the leaf came back over it (the cell holds {now})");
+        assert_eq!(w.get(shared.0, shared.1).organism_id(), rider, "the rider owns the cell it was standing in");
+        assert!(holds_leaf_at(&w, rider, leaf, shared), "and holds the leaf still pushed aside under it");
+        assert!(!holds_leaf_at(&w, host, leaf, shared), "while the host no longer holds a cell it has left");
+
+        relocate_chain(&mut w, rider, &def, &[], BodySide { cells: &[shared], groups: &[] }, BodySide { cells: &[(9, 5)], groups: &[] });
+        assert_eq!(w.get(shared.0, shared.1).material, leaf, "the leaf closes once the last animal has left");
+        let carbon = w.organism_cell(shared.0, shared.1).map_or(0.0, |c| c.carbon);
+        assert!((carbon - 0.5).abs() < 1e-6, "and comes back with its carbon, not a zeroed sidecar: {carbon}");
+        assert!(!holds_leaf_at(&w, rider, leaf, shared), "and nobody is left holding it");
+    }
+
+    /// **A host that dies holding a leaf under a nestmate hands the leaf on
+    /// with the cell** -- the death half of `close_or_hand_over`, and the
+    /// other two of the seven. `return_parted` runs before `stamp_as_corpse`
+    /// promotes the rider, so an unconditional restore put the leaf into the
+    /// cell first and the rider was promoted into a plant.
+    #[test]
+    fn a_host_dying_in_a_leaf_hands_it_to_the_nestmate_on_top() {
+        let mut w = test_world();
+        let (host, rider, leaf, shared) = stacked_in_a_parted_leaf(&mut w);
+
+        creature_dies(&mut w, host, organism::DeathCause::Starved);
+        let now = w.materials.get(w.get(shared.0, shared.1).material).name.clone();
+        assert!(reconcile_chain(&mut w, rider), "the rider died with its host -- the leaf came back over the cell it was promoted into (the cell holds {now})");
+        assert_eq!(w.get(shared.0, shared.1).organism_id(), rider, "the rider takes the cell over");
+        assert!(holds_leaf_at(&w, rider, leaf, shared), "and goes on holding the leaf under it");
     }
 
     /// **A handover always changes the cell's owner, whatever cell the rider

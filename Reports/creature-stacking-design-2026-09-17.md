@@ -2,7 +2,9 @@
 
 *Design of record, 2026-09-17. Owner's brief, and his rulings throughout §3.
 Built and landed as PR #465 (merge `c061a245`), off by default; §10 is the
-review that followed and §11 closes its four follow-ups. Supersedes nothing —
+review that followed and §11 closes its four follow-ups. §12 (2026-09-29)
+fixes the lab deaths that failed the first try at shipping it on, and
+measures the cost that remains. Supersedes nothing —
 it is the first design on this axis — but it is the third attempt on colony
 traffic and §1 says what the other two were.*
 
@@ -877,3 +879,102 @@ and `aux` plus every organism's energy and chain: **`0x6fde91732aaa5a65` on both
 `main` and this branch**, with 8,578 moves, 51 alive, 21 deaths on each. At cap
 20 the world diverges and must — trophallaxis now reaches inside a stack, which
 moves a draw.
+
+## 12. Tissue closed over a nestmate: the lab regression, traced and fixed (2026-09-29)
+
+*Found by the nest lane while checking stacking at 4 as the shipped default --
+the owner's "yes" for the 200-ant nest
+([`nest-one-entrance-2026-09-29.md`](nest-one-entrance-2026-09-29.md) §13) --
+against the gate the foraging lane set for it: a 24-seed pair on the lab's
+played bed, and a 24-seed pair on the colony bed.*
+
+**The failure.** `labforage scenario=played_bed frames=120000`, 24 seeds, cap 1
+against cap 4 with nothing else different (`bedenv`), medians:
+
+| lab, played bed | cap 1 | cap 4, before the fix |
+|---|---:|---:|
+| births | 418 | 2 (lower on 23 of 24) |
+| food eaten (intake, J) | 1,093,792 | 17,664 |
+| ant-frames lived | 10.2 M | 0.2 M |
+| peak colony | 227.5 | 37 (lower on 24) |
+| boxes extinct at 120,000 | 2 of 24 | **20 of 24** |
+| deaths booked `Killed` | 0 | 40.5 (higher on 20) |
+
+In a box with no predators. Starvation *fell* (101.5 -> 1) because there was
+nobody left to starve. The colony bed and the dig box never showed it:
+neither grows plants.
+
+**What took the head.** `labshot` gained a line for `World::vital_losses` --
+what stood in the head cell when a creature was booked `Killed`, which the
+cause alone cannot say. Seed 3 at cap 4, frame 12,000: **7 killed, grass root 6,
+leaf 1**. At cap 1, none.
+
+**Traced**, not reasoned: a temporary line at every restore of parted tissue
+over an animal and at every `Killed`, seed 3 at both caps. **All seven** follow
+a restore of tissue over a live nestmate in the same cell, on the same frame or
+on the victim's next tick. At cap 1: no restore over an animal, no deaths.
+
+- **The step path (5 of 7).** An ant parts a grass root; a nestmate stacks
+  onto it there; the ant steps off. `relocate_chain` hands the cell to the
+  nestmate (§5's promotion) and then *closes the foliage behind the animal* --
+  writes the root straight back, over the nestmate. `World::set`'s seam
+  prunes the nestmate's `cells` entry, and its next `reconcile_chain` finds its
+  vital cell gone. One restore killed two: a second rider was still
+  registered in the cell.
+- **The death path (2 of 7).** `creature_dies` runs `return_parted` before
+  `stamp_as_corpse` promotes the rider, so the tissue went in first and the
+  rider was promoted into a cell holding a plant.
+- **They cascade.** An ant killed this way dies holding tissue of its own, and
+  its death put that back over whoever was riding it.
+
+It is the shape [`dead-ends.md`](dead-ends.md) already records for this
+feature -- a body writing a cell it no longer owns (§11b/11c's rule, *a body
+never writes a cell it does not own*) -- at the one write nobody had counted
+as ownership. The tell that entry names, the unarmed world moving, could not
+fire: at cap 1 nobody rides.
+
+**Fixed: `close_or_hand_over`** (`creature.rs`), the one exit for held tissue on
+both paths. Tissue closes only over a cell nobody is standing in; while a
+nestmate is there, it holds the tissue and closes it when it leaves, or passes
+it on. At cap 1 it changes one case only: tissue still held for a cell the
+body had already lost (bitten or burned out of it) when another animal has
+since walked in, where the old write killed the newcomer. Two guards, both
+watched red against the unconditional restore:
+`a_leaf_does_not_close_over_a_nestmate_still_standing_in_it` (and the leaf
+comes back with its carbon once the last ant has left) and
+`a_host_dying_in_a_leaf_hands_it_to_the_nestmate_on_top`.
+
+**After the fix**, the same 24 seeds:
+
+| lab, played bed, 24 seeds (medians) | cap 1 | cap 4, before | cap 4, after |
+|---|---:|---:|---:|
+| boxes extinct at 120,000 | 2 | 20 | **3** |
+| deaths booked `Killed` | 0 | 40.5 | **0** (lower on 7, higher on 6, equal on 11) |
+| births | 418 | 2 | 224.5 (lower on 19 of 24) |
+| food eaten (intake, J) | 1,093,792 | 17,664 | 718,692 (lower on 19) |
+| ant-frames lived | 10.2 M | 0.2 M | 6.4 M (lower on 19) |
+| peak colony | 227.5 | 37 | 149 (lower on 16) |
+| alive at 120,000 | 203 | 0 | 121.5 (lower on 15) |
+
+**The deaths are gone; a cost remains, and it is not deaths.** Summed over the
+24 boxes, `Killed` is 354 at cap 1 and 381 at cap 4, and fewer ants starve or
+die of age only because there are fewer ants. The stacked colony tracks cap 1
+until about frame 15,000, then falls behind (median 27 ants against 63 at
+54,000) and recovers late (121.5 against 203 at 120,000). Per ant it eats the
+same (0.105 against 0.107 J per ant-frame, 23 seeds with a colony), moves about
+14% less (lower on 19), turns food into young a little less well (3.4 births
+per 10,000 J against 4.0, lower on 15), and visits the nest three times as
+often (higher on 22). **Not traced yet**, and by the foraging lane's gate (an
+opposite sign at p < 0.05 counts against it; births lower on 19 of 24 is
+p ~ 0.007) it is why stacking is not yet on by default.
+
+**Cap 1 is unchanged, byte for byte**: the fixed binary at cap 1 reproduces
+all 24 pre-fix cap-1 logs exactly (`cmp`), so no baseline at the shipped cap
+moves.
+
+**The colony bed** (the foraging lane's recipe: `COLONY_SPACING=2`,
+`BUD_SITE=nest`, gap 90, 20 founders, 24,000 frames; 24 seeds, cap 1 against
+cap 4; no plants, so the fix does not reach it): starved 2 -> 2 (median; lower
+on 10, higher on 10), food taken from the pile 237.5 -> 259 cells (10 / 13),
+net food into the nest 748 -> 1,146 (higher on 18), births 4.5 -> 8 (higher on
+15). No harm; the net food home is up.

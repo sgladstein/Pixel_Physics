@@ -1,7 +1,8 @@
 # One entrance round the door (2026-09-29)
 
 **Status: measurement and switches, all off; the owner picked the walked
-cycle (§7), traced and fixed in §10.** The nest lane's live question after the granary shipped
+cycle (§7), traced and fixed in §10; what holds it at 200 ants traced in
+§11.** The nest lane's live question after the granary shipped
 (#513): with a five-column door instead of the old 53-column strip of nest
 paint, a colony in `digbox` opens 6-7 entrances where it used to open 2.
 This report finds why, builds three ways to fix it behind switches, and
@@ -15,8 +16,15 @@ here that did not survive is corrected in §0 and §4**: what made the first
 build's nest grow with the colony was a carrier giving up the walk and
 posting its pellet up through the roof, not the trip back.
 
+**§11 corrects §10's reading of the 200-ant limit**: the walked carriers are
+not queueing in the shaft, they are shut in by their own spoil on the mouth.
+**§12 carries the pellet away from the mouth** (`PIXEL_PHYSICS_SPOIL_RING`,
+off): at 40 ants the walked nest doubles with its door clear; at 200 ants the
+colony's own idle ants, homed over the mouth, still stand on the way out.
+
 Lane note: [lanes/nest-mouth.md](lanes/nest-mouth.md). Predictions 168-206
-were written before their runs; they are in §8 with their scores.
+and 215-223 were written before their runs; they are in §8 with their
+scores.
 
 ## 0. What was found, in world terms
 
@@ -43,6 +51,14 @@ were written before their runs; they are in §8 with their scores.
   roof** (§10). Without that, the walked cycle keeps 1.5 entrances at 40
   ants and 3 at 200, and its nest barely grows with the colony: 43 cells
   and 70.
+- **At 200 ants the walked colony buries its own door** (§11). A walked
+  carrier puts its pellet down on the first ground outside, the mouth's
+  rim, and a mound grows over the mouth; at the shaft's top cell 53% of a
+  carrier's decisions have no way up. §10 read the carriers' standing time
+  as a queue in the shaft. It is not one: they step on 78% of their
+  decisions and wander the storeroom and galleries, as often down as up.
+  So a relay through nest workers would bring the same pellets to the same
+  rim.
 - **Sending the lift out through the passages instead of up the column**
   keeps the digger at its face and digs more than today, but puts each
   pellet out of whichever hole is nearest, so every hole grows a heap: 5
@@ -269,6 +285,15 @@ placement rules), so it waits on the owner.
 | 204 | the same, 80 founders | starved at most +25% | holds (1,097 against 1,102) |
 | 205 | lab, walked cycle against off | births within 25% per seed | holds, barely (0.756) |
 | 206 | the same, labshot's census at frame 119,700 | the mouth open on at least as many seeds | fails (1 of 12 against 6) |
+| 215 | walked, 200 ants, frames 0-6,000, 6 seeds | a carrier standing facing an animal faces another carrier at least half the time | holds (59%, 44-65 by seed) |
+| 216 | the same | nest workers with nothing held at least a quarter of the heads in the shaft | fails (8-17%) |
+| 217 | walked, 40 ants | the shaft holds under 2 heads on average | holds (1.29) |
+| 218 | walked + carry 2,2, 40 ants, 24 seeds | entrances at most 2 | holds (2) |
+| 219 | the same, frame 6,000 | dug space at least 1.3x the walked cycle's | holds (53 against 35; per seed 1.45) |
+| 220 | the same, 200 ants, frame 6,000 | dug space at least 2x the walked cycle's | fails (34 against 39; 0.79) |
+| 221 | the same, 200 ants, seed 1 | no way up at the shaft's top on at most half the walked cycle's 53% | fails (56%) |
+| 222 | the same, both sizes | spoil within 2 columns of the door at most half the walked cycle's | holds (0.03 against 0.77 a column; 0.02 against 0.78) |
+| 223 | carry 3,2 against 2,2 | its heap peaks at least 2 columns further out | fails (both peak 6-9 out; 3,2 has more past 10) |
 
 188-189 were first written for `energy=20000`, digbox's own default; eight
 runs had started when it was noticed that at that energy every ant buds past
@@ -293,6 +318,18 @@ any finished or was read, deleted, and the arm changed to scouting off.
   walk faults in §10; the `TRIPS` shares alone did not.
 - `digbox`'s site line: the nest site, its cut, and whether the haul's
   target lies inside the cut.
+- `digbox`'s `JAM` and `JAMAT` lines (§11): when a carrier stood facing an
+  animal, what that animal was doing (carrying a pellet, a store load, a
+  nest worker with nothing held, anything else) and whether it stood too;
+  the mean heads in the shaft and the rest of the cut by the same roles; and
+  every standing frame by where the carrier was (at the mouth, lower in the
+  shaft, in the chamber or side room, outside the cut) and what it faced.
+  Frames, like `TRIPS`, so read it for where, not for how often. The `JAM`
+  line also counts the heads on the two rows over the mouth, by role (§12).
+- `digbox`'s `CRATER` line (§12, every stop): ground standing above the old
+  surface in bins of columns from the nest's centre (0-2 is the door), what
+  stands over the mouth's own columns, and `SPOIL_RING`'s counters (carry
+  distances drawn, drop rolls held short of them).
 - The tallies are scratch scripts (`openings.py`, `caste.py`, `arms.py`);
   `nestscore.py` reads the scoreboard and funnel as before, and its pellet
   line is unchanged (pellets carried out count as lifted, with their own
@@ -390,3 +427,356 @@ All three are off unless `PIXEL_PHYSICS_SPOIL_OUT` is set;
 `PIXEL_PHYSICS_SPOIL_HAUL` alone keeps its old target. Unset, every build
 reproduced the run before it line for line in `digbox` (seed 1, 40 and 200
 ants) and byte for byte on the bed.
+
+## 11. What holds the walked carriers at 200 ants: their own spoil on the mouth
+
+*Later on 2026-09-29, before building either answer on card `…2d6747`
+(nest workers relay the soil up, or more mouths beside the door).
+`digbox` with the `JAM` and `JAMAT` lines (§9), `SPOIL_OUT=on`, 200 ants,
+energy 1,000, frames 0-6,000 while the box is fed, seeds 1-6; the lift
+beside it; seed 1's carriers traced decision by decision with
+`decisions=`.*
+
+**Not a queue in the shaft.** §10 read the carriers' standing time in the
+founding cut as a queue in its two-wide shaft, and the card asked on that
+reading. Traced, the reading was wrong:
+
+- **Where they stand.** Of a carrier's standing frames, 12-16% are at the
+  mouth (its rim and top rows), 5-9% lower in the shaft, 37-47% in the
+  chamber and the side room, and 30-41% in the galleries. The ants a stood
+  carrier faces are other carriers (median 59%), ants with nothing held
+  (34%) and nest workers (6%); the shaft holds 3.5 heads on average.
+- **They are not stuck, they are lost.** Seed 1, 10,410 carrier decisions:
+  they step on 78% of them. 77% of the decisions are in the side room and
+  the galleries off it (58% in the side room's three rows alone), where
+  they go up 2,362 times and down 2,262, and the step taken points at the
+  door no better than chance (mean cosine 0.08; 0.12 lower in the shaft,
+  -0.03 at the mouth).
+- **What shuts them in is the mouth.** At the shaft's top cell, 53% of a
+  carrier's decisions have no way up at all (north, north-east and
+  north-west all blocked); one row down, 62%. Ant 20 took its pellet in the
+  chamber at frame 847, was at the top of the shaft by 1,033, shuttled
+  between the top rows until 1,123 because the only way on was back,
+  wandered back down past the passage, fell into the chamber at 1,249, and
+  was still holding at 1,261.
+- **What covers the mouth is the colony's own spoil.** A walked carrier
+  puts its pellet down on the first ground outside the cut, which is the
+  mouth's rim (§3; §10's buried mouth in the lab box is the same thing
+  over 120,000 frames). At 200 ants a mound of spoil and ants covers the
+  mouth by frame 2,000; at 40 ants a heap sits on it by frame 4,000
+  (card `…04be5b`, seed 1).
+
+**So a relay would not help.** It brings the same pellets up the same shaft
+to the same rim, and the nest workers who would carry them are 6% of what
+stands in a carrier's way. More mouths beside the door would each grow the
+same mound. **The lever is where a pellet goes down.** Harvester ants carry
+soil some way from the entrance and leave a crater ring round an open mouth
+(the drop-distance `p(r)` in `nest-entrance-dimensions-2026-09-19.md` §1).
+Here that would be the ant's own walk: a carrier outside the nest keeps
+walking away from the mouth for a distance it draws before it may put the
+pellet down, as it carries food home before it may drop it. That is the ant
+carrying, not a rule placing soil, but it is close to the owner's ruling of
+2026-08-31 on where spoil goes, so it is put to the owner on card
+`…04be5b` before it is built. Dead end: the relay, sized by this trace and
+not built.
+
+## 12. The pellet carried away from the mouth (`PIXEL_PHYSICS_SPOIL_RING`, off)
+
+*Built the same evening, while card `…04be5b` asks the owner whether it may
+be; off unless set. `digbox`, 24 seeds, 40 and 200 ants, energy 1,000,
+frames 6,000 and 24,000, four arms on one binary: today's lift, the walked
+cycle (`SPOIL_OUT=on`), and the walked cycle with the carry in each of its
+two shapes.*
+
+**What it is.** The first time a carrier stands outside the nest with its
+pellet, it draws how far to take it: the door's half-width plus one (so
+nothing is set on the door) plus a Gamma(`shape`, `scale`) draw, on the side
+it came out of. Until its head is that many columns from the nest's centre,
+its drop roll is held, as `keep` holds it inside; past it, the roll and the
+cell predicate are the ant's own, as before. It changes when the ant lets go,
+not where a pellet may lie, which is the line the owner's 2026-08-31 ruling
+draws (the spoil drop's comment in `act`). Shape 2 is the section through a
+mound, `p(r)/r` for a shape-3 walk, and shape 3 the flat form
+(`nest-entrance-dimensions-2026-09-19.md` §3); scale 2 cells.
+
+| `digbox`, 24 seeds, medians | lift | walked | walked + carry 2,2 | + carry 3,2 |
+|---|---:|---:|---:|---:|
+| 40 ants, frame 6,000: dug space | 75 | 35 | 53 (more on 22) | 53.5 |
+| 40 ants, frame 24,000: dug space | 260 | 42.5 | **84** (more on 24) | 87 |
+| 40 ants: entrances | 6 | 2 | 2 | 2 |
+| 40 ants: ground on the door, a column | 0.13 | 0.77 | **0.03** | 0.07 |
+| 200 ants, frame 6,000: dug space | 203.5 | 39 | 34 (less on 18) | 35 |
+| 200 ants, frame 24,000: dug space | 583.5 | 69.5 | 91 (more on 23) | 95 |
+| 200 ants: entrances | 9.5 | 3 | 2 | 2 |
+
+"More on" and "less on" are seeds against the walked cycle.
+
+**At 40 ants it does what it was built for.** The door stays clear and the
+spoil stands in a ring: 0.03 cells a column on the door, then 2.1, 3.5 and
+2.0 at 3-5, 6-9 and 10-14 columns out, against the walked cycle's heap on the
+mouth (0.77 and 0.95 on the door and just beside it). The nest doubles, and
+not by moving more soil: the carry lets go of fewer pellets (147 against 169
+by frame 24,000), but a pellet set on the rim slides back into the tunnels
+it came from, and one carried away stays out. In pictures, the door is clear
+at every stop and an open room lies under it (card `…04be5b`).
+
+**At 200 ants the door is clear of spoil and still shut.** Seed 1: the
+shaft's top cell has no way up on 56% of carrier decisions with the carry,
+53% without. What stands there is the colony: about three heads on the two
+rows over the mouth at any moment (0.5-1.3 nest workers and 1.8-2.7 other
+ants with nothing held, seeds 1-3, with the carry or without), against about
+one at 40 ants. Every founder's
+home is the cell over the mouth's middle (`World::door_anchor`), and in a
+box with no food an ant with nothing to do goes home. The carry makes it
+worse early (a carrier now walks out through that crowd and along the ground
+beyond it: 216 frames to leave the nest against 156) and better late.
+
+**So the next lever is where the colony stands, not where the soil goes.**
+Real workers rest inside the nest, not on its entrance. Two switches already
+move home off the mouth, and both cost the colony bed when they were built:
+the mouth cut beside the door (`PIXEL_PHYSICS_NEST_SHAFT_OFFSET`; births
+150 -> 105, `nest-granary-2026-09-28.md` §8h, not traced) and part of the cut
+as home (`PIXEL_PHYSICS_NEST_HOME`; `nest-mouth-2026-09-26.md`). Home is the
+foraging lane's walk as much as this lane's founding, so it is put to the
+owner and that lane before it is built.
+
+**Shipped on, 2026-09-29** (owner: "Q1 - Yes", §14): the carry defaults to
+`2,2` and acts **only while the walked cycle is on** -- `spoil_ring_of`
+reads it as absent with `PIXEL_PHYSICS_SPOIL_OUT` unset, because the drop's
+hold reads the carry for any carrier outside the nest and the shipped lift
+must not change under it. Guarded by
+`the_shipped_carry_is_inert_without_the_walked_cycle` (watched red with the
+gate removed).
+
+## 13. Crowding: stacking, and tunnels two cells wide (owner, 2026-09-29)
+
+*The owner, mid-session: "For crowding issues, have you looked at the
+stacking feature (PIXEL_PHYSICS_STACK_DEPTH). Also tunnels should be wider
+than 1 pixel, for crowding and aesthetics." `digbox`, 24 seeds, 40 and 200
+ants, frame 24,000 unless stated.*
+
+**Stacking** (`PIXEL_PHYSICS_STACK_DEPTH=4`, as the colony bed runs it; the
+game ships 1, where a nestmate is as solid as rock). No `digbox` run in this
+report had it on.
+
+| dug space (entrances), 24 seeds | depth 1 | depth 4 |
+|---|---:|---:|
+| 200 ants, walked | 69.5 (3) | **181** (5), more on 24 |
+| 200 ants, walked + carry | 91 (2) | **181.5** (4), more on 24 |
+| 200 ants, today's lift | 583.5 (9.5) | 1,265 (16), more on 24 |
+| 40 ants, walked | 42.5 (2) | 69.5 (2), more on 18 |
+| 40 ants, walked + carry | 84 (2) | 91 (2), more on 20 |
+
+At 200 ants by frame 6,000, 164 pellets are out against 24 walked, and 90
+against 10 with the carry: stacked ants no longer shut the mouth. Entrances
+rise with the digging. Predictions 224 holds, 225 and 226 fail (the heads
+over the mouth rose, 4.2 at frame 6,000, because a stacked ant no longer
+blocks; and it helps at 40 ants too).
+
+**Tunnels two cells wide** (`PIXEL_PHYSICS_DIG_WIDEN=on`, off; see
+`how-the-ant-works.md` §12 and `dig_widen_of`). A digger walking a one-cell
+passage cuts its wall, and at a face cuts a shoulder beside the cell ahead
+on half its rolls; a passage two wide is left alone. The first form widened
+at the face on every roll and lost the galleries (seed 1: dug 179 -> 106,
+depth 13 -> 7); the second, walls only, barely moved the width.
+
+| 24 seeds, frame 24,000 | today | widened |
+|---|---:|---:|
+| 40 ants: open cells in one-cell passages | 25% | 20% |
+| 40 ants: dug / depth90 / entrances | 260 / 15 / 6 | 263.5 / 14 / 7 |
+| 200 ants: dug / depth90 / entrances | 583.5 / 18 / 9.5 | 647 / 17 / 11 |
+| 200 ants, walked + carry + stack: dug / depth90 / entrances | 181.5 / 17 / 4 | 172 / 14 / 5.5 |
+
+The census moves little because most open cells are the founding cut and
+chambers, already wide; the galleries are what reads as thin, and the
+pictures (card `…ca2baa`, seeds by rule) are the judgement. Predictions 227
+holds, 228 and 229 fail (§8's list continues in the lane's scratch).
+
+
+## 14. The owner's answers, and the 200-ant pile traced (2026-09-29, evening)
+
+*Asked in chat with the pictures redrawn in the lab's colours (`digbox`
+`look=lab`, render-only, logs identical). The owner: "Q1 - Yes. This also
+exposes a huge problem with the 200-ant colony. It is just a huge pile of
+ants at the entrance and they totally fill the nest. Q2 - Looks slightly
+better with the 40 ants (although might be within normal variability).
+Everything again is broken at 200-ants so no impact on Q2 but needs more
+thinking. Q3 - this seems much better for the 200 ant tests. What is the
+darker brown in the nest the borders/edges the tunnels? In Q3 bottom right
+image, it looks like the tunnels have filled in with the darker brown
+material."* So the carry is approved, stacking is approved, and widening
+waits for 200 ants to work.
+
+**The darker brown** (`FILL` and `tintout=`'s two new classes, corpses and
+soil back in a dug cell). The borders are **tamped lining**: every tunnel
+wall an ant presses turns to `packedsoil`, whose palette is greyer and
+darker than `soil`'s. The filled tunnels are **the nest refilling
+itself**. In the Q3 run (200 ants, walked + carry + stacking, seed 6), of
+477 cells dug below the old ground line by frame 24,000, 147 are still
+open: 146 lining, 129 loose soil, 54 pellets. Half of it had refilled while
+the colony was alive (191 of 388 by frame 12,000). Carriers that cannot get
+out let go inside (306 pellets inside against 221 outside by 18,000, and
+138 died holding one), and a pellet crumbles to soil and is then tamped
+into the wall. At 40 ants the same nest stays open: 72 of 105. And that
+bottom row was a dead colony: the box has no food, and 6 of the 200 were
+alive at frame 24,000.
+
+**Who is in the pile** (`PILE`, `antscsv=`: every live animal at each stop
+booked by where its head is and by its own last decision). Today's nest,
+200 ants, seed 21, frame 6,000: 149 of 200 above the old ground line, 98 of
+them 5 or more rows up (standing on one another), all within 15 columns of
+the mouth. **None of the pile is queuing to get in, and none is at home**
+(`AtNest` 0, the home test replayed: 0 of 88 on the mound); none has stood
+still for 60 frames. They are **scouts**: the chooser's scouting weight
+reads 0.5 at frame 6,000 and 1.3 by 12,000. **38 of the 50 nest workers are
+up there too.** The box sets `start_energy` to `energy=` and holds no food,
+so every ant is below its start energy from its first tick and the engine
+reads the whole colony as hungry for the whole run; a hungry empty ant
+scouts, and a nest worker is pulled home only while fed (`home_pull`, and
+`chooser_step`'s way out). At 40 ants the same scouts spread across the box
+(22 of 29 above ground stood 40+ columns from the mouth); at 200 their
+loops overlap on the mouth.
+
+**Fed** (`fed`: every ant topped up to `start_energy` each frame, booked as
+granted; still no food on the ground). The heap flattens to a carpet (5+
+rows up: 98 -> 25, and 7 with stacking) but does not go: **fed ants rest
+where they stop**, and they stop on the surface round the mouth (79 of 126
+had stood still 60+ frames at frame 6,000, 112 of the 126 above ground).
+Nest workers are still out (24 of 31). And **a fed colony digs far
+slower**:
+
+| seed 21 (40 ants: seed 2) | hungry | fed |
+|---|---:|---:|
+| 200 ants + stacking: digs by frame 12,000 | 3,001 | 273 |
+| cells dug below ground by 12,000 / 24,000 | 1,574 / 2,347 | 163 / 1,130 |
+| alive at 24,000 (of 200) | 4 | 169 |
+| underground at 24,000 | 2 | 97 |
+| 40 ants: digs by 12,000 / 24,000 | 488 / 680 | 289 / 708 |
+
+So **every nest judged in this box was dug by a starving, restless
+colony**. Two gaps come out of it, and neither is the mouth. A resting ant
+rests where it stops, and nothing takes it inside: three ants in four
+(the foragers) have the door on the surface as home, and the nest is a
+place they dig, not a place they live. And digging follows restlessness,
+not the crowd: the hungry colony dug the whole box and died, the fed one
+barely dug while it rested on the surface. A real colony keeps most of its
+workers inside, the idle ones resting in chambers, and digs in proportion
+to its numbers, stopping when there is room for everyone (Rasse and
+Deneubourg 2001, *Lasius niger*: excavation slows as the room per ant
+grows; Buhl et al. 2004, *Messor sancta*: volume dug grows with group
+size). The fed box's 200-ant nest at frame 24,000 (97 of
+169 underground, 1,130 cells dug) is the nearest picture of that so far.
+
+Predictions 230-234 (written before the fed runs) scored: 230, 231 and 234
+fail, 232 fails narrowly, 233 holds; the fed colony's slow digging was not
+predicted. One run per arm; the pile census is per animal, so it is
+the trace, not a split, and the fed/hungry digging gap is large enough to
+read from one seed a size, but it has not been swept.
+
+**Instruments added** (`digbox`, all read-only; runs are identical with
+them on): `FILL` (what stands in every cell dug since frame 0, and the
+lining on undug walls), `PILE` and `antscsv=PATH` (every live animal: place,
+caste, pellet, home replayed, frames still, and its last decision row's
+`AtNest`, crowding, energy, outcome, scouting), `tintout=`'s corpse (green)
+and refilled-soil (violet) classes, and `fed`.
+
+## 15. Tamped blocks and sealed chambers: the nest refilling itself (2026-09-29, night)
+
+*The owner: "Yes and Yes, but the tamped tunnel walls and the nest
+refilling itself are both big issues? the tamped tunnel is not just walls
+around a tunnel or chamber. You have chambers fully enclosed by tamped soil
+and big blocks of tamped soil." Then: "Make sure you look at the image to
+see the actual issue for yourself." §14 had called the borders intended and
+stopped there; zoomed in, the sheet says otherwise.*
+
+**What the picture shows.** At 40 ants (hungry, walked + carry) the nest is
+black tunnels with a one-cell cyan wall, as designed. At 200 ants it is a
+sponge: tamped cells, ants and small holes mixed through the whole dug
+region; by frame 24,000 a solid tamped mass pocked with holes, most of them
+cut off from one another. Fed, even 40 ants in today's nest turn half their
+nest into a block by 24,000.
+
+**Measured** (`gridout=` and a script over it, `blocks.py`; positive
+control a hand-made grid read back exactly). Thickness of tamped soil is
+its distance from the nearest open cell (1 = a wall, 2+ = inside a block);
+a pocket is sealed when none of its open cells reaches the open air above
+the old ground line. The Q3 run (200 ants, hungry, walked + carry +
+stacking, seed 6) at frame 24,000: 112 of its 182 open cells in 18 sealed
+pockets (the largest 47), and 252 of its 563 tamped cells inside blocks; at
+12,000, while alive, 14 ants were shut in sealed pockets.
+
+**How they form** (a per-cell trace of every packing, and the refill
+ledger). A cell is tamped only as the neighbour of a cut, so it starts as a
+wall beside open space; every block cell in the Q3 run was tamped as a wall
+(162) or as fill in a dug cell (87), and lies deep because **the tunnel
+beside it filled**. What fills them: today's dig puts about **half its
+pellets down inside the nest** -- beside the digger's head in the tunnel it
+has just cut, or posted up the shaft onto whatever stands there -- and a
+pellet with nothing solid under it crumbles to loose soil and pours on
+down. The colony re-cuts the fill (about half of all its cuts) and every
+cut tamps its eight neighbours, so fill and old walls cement into blocks
+and the pockets beyond them are cut off, ants and all.
+
+Today's nest, fed, stacking 4, 8 seeds, frame 24,000 (medians; "8/8" is
+the count of seeds that moved that way):
+
+| | 40 ants | 200 ants |
+|---|---:|---:|
+| pellets put down / inside the nest / into a dug hole | 968 / 507 / 399.5 | 2,653.5 / 1,036.5 / 899 |
+| cuts re-cutting fill, of all cuts | 528.5 | 1,014 |
+| share of the dug cells refilled | 47% | 39% |
+| sealed-off cells (pockets) | 36.5 (6.5) | 123.5 (13) |
+| ants shut in sealed pockets | 7.5 | 27 |
+| tamped cells inside blocks | 103 | 226 |
+
+**Pellets only on real ground** (`PIXEL_PHYSICS_SPOIL_FOOTING=ground`, the
+2026-09-27 switch, off): a pellet is set down only with ground straight
+beneath it. Same 8 seeds:
+
+| today's nest + footing, frame 24,000 | 40 ants | 200 ants |
+|---|---:|---:|
+| sealed-off cells | 36.5 -> 26.5 (lower on 5, higher on 3) | 123.5 -> 7 (8/8) |
+| ants shut in | 7.5 -> 5 | 27 -> 2 |
+| tamped cells inside blocks | 103 -> 67.5 (6/8) | 226 -> 94 (8/8) |
+| pellets put inside the nest | 507 -> 315.5 | 1,036.5 -> 181.5 |
+| new ground dug | 373.5 -> 269 | 1,309.5 -> 382.5 (8/8) |
+| new ground by frame 12,000 | 157.5 -> 94 | 275.5 -> 35.5 (8/8) |
+
+At 200 ants it clears the sealed pockets but the colony nearly stops
+digging while the mouth is covered in ants -- there is no ground there to
+set a pellet on. At 40 ants it is mixed, because it does not stop the
+largest source: pellets set down inside the nest on ground that is there.
+
+**Walking the soil out** (the owner's pick for one mouth, `SPOIL_OUT=on`,
+with the carry `SPOIL_RING=2,2`; off by default) never puts a pellet down
+inside the nest by design, and it answers most of this. Same 8 seeds, fed
+and stacked, frame 24,000, against today's nest:
+
+| | 40 ants | 200 ants |
+|---|---:|---:|
+| pellets put inside the nest | 507 -> 56.5 (8/8) | 1,036.5 -> 108 (8/8) |
+| sealed-off cells | 36.5 -> 1.5 (8/8) | 123.5 -> 9 (8/8) |
+| ants shut in | 7.5 -> 0 | 27 -> 7 (8/8) |
+| tamped cells inside blocks | 103 -> 51.5 (8/8) | 226 -> 65.5 (8/8) |
+| cuts re-cutting fill | 528.5 -> 55.5 | 1,014 -> 155 |
+| open cells | 235.5 -> 138 | 851 -> 193 |
+| new ground dug | 373.5 -> 129 | 1,309.5 -> 232 |
+
+And **walked out + only on real ground**, against walked out alone: blocks
+51.5 -> 26.5 at 40 ants and 65.5 -> 28.5 at 200 (8/8 both), sealed-off
+cells 1.5 -> 2 and 9 -> 1.5 (7/8), the share of dug cells refilled 36% ->
+26% and 41% -> 17% (8/8), for new ground 129 -> 92.5 and 232 -> 138.5.
+
+**Reading it.** Today's nest is large because it is a sponge: half of what
+it digs is its own fill, dug again, and at 200 ants a seventh of its open
+space is sealed off with 27 ants inside. The walked-out nest is a third to
+a quarter the size and reads as tunnels: the pictures (seeds nearest the
+median of today's sealed cells, by rule: 3 at 40 ants, 1 at 200) show a
+compact nest with a low crater and no towers of pellets over the mouth,
+where today's nest stacks them into columns. At 200 ants the walked-out nest
+is too small for the colony -- packed with ants, the rest lying on the
+surface -- which is the owner's other yes, the colony living inside its
+nest and digging as it crowds.
+
+Predictions 235-238 (one seed an arm, fed and stacked): 235, 236, 237 hold;
+238 fails -- the refill is not a 200-ant problem once the colony lives.

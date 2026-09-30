@@ -1740,6 +1740,13 @@ pub struct CreatureStats {
     /// downward has nothing for this lever to add, and the gap between this
     /// and `dig_rolls * w` is how much of the time that was true.
     pub digs_aimed_down: u64,
+    /// **Dig rolls turned into a cut of a passage's wall** under
+    /// `PIXEL_PHYSICS_DIG_WIDEN` (`creature::dig_widen_of`): the digger stood
+    /// in a passage one cell wide and cut the wall beside it rather than the
+    /// cell ahead. Counted when the side is chosen, before the heap cue and
+    /// the jaw judge it; the cut itself is in `digs`. 0 unless the switch is
+    /// on.
+    pub digs_widened: u64,
     /// **Dig rolls whose downward turn was refused because there is no way
     /// down** (`creature::way_down`): all three cells under the animal are
     /// ground it cannot cut -- stone, bedrock, nest paint. Those rolls dig
@@ -2011,6 +2018,14 @@ pub struct CreatureStats {
     /// far side of the call is the lift count from inside the nest, which
     /// `examples/digbox`'s LIFTS line reads. 0 unless the switch is on.
     pub spoil_kept_no_lift: u64,
+    /// **Carry distances drawn** under `PIXEL_PHYSICS_SPOIL_RING`
+    /// (`creature::spoil_ring`): one per pellet, the first time its carrier
+    /// stands outside the nest with it. The "it fired" half; the effect half
+    /// is `spoil_ring_held`. 0 unless the switch is on.
+    pub spoil_ring_drawn: u64,
+    /// Drop rolls held because the carrier was not yet as far from the nest
+    /// site's centre as its drawn distance. 0 unless the switch is on.
+    pub spoil_ring_held: u64,
     /// Of `spoil_lifted`, the lifts **carried out through the passages**
     /// (`PIXEL_PHYSICS_SPOIL_LIFT=out`, `creature::lift_out`) rather than up
     /// the carrier's own column; 0 in every other lift mode.
@@ -3688,6 +3703,17 @@ pub struct World {
     /// `Some(None)` turns it off. A field so a guard can take both arms in
     /// one process.
     pub dig_down: Option<Option<crate::sim::creature::DigDown>>,
+    /// **The carry away from the mouth, overriding
+    /// `PIXEL_PHYSICS_SPOIL_RING` for this world** (`creature::spoil_ring_of`).
+    /// `None` follows the environment, which is off unless it names a carry;
+    /// `Some(None)` turns it off. A field so a guard can take both arms in
+    /// one process.
+    pub spoil_ring: Option<Option<crate::sim::creature::SpoilRing>>,
+    /// **Tunnel widening, overriding `PIXEL_PHYSICS_DIG_WIDEN` for this
+    /// world** (`creature::dig_widen_of`). `None` follows the environment,
+    /// which is off unless it says `on`. A field so a guard can take both
+    /// arms in one process.
+    pub dig_widen: Option<bool>,
     /// **The storeroom, overriding `PIXEL_PHYSICS_STOREROOM` for this world**
     /// (`creature::storeroom_of`). `None` follows the environment, which is
     /// `creature::Storeroom::SHIPPED` unless it says `off`.
@@ -5425,10 +5451,18 @@ pub struct World {
     ///
     /// Read by the renderer, which draws the air inside it as an interior —
     /// walls, panel seams and the pools under the grow lights — instead of
-    /// as sky. Nothing in the simulation reads it: it is a fact *about* the
-    /// scene, declared by whatever built the shell, and the geometry it
-    /// carries (`sim::enclosure::Enclosure`) has no colours in it for the
-    /// same reason `Clock::sky_hold` has none.
+    /// as sky. It is a fact *about* the scene, declared by whatever built the
+    /// shell, and the geometry it carries (`sim::enclosure::Enclosure`) has
+    /// no colours in it for the same reason `Clock::sky_hold` has none.
+    ///
+    /// **Two simulation passes read it too**, and this said none did until
+    /// 2026-09-29: `evaporation::is_enclosed` picks the sealed-box vapour
+    /// rate (260 per cell against 2 in open air), and
+    /// `weather::condense_under_a_lid` drips what the box banked back down
+    /// from the ceiling. Declaring a room therefore changes how fast soil
+    /// dries and rains water into it; a harness that wants only the look
+    /// sets it around `Renderer::draw` and clears it before the next step
+    /// (`examples/digbox.rs`'s `LabLook`).
     ///
     /// It lives on the world rather than on the `Renderer` because
     /// `Renderer::draw` takes `&World` and nothing else, so a scene that
@@ -6096,6 +6130,8 @@ impl World {
             nest_shaft: None,
             spoil_cue: None,
             dig_down: None,
+            spoil_ring: None,
+            dig_widen: None,
             storeroom: None,
             nest_door: None,
             scout: None,
@@ -7126,6 +7162,7 @@ impl World {
             store_return: false,
             store_carried: false,
             dig_return: None,
+            spoil_ring: None,
             nest_bound_until: 0,
             lunch: false,
             trip_load: false,
@@ -10645,9 +10682,10 @@ impl World {
     /// **Declare this world a sealed room**, or open country again.
     ///
     /// The renderer draws the air inside a room as an interior rather than
-    /// as sky — see [`World::enclosure`] and `sim::enclosure`. Purely a
-    /// statement about the scene: no simulation pass reads it, so setting it
-    /// changes not one cell.
+    /// as sky — see [`World::enclosure`] and `sim::enclosure`. **Not only a
+    /// statement about the picture**: soil drying and the lid's condensation
+    /// read it as well (see the field's doc), so setting it on a world that
+    /// is then stepped changes the run.
     pub fn set_enclosure(&mut self, enclosure: Option<crate::sim::enclosure::Enclosure>) {
         self.enclosure = enclosure;
     }

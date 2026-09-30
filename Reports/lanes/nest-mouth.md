@@ -63,6 +63,20 @@ the live question, what is addressed to another lane, predictions and heads.*
   (`NEST_DOOR_SHIPPED`, 2) and the whole storeroom
   (`Storeroom::SHIPPED`, `on,caste=4,workerhome,side,keep`) ship on; `off`
   on either is the ant before.
+- **2026-09-29: the carry yes, stacking yes, widening waits.** "Q1 - Yes"
+  (carry pellets away from the mouth); "Q3 - this seems much better for the
+  200 ant tests" (stacking); widening "looks slightly better with the 40
+  ants... Everything again is broken at 200-ants so no impact on Q2 but
+  needs more thinking." The 200-ant pile is the owner's "huge problem"
+  (report §14).
+- **2026-09-29 (night): the dig box fed; the colony lives inside its
+  nest.** "Yes and Yes" -- `digbox` keeps its colony fed by default
+  (`hungry` for the old box), and the next nest step is resting ants
+  living inside the nest. "But the tamped tunnel walls and the nest
+  refilling itself are both big issues? ... chambers fully enclosed by
+  tamped soil and big blocks of tamped soil." And: "Make sure you look at
+  the image to see the actual issue for yourself" -- zoom the sheet before
+  describing it.
 - **2026-09-28: build at one size, then expand -- to larger colonies.** "It
   is fine if we develop the next on a certain ant size and then expand it
   ... We eventually do want our nests to work for larger colonies." Every
@@ -72,34 +86,31 @@ the live question, what is addressed to another lane, predictions and heads.*
 
 ## Live question
 
-**One entrance round the door: the walked cycle, traced**
-([`../nest-one-entrance-2026-09-29.md`](../nest-one-entrance-2026-09-29.md)
-§10). The owner picked "walk it out, then back to the dig". Three faults in
-`SPOIL_OUT` fixed (`86adc504`): a carrier that gave up posted its pellet up
-through the roof (that, not the trip back, was the first build's growth),
-the haul aimed inside the shaft, and the laden pace read 0 at the mouth.
-Now 1.5 entrances at 40 ants and 3 at 200, but the nest does not grow
-through one 2-wide shaft: 43 and 70 cells against the lift's 207.5 and
-613.5. Bed: starvation no worse, births lower (160 against 223 at 20
-founders). Lab: births 0.76 per seed; the walked mouth ends under its own
-loose soil, pellets set on its rim run back in (open 1 of 12 against 6). Card `…2d6747` asks: relay the soil up through nest workers,
-or let the colony open more mouths beside the door?
+**Stacking at 4 by default** (owner: yes). The foraging lane's gate is a
+24-seed lab pair and a bed pair. The lab pair first failed (20 of 24 boxes
+extinct) on one engine bug, parted tissue written back over a stacked
+nestmate: traced 7 of 7 and fixed (`close_or_hand_over`,
+[`../creature-stacking-design-2026-09-17.md`](../creature-stacking-design-2026-09-17.md)
+§12; cap 1 byte-identical on 24 seeds). After the fix: 3 of 24 extinct, no
+kills, but births 418 -> 224.5 (lower on 19 of 24). Bed pair: no harm. Not
+flipped until that cost is traced or the owner rules.
 
-- **The granary does not scale.** On the bed at 80 founders: starved 848 ->
-  1,102, fewer alive at the end on 21 of 24. At 20 it pays (born 144 ->
-  226).
-- **The lane's box starves its colony**: at `energy=1000` and no food the 40
-  ants are at a quarter of their energy by frame 12,000 and nearly all dead
-  by 24,000; anything that brings ants to the surface meets hunger's
-  scouting there. Read late stops with that in mind.
+**Tamped blocks and sealed chambers** (report §15): walking the soil out
+with the carry cuts most of them. Asked the owner (2026-09-29, night)
+whether walked + carry + "pellets only on real ground" becomes the default.
 
-**Next** (2026-09-29):
-1. The owner's answer on `…2d6747`; then the relay (diggers leave pellets in
-   the entrance chamber, nest workers carry them out: the granary in
-   reverse) or more mouths, the lab, tests, and a PR.
-2. **Nest workers who go out when the colony is hungry** (the scale cost;
-   harvester workers switch tasks with the colony's need).
-3. The brain input for the cue (owner's order), planned with the lab lines.
+**Next** (2026-09-29, night):
+1. Land this branch (the fix, instruments, reports): PR, merge on green.
+2. The lab cost of stacking: trace where a stacked colony loses its young
+   (per ant it eats the same; it moves 14% less and visits the nest 3x as
+   often), then the default flip as its own PR. It reaches all three games,
+   including the lab's BOX dial ("AT 1, THE SHIPPED SETTING"); poke first.
+3. The refill fix as a default, when the owner answers.
+4. Resting inside (owner: yes), joint with the foraging lane. Their terms:
+   a switch measured on their bed (food taken, starved, fed departures);
+   keep `trip_load`, the door's geometry and `NestSite::surface`; poke
+   before it lands. The lever: `home_pull` gives a fed ant that is not a
+   nest worker no pull home, so it rests wherever it stops.
 
 ## Working agreement with the foraging lane (2026-09-27)
 
@@ -166,33 +177,19 @@ exploratory and carry none.
 
 ## Cards with the owner
 
-- 2026-09-26: `…52a96c` (one hole), `…77bab8` (gray is lining), `…e86359`
-  withdrawn; `…a29145` (blind: painted door against dug mouth), `…0211cf`
-  (four foundings: which reads as a nest?), `…ec6018` (the lab's buried
-  mouth).
-
-- `20260926T160641891Z-86d16b` — home that climbs the pile: every lab colony
-  builds a food tower over its door; reverting (seed 7 at five stops, all 12
-  seeds at three, the fixed mouth as control).
-- `20260929T011756489Z-b929b7` — the full granary as the default, bed
-  before and after (#513).
-- `20260929T031008312Z-5d7b1a` — one entrance round the door: shipped, walk
-  it out, out and back, lift out the nearest hole (seed 2, four stops); asks
-  which, and whether the lift may carry spoil to the door.
-- `20260929T171054067Z-ce5b22` — the nest no longer leans west (R3: the
-  half turn's coin), seeds 1 and 20 before and after.
+**2026-09-29: "I cannot review the queue, post questions/images in this
+chat."** Show pictures with `SendUserFile` and ask in chat; the queue cards
+are the record, not the channel. Same day: digbox sheets in the lab's
+colours (`look=lab`, default; render-only). Answered in chat: the carry
+(`…04be5b`) yes, stacking yes, widening (`…ca2baa`) waits. Superseded by
+§11's trace: `…2d6747` (relay) and `…f4ca75` (the lab's buried mouth).
+Older cards are named in the reports that posted them.
 
 ## Head SHAs
 
-Older heads, from the branch cut (`636612c6`, 2026-09-26) through #507
-(`97129556`) and the dig-down work merged as #508, are in `git log` and in
-the reports each one names.
+Older heads (branch cut `636612c6` through #512 and #513) are in `git log`
+and the reports each one names.
 
-- `7933010e` (#512) — merged: the storeroom (off), castes, the room
-  series, the heap cue's floor fix. Branch restarted from `main`.
-- `72383e39` (#513) — merged: the full granary on by default (the door,
-  the side storeroom, `keep`, nest workers), colony size. Branch restarted
-  from `main`.
 - `7ee0e338` (#517) — merged: the entrance ledger, `SPOIL_OUT` and
   `SPOIL_LIFT=out` (off), `TRIPS` / `decisions=` in digbox. Branch
   restarted from `main`.
