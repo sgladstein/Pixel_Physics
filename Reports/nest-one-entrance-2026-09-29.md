@@ -973,6 +973,19 @@ Two were real:
   at cap 4 against its bar of 300. Not traced; the guard is about the plate,
   so it pins cap 1 as it already pins the walk.
 
+**The colony bed pair on `main` at `f52bad55`** (with #526's even-sided
+food drop and birth heading; same bed and seeds as below):
+
+| medians by seed; totals where marked | 90 cells: off -> package | 140 cells: off -> package |
+|---|---:|---:|
+| food taken from the pile, total cells | 7,689 -> 9,751 (**higher on 23**, p < 0.001) | 5,461 -> 6,528 (16 / 7, p 0.09) |
+| food standing at the nest, J | 14,369 -> 12,769 (8 / 16) | 10,213 -> 9,757 (13 / 11) |
+| energy in the ants' bodies, J | 8,514 -> 7,059 (**lower on 18**, p 0.023) | 5,731 -> 4,647 (7 / 17, p 0.06) |
+| born, total | 281 -> 529 (**higher on 22**, p < 0.001) | 119 -> 199 (**higher on 17**, p 0.017) |
+| starved, total | 24 -> 4 (**lower on 11**, 1 higher, p 0.006) | 69 -> 29 (4 / 12, p 0.08) |
+
+The same reading as on `bb11c1ed`, below, and stronger.
+
 **The colony bed pair** (the foraging lane's bed, `STACK_DEPTH=4` both
 arms, base `SPOIL_OUT=off BUD_STACK=off`, 24 seeds at 90 and 140 cells,
 `scripts/antloop.py --vs`), **on `main` at `bb11c1ed`**, which carries the
