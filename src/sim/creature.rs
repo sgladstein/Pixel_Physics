@@ -11771,7 +11771,9 @@ const NEIGHBOURS_8_EAST: [(i32, i32); 8] = [(1, -1), (0, -1), (-1, -1), (1, 0), 
 /// 2026-09-30). Unset (`even`, shipped): west-first or east-first, half and
 /// half, keyed on the world seed, the frame and the drop's cell -- no draw
 /// is taken from any creature's stream, so nothing else re-rolls. `west` is
-/// the drop before: always [`NEIGHBOURS_8`]'s north-west-first order.
+/// the drop before: always [`NEIGHBOURS_8`]'s north-west-first order. `east`
+/// is its mirror, always north-east-first: the control that says whether a
+/// bed's change under `even` is the lean's loss or the fix's cost.
 ///
 /// **Why, measured.** With the west-first scan every load put down at the
 /// nest landed on the west side of the ant that carried it, and the colony
@@ -11784,13 +11786,20 @@ const NEIGHBOURS_8_EAST: [(i32, i32); 8] = [(1, -1), (0, -1), (-1, -1), (1, 0), 
 /// facing east) moved only a colony's first trips. Unknown values panic (the
 /// week review's W7: a mistyped switch must not fail open).
 fn food_drop_order(world: &World, x: i32, y: i32) -> &'static [(i32, i32); 8] {
-    static EVEN: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    let even = *EVEN.get_or_init(|| match std::env::var("PIXEL_PHYSICS_DROP_SIDE").unwrap_or_default().trim() {
-        "" | "even" => true,
-        "west" => false,
-        other => panic!("PIXEL_PHYSICS_DROP_SIDE={other:?}: use even (default) or west"),
+    // 0 even, 1 west-first, 2 east-first.
+    static SIDE: std::sync::OnceLock<u8> = std::sync::OnceLock::new();
+    let side = *SIDE.get_or_init(|| match std::env::var("PIXEL_PHYSICS_DROP_SIDE").unwrap_or_default().trim() {
+        "" | "even" => 0,
+        "west" => 1,
+        "east" => 2,
+        other => panic!("PIXEL_PHYSICS_DROP_SIDE={other:?}: use even (default), west or east"),
     });
-    if even && rng::stream(world.seed, world.frame, x as u64, (y as u64) ^ 0x4452_4F50_5349_4445).flip() {
+    let east = match side {
+        0 => rng::stream(world.seed, world.frame, x as u64, (y as u64) ^ 0x4452_4F50_5349_4445).flip(),
+        1 => false,
+        _ => true,
+    };
+    if east {
         &NEIGHBOURS_8_EAST
     } else {
         &NEIGHBOURS_8
