@@ -743,6 +743,26 @@ fn main() {
                 })
                 .collect();
             println!("            founders (cells): {}", founder_line.join(" "));
+            // **What took each animal's head** (`World::vital_losses`).
+            // `DeathCause::Killed` is booked wherever a creature's deciding
+            // cell goes away, whatever took it, so the cause alone cannot say
+            // an attacker from a falling grain. Added 2026-09-29 when stacking
+            // at 4 took the played bed's colony from 227 ants at the peak to
+            // 37, 20 boxes of 24 dying out, with KILLED 39 of 51 deaths on
+            // seed 1 -- in a box with no predators. This line named the
+            // cause on its first run: a grass root or a leaf in the head
+            // cell, i.e. pushed-aside tissue written back over a nestmate
+            // standing in the same cell (`close_or_hand_over` in
+            // `creature.rs`).
+            {
+                let by: Vec<String> = pixel_physics::sim::organism::DEATH_CAUSE_LIST
+                    .iter()
+                    .filter(|c| world.deaths_by_cause[c.index()] > 0)
+                    .map(|c| format!("{} {}", c.label(), world.deaths_by_cause[c.index()]))
+                    .collect();
+                let vital: Vec<String> = world.vital_losses.iter().map(|&(_, _, m, n)| format!("{} {n}", world.materials.get(m).name)).collect();
+                println!("            deaths by cause: {} | killed, by what stood in the head cell: {}", by.join(", "), if vital.is_empty() { "-".to_string() } else { vital.join(", ") });
+            }
             // **The nest's own room, beside the picture of it.** A chamber
             // cut and a chamber collapsed are the same photograph at contact-
             // sheet size, and only the count says which -- `CLAUDE.md`'s

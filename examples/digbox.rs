@@ -21,6 +21,12 @@
 //! sets it to zero by construction, so what is left is the nest mechanism
 //! alone.
 //!
+//! **Fed, since 2026-09-29** ([`feed`]): every ant is topped up to its start
+//! energy each frame, so nothing starves and no ant is hungry. Before that the
+//! box starved its colony from the first tick, and a hungry colony scouts and
+//! digs as a restless one (report `nest-one-entrance-2026-09-29.md` §14);
+//! `hungry` restores it. The paragraph below is that box's arithmetic.
+//!
 //! **Nothing starves, because the run fits inside the endowment.** `ant.ron`
 //! authors `start_energy: 200` against `idle_cost_per_cell: 0.05` on a
 //! two-cell body, so an idle ant lives `200/0.1 = 2,000` decision ticks —
@@ -1279,6 +1285,13 @@ struct AntTrack {
 
 #[derive(Default)]
 struct NestFunnel {
+    /// `gridout=`: trace every cell's packing -- the frame it last became
+    /// `packedsoil` (`u64::MAX`: not since frame 0) and what it was just
+    /// before, as [`PACKED_FROM`] indexes. Off unless asked: a whole-box
+    /// scan a frame.
+    pack_trace: bool,
+    packed_frame: Vec<u64>,
+    packed_from: Vec<u8>,
     ants: std::collections::BTreeMap<u32, AntTrack>,
     before: std::collections::BTreeMap<u32, AntBefore>,
     /// The box as it stood before the frame: `None` is an organism's cell.
@@ -1578,6 +1591,8 @@ impl NestFunnel {
             self.cut_frame = vec![u64::MAX; n];
             self.put_frame = vec![u64::MAX; n];
             self.put_by = vec![0; n];
+            self.packed_frame = vec![u64::MAX; n];
+            self.packed_from = vec![0; n];
         }
         self.grid.clear();
         self.grid_org.clear();
@@ -2017,6 +2032,37 @@ impl NestFunnel {
                 if let Some(t) = self.ants.get_mut(&id) {
                     t.stage = t.stage.max(6);
                     t.cycles += 1;
+                }
+            }
+        }
+        // **Where each packed cell came from** (`gridout=`): a cell that is
+        // `packedsoil` now and was not before the frame was packed by this
+        // frame's digs, and `grid` still says what it was.
+        if self.pack_trace {
+            if let Some(packed) = world.materials.id_of("packedsoil") {
+                let soil = world.materials.id_of("soil");
+                for y in 0..b.h {
+                    for x in 0..b.w {
+                        let i = at(x, y);
+                        let c = world.get(x, y);
+                        if c.material != packed || c.organism_id() != 0 {
+                            continue;
+                        }
+                        let was = self.grid.get(i).copied().flatten();
+                        if was == Some(packed) {
+                            continue;
+                        }
+                        self.packed_frame[i] = frame;
+                        self.packed_from[i] = if y < b.surface {
+                            3
+                        } else if was == soil && self.dug[i] {
+                            2
+                        } else if was == soil {
+                            1
+                        } else {
+                            4
+                        };
+                    }
                 }
             }
         }
@@ -2829,6 +2875,32 @@ struct TripLog {
     /// an animal made holding a pellet -- which headings were usable, the move
     /// roll against `p_move`, what came of it, the chooser's patience.
     decisions: Option<std::io::BufWriter<std::fs::File>>,
+    /// **Who a carrier stood facing** (`JAM`), by what that animal was doing
+    /// ([`TripAnt::role`]), and of those how many stood still themselves.
+    /// The report said carriers stood "behind one another" in the shaft at
+    /// 200 ants and never traced it: a queue of carriers, nest workers at
+    /// home in the cut and diggers on their way down want different fixes.
+    stood_by: [u64; 4],
+    stood_by_still: [u64; 4],
+    /// Heads in the founding shaft each frame, summed by role, over
+    /// `shaft_frames` frames; and in the rest of the founding cut.
+    shaft_pop: [u64; 4],
+    cut_pop: [u64; 4],
+    /// Heads on the two rows over the mouth (a column either side), by role:
+    /// the colony standing on its own way out. Every founder's home is the
+    /// cell over the mouth's middle (`World::door_anchor`).
+    over_pop: [u64; 4],
+    shaft_frames: u64,
+    /// The same stands by where the carrier was ([`TripAnt::place`]) and
+    /// what it faced: an animal by role, then ground, then nothing.
+    stood_at: [[u64; 6]; 4],
+    /// **Each animal's last decision row and the frame its head last
+    /// moved**, for [`pile_census`]: who stands on the mound over the mouth,
+    /// who is underground, and what each was deciding. Filled only under
+    /// `pile` or `antscsv=`, which switch the engine's decision log on (a
+    /// trace; the run is bit-identical with it).
+    last_row: std::collections::BTreeMap<u32, pixel_physics::sim::creature::DecisionRow>,
+    last_moved: std::collections::BTreeMap<u32, u64>,
 }
 
 #[derive(Clone, Copy)]
@@ -2839,7 +2911,22 @@ struct TripAnt {
     patience: f32,
     covered: bool,
     in_cut: bool,
+    /// Its head in the shaft proper, not the chamber or the side room.
+    in_shaft: bool,
+    /// What it is doing: 0 carrying a pellet, 1 a store load, 2 nest-bound
+    /// with nothing held, 3 anything else (a digger, a scout, an idler).
+    role: u8,
+    /// Where: 0 at the mouth (the rim and the shaft's top rows,
+    /// `ShaftFootprint::touches_mouth`), 1 lower in the shaft, 2 elsewhere in
+    /// the founding cut (the chamber, the side room), 3 outside the cut.
+    place: u8,
 }
+
+/// [`TripAnt::place`]'s names, for `JAM`.
+const JAM_PLACES: [&str; 4] = ["at the mouth", "lower in the shaft", "in the chamber or side room", "outside the cut"];
+
+/// [`TripAnt::role`]'s names, for `JAM`.
+const JAM_ROLES: [&str; 4] = ["carrying a pellet", "a store load", "nest-bound, empty", "other, empty"];
 
 #[derive(Clone, Copy, Default)]
 struct Trip {
@@ -2879,10 +2966,24 @@ impl TripLog {
                 let c = world.get(hx, hy - dy);
                 c.material != material::EMPTY && c.organism_id() == 0 && matches!(world.materials.kind(c.material), MaterialKind::Powder | MaterialKind::Solid)
             });
-            let in_cut = world.nearest_nest_site(hx, hy).and_then(|i| world.nest_sites.get(i)).and_then(|s| s.shaft).is_some_and(|c| c.contains(hx, hy));
+            let cut = world.nearest_nest_site(hx, hy).and_then(|i| world.nest_sites.get(i)).and_then(|s| s.shaft);
+            let in_cut = cut.is_some_and(|c| c.contains(hx, hy));
+            let in_shaft = cut.is_some_and(|c| c.in_shaft(hx, hy));
+            let place = match cut {
+                Some(c) if c.touches_mouth(hx, hy) => 0,
+                Some(c) if c.in_shaft(hx, hy) => 1,
+                Some(c) if c.contains(hx, hy) => 2,
+                _ => 3,
+            };
+            let role = match st.spoil {
+                Some(p) if !p.store => 0,
+                Some(_) => 1,
+                None if st.nest_bound_until > world.frame => 2,
+                None => 3,
+            };
             out.insert(
                 id,
-                TripAnt { head: (hx, hy), heading: st.heading, holding: st.spoil.is_some_and(|p| !p.store), patience: st.home_patience, covered, in_cut },
+                TripAnt { head: (hx, hy), heading: st.heading, holding: st.spoil.is_some_and(|p| !p.store), patience: st.home_patience, covered, in_cut, in_shaft, role, place },
             );
         }
         out
@@ -2899,6 +3000,9 @@ impl TripLog {
         use std::io::Write;
         let Some(log) = world.decision_log.as_mut() else { return };
         let rows = std::mem::take(log);
+        for r in &rows {
+            self.last_row.insert(r.id, *r);
+        }
         let Some(w) = self.decisions.as_mut() else { return };
         for r in rows {
             if !self.before.get(&r.id).is_some_and(|a| a.holding) {
@@ -2940,6 +3044,11 @@ impl TripLog {
         use pixel_physics::sim::creature::DIRS;
         use std::io::Write;
         let now = Self::ants(world);
+        for (&id, a) in &now {
+            if self.before.get(&id).is_none_or(|p| p.head != a.head) {
+                self.last_moved.insert(id, frame);
+            }
+        }
         for (&id, pre) in &self.before {
             let post = now.get(&id);
             if pre.holding {
@@ -2979,6 +3088,19 @@ impl TripLog {
                     2 => t.stood_ground += 1,
                     _ => t.stood_open += 1,
                 }
+                if ahead >= 2 {
+                    self.stood_at[pre.place as usize][2 + ahead as usize] += 1;
+                }
+                if ahead == 1 {
+                    let (dx, dy) = DIRS[pre.heading as usize % 8];
+                    let bid = world.get(pre.head.0 + dx, pre.head.1 + dy).organism_id();
+                    let role = self.before.get(&bid).map_or(3, |a| a.role) as usize;
+                    self.stood_by[role] += 1;
+                    self.stood_at[pre.place as usize][role] += 1;
+                    if self.before.get(&bid).zip(now.get(&bid)).is_some_and(|(a, q)| a.head == q.head) {
+                        self.stood_by_still[role] += 1;
+                    }
+                }
                 if let Some(w) = self.csv.as_mut() {
                     let _ = writeln!(
                         w,
@@ -3004,10 +3126,54 @@ impl TripLog {
                 }
             }
         }
+        let cut = world.nest_sites.iter().find_map(|s| s.shaft);
+        for a in now.values() {
+            if a.in_shaft {
+                self.shaft_pop[a.role as usize] += 1;
+            } else if a.in_cut {
+                self.cut_pop[a.role as usize] += 1;
+            }
+            if cut.is_some_and(|c| (c.x0 - 1..=c.x1 + 1).contains(&a.head.0) && (c.top - 2..c.top).contains(&a.head.1)) {
+                self.over_pop[a.role as usize] += 1;
+            }
+        }
+        self.shaft_frames += 1;
         self.before = now;
     }
 
     fn print(&self, frame: u64) {
+        let stood = self.stood_by.iter().sum::<u64>().max(1) as f64;
+        let by = (0..4)
+            .map(|r| format!("{} {:.1}% (itself still {:.1}%)", JAM_ROLES[r], 100.0 * self.stood_by[r] as f64 / stood, 100.0 * self.stood_by_still[r] as f64 / self.stood_by[r].max(1) as f64))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let mean = |pop: &[u64; 4]| (0..4).map(|r| format!("{} {:.2}", JAM_ROLES[r], pop[r] as f64 / self.shaft_frames.max(1) as f64)).collect::<Vec<_>>().join(", ");
+        println!(
+            "JAM frame={frame} carrying frames standing facing an animal {}: it was {by} | heads in the founding shaft, mean over frames: {} | in the rest of the founding cut: {} | on the two rows over the mouth: {}",
+            self.stood_by.iter().sum::<u64>(),
+            mean(&self.shaft_pop),
+            mean(&self.cut_pop),
+            mean(&self.over_pop)
+        );
+        let all = self.stood_at.iter().flatten().sum::<u64>().max(1) as f64;
+        let at = (0..4)
+            .map(|p| {
+                let r = &self.stood_at[p];
+                format!(
+                    "{} {:.1}% (facing a carrier {}, a store load {}, nest-bound {}, other {}, ground {}, nothing {})",
+                    JAM_PLACES[p],
+                    100.0 * r.iter().sum::<u64>() as f64 / all,
+                    r[0],
+                    r[1],
+                    r[2],
+                    r[3],
+                    r[4],
+                    r[5]
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(" | ");
+        println!("JAMAT frame={frame} carrying frames standing, by where the carrier stood: {at}");
         let c = &self.closed;
         let n = c.len();
         let q = |mut v: Vec<u64>, p: f64| -> u64 {
@@ -3055,6 +3221,107 @@ impl TripLog {
             by(17, i32::MAX),
         );
     }
+}
+
+/// **The mound over the nest, by distance from the door** (`CRATER`, every
+/// stop): cells of ground standing above the old surface -- spoil, and
+/// whatever it turned into -- in bins of columns from the nest site's
+/// centre, and how many stand over the mouth's own columns. Built for
+/// `PIXEL_PHYSICS_SPOIL_RING` (`creature::spoil_ring`), whose question is
+/// whether the colony stops burying its own door (one-entrance report §11):
+/// the first bin is the door and the mouth, and a crater is a dip there with
+/// a ring beyond. With the carry counters beside it, the "it fired" half.
+fn crater(world: &World, b: &Box2, frame: u64) -> String {
+    const BINS: [(i32, i32, &str); 6] = [(0, 2, "0-2"), (3, 5, "3-5"), (6, 9, "6-9"), (10, 14, "10-14"), (15, 24, "15-24"), (25, i32::MAX, "25+")];
+    let Some(site) = world.nest_sites.first() else { return format!("CRATER frame={frame} no nest site") };
+    let mut bins = [0u32; 6];
+    let mut over_mouth = 0u32;
+    let mouth = site.shaft.map(|c| (c.x0, c.x1));
+    for x in 0..b.w {
+        for y in 0..b.surface {
+            let c = world.get(x, y);
+            if c.material == material::EMPTY || c.organism_id() != 0 || !matches!(world.materials.kind(c.material), MaterialKind::Powder | MaterialKind::Solid) {
+                continue;
+            }
+            let d = (x - site.x).abs();
+            if let Some(i) = BINS.iter().position(|&(lo, hi, _)| (lo..=hi).contains(&d)) {
+                bins[i] += 1;
+            }
+            if mouth.is_some_and(|(x0, x1)| (x0..=x1).contains(&x)) {
+                over_mouth += 1;
+            }
+        }
+    }
+    let st = world.creature_stats;
+    let by = BINS.iter().zip(bins).map(|(&(_, _, name), n)| format!("{name} {n}")).collect::<Vec<_>>().join(", ");
+    format!(
+        "CRATER frame={frame} ground above the old surface, by columns from the nest's centre: {by} | over the mouth's columns {over_mouth} | carry (SPOIL_RING) distances drawn {}, drop rolls held short of them {}",
+        st.spoil_ring_drawn, st.spoil_ring_held
+    )
+}
+
+/// **How wide the nest's passages are** (`WIDTH`, every stop): every open
+/// cell below the old surface -- empty, or an animal standing in it -- by
+/// the width of the passage it sits in, the shorter of its open runs across
+/// and down, capped at 3. A passage the dig cut one cell at a time reads 1;
+/// `PIXEL_PHYSICS_DIG_WIDEN` (`creature::dig_widen_of`) is for making it 2,
+/// and its counter is beside the census as the "it fired" half.
+fn widths(world: &World, b: &Box2, frame: u64) -> String {
+    let open = |x: i32, y: i32| {
+        if x < 0 || x >= b.w || y < b.surface || y >= b.floor {
+            return false;
+        }
+        let c = world.get(x, y);
+        c.material == material::EMPTY || matches!(world.materials.kind(c.material), MaterialKind::Creature)
+    };
+    let run = |x: i32, y: i32, (sx, sy): (i32, i32)| {
+        let mut n = 1;
+        for sign in [-1, 1] {
+            let mut k = 1;
+            while n < 3 && open(x + sign * sx * k, y + sign * sy * k) {
+                n += 1;
+                k += 1;
+            }
+        }
+        n.min(3)
+    };
+    let mut by = [0u32; 3];
+    // **Thick**: the cell is one of a 2x2 block of open cells, which a
+    // passage one cell across never has, straight or diagonal. The run test
+    // above reads a diagonal band two cells across as 1 (its vertical run is
+    // one), so this is the reading for how a gallery looks. **Corner-only**:
+    // open, with no open cell beside it but one at a corner -- a diagonal
+    // line of single cells, the thinnest thing the dig makes.
+    let (mut thick, mut corner_only) = (0u32, 0u32);
+    for y in b.surface..b.floor {
+        for x in 0..b.w {
+            if open(x, y) {
+                let w = run(x, y, (1, 0)).min(run(x, y, (0, 1)));
+                by[(w - 1) as usize] += 1;
+                if [(-1, -1), (0, -1), (-1, 0), (0, 0)].iter().any(|&(ox, oy)| (0..2).all(|i| (0..2).all(|j| open(x + ox + i, y + oy + j)))) {
+                    thick += 1;
+                }
+                if !(open(x - 1, y) || open(x + 1, y) || open(x, y - 1) || open(x, y + 1)) && (open(x - 1, y - 1) || open(x + 1, y - 1) || open(x - 1, y + 1) || open(x + 1, y + 1)) {
+                    corner_only += 1;
+                }
+            }
+        }
+    }
+    let total = by.iter().sum::<u32>().max(1) as f64;
+    format!(
+        "WIDTH frame={frame} open cells below the old surface by passage width: 1 cell {} ({:.0}%), 2 cells {} ({:.0}%), 3 or more {} ({:.0}%) | in a 2x2 open block {} ({:.0}%), joined at a corner only {} ({:.0}%) | walls cut to widen a passage (DIG_WIDEN) {}",
+        by[0],
+        100.0 * by[0] as f64 / total,
+        by[1],
+        100.0 * by[1] as f64 / total,
+        by[2],
+        100.0 * by[2] as f64 / total,
+        thick,
+        100.0 * thick as f64 / total,
+        corner_only,
+        100.0 * corner_only as f64 / total,
+        world.creature_stats.digs_widened
+    )
 }
 
 fn trace(world: &World) {
@@ -3161,6 +3428,12 @@ fn main() {
     // See [`tint`] for the colours and why they are a full replace.
     let tint_out: Option<String> = arg("tintout");
     let scale: u32 = arg("scale").unwrap_or(3);
+    // **`look=` picks the colours a sheet is drawn in**: `lab` (the default,
+    // owner 2026-09-29: "match the lab colors, not sky background, easier to
+    // see ants and tunnels") or `sky`, the open-country look every sheet
+    // before that date was drawn in. Pictures only -- see [`LabLook`] for why
+    // the numbers cannot move.
+    let lab_look = arg::<String>("look").is_none_or(|v| v != "sky");
 
     let wet: u16 = arg("wet").unwrap_or(material::SOIL_FIELD_CAPACITY);
     let grad: Option<(u16, u16)> = arg::<String>("wetgrad").map(|v| {
@@ -3367,6 +3640,9 @@ fn main() {
 
     let particles = ParticleSystem::default();
     let mut renderer = Renderer::new();
+    if lab_look {
+        renderer.creature_colour = pixel_physics::render::CreatureColour::Colony;
+    }
     let mut blasts = Blasts::default();
     let _ = &mut blasts;
     // **`stops=` names the frames outright**, because a run whose sheet is
@@ -3406,6 +3682,32 @@ fn main() {
         let _ = writeln!(w, "frame,id,trip_start,hx,hy,heading,ahead,patience,inside,in_cut");
         trips.csv = Some(w);
     }
+    // **`gridout=PATH`: the whole box at every stop** -- see [`write_grid`].
+    let mut grid_out = arg::<String>("gridout").map(|path| std::io::BufWriter::new(std::fs::File::create(&path).expect("gridout: cannot create the file")));
+    funnel.pack_trace = grid_out.is_some();
+    // **Fed by default since 2026-09-29** -- see [`feed`]. The owner, asked
+    // whether the box should keep its colony fed so every picture shows a
+    // living colony: "Yes". `hungry` restores the starving box every run
+    // before that date was taken on; `fed` is still accepted and does
+    // nothing more.
+    let fed = !flag("hungry");
+    if fed {
+        println!("  fed: every ant topped up to start_energy each frame (booked as granted); no food on the ground, so FoodAdjacent stays 0 (`hungry` for the starving box)");
+    } else {
+        println!("  hungry: no ant is fed, so the colony is below start_energy from its first tick and starves (the box before 2026-09-29)");
+    }
+    // **`pile` / `antscsv=PATH`: who stands where, and why** -- see
+    // [`pile_census`]. Both switch the engine's decision log on.
+    let pile_on = flag("pile") || arg::<String>("antscsv").is_some();
+    let mut ants_csv = arg::<String>("antscsv").map(|path| {
+        use std::io::Write;
+        let mut w = std::io::BufWriter::new(std::fs::File::create(&path).expect("antscsv: cannot create the file"));
+        let _ = writeln!(w, "{}", PILE_CSV_HEADER);
+        w
+    });
+    if pile_on {
+        world.decision_log = Some(Vec::new());
+    }
     if let Some(path) = arg::<String>("decisions") {
         use std::io::Write;
         let mut w = std::io::BufWriter::new(std::fs::File::create(&path).expect("decisions: cannot create the file"));
@@ -3430,6 +3732,9 @@ fn main() {
             }
         }
         trickle.step(&mut world, &b);
+        if fed {
+            feed(&mut world);
+        }
         if f == 0 && score_k > 0 {
             // Before any ant has dug (digging starts with frame 1's step)
             // and after founding, so a founding cut is already ground's
@@ -3454,10 +3759,20 @@ fn main() {
             if let Some(line) = cut_census(&world) {
                 println!("{line}");
             }
+            println!("{}", crater(&world, &b, f));
+            println!("{}", widths(&world, &b, f));
             if flag("trace") {
                 trace(&world);
             }
             if funnel_on && f > 0 {
+                println!("{}", fill_census(&world, &b, &funnel.dug, f));
+                if let Some(w) = grid_out.as_mut() {
+                    write_grid(w, &world, &b, &funnel, f);
+                    println!("{}", pack_census(&world, &funnel, f));
+                }
+                if pile_on {
+                    println!("{}", pile_census(&world, &b, &trips, f, ants_csv.as_mut()));
+                }
                 funnel.print(f, &world);
                 trips.print(f);
                 let cut = world.nest_sites.iter().find_map(|s| s.shaft);
@@ -3478,10 +3793,14 @@ fn main() {
                 let (vw, vh) = (b.w as u32, b.h as u32);
                 let mut buf = vec![0u8; (vw * vh * 4) as usize];
                 let touched = world.take_touched_chunks();
+                let look = lab_look.then(|| LabLook::dress(&mut world, &b));
                 renderer.draw(&world, &particles, &touched, &mut buf, (vw, vh), true);
+                if let Some(look) = look {
+                    look.undress(&mut world);
+                }
                 if tint_out.is_some() {
                     let mut tinted = buf.clone();
-                    tint(&world, &b, &mut tinted);
+                    tint(&world, &b, &funnel.dug, &mut tinted);
                     tinted_shots.push(tinted);
                 }
                 shots.push(buf);
@@ -3833,6 +4152,372 @@ fn write_sheet(path: &str, shots: &[Vec<u8>], b: &Box2, scale: u32) {
     println!("wrote {path} ({sw}x{sh}, {} stops top to bottom)", shots.len());
 }
 
+/// **The lab's colours, worn for the one instant a picture is taken.**
+///
+/// Owner, 2026-09-29: *"change your test/images to match the lab colors? Not
+/// sky background, easier to see ants and tunnels."* Outdoors, dug void draws
+/// as the sky carried underground -- a dark blue -- the air over the box is
+/// a bright band that takes the eye off the ground, and the ant's own
+/// palette (`ant.ron`, 28-52 on every channel) is a near-black brown within a
+/// few steps of both the soil and the tunnel. The lab answers all three, and
+/// this wears its three answers:
+///
+/// - **the air is a room**, a dark slate wall, and dug space below the bench
+///   line is warm near-black earth (`sky::Interior`), so a tunnel reads as a
+///   hole in the ground rather than as a strip of night;
+/// - **each colony wears its group colour** (`CreatureColour::Colony`, what
+///   `Lab::new` opens on), amber for the first, so an ant stands off both
+///   the soil and the tunnel it is walking in;
+/// - **the painted nest is worked earth** (`lab::earth_toned_nest`, whose
+///   tones this copies, since that function is private to the lab), so the
+///   door is not a second tan-and-amber thing to tell apart from the ants.
+///
+/// **No lamps.** The lab's pools of light sit under a ceiling many rows above
+/// the bench and are out of frame wherever the ground is; this box has 24
+/// rows of air, so the same pools would sit in every picture as a bright
+/// band -- the thing this replaces. An empty lamp list is the room unlit by
+/// fixtures, which at the bench is what the lab looks like.
+///
+/// **Worn only around `Renderer::draw` and taken off before the next frame
+/// is simulated.** `World::set_enclosure`'s doc said no simulation pass
+/// reads the room; two do. `evaporation::is_enclosed` values the water a
+/// drying cell releases at the sealed-box rate (260 against 2 in open air),
+/// which humidifies the air over the soil and brakes further drying, and
+/// `weather::condense_under_a_lid` drips banked water back from the ceiling
+/// -- and the dig wiring reads soil moisture (`(MoistureGrad, Dig, -0.55)`
+/// in the module doc). Measured 2026-09-29 with a scratch binary that left
+/// the room declared for the whole run (walked 40 ants seed 9, today's 40
+/// ants seed 2 and 200 ants seed 21, 24,000 frames each): **every census
+/// line identical**, and the only trace is surface and floor soil drawn 1-2
+/// colour steps apart from frame 18,000 on -- the soil is wetter, and no ant
+/// has yet read the difference. Harmless in these runs, and not guaranteed
+/// in a longer or wetter one, so the room stays on for the draw alone:
+/// declared there, nothing that steps the world can see it. The colony
+/// colour is the renderer's own setting and reaches nothing else.
+struct LabLook {
+    nest: Option<(MaterialId, Vec<[u8; 4]>, usize)>,
+}
+
+impl LabLook {
+    const WORKED_EARTH: [[u8; 4]; 4] = [[48, 38, 32, 255], [56, 45, 38, 255], [42, 33, 28, 255], [62, 50, 42, 255]];
+
+    fn dress(world: &mut World, b: &Box2) -> Self {
+        world.set_enclosure(Some(pixel_physics::sim::enclosure::Enclosure::new(0, b.surface)));
+        let nest = world.materials.id_of("nest").map(|id| {
+            let def = world.materials.get_mut(id);
+            let old = (id, std::mem::replace(&mut def.palette, Self::WORKED_EARTH.to_vec()), def.base_shades);
+            def.base_shades = Self::WORKED_EARTH.len();
+            old
+        });
+        LabLook { nest }
+    }
+
+    fn undress(self, world: &mut World) {
+        world.set_enclosure(None);
+        if let Some((id, palette, shades)) = self.nest {
+            let def = world.materials.get_mut(id);
+            def.palette = palette;
+            def.base_shades = shades;
+        }
+    }
+}
+
+/// **Every ant topped up to its start energy each frame** -- the box's
+/// default since 2026-09-29 (`hungry` turns it off) -- as though the colony
+/// ate from a store, booked to the colony's ledger as granted.
+///
+/// Built 2026-09-29 by tracing the 200-ant pile the owner saw on the mouth
+/// (`PILE`): the box sets `start_energy` to `energy=` and puts no food in it,
+/// so **every ant is below its start energy from its first tick** and the
+/// engine reads the whole colony as hungry for the whole run. Hungry, an
+/// empty ant scouts (`scout_w` 0.5 at frame 6,000 on the mound, 1.3 by
+/// 12,000), and a nest worker is pulled home only while fed (`home_pull`,
+/// `chooser_step`'s way out), so 38-43 of the 50 nest workers stood above
+/// ground at frame 6,000 at 200 ants. The box asks what a colony digs; this
+/// asks it of a colony that is not starving. There is still no food on the
+/// ground, so `FoodAdjacent` stays 0 and the dig is still the nest
+/// mechanism alone; held at `start_energy` (1,000 on the lane's runs), an
+/// ant sits under the ~1,040 J budding floor, so the count stays fixed.
+fn feed(world: &mut World) {
+    use pixel_physics::sim::world::Account;
+    for id in world.live_organism_ids() {
+        let Some(st) = world.organism(id) else { continue };
+        let Some(start) = world.species.get(st.species).creature.as_ref().map(|c| c.start_energy) else { continue };
+        let short = start - st.energy;
+        if short <= 0.0 {
+            continue;
+        }
+        // `set_organism_energy` books nothing, so the grant is booked here
+        // and the colony's ledger still closes across the top-up.
+        let colony = world.colony_of(id);
+        world.set_organism_energy(id, start);
+        world.book(colony, Account::Granted, f64::from(short));
+    }
+}
+
+/// What a packed cell was just before it was packed, for `gridout=`'s
+/// `PACKED_FROM` block: `0` packed before the trace began (the founding
+/// cut's lining), `1` undug soil below the old ground line (a wall), `2`
+/// soil standing in a cell dug since frame 0 (a hole that refilled and was
+/// then tamped), `3` anything above the old ground line (a heap), `4` other.
+const PACKED_FROM: [&str; 5] = ["before the trace", "undug soil (a wall)", "soil back in a dug cell (a refill)", "above the old ground line (a heap)", "other"];
+
+/// One `PACK` line: every packed cell standing now, by what it was just
+/// before it was packed ([`PACKED_FROM`]).
+fn pack_census(world: &World, funnel: &NestFunnel, frame: u64) -> String {
+    let packed = world.materials.id_of("packedsoil");
+    let mut n = [0u32; 5];
+    for (i, &from) in funnel.packed_from.iter().enumerate() {
+        let (w, _) = world.bounds().map_or((0, 0), |r| (r.max_x - r.min_x + 1, r.max_y - r.min_y + 1));
+        if w <= 0 {
+            break;
+        }
+        let (x, y) = ((i as i32) % w, (i as i32) / w);
+        if Some(world.get(x, y).material) == packed {
+            n[usize::from(from).min(4)] += 1;
+        }
+    }
+    let total: u32 = n.iter().sum();
+    let parts: Vec<String> = PACKED_FROM.iter().zip(n).map(|(name, c)| format!("{name} {c}")).collect();
+    format!("PACK frame={frame} packed cells standing {total}, by what they were: {}", parts.join(", "))
+}
+
+/// **`gridout=PATH`: the whole box at every stop, as text**, for questions
+/// the fixed census lines were not written to answer.
+///
+/// Built 2026-09-29 for the owner, on the tinted Q3 sheet: *"the tamped
+/// tunnel is not just walls around a tunnel or chamber. You have chambers
+/// fully enclosed by tamped soil and big blocks of tamped soil."* How thick
+/// the tamped ground is, which voids are sealed off from the mouth, and
+/// what each packed cell was before it was tamped are all questions about
+/// shape, so the shape is written out and read in a script. Per stop:
+/// `GRID` (one character a cell: `.` empty, `s` soil, `P` packed, `o`
+/// spoil, `a` a live animal, `#` stone, `c` corpse, `n` nest, `?` other),
+/// `DUG` (cells cut since frame 0), `PACKED_FROM` ([`PACKED_FROM`]'s index,
+/// `-` where the cell is not packed) and `PACKED_FRAME` (the frame it was
+/// packed, `-1` if before the trace).
+fn write_grid(w: &mut std::io::BufWriter<std::fs::File>, world: &World, b: &Box2, funnel: &NestFunnel, frame: u64) {
+    use std::io::Write;
+    let id = |n: &str| world.materials.id_of(n);
+    let (soil, packed, spoil, corpse, nest) = (id("soil"), id("packedsoil"), id("spoil"), id("corpse"), id("nest"));
+    let _ = writeln!(w, "GRID frame={frame} w={} h={} surface={} floor={}", b.w, b.h, b.surface, b.floor);
+    for y in 0..b.h {
+        let row: String = (0..b.w)
+            .map(|x| {
+                let c = world.get(x, y);
+                let m = Some(c.material);
+                if c.material == material::EMPTY {
+                    '.'
+                } else if c.organism_id() != 0 && world.materials.kind(c.material) == MaterialKind::Creature {
+                    'a'
+                } else if c.material == material::STONE {
+                    '#'
+                } else if m == soil {
+                    's'
+                } else if m == packed {
+                    'P'
+                } else if m == spoil {
+                    'o'
+                } else if m == corpse {
+                    'c'
+                } else if m == nest {
+                    'n'
+                } else {
+                    '?'
+                }
+            })
+            .collect();
+        let _ = writeln!(w, "{row}");
+    }
+    let at = |x: i32, y: i32| (y * b.w + x) as usize;
+    let _ = writeln!(w, "DUG");
+    for y in 0..b.h {
+        let row: String = (0..b.w).map(|x| if funnel.dug.get(at(x, y)).copied().unwrap_or(false) { '1' } else { '0' }).collect();
+        let _ = writeln!(w, "{row}");
+    }
+    let _ = writeln!(w, "PACKED_FROM");
+    for y in 0..b.h {
+        let row: String = (0..b.w)
+            .map(|x| {
+                if Some(world.get(x, y).material) != packed {
+                    '-'
+                } else {
+                    char::from(b'0' + funnel.packed_from.get(at(x, y)).copied().unwrap_or(0))
+                }
+            })
+            .collect();
+        let _ = writeln!(w, "{row}");
+    }
+    let _ = writeln!(w, "PACKED_FRAME");
+    for y in 0..b.h {
+        let row: Vec<String> = (0..b.w)
+            .map(|x| match funnel.packed_frame.get(at(x, y)).copied().unwrap_or(u64::MAX) {
+                u64::MAX => "-1".to_string(),
+                f => f.to_string(),
+            })
+            .collect();
+        let _ = writeln!(w, "{}", row.join(" "));
+    }
+    let _ = w.flush();
+}
+
+/// How far either side of the site's column the mound over the mouth is
+/// read, for [`pile_census`]: the carry's drop column is the door's half
+/// width, one, and a Gamma(2, 2) draw (median about 3), so twelve holds
+/// nearly every pellet and every animal standing on them.
+const PILE_REACH: i32 = 12;
+
+const PILE_PLACES: [&str; 4] = ["on the mound over the mouth", "in the mouth", "underground", "out on the surface"];
+
+const PILE_CSV_HEADER: &str = "frame,id,hx,hy,place,worker,holding,home_now,energy_j,frames_still,row_age,at_nest,crowding,stillness,energy_in,outcome,moved,p_move,drive,scout_w,scout_home,home_cos,anchor_x,anchor_y";
+
+/// **Who stands where, and what each was deciding** -- one `PILE` line per
+/// stop, and with `antscsv=PATH` one row per live animal.
+///
+/// Built 2026-09-29 for the owner, looking at the 200-ant sheets in the lab's
+/// colours: *"It is just a huge pile of ants at the entrance and they totally
+/// fill the nest."* A picture shows the pile; it cannot say whether the
+/// animals in it are queued to get in, standing at home, or waiting to get
+/// out -- three different fixes. So every live animal is booked by where its
+/// head is ([`PILE_PLACES`]: the mound is above the old ground line within
+/// [`PILE_REACH`] columns of the site) and, from its own last decision row,
+/// by what it read and did: whether it stood at home (the shipped home test
+/// replayed on the head -- nest material in the eight cells round it, or for
+/// a nest worker the founding cut, `nest_within_reach`), how long its head
+/// has not moved, and whether its last move roll stepped.
+fn pile_census(world: &World, b: &Box2, trips: &TripLog, frame: u64, csv: Option<&mut std::io::BufWriter<std::fs::File>>) -> String {
+    use pixel_physics::sim::creature::DECISION_OUTCOME_NAMES;
+    use std::io::Write;
+    let nest = world.materials.id_of("nest");
+    let site = world.nest_sites.first().copied();
+    let cut = site.and_then(|s| s.shaft);
+    // Per place: animals, nest workers, holding a pellet, at home, still for
+    // 60+ frames (ten decisions), energy summed (joules).
+    let mut n = [0u32; 4];
+    let mut workers = [0u32; 4];
+    let mut holding = [0u32; 4];
+    let mut home = [0u32; 4];
+    let mut still = [0u32; 4];
+    let mut energy = [0f64; 4];
+    let mut rows = Vec::new();
+    for (&id, a) in &TripLog::ants(world) {
+        let Some(st) = world.organism(id) else { continue };
+        let (hx, hy) = a.head;
+        let place = if cut.is_some_and(|c| c.touches_mouth(hx, hy)) {
+            1
+        } else if hy >= b.surface {
+            2
+        } else if site.is_some_and(|s| (hx - s.x).abs() <= PILE_REACH) {
+            0
+        } else {
+            3
+        };
+        let worker = st.nest_bound_until == u64::MAX;
+        let home_now = if worker && cut.is_some_and(|c| c.touches(hx, hy)) {
+            true
+        } else {
+            (-1..=1).any(|dy| (-1..=1).any(|dx| (dx, dy) != (0, 0) && Some(world.get(hx + dx, hy + dy).material) == nest))
+        };
+        let frames_still = frame.saturating_sub(trips.last_moved.get(&id).copied().unwrap_or(0));
+        n[place] += 1;
+        workers[place] += u32::from(worker);
+        holding[place] += u32::from(a.holding);
+        home[place] += u32::from(home_now);
+        still[place] += u32::from(frames_still >= 60);
+        energy[place] += f64::from(st.energy);
+        if csv.is_some() {
+            let r = trips.last_row.get(&id);
+            let f = |v: Option<f32>| v.map_or(String::new(), |v| format!("{v:.3}"));
+            rows.push(format!(
+                "{frame},{id},{hx},{hy},{place},{},{},{},{:.1},{frames_still},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
+                u8::from(worker),
+                u8::from(a.holding),
+                u8::from(home_now),
+                st.energy,
+                r.map_or(String::new(), |r| frame.saturating_sub(r.frame).to_string()),
+                f(r.map(|r| r.at_nest)),
+                f(r.map(|r| r.crowding)),
+                f(r.map(|r| r.stillness)),
+                f(r.map(|r| r.energy)),
+                r.map_or("", |r| DECISION_OUTCOME_NAMES[r.outcome as usize]),
+                r.map_or(String::new(), |r| u8::from(r.moved).to_string()),
+                f(r.map(|r| r.p_move)),
+                f(r.map(|r| r.drive)),
+                f(r.map(|r| r.scout_w)),
+                r.map_or(String::new(), |r| u8::from(r.scout_home).to_string()),
+                f(r.map(|r| r.home_cos)),
+                r.map_or(String::new(), |r| r.anchor.0.to_string()),
+                r.map_or(String::new(), |r| r.anchor.1.to_string()),
+            ));
+        }
+    }
+    if let Some(w) = csv {
+        for row in rows {
+            let _ = writeln!(w, "{row}");
+        }
+        let _ = w.flush();
+    }
+    let live: u32 = n.iter().sum();
+    let parts: Vec<String> = (0..4)
+        .map(|p| {
+            let e = if n[p] > 0 { energy[p] / f64::from(n[p]) } else { 0.0 };
+            format!(
+                "{} {} (nest workers {}, holding a pellet {}, at home {}, still 60+ frames {}, energy {e:.0})",
+                PILE_PLACES[p], n[p], workers[p], holding[p], home[p], still[p]
+            )
+        })
+        .collect();
+    format!("PILE frame={frame} live {live}: {}", parts.join(" | "))
+}
+
+/// **What stands in the holes the colony dug, and on their walls**, one
+/// `FILL` line per stop: every cell below the old ground line that was dug
+/// since frame 0, by what it holds now, and the tamped lining standing on
+/// ground that was never dug.
+///
+/// Built 2026-09-29 for the owner's question about a picture: *"What is the
+/// darker brown in the nest, the borders/edges of the tunnels? ... it looks
+/// like the tunnels have filled in with darker brown material."* Lining,
+/// pellets and the dead all draw as a brown near soil's, so the picture could
+/// not answer it and [`tint`] with this line can. A hole counts once however
+/// often it was re-cut; the denominator is the dug mask, not the dig count.
+fn fill_census(world: &World, b: &Box2, dug: &[bool], frame: u64) -> String {
+    let id = |n: &str| world.materials.id_of(n);
+    let (spoil, packed, soil, corpse) = (id("spoil"), id("packedsoil"), id("soil"), id("corpse"));
+    let (mut open, mut ant, mut dead, mut pellet, mut lined, mut ground, mut other) = (0u32, 0u32, 0u32, 0u32, 0u32, 0u32, 0u32);
+    let mut lining = 0u32;
+    for y in b.surface..b.floor {
+        for x in 1..b.w - 1 {
+            let cell = world.get(x, y);
+            let was_dug = dug.get((y * b.w + x) as usize).copied().unwrap_or(false);
+            if !was_dug {
+                lining += u32::from(Some(cell.material) == packed);
+                continue;
+            }
+            let slot = if cell.material == material::EMPTY {
+                &mut open
+            } else if cell.organism_id() != 0 && world.materials.kind(cell.material) == MaterialKind::Creature {
+                &mut ant
+            } else if Some(cell.material) == corpse {
+                &mut dead
+            } else if Some(cell.material) == spoil {
+                &mut pellet
+            } else if Some(cell.material) == packed {
+                &mut lined
+            } else if Some(cell.material) == soil {
+                &mut ground
+            } else {
+                &mut other
+            };
+            *slot += 1;
+        }
+    }
+    let total = open + ant + dead + pellet + lined + ground + other;
+    format!(
+        "FILL frame={frame} cells dug below the old ground line since frame 0: {total}, holding now: open {open}, a live ant {ant}, a corpse {dead}, a pellet {pellet}, lining {lined}, soil {ground}, other {other} | tamped lining on undug walls {lining}"
+    )
+}
+
 /// **Every class of ground painted flat**, so a sheet says *what* each pixel
 /// is rather than leaving it to a brown against a slightly greyer brown.
 ///
@@ -3854,14 +4539,25 @@ fn write_sheet(path: &str, shots: &[Vec<u8>], b: &Box2, scale: u32) {
 /// - an animal: **magenta**
 /// - loose `soil` standing above the old ground line (a heap that was
 ///   spoil and slumped, or ground that fell): **yellow**
+/// - a `corpse` (an animal that died, until it rots to soil): **green**
+/// - `soil` below the old ground line in a cell the colony dug since frame 0
+///   (a hole refilled -- a rotted corpse, a slumped pellet, ground that
+///   fell): **violet**. Needs the funnel's dug mask; `nofunnel` leaves it
+///   as drawn.
 ///
-/// Stone, sky, water and dug void are left as the renderer drew them.
-fn tint(world: &World, b: &Box2, buf: &mut [u8]) {
+/// Stone, sky, water, dug void and undisturbed soil are left as the
+/// renderer drew them. The last two classes were added 2026-09-29 for the
+/// owner's *"what is the darker brown in the nest, the borders/edges of the
+/// tunnels? ... it looks like the tunnels have filled in with darker brown
+/// material"* -- a question about a colony that had starved by the stop in
+/// question, so its dead had to be told apart from its spoil.
+fn tint(world: &World, b: &Box2, dug: &[bool], buf: &mut [u8]) {
     let id = |n: &str| world.materials.id_of(n);
-    let (spoil, packed, nest, soil) = (id("spoil"), id("packedsoil"), id("nest"), id("soil"));
+    let (spoil, packed, nest, soil, corpse) = (id("spoil"), id("packedsoil"), id("nest"), id("soil"), id("corpse"));
     for y in 0..b.h {
         for x in 0..b.w {
             let cell = world.get(x, y);
+            let was_dug = dug.get((y * b.w + x) as usize).copied().unwrap_or(false);
             let rgb: Option<[u8; 3]> = if cell.material == material::EMPTY {
                 None
             } else if cell.organism_id() != 0 && world.materials.kind(cell.material) == MaterialKind::Creature {
@@ -3872,8 +4568,12 @@ fn tint(world: &World, b: &Box2, buf: &mut [u8]) {
                 Some([0, 210, 255])
             } else if Some(cell.material) == nest {
                 Some([255, 255, 255])
+            } else if Some(cell.material) == corpse {
+                Some([40, 220, 40])
             } else if Some(cell.material) == soil && y < b.surface {
                 Some([255, 230, 0])
+            } else if Some(cell.material) == soil && was_dug {
+                Some([170, 120, 255])
             } else {
                 None
             };
