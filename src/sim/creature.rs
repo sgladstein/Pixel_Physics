@@ -26218,6 +26218,17 @@ mod tests {
             // claim -- that a **cohered** nest cannot split whatever the
             // drift -- is `a_cohered_nest_never_splits_into_strangers`.
             def.scent_drift = 0.0;
+            // **And the plasticity dial, for the identical reason.** A child
+            // expresses its scent slots through `expressed_traits`, which
+            // pushes them by its parent's `Provision` at the moment of
+            // budding -- so even at zero drift a newborn's scent sits a
+            // hair off its mother's. Traced 2026-09-30 once births could
+            // land on a nestmate (`bud_stack`, shipped on): a generation-2
+            // ant expressing `-8.6e-5` on one scent slot bit its own
+            // generation-1 nestmate, because at tolerance `-1` any nonzero
+            // distance is a stranger. Against the shipped radius of 1.0 that
+            // is one part in ten thousand, and this test is not about it.
+            w.plasticity = 0.0;
             w.species.set_creature(species, def.clone());
             if wired {
                 w.species.set_genome(
