@@ -97,7 +97,11 @@ will be.
   (`dig_widen_of`, `dig_widen_site`, `dig_shoulder_site`). §7 and §10 on
   2026-09-29 for who lays trail B (`CarryingFood`, `carries_lunch`: a lunch
   carrier lays it), and §15 that day for the trail columns (`since_trip`,
-  `DecisionRow::emit_b_laid`, `b_near`, `score`).
+  `DecisionRow::emit_b_laid`, `b_near`, `score`). §9 and §12 on 2026-09-29
+  for the breeding regimes, which neither section named before
+  (`breeding_regime`, `breeding_radius`, `suppress_bar`,
+  `graded_suppression_factor`, `colony_has_other_breeder`,
+  `nearest_breeder`, `breeder_index_enabled`, and `OrganismState::children`).
   Update this line whenever a section is re-checked against the code.
 - **Edit it in place. Never append history.** When you change a mechanism
   described here, update the section in the same commit. When you find this
@@ -814,6 +818,15 @@ either plane: the other trail inputs are computed and wired to nothing (§3).
   that names a nest material buds only while at its nest (the `AtNest`
   read); `CreatureStats::buds_held_for_nest` counts the ticks it could have
   budded and did not.
+  **Who in a colony may bud** is `PIXEL_PHYSICS_BREEDING` (§12), read once
+  per process and `individual` unless set: no suppression, every animal buds
+  on its own account. An animal is a **breeder** once it has budded
+  (`OrganismState::children > 0`; nobody is one at founding). Under `queen`
+  nobody buds while another living member of its colony is a breeder; under
+  `graded` the bar is multiplied by up to 6 near one (`suppress_bar`). The
+  scaling is applied to the composed bar, after the affordability check, and
+  a colony with no other living breeder is not suppressed at all, so a
+  colony whose breeder dies resumes.
 
 ## 10. Laden versus empty, every difference in one place
 
@@ -867,6 +880,7 @@ Read once per process from the environment. The default is what ships.
 | `PIXEL_PHYSICS_TROPHALLAXIS` | on | `off` |
 | `PIXEL_PHYSICS_DROP_REACH` | through bodies | `adjacent`: a food drop looks only at the 8 neighbours |
 | `PIXEL_PHYSICS_BUD_SITE` | anywhere | `nest`: a species with a nest material buds only at its nest (§9) |
+| `PIXEL_PHYSICS_BREEDING` | `individual` | `queen`: while any other living animal of the same colony has budded (`children > 0`), nobody else in it buds; when that breeder dies, the next animal to reach its bar succeeds it. `graded`: the bar is multiplied by `1 + (GRADED_MAX_SUPPRESSION - 1)(1 - d/r)` for `d` the distance to the colony's nearest other breeder, so 6.0 beside one, falling linearly to 1 at `r` = `PIXEL_PHYSICS_BREEDING_RADIUS` (24) cells and beyond (`suppress_bar`, `graded_suppression_factor`). Anything else reads as `individual`. `PIXEL_PHYSICS_BREEDER_INDEX=scan` replaces the per-colony breeder index with a scan of every organism, as the control for the lookup (§9) |
 | `PIXEL_PHYSICS_CHOOSER` | trailaway | For species with a nest. `off`: the walk of §6a–§6c; `on`: the chooser's first layer only (§6d items 1–5); `nopatience`: the same with patience held at 1; `trail`: the chooser reading the trail where it would step, with the throttle retired, and no away term |
 | `SPOIL_IS_CARGO` | on | `0`: spoil no longer counts toward `Carrying` |
 | `PIXEL_PHYSICS_DIG_SPOIL` | kept | `destroy`: dug cells vanish |
