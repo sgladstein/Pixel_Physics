@@ -4110,8 +4110,8 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   [lanes/nest-mouth.md](lanes/nest-mouth.md).
 - [week-review-2026-09-29.md](week-review-2026-09-29.md) —
   **review, read-only to the engine, 2026-09-29. `engine`/`lab`.** An adversarial read of the 34 PRs
-  the ant lines self-merged on green CI between 22 and 29 September (#485-#518, pinned at `2274e347`; #520
-  landed after the pin and is not covered), with runs on fresh seeds. **No blocker; the stack works on seeds
+  the ant lines self-merged on green CI between 22 and 29 September (#485-#518, pinned at `2274e347`; #519, #520
+  and #522 landed after the pin and are not covered), with runs on fresh seeds. **No blocker; the stack works on seeds
   nobody tuned on** (the old ant starves out on the colony bed, the shipped one takes 5,513 cells and ends
   with 442 ants; with the walk left on, the other thirteen defaults still add 2.6x the food and 4.5x the
   births), **but the evidence, the guards and the records are thinner than they read.** Ranked findings: the

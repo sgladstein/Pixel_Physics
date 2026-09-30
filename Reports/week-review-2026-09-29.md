@@ -1,8 +1,8 @@
 # Week review: the ant line, PRs #485-#518 (2026-09-29)
 
-**Status: review, read-only to the engine; pinned at `2274e347` (`main`, 2026-09-29; #520 merged after the pin and is not covered).** An adversarial read of
+**Status: review, read-only to the engine; pinned at `2274e347` (`main`, 2026-09-29; #519, #520 and #522 merged after the pin and are not covered, §12).** An adversarial read of
 the thirty-four PRs the owner's own ant sessions merged between 22 and 29 September, every one on green CI
-and none with a human reviewer. It found no blocker. It found that the week's defaults, taken together, are a
+and none with a human reviewer. It found no blocker in what the week changed (a panic older than the week, fixed after the pin, is in §12). It found that the week's defaults, taken together, are a
 large net gain on seeds nobody tuned on, and where the evidence, the guards and the records behind them are
 thinner than they read. Lane notes: [lanes/foraging-loop.md](lanes/foraging-loop.md),
 [lanes/nest-mouth.md](lanes/nest-mouth.md). Method and controls: §11. Nothing was posted on the merged PRs.
@@ -60,7 +60,9 @@ re-check, it is marked *(reader)*. Nothing was posted on the merged PRs.
 
 **No blocker was found.** No PR changes a default in a way the review could show to be a net harm on the
 bed or in the lab box (three carry a measurable cost on the bed against a gain elsewhere or an owner ruling, and a fourth leans the same way: W10), no run diverged between two
-executions of the same binary, and every PR that could be isolated reproduced its parent when its switch was off. The
+executions of the same binary, and every PR that could be isolated reproduced its parent when its switch was off. The review
+looked at what the week's PRs changed and ran the game-default regime; it did not look for crashes elsewhere, and one older panic,
+fixed by #519 after the pin, is noted in §12. The
 findings are about *evidence and records*, and about a handful of guards and edges.
 
 | # | Finding | Severity | Status | PRs |
@@ -584,7 +586,7 @@ against HEAD by the coordinator (CONFIRMED = the two lines were put side by side
 | f | README dated bullet pairs `PIXEL_PHYSICS_FORAGE_DRIVE=always` with `ForageDrive::SHIPPED` | `SHIPPED` is `Returns` (`creature.rs:15074`); `ALWAYS` is the form that shipped 2026-09-27 to 09-29 | `README.md:8522` | nit (dated log bullet) |
 | g | foraging lane note: store lunch sends "32% of ant-time west against 14%" (§22t) | §22t says "41% of ant-time is west of the nest against 13%" | `Reports/lanes/foraging-loop.md:104` vs `Reports/ant-scenes-2026-09-23.md:2751` | nit (sizes the lane's top open problem from a figure its own report does not contain) |
 | h | the owner's words, recorded: "It is okay if nest building **temporarily** hurts colony numbers" | every paraphrase drops "temporarily" ("colony numbers do not block a nest step"; `SPOIL_PACKS` comment); #508 then ships a standing default with bed starved 83 -> 152 and born 59 -> 30 | `Reports/lanes/nest-mouth.md:31`, `creature.rs` `SPOIL_PACKS` doc | worth an owner question: does the ruling cover a standing default? |
-| i | #490 records the owner's "Let's test it out" as a default-on ruling; the 09-25 to 09-29 rulings (scouting card 09-26, granary card 09-29 have no response in the queue) cannot be checked outside the sessions' own notes | `review.py inbox` and `origin/review-queue` hold 493 responses, the newest ant one 2026-09-24 (reader A4; not re-counted) | `claims/490`, review queue | PLAUSIBLE: owner to confirm wording |
+| i | #490 records the owner's "Let's test it out" as a default-on ruling; the 09-25 to 09-29 rulings (scouting card 09-26, granary card 09-29 have no response in the queue) cannot be checked outside the sessions' own notes; the owner's 2026-09-29 ruling is to answer in chat, not the queue (recorded by #522, after the pin), so the queue's silence is not evidence that a ruling was not given | `review.py inbox` and `origin/review-queue` hold 493 responses, the newest ant one 2026-09-24 (reader A4; not re-counted) | `claims/490`, review queue | PLAUSIBLE: owner to confirm wording |
 | j | #508: "six wider refusals were measured and every one lost the nest" | the table lists five plus the shipped row; two of the five ran 12 seeds and do not separate (p 0.15-0.73); every wider refusal starved *fewer* on the bed (98-135 against 143), stated in the table, absent from the headline | `claims/508` | nit |
 | k | `spoil_switches_line()` (the harness header) prints `dig_down_bias()`, the environment's value | a world-field arm (`World::dig_down`, set by one test) would print the environment's arm; no example sets it | `creature.rs:10719-10729` | nit (the stale-label trap its own doc says it exists to prevent) |
 
@@ -819,10 +821,23 @@ was used; none of them changed a conclusion):
 
 ## 12. What was not checked, and what this review cannot say
 
-- **PRs merged after `2274e347`**: one, **#520** ("Trail instruments", the foraging lane, merged 2026-09-29 23:11Z: +216 lines in
-  `creature.rs`, `examples/trailfollow.rs`, three scripts and lane-note edits), landed while the review was finishing and is **not reviewed**;
-  every `file:line` in this report is at `2274e347` and the files it touched (`foraging-loop.md`, `how-the-ant-works.md`, `creature.rs`) have shifted since.
-  **#484** and the three open PRs (#471, #476, #478), stale branches, and prose quality are out of scope.
+- **PRs merged after `2274e347` are not reviewed.** At the time of writing there are three: **#520** ("Trail instruments", the foraging
+  lane, merged 2026-09-29 23:11Z: +216 lines in `creature.rs`, `examples/trailfollow.rs`, three scripts and lane-note edits); **#522** (the nest
+  lane, merged 2026-09-30 00:33Z: an engine fix in `close_or_hand_over` that is byte-identical at stacking cap 1, the carry switched on but inert
+  without the walked cycle, `digbox` fed by default, the nest lane note rewritten); and **#519** (an ant breeding plan, merged 2026-09-30 18:31Z,
+  with one engine fix, below). Every `file:line` in this report is at `2274e347`, and the files these touched (`creature.rs`, `world.rs`,
+  `foraging-loop.md`, `nest-mouth.md`, `how-the-ant-works.md`) have shifted since. **#484** and the three open PRs (#471, #476, #478), stale
+  branches, and prose quality are out of scope. Four things in the later PRs bear on this report:
+  - **#519 fixes a panic this review did not find**, and "no blocker" (§1) is not a claim that the pinned commit cannot panic: the review looked
+    at what the week's PRs changed, not for crashes elsewhere. `World::denied_seen` was a fixed `[u64; 64]` (`world.rs:3940` at the pin, indexed at
+    `7579`), so a refused birth by an organism in slot 4,096 or above indexed out of bounds; #519 makes it a growing `Vec`. The code is older than
+    the week. #519 reads the path from the allocator (the held world's grown start makes 4,093 organisms) and did not observe it in a played
+    session. None of this review's runs panicked, and the largest colony alive at the end of a game-default run was 2,202 ants (seed 115).
+  - **#522 rewrote the nest lane note**: §7 row (c) (its stale live-question numbers) and the lane-note half of row (a) (the "no longer leans west"
+    card line) cite the pinned version and no longer hold on `main`; row (h)'s quotation is unchanged.
+  - **#522 makes `digbox` fed by default** (`hungry` restores the old box), which is why §13 is written for the pinned commit.
+  - **The owner now answers in chat, not the review queue** (2026-09-29: "I cannot review the queue, post questions/images in this chat",
+    recorded by #522), which is why the queue holds no later ant answers (row i and the rulings bullet below).
 - **Only 4 of 34 PRs were tried for "unset reproduces the parent" (3 could be isolated)**, on four bed seeds and one
   `digbox` seed each (§8): the ones that say so and could be built. A sample, not a proof.
 - **Mutation testing was not done.** The flip run says whether a default is pinned; it does not say whether
@@ -842,7 +857,8 @@ was used; none of them changed a conclusion):
 - **Frame cost was measured with `antcost`**, the lab-box replay, not with `examples/ascii` (which CI runs)
   and not at 512x320 outdoors with a large colony, which is where the world will grow.
 - **Rulings dated 09-25 to 09-29 were checked against the lanes' own notes only**, not against the owner's
-  review queue, which holds no response after 2026-09-24 for the ant line (reader A4, not re-counted).
+  review queue, which holds no response after 2026-09-24 for the ant line (reader A4, not re-counted). Since 2026-09-29 the owner answers in chat, not the queue
+  (the lane note, as rewritten by #522), so the queue cannot confirm them.
 - **Shallow clone (301 commits, grafted roots)**: `git log -S`, blame and every `branchcheck` "DATA" verdict
   were avoided; per-PR diffs are tree and merge-commit diffs.
 - **Per-step costs at HEAD in the lab** (for example what the birth price costs in the lab at HEAD) were
@@ -853,7 +869,8 @@ was used; none of them changed a conclusion):
 The review's scripts and logs are in the session's scratch area, not in the repository (this PR adds
 only this report and its index line). Everything below is a command against a clean checkout of
 `2274e347` plus the switch environment the row names, run under `env -i` with `RAYON_NUM_THREADS=1`
-unless stated.
+unless stated. The harnesses moved after the pin (`trailfollow` by #520, `digbox` by #522: on `main` the dig box is fed by default, so add `hungry` to
+get the no-food box used here); these commands are for the pinned commit.
 
 | What | Command (from the repo root) |
 |---|---|
