@@ -31010,7 +31010,10 @@ mod tests {
         assert_eq!(cell.material, crumbs, "a part-eaten fruit goes down as crumbs");
         assert_eq!(food_value(&w, cell), 480.0, "the crumbs hold what was left");
         assert_eq!(w.creature_stats.drop_worth_restored, 0.0, "nothing the ground holds was already eaten");
-        let b = spawn(&mut w, "ant", fx - 1, 40);
+        // The nestmate stands on the food's far side from the ant that put it
+        // down: a drop lands on either side since 2026-09-30, and `fx - 1` is
+        // then the first ant's own head.
+        let b = spawn(&mut w, "ant", if fx > 32 { fx + 1 } else { fx - 1 }, 40);
         assert!(w.organism(b).expect("live").crop.is_none());
         let def = w.species.get(w.organism(b).expect("live").species).creature.clone().expect("a creature");
         let mut outputs = [0.0f32; brain::BRAIN_OUTPUTS];
