@@ -4685,6 +4685,7 @@ fn try_bud(world: &mut World, organism: OrganismId, def: &CreatureDef, provision
     // Read before the mutable borrow below, not because it is expensive but
     // because `organism_mut` holds the world for the whole loop.
     let reach = world.trait_reach;
+    let mute_emit_b = world.mute_emit_b;
     // **Captured out of the borrow below, for `born_with` and the line
     // records — both need `&mut World` and cannot be called while `state`
     // holds it.** Defaulted to the pre-mutation values so a stale-handle
@@ -4703,6 +4704,12 @@ fn try_bud(world: &mut World, organism: OrganismId, def: &CreatureDef, provision
         // brain and not the body: a bud whose trait jitter rounds to zero on
         // every slot still bred something different.
         synapses_moved = brain::mutate(&mut genome, def.mutation_rate, &mut draw);
+        // **A silenced colony stays silent** (`World::mute_emit_b`, the
+        // no-trail control's switch): after the mutation, so the draw stream
+        // and `synapses_moved` are what they would have been.
+        if mute_emit_b {
+            silence_emit_b(&mut genome);
+        }
         state.genome = genome;
         for (slot, t) in state.traits.iter_mut().enumerate() {
             let width = trait_width(def, slot);
@@ -6796,7 +6803,11 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
         // which for a gradient-laying rule is arguably the better end: an
         // ant past `nest_memory` used to contribute nothing at all.
         let emit_a = outputs[brain::BrainOutput::EmitA as usize].clamp(0.0, 1.0);
-        let emit_b = outputs[brain::BrainOutput::EmitB as usize].clamp(0.0, 1.0);
+        // The brain's rate times the food trail's lay rule (1 with it off,
+        // exactly, so off is the ant before it): only a load from a trip lays
+        // food scent (`FoodTrail::lay`). The cost below prices what is laid.
+        let emit_b_brain = outputs[brain::BrainOutput::EmitB as usize].clamp(0.0, 1.0);
+        let emit_b = emit_b_brain * food_trail_lay(world, organism);
         // **Where the mark goes: the head it arrived on, or the cell it just
         // left.** `PIXEL_PHYSICS_DEPOSIT_AT=vacated` is a measurement switch
         // for `open-bugs-handoff.md` §Z29, and it defaults to the shipped
@@ -6818,7 +6829,7 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
         let amount_b = (emit_b * pheromone::DEPOSIT as f32) as pheromone::Scent;
         world.deposit_pheromone(Channel::A, dx_, dy_, amount_a);
         world.deposit_pheromone(Channel::B, dx_, dy_, amount_b);
-        laid = (amount_a, amount_b, emit_b, (dx_, dy_));
+        laid = (amount_a, amount_b, emit_b_brain, (dx_, dy_));
         // **Laying a trail costs, and until 2026-09-05 it did not.** Charged
         // on the sum of both planes and in proportion to what was actually
         // put down, so a whisper is cheaper than a shout -- a per-event
@@ -15855,6 +15866,166 @@ pub fn trip_reach_from_env() -> Option<i32> {
 /// environment's.
 pub fn trip_reach_of(world: &World) -> Option<i32> {
     world.trip_reach.unwrap_or_else(trip_reach_from_env)
+}
+
+/// **`PIXEL_PHYSICS_FOOD_TRAIL`: the food trail's recipe, lay, read and give
+/// up** (`Reports/food-trail-plan-2026-09-29.md`). Built in parts because the
+/// three only work together and every earlier attempt judged one alone: a
+/// food-charged lay rule on a walk that could follow nothing, an uphill reader
+/// on a trail whose slope points home, a give-up switched off on a trail
+/// (`Reports/ant-scenes-2026-09-23.md` §22v). The bar is the `mute` arm (the
+/// ants' own trail B silenced), because before this the colony's trail cost
+/// it food (§22v: 6,062 -> 7,512 taken with it muted).
+///
+/// **Unset is `lay` since 2026-09-30** (§23c): on the colony bed, 24 seeds at
+/// 90 cells, food taken 6,062 -> 9,217 (23/1 against `off`, 22/2 against
+/// `mute`) and starved 57 -> 14; no lab-box gate worse at p < 0.05. `off` is
+/// the ant before it, bit for bit. Only `lay` acts so far; `read` and
+/// `giveup` parse and do nothing yet.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct FoodTrail {
+    /// **Only a load from a trip lays trail B** ([`food_trail_lay`]): the
+    /// brain's `EmitB` times 1 while the crop holds food marked as a trip
+    /// load (`OrganismState::trip_load`), else times 0. Chosen from the
+    /// counterfactual planes (§23a): on the colony's own paths it cuts B
+    /// west of the door 85.4-99.9% and at the door 92-98%, and no odometer
+    /// beat it on the door's reach-6 gradient on any of 16 seeds.
+    pub lay: bool,
+    /// Stage 2's reader (not built yet).
+    pub read: bool,
+    /// Stage 3's give-up on a trail (not built yet).
+    pub giveup: bool,
+    /// **The lay rule's odometer**, in authored ticks: a trip load lays at
+    /// `T / (T + since_trip)` of the brain's rate (`T` scaled by
+    /// `World::cell_scale`). 0, the default, is none. Kept as an arm, not
+    /// shipped: §23a found it lifts only the time-mean slope, never the
+    /// snapshot an ant reads, and weakens the door.
+    pub t: f32,
+    /// Stage 2's follow gain.
+    pub gain: f32,
+    /// Stage 2's reach at the door: 2, or 6 (the larger of the two).
+    pub reach: u8,
+    /// Stage 2: every empty ant follows, not only the hungry or driven.
+    pub follow_all: bool,
+}
+
+impl FoodTrail {
+    /// Nothing: the ant before it, bit for bit.
+    pub const OFF: FoodTrail = FoodTrail { lay: false, read: false, giveup: false, t: 0.0, gain: FOOD_TRAIL_GAIN, reach: 6, follow_all: false };
+    /// `on`: all three parts at their defaults.
+    pub const ON: FoodTrail = FoodTrail { lay: true, read: true, giveup: true, ..FoodTrail::OFF };
+}
+
+/// Stage 2's follow gain, the plan's `FOLLOW_GAIN`.
+pub const FOOD_TRAIL_GAIN: f32 = 3.0;
+
+/// What `PIXEL_PHYSICS_FOOD_TRAIL` unset means: the lay rule alone, measured
+/// against `off` and `mute` in §23c and on by default since 2026-09-30.
+const FOOD_TRAIL_UNSET: FoodTrail = FoodTrail { lay: true, ..FoodTrail::OFF };
+
+/// `PIXEL_PHYSICS_FOOD_TRAIL`'s value read as a recipe; an unset variable
+/// reads as `""`. `off`, `on`, or a comma list of parts: `lay`, `read`,
+/// `giveup`, `on` (all three), `t=<ticks>`, `gain=<g>`, `reach=2|6`,
+/// `follow=all`. A value it cannot read is reported and read as unset.
+fn parse_food_trail(raw: &str) -> FoodTrail {
+    let raw = raw.trim();
+    match raw {
+        "" => return FOOD_TRAIL_UNSET,
+        "off" => return FoodTrail::OFF,
+        _ => {}
+    }
+    let mut ft = FoodTrail::OFF;
+    for part in raw.split(',').map(str::trim) {
+        let ok = match part {
+            "lay" => {
+                ft.lay = true;
+                true
+            }
+            "read" => {
+                ft.read = true;
+                true
+            }
+            "giveup" => {
+                ft.giveup = true;
+                true
+            }
+            "on" => {
+                (ft.lay, ft.read, ft.giveup) = (true, true, true);
+                true
+            }
+            "follow=all" => {
+                ft.follow_all = true;
+                true
+            }
+            "reach=2" | "reach=6" => {
+                ft.reach = if part == "reach=2" { 2 } else { 6 };
+                true
+            }
+            _ => match part.split_once('=') {
+                Some(("t", v)) => v.parse::<f32>().ok().filter(|t| *t >= 0.0).map(|t| ft.t = t).is_some(),
+                Some(("gain", v)) => v.parse::<f32>().ok().filter(|g| g.is_finite()).map(|g| ft.gain = g).is_some(),
+                _ => false,
+            },
+        };
+        if !ok {
+            eprintln!("PIXEL_PHYSICS_FOOD_TRAIL={raw:?}: unknown part {part:?}, read as unset (off, on, or lay, read, giveup, t=, gain=, reach=2|6, follow=all)");
+            return FOOD_TRAIL_UNSET;
+        }
+    }
+    ft
+}
+
+/// `PIXEL_PHYSICS_FOOD_TRAIL`, read once per process ([`parse_food_trail`]).
+pub fn food_trail_from_env() -> FoodTrail {
+    static V: std::sync::OnceLock<FoodTrail> = std::sync::OnceLock::new();
+    *V.get_or_init(|| parse_food_trail(&std::env::var("PIXEL_PHYSICS_FOOD_TRAIL").unwrap_or_default()))
+}
+
+/// This world's food-trail recipe: `World::food_trail` if set, else the
+/// environment's.
+pub fn food_trail_of(world: &World) -> FoodTrail {
+    world.food_trail.unwrap_or_else(food_trail_from_env)
+}
+
+/// **Zero every weight into `EmitB`, direct and through the hidden layer**,
+/// and say how many were live. `trailfollow`'s `mute` arm does this to the
+/// founders' genome; [`World::mute_emit_b`] does it to every newborn's after
+/// `brain::mutate`, which perturbs zero slots as readily as live ones.
+pub fn silence_emit_b(genome: &mut [f32]) -> usize {
+    let out = brain::BrainOutput::EmitB;
+    let slots = brain::INPUTS.iter().map(|&i| brain::io_slot(i, out)).chain((0..brain::BRAIN_HIDDEN).map(|h| brain::ho_slot(h, out)));
+    let mut moved = 0;
+    for slot in slots {
+        if genome[slot] != 0.0 {
+            genome[slot] = 0.0;
+            moved += 1;
+        }
+    }
+    moved
+}
+
+/// **The lay rule's factor on the brain's `EmitB`** ([`FoodTrail::lay`]): 1
+/// with the rule off, so the deposit is the brain's; with it on, 1 while the
+/// crop holds food and is marked a trip load, else 0, times the odometer when
+/// one is set. **It multiplies and never replaces**, so an arm that silences
+/// the genome's `EmitB` (`trailfollow`'s `mute`) still lays nothing and stays
+/// the control. The mark is `trip_load`, so it inherits the trip reach
+/// (`trip_reach_of`): with the reach off, food taken beside the door by an
+/// ant that roamed far enough is a trip load and lays.
+fn food_trail_lay(world: &World, organism: OrganismId) -> f32 {
+    let ft = food_trail_of(world);
+    if !ft.lay {
+        return 1.0;
+    }
+    let Some(s) = world.organism(organism) else { return 0.0 };
+    if !(s.trip_load && s.crop.is_some_and(|c| c.worth() > 0.0)) {
+        return 0.0;
+    }
+    if ft.t <= 0.0 {
+        return 1.0;
+    }
+    let t = ft.t * world.cell_scale();
+    t / (t + f32::from(s.since_trip))
 }
 
 /// **This animal carries a packed lunch the rule lets out**
@@ -29608,6 +29779,132 @@ mod tests {
         assert_eq!(st.since_trip, st.since_nest - nest0, "since_trip must rise one per tick from the pickup, beside since_nest");
     }
 
+    /// **`PIXEL_PHYSICS_FOOD_TRAIL` reads its spellings, and a value it
+    /// cannot read is reported and read as unset (`lay`), never as some
+    /// half-built recipe** (`parse_food_trail`). A table over the parser, not
+    /// watched red.
+    #[test]
+    fn parse_food_trail_reads_its_spellings() {
+        let unset = FoodTrail { lay: true, ..FoodTrail::OFF };
+        assert_eq!(parse_food_trail(""), unset, "unset is the lay rule, on since 2026-09-30");
+        assert_eq!(parse_food_trail("off"), FoodTrail::OFF);
+        assert_eq!(parse_food_trail(" on "), FoodTrail::ON);
+        assert_eq!(parse_food_trail("lay"), FoodTrail { lay: true, ..FoodTrail::OFF });
+        assert_eq!(parse_food_trail("lay, giveup"), FoodTrail { lay: true, giveup: true, ..FoodTrail::OFF });
+        assert_eq!(parse_food_trail("lay,t=32"), FoodTrail { lay: true, t: 32.0, ..FoodTrail::OFF });
+        assert_eq!(parse_food_trail("on,gain=1.5,reach=2,follow=all"), FoodTrail { gain: 1.5, reach: 2, follow_all: true, ..FoodTrail::ON });
+        assert_eq!(parse_food_trail("read"), FoodTrail { read: true, ..FoodTrail::OFF }, "read without lay parses: the plan's diagnostic arm");
+        assert_eq!(parse_food_trail("lay,t=-1"), unset, "a negative odometer is unreadable");
+        assert_eq!(parse_food_trail("lay,reach=4"), unset, "a reach other than 2 or 6 is unreadable");
+        assert_eq!(parse_food_trail("read,fast"), unset, "a part it does not know makes the whole value unset");
+        assert_eq!(FoodTrail::OFF.gain, FOOD_TRAIL_GAIN);
+        assert_eq!(FoodTrail::OFF.reach, 6);
+    }
+
+    /// One ant on a stone floor, its crop primed with three crumbs as
+    /// `(trip_load, lunch)`, the recipe `ft` on the world, 400 frames of
+    /// walking with no pheromone pass (so nothing decays or spreads): trail B
+    /// summed over the world, and how many steps it took. `mute` silences
+    /// every wire into the genome's `EmitB` first, as `trailfollow`'s `mute`
+    /// arm does.
+    fn food_trail_laid(ft: FoodTrail, trip_load: bool, lunch: bool, mute: bool) -> (u64, u64) {
+        let mut w = World::new(Rect::new(0, 0, 159, 63));
+        trip_reach_floor(&mut w, &[]);
+        w.food_trail = Some(ft);
+        if mute {
+            let sid = w.species.id_of("ant").expect("the ant");
+            let mut g = w.species.get(sid).genome.clone();
+            let mut zeroed = 0;
+            for &i in brain::INPUTS.iter() {
+                let slot = brain::io_slot(i, brain::BrainOutput::EmitB);
+                zeroed += usize::from(g[slot] != 0.0);
+                g[slot] = 0.0;
+            }
+            for h in 0..brain::BRAIN_HIDDEN {
+                let slot = brain::ho_slot(h, brain::BrainOutput::EmitB);
+                zeroed += usize::from(g[slot] != 0.0);
+                g[slot] = 0.0;
+            }
+            assert!(zeroed > 0, "no EmitB wire was zeroed: the muted scene is the shipped one");
+            w.species.set_genome(sid, g);
+        }
+        let crumbs = w.materials.id_of("crumbs").expect("crumbs material");
+        let a = spawn(&mut w, "ant", 80, 40);
+        {
+            let st = w.organism_mut(a).expect("live");
+            st.crop = Some(Crop { material: crumbs, cells: 3, digesting: 0.0, unit: 480.0, shade: 0, passenger: None });
+            st.trip_load = trip_load;
+            st.lunch = lunch;
+        }
+        run(&mut w, 400);
+        let b = w.bounds().expect("bounds");
+        let laid: u64 = (b.min_y..=b.max_y).flat_map(|y| (b.min_x..=b.max_x).map(move |x| (x, y))).map(|(x, y)| u64::from(w.pheromone_at(Channel::B, x, y))).sum();
+        (laid, w.creature_stats.moves)
+    }
+
+    /// **Under the lay rule only a load from a trip lays food scent**
+    /// (`FoodTrail::lay`, `food_trail_lay`). With the rule off a lunch
+    /// carrier and an ant with a crop filled away from home both lay B --
+    /// the scene carries the defect §22v measured (13.9% of B laid west of
+    /// the door). With it on, a trip load lays exactly what it laid with the
+    /// rule off, and the other two lay nothing. **Watched red** with the gate
+    /// dropped from `food_trail_lay` (the lunch carrier laid B under the
+    /// rule).
+    #[test]
+    fn under_the_lay_rule_only_a_trip_load_lays_food_scent() {
+        let lay = FoodTrail { lay: true, ..FoodTrail::OFF };
+        let (trip_off, moves) = food_trail_laid(FoodTrail::OFF, true, false, false);
+        assert!(moves > 5, "the ant took {moves} steps: nothing to lay on");
+        assert!(trip_off > 0, "a trip load laid no B with the rule off: the scene cannot show a cut");
+        let (lunch_off, _) = food_trail_laid(FoodTrail::OFF, false, true, false);
+        let (plain_off, _) = food_trail_laid(FoodTrail::OFF, false, false, false);
+        assert!(lunch_off > 0 && plain_off > 0, "with the rule off a lunch carrier ({lunch_off}) and an unmarked crop ({plain_off}) must lay B, as today");
+        assert_eq!(food_trail_laid(lay, true, false, false).0, trip_off, "a trip load must lay exactly the brain's B under the rule");
+        assert_eq!(food_trail_laid(lay, false, true, false).0, 0, "a lunch carrier laid B under the rule");
+        assert_eq!(food_trail_laid(lay, false, false, false).0, 0, "an unmarked crop laid B under the rule");
+    }
+
+    /// **The lay rule multiplies the genome's `EmitB`, so the `mute` arm
+    /// stays a control**: with every wire into `EmitB` zeroed, a trip load
+    /// lays nothing with the rule on, as with it off. **Watched red** with
+    /// the rule replacing the brain's rate by a constant for a trip load.
+    #[test]
+    fn mute_stays_a_control_under_the_lay_rule() {
+        let lay = FoodTrail { lay: true, ..FoodTrail::OFF };
+        let (laid, moves) = food_trail_laid(lay, true, false, true);
+        assert!(moves > 5, "the muted ant took {moves} steps");
+        assert_eq!(laid, 0, "a muted trip load laid {laid} B under the rule");
+        assert_eq!(food_trail_laid(FoodTrail::OFF, true, false, true).0, 0, "the muted scene must lay nothing with the rule off");
+        assert!(food_trail_laid(lay, true, false, false).0 > 0, "unmuted, the same trip load must lay B under the rule");
+    }
+
+    /// **The odometer lays a trip load at `T / (T + since_trip)` of the
+    /// brain's rate**, so a load primed 1,000 ticks old lays less than a
+    /// fresh one at `t=32`, and exactly the brain's rate at `t=0`. Pure in
+    /// `food_trail_lay`; not watched red.
+    #[test]
+    fn the_lay_odometer_fades_with_the_cargos_age() {
+        let mut w = World::new(Rect::new(0, 0, 63, 63));
+        let crumbs = w.materials.id_of("crumbs").expect("crumbs material");
+        let a = spawn(&mut w, "ant", 32, 20);
+        {
+            let st = w.organism_mut(a).expect("live");
+            st.crop = Some(Crop { material: crumbs, cells: 3, digesting: 0.0, unit: 480.0, shade: 0, passenger: None });
+            st.trip_load = true;
+        }
+        let at = |w: &mut World, t: f32, age: u16| {
+            w.food_trail = Some(FoodTrail { lay: true, t, ..FoodTrail::OFF });
+            w.organism_mut(a).expect("live").since_trip = age;
+            food_trail_lay(w, a)
+        };
+        assert_eq!(at(&mut w, 0.0, 1000), 1.0);
+        assert_eq!(at(&mut w, 32.0, 0), 1.0);
+        assert!((at(&mut w, 32.0, 32) - 0.5).abs() < 1e-6);
+        assert!(at(&mut w, 32.0, 1000) < 0.04);
+        w.food_trail = Some(FoodTrail::OFF);
+        assert_eq!(food_trail_lay(&w, a), 1.0, "off is the brain's rate");
+    }
+
     /// **Food beside a door is not a trip under the reach, food from afar
     /// is, and the roam gate still stands** (`PIXEL_PHYSICS_TRIP_REACH`). A
     /// site at x 20, an ant 20 cells into an outing: a crumb taken at x ~30
@@ -37160,6 +37457,41 @@ mod tests {
                 "born_with fired on organism {id} with every mutation channel at zero"
             );
         }
+    }
+
+    /// **A silenced colony breeds silent young** (`World::mute_emit_b`,
+    /// `silence_emit_b`): the no-trail control stays one across births.
+    /// Founders silenced as `trailfollow`'s `mute` arm silences them, mutation
+    /// at rate 1 so every birth perturbs every live slot, zero ones included.
+    /// **The switch-off arm is the fault put back**, run every time: the same
+    /// colony's young re-arm `EmitB`, so a green here cannot be a colony that
+    /// never mutated.
+    #[test]
+    fn a_muted_colony_breeds_young_that_lay_no_trail_b() {
+        let emit_b_live = |g: &[f32]| {
+            let out = brain::BrainOutput::EmitB;
+            brain::INPUTS.iter().any(|&i| g[brain::io_slot(i, out)] != 0.0) || (0..brain::BRAIN_HIDDEN).any(|h| g[brain::ho_slot(h, out)] != 0.0)
+        };
+        let arm = |mute: bool| {
+            let (mut w, founders) = breeding_colony(12, 2000.0, 1.0);
+            w.mute_emit_b = mute;
+            for &id in &founders {
+                let st = w.organism_mut(id).expect("a founder just planted");
+                assert!(silence_emit_b(&mut st.genome) > 0, "the founder's genome had no EmitB wire to silence, so this scene tests nothing");
+            }
+            run(&mut w, 200);
+            let young: Vec<OrganismId> = w.live_organism_ids().into_iter().filter(|id| !founders.contains(id)).collect();
+            let armed = young.iter().filter(|&&id| w.organism(id).is_some_and(|s| emit_b_live(&s.genome))).count();
+            (young.len(), armed)
+        };
+        let (young, armed) = arm(true);
+        assert!(young > 0, "12 funded ants over 200 frames left no young alive -- the rest of this test proves nothing");
+        assert_eq!(armed, 0, "{armed} of {young} young in a muted colony carry a live EmitB wire");
+        let (young_off, armed_off) = arm(false);
+        assert!(
+            young_off > 0 && armed_off > 0,
+            "with the switch off {armed_off} of {young_off} young re-armed EmitB -- if none did, the muted arm above could not have failed"
+        );
     }
 
     /// **One ant walled in for fifty ticks, and a thousand ants each waiting

@@ -3795,6 +3795,17 @@ pub struct World {
     /// (`creature::trip_reach_of`). `None` follows the environment;
     /// `Some(None)` is the rule off (a trip judged by the roam alone).
     pub trip_reach: Option<Option<i32>>,
+    /// **The food trail's recipe for this world, overriding
+    /// `PIXEL_PHYSICS_FOOD_TRAIL`** (`creature::food_trail_of`). `None`
+    /// follows the environment, which is the lay rule unless set `off`.
+    pub food_trail: Option<crate::sim::creature::FoodTrail>,
+    /// **Keep every newborn's `EmitB` wiring at zero**
+    /// (`creature::silence_emit_b`), so a colony whose founders were silenced
+    /// stays silent across births. Only a harness sets it: `trailfollow`'s
+    /// `mute` arm is the no-trail control, and `brain::mutate` touches zero
+    /// slots too, so without this a newborn's mutated genome re-arms the
+    /// channel the arm exists to be without. `false` in every game.
+    pub mute_emit_b: bool,
     /// **Whether a birth counts food in reach at what its bite is certain to
     /// pay, overriding `PIXEL_PHYSICS_BIRTH_PRICE` for this world**
     /// (`creature::birth_price_of`). `None` follows the environment, which is
@@ -6186,6 +6197,8 @@ impl World {
             packed_lunch: None,
             store_lunch: None,
             trip_reach: None,
+            food_trail: None,
+            mute_emit_b: false,
             birth_price: None,
             blocked_tissue_by_material: Vec::new(),
             energy_ledger: EnergyLedger::default(),

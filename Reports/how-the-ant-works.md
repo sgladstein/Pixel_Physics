@@ -96,16 +96,19 @@ will be.
   (`SpoilOut`, `spoil_lift_mode`, `spoil_ring`), and tunnel widening
   (`dig_widen_of`, `dig_widen_site`, `dig_shoulder_site`). §7 and §10 on
   2026-09-29 for who lays trail B (`CarryingFood`, `carries_lunch`: a lunch
-  carrier lays it), and §15 that day for the trail columns (`since_trip`,
-  `DecisionRow::emit_b_laid`, `b_near`, `score`). §9 and §12 on 2026-09-29
-  for the breeding regimes, which neither section named before
-  (`breeding_regime`, `breeding_radius`, `suppress_bar`,
+  carrier lays it), §7, §10 and §12 that day for the food trail's lay
+  switch (`food_trail_lay`, `FoodTrail`), and §15 that day for the trail
+  columns (`since_trip`, `DecisionRow::emit_b_laid`, `b_near`, `score`).
+  §9 and §12 on 2026-09-29 for the breeding regimes, which neither section
+  named before (`breeding_regime`, `breeding_radius`, `suppress_bar`,
   `graded_suppression_factor`, `colony_has_other_breeder`,
   `nearest_breeder`, `breeder_index_enabled`, and `OrganismState::children`).
-  §9 and §12 on 2026-09-30
-  for births on nestmates (`bud_stack_of`, `place_creature`'s `kin`,
-  `births_on_kin`), and §12 that day for the carry's latch at the door
-  (`carry_stage`, `ring_target`, `spoil_ring_let_go`).
+  §7, §10 and §12 on 2026-09-30 for the lay rule shipped on
+  (`FOOD_TRAIL_UNSET`), and §12 that day for `World::mute_emit_b`. §9 and
+  §12 on 2026-09-30 for births on nestmates (`bud_stack_of`,
+  `place_creature`'s `kin`, `births_on_kin`), and §12 that day for the
+  carry's latch at the door (`carry_stage`, `ring_target`,
+  `spoil_ring_let_go`).
   Update this line whenever a section is re-checked against the code.
 - **Edit it in place. Never append history.** When you change a mechanism
   described here, update the section in the same commit. When you find this
@@ -251,7 +254,7 @@ squash(0.5 − 6a))` for a forward difference `a`. That is ±1.5 at a = ±0.1,
 | `Turn` | `TempAboveAmb −0.8`, so it lies within ±0.44, is exactly 0 at ambient (no bias), and stays near 0 wherever the temperature does | the forward cone (§6) |
 | `Persist`, `Caution`, `Tumble` | **none**: `squash(0) = 0`, which `unit_scale` maps to the midpoint. **Persist 1.0, footing 0.6, tumble chance 0.5** | cone and tumble (§6) |
 | `EmitA` | unit 4 only | trail A (§7) |
-| `EmitB` | `CarryingFood +2.5`, so **0.714 while laden, 0 while empty** | trail B (§7) |
+| `EmitB` | `CarryingFood +2.5`, so **0.714 while laden, 0 while empty** | trail B (§7), laid only on a trip load |
 | `Feed` | `Bias +0.4, FoodAdjacent +0.8`: 0.29, or 0.55 with food in reach | §5 |
 | `Drop` | `Bias −2.0, Energy +1.8, AtNest +1.0889, Carrying +0.2`: **0 away from the nest; at it, 0.52 when fed and 0 below about 40% of `start_energy`** | §5 |
 | `DropSpoil` | `AtNest +0.9, Carrying +0.2, SurfaceCurvature +0.169` | §5 |
@@ -669,11 +672,17 @@ The channels carry no meaning in the engine; the meaning is in the wiring.
   - **Trail A:** every ant, laden or empty, at the unit-4 odometer's
     strength: strong just after leaving the nest, fading with time away.
     It works as nest scent.
-  - **Trail B:** any ant with food in its crop (`CarryingFood`, which is 1
-    whenever `crop_fill > 0`), at a constant 0.714. It works as the food
-    trail. That is laden foragers walking home, and also packed-lunch
-    carriers walking out (empty to the chooser, §6d, but their crop holds
-    food) and nest workers and foragers carrying store food in the crop.
+  - **Trail B:** only a forager bringing food back from a trip. The
+    genome's `EmitB` is 0.714 for any ant with food in its crop
+    (`CarryingFood`, 1 whenever `crop_fill > 0`), and **the lay rule**
+    (`PIXEL_PHYSICS_FOOD_TRAIL`, `lay` unless set) multiplies it by 1 while
+    the crop holds food marked as a trip load (`trip_load`, §6d) and by 0
+    otherwise (`food_trail_lay`). So packed-lunch carriers walking out,
+    nest workers and ants eating store food at home lay none. It works as
+    the food trail. `t=<ticks>` adds an odometer, `T / (T + since_trip)`.
+    It multiplies, so a genome with `EmitB` silenced still lays nothing.
+    `PIXEL_PHYSICS_FOOD_TRAIL=off` is the ant before 2026-09-30: every ant
+    with food in its crop lays at 0.714.
 - **Spreading and fading**, every `PHEROMONE_INTERVAL = 12` frames, every
   awake tile: each cell becomes `here + 0.25 × (mean of its 3×3 − here)`,
   then fades by `× (1 − rho)` with a forced minimum drop of 1 raw unit.
@@ -858,7 +867,7 @@ either plane: the other trail inputs are computed and wired to nothing (§3).
 | `HomeAligned` → `Move +3.0` | 1 whenever off the anchor, whichever way it faces | 0 |
 | What picks the heading | every usable heading, scored by going on, trail A where it would step, and home at `patience` | every usable heading, scored by going on, trail B where it would step, and away from home on a route |
 | Reversal when boxed in | yes, but a jam of creatures is waited out first | yes, at once |
-| Lays trail B | 0.714 on every step | no, except a packed-lunch carrier: its crop holds food, so `CarryingFood` reads 1 |
+| Lays trail B | 0.714 on every step, only on a trip load (`FOOD_TRAIL`, §7) | no (under `FOOD_TRAIL=off`, a packed-lunch carrier does: its crop holds food, so `CarryingFood` reads 1) |
 | Lays trail A | at the odometer's (by then faded) level | at the odometer's level, strongest just out of the nest |
 | Digs | never (`act` returns first) | when the dig roll wins |
 | Drops | food at the nest, about 0.25 a tick when fed, never below ~40% energy | spoil, if holding it |
@@ -923,6 +932,8 @@ Read once per process from the environment. The default is what ships.
 | `PIXEL_PHYSICS_PACKED_LUNCH` | on | `off`: a crop filled only at home counts as a load, so the forage drive does not reach its carrier (§6d); `World::packed_lunch` for one world |
 | `PIXEL_PHYSICS_TRIP_REACH` | on (16) | `off`: a pickup away from home marks a trip once the ant has been `FORAGE_TRIP_MIN` cells from its last nest contact, wherever the food lay; on, the food must also be living tissue or loose food more than the reach (authored cells, scaled; an integer sets it) from every nest's door (§6d); `World::trip_reach` for one world |
 | `PIXEL_PHYSICS_RETURN_WINDOW` | 1400 | `<frames>`: the `returns` drive's window (§6d) |
+| `PIXEL_PHYSICS_FOOD_TRAIL` | `lay` | the food trail's recipe (`FoodTrail`): `lay` lays trail B only on a trip load (§7), `off` is the ant before 2026-09-30 (every ant with food in its crop lays), `t=<ticks>` adds an odometer; `read`, `giveup`, `gain=`, `reach=2\|6` and `follow=all` parse and do nothing yet; `on` is all three parts; `World::food_trail` for one world |
+| `World::mute_emit_b` | `false` | harness-only, set by `trailfollow`'s `mute` arm and by no game: every newborn's `EmitB` wiring is re-zeroed after its birth mutation (`silence_emit_b`), so a colony whose founders were silenced stays silent across births |
 | `PIXEL_PHYSICS_STORE_LUNCH` | off | `on`: a cell taken before the ant has been `FORAGE_TRIP_MIN` (8) cells from its last nest contact counts as taken at home for the packed lunch, wherever it stood; off, a crop is a lunch only while every cell in it was taken with the head beside nest material (§6d); `World::store_lunch` for one world |
 | `PIXEL_PHYSICS_HAUL_BITE` | on | `off`: an animal holding spoil cannot swallow or load food; `fed`: only one at or above `start_energy` (§9) |
 | `PIXEL_PHYSICS_BIRTH_PRICE` | `guaranteed` | `face`: a birth counts a bare seed in reach at its full worth, though a bite that spares it pays a quarter, so the top-up can leave the parent overdrawn (§9); `World::birth_price` for one world |

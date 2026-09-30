@@ -3373,3 +3373,205 @@ arm, `Reports/data/trail-instruments-2026-09-29.tar.gz`):
 **Next, Stage 1 (the lay switch) is unchanged in shape and simpler**: only a
 load from a trip lays food scent, at the brain's rate. Its registered
 predictions P1.1-P1.7 stand, P1.1 read against `cf=gate`.
+
+### 23c. Stage 1, only a load from a trip lays food scent: registered
+
+**Built** (`PIXEL_PHYSICS_FOOD_TRAIL=lay`, `FoodTrail::lay`, off by default):
+trail B is laid at the brain's rate times 1 while the crop holds food marked
+as a trip load (`trip_load`), else times 0. It multiplies, so `mute` stays
+the control. Unset and `off` must be byte-identical to the Stage 0 build.
+**Measured before the runs below:** unset and `off` reproduce `main`'s
+`b518p` trace (pulsed 90, seeds 1-8) line for line and all 16 decision CSVs
+byte for byte. **`mute` under `lay` equals `mute` on 6 of 8 runs, not 8**
+(unlimited pile, seeds 1-4, gaps 90 and 140): `mute` zeroes the founders'
+`EmitB` wires, and an ant born with a mutation that re-arms one lays a
+trace (seed 4 at 90: ant 24, born near frame 21,500, `EmitB` at most
+0.004, 40 raw a step against 10,240 for one full deposit). The lay rule
+gates that trace and the two runs part. So `mute` is "no B laid by the
+founders", and a run that breeds can carry a whisper of it; the bar is
+unchanged.
+
+**Runs.** Arms `off` (unset), `lay`, `mute` (trail B silenced: the bar).
+Unlimited pile (`food=400 refill=400`) and pulsed pile (`food=30
+refill=6000`), gaps 90 and 140, seeds 1-24, 24,000 frames, the bed's env.
+Seeds 1-8 on the unlimited pile, `off` and `lay`, are traced: `decisioncsv
+dwide btrail btrailevery=100 cf=gate shadow`. Paired within seed.
+
+**Predictions** (written before any Stage 1 run; row `surface+1`, late half):
+
+- **P1.1** `lay`'s live trail is the gate counterfactual read on `off`'s
+  paths: Pearson r >= 0.8 between the two time-mean profiles over the
+  `BTRAIL` range, on >= 6/8 seeds per gap.
+- **P1.2** B west of the door (the band's five rows, x < the nest's west
+  edge, time-mean) under `lay` is <= 10% of `off`'s on >= 7/8 per gap.
+- **P1.3** the door carries news: at empty departures (`trailclimb.py` §3)
+  the door's median B in the ">2000 frames since a return" bin is 0 under
+  `lay` at both gaps, and the 774-2000 bin's median is at most half the
+  0-270 bin's (`off` at 90: 11,141 against 14,536).
+- **P1.4** laying alone gives no bearing: the east share of empty
+  departures is within 5 points of `off` at each gap (pooled, 8 seeds).
+- **P1.5** a forager that gives up west comes home sooner: median frames
+  from giving up to reaching home (`giveup.py`) <= 800 at 90 cells (§22v:
+  1,392 today, 504 muted), lower than `off` on >= 6/8 seeds.
+- **P1.6** food taken from the pile (unlimited): `lay` above `off` on >=
+  16/24 at 90; `lay` against `mute` not different at 90 (sign test p >
+  0.05); at 140 `lay` not below `off` (above on >= 12/24).
+- **P1.7** trail laying costs less: the `BURN` line's trail-laying joules
+  under `lay` below `off` on >= 22/24 per gap (unlimited).
+- **Harm bars:** starved not higher than `off` at p < 0.1 on any bed, and
+  food taken on the pulsed pile not lower than `off` at p < 0.1.
+
+**Gate** (the plan's): P1.1-P1.3 hold and no harm bar fails. If P1.1
+fails, stop and trace before Stage 2.
+
+**Scored** (the runs launched after the registration commit `de605027`;
+`Reports/data/food-trail-lay-2026-09-29.tar.gz`):
+
+| | gap 90 | gap 140 | verdict |
+|---|---|---|---|
+| P1.1 `lay` live profile vs `off`'s `cf=gate`, r >= 0.8 | 8/8 (0.83-0.97) | 7/8 (0.79-0.96) | right |
+| P1.2 west-of-door B under `lay` <= 10% of `off` | 5/8 (0.5-15.9%) | 5/8 (2.3-26.5%) | **wrong** |
+| P1.3 door B: >2000 bin 0; 774-2000 <= half of 0-270 | 0; 84 vs 1,517 | 0; 128 vs 1,714 | right |
+| P1.4 east share of empty departures within 5 points | 44% -> 50% | 43% -> 53% | **wrong, the good way** |
+| P1.5 given-up west foragers home <= 800 frames, lower on >= 6/8 | 1,392 -> 510, 8/8 | 903 -> 546, 7/8 | right |
+| P1.6 taken above `off` >= 16/24; ties `mute` | 23/1; beats `mute` 22/2 | 21/2; 17/7 vs `mute` | right; **"ties mute" wrong, the good way** |
+| P1.7 trail-laying J lower on >= 22/24 | 19/24 (-17%) | 20/24 (-13%) | **wrong** |
+
+Colony outcomes, 24 seeds per arm, paired within seed (`off` / `mute` / `lay`):
+
+| | taken | starved | born | nest food, J |
+|---|---|---|---|---|
+| unlimited 90 | 6,062 / 7,512 / **9,217** | 57 / 29 / **14** | 188 / 282 / **416** | 297,943 / 329,413 / **371,102** |
+| unlimited 140 | 4,287 / 5,412 / **6,374** | 127 / 54 / **50** | 63 / 107 / **157** | 194,687 / 239,007 / **265,158** |
+| pulsed 90 | 2,588 / 2,803 / 2,760 | 286 / 220 / 250 | 39 / 47 / 54 | 107,916 / 157,131 / 176,284 |
+| pulsed 140 | 2,630 / 2,806 / 2,827 | 254 / 206 / 200 | 20 / 20 / 27 | 108,030 / 144,365 / 168,475 |
+
+`lay` against `off`, by seed: taken 23/1 and 21/2 on the unlimited pile,
+13/8 and 16/3 (p 0.004) pulsed; starved lower 17/2 (p 0.001), 15/3, 14/7,
+16/2 (p 0.001). Against `mute` it is higher on taken 22/2 at 90 and 17/7 at
+140 (p 0.064). On the pulsed pile it does not separate from `mute`: at 90
+taken 2,803 -> 2,760 (lower on 13, higher on 7, p 0.26) and starved 220 ->
+250 (14/9, p 0.41); at 140 taken 11/7 and starved 9/12. **No harm bar
+fails.**
+
+- **For the first time the colony's own trail helps**: silencing it was
+  worth +24% food at 90 cells (§22v); gating who lays it is worth +52%.
+- **The funnel** (traced seeds 1-8, 90 cells, `antloop.py`): full loops 429
+  -> 566, food taken 2,125 -> 3,037 (8/0), starved 24 -> 2 (0/6), ants that
+  lived 230 -> 283. The share of ants completing a loop hardly moves (79.7%
+  -> 80.7%): the gain is a better-fed, larger colony doing the same loop.
+- **Why laying alone gives a bearing (P1.4)**: today's chooser multiplies
+  going on by trail presence (`TRAIL_GAIN`), so a trail laid west of the
+  door by lunch carriers pulled departures west. With no B west of the
+  door, a west-facing ant leaving the nest finds nothing to hold it, and
+  an east-facing one finds the road. West departures fall 23% -> 18% and
+  30% -> 22%.
+- **Why a given-up forager gets home (P1.5)**: after giving up, the share of
+  its steps on a trail falls 0.64 -> 0.05 and its steps outward 0.43 ->
+  0.10 (`giveup.py`); it walks home as fast as a `mute` ant (504).
+- **P1.2's residue is a homing failure, traced**: every cell of B laid west
+  of the door under `lay` was laid by an ant carrying a trip load, cargo a
+  median ~500 ticks old, most of it climbing the world's west edge wall
+  (rows 4-90) and at 140 cells underground. They are loaded foragers that
+  walked past home; the lay rule is doing what it says. It is 2.6% (90) and
+  6.0% (140) of all B laid.
+- **P1.7**: trail laying costs 17% and 13% less, but not on 22/24 seeds; a
+  colony with more ants lays more channel A.
+
+**80 founders at 135 cells** (24 seeds, `off` / `mute` / `lay`): taken
+8,298 / 9,625 / **12,350** (`lay` above `off` on 24/24, above `mute` 21/3);
+starved 1,109 / 933 / **645** (lower than `off` on 24/24, than `mute` 21/3);
+energy held in the ants' bodies 232,572 / 230,605 / 342,311 J (23/1 both).
+**Born leans the other way**: 74 / 42 / 48, lower than `off` on 14 seeds
+and higher on 5 (p 0.064), tied with `mute` (10/10). Not a harm bar, and
+recorded as the one lean against it.
+
+**Gate**: P1.1 and P1.3 hold, P1.2 fails on the homing residue above, no
+harm bar fails on any of the five beds. **Next, per the plan (amended
+2026-09-29):** the lab-box pair and the frame cost, and if both hold, `lay`
+ships on by default; the reader and the give-up are then built on top of
+it.
+
+**Pre-ship checks, and shipped on (2026-09-30).** `FOOD_TRAIL_UNSET` is
+now `lay`; `PIXEL_PHYSICS_FOOD_TRAIL=off` is the ant before it. Runs,
+the terrain harness and the seed-1 trace:
+`Reports/data/food-trail-preship-2026-09-30.tar.gz`.
+
+- **Lab box** (`labforage scenario=played_bed frames=120000`, 24 seeds,
+  `labpair.py`, `off` -> `lay`): no gate worse at p < 0.05. Births 418 ->
+  448.5 (11/13), food eaten 1.09M -> 1.16M J (12/12), ant-frames 10.4M ->
+  9.8M (lower on 15, p 0.31), died of old age 158 -> 147 (lower on 15, p 0.31),
+  **starved per million ant-frames 11.0 -> 13.1 (worse on 16, p 0.15), the
+  one lean**. Crash timing, not a gate: the box peaks sooner (frame 116,100 ->
+  99,900, earlier on 16) and grazes out sooner (11 boxes against 3 fall below
+  a quarter of their peak; alive at the end 203 -> 57, median); died out 2 ->
+  3. Killed 0 / 0.
+- **Merge identity:** `main` moved 15 commits (#522) under Stage 1. On the
+  merged tree the bed (`off` pulsed 90, seeds 1-8, against the `b518p` log
+  and its 16 CSVs; `off` and `lay` unlimited 90, seeds 1-8) and the lab
+  (seeds 1-2, both arms) are byte-identical, header lines filtered, so the
+  numbers above stand.
+- **Frame cost:** none. `ascii`'s ant scene mean 0.849 -> 0.833 ms (two
+  alternated pairs); the rule reads one switch and one organism per step.
+- **Generated terrain** (`ascii`'s "ants: the foraging loop" scene, which
+  failed its round-trip count 58 -> 40 under `lay` on its one seed; a
+  temporary copy that takes the worldgen seed, seeds 1-12, 24,000 frames,
+  `RAYON_NUM_THREADS=1`, an `ANT` row per ant every 50 frames). **No
+  consistent loss.** Ant deaths 187 -> 189 (lower on 6, higher on 3), at home
+  99 -> 98, starved at home 64 -> 61; deliveries higher on 9 of 12, round
+  trips on 8. **The scene is not a commute**: on 4 of 12 seeds not one ant
+  walks laden from the litter (x >= 200) to the nest patch (x < 120) in
+  either arm, and in total 45 against 64 do. It is two populations that stay
+  where they were planted, and "deliveries" there is mostly food put down by
+  ants at home.
+- **Where `lay` lost, traced ant by ant (seed 1, the `ascii` seed).** Deaths 6
+  -> 10. The extra dead are home ants (ids 298, 299, 300, 302, 304), each
+  hungry (energy below `start_energy`), crop empty and never marked with a
+  trip load, sitting at x 28-69 for up to 4,000 frames with **crumbs**
+  within one cell (416 of their 901 hungry samples, against 54 of 348 under
+  `off`). Crumbs are inedible to them. Food stands at home in both arms
+  (50-70k worth, mostly crumbs), and deliveries stall under `lay` after frame
+  12,000 (17 against 104 to the end). Under `off`, trail B covers the home
+  ground on 88% of home samples, laid by every ant eating there; under `lay`
+  on 31%. The chooser multiplies a heading by trail presence for an empty
+  ant, so that home B kept hungry ants walking, and walking found food. **So
+  the loss is the old rule's side effect removed, not the new rule failing**,
+  and it shows as a lean across the 12 seeds: the share of ant-time spent
+  hungry and empty at home is higher on 8 (13.8% -> 15.5% pooled, p 0.39).
+  Also the likeliest reading of the lab lean.
+- **Seed 8's births 31 -> 3** did not trace to a mechanism in time. Its colony
+  delivered more under `lay` (1,611 -> 1,946). Recorded, not explained.
+
+**What this leaves for Stage 2.** A hungry ant at home that is standing on no
+trail has only scouting to take it out, and on seed 1 scouting did not
+(ants 300 and 304 sat hungry for over 4,000 frames). The reader has to give
+that ant a reason to leave that the old rule gave it by accident. Stage 2's
+measurement includes the hungry-at-home share on the terrain seeds, and the
+lab's starved-per-ant-frame, as its first readouts.
+
+**The `mute` column corrected: the control made heritable (2026-09-30).**
+`brain::mutate` perturbs zero slots, so a newborn in the `mute` arm could
+re-arm `EmitB` (up to 40 raw a step); that is why `mute` under `lay` matched
+`mute` on only 6 of 8 runs. `World::mute_emit_b` (set by `trailfollow`'s `mute`
+arm, false in every game) now re-zeroes every newborn's `EmitB` wiring after
+its mutation. Guard `a_muted_colony_breeds_young_that_lay_no_trail_b` carries
+its own fault arm (switch off: the young re-arm). Reran every `mute` job of
+this section (`Reports/data/food-trail-mute-2026-09-30.tar.gz`, the `mute`
+logs and the script; the identity logs are not kept, they equal §23c's):
+- **Identity:** the `self` arms, unset and `off`, reproduce the pre-change
+  logs and 16 CSVs byte for byte; the game is untouched.
+- **`mute` under `lay` equals `mute` under `off`**, whole log, on all 15
+  jobs (the `ft=` label aside). The control no longer depends on the lay rule.
+- **The column barely moves.** The old `mute` equals the new on 19, 20, 23,
+  23 and 22 of 24 runs (unlimited 90, 140, pulsed 90, 140, 80 founders).
+
+| | taken (old -> new `mute`) | starved | born | `lay` vs new `mute`, taken; starved |
+|---|---|---|---|---|
+| unlimited 90 | 7,512 -> 7,456 | 29 -> 30 | 282 -> 300 | 22/2; 4/12 (p 0.077) |
+| unlimited 140 | 5,412 -> 5,435 | 54 -> 54 | 107 -> 109 | 17/7 (p 0.064); 7/10 |
+| pulsed 90 | 2,803 -> 2,803 | 220 -> 220 | 47 -> 46 | 7/13; 14/9 |
+| pulsed 140 | 2,806 -> 2,796 | 206 -> 206 | 20 -> 19 | 11/7; 9/12 |
+| 80 founders | 9,625 -> 9,622 | 933 -> 932 | 42 -> 40 | 21/3; 3/21 (p < 0.001) |
+
+Every conclusion above stands: `lay` beats `mute` on the unlimited pile and at
+80 founders, and does not separate from it on the pulsed pile.

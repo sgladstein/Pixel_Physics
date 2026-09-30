@@ -17,9 +17,30 @@ quarters of the old open space with 40 ants and half with 200, because the
 old nest was large partly by digging its own fill again. The mound beside the
 door is lower and spread to both sides, where the old one stood in towers.
 In the lab box nothing measured got worse: more young were born, more food
-was eaten, and a smaller share of the colony starved.
-The day before, **a colony got one front door and a granary.** A new colony
-used to paint a long strip of nest along the ground,
+was eaten, and a smaller share of the colony starved. The cost shows in a
+small test colony: it takes as much food as before but carries about a third
+less energy in its bodies, most likely spent on the walk to the door.
+Earlier that day, **only an ant bringing food home from a trip began to lay
+the food scent.** Before, any ant with food in its belly laid it:
+foragers walking home, but also ants eating at the nest, ants carrying a
+lunch out, and nest workers — so the food scent lay thickest over the nest
+itself and told nobody where the food was. Now the scent runs from the heap to
+the door along the ways foragers actually came, and nothing else lays it.
+Nothing yet follows it any differently; this is the first of three changes,
+and the next teaches a hungry ant to read which way along it the food lies.
+Even so, in a test colony with food 90 cells away half again as much food
+comes off the heap, a quarter as many ants starve and twice as many young are
+born; with the food 140 cells away, the same gain and fewer than half as
+many starved. A colony gets a sense of direction from the laying alone: more
+of its ants leave the nest towards the food, and one that has wandered off
+the wrong way gets home far sooner. In the lab box nothing measured got
+clearly worse, but colonies peak sooner, and by the end of a long run more of
+them have grazed the box down and shrunk. One cost, small and not yet certain: where there is no traffic
+between a heap and the nest, hungry ants at home sit a little longer before
+setting out, because the scent that used to lie all over the nest kept them
+moving.
+On 2026-09-29, **a colony got one front door and a
+granary.** A new colony used to paint a long strip of nest along the ground,
 and each founder called the spot it happened to be standing on home. Now it
 paints a small door, five cells wide, over the shaft it digs, and every
 founder's home is that door. Halfway down the shaft a short passage leads off
@@ -916,6 +937,15 @@ trail that outlives its patch and goes on calling ants to bare ground. Given
 the same keeping as the way home it is actively bad: tried, a third as many
 ants ever found food at all, because the colony spent the session walking to
 somewhere it had already eaten.
+
+**Since 2026-09-30 only a forager bringing food home from a trip lays it.**
+Before, any ant with food in its belly laid the food scent — one eating at the
+nest, one carrying a lunch out, a nest worker — so the thickest food scent in
+the world lay over the nest, where nobody needed telling there was food. Now it
+lies along the ways food actually came home, from the heap to the door. The
+colony does better for that alone, before any ant reads it differently: more
+food comes home, fewer starve, and more ants set out towards the food rather
+than away from it.
 
 The food route was left deaf **on purpose**, and this is the part that is a
 finding rather than a job not yet done. Turning it up works exactly as

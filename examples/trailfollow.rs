@@ -1500,6 +1500,10 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
     if mute {
         let silenced = mute_channel_b(&mut genome);
         assert!(silenced > 0, "no EmitB weight was zeroed, so the muted arm still lays the plane it is meant to be without");
+        // **And the colony's young too** (`World::mute_emit_b`): a birth's
+        // mutation perturbs zero slots, so without it a born ant could lay up
+        // to 40 raw a step and the control was not quite one (§23c).
+        w.mute_emit_b = true;
     }
     // **`breadoff` -- trail B read by nobody, still laid by everybody.** The
     // one arm `Reports/ant-movement-plan-2026-09-22.md` §7 says still matters:
@@ -2241,7 +2245,10 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
     let gif_overlay: Option<String> = arg_str("gifoverlay");
     // The food-trail switch as the process sees it, echoed into every trail
     // row so a parse can key on it (`CLAUDE.md`: a parse inherits every
-    // dimension the run swept). `unset` when absent.
+    // dimension the run swept). `unset` when absent. **`unset` changed meaning
+    // on 2026-09-30**: it is `lay` from then (`FOOD_TRAIL_UNSET`) and was `off`
+    // before, so across that date read the header's parsed recipe
+    // (`FOOD_TRAIL=unset (FoodTrail { lay: true, .. })`), not this label.
     let food_trail_env = std::env::var("PIXEL_PHYSICS_FOOD_TRAIL").map_or_else(|_| "unset".to_string(), |v| v.trim().replace(' ', "_"));
     assert!(!dwide || decision_csv, "dwide adds columns to the decision CSV, so it needs `decisioncsv`");
     if let Some(ov) = gif_overlay.as_deref() {
@@ -5330,7 +5337,7 @@ fn main() {
     // `ant-forage-bed-and-gates-2026-09-21.md` is run with, echoed so a log
     // that does not name them was written by a binary that never had them.
     println!(
-        "  breadoff={} wire={} decisioncsv={} dtag={} COLONY_SPACING={} STACK_DEPTH={} DROP_REACH={} LOAD_BY={} LOAD_SCALE={} NEST_DOOR={} NEST_DOOR_FOUNDERS={} NEST_SHAFT={} NEST_HOME={} SCOUT={} HUNGRY_HOME={} FORAGE_DRIVE={} ({:?}) CARRY_PATIENCE={} PACKED_LUNCH={} BIRTH_PRICE={} STOREROOM={} HAUL_BITE={:?} STORE_LUNCH={} TRIP_REACH={:?} RETURN_WINDOW={} layfrom={} FOOD_TRAIL={} shadow={} shadowfault={} cf={} dwide={} gifoverlay={}",
+        "  breadoff={} wire={} decisioncsv={} dtag={} COLONY_SPACING={} STACK_DEPTH={} DROP_REACH={} LOAD_BY={} LOAD_SCALE={} NEST_DOOR={} NEST_DOOR_FOUNDERS={} NEST_SHAFT={} NEST_HOME={} SCOUT={} HUNGRY_HOME={} FORAGE_DRIVE={} ({:?}) CARRY_PATIENCE={} PACKED_LUNCH={} BIRTH_PRICE={} STOREROOM={} HAUL_BITE={:?} STORE_LUNCH={} TRIP_REACH={:?} RETURN_WINDOW={} layfrom={} FOOD_TRAIL={} ({:?}) shadow={} shadowfault={} cf={} dwide={} gifoverlay={}",
         flag("breadoff"),
         arg_str("wire").unwrap_or_else(|| "shipped".into()),
         flag("decisioncsv"),
@@ -5358,6 +5365,7 @@ fn main() {
         creature::return_window(),
         arg_str("layfrom").unwrap_or_else(|| "nest".into()),
         std::env::var("PIXEL_PHYSICS_FOOD_TRAIL").unwrap_or_else(|_| "unset".into()),
+        creature::food_trail_from_env(),
         flag("shadow"),
         arg_str("shadowfault").unwrap_or_else(|| "0".into()),
         arg_str("cf").unwrap_or_else(|| "-".into()),
