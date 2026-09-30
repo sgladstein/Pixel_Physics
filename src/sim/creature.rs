@@ -2106,7 +2106,11 @@ fn place_creature(
         // `state.fates = parent_fates`.
         state.fates = body_fates;
         state.segment_groups = segment_groups;
-        state.heading = 0; // east
+        // East, unless the body was laid facing west and the birth heading is
+        // `outward` (`birth_heading_outward`): then the heading matches the
+        // body. Founders are turned outward after placement, in
+        // `found_colony_with`, which knows the cursor.
+        state.heading = if facing_west && birth_heading_outward() { 4 } else { 0 };
         state.lineage = founder_lineage;
         state.colony = colony;
         match &origin {
@@ -3754,6 +3758,40 @@ pub fn nest_shaft_offset() -> Option<i32> {
 /// start heaped on the door instead of spread along the ground with their
 /// home set to it. The two arms separate "home is one point" from "everyone
 /// comes out of one point". Anything else, or unset, is the spread layout.
+/// **Which way a new ant faces** (`PIXEL_PHYSICS_BIRTH_HEADING`, 2026-09-30).
+///
+/// Unset (`outward`, shipped): a founder faces away from the colony's cursor
+/// -- west of it faces west, east of it faces east, the one on it by its
+/// index -- and a bud faces the way [`place_creature`] laid its body
+/// (`facing_west`). `east` is the ant before: every founder and every bud
+/// born with `heading = 0`.
+///
+/// **Why it matters, measured before it was built.** The shipped walk keeps
+/// its heading ~90% of the time (the chooser's persistence), so a heading
+/// given at birth is where an ant first walks. On the two-pile bed
+/// (`trailfollow pile2=west`, trail B muted, seeds 1-8), all 160 founders
+/// started facing east and 106 of the 158 that left the nest band left it
+/// eastward; every seed read 0.64-0.75 east, whichever pile was stocked, and
+/// east phases took ~2x what west phases did in every arm. A bud placed with
+/// its body pointing west was still handed heading east. At the nest itself
+/// the choice was fair: with open ground on both sides the pick followed the
+/// scores both ways and ties split evenly -- the lean was the birth heading.
+///
+/// Anything else panics: a mistyped switch that fails open silently is the
+/// week review's W7.
+pub(crate) fn birth_heading_outward() -> bool {
+    static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *V.get_or_init(|| parse_birth_heading(&std::env::var("PIXEL_PHYSICS_BIRTH_HEADING").unwrap_or_default()))
+}
+
+fn parse_birth_heading(raw: &str) -> bool {
+    match raw.trim() {
+        "" | "outward" => true,
+        "east" => false,
+        other => panic!("PIXEL_PHYSICS_BIRTH_HEADING={other:?}: use outward (default) or east"),
+    }
+}
+
 fn nest_door_pile() -> bool {
     static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *V.get_or_init(|| std::env::var("PIXEL_PHYSICS_NEST_DOOR_FOUNDERS").as_deref() == Ok("pile"))
@@ -4950,6 +4988,15 @@ impl World {
                 }
                 if let ActiveKind::Creature { organism } = site.kind {
                     founders.push(organism);
+                    // Outward from the cursor (`birth_heading_outward`): a
+                    // colony born all facing east walks out east.
+                    if birth_heading_outward() {
+                        let n = founders.len();
+                        if let Some(state) = self.organism_mut(organism) {
+                            let hx = state.chain.first().map_or(x, |c| c.0);
+                            state.heading = if hx < x || (hx == x && n.is_multiple_of(2)) { 4 } else { 0 };
+                        }
+                    }
                 }
                 self.schedule_active_site(site);
             }
@@ -11717,8 +11764,51 @@ fn trail_read_is_forward() -> bool {
 /// cells and stops at the first empty one, so the work is bounded by the size
 /// of the crowd it is standing in. `seen` is only ever asked for membership,
 /// never iterated, so its hash order cannot reach a result.
+/// [`NEIGHBOURS_8`] mirrored east for west: the same scan, starting north-EAST.
+const NEIGHBOURS_8_EAST: [(i32, i32); 8] = [(1, -1), (0, -1), (-1, -1), (1, 0), (-1, 0), (1, 1), (0, 1), (-1, 1)];
+
+/// **Which side a food drop looks at first** (`PIXEL_PHYSICS_DROP_SIDE`,
+/// 2026-09-30). Unset (`even`, shipped): west-first or east-first, half and
+/// half, keyed on the world seed, the frame and the drop's cell -- no draw
+/// is taken from any creature's stream, so nothing else re-rolls. `west` is
+/// the drop before: always [`NEIGHBOURS_8`]'s north-west-first order. `east`
+/// is its mirror, always north-east-first: the control that says whether a
+/// bed's change under `even` is the lean's loss or the fix's cost.
+///
+/// **Why, measured.** With the west-first scan every load put down at the
+/// nest landed on the west side of the ant that carried it, and the colony
+/// walked out EAST: on the two-pile bed (`trailfollow pile2=west`, trail B
+/// muted, seeds 1-8) empty ants left the nest band eastward 70% of the time
+/// whichever pile was stocked, and east phases took 1.99x what west phases
+/// took. Flipping only this function's scan to east-first flipped it to 41%
+/// and 0.73x; flipping the storeroom's drop scan, or the six other placement
+/// scans, moved nothing (70%, 1.99-2.11x). Birth heading (every ant born
+/// facing east) moved only a colony's first trips. Unknown values panic (the
+/// week review's W7: a mistyped switch must not fail open).
+fn food_drop_order(world: &World, x: i32, y: i32) -> &'static [(i32, i32); 8] {
+    // 0 even, 1 west-first, 2 east-first.
+    static SIDE: std::sync::OnceLock<u8> = std::sync::OnceLock::new();
+    let side = *SIDE.get_or_init(|| match std::env::var("PIXEL_PHYSICS_DROP_SIDE").unwrap_or_default().trim() {
+        "" | "even" => 0,
+        "west" => 1,
+        "east" => 2,
+        other => panic!("PIXEL_PHYSICS_DROP_SIDE={other:?}: use even (default), west or east"),
+    });
+    let east = match side {
+        0 => rng::stream(world.seed, world.frame, x as u64, (y as u64) ^ 0x4452_4F50_5349_4445).flip(),
+        1 => false,
+        _ => true,
+    };
+    if east {
+        &NEIGHBOURS_8_EAST
+    } else {
+        &NEIGHBOURS_8
+    }
+}
+
 fn food_drop_site(world: &World, x: i32, y: i32, through_bodies: bool) -> Option<((i32, i32), u8)> {
-    if let Some(p) = NEIGHBOURS_8.iter().map(|&(dx, dy)| (x + dx, y + dy)).find(|&(px, py)| world.is_empty(px, py)) {
+    let order = food_drop_order(world, x, y);
+    if let Some(p) = order.iter().map(|&(dx, dy)| (x + dx, y + dy)).find(|&(px, py)| world.is_empty(px, py)) {
         return Some((p, 1));
     }
     if !through_bodies {
@@ -11731,7 +11821,7 @@ fn food_drop_site(world: &World, x: i32, y: i32, through_bodies: bool) -> Option
     let mut seen: std::collections::HashSet<(i32, i32)> = std::collections::HashSet::new();
     seen.insert((x, y));
     let mut frontier: Vec<(i32, i32)> = Vec::new();
-    for &(dx, dy) in NEIGHBOURS_8.iter() {
+    for &(dx, dy) in order.iter() {
         let p = (x + dx, y + dy);
         if is_body(p) && seen.insert(p) {
             frontier.push(p);
@@ -11742,7 +11832,7 @@ fn food_drop_site(world: &World, x: i32, y: i32, through_bodies: bool) -> Option
         depth = depth.saturating_add(1);
         let mut next = Vec::new();
         for &(bx, by) in &frontier {
-            for &(dx, dy) in NEIGHBOURS_8.iter() {
+            for &(dx, dy) in order.iter() {
                 let p = (bx + dx, by + dy);
                 if seen.contains(&p) {
                     continue;
@@ -30730,6 +30820,59 @@ mod tests {
     /// animal's own body (the nestmate scene fails). **Blind to plant tissue**:
     /// nothing grows here, so a search that also passed through roots or
     /// leaves stays green (checked by planting exactly that).
+    /// **A load put down in the open lands west about as often as east**
+    /// (`food_drop_order`, `PIXEL_PHYSICS_DROP_SIDE` unset). The west-first
+    /// scan put every drop on the ant's west and walked the colony out east
+    /// (70% of departures on the two-pile bed). Fault: set
+    /// `PIXEL_PHYSICS_DROP_SIDE=west` and every one of the 400 lands west.
+    #[test]
+    fn a_food_drop_in_the_open_lands_on_either_side_not_always_west() {
+        let mut w = World::new(Rect::new(0, 0, 63, 63));
+        let (mut west, mut east) = (0, 0);
+        for f in 0..400u64 {
+            w.frame = f;
+            let ((px, _), reach) = food_drop_site(&w, 32, 40, false).expect("open ground has room");
+            assert_eq!(reach, 1, "open ground drops beside the ant");
+            if px < 32 {
+                west += 1;
+            } else if px > 32 {
+                east += 1;
+            }
+        }
+        assert!(west >= 140 && east >= 140, "drops in the open went west {west}, east {east} of 400: one side is favoured");
+    }
+
+    /// **A colony is founded facing outward** (`birth_heading_outward`):
+    /// founders west of the cursor face west, east of it east. Fault:
+    /// `PIXEL_PHYSICS_BIRTH_HEADING=east` and every founder faces east.
+    #[test]
+    fn founders_face_away_from_the_nest_cursor() {
+        let mut w = World::new(Rect::new(0, 0, 255, 199));
+        let soil = w.materials.id_of("soil").expect("soil material");
+        for x in 0..=255 {
+            for y in 120..=160 {
+                w.set(x, y, Cell::new(soil, 0));
+            }
+        }
+        let placed = w.found_colony_of(128, 120, "ant", 12);
+        assert!(placed >= 8, "the bed seated {placed} of 12 -- the scene is wrong, not the rule");
+        let (mut wrong, mut facing_west, mut facing_east) = (0, 0, 0);
+        for id in w.live_organism_ids() {
+            let Some(st) = w.organism(id) else { continue };
+            let Some(&(hx, _)) = st.chain.first() else { continue };
+            match st.heading {
+                4 => facing_west += 1,
+                0 => facing_east += 1,
+                _ => {}
+            }
+            if (hx < 128 && st.heading != 4) || (hx > 128 && st.heading != 0) {
+                wrong += 1;
+            }
+        }
+        assert_eq!(wrong, 0, "{wrong} founders face toward the cursor, not away from it");
+        assert!(facing_west > 0 && facing_east > 0, "founders all face one way: {facing_west} west, {facing_east} east");
+    }
+
     #[test]
     fn a_blocked_drop_passes_the_food_through_bodies_to_the_nearest_empty_cell() {
         let stone = Cell::new(material::STONE, 0).with_attached(true);
@@ -30867,7 +31010,10 @@ mod tests {
         assert_eq!(cell.material, crumbs, "a part-eaten fruit goes down as crumbs");
         assert_eq!(food_value(&w, cell), 480.0, "the crumbs hold what was left");
         assert_eq!(w.creature_stats.drop_worth_restored, 0.0, "nothing the ground holds was already eaten");
-        let b = spawn(&mut w, "ant", fx - 1, 40);
+        // The nestmate stands on the food's far side from the ant that put it
+        // down: a drop lands on either side since 2026-09-30, and `fx - 1` is
+        // then the first ant's own head.
+        let b = spawn(&mut w, "ant", if fx > 32 { fx + 1 } else { fx - 1 }, 40);
         assert!(w.organism(b).expect("live").crop.is_none());
         let def = w.species.get(w.organism(b).expect("live").species).creature.clone().expect("a creature");
         let mut outputs = [0.0f32; brain::BRAIN_OUTPUTS];
