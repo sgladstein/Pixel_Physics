@@ -922,3 +922,75 @@ and 253 hold.
 latch (the table above ran the old carry); the colony bed pair for the
 package; the pictures to the owner; then the default flip as its own PR,
 with the foraging lane poked first.
+
+## 18. The package on by default (2026-09-30)
+
+*The owner, shown today's nest beside the package at 40 and 200 ants, plain
+and colour-coded: "Neither look wrong, although the package only looks
+slightly better"; then "You can turn all new feature on by default unless
+there is a real trade off." So stacking at 4, the walked cycle with the
+latched carry, and births on nestmates ship on together
+(`SHIPPED_STACK_CAP`, `parse_spoil_out("")`, `parse_bud_stack("")`);
+`PIXEL_PHYSICS_STACK_DEPTH=1 PIXEL_PHYSICS_SPOIL_OUT=off
+PIXEL_PHYSICS_BUD_STACK=off` is the nest before it.*
+
+**The dig box, re-run** (§17's command and seeds, `scripts/nestgrid.py
+--pair`): §17's latched table reproduced to the digit. Two columns §17 did
+not read, from the same runs (`SPEC mouths`, `SUMMARY p50x` at 24,000):
+
+| median of 8 seeds | 40 ants: today -> package | 200 ants: today -> package |
+|---|---:|---:|
+| entrances | 6 -> 3.5 | 9 -> 5 |
+| centre of the dug room, columns from the door | -7 -> -3.5 | -3 -> -3 |
+
+So the walked cycle brings back part of the one-entrance nest the granary
+took away (`week-review-2026-09-29.md` W3: 3 -> 6), and the nest still
+leans west: the storeroom's fixed side (W2), which the dig box has no food
+to confound.
+
+**The lab gate, with the latched carry** (`labforage scenario=played_bed
+frames=120000`, 24 seeds, pre-flip binary, `bedenv` and the package env on
+one arm; `scripts/labpair.py`): births 418 -> 536.5 (higher on 14), food
+eaten 1.09 M -> 1.30 M J (13), ant-frames 10.4 M -> 11.1 M (12/12), starved
+per million ant-frames 11.0 -> 9.7 (12/12), died out 2 -> 1, peak colony
+227.5 -> 341.5. Died of old age 158 -> 142.5 (lower on 16, p 0.15): a
+younger, larger colony, not a harm the gate names. No measured harm; the
+sign test cannot see a 15-25% loss (`week-review` §4), and none of the
+medians moved the wrong way by that much.
+
+**What the flip exposed in the suite.** Six tests read cap 1 as the default
+and now set it by hand (the cap-1 guards, the `SHARED` row, the armoured
+duel, and `tests/determinism.rs`'s stack-index test, renamed `..._at_cap_one`).
+Two were real:
+
+- **A pellet sink.** `digging_moves_the_ground_rather_than_eating_it` lost
+  16 of 133 pellets with their carriers against its bar of one in twenty. A
+  temporary line at every loss: the colony dies packed into one chamber, no
+  empty cell within five of the body and 43-54 within eight. The death-time
+  release now searches rings out to eight (was two), only when the inner
+  rings are full: 0 lost.
+- **The armoured duel at reach 1** first breaches at a median 966 frames
+  at cap 4 against its bar of 300. Not traced; the guard is about the plate,
+  so it pins cap 1 as it already pins the walk.
+
+**The colony bed pair** (the foraging lane's bed, `STACK_DEPTH=4` both
+arms, base `SPOIL_OUT=off BUD_STACK=off`, 24 seeds at 90 and 140 cells):
+| medians by seed (`antloop.py --vs`) | 90 cells: off -> package | 140 cells: off -> package |
+|---|---:|---:|
+| food taken from the pile, cells | 259 -> 269 (13 / 10) | 188 -> 208 (14 / 10) |
+| food standing at the nest, J | 12,472 -> 9,648 (**lower on 20**, p 0.002) | 8,234 -> 8,278 (13 / 11) |
+| energy in the ants' bodies, J | 6,429 -> 4,326 (**lower on 21**, p < 0.001) | 4,168 -> 2,873 (**lower on 19**, p 0.007) |
+| born, total over 24 seeds | 209 -> 183 (7 / 16, p 0.09) | 62 -> 88 (14 / 8) |
+| starved, total | 55 -> 47 | 127 -> 85 (7 / 16, p 0.09) |
+
+**This is the trade-off.** The loop takes as much food as before, but the
+colony holds about a third less energy in its bodies at both distances and,
+at 90 cells, a quarter less food at the nest; births lean down at 90 and up
+at 140, and starvation does not rise at either. The likely cost, inferred and not
+traced per ant: walking every pellet to the door and back takes steps, at
+the laden pace, that the lift never did. The
+lab box does not show it (its colonies are larger and its gate reads births,
+intake and starvation, all better); the bed, where every joule is booked,
+does. The owner's standing ruling (2026-09-27, "it is okay if
+nest building temporarily hurts colony numbers") and today's ("on unless
+there is a real trade off") are put to them side by side with the PR.

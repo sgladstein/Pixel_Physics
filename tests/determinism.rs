@@ -314,7 +314,13 @@ fn lab_hash(w: &World) -> u64 {
 /// the same one `Lab::tick` and `App::update` run, so this is not a second
 /// copy of the sequence.
 fn run_lab_bed() -> (Vec<u64>, World, Stats) {
+    run_lab_bed_with(|_| {})
+}
+
+/// [`run_lab_bed`] with the world set by `set` before the first frame.
+fn run_lab_bed_with(set: impl FnOnce(&mut World)) -> (Vec<u64>, World, Stats) {
     let mut world = lab_bed().build();
+    set(&mut world);
     let mut particles = LabParticles::new();
     let mut blasts = LabBlasts::new();
     let tuning = player::Tuning::default();
@@ -374,7 +380,8 @@ fn the_lab_bed_is_deterministic_across_identical_runs() {
     );
 }
 
-/// **Stacking is inert at the shipped cap, over a real run.**
+/// **Stacking is inert at a cap of 1, over a real run.** (The shipped cap
+/// until 2026-09-30, when it became 4; 1 is set by hand here.)
 ///
 /// The in-lib tests assert `can_stack_into` refuses at cap 1; this is the
 /// other half, and it is the half that would catch a leak the predicate
@@ -390,8 +397,8 @@ fn the_lab_bed_is_deterministic_across_identical_runs() {
 /// creature change and a pinned value would be re-blessed rather than read --
 /// but the index is a property that must hold for ever at cap 1.
 #[test]
-fn the_stack_index_stays_empty_at_the_shipped_cap() {
-    let (_, world, _) = run_lab_bed();
+fn the_stack_index_stays_empty_at_cap_one() {
+    let (_, world, _) = run_lab_bed_with(|w| w.set_stack_cap(1));
     assert_eq!(world.stack_cap(), 1, "the bed is running an armed cap, so this proves nothing");
     assert_eq!(
         world.stacked_cell_count(),

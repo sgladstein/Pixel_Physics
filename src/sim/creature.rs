@@ -4381,23 +4381,25 @@ pub fn bud_readiness(world: &World, organism: OrganismId) -> Option<BudReadiness
 /// needs two empty cells finds none. A child allowed to stand on a nestmate,
 /// as any stacked ant does, would have fitted at **39%** of those refusals.
 ///
-/// **Off by default, and a switch on purpose**: births are the foraging
-/// lane's economy, so the default is theirs to review
-/// (`Reports/lanes/nest-mouth.md`).
+/// **On by default since 2026-09-30** (owner: "turn all new features on by
+/// default unless there is a real trade off"), shipped with stacking and the
+/// walked spoil cycle as one package; `PIXEL_PHYSICS_BUD_STACK=off` puts the
+/// old birth back. Births are the foraging lane's economy: the lab gate for
+/// the package is `Reports/nest-one-entrance-2026-09-29.md` §18.
 fn bud_stack() -> bool {
     static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *V.get_or_init(|| parse_bud_stack(&std::env::var("PIXEL_PHYSICS_BUD_STACK").unwrap_or_default()))
 }
 
-/// `PIXEL_PHYSICS_BUD_STACK`'s value: `on`, else off. A value it cannot read
-/// is reported and read as unset.
+/// `PIXEL_PHYSICS_BUD_STACK`'s value: `off`, else on. A value it cannot read
+/// is reported and read as unset, which is on.
 fn parse_bud_stack(raw: &str) -> bool {
     match raw.trim() {
-        "" | "off" => false,
-        "on" => true,
+        "" | "on" => true,
+        "off" => false,
         v => {
-            eprintln!("PIXEL_PHYSICS_BUD_STACK={v:?} is not `on` or `off`; read as unset");
-            false
+            eprintln!("PIXEL_PHYSICS_BUD_STACK={v:?} is not `on` or `off`; read as unset (on)");
+            true
         }
     }
 }
@@ -10557,20 +10559,25 @@ impl SpoilOut {
     }
 }
 
-/// The cycle this process runs ([`SpoilOut`]): off unless
-/// `PIXEL_PHYSICS_SPOIL_OUT` names it.
+/// The cycle this process runs ([`SpoilOut`]): **every part, by default
+/// since 2026-09-30** (owner: "turn all new features on by default unless
+/// there is a real trade off"; measured as one package with stacking and
+/// births on nestmates, `Reports/nest-one-entrance-2026-09-29.md` §17-§18).
+/// `PIXEL_PHYSICS_SPOIL_OUT=off` puts the lift back; a comma list runs
+/// exactly the parts it names.
 pub fn spoil_out() -> SpoilOut {
     static V: std::sync::OnceLock<SpoilOut> = std::sync::OnceLock::new();
     *V.get_or_init(|| parse_spoil_out(&std::env::var("PIXEL_PHYSICS_SPOIL_OUT").unwrap_or_default()))
 }
 
-/// `PIXEL_PHYSICS_SPOIL_OUT`'s value read as a [`SpoilOut`]: unset and `off`
-/// are the shipped ant, `on` every part, and a comma list exactly the parts it
-/// names. A value it cannot read is reported and read as unset.
+/// `PIXEL_PHYSICS_SPOIL_OUT`'s value read as a [`SpoilOut`]: unset and `on`
+/// are every part (the shipped ant), `off` none (the lift), and a comma list
+/// exactly the parts it names. A value it cannot read is reported and read as
+/// unset.
 fn parse_spoil_out(raw: &str) -> SpoilOut {
     match raw.trim() {
-        "" | "off" => SpoilOut::default(),
-        "on" => SpoilOut::ON,
+        "" | "on" => SpoilOut::ON,
+        "off" => SpoilOut::default(),
         v => {
             let mut out = SpoilOut::default();
             for part in v.split(',').map(str::trim) {
@@ -10580,8 +10587,8 @@ fn parse_spoil_out(raw: &str) -> SpoilOut {
                     "keep" => out.keep = true,
                     "back" => out.back = true,
                     _ => {
-                        eprintln!("PIXEL_PHYSICS_SPOIL_OUT={raw:?}: {part:?} is not `on`, `off` or a part (haul, pace, keep, back); read as unset");
-                        return SpoilOut::default();
+                        eprintln!("PIXEL_PHYSICS_SPOIL_OUT={raw:?}: {part:?} is not `on`, `off` or a part (haul, pace, keep, back); read as unset (on)");
+                        return SpoilOut::ON;
                     }
                 }
             }
@@ -10604,9 +10611,10 @@ fn inside_nest(world: &World, x: i32, y: i32) -> bool {
 /// `PIXEL_PHYSICS_SPOIL_RING=<shape>,<scale>`, **on by default at
 /// [`SpoilRing::SHIPPED`] and acting only under the walked cycle**
 /// ([`SpoilOut`], whose haul pulls the carrier and whose `keep` holds the
-/// pellet inside the nest): with `PIXEL_PHYSICS_SPOIL_OUT` unset the carry
-/// reads as absent whatever this says ([`spoil_ring_of`]), so the shipped
-/// lift is untouched. `off` turns it off under the walked cycle too.
+/// pellet inside the nest, on by default since 2026-09-30): with
+/// `PIXEL_PHYSICS_SPOIL_OUT=off` the carry reads as absent whatever this says
+/// ([`spoil_ring_of`]), so the lift is untouched. `off` turns it off under the
+/// walked cycle too.
 ///
 /// **Why.** Walked out with nothing more, a carrier puts its pellet down on
 /// the first ground outside the founding cut, which is the mouth's rim, and
@@ -10656,15 +10664,22 @@ impl SpoilRing {
 /// process's [`spoil_ring`]; else none.
 ///
 /// **The gate is load-bearing.** The drop's hold reads this for any carrier
-/// standing outside the nest, walked or not, so without it a default carry
-/// would hold the shipped lift's pellets too -- a change the owner was never
-/// shown, and one that every measurement of the carry (all taken with
-/// `SPOIL_OUT=on`) says nothing about. A world's own setting still wins, so
-/// the unit tests below can hold the carry on without the process switch.
+/// standing outside the nest, walked or not, so without it the carry would
+/// hold the lift's pellets too (`SPOIL_OUT=off`) -- a change the owner was
+/// never shown, and one that every measurement of the carry (all taken with
+/// the walked cycle on) says nothing about. A world's own setting still wins,
+/// so the unit tests below can hold the carry on or off without the process
+/// switch.
 pub fn spoil_ring_of(world: &World) -> Option<SpoilRing> {
-    match world.spoil_ring {
+    ring_gate(world.spoil_ring, spoil_out(), spoil_ring())
+}
+
+/// [`spoil_ring_of`]'s rule with its three inputs passed in, so a test can
+/// run the walked cycle off in a process where it is on.
+fn ring_gate(set: Option<Option<SpoilRing>>, walked: SpoilOut, ring: Option<SpoilRing>) -> Option<SpoilRing> {
+    match set {
         Some(set) => set,
-        None if spoil_out().any() => spoil_ring(),
+        None if walked.any() => ring,
         None => None,
     }
 }
@@ -20927,11 +20942,26 @@ fn creature_dies(world: &mut World, organism: OrganismId, cause: organism::Death
         // a sealed pocket, 4 pellets of 1,125 digs had nowhere in the eight.
         // Radius two costs 16 more `is_empty` reads on a path that runs once
         // per death.
-        let ring2 = (-2i32..=2)
-            .flat_map(|dy| (-2i32..=2).map(move |dx| (dx, dy)))
-            .filter(|&(dx, dy)| dx.abs() == 2 || dy.abs() == 2)
-            .map(|(dx, dy)| (cx + dx, cy + dy));
-        let site = NEIGHBOURS_8.iter().map(|&(dx, dy)| (cx + dx, cy + dy)).chain(ring2).find(|&(px, py)| world.is_empty(px, py));
+        //
+        // **Rings out to eight since stacking shipped (2026-09-30).** Four
+        // nestmates to a cell pack a gallery so tight that two rings were no
+        // longer enough: `digging_moves_the_ground_rather_than_eating_it` lost
+        // 16 of 133 pellets this way at the shipped cap of 4, against its bar
+        // of one in twenty. Traced (a temporary line at every loss): the
+        // colony dies packed into one chamber, with **no** empty cell within
+        // five of the body and 43-54 within eight; four rings still lost 13.
+        // The outer rings are read only when the inner ones are full, so a
+        // death with room nearby places exactly as before, and a pellet set
+        // down a few cells off is better than one taken out of the world.
+        let rings = (2i32..=8).flat_map(|r| {
+            (-r..=r).flat_map(move |dy| (-r..=r).map(move |dx| (dx, dy))).filter(move |&(dx, dy)| dx.abs() == r || dy.abs() == r)
+        });
+        let site = NEIGHBOURS_8
+            .iter()
+            .copied()
+            .chain(rings)
+            .map(|(dx, dy)| (cx + dx, cy + dy))
+            .find(|&(px, py)| world.is_empty(px, py));
         match site {
             Some((px, py)) => {
                 world.set(px, py, spoil.cell);
@@ -21013,15 +21043,17 @@ mod tests {
     use super::*;
     use crate::sim::chunk::Rect;
 
-    /// **The stacking cap defaults to 1, and 1 is today's engine.**
+    /// **The stacking cap defaults to the shipped cap, 4 since 2026-09-30;
+    /// 1 is the engine before stacking.**
     ///
     /// The whole toggle rests on this: at a cap of 1, *may I enter a cell
     /// that already holds one creature* is exactly *is this cell occupied*,
     /// so the pre-stacking behaviour is a **value of the parameter** rather
-    /// than a second code path. If this default ever moves, stacking ships
-    /// armed to every scene in the repo without anything else changing --
-    /// including `tests/worldgen.rs`'s guard that not one cell moves in the
-    /// 120 frames after generation, which sweeps every preset.
+    /// than a second code path. Moving this default arms stacking in every
+    /// scene in the repo without anything else changing -- including
+    /// `tests/worldgen.rs`'s guard that not one cell moves in the 120 frames
+    /// after generation, which sweeps every preset -- and that is what the
+    /// 2026-09-30 flip did, on purpose.
     ///
     /// **A field on `World` rather than a process-wide `OnceLock`**, and the
     /// first draft was the `OnceLock`. The idiom `blocked_census_enabled`
@@ -21031,12 +21063,12 @@ mod tests {
     /// asserting the default. `World::room_target` is the precedent -- read
     /// from the environment once at construction, then a value you can set.
     #[test]
-    fn the_stacking_cap_defaults_to_one() {
+    fn the_stacking_cap_defaults_to_the_shipped_cap() {
         let w = World::new(Rect::new(0, 0, 63, 63));
         assert_eq!(
             w.stack_cap(),
-            1,
-            "the default cap is not 1, so every scene in the repo is running with stacking armed"
+            crate::sim::world::SHIPPED_STACK_CAP,
+            "a new world does not run the shipped stacking cap (is PIXEL_PHYSICS_STACK_DEPTH set?)"
         );
     }
     use crate::sim::field;
@@ -23095,22 +23127,27 @@ mod tests {
         }
     }
 
-    /// **The shipped carry does nothing outside the walked cycle.** The drop's
-    /// hold reads [`spoil_ring_of`] for any carrier outside the nest, so a
-    /// default carry that leaked past its gate would hold the shipped lift's
-    /// pellets: a carrier on the open surface right beside the door, `DropSpoil`
-    /// at 1, must still put its pellet down with no world setting, as it did
-    /// before the carry existed. Needs `PIXEL_PHYSICS_SPOIL_OUT` unset, as every
-    /// other test here does. Written after the gate: watched red by dropping
-    /// the gate's `spoil_out().any()` arm.
+    /// **The carry is shipped on, and does nothing outside the walked cycle.**
+    /// Since 2026-09-30 the walked cycle is the default, so an unset
+    /// environment runs every part of it and the carry at
+    /// [`SpoilRing::SHIPPED`]: a carrier on the open surface right beside the
+    /// door, `DropSpoil` at 1, holds its pellet and draws its column. And the
+    /// gate still holds: with the walked cycle off ([`ring_gate`] given
+    /// `SpoilOut::default()`), no carry reaches the drop, so the lift's
+    /// pellets go down as they did before the carry existed. Needs
+    /// `PIXEL_PHYSICS_SPOIL_OUT` and `PIXEL_PHYSICS_SPOIL_RING` unset. The
+    /// first half goes red when `parse_spoil_out("")` is put back to off;
+    /// the second was watched red by dropping the gate's `walked.any()` arm.
     #[test]
-    fn the_shipped_carry_is_inert_without_the_walked_cycle() {
-        assert!(!spoil_out().any(), "this test reads the shipped ant: PIXEL_PHYSICS_SPOIL_OUT must be unset");
+    fn the_shipped_carry_is_on_under_the_walked_cycle_and_gated_by_it() {
+        assert_eq!(spoil_out(), SpoilOut::ON, "the walked cycle is not the shipped default (is PIXEL_PHYSICS_SPOIL_OUT set?)");
         let w = World::new(Rect::new(0, 0, 119, 99));
-        assert_eq!(spoil_ring_of(&w), None, "the carry reached a world with no walked cycle");
+        assert_eq!(spoil_ring_of(&w), Some(SpoilRing::SHIPPED), "the shipped carry did not reach a default world");
         let (dropped, drawn) = ring_drop_world_default(62);
-        assert!(dropped, "a carrier by the door held its pellet with no walked cycle");
-        assert_eq!(drawn, None, "a carry column was drawn with no walked cycle");
+        assert!(!dropped, "a carrier by the door put its pellet down under the shipped carry");
+        assert!(drawn.is_some(), "no carry column was drawn under the shipped carry");
+        assert_eq!(ring_gate(None, SpoilOut::default(), Some(SpoilRing::SHIPPED)), None, "the carry leaked past the walked cycle's gate");
+        assert_eq!(ring_gate(Some(None), SpoilOut::ON, Some(SpoilRing::SHIPPED)), None, "a world's own `off` did not win");
     }
 
     /// A carrier on the open surface at `x`, holding a pellet of soil beside a
@@ -23587,7 +23624,8 @@ mod tests {
         );
 
         let (mut off, low_off) = colony_bed();
-        assert_eq!(off.stack_cap(), 1, "the unarmed arm must run the shipped cap");
+        // The unarmed arm, by hand: the shipped cap is 4 since 2026-09-30.
+        off.set_stack_cap(1);
         crowded_colony(&mut off, low_off);
         run(&mut off, FRAMES);
         assert_eq!(off.stacked_cell_count(), 0, "the index filled at cap 1, so the armed arm was not measuring the cap");
@@ -25581,6 +25619,12 @@ mod tests {
                 // Today's walk, pinned: at reach 1 the arm needs the ants to meet at once,
                 // and under the chooser they took a median 528 frames. The question is armour.
                 w.chooser = Some(Chooser::Off);
+                // And stacking, pinned off for the same reason: at the shipped
+                // cap of 4 (2026-09-30) the reach-1 arm's median first breach
+                // went 966 frames against its bar of 300 (why was not
+                // traced: stacking changes who can reach whom, not the
+                // plate). The question is armour.
+                w.set_stack_cap(1);
                 w.seed = 1234 + seed * 7919;
                 w.trait_reach = reach;
                 // **Clone children**, for the reason `the_jaw_allele_decides_
@@ -26291,15 +26335,28 @@ mod tests {
         assert!(reconcile_chain(&mut w, child), "the child died on its first reconcile -- its ridden cells are missing from its own record");
     }
 
-    /// `PIXEL_PHYSICS_BUD_STACK`'s spellings: `on`, and nothing else.
+    /// `PIXEL_PHYSICS_BUD_STACK`'s spellings: on unless it says `off`.
     #[test]
-    fn the_bud_stack_switch_reads_on_and_nothing_else() {
-        assert!(!parse_bud_stack(""), "unset is off");
+    fn the_bud_stack_switch_is_on_unless_it_reads_off() {
+        assert!(parse_bud_stack(""), "unset is on, the shipped default since 2026-09-30");
         assert!(!parse_bud_stack("off"));
+        assert!(!parse_bud_stack(" off "));
         assert!(parse_bud_stack("on"));
-        assert!(parse_bud_stack(" on "));
-        for bad in ["yes", "1", "true", "ON"] {
-            assert!(!parse_bud_stack(bad), "{bad:?} was not read as unset");
+        for bad in ["yes", "1", "true", "OFF"] {
+            assert!(parse_bud_stack(bad), "{bad:?} was not read as unset");
+        }
+    }
+
+    /// `PIXEL_PHYSICS_SPOIL_OUT`'s spellings: every part unless it says `off`
+    /// or names parts. Goes red if the shipped default is put back to the lift.
+    #[test]
+    fn the_walked_cycle_is_on_unless_it_reads_off() {
+        assert_eq!(parse_spoil_out(""), SpoilOut::ON, "unset is the walked cycle, the shipped default since 2026-09-30");
+        assert_eq!(parse_spoil_out("on"), SpoilOut::ON);
+        assert_eq!(parse_spoil_out(" off "), SpoilOut::default());
+        assert_eq!(parse_spoil_out("haul,keep"), SpoilOut { haul: true, pace: false, keep: true, back: false });
+        for bad in ["yes", "1", "OFF", "haul,nope"] {
+            assert_eq!(parse_spoil_out(bad), SpoilOut::ON, "{bad:?} was not read as unset");
         }
     }
 
@@ -27031,7 +27088,7 @@ mod tests {
             }
         }
 
-        assert_eq!(w.stack_cap(), 1, "test setup: the shipped default");
+        w.set_stack_cap(1);
         assert!(stacker_of(&w, a).is_none(), "no stacker is resolved at all at cap 1");
         assert!(!can_stack_into(&w, occupied, stacker_of(&w, a)), "a cell holding a nestmate must be refused at cap 1");
 

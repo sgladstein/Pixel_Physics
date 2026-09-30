@@ -1195,13 +1195,13 @@ fn shipped_alarm_decay() -> f32 {
     crate::sim::pheromone::ALARM_RHO
 }
 
-/// As `shipped_trait_reach`, for how many animals may share a cell. **1 is
-/// the shipped cap and it means no sharing at all**, so a dials file written
-/// before this key existed must load as 1 rather than as `f32::default()`'s
-/// 0 -- which `set_stack_cap` would clamp back to 1 anyway, but silently,
-/// through a value no live edit can produce.
+/// As `shipped_trait_reach`, for how many animals may share a cell:
+/// [`crate::sim::world::SHIPPED_STACK_CAP`] (1 would mean no sharing at all).
+/// A dials file written before this key existed must load as the shipped cap
+/// rather than as `f32::default()`'s 0 -- which `set_stack_cap` would clamp
+/// to 1, silently, through a value no live edit can produce.
 fn shipped_stack_cap() -> f32 {
-    1.0
+    crate::sim::world::SHIPPED_STACK_CAP as f32
 }
 
 #[derive(Clone, Copy, Debug, serde::Serialize, serde::Deserialize)]
