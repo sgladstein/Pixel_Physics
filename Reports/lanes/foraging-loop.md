@@ -112,8 +112,10 @@ colony toward the (east) pile; `off` is in #518.
 
 Pulsed pile at 90 (`food=30 refill=6000`): 2,760 / 250 / 54 (taken,
 starved, born). Runs: `food-trail-lay-2026-09-29.tar.gz`. Lab box
-(`played_bed`, 120,000 frames, 24 seeds, rain), medians: births 448.5,
-food eaten 1,160k J, ant-frames 9.8M, starved per million ant-frames 13.1.
+(`played_bed`, 120,000 frames, 24 seeds, rain), medians with the even
+drop (before it in brackets; no gate moved, every sign p >= 0.3): births
+445.0 (448.5), food eaten 1,142k J (1,160k), ant-frames 9.8M (9.8M),
+starved per million ant-frames 7.6 (13.1).
 
 ## Ranked open problems
 
