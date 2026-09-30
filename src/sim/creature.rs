@@ -4994,7 +4994,7 @@ impl World {
                         let n = founders.len();
                         if let Some(state) = self.organism_mut(organism) {
                             let hx = state.chain.first().map_or(x, |c| c.0);
-                            state.heading = if hx < x || (hx == x && n % 2 == 0) { 4 } else { 0 };
+                            state.heading = if hx < x || (hx == x && n.is_multiple_of(2)) { 4 } else { 0 };
                         }
                     }
                 }
