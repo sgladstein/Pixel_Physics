@@ -91,10 +91,17 @@ will be.
   `return_window`). §5 step 6 and §8 on 2026-09-29 for the half turn's
   side (`turn_toward`, `half_turn_left`) and the founding cut's jaw and
   corpses (`is_diggable_ground`, `founding_dig_force`,
-  `paint_nest_patch_with`). §7 and §10 on 2026-09-29 for who lays trail B
-  (`CarryingFood`, `carries_lunch`: a lunch carrier lays it), and §15 that
-  day for the trail columns (`since_trip`, `DecisionRow::emit_b_laid`,
-  `b_near`, `score`).
+  `paint_nest_patch_with`). §12 again that day: the walked cycle's and the
+  lift's rows, which #517 left out, the carry away from the mouth
+  (`SpoilOut`, `spoil_lift_mode`, `spoil_ring`), and tunnel widening
+  (`dig_widen_of`, `dig_widen_site`, `dig_shoulder_site`). §7 and §10 on
+  2026-09-29 for who lays trail B (`CarryingFood`, `carries_lunch`: a lunch
+  carrier lays it), and §15 that day for the trail columns (`since_trip`,
+  `DecisionRow::emit_b_laid`, `b_near`, `score`). §9 and §12 on 2026-09-29
+  for the breeding regimes, which neither section named before
+  (`breeding_regime`, `breeding_radius`, `suppress_bar`,
+  `graded_suppression_factor`, `colony_has_other_breeder`,
+  `nearest_breeder`, `breeder_index_enabled`, and `OrganismState::children`).
   Update this line whenever a section is re-checked against the code.
 - **Edit it in place. Never append history.** When you change a mechanism
   described here, update the section in the same commit. When you find this
@@ -156,7 +163,10 @@ ant's expressed `TRAIT_PACE` and by its body's leg fraction. A founder decides
 - **Enterable cell** (`cell_is_enterable`): empty, its own body, or living
   plant tissue (`is_partable`: leaf, wood, grass, reed, moss and fruit are
   walk-through while alive; `TISSUE_PARTING` on). A nestmate is **not**
-  enterable at the default `PIXEL_PHYSICS_STACK_DEPTH=1`.
+  enterable at the default `PIXEL_PHYSICS_STACK_DEPTH=1`. Parted tissue is
+  held by the ant standing in it and closes when the cell is left empty; when
+  an ant steps off or dies in a cell a nestmate still stands in (stack depth
+  above 1), the nestmate holds the tissue instead (`close_or_hand_over`).
 - **Foothold** (`head_has_foothold`): the **head's** 8 neighbours include
   `Solid`, `Powder` or `Plant`, or a nestmate (`climbs_over_kin: true`).
   Ants walk on walls and ceilings.
@@ -808,6 +818,15 @@ either plane: the other trail inputs are computed and wired to nothing (§3).
   that names a nest material buds only while at its nest (the `AtNest`
   read); `CreatureStats::buds_held_for_nest` counts the ticks it could have
   budded and did not.
+  **Who in a colony may bud** is `PIXEL_PHYSICS_BREEDING` (§12), read once
+  per process and `individual` unless set: no suppression, every animal buds
+  on its own account. An animal is a **breeder** once it has budded
+  (`OrganismState::children > 0`; nobody is one at founding). Under `queen`
+  nobody buds while another living member of its colony is a breeder; under
+  `graded` the bar is multiplied by up to 6 near one (`suppress_bar`). The
+  scaling is applied to the composed bar, after the affordability check, and
+  a colony with no other living breeder is not suppressed at all, so a
+  colony whose breeder dies resumes.
 
 ## 10. Laden versus empty, every difference in one place
 
@@ -861,6 +880,7 @@ Read once per process from the environment. The default is what ships.
 | `PIXEL_PHYSICS_TROPHALLAXIS` | on | `off` |
 | `PIXEL_PHYSICS_DROP_REACH` | through bodies | `adjacent`: a food drop looks only at the 8 neighbours |
 | `PIXEL_PHYSICS_BUD_SITE` | anywhere | `nest`: a species with a nest material buds only at its nest (§9) |
+| `PIXEL_PHYSICS_BREEDING` | `individual` | `queen`: while any other living animal of the same colony has budded (`children > 0`), nobody else in it buds; when that breeder dies, the next animal to reach its bar succeeds it. `graded`: the bar is multiplied by `1 + (GRADED_MAX_SUPPRESSION - 1)(1 - d/r)` for `d` the distance to the colony's nearest other breeder, so 6.0 beside one, falling linearly to 1 at `r` = `PIXEL_PHYSICS_BREEDING_RADIUS` (24) cells and beyond (`suppress_bar`, `graded_suppression_factor`). Anything else reads as `individual`. `PIXEL_PHYSICS_BREEDER_INDEX=scan` replaces the per-colony breeder index with a scan of every organism, as the control for the lookup (§9) |
 | `PIXEL_PHYSICS_CHOOSER` | trailaway | For species with a nest. `off`: the walk of §6a–§6c; `on`: the chooser's first layer only (§6d items 1–5); `nopatience`: the same with patience held at 1; `trail`: the chooser reading the trail where it would step, with the throttle retired, and no away term |
 | `SPOIL_IS_CARGO` | on | `0`: spoil no longer counts toward `Carrying` |
 | `PIXEL_PHYSICS_DIG_SPOIL` | kept | `destroy`: dug cells vanish |
@@ -889,6 +909,10 @@ Read once per process from the environment. The default is what ships.
 | `PIXEL_PHYSICS_NEST_SHAFT_OFFSET` | 0 | `<cells>`: the founding shaft is cut that many columns from the founding point (negative is west), so a door (`PIXEL_PHYSICS_NEST_DOOR`) has the mouth beside it (§8) |
 | `PIXEL_PHYSICS_DIG_DOWN` | `1.0,enclosed` | `off` (or `0`): no turn, the ant before 2026-09-28; `<w>`: the turn with chance `w` for any digger; `<w>,enclosed`: only an enclosed one (§5 step 6) |
 | `PIXEL_PHYSICS_SPOIL_HAUL`, `_SPOIL_DROP_COVER`, `_TRAFFIC_DEFER`, `_COLONY_SPACING` | unset | haulage re-roll to the nest door, spoil held under cover, jam deferral length, founder spacing |
+| `PIXEL_PHYSICS_SPOIL_OUT` | off | the excavation cycle walked (`SpoilOut`): parts, comma-joined, or `on` for all four. `haul`: a pellet carrier is pulled to the door over the mouth (`spoil_haul_target`); `pace`: at the laden pace, `HomeAligned` read against that target (`spoil_pace_target`); `keep`: inside the nest (`inside_nest`: under cover, or in the founding cut) the pellet is not put down while patience lasts, and is never lifted from there (`spoil_kept_inside`, `spoil_kept_no_lift`); `back`: a digger not hungry walks back to the cell it cut once its pellet is down (`OrganismState::dig_return`, `dig_return_target`) |
+| `PIXEL_PHYSICS_SPOIL_LIFT` | `climb` | where a pellet with no cell beside its carrier goes: `climb` up the carrier's column as far as it could have walked (`lift_reach`); `out` through the passages to the nearest cell in the open that holds a pellet (`lift_out`, `spoil_lifted_out`); `none`, `dig`, `unbounded` the older reaches |
+| `PIXEL_PHYSICS_SPOIL_RING` | `2,2`, **acting only under `PIXEL_PHYSICS_SPOIL_OUT`** (so the shipped lift is untouched; owner 2026-09-29) | `<shape>,<scale>` or `off`; `spoil_ring_of` gates it on the walked cycle, and a world's own `World::spoil_ring` overrides both: the first time a carrier stands outside the nest with its pellet it draws a column on its own side, the door's half-width plus one plus a Gamma(shape, scale) draw from the nest's centre (`spoil_ring_column`, `OrganismState::spoil_ring`, its own stream), is pulled along the ground to it (`spoil_haul_target`), and its drop roll is held until its head is that far out (`spoil_ring_holds`; `spoil_ring_drawn`, `spoil_ring_held`); `World::spoil_ring` for one world |
+| `PIXEL_PHYSICS_DIG_WIDEN` | off | `on`: tunnels one body length (two cells) wide. On a won dig roll, a digger whose way ahead is open and whose head stands where its passage is one cell wide (ground above and below, or either side) cuts one of those walls instead of turning down and cutting ahead (`ahead_is_open`, `dig_widen_site`); a digger at a face cuts a shoulder beside the cell ahead on half its rolls (`dig_shoulder_site`), so a gallery advances two cells across. A passage two wide is left alone. Both cuts are ordinary cuts after that: the heap cue and the jaw judge them (`digs_widened`; `World::dig_widen` for one world) |
 
 ## 13. Where the implementation lives
 

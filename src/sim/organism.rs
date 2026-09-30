@@ -6197,6 +6197,13 @@ pub struct OrganismState {
     /// when hunger or food in the crop ends the trip. `None` otherwise, and
     /// always with the switch unset.
     pub dig_return: Option<(i32, i32)>,
+    /// **The column this carrier's pellet is walked out to**, under
+    /// `PIXEL_PHYSICS_SPOIL_RING` (`creature::spoil_ring`): drawn the first
+    /// time a carrier stands outside its nest with a pellet, a distance from
+    /// the nest site's centre on the side it came out, and cleared when the
+    /// pellet goes down. Until its head is that far out it holds the pellet.
+    /// `None` otherwise, and always with the switch unset.
+    pub spoil_ring: Option<i32>,
     /// **Nest-bound until this frame** (`creature::storeroom_of`'s
     /// `nestbound`): a young ant stays home, is not sent out by the forage
     /// drive, and is the one that carries food into the storeroom. 0, the
@@ -6399,9 +6406,10 @@ pub struct OrganismState {
     /// before lineages existed.
     ///
     /// **Not the organism handle, and this is the point.** A handle is a
-    /// slot index plus a 4-bit generation, so it is reused: an animal that
-    /// dies hands its identity back, and after sixteen reuses the *same*
-    /// encoded id comes round again (`World::push_organism`). A lineage
+    /// slot index plus a 12-bit generation (4 bits before the `Cell`
+    /// widening), so it is reused: an animal that dies hands its identity
+    /// back, and after 4,096 reuses the *same* encoded id comes round again
+    /// (`World::push_organism`). A lineage
     /// label built on that would silently merge two unrelated lines part
     /// way through a long run, and lineage share — the one number S6's
     /// measurement turns on — would then be reading the allocator.
@@ -6444,9 +6452,10 @@ pub struct OrganismState {
     /// **The frame this individual was allocated.**
     ///
     /// With the organism handle it is a **collision-proof identity**, and
-    /// that is what it is for: `encode_organism_id` gives the slot index 12
-    /// bits and the generation 4, so a handle is reused after 16 turns of a
-    /// slot (`World::organism_generation_wraps` counts the wrap). Anything
+    /// that is what it is for: `encode_organism_id` gives the slot index 20
+    /// bits and the generation 12 (12 and 4 before the `Cell` widening), so a
+    /// handle is reused after 4,096 turns of a slot
+    /// (`World::organism_generation_wraps` counts the wrap). Anything
     /// that pins one individual across frames -- the lab's roster and its
     /// selection marker -- would follow a *different* organism into a
     /// recycled slot on the handle alone. The frame does not recycle.
