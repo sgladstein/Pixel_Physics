@@ -95,18 +95,21 @@ nestmate: traced 7 of 7 and fixed (`close_or_hand_over`,
 kills, but births 418 -> 224.5 (lower on 19 of 24). Bed pair: no harm. Not
 flipped until that cost is traced or the owner rules.
 
-**Tamped blocks and sealed chambers** (report §15): walking the soil out
-with the carry cuts most of them. Asked the owner (2026-09-29, night)
-whether walked + carry + "pellets only on real ground" becomes the default.
+**The walked cycle as the default** (owner, 2026-09-30, on the
+recommendation to fix the tamped blocks with it: "Sounds good"). Re-checked
+at the game's cap first (report §16): clean (sealed cells 38 -> 2 at 40
+ants) but it hardly digs (new ground 342.5 -> 88; at 200 ants 696 -> 51.5),
+because without stacking the carriers cannot get out past each other. It
+ships with stacking, not before. "Pellets only on real ground" stays off.
 
-**Next** (2026-09-29, night):
-1. Land this branch (the fix, instruments, reports): PR, merge on green.
-2. The lab cost of stacking: trace where a stacked colony loses its young
-   (per ant it eats the same; it moves 14% less and visits the nest 3x as
-   often), then the default flip as its own PR. It reaches all three games,
-   including the lab's BOX dial ("AT 1, THE SHIPPED SETTING"); poke first.
-3. The refill fix as a default, when the owner answers.
-4. Resting inside (owner: yes), joint with the foraging lane. Their terms:
+**Next** (2026-09-30):
+1. The births fix, as a switch: a newborn may stand on a nestmate when the
+   cap allows (`try_bud`'s placement refuses cells a stacked crowd fills).
+   Budding is the foraging lane's side: switch first, their review.
+2. Stacking and the walked cycle on together, measured as one step (digbox
+   40/200, lab and bed pairs); poke with the SHA before it lands. It reaches
+   all three games, including the lab's BOX dial.
+3. Resting inside (owner: yes), joint with the foraging lane. Their terms:
    a switch measured on their bed (food taken, starved, fed departures);
    keep `trip_load`, the door's geometry and `NestSite::surface`; poke
    before it lands. The lever: `home_pull` gives a fed ant that is not a

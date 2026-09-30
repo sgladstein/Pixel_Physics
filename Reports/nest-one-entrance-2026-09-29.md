@@ -780,3 +780,47 @@ nest and digging as it crowds.
 
 Predictions 235-238 (one seed an arm, fed and stacked): 235, 236, 237 hold;
 238 fails -- the refill is not a 200-ant problem once the colony lives.
+
+## 16. Walked out at the game's own cap: clean, and it hardly digs (2026-09-30)
+
+*The owner, on the recommendation to make walked + carry the default nest
+(§15's answer to the tamped blocks): "Sounds good." The recommendation
+carried a caveat -- §15's sweep ran at stacking 4 -- so it was re-checked at
+the game's cap first.*
+
+`digbox` fed, stacking unset (1), 8 seeds a size, frame 24,000; today's
+nest (`SPOIL_OUT` unset) against walked (`SPOIL_OUT=on`, the carry at its
+shipped `2,2`). Medians; every row moved the same way on 8 of 8 seeds:
+
+| | 40 ants | 200 ants |
+|---|---:|---:|
+| sealed-off cells | 38 -> 2 | 47.5 -> 2 |
+| ants shut in sealed pockets | 9 -> 2 | 15 -> 2 |
+| tamped cells inside blocks | 90 -> 28 | 80 -> 31.5 |
+| pellets put down inside the nest | 506.5 -> 38.5 | 447.5 -> 67.5 |
+| **new ground dug** | **342.5 -> 88** | **696 -> 51.5** |
+| open cells | 234 -> 123.5 | 448 -> 73 |
+
+**The nest comes out clean because it is hardly dug.** At 200 ants the door
+jams: without stacking, carriers going up and ants coming down cannot pass
+in the one-cell founding cut. Traced (`TRIPS`, the typical seed, 2): by
+frame 24,000, 64 of 74 pellets were let go *inside* after patience ran out,
+25 of 99 trips ever left the nest, carriers spent 57% of their carrying
+frames in the founding cut (76% by frame 12,000), and a quarter of all of
+them standing facing another ant. At 40 ants the
+cycle works -- 80 of 107 pellets went outside, 87 trips left the nest --
+but each is a long round trip (median 420 frames), so the colony cut 118
+cells where today's nest cut about 900.
+
+With stacking on (§15) the same change gave a working nest: open cells 138
+at 40 ants and 193 at 200, against 123.5 and 73 here. **So the walked
+cycle is not a default on its own; it ships with stacking**, and stacking
+waits on its lab births cost (`creature-stacking-design-2026-09-17.md`
+§12: newborns refused for want of a free cell beside a stacked parent).
+Order from here: the births fix, then stacking and the walked cycle
+together.
+
+Predictions 239-242 (written before the sweep): 239, 240 and 241 hold --
+240 by far more than predicted, new ground falling 93% at 200 ants; 242
+fails, fewer ants shut in than at stacking 4, since a nest barely dug has
+little to seal.
