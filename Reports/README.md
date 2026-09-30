@@ -1307,7 +1307,10 @@ drift that two of these documents still reflect.**
   — **design 2026-09-17, built and landed as PR #465; four review follow-ups
   closed 2026-09-19 in §11; §12 (2026-09-29) fixes the lab deaths at cap 4
   (parted tissue closed over a stacked nestmate) and measures what remains,
-  a lab colony that raises about half the young. `engine`.** How many creatures of one
+  a lab colony that raises about half the young; §13 (2026-09-30) traces the
+  refused births into the packed galleries and measures births on nestmates
+  (`PIXEL_PHYSICS_BUD_STACK`), which moves the late run and not the dip.
+  `engine`.** How many creatures of one
   colony come to share a cell, and where the 2nd..Nth ant's identity lives.
   Exclusivity is the **grid's** invariant and not a creature rule: `Cell` holds
   one `organism_id`, so `classify_step` reads an ant exactly the way it reads
@@ -4106,7 +4109,15 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   fed. **§15 tamped blocks and sealed chambers are the nest refilling
   itself**: today's dig puts about half its pellets down inside the nest,
   re-digs the fill and tamps it; walking the soil out cuts sealed-off space
-  123.5 -> 9 cells at 200 ants (8 seeds, fed, stacked). Lane note:
+  123.5 -> 9 cells at 200 ants (8 seeds, fed, stacked). **§16**: at the
+  game's cap (no stacking) the walked nest is clean but hardly digs (new
+  ground 696 -> 51.5 at 200 ants: the carriers cannot pass in the shaft),
+  so it ships with stacking, not before. **§17 the package** (stacking 4,
+  walked, births on nestmates) against today: sealed-off space 38 -> 1 at
+  40 ants, the lab no worse (births 13 / 11), a nest a third the size; the
+  carry traced (a carrier's test of *outside* flipped under the mound and
+  down a mouth open to the sky) and latched at the door: the nest 139.5 ->
+  180 cells at 40 ants. Lane note:
   [lanes/nest-mouth.md](lanes/nest-mouth.md).
 - [nest-colony-size-2026-09-28.md](nest-colony-size-2026-09-28.md) —
   **measurement, 2026-09-28. `engine`.** The nest and the colony at 40, 80
