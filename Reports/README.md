@@ -312,6 +312,14 @@ by somebody about to try it on creatures.
   the drift protocol, and the two refusals that leave no trace in the tree
   (no README reorder, no `Reports/archive/` — both had been chosen the other
   way first).
+- [claude-md-evidence-2026-09-30.md](claude-md-evidence-2026-09-30.md) —
+  **reference, current.** The worked cases, numbers and incident accounts
+  behind every rule in `CLAUDE.md`, moved out verbatim on 2026-09-30 so the
+  always-loaded file fell from ~25,400 to ~9,950 tokens. Rule statements stay
+  in `CLAUDE.md`; subsystem-only rules moved to `paths:`-scoped
+  `.claude/rules/` files (`measuring-the-world`, `plants-and-organisms`,
+  `running-the-app`, `bug-register`). Same headings as `CLAUDE.md`, so grep a
+  rule's heading to find why it exists.
 - [claude-md-recommendations.md](claude-md-recommendations.md) — **all
   thirteen landed.** The thirteen-recommendation review of `CLAUDE.md` as
   always-loaded infrastructure. 5, 6, 7 and 12 are approved and unexecuted.

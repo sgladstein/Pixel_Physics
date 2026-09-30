@@ -1,0 +1,1307 @@
+# CLAUDE.md's evidence: the worked cases behind every rule
+
+**Status: reference, current.** Split out of `CLAUDE.md` on 2026-09-30, verbatim.
+
+`CLAUDE.md` is loaded by every session before its first action. On
+2026-09-30 it cost ~25,400 tokens, 63% of it in Method, Conventions and
+Gotchas, which are consulted by lookup rather than read. So the rule
+*statements* stayed in `CLAUDE.md` (or moved to a `paths:`-scoped
+`.claude/rules/` file where the rule only bites in one part of the tree),
+and the **worked cases, numbers and incident accounts moved here, word for
+word as they stood** (`CLAUDE.md` at `origin/main` `f52bad55`). This is the design
+`Reports/two-games-one-repo-2026-08-30.md` §3 arrived at: rule statements
+inline, evidence routed.
+
+**Why a rule exists, and what it cost to learn, is here. What to do is in
+`CLAUDE.md`.** When the two disagree, `CLAUDE.md` is the one that is
+maintained; when you add a rule there, its evidence goes here in the same
+commit, under the same heading.
+
+The sections below keep `CLAUDE.md`'s headings so a rule can be found by
+name: grep the heading, or `python3 scripts/docgrep.py "the rule as it reads"`.
+
+## Commands
+
+```
+cargo test                                       # unit + integration -- and the ONLY one that reaches tests/*.rs, where the preset and worldgen guards live. The --skip this line carried until 2026-08-26 is vestigial: bug A's test is #[ignore]d, so it does not run. Measured 2026-09-02: `cargo test --lib` with no flag gives 1,324 passed / 0 failed / 55 ignored (943/54 on 2026-08-26 -- the suite grew, nothing regressed)
+cargo clippy --all-targets --release --locked -- -D warnings   # exactly what CI runs. `rust-toolchain.toml` pins 1.98 so this needs no `+1.98.0`
+cargo run --release --example ascii              # headless behaviour + worst-frame timing; CI runs it
+cargo run --release --example filmstrip -- scene=fall zoom=2 crop=0,140,256,110
+python3 scripts/review.py serve --open      # the owner's review queue; see below
+python3 scripts/review.py serve --lan       # ...also reachable from a phone on the same Wi-Fi
+bash scripts/acceptance.sh                  # the structural acceptance cases; CI gates this
+bash scripts/worldgencheck.sh               # is a generation pass eating another's output, or has one stopped firing; CI gates this. --selftest puts the defect back
+bash scripts/seedsweep.sh                   # the order-statistic seed sweep; run BEFORE changing any model over procedural content
+bash scripts/docscheck.sh                   # documentation checks: links, map-vs-tree, freshness notes, report index
+python3 scripts/bugindex.py --branches      # WHICH BUG LETTER IS FREE -- swept over every fetched branch, not just this tree. Run it BEFORE filing in Reports/open-bugs-handoff.md; --check cannot see a letter claimed on an unlanded branch. --selftest is the positive control
+python3 scripts/agentmeter.py               # what each sub-agent SPENT, and on what (reading vs data, files several agents re-read); run after any fan-out. Brief agents from Reports/agent-strategy.md s4
+python3 scripts/contextbudget.py            # what every session, agent and subagent pays before it starts; --gate is the ceiling, --check is gated by docscheck
+bash scripts/contextprobe.sh                 # ...and what the runtime ACTUALLY loads, over the InstructionsLoaded hook; contextbudget infers, this measures. --selftest is the positive control
+bash scripts/branchcheck.sh                 # how far behind main this branch is, and which branches are merged-and-deletable; --gate is the CI trunk check
+bash scripts/branchcheck.sh --brief         # ...summary only; this is what the SessionStart hook runs (`.claude/README.md`)
+bash scripts/branchcheck.sh --prs           # ...and say which unlanded branches have NO OPEN PR -- i.e. which finished work is invisible
+bash scripts/branchcheck.sh --prs-from F    # ...reading the PR listing from F, because the in-session credential gets 403 (use the MCP GitHub tools to write F)
+bash scripts/branchcheck.sh --who-touched src/sim/foo.rs   # WHICH LIVE BRANCH IS IN THIS FILE, and what landed in it while you were not looking. Run it before handing a file to anyone
+bash scripts/branchcheck.sh --selftest      # the ten sensitivity rows over the PR annotation and --who-touched; rows F and J mutate the file to prove rows C and I are not blind
+```
+
+**The real app can be screenshotted headlessly**, which this file previously
+assumed impossible — every "verify live" instruction routed through
+`filmstrip` because the sandbox has no display. On a headless Linux box:
+
+```
+apt-get install -y libxkbcommon-x11-0 mesa-vulkan-drivers   # once per container
+xvfb-run -a -s "-screen 0 1280x800x24" \
+  env VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.json \
+      PIXEL_PHYSICS_SCREENSHOT_AFTER_FRAMES=3 \
+  ./target/release/pixel-physics                            # writes %TEMP%/pixel_physics_screenshot.png
+```
+
+`lvp_icd.json` is lavapipe, Mesa's software rasteriser; without it `Pixels::
+new` fails with "Unable to create a surface" and the panic looks like a code
+bug rather than a missing driver. It is slow — seconds per frame — so it is
+for *looking at one frame of the real thing*, not for timing anything. Frame
+timings still come from `ascii`, and `PIXEL_PHYSICS_CAPTURE_SEQUENCE` still
+works for a strip.
+
+**All three binaries carry the hook and they do not write the same file.**
+`./target/release/druid` writes `pixel_physics_**druid**_screenshot.png`; the
+line above is the sandbox's name, and waiting on it while the druid app runs
+looks exactly like a capture that never fired. **And none of them exits after
+the shutter** — a headless capture script has to kill the app itself, and
+`pkill -f target/release/druid` matches the *wrapping shell's own command
+line* and kills the script instead, which reads as the same failure a second
+time. `for p in $(pgrep -x druid); do kill $p; done` is the one that works.
+Both cost twenty minutes on 2026-09-14, one after the other.
+
+**That `-f` trap is not about screenshots and bites hardest in a *wait* loop.**
+Any `pgrep -f`/`pkill -f` whose pattern appears in the wrapping shell's own
+command line matches itself, and `while pgrep -f 'cargo test --release'; do
+sleep 20; done` therefore **never exits** — which reads as the job never
+finishing rather than as a bug in the waiting. Worse than the kill case,
+because nothing dies and there is no error to notice: it simply waits until
+the watch times out. `pgrep -x <exe>` matches the process name and cannot
+match the shell. Hit again 2026-09-19, waiting on a test run.
+
+`filmstrip` writes a contact-sheet PNG — several frames of one run in a grid —
+so an artifact can be judged by eye without a window. Add `gif=1 out=x.gif` and
+it encodes an animation instead, still with no window and no GPU: reach for that
+when the question is whether something *moves* right, which a grid of stills
+cannot answer. For the real app, press
+`F7` to the `flat` preset — dead-level bare rock with 200 rows of sky, the
+structural test bed — or set
+`PIXEL_PHYSICS_CAPTURE_SEQUENCE=<start>,<interval>,<count>`; frames and a GIF
+land under `%TEMP%`.
+
+**Having rendered something, show it — don't describe it.** See *Getting the
+owner's judgement* below; it is not an occasional tool.
+## Working alongside another session
+
+**This tree is worked in concurrently, and often by more than one agent at
+once.** Git handles the merges; what it cannot handle is the failures below,
+each of which has cost real hours. **The worked cases behind them are in
+[`Reports/concurrent-sessions.md`](concurrent-sessions.md)** — the
+rules and their numbers are here.
+
+**`main` is the trunk. Never integrate against `master`.** `main` began as a
+15-byte stub while the project lived on `master`, and the fix left `master`
+standing, so for a while both names looked equally plausible. `3d53351`
+records the result: a branch merged `master` while `main` was **10 commits
+ahead**, and silently missed the CLAUDE.md restructure, the map-scroll feature
+and the play-button fix. Nothing failed; the session noticed because a diff
+made no sense. `main` is the GitHub default and the only branch CI gates.
+`scripts/branchcheck.sh --gate` fails if any commit is reachable from `master`
+but not `main`, and CI runs it.
+
+**A session cannot delete a branch, so the prune is the owner's to run.**
+Measured 2026-08-25: 37 branches verified at 0 ahead of `main`, every
+`git push origin --delete` returned **HTTP 403**, none succeeded. Pushing
+commits works all day; deleting a ref does not, and the GitHub MCP server
+offers no delete-branch tool either. So `branchcheck` can *identify* deletable
+branches and never act on them — when the merged count climbs, that is a
+message for the owner, not a task any lane can pick up.
+
+**Know how far behind you are, before you trust anything you measured on it.**
+Measured 2026-08-22 across 27 remote branches: one was current, **ten sat at
+exactly 160 commits behind `main`** — cut at the same moment and never once
+updated — and twelve more were already fully merged and standing as clutter. A
+branch does not notice it is 160 behind; the merge does, and by then the
+conflict surface is the whole session. **You no longer have to remember to
+check**: a `SessionStart` hook runs `scripts/branchcheck.sh --brief` and puts
+your ahead/behind and the merged/stale counts in context before you act. That
+hook exists because this paragraph asked for the check by convention and the
+drift happened anyway. This is not tidiness — a baseline measured on a
+160-behind branch is a measurement of a tree nobody else has. The one
+exception the script prints for you: a branch sharing *no* history with `main`
+is a deliberate orphan carrying data, not source (`review-queue`). Never merge
+`main` into one of those.
+
+**Open a pull request for your work. This paragraph is the owner's standing
+authorisation, given 2026-08-23 — you do not need to ask again.** The agent
+harness declines to open a PR "unless the user explicitly asks"; this is that
+ask, and it stands for every session in this repo. Nothing in the repo ever
+said otherwise, which is why sessions kept reporting they had been told not
+to: they were reading their own harness, not this file. **Before you open it,
+`python3 scripts/deadendindex.py --touching` says which dead ends name
+something your branch *adds*** — conditions get met in code and nobody tells
+the entry, and nine of the register's clauses had been resolved in doc
+comments and never written back. It is quiet when it has nothing (0 hits on
+four of five unrelated merged PRs) and its recall is 2 of 5 on replay, so
+**silence is not evidence** — it cannot see an entry whose clause names no
+identifier, nor a condition met by a value changing rather than a name
+arriving.
+
+**You may merge your own pull request. Owner policy, 2026-08-25.** An
+independent session merges its own PR; a coordinator merges its lanes'. The
+one condition is **CI green on the head being merged** — with no human
+reviewer in the loop, CI is the only gate left. Your own harness may tell you
+never to merge; as with opening a PR, that is the harness talking and this
+file is the owner's instruction for this repo.
+
+**Who opens it is decided by capability, not by role**, and it is settled in
+seconds: `ToolSearch` for `mcp__github__get_me`. An in-process subagent and a
+cloud child both have the GitHub tools and can open their own PR; a
+trigger-fired session does **not**, because the trigger stamps its own
+`allowed_tools` carrying no `mcp__*`. A session without the tools pushes its
+branch, writes the PR body to a file on it, and reports the head SHA; whoever
+coordinates opens the PR. **Either way the coordinating agent owns the
+merge.** Why `create_trigger`'s `connectors:` is not the fix, and what it cost
+to leave unsaid — 133 CI runs, every one on `main` or `master`, none from a
+`pull_request` event — is in `Reports/concurrent-sessions.md`. **That was
+fixed on 2026-08-23, hours after it was measured, and this file quoted it as
+live for three weeks after.** CI gates `claude/**` on every push and every PR
+on `pull_request`: 1,252 such runs by 2026-09-15, so a branch is seen twice
+before it lands.
+
+**When to land**, from this repo's own 49 two-parent merges, each replayed
+with `git merge-tree` to count the conflicts it actually produced:
+
+| | |
+|---|---|
+| `behind x files > 300` | past the point where merges get expensive — act |
+| feature complete | open the PR |
+
+`bash scripts/branchcheck.sh` prints your two numbers, **`FILES` and `BxF`**;
+`files` is branch-side, `git diff --name-only origin/main...<ref>`. Every
+painful merge (3+ conflicts) scored **above 340** and no clean merge exceeded
+1440, with the clean ones reaching p90 at **280** — so 300 sits in a gap
+rather than on a measured value, at 100% sensitivity and about 90%
+specificity. **It will fire on roughly one clean merge in ten, and that is
+fine**: the action it prescribes is near-free. Do not "improve" it into a
+lower bound; that throws away the only half that prompts action.
+
+**The two terms want different remedies, and this is the part that gets
+confused.** If `behind` is driving the product, merge `main` in — that fixes
+it in place, and landing does *not* reduce drift: a 337-behind branch that
+opens a PR still owes the same 337-commit reconciliation. If `files` is
+driving it, the branch has quietly become more than one feature; land it and
+start another.
+
+**And it answers only one of the two questions.** It predicts *"will this
+merge be laborious?"* — it is built from conflict counts. It cannot see
+*"will this merge be wrong?"*, and that is not a tuning problem: two merges
+scoring 132 and 96, comfortably "safe", were **zero-conflict by
+`git merge-tree`** and still broke the tree, because `main` had added
+generated-file gates while the branch edited their sources.
+
+**Run `bash scripts/docscheck.sh` after every merge. Unconditionally.** It is
+sub-second, and it is the *only* thing in the repo that catches a generated
+file going stale against its source — `scripts/bugindex.py` over the bug
+register's index, `scripts/readmetoc.py` over README's table of contents. Both
+2026-08-25 incidents were caught by it immediately and by nothing else: `test`,
+`clippy`, `ascii` and `acceptance` were all green through a stale index, and
+CI carries `docscheck` only as an informational job. **A file-overlap metric
+is not a substitute — it was proposed, and it does not work**; the reasoning
+is in `Reports/dead-ends.md`.
+
+Do not read "land early" as "land broken". A half-finished `src/sim/load.rs`
+on `main` costs every concurrent session, because they all build on it and
+every measurement taken against it is void. And the fastest way to satisfy a
+"commit and push now" impulse is `git add -A`, which is banned here. Stage
+explicit paths, green the gates, then land.
+
+**Work in your own worktree, not the shared checkout.** Two sessions in one
+checkout share a `target/`, so one session's half-finished edit makes the
+*other* session's `cargo test` and `cargo clippy` fail on code it did not
+write and must not fix — and a running sandbox in one session locks the exe
+the other needs to link. Both happened in a single afternoon. (A cloud session
+gets a fresh container, so this is about a shared *local* clone.)
+
+**Know which files are yours.** Collisions are almost never random — they land
+in the same few files every time. Counted over 188 branch landings
+(2026-08-25), the contested row anyone may be in is
+`Reports/open-bugs-handoff.md` **118**, `README.md` **103**,
+`Reports/README.md` **103**, `src/sim/world.rs` **103**,
+`examples/filmstrip.rs` **99**, `Reports/dead-ends.md` **79**,
+`src/render.rs` **70**, this file **66**. **If you touch one of those, land it
+quickly** rather than holding a large diff across a session — the window in
+which someone else's work cannot compile is the window you created. The
+per-area breakdown, and the two claims the census overturned, are in
+`Reports/concurrent-sessions.md`; recompute it rather than trusting it.
+
+**A file-ownership split is only as current as your last look at the branch
+list**, and until 2026-09-15 nothing prompted a re-read — the drift check had
+`branchcheck.sh` nagging for it and this had nothing, which is the whole
+reason it kept failing: the rule was in front of the session and named no
+command. **Before writing into a file another lane owns, or handing one to
+somebody, run `bash scripts/branchcheck.sh --who-touched <path>`.** It names
+every branch holding an unlanded commit in that path, newest first, and
+prints what landed on `main` while you were not looking — the quieter half,
+because a branch that merged an hour ago reads as 0 ahead, so a scan of
+unlanded branches calls a file free at the moment it is most contested. A
+pathspec it cannot match renders UNANSWERABLE, never "clear". 2.5 s, and the
+roster you were handed is a claim about the past, not evidence about who is
+running now. Measured 2026-09-14, the round-36 case it was built from: a
+reassignment of `src/sim/creature.rs` went out **eleven minutes** after the
+lane that already owned the fix had opened its PR.
+
+**The general case is that a shared append-only file must be *read* before it
+is appended to**, and `Reports/open-bugs-handoff.md` is where that bites —
+append-only, lettered, written into by every line at once. Two bugs were once
+filed as **§Q**, and a branch carried a stale copy of **§M still headed OPEN**
+which `main` had since closed. So before adding a section: **grep the file for
+the thing you are about to file**, and for the letter run
+**`python3 scripts/bugindex.py --branches`**, which prints the next free
+number in every series across every fetched branch. Do not check the letter by
+eye — and **do not use `--check` for this, which is what this line said until
+2026-09-12 and is a confident wrong answer**: `--check` reads one working
+tree, so it passes on a letter that is free *here* and already taken on a
+branch that has not landed. Measured that day: a lane filed **§Z16** against a
+register whose highest was §Z15, `--check` was green, and §Z16 was live on
+another branch; `--branches` answers **§Z18** in 1.2 s over 75 refs.
+`--check` keeps its own job — the index is current, no letter is used twice
+*in this file* — and stays the one `docscheck` gates, because `--branches`
+answers differently depending on what you have fetched and a gate whose
+verdict moves with your fetch state teaches people to ignore it.
+When a merge conflicts there, ask which side is *newer* rather than which is
+yours. **Check the split is self-consistent, too** — one plan gave Lane A
+everything under `examples/*` and told Lane C to add a mode to a file under
+`examples/*`, so the collision was authored in rather than stumbled into.
+
+If you need to commit while a contested file holds somebody else's unfinished
+work, do **not** stage around it. Add a worktree at `origin/main`, re-apply
+your change there, verify, commit and push from it, then bring the main tree's
+branch pointer forward with `git reset --mixed origin/main`. **That reset
+strands stale files whenever the main tree was *behind*** — they appear as
+modifications that are really a *revert* of an upstream commit the tree
+missed, and nobody recognises them as theirs. **Note which files are genuinely
+dirty *before* the reset**; afterwards a stale file and an edited one look
+identical. Full account, and the case it happened to, in
+`Reports/concurrent-sessions.md`.
+
+
+## Method
+
+Nearly every fix in this engine that was judged by test output alone failed to
+change what the owner saw on screen. The ones that worked all followed the
+same shape.
+
+1. **Look before you measure.** Render the scene and look at it first. Every
+   metric written before anyone had looked at the artifact has measured the
+   wrong thing.
+2. **Reproduce before you fix**, from the owner's description of the *initial
+   state*, and confirm the reproduction actually shows the complained-about
+   quantity before writing a line of fix.
+3. **Verify live before declaring done** — `filmstrip`, or the app's capture
+   hook. Tests passing is not evidence that the screen changed.
+4. **Look again after the fix, for what you did not measure.** A metric only
+   sees the quantity it was written to see. A fix that cleared one artifact
+   while introducing a worse one has already shipped and been reverted here
+   once, because its test only looked at the rows it expected to be wrong.
+
+An image tells you *what* and *where*. A metric tells you *how much* and
+*whether it came back*. Reaching for a metric to answer "what and where" is
+the recurring mistake — and the inverse bites too: a corrected overlay was
+still misread as "everything at the ramp floor" when the real value was 40%
+of scale, genuinely hard to judge on a one-cell-wide twig. Pair every debug
+channel with a probe that prints the values (`examples/plant_probe.rs`),
+and reach for it the moment the question turns quantitative.
+
+### "Why did it do that" is answered by tracing individuals, never by a population statistic
+
+**Owner's rule, 2026-09-20:** *"The best tests are when you check the ants'
+brains at every tick that mattered and check every decision they made and
+why."* Stated about ants and it is not about ants: it holds for anything that
+decides per individual — a plant choosing where to put a bud, a rigid body
+choosing where to break.
+
+**The cost of not doing it, measured in one session on one question** (*is the
+homing anchor what stops the foraging loop?*): **three** population splits, all
+arithmetically correct, all invalid, each in a different way — one underpowered
+by an order of magnitude (it could not resolve under 22 points and a 10-point
+gap was read as "no effect"), one whose grouping variable was reset by the
+engine mid-run so the groups contaminated each other, one whose denominator
+counted a different *kind* of event on each side and came out **37x backwards**.
+Against that, **one** per-tick trace of **one** animal answered it immediately
+and was never wrong: 186 ticks to walk home, then 3,300 standing on its own
+doorstep at `P(drop)` exactly 0.0000.
+
+**The mechanism of the failure is that an aggregate cannot carry the reason.**
+A rate says *how often*; it cannot say *because the gate it needed was shut*. So
+every question of the form "why is this not working" is a trace question, and
+reaching for a split is how you spend a day proving something you then have to
+withdraw.
+
+**And the pairing rule does not save you here, which is why this is its own
+entry.** `Reports/pheromone-trail-direction-2026-09-16.md` §7.37 found
+`tumbles_homeward` at 1,150 of 15,291 where **every one was a correct aim at a
+wrong target**: the "it fired" counter and the effect counter beside it *both*
+reported a working mechanism, because the aim did fire and the body did move as
+aimed. Only the per-tick trace, once it carried the target, could see it.
+
+**Practically:** trace every individual that reached the state in question, not
+one focal animal — `examples/trailfollow.rs`'s focal CSV is one ant by
+construction, and one ant is an anecdote until the population trace agrees with
+it. Put the *inputs and the chosen output* in the row, not just the position:
+an animal walking confidently to the wrong place and one that will not steer at
+all produce identical position rows.
+
+### "Did it fire at all" needs a counter, not a picture
+
+An image shows
+*what* and *where*; it cannot show whether the thing you built is what
+produced it. A collapse rendered as coherent falling slabs, was read as
+"chunks are working," and the harness's own body count said **zero for the
+whole run** — the feature had never once executed, and what was on screen
+was loose rubble that happened to hold its shape. Two very different
+mechanisms look identical at the zoom a contact sheet is read at. When a
+change adds a discrete "this happened" event, print the count next to the
+image and read both.
+
+### Check that a planned step can demonstrate itself, before promising it will
+
+"Cracks weaken rock" was scheduled as an independently shippable,
+judge-by-eye milestone. Built, it did almost nothing visible, because
+failure was evaluated per cell against *its own* reach and a crack at a
+beam's root weakens a cell the criterion never tests. One question asked
+earlier — *which cell does this rule actually evaluate?* — would have caught
+it before the work.
+
+The same question was missed again later, in a different costume, **by a
+session that had this paragraph in front of it**: a bearing rule that is
+correct for a *piece* resting on loose ground was applied per cell, so a slab
+lying on its own rubble was judged as many separate knife-edge footings and
+taken apart one cell at a time. Ask it as **which object does this rule
+evaluate — a cell, a section, or a whole piece?** — and check that the
+quantities it needs (a centroid, a contact width, a tipping moment) are even
+defined for that object.
+
+### Ask which *pixels* a lever moves, before ranking it by silhouette
+
+The sibling of the question above, and it has now cost a whole phase. Three
+discrete architectural levers — sympody, tropism, acrotony — were built,
+ranked "very high" and "high" on silhouette impact by a botany review, and
+all three demonstrably *fired*: 46–186 sympodial forks per shrub, 1,797–2,750
+plagiotropic steps per conifer, counters printed beside the sheets exactly as
+this file demands. The owner's reading of those sheets was that nothing had
+changed, and the composition numbers agreed — the three species differed in
+height and mass and in nothing else. All three levers change **which cell
+gets a label**: the order a child inherits, the reference vector it scores
+against, which bud flushes. The silhouette was set by two things none of them
+touch — every species was ~90% wood and ~5% leaf, and every plant in the
+world drew from one four-brown palette and one four-green one. A lever that
+relabels a cell cannot move a silhouette that texture and colour set. See
+`Reports/plant-appearance-design.md`.
+
+### Resolve an ambiguous complaint before building anything
+
+"Flatness at rest" was read as the surface texture and turned out to mean a screen-wide
+tilt — opposite directions, a whole detour spent on the wrong one. When a
+report could mean two different things, the cheap move is to measure both
+and see which one is actually there, or to ask. It is much cheaper than the
+fix you build for the wrong reading.
+
+### Ask what your number counts when nothing is wrong — metric, counter, timing, difference or census alike
+
+**The single worst-recurring failure in this repo: six occurrences across two
+independent sessions, the last two on one day.** Sanity-check any new number
+against a case you know is fine, before trusting it about a case you don't.
+
+The rule was written as *"ask what a **metric** counts"* and recurred anyway,
+because none of the repeats looked like a metric in the moment. **Name the
+instrument and it stops hiding** — it has lied as a *metric* (a "film" defined
+as what falling water looks like, so it counted every droplet in the world), a
+*counter* (counting calls: 23 swings removing 0 cells), a *timing* (0.00, 4.98
+and 7.04 ms/frame from one world, each offered as the settled cost — it was
+the wind), a *difference* (`extra lost = 0`, comparing two things that had
+both not happened), and a *census* (every `Solid` in the world rather than the
+platform under test). Its numbers are real every time. That is the point: a
+number that is arithmetically correct and answers a different question than
+the one asked looks exactly like a result.
+
+**And against a case you know is broken, which is the half this rule was
+missing.** The sentence above checks *specificity* — that the number stays
+quiet when nothing is wrong. It does not check **sensitivity**: that the
+number *moves* when something is. This file already has that rule for guards —
+*put the fault back and watch it go red* — and it was never crossed to
+measurements. Measured 2026-08-25, in one session: **six numbers that were
+arithmetically correct, plausible, and about the wrong thing**, of which five
+needed the guard rule applied to an instrument, and two of them *could not
+have moved at all*.
+
+**So run the positive control**: construct the case whose answer you *know* is
+non-zero and check the instrument reports it. It is cheap, and it would have
+caught three of those six outright and pointed straight at a fourth.
+
+**The tell, when there is no control to hand: tidiness.** Outcomes here are
+chaotic, so a clean first result is evidence of an artifact rather than of a
+strong effect. Every wrong number that day was tidy — a queue flat at exactly
+its idle value, two arms agreeing at 1712/1712, a clean 2.7x, a clean 1.64x.
+The true answer was messy: 1.24x, a per-seed median of zero, eight seeds worse
+and six *better*. When the first number tells a clean story, something has
+usually collapsed the complexity — often the very thing being measured. The
+six cases, and why each could not answer, are in
+[`Reports/method-worked-cases-2026-09-05.md`](method-worked-cases-2026-09-05.md).
+
+### A parse is a measurement, and it inherits every dimension the run swept
+
+The instrument does not have to be the harness. **Keying a parse on fewer
+dimensions than the run varies pools them silently, last write wins**, and the
+result is a complete, plausible, tidy table about nothing. Nothing in the
+output says so: the rows look like rows.
+
+Measured 2026-09-20 on the ant line, and the shape is any swept harness here —
+`seedsweep`'s presets, `filmstrip`'s scenes, `labstats`' beds. A paired
+24-seed comparison was keyed on `(seed, arm)` while `trailfollow` sweeps
+**three commute distances**, so three experiments landed in one dict and the
+answer was whichever finished last. **The same run was also read before its
+writer had exited**, which is the same failure in time rather than in key —
+half the seeds carried one sweep's value and half the next.
+
+**The tell is two of your own instruments disagreeing on one file.** A chart
+script and a stats script over the same log gave 189 and 144 for one column;
+neither number was wrong arithmetically and neither answered the question.
+Nothing else caught it — every per-seed row was individually real.
+
+**So, before believing a parsed table: print the key's cardinality and check
+it against what the run swept** (24 seeds × 3 gaps, not 24 rows), **and wait
+for the writer to exit** — `pgrep -x <exe>`, never `-f`, which matches the
+waiting shell's own command line and hangs forever.
+
+### When the complaint is visible and persistent, measure the standing state, not the event rate
+
+Attributing film *creation* blamed the
+plain straight-down fall for 76% of them — true, and useless, because those
+films existed for one frame each. The artifact that persists came from
+somewhere else entirely, and only a standing count showed it.
+
+### A debug readout must not be a function of the thing it debugs
+
+Several channels that decide behaviour are invisible — per-cell scalars, not
+occupancy. Build the overlay *before* the mechanism that uses them
+(`render.rs`'s `FieldOverlay` / `OrganismOverlay`, `filmstrip`'s `channel=`),
+and make it a **full replace on a fixed dark→bright ramp, not a blend into
+the cell's own colour**. A magnitude-scaled blend was tried and produced a
+canopy-density sheet that read as blank: the ramp was red, wood is brown,
+and a mid-range value moved one colour byte from 139 to 155. The obvious
+reading — "the mechanism is dead" — would have sent a fix at working code.
+
+### Fixing a bug often exposes a constant that was compensating for it
+
+`thicken()`'s flood fill traversed 4 neighbours while growth places cells at
+8, so it counted a fragment of a tree rather than the tree. Fixing the
+traversal made every cell see the true count and thicken uniformly — because
+`pipe_ratio` had been calibrated against the broken quantity. **When a fix
+changes what a number *means*, re-deriving the constants that read it is
+part of the fix, not scope creep** — and sweeping is how you re-derive it.
+
+Watch for the inverse too: a gate can hide a second bug by making it
+unreachable. Infiltration's conservation test passed against a version whose
+gate meant infiltration never ran at all. A test can pass because the code
+under it is dead, which looks exactly like passing because it is correct.
+
+**The same rule has a second shape, and it has to fire *before* you start
+rather than after.** A term in a weighted sum is not an independent knob:
+changing what one term can *express* reallocates the whole sum, even when no
+number's meaning changed. Measured 2026-08-27 on the plant line, though the
+shape is any scored choice or economy: `phototropism_dir`'s codomain was
+`{(0,-1), (0,0)}`, so `light_weight` — authored up to 0.6 — could only ever
+reinforce the up-vector. Reshaping it into a real 2D gradient, **the repair
+`dead-ends.md` itself prescribes**, gave those weights a direction they had
+never had; trees spread instead of climbing, never reached `seed_maturity`,
+and reproduction went to **zero**. Every gate stayed green but one, and that
+one fired for an unrelated reason. **So before starting a change that
+reallocates a shared budget, name the constants calibrated against the
+current behaviour and budget re-deriving them as part of the work — if that
+is unaffordable, the change is not scoped, it is merely started.** A correct
+mechanism at inherited constants is a regression. Full account, including why
+a system of *unpriced* levers makes this the normal case rather than the
+exception: `Reports/why-changes-cost-so-much-2026-08-27.md`.
+
+### When every setting of a sweep fails the same way, suspect the sweep
+
+The sibling of "two fixes failing the same way means the approach is
+wrong", and it points the opposite direction. Eight settings across two
+*forms* of leaf abscission all collapsed the stand identically — which read
+as "the approach is wrong" and was not: a rider that had landed *with* the
+mechanism was constant across every run and was alone the collapse (the
+full account, with its numbers, is the structural-check amputation gotcha
+below). A sweep only varies the knob; anything that rode along with the
+mechanism is part of every data point. Before condemning an approach, run
+the control that isolates it — the mechanism at its gentlest setting with
+every rider stripped out.
+
+And two more ways a sweep lies, both of which have produced whole invalid
+sweeps: identical *outputs* across settings mean the knob was never
+connected at all (see the `include_str!` gotcha below), and a pattern edit
+can vary more than its knob — `tree.ron` holds two `crowding_weight`
+lines, and a blind `sed` on the field name dragged the root's deliberate
+`0.0` along with the shoot's through every data point. Prove the edit
+touched only its target before trusting anything downstream of it.
+
+### A designed oscillator must be divided out of every number it reaches — measurements as much as decisions
+
+**Any** number sampled from a world that contains a designed cycle — day/night,
+the water cycle, weather, the clock — carries that cycle's phase unless you
+remove it. The cycle stays real on screen and in the field; it just must not
+alias into anything you then compare.
+
+This rule was written as *"divided out of decisions"* and recurred twice on
+that framing, because neither repeat was a decision:
+
+- a **cost measurement** — three 600-frame windows on one world reported
+  **0.00, 4.98 and 7.04 ms/frame**, each offered as "the settled field cost".
+  It was the wind;
+- a **damage census** — `seedsweep`'s `cells lost` column rides the water
+  cycle at about **±1,700 cells**, larger than most damage figures in the
+  sweep, so any single-frame reading is that frame's phase plus the damage
+  and the two are not separable.
+
+The original case was a decision and is still the cleanest illustration: a
+threshold on light sampled at an arbitrary phase is a different threshold
+every hour, which produced a nightly extinction event — live tips 71 at noon
+against 28 at night — until it divided the cycle out with
+`field::noon_equivalent_light`. Full account in
+`Reports/plant-economy-rederivation-2026-08-23.md`.
+
+**The test is the same for a threshold and for a benchmark: could this number
+have been different if I had sampled it an hour later?**
+
+### Size a problem at the moment it starts, not after it has been running
+
+The sibling of the cascade rule below, pointing the other way: that one says a
+census taken **too early** reads a delay as damage, and this one says a census
+taken **late** can be measuring the system's *response* to the event rather
+than the event. Both are the same question — *what was the world doing between
+the thing happening and me looking?* — and the second is the more expensive
+mistake, because it sizes the fix.
+
+Measured on one radius-20 charge, the support field censused against a
+converged oracle: **369 cells wrong at 5 frames after, 42,825 at 50, and
+67,100 at 1,300.** Every one is a real count of genuinely wrong cells. Read at
+1,300 frames it says *"a charge invalidates 67,000 cells, so build a pass that
+converges 67,000"* — and a whole scope report was written on that reading.
+Read at 5 frames it says the charge invalidates **370**, the other sixty-seven
+thousand are manufactured by the engine's own slow correction, and a pass that
+converges the damage once fixes almost nothing.
+
+**So: before sizing a repair from a measurement, ask when it was taken
+relative to the event, and take a second one close to the event.** If the two
+disagree by two orders of magnitude, what you are looking at is a response,
+and the thing to fix is whatever is producing it.
+
+### A cascade censused before it settles reads a *delay* as damage
+
+Both runs have to have **landed**, or the census is comparing mid-air with
+on-the-floor. A change that made a room stand two hundred frames longer
+measured as `roomcut` losing 251 cells against 1,501 at frame 202, and as
+235 against 273 once both runs were given 1,500 frames — a disaster and a
+rounding error, from the same two binaries.
+
+**`seedsweep.sh`'s own default does this**, still, today: `FRAMES="start=2
+every=400 count=4"` stops at frame 1,202, which is mid-collapse. Over eight
+preset/seed pairs on `scene=worldcrack strike=12`, four destroy rock by frame
+3,602; **the default misses two of them outright**, reading rock as net
+*gained* where the collapse has not yet arrived, and understates the two it
+does see by 1.9x and **10x**.
+
+**Read `rock`, not `cells lost`, for the settling question.** `rock` plateaus;
+`cells lost` never settles at all. **That drift is an oscillation, not
+accumulation, and it is not the cascade** — the control is the same scene with
+no verb: at `strike=0`, `terraced 1` reports **zero failures and `rock +0` at
+every tile** while `cells lost` swings across ±1,700 cells, **larger than most
+damage figures in the sweep**. On `wetland` the `rock` column matches the
+frozen-water count exactly, which points at the water cycle. So a `cells lost`
+reading at any single frame is that frame's phase plus the damage, and the two
+are not separable — this is the *divide-the-oscillator-out* problem below, not
+a too-short budget.
+
+`awake` and `sites` are a weaker tell than they look: on `rolling` and
+`terraced` both sit near 5,000 sites indefinitely. The tell that works is that
+**the quantity being censused has stopped moving** across two consecutive
+tiles. `every=900 count=5` is enough for `rock`; no budget is enough for
+`cells lost`, because the problem is phase, not length.
+
+Worse, and the reason this needs its own heading: two runs that diverge on one
+frame are **different worlds** by the next, so a single cascade scene cannot
+compare two models at all, settled or not. Comparisons of cascades belong in
+`seedsweep.sh`, run to rest, read at the order statistic. Both tables, and the
+term that measured ten times worse on one scene while nearly halving the worst
+case over 24 seeded runs, are in
+[`Reports/method-worked-cases-2026-09-05.md`](method-worked-cases-2026-09-05.md).
+
+### A pass/fail read of a graded quantity hides the gradient
+
+The sibling of the mean below, and it produced a **confidently wrong
+diagnosis that was then handed to another session as a finding**. Bisecting a
+guard that asserts *zero* of something, an agent read the test's **exit code**
+rather than the number in its message: the field it had just reverted took the
+failure from **15 wrong cells to 2** and the bisect scored that as "still
+fails, not the cause". It was 13 of the 15. One run would have pointed
+straight at it had the count been read instead of the verdict.
+
+**So when bisecting against any guard whose assertion is `== 0` or `< bar`,
+score the arms on the quantity, not on green/red.** A guard is a threshold by
+design — that is what makes it a guard — and a threshold is exactly the thing
+that cannot rank two failing arms. The same shape reaches every all-or-nothing
+readout in this repo: an acceptance case, a `--check` script's exit status,
+`assert!(x < bar)`. Found by the evolution-lab coordinator on the druid
+preset, 2026-09-13, and recorded here because a PR body is not where a rule
+lives.
+
+### A mean over *events* is not a mean over the thing you care about
+
+The sibling of the metric traps below, one level up, and it nearly cost a
+correct change. `failing region size: mean` divides cells by **failure
+events**, and a change that makes marginal rock fail more often moves that
+mean without moving what comes out: `caveshallow` went from mean 10.0 to
+4.1 — below `rigid::MIN_FRACTURE_CELLS` (6), which reads as *"the typical
+break is now too small to fracture, so it is dust"* — while losing the
+identical 64 cells of rock and sending **fewer** cells down the powder path
+(30 → 16). The extra events were confined failures cracking in place, which
+never reach the fragment ladder at all.
+
+A mean cannot separate "smaller pieces" from "more evaluations of the same
+piece". If the question is whether something turned to dust, count the
+regions that fell below the fracture threshold and read that against the
+total that failed. `FailureCounts::crumbled` counts exactly that -- the
+regions `rigid::fracture_failing_region` declined and the cells they took --
+and `filmstrip` prints it as `crumbled to grit` beside the mean. Read that,
+not the mean, whenever the question is whether something turned to dust.
+
+**And when an A/B's arms have different denominators, an aggregate over the
+pooled events is a weighted average whose weights are the thing under test.**
+This rule was in front of a session that then made exactly this mistake, so it
+needs the mechanical form: **before quoting any per-run aggregate across arms,
+read its `n` across arms first.** Measured 2026-09-19 on the ant sensor, and
+the shape is any arm that changes how much of the run there is — a population
+that grows, a cascade that lasts longer, a colony that founds. Three arms over
+the same 36 seeds pooled **55,322 / 69,875 / 87,369** decisions, because their
+colonies were **1.0 / 2.5 / 11.0** animals at the median; pooled, the shipped
+change looked like it doubled the share of animals reading the signal
+correctly, and paired within seed it is **19/17** and moves nothing. The
+instrument was printing both reductions the whole time — the per-run block and
+a pooled footer — and the footer is the one that catches the eye. **The tell
+was on the same line as the mean**: the arms' `n` differed by 58%.
+
+Two runs of a **byte-identical** `examples/ascii` on bit-identical
+deterministic work disagreed **2.42x**, and on another scene reversed the
+serial/parallel ordering. Both orderings cannot be true; the statistic was
+measuring the rest of the machine. Four rules come out of it, none depending
+on the machine it was measured on:
+
+- **Gate on counters, never on wall clock — but a counter is only
+  load-independent at *fixed parallelism*, and that qualifier is measured
+  rather than assumed.** The burrow lane got **610 digs idle against 278
+  loaded from the same baseline binary**, a 2.2x swing in a pure count,
+  because rayon's thread count moves with the box. So the claim holds for
+  anything the serial driver decides and for a census of a settled world, and
+  **fails for any counter downstream of `parallel.rs`'s checkerboard**. The
+  remedy is not "stop using counters": pin `RAYON_NUM_THREADS` for any run
+  whose counter you will compare, or compare two arms **inside one run**.
+- **…and check what the counter counts.** A counter is exactly as trustworthy
+  as the claim that the thing it counts is the thing you care about, and **a
+  null is where that hides**, because a null looks the same whether the
+  mechanism is quiet or the probe never reached it. A clean counter-based
+  negative once turned out to be **23 swings removing 0 cells**, every one
+  landing in soil; with the aim corrected the same 23 remove **1,157**. So
+  **pair every "it fired" counter with an effect counter from the far side of
+  the call**.
+- **…and a *positive* hides from the opposite direction.** A null hides from
+  **inattention**; a positive hides from **motivated reasoning** — it is the
+  result you wanted, and every check you reach for is one it passes. Worked
+  case and remedy: *A cost that vanishes may be work that vanished*, below.
+- **Measure one scene, not the suite.** A short run can land inside a quiet
+  window; a long one structurally cannot, so a full-suite timing figure is
+  untrustworthy by construction rather than by luck. Run the whole suite for
+  the counter gates, where load is irrelevant.
+
+**A worst-frame figure is worthless unless an aggregate independently pins
+it**, and the test is arithmetic: **mean × frames ≈ worst**. Where the
+expensive event is *rare* the mean is not independent of the worst — it
+contains it, and pins it: 0.97 on the converged pass, 0.96 on its
+bedrock-only control. The `ascii` case above pins at nothing at all, and there
+the worst moved **6x** with machine state while the median moved ~30%. So run
+the ratio before quoting a worst; if it is an order statistic over many
+similar frames it is noise wearing a number. An untrusted *median* is worth
+something either way.
+
+`Reports/measurement-under-contention.md` §7 has the derivations — the perf
+lane's pushback that produced the pinning test, the recompiled scheduler
+census that reproduced byte-identically while its clock moved 17%, and why the
+machine-wide lock the report designed was deliberately not landed.
+
+### A cost that vanishes may be work that vanished
+
+The sharpest version of *look again for what you did not measure*, and it cost
+a night. A blast leaving the structural scheduler pinned at its cap was
+attacked with a converged relaxation pass over the damaged region. At a large
+enough region the queue did not shrink, it **disappeared**: 5,134 pending
+against 25,876, scheduler **0.03 ms against 10.08**, whole frame 31.21 → 18.98
+ms, and `scripts/acceptance.sh` green on every case. It reads as a complete
+fix and it was an artifact — the pass had rooted the whole blast neighbourhood
+flat, so the structural system had nothing left to say about it. **A queue that
+goes quiet because the system stopped asking is indistinguishable, in every
+timing, from one that went quiet because it converged.**
+
+- **When a cost disappears rather than shrinks, suspect the work
+  disappeared.** A 300x improvement in a subsystem nobody optimised is a claim
+  that the subsystem was doing nothing useful. Find the quantity that says
+  whether it still is — here `max aux`, the largest support distance in the
+  field, which read **142 with the "fix" and 2,482 without it**.
+- **The control is to hold the semantic rule fixed, not to add another
+  metric.** One env switch, changing nothing else, settled it in a single run.
+  Measuring *around* the confound would have taken all night and convinced
+  nobody.
+
+And note what did **not** catch it: acceptance was green throughout, damage
+counters still fired, pieces still came off. A guard over "does destruction
+still happen" cannot see "destruction happens over a region that has quietly
+been made immune". The mechanism is in
+[`Reports/method-worked-cases-2026-09-05.md`](method-worked-cases-2026-09-05.md).
+
+### An isolated harness overstates what the app will see
+
+The sibling of the paired-baseline rule below, and it cost a wrong headline.
+The same field change measured **−50%** in `field_cost` — the sweep and the
+field and nothing else — and **−27%** in `scale_probe phases=1`, which runs
+the whole of `App::update`, in the same session on the same machine. Neither
+is wrong; they answer different questions, and the app-level number is smaller
+because the other phases keep chunks awake and enlarge the solve set.
+**Quote the whole-frame figure**, and treat a subsystem harness as aiming the
+work rather than sizing it.
+
+**A sub-phase breakdown of the *same* harness overstates in the same way, and
+the mechanism is worth stating separately: removing work is not the same as
+removing cost.** A gate that skipped the field's momentum passes where they
+could not matter removed **91% of that work** and moved every per-pass timing
+a long way — and it was bit-identical and made the frame **slower**: eight
+alternating paired runs of two fixed binaries put it at **+0.59 ms, slower in
+7 of 8**. The skipped passes had been *touching every solved tile*, so the
+full-set pass after them paid the cold misses instead; the arithmetic went
+away and the memory traffic only moved.
+
+So when a change makes one phase cheaper, **the phase it was made cheaper
+against is the whole frame**, measured paired and alternating. A sub-phase row
+that falls by a third while the frame does not move is not a partial win
+masked by noise; it is usually the cost relocating. The per-pass numbers are
+in [`Reports/method-worked-cases-2026-09-05.md`](method-worked-cases-2026-09-05.md).
+
+### A noise bar belongs to the job it was measured on
+
+Two rules, both from one overturned claim (2026-08-25, `Reports/frame-cost-
+audit-2026-08.md`), and both cheap to get wrong.
+
+**A noise figure does not transfer between jobs.** A +56 s slowdown in
+`cargo test (release)` was dismissed as noise using a ±60 s spread measured
+on `cargo test (debug)` — a different job, on a different profile, that the
+change provably could not affect. Measured on its own terms the release job
+reproduces to **11 s**, so the slowdown was never inside noise. The debug job
+was a valid *control* (it answers "is this job affected") and an invalid
+*ruler*.
+
+**And whichever bar you pick applies to both signs.** The same ±60 s was used
+as noise where it was inconvenient (+56 s) and as signal where it was
+convenient (−52 s, claimed as a speedup). That inconsistency is visible in
+one's own table and is the thing to check before publishing a delta: if the
+bar kills your bad news, it must also kill your good news.
+
+The paired corollary: **an A/B needs the two commits to differ only by the
+change.** The invalid version compared a one-run baseline against the median
+of three later runs that also carried fifteen commits of another lane's work.
+The valid one was already in the history — the change's own commit against
+its parent.
+
+### Compare two runs, not one run against a remembered number
+
+Outcomes here have enormous spread — twelve identical trees from one genome
+span 31 to 153 cells. A bar set from a single run is a sample from a wide
+distribution and will flake in whichever direction that run landed. Prefer a
+**paired comparison** (rooted bank vs bare bank, loaded branch vs bare
+branch): it cancels everything the rule under test is not about.
+
+This applies to frame timings too. A change once looked like a 25–50%
+regression against a figure measured an hour earlier; re-measuring the
+baseline on the spot showed the machine had slowed and the change cost
+nothing. **Always re-measure the baseline in the same session, on the same
+machine, before reporting a regression.**
+
+### Guard hot-path work at the call site that already has the data
+
+New per-cell behaviour usually applies to one material. Gating *inside* the
+function still pays a `World::get` and a lookup per cell per frame, and
+matching a material by `id_of("name")` is a string hash in the sweep. Put the
+opt-in on `Material` as a field and test it at the dispatch site, which
+already holds the `Cell` — a `Vec` index instead.
+
+### A scene that contradicts the code will look like a bug in the code
+
+Two Phase-2 "root bugs" were scene errors: free water buried in a soil
+column sank (soil is a `Powder`, it sinks through `Liquid`) and surfaced, so
+every seed germinated onto water; and a soil column with no floor or walls
+fell out of the world and toppled, leaving the sampled cells empty. Both read
+exactly like "the mechanism does nothing". **When a mechanism appears inert,
+check the scene still contains the situation you think it does** before
+touching the mechanism.
+
+### A channel that decays *and* is read as a gradient needs range for both
+
+Three instances, in three unrelated subsystems, each filed as a local defeat
+before the cause was named: **canopy density** at 4 bits (decay could not
+release space), the **pheromone plane** at `u8` (the ant read `+0.000` past
+the trail's midpoint while the plane peaked at a healthy 39-98 of 255), and
+`Cell::temperature` at whole degrees (§Z27). Decay needs headroom
+*underneath* it or it hits a fixed point; a gradient needs resolution
+*between neighbours* or it reads flat. **Narrow storage takes the gradient
+away first, and silently** -- the code stays correct and every gate stays
+green.
+
+**Measure the number the consumer computes, never the stored value.** That
+is what separated the real defect from two earlier wrong diagnoses on the
+pheromone line: same data, two readers, one of them silent.
+
+**Exactly zero is the signature** -- a weak-but-working mechanism reads
+0.003; an exhausted representation reads 0.000 at several sample points and
+keeps reading it. Two things cause an exact zero, and the cheap one goes
+first: a degenerate condition (*A change that moves nothing*, in
+Conventions) before an exhausted representation.
+
+**The discriminator is one ratio: the consumer's decision threshold against
+the storage quantum.** Where a *designed* threshold sits far above the
+quantum, widening cannot move a single decision and there is nothing to fix
+however flat the channel reads -- that killed two of four candidates in the
+2026-09-15 survey without building a world (soil water 50x, liquid fill
+16x). **The risk condition is a consumer with no threshold at all**, which
+both confirmed instances had.
+
+**And do not read an existing defence as covering this.** Both remedies in
+this engine -- the pheromone plane's forced strict-decrease decay LUT, and
+`fire::diffuse_heat`'s minimum-progress nudge -- are per-cell monotonicity
+guarantees, and **a gradient is not a property of a cell**, so neither can
+see one. The pheromone plane *had* its LUT, the LUT worked, and the trail
+was flat past its midpoint anyway. Full survey:
+`Reports/decaying-gradient-quantization-2026-09-15.md`.
+
+### Metric traps, each of which has already cost real time
+
+- **Liquids: measure column *volume*, not the topmost cell.** A `Liquid` cell
+  holds continuous fill, and near-empty cells fringe every artifact. Topmost-
+  cell said chunk seams were 1.7x the interior roughness; volume said 9x.
+- **Dark or torn rows: measure *fill*, not occupancy.** `render.rs` dims a
+  liquid toward black by fill, so a row can draw as a black line while every
+  cell in it is still occupied. An occupancy metric finds literally nothing.
+- **Powder faces: measure the face, not the spreading front.** The front
+  crosses seams smoothly while a vertical face persists behind it.
+- **Excavation: standing void is not *dug* void, and the difference
+  reverses the sign.** A colony quarries the open face of a bank as well as
+  tunnelling into it, and a pit is standing void — so censusing "empty cells
+  in the bank" scored a build that leaves **no roof at all** at 788 against
+  a build whose tunnels stand at 472, i.e. exactly backwards. What a player
+  calls a nest is **roofed** void: empty cells with ground above them. The
+  same shape applies to any question of the form "did this make a *space*"
+  — a hole open to the sky is not a room.
+- **Destruction: a failure count is not a damage count.** `FailureCounts`
+  counts cells that *failed*; a failed cell that became rubble is still
+  standing there. Two digs whose event counts look comparable removed 894 and
+  23,042 cells. If the question is "how much did this eat", census the
+  materials before and after — nothing in the engine measured that until it
+  was needed, which is why the regression below went unseen.
+- Prefer a **continuous** quantity (a summed deficit) over a **count** of bad
+  cells. Counts give knife-edge margins; sums separate cleanly.
+
+### Two drivers, and the app runs the parallel one
+
+`update::step` is serial; `parallel::step` is a four-pass checkerboard, and it
+is what `App::update` calls. **Test both.** Behaviour that only the player
+sees is behaviour only the parallel driver produces.
+
+`update::step_monolithic` (test-only) sweeps the whole world as a single
+region. It is the control for the question that took three wrong hypotheses to
+reach the first time: *is this coming from the movement rules, or from how the
+sweep is cut into chunks?*
+
+### Chunk decomposition is a recurring root cause
+
+Both drivers sweep chunk by chunk, so every cell in a chunk updates before any
+cell in the chunk to its right, and half of all horizontal seams invert the
+bottom-to-top row order. Artifacts that line up with the F1 chunk grid are
+usually this, not the physics. Suspect it early; the reports on liquids do not
+consider it at all.
+
+## Conventions
+**Tests and guards**
+
+- **A guard test must be able to fail for the *replacement* artifact**, not
+  only the original one. A fix that cleared torn seam rows and introduced
+  much worse banding passed its own test, because that test only looked at
+  rows lying on a seam. If a fix trades one artifact for another, its test
+  should be the thing that catches the trade.
+- **Check that a guard's inputs actually vary what it guards.** All eight
+  acceptance scenes stayed green through a change that made one world seed
+  lose 26x more material to a single dig — and a ninth hand-authored scene
+  would have been just as blind, because `seed=` reaches only two scenes and
+  every structural case builds hand-placed geometry at the default seed. The
+  scenes were not too few; they were blind *by construction*. A guard over a
+  procedural system has to sweep the procedure, and it should gate an **order
+  statistic** (p90 or max over N seeds) rather than any single seed: outcomes
+  here are chaotic in the seed, so which one is worst reshuffles on any
+  legitimate change and a per-seed baseline gets rubber-stamped. **Six seeds
+  is not a sweep**, measured 2026-08-25: §S2's anchor-rule census read
+  **1.64x** over its first six seeds and **1.08x** over the next twelve,
+  pooling to a per-seed *median of zero* with a third of seeds running the
+  other way. The six-seed sample was not wrong, it was unrepresentative —
+  and it looked exactly like a clean result. **This
+  happened twice in one session** — two different changes to the load model,
+  both green on all eight cases, the second eating fifty times more world than
+  the bug it was fixing. A seed sweep caught each in one command. So build the
+  sweep *before* changing a model that governs procedural content, not after:
+  on green alone, both would have shipped.
+- **A superseded mechanism's tests keep passing while testing nothing.**
+  Distinct from the `#[ignore]` case below — these *run*, pass, and exercise
+  nothing, because the scenario is trivially stable once the mechanism they
+  were written for is gone. When replacing a mechanism, deliberately break
+  the *replacement* and confirm the old tests fail. If they still pass,
+  delete them rather than porting them.
+- **Determinism is required** (same-build, per `PLAN.md`) — reversed from
+  "not required"; the reasoning is `Reports/emergent-world-architecture.md`
+  §8. (An earlier version of this bullet warned of stale comments saying
+  otherwise; a sweep found none survive.)
+
+**Tuning and sweeps**
+
+- **Set bars from measurement with headroom**, never from an aspiration and
+  never sitting on the measured value. Where a report asks for a number the
+  engine cannot yet hit, record both and leave the gap visible rather than
+  relabelling it away.
+- **Two fixes failing the same way means the approach is wrong, not the
+  tuning.** Two separate attempts to penalise a cell crossing a chunk seam
+  both replaced the tear with a throttle at the same seam. That is a signal
+  to change the approach — the third attempt fixed the sweep *order* instead
+  and cost nothing.
+- **A change that moves *nothing* is different evidence from one that moves a
+  little.** Gating the granular capacity divisor on `parent.is_none()` was
+  recorded as a dead end because not one cell moved, across six presets and
+  three seeds. It was not wrong, it was **vacuous**: `structural::tick` rooted
+  a cell's distance at 0 the moment powder touched its underside, so every
+  powder-backed cell was parentless *by construction* and the gate had nothing
+  to discriminate. An exactly-zero delta means suspect the condition you keyed
+  on is degenerate, before concluding the lever is dead — and re-test any
+  do-not-retry entry of that shape after something changes its condition.
+- **A constant nobody can tune in either direction may be a counterweight, not
+  a model.** That same divisor existed to cancel the eager rooting above: two
+  modelling errors roughly annulling each other. Every attempt to tune it made
+  some case worse because it was holding a different mistake in place. When a
+  term resists tuning in both directions, ask what it is compensating for.
+- **When several knobs move the same number, check what each one trades.**
+  `min_transfer` and `HORIZONTAL_TRANSFER_REACH` both make water settle
+  sooner; the first does it by giving up on the last of the levelling
+  (residual tilt 1 → 5 cells), the second costs no accuracy at all. Knobs
+  that look interchangeable on the headline metric usually are not.
+- **When a rule must tell apart two things that can look identical, state
+  the difference as data.** Four successive support models tried to infer
+  "is this held up" from *shape*, and every one was either strong enough to
+  hold a mountain or weak enough to let a player's tower break, never both —
+  because geometry cannot distinguish a mountain from a wall someone
+  stacked. The fix was a bit on the cell saying which it is. If tuning keeps
+  trading one case for the other, the rule is reading the wrong quantity;
+  more tuning will not find a setting that does not exist.
+- **For "does this look right", ship a runtime selector rather than choosing.**
+  Five grain modes behind one key settled in minutes a question that no
+  amount of argument or still images had. Default to current behaviour, name
+  the active one on screen, and state what each option *costs*.
+
+**Performance**
+
+- **Measure a cost against the state the optimisation exists for.** An
+  animated grain looked free in every moving scene and cost ~10 ms/frame on a
+  *settled* one, because what it defeats is the dirty-rect render skip — and
+  a settled world is exactly where that skip does its work.
+- **A size cap must bound work, never gate whether something happens.**
+  **The test is semantic, not syntactic: does exhausting the cap produce an
+  *answer*, or merely *less work*?** An answer is the bug. Stated as
+  `if too_big { return }` this rule was findable and still missed twice more,
+  because neither repeat had a `return` in it — a truncation that *understated*
+  a subtree's torque, and a budget whose exhaustion resolved to
+  **"supported"**. Both reports quoted this rule while failing to be saved by
+  it. The original: fracture declined any region larger than its body-size cap
+  and fell through to per-cell conversion, so the *bigger* the collapse the
+  more certain it dissolved into dust — the cap belonged on a fragment, not on
+  the decision to break at all. **Three live sites carry this shape today**
+  (`src/sim/load.rs:717`, `:1080`, `:1150`, each `budget == 0 || >= MAX_*`);
+  check what each returns when the budget runs out before trusting it.
+
+**Process and records**
+
+- **A revert keeps the knowledge — and gets an address.** Keep the
+  reproduction (`#[ignore]` it if it now fails), record what the withdrawn
+  fix was, what it improved, and why it went, and add the entry to
+  `Reports/dead-ends.md` in the same change, with the condition the
+  rejection depends on. A reverted fix's genuine improvements become the
+  bar its replacement must meet — not the pre-fix baseline.
+- **A new report gets its line in `Reports/README.md` in the same commit**,
+  and a report that supersedes another updates the superseded line.
+  `scripts/docscheck.sh` flags omissions, including a merged report still
+  listed as in-flight.
+- **A shipped milestone or feature gets its README status section before
+  the work is called done.** Five features went undocumented for multiple
+  milestones and had to be reconstructed after the fact; the Status
+  section's "known limitations" also outlived two of the fixes that
+  removed them.
+- **A session that makes a significant change affecting a `wiki/` page must
+  update that page (and its freshness note — a real date, never "this
+  build", which can never go stale) in the same change.** This is a
+  cheap backstop, not the real defence against `wiki/*.md` going stale the
+  way early design Reports did — the real defence is that each page
+  describes coarse, player-visible behavior, not implementation, which is
+  inherently more stable. This rule just shortens the gap on whatever does
+  drift.
+- **Commit messages carry the measurement**, not just the intent: the number
+  before, the number after, and what was tried and rejected on the way.
+- **Adding a rule to this file: state the rule universally, put the subsystem
+  in the evidence clause.** This file is loaded before every session begins,
+  so a rule that *reads* as belonging to one line is silently lost on every
+  agent working elsewhere. The test is one question — **would an agent
+  working on weather recognise this as theirs?** If not, either scope it
+  explicitly in the first clause, so the sessions it does not cover can skip
+  it, or it is universal and mis-framed. Measured 2026-08-25: the ethos
+  section — the owner's stated core value, *above correctness of any
+  individual mechanic* — was **90.9% destruction vocabulary and mentioned
+  plants, liquids and creatures zero times**, because its framing sentence
+  was "destroying something should feel like destroying it". The two laws
+  under it were always universal; only the framing was not, and the plant
+  line had independently rediscovered both. **Gotchas are exempt** —
+  they are concrete bugs and their specificity is the whole value.
+- **Removing a rule from this file: a rule earns its place on *frequency x
+  cost of the failure x whether anything else would catch it*, never on
+  frequency alone.** Until 2026-08-25 this file had an addition criterion
+  and **no removal criterion at all**, which is why it ran **+2,583 / -365
+  lines, a 7.1:1 add-to-remove ratio**, over its whole history. A file that
+  only grows dilutes every rule in it.
+  **Low frequency is not grounds for cutting**, and the clearest case says
+  so: measured across 500 commits, `sort_unstable`/tie-order arises **3
+  times** — against 1,029 for "measuring anything" — yet it silently changes
+  how every plant in the world grows and its own entry records that nothing
+  in the suite would catch it. Rare, catastrophic and undetectable earns its
+  place; common, cheap and caught-by-CI does not.
+  **Cut on one of three findings**, all checkable: the mechanism it names no
+  longer exists (grep it); machinery now enforces it, so the prose is a
+  pointer at best (`git add -A` is in `settings.json`'s `deny` list); or a
+  measured recurrence audit shows the situation arises and the rule is not
+  what prevents the failure. **Never cut on "this only happened once"** —
+  measured the same day, 30 of 39 rules cite a single incident, and the bulk
+  of those are environmental facts or method rules that generalise regardless
+  (`cargo fmt` is all-or-nothing for everyone, whoever hit it first).
+- Prefer an independent review before significant commits; batch small ones.
+
+## Gotchas that have each caused a real bug
+
+**Gotchas tied to one part of the tree are not in this list.** Eleven of them
+-- nine about the sweep and the cell, one about assets, one about the build
+profile -- live in `.claude/rules/` and arrive on their own when you read a
+matching file, which is measured rather than assumed
+(`bash scripts/contextprobe.sh src/sim/plant.rs`). Every one of them only
+matters when that code is *changed*, and an edit is always preceded by a read.
+What stays below is what fires before any file is read: the build, the suite,
+the measurement, and the record.
+
+
+- **A commit message is not evidence the change is in the file.** A `git
+  stash` cycle restored an older blob over a source file, so a commit that
+  claimed a behaviour change shipped only its *doc comment* — the code kept
+  the old predicate, and nobody noticed for four commits, because the
+  message read correctly and the tests still passed. After any stash, rebase
+  or merge, re-read the function, not the diff.
+- **The app locks its own exe.** While the sandbox is running, `cargo build`
+  fails with "failed to remove `pixel-physics.exe`" — and so does plain
+  `cargo test`, which builds the bin target to run `main.rs`'s eight tests.
+  (This file said `cargo test` still works; it does not, and that cost a
+  confusing ten minutes.) `cargo test --lib` works throughout, and is what
+  to reach for with the app open. Separately, stale incremental artifacts
+  produce bogus `LNK2019 unresolved external symbol anon.…` link errors —
+  `rm -rf target/debug/incremental` clears it, and it is not a code error.
+- **Never `git add -A` here; stage explicit paths.** Enforced rather than
+  asked: it is the one entry in `.claude/settings.json`'s `deny` list, so this
+  line is a backstop and not the defence. (Force-push, rebase, amend and
+  `reset --hard` sit on `ask` instead -- forbidden on someone else's branch,
+  fine on your own, and a conditional rule can only be asked.)
+
+- **Adding a member to a set something sweeps enrols it in every rule over
+  that set, silently.** Twice now, in two unrelated corners. Adding the
+  `spoil` material broke **five** censuses that enumerate materials by name;
+  registering a worldgen preset (`druid`, 2026-09-13) enrolled it in every
+  guard in `tests/worldgen.rs` that sweeps `presets()`, one of which asserts
+  **not one cell moves** in the 120 frames after generation — over every
+  preset and five seeds. Nobody opted in and nothing warned; `main` was red
+  for over two hours and two other lanes held their merges behind it. The
+  same shape is waiting wherever a table is enumerated: species files,
+  `DEATH_CAUSE_LIST`, the pass table, the acceptance scenes. **So before
+  adding a row to any registry, grep for what iterates it** — here
+  `presets()`, `paintable()`, `pass_names()` — **and run those tests
+  specifically.** The reason this is not caught by habit: the guards live in
+  `tests/*.rs`, and `cargo test --lib`, which this file's own Commands
+  section offers as the quick one, **cannot reach them at all**. Four
+  separate merges that day were gated on `--lib` and every one of them was
+  green.
+- **A green local `cargo clippy` was not evidence that CI's clippy is green,
+  and `rust-toolchain.toml` now makes it one.** The container shipped
+  **1.94.1** while CI ran **1.98.0**, and a lint's heuristic can widen between
+  them: `explicit_counter_loop` accepted a counter incremented in a
+  `for _ in 0..N` body on 1.94.1 and rejected the identical code on 1.98.0.
+  Measured 2026-08-29, three red CI clippy runs on one branch; two more on
+  2026-08-30 (`unused_imports`, `assign_op_pattern`), and **only one of the
+  five was a loop, a chain or a `match`** -- which is why the old advice here,
+  "reach for `cargo +1.98.0` before pushing anything lint-prone", failed: it
+  is a judgement you talk yourself out of. The pin is the command instead, so
+  plain `cargo clippy` is now the right one. Kept as a gotcha rather than
+  deleted because **the class survives the fix**: any tool whose local
+  version can drift from CI's has this shape, and `rustup check` prints the
+  two if you suspect it.
+- **`cargo fmt` is all-or-nothing.** `cargo fmt -- some/file.rs` formats the
+  whole project, not that file — 28 files and ~3,000 lines in one go. The
+  full-format pass is deliberately deferred work (`PLAN.md` issue #10) and
+  CI keeps `cargo fmt --check` informational for exactly that reason, so do
+  not let it ride along with an unrelated change.
+- **Before you cite a guard's green as evidence, put the fault it is named
+  for back and watch it go red.** This is the general remedy for the three
+  bullets below, and it is stated first because each of them describes a
+  *different* mechanism by which green means nothing — so an agent who has
+  ruled out the two named mechanisms concludes green is informative, which is
+  how a correct finding was once withdrawn. If the guard does not go red it is
+  not weak, it is **blind**: replace it rather than widening its assertion.
+  **The trigger is citing the green, not owning the guard** — a blind guard
+  costs nothing sitting there and costs a day when someone argues from it.
+  **Two exemptions keep this cheap.** A guard written *before* the fix has
+  already been watched going red; you have it for free, and the rule only
+  costs extra when the test came after the code. And a tight assertion on a
+  deterministic function cannot be blind in an interesting way. What it is
+  *for* is the case where green is the **default state** — loose assertions
+  over emergent behaviour, hand-constructed inputs, order statistics — which
+  is most of this engine. **Make it a command rather than a discipline.**
+  Measured 2026-08-26: six controls over the documentation benchmark, written
+  by an agent that had just finished writing this rule down, **two of them
+  blind** — caught in 2.3 s by `scripts/docbench.py selftest`, and by nothing
+  else, since both passed the positive control and would have passed it with
+  the documentation they guard deleted. As prose the same check runs 1–3k
+  tokens a time and its own injection can silently match nothing, which reads
+  as a pass.
+- **A green suite does not prove a test ran.** Deleting an `#[ignore]` took
+  the `#[test]` above it with it; the test compiled, was never collected, and
+  the suite stayed green. Clippy's dead-code warning caught it, not the tests.
+- **A green suite does not prove a test *could* fail, and that is a different
+  claim from the one above.** The sibling of the `#[ignore]` case: those tests
+  never ran, these run and pass and could not have done otherwise. A genome
+  widening shifted one draw out of a shared `Rng` that the *caller* went on
+  using, and both guards over it stayed green through the regression —
+  measured, by putting the fault back. One hashed a grown stand, which is
+  insensitive to a single reordered draw; the other built a fresh `Rng` per
+  call to model production, so it never observed a caller that continues.
+  Green was evidence about the tests, not about the code, and it was used to
+  withdraw a correct finding. The same session found a `let generation = state.generation;`
+  shadowing the parent's `generation` — every bred child pinned at generation 1
+  for ever, silently flattening lineage depth — and it was caught only because
+  one guard hashed enough state to notice.
+- **A *red* suite proves even less: `cargo test` stops at the first failing
+  test binary, so a known-red lib test hides every integration test from a
+  local run.** Bug A lives in the lib target, so plain `cargo test` fails
+  there and never runs `tests/worldgen.rs` or `tests/determinism.rs` — they
+  do not appear in the output at all, not even as skipped. That asymmetry hid
+  **two gating failures on `main` for a whole day**
+  (`Reports/open-bugs-handoff.md` §M). **The specific instance is closed and
+  the general rule is not.** Bug A's test is now `#[ignore]`d, so it no longer
+  runs and no longer blocks anything: measured 2026-09-02, `cargo test --lib`
+  with no flag gives **1,324 passed / 0 failed / 55 ignored** (943 / 54 when
+  this was written on 2026-08-26 -- the suite grew by 381 tests, and the point
+  the number is making is unchanged). The `--skip
+  root_and_shoot_branching_read_different_slots` this bullet and the Commands
+  section both insisted on is therefore vestigial, and CI still passes it
+  harmlessly. What survives, and is the reason to keep this entry: **while any
+  gate is quarantined, whatever runs after it is not being run locally** — so
+  treat the *absence* of `Running tests/worldgen.rs` from the output as the
+  tell, since it reads as a pass rather than an error.
+- **You are probably measuring a binary that is not the code you wrote.**
+  Four separate bullets below are one failure — the artifact under test is
+  stale, and it happens on *every* route into it. **The shared tell is
+  identical output across a change that must have moved something**: three
+  bit-identical sweep runs, a lens-shape before/after that came back
+  byte-for-byte equal, a `scale_probe` count unchanged by a change that had
+  to move it. **The standing check is one line** — `cargo build --release
+  --examples` with `set -o pipefail`, then confirm the output actually moved
+  before believing any of it. Four occurrences to date, one of which bit a
+  single session three times in an afternoon, and each produced another
+  bullet rather than being caught by the last.
+- **`cargo build --release` does not rebuild the examples**, and every
+  measurement in this repo comes out of an example. It builds the lib and the
+  bin; `--examples` builds them all, `--example NAME` builds one — and a
+  stale `target/release/examples/foo` runs happily, prints plausible numbers,
+  and has a *newer mtime than the source you just edited*, so the obvious
+  sanity check says it is fresh. This bit one session three times in an
+  afternoon: a `viewshot` render that showed round-7 formations after the
+  4x-formation change had landed; a lens-shape before/after that came back
+  **byte-identical** because only the "before" had been rebuilt; and a
+  `scale_probe` cell count identical to the pre-change one for the same
+  reason. The tell is the same one the `include_str!` gotcha above has:
+  **identical output across a change that must have moved something.** When
+  you see it, suspect the binary before the code — and prefer
+  `cargo build --release --examples` over naming one, because the pass you
+  are about to measure with is rarely the only example you will run.
+
+- **Piping `cargo` into `tail`/`grep` throws away its exit code, and the
+  build-all above is exactly where that bites.** `cargo build --release
+  --examples 2>&1 | tail -25` reports `tail`'s status, which is 0 whatever
+  cargo did. Measured 2026-08-24: a background build reported success while
+  it had actually *failed* — and a failed `--examples` build aborts the
+  remaining examples, so **4 of the 25 binaries existed** and the next
+  measurement ran against a missing one. This is the previous bullet's
+  failure with the tell removed: there is no stale output to notice, because
+  there is no binary at all. Use `set -o pipefail` and read
+  `${PIPESTATUS[0]}`, and never trust a bare `echo $?` after a pipe.
+
+- **The harness is as stale-able as the assets it reads, and an unknown
+  argument is silently ignored.** A 3.5-hour detached megastudy (3 species x
+  8 world seeds x 16 plants x 45,000 frames) produced eight *byte-identical*
+  logs per species: the release binary was built fourteen minutes before
+  `worldseed=` was added to `plant_probe.rs`, so every run took the default
+  seed and the study was 3 populations wearing 24 logs. It looked exactly
+  like a study. **Rebuild before launching anything long, and make the
+  harness echo its own parameters** — `plant_probe`'s first line now names
+  species/trees/frames/worldseed, so a log that does not name its seed was
+  written by a binary that never had one. A knob nobody can see the value of
+  is a knob nobody can tell is disconnected.
+- **Assert the property, not two instants fitted to one trajectory.**
+  `a_tree_eventually_stops_growing` compared wood counts at two fixed
+  frames and broke the moment genotypes were re-keyed — the tree at that
+  spot became a different individual that was simply still growing at the
+  first sample. A termination claim is "the count holds still across N
+  consecutive windows inside a budget set from a measured curve"; it
+  survives redraws and retunes because it asks the question the test is
+  named for.
+- **Grepping a prose phrase gives false negatives, and a false negative here
+  reads as "the content is gone".** Two causes, both structural rather than
+  careless. **The prose is hard-wrapped** at a median 72-73 characters, and
+  `grep` is line-based, so a phrase that straddles a wrap can never match:
+  measured 2026-08-26, **750 of 3,233 bolded phrases across `CLAUDE.md`,
+  `README.md`, `PLAN.md` and the two registers span a line break — 23%, very
+  nearly one in four.** And the house style puts `**bold**` and `` `code` ``
+  *inside* sentences, so a phrase quoted the way it reads does not match the
+  way it is stored. Both were hit in one session: a post-merge check reported
+  two lanes' work missing when it was present and intact, which nearly became
+  a report that the merge had dropped it. **Use
+  `python3 scripts/docgrep.py "the phrase as it reads"`**, which normalises
+  both sides and prints `file:line`; with no file arguments it searches the
+  documents agents are routed to, and it exits 1 on no match so it can be used
+  in a conditional. A short unique token (`rot_remains`,
+  `max_unsupported_span`) greps fine; a sentence does not. This is a tool
+  rather than a rule deliberately -- the rule that stood here first asked the
+  reader to strip the markup and collapse the whitespace by hand, mid-task,
+  which is exactly the discipline this file's own recurrence audit found does
+  not survive a real session.

@@ -185,7 +185,12 @@ def _rule_files():
 
 # The audit's own datum: 65,182 B measured as 16,300 tokens. Named, not guessed.
 BYTES_PER_TOKEN = 4.0
-CEILING_TOKENS = 28_000
+# Lowered 28,000 -> 12,000 on 2026-09-30, when the evidence under Method,
+# Conventions and Gotchas moved to Reports/claude-md-evidence-2026-09-30.md and
+# subsystem rules moved to `paths:`-scoped .claude/rules/ files: measured
+# ~9,950 after the move, so 12,000 is ~20% headroom and keeps the saving from
+# quietly regrowing.
+CEILING_TOKENS = 12_000
 # What the gate actually compares. Exact under any divisor; see the docstring.
 CEILING_BYTES = int(CEILING_TOKENS * BYTES_PER_TOKEN)
 # What dropping the three lookup-consulted sections would leave. Recorded so the
