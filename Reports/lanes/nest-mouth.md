@@ -7,7 +7,7 @@ the live question, what is addressed to another lane, predictions and heads.*
 - **Session:** `session_01WF4wABj2ewSmzWVJTk6DsC` (the nest lane: the mouth,
   then nest building and spoil).
 - **Branch:** `claude/ant-nest-mouth-4f6s79`. GitHub deletes it on every
-  merge; restarted from `main` after #513, 2026-09-29, same name.
+  merge; restarted from `main` after #522, 2026-09-30, same name.
 - **Peer:** the foraging-loop session `session_01Pt5N39pfcix13hMycPN9Xs`,
   branch `claude/ant-foraging-loop-handoff-986v7n`, lane note
   [`foraging-loop.md`](foraging-loop.md). The only other agent on the repo.
@@ -187,11 +187,13 @@ Older cards are named in the reports that posted them.
 
 ## Head SHAs
 
-Older heads (branch cut `636612c6` through #512 and #513) are in `git log`
-and the reports each one names.
+Older heads (branch cut `636612c6` through #512, #513 and #517) are in
+`git log` and the reports each one names.
 
-- `7ee0e338` (#517) — merged: the entrance ledger, `SPOIL_OUT` and
-  `SPOIL_LIFT=out` (off), `TRIPS` / `decisions=` in digbox. Branch
+- `da0b7b41` (#522) — merged: stacked ants no longer killed by parted
+  tissue (`close_or_hand_over`), digbox fed and in lab colours with its
+  `FILL` / `PILE` / `gridout=` censuses, the carry on under the walked
+  cycle, one-entrance report §11-§15, stacking report §12. Branch
   restarted from `main`.
 - R3 of the foraging lane's review (findings 2-5): the half turn's coin,
   the enclosed-gate test, the founding cut's corpses and jaw (report §18).
