@@ -44,6 +44,24 @@
 //! the trail, so the count is attributable. Put food there and an arriving
 //! ant fills its crop, flips to channel A and walks home, which measures the
 //! round trip rather than the gate.
+//!
+//! **MAP** (2026-09-30: finding these cost a session ~20k tokens of reading).
+//! Search for the quoted anchor; line numbers drift, anchors do not.
+//!
+//! | Where | Anchor |
+//! |---|---|
+//! | modes and arms (`mode=gap`'s arm list is where a new arm goes) | `mode == "gap"`, `("hand", true, false` |
+//! | `run`: box width, nest and pile positions, `pile2` | `The box grows with the gap`, `pile2=west` |
+//! | founding, and the guards that the colony is off the food | `found_colony_of` |
+//! | the pile, its refill and the food budget's slots | `let place_food`, `pile_slots` |
+//! | the frame loop; hand-painted trails (`PaintA`) | `for f in 1..=frames`, `PaintA::None => {}` |
+//! | the two-pile swap | `**The swap**` |
+//! | per-ant funnel (`Track`, `stage`) | `THE FUNNEL, advanced here` |
+//! | the decision CSV (`decisioncsv`), its path and columns | `trailfollow-decisions-seed` |
+//! | end-of-run readouts: SWAP, BTRAIL, FOOD BUDGET | `  SWAP seed=`, `BTRAIL seed=`, `FOOD BUDGET (cells` |
+//!
+//! Readers of the output: `scripts/antloop.py` (funnel, who starved),
+//! `scripts/antidle.py`, `scripts/twopile.py` (`pile2`), `scripts/btrailchart.py`.
 
 use pixel_physics::lab::scene::LabBox;
 use pixel_physics::sim::brain::{self, BrainInput as I, BrainOutput as O};
@@ -420,6 +438,13 @@ enum PaintA {
     FlatNest,
     /// Flat over the food half; the ants' `EmitA` is muted. Predicts ~ -0.12.
     FlatFood,
+    /// **`pile2` only: a channel B ramp from the nest rising toward whichever
+    /// pile is stocked, repainted on the relay and moved at every swap.** The
+    /// two-pile bed's POSITIVE control (`food-trail-plan-2026-09-29.md` Stage
+    /// 4): if an ant that reads a perfect trail cannot beat `mute` here, the
+    /// bed cannot reward a trail and the fault is the bed's. Never a shipping
+    /// comparison. The ants lay their own trail as usual.
+    Oracle,
 }
 
 /// **Every term of `Move`'s pre-squash sum, by name** — the "why" behind one
@@ -511,6 +536,19 @@ fn lay(sink: &mut impl FnMut(Channel, i32, i32, pheromone::Scent), foot_x: i32, 
     let span = (target_x - foot_x).max(1) as f32;
     for x in foot_x..=target_x {
         let t = (x - foot_x) as f32 / span;
+        let amount = (t * pheromone::DEPOSIT as f32) as pheromone::Scent;
+        for y in (surface - 3)..=(surface + 1) {
+            sink(Channel::B, x, y, amount);
+        }
+    }
+}
+
+/// `lay`'s ramp in either direction: zero at `from_x`, full at `to_x`. The
+/// two-pile bed's `oracle` arm paints it toward whichever pile is stocked.
+fn lay_toward(sink: &mut impl FnMut(Channel, i32, i32, pheromone::Scent), from_x: i32, to_x: i32, surface: i32) {
+    let span = (to_x - from_x).abs().max(1) as f32;
+    for x in from_x.min(to_x)..=from_x.max(to_x) {
+        let t = (x - from_x).abs() as f32 / span;
         let amount = (t * pheromone::DEPOSIT as f32) as pheromone::Scent;
         for y in (surface - 3)..=(surface + 1) {
             sink(Channel::B, x, y, amount);
@@ -1201,8 +1239,50 @@ const FUNNEL: [&str; 8] = [
     "reached the food a SECOND time",
 ];
 
+/// One phase of the two-pile bed (`pile2`): the frames one pile was stocked.
+#[derive(Default, Clone, Debug)]
+struct SwapPhase {
+    side: char,
+    start: u64,
+    end: u64,
+    /// Larder cells that left this phase's pile to the ants (the refill's
+    /// replacements included; the swap's withdrawal not).
+    taken: u64,
+    withdrawn: u64,
+    /// Frames from the phase's start to the first pickup at its pile.
+    d1: Option<u64>,
+    /// Arrivals at the pile withdrawn at this phase's start, and the frame of
+    /// the last one, from the phase's start.
+    stale: u64,
+    last_stale: Option<u64>,
+    /// Ant-sightings in the phase, the denominator for `stale`: a larger
+    /// colony wanders onto the old pile more often whatever it reads.
+    ant_ticks: u64,
+    /// Cumulative take every 100 frames, for T50.
+    series: Vec<u64>,
+}
+
+/// **T50**: frames from a phase's start until the colony takes food at half
+/// the previous phase's mean rate, over a 500-frame window. `None` if it never
+/// does, or there is no previous rate to recover.
+fn t50(prev: &SwapPhase, cur: &SwapPhase) -> Option<u64> {
+    let len = prev.end.saturating_sub(prev.start);
+    if len == 0 || prev.taken == 0 {
+        return None;
+    }
+    let half_per_500 = prev.taken as f64 / len as f64 * 500.0 * 0.5;
+    (5..cur.series.len()).find(|&i| (cur.series[i] - cur.series[i - 5].min(cur.series[i])) as f64 >= half_per_500).map(|i| (i as u64 + 1) * 100)
+}
+
 #[derive(Default, Clone, Copy)]
 struct Track {
+    /// `pile2`: standing within `near` of the withdrawn pile at its last
+    /// sighting, and the swap that reading belongs to.
+    at_stale: bool,
+    stale_epoch: u32,
+    /// Holding larder at the last sighting: D1 wants a PICKUP at the new pile,
+    /// not a loaded ant walking past it (loaded foragers do overshoot home).
+    carried_before: bool,
     /// Furthest this ant ever got from the nest, in cells. The excursion
     /// histogram is built from these, and it answers a question no total can:
     /// whether a colony has a commuting *population* or two wanderers and a
@@ -1460,7 +1540,51 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
     // The band is `ants * spacing` wide, so half of it plus a margin is what
     // the left needs.
     let half_band = ants.max(1) * 4 / 2 + 8;
-    let width = (half_band + gap + 60).max(256);
+    // **`pile2=west`: the two-pile alternating bed** (`Reports/food-trail-plan-2026-09-29.md`
+    // Stage 4). A second pile `gap` cells WEST of the nest, and only one of the
+    // two stocked at a time: every `alt=` frames (6,000) the stocked side
+    // swaps, the old pile's cells are removed and booked as `withdrawn`
+    // (`altclear=on`, the owner's choice; `off` leaves them to be eaten), and
+    // the new one is placed fresh. It is the one bed where a trail can go
+    // STALE -- point confidently at food that is gone -- so it is where a
+    // reader's worst harm, the leash, can show, and where a trail that tracks
+    // the food can prove its worth against `mute`. `start=seed` (default) puts
+    // odd seeds east first and even seeds west, to balance the colony's own
+    // east bias; `start=east` / `start=west` pin it. Unset, nothing here runs
+    // and every line is the single-pile bed's.
+    //
+    // The nest moves right to make room: west pile at `nest_x - gap`, and 60
+    // cells of wall past each pile, as the single pile has on its east side.
+    let pile2 = match arg_str("pile2").as_deref() {
+        None => false,
+        Some("west") => true,
+        Some(other) => panic!("pile2={other} is not a thing: the only second pile is pile2=west"),
+    };
+    let alt: u64 = arg("alt").unwrap_or(6000);
+    assert!(!pile2 || alt > 0, "alt=0 never swaps, which is the single-pile bed with a west wall: drop pile2");
+    let altclear = match arg_str("altclear").as_deref() {
+        None | Some("on") => true,
+        Some("off") => false,
+        Some(other) => panic!("altclear={other}: use on (default) or off"),
+    };
+    let start_east = match arg_str("start").as_deref() {
+        None | Some("seed") => seed % 2 == 1,
+        Some("east") => true,
+        Some("west") => false,
+        Some(other) => panic!("start={other}: use seed (default), east or west"),
+    };
+    if paint == PaintA::Oracle {
+        assert!(pile2, "arms=oracle paints a trail toward the stocked pile of the two-pile bed: it needs pile2=west");
+    }
+    if pile2 {
+        assert!(
+            !trail && matches!(paint, PaintA::None | PaintA::Oracle),
+            "pile2 refuses hand, hmute, homeA, flatN and flatF: they paint nest -> east only, and a painted rise \
+             toward one pile flatters a climber on a bed whose food alternates. Use arms=self,mute,oracle"
+        );
+    }
+    let nest_x_bed = if pile2 { half_band.max(gap + 60) } else { half_band };
+    let width = (nest_x_bed + gap + 60).max(256);
     let spec = LabBox { width, height: 192, ground_y: 96, soil_depth: 48, founders: 0, colonies: 0, seed, ..LabBox::default() };
     let mut w = spec.build();
     // **Channel A's persistence, before any ant walks.** See the rider docs.
@@ -1851,7 +1975,12 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
     }
 
     let surface = spec.ground_y - 2;
-    let (nest_x, target_x) = (half_band, half_band + gap);
+    let (nest_x, target_x) = (nest_x_bed, nest_x_bed + gap);
+    // The west pile, when there is one. `target_x` stays the EAST pile for every
+    // readout that was written for one route (bands, `b_profile`, BTRAIL); the
+    // loop readouts read `active_x`, the pile that is stocked now.
+    let west_x = nest_x - gap;
+    let mut active_x = if pile2 && !start_east { west_x } else { target_x };
     // The species' own sensor reach, not a literal -- see the along readout.
     let sensor_offset = w.species.get(species_id).creature.as_ref().expect("ant is a creature").sensor_offset;
     let placed = w.found_colony_of(nest_x, surface, "ant", ants);
@@ -1884,6 +2013,11 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
         .into_iter()
         .filter_map(|id| w.organism(id).filter(|s| s.species == species_id).and_then(|s| s.chain.first().copied()))
         .fold((i32::MAX, i32::MIN), |(lo, hi), (x, _)| (lo.min(x), hi.max(x)));
+    assert!(
+        !pile2 || fl > west_x + near,
+        "the colony is founded across x {fl}..{fh} and the west pile is at {west_x} (+-{near}): the ants start ON it. \
+         Use a larger gap= or fewer ants=."
+    );
     assert!(
         fh < target_x - near,
         "the colony is founded across x {fl}..{fh} and the food is at {target_x} (+-{near}): the ants start ON the larder, \
@@ -2036,7 +2170,8 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
     // **The pile's own slots, exactly the positions `place_food` writes.** A
     // food budget must use these rather than a bounding box: the box's top
     // row reaches past the last slot, and a cell there is not pile.
-    let pile_slots: std::collections::HashSet<(i32, i32)> = (0..food.max(0)).map(|i| (target_x + (i % 12) - 6, surface - (i / 12))).collect();
+    let slots_of = |px: i32| -> std::collections::HashSet<(i32, i32)> { (0..food.max(0)).map(|i| (px + (i % 12) - 6, surface - (i / 12))).collect() };
+    let mut pile_slots = slots_of(active_x);
     // `refill_skipped`: pile slots the refill found holding something other
     // than air or larder, and left alone.
     //
@@ -2049,9 +2184,9 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
     // writes over 24 runs at gap 90, and stage 2's chooser, whose ants crowd
     // the pile, a median of **744 a run** (`ant-scenes-2026-09-23.md` §9).
     let refill_skipped = std::cell::Cell::new(0u64);
-    let place_food = |w: &mut pixel_physics::sim::world::World, n: i32, placed: &mut u64| {
+    let place_food = |w: &mut pixel_physics::sim::world::World, px: i32, n: i32, placed: &mut u64| {
         for i in 0..n {
-            let (fx, fy) = (target_x + (i % 12) - 6, surface - (i / 12));
+            let (fx, fy) = (px + (i % 12) - 6, surface - (i / 12));
             let m = w.get(fx, fy).material;
             // A slot still holding larder is rewritten, as it always was (it
             // resets what the structural pass keeps in the cell), and is not
@@ -2070,7 +2205,7 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
     };
     let mut larder_placed = 0u64;
     if food > 0 {
-        place_food(&mut w, food, &mut larder_placed);
+        place_food(&mut w, active_x, food, &mut larder_placed);
     }
     // The larder priced the way the animal prices it, not the way the material
     // table reads. See `Arm::supply_j`.
@@ -2581,6 +2716,7 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
         (_, _, PaintA::Ramp) => "homeA",
         (_, _, PaintA::FlatNest) => "flatN",
         (_, _, PaintA::FlatFood) => "flatF",
+        (_, _, PaintA::Oracle) => "oracle",
     };
     let mut gif_frames: Vec<Vec<u8>> = Vec::new();
     // **Where the food is**, every 3,000 frames: larder on the ground at the
@@ -2708,6 +2844,12 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
     // `CfRule::Step`. A reset of `since_trip` is a new pickup.
     let mut cf_steps: std::collections::HashMap<_, (u16, u32)> = std::collections::HashMap::new();
     let (mut shadow_n, mut shadow_checks) = (0u64, 0u64);
+    // `pile2`'s phase book. `stale_x` is the pile that was stocked before the
+    // last swap (and is now withdrawn); a visit to it is a STALE visit.
+    let mut swap_phases: Vec<SwapPhase> = Vec::new();
+    let mut phase_now = SwapPhase::default();
+    let (mut phase_start, mut phase_placed0, mut withdrawn, mut swaps) = (0u64, 0u64, 0u64, 0u32);
+    let mut stale_x: Option<i32> = None;
     for f in 1..=frames {
         // **`stop` is what turns this from a pull arm into a loop arm.** Up to
         // `stop` the trail is guaranteed, which breaks the circularity -- a
@@ -2736,6 +2878,7 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
                 // channel A sits in each of the two cases the metric separates.
                 PaintA::FlatNest => lay_flat(&mut sink, nest_x, (nest_x + target_x) / 2, surface),
                 PaintA::FlatFood => lay_flat(&mut sink, (nest_x + target_x) / 2, target_x, surface),
+                PaintA::Oracle => lay_toward(&mut sink, nest_x, active_x, surface),
             }
         }
         frame::step(&mut w, &mut particles, &mut blasts, player::PlayerInput::default(), &tuning);
@@ -2922,7 +3065,44 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
             }
         }
         if food > 0 && refill > 0 && f.is_multiple_of(refill) {
-            place_food(&mut w, food, &mut larder_placed);
+            place_food(&mut w, active_x, food, &mut larder_placed);
+        }
+        // **The swap** (`pile2`). Order matters and is chosen: a refill due on
+        // the same frame lands on the OLD pile first and is withdrawn with it,
+        // so a swap always hands the colony a fresh pile of exactly `food`.
+        if pile2 && f.is_multiple_of(alt) && f < frames {
+            let old_x = active_x;
+            let mut cleared = 0u64;
+            if altclear {
+                for &(x, y) in &pile_slots {
+                    if w.get(x, y).material == larder {
+                        w.set(x, y, Cell::new(pixel_physics::sim::material::EMPTY, 0));
+                        cleared += 1;
+                    }
+                }
+            }
+            withdrawn += cleared;
+            let on_pile = pile_slots.iter().filter(|&&(x, y)| w.get(x, y).material == larder).count() as u64;
+            phase_now.side = if old_x == west_x { 'W' } else { 'E' };
+            phase_now.start = phase_start;
+            phase_now.end = f;
+            phase_now.taken = (larder_placed - phase_placed0).saturating_sub(cleared + on_pile);
+            phase_now.withdrawn = cleared;
+            swap_phases.push(std::mem::take(&mut phase_now));
+            active_x = if old_x == west_x { target_x } else { west_x };
+            stale_x = Some(old_x);
+            swaps += 1;
+            pile_slots = slots_of(active_x);
+            phase_start = f;
+            phase_placed0 = larder_placed;
+            if food > 0 {
+                place_food(&mut w, active_x, food, &mut larder_placed);
+            }
+        }
+        // The phase's cumulative take, every 100 frames: what T50 is read off.
+        if pile2 && f.is_multiple_of(100) {
+            let on_pile = pile_slots.iter().filter(|&&(x, y)| w.get(x, y).material == larder).count() as u64;
+            phase_now.series.push((larder_placed - phase_placed0).saturating_sub(on_pile));
         }
         if f.is_multiple_of(100) {
             for (i, acc) in b_prof_sum.iter_mut().enumerate() {
@@ -3268,7 +3448,7 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
                 }
             }
             let st = &w.creature_stats;
-            let taken = larder_placed.saturating_sub(food.max(0) as u64) as f64 + pile_missing;
+            let taken = larder_placed.saturating_sub(food.max(0) as u64 + withdrawn) as f64 + pile_missing;
             let residual = taken * face + st.drop_worth_restored - st.digested_face - cells.len() as f64 * face - crumb_face - crop_face
                 - st.crop_cells_lost_at_death as f64 * face;
             let births = w.creature_stats.births;
@@ -4173,7 +4353,7 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
                 }
             }
             {
-                let at_food = (hx - target_x).abs() <= near;
+                let at_food = (hx - active_x).abs() <= near;
                 let at_nest = (hx - nest_x).abs() <= 26;
                 let first_sighting = !tracks.contains_key(&id);
                 let t = tracks.entry(id).or_default();
@@ -4191,6 +4371,27 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
                 }
                 t.last_x = hx;
                 t.seen = true;
+                if pile2 {
+                    // D1: the first pickup at the pile stocked now.
+                    if carrying_larder && !t.carried_before && at_food && phase_now.d1.is_none() {
+                        phase_now.d1 = Some(f - phase_start);
+                    }
+                    t.carried_before = carrying_larder;
+                    phase_now.ant_ticks += 1;
+                    // A stale visit is an ARRIVAL at the withdrawn pile: an ant
+                    // already standing there at the swap is booked on its first
+                    // sighting after it, not counted.
+                    if let Some(sx) = stale_x {
+                        let at_s = (hx - sx).abs() <= near;
+                        if t.stale_epoch != swaps {
+                            t.stale_epoch = swaps;
+                        } else if at_s && !t.at_stale {
+                            phase_now.stale += 1;
+                            phase_now.last_stale = Some(f - phase_start);
+                        }
+                        t.at_stale = at_s;
+                    }
+                }
                 if f == 1 {
                     founded = (founded.0.min(hx), founded.1.max(hx));
                 }
@@ -4320,7 +4521,7 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
                     spoil_ticks += 1;
                 }
             }
-            if (hx - target_x).abs() <= near {
+            if (hx - active_x).abs() <= near {
                 near_ticks += 1;
             }
             if f.is_multiple_of(100) {
@@ -4349,6 +4550,38 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
                 along_n += 1;
             }
         }
+    }
+    // **The two-pile bed's phase book** (`pile2`), one SWAP row per phase:
+    // which pile was stocked, what the ants took from it, how soon the first
+    // pickup came (D1), how soon the take recovered to half the previous
+    // phase's rate (T50), and how many arrivals the pile withdrawn at the
+    // phase's start still drew (stale visits, and the last one's frame).
+    if pile2 {
+        let on_pile = pile_slots.iter().filter(|&&(x, y)| w.get(x, y).material == larder).count() as u64;
+        phase_now.side = if active_x == west_x { 'W' } else { 'E' };
+        phase_now.start = phase_start;
+        phase_now.end = frames;
+        phase_now.taken = (larder_placed - phase_placed0).saturating_sub(on_pile);
+        swap_phases.push(std::mem::take(&mut phase_now));
+        let opt = |v: Option<u64>| v.map_or("-".to_string(), |v| v.to_string());
+        let (mut te, mut tw) = (0u64, 0u64);
+        for (k, ph) in swap_phases.iter().enumerate() {
+            let t = if k == 0 { None } else { t50(&swap_phases[k - 1], ph) };
+            if ph.side == 'W' { tw += ph.taken } else { te += ph.taken }
+            println!(
+                "  SWAP seed={seed} arm={arm_name} gap={gap} alt={alt} altclear={} k={k} side={} start={} end={} taken={} early={} withdrawn={} d1={} t50={} stale={} stale_per_kaf={:.3} last_stale={} ant_frames={}",
+                if altclear { "on" } else { "off" },
+                ph.side, ph.start, ph.end, ph.taken,
+                // The take in the phase's first 1,500 frames: recovery read as
+                // an amount, because at this bed's take rate T50's 500-frame
+                // window clears on its first reading (600) almost always.
+                ph.series.get(15).or(ph.series.last()).copied().unwrap_or(0),
+                ph.withdrawn, opt(ph.d1), if k == 0 { "-".to_string() } else { opt(t) }, ph.stale,
+                ph.stale as f64 * 1000.0 / ph.ant_ticks.max(1) as f64,
+                opt(ph.last_stale), ph.ant_ticks
+            );
+        }
+        println!("  PILE2 seed={seed} arm={arm_name} gap={gap} phases={} taken east={te} west={tw} withdrawn={withdrawn} nest={nest_x} piles={west_x},{target_x}", swap_phases.len());
     }
     // **The replay is a control only if it could fail**, so a log says it ran
     // and how much it checked, and a planted fault that reached the end unseen
@@ -5056,7 +5289,7 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
         // ever filled priced a cell at `EPSILON`, and every figure below was a
         // division by it: `chewed 8053084044.0` in runs that took one cell.
         let face = if larder_unit > 0.0 { larder_unit as f64 } else { creature::food_value(&w, Cell::new(larder, 0)) as f64 };
-        let taken = larder_placed.saturating_sub(food.max(0) as u64) + pile_missing;
+        let taken = larder_placed.saturating_sub(food.max(0) as u64 + withdrawn) + pile_missing;
         let chewed = w.creature_stats.digested_face / face;
         let standing = (ground + in_crops + as_spoil) as f64 + crumb_face / face;
         println!(
@@ -5332,6 +5565,16 @@ fn main() {
     // and 1.25%, and nothing in the header said why. Found 2026-09-18 by an
     // archived log failing to reproduce against a binary that was correct.
     println!("trailfollow: mode={mode} gate={} frames={frames} seeds={seeds} seed0={seed0} ants={ants} relay={relay} near={near} food={food} refill={refill} stop={stop} homebias={} cropcap={} hungergate={} burn={} arho={} brho={} adiffuse={} arise={}/{} tumble={} persist={} tumblegrad={} homewire={}", gate.name, arg::<f32>("homebias").map_or("shipped".to_string(), |v| format!("{v}")), arg::<f32>("cropcap").map_or("shipped".to_string(), |v| format!("{v}")), arg::<f32>("hungergate").map_or("shipped".to_string(), |v| format!("{v}")), arg::<f32>("burn").map_or("shipped".to_string(), |v| format!("{v}")), arg::<f32>("arho").map_or("shipped".to_string(), |v| format!("{v}")), arg::<f32>("brho").map_or("shipped".to_string(), |v| format!("{v}")), arg::<f32>("adiffuse").map_or("shipped".to_string(), |v| format!("{v}")), arg::<f32>("arise").map_or("off".to_string(), |v| format!("{v}")), arg::<f32>("arisetumble").map_or("off".to_string(), |v| format!("{v}")), arg::<f32>("tumble").map_or("shipped".to_string(), |v| format!("{v}")), arg::<f32>("persist").map_or("shipped".to_string(), |v| format!("{v}")), arg::<f32>("tumblegrad").map_or("shipped".to_string(), |v| format!("{v}")), arg::<f32>("homewire").map_or("shipped".to_string(), |v| format!("{v}")));
+    // The two-pile bed's own dimensions, echoed only when it is on so the
+    // single-pile header stays byte-identical.
+    if let Some(p2) = arg_str("pile2") {
+        println!(
+            "trailfollow: pile2={p2} alt={} altclear={} start={}",
+            arg::<u64>("alt").unwrap_or(6000),
+            arg_str("altclear").unwrap_or_else(|| "on".to_string()),
+            arg_str("start").unwrap_or_else(|| "seed".to_string())
+        );
+    }
     println!("  gate {}: off {:+.1}  on {:+.1}  along ±{:.1}", gate.name, gate.off, gate.on, gate.along);
     // The trace and trail-B switches, and the environment levers every bed in
     // `ant-forage-bed-and-gates-2026-09-21.md` is run with, echoed so a log
@@ -5536,7 +5779,14 @@ fn main() {
                     // `lay_flat` for the two numbers they predict.
                     ("flatN", false, true, PaintA::FlatNest),
                     ("flatF", false, true, PaintA::FlatFood),
+                    // Runs only when asked for by name, and only with `pile2`
+                    // (`run` refuses it otherwise): it is a control for the
+                    // two-pile bed, and `arms=` unset must stay the seven above.
+                    ("oracle", false, false, PaintA::Oracle),
                 ] {
+                    if paint == PaintA::Oracle && !want_arms.as_ref().is_some_and(|w| w.iter().any(|x| x == name)) {
+                        continue;
+                    }
                     if want_arms.as_ref().is_some_and(|w| !w.iter().any(|x| x == name)) {
                         continue;
                     }
