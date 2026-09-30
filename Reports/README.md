@@ -3475,8 +3475,10 @@ design guide's §7b-i calls "already data" are Rust `const`s.
     blocked drop as possibly a nest-digging problem, and to leave
     digesting the crop in transit as an open question for the owner.
 - [food-trail-plan-2026-09-29.md](food-trail-plan-2026-09-29.md)
-  — **plan of record, 2026-09-29, agreed with the owner. `engine`. Nothing
-  built yet.** Why the ants' food trail has never led them to food: the
+  — **plan of record, 2026-09-29, agreed with the owner. `engine`. Stages
+  0-1 done: the instruments (#520) and the lay rule, shipped on 2026-09-30
+  (`ant-scenes-2026-09-23.md` §23a, §23c); the reader and the give-up are
+  next.** Why the ants' food trail has never led them to food: the
   working recipe has three parts (a trail strongest near the food, a reader
   that turns toward the stronger side, a give-up), and each was built on a
   different ant and judged alone (§22v). The plan builds all three behind
@@ -3487,6 +3489,17 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   for; the bar on the colony bed is the trail switched off. Owner rulings:
   lay rule engine-side first and genome-side if it wins; only hungry or
   driven ants follow; ship if better than today without harm.
+- [food-trail-reader-design-2026-09-30.md](food-trail-reader-design-2026-09-30.md)
+  — **design, 2026-09-30. `engine`. Not built: the next thing to build on
+  the food-trail line.** Stages 2-3 of the plan above, from a panel (facts,
+  three designs, a judge, three refuters) over Stage 1's traces: a door-only
+  reader (reach-6 east against west on the ant's own row, an additive
+  `gain x want x |g|` pull, gain 6, the paint plus four rows of mound) and a
+  give-up that makes the trail let go of a given-up ant. The refuters did
+  not refute it; **their eight must-fix defects** (re-arming at the door, a
+  stale leash, blind Stage 3 guards, give-up that needs a wall, missing B5
+  and lab gates) are listed and have to be fixed before it is built. Raw
+  panel output: `data/food-trail-reader-panel-2026-09-30.json.gz`.
 - [what-controls-creature-movement-2026-09-22.md](what-controls-creature-movement-2026-09-22.md)
   — **reference, 2026-09-22. `engine`. SUPERSEDED the same day by
   [`how-the-ant-works.md`](how-the-ant-works.md)**, the living reference,
