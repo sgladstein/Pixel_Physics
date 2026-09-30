@@ -74,9 +74,13 @@ significant): the reader must give them a reason to leave. `mute` is
 heritable since 09-30 (`World::mute_emit_b`), so the control no longer leaks.
 
 **Next, in order (start here):**
-1. **B5, the two-pile alternating bed** (plan Stage 4; `trailfollow`
-   `pile2=west alt= altclear`, an `oracle` arm, SWAP readouts). Needs no
-   reader, and the reader's worst harm (a stale leash) only shows there.
+1. **B5 is built** (#526, 2026-09-30, `pile2=west`; numbers in its commit).
+   Oracle beats mute 21/3, so the bed can reward a trail; oracle beats self
+   18/6 on the take in the first 1,500 frames after a swap, which is the
+   reader's headroom. **P4.3 failed: east phases take ~2x west in every
+   arm**, not the storeroom and not the founding. At 80 founders the
+   ants that never reach the food walk west and die there (135 cells, seeds
+   1-8). Trace the east/west lean ant by ant before building the reader.
 2. **Stages 2-3 from `food-trail-reader-design-2026-09-30.md`**: fix its
    eight must-fix defects first, port `giveup.py`/`departures.py` (in
    `data/food-trail-lay-2026-09-29.tar.gz`) into `trailclimb.py` §6, register
@@ -155,14 +159,35 @@ food eaten 1,160k J, ant-frames 9.8M, starved per million ant-frames 13.1.
 
 ## Commands
 
-The colony bed. Run from anywhere; keep the env exactly this. Eight seeds
-take about a minute on this box.
+The colony bed. Run from anywhere; keep the env exactly this. **Measured
+2026-09-30 in a 4-core cloud container, `xargs -P 4`:** four 4-seed jobs of
+the 24,000-frame bed at 20 or 80 founders took **20 s**; 72 two-pile runs of
+36,000 frames took **97 s**. Runs are cheap: no agent or cloud lane is needed
+for a bed round.
 
 ```
 export RAYON_NUM_THREADS=1 PIXEL_PHYSICS_COLONY_SPACING=2 PIXEL_PHYSICS_STACK_DEPTH=4 PIXEL_PHYSICS_BUD_SITE=nest
 B="mode=gap gate=shipped frames=24000 ants=20 near=10 food=400 refill=400 arms=self gaps=90"
 ./trailfollow $B decisioncsv dtag=mine seeds=8 seed0=1 > mine-1.log   # and seed0=9, seed0=17
 # decision CSVs land in /tmp as trailfollow-decisions-seed<S>-gap<G>-self-<dtag>.csv
+```
+
+**Every bed, exactly** (all with the env above, `seeds=`/`seed0=` to taste;
+`arms=self,mute` unless the row says otherwise):
+
+| Bed | Arguments |
+|---|---|
+| B1, 90 cells | `mode=gap gate=shipped frames=24000 ants=20 near=10 food=400 refill=400 gaps=90` |
+| B2, 140 cells | the same with `gaps=140` |
+| B3, 80 founders | `mode=gap gate=shipped frames=24000 ants=80 near=10 food=400 refill=400 gaps=135` (80 founders span 158 cells, so a third start 27-78 cells west of the nest: split any readout by start side) |
+| B4, pulsed pile | B1 or B2 with `food=30 refill=6000` |
+| B5, two piles | `mode=gap gate=shipped frames=36000 ants=20 near=10 food=400 refill=400 gaps=90 pile2=west alt=6000 arms=self,mute,oracle`, read with `python3 scripts/twopile.py '<logs>'` |
+| B6, lab box | `labforage scenario=played_bed frames=120000 seed=N`, **from the repo root, with none of the bed env set** |
+
+```
+# worked example, B5 over 24 seeds:
+for s in 1 7 13 19; do for a in self mute oracle; do echo "$a $s"; done; done | \
+  xargs -P 4 -L 1 bash -c './trailfollow <B5 args, arms=$0> seeds=6 seed0=$1 > b5-$0-$1.log'
 python3 scripts/antloop.py <csv dir> --log mine.log --vs base.log
 python3 scripts/antidle.py '<csv dir>/*.csv' 90 --vs '<base csv dir>/*.csv'
 ```

@@ -44,6 +44,24 @@
 //! the trail, so the count is attributable. Put food there and an arriving
 //! ant fills its crop, flips to channel A and walks home, which measures the
 //! round trip rather than the gate.
+//!
+//! **MAP** (2026-09-30: finding these cost a session ~20k tokens of reading).
+//! Search for the quoted anchor; line numbers drift, anchors do not.
+//!
+//! | Where | Anchor |
+//! |---|---|
+//! | modes and arms (`mode=gap`'s arm list is where a new arm goes) | `mode == "gap"`, `("hand", true, false` |
+//! | `run`: box width, nest and pile positions, `pile2` | `The box grows with the gap`, `pile2=west` |
+//! | founding, and the guards that the colony is off the food | `found_colony_of` |
+//! | the pile, its refill and the food budget's slots | `let place_food`, `pile_slots` |
+//! | the frame loop; hand-painted trails (`PaintA`) | `for f in 1..=frames`, `PaintA::None => {}` |
+//! | the two-pile swap | `**The swap**` |
+//! | per-ant funnel (`Track`, `stage`) | `THE FUNNEL, advanced here` |
+//! | the decision CSV (`decisioncsv`), its path and columns | `trailfollow-decisions-seed` |
+//! | end-of-run readouts: SWAP, BTRAIL, FOOD BUDGET | `  SWAP seed=`, `BTRAIL seed=`, `FOOD BUDGET (cells` |
+//!
+//! Readers of the output: `scripts/antloop.py` (funnel, who starved),
+//! `scripts/antidle.py`, `scripts/twopile.py` (`pile2`), `scripts/btrailchart.py`.
 
 use pixel_physics::lab::scene::LabBox;
 use pixel_physics::sim::brain::{self, BrainInput as I, BrainOutput as O};
