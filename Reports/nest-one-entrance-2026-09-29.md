@@ -824,3 +824,101 @@ Predictions 239-242 (written before the sweep): 239, 240 and 241 hold --
 240 by far more than predicted, new ground falling 93% at 200 ants; 242
 fails, fewer ants shut in than at stacking 4, since a nest barely dug has
 little to seal.
+
+## 17. The package, and the carry's latch at the door (2026-09-30)
+
+*The step §16 ordered: stacking at 4, the walked cycle with the carry, and
+births on nestmates
+([`creature-stacking-design-2026-09-17.md`](creature-stacking-design-2026-09-17.md)
+§13), switched on together and measured as one default against today (the
+game's cap of 1, the lift). Env: `PIXEL_PHYSICS_STACK_DEPTH=4
+PIXEL_PHYSICS_SPOIL_OUT=on PIXEL_PHYSICS_BUD_STACK=on`, `RAYON_NUM_THREADS=1`.*
+
+**The dig box** (`digbox fed nulls=0 energy=1000 w=200 soil=60
+frames=24000 stops=0,12000,24000 gridout=`, 8 seeds a size; medians at
+24,000, pairs from `gridout`'s blocks census):
+
+| | today, 40 | package, 40 | today, 200 | package, 200 |
+|---|---:|---:|---:|---:|
+| sealed-off cells | 38 | 1 (lower on 8) | 47.5 | 8 (lower on 7) |
+| tamped cells in blocks | 90 | 54 | 80 | 75 |
+| open cells | 234 | 139.5 | 448 | 193.5 |
+| new ground dug | 342.5 | 128.5 | 696 | 223 |
+| pellets put down inside | 506.5 | 54.5 | 447.5 | 99.5 |
+
+Looked at (seeds 4 and 7 at 40, 2 and 4 at 200, cropped and zoomed): today's
+nest is a churned crater with heaps over it and ants through it; the
+package's is one chamber with tunnels leaving it, a mound beside the door,
+and at 200 ants a knot of stacked ants in the chamber. Clean, and a third of
+the size.
+
+**The lab** (`labforage scenario=played_bed frames=120000 bedenv`, 24 seeds,
+against §12's cap-1 logs): births 418 -> 462.5 (lower on 13, higher on 11),
+extinct 2 -> 3, starved 101.5 -> 31 (lower on 15), food eaten 1.09 M -> 1.14 M J,
+peak colony 227.5 -> 263.5, alive at the end 203 -> 134 (12 / 11). No measured
+harm. (Old carry; see below.)
+
+**Why the package nest is small: the carry, traced.** A temporary line at
+every carrier decision (seed 4, 40 ants; the run's stdout identical to the
+untraced one), 151 pellets followed from the cut to the drop. 94 were walked
+out and put down on the mound as designed; **40 went down below the old
+surface after the haul's patience ran out inside, 15 were dropped short**. Of
+all carrying frames, 21% came before the carrier first read as outside, 41%
+outside, and **38% under cover again after that** (8% shallow, 30% deep).
+Two faults in the carry's test of *outside*, which was cover (`inside_nest`)
+read afresh at every step:
+
+- **The mouth had widened to five columns over a chamber open to the sky**,
+  so cells deep in the nest had nothing overhead. A carrier there read as
+  out, drew its column there, and was pulled at it through the ground.
+- **The column's target was the founding surface's row**, which the colony's
+  own mound buries. A carrier one step from its column went under the
+  mound's overhang, read as inside, was pulled back to the door and stepped
+  out again. The target changed at every flip, and `home_pull` restarts the
+  haul's patience on a new target, so it never gave up: one carrier held its
+  pellet 3,636 frames between two cells.
+
+**The fix** (`creature.rs`: `carry_stage`, `ring_target`; always on under
+the walked cycle, so the shipped game is unchanged): the column is drawn when
+the carrier comes out by the door (on or above the door's row, nothing
+overhead), kept under overhangs, and let go only back in a tunnel (more than
+two rows under the door's row with ground overhead, or in the founding cut:
+`CreatureStats::spoil_ring_let_go`). The pull is to the top of the ground in
+the column, and before the carrier is out the pellet is held wherever it
+stands. Guards, each watched red against the cover test:
+`a_carrier_draws_its_column_at_the_door_not_down_a_hole_open_to_the_sky`,
+`a_carrier_out_keeps_its_column_under_the_mound_and_heads_for_its_top`,
+`a_carrier_back_in_a_tunnel_lets_its_column_go`.
+
+**Measured** (the same 8 seeds a size, the package env; old carry -> latched):
+
+| | 40 ants | 200 ants |
+|---|---:|---:|
+| open cells | 139.5 -> 180 (higher on 8) | 193.5 -> 231.5 (7) |
+| new ground dug | 128.5 -> 173 (7) | 223 -> 329.5 (8) |
+| pellets put down | 171 -> 263.5 (8) | 307.5 -> 600.5 (8) |
+| sealed-off cells | 1 -> 2 (4 / 3) | 8 -> 9.5 (5 / 3) |
+| tamped cells in blocks | 54 -> 64.5 (4 / 4) | 75 -> 94.5 (7 / 1) |
+
+Traced again (seed 4, 40 ants): 279 pellets against 151, the slowest tenth
+of trips 1,740 -> 906 frames, the median unchanged (402 -> 414). **So the
+latch removed the stuck carriers; it did not make a trip shorter.** 67 of
+the 279 still went down below the old surface (24%, against 29%): carriers
+whose patience runs out while they look for the door inside. That is the next
+thing to trace. Against today the package with the latch keeps 77% of the
+40-ant nest's open space (180 against 234) and 52% at 200 ants (231.5
+against 448), with sealed-off space 38 -> 2 and 47.5 -> 9.5. Tamped blocks
+at 200 ants now read above today's (94.5 against 80).
+
+**Predictions** (written before each run): 248 half holds (sealed lower on
+8 of 8; new ground at 37.5% of today's, not the 60% predicted); 249 half
+holds (new ground 32%, at least 25% as predicted; sealed lower on 7, not 8);
+250 holds (births lower on 13, no more than 16; extinct 3); 251 fails (below
+the old surface 67, not 20 or fewer; median trip 414, not 300 or less); 252
+and 253 hold.
+
+**Not yet done, in order** (the handoff in
+[lanes/nest-mouth.md](lanes/nest-mouth.md)): the lab pair re-run with the
+latch (the table above ran the old carry); the colony bed pair for the
+package; the pictures to the owner; then the default flip as its own PR,
+with the foraging lane poked first.

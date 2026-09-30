@@ -10489,13 +10489,17 @@ fn spoil_haul() -> Option<f32> {
 /// ants in the founding cut, 64% at 40. `PIXEL_PHYSICS_SPOIL_HAUL` alone keeps
 /// its old target, the one its measurements were taken with.
 ///
-/// **Outside the nest under [`spoil_ring`], the column the carrier drew**, on
-/// the row over the nest's surface: the pellet is walked out that far before
-/// it may go down, so the pull is along the ground, away from the door.
+/// **Once out by the door under [`spoil_ring`], the column the carrier drew**,
+/// on the top of the ground there ([`ring_target`]): the pellet is walked out
+/// that far before it may go down, so the pull is along the ground, away from
+/// the door. The column is held from the door until the pellet is down or the
+/// carrier is back in a tunnel ([`carry_stage`]); **a test of cover here made
+/// the target flip**, which is why this reads the latch and not the cell
+/// (`Reports/nest-one-entrance-2026-09-29.md` §17).
 fn spoil_haul_target(world: &World, state: &crate::sim::organism::OrganismState, head: (i32, i32)) -> Option<(i32, i32)> {
     let site = world.nearest_nest_site(head.0, head.1).and_then(|i| world.nest_sites.get(i))?;
-    if let Some(col) = state.spoil_ring.filter(|_| spoil_ring_of(world).is_some() && !inside_nest(world, head.0, head.1)) {
-        return Some((col, site.surface - 1));
+    if let Some(col) = state.spoil_ring.filter(|_| spoil_ring_of(world).is_some()) {
+        return Some(ring_target(world, site, col));
     }
     Some(match site.shaft {
         Some(cut) if spoil_out().haul => (site.x, cut.top - 1),
@@ -10723,6 +10727,76 @@ fn spoil_ring_holds(world: &World, state: &crate::sim::organism::OrganismState, 
     let Some(col) = state.spoil_ring.filter(|_| spoil_ring_of(world).is_some()) else { return false };
     let Some(site) = world.nearest_nest_site(x, y).and_then(|i| world.nest_sites.get(i)) else { return false };
     (x - site.x).abs() < (col - site.x).abs()
+}
+
+/// **Where a carrier stands, for the carry's latch** ([`spoil_ring`]):
+/// [`carry_stage`]'s answer.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum CarryStage {
+    /// Out by the door: on or above the door's row, nothing overhead. The
+    /// column is drawn here, once.
+    Out,
+    /// Neither: the column, if drawn, is kept, and if not, is not drawn.
+    Between,
+    /// Back in a tunnel: more than [`CARRY_BACK_IN_ROWS`] under the door's
+    /// row with ground overhead, or in the founding cut. A drawn column is
+    /// let go, so the pull is the door again.
+    BackIn,
+}
+
+/// How far under the door's row a carrier may stand and keep its column
+/// ([`carry_stage`]): the mouth's top rows and the dips of a worked surface
+/// are not the nest.
+const CARRY_BACK_IN_ROWS: i32 = 2;
+
+/// **Out, back in, or neither** ([`CarryStage`]); `None` with no nest site.
+///
+/// **Why a latch and not a test of the cell.** Until 2026-09-30 the carry read
+/// [`inside_nest`] -- cover overhead, or the founding cut -- at every step, both
+/// to draw the column and to pick the pull, and a worked nest fools it both
+/// ways. Traced in `examples/digbox` (40 ants, stacking 4, seed 4, 151 pellets
+/// followed from the cut to the drop, `Reports/nest-one-entrance-2026-09-29.md`
+/// §17): the mouth had widened to five columns over a chamber open to the sky,
+/// so a carrier deep in the nest read as *outside*, drew its column there and
+/// was pulled at it through the ground; and on the surface the colony's own
+/// mound hangs over the cells beside it, so a carrier one step from its column
+/// read as *inside*, was pulled back to the door, stepped out again, and --
+/// the target changing each time -- had its patience reset at every flip.
+/// **38% of all carrying time was spent under cover again after the carrier
+/// had first read as outside**, and 44 of the 151 pellets went down below the
+/// old surface.
+/// A carrier comes out by the door, so that is where it draws; it keeps the
+/// column until the pellet is down or it is plainly back in a tunnel.
+fn carry_stage(world: &World, (x, y): (i32, i32)) -> Option<CarryStage> {
+    let site = world.nearest_nest_site(x, y).and_then(|i| world.nest_sites.get(i))?;
+    let door_row = site.shaft.map_or(site.surface, |c| c.top) - 1;
+    let covered = under_cover(world, x, y);
+    Some(if y <= door_row && !covered {
+        CarryStage::Out
+    } else if y > door_row + CARRY_BACK_IN_ROWS && (covered || site.shaft.is_some_and(|c| c.contains(x, y))) {
+        CarryStage::BackIn
+    } else {
+        CarryStage::Between
+    })
+}
+
+/// How many rows a carry's target climbs a column in search of its top
+/// ([`ring_target`]): higher than any mound measured round a door (the
+/// crater ring stands 5-9 rows at 200 ants), short enough to be a few reads.
+const RING_CLIMB: i32 = 24;
+
+/// **The cell a latched carrier heads for** ([`spoil_ring`]): its column, on
+/// the first cell above the ground there that an ant could stand in.
+///
+/// Not the founding surface's row, which is where this pointed until
+/// 2026-09-30: the colony mounds its pellets exactly round the columns it
+/// draws, so that cell is soon inside the mound, and a carrier pulled at a
+/// buried cell presses into the mound's flank rather than climbing it
+/// ([`carry_stage`]'s trace).
+fn ring_target(world: &World, site: &crate::sim::world::NestSite, col: i32) -> (i32, i32) {
+    let open = |y: i32| matches!(world.materials.kind(world.get(col, y).material), MaterialKind::Empty | MaterialKind::Gas | MaterialKind::Plant | MaterialKind::Creature);
+    let start = site.surface - 1;
+    (col, (0..=RING_CLIMB).map(|d| start - d).find(|&y| open(y)).unwrap_or(start - RING_CLIMB))
 }
 
 /// **A hauled pellet is carried at the laden pace** ([`SpoilOut`]'s `pace`):
@@ -13229,26 +13303,40 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
         // carrier nor lifted, while the haul still has patience. A carrier
         // that has stuck may lay it beside itself where a cell will hold it,
         // and is never lifted: see `no_lift` below.
-        // **Walked out a distance first** ([`spoil_ring`]): the first time a
-        // carrier stands outside the nest with its pellet it draws how far to
-        // take it, and until it is that far out the pellet is held as it is
-        // inside. Unset, no read and no draw.
-        let ring_hold = match spoil_ring_of(world) {
+        // **Walked out a distance first** ([`spoil_ring`]): when a carrier
+        // comes out by the door with its pellet it draws how far to take it,
+        // and keeps that column until the pellet is down or it is back in a
+        // tunnel ([`carry_stage`], which says why it is a latch); until it is
+        // that far out the pellet is held as it is inside, and **before it
+        // has come out it is held wherever it stands** -- a chamber open to
+        // the sky is still the nest. Unset, no read and no draw.
+        let (ring_hold, unlatched) = match spoil_ring_of(world) {
             Some(ring) => {
-                if !inside_nest(world, x, y) && world.organism(organism).is_some_and(|s| s.spoil_ring.is_none()) {
-                    let col = spoil_ring_column(world, organism, (x, y), ring);
-                    if let Some(state) = world.organism_mut(organism) {
-                        state.spoil_ring = col;
+                let latched = world.organism(organism).is_some_and(|s| s.spoil_ring.is_some());
+                match carry_stage(world, (x, y)) {
+                    Some(CarryStage::Out) if !latched => {
+                        let col = spoil_ring_column(world, organism, (x, y), ring);
+                        if let Some(state) = world.organism_mut(organism) {
+                            state.spoil_ring = col;
+                        }
+                        world.creature_stats.spoil_ring_drawn += u64::from(col.is_some());
                     }
-                    world.creature_stats.spoil_ring_drawn += u64::from(col.is_some());
+                    Some(CarryStage::BackIn) if latched => {
+                        if let Some(state) = world.organism_mut(organism) {
+                            state.spoil_ring = None;
+                        }
+                        world.creature_stats.spoil_ring_let_go += 1;
+                    }
+                    _ => {}
                 }
                 let holds = world.organism(organism).is_some_and(|s| spoil_ring_holds(world, s, (x, y)));
                 world.creature_stats.spoil_ring_held += u64::from(holds);
-                holds
+                let unlatched = world.nearest_nest_site(x, y).is_some() && world.organism(organism).is_some_and(|s| s.spoil_ring.is_none());
+                (holds, unlatched)
             }
-            None => false,
+            None => (false, false),
         };
-        let keep_inside = (spoil_out().keep && inside_nest(world, x, y)) || ring_hold;
+        let keep_inside = (spoil_out().keep && (inside_nest(world, x, y) || unlatched)) || ring_hold;
         let kept_inside = keep_inside && world.organism(organism).is_some_and(|s| s.home_patience >= DIG_RETURN_GIVE_UP);
         let cover_scale = if kept_inside {
             world.creature_stats.spoil_kept_inside += 1;
@@ -23102,6 +23190,94 @@ mod tests {
             })
             .collect();
         assert_eq!(sides, [-1, 1].into_iter().collect(), "a carrier out of the middle went one way only");
+    }
+
+    /// The test ground with a carry of three columns in force (the world's
+    /// own setting, so no process switch), a nest site centred on column 60
+    /// whose door row is 39 (soil from row 40, no founding cut), the cells in
+    /// `open` emptied and those in `soil_at` filled, and an ant at `(x, y)`
+    /// holding a pellet of soil with `drawn` as its column.
+    fn carry_world(x: i32, y: i32, drawn: Option<i32>, open: &[(i32, i32)], soil_at: &[(i32, i32)]) -> (World, OrganismId) {
+        let mut w = World::new(Rect::new(0, 0, 119, 99));
+        founding_ground(&mut w);
+        w.register_nest_site(60, 38, 2);
+        w.spoil_ring = Some(Some(SpoilRing { shape: 1, scale: 0.001 }));
+        let soil = w.materials.id_of("soil").expect("soil material");
+        for &(px, py) in open {
+            w.set(px, py, Cell::EMPTY);
+        }
+        for &(px, py) in soil_at {
+            w.set(px, py, Cell::new(soil, 0));
+        }
+        let a = spawn(&mut w, "ant", x, y);
+        let st = w.organism_mut(a).expect("live");
+        st.spoil = Some(Spoil { cell: Cell::new(soil, 0), store: false });
+        st.spoil_ring = drawn;
+        (w, a)
+    }
+
+    /// One `act` with `DropSpoil` 1 for [`carry_world`]'s carrier: the column
+    /// it holds after.
+    fn carry_act(w: &mut World, a: OrganismId) -> Option<i32> {
+        let (hx, hy) = w.organism(a).expect("live").chain[0];
+        let def = w.species.get(w.organism(a).expect("live").species).creature.clone().expect("a creature");
+        let mut outputs = [0.0f32; brain::BRAIN_OUTPUTS];
+        outputs[brain::BrainOutput::DropSpoil as usize] = 1.0;
+        let mut draw = rng::stream(1, a as u64, 0, RNG_SLOT_MOVE);
+        act(w, hx, hy, a, &def, &outputs, &mut draw);
+        w.organism(a).expect("live").spoil_ring
+    }
+
+    /// **A carrier draws its column when it comes out by the door, not in a
+    /// hole open to the sky** ([`carry_stage`]). The trace behind the latch
+    /// (`Reports/nest-one-entrance-2026-09-29.md` §17): a mouth widened over a
+    /// chamber leaves cells deep in the nest with nothing overhead, and the
+    /// cover test read a carrier there as out, drew its column there and
+    /// pulled it at the column through the ground. Control: on the open
+    /// surface at the door's row the column is drawn, on the carrier's side.
+    /// Watched red against the cover test.
+    #[test]
+    fn a_carrier_draws_its_column_at_the_door_not_down_a_hole_open_to_the_sky() {
+        let (mut w, a) = carry_world(62, 39, None, &[], &[]);
+        assert_eq!(carry_act(&mut w, a), Some(63), "control: at the door's row on the open surface no column was drawn");
+        let hole: Vec<(i32, i32)> = (40..=45).map(|y| (64, y)).chain((62..=66).map(|x| (x, 46))).collect();
+        let (mut w, a) = carry_world(64, 46, None, &hole, &[]);
+        let (hx, hy) = w.organism(a).expect("live").chain[0];
+        assert!(hy > 41 && !under_cover(&w, hx, hy), "test setup: the carrier at ({hx}, {hy}) is not deep in a hole open to the sky");
+        carry_act(&mut w, a);
+        assert_eq!(w.creature_stats.spoil_ring_drawn, 0, "a carrier seven rows down a hole open to the sky drew its column as if it were out");
+    }
+
+    /// **A carrier that is out keeps its column under the mound's overhang,
+    /// and heads for the top of the ground there** ([`carry_stage`],
+    /// [`ring_target`]). With the cover test the carrier one step from its
+    /// column, under a cell of the colony's own mound, read as inside and was
+    /// pulled back to the door, and the target it was pulled to when out was
+    /// the founding surface's row -- inside the mound. Watched red against
+    /// both.
+    #[test]
+    fn a_carrier_out_keeps_its_column_under_the_mound_and_heads_for_its_top() {
+        let mound = [(63, 37), (66, 39), (66, 38), (66, 37)];
+        let (w, a) = carry_world(63, 39, Some(66), &[], &mound);
+        let (hx, hy) = w.organism(a).expect("live").chain[0];
+        assert!(under_cover(&w, hx, hy), "test setup: the carrier at ({hx}, {hy}) has no overhang over it");
+        let state = w.organism(a).expect("live");
+        assert_eq!(spoil_haul_target(&w, state, (hx, hy)), Some((66, 36)), "the carrier under the overhang was not sent to the top of its column's mound");
+        let (mut w, a) = carry_world(63, 39, Some(66), &[], &mound);
+        assert_eq!(carry_act(&mut w, a), Some(66), "the carrier under the overhang let its column go");
+    }
+
+    /// **A carrier back in a tunnel lets its column go**, so the pull is the
+    /// door again ([`carry_stage`]'s `BackIn`). Watched red against the cover
+    /// test, which never let a drawn column go.
+    #[test]
+    fn a_carrier_back_in_a_tunnel_lets_its_column_go() {
+        let tunnel: Vec<(i32, i32)> = (56..=68).map(|x| (x, 45)).collect();
+        let (mut w, a) = carry_world(62, 45, Some(66), &tunnel, &[]);
+        let (hx, hy) = w.organism(a).expect("live").chain[0];
+        assert!(hy > 41 && under_cover(&w, hx, hy), "test setup: the carrier at ({hx}, {hy}) is not in a tunnel");
+        assert_eq!(carry_act(&mut w, a), None, "a carrier five rows down a tunnel kept the column it drew outside");
+        assert_eq!(w.creature_stats.spoil_ring_let_go, 1, "the column was let go without being counted");
     }
 
     /// `PIXEL_PHYSICS_DIG_WIDEN`'s spellings: `on`, and off for everything

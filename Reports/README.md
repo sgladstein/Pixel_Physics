@@ -4066,7 +4066,12 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   123.5 -> 9 cells at 200 ants (8 seeds, fed, stacked). **§16**: at the
   game's cap (no stacking) the walked nest is clean but hardly digs (new
   ground 696 -> 51.5 at 200 ants: the carriers cannot pass in the shaft),
-  so it ships with stacking, not before. Lane note:
+  so it ships with stacking, not before. **§17 the package** (stacking 4,
+  walked, births on nestmates) against today: sealed-off space 38 -> 1 at
+  40 ants, the lab no worse (births 13 / 11), a nest a third the size; the
+  carry traced (a carrier's test of *outside* flipped under the mound and
+  down a mouth open to the sky) and latched at the door: the nest 139.5 ->
+  180 cells at 40 ants. Lane note:
   [lanes/nest-mouth.md](lanes/nest-mouth.md).
 - [nest-colony-size-2026-09-28.md](nest-colony-size-2026-09-28.md) —
   **measurement, 2026-09-28. `engine`.** The nest and the colony at 40, 80

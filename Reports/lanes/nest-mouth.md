@@ -32,19 +32,10 @@ the live question, what is addressed to another lane, predictions and heads.*
   hurts colony numbers." A step is judged on the dig box's nest measures; the
   bed and the lab are run to tell the foraging lane what moved, not to veto.
 - **2026-09-28: the footing switch and the marker.** "Yes to both your
-  recommendations":
-  - "pellets only on real ground" (`SPOIL_FOOTING=ground`) stays a switch,
-    decided together with the marker, since that is when it should pay off;
-  - the marker becomes a new brain input once a switch version shows it
-    works.
-
-  On the marker itself: "if you think this is a good idea, you are welcome
-  to reopen it." **Reopened as the fresh-spoil heap, not a scent at the
-  face.** A dig-face pheromone tested negative in ants (Bruce 2015) and was
-  never built here: it was dropped before any code on 2026-09-19 and again on
-  2026-09-28. Fresh pellets do draw where ants start digging (Pielström &
-  Roces 2013). The heap is what the marker still has to do: make the holes
-  compete so one wins.
+  recommendations": `SPOIL_FOOTING=ground` stays a switch, and the marker
+  (reopened as the fresh-spoil heap, shipped as the heap cue; a dig-face
+  scent tested negative in ants, Bruce 2015) becomes a brain input once a
+  switch shows it works.
 
 - **2026-09-28: food goes into a chamber.** Asked whether the lab's buried
   mouth should be kept clear or the food taken inside, the owner answered
@@ -84,36 +75,48 @@ the live question, what is addressed to another lane, predictions and heads.*
   at 80 founders on the bed; what scales is in
   [`../nest-colony-size-2026-09-28.md`](../nest-colony-size-2026-09-28.md) §3.
 
-## Live question
+## Live question: the package as the default (handoff, 2026-09-30)
 
-**Stacking at 4 by default** (owner: yes). The foraging lane's gate is a
-24-seed lab pair and a bed pair. The lab pair first failed (20 of 24 boxes
-extinct) on one engine bug, parted tissue written back over a stacked
-nestmate: traced 7 of 7 and fixed (`close_or_hand_over`,
-[`../creature-stacking-design-2026-09-17.md`](../creature-stacking-design-2026-09-17.md)
-§12; cap 1 byte-identical on 24 seeds). After the fix: 3 of 24 extinct, no
-kills, but births 418 -> 224.5 (lower on 19 of 24). Bed pair: no harm. Not
-flipped until that cost is traced or the owner rules.
+**The next session starts here.** The owner approved the order: births fix,
+then stacking and the walked cycle on together, then resting inside ("Yes.
+Continue"). Built and measured, all off by default:
 
-**The walked cycle as the default** (owner, 2026-09-30, on the
-recommendation to fix the tamped blocks with it: "Sounds good"). Re-checked
-at the game's cap first (report §16): clean (sealed cells 38 -> 2 at 40
-ants) but it hardly digs (new ground 342.5 -> 88; at 200 ants 696 -> 51.5),
-because without stacking the carriers cannot get out past each other. It
-ships with stacking, not before. "Pellets only on real ground" stays off.
+- **Stacking 4** (owner: yes): the lab's deaths fixed in #522; its births
+  cost is placement, traced
+  ([`../creature-stacking-design-2026-09-17.md`](../creature-stacking-design-2026-09-17.md)
+  §13).
+- **Births on nestmates** (`PIXEL_PHYSICS_BUD_STACK=on`, §13 there).
+- **The walked cycle + carry** (`PIXEL_PHYSICS_SPOIL_OUT=on`; owner: "Sounds
+  good"), with the carry now latched at the door (report §17).
 
-**Next** (2026-09-30):
-1. The births fix, as a switch: a newborn may stand on a nestmate when the
-   cap allows (`try_bud`'s placement refuses cells a stacked crowd fills).
-   Budding is the foraging lane's side: switch first, their review.
-2. Stacking and the walked cycle on together, measured as one step (digbox
-   40/200, lab and bed pairs); poke with the SHA before it lands. It reaches
-   all three games, including the lab's BOX dial.
-3. Resting inside (owner: yes), joint with the foraging lane. Their terms:
-   a switch measured on their bed (food taken, starved, fed departures);
-   keep `trip_load`, the door's geometry and `NestSite::surface`; poke
-   before it lands. The lever: `home_pull` gives a fed ant that is not a
-   nest worker no pull home, so it rests wherever it stops.
+Measured as one step against today (report
+[§17](../nest-one-entrance-2026-09-29.md)): sealed-off space 38 -> 2 at 40
+ants and 47.5 -> 9.5 at 200; the nest 77% and 52% of today's open space; the
+lab no worse (births 13 / 11, extinct 2 -> 3, starved 101.5 -> 31).
+
+**Next, in order:**
+1. Re-run the lab pair with the latched carry (§17's lab ran the old one):
+   `labforage scenario=played_bed frames=120000 bedenv`, 24 seeds, the env
+   above plus `PIXEL_PHYSICS_STACK_DEPTH=4`, against the same with nothing
+   set.
+2. The colony bed pair for the package (the foraging lane's recipe:
+   `COLONY_SPACING=2 BUD_SITE=nest`, gap 90, 20 founders, 24,000 frames).
+3. Show the owner today vs the package, 40 and 200 ants, zoomed, several
+   stops (`SendUserFile`; they cannot use the review queue).
+4. The flip, as its own PR: `default_stack_cap` 4 (the lab's
+   `shipped_stack_cap` and dial note too), `parse_spoil_out("")` -> on,
+   `parse_bud_stack("")` -> on; rewrite
+   `the_shipped_carry_is_inert_without_the_walked_cycle` as a test of the
+   gate; full suite; ant reference, `wiki/ants.md`, README status. Poke the
+   foraging lane with the SHA before it lands: it moves every baseline, in
+   all three games.
+5. Then trace why 24% of pellets still go down inside (patience running out
+   on the way to the door), and resting inside (owner: yes; joint with the
+   foraging lane: a switch on their bed, keep `trip_load`, the door's
+   geometry and `NestSite::surface`).
+
+"Pellets only on real ground" (`SPOIL_FOOTING=ground`) stays off; widening
+(`DIG_WIDEN`) waits for the owner.
 
 ## Working agreement with the foraging lane (2026-09-27)
 
@@ -181,22 +184,18 @@ exploratory and carry none.
 ## Cards with the owner
 
 **2026-09-29: "I cannot review the queue, post questions/images in this
-chat."** Show pictures with `SendUserFile` and ask in chat; the queue cards
-are the record, not the channel. Same day: digbox sheets in the lab's
-colours (`look=lab`, default; render-only). Answered in chat: the carry
-(`…04be5b`) yes, stacking yes, widening (`…ca2baa`) waits. Superseded by
-§11's trace: `…2d6747` (relay) and `…f4ca75` (the lab's buried mouth).
-Older cards are named in the reports that posted them.
+chat."** Show pictures with `SendUserFile` and ask in chat. Answered there:
+the carry (`…04be5b`) yes, stacking yes, widening (`…ca2baa`) waits. Older
+cards are named in the reports that posted them.
 
 ## Head SHAs
 
 Older heads (branch cut `636612c6` through #512, #513 and #517) are in
 `git log` and the reports each one names.
 
-- `da0b7b41` (#522) — merged: stacked ants no longer killed by parted
-  tissue (`close_or_hand_over`), digbox fed and in lab colours with its
-  `FILL` / `PILE` / `gridout=` censuses, the carry on under the walked
-  cycle, one-entrance report §11-§15, stacking report §12. Branch
-  restarted from `main`.
-- R3 of the foraging lane's review (findings 2-5): the half turn's coin,
-  the enclosed-gate test, the founding cut's corpses and jaw (report §18).
+- `da0b7b41` (#522): merged. Stacked ants are no longer killed by parted
+  tissue; the dig box is fed and in lab colours; the carry is on under the
+  walked cycle; reports §11-§15. Branch restarted from `main`.
+- This branch after #522: report §16, births on nestmates (`9e31d6fc`),
+  stacking §13, the carry's latch and report §17. All off by default; the
+  PR is named in `git log` and the next session's first read.
