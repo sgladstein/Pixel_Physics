@@ -196,6 +196,7 @@ Older heads (branch cut `636612c6` through #512, #513 and #517) are in
 - `da0b7b41` (#522): merged. Stacked ants are no longer killed by parted
   tissue; the dig box is fed and in lab colours; the carry is on under the
   walked cycle; reports §11-§15. Branch restarted from `main`.
-- This branch after #522: report §16, births on nestmates (`9e31d6fc`),
-  stacking §13, the carry's latch and report §17. All off by default; the
-  PR is named in `git log` and the next session's first read.
+- **#524** (open at handoff, head `6d4475d9` plus this note): report §16,
+  births on nestmates (`9e31d6fc`), stacking §13, the carry's latch
+  (`3910021e`) and report §17, `main` merged in. All off by default. Merge
+  it on green before starting the handoff order above.
