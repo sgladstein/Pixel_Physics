@@ -97,7 +97,9 @@ will be.
   (`dig_widen_of`, `dig_widen_site`, `dig_shoulder_site`). §7 and §10 on
   2026-09-29 for who lays trail B (`CarryingFood`, `carries_lunch`: a lunch
   carrier lays it), and §15 that day for the trail columns (`since_trip`,
-  `DecisionRow::emit_b_laid`, `b_near`, `score`).
+  `DecisionRow::emit_b_laid`, `b_near`, `score`). §9 and §12 on 2026-09-30
+  for births on nestmates (`bud_stack_of`, `place_creature`'s `kin`,
+  `births_on_kin`).
   Update this line whenever a section is re-checked against the code.
 - **Edit it in place. Never append history.** When you change a mechanism
   described here, update the section in the same commit. When you find this
@@ -813,7 +815,15 @@ either plane: the other trail inputs are computed and wired to nothing (§3).
   With `PIXEL_PHYSICS_BUD_SITE=nest` (or `World::bud_at_nest`) a species
   that names a nest material buds only while at its nest (the `AtNest`
   read); `CreatureStats::buds_held_for_nest` counts the ticks it could have
-  budded and did not.
+  budded and did not. The child goes on the first of the eight neighbours
+  of the parent's head where its whole body fits on empty cells; a parent
+  with none is refused and tries again next tick
+  (`CreatureStats::births_denied_no_space` counts the tries). With
+  `PIXEL_PHYSICS_BUD_STACK=on` (or `World::bud_stack`) above a stack cap of
+  1, a refused birth takes a second pass in which the child may stand on
+  nestmates as a rider (`place_creature`'s `kin`;
+  `CreatureStats::births_on_kin`); a `Segmented` child still needs empty
+  ground.
 
 ## 10. Laden versus empty, every difference in one place
 
@@ -867,6 +877,7 @@ Read once per process from the environment. The default is what ships.
 | `PIXEL_PHYSICS_TROPHALLAXIS` | on | `off` |
 | `PIXEL_PHYSICS_DROP_REACH` | through bodies | `adjacent`: a food drop looks only at the 8 neighbours |
 | `PIXEL_PHYSICS_BUD_SITE` | anywhere | `nest`: a species with a nest material buds only at its nest (§9) |
+| `PIXEL_PHYSICS_BUD_STACK` | off | `on`: above a stack cap of 1, a birth with no free cell beside the parent stands on nestmates (§9) |
 | `PIXEL_PHYSICS_CHOOSER` | trailaway | For species with a nest. `off`: the walk of §6a–§6c; `on`: the chooser's first layer only (§6d items 1–5); `nopatience`: the same with patience held at 1; `trail`: the chooser reading the trail where it would step, with the throttle retired, and no away term |
 | `SPOIL_IS_CARGO` | on | `0`: spoil no longer counts toward `Carrying` |
 | `PIXEL_PHYSICS_DIG_SPOIL` | kept | `destroy`: dug cells vanish |

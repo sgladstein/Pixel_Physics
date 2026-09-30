@@ -762,6 +762,12 @@ fn main() {
                     .collect();
                 let vital: Vec<String> = world.vital_losses.iter().map(|&(_, _, m, n)| format!("{} {n}", world.materials.get(m).name)).collect();
                 println!("            deaths by cause: {} | killed, by what stood in the head cell: {}", by.join(", "), if vital.is_empty() { "-".to_string() } else { vital.join(", ") });
+                // **Births, and where the room for them came from**: refused
+                // tries for want of room beside the parent, and births stood
+                // on nestmates under `PIXEL_PHYSICS_BUD_STACK` -- the "did it
+                // fire" pair for that switch, zero at a stack cap of 1.
+                let st = &world.creature_stats;
+                println!("            births {} (on nestmates {}) | tries refused for room {} by {} animals", st.births, st.births_on_kin, st.births_denied_no_space, st.births_denied_animals);
             }
             // **The nest's own room, beside the picture of it.** A chamber
             // cut and a chamber collapsed are the same photograph at contact-

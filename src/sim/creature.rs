@@ -1727,7 +1727,7 @@ pub fn plant_creature_seed_in(world: &mut World, x: i32, y: i32, species_name: &
     let species_id = world.species.id_of(species_name)?;
     let material_id = world.materials.id_of(species_name)?;
     let def = world.species.get(species_id).creature.as_ref()?.clone();
-    place_creature(world, x, y, species_id, material_id, &def, false, Origin::Founder { colony })
+    place_creature(world, x, y, species_id, material_id, &def, false, Origin::Founder { colony }, None)
 }
 
 /// **[`plant_creature_seed_in`], homed the way founding homes a founder**:
@@ -1780,7 +1780,7 @@ pub fn release_creature_specimen(
     let species_id = world.species.id_of(species_name)?;
     let material_id = world.materials.id_of(species_name)?;
     let def = world.species.get(species_id).creature.as_ref()?.clone();
-    let site = place_creature(world, x, y, species_id, material_id, &def, false, Origin::Stock { genome, traits, colony })?;
+    let site = place_creature(world, x, y, species_id, material_id, &def, false, Origin::Stock { genome, traits, colony }, None)?;
     // **Schedule it, or it is a statue.** `place_creature` writes the body and
     // hands back the site its first tick has to be *booked* at -- every other
     // caller does this (`found_colony_of`, the scene's beetles, `bud_creature`
@@ -1897,6 +1897,7 @@ fn place_creature(
     def: &CreatureDef,
     facing_west: bool,
     origin: Origin,
+    kin: Option<Stacker>,
 ) -> Option<ActiveSite> {
     // **Which production rule this body unfolds from, read before anything
     // is allocated.** A bud carries its parent's already-mutated copy in
@@ -1988,7 +1989,14 @@ fn place_creature(
         (placed, groups, types)
     } else {
         let positions: Vec<(i32, i32)> = body.offsets(facing_west).iter().map(|&(dx, dy)| (x + dx, y + dy)).collect();
-        if positions.iter().any(|&(px, py)| !world.is_empty(px, py)) {
+        // **Or a nestmate's cell, when `kin` names a colony** ([`bud_stack_of`]):
+        // the body stands on it as a rider, exactly as a step into it would
+        // (`can_stack_into`, the one predicate behind every placement gate).
+        // `None` for every founder, released jar and ordinary bud, so for them
+        // this is the emptiness test it always was. A `Segmented` body keeps
+        // the empty-ground walk above whatever `kin` says: its spine curls to
+        // the ground cell by cell, and a rider has no ground under it.
+        if positions.iter().any(|&(px, py)| !world.is_empty(px, py) && !can_stack_into(world, (px, py), kin)) {
             return None;
         }
         // The per-segment sizing an injury has to preserve; empty for a
@@ -2011,6 +2019,7 @@ fn place_creature(
     // which one this is. A `Chain` collapses this to zero -- it is one cell
     // thick -- and `body_shade` grades along the body instead.
     let ranked = shades_by_luma(world, material_id);
+    let mut ridden: Vec<(i32, i32)> = Vec::new();
     let (dy_min, dy_max) = positions
         .iter()
         .fold((i32::MAX, i32::MIN), |(lo, hi), &(_, py)| ((lo).min(py - y), (hi).max(py - y)));
@@ -2028,7 +2037,29 @@ fn place_creature(
             ShadeRule::Random => rng::stream(world.seed, organism as u64, i as u64, RNG_SLOT_SHADE).below(shades) as u8,
             ShadeRule::Countershade => body_shade(&ranked, i, positions.len(), py - y, dy_min, dy_max),
         };
-        world.set(px, py, Cell::new(material_id, shade).with_organism_id(organism).with_aux(pack_cell_type(cell_type)));
+        let cell = Cell::new(material_id, shade).with_organism_id(organism).with_aux(pack_cell_type(cell_type));
+        // **A cell somebody already stands in is ridden, not written**, as
+        // `relocate_chain`'s arrival does: the nestmate keeps the grid cell,
+        // and the newborn goes into the rider index with the appearance it
+        // would have laid down. Reachable only with `kin` set, since the fit
+        // test above refused every occupied cell otherwise.
+        if kin.is_some() && !world.is_empty(px, py) {
+            world.add_rider(px, py, organism, cell);
+            ridden.push((px, py));
+        } else {
+            world.set(px, py, cell);
+        }
+    }
+    // **The body's own record holds a ridden cell as well**, which is what
+    // keeps a rider alive: `reconcile_chain` resolves the chain against
+    // `state.cells`, and no `World::set` ran to register it. Skipped when
+    // nothing was ridden, so an unarmed placement makes no extra call.
+    if !ridden.is_empty() {
+        if let Some(state) = world.organism_mut(organism) {
+            for p in &ridden {
+                state.cells.insert(*p, organism::OrganismCell::default());
+            }
+        }
     }
     // Claimed before the state is borrowed, because `claim_lineage` takes
     // `&mut World` and a founder needs the number inside the block below.
@@ -4330,6 +4361,53 @@ pub fn bud_readiness(world: &World, organism: OrganismId) -> Option<BudReadiness
     })
 }
 
+/// **A newborn may stand on a nestmate** when no neighbour of its parent has
+/// room for it: `PIXEL_PHYSICS_BUD_STACK=on`, off unless set, and acting only
+/// above a stack cap of 1 ([`World::stack_cap`]) -- below it nobody may stand
+/// on anybody, and the pass that reads this is skipped outright.
+///
+/// **Why.** With stacking at 4 the lab's played bed raised about half the
+/// young it does at a cap of 1 (births 418 -> 224.5 over 24 seeds,
+/// `Reports/creature-stacking-design-2026-09-17.md` §12), with no more
+/// deaths. The gap is in the middle of the run: frames 15,000-54,000 bred
+/// 23.5 against 58.5 while deaths were equal. Traced at every refused and
+/// every successful birth (`labforage`, 4 seeds to frame 54,000,
+/// 2026-09-30): the stacked colony was refused **39,593** times against
+/// **17,948** at a cap of 1, for 138 births against 223. **94%** of those
+/// refusals were inside the nest, with a mean **0.03** empty cells among the
+/// parent's eight neighbours -- the rest tunnel wall (3.7) and nestmates
+/// (2.6) -- and at **70%** a nestmate was already riding the parent. A
+/// stacked colony packs its rich ants into the galleries, and a child that
+/// needs two empty cells finds none. A child allowed to stand on a nestmate,
+/// as any stacked ant does, would have fitted at **39%** of those refusals.
+///
+/// **Off by default, and a switch on purpose**: births are the foraging
+/// lane's economy, so the default is theirs to review
+/// (`Reports/lanes/nest-mouth.md`).
+fn bud_stack() -> bool {
+    static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *V.get_or_init(|| parse_bud_stack(&std::env::var("PIXEL_PHYSICS_BUD_STACK").unwrap_or_default()))
+}
+
+/// `PIXEL_PHYSICS_BUD_STACK`'s value: `on`, else off. A value it cannot read
+/// is reported and read as unset.
+fn parse_bud_stack(raw: &str) -> bool {
+    match raw.trim() {
+        "" | "off" => false,
+        "on" => true,
+        v => {
+            eprintln!("PIXEL_PHYSICS_BUD_STACK={v:?} is not `on` or `off`; read as unset");
+            false
+        }
+    }
+}
+
+/// Whether a newborn may stand on a nestmate in this world ([`bud_stack`]):
+/// [`World::bud_stack`] when a test set it, else the environment.
+pub fn bud_stack_of(world: &World) -> bool {
+    world.bud_stack.unwrap_or_else(bud_stack)
+}
+
 /// Bud a child off `organism` if it can afford one and there is room.
 ///
 /// Returns the child's site, to be handed back to the scheduler by the
@@ -4492,65 +4570,79 @@ fn try_bud(world: &mut World, organism: OrganismId, def: &CreatureDef, provision
     // `births_denied_no_space` is what will say how hard it was biting
     // when that decision has to be made.
     let mut site = None;
-    for (dx, dy) in DIRS {
-        // The child's own genome and traits are drawn *once*, outside this
-        // loop's effect: nothing here consumes from any stream, so which
-        // neighbour succeeds cannot change what the child inherits.
-        //
-        // **`facing_west: dx >= 0`, not the founder default of `false`, and
-        // this is load-bearing for any body wider than the one-cell berth a
-        // neighbour offset provides.** Every body plan the engine places
-        // today (founders, released jars) uses `facing_west = false`, which
-        // lays every cell but the head out at *negative* x offsets from it
-        // -- the parent's own tail is already `span - 1` cells to the
-        // *west* (smaller x) of its head. A child placed at `dx = -1` (one
-        // cell further west) with that same default facing walks its own
-        // spine right back across the parent's: the two heads are one cell
-        // apart, not `span` cells apart. Passing `facing_west = true`
-        // whenever the candidate sits at or east of the parent's head
-        // (`dx >= 0`) flips the sign, so the *child's* cells all land at
-        // `x >= hx + dx` -- strictly east of everything the parent
-        // occupies (`x <= hx`), clearing it outright regardless of span.
-        // This is *why* only three of the eight `DIRS` entries -- `(1,0)`,
-        // `(1,-1)`, `(0,-1)`, first in the canonical order -- can ever place
-        // a multi-cell articulated child: every `dx < 0` candidate has the
-        // parent's own body sitting between the child's head and the only
-        // side (east) a flipped facing could clear, and every `dy = 1`
-        // candidate is the floor the parent stands on. Flipping the facing
-        // cannot fix either of those -- it only fixes the three that were
-        // geometrically reachable in the first place. Measured before this
-        // existed: a colony of 12 richly-funded ants, 60 frames,
-        // `births_denied_no_space` 104 and zero actual births -- every
-        // single attempt on all eight neighbours failed, because the
-        // parent's own body stood in the one direction every candidate was
-        // willing to grow toward.
-        let facing_west = dx >= 0;
-        if let Some(s) = place_creature(
-            world,
-            hx + dx,
-            hy + dy,
-            species_id,
-            material_id,
-            def,
-            facing_west,
-            Origin::Bud {
-                parent: organism,
-                genome: parent_genome.clone(),
-                traits: parent_traits,
-                generation: parent_generation.saturating_add(1),
-                lineage: parent_lineage,
-                colony: parent_colony,
-                // **What the parent hands this child**, from the tick's own
-                // brain evaluation -- the one channel by which a parent's
-                // state reaches a child's body. A parent that wires nothing
-                // onto `Provision` hands `squash(0) = 0`, and the child is
-                // made of exactly its genes.
-                made: provision.clamp(-1.0, 1.0),
-                fates: child_fates,
-            },
-        ) {
-            site = Some(s);
-            break;
+    // **Two passes, and the second is a switch** ([`bud_stack_of`]): free
+    // ground first, exactly as it always was, and only when not one
+    // neighbour has room, a nestmate the child may stand on as a rider. So a
+    // birth that had somewhere to go lands where it always did, and only a
+    // birth that would have been refused changes. The pass is skipped
+    // outright when the switch is off, at a cap of 1, or for an animal with
+    // no colony, which is what keeps every world that cannot stack
+    // byte-identical.
+    let on_kin = (parent_colony != 0 && world.stack_cap() > 1 && bud_stack_of(world)).then_some(Stacker { organism: 0, colony: parent_colony });
+    let passes = [None, on_kin];
+    'passes: for &kin in passes.iter().take(if on_kin.is_some() { 2 } else { 1 }) {
+        for (dx, dy) in DIRS {
+            // The child's own genome and traits are drawn *once*, outside this
+            // loop's effect: nothing here consumes from any stream, so which
+            // neighbour succeeds cannot change what the child inherits.
+            //
+            // **`facing_west: dx >= 0`, not the founder default of `false`, and
+            // this is load-bearing for any body wider than the one-cell berth a
+            // neighbour offset provides.** Every body plan the engine places
+            // today (founders, released jars) uses `facing_west = false`, which
+            // lays every cell but the head out at *negative* x offsets from it
+            // -- the parent's own tail is already `span - 1` cells to the
+            // *west* (smaller x) of its head. A child placed at `dx = -1` (one
+            // cell further west) with that same default facing walks its own
+            // spine right back across the parent's: the two heads are one cell
+            // apart, not `span` cells apart. Passing `facing_west = true`
+            // whenever the candidate sits at or east of the parent's head
+            // (`dx >= 0`) flips the sign, so the *child's* cells all land at
+            // `x >= hx + dx` -- strictly east of everything the parent
+            // occupies (`x <= hx`), clearing it outright regardless of span.
+            // This is *why* only three of the eight `DIRS` entries -- `(1,0)`,
+            // `(1,-1)`, `(0,-1)`, first in the canonical order -- can ever place
+            // a multi-cell articulated child: every `dx < 0` candidate has the
+            // parent's own body sitting between the child's head and the only
+            // side (east) a flipped facing could clear, and every `dy = 1`
+            // candidate is the floor the parent stands on. Flipping the facing
+            // cannot fix either of those -- it only fixes the three that were
+            // geometrically reachable in the first place. Measured before this
+            // existed: a colony of 12 richly-funded ants, 60 frames,
+            // `births_denied_no_space` 104 and zero actual births -- every
+            // single attempt on all eight neighbours failed, because the
+            // parent's own body stood in the one direction every candidate was
+            // willing to grow toward.
+            let facing_west = dx >= 0;
+            if let Some(s) = place_creature(
+                world,
+                hx + dx,
+                hy + dy,
+                species_id,
+                material_id,
+                def,
+                facing_west,
+                Origin::Bud {
+                    parent: organism,
+                    genome: parent_genome.clone(),
+                    traits: parent_traits,
+                    generation: parent_generation.saturating_add(1),
+                    lineage: parent_lineage,
+                    colony: parent_colony,
+                    // **What the parent hands this child**, from the tick's own
+                    // brain evaluation -- the one channel by which a parent's
+                    // state reaches a child's body. A parent that wires nothing
+                    // onto `Provision` hands `squash(0) = 0`, and the child is
+                    // made of exactly its genes.
+                    made: provision.clamp(-1.0, 1.0),
+                    fates: child_fates,
+                },
+                kin,
+            ) {
+                site = Some(s);
+                world.creature_stats.births_on_kin += u64::from(kin.is_some());
+                break 'passes;
+            }
         }
     }
     let Some(site) = site else {
@@ -25953,6 +26045,86 @@ mod tests {
         assert!(reconcile_chain(&mut w, rider), "the rider died with its host -- the leaf came back over the cell it was promoted into (the cell holds {now})");
         assert_eq!(w.get(shared.0, shared.1).organism_id(), rider, "the rider takes the cell over");
         assert!(holds_leaf_at(&w, rider, leaf, shared), "and goes on holding the leaf under it");
+    }
+
+    /// A parent walled into a one-row gallery of stone between two nestmates,
+    /// rich enough to bud, at stack cap `cap` with births on nestmates
+    /// `on_kin`. No neighbour of its head has the two empty cells a child
+    /// needs -- where 94% of the stacked lab colony's refused births stood
+    /// ([`bud_stack`]'s doc). Returns the world, the parent, and the species
+    /// definition its budget was set through.
+    fn walled_in_parent(cap: usize, on_kin: bool) -> (World, OrganismId, CreatureDef) {
+        let mut w = test_world();
+        let ant = w.species.id_of("ant").expect("ant species");
+        let mut def = w.species.get(ant).creature.clone().expect("ant is a creature");
+        def.reproduce_threshold = 2000.0;
+        def.mutation_rate = 0.0;
+        w.species.set_creature(ant, def.clone());
+        w.set_stack_cap(cap);
+        w.bud_stack = Some(on_kin);
+        let stone = Cell::new(material::STONE, 0).with_attached(true);
+        for x in 40..66 {
+            w.set(x, 49, stone);
+            w.set(x, 51, stone);
+        }
+        for y in 49..52 {
+            w.set(44, y, stone);
+            w.set(61, y, stone);
+        }
+        // Heads at 52, 50 and 47, tails one cell west of each: the gallery
+        // reads nestmate 51-52, parent 49-50, nestmate 46-47, open 45, 48 and
+        // 53-60.
+        let ids: Vec<OrganismId> = [52, 50, 47].iter().map(|&x| spawn(&mut w, "ant", x, 50)).collect();
+        assert!(ids.iter().all(|&a| a != 0), "test setup: an ant was not placed in the gallery: {ids:?}");
+        for &a in &ids {
+            w.organism_mut(a).expect("live").colony = 7;
+        }
+        let parent = ids[1];
+        fund(&mut w, parent, 2010.0);
+        (w, parent, def)
+    }
+
+    /// **A birth with nowhere to go stands on a nestmate -- with the switch
+    /// on, above a cap of 1, and only then.** The three arms are the whole
+    /// claim: off, the walled-in parent is refused as before; on at a cap of
+    /// 1, still refused, since nobody may stand on anybody; on at a cap of 4,
+    /// the child is born riding a nestmate and survives its first
+    /// `reconcile_chain`, which is what reads its ridden cells back out of its
+    /// own record.
+    #[test]
+    fn a_walled_in_parent_bears_its_child_onto_a_nestmate_when_stacking_allows() {
+        let (mut w, parent, def) = walled_in_parent(4, false);
+        assert!(try_bud(&mut w, parent, &def, 0.0).is_none(), "test setup: the gallery left a child room to stand on the ground");
+        assert_eq!(w.creature_stats.births_denied_no_space, 1, "test setup: the parent was not refused for want of room");
+
+        let (mut w, parent, def) = walled_in_parent(1, true);
+        assert!(try_bud(&mut w, parent, &def, 0.0).is_none(), "a child stood on a nestmate at a stack cap of 1");
+        assert_eq!(w.creature_stats.births_on_kin, 0);
+
+        let (mut w, parent, def) = walled_in_parent(4, true);
+        let site = try_bud(&mut w, parent, &def, 0.0).expect("a walled-in parent with nestmates to stand on was refused");
+        let ActiveKind::Creature { organism: child } = site.kind else { unreachable!() };
+        assert_eq!(w.creature_stats.births_on_kin, 1, "the birth was not booked as one on a nestmate");
+        assert_eq!(w.creature_stats.births_denied_no_space, 0, "the birth was booked as a refusal as well");
+        let chain = w.organism(child).expect("the child lives").chain.clone();
+        let rides = |w: &World, p: (i32, i32)| w.riders_at(p.0, p.1).iter().any(|r| r.organism == child);
+        assert!(chain.iter().any(|&p| rides(&w, p)), "the child stands on nobody: {chain:?}");
+        for &p in &chain {
+            assert!(w.get(p.0, p.1).organism_id() == child || rides(&w, p), "the child claims {p:?}, which it neither owns nor rides");
+        }
+        assert!(reconcile_chain(&mut w, child), "the child died on its first reconcile -- its ridden cells are missing from its own record");
+    }
+
+    /// `PIXEL_PHYSICS_BUD_STACK`'s spellings: `on`, and nothing else.
+    #[test]
+    fn the_bud_stack_switch_reads_on_and_nothing_else() {
+        assert!(!parse_bud_stack(""), "unset is off");
+        assert!(!parse_bud_stack("off"));
+        assert!(parse_bud_stack("on"));
+        assert!(parse_bud_stack(" on "));
+        for bad in ["yes", "1", "true", "ON"] {
+            assert!(!parse_bud_stack(bad), "{bad:?} was not read as unset");
+        }
     }
 
     /// **A handover always changes the cell's owner, whatever cell the rider
