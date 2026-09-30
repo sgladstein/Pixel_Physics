@@ -16829,11 +16829,20 @@ fn chooser_step(
         let state = world.organism_mut(organism).expect("live: it just stepped");
         let nx = state.chain.first().map_or(hx, |c| c.0);
         let level = (nx - ax).abs() as f32;
-        let lit = picked_route > 0.0;
-        if bound && lit {
+        // Arming takes a real trail out on a trip: presence of at least
+        // `HUNGRY_ROUTE` (a route, not a whisper) with the head past
+        // `FORAGE_TRIP_MIN` from home. Armed on any trace at all, the door's
+        // own delivery smear armed it: on the colony bed the last lit step of
+        // a west give-up sat a median 5 cells from the nest at presence 0.005,
+        // scouts west gave up after 19 dark cells instead of 37, and on the
+        // two-pile bed the take in the first 1,500 frames after a swap fell
+        // 2,792 -> 1,475 (2/22) -- the bound was stopping the scouting that
+        // finds a new pile (§23d, first scoring).
+        if bound && picked_route >= HUNGRY_ROUTE && level > f32::from(FORAGE_TRIP_MIN) {
             state.scout_lit = true;
         }
-        let dark_past_a_trail = bound && state.scout_lit && !lit;
+        let on_trail = picked_route > 0.0;
+        let dark_past_a_trail = bound && state.scout_lit && !on_trail;
         if level > state.scout_best + PATIENCE_PROGRESS && !dark_past_a_trail {
             state.scout_best = level;
             state.scout_patience = (state.scout_patience + PATIENCE_RECOVER).min(1.0);

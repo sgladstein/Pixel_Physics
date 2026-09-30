@@ -3640,3 +3640,31 @@ traced (`decisioncsv dwide`). The two-pile bed B5 (`pile2=west`), 24 seeds,
 - B5: `LG` taken not lower than `L` at p < 0.1.
 - B6, the lab pair: no gate worse at p < 0.05, and starved per million
   ant-frames not higher at p < 0.1.
+
+**First scoring (binary `52351987`, `L` = `lay` with the even drop; 24
+seeds, paired; `LG` against `L`):**
+
+| | taken | starved | other |
+|---|---|---|---|
+| unlimited 90 | 7,792 -> 7,942 (12/12) | 26 -> 13 (4/10) | |
+| unlimited 140 | 5,352 -> 5,794 (16/8, p 0.15) | 71 -> 44 (4/12, p 0.077) | food at the nest up 19/5 (p 0.007) |
+| pulsed 90 | 2,758 -> 2,645 (**6/15, p 0.078**) | 230 -> 255 (14/9) | |
+| pulsed 140 | 2,812 -> 2,615 (8/13) | 198 -> 205 (13/9) | food at the nest down 3/21 (p < 0.001) |
+| 80 founders | 11,743 -> 13,395 (18/6, p 0.023) | 718 -> 507 (2/22, p < 0.001) | born 33 -> 13 (7/14, p 0.19) |
+| B5 | 8,729 -> 7,765 (9/15) | | **early take 2,792 -> 1,475 (2/22, p < 0.001)**; stale 11/13 |
+
+PG1 right (E all heading outward after give-up 0.349 / 0.453 -> 0.076 /
+0.069). PG2 half right (give-up -> back 1,569 / 1,374 -> 1,083 / 684; the
+bar of 800 was set on Stage 1's west-drop numbers). **PG5 wrong and the
+pulsed-90 taken bar failed: `LG` does not ship.** Traced (`giveup.py`, seeds
+1-12 at 90): the bound was armed by the door's own smear. The last lit step
+before a west give-up sat a median 5 cells west of the nest at presence
+0.005, 399 of 490 west give-ups had been "lit", and their dark walk fell 37
+-> 19 cells. So the bound stopped ordinary scouting, which is how a new pile
+is found.
+
+**Amended before rerunning (`LG2`):** the bound arms only on a step with
+presence >= `HUNGRY_ROUTE` (0.5) and the head past `FORAGE_TRIP_MIN` (8)
+cells from home; a dark step is still one whose heading carries no trail.
+Same runs, same bars, `LG2` against `L`; the first scoring above stands as
+recorded.
