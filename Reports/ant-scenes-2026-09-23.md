@@ -3548,3 +3548,30 @@ trail has only scouting to take it out, and on seed 1 scouting did not
 that ant a reason to leave that the old rule gave it by accident. Stage 2's
 measurement includes the hungry-at-home share on the terrain seeds, and the
 lab's starved-per-ant-frame, as its first readouts.
+
+**The `mute` column corrected: the control made heritable (2026-09-30).**
+`brain::mutate` perturbs zero slots, so a newborn in the `mute` arm could
+re-arm `EmitB` (up to 40 raw a step); that is why `mute` under `lay` matched
+`mute` on only 6 of 8 runs. `World::mute_emit_b` (set by `trailfollow`'s `mute`
+arm, false in every game) now re-zeroes every newborn's `EmitB` wiring after
+its mutation. Guard `a_muted_colony_breeds_young_that_lay_no_trail_b` carries
+its own fault arm (switch off: the young re-arm). Reran every `mute` job of
+this section (`Reports/data/food-trail-mute-2026-09-30.tar.gz`, the `mute`
+logs and the script; the identity logs are not kept, they equal §23c's):
+- **Identity:** the `self` arms, unset and `off`, reproduce the pre-change
+  logs and 16 CSVs byte for byte; the game is untouched.
+- **`mute` under `lay` equals `mute` under `off`**, whole log, on all 15
+  jobs (the `ft=` label aside). The control no longer depends on the lay rule.
+- **The column barely moves.** The old `mute` equals the new on 19, 20, 23,
+  23 and 22 of 24 runs (unlimited 90, 140, pulsed 90, 140, 80 founders).
+
+| | taken (old -> new `mute`) | starved | born | `lay` vs new `mute`, taken; starved |
+|---|---|---|---|---|
+| unlimited 90 | 7,512 -> 7,456 | 29 -> 30 | 282 -> 300 | 22/2; 4/12 (p 0.077) |
+| unlimited 140 | 5,412 -> 5,435 | 54 -> 54 | 107 -> 109 | 17/7 (p 0.064); 7/10 |
+| pulsed 90 | 2,803 -> 2,803 | 220 -> 220 | 47 -> 46 | 7/13; 14/9 |
+| pulsed 140 | 2,806 -> 2,796 | 206 -> 206 | 20 -> 19 | 11/7; 9/12 |
+| 80 founders | 9,625 -> 9,622 | 933 -> 932 | 42 -> 40 | 21/3; 3/21 (p < 0.001) |
+
+Every conclusion above stands: `lay` beats `mute` on the unlimited pile and at
+80 founders, and does not separate from it on the pulsed pile.

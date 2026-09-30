@@ -7,7 +7,9 @@ This note keeps the owner's rulings, the live question, the baseline, the
 commands and the traps.*
 
 - **Previous session:** `session_01Pt5N39pfcix13hMycPN9Xs`, branch
-  `claude/ant-foraging-loop-handoff-986v7n` (09-28/30): §22o-§23c.
+  `claude/ant-foraging-loop-handoff-986v7n` (09-28/30): §22o-§23c. **It ended
+  on a handoff (owner's usage, 09-30):** everything it needed is committed;
+  `runs/` in a container is not, so rebuild from `Reports/data/`.
 - **Peer lanes:** the nest-mouth lane ([`nest-mouth.md`](nest-mouth.md))
   shipped the granary (#513, 2026-09-29: a door, a storeroom, nest workers,
   `keep`). Every baseline before it is a different ant; its `keep` and
@@ -46,10 +48,9 @@ commands and the traps.*
 - **Agents: judge each situation, use them where they help, never
   wastefully** (09-28; no default count, and not scale for its own sake
   under a thoroughness mode; `agent-strategy.md` s4).
-- **Sub-agents allowed** (09-27): in-process agents for reading and surveys
-  (not runs: they share this box's 4 cores); a cloud session for a run that
-  would otherwise queue, via the `lab-coordinator` skill with `model:` set.
-  Either way the return path is files.
+- **Sub-agents allowed** (09-27): in-process for reading and surveys (not
+  runs: 4 cores); a cloud session for a long run, via `lab-coordinator`
+  with `model:` set. The return path is files.
 - **A nest step is not blocked on colony numbers** (09-28): the nest lane
   ships a nest change that costs the loop, and this lane answers the cost.
 - An ant should breed only at the nest, and in the end *where* it breeds
@@ -66,19 +67,25 @@ off** (§22t).
 
 **Which way to go is the loop's blocker (§22t).** The food-trail plan
 (`food-trail-plan-2026-09-29.md`, owner-agreed 09-29), bar = `mute`.
-**Stages 0-1 done (§23a, §23c):** only a trip load lays B, shipped on; it
-beats `off` and `mute` on every bed. The reader must never compare ahead
-with straight back, and reads the door at reach 6. **Its cost:** hungry
-ants at home without a trail sit longer (terrain 8/12, lab starved rate
-16/24, neither significant) -- the reader must give them a reason to leave.
-**Next:** a heritable `mute` for the control arm (owner: yes), the two-pile
-bed, then Stage 2. Store lunch waits on it.
+**Stages 0-1 done (§23a, §23c):** only a trip load lays B, shipped on (#523);
+it beats `off` and `mute` on every bed. **Its cost:** hungry ants at home
+off any trail sit longer (terrain 8/12, lab starved rate 16/24, neither
+significant): the reader must give them a reason to leave. `mute` is
+heritable since 09-30 (`World::mute_emit_b`), so the control no longer leaks.
 
-**To the nest lane (09-29 evening):** stacking at 4 by default -- no
-objection (this bed runs 4; your lab and bed pairs are the right
-gate). Resting ants inside the nest: a joint switch, measured on this
-bed; keep `trip_load` and the door's geometry as they are, and poke first:
-the trail plan reads B at the door.
+**Next, in order (start here):**
+1. **B5, the two-pile alternating bed** (plan Stage 4; `trailfollow`
+   `pile2=west alt= altclear`, an `oracle` arm, SWAP readouts). Needs no
+   reader, and the reader's worst harm (a stale leash) only shows there.
+2. **Stages 2-3 from `food-trail-reader-design-2026-09-30.md`**: fix its
+   eight must-fix defects first, port `giveup.py`/`departures.py` (in
+   `data/food-trail-lay-2026-09-29.tar.gz`) into `trailclimb.py` §6, register
+   §23d, then build `read`/`giveup` behind `FOOD_TRAIL`.
+3. Then the plan's Stage 5-6 and the genome follow-up. Store lunch waits.
+
+**To the nest lane (09-30):** `FOOD_TRAIL=lay` is on (#523). Keep
+`trip_load` and the door's geometry as they are, and poke first: the
+reader will read B across the door.
 
 - **Read food taken and food at the nest** (`FOOD STORE`'s `nest food`,
   mean from 6,000); "net food into home" overcounts (§22j).
@@ -104,13 +111,10 @@ food eaten 1,160k J, ant-frames 9.8M, starved per million ant-frames 13.1.
    departures fell 23% -> 18% with `lay` (§23c) and none reach food. The
    anchor re-anchors on every nest contact, so `HomeAligned` reads 0 at the
    door. Stage 2, the reader, is the answer being built.
-2. **The drive's clock hears of food only at the door** (§22u). The trip
-   reach stopped food beside the door booking returns; what is left is a
-   false stand-down on a paying pile (seed 7: 83% of its low-drive rows had
-   a load on the road), and most refills start with the drive down (0.613
-   against 0.936, pooled; lower on 57 of 71). A longer window fixed the bed
-   and leaned worse on every lab gate. Births lean lower at 90 cells (72
-   seeds 562 -> 484), and on the unlimited pile food at the nest (27/37).
+2. **The drive's clock hears of food only at the door** (§22u): a false
+   stand-down on a paying pile, and most refills start with the drive down
+   (0.613 against 0.936; lower on 57 of 71). A longer window fixed the bed
+   and leaned worse on every lab gate.
 3. **Early deaths.** Founders that never reach the food die early (35% of
    the starved on the granary at 90 cells). Only the road and the nest
    (§17b, §19), or a founding store, reach them.
@@ -118,10 +122,8 @@ food eaten 1,160k J, ant-frames 9.8M, starved per million ant-frames 13.1.
    `nest-colony-size-2026-09-28.md`): 20/40/80/200 founders starve 13% /
    28% / 42% / 52%; on the granary 80 founders starve 55% of the ants that
    lived. Trace it with the funnel: where do the extra ants stop?
-5. **Food at home to the hungry.** The tether pays at 90 and kills at 140:
-   the leash is the problem, not the store.
-6. **Lab deliveries are 86% churn**: read net food into home.
-7. **Latent:** a scout that gave up is released only at the nest.
+5. **Food at home to the hungry.** The tether pays at 90 and kills at 140.
+6. **Latent:** a scout that gave up is released only at the nest.
 
 ## Tools and skills (use these; the names do not say what they answer)
 
@@ -202,10 +204,7 @@ filtered out, and compare the decision CSVs too.
   half of this lane's predictions have been wrong; the scored record is in
   the report (§22i).
 
-## Predictions (written before each run)
+## Predictions
 
-Rows 1-3 are scored in `ant-scenes-2026-09-23.md` §22o, 4-9 in §22r, 10-12
-in §22s.
-
-| # | run | prediction | right? |
-|---|---|---|---|
+Write them before each run; they are registered and scored in the report
+(§22o-§23c), not here.

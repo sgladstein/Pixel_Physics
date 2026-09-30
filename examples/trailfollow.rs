@@ -1500,6 +1500,10 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
     if mute {
         let silenced = mute_channel_b(&mut genome);
         assert!(silenced > 0, "no EmitB weight was zeroed, so the muted arm still lays the plane it is meant to be without");
+        // **And the colony's young too** (`World::mute_emit_b`): a birth's
+        // mutation perturbs zero slots, so without it a born ant could lay up
+        // to 40 raw a step and the control was not quite one (§23c).
+        w.mute_emit_b = true;
     }
     // **`breadoff` -- trail B read by nobody, still laid by everybody.** The
     // one arm `Reports/ant-movement-plan-2026-09-22.md` §7 says still matters:

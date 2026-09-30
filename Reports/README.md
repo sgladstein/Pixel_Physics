@@ -3486,6 +3486,17 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   for; the bar on the colony bed is the trail switched off. Owner rulings:
   lay rule engine-side first and genome-side if it wins; only hungry or
   driven ants follow; ship if better than today without harm.
+- [food-trail-reader-design-2026-09-30.md](food-trail-reader-design-2026-09-30.md)
+  — **design, 2026-09-30. `engine`. Not built: the next thing to build on
+  the food-trail line.** Stages 2-3 of the plan above, from a panel (facts,
+  three designs, a judge, three refuters) over Stage 1's traces: a door-only
+  reader (reach-6 east against west on the ant's own row, an additive
+  `gain x want x |g|` pull, gain 6, the paint plus four rows of mound) and a
+  give-up that makes the trail let go of a given-up ant. The refuters did
+  not refute it; **their eight must-fix defects** (re-arming at the door, a
+  stale leash, blind Stage 3 guards, give-up that needs a wall, missing B5
+  and lab gates) are listed and have to be fixed before it is built. Raw
+  panel output: `data/food-trail-reader-panel-2026-09-30.json.gz`.
 - [what-controls-creature-movement-2026-09-22.md](what-controls-creature-movement-2026-09-22.md)
   — **reference, 2026-09-22. `engine`. SUPERSEDED the same day by
   [`how-the-ant-works.md`](how-the-ant-works.md)**, the living reference,

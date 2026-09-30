@@ -4591,6 +4591,7 @@ fn try_bud(world: &mut World, organism: OrganismId, def: &CreatureDef, provision
     // Read before the mutable borrow below, not because it is expensive but
     // because `organism_mut` holds the world for the whole loop.
     let reach = world.trait_reach;
+    let mute_emit_b = world.mute_emit_b;
     // **Captured out of the borrow below, for `born_with` and the line
     // records — both need `&mut World` and cannot be called while `state`
     // holds it.** Defaulted to the pre-mutation values so a stale-handle
@@ -4609,6 +4610,12 @@ fn try_bud(world: &mut World, organism: OrganismId, def: &CreatureDef, provision
         // brain and not the body: a bud whose trait jitter rounds to zero on
         // every slot still bred something different.
         synapses_moved = brain::mutate(&mut genome, def.mutation_rate, &mut draw);
+        // **A silenced colony stays silent** (`World::mute_emit_b`, the
+        // no-trail control's switch): after the mutation, so the draw stream
+        // and `synapses_moved` are what they would have been.
+        if mute_emit_b {
+            silence_emit_b(&mut genome);
+        }
         state.genome = genome;
         for (slot, t) in state.traits.iter_mut().enumerate() {
             let width = trait_width(def, slot);
@@ -15783,6 +15790,23 @@ pub fn food_trail_from_env() -> FoodTrail {
 /// environment's.
 pub fn food_trail_of(world: &World) -> FoodTrail {
     world.food_trail.unwrap_or_else(food_trail_from_env)
+}
+
+/// **Zero every weight into `EmitB`, direct and through the hidden layer**,
+/// and say how many were live. `trailfollow`'s `mute` arm does this to the
+/// founders' genome; [`World::mute_emit_b`] does it to every newborn's after
+/// `brain::mutate`, which perturbs zero slots as readily as live ones.
+pub fn silence_emit_b(genome: &mut [f32]) -> usize {
+    let out = brain::BrainOutput::EmitB;
+    let slots = brain::INPUTS.iter().map(|&i| brain::io_slot(i, out)).chain((0..brain::BRAIN_HIDDEN).map(|h| brain::ho_slot(h, out)));
+    let mut moved = 0;
+    for slot in slots {
+        if genome[slot] != 0.0 {
+            genome[slot] = 0.0;
+            moved += 1;
+        }
+    }
+    moved
 }
 
 /// **The lay rule's factor on the brain's `EmitB`** ([`FoodTrail::lay`]): 1
@@ -37028,6 +37052,41 @@ mod tests {
                 "born_with fired on organism {id} with every mutation channel at zero"
             );
         }
+    }
+
+    /// **A silenced colony breeds silent young** (`World::mute_emit_b`,
+    /// `silence_emit_b`): the no-trail control stays one across births.
+    /// Founders silenced as `trailfollow`'s `mute` arm silences them, mutation
+    /// at rate 1 so every birth perturbs every live slot, zero ones included.
+    /// **The switch-off arm is the fault put back**, run every time: the same
+    /// colony's young re-arm `EmitB`, so a green here cannot be a colony that
+    /// never mutated.
+    #[test]
+    fn a_muted_colony_breeds_young_that_lay_no_trail_b() {
+        let emit_b_live = |g: &[f32]| {
+            let out = brain::BrainOutput::EmitB;
+            brain::INPUTS.iter().any(|&i| g[brain::io_slot(i, out)] != 0.0) || (0..brain::BRAIN_HIDDEN).any(|h| g[brain::ho_slot(h, out)] != 0.0)
+        };
+        let arm = |mute: bool| {
+            let (mut w, founders) = breeding_colony(12, 2000.0, 1.0);
+            w.mute_emit_b = mute;
+            for &id in &founders {
+                let st = w.organism_mut(id).expect("a founder just planted");
+                assert!(silence_emit_b(&mut st.genome) > 0, "the founder's genome had no EmitB wire to silence, so this scene tests nothing");
+            }
+            run(&mut w, 200);
+            let young: Vec<OrganismId> = w.live_organism_ids().into_iter().filter(|id| !founders.contains(id)).collect();
+            let armed = young.iter().filter(|&&id| w.organism(id).is_some_and(|s| emit_b_live(&s.genome))).count();
+            (young.len(), armed)
+        };
+        let (young, armed) = arm(true);
+        assert!(young > 0, "12 funded ants over 200 frames left no young alive -- the rest of this test proves nothing");
+        assert_eq!(armed, 0, "{armed} of {young} young in a muted colony carry a live EmitB wire");
+        let (young_off, armed_off) = arm(false);
+        assert!(
+            young_off > 0 && armed_off > 0,
+            "with the switch off {armed_off} of {young_off} young re-armed EmitB -- if none did, the muted arm above could not have failed"
+        );
     }
 
     /// **One ant walled in for fifty ticks, and a thousand ants each waiting
