@@ -24,6 +24,8 @@ The EXCURSION runs from the departure to the next row reading at_nest 1, or the 
 THE GIVE-UP, over forager excursions (fed, hungry, lunch) with dir30 E or W that got 10 cells out:
   gave up          the excursion has a row with scout_home 1 (the scout's patience ran out; it is pulled home)
   frames to give up  departure -> that row;  give-up -> back  that row -> the excursion's last row
+  dark walk        cells walked (summed |dx|) after the last step onto trail (chosen_route > 0) and up to
+                   the give-up: how far a follower goes past a dead trail before patience ends (M4)
   after give-up    over stepped rows that read trail B (empty with fill 0, or a lunch carrier):
                    on route = chosen_route >= 0.5; heading outward = chosen_cos < 0 (the picked heading
                    points away from home)
@@ -99,7 +101,14 @@ def trace(exc, I):
     gi = next((j for j, p in enumerate(exc) if p[I['scout_home']] == '1'), None)
     after = [p for p in exc[gi:] if p[I['outcome']] == 'stepped' and p[I['chosen_route']] != 'NaN' and reads_b(p, I)] if gi is not None else []
     f0 = int(exc[0][I['frame']])
-    return dict(gave_up=gi is not None,
+    # M4: cells walked past the trail's last lit cell before the give-up -- the dark walk a wall would cut
+    # short. "Lit" is a step whose picked heading carried trail (chosen_route > 0); NaN if never lit.
+    dark = math.nan
+    if gi is not None:
+        lit = [j for j in range(gi) if exc[j][I['chosen_route']] not in ('NaN', 'nan') and float(exc[j][I['chosen_route']]) > 0]
+        if lit:
+            dark = sum(abs(int(p[I['x2']]) - int(p[I['x']])) for p in exc[lit[-1] + 1:gi + 1])
+    return dict(gave_up=gi is not None, dark=dark,
                 t_give=int(exc[gi][I['frame']]) - f0 if gi is not None else math.nan,
                 t_after=int(exc[-1][I['frame']]) - int(exc[gi][I['frame']]) if gi is not None else math.nan,
                 n_after=len(after), on_after=sum(float(p[I['chosen_route']]) >= 0.5 for p in after),
@@ -148,6 +157,10 @@ def run(paths, tsv=None, example=False, out=sys.stdout):
                       f"{med([o['t_give'] for o in G]):6.0f}  give-up -> back median {med([o['t_after'] for o in G]):6.0f}  "
                       f"after give-up: on route {sum(o['on_after'] for o in G)/max(1, na):.3f}  heading outward "
                       f"{sum(o['out_after'] for o in G)/max(1, na):.3f} (rows {na})", file=out)
+                D = sorted(o['dark'] for o in G if not math.isnan(o['dark']))
+                if D:
+                    print(f"           dark walk before give-up (cells past the last lit step, {len(D)} that were ever lit): "
+                          f"median {st.median(D):.0f}  p90 {D[int(0.9 * (len(D) - 1))]:.0f}  max {D[-1]:.0f}", file=out)
     if tsv and res:
         with open(tsv, 'w') as f:
             f.write('\t'.join(res[0].keys()) + '\n')
@@ -191,6 +204,7 @@ def selftest():
     check(len(res) == 2 and all(o['dir30'] == 'E' for o in res), 'both ants are east forager excursions')
     check(by[1]['gave_up'] and not by[2]['gave_up'], 'ant 1 gave up, ant 2 did not')
     check(by[1]['t_give'] == 40 and by[1]['t_after'] == 3, f"frames to give up 40 and back 3 (got {by[1]['t_give']}, {by[1]['t_after']})")
+    check(by[1]['dark'] == 1, f"dark walk 1 cell: lit up to the row before give-up (got {by[1]['dark']})")
     check(by[1]['n_after'] == 4 and by[1]['out_after'] == 1, f"1 of 4 rows after give-up heads outward (got {by[1]['out_after']}/{by[1]['n_after']})")
     sys.exit(0 if ok else 1)
 

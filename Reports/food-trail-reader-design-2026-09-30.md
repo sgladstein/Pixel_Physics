@@ -149,6 +149,13 @@ src/sim/creature.rs` and re-find them.
    - add a no-wall corridor test (300+ dark cells) that records the distance.
 
    If the distance is large, build the bounded form.
+   **Measured 2026-09-30: it is unbounded.** `giveup.py`'s dark-walk readout
+   shows the bed's give-ups are wall-driven (84 of 117 west give-ups at gap
+   90, seeds 1-4, happen at x 4, the world's west wall). The probe
+   `probe_m4_a_hungry_scout_on_open_ground` (`creature.rs`, no east wall):
+   held at a quarter or half of `start_energy`, the scout walks 455 cells
+   to the world's edge and never gives up; at 0.9 it gives up after 147.
+   Build the bounded form.
 5. **The ship rule dropped the plan's owner-approved gates.** `read` ships
    only on all of these:
    - F against L, paired, on all five beds (unlimited 90 and 140, pulsed 90

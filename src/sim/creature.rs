@@ -29437,6 +29437,54 @@ mod tests {
         assert_eq!(walk(0.0, 1.0), walk(2.0, 1.0), "a fed ant's walk changed with scouting on");
     }
 
+    /// **Probe, M4 of `food-trail-reader-design-2026-09-30.md`: how far does a
+    /// hungry scout walk on open ground before it gives up?** The scouting
+    /// test's scene with the east wall taken away: a bare floor 560 cells
+    /// wide, the ant 80 cells east of its home point, energy held at a
+    /// quarter. Patience decays only on a step that gets no further out, so
+    /// on a floor with no wall every step outward keeps it; the colony bed
+    /// cannot show this, because 84 of 117 west give-ups there (gap 90, seeds
+    /// 1-4) happen at the world's west wall (x 4). Prints, never asserts.
+    #[test]
+    #[ignore = "probe: prints, never asserts (reader design M4)"]
+    fn probe_m4_a_hungry_scout_on_open_ground() {
+        let stone = Cell::new(material::STONE, 0).with_attached(true);
+        for &(frac, frames) in &[(0.25f32, 6000usize), (0.5, 6000), (0.9, 6000)] {
+            let mut w = World::new(Rect::new(0, 0, 559, 63));
+            for x in 0..560 {
+                for y in 41..64 {
+                    w.set(x, y, stone);
+                }
+            }
+            for y in 0..41 {
+                w.set(0, y, stone);
+            }
+            w.chooser = Some(Chooser::TrailAway);
+            w.scout = Some(SCOUT_DEFAULT);
+            let ant = spawn(&mut w, "ant", 100, 40);
+            let energy = w.species.get(w.organism(ant).expect("live").species).creature.as_ref().expect("a creature").start_energy * frac;
+            {
+                let st = w.organism_mut(ant).expect("live");
+                st.heading = 0;
+                st.forage_anchor = (20, 40);
+            }
+            let (mut far, mut gave) = (100, None);
+            for f in 0..frames {
+                w.organism_mut(ant).expect("live").energy = energy;
+                run(&mut w, 1);
+                let st = w.organism(ant).expect("live");
+                far = far.max(st.chain[0].0);
+                if gave.is_none() && st.scout_home {
+                    gave = Some((f, st.chain[0].0));
+                }
+                if gave.is_some() || st.chain[0].0 >= 555 {
+                    break;
+                }
+            }
+            println!("M4 energy {frac:.2} of start: furthest x {far} ({} cells past the start, {} from home); gave up {:?}", far - 100, far - 20, gave);
+        }
+    }
+
     /// **Under `PIXEL_PHYSICS_PACKED_LUNCH` a forager whose crop holds only
     /// food taken at home is driven out like an empty one** (`carries_lunch`,
     /// `packed_lunch_of`). The forage drive's scene -- a bare floor, walls at
