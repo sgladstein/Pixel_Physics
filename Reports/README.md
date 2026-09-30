@@ -1261,7 +1261,10 @@ drift that two of these documents still reflect.**
   — **design 2026-09-17, built and landed as PR #465; four review follow-ups
   closed 2026-09-19 in §11; §12 (2026-09-29) fixes the lab deaths at cap 4
   (parted tissue closed over a stacked nestmate) and measures what remains,
-  a lab colony that raises about half the young. `engine`.** How many creatures of one
+  a lab colony that raises about half the young; §13 (2026-09-30) traces the
+  refused births into the packed galleries and measures births on nestmates
+  (`PIXEL_PHYSICS_BUD_STACK`), which moves the late run and not the dip.
+  `engine`.** How many creatures of one
   colony come to share a cell, and where the 2nd..Nth ant's identity lives.
   Exclusivity is the **grid's** invariant and not a creature rule: `Cell` holds
   one `organism_id`, so `classify_step` reads an ant exactly the way it reads
