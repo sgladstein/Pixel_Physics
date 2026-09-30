@@ -17,9 +17,10 @@ quarters of the old open space with 40 ants and half with 200, because the
 old nest was large partly by digging its own fill again. The mound beside the
 door is lower and spread to both sides, where the old one stood in towers.
 In the lab box nothing measured got worse: more young were born, more food
-was eaten, and a smaller share of the colony starved. The cost shows in a
-small test colony: it takes as much food as before but carries about a third
-less energy in its bodies, most likely spent on the walk to the door.
+was eaten, and a smaller share of the colony starved. In a small test colony
+with food 90 cells away, a fifth more food comes off the heap and nearly twice
+as many young are born; the ants carry about a sixth less energy in their
+bodies, most likely spent on the walk to the door.
 Earlier that day, **only an ant bringing food home from a trip began to lay
 the food scent.** Before, any ant with food in its belly laid it:
 foragers walking home, but also ants eating at the nest, ants carrying a

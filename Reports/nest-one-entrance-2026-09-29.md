@@ -974,23 +974,30 @@ Two were real:
   so it pins cap 1 as it already pins the walk.
 
 **The colony bed pair** (the foraging lane's bed, `STACK_DEPTH=4` both
-arms, base `SPOIL_OUT=off BUD_STACK=off`, 24 seeds at 90 and 140 cells):
-| medians by seed (`antloop.py --vs`) | 90 cells: off -> package | 140 cells: off -> package |
-|---|---:|---:|
-| food taken from the pile, cells | 259 -> 269 (13 / 10) | 188 -> 208 (14 / 10) |
-| food standing at the nest, J | 12,472 -> 9,648 (**lower on 20**, p 0.002) | 8,234 -> 8,278 (13 / 11) |
-| energy in the ants' bodies, J | 6,429 -> 4,326 (**lower on 21**, p < 0.001) | 4,168 -> 2,873 (**lower on 19**, p 0.007) |
-| born, total over 24 seeds | 209 -> 183 (7 / 16, p 0.09) | 62 -> 88 (14 / 8) |
-| starved, total | 55 -> 47 | 127 -> 85 (7 / 16, p 0.09) |
+arms, base `SPOIL_OUT=off BUD_STACK=off`, 24 seeds at 90 and 140 cells,
+`scripts/antloop.py --vs`), **on `main` at `bb11c1ed`**, which carries the
+food trail laid only by trip loads (#523). The baseline reproduces the
+foraging lane's own (9,152 cells taken and 415 born at 90, against their
+9,217 and 416):
 
-**This is the trade-off.** The loop takes as much food as before, but the
-colony holds about a third less energy in its bodies at both distances and,
-at 90 cells, a quarter less food at the nest; births lean down at 90 and up
-at 140, and starvation does not rise at either. The likely cost, inferred and not
-traced per ant: walking every pellet to the door and back takes steps, at
-the laden pace, that the lift never did. The
-lab box does not show it (its colonies are larger and its gate reads births,
-intake and starvation, all better); the bed, where every joule is booked,
-does. The owner's standing ruling (2026-09-27, "it is okay if
-nest building temporarily hurts colony numbers") and today's ("on unless
-there is a real trade off") are put to them side by side with the PR.
+| medians by seed; totals where marked | 90 cells: off -> package | 140 cells: off -> package |
+|---|---:|---:|
+| food taken from the pile, total cells | 9,152 -> 11,091 (**higher on 18**, p 0.023) | 6,452 -> 6,900 (14 / 10) |
+| food standing at the nest, J | 15,221 -> 13,567 (8 / 16, p 0.15) | 10,823 -> 10,428 (9 / 15) |
+| energy in the ants' bodies, J | 9,303 -> 7,627 (**lower on 20**, p 0.002) | 5,750 -> 4,652 (7 / 17, p 0.06) |
+| born, total | 415 -> 765 (**higher on 18**, p 0.011) | 161 -> 241 (**higher on 17**, p 0.035) |
+| starved, total | 14 -> 5 | 51 -> 34 |
+
+**No real trade-off on the current ant.** The package takes a fifth more
+food at 90 cells and breeds nearly twice the young, and half as many again
+at 140, with fewer starved at both. The ants carry about a sixth less
+energy in their bodies, most likely spent walking pellets to the door
+(inferred, not traced), and the colony turns it into young rather than
+holding it.
+
+**The same pair on the ant before #523 read differently**, and is kept so
+the difference is on record: on `8c36d45b` (the lift's food trail) food
+taken was unchanged, energy in bodies a third lower at both distances
+(lower on 21 and 19 of 24), food at the nest a quarter lower at 90 (lower
+on 20, p 0.002), births 209 -> 183 at 90 and 62 -> 88 at 140. The lab gate
+above ran on that ant too.

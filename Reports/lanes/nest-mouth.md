@@ -72,17 +72,16 @@ desk thread merges (owner, 2026-09-30). New features ship on unless a
 measured trade-off says otherwise (owner, same day).
 
 The flip PR turns on stacking 4, the walked cycle and births on nestmates
-(report §18): lab gate no harm; the colony bed holds a third less energy in
-bodies at 90 and 140 cells and a quarter less food at the nest at 90, put to
-the owner with the PR. It also widens the dying carrier's pellet search to
+(report §18): lab gate no harm; on the colony bed (current `main`) a fifth
+more food taken and 415 -> 765 born at 90 cells, 161 -> 241 at 140, with a
+sixth less energy held in bodies. It also widens the dying carrier's pellet search to
 eight rings (a sink stacking exposed).
 
 **Next, in order:**
 1. Why 24% of pellets still go down inside and refill the lower tunnels
    (the pale blocks in the colour-coded 200-ant sheet): carriers whose
    patience runs out on the way to the door. Per-ant trace, §17's method.
-2. The bed's energy cost of the walked cycle, traced per ant, if the owner
-   wants it answered before or after.
+2. The lab gate re-run on current `main` (§18's ran before #523).
 3. Resting inside (owner: yes), built on the existing room gate's crowding
    count so the breeding plan's brood (B1, B3) can plug into it.
 4. The storeroom's fixed west side (`week-review-2026-09-29.md` W2), after
