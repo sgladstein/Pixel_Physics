@@ -104,7 +104,11 @@ will be.
   `graded_suppression_factor`, `colony_has_other_breeder`,
   `nearest_breeder`, `breeder_index_enabled`, and `OrganismState::children`).
   §7, §10 and §12 on 2026-09-30 for the lay rule shipped on
-  (`FOOD_TRAIL_UNSET`), and §12 that day for `World::mute_emit_b`.
+  (`FOOD_TRAIL_UNSET`), and §12 that day for `World::mute_emit_b`. §9 and
+  §12 on 2026-09-30 for births on nestmates (`bud_stack_of`,
+  `place_creature`'s `kin`, `births_on_kin`), and §12 that day for the
+  carry's latch at the door (`carry_stage`, `ring_target`,
+  `spoil_ring_let_go`).
   Update this line whenever a section is re-checked against the code.
 - **Edit it in place. Never append history.** When you change a mechanism
   described here, update the section in the same commit. When you find this
@@ -826,7 +830,15 @@ either plane: the other trail inputs are computed and wired to nothing (§3).
   With `PIXEL_PHYSICS_BUD_SITE=nest` (or `World::bud_at_nest`) a species
   that names a nest material buds only while at its nest (the `AtNest`
   read); `CreatureStats::buds_held_for_nest` counts the ticks it could have
-  budded and did not.
+  budded and did not. The child goes on the first of the eight neighbours
+  of the parent's head where its whole body fits on empty cells; a parent
+  with none is refused and tries again next tick
+  (`CreatureStats::births_denied_no_space` counts the tries). With
+  `PIXEL_PHYSICS_BUD_STACK=on` (or `World::bud_stack`) above a stack cap of
+  1, a refused birth takes a second pass in which the child may stand on
+  nestmates as a rider (`place_creature`'s `kin`;
+  `CreatureStats::births_on_kin`); a `Segmented` child still needs empty
+  ground.
   **Who in a colony may bud** is `PIXEL_PHYSICS_BREEDING` (§12), read once
   per process and `individual` unless set: no suppression, every animal buds
   on its own account. An animal is a **breeder** once it has budded
@@ -889,6 +901,7 @@ Read once per process from the environment. The default is what ships.
 | `PIXEL_PHYSICS_TROPHALLAXIS` | on | `off` |
 | `PIXEL_PHYSICS_DROP_REACH` | through bodies | `adjacent`: a food drop looks only at the 8 neighbours |
 | `PIXEL_PHYSICS_BUD_SITE` | anywhere | `nest`: a species with a nest material buds only at its nest (§9) |
+| `PIXEL_PHYSICS_BUD_STACK` | off | `on`: above a stack cap of 1, a birth with no free cell beside the parent stands on nestmates (§9) |
 | `PIXEL_PHYSICS_BREEDING` | `individual` | `queen`: while any other living animal of the same colony has budded (`children > 0`), nobody else in it buds; when that breeder dies, the next animal to reach its bar succeeds it. `graded`: the bar is multiplied by `1 + (GRADED_MAX_SUPPRESSION - 1)(1 - d/r)` for `d` the distance to the colony's nearest other breeder, so 6.0 beside one, falling linearly to 1 at `r` = `PIXEL_PHYSICS_BREEDING_RADIUS` (24) cells and beyond (`suppress_bar`, `graded_suppression_factor`). Anything else reads as `individual`. `PIXEL_PHYSICS_BREEDER_INDEX=scan` replaces the per-colony breeder index with a scan of every organism, as the control for the lookup (§9) |
 | `PIXEL_PHYSICS_CHOOSER` | trailaway | For species with a nest. `off`: the walk of §6a–§6c; `on`: the chooser's first layer only (§6d items 1–5); `nopatience`: the same with patience held at 1; `trail`: the chooser reading the trail where it would step, with the throttle retired, and no away term |
 | `SPOIL_IS_CARGO` | on | `0`: spoil no longer counts toward `Carrying` |
@@ -922,7 +935,7 @@ Read once per process from the environment. The default is what ships.
 | `PIXEL_PHYSICS_SPOIL_HAUL`, `_SPOIL_DROP_COVER`, `_TRAFFIC_DEFER`, `_COLONY_SPACING` | unset | haulage re-roll to the nest door, spoil held under cover, jam deferral length, founder spacing |
 | `PIXEL_PHYSICS_SPOIL_OUT` | off | the excavation cycle walked (`SpoilOut`): parts, comma-joined, or `on` for all four. `haul`: a pellet carrier is pulled to the door over the mouth (`spoil_haul_target`); `pace`: at the laden pace, `HomeAligned` read against that target (`spoil_pace_target`); `keep`: inside the nest (`inside_nest`: under cover, or in the founding cut) the pellet is not put down while patience lasts, and is never lifted from there (`spoil_kept_inside`, `spoil_kept_no_lift`); `back`: a digger not hungry walks back to the cell it cut once its pellet is down (`OrganismState::dig_return`, `dig_return_target`) |
 | `PIXEL_PHYSICS_SPOIL_LIFT` | `climb` | where a pellet with no cell beside its carrier goes: `climb` up the carrier's column as far as it could have walked (`lift_reach`); `out` through the passages to the nearest cell in the open that holds a pellet (`lift_out`, `spoil_lifted_out`); `none`, `dig`, `unbounded` the older reaches |
-| `PIXEL_PHYSICS_SPOIL_RING` | `2,2`, **acting only under `PIXEL_PHYSICS_SPOIL_OUT`** (so the shipped lift is untouched; owner 2026-09-29) | `<shape>,<scale>` or `off`; `spoil_ring_of` gates it on the walked cycle, and a world's own `World::spoil_ring` overrides both: the first time a carrier stands outside the nest with its pellet it draws a column on its own side, the door's half-width plus one plus a Gamma(shape, scale) draw from the nest's centre (`spoil_ring_column`, `OrganismState::spoil_ring`, its own stream), is pulled along the ground to it (`spoil_haul_target`), and its drop roll is held until its head is that far out (`spoil_ring_holds`; `spoil_ring_drawn`, `spoil_ring_held`); `World::spoil_ring` for one world |
+| `PIXEL_PHYSICS_SPOIL_RING` | `2,2`, **acting only under `PIXEL_PHYSICS_SPOIL_OUT`** (so the shipped lift is untouched; owner 2026-09-29) | `<shape>,<scale>` or `off`; `spoil_ring_of` gates it on the walked cycle, and a world's own `World::spoil_ring` overrides both: when a carrier comes out by the door with its pellet (on or above the door's row, nothing overhead: `carry_stage`) it draws a column on its own side, the door's half-width plus one plus a Gamma(shape, scale) draw from the nest's centre (`spoil_ring_column`, `OrganismState::spoil_ring`, its own stream), is pulled to the top of the ground in that column (`ring_target`, climbing any mound; `spoil_haul_target`), and its drop roll is held until its head is that far out (`spoil_ring_holds`; `spoil_ring_drawn`, `spoil_ring_held`). The column is kept under a mound's overhang and let go only back in a tunnel (more than two rows under the door's row with ground overhead, or in the founding cut: `spoil_ring_let_go`); before it has come out, under `keep`, the pellet is held wherever the carrier stands; `World::spoil_ring` for one world |
 | `PIXEL_PHYSICS_DIG_WIDEN` | off | `on`: tunnels one body length (two cells) wide. On a won dig roll, a digger whose way ahead is open and whose head stands where its passage is one cell wide (ground above and below, or either side) cuts one of those walls instead of turning down and cutting ahead (`ahead_is_open`, `dig_widen_site`); a digger at a face cuts a shoulder beside the cell ahead on half its rolls (`dig_shoulder_site`), so a gallery advances two cells across. A passage two wide is left alone. Both cuts are ordinary cuts after that: the heap cue and the jaw judge them (`digs_widened`; `World::dig_widen` for one world) |
 
 ## 13. Where the implementation lives

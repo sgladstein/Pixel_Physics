@@ -978,3 +978,50 @@ cap 4; no plants, so the fix does not reach it): starved 2 -> 2 (median; lower
 on 10, higher on 10), food taken from the pile 237.5 -> 259 cells (10 / 13),
 net food into the nest 748 -> 1,146 (higher on 18), births 4.5 -> 8 (higher on
 15). No harm; the net food home is up.
+
+## 13. Births in a stacked crowd (2026-09-30)
+
+*§12 left stacked lab colonies raising about half the young. Traced, then
+tried as a switch.*
+
+**Where births were refused.** A temporary line at every refused and every
+successful birth (`labforage`, 4 seeds to frame 54,000): the stacked colony
+was refused **39,593** times against **17,948** at a cap of 1, for 138 births
+against 223. **94%** of refusals stood inside the nest with a mean **0.03**
+empty cells among the parent's eight neighbours (tunnel wall 3.7, nestmates
+2.6), and at **70%** a nestmate was riding the parent. A stacked colony packs
+its rich ants into the galleries, and a child needs two empty cells.
+
+**The switch: `PIXEL_PHYSICS_BUD_STACK=on`** (off by default;
+`creature::bud_stack_of`, `World::bud_stack`). When not one neighbour has
+room, `try_bud` takes a second pass in which a `Chain`/`Rigid` child's cells
+may be nestmates' cells under the cap (`place_creature`'s `kin`, through
+`can_stack_into`), written as riders and put in the child's own record.
+`CreatureStats::births_on_kin` counts it. Unarmed, or at a cap of 1, the pass
+never runs: seeds 1-2 of the lab pair are byte-identical to §12's logs at
+both caps. Guard `a_walled_in_parent_bears_its_child_onto_a_nestmate_when_
+stacking_allows`, watched red twice (no second pass; ridden cells left out of
+the child's record).
+
+**Measured** (24 seeds, 120,000 frames, medians; the switch changed all 24
+runs):
+
+| lab, played bed | cap 1 | cap 4 | cap 4 + switch |
+|---|---:|---:|---:|
+| births | 418 | 224.5 | 342 |
+| boxes extinct | 2 | 3 | 1 |
+| peak colony | 227.5 | 149 | 226 |
+| alive at 120,000 | 203 | 121.5 | 116.5 |
+| colony at frame 54,000 | 63 | 27 | 30 |
+| births 15,000-54,000 | 58.5 | 23.5 | 24 |
+
+**It moves the late run, not the dip.** A refused birth turned out to be a
+*delay*: a walled-in parent buds anyway once it walks somewhere with room, so
+standing the child on a nestmate makes it sooner rather than making more of
+them. The births it adds come late, when the colony is large (90,000-119,700:
+241.5 against 139). The mid-run dip, and so the smaller colony at the end, is
+not placement: it is how many ants get rich enough to breed, and that is the
+foraging lane's economy. Per seed the switch is a coin toss against cap 4
+alone (higher on 12, lower on 11). Against cap 1 it closes the gap to
+something no longer significant: births lower on 15 of 24 and higher on 9,
+where cap 4 alone was 19 and 5 (p ~ 0.007).

@@ -2019,13 +2019,17 @@ pub struct CreatureStats {
     /// `examples/digbox`'s LIFTS line reads. 0 unless the switch is on.
     pub spoil_kept_no_lift: u64,
     /// **Carry distances drawn** under `PIXEL_PHYSICS_SPOIL_RING`
-    /// (`creature::spoil_ring`): one per pellet, the first time its carrier
-    /// stands outside the nest with it. The "it fired" half; the effect half
-    /// is `spoil_ring_held`. 0 unless the switch is on.
+    /// (`creature::spoil_ring`): when its carrier comes out by the door with
+    /// it (`creature::carry_stage`), and again for a carrier that went back
+    /// in and came out once more. The "it fired" half; the effect half is
+    /// `spoil_ring_held`. 0 unless the switch is on.
     pub spoil_ring_drawn: u64,
     /// Drop rolls held because the carrier was not yet as far from the nest
     /// site's centre as its drawn distance. 0 unless the switch is on.
     pub spoil_ring_held: u64,
+    /// Drawn columns let go because the carrier was back in a tunnel with its
+    /// pellet (`creature::carry_stage`). 0 unless the switch is on.
+    pub spoil_ring_let_go: u64,
     /// Of `spoil_lifted`, the lifts **carried out through the passages**
     /// (`PIXEL_PHYSICS_SPOIL_LIFT=out`, `creature::lift_out`) rather than up
     /// the carrier's own column; 0 in every other lift mode.
@@ -2468,6 +2472,14 @@ pub struct CreatureStats {
     /// A lower bound, because organism slots are recycled — see
     /// `World::denied_seen`.
     pub births_denied_animals: u64,
+    /// **Births placed on nestmates** (`creature::bud_stack_of`): a child
+    /// that found no free room beside its parent and stood on a nestmate
+    /// instead, as any stacked ant does. The "did it fire at all" counter
+    /// for `PIXEL_PHYSICS_BUD_STACK`; always zero at a stack cap of 1, where
+    /// nobody may stand on anybody, and read against
+    /// [`Self::births_denied_no_space`], the refusals it exists to turn into
+    /// births.
+    pub births_on_kin: u64,
     /// **Organism slots the breeding-suppression lookup actually looked
     /// at** — one count per candidate examined, on whichever arm
     /// `creature::breeder_index_enabled` selects: every slot the O(organism
@@ -3714,6 +3726,11 @@ pub struct World {
     /// which is off unless it says `on`. A field so a guard can take both
     /// arms in one process.
     pub dig_widen: Option<bool>,
+    /// **Newborns on nestmates, overriding `PIXEL_PHYSICS_BUD_STACK` for this
+    /// world** (`creature::bud_stack_of`). `None` follows the environment,
+    /// which is off unless it says `on`. A field so a guard can take both
+    /// arms in one process.
+    pub bud_stack: Option<bool>,
     /// **The storeroom, overriding `PIXEL_PHYSICS_STOREROOM` for this world**
     /// (`creature::storeroom_of`). `None` follows the environment, which is
     /// `creature::Storeroom::SHIPPED` unless it says `off`.
@@ -6152,6 +6169,7 @@ impl World {
             dig_down: None,
             spoil_ring: None,
             dig_widen: None,
+            bud_stack: None,
             storeroom: None,
             nest_door: None,
             scout: None,

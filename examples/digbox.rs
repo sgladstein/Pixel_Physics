@@ -3255,8 +3255,8 @@ fn crater(world: &World, b: &Box2, frame: u64) -> String {
     let st = world.creature_stats;
     let by = BINS.iter().zip(bins).map(|(&(_, _, name), n)| format!("{name} {n}")).collect::<Vec<_>>().join(", ");
     format!(
-        "CRATER frame={frame} ground above the old surface, by columns from the nest's centre: {by} | over the mouth's columns {over_mouth} | carry (SPOIL_RING) distances drawn {}, drop rolls held short of them {}",
-        st.spoil_ring_drawn, st.spoil_ring_held
+        "CRATER frame={frame} ground above the old surface, by columns from the nest's centre: {by} | over the mouth's columns {over_mouth} | carry (SPOIL_RING) distances drawn {}, drop rolls held short of them {}, let go back in a tunnel {}",
+        st.spoil_ring_drawn, st.spoil_ring_held, st.spoil_ring_let_go
     )
 }
 
