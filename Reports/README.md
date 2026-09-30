@@ -3426,8 +3426,10 @@ design guide's §7b-i calls "already data" are Rust `const`s.
     blocked drop as possibly a nest-digging problem, and to leave
     digesting the crop in transit as an open question for the owner.
 - [food-trail-plan-2026-09-29.md](food-trail-plan-2026-09-29.md)
-  — **plan of record, 2026-09-29, agreed with the owner. `engine`. Nothing
-  built yet.** Why the ants' food trail has never led them to food: the
+  — **plan of record, 2026-09-29, agreed with the owner. `engine`. Stages
+  0-1 done: the instruments (#520) and the lay rule, shipped on 2026-09-30
+  (`ant-scenes-2026-09-23.md` §23a, §23c); the reader and the give-up are
+  next.** Why the ants' food trail has never led them to food: the
   working recipe has three parts (a trail strongest near the food, a reader
   that turns toward the stronger side, a give-up), and each was built on a
   different ant and judged alone (§22v). The plan builds all three behind

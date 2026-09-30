@@ -2241,7 +2241,10 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
     let gif_overlay: Option<String> = arg_str("gifoverlay");
     // The food-trail switch as the process sees it, echoed into every trail
     // row so a parse can key on it (`CLAUDE.md`: a parse inherits every
-    // dimension the run swept). `unset` when absent.
+    // dimension the run swept). `unset` when absent. **`unset` changed meaning
+    // on 2026-09-30**: it is `lay` from then (`FOOD_TRAIL_UNSET`) and was `off`
+    // before, so across that date read the header's parsed recipe
+    // (`FOOD_TRAIL=unset (FoodTrail { lay: true, .. })`), not this label.
     let food_trail_env = std::env::var("PIXEL_PHYSICS_FOOD_TRAIL").map_or_else(|_| "unset".to_string(), |v| v.trim().replace(' ', "_"));
     assert!(!dwide || decision_csv, "dwide adds columns to the decision CSV, so it needs `decisioncsv`");
     if let Some(ov) = gif_overlay.as_deref() {

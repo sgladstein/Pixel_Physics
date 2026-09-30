@@ -7,7 +7,7 @@ This note keeps the owner's rulings, the live question, the baseline, the
 commands and the traps.*
 
 - **Previous session:** `session_01Pt5N39pfcix13hMycPN9Xs`, branch
-  `claude/ant-foraging-loop-handoff-986v7n` (09-28/29): §22o-§23a.
+  `claude/ant-foraging-loop-handoff-986v7n` (09-28/30): §22o-§23c.
 - **Peer lanes:** the nest-mouth lane ([`nest-mouth.md`](nest-mouth.md))
   shipped the granary (#513, 2026-09-29: a door, a storeroom, nest workers,
   `keep`). Every baseline before it is a different ant; its `keep` and
@@ -60,18 +60,19 @@ commands and the traps.*
 
 **Shipped on** (`=off`, or `face`, `always`, is the ant before it):
 `FORAGE_DRIVE=returns`, `TRIP_REACH=on` (16), `CARRY_PATIENCE=pickup` (Z35), `PACKED_LUNCH=on`,
-`BIRTH_PRICE=guaranteed` (Z36) -- all `PIXEL_PHYSICS_`; and the nest lane's
-granary (#513: `NEST_DOOR`, `STOREROOM`). **`STORE_LUNCH` is off** (§22t).
+`BIRTH_PRICE=guaranteed` (Z36), `FOOD_TRAIL=lay` (09-30) -- all
+`PIXEL_PHYSICS_`; and the nest lane's granary (#513). **`STORE_LUNCH` is
+off** (§22t).
 
-**Which way to go is the loop's blocker (§22t); the trail costs the
-colony today (§22v):** muting it takes food 6,062 -> 7,512, starved 57 ->
-29. **The food-trail plan** (`food-trail-plan-2026-09-29.md`, owner-agreed
-09-29), bar = `mute`. **Stage 0 done (§23a):** the lay rule is the gate
-(only a trip load lays B, at the brain's rate; no odometer beat it); no lay
-rule makes the trail an ant reads rise toward the food, so the reader must
-never compare ahead with straight back, and reads the door at reach 6.
-**Next:** Stage 1, the lay switch (`PIXEL_PHYSICS_FOOD_TRAIL`), and the
-two-pile bed. Store lunch waits on it.
+**Which way to go is the loop's blocker (§22t).** The food-trail plan
+(`food-trail-plan-2026-09-29.md`, owner-agreed 09-29), bar = `mute`.
+**Stages 0-1 done (§23a, §23c):** only a trip load lays B, shipped on; it
+beats `off` and `mute` on every bed. The reader must never compare ahead
+with straight back, and reads the door at reach 6. **Its cost:** hungry
+ants at home without a trail sit longer (terrain 8/12, lab starved rate
+16/24, neither significant) -- the reader must give them a reason to leave.
+**Next:** a heritable `mute` for the control arm (owner: yes), the two-pile
+bed, then Stage 2. Store lunch waits on it.
 
 **To the nest lane (09-29 evening):** stacking at 4 by default -- no
 objection (this bed runs 4; your lab and bed pairs are the right
@@ -82,29 +83,27 @@ the trail plan reads B at the door.
 - **Read food taken and food at the nest** (`FOOD STORE`'s `nest food`,
   mean from 6,000); "net food into home" overcounts (§22j).
 
-## Baseline (`main` at 2274e347, after #518)
+## Baseline (`FOOD_TRAIL=lay` on, 09-30; `off` in brackets, #518)
 
-Colony bed, no trail, 24 seeds, shipped defaults, unlimited pile:
+Colony bed, 24 seeds, shipped defaults, unlimited pile:
 
 | | food taken from the pile | food at the nest | starved | born |
 |---|---:|---:|---:|---:|
-| 90 cells | 6,062 | 12,414 J | 57 | 188 |
-| 140 cells | 4,287 | 8,112 J | 127 | 63 |
-| 80 founders at 135 | 8,298 | 9,159 J | 1,109 | 74 |
+| 90 cells | 9,217 (6,062) | 15,463 (12,414) J | 14 (57) | 416 (188) |
+| 140 cells | 6,374 (4,287) | 11,048 (8,112) J | 50 (127) | 157 (63) |
+| 80 founders at 135 | 12,350 (8,298) | 10,549 (9,159) J | 645 (1,109) | 48 (74) |
 
-Pulsed pile at 90 (`food=30 refill=6000`): 2,588 / 286 / 39 (taken,
-starved, born). What #518 moved (starved 82 -> 57 at 90 cells, p
-0.03): `foraging-baseline-518-2026-09-29.txt.gz`. Lab box (`played_bed`,
-120,000 frames, 24 seeds, rain, 59338afd), medians off -> on: births 428
--> 522.5, food eaten 1,122k -> 1,283k J, ant-frames 9.5M -> 10.6M, starved
-per million ant-frames 9.2 -> 10.4 (none at p < 0.05).
+Pulsed pile at 90 (`food=30 refill=6000`): 2,760 / 250 / 54 (taken,
+starved, born). Runs: `food-trail-lay-2026-09-29.tar.gz`. Lab box
+(`played_bed`, 120,000 frames, 24 seeds, rain), medians: births 448.5,
+food eaten 1,160k J, ant-frames 9.8M, starved per million ant-frames 13.1.
 
 ## Ranked open problems
 
-1. **Which way to go.** A driven forager has no bearing: ~30% of fed
-   departures go west, with any trail or none, and none reach food (§22t,
-   §22v). The anchor re-anchors on every nest contact, so `HomeAligned`
-   reads 0 at the door. The food-trail plan is the answer being built.
+1. **Which way to go.** A driven forager has little bearing: west
+   departures fell 23% -> 18% with `lay` (§23c) and none reach food. The
+   anchor re-anchors on every nest contact, so `HomeAligned` reads 0 at the
+   door. Stage 2, the reader, is the answer being built.
 2. **The drive's clock hears of food only at the door** (§22u). The trip
    reach stopped food beside the door booking returns; what is left is a
    false stand-down on a paying pile (seed 7: 83% of its low-drive rows had

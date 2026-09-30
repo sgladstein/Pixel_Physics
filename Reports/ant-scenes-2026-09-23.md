@@ -3491,3 +3491,60 @@ harm bar fails on any of the five beds. **Next, per the plan (amended
 2026-09-29):** the lab-box pair and the frame cost, and if both hold, `lay`
 ships on by default; the reader and the give-up are then built on top of
 it.
+
+**Pre-ship checks, and shipped on (2026-09-30).** `FOOD_TRAIL_UNSET` is
+now `lay`; `PIXEL_PHYSICS_FOOD_TRAIL=off` is the ant before it. Runs,
+the terrain harness and the seed-1 trace:
+`Reports/data/food-trail-preship-2026-09-30.tar.gz`.
+
+- **Lab box** (`labforage scenario=played_bed frames=120000`, 24 seeds,
+  `labpair.py`, `off` -> `lay`): no gate worse at p < 0.05. Births 418 ->
+  448.5 (11/13), food eaten 1.09M -> 1.16M J (12/12), ant-frames 10.4M ->
+  9.8M (lower on 15, p 0.31), died of old age 158 -> 147 (lower on 15, p 0.31),
+  **starved per million ant-frames 11.0 -> 13.1 (worse on 16, p 0.15), the
+  one lean**. Crash timing, not a gate: the box peaks sooner (frame 116,100 ->
+  99,900, earlier on 16) and grazes out sooner (11 boxes against 3 fall below
+  a quarter of their peak; alive at the end 203 -> 57, median); died out 2 ->
+  3. Killed 0 / 0.
+- **Merge identity:** `main` moved 15 commits (#522) under Stage 1. On the
+  merged tree the bed (`off` pulsed 90, seeds 1-8, against the `b518p` log
+  and its 16 CSVs; `off` and `lay` unlimited 90, seeds 1-8) and the lab
+  (seeds 1-2, both arms) are byte-identical, header lines filtered, so the
+  numbers above stand.
+- **Frame cost:** none. `ascii`'s ant scene mean 0.849 -> 0.833 ms (two
+  alternated pairs); the rule reads one switch and one organism per step.
+- **Generated terrain** (`ascii`'s "ants: the foraging loop" scene, which
+  failed its round-trip count 58 -> 40 under `lay` on its one seed; a
+  temporary copy that takes the worldgen seed, seeds 1-12, 24,000 frames,
+  `RAYON_NUM_THREADS=1`, an `ANT` row per ant every 50 frames). **No
+  consistent loss.** Ant deaths 187 -> 189 (lower on 6, higher on 3), at home
+  99 -> 98, starved at home 64 -> 61; deliveries higher on 9 of 12, round
+  trips on 8. **The scene is not a commute**: on 4 of 12 seeds not one ant
+  walks laden from the litter (x >= 200) to the nest patch (x < 120) in
+  either arm, and in total 45 against 64 do. It is two populations that stay
+  where they were planted, and "deliveries" there is mostly food put down by
+  ants at home.
+- **Where `lay` lost, traced ant by ant (seed 1, the `ascii` seed).** Deaths 6
+  -> 10. The extra dead are home ants (ids 298, 299, 300, 302, 304), each
+  hungry (energy below `start_energy`), crop empty and never marked with a
+  trip load, sitting at x 28-69 for up to 4,000 frames with **crumbs**
+  within one cell (416 of their 901 hungry samples, against 54 of 348 under
+  `off`). Crumbs are inedible to them. Food stands at home in both arms
+  (50-70k worth, mostly crumbs), and deliveries stall under `lay` after frame
+  12,000 (17 against 104 to the end). Under `off`, trail B covers the home
+  ground on 88% of home samples, laid by every ant eating there; under `lay`
+  on 31%. The chooser multiplies a heading by trail presence for an empty
+  ant, so that home B kept hungry ants walking, and walking found food. **So
+  the loss is the old rule's side effect removed, not the new rule failing**,
+  and it shows as a lean across the 12 seeds: the share of ant-time spent
+  hungry and empty at home is higher on 8 (13.8% -> 15.5% pooled, p 0.39).
+  Also the likeliest reading of the lab lean.
+- **Seed 8's births 31 -> 3** did not trace to a mechanism in time. Its colony
+  delivered more under `lay` (1,611 -> 1,946). Recorded, not explained.
+
+**What this leaves for Stage 2.** A hungry ant at home that is standing on no
+trail has only scouting to take it out, and on seed 1 scouting did not
+(ants 300 and 304 sat hungry for over 4,000 frames). The reader has to give
+that ant a reason to leave that the old rule gave it by accident. Stage 2's
+measurement includes the hungry-at-home share on the terrain seeds, and the
+lab's starved-per-ant-frame, as its first readouts.

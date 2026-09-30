@@ -15671,12 +15671,15 @@ pub fn trip_reach_of(world: &World) -> Option<i32> {
 /// three only work together and every earlier attempt judged one alone: a
 /// food-charged lay rule on a walk that could follow nothing, an uphill reader
 /// on a trail whose slope points home, a give-up switched off on a trail
-/// (`Reports/ant-scenes-2026-09-23.md` §22v). Off by default until measured;
-/// the bar is the `mute` arm (the ants' own trail B silenced), because today
-/// the colony's trail costs it food (§22v: 6,062 -> 7,512 taken with it
-/// muted).
+/// (`Reports/ant-scenes-2026-09-23.md` §22v). The bar is the `mute` arm (the
+/// ants' own trail B silenced), because before this the colony's trail cost
+/// it food (§22v: 6,062 -> 7,512 taken with it muted).
 ///
-/// Only `lay` acts so far; `read` and `giveup` parse and do nothing yet.
+/// **Unset is `lay` since 2026-09-30** (§23c): on the colony bed, 24 seeds at
+/// 90 cells, food taken 6,062 -> 9,217 (23/1 against `off`, 22/2 against
+/// `mute`) and starved 57 -> 14; no lab-box gate worse at p < 0.05. `off` is
+/// the ant before it, bit for bit. Only `lay` acts so far; `read` and
+/// `giveup` parse and do nothing yet.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct FoodTrail {
     /// **Only a load from a trip lays trail B** ([`food_trail_lay`]): the
@@ -15714,9 +15717,9 @@ impl FoodTrail {
 /// Stage 2's follow gain, the plan's `FOLLOW_GAIN`.
 pub const FOOD_TRAIL_GAIN: f32 = 3.0;
 
-/// What `PIXEL_PHYSICS_FOOD_TRAIL` unset means: off, until the recipe is
-/// measured against `mute`.
-const FOOD_TRAIL_UNSET: FoodTrail = FoodTrail::OFF;
+/// What `PIXEL_PHYSICS_FOOD_TRAIL` unset means: the lay rule alone, measured
+/// against `off` and `mute` in §23c and on by default since 2026-09-30.
+const FOOD_TRAIL_UNSET: FoodTrail = FoodTrail { lay: true, ..FoodTrail::OFF };
 
 /// `PIXEL_PHYSICS_FOOD_TRAIL`'s value read as a recipe; an unset variable
 /// reads as `""`. `off`, `on`, or a comma list of parts: `lay`, `read`,
@@ -29348,12 +29351,13 @@ mod tests {
     }
 
     /// **`PIXEL_PHYSICS_FOOD_TRAIL` reads its spellings, and a value it
-    /// cannot read is reported and read as unset (off), never as some
+    /// cannot read is reported and read as unset (`lay`), never as some
     /// half-built recipe** (`parse_food_trail`). A table over the parser, not
     /// watched red.
     #[test]
     fn parse_food_trail_reads_its_spellings() {
-        assert_eq!(parse_food_trail(""), FoodTrail::OFF, "unset is off until measured");
+        let unset = FoodTrail { lay: true, ..FoodTrail::OFF };
+        assert_eq!(parse_food_trail(""), unset, "unset is the lay rule, on since 2026-09-30");
         assert_eq!(parse_food_trail("off"), FoodTrail::OFF);
         assert_eq!(parse_food_trail(" on "), FoodTrail::ON);
         assert_eq!(parse_food_trail("lay"), FoodTrail { lay: true, ..FoodTrail::OFF });
@@ -29361,9 +29365,9 @@ mod tests {
         assert_eq!(parse_food_trail("lay,t=32"), FoodTrail { lay: true, t: 32.0, ..FoodTrail::OFF });
         assert_eq!(parse_food_trail("on,gain=1.5,reach=2,follow=all"), FoodTrail { gain: 1.5, reach: 2, follow_all: true, ..FoodTrail::ON });
         assert_eq!(parse_food_trail("read"), FoodTrail { read: true, ..FoodTrail::OFF }, "read without lay parses: the plan's diagnostic arm");
-        assert_eq!(parse_food_trail("lay,t=-1"), FoodTrail::OFF, "a negative odometer is unreadable");
-        assert_eq!(parse_food_trail("lay,reach=4"), FoodTrail::OFF, "a reach other than 2 or 6 is unreadable");
-        assert_eq!(parse_food_trail("lay,fast"), FoodTrail::OFF, "a part it does not know makes the whole value unset");
+        assert_eq!(parse_food_trail("lay,t=-1"), unset, "a negative odometer is unreadable");
+        assert_eq!(parse_food_trail("lay,reach=4"), unset, "a reach other than 2 or 6 is unreadable");
+        assert_eq!(parse_food_trail("read,fast"), unset, "a part it does not know makes the whole value unset");
         assert_eq!(FoodTrail::OFF.gain, FOOD_TRAIL_GAIN);
         assert_eq!(FoodTrail::OFF.reach, 6);
     }

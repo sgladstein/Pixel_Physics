@@ -3762,7 +3762,7 @@ pub struct World {
     pub trip_reach: Option<Option<i32>>,
     /// **The food trail's recipe for this world, overriding
     /// `PIXEL_PHYSICS_FOOD_TRAIL`** (`creature::food_trail_of`). `None`
-    /// follows the environment.
+    /// follows the environment, which is the lay rule unless set `off`.
     pub food_trail: Option<crate::sim::creature::FoodTrail>,
     /// **Whether a birth counts food in reach at what its bite is certain to
     /// pay, overriding `PIXEL_PHYSICS_BIRTH_PRICE` for this world**
