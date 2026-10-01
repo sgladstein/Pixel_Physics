@@ -599,6 +599,23 @@ once an excursion has stepped onto a heading carrying trail B
 progress however far out it lands, so patience decays on the dark ground past
 the trail's end. A scout that never met a trail scouts as without it.
 
+**Under `PIXEL_PHYSICS_FOOD_TRAIL=...,read` (off by default) an empty ant at
+the door turns toward the food side** (`door_read`, Stage 2,
+`ant-scenes-2026-09-23.md` §23e). The ant must be unladen (a packed-lunch
+carrier counts as empty), with no home pull and no spoil, not a given-up scout,
+and standing in the door box (`door_site`): within the door's half-width plus
+one column of a nest site, on the walking row or up to `DOOR_READ_RISE` (4)
+rows above it over the spoil mound, and never inside the cut. It reads trail B
+at its own reach-6 sensors, east and west on its own row, giving
+`g = (bE − bW) / (bE + bW + TRAIL_HALF)`. Every heading on g's side that does
+not land below the walking row gets `gain × want × |g|`, where `gain` is
+`FOOD_TRAIL_GAIN` (6) and `want` is the larger of hunger and the forage
+drive. Nothing is subtracted, and with both sensors dark there is no term.
+The term is withheld once the nest's last return (`World::nest_last_return`)
+is older than `return_window()`, so a pile that has run out does not keep
+leashing the door. Counters: `door_reads`, `door_stale`, `door_pulled`, and
+`door_followed` (the picked heading was on g's side).
+
 **`PIXEL_PHYSICS_HUNGRY_HOME` (off) gives a hungry empty ant the laden ant's home
 pull.** It fires when the ant's energy is under what the walk home costs:
 `0.1 × start_energy + distance × (move_cost_per_cell + idle_cost_per_cell) ×
@@ -976,7 +993,7 @@ Read once per process from the environment. The default is what ships.
 | `PIXEL_PHYSICS_PACKED_LUNCH` | on | `off`: a crop filled only at home counts as a load, so the forage drive does not reach its carrier (§6d); `World::packed_lunch` for one world |
 | `PIXEL_PHYSICS_TRIP_REACH` | on (16) | `off`: a pickup away from home marks a trip once the ant has been `FORAGE_TRIP_MIN` cells from its last nest contact, wherever the food lay; on, the food must also be living tissue or loose food more than the reach (authored cells, scaled; an integer sets it) from every nest's door (§6d); `World::trip_reach` for one world |
 | `PIXEL_PHYSICS_RETURN_WINDOW` | 1400 | `<frames>`: the `returns` drive's window (§6d) |
-| `PIXEL_PHYSICS_FOOD_TRAIL` | `lay` | the food trail's recipe (`FoodTrail`): `lay` lays trail B only on a trip load (§7), `off` is the ant before 2026-09-30 (every ant with food in its crop lays), `t=<ticks>` adds an odometer; `giveup` lets a given-up scout go and bounds a scout at a walked trail's end (§6d); `read`, `gain=`, `reach=2\|6` and `follow=all` parse and do nothing yet; `on` is all three parts; `World::food_trail` for one world |
+| `PIXEL_PHYSICS_FOOD_TRAIL` | `lay` | the food trail's recipe (`FoodTrail`): `lay` lays trail B only on a trip load (§7), `off` is the ant before 2026-09-30 (every ant with food in its crop lays), `t=<ticks>` adds an odometer; `giveup` lets a given-up scout go and bounds a scout at a walked trail's end (§6d); `read` turns an empty ant at the door toward the food side (§6d), with `gain=` its gain (default 6) and `window=<frames>` its stale-pile window (default `return_window()`); `reach=2\|6` and `follow=all` parse and do nothing yet; `on` is all three parts; `World::food_trail` for one world |
 | `PIXEL_PHYSICS_DROP_SIDE` | `even` | `west`: every food drop scans its neighbours north-west first, the ant before 2026-09-30 (`food_drop_order`, §5); `east`: always north-east first, its mirror |
 | `PIXEL_PHYSICS_BIRTH_HEADING` | `outward` | `east`: every founder and every bud is born facing east, the ant before 2026-09-30. `outward`: a founder faces away from its colony's cursor, and a bud faces the way its body was laid (`birth_heading_outward`) |
 | `World::mute_emit_b` | `false` | harness-only, set by `trailfollow`'s `mute` arm and by no game: every newborn's `EmitB` wiring is re-zeroed after its birth mutation (`silence_emit_b`), so a colony whose founders were silenced stays silent across births |

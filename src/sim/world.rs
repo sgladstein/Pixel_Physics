@@ -2150,6 +2150,18 @@ pub struct CreatureStats {
     /// alone** (`creature::forage_drive_from_env`'s `,keep`): its feed urge
     /// scaled down at the nest. 0 unless set.
     pub forage_kept: u64,
+    /// **Stage 2's reader at the door** (`creature::FoodTrail::read`,
+    /// `Reports/ant-scenes-2026-09-23.md` §23e). `door_reads`: decisions of an
+    /// ant the reader gates in, standing in the door box. `door_stale`: of
+    /// those, the ones withheld because the nest has seen no return within
+    /// `creature::return_window` (the design's M2). `door_pulled`: the term
+    /// was added (a non-zero read and a non-zero want). `door_followed`: of
+    /// those, the heading picked was on the read's side -- the effect count
+    /// from the far side of the choice. All 0 unless `read` is on.
+    pub door_reads: u64,
+    pub door_stale: u64,
+    pub door_pulled: u64,
+    pub door_followed: u64,
     /// **Ticks a packed lunch was finished on the spot** (`creature::
     /// carries_lunch`): away from the nest, beside food its crop cannot
     /// swallow, the cell in progress is digested whole that tick. 0 unless

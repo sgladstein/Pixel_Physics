@@ -3745,3 +3745,145 @@ is the outcome a player would see. Three versions have now traded the same
 thing: what the give-up saves on dark ground, a colony living off a pile
 that empties and refills pays for. The switch stays off (`lay`), and Stage 3
 is parked; the next step on this line is Stage 2's reader.
+
+### 23e. Stage 2, the reader: registered before its runs (2026-10-01)
+
+*Owner's pick 2026-10-01: "Land, then reader". The design is
+[`food-trail-reader-design-2026-09-30.md`](food-trail-reader-design-2026-09-30.md)
+§2, with its must-fix M2 (the stale leash) built into the rule. M1 (re-arm
+at the door) belongs to `giveup`, which stays off, so it is not built here.*
+
+**The premise, re-measured on current `main`** (`trailclimb.py` §3 on the
+`L` traces of §23d's third scoring, `main` `b6bc9db2`, 12 seeds): empty
+departures from the nest band go west, away from the only pile, on **36% /
+31%** (90 / 140 cells; east 50% / 56%). At those departures the reach-6
+gradient points at the food side (> 0.1) on **81% / 79%**. So the door's
+plane still knows the food side, and a third of departures still ignore it.
+
+**Arm `F` = `PIXEL_PHYSICS_FOOD_TRAIL=lay,read`, against `L` (unset).** The
+rule is §2's `read`: an empty, unladen, not-given-up ant with no home pull,
+in the door box, reads B at its own reach-6 sensors east and west on its own
+row; `g = (bE - bW) / (bE + bW + TRAIL_HALF)`; every heading on g's side
+whose landing is at or above the walking row gets `gain × want × |g|`,
+`want = max(hunger, drive)`, `gain` 6. **Gated on the colony's news (M2):**
+no term when this nest's last return is more than `return_window()` frames
+old. The `!is_nest_bound` gate is dropped (the drive already zeroes fed
+nest-bound ants, so the gate excluded only the hungry ones).
+
+**Predictions:**
+- **PR1** west departures (`trailclimb.py` §3, side W) fall to at most
+  **25% / 22%** (90 / 140), from 36% / 31%.
+- **PR2** the effect counter: of decisions where the term is added, the
+  picked heading is on g's side on at least **60%** (`L` has no term; its
+  baseline is the same share read off `L`'s traces, about half).
+- **PR3** under `arms=mute` (no B anywhere), `F` and `L` give identical
+  per-run tables: g is 0, so no term is ever added.
+- **PR4** the stale-leash gate fires on the pulsed piles (term withheld on
+  at least 10% of in-box reads) and almost never on the unlimited pile
+  (under 3%).
+
+**Ship bars** (`F` ships on only if all hold): §23d's, unchanged — every
+§23c bed taken not lower and starved not higher (p < 0.1 each way); pulsed
+starved against `L` and `M` not higher; 80 founders births not lower; B5
+taken not lower; the lab pair no gate worse at p < 0.05 and starved per
+million ant-frames not higher at p < 0.1. **Added after §23d's third
+scoring:** births on each pulsed bed not lower at p < 0.1, since that is
+where `LG3` failed and what a player sees.
+
+**First scoring of `F` (binary `acd6e8db` on `main` `ff5b2982`, #530 and
+#531 in; `L` re-run on the same binary; 24 seeds, paired; `F` against `L`):**
+
+| | taken | starved | born |
+|---|---|---|---|
+| unlimited 90 | **10,546 -> 17,532 (22/1, p < 0.001)** | 8 -> 4 (4/8) | **760 -> 1,964 (17/6, p 0.035)** |
+| unlimited 140 | **6,543 -> 8,981 (22/2, p < 0.001)** | 27 -> 24 (7/6) | **208 -> 497 (21/1, p < 0.001)** |
+| pulsed 90 | 2,815 -> 2,793 (10/3, at its cap) | **247 -> 285 (18/4, p 0.004)**; vs `M` 276 -> 285 (12/10) | 55 -> 76 (15/5, p 0.041) |
+| pulsed 140 | 2,791 -> 2,774 (11/11) | 228 -> 247 (13/9); vs `M` 249 -> 247 (11/9) | 33 -> 42 (10/7) |
+| 80 founders | **13,171 -> 20,477 (24/0, p < 0.001)** | **649 -> 344 (1/23, p < 0.001)** | **110 -> 501 (23/1, p < 0.001)** |
+| B5 | 12,562 -> 11,552 (10/14, p 0.54) | 131 -> 90 (6/14) | 1,334 -> 817 (9/15) |
+
+Predictions: **PR1 right** — west departures 36% -> **6%** at 90 cells and
+34% -> **16%** at 140 (`trailclimb.py` §3 on seeds 1-12; east 48% -> 76%,
+54% -> 74%). **PR2 right** — the picked heading followed the pull on
+72-77% of pulled decisions on every bed. **PR3 right** — under
+`arms=mute` the 24 paired runs are identical on every row. **PR4 half
+right** — the stale gate withheld 14.7% / 23.6% of door reads on the pulsed
+piles and 1.0% on unlimited 90, but 6.7% on unlimited 140 (registered
+under 3%).
+
+**`F` fails one ship bar: pulsed 90 starved against `L`** (p 0.004; also as
+a share of ants that lived, 46.2% -> 51.3%, 18/6). Against `M` it is level.
+B5's taken passes at p 0.54.
+
+**Traced, every starved ant** (pulsed 90, seeds 1-6, `dwide`, 62 under `L`
+and 67 under `F`): the starvation is the same in both arms. 59 of 62 and
+56 of 67 die east of the door, a median 3,138 / 3,486 frames after their last
+departure, which they made with 118 / 138 J. **They leave, never come
+home, and die out on the empty road or at the east wall** (death `x - nest`
+median 126 under `L`, 90th percentile 203, the wall). That is the unbounded
+scout walk of the reader design's M4: a follower past a dead trail walks on.
+The reader sends more ants east, so more of them reach that sink. It does
+not create it. **The next arm is therefore `FG` = `lay,read,giveup`**: the
+reader with Stage 3's bound, which makes a dark step past a walked trail not
+progress. This is the design's full `F`; Stage 3 alone failed on spending
+lit give-ups, not on the bound.
+
+**`F`'s lab pair** (`labpair.py`, 24 seeds, 120,000 frames): **no gate
+worse** — births 371.0 -> 343.5 (11/12), food eaten 1,037k -> 1,007k
+(11/13), starved per million ant-frames 11.8 -> 8.2 (11/13), every p >= 0.5.
+
+**`FG` = `lay,read,giveup`, same binary and seeds, against `L`:**
+
+| | taken | starved | born |
+|---|---|---|---|
+| unlimited 90 | **10,546 -> 17,047 (23/1)** | 8 -> 4 (3/7) | **760 -> 1,687 (22/2)** |
+| unlimited 140 | **6,543 -> 9,438 (24/0)** | 27 -> 24 (6/7) | **208 -> 542 (22/2)** |
+| pulsed 90 | 2,815 -> 2,793 (6/11) | 247 -> 250 (12/9); vs `M` 276 -> 250 (6/15, p 0.078); by frame 6,000 19 -> 0 (0/10, p 0.002) | 55 -> 49 (7/8) |
+| pulsed 140 | 2,791 -> 2,704 (9/9) | **228 -> 258 (16/6, p 0.052)**; vs `M` 249 -> 258 (11/9) | 33 -> 34 (10/8) |
+| 80 founders | **13,171 -> 19,727 (24/0)** | **649 -> 301 (0/24)** | **110 -> 360 (21/1)** |
+| B5 | 12,562 -> 11,083 (8/16, p 0.15) | **131 -> 68 (4/15, p 0.019)** | 1,334 -> 753 (9/15) |
+
+The bound fixes pulsed 90, where `F` failed: 285 -> 250 against `F`
+(6/15, p 0.078). **But `FG` fails pulsed 140 starved against `L` at
+p 0.052**, just inside the bar. So each arm fails one pulsed-starved bar, and
+against `M` both are level on both pulsed beds. What the readers give up on a
+refilling pile is the advantage `lay` alone had over no trail at all (`L`
+247 / 228 against `M` 276 / 249). Everywhere the pile is steady, they gain
+far more than that. **Neither ships on under the registered bars. Both stay
+behind the switch, and the owner makes the call.** `FG`'s lab pair is next.
+
+**`FG`'s lab pair** (24 seeds, 120,000 frames): **no gate worse** — births
+371.0 -> 409.0 (13/11), food eaten 1,037k -> 1,103k (12/12), starved per
+million ant-frames 11.8 -> 9.1 (13/11), every p >= 0.15. **Where this
+leaves it:** `FG` passes every registered bar but one, pulsed 140 starved
+(p 0.052), where it lands at `M`'s level. `F` fails pulsed 90 starved
+(p 0.004) and B5's births lean against it. If one ships, it should be `FG`.
+
+**`FGW` = `lay,read,giveup,window=700`** (the reader's stale-pile window
+halved, a new `window=` part; **chosen after `FG`'s scoring, so not
+registered in advance**, and confirmed on fresh seeds below). Same binary
+apart from the parse, the same seeds, against `L`:
+
+| | taken | starved | born |
+|---|---|---|---|
+| unlimited 90 | **10,546 -> 17,221 (22/2)** | 8 -> 5 (3/6) | **760 -> 1,859 (19/4)** |
+| unlimited 140 | **6,543 -> 9,033 (23/1)** | 27 -> 26 (5/4) | **208 -> 474 (22/1)** |
+| pulsed 90 | 2,815 -> 2,840 (8/8) | 247 -> 237 (9/13); vs `M` 276 -> 237 (7/14) | 55 -> 38 (5/12, p 0.14) |
+| pulsed 140 | 2,791 -> 2,751 (11/7) | 228 -> 251 (13/9, p 0.52); vs `M` 249 -> 251 (9/11) | 33 -> 34 (8/10) |
+| 80 founders | **13,171 -> 20,108 (24/0)** | **649 -> 289 (0/24)** | **110 -> 508 (22/1)** |
+| B5 | 12,562 -> 11,973 (12/12) | **131 -> 62 (4/18, p 0.004)** | 1,334 -> 901 (10/14) |
+
+Lab pair: **births 371.0 -> 544.5 (17/7, p 0.064)**, ant-frames lived
+9.4M -> 11.2M (18/6, p 0.023), food eaten 1,037k -> 1,258k (15/9), starved
+per million ant-frames 11.8 -> 9.2 (14/10); no gate worse.
+
+**Fresh seeds 25-48 on the two pulsed beds** (the check against having
+picked 700 to fit seeds 1-24): pulsed 90 starved 239 -> 245 (12/8, p 0.50),
+born 55 -> 42 (7/14, p 0.19), taken 2,813 -> 2,780; pulsed 140 starved
+241 -> 255 (13/8, p 0.38), born 24 -> 39 (12/5), taken 2,722 -> 2,668.
+
+**`FGW` passes every registered bar on both seed sets.** What remains is a
+lean, not a failure: pulsed starved runs 3-10% above `L` in three of four
+readings, none significant; over 48 seeds at 140 cells it is 26/17. Turning
+it on by default changes the default ant's behaviour everywhere, so it waits
+for the owner. Until then it is `PIXEL_PHYSICS_FOOD_TRAIL=lay,read,giveup,window=700`.

@@ -16391,7 +16391,8 @@ pub fn trip_reach_of(world: &World) -> Option<i32> {
 /// 90 cells, food taken 6,062 -> 9,217 (23/1 against `off`, 22/2 against
 /// `mute`) and starved 57 -> 14; no lab-box gate worse at p < 0.05. `off` is
 /// the ant before it, bit for bit. `giveup` (Stage 3, §23d) acts since
-/// 2026-09-30, off until scored; `read` parses and does nothing yet.
+/// 2026-09-30 and is parked off; `read` (Stage 2, §23e) acts since 2026-10-01,
+/// off until scored.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct FoodTrail {
     /// **Only a load from a trip lays trail B** ([`food_trail_lay`]): the
@@ -16401,7 +16402,8 @@ pub struct FoodTrail {
     /// west of the door 85.4-99.9% and at the door 92-98%, and no odometer
     /// beat it on the door's reach-6 gradient on any of 16 seeds.
     pub lay: bool,
-    /// Stage 2's reader (not built yet).
+    /// **Stage 2: an empty ant at the door reads which side the food is on**
+    /// ([`door_read`], §23e). Off until scored.
     pub read: bool,
     /// **Stage 3: a scout that gave up is let go by the trail** (§23d).
     /// Once a scout gives up on dark ground (`scout_dark`) the trail neither
@@ -16423,17 +16425,25 @@ pub struct FoodTrail {
     pub reach: u8,
     /// Stage 2: every empty ant follows, not only the hungry or driven.
     pub follow_all: bool,
+    /// **Stage 2's stale-pile window**, in frames: the door reads only while
+    /// its nest's last return is at most this old. 0, the default, is the
+    /// forage drive's own `return_window()`. An arm for the refilling pile
+    /// (§23e), where a 1,400-frame leash outlives a 30-cell pile.
+    pub window: f32,
 }
 
 impl FoodTrail {
     /// Nothing: the ant before it, bit for bit.
-    pub const OFF: FoodTrail = FoodTrail { lay: false, read: false, giveup: false, t: 0.0, gain: FOOD_TRAIL_GAIN, reach: 6, follow_all: false };
+    pub const OFF: FoodTrail = FoodTrail { lay: false, read: false, giveup: false, t: 0.0, gain: FOOD_TRAIL_GAIN, reach: 6, follow_all: false, window: 0.0 };
     /// `on`: all three parts at their defaults.
     pub const ON: FoodTrail = FoodTrail { lay: true, read: true, giveup: true, ..FoodTrail::OFF };
 }
 
-/// Stage 2's follow gain, the plan's `FOLLOW_GAIN`.
-pub const FOOD_TRAIL_GAIN: f32 = 3.0;
+/// **Stage 2's follow gain**, the plan's `FOLLOW_GAIN`: 6, raised from the
+/// plan's 3 by the reader design (§2). On the door a west-facing ant scores
+/// about 1.9 for going on, and even odds against it need `gain × want × g`
+/// of about 1.9, which at a full want and a typical read is 6.
+pub const FOOD_TRAIL_GAIN: f32 = 6.0;
 
 /// What `PIXEL_PHYSICS_FOOD_TRAIL` unset means: the lay rule alone, measured
 /// against `off` and `mute` in §23c and on by default since 2026-09-30.
@@ -16480,11 +16490,12 @@ fn parse_food_trail(raw: &str) -> FoodTrail {
             _ => match part.split_once('=') {
                 Some(("t", v)) => v.parse::<f32>().ok().filter(|t| *t >= 0.0).map(|t| ft.t = t).is_some(),
                 Some(("gain", v)) => v.parse::<f32>().ok().filter(|g| g.is_finite()).map(|g| ft.gain = g).is_some(),
+                Some(("window", v)) => v.parse::<f32>().ok().filter(|w| *w > 0.0).map(|w| ft.window = w).is_some(),
                 _ => false,
             },
         };
         if !ok {
-            eprintln!("PIXEL_PHYSICS_FOOD_TRAIL={raw:?}: unknown part {part:?}, read as unset (off, on, or lay, read, giveup, t=, gain=, reach=2|6, follow=all)");
+            eprintln!("PIXEL_PHYSICS_FOOD_TRAIL={raw:?}: unknown part {part:?}, read as unset (off, on, or lay, read, giveup, t=, gain=, window=, reach=2|6, follow=all)");
             return FOOD_TRAIL_UNSET;
         }
     }
@@ -16977,6 +16988,75 @@ fn fall_now_if_unsupported(world: &mut World, organism: OrganismId, def: &Creatu
 /// or more comes back to where it started. `Chooser::NoPatience` holds it
 /// at 1.
 #[allow(clippy::too_many_arguments)]
+/// **How far above the walking row the door box reaches**, in rows: the
+/// paint row and the spoil mound over the door, which held 39% of door-zone
+/// decisions on Stage 1's traces and which `AtNest` never fires on
+/// (`Reports/food-trail-reader-design-2026-09-30.md` §1).
+const DOOR_READ_RISE: i32 = 4;
+
+/// **The nest whose door box holds `(hx, hy)`**, if any: within the door's
+/// half-width plus one column of a site, on its walking row or up to
+/// [`DOOR_READ_RISE`] rows above it, and never inside its cut. `None` under
+/// `NEST_DOOR=off`, where there is no door to read at.
+fn door_site(world: &World, hx: i32, hy: i32) -> Option<usize> {
+    let half = nest_door_of(world)?;
+    let i = world.nearest_nest_site(hx, hy)?;
+    let s = world.nest_sites[i];
+    let walk = s.surface - 1;
+    let inside = (hx - s.x).abs() <= scaled_cells(world, half) + scaled_cells(world, 1)
+        && (walk - scaled_cells(world, DOOR_READ_RISE)..=walk).contains(&hy)
+        && !s.shaft.is_some_and(|c| c.contains(hx, hy));
+    inside.then_some(i)
+}
+
+/// **Stage 2's reader** (`FoodTrail::read`, §23e): for an empty ant the
+/// caller has gated in, standing in a door box, which side the food trail
+/// says the food is on and how hard to pull that way -- `Some((side, f))`,
+/// `side` the sign of the level step (+1 east) and `f` the bonus each level
+/// heading that way gets, or `None` for no term.
+///
+/// The read is trail B at the ant's own reach-6 sensors, east and west on its
+/// own row, never the one- or two-cell ring: that ring sits in the door's own
+/// delivery smear and reads saturated on both sides. `g = (bE - bW) / (bE +
+/// bW + TRAIL_HALF)`, and `f = gain × want × |g|`, `want` the larger of the
+/// ant's hunger and the forage drive. Nothing is subtracted, and with both
+/// sensors dark there is no term, so on dark ground this is `lay` exactly.
+///
+/// **Gated on the colony's news** (the design's M2): no term once this nest
+/// has seen no forager come home with food for `return_window()` frames.
+/// Without it the door kept reading "food side" for 800-1,400 frames after a
+/// pile ran out, a leash to a pile that is gone. It is the forage drive's own
+/// clock, so it adds no constant.
+fn door_read(world: &mut World, organism: OrganismId, def: &CreatureDef, (hx, hy): (i32, i32)) -> Option<(i32, f32)> {
+    let site = door_site(world, hx, hy)?;
+    let st = world.organism(organism)?;
+    if st.spoil.is_some() {
+        return None;
+    }
+    let hunger = 1.0 - (st.energy / def.start_energy.max(1.0)).clamp(0.0, 1.0);
+    let drive = if forage_drive_of(world).on() { forage_drive_level(world, st, def) } else { 0.0 };
+    let want = hunger.max(drive);
+    world.creature_stats.door_reads += 1;
+    let last = world.nest_last_return.get(site).copied().unwrap_or(0);
+    let window = match food_trail_of(world).window {
+        w if w > 0.0 => w,
+        _ => return_window(),
+    };
+    if last == 0 || world.frame.saturating_sub(last) as f32 > window {
+        world.creature_stats.door_stale += 1;
+        return None;
+    }
+    let so = def.sensor_offset;
+    let b_e = f32::from(world.pheromone_at(Channel::B, hx + so, hy));
+    let b_w = f32::from(world.pheromone_at(Channel::B, hx - so, hy));
+    let g = (b_e - b_w) / (b_e + b_w + TRAIL_HALF);
+    if g == 0.0 || want <= 0.0 {
+        return None;
+    }
+    world.creature_stats.door_pulled += 1;
+    Some((if g > 0.0 { 1 } else { -1 }, food_trail_of(world).gain * want * g.abs()))
+}
+
 fn chooser_step(
     world: &mut World,
     organism: OrganismId,
@@ -17155,6 +17235,27 @@ fn chooser_step(
         }
         _ => (1.0, false, false),
     };
+    // **Stage 2, the reader at the door** ([`door_read`], §23e): an empty
+    // ant with no home pull that has not given up. Scouts on their way home
+    // are left alone -- a given-up ant sent back out at the door is the
+    // design's M1, and `scout_home` is set only until the next nest contact.
+    // The `!is_nest_bound` gate the design listed is not taken: the drive is
+    // already 0 for a fed nest-bound ant, so it excluded only hungry ones.
+    let door = if reads_trail && !laden && pull.is_none() && !scout_home && food_trail_of(world).read {
+        door_read(world, organism, def, (hx, hy))
+    } else {
+        None
+    };
+    let door_walk = door.and_then(|_| door_site(world, hx, hy)).map(|i| world.nest_sites[i].surface - 1);
+    let door_term = |d: u8| -> f32 {
+        let (Some((side, f)), Some(walk)) = (door, door_walk) else { return 0.0 };
+        let (dx, dy) = DIRS[d as usize];
+        if dx == side && hy + dy <= walk {
+            f
+        } else {
+            0.0
+        }
+    };
     let route = |d: u8| if reads_trail { trail_presence(world, (hx, hy), d, laden) } else { 0.0 };
     // **Stage 3, the give-up lets go** (`FoodTrail::giveup`,
     // `Reports/ant-scenes-2026-09-23.md` §23d): a scout that has given up is
@@ -17206,6 +17307,7 @@ fn chooser_step(
             } else {
                 scout_cos(d).map_or(0.0, |c| -scout_w * scout_patience * (1.0 - route(d)) * c)
             }
+            + if door.is_some() { door_term(d) } else { 0.0 }
     };
     // Usable headings in `DIRS` order, then the crossing, so the draw maps to
     // the same option every run.
@@ -17213,6 +17315,11 @@ fn chooser_step(
     let scores: Vec<f32> = options.iter().map(|&d| score(d)).collect();
     let pick = choose_weighted(&scores, k, draw.unit_f32());
     let picked_route = if reads_trail { route(options[pick]) } else { f32::NAN };
+    if let Some((side, _)) = door {
+        if pick < usable.len() && DIRS[options[pick] as usize].0 == side {
+            world.creature_stats.door_followed += 1;
+        }
+    }
     // The home cosine of the heading picked, for an empty ant under
     // `TrailAway` too (negative: outward).
     let picked_cos = home_cos(options[pick]).or_else(|| away_home_cos(options[pick])).unwrap_or(f32::NAN);
@@ -30370,6 +30477,83 @@ mod tests {
         assert_eq!(outward(lay_giveup, false), held, "under lay,giveup a scout that gave up on a lit route should keep the trail's pull, as under lay");
     }
 
+    /// **Stage 2's reader turns a west-facing ant at the door toward the
+    /// trail** (`door_read`, §23e). A hungry empty ant stands on the door's
+    /// walking row facing west, with trail B laid only east of it (from its
+    /// reach-6 sensor out), and chooses 300 times, put back each time. Under
+    /// `lay,read` it must step east far more often than under `lay`. Three
+    /// controls each give `lay`'s walk exactly: no trail anywhere (both
+    /// sensors dark, no term), a nest that has seen no return for longer than
+    /// `return_window()` (the stale-leash gate, M2), and the ant laden. With
+    /// the trail mirrored west the reader must not send it east.
+    /// **Watched red** four ways: the term never added (east share equal to
+    /// `lay`), the stale gate removed, the read keyed on reach 1, and the side
+    /// sign flipped.
+    #[test]
+    fn a_reader_at_the_door_turns_toward_the_food_side() {
+        let east = |ft: FoodTrail, trail: i32, stale: bool, laden: bool| -> (u32, u64) {
+            let stone = Cell::new(material::STONE, 0).with_attached(true);
+            let mut n = 0;
+            let mut followed = 0;
+            for i in 0..300u64 {
+                let mut w = World::new(Rect::new(0, 0, 199, 63));
+                for x in 0..200 {
+                    for y in 41..64 {
+                        w.set(x, y, stone);
+                    }
+                }
+                if trail != 0 {
+                    let xs = if trail > 0 { 106..=150 } else { 50..=94 };
+                    for x in xs {
+                        for y in 38..=40 {
+                            w.deposit_pheromone(Channel::B, x, y, 5000);
+                        }
+                    }
+                }
+                w.chooser = Some(Chooser::TrailAway);
+                w.scout = Some(SCOUT_DEFAULT);
+                w.forage_drive = Some(ForageDrive::OFF);
+                w.food_trail = Some(ft);
+                w.nest_door = Some(Some(2));
+                w.register_nest_site(100, 40, 4);
+                if stale {
+                    w.frame = 10_000;
+                }
+                w.nest_last_return = vec![1];
+                let ant = spawn(&mut w, "ant", 100, 40);
+                let def = w.species.get(w.organism(ant).expect("live").species).creature.clone().expect("a creature");
+                let crumbs = w.materials.id_of("fruit").expect("fruit.ron must be registered");
+                {
+                    let st = w.organism_mut(ant).expect("live");
+                    st.heading = 4;
+                    st.energy = def.start_energy * 0.3;
+                    st.forage_anchor = (100, 40);
+                    if laden {
+                        st.crop = Some(Crop { material: crumbs, cells: 1, digesting: 0.0, unit: 400.0, shade: 0, passenger: None });
+                    }
+                }
+                assert!(door_site(&w, 100, 40).is_some(), "the scene's ant is not in the door box");
+                let head = w.organism(ant).expect("live").chain[0];
+                let mut draw = rng::stream(i, ant as u64, 0, RNG_SLOT_MOVE);
+                assert!(chooser_step(&mut w, ant, 4, &[0.0; brain::BRAIN_OUTPUTS], &def, &mut draw, Chooser::TrailAway), "the step was refused");
+                n += u32::from(w.organism(ant).expect("live").chain[0].0 > head.0);
+                followed += w.creature_stats.door_followed;
+            }
+            (n, followed)
+        };
+        let lay = FoodTrail { lay: true, ..FoodTrail::OFF };
+        let read = FoodTrail { read: true, ..lay };
+        let (base, _) = east(lay, 1, false, false);
+        let (pulled, followed) = east(read, 1, false, false);
+        assert!(base <= 90, "under lay a west-facing ant at the door stepped east {base} of 300: the scene cannot show a turn");
+        assert!(pulled >= base + 60, "under lay,read the reader turned only {pulled} of 300 east, against {base} under lay");
+        assert!(followed >= u64::from(pulled), "the effect counter saw {followed} follows for {pulled} east steps");
+        assert_eq!(east(read, 0, false, false).0, east(lay, 0, false, false).0, "with no trail the reader added a term");
+        assert_eq!(east(read, 1, true, false).0, base, "a nest with no return for longer than the window still pulled");
+        assert_eq!(east(read, 1, false, true).0, east(lay, 1, false, true).0, "a laden ant was read");
+        assert!(east(read, -1, false, false).0 <= east(lay, -1, false, false).0, "with the trail west the reader sent the ant east");
+    }
+
     /// **Under `PIXEL_PHYSICS_PACKED_LUNCH` a forager whose crop holds only
     /// food taken at home is driven out like an empty one** (`carries_lunch`,
     /// `packed_lunch_of`). The forage drive's scene -- a bare floor, walls at
@@ -30762,6 +30946,8 @@ mod tests {
         assert_eq!(parse_food_trail("read"), FoodTrail { read: true, ..FoodTrail::OFF }, "read without lay parses: the plan's diagnostic arm");
         assert_eq!(parse_food_trail("lay,t=-1"), unset, "a negative odometer is unreadable");
         assert_eq!(parse_food_trail("lay,reach=4"), unset, "a reach other than 2 or 6 is unreadable");
+        assert_eq!(parse_food_trail("lay,read,window=700"), FoodTrail { lay: true, read: true, window: 700.0, ..FoodTrail::OFF });
+        assert_eq!(parse_food_trail("lay,read,window=0"), unset, "a zero window is unreadable: 0 means the drive's own");
         assert_eq!(parse_food_trail("read,fast"), unset, "a part it does not know makes the whole value unset");
         assert_eq!(FoodTrail::OFF.gain, FOOD_TRAIL_GAIN);
         assert_eq!(FoodTrail::OFF.reach, 6);
