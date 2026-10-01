@@ -3954,3 +3954,35 @@ of the give-up's cost at 200; the rest, and why `lay` alone costs the
 colony at 200, are open. Guard: the give-up walk test's stranded arm
 (watched red with `stranded` forced false: gave up at x 222). Run dirs:
 `/tmp/claude-0/s7` (session scratch, not kept).
+
+**Who the trail kills at 200 cells, traced further (2026-10-01, evening).**
+Same binary and run dirs; seeds 1-6 per arm with `decisioncsv dwide`.
+
+- **Founders, not newborns.** Dead founders: silenced 45, `lay` 59,
+  default 58; newborns that died: 0, 1, 1. Births in these six seeds are
+  equal across arms (14 silenced, 16 default), so the extra deaths are not
+  extra mouths. (The 24-seed births rise, 45 -> 87, comes from the other 18
+  seeds.)
+- **They set out under-fuelled.** Departures east with 40-100 energy (of
+  `start_energy` 200) die on the way out 22% of the time under `lay` (17 of
+  77) against 8% silenced (5 of 63); default 14 of 70. Under 40, departures
+  are rare in every arm (7-9). The ones that die walk straight out (0
+  reversals, no give-up) and run dry at 160-190 cells; a 200-cell walk
+  costs about 80. **Successful outbound trips cost the same** with and
+  without the trail (median 1,608 vs 1,632 frames, 169 vs 170 steps), so
+  the road is not longer: the trail sends more of the marginal ants out.
+- **Nothing at home tops them up.** Food standing in the nest is a median
+  2-3 cells. Sharing (`Share`, on) fires 135-628 times a run and moves
+  1.8k-8.4k J against a need of about 44k J a run, too little to fuel a
+  marginal forager.
+- **Not overbreeding here.** Births at 200 cells are 0-5 a run; the colony
+  absorbs about 71% of its burn because few round trips complete. 200 cells
+  is a thin-supply regime, unlike 90 cells where most intake becomes births.
+
+**Rejected on the way:** "the scent fades far out" (coverage is 40-80% at
+every distance outside one broken-trail seed); "starving ants set out with
+no trail to follow" (they set out about as often without it); a door check
+on trip cost (not how ants decide, and the deaths are not the lowest-energy
+departures). **Candidate next step, not built:** a low ant at the nest
+waits by the door for a returning forager to share with it rather than
+setting out, the ant-like form of "don't leave hungry", scored on every bed.

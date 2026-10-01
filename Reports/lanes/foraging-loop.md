@@ -61,7 +61,7 @@ commands and the traps.*
 
 **Shipped on** (`=off`, or `face`, `always`, is the ant before it):
 `FORAGE_DRIVE=returns`, `TRIP_REACH=on` (16), `CARRY_PATIENCE=pickup` (Z35), `PACKED_LUNCH=on`,
-`BIRTH_PRICE=guaranteed` (Z36), `FOOD_TRAIL=lay,read,giveup,window=700` (10-01; `lay` alone 09-30) -- all
+`BIRTH_PRICE=guaranteed` (Z36), `FOOD_TRAIL=lay,read,giveup,window=700,noreturn` (10-01, #535/#536; `lay` alone 09-30) -- all
 `PIXEL_PHYSICS_`; and the nest lane's granary (#513). **`STORE_LUNCH` is
 off** (§22t).
 
@@ -74,6 +74,13 @@ significant): the reader must give them a reason to leave. `mute` is
 heritable since 09-30 (`World::mute_emit_b`), so the control no longer leaks.
 
 **Next, in order (start here):**
+0. **(2026-10-01, ant-scenes §23f) Stages 2-3 are built and on (#535, #536).**
+   The trail wins big at 90 and 140 cells but not at 200, where founders
+   set out under-fuelled from an empty nest and die at 160-190 cells.
+   Proposed to the owner, awaiting his go: a low ant at the nest waits by
+   the door to be fed by a returning forager instead of setting out;
+   score on all six beds (it may cost the near ones). Items 1-2 below are
+   done; read them as history.
 1. **B5 is built** (#526, 2026-09-30, `pile2=west`; numbers in its commit).
    Oracle beats mute 21/3, so the bed can reward a trail; oracle beats self
    18/6 on the take in the first 1,500 frames after a swap, which is the
