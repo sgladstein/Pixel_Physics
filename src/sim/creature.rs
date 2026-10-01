@@ -16436,7 +16436,7 @@ impl FoodTrail {
     /// Nothing: the ant before it, bit for bit.
     pub const OFF: FoodTrail = FoodTrail { lay: false, read: false, giveup: false, t: 0.0, gain: FOOD_TRAIL_GAIN, reach: 6, follow_all: false, window: 0.0 };
     /// `on`: all three parts at their defaults.
-    pub const ON: FoodTrail = FoodTrail { lay: true, read: true, giveup: true, ..FoodTrail::OFF };
+    pub const ON: FoodTrail = FOOD_TRAIL_UNSET;
 }
 
 /// **Stage 2's follow gain**, the plan's `FOLLOW_GAIN`: 6, raised from the
@@ -16445,9 +16445,27 @@ impl FoodTrail {
 /// of about 1.9, which at a full want and a typical read is 6.
 pub const FOOD_TRAIL_GAIN: f32 = 6.0;
 
-/// What `PIXEL_PHYSICS_FOOD_TRAIL` unset means: the lay rule alone, measured
-/// against `off` and `mute` in §23c and on by default since 2026-09-30.
-const FOOD_TRAIL_UNSET: FoodTrail = FoodTrail { lay: true, ..FoodTrail::OFF };
+/// **The reader's stale-pile window when the food trail is unset**, in
+/// frames: half the forage drive's `RETURN_WINDOW`. At the drive's 1,400 the
+/// door kept pulling ants toward a 30-cell pile for most of a round trip after
+/// it ran out, and the refilling pile paid for it -- starved 228 -> 258
+/// (16/6, p 0.052) at 140 cells; at 700, 228 -> 251 (13/9) and on 24 fresh
+/// seeds 241 -> 255 (13/8, p 0.38), with every steady-pile gain kept
+/// (`Reports/ant-scenes-2026-09-23.md` §23e). Chosen after the 1,400 arm's
+/// scoring and then confirmed on the fresh seeds, not registered in advance.
+pub const READ_WINDOW_SHIPPED: f32 = 700.0;
+
+/// What `PIXEL_PHYSICS_FOOD_TRAIL` unset means: **the lay rule, the reader
+/// and the give-up, on by default since 2026-10-01** (owner: "You can turn
+/// anything on by default that you want"; §23e's `FGW`). Against the lay rule
+/// alone, 24 paired seeds: food taken 10,546 -> 17,221 (22/2) on the
+/// unlimited pile at 90 cells and 6,543 -> 9,033 (23/1) at 140; 80 founders
+/// starved 649 -> 289 (0/24); the two-pile bed starved 131 -> 62 (4/18); the
+/// lab box births 371 -> 544.5 (17/7, p 0.064), no gate worse. The one lean
+/// left, none of it significant: starved on a refilling pile runs 3-10% above
+/// `lay` in three of four readings. `lay` alone, on 2026-09-30 to 10-01, is
+/// `PIXEL_PHYSICS_FOOD_TRAIL=lay`.
+const FOOD_TRAIL_UNSET: FoodTrail = FoodTrail { lay: true, read: true, giveup: true, window: READ_WINDOW_SHIPPED, ..FoodTrail::OFF };
 
 /// `PIXEL_PHYSICS_FOOD_TRAIL`'s value read as a recipe; an unset variable
 /// reads as `""`. `off`, `on`, or a comma list of parts: `lay`, `read`,
@@ -16476,7 +16494,7 @@ fn parse_food_trail(raw: &str) -> FoodTrail {
                 true
             }
             "on" => {
-                (ft.lay, ft.read, ft.giveup) = (true, true, true);
+                (ft.lay, ft.read, ft.giveup, ft.window) = (true, true, true, READ_WINDOW_SHIPPED);
                 true
             }
             "follow=all" => {
@@ -30930,13 +30948,13 @@ mod tests {
     }
 
     /// **`PIXEL_PHYSICS_FOOD_TRAIL` reads its spellings, and a value it
-    /// cannot read is reported and read as unset (`lay`), never as some
+    /// cannot read is reported and read as unset, never as some
     /// half-built recipe** (`parse_food_trail`). A table over the parser, not
     /// watched red.
     #[test]
     fn parse_food_trail_reads_its_spellings() {
-        let unset = FoodTrail { lay: true, ..FoodTrail::OFF };
-        assert_eq!(parse_food_trail(""), unset, "unset is the lay rule, on since 2026-09-30");
+        let unset = FoodTrail { lay: true, read: true, giveup: true, window: READ_WINDOW_SHIPPED, ..FoodTrail::OFF };
+        assert_eq!(parse_food_trail(""), unset, "unset is lay, read and giveup, on since 2026-10-01");
         assert_eq!(parse_food_trail("off"), FoodTrail::OFF);
         assert_eq!(parse_food_trail(" on "), FoodTrail::ON);
         assert_eq!(parse_food_trail("lay"), FoodTrail { lay: true, ..FoodTrail::OFF });

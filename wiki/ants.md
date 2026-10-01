@@ -1,7 +1,18 @@
 # Ants
 
-*Current as of: 2026-10-01, when **a digger near the front door stopped
-dropping its dirt back inside.** The room the entrance shaft opens into has
+*Current as of: 2026-10-01, when **an ant leaving the nest started reading
+which way the food is.** An empty forager stepping out of the front door used
+to set off whichever way it happened to be facing, so a third of them walked
+away from the only heap. Now an ant at the door smells the food scent a few
+steps to either side and turns toward the stronger one, and an ant that has
+walked a food scent off its end and found nothing turns for home instead of
+wandering on. In a test colony with food 90 cells away the share heading the
+wrong way fell from a third to one in twelve, two thirds as much food again
+came off the heap, and more than twice as many young were born; in a crowded
+colony half as many ants starved. Where a small heap is emptied and refilled,
+ants starve about as often as before. Earlier the same day, **a digger near
+the front door stopped dropping its dirt back inside.** The room the entrance
+shaft opens into has
 the shaft in a corner of its ceiling, and a digger on that room's floor,
 heading for the door, kept finding itself no nearer, gave up and dropped its
 crumb where it stood, so the room under the door slowly filled with packed
@@ -38,8 +49,8 @@ foragers walking home, but also ants eating at the nest, ants carrying a
 lunch out, and nest workers — so the food scent lay thickest over the nest
 itself and told nobody where the food was. Now the scent runs from the heap to
 the door along the ways foragers actually came, and nothing else lays it.
-Nothing yet follows it any differently; this is the first of three changes,
-and the next teaches a hungry ant to read which way along it the food lies.
+This was the first of three changes; on 2026-10-01 an ant at the door
+started reading it (above).
 Even so, in a test colony with food 90 cells away half again as much food
 comes off the heap, a quarter as many ants starve and twice as many young are
 born; with the food 140 cells away, the same gain and fewer than half as
