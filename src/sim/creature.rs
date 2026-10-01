@@ -4419,23 +4419,25 @@ pub fn bud_readiness(world: &World, organism: OrganismId) -> Option<BudReadiness
 /// needs two empty cells finds none. A child allowed to stand on a nestmate,
 /// as any stacked ant does, would have fitted at **39%** of those refusals.
 ///
-/// **Off by default, and a switch on purpose**: births are the foraging
-/// lane's economy, so the default is theirs to review
-/// (`Reports/lanes/nest-mouth.md`).
+/// **On by default since 2026-09-30** (owner: "turn all new features on by
+/// default unless there is a real trade off"), shipped with stacking and the
+/// walked spoil cycle as one package; `PIXEL_PHYSICS_BUD_STACK=off` puts the
+/// old birth back. Births are the foraging lane's economy: the lab gate for
+/// the package is `Reports/nest-one-entrance-2026-09-29.md` §18.
 fn bud_stack() -> bool {
     static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *V.get_or_init(|| parse_bud_stack(&std::env::var("PIXEL_PHYSICS_BUD_STACK").unwrap_or_default()))
 }
 
-/// `PIXEL_PHYSICS_BUD_STACK`'s value: `on`, else off. A value it cannot read
-/// is reported and read as unset.
+/// `PIXEL_PHYSICS_BUD_STACK`'s value: `off`, else on. A value it cannot read
+/// is reported and read as unset, which is on.
 fn parse_bud_stack(raw: &str) -> bool {
     match raw.trim() {
-        "" | "off" => false,
-        "on" => true,
+        "" | "on" => true,
+        "off" => false,
         v => {
-            eprintln!("PIXEL_PHYSICS_BUD_STACK={v:?} is not `on` or `off`; read as unset");
-            false
+            eprintln!("PIXEL_PHYSICS_BUD_STACK={v:?} is not `on` or `off`; read as unset (on)");
+            true
         }
     }
 }
@@ -10615,20 +10617,25 @@ impl SpoilOut {
     }
 }
 
-/// The cycle this process runs ([`SpoilOut`]): off unless
-/// `PIXEL_PHYSICS_SPOIL_OUT` names it.
+/// The cycle this process runs ([`SpoilOut`]): **every part, by default
+/// since 2026-09-30** (owner: "turn all new features on by default unless
+/// there is a real trade off"; measured as one package with stacking and
+/// births on nestmates, `Reports/nest-one-entrance-2026-09-29.md` §17-§18).
+/// `PIXEL_PHYSICS_SPOIL_OUT=off` puts the lift back; a comma list runs
+/// exactly the parts it names.
 pub fn spoil_out() -> SpoilOut {
     static V: std::sync::OnceLock<SpoilOut> = std::sync::OnceLock::new();
     *V.get_or_init(|| parse_spoil_out(&std::env::var("PIXEL_PHYSICS_SPOIL_OUT").unwrap_or_default()))
 }
 
-/// `PIXEL_PHYSICS_SPOIL_OUT`'s value read as a [`SpoilOut`]: unset and `off`
-/// are the shipped ant, `on` every part, and a comma list exactly the parts it
-/// names. A value it cannot read is reported and read as unset.
+/// `PIXEL_PHYSICS_SPOIL_OUT`'s value read as a [`SpoilOut`]: unset and `on`
+/// are every part (the shipped ant), `off` none (the lift), and a comma list
+/// exactly the parts it names. A value it cannot read is reported and read as
+/// unset.
 fn parse_spoil_out(raw: &str) -> SpoilOut {
     match raw.trim() {
-        "" | "off" => SpoilOut::default(),
-        "on" => SpoilOut::ON,
+        "" | "on" => SpoilOut::ON,
+        "off" => SpoilOut::default(),
         v => {
             let mut out = SpoilOut::default();
             for part in v.split(',').map(str::trim) {
@@ -10638,8 +10645,8 @@ fn parse_spoil_out(raw: &str) -> SpoilOut {
                     "keep" => out.keep = true,
                     "back" => out.back = true,
                     _ => {
-                        eprintln!("PIXEL_PHYSICS_SPOIL_OUT={raw:?}: {part:?} is not `on`, `off` or a part (haul, pace, keep, back); read as unset");
-                        return SpoilOut::default();
+                        eprintln!("PIXEL_PHYSICS_SPOIL_OUT={raw:?}: {part:?} is not `on`, `off` or a part (haul, pace, keep, back); read as unset (on)");
+                        return SpoilOut::ON;
                     }
                 }
             }
@@ -10662,9 +10669,10 @@ fn inside_nest(world: &World, x: i32, y: i32) -> bool {
 /// `PIXEL_PHYSICS_SPOIL_RING=<shape>,<scale>`, **on by default at
 /// [`SpoilRing::SHIPPED`] and acting only under the walked cycle**
 /// ([`SpoilOut`], whose haul pulls the carrier and whose `keep` holds the
-/// pellet inside the nest): with `PIXEL_PHYSICS_SPOIL_OUT` unset the carry
-/// reads as absent whatever this says ([`spoil_ring_of`]), so the shipped
-/// lift is untouched. `off` turns it off under the walked cycle too.
+/// pellet inside the nest, on by default since 2026-09-30): with
+/// `PIXEL_PHYSICS_SPOIL_OUT=off` the carry reads as absent whatever this says
+/// ([`spoil_ring_of`]), so the lift is untouched. `off` turns it off under the
+/// walked cycle too.
 ///
 /// **Why.** Walked out with nothing more, a carrier puts its pellet down on
 /// the first ground outside the founding cut, which is the mouth's rim, and
@@ -10714,16 +10722,96 @@ impl SpoilRing {
 /// process's [`spoil_ring`]; else none.
 ///
 /// **The gate is load-bearing.** The drop's hold reads this for any carrier
-/// standing outside the nest, walked or not, so without it a default carry
-/// would hold the shipped lift's pellets too -- a change the owner was never
-/// shown, and one that every measurement of the carry (all taken with
-/// `SPOIL_OUT=on`) says nothing about. A world's own setting still wins, so
-/// the unit tests below can hold the carry on without the process switch.
+/// standing outside the nest, walked or not, so without it the carry would
+/// hold the lift's pellets too (`SPOIL_OUT=off`) -- a change the owner was
+/// never shown, and one that every measurement of the carry (all taken with
+/// the walked cycle on) says nothing about. A world's own setting still wins,
+/// so the unit tests below can hold the carry on or off without the process
+/// switch.
 pub fn spoil_ring_of(world: &World) -> Option<SpoilRing> {
-    match world.spoil_ring {
+    ring_gate(world.spoil_ring, spoil_out(), spoil_ring())
+}
+
+/// [`spoil_ring_of`]'s rule with its three inputs passed in, so a test can
+/// run the walked cycle off in a process where it is on.
+fn ring_gate(set: Option<Option<SpoilRing>>, walked: SpoilOut, ring: Option<SpoilRing>) -> Option<SpoilRing> {
+    match set {
         Some(set) => set,
-        None if spoil_out().any() => spoil_ring(),
+        None if walked.any() => ring,
         None => None,
+    }
+}
+
+/// **A carrier near its door keeps its pellet when the haul's patience runs
+/// out**: `PIXEL_PHYSICS_SPOIL_HOLD=<cells>`, on by default at
+/// [`SPOIL_HOLD_SHIPPED`], `off` for the old rule. Acts only under the walked
+/// cycle's `keep` ([`SpoilOut`]), which is the only thing that holds a pellet
+/// inside the nest at all.
+///
+/// **Why.** Under `keep` a carrier that has run out of patience inside the
+/// nest lays its pellet beside itself, and traced in `examples/digbox`
+/// (2026-10-01, 16 boxes at 40 and 200 ants, a line at every carrier step
+/// and drop) **13% of pellets went down below the old ground line that way,
+/// and over 99% of them within 12 cells of the door, 5-7 rows down** -- in
+/// the room the door shaft opens into. The shaft comes into that room at a
+/// corner of its ceiling, and the haul pulls in a straight line at the
+/// shaft's top, which from the room's floor points up through open air: a
+/// carrier there shuffles along the floor, gets no nearer by the patience's
+/// measure ([`PATIENCE_PROGRESS`]), gives up after about twenty steps and
+/// puts the pellet down under the door. Those pellets are the tamped blocks
+/// under the room in the colour-coded pictures, and the colony digs them out
+/// again. A carrier that close keeps it, and comes out by the door when its
+/// wandering takes it there.
+///
+/// **Measured** (`digbox fed nulls=0 energy=1000 w=200 soil=60
+/// frames=24000`, 8 seeds a size, `scripts/nestgrid.py --pair` at 24,000;
+/// off -> 12): pellets put down below the old ground line 24 -> 2 (40 ants,
+/// lower on 8 of 8) and 93.5 -> 12 (200, lower on 8); the colony re-digging
+/// its own fill 70 -> 30.5 and 268 -> 146; new ground dug 155.5 -> 140.5 and
+/// 326.5 -> 299.5 (lower on 7 and 6), because a carrier holds its pellet
+/// longer; open space 168 -> 171.5 and 247.5 -> 230; sealed-off cells 2 -> 2
+/// and 4 -> 8 (4 / 3 seeds either way).
+///
+/// **What it is answering is a queue, and that is why waiting works.** The
+/// other answer, built the same day and compared at the owner's ask
+/// (`PIXEL_PHYSICS_SPOIL_ROUTE`, in `Reports/dead-ends.md`), steered the
+/// carrier along the passages by a distance field from the door and measured
+/// its patience in that field: pellets put inside went 24 -> 52 at 40 ants
+/// and 93.5 -> 80 at 200, against 2 and 12 for this. Traced, those carriers
+/// reach the shaft's foot and wait behind the ants in the one-cell shaft, so
+/// the limit under the door is the shaft's traffic, not the pull's direction.
+/// Chebyshev from the haul's own target ([`spoil_haul_target`]), so it reads
+/// the door the carrier is being pulled to and not a second notion of where
+/// the door is.
+pub const SPOIL_HOLD_SHIPPED: i32 = 12;
+
+/// The hold distance in force for `world` ([`SPOIL_HOLD_SHIPPED`]): its own
+/// `World::spoil_hold` if set, else the process's.
+pub fn spoil_hold_of(world: &World) -> Option<i32> {
+    world.spoil_hold.unwrap_or_else(spoil_hold)
+}
+
+/// The hold distance this process names: [`SPOIL_HOLD_SHIPPED`] unless
+/// `PIXEL_PHYSICS_SPOIL_HOLD` names another or `off`.
+pub fn spoil_hold() -> Option<i32> {
+    static V: std::sync::OnceLock<Option<i32>> = std::sync::OnceLock::new();
+    *V.get_or_init(|| parse_spoil_hold(&std::env::var("PIXEL_PHYSICS_SPOIL_HOLD").unwrap_or_default()))
+}
+
+/// `PIXEL_PHYSICS_SPOIL_HOLD`'s value: unset and `on` are
+/// [`SPOIL_HOLD_SHIPPED`], `off` and `0` are `None`, a positive count of
+/// cells is that count. A value it cannot read is reported and read as unset.
+fn parse_spoil_hold(raw: &str) -> Option<i32> {
+    match raw.trim() {
+        "" | "on" => Some(SPOIL_HOLD_SHIPPED),
+        "off" | "0" => None,
+        v => match v.parse::<i32>() {
+            Ok(r) if r > 0 => Some(r),
+            _ => {
+                eprintln!("PIXEL_PHYSICS_SPOIL_HOLD={raw:?}: not `on`, `off` or a positive count of cells; read as unset ({SPOIL_HOLD_SHIPPED})");
+                Some(SPOIL_HOLD_SHIPPED)
+            }
+        },
     }
 }
 
@@ -13438,7 +13526,17 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
             None => (false, false),
         };
         let keep_inside = (spoil_out().keep && (inside_nest(world, x, y) || unlatched)) || ring_hold;
-        let kept_inside = keep_inside && world.organism(organism).is_some_and(|s| s.home_patience >= DIG_RETURN_GIVE_UP);
+        // **...and near the door, kept even after it has run out**
+        // ([`spoil_hold_of`]): the room under the door is where nearly every
+        // pellet the old rule let go inside went down.
+        let patient = world.organism(organism).is_some_and(|s| s.home_patience >= DIG_RETURN_GIVE_UP);
+        let held_near_door = keep_inside
+            && !patient
+            && spoil_hold_of(world).is_some_and(|r| {
+                world.organism(organism).and_then(|s| spoil_haul_target(world, s, (x, y))).is_some_and(|(tx, ty)| (x - tx).abs().max((y - ty).abs()) <= r)
+            });
+        world.creature_stats.spoil_held_near_door += u64::from(held_near_door);
+        let kept_inside = keep_inside && (patient || held_near_door);
         let cover_scale = if kept_inside {
             world.creature_stats.spoil_kept_inside += 1;
             0.0
@@ -21188,11 +21286,26 @@ fn creature_dies(world: &mut World, organism: OrganismId, cause: organism::Death
         // a sealed pocket, 4 pellets of 1,125 digs had nowhere in the eight.
         // Radius two costs 16 more `is_empty` reads on a path that runs once
         // per death.
-        let ring2 = (-2i32..=2)
-            .flat_map(|dy| (-2i32..=2).map(move |dx| (dx, dy)))
-            .filter(|&(dx, dy)| dx.abs() == 2 || dy.abs() == 2)
-            .map(|(dx, dy)| (cx + dx, cy + dy));
-        let site = NEIGHBOURS_8.iter().map(|&(dx, dy)| (cx + dx, cy + dy)).chain(ring2).find(|&(px, py)| world.is_empty(px, py));
+        //
+        // **Rings out to eight since stacking shipped (2026-09-30).** Four
+        // nestmates to a cell pack a gallery so tight that two rings were no
+        // longer enough: `digging_moves_the_ground_rather_than_eating_it` lost
+        // 16 of 133 pellets this way at the shipped cap of 4, against its bar
+        // of one in twenty. Traced (a temporary line at every loss): the
+        // colony dies packed into one chamber, with **no** empty cell within
+        // five of the body and 43-54 within eight; four rings still lost 13.
+        // The outer rings are read only when the inner ones are full, so a
+        // death with room nearby places exactly as before, and a pellet set
+        // down a few cells off is better than one taken out of the world.
+        let rings = (2i32..=8).flat_map(|r| {
+            (-r..=r).flat_map(move |dy| (-r..=r).map(move |dx| (dx, dy))).filter(move |&(dx, dy)| dx.abs() == r || dy.abs() == r)
+        });
+        let site = NEIGHBOURS_8
+            .iter()
+            .copied()
+            .chain(rings)
+            .map(|(dx, dy)| (cx + dx, cy + dy))
+            .find(|&(px, py)| world.is_empty(px, py));
         match site {
             Some((px, py)) => {
                 world.set(px, py, spoil.cell);
@@ -21274,15 +21387,17 @@ mod tests {
     use super::*;
     use crate::sim::chunk::Rect;
 
-    /// **The stacking cap defaults to 1, and 1 is today's engine.**
+    /// **The stacking cap defaults to the shipped cap, 4 since 2026-09-30;
+    /// 1 is the engine before stacking.**
     ///
     /// The whole toggle rests on this: at a cap of 1, *may I enter a cell
     /// that already holds one creature* is exactly *is this cell occupied*,
     /// so the pre-stacking behaviour is a **value of the parameter** rather
-    /// than a second code path. If this default ever moves, stacking ships
-    /// armed to every scene in the repo without anything else changing --
-    /// including `tests/worldgen.rs`'s guard that not one cell moves in the
-    /// 120 frames after generation, which sweeps every preset.
+    /// than a second code path. Moving this default arms stacking in every
+    /// scene in the repo without anything else changing -- including
+    /// `tests/worldgen.rs`'s guard that not one cell moves in the 120 frames
+    /// after generation, which sweeps every preset -- and that is what the
+    /// 2026-09-30 flip did, on purpose.
     ///
     /// **A field on `World` rather than a process-wide `OnceLock`**, and the
     /// first draft was the `OnceLock`. The idiom `blocked_census_enabled`
@@ -21292,12 +21407,12 @@ mod tests {
     /// asserting the default. `World::room_target` is the precedent -- read
     /// from the environment once at construction, then a value you can set.
     #[test]
-    fn the_stacking_cap_defaults_to_one() {
+    fn the_stacking_cap_defaults_to_the_shipped_cap() {
         let w = World::new(Rect::new(0, 0, 63, 63));
         assert_eq!(
             w.stack_cap(),
-            1,
-            "the default cap is not 1, so every scene in the repo is running with stacking armed"
+            crate::sim::world::SHIPPED_STACK_CAP,
+            "a new world does not run the shipped stacking cap (is PIXEL_PHYSICS_STACK_DEPTH set?)"
         );
     }
     use crate::sim::field;
@@ -23356,22 +23471,27 @@ mod tests {
         }
     }
 
-    /// **The shipped carry does nothing outside the walked cycle.** The drop's
-    /// hold reads [`spoil_ring_of`] for any carrier outside the nest, so a
-    /// default carry that leaked past its gate would hold the shipped lift's
-    /// pellets: a carrier on the open surface right beside the door, `DropSpoil`
-    /// at 1, must still put its pellet down with no world setting, as it did
-    /// before the carry existed. Needs `PIXEL_PHYSICS_SPOIL_OUT` unset, as every
-    /// other test here does. Written after the gate: watched red by dropping
-    /// the gate's `spoil_out().any()` arm.
+    /// **The carry is shipped on, and does nothing outside the walked cycle.**
+    /// Since 2026-09-30 the walked cycle is the default, so an unset
+    /// environment runs every part of it and the carry at
+    /// [`SpoilRing::SHIPPED`]: a carrier on the open surface right beside the
+    /// door, `DropSpoil` at 1, holds its pellet and draws its column. And the
+    /// gate still holds: with the walked cycle off ([`ring_gate`] given
+    /// `SpoilOut::default()`), no carry reaches the drop, so the lift's
+    /// pellets go down as they did before the carry existed. Needs
+    /// `PIXEL_PHYSICS_SPOIL_OUT` and `PIXEL_PHYSICS_SPOIL_RING` unset. The
+    /// first half goes red when `parse_spoil_out("")` is put back to off;
+    /// the second was watched red by dropping the gate's `walked.any()` arm.
     #[test]
-    fn the_shipped_carry_is_inert_without_the_walked_cycle() {
-        assert!(!spoil_out().any(), "this test reads the shipped ant: PIXEL_PHYSICS_SPOIL_OUT must be unset");
+    fn the_shipped_carry_is_on_under_the_walked_cycle_and_gated_by_it() {
+        assert_eq!(spoil_out(), SpoilOut::ON, "the walked cycle is not the shipped default (is PIXEL_PHYSICS_SPOIL_OUT set?)");
         let w = World::new(Rect::new(0, 0, 119, 99));
-        assert_eq!(spoil_ring_of(&w), None, "the carry reached a world with no walked cycle");
+        assert_eq!(spoil_ring_of(&w), Some(SpoilRing::SHIPPED), "the shipped carry did not reach a default world");
         let (dropped, drawn) = ring_drop_world_default(62);
-        assert!(dropped, "a carrier by the door held its pellet with no walked cycle");
-        assert_eq!(drawn, None, "a carry column was drawn with no walked cycle");
+        assert!(!dropped, "a carrier by the door put its pellet down under the shipped carry");
+        assert!(drawn.is_some(), "no carry column was drawn under the shipped carry");
+        assert_eq!(ring_gate(None, SpoilOut::default(), Some(SpoilRing::SHIPPED)), None, "the carry leaked past the walked cycle's gate");
+        assert_eq!(ring_gate(Some(None), SpoilOut::ON, Some(SpoilRing::SHIPPED)), None, "a world's own `off` did not win");
     }
 
     /// A carrier on the open surface at `x`, holding a pellet of soil beside a
@@ -23539,6 +23659,49 @@ mod tests {
         assert!(hy > 41 && under_cover(&w, hx, hy), "test setup: the carrier at ({hx}, {hy}) is not in a tunnel");
         assert_eq!(carry_act(&mut w, a), None, "a carrier five rows down a tunnel kept the column it drew outside");
         assert_eq!(w.creature_stats.spoil_ring_let_go, 1, "the column was let go without being counted");
+    }
+
+    /// `PIXEL_PHYSICS_SPOIL_HOLD`'s spellings: unset and `on` are the shipped
+    /// distance, `off` and `0` none, a positive count that count, anything
+    /// else unset.
+    #[test]
+    fn the_spoil_hold_parses_its_spellings_and_refuses_the_rest() {
+        assert_eq!(parse_spoil_hold(""), Some(SPOIL_HOLD_SHIPPED), "unset is the shipped hold");
+        assert_eq!(parse_spoil_hold("on"), Some(SPOIL_HOLD_SHIPPED));
+        assert_eq!(parse_spoil_hold("off"), None);
+        assert_eq!(parse_spoil_hold("0"), None);
+        assert_eq!(parse_spoil_hold(" 7 "), Some(7));
+        for bad in ["-3", "x", "1.5", "Off"] {
+            assert_eq!(parse_spoil_hold(bad), Some(SPOIL_HOLD_SHIPPED), "{bad:?} was not read as unset");
+        }
+    }
+
+    /// **A carrier near its door keeps its pellet when the haul's patience
+    /// has run out** ([`spoil_hold_of`]). A room five rows under a door, a
+    /// carrier on its floor six cells from the haul's target with its
+    /// patience spent and `DropSpoil` at 1, and a cell beside it that will
+    /// hold a pellet. With the hold off it lays the pellet there -- the control
+    /// that says the scene lets it, and the old rule; with the shipped hold it
+    /// keeps it, and the counter says why; with a hold shorter than its
+    /// distance it lays it again. The second arm goes red with the hold
+    /// deleted from `kept_inside`.
+    #[test]
+    fn a_carrier_near_its_door_keeps_its_pellet_when_its_patience_runs_out() {
+        let room: Vec<(i32, i32)> = (42..=46).flat_map(|y| (54..=68).map(move |x| (x, y))).collect();
+        let held = |hold: Option<i32>| -> (bool, u64) {
+            let (mut w, a) = carry_world(62, 46, None, &room, &[]);
+            w.spoil_hold = Some(hold);
+            w.organism_mut(a).expect("live").home_patience = DIG_RETURN_GIVE_UP / 2.0;
+            let (hx, hy) = w.organism(a).expect("live").chain[0];
+            assert!(inside_nest(&w, hx, hy), "test setup: the carrier at ({hx}, {hy}) is not inside the nest");
+            let target = spoil_haul_target(&w, w.organism(a).expect("live"), (hx, hy)).expect("a site");
+            assert_eq!((hx - target.0).abs().max((hy - target.1).abs()), 6, "test setup: the carrier is not six cells from the haul's target {target:?}");
+            carry_act(&mut w, a);
+            (w.organism(a).expect("live").spoil.is_some(), w.creature_stats.spoil_held_near_door)
+        };
+        assert_eq!(held(None), (false, 0), "control: with the hold off the spent carrier did not lay its pellet, so the scene cannot show one kept");
+        assert_eq!(held(Some(SPOIL_HOLD_SHIPPED)), (true, 1), "six cells from its door with its patience spent, the carrier let its pellet go");
+        assert_eq!(held(Some(5)), (false, 0), "a hold of five kept a pellet six cells out");
     }
 
     /// `PIXEL_PHYSICS_DIG_WIDEN`'s spellings: `on`, and off for everything
@@ -23848,7 +24011,8 @@ mod tests {
         );
 
         let (mut off, low_off) = colony_bed();
-        assert_eq!(off.stack_cap(), 1, "the unarmed arm must run the shipped cap");
+        // The unarmed arm, by hand: the shipped cap is 4 since 2026-09-30.
+        off.set_stack_cap(1);
         crowded_colony(&mut off, low_off);
         run(&mut off, FRAMES);
         assert_eq!(off.stacked_cell_count(), 0, "the index filled at cap 1, so the armed arm was not measuring the cap");
@@ -25842,6 +26006,12 @@ mod tests {
                 // Today's walk, pinned: at reach 1 the arm needs the ants to meet at once,
                 // and under the chooser they took a median 528 frames. The question is armour.
                 w.chooser = Some(Chooser::Off);
+                // And stacking, pinned off for the same reason: at the shipped
+                // cap of 4 (2026-09-30) the reach-1 arm's median first breach
+                // went 966 frames against its bar of 300 (why was not
+                // traced: stacking changes who can reach whom, not the
+                // plate). The question is armour.
+                w.set_stack_cap(1);
                 w.seed = 1234 + seed * 7919;
                 w.trait_reach = reach;
                 // **Clone children**, for the reason `the_jaw_allele_decides_
@@ -26174,6 +26344,17 @@ mod tests {
             // claim -- that a **cohered** nest cannot split whatever the
             // drift -- is `a_cohered_nest_never_splits_into_strangers`.
             def.scent_drift = 0.0;
+            // **And the plasticity dial, for the identical reason.** A child
+            // expresses its scent slots through `expressed_traits`, which
+            // pushes them by its parent's `Provision` at the moment of
+            // budding -- so even at zero drift a newborn's scent sits a
+            // hair off its mother's. Traced 2026-09-30 once births could
+            // land on a nestmate (`bud_stack`, shipped on): a generation-2
+            // ant expressing `-8.6e-5` on one scent slot bit its own
+            // generation-1 nestmate, because at tolerance `-1` any nonzero
+            // distance is a stranger. Against the shipped radius of 1.0 that
+            // is one part in ten thousand, and this test is not about it.
+            w.plasticity = 0.0;
             w.species.set_creature(species, def.clone());
             if wired {
                 w.species.set_genome(
@@ -26552,15 +26733,28 @@ mod tests {
         assert!(reconcile_chain(&mut w, child), "the child died on its first reconcile -- its ridden cells are missing from its own record");
     }
 
-    /// `PIXEL_PHYSICS_BUD_STACK`'s spellings: `on`, and nothing else.
+    /// `PIXEL_PHYSICS_BUD_STACK`'s spellings: on unless it says `off`.
     #[test]
-    fn the_bud_stack_switch_reads_on_and_nothing_else() {
-        assert!(!parse_bud_stack(""), "unset is off");
+    fn the_bud_stack_switch_is_on_unless_it_reads_off() {
+        assert!(parse_bud_stack(""), "unset is on, the shipped default since 2026-09-30");
         assert!(!parse_bud_stack("off"));
+        assert!(!parse_bud_stack(" off "));
         assert!(parse_bud_stack("on"));
-        assert!(parse_bud_stack(" on "));
-        for bad in ["yes", "1", "true", "ON"] {
-            assert!(!parse_bud_stack(bad), "{bad:?} was not read as unset");
+        for bad in ["yes", "1", "true", "OFF"] {
+            assert!(parse_bud_stack(bad), "{bad:?} was not read as unset");
+        }
+    }
+
+    /// `PIXEL_PHYSICS_SPOIL_OUT`'s spellings: every part unless it says `off`
+    /// or names parts. Goes red if the shipped default is put back to the lift.
+    #[test]
+    fn the_walked_cycle_is_on_unless_it_reads_off() {
+        assert_eq!(parse_spoil_out(""), SpoilOut::ON, "unset is the walked cycle, the shipped default since 2026-09-30");
+        assert_eq!(parse_spoil_out("on"), SpoilOut::ON);
+        assert_eq!(parse_spoil_out(" off "), SpoilOut::default());
+        assert_eq!(parse_spoil_out("haul,keep"), SpoilOut { haul: true, pace: false, keep: true, back: false });
+        for bad in ["yes", "1", "OFF", "haul,nope"] {
+            assert_eq!(parse_spoil_out(bad), SpoilOut::ON, "{bad:?} was not read as unset");
         }
     }
 
@@ -27292,7 +27486,7 @@ mod tests {
             }
         }
 
-        assert_eq!(w.stack_cap(), 1, "test setup: the shipped default");
+        w.set_stack_cap(1);
         assert!(stacker_of(&w, a).is_none(), "no stacker is resolved at all at cap 1");
         assert!(!can_stack_into(&w, occupied, stacker_of(&w, a)), "a cell holding a nestmate must be refused at cap 1");
 

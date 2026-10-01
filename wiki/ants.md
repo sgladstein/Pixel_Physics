@@ -1,7 +1,39 @@
 # Ants
 
-*Current as of: 2026-09-30, when **only an ant bringing food home from a
-trip lays the food scent.** Before, any ant with food in its belly laid it:
+*Current as of: 2026-10-01, when **a digger near the front door stopped
+dropping its dirt back inside.** The room the entrance shaft opens into has
+the shaft in a corner of its ceiling, and a digger on that room's floor,
+heading for the door, kept finding itself no nearer, gave up and dropped its
+crumb where it stood, so the room under the door slowly filled with packed
+soil that the colony then dug out again. Now a digger within a dozen cells of
+the door keeps hold of its crumb until it finds its way out. In a test box
+the crumbs dropped back inside fell from 94 to 12 with 200 ants, and the
+colony re-dug about half as much of its own fill; it digs about a tenth less
+new ground, because a digger holds each crumb longer.
+On 2026-09-30, **a colony started carrying its dirt out of
+the front door.** A digger used to drop each crumb of soil beside its head or
+push it up the nearest hole, so half of what a colony dug fell straight back
+into its own tunnels. There it was pressed into the walls, until the nest was
+a sponge of packed soil with rooms sealed off from the outside and ants shut
+inside them. Now a digger holds its crumb until it is out of the door, walks
+a few steps away from the mouth and puts it down there, then goes back to
+where it was digging. Ants of one colony may also stand four to a cell, so
+the ones coming up and the ones going down can pass in the tunnel, and a
+youngster with no room beside its parent may be born standing on a
+nestmate. In a test box, space sealed off from the outside fell from 38
+cells to 2 with 40 ants, and from 47 to 10 with 200. The nest is cleaner and
+reads as one chamber with tunnels leaving it, but it is smaller: about three
+quarters of the old open space with 40 ants and half with 200, because the
+old nest was large partly by digging its own fill again. The mound beside the
+door is lower and spread to both sides, where the old one stood in towers.
+In the lab box, measured after the food changes of the same day, as many
+young were born and as much food eaten, the colony grew larger, and a larger
+share of it starved. In a small test colony
+with food 90 cells away, a fifth more food comes off the heap and nearly twice
+as many young are born; the ants carry about a sixth less energy in their
+bodies, most likely spent on the walk to the door.
+Earlier that day, **only an ant bringing food home from a trip began to lay
+the food scent.** Before, any ant with food in its belly laid it:
 foragers walking home, but also ants eating at the nest, ants carrying a
 lunch out, and nest workers — so the food scent lay thickest over the nest
 itself and told nobody where the food was. Now the scent runs from the heap to
@@ -2045,9 +2077,9 @@ works by getting every ant onto the same line, and a line of ants that cannot
 overlap is a queue. The better the trail, the longer the queue.
 
 There is now a switch for it. On the **BOX** page, **animals per cell** says
-how many animals of one colony may stand in the same cell. At 1 — what ships —
-nothing changes and a nestmate is as solid as it ever was. Above 1 they stand
-in each other's cells and walk on through.
+how many animals of one colony may stand in the same cell. Four ships, since
+2026-09-30: nestmates stand in each other's cells and walk on through. At 1
+nothing changes and a nestmate is as solid as it ever was.
 
 **It does not look like anything, and that is on purpose.** A cell with three
 ants in it draws as one ant. There are no piles to see, no little stacks; what

@@ -135,13 +135,31 @@ struct OrganismSlot {
 /// `PIXEL_PHYSICS_STACK_DEPTH` — see [`World::stack_cap`] for why the cap
 /// *is* the feature toggle rather than a separate branch.
 ///
-/// Default 1, which is the engine as it stood before stacking. A value that
-/// does not parse is the default rather than a panic, on the house pattern:
-/// a mistyped switch should leave the shipped behaviour standing, not stop
-/// the app. `0` clamps to 1 for the reason `set_stack_cap` gives.
+/// Default [`SHIPPED_STACK_CAP`]; `1` is the engine as it stood before
+/// stacking. A value that does not parse is the default rather than a panic,
+/// on the house pattern: a mistyped switch should leave the shipped behaviour
+/// standing, not stop the app. `0` clamps to 1 for the reason `set_stack_cap`
+/// gives.
 fn default_stack_cap() -> usize {
-    std::env::var("PIXEL_PHYSICS_STACK_DEPTH").ok().and_then(|v| v.parse::<usize>().ok()).unwrap_or(1).max(1)
+    parse_stack_depth(&std::env::var("PIXEL_PHYSICS_STACK_DEPTH").unwrap_or_default())
 }
+
+/// `PIXEL_PHYSICS_STACK_DEPTH`'s value: a count, else [`SHIPPED_STACK_CAP`].
+fn parse_stack_depth(raw: &str) -> usize {
+    raw.trim().parse::<usize>().unwrap_or(SHIPPED_STACK_CAP).max(1)
+}
+
+/// **The shipped stacking cap: up to four animals may share a cell** (on by
+/// default since 2026-09-30, the owner's "stacking yes" and "turn all new
+/// features on by default unless there is a real trade off"). Measured as one
+/// package with the walked spoil cycle and births on nestmates
+/// (`Reports/nest-one-entrance-2026-09-29.md` §17-§18): in `digbox` space
+/// sealed off from the sky fell 38 -> 2 cells at 40 ants and 47.5 -> 9.5 at
+/// 200. Alone, without the walked cycle, it does nothing for the nest; with
+/// the walked cycle and no stacking, carriers going up and ants coming down
+/// jam in the one-cell founding cut (§16). `PIXEL_PHYSICS_STACK_DEPTH=1`
+/// puts the engine before stacking back.
+pub const SHIPPED_STACK_CAP: usize = 4;
 
 fn organism_in(organisms: &[OrganismSlot], organism_id: OrganismId) -> Option<&OrganismState> {
     let (slot_index, generation) = decode_organism_id(organism_id);
@@ -2018,6 +2036,13 @@ pub struct CreatureStats {
     /// far side of the call is the lift count from inside the nest, which
     /// `examples/digbox`'s LIFTS line reads. 0 unless the switch is on.
     pub spoil_kept_no_lift: u64,
+    /// Drop rolls not taken **because the carrier was near its door** when
+    /// the haul's patience had run out inside the nest
+    /// (`PIXEL_PHYSICS_SPOIL_HOLD`, `creature::spoil_hold_of`): the rolls
+    /// the old rule would have let go. The "it fired" half; the effect half is
+    /// the pellets put down below the old ground line, which `digbox`'s
+    /// `gridout=` census counts (`scripts/nestgrid.py`'s `put_inside`).
+    pub spoil_held_near_door: u64,
     /// **Carry distances drawn** under `PIXEL_PHYSICS_SPOIL_RING`
     /// (`creature::spoil_ring`): when its carrier comes out by the door with
     /// it (`creature::carry_stage`), and again for a carrier that went back
@@ -2613,7 +2638,7 @@ pub struct CreatureStats {
     ///
     /// Counted by whether the recipient was reached through the rider index
     /// rather than through the grid, which is exactly the set of shares that
-    /// could not have happened before. Zero at the shipped cap of 1.
+    /// could not have happened before. Zero at a cap of 1.
     pub shares_in_stack: u64,
     /// **Joules actually moved** -- the effect counter from the far side of
     /// the call, and `CLAUDE.md` asks for it by name. `shares` can climb
@@ -3721,6 +3746,13 @@ pub struct World {
     /// `Some(None)` turns it off. A field so a guard can take both arms in
     /// one process.
     pub spoil_ring: Option<Option<crate::sim::creature::SpoilRing>>,
+    /// **How near its door a carrier keeps its pellet when the haul's
+    /// patience runs out, overriding `PIXEL_PHYSICS_SPOIL_HOLD` for this
+    /// world** (`creature::spoil_hold_of`). `None` follows the environment,
+    /// which is `creature::SPOIL_HOLD_SHIPPED` cells unless it says `off`;
+    /// `Some(None)` turns it off. A field so a guard can take both arms in
+    /// one process.
+    pub spoil_hold: Option<Option<i32>>,
     /// **Tunnel widening, overriding `PIXEL_PHYSICS_DIG_WIDEN` for this
     /// world** (`creature::dig_widen_of`). `None` follows the environment,
     /// which is off unless it says `on`. A field so a guard can take both
@@ -6168,6 +6200,7 @@ impl World {
             spoil_cue: None,
             dig_down: None,
             spoil_ring: None,
+            spoil_hold: None,
             dig_widen: None,
             bud_stack: None,
             storeroom: None,
@@ -9667,7 +9700,7 @@ impl World {
 
     /// Every cell currently holding at least one rider — the "did it fire
     /// at all" census, and the specificity control for the whole feature:
-    /// **zero at the default cap**, non-zero once it is armed and a crowd
+    /// **zero at a cap of 1**, non-zero once it is armed and a crowd
     /// forms. A depth counter that cannot move is blind, not strong.
     pub fn stacked_cell_count(&self) -> usize {
         self.stacked.len()
@@ -9692,7 +9725,7 @@ impl World {
     }
 
     /// The stacking cap this world is running (see [`World::stack_cap`]'s
-    /// field doc). 1 is the shipped default and means no stacking at all.
+    /// field doc). [`SHIPPED_STACK_CAP`] is the default; 1 means no stacking at all.
     pub fn stack_cap(&self) -> usize {
         self.stack_cap
     }
@@ -11747,6 +11780,20 @@ fn aux_trap_frame() -> Option<u64> {
 
 #[cfg(test)]
 mod tests {
+    /// `PIXEL_PHYSICS_STACK_DEPTH`'s spellings: a count, else the shipped cap
+    /// of four. Goes red if the shipped default is put back to 1.
+    #[test]
+    fn the_stack_depth_is_four_unless_it_names_a_count() {
+        assert_eq!(SHIPPED_STACK_CAP, 4, "the shipped cap moved without its measurement");
+        assert_eq!(parse_stack_depth(""), SHIPPED_STACK_CAP, "unset is the shipped cap");
+        assert_eq!(parse_stack_depth("1"), 1, "1 is the engine before stacking");
+        assert_eq!(parse_stack_depth(" 7 "), 7);
+        assert_eq!(parse_stack_depth("0"), 1, "0 clamps to 1");
+        for bad in ["four", "-1", "on"] {
+            assert_eq!(parse_stack_depth(bad), SHIPPED_STACK_CAP, "{bad:?} was not read as unset");
+        }
+    }
+
     /// **The rider index keeps insertion order, and forgets a cell
     /// completely once the last rider leaves.**
     ///
