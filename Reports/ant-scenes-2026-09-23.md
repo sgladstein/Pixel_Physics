@@ -3851,3 +3851,10 @@ refilling pile is the advantage `lay` alone had over no trail at all (`L`
 247 / 228 against `M` 276 / 249). Everywhere the pile is steady, they gain
 far more than that. **Neither ships on under the registered bars. Both stay
 behind the switch, and the owner makes the call.** `FG`'s lab pair is next.
+
+**`FG`'s lab pair** (24 seeds, 120,000 frames): **no gate worse** — births
+371.0 -> 409.0 (13/11), food eaten 1,037k -> 1,103k (12/12), starved per
+million ant-frames 11.8 -> 9.1 (13/11), every p >= 0.15. **Where this
+leaves it:** `FG` passes every registered bar but one, pulsed 140 starved
+(p 0.052), where it lands at `M`'s level. `F` fails pulsed 90 starved
+(p 0.004) and B5's births lean against it. If one ships, it should be `FG`.
