@@ -3745,3 +3745,47 @@ is the outcome a player would see. Three versions have now traded the same
 thing: what the give-up saves on dark ground, a colony living off a pile
 that empties and refills pays for. The switch stays off (`lay`), and Stage 3
 is parked; the next step on this line is Stage 2's reader.
+
+### 23e. Stage 2, the reader: registered before its runs (2026-10-01)
+
+*Owner's pick 2026-10-01: "Land, then reader". The design is
+[`food-trail-reader-design-2026-09-30.md`](food-trail-reader-design-2026-09-30.md)
+§2, with its must-fix M2 (the stale leash) built into the rule. M1 (re-arm
+at the door) belongs to `giveup`, which stays off, so it is not built here.*
+
+**The premise, re-measured on current `main`** (`trailclimb.py` §3 on the
+`L` traces of §23d's third scoring, `main` `b6bc9db2`, 12 seeds): empty
+departures from the nest band go west, away from the only pile, on **36% /
+31%** (90 / 140 cells; east 50% / 56%). At those departures the reach-6
+gradient points at the food side (> 0.1) on **81% / 79%**. So the door's
+plane still knows the food side, and a third of departures still ignore it.
+
+**Arm `F` = `PIXEL_PHYSICS_FOOD_TRAIL=lay,read`, against `L` (unset).** The
+rule is §2's `read`: an empty, unladen, not-given-up ant with no home pull,
+in the door box, reads B at its own reach-6 sensors east and west on its own
+row; `g = (bE - bW) / (bE + bW + TRAIL_HALF)`; every heading on g's side
+whose landing is at or above the walking row gets `gain × want × |g|`,
+`want = max(hunger, drive)`, `gain` 6. **Gated on the colony's news (M2):**
+no term when this nest's last return is more than `return_window()` frames
+old. The `!is_nest_bound` gate is dropped (the drive already zeroes fed
+nest-bound ants, so the gate excluded only the hungry ones).
+
+**Predictions:**
+- **PR1** west departures (`trailclimb.py` §3, side W) fall to at most
+  **25% / 22%** (90 / 140), from 36% / 31%.
+- **PR2** the effect counter: of decisions where the term is added, the
+  picked heading is on g's side on at least **60%** (`L` has no term; its
+  baseline is the same share read off `L`'s traces, about half).
+- **PR3** under `arms=mute` (no B anywhere), `F` and `L` give identical
+  per-run tables: g is 0, so no term is ever added.
+- **PR4** the stale-leash gate fires on the pulsed piles (term withheld on
+  at least 10% of in-box reads) and almost never on the unlimited pile
+  (under 3%).
+
+**Ship bars** (`F` ships on only if all hold): §23d's, unchanged — every
+§23c bed taken not lower and starved not higher (p < 0.1 each way); pulsed
+starved against `L` and `M` not higher; 80 founders births not lower; B5
+taken not lower; the lab pair no gate worse at p < 0.05 and starved per
+million ant-frames not higher at p < 0.1. **Added after §23d's third
+scoring:** births on each pulsed bed not lower at p < 0.1, since that is
+where `LG3` failed and what a player sees.
