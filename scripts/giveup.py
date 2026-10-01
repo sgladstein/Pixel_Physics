@@ -119,8 +119,14 @@ def run(paths, tsv=None, example=False, out=sys.stdout):
     res = []
     keys = set()
     shown = False
+    owner = {}
     for path in paths:
         for key, dep, exc, I in excursions(path):
+            # The CSV's `arm` is trailfollow's arm (`self` for every env arm), so two runs that differ only by an
+            # env switch share a key and would pool silently, last-and-first alike. Measured 2026-10-01: L and LG3
+            # passed together read as one arm of twice the excursions. Refuse rather than pool.
+            if owner.setdefault(key, path) != path:
+                sys.exit(f'giveup: {path} and {owner[key]} share (gap, seed, arm) = {key} -- pass one env arm per run')
             keys.add(key)
             if dep['cls'] not in ('fed', 'hungry', 'lunch') or dep['dir30'] not in ('E', 'W'):
                 continue
