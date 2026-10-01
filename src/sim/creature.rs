@@ -2291,13 +2291,23 @@ fn place_creature(
             // as death -- a birth that kills its parent, which is precisely
             // what that floor exists to make impossible. The two must not
             // disagree by a rounding step.
-            let shortfall = (cost + 1.0 - world.organism(parent).map_or(0.0, |s| s.energy)).max(0.0);
+            let from_store = bud_from_store(world, def);
+            if from_store {
+                world.creature_stats.store_births += 1;
+            }
+            // Under `bud_from_store` the food pays the whole price: the
+            // parent's bank takes what the bites yield and gives back `cost`.
+            let shortfall = if from_store { cost } else { (cost + 1.0 - world.organism(parent).map_or(0.0, |s| s.energy)).max(0.0) };
             if shortfall > 0.0 {
                 let gut = gut_of(world, parent, def);
                 let head = world.organism(parent).and_then(|s| s.chain.first().copied());
                 if let Some((hx, hy)) = head {
                     let mut taken = 0.0;
-                    let cells: Vec<(f32, i32, i32)> = provisions_in_reach(world, hx, hy, gut).collect();
+                    let room = if from_store { storeroom_near(world, hx, hy) } else { None };
+                    let cells: Vec<(f32, i32, i32)> = match room {
+                        Some(room) => provisions_in_store(world, room, hx, hy, gut),
+                        None => provisions_in_reach(world, hx, hy, gut).collect(),
+                    };
                     // `bite` decorrelates two windfalls taken to cover the
                     // same shortfall on the same frame -- see `RNG_SLOT_
                     // SEED_SURVIVAL`'s own doc for why this counts rather
@@ -4502,14 +4512,32 @@ fn try_bud(world: &mut World, organism: OrganismId, def: &CreatureDef, provision
     // surplus put down where the animal lives can each pay for a child.
     let gut = gut_of(world, organism, def);
     let bank = state.energy;
-    // **Face first, because this runs every tick an animal survives.** A
-    // guaranteed price is never above face, so an animal the face sum cannot
-    // carry to its bar cannot get there at all, and the common tick -- an
-    // animal nowhere near its bar -- never pays for pricing a bite.
-    if bank + provisions_in_reach(world, hx, hy, gut).map(|(w, _, _)| w).sum::<f32>() < bar {
-        return None;
-    }
-    let reachable = reachable_provision(world, hx, hy, gut);
+    // **Births paid from the store** (`bud_from_store`): only an animal at
+    // the storeroom buds, and the food the nest holds pays the whole price
+    // (`provisions_in_store`), so its own bank neither qualifies it nor
+    // pays. With the bank read as 0 and the bar at the price, every check
+    // below asks the one question "does the nest hold a child's worth".
+    let from_store = bud_from_store(world, def);
+    let room = if from_store {
+        Some(storeroom_near(world, hx, hy).filter(|room| room.touches_store(hx, hy))?)
+    } else {
+        None
+    };
+    let (bar, bank) = if from_store { (cost + 1.0, 0.0) } else { (bar, bank) };
+    let reachable = if let Some(room) = room {
+        let guaranteed = birth_price_of(world);
+        provisions_in_store(world, room, hx, hy, gut).into_iter().map(|(w, px, py)| if guaranteed { w * plant::guaranteed_bite_fraction(world, px, py) } else { w }).sum()
+    } else {
+        // **Face first, because this runs every tick an animal survives.** A
+        // guaranteed price is never above face, so an animal the face sum
+        // cannot carry to its bar cannot get there at all, and the common
+        // tick -- an animal nowhere near its bar -- never pays for pricing a
+        // bite.
+        if bank + provisions_in_reach(world, hx, hy, gut).map(|(w, _, _)| w).sum::<f32>() < bar {
+            return None;
+        }
+        reachable_provision(world, hx, hy, gut)
+    };
     if bank + reachable < bar {
         return None;
     }
@@ -9718,8 +9746,31 @@ fn is_living_kin_id(world: &World, id: OrganismId, gut: Gut) -> bool {
 /// parent eating it -- a gut that only absorbs a quarter of a leaf can only
 /// put a quarter of it into a child.
 fn provisions_in_reach(world: &World, x: i32, y: i32, gut: Gut) -> impl Iterator<Item = (f32, i32, i32)> + use<'_> {
-    NEIGHBOURS_8.iter().filter_map(move |&(dx, dy)| {
-        let (px, py) = (x + dx, y + dy);
+    NEIGHBOURS_8.iter().filter_map(move |&(dx, dy)| provision_at(world, x + dx, y + dy, gut))
+}
+
+/// **The food the nest holds, for a birth paid from the store**
+/// (`bud_from_store`): every cell [`provision_at`] would pay, anywhere in the
+/// founding cut's footprint -- shaft, chamber and side room, and the two
+/// cells round them -- nearest the parent's head first, so a birth eats the
+/// store from the near end. Measured first with the eight cells round the
+/// head as the reach: 0-1 births in 240,000 frames on four seeds, because
+/// a birth costs about four fruit cells and stored food lies one or two to
+/// a spot (`Reports/nest-one-entrance-2026-09-29.md` §22).
+fn provisions_in_store(world: &World, room: crate::sim::world::ShaftFootprint, hx: i32, hy: i32, gut: Gut) -> Vec<(f32, i32, i32)> {
+    let (sx0, sx1, st, sb) = room.store_rect();
+    let x0 = room.x0.min(room.chamber_x0).min(sx0) - 2;
+    let x1 = room.x1.max(room.chamber_x1).max(sx1) + 2;
+    let (y0, y1) = (room.top.min(st) - 2, room.bottom.max(room.chamber_bottom).max(sb) + 2);
+    let mut out: Vec<(f32, i32, i32)> = (y0..=y1).flat_map(|y| (x0..=x1).map(move |x| (x, y))).filter_map(|(x, y)| provision_at(world, x, y, gut)).collect();
+    out.sort_by_key(|&(_, x, y)| ((x - hx).abs().max((y - hy).abs()), y, x));
+    out
+}
+
+/// One cell of [`provisions_in_reach`]: what it would pay a birth, if
+/// anything.
+fn provision_at(world: &World, px: i32, py: i32, gut: Gut) -> Option<(f32, i32, i32)> {
+    {
         let cell = world.get(px, py);
         // Same kin rule as `adjacent_food`, for the same reason: a species
         // that will not bite its own must not be able to spend its own either.
@@ -9750,7 +9801,7 @@ fn provisions_in_reach(world: &World, x: i32, y: i32, gut: Gut) -> impl Iterator
         }
         let yielded = diet_yield(world, cell, gut.bias);
         (yielded > EAT_YIELD_THRESHOLD).then_some((yielded, px, py))
-    })
+    }
 }
 
 /// What `provisions_in_reach` is certain to pay in total, which is what a
@@ -10813,6 +10864,266 @@ fn parse_spoil_hold(raw: &str) -> Option<i32> {
             }
         },
     }
+}
+
+/// **An ant with nothing to do goes inside and rests deep in the nest**:
+/// `PIXEL_PHYSICS_NEST_REST=on` (built 2026-10-01; owner: the colony lives
+/// inside its nest).
+///
+/// **Why.** Real workers rest inside the nest, not on its entrance. Here
+/// every founder's home is the cell over the mouth (`World::door_anchor`),
+/// and an ant with no load, no hunger and no forage drive has no pull at all,
+/// so in `digbox` (fed, 200 ants, seed 1, frame 24,000) 51 of 172 stood on
+/// or in the mouth, 71 out on the surface and only 50 underground
+/// (`Reports/nest-one-entrance-2026-09-29.md` §12 and §20).
+///
+/// **Who rests**: an ant of the form the switch names ([`NestRest`]) that
+/// [`chooser_step`] gives no other pull ([`home_pull`] returned nothing: no
+/// load, no store trip, no way back to a face, not too hungry to be out), and
+/// pulled in harder than out: the larger of its
+/// hunger and its forage drive ([`forage_drive_level`]), which is what
+/// scales the scout's pull out, under [`REST_BALANCE`]. The gain falls to
+/// nothing at the balance, so the pull is graded and no ant flickers across
+/// an edge. A forager the colony needs (the `returns` drive reads 1 while
+/// food comes home) never rests, and the rest pull never meets the way out
+/// (`away_from` is read only with no pull).
+///
+/// **Where**: outside its nest, the door over the mouth; inside, along the
+/// passages away from the door ([`NestWay`]), [`REST_LOOKAHEAD`] steps at a
+/// time, until no step leads further in -- the end of a gallery or the far
+/// corner of a chamber. Where passages fork the branch is the ant's own (its
+/// id turns the order neighbours are tried in), so a colony spreads over the
+/// nest's ends rather than piling at one. Standing at one, the pull is held
+/// on the ant itself: no direction, and no way out either.
+pub fn nest_rest_of(world: &World) -> NestRest {
+    world.nest_rest.unwrap_or_else(nest_rest)
+}
+
+/// **Who rests inside** ([`nest_rest_of`]).
+///
+/// **Why there is a choice.** Resting every ant with nothing to do starved
+/// the colony bed (24 seeds, 20 founders: births 22 -> 5 a seed, a quarter
+/// of all ants starved by frame 6,000, against none): a founder starts fed,
+/// so it rested deep in the nest instead of scouting, and left only once
+/// half its reserve was gone -- too little to find food ninety cells away
+/// and come back. Fed scouts are how a colony finds food at all, so the
+/// narrower forms keep them out.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum NestRest {
+    Off,
+    /// Nest workers only ([`is_nest_bound`]): the caste that stays home.
+    Workers,
+    /// Nest workers, and any ant that has foraged (`OrganismState::foraged`)
+    /// once the forage drive no longer sends it out; an ant that has never
+    /// found food is a scout and never rests.
+    Foragers,
+    /// Every ant with nothing to do: the first build, kept as the control.
+    All,
+}
+
+impl NestRest {
+    pub fn on(self) -> bool {
+        self != NestRest::Off
+    }
+
+    /// Whether this form rests `state`'s animal at all; hunger and the drive
+    /// are [`rest_pull`]'s to weigh.
+    fn rests(self, world: &World, state: &crate::sim::organism::OrganismState) -> bool {
+        match self {
+            NestRest::Off => false,
+            NestRest::Workers => is_nest_bound(world, state),
+            NestRest::Foragers => is_nest_bound(world, state) || state.foraged,
+            NestRest::All => true,
+        }
+    }
+}
+
+/// `PIXEL_PHYSICS_NEST_REST` for this process ([`parse_nest_rest`]).
+pub fn nest_rest() -> NestRest {
+    static V: std::sync::OnceLock<NestRest> = std::sync::OnceLock::new();
+    *V.get_or_init(|| parse_nest_rest(&std::env::var("PIXEL_PHYSICS_NEST_REST").unwrap_or_default()))
+}
+
+/// `PIXEL_PHYSICS_NEST_REST`'s value: unset and `off` are off, `workers`,
+/// `on` (nest workers and foragers) and `all` the forms of [`NestRest`].
+/// Anything else is reported and read as unset.
+fn parse_nest_rest(raw: &str) -> NestRest {
+    match raw.trim() {
+        "" | "off" => NestRest::Off,
+        "workers" => NestRest::Workers,
+        "on" => NestRest::Foragers,
+        "all" => NestRest::All,
+        other => {
+            eprintln!("PIXEL_PHYSICS_NEST_REST={other:?}: not `off`, `workers`, `on` or `all`; read as unset (off)");
+            NestRest::Off
+        }
+    }
+}
+
+/// How often each nest's [`NestWay`] is rebuilt, in frames. A nest changes by
+/// a cell or two a frame at most; a resting ant aimed at a cell that was
+/// filled half a second ago finds that heading unusable and takes the next,
+/// and the next rebuild puts it right.
+pub const REST_REFRESH: u64 = 30;
+
+/// How far along the passages the rest pull is aimed, in steps. One step
+/// aims at a neighbour, which the chooser's cosine scores no better than its
+/// straight-ahead rival; three gives the pull a direction along a passage.
+pub const REST_LOOKAHEAD: usize = 3;
+
+/// **Where the pull in and the pull out balance**: an ant whose hunger, or
+/// forage drive, reaches half rests no more. Not tuned: it is the point at
+/// which the rest pull's share, one less the larger of the two, falls to the
+/// scout's.
+pub const REST_BALANCE: f32 = 0.5;
+
+/// How far round its door a nest's way in reaches: columns either side, rows
+/// below the door. The dig box's nests reach about 30 columns and 25 rows.
+const REST_REACH_X: i32 = 64;
+const REST_REACH_Y: i32 = 64;
+
+/// **One nest's way in** ([`nest_rest_of`]): steps from the door over the
+/// mouth to every cell inside the nest an ant can stand in, `u16::MAX` where
+/// there is none, over a box round the door.
+#[derive(Clone, Debug, Default)]
+pub struct NestWay {
+    pub site: usize,
+    pub door: (i32, i32),
+    pub x0: i32,
+    pub y0: i32,
+    pub w: i32,
+    pub h: i32,
+    pub dist: Vec<u16>,
+}
+
+impl NestWay {
+    /// Steps from the door at `(x, y)`, or `None` outside the box or the nest.
+    pub fn at(&self, x: i32, y: i32) -> Option<u16> {
+        let (lx, ly) = (x - self.x0, y - self.y0);
+        if lx < 0 || ly < 0 || lx >= self.w || ly >= self.h {
+            return None;
+        }
+        self.dist.get((ly * self.w + lx) as usize).copied().filter(|&d| d != u16::MAX)
+    }
+
+    /// The deepest cell's distance, 0 for a nest that is only its door.
+    pub fn depth(&self) -> u16 {
+        self.dist.iter().copied().filter(|&d| d != u16::MAX).max().unwrap_or(0)
+    }
+}
+
+/// Can an ant stand at `(x, y)`: open or another animal, with ground or an
+/// animal in its 8-neighbourhood -- `head_has_foothold`'s rule with every
+/// animal counted as footing, because in a crowded room ants stand on ants.
+fn way_cell(world: &World, x: i32, y: i32) -> bool {
+    if !world.in_bounds(x, y) {
+        return false;
+    }
+    let c = world.get(x, y);
+    (c.material == material::EMPTY || is_animal_cell(world, c))
+        && NEIGHBOURS_8.iter().any(|&(dx, dy)| {
+            world.in_bounds(x + dx, y + dy) && matches!(world.materials.kind(world.get(x + dx, y + dy).material), MaterialKind::Solid | MaterialKind::Powder | MaterialKind::Plant | MaterialKind::Creature)
+        })
+}
+
+/// **Build a nest's way in**: breadth first from the door over the mouth,
+/// 8-connected in `NEIGHBOURS_8`'s fixed order, over [`way_cell`]s that are
+/// inside the nest -- in the founding cut, or under cover below the door.
+/// **Inside only**, so a second entrance does not lead a resting ant out:
+/// along a gallery that opens on the surface the way stops at the opening.
+fn build_nest_way(world: &World, site: usize) -> Option<NestWay> {
+    let s = world.nest_sites[site];
+    let cut = s.shaft?;
+    let door = ((cut.x0 + cut.x1) / 2, cut.top - 1);
+    let (x0, y0) = (s.x - REST_REACH_X, door.1);
+    let (w, h) = (2 * REST_REACH_X + 1, REST_REACH_Y + 1);
+    let mut dist = vec![u16::MAX; (w * h) as usize];
+    let idx = |x: i32, y: i32| -> Option<usize> {
+        let (lx, ly) = (x - x0, y - y0);
+        (lx >= 0 && ly >= 0 && lx < w && ly < h).then(|| (ly * w + lx) as usize)
+    };
+    let inside = |x: i32, y: i32| cut.contains(x, y) || (y >= cut.top && under_cover(world, x, y));
+    let mut q = std::collections::VecDeque::new();
+    dist[idx(door.0, door.1).expect("the door is the box's top row")] = 0;
+    q.push_back(door);
+    while let Some((x, y)) = q.pop_front() {
+        let d = dist[idx(x, y).expect("queued in the box")];
+        for &(dx, dy) in NEIGHBOURS_8.iter() {
+            let (nx, ny) = (x + dx, y + dy);
+            let Some(i) = idx(nx, ny) else { continue };
+            if dist[i] != u16::MAX || !inside(nx, ny) || !way_cell(world, nx, ny) {
+                continue;
+            }
+            dist[i] = d.saturating_add(1);
+            q.push_back((nx, ny));
+        }
+    }
+    Some(NestWay { site, door, x0, y0, w, h, dist })
+}
+
+/// **Every nest's way in, rebuilt on [`REST_REFRESH`]**, from
+/// `World::begin_step` beside the room census. Off the switch it clears the
+/// cache and returns, so a world that does not rest pays one branch a frame.
+pub fn step_nest_rest(world: &mut World) {
+    if !nest_rest_of(world).on() || world.nest_sites.is_empty() {
+        world.nest_ways.clear();
+        return;
+    }
+    if !world.frame.is_multiple_of(REST_REFRESH) && !world.nest_ways.is_empty() {
+        return;
+    }
+    world.nest_ways = (0..world.nest_sites.len()).filter_map(|i| build_nest_way(world, i)).collect();
+}
+
+/// **Where a resting ant is pulled, and how hard** ([`nest_rest_of`]); `None`
+/// for an animal that does not rest.
+fn rest_pull(world: &World, organism: OrganismId, def: &CreatureDef, head: (i32, i32)) -> Option<((i32, i32), f32)> {
+    let form = nest_rest_of(world);
+    if !form.on() || def.home_bias <= 0.0 {
+        return None;
+    }
+    let state = world.organism(organism)?;
+    if !form.rests(world, state) {
+        return None;
+    }
+    if state.spoil.is_some() || state.crop.is_some_and(|c| c.worth() > 0.0) || state.hungry_home || state.store_return {
+        return None;
+    }
+    // **The pull out and the pull in, weighed as the scout weighs them**: out
+    // is the larger of hunger and the forage drive, `chooser_step`'s
+    // `scout_w` before its gain; in is what is left. The ant rests while in
+    // outweighs out, at a gain that falls to nothing where they balance, so
+    // there is no edge for an ant to flicker across.
+    let hunger = 1.0 - (state.energy / def.start_energy.max(1.0)).clamp(0.0, 1.0);
+    let drive = if forage_drive_of(world).on() { forage_drive_level(world, state, def) } else { 0.0 };
+    let out = hunger.max(drive);
+    if out >= REST_BALANCE {
+        return None;
+    }
+    let gain = def.home_bias * (1.0 - out / REST_BALANCE);
+    let site = world.nearest_nest_site(head.0, head.1)?;
+    let way = world.nest_ways.iter().find(|w| w.site == site)?;
+    let Some(mut d) = way.at(head.0, head.1) else {
+        return Some((way.door, gain));
+    };
+    // The ant's own order to try its neighbours in, so ties at a fork go
+    // its own way and the colony spreads over the nest's ends.
+    let turn = (organism as usize).wrapping_mul(0x9E37_79B9) >> 7;
+    let mut at = head;
+    for step in 0..REST_LOOKAHEAD {
+        let mut best: Option<(u16, (i32, i32))> = None;
+        for k in 0..8 {
+            let (dx, dy) = NEIGHBOURS_8[(turn + step + k) % 8];
+            let p = (at.0 + dx, at.1 + dy);
+            if let Some(v) = way.at(p.0, p.1).filter(|&v| v > d && best.is_none_or(|(b, _)| v > b)) {
+                best = Some((v, p));
+            }
+        }
+        let Some((v, p)) = best else { break };
+        d = v;
+        at = p;
+    }
+    Some((at, gain))
 }
 
 /// The carry this process names ([`SpoilRing`]): [`SpoilRing::SHIPPED`]
@@ -15460,6 +15771,32 @@ pub fn bud_at_nest(world: &World) -> bool {
     })
 }
 
+/// **Whether a nesting species' births are paid from its store**:
+/// `PIXEL_PHYSICS_BUD_STORE=on`, or `World::bud_store` for one world. Off by
+/// default, where an animal buds once its own bank clears its bar.
+///
+/// **Why** (2026-10-01, the food box, `Reports/nest-one-entrance-2026-09-29.md`
+/// §21-22). A colony fed by one pile grows past what the pile feeds and
+/// starves beside it, and no food ever builds up in its nest: food taken
+/// from the pile stays flat while the colony grows sixfold, the foragers who
+/// eat at the pile reach 750-990 J and bud at home, and the ants underground
+/// run down to 80 J. Budding reads one body's bank, so every surplus becomes
+/// a child the moment it lands in a forager, and there is never a surplus
+/// to store. `dead-ends.md`'s `FORAGE_DRIVE=<need>,keep` entry names the
+/// condition this meets: *"a colony has a use for stored food other than its
+/// foragers' bodies (brood, a queen)"*. Under this switch only an animal at
+/// the storeroom (`touches_store`) buds, and only from the food within its
+/// reach, which pays the whole price (`place_creature`'s `Origin::Bud`
+/// arm), so births follow what is stored. A species with no nest is
+/// untouched.
+pub fn bud_from_store(world: &World, def: &CreatureDef) -> bool {
+    !def.nest.is_empty()
+        && world.bud_store.unwrap_or_else(|| {
+            static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+            *V.get_or_init(|| std::env::var("PIXEL_PHYSICS_BUD_STORE").as_deref() == Ok("on"))
+        })
+}
+
 /// **The turning preference**, by how far a heading turns from the current
 /// one in 45-degree steps: `(1 + cos) / 2`, so straight on scores 1 and
 /// turning round scores 0. A table because both ends are exact and no
@@ -16782,6 +17119,16 @@ fn chooser_step(
     // The home memory, started again whenever the target is new, and cleared
     // whenever there is nothing to take home.
     let pull = home_pull(world, organism, def, (hx, hy));
+    // **Nothing else to do: rest inside** ([`nest_rest_of`]) -- only where
+    // nothing above pulled, so every other trip keeps its own target.
+    let pull = match pull {
+        Some(p) => Some(p),
+        None => {
+            let rest = rest_pull(world, organism, def, (hx, hy));
+            world.creature_stats.rest_pulls += u64::from(rest.is_some());
+            rest
+        }
+    };
     let patience = {
         let state = world.organism_mut(organism).expect("live: its chain was just read");
         match pull {
@@ -23861,6 +24208,165 @@ mod tests {
         assert_eq!(held(None), (false, 0), "control: with the hold off the spent carrier did not lay its pellet, so the scene cannot show one kept");
         assert_eq!(held(Some(SPOIL_HOLD_SHIPPED)), (true, 1), "six cells from its door with its patience spent, the carrier let its pellet go");
         assert_eq!(held(Some(5)), (false, 0), "a hold of five kept a pellet six cells out");
+    }
+
+    /// A founding cut at column 60 -- a shaft two wide from row 40 to 45, a
+    /// chamber from 56 to 65 on rows 46-47 -- a gallery east along row 47 to
+    /// column 80, and a second way up out of its far end, column 80 from row
+    /// 40. Resting `rest`, the ways built; a fed ant spawned at `(x, y)`.
+    fn rest_world(x: i32, y: i32, rest: bool) -> (World, OrganismId) {
+        let mut w = World::new(Rect::new(0, 0, 119, 99));
+        founding_ground(&mut w);
+        w.register_nest_site(60, 38, 2);
+        let cut = crate::sim::world::ShaftFootprint { x0: 60, x1: 61, top: 40, bottom: 45, mouth_bottom: 41, chamber_x0: 56, chamber_x1: 65, chamber_top: 46, chamber_bottom: 47, side: None };
+        w.nest_sites[0].shaft = Some(cut);
+        let open = (40..=45).flat_map(|y| [(60, y), (61, y)]).chain((46..=47).flat_map(|y| (56..=65).map(move |x| (x, y)))).chain((66..=80).map(|x| (x, 47))).chain((40..=46).map(|y| (80, y)));
+        for (px, py) in open {
+            w.set(px, py, Cell::EMPTY);
+        }
+        w.nest_rest = Some(if rest { NestRest::All } else { NestRest::Off });
+        let a = spawn(&mut w, "ant", x, y);
+        let start = w.species.get(w.organism(a).expect("live").species).creature.as_ref().expect("a creature").start_energy;
+        w.organism_mut(a).expect("live").energy = start;
+        step_nest_rest(&mut w);
+        (w, a)
+    }
+
+    /// **Under `bud_from_store`, a birth happens only at the storeroom and
+    /// the food there pays for it** (owner's granary question, 2026-10-01).
+    /// In the chamber (the store without a side room) with fruit around its
+    /// head, or at the room's far end, a poor ant buds and its bank is not
+    /// charged; the same ant rich
+    /// and with no food does not; out on the surface with the same fruit it
+    /// does not. The switch-off arm is the positive control: the rich ant
+    /// with no food buds, so the scene can bud at all. Watched red with the
+    /// in-room test removed (the surface arm budded).
+    #[test]
+    fn under_the_store_switch_births_happen_at_the_store_and_the_store_pays() {
+        let bud = |x: i32, y: i32, store: bool, rich: bool, food: bool| -> (bool, f32, f32, usize) {
+            let (mut w, a) = rest_world(x, y, false);
+            w.bud_store = Some(store);
+            let def = w.species.get(w.organism(a).expect("live").species).creature.clone().expect("a creature");
+            let fruit = w.materials.id_of("fruit").expect("fruit");
+            let (hx, hy) = w.organism(a).expect("live").chain[0];
+            let mut placed = 0;
+            if food {
+                for (dx, dy) in NEIGH8_TEST {
+                    // Every neighbour the body does not hold, ground included:
+                    // a child costs more than the four open cells of a
+                    // two-row chamber hold in fruit.
+                    if w.get(hx + dx, hy + dy).organism_id() == 0 {
+                        w.set(hx + dx, hy + dy, Cell::new(fruit, 0));
+                        placed += 1;
+                    }
+                }
+            }
+            let before = if rich { 20_000.0 } else { def.start_energy };
+            w.organism_mut(a).expect("live").energy = before;
+            let born = try_bud(&mut w, a, &def, 0.0).is_some();
+            let after = w.organism(a).map_or(0.0, |s| s.energy);
+            let left = NEIGH8_TEST.iter().filter(|(dx, dy)| w.get(hx + dx, hy + dy).material == fruit).count();
+            assert!(!food || placed > 0, "test setup: no room for fruit around ({hx}, {hy})");
+            (born, before, after, placed - left)
+        };
+        let (born, _, _, _) = bud(63, 47, false, true, false);
+        assert!(born, "with the switch off a rich ant did not bud, so the scene cannot show the switch");
+        let (born, before, after, eaten) = bud(63, 47, true, false, true);
+        assert!(born, "with the switch on, an ant in the store with fruit around it did not bud");
+        assert!(after >= before, "the parent's bank paid for a store birth: {before} -> {after}");
+        assert!(eaten > 0, "a store birth ate no fruit");
+        let (born, _, _, _) = bud(63, 47, true, true, false);
+        assert!(!born, "with the switch on, a rich ant with no food in reach budded");
+        let (born, _, _, _) = bud(90, 39, true, false, true);
+        assert!(!born, "with the switch on, an ant out on the surface budded from fruit beside it");
+        // The store pays from anywhere in the room, not only beside the
+        // parent: fruit at the chamber's far end, eight columns off.
+        let (mut w, a) = rest_world(64, 47, false);
+        w.bud_store = Some(true);
+        let def = w.species.get(w.organism(a).expect("live").species).creature.clone().expect("a creature");
+        let fruit = w.materials.id_of("fruit").expect("fruit");
+        for (x, y) in [(56, 46), (57, 46), (56, 47), (57, 47), (56, 45), (57, 45)] {
+            w.set(x, y, Cell::new(fruit, 0));
+        }
+        w.organism_mut(a).expect("live").energy = def.start_energy;
+        assert!(try_bud(&mut w, a, &def, 0.0).is_some(), "with the switch on, fruit at the far end of the store did not pay for a birth");
+    }
+
+    const NEIGH8_TEST: [(i32, i32); 8] = [(-1, -1), (0, -1), (1, -1), (-1, 0), (1, 0), (-1, 1), (0, 1), (1, 1)];
+
+    /// **An ant with nothing to do is pulled in at the door and deeper along
+    /// the passages** ([`rest_pull`]). In the chamber under its door, a fed
+    /// ant's pull is aimed east along the floor towards the gallery, further
+    /// from the door by the way in; out on the surface, at the door. With
+    /// resting off, or hungry past [`REST_BALANCE`], there is no pull. And the
+    /// way in stops under the gallery's second way up, which has no roof, so a
+    /// resting ant is never led out of it. Watched red with the pull's target
+    /// set to the ant's own head.
+    #[test]
+    fn an_idle_ant_is_pulled_in_at_its_door_and_along_the_passages() {
+        let pull = |w: &World, a: OrganismId| {
+            let def = w.species.get(w.organism(a).expect("live").species).creature.clone().expect("a creature");
+            let head = w.organism(a).expect("live").chain[0];
+            (head, rest_pull(w, a, &def, head))
+        };
+        let (w, a) = rest_world(63, 47, true);
+        let way = &w.nest_ways[0];
+        let ((hx, hy), got) = pull(&w, a);
+        assert!(way.at(hx, hy).is_some(), "test setup: the ant at ({hx}, {hy}) is not on the way in");
+        let ((tx, ty), gain) = got.expect("a fed ant with nothing to do in its chamber was given no pull");
+        assert!(way.at(tx, ty) > way.at(hx, hy), "the pull at ({tx}, {ty}) is not further in than the ant at ({hx}, {hy})");
+        assert!(tx > hx, "the pull at ({tx}, {ty}) is not east towards the gallery from ({hx}, {hy})");
+        assert!(gain > 0.0);
+        assert!(way.at(79, 47).is_some(), "the way in does not reach the gallery's end");
+        assert!((40..=47).all(|y| way.at(80, y).is_none()), "the way in runs up the gallery's second way out, which is open to the sky: {:?}", (40..=47).map(|y| way.at(80, y)).collect::<Vec<_>>());
+
+        let (w, a) = rest_world(90, 39, true);
+        assert_eq!(pull(&w, a).1.map(|(t, _)| t), Some((60, 39)), "an idle ant out on the surface was not pulled to its door");
+
+        let (w, a) = rest_world(63, 47, false);
+        assert_eq!(pull(&w, a).1, None, "with resting off an idle ant was pulled");
+
+        let (mut w, a) = rest_world(63, 47, true);
+        let start = w.species.get(w.organism(a).expect("live").species).creature.as_ref().expect("a creature").start_energy;
+        w.organism_mut(a).expect("live").energy = 0.4 * start;
+        assert_eq!(pull(&w, a).1, None, "an ant hungrier than the balance was pulled in");
+    }
+
+    /// **The narrower forms keep a scout out** ([`NestRest`]): the same fed
+    /// ant in its chamber is not pulled under `workers` or `on` while it has
+    /// neither foraged nor been made a nest worker; under `on` it is once it
+    /// has foraged, and under `workers` once it is nest-bound. Red with
+    /// [`NestRest::rests`] reading `true` for every form.
+    #[test]
+    fn a_scout_never_rests_under_the_narrower_forms() {
+        let pulled = |form: NestRest, foraged: bool, worker: bool| {
+            let (mut w, a) = rest_world(63, 47, true);
+            w.nest_rest = Some(form);
+            let st = w.organism_mut(a).expect("live");
+            st.foraged = foraged;
+            st.nest_bound_until = if worker { u64::MAX } else { 0 };
+            let def = w.species.get(w.organism(a).expect("live").species).creature.clone().expect("a creature");
+            let head = w.organism(a).expect("live").chain[0];
+            rest_pull(&w, a, &def, head).is_some()
+        };
+        assert!(pulled(NestRest::All, false, false), "control: the first build's form did not rest a fed scout");
+        assert!(!pulled(NestRest::Foragers, false, false), "a scout that has never foraged rested under `on`");
+        assert!(!pulled(NestRest::Workers, false, false), "a scout rested under `workers`");
+        assert!(pulled(NestRest::Foragers, true, false), "an ant that has foraged did not rest under `on`");
+        assert!(!pulled(NestRest::Workers, true, false), "a forager rested under `workers`");
+        assert!(pulled(NestRest::Workers, false, true), "a nest worker did not rest under `workers`");
+        assert!(pulled(NestRest::Foragers, false, true), "a nest worker did not rest under `on`");
+    }
+
+    /// `PIXEL_PHYSICS_NEST_REST`'s spellings.
+    #[test]
+    fn the_nest_rest_parses_its_spellings_and_refuses_the_rest() {
+        assert_eq!(parse_nest_rest(""), NestRest::Off);
+        assert_eq!(parse_nest_rest("off"), NestRest::Off);
+        assert_eq!(parse_nest_rest(" workers "), NestRest::Workers);
+        assert_eq!(parse_nest_rest("on"), NestRest::Foragers);
+        assert_eq!(parse_nest_rest("all"), NestRest::All);
+        assert_eq!(parse_nest_rest("yes"), NestRest::Off);
     }
 
     /// `PIXEL_PHYSICS_DIG_WIDEN`'s spellings: `on`, and off for everything

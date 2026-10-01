@@ -22,8 +22,12 @@ not queueing in the shaft, they are shut in by their own spoil on the mouth.
 off): at 40 ants the walked nest doubles with its door clear; at 200 ants the
 colony's own idle ants, homed over the mouth, still stand on the way out.
 
-Lane note: [lanes/nest-mouth.md](lanes/nest-mouth.md). Predictions 168-206
-and 215-223 were written before their runs; they are in §8 with their
+**§20 rests the colony inside** (`PIXEL_PHYSICS_NEST_REST`, off): every
+idle ant resting gives the picture asked for in the dig box and starves the
+colony bed; nest workers alone spare the bed and change little.
+
+Lane note: [lanes/nest-mouth.md](lanes/nest-mouth.md). Predictions 168-206,
+215-223 and 224-229 were written before their runs; they are in §8 with their
 scores.
 
 ## 0. What was found, in world terms
@@ -1122,3 +1126,273 @@ direction of the pull**, and the hold works because it is waiting. Recorded
 in `dead-ends.md`. Picture: off, hold and route side by side at 40 ants seed
 4 and 200 ants seed 2 (project file `nest/hold-vs-route-2026-10-01.png`).
 
+
+## 20. The colony rests inside its nest (`PIXEL_PHYSICS_NEST_REST`, 2026-10-01)
+
+*Owner: "the next nest step is resting ants living inside the nest" (lane
+note, 2026-09-29). §12 found the colony standing on its own way out: every
+founder's home is the cell over the mouth, and an ant with nothing to do has
+no pull at all.*
+
+**Looked at first** (`digbox` fed, seed 1, 24,000 frames, `pile`): at 200
+ants 51 of 172 stood on or in the mouth, 71 out on the surface and 50
+underground; at 40 ants 12, 12 and 9. The surface ants are still: 20 of the
+71 had not moved for 60 frames.
+
+**What was built** (`creature::nest_rest_of`, `rest_pull`, `NestWay`; off
+unless set). An ant that nothing else pulls (no load, no store trip, no way
+back to a face, not too hungry to be out) and that is pulled in harder than
+out -- the larger of its hunger and its forage drive, which is what scales
+the scout's pull out, under a half -- is pulled to its door from outside, and
+inside along the passages away from the door: each nest keeps a breadth-first
+distance from its door over the cells inside it an ant can stand in (in the
+founding cut, or under cover below the door), rebuilt every 30 frames, and
+the pull is aimed three steps up that distance. Where passages fork, the ant's
+id picks the branch, so the colony spreads over the nest's ends. The gain
+falls to nothing as hunger or the drive reaches the half, so there is no edge
+to flicker across. A forager the colony needs (the `returns` drive reads 1
+while food comes home) never rests, and the rest pull never meets the way
+out, which is read only with no pull. The distance stops where a gallery
+opens to the sky, so a second entrance does not lead a resting ant out.
+
+A first build drew the line at `start_energy`, as the nest-bound pull does.
+It changed nothing measurable against the graded rule (seed 1: the same
+decisions under the pull to frame 6,000), because the pull only ever acts on
+a decision that has already won its step roll, and a fed ant rarely steps:
+8,113 to 9,003 pulled decisions in a 24,000-frame, 200-ant run. Few steps
+are enough; a still ant on the surface stays put only until it next moves.
+
+Guard: `an_idle_ant_is_pulled_in_at_its_door_and_along_the_passages`, watched
+red with the pull aimed at the ant's own head.
+
+**Measured** (`digbox` fed, 8 seeds, 40 and 200 ants, off -> on; where the
+colony stands from `PILE`, medians, at frame 24,000):
+
+| | 40 ants | 200 ants |
+|---|---:|---:|
+| out on the surface | 11 -> 1.5 | 69.5 -> 8 |
+| on the mound over the mouth (holding a pellet) | 9 (6.5) -> 12.5 (6) | 19 (13) -> 42 (35) |
+| underground (holding a pellet) | 9 (3.5) -> 16 (7.5) | 70 (37.5) -> 101 (50.5) |
+| new ground dug | 140.5 -> 231 (higher on 7) | 299.5 -> 442.5 (higher on 8) |
+| open cells | 171.5 -> 206.5 (6 / 2) | 230 -> 315.5 (higher on 8) |
+| pellets put down below the old ground line | 2 -> 36.5 (higher on 7) | 12 -> 117.5 (higher on 8) |
+| ...as a share of all pellets put down | 1% -> 11% | 3% -> 18% |
+| sealed-off cells | 2 -> 4.5 (6 / 1) | 8 -> 16.5 (6 / 1) |
+| alive | 30 -> 30 | 169.5 -> 163 (lower on 7) |
+
+**What it does.** The colony goes inside: the surface empties and the ants
+with nothing to do stand in the nest. Inside, they dig -- the dig wiring
+reads ground round the ant as a face whether it is at the nest or not -- so
+the nest grows by half again, and deeper (pictures: project file
+`nest/rest-inside-2026-10-01.png`, 40 ants seed 4 and 200 ants seed 2, at
+12,000 and 24,000).
+
+**What it costs: the door shaft's traffic again.** More digging is more
+pellets to carry out through the one-lane shaft, and the shaft now has
+resting ants in the way as well. Carrier frames spent standing nose to an
+animal at 200 ants seed 1: 203,403 -> 634,600 (seed 2: 167,916 -> 691,456);
+carriers in the founding shaft at any moment 1.2 -> 4.7. The carriers wait,
+their patience runs out deeper than the 12-cell hold reaches (§19), and the
+pellet goes down inside: §19's gain is mostly given back, and the
+200-ant mound is carriers queueing to come out (35 of 42 hold a pellet).
+The same limit §19 found under the door, reached from the other side.
+
+**Predictions for the colony bed, written before its run** (24 seeds, 20
+founders, gap 90; off -> on):
+
+| # | arm | prediction | score |
+|---|---|---|---|
+| 224 | rest on (every idle ant, now `all`) | food taken within 10% of off | fails (428 -> 200 cells a seed, lower on 24) |
+| 225 | the same | births no higher than off | holds (22 -> 5 a seed) |
+| 226 | `on` (nest workers and ants that have foraged) | births within 15% of off | fails (22 -> 18 a seed; the same as `workers` to within a handful of decisions) |
+| 227 | `workers` (nest workers only) | births within 15% of off | fails (22 -> 18, lower on 14 of 23, sign p 0.41) |
+| 228 | `workers`, `digbox` 200 ants | out on the surface within 20% of off's 69.5 (no ant in the box forages, so the foragers are untouched) | holds (70.5) |
+| 229 | `on` against `workers`, `digbox` | identical, both sizes and every seed (no ant in the box has foraged) | fails (all 16 differ; the box's dead are food, so some ants have foraged -- inferred, not traced) |
+
+**The colony bed** (24 seeds, 20 founders, gap 90, `antloop.py`; medians a
+seed, then seeds lower / higher):
+
+| off -> | `all` | `workers` | `on` |
+|---|---:|---:|---:|
+| food taken from the pile, cells | 428 -> 200 (24 / 0) | 428 -> 385 (15 / 9) | as `workers` |
+| born | 22 -> 5 (23 / 1) | 22 -> 18 (14 / 9) | as `workers` |
+| starved by frame 6,000, all seeds | 0 -> 156 | 0 -> 4 | as `workers` |
+| net food into home (overcounts, s22j) | 1,180 -> 300 | 1,180 -> 1,023 (19 / 5, p 0.007) | as `workers` |
+
+**`all` starves the bed**: a founder starts fed, so it rests deep in the
+nest instead of scouting, and leaves only once half its reserve is gone, too
+little to find food ninety cells out and get back. **`on` is `workers` on the
+bed** (two seeds differ by a few decisions): the `returns` drive reads 1 for
+every forager while food comes home, so a forager never rests there.
+**`workers` costs the bed a little** (births and food into home both down,
+food into home significantly); why is not traced.
+
+**And the narrower forms barely move the picture in the dig box** (8 seeds,
+off -> `workers`; `on` alike):
+
+| | 40 ants | 200 ants |
+|---|---:|---:|
+| out on the surface | 11 -> 12 | 69.5 -> 70.5 |
+| on the mound over the mouth (nest workers) | 9 (2) -> 5 (1) | 19 (5.5) -> 31 (10.5) |
+| underground | 9 -> 10 | 70 -> 58 |
+| new ground dug | 140.5 -> 140.5 | 299.5 -> 344 (higher on 5) |
+| pellets put down inside | 2 -> 4 | 12 -> 17.5 |
+
+At 200 ants more nest workers stand on the mound: a resting worker outside
+the nest is pulled to the door, and the door is where the shaft jams.
+
+**So, as of this section, resting stays off.** The form that gives the
+picture asked for (`all`) takes the colony's scouts off the surface, which
+in a box with no food is all of its idle ants and on the bed is how it
+finds food; the forms that spare the scouts change little. Every form meets
+the one-lane door shaft: resting ants add to the traffic the carriers
+already queue in (§19). Pictures: `nest/rest-inside-2026-10-01.png` (`all`
+against off) and `nest/rest-forms-2026-10-01.png` (off, `workers`, `all`).
+
+## 21. A nest built by a colony that feeds itself: the food box (2026-10-01)
+
+**Owner, 2026-10-01:** *"lets try to build a nest with in test environment
+with hungry ants and food. No plants. Use something similar to the gap 90
+environment."* `digbox food=N` puts N cells of fruit `gap=` (90) columns east
+of the nest centre, refills them every `refill=` (400) frames, and makes the
+fruit the only food (the colony bed's `Diet::isolate`). With food the ant
+keeps `ant.ron`'s 200 J endowment. **Run it with `hungry` and
+`PIXEL_PHYSICS_BUD_SITE=nest`**: without the latter the colony buds at the
+pile, and 20 founders became 777-1,251 ants in 24,000 frames. All numbers
+below: main a25c28f, `w=260 soil=60`, 40 founders, `RAYON_NUM_THREADS=1`.
+
+**It digs less early and more late, because the nest follows the colony.**
+At 24,000 frames it digs 52-86 cells against 118 for a fed 40-ant box with no
+food. The colony spends 89,000 ant-frames under cover against 211,000 and
+decides to dig 26,000 times against 82,000. By 72,000 frames seed 2 is 521
+ants and 686 cells; by 240,000 two seeds reach 1,800-2,200 cells, and seed 3's
+nest spans the box. A 24,000-frame run takes about 20 s, and a 240,000-frame
+run takes 2-11 min, growing with the ant count. A pulsed pile (`food=30
+refill=6000`) starves every colony to 0-9 ants.
+
+**The door is not where carriers stand in this box.** Of the frames a carrier
+stands still, 1-3% are in the shaft and 80-88% are outside the founding cut,
+mostly facing air or ground. That differs from the fed 200-ant box (§11),
+where they spent 40-72% of their carrying frames standing in the shaft. The
+shaft is two cells wide and four nestmates may share a cell
+(`SHIPPED_STACK_CAP`), so `PIXEL_PHYSICS_STACK_DEPTH=4` reproduces the
+default byte for byte.
+
+**Boom and bust.** Over 240,000 frames, colonies grow to 230-820 ants and
+crash; seeds 1 and 2 die out with about 285 cells of fruit standing in the
+pile throughout. Seed 2, every ant recorded every 500 frames
+(`antscsv=`):
+
+- **Income is flat while the colony grows sixfold.** Food taken from the
+  pile (cells the refill replaces, not `deliveries`, which counts food put
+  down at home more than once, how-the-ant-works §5) holds at 100-220 cells
+  per 2,500 frames from 77 ants to 507: per ant, 0.49 falls to 0.10 per
+  1,000 frames.
+- **The extra foragers scout the wrong way.** At 70,000 frames 127 of the
+  154 ants on the surface are west of the nest, where there is no food, with
+  forage drive 1.0 and scouting weight 2.0. The foraging lane measures the
+  same at 20 ants (36% of empty departures go west) and is building the fix,
+  a trail reader at the door (`PIXEL_PHYSICS_FOOD_TRAIL=lay,read`,
+  `Reports/food-trail-reader-design-2026-09-30.md` Stage 2).
+- **Births do not slow.** The foragers east of the nest sit at 750-990 J
+  and bud at home, while the ants underground run down to 80-130 J. 441
+  births between frames 45,000 and 72,500, then every ant's energy falls
+  together: 430 die between 74,000 and 77,500, 385 of them underground.
+  Holding a pellet makes no difference to who dies (median energy the same
+  with and without one).
+
+**Two rules on births, measured and not adopted.** `PIXEL_PHYSICS_BREEDING=
+queen` (one breeder per colony): every colony dwindles, to 0-22 ants by frame
+240,000. `PIXEL_PHYSICS_BUD_NEED=<h>` (built for this, no budding while the
+colony's mean hunger is above `h`): it barely fires, because the bank sits
+above `start_energy` through the growth and mean hunger stays near 0 until
+the reserve is already falling. Reverted; `dead-ends.md`. Sharing off
+(`PIXEL_PHYSICS_TROPHALLAXIS=off`) does not save a colony either: smaller
+colonies, and 2 of the 3 finished seeds die out.
+
+**Why the nest is a patchwork (owner's question).** Dug cells were refilled
+114,000 times by soil and fruit sliding in, mostly from the sides, and
+17,600 of those stayed. The ants tamp the fill like any wall, so by frame
+240,000 on seed 3, 930 of 2,178 dug cells are tamped soil (the picture's
+white and pale blue are tamped cells 2 or more from any opening) and 421 are
+open. **There is barely a granary**: stored fruit inside the nest never
+passes 37 cells, because food comes home in crops and only nest workers
+fill the storeroom.
+
+Pictures: `nest/food-box-nests-2026-10-01.png`,
+`nest/food-box-long-runs-2026-10-01.png`, `nest/food-box-240k-2026-10-01.png`.
+
+## 22. Births paid from the storeroom, the trail reader, and what refills the tunnels (2026-10-01)
+
+Same food box as §21 (main a25c28f plus this branch, 40 founders, seeds 1-4,
+240,000 frames, `PIXEL_PHYSICS_BUD_SITE=nest`). Live ants and fruit taken
+from the pile (cells the refill replaced) at 96,000 and 240,000 frames:
+
+| arm | live at 96k | live at 240k | fruit taken by 240k | born |
+|---|---|---|---|---|
+| shipped | 231 / 87 / 591 / 43 | 0 / 0 / 572 / 241 | 5,597 / 3,459 / 25,593 / 10,772 | 917 / 778 / 5,289 / 3,875 |
+| births from the store | 177 / 85 / 112 / 0 | 0 / 0 / 1 / 0 | 4,257 / 4,473 / 3,056 / 929 | 697 / 366 / 406 / 26 |
+| trail reader | 664 / 669 / 370 / 512 | 792 / 461 / 0 / 309 | 21,649 / 16,642 / 6,466 / 20,919 | 3,028 / 3,267 / 1,286 / 4,639 |
+| both | 42 / 292 / 225 / 106 | 0 / 0 / 0 / 2 | 2,583 / 6,529 / 6,426 / 3,545 | 147 / 706 / 901 / 550 |
+
+**Births paid from the storeroom (`PIXEL_PHYSICS_BUD_STORE=on`) kill every
+colony.** The idea was a granary that matters: an ant buds only inside the
+storeroom and the store's food pays the whole price, so the colony grows
+only from food it has put by. It fires (every birth is paid from the store,
+`births paid from the store` on the LARDER line), but the store never holds
+more than a few cells, so births run at a tenth of the shipped rate and
+cannot replace the dead. All four seeds die out (shipped: two of four),
+with or without the trail reader. Left in, off: it is the natural partner
+for a granary that fills, and it should be re-run when one does. The first
+version paid from the eight cells round the parent and gave 0-1 births;
+this one pays from the whole store (`provisions_in_store`).
+
+**The foraging lane's trail reader (`PIXEL_PHYSICS_FOOD_TRAIL=lay,read`,
+draft PR 533) helps here too.** Fruit taken by 96,000 frames is higher on
+three of four seeds (seed 3 is lower, 5,052 against 6,547), and three of
+four colonies are alive at 240,000 (shipped two). Seed 3 still crashes and
+is dead by 144,000 frames.
+
+**What refills the tunnels.** §21 guessed that corpses from a crash rot
+into soil and fill the nest. They do not: with corpses rotting to nothing
+(`DECAY_YIELD=0`; nothing else in this box decays), the share
+of dug cells that are tamped soil at 240,000 frames is 26-44% (shipped
+30-43%). What the census does show is that the colony works a treadmill:
+on seed 3, 5,993 of 11,277 cuts re-dig a refill or a pellet and 1,804 cut
+new ground under a roof. The REFILL line (added for this; the run
+reproduces the shipped FOOD lines exactly) splits the falls into dug cells
+that are still there 100 frames later, by material, at 240,000 frames:
+
+| seed | lasting falls | loose soil | dead ants | food | spoil and other |
+|---|---|---|---|---|---|
+| 1 | 6,241 | 1,714 (27%) | 1,042 (17%) | 3,231 (52%) | 254 |
+| 2 | 3,049 | 1,148 (38%) | 879 (29%) | 852 (28%) | 170 |
+| 3 | 17,594 | 8,771 (50%) | 5,021 (29%) | 2,446 (14%) | 1,356 |
+| 4 | 8,903 | 3,489 (39%) | 2,835 (32%) | 1,995 (22%) | 584 |
+
+So the fill is loose soil sliding along the tunnels, the bodies of dead
+ants, and fruit set down at home. Dead ants lie where they fall because in
+this box fruit is the only food (`Diet::isolate`); in the shipped world a
+corpse is food and nestmates eat it. Loose soil is the part the ants turn
+into wall: every cut tamps all eight cells around it (`line_burrow`),
+so soil that has slid into a tunnel is tamped in place by
+the next cut beside it (923 tamped refills on seed 3), and that is the
+white and pale blue in the picture. A third to a half of the lasting falls
+come from the cell above, at every depth. Where the loose soil first came from is
+not yet measured.
+
+**The granary is the crops.** On seed 3, storeroom workers pick up food for the
+store 1,736 times by 72,000 frames and only 507 more in the next 168,000,
+while nestmates share 18.9 MJ mouth to mouth (634,154 shares) over the
+run. Fruit put down at home stands above ground at the mouth (133 cells at
+240,000), not inside.
+
+**Why the store stays empty.** Only a fed nest worker (at or above
+`start_energy`) picks food up for the store, and only a hungry ant eats from
+it, so the store is a buffer that hungry ants drain as fast as fed workers
+fill it. On seed 2 (the `antscsv=` trace of §21), 51-78 of the nest
+workers are fed between 45,000 and 60,000 frames; at 70,000, 15 of 127 are,
+and after the crash 0-5. Storing stops exactly when the colony starts to
+starve. Fruit only piles up if income outruns what the colony eats and
+breeds, and today any surplus becomes births (§21), so moving where food is
+put down would not by itself make a pile.

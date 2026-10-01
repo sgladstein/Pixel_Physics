@@ -87,8 +87,11 @@ eight rings (a sink stacking exposed).
    the one-lane shaft's traffic.
 2. Why the lab box starves more with the package (§18): trace who
    starves and when, against the peak. Not a blocker; for the foraging lane.
-3. Resting inside (owner: yes), built on the existing room gate's crowding
-   count so the breeding plan's brood (B1, B3) can plug into it.
+3. Resting inside (owner: yes): built 2026-10-01 as `NEST_REST` (report
+   §20), off. Every idle ant resting gives the owner's picture in the dig
+   box but starves the bed (fed founders stop scouting) and jams the
+   shaft; nest workers alone change little. Waiting on the owner's pick;
+   the shaft's one lane is the limit under both this and item 1.
 4. The storeroom's fixed west side (`week-review-2026-09-29.md` W2); the
    foraging lane's even-sided food drop has landed (#526) (theirs: the colony's
    east lean was `food_drop_site`, not nest code).
