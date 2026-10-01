@@ -3858,3 +3858,32 @@ million ant-frames 11.8 -> 9.1 (13/11), every p >= 0.15. **Where this
 leaves it:** `FG` passes every registered bar but one, pulsed 140 starved
 (p 0.052), where it lands at `M`'s level. `F` fails pulsed 90 starved
 (p 0.004) and B5's births lean against it. If one ships, it should be `FG`.
+
+**`FGW` = `lay,read,giveup,window=700`** (the reader's stale-pile window
+halved, a new `window=` part; **chosen after `FG`'s scoring, so not
+registered in advance**, and confirmed on fresh seeds below). Same binary
+apart from the parse, the same seeds, against `L`:
+
+| | taken | starved | born |
+|---|---|---|---|
+| unlimited 90 | **10,546 -> 17,221 (22/2)** | 8 -> 5 (3/6) | **760 -> 1,859 (19/4)** |
+| unlimited 140 | **6,543 -> 9,033 (23/1)** | 27 -> 26 (5/4) | **208 -> 474 (22/1)** |
+| pulsed 90 | 2,815 -> 2,840 (8/8) | 247 -> 237 (9/13); vs `M` 276 -> 237 (7/14) | 55 -> 38 (5/12, p 0.14) |
+| pulsed 140 | 2,791 -> 2,751 (11/7) | 228 -> 251 (13/9, p 0.52); vs `M` 249 -> 251 (9/11) | 33 -> 34 (8/10) |
+| 80 founders | **13,171 -> 20,108 (24/0)** | **649 -> 289 (0/24)** | **110 -> 508 (22/1)** |
+| B5 | 12,562 -> 11,973 (12/12) | **131 -> 62 (4/18, p 0.004)** | 1,334 -> 901 (10/14) |
+
+Lab pair: **births 371.0 -> 544.5 (17/7, p 0.064)**, ant-frames lived
+9.4M -> 11.2M (18/6, p 0.023), food eaten 1,037k -> 1,258k (15/9), starved
+per million ant-frames 11.8 -> 9.2 (14/10); no gate worse.
+
+**Fresh seeds 25-48 on the two pulsed beds** (the check against having
+picked 700 to fit seeds 1-24): pulsed 90 starved 239 -> 245 (12/8, p 0.50),
+born 55 -> 42 (7/14, p 0.19), taken 2,813 -> 2,780; pulsed 140 starved
+241 -> 255 (13/8, p 0.38), born 24 -> 39 (12/5), taken 2,722 -> 2,668.
+
+**`FGW` passes every registered bar on both seed sets.** What remains is a
+lean, not a failure: pulsed starved runs 3-10% above `L` in three of four
+readings, none significant; over 48 seeds at 140 cells it is 26/17. Turning
+it on by default changes the default ant's behaviour everywhere, so it waits
+for the owner. Until then it is `PIXEL_PHYSICS_FOOD_TRAIL=lay,read,giveup,window=700`.
