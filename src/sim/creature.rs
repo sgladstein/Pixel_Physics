@@ -16088,11 +16088,16 @@ pub struct FoodTrail {
     pub reach: u8,
     /// Stage 2: every empty ant follows, not only the hungry or driven.
     pub follow_all: bool,
+    /// **Stage 2's stale-pile window**, in frames: the door reads only while
+    /// its nest's last return is at most this old. 0, the default, is the
+    /// forage drive's own `return_window()`. An arm for the refilling pile
+    /// (§23e), where a 1,400-frame leash outlives a 30-cell pile.
+    pub window: f32,
 }
 
 impl FoodTrail {
     /// Nothing: the ant before it, bit for bit.
-    pub const OFF: FoodTrail = FoodTrail { lay: false, read: false, giveup: false, t: 0.0, gain: FOOD_TRAIL_GAIN, reach: 6, follow_all: false };
+    pub const OFF: FoodTrail = FoodTrail { lay: false, read: false, giveup: false, t: 0.0, gain: FOOD_TRAIL_GAIN, reach: 6, follow_all: false, window: 0.0 };
     /// `on`: all three parts at their defaults.
     pub const ON: FoodTrail = FoodTrail { lay: true, read: true, giveup: true, ..FoodTrail::OFF };
 }
@@ -16148,11 +16153,12 @@ fn parse_food_trail(raw: &str) -> FoodTrail {
             _ => match part.split_once('=') {
                 Some(("t", v)) => v.parse::<f32>().ok().filter(|t| *t >= 0.0).map(|t| ft.t = t).is_some(),
                 Some(("gain", v)) => v.parse::<f32>().ok().filter(|g| g.is_finite()).map(|g| ft.gain = g).is_some(),
+                Some(("window", v)) => v.parse::<f32>().ok().filter(|w| *w > 0.0).map(|w| ft.window = w).is_some(),
                 _ => false,
             },
         };
         if !ok {
-            eprintln!("PIXEL_PHYSICS_FOOD_TRAIL={raw:?}: unknown part {part:?}, read as unset (off, on, or lay, read, giveup, t=, gain=, reach=2|6, follow=all)");
+            eprintln!("PIXEL_PHYSICS_FOOD_TRAIL={raw:?}: unknown part {part:?}, read as unset (off, on, or lay, read, giveup, t=, gain=, window=, reach=2|6, follow=all)");
             return FOOD_TRAIL_UNSET;
         }
     }
@@ -16695,7 +16701,11 @@ fn door_read(world: &mut World, organism: OrganismId, def: &CreatureDef, (hx, hy
     let want = hunger.max(drive);
     world.creature_stats.door_reads += 1;
     let last = world.nest_last_return.get(site).copied().unwrap_or(0);
-    if last == 0 || world.frame.saturating_sub(last) as f32 > return_window() {
+    let window = match food_trail_of(world).window {
+        w if w > 0.0 => w,
+        _ => return_window(),
+    };
+    if last == 0 || world.frame.saturating_sub(last) as f32 > window {
         world.creature_stats.door_stale += 1;
         return None;
     }
@@ -30430,6 +30440,8 @@ mod tests {
         assert_eq!(parse_food_trail("read"), FoodTrail { read: true, ..FoodTrail::OFF }, "read without lay parses: the plan's diagnostic arm");
         assert_eq!(parse_food_trail("lay,t=-1"), unset, "a negative odometer is unreadable");
         assert_eq!(parse_food_trail("lay,reach=4"), unset, "a reach other than 2 or 6 is unreadable");
+        assert_eq!(parse_food_trail("lay,read,window=700"), FoodTrail { lay: true, read: true, window: 700.0, ..FoodTrail::OFF });
+        assert_eq!(parse_food_trail("lay,read,window=0"), unset, "a zero window is unreadable: 0 means the drive's own");
         assert_eq!(parse_food_trail("read,fast"), unset, "a part it does not know makes the whole value unset");
         assert_eq!(FoodTrail::OFF.gain, FOOD_TRAIL_GAIN);
         assert_eq!(FoodTrail::OFF.reach, 6);
