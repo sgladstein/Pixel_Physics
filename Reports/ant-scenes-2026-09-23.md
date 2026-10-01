@@ -3789,3 +3789,41 @@ taken not lower; the lab pair no gate worse at p < 0.05 and starved per
 million ant-frames not higher at p < 0.1. **Added after §23d's third
 scoring:** births on each pulsed bed not lower at p < 0.1, since that is
 where `LG3` failed and what a player sees.
+
+**First scoring of `F` (binary `acd6e8db` on `main` `ff5b2982`, #530 and
+#531 in; `L` re-run on the same binary; 24 seeds, paired; `F` against `L`):**
+
+| | taken | starved | born |
+|---|---|---|---|
+| unlimited 90 | **10,546 -> 17,532 (22/1, p < 0.001)** | 8 -> 4 (4/8) | **760 -> 1,964 (17/6, p 0.035)** |
+| unlimited 140 | **6,543 -> 8,981 (22/2, p < 0.001)** | 27 -> 24 (7/6) | **208 -> 497 (21/1, p < 0.001)** |
+| pulsed 90 | 2,815 -> 2,793 (10/3, at its cap) | **247 -> 285 (18/4, p 0.004)**; vs `M` 276 -> 285 (12/10) | 55 -> 76 (15/5, p 0.041) |
+| pulsed 140 | 2,791 -> 2,774 (11/11) | 228 -> 247 (13/9); vs `M` 249 -> 247 (11/9) | 33 -> 42 (10/7) |
+| 80 founders | **13,171 -> 20,477 (24/0, p < 0.001)** | **649 -> 344 (1/23, p < 0.001)** | **110 -> 501 (23/1, p < 0.001)** |
+| B5 | 12,562 -> 11,552 (10/14, p 0.54) | 131 -> 90 (6/14) | 1,334 -> 817 (9/15) |
+
+Predictions: **PR1 right** — west departures 36% -> **6%** at 90 cells and
+34% -> **16%** at 140 (`trailclimb.py` §3 on seeds 1-12; east 48% -> 76%,
+54% -> 74%). **PR2 right** — the picked heading followed the pull on
+72-77% of pulled decisions on every bed. **PR3 right** — under
+`arms=mute` the 24 paired runs are identical on every row. **PR4 half
+right** — the stale gate withheld 14.7% / 23.6% of door reads on the pulsed
+piles and 1.0% on unlimited 90, but 6.7% on unlimited 140 (registered
+under 3%).
+
+**`F` fails one ship bar: pulsed 90 starved against `L`** (p 0.004; also as
+a share of ants that lived, 46.2% -> 51.3%, 18/6). Against `M` it is level.
+B5's taken passes at p 0.54.
+
+**Traced, every starved ant** (pulsed 90, seeds 1-6, `dwide`, 62 under `L`
+and 67 under `F`): the starvation is the same in both arms. 59 of 62 and
+56 of 67 die east of the door, a median 3,138 / 3,486 frames after their last
+departure, which they made with 118 / 138 J. **They leave, never come
+home, and die out on the empty road or at the east wall** (death `x - nest`
+median 126 under `L`, 90th percentile 203, the wall). That is the unbounded
+scout walk of the reader design's M4: a follower past a dead trail walks on.
+The reader sends more ants east, so more of them reach that sink. It does
+not create it. **The next arm is therefore `FG` = `lay,read,giveup`**: the
+reader with Stage 3's bound, which makes a dark step past a walked trail not
+progress. This is the design's full `F`; Stage 3 alone failed on spending
+lit give-ups, not on the bound.
