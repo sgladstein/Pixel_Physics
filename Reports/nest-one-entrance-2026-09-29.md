@@ -1248,3 +1248,76 @@ finds food; the forms that spare the scouts change little. Every form meets
 the one-lane door shaft: resting ants add to the traffic the carriers
 already queue in (§19). Pictures: `nest/rest-inside-2026-10-01.png` (`all`
 against off) and `nest/rest-forms-2026-10-01.png` (off, `workers`, `all`).
+
+## 21. A nest built by a colony that feeds itself: the food box (2026-10-01)
+
+**Owner, 2026-10-01:** *"lets try to build a nest with in test environment
+with hungry ants and food. No plants. Use something similar to the gap 90
+environment."* `digbox food=N` puts N cells of fruit `gap=` (90) columns east
+of the nest centre, refills them every `refill=` (400) frames, and makes the
+fruit the only food (the colony bed's `Diet::isolate`). With food the ant
+keeps `ant.ron`'s 200 J endowment. **Run it with `hungry` and
+`PIXEL_PHYSICS_BUD_SITE=nest`**: without the latter the colony buds at the
+pile, and 20 founders became 777-1,251 ants in 24,000 frames. All numbers
+below: main a25c28f, `w=260 soil=60`, 40 founders, `RAYON_NUM_THREADS=1`.
+
+**It digs less early and more late, because the nest follows the colony.**
+At 24,000 frames it digs 52-86 cells against 118 for a fed 40-ant box with no
+food. The colony spends 89,000 ant-frames under cover against 211,000 and
+decides to dig 26,000 times against 82,000. By 72,000 frames seed 2 is 521
+ants and 686 cells; by 240,000 two seeds reach 1,800-2,200 cells, and seed 3's
+nest spans the box. A 24,000-frame run takes about 20 s, and a 240,000-frame
+run takes 2-11 min, growing with the ant count. A pulsed pile (`food=30
+refill=6000`) starves every colony to 0-9 ants.
+
+**The door is not where carriers stand in this box.** Of the frames a carrier
+stands still, 1-3% are in the shaft and 80-88% are outside the founding cut,
+mostly facing air or ground. That differs from the fed 200-ant box (§11),
+where they spent 40-72% of their carrying frames standing in the shaft. The
+shaft is two cells wide and four nestmates may share a cell
+(`SHIPPED_STACK_CAP`), so `PIXEL_PHYSICS_STACK_DEPTH=4` reproduces the
+default byte for byte.
+
+**Boom and bust.** Over 240,000 frames, colonies grow to 230-820 ants and
+crash; seeds 1 and 2 die out with about 285 cells of fruit standing in the
+pile throughout. Seed 2, every ant recorded every 500 frames
+(`antscsv=`):
+
+- **Income is flat while the colony grows sixfold.** Food taken from the
+  pile (cells the refill replaces, not `deliveries`, which counts food put
+  down at home more than once, how-the-ant-works §5) holds at 100-220 cells
+  per 2,500 frames from 77 ants to 507: per ant, 0.49 falls to 0.10 per
+  1,000 frames.
+- **The extra foragers scout the wrong way.** At 70,000 frames 127 of the
+  154 ants on the surface are west of the nest, where there is no food, with
+  forage drive 1.0 and scouting weight 2.0. The foraging lane measures the
+  same at 20 ants (36% of empty departures go west) and is building the fix,
+  a trail reader at the door (`PIXEL_PHYSICS_FOOD_TRAIL=lay,read`,
+  `Reports/food-trail-reader-design-2026-09-30.md` Stage 2).
+- **Births do not slow.** The foragers east of the nest sit at 750-990 J
+  and bud at home, while the ants underground run down to 80-130 J. 441
+  births between frames 45,000 and 72,500, then every ant's energy falls
+  together: 430 die between 74,000 and 77,500, 385 of them underground.
+  Holding a pellet makes no difference to who dies (median energy the same
+  with and without one).
+
+**Two rules on births, measured and not adopted.** `PIXEL_PHYSICS_BREEDING=
+queen` (one breeder per colony): every colony dwindles, to 0-22 ants by frame
+240,000. `PIXEL_PHYSICS_BUD_NEED=<h>` (built for this, no budding while the
+colony's mean hunger is above `h`): it barely fires, because the bank sits
+above `start_energy` through the growth and mean hunger stays near 0 until
+the reserve is already falling. Reverted; `dead-ends.md`. Sharing off
+(`PIXEL_PHYSICS_TROPHALLAXIS=off`) does not save a colony either: smaller
+colonies, and 2 of the 3 finished seeds die out.
+
+**Why the nest is a patchwork (owner's question).** Dug cells were refilled
+114,000 times by soil and fruit sliding in, mostly from the sides, and
+17,600 of those stayed. The ants tamp the fill like any wall, so by frame
+240,000 on seed 3, 930 of 2,178 dug cells are tamped soil (the picture's
+white and pale blue are tamped cells 2 or more from any opening) and 421 are
+open. **There is barely a granary**: stored fruit inside the nest never
+passes 37 cells, because food comes home in crops and only nest workers
+fill the storeroom.
+
+Pictures: `nest/food-box-nests-2026-10-01.png`,
+`nest/food-box-long-runs-2026-10-01.png`, `nest/food-box-240k-2026-10-01.png`.
