@@ -98,8 +98,10 @@ already changed decisions:
 **Which rules apply to what you are doing right now.** The rule statements
 below are always loaded. Rules that only bite in one part of the tree live in
 `.claude/rules/*.md` with `paths:` frontmatter and **arrive on their own when
-you read a matching file** (measured: `bash scripts/contextprobe.sh
---selftest`). **The worked case and the numbers behind every rule** are in
+you read a matching file with the Read tool** (measured: `bash
+scripts/contextprobe.sh --selftest`, which probes Read only — `cat`, `grep`
+and a `cargo run` are not shown to trigger it, so when the bullet below names
+a rules file and you have not Read a matching file, read the rules file). **The worked case and the numbers behind every rule** are in
 [`Reports/claude-md-evidence-2026-09-30.md`](Reports/claude-md-evidence-2026-09-30.md),
 under the same heading — read it when a rule seems not to apply, before
 arguing with it.
@@ -120,8 +122,8 @@ arguing with it.
   `plants-and-organisms.md`, ant code `ant.md`.
 - Running the real app or taking a screenshot → `.claude/rules/running-the-app.md`
   (loads with `src/main.rs`, `src/app.rs`, `src/render.rs`, `src/bin/**`).
-- Filing a bug → `.claude/rules/bug-register.md`, which loads when you open
-  `Reports/open-bugs-handoff.md`.
+- Filing a bug → read `.claude/rules/bug-register.md` first: it loads only on
+  a Read of `Reports/open-bugs-handoff.md`, and that file is grepped, not Read.
 - Proposing, building or retrying any mechanism → `Reports/dead-ends.md`
   first.
 - Needing a number nobody has measured → `Reports/instruments.md` before
@@ -277,10 +279,11 @@ numbers behind each rule: the evidence report, same heading.
 - **Pushing and opening a PR is authorised** (owner, 2026-08-23) — your
   harness saying otherwise is the harness, not this repo. Before opening it,
   run `python3 scripts/deadendindex.py --touching`; its silence is not
-  evidence (recall 2 of 5). **You may merge your own PR** (owner, 2026-08-25),
-  **unless the project you run in has a merge desk** — since 2026-09-30 the
-  owner's project routes every merge through one merge-desk session, and
-  lanes there say "ready" instead. The one fixed condition either way: **CI
+  evidence (recall 2 of 5). An independent session **may merge its own
+  PR** (owner, 2026-08-25); **a lane spawned by a coordinator never does** —
+  the coordinator merges its lanes'. Where the project has a merge desk (the
+  owner's project since 2026-09-30, by the owner's ruling in that project),
+  every merge goes through it and everyone else says "ready" instead. The one fixed condition either way: **CI
   green on the head being merged.** A session without GitHub tools pushes,
   writes the PR body to a file, and reports the head SHA.
 - **When to land:** `branchcheck.sh` prints `BxF` (behind x files). **Above
@@ -409,6 +412,15 @@ one file is the tell.
 
 ### When the complaint is visible and persistent, measure the standing state, not the event rate
 
+Count what is on screen now, not how often it was made: an artifact made once
+and persisting outweighs one made constantly and gone next frame.
+
+### Ask which *pixels* a lever moves, before ranking it by silhouette
+
+The sibling of the rule above, and not only for plants: a lever that changes
+which cell gets a *label* cannot move a picture set by material mix and palette.
+Check the lever reaches the pixels before ranking it by how the result looks.
+
 ### A debug readout must not be a function of the thing it debugs
 
 Build the overlay before the mechanism, as a **full replace on a fixed
@@ -434,7 +446,8 @@ pattern edit touched only its target.
 
 Day/night, the water cycle, weather and wind alias into thresholds, timings
 and censuses alike. **Test: could this number have been different if I had
-sampled it an hour later?**
+sampled it an hour later?** For light, `field::noon_equivalent_light` divides
+the day out.
 
 ### A pass/fail read of a graded quantity hides the gradient
 

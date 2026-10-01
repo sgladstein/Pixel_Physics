@@ -6,6 +6,7 @@ paths:
   - "src/hud.rs"
   - "src/bin/**"
   - "examples/filmstrip.rs"
+  - "scripts/screenshot.ps1"
 ---
 
 # Running and screenshotting the real app

@@ -10,6 +10,14 @@ paths:
   - "scripts/blastsweep.sh"
   - "scripts/plantsweep.sh"
   - "scripts/worldgencheck.sh"
+  - "scripts/megastudy.sh"
+  - "scripts/worldgen_sweep.sh"
+  - "scripts/labpair.py"
+  - "scripts/funnelpair.py"
+  - "scripts/tracepair.py"
+  - "scripts/trailpair.py"
+  - "scripts/nestscore.py"
+  - "scripts/twopile.py"
 ---
 
 # Measuring the world: traps that have each cost real time
