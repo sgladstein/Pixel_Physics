@@ -1823,6 +1823,13 @@ pub struct CreatureStats {
     /// unless the switch is set.
     pub spoil_cue_applied: u64,
     pub spoil_cue_kept_milli: u64,
+    /// **`creature::dig_roof_of`'s count**: cuts refused because they lay
+    /// within the roof's rows under a nest's founding surface and outside its
+    /// door. 0 unless `PIXEL_PHYSICS_DIG_ROOF` is set.
+    pub digs_refused_roof: u64,
+    /// **`creature::collar_tamp`'s count**: rim cells packed by ants at the
+    /// door. 0 unless `PIXEL_PHYSICS_DOOR_COLLAR` is set.
+    pub collar_packed: u64,
     /// **Creature ticks taken standing at a nest.** Not a rate and not a
     /// population: a tick count, so it rides the colony's size and its tick
     /// interval together and is only ever read as a ratio or against a
@@ -3739,6 +3746,13 @@ pub struct World {
     /// `None` follows the environment, which is off unless set; a field for
     /// the reason `chooser` is one.
     pub bud_at_nest: Option<bool>,
+    /// `creature::dig_roof_of` for this world: `Some(Some(rows))` keeps a roof
+    /// that many rows thick, `Some(None)` none; `None` reads the process's
+    /// `PIXEL_PHYSICS_DIG_ROOF`.
+    pub dig_roof: Option<Option<i32>>,
+    /// `creature::door_collar_of` for this world; `None` reads the process's
+    /// `PIXEL_PHYSICS_DOOR_COLLAR`.
+    pub door_collar: Option<bool>,
     /// **How much of the founding cut counts as home, overriding
     /// `PIXEL_PHYSICS_NEST_HOME` for this world** (`creature::nest_home`).
     /// `None` follows the environment, which is none of it unless set; a
@@ -6241,6 +6255,8 @@ impl World {
             decision_scratch: crate::sim::creature::DecisionScratch::default(),
             chooser: None,
             bud_at_nest: None,
+            dig_roof: None,
+            door_collar: None,
             nest_home: None,
             nest_shaft: None,
             spoil_cue: None,

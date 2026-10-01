@@ -138,7 +138,12 @@ fn build_graded(b: &Box2, wet: u16, grad: Option<(u16, u16)>) -> World {
     // anything measured here (`CLAUDE.md`).
     world.set_weather_pin(Pin::Clear);
     world.set_sky_hold(Some(pixel_physics::sky::frame_for_daylight(1.0)));
-    let soil_id = world.materials.id_of("soil").expect("soil ships");
+    // **`bed=packed`: the fill starts as tamped ground** (`packedsoil`), so a
+    // run shows what the nest does in ground that holds its shape until it is
+    // cut, without changing the engine's soil (`Reports/nest-one-entrance-
+    // 2026-09-29.md` §25). Unset, the shipped `soil`.
+    let fill = if arg::<String>("bed").as_deref() == Some("packed") { "packedsoil" } else { "soil" };
+    let soil_id = world.materials.id_of(fill).expect("soil ships");
 
     for x in 0..b.w {
         for y in 0..b.h {
@@ -3930,6 +3935,11 @@ fn main() {
                 if cap.is_some() {
                     println!("CAP frame={f} frames with births paused {paused_frames}");
                 }
+                // `PIXEL_PHYSICS_DIG_ROOF` and `_DOOR_COLLAR`'s "it fired" halves.
+                println!(
+                    "ROOF frame={f} cuts refused under the nest's roof (DIG_ROOF) {}, rim cells packed by the door's collar (DOOR_COLLAR) {}",
+                    world.creature_stats.digs_refused_roof, world.creature_stats.collar_packed
+                );
                 if let Some(p) = &food_pile {
                     println!("{}", larder_census(&world, &b, p, f));
                     let st = world.creature_stats;
