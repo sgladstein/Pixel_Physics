@@ -80,9 +80,11 @@ one harm: births flat, starved per ant-frame 9.7 -> 12.0 (higher on 18 of
 eight rings (a sink stacking exposed).
 
 **Next, in order:**
-1. Why 24% of pellets still go down inside and refill the lower tunnels
-   (the pale blocks in the colour-coded 200-ant sheet): carriers whose
-   patience runs out on the way to the door. Per-ant trace, §17's method.
+1. Done 2026-10-01 (report §19): carriers give up in the room under the
+   door, where the straight-line pull points through air; `SPOIL_HOLD`
+   keeps the pellet within 12 cells of the door. The alternative, carriers
+   following the passages out, was built and lost (dead end): the limit is
+   the one-lane shaft's traffic.
 2. Why the lab box starves more with the package (§18): trace who
    starves and when, against the peak. Not a blocker; for the foraging lane.
 3. Resting inside (owner: yes), built on the existing room gate's crowding

@@ -2036,6 +2036,13 @@ pub struct CreatureStats {
     /// far side of the call is the lift count from inside the nest, which
     /// `examples/digbox`'s LIFTS line reads. 0 unless the switch is on.
     pub spoil_kept_no_lift: u64,
+    /// Drop rolls not taken **because the carrier was near its door** when
+    /// the haul's patience had run out inside the nest
+    /// (`PIXEL_PHYSICS_SPOIL_HOLD`, `creature::spoil_hold_of`): the rolls
+    /// the old rule would have let go. The "it fired" half; the effect half is
+    /// the pellets put down below the old ground line, which `digbox`'s
+    /// `gridout=` census counts (`scripts/nestgrid.py`'s `put_inside`).
+    pub spoil_held_near_door: u64,
     /// **Carry distances drawn** under `PIXEL_PHYSICS_SPOIL_RING`
     /// (`creature::spoil_ring`): when its carrier comes out by the door with
     /// it (`creature::carry_stage`), and again for a carrier that went back
@@ -3739,6 +3746,13 @@ pub struct World {
     /// `Some(None)` turns it off. A field so a guard can take both arms in
     /// one process.
     pub spoil_ring: Option<Option<crate::sim::creature::SpoilRing>>,
+    /// **How near its door a carrier keeps its pellet when the haul's
+    /// patience runs out, overriding `PIXEL_PHYSICS_SPOIL_HOLD` for this
+    /// world** (`creature::spoil_hold_of`). `None` follows the environment,
+    /// which is `creature::SPOIL_HOLD_SHIPPED` cells unless it says `off`;
+    /// `Some(None)` turns it off. A field so a guard can take both arms in
+    /// one process.
+    pub spoil_hold: Option<Option<i32>>,
     /// **Tunnel widening, overriding `PIXEL_PHYSICS_DIG_WIDEN` for this
     /// world** (`creature::dig_widen_of`). `None` follows the environment,
     /// which is off unless it says `on`. A field so a guard can take both
@@ -6186,6 +6200,7 @@ impl World {
             spoil_cue: None,
             dig_down: None,
             spoil_ring: None,
+            spoil_hold: None,
             dig_widen: None,
             bud_stack: None,
             storeroom: None,

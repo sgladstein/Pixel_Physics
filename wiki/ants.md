@@ -1,6 +1,16 @@
 # Ants
 
-*Current as of: 2026-09-30, when **a colony started carrying its dirt out of
+*Current as of: 2026-10-01, when **a digger near the front door stopped
+dropping its dirt back inside.** The room the entrance shaft opens into has
+the shaft in a corner of its ceiling, and a digger on that room's floor,
+heading for the door, kept finding itself no nearer, gave up and dropped its
+crumb where it stood, so the room under the door slowly filled with packed
+soil that the colony then dug out again. Now a digger within a dozen cells of
+the door keeps hold of its crumb until it finds its way out. In a test box
+the crumbs dropped back inside fell from 94 to 12 with 200 ants, and the
+colony re-dug about half as much of its own fill; it digs about a tenth less
+new ground, because a digger holds each crumb longer.
+On 2026-09-30, **a colony started carrying its dirt out of
 the front door.** A digger used to drop each crumb of soil beside its head or
 push it up the nearest hole, so half of what a colony dug fell straight back
 into its own tunnels. There it was pressed into the walls, until the nest was
@@ -16,8 +26,9 @@ reads as one chamber with tunnels leaving it, but it is smaller: about three
 quarters of the old open space with 40 ants and half with 200, because the
 old nest was large partly by digging its own fill again. The mound beside the
 door is lower and spread to both sides, where the old one stood in towers.
-In the lab box nothing measured got worse: more young were born, more food
-was eaten, and a smaller share of the colony starved. In a small test colony
+In the lab box, measured after the food changes of the same day, as many
+young were born and as much food eaten, the colony grew larger, and a larger
+share of it starved. In a small test colony
 with food 90 cells away, a fifth more food comes off the heap and nearly twice
 as many young are born; the ants carry about a sixth less energy in their
 bodies, most likely spent on the walk to the door.

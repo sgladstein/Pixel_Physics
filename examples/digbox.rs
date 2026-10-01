@@ -2189,8 +2189,8 @@ impl NestFunnel {
         println!("LEDGER frame={frame} of the pellets posted up, carried out through the passages {} (engine spoil_lifted_out {})", self.put_out, st.spoil_lifted_out);
         let l = self.lift_from;
         println!(
-            "LIFTS frame={frame} pellets posted up the column, by where the carrier stood: in the founding cut {} | under cover 1-4 rows below the old surface {} | 5-8 {} | 9-16 {} | 17+ {} | not under cover {}; drop rolls held inside the nest (SPOIL_OUT keep) {}, and after patience ran out with no room beside, kept carrying {}",
-            l[0], l[1], l[2], l[3], l[4], l[5], st.spoil_kept_inside, st.spoil_kept_no_lift
+            "LIFTS frame={frame} pellets posted up the column, by where the carrier stood: in the founding cut {} | under cover 1-4 rows below the old surface {} | 5-8 {} | 9-16 {} | 17+ {} | not under cover {}; drop rolls held inside the nest (SPOIL_OUT keep) {}, of them after patience ran out near the door (SPOIL_HOLD) {}, and after patience ran out with no room beside, kept carrying {}",
+            l[0], l[1], l[2], l[3], l[4], l[5], st.spoil_kept_inside, st.spoil_held_near_door, st.spoil_kept_no_lift
         );
         println!(
             "LEDGER frame={frame} dug cells refilled: by a pellet {}, fell in {} (spoil {}, soil {}, other {}; from the cell above {}, from the side {}); still ground {REFILL_STANDING} frames later: by a fall {}, by a pellet {}; worked ground turned loose in place: lining {} below and {} above the old surface, pellets {} below and {} above",
