@@ -3827,3 +3827,27 @@ not create it. **The next arm is therefore `FG` = `lay,read,giveup`**: the
 reader with Stage 3's bound, which makes a dark step past a walked trail not
 progress. This is the design's full `F`; Stage 3 alone failed on spending
 lit give-ups, not on the bound.
+
+**`F`'s lab pair** (`labpair.py`, 24 seeds, 120,000 frames): **no gate
+worse** — births 371.0 -> 343.5 (11/12), food eaten 1,037k -> 1,007k
+(11/13), starved per million ant-frames 11.8 -> 8.2 (11/13), every p >= 0.5.
+
+**`FG` = `lay,read,giveup`, same binary and seeds, against `L`:**
+
+| | taken | starved | born |
+|---|---|---|---|
+| unlimited 90 | **10,546 -> 17,047 (23/1)** | 8 -> 4 (3/7) | **760 -> 1,687 (22/2)** |
+| unlimited 140 | **6,543 -> 9,438 (24/0)** | 27 -> 24 (6/7) | **208 -> 542 (22/2)** |
+| pulsed 90 | 2,815 -> 2,793 (6/11) | 247 -> 250 (12/9); vs `M` 276 -> 250 (6/15, p 0.078); by frame 6,000 19 -> 0 (0/10, p 0.002) | 55 -> 49 (7/8) |
+| pulsed 140 | 2,791 -> 2,704 (9/9) | **228 -> 258 (16/6, p 0.052)**; vs `M` 249 -> 258 (11/9) | 33 -> 34 (10/8) |
+| 80 founders | **13,171 -> 19,727 (24/0)** | **649 -> 301 (0/24)** | **110 -> 360 (21/1)** |
+| B5 | 12,562 -> 11,083 (8/16, p 0.15) | **131 -> 68 (4/15, p 0.019)** | 1,334 -> 753 (9/15) |
+
+The bound fixes pulsed 90, where `F` failed: 285 -> 250 against `F`
+(6/15, p 0.078). **But `FG` fails pulsed 140 starved against `L` at
+p 0.052**, just inside the bar. So each arm fails one pulsed-starved bar, and
+against `M` both are level on both pulsed beds. What the readers give up on a
+refilling pile is the advantage `lay` alone had over no trail at all (`L`
+247 / 228 against `M` 276 / 249). Everywhere the pile is steady, they gain
+far more than that. **Neither ships on under the registered bars. Both stay
+behind the switch, and the owner makes the call.** `FG`'s lab pair is next.
