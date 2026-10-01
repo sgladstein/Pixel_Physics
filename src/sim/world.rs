@@ -2534,6 +2534,9 @@ pub struct CreatureStats {
     /// held back. 0 whenever the switch is off, which is the control that
     /// says the gate is what moved a birth count.
     pub buds_held_for_nest: u64,
+    /// **Births paid from the store** under `creature::bud_from_store`; 0
+    /// whenever the switch is off.
+    pub store_births: u64,
     /// **The biggest single mouthful any creature in this world ever
     /// swallowed**, in the units the eater received — `diet_yield`, after
     /// the gut's matched filter, not the cell's face value.
@@ -3767,6 +3770,9 @@ pub struct World {
     /// `creature::REST_REFRESH` frames by `creature::step_nest_rest` while
     /// resting is on, and empty otherwise. Read only by the rest pull.
     pub nest_ways: Vec<crate::sim::creature::NestWay>,
+    /// **`PIXEL_PHYSICS_BUD_STORE` for this world** (`creature::bud_from_store`).
+    /// `None` follows the environment, which is off unless set.
+    pub bud_store: Option<bool>,
     /// **Tunnel widening, overriding `PIXEL_PHYSICS_DIG_WIDEN` for this
     /// world** (`creature::dig_widen_of`). `None` follows the environment,
     /// which is off unless it says `on`. A field so a guard can take both
@@ -6217,6 +6223,7 @@ impl World {
             spoil_hold: None,
             nest_rest: None,
             nest_ways: Vec::new(),
+            bud_store: None,
             dig_widen: None,
             bud_stack: None,
             storeroom: None,

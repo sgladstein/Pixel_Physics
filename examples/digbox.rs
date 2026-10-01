@@ -3794,6 +3794,7 @@ fn main() {
                     println!("{}", pile_census(&world, &b, &trips, f, ants_csv.as_mut()));
                 }
                 if let Some(p) = &food_pile {
+                    println!("{}", larder_census(&world, &b, p, f));
                     let st = world.creature_stats;
                     println!(
                         "FOOD frame={f} cells placed {} (the refill skipped {} occupied slots), standing in the pile {}; live ants {}, born {}, deliveries {}",
@@ -4288,6 +4289,48 @@ struct FoodPile {
     placed: u64,
     /// Slots a refill found holding something else, and left.
     skipped: u64,
+}
+
+/// **Where the food that came home is** (`food=` only): one `LARDER` line a
+/// stop. Owner, 2026-10-01: *"do we have a real granary in these nests? I
+/// don't really see food building up anywhere."* Standing larder cells are
+/// booked by place -- the storeroom's rectangle (`ShaftFootprint::
+/// store_rect`), elsewhere below the old ground line, above it outside the
+/// pile -- beside the counters that move food between those places and the
+/// crops: the storeroom's carry (pickups, set down, let go, refused for a
+/// full room, bites kept from the fed), food put down at home
+/// (`deliveries`, which counts a crumb each time it is put down) and taken
+/// back up there (`pickups_at_nest`), and what crops shared and digested.
+fn larder_census(world: &World, b: &Box2, p: &FoodPile, frame: u64) -> String {
+    let st = world.creature_stats;
+    let store = world.nest_sites.first().and_then(|s| s.shaft).map(|s| s.store_rect());
+    // **Crumbs are the larder too**: food put down part-eaten goes down as
+    // `crumbs` holding what is left (`trailfollow`'s `diet_by_material`), and
+    // a census of the larder material alone reads 0 everywhere.
+    let crumbs = world.materials.id_of("crumbs");
+    let (mut in_store, mut below, mut above) = (0u32, 0u32, 0u32);
+    for y in 0..b.h {
+        for x in 0..b.w {
+            let c = world.get(x, y);
+            if (c.material != p.larder && Some(c.material) != crumbs) || c.organism_id() != 0 {
+                continue;
+            }
+            if (p.x - 6..p.x + 6).contains(&x) && y <= p.top {
+                continue;
+            }
+            if store.is_some_and(|(x0, x1, t, bt)| (x0..=x1).contains(&x) && (t..=bt).contains(&y)) {
+                in_store += 1;
+            } else if y >= b.surface {
+                below += 1;
+            } else {
+                above += 1;
+            }
+        }
+    }
+    format!(
+        "LARDER frame={frame} food standing (larder and crumbs, cells): in the storeroom {in_store}, elsewhere below the old ground line {below}, above it outside the pile {above} | storeroom carry: picked up {}, set down {}, let go outside {}, refused for a full room {}, bites kept from the fed {} | put down at home {}, taken back up at home {} | shares {} ({:.0} J), digested {:.0} J | births paid from the store (PIXEL_PHYSICS_BUD_STORE) {}",
+        st.store_pickups, st.store_delivered, st.store_released, st.store_room_full, st.store_kept, st.deliveries, st.pickups_at_nest, st.shares, st.shared_j, st.digested_face, st.store_births
+    )
 }
 
 impl FoodPile {

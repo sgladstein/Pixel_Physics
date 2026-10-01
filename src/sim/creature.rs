@@ -2291,7 +2291,13 @@ fn place_creature(
             // as death -- a birth that kills its parent, which is precisely
             // what that floor exists to make impossible. The two must not
             // disagree by a rounding step.
-            let shortfall = (cost + 1.0 - world.organism(parent).map_or(0.0, |s| s.energy)).max(0.0);
+            let from_store = bud_from_store(world, def);
+            if from_store {
+                world.creature_stats.store_births += 1;
+            }
+            // Under `bud_from_store` the food pays the whole price: the
+            // parent's bank takes what the bites yield and gives back `cost`.
+            let shortfall = if from_store { cost } else { (cost + 1.0 - world.organism(parent).map_or(0.0, |s| s.energy)).max(0.0) };
             if shortfall > 0.0 {
                 let gut = gut_of(world, parent, def);
                 let head = world.organism(parent).and_then(|s| s.chain.first().copied());
@@ -4502,6 +4508,16 @@ fn try_bud(world: &mut World, organism: OrganismId, def: &CreatureDef, provision
     // surplus put down where the animal lives can each pay for a child.
     let gut = gut_of(world, organism, def);
     let bank = state.energy;
+    // **Births paid from the store** (`bud_from_store`): only an animal at
+    // the storeroom buds, and the food within its reach pays the whole
+    // price, so its own bank neither qualifies it nor pays. With the bank
+    // read as 0 and the bar at the price, every check below asks the one
+    // question "is there a child's worth of food here".
+    let from_store = bud_from_store(world, def);
+    if from_store && !storeroom_near(world, hx, hy).is_some_and(|room| room.touches_store(hx, hy)) {
+        return None;
+    }
+    let (bar, bank) = if from_store { (cost + 1.0, 0.0) } else { (bar, bank) };
     // **Face first, because this runs every tick an animal survives.** A
     // guaranteed price is never above face, so an animal the face sum cannot
     // carry to its bar cannot get there at all, and the common tick -- an
@@ -15720,6 +15736,32 @@ pub fn bud_at_nest(world: &World) -> bool {
     })
 }
 
+/// **Whether a nesting species' births are paid from its store**:
+/// `PIXEL_PHYSICS_BUD_STORE=on`, or `World::bud_store` for one world. Off by
+/// default, where an animal buds once its own bank clears its bar.
+///
+/// **Why** (2026-10-01, the food box, `Reports/nest-one-entrance-2026-09-29.md`
+/// §21-22). A colony fed by one pile grows past what the pile feeds and
+/// starves beside it, and no food ever builds up in its nest: food taken
+/// from the pile stays flat while the colony grows sixfold, the foragers who
+/// eat at the pile reach 750-990 J and bud at home, and the ants underground
+/// run down to 80 J. Budding reads one body's bank, so every surplus becomes
+/// a child the moment it lands in a forager, and there is never a surplus
+/// to store. `dead-ends.md`'s `FORAGE_DRIVE=<need>,keep` entry names the
+/// condition this meets: *"a colony has a use for stored food other than its
+/// foragers' bodies (brood, a queen)"*. Under this switch only an animal at
+/// the storeroom (`touches_store`) buds, and only from the food within its
+/// reach, which pays the whole price (`place_creature`'s `Origin::Bud`
+/// arm), so births follow what is stored. A species with no nest is
+/// untouched.
+pub fn bud_from_store(world: &World, def: &CreatureDef) -> bool {
+    !def.nest.is_empty()
+        && world.bud_store.unwrap_or_else(|| {
+            static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+            *V.get_or_init(|| std::env::var("PIXEL_PHYSICS_BUD_STORE").as_deref() == Ok("on"))
+        })
+}
+
 /// **The turning preference**, by how far a heading turns from the current
 /// one in 45-degree steps: `(1 + cos) / 2`, so straight on scores 1 and
 /// turning round scores 0. A table because both ends are exact and no
@@ -23995,6 +24037,56 @@ mod tests {
         step_nest_rest(&mut w);
         (w, a)
     }
+
+    /// **Under `bud_from_store`, a birth happens only at the storeroom and
+    /// the food there pays for it** (owner's granary question, 2026-10-01).
+    /// In the chamber (the store without a side room) with fruit around its
+    /// head, a poor ant buds and its bank is not charged; the same ant rich
+    /// and with no food does not; out on the surface with the same fruit it
+    /// does not. The switch-off arm is the positive control: the rich ant
+    /// with no food buds, so the scene can bud at all. Watched red with the
+    /// in-room test removed (the surface arm budded).
+    #[test]
+    fn under_the_store_switch_births_happen_at_the_store_and_the_store_pays() {
+        let bud = |x: i32, y: i32, store: bool, rich: bool, food: bool| -> (bool, f32, f32, usize) {
+            let (mut w, a) = rest_world(x, y, false);
+            w.bud_store = Some(store);
+            let def = w.species.get(w.organism(a).expect("live").species).creature.clone().expect("a creature");
+            let fruit = w.materials.id_of("fruit").expect("fruit");
+            let (hx, hy) = w.organism(a).expect("live").chain[0];
+            let mut placed = 0;
+            if food {
+                for (dx, dy) in NEIGH8_TEST {
+                    // Every neighbour the body does not hold, ground included:
+                    // a child costs more than the four open cells of a
+                    // two-row chamber hold in fruit.
+                    if w.get(hx + dx, hy + dy).organism_id() == 0 {
+                        w.set(hx + dx, hy + dy, Cell::new(fruit, 0));
+                        placed += 1;
+                    }
+                }
+            }
+            let before = if rich { 20_000.0 } else { def.start_energy };
+            w.organism_mut(a).expect("live").energy = before;
+            let born = try_bud(&mut w, a, &def, 0.0).is_some();
+            let after = w.organism(a).map_or(0.0, |s| s.energy);
+            let left = NEIGH8_TEST.iter().filter(|(dx, dy)| w.get(hx + dx, hy + dy).material == fruit).count();
+            assert!(!food || placed > 0, "test setup: no room for fruit around ({hx}, {hy})");
+            (born, before, after, placed - left)
+        };
+        let (born, _, _, _) = bud(63, 47, false, true, false);
+        assert!(born, "with the switch off a rich ant did not bud, so the scene cannot show the switch");
+        let (born, before, after, eaten) = bud(63, 47, true, false, true);
+        assert!(born, "with the switch on, an ant in the store with fruit around it did not bud");
+        assert!(after >= before, "the parent's bank paid for a store birth: {before} -> {after}");
+        assert!(eaten > 0, "a store birth ate no fruit");
+        let (born, _, _, _) = bud(63, 47, true, true, false);
+        assert!(!born, "with the switch on, a rich ant with no food in reach budded");
+        let (born, _, _, _) = bud(90, 39, true, false, true);
+        assert!(!born, "with the switch on, an ant out on the surface budded from fruit beside it");
+    }
+
+    const NEIGH8_TEST: [(i32, i32); 8] = [(-1, -1), (0, -1), (1, -1), (-1, 0), (1, 0), (-1, 1), (0, 1), (1, 1)];
 
     /// **An ant with nothing to do is pulled in at the door and deeper along
     /// the passages** ([`rest_pull`]). In the chamber under its door, a fed
