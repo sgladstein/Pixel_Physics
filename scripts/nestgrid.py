@@ -222,6 +222,17 @@ def main():
             for x in range(w):
                 c = st['grid'][y][x]
                 px[x, y] = col.get(c, (120, 120, 120)) if y >= st['surface'] or c != '.' else (35, 40, 48)
+                # Loose soil above the old ground line was never ground there:
+                # it is spoil that crumbled, or ground that slumped. Painted
+                # as undug soil it read as the ground's own (owner, 2026-09-30),
+                # so it gets digbox `tintout=`'s yellow instead.
+                if c == 's' and y < st['surface']:
+                    px[x, y] = (230, 200, 40)
+                # ...and loose soil in a cell the colony dug is a hole refilled
+                # (a crumbled pellet, a rotted corpse, ground that fell):
+                # `tintout=`'s violet.
+                elif c == 's' and st['dug'][y][x] == '1':
+                    px[x, y] = (150, 80, 220)
         for x, y in a['block']:
             px[x, y] = (0, 235, 255) if a['dist'][y][x] == 2 else (170, 255, 255)
         for cells in a['sealed_list']:

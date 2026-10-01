@@ -4094,8 +4094,9 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   brain-input pricing as the argument *for* their call-site route, and the
   landing discipline. **Treat their plan as the plan.**
 - [nest-one-entrance-2026-09-29.md](nest-one-entrance-2026-09-29.md) —
-  **measurement and switches (off, but for the carry under the walked
-  cycle), 2026-09-29. `engine`/`lab`. The
+  **measurement and switches, 2026-09-29; since §18 (2026-09-30) the
+  walked cycle, stacking at 4 and births on nestmates ship on as one
+  package. `engine`/`lab`. The
   owner picked walking the soil out and back (§7); §10 traces it.** Why a
   colony under the five-column door opens 6-7 entrances where the old strip
   allowed 2: the storeroom adds none, and the roof breaks under the colony's
