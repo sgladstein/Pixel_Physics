@@ -10742,6 +10742,79 @@ fn ring_gate(set: Option<Option<SpoilRing>>, walked: SpoilOut, ring: Option<Spoi
     }
 }
 
+/// **A carrier near its door keeps its pellet when the haul's patience runs
+/// out**: `PIXEL_PHYSICS_SPOIL_HOLD=<cells>`, on by default at
+/// [`SPOIL_HOLD_SHIPPED`], `off` for the old rule. Acts only under the walked
+/// cycle's `keep` ([`SpoilOut`]), which is the only thing that holds a pellet
+/// inside the nest at all.
+///
+/// **Why.** Under `keep` a carrier that has run out of patience inside the
+/// nest lays its pellet beside itself, and traced in `examples/digbox`
+/// (2026-10-01, 16 boxes at 40 and 200 ants, a line at every carrier step
+/// and drop) **13% of pellets went down below the old ground line that way,
+/// and over 99% of them within 12 cells of the door, 5-7 rows down** -- in
+/// the room the door shaft opens into. The shaft comes into that room at a
+/// corner of its ceiling, and the haul pulls in a straight line at the
+/// shaft's top, which from the room's floor points up through open air: a
+/// carrier there shuffles along the floor, gets no nearer by the patience's
+/// measure ([`PATIENCE_PROGRESS`]), gives up after about twenty steps and
+/// puts the pellet down under the door. Those pellets are the tamped blocks
+/// under the room in the colour-coded pictures, and the colony digs them out
+/// again. A carrier that close keeps it, and comes out by the door when its
+/// wandering takes it there.
+///
+/// **Measured** (`digbox fed nulls=0 energy=1000 w=200 soil=60
+/// frames=24000`, 8 seeds a size, `scripts/nestgrid.py --pair` at 24,000;
+/// off -> 12): pellets put down below the old ground line 24 -> 2 (40 ants,
+/// lower on 8 of 8) and 93.5 -> 12 (200, lower on 8); the colony re-digging
+/// its own fill 70 -> 30.5 and 268 -> 146; new ground dug 155.5 -> 140.5 and
+/// 326.5 -> 299.5 (lower on 7 and 6), because a carrier holds its pellet
+/// longer; open space 168 -> 171.5 and 247.5 -> 230; sealed-off cells 2 -> 2
+/// and 4 -> 8 (4 / 3 seeds either way).
+///
+/// **What it is answering is a queue, and that is why waiting works.** The
+/// other answer, built the same day and compared at the owner's ask
+/// (`PIXEL_PHYSICS_SPOIL_ROUTE`, in `Reports/dead-ends.md`), steered the
+/// carrier along the passages by a distance field from the door and measured
+/// its patience in that field: pellets put inside went 24 -> 52 at 40 ants
+/// and 93.5 -> 80 at 200, against 2 and 12 for this. Traced, those carriers
+/// reach the shaft's foot and wait behind the ants in the one-cell shaft, so
+/// the limit under the door is the shaft's traffic, not the pull's direction.
+/// Chebyshev from the haul's own target ([`spoil_haul_target`]), so it reads
+/// the door the carrier is being pulled to and not a second notion of where
+/// the door is.
+pub const SPOIL_HOLD_SHIPPED: i32 = 12;
+
+/// The hold distance in force for `world` ([`SPOIL_HOLD_SHIPPED`]): its own
+/// `World::spoil_hold` if set, else the process's.
+pub fn spoil_hold_of(world: &World) -> Option<i32> {
+    world.spoil_hold.unwrap_or_else(spoil_hold)
+}
+
+/// The hold distance this process names: [`SPOIL_HOLD_SHIPPED`] unless
+/// `PIXEL_PHYSICS_SPOIL_HOLD` names another or `off`.
+pub fn spoil_hold() -> Option<i32> {
+    static V: std::sync::OnceLock<Option<i32>> = std::sync::OnceLock::new();
+    *V.get_or_init(|| parse_spoil_hold(&std::env::var("PIXEL_PHYSICS_SPOIL_HOLD").unwrap_or_default()))
+}
+
+/// `PIXEL_PHYSICS_SPOIL_HOLD`'s value: unset and `on` are
+/// [`SPOIL_HOLD_SHIPPED`], `off` and `0` are `None`, a positive count of
+/// cells is that count. A value it cannot read is reported and read as unset.
+fn parse_spoil_hold(raw: &str) -> Option<i32> {
+    match raw.trim() {
+        "" | "on" => Some(SPOIL_HOLD_SHIPPED),
+        "off" | "0" => None,
+        v => match v.parse::<i32>() {
+            Ok(r) if r > 0 => Some(r),
+            _ => {
+                eprintln!("PIXEL_PHYSICS_SPOIL_HOLD={raw:?}: not `on`, `off` or a positive count of cells; read as unset ({SPOIL_HOLD_SHIPPED})");
+                Some(SPOIL_HOLD_SHIPPED)
+            }
+        },
+    }
+}
+
 /// The carry this process names ([`SpoilRing`]): [`SpoilRing::SHIPPED`]
 /// unless `PIXEL_PHYSICS_SPOIL_RING` names another or `off`. Read through
 /// [`spoil_ring_of`], which applies it only under the walked cycle.
@@ -13453,7 +13526,17 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
             None => (false, false),
         };
         let keep_inside = (spoil_out().keep && (inside_nest(world, x, y) || unlatched)) || ring_hold;
-        let kept_inside = keep_inside && world.organism(organism).is_some_and(|s| s.home_patience >= DIG_RETURN_GIVE_UP);
+        // **...and near the door, kept even after it has run out**
+        // ([`spoil_hold_of`]): the room under the door is where nearly every
+        // pellet the old rule let go inside went down.
+        let patient = world.organism(organism).is_some_and(|s| s.home_patience >= DIG_RETURN_GIVE_UP);
+        let held_near_door = keep_inside
+            && !patient
+            && spoil_hold_of(world).is_some_and(|r| {
+                world.organism(organism).and_then(|s| spoil_haul_target(world, s, (x, y))).is_some_and(|(tx, ty)| (x - tx).abs().max((y - ty).abs()) <= r)
+            });
+        world.creature_stats.spoil_held_near_door += u64::from(held_near_door);
+        let kept_inside = keep_inside && (patient || held_near_door);
         let cover_scale = if kept_inside {
             world.creature_stats.spoil_kept_inside += 1;
             0.0
@@ -23628,6 +23711,49 @@ mod tests {
         assert!(hy > 41 && under_cover(&w, hx, hy), "test setup: the carrier at ({hx}, {hy}) is not in a tunnel");
         assert_eq!(carry_act(&mut w, a), None, "a carrier five rows down a tunnel kept the column it drew outside");
         assert_eq!(w.creature_stats.spoil_ring_let_go, 1, "the column was let go without being counted");
+    }
+
+    /// `PIXEL_PHYSICS_SPOIL_HOLD`'s spellings: unset and `on` are the shipped
+    /// distance, `off` and `0` none, a positive count that count, anything
+    /// else unset.
+    #[test]
+    fn the_spoil_hold_parses_its_spellings_and_refuses_the_rest() {
+        assert_eq!(parse_spoil_hold(""), Some(SPOIL_HOLD_SHIPPED), "unset is the shipped hold");
+        assert_eq!(parse_spoil_hold("on"), Some(SPOIL_HOLD_SHIPPED));
+        assert_eq!(parse_spoil_hold("off"), None);
+        assert_eq!(parse_spoil_hold("0"), None);
+        assert_eq!(parse_spoil_hold(" 7 "), Some(7));
+        for bad in ["-3", "x", "1.5", "Off"] {
+            assert_eq!(parse_spoil_hold(bad), Some(SPOIL_HOLD_SHIPPED), "{bad:?} was not read as unset");
+        }
+    }
+
+    /// **A carrier near its door keeps its pellet when the haul's patience
+    /// has run out** ([`spoil_hold_of`]). A room five rows under a door, a
+    /// carrier on its floor six cells from the haul's target with its
+    /// patience spent and `DropSpoil` at 1, and a cell beside it that will
+    /// hold a pellet. With the hold off it lays the pellet there -- the control
+    /// that says the scene lets it, and the old rule; with the shipped hold it
+    /// keeps it, and the counter says why; with a hold shorter than its
+    /// distance it lays it again. The second arm goes red with the hold
+    /// deleted from `kept_inside`.
+    #[test]
+    fn a_carrier_near_its_door_keeps_its_pellet_when_its_patience_runs_out() {
+        let room: Vec<(i32, i32)> = (42..=46).flat_map(|y| (54..=68).map(move |x| (x, y))).collect();
+        let held = |hold: Option<i32>| -> (bool, u64) {
+            let (mut w, a) = carry_world(62, 46, None, &room, &[]);
+            w.spoil_hold = Some(hold);
+            w.organism_mut(a).expect("live").home_patience = DIG_RETURN_GIVE_UP / 2.0;
+            let (hx, hy) = w.organism(a).expect("live").chain[0];
+            assert!(inside_nest(&w, hx, hy), "test setup: the carrier at ({hx}, {hy}) is not inside the nest");
+            let target = spoil_haul_target(&w, w.organism(a).expect("live"), (hx, hy)).expect("a site");
+            assert_eq!((hx - target.0).abs().max((hy - target.1).abs()), 6, "test setup: the carrier is not six cells from the haul's target {target:?}");
+            carry_act(&mut w, a);
+            (w.organism(a).expect("live").spoil.is_some(), w.creature_stats.spoil_held_near_door)
+        };
+        assert_eq!(held(None), (false, 0), "control: with the hold off the spent carrier did not lay its pellet, so the scene cannot show one kept");
+        assert_eq!(held(Some(SPOIL_HOLD_SHIPPED)), (true, 1), "six cells from its door with its patience spent, the carrier let its pellet go");
+        assert_eq!(held(Some(5)), (false, 0), "a hold of five kept a pellet six cells out");
     }
 
     /// `PIXEL_PHYSICS_DIG_WIDEN`'s spellings: `on`, and off for everything

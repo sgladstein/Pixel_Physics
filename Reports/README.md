@@ -312,6 +312,14 @@ by somebody about to try it on creatures.
   the drift protocol, and the two refusals that leave no trace in the tree
   (no README reorder, no `Reports/archive/` — both had been chosen the other
   way first).
+- [claude-md-evidence-2026-09-30.md](claude-md-evidence-2026-09-30.md) —
+  **reference, current.** The worked cases, numbers and incident accounts
+  behind every rule in `CLAUDE.md`, moved out verbatim on 2026-09-30 so the
+  always-loaded file fell from ~25,400 to ~9,950 tokens. Rule statements stay
+  in `CLAUDE.md`; subsystem-only rules moved to `paths:`-scoped
+  `.claude/rules/` files (`measuring-the-world`, `plants-and-organisms`,
+  `running-the-app`, `bug-register`). Same headings as `CLAUDE.md`, so grep a
+  rule's heading to find why it exists.
 - [claude-md-recommendations.md](claude-md-recommendations.md) — **all
   thirteen landed.** The thirteen-recommendation review of `CLAUDE.md` as
   always-loaded infrastructure. 5, 6, 7 and 12 are approved and unexecuted.
@@ -4131,7 +4139,13 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   40 ants, the lab no worse (births 13 / 11), a nest a third the size; the
   carry traced (a carrier's test of *outside* flipped under the mound and
   down a mouth open to the sky) and latched at the door: the nest 139.5 ->
-  180 cells at 40 ants. Lane note:
+  180 cells at 40 ants. **§19** (2026-10-01): the pellets still put down
+  inside, traced, are carriers giving up in the room under the door (the
+  straight-line pull points through air); a carrier within 12 cells of the
+  door keeps its pellet (`SPOIL_HOLD`, on): put inside 93.5 -> 12 at 200
+  ants, a tenth less new ground dug. Steering carriers along the passages
+  instead (`SPOIL_ROUTE`, not landed) did not help: the limit is the
+  one-lane shaft's traffic. Lane note:
   [lanes/nest-mouth.md](lanes/nest-mouth.md).
 - [week-review-2026-09-29.md](week-review-2026-09-29.md) —
   **review, read-only to the engine, 2026-09-29. `engine`/`lab`.** An adversarial read of the 34 PRs

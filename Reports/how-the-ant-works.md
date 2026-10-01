@@ -5,7 +5,8 @@ every tick, how each mechanism is implemented, and what it reads.** It is
 written from the source and describes the code as it is now, not as it was or
 will be.
 
-- **Verified against:** `main` at `bb65d507`, 2026-09-22. §2, §6c, §13 and
+- **Verified against:** `main` at `bb65d507`, 2026-09-22; §5 step 5 and the
+  `SPOIL_HOLD` row 2026-10-01 against `spoil_hold_of` and the drop block. §2, §6c, §13 and
   §15 re-checked the same day against the decision-trace change
   (`usable_headings`, `home_weighted_pick_why`); §5, §6b, §6c, §13, §14 and
   §15 re-checked 2026-09-23 against the drop, cone and homeward counters;
@@ -383,7 +384,9 @@ the tick: the ant still gets its move roll (§6) afterwards.
    `SPOIL_RING`'s row), is held until it is that far out, and puts the
    pellet down there by the rule above; then, if not hungry, it walks back
    to the cell it cut (`dig_return_target`). A carrier whose patience runs
-   out inside may lay the pellet beside itself but is never lifted.
+   out inside keeps the pellet if it is within `SPOIL_HOLD`'s 12 cells of the
+   haul's target (`spoil_hold_of`); further in it may lay the pellet beside
+   itself, and it is never lifted.
 6. **Dig**, only if both crop and spoil are empty. **So a laden ant never
    digs.** The roll is against `Dig`, and the target is **the cell straight
    ahead of the head, along its current heading**: nothing chooses a face or
@@ -963,6 +966,7 @@ Read once per process from the environment. The default is what ships.
 | `PIXEL_PHYSICS_SPOIL_HAUL`, `_SPOIL_DROP_COVER`, `_TRAFFIC_DEFER`, `_COLONY_SPACING` | unset | haulage re-roll to the nest door, spoil held under cover, jam deferral length, founder spacing |
 | `PIXEL_PHYSICS_SPOIL_OUT` | on (since 2026-09-30) | the excavation cycle walked (`SpoilOut`): parts, comma-joined, `on` for all four, `off` for the lift. `haul`: a pellet carrier is pulled to the door over the mouth (`spoil_haul_target`); `pace`: at the laden pace, `HomeAligned` read against that target (`spoil_pace_target`); `keep`: inside the nest (`inside_nest`: under cover, or in the founding cut) the pellet is not put down while patience lasts, and is never lifted from there (`spoil_kept_inside`, `spoil_kept_no_lift`); `back`: a digger not hungry walks back to the cell it cut once its pellet is down (`OrganismState::dig_return`, `dig_return_target`) |
 | `PIXEL_PHYSICS_SPOIL_LIFT` | `climb` | where a pellet with no cell beside its carrier goes: `climb` up the carrier's column as far as it could have walked (`lift_reach`); `out` through the passages to the nearest cell in the open that holds a pellet (`lift_out`, `spoil_lifted_out`); `none`, `dig`, `unbounded` the older reaches |
+| `PIXEL_PHYSICS_SPOIL_HOLD` | `12`, **acting only under the walked cycle's `keep`** | `<cells>`, `on` or `off` (`0`): a carrier inside the nest whose haul patience has run out keeps its pellet while its head is within that Chebyshev distance of the haul's target (`spoil_haul_target`), instead of laying it beside itself (`spoil_hold_of`, counted in `spoil_held_near_door`); `World::spoil_hold` for one world |
 | `PIXEL_PHYSICS_SPOIL_RING` | `2,2`, **acting only under the walked cycle** (`SPOIL_OUT`, on by default since 2026-09-30; with it `off` the lift is untouched) | `<shape>,<scale>` or `off`; `spoil_ring_of` gates it on the walked cycle, and a world's own `World::spoil_ring` overrides both: when a carrier comes out by the door with its pellet (on or above the door's row, nothing overhead: `carry_stage`) it draws a column on its own side, the door's half-width plus one plus a Gamma(shape, scale) draw from the nest's centre (`spoil_ring_column`, `OrganismState::spoil_ring`, its own stream), is pulled to the top of the ground in that column (`ring_target`, climbing any mound; `spoil_haul_target`), and its drop roll is held until its head is that far out (`spoil_ring_holds`; `spoil_ring_drawn`, `spoil_ring_held`). The column is kept under a mound's overhang and let go only back in a tunnel (more than two rows under the door's row with ground overhead, or in the founding cut: `spoil_ring_let_go`); before it has come out, under `keep`, the pellet is held wherever the carrier stands; `World::spoil_ring` for one world |
 | `PIXEL_PHYSICS_DIG_WIDEN` | off | `on`: tunnels one body length (two cells) wide. On a won dig roll, a digger whose way ahead is open and whose head stands where its passage is one cell wide (ground above and below, or either side) cuts one of those walls instead of turning down and cutting ahead (`ahead_is_open`, `dig_widen_site`); a digger at a face cuts a shoulder beside the cell ahead on half its rolls (`dig_shoulder_site`), so a gallery advances two cells across. A passage two wide is left alone. Both cuts are ordinary cuts after that: the heap cue and the jaw judge them (`digs_widened`; `World::dig_widen` for one world) |
 

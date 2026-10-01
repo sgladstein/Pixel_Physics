@@ -1031,3 +1031,94 @@ taken was unchanged, energy in bodies a third lower at both distances
 (lower on 21 and 19 of 24), food at the nest a quarter lower at 90 (lower
 on 20, p 0.002), births 209 -> 183 at 90 and 62 -> 88 at 140. The lab gate
 above ran on that ant too.
+
+## 19. Pellets dropped under the door, traced; a carrier near it keeps its pellet (2026-10-01)
+
+*The first item §17 left: why about a quarter of pellets still went down
+inside. Branch head `8166697f` (the flip, on `main` at `f52bad55`).*
+
+**The trace.** A temporary line at every carrier step (position, the
+haul's target, the distance, patience) and every drop, over the dig box at
+8 seeds a size (`digbox fed nulls=0 energy=1000 w=200 soil=60
+frames=24000`, `RAYON_NUM_THREADS=1`; the runs' stdout identical to the
+untraced ones). Pellets put down below the old ground line: 3-20% of drops
+at 40 ants, 12-29% at 200 (median about 13%). **Nearly all were carriers
+inside the nest whose patience had run out, and over 99% were within 12
+cells of the haul's target, 5-7 rows down**: the room the door shaft opens
+into. *Corrected the same day:* a first reading of the trace, from the
+column latch at the moment of the drop, said these carriers had never come
+out. Read from each carry's whole history, 354 of the 957 had been above the
+old ground line during the carry and 195 had drawn a column, so about a
+third came out by the door and walked back in (one followed: it stood on its
+column's target, did not win its drop roll, lost its pull there and
+wandered back down the shaft). The shaft enters that room at a corner of
+its ceiling, so from the room's floor the straight-line pull points up
+through open air. Followed one carrier (seed 4, 40 ants, frames
+17,486-17,816): it stood at `(98, 30)`, two cells from the room's wall and
+seven from the door, nothing over it for three rows, and swapped head and
+tail in place for 27 decisions; its distance stayed 7.3-8.9, patience fell
+by 0.9 a step to under 0.1, and it laid the pellet at `(99, 29)`. These are
+the tamped blocks under the room in the colour-coded pictures, and the
+colony digs them out again.
+
+**The fix built** (`PIXEL_PHYSICS_SPOIL_HOLD`, on at 12 cells,
+`creature::spoil_hold_of`): under `keep`, a carrier whose patience has run
+out keeps its pellet while it is within 12 cells (Chebyshev) of the haul's
+target, and comes out when its wandering takes it there. It does not touch
+the cause, the straight-line pull; a carrier that followed the passages
+out is the larger change, built and measured below. Guard:
+`a_carrier_near_its_door_keeps_its_pellet_when_its_patience_runs_out`,
+watched red with the hold removed from `kept_inside`.
+
+**Measured** (the same 16 boxes, `scripts/nestgrid.py --pair` at 24,000;
+`SPOIL_HOLD=off` -> shipped; identical to the trial build, which ran the
+same rule under a scratch switch; `spoil_held_near_door` 20,228 rolls at
+200 ants seed 1, 0 with it off):
+
+| | 40 ants | 200 ants |
+|---|---:|---:|
+| pellets put down below the old ground line | 24 -> 2 (lower on 8) | 93.5 -> 12 (lower on 8) |
+| ...of them into dug cells | 11 -> 2 (7) | 48.5 -> 11.5 (8) |
+| cells the colony re-dug | 70 -> 30.5 (lower on 7) | 268 -> 146 (lower on 8) |
+| new ground dug | 155.5 -> 140.5 (lower on 7) | 326.5 -> 299.5 (lower on 6) |
+| open cells | 168 -> 171.5 (higher on 6) | 247.5 -> 230 (lower on 6) |
+| tamped cells in blocks | 50 -> 41 (lower on 6) | 109 -> 90 (lower on 5) |
+| sealed-off cells | 2 -> 2 (3 / 4) | 4 -> 8 (3 / 4) |
+| pellets put down, all | 236 -> 181 | 563 -> 415.5 |
+
+**What it costs**: about a tenth less new ground dug, because a carrier
+holds its pellet longer, and at 200 ants 7% less open space. Looked at
+(seed 4 at 40, seeds 2 and 7 at 200): the nests are alike; the held
+pellets' nest has fewer packed blocks under the room.
+
+**The other answer, built and compared** (owner: "build both and
+compare"). `PIXEL_PHYSICS_SPOIL_ROUTE`, not landed: each nest kept a
+breadth-first distance from its door through the cells an ant can stand in
+(empty or an animal, with ground or an animal in the 8-neighbourhood),
+rebuilt every 30 frames; a carrier inside the nest aimed its pull at the
+cell three steps down that field and counted a step as progress when the
+field fell. Its guard (a carrier on the floor of a room under a corner door
+aimed along the floor to the wall, not up through the air) was watched red.
+The first build carried a straight-line best into the field's units, so a
+carrier at a field distance of 7-10 measured against a best of 4.47 lost
+its patience walking to the door; the second kept the two apart and
+counted ants as footing. Measured, second build, the same 16 boxes
+(off -> route; the hold alone and both for comparison):
+
+| put down below the old ground line | 40 ants | 200 ants |
+|---|---:|---:|
+| off | 24 | 93.5 |
+| hold (shipped) | 2 (lower on 8) | 12 (lower on 8) |
+| route | 52 (higher on 7) | 80 (5 / 3) |
+| both | 5 (lower on 8) | 12.5 (lower on 8) |
+
+New ground dug: hold 140.5 / 299.5, route 140.5 / 303, both 136.5 / 277.5,
+against 155.5 / 326.5. **The route does not help, and the trace says why**:
+carriers on it reach the foot of the door shaft, a field distance of 5-6,
+with the waypoint up the shaft, and stand there; the shaft is full of ants
+going both ways and the carrier waits behind them until its patience runs
+out. So the limit under the door is **the one-lane shaft's traffic, not the
+direction of the pull**, and the hold works because it is waiting. Recorded
+in `dead-ends.md`. Picture: off, hold and route side by side at 40 ants seed
+4 and 200 ants seed 2 (project file `nest/hold-vs-route-2026-10-01.png`).
+

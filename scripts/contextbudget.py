@@ -107,18 +107,17 @@ cost**, not the whole of it -- which is the safe direction for a gate to err in.
 The ceiling, and why it is where it is
 --------------------------------------
 `CLAUDE.md` requires a bar set from measurement with headroom, never sitting on
-the measured value. Today's figure is ~24,250. The gate is **28,000** -- about
-15% of headroom, so an ordinary session that adds a rule does not trip it, and a
-second week like the last one does.
+the measured value. On 2026-09-30 the file went from ~24,250 to ~9,950 tokens:
+Method, Gotchas and Conventions kept their rule statements, their worked cases
+moved to `Reports/claude-md-evidence-2026-09-30.md`, and subsystem-only rules
+moved to `paths:`-scoped `.claude/rules/*.md`. The gate is **12,000** -- about
+20% of headroom, so an ordinary session that adds a rule does not trip it, and
+a week of piling worked cases back in does.
 
-The *reachable* number is recorded beside it rather than relabelled away, per
-the same rule. Method, Gotchas and Conventions are ~64% of the file and are
-consulted by lookup -- the audit's finding, and the file's own "which rules
-apply to what you are doing right now" table is a routing layer that exists
-because the content is already too big to read. Loaded on demand instead, the
-always-loaded figure would be roughly 8,800 tokens. The gap between 24,250 and
-8,800 is the work. The ceiling only stops it getting worse while nobody is
-doing that work.
+The reachable target is now the figure itself (~9,950): what remains is the
+ethos, the routing table and the rule statements, each consulted by most
+sessions. Taking more out means deciding a rule no longer needs to be
+always-loaded, which is CLAUDE.md's "Removing a rule" judgement, not a move.
 """
 
 import re
@@ -185,12 +184,17 @@ def _rule_files():
 
 # The audit's own datum: 65,182 B measured as 16,300 tokens. Named, not guessed.
 BYTES_PER_TOKEN = 4.0
-CEILING_TOKENS = 28_000
+# Lowered 28,000 -> 12,000 on 2026-09-30, when the evidence under Method,
+# Conventions and Gotchas moved to Reports/claude-md-evidence-2026-09-30.md and
+# subsystem rules moved to `paths:`-scoped .claude/rules/ files: measured
+# ~9,950 after the move, so 12,000 is ~20% headroom and keeps the saving from
+# quietly regrowing.
+CEILING_TOKENS = 12_000
 # What the gate actually compares. Exact under any divisor; see the docstring.
 CEILING_BYTES = int(CEILING_TOKENS * BYTES_PER_TOKEN)
-# What dropping the three lookup-consulted sections would leave. Recorded so the
-# gap stays visible; nothing enforces it.
-TARGET_TOKENS = 8_800
+# The reachable figure after the 2026-09-30 move (see the docstring). Recorded
+# so a regrowth is visible against it; nothing enforces it.
+TARGET_TOKENS = 9_950
 
 BEGIN = "<!-- BEGIN GENERATED CONTEXT BUDGET -- regenerate with scripts/contextbudget.py --write -->"
 END = "<!-- END GENERATED CONTEXT BUDGET -->"
@@ -346,8 +350,8 @@ def block(m):
         "",
         f"Consulted by lookup, paid unconditionally: {m['lookup_pct']:.0f}% "
         f"(~{m['lookup_tokens']:,} tokens) across "
-        f"{', '.join(LOOKUP_SECTIONS)}. On demand instead, the floor would be "
-        f"~{TARGET_TOKENS:,}. That gap is the work; the ceiling only holds the line.",
+        f"{', '.join(LOOKUP_SECTIONS)}. Reachable target ~{TARGET_TOKENS:,}, set when "
+        "their worked cases moved out on 2026-09-30; the ceiling holds the line.",
         "",
         f"Cache-prefix churn, distinct versions per day (newest first): {churn_str}. "
         "Each one is a prefix no later session can share. A running session keeps "
