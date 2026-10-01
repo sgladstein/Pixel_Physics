@@ -1386,3 +1386,13 @@ store 1,736 times by 72,000 frames and only 507 more in the next 168,000,
 while nestmates share 18.9 MJ mouth to mouth (634,154 shares) over the
 run. Fruit put down at home stands above ground at the mouth (133 cells at
 240,000), not inside.
+
+**Why the store stays empty.** Only a fed nest worker (at or above
+`start_energy`) picks food up for the store, and only a hungry ant eats from
+it, so the store is a buffer that hungry ants drain as fast as fed workers
+fill it. On seed 2 (the `antscsv=` trace of §21), 51-78 of the nest
+workers are fed between 45,000 and 60,000 frames; at 70,000, 15 of 127 are,
+and after the crash 0-5. Storing stops exactly when the colony starts to
+starve. Fruit only piles up if income outruns what the colony eats and
+breeds, and today any surplus becomes births (§21), so moving where food is
+put down would not by itself make a pile.
