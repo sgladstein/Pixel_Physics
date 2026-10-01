@@ -6175,6 +6175,17 @@ pub struct OrganismState {
     /// **Given up and heading home.** Set when `scout_patience` runs out;
     /// cleared by the next nest contact, which starts the next excursion.
     pub scout_home: bool,
+    /// **This excursion has stepped onto a trail** (`creature::FoodTrail::
+    /// giveup`'s bound): set on a scout's step whose heading carried trail B,
+    /// cleared with the excursion. Once set, a step onto dark ground is not
+    /// progress, so a follower past the end of a trail it walked runs out of
+    /// patience instead of walking on. Written only under `giveup`.
+    pub scout_lit: bool,
+    /// **This scout gave up on dark ground** (`creature::FoodTrail::giveup`):
+    /// set with `scout_home` when the step that ran its patience out carried
+    /// no trail under its heading, cleared with the excursion. Only such a
+    /// give-up is spent; one made on a lit route keeps the trail's pull.
+    pub scout_dark: bool,
     /// **Has foraged: picked food up away from home at least once**, so the
     /// colony's need can send it out again (`creature::forage_drive_level`,
     /// on unless `PIXEL_PHYSICS_FORAGE_DRIVE=off`). Never cleared.

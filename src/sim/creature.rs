@@ -16053,8 +16053,8 @@ pub fn trip_reach_of(world: &World) -> Option<i32> {
 /// **Unset is `lay` since 2026-09-30** (§23c): on the colony bed, 24 seeds at
 /// 90 cells, food taken 6,062 -> 9,217 (23/1 against `off`, 22/2 against
 /// `mute`) and starved 57 -> 14; no lab-box gate worse at p < 0.05. `off` is
-/// the ant before it, bit for bit. Only `lay` acts so far; `read` and
-/// `giveup` parse and do nothing yet.
+/// the ant before it, bit for bit. `giveup` (Stage 3, §23d) acts since
+/// 2026-09-30, off until scored; `read` parses and does nothing yet.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct FoodTrail {
     /// **Only a load from a trip lays trail B** ([`food_trail_lay`]): the
@@ -16066,7 +16066,13 @@ pub struct FoodTrail {
     pub lay: bool,
     /// Stage 2's reader (not built yet).
     pub read: bool,
-    /// Stage 3's give-up on a trail (not built yet).
+    /// **Stage 3: a scout that gave up is let go by the trail** (§23d).
+    /// Once a scout gives up on dark ground (`scout_dark`) the trail neither
+    /// holds its heading nor pulls it outward, and the pull home is the full
+    /// home cosine; a give-up on a lit route keeps the trail's pull. And once an
+    /// excursion has stepped onto trail B, a step onto dark ground is not
+    /// progress, so a follower past a trail's end gives up instead of walking
+    /// on (with no wall, 455 cells and no give-up without it).
     pub giveup: bool,
     /// **The lay rule's odometer**, in authored ticks: a trip load lays at
     /// `T / (T + since_trip)` of the brain's rate (`T` scaled by
@@ -16787,7 +16793,7 @@ fn chooser_step(
     // new home point, and read as the outbound pull's patience and whether
     // the scout has given up and is heading home. Touched only while the
     // term is on, so a fed ant's state is never written.
-    let (scout_patience, scout_home) = match away_from {
+    let (scout_patience, scout_home, scout_dark) = match away_from {
         Some((ax, _)) if scout_w > 0.0 => {
             let st = world.organism_mut(organism).expect("live: its chain was just read");
             if st.scout_for != away_from.expect("matched Some") {
@@ -16795,12 +16801,31 @@ fn chooser_step(
                 st.scout_best = (hx - ax).abs() as f32;
                 st.scout_patience = 1.0;
                 st.scout_home = false;
+                st.scout_lit = false;
+                st.scout_dark = false;
             }
-            (st.scout_patience, st.scout_home)
+            (st.scout_patience, st.scout_home, st.scout_dark)
         }
-        _ => (1.0, false),
+        _ => (1.0, false, false),
     };
     let route = |d: u8| if reads_trail { trail_presence(world, (hx, hy), d, laden) } else { 0.0 };
+    // **Stage 3, the give-up lets go** (`FoodTrail::giveup`,
+    // `Reports/ant-scenes-2026-09-23.md` §23d): a scout that has given up is
+    // no longer held by the trail it gave up on. The away term is 0, the pull
+    // home is the full home cosine (not scaled by `1 - presence`), and trail
+    // presence no longer multiplies the heading's persistence. Measured before
+    // it (Stage 1, `giveup.py`): given-up ants east of the door stepped
+    // outward on 29.5% / 30.0% of trail-reading decisions, and took a median
+    // 1,253 / 1,086 frames from give-up to home.
+    //
+    // **Only a give-up made on dark ground is spent** (`scout_dark`, §23d's
+    // third arm). Patience counts level progress, so it also runs out on a
+    // live trail that winds or climbs; spending those turned ants away from
+    // a live pile -- on the 90-cell bed 29 of 43 east give-ups still reached
+    // the pile under `lay` and 12 of 30 when every give-up was spent, and on
+    // the two-pile bed 41 founders starved by frame 6,000 against 19.
+    let spent = scout_home && scout_dark && scout_w > 0.0 && food_trail_of(world).giveup;
+    let hold = |d: u8| if spent { 1.0 } else { 1.0 + TRAIL_GAIN * route(d) };
     // **Level, not radial**: the home cosine of the heading's sideways part
     // alone, so a heading straight up or down scores 0. Radial, an ant above
     // home level is drawn upward, and on the colony bed that drove scouts 91
@@ -16821,12 +16846,14 @@ fn chooser_step(
             5..=7 => (-turn).max(0.0),
             _ => 0.0,
         };
-        persist * TURN_PREF[rel.min(8 - rel) as usize] * (1.0 + TRAIL_GAIN * route(d))
+        persist * TURN_PREF[rel.min(8 - rel) as usize] * hold(d)
             + side
             + home_cos(d).map_or(0.0, |c| gain * c)
-            + away_home_cos(d).map_or(0.0, |c| -AWAY_GAIN * route(d) * c)
+            + if spent { 0.0 } else { away_home_cos(d).map_or(0.0, |c| -AWAY_GAIN * route(d) * c) }
             + if scout_w <= 0.0 {
                 0.0
+            } else if spent {
+                away_home_cos(d).map_or(0.0, |c| scout_w * c)
             } else if scout_home {
                 away_home_cos(d).map_or(0.0, |c| scout_w * (1.0 - route(d)) * c)
             } else {
@@ -16895,17 +16922,42 @@ fn chooser_step(
     // Did that step take the scout further out? The mirror of the home
     // memory below, level distance only, and a scout out of patience turns
     // for home until its next nest contact.
+    //
+    // **The bound** (`FoodTrail::giveup`, §23d, the reader design's M4): once
+    // this excursion has stepped onto trail B, a step onto a heading with no
+    // trail is not progress, however far out it lands. Without it patience
+    // decays only on steps that get no further out, so a follower past the
+    // end of a trail walks on until a wall stops it -- measured with the wall
+    // taken away (`probe_m4_a_hungry_scout_on_open_ground`), 455 cells to the
+    // world's edge and no give-up. Keyed on having walked a trail: a scout
+    // that never met one scouts as before, which is how new food is found.
+    let bound = food_trail_of(world).giveup;
     if let (Some((ax, _)), true) = (away_from, scout_w > 0.0 && !scout_home) {
         let state = world.organism_mut(organism).expect("live: it just stepped");
         let nx = state.chain.first().map_or(hx, |c| c.0);
         let level = (nx - ax).abs() as f32;
-        if level > state.scout_best + PATIENCE_PROGRESS {
+        // Arming takes a real trail out on a trip: presence of at least
+        // `HUNGRY_ROUTE` (a route, not a whisper) with the head past
+        // `FORAGE_TRIP_MIN` from home. Armed on any trace at all, the door's
+        // own delivery smear armed it: on the colony bed the last lit step of
+        // a west give-up sat a median 5 cells from the nest at presence 0.005,
+        // scouts west gave up after 19 dark cells instead of 37, and on the
+        // two-pile bed the take in the first 1,500 frames after a swap fell
+        // 2,792 -> 1,475 (2/22) -- the bound was stopping the scouting that
+        // finds a new pile (§23d, first scoring).
+        if bound && picked_route >= HUNGRY_ROUTE && level > f32::from(FORAGE_TRIP_MIN) {
+            state.scout_lit = true;
+        }
+        let on_trail = picked_route > 0.0;
+        let dark_past_a_trail = bound && state.scout_lit && !on_trail;
+        if level > state.scout_best + PATIENCE_PROGRESS && !dark_past_a_trail {
             state.scout_best = level;
             state.scout_patience = (state.scout_patience + PATIENCE_RECOVER).min(1.0);
         } else {
             state.scout_patience *= PATIENCE_DECAY;
             if state.scout_patience < SCOUT_GIVE_UP {
                 state.scout_home = true;
+                state.scout_dark = bound && !on_trail;
             }
         }
     }
@@ -29629,6 +29681,187 @@ mod tests {
         assert!(gave_up, "the scout never gave up at the wall");
         assert!(far - back >= 20, "the scout gave up at the wall but came back only {} cells", far - back);
         assert_eq!(walk(0.0, 1.0), walk(2.0, 1.0), "a fed ant's walk changed with scouting on");
+    }
+
+    /// **Probe, M4 of `food-trail-reader-design-2026-09-30.md`: how far does a
+    /// hungry scout walk on open ground before it gives up?** The scouting
+    /// test's scene with the east wall taken away: a bare floor 560 cells
+    /// wide, the ant 80 cells east of its home point, energy held at a
+    /// quarter. Patience decays only on a step that gets no further out, so
+    /// on a floor with no wall every step outward keeps it; the colony bed
+    /// cannot show this, because 84 of 117 west give-ups there (gap 90, seeds
+    /// 1-4) happen at the world's west wall (x 4). Prints, never asserts.
+    #[test]
+    #[ignore = "probe: prints, never asserts (reader design M4)"]
+    fn probe_m4_a_hungry_scout_on_open_ground() {
+        let stone = Cell::new(material::STONE, 0).with_attached(true);
+        for &(frac, frames) in &[(0.25f32, 6000usize), (0.5, 6000), (0.9, 6000)] {
+            let mut w = World::new(Rect::new(0, 0, 559, 63));
+            for x in 0..560 {
+                for y in 41..64 {
+                    w.set(x, y, stone);
+                }
+            }
+            for y in 0..41 {
+                w.set(0, y, stone);
+            }
+            w.chooser = Some(Chooser::TrailAway);
+            w.scout = Some(SCOUT_DEFAULT);
+            let ant = spawn(&mut w, "ant", 100, 40);
+            let energy = w.species.get(w.organism(ant).expect("live").species).creature.as_ref().expect("a creature").start_energy * frac;
+            {
+                let st = w.organism_mut(ant).expect("live");
+                st.heading = 0;
+                st.forage_anchor = (20, 40);
+            }
+            let (mut far, mut gave) = (100, None);
+            for f in 0..frames {
+                w.organism_mut(ant).expect("live").energy = energy;
+                run(&mut w, 1);
+                let st = w.organism(ant).expect("live");
+                far = far.max(st.chain[0].0);
+                if gave.is_none() && st.scout_home {
+                    gave = Some((f, st.chain[0].0));
+                }
+                if gave.is_some() || st.chain[0].0 >= 555 {
+                    break;
+                }
+            }
+            println!("M4 energy {frac:.2} of start: furthest x {far} ({} cells past the start, {} from home); gave up {:?}", far - 100, far - 20, gave);
+        }
+    }
+
+    /// **Under `FOOD_TRAIL=giveup` a scout that walked a trail off its end
+    /// gives up on the dark ground past it; one that never met a trail scouts
+    /// as before** (§23d's PG3, the reader design's M4). A bare floor 560
+    /// cells wide with no east wall, trail B held at 5,000 on the ant's rows
+    /// from x 100 to 200, the ant at x 100 facing east with home 80 cells
+    /// west and energy held at a quarter. Under `lay` alone it follows the
+    /// trail and walks on to the world's edge (the probe above: 455 cells, no
+    /// give-up). Under `lay,giveup` it must give up within 60 cells of x 200.
+    /// With no trail at all the two recipes must walk the same path, position
+    /// for position. **Watched red** with the bound removed (`dark_past_a_trail`
+    /// forced false): the giveup arm walks to the edge like `lay`.
+    #[test]
+    fn a_scout_that_walked_a_trail_off_its_end_gives_up_in_the_dark() {
+        let walk = |ft: FoodTrail, trail: bool| -> (Vec<(i32, i32)>, Option<i32>) {
+            let stone = Cell::new(material::STONE, 0).with_attached(true);
+            let mut w = World::new(Rect::new(0, 0, 559, 63));
+            for x in 0..560 {
+                for y in 41..64 {
+                    w.set(x, y, stone);
+                }
+            }
+            for y in 0..41 {
+                w.set(0, y, stone);
+            }
+            w.chooser = Some(Chooser::TrailAway);
+            w.scout = Some(SCOUT_DEFAULT);
+            w.food_trail = Some(ft);
+            let ant = spawn(&mut w, "ant", 100, 40);
+            let energy = w.species.get(w.organism(ant).expect("live").species).creature.as_ref().expect("a creature").start_energy * 0.25;
+            {
+                let st = w.organism_mut(ant).expect("live");
+                st.heading = 0;
+                st.forage_anchor = (20, 40);
+            }
+            let (mut path, mut gave_at) = (Vec::new(), None);
+            for _ in 0..3000 {
+                if trail {
+                    for x in 100..=200 {
+                        for y in 38..=40 {
+                            let have = w.pheromone_at(Channel::B, x, y);
+                            w.deposit_pheromone(Channel::B, x, y, 5000u16.saturating_sub(have));
+                        }
+                    }
+                }
+                w.organism_mut(ant).expect("live").energy = energy;
+                run(&mut w, 1);
+                let st = w.organism(ant).expect("live");
+                assert!(st.crop.is_none(), "the ant must stay empty");
+                if gave_at.is_none() && st.scout_home {
+                    gave_at = Some(st.chain[0].0);
+                }
+                path.push(st.chain[0]);
+                if st.chain[0].0 >= 555 {
+                    break;
+                }
+            }
+            (path, gave_at)
+        };
+        let lay = FoodTrail { lay: true, ..FoodTrail::OFF };
+        let lay_giveup = FoodTrail { giveup: true, ..lay };
+        let (walked, gave) = walk(lay, true);
+        let far = walked.iter().map(|c| c.0).max().expect("walked");
+        assert!(far >= 400 && gave.is_none(), "under lay the follower should walk on past the trail's end: furthest {far}, gave up at {gave:?}");
+        let (_, gave) = walk(lay_giveup, true);
+        let at = gave.expect("under lay,giveup the follower never gave up past the trail's end");
+        assert!((200..=260).contains(&at), "under lay,giveup the follower should give up within 60 cells of the trail's end (x 200), and gave up at {at}");
+        assert_eq!(walk(lay, false), walk(lay_giveup, false), "with no trail anywhere the give-up changed a scout's walk");
+    }
+
+    /// **Under `FOOD_TRAIL=giveup` a scout that has given up is not held out
+    /// by the trail** (§23d's PG1, the reader design's test 16 as M3 amended
+    /// it). One decision at a time, put back each time: the ant stands on a
+    /// lit trail (B 5,000 all round) facing out (east), home 80 cells west,
+    /// already given up (`scout_home`), energy at half its grant so `scout_w`
+    /// is about 1, no nest and no forage drive. 300 decisions per arm. Under
+    /// `lay` the trail's hold and the away term keep it stepping outward; under
+    /// `lay,giveup` a scout that gave up on dark ground (`scout_dark`) must
+    /// step outward on at most 5%, and one that gave up on a lit route must
+    /// walk exactly as under `lay`. **Watched red**
+    /// three ways, one part of `spent` put back at a time: the hold, the away
+    /// term, and the `1 - presence` on the pull home.
+    #[test]
+    fn a_scout_that_gave_up_is_not_held_out_by_the_trail() {
+        let outward = |ft: FoodTrail, dark: bool| -> f32 {
+            let stone = Cell::new(material::STONE, 0).with_attached(true);
+            let mut out = 0;
+            for i in 0..300u64 {
+                let mut w = World::new(Rect::new(0, 0, 199, 63));
+                for x in 0..200 {
+                    for y in 41..64 {
+                        w.set(x, y, stone);
+                    }
+                }
+                for x in 60..=140 {
+                    for y in 36..=40 {
+                        w.deposit_pheromone(Channel::B, x, y, 5000);
+                    }
+                }
+                w.chooser = Some(Chooser::TrailAway);
+                w.scout = Some(SCOUT_DEFAULT);
+                w.forage_drive = Some(ForageDrive::OFF);
+                w.food_trail = Some(ft);
+                let ant = spawn(&mut w, "ant", 100, 40);
+                let def = w.species.get(w.organism(ant).expect("live").species).creature.clone().expect("a creature");
+                {
+                    let st = w.organism_mut(ant).expect("live");
+                    st.heading = 0;
+                    st.energy = def.start_energy * 0.5;
+                    st.forage_anchor = (20, 40);
+                    st.scout_for = (20, 40);
+                    st.scout_best = 80.0;
+                    st.scout_patience = 0.05;
+                    st.scout_home = true;
+                    st.scout_dark = dark;
+                }
+                let head = w.organism(ant).expect("live").chain[0];
+                let mut draw = rng::stream(i, ant as u64, 0, RNG_SLOT_MOVE);
+                assert!(chooser_step(&mut w, ant, 0, &[0.0; brain::BRAIN_OUTPUTS], &def, &mut draw, Chooser::TrailAway), "the step was refused");
+                assert!(w.organism(ant).expect("live").scout_home, "the scene lost its given-up scout");
+                out += usize::from(w.organism(ant).expect("live").chain[0].0 > head.0);
+            }
+            out as f32 / 300.0
+        };
+        let lay = FoodTrail { lay: true, ..FoodTrail::OFF };
+        let lay_giveup = FoodTrail { giveup: true, ..lay };
+        let held = outward(lay, true);
+        let let_go = outward(lay_giveup, true);
+        assert!(held >= 0.3, "under lay a given-up scout on a lit trail facing out should still step outward often, and did {held}: the scene cannot show the hold");
+        assert!(let_go <= 0.05, "under lay,giveup a scout that gave up on dark ground stepped outward on {let_go} of 300 decisions");
+        // A give-up made on a lit route is not spent: it walks as under `lay`.
+        assert_eq!(outward(lay_giveup, false), held, "under lay,giveup a scout that gave up on a lit route should keep the trail's pull, as under lay");
     }
 
     /// **Under `PIXEL_PHYSICS_PACKED_LUNCH` a forager whose crop holds only
