@@ -1463,3 +1463,61 @@ here, because with no births the breeding rule never acts.)
 (`Reports/ant-breeding-plan-2026-09-29.md`), whose brood and graded fertility
 are the brakes this colony lacks. `harvest`, `keep=`, `stock=`, `BUD_STORE`
 and `BUD_RESERVE` stay in, off.
+
+## 24. A colony cap for the test box, and where the tunnel fill comes from (2026-10-01)
+
+**Owner, 2026-10-01**, on the crash: until the breeding plan lands, use the
+foraging lane's trail reader in the food box, and cap the colony there, *in
+the test box only*. `digbox cap=<n>` sets `World::births_paused` on every
+frame the box holds `n` or more animals, so no birth happens while it is
+full; the game never sets it. The CAP line prints how many frames births were
+held. Food box, `PIXEL_PHYSICS_FOOD_TRAIL=lay,read`, seeds 1-4, 240,000
+frames, main 88bb8bc (the reader became the game's default in #535, after
+these runs, so on a later main the reader arm *is* the shipped one):
+
+| arm | alive at 240k | born | fruit taken | room held open at 240k |
+|---|---|---|---|---|
+| reader | 792 / 461 / 0 / 309 | 4,309 / 3,267 / 1,286 / 4,639 | 21,649 / 16,642 / 6,466 / 20,919 | 65 / 442 / 454 / 230 |
+| reader, `cap=300` | 301 / 297 / 42 / 303 | 1,491 / 1,804 / 1,491 / 1,642 | 16,389 / 12,526 / 9,258 / 11,679 | 49 / 228 / 714 / 128 |
+
+**With the cap every colony is alive at the end**, three of them at the cap
+and seed 3 on a second recovery (75 ants at 144,000, 273 at 192,000). Births
+were held for 50,000-130,000 of the 240,000 frames. Seed 3 is the one the
+reader alone loses; capped, it holds the most open room of the eight runs.
+So `cap=300` with the reader is the food box to measure nest changes on until
+the breeding plan replaces it: colonies of comparable size that do not die.
+
+**Where the tunnel fill comes from.** §22 split the lasting falls into dug
+cells by material. The REFILL lines now also say where each fall of loose
+soil came from (the neighbour above, an upper diagonal or a side that was
+ground before the frame and room after), and follow fill that moves on
+along a tunnel back to where it first came in. Shipped food box, seeds 1-4,
+240,000 frames, main 88bb8bc (FOOD lines identical to §23's shipped row):
+
+| seed | loose-soil falls | first came from the mound (above the old ground line) | from unlined native wall | lining | source not found |
+|---|---|---|---|---|---|
+| 1 | 1,714 | 556 (32%) | 521 (30%) | 0 | 620 (36%) |
+| 2 | 1,148 | 323 (28%) | 332 (29%) | 0 | 450 (39%) |
+| 3 | 8,771 | 4,258 (49%) | 1,042 (12%) | 0 | 3,371 (38%) |
+| 4 | 3,489 | 1,319 (38%) | 1,130 (32%) | 0 | 936 (27%) |
+
+Most single falls are fill already in a tunnel moving on (1,075 of 1,714 on
+seed 1, 3,778 of 8,771 on seed 3), so a tunnel fills from the top down. Traced
+back, **the largest source is the colony's own mound**: soil above the old
+ground line, which is spoil that slumped to loose soil (`spoil.ron`'s
+`slumps_into`), running back down the mouth. Next is native soil in walls no
+cut has lined. **Lining never fails** (0 on every seed). "Not found" is a
+fall with no neighbour that lost ground that frame, most likely fill that
+moved more than one cell; it is not split further.
+
+**Dead ants mostly roll in.** Of the lasting corpse falls, 11-13% are an ant
+that died where it stood (123 / 111 / 573 / 172) and 87-89% fell or slid in
+from a neighbour (919 / 768 / 4,448 / 2,663). A corpse is a powder, so a body
+dropped or killed anywhere above a tunnel ends in it. In this box nobody eats
+them (fruit is the only food); a digger can cut a corpse like soil and carry
+it out as a pellet, but it is set down loose and can roll back.
+
+**What this points at, not yet built:** the mound sits on the mouth and feeds
+the tunnels; carrying spoil further out (§12's `SPOIL_RING`, off) or lining
+the rim would cut the largest source. Dead ants want carrying away from the
+mouth to a refuse pile, which real ants do.
