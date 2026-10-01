@@ -255,8 +255,8 @@ jobs:
   # `#[test]`s (examples default to `test = false`), so the example shards
   # use `cargo build`, not `cargo test --examples` -- the latter would start
   # running `thicket_probe`'s tests, which this job never ran. The two
-  # example shards split `examples/*.rs` by alternating sorted name, so a
-  # new example lands in one of them without editing this file.
+  # example shards split cargo's example targets by alternating sorted name,
+  # so a new example lands in one of them without editing this file.
   test:
     name: cargo test (release, ${{ matrix.shard }})
     runs-on: ubuntu-latest
@@ -278,11 +278,17 @@ jobs:
                             cargo test --release --locked --doc ;;
             examples-*)
               n="${{ matrix.shard }}"; n="${n#examples-}"
+              # Cargo's own target list, so a directory-form example
+              # (examples/foo/main.rs) is counted too; a failed listing or an
+              # empty shard is an error, never a green build of nothing.
+              mapfile -t names < <(cargo metadata --no-deps --format-version 1 --locked \
+                | jq -r '.packages[].targets[] | select(.kind[] == "example") | .name' | sort)
+              [ "${#names[@]}" -gt 1 ] || { echo "no examples listed"; exit 1; }
               args=()
-              for f in $(ls examples/*.rs | sort | awk -v n="$n" 'NR % 2 == n % 2'); do
-                args+=(--example "$(basename "$f" .rs)")
+              for i in "${!names[@]}"; do
+                [ $(( (i + 1) % 2 )) -eq $(( n % 2 )) ] && args+=(--example "${names[$i]}")
               done
-              echo "building $(( ${#args[@]} / 2 )) examples"
+              echo "building $(( ${#args[@]} / 2 )) of ${#names[@]} examples"
               cargo build --release --locked "${args[@]}" ;;
           esac
 

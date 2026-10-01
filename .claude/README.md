@@ -101,12 +101,12 @@ if a future CLI regresses them, the selftest is what will say so.
 
 <!-- BEGIN GENERATED CONTEXT BUDGET -- regenerate with scripts/contextbudget.py --write -->
 
-**Always-loaded floor: ~25,396 tokens** — `CLAUDE.md` at 101,586 B / 1,530 lines, bytes/4.0. Ceiling 28,000 (2,604 under). Plus ~430 for the hook, and the harness system prompt and tool schemas on top; this is a floor.
+**Always-loaded floor: ~10,170 tokens** — `CLAUDE.md` at 40,680 B / 592 lines, bytes/4.0. Ceiling 12,000 (1,830 under). Plus ~430 for the hook, and the harness system prompt and tool schemas on top; this is a floor.
 
-Paid by **every session, agent and subagent** — ten heads is ~253,960 tokens before any of them reads source.
+Paid by **every session, agent and subagent** — ten heads is ~101,700 tokens before any of them reads source.
 
-Consulted by lookup, paid unconditionally: 63% (~15,899 tokens) across Method, Gotchas, Conventions. On demand instead, the floor would be ~8,800. That gap is the work; the ceiling only holds the line.
+Consulted by lookup, paid unconditionally: 32% (~3,222 tokens) across Method, Gotchas, Conventions. Reachable target ~9,950, set when their worked cases moved out on 2026-09-30; the ceiling holds the line.
 
-Cache-prefix churn, distinct versions per day (newest first): 2026-09-27 x1, 2026-09-22 x1, 2026-09-20 x2, 2026-09-19 x1, 2026-09-15 x5. Each one is a prefix no later session can share. A running session keeps the version it started with, so the remedy is batching edits into one commit near session end, not editing less.
+Cache-prefix churn, distinct versions per day (newest first): 2026-09-30 x1, 2026-09-27 x2, 2026-09-23 x1. Each one is a prefix no later session can share. A running session keeps the version it started with, so the remedy is batching edits into one commit near session end, not editing less.
 
 <!-- END GENERATED CONTEXT BUDGET -->

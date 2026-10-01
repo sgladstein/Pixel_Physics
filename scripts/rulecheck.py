@@ -45,8 +45,9 @@ CLAUDE_MD = ROOT / "CLAUDE.md"
 # counts as surviving; the point is that it exists, not where.
 DESTINATIONS = [
     ROOT / "CLAUDE.md",
-    ROOT / "Reports" / "method-evidence.md",
+    ROOT / "Reports" / "claude-md-evidence-2026-09-30.md",
     ROOT / "Reports" / "session-programs.md",
+    *sorted((ROOT / ".claude" / "rules").glob("*.md")),
 ]
 # Below this many characters a "rule" is a formatting flourish -- a bolded
 # word inside a sentence -- not a statement. Set from looking at what falls
