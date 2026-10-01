@@ -1939,6 +1939,8 @@ mod tests {
     #[test]
     fn the_shared_cells_figures_show_only_when_the_cap_is_armed() {
         let mut world = bed(4, 1);
+        // Cap 1 by hand: the shipped cap is 4 since 2026-09-30.
+        world.set_stack_cap(1);
         let stats = censused(&world);
         let line = |w: &World| {
             stats
@@ -1953,7 +1955,7 @@ mod tests {
         };
         let height = |w: &World| stats.rows(w).iter().map(Row::height).sum::<i32>();
 
-        assert!(!line(&world).contains("SHARED"), "the figures showed at the shipped cap of 1");
+        assert!(!line(&world).contains("SHARED"), "the figures showed at a cap of 1");
         let shipped = height(&world);
 
         world.set_stack_cap(20);

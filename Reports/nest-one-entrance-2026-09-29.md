@@ -922,3 +922,112 @@ and 253 hold.
 latch (the table above ran the old carry); the colony bed pair for the
 package; the pictures to the owner; then the default flip as its own PR,
 with the foraging lane poked first.
+
+## 18. The package on by default (2026-09-30)
+
+*The owner, shown today's nest beside the package at 40 and 200 ants, plain
+and colour-coded: "Neither look wrong, although the package only looks
+slightly better"; then "You can turn all new feature on by default unless
+there is a real trade off." So stacking at 4, the walked cycle with the
+latched carry, and births on nestmates ship on together
+(`SHIPPED_STACK_CAP`, `parse_spoil_out("")`, `parse_bud_stack("")`);
+`PIXEL_PHYSICS_STACK_DEPTH=1 PIXEL_PHYSICS_SPOIL_OUT=off
+PIXEL_PHYSICS_BUD_STACK=off` is the nest before it.*
+
+**The dig box, re-run** (§17's command and seeds, `scripts/nestgrid.py
+--pair`): §17's latched table reproduced to the digit. Two columns §17 did
+not read, from the same runs (`SPEC mouths`, `SUMMARY p50x` at 24,000):
+
+| median of 8 seeds | 40 ants: today -> package | 200 ants: today -> package |
+|---|---:|---:|
+| entrances | 6 -> 3.5 | 9 -> 5 |
+| centre of the dug room, columns from the door | -7 -> -3.5 | -3 -> -3 |
+
+So the walked cycle brings back part of the one-entrance nest the granary
+took away (`week-review-2026-09-29.md` W3: 3 -> 6), and the nest still
+leans west: the storeroom's fixed side (W2), which the dig box has no food
+to confound.
+
+**The lab gate on `main` at `f52bad55`** (#526 in; binary built at
+`f1615277`, the flip merged with it; `labforage scenario=played_bed
+frames=120000`, 24 seeds, `RAYON_NUM_THREADS=1`; base arm `STACK_DEPTH=1
+SPOIL_OUT=off BUD_STACK=off` with `bedenv`, package arm unset;
+`scripts/labpair.py`): **a measured harm, and the one place the package
+does not pay.** Starved per million ant-frames 9.7 -> 12.0 (**higher on 18
+of 24**, p 0.023; raw 88 -> 137.5). Births 441.5 -> 438.5 (16 / 8, p 0.15),
+food eaten 1.20 M -> 1.16 M J (15 / 9), ant-frames 11.0 M -> 10.1 M (14 /
+10), died of old age 133.5 -> 161 (12 / 12). Peak colony 202.5 -> 272 (16 /
+8), alive at the end 144.5 -> 165, died out 1 -> 3 boxes. The box grazes
+out, so the likely reading is a bigger colony starving harder in the crash
+(inferred: the log carries deaths per row, not starvation, so the split
+before and after the peak was not measured). Against the same gate on the
+pre-#523 ant, below, the package's lab gain is gone: births 418 -> 536.5
+then, flat now.
+
+**The lab gate, with the latched carry, on the ant before #523** (`labforage scenario=played_bed
+frames=120000`, 24 seeds, pre-flip binary, `bedenv` and the package env on
+one arm; `scripts/labpair.py`): births 418 -> 536.5 (higher on 14), food
+eaten 1.09 M -> 1.30 M J (13), ant-frames 10.4 M -> 11.1 M (12/12), starved
+per million ant-frames 11.0 -> 9.7 (12/12), died out 2 -> 1, peak colony
+227.5 -> 341.5. Died of old age 158 -> 142.5 (lower on 16, p 0.15): a
+younger, larger colony, not a harm the gate names. No measured harm; the
+sign test cannot see a 15-25% loss (`week-review` §4), and none of the
+medians moved the wrong way by that much.
+
+**What the flip exposed in the suite.** Six tests read cap 1 as the default
+and now set it by hand (the cap-1 guards, the `SHARED` row, the armoured
+duel, and `tests/determinism.rs`'s stack-index test, renamed `..._at_cap_one`).
+Two were real:
+
+- **A pellet sink.** `digging_moves_the_ground_rather_than_eating_it` lost
+  16 of 133 pellets with their carriers against its bar of one in twenty. A
+  temporary line at every loss: the colony dies packed into one chamber, no
+  empty cell within five of the body and 43-54 within eight. The death-time
+  release now searches rings out to eight (was two), only when the inner
+  rings are full: 0 lost.
+- **The armoured duel at reach 1** first breaches at a median 966 frames
+  at cap 4 against its bar of 300. Not traced; the guard is about the plate,
+  so it pins cap 1 as it already pins the walk.
+
+**The colony bed pair on `main` at `f52bad55`** (with #526's even-sided
+food drop and birth heading; same bed and seeds as below):
+
+| medians by seed; totals where marked | 90 cells: off -> package | 140 cells: off -> package |
+|---|---:|---:|
+| food taken from the pile, total cells | 7,689 -> 9,751 (**higher on 23**, p < 0.001) | 5,461 -> 6,528 (16 / 7, p 0.09) |
+| food standing at the nest, J | 14,369 -> 12,769 (8 / 16) | 10,213 -> 9,757 (13 / 11) |
+| energy in the ants' bodies, J | 8,514 -> 7,059 (**lower on 18**, p 0.023) | 5,731 -> 4,647 (7 / 17, p 0.06) |
+| born, total | 281 -> 529 (**higher on 22**, p < 0.001) | 119 -> 199 (**higher on 17**, p 0.017) |
+| starved, total | 24 -> 4 (**lower on 11**, 1 higher, p 0.006) | 69 -> 29 (4 / 12, p 0.08) |
+
+The same reading as on `bb11c1ed`, below, and stronger.
+
+**The colony bed pair** (the foraging lane's bed, `STACK_DEPTH=4` both
+arms, base `SPOIL_OUT=off BUD_STACK=off`, 24 seeds at 90 and 140 cells,
+`scripts/antloop.py --vs`), **on `main` at `bb11c1ed`**, which carries the
+food trail laid only by trip loads (#523). The baseline reproduces the
+foraging lane's own (9,152 cells taken and 415 born at 90, against their
+9,217 and 416):
+
+| medians by seed; totals where marked | 90 cells: off -> package | 140 cells: off -> package |
+|---|---:|---:|
+| food taken from the pile, total cells | 9,152 -> 11,091 (**higher on 18**, p 0.023) | 6,452 -> 6,900 (14 / 10) |
+| food standing at the nest, J | 15,221 -> 13,567 (8 / 16, p 0.15) | 10,823 -> 10,428 (9 / 15) |
+| energy in the ants' bodies, J | 9,303 -> 7,627 (**lower on 20**, p 0.002) | 5,750 -> 4,652 (7 / 17, p 0.06) |
+| born, total | 415 -> 765 (**higher on 18**, p 0.011) | 161 -> 241 (**higher on 17**, p 0.035) |
+| starved, total | 14 -> 5 | 51 -> 34 |
+
+**No real trade-off in the colony bed on the current ant** (the lab gate,
+above, is the exception). The package takes a fifth more
+food at 90 cells and breeds nearly twice the young, and half as many again
+at 140, with fewer starved at both. The ants carry about a sixth less
+energy in their bodies, most likely spent walking pellets to the door
+(inferred, not traced), and the colony turns it into young rather than
+holding it.
+
+**The same pair on the ant before #523 read differently**, and is kept so
+the difference is on record: on `8c36d45b` (the lift's food trail) food
+taken was unchanged, energy in bodies a third lower at both distances
+(lower on 21 and 19 of 24), food at the nest a quarter lower at 90 (lower
+on 20, p 0.002), births 209 -> 183 at 90 and 62 -> 88 at 140. The lab gate
+above ran on that ant too.

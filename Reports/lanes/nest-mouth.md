@@ -64,45 +64,36 @@ the live question, what is addressed to another lane, predictions and heads.*
   at 80 founders on the bed; what scales is in
   [`../nest-colony-size-2026-09-28.md`](../nest-colony-size-2026-09-28.md) §3.
 
-## Live question: the package as the default (handoff, 2026-09-30)
+## Live question: the package ships on (2026-09-30)
 
-**The next session starts here.** The owner approved the order: births fix,
-then stacking and the walked cycle on together, then resting inside ("Yes.
-Continue"). Built and measured, all off by default:
+**Session:** the "Ant nest next steps" project thread, branch
+`claude/ant-nest-next-zshb8u`. Threads push and open draft PRs; a merge
+desk thread merges (owner, 2026-09-30). New features ship on unless a
+measured trade-off says otherwise (owner, same day).
 
-- **Stacking 4** (owner: yes): the lab's deaths fixed in #522; its births
-  cost is placement, traced
-  ([`../creature-stacking-design-2026-09-17.md`](../creature-stacking-design-2026-09-17.md)
-  §13).
-- **Births on nestmates** (`PIXEL_PHYSICS_BUD_STACK=on`, §13 there).
-- **The walked cycle + carry** (`PIXEL_PHYSICS_SPOIL_OUT=on`; owner: "Sounds
-  good"), with the carry now latched at the door (report §17).
-
-Measured as one step against today (report
-[§17](../nest-one-entrance-2026-09-29.md)): sealed-off space 38 -> 2 at 40
-ants and 47.5 -> 9.5 at 200; the nest 77% and 52% of today's open space; the
-lab no worse (births 13 / 11, extinct 2 -> 3, starved 101.5 -> 31).
+The flip PR turns on stacking 4, the walked cycle and births on nestmates
+(report §18). On the colony bed (`main` with #526) a fifth more food
+taken, 281 -> 529 born at 90 cells and 119 -> 199 at 140, fewer starved,
+a sixth less energy held in bodies. The lab gate on the same `main` is the
+one harm: births flat, starved per ant-frame 9.7 -> 12.0 (higher on 18 of
+24), a bigger peak colony; not a veto under the 2026-09-27 ruling above. It also widens the dying carrier's pellet search to
+eight rings (a sink stacking exposed).
 
 **Next, in order:**
-1. Re-run the lab gate with the latched carry (§17's lab ran the old
-   one): the package env plus `STACK_DEPTH=4` and `bedenv`, against none.
-2. The colony bed pair for the package (both as in the method below).
-3. Show the owner today vs the package, 40 and 200 ants, zoomed, several
-   stops (`SendUserFile`; they cannot use the review queue).
-4. The flip, as its own PR: `default_stack_cap` 4 (the lab's
-   `shipped_stack_cap` and dial note too), `parse_spoil_out("")` -> on,
-   `parse_bud_stack("")` -> on; rewrite
-   `the_shipped_carry_is_inert_without_the_walked_cycle` as a test of the
-   gate; full suite; ant reference, `wiki/ants.md`, README status. Poke the
-   foraging lane with the SHA before it lands: it moves every baseline, in
-   all three games.
-5. Then trace why 24% of pellets still go down inside (patience running out
-   on the way to the door), and resting inside (owner: yes; joint with the
-   foraging lane: a switch on their bed, keep `trip_load`, the door's
-   geometry and `NestSite::surface`).
+1. Why 24% of pellets still go down inside and refill the lower tunnels
+   (the pale blocks in the colour-coded 200-ant sheet): carriers whose
+   patience runs out on the way to the door. Per-ant trace, §17's method.
+2. Why the lab box starves more with the package (§18): trace who
+   starves and when, against the peak. Not a blocker; for the foraging lane.
+3. Resting inside (owner: yes), built on the existing room gate's crowding
+   count so the breeding plan's brood (B1, B3) can plug into it.
+4. The storeroom's fixed west side (`week-review-2026-09-29.md` W2); the
+   foraging lane's even-sided food drop has landed (#526) (theirs: the colony's
+   east lean was `food_drop_site`, not nest code).
 
-"Pellets only on real ground" (`SPOIL_FOOTING=ground`) stays off; widening
-(`DIG_WIDEN`) waits for the owner.
+Pictures: `digbox ... gridout=`, then `scripts/nestgrid.py RUN.grid --png
+OUT --frame F` (colour-coded; crumbled spoil yellow, refilled holes violet
+since 2026-09-30), cropped x 62-138, y 16-52 and upscaled.
 
 ## How this lane measures
 
