@@ -83,7 +83,8 @@ eight rings (a sink stacking exposed).
 1. Done 2026-10-01 (report §19): carriers give up in the room under the
    door, where the straight-line pull points through air; `SPOIL_HOLD`
    keeps the pellet within 12 cells of the door. The alternative, carriers
-   following the passages out, was put to the owner; build it if chosen.
+   following the passages out, was built and lost (dead end): the limit is
+   the one-lane shaft's traffic.
 2. Why the lab box starves more with the package (§18): trace who
    starves and when, against the peak. Not a blocker; for the foraging lane.
 3. Resting inside (owner: yes), built on the existing room gate's crowding

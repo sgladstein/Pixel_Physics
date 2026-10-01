@@ -10772,9 +10772,14 @@ fn ring_gate(set: Option<Option<SpoilRing>>, walked: SpoilOut, ring: Option<Spoi
 /// longer; open space 168 -> 171.5 and 247.5 -> 230; sealed-off cells 2 -> 2
 /// and 4 -> 8 (4 / 3 seeds either way).
 ///
-/// **The cause is the straight-line pull, and this does not fix it**: a
-/// carrier that followed the passages out would not wander. That is the
-/// larger change; this is the smaller of the two, put to the owner on 2026-10-01.
+/// **What it is answering is a queue, and that is why waiting works.** The
+/// other answer, built the same day and compared at the owner's ask
+/// (`PIXEL_PHYSICS_SPOIL_ROUTE`, in `Reports/dead-ends.md`), steered the
+/// carrier along the passages by a distance field from the door and measured
+/// its patience in that field: pellets put inside went 24 -> 52 at 40 ants
+/// and 93.5 -> 80 at 200, against 2 and 12 for this. Traced, those carriers
+/// reach the shaft's foot and wait behind the ants in the one-cell shaft, so
+/// the limit under the door is the shaft's traffic, not the pull's direction.
 /// Chebyshev from the haul's own target ([`spoil_haul_target`]), so it reads
 /// the door the carrier is being pulled to and not a second notion of where
 /// the door is.

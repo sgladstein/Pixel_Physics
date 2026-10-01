@@ -4135,7 +4135,9 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   inside, traced, are carriers giving up in the room under the door (the
   straight-line pull points through air); a carrier within 12 cells of the
   door keeps its pellet (`SPOIL_HOLD`, on): put inside 93.5 -> 12 at 200
-  ants, a tenth less new ground dug. Lane note:
+  ants, a tenth less new ground dug. Steering carriers along the passages
+  instead (`SPOIL_ROUTE`, not landed) did not help: the limit is the
+  one-lane shaft's traffic. Lane note:
   [lanes/nest-mouth.md](lanes/nest-mouth.md).
 - [week-review-2026-09-29.md](week-review-2026-09-29.md) —
   **review, read-only to the engine, 2026-09-29. `engine`/`lab`.** An adversarial read of the 34 PRs
