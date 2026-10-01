@@ -3796,13 +3796,14 @@ fn main() {
                 if let Some(p) = &food_pile {
                     let st = world.creature_stats;
                     println!(
-                        "FOOD frame={f} cells placed {} (the refill skipped {} occupied slots), standing in the pile {}; live ants {}, born {}, deliveries {}",
+                        "FOOD frame={f} cells placed {} (the refill skipped {} occupied slots), standing in the pile {}; live ants {}, born {}, deliveries {}; buds held for the colony's hunger {}",
                         p.placed,
                         p.skipped,
                         p.standing(&world),
                         TripLog::ants(&world).len(),
                         st.births,
-                        st.deliveries
+                        st.deliveries,
+                        st.buds_held_for_need
                     );
                 }
                 println!(
