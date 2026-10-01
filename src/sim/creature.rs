@@ -2303,7 +2303,11 @@ fn place_creature(
                 let head = world.organism(parent).and_then(|s| s.chain.first().copied());
                 if let Some((hx, hy)) = head {
                     let mut taken = 0.0;
-                    let cells: Vec<(f32, i32, i32)> = provisions_in_reach(world, hx, hy, gut).collect();
+                    let room = if from_store { storeroom_near(world, hx, hy) } else { None };
+                    let cells: Vec<(f32, i32, i32)> = match room {
+                        Some(room) => provisions_in_store(world, room, hx, hy, gut),
+                        None => provisions_in_reach(world, hx, hy, gut).collect(),
+                    };
                     // `bite` decorrelates two windfalls taken to cover the
                     // same shortfall on the same frame -- see `RNG_SLOT_
                     // SEED_SURVIVAL`'s own doc for why this counts rather
@@ -4509,23 +4513,34 @@ fn try_bud(world: &mut World, organism: OrganismId, def: &CreatureDef, provision
     let gut = gut_of(world, organism, def);
     let bank = state.energy;
     // **Births paid from the store** (`bud_from_store`): only an animal at
-    // the storeroom buds, and the food within its reach pays the whole
-    // price, so its own bank neither qualifies it nor pays. With the bank
-    // read as 0 and the bar at the price, every check below asks the one
-    // question "is there a child's worth of food here".
+    // the storeroom buds, and the food the nest holds pays the whole price
+    // (`provisions_in_store`), so its own bank neither qualifies it nor
+    // pays. With the bank read as 0 and the bar at the price, every check
+    // below asks the one question "does the nest hold a child's worth".
     let from_store = bud_from_store(world, def);
-    if from_store && !storeroom_near(world, hx, hy).is_some_and(|room| room.touches_store(hx, hy)) {
-        return None;
-    }
+    let room = if from_store {
+        match storeroom_near(world, hx, hy).filter(|room| room.touches_store(hx, hy)) {
+            Some(room) => Some(room),
+            None => return None,
+        }
+    } else {
+        None
+    };
     let (bar, bank) = if from_store { (cost + 1.0, 0.0) } else { (bar, bank) };
-    // **Face first, because this runs every tick an animal survives.** A
-    // guaranteed price is never above face, so an animal the face sum cannot
-    // carry to its bar cannot get there at all, and the common tick -- an
-    // animal nowhere near its bar -- never pays for pricing a bite.
-    if bank + provisions_in_reach(world, hx, hy, gut).map(|(w, _, _)| w).sum::<f32>() < bar {
-        return None;
-    }
-    let reachable = reachable_provision(world, hx, hy, gut);
+    let reachable = if let Some(room) = room {
+        let guaranteed = birth_price_of(world);
+        provisions_in_store(world, room, hx, hy, gut).into_iter().map(|(w, px, py)| if guaranteed { w * plant::guaranteed_bite_fraction(world, px, py) } else { w }).sum()
+    } else {
+        // **Face first, because this runs every tick an animal survives.** A
+        // guaranteed price is never above face, so an animal the face sum
+        // cannot carry to its bar cannot get there at all, and the common
+        // tick -- an animal nowhere near its bar -- never pays for pricing a
+        // bite.
+        if bank + provisions_in_reach(world, hx, hy, gut).map(|(w, _, _)| w).sum::<f32>() < bar {
+            return None;
+        }
+        reachable_provision(world, hx, hy, gut)
+    };
     if bank + reachable < bar {
         return None;
     }
@@ -9734,8 +9749,31 @@ fn is_living_kin_id(world: &World, id: OrganismId, gut: Gut) -> bool {
 /// parent eating it -- a gut that only absorbs a quarter of a leaf can only
 /// put a quarter of it into a child.
 fn provisions_in_reach(world: &World, x: i32, y: i32, gut: Gut) -> impl Iterator<Item = (f32, i32, i32)> + use<'_> {
-    NEIGHBOURS_8.iter().filter_map(move |&(dx, dy)| {
-        let (px, py) = (x + dx, y + dy);
+    NEIGHBOURS_8.iter().filter_map(move |&(dx, dy)| provision_at(world, x + dx, y + dy, gut))
+}
+
+/// **The food the nest holds, for a birth paid from the store**
+/// (`bud_from_store`): every cell [`provision_at`] would pay, anywhere in the
+/// founding cut's footprint -- shaft, chamber and side room, and the two
+/// cells round them -- nearest the parent's head first, so a birth eats the
+/// store from the near end. Measured first with the eight cells round the
+/// head as the reach: 0-1 births in 240,000 frames on four seeds, because
+/// a birth costs about four fruit cells and stored food lies one or two to
+/// a spot (`Reports/nest-one-entrance-2026-09-29.md` §22).
+fn provisions_in_store(world: &World, room: crate::sim::world::ShaftFootprint, hx: i32, hy: i32, gut: Gut) -> Vec<(f32, i32, i32)> {
+    let (sx0, sx1, st, sb) = room.store_rect();
+    let x0 = room.x0.min(room.chamber_x0).min(sx0) - 2;
+    let x1 = room.x1.max(room.chamber_x1).max(sx1) + 2;
+    let (y0, y1) = (room.top.min(st) - 2, room.bottom.max(room.chamber_bottom).max(sb) + 2);
+    let mut out: Vec<(f32, i32, i32)> = (y0..=y1).flat_map(|y| (x0..=x1).map(move |x| (x, y))).filter_map(|(x, y)| provision_at(world, x, y, gut)).collect();
+    out.sort_by_key(|&(_, x, y)| ((x - hx).abs().max((y - hy).abs()), y, x));
+    out
+}
+
+/// One cell of [`provisions_in_reach`]: what it would pay a birth, if
+/// anything.
+fn provision_at(world: &World, px: i32, py: i32, gut: Gut) -> Option<(f32, i32, i32)> {
+    {
         let cell = world.get(px, py);
         // Same kin rule as `adjacent_food`, for the same reason: a species
         // that will not bite its own must not be able to spend its own either.
@@ -9766,7 +9804,7 @@ fn provisions_in_reach(world: &World, x: i32, y: i32, gut: Gut) -> impl Iterator
         }
         let yielded = diet_yield(world, cell, gut.bias);
         (yielded > EAT_YIELD_THRESHOLD).then_some((yielded, px, py))
-    })
+    }
 }
 
 /// What `provisions_in_reach` is certain to pay in total, which is what a
@@ -24041,7 +24079,8 @@ mod tests {
     /// **Under `bud_from_store`, a birth happens only at the storeroom and
     /// the food there pays for it** (owner's granary question, 2026-10-01).
     /// In the chamber (the store without a side room) with fruit around its
-    /// head, a poor ant buds and its bank is not charged; the same ant rich
+    /// head, or at the room's far end, a poor ant buds and its bank is not
+    /// charged; the same ant rich
     /// and with no food does not; out on the surface with the same fruit it
     /// does not. The switch-off arm is the positive control: the rich ant
     /// with no food buds, so the scene can bud at all. Watched red with the
@@ -24084,6 +24123,17 @@ mod tests {
         assert!(!born, "with the switch on, a rich ant with no food in reach budded");
         let (born, _, _, _) = bud(90, 39, true, false, true);
         assert!(!born, "with the switch on, an ant out on the surface budded from fruit beside it");
+        // The store pays from anywhere in the room, not only beside the
+        // parent: fruit at the chamber's far end, eight columns off.
+        let (mut w, a) = rest_world(64, 47, false);
+        w.bud_store = Some(true);
+        let def = w.species.get(w.organism(a).expect("live").species).creature.clone().expect("a creature");
+        let fruit = w.materials.id_of("fruit").expect("fruit");
+        for (x, y) in [(56, 46), (57, 46), (56, 47), (57, 47), (56, 45), (57, 45)] {
+            w.set(x, y, Cell::new(fruit, 0));
+        }
+        w.organism_mut(a).expect("live").energy = def.start_energy;
+        assert!(try_bud(&mut w, a, &def, 0.0).is_some(), "with the switch on, fruit at the far end of the store did not pay for a birth");
     }
 
     const NEIGH8_TEST: [(i32, i32); 8] = [(-1, -1), (0, -1), (1, -1), (-1, 0), (1, 0), (-1, 1), (0, 1), (1, 1)];
