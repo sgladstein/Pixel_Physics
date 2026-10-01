@@ -72,20 +72,23 @@ desk thread merges (owner, 2026-09-30). New features ship on unless a
 measured trade-off says otherwise (owner, same day).
 
 The flip PR turns on stacking 4, the walked cycle and births on nestmates
-(report §18): lab gate no harm; on the colony bed (current `main`) a fifth
-more food taken and 415 -> 765 born at 90 cells, 161 -> 241 at 140, with a
-sixth less energy held in bodies. It also widens the dying carrier's pellet search to
+(report §18). On the colony bed (`main` with #526) a fifth more food
+taken, 281 -> 529 born at 90 cells and 119 -> 199 at 140, fewer starved,
+a sixth less energy held in bodies. The lab gate on the same `main` is the
+one harm: births flat, starved per ant-frame 9.7 -> 12.0 (higher on 18 of
+24), a bigger peak colony; not a veto under the 2026-09-27 ruling above. It also widens the dying carrier's pellet search to
 eight rings (a sink stacking exposed).
 
 **Next, in order:**
 1. Why 24% of pellets still go down inside and refill the lower tunnels
    (the pale blocks in the colour-coded 200-ant sheet): carriers whose
    patience runs out on the way to the door. Per-ant trace, §17's method.
-2. The lab gate re-run on current `main` (§18's ran before #523).
+2. Why the lab box starves more with the package (§18): trace who
+   starves and when, against the peak. Not a blocker; for the foraging lane.
 3. Resting inside (owner: yes), built on the existing room gate's crowding
    count so the breeding plan's brood (B1, B3) can plug into it.
-4. The storeroom's fixed west side (`week-review-2026-09-29.md` W2), after
-   the foraging lane's even-sided food drop lands (theirs: the colony's
+4. The storeroom's fixed west side (`week-review-2026-09-29.md` W2); the
+   foraging lane's even-sided food drop has landed (#526) (theirs: the colony's
    east lean was `food_drop_site`, not nest code).
 
 Pictures: `digbox ... gridout=`, then `scripts/nestgrid.py RUN.grid --png

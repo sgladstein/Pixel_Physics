@@ -948,7 +948,23 @@ took away (`week-review-2026-09-29.md` W3: 3 -> 6), and the nest still
 leans west: the storeroom's fixed side (W2), which the dig box has no food
 to confound.
 
-**The lab gate, with the latched carry** (`labforage scenario=played_bed
+**The lab gate on `main` at `f52bad55`** (#526 in; binary built at
+`f1615277`, the flip merged with it; `labforage scenario=played_bed
+frames=120000`, 24 seeds, `RAYON_NUM_THREADS=1`; base arm `STACK_DEPTH=1
+SPOIL_OUT=off BUD_STACK=off` with `bedenv`, package arm unset;
+`scripts/labpair.py`): **a measured harm, and the one place the package
+does not pay.** Starved per million ant-frames 9.7 -> 12.0 (**higher on 18
+of 24**, p 0.023; raw 88 -> 137.5). Births 441.5 -> 438.5 (16 / 8, p 0.15),
+food eaten 1.20 M -> 1.16 M J (15 / 9), ant-frames 11.0 M -> 10.1 M (14 /
+10), died of old age 133.5 -> 161 (12 / 12). Peak colony 202.5 -> 272 (16 /
+8), alive at the end 144.5 -> 165, died out 1 -> 3 boxes. The box grazes
+out, so the likely reading is a bigger colony starving harder in the crash
+(inferred: the log carries deaths per row, not starvation, so the split
+before and after the peak was not measured). Against the same gate on the
+pre-#523 ant, below, the package's lab gain is gone: births 418 -> 536.5
+then, flat now.
+
+**The lab gate, with the latched carry, on the ant before #523** (`labforage scenario=played_bed
 frames=120000`, 24 seeds, pre-flip binary, `bedenv` and the package env on
 one arm; `scripts/labpair.py`): births 418 -> 536.5 (higher on 14), food
 eaten 1.09 M -> 1.30 M J (13), ant-frames 10.4 M -> 11.1 M (12/12), starved
@@ -1001,7 +1017,8 @@ foraging lane's own (9,152 cells taken and 415 born at 90, against their
 | born, total | 415 -> 765 (**higher on 18**, p 0.011) | 161 -> 241 (**higher on 17**, p 0.035) |
 | starved, total | 14 -> 5 | 51 -> 34 |
 
-**No real trade-off on the current ant.** The package takes a fifth more
+**No real trade-off in the colony bed on the current ant** (the lab gate,
+above, is the exception). The package takes a fifth more
 food at 90 cells and breeds nearly twice the young, and half as many again
 at 140, with fewer starved at both. The ants carry about a sixth less
 energy in their bodies, most likely spent walking pellets to the door
