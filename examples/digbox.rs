@@ -1437,6 +1437,15 @@ struct NestFunnel {
     /// frames after it filled. [by a fall, by a pellet put there].
     refill_standing: [u64; 2],
     refill_pending: Vec<bool>,
+    /// Whether a fall waiting on the standing check came from the cell above.
+    refill_above: Vec<bool>,
+    /// **Where the fill that stays sits, and what it is** (owner, 2026-10-01:
+    /// why is the nest a patchwork). Falls still ground after
+    /// `REFILL_STANDING`, by depth below the old ground line (rows 0-2, 3-8,
+    /// 9+) and by material [soil, spoil, food (fruit, crumbs),
+    /// corpse, other]; and of each depth, how many came from the cell above.
+    refill_kept: [[u64; 5]; 3],
+    refill_kept_above: [u64; 3],
     refill_queue: Vec<(u64, usize, usize)>,
     /// (frame due, cut x, cut y, ant) waiting on the lasting check.
     pending: Vec<(u64, i32, i32, u32)>,
@@ -1588,6 +1597,7 @@ impl NestFunnel {
             self.touched = vec![false; n];
             self.dug = vec![false; n];
             self.refill_pending = vec![false; n];
+            self.refill_above = vec![false; n];
             self.cut_frame = vec![u64::MAX; n];
             self.put_frame = vec![u64::MAX; n];
             self.put_by = vec![0; n];
@@ -1939,14 +1949,15 @@ impl NestFunnel {
                 _ => 2,
             };
             self.refill_fall[slot] += 1;
-            if !self.refill_pending[i] {
-                self.refill_pending[i] = true;
-                self.refill_queue.push((frame + REFILL_STANDING, i, 0));
-            }
             let above_fell = y > 0 && matches!(self.grid[at(x, y - 1)], Some(m) if Self::is_ground(world, m)) && {
                 let a = world.get(x, y - 1);
                 a.organism_id() != 0 || a.material == material::EMPTY
             };
+            if !self.refill_pending[i] {
+                self.refill_pending[i] = true;
+                self.refill_above[i] = above_fell;
+                self.refill_queue.push((frame + REFILL_STANDING, i, 0));
+            }
             if above_fell {
                 self.refill_from_above += 1;
             } else {
@@ -2020,6 +2031,22 @@ impl NestFunnel {
             let c = world.get(x, y);
             if c.organism_id() == 0 && Self::is_ground(world, c.material) {
                 self.refill_standing[kind] += 1;
+                if kind == 0 {
+                    let depth = match y - b.surface {
+                        ..=2 => 0,
+                        3..=8 => 1,
+                        _ => 2,
+                    };
+                    let what = match world.materials.get(c.material).name.as_str() {
+                        "soil" => 0,
+                        "spoil" => 1,
+                        "fruit" | "crumbs" => 2,
+                        "corpse" => 3,
+                        _ => 4,
+                    };
+                    self.refill_kept[depth][what] += 1;
+                    self.refill_kept_above[depth] += u64::from(self.refill_above[i]);
+                }
             }
         }
         // The lasting check: the cut is still room (empty or an animal).
@@ -2207,6 +2234,25 @@ impl NestFunnel {
             self.turned_loose[0][1],
             self.turned_loose[1][0],
             self.turned_loose[1][1]
+        );
+        let kept = |d: usize| {
+            let k = self.refill_kept[d];
+            format!(
+                "{} (soil {}, spoil {}, food {}, corpse {}, other {}; from above {})",
+                k.iter().sum::<u64>(),
+                k[0],
+                k[1],
+                k[2],
+                k[3],
+                k[4],
+                self.refill_kept_above[d]
+            )
+        };
+        println!(
+            "REFILL frame={frame} falls into dug cells still ground {REFILL_STANDING} frames later, by rows below the old ground line: 0-2 {} | 3-8 {} | 9+ {}",
+            kept(0),
+            kept(1),
+            kept(2)
         );
         let [own, other, air, cut, fell, else_] = self.loose_why;
         let [a1, a10, a100, a1000, older, unknown] = self.loose_age;

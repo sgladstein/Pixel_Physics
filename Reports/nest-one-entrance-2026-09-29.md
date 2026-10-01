@@ -1321,3 +1321,43 @@ fill the storeroom.
 
 Pictures: `nest/food-box-nests-2026-10-01.png`,
 `nest/food-box-long-runs-2026-10-01.png`, `nest/food-box-240k-2026-10-01.png`.
+
+## 22. Births paid from the storeroom, the trail reader, and what refills the tunnels (2026-10-01)
+
+Same food box as §21 (main a25c28f plus this branch, 40 founders, seeds 1-4,
+240,000 frames, `PIXEL_PHYSICS_BUD_SITE=nest`). Live ants and fruit taken
+from the pile (cells the refill replaced) at 96,000 and 240,000 frames:
+
+| arm | live at 96k | live at 240k | fruit taken by 240k | born |
+|---|---|---|---|---|
+| shipped | 231 / 87 / 591 / 43 | 0 / 0 / 572 / 241 | 5,597 / 3,459 / 25,593 / 10,772 | 917 / 778 / 5,289 / 3,875 |
+| births from the store | 177 / 85 / 112 / 0 | 0 / 0 / 1 / 0 | 4,257 / 4,473 / 3,056 / 929 | 697 / 366 / 406 / 26 |
+| trail reader | 664 / 669 / 370 / 512 | 792 / 461 / 0 / 309 | 21,649 / 16,642 / 6,466 / 20,919 | 3,028 / 3,267 / 1,286 / 4,639 |
+| both | 42 / 292 / 225 / 106 | 0 / 0 / 0 / 2 | 2,583 / 6,529 / 6,426 / 3,545 | 147 / 706 / 901 / 550 |
+
+**Births paid from the storeroom (`PIXEL_PHYSICS_BUD_STORE=on`) kill every
+colony.** The idea was a granary that matters: an ant buds only inside the
+storeroom and the store's food pays the whole price, so the colony grows
+only from food it has put by. It fires (every birth is paid from the store,
+`births paid from the store` on the LARDER line), but the store never holds
+more than a few cells, so births run at a tenth of the shipped rate and
+cannot replace the dead. All four seeds die out (shipped: two of four),
+with or without the trail reader. Left in, off: it is the natural partner
+for a granary that fills, and it should be re-run when one does. The first
+version paid from the eight cells round the parent and gave 0-1 births;
+this one pays from the whole store (`provisions_in_store`).
+
+**The foraging lane's trail reader (`PIXEL_PHYSICS_FOOD_TRAIL=lay,read`,
+draft PR 533) helps here too.** Fruit taken by 96,000 frames is higher on
+three of four seeds (seed 3 is lower, 5,052 against 6,547), and three of
+four colonies are alive at 240,000 (shipped two). Seed 3 still crashes and
+is dead by 144,000 frames.
+
+**What refills the tunnels.** §21 guessed that corpses from a crash rot
+into soil and fill the nest. They do not: with corpses rotting to nothing
+(`DECAY_YIELD=0`; nothing else in this box decays), the share
+of dug cells that are tamped soil at 240,000 frames is 26-44% (shipped
+30-43%). What the census does show is that the colony works a treadmill:
+on seed 3, 5,993 of 11,277 cuts re-dig a refill or a pellet and 1,804 cut
+new ground under a roof. The REFILL line (added for this) splits the fill
+that stays by depth and material.
