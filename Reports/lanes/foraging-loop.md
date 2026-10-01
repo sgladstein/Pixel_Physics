@@ -61,7 +61,7 @@ commands and the traps.*
 
 **Shipped on** (`=off`, or `face`, `always`, is the ant before it):
 `FORAGE_DRIVE=returns`, `TRIP_REACH=on` (16), `CARRY_PATIENCE=pickup` (Z35), `PACKED_LUNCH=on`,
-`BIRTH_PRICE=guaranteed` (Z36), `FOOD_TRAIL=lay` (09-30) -- all
+`BIRTH_PRICE=guaranteed` (Z36), `FOOD_TRAIL=lay,read,giveup,window=700` (10-01; `lay` alone 09-30) -- all
 `PIXEL_PHYSICS_`; and the nest lane's granary (#513). **`STORE_LUNCH` is
 off** (§22t).
 
