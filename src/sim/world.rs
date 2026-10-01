@@ -7285,6 +7285,7 @@ impl World {
             scout_home: false,
             scout_lit: false,
             scout_dark: false,
+            scout_e0: 0.0,
             foraged: false,
             store_return: false,
             store_carried: false,
