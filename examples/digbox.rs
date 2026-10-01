@@ -1446,6 +1446,24 @@ struct NestFunnel {
     /// corpse, other]; and of each depth, how many came from the cell above.
     refill_kept: [[u64; 5]; 3],
     refill_kept_above: [u64; 3],
+    /// **Where a lasting soil fall came from**, by what its source cell was
+    /// the frame before: [above the old ground line, a dug cell (fill moving
+    /// on), undug soil below the line, lining, other, no source found] --
+    /// the source being a neighbour above or beside that was ground before
+    /// the frame and is room after it.
+    refill_src: Vec<u8>,
+    refill_kept_src: [u64; 6],
+    /// **Where that fill first came from**: the same classes, but a fall
+    /// from a dug cell inherits the class that cell's own fill had, so a
+    /// chain of fill moving on is traced back to where it entered the
+    /// tunnels. 1 here is a dug cell whose own filling was not seen (a
+    /// pellet put down, or fill older than the scan).
+    fill_root: Vec<u8>,
+    refill_kept_root: [u64; 6],
+    /// Of the lasting corpse falls: [an animal stood in the cell the frame
+    /// before (it died where it stood), it came from a neighbour].
+    refill_was_ant: Vec<bool>,
+    refill_kept_corpse: [u64; 2],
     refill_queue: Vec<(u64, usize, usize)>,
     /// (frame due, cut x, cut y, ant) waiting on the lasting check.
     pending: Vec<(u64, i32, i32, u32)>,
@@ -1598,6 +1616,9 @@ impl NestFunnel {
             self.dug = vec![false; n];
             self.refill_pending = vec![false; n];
             self.refill_above = vec![false; n];
+            self.refill_src = vec![5; n];
+            self.fill_root = vec![1; n];
+            self.refill_was_ant = vec![false; n];
             self.cut_frame = vec![u64::MAX; n];
             self.put_frame = vec![u64::MAX; n];
             self.put_by = vec![0; n];
@@ -1953,9 +1974,42 @@ impl NestFunnel {
                 let a = world.get(x, y - 1);
                 a.organism_id() != 0 || a.material == material::EMPTY
             };
+            // The source: the first neighbour, straight above, then the
+            // upper diagonals, then the sides, that was ground and is room.
+            let lining = world.materials.id_of("packedsoil");
+            let src = [(0, -1), (-1, -1), (1, -1), (-1, 0), (1, 0)]
+                .iter()
+                .map(|&(dx, dy)| (x + dx, y + dy))
+                .filter(|&(sx, sy)| sx >= 0 && sx < b.w && sy >= 0 && sy < b.h)
+                .find(|&(sx, sy)| {
+                    matches!(self.grid[at(sx, sy)], Some(m) if Self::is_ground(world, m)) && {
+                        let c = world.get(sx, sy);
+                        c.organism_id() != 0 || c.material == material::EMPTY
+                    }
+                })
+                .map(|(sx, sy)| at(sx, sy));
+            let class = src.map_or(5, |j| {
+                if (j as i32) / b.w < b.surface {
+                    0
+                } else if self.dug[j] {
+                    1
+                } else if self.grid[j] == lining {
+                    3
+                } else if self.grid[j].is_some_and(|m| world.materials.get(m).name == "soil") {
+                    2
+                } else {
+                    4
+                }
+            });
+            self.fill_root[i] = match (class, src) {
+                (1, Some(j)) => self.fill_root[j],
+                _ => class,
+            };
             if !self.refill_pending[i] {
                 self.refill_pending[i] = true;
                 self.refill_above[i] = above_fell;
+                self.refill_src[i] = class;
+                self.refill_was_ant[i] = self.grid[i].is_none();
                 self.refill_queue.push((frame + REFILL_STANDING, i, 0));
             }
             if above_fell {
@@ -2045,6 +2099,13 @@ impl NestFunnel {
                         _ => 4,
                     };
                     self.refill_kept[depth][what] += 1;
+                    if what == 0 {
+                        self.refill_kept_src[usize::from(self.refill_src[i])] += 1;
+                        self.refill_kept_root[usize::from(self.fill_root[i])] += 1;
+                    }
+                    if what == 3 {
+                        self.refill_kept_corpse[usize::from(!self.refill_was_ant[i])] += 1;
+                    }
                     self.refill_kept_above[depth] += u64::from(self.refill_above[i]);
                 }
             }
@@ -2253,6 +2314,20 @@ impl NestFunnel {
             kept(0),
             kept(1),
             kept(2)
+        );
+        let src = self.refill_kept_src;
+        println!(
+            "REFILL frame={frame} of the loose soil among them, where it came from: above the old ground line {}, fill moving on from a dug cell {}, undug soil below the line {}, lining {}, other {}, no source found {}",
+            src[0], src[1], src[2], src[3], src[4], src[5]
+        );
+        let root = self.refill_kept_root;
+        println!(
+            "REFILL frame={frame} ...and where that fill first entered the tunnels, following fill that moved on back to its start: above the old ground line {}, a dug cell whose own filling was not seen {}, undug soil below the line {}, lining {}, other {}, no source found {}",
+            root[0], root[1], root[2], root[3], root[4], root[5]
+        );
+        println!(
+            "REFILL frame={frame} of the dead ants among them: died where they lay {}, fell or slid in {}",
+            self.refill_kept_corpse[0], self.refill_kept_corpse[1]
         );
         let [own, other, air, cut, fell, else_] = self.loose_why;
         let [a1, a10, a100, a1000, older, unknown] = self.loose_age;
@@ -3778,11 +3853,24 @@ fn main() {
         trips.decisions = Some(w);
         world.decision_log = Some(Vec::new());
     }
+    // **`cap=<n>`: no births while `n` or more creatures live**
+    // (`World::births_paused`), a test-box dial only, so a long food-box run
+    // keeps a colony of comparable size on every seed rather than booming and
+    // crashing (`Reports/nest-one-entrance-2026-09-29.md` §24). Unset is no cap.
+    let cap: Option<usize> = arg("cap");
+    if let Some(c) = cap {
+        println!("  cap: no births while {c} or more creatures live (cap=; World::births_paused)");
+    }
+    let mut paused_frames = 0u64;
     for f in 0..=frames {
         if f > 0 {
             if funnel_on {
                 funnel.before(&world, &b);
                 trips.before(&world);
+            }
+            if let Some(c) = cap {
+                world.births_paused = world.live_creature_count() >= c;
+                paused_frames += u64::from(world.births_paused);
             }
             parallel::step(&mut world);
             world.step_active_sites();
@@ -3838,6 +3926,9 @@ fn main() {
                 }
                 if pile_on {
                     println!("{}", pile_census(&world, &b, &trips, f, ants_csv.as_mut()));
+                }
+                if cap.is_some() {
+                    println!("CAP frame={f} frames with births paused {paused_frames}");
                 }
                 if let Some(p) = &food_pile {
                     println!("{}", larder_census(&world, &b, p, f));
@@ -4374,8 +4465,8 @@ fn larder_census(world: &World, b: &Box2, p: &FoodPile, frame: u64) -> String {
         }
     }
     format!(
-        "LARDER frame={frame} food standing (larder and crumbs, cells): in the storeroom {in_store}, elsewhere below the old ground line {below}, above it outside the pile {above} | storeroom carry: picked up {}, set down {}, let go outside {}, refused for a full room {}, bites kept from the fed {} | put down at home {}, taken back up at home {} | shares {} ({:.0} J), digested {:.0} J | births paid from the store (PIXEL_PHYSICS_BUD_STORE) {}",
-        st.store_pickups, st.store_delivered, st.store_released, st.store_room_full, st.store_kept, st.deliveries, st.pickups_at_nest, st.shares, st.shared_j, st.digested_face, st.store_births
+        "LARDER frame={frame} food standing (larder and crumbs, cells): in the storeroom {in_store}, elsewhere below the old ground line {below}, above it outside the pile {above} | storeroom carry: picked up {}, set down {}, let go outside {}, refused for a full room {}, bites kept from the fed {} | put down at home {}, taken back up at home {} | shares {} ({:.0} J), digested {:.0} J | births paid from the store (PIXEL_PHYSICS_BUD_STORE) {} | foragers' crop cells put down in the store (harvest) {}, ticks held on the way {} | bud ticks held for not being at the nest (BUD_SITE) {}",
+        st.store_pickups, st.store_delivered, st.store_released, st.store_room_full, st.store_kept, st.deliveries, st.pickups_at_nest, st.shares, st.shared_j, st.digested_face, st.store_births, st.harvest_stored, st.harvest_held, st.buds_held_for_nest
     )
 }
 
