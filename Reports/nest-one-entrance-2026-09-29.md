@@ -1396,3 +1396,128 @@ and after the crash 0-5. Storing stops exactly when the colony starts to
 starve. Fruit only piles up if income outruns what the colony eats and
 breeds, and today any surplus becomes births (§21), so moving where food is
 put down would not by itself make a pile.
+
+## 23. Foragers carry their fruit into the store (`harvest`, off; 2026-10-01)
+
+**Owner, 2026-10-01**, on the granary card: *"Fruit piles in store"*:
+foragers carry fruit down into the storeroom and leave it there. Built as
+parts of `PIXEL_PHYSICS_STOREROOM`, all off:
+
+- `harvest`: a forager with food in its crop (not a packed lunch) is routed
+  to the storeroom by the store load's own path (`harvest_target`), holds
+  its crop until it is beside the room, and puts it down on the room's floor
+  at a fed ant's rate, 0.25 a tick (`harvest_drop`). A forager under 40% of
+  `start_energy` keeps its crop and eats it. A full room is no target, and
+  the forager goes to the door as before. After a drop it is pulled back up
+  to the mouth as a nest worker is (`store_return`). Without that return, 14
+  of 25 ants were underground at 24,000 frames (shipped: 4 of 32).
+- `keep=<pct>` and `stock=<pct>`: who counts as hungry for the store, and how
+  fed a nest worker must be to stock it, as a percentage of `start_energy`
+  (100 is the shipped "fed").
+- `PIXEL_PHYSICS_BUD_RESERVE=<J>`: with `BUD_STORE`, a birth must leave this
+  much in the store.
+
+Food box, seeds 1-4, 240,000 frames (main 88bb8bc):
+
+| arm | born | fruit taken by 96k | alive at 240k |
+|---|---|---|---|
+| shipped | 917 / 778 / 5,289 / 3,875 | 3,081 / 3,404 / 6,547 / 3,476 | 0 / 0 / 572 / 241 |
+| `keep=25,stock=50` (no harvest) | 2,335 / 999 / 2,859 / 1,042 | 3,525 / 2,512 / 3,637 / 4,362 | 250 / 0 / 383 / 0 |
+| `harvest` | 1 / 1 / 0 / 2 | 644 / 700 / 482 / 631 | all dead by 96k |
+| `harvest` + `BUD_STORE` | 42 / 16 / 39 / 18 | 1,056 / 677 / 1,058 / 759 | all dead by 192k |
+| the same, with the return trip | 225 / 204 / 66 / 52 | 1,342 / 1,605 / 1,250 / 1,052 | 10 / 0 / 0 / 0 |
+| ... and a reserve of 10 or 20 cells | 0-3 | 575-681 by 240k | all dead by 144k |
+
+**It fires and it kills the colony.** Foragers put 2,400-4,200 cells into the
+store, but the store still holds 0-7 at any stop, and births collapse.
+Without `BUD_STORE` almost nothing is born, because in the shipped colony a
+birth is paid by a fed forager's own bank plus the food put down beside it at
+the door, and that food is no longer at the door. With `BUD_STORE` the
+parent's bank does not count, so a birth needs 4.3 cells in the store at
+once, and hungry ants eat it before that. A reserve stops births outright:
+the founders die of age (`life_half_life` 40,000 frames) before the store
+reaches it. Lowering who counts as hungry without `harvest` (`keep=25,
+stock=50`) moves nothing: the store holds 0-19 either way.
+
+**Why there is no pile.** In the shipped colony nearly all income becomes
+births (seed 3: 25,593 cells taken, about 6.1 MJ; 5,289 births at about
+1,040 J, 5.5 MJ). A colony that turns every surplus into young never has a
+surplus to store. A pile needs either food that arrives unevenly, so that
+plenty can be put by for famine, or births that are paid from the store
+only above a reserve while the parent's own bank still counts.
+
+**Two more birth rules, then parked (2026-10-01).** `PIXEL_PHYSICS_BUD_STORE=
+bank` keeps the store as the place births happen, but the parent's own bank
+counts as it does at the door, and the store tops it up from food over
+`BUD_RESERVE`. A forager's store birth was also held by `BUD_SITE=nest`,
+because under `workerhome` the founding cut is home only to nest workers
+(seed 3: 472 held ticks to 35 births by frame 24,000), so a birth paid from
+the store now skips that check. With both, `harvest` colonies live: 47 / 40 /
+0 / 26 ants at 240,000 frames, 209-3,483 born. The store still holds 0-1
+cells at every stop. With a reserve of 10 cells (2,400 J), and with
+`BREEDING=queen` or `graded` instead, almost nothing is born (0-8) and every
+colony is dead by 96,000 frames. (`queen` and `graded` give identical runs
+here, because with no births the breeding rule never acts.)
+
+**The owner, on reading this:** birth rules wait for the breeding plan
+(`Reports/ant-breeding-plan-2026-09-29.md`), whose brood and graded fertility
+are the brakes this colony lacks. `harvest`, `keep=`, `stock=`, `BUD_STORE`
+and `BUD_RESERVE` stay in, off.
+
+## 24. A colony cap for the test box, and where the tunnel fill comes from (2026-10-01)
+
+**Owner, 2026-10-01**, on the crash: until the breeding plan lands, use the
+foraging lane's trail reader in the food box, and cap the colony there, *in
+the test box only*. `digbox cap=<n>` sets `World::births_paused` on every
+frame the box holds `n` or more animals, so no birth happens while it is
+full; the game never sets it. The CAP line prints how many frames births were
+held. Food box, `PIXEL_PHYSICS_FOOD_TRAIL=lay,read`, seeds 1-4, 240,000
+frames, main 88bb8bc (the reader became the game's default in #535, after
+these runs, so on a later main the reader arm *is* the shipped one):
+
+| arm | alive at 240k | born | fruit taken | room held open at 240k |
+|---|---|---|---|---|
+| reader | 792 / 461 / 0 / 309 | 4,309 / 3,267 / 1,286 / 4,639 | 21,649 / 16,642 / 6,466 / 20,919 | 65 / 442 / 454 / 230 |
+| reader, `cap=300` | 301 / 297 / 42 / 303 | 1,491 / 1,804 / 1,491 / 1,642 | 16,389 / 12,526 / 9,258 / 11,679 | 49 / 228 / 714 / 128 |
+
+**With the cap every colony is alive at the end**, three of them at the cap
+and seed 3 on a second recovery (75 ants at 144,000, 273 at 192,000). Births
+were held for 50,000-130,000 of the 240,000 frames. Seed 3 is the one the
+reader alone loses; capped, it holds the most open room of the eight runs.
+So `cap=300` with the reader is the food box to measure nest changes on until
+the breeding plan replaces it: colonies of comparable size that do not die.
+
+**Where the tunnel fill comes from.** §22 split the lasting falls into dug
+cells by material. The REFILL lines now also say where each fall of loose
+soil came from (the neighbour above, an upper diagonal or a side that was
+ground before the frame and room after), and follow fill that moves on
+along a tunnel back to where it first came in. Shipped food box, seeds 1-4,
+240,000 frames, main 88bb8bc (FOOD lines identical to §23's shipped row):
+
+| seed | loose-soil falls | first came from the mound (above the old ground line) | from unlined native wall | lining | source not found |
+|---|---|---|---|---|---|
+| 1 | 1,714 | 556 (32%) | 521 (30%) | 0 | 620 (36%) |
+| 2 | 1,148 | 323 (28%) | 332 (29%) | 0 | 450 (39%) |
+| 3 | 8,771 | 4,258 (49%) | 1,042 (12%) | 0 | 3,371 (38%) |
+| 4 | 3,489 | 1,319 (38%) | 1,130 (32%) | 0 | 936 (27%) |
+
+Most single falls are fill already in a tunnel moving on (1,075 of 1,714 on
+seed 1, 3,778 of 8,771 on seed 3), so a tunnel fills from the top down. Traced
+back, **the largest source is the colony's own mound**: soil above the old
+ground line, which is spoil that slumped to loose soil (`spoil.ron`'s
+`slumps_into`), running back down the mouth. Next is native soil in walls no
+cut has lined. **Lining never fails** (0 on every seed). "Not found" is a
+fall with no neighbour that lost ground that frame, most likely fill that
+moved more than one cell; it is not split further.
+
+**Dead ants mostly roll in.** Of the lasting corpse falls, 11-13% are an ant
+that died where it stood (123 / 111 / 573 / 172) and 87-89% fell or slid in
+from a neighbour (919 / 768 / 4,448 / 2,663). A corpse is a powder, so a body
+dropped or killed anywhere above a tunnel ends in it. In this box nobody eats
+them (fruit is the only food); a digger can cut a corpse like soil and carry
+it out as a pellet, but it is set down loose and can roll back.
+
+**What this points at, not yet built:** the mound sits on the mouth and feeds
+the tunnels; carrying spoil further out (§12's `SPOIL_RING`, off) or lining
+the rim would cut the largest source. Dead ants want carrying away from the
+mouth to a refuse pile, which real ants do.
