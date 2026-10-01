@@ -87,7 +87,7 @@ branch-angle-and-the-width-bound.md|Reports/branch-angle-and-the-width-bound.md|
 debug_tree_variants.rs|examples/debug_tree_variants.rs|soil_water_threshold: 0.0|moisture_threshold: 0.0
 plant-genome-design.md contents table is stale|Reports/plant-genome-design.md|## 2. The three tests, as applied|## 2. The three tests, as applied and renamed since
 contextbudget|.claude/README.md|Paid by **every session, agent and subagent**|Paid by **only the first session**
-contextbudget-ceiling|scripts/contextbudget.py|CEILING_TOKENS = 28_000|CEILING_TOKENS = 1_000
+contextbudget-ceiling|scripts/contextbudget.py|CEILING_TOKENS = 12_000|CEILING_TOKENS = 1_000
 lanecheck-cap|Reports/lanes/README.md|soft cap of **12,000 B**|soft cap of **9,000 B**
 FAULTS
   [ "$st_ok" -eq 0 ] && echo "docscheck: all faults detected -- every check with a row here can go red"
