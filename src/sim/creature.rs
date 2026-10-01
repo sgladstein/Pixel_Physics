@@ -4519,10 +4519,7 @@ fn try_bud(world: &mut World, organism: OrganismId, def: &CreatureDef, provision
     // below asks the one question "does the nest hold a child's worth".
     let from_store = bud_from_store(world, def);
     let room = if from_store {
-        match storeroom_near(world, hx, hy).filter(|room| room.touches_store(hx, hy)) {
-            Some(room) => Some(room),
-            None => return None,
-        }
+        Some(storeroom_near(world, hx, hy).filter(|room| room.touches_store(hx, hy))?)
     } else {
         None
     };
