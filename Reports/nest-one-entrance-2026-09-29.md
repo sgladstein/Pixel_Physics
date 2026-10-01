@@ -1359,5 +1359,30 @@ into soil and fill the nest. They do not: with corpses rotting to nothing
 of dug cells that are tamped soil at 240,000 frames is 26-44% (shipped
 30-43%). What the census does show is that the colony works a treadmill:
 on seed 3, 5,993 of 11,277 cuts re-dig a refill or a pellet and 1,804 cut
-new ground under a roof. The REFILL line (added for this) splits the fill
-that stays by depth and material.
+new ground under a roof. The REFILL line (added for this; the run
+reproduces the shipped FOOD lines exactly) splits the falls into dug cells
+that are still there 100 frames later, by material, at 240,000 frames:
+
+| seed | lasting falls | loose soil | dead ants | food | spoil and other |
+|---|---|---|---|---|---|
+| 1 | 6,241 | 1,714 (27%) | 1,042 (17%) | 3,231 (52%) | 254 |
+| 2 | 3,049 | 1,148 (38%) | 879 (29%) | 852 (28%) | 170 |
+| 3 | 17,594 | 8,771 (50%) | 5,021 (29%) | 2,446 (14%) | 1,356 |
+| 4 | 8,903 | 3,489 (39%) | 2,835 (32%) | 1,995 (22%) | 584 |
+
+So the fill is loose soil sliding along the tunnels, the bodies of dead
+ants, and fruit set down at home. Dead ants lie where they fall because in
+this box fruit is the only food (`Diet::isolate`); in the shipped world a
+corpse is food and nestmates eat it. Loose soil is the part the ants turn
+into wall: every cut tamps all eight cells around it (`line_burrow`),
+so soil that has slid into a tunnel is tamped in place by
+the next cut beside it (923 tamped refills on seed 3), and that is the
+white and pale blue in the picture. A third to a half of the lasting falls
+come from the cell above, at every depth. Where the loose soil first came from is
+not yet measured.
+
+**The granary is the crops.** On seed 3, storeroom workers pick up food for the
+store 1,736 times by 72,000 frames and only 507 more in the next 168,000,
+while nestmates share 18.9 MJ mouth to mouth (634,154 shares) over the
+run. Fruit put down at home stands above ground at the mouth (133 cells at
+240,000), not inside.
