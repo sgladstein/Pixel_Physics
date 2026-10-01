@@ -2549,6 +2549,11 @@ pub struct CreatureStats {
     /// **Births paid from the store** under `creature::bud_from_store`; 0
     /// whenever the switch is off.
     pub store_births: u64,
+    /// **Crop cells a forager put down in the storeroom** under the
+    /// storeroom's `harvest` part, and the ticks a forager held its crop on
+    /// the way there; both 0 whenever it is off.
+    pub harvest_stored: u64,
+    pub harvest_held: u64,
     /// **The biggest single mouthful any creature in this world ever
     /// swallowed**, in the units the eater received — `diet_yield`, after
     /// the gut's matched filter, not the cell's face value.

@@ -1396,3 +1396,52 @@ and after the crash 0-5. Storing stops exactly when the colony starts to
 starve. Fruit only piles up if income outruns what the colony eats and
 breeds, and today any surplus becomes births (§21), so moving where food is
 put down would not by itself make a pile.
+
+## 23. Foragers carry their fruit into the store (`harvest`, off; 2026-10-01)
+
+**Owner, 2026-10-01**, on the granary card: *"Fruit piles in store"*:
+foragers carry fruit down into the storeroom and leave it there. Built as
+parts of `PIXEL_PHYSICS_STOREROOM`, all off:
+
+- `harvest`: a forager with food in its crop (not a packed lunch) is routed
+  to the storeroom by the store load's own path (`harvest_target`), holds
+  its crop until it is beside the room, and puts it down on the room's floor
+  at a fed ant's rate, 0.25 a tick (`harvest_drop`). A forager under 40% of
+  `start_energy` keeps its crop and eats it. A full room is no target, and
+  the forager goes to the door as before. After a drop it is pulled back up
+  to the mouth as a nest worker is (`store_return`). Without that return, 14
+  of 25 ants were underground at 24,000 frames (shipped: 4 of 32).
+- `keep=<pct>` and `stock=<pct>`: who counts as hungry for the store, and how
+  fed a nest worker must be to stock it, as a percentage of `start_energy`
+  (100 is the shipped "fed").
+- `PIXEL_PHYSICS_BUD_RESERVE=<J>`: with `BUD_STORE`, a birth must leave this
+  much in the store.
+
+Food box, seeds 1-4, 240,000 frames (main 88bb8bc):
+
+| arm | born | fruit taken by 96k | alive at 240k |
+|---|---|---|---|
+| shipped | 917 / 778 / 5,289 / 3,875 | 3,081 / 3,404 / 6,547 / 3,476 | 0 / 0 / 572 / 241 |
+| `keep=25,stock=50` (no harvest) | 2,335 / 999 / 2,859 / 1,042 | 3,525 / 2,512 / 3,637 / 4,362 | 250 / 0 / 383 / 0 |
+| `harvest` | 1 / 1 / 0 / 2 | 644 / 700 / 482 / 631 | all dead by 96k |
+| `harvest` + `BUD_STORE` | 42 / 16 / 39 / 18 | 1,056 / 677 / 1,058 / 759 | all dead by 192k |
+| the same, with the return trip | 225 / 204 / 66 / 52 | 1,342 / 1,605 / 1,250 / 1,052 | 10 / 0 / 0 / 0 |
+| ... and a reserve of 10 or 20 cells | 0-3 | 575-681 by 240k | all dead by 144k |
+
+**It fires and it kills the colony.** Foragers put 2,400-4,200 cells into the
+store, but the store still holds 0-7 at any stop, and births collapse.
+Without `BUD_STORE` almost nothing is born, because in the shipped colony a
+birth is paid by a fed forager's own bank plus the food put down beside it at
+the door, and that food is no longer at the door. With `BUD_STORE` the
+parent's bank does not count, so a birth needs 4.3 cells in the store at
+once, and hungry ants eat it before that. A reserve stops births outright:
+the founders die of age (`life_half_life` 40,000 frames) before the store
+reaches it. Lowering who counts as hungry without `harvest` (`keep=25,
+stock=50`) moves nothing: the store holds 0-19 either way.
+
+**Why there is no pile.** In the shipped colony nearly all income becomes
+births (seed 3: 25,593 cells taken, about 6.1 MJ; 5,289 births at about
+1,040 J, 5.5 MJ). A colony that turns every surplus into young never has a
+surplus to store. A pile needs either food that arrives unevenly, so that
+plenty can be put by for famine, or births that are paid from the store
+only above a reserve while the parent's own bank still counts.

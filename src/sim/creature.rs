@@ -3188,12 +3188,31 @@ pub struct Storeroom {
     /// ([`store_kept`]), so the room holds food rather than feeding whoever
     /// lives beside it.
     pub keep: bool,
+    /// `keep=<pct>`: **how hungry is hungry**, for `keep`. The store refuses
+    /// a bite from an animal at or above `<pct>`% of its `start_energy`
+    /// (100, the shipped rule, is "fed"). In the food box a colony lives
+    /// below its 200 J endowment for most of its life, so at 100 nearly every
+    /// ant counts as hungry and the store is eaten as fast as it is filled
+    /// (`Reports/nest-one-entrance-2026-09-29.md` §22).
+    pub keep_pct: u16,
+    /// `stock=<pct>`: a nest worker carries food into the store at or above
+    /// `<pct>`% of its `start_energy` ([`store_pickup_ok`]); 100 is the
+    /// shipped "fed".
+    pub stock_pct: u16,
+    /// `harvest`: **foragers take their crop down to the storeroom** and put
+    /// it down there, instead of at the door ([`harvest_target`],
+    /// [`harvest_hold`]). The owner's pick on 2026-10-01, *"fruit piles in
+    /// store"*: the nest workers' carry moves a few hundred loads a run in
+    /// the food box against 20,000-30,000 cells put down at the door, so the
+    /// store never holds more than a handful
+    /// (`Reports/nest-one-entrance-2026-09-29.md` §22).
+    pub harvest: bool,
 }
 
 impl Storeroom {
     /// No storeroom: the ant before the granary shipped, bit for bit
     /// (`PIXEL_PHYSICS_STOREROOM=off`).
-    pub const OFF: Storeroom = Storeroom { carry: false, room_home: false, once: false, post: false, nest_bound: 0, nest_bound_founders: 0, caste: 0, worker_home: false, side: false, keep: false };
+    pub const OFF: Storeroom = Storeroom { carry: false, room_home: false, once: false, post: false, nest_bound: 0, nest_bound_founders: 0, caste: 0, worker_home: false, side: false, keep: false, keep_pct: 100, stock_pct: 100, harvest: false };
 
     /// **The storeroom the ant ships with, since 2026-09-29: the full
     /// granary** (`on,caste=4,workerhome,side,keep`) -- the owner: *"Full
@@ -3203,7 +3222,7 @@ impl Storeroom {
     /// entrance shaft, and only a hungry ant eats it there. It ships with the
     /// door ([`NEST_DOOR_SHIPPED`]). What it measured, against the strip and
     /// no storeroom: `Reports/nest-granary-2026-09-28.md` §9.
-    pub const SHIPPED: Storeroom = Storeroom { carry: true, room_home: false, once: false, post: false, nest_bound: 0, nest_bound_founders: 0, caste: 4, worker_home: true, side: true, keep: true };
+    pub const SHIPPED: Storeroom = Storeroom { carry: true, room_home: false, once: false, post: false, nest_bound: 0, nest_bound_founders: 0, caste: 4, worker_home: true, side: true, keep: true, keep_pct: 100, stock_pct: 100, harvest: false };
 
     /// Whether food is carried into the room under this rule.
     pub fn carries(self) -> bool {
@@ -3225,9 +3244,15 @@ impl Storeroom {
 /// The switch's own spelling: `off`, or its parts joined by commas.
 impl std::fmt::Display for Storeroom {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let mut parts: Vec<String> = [(self.carry, "on"), (self.room_home, "home"), (self.once, "once"), (self.post, "post"), (self.worker_home, "workerhome"), (self.side, "side"), (self.keep, "keep")].iter().filter(|(on, _)| *on).map(|&(_, name)| name.to_string()).collect();
+        let mut parts: Vec<String> = [(self.carry, "on"), (self.room_home, "home"), (self.once, "once"), (self.post, "post"), (self.worker_home, "workerhome"), (self.side, "side"), (self.keep, "keep"), (self.harvest, "harvest")].iter().filter(|(on, _)| *on).map(|&(_, name)| name.to_string()).collect();
         if self.caste > 0 {
             parts.push(format!("caste={}", self.caste));
+        }
+        if self.keep_pct != 100 {
+            parts.push(format!("keep={}", self.keep_pct));
+        }
+        if self.stock_pct != 100 {
+            parts.push(format!("stock={}", self.stock_pct));
         }
         if self.nest_bound > 0 {
             parts.push(if self.nest_bound_founders > 0 { format!("nestbound={}/{}", self.nest_bound, self.nest_bound_founders) } else { format!("nestbound={}", self.nest_bound) });
@@ -3321,6 +3346,24 @@ fn parse_storeroom(raw: &str) -> Storeroom {
             "workerhome" => out.worker_home = true,
             "side" => out.side = true,
             "keep" => out.keep = true,
+            "harvest" => out.harvest = true,
+            other if other.starts_with("keep=") || other.starts_with("stock=") => {
+                let (name, v) = other.split_once('=').unwrap_or((other, ""));
+                match v.parse::<u16>() {
+                    Ok(pct) if pct <= 1000 => {
+                        if name == "keep" {
+                            out.keep = true;
+                            out.keep_pct = pct;
+                        } else {
+                            out.stock_pct = pct;
+                        }
+                    }
+                    _ => {
+                        eprintln!("PIXEL_PHYSICS_STOREROOM={raw:?}: bad {other:?}, read as unset ({name}=<percent of start_energy>)");
+                        return Storeroom::SHIPPED;
+                    }
+                }
+            }
             other if other.starts_with("caste=") => match other["caste=".len()..].parse::<u32>() {
                 Ok(k) if k > 0 => out.caste = k,
                 _ => {
@@ -3343,7 +3386,7 @@ fn parse_storeroom(raw: &str) -> Storeroom {
                 }
             }
             other => {
-                eprintln!("PIXEL_PHYSICS_STOREROOM={raw:?}: unknown part {other:?}, read as unset (off, or any of on, home, once, post, nestbound[=<frames>[/<k>]], caste=<k>, workerhome, side, keep)");
+                eprintln!("PIXEL_PHYSICS_STOREROOM={raw:?}: unknown part {other:?}, read as unset (off, or any of on, home, once, post, nestbound[=<frames>[/<k>]], caste=<k>, workerhome, side, keep[=<pct>], stock=<pct>, harvest)");
                 return Storeroom::SHIPPED;
             }
         }
@@ -3405,7 +3448,70 @@ fn store_target(world: &World, state: &crate::sim::organism::OrganismState) -> O
         return None;
     }
     let (ax, ay) = state.forage_anchor;
+    store_route(world, state, storeroom_near(world, ax, ay)?)
+}
+
+/// **A forager's crop for the store** (`harvest`, [`Storeroom::harvest`]):
+/// food in the crop, no pellet in the mandibles, and not a packed lunch
+/// ([`carries_lunch`]), which is food for the trip out, not for the store.
+fn harvest_load(world: &World, state: &crate::sim::organism::OrganismState) -> bool {
+    storeroom_of(world).harvest && state.spoil.is_none() && state.crop.is_some_and(|c| c.cells > 0 && c.worth() > 0.0) && !carries_lunch(world, state)
+}
+
+/// **Where a forager takes its crop under `harvest`**: the storeroom, by
+/// [`store_target`]'s route (the mouth, then the passage, then the floor),
+/// while the room has a cell to put food on. A full room is no target, and
+/// the forager goes home to the door as before and puts it down there.
+fn harvest_target(world: &World, state: &crate::sim::organism::OrganismState) -> Option<(i32, i32)> {
+    if !harvest_load(world, state) {
+        return None;
+    }
+    let (ax, ay) = state.forage_anchor;
     let room = storeroom_near(world, ax, ay)?;
+    if !storeroom_has_room(world, room) {
+        return None;
+    }
+    store_route(world, state, room)
+}
+
+/// **What `harvest` does with a crop at this tick** ([`harvest_target`]):
+/// `None` when the rule is off or does not apply (no store load in the crop,
+/// or no room in the store), and the drop is the shipped one.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum HarvestDrop {
+    /// Bound for the store and not beside it: nothing goes down.
+    Hold,
+    /// Beside the store: the cell it goes on, if one is empty.
+    Store(Option<(i32, i32)>),
+}
+
+/// **How often a forager at the store puts a cell down**, a tick: a fed
+/// ant's rate at home (`how-the-ant-works.md` §5 step 4, about 0.25). One
+/// below [`HARVEST_HUNGRY`] of its `start_energy` keeps its crop and eats it,
+/// as one at home does.
+const HARVEST_DROP_P: f32 = 0.25;
+
+/// The share of `start_energy` under which a forager keeps its crop rather
+/// than store it: the 40% under which the shipped `Drop` reads 0 at home.
+const HARVEST_HUNGRY: f32 = 0.4;
+
+/// [`HarvestDrop`] for `organism` with its head at `(x, y)`.
+fn harvest_drop(world: &World, organism: OrganismId, (x, y): (i32, i32), def: &CreatureDef) -> Option<HarvestDrop> {
+    let state = world.organism(organism)?;
+    harvest_target(world, state)?;
+    let room = storeroom_near(world, state.forage_anchor.0, state.forage_anchor.1)?;
+    if !room.touches_store(x, y) {
+        return Some(HarvestDrop::Hold);
+    }
+    if state.energy < def.start_energy * HARVEST_HUNGRY {
+        return Some(HarvestDrop::Hold);
+    }
+    Some(HarvestDrop::Store(storeroom_drop_site(world, x, y)))
+}
+
+/// [`store_target`]'s route into `room` from wherever the head is.
+fn store_route(world: &World, state: &crate::sim::organism::OrganismState, room: crate::sim::world::ShaftFootprint) -> Option<(i32, i32)> {
+    let (ax, ay) = state.forage_anchor;
     let (hx, hy) = state.chain.first().copied().unwrap_or((ax, ay));
     let mouth = ((room.x0 + room.x1) / 2, room.top);
     if storeroom_of(world).posts() || !(room.in_shaft(hx, hy) || room.in_chamber(hx, hy) || room.side.is_some_and(|s| s.in_passage(hx, hy) || s.in_room(hx, hy))) {
@@ -3576,7 +3682,7 @@ fn store_pickup_ok(world: &mut World, organism: OrganismId, def: &CreatureDef, (
         return false;
     };
     let rule = storeroom_of(world);
-    if state.spoil.is_some() || state.energy < def.start_energy || (rule.once && state.store_carried) || ((rule.nest_bound > 0 || rule.caste > 0) && !is_nest_bound(world, state)) {
+    if state.spoil.is_some() || state.energy < def.start_energy * f32::from(rule.stock_pct) / 100.0 || (rule.once && state.store_carried) || ((rule.nest_bound > 0 || rule.caste > 0) && !is_nest_bound(world, state)) {
         return false;
     }
     let Some(room) = storeroom_near(world, x, y) else {
@@ -3606,8 +3712,9 @@ fn store_pickup_ok(world: &mut World, organism: OrganismId, def: &CreatureDef, (
 /// topping up a packed lunch. Refusing the fed, the room holds 4.9 cells
 /// (more on 21 of 24) and births and starvation do not move.
 fn store_kept(world: &World, organism: OrganismId, def: &CreatureDef, (fx, fy): (i32, i32)) -> bool {
-    storeroom_of(world).keep
-        && world.organism(organism).is_some_and(|s| s.energy >= def.start_energy)
+    let rule = storeroom_of(world);
+    rule.keep
+        && world.organism(organism).is_some_and(|s| s.energy >= def.start_energy * f32::from(rule.keep_pct) / 100.0)
         && world.nest_sites.iter().filter_map(|n| n.shaft).any(|room| room.in_store(fx, fy))
 }
 
@@ -4523,7 +4630,7 @@ fn try_bud(world: &mut World, organism: OrganismId, def: &CreatureDef, provision
     } else {
         None
     };
-    let (bar, bank) = if from_store { (cost + 1.0, 0.0) } else { (bar, bank) };
+    let (bar, bank) = if from_store { (cost + 1.0 + bud_store_reserve(), 0.0) } else { (bar, bank) };
     let reachable = if let Some(room) = room {
         let guaranteed = birth_price_of(world);
         provisions_in_store(world, room, hx, hy, gut).into_iter().map(|(w, px, py)| if guaranteed { w * plant::guaranteed_bite_fraction(world, px, py) } else { w }).sum()
@@ -5858,7 +5965,7 @@ fn home_target(world: &World, state: &crate::sim::organism::OrganismState) -> (i
     // **A store load goes to the storeroom's floor, and back up to the mouth
     // after** ([`storeroom_of`]), whichever home the switch below picks for
     // food in the crop.
-    if let Some(target) = store_target(world, state).or_else(|| store_return_target(world, state)) {
+    if let Some(target) = store_target(world, state).or_else(|| harvest_target(world, state)).or_else(|| store_return_target(world, state)) {
         return target;
     }
     if !home_target_is_nest() {
@@ -13623,7 +13730,16 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
                     s.eat_lunch_now = true;
                 }
             }
-            let p = drop_urge;
+            // **Under `harvest` the crop goes down in the store** ([`harvest_drop`]):
+            // held everywhere else while the room has space, and at the room
+            // put down at a fed ant's rate, since the founding cut is not home
+            // to a forager and `Drop` reads 0 there.
+            let harvest = harvest_drop(world, organism, (x, y), def);
+            let p = match harvest {
+                Some(HarvestDrop::Hold) => 0.0,
+                Some(HarvestDrop::Store(_)) => HARVEST_DROP_P,
+                None => drop_urge,
+            };
             // The same single draw as before, bound to a name so the trace can
             // report it. **The roll is spent before the search for an empty
             // neighbour**, so a won roll with nowhere to go is a tick that did
@@ -13632,9 +13748,30 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
             if world.decision_log.is_some() {
                 note_drop_surroundings(world, organism, x, y, roll, p);
             }
+            if matches!(harvest, Some(HarvestDrop::Hold)) {
+                world.creature_stats.harvest_held += 1;
+            }
+            let site = match harvest {
+                Some(HarvestDrop::Store(site)) => site.map(|p| (p, 1)),
+                Some(HarvestDrop::Hold) => None,
+                None if roll < p => food_drop_site(world, x, y, drop_through_bodies()),
+                None => None,
+            };
             if roll >= p {
                 note_drop(world, DropWhy::RollLost);
-            } else if let Some(((dx, dy), reach)) = food_drop_site(world, x, y, drop_through_bodies()) {
+            } else if let Some(((dx, dy), reach)) = site {
+                // **And back up after, as a nest worker's store carry is**
+                // ([`store_return_target`]): a forager emptied in the room is
+                // inside a cut that is not its home, and nothing else takes it
+                // out. Measured on the first build, without this: at 24,000
+                // frames 14 of 25 ants underground against 4 of 32 shipped,
+                // and food taken from the pile down by a sixth.
+                if matches!(harvest, Some(HarvestDrop::Store(_))) {
+                    world.creature_stats.harvest_stored += 1;
+                    if let Some(st) = world.organism_mut(organism) {
+                        st.store_return = true;
+                    }
+                }
                 // **What the ground forgets** (open bug §Z33): whatever the
                 // cell put down is worth to the next eater beyond what this
                 // one carried. A part-eaten piece of plant food goes down as
@@ -15797,6 +15934,18 @@ pub fn bud_from_store(world: &World, def: &CreatureDef) -> bool {
         })
 }
 
+/// **`PIXEL_PHYSICS_BUD_RESERVE=<J>`: what a store must still hold after a
+/// birth it pays for** ([`bud_from_store`]); 0, unset, is the bare price.
+/// The colony eats what it brings in as fast as it brings it, so a store
+/// that pays any birth it can afford is empty between deliveries
+/// (`Reports/nest-one-entrance-2026-09-29.md` §23): births spend the margin a
+/// pile would be made of. A reserve breeds only from food over it, so the
+/// store fills to the reserve before the colony grows.
+fn bud_store_reserve() -> f32 {
+    static V: std::sync::OnceLock<f32> = std::sync::OnceLock::new();
+    *V.get_or_init(|| std::env::var("PIXEL_PHYSICS_BUD_RESERVE").ok().and_then(|v| v.parse::<f32>().ok()).filter(|r| *r >= 0.0).unwrap_or(0.0))
+}
+
 /// **The turning preference**, by how far a heading turns from the current
 /// one in 45-degree steps: `(1 + cos) / 2`, so straight on scores 1 and
 /// turning round scores 0. A table because both ends are exact and no
@@ -16912,7 +17061,7 @@ fn home_pull(world: &World, organism: OrganismId, def: &CreatureDef, head: (i32,
     // **A store load is taken home as a load of food is** ([`storeroom_of`]),
     // at the laden ant's gain, to the storeroom's floor; and the carrier that
     // put one down comes back up to the mouth the same way.
-    if let Some(target) = store_target(world, state).or_else(|| store_return_target(world, state)).filter(|_| def.home_bias > 0.0) {
+    if let Some(target) = store_target(world, state).or_else(|| harvest_target(world, state)).or_else(|| store_return_target(world, state)).filter(|_| def.home_bias > 0.0) {
         return Some((target, def.home_bias));
     }
     // **A fed nest-bound ant that strays is pulled home** ([`is_nest_bound`]),
@@ -23687,6 +23836,69 @@ mod tests {
         st.chain = vec![(fpp.x0, fpp.top + 1), (fpp.x0 + 1, fpp.top + 1)];
         st.forage_anchor = (60, 38);
         assert_eq!(store_target(&plain, &st), Some(fpp.chamber_floor()), "with no side room a carrier in the shaft makes for the chamber");
+    }
+
+    /// **Under the storeroom's `harvest` part a forager takes its crop to the
+    /// store** ([`harvest_target`], [`harvest_drop`]): routed by the store
+    /// load's own path (the mouth from above ground, the room's floor from
+    /// the passage); holding its food away from the room; putting it down on
+    /// the room's floor beside it. Not when the part is off, the crop is a
+    /// packed lunch, the ant is hungry, or the room is full.
+    #[test]
+    fn under_harvest_a_forager_takes_its_crop_into_the_store() {
+        let mut w = founding_bed();
+        w.cut_founding_shaft_with((60, 38), 6, 2, true, Some(-1), None);
+        let fp = w.nest_sites[0].shaft.expect("the cut records its footprint");
+        let s = fp.side.expect("a side room");
+        w.plant_ant(30, 38);
+        let ant = w.get(30, 38).organism_id();
+        assert_ne!(ant, 0, "the ant was not placed");
+        let species = w.species.id_of("ant").expect("ant species");
+        let def = w.species.get(species).creature.as_ref().expect("creature").clone();
+        let fruit = w.materials.id_of("fruit").expect("fruit");
+        let place = |w: &mut World, head: (i32, i32), energy: f32| {
+            let st = w.organism_mut(ant).expect("the ant");
+            st.crop = Some(Crop { material: fruit, cells: 2, digesting: 0.0, unit: 960.0, shade: 0, passenger: None });
+            st.spoil = None;
+            st.lunch = false;
+            st.chain = vec![head, (head.0 + 1, head.1)];
+            st.forage_anchor = (60, 38);
+            st.energy = energy;
+        };
+        let fed = def.start_energy;
+        w.storeroom = Some(Storeroom { carry: true, side: true, keep: true, harvest: true, ..Storeroom::OFF });
+        let mouth = ((fp.x0 + fp.x1) / 2, fp.top);
+        place(&mut w, (40, 37), fed);
+        assert_eq!(harvest_target(&w, w.organism(ant).expect("the ant")), Some(mouth), "above ground a laden forager makes for the mouth");
+        assert_eq!(home_target(&w, w.organism(ant).expect("the ant")), mouth, "and that is its home target");
+        assert_eq!(harvest_drop(&w, ant, (40, 37), &def), Some(HarvestDrop::Hold), "away from the room it holds its food");
+        let doorway = (s.x1, s.bottom - 1);
+        place(&mut w, (s.passage_x1, s.passage_top), fed);
+        assert_eq!(harvest_target(&w, w.organism(ant).expect("the ant")), Some(fp.store_floor()), "in the passage, for the room's floor");
+        place(&mut w, doorway, fed);
+        match harvest_drop(&w, ant, doorway, &def) {
+            Some(HarvestDrop::Store(Some(site))) => assert!(s.in_room(site.0, site.1), "the food went to {site:?}, not into the room"),
+            other => panic!("beside the room a fed forager puts its food in it, got {other:?}"),
+        }
+        place(&mut w, doorway, fed * 0.2);
+        assert_eq!(harvest_drop(&w, ant, doorway, &def), Some(HarvestDrop::Hold), "a hungry forager keeps its crop");
+        place(&mut w, (40, 37), fed);
+        w.organism_mut(ant).expect("the ant").lunch = true;
+        w.packed_lunch = Some(true);
+        assert_eq!(harvest_drop(&w, ant, (40, 37), &def), None, "a packed lunch is not for the store");
+        w.packed_lunch = None;
+        place(&mut w, (40, 37), fed);
+        w.storeroom = Some(Storeroom { carry: true, side: true, keep: true, ..Storeroom::OFF });
+        assert_eq!(harvest_drop(&w, ant, (40, 37), &def), None, "without `harvest` the drop is the shipped one");
+        assert_ne!(home_target(&w, w.organism(ant).expect("the ant")), mouth, "and home is not the store");
+        w.storeroom = Some(Storeroom { carry: true, side: true, keep: true, harvest: true, ..Storeroom::OFF });
+        let crumbs = w.materials.id_of("crumbs").expect("crumbs");
+        for y in s.top..=s.bottom {
+            for x in s.x0..=s.x1 {
+                w.set(x, y, Cell::new(crumbs, 0));
+            }
+        }
+        assert_eq!(harvest_drop(&w, ant, (40, 37), &def), None, "a full room is no target: the food goes to the door");
     }
 
     /// **Under `PIXEL_PHYSICS_NEST_HOME=shaft` the founding cut is home, and
@@ -40552,7 +40764,11 @@ mod tests {
         assert!(!all.posts(), "nothing is handed down a shaft into a room beside it");
         assert!(parse_storeroom("on,post").posts());
         assert_eq!(parse_storeroom("nestbound").nest_bound, NEST_BOUND_FRAMES);
-        for bad in ["sid", "on,sideways", "caste=0", "caste=x", "nestbound=0", "nestbound=8000/x"] {
+        let hungry = parse_storeroom("on,caste=4,workerhome,side,keep=25,stock=50");
+        assert_eq!((hungry.keep, hungry.keep_pct, hungry.stock_pct), (true, 25, 50), "{hungry:?}");
+        assert_eq!(parse_storeroom(&hungry.to_string()), hungry, "the thresholds must print and read back");
+        assert_eq!(parse_storeroom("on,keep=100,stock=100"), parse_storeroom("on,keep"), "100 is the shipped threshold");
+        for bad in ["sid", "on,sideways", "caste=0", "caste=x", "nestbound=0", "nestbound=8000/x", "keep=x", "stock=-1", "stock=2000"] {
             assert_eq!(parse_storeroom(bad), Storeroom::SHIPPED, "{bad:?} must read as unset, which is the shipped granary");
         }
     }

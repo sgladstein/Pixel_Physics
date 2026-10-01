@@ -4374,8 +4374,8 @@ fn larder_census(world: &World, b: &Box2, p: &FoodPile, frame: u64) -> String {
         }
     }
     format!(
-        "LARDER frame={frame} food standing (larder and crumbs, cells): in the storeroom {in_store}, elsewhere below the old ground line {below}, above it outside the pile {above} | storeroom carry: picked up {}, set down {}, let go outside {}, refused for a full room {}, bites kept from the fed {} | put down at home {}, taken back up at home {} | shares {} ({:.0} J), digested {:.0} J | births paid from the store (PIXEL_PHYSICS_BUD_STORE) {}",
-        st.store_pickups, st.store_delivered, st.store_released, st.store_room_full, st.store_kept, st.deliveries, st.pickups_at_nest, st.shares, st.shared_j, st.digested_face, st.store_births
+        "LARDER frame={frame} food standing (larder and crumbs, cells): in the storeroom {in_store}, elsewhere below the old ground line {below}, above it outside the pile {above} | storeroom carry: picked up {}, set down {}, let go outside {}, refused for a full room {}, bites kept from the fed {} | put down at home {}, taken back up at home {} | shares {} ({:.0} J), digested {:.0} J | births paid from the store (PIXEL_PHYSICS_BUD_STORE) {} | foragers' crop cells put down in the store (harvest) {}, ticks held on the way {}",
+        st.store_pickups, st.store_delivered, st.store_released, st.store_room_full, st.store_kept, st.deliveries, st.pickups_at_nest, st.shares, st.shared_j, st.digested_face, st.store_births, st.harvest_stored, st.harvest_held
     )
 }
 
