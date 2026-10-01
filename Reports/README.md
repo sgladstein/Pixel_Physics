@@ -4131,7 +4131,11 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   40 ants, the lab no worse (births 13 / 11), a nest a third the size; the
   carry traced (a carrier's test of *outside* flipped under the mound and
   down a mouth open to the sky) and latched at the door: the nest 139.5 ->
-  180 cells at 40 ants. Lane note:
+  180 cells at 40 ants. **§19** (2026-10-01): the pellets still put down
+  inside, traced, are carriers giving up in the room under the door (the
+  straight-line pull points through air); a carrier within 12 cells of the
+  door keeps its pellet (`SPOIL_HOLD`, on): put inside 93.5 -> 12 at 200
+  ants, a tenth less new ground dug. Lane note:
   [lanes/nest-mouth.md](lanes/nest-mouth.md).
 - [week-review-2026-09-29.md](week-review-2026-09-29.md) —
   **review, read-only to the engine, 2026-09-29. `engine`/`lab`.** An adversarial read of the 34 PRs
