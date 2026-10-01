@@ -4137,7 +4137,12 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   door keeps its pellet (`SPOIL_HOLD`, on): put inside 93.5 -> 12 at 200
   ants, a tenth less new ground dug. Steering carriers along the passages
   instead (`SPOIL_ROUTE`, not landed) did not help: the limit is the
-  one-lane shaft's traffic. Lane note:
+  one-lane shaft's traffic. **§20** (2026-10-01): resting inside
+  (`NEST_REST`, off): every idle ant pulled in along the passages empties
+  the surface (69.5 -> 8 ants at 200) and digs half again more, but jams
+  the shaft (pellets put inside 12 -> 117.5) and starves the colony bed
+  (births 22 -> 5 a seed: fed founders stop scouting); nest workers alone
+  spare the bed (22 -> 18) and change little. Lane note:
   [lanes/nest-mouth.md](lanes/nest-mouth.md).
 - [week-review-2026-09-29.md](week-review-2026-09-29.md) —
   **review, read-only to the engine, 2026-09-29. `engine`/`lab`.** An adversarial read of the 34 PRs

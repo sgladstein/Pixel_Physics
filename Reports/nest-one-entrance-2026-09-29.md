@@ -22,8 +22,12 @@ not queueing in the shaft, they are shut in by their own spoil on the mouth.
 off): at 40 ants the walked nest doubles with its door clear; at 200 ants the
 colony's own idle ants, homed over the mouth, still stand on the way out.
 
-Lane note: [lanes/nest-mouth.md](lanes/nest-mouth.md). Predictions 168-206
-and 215-223 were written before their runs; they are in §8 with their
+**§20 rests the colony inside** (`PIXEL_PHYSICS_NEST_REST`, off): every
+idle ant resting gives the picture asked for in the dig box and starves the
+colony bed; nest workers alone spare the bed and change little.
+
+Lane note: [lanes/nest-mouth.md](lanes/nest-mouth.md). Predictions 168-206,
+215-223 and 224-229 were written before their runs; they are in §8 with their
 scores.
 
 ## 0. What was found, in world terms
@@ -1122,3 +1126,125 @@ direction of the pull**, and the hold works because it is waiting. Recorded
 in `dead-ends.md`. Picture: off, hold and route side by side at 40 ants seed
 4 and 200 ants seed 2 (project file `nest/hold-vs-route-2026-10-01.png`).
 
+
+## 20. The colony rests inside its nest (`PIXEL_PHYSICS_NEST_REST`, 2026-10-01)
+
+*Owner: "the next nest step is resting ants living inside the nest" (lane
+note, 2026-09-29). §12 found the colony standing on its own way out: every
+founder's home is the cell over the mouth, and an ant with nothing to do has
+no pull at all.*
+
+**Looked at first** (`digbox` fed, seed 1, 24,000 frames, `pile`): at 200
+ants 51 of 172 stood on or in the mouth, 71 out on the surface and 50
+underground; at 40 ants 12, 12 and 9. The surface ants are still: 20 of the
+71 had not moved for 60 frames.
+
+**What was built** (`creature::nest_rest_of`, `rest_pull`, `NestWay`; off
+unless set). An ant that nothing else pulls (no load, no store trip, no way
+back to a face, not too hungry to be out) and that is pulled in harder than
+out -- the larger of its hunger and its forage drive, which is what scales
+the scout's pull out, under a half -- is pulled to its door from outside, and
+inside along the passages away from the door: each nest keeps a breadth-first
+distance from its door over the cells inside it an ant can stand in (in the
+founding cut, or under cover below the door), rebuilt every 30 frames, and
+the pull is aimed three steps up that distance. Where passages fork, the ant's
+id picks the branch, so the colony spreads over the nest's ends. The gain
+falls to nothing as hunger or the drive reaches the half, so there is no edge
+to flicker across. A forager the colony needs (the `returns` drive reads 1
+while food comes home) never rests, and the rest pull never meets the way
+out, which is read only with no pull. The distance stops where a gallery
+opens to the sky, so a second entrance does not lead a resting ant out.
+
+A first build drew the line at `start_energy`, as the nest-bound pull does.
+It changed nothing measurable against the graded rule (seed 1: the same
+decisions under the pull to frame 6,000), because the pull only ever acts on
+a decision that has already won its step roll, and a fed ant rarely steps:
+8,113 to 9,003 pulled decisions in a 24,000-frame, 200-ant run. Few steps
+are enough; a still ant on the surface stays put only until it next moves.
+
+Guard: `an_idle_ant_is_pulled_in_at_its_door_and_along_the_passages`, watched
+red with the pull aimed at the ant's own head.
+
+**Measured** (`digbox` fed, 8 seeds, 40 and 200 ants, off -> on; where the
+colony stands from `PILE`, medians, at frame 24,000):
+
+| | 40 ants | 200 ants |
+|---|---:|---:|
+| out on the surface | 11 -> 1.5 | 69.5 -> 8 |
+| on the mound over the mouth (holding a pellet) | 9 (6.5) -> 12.5 (6) | 19 (13) -> 42 (35) |
+| underground (holding a pellet) | 9 (3.5) -> 16 (7.5) | 70 (37.5) -> 101 (50.5) |
+| new ground dug | 140.5 -> 231 (higher on 7) | 299.5 -> 442.5 (higher on 8) |
+| open cells | 171.5 -> 206.5 (6 / 2) | 230 -> 315.5 (higher on 8) |
+| pellets put down below the old ground line | 2 -> 36.5 (higher on 7) | 12 -> 117.5 (higher on 8) |
+| ...as a share of all pellets put down | 1% -> 11% | 3% -> 18% |
+| sealed-off cells | 2 -> 4.5 (6 / 1) | 8 -> 16.5 (6 / 1) |
+| alive | 30 -> 30 | 169.5 -> 163 (lower on 7) |
+
+**What it does.** The colony goes inside: the surface empties and the ants
+with nothing to do stand in the nest. Inside, they dig -- the dig wiring
+reads ground round the ant as a face whether it is at the nest or not -- so
+the nest grows by half again, and deeper (pictures: project file
+`nest/rest-inside-2026-10-01.png`, 40 ants seed 4 and 200 ants seed 2, at
+12,000 and 24,000).
+
+**What it costs: the door shaft's traffic again.** More digging is more
+pellets to carry out through the one-lane shaft, and the shaft now has
+resting ants in the way as well. Carrier frames spent standing nose to an
+animal at 200 ants seed 1: 203,403 -> 634,600 (seed 2: 167,916 -> 691,456);
+carriers in the founding shaft at any moment 1.2 -> 4.7. The carriers wait,
+their patience runs out deeper than the 12-cell hold reaches (§19), and the
+pellet goes down inside: §19's gain is mostly given back, and the
+200-ant mound is carriers queueing to come out (35 of 42 hold a pellet).
+The same limit §19 found under the door, reached from the other side.
+
+**Predictions for the colony bed, written before its run** (24 seeds, 20
+founders, gap 90; off -> on):
+
+| # | arm | prediction | score |
+|---|---|---|---|
+| 224 | rest on (every idle ant, now `all`) | food taken within 10% of off | fails (428 -> 200 cells a seed, lower on 24) |
+| 225 | the same | births no higher than off | holds (22 -> 5 a seed) |
+| 226 | `on` (nest workers and ants that have foraged) | births within 15% of off | fails (22 -> 18 a seed; the same as `workers` to within a handful of decisions) |
+| 227 | `workers` (nest workers only) | births within 15% of off | fails (22 -> 18, lower on 14 of 23, sign p 0.41) |
+| 228 | `workers`, `digbox` 200 ants | out on the surface within 20% of off's 69.5 (no ant in the box forages, so the foragers are untouched) | holds (70.5) |
+| 229 | `on` against `workers`, `digbox` | identical, both sizes and every seed (no ant in the box has foraged) | fails (all 16 differ; the box's dead are food, so some ants have foraged -- inferred, not traced) |
+
+**The colony bed** (24 seeds, 20 founders, gap 90, `antloop.py`; medians a
+seed, then seeds lower / higher):
+
+| off -> | `all` | `workers` | `on` |
+|---|---:|---:|---:|
+| food taken from the pile, cells | 428 -> 200 (24 / 0) | 428 -> 385 (15 / 9) | as `workers` |
+| born | 22 -> 5 (23 / 1) | 22 -> 18 (14 / 9) | as `workers` |
+| starved by frame 6,000, all seeds | 0 -> 156 | 0 -> 4 | as `workers` |
+| net food into home (overcounts, s22j) | 1,180 -> 300 | 1,180 -> 1,023 (19 / 5, p 0.007) | as `workers` |
+
+**`all` starves the bed**: a founder starts fed, so it rests deep in the
+nest instead of scouting, and leaves only once half its reserve is gone, too
+little to find food ninety cells out and get back. **`on` is `workers` on the
+bed** (two seeds differ by a few decisions): the `returns` drive reads 1 for
+every forager while food comes home, so a forager never rests there.
+**`workers` costs the bed a little** (births and food into home both down,
+food into home significantly); why is not traced.
+
+**And the narrower forms barely move the picture in the dig box** (8 seeds,
+off -> `workers`; `on` alike):
+
+| | 40 ants | 200 ants |
+|---|---:|---:|
+| out on the surface | 11 -> 12 | 69.5 -> 70.5 |
+| on the mound over the mouth (nest workers) | 9 (2) -> 5 (1) | 19 (5.5) -> 31 (10.5) |
+| underground | 9 -> 10 | 70 -> 58 |
+| new ground dug | 140.5 -> 140.5 | 299.5 -> 344 (higher on 5) |
+| pellets put down inside | 2 -> 4 | 12 -> 17.5 |
+
+At 200 ants more nest workers stand on the mound: a resting worker outside
+the nest is pulled to the door, and the door is where the shaft jams.
+
+**So, as of this section, resting stays off.** The form that gives the
+picture asked for (`all`) takes the colony's scouts off the surface, which
+in a box with no food is all of its idle ants and on the bed is how it
+finds food; the forms that spare the scouts change little. Every form meets
+the one-lane door shaft: resting ants add to the traffic the carriers
+already queue in (§19). Pictures: `nest/rest-inside-2026-10-01.png` (`all`
+against off) and `nest/rest-forms-2026-10-01.png` (off, `workers`, `all`).
