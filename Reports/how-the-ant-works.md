@@ -868,8 +868,9 @@ either plane: the other trail inputs are computed and wired to nothing (§3).
   `World::bud_store`) a nesting species' births are paid from its store
   (`bud_from_store`): only an animal within a cell of the storeroom
   (`ShaftFootprint::touches_store`) buds, its own bank is read as 0 and the
-  bar as the birth's price, and the food within its reach pays all of it
-  (`place_creature`'s `Origin::Bud` arm), counted in
+  bar as the birth's price, and loose food anywhere in the founding cut and
+  its storeroom pays all of it, nearest first (`provisions_in_store`,
+  `place_creature`'s `Origin::Bud` arm), counted in
   `CreatureStats::store_births`. The child goes on the first of the eight neighbours
   of the parent's head where its whole body fits on empty cells; a parent
   with none is refused and tries again next tick
@@ -941,7 +942,7 @@ Read once per process from the environment. The default is what ships.
 | `PIXEL_PHYSICS_TROPHALLAXIS` | on | `off` |
 | `PIXEL_PHYSICS_DROP_REACH` | through bodies | `adjacent`: a food drop looks only at the 8 neighbours |
 | `PIXEL_PHYSICS_BUD_SITE` | anywhere | `nest`: a species with a nest material buds only at its nest (§9) |
-| `PIXEL_PHYSICS_BUD_STORE` | off | `on`: a nesting species buds only at its storeroom, and the food within reach pays the whole birth (`bud_from_store`, §9) |
+| `PIXEL_PHYSICS_BUD_STORE` | off | `on`: a nesting species buds only at its storeroom, and food in the founding cut and its storeroom pays the whole birth (`bud_from_store`, `provisions_in_store`, §9) |
 | `PIXEL_PHYSICS_BUD_STACK` | on (since 2026-09-30) | above a stack cap of 1, a birth with no free cell beside the parent stands on nestmates (§9); `off`: it is refused and tries again |
 | `PIXEL_PHYSICS_BREEDING` | `individual` | `queen`: while any other living animal of the same colony has budded (`children > 0`), nobody else in it buds; when that breeder dies, the next animal to reach its bar succeeds it. `graded`: the bar is multiplied by `1 + (GRADED_MAX_SUPPRESSION - 1)(1 - d/r)` for `d` the distance to the colony's nearest other breeder, so 6.0 beside one, falling linearly to 1 at `r` = `PIXEL_PHYSICS_BREEDING_RADIUS` (24) cells and beyond (`suppress_bar`, `graded_suppression_factor`). Anything else reads as `individual`. `PIXEL_PHYSICS_BREEDER_INDEX=scan` replaces the per-colony breeder index with a scan of every organism, as the control for the lookup (§9) |
 | `PIXEL_PHYSICS_CHOOSER` | trailaway | For species with a nest. `off`: the walk of §6a–§6c; `on`: the chooser's first layer only (§6d items 1–5); `nopatience`: the same with patience held at 1; `trail`: the chooser reading the trail where it would step, with the throttle retired, and no away term |
