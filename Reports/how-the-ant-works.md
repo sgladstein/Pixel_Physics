@@ -6,7 +6,8 @@ written from the source and describes the code as it is now, not as it was or
 will be.
 
 - **Verified against:** `main` at `bb65d507`, 2026-09-22; §5 step 5 and the
-  `SPOIL_HOLD` row 2026-10-01 against `spoil_hold_of` and the drop block. §2, §6c, §13 and
+  `SPOIL_HOLD` row 2026-10-01 against `spoil_hold_of` and the drop block;
+  §6d's `NEST_REST` paragraph and §12 row 2026-10-01 against `rest_pull`. §2, §6c, §13 and
   §15 re-checked the same day against the decision-trace change
   (`usable_headings`, `home_weighted_pick_why`); §5, §6b, §6c, §13, §14 and
   §15 re-checked 2026-09-23 against the drop, cone and homeward counters;
@@ -598,6 +599,22 @@ pull. Two forms:
 - `tether` sets it only off a route (trail B under the head under presence
   0.5), and clears it within 2 cells of the target.
 
+**`PIXEL_PHYSICS_NEST_REST` (off) gives an ant with nothing to do a pull
+into its nest.** Who it may reach is the form (`NestRest`): `workers`, nest
+workers only; `on`, nest workers and any ant that has foraged
+(`OrganismState::foraged`), so a scout that has never found food never
+rests; `all`, every ant. Of those, it reaches an ant `home_pull` gives no target (no food, no
+spoil, no store trip, no way back to a face, no hungry-home latch) whose
+`max(hunger, forage drive)` is under `REST_BALANCE` (0.5), at gain
+`home_bias × (1 − that / 0.5)` (`rest_pull`). Outside the nest the target is
+the door over the mouth; on the nest's way in (`NestWay`: a breadth-first
+step count from that door over cells an ant can stand in, in the founding cut
+or under cover below the door, rebuilt every `REST_REFRESH` (30) frames by
+`step_nest_rest`) it is the cell `REST_LOOKAHEAD` (3) steps further in, the
+ant's id ordering the neighbours so forks split the colony; where no step
+leads further in, the target is the ant's own head. Like any pull it
+suppresses scouting and the away term. Counted in `rest_pulls`.
+
 **`PIXEL_PHYSICS_FORAGE_DRIVE` (`returns` since 2026-09-29, `always` from
 2026-09-27; `off` is the ant before it) sends a fed forager out while food is
 coming home.** It reaches an animal that has foraged (`OrganismState::foraged`,
@@ -955,6 +972,7 @@ Read once per process from the environment. The default is what ships.
 | `PIXEL_PHYSICS_SPOIL_OUT` | on (since 2026-09-30) | the excavation cycle walked (`SpoilOut`): parts, comma-joined, `on` for all four, `off` for the lift. `haul`: a pellet carrier is pulled to the door over the mouth (`spoil_haul_target`); `pace`: at the laden pace, `HomeAligned` read against that target (`spoil_pace_target`); `keep`: inside the nest (`inside_nest`: under cover, or in the founding cut) the pellet is not put down while patience lasts, and is never lifted from there (`spoil_kept_inside`, `spoil_kept_no_lift`); `back`: a digger not hungry walks back to the cell it cut once its pellet is down (`OrganismState::dig_return`, `dig_return_target`) |
 | `PIXEL_PHYSICS_SPOIL_LIFT` | `climb` | where a pellet with no cell beside its carrier goes: `climb` up the carrier's column as far as it could have walked (`lift_reach`); `out` through the passages to the nearest cell in the open that holds a pellet (`lift_out`, `spoil_lifted_out`); `none`, `dig`, `unbounded` the older reaches |
 | `PIXEL_PHYSICS_SPOIL_HOLD` | `12`, **acting only under the walked cycle's `keep`** | `<cells>`, `on` or `off` (`0`): a carrier inside the nest whose haul patience has run out keeps its pellet while its head is within that Chebyshev distance of the haul's target (`spoil_haul_target`), instead of laying it beside itself (`spoil_hold_of`, counted in `spoil_held_near_door`); `World::spoil_hold` for one world |
+| `PIXEL_PHYSICS_NEST_REST` | off | `workers`, `on` or `all` (`NestRest`: nest workers; nest workers and ants that have foraged; every ant): such an ant with nothing to do and more fed than hungry, not sent out by the forage drive, is pulled to its door and then along the passages away from it (§6d, `rest_pull`, `NestWay`, counted in `rest_pulls`); `World::nest_rest` for one world |
 | `PIXEL_PHYSICS_SPOIL_RING` | `2,2`, **acting only under the walked cycle** (`SPOIL_OUT`, on by default since 2026-09-30; with it `off` the lift is untouched) | `<shape>,<scale>` or `off`; `spoil_ring_of` gates it on the walked cycle, and a world's own `World::spoil_ring` overrides both: when a carrier comes out by the door with its pellet (on or above the door's row, nothing overhead: `carry_stage`) it draws a column on its own side, the door's half-width plus one plus a Gamma(shape, scale) draw from the nest's centre (`spoil_ring_column`, `OrganismState::spoil_ring`, its own stream), is pulled to the top of the ground in that column (`ring_target`, climbing any mound; `spoil_haul_target`), and its drop roll is held until its head is that far out (`spoil_ring_holds`; `spoil_ring_drawn`, `spoil_ring_held`). The column is kept under a mound's overhang and let go only back in a tunnel (more than two rows under the door's row with ground overhead, or in the founding cut: `spoil_ring_let_go`); before it has come out, under `keep`, the pellet is held wherever the carrier stands; `World::spoil_ring` for one world |
 | `PIXEL_PHYSICS_DIG_WIDEN` | off | `on`: tunnels one body length (two cells) wide. On a won dig roll, a digger whose way ahead is open and whose head stands where its passage is one cell wide (ground above and below, or either side) cuts one of those walls instead of turning down and cutting ahead (`ahead_is_open`, `dig_widen_site`); a digger at a face cuts a shoulder beside the cell ahead on half its rolls (`dig_shoulder_site`), so a gallery advances two cells across. A passage two wide is left alone. Both cuts are ordinary cuts after that: the heap cue and the jaw judge them (`digs_widened`; `World::dig_widen` for one world) |
 

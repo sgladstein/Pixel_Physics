@@ -2043,6 +2043,11 @@ pub struct CreatureStats {
     /// the pellets put down below the old ground line, which `digbox`'s
     /// `gridout=` census counts (`scripts/nestgrid.py`'s `put_inside`).
     pub spoil_held_near_door: u64,
+    /// Decisions an idle ant walked under the rest pull
+    /// (`PIXEL_PHYSICS_NEST_REST`, `creature::nest_rest_of`): to its door
+    /// from outside, deeper along the passages inside. The "it fired" half;
+    /// the effect half is where the colony stands (`digbox`'s `PILE` line).
+    pub rest_pulls: u64,
     /// **Carry distances drawn** under `PIXEL_PHYSICS_SPOIL_RING`
     /// (`creature::spoil_ring`): when its carrier comes out by the door with
     /// it (`creature::carry_stage`), and again for a carrier that went back
@@ -3753,6 +3758,15 @@ pub struct World {
     /// `Some(None)` turns it off. A field so a guard can take both arms in
     /// one process.
     pub spoil_hold: Option<Option<i32>>,
+    /// **Resting inside, overriding `PIXEL_PHYSICS_NEST_REST` for this
+    /// world** (`creature::nest_rest_of`). `None` follows the environment; a
+    /// field so a guard can take both arms in one process.
+    pub nest_rest: Option<crate::sim::creature::NestRest>,
+    /// **Each nest's way in**, as steps from its door through the cells
+    /// inside it an ant can stand in (`creature::NestWay`), rebuilt every
+    /// `creature::REST_REFRESH` frames by `creature::step_nest_rest` while
+    /// resting is on, and empty otherwise. Read only by the rest pull.
+    pub nest_ways: Vec<crate::sim::creature::NestWay>,
     /// **Tunnel widening, overriding `PIXEL_PHYSICS_DIG_WIDEN` for this
     /// world** (`creature::dig_widen_of`). `None` follows the environment,
     /// which is off unless it says `on`. A field so a guard can take both
@@ -6201,6 +6215,8 @@ impl World {
             dig_down: None,
             spoil_ring: None,
             spoil_hold: None,
+            nest_rest: None,
+            nest_ways: Vec::new(),
             dig_widen: None,
             bud_stack: None,
             storeroom: None,
@@ -10696,6 +10712,9 @@ impl World {
         // drive only (`step_nest_need`); every other world returns on its
         // first line.
         self.step_nest_need();
+        // **And each nest's way in, for resting ants**, on its own cadence
+        // and only while resting is on (`creature::step_nest_rest`).
+        crate::sim::creature::step_nest_rest(self);
         // No world-time bookkeeping here on purpose. The phase clocks are
         // *derived* from `frame` (`clock::Clock::sky_frame`), not advanced
         // beside it -- an earlier version incremented a counter from this

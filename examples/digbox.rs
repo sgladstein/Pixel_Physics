@@ -3773,6 +3773,12 @@ fn main() {
                 if pile_on {
                     println!("{}", pile_census(&world, &b, &trips, f, ants_csv.as_mut()));
                 }
+                println!(
+                    "REST frame={f} resting inside (PIXEL_PHYSICS_NEST_REST) {:?}: decisions under the rest pull {}, the way in {} steps deep",
+                    pixel_physics::sim::creature::nest_rest_of(&world),
+                    world.creature_stats.rest_pulls,
+                    world.nest_ways.first().map_or(0, |w| w.depth())
+                );
                 funnel.print(f, &world);
                 trips.print(f);
                 let cut = world.nest_sites.iter().find_map(|s| s.shaft);
