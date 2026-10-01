@@ -7219,6 +7219,7 @@ impl World {
             scout_patience: 1.0,
             scout_home: false,
             scout_lit: false,
+            scout_dark: false,
             foraged: false,
             store_return: false,
             store_carried: false,

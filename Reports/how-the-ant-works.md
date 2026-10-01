@@ -585,7 +585,9 @@ state is written, and only while the term is on.
 
 **Under `PIXEL_PHYSICS_FOOD_TRAIL=...,giveup` (off by default) the trail lets
 a given-up scout go, and a walked trail's end bounds the scout.** Once
-`scout_home` is set, the trail's hold on the heading is dropped (the
+`scout_home` is set by a step onto a heading with no trail
+(`OrganismState::scout_dark`; a give-up on a lit route is left as it was),
+the trail's hold on the heading is dropped (the
 `1 + TRAIL_GAIN × presence` factor is 1), the away term is 0, and the pull
 home is `scout_w × level cos(heading, home)` without `(1 − presence)`. And
 once an excursion has stepped onto a heading carrying trail B

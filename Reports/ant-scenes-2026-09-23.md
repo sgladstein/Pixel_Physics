@@ -3698,3 +3698,16 @@ trail. Under `LG2`, 12 of 30 did. The design assumed a give-up happens past a
 dead trail; on these beds most do not. **Next arm, if pursued:** spend only a
 give-up that happened on dark ground (no trail under the picked heading),
 and keep the trail's pull for one that gave up on a lit route.
+
+**Third arm, registered before its runs (`LG3`, 2026-10-01, owner's pick
+"trace it" on the traced loss).** `LG2` with one change: the spent rule
+applies only to a give-up made on **dark ground** (the step on which patience
+ran out carried no trail under its heading; `OrganismState::scout_dark`). A
+scout that gives up on a lit route keeps the trail's hold, the away term and
+the `1 − presence` on the pull home, as under `L`. The bound is `LG2`'s.
+
+**Baseline re-taken:** main now carries the nest package (#528, on by
+default), so `L` is re-run on `main` + this branch, and `LG3` against it.
+Same beds, seeds, predictions and ship bars as above. **Added prediction
+PG6:** east give-ups that still reach the pile after giving up, at 90 cells,
+are within 10 points of `L`'s share (`L` at `52351987`: 29 of 43).

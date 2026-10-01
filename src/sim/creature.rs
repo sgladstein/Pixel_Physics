@@ -15984,8 +15984,9 @@ pub struct FoodTrail {
     /// Stage 2's reader (not built yet).
     pub read: bool,
     /// **Stage 3: a scout that gave up is let go by the trail** (§23d).
-    /// Once `scout_home` is set the trail neither holds its heading nor pulls
-    /// it outward, and the pull home is the full home cosine. And once an
+    /// Once a scout gives up on dark ground (`scout_dark`) the trail neither
+    /// holds its heading nor pulls it outward, and the pull home is the full
+    /// home cosine; a give-up on a lit route keeps the trail's pull. And once an
     /// excursion has stepped onto trail B, a step onto dark ground is not
     /// progress, so a follower past a trail's end gives up instead of walking
     /// on (with no wall, 455 cells and no give-up without it).
@@ -16709,7 +16710,7 @@ fn chooser_step(
     // new home point, and read as the outbound pull's patience and whether
     // the scout has given up and is heading home. Touched only while the
     // term is on, so a fed ant's state is never written.
-    let (scout_patience, scout_home) = match away_from {
+    let (scout_patience, scout_home, scout_dark) = match away_from {
         Some((ax, _)) if scout_w > 0.0 => {
             let st = world.organism_mut(organism).expect("live: its chain was just read");
             if st.scout_for != away_from.expect("matched Some") {
@@ -16718,10 +16719,11 @@ fn chooser_step(
                 st.scout_patience = 1.0;
                 st.scout_home = false;
                 st.scout_lit = false;
+                st.scout_dark = false;
             }
-            (st.scout_patience, st.scout_home)
+            (st.scout_patience, st.scout_home, st.scout_dark)
         }
-        _ => (1.0, false),
+        _ => (1.0, false, false),
     };
     let route = |d: u8| if reads_trail { trail_presence(world, (hx, hy), d, laden) } else { 0.0 };
     // **Stage 3, the give-up lets go** (`FoodTrail::giveup`,
@@ -16732,7 +16734,14 @@ fn chooser_step(
     // it (Stage 1, `giveup.py`): given-up ants east of the door stepped
     // outward on 29.5% / 30.0% of trail-reading decisions, and took a median
     // 1,253 / 1,086 frames from give-up to home.
-    let spent = scout_home && scout_w > 0.0 && food_trail_of(world).giveup;
+    //
+    // **Only a give-up made on dark ground is spent** (`scout_dark`, §23d's
+    // third arm). Patience counts level progress, so it also runs out on a
+    // live trail that winds or climbs; spending those turned ants away from
+    // a live pile -- on the 90-cell bed 29 of 43 east give-ups still reached
+    // the pile under `lay` and 12 of 30 when every give-up was spent, and on
+    // the two-pile bed 41 founders starved by frame 6,000 against 19.
+    let spent = scout_home && scout_dark && scout_w > 0.0 && food_trail_of(world).giveup;
     let hold = |d: u8| if spent { 1.0 } else { 1.0 + TRAIL_GAIN * route(d) };
     // **Level, not radial**: the home cosine of the heading's sideways part
     // alone, so a heading straight up or down scores 0. Radial, an ant above
@@ -16865,6 +16874,7 @@ fn chooser_step(
             state.scout_patience *= PATIENCE_DECAY;
             if state.scout_patience < SCOUT_GIVE_UP {
                 state.scout_home = true;
+                state.scout_dark = bound && !on_trail;
             }
         }
     }
@@ -29671,12 +29681,14 @@ mod tests {
     /// already given up (`scout_home`), energy at half its grant so `scout_w`
     /// is about 1, no nest and no forage drive. 300 decisions per arm. Under
     /// `lay` the trail's hold and the away term keep it stepping outward; under
-    /// `lay,giveup` it must step outward on at most 5%. **Watched red**
+    /// `lay,giveup` a scout that gave up on dark ground (`scout_dark`) must
+    /// step outward on at most 5%, and one that gave up on a lit route must
+    /// walk exactly as under `lay`. **Watched red**
     /// three ways, one part of `spent` put back at a time: the hold, the away
     /// term, and the `1 - presence` on the pull home.
     #[test]
     fn a_scout_that_gave_up_is_not_held_out_by_the_trail() {
-        let outward = |ft: FoodTrail| -> f32 {
+        let outward = |ft: FoodTrail, dark: bool| -> f32 {
             let stone = Cell::new(material::STONE, 0).with_attached(true);
             let mut out = 0;
             for i in 0..300u64 {
@@ -29706,6 +29718,7 @@ mod tests {
                     st.scout_best = 80.0;
                     st.scout_patience = 0.05;
                     st.scout_home = true;
+                    st.scout_dark = dark;
                 }
                 let head = w.organism(ant).expect("live").chain[0];
                 let mut draw = rng::stream(i, ant as u64, 0, RNG_SLOT_MOVE);
@@ -29716,10 +29729,13 @@ mod tests {
             out as f32 / 300.0
         };
         let lay = FoodTrail { lay: true, ..FoodTrail::OFF };
-        let held = outward(lay);
-        let let_go = outward(FoodTrail { giveup: true, ..lay });
+        let lay_giveup = FoodTrail { giveup: true, ..lay };
+        let held = outward(lay, true);
+        let let_go = outward(lay_giveup, true);
         assert!(held >= 0.3, "under lay a given-up scout on a lit trail facing out should still step outward often, and did {held}: the scene cannot show the hold");
-        assert!(let_go <= 0.05, "under lay,giveup a given-up scout stepped outward on {let_go} of 300 decisions");
+        assert!(let_go <= 0.05, "under lay,giveup a scout that gave up on dark ground stepped outward on {let_go} of 300 decisions");
+        // A give-up made on a lit route is not spent: it walks as under `lay`.
+        assert_eq!(outward(lay_giveup, false), held, "under lay,giveup a scout that gave up on a lit route should keep the trail's pull, as under lay");
     }
 
     /// **Under `PIXEL_PHYSICS_PACKED_LUNCH` a forager whose crop holds only
