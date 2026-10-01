@@ -3711,3 +3711,37 @@ default), so `L` is re-run on `main` + this branch, and `LG3` against it.
 Same beds, seeds, predictions and ship bars as above. **Added prediction
 PG6:** east give-ups that still reach the pile after giving up, at 90 cells,
 are within 10 points of `L`'s share (`L` at `52351987`: 29 of 43).
+
+**Third scoring (binary `2e0311c2` on `main` `b6bc9db2`, nest package #528
+in, #531 not; `L` re-run on the same binary; 24 seeds, paired; `LG3`
+against `L`):**
+
+| | taken | starved | other |
+|---|---|---|---|
+| unlimited 90 | 9,751 -> 10,322 (15/9) | 4 -> 6 (4/3) | born 529 -> 639 (12/11) |
+| unlimited 140 | 6,528 -> 6,393 (11/13) | 29 -> 30 (6/5) | |
+| pulsed 90 | 2,778 -> 2,801 (8/10) | 264 -> 258 (11/12); vs `M` 248 -> 258 (12/9) | **born 56 -> 33 (5/15, p 0.041)** |
+| pulsed 140 | **2,781 -> 2,560 (6/17, p 0.035)** | 229 -> 254 (13/8); vs `M` 253 -> 254 (11/12) | **born 31 -> 5 (1/18, p < 0.001)** |
+| 80 founders | 13,032 -> 13,719 (16/8) | 620 -> 604 (11/13) | born 99 -> 117 (9/13) |
+| B5 | 13,921 -> 10,927 (10/14, p 0.54) | | early take 4,289 -> 3,079 (8/16); stale 4,807 -> 3,881 |
+
+Lab pair (`labpair.py`, 24 seeds, 120,000 frames): **no gate worse** —
+births 438.5 -> 605.5 (13/11), food eaten 1,156k -> 1,366k (12/12),
+starved per million ant-frames 12.0 -> 12.3 (11/13).
+
+Predictions, read with `scripts/giveup.py` one arm per run (the tool now
+refuses two CSVs sharing a key; passed together, the two arms had pooled
+as one). West give-ups still home: heading outward after give-up
+0.109 / 0.077 -> 0.068 / 0.054, give-up -> back 498 / 495 -> 468 / 498.
+East give-ups are lit and so, by design, still held: heading outward
+0.597 / 0.388 -> 0.541 / 0.361. **PG6 right at 90 cells** (east give-ups
+reaching the pile 25 of 34 -> 41 of 59, 0.74 -> 0.69) and 14 points short at
+140 (22 of 39 -> 11 of 26), where it was not registered.
+
+**`LG3` fails the pulsed-140 taken bar, and does not ship.** Every other
+ship bar holds, the lab included, but the pulsed piles are also where it
+costs the colony its young at both distances, which no bar names and which
+is the outcome a player would see. Three versions have now traded the same
+thing: what the give-up saves on dark ground, a colony living off a pile
+that empties and refills pays for. The switch stays off (`lay`), and Stage 3
+is parked; the next step on this line is Stage 2's reader.
