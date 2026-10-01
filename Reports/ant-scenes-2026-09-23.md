@@ -3575,3 +3575,173 @@ logs and the script; the identity logs are not kept, they equal §23c's):
 
 Every conclusion above stands: `lay` beats `mute` on the unlimited pile and at
 80 founders, and does not separate from it on the pulsed pile.
+
+### 23d. Stage 3, a scout that gave up is let go by the trail: registered
+
+*Registered 2026-09-30, before any Stage 3 run. Design:
+`food-trail-reader-design-2026-09-30.md` §2 (Stage 3) and its must-fix list.
+Stage 2's reader is registered separately, when it is built.*
+
+**What is built** (`PIXEL_PHYSICS_FOOD_TRAIL=lay,giveup`, `FoodTrail::giveup`,
+off by default until scored). Two parts, both only while the scout term is on:
+
+- **Spent** (the design's rule): once `scout_home` is set, the away term is
+  0, the pull home is `scout_w × cos(home)` without `(1 − presence)`, and the
+  trail no longer multiplies the heading's persistence (`hold = 1`).
+- **Bounded** (M4): once an excursion has stepped onto trail B, a step onto
+  a heading with no trail stops counting as progress, so patience decays on
+  dark ground past the end of a trail that was walked. Keyed on having walked
+  the trail, not on B being absent: a scout that never met a trail scouts as
+  today.
+
+M1 (a given-up ant re-armed at the door) is a defect of Stage 2's door pull,
+not of the give-up: without a reader, re-arming at the door is today's
+scouting. It is fixed in Stage 2's gate, not here. Holding a given-up ant home
+until it eats is the hungry-home leash, a recorded dead end
+(`dead-ends.md`, `update_hungry_home`).
+
+**Why the bound is needed, measured before building.** `scripts/giveup.py`'s
+dark walk reads a median 38 cells west on the colony bed, and 84 of 117 west
+give-ups (gap 90, seeds 1-4) are at x 4, the world's west wall: the bed's
+give-ups are wall-driven. `probe_m4_a_hungry_scout_on_open_ground` removes the
+east wall: held at 0.25 or 0.5 of `start_energy` the scout walks 455 cells to
+the world's edge and never gives up.
+
+**Runs.** Arms `L` (`lay`, shipped), `LG` (`lay,giveup`), `M` (`mute`).
+Colony bed, the five beds of §23c (unlimited 90 and 140, pulsed 90 and 140,
+80 founders at 135), seeds 1-24, paired within seed; seeds 1-8 unlimited
+traced (`decisioncsv dwide`). The two-pile bed B5 (`pile2=west`), 24 seeds,
+`LG` against `L`. The lab pair (B6), `labforage scenario=played_bed`, 24 seeds.
+
+**Predictions:**
+- **PG1** a given-up ant stops following the trail out: over east excursions
+  that gave up (`giveup.py`, E all, seeds 1-8), heading outward after give-up
+  0.295 / 0.300 under `L` falls to <= 0.10 at both gaps.
+- **PG2** it comes home sooner: E all give-up -> back median 1,253 / 1,086
+  frames under `L` falls to <= 800 at both gaps.
+- **PG3** the bound holds on open ground: a unit test, a scout walked along a
+  lit trail that ends on a floor with no wall, gives up within 60 cells past
+  the trail's last lit cell (today: never, 455 cells to the edge). A scout
+  on the same floor that never met a trail walks at least as far as today.
+- **PG4, a registered null:** on the unlimited pile the give-up has almost
+  nothing to do (no empty forager overshot a live pile; west give-ups happen
+  at the wall). Food taken `LG` against `L` not different (p > 0.1) at 90 and
+  140.
+- **PG5** on B5 a withdrawn pile's leash is short: stale arrivals per 1,000
+  ant-frames `LG` not above `L` (paired), and the take in the first 1,500
+  frames after a swap not lower.
+
+**Ship bars (M5, M6):** `LG` ships on only if all hold.
+- Every §23c bed, `LG` against `L`: food taken not lower and starved not
+  higher, sign test p < 0.1 each way.
+- Pulsed piles (M6, the taken bar cannot fail there): starved against `L`
+  and against `M` not higher at p < 0.1; walking J per ant-frame not higher.
+- 80 founders: births not lower at p < 0.1.
+- B5: `LG` taken not lower than `L` at p < 0.1.
+- B6, the lab pair: no gate worse at p < 0.05, and starved per million
+  ant-frames not higher at p < 0.1.
+
+**First scoring (binary `52351987`, `L` = `lay` with the even drop; 24
+seeds, paired; `LG` against `L`):**
+
+| | taken | starved | other |
+|---|---|---|---|
+| unlimited 90 | 7,792 -> 7,942 (12/12) | 26 -> 13 (4/10) | |
+| unlimited 140 | 5,352 -> 5,794 (16/8, p 0.15) | 71 -> 44 (4/12, p 0.077) | food at the nest up 19/5 (p 0.007) |
+| pulsed 90 | 2,758 -> 2,645 (**6/15, p 0.078**) | 230 -> 255 (14/9) | |
+| pulsed 140 | 2,812 -> 2,615 (8/13) | 198 -> 205 (13/9) | food at the nest down 3/21 (p < 0.001) |
+| 80 founders | 11,743 -> 13,395 (18/6, p 0.023) | 718 -> 507 (2/22, p < 0.001) | born 33 -> 13 (7/14, p 0.19) |
+| B5 | 8,729 -> 7,765 (9/15) | | **early take 2,792 -> 1,475 (2/22, p < 0.001)**; stale 11/13 |
+
+PG1 right (E all heading outward after give-up 0.349 / 0.453 -> 0.076 /
+0.069). PG2 half right (give-up -> back 1,569 / 1,374 -> 1,083 / 684; the
+bar of 800 was set on Stage 1's west-drop numbers). **PG5 wrong and the
+pulsed-90 taken bar failed: `LG` does not ship.** Traced (`giveup.py`, seeds
+1-12 at 90): the bound was armed by the door's own smear. The last lit step
+before a west give-up sat a median 5 cells west of the nest at presence
+0.005, 399 of 490 west give-ups had been "lit", and their dark walk fell 37
+-> 19 cells. So the bound stopped ordinary scouting, which is how a new pile
+is found.
+
+**Amended before rerunning (`LG2`):** the bound arms only on a step with
+presence >= `HUNGRY_ROUTE` (0.5) and the head past `FORAGE_TRIP_MIN` (8)
+cells from home; a dark step is still one whose heading carries no trail.
+Same runs, same bars, `LG2` against `L`; the first scoring above stands as
+recorded.
+
+**Second scoring (`LG2`, binary `761a5b0b`, against the same `L` runs):**
+
+| | taken | starved | other |
+|---|---|---|---|
+| unlimited 90 | 7,792 -> 8,081 (13/11) | 26 -> 19 (6/8) | born 287 -> 350 (15/8) |
+| unlimited 140 | 5,352 -> 5,767 (19/5, p 0.007) | 71 -> 61 (7/8) | food at the nest up 17/7 (p 0.064) |
+| pulsed 90 | 2,758 -> 2,715 (6/14, p 0.115) | 230 -> 238 (10/10); vs `M` 13/8 | |
+| pulsed 140 | 2,812 -> 2,761 (8/11) | 198 -> 217 (12/9); vs `M` 13/10 | food at the nest down 5/19 (p 0.007) |
+| 80 founders | 11,743 -> 11,164 (**6/18, p 0.023**) | 718 -> 779 (**17/6, p 0.035**) | born 33 -> 35 |
+| B5 | 8,729 -> 7,919 (**7/17, p 0.064**) | | early take 2,792 -> 2,334 (**4/20, p 0.002**); stale 13/11 |
+
+West scouting is restored (dark walk 38 / 35 cells, as `L`). PG1 right
+(0.053 / 0.031); PG2 right at 140 (366) and 4 frames over at 90 (804).
+**`LG2` fails three bars (80 founders taken and starved, B5 taken) and PG5,
+so it does not ship either.** The first arm's win at 80 founders (starved
+718 -> 507) came from the defect: west scouts sent home early. What costs the
+two-pile bed's early take once scouting is restored is not yet traced.
+
+**Traced (seeds 1-8, B5 and unlimited 90, ant by ant).** The two-pile loss is
+not the swap. `LG2` colonies are smaller by the first swap: 41 founders starve
+by frame 6,000 against 19 under `L`, so the post-swap windows hold 758 ant
+windows against 975 and 1,694 departures against 2,595. The cause is the
+spent rule turning ants away from a **live** pile. Patience counts level
+progress, and it runs out on a live trail too. Under `L`, 29 of 43 east
+give-ups at 90 cells still reached the pile after giving up, carried by the
+trail. Under `LG2`, 12 of 30 did. The design assumed a give-up happens past a
+dead trail; on these beds most do not. **Next arm, if pursued:** spend only a
+give-up that happened on dark ground (no trail under the picked heading),
+and keep the trail's pull for one that gave up on a lit route.
+
+**Third arm, registered before its runs (`LG3`, 2026-10-01, owner's pick
+"trace it" on the traced loss).** `LG2` with one change: the spent rule
+applies only to a give-up made on **dark ground** (the step on which patience
+ran out carried no trail under its heading; `OrganismState::scout_dark`). A
+scout that gives up on a lit route keeps the trail's hold, the away term and
+the `1 − presence` on the pull home, as under `L`. The bound is `LG2`'s.
+
+**Baseline re-taken:** main now carries the nest package (#528, on by
+default), so `L` is re-run on `main` + this branch, and `LG3` against it.
+Same beds, seeds, predictions and ship bars as above. **Added prediction
+PG6:** east give-ups that still reach the pile after giving up, at 90 cells,
+are within 10 points of `L`'s share (`L` at `52351987`: 29 of 43).
+
+**Third scoring (binary `2e0311c2` on `main` `b6bc9db2`, nest package #528
+in, #531 not; `L` re-run on the same binary; 24 seeds, paired; `LG3`
+against `L`):**
+
+| | taken | starved | other |
+|---|---|---|---|
+| unlimited 90 | 9,751 -> 10,322 (15/9) | 4 -> 6 (4/3) | born 529 -> 639 (12/11) |
+| unlimited 140 | 6,528 -> 6,393 (11/13) | 29 -> 30 (6/5) | |
+| pulsed 90 | 2,778 -> 2,801 (8/10) | 264 -> 258 (11/12); vs `M` 248 -> 258 (12/9) | **born 56 -> 33 (5/15, p 0.041)** |
+| pulsed 140 | **2,781 -> 2,560 (6/17, p 0.035)** | 229 -> 254 (13/8); vs `M` 253 -> 254 (11/12) | **born 31 -> 5 (1/18, p < 0.001)** |
+| 80 founders | 13,032 -> 13,719 (16/8) | 620 -> 604 (11/13) | born 99 -> 117 (9/13) |
+| B5 | 13,921 -> 10,927 (10/14, p 0.54) | | early take 4,289 -> 3,079 (8/16); stale 4,807 -> 3,881 |
+
+Lab pair (`labpair.py`, 24 seeds, 120,000 frames): **no gate worse** —
+births 438.5 -> 605.5 (13/11), food eaten 1,156k -> 1,366k (12/12),
+starved per million ant-frames 12.0 -> 12.3 (11/13).
+
+Predictions, read with `scripts/giveup.py` one arm per run (the tool now
+refuses two CSVs sharing a key; passed together, the two arms had pooled
+as one). West give-ups still home: heading outward after give-up
+0.109 / 0.077 -> 0.068 / 0.054, give-up -> back 498 / 495 -> 468 / 498.
+East give-ups are lit and so, by design, still held: heading outward
+0.597 / 0.388 -> 0.541 / 0.361. **PG6 right at 90 cells** (east give-ups
+reaching the pile 25 of 34 -> 41 of 59, 0.74 -> 0.69) and 14 points short at
+140 (22 of 39 -> 11 of 26), where it was not registered.
+
+**`LG3` fails the pulsed-140 taken bar, and does not ship.** Every other
+ship bar holds, the lab included, but the pulsed piles are also where it
+costs the colony its young at both distances, which no bar names and which
+is the outcome a player would see. Three versions have now traded the same
+thing: what the give-up saves on dark ground, a colony living off a pile
+that empties and refills pays for. The switch stays off (`lay`), and Stage 3
+is parked; the next step on this line is Stage 2's reader.

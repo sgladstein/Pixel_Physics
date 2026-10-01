@@ -7256,6 +7256,8 @@ impl World {
             scout_for: (i32::MIN, i32::MIN),
             scout_patience: 1.0,
             scout_home: false,
+            scout_lit: false,
+            scout_dark: false,
             foraged: false,
             store_return: false,
             store_carried: false,
