@@ -864,13 +864,7 @@ either plane: the other trail inputs are computed and wired to nothing (§3).
   With `PIXEL_PHYSICS_BUD_SITE=nest` (or `World::bud_at_nest`) a species
   that names a nest material buds only while at its nest (the `AtNest`
   read); `CreatureStats::buds_held_for_nest` counts the ticks it could have
-  budded and did not. With `PIXEL_PHYSICS_BUD_NEED=<h>` (or
-  `World::bud_need`) nobody buds while its colony's mean hunger is above
-  `h` (`colony_too_hungry_to_bud`): hunger is `1 - energy / start_energy`
-  floored at 0 per animal, averaged over the colony's live members into
-  `World::colony_hunger` every `ROOM_INTERVAL` frames
-  (`step_colony_hunger`); `CreatureStats::buds_held_for_need` counts the
-  held ticks. The child goes on the first of the eight neighbours
+  budded and did not. The child goes on the first of the eight neighbours
   of the parent's head where its whole body fits on empty cells; a parent
   with none is refused and tries again next tick
   (`CreatureStats::births_denied_no_space` counts the tries). By default
@@ -941,7 +935,6 @@ Read once per process from the environment. The default is what ships.
 | `PIXEL_PHYSICS_TROPHALLAXIS` | on | `off` |
 | `PIXEL_PHYSICS_DROP_REACH` | through bodies | `adjacent`: a food drop looks only at the 8 neighbours |
 | `PIXEL_PHYSICS_BUD_SITE` | anywhere | `nest`: a species with a nest material buds only at its nest (§9) |
-| `PIXEL_PHYSICS_BUD_NEED` | off | `<h>` in `(0, 1]`: nobody buds while its colony's mean hunger is above `h` (`bud_need_of`, §9); anything else reads as off |
 | `PIXEL_PHYSICS_BUD_STACK` | on (since 2026-09-30) | above a stack cap of 1, a birth with no free cell beside the parent stands on nestmates (§9); `off`: it is refused and tries again |
 | `PIXEL_PHYSICS_BREEDING` | `individual` | `queen`: while any other living animal of the same colony has budded (`children > 0`), nobody else in it buds; when that breeder dies, the next animal to reach its bar succeeds it. `graded`: the bar is multiplied by `1 + (GRADED_MAX_SUPPRESSION - 1)(1 - d/r)` for `d` the distance to the colony's nearest other breeder, so 6.0 beside one, falling linearly to 1 at `r` = `PIXEL_PHYSICS_BREEDING_RADIUS` (24) cells and beyond (`suppress_bar`, `graded_suppression_factor`). Anything else reads as `individual`. `PIXEL_PHYSICS_BREEDER_INDEX=scan` replaces the per-colony breeder index with a scan of every organism, as the control for the lookup (§9) |
 | `PIXEL_PHYSICS_CHOOSER` | trailaway | For species with a nest. `off`: the walk of §6a–§6c; `on`: the chooser's first layer only (§6d items 1–5); `nopatience`: the same with patience held at 1; `trail`: the chooser reading the trail where it would step, with the throttle retired, and no away term |

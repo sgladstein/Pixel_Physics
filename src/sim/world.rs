@@ -2534,10 +2534,6 @@ pub struct CreatureStats {
     /// held back. 0 whenever the switch is off, which is the control that
     /// says the gate is what moved a birth count.
     pub buds_held_for_nest: u64,
-    /// **Buds an animal could afford and did not take, because its colony
-    /// was hungry** with `creature::bud_need_of` set: one per tick held
-    /// back. 0 whenever the switch is off.
-    pub buds_held_for_need: u64,
     /// **The biggest single mouthful any creature in this world ever
     /// swallowed**, in the units the eater received — `diet_yield`, after
     /// the gut's matched filter, not the cell's face value.
@@ -3771,14 +3767,6 @@ pub struct World {
     /// `creature::REST_REFRESH` frames by `creature::step_nest_rest` while
     /// resting is on, and empty otherwise. Read only by the rest pull.
     pub nest_ways: Vec<crate::sim::creature::NestWay>,
-    /// **`PIXEL_PHYSICS_BUD_NEED` for this world** (`creature::bud_need_of`):
-    /// the colony hunger above which nobody in it buds. `None` follows the
-    /// environment, which is off unless set.
-    pub bud_need: Option<f32>,
-    /// **Each colony's mean hunger, for the bud gate**: `(colony, hunger)`,
-    /// rebuilt every `ROOM_INTERVAL` frames by `creature::step_colony_hunger`
-    /// and empty while the gate is off.
-    pub colony_hunger: Vec<(u32, f32)>,
     /// **Tunnel widening, overriding `PIXEL_PHYSICS_DIG_WIDEN` for this
     /// world** (`creature::dig_widen_of`). `None` follows the environment,
     /// which is off unless it says `on`. A field so a guard can take both
@@ -6229,8 +6217,6 @@ impl World {
             spoil_hold: None,
             nest_rest: None,
             nest_ways: Vec::new(),
-            bud_need: None,
-            colony_hunger: Vec::new(),
             dig_widen: None,
             bud_stack: None,
             storeroom: None,
@@ -10729,9 +10715,6 @@ impl World {
         // **And each nest's way in, for resting ants**, on its own cadence
         // and only while resting is on (`creature::step_nest_rest`).
         crate::sim::creature::step_nest_rest(self);
-        // **And each colony's hunger, for the bud gate**, on the room cadence
-        // and only while the gate is on (`creature::step_colony_hunger`).
-        crate::sim::creature::step_colony_hunger(self);
         // No world-time bookkeeping here on purpose. The phase clocks are
         // *derived* from `frame` (`clock::Clock::sky_frame`), not advanced
         // beside it -- an earlier version incremented a counter from this

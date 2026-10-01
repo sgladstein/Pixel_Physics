@@ -4523,14 +4523,6 @@ fn try_bud(world: &mut World, organism: OrganismId, def: &CreatureDef, provision
         world.creature_stats.buds_held_for_nest += 1;
         return None;
     }
-    // **Not while the colony is hungry**, when the gate is set
-    // (`bud_need_of`). After the affordability check for the reason the nest
-    // gate above is: the read is a short scan of `colony_hunger`, and it
-    // runs only on the rare tick an animal could already bud.
-    if colony_too_hungry_to_bud(world, organism) {
-        world.creature_stats.buds_held_for_need += 1;
-        return None;
-    }
     // Re-borrowed: the counter above needed `world` mutably.
     let state = world.organism(organism)?;
     // **Fertility suppression**, applied to the composed `bar` above and
@@ -15726,82 +15718,6 @@ pub fn bud_at_nest(world: &World) -> bool {
         static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
         *V.get_or_init(|| std::env::var("PIXEL_PHYSICS_BUD_SITE").as_deref() == Ok("nest"))
     })
-}
-
-/// **The colony hunger above which nobody in the colony buds**:
-/// `PIXEL_PHYSICS_BUD_NEED=<h>` for `h` in `(0, 1]`, or `World::bud_need` for
-/// one world. Off by default (unset, `off`, or anything it cannot read),
-/// where an animal buds whenever its own bank can pay, whatever its
-/// nestmates are living on.
-///
-/// **Why it exists** (2026-10-01, the food box: `digbox hungry food=400
-/// gap=90`, `Reports/nest-one-entrance-2026-09-29.md` §21). A colony fed by
-/// one pile grew from 40 to 500 ants and then starved beside it: the food
-/// taken from the pile stayed flat at 100-220 cells per 2,500 frames while
-/// the colony grew sixfold, the foragers who ate at the pile sat at 750-990 J
-/// and kept budding, and the ants underground ran down to 80 J. Every ant's
-/// energy then fell together and 430 died within 3,500 frames. Budding
-/// reads one body's bank, so surplus in a forager becomes a child even when
-/// the colony it feeds is short. **A real colony's brood follows what comes
-/// in**; this is the smallest rule with that shape: the colony's mean hunger
-/// (`colony_hunger`), read where the bud is decided.
-///
-/// `PIXEL_PHYSICS_BREEDING=queen` was the other candidate and was measured
-/// first, on the same box and seeds: one breeder could not replace the
-/// dying, and every colony dwindled to 1-10 ants by frame 96,000.
-pub fn bud_need_of(world: &World) -> Option<f32> {
-    world.bud_need.or_else(|| {
-        static V: std::sync::OnceLock<Option<f32>> = std::sync::OnceLock::new();
-        *V.get_or_init(|| parse_bud_need(&std::env::var("PIXEL_PHYSICS_BUD_NEED").unwrap_or_default()))
-    })
-}
-
-/// `PIXEL_PHYSICS_BUD_NEED`'s value: a hunger in `(0, 1]`, else off.
-fn parse_bud_need(raw: &str) -> Option<f32> {
-    raw.trim().parse::<f32>().ok().filter(|h| *h > 0.0 && *h <= 1.0)
-}
-
-/// **Each colony's mean hunger** into `World::colony_hunger`, every
-/// `ROOM_INTERVAL` frames (and whenever it is empty) while the bud gate is
-/// on; cleared and skipped otherwise, so every other world pays one read of
-/// a static. Hunger is `nest_needs`' measure, `1 - energy / start_energy`
-/// floored at 0 for each animal so a rich forager cannot cancel a starving
-/// nestmate, averaged over the colony's live members (colony 0, the
-/// unfounded, is not a colony and is not counted).
-pub fn step_colony_hunger(world: &mut World) {
-    if bud_need_of(world).is_none() {
-        world.colony_hunger.clear();
-        return;
-    }
-    if !world.frame.is_multiple_of(crate::sim::world::ROOM_INTERVAL) && !world.colony_hunger.is_empty() {
-        return;
-    }
-    let mut sums: Vec<(u32, f64, u32)> = Vec::new();
-    for id in world.live_organism_ids() {
-        let Some(state) = world.organism(id) else { continue };
-        if state.colony == 0 {
-            continue;
-        }
-        let Some(def) = world.species.get(state.species).creature.as_ref() else { continue };
-        let h = (1.0 - state.energy / def.start_energy.max(1.0)).clamp(0.0, 1.0) as f64;
-        match sums.iter_mut().find(|e| e.0 == state.colony) {
-            Some(e) => {
-                e.1 += h;
-                e.2 += 1;
-            }
-            None => sums.push((state.colony, h, 1)),
-        }
-    }
-    world.colony_hunger = sums.into_iter().map(|(c, s, n)| (c, (s / f64::from(n)) as f32)).collect();
-}
-
-/// Whether `organism`'s colony is over the bud gate's hunger (`bud_need_of`).
-/// False with the gate off, for an unfounded animal, and for a colony not
-/// yet censused.
-fn colony_too_hungry_to_bud(world: &World, organism: OrganismId) -> bool {
-    let Some(limit) = bud_need_of(world) else { return false };
-    let Some(colony) = world.organism(organism).map(|s| s.colony).filter(|&c| c != 0) else { return false };
-    world.colony_hunger.iter().find(|e| e.0 == colony).is_some_and(|e| e.1 > limit)
 }
 
 /// **The turning preference**, by how far a heading turns from the current
@@ -38843,55 +38759,6 @@ mod tests {
         assert!(on[..2].iter().any(|&c| c > 0), "with the switch on, the founders standing on the nest did not bud ({on:?})");
         assert!(on[2..].iter().all(|&c| c == 0), "with the switch on, a founder away from the nest budded ({on:?})");
         assert!(held_on > 0, "no bud was counted as held for the nest, so the counter is not wired to the gate");
-    }
-
-    /// **With the bud gate set, a rich ant does not bud while its colony is
-    /// hungry; with it off, the same ant does** (`bud_need_of`). Two funded
-    /// founders and four starving nestmates in one colony: the colony's mean
-    /// hunger is about 0.65. The gate-off arm is the positive control: if
-    /// the funded founders do not bud there, the scene cannot show the gate.
-    /// **Watched red** with `colony_too_hungry_to_bud`'s read forced false.
-    #[test]
-    fn a_rich_ant_does_not_bud_while_its_colony_is_hungry_when_the_gate_is_set() {
-        let children = |gate: Option<f32>| -> (Vec<u16>, u64) {
-            let (mut w, founders) = breeding_colony(6, 2000.0, 0.0);
-            let colony = w.organism(founders[0]).expect("founder").colony.max(1);
-            for &id in &founders {
-                if let Some(s) = w.organism_mut(id) {
-                    s.colony = colony;
-                }
-            }
-            let start = w.species.get(w.species.id_of("ant").expect("ant")).creature.as_ref().expect("creature").start_energy;
-            // A tenth of the start: hungry enough to read 0.9, rich enough
-            // to outlive the run on its idle cost alone.
-            for &id in &founders[2..] {
-                fund(&mut w, id, start * 0.1);
-            }
-            w.bud_need = gate;
-            run(&mut w, 120);
-            let kids = founders.iter().map(|&id| w.organism(id).map_or(0, |s| s.children)).collect();
-            (kids, w.creature_stats.buds_held_for_need)
-        };
-        let (off, held_off) = children(None);
-        let (on, held_on) = children(Some(0.5));
-        assert_eq!(held_off, 0, "the gate is off and a bud was still held back");
-        assert!(off[..2].iter().any(|&c| c > 0), "with the gate off no funded founder budded ({off:?}), so the scene cannot show the gate");
-        assert!(on[..2].iter().all(|&c| c == 0), "with the gate set, a funded founder budded in a hungry colony ({on:?})");
-        assert!(held_on > 0, "no bud was counted as held for the colony's hunger, so the counter is not wired to the gate");
-        // And a fed colony is not held: every founder funded, gate set.
-        let (mut w, founders) = breeding_colony(6, 2000.0, 0.0);
-        w.bud_need = Some(0.5);
-        run(&mut w, 120);
-        assert!(founders.iter().any(|&id| w.organism(id).is_some_and(|s| s.children > 0)), "with the gate set, a fed colony did not bud at all");
-    }
-
-    #[test]
-    fn the_bud_need_parses_a_hunger_and_refuses_the_rest() {
-        assert_eq!(parse_bud_need("0.5"), Some(0.5));
-        assert_eq!(parse_bud_need(" 1 "), Some(1.0));
-        for raw in ["", "off", "0", "-0.2", "1.5", "nan", "half"] {
-            assert_eq!(parse_bud_need(raw), None, "{raw:?} should read as off");
-        }
     }
 
     /// **Integration guard for `queen`, run solo** -- not part of the
