@@ -3790,6 +3790,15 @@ pub struct World {
     /// **`PIXEL_PHYSICS_BUD_STORE` for this world** (`creature::bud_from_store`).
     /// `None` follows the environment, which is off unless set.
     pub bud_store: Option<bool>,
+    /// **No creature is born while this is set.** A test harness's dial, never
+    /// set by a game: `examples/digbox`'s `cap=<n>` sets it each frame while
+    /// `n` or more creatures live, so a long food-box run holds a colony of
+    /// comparable size on every seed instead of booming and crashing. The
+    /// breeding plan (`Reports/ant-breeding-plan-2026-09-29.md`) is what is
+    /// meant to regulate births in the game; this only keeps a nest
+    /// measurement from being a measurement of the crash
+    /// (`Reports/nest-one-entrance-2026-09-29.md` §24).
+    pub births_paused: bool,
     /// **Tunnel widening, overriding `PIXEL_PHYSICS_DIG_WIDEN` for this
     /// world** (`creature::dig_widen_of`). `None` follows the environment,
     /// which is off unless it says `on`. A field so a guard can take both
@@ -6241,6 +6250,7 @@ impl World {
             nest_rest: None,
             nest_ways: Vec::new(),
             bud_store: None,
+            births_paused: false,
             dig_widen: None,
             bud_stack: None,
             storeroom: None,

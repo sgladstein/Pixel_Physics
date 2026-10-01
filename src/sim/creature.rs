@@ -2297,7 +2297,7 @@ fn place_creature(
             }
             // Under `bud_from_store` the food pays the whole price: the
             // parent's bank takes what the bites yield and gives back `cost`.
-            let shortfall = if from_store { cost } else { (cost + 1.0 - world.organism(parent).map_or(0.0, |s| s.energy)).max(0.0) };
+            let shortfall = if from_store && !bud_store_counts_bank() { cost } else { (cost + 1.0 - world.organism(parent).map_or(0.0, |s| s.energy)).max(0.0) };
             if shortfall > 0.0 {
                 let gut = gut_of(world, parent, def);
                 let head = world.organism(parent).and_then(|s| s.chain.first().copied());
@@ -4578,6 +4578,9 @@ pub fn bud_stack_of(world: &World) -> bool {
 /// keeps the birth path independent of that, and is the same shape
 /// `apply_creature_energy` already uses for the parent's own next tick.
 fn try_bud(world: &mut World, organism: OrganismId, def: &CreatureDef, provision: f32) -> Option<ActiveSite> {
+    if world.births_paused {
+        return None;
+    }
     let state = world.organism(organism)?;
     let parent_traits = state.traits;
     // **This animal's bar, on two counts now.** `TRAIT_REPRODUCE_AT` scales
@@ -4630,10 +4633,19 @@ fn try_bud(world: &mut World, organism: OrganismId, def: &CreatureDef, provision
     } else {
         None
     };
-    let (bar, bank) = if from_store { (cost + 1.0 + bud_store_reserve(), 0.0) } else { (bar, bank) };
+    let with_bank = from_store && bud_store_counts_bank();
+    let (bar, bank) = match (from_store, with_bank) {
+        (true, false) => (cost + 1.0 + bud_store_reserve(), 0.0),
+        _ => (bar, bank),
+    };
     let reachable = if let Some(room) = room {
         let guaranteed = birth_price_of(world);
-        provisions_in_store(world, room, hx, hy, gut).into_iter().map(|(w, px, py)| if guaranteed { w * plant::guaranteed_bite_fraction(world, px, py) } else { w }).sum()
+        let stored: f32 = provisions_in_store(world, room, hx, hy, gut).into_iter().map(|(w, px, py)| if guaranteed { w * plant::guaranteed_bite_fraction(world, px, py) } else { w }).sum();
+        if with_bank {
+            (stored - bud_store_reserve()).max(0.0)
+        } else {
+            stored
+        }
     } else {
         // **Face first, because this runs every tick an animal survives.** A
         // guaranteed price is never above face, so an animal the face sum
@@ -4654,7 +4666,12 @@ fn try_bud(world: &mut World, organism: OrganismId, def: &CreatureDef, provision
     // else: a solitary species has no nest and must still breed. After the
     // affordability check, so the ring read runs only on the rare tick an
     // animal could otherwise already bud.
-    if bud_at_nest(world) && world.materials.id_of(&def.nest).is_some() && !nest_within_reach(world, organism, hx, hy, def) {
+    // A birth paid from the store is already placed at the storeroom, which
+    // is in the nest whoever's home it is: under `workerhome` the founding
+    // cut is home only to nest workers, so this check held every forager's
+    // store birth (seed 3 of the food box: 472 held ticks to 35 births by
+    // frame 24,000, `Reports/nest-one-entrance-2026-09-29.md` §23).
+    if !from_store && bud_at_nest(world) && world.materials.id_of(&def.nest).is_some() && !nest_within_reach(world, organism, hx, hy, def) {
         world.creature_stats.buds_held_for_nest += 1;
         return None;
     }
@@ -15930,8 +15947,21 @@ pub fn bud_from_store(world: &World, def: &CreatureDef) -> bool {
     !def.nest.is_empty()
         && world.bud_store.unwrap_or_else(|| {
             static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-            *V.get_or_init(|| std::env::var("PIXEL_PHYSICS_BUD_STORE").as_deref() == Ok("on"))
+            *V.get_or_init(|| matches!(std::env::var("PIXEL_PHYSICS_BUD_STORE").as_deref(), Ok("on") | Ok("bank")))
         })
+}
+
+/// **`PIXEL_PHYSICS_BUD_STORE=bank`: the store pays only what it holds over
+/// the reserve, and the parent's own bank counts as it does at the door.**
+/// Under `on` the bank is read as 0, so a birth needs a whole child's worth
+/// standing in the store at once, which a store the hungry eat from never
+/// holds (`Reports/nest-one-entrance-2026-09-29.md` §23). Here a fed parent
+/// at the store tops its bank up from the store's food over
+/// [`bud_store_reserve`], so the colony breeds from its surplus and the
+/// reserve stays put.
+fn bud_store_counts_bank() -> bool {
+    static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *V.get_or_init(|| std::env::var("PIXEL_PHYSICS_BUD_STORE").as_deref() == Ok("bank"))
 }
 
 /// **`PIXEL_PHYSICS_BUD_RESERVE=<J>`: what a store must still hold after a

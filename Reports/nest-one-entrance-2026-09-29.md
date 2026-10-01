@@ -1445,3 +1445,21 @@ births (seed 3: 25,593 cells taken, about 6.1 MJ; 5,289 births at about
 surplus to store. A pile needs either food that arrives unevenly, so that
 plenty can be put by for famine, or births that are paid from the store
 only above a reserve while the parent's own bank still counts.
+
+**Two more birth rules, then parked (2026-10-01).** `PIXEL_PHYSICS_BUD_STORE=
+bank` keeps the store as the place births happen, but the parent's own bank
+counts as it does at the door, and the store tops it up from food over
+`BUD_RESERVE`. A forager's store birth was also held by `BUD_SITE=nest`,
+because under `workerhome` the founding cut is home only to nest workers
+(seed 3: 472 held ticks to 35 births by frame 24,000), so a birth paid from
+the store now skips that check. With both, `harvest` colonies live: 47 / 40 /
+0 / 26 ants at 240,000 frames, 209-3,483 born. The store still holds 0-1
+cells at every stop. With a reserve of 10 cells (2,400 J), and with
+`BREEDING=queen` or `graded` instead, almost nothing is born (0-8) and every
+colony is dead by 96,000 frames. (`queen` and `graded` give identical runs
+here, because with no births the breeding rule never acts.)
+
+**The owner, on reading this:** birth rules wait for the breeding plan
+(`Reports/ant-breeding-plan-2026-09-29.md`), whose brood and graded fertility
+are the brakes this colony lacks. `harvest`, `keep=`, `stock=`, `BUD_STORE`
+and `BUD_RESERVE` stay in, off.
