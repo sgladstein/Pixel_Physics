@@ -3686,3 +3686,15 @@ West scouting is restored (dark walk 38 / 35 cells, as `L`). PG1 right
 so it does not ship either.** The first arm's win at 80 founders (starved
 718 -> 507) came from the defect: west scouts sent home early. What costs the
 two-pile bed's early take once scouting is restored is not yet traced.
+
+**Traced (seeds 1-8, B5 and unlimited 90, ant by ant).** The two-pile loss is
+not the swap. `LG2` colonies are smaller by the first swap: 41 founders starve
+by frame 6,000 against 19 under `L`, so the post-swap windows hold 758 ant
+windows against 975 and 1,694 departures against 2,595. The cause is the
+spent rule turning ants away from a **live** pile. Patience counts level
+progress, and it runs out on a live trail too. Under `L`, 29 of 43 east
+give-ups at 90 cells still reached the pile after giving up, carried by the
+trail. Under `LG2`, 12 of 30 did. The design assumed a give-up happens past a
+dead trail; on these beds most do not. **Next arm, if pursued:** spend only a
+give-up that happened on dark ground (no trail under the picked heading),
+and keep the trail's pull for one that gave up on a lit route.
