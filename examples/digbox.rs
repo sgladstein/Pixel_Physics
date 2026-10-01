@@ -1437,6 +1437,15 @@ struct NestFunnel {
     /// frames after it filled. [by a fall, by a pellet put there].
     refill_standing: [u64; 2],
     refill_pending: Vec<bool>,
+    /// Whether a fall waiting on the standing check came from the cell above.
+    refill_above: Vec<bool>,
+    /// **Where the fill that stays sits, and what it is** (owner, 2026-10-01:
+    /// why is the nest a patchwork). Falls still ground after
+    /// `REFILL_STANDING`, by depth below the old ground line (rows 0-2, 3-8,
+    /// 9+) and by material [soil, spoil, food (fruit, crumbs),
+    /// corpse, other]; and of each depth, how many came from the cell above.
+    refill_kept: [[u64; 5]; 3],
+    refill_kept_above: [u64; 3],
     refill_queue: Vec<(u64, usize, usize)>,
     /// (frame due, cut x, cut y, ant) waiting on the lasting check.
     pending: Vec<(u64, i32, i32, u32)>,
@@ -1588,6 +1597,7 @@ impl NestFunnel {
             self.touched = vec![false; n];
             self.dug = vec![false; n];
             self.refill_pending = vec![false; n];
+            self.refill_above = vec![false; n];
             self.cut_frame = vec![u64::MAX; n];
             self.put_frame = vec![u64::MAX; n];
             self.put_by = vec![0; n];
@@ -1939,14 +1949,15 @@ impl NestFunnel {
                 _ => 2,
             };
             self.refill_fall[slot] += 1;
-            if !self.refill_pending[i] {
-                self.refill_pending[i] = true;
-                self.refill_queue.push((frame + REFILL_STANDING, i, 0));
-            }
             let above_fell = y > 0 && matches!(self.grid[at(x, y - 1)], Some(m) if Self::is_ground(world, m)) && {
                 let a = world.get(x, y - 1);
                 a.organism_id() != 0 || a.material == material::EMPTY
             };
+            if !self.refill_pending[i] {
+                self.refill_pending[i] = true;
+                self.refill_above[i] = above_fell;
+                self.refill_queue.push((frame + REFILL_STANDING, i, 0));
+            }
             if above_fell {
                 self.refill_from_above += 1;
             } else {
@@ -2020,6 +2031,22 @@ impl NestFunnel {
             let c = world.get(x, y);
             if c.organism_id() == 0 && Self::is_ground(world, c.material) {
                 self.refill_standing[kind] += 1;
+                if kind == 0 {
+                    let depth = match y - b.surface {
+                        ..=2 => 0,
+                        3..=8 => 1,
+                        _ => 2,
+                    };
+                    let what = match world.materials.get(c.material).name.as_str() {
+                        "soil" => 0,
+                        "spoil" => 1,
+                        "fruit" | "crumbs" => 2,
+                        "corpse" => 3,
+                        _ => 4,
+                    };
+                    self.refill_kept[depth][what] += 1;
+                    self.refill_kept_above[depth] += u64::from(self.refill_above[i]);
+                }
             }
         }
         // The lasting check: the cut is still room (empty or an animal).
@@ -2207,6 +2234,25 @@ impl NestFunnel {
             self.turned_loose[0][1],
             self.turned_loose[1][0],
             self.turned_loose[1][1]
+        );
+        let kept = |d: usize| {
+            let k = self.refill_kept[d];
+            format!(
+                "{} (soil {}, spoil {}, food {}, corpse {}, other {}; from above {})",
+                k.iter().sum::<u64>(),
+                k[0],
+                k[1],
+                k[2],
+                k[3],
+                k[4],
+                self.refill_kept_above[d]
+            )
+        };
+        println!(
+            "REFILL frame={frame} falls into dug cells still ground {REFILL_STANDING} frames later, by rows below the old ground line: 0-2 {} | 3-8 {} | 9+ {}",
+            kept(0),
+            kept(1),
+            kept(2)
         );
         let [own, other, air, cut, fell, else_] = self.loose_why;
         let [a1, a10, a100, a1000, older, unknown] = self.loose_age;
@@ -3455,7 +3501,12 @@ fn main() {
     {
         let id = world.species.id_of("ant").expect("ant ships");
         if let Some(c) = world.species.get_mut(id).creature.as_mut() {
-            c.start_energy = arg("energy").unwrap_or(20_000.0);
+            // **With food the ant keeps `ant.ron`'s endowment** (200 J), as
+            // the colony bed does: the 20,000 J box default is an endowment
+            // nothing ever has to eat against, which is what `food=` exists
+            // to end.
+            let fed_by_pile = arg::<i32>("food").unwrap_or(0) > 0;
+            c.start_energy = arg("energy").unwrap_or(if fed_by_pile { c.start_energy } else { 20_000.0 });
         }
     }
     // **`gate=` re-centres the chamber gate on the band `Crowding` actually
@@ -3556,6 +3607,7 @@ fn main() {
     let span = 26.min(b.w / 2 - 2) * 2 + 1;
     // Read after the paint, which cuts the founding shaft the anchor sits on.
     let door_anchor = world.door_anchor(b.w / 2, b.surface - 1, "ant");
+    let mut food_pile = FoodPile::from_args(&mut world, &b);
     let mut trickle = Trickle::new(ants as usize, arg("rate").unwrap_or(4), seed, span, door_anchor);
 
     // The endowment horizon, printed rather than assumed -- a run past it is
@@ -3570,9 +3622,20 @@ fn main() {
         b.w, b.h, soil, b.surface, b.floor, ants, trickle.rate, seed,
         if seed == 0 { "the shipped walk; the scene itself carries no noise" } else { "founding order shuffled" }
     );
-    println!(
-        "  no food, no plants, no lamps, no weather -- FoodAdjacent is 0 by construction, so the dig you see is the nest mechanism alone"
-    );
+    match &food_pile {
+        None => println!(
+            "  no food, no plants, no lamps, no weather -- FoodAdjacent is 0 by construction, so the dig you see is the nest mechanism alone"
+        ),
+        Some(p) => println!(
+            "  FOOD: {} cells of {} at x {} ({} columns east of the nest), refilled every {} frames; onlyfood {}; no plants, no lamps, no weather",
+            p.n,
+            world.materials.get(p.larder).name,
+            p.x,
+            p.x - b.w / 2,
+            p.refill,
+            if arg::<String>("onlyfood").as_deref() == Some("off") { "off" } else { "on" }
+        ),
+    }
     println!(
         "  idle endowment {horizon} frames (start_energy {} / {:.2} per tick x tick_interval {}); running {frames}{}",
         def.start_energy,
@@ -3735,6 +3798,9 @@ fn main() {
         if fed {
             feed(&mut world);
         }
+        if let Some(p) = food_pile.as_mut().filter(|p| f > 0 && p.refill > 0 && f.is_multiple_of(p.refill)) {
+            p.place(&mut world);
+        }
         if f == 0 && score_k > 0 {
             // Before any ant has dug (digging starts with frame 1's step)
             // and after founding, so a founding cut is already ground's
@@ -3773,6 +3839,25 @@ fn main() {
                 if pile_on {
                     println!("{}", pile_census(&world, &b, &trips, f, ants_csv.as_mut()));
                 }
+                if let Some(p) = &food_pile {
+                    println!("{}", larder_census(&world, &b, p, f));
+                    let st = world.creature_stats;
+                    println!(
+                        "FOOD frame={f} cells placed {} (the refill skipped {} occupied slots), standing in the pile {}; live ants {}, born {}, deliveries {}",
+                        p.placed,
+                        p.skipped,
+                        p.standing(&world),
+                        TripLog::ants(&world).len(),
+                        st.births,
+                        st.deliveries
+                    );
+                }
+                println!(
+                    "REST frame={f} resting inside (PIXEL_PHYSICS_NEST_REST) {:?}: decisions under the rest pull {}, the way in {} steps deep",
+                    pixel_physics::sim::creature::nest_rest_of(&world),
+                    world.creature_stats.rest_pulls,
+                    world.nest_ways.first().map_or(0, |w| w.depth())
+                );
                 funnel.print(f, &world);
                 trips.print(f);
                 let cut = world.nest_sites.iter().find_map(|s| s.shaft);
@@ -4219,6 +4304,128 @@ impl LabLook {
             def.palette = palette;
             def.base_shades = shades;
         }
+    }
+}
+
+/// **`food=N`: a pile of food out on the surface, the colony bed's**
+/// (`examples/trailfollow.rs`'s `place_food`, at its gap-90 settings), so the
+/// nest is built by a colony that has to feed itself. Owner, 2026-10-01:
+/// "lets try to build a nest with in test environment with hungry ants and
+/// food. No plants. Use something similar to the gap 90 environment."
+///
+/// `N` cells of `larder=` (fruit) stacked twelve wide, `gap=` (90) columns
+/// east of the nest's centre on the surface, topped back up every
+/// `refill=` (400) frames into slots that hold air or larder -- a slot an ant
+/// or anything else stands in is left alone, as the bed learned to
+/// (`refill_skipped`). Unless `onlyfood=off`, the larder is the only food in
+/// the world (the bed's `Diet::isolate`): every other material's food value
+/// and `worth_in_aux` are cleared, so the colony cannot live on its dead.
+/// Meant with `hungry`: a fed box has no hunger, and no reason to forage.
+/// **Run it with `PIXEL_PHYSICS_BUD_SITE=nest`**, as the bed does: without
+/// it the colony buds new founders at the pile, and over 24,000 frames 20
+/// founders became 777-1,251 ants (main a25c28f, seeds 1-2). With it, the
+/// same runs ended at 30-40.
+struct FoodPile {
+    x: i32,
+    top: i32,
+    n: i32,
+    refill: u64,
+    larder: MaterialId,
+    /// Cells introduced, the first placing and every refill.
+    placed: u64,
+    /// Slots a refill found holding something else, and left.
+    skipped: u64,
+}
+
+/// **Where the food that came home is** (`food=` only): one `LARDER` line a
+/// stop. Owner, 2026-10-01: *"do we have a real granary in these nests? I
+/// don't really see food building up anywhere."* Standing larder cells are
+/// booked by place -- the storeroom's rectangle (`ShaftFootprint::
+/// store_rect`), elsewhere below the old ground line, above it outside the
+/// pile -- beside the counters that move food between those places and the
+/// crops: the storeroom's carry (pickups, set down, let go, refused for a
+/// full room, bites kept from the fed), food put down at home
+/// (`deliveries`, which counts a crumb each time it is put down) and taken
+/// back up there (`pickups_at_nest`), and what crops shared and digested.
+fn larder_census(world: &World, b: &Box2, p: &FoodPile, frame: u64) -> String {
+    let st = world.creature_stats;
+    let store = world.nest_sites.first().and_then(|s| s.shaft).map(|s| s.store_rect());
+    // **Crumbs are the larder too**: food put down part-eaten goes down as
+    // `crumbs` holding what is left (`trailfollow`'s `diet_by_material`), and
+    // a census of the larder material alone reads 0 everywhere.
+    let crumbs = world.materials.id_of("crumbs");
+    let (mut in_store, mut below, mut above) = (0u32, 0u32, 0u32);
+    for y in 0..b.h {
+        for x in 0..b.w {
+            let c = world.get(x, y);
+            if (c.material != p.larder && Some(c.material) != crumbs) || c.organism_id() != 0 {
+                continue;
+            }
+            if (p.x - 6..p.x + 6).contains(&x) && y <= p.top {
+                continue;
+            }
+            if store.is_some_and(|(x0, x1, t, bt)| (x0..=x1).contains(&x) && (t..=bt).contains(&y)) {
+                in_store += 1;
+            } else if y >= b.surface {
+                below += 1;
+            } else {
+                above += 1;
+            }
+        }
+    }
+    format!(
+        "LARDER frame={frame} food standing (larder and crumbs, cells): in the storeroom {in_store}, elsewhere below the old ground line {below}, above it outside the pile {above} | storeroom carry: picked up {}, set down {}, let go outside {}, refused for a full room {}, bites kept from the fed {} | put down at home {}, taken back up at home {} | shares {} ({:.0} J), digested {:.0} J | births paid from the store (PIXEL_PHYSICS_BUD_STORE) {}",
+        st.store_pickups, st.store_delivered, st.store_released, st.store_room_full, st.store_kept, st.deliveries, st.pickups_at_nest, st.shares, st.shared_j, st.digested_face, st.store_births
+    )
+}
+
+impl FoodPile {
+    fn from_args(world: &mut World, b: &Box2) -> Option<Self> {
+        let n: i32 = arg("food").unwrap_or(0);
+        if n <= 0 {
+            return None;
+        }
+        let gap: i32 = arg("gap").unwrap_or(90);
+        let x = b.w / 2 + gap;
+        assert!(x + 6 < b.w - 1, "food: the pile at x {x} (gap {gap}) does not fit a box {} wide; widen w=", b.w);
+        let name: String = arg("larder").unwrap_or_else(|| "fruit".to_string());
+        let larder = world.materials.id_of(&name).unwrap_or_else(|| panic!("larder material {name:?} is not compiled in"));
+        if arg::<String>("onlyfood").as_deref() != Some("off") {
+            assert_ne!(Some(larder), world.materials.id_of("corpse"), "larder=corpse defeats the isolation: the colony would eat its dead");
+            let keep = world.materials.get(larder).food_energy;
+            assert!(keep > 0.0, "larder {name:?} carries no food_energy");
+            for id in (0..world.materials.len() as u16).map(MaterialId) {
+                let m = world.materials.get_mut(id);
+                m.food_energy = 0.0;
+                m.worth_in_aux = false;
+            }
+            world.materials.get_mut(larder).food_energy = keep;
+        }
+        let mut pile = FoodPile { x, top: b.surface - 1, n, refill: arg("refill").unwrap_or(400), larder, placed: 0, skipped: 0 };
+        pile.place(world);
+        Some(pile)
+    }
+
+    fn place(&mut self, world: &mut World) {
+        for i in 0..self.n {
+            let (fx, fy) = (self.x + (i % 12) - 6, self.top - i / 12);
+            let m = world.get(fx, fy).material;
+            if m == self.larder {
+                world.set(fx, fy, Cell::new(self.larder, 0));
+                continue;
+            }
+            if m != material::EMPTY {
+                self.skipped += 1;
+                continue;
+            }
+            self.placed += 1;
+            world.set(fx, fy, Cell::new(self.larder, 0));
+        }
+    }
+
+    /// Larder standing in the pile's slots now.
+    fn standing(&self, world: &World) -> u64 {
+        (0..self.n).filter(|i| world.get(self.x + (i % 12) - 6, self.top - i / 12).material == self.larder).count() as u64
     }
 }
 
