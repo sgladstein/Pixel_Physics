@@ -673,6 +673,10 @@ struct Arm {
     forage_scouted: u64,
     forage_paced: u64,
     forage_kept: u64,
+    /// `CreatureStats::door_reads` / `door_stale` / `door_pulled` /
+    /// `door_followed`: Stage 2's reader at the door (§23e). Printed only
+    /// when `read` is on.
+    door: [u64; 4],
     /// **What those cells were worth to this ant**, in joules -- the
     /// provisioning denominator, and the number whose absence produced two
     /// wrong published claims on this branch.
@@ -5366,6 +5370,7 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
         forage_scouted: st.forage_scouted,
         forage_paced: st.forage_paced,
         forage_kept: st.forage_kept,
+        door: [st.door_reads, st.door_stale, st.door_pulled, st.door_followed],
         supply_j: larder_placed as f64 * per_cell_j,
         eaten_j: diet_by_material(&w, larder).0,
         ate_other_j: diet_by_material(&w, larder).1,
@@ -5907,6 +5912,18 @@ fn main() {
                     );
                     if creature::forage_drive_from_env().on() {
                         println!("{:>16}forage drive: scouted by the colony's need {} decisions, paced {}, left the store {}", "", a.forage_scouted, a.forage_paced, a.forage_kept);
+                    }
+                    if creature::food_trail_from_env().read {
+                        let [reads, stale, pulled, followed] = a.door;
+                        println!(
+                            "{:>16}door reader: read {} decisions, held back as stale {}, pulled {}, followed the pull {} ({:.1}%)",
+                            "",
+                            reads,
+                            stale,
+                            pulled,
+                            followed,
+                            100.0 * followed as f64 / pulled.max(1) as f64
+                        );
                     }
                     // **Do the survivors keep the trail up once we stop laying
                     // it?** Owner's ask. `stop` releases the hand-laid ramp at
