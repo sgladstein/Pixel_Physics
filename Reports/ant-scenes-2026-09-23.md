@@ -3887,3 +3887,70 @@ lean, not a failure: pulsed starved runs 3-10% above `L` in three of four
 readings, none significant; over 48 seeds at 140 cells it is 26/17. Turning
 it on by default changes the default ant's behaviour everywhere, so it waits
 for the owner. Until then it is `PIXEL_PHYSICS_FOOD_TRAIL=lay,read,giveup,window=700`.
+
+**Shipped on by default, 2026-10-01** (owner: "You can turn anything on by
+default that you want"), PR #535, as `FOOD_TRAIL_UNSET`.
+
+### 23f. How far out the trail helps, and the give-up's point of no return (2026-10-01)
+
+**Asked by the owner:** how well does the colony's own trail work, and at
+bigger gaps? He expected the reverse of what was found: near food is easy to
+find without a trail, so a trail should matter *more* far out.
+
+**The trail against the trail silenced** (`arms=mute`), the shipped default
+on `main` `88bb8bc3` (binary `9df32754`), unlimited pile, 24 paired seeds:
+
+| gap | taken | born | starved |
+|---|---|---|---|
+| 90 | **7,259 -> 17,221 (24/0)** | **249 -> 1,859 (24/0)** | 10 -> 5 (3/7) |
+| 140 | **5,737 -> 9,033 (23/1)** | **127 -> 474 (23/1)** | 32 -> 26 (6/9) |
+| 200 | 4,130 -> 4,394 (13/11) | 45 -> 87 (12/7) | **113 -> 167 (15/6, p 0.078)**; after frame 6,000 p 0.041 |
+
+**The parts at 200 cells** (same seeds; `L` = `lay`, `F` =
+`lay,read,window=700`, `LG` = `lay,giveup`, `FGW` the default):
+
+| | taken | born | starved |
+|---|---|---|---|
+| silenced | 4,130 | 45 | 113 |
+| `L` | 3,623 (7/16 vs silenced) | 34 | **181 (18/4, p 0.004)** |
+| `LG` | 3,621 (= `L`, 13/10) | 29 | 178 (10/12) |
+| `F` | **4,751 (21/2 vs `L`; 19/5 vs silenced, p 0.007)** | **95** | 136 (4/15 vs `L`) |
+| `FGW` | 4,394 (5/18 vs `F`, p 0.011) | 87 | **167 (17/4 vs `F`, p 0.007)** |
+
+So the reader carries the trail far out, the lay rule alone costs the colony
+at 200 (not yet traced), and **the give-up takes back about a third of the
+reader's gain there**. It was added for the pulsed pile (§23e), so this is a
+trade between beds.
+
+**Why, ant by ant** (`decisioncsv dwide`, seeds 1-6, `antloop.py`,
+`giveup.py`, a per-give-up trace): east give-ups (toward the food) are 44 of
+222 excursions under `FGW` against 29 of 257 under `F`. Eight of `FGW`'s
+ended in starvation, all on seed 1, all on dark ground 126-168 cells out
+(trail presence at most 0.01 over the last 30 steps), with 5-173 energy left;
+`F` had none. On seed 1 the trail had broken: outbound steps on a live trail
+were 5-10% between 50 and 125 cells under `FGW` against 25-58% under `F`.
+Elsewhere the trail is not weaker far out (40-80% at every distance on
+seeds 2-6), so **"the scent fades far from the nest" is wrong**; the give-up
+turns a broken trail into deaths by walking starving ants home from 150
+cells out.
+
+**`noreturn`**: once a scout has spent more on this excursion than it has
+left (`energy < scout_e0 - energy`), the bound stops counting dark steps as
+no progress. Same binary with it off reproduces `FGW` byte for byte (the 200
+cells, seeds 1-6 outcome rows). Against `FGW`, 24 paired seeds:
+
+| bed | taken | born | starved |
+|---|---|---|---|
+| 200 cells | 4,394 -> 4,530 (5/2) | 87 -> 88 | **167 -> 156 (0/6, p 0.031)** |
+| unlimited 90 | identical on 24 | | |
+| unlimited 140 | 9,033 -> 9,070 (1 run moved) | 474 -> 479 | 26 -> 27 |
+| pulsed 90 | 2,840 -> 2,821 (3/4) | 38 -> 49 (10/6) | 237 -> 258 (13/6, p 0.17) |
+| pulsed 140 | 2,751 -> 2,769 (8/10) | 34 -> 39 | 251 -> 244 (8/12) |
+| 80 founders | 20,108 -> 20,053 (2/5) | 508 -> 534 | 289 -> 297 (3/3) |
+
+A small gain where it was aimed and no significant change elsewhere; the
+pulsed 90 lean is the size of §23e's. **Shipped on.** It recovers a third
+of the give-up's cost at 200; the rest, and why `lay` alone costs the
+colony at 200, are open. Guard: the give-up walk test's stranded arm
+(watched red with `stranded` forced false: gave up at x 222). Run dirs:
+`/tmp/claude-0/s7` (session scratch, not kept).

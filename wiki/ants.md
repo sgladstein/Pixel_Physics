@@ -10,7 +10,10 @@ wandering on. In a test colony with food 90 cells away the share heading the
 wrong way fell from a third to one in twelve, two thirds as much food again
 came off the heap, and more than twice as many young were born; in a crowded
 colony half as many ants starved. Where a small heap is emptied and refilled,
-ants starve about as often as before. Earlier the same day, **a digger near
+ants starve about as often as before. The same evening a hungry ant far out
+stopped turning back once it had burnt more getting there than it had left:
+it could no longer reach home, so it keeps looking instead, and with food
+200 cells away a few fewer ants starve. Earlier the same day, **a digger near
 the front door stopped dropping its dirt back inside.** The room the entrance
 shaft opens into has
 the shaft in a corner of its ceiling, and a digger on that room's floor,

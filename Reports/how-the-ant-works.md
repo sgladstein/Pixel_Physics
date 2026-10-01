@@ -598,6 +598,11 @@ once an excursion has stepped onto a heading carrying trail B
 (`OrganismState::scout_lit`), a step onto a heading with none is not
 progress however far out it lands, so patience decays on the dark ground past
 the trail's end. A scout that never met a trail scouts as without it.
+**Past its point of no return the bound lets go** (`noreturn`, on by default
+since 2026-10-01): a scout that has spent more energy on this excursion than
+it has left (`energy < scout_e0 − energy`, `OrganismState::scout_e0` taken
+when the excursion starts) counts dark progress as progress again, so it
+scouts on instead of turning for a home it cannot reach.
 
 **Under `PIXEL_PHYSICS_FOOD_TRAIL=...,read` (on by default since 2026-10-01) an empty ant at
 the door turns toward the food side** (`door_read`, Stage 2,
@@ -993,7 +998,7 @@ Read once per process from the environment. The default is what ships.
 | `PIXEL_PHYSICS_PACKED_LUNCH` | on | `off`: a crop filled only at home counts as a load, so the forage drive does not reach its carrier (§6d); `World::packed_lunch` for one world |
 | `PIXEL_PHYSICS_TRIP_REACH` | on (16) | `off`: a pickup away from home marks a trip once the ant has been `FORAGE_TRIP_MIN` cells from its last nest contact, wherever the food lay; on, the food must also be living tissue or loose food more than the reach (authored cells, scaled; an integer sets it) from every nest's door (§6d); `World::trip_reach` for one world |
 | `PIXEL_PHYSICS_RETURN_WINDOW` | 1400 | `<frames>`: the `returns` drive's window (§6d) |
-| `PIXEL_PHYSICS_FOOD_TRAIL` | `lay,read,giveup,window=700` (since 2026-10-01; `lay` alone 09-30) | the food trail's recipe (`FoodTrail`): `lay` lays trail B only on a trip load (§7), `off` is the ant before 2026-09-30 (every ant with food in its crop lays), `t=<ticks>` adds an odometer; `giveup` lets a given-up scout go and bounds a scout at a walked trail's end (§6d); `read` turns an empty ant at the door toward the food side (§6d), with `gain=` its gain (default 6) and `window=<frames>` its stale-pile window (700 when unset, `READ_WINDOW_SHIPPED`; 0 is `return_window()`); `reach=2\|6` and `follow=all` parse and do nothing yet; `on` is all three parts; `World::food_trail` for one world |
+| `PIXEL_PHYSICS_FOOD_TRAIL` | `lay,read,giveup,window=700,noreturn` (since 2026-10-01; `lay` alone 09-30) | the food trail's recipe (`FoodTrail`): `lay` lays trail B only on a trip load (§7), `off` is the ant before 2026-09-30 (every ant with food in its crop lays), `t=<ticks>` adds an odometer; `giveup` lets a given-up scout go and bounds a scout at a walked trail's end (§6d), and `noreturn` lifts that bound past a scout's point of no return; `read` turns an empty ant at the door toward the food side (§6d), with `gain=` its gain (default 6) and `window=<frames>` its stale-pile window (700 when unset, `READ_WINDOW_SHIPPED`; 0 is `return_window()`); `reach=2\|6` and `follow=all` parse and do nothing yet; `on` is all four parts (`window=700` included); `World::food_trail` for one world |
 | `PIXEL_PHYSICS_DROP_SIDE` | `even` | `west`: every food drop scans its neighbours north-west first, the ant before 2026-09-30 (`food_drop_order`, §5); `east`: always north-east first, its mirror |
 | `PIXEL_PHYSICS_BIRTH_HEADING` | `outward` | `east`: every founder and every bud is born facing east, the ant before 2026-09-30. `outward`: a founder faces away from its colony's cursor, and a bud faces the way its body was laid (`birth_heading_outward`) |
 | `World::mute_emit_b` | `false` | harness-only, set by `trailfollow`'s `mute` arm and by no game: every newborn's `EmitB` wiring is re-zeroed after its birth mutation (`silence_emit_b`), so a colony whose founders were silenced stays silent across births |

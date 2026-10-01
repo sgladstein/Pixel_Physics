@@ -6186,6 +6186,10 @@ pub struct OrganismState {
     /// no trail under its heading, cleared with the excursion. Only such a
     /// give-up is spent; one made on a lit route keeps the trail's pull.
     pub scout_dark: bool,
+    /// **Energy at the start of this excursion** (`creature::FoodTrail::
+    /// noreturn`): set when a new excursion starts. What it has spent since
+    /// is the ant's own measure of what the walk home will cost.
+    pub scout_e0: f32,
     /// **Has foraged: picked food up away from home at least once**, so the
     /// colony's need can send it out again (`creature::forage_drive_level`,
     /// on unless `PIXEL_PHYSICS_FORAGE_DRIVE=off`). Never cleared.
