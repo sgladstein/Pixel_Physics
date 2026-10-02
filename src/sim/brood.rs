@@ -525,6 +525,8 @@ mod tests {
             w.set(x, 101, Cell::new(material::STONE, 0));
         }
         w.brood = Some(brood);
+        // No nest on this bed, so laying anywhere (`creature::bud_at_nest`).
+        w.bud_at_nest = Some(false);
         w.plant_ant(100, 100);
         let ant = w.get(100, 100).organism_id();
         assert_ne!(ant, 0, "test setup: the ant was not placed");
