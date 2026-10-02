@@ -954,7 +954,7 @@ either plane: the other trail inputs are computed and wired to nothing (§3).
   scaling is applied to the composed bar, after the affordability check, and
   a colony with no other living breeder is not suppressed at all, so a
   colony whose breeder dies resumes.
-- **Brood** (`PIXEL_PHYSICS_BROOD=on`, or `World::brood`; off by default,
+- **Brood** (on by default since 2026-10-02; `PIXEL_PHYSICS_BROOD=off` or `World::brood` for budding,
   `brood.rs`): with it on, the same `try_bud` lays an egg instead of
   budding an adult. The bar is the brood block's `lay_at` (1,100 J, scaled
   by the same heritable multiplier) and the egg costs `egg_cost` (120 J),
@@ -1059,7 +1059,7 @@ Read once per process from the environment. The default is what ships.
 | `PIXEL_PHYSICS_SHARE_TOPUP` | off | `on`: a share goes first to the neediest leaver beside the donor, at `frac=<f>` of the difference (default 0.5) (§5); `World::share_topup` for one world |
 | `PIXEL_PHYSICS_FOOD_TRAIL` | `lay,read,giveup,window=700,noreturn` (since 2026-10-01; `lay` alone 09-30) | the food trail's recipe (`FoodTrail`): `lay` lays trail B only on a trip load (§7), `off` is the ant before 2026-09-30 (every ant with food in its crop lays), `t=<ticks>` adds an odometer; `giveup` lets a given-up scout go and bounds a scout at a walked trail's end (§6d), and `noreturn` lifts that bound past a scout's point of no return; `read` turns an empty ant at the door toward the food side (§6d), with `gain=` its gain (default 6) and `window=<frames>` its stale-pile window (700 when unset, `READ_WINDOW_SHIPPED`; 0 is `return_window()`); `reach=2\|6` and `follow=all` parse and do nothing yet; `on` is all four parts (`window=700` included); `World::food_trail` for one world |
 | `PIXEL_PHYSICS_DROP_SIDE` | `even` | `west`: every food drop scans its neighbours north-west first, the ant before 2026-09-30 (`food_drop_order`, §5); `east`: always north-east first, its mirror |
-| `PIXEL_PHYSICS_BROOD` | off | `on`: births are eggs that grow through larva and pupa (§9); `World::brood` for one world. `PIXEL_PHYSICS_NURSE=off` stops nestmates feeding larvae by touch; `PIXEL_PHYSICS_LAY_AT`, `PIXEL_PHYSICS_EGG_COST`, `PIXEL_PHYSICS_BROOD_FRAMES=<egg>,<pupa>` and `PIXEL_PHYSICS_LAY_REACH` override the brood block for a sweep |
+| `PIXEL_PHYSICS_BROOD` | on (since 2026-10-02) | births are eggs that grow through larva and pupa (§9); `off` is budding, the ant before; `World::brood` for one world. `PIXEL_PHYSICS_NURSE=off` stops nestmates feeding larvae by touch; `PIXEL_PHYSICS_LAY_AT`, `PIXEL_PHYSICS_EGG_COST`, `PIXEL_PHYSICS_BROOD_FRAMES=<egg>,<pupa>` and `PIXEL_PHYSICS_LAY_REACH` override the brood block for a sweep |
 | `PIXEL_PHYSICS_BIRTH_HEADING` | `outward` | `east`: every founder and every bud is born facing east, the ant before 2026-09-30. `outward`: a founder faces away from its colony's cursor, and a bud faces the way its body was laid (`birth_heading_outward`) |
 | `World::mute_emit_b` | `false` | harness-only, set by `trailfollow`'s `mute` arm and by no game: every newborn's `EmitB` wiring is re-zeroed after its birth mutation (`silence_emit_b`), so a colony whose founders were silenced stays silent across births |
 | `PIXEL_PHYSICS_STORE_LUNCH` | off | `on`: a cell taken before the ant has been `FORAGE_TRIP_MIN` (8) cells from its last nest contact counts as taken at home for the packed lunch, wherever it stood; off, a crop is a lunch only while every cell in it was taken with the head beside nest material (§6d); `World::store_lunch` for one world |

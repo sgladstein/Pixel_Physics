@@ -64,12 +64,16 @@ use super::organism::{self, pack_cell_type, BroodDef, BroodStage, CellType, Crea
 use super::scheduler::{ActiveKind, ActiveSite};
 use super::world::{Account, World};
 
-/// **Is brood on, absent a per-world override?** `PIXEL_PHYSICS_BROOD=on`
-/// turns it on; anything else, or unset, leaves it off. Off is today's
-/// budding, exactly: `brood_of` returns `None` before anything is read.
+/// **Is brood on, absent a per-world override?** On unless
+/// `PIXEL_PHYSICS_BROOD=off`, since 2026-10-02 (the owner: "turn brood on by
+/// default"). Off is the old budding, exactly: `brood_of` returns `None`
+/// before anything is read. The measured cost, kept in view: on main
+/// 5244c858 brood colonies were alive at the end of 23 of 24 long runs
+/// against budding's 14 of 24, but in the lab box (`labforage played_bed`,
+/// 24 seeds) births fell 566 -> 266 and the peak colony 309 -> 136.
 fn brood_env() -> bool {
     static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *ON.get_or_init(|| matches!(std::env::var("PIXEL_PHYSICS_BROOD").as_deref(), Ok("on")))
+    *ON.get_or_init(|| std::env::var("PIXEL_PHYSICS_BROOD").map_or(true, |v| v.trim() != "off"))
 }
 
 /// The species' brood block, when it has one and brood is on for this world
