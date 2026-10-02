@@ -5281,6 +5281,18 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
             "    SHARES {} | joules moved {:.0} | handling cost {:.0}",
             w.creature_stats.shares, w.creature_stats.shared_j, w.creature_stats.share_energy
         );
+        // **Eaten at home, eaten away, passed mouth to mouth** (2026-10-02,
+        // the owner's "food bank or trophallaxis?"): face chewed with the
+        // `AtNest` sense on, the rest of the chewing, and `shared_j` again.
+        let cs = &w.creature_stats;
+        println!(
+            "    EATING digested at the nest {:.0} J, away from it {:.0} J | shared mouth to mouth {:.0} J ({} to brood) | picked up at home {} cells",
+            cs.digested_at_nest_face,
+            cs.digested_face - cs.digested_at_nest_face,
+            cs.shared_j,
+            cs.brood_shared_j as u64,
+            cs.pickups_at_nest
+        );
         // **Where the colony's energy went, by verb** (2026-09-28): the
         // ledger's three sinks, with digging, trail-laying and exposure split
         // out of `metabolized`, so a question like "does building the nest
