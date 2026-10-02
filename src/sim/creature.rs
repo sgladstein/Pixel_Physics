@@ -11749,8 +11749,10 @@ pub fn spoil_switches_line() -> String {
     )
 }
 
-/// **A roof the colony leaves whole**: `PIXEL_PHYSICS_DIG_ROOF=<rows>`, off
-/// unless set; [`World::dig_roof`] for one world.
+/// **A roof the colony leaves whole**: `PIXEL_PHYSICS_DIG_ROOF=<rows>`, **on
+/// at [`DIG_ROOF_SHIPPED`] rows since 2026-10-02** (the owner, on twelve seeds
+/// of the food box: *"On"*); `off` is the ant before; [`World::dig_roof`] for
+/// one world.
 ///
 /// **Why** (`Reports/nest-one-entrance-2026-09-29.md` §25). In the food box
 /// the colony digs its top chambers 1-4 rows under the surface, and the crust
@@ -11766,25 +11768,35 @@ pub fn spoil_switches_line() -> String {
 /// door's columns (the door's half-width, [`nest_door_of`], from the site's
 /// centre column). Ground above the founding surface (a heap) is never
 /// refused, and neither is any cut when no nest has a door (the strip).
-/// One predicate about the cut cell, read only when set.
+/// One predicate about the cut cell.
+///
+/// **What it costs, measured** (§25, seeds 1-12, 144,000 frames): no ants
+/// (median alive 474 against 455 without it; colonies under 100 ants 2
+/// against 4) and about 15% of the fruit taken (lower on 9 of 12 seeds). The
+/// old ground row over the nest stays closed on every seed.
 pub fn dig_roof_of(world: &World) -> Option<i32> {
     world.dig_roof.unwrap_or_else(|| {
         static V: std::sync::OnceLock<Option<i32>> = std::sync::OnceLock::new();
         *V.get_or_init(|| {
             let raw = std::env::var("PIXEL_PHYSICS_DIG_ROOF").unwrap_or_default();
             match raw.as_str() {
-                "" | "off" => None,
+                "" => Some(DIG_ROOF_SHIPPED),
+                "off" => None,
                 v => match v.parse::<i32>() {
                     Ok(n) if n > 0 => Some(n),
                     _ => {
-                        eprintln!("PIXEL_PHYSICS_DIG_ROOF={raw:?}: not `off` or a row count over 0; read as off");
-                        None
+                        eprintln!("PIXEL_PHYSICS_DIG_ROOF={raw:?}: not `off` or a row count over 0; read as unset (the shipped {DIG_ROOF_SHIPPED})");
+                        Some(DIG_ROOF_SHIPPED)
                     }
                 },
             }
         })
     })
 }
+
+/// The roof's thickness in rows when `PIXEL_PHYSICS_DIG_ROOF` is unset
+/// ([`dig_roof_of`]).
+pub const DIG_ROOF_SHIPPED: i32 = 6;
 
 /// Whether `(x, y)` lies in the roof [`dig_roof_of`] keeps: within `rows`
 /// rows under the founding surface of the nearest nest site (by column),

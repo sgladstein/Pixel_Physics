@@ -1603,3 +1603,7 @@ mouth-to-mouth shares 4k against 41k; refusals for room or for not being at
 the nest small on both sides, `digbox`'s new BIRTHS line). Seeds 9-12, where
 the shipped colony crashed, reverse it: over twelve the roof costs some
 foraging and no ants.
+
+**On by default (2026-10-02).** The owner, on the twelve-seed grid: *"On"*.
+`PIXEL_PHYSICS_DIG_ROOF` unset now reads as 6 rows (`DIG_ROOF_SHIPPED`);
+`off` is the ant before.
