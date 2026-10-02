@@ -15342,7 +15342,17 @@ fn graded_suppression_factor(dist: f32, radius: i32) -> f32 {
         return 1.0;
     }
     let t = 1.0 - dist / radius as f32;
-    1.0 + (GRADED_MAX_SUPPRESSION - 1.0) * t
+    1.0 + (graded_max_suppression() - 1.0) * t
+}
+
+/// `PIXEL_PHYSICS_BREEDING_MAX=<x>`: the `graded` multiplier at a breeder's
+/// side, for the breeding plan's B2 re-sweep at 1.25-3x; unset,
+/// [`GRADED_MAX_SUPPRESSION`]. At 6x on the food box (main f063949) births
+/// fell from 1,264-2,707 to 41-51 because workers that cannot breed stop
+/// fetching (`/mnt/project-files/breeding/plan-review-2026-10-02.md`).
+fn graded_max_suppression() -> f32 {
+    static V: std::sync::OnceLock<f32> = std::sync::OnceLock::new();
+    *V.get_or_init(|| std::env::var("PIXEL_PHYSICS_BREEDING_MAX").ok().and_then(|v| v.trim().parse().ok()).filter(|v: &f32| *v >= 1.0).unwrap_or(GRADED_MAX_SUPPRESSION))
 }
 
 /// **The ablation switch this change's own measurement needs**: whether
