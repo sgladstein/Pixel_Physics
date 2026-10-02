@@ -5286,12 +5286,13 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
         // `AtNest` sense on, the rest of the chewing, and `shared_j` again.
         let cs = &w.creature_stats;
         println!(
-            "    EATING digested at the nest {:.0} J, away from it {:.0} J | shared mouth to mouth {:.0} J ({} to brood) | picked up at home {} cells",
+            "    EATING digested at the nest {:.0} J, away from it {:.0} J | shared mouth to mouth {:.0} J ({} to brood) | picked up at home {} cells | births held by the food brake {}",
             cs.digested_at_nest_face,
             cs.digested_face - cs.digested_at_nest_face,
             cs.shared_j,
             cs.brood_shared_j as u64,
-            cs.pickups_at_nest
+            cs.pickups_at_nest,
+            cs.food_brake_held
         );
         // **Where the colony's energy went, by verb** (2026-09-28): the
         // ledger's three sinks, with digging, trail-laying and exposure split

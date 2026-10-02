@@ -938,7 +938,12 @@ either plane: the other trail inputs are computed and wired to nothing (§3).
   By default (since 2026-10-02; `PIXEL_PHYSICS_BUD_SITE=anywhere` or
   `World::bud_at_nest` turns it off) a species that names a nest material
   lays or buds only while at its nest (the `AtNest` read); `CreatureStats::buds_held_for_nest` counts the ticks it could have
-  budded and did not. With `PIXEL_PHYSICS_BUD_STORE=on` (or
+  budded and did not. An ant whose own bank clears the bar
+  with an empty crop walks home to lay as a laden ant walks home
+  (`ready_to_lay`, `PIXEL_PHYSICS_LAY_HOME`, on; `laden` includes ants
+  carrying food). **The lab box lays anywhere** (`LabBox::build_counted`
+  sets `bud_at_nest` off unless `BUD_SITE` is set): there, nest-only laying
+  took births 329 -> 4 and none of the fixes tried brought it back. With `PIXEL_PHYSICS_BUD_STORE=on` (or
   `World::bud_store`) a nesting species' births are paid from its store
   (`bud_from_store`): only an animal within a cell of the storeroom
   (`ShaftFootprint::touches_store`) buds, its own bank is read as 0 and the
@@ -1041,7 +1046,7 @@ Read once per process from the environment. The default is what ships.
 | `PIXEL_PHYSICS_LAB_ROOM` | on | `off`: at-nest `Crowding` falls back to local density |
 | `PIXEL_PHYSICS_TROPHALLAXIS` | on | `off` |
 | `PIXEL_PHYSICS_DROP_REACH` | through bodies | `adjacent`: a food drop looks only at the 8 neighbours |
-| `PIXEL_PHYSICS_BUD_SITE` | nest | a species with a nest material lays or buds only at its nest (§9); `anywhere` restores the old rule |
+| `PIXEL_PHYSICS_BUD_SITE` | nest | a species with a nest material lays or buds only at its nest (§9); `anywhere` restores the old rule; the lab box defaults to anywhere |
 | `PIXEL_PHYSICS_BUD_STORE` | off | `on`: a nesting species buds only at its storeroom, and food in the founding cut and its storeroom pays the whole birth (`bud_from_store`, `provisions_in_store`, §9). `bank`: the same place, but the parent's bank counts as at the door and the store tops it up from food over `BUD_RESERVE` (`bud_store_counts_bank`) |
 | `PIXEL_PHYSICS_BUD_RESERVE` | 0 | `<J>`: under `BUD_STORE=on`, a birth's bar is its price plus `<J>`, so the store must still hold that much after it; under `BUD_STORE=bank`, the store's food counts only above `<J>` (`bud_store_reserve`) |
 | `PIXEL_PHYSICS_BUD_STACK` | on (since 2026-09-30) | above a stack cap of 1, a birth with no free cell beside the parent stands on nestmates (§9); `off`: it is refused and tries again |

@@ -4000,8 +4000,8 @@ fn main() {
                         }
                     }
                     println!(
-                        "BROOD frame={f} standing eggs {} larvae {} pupae {} (holding {:.0} J) | laid {}, larvae {}, pupated {}, hatched (births) {}, larvae starved {}, lost {}, hatches refused for room {} | J shared in {:.0}, nursed by touch {:.0}, eaten beside {:.0}, upkeep {:.0}, to corpse {:.0}",
-                        by_stage[0], by_stage[1], by_stage[2], held, st.eggs_laid, st.larvae, st.pupae, st.births, st.larvae_starved, st.brood_lost, st.hatches_denied, st.brood_shared_j, st.brood_nursed_j, st.brood_ate_j, st.brood_upkeep_j, st.brood_corpse_j
+                        "BROOD frame={f} standing eggs {} larvae {} pupae {} (holding {:.0} J) | laid {}, larvae {}, pupated {}, hatched (births) {}, larvae starved {}, lost {}, hatches refused for room {} | J shared in {:.0}, nursed by touch {:.0}, eaten beside {:.0}, upkeep {:.0}, to corpse {:.0} | births held by the food brake {}",
+                        by_stage[0], by_stage[1], by_stage[2], held, st.eggs_laid, st.larvae, st.pupae, st.births, st.larvae_starved, st.brood_lost, st.hatches_denied, st.brood_shared_j, st.brood_nursed_j, st.brood_ate_j, st.brood_upkeep_j, st.brood_corpse_j, st.food_brake_held
                     );
                 }
                 // `PIXEL_PHYSICS_DIG_ROOF` and `_DOOR_COLLAR`'s "it fired" halves.

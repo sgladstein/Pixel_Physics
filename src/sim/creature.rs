@@ -2857,6 +2857,54 @@ pub fn reproduce_at(def: &CreatureDef) -> Option<f32> {
 /// child than its ancestor did, and a bar under that price is a birth that
 /// kills its parent -- which reads in every counter as reproduction
 /// working.
+/// **The bank an animal must reach to lay or bud**, before any breeding
+/// regime or food brake raises it: an egg's `lay_at` (scaled by the same
+/// heritable multiplier, floored at the egg's price) under brood, else the
+/// adult's threshold floored at a child's price. One function so `try_bud`
+/// and [`ready_to_lay`] cannot disagree about it.
+fn birth_bar(threshold: f32, cost: f32, def: &CreatureDef, laying: Option<&super::organism::BroodDef>) -> f32 {
+    match laying {
+        Some(b) => (threshold * b.lay_at / def.reproduce_threshold.max(1.0)).max(b.egg_cost + 1.0),
+        None => threshold.max(cost + 1.0),
+    }
+}
+
+/// **An ant rich enough to lay, held only by being away from the nest**,
+/// walks home to lay the way a laden ant walks home with food
+/// ([`home_pull`], and the laden pace through `HomeAligned`). Built
+/// 2026-10-02 after laying only at the nest went on by default: on the lab
+/// box (main 0738a8ca, 12 seeds) births fell 329 -> 4 and 10 of 12 boxes
+/// died, because the ants that could lay sat a median 9 cells from the nest
+/// and touched it on 3% of their affordable ticks; the nest lane's dug home
+/// did not rescue it (alive at the end 0-2 of 12, eggs 0-16 a box). A
+/// species with no nest, or a world laying anywhere, never reads true.
+/// `PIXEL_PHYSICS_LAY_HOME=off` turns the walk off.
+pub fn ready_to_lay(world: &World, def: &CreatureDef, state: &super::organism::OrganismState) -> bool {
+    if !lay_home_on() || state.brood.is_some() || def.nest.is_empty() || !bud_at_nest(world) || state.spoil.is_some() || (!lay_home_laden() && state.crop.is_some_and(|c| c.worth() > 0.0)) {
+        return false;
+    }
+    let Some(threshold) = reproduce_at_of(def, &state.traits) else {
+        return false;
+    };
+    let cost = birth_cost_of(def, birth_grant(def, &state.traits));
+    state.energy >= birth_bar(threshold, cost, def, super::brood::brood_of(world, def).as_ref())
+}
+
+/// `PIXEL_PHYSICS_LAY_HOME=laden`: a ready ant with food in its crop walks
+/// home to lay too. On the lab box (seed 1, 30k frames) 90% of the samples
+/// in which an ant could lay were laden ants, which the empty-crop rule
+/// never pulled.
+fn lay_home_laden() -> bool {
+    static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *V.get_or_init(|| std::env::var("PIXEL_PHYSICS_LAY_HOME").is_ok_and(|v| v.trim() == "laden"))
+}
+
+/// `PIXEL_PHYSICS_LAY_HOME`: on unless `off`.
+fn lay_home_on() -> bool {
+    static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *V.get_or_init(|| std::env::var("PIXEL_PHYSICS_LAY_HOME").map_or(true, |v| v.trim() != "off"))
+}
+
 pub fn reproduce_at_of(def: &CreatureDef, traits: &[f32; CREATURE_TRAITS]) -> Option<f32> {
     (def.reproduce_threshold > 0.0).then(|| {
         let bar = def.reproduce_threshold * reproduce_fraction(traits[TRAIT_REPRODUCE_AT]);
@@ -4842,10 +4890,7 @@ pub(super) fn try_bud(world: &mut World, organism: OrganismId, def: &CreatureDef
     // adult's: an ant that lays keeps `lay_at - egg_cost`, not the ~1,000 J
     // a bud's bar would leave it hoarding. `None` -- budding -- is untouched.
     let laying = super::brood::brood_of(world, def);
-    let bar = match &laying {
-        Some(b) => (threshold * b.lay_at / def.reproduce_threshold.max(1.0)).max(b.egg_cost + 1.0),
-        None => threshold.max(cost + 1.0),
-    };
+    let bar = birth_bar(threshold, cost, def, laying.as_ref());
     let (hx, hy) = *state.chain.first()?;
     // **What is within reach counts toward a child, and this is deliberately
     // not a nest.**
@@ -4940,6 +4985,13 @@ pub(super) fn try_bud(world: &mut World, organism: OrganismId, def: &CreatureDef
     // on every tick for every animal. See `breeding_regime`'s own doc for
     // the regimes themselves.
     let (bar, breeder_scan_visits) = suppress_bar(breeding_regime(), breeding_radius(), world, organism, state.colony, (hx, hy), bar);
+    // **The food brake rides on top of the regime**, raising the bar further
+    // when the colony's recent income no longer clears its burn. Same
+    // "only ever raises" contract as suppression, so the precheck above
+    // still holds.
+    let brake = food_brake_factor(world, state.colony);
+    let unbraked = bar;
+    let bar = bar * brake;
     // **Read off the parent here, while `state` is still the parent** (see
     // the `Origin::Bud` arm in `place_creature` for the incident this
     // naming exists to prevent) -- moved ahead of the affordability check
@@ -4963,6 +5015,11 @@ pub(super) fn try_bud(world: &mut World, organism: OrganismId, def: &CreatureDef
     // point after that borrow ends where `world` is usable mutably again.
     world.creature_stats.breeder_scan_visits += breeder_scan_visits as u64;
     if bank + reachable < bar {
+        // **The food brake's "it fired" counter**: ticks on which the animal
+        // cleared every bar but the brake's.
+        if brake > 1.0 && bank + reachable >= unbraked {
+            world.creature_stats.food_brake_held += 1;
+        }
         return None;
     }
     let material_id = world.materials.id_of(&world.species.get(species_id).name.clone())?;
@@ -8315,7 +8372,7 @@ fn sense(
         // door against 0.77-0.79 a row deeper, and 30-45% of its decisions a
         // step against 75-86% (`examples/digbox`, 40 ants, seed 1,
         // 2026-09-29).
-        inputs[I::HomeAligned as usize] = if crop_fill > 0.0 || is_store_load(world, state.spoil) || store_return_target(world, state).is_some() || spoil_haul_pace(world, def, state) {
+        inputs[I::HomeAligned as usize] = if crop_fill > 0.0 || is_store_load(world, state.spoil) || store_return_target(world, state).is_some() || spoil_haul_pace(world, def, state) || ready_to_lay(world, def, state) {
             let (ax, ay) = spoil_pace_target(world, def, state, (x, y)).unwrap_or_else(|| home_target(world, state));
             let (vx, vy) = ((ax - x) as f32, (ay - y) as f32);
             let len = (vx * vx + vy * vy).sqrt();
@@ -15579,6 +15636,94 @@ fn nearest_breeder(world: &World, exclude: OrganismId, colony: u32, x: i32, y: i
 /// rather than two so the signature stays inside clippy's argument count;
 /// `queen` never reads it (see `colony_has_other_breeder`'s own doc for
 /// why that regime needs no position at all).
+/// Frames over which [`World::colony_pace`] smooths a colony's income and
+/// burn: about a twentieth of an ant's ~40,000-frame median life, long enough
+/// to average over a forager's round trip and short enough to see a colony
+/// outgrow its income before the reserve falls.
+pub const FOOD_BRAKE_WINDOW: u64 = 3000;
+
+/// `PIXEL_PHYSICS_FOOD_BRAKE`: `off` (the default while it is measured),
+/// `on` (ramp from [`FOOD_BRAKE_HI`] down to [`FOOD_BRAKE_LO`]), or
+/// `<lo>,<hi>` to sweep the ramp.
+fn food_brake_env() -> Option<(f64, f64)> {
+    static V: std::sync::OnceLock<Option<(f64, f64)>> = std::sync::OnceLock::new();
+    *V.get_or_init(|| match std::env::var("PIXEL_PHYSICS_FOOD_BRAKE").as_deref().map(str::trim) {
+        Ok("on") => Some((FOOD_BRAKE_LO, FOOD_BRAKE_HI)),
+        Ok(v) if v.contains(',') => {
+            let mut it = v.split(',').map(|t| t.trim().parse::<f64>());
+            match (it.next(), it.next()) {
+                (Some(Ok(lo)), Some(Ok(hi))) if hi > lo && lo > 0.0 => Some((lo, hi)),
+                _ => {
+                    eprintln!("PIXEL_PHYSICS_FOOD_BRAKE={v:?}: want on, off or <lo>,<hi> with hi > lo > 0; read as off");
+                    None
+                }
+            }
+        }
+        _ => None,
+    })
+}
+
+/// Income over burn at and above which the food brake leaves the bar alone.
+pub const FOOD_BRAKE_HI: f64 = 1.5;
+/// Income over burn at and below which the food brake stops laying.
+pub const FOOD_BRAKE_LO: f64 = 1.0;
+/// The bar's multiplier at the bottom of the ramp, just above `FOOD_BRAKE_LO`.
+const FOOD_BRAKE_MAX: f32 = 3.0;
+
+/// Whether the food brake is on for this world.
+pub fn food_brake_on(_world: &World) -> bool {
+    food_brake_env().is_some()
+}
+
+/// **The food brake: breed freely while the colony's income clears its
+/// burn with room to spare, less as the margin closes, not at all once the
+/// colony burns what it earns.** Built 2026-10-02 for the owner's ask for "a
+/// more stable colony that breeds less, builds up a food supply and
+/// survives long term", after graded fertility (a brake keyed on distance to
+/// a breeder) was found blind to food: it braked a huddled founding group
+/// as hard as a crowded nest, and at food 200 cells away colonies still
+/// boomed and crashed (`/mnt/project-files/breeding/brood-vs-budding-2026-10-02.md`).
+///
+/// The biology it follows: a fire-ant queen's laying rate rises with the
+/// food passed to her from the late larvae through the nurses, and is
+/// expected to level off when workers cannot feed more larvae (Tschinkel
+/// 1988, in Hölldobler & Wilson's *The Ants* ch. 9); a starving
+/// *Temnothorax* colony loses its brood first (99% against 33% in controls)
+/// and its queens last (Rueppell & Kirkman 2005). Laying follows the
+/// colony's food, not the breeder's own bank.
+///
+/// Returns `>= 1.0` (and `INFINITY` at or below the floor, in a colony of
+/// full size). **A small colony breeds freely**: the brake's strength ramps
+/// from nothing at [`FOOD_BRAKE_SMALL`] live adults to full at twice that.
+/// The first build had no such ramp and at food 200 cells away it held
+/// every founding group for good -- 0-10 births in 6 of 6 seeds, against
+/// 3-1,712 without it -- because founders walking to food that far burn
+/// more than they bring back long before any trail forms, which reads to
+/// an income-over-burn rule exactly like a colony that has outgrown its food.
+pub fn food_brake_factor(world: &World, colony: u32) -> f32 {
+    let Some((lo, hi)) = food_brake_env() else {
+        return 1.0;
+    };
+    let Some(r) = world.colony_food_ratio(colony) else {
+        return 1.0;
+    };
+    let strength = ((world.colony_adults(colony) - FOOD_BRAKE_SMALL) / FOOD_BRAKE_SMALL).clamp(0.0, 1.0) as f32;
+    if strength <= 0.0 || r >= hi {
+        return 1.0;
+    }
+    let full = if r <= lo { f32::INFINITY } else { 1.0 + (FOOD_BRAKE_MAX - 1.0) * ((hi - r) / (hi - lo)) as f32 };
+    if strength >= 1.0 {
+        full
+    } else {
+        1.0 + strength * (full.min(2.0 * FOOD_BRAKE_MAX) - 1.0)
+    }
+}
+
+/// Live adults below which a colony breeds free of the food brake; the
+/// brake reaches full strength at twice this. A founding group in every bed
+/// here is 20.
+pub const FOOD_BRAKE_SMALL: f64 = 30.0;
+
 fn suppress_bar(regime: BreedingRegime, radius: i32, world: &World, organism: OrganismId, colony: u32, pos: (i32, i32), bar: f32) -> (f32, u32) {
     let use_index = breeder_index_enabled();
     let mut visits = 0u32;
@@ -18039,6 +18184,11 @@ fn home_pull(world: &World, organism: OrganismId, def: &CreatureDef, head: (i32,
     // put one down comes back up to the mouth the same way.
     if let Some(target) = store_target(world, state).or_else(|| harvest_target(world, state)).or_else(|| store_return_target(world, state)).filter(|_| def.home_bias > 0.0) {
         return Some((target, def.home_bias));
+    }
+    // **An ant ready to lay walks home to lay** ([`ready_to_lay`]), as a
+    // laden ant does, until it is beside the nest.
+    if def.home_bias > 0.0 && ready_to_lay(world, def, state) && !nest_within_reach(world, organism, head.0, head.1, def) {
+        return Some((home_target(world, state), def.home_bias));
     }
     // **A fed nest-bound ant that strays is pulled home** ([`is_nest_bound`]),
     // as a laden ant is, to where it last stood beside the nest.

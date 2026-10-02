@@ -21,15 +21,14 @@ How ants reproduce: eggs/larvae/pupae (`src/sim/brood.rs`: `lay_egg`, `brood::nu
 | 545 | graded fertility: bar rises up to 1.25x beside a breeder | on |
 | 546 (main 0738a8ca) | lay only at the nest (`PIXEL_PHYSICS_BUD_SITE=anywhere` to undo); trailfollow `bankdump=` and EATING line | on |
 
-## Unmerged work on the branch (all pushed, head 231ab3d1, clean tree, no PR yet)
-- d315658a + c2214bf4: **food brake** (`PIXEL_PHYSICS_FOOD_BRAKE`, OFF). Birth bar raised when colony income/burn EMA (window 3,000 frames, `World::colony_pace`, `step_colony_pace`) falls below 1.5, full stop at 1.0; colonies under 30 adults exempt, full at 60. Result: mixed at gap 90 (one seed crashed), neutral at gap 200, food box steadier but no store forms. Keep off; not a win.
-- f6accdf9: **walk home to lay** (`PIXEL_PHYSICS_LAY_HOME`, on unless `off`). `ready_to_lay()` makes `home_pull` aim home when an ant can afford to lay. Built to rescue the lab box after PR 546. **Lab result, 12 seeds: not a rescue** (births median 4 -> 7, died out 10 -> 10 of 12). 231ab3d1 adds opt-in `LAY_HOME=laden` (also no help). Run in flight: scratchpad `layhome/` (lost with the container; rerun if needed). Do not PR until it works.
-
-## The open problem
-Since PR 546 the lab box (`labforage scenario=played_bed frames=120000`, 12 seeds) dies: births 329 to 4, 10/12 dead. Ants that can afford to lay are a median 9 cells from the nest and adjacent to it only 3% of samples. Nest lane's dug home does not fix it (0-2/12 alive). Trace so far (labforage `budtrace=`, seed 1, 30k frames, f6accdf9): only ~15 ants ever clear the bar; 90% of their ready samples are still carrying food in the crop (so `ready_to_lay`, which requires an empty crop, never pulls them), and they circle 4-10 cells from the tiny painted nest, adjacent to it in under 3% of samples. At the door the cells round the head are crumbs and ants, so `lay_egg` (reach 1) sometimes finds no empty cell; `PIXEL_PHYSICS_LAY_REACH=3` removed those refusals but did not raise eggs (3 vs 8). Running: the `PIXEL_PHYSICS_NEST_REACH=r6` oracle on lab seeds 1-4 (a bigger "at the nest" zone; affects deliveries too, so an oracle only). Candidate fixes: let laden ready ants count, or define "at the nest" by the nest site's footprint rather than touching painted nest material.
+## Unmerged work: the PR from `claude/ant-breeding-plan-v9kpl5` (head ebdafcce, main 6852a99c merged in)
+- **Lab box lays anywhere** (a8a8ad1b, `src/lab/scene.rs`): fixes the lab box that PR 546 broke. `LabBox::build_counted` sets `bud_at_nest` off unless `PIXEL_PHYSICS_BUD_SITE` is set. Lab, 12 paired seeds: births median 4 -> 329, died out 10 -> 0 of 12, alive at end 0 -> 178. The main game still lays only at the nest.
+- **Walk home to lay** (f6accdf9, `PIXEL_PHYSICS_LAY_HOME`, on unless `off`; `laden` also pulls ants carrying food): an ant whose bank clears the laying bar walks home like a laden forager. Did NOT rescue the lab (births 4 -> 7, 10/12 still died): 90% of ready ants are laden and circle 4-10 cells from the small painted nest. Food box on the new main, 6 paired seeds: neutral (median live 220 vs 240, born 422 vs 426), so it stays on.
+- **Food brake** (d315658a, c2214bf4, `PIXEL_PHYSICS_FOOD_BRAKE`, OFF): raises the birth bar when colony income/burn (EMA, 3,000 frames) drops below 1.5, full stop at 1.0; colonies under 30 adults exempt. Mixed (one seed steadier, one crashed), no food store forms. Keep off.
+- Rejected on the lab (seed 1 or seeds 1-4): `LAY_REACH=3`, `NEST_REACH=r6` oracle, `LAY_HOME=laden`.
 
 ## Next steps in order
-1. Fix lab laying (above), then re-check long runs and the food box, PR it.
+1. Get the PR merged (lab fix). Decide LAY_HOME's default from the food-box/long-run check: keep on only if neutral or better.
 2. Re-test the appetite gate (`digest_hunger_weight`, trailfollow `hungergate=`) once the nest lane's dug home lands. Last test (6a8dacd4): fruit -40% at gap 90, 4/6 died at gap 200. Rejected.
 3. Food store: none forms. Ants bank eaten food as energy with no ceiling; 1-7% of digestion happens at the nest; mouth-to-mouth sharing moves 23-45% of digestion, ~1/5 to brood. A store-keyed brake only makes sense once food stays at home.
 4. Later plan items: B5, B4 roles by age (agree with the nest lane first), B4b, B6 (founding, lifespan, mating flights).
