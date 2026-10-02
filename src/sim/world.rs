@@ -2585,6 +2585,8 @@ pub struct CreatureStats {
     pub hatches_denied: u64,
     /// Joules nestmates shared into larvae, mouth to mouth.
     pub brood_shared_j: f64,
+    /// Energy handed to larvae by a nestmate touching them (`brood::nurse`).
+    pub brood_nursed_j: f64,
     /// Joules larvae ate from food lying beside them.
     pub brood_ate_j: f64,
     /// Joules larvae burned waiting to be fed.

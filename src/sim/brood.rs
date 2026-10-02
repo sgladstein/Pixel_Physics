@@ -127,6 +127,13 @@ fn lay_reach() -> i32 {
     *V.get_or_init(|| std::env::var("PIXEL_PHYSICS_LAY_REACH").ok().and_then(|v| v.parse().ok()).unwrap_or(1))
 }
 
+/// `PIXEL_PHYSICS_NURSE=off`: no feeding by touch ([`nurse`]), for the
+/// control arm. Unset or anything else, on.
+fn nurse_env() -> bool {
+    static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *V.get_or_init(|| std::env::var("PIXEL_PHYSICS_NURSE").map_or(true, |v| v.trim() != "off"))
+}
+
 /// `PIXEL_PHYSICS_LAY_AT=<J>`: override the brood block's `lay_at`, for a
 /// sweep. Unset, the species file's value.
 fn lay_at_env() -> Option<f32> {
@@ -306,6 +313,9 @@ pub fn brood_tick(world: &mut World, site: &ActiveSite) -> Vec<ActiveSite> {
                     world.creature_stats.brood_ate_j += (after - bank) as f64;
                 }
             }
+            if nurse_env() {
+                nurse(world, organism, (x, y), colony, def.start_energy, b.target);
+            }
             if world.organism(organism).is_some_and(|s| s.energy >= b.target) {
                 set_stage(world, organism, (x, y), material, BroodStage::Pupa, frame);
                 world.creature_stats.pupae += 1;
@@ -326,6 +336,67 @@ pub fn brood_tick(world: &mut World, site: &ActiveSite) -> Vec<ActiveSite> {
             }
         }
     }
+}
+
+/// **Fed by touch**: the richest grown nestmate standing on one of the
+/// larva's eight neighbours hands it a quarter of what it holds above its
+/// own grant, capped at what the larva still lacks -- the same quarter and
+/// the same floor as a brain's `Share`, without waiting for a brain to
+/// choose it. One donor a larva tick.
+///
+/// Why it is not left to `Share`: measured with eggs laid at 1,040 J
+/// against a target near 1,060 (main 44f14af, food box, 4 seeds, 96,000
+/// frames, no stage delay), 38-50 larvae stood unfinished at every stop,
+/// holding ~40 kJ between them -- about forty ants -- and waiting tens of
+/// thousands of frames for ~20 J each. A share is a brain decision taken
+/// by an ant whose `KinNeed` happened to name the larva, and almost none
+/// did: 3-11 kJ shared in over the whole run. The colony grew with budding
+/// to 48,000 frames and then fell away from it (live 82-308 at 96,000
+/// against budding's 302-635). Real nurses feed the brood they walk over.
+///
+/// It draws from an adult's bank on its way to its own next egg, so a nest
+/// with brood waiting finishes them before it lays more: the regulation is
+/// a side effect, not a rule.
+fn nurse(world: &mut World, larva: OrganismId, (x, y): (i32, i32), colony: u32, start_energy: f32, target: f32) {
+    if colony == 0 {
+        return;
+    }
+    let need = target - world.organism(larva).map_or(target, |s| s.energy);
+    if need <= 0.0 {
+        return;
+    }
+    let mut best: Option<(OrganismId, f32)> = None;
+    for (dx, dy) in super::structural::NEIGHBOURS_8 {
+        let c = world.get(x + dx, y + dy);
+        let id = c.organism_id();
+        if id == 0 {
+            continue;
+        }
+        if id == larva || best.is_some_and(|(b, _)| b == id) {
+            continue;
+        }
+        let Some(st) = world.organism(id) else { continue };
+        if st.brood.is_some() || st.colony != colony || st.energy <= start_energy {
+            continue;
+        }
+        if best.is_none_or(|(_, e)| st.energy > e) {
+            best = Some((id, st.energy));
+        }
+    }
+    let Some((donor, mine)) = best else { return };
+    let amount = (creature::SHARE_FRACTION * (mine - start_energy)).min(need);
+    if amount <= 0.0 {
+        return;
+    }
+    if let Some(s) = world.organism_mut(donor) {
+        s.energy -= amount;
+    }
+    if let Some(s) = world.organism_mut(larva) {
+        s.energy += amount;
+    }
+    world.creature_stats.brood_nursed_j += amount as f64;
+    world.book(colony, Account::SharedOut, amount as f64);
+    world.book(colony, Account::SharedIn, amount as f64);
 }
 
 /// Move a brood organism to `stage`, and its cell to that stage's shade.
