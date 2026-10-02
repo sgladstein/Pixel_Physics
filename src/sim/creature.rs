@@ -4790,6 +4790,13 @@ pub(super) fn try_bud(world: &mut World, organism: OrganismId, def: &CreatureDef
     // on every tick for every animal. See `breeding_regime`'s own doc for
     // the regimes themselves.
     let (bar, breeder_scan_visits) = suppress_bar(breeding_regime(), breeding_radius(), world, organism, state.colony, (hx, hy), bar);
+    // **The food brake rides on top of the regime**, raising the bar further
+    // when the colony's recent income no longer clears its burn. Same
+    // "only ever raises" contract as suppression, so the precheck above
+    // still holds.
+    let brake = food_brake_factor(world, state.colony);
+    let unbraked = bar;
+    let bar = bar * brake;
     // **Read off the parent here, while `state` is still the parent** (see
     // the `Origin::Bud` arm in `place_creature` for the incident this
     // naming exists to prevent) -- moved ahead of the affordability check
@@ -4813,6 +4820,11 @@ pub(super) fn try_bud(world: &mut World, organism: OrganismId, def: &CreatureDef
     // point after that borrow ends where `world` is usable mutably again.
     world.creature_stats.breeder_scan_visits += breeder_scan_visits as u64;
     if bank + reachable < bar {
+        // **The food brake's "it fired" counter**: ticks on which the animal
+        // cleared every bar but the brake's.
+        if brake > 1.0 && bank + reachable >= unbraked {
+            world.creature_stats.food_brake_held += 1;
+        }
         return None;
     }
     let material_id = world.materials.id_of(&world.species.get(species_id).name.clone())?;
@@ -15419,6 +15431,82 @@ fn nearest_breeder(world: &World, exclude: OrganismId, colony: u32, x: i32, y: i
 /// rather than two so the signature stays inside clippy's argument count;
 /// `queen` never reads it (see `colony_has_other_breeder`'s own doc for
 /// why that regime needs no position at all).
+/// Frames over which [`World::colony_pace`] smooths a colony's income and
+/// burn: about a twentieth of an ant's ~40,000-frame median life, long enough
+/// to average over a forager's round trip and short enough to see a colony
+/// outgrow its income before the reserve falls.
+pub const FOOD_BRAKE_WINDOW: u64 = 3000;
+
+/// `PIXEL_PHYSICS_FOOD_BRAKE`: `off` (the default while it is measured),
+/// `on` (ramp from [`FOOD_BRAKE_HI`] down to [`FOOD_BRAKE_LO`]), or
+/// `<lo>,<hi>` to sweep the ramp.
+fn food_brake_env() -> Option<(f64, f64)> {
+    static V: std::sync::OnceLock<Option<(f64, f64)>> = std::sync::OnceLock::new();
+    *V.get_or_init(|| match std::env::var("PIXEL_PHYSICS_FOOD_BRAKE").as_deref().map(str::trim) {
+        Ok("on") => Some((FOOD_BRAKE_LO, FOOD_BRAKE_HI)),
+        Ok(v) if v.contains(',') => {
+            let mut it = v.split(',').map(|t| t.trim().parse::<f64>());
+            match (it.next(), it.next()) {
+                (Some(Ok(lo)), Some(Ok(hi))) if hi > lo && lo > 0.0 => Some((lo, hi)),
+                _ => {
+                    eprintln!("PIXEL_PHYSICS_FOOD_BRAKE={v:?}: want on, off or <lo>,<hi> with hi > lo > 0; read as off");
+                    None
+                }
+            }
+        }
+        _ => None,
+    })
+}
+
+/// Income over burn at and above which the food brake leaves the bar alone.
+pub const FOOD_BRAKE_HI: f64 = 1.5;
+/// Income over burn at and below which the food brake stops laying.
+pub const FOOD_BRAKE_LO: f64 = 1.0;
+/// The bar's multiplier at the bottom of the ramp, just above `FOOD_BRAKE_LO`.
+const FOOD_BRAKE_MAX: f32 = 3.0;
+
+/// Whether the food brake is on for this world.
+pub fn food_brake_on(_world: &World) -> bool {
+    food_brake_env().is_some()
+}
+
+/// **The food brake: breed freely while the colony's income clears its
+/// burn with room to spare, less as the margin closes, not at all once the
+/// colony burns what it earns.** Built 2026-10-02 for the owner's ask for "a
+/// more stable colony that breeds less, builds up a food supply and
+/// survives long term", after graded fertility (a brake keyed on distance to
+/// a breeder) was found blind to food: it braked a huddled founding group
+/// as hard as a crowded nest, and at food 200 cells away colonies still
+/// boomed and crashed (`/mnt/project-files/breeding/brood-vs-budding-2026-10-02.md`).
+///
+/// The biology it follows: a fire-ant queen's laying rate rises with the
+/// food passed to her from the late larvae through the nurses, and is
+/// expected to level off when workers cannot feed more larvae (Tschinkel
+/// 1988, in Hölldobler & Wilson's *The Ants* ch. 9); a starving
+/// *Temnothorax* colony loses its brood first (99% against 33% in controls)
+/// and its queens last (Rueppell & Kirkman 2005). Laying follows the
+/// colony's food, not the breeder's own bank.
+///
+/// Returns `>= 1.0` (and `INFINITY` at or below the floor). A colony the
+/// brake has not seen burn yet is left alone: founders spend their grant
+/// before any income exists, and a brake that held them would read the
+/// founding as a famine.
+pub fn food_brake_factor(world: &World, colony: u32) -> f32 {
+    let Some((lo, hi)) = food_brake_env() else {
+        return 1.0;
+    };
+    let Some(r) = world.colony_food_ratio(colony) else {
+        return 1.0;
+    };
+    if r >= hi {
+        1.0
+    } else if r <= lo {
+        f32::INFINITY
+    } else {
+        1.0 + (FOOD_BRAKE_MAX - 1.0) * ((hi - r) / (hi - lo)) as f32
+    }
+}
+
 fn suppress_bar(regime: BreedingRegime, radius: i32, world: &World, organism: OrganismId, colony: u32, pos: (i32, i32), bar: f32) -> (f32, u32) {
     let use_index = breeder_index_enabled();
     let mut visits = 0u32;

@@ -2575,6 +2575,10 @@ pub struct CreatureStats {
     /// held back. 0 whenever the switch is off, which is the control that
     /// says the gate is what moved a birth count.
     pub buds_held_for_nest: u64,
+    /// **Ticks a birth was held by the food brake alone**
+    /// (`creature::food_brake_factor`): the animal cleared its bar under the
+    /// breeding regime and not after the brake raised it. 0 with the brake off.
+    pub food_brake_held: u64,
     /// **Births paid from the store** under `creature::bud_from_store`; 0
     /// whenever the switch is off.
     pub store_births: u64,
@@ -4223,6 +4227,13 @@ pub struct World {
     /// and order as `nest_sites`, and empty unless the forage drive reads
     /// it, so an arm that does not use it pays nothing.
     pub nest_need: Vec<f32>,
+    /// **Each colony's recent income against its recent burn**, for the
+    /// food-keyed laying brake (`creature::food_brake_factor`): per colony
+    /// label, `[last income, last burn, smoothed income, smoothed burn]`,
+    /// refreshed every `ROOM_INTERVAL` frames by `step_colony_pace` from the
+    /// colony's own books. Empty unless the brake is on, so a world without
+    /// it pays one branch a frame.
+    pub colony_pace: Vec<[f64; 4]>,
     /// **The frame each nest last saw a forager come home with food from a
     /// trip** (`OrganismState::trip_load`), indexed like `nest_sites`, grown
     /// on write; 0 is never. Read by the forage drive's `returns` need
@@ -6378,6 +6389,7 @@ impl World {
             nest_sites: Vec::new(),
             nest_room: Vec::new(),
             nest_need: Vec::new(),
+            colony_pace: Vec::new(),
             nest_last_return: Vec::new(),
             room_gate: creature::room_gate_default(),
             room_target: creature::room_target_default(),
@@ -8272,6 +8284,43 @@ impl World {
     /// whenever the site list has changed length; cleared and skipped
     /// entirely unless the drive reads it, so every other world pays one
     /// comparison a frame.
+    /// **Refresh every colony's smoothed income and burn**
+    /// ([`World::colony_pace`]), once per [`ROOM_INTERVAL`] frames, while the
+    /// food brake is on. Income is what the colony's animals digested
+    /// (`HarvestedPlant + HarvestedCorpse`); burn is what they spent living
+    /// and moving (`Metabolized + Moved + SynapseTax`). Both are smoothed over
+    /// about [`crate::sim::creature::FOOD_BRAKE_WINDOW`] frames, so the ratio
+    /// leads the colony's reserves: a colony whose burn has grown to meet a
+    /// flat income reads it here before any ant goes hungry -- the condition
+    /// `Reports/dead-ends.md`'s `BUD_NEED` entry names for a hunger gate that
+    /// does not react after the overshoot.
+    pub fn step_colony_pace(&mut self) {
+        if !crate::sim::creature::food_brake_on(self) || !self.frame.is_multiple_of(ROOM_INTERVAL) {
+            return;
+        }
+        let a = (ROOM_INTERVAL as f64 / crate::sim::creature::FOOD_BRAKE_WINDOW as f64).min(1.0);
+        let n = self.colony_books.len();
+        self.colony_pace.resize(n, [0.0; 4]);
+        for c in 0..n {
+            let b = &self.colony_books[c];
+            let income = b.get(Account::HarvestedPlant) + b.get(Account::HarvestedCorpse);
+            let burn = b.get(Account::Metabolized) + b.get(Account::Moved) + b.get(Account::SynapseTax);
+            let p = &mut self.colony_pace[c];
+            let (di, db) = (income - p[0], burn - p[1]);
+            p[0] = income;
+            p[1] = burn;
+            p[2] += a * (di - p[2]);
+            p[3] += a * (db - p[3]);
+        }
+    }
+
+    /// One colony's smoothed income over its smoothed burn, or `None` before
+    /// the brake has seen it burn anything.
+    pub fn colony_food_ratio(&self, colony: u32) -> Option<f64> {
+        let p = self.colony_pace.get(colony as usize)?;
+        (p[3] > 0.0).then(|| p[2] / p[3])
+    }
+
     pub fn step_nest_need(&mut self) {
         let need = crate::sim::creature::forage_drive_of(self).need;
         // **`returns`: a nest the drive has not seen starts its clock now**,
@@ -10878,6 +10927,9 @@ impl World {
         // drive only (`step_nest_need`); every other world returns on its
         // first line.
         self.step_nest_need();
+        // **And each colony's income against its burn**, on the same cadence,
+        // for the food-keyed laying brake only.
+        self.step_colony_pace();
         // **And each nest's way in, for resting ants**, on its own cadence
         // and only while resting is on (`creature::step_nest_rest`).
         crate::sim::creature::step_nest_rest(self);
