@@ -1713,6 +1713,12 @@ pub struct CreatureStats {
     /// it is an exact identity where the old per-bite mean was an
     /// approximation.
     pub digested_face: f64,
+    /// **The part of `digested_face` chewed by an animal standing at its own
+    /// nest** (its `AtNest` sense on that tick). Owner, 2026-10-02: *"are
+    /// ants mostly eating from the food bank or trophallaxis?"* -- read
+    /// beside `shared_j`, the energy moved mouth to mouth, and the rest of
+    /// `digested_face`, which was chewed away from home.
+    pub digested_at_nest_face: f64,
     /// **Ticks on which the appetite gate scaled the gut** -- the "it fired"
     /// counter for `CreatureDef::digest_hunger_weight`, exactly 0 for every
     /// species that has not authored the field.
@@ -3788,7 +3794,7 @@ pub struct World {
     pub chooser: Option<crate::sim::creature::Chooser>,
     /// **Whether a nesting species may bud only at its nest, overriding
     /// `PIXEL_PHYSICS_BUD_SITE` for this world** (`creature::bud_at_nest`).
-    /// `None` follows the environment, which is off unless set; a field for
+    /// `None` follows the environment, which is on unless set to `anywhere`; a field for
     /// the reason `chooser` is one.
     pub bud_at_nest: Option<bool>,
     /// `creature::dig_roof_of` for this world: `Some(Some(rows))` keeps a roof

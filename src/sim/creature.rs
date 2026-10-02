@@ -7718,6 +7718,9 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
             // divided by the ticks it takes to chew one. `progressed` is the
             // tick's own share and sums to `c.unit` across the cell.
             world.creature_stats.digested_face += progressed as f64;
+            if inputs[brain::BrainInput::AtNest as usize] > 0.0 {
+                world.creature_stats.digested_at_nest_face += progressed as f64;
+            }
             // **What the overhead ate, counted rather than inferred.** A loss
             // that only shows up as a smaller credit is indistinguishable
             // from food that was never eaten, and those want different
@@ -16595,8 +16598,17 @@ pub fn chooser_for(world: &World, def: &CreatureDef) -> Chooser {
 }
 
 /// **Whether a nesting species buds only at its nest**:
-/// `PIXEL_PHYSICS_BUD_SITE=nest`, or `World::bud_at_nest` for one world. Off
-/// by default, where an animal buds wherever it can afford to.
+/// on by default; `PIXEL_PHYSICS_BUD_SITE=anywhere` (or `off`) restores the
+/// old rule, where an animal buds wherever it can afford to, and
+/// `World::bud_at_nest` overrides either for one world.
+///
+/// **On by default since 2026-10-02, the owner's words: "it should be on".**
+/// Every measuring bed had run with `PIXEL_PHYSICS_BUD_SITE=nest` for weeks
+/// while the game shipped without it, so the energy-bank census that day
+/// (`trailfollow bankdump=`, long runs, main 6a8dacd4) was describing a rule
+/// the player never saw: a fifth of adults banked past the ~1,100 J bar,
+/// most of them a median 34-78 columns out at the food, held off laying only
+/// by this switch.
 ///
 /// The owner's ruling, 2026-09-23: an ant should only be able to breed at
 /// the nest, and in the end *where* should be something a lineage evolves.
@@ -16608,7 +16620,7 @@ pub fn chooser_for(world: &World, def: &CreatureDef) -> Chooser {
 pub fn bud_at_nest(world: &World) -> bool {
     world.bud_at_nest.unwrap_or_else(|| {
         static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-        *V.get_or_init(|| std::env::var("PIXEL_PHYSICS_BUD_SITE").as_deref() == Ok("nest"))
+        *V.get_or_init(|| !matches!(std::env::var("PIXEL_PHYSICS_BUD_SITE").as_deref().map(str::trim), Ok("anywhere") | Ok("off")))
     })
 }
 
@@ -23165,6 +23177,9 @@ mod tests {
     fn test_world() -> World {
         let mut w = World::new(Rect::new(0, 0, 199, 199));
         w.brood = Some(false);
+        // Budding anywhere, as these tests were written: the nest-only rule
+        // has its own test, which sets `World::bud_at_nest` explicitly.
+        w.bud_at_nest = Some(false);
         if let Some(id) = w.species.id_of("ant") {
             if let Some(def) = w.species.get(id).creature.as_ref() {
                 let mut def = def.clone();
@@ -25565,6 +25580,7 @@ mod tests {
         let bud = |x: i32, y: i32, store: bool, rich: bool, food: bool| -> (bool, f32, f32, usize) {
             let (mut w, a) = rest_world(x, y, false);
             w.brood = Some(false); // store-paid budding, not an egg (`test_world`'s note)
+            w.bud_at_nest = Some(false); // the store gate is under test, not the nest gate
             w.bud_store = Some(store);
             let def = w.species.get(w.organism(a).expect("live").species).creature.clone().expect("a creature");
             let fruit = w.materials.id_of("fruit").expect("fruit");

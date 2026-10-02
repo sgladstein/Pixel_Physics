@@ -2751,6 +2751,13 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
     // cell the budget cannot explain, the fruit cells that vanished since the
     // last sample are printed with what now stands where they were.
     let food_watch = flag("foodwatch");
+    // **`bankdump=<file>`: every ant's energy bank, one row per ant, at each
+    // 3,000-frame sample** -- `frame,id,bank_j,crop_j,brood,x,y,off_nest` (brood 0 adult,
+    // 1 egg, 2 larva, 3 pupa; off_nest = columns outside the nest's span). Built 2026-10-02 for the owner's "do some ants
+    // hold huge banks while others starve?": `ant bodies` on the FOOD STORE
+    // line is a sum and cannot say how it is spread. Off unless asked.
+    let bank_dump: Option<String> = arg_str("bankdump");
+    let mut bank_rows: Vec<String> = Vec::new();
     // `crumbwatch`: every frame, where each crumb is, and when one appears,
     // moves or has its surroundings closed over -- with what closed them.
     // Built to answer whether a crumb underground slid there or was buried.
@@ -3524,9 +3531,14 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
             // the nest?": `nest ground` counts whole fruit only, and a
             // part-eaten delivery goes down as crumbs, so it could not say.
             let (mut crumb_nest, mut nest_food_j) = (0u32, 0.0f64);
+            // `bankdump`'s where-is-it column: one cell of each organism.
+            let mut cell_of: std::collections::HashMap<u32, (i32, i32)> = std::collections::HashMap::new();
             for y in 0..spec.height {
                 for x in 0..width {
                     let c = w.get(x, y);
+                    if bank_dump.is_some() && c.organism_id() != 0 {
+                        cell_of.entry(c.organism_id()).or_insert((x, y));
+                    }
                     let m = c.material;
                     let on_nest = x >= nest_lo - 10 && x <= nest_hi + 10;
                     if Some(m) == crumbs {
@@ -3556,6 +3568,14 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
                 }
                 live += 1;
                 body_j += st.energy as f64;
+                if bank_dump.is_some() {
+                    let crop_j = st.crop.map_or(0.0, |c| c.cells as f32 * c.unit);
+                    let brood = st.brood.map_or(0, |b| b.stage as u8 + 1);
+                    let (cx, cy) = cell_of.get(&id).copied().unwrap_or((-1, -1));
+                    // Columns outside the nest material's span: 0 = over the nest.
+                    let off = if cx < nest_lo { nest_lo - cx } else if cx > nest_hi { cx - nest_hi } else { 0 };
+                    bank_rows.push(format!("{f},{},{:.1},{crop_j:.1},{brood},{cx},{cy},{off}", id, st.energy));
+                }
                 if let Some(c) = st.crop.filter(|c| is_larder_food(c.material)) {
                     in_crops += c.cells as u32;
                 }
@@ -5178,6 +5198,10 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
     // **Written outside `if tracing`**: the GIF is not a trace artifact and
     // gating it on that flag made it silently produce nothing.
     println!("    FOOD STORE (larder cells) -- {}", store_series.join(" | "));
+    if let Some(path) = &bank_dump {
+        std::fs::write(path, format!("frame,id,bank_j,crop_j,brood,x,y,off_nest\n{}\n", bank_rows.join("\n"))).expect("bankdump: write");
+        println!("    BANKDUMP {} rows -> {path}", bank_rows.len());
+    }
     if let Some(n) = room_every {
         let chamber: Vec<String> = room_series.iter().map(|&(_, c, _)| c.to_string()).collect();
         let shaft: Vec<String> = room_series.iter().map(|&(_, _, s)| s.to_string()).collect();
@@ -5256,6 +5280,18 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
         println!(
             "    SHARES {} | joules moved {:.0} | handling cost {:.0}",
             w.creature_stats.shares, w.creature_stats.shared_j, w.creature_stats.share_energy
+        );
+        // **Eaten at home, eaten away, passed mouth to mouth** (2026-10-02,
+        // the owner's "food bank or trophallaxis?"): face chewed with the
+        // `AtNest` sense on, the rest of the chewing, and `shared_j` again.
+        let cs = &w.creature_stats;
+        println!(
+            "    EATING digested at the nest {:.0} J, away from it {:.0} J | shared mouth to mouth {:.0} J ({} to brood) | picked up at home {} cells",
+            cs.digested_at_nest_face,
+            cs.digested_face - cs.digested_at_nest_face,
+            cs.shared_j,
+            cs.brood_shared_j as u64,
+            cs.pickups_at_nest
         );
         // **Where the colony's energy went, by verb** (2026-09-28): the
         // ledger's three sinks, with digging, trail-laying and exposure split
