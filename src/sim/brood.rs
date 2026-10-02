@@ -82,8 +82,19 @@ pub fn brood_of(world: &World, def: &CreatureDef) -> Option<BroodDef> {
         if let Some(v) = lay_at_env() {
             b.lay_at = v;
         }
+        if let Some(v) = egg_cost_env() {
+            b.egg_cost = v;
+        }
         b
     })
+}
+
+/// `PIXEL_PHYSICS_EGG_COST=<J>`: override the brood block's `egg_cost`, for
+/// a sweep. At the adult's whole price (1,040 for the shipped ant) a larva
+/// needs no feeding at all, which is budding with a delay -- the control.
+fn egg_cost_env() -> Option<f32> {
+    static V: std::sync::OnceLock<Option<f32>> = std::sync::OnceLock::new();
+    *V.get_or_init(|| std::env::var("PIXEL_PHYSICS_EGG_COST").ok().and_then(|v| v.parse().ok()))
 }
 
 /// `PIXEL_PHYSICS_LAY_AT=<J>`: override the brood block's `lay_at`, for a
