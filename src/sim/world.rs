@@ -2169,6 +2169,18 @@ pub struct CreatureStats {
     pub door_stale: u64,
     pub door_pulled: u64,
     pub door_followed: u64,
+    /// **The forage throttle** (`creature::ForageThrottle`). `throttle_reads`:
+    /// scouting decisions of an ant inside the throttle's zone, so judged by
+    /// it. Of those, `throttle_held`: its hunger was above the colony's want,
+    /// so it was pulled out less than before; `throttle_sent`: the want was
+    /// above its hunger. All 0 unless the switch is on.
+    pub throttle_reads: u64,
+    pub throttle_held: u64,
+    pub throttle_sent: u64,
+    /// **Shares that went to a leaver under the top-up**
+    /// (`creature::ShareTopup`), and the joules they moved. 0 unless on.
+    pub topup_shares: u64,
+    pub topup_j: f64,
     /// **Ticks a packed lunch was finished on the spot** (`creature::
     /// carries_lunch`): away from the nest, beside food its crop cannot
     /// swallow, the cell in progress is digested whole that tick. 0 unless
@@ -3876,6 +3888,14 @@ pub struct World {
     /// `PIXEL_PHYSICS_FOOD_TRAIL`** (`creature::food_trail_of`). `None`
     /// follows the environment, which is the lay rule unless set `off`.
     pub food_trail: Option<crate::sim::creature::FoodTrail>,
+    /// **The forage throttle for this world, overriding
+    /// `PIXEL_PHYSICS_FORAGE_THROTTLE`** (`creature::forage_throttle_of`).
+    /// `None` follows the environment.
+    pub forage_throttle: Option<crate::sim::creature::ForageThrottle>,
+    /// **The share's top-up for this world, overriding
+    /// `PIXEL_PHYSICS_SHARE_TOPUP`** (`creature::share_topup_of`). `None`
+    /// follows the environment.
+    pub share_topup: Option<crate::sim::creature::ShareTopup>,
     /// **Keep every newborn's `EmitB` wiring at zero**
     /// (`creature::silence_emit_b`), so a colony whose founders were silenced
     /// stays silent across births. Only a harness sets it: `trailfollow`'s
@@ -6283,6 +6303,8 @@ impl World {
             store_lunch: None,
             trip_reach: None,
             food_trail: None,
+            forage_throttle: None,
+            share_topup: None,
             mute_emit_b: false,
             birth_price: None,
             blocked_tissue_by_material: Vec::new(),
@@ -7306,6 +7328,7 @@ impl World {
             scout_lit: false,
             scout_dark: false,
             scout_e0: 0.0,
+            sent_want: f32::NAN,
             foraged: false,
             store_return: false,
             store_carried: false,

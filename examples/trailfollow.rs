@@ -677,6 +677,11 @@ struct Arm {
     /// `door_followed`: Stage 2's reader at the door (§23e). Printed only
     /// when `read` is on.
     door: [u64; 4],
+    /// `CreatureStats::throttle_reads` / `throttle_held` / `throttle_sent`
+    /// and `topup_shares` / `topup_j`: the forage throttle and the share's
+    /// top-up (§23g). Printed only when on.
+    throttle: [u64; 3],
+    topup: (u64, f64),
     /// **What those cells were worth to this ant**, in joules -- the
     /// provisioning denominator, and the number whose absence produced two
     /// wrong published claims on this branch.
@@ -5371,6 +5376,8 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
         forage_paced: st.forage_paced,
         forage_kept: st.forage_kept,
         door: [st.door_reads, st.door_stale, st.door_pulled, st.door_followed],
+        throttle: [st.throttle_reads, st.throttle_held, st.throttle_sent],
+        topup: (st.topup_shares, st.topup_j),
         supply_j: larder_placed as f64 * per_cell_j,
         eaten_j: diet_by_material(&w, larder).0,
         ate_other_j: diet_by_material(&w, larder).1,
@@ -5912,6 +5919,13 @@ fn main() {
                     );
                     if creature::forage_drive_from_env().on() {
                         println!("{:>16}forage drive: scouted by the colony's need {} decisions, paced {}, left the store {}", "", a.forage_scouted, a.forage_paced, a.forage_kept);
+                    }
+                    if creature::forage_throttle_from_env().on {
+                        let [reads, held, sent] = a.throttle;
+                        println!("{:>16}forage throttle: judged {} decisions at the door, held back {}, sent out {}", "", reads, held, sent);
+                    }
+                    if creature::share_topup_from_env().on {
+                        println!("{:>16}share top-up: {} shares to leavers, {:.0} J", "", a.topup.0, a.topup.1);
                     }
                     if creature::food_trail_from_env().read {
                         let [reads, stale, pulled, followed] = a.door;

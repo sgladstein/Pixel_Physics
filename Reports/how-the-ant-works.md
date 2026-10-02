@@ -5,7 +5,9 @@ every tick, how each mechanism is implemented, and what it reads.** It is
 written from the source and describes the code as it is now, not as it was or
 will be.
 
-- **Verified against:** `main` at `bb65d507`, 2026-09-22; §5 step 5 and the
+- **Verified against:** `main` at `bb65d507`, 2026-09-22; §5 step 2's top-up,
+  §6d's throttle paragraph and §12's two rows 2026-10-02 against
+  `outward_want`, `door_scent` and the share block; §5 step 5 and the
   `SPOIL_HOLD` row 2026-10-01 against `spoil_hold_of` and the drop block;
   §6d's `NEST_REST` paragraph and §12 row 2026-10-01 against `rest_pull`. §2, §6c, §13 and
   §15 re-checked the same day against the decision-trace change
@@ -301,6 +303,11 @@ the tick: the ant still gets its move roll (§6) afterwards.
    instead of committing when `contest` odds say so.
 2. **Share (trophallaxis)**, on by default: give a quarter (`SHARE_FRACTION`)
    of the energy difference to the neediest adjacent nestmate that has less.
+   Under `PIXEL_PHYSICS_SHARE_TOPUP` (off) a leaver beside the donor comes
+   first (`is_leaver`: a forager below its grant, empty but for a packed
+   lunch, no spoil, within the throttle's reach of its nest site) and gets
+   `TOPUP_FRACTION` (half) of the difference; with none beside it the share
+   is as above (`topup_shares`, `topup_j`).
 3. **Feed = pick up.** With food in the crop, `choose_weighted` between
    `Feed` and `Drop` first decides whether to try feeding at all. Feeding
    requires room in the crop and the same material as what is already held.
@@ -703,6 +710,24 @@ The drive is the nest's need (`World::nest_need`, §8), found from
   taken, for `CreatureStats::trip_returns_near` and
   `trip_returns_tissue_near` (an upper bound on the tissue exemption: any
   crop holding tissue taken within the reach).
+**The forage throttle (`PIXEL_PHYSICS_FORAGE_THROTTLE`, on since
+2026-10-02) decides who goes out near the door** (`outward_want`, read by
+scouting's pull, the door reader's want and the rest pull's "out"). Within
+`THROTTLE_REACH` (16, scaled) of its nest site's centre column and walking
+row (`throttle_site`), a forager that is not nest-bound wants the largest of
+the forage drive, the food scent at its door (`door_scent`: trail B summed
+over the door's box, the door's half-width plus one each side on the walking
+row and the one above, read as `b / (b + TRAIL_HALF × cells)`) and, if it has
+never foraged, `THROTTLE_PATROL` (1). **Its own hunger is not in it**, so a
+hungry forager at a door with no drive and no scent is held. Each such
+scouting decision stores the want in `OrganismState::sent_want`; past the
+zone, an ant with one feels `max(drive, sent_want)` where that beats its
+hunger, else its hunger (under `,hold`, never its hunger). A nest-bound ant,
+and an ant the throttle has never judged, scouts on `max(hunger, drive)` as
+above. The forage pace (`forage_pace`) still reads the drive alone. Counted
+in `throttle_reads`, `throttle_held` (hunger above the want) and
+`throttle_sent` (the want above hunger).
+
 **A nest worker (§8) is never driven**: `forage_drive_level` reads 0 for a
 nest-bound animal, and fed it takes no away term and is pulled home when it
 strays (`home_pull`); hungry, it scouts for food as any ant does.
@@ -999,6 +1024,8 @@ Read once per process from the environment. The default is what ships.
 | `PIXEL_PHYSICS_PACKED_LUNCH` | on | `off`: a crop filled only at home counts as a load, so the forage drive does not reach its carrier (§6d); `World::packed_lunch` for one world |
 | `PIXEL_PHYSICS_TRIP_REACH` | on (16) | `off`: a pickup away from home marks a trip once the ant has been `FORAGE_TRIP_MIN` cells from its last nest contact, wherever the food lay; on, the food must also be living tissue or loose food more than the reach (authored cells, scaled; an integer sets it) from every nest's door (§6d); `World::trip_reach` for one world |
 | `PIXEL_PHYSICS_RETURN_WINDOW` | 1400 | `<frames>`: the `returns` drive's window (§6d) |
+| `PIXEL_PHYSICS_FORAGE_THROTTLE` | `on` (since 2026-10-02) | near its door a forager's outward want is the colony's, not its hunger, and is carried on the excursion (§6d); `off` is the ant before it; parts `patrol=<p>` (default 1), `reach=<cells>` (default 16), `noscent`, `hold`; `World::forage_throttle` for one world |
+| `PIXEL_PHYSICS_SHARE_TOPUP` | off | `on`: a share goes first to the neediest leaver beside the donor, at `frac=<f>` of the difference (default 0.5) (§5); `World::share_topup` for one world |
 | `PIXEL_PHYSICS_FOOD_TRAIL` | `lay,read,giveup,window=700,noreturn` (since 2026-10-01; `lay` alone 09-30) | the food trail's recipe (`FoodTrail`): `lay` lays trail B only on a trip load (§7), `off` is the ant before 2026-09-30 (every ant with food in its crop lays), `t=<ticks>` adds an odometer; `giveup` lets a given-up scout go and bounds a scout at a walked trail's end (§6d), and `noreturn` lifts that bound past a scout's point of no return; `read` turns an empty ant at the door toward the food side (§6d), with `gain=` its gain (default 6) and `window=<frames>` its stale-pile window (700 when unset, `READ_WINDOW_SHIPPED`; 0 is `return_window()`); `reach=2\|6` and `follow=all` parse and do nothing yet; `on` is all four parts (`window=700` included); `World::food_trail` for one world |
 | `PIXEL_PHYSICS_DROP_SIDE` | `even` | `west`: every food drop scans its neighbours north-west first, the ant before 2026-09-30 (`food_drop_order`, §5); `east`: always north-east first, its mirror |
 | `PIXEL_PHYSICS_BIRTH_HEADING` | `outward` | `east`: every founder and every bud is born facing east, the ant before 2026-09-30. `outward`: a founder faces away from its colony's cursor, and a bud faces the way its body was laid (`birth_heading_outward`) |
