@@ -22843,8 +22843,18 @@ mod tests {
     /// deliberately, so that this pin cannot quietly stop the default from
     /// being tested at all: see
     /// `the_shipped_ant_founds_colonies_that_are_strangers`.
+    ///
+    /// **Brood is pinned off here too** (`World::brood`), for the same kind
+    /// of reason: brood shipped on 2026-10-02, and these tests were written
+    /// against budding -- a funded ant's child appears in the frame it can
+    /// pay, so "it bred, so inherit/book/count this" reads within a few
+    /// hundred frames. With eggs, 25 of them saw no birth at all inside
+    /// their window (and the fight scenes' rich ants laid instead of
+    /// swinging). The brood path has its own tests in `brood.rs`, which set
+    /// `World::brood` on explicitly.
     fn test_world() -> World {
         let mut w = World::new(Rect::new(0, 0, 199, 199));
+        w.brood = Some(false);
         if let Some(id) = w.species.id_of("ant") {
             if let Some(def) = w.species.get(id).creature.as_ref() {
                 let mut def = def.clone();
@@ -25244,6 +25254,7 @@ mod tests {
     fn under_the_store_switch_births_happen_at_the_store_and_the_store_pays() {
         let bud = |x: i32, y: i32, store: bool, rich: bool, food: bool| -> (bool, f32, f32, usize) {
             let (mut w, a) = rest_world(x, y, false);
+            w.brood = Some(false); // store-paid budding, not an egg (`test_world`'s note)
             w.bud_store = Some(store);
             let def = w.species.get(w.organism(a).expect("live").species).creature.clone().expect("a creature");
             let fruit = w.materials.id_of("fruit").expect("fruit");
@@ -25281,6 +25292,7 @@ mod tests {
         // The store pays from anywhere in the room, not only beside the
         // parent: fruit at the chamber's far end, eight columns off.
         let (mut w, a) = rest_world(64, 47, false);
+        w.brood = Some(false);
         w.bud_store = Some(true);
         let def = w.species.get(w.organism(a).expect("live").species).creature.clone().expect("a creature");
         let fruit = w.materials.id_of("fruit").expect("fruit");
