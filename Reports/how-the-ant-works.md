@@ -963,12 +963,12 @@ either plane: the other trail inputs are computed and wired to nothing (§3).
   (`lay_egg`, out to `PIXEL_PHYSICS_LAY_REACH` rings, default 1); it is a
   separate organism, not counted as a live ant (`live_organism_ids` skips
   brood, `live_brood_ids` lists it). Its stages run in `brood_tick`: egg for
-  `egg_frames` (500); larva until its bank reaches an adult's birth cost
+  `egg_frames` (250); larva until its bank reaches an adult's birth cost
   (`target`), paying `larva_upkeep` a frame, taking one bite a larva tick
   (60 frames) of food beside it (`provisions_in_reach`), and fed by touch
   (`nurse`: the richest grown nestmate on one of its eight neighbours gives
   a quarter of what it holds above `start_energy`, capped at the need;
-  `PIXEL_PHYSICS_NURSE=off` removes it); pupa for `pupa_frames` (500), then
+  `PIXEL_PHYSICS_NURSE=off` removes it); pupa for `pupa_frames` (250), then
   it hatches. A hatchling is laid on the pupa's cell or the nearest open
   cell out to 3 rings, then the same rings again standing on a nestmate
   when `bud_stack_of` allows (`place_hatchling`, `Origin::Hatch`); a pupa
