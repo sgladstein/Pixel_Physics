@@ -15302,8 +15302,10 @@ fn breeding_regime() -> BreedingRegime {
     static REGIME: std::sync::OnceLock<BreedingRegime> = std::sync::OnceLock::new();
     *REGIME.get_or_init(|| match std::env::var("PIXEL_PHYSICS_BREEDING").as_deref() {
         Ok("queen") => BreedingRegime::Queen,
-        Ok("graded") => BreedingRegime::Graded,
-        _ => BreedingRegime::Individual,
+        Ok("individual") => BreedingRegime::Individual,
+        // **`graded` unless set, since 2026-10-02**, at the gentle
+        // [`GRADED_MAX_SUPPRESSION`] the breeding plan's B2 re-sweep chose.
+        _ => BreedingRegime::Graded,
     })
 }
 
@@ -15325,14 +15327,18 @@ fn breeding_radius() -> i32 {
 /// distance 0, falling linearly to `1.0` (no suppression at all) at
 /// `breeding_radius()` cells and beyond.
 ///
-/// A provisional round number, not a measured one -- nothing has yet run
-/// the generations-per-session sweep this whole mechanism exists to feed,
-/// so there is nothing to derive it from (`CLAUDE.md`'s "set bars from
-/// measurement" cannot apply to a bar that is itself the first thing being
-/// measured). Large enough that a worker beside a breeder visibly
-/// struggles without being `queen`'s hard wall -- the graded arm's own
-/// reason to exist beside that regime.
-const GRADED_MAX_SUPPRESSION: f32 = 6.0;
+/// **1.25, from the B2 re-sweep with brood on** (main 8d7cfc9c's tree,
+/// stages 250). 6x, the provisional round number before it, cut food-box
+/// births to 41-51 (main f063949): workers that cannot breed stop fetching.
+/// At 2x and 3x food finally stands in the nest (storeroom 6-16 cells on
+/// the food box) but the colony shrinks to a third or less and dies out at
+/// 200 cells (2 and 1 of 6 long runs alive). At 1.25x, against no
+/// suppression: food box about the same (fruit 4.6-8.5k against
+/// 4.3-9.3k), long runs 11 of 12 alive either way with fruit at 90 cells
+/// 11.5k against 9.4k, and the lab box (12 seeds) within noise -- births
+/// 396 -> 329, starved per million ant-frames 11.2 -> 4.7, neither
+/// significant. `PIXEL_PHYSICS_BREEDING_MAX` overrides it for a sweep.
+const GRADED_MAX_SUPPRESSION: f32 = 1.25;
 
 /// The `graded` multiplier at `dist` cells from the nearest breeder --
 /// `1.0` (no suppression) at `radius` and beyond, rising linearly to

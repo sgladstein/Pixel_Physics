@@ -946,11 +946,12 @@ either plane: the other trail inputs are computed and wired to nothing (§3).
   `CreatureStats::births_on_kin`); a `Segmented` child still needs empty
   ground.
   **Who in a colony may bud** is `PIXEL_PHYSICS_BREEDING` (§12), read once
-  per process and `individual` unless set: no suppression, every animal buds
-  on its own account. An animal is a **breeder** once it has budded
+  per process and `graded` unless set (since 2026-10-02; `individual` is no
+  suppression, every animal breeding on its own account). An animal is a **breeder** once it has budded
   (`OrganismState::children > 0`; nobody is one at founding). Under `queen`
   nobody buds while another living member of its colony is a breeder; under
-  `graded` the bar is multiplied by up to 6 near one (`suppress_bar`). The
+  `graded` the bar is multiplied by up to 1.25 near one (`suppress_bar`,
+  `GRADED_MAX_SUPPRESSION`; `PIXEL_PHYSICS_BREEDING_MAX` overrides it). The
   scaling is applied to the composed bar, after the affordability check, and
   a colony with no other living breeder is not suppressed at all, so a
   colony whose breeder dies resumes.
@@ -1035,7 +1036,7 @@ Read once per process from the environment. The default is what ships.
 | `PIXEL_PHYSICS_BUD_STORE` | off | `on`: a nesting species buds only at its storeroom, and food in the founding cut and its storeroom pays the whole birth (`bud_from_store`, `provisions_in_store`, §9). `bank`: the same place, but the parent's bank counts as at the door and the store tops it up from food over `BUD_RESERVE` (`bud_store_counts_bank`) |
 | `PIXEL_PHYSICS_BUD_RESERVE` | 0 | `<J>`: under `BUD_STORE=on`, a birth's bar is its price plus `<J>`, so the store must still hold that much after it; under `BUD_STORE=bank`, the store's food counts only above `<J>` (`bud_store_reserve`) |
 | `PIXEL_PHYSICS_BUD_STACK` | on (since 2026-09-30) | above a stack cap of 1, a birth with no free cell beside the parent stands on nestmates (§9); `off`: it is refused and tries again |
-| `PIXEL_PHYSICS_BREEDING` | `individual` | `queen`: while any other living animal of the same colony has budded (`children > 0`), nobody else in it buds; when that breeder dies, the next animal to reach its bar succeeds it. `graded`: the bar is multiplied by `1 + (GRADED_MAX_SUPPRESSION - 1)(1 - d/r)` for `d` the distance to the colony's nearest other breeder, so 6.0 beside one, falling linearly to 1 at `r` = `PIXEL_PHYSICS_BREEDING_RADIUS` (24) cells and beyond (`suppress_bar`, `graded_suppression_factor`). Anything else reads as `individual`. `PIXEL_PHYSICS_BREEDER_INDEX=scan` replaces the per-colony breeder index with a scan of every organism, as the control for the lookup (§9) |
+| `PIXEL_PHYSICS_BREEDING` | `graded` (since 2026-10-02) | `individual`: no suppression, the ant before. `queen`: while any other living animal of the same colony has budded (`children > 0`), nobody else in it buds; when that breeder dies, the next animal to reach its bar succeeds it. `graded`: the bar is multiplied by `1 + (GRADED_MAX_SUPPRESSION - 1)(1 - d/r)` for `d` the distance to the colony's nearest other breeder, so 1.25 beside one (`PIXEL_PHYSICS_BREEDING_MAX` overrides it), falling linearly to 1 at `r` = `PIXEL_PHYSICS_BREEDING_RADIUS` (24) cells and beyond (`suppress_bar`, `graded_suppression_factor`). Anything else reads as `graded`. `PIXEL_PHYSICS_BREEDER_INDEX=scan` replaces the per-colony breeder index with a scan of every organism, as the control for the lookup (§9) |
 | `PIXEL_PHYSICS_CHOOSER` | trailaway | For species with a nest. `off`: the walk of §6a–§6c; `on`: the chooser's first layer only (§6d items 1–5); `nopatience`: the same with patience held at 1; `trail`: the chooser reading the trail where it would step, with the throttle retired, and no away term |
 | `SPOIL_IS_CARGO` | on | `0`: spoil no longer counts toward `Carrying` |
 | `PIXEL_PHYSICS_DIG_SPOIL` | kept | `destroy`: dug cells vanish |
