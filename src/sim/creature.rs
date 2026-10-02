@@ -2857,6 +2857,45 @@ pub fn reproduce_at(def: &CreatureDef) -> Option<f32> {
 /// child than its ancestor did, and a bar under that price is a birth that
 /// kills its parent -- which reads in every counter as reproduction
 /// working.
+/// **The bank an animal must reach to lay or bud**, before any breeding
+/// regime or food brake raises it: an egg's `lay_at` (scaled by the same
+/// heritable multiplier, floored at the egg's price) under brood, else the
+/// adult's threshold floored at a child's price. One function so `try_bud`
+/// and [`ready_to_lay`] cannot disagree about it.
+fn birth_bar(threshold: f32, cost: f32, def: &CreatureDef, laying: Option<&super::organism::BroodDef>) -> f32 {
+    match laying {
+        Some(b) => (threshold * b.lay_at / def.reproduce_threshold.max(1.0)).max(b.egg_cost + 1.0),
+        None => threshold.max(cost + 1.0),
+    }
+}
+
+/// **An ant rich enough to lay, held only by being away from the nest**,
+/// walks home to lay the way a laden ant walks home with food
+/// ([`home_pull`], and the laden pace through `HomeAligned`). Built
+/// 2026-10-02 after laying only at the nest went on by default: on the lab
+/// box (main 0738a8ca, 12 seeds) births fell 329 -> 4 and 10 of 12 boxes
+/// died, because the ants that could lay sat a median 9 cells from the nest
+/// and touched it on 3% of their affordable ticks; the nest lane's dug home
+/// did not rescue it (alive at the end 0-2 of 12, eggs 0-16 a box). A
+/// species with no nest, or a world laying anywhere, never reads true.
+/// `PIXEL_PHYSICS_LAY_HOME=off` turns the walk off.
+pub fn ready_to_lay(world: &World, def: &CreatureDef, state: &super::organism::OrganismState) -> bool {
+    if !lay_home_on() || state.brood.is_some() || def.nest.is_empty() || !bud_at_nest(world) || state.spoil.is_some() || state.crop.is_some_and(|c| c.worth() > 0.0) {
+        return false;
+    }
+    let Some(threshold) = reproduce_at_of(def, &state.traits) else {
+        return false;
+    };
+    let cost = birth_cost_of(def, birth_grant(def, &state.traits));
+    state.energy >= birth_bar(threshold, cost, def, super::brood::brood_of(world, def).as_ref())
+}
+
+/// `PIXEL_PHYSICS_LAY_HOME`: on unless `off`.
+fn lay_home_on() -> bool {
+    static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *V.get_or_init(|| std::env::var("PIXEL_PHYSICS_LAY_HOME").map_or(true, |v| v.trim() != "off"))
+}
+
 pub fn reproduce_at_of(def: &CreatureDef, traits: &[f32; CREATURE_TRAITS]) -> Option<f32> {
     (def.reproduce_threshold > 0.0).then(|| {
         let bar = def.reproduce_threshold * reproduce_fraction(traits[TRAIT_REPRODUCE_AT]);
@@ -4692,10 +4731,7 @@ pub(super) fn try_bud(world: &mut World, organism: OrganismId, def: &CreatureDef
     // adult's: an ant that lays keeps `lay_at - egg_cost`, not the ~1,000 J
     // a bud's bar would leave it hoarding. `None` -- budding -- is untouched.
     let laying = super::brood::brood_of(world, def);
-    let bar = match &laying {
-        Some(b) => (threshold * b.lay_at / def.reproduce_threshold.max(1.0)).max(b.egg_cost + 1.0),
-        None => threshold.max(cost + 1.0),
-    };
+    let bar = birth_bar(threshold, cost, def, laying.as_ref());
     let (hx, hy) = *state.chain.first()?;
     // **What is within reach counts toward a child, and this is deliberately
     // not a nest.**
@@ -8177,7 +8213,7 @@ fn sense(
         // door against 0.77-0.79 a row deeper, and 30-45% of its decisions a
         // step against 75-86% (`examples/digbox`, 40 ants, seed 1,
         // 2026-09-29).
-        inputs[I::HomeAligned as usize] = if crop_fill > 0.0 || is_store_load(world, state.spoil) || store_return_target(world, state).is_some() || spoil_haul_pace(world, def, state) {
+        inputs[I::HomeAligned as usize] = if crop_fill > 0.0 || is_store_load(world, state.spoil) || store_return_target(world, state).is_some() || spoil_haul_pace(world, def, state) || ready_to_lay(world, def, state) {
             let (ax, ay) = spoil_pace_target(world, def, state, (x, y)).unwrap_or_else(|| home_target(world, state));
             let (vx, vy) = ((ax - x) as f32, (ay - y) as f32);
             let len = (vx * vx + vy * vy).sqrt();
@@ -17928,6 +17964,11 @@ fn home_pull(world: &World, organism: OrganismId, def: &CreatureDef, head: (i32,
     // put one down comes back up to the mouth the same way.
     if let Some(target) = store_target(world, state).or_else(|| harvest_target(world, state)).or_else(|| store_return_target(world, state)).filter(|_| def.home_bias > 0.0) {
         return Some((target, def.home_bias));
+    }
+    // **An ant ready to lay walks home to lay** ([`ready_to_lay`]), as a
+    // laden ant does, until it is beside the nest.
+    if def.home_bias > 0.0 && ready_to_lay(world, def, state) && !nest_within_reach(world, organism, head.0, head.1, def) {
+        return Some((home_target(world, state), def.home_bias));
     }
     // **A fed nest-bound ant that strays is pulled home** ([`is_nest_bound`]),
     // as a laden ant is, to where it last stood beside the nest.
