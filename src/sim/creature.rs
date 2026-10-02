@@ -15393,6 +15393,64 @@ fn spoil_packs() -> bool {
     *ON.get_or_init(|| std::env::var("PIXEL_PHYSICS_SPOIL_PACKS").as_deref() == Ok("on"))
 }
 
+/// Whether any cell of `chain` has a `Solid`, `Powder` or `Plant` cell among
+/// its eight neighbours: the support rule's ground half
+/// ([`fall_if_unsupported`]).
+fn touches_ground(world: &World, chain: &[(i32, i32)]) -> bool {
+    chain.iter().any(|&(cx, cy)| {
+        NEIGHBOURS_8.iter().any(|&(dx, dy)| {
+            matches!(world.materials.kind(world.get(cx + dx, cy + dy).material), MaterialKind::Solid | MaterialKind::Powder | MaterialKind::Plant)
+        })
+    })
+}
+
+/// **Whether a body touches a nestmate that is itself on the ground**: the
+/// support rule's kin half, under [`kin_footing_of`]. A nestmate is an
+/// animal of the same species; "on the ground" is [`touches_ground`] of its
+/// own chain, so one ant holds the next and no further -- a body held only
+/// by a body held only by a body falls, and nothing builds a tower into the
+/// sky.
+///
+/// **A grip, not a perch**: only while the ant has stood still for fewer than
+/// [`KIN_GRIP_TICKS`]. The first build let any ant hold on for good, and
+/// resting ants with nothing to do (`P(move)` 0) settled on one another in
+/// a mat over the door: on seed 8 of the food box, 114 ants had not moved
+/// in 60 frames at frame 48,000 against 7 without the rule, and the colony
+/// was down to 3 ants by 144,000 against 542.
+fn held_by_kin(world: &World, organism: OrganismId, chain: &[(i32, i32)]) -> bool {
+    let Some(species) = world.organism(organism).filter(|s| s.still_ticks < KIN_GRIP_TICKS).map(|s| s.species) else { return false };
+    chain.iter().any(|&(cx, cy)| {
+        NEIGHBOURS_8.iter().any(|&(dx, dy)| {
+            let id = world.get(cx + dx, cy + dy).organism_id();
+            id != 0 && id != organism && world.organism(id).is_some_and(|o| o.species == species && touches_ground(world, &o.chain))
+        })
+    })
+}
+
+/// How long an ant holding on to a nestmate ([`held_by_kin`]) may stand still
+/// before it lets go: the `frames_still` the seed-8 census above counted.
+const KIN_GRIP_TICKS: u16 = 60;
+
+/// **Ants climb over each other**: `PIXEL_PHYSICS_KIN_FOOTING=on` lets a body
+/// that touches a nestmate standing on ground count as held up
+/// ([`held_by_kin`]); off by default; [`World::kin_footing`] for one world.
+///
+/// **Why** (`Reports/nest-one-entrance-2026-09-29.md` §26). Without it an
+/// ant is held up only by ground within a cell of its body, so in the room
+/// under the door -- several cells wide and tall, and packed with ants -- a
+/// carrier pulled straight up at the door's centre has nothing to hold and
+/// falls back a cell. Traced on the food box (seed 1, frames 24,000-48,000):
+/// three rows under the door's centre, carriers fell 422 times against 185
+/// steps. A carrier that cannot get out loses its patience, wanders off into
+/// the nest holding its pellet and sets it down there; that is most of the
+/// pellets standing in the tunnels.
+pub fn kin_footing_of(world: &World) -> bool {
+    world.kin_footing.unwrap_or_else(|| {
+        static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        *V.get_or_init(|| std::env::var("PIXEL_PHYSICS_KIN_FOOTING").as_deref() == Ok("on"))
+    })
+}
+
 /// Move the whole chain one cell, snake-fashion. Returns whether it moved.
 /// **The whole-chain support rule, and the fall it triggers** -- one cell
 /// straight down, if the body touches nothing solid, powdery or living
@@ -15402,11 +15460,7 @@ fn spoil_packs() -> bool {
 /// ask it every decision rather than only after a step roll won. The shipped
 /// walk still asks it only there, and still counts the fall as a move.
 fn fall_if_unsupported(world: &mut World, organism: OrganismId, def: &CreatureDef, chain: &[(i32, i32)], groups: &[u8], stacker: Option<Stacker>) -> bool {
-    let supported = chain.iter().any(|&(cx, cy)| {
-        NEIGHBOURS_8.iter().any(|&(dx, dy)| {
-            matches!(world.materials.kind(world.get(cx + dx, cy + dy).material), MaterialKind::Solid | MaterialKind::Powder | MaterialKind::Plant)
-        })
-    });
+    let supported = touches_ground(world, chain) || (kin_footing_of(world) && held_by_kin(world, organism, chain));
     if !supported {
         let fallen: Vec<(i32, i32)> = chain.iter().map(|&(cx, cy)| (cx, cy + 1)).collect();
         // Tissue-aware for the same reason the step below is: an animal
@@ -30860,6 +30914,55 @@ mod tests {
         let falls: Vec<&DecisionRow> = rows.iter().filter(|r| r.outcome == DecisionOutcome::Fell).collect();
         assert!(falls.len() >= 19, "{} falls for a 20-row drop", falls.len());
         assert!(falls.iter().all(|r| !r.moved && r.roll_move.is_nan()), "a fall is not a move and takes no step roll");
+    }
+
+    /// **A nestmate on the ground holds an ant up, and one held only by a
+    /// nestmate holds nothing** ([`kin_footing_of`]). Three ants stacked over
+    /// a stone floor in open air: A lies on the floor, B lies on A, C lies on
+    /// B. Nothing but A is within a cell of ground. Off, B falls; on, B holds
+    /// and C, whose only footing is B, still falls; and B lets go once it has
+    /// stood still for [`KIN_GRIP_TICKS`]. **Watched red** with
+    /// `held_by_kin`'s `touches_ground` test of the nestmate removed: C then
+    /// holds too.
+    #[test]
+    fn a_nestmate_on_the_ground_holds_an_ant_up_one_level_only() {
+        let hold = |kin: bool, resting: bool| -> (bool, bool) {
+            let stone = Cell::new(material::STONE, 0).with_attached(true);
+            let mut w = World::new(Rect::new(0, 0, 159, 63));
+            for x in 0..160 {
+                for y in 51..64 {
+                    w.set(x, y, stone);
+                }
+            }
+            w.kin_footing = Some(kin);
+            // Each body a row up and two columns over from the last, so they
+            // touch only at a corner and each has an empty cell to fall into:
+            // an ant cannot fall into the one under it, so a stack straight
+            // up would hold for that reason and not this one.
+            let a = spawn(&mut w, "ant", 80, 50);
+            let ch = w.organism(a).expect("live").chain.clone();
+            let along = ch[ch.len() - 1].0 - ch[0].0;
+            let head_x = |max_x: i32| if along > 0 { max_x + 1 } else { max_x + 2 };
+            let b = spawn(&mut w, "ant", head_x(ch.iter().map(|c| c.0).max().unwrap()), 49);
+            let bx = w.organism(b).expect("live").chain.iter().map(|c| c.0).max().unwrap();
+            let c = spawn(&mut w, "ant", head_x(bx), 48);
+            let cells = |id: OrganismId| -> Vec<(i32, i32)> { w.organism(id).expect("live").chain.clone() };
+            let (ca, cb, cc) = (cells(a), cells(b), cells(c));
+            for ch in [&ca, &cb, &cc] {
+                assert!(ch.len() == 2 && ch[0].1 == ch[1].1, "the scene assumes two-cell bodies lying flat: {ch:?}");
+            }
+            let touch = |p: &[(i32, i32)], q: &[(i32, i32)]| p.iter().any(|&(px, py)| q.iter().any(|&(qx, qy)| (px - qx).abs() <= 1 && (py - qy).abs() <= 1));
+            assert!(touch(&ca, &cb) && touch(&cb, &cc) && !touch(&ca, &cc), "the bodies must touch in a chain A-B-C: {ca:?} {cb:?} {cc:?}");
+            let def = w.species.get(w.organism(b).expect("live").species).creature.clone().expect("a creature");
+            assert!(!fall_now_if_unsupported(&mut w, a, &def), "A lies on the floor and must hold either way");
+            if resting {
+                w.organism_mut(b).expect("live").still_ticks = KIN_GRIP_TICKS;
+            }
+            (!fall_now_if_unsupported(&mut w, b, &def), !fall_now_if_unsupported(&mut w, c, &def))
+        };
+        assert_eq!(hold(false, false), (false, false), "off, nothing but ground holds an ant up");
+        assert_eq!(hold(true, false), (true, false), "on, B holds on A and C, held only by B, falls");
+        assert_eq!(hold(true, true).0, false, "on, B that has stood still for the grip's length lets go");
     }
 
     /// **An empty explorer keeps going under the chooser** -- S0's finding
