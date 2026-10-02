@@ -1588,3 +1588,22 @@ Four seeds of a colony this chaotic cannot rank fill between arms; the
 survival column alone swings 0-700 within an arm. What the runs do settle
 is the shape: the roof keeps a nest's top, the collar has nothing to hold,
 and carrying spoil further or over a crest costs colonies.
+
+**Twelve seeds of the roof against shipped** (the same bed and frames,
+seeds 1-12; labelled grid: project file
+`nest/roof-vs-shipped-seeds-2026-10-02.png`). Ants alive at 144,000:
+shipped 466 / 672 / 608 / 444 / 589 / 752 / 582 / 369 / 55 / 26 / 60 / 17,
+roofed 128 / 675 / 491 / 359 / 582 / 534 / 508 / 37 / 374 / 458 / 12 / 689;
+median 455 against 474, colonies under 100 ants 4 against 2. Fruit taken is
+lower with the roof on 9 of 12 seeds (median about 9,250 against 7,850
+cells, -15%). The first eight seeds alone read as a cost in ants (lower on 7
+of 8), and a trace of two of them put it in births (same fruit digested by
+48,000 frames, births ahead at 24,000 and behind by half at 48,000,
+mouth-to-mouth shares 4k against 41k; refusals for room or for not being at
+the nest small on both sides, `digbox`'s new BIRTHS line). Seeds 9-12, where
+the shipped colony crashed, reverse it: over twelve the roof costs some
+foraging and no ants.
+
+**On by default (2026-10-02).** The owner, on the twelve-seed grid: *"On"*.
+`PIXEL_PHYSICS_DIG_ROOF` unset now reads as 6 rows (`DIG_ROOF_SHIPPED`);
+`off` is the ant before.

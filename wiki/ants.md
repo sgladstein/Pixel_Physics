@@ -1,7 +1,15 @@
 # Ants
 
-*Current as of: 2026-10-01, when **an ant leaving the nest started reading
-which way the food is.** An empty forager stepping out of the front door used
+*Current as of: 2026-10-02, when **a colony started leaving a roof over its
+nest.** Diggers used to cut their first rooms just under the surface, and the
+thin crust over them fell in, so the top of the nest became an open crater as
+wide as the nest, crowded with ants, with loose soil from its rim running
+back into the tunnels. Now a digger leaves the top few rows of ground whole
+everywhere except at the front door, so the nest is a crust with one door in
+it and the rooms open out below. Over twelve test colonies the crust stayed
+whole on every one, as many ants were alive as before, and about a sixth
+less food came off the heap. On 2026-10-01 **an ant leaving the nest started
+reading which way the food is.** An empty forager stepping out of the front door used
 to set off whichever way it happened to be facing, so a third of them walked
 away from the only heap. Now an ant at the door smells the food scent a few
 steps to either side and turns toward the stronger one, and an ant that has
