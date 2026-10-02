@@ -1668,3 +1668,124 @@ for a switch that measures as a gain. The 12-seed grid is
 `/mnt/project-files/nest/grip-vs-now-12-seeds-2026-10-02.png` in the
 project's files.
 
+
+## 27. Food piled like with like (`PIXEL_PHYSICS_STOREROOM=...,pile`, off; 2026-10-02)
+
+**Owner, 2026-10-02**, on the storeroom: *"Is this all hardcoded in a way
+that goes against our principals? How well does our defined storeroom
+work?"* It is hardcoded (a room cut at founding, and one ant in four a nest
+worker by id), and it holds nothing: 0 food cells at every stop on all 12
+food-box seeds.
+
+**The rule** (`pile`, a part of the storeroom switch): a carrier has no room
+to walk to. It picks a food cell up with probability `(k1/(k1+f))^2` and puts
+one down with `(f/(k2+f))^2`, `f` the share of the 24 cells within two that
+hold loose food, `k1` 0.1, `k2` 0.3 (Deneubourg et al. 1991). A cell it
+declines is left, not eaten. Under `keep`, a fed ant at home leaves food with
+two or more food cells beside it. digbox's `PILES` line groups standing food
+8-connected, overall and within 30 columns of the door.
+
+Food box, brood on, `BUD_SITE=nest`, main 34b46b64, 144,000 frames, medians
+over seeds 1-12 (the share in clumps pools the five stops from 48k on):
+
+| arm | food near the door in clumps of 3+ | fruit taken | births | mean live ants | near-dead (<10) at 144k |
+|---|---|---|---|---|---|
+| shipped | 33% | 8,148 | 927 | 214 | 1 |
+| `on,caste=4,workerhome,keep,pile` | 51% (more on 10 of 12) | 6,262 | 587 | 130 | 2 |
+| `on,caste=4,workerhome,pile` | 44% | 7,324 | 674 | 154 | 0 |
+
+Seeds 1-4 only: carriers by age (`nestbound`) instead of the caste killed
+seed 2 (5 births); any fed ant at home (`on,workerhome,keep,pile`) clumped 33%.
+
+**It clumps, and it costs food.** Refusing fed ants the piles is about half
+the cost; the rest is not traced. The piles stay small (20-30 cells) because
+the colony eats nearly all it brings home: standing food at home is 2-5 cells
+underground and 34-53 strewn on the surface at 144k. And under the shipped
+`AtNest` only the founding cut and the painted door are home, so a forager's
+food lands at the door and nothing piling does can reach a room dug later
+(`/mnt/project-files/nest/in-the-nest-audit-2026-10-02.md`). Off.
+
+## 28. The dug nest is home, and piles replace the room (both shipped 2026-10-02)
+
+**Owner, 2026-10-02:** picked "Fix home first" after the audit
+(`/mnt/project-files/nest/in-the-nest-audit-2026-10-02.md`) found that home,
+for every system that asks, was the painted door strip, so nothing a colony
+dug ever became home. Later the same day he set the goal: *"a more stable
+colony that breeds less, builds up a food supply and survives long term"*.
+
+**Home** (`NestHome::Dug`, `World::step_nest_dug`): every open cell (empty,
+an animal, or loose spoil, corpse, crumbs or unowned food) at or below the
+site's old ground line that a 4-connected walk reaches from the door's
+surface cells or the founding cut, within 60x60, rebuilt every 256 frames.
+Loose things count as open because a single crumb on the mouth otherwise cut
+home from 43 cells to 6 (seed 1, frame 8,000).
+
+**Food box, 144k, 12 seeds, medians** (brood on, `BUD_SITE=nest`):
+
+| main | home | fruit taken | births | alive |
+|---|---|---|---|---|
+| 6235fb1e | door strip | 7,901 | 900 | |
+| 6235fb1e | dug | 8,767 | 1,050 | |
+| 8d7cfc9c | door strip | 8,360 | 1,167 | |
+| 8d7cfc9c | dug | 10,147 | 1,400 | |
+| 6a8dacd4 (graded fertility on) | door strip | 8,721 | | 384 |
+| 6a8dacd4 | dug | 7,385 | | 233 |
+
+So the dug home alone was a gain until graded fertility shipped, and a loss
+after it.
+
+**Long runs, 240k, 12 seeds, main 6a8dacd4** (fall = from the run's peak to
+its lowest point after it):
+
+| home, storeroom | peak | end | fall | colonies dead or under 10 | fruit | births |
+|---|---|---|---|---|---|---|
+| strip, room (`side,keep`) | 476 | 370 | 35% | 3 | 16,881 | 2,116 |
+| dug, room | 379 | 164 | 59% | 3 | 13,229 | 2,000 |
+| dug, no room, no pile | 390 | 284 | 19% | 2 | 12,554 | 1,769 |
+| strip, pile | 366 | 341 | 3% | 2 | 12,760 | 1,448 |
+| **dug, pile** (`on,caste=4,workerhome,pile`) | 367 | 351 | **7%** | **1** | 14,817 | 2,210 |
+
+**Piling is what steadies the colony**, under either home: the falls are
+3-7% against 19-59%. Dropping the room and `keep` alone recovers part of it
+(59% -> 19%). Dug + pile ships, on the owner's goal: steadiest but one, the
+fewest colonies lost, the most births, and more fruit than the strip with
+piles. It takes less fruit than today's strip and room (14.8k against 16.9k).
+
+**Why the dug home makes one big room, not several** (traced on the cut log,
+`digbox cutscsv=`): cuts underground rose 2-4x and 93-96% fell inside home;
+the ants round each cut stayed dense (median 6-10 within 3 cells), and edge
+density deciding round against branched is Toffin et al. 2009's finding
+(`nest-biology-2026-09-19.md` §2). Local crowding readings (`CROWDING_LOCAL`)
+still made one room at 96k. Open.
+
+**Lab box, main 0738a8ca (laying only at the nest, PR 546), 120k, 12 seeds:**
+strip 1 of 12 colonies alive at the end, born median 2.5; dug 0 of 12, 1.5;
+dug + pile 2 of 12, 1. **The dug home does not rescue it.** Home there is
+40-74 cells (the colony barely digs past the founding cut), nest visits rise
+4x (1,739 -> 7,452) but only 0-16 eggs are laid in 120k frames: the ants rich
+enough to lay are out on the surface. Brood that is laid does fine. Passed
+to the breeding lane: an ant ready to lay would have to walk home to lay.
+
+**Nest workers away from the nest** (asked by the owner): on the food box
+only 14-24% were in the mouth or underground; 38-48% on the mound and 31-42%
+out on the surface. Traced (seed 1, dug, 24-72k, every nest worker's
+decision): fed nest workers far out had their anchor at the door, 85% of
+their steps at home-pull patience under 0.05, and stepped on about 3% of
+decisions. The pull at the crowded door gives up, and with no pull they
+drift. **Two fixes measured, neither shipped** (dug home, 144k, 11 seeds,
+branch tree 05f43224, medians):
+
+| arm | alive | fall | dead or <10 | nest workers underground |
+|---|---|---|---|---|
+| shipped tether | 283 | 11% | 0 | 14% |
+| `BroodBearing` cue (hungry larvae within 6 cells steer `Turn`, -2.5) | 189 | 49% | 3 | 19% |
+| no tether (`NEST_LEASH=off`) + rest inside (`NEST_REST=workers`) | 233 | 37% | 1 | 22% |
+| both | 62 | 81% | 2 | 33% |
+
+The owner's objection to a pull "just to a spot" stands: real nest workers
+stay because their work and their rest are inside (fidelity zones round the
+brood, Sendova-Franks & Franks 1994; the idle reserve, Charbonneau & Dornhaus
+2017). The cue was built as a brain sense and its weight a gene, and it made
+colonies crash; why is not traced. It is not on this branch's head (it lives
+at 05f43224 and c6b81778). `NEST_LEASH=off` and `=deep` (pull to the chamber
+floor, patience held) remain as off switches.

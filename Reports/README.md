@@ -4104,7 +4104,10 @@ design guide's §7b-i calls "already data" are Rust `const`s.
 - [nest-one-entrance-2026-09-29.md](nest-one-entrance-2026-09-29.md) —
   **measurement and switches, 2026-09-29; since §18 (2026-09-30) the
   walked cycle, stacking at 4 and births on nestmates ship on as one
-  package. `engine`/`lab`. The
+  package; since §28 (2026-10-02) the dug nest is home and food piles
+  replace the side room, both shipped (piling steadies colonies: 7% fall
+  from peak against 59%); a hungry-larva brain cue measured and withdrawn.
+  `engine`/`lab`. The
   owner picked walking the soil out and back (§7); §10 traces it.** Why a
   colony under the five-column door opens 6-7 entrances where the old strip
   allowed 2: the storeroom adds none, and the roof breaks under the colony's

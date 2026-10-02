@@ -9985,6 +9985,21 @@ has no meaning without the door. `PIXEL_PHYSICS_NEST_DOOR=off` and
 (the colony bed, 8 seeds, and `digbox`, 2 seeds, line for line), and
 `World::nest_door` / `World::storeroom` set either for one world.
 
+**Since 2026-10-02 the whole dug nest is home, and the granary is piles**
+(`Reports/nest-one-entrance-2026-09-29.md` §28). `AtNest`, putting food
+down at home, laying, and every other test that asks whether an ant is at
+its nest read `World::nest_dug` (`creature::NestHome::Dug`): the open cells a
+walk reaches from the door, down to 60 rows and 60 columns either side.
+`PIXEL_PHYSICS_NEST_HOME=material` is the painted door strip. The side room
+is no longer cut into the shipped rule: `Storeroom::SHIPPED` is
+`on,caste=4,workerhome,pile`, and nest workers pick up food that lies alone
+and set it down where food already lies (Deneubourg et al. 1991's
+clustering rule), so the store is wherever food gathers. On the food box
+over 240k frames (12 seeds) colonies fell a median 7% from their peak
+against 59% with the room. **It does not rescue the lab box under laying
+only at the nest**: there the colony barely digs (home 40-74 cells) and the
+ants rich enough to lay are out on the surface.
+
 **How the colony digs**, shipped the day before
 (`Reports/nest-dig-wiring-2026-09-28.md`, `Reports/nest-heap-cue-2026-09-28.md`):
 an ant digs where the ground curves in round it rather than whatever it faces;
