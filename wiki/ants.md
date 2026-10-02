@@ -1,6 +1,12 @@
 # Ants
 
-*Current as of: 2026-10-02, when **a colony started leaving a roof over its
+*Current as of: 2026-10-02, when **an ant started holding on to a nestmate
+to climb.** Diggers carrying soil out used to fall back again and again in the
+room under the front door: an ant could only hold on to ground, and in the
+middle of a room there is none, so many gave up and put their soil down in the
+tunnels. Now an ant can hold on to a nestmate who is standing on ground, so
+they climb out over each other, and fewer tunnels fill with dropped soil.
+Earlier the same day **a colony started leaving a roof over its
 nest.** Diggers used to cut their first rooms just under the surface, and the
 thin crust over them fell in, so the top of the nest became an open crater as
 wide as the nest, crowded with ants, with loose soil from its rim running
@@ -706,7 +712,10 @@ the spot, and a pause is a pause: it does not re-aim until it next moves.
 is generous: they will walk up a wall and along a ceiling, and they take
 diagonal steps as happily as straight ones. They will not step out into
 open air — an ant that can see nowhere to put its feet turns and looks
-somewhere else. Take the ground out from under one and it falls like
+somewhere else. A nestmate standing on the ground counts as somewhere to
+put its feet, so ants climb over each other out of a hole, but only one ant
+deep, and only while they are on the move: an ant that stops on top of
+another soon slips off. Take the ground out from under one and it falls like
 anything else.
 
 **And they walk *through* soft growing things.** Leaves, grass, moss and

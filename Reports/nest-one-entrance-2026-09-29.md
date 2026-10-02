@@ -1607,3 +1607,64 @@ foraging and no ants.
 **On by default (2026-10-02).** The owner, on the twelve-seed grid: *"On"*.
 `PIXEL_PHYSICS_DIG_ROOF` unset now reads as 6 rows (`DIG_ROOF_SHIPPED`);
 `off` is the ant before.
+
+## 26. Carriers fall back under the door; ants now grip nestmates (2026-10-02)
+
+**The owner's question:** why do so many pellets go down inside the nest,
+when ants can pass through each other and the mouth is wide? The first
+answer, given in the thread ("the carrier gets stuck in traffic"), was read
+off a counter and was wrong.
+Traced per carrier (`digbox` `tripcsv=` and `decisions=`, seed 1, main
+44f14af):
+
+- **"Inside" was mostly the mound.** `TRIPS`'s inside counts any cell with
+  ground above it, and by mid-run the mound is a warren of its own overhangs.
+  From 96,000 to 144,000 frames, of the pellets whose carrier lived: 1,512
+  went down inside the mound, 499 below the old ground line, 37 in the open.
+  The 499 are the tunnel's pellets.
+- **Those carriers fall.** An ant is held up only by ground within a cell of
+  its body; a nestmate is `Creature`, not support. The room under the door is
+  several cells wide and tall, the haul's pull aims at the door's centre, and
+  a carrier there has nothing to hold: frames 24,000-48,000, under the door
+  (5 columns, rows 2-6) carriers fell 3,077 times against 6,410 steps, and in
+  the worst cell 422 against 185. Patience falls on every step that does not
+  close on the door, runs out, and the carrier wanders off holding its
+  pellet; one traced carrier reached the door at frame 33,150, fell for
+  3,700 frames, then carried its pellet 20 columns away and 16 rows down and
+  set it down at 44,116.
+- **Not traffic.** `JAM`'s "standing facing an animal" counts every frame a
+  carrier did not move, and an ant decides about once in seven frames; the
+  decision rows have no blocked outcome, and a carrier that did not move had
+  lost its own move roll.
+
+**The change: `PIXEL_PHYSICS_KIN_FOOTING`** (`held_by_kin`). A body touching
+a nestmate whose own body touches ground is held up: one level, so nothing
+towers. **The first build let any ant hold on for good and resting ants
+(`P(move)` 0) perched on each other in a mat over the door**: seed 8, at
+48,000 frames, 114 ants had not moved in 60 frames against 7 without it, and
+the colony fell to 3 ants by 144,000 against 542. Over 12 seeds that build
+left ants alive at a median 244.5 against 369. So the grip lapses once the
+ant has stood still `KIN_GRIP_TICKS` (60) ticks.
+
+Measured with the grip (food box, seeds 1-12, 144,000 frames, main 44f14af,
+the roof on):
+
+| | without | with |
+|---|---|---|
+| carrier falls under the door, seed 1, 24k-48k | 3,077 | 13 |
+| pellets standing in the tunnels, median | 70.5 | 22.5 (lower on 9 of 12) |
+| soil packed back into dug cells, median | 175 | 66 (lower on 9) |
+| loose soil in dug cells, median | 75.5 | 45 |
+| ants alive, median | 369 | 481.5 (higher on 8) |
+| fruit placed, median | 8,153.5 | 9,202 (higher on 9) |
+
+Animal falls over the whole box fall 16-46% (seeds 1-2 at 48,000:
+159,529 -> 133,962 and 151,698 -> 82,500), and `KIN` prints how many
+support checks the grip passed. Seeds 4, 8 and 12 have fewer ants with it
+(424 -> 175, 542 -> 144, 356 -> 151) and seeds 6, 9 and 10 have far more
+(495 -> 1,260, 331 -> 977, 209 -> 765); the box's colonies swing this much
+between seeds either way. On by default the same day, the project's default
+for a switch that measures as a gain. The 12-seed grid is
+`/mnt/project-files/nest/grip-vs-now-12-seeds-2026-10-02.png` in the
+project's files.
+
