@@ -1290,6 +1290,8 @@ struct AntTrack {
 
 #[derive(Default)]
 struct NestFunnel {
+    /// `cutscsv=PATH`: one row a cut (see where it is written).
+    cuts_csv: Option<std::io::BufWriter<std::fs::File>>,
     /// `gridout=`: trace every cell's packing -- the frame it last became
     /// `packedsoil` (`u64::MAX`: not since frame 0) and what it was just
     /// before, as [`PACKED_FROM`] indexes. Off unless asked: a whole-box
@@ -1729,6 +1731,30 @@ impl NestFunnel {
                 };
                 if let Some((tx, ty)) = target {
                     self.cuts_this_frame.push((tx, ty, pre.head.1));
+                    // **`cutscsv=`: one row a cut**, for "is the colony
+                    // widening a room or pushing a tunnel": the open
+                    // 8-neighbours the cut cell had (1-2 is a tunnel's tip,
+                    // 5+ a room's wall), whether it is home under
+                    // `NEST_HOME=dug`, and the animals within three cells.
+                    if let Some(w) = self.cuts_csv.as_mut() {
+                        use std::io::Write;
+                        let open = |x: i32, y: i32| {
+                            let c = world.get(x, y);
+                            c.material == material::EMPTY || c.organism_id() != 0
+                        };
+                        let nb = (-1..=1).flat_map(|dy| (-1..=1).map(move |dx| (dx, dy))).filter(|&(dx, dy)| (dx, dy) != (0, 0) && open(tx + dx, ty + dy)).count();
+                        let home = (-1..=1).any(|dy| (-1..=1).any(|dx| world.nest_dug.contains(&(tx + dx, ty + dy))));
+                        let mut near = std::collections::HashSet::new();
+                        for dy in -3..=3 {
+                            for dx in -3..=3 {
+                                let id = world.get(tx + dx, ty + dy).organism_id();
+                                if id != 0 {
+                                    near.insert(id);
+                                }
+                            }
+                        }
+                        let _ = writeln!(w, "{frame},{tx},{ty},{},{nb},{},{},{}", ty - b.surface, u8::from(home), near.len(), u8::from(pre.nest_bound));
+                    }
                     self.cuts_at[place] += 1;
                     let (near, fresh) = Self::spoil_near_of(&self.grid, &self.put_frame, b, spoil_id, frame, tx, ty);
                     self.spoil_near[1][0] += 1;
@@ -3853,6 +3879,12 @@ fn main() {
     });
     if pile_on {
         world.decision_log = Some(Vec::new());
+    }
+    if let Some(path) = arg::<String>("cutscsv") {
+        use std::io::Write;
+        let mut w = std::io::BufWriter::new(std::fs::File::create(&path).expect("cutscsv: cannot create the file"));
+        let _ = writeln!(w, "frame,x,y,row,open_nb,home,animals_within3,nest_worker");
+        funnel.cuts_csv = Some(w);
     }
     if let Some(path) = arg::<String>("decisions") {
         use std::io::Write;
