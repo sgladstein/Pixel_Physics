@@ -3764,6 +3764,9 @@ fn main() {
         pixel_physics::sim::creature::NestHome::Shaft => {
             println!("  home: the painted nest AND the founding cut (PIXEL_PHYSICS_NEST_HOME=shaft) -- in the shaft, the chamber or on the mouth's rim an ant is AtNest")
         }
+        pixel_physics::sim::creature::NestHome::Dug => {
+            println!("  home: the painted nest AND the dug nest joined to its door, below the old ground line (PIXEL_PHYSICS_NEST_HOME=dug)")
+        }
         pixel_physics::sim::creature::NestHome::Mouth => println!(
             "  home: the painted nest AND the founding cut's mouth (PIXEL_PHYSICS_NEST_HOME=mouth) -- on the rim or in the first {} rows down an ant is AtNest; deeper it is away",
             pixel_physics::sim::creature::NEST_MOUTH_ROWS
@@ -4563,6 +4566,7 @@ fn larder_census(world: &World, b: &Box2, p: &FoodPile, frame: u64) -> String {
         near.iter().max().copied().unwrap_or(0),
         st.pile_left
     );
+    let piles = format!("{piles}\nHOME frame={frame} dug cells that are home (PIXEL_PHYSICS_NEST_HOME=dug) {}", world.nest_dug.len());
     format!(
         "{piles}\nLARDER frame={frame} food standing (larder and crumbs, cells): in the storeroom {in_store}, elsewhere below the old ground line {below}, above it outside the pile {above} | storeroom carry: picked up {}, set down {}, let go outside {}, refused for a full room {}, bites kept from the fed {} | put down at home {}, taken back up at home {} | shares {} ({:.0} J), digested {:.0} J | births paid from the store (PIXEL_PHYSICS_BUD_STORE) {} | foragers' crop cells put down in the store (harvest) {}, ticks held on the way {} | bud ticks held for not being at the nest (BUD_SITE) {}",
         st.store_pickups, st.store_delivered, st.store_released, st.store_room_full, st.store_kept, st.deliveries, st.pickups_at_nest, st.shares, st.shared_j, st.digested_face, st.store_births, st.harvest_stored, st.harvest_held, st.buds_held_for_nest

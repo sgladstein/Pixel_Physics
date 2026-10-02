@@ -318,7 +318,7 @@ const WORM_HEAT_THRESHOLD_ABOVE_AMBIENT: f32 = 25.0;
 /// to zero, which would turn a neighbourhood into a single cell and read as
 /// the sense being dead rather than as being mis-scaled.
 #[inline]
-fn scaled_cells(world: &World, authored: i32) -> i32 {
+pub(crate) fn scaled_cells(world: &World, authored: i32) -> i32 {
     if authored == 0 {
         return 0;
     }
@@ -3178,7 +3178,32 @@ pub enum NestHome {
     /// `mouth`: within one cell of the cut's top rows only -- the rim and the
     /// first body length down ([`crate::sim::world::ShaftFootprint::touches_mouth`]).
     Mouth,
+    /// `dug`: **within one cell of the nest the colony has dug** -- every
+    /// open cell below the old ground line that a walk through open cells
+    /// reaches from the door ([`World::nest_dug`], rebuilt by
+    /// [`World::step_nest_dug`] every `ROOM_INTERVAL` frames), within
+    /// [`DUG_HOME_REACH`] of the site. Home grows as the nest is dug, so a
+    /// room cut last week is home this week, and nobody drew it.
+    ///
+    /// **Why** (the owner's pick, 2026-10-02, after the audit
+    /// `/mnt/project-files/nest/in-the-nest-audit-2026-10-02.md`): under
+    /// [`NestHome::Material`] nothing the colony digs ever becomes home, so
+    /// the chamber dig gate, putting food down and laying all stay at the
+    /// painted door. **`shaft` starved colonies on 2026-09-26 and no longer
+    /// does**: food box, brood on, 12 seeds, 144k, it took 8,314 cells of
+    /// fruit against the material home's 8,148, after kin footing and the
+    /// forage throttle (nest report §28). **Never above the old ground
+    /// line**: home that rose with the pile over the door built towers
+    /// (`NEST_HOME=mound`, `Reports/dead-ends.md`).
+    Dug,
 }
+
+/// **How far the dug home reaches from its nest site**, in authored cells
+/// (scaled): columns either side, and rows below the old ground line. Bounds
+/// the fill's work and keeps a tunnel that breaks through to a neighbour's
+/// nest from making the two one home. A nest is never this big in the boxes
+/// measured (the food box's colony digs about 30 x 22).
+pub const DUG_HOME_REACH: (i32, i32) = (60, 60);
 
 /// **How much of the founding cut is home** -- `PIXEL_PHYSICS_NEST_HOME=shaft`
 /// or `=mouth`, or [`World::nest_home`] for one world. [`NestHome::Material`]
@@ -3224,6 +3249,7 @@ pub fn nest_home(world: &World) -> NestHome {
         *V.get_or_init(|| match std::env::var("PIXEL_PHYSICS_NEST_HOME").as_deref() {
             Ok("shaft") => NestHome::Shaft,
             Ok("mouth") => NestHome::Mouth,
+            Ok("dug") => NestHome::Dug,
             _ => NestHome::Material,
         })
     })
@@ -12643,6 +12669,7 @@ fn adjacent_nest(world: &World, x: i32, y: i32, def: &CreatureDef) -> bool {
         NestHome::Material => false,
         NestHome::Shaft => world.nest_sites.iter().filter_map(|s| s.shaft).any(|cut| cut.touches(x, y)),
         NestHome::Mouth => world.nest_sites.iter().filter_map(|s| s.shaft).any(|cut| cut.touches_mouth(x, y)),
+        NestHome::Dug => !world.nest_dug.is_empty() && (-1..=1).any(|dy| (-1..=1).any(|dx| world.nest_dug.contains(&(x + dx, y + dy)))),
     };
     if in_cut {
         return true;
