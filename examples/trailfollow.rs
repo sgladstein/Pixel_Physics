@@ -2751,6 +2751,13 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
     // cell the budget cannot explain, the fruit cells that vanished since the
     // last sample are printed with what now stands where they were.
     let food_watch = flag("foodwatch");
+    // **`bankdump=<file>`: every ant's energy bank, one row per ant, at each
+    // 3,000-frame sample** -- `frame,id,bank_j,crop_j,brood` (brood 0 adult,
+    // 1 egg, 2 larva, 3 pupa). Built 2026-10-02 for the owner's "do some ants
+    // hold huge banks while others starve?": `ant bodies` on the FOOD STORE
+    // line is a sum and cannot say how it is spread. Off unless asked.
+    let bank_dump: Option<String> = arg_str("bankdump");
+    let mut bank_rows: Vec<String> = Vec::new();
     // `crumbwatch`: every frame, where each crumb is, and when one appears,
     // moves or has its surroundings closed over -- with what closed them.
     // Built to answer whether a crumb underground slid there or was buried.
@@ -3556,6 +3563,11 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
                 }
                 live += 1;
                 body_j += st.energy as f64;
+                if bank_dump.is_some() {
+                    let crop_j = st.crop.map_or(0.0, |c| c.cells as f32 * c.unit);
+                    let brood = st.brood.map_or(0, |b| b.stage as u8 + 1);
+                    bank_rows.push(format!("{f},{},{:.1},{crop_j:.1},{brood}", id, st.energy));
+                }
                 if let Some(c) = st.crop.filter(|c| is_larder_food(c.material)) {
                     in_crops += c.cells as u32;
                 }
@@ -5178,6 +5190,10 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
     // **Written outside `if tracing`**: the GIF is not a trace artifact and
     // gating it on that flag made it silently produce nothing.
     println!("    FOOD STORE (larder cells) -- {}", store_series.join(" | "));
+    if let Some(path) = &bank_dump {
+        std::fs::write(path, format!("frame,id,bank_j,crop_j,brood\n{}\n", bank_rows.join("\n"))).expect("bankdump: write");
+        println!("    BANKDUMP {} rows -> {path}", bank_rows.len());
+    }
     if let Some(n) = room_every {
         let chamber: Vec<String> = room_series.iter().map(|&(_, c, _)| c.to_string()).collect();
         let shaft: Vec<String> = room_series.iter().map(|&(_, _, s)| s.to_string()).collect();
