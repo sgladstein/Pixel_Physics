@@ -634,7 +634,11 @@
         // `brain.rs`'s `the_live_slot_count_is_pinned_because_mutation_rate_
         // is_derived_from_it`, which is also the test that fails if this value
         // and that count ever disagree again.
-        mutation_rate: 0.0033758,
+        // **0.0032919, re-derived 2026-10-02** when `BroodBearing` appended
+        // -- hungry larvae close by, as a bearing. An input column is 24
+        // live slots, so `live_slots` 942 -> 966 and `3.18 / 966 =
+        // 0.0032919`.
+        mutation_rate: 0.0032919,
 
         // **A living nestmate counts as ground.** Footing only, never
         // passability -- two ants still cannot walk through each other --

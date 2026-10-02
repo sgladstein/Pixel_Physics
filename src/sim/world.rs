@@ -4220,6 +4220,11 @@ pub struct World {
     /// door, within `creature::DUG_HOME_REACH`. Rebuilt every
     /// `ROOM_INTERVAL` frames by `step_nest_dug`; empty under any other home.
     pub nest_dug: crate::sim::fxhash::PosSet,
+    /// **Every hungry larva, for `BrainInput::BroodBearing`**: its cell, its
+    /// need (`creature::kin_deficit`) and its handle. Rebuilt every
+    /// `creature::BROOD_CUE_INTERVAL` frames by `creature::step_brood_cue`;
+    /// empty with no brood or with the cue off.
+    pub brood_cue: Vec<(i32, i32, f32, OrganismId)>,
     /// **What each nest needs, for the forage drive**, in `[0, 1]`: under
     /// `hunger` its animals' mean hunger, under `larder` how far the food
     /// standing at home falls short of a store (`creature::nest_needs`).
@@ -6382,6 +6387,7 @@ impl World {
             nest_sites: Vec::new(),
             nest_room: Vec::new(),
             nest_dug: Default::default(),
+            brood_cue: Vec::new(),
             nest_need: Vec::new(),
             nest_last_return: Vec::new(),
             room_gate: creature::room_gate_default(),
@@ -10930,6 +10936,9 @@ impl World {
         // **And the dug nest that is home** under `NEST_HOME=dug`, on the
         // same cadence; every other world returns on its first line.
         self.step_nest_dug();
+        // **And where the hungry larvae are**, for `BroodBearing`; a world
+        // with no brood returns on its first line.
+        crate::sim::creature::step_brood_cue(self);
         // **And how hungry each nest is**, on the same cadence, for the forage
         // drive only (`step_nest_need`); every other world returns on its
         // first line.
