@@ -1842,13 +1842,16 @@
             (KinNeed, Move, 1.25),
             // **Toward hungry larvae close by** (`BroodBearing`, 2026-10-02):
             // pursuit, the shape `(PreyBearing, Turn, -2.5)` has on the
-            // beetle and at its weight -- negative because `Turn` biases left
-            // when positive and the bearing is positive to the right. The
+            // beetle -- negative because `Turn` biases left when positive and
+            // the bearing is positive to the right. 1.9 rather than the
+            // beetle's 2.5 so it stays under `(Bias, Move, 2.0)` on the lab's
+            // plain-speech page (five drives, strongest first); squashed,
+            // 1.9 and 2.5 turn 0.66 and 0.71 of the way. The
             // first thing in the nest an ant is drawn to rather than
             // tethered to (owner: nest workers "should stay in the nest
             // because all their work is in the nest"). A gene, so how
             // strongly brood draws an ant can evolve.
-            (BroodBearing, Turn, -2.5),
+            (BroodBearing, Turn, -1.9),
         ],
 
         // **The gate a single layer cannot express**, authored as weights
