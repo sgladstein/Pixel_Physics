@@ -2880,7 +2880,7 @@ fn birth_bar(threshold: f32, cost: f32, def: &CreatureDef, laying: Option<&super
 /// species with no nest, or a world laying anywhere, never reads true.
 /// `PIXEL_PHYSICS_LAY_HOME=off` turns the walk off.
 pub fn ready_to_lay(world: &World, def: &CreatureDef, state: &super::organism::OrganismState) -> bool {
-    if !lay_home_on() || state.brood.is_some() || def.nest.is_empty() || !bud_at_nest(world) || state.spoil.is_some() || state.crop.is_some_and(|c| c.worth() > 0.0) {
+    if !lay_home_on() || state.brood.is_some() || def.nest.is_empty() || !bud_at_nest(world) || state.spoil.is_some() || (!lay_home_laden() && state.crop.is_some_and(|c| c.worth() > 0.0)) {
         return false;
     }
     let Some(threshold) = reproduce_at_of(def, &state.traits) else {
@@ -2888,6 +2888,15 @@ pub fn ready_to_lay(world: &World, def: &CreatureDef, state: &super::organism::O
     };
     let cost = birth_cost_of(def, birth_grant(def, &state.traits));
     state.energy >= birth_bar(threshold, cost, def, super::brood::brood_of(world, def).as_ref())
+}
+
+/// `PIXEL_PHYSICS_LAY_HOME=laden`: a ready ant with food in its crop walks
+/// home to lay too. On the lab box (seed 1, 30k frames) 90% of the samples
+/// in which an ant could lay were laden ants, which the empty-crop rule
+/// never pulled.
+fn lay_home_laden() -> bool {
+    static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *V.get_or_init(|| std::env::var("PIXEL_PHYSICS_LAY_HOME").is_ok_and(|v| v.trim() == "laden"))
 }
 
 /// `PIXEL_PHYSICS_LAY_HOME`: on unless `off`.
