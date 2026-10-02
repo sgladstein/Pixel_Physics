@@ -16787,11 +16787,19 @@ pub struct FoodTrail {
     /// forage drive's own `return_window()`. An arm for the refilling pile
     /// (§23e), where a 1,400-frame leash outlives a 30-cell pile.
     pub window: f32,
+    /// **The give-up's point of no return**: once a scout has spent more of
+    /// its energy on this excursion than it has left, `giveup`'s bound stops
+    /// counting dark steps as no progress, so it scouts on rather than turning
+    /// for a home it cannot reach. Acts only with `giveup`. **On by default
+    /// since 2026-10-01** (§23f): at 200 cells, 24 paired seeds, starved
+    /// 167 -> 156 (0/6, p 0.031); at 90 and 140 cells it changes 1 run of 48;
+    /// pulsed 90 starved 237 -> 258 (13/6, p 0.17) and pulsed 140 251 -> 244.
+    pub noreturn: bool,
 }
 
 impl FoodTrail {
     /// Nothing: the ant before it, bit for bit.
-    pub const OFF: FoodTrail = FoodTrail { lay: false, read: false, giveup: false, t: 0.0, gain: FOOD_TRAIL_GAIN, reach: 6, follow_all: false, window: 0.0 };
+    pub const OFF: FoodTrail = FoodTrail { lay: false, read: false, giveup: false, t: 0.0, gain: FOOD_TRAIL_GAIN, reach: 6, follow_all: false, window: 0.0, noreturn: false };
     /// `on`: all three parts at their defaults.
     pub const ON: FoodTrail = FOOD_TRAIL_UNSET;
 }
@@ -16821,12 +16829,13 @@ pub const READ_WINDOW_SHIPPED: f32 = 700.0;
 /// lab box births 371 -> 544.5 (17/7, p 0.064), no gate worse. The one lean
 /// left, none of it significant: starved on a refilling pile runs 3-10% above
 /// `lay` in three of four readings. `lay` alone, on 2026-09-30 to 10-01, is
-/// `PIXEL_PHYSICS_FOOD_TRAIL=lay`.
-const FOOD_TRAIL_UNSET: FoodTrail = FoodTrail { lay: true, read: true, giveup: true, window: READ_WINDOW_SHIPPED, ..FoodTrail::OFF };
+/// `PIXEL_PHYSICS_FOOD_TRAIL=lay`. `noreturn` joined the same day (§23f): the
+/// give-up's bound let go of a scout past its point of no return.
+const FOOD_TRAIL_UNSET: FoodTrail = FoodTrail { lay: true, read: true, giveup: true, window: READ_WINDOW_SHIPPED, noreturn: true, ..FoodTrail::OFF };
 
 /// `PIXEL_PHYSICS_FOOD_TRAIL`'s value read as a recipe; an unset variable
 /// reads as `""`. `off`, `on`, or a comma list of parts: `lay`, `read`,
-/// `giveup`, `on` (all three), `t=<ticks>`, `gain=<g>`, `reach=2|6`,
+/// `giveup`, `noreturn`, `on` (all four), `t=<ticks>`, `gain=<g>`, `reach=2|6`,
 /// `follow=all`. A value it cannot read is reported and read as unset.
 fn parse_food_trail(raw: &str) -> FoodTrail {
     let raw = raw.trim();
@@ -16850,8 +16859,12 @@ fn parse_food_trail(raw: &str) -> FoodTrail {
                 ft.giveup = true;
                 true
             }
+            "noreturn" => {
+                ft.noreturn = true;
+                true
+            }
             "on" => {
-                (ft.lay, ft.read, ft.giveup, ft.window) = (true, true, true, READ_WINDOW_SHIPPED);
+                (ft.lay, ft.read, ft.giveup, ft.window, ft.noreturn) = (true, true, true, READ_WINDOW_SHIPPED, true);
                 true
             }
             "follow=all" => {
@@ -16870,7 +16883,7 @@ fn parse_food_trail(raw: &str) -> FoodTrail {
             },
         };
         if !ok {
-            eprintln!("PIXEL_PHYSICS_FOOD_TRAIL={raw:?}: unknown part {part:?}, read as unset (off, on, or lay, read, giveup, t=, gain=, window=, reach=2|6, follow=all)");
+            eprintln!("PIXEL_PHYSICS_FOOD_TRAIL={raw:?}: unknown part {part:?}, read as unset (off, on, or lay, read, giveup, noreturn, t=, gain=, window=, reach=2|6, follow=all)");
             return FOOD_TRAIL_UNSET;
         }
     }
@@ -17605,6 +17618,7 @@ fn chooser_step(
                 st.scout_home = false;
                 st.scout_lit = false;
                 st.scout_dark = false;
+                st.scout_e0 = st.energy;
             }
             (st.scout_patience, st.scout_home, st.scout_dark)
         }
@@ -17761,6 +17775,7 @@ fn chooser_step(
     // world's edge and no give-up. Keyed on having walked a trail: a scout
     // that never met one scouts as before, which is how new food is found.
     let bound = food_trail_of(world).giveup;
+    let noreturn = food_trail_of(world).noreturn;
     if let (Some((ax, _)), true) = (away_from, scout_w > 0.0 && !scout_home) {
         let state = world.organism_mut(organism).expect("live: it just stepped");
         let nx = state.chain.first().map_or(hx, |c| c.0);
@@ -17778,7 +17793,16 @@ fn chooser_step(
             state.scout_lit = true;
         }
         let on_trail = picked_route > 0.0;
-        let dark_past_a_trail = bound && state.scout_lit && !on_trail;
+        // **Past the point of no return the bound lets go** (`FoodTrail::
+        // noreturn`): a scout that has already spent more getting here than
+        // it has left cannot reach home, so a give-up only walks it into the
+        // ground halfway back. It scouts on as it did before the bound, dark
+        // progress counting as progress. Measured at 200 cells (seeds 1-6,
+        // `giveup.py` and a per-ant trace): 8 east give-ups on dark ground
+        // 126-168 cells out ended in starvation, all on a seed whose trail had
+        // broken, against none without the bound.
+        let stranded = noreturn && state.energy < state.scout_e0 - state.energy;
+        let dark_past_a_trail = bound && state.scout_lit && !on_trail && !stranded;
         if level > state.scout_best + PATIENCE_PROGRESS && !dark_past_a_trail {
             state.scout_best = level;
             state.scout_patience = (state.scout_patience + PATIENCE_RECOVER).min(1.0);
@@ -30827,9 +30851,15 @@ mod tests {
     /// With no trail at all the two recipes must walk the same path, position
     /// for position. **Watched red** with the bound removed (`dark_past_a_trail`
     /// forced false): the giveup arm walks to the edge like `lay`.
+    ///
+    /// **And past its point of no return it does not** (`noreturn`, §23f):
+    /// told it set out with full energy and holds a quarter, so it has spent
+    /// more than it has left, the scout walks on past x 260 as under `lay`; with
+    /// nothing spent `noreturn` walks the giveup arm's path exactly. **Watched
+    /// red** with `stranded` forced false: the stranded walk gave up at x 222.
     #[test]
     fn a_scout_that_walked_a_trail_off_its_end_gives_up_in_the_dark() {
-        let walk = |ft: FoodTrail, trail: bool| -> (Vec<(i32, i32)>, Option<i32>) {
+        let walk_from = |ft: FoodTrail, trail: bool, spent: bool| -> (Vec<(i32, i32)>, Option<i32>) {
             let stone = Cell::new(material::STONE, 0).with_attached(true);
             let mut w = World::new(Rect::new(0, 0, 559, 63));
             for x in 0..560 {
@@ -30860,7 +30890,11 @@ mod tests {
                         }
                     }
                 }
-                w.organism_mut(ant).expect("live").energy = energy;
+                let st = w.organism_mut(ant).expect("live");
+                st.energy = energy;
+                if spent {
+                    st.scout_e0 = energy * 4.0;
+                }
                 run(&mut w, 1);
                 let st = w.organism(ant).expect("live");
                 assert!(st.crop.is_none(), "the ant must stay empty");
@@ -30874,8 +30908,14 @@ mod tests {
             }
             (path, gave_at)
         };
+        let walk = |ft: FoodTrail, trail: bool| walk_from(ft, trail, false);
         let lay = FoodTrail { lay: true, ..FoodTrail::OFF };
         let lay_giveup = FoodTrail { giveup: true, ..lay };
+        let noreturn = FoodTrail { noreturn: true, ..lay_giveup };
+        let (walked, gave) = walk_from(noreturn, true, true);
+        let far = walked.iter().map(|c| c.0).max().expect("walked");
+        assert!(far >= 400 && gave.is_none_or(|x| x > 260), "past its point of no return the follower should walk on: furthest {far}, gave up at {gave:?}");
+        assert_eq!(walk(noreturn, true), walk(lay_giveup, true), "with nothing spent noreturn changed the give-up's walk");
         let (walked, gave) = walk(lay, true);
         let far = walked.iter().map(|c| c.0).max().expect("walked");
         assert!(far >= 400 && gave.is_none(), "under lay the follower should walk on past the trail's end: furthest {far}, gave up at {gave:?}");
@@ -31407,12 +31447,13 @@ mod tests {
     /// watched red.
     #[test]
     fn parse_food_trail_reads_its_spellings() {
-        let unset = FoodTrail { lay: true, read: true, giveup: true, window: READ_WINDOW_SHIPPED, ..FoodTrail::OFF };
-        assert_eq!(parse_food_trail(""), unset, "unset is lay, read and giveup, on since 2026-10-01");
+        let unset = FoodTrail { lay: true, read: true, giveup: true, window: READ_WINDOW_SHIPPED, noreturn: true, ..FoodTrail::OFF };
+        assert_eq!(parse_food_trail(""), unset, "unset is lay, read, giveup and noreturn, on since 2026-10-01");
         assert_eq!(parse_food_trail("off"), FoodTrail::OFF);
         assert_eq!(parse_food_trail(" on "), FoodTrail::ON);
         assert_eq!(parse_food_trail("lay"), FoodTrail { lay: true, ..FoodTrail::OFF });
         assert_eq!(parse_food_trail("lay, giveup"), FoodTrail { lay: true, giveup: true, ..FoodTrail::OFF });
+        assert_eq!(parse_food_trail("lay,read,giveup,window=700"), FoodTrail { noreturn: false, ..unset }, "the shipped recipe before noreturn, for an A/B");
         assert_eq!(parse_food_trail("lay,t=32"), FoodTrail { lay: true, t: 32.0, ..FoodTrail::OFF });
         assert_eq!(parse_food_trail("on,gain=1.5,reach=2,follow=all"), FoodTrail { gain: 1.5, reach: 2, follow_all: true, ..FoodTrail::ON });
         assert_eq!(parse_food_trail("read"), FoodTrail { read: true, ..FoodTrail::OFF }, "read without lay parses: the plan's diagnostic arm");
