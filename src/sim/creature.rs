@@ -3348,15 +3348,25 @@ impl Storeroom {
     /// (`PIXEL_PHYSICS_STOREROOM=off`).
     pub const OFF: Storeroom = Storeroom { carry: false, room_home: false, once: false, post: false, nest_bound: 0, nest_bound_founders: 0, caste: 0, worker_home: false, side: false, keep: false, keep_pct: 100, stock_pct: 100, harvest: false, pile: false };
 
-    /// **The storeroom the ant ships with, since 2026-09-29: the full
-    /// granary** (`on,caste=4,workerhome,side,keep`) -- the owner: *"Full
-    /// granary on my default."* One ant in four, founders and young alike,
-    /// is a nest worker for life and lives in the founding cut; the nest
-    /// workers carry food from the door into a room off one side of the
-    /// entrance shaft, and only a hungry ant eats it there. It ships with the
-    /// door ([`NEST_DOOR_SHIPPED`]). What it measured, against the strip and
-    /// no storeroom: `Reports/nest-granary-2026-09-28.md` §9.
-    pub const SHIPPED: Storeroom = Storeroom { carry: true, room_home: false, once: false, post: false, nest_bound: 0, nest_bound_founders: 0, caste: 4, worker_home: true, side: true, keep: true, keep_pct: 100, stock_pct: 100, harvest: false, pile: false };
+    /// **The storeroom the ant ships with, since 2026-10-02: piles, not a
+    /// room** (`on,caste=4,workerhome,pile`). One ant in four, founders and
+    /// young alike, is a nest worker for life; the nest workers pick loose
+    /// food up the more readily the more alone it lies and put it down the
+    /// more readily the more food lies round it ([`Storeroom::pile`]), so a
+    /// store is wherever food gathers. It ships with the dug home
+    /// ([`NestHome::Dug`]) and the door ([`NEST_DOOR_SHIPPED`]).
+    ///
+    /// **Why it replaced the full granary** (`on,caste=4,workerhome,side,
+    /// keep`, shipped 2026-09-29 on the owner's *"Full granary on my
+    /// default"*): the owner agreed on 2026-10-02 to retire the drawn room
+    /// once the piling rules measured as working, and set the goal as a
+    /// stable colony that survives long term. Food box, dug home, 240k
+    /// frames, 12 seeds (main 6a8dacd4): fall from peak 59% with the room
+    /// against 7% piling, colonies lost 3 against 1, births 2,000 against
+    /// 2,210, fruit 13.2k against 14.8k (`Reports/nest-one-entrance-
+    /// 2026-09-29.md` §28). The room had held 0 food cells on every seed
+    /// (§27).
+    pub const SHIPPED: Storeroom = Storeroom { carry: true, room_home: false, once: false, post: false, nest_bound: 0, nest_bound_founders: 0, caste: 4, worker_home: true, side: false, keep: false, keep_pct: 100, stock_pct: 100, harvest: false, pile: true };
 
     /// Whether food is carried into the room under this rule.
     pub fn carries(self) -> bool {
@@ -41944,11 +41954,12 @@ mod tests {
     /// ([`Storeroom::posts`]).
     #[test]
     fn the_storeroom_parses_its_spellings_and_refuses_the_rest() {
-        // Shipped on since 2026-09-29, as the whole granary: the parts it was
-        // measured as, spelled the way the report's arms spelled them.
+        // Shipped as piles since 2026-10-02 (the whole granary from
+        // 2026-09-29): the parts it was measured as, spelled the way the
+        // report's arms spelled them.
         assert_eq!(parse_storeroom(""), Storeroom::SHIPPED);
         assert_eq!(parse_storeroom("  "), Storeroom::SHIPPED);
-        assert_eq!(Storeroom::SHIPPED, parse_storeroom("on,caste=4,workerhome,side,keep"), "the shipped storeroom is the measured recipe");
+        assert_eq!(Storeroom::SHIPPED, parse_storeroom("on,caste=4,workerhome,pile"), "the shipped storeroom is the measured recipe");
         assert_eq!(parse_storeroom(&Storeroom::SHIPPED.to_string()), Storeroom::SHIPPED, "the shipped spelling must read back as itself");
         assert_eq!(parse_storeroom("off"), Storeroom::OFF);
         assert_eq!(parse_storeroom("on"), Storeroom { carry: true, ..Storeroom::OFF }, "parts name the rule from nothing, not on top of the shipped one");
@@ -41964,7 +41975,7 @@ mod tests {
         assert_eq!(parse_storeroom(&hungry.to_string()), hungry, "the thresholds must print and read back");
         assert_eq!(parse_storeroom("on,keep=100,stock=100"), parse_storeroom("on,keep"), "100 is the shipped threshold");
         for bad in ["sid", "on,sideways", "caste=0", "caste=x", "nestbound=0", "nestbound=8000/x", "keep=x", "stock=-1", "stock=2000"] {
-            assert_eq!(parse_storeroom(bad), Storeroom::SHIPPED, "{bad:?} must read as unset, which is the shipped granary");
+            assert_eq!(parse_storeroom(bad), Storeroom::SHIPPED, "{bad:?} must read as unset, which is the shipped storeroom");
         }
     }
 
