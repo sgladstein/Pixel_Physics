@@ -1786,6 +1786,10 @@ pub struct CreatureStats {
     pub store_released: u64,
     /// Store pickups refused because the chamber had no empty cell.
     pub store_room_full: u64,
+    /// **Pick-ups left for lying in a pile** (`PIXEL_PHYSICS_STOREROOM=pile`,
+    /// `creature::pile_pick_p`): a won `Feed` roll by a would-be carrier on
+    /// a cell with food round it, refused by the clustering rule's draw.
+    pub pile_left: u64,
     /// **Bites of the storeroom's food refused to a fed animal**
     /// (`PIXEL_PHYSICS_STOREROOM=keep`, `creature::store_kept`): the "it
     /// fired" count beside the room's standing food, which is the effect.

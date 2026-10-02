@@ -3292,12 +3292,27 @@ pub struct Storeroom {
     /// store never holds more than a handful
     /// (`Reports/nest-one-entrance-2026-09-29.md` §22).
     pub harvest: bool,
+    /// `pile`: **food is piled like with like, not carried to a room**
+    /// ([`pile_pick_p`], [`pile_drop_p`]). The carrier has no destination:
+    /// it picks a cell up the more readily the more alone it lies, walks its
+    /// ordinary walk, and puts it down the more readily the more food lies
+    /// round it -- Deneubourg et al. 1991's clustering rule, the one real
+    /// ants sort brood and pile their dead by. A storeroom is then wherever
+    /// food has gathered, which nobody drew. Under `keep`, a fed ant leaves
+    /// food that lies in a pile at home ([`store_kept`]).
+    ///
+    /// **Why** (the owner, 2026-10-02: *"Is this all hardcoded in a way that
+    /// goes against our principals?"*): the room cut at founding held 0 food
+    /// cells at 48k and 144k on all 12 food-box seeds, while 600-1,500 loads
+    /// a run were carried into it and eaten on arrival
+    /// (`Reports/nest-one-entrance-2026-09-29.md` §27).
+    pub pile: bool,
 }
 
 impl Storeroom {
     /// No storeroom: the ant before the granary shipped, bit for bit
     /// (`PIXEL_PHYSICS_STOREROOM=off`).
-    pub const OFF: Storeroom = Storeroom { carry: false, room_home: false, once: false, post: false, nest_bound: 0, nest_bound_founders: 0, caste: 0, worker_home: false, side: false, keep: false, keep_pct: 100, stock_pct: 100, harvest: false };
+    pub const OFF: Storeroom = Storeroom { carry: false, room_home: false, once: false, post: false, nest_bound: 0, nest_bound_founders: 0, caste: 0, worker_home: false, side: false, keep: false, keep_pct: 100, stock_pct: 100, harvest: false, pile: false };
 
     /// **The storeroom the ant ships with, since 2026-09-29: the full
     /// granary** (`on,caste=4,workerhome,side,keep`) -- the owner: *"Full
@@ -3307,7 +3322,7 @@ impl Storeroom {
     /// entrance shaft, and only a hungry ant eats it there. It ships with the
     /// door ([`NEST_DOOR_SHIPPED`]). What it measured, against the strip and
     /// no storeroom: `Reports/nest-granary-2026-09-28.md` §9.
-    pub const SHIPPED: Storeroom = Storeroom { carry: true, room_home: false, once: false, post: false, nest_bound: 0, nest_bound_founders: 0, caste: 4, worker_home: true, side: true, keep: true, keep_pct: 100, stock_pct: 100, harvest: false };
+    pub const SHIPPED: Storeroom = Storeroom { carry: true, room_home: false, once: false, post: false, nest_bound: 0, nest_bound_founders: 0, caste: 4, worker_home: true, side: true, keep: true, keep_pct: 100, stock_pct: 100, harvest: false, pile: false };
 
     /// Whether food is carried into the room under this rule.
     pub fn carries(self) -> bool {
@@ -3329,7 +3344,7 @@ impl Storeroom {
 /// The switch's own spelling: `off`, or its parts joined by commas.
 impl std::fmt::Display for Storeroom {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let mut parts: Vec<String> = [(self.carry, "on"), (self.room_home, "home"), (self.once, "once"), (self.post, "post"), (self.worker_home, "workerhome"), (self.side, "side"), (self.keep, "keep"), (self.harvest, "harvest")].iter().filter(|(on, _)| *on).map(|&(_, name)| name.to_string()).collect();
+        let mut parts: Vec<String> = [(self.carry, "on"), (self.room_home, "home"), (self.once, "once"), (self.post, "post"), (self.worker_home, "workerhome"), (self.side, "side"), (self.keep, "keep"), (self.harvest, "harvest"), (self.pile, "pile")].iter().filter(|(on, _)| *on).map(|&(_, name)| name.to_string()).collect();
         if self.caste > 0 {
             parts.push(format!("caste={}", self.caste));
         }
@@ -3432,6 +3447,7 @@ fn parse_storeroom(raw: &str) -> Storeroom {
             "side" => out.side = true,
             "keep" => out.keep = true,
             "harvest" => out.harvest = true,
+            "pile" => out.pile = true,
             other if other.starts_with("keep=") || other.starts_with("stock=") => {
                 let (name, v) = other.split_once('=').unwrap_or((other, ""));
                 match v.parse::<u16>() {
@@ -3471,7 +3487,7 @@ fn parse_storeroom(raw: &str) -> Storeroom {
                 }
             }
             other => {
-                eprintln!("PIXEL_PHYSICS_STOREROOM={raw:?}: unknown part {other:?}, read as unset (off, or any of on, home, once, post, nestbound[=<frames>[/<k>]], caste=<k>, workerhome, side, keep[=<pct>], stock=<pct>, harvest)");
+                eprintln!("PIXEL_PHYSICS_STOREROOM={raw:?}: unknown part {other:?}, read as unset (off, or any of on, home, once, post, nestbound[=<frames>[/<k>]], caste=<k>, workerhome, side, keep[=<pct>], stock=<pct>, harvest, pile)");
                 return Storeroom::SHIPPED;
             }
         }
@@ -3529,7 +3545,7 @@ fn is_store_load(world: &World, spoil: Option<crate::sim::organism::Spoil>) -> b
 /// the shaft or the chamber, and the chamber's floor after. `None` for
 /// anything that is not a store load.
 fn store_target(world: &World, state: &crate::sim::organism::OrganismState) -> Option<(i32, i32)> {
-    if !is_store_load(world, state.spoil) {
+    if !is_store_load(world, state.spoil) || storeroom_of(world).pile {
         return None;
     }
     let (ax, ay) = state.forage_anchor;
@@ -3709,6 +3725,29 @@ fn store_drop(world: &mut World, organism: OrganismId, (x, y): (i32, i32), spoil
     if draw.unit_f32() >= dump_urge {
         return;
     }
+    // **Under `pile`, beside other food** ([`pile_drop_p`]), wherever that
+    // is; a carrier that has given up lets go where it stands, as below.
+    if storeroom_of(world).pile {
+        let f = pile_food_share(world, x, y).0;
+        let gave_up = world.organism(organism).is_some_and(|s| s.home_patience < SCOUT_GIVE_UP || s.still_ticks >= STORE_STUCK_TICKS);
+        let by_rule = draw.unit_f32() < pile_drop_p(f);
+        let site = (by_rule || gave_up).then(|| food_drop_site(world, x, y, drop_through_bodies()).map(|(p, _)| p)).flatten();
+        match site {
+            Some((px, py)) => {
+                if by_rule {
+                    world.creature_stats.store_delivered += 1;
+                } else {
+                    world.creature_stats.store_released += 1;
+                }
+                world.set(px, py, spoil.cell);
+                if let Some(state) = world.organism_mut(organism) {
+                    state.spoil = None;
+                }
+            }
+            None => world.creature_stats.store_held += 1,
+        }
+        return;
+    }
     // **In the room, anywhere beside it will do.** The chamber is small and
     // fills with food and ants; asking for an empty chamber cell beside the
     // carrier held loads there for good -- on the colony bed (seed 1, frame
@@ -3759,7 +3798,7 @@ fn store_drop(world: &mut World, organism: OrganismId, (x, y): (i32, i32), spoil
 /// or the spoon's put-back beside the room would be carried in again). The
 /// room: a cell to put it on, else refused and counted (`store_room_full`).
 #[allow(clippy::too_many_arguments)]
-fn store_pickup_ok(world: &mut World, organism: OrganismId, def: &CreatureDef, (x, y): (i32, i32), (fx, fy): (i32, i32), bite: Cell, crop: Option<Crop>) -> bool {
+fn store_pickup_ok(world: &mut World, organism: OrganismId, def: &CreatureDef, (x, y): (i32, i32), (fx, fy): (i32, i32), bite: Cell, crop: Option<Crop>, draw: &mut rng::Rng) -> bool {
     if crop.is_some_and(|c| c.cells > 0) || bite.organism_id() != 0 || food_value(world, bite) <= 0.0 || world.materials.get(bite.material).worth_in_aux {
         return false;
     }
@@ -3768,6 +3807,16 @@ fn store_pickup_ok(world: &mut World, organism: OrganismId, def: &CreatureDef, (
     };
     let rule = storeroom_of(world);
     if state.spoil.is_some() || state.energy < def.start_energy * f32::from(rule.stock_pct) / 100.0 || (rule.once && state.store_carried) || ((rule.nest_bound > 0 || rule.caste > 0) && !is_nest_bound(world, state)) {
+        return false;
+    }
+    // **Under `pile` there is no room to ask about**: the cell is taken the
+    // more readily the more alone it lies ([`pile_pick_p`]).
+    if rule.pile {
+        let f = pile_food_share(world, fx, fy).0;
+        if draw.unit_f32() < pile_pick_p(f) {
+            return true;
+        }
+        world.creature_stats.pile_left += 1;
         return false;
     }
     let Some(room) = storeroom_near(world, x, y) else {
@@ -3783,6 +3832,55 @@ fn store_pickup_ok(world: &mut World, organism: OrganismId, def: &CreatureDef, (
     true
 }
 
+/// **The clustering rule's two constants** (`pile`, [`Storeroom::pile`]):
+/// Deneubourg et al. 1991's `k1` and `k2`, at the values their paper ran.
+/// `f` is the share of the 24 cells round a place (Chebyshev radius 2) that
+/// hold loose food ([`pile_food_share`]). A lone cell (`f` = 0) is picked up
+/// on every won roll and a carrier with nothing round it never puts down by
+/// the rule (it lets go only by giving up, as every store carrier does); at
+/// six food cells round it (`f` = 0.25) a pick-up is a 9% chance and a drop
+/// a 21% one.
+const PILE_K1: f32 = 0.1;
+/// See [`PILE_K1`].
+const PILE_K2: f32 = 0.3;
+
+/// **Loose food cells round `(x, y)`**: the share of the 24 cells within two
+/// cells (not the cell itself) holding food no organism owns, and the count
+/// of those in the 8 beside it.
+fn pile_food_share(world: &World, x: i32, y: i32) -> (f32, u32) {
+    let (mut near, mut beside) = (0u32, 0u32);
+    for dy in -2..=2 {
+        for dx in -2..=2 {
+            if dx == 0 && dy == 0 {
+                continue;
+            }
+            let c = world.get(x + dx, y + dy);
+            if c.organism_id() == 0 && food_value(world, c) > 0.0 {
+                near += 1;
+                if dx.abs() <= 1 && dy.abs() <= 1 {
+                    beside += 1;
+                }
+            }
+        }
+    }
+    (near as f32 / 24.0, beside)
+}
+
+/// **How readily a lone cell is picked up**: `(k1 / (k1 + f))^2`.
+fn pile_pick_p(f: f32) -> f32 {
+    (PILE_K1 / (PILE_K1 + f)).powi(2)
+}
+
+/// **How readily a carried cell is put down**: `(f / (k2 + f))^2`.
+fn pile_drop_p(f: f32) -> f32 {
+    (f / (PILE_K2 + f)).powi(2)
+}
+
+/// **Food in a pile**, for `keep` under `pile`: two or more loose food cells
+/// beside it. One neighbour is a pair of crumbs dropped together, which a
+/// carrier makes every time it lets go beside another.
+const PILE_KEEP_BESIDE: u32 = 2;
+
 /// **Whether a bite of the storeroom's food is refused** (`keep`,
 /// [`storeroom_of`]): the cell lies in a storeroom and the animal is fed, at
 /// or above its `start_energy`. A hungry animal eats from the store as
@@ -3796,11 +3894,19 @@ fn store_pickup_ok(world: &mut World, organism: OrganismId, def: &CreatureDef, (
 /// were by fed nest workers, 10% by hungry ones and 16% by fed foragers
 /// topping up a packed lunch. Refusing the fed, the room holds 4.9 cells
 /// (more on 21 of 24) and births and starvation do not move.
-fn store_kept(world: &World, organism: OrganismId, def: &CreatureDef, (fx, fy): (i32, i32)) -> bool {
+///
+/// **Under `pile` the store is wherever food is piled at home**: the cell has
+/// [`PILE_KEEP_BESIDE`] food cells beside it and the animal is at home
+/// ([`nest_within_reach`]). The founding cut's room is not asked about.
+fn store_kept(world: &World, organism: OrganismId, def: &CreatureDef, (x, y): (i32, i32), (fx, fy): (i32, i32)) -> bool {
     let rule = storeroom_of(world);
-    rule.keep
-        && world.organism(organism).is_some_and(|s| s.energy >= def.start_energy * f32::from(rule.keep_pct) / 100.0)
-        && world.nest_sites.iter().filter_map(|n| n.shaft).any(|room| room.in_store(fx, fy))
+    if !(rule.keep && world.organism(organism).is_some_and(|s| s.energy >= def.start_energy * f32::from(rule.keep_pct) / 100.0)) {
+        return false;
+    }
+    if rule.pile {
+        return pile_food_share(world, fx, fy).1 >= PILE_KEEP_BESIDE && nest_within_reach(world, organism, x, y, def);
+    }
+    world.nest_sites.iter().filter_map(|n| n.shaft).any(|room| room.in_store(fx, fy))
 }
 
 /// **Food around the storeroom, in cells**, for a harness census: loose food
@@ -13644,7 +13750,7 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
                 // a storeroom cell takes nothing, and the turn ends as the
                 // store's own pick-up below ends it. Off, this reads the
                 // switch and nothing else.
-                if store_kept(world, organism, def, (fxx, fyy)) {
+                if store_kept(world, organism, def, (x, y), (fxx, fyy)) {
                     world.creature_stats.store_kept += 1;
                     return did;
                 }
@@ -13675,7 +13781,16 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
                 // would have swallowed it. The same won `Feed` roll, so the
                 // draw sequence is unchanged; see [`store_pickup_ok`] for who
                 // and what.
-                if picked_at_home && storeroom_of(world).carries() && store_pickup_ok(world, organism, def, (x, y), (fxx, fyy), bite, crop) {
+                // **Under `pile`, a cell the carrier leaves is left**, not
+                // eaten in its place: the clustering rule's "do not pick up"
+                // is a walk on, and a fed ant swallowing whatever it declines
+                // to carry would empty every small pile it passed.
+                let left = world.creature_stats.pile_left;
+                let take = picked_at_home && storeroom_of(world).carries() && store_pickup_ok(world, organism, def, (x, y), (fxx, fyy), bite, crop, draw);
+                if world.creature_stats.pile_left != left {
+                    return did;
+                }
+                if take {
                     world.set(fxx, fyy, Cell::EMPTY);
                     if let Some(state) = world.organism_mut(organism) {
                         state.spoil = Some(Spoil { cell: bite, store: true });
@@ -41657,6 +41772,30 @@ mod tests {
     /// sweep wearing another's label. `post` does not apply to a side room
     /// ([`Storeroom::posts`]).
     #[test]
+    fn the_pile_rule_takes_lone_cells_and_drops_beside_others() {
+        // Deneubourg's two curves at the corners that make a pile: a lone
+        // cell is always taken and never put down by the rule, and both
+        // move monotonically with the food round them.
+        assert_eq!(pile_pick_p(0.0), 1.0);
+        assert_eq!(pile_drop_p(0.0), 0.0);
+        let shares = [0.0, 1.0 / 24.0, 0.25, 0.5, 1.0];
+        for w in shares.windows(2) {
+            assert!(pile_pick_p(w[1]) < pile_pick_p(w[0]), "fewer pick-ups the more food lies round: {w:?}");
+            assert!(pile_drop_p(w[1]) > pile_drop_p(w[0]), "more drops the more food lies round: {w:?}");
+        }
+        // The census the rules read: 24 cells round, 8 of them beside.
+        let mut w = World::new(Rect::new(0, 0, 19, 19));
+        let fruit = w.materials.id_of("fruit").expect("fruit is compiled in");
+        assert_eq!(pile_food_share(&w, 10, 10), (0.0, 0));
+        w.set(10, 10, Cell::new(fruit, 0));
+        assert_eq!(pile_food_share(&w, 10, 10), (0.0, 0), "the cell itself is not round itself");
+        w.set(11, 10, Cell::new(fruit, 0));
+        w.set(12, 12, Cell::new(fruit, 0));
+        w.set(13, 13, Cell::new(fruit, 0));
+        assert_eq!(pile_food_share(&w, 10, 10), (2.0 / 24.0, 1), "one beside, one two away, one out of reach");
+    }
+
+    #[test]
     fn the_storeroom_parses_its_spellings_and_refuses_the_rest() {
         // Shipped on since 2026-09-29, as the whole granary: the parts it was
         // measured as, spelled the way the report's arms spelled them.
@@ -41666,8 +41805,8 @@ mod tests {
         assert_eq!(parse_storeroom(&Storeroom::SHIPPED.to_string()), Storeroom::SHIPPED, "the shipped spelling must read back as itself");
         assert_eq!(parse_storeroom("off"), Storeroom::OFF);
         assert_eq!(parse_storeroom("on"), Storeroom { carry: true, ..Storeroom::OFF }, "parts name the rule from nothing, not on top of the shipped one");
-        let all = parse_storeroom("on,home,once,post,workerhome,side,keep,caste=4,nestbound=8000/4");
-        assert!(all.carry && all.room_home && all.once && all.post && all.worker_home && all.side && all.keep, "{all:?}");
+        let all = parse_storeroom("on,home,once,post,workerhome,side,keep,pile,caste=4,nestbound=8000/4");
+        assert!(all.carry && all.room_home && all.once && all.post && all.worker_home && all.side && all.keep && all.pile, "{all:?}");
         assert_eq!((all.caste, all.nest_bound, all.nest_bound_founders), (4, 8000, 4));
         assert_eq!(parse_storeroom(&all.to_string()), all, "the spelling it prints must read back as itself");
         assert!(!all.posts(), "nothing is handed down a shaft into a room beside it");

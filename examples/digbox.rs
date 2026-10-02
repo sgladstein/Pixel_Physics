@@ -4488,6 +4488,10 @@ fn larder_census(world: &World, b: &Box2, p: &FoodPile, frame: u64) -> String {
     // `crumbs` holding what is left (`trailfollow`'s `diet_by_material`), and
     // a census of the larder material alone reads 0 everywhere.
     let crumbs = world.materials.id_of("crumbs");
+    let is_food = |x: i32, y: i32| {
+        let c = world.get(x, y);
+        (0..b.w).contains(&x) && (0..b.h).contains(&y) && (c.material == p.larder || Some(c.material) == crumbs) && c.organism_id() == 0 && !((p.x - 6..p.x + 6).contains(&x) && y <= p.top)
+    };
     let (mut in_store, mut below, mut above) = (0u32, 0u32, 0u32);
     for y in 0..b.h {
         for x in 0..b.w {
@@ -4507,8 +4511,60 @@ fn larder_census(world: &World, b: &Box2, p: &FoodPile, frame: u64) -> String {
             }
         }
     }
+    // **Where it stands together** (`PIXEL_PHYSICS_STOREROOM=pile`): the
+    // same cells grouped 8-connected. A pile is what the clustering rule is
+    // for, and a count of standing food cannot tell 40 crumbs strewn along
+    // the trail from one heap of 40.
+    let mut seen = std::collections::HashSet::new();
+    let mut sizes: Vec<u32> = Vec::new();
+    let mut biggest_at = (0, 0);
+    let door = world.nest_sites.first().map_or(0, |s| s.x);
+    let mut near: Vec<u32> = Vec::new();
+    for y in 0..b.h {
+        for x in 0..b.w {
+            if !is_food(x, y) || !seen.insert((x, y)) {
+                continue;
+            }
+            let (mut n, mut stack, mut lowest) = (0u32, vec![(x, y)], (x, y));
+            while let Some((cx, cy)) = stack.pop() {
+                n += 1;
+                if cy > lowest.1 {
+                    lowest = (cx, cy);
+                }
+                for dy in -1..=1 {
+                    for dx in -1..=1 {
+                        let q = (cx + dx, cy + dy);
+                        if is_food(q.0, q.1) && seen.insert(q) {
+                            stack.push(q);
+                        }
+                    }
+                }
+            }
+            if sizes.iter().all(|&s| n > s) {
+                biggest_at = lowest;
+            }
+            if (lowest.0 - door).abs() <= 30 {
+                near.push(n);
+            }
+            sizes.push(n);
+        }
+    }
+    sizes.sort_unstable_by(|a, b| b.cmp(a));
+    let piles = format!(
+        "PILES frame={frame} food clusters outside the source pile: {} groups, {} cells in groups of 5+, largest {} (its lowest cell {:+} columns from the door, {:+} rows from the old ground line), top five {:?} | within 30 columns of the door: {} cells, {} of them in groups of 3+, largest {} | pick-ups left for lying in a pile {}",
+        sizes.len(),
+        sizes.iter().filter(|&&s| s >= 5).sum::<u32>(),
+        sizes.first().copied().unwrap_or(0),
+        biggest_at.0 - door,
+        biggest_at.1 - b.surface,
+        &sizes[..sizes.len().min(5)],
+        near.iter().sum::<u32>(),
+        near.iter().filter(|&&s| s >= 3).sum::<u32>(),
+        near.iter().max().copied().unwrap_or(0),
+        st.pile_left
+    );
     format!(
-        "LARDER frame={frame} food standing (larder and crumbs, cells): in the storeroom {in_store}, elsewhere below the old ground line {below}, above it outside the pile {above} | storeroom carry: picked up {}, set down {}, let go outside {}, refused for a full room {}, bites kept from the fed {} | put down at home {}, taken back up at home {} | shares {} ({:.0} J), digested {:.0} J | births paid from the store (PIXEL_PHYSICS_BUD_STORE) {} | foragers' crop cells put down in the store (harvest) {}, ticks held on the way {} | bud ticks held for not being at the nest (BUD_SITE) {}",
+        "{piles}\nLARDER frame={frame} food standing (larder and crumbs, cells): in the storeroom {in_store}, elsewhere below the old ground line {below}, above it outside the pile {above} | storeroom carry: picked up {}, set down {}, let go outside {}, refused for a full room {}, bites kept from the fed {} | put down at home {}, taken back up at home {} | shares {} ({:.0} J), digested {:.0} J | births paid from the store (PIXEL_PHYSICS_BUD_STORE) {} | foragers' crop cells put down in the store (harvest) {}, ticks held on the way {} | bud ticks held for not being at the nest (BUD_SITE) {}",
         st.store_pickups, st.store_delivered, st.store_released, st.store_room_full, st.store_kept, st.deliveries, st.pickups_at_nest, st.shares, st.shared_j, st.digested_face, st.store_births, st.harvest_stored, st.harvest_held, st.buds_held_for_nest
     )
 }
