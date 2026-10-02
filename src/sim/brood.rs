@@ -383,25 +383,37 @@ fn hatch(world: &mut World, organism: OrganismId, (x, y): (i32, i32), species: S
     // because a pupa in a pile has brood and nestmates on every side and a
     // five-cell body needs a line of open cells. A real callow walks out of
     // the pile; a short reach stands in for that walk.
+    //
+    // **Then the same rings again, standing on a nestmate**, budding's own
+    // second pass ([`creature::bud_stack_of`]). Without it a hatchling had
+    // free ground or nothing, while 85-94% of budded births on the food box
+    // land on kin. Measured with the stage delay off and laying reach 3
+    // (main 44f14af, 4 seeds, 96,000 frames, egg cost 1,040): born 355-597
+    // against budding's 751-1,234, 0 on kin, 393 hatches refused for room.
     let mut placed = None;
-    'rings: for r in 0..=HATCH_REACH {
+    'passes: for on_kin in [false, true] {
+    for r in 0..=HATCH_REACH {
         for dy in -r..=r {
             for dx in -r..=r {
                 if dx.abs().max(dy.abs()) != r {
                     continue;
                 }
                 let (hx, hy) = (x + dx, y + dy);
-                if r > 0 && !world.is_empty(hx, hy) {
+                if r > 0 && !on_kin && !world.is_empty(hx, hy) {
                     continue;
                 }
                 for facing_west in [false, true] {
-                    placed = creature::place_hatchling(world, hx, hy, species, def, facing_west, b.parent, genome.clone(), traits, generation, lineage, colony, made, fates, bank);
+                    placed = creature::place_hatchling(world, hx, hy, species, def, facing_west, b.parent, genome.clone(), traits, generation, lineage, colony, made, fates, bank, on_kin);
                     if placed.is_some() {
-                        break 'rings;
+                        if on_kin {
+                            world.creature_stats.births_on_kin += 1;
+                        }
+                        break 'passes;
                     }
                 }
             }
         }
+    }
     }
     let Some(site) = placed else {
         world.set(x, y, cell);

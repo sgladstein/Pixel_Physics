@@ -2468,9 +2468,16 @@ pub(super) fn place_hatchling(
     made: f32,
     fates: organism::FateGenome,
     bank: f32,
+    on_kin: bool,
 ) -> Option<ActiveSite> {
     let material_id = world.materials.id_of(&world.species.get(species_id).name.clone())?;
-    place_creature(world, x, y, species_id, material_id, def, facing_west, Origin::Hatch { parent, genome, traits, generation, lineage, colony, made, fates, bank }, None)
+    // A rider on a nestmate, under exactly the gate budding's second pass
+    // uses ([`bud_stack_of`]); the caller asks only after free ground failed.
+    let kin = (on_kin && colony != 0 && world.stack_cap() > 1 && bud_stack_of(world)).then_some(Stacker { organism: 0, colony });
+    if on_kin && kin.is_none() {
+        return None;
+    }
+    place_creature(world, x, y, species_id, material_id, def, facing_west, Origin::Hatch { parent, genome, traits, generation, lineage, colony, made, fates, bank }, kin)
 }
 
 /// This material's palette entries, ordered **darkest first** by luma.
