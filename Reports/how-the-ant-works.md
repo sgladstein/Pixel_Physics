@@ -5,7 +5,9 @@ every tick, how each mechanism is implemented, and what it reads.** It is
 written from the source and describes the code as it is now, not as it was or
 will be.
 
-- **Verified against:** `main` at `bb65d507`, 2026-09-22; §5 step 2's top-up,
+- **Verified against:** `main` at `bb65d507`, 2026-09-22; §2's support
+  bullet and §12's `KIN_FOOTING` row 2026-10-02 against `fall_if_unsupported`,
+  `touches_ground` and `held_by_kin`; §5 step 2's top-up,
   §6d's throttle paragraph and §12's two rows 2026-10-02 against
   `outward_want`, `door_scent` and the share block; §5 step 5 and the
   `SPOIL_HOLD` row 2026-10-01 against `spoil_hold_of` and the drop block;
@@ -167,8 +169,12 @@ ant's expressed `TRAIT_PACE` and by its body's leg fraction. A founder decides
 
 - **Body:** `Chain(2)`, a head and one segment. Headings are the 8 `DIRS`.
 - **Support** (`step_chain`): the body is held up if **any** of its cells has
-  a `Solid`, `Powder` or `Plant` cell among its 8 neighbours. Otherwise the
-  ant falls one cell. **The fall happens only inside `step_chain`, so only
+  a `Solid`, `Powder` or `Plant` cell among its 8 neighbours (`touches_ground`),
+  **or, since 2026-10-02, a cell of a nestmate (same species) whose own body
+  touches ground** (`held_by_kin`, `PIXEL_PHYSICS_KIN_FOOTING`, on): one ant
+  holds the next and no further, and only while the held ant has stood still
+  for fewer than `KIN_GRIP_TICKS` (60) ticks, so resting ants do not perch on
+  each other. Otherwise the ant falls one cell. **The fall happens only inside `step_chain`, so only
   after a successful move roll**: an unsupported ant with `P(move) = 0`
   hangs in the air. A fall counts as a move and lays trail.
 - **Enterable cell** (`cell_is_enterable`): empty, its own body, or living
@@ -1045,6 +1051,7 @@ Read once per process from the environment. The default is what ships.
 | `PIXEL_PHYSICS_NEST_REST` | off | `workers`, `on` or `all` (`NestRest`: nest workers; nest workers and ants that have foraged; every ant): such an ant with nothing to do and more fed than hungry, not sent out by the forage drive, is pulled to its door and then along the passages away from it (§6d, `rest_pull`, `NestWay`, counted in `rest_pulls`); `World::nest_rest` for one world |
 | `PIXEL_PHYSICS_SPOIL_RING` | `2,2`, **acting only under the walked cycle** (`SPOIL_OUT`, on by default since 2026-09-30; with it `off` the lift is untouched) | `<shape>,<scale>` or `off`; `spoil_ring_of` gates it on the walked cycle, and a world's own `World::spoil_ring` overrides both: when a carrier comes out by the door with its pellet (on or above the door's row, nothing overhead: `carry_stage`) it draws a column on its own side, the door's half-width plus one plus a Gamma(shape, scale) draw from the nest's centre (`spoil_ring_column`, `OrganismState::spoil_ring`, its own stream), is pulled to the top of the ground in that column (`ring_target`, climbing any mound; `spoil_haul_target`), and its drop roll is held until its head is that far out (`spoil_ring_holds`; `spoil_ring_drawn`, `spoil_ring_held`). The column is kept under a mound's overhang and let go only back in a tunnel (more than two rows under the door's row with ground overhead, or in the founding cut: `spoil_ring_let_go`); before it has come out, under `keep`, the pellet is held wherever the carrier stands; `World::spoil_ring` for one world |
 | `PIXEL_PHYSICS_DIG_ROOF` | `6` (on since 2026-10-02, `DIG_ROOF_SHIPPED`) | `<rows>` or `off`: a cut within `rows` under the nearest nest site's founding surface and outside the door's columns is refused (`dig_roof_of`, `under_roof`, `CreatureStats::digs_refused_roof`); a heap above the surface is never refused, nor anything with no door; `World::dig_roof` for one world. Nest report §25 |
+| `PIXEL_PHYSICS_KIN_FOOTING` | on (since 2026-10-02) | `off`: an ant is held up only by ground. On, a body touching a nestmate whose own body touches ground is held too, one level, while it has stood still under `KIN_GRIP_TICKS` (`held_by_kin`, `kin_footing_of`, `CreatureStats::kin_holds`); `World::kin_footing` for one world. Nest report §26 |
 | `PIXEL_PHYSICS_DOOR_COLLAR` | off | `on`: before `act`, an ant whose head is within the door's half-width + `COLLAR_REACH` (2) columns of a nest site and from `COLLAR_UP` (6) rows over its founding surface to one under it packs each neighbour on the rim of the opening (at or over the surface, in a column whose cell one row under the surface is ground, beside one where it is open), pellets included when footed (`collar_tamp`, `CreatureStats::collar_packed`); `World::door_collar` for one world |
 | `PIXEL_PHYSICS_SPOIL_CREST` | off | `on`: under the ring, a carrier walks on from its drawn column while the ground ahead still rises (at most `CREST_REACH` 8 columns) and drops on the crest (`crest_column`, used by `spoil_haul_target` and `spoil_ring_holds`); `World::spoil_crest` for one world. Nest report §25: alone it lost 2 of 4 food-box colonies |
 | `PIXEL_PHYSICS_DIG_WIDEN` | off | `on`: tunnels one body length (two cells) wide. On a won dig roll, a digger whose way ahead is open and whose head stands where its passage is one cell wide (ground above and below, or either side) cuts one of those walls instead of turning down and cutting ahead (`ahead_is_open`, `dig_widen_site`); a digger at a face cuts a shoulder beside the cell ahead on half its rolls (`dig_shoulder_site`), so a gallery advances two cells across. A passage two wide is left alone. Both cuts are ordinary cuts after that: the heap cue and the jaw judge them (`digs_widened`; `World::dig_widen` for one world) |
