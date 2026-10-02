@@ -3169,8 +3169,8 @@ pub const NEST_MOUTH_ROWS: i32 = 2;
 /// measured.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum NestHome {
-    /// Unset, or anything unrecognised: none of it. Home is nest material
-    /// (or the site test), as shipped.
+    /// `material` (or `off`): none of it. Home is nest material (or the
+    /// site test), as shipped until 2026-10-02.
     Material,
     /// `shaft`: within one cell of the whole cut -- shaft, chamber and rim
     /// ([`crate::sim::world::ShaftFootprint::touches`]).
@@ -3178,7 +3178,8 @@ pub enum NestHome {
     /// `mouth`: within one cell of the cut's top rows only -- the rim and the
     /// first body length down ([`crate::sim::world::ShaftFootprint::touches_mouth`]).
     Mouth,
-    /// `dug`: **within one cell of the nest the colony has dug** -- every
+    /// Unset, or `dug` (shipped since 2026-10-02): **within one cell of the
+    /// nest the colony has dug** -- every
     /// open cell below the old ground line that a walk through open cells
     /// reaches from the door ([`World::nest_dug`], rebuilt by
     /// [`World::step_nest_dug`] every `ROOM_INTERVAL` frames), within
@@ -3243,14 +3244,21 @@ pub const DUG_HOME_REACH: (i32, i32) = (60, 60);
 /// gate fires, applied over a region, and the region's shape is inherited
 /// (`Reports/nest-rejections-rescored-2026-09-19.md`). A home shaft
 /// narrowed the dug nest on 11 of 12 seeds of `examples/digbox`.
+///
+/// **Shipped as [`NestHome::Dug`] since 2026-10-02**: unset (or anything
+/// unrecognised) is the dug nest joined to the door; `material` (or `off`)
+/// is the painted door alone, as before. The paragraph above about the
+/// scratched floor was the concern; the dug home stops at the old ground
+/// line and at [`DUG_HOME_REACH`], and measured 216 cells (median) on the
+/// food box at 144k (nest report §28).
 pub fn nest_home(world: &World) -> NestHome {
     world.nest_home.unwrap_or_else(|| {
         static V: std::sync::OnceLock<NestHome> = std::sync::OnceLock::new();
         *V.get_or_init(|| match std::env::var("PIXEL_PHYSICS_NEST_HOME").as_deref() {
             Ok("shaft") => NestHome::Shaft,
             Ok("mouth") => NestHome::Mouth,
-            Ok("dug") => NestHome::Dug,
-            _ => NestHome::Material,
+            Ok("material") | Ok("off") => NestHome::Material,
+            _ => NestHome::Dug,
         })
     })
 }
