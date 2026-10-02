@@ -1,6 +1,8 @@
 # Ants
 
-*Current as of: 2026-10-02, when **new ants started as eggs, laid only at
+*Current as of: 2026-10-02, when **the whole dug nest became home and
+food started gathering in piles** (see *One door, and a granary under it*),
+when **new ants started as eggs, laid only at
 home** (see *New ants*), and when **an ant started holding on to a nestmate
 to climb.** Diggers carrying soil out used to fall back again and again in the
 room under the front door: an ant could only hold on to ground, and in the
@@ -97,6 +99,15 @@ gain is small, and a colony of eighty starts to pay for it.
 In the lab box a colony now stays smaller and steadier: it raises half as many
 young, but far fewer starve, none of a dozen test boxes died out, and it
 leaves most of the plants standing instead of grazing the box bare.
+On 2026-10-02 **home became the whole dug nest, and the storeroom became
+piles.** Until then an ant was only "at home" touching the painted door on the
+surface, so nothing a colony dug ever became home. Now every tunnel and room
+joined to the door counts. And the side room is gone: nest workers pick up food
+that lies alone and put it down where other food already lies, so the store is
+wherever food has gathered, which nobody drew. In a long test colony with food
+90 cells away, colonies that pile fell only a few percent from their peak,
+where colonies carrying to the room fell by more than half; they raised a few
+more young and lost fewer colonies.
 Later that day, **the nest stopped growing to one side of its door.** An ant
 digging underground turns to face downward before it digs, and one facing
 straight up always came round through the same side, so every colony's

@@ -1290,6 +1290,8 @@ struct AntTrack {
 
 #[derive(Default)]
 struct NestFunnel {
+    /// `cutscsv=PATH`: one row a cut (see where it is written).
+    cuts_csv: Option<std::io::BufWriter<std::fs::File>>,
     /// `gridout=`: trace every cell's packing -- the frame it last became
     /// `packedsoil` (`u64::MAX`: not since frame 0) and what it was just
     /// before, as [`PACKED_FROM`] indexes. Off unless asked: a whole-box
@@ -1729,6 +1731,30 @@ impl NestFunnel {
                 };
                 if let Some((tx, ty)) = target {
                     self.cuts_this_frame.push((tx, ty, pre.head.1));
+                    // **`cutscsv=`: one row a cut**, for "is the colony
+                    // widening a room or pushing a tunnel": the open
+                    // 8-neighbours the cut cell had (1-2 is a tunnel's tip,
+                    // 5+ a room's wall), whether it is home under
+                    // `NEST_HOME=dug`, and the animals within three cells.
+                    if let Some(w) = self.cuts_csv.as_mut() {
+                        use std::io::Write;
+                        let open = |x: i32, y: i32| {
+                            let c = world.get(x, y);
+                            c.material == material::EMPTY || c.organism_id() != 0
+                        };
+                        let nb = (-1..=1).flat_map(|dy| (-1..=1).map(move |dx| (dx, dy))).filter(|&(dx, dy)| (dx, dy) != (0, 0) && open(tx + dx, ty + dy)).count();
+                        let home = (-1..=1).any(|dy| (-1..=1).any(|dx| world.nest_dug.contains(&(tx + dx, ty + dy))));
+                        let mut near = std::collections::HashSet::new();
+                        for dy in -3..=3 {
+                            for dx in -3..=3 {
+                                let id = world.get(tx + dx, ty + dy).organism_id();
+                                if id != 0 {
+                                    near.insert(id);
+                                }
+                            }
+                        }
+                        let _ = writeln!(w, "{frame},{tx},{ty},{},{nb},{},{},{}", ty - b.surface, u8::from(home), near.len(), u8::from(pre.nest_bound));
+                    }
                     self.cuts_at[place] += 1;
                     let (near, fresh) = Self::spoil_near_of(&self.grid, &self.put_frame, b, spoil_id, frame, tx, ty);
                     self.spoil_near[1][0] += 1;
@@ -3001,6 +3027,9 @@ struct TripLog {
     /// an animal made holding a pellet -- which headings were usable, the move
     /// roll against `p_move`, what came of it, the chooser's patience.
     decisions: Option<std::io::BufWriter<std::fs::File>>,
+    /// `decisions_nest`: write nest-bound animals' rows to `decisions=`
+    /// instead of pellet carriers'.
+    decisions_nest: bool,
     /// **Who a carrier stood facing** (`JAM`), by what that animal was doing
     /// ([`TripAnt::role`]), and of those how many stood still themselves.
     /// The report said carriers stood "behind one another" in the shaft at
@@ -3131,7 +3160,10 @@ impl TripLog {
         }
         let Some(w) = self.decisions.as_mut() else { return };
         for r in rows {
-            if !self.before.get(&r.id).is_some_and(|a| a.holding) {
+            // `decisions_nest`: the nest workers' rows instead of the
+            // carriers', for "why is a fed nest worker out on the surface".
+            let keep = if self.decisions_nest { self.before.get(&r.id).is_some_and(|a| a.role == 2) } else { self.before.get(&r.id).is_some_and(|a| a.holding) };
+            if !keep {
                 continue;
             }
             let _ = writeln!(
@@ -3764,6 +3796,9 @@ fn main() {
         pixel_physics::sim::creature::NestHome::Shaft => {
             println!("  home: the painted nest AND the founding cut (PIXEL_PHYSICS_NEST_HOME=shaft) -- in the shaft, the chamber or on the mouth's rim an ant is AtNest")
         }
+        pixel_physics::sim::creature::NestHome::Dug => {
+            println!("  home: the painted nest AND the dug nest joined to its door, below the old ground line (PIXEL_PHYSICS_NEST_HOME=dug)")
+        }
         pixel_physics::sim::creature::NestHome::Mouth => println!(
             "  home: the painted nest AND the founding cut's mouth (PIXEL_PHYSICS_NEST_HOME=mouth) -- on the rim or in the first {} rows down an ant is AtNest; deeper it is away",
             pixel_physics::sim::creature::NEST_MOUTH_ROWS
@@ -3851,11 +3886,18 @@ fn main() {
     if pile_on {
         world.decision_log = Some(Vec::new());
     }
+    if let Some(path) = arg::<String>("cutscsv") {
+        use std::io::Write;
+        let mut w = std::io::BufWriter::new(std::fs::File::create(&path).expect("cutscsv: cannot create the file"));
+        let _ = writeln!(w, "frame,x,y,row,open_nb,home,animals_within3,nest_worker");
+        funnel.cuts_csv = Some(w);
+    }
     if let Some(path) = arg::<String>("decisions") {
         use std::io::Write;
         let mut w = std::io::BufWriter::new(std::fs::File::create(&path).expect("decisions: cannot create the file"));
         let _ = writeln!(w, "frame,id,hx,hy,hx_after,hy_after,heading,heading_after,usable,anchor_x,anchor_y,home_aligned,p_move,roll_move,roll_tumble,outcome,patience,chosen_cos,drop,drop_roll,drop_p,at_nest,crowding,energy,energy_j");
         trips.decisions = Some(w);
+        trips.decisions_nest = flag("decisions_nest");
         world.decision_log = Some(Vec::new());
     }
     // **`cap=<n>`: no births while `n` or more creatures live**
@@ -4488,6 +4530,10 @@ fn larder_census(world: &World, b: &Box2, p: &FoodPile, frame: u64) -> String {
     // `crumbs` holding what is left (`trailfollow`'s `diet_by_material`), and
     // a census of the larder material alone reads 0 everywhere.
     let crumbs = world.materials.id_of("crumbs");
+    let is_food = |x: i32, y: i32| {
+        let c = world.get(x, y);
+        (0..b.w).contains(&x) && (0..b.h).contains(&y) && (c.material == p.larder || Some(c.material) == crumbs) && c.organism_id() == 0 && !((p.x - 6..p.x + 6).contains(&x) && y <= p.top)
+    };
     let (mut in_store, mut below, mut above) = (0u32, 0u32, 0u32);
     for y in 0..b.h {
         for x in 0..b.w {
@@ -4507,8 +4553,61 @@ fn larder_census(world: &World, b: &Box2, p: &FoodPile, frame: u64) -> String {
             }
         }
     }
+    // **Where it stands together** (`PIXEL_PHYSICS_STOREROOM=pile`): the
+    // same cells grouped 8-connected. A pile is what the clustering rule is
+    // for, and a count of standing food cannot tell 40 crumbs strewn along
+    // the trail from one heap of 40.
+    let mut seen = std::collections::HashSet::new();
+    let mut sizes: Vec<u32> = Vec::new();
+    let mut biggest_at = (0, 0);
+    let door = world.nest_sites.first().map_or(0, |s| s.x);
+    let mut near: Vec<u32> = Vec::new();
+    for y in 0..b.h {
+        for x in 0..b.w {
+            if !is_food(x, y) || !seen.insert((x, y)) {
+                continue;
+            }
+            let (mut n, mut stack, mut lowest) = (0u32, vec![(x, y)], (x, y));
+            while let Some((cx, cy)) = stack.pop() {
+                n += 1;
+                if cy > lowest.1 {
+                    lowest = (cx, cy);
+                }
+                for dy in -1..=1 {
+                    for dx in -1..=1 {
+                        let q = (cx + dx, cy + dy);
+                        if is_food(q.0, q.1) && seen.insert(q) {
+                            stack.push(q);
+                        }
+                    }
+                }
+            }
+            if sizes.iter().all(|&s| n > s) {
+                biggest_at = lowest;
+            }
+            if (lowest.0 - door).abs() <= 30 {
+                near.push(n);
+            }
+            sizes.push(n);
+        }
+    }
+    sizes.sort_unstable_by(|a, b| b.cmp(a));
+    let piles = format!(
+        "PILES frame={frame} food clusters outside the source pile: {} groups, {} cells in groups of 5+, largest {} (its lowest cell {:+} columns from the door, {:+} rows from the old ground line), top five {:?} | within 30 columns of the door: {} cells, {} of them in groups of 3+, largest {} | pick-ups left for lying in a pile {}",
+        sizes.len(),
+        sizes.iter().filter(|&&s| s >= 5).sum::<u32>(),
+        sizes.first().copied().unwrap_or(0),
+        biggest_at.0 - door,
+        biggest_at.1 - b.surface,
+        &sizes[..sizes.len().min(5)],
+        near.iter().sum::<u32>(),
+        near.iter().filter(|&&s| s >= 3).sum::<u32>(),
+        near.iter().max().copied().unwrap_or(0),
+        st.pile_left
+    );
+    let piles = format!("{piles}\nHOME frame={frame} dug cells that are home (PIXEL_PHYSICS_NEST_HOME=dug) {}", world.nest_dug.len());
     format!(
-        "LARDER frame={frame} food standing (larder and crumbs, cells): in the storeroom {in_store}, elsewhere below the old ground line {below}, above it outside the pile {above} | storeroom carry: picked up {}, set down {}, let go outside {}, refused for a full room {}, bites kept from the fed {} | put down at home {}, taken back up at home {} | shares {} ({:.0} J), digested {:.0} J | births paid from the store (PIXEL_PHYSICS_BUD_STORE) {} | foragers' crop cells put down in the store (harvest) {}, ticks held on the way {} | bud ticks held for not being at the nest (BUD_SITE) {}",
+        "{piles}\nLARDER frame={frame} food standing (larder and crumbs, cells): in the storeroom {in_store}, elsewhere below the old ground line {below}, above it outside the pile {above} | storeroom carry: picked up {}, set down {}, let go outside {}, refused for a full room {}, bites kept from the fed {} | put down at home {}, taken back up at home {} | shares {} ({:.0} J), digested {:.0} J | births paid from the store (PIXEL_PHYSICS_BUD_STORE) {} | foragers' crop cells put down in the store (harvest) {}, ticks held on the way {} | bud ticks held for not being at the nest (BUD_SITE) {}",
         st.store_pickups, st.store_delivered, st.store_released, st.store_room_full, st.store_kept, st.deliveries, st.pickups_at_nest, st.shares, st.shared_j, st.digested_face, st.store_births, st.harvest_stored, st.harvest_held, st.buds_held_for_nest
     )
 }

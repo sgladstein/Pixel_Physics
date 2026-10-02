@@ -1792,6 +1792,10 @@ pub struct CreatureStats {
     pub store_released: u64,
     /// Store pickups refused because the chamber had no empty cell.
     pub store_room_full: u64,
+    /// **Pick-ups left for lying in a pile** (`PIXEL_PHYSICS_STOREROOM=pile`,
+    /// `creature::pile_pick_p`): a won `Feed` roll by a would-be carrier on
+    /// a cell with food round it, refused by the clustering rule's draw.
+    pub pile_left: u64,
     /// **Bites of the storeroom's food refused to a fed animal**
     /// (`PIXEL_PHYSICS_STOREROOM=keep`, `creature::store_kept`): the "it
     /// fired" count beside the room's standing food, which is the effect.
@@ -4220,6 +4224,12 @@ pub struct World {
     /// empty with `room_gate` off, which is the branch that makes the revert
     /// free rather than merely inert.
     pub nest_room: Vec<NestRoom>,
+    /// **The dug nest, as home** (`PIXEL_PHYSICS_NEST_HOME=dug`,
+    /// `creature::NestHome::Dug`): every open cell at or below a nest
+    /// site's old ground line that a walk through open cells reaches from its
+    /// door, within `creature::DUG_HOME_REACH`. Rebuilt every
+    /// `ROOM_INTERVAL` frames by `step_nest_dug`; empty under any other home.
+    pub nest_dug: crate::sim::fxhash::PosSet,
     /// **What each nest needs, for the forage drive**, in `[0, 1]`: under
     /// `hunger` its animals' mean hunger, under `larder` how far the food
     /// standing at home falls short of a store (`creature::nest_needs`).
@@ -6389,6 +6399,7 @@ impl World {
             vital_losses: Vec::new(),
             nest_sites: Vec::new(),
             nest_room: Vec::new(),
+            nest_dug: Default::default(),
             nest_need: Vec::new(),
             colony_pace: Vec::new(),
             nest_last_return: Vec::new(),
@@ -8279,12 +8290,6 @@ impl World {
         self.nest_room = rooms;
     }
 
-    /// **Each nest's need, for the forage drive** (`World::nest_need`,
-    /// `creature::nest_needs`): its animals' mean hunger under `hunger`, or
-    /// how far its store falls short under `larder`. On `ROOM_INTERVAL` and
-    /// whenever the site list has changed length; cleared and skipped
-    /// entirely unless the drive reads it, so every other world pays one
-    /// comparison a frame.
     /// **Refresh every colony's smoothed income and burn**
     /// ([`World::colony_pace`]), once per [`ROOM_INTERVAL`] frames, while the
     /// food brake is on. Income is what the colony's animals digested
@@ -8334,6 +8339,60 @@ impl World {
         self.colony_pace.get(colony as usize).map_or(0.0, |p| p[4])
     }
 
+    /// Rebuild `nest_dug` (see there): a 4-connected fill through open
+    /// cells -- empty, or holding an animal, which stands in a tunnel and
+    /// does not fill it -- from the open cells of each site's top ground
+    /// row within the door's reach. Unbounded by anything but the reach, so
+    /// it answers the same whatever its size; the reach is what bounds its
+    /// work (121 x 61 cells a site at most, every 256 frames).
+    pub fn step_nest_dug(&mut self) {
+        if crate::sim::creature::nest_home(self) != crate::sim::creature::NestHome::Dug || self.nest_sites.is_empty() {
+            self.nest_dug.clear();
+            return;
+        }
+        if !self.frame.is_multiple_of(ROOM_INTERVAL) && !self.nest_dug.is_empty() {
+            return;
+        }
+        let (rx, ry) = crate::sim::creature::DUG_HOME_REACH;
+        let (rx, ry) = (crate::sim::creature::scaled_cells(self, rx), crate::sim::creature::scaled_cells(self, ry));
+        let door = crate::sim::creature::scaled_cells(self, crate::sim::creature::nest_door_of(self).unwrap_or(crate::sim::creature::NEST_DOOR_SHIPPED)) + 1;
+        // **Loose things lying in a tunnel do not cut it**: food, a corpse or
+        // a pellet put down in a passage is a thing in the nest, not the
+        // nest's wall, and read as wall a single crumb on the mouth took home
+        // from 43 cells to 6 (seed 1, frame 8,000).
+        let loose: Vec<MaterialId> = ["spoil", "corpse", "crumbs"].iter().filter_map(|n| self.materials.id_of(n)).collect();
+        let open = |w: &World, x: i32, y: i32| {
+            let c = w.get(x, y);
+            c.material == material::EMPTY || matches!(w.materials.kind(c.material), MaterialKind::Creature) || loose.contains(&c.material) || (c.organism_id() == 0 && crate::sim::creature::food_value(w, c) > 0.0)
+        };
+        let mut dug = crate::sim::fxhash::PosSet::default();
+        for site in self.nest_sites.clone() {
+            let inside = |x: i32, y: i32| (x - site.x).abs() <= rx && y >= site.surface && y <= site.surface + ry;
+            let mut stack: Vec<(i32, i32)> = (site.x - door..=site.x + door).map(|x| (x, site.surface)).filter(|&(x, y)| open(self, x, y)).collect();
+            // The founding cut is home whatever lies on its mouth.
+            if let Some(cut) = site.shaft {
+                stack.extend((site.surface..=site.surface + ry).flat_map(|y| (site.x - rx..=site.x + rx).map(move |x| (x, y))).filter(|&(x, y)| cut.contains(x, y) && open(self, x, y)));
+            }
+            while let Some((x, y)) = stack.pop() {
+                if !dug.insert((x, y)) {
+                    continue;
+                }
+                for (nx, ny) in [(x + 1, y), (x - 1, y), (x, y + 1), (x, y - 1)] {
+                    if inside(nx, ny) && !dug.contains(&(nx, ny)) && open(self, nx, ny) {
+                        stack.push((nx, ny));
+                    }
+                }
+            }
+        }
+        self.nest_dug = dug;
+    }
+
+    /// **Each nest's need, for the forage drive** (`World::nest_need`,
+    /// `creature::nest_needs`): its animals' mean hunger under `hunger`, or
+    /// how far its store falls short under `larder`. On `ROOM_INTERVAL` and
+    /// whenever the site list has changed length; cleared and skipped
+    /// entirely unless the drive reads it, so every other world pays one
+    /// comparison a frame.
     pub fn step_nest_need(&mut self) {
         let need = crate::sim::creature::forage_drive_of(self).need;
         // **`returns`: a nest the drive has not seen starts its clock now**,
@@ -10936,6 +10995,9 @@ impl World {
         // harness, no new phase. A box with no nest returns on the first
         // line, so the outdoor game pays one `Vec::is_empty` a frame.
         self.step_nest_room();
+        // **And the dug nest that is home** under `NEST_HOME=dug`, on the
+        // same cadence; every other world returns on its first line.
+        self.step_nest_dug();
         // **And how hungry each nest is**, on the same cadence, for the forage
         // drive only (`step_nest_need`); every other world returns on its
         // first line.
