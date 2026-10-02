@@ -8308,7 +8308,7 @@ impl World {
                 adults[c] += 1;
             }
         }
-        for c in 0..n {
+        for (c, &alive) in adults.iter().enumerate() {
             let b = &self.colony_books[c];
             let income = b.get(Account::HarvestedPlant) + b.get(Account::HarvestedCorpse);
             let burn = b.get(Account::Metabolized) + b.get(Account::Moved) + b.get(Account::SynapseTax);
@@ -8318,7 +8318,7 @@ impl World {
             p[1] = burn;
             p[2] += a * (di - p[2]);
             p[3] += a * (db - p[3]);
-            p[4] = adults[c] as f64;
+            p[4] = alive as f64;
         }
     }
 

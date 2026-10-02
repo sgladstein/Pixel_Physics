@@ -830,7 +830,20 @@ impl LabBox {
         // opens at rather than a value it is stuck with.
         w.plant_size_cadence = true;
         w.plant_bending = false;
-        let soil = w.materials.id_of("soil").expect("soil is a compiled-in material");
+        // **The lab's ants lay anywhere**, while the engine default lays only
+        // at the nest (`creature::bud_at_nest`, PR 546). Measured 2026-10-02
+        // on `played_bed` (120k, 12 seeds, main 0738a8ca): nest-only laying
+        // took births 329 -> 4 and 10 of 12 boxes died out. The lab's nest is
+        // a small painted patch, and the ants that can afford an egg are
+        // mostly still laden, circling 4-10 cells out; walking them home to
+        // lay (`creature::ready_to_lay`), laden or not, a wider laying reach
+        // and a six-cell "at the nest" oracle all left the box dying. Scoped
+        // here like the two rows above; `PIXEL_PHYSICS_BUD_SITE` set
+        // explicitly still decides.
+        if std::env::var_os("PIXEL_PHYSICS_BUD_SITE").is_none() {
+            w.bud_at_nest = Some(false);
+        }
+        let soil =w.materials.id_of("soil").expect("soil is a compiled-in material");
         let ceiling = self.ceiling_y();
         let bed_bottom = self.bed_bottom();
 
