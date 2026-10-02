@@ -5443,6 +5443,13 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   adjudication. Pick it up from this file — it
   carries what a later session must not re-derive, including the two rubric
   rules that are under-applied by default.
+- [handoff/HANDOFF-2026-10-02.md](handoff/HANDOFF-2026-10-02.md) — **the
+  account handoff for the ant program, 2026-10-02 (main e8adc960).** The owner's
+  standing rulings, how the coordinator, the nest and breeding lanes and the
+  merge desk ran, each lane's state, test beds, instruments and switches, and
+  the team-memory digest that would otherwise be lost with the old account. The
+  per-lane source notes and the breeding lane's `scripts/stab.py` sit beside it.
+  Start here if you are picking up nest, breeding or merge-desk work.
 - [water-phase-merge-plan.md](water-phase-merge-plan.md) — **merge handoff;
   the run it briefs has been done.** The prompt for merging the water-phase
   branch into the trunk: the measured conflict inventory, the files that
