@@ -10739,7 +10739,7 @@ fn spoil_haul() -> Option<f32> {
 fn spoil_haul_target(world: &World, state: &crate::sim::organism::OrganismState, head: (i32, i32)) -> Option<(i32, i32)> {
     let site = world.nearest_nest_site(head.0, head.1).and_then(|i| world.nest_sites.get(i))?;
     if let Some(col) = state.spoil_ring.filter(|_| spoil_ring_of(world).is_some()) {
-        return Some(ring_target(world, site, col));
+        return Some(ring_target(world, site, crest_column(world, site, col)));
     }
     Some(match site.shaft {
         Some(cut) if spoil_out().haul => (site.x, cut.top - 1),
@@ -11312,7 +11312,50 @@ fn spoil_ring_column(world: &World, organism: OrganismId, (x, y): (i32, i32), ri
 fn spoil_ring_holds(world: &World, state: &crate::sim::organism::OrganismState, (x, y): (i32, i32)) -> bool {
     let Some(col) = state.spoil_ring.filter(|_| spoil_ring_of(world).is_some()) else { return false };
     let Some(site) = world.nearest_nest_site(x, y).and_then(|i| world.nest_sites.get(i)) else { return false };
-    (x - site.x).abs() < (col - site.x).abs()
+    (x - site.x).abs() < (crest_column(world, site, col) - site.x).abs()
+}
+
+/// **Over the crest** ([`spoil_crest_of`], off): where a carrier latched on
+/// `col` puts its pellet down. Unset, `col` itself. Set, the first column out
+/// from `col` (away from the nest's centre, at most [`CREST_REACH`] past it)
+/// whose next column out is no higher, so a carrier on the inside of a heap
+/// walks up it and drops on the top, and its pellet rolls down the outside
+/// rather than back toward the door.
+fn crest_column(world: &World, site: &crate::sim::world::NestSite, col: i32) -> i32 {
+    if !spoil_crest_of(world) {
+        return col;
+    }
+    let out = if col >= site.x { 1 } else { -1 };
+    let mut at = col;
+    for _ in 0..CREST_REACH {
+        if ring_target(world, site, at + out).1 >= ring_target(world, site, at).1 {
+            break;
+        }
+        at += out;
+    }
+    at
+}
+
+/// How far past its drawn column a carrier may climb to a crest
+/// ([`crest_column`]).
+const CREST_REACH: i32 = 8;
+
+/// **Drop on the crest**: `PIXEL_PHYSICS_SPOIL_CREST=on`, off unless set;
+/// [`World::spoil_crest`] for one world.
+///
+/// **Why** (`Reports/nest-one-entrance-2026-09-29.md` §25, the owner's pick on
+/// 2026-10-01, *"Collar, then crest"*). Under [`spoil_ring`] a carrier puts its
+/// pellet on the top of the ground in the column it drew, which is often on
+/// the inner face of the heap: the pellet turns loose there and runs back
+/// toward the door, and the heap round the mouth is the largest traced source
+/// of the loose soil that refills the tunnels (§24). Ground-nesting ants climb
+/// the inner slope of the crater and drop at the top, so the crater widens
+/// outward. Acts only under the ring.
+pub fn spoil_crest_of(world: &World) -> bool {
+    world.spoil_crest.unwrap_or_else(|| {
+        static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        *V.get_or_init(|| std::env::var("PIXEL_PHYSICS_SPOIL_CREST").as_deref() == Ok("on"))
+    })
 }
 
 /// **Where a carrier stands, for the carry's latch** ([`spoil_ring`]):
@@ -11770,8 +11813,12 @@ fn under_roof(world: &World, (x, y): (i32, i32), rows: i32) -> bool {
 /// at or over the founding surface, in a column whose cell one row under
 /// the surface is ground, beside a column where that cell is open. The
 /// opening itself is never packed, so loose fill in the mouth stays loose
-/// and is carried out as before. Pellets stay pellets, as in
-/// [`pack_neighbours`] ([`spoil_packs`]).
+/// and is carried out as before. **A pellet on the rim is packed too**, if
+/// it stands on ground ([`is_footing`]): leaving pellets as pellets, as
+/// [`pack_neighbours`] does ([`spoil_packs`]), packed 32-125 rim cells in
+/// 144,000 frames, because the rim is mostly pellets and a pellet that turns
+/// loose runs in within a few frames (§25). One standing on nothing is left,
+/// so the collar never hangs.
 pub fn door_collar_of(world: &World) -> bool {
     world.door_collar.unwrap_or_else(|| {
         static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
@@ -11799,7 +11846,6 @@ fn collar_tamp(world: &mut World, x: i32, y: i32) -> u64 {
         let c = world.get(col, top + 1);
         c.material == material::EMPTY || c.organism_id() != 0
     };
-    let keep_spoil = !spoil_packs();
     let mut packed = 0;
     for (dx, dy) in NEIGHBOURS_8 {
         let (nx, ny) = (x + dx, y + dy);
@@ -11811,7 +11857,7 @@ fn collar_tamp(world: &mut World, x: i32, y: i32) -> u64 {
             continue;
         }
         let Some(lined_as) = world.materials.get(cell.material).packs_into else { continue };
-        if keep_spoil && world.materials.get(cell.material).needs_footing {
+        if world.materials.get(cell.material).needs_footing && !is_footing(world, nx, ny + 1) {
             continue;
         }
         let mut lined = cell;

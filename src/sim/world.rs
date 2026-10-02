@@ -3753,6 +3753,9 @@ pub struct World {
     /// `creature::door_collar_of` for this world; `None` reads the process's
     /// `PIXEL_PHYSICS_DOOR_COLLAR`.
     pub door_collar: Option<bool>,
+    /// `creature::spoil_crest_of` for this world; `None` reads the process's
+    /// `PIXEL_PHYSICS_SPOIL_CREST`.
+    pub spoil_crest: Option<bool>,
     /// **How much of the founding cut counts as home, overriding
     /// `PIXEL_PHYSICS_NEST_HOME` for this world** (`creature::nest_home`).
     /// `None` follows the environment, which is none of it unless set; a
@@ -6257,6 +6260,7 @@ impl World {
             bud_at_nest: None,
             dig_roof: None,
             door_collar: None,
+            spoil_crest: None,
             nest_home: None,
             nest_shaft: None,
             spoil_cue: None,
