@@ -76,8 +76,15 @@ fn brood_env() -> bool {
 /// (`World::brood`, else `PIXEL_PHYSICS_BROOD`). `None` means bud a whole
 /// adult as before.
 pub fn brood_of(world: &World, def: &CreatureDef) -> Option<BroodDef> {
+    world.brood.unwrap_or_else(brood_env).then(|| block_of(def)).flatten()
+}
+
+/// The species' brood block with the sweep overrides applied, whether or not
+/// brood is on: what brood already laid runs by, so a world that switches
+/// brood off mid-life still runs it to its end.
+fn block_of(def: &CreatureDef) -> Option<BroodDef> {
     let block = def.brood.as_ref()?;
-    world.brood.unwrap_or_else(brood_env).then(|| {
+    Some({
         let mut b = block.clone();
         if let Some(v) = lay_at_env() {
             b.lay_at = v;
@@ -240,7 +247,7 @@ pub fn brood_tick(world: &mut World, site: &ActiveSite) -> Vec<ActiveSite> {
     };
     // A world that switched brood off mid-life still runs what is already
     // laid to its end, so nothing is stranded half-paid.
-    let Some(block) = def.brood.clone() else {
+    let Some(block) = block_of(&def) else {
         return Vec::new();
     };
     let Some(material) = world.materials.id_of(&block.material) else {
