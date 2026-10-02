@@ -111,3 +111,6 @@ Reading: in the lab box, births were paid by ants laying out at the food; the ne
 
 ## Food brake with small colonies exempt (c2214bf4): mixed, stays off
 Long runs, 6 seeds, gap 90: s2, s4, s6 steadier, s3 crashed (0-368 ants, 4 halvings); births held 651-4,098 per run. Gap 200: near neutral, s5 improved (78-317, 0 halvings vs 1-234, 4). Food box: live 333-393 vs off 261-538. No food store forms in any arm.
+
+## Lab box lays anywhere (a8a8ad1b, base 231ab3d1 = main 0738a8ca + branch)
+labforage played_bed 120k, 12 paired seeds, nest-only (LAY_HOME=off logs) -> lab lays anywhere: births median 4 -> 329 (12/12 higher), died out 10 -> 0, alive at end 0 -> 178.5, peak 42 -> 188, starved per million ant-frames 3.8 -> 4.7 (9/12 higher, p 0.15). The lab is back to its pre-546 births. Main game unchanged.
