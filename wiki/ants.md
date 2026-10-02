@@ -1,6 +1,7 @@
 # Ants
 
-*Current as of: 2026-10-02, when **an ant started holding on to a nestmate
+*Current as of: 2026-10-02, when **new ants started as eggs** (see *New
+ants*), and when **an ant started holding on to a nestmate
 to climb.** Diggers carrying soil out used to fall back again and again in the
 room under the front door: an ant could only hold on to ground, and in the
 middle of a room there is none, so many gave up and put their soil down in the
@@ -2378,16 +2379,16 @@ and at any moment there is well under one lying there. Ants climb the stems
 happily, thirty rows and more, so it is not that the food is out of their
 reach; there is simply almost none of it.
 
-Colonies still have no queens. **Eggs exist, but only behind a switch, and
-are not yet how a normal game's ants breed.** With it on, a well-fed ant lays
-a cheap egg instead of budding a grown ant. The egg sits as a pale grain beside
-it, becomes a larva, and a larva has to be fed up to a whole ant's worth before
-it can pupate and hatch: it eats food lying beside it, and a nestmate who
-brushes against it hands it some of what it carries. A larva nobody feeds
-slowly starves and leaves a small corpse. Because a colony's food now has to go
-through its young before it becomes more ants, colonies grow more slowly and
-stay smaller. In long runs they also stop booming and then dying of hunger the
-way budding colonies do.
+Colonies still have no queens, but **since 2026-10-02 a new ant starts as an
+egg.** A well-fed ant lays a cheap egg instead of budding a grown ant. The egg
+sits as a pale grain beside it, becomes a larva, and a larva has to be fed up
+to a whole ant's worth before it can pupate and hatch: it eats food lying beside
+it, and a nestmate who brushes against it hands it some of what it carries. A
+larva nobody feeds slowly starves and leaves a small corpse. Because a colony's
+food now has to go through its young before it becomes more ants, colonies
+grow more slowly and stay smaller, and in long runs they stop booming and then
+dying of hunger the way budding colonies did. In the lab box the slower growth
+costs about half the births, which is still being looked into.
 
 ## Feeding each other, and resting
 

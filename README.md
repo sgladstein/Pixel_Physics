@@ -411,7 +411,7 @@ src/sim/     the simulation — knows nothing about windows or GPUs
                -- what retired TreeState and CreatureState
   creature.rs  creatures on that substrate: the worm, the ants, the beetle
   brood.rs     eggs, larvae and pupae: a birth laid as an egg and fed up
-               to an adult before it hatches (PIXEL_PHYSICS_BROOD, off)
+               to an adult before it hatches (PIXEL_PHYSICS_BROOD, on)
   contest.rs   assessment before commitment: what an animal reads off an
                opponent before it decides to bite it, as pure arithmetic
                over numbers creature.rs's fight already has
