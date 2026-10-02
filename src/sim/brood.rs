@@ -314,7 +314,7 @@ pub fn brood_tick(world: &mut World, site: &ActiveSite) -> Vec<ActiveSite> {
                 }
             }
             if nurse_env() {
-                nurse(world, organism, (x, y), colony, def.start_energy, b.target);
+                nurse(world, organism, (x, y), colony, &def, b.target);
             }
             if world.organism(organism).is_some_and(|s| s.energy >= b.target) {
                 set_stage(world, organism, (x, y), material, BroodStage::Pupa, frame);
@@ -357,10 +357,13 @@ pub fn brood_tick(world: &mut World, site: &ActiveSite) -> Vec<ActiveSite> {
 /// It draws from an adult's bank on its way to its own next egg, so a nest
 /// with brood waiting finishes them before it lays more: the regulation is
 /// a side effect, not a rule.
-fn nurse(world: &mut World, larva: OrganismId, (x, y): (i32, i32), colony: u32, start_energy: f32, target: f32) {
-    if colony == 0 {
-        return;
-    }
+fn nurse(world: &mut World, larva: OrganismId, (x, y): (i32, i32), colony: u32, def: &CreatureDef, target: f32) {
+    let start_energy = def.start_energy;
+    // **Kin by scent, as every share is** (`is_living_kin_id`), not by colony
+    // id, so a species with no colony can nurse too. Not a lab fix: the lab
+    // box (main 34b46b64, 24 seeds) gave identical births per seed either
+    // way, because its ants do carry a colony.
+    let gut = creature::gut_of(world, larva, def);
     let need = target - world.organism(larva).map_or(target, |s| s.energy);
     if need <= 0.0 {
         return;
@@ -376,7 +379,7 @@ fn nurse(world: &mut World, larva: OrganismId, (x, y): (i32, i32), colony: u32, 
             continue;
         }
         let Some(st) = world.organism(id) else { continue };
-        if st.brood.is_some() || st.colony != colony || st.energy <= start_energy {
+        if st.brood.is_some() || st.energy <= start_energy || !creature::is_living_kin_id(world, id, gut) {
             continue;
         }
         if best.is_none_or(|(_, e)| st.energy > e) {
@@ -395,7 +398,8 @@ fn nurse(world: &mut World, larva: OrganismId, (x, y): (i32, i32), colony: u32, 
         s.energy += amount;
     }
     world.creature_stats.brood_nursed_j += amount as f64;
-    world.book(colony, Account::SharedOut, amount as f64);
+    let donor_colony = world.colony_of(donor);
+    world.book(donor_colony, Account::SharedOut, amount as f64);
     world.book(colony, Account::SharedIn, amount as f64);
 }
 

@@ -9952,7 +9952,7 @@ fn is_living_kin(world: &World, cell: Cell, gut: Gut) -> bool {
 /// rather than two so the mouth cannot come to disagree with itself about who
 /// is family depending on whether the family member happens to own the cell it
 /// is standing in -- which is the whole defect §10's rider blindness was.
-fn is_living_kin_id(world: &World, id: OrganismId, gut: Gut) -> bool {
+pub(super) fn is_living_kin_id(world: &World, id: OrganismId, gut: Gut) -> bool {
     world.organism(id).is_some_and(|s| {
         (gut.crosses_kinds || s.species == gut.species) && scent_distance_sq(&scent_of(&expressed_traits(s, world.plasticity, world.trait_reach)), &gut.scent) <= gut.tolerance_sq
     })

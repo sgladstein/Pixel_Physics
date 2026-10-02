@@ -2429,6 +2429,16 @@ fn main() {
 
     piles.close();
     piles.print(sample_every, &world.creature_stats);
+    {
+        // Brood (`PIXEL_PHYSICS_BROOD`), all zero when it is off.
+        let st = &world.creature_stats;
+        let standing = world.live_brood_ids();
+        let held: f64 = standing.iter().filter_map(|&id| world.organism(id)).map(|s| s.energy as f64).sum();
+        println!(
+            "BROOD standing {} (holding {held:.0} J) | laid {}, larvae {}, pupated {}, larvae starved {}, lost {}, hatches refused for room {} | J shared in {:.0}, nursed by touch {:.0}, eaten beside {:.0}, upkeep {:.0}",
+            standing.len(), st.eggs_laid, st.larvae, st.pupae, st.larvae_starved, st.brood_lost, st.hatches_denied, st.brood_shared_j, st.brood_nursed_j, st.brood_ate_j, st.brood_upkeep_j
+        );
+    }
 
     println!(
         "SUMMARY seed={} founders={} colonies={} frames={frames} handout={handout} cols={cols} plants={} windfall={} fruit_dropped={} edible={} unvisited={} floor={} aloft={} \
