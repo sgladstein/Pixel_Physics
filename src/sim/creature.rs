@@ -8148,7 +8148,6 @@ fn sense(
     let mouth_scan = adjacent_food_counted(world, organism, (x, y), gut_of(world, organism, def), def.start_energy);
     inputs[I::FoodAdjacent as usize] = if mouth_scan.best.is_some() { 1.0 } else { 0.0 };
     inputs[I::KinNeed as usize] = mouth_scan.kin_need.map_or(0.0, |k| k.deficit);
-    inputs[I::BroodBearing as usize] = brood_bearing(world, organism, gut_of(world, organism, def), (x, y), heading);
     inputs[I::AtNest as usize] = if nest_within_reach(world, organism, x, y, def) { 1.0 } else { 0.0 };
 
     if let Some(state) = world.organism(organism) {
@@ -10321,82 +10320,6 @@ struct NeedyKin {
     x: i32,
     #[allow(dead_code)]
     y: i32,
-}
-
-/// **How far a hungry larva is felt**, in cells at the default scale
-/// (`BrainInput::BroodBearing`). Close on purpose: larval begging is a
-/// close-range signal (Creemers et al. 2003), and a nest worker's fidelity
-/// zone is the brood area, not the nest (Sendova-Franks & Franks 1994).
-pub const BROOD_CUE_REACH: i32 = 6;
-
-/// How often the hungry-larva list is rebuilt, in frames. A larva does not
-/// move and its need changes slowly; 16 frames is a few of an ant's steps.
-pub const BROOD_CUE_INTERVAL: u64 = 16;
-
-/// **`PIXEL_PHYSICS_BROOD_CUE=off` reads `BroodBearing` as 0** -- the control
-/// arm. On (unset) the input carries the hungry larvae close by.
-pub fn brood_cue_on() -> bool {
-    static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *V.get_or_init(|| std::env::var("PIXEL_PHYSICS_BROOD_CUE").as_deref() != Ok("off"))
-}
-
-/// **Rebuild `World::brood_cue`**: every larva with a need above zero, its
-/// cell and its need. Called from the frame step; a world with no brood pays
-/// one scan of the organism slots every [`BROOD_CUE_INTERVAL`] frames.
-pub fn step_brood_cue(world: &mut World) {
-    if !brood_cue_on() {
-        world.brood_cue.clear();
-        return;
-    }
-    if !world.frame.is_multiple_of(BROOD_CUE_INTERVAL) {
-        return;
-    }
-    let mut list = std::mem::take(&mut world.brood_cue);
-    list.clear();
-    for id in world.live_brood_ids() {
-        let Some(need) = kin_deficit(world, id, 1.0).filter(|&n| n > 0.0) else { continue };
-        let Some(&(x, y)) = world.organism(id).and_then(|s| s.cells.keys().min_by_key(|&&(x, y)| (y, x))) else { continue };
-        list.push((x, y, need, id));
-    }
-    world.brood_cue = list;
-}
-
-/// **`BrainInput::BroodBearing`**: the signed turn toward the need-weighted
-/// mean direction of the hungry larvae of this animal's kind within
-/// [`BROOD_CUE_REACH`], positive to the right, times the strongest need in
-/// range weighted by nearness. 0.0 with none in range.
-fn brood_bearing(world: &World, organism: OrganismId, gut: Gut, (x, y): (i32, i32), heading: u8) -> f32 {
-    if world.brood_cue.is_empty() {
-        return 0.0;
-    }
-    let reach = scaled_cells(world, BROOD_CUE_REACH);
-    let (mut vx, mut vy, mut top) = (0.0f32, 0.0f32, 0.0f32);
-    for &(bx, by, need, id) in &world.brood_cue {
-        let (dx, dy) = (bx - x, by - y);
-        if dx.abs() > reach || dy.abs() > reach || (dx == 0 && dy == 0) || id == organism {
-            continue;
-        }
-        if !is_living_kin_id(world, id, gut) {
-            continue;
-        }
-        let d = ((dx * dx + dy * dy) as f32).sqrt();
-        let w = need * (1.0 - d / (reach as f32 + 1.0)).max(0.0);
-        vx += w * dx as f32 / d;
-        vy += w * dy as f32 / d;
-        top = top.max(w);
-    }
-    if top <= 0.0 || vx * vx + vy * vy < 1e-6 {
-        return 0.0;
-    }
-    // The same bearing `PreyBearing` reads: `DIRS` runs anticlockwise on a
-    // y-down screen, so heading `h` points along `-h * PI/4`.
-    let bearing = vy.atan2(vx);
-    let heading_angle = -(heading as f32) * std::f32::consts::FRAC_PI_4;
-    let mut error = (bearing - heading_angle).rem_euclid(std::f32::consts::TAU);
-    if error > std::f32::consts::PI {
-        error -= std::f32::consts::TAU;
-    }
-    top.min(1.0) * error / std::f32::consts::PI
 }
 
 /// **The one definition of "how badly does this kin need feeding"**, so the
@@ -42011,48 +41934,6 @@ mod tests {
         w.set(12, 12, Cell::new(fruit, 0));
         w.set(13, 13, Cell::new(fruit, 0));
         assert_eq!(pile_food_share(&w, 10, 10), (2.0 / 24.0, 1), "one beside, one two away, one out of reach");
-    }
-
-    /// **`BroodBearing` points at a hungry larva of the ant's own kind**: near
-    /// zero facing it, full scale facing away, and opposite signs either side
-    /// -- the shape `(BroodBearing, Turn, -2.5)` needs to steer. With no
-    /// larva in the list it reads 0.
-    #[test]
-    fn the_brood_cue_points_at_a_hungry_larva_close_by() {
-        let mut w = World::new(Rect::new(0, 0, 199, 199));
-        for x in 60..140 {
-            w.set(x, 101, Cell::new(material::STONE, 0));
-        }
-        w.brood = Some(true);
-        w.plant_ant(100, 100);
-        let ant = w.get(100, 100).organism_id();
-        w.organism_mut(ant).expect("live").energy = 1_500.0;
-        let species = w.organism(ant).expect("live").species;
-        let def = w.species.get(species).creature.clone().expect("creature");
-        let block = def.brood.clone().expect("ant.ron authors brood");
-        let gut = gut_of(&w, ant, &def);
-        let head = w.organism(ant).expect("live").chain[0];
-        w.frame = 0;
-        step_brood_cue(&mut w);
-        assert!((0..8).all(|h| brood_bearing(&w, ant, gut, head, h) == 0.0), "no brood, no cue");
-        let site = try_bud(&mut w, ant, &def, 0.0).expect("a rich ant lays");
-        w.frame = block.egg_frames;
-        crate::sim::brood::brood_tick(&mut w, &site);
-        w.frame = BROOD_CUE_INTERVAL * 1_000;
-        step_brood_cue(&mut w);
-        assert_eq!(w.brood_cue.len(), 1, "the larva is listed: {:?}", w.brood_cue);
-        let (lx, ly, need, _) = w.brood_cue[0];
-        assert!(need > 0.5, "a new larva is hungry: {need}");
-        // From a cell three away, so every heading has a bearing.
-        let from = (lx - 3, ly);
-        let toward = 0u8; // `DIRS[0]` is east, toward the larva.
-        let read = |h: u8| brood_bearing(&w, ant, gut, from, h);
-        assert!(read(toward).abs() < 0.05 * need, "facing the larva reads ~0: {}", read(toward));
-        assert!(read(4).abs() > 0.4 * need, "facing away reads near full scale: {}", read(4));
-        assert!(read(2) * read(6) < 0.0, "either side reads opposite signs: {} {}", read(2), read(6));
-        // Out of reach, nothing.
-        let far = (lx - scaled_cells(&w, BROOD_CUE_REACH) - 1, ly);
-        assert!((0..8).all(|h| brood_bearing(&w, ant, gut, far, h) == 0.0), "a larva out of reach is not felt");
     }
 
     /// `PIXEL_PHYSICS_STOREROOM`'s spellings ([`parse_storeroom`]): unset is

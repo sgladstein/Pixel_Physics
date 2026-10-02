@@ -32,11 +32,6 @@
 
 use serde::{Deserialize, Serialize};
 
-/// **34, not 33, since 2026-10-02.** `BroodBearing` appended -- see that
-/// variant: the first thing in the nest an ant can be drawn to rather than
-/// tethered to. Lawful under the reserve on the same terms as every append
-/// below.
-///
 /// **33, not 32, since 2026-09-20.** `HomeAligned` appended -- see that
 /// variant, and `open-bugs-handoff.md` §Z29 for the measurement that asked
 /// for it: the trail inputs read negative whichever way a laden ant faces,
@@ -53,7 +48,7 @@ use serde::{Deserialize, Serialize};
 /// `INPUT_SLOTS` is 64 against a live count of 29 before this, so lighting
 /// up one more row moves no existing weight and `GENOME_LEN` does not
 /// change.
-pub const BRAIN_INPUTS: usize = 34;
+pub const BRAIN_INPUTS: usize = 33;
 /// **Eight, not four, since 2026-09-02.**
 ///
 /// Four was the whole of an animal's internal state, and `ant.ron` already
@@ -289,7 +284,6 @@ pub const INPUT_NAMES: [&str; BRAIN_INPUTS] = [
     "CarryingFood",
     "PheroARise",
     "HomeAligned",
-    "BroodBearing",
 ];
 pub const OUTPUT_NAMES: [&str; BRAIN_OUTPUTS] = [
     "Turn", "Move", "EmitA", "EmitB", "Dig", "Drop", "Persist", "Tumble", "Caution", "Feed", "Impulse", "DropSpoil", "Attack", "Provision", "Share", "Fly",
@@ -1116,31 +1110,6 @@ pub enum BrainInput {
     /// from birth 1** -- see
     /// `the_live_slot_count_is_pinned_because_mutation_rate_is_derived_from_it`.
     HomeAligned = 32,
-    /// **Which way the hungry larvae close by are, weighted by how hungry**:
-    /// the signed turn toward the need-weighted mean direction of every
-    /// larva of the animal's own kind within `creature::BROOD_CUE_REACH`,
-    /// positive to the right as `PreyBearing` is, times the strongest need
-    /// in range (`creature::kin_deficit`, the same number `KinNeed` reads, so
-    /// a fed larva goes quiet). `0.0` with no hungry larva in range.
-    ///
-    /// **Why** (owner, 2026-10-02: nest workers "should stay in the nest
-    /// because all their work is in the nest"). Before this the nest offered
-    /// nothing an ant could be drawn *to*: a larva was fed only by an ant
-    /// that happened to touch it, so a fed nest worker with no dig face had
-    /// no reason to be anywhere, and the game tethered it to the door
-    /// instead. Real larvae beg at close range (*Myrmica rubra*, Creemers et
-    /// al. 2003; Kaptein et al. 2005) and nurses keep to fidelity zones round
-    /// the brood (Sendova-Franks & Franks 1994). Short range on purpose: no
-    /// study found here shows a hunger signal drawing workers across a nest.
-    ///
-    /// **A bearing, so one wire steers**: `(BroodBearing, Turn, w < 0)` is
-    /// pursuit, the shape `PreyBearing` and `BloomBearing` use, and its
-    /// weight is a gene -- how strongly brood draws an ant can evolve.
-    ///
-    /// **Cost, paid knowingly:** 24 live slots, every species'
-    /// `mutation_rate` re-derived to `3.18 / 966`, and every breeding
-    /// scene's numbers move from birth 1.
-    BroodBearing = 33,
 }
 
 /// Which output slot. Positional and append-only, as above.
@@ -1528,7 +1497,6 @@ pub const INPUTS: [BrainInput; BRAIN_INPUTS] = [
     BrainInput::CarryingFood,
     BrainInput::PheroARise,
     BrainInput::HomeAligned,
-    BrainInput::BroodBearing,
 ];
 /// See [`INPUTS`].
 pub const OUTPUTS: [BrainOutput; BRAIN_OUTPUTS] = [
@@ -2557,12 +2525,7 @@ mod tests {
         // `Reports/ant-return-leg-plan-2026-09-20.md`). No output moved. Every
         // species' `mutation_rate` re-derived to `3.18 / 942 = 0.0033758` in
         // the same change.
-        // 942 -> 966 on 2026-10-02 with `BroodBearing` (an input column, 24
-        // slots) -- hungry larvae close by, the first thing in the nest an
-        // ant is drawn to rather than tethered to (`nest-one-entrance` §29).
-        // Every species' `mutation_rate` re-derived to `3.18 / 966 =
-        // 0.0032919` in the same change.
-        assert_eq!(live, 966, "the mutable surface moved; re-derive every species' mutation_rate against it in the same change");
+        assert_eq!(live, 942, "the mutable surface moved; re-derive every species' mutation_rate against it in the same change");
     }
 
     #[test]
@@ -2738,10 +2701,7 @@ mod tests {
         //   which is exactly what the manifest exists to catch, and it does:
         //   any jar written before this refuses to load rather than being
         //   silently reinterpreted.
-        // **Moved again 2026-10-02 by `BroodBearing`**, an append on the
-        // same lawful terms as `HomeAligned`'s: one more column of the
-        // reserve, no name renumbered, no existing weight moved.
-        assert_eq!(genome_manifest(), 2_786_513_932);
+        assert_eq!(genome_manifest(), 4_147_102_827);
     }
 
     #[test]

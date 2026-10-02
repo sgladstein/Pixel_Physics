@@ -241,7 +241,6 @@ fn phrasebook(input: BrainInput, output: BrainOutput) -> Option<(&'static str, &
         (I::Energy, O::Share) => ("SHARES WHEN WELL FED", "SHARES WHEN HUNGRY"),
         (I::Bias, O::Share) => ("SHARES WITH ANYONE", "KEEPS FOOD TO ITSELF"),
         (I::KinNeed, O::Move) => ("GOES OUT WHEN KIN HUNGER", "SITS WHILE KIN GO HUNGRY"),
-        (I::BroodBearing, O::Turn) => ("TURNS TO HUNGRY BROOD", "TURNS FROM HUNGRY BROOD"),
         _ => return None,
     })
 }

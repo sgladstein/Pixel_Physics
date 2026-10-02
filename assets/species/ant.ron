@@ -863,11 +863,7 @@
         // `brain.rs`'s `the_live_slot_count_is_pinned_because_mutation_rate_
         // is_derived_from_it`, which is also the test that fails if this value
         // and that count ever disagree again.
-        // **0.0032919, re-derived 2026-10-02** when `BroodBearing` appended
-        // -- hungry larvae close by, as a bearing. An input column is 24
-        // live slots, so `live_slots` 942 -> 966 and `3.18 / 966 =
-        // 0.0032919`.
-        mutation_rate: 0.0032919,
+        mutation_rate: 0.0033758,
 
         // **A living nestmate counts as ground.** Footing only, never
         // passability -- two ants still cannot walk through each other --
@@ -1840,18 +1836,6 @@
             // walked off rather than a harvest. The played bed (founded at
             // 6,000, run to 30,000) is where a foraging change can show.
             (KinNeed, Move, 1.25),
-            // **Toward hungry larvae close by** (`BroodBearing`, 2026-10-02):
-            // pursuit, the shape `(PreyBearing, Turn, -2.5)` has on the
-            // beetle -- negative because `Turn` biases left when positive and
-            // the bearing is positive to the right. 1.9 rather than the
-            // beetle's 2.5 so it stays under `(Bias, Move, 2.0)` on the lab's
-            // plain-speech page (five drives, strongest first); squashed,
-            // 1.9 and 2.5 turn 0.66 and 0.71 of the way. The
-            // first thing in the nest an ant is drawn to rather than
-            // tethered to (owner: nest workers "should stay in the nest
-            // because all their work is in the nest"). A gene, so how
-            // strongly brood draws an ant can evolve.
-            (BroodBearing, Turn, -1.9),
         ],
 
         // **The gate a single layer cannot express**, authored as weights
