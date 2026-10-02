@@ -3947,6 +3947,12 @@ fn main() {
                     "ROOF frame={f} cuts refused under the nest's roof (DIG_ROOF) {}, rim cells packed by the door's collar (DOOR_COLLAR) {}",
                     world.creature_stats.digs_refused_roof, world.creature_stats.collar_packed
                 );
+                // `PIXEL_PHYSICS_KIN_FOOTING`'s "it fired" half, beside every
+                // animal fall so the two read as a share.
+                println!(
+                    "KIN frame={f} animal falls {}, falls that did not happen because the body held a nestmate on the ground (KIN_FOOTING) {}",
+                    world.creature_stats.falls, world.creature_stats.kin_holds
+                );
                 if let Some(p) = &food_pile {
                     println!("{}", larder_census(&world, &b, p, f));
                     let st = world.creature_stats;

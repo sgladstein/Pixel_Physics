@@ -1825,8 +1825,12 @@ pub struct CreatureStats {
     pub spoil_cue_kept_milli: u64,
     /// **`creature::dig_roof_of`'s count**: cuts refused because they lay
     /// within the roof's rows under a nest's founding surface and outside its
-    /// door. 0 unless `PIXEL_PHYSICS_DIG_ROOF` is set.
+    /// door. 0 under `PIXEL_PHYSICS_DIG_ROOF=off`.
     pub digs_refused_roof: u64,
+    /// **`creature::held_by_kin`'s count**: support checks an animal passed
+    /// only because it touched a nestmate on the ground -- each a fall that
+    /// did not happen. 0 under `PIXEL_PHYSICS_KIN_FOOTING=off`.
+    pub kin_holds: u64,
     /// **`creature::collar_tamp`'s count**: rim cells packed by ants at the
     /// door. 0 unless `PIXEL_PHYSICS_DOOR_COLLAR` is set.
     pub collar_packed: u64,

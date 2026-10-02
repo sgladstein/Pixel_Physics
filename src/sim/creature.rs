@@ -15431,9 +15431,10 @@ fn held_by_kin(world: &World, organism: OrganismId, chain: &[(i32, i32)]) -> boo
 /// before it lets go: the `frames_still` the seed-8 census above counted.
 const KIN_GRIP_TICKS: u16 = 60;
 
-/// **Ants climb over each other**: `PIXEL_PHYSICS_KIN_FOOTING=on` lets a body
-/// that touches a nestmate standing on ground count as held up
-/// ([`held_by_kin`]); off by default; [`World::kin_footing`] for one world.
+/// **Ants climb over each other**: a body that touches a nestmate standing on
+/// ground counts as held up ([`held_by_kin`]), **on by default since
+/// 2026-10-02**; `PIXEL_PHYSICS_KIN_FOOTING=off` is the ant before, and
+/// [`World::kin_footing`] sets it for one world.
 ///
 /// **Why** (`Reports/nest-one-entrance-2026-09-29.md` §26). Without it an
 /// ant is held up only by ground within a cell of its body, so in the room
@@ -15444,10 +15445,17 @@ const KIN_GRIP_TICKS: u16 = 60;
 /// steps. A carrier that cannot get out loses its patience, wanders off into
 /// the nest holding its pellet and sets it down there; that is most of the
 /// pellets standing in the tunnels.
+///
+/// **What it does, measured** (food box, seeds 1-12, 144,000 frames, main
+/// 44f14af): under the door carriers fell 13 times against 3,077 without it
+/// (seed 1, frames 24,000-48,000). Pellets left standing in the tunnels, median
+/// 22.5 against 70.5 (lower on 9 of 12 seeds); soil packed back into the
+/// tunnels 66 against 175 (lower on 9). Ants alive, median 481.5 against 369
+/// (higher on 8 of 12); fruit taken higher on 9 of 12.
 pub fn kin_footing_of(world: &World) -> bool {
     world.kin_footing.unwrap_or_else(|| {
         static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-        *V.get_or_init(|| std::env::var("PIXEL_PHYSICS_KIN_FOOTING").as_deref() == Ok("on"))
+        *V.get_or_init(|| std::env::var("PIXEL_PHYSICS_KIN_FOOTING").as_deref() != Ok("off"))
     })
 }
 
@@ -15460,7 +15468,11 @@ pub fn kin_footing_of(world: &World) -> bool {
 /// ask it every decision rather than only after a step roll won. The shipped
 /// walk still asks it only there, and still counts the fall as a move.
 fn fall_if_unsupported(world: &mut World, organism: OrganismId, def: &CreatureDef, chain: &[(i32, i32)], groups: &[u8], stacker: Option<Stacker>) -> bool {
-    let supported = touches_ground(world, chain) || (kin_footing_of(world) && held_by_kin(world, organism, chain));
+    let supported = touches_ground(world, chain) || {
+        let held = kin_footing_of(world) && held_by_kin(world, organism, chain);
+        world.creature_stats.kin_holds += u64::from(held);
+        held
+    };
     if !supported {
         let fallen: Vec<(i32, i32)> = chain.iter().map(|&(cx, cy)| (cx, cy + 1)).collect();
         // Tissue-aware for the same reason the step below is: an animal
