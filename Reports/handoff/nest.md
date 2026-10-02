@@ -20,7 +20,7 @@ caste of nest workers does, and where food is kept inside the nest.
   standing on ground.
 - Earlier: the door, the dug shaft, the walked spoil cycle, stacking at 4.
 
-**Open: PR 547** (draft, handed to the merge desk), branch
+**PR 547 MERGED** as main `e8adc960` (22:25, piling on; the storeroom card was still unanswered). **Open: PR 549**, a docs-only dead-ends index fix on the same branch restarted from e8adc960. PR 547 was: branch
 `claude/nest-piles-va71j6`, head `886949fc`, main `0738a8ca` merged in. It
 ships two defaults:
 1. **Dug home** (`NestHome::Dug`). Home is every open cell a flood fill
@@ -61,7 +61,7 @@ editing before reuse. **Runs in flight:** none. The numbers are in §28.
 
 ## Next steps, in order
 
-1. **Drive PR 547 to green.** The merge desk merges; lanes never merge.
+1. **PR 549** (dead-ends index) to green; the merge desk merges, lanes never do. If Scottt answers the storeroom card "Keep storeroom", set `Storeroom::SHIPPED` back to `on,caste=4,workerhome,side,keep` in a new PR.
 2. **Lab box:** colonies die under "lay only at the nest" (PR 546).
    - The dug home does not fix it: rich ants stay out on the surface.
    - The suggested fix, "an ant ready to lay walks home", went to the

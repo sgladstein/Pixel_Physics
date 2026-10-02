@@ -86,7 +86,9 @@ Main is e8adc960 (PR 547, merged 22:23). PRs 529 to 547 have merged.
   329 to 4, and 10 of 12 boxes died. Scottt chose to ship it anyway.
   - The dug home did not rescue it. The lab colony stays small, and rich ants sit
     out on the surface.
-  - The breeding lane's next step is "walk home to lay".
+  - Walk home to lay and three other laying fixes did not rescue it
+    (12 seeds: births median 4 to 7, 10 of 12 boxes still died). They are on
+    the breeding branch, not merged. The lab problem is still open.
 - **Nest lane.**
   - PR 547 (merged, e8adc960) made the dug home and food piling the defaults,
     based on food-box results. With piling, the colony falls 3-7% from its peak, against 35-59%
