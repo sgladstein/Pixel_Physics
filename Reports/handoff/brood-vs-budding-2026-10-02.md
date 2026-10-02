@@ -114,3 +114,7 @@ Long runs, 6 seeds, gap 90: s2, s4, s6 steadier, s3 crashed (0-368 ants, 4 halvi
 
 ## Lab box lays anywhere (a8a8ad1b, base 231ab3d1 = main 0738a8ca + branch)
 labforage played_bed 120k, 12 paired seeds, nest-only (LAY_HOME=off logs) -> lab lays anywhere: births median 4 -> 329 (12/12 higher), died out 10 -> 0, alive at end 0 -> 178.5, peak 42 -> 188, starved per million ant-frames 3.8 -> 4.7 (9/12 higher, p 0.15). The lab is back to its pre-546 births. Main game unchanged.
+
+## Re-check on main e8adc960 (dug home + piling) + branch b16787b4
+Food box (digbox hungry gap=90, 96k, 6 paired seeds), LAY_HOME on vs off, live/born at 96k: on 189/282 198/414 119/425 243/424 276/552 274/420; off 227/479 311/426 49/228 188/375 338/647 252/426. Median live 220 vs 240, born 422 vs 426; higher on 3/6. Neutral, no colony lost: LAY_HOME stays on.
+Lab box with lab lays anywhere, 6 seeds, 120k: born 84-796, alive at end 42-341, 0/6 died out.

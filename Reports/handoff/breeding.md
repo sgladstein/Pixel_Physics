@@ -23,7 +23,7 @@ How ants reproduce: eggs/larvae/pupae (`src/sim/brood.rs`: `lay_egg`, `brood::nu
 
 ## Unmerged work: the PR from `claude/ant-breeding-plan-v9kpl5` (head ebdafcce, main 6852a99c merged in)
 - **Lab box lays anywhere** (a8a8ad1b, `src/lab/scene.rs`): fixes the lab box that PR 546 broke. `LabBox::build_counted` sets `bud_at_nest` off unless `PIXEL_PHYSICS_BUD_SITE` is set. Lab, 12 paired seeds: births median 4 -> 329, died out 10 -> 0 of 12, alive at end 0 -> 178. The main game still lays only at the nest.
-- **Walk home to lay** (f6accdf9, `PIXEL_PHYSICS_LAY_HOME`, on unless `off`; `laden` also pulls ants carrying food): an ant whose bank clears the laying bar walks home like a laden forager. Did NOT rescue the lab (births 4 -> 7, 10/12 still died): 90% of ready ants are laden and circle 4-10 cells from the small painted nest. Food-box check on the new main was running at handoff.
+- **Walk home to lay** (f6accdf9, `PIXEL_PHYSICS_LAY_HOME`, on unless `off`; `laden` also pulls ants carrying food): an ant whose bank clears the laying bar walks home like a laden forager. Did NOT rescue the lab (births 4 -> 7, 10/12 still died): 90% of ready ants are laden and circle 4-10 cells from the small painted nest. Food box on the new main, 6 paired seeds: neutral (median live 220 vs 240, born 422 vs 426), so it stays on.
 - **Food brake** (d315658a, c2214bf4, `PIXEL_PHYSICS_FOOD_BRAKE`, OFF): raises the birth bar when colony income/burn (EMA, 3,000 frames) drops below 1.5, full stop at 1.0; colonies under 30 adults exempt. Mixed (one seed steadier, one crashed), no food store forms. Keep off.
 - Rejected on the lab (seed 1 or seeds 1-4): `LAY_REACH=3`, `NEST_REACH=r6` oracle, `LAY_HOME=laden`.
 
