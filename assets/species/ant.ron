@@ -100,6 +100,27 @@
         // default to the recommended setting rather than off.
         founder_reserve_spread: 0.5,
 
+        // **Eggs and brood instead of budding** (`src/sim/brood.rs`,
+        // `organism::BroodDef`), while `PIXEL_PHYSICS_BROOD` is on. First
+        // guesses, all to be swept (`ant-breeding-plan-2026-09-29.md` B3):
+        //
+        // - `egg_cost` 120 J, the plan's first guess: laying is cheap, so a
+        //   breeder at the 1,100 J bar keeps a ~1,000 J reserve and lays one
+        //   egg per 120 J it earns above it.
+        // - `egg_frames` 1,500 and `pupa_frames` 1,500: the plan puts
+        //   egg-to-adult near 4,000 frames, and a larva fed at the pace a
+        //   colony feeds takes the rest.
+        // - `larva_upkeep` is one adult body cell's idle cost per frame
+        //   (0.05 per 6-frame tick, `idle_cost_per_cell`), so an unfed larva
+        //   holding its 120 J lasts about 14,400 frames.
+        brood: Some((
+            material: "brood",
+            egg_cost: 120.0,
+            egg_frames: 1500,
+            larva_upkeep: 0.0083333,
+            pupa_frames: 1500,
+        )),
+
         // **Per body cell, since 2026-08-30, and this ant is the number
         // both rates were calibrated from.** They were flat per *animal*
         // and nothing in the cost path read `chain.len()`, so a longer body

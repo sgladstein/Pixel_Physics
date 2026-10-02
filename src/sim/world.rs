@@ -2568,6 +2568,29 @@ pub struct CreatureStats {
     /// **Births paid from the store** under `creature::bud_from_store`; 0
     /// whenever the switch is off.
     pub store_births: u64,
+    /// **Brood** (`src/sim/brood.rs`), all 0 for a species without a brood
+    /// block or with `PIXEL_PHYSICS_BROOD=off`. `births` still counts adults
+    /// that appeared, so with brood on it counts hatchings, and `eggs_laid`
+    /// is the laying the parent paid for.
+    pub eggs_laid: u64,
+    /// Eggs that became larvae.
+    pub larvae: u64,
+    /// Larvae fed to their target that became pupae.
+    pub pupae: u64,
+    /// Larvae that starved, leaving a corpse worth what they held.
+    pub larvae_starved: u64,
+    /// Brood whose cell was destroyed (burned, blasted, erased).
+    pub brood_lost: u64,
+    /// Hatch attempts refused because the adult body did not fit.
+    pub hatches_denied: u64,
+    /// Joules nestmates shared into larvae, mouth to mouth.
+    pub brood_shared_j: f64,
+    /// Joules larvae ate from food lying beside them.
+    pub brood_ate_j: f64,
+    /// Joules larvae burned waiting to be fed.
+    pub brood_upkeep_j: f64,
+    /// Joules that left brood as corpse (starved larvae).
+    pub brood_corpse_j: f64,
     /// **Crop cells a forager put down in the storeroom** under the
     /// storeroom's `harvest` part, and the ticks a forager held its crop on
     /// the way there; both 0 whenever it is off.
@@ -3838,6 +3861,10 @@ pub struct World {
     /// which is off unless it says `on`. A field so a guard can take both
     /// arms in one process.
     pub bud_stack: Option<bool>,
+    /// **Brood on or off for this world**, overriding `PIXEL_PHYSICS_BROOD`
+    /// (`brood::brood_of`), so a guard can run both arms in one process.
+    /// Neither value turns brood on for a species without a brood block.
+    pub brood: Option<bool>,
     /// **The storeroom, overriding `PIXEL_PHYSICS_STOREROOM` for this world**
     /// (`creature::storeroom_of`). `None` follows the environment, which is
     /// `creature::Storeroom::SHIPPED` unless it says `off`.
@@ -6293,6 +6320,7 @@ impl World {
             births_paused: false,
             dig_widen: None,
             bud_stack: None,
+            brood: None,
             storeroom: None,
             nest_door: None,
             scout: None,
@@ -6627,7 +6655,8 @@ impl World {
         self.organisms
             .iter()
             .filter_map(|slot| slot.state.as_ref())
-            .filter(|state| self.species.get(state.species).creature.is_some())
+            // Brood is not an animal until it hatches (`live_organism_ids`).
+            .filter(|state| state.brood.is_none() && self.species.get(state.species).creature.is_some())
             .count()
     }
 
@@ -6756,13 +6785,52 @@ impl World {
     /// `mark_organism_senescent`. A harness studying selection has to be able
     /// to enumerate the population before it can disturb it, and every
     /// in-crate caller wanted exactly this already.
+    ///
+    /// **Brood is left out** (`OrganismState::brood`): an egg is an organism
+    /// of its species with an empty chain, and the hundreds of census sites
+    /// that walk this list to count animals would count it as one. A world
+    /// with no brood returns exactly the list it always did.
+    /// [`World::live_brood_ids`] is the brood's own.
     pub fn live_organism_ids(&self) -> Vec<OrganismId> {
         self.organisms
             .iter()
             .enumerate()
-            .filter(|(_, slot)| slot.state.is_some())
+            .filter(|(_, slot)| slot.state.as_ref().is_some_and(|s| s.brood.is_none()))
             .map(|(i, slot)| encode_organism_id((i + 1) as OrganismId, slot.generation))
             .collect()
+    }
+
+    /// Every live brood organism's id: eggs, larvae and pupae.
+    pub fn live_brood_ids(&self) -> Vec<OrganismId> {
+        self.organisms
+            .iter()
+            .enumerate()
+            .filter(|(_, slot)| slot.state.as_ref().is_some_and(|s| s.brood.is_some()))
+            .map(|(i, slot)| encode_organism_id((i + 1) as OrganismId, slot.generation))
+            .collect()
+    }
+
+    /// **Release a brood organism's slot without closing an animal's
+    /// books.** An egg was never an animal: no birth, line +1 or `Born` line
+    /// saw it arrive (those are counted at hatching), so the grave, the
+    /// death by cause, the `Died` line and the line's -1 that
+    /// [`World::free_organism`] books must not see it leave. The cell and
+    /// the energy are the caller's to settle first.
+    pub(crate) fn free_brood(&mut self, organism_id: OrganismId) {
+        self.write_watch.mark_all();
+        let (slot_index, generation) = decode_organism_id(organism_id);
+        if slot_index == 0 {
+            return;
+        }
+        let Some(slot) = self.organisms.get_mut((slot_index - 1) as usize) else {
+            return;
+        };
+        if slot.generation != generation || slot.state.as_ref().is_none_or(|s| s.brood.is_none()) {
+            return;
+        }
+        slot.state = None;
+        self.free_organism_slots.push(slot_index);
+        self.remove_rider_everywhere(organism_id);
     }
 
     /// **Is this organism riding in a crop right now?** -- i.e. is it a seed
@@ -7359,6 +7427,7 @@ impl World {
             generation: 0,
             // Zero until this animal buds one itself, in `try_bud`.
             children: 0,
+            brood: None,
             // Founders claim theirs at the `plant_creature_seed` seam;
             // `push_organism` cannot, because it does not know whether it
             // is allocating a plant (same reasoning as `traits` above).
@@ -8741,7 +8810,8 @@ impl World {
         let mut out: Vec<CreatureGroup> = Vec::new();
         for slot in self.organisms.iter() {
             let Some(state) = &slot.state else { continue };
-            if self.species.get(state.species).creature.is_none() {
+            // Brood is not an animal yet; see `live_organism_ids`.
+            if state.brood.is_some() || self.species.get(state.species).creature.is_none() {
                 continue;
             }
             match out.iter_mut().find(|g| g.species == state.species && g.colony == state.colony) {

@@ -422,6 +422,13 @@ pub fn tick(world: &mut World, site: &ActiveSite, ahead: &SpecWindow) -> Vec<Act
     if world.organism(organism).is_none() {
         return Vec::new();
     }
+    // **Brood runs its own tick, before anything reads a body** -- an egg
+    // has no chain, and everything after this assumes a head at `chain[0]`.
+    // Not counted in `ticks`, which pairs with `moves`. Never true in a world
+    // with no brood, so this is one field read for everyone else.
+    if world.organism(organism).is_some_and(|s| s.brood.is_some()) {
+        return super::brood::brood_tick(world, site);
+    }
     // **The near half of the "did it fire" pair** — see
     // `CreatureStats::ticks`. Counted here rather than in `scheduler::step`
     // because this is the point at which the site is known to belong to a
@@ -1855,6 +1862,23 @@ enum Origin {
     /// whole new species and reloaded — which is `species_export`'s job and
     /// is far too heavy to be a click.
     Stock { genome: Vec<f32>, traits: [f32; super::organism::CREATURE_TRAITS], colony: Option<u32> },
+    /// **A pupa becoming an adult** (`brood::brood_tick`). Heredity was
+    /// settled when the egg was laid -- the genome, traits and fates here
+    /// are the egg's, already mutated on its own handle -- so this is a
+    /// `Bud` that nobody pays for at the moment of placement: the price was
+    /// paid into the brood's `bank` over its life, and the body's stamp
+    /// comes out of that bank here. The adult starts with what is left.
+    Hatch {
+        parent: OrganismId,
+        genome: Vec<f32>,
+        traits: [f32; super::organism::CREATURE_TRAITS],
+        generation: u16,
+        lineage: u32,
+        colony: u32,
+        made: f32,
+        fates: organism::FateGenome,
+        bank: f32,
+    },
 }
 
 /// Build one creature at `(x, y)` and return the site to schedule it at.
@@ -1914,7 +1938,7 @@ fn place_creature(
     // order (the emptiness check right below) is not something this change
     // gets to disturb.
     let body_fates = match &origin {
-        Origin::Bud { fates, .. } => *fates,
+        Origin::Bud { fates, .. } | Origin::Hatch { fates, .. } => *fates,
         Origin::Founder { .. } | Origin::Stock { .. } => organism::FateGenome::from_table(world.species.get(species_id).fate_table()),
     };
     // **Grown, not authored, whenever the species carries a production
@@ -2065,14 +2089,14 @@ fn place_creature(
     // `&mut World` and a founder needs the number inside the block below.
     let founder_lineage = match origin {
         Origin::Founder { .. } | Origin::Stock { .. } => world.claim_lineage(),
-        Origin::Bud { lineage, .. } => lineage,
+        Origin::Bud { lineage, .. } | Origin::Hatch { lineage, .. } => lineage,
     };
     // The colony, on the same terms and at the same moment: the body is
     // already written, so nothing after this can refuse the placement and
     // strand a label the player would see as a gap in the numbering.
     let colony = match origin {
         Origin::Founder { colony } | Origin::Stock { colony, .. } => colony.unwrap_or_else(|| world.claim_colony()),
-        Origin::Bud { colony, .. } => colony,
+        Origin::Bud { colony, .. } | Origin::Hatch { colony, .. } => colony,
     };
     // Read before the state is borrowed mutably: `self.species` and
     // `self.organisms` cannot both be borrowed, the same reason
@@ -2090,6 +2114,8 @@ fn place_creature(
     let endowment = match &origin {
         Origin::Founder { .. } | Origin::Stock { .. } => def.start_energy,
         Origin::Bud { traits, .. } => birth_grant(def, traits),
+        // Set from the brood's bank once the body's stamp is known, below.
+        Origin::Hatch { .. } => 0.0,
     };
     // Read before the state is borrowed mutably, for the colony offset below.
     let seed = world.seed;
@@ -2130,7 +2156,7 @@ fn place_creature(
                 state.inherited = false;
                 state.generation = 0;
             }
-            Origin::Bud { genome, traits, generation, made, .. } => {
+            Origin::Bud { genome, traits, generation, made, .. } | Origin::Hatch { genome, traits, generation, made, .. } => {
                 // **The child's genome came from its parent**, already
                 // mutated by the caller. This is the whole of heredity: one
                 // assignment, and the reason S1-S5 were all inert until now.
@@ -2196,7 +2222,7 @@ fn place_creature(
     // **Nest-bound from birth** ([`Storeroom::nest_bound`]): every ant born
     // here, and one founder in `k`, only while the switch asks.
     let rule = storeroom_of(world);
-    if rule.nest_bound > 0 && (matches!(origin, Origin::Bud { .. }) || (rule.nest_bound_founders > 0 && organism % rule.nest_bound_founders == 0)) {
+    if rule.nest_bound > 0 && (matches!(origin, Origin::Bud { .. } | Origin::Hatch { .. }) || (rule.nest_bound_founders > 0 && organism % rule.nest_bound_founders == 0)) {
         let until = world.frame + u64::from(rule.nest_bound);
         if let Some(st) = world.organism_mut(organism) {
             st.nest_bound_until = until;
@@ -2220,6 +2246,24 @@ fn place_creature(
             // conjured at the far end when the animal dies.
             world.book(colony, Account::Granted, def.start_energy as f64);
             world.book(colony, Account::Stamped, stamp);
+        }
+        Origin::Hatch { parent, generation, bank, .. } => {
+            // **Born here, not at laying**: "animals born" keeps meaning
+            // adults that appeared, with the same three books a bud writes.
+            world.creature_stats.births += 1;
+            world.deepest_animal_generation = world.deepest_animal_generation.max(generation);
+            let born_frame = world.organism(organism).map_or(0, |s| s.born_frame);
+            world.log(crate::sim::world::LogKind::Born, organism, born_frame, species_id, parent);
+            world.note_line_population(founder_lineage, 1, organism, born_frame, species_id, generation);
+            // **The stamp comes out of the brood's bank**, live to meat, as a
+            // bud's comes out of its parent's; the rest stays live as the
+            // adult's first bank. The brood's state is freed by the caller,
+            // so the live total loses `bank` there and gains `bank - stamp`
+            // here: the identity closes by `stamp` into `StoredInMeat`.
+            world.book(colony, Account::StoredInMeat, stamp);
+            if let Some(st) = world.organism_mut(organism) {
+                st.energy = bank - stamp as f32;
+            }
         }
         Origin::Bud { parent, generation, .. } => {
             world.creature_stats.births += 1;
@@ -2302,83 +2346,12 @@ fn place_creature(
                 let gut = gut_of(world, parent, def);
                 let head = world.organism(parent).and_then(|s| s.chain.first().copied());
                 if let Some((hx, hy)) = head {
-                    let mut taken = 0.0;
                     let room = if from_store { storeroom_near(world, hx, hy) } else { None };
                     let cells: Vec<(f32, i32, i32)> = match room {
                         Some(room) => provisions_in_store(world, room, hx, hy, gut),
                         None => provisions_in_reach(world, hx, hy, gut).collect(),
                     };
-                    // `bite` decorrelates two windfalls taken to cover the
-                    // same shortfall on the same frame -- see `RNG_SLOT_
-                    // SEED_SURVIVAL`'s own doc for why this counts rather
-                    // than keying on `px, py`.
-                    for (bite, (yielded, px, py)) in cells.into_iter().enumerate() {
-                        if taken >= shortfall {
-                            break;
-                        }
-                        // **Read the material here, before the bite, and hand
-                        // the same value to both the account test and the diet
-                        // band.** It used to be read again after
-                        // `seed_survives_bite` and the `Cell::EMPTY` write
-                        // below, which meant every meal this path took was
-                        // booked against **`empty`** -- so `ColonyBooks::diet()`
-                        // attributed the entire birth-provisioning channel to a
-                        // material that cannot be eaten, while
-                        // `harvested_plant` counted the joules correctly.
-                        // `banked` was already reading it pre-bite, so the two
-                        // disagreed with each other, which is the tell.
-                        //
-                        // Found 2026-09-16 with `trailfollow onlyfood=on`, whose
-                        // whole point is that the placed larder is the only food
-                        // in the world: the diet band still reported 45,007 J of
-                        // `empty` against 13,996 J of the larder, i.e. **76% of
-                        // intake attributed to nothing**. The sibling bite site
-                        // in `act` names this exact hazard -- "`worth` is read
-                        // before the roll because the roll rewrites the cell" --
-                        // and this site did it for `worth` and not for the
-                        // material.
-                        let material = world.get(px, py).material;
-                        let banked = world.materials.get(material).worth_in_aux;
-                        // A bitten windfall's own seed asks the plant side
-                        // whether it survives the mouth before this clears
-                        // the cell -- see the identical hook and comment at
-                        // this bite's sibling site in `act`.
-                        let mut seed_rng = rng::stream(
-                            world.seed,
-                            parent as u64,
-                            world.frame,
-                            (RNG_SLOT_SEED_SURVIVAL << 32) | bite as u64,
-                        );
-                        // **Round 29: a bare seed taken to fund a birth is
-                        // spared and priced like any other**, because this is
-                        // a bite and `seed_survives_bite` does not know which
-                        // site called it. `yielded` was read off the standing
-                        // cell before the roll, so a seed the roll spares has
-                        // to be re-priced here or the parent would be paid the
-                        // whole seed *and* leave it standing -- the one shape
-                        // this build must not create, since the seed it
-                        // rescues would otherwise be free food. No passenger
-                        // here: this path has no crop to put one in, so the
-                        // spared seed stands where it was bitten as a `pip`,
-                        // exactly as A1 has always left a surplus survivor.
-                        let bite_outcome = plant::seed_survives_bite(world, px, py, &mut seed_rng);
-                        let yielded = match bite_outcome {
-                            plant::SeedBite::SurvivedBare => yielded * plant::seed_provision_fraction(world, px, py),
-                            _ => yielded,
-                        };
-                        if !bite_outcome.survived() {
-                            world.set(px, py, Cell::EMPTY);
-                        }
-                        if banked {
-                            world.book_meal(colony, Account::HarvestedCorpse, material, yielded as f64);
-                        } else {
-                            world.book_meal(colony, Account::HarvestedPlant, material, yielded as f64);
-                        }
-                        if let Some(state) = world.organism_mut(parent) {
-                            state.energy += yielded;
-                        }
-                        taken += yielded;
-                    }
+                    eat_toward_birth(world, parent, colony, cells, shortfall);
                 }
             }
             if let Some(state) = world.organism_mut(parent) {
@@ -2393,6 +2366,111 @@ fn place_creature(
         }
     }
     Some(ActiveSite { x, y, kind: ActiveKind::Creature { organism }, next_frame: world.creature_due(organism_tick_interval(world, organism, def)) })
+}
+
+/// **Eat the food in `cells` toward a birth's `shortfall`**, in order, until
+/// it is covered -- the parent's half of a birth it cannot pay from its bank
+/// alone. Factored out of `place_creature`'s `Origin::Bud` arm unchanged so
+/// an egg (`brood::lay_egg`) pays its shortfall by the same rule, at the same
+/// price, booked to the same accounts.
+pub(super) fn eat_toward_birth(world: &mut World, parent: OrganismId, colony: u32, cells: Vec<(f32, i32, i32)>, shortfall: f32) {
+    let mut taken = 0.0;
+    // `bite` decorrelates two windfalls taken to cover the
+    // same shortfall on the same frame -- see `RNG_SLOT_
+    // SEED_SURVIVAL`'s own doc for why this counts rather
+    // than keying on `px, py`.
+    for (bite, (yielded, px, py)) in cells.into_iter().enumerate() {
+        if taken >= shortfall {
+            break;
+        }
+        // **Read the material here, before the bite, and hand
+        // the same value to both the account test and the diet
+        // band.** It used to be read again after
+        // `seed_survives_bite` and the `Cell::EMPTY` write
+        // below, which meant every meal this path took was
+        // booked against **`empty`** -- so `ColonyBooks::diet()`
+        // attributed the entire birth-provisioning channel to a
+        // material that cannot be eaten, while
+        // `harvested_plant` counted the joules correctly.
+        // `banked` was already reading it pre-bite, so the two
+        // disagreed with each other, which is the tell.
+        //
+        // Found 2026-09-16 with `trailfollow onlyfood=on`, whose
+        // whole point is that the placed larder is the only food
+        // in the world: the diet band still reported 45,007 J of
+        // `empty` against 13,996 J of the larder, i.e. **76% of
+        // intake attributed to nothing**. The sibling bite site
+        // in `act` names this exact hazard -- "`worth` is read
+        // before the roll because the roll rewrites the cell" --
+        // and this site did it for `worth` and not for the
+        // material.
+        let material = world.get(px, py).material;
+        let banked = world.materials.get(material).worth_in_aux;
+        // A bitten windfall's own seed asks the plant side
+        // whether it survives the mouth before this clears
+        // the cell -- see the identical hook and comment at
+        // this bite's sibling site in `act`.
+        let mut seed_rng = rng::stream(
+            world.seed,
+            parent as u64,
+            world.frame,
+            (RNG_SLOT_SEED_SURVIVAL << 32) | bite as u64,
+        );
+        // **Round 29: a bare seed taken to fund a birth is
+        // spared and priced like any other**, because this is
+        // a bite and `seed_survives_bite` does not know which
+        // site called it. `yielded` was read off the standing
+        // cell before the roll, so a seed the roll spares has
+        // to be re-priced here or the parent would be paid the
+        // whole seed *and* leave it standing -- the one shape
+        // this build must not create, since the seed it
+        // rescues would otherwise be free food. No passenger
+        // here: this path has no crop to put one in, so the
+        // spared seed stands where it was bitten as a `pip`,
+        // exactly as A1 has always left a surplus survivor.
+        let bite_outcome = plant::seed_survives_bite(world, px, py, &mut seed_rng);
+        let yielded = match bite_outcome {
+            plant::SeedBite::SurvivedBare => yielded * plant::seed_provision_fraction(world, px, py),
+            _ => yielded,
+        };
+        if !bite_outcome.survived() {
+            world.set(px, py, Cell::EMPTY);
+        }
+        if banked {
+            world.book_meal(colony, Account::HarvestedCorpse, material, yielded as f64);
+        } else {
+            world.book_meal(colony, Account::HarvestedPlant, material, yielded as f64);
+        }
+        if let Some(state) = world.organism_mut(parent) {
+            state.energy += yielded;
+        }
+        taken += yielded;
+    }
+}
+
+/// **Place the adult a pupa becomes**, at `(x, y)` -- the brood's own cell,
+/// which the caller has already cleared. A thin door onto `place_creature`'s
+/// `Origin::Hatch` so `brood.rs` need not see `Origin` or `Stacker`.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn place_hatchling(
+    world: &mut World,
+    x: i32,
+    y: i32,
+    species_id: SpeciesId,
+    def: &CreatureDef,
+    facing_west: bool,
+    parent: OrganismId,
+    genome: Vec<f32>,
+    traits: [f32; CREATURE_TRAITS],
+    generation: u16,
+    lineage: u32,
+    colony: u32,
+    made: f32,
+    fates: organism::FateGenome,
+    bank: f32,
+) -> Option<ActiveSite> {
+    let material_id = world.materials.id_of(&world.species.get(species_id).name.clone())?;
+    place_creature(world, x, y, species_id, material_id, def, facing_west, Origin::Hatch { parent, genome, traits, generation, lineage, colony, made, fates, bank }, None)
 }
 
 /// This material's palette entries, ordered **darkest first** by luma.
@@ -4577,7 +4655,7 @@ pub fn bud_stack_of(world: &World) -> bool {
 /// scheduling from here would in fact work today — returning the site
 /// keeps the birth path independent of that, and is the same shape
 /// `apply_creature_energy` already uses for the parent's own next tick.
-fn try_bud(world: &mut World, organism: OrganismId, def: &CreatureDef, provision: f32) -> Option<ActiveSite> {
+pub(super) fn try_bud(world: &mut World, organism: OrganismId, def: &CreatureDef, provision: f32) -> Option<ActiveSite> {
     if world.births_paused {
         return None;
     }
@@ -4762,6 +4840,32 @@ fn try_bud(world: &mut World, organism: OrganismId, def: &CreatureDef, provision
     // `births_denied_no_space` is what will say how hard it was biting
     // when that decision has to be made.
     let mut site = None;
+    let mut laid = false;
+    // **An egg instead of a whole animal**, for a species with a brood block
+    // while brood is on (`brood::brood_of`). Everything above -- the bar, the
+    // nest gate, suppression -- and everything below -- the breeder books,
+    // the mutation on the child's own handle, the line notes -- is the same
+    // birth; only what is placed and what the parent pays differ.
+    if let Some(brood) = super::brood::brood_of(world, def) {
+        laid = true;
+        site = super::brood::lay_egg(
+            world,
+            organism,
+            (hx, hy),
+            def,
+            &brood,
+            super::brood::Egg {
+                species: species_id,
+                genome: parent_genome.clone(),
+                traits: parent_traits,
+                generation: parent_generation.saturating_add(1),
+                lineage: parent_lineage,
+                colony: parent_colony,
+                made: provision.clamp(-1.0, 1.0),
+                fates: child_fates,
+            },
+        );
+    } else {
     // **Two passes, and the second is a switch** ([`bud_stack_of`]): free
     // ground first, exactly as it always was, and only when not one
     // neighbour has room, a nestmate the child may stand on as a rider. So a
@@ -4837,6 +4941,7 @@ fn try_bud(world: &mut World, organism: OrganismId, def: &CreatureDef, provision
             }
         }
     }
+    }
     let Some(site) = site else {
         // **Attempts and animals, in one call.** A denial does not charge the
         // parent and this function runs every tick it survives, so the
@@ -4871,6 +4976,25 @@ fn try_bud(world: &mut World, organism: OrganismId, def: &CreatureDef, provision
     // cannot be predicted from the parent and cannot repeat when a slot is
     // reused — see `RNG_SLOT_BIRTH`.
     let ActiveKind::Creature { organism: child } = site.kind else { return Some(site) };
+    let (child_traits, child_generation, child_born_frame) = mutate_newborn(world, child, def, parent_traits, parent_generation);
+    // **The line's own history, checked after the mutation that could have
+    // moved it** -- see `World::note_line_generation`/`note_line_record`'s
+    // own docs. Both are no-ops for `parent_lineage == 0` (a test fixture
+    // that never founded a lineage), checked once here rather than inside
+    // each call so the intent reads at the call site.
+    // An egg's are noted when it hatches (`brood::hatch`), as the adult.
+    if parent_lineage != 0 && !laid {
+        world.note_line_generation(parent_lineage, child_generation, child, child_born_frame, species_id);
+        world.note_line_record(parent_lineage, &child_traits, child, child_born_frame, species_id, child_generation);
+    }
+    Some(site)
+}
+
+/// **Mutate a newborn on its own handle**, and stamp its `born_with` -- the
+/// tail of a birth, shared by a bud (`try_bud`) and an egg (`brood::lay_egg`),
+/// so heredity is one rule whichever way the child arrives. Returns the
+/// child's traits, generation and `born_frame` as placed, for the line notes.
+pub(super) fn mutate_newborn(world: &mut World, child: OrganismId, def: &CreatureDef, parent_traits: [f32; CREATURE_TRAITS], parent_generation: u16) -> ([f32; CREATURE_TRAITS], u16, u64) {
     let mut draw = rng::stream(world.seed, child as u64, world.frame, RNG_SLOT_BIRTH);
     // Read before the mutable borrow below, not because it is expensive but
     // because `organism_mut` holds the world for the whole loop.
@@ -4942,16 +5066,7 @@ fn try_bud(world: &mut World, organism: OrganismId, def: &CreatureDef, provision
     if let Some(state) = world.organism_mut(child) {
         state.born_with = born_with;
     }
-    // **The line's own history, checked after the mutation that could have
-    // moved it** -- see `World::note_line_generation`/`note_line_record`'s
-    // own docs. Both are no-ops for `parent_lineage == 0` (a test fixture
-    // that never founded a lineage), checked once here rather than inside
-    // each call so the intent reads at the call site.
-    if parent_lineage != 0 {
-        world.note_line_generation(parent_lineage, child_generation, child, child_born_frame, species_id);
-        world.note_line_record(parent_lineage, &child_traits, child, child_born_frame, species_id, child_generation);
-    }
-    Some(site)
+    (child_traits, child_generation, child_born_frame)
 }
 
 /// How wide a founded colony's nest patch is, in cells, and how far apart
@@ -9152,7 +9267,7 @@ pub const SHARE_FRACTION: f32 = 0.25;
 /// promised and could not bank because the list was still the only thing
 /// keeping ants off each other.
 #[derive(Clone, Copy)]
-struct Gut {
+pub(super) struct Gut {
     bias: f32,
     /// Whose flesh counts as kin — see `is_living_kin`. Consulted only
     /// while `crosses_kinds` is off, which is the shipped case.
@@ -9536,7 +9651,7 @@ fn plant_is_a_foe() -> bool {
     *ON.get_or_init(|| std::env::var("PIXEL_PHYSICS_PLANT_FOE").as_deref() == Ok("on"))
 }
 
-fn gut_of(world: &World, organism: OrganismId, def: &CreatureDef) -> Gut {
+pub(super) fn gut_of(world: &World, organism: OrganismId, def: &CreatureDef) -> Gut {
     let traits = traits_of(world, organism, def);
     let radius = tolerance_radius(&traits);
     Gut {
@@ -9880,7 +9995,7 @@ fn is_living_kin_id(world: &World, id: OrganismId, gut: Gut) -> bool {
 /// Priced at `diet_yield`, not face value, because this stands in for the
 /// parent eating it -- a gut that only absorbs a quarter of a leaf can only
 /// put a quarter of it into a child.
-fn provisions_in_reach(world: &World, x: i32, y: i32, gut: Gut) -> impl Iterator<Item = (f32, i32, i32)> + use<'_> {
+pub(super) fn provisions_in_reach(world: &World, x: i32, y: i32, gut: Gut) -> impl Iterator<Item = (f32, i32, i32)> + use<'_> {
     NEIGHBOURS_8.iter().filter_map(move |&(dx, dy)| provision_at(world, x + dx, y + dy, gut))
 }
 
@@ -10069,8 +10184,18 @@ struct NeedyKin {
 /// sharing this ships would fire on nearly every tick instead of the graded
 /// handful `ant.ron`'s weights are tuned against.
 #[inline]
-fn kin_deficit(world: &World, owner: OrganismId, start_energy: f32) -> Option<f32> {
-    world.organism(owner).map(|st| (1.0 - st.energy / start_energy.max(1.0)).clamp(0.0, 1.0))
+pub(super) fn kin_deficit(world: &World, owner: OrganismId, start_energy: f32) -> Option<f32> {
+    world.organism(owner).and_then(|st| match st.brood {
+        // An adult, exactly as before brood existed.
+        None => Some((1.0 - st.energy / start_energy.max(1.0)).clamp(0.0, 1.0)),
+        // **A larva reads against its own target**, the adult's price it
+        // must be fed to (`brood.rs`). This is not the change the doc above
+        // rules out: adult need is untouched, and no scene without brood
+        // reads a different number.
+        Some(b) if b.stage == organism::BroodStage::Larva => Some((1.0 - st.energy / b.target.max(1.0)).clamp(0.0, 1.0)),
+        // An egg or a pupa is not fed.
+        Some(_) => None,
+    })
 }
 
 fn adjacent_food_counted(world: &World, organism: OrganismId, head: (i32, i32), gut: Gut, start_energy: f32) -> FoodScan {
@@ -13218,8 +13343,43 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
         let topup = share_topup_of(world);
         let leaver = if topup.on { neediest_kin_where(world, organism, (x, y), gut, def.start_energy, &|id| is_leaver(world, id, def)) } else { None };
         let topped = leaver.is_some();
-        if let Some(kin) = leaver.or_else(|| neediest_kin(world, organism, (x, y), gut, def.start_energy)) {
-            let mine = world.organism(organism).map_or(0.0, |s| s.energy);
+        // **A larva is fed only by a nestmate above `start_energy`** -- a fed
+        // ant -- so in a famine the brood goes hungry before the workers do,
+        // which is the graded shrink brood exists for. A donor that cannot
+        // feed the larva it found shares with the neediest adult instead, so
+        // an ant beside brood is never worse at feeding a hungry nestmate.
+        let mine = world.organism(organism).map_or(0.0, |s| s.energy);
+        let is_larva = |id: OrganismId| world.organism(id).is_some_and(|s| s.brood.is_some());
+        let kin = leaver.or_else(|| neediest_kin(world, organism, (x, y), gut, def.start_energy));
+        let kin = match kin {
+            Some(k) if is_larva(k.id) && mine <= def.start_energy => neediest_kin_where(world, organism, (x, y), gut, def.start_energy, &|id| !is_larva(id)),
+            k => k,
+        };
+        if let Some(kin) = kin.filter(|k| is_larva(k.id)) {
+            let target = world.organism(kin.id).and_then(|s| s.brood).map_or(0.0, |b| b.target);
+            let theirs = world.organism(kin.id).map_or(0.0, |s| s.energy);
+            let amount = (SHARE_FRACTION * (mine - def.start_energy)).min(target - theirs).max(0.0);
+            if amount > 0.0 {
+                let frame = world.frame;
+                if let Some(s) = world.organism_mut(organism) {
+                    s.energy -= amount;
+                    s.last_share_frame = frame;
+                }
+                if let Some(s) = world.organism_mut(kin.id) {
+                    s.energy += amount;
+                }
+                did.shares += 1; // billed by `creature_tick`
+                world.creature_stats.shares += 1;
+                world.creature_stats.shared_j += amount as f64;
+                world.creature_stats.brood_shared_j += amount as f64;
+                // Per colony, as any share is: a rival's larva is never kin,
+                // so donor and taker are one colony and this nets to zero.
+                let donor = world.colony_of(organism);
+                let taker = world.colony_of(kin.id);
+                world.book(donor, Account::SharedOut, amount as f64);
+                world.book(taker, Account::SharedIn, amount as f64);
+            }
+        } else if let Some(kin) = kin {
             let theirs = world.organism(kin.id).map_or(0.0, |s| s.energy);
             // **Downhill only. When to give is the ant's; which way it runs
             // is the gradient's** -- the same division the spoil drop

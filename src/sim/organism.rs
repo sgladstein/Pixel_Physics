@@ -3392,6 +3392,66 @@ pub enum ShadeRule {
     Countershade,
 }
 
+/// **How a species breeds when it lays eggs instead of budding** -- the
+/// brood block of a species file (`Reports/ant-breeding-plan-2026-09-29.md`
+/// B1 and B3, built together on the owner's 2026-10-02 ruling).
+///
+/// A species without one buds a whole adult exactly as before, so the
+/// beetle, the worm, the flitter, the hopper and the lab ancestor are
+/// untouched by construction. Read through `brood::brood_of`, which also
+/// honours the `PIXEL_PHYSICS_BROOD` switch.
+///
+/// **What changes for a species that has one.** Laying costs `egg_cost`,
+/// not a whole adult. The egg hatches into a larva after `egg_frames`,
+/// and the larva must be fed up to the adult's price (body stamp plus the
+/// layer's birth grant) by nestmates sharing mouth to mouth and by food
+/// lying beside it. While it waits it pays `larva_upkeep` a frame, so an
+/// unfed larva starves and leaves a corpse worth what it held. Fed, it
+/// pupates, and after `pupa_frames` it hatches into an adult on its own
+/// cell. **The price of an ant is unchanged; who pays it, when, and whether
+/// it can be lost half-paid is what changes.**
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+pub struct BroodDef {
+    /// The material the brood cell is made of (`brood`).
+    pub material: String,
+    /// Joules the layer puts into each egg's bank.
+    pub egg_cost: f32,
+    /// Frames from laying to the larva.
+    pub egg_frames: u64,
+    /// Joules a larva burns per frame while it waits to be fed.
+    pub larva_upkeep: f32,
+    /// Frames from pupating to hatching, if there is room for the body.
+    pub pupa_frames: u64,
+}
+
+/// Which stage a brood organism is at. The stage is also the brood cell's
+/// palette index (egg white, larva cream, pupa tan), so what a stage looks
+/// like and what it is cannot disagree.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BroodStage {
+    Egg = 0,
+    Larva = 1,
+    Pupa = 2,
+}
+
+/// The state that makes an organism brood -- see `OrganismState::brood`.
+#[derive(Clone, Copy, Debug)]
+pub struct Brood {
+    pub stage: BroodStage,
+    /// The frame the current stage began.
+    pub since: u64,
+    /// The bank a larva must reach to pupate: the adult body's stamp plus
+    /// the birth grant its layer's `TRAIT_BIRTH_GRANT` names, fixed at
+    /// laying. What is left over the stamp at hatching is the adult's first
+    /// bank.
+    pub target: f32,
+    /// Who laid it -- named on the hatchling's `Born` line, as a bud's
+    /// parent is.
+    pub parent: OrganismId,
+    /// The frame of the last brood tick, from which upkeep is charged.
+    pub last_tick: u64,
+}
+
 /// A creature species' body plan, instincts and metabolism.
 ///
 /// Separate from `cell_types` because these are properties of the
@@ -4358,6 +4418,10 @@ pub struct CreatureDef {
     /// the same seed places the same reserves.
     #[serde(default)]
     pub founder_reserve_spread: f32,
+    /// **Eggs and brood instead of budding**, when present -- see
+    /// [`BroodDef`]. `None` for every species but the ant.
+    #[serde(default)]
+    pub brood: Option<BroodDef>,
 }
 
 impl CreatureDef {
@@ -4486,6 +4550,7 @@ impl CreatureDef {
             recurrence,
             plastic,
             founder_reserve_spread,
+            brood,
         } = self;
 
         let body_scaled = body.scaled(ki);
@@ -4580,6 +4645,9 @@ impl CreatureDef {
             // Dimensionless -- `mutation_rate`'s class exactly: a fraction
             // *of* `start_energy`, which is itself passed through unchanged.
             founder_reserve_spread: *founder_reserve_spread,
+            // Frames are real time and joules are per individual, so the
+            // brood block passes through a resolution change unchanged.
+            brood: brood.clone(),
             trait_variance: *trait_variance,
             climbs_over_kin: *climbs_over_kin,
             // A switch, not a length: scaling a body does not change whether
@@ -6416,6 +6484,18 @@ pub struct OrganismState {
     /// mechanism reads can never drift from a mirror kept for a different
     /// reason.
     pub children: u16,
+    /// **`Some` while this organism is brood -- an egg, a larva or a pupa
+    /// -- and `None` for every adult and every plant**, which is why nothing
+    /// that existed before brood changes: no species authored a
+    /// [`BroodDef`] until 2026-10-02, and only `brood::lay_egg` writes one.
+    ///
+    /// A brood organism owns exactly one cell of its species' brood
+    /// material and an **empty `chain`**, so every creature loop that reads
+    /// a head through `chain.first()` skips it by construction, and
+    /// `World::live_organism_ids` leaves it out so no census counts an egg
+    /// as an ant (`World::live_brood_ids` is the brood's own list). See
+    /// `src/sim/brood.rs`.
+    pub brood: Option<Brood>,
     /// **Which founding individual this one descends from.**
     ///
     /// Copied unchanged from parent to child at every birth, so a whole
