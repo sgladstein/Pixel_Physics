@@ -30962,7 +30962,7 @@ mod tests {
         };
         assert_eq!(hold(false, false), (false, false), "off, nothing but ground holds an ant up");
         assert_eq!(hold(true, false), (true, false), "on, B holds on A and C, held only by B, falls");
-        assert_eq!(hold(true, true).0, false, "on, B that has stood still for the grip's length lets go");
+        assert!(!hold(true, true).0, "on, B that has stood still for the grip's length lets go");
     }
 
     /// **An empty explorer keeps going under the chooser** -- S0's finding
