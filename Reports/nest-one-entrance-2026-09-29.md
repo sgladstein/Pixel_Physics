@@ -1668,3 +1668,39 @@ for a switch that measures as a gain. The 12-seed grid is
 `/mnt/project-files/nest/grip-vs-now-12-seeds-2026-10-02.png` in the
 project's files.
 
+
+## 27. Food piled like with like (`PIXEL_PHYSICS_STOREROOM=...,pile`, off; 2026-10-02)
+
+**Owner, 2026-10-02**, on the storeroom: *"Is this all hardcoded in a way
+that goes against our principals? How well does our defined storeroom
+work?"* It is hardcoded (a room cut at founding, and one ant in four a nest
+worker by id), and it holds nothing: 0 food cells at every stop on all 12
+food-box seeds.
+
+**The rule** (`pile`, a part of the storeroom switch): a carrier has no room
+to walk to. It picks a food cell up with probability `(k1/(k1+f))^2` and puts
+one down with `(f/(k2+f))^2`, `f` the share of the 24 cells within two that
+hold loose food, `k1` 0.1, `k2` 0.3 (Deneubourg et al. 1991). A cell it
+declines is left, not eaten. Under `keep`, a fed ant at home leaves food with
+two or more food cells beside it. digbox's `PILES` line groups standing food
+8-connected, overall and within 30 columns of the door.
+
+Food box, brood on, `BUD_SITE=nest`, main 34b46b64, 144,000 frames, medians
+over seeds 1-12 (the share in clumps pools the five stops from 48k on):
+
+| arm | food near the door in clumps of 3+ | fruit taken | births | mean live ants | near-dead (<10) at 144k |
+|---|---|---|---|---|---|
+| shipped | 33% | 8,148 | 927 | 214 | 1 |
+| `on,caste=4,workerhome,keep,pile` | 51% (more on 10 of 12) | 6,262 | 587 | 130 | 2 |
+| `on,caste=4,workerhome,pile` | 44% | 7,324 | 674 | 154 | 0 |
+
+Seeds 1-4 only: carriers by age (`nestbound`) instead of the caste killed
+seed 2 (5 births); any fed ant at home (`on,workerhome,keep,pile`) clumped 33%.
+
+**It clumps, and it costs food.** Refusing fed ants the piles is about half
+the cost; the rest is not traced. The piles stay small (20-30 cells) because
+the colony eats nearly all it brings home: standing food at home is 2-5 cells
+underground and 34-53 strewn on the surface at 144k. And under the shipped
+`AtNest` only the founding cut and the painted door are home, so a forager's
+food lands at the door and nothing piling does can reach a room dug later
+(`/mnt/project-files/nest/in-the-nest-audit-2026-10-02.md`). Off.
