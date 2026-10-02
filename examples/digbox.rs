@@ -3027,6 +3027,9 @@ struct TripLog {
     /// an animal made holding a pellet -- which headings were usable, the move
     /// roll against `p_move`, what came of it, the chooser's patience.
     decisions: Option<std::io::BufWriter<std::fs::File>>,
+    /// `decisions_nest`: write nest-bound animals' rows to `decisions=`
+    /// instead of pellet carriers'.
+    decisions_nest: bool,
     /// **Who a carrier stood facing** (`JAM`), by what that animal was doing
     /// ([`TripAnt::role`]), and of those how many stood still themselves.
     /// The report said carriers stood "behind one another" in the shaft at
@@ -3157,7 +3160,10 @@ impl TripLog {
         }
         let Some(w) = self.decisions.as_mut() else { return };
         for r in rows {
-            if !self.before.get(&r.id).is_some_and(|a| a.holding) {
+            // `decisions_nest`: the nest workers' rows instead of the
+            // carriers', for "why is a fed nest worker out on the surface".
+            let keep = if self.decisions_nest { self.before.get(&r.id).is_some_and(|a| a.role == 2) } else { self.before.get(&r.id).is_some_and(|a| a.holding) };
+            if !keep {
                 continue;
             }
             let _ = writeln!(
@@ -3891,6 +3897,7 @@ fn main() {
         let mut w = std::io::BufWriter::new(std::fs::File::create(&path).expect("decisions: cannot create the file"));
         let _ = writeln!(w, "frame,id,hx,hy,hx_after,hy_after,heading,heading_after,usable,anchor_x,anchor_y,home_aligned,p_move,roll_move,roll_tumble,outcome,patience,chosen_cos,drop,drop_roll,drop_p,at_nest,crowding,energy,energy_j");
         trips.decisions = Some(w);
+        trips.decisions_nest = flag("decisions_nest");
         world.decision_log = Some(Vec::new());
     }
     // **`cap=<n>`: no births while `n` or more creatures live**

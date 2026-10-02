@@ -17951,6 +17951,39 @@ fn trail_presence(world: &World, head: (i32, i32), d: u8, laden: bool) -> f32 {
     x / (1.0 + x)
 }
 
+/// **`PIXEL_PHYSICS_NEST_LEASH=deep`: a fed nest worker that strays is pulled
+/// to the founding chamber's floor, and the pull never gives up.** Off (unset)
+/// it is pulled to its anchor, the surface cell over the door, and the pull
+/// loses patience like any other.
+///
+/// **Why** (traced 2026-10-02, food box seed 1, dug home, frames 24k-72k,
+/// every nest worker's decision): the door's surface cell is crowded, so a
+/// nest worker pulled at it often gets no nearer, its patience drains, and
+/// at zero the pull no longer steers. 85% of the steps fed nest workers took
+/// out on the surface were at patience under 0.05, heading at random
+/// (chosen cos -0.04), and a fed ant steps on about 3% of its decisions, so
+/// once out it stays out. Over 12 seeds only 14-24% of nest workers were in
+/// the mouth or underground (nest report §29).
+pub fn nest_leash_deep() -> bool {
+    static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *V.get_or_init(|| std::env::var("PIXEL_PHYSICS_NEST_LEASH").as_deref() == Ok("deep"))
+}
+
+/// Whether the pull this step is the fed nest worker's leash, the only pull
+/// [`nest_leash_deep`] keeps from losing patience. The same test as
+/// [`home_pull`]'s nest-bound branch, minus the reach (the pull exists).
+fn nest_leash_holds(world: &World, organism: OrganismId, def: &CreatureDef) -> bool {
+    world.organism(organism).is_some_and(|state| {
+        is_nest_bound(world, state)
+            && state.energy >= def.start_energy
+            && state.spoil.is_none()
+            && state.crop.is_none_or(|c| c.worth() <= 0.0)
+            && store_target(world, state).is_none()
+            && harvest_target(world, state).is_none()
+            && store_return_target(world, state).is_none()
+    })
+}
+
 /// **Where home is for the chooser, and how hard it pulls**: `(target, gain)`
 /// while carrying food (`home_target`, at `home_bias`), or while hauling spoil
 /// with `spoil_haul` on (the nest door, at the haul weight) -- the same two
@@ -17976,6 +18009,14 @@ fn home_pull(world: &World, organism: OrganismId, def: &CreatureDef, head: (i32,
         && state.crop.is_none_or(|c| c.worth() <= 0.0)
         && !nest_within_reach(world, organism, head.0, head.1, def)
     {
+        // **`NEST_LEASH=deep`: into the nest, not onto its doorstep**
+        // ([`nest_leash_deep`]).
+        if nest_leash_deep() {
+            let (ax, ay) = state.forage_anchor;
+            if let Some(room) = storeroom_near(world, ax, ay) {
+                return Some((room.chamber_floor(), def.home_bias));
+            }
+        }
         return Some((home_target(world, state), def.home_bias));
     }
     match spoil_haul().filter(|_| state.spoil.is_some()) {
@@ -18179,6 +18220,9 @@ fn chooser_step(
             rest
         }
     };
+    // A nest worker's leash under `NEST_LEASH=deep` never gives up
+    // ([`nest_leash_deep`]).
+    let leashed = nest_leash_deep() && pull.is_some() && nest_leash_holds(world, organism, def);
     let patience = {
         let state = world.organism_mut(organism).expect("live: its chain was just read");
         match pull {
@@ -18195,7 +18239,7 @@ fn chooser_step(
                 state.home_patience = 1.0;
             }
         }
-        if patience_on { state.home_patience } else { 1.0 }
+        if patience_on && !leashed { state.home_patience } else { 1.0 }
     };
     let home_cos = |d: u8| -> Option<f32> {
         let ((ax, ay), _) = pull?;
