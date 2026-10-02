@@ -3935,6 +3935,13 @@ fn main() {
                 if cap.is_some() {
                     println!("CAP frame={f} frames with births paused {paused_frames}");
                 }
+                {
+                    let st = world.creature_stats;
+                    println!(
+                        "BIRTHS frame={f} births {}, refused for no free cell {}, refused for animals in the way {}, born standing on kin {}, bud ticks held for not being at the nest {}",
+                        st.births, st.births_denied_no_space, st.births_denied_animals, st.births_on_kin, st.buds_held_for_nest
+                    );
+                }
                 // `PIXEL_PHYSICS_DIG_ROOF` and `_DOOR_COLLAR`'s "it fired" halves.
                 println!(
                     "ROOF frame={f} cuts refused under the nest's roof (DIG_ROOF) {}, rim cells packed by the door's collar (DOOR_COLLAR) {}",
