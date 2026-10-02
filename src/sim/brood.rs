@@ -85,6 +85,10 @@ pub fn brood_of(world: &World, def: &CreatureDef) -> Option<BroodDef> {
         if let Some(v) = egg_cost_env() {
             b.egg_cost = v;
         }
+        if let Some((e, p)) = stage_frames_env() {
+            b.egg_frames = e;
+            b.pupa_frames = p;
+        }
         b
     })
 }
@@ -95,6 +99,25 @@ pub fn brood_of(world: &World, def: &CreatureDef) -> Option<BroodDef> {
 fn egg_cost_env() -> Option<f32> {
     static V: std::sync::OnceLock<Option<f32>> = std::sync::OnceLock::new();
     *V.get_or_init(|| std::env::var("PIXEL_PHYSICS_EGG_COST").ok().and_then(|v| v.parse().ok()))
+}
+
+/// `PIXEL_PHYSICS_BROOD_FRAMES=<egg>,<pupa>`: override both stage
+/// lengths, for the control that takes the delay away.
+fn stage_frames_env() -> Option<(u64, u64)> {
+    static V: std::sync::OnceLock<Option<(u64, u64)>> = std::sync::OnceLock::new();
+    *V.get_or_init(|| {
+        let v = std::env::var("PIXEL_PHYSICS_BROOD_FRAMES").ok()?;
+        let (e, p) = v.split_once(',')?;
+        Some((e.parse().ok()?, p.parse().ok()?))
+    })
+}
+
+/// How far from the layer's head, in rings, an egg may be put down when
+/// every neighbour is taken: `PIXEL_PHYSICS_LAY_REACH`, default 1 (the
+/// eight neighbours only).
+fn lay_reach() -> i32 {
+    static V: std::sync::OnceLock<i32> = std::sync::OnceLock::new();
+    *V.get_or_init(|| std::env::var("PIXEL_PHYSICS_LAY_REACH").ok().and_then(|v| v.parse().ok()).unwrap_or(1))
 }
 
 /// `PIXEL_PHYSICS_LAY_AT=<J>`: override the brood block's `lay_at`, for a
@@ -140,7 +163,13 @@ pub struct Egg {
 pub(super) fn lay_egg(world: &mut World, parent: OrganismId, head: (i32, i32), def: &CreatureDef, brood: &BroodDef, egg: Egg) -> Option<ActiveSite> {
     let material = world.materials.id_of(&brood.material)?;
     let (hx, hy) = head;
-    let (ex, ey) = creature::DIRS.iter().map(|&(dx, dy)| (hx + dx, hy + dy)).find(|&(x, y)| world.is_empty(x, y))?;
+    let ring = |r: i32| (-r..=r).flat_map(move |dy| (-r..=r).map(move |dx| (dx, dy))).filter(move |&(dx, dy)| dx.abs().max(dy.abs()) == r);
+    let (ex, ey) = creature::DIRS
+        .iter()
+        .copied()
+        .chain((2..=lay_reach()).flat_map(ring))
+        .map(|(dx, dy)| (hx + dx, hy + dy))
+        .find(|&(x, y)| world.is_empty(x, y))?;
     let child = world.push_organism(egg.species)?;
     // **Fixed at laying**: the adult this egg becomes costs what a bud of
     // this parent would have -- the authored body's stamp plus the grant the
