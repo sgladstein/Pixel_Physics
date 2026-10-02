@@ -3986,3 +3986,85 @@ on trip cost (not how ants decide, and the deaths are not the lowest-energy
 departures). **Candidate next step, not built:** a low ant at the nest
 waits by the door for a returning forager to share with it rather than
 setting out, the ant-like form of "don't leave hungry", scored on every bed.
+
+### 23g. The colony sends from the door: the forage throttle, and the top-up (2026-10-02)
+
+**Asked by the owner** (on the foraging thread's plan): build both of the
+two candidates for §23f's 200-cell founder deaths behind switches and score
+them on all six beds against the default. **Option 3, the throttle**
+(`PIXEL_PHYSICS_FORAGE_THROTTLE`): near its door an ant goes out on the
+colony's signal, not its own hunger -- Gordon's harvester ants, where an
+ant at the entrance leaves on the rate loaded foragers come back, and
+patrollers go first. **Option 2, the top-up** (`PIXEL_PHYSICS_SHARE_TOPUP`):
+food sharing serves ants about to leave first, with half the difference.
+
+All on `main` `f063949c`, colony bed env, 24 paired seeds per bed unless
+stated, sums over seeds, W/L the seeds where the arm is higher/lower. Beds:
+unlimited pile at 90, 140 and 200 cells, pulsed pile (`food=30
+refill=6000`) at 90 and 140, 80 founders at 135. The default re-measured
+here reproduces §23f's `noreturn` rows exactly (90: 17,221 / 1,859 / 5;
+140: 9,070 / 479 / 27). Both switches unset reproduce the default on all
+144 runs, line for line.
+
+**First form, no gain.** The want replaced hunger only inside the 16-cell
+zone; at 200 cells starved 156 -> 165 (11/8) and taken 4,530 -> 4,212.
+The zone judged ~1,600 scouting decisions a run: an ant crosses it in a
+few steps, and the moment it left, a fed patroller's want fell back to its
+hunger (near 0), so it stalled at the zone's edge. **Fixed by carrying the
+want**: each judged decision stores it (`OrganismState::sent_want`), and
+past the zone the ant feels `max(drive, sent_want)` where that beats its
+hunger.
+
+| 200 cells (24 seeds) | taken | born | starved |
+|---|---|---|---|
+| default | 4,530 | 88 | 156 |
+| throttle, zone only, patrol 0.5 | 4,212 | 70 | 165 |
+| carried, patrol 0.5 | 4,860 | 96 | 117 (9/14) |
+| carried, patrol 0.5, `hold` (no hunger past the zone either) | 4,442 | 69 | 142 |
+| **carried, patrol 1** | **4,890 (16/8)** | 86 | **108 (7/15)** |
+| top-up alone | 3,966 (9/15) | 62 | 175 (13/8) |
+| carried patrol 1, `hold`, plus top-up | 4,833 | 83 | 102 (4/19, p 0.003) |
+
+**The shipped form, carried with patrol 1, on 72 seeds at 200 cells:**
+taken **11,843 -> 14,831 (53/19, p < 0.001)**, born **190 -> 285 (44/21,
+p 0.006)**, starved **554 -> 307 (15/54, p < 0.001)**. On the other five
+beds, 24 seeds: 90 cells taken 17,221 -> 18,413 (14/10), born 1,859 ->
+1,832, starved 5 -> 9 (5/4); 140 cells 9,070 -> 9,545 (15/9), born 479 ->
+554, starved 27 -> 15 (5/8); pulsed 90 taken 2,821 -> 2,800 (9/11), born
+49 -> 58, starved 258 -> 258; pulsed 140 2,769 -> 2,801, born 39 -> 36,
+starved 244 -> 231; 80 founders 9,375 -> 9,766 (15/9), born 458 -> 514,
+starved 15 -> 13. Nothing worse at p < 0.3.
+
+**Why, ant by ant** (seeds 1-6 at 200 cells, `decisioncsv`,
+`antloop.py`): starved 41 -> 28. Ants that never reached the food and
+starved, 18 -> 7, of them dead between the nest and the food 11 -> 1.
+Each ant's first trip out (first decision 16 cells east of the nest,
+empty): 111 of 133 reached the food against 120 of 130, and the slow tail
+of the outbound walk shortened (p90 3,565 -> 2,904 frames; median 2,130 ->
+2,070). **It is not the hold**: the throttle held an ant back (hunger
+above the colony's want) 14 times a run at 200 cells against 1,998 times
+it sent one harder than its hunger would, and 0 against 6,324 at 90 cells.
+What changed is that a want set at the door lasts the whole walk, so an
+ant goes out at a full want and does not dither on the way, where before
+it went out on a hunger that was low at the door and rose too late. A new
+loss to watch: ants that reached the food and never completed a loop
+starved 8 -> 14 on these six seeds.
+
+**The door scent adds nothing measurable yet.** The control `noscent`
+(drive and patrol only) is identical on the unlimited 90, 140 and 80-founder
+beds and moves 1-6 seeds on the rest (200 cells, 72 seeds: starved 307 ->
+310). The `returns` drive already sits at 1 while food comes home, and the
+scent sits under it. Kept on as the colony's own signal for when the drive
+is not; it costs one box read per decision inside the zone.
+
+**The top-up moves the joules §23f asked for and does not help.** At 200
+cells it gave 48 shares a run to leavers, 1,106 J a run (§23f estimated
+under 1,000 J over six runs was the shortfall), and starved rose 156 -> 175,
+taken fell 4,530 -> 3,966; at 90 cells taken 17,221 -> 16,372, born 1,859
+-> 1,620. Topping up a leaver takes the same food from the donor, often a
+forager about to go out itself. **Off.** With the throttle it is
+indistinguishable from the throttle alone (`hold1` vs `both`: starved 107
+-> 102, 11/12).
+
+**Shipped on** (`ForageThrottle::ON`, patrol 1, reach 16, scent on, no
+`hold`); `off` is the ant before it. The lab box check is below.

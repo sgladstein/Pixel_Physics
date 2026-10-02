@@ -9347,6 +9347,12 @@ struct Encounter {
 /// walks share one predicate, [`kin_deficit`], so the eye and the mouth
 /// cannot disagree about who is needy.
 fn neediest_kin(world: &World, organism: OrganismId, head: (i32, i32), gut: Gut, start_energy: f32) -> Option<NeedyKin> {
+    neediest_kin_where(world, organism, head, gut, start_energy, &|_| true)
+}
+
+/// [`neediest_kin`] over only the nestmates `keep` admits: the share's
+/// top-up (`ShareTopup`) asks it for the neediest leaver first.
+fn neediest_kin_where(world: &World, organism: OrganismId, head: (i32, i32), gut: Gut, start_energy: f32, keep: &dyn Fn(OrganismId) -> bool) -> Option<NeedyKin> {
     let fallback = [head];
     let body: &[(i32, i32)] = world.organism(organism).map_or(&fallback[..], |s| &s.chain[..]);
     let mut best: Option<NeedyKin> = None;
@@ -9362,7 +9368,7 @@ fn neediest_kin(world: &World, organism: OrganismId, head: (i32, i32), gut: Gut,
         // counter downstream of it -- which is the condition that made the
         // identical duplicate in `adjacent_food_counted` a real bug, since
         // `bites_refused` was being multiplied by body geometry there.
-        fold_ridden_kin(world, organism, (bx, by), gut, start_energy, &mut best);
+        fold_ridden_kin(world, organism, (bx, by), gut, start_energy, keep, &mut best);
         for &(dx, dy) in NEIGHBOURS_8.iter() {
             let (nx, ny) = (bx + dx, by + dy);
             // Same earlier-cells skip as `nearest_foe` and the food scan, for
@@ -9375,12 +9381,12 @@ fn neediest_kin(world: &World, organism: OrganismId, head: (i32, i32), gut: Gut,
             // rather than a change to an old one, and it is the defensible way
             // round: the animal in my own cell is the one the ring could never
             // have offered me.
-            fold_ridden_kin(world, organism, (nx, ny), gut, start_energy, &mut best);
+            fold_ridden_kin(world, organism, (nx, ny), gut, start_energy, keep, &mut best);
             let cell = world.get(nx, ny);
             let owner = cell.organism_id();
             // Somebody else's, never mine -- see `adjacent_food_counted`'s
             // own comment on this exact test.
-            if owner == 0 || owner == organism || !is_living_kin(world, cell, gut) {
+            if owner == 0 || owner == organism || !is_living_kin(world, cell, gut) || !keep(owner) {
                 continue;
             }
             if let Some(deficit) = kin_deficit(world, owner, start_energy) {
@@ -9423,7 +9429,7 @@ fn neediest_kin(world: &World, organism: OrganismId, head: (i32, i32), gut: Gut,
 /// position -- the same rule both ring walks use among grid owners. `riders_at`
 /// is insertion-ordered, so that is a function of who arrived first rather than
 /// of a hash walk (`CLAUDE.md`'s tie-order entry).
-fn fold_ridden_kin(world: &World, organism: OrganismId, (nx, ny): (i32, i32), gut: Gut, start_energy: f32, best: &mut Option<NeedyKin>) {
+fn fold_ridden_kin(world: &World, organism: OrganismId, (nx, ny): (i32, i32), gut: Gut, start_energy: f32, keep: &dyn Fn(OrganismId) -> bool, best: &mut Option<NeedyKin>) {
     for r in world.riders_at(nx, ny) {
         // **Never itself**, which is the same exclusion `owner != organism`
         // makes among grid owners and is reachable here in a way it is not
@@ -9432,7 +9438,7 @@ fn fold_ridden_kin(world: &World, organism: OrganismId, (nx, ny): (i32, i32), gu
         // reads its own hunger as a nestmate's and shares with itself, which
         // conserves energy perfectly and passes every conservation guard ever
         // written -- see `adjacent_food_counted`'s note on the same trap.
-        if r.organism == organism || !is_living_kin_id(world, r.organism, gut) {
+        if r.organism == organism || !is_living_kin_id(world, r.organism, gut) || !keep(r.organism) {
             continue;
         }
         if let Some(deficit) = kin_deficit(world, r.organism, start_energy) {
@@ -10132,7 +10138,7 @@ fn adjacent_food_counted(world: &World, organism: OrganismId, head: (i32, i32), 
     // tie by definition agrees on that. `NeedyKin`'s position and id are read
     // from the verb's own walk.
     for &b in body.iter() {
-        fold_ridden_kin(world, organism, b, gut, start_energy, &mut kin_need);
+        fold_ridden_kin(world, organism, b, gut, start_energy, &|_| true, &mut kin_need);
     }
     let ring = body
         .iter()
@@ -10142,7 +10148,7 @@ fn adjacent_food_counted(world: &World, organism: OrganismId, head: (i32, i32), 
         if body[..i].iter().any(|&(px, py)| (nx - px).abs() <= 1 && (ny - py).abs() <= 1) {
             continue;
         }
-        fold_ridden_kin(world, organism, (nx, ny), gut, start_energy, &mut kin_need);
+        fold_ridden_kin(world, organism, (nx, ny), gut, start_energy, &|_| true, &mut kin_need);
         let cell = world.get(nx, ny);
         // **Past the mouth, the body reaches only for something alive that is
         // on it.** The first version let the whole body scan for anything
@@ -11218,9 +11224,7 @@ fn rest_pull(world: &World, organism: OrganismId, def: &CreatureDef, head: (i32,
     // `scout_w` before its gain; in is what is left. The ant rests while in
     // outweighs out, at a gain that falls to nothing where they balance, so
     // there is no edge for an ant to flicker across.
-    let hunger = 1.0 - (state.energy / def.start_energy.max(1.0)).clamp(0.0, 1.0);
-    let drive = if forage_drive_of(world).on() { forage_drive_level(world, state, def) } else { 0.0 };
-    let out = hunger.max(drive);
+    let (out, _, _) = outward_want(world, state, def);
     if out >= REST_BALANCE {
         return None;
     }
@@ -13030,7 +13034,12 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
     let share_urge = if trophallaxis_enabled() { outputs[O::Share as usize].clamp(0.0, 1.0) } else { 0.0 };
     if share_urge > 0.0 && draw.unit_f32() < share_urge {
         let gut = gut_of(world, organism, def);
-        if let Some(kin) = neediest_kin(world, organism, (x, y), gut, def.start_energy) {
+        // **The top-up** (`ShareTopup`, `PIXEL_PHYSICS_SHARE_TOPUP`): a
+        // leaver beside the donor is served first, and with a larger share.
+        let topup = share_topup_of(world);
+        let leaver = if topup.on { neediest_kin_where(world, organism, (x, y), gut, def.start_energy, &|id| is_leaver(world, id, def)) } else { None };
+        let topped = leaver.is_some();
+        if let Some(kin) = leaver.or_else(|| neediest_kin(world, organism, (x, y), gut, def.start_energy)) {
             let mine = world.organism(organism).map_or(0.0, |s| s.energy);
             let theirs = world.organism(kin.id).map_or(0.0, |s| s.energy);
             // **Downhill only. When to give is the ant's; which way it runs
@@ -13040,7 +13049,11 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
             // forth and pay the jaw price both ways, which is an allele
             // evolution finds in an afternoon.
             if theirs < mine {
-                let amount = SHARE_FRACTION * (mine - theirs);
+                let amount = if topped { topup.fraction } else { SHARE_FRACTION } * (mine - theirs);
+                if topped {
+                    world.creature_stats.topup_shares += 1;
+                    world.creature_stats.topup_j += amount as f64;
+                }
                 let frame = world.frame;
                 if let Some(s) = world.organism_mut(organism) {
                     s.energy -= amount;
@@ -16859,6 +16872,238 @@ fn forage_drive_level(world: &World, state: &crate::sim::organism::OrganismState
     }
 }
 
+/// **`PIXEL_PHYSICS_SHARE_TOPUP`: food sharing tilted toward ants about to
+/// leave** (`Reports/ant-scenes-2026-09-23.md` §23g). At 200 cells the
+/// founders that die on the way out are each short by roughly 20-40 energy,
+/// under 1,000 J over six runs, while sharing already moves 2-8 thousand J
+/// a run, mostly to whoever is neediest (§23f). On: a donor whose share
+/// roll fires gives first to the neediest *leaver* beside it
+/// ([`is_leaver`]), and gives it `fraction` of the difference rather than
+/// `SHARE_FRACTION`'s quarter. With no leaver beside it, it shares as
+/// before.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ShareTopup {
+    pub on: bool,
+    /// The share of the energy difference a leaver gets. 0.5 evens the pair,
+    /// the most a downhill share can give.
+    pub fraction: f32,
+}
+
+impl ShareTopup {
+    pub const OFF: ShareTopup = ShareTopup { on: false, fraction: TOPUP_FRACTION };
+    pub const ON: ShareTopup = ShareTopup { on: true, fraction: TOPUP_FRACTION };
+}
+
+/// A leaver's share of the difference: half, which evens donor and leaver.
+pub const TOPUP_FRACTION: f32 = 0.5;
+
+/// `PIXEL_PHYSICS_SHARE_TOPUP`'s value: `off`, `on`, or `on,frac=<f>` (f in
+/// 0..=0.5). Unset is off.
+fn parse_share_topup(raw: &str) -> ShareTopup {
+    let raw = raw.trim();
+    if raw.is_empty() || raw == "off" {
+        return ShareTopup::OFF;
+    }
+    let mut t = ShareTopup::ON;
+    for part in raw.split(',').map(str::trim) {
+        let ok = match part {
+            "on" => true,
+            _ => match part.split_once('=') {
+                Some(("frac", v)) => v.parse::<f32>().ok().filter(|f| *f > 0.0 && *f <= 0.5).map(|f| t.fraction = f).is_some(),
+                _ => false,
+            },
+        };
+        if !ok {
+            eprintln!("PIXEL_PHYSICS_SHARE_TOPUP={raw:?}: unknown part {part:?}, read as off (off, on, frac=)");
+            return ShareTopup::OFF;
+        }
+    }
+    t
+}
+
+pub fn share_topup_from_env() -> ShareTopup {
+    static V: std::sync::OnceLock<ShareTopup> = std::sync::OnceLock::new();
+    *V.get_or_init(|| parse_share_topup(&std::env::var("PIXEL_PHYSICS_SHARE_TOPUP").unwrap_or_default()))
+}
+
+/// This world's top-up: `World::share_topup` if set, else the environment's.
+pub fn share_topup_of(world: &World) -> ShareTopup {
+    world.share_topup.unwrap_or_else(share_topup_from_env)
+}
+
+/// **An ant about to leave**, for the top-up: a forager (not nest-bound),
+/// below its grant, with nothing in its crop but a packed lunch and no
+/// spoil, standing within the throttle's reach of its nest site
+/// (`throttle_site`, at the throttle's reach whether or not the throttle
+/// is on).
+fn is_leaver(world: &World, id: OrganismId, def: &CreatureDef) -> bool {
+    world.organism(id).is_some_and(|s| {
+        !is_nest_bound(world, s)
+            && s.energy < def.start_energy
+            && s.spoil.is_none()
+            && (s.crop.is_none_or(|c| c.worth() <= 0.0) || carries_lunch(world, s))
+            && s.chain.first().is_some_and(|&h| throttle_site(world, forage_throttle_of(world).reach, h).is_some())
+    })
+}
+
+/// **`PIXEL_PHYSICS_FORAGE_THROTTLE`: near its door an ant is sent out by the
+/// colony, not by its own hunger** (`Reports/ant-scenes-2026-09-23.md` §23g).
+/// Gordon's harvester ants: a forager at the entrance goes out when loaded
+/// foragers come back at a high rate, and patrollers go first. Ours went out
+/// on their own hunger, so at 200 cells founders dawdled at a fed nest until
+/// hungry and then set out with 40-80 energy on an ~80-energy walk (§23f).
+///
+/// Within `reach` cells of its nest site, a forager that is not nest-bound
+/// feels as its outward want the largest of: the forage drive, the food
+/// scent at its door (trail B over the door's box, `door_scent`, which only
+/// loaded returners lay), and -- for an ant that has never foraged, a patrol
+/// -- `patrol`. Its own hunger is not in it. Past the reach the want is
+/// `max(hunger, drive)` as before, so a scout already out is untouched.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ForageThrottle {
+    pub on: bool,
+    /// The never-foraged ant's want at the door.
+    pub patrol: f32,
+    /// Authored cells from the nest site's centre and surface row, scaled.
+    pub reach: i32,
+    /// Read trail B at the door. `noscent` is the control: drive and patrol
+    /// alone. **Measured to add nothing yet** (§23g): with `noscent`, the six
+    /// beds at 24 seeds are identical on four and within 1-6 seeds on the
+    /// pulsed two and at 200 cells, because the `returns` drive already sits
+    /// at 1 while food comes home, and the scent is under it. Kept on as the
+    /// colony's own signal for when the drive is not.
+    pub scent: bool,
+    /// **`hold`: past the zone, hunger does not send a judged ant out
+    /// either** -- its want is the larger of the drive and what the door
+    /// sent it with (`OrganismState::sent_want`). Without it the sent want
+    /// is carried and hunger still counts, so an ant the door held back
+    /// that wanders out of the zone goes on its hunger as before.
+    pub hold: bool,
+}
+
+impl ForageThrottle {
+    /// The ant before it.
+    pub const OFF: ForageThrottle = ForageThrottle { on: false, patrol: THROTTLE_PATROL, reach: THROTTLE_REACH, scent: true, hold: false };
+    pub const ON: ForageThrottle = ForageThrottle { on: true, ..ForageThrottle::OFF };
+}
+
+/// **The patroller's want**: an ant that has never found food goes out at
+/// full want, fed or not. Measured against 0.5 (an ant at half its grant)
+/// on the six colony beds, 24 paired seeds, both with the want carried: at
+/// 200 cells starved 117 -> 108 and taken 4,860 -> 4,890; at 90 cells taken
+/// 17,333 -> 18,413 and at 140 9,285 -> 9,545 (§23g).
+pub const THROTTLE_PATROL: f32 = 1.0;
+/// The throttle's reach, in authored cells: the trip reach's 16, the
+/// distance inside which food "beside the door" books no trip.
+pub const THROTTLE_REACH: i32 = TRIP_REACH_SHIPPED;
+
+/// `PIXEL_PHYSICS_FORAGE_THROTTLE`'s value: `off`, `on`, or a comma list of
+/// `on`, `patrol=<p>`, `reach=<cells>`, `noscent`, `hold`. **Unset is `on`
+/// since 2026-10-02** (§23g): at 200 cells, 72 paired seeds, starved 554 ->
+/// 307 (15/54), food taken 11,843 -> 14,831 (53/19), born 190 -> 285; no
+/// other bed worse at p < 0.3. `off` is the ant before it, line for line.
+fn parse_forage_throttle(raw: &str) -> ForageThrottle {
+    let raw = raw.trim();
+    match raw {
+        "" => return ForageThrottle::ON,
+        "off" => return ForageThrottle::OFF,
+        _ => {}
+    }
+    let mut t = ForageThrottle::ON;
+    for part in raw.split(',').map(str::trim) {
+        let ok = match part {
+            "on" => true,
+            "noscent" => {
+                t.scent = false;
+                true
+            }
+            "hold" => {
+                t.hold = true;
+                true
+            }
+            _ => match part.split_once('=') {
+                Some(("patrol", v)) => v.parse::<f32>().ok().filter(|p| (0.0..=1.0).contains(p)).map(|p| t.patrol = p).is_some(),
+                Some(("reach", v)) => v.parse::<i32>().ok().filter(|r| *r >= 0).map(|r| t.reach = r).is_some(),
+                _ => false,
+            },
+        };
+        if !ok {
+            eprintln!("PIXEL_PHYSICS_FORAGE_THROTTLE={raw:?}: unknown part {part:?}, read as off (off, on, patrol=, reach=, noscent, hold)");
+            return ForageThrottle::OFF;
+        }
+    }
+    t
+}
+
+pub fn forage_throttle_from_env() -> ForageThrottle {
+    static V: std::sync::OnceLock<ForageThrottle> = std::sync::OnceLock::new();
+    *V.get_or_init(|| parse_forage_throttle(&std::env::var("PIXEL_PHYSICS_FORAGE_THROTTLE").unwrap_or_default()))
+}
+
+/// This world's throttle: `World::forage_throttle` if set, else the
+/// environment's.
+pub fn forage_throttle_of(world: &World) -> ForageThrottle {
+    world.forage_throttle.unwrap_or_else(forage_throttle_from_env)
+}
+
+/// The nest site whose throttle zone holds `(hx, hy)`: within `reach`
+/// (scaled) of the site's centre column and of its walking row.
+fn throttle_site(world: &World, reach: i32, (hx, hy): (i32, i32)) -> Option<usize> {
+    let i = world.nearest_nest_site(hx, hy)?;
+    let s = world.nest_sites[i];
+    let r = scaled_cells(world, reach);
+    ((hx - s.x).abs() <= r && (hy - (s.surface - 1)).abs() <= r).then_some(i)
+}
+
+/// **How much food scent stands at a nest's door**, in `[0, 1)`: trail B
+/// summed over the door's columns (the door's half-width plus one each
+/// side, as `door_site` boxes it) on the walking row and the one above,
+/// read as `b / (b + TRAIL_HALF × cells)`. Only a trip load lays B under the
+/// shipped lay rule, so this is the colony's own record of loaded foragers
+/// coming home, fading as the plane decays.
+fn door_scent(world: &World, site: usize) -> f32 {
+    let s = world.nest_sites[site];
+    let half = nest_door_of(world).unwrap_or(0);
+    let w = scaled_cells(world, half) + scaled_cells(world, 1);
+    let walk = s.surface - 1;
+    let mut b = 0.0;
+    let mut n = 0.0;
+    for x in s.x - w..=s.x + w {
+        for y in walk - 1..=walk {
+            b += f32::from(world.pheromone_at(Channel::B, x, y));
+            n += 1.0;
+        }
+    }
+    b / (b + TRAIL_HALF * n)
+}
+
+/// **How hard this animal is pulled outward, and whether the colony set
+/// it** (`drove`), and the animal's hunger when the throttle judged it:
+/// `max(hunger, forage drive)` -- the scouting pull's factor,
+/// the door reader's want and the rest pull's "out" -- except inside the
+/// throttle's zone (`PIXEL_PHYSICS_FORAGE_THROTTLE`), where hunger is
+/// replaced by the door's scent and the patrol. A nest-bound animal is never
+/// throttled: hungry, it scouts as any ant does.
+fn outward_want(world: &World, st: &crate::sim::organism::OrganismState, def: &CreatureDef) -> (f32, bool, Option<f32>) {
+    let hunger = 1.0 - (st.energy / def.start_energy.max(1.0)).clamp(0.0, 1.0);
+    let drive = if forage_drive_of(world).on() { forage_drive_level(world, st, def) } else { 0.0 };
+    let th = forage_throttle_of(world);
+    if th.on && !is_nest_bound(world, st) {
+        if let Some(site) = st.chain.first().and_then(|&h| throttle_site(world, th.reach, h)) {
+            let scent = if th.scent { door_scent(world, site) } else { 0.0 };
+            let patrol = if st.foraged { 0.0 } else { th.patrol };
+            let want = drive.max(scent).max(patrol);
+            return (want, want > 0.0, Some(hunger));
+        }
+        // Past the zone: what the door sent it with rides along.
+        if st.sent_want.is_finite() {
+            let colony = drive.max(st.sent_want);
+            return if th.hold || colony > hunger { (colony, true, None) } else { (hunger, false, None) };
+        }
+    }
+    if drive > hunger { (drive, true, None) } else { (hunger, false, None) }
+}
+
 /// **The step chance of an empty forager the colony needs**: `p_move` as the
 /// `Move` row would give it reading `Energy` as `1 - drive` where that is
 /// lower than its own, so a fed forager paces out like a hungry one while
@@ -17243,9 +17488,7 @@ fn door_read(world: &mut World, organism: OrganismId, def: &CreatureDef, (hx, hy
     if st.spoil.is_some() {
         return None;
     }
-    let hunger = 1.0 - (st.energy / def.start_energy.max(1.0)).clamp(0.0, 1.0);
-    let drive = if forage_drive_of(world).on() { forage_drive_level(world, st, def) } else { 0.0 };
-    let want = hunger.max(drive);
+    let (want, _, _) = outward_want(world, st, def);
     world.creature_stats.door_reads += 1;
     let last = world.nest_last_return.get(site).copied().unwrap_or(0);
     let window = match food_trail_of(world).window {
@@ -17397,16 +17640,19 @@ fn chooser_step(
         Some(_) => {
             let g = scout_of(world);
             if g > 0.0 {
-                let st = world.organism(organism);
-                let fed = st.map_or(1.0, |s| (s.energy / def.start_energy.max(1.0)).clamp(0.0, 1.0));
-                let hunger = 1.0 - fed;
-                let drive = if forage_drive_of(world).on() { st.map_or(0.0, |s| forage_drive_level(world, s, def)) } else { 0.0 };
-                if drive > hunger {
-                    drove = true;
-                    g * drive
-                } else {
-                    g * hunger
+                // Under the throttle (`outward_want`) an ant near its door
+                // feels the colony's want in place of its hunger.
+                let (want, by_colony, zoned) = world.organism(organism).map_or((0.0, false, None), |s| outward_want(world, s, def));
+                drove = by_colony;
+                if let Some(hunger) = zoned {
+                    if let Some(s) = world.organism_mut(organism) {
+                        s.sent_want = want;
+                    }
+                    world.creature_stats.throttle_reads += 1;
+                    world.creature_stats.throttle_held += u64::from(hunger > want);
+                    world.creature_stats.throttle_sent += u64::from(want > hunger);
                 }
+                g * want
             } else {
                 0.0
             }
@@ -24509,6 +24755,10 @@ mod tests {
             w.set(px, py, Cell::EMPTY);
         }
         w.nest_rest = Some(if rest { NestRest::All } else { NestRest::Off });
+        // The rest pull's own scene: its "out" is hunger and the drive, as
+        // before the throttle (`ForageThrottle`), which would send this
+        // never-foraged ant out as a patroller.
+        w.forage_throttle = Some(ForageThrottle::OFF);
         let a = spawn(&mut w, "ant", x, y);
         let start = w.species.get(w.organism(a).expect("live").species).creature.as_ref().expect("a creature").start_energy;
         w.organism_mut(a).expect("live").energy = start;
@@ -30986,6 +31236,59 @@ mod tests {
     /// started a new nest's clock, and 1 under `always` with no return at all -- the arm
     /// that says the difference is the need, not the scene. **Watched red**
     /// with the arm reading `always`'s 1: the first assertion failed.
+    /// **The forage throttle: near its door an ant is sent by the colony,
+    /// not its hunger, and what it was sent with rides along**
+    /// (`ForageThrottle`, `outward_want`). One fed, never-foraged ant in the
+    /// zone wants the patrol; a starving forager there, with no drive and no
+    /// scent, wants nothing (held); trail B laid over the door sends it; far
+    /// from the door it carries what it was sent with, and with nothing
+    /// carried it is on its hunger as before; off, hunger everywhere.
+    /// **Watched red** with hunger left in the zone's max: the held arm read
+    /// 0.8.
+    #[test]
+    fn the_forage_throttle_sends_from_the_door_and_the_want_rides_along() {
+        let mut w = World::new(Rect::new(0, 0, 159, 63));
+        w.register_nest_site(20, 40, 2);
+        let walk = w.nest_sites[0].surface - 1;
+        let near = spawn(&mut w, "ant", 24, walk);
+        let far = spawn(&mut w, "ant", 100, walk);
+        let species = w.organism(near).expect("live").species;
+        let def = w.species.get(species).creature.clone().expect("a creature");
+        w.forage_drive = Some(ForageDrive { need: ForageNeed::Off, pace: true, keep: false, fed: false });
+        w.forage_throttle = Some(ForageThrottle::ON);
+        let want = |w: &World, id| outward_want(w, w.organism(id).expect("live"), &def);
+        for id in [near, far] {
+            let st = w.organism_mut(id).expect("live");
+            st.energy = def.start_energy;
+            st.foraged = false;
+        }
+        let (fed_patrol, _, zoned) = want(&w, near);
+        assert_eq!((fed_patrol, zoned.is_some()), (THROTTLE_PATROL, true), "a fed patroller at the door");
+        for id in [near, far] {
+            let st = w.organism_mut(id).expect("live");
+            st.energy = 0.2 * def.start_energy;
+            st.foraged = true;
+        }
+        let (held, _, hunger) = want(&w, near);
+        assert_eq!(held, 0.0, "a starving forager at a door with no news should be held, read {held} (hunger {hunger:?})");
+        let door = w.nest_sites[0].x;
+        for x in door - 3..=door + 3 {
+            for y in walk - 1..=walk {
+                w.deposit_pheromone(Channel::B, x, y, pheromone::DEPOSIT);
+            }
+        }
+        let (sent, _, _) = want(&w, near);
+        assert!(sent > 0.5, "trail B over the door should send it, read {sent}");
+        let (bare, by_colony, _) = want(&w, far);
+        assert!((bare - 0.8).abs() < 1e-5 && !by_colony, "far, nothing carried: its hunger, read {bare}");
+        w.organism_mut(far).expect("live").sent_want = 1.0;
+        let (carried, by_colony, _) = want(&w, far);
+        assert!(carried == 1.0 && by_colony, "far, sent at 1: carried, read {carried}");
+        w.forage_throttle = Some(ForageThrottle::OFF);
+        let (off, _, zoned) = want(&w, near);
+        assert!((off - 0.8).abs() < 1e-5 && zoned.is_none(), "off: hunger at the door, read {off}");
+    }
+
     #[test]
     fn the_returns_drive_fades_with_the_time_since_food_last_came_home() {
         let mut w = World::new(Rect::new(0, 0, 159, 63));
@@ -31651,6 +31954,9 @@ mod tests {
         let walk = |drive: ForageDrive, foraged: bool, need: f32| -> Walk {
             let stone = Cell::new(material::STONE, 0).with_attached(true);
             let mut w = World::new(Rect::new(0, 0, 159, 63));
+            // The drive alone: the throttle would send the never-foraged arm
+            // out as a patroller (`ForageThrottle`).
+            w.forage_throttle = Some(ForageThrottle::OFF);
             for x in 0..160 {
                 for y in 41..64 {
                     w.set(x, y, stone);

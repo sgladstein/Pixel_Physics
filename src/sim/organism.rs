@@ -6190,6 +6190,10 @@ pub struct OrganismState {
     /// noreturn`): set when a new excursion starts. What it has spent since
     /// is the ant's own measure of what the walk home will cost.
     pub scout_e0: f32,
+    /// **The colony's want when the forage throttle last judged this ant at
+    /// its door** (`creature::ForageThrottle`), carried on the excursion it
+    /// sent the ant on. NaN until the throttle first judges it.
+    pub sent_want: f32,
     /// **Has foraged: picked food up away from home at least once**, so the
     /// colony's need can send it out again (`creature::forage_drive_level`,
     /// on unless `PIXEL_PHYSICS_FORAGE_DRIVE=off`). Never cleared.
