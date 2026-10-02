@@ -4680,7 +4680,15 @@ pub(super) fn try_bud(world: &mut World, organism: OrganismId, def: &CreatureDef
     // either floor must not be able to make the two disagree silently. The
     // `+ 1` matches on both sides for the same reason.
     let cost = birth_cost_of(def, birth_grant(def, &parent_traits));
-    let bar = threshold.max(cost + 1.0);
+    // **An egg's bar is the brood block's `lay_at`**, scaled by the same
+    // heritable multiplier, and floored at the egg's price rather than an
+    // adult's: an ant that lays keeps `lay_at - egg_cost`, not the ~1,000 J
+    // a bud's bar would leave it hoarding. `None` -- budding -- is untouched.
+    let laying = super::brood::brood_of(world, def);
+    let bar = match &laying {
+        Some(b) => (threshold * b.lay_at / def.reproduce_threshold.max(1.0)).max(b.egg_cost + 1.0),
+        None => threshold.max(cost + 1.0),
+    };
     let (hx, hy) = *state.chain.first()?;
     // **What is within reach counts toward a child, and this is deliberately
     // not a nest.**

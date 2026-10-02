@@ -3422,6 +3422,12 @@ pub struct BroodDef {
     pub larva_upkeep: f32,
     /// Frames from pupating to hatching, if there is room for the body.
     pub pupa_frames: u64,
+    /// **The bank an ant must hold to lay**, in place of
+    /// `reproduce_threshold` (and scaled by the same heritable
+    /// `TRAIT_REPRODUCE_AT`). Separate because the two mean different
+    /// things: a bud's bar has to cover a whole adult, an egg's only has to
+    /// leave the layer a working reserve.
+    pub lay_at: f32,
 }
 
 /// Which stage a brood organism is at. The stage is also the brood cell's

@@ -119,6 +119,7 @@
             egg_frames: 1500,
             larva_upkeep: 0.0083333,
             pupa_frames: 1500,
+            lay_at: 1100.0,
         )),
 
         // **Per body cell, since 2026-08-30, and this ant is the number

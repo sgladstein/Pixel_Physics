@@ -77,7 +77,20 @@ fn brood_env() -> bool {
 /// adult as before.
 pub fn brood_of(world: &World, def: &CreatureDef) -> Option<BroodDef> {
     let block = def.brood.as_ref()?;
-    world.brood.unwrap_or_else(brood_env).then(|| block.clone())
+    world.brood.unwrap_or_else(brood_env).then(|| {
+        let mut b = block.clone();
+        if let Some(v) = lay_at_env() {
+            b.lay_at = v;
+        }
+        b
+    })
+}
+
+/// `PIXEL_PHYSICS_LAY_AT=<J>`: override the brood block's `lay_at`, for a
+/// sweep. Unset, the species file's value.
+fn lay_at_env() -> Option<f32> {
+    static V: std::sync::OnceLock<Option<f32>> = std::sync::OnceLock::new();
+    *V.get_or_init(|| std::env::var("PIXEL_PHYSICS_LAY_AT").ok().and_then(|v| v.parse().ok()))
 }
 
 /// Frames between a larva's ticks: how often it pays upkeep and takes a bite
