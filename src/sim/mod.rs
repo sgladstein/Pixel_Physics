@@ -75,6 +75,7 @@ pub mod cell;
 pub mod chunk;
 pub mod clock;
 pub mod contest;
+pub mod brood;
 pub mod creature;
 pub mod decay;
 pub mod enclosure;

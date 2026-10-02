@@ -1,0 +1,36 @@
+// An ant's brood: an egg, a larva or a pupa, one cell each
+// (`src/sim/brood.rs`, `Reports/ant-breeding-plan-2026-09-29.md` B1 and B3).
+//
+// **One material for every stage; the stage is the palette index**, so what a
+// stage looks like and what it is cannot disagree: entry 0 is the egg (white),
+// 1 the larva (cream), 2 the pupa (tan). `brood::set_stage` writes the index.
+//
+// **A powder that does not roll and drops through bodies**, as `crumbs` does:
+// laid on a breeder's back it falls to the floor, laid over a shaft it falls
+// down the shaft, and otherwise it stays where it was put. Always owned by its
+// brood organism, with `CellType::Seed` in `aux` like a plant's seed, which is
+// what keeps diggers, footing and nestmates' mouths off it (`brood.rs`).
+//
+// **Worth nothing as food** (no `food_energy`): a stranger cannot eat a living
+// egg in this step, so an egg is never priced as a powder rather than at its
+// bank. A larva that starves leaves ordinary `corpse`.
+(
+    name: "brood",
+    display: "Brood",
+    kind: Powder,
+    density: 0.6,
+    friction_angle: 40.0,
+    colors: [
+        (240, 236, 222),
+        (228, 214, 172),
+        (198, 166, 112),
+    ],
+    flammability: 0.5,
+    burn_temperature: 480.0,
+    burn_duration: 20,
+    burns_into: "ash",
+    heat_conductivity: 0.2,
+    falls_through_organisms: true,
+    rolls: false,
+    penetration_resistance: 0.2,
+)

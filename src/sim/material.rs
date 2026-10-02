@@ -2700,6 +2700,10 @@ const EMBEDDED: &[&str] = &[
     // of it in `aux` (`MaterialDef::carries_worth`, open bug §Z33).
     // Addressed by name, never by number.
     include_str!("../../assets/materials/crumbs.ron"),
+    // Appended at the end, the only place a new material may go. An ant's
+    // brood -- egg, larva or pupa, the palette index being the stage
+    // (`src/sim/brood.rs`). Addressed by name, never by number.
+    include_str!("../../assets/materials/brood.ron"),
 ];
 
 /// Where the loader looks for material files, relative to the working directory.

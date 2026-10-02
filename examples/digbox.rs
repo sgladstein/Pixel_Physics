@@ -3942,6 +3942,26 @@ fn main() {
                         st.births, st.births_denied_no_space, st.births_denied_animals, st.births_on_kin, st.buds_held_for_nest
                     );
                 }
+                // **Brood** (`PIXEL_PHYSICS_BROOD`): all 0 with it off. Standing
+                // brood by stage, from the brood's own list -- no census above
+                // counts an egg as an ant.
+                {
+                    let st = world.creature_stats;
+                    let mut by_stage = [0usize; 3];
+                    let mut held = 0.0f64;
+                    for id in world.live_brood_ids() {
+                        if let Some(s) = world.organism(id) {
+                            if let Some(b) = s.brood {
+                                by_stage[b.stage as usize] += 1;
+                                held += s.energy as f64;
+                            }
+                        }
+                    }
+                    println!(
+                        "BROOD frame={f} standing eggs {} larvae {} pupae {} (holding {:.0} J) | laid {}, larvae {}, pupated {}, hatched (births) {}, larvae starved {}, lost {}, hatches refused for room {} | J shared in {:.0}, nursed by touch {:.0}, eaten beside {:.0}, upkeep {:.0}, to corpse {:.0}",
+                        by_stage[0], by_stage[1], by_stage[2], held, st.eggs_laid, st.larvae, st.pupae, st.births, st.larvae_starved, st.brood_lost, st.hatches_denied, st.brood_shared_j, st.brood_nursed_j, st.brood_ate_j, st.brood_upkeep_j, st.brood_corpse_j
+                    );
+                }
                 // `PIXEL_PHYSICS_DIG_ROOF` and `_DOOR_COLLAR`'s "it fired" halves.
                 println!(
                     "ROOF frame={f} cuts refused under the nest's roof (DIG_ROOF) {}, rim cells packed by the door's collar (DOOR_COLLAR) {}",
