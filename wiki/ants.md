@@ -1,7 +1,7 @@
 # Ants
 
-*Current as of: 2026-10-02, when **new ants started as eggs** (see *New
-ants*), and when **an ant started holding on to a nestmate
+*Current as of: 2026-10-02, when **new ants started as eggs, laid only at
+home** (see *New ants*), and when **an ant started holding on to a nestmate
 to climb.** Diggers carrying soil out used to fall back again and again in the
 room under the front door: an ant could only hold on to ground, and in the
 middle of a room there is none, so many gave up and put their soil down in the
@@ -2380,7 +2380,9 @@ happily, thirty rows and more, so it is not that the food is out of their
 reach; there is simply almost none of it.
 
 Colonies still have no queens, but **since 2026-10-02 a new ant starts as an
-egg.** A well-fed ant lays a cheap egg instead of budding a grown ant. The egg
+egg.** A well-fed ant lays a cheap egg instead of budding a grown ant, and only at
+home: an ant that has eaten its fill out at the food carries the surplus in
+its own body until it walks back to the nest. The egg
 sits as a pale grain beside it, becomes a larva, and a larva has to be fed up
 to a whole ant's worth before it can pupate and hatch: it eats food lying beside
 it, and a nestmate who brushes against it hands it some of what it carries. A
