@@ -4067,4 +4067,11 @@ indistinguishable from the throttle alone (`hold1` vs `both`: starved 107
 -> 102, 11/12).
 
 **Shipped on** (`ForageThrottle::ON`, patrol 1, reach 16, scent on, no
-`hold`); `off` is the ant before it. The lab box check is below.
+`hold`); `off` is the ant before it.
+
+**Lab box regression check** (`played_bed`, 120,000 frames, 24 paired
+seeds, `labpair.py`, same binary): no gate worse at p < 0.05. Births
+532.0 -> 550.5 (median; lower on 16 of 24, p 0.15), food eaten 1.26M ->
+1.41M J (13/24 lower, p 0.84), ant-frames 11.1M -> 12.6M, starved per
+million ant-frames 8.6 -> 9.1 (10/14, p 0.54); boxes under a quarter of
+peak 5 -> 2. The births lean is the one to watch.
