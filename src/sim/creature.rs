@@ -6738,6 +6738,11 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
     if world.decision_log.is_some() {
         world.decision_scratch = DecisionScratch::default();
     }
+    // **The door's collar** ([`door_collar_of`], off): an ant at the door
+    // tamps the loose ground on the rim of the opening. No draw.
+    if door_collar_of(world) {
+        world.creature_stats.collar_packed += collar_tamp(world, x, y);
+    }
     let Did { dug, gnaws, shares } = act(world, x, y, organism, def, &outputs, &mut draw);
     // **Working the jaw costs, and leaving it free was a real defect.**
     // Measured the moment the beetle was armoured for play: an ant beat a
@@ -10734,7 +10739,7 @@ fn spoil_haul() -> Option<f32> {
 fn spoil_haul_target(world: &World, state: &crate::sim::organism::OrganismState, head: (i32, i32)) -> Option<(i32, i32)> {
     let site = world.nearest_nest_site(head.0, head.1).and_then(|i| world.nest_sites.get(i))?;
     if let Some(col) = state.spoil_ring.filter(|_| spoil_ring_of(world).is_some()) {
-        return Some(ring_target(world, site, col));
+        return Some(ring_target(world, site, crest_column(world, site, col)));
     }
     Some(match site.shaft {
         Some(cut) if spoil_out().haul => (site.x, cut.top - 1),
@@ -11307,7 +11312,50 @@ fn spoil_ring_column(world: &World, organism: OrganismId, (x, y): (i32, i32), ri
 fn spoil_ring_holds(world: &World, state: &crate::sim::organism::OrganismState, (x, y): (i32, i32)) -> bool {
     let Some(col) = state.spoil_ring.filter(|_| spoil_ring_of(world).is_some()) else { return false };
     let Some(site) = world.nearest_nest_site(x, y).and_then(|i| world.nest_sites.get(i)) else { return false };
-    (x - site.x).abs() < (col - site.x).abs()
+    (x - site.x).abs() < (crest_column(world, site, col) - site.x).abs()
+}
+
+/// **Over the crest** ([`spoil_crest_of`], off): where a carrier latched on
+/// `col` puts its pellet down. Unset, `col` itself. Set, the first column out
+/// from `col` (away from the nest's centre, at most [`CREST_REACH`] past it)
+/// whose next column out is no higher, so a carrier on the inside of a heap
+/// walks up it and drops on the top, and its pellet rolls down the outside
+/// rather than back toward the door.
+fn crest_column(world: &World, site: &crate::sim::world::NestSite, col: i32) -> i32 {
+    if !spoil_crest_of(world) {
+        return col;
+    }
+    let out = if col >= site.x { 1 } else { -1 };
+    let mut at = col;
+    for _ in 0..CREST_REACH {
+        if ring_target(world, site, at + out).1 >= ring_target(world, site, at).1 {
+            break;
+        }
+        at += out;
+    }
+    at
+}
+
+/// How far past its drawn column a carrier may climb to a crest
+/// ([`crest_column`]).
+const CREST_REACH: i32 = 8;
+
+/// **Drop on the crest**: `PIXEL_PHYSICS_SPOIL_CREST=on`, off unless set;
+/// [`World::spoil_crest`] for one world.
+///
+/// **Why** (`Reports/nest-one-entrance-2026-09-29.md` §25, the owner's pick on
+/// 2026-10-01, *"Collar, then crest"*). Under [`spoil_ring`] a carrier puts its
+/// pellet on the top of the ground in the column it drew, which is often on
+/// the inner face of the heap: the pellet turns loose there and runs back
+/// toward the door, and the heap round the mouth is the largest traced source
+/// of the loose soil that refills the tunnels (§24). Ground-nesting ants climb
+/// the inner slope of the crater and drop at the top, so the crater widens
+/// outward. Acts only under the ring.
+pub fn spoil_crest_of(world: &World) -> bool {
+    world.spoil_crest.unwrap_or_else(|| {
+        static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        *V.get_or_init(|| std::env::var("PIXEL_PHYSICS_SPOIL_CREST").as_deref() == Ok("on"))
+    })
 }
 
 /// **Where a carrier stands, for the carry's latch** ([`spoil_ring`]):
@@ -11699,6 +11747,125 @@ pub fn spoil_switches_line() -> String {
             None => "off (PIXEL_PHYSICS_DIG_DOWN)".to_string(),
         }
     )
+}
+
+/// **A roof the colony leaves whole**: `PIXEL_PHYSICS_DIG_ROOF=<rows>`, off
+/// unless set; [`World::dig_roof`] for one world.
+///
+/// **Why** (`Reports/nest-one-entrance-2026-09-29.md` §25). In the food box
+/// the colony digs its top chambers 1-4 rows under the surface, and the crust
+/// over them falls in: by 96,000 frames on seed 3, 17 cells of the old ground
+/// row stand open, all but 2 of them opened by the ground falling away rather
+/// than by a cut. The nest's top becomes a crater as wide as the nest, and the
+/// loose soil around it is the largest traced source of what refills the
+/// tunnels (§24). A real nest has a solid crust, one narrow entrance and its
+/// chambers below.
+///
+/// **The rule:** a cut whose cell lies at or below a nest's founding surface
+/// and fewer than `rows` rows under it is refused unless it is within the
+/// door's columns (the door's half-width, [`nest_door_of`], from the site's
+/// centre column). Ground above the founding surface (a heap) is never
+/// refused, and neither is any cut when no nest has a door (the strip).
+/// One predicate about the cut cell, read only when set.
+pub fn dig_roof_of(world: &World) -> Option<i32> {
+    world.dig_roof.unwrap_or_else(|| {
+        static V: std::sync::OnceLock<Option<i32>> = std::sync::OnceLock::new();
+        *V.get_or_init(|| {
+            let raw = std::env::var("PIXEL_PHYSICS_DIG_ROOF").unwrap_or_default();
+            match raw.as_str() {
+                "" | "off" => None,
+                v => match v.parse::<i32>() {
+                    Ok(n) if n > 0 => Some(n),
+                    _ => {
+                        eprintln!("PIXEL_PHYSICS_DIG_ROOF={raw:?}: not `off` or a row count over 0; read as off");
+                        None
+                    }
+                },
+            }
+        })
+    })
+}
+
+/// Whether `(x, y)` lies in the roof [`dig_roof_of`] keeps: within `rows`
+/// rows under the founding surface of the nearest nest site (by column),
+/// outside that nest's door.
+fn under_roof(world: &World, (x, y): (i32, i32), rows: i32) -> bool {
+    let Some(door) = nest_door_of(world) else { return false };
+    let Some(site) = world.nest_sites.iter().min_by_key(|s| (s.x - x).abs()) else { return false };
+    let below = y - site.surface;
+    (0..rows).contains(&below) && (x - site.x).abs() > door
+}
+
+/// **A collar round the door**: `PIXEL_PHYSICS_DOOR_COLLAR=on`, off unless
+/// set; [`World::door_collar`] for one world.
+///
+/// **Why** (`Reports/nest-one-entrance-2026-09-29.md` §24-25, the owner's pick
+/// on 2026-10-01, *"Collar, then crest"*). The largest traced source of the
+/// loose soil that refills the tunnels is the ground round the mouth: spoil
+/// put down there turns loose and runs back in. Lining never ran in on any
+/// seed. Some ants build a cemented collar or turret round the entrance; here
+/// an ant walking through the door tamps the rim as a digger tamps a wall.
+///
+/// **The rule** ([`collar_tamp`]): an ant whose head is in the door zone
+/// (within the door's half-width plus [`COLLAR_REACH`] columns of a nest
+/// site's centre, from [`COLLAR_UP`] rows over its founding surface down to
+/// one row under it) packs each of its eight neighbours that is a rim cell:
+/// at or over the founding surface, in a column whose cell one row under
+/// the surface is ground, beside a column where that cell is open. The
+/// opening itself is never packed, so loose fill in the mouth stays loose
+/// and is carried out as before. **A pellet on the rim is packed too**, if
+/// it stands on ground ([`is_footing`]): leaving pellets as pellets, as
+/// [`pack_neighbours`] does ([`spoil_packs`]), packed 32-125 rim cells in
+/// 144,000 frames, because the rim is mostly pellets and a pellet that turns
+/// loose runs in within a few frames (§25). One standing on nothing is left,
+/// so the collar never hangs.
+pub fn door_collar_of(world: &World) -> bool {
+    world.door_collar.unwrap_or_else(|| {
+        static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        *V.get_or_init(|| std::env::var("PIXEL_PHYSICS_DOOR_COLLAR").as_deref() == Ok("on"))
+    })
+}
+
+/// Columns past the door's half-width that [`collar_tamp`] still reaches.
+const COLLAR_REACH: i32 = 2;
+/// Rows over a nest's founding surface that [`collar_tamp`] still reaches:
+/// how high a collar can be built up the heap.
+const COLLAR_UP: i32 = 6;
+
+/// [`door_collar_of`]'s tamp for an ant whose head is at `(x, y)`; returns
+/// how many cells it packed.
+fn collar_tamp(world: &mut World, x: i32, y: i32) -> u64 {
+    let Some(door) = nest_door_of(world) else { return 0 };
+    let Some(site) = world.nest_sites.iter().min_by_key(|s| (s.x - x).abs()) else { return 0 };
+    let (cx, top) = (site.x, site.surface);
+    if (x - cx).abs() > door + COLLAR_REACH || y < top - COLLAR_UP || y > top + 1 {
+        return 0;
+    }
+    // Open where the row under the founding surface is not ground: the mouth.
+    let open = |world: &World, col: i32| {
+        let c = world.get(col, top + 1);
+        c.material == material::EMPTY || c.organism_id() != 0
+    };
+    let mut packed = 0;
+    for (dx, dy) in NEIGHBOURS_8 {
+        let (nx, ny) = (x + dx, y + dy);
+        if ny > top || open(world, nx) || !(open(world, nx - 1) || open(world, nx + 1)) {
+            continue;
+        }
+        let cell = world.get(nx, ny);
+        if cell.organism_id() != 0 {
+            continue;
+        }
+        let Some(lined_as) = world.materials.get(cell.material).packs_into else { continue };
+        if world.materials.get(cell.material).needs_footing && !is_footing(world, nx, ny + 1) {
+            continue;
+        }
+        let mut lined = cell;
+        lined.material = lined_as;
+        world.set(nx, ny, lined);
+        packed += 1;
+    }
+    packed
 }
 
 /// **Can a pellet be put down at `(px, py)`?** The cell is empty, it has a
@@ -14257,6 +14424,17 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
                 }
             }
             None => false,
+        };
+        // **A roof over the nest** ([`dig_roof_of`], off): a cut into the
+        // ground just under a nest's surface, outside its door, is refused,
+        // so the crust over the nest stays whole and the chambers go below it.
+        // No draw either way.
+        let vetoed = vetoed || {
+            let refused = dig_roof_of(world).is_some_and(|rows| under_roof(world, (tx, ty), rows));
+            if refused {
+                world.creature_stats.digs_refused_roof += 1;
+            }
+            refused
         };
         // **What the jaw can take is [`jaw_can_cut`]**, one test shared with
         // the dig-down turn above so the two cannot drift apart; the argument
@@ -23971,6 +24149,40 @@ mod tests {
             }
         }
         assert_eq!(harvest_drop(&w, ant, (40, 37), &def), None, "a full room is no target: the food goes to the door");
+    }
+
+    /// **The roof and the collar each touch only what they are for**
+    /// ([`dig_roof_of`], [`door_collar_of`]): the roof refuses a cut just
+    /// under the surface outside the door and nothing in the door, under the
+    /// roof or in a heap; the collar packs loose ground on the rim of the
+    /// mouth and leaves loose ground over the opening alone.
+    #[test]
+    fn the_roof_keeps_the_crust_and_the_collar_packs_the_rim_not_the_mouth() {
+        let mut w = founding_bed();
+        w.cut_founding_shaft_with((60, 38), 6, 2, false, None, None);
+        let fp = w.nest_sites[0].shaft.expect("the cut records its footprint");
+        let (cx, top) = (w.nest_sites[0].x, w.nest_sites[0].surface);
+        w.nest_door = Some(Some(2));
+        assert!(under_roof(&w, (cx + 5, top + 1), 4), "a cut just under the crust outside the door is under the roof");
+        assert!(under_roof(&w, (cx - 5, top), 4), "so is the surface row itself");
+        assert!(!under_roof(&w, (cx + 1, top + 1), 4), "the door is not");
+        assert!(!under_roof(&w, (cx + 5, top + 4), 4), "nor is ground under the roof");
+        assert!(!under_roof(&w, (cx + 5, top - 1), 4), "nor a heap over the surface");
+        w.nest_door = Some(None);
+        assert!(!under_roof(&w, (cx + 5, top + 1), 4), "with no door there is no roof");
+        w.nest_door = Some(Some(2));
+        let (soil, packed) = (w.materials.id_of("soil").expect("soil"), w.materials.id_of("packedsoil").expect("packedsoil"));
+        for &(x, y) in &[(fp.x0 - 1, top), (fp.x0 - 1, top - 1), (fp.x0, top - 1)] {
+            w.set(x, y, Cell::new(soil, 0));
+        }
+        let n = collar_tamp(&mut w, fp.x0, top);
+        assert_eq!(w.get(fp.x0 - 1, top).material, packed, "the rim beside the mouth is packed");
+        assert_eq!(w.get(fp.x0 - 1, top - 1).material, packed, "and the rim above it");
+        assert_eq!(w.get(fp.x0, top - 1).material, soil, "loose ground over the opening stays loose");
+        assert_eq!(n, 2, "only the two rim cells were packed");
+        w.set(fp.x0 - 1, top - 1, Cell::new(soil, 0));
+        assert_eq!(collar_tamp(&mut w, cx + 20, top), 0, "an ant away from the door packs nothing");
+        assert_eq!(w.get(fp.x0 - 1, top - 1).material, soil, "and the rim stays as it was");
     }
 
     /// **Under `PIXEL_PHYSICS_NEST_HOME=shaft` the founding cut is home, and

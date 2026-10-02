@@ -1521,3 +1521,70 @@ it out as a pellet, but it is set down loose and can roll back.
 the tunnels; carrying spoil further out (§12's `SPOIL_RING`, off) or lining
 the rim would cut the largest source. Dead ants want carrying away from the
 mouth to a refuse pile, which real ants do.
+
+## 25. A roof, a collar and a crest drop (2026-10-01/02)
+
+**The cap does not hold on the trail-reader main.** On main 2fea34a (#535:
+reader and give-up on by default) the food box with `cap=300` starved with
+the pile full on 3 of 4 seeds (alive at 240,000: 1 / 303 / 1 / 0), while the
+same box uncapped kept all four (663 / 648 / 616 / 85, 3,192-4,856 born). The
+cap is left in `digbox` as a dial and is not the bed; the runs below are
+uncapped, seeds 1-4, 144,000 frames, main e704372 plus this branch.
+
+**Looking first.** The tinted close-up (`crop=90,8,80,40 tintout=`) shows
+why §24's mound fill exists: the nest is shallow, its top chambers 1-4 rows
+under the surface, and the crust over them falls in. On seed 3 at 96,000
+frames 17 cells of the old ground row stand open, 15 of them opened by the
+ground falling away, not by a cut. The top of the nest is a crater as wide
+as the nest, and its loose rim runs in. The heap is mostly far out already
+(ground above the surface: 7 cells within 2 columns of the centre, 22 at
+3-5, 35 at 6-9, 233 beyond 15), so carrying spoil further out does not
+address it, and it costs the colony: `SPOIL_RING=2,10` lost 2 of 4
+colonies by 144,000 frames (0 of 4 shipped).
+
+Four switches, all off, bit-exact unset (seed 1 reproduces the baseline's
+FOOD lines):
+
+- `PIXEL_PHYSICS_DIG_ROOF=<rows>`: a cut within `rows` under a nest's
+  founding surface and outside the door's columns is refused.
+- `PIXEL_PHYSICS_DOOR_COLLAR=on` (the owner's pick, *"Collar, then crest"*):
+  an ant at the door tamps loose ground and footed pellets on the rim of the
+  opening, never the opening.
+- `PIXEL_PHYSICS_SPOIL_CREST=on`: under the spoil ring, a carrier walks on
+  from its drawn column while the ground ahead still rises (up to 8 columns)
+  and drops on the crest.
+- `digbox bed=packed`: the box starts as tamped ground, to see a nest in
+  ground that holds without changing the engine's soil.
+
+| arm | alive at 144k | fruit taken | surface row standing open | lasting soil fill (first from the mound) |
+|---|---|---|---|---|
+| shipped | 466 / 672 / 608 / 444 | 9.2k / 11.5k / 12.8k / 13.4k | 25 / 4 / 16 / 27 | 6,081 (2,679) / 140 (37) / 1,022 (323) / 1,315 (595) |
+| `DIG_ROOF=6` | 128 / 675 / 491 / 359 | 6.7k / 12.5k / 7.0k / 8.3k | **0 / 0 / 0 / 0** | 1,085 (503) / 1,259 (708) / 891 (476) / 528 (225) |
+| collar | 0 / 191 / 0 / 422 | 4.1k / 6.4k / 4.8k / 10.3k | 20 / 22 / 23 / 41 | 1,149 (88) / 3,333 (1,064) / 2,572 (752) / 1,946 (450) |
+| roof + collar | 0 / 707 / 783 / 696 | 7.1k / 11.0k / 12.0k / 13.2k | 0 / 0 / 0 / 0 | 1,103 (298) / 2,488 (1,401) / 4,841 (2,743) / 3,053 (1,769) |
+| crest | 1 / 613 / 188 / 3 | 6.1k / 13.6k / 5.8k / 7.6k | 19 / 20 / 27 / 23 | 1,266 (215) / 3,081 (800) / 3,350 (1,448) / 3,067 (483) |
+| roof + collar + crest | 763 / 358 / 1,026 / 655 | 13.1k / 8.6k / 13.4k / 11.6k | 0 / 0 / 0 / 0 | 3,840 (2,096) / 294 (198) / 1,227 (637) / 1,709 (839) |
+| `bed=packed` | 486 / 65 / 0 / 0 | 8.5k / 4.8k / 4.5k / 3.6k | 17 / 20 / 15 / 21 | 376 / 2,366 / 2,771 / 834 |
+
+**The roof does what it is for and nothing else does.** With `DIG_ROOF=6`
+the crust stays whole on every seed (0 cells of the old ground row standing
+open, against 4-27), and the picture is a nest: one door through a lined
+crust, dark galleries under it (project file
+`nest/nest-roof-compare-2026-10-02.png`). It refuses 25,000-56,000 cuts in
+144,000 frames. It does not reduce the fill: the mound now runs in through
+the one door, and fill tracks how much the colony digs. It cost colony size
+on 3 of 4 seeds alone, not with collar and crest.
+
+**The collar hardly fires**: 32-131 rim cells packed a run, first with
+pellets left as pellets and then with footed pellets packed too. A rim is a
+handful of cells beside the opening, and the heap reaches the mouth from
+above and through it, not past the rim. **The crest alone lost 2 of 4
+colonies** and raised fill. **Tamped ground from the start starved 3 of 4
+colonies**, but `packedsoil` resists the jaw more than soil (0.95 against
+0.8), so this does not say what soil that holds would do; it says this
+proxy is not that experiment.
+
+Four seeds of a colony this chaotic cannot rank fill between arms; the
+survival column alone swings 0-700 within an arm. What the runs do settle
+is the shape: the roof keeps a nest's top, the collar has nothing to hold,
+and carrying spoil further or over a crest costs colonies.
