@@ -4231,9 +4231,10 @@ pub struct World {
     /// food-keyed laying brake (`creature::food_brake_factor`): per colony
     /// label, `[last income, last burn, smoothed income, smoothed burn]`,
     /// refreshed every `ROOM_INTERVAL` frames by `step_colony_pace` from the
-    /// colony's own books. Empty unless the brake is on, so a world without
-    /// it pays one branch a frame.
-    pub colony_pace: Vec<[f64; 4]>,
+    /// colony's own books, plus `[4]` the colony's live adults counted on the
+    /// same tick. Empty unless the brake is on, so a world without it pays
+    /// one branch a frame.
+    pub colony_pace: Vec<[f64; 5]>,
     /// **The frame each nest last saw a forager come home with food from a
     /// trip** (`OrganismState::trip_load`), indexed like `nest_sites`, grown
     /// on write; 0 is never. Read by the forage drive's `returns` need
@@ -8300,7 +8301,13 @@ impl World {
         }
         let a = (ROOM_INTERVAL as f64 / crate::sim::creature::FOOD_BRAKE_WINDOW as f64).min(1.0);
         let n = self.colony_books.len();
-        self.colony_pace.resize(n, [0.0; 4]);
+        self.colony_pace.resize(n, [0.0; 5]);
+        let mut adults = vec![0u32; n];
+        for id in self.live_organism_ids() {
+            if let Some(c) = self.organism(id).map(|st| st.colony as usize).filter(|&c| c < n) {
+                adults[c] += 1;
+            }
+        }
         for c in 0..n {
             let b = &self.colony_books[c];
             let income = b.get(Account::HarvestedPlant) + b.get(Account::HarvestedCorpse);
@@ -8311,6 +8318,7 @@ impl World {
             p[1] = burn;
             p[2] += a * (di - p[2]);
             p[3] += a * (db - p[3]);
+            p[4] = adults[c] as f64;
         }
     }
 
@@ -8319,6 +8327,11 @@ impl World {
     pub fn colony_food_ratio(&self, colony: u32) -> Option<f64> {
         let p = self.colony_pace.get(colony as usize)?;
         (p[3] > 0.0).then(|| p[2] / p[3])
+    }
+
+    /// One colony's live adults at the last [`World::step_colony_pace`].
+    pub fn colony_adults(&self, colony: u32) -> f64 {
+        self.colony_pace.get(colony as usize).map_or(0.0, |p| p[4])
     }
 
     pub fn step_nest_need(&mut self) {

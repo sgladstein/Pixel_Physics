@@ -15487,10 +15487,14 @@ pub fn food_brake_on(_world: &World) -> bool {
 /// and its queens last (Rueppell & Kirkman 2005). Laying follows the
 /// colony's food, not the breeder's own bank.
 ///
-/// Returns `>= 1.0` (and `INFINITY` at or below the floor). A colony the
-/// brake has not seen burn yet is left alone: founders spend their grant
-/// before any income exists, and a brake that held them would read the
-/// founding as a famine.
+/// Returns `>= 1.0` (and `INFINITY` at or below the floor, in a colony of
+/// full size). **A small colony breeds freely**: the brake's strength ramps
+/// from nothing at [`FOOD_BRAKE_SMALL`] live adults to full at twice that.
+/// The first build had no such ramp and at food 200 cells away it held
+/// every founding group for good -- 0-10 births in 6 of 6 seeds, against
+/// 3-1,712 without it -- because founders walking to food that far burn
+/// more than they bring back long before any trail forms, which reads to
+/// an income-over-burn rule exactly like a colony that has outgrown its food.
 pub fn food_brake_factor(world: &World, colony: u32) -> f32 {
     let Some((lo, hi)) = food_brake_env() else {
         return 1.0;
@@ -15498,14 +15502,22 @@ pub fn food_brake_factor(world: &World, colony: u32) -> f32 {
     let Some(r) = world.colony_food_ratio(colony) else {
         return 1.0;
     };
-    if r >= hi {
-        1.0
-    } else if r <= lo {
-        f32::INFINITY
+    let strength = ((world.colony_adults(colony) - FOOD_BRAKE_SMALL) / FOOD_BRAKE_SMALL).clamp(0.0, 1.0) as f32;
+    if strength <= 0.0 || r >= hi {
+        return 1.0;
+    }
+    let full = if r <= lo { f32::INFINITY } else { 1.0 + (FOOD_BRAKE_MAX - 1.0) * ((hi - r) / (hi - lo)) as f32 };
+    if strength >= 1.0 {
+        full
     } else {
-        1.0 + (FOOD_BRAKE_MAX - 1.0) * ((hi - r) / (hi - lo)) as f32
+        1.0 + strength * (full.min(2.0 * FOOD_BRAKE_MAX) - 1.0)
     }
 }
+
+/// Live adults below which a colony breeds free of the food brake; the
+/// brake reaches full strength at twice this. A founding group in every bed
+/// here is 20.
+pub const FOOD_BRAKE_SMALL: f64 = 30.0;
 
 fn suppress_bar(regime: BreedingRegime, radius: i32, world: &World, organism: OrganismId, colony: u32, pos: (i32, i32), bar: f32) -> (f32, u32) {
     let use_index = breeder_index_enabled();
