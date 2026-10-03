@@ -186,6 +186,27 @@ pub struct LabBox {
     /// this only changes what a *missing* key resolves to.
     #[serde(default)]
     pub rain: super::rain::Rain,
+    /// **How fast the plants grow against the ants** -- the BOX page's
+    /// `PLANTS GROW` row, `super::pace`. On the spec for `rain`'s reasons:
+    /// a saved box and a scenario's `bed:` block carry it, and a rebuild
+    /// keeps the player's choice. `#[serde(default)]` resolves a missing key
+    /// to `PlantPace::Half`, the shipped default.
+    #[serde(default)]
+    pub plant_pace: super::pace::PlantPace,
+    /// **Whether fallen fruit (natural windfall) rots** -- the BOX page's
+    /// `FALLEN FRUIT` row, owner's ask of 2026-10-03 (*"I want a play test
+    /// natural windfall from plants decays or stays forever. I need a toggle
+    /// or a parameter somewhere"*). True is today's behaviour and the
+    /// default; `World::windfall_rots` is what `decay` reads. Hand-placed
+    /// food never rots whatever this says (`provisions`).
+    #[serde(default = "windfall_rots_default")]
+    pub windfall_rots: bool,
+}
+
+/// `LabBox::windfall_rots`' serde default: the engine's own, so a missing key
+/// and a fresh `World` agree, `PIXEL_PHYSICS_WINDFALL_ROT=off` included.
+fn windfall_rots_default() -> bool {
+    crate::sim::decay::windfall_rots_default()
 }
 
 /// **Rows of soil, and why this number and not a round one.**
@@ -297,6 +318,8 @@ impl Default for LabBox {
             // longer does on every seed. One source of truth so a future
             // re-measurement that moves `#[default]` moves this too.
             rain: super::rain::Rain::default(),
+            plant_pace: super::pace::PlantPace::default(),
+            windfall_rots: windfall_rots_default(),
         }
     }
 }
@@ -998,6 +1021,13 @@ impl LabBox {
                 beetles += 1;
             }
         }
+        // **The BOX page's two growth rows, last so they win.** Applied at the
+        // end rather than beside the other world switches at the top so a
+        // default set up there (the garden lane's half speed) and the
+        // player's choice here cannot disagree: this is the value the box
+        // runs at. `set_rates` re-anchors the clock at frame 0, a no-op here.
+        self.plant_pace.apply(&mut w);
+        w.windfall_rots = self.windfall_rots;
         (w, Planted { asked: self.founders, planted, ants, beetles })
     }
 }

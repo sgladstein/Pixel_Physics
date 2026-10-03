@@ -288,8 +288,8 @@ pub struct Chunk {
     /// These spans are the union of the marks' own neighbourhoods rather than
     /// their bounding box, so they are **strictly a subset of `dirty` and
     /// still a superset of every cell the sweep can act on** — the invariant
-    /// is unchanged, only its shape. **Off by default** —
-    /// `PIXEL_PHYSICS_SWEEP=rows` turns them on; see [`row_spans_enabled`]
+    /// is unchanged, only its shape. **On by default since 2026-10-03** —
+    /// `PIXEL_PHYSICS_SWEEP=box` turns them off; see [`row_spans_enabled`]
     /// for the measurement and for why a strictly-tighter region is still a
     /// behaviour change here.
     ///
@@ -520,15 +520,45 @@ fn full_moist_cells() -> Option<Box<[u128; SPAN_ROWS]>> {
 }
 
 /// Whether the sweep uses the per-row spans or the old bounding box.
-/// `PIXEL_PHYSICS_SWEEP=rows` turns the spans on; anything else is the
-/// bounding box the engine has always used.
+/// **The spans are the default since 2026-10-03**; `PIXEL_PHYSICS_SWEEP=box`
+/// restores the bounding box.
+///
+/// # What changed on 2026-10-03, which supersedes the section after this one
+///
+/// **§E2 is explained, and neither half of it is a cell the spans lose.**
+/// Re-bisected on `main` 5c09e618 with `PIXEL_PHYSICS_RNG=positional` (the
+/// arms now first differ at frame 1,998, not 4,330) and read off a per-cell
+/// dump of both arms at the split:
+///
+/// - **A drop on a leaf drips on a clock** (`drip_through_organism`'s beat,
+///   `(frame + x) % 8`), and the sweep visits a cell only when something
+///   within its reach changed. The box spanned the drop by accident on its
+///   beat; the spans did not, so it stayed on the leaf. Fixed at the rule:
+///   a drop off its beat that has somewhere to go calls
+///   `CellSurface::keep_awake`, so it is visited on the beat under either
+///   rule -- which also fixes the same stranding in a chunk that has gone to
+///   sleep, where the box never saved it either.
+/// - **A write made after the sweep is swept one frame later.** With
+///   `CANOPY_DRIP=0` the next split (frame 2,564) is three water cells
+///   levelling in a cup of leaves: the box levels them on frame 2,564
+///   because a mark elsewhere in the chunk widened it over them, the spans
+///   on frame 2,565 once the write's own mark is promoted. A timing shift of
+///   one frame, not a lost cell.
+///
+/// With both explained, what is left is the per-chunk RNG stream shifting
+/// under a different visit set -- a behaviour change, so it was judged as
+/// one, on the lab bench (README `Per-row sweep spans on by default` and the
+/// commit carry the numbers). The cost side: on the played bed with the
+/// mister on, **every awake chunk holds water, so every chunk's `reach` is
+/// 24-32 and the box spans nearly the whole chunk for any two marks** --
+/// 13-27k cells a tick against 1-3k with the water frozen.
 ///
 /// **An A/B inside one binary**, the shape `CLAUDE.md` asks for whenever two
 /// arms have to be compared on a box that is not quiet: `crumb_rule`'s own
 /// reasoning, and the reason the `relax_region` night ended in a measurement
 /// rather than an argument.
 ///
-/// # Why this is off by default, which is the part to read before turning it on
+/// # Why this was off by default until 2026-10-03 (history)
 ///
 /// **These spans change the world, and not only through the RNG. That was
 /// measured 2026-09-05 and it is the opposite of what this comment used to
@@ -588,7 +618,7 @@ fn full_moist_cells() -> Option<Box<[u128; SPAN_ROWS]>> {
 /// per pass, never per cell.
 fn row_spans_enabled() -> bool {
     static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *ON.get_or_init(|| std::env::var("PIXEL_PHYSICS_SWEEP").as_deref() == Ok("rows"))
+    *ON.get_or_init(|| std::env::var("PIXEL_PHYSICS_SWEEP").as_deref() != Ok("box"))
 }
 
 /// One chunk's sweep, row by row.
@@ -819,6 +849,23 @@ impl Chunk {
         let x = x.clamp(-SPAN_MAX_WORLD, SPAN_MAX_WORLD) as i16;
         span.0 = span.0.min(x);
         span.1 = span.1.max(x);
+    }
+
+    /// **Ask the next sweep to visit `(x, y)` again, without a write.**
+    ///
+    /// For a cell that has work it is waiting to do on a later frame -- a
+    /// drop on a leaf waiting for its drip beat -- and would otherwise be
+    /// visited only if something near it happened to change on that frame.
+    /// Under the box rule that was usually true by accident, because the box
+    /// spans every mark in the chunk; under per-row spans it is not, and the
+    /// drop sat on the leaf. `Reports/open-bugs-handoff.md` §E2.
+    ///
+    /// Not field-relevant: nothing changed, so the field has nothing to
+    /// re-derive, and waking its block for a waiting drop would cost a field
+    /// solve per frame for no reason.
+    #[inline]
+    pub fn keep_awake(&mut self, x: i32, y: i32) {
+        self.mark_dirty_inner(x, y, false);
     }
 
     /// The furthest any material resident in this chunk can move sideways in

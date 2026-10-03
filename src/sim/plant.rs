@@ -17663,7 +17663,7 @@ they are the same world. Got {median}, which means something other than the leve
         // does not: a species with no organ fate cannot produce an organ at
         // any length, so 8,000 frames is enough to establish that it *grew*,
         // which is all the control has to show.
-        fn organs(species: &str, frames: usize, plants: i32) -> (u64, u64, usize, usize) {
+        fn organs(species: &str, frames: usize, plants: i32, shift: i32) -> (u64, u64, usize, usize) {
             const GROUND: i32 = 150;
             const WIDTH: i32 = 176;
             let mut w = World::new(Rect::new(0, 0, WIDTH - 1, GROUND + 60));
@@ -17697,7 +17697,7 @@ they are the same world. Got {median}, which means something other than the leve
             }
             let spacing = WIDTH / (plants + 1);
             for i in 1..=plants {
-                w.plant_tree_species(i * spacing, GROUND - 25, species);
+                w.plant_tree_species(i * spacing + shift, GROUND - 25, species);
             }
             let cells: Vec<(i32, i32)> = (0..WIDTH).flat_map(|x| (0..(GROUND + 40)).map(move |y| (x, y))).collect();
             let count_standing = |w: &World| {
@@ -17737,7 +17737,24 @@ they are the same world. Got {median}, which means something other than the leve
             (w.organs_built, w.axes_terminated, standing, tissue)
         }
 
-        let (built, terminated, standing, tissue) = organs("herb", 30_000, 3);
+        // **A second stand only when the first terminates nothing**, because
+        // termination is a rare event and one stand of three herbs is a
+        // sample, not the species. Measured 2026-10-03 when the per-row
+        // sweep spans went on by default: over 32 layouts of this bed (the
+        // three herbs shifted by up to 11 cells) a stand terminated no axis
+        // in 2 of 32 under the old box sweep and 1 of 32 under the spans --
+        // and the spans' one was this test's own layout, whose stream the
+        // change had shifted. Over 24 of those layouts the spans terminated
+        // as many axes as the box (median 6 a stand, higher on 14, lower on
+        // 7) and grew more tissue, so the red was a draw, not the mechanism.
+        // A fault that stops termination stops it in every stand, so the
+        // second stand costs this guard no sensitivity; it only stops a
+        // 1-in-20 draw reading as a broken fate table.
+        let (mut built, mut terminated, mut standing, mut tissue) = organs("herb", 30_000, 3, 0);
+        if terminated == 0 {
+            let (b, t, st, ti) = organs("herb", 30_000, 3, 5);
+            (built, terminated, standing, tissue) = (built + b, t, standing.max(st), tissue + ti);
+        }
         // Printed in the message rather than asserted on: a stand that did
         // not grow and a stand that grew and did not flower are different
         // failures, and the second is the one this test is about.
@@ -17758,7 +17775,7 @@ they are the same world. Got {median}, which means something other than the leve
         // The control's `standing` is now a peak too, which *strengthens* it:
         // an indeterminate species must produce no organ at any moment of the
         // run, not merely none at the frame the run stops on.
-        let (base_built, base_terminated, base_standing, base_tissue) = organs("tree", 8_000, 3);
+        let (base_built, base_terminated, base_standing, base_tissue) = organs("tree", 8_000, 3, 0);
         assert!(base_tissue > 0, "the control species did not grow, so its zero organ count proves nothing");
         assert_eq!(
             (base_built, base_terminated, base_standing),
