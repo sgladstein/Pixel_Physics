@@ -59,6 +59,10 @@ fn gang_reach() -> i32 {
 }
 /// Presence is sampled every this many frames.
 const PRESENCE_EVERY: u64 = 25;
+/// One kill's rally: frame, victim side, killer side, column, and the
+/// (victim, killer) adults near it at each of `RALLY_AT`.
+type Rally = (u64, u32, u32, i32, Vec<(u32, u32)>);
+
 /// Frames after a kill at which `RALLY` counts each side near it.
 const RALLY_AT: [u64; 4] = [0, 300, 1000, 2000];
 /// Columns either side of a kill that count as at the fight.
@@ -214,7 +218,7 @@ fn main() {
     // **Who came to the fight** (`RALLY` lines): for each kill, the adults of
     // each side within `RALLY_REACH` columns of it at the kill and at each of
     // `RALLY_AT` frames after. The question recruitment is meant to change.
-    let mut rally: Vec<(u64, u32, u32, i32, Vec<(u32, u32)>)> = Vec::new();
+    let mut rally: Vec<Rally> = Vec::new();
 
     for f in 0..=frames {
         if f > 0 {
