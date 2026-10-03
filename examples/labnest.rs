@@ -334,7 +334,14 @@ fn depth_profile(world: &World, x0: i32, x1: i32, y0: i32, y1: i32) -> Vec<(i32,
     out
 }
 
+// Runs on the rayon pool so each tick's parallel passes dispatch without a
+// cross-thread wake: ~16% of a lab run, byte-identical output. See
+// `pixel_physics::sim::parallel::on_pool`.
 fn main() {
+    pixel_physics::sim::parallel::harness_main(harness);
+}
+
+fn harness() {
     let frames: u64 = arg("frames").unwrap_or(9_000);
     let seeds: u64 = arg("seeds").unwrap_or(2);
     // **The isolating control for hypothesis 1.** Same bed, built a long way

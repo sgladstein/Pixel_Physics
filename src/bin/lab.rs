@@ -133,6 +133,9 @@ fn empty_bed() -> LabBox {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // `Lab::advance` runs its tick loop on the rayon pool (`parallel::on_pool`);
+    // give the pool the stack a main thread had.
+    pixel_physics::sim::parallel::init_pool_for_main();
     let event_loop = EventLoop::new()?;
     event_loop.set_control_flow(ControlFlow::Poll);
     let mut handler = Handler::new();

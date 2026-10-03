@@ -20876,9 +20876,11 @@ threshold {MIZ_THRESHOLD}  (+y is DOWN)");
     /// when the sky gets deeper is not a bound.
     #[test]
     fn the_turgor_gate_caps_height_independently_of_how_much_sky_there_is() {
-        let heights: Vec<i32> = [140, 220]
-            .iter()
-            .map(|&ground| {
+        // The two scenes run on their own threads: they share nothing, and
+        // serially this was 72 s of the debug CI job's lib suite, its
+        // longest test after the lab scenario guard (2026-10-03).
+        let heights: Vec<i32> = std::thread::scope(|scope| {
+            let runs: Vec<_> = [140, 220].iter().map(|&ground| scope.spawn(move || {
                 let scene = common_scene(ground);
                 let mut w = scene;
                 for _ in 0..30_000 {
@@ -20907,8 +20909,9 @@ threshold {MIZ_THRESHOLD}  (+y is DOWN)");
                     })
                     .unwrap_or(ground);
                 ground - top
-            })
-            .collect();
+            })).collect();
+            runs.into_iter().map(|h| h.join().unwrap_or_else(|p| std::panic::resume_unwind(p))).collect()
+        });
 
         // `tree.ron`'s own numbers give 0.9 / 0.0075 = 120 rows. Allow
         // slack for the tip that crosses the threshold mid-step and for
