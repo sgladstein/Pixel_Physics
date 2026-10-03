@@ -56,6 +56,9 @@ pub struct Ids {
     /// it, splitting the pellet out of `packedsoil` would have silently taken
     /// `packed_above` -- the mound column every lane reads -- to near zero.
     packed_any: Vec<MaterialId>,
+    /// Root tissue, for the `dug_roots` column: a root threading undug soil
+    /// is ordinary, one standing in a gallery is room the colony has lost.
+    root: Vec<MaterialId>,
 }
 
 impl Ids {
@@ -63,7 +66,9 @@ impl Ids {
         let ids = |names: &[&str]| names.iter().filter_map(|n| world.materials.id_of(n)).collect::<Vec<_>>();
         Ids {
             leaf: ids(&["leaf", "grassblade", "moss"]),
-            fruit: ids(&["fruit", "windfall"]),
+            // `provisions` is the FOOD brush's never-rotting windfall; it
+            // was painted as `windfall` until 2026-10-03 and counted here.
+            fruit: ids(&["fruit", "windfall", "provisions"]),
             litter: ids(&["litter", "deadleaf"]),
             seed: ids(&["seed", "pip"]),
             corpse: ids(&["corpse"]),
@@ -71,6 +76,7 @@ impl Ids {
             ground: ids(&["soil", "packedsoil", "spoil", "nest"]),
             packed: world.materials.id_of("packedsoil"),
             packed_any: ids(&["packedsoil", "spoil"]),
+            root: ids(&["grassroot", "rootwood", "reedroot"]),
         }
     }
 }
@@ -161,9 +167,62 @@ pub struct Sample {
     /// it: a corpse burnt to charcoal or half digested can fall under the
     /// edible threshold and still be lying on the ground.
     pub corpses: usize,
+    /// **Every cell an ant dug below the original surface, and what stands
+    /// in it now** -- [`World::dug_cells`], filtered to `y >= surface`. The
+    /// seven `dug_*` columns after it partition it exactly
+    /// ([`Sample::dug_accounted`]).
+    ///
+    /// **Built for the question the room column cannot answer: where did
+    /// the nest go?** In the owner's playtest of 2026-10-03 the roofed room
+    /// peaked at 397 cells and fell to 311 while the colony went on digging
+    /// (`/mnt/project-files/playtest-2026-10-03/findings.md`). `roofed`
+    /// counts empty cells, so a gallery a root has grown into, or water has
+    /// pooled in, or spoil has been dropped back into, simply stops being
+    /// counted, and nothing said which. Read off the grid alone the
+    /// question is unanswerable: soil's `penetration_resistance` (0.8) is
+    /// under every shipped root's force, so most roots below ground are in
+    /// undug soil and belong there.
+    pub dug: usize,
+    /// ...still open: materially `EMPTY`.
+    pub dug_open: usize,
+    /// ...with an animal standing in it -- still room, as `roofed_bodies`.
+    pub dug_bodies: usize,
+    /// ...grown shut by root tissue (`grassroot`, `rootwood`, `reedroot`),
+    /// which an ant's jaw (dig force 1.0) cannot cut against a root's
+    /// default `penetration_resistance` of 100.
+    pub dug_roots: usize,
+    /// ...holding other plant tissue: a shoot, a buried seed.
+    pub dug_plant: usize,
+    /// ...standing full of water -- the lid's drip, pooled.
+    pub dug_water: usize,
+    /// ...filled back with the bed's own ground: spoil dropped back, a
+    /// wall slumped in, soil that ran down a shaft.
+    pub dug_soil: usize,
+    /// ...anything else: food, litter, a corpse, brood.
+    pub dug_other: usize,
+    /// **Empty cells counted in `roofed` or `pit` that no ant dug** -- the
+    /// half of the room column the dug record does not explain.
+    ///
+    /// **Measured 2026-10-03 on the played bed it is most of it**: at
+    /// 270,000 frames, 4 seeds, 157-662 empty cells stand below the surface
+    /// against 6-217 dug cells still open. Two sources are known and not yet
+    /// separated: a void *migrates* -- soil slumping into a dug cell (booked
+    /// as `dug_soil`) leaves the cell it came from empty, which is the
+    /// footprint test's own finding (`creature::the_founding_shaft_stands`)
+    /// -- and root tissue that dies out of the soil leaves its cells
+    /// behind empty. So `dug_soil` overstates the room lost and this
+    /// overstates the room gained, by the same migrated cells.
+    pub void_undug: usize,
 }
 
 impl Sample {
+    /// The seven `dug_*` fates summed -- equal to [`Sample::dug`] by
+    /// construction, and a test holds it there, so a new material that
+    /// falls through every arm shows up as a gap rather than vanishing.
+    pub fn dug_accounted(&self) -> usize {
+        self.dug_open + self.dug_bodies + self.dug_roots + self.dug_plant + self.dug_water + self.dug_soil + self.dug_other
+    }
+
     /// **The size of the nest: room whether or not somebody is standing in
     /// it.** This, not [`Sample::roofed`], is what a question about how much
     /// a colony has dug should read.
@@ -315,6 +374,9 @@ pub fn census(world: &World, spec: &LabBox, gut: f32, nest_cols: &[i32], ids: &I
                 } else {
                     s.pit += 1;
                 }
+                if !world.dug_cells.contains(&(x, y)) {
+                    s.void_undug += 1;
+                }
             // **A gallery with an ant in it is still a gallery.** The arm
             // above counts materially EMPTY cells only, so every occupied
             // cell of the nest fell through this chain and was counted as
@@ -372,6 +434,35 @@ pub fn census(world: &World, spec: &LabBox, gut: f32, nest_cols: &[i32], ids: &I
             } else {
                 s.other_j += j;
             }
+        }
+    }
+    // **What became of the dug ground** -- see `Sample::dug`. Its own pass
+    // over the record rather than a test inside the grid walk above: the
+    // set is a few thousand cells against the whole bed, and a membership
+    // test per cell of the bed would cost more than the walk it rides on.
+    for &(x, y) in &world.dug_cells {
+        if !xs.contains(&x) || !ys.contains(&y) || y < surface_of(world, spec, x) {
+            continue;
+        }
+        s.dug += 1;
+        let cell = world.get(x, y);
+        let kind = world.materials.kind(cell.material);
+        // The raw material test, not `is_empty`: a promoted liquid body's
+        // container cells read not-empty there (`.claude/rules/src-sim-cells.md`).
+        if cell.material == material::EMPTY {
+            s.dug_open += 1;
+        } else if kind == MaterialKind::Creature {
+            s.dug_bodies += 1;
+        } else if ids.root.contains(&cell.material) {
+            s.dug_roots += 1;
+        } else if kind == MaterialKind::Plant || (cell.organism_id() != 0 && world.organism(cell.organism_id()).is_some_and(|st| world.species.get(st.species).creature.is_none())) {
+            s.dug_plant += 1;
+        } else if kind == MaterialKind::Liquid {
+            s.dug_water += 1;
+        } else if ids.ground.contains(&cell.material) {
+            s.dug_soil += 1;
+        } else {
+            s.dug_other += 1;
         }
     }
     // **Bare on the mound's own surface**, walked as its own pass because it
@@ -440,18 +531,57 @@ pub fn census(world: &World, spec: &LabBox, gut: f32, nest_cols: &[i32], ids: &I
     s
 }
 
-/// The gut bias of the first ant `census` would find -- founder or
-/// timeline-delivered, `live_organism_ids`'s own order. `diet_yield` needs a
-/// gut to price a cell against, and every ant so far seen on the bed shares
-/// one species' trait, so any live ant answers it.
+/// **The mean gut bias over every living animal** -- what `census` prices
+/// the larder at (`diet_yield` needs a gut to price a cell against). 0.0 on a
+/// bed with no animal alive, as before.
+///
+/// **It was the first live animal's gut, and that stopped being one number.**
+/// The doc used to say *every ant so far seen on the bed shares one species'
+/// trait, so any live ant answers it* -- true until heredity let the gut
+/// drift. The 10-03 playtest (`chronicle-herb_ant-s1.txt`, spec F23) had its
+/// `worth(J)`/`leafJ` columns **triple at frame 220,000 from a change of
+/// ant, not of food**: the first slot in `live_organism_ids` died, the next
+/// one carried a drifted gut, and the whole bed was repriced. A mean moves
+/// only as fast as the population does, so a step in those columns is now a
+/// step in the larder. The gut used is printed on each row's addendum line
+/// (`row_addendum`) so a reader can still tell the two apart.
+///
+/// Every animal species, not only the colony's, the way the first-found rule
+/// it replaces was: a bed with predators averages them in. Name kept, so
+/// `examples/latecensus.rs` and `examples/chronicle.rs` move to the mean with
+/// no edit (their `worth` columns change on any bed whose guts have drifted;
+/// `examples/labforage.rs` keeps a private first-found copy and does not).
 pub fn ant_gut_bias(world: &World) -> f32 {
+    let (mut sum, mut n) = (0.0f64, 0u32);
+    for s in world.live_organism_ids().iter().filter_map(|id| world.organism(*id)) {
+        if world.species.get(s.species).creature.is_some() {
+            sum += f64::from(s.traits[TRAIT_GUT_BIAS]);
+            n += 1;
+        }
+    }
+    if n == 0 {
+        0.0
+    } else {
+        (sum / f64::from(n)) as f32
+    }
+}
+
+/// **Kills of a colony-species animal by its own colony**, read off
+/// `World::group_deaths` -- the `killed_by` entries whose attacker species and
+/// colony equal the victim group's own. A pure read of what the bite already
+/// tallies, not a second counter (`creature.rs`'s test helper
+/// `own_colony_kills` is the same sum over every species).
+///
+/// Spec D16/E19: the 10-03 findings had to read *"Ant 4 lost 14 of 33 to
+/// killed by Ant 4"* off the LEGENDS prose, and the row's `killd` cannot say
+/// whether a colony is at war or eating itself.
+pub fn own_colony_kills(world: &World, species: &str) -> u64 {
     world
-        .live_organism_ids()
+        .group_deaths
         .iter()
-        .filter_map(|id| world.organism(*id))
-        .find(|s| world.species.get(s.species).creature.is_some())
-        .map(|s| s.traits[TRAIT_GUT_BIAS])
-        .unwrap_or(0.0)
+        .filter(|g| world.species.get(g.species).name == species)
+        .map(|g| g.killed_by.iter().filter(|(sp, col, _)| *sp == g.species && *col == g.colony).map(|(_, _, n)| *n).sum::<u64>())
+        .sum()
 }
 
 /// The colony species' deaths by cause, colonies rolled up.
@@ -618,9 +748,49 @@ pub struct ChronicleRow {
     /// How the box was keeping up at the moment of the sample. `None` for a
     /// harness with no dial at all -- see [`PerfSample`]'s own doc.
     pub perf: Option<PerfSample>,
+    /// The gut bias the larder columns were priced at -- the `gut` argument
+    /// `take_chronicle_row` was handed, which is `ant_gut_bias`'s population
+    /// mean in both callers. Printed on the addendum line.
+    pub gut: f32,
+    /// Colony-species deaths of old age -- `colony_deaths`'s third value.
+    /// **`other_deaths` still includes these**, so the `othr` column reads the
+    /// same as in every chronicle landed before this field; `oldag` in the
+    /// counters group is the split.
+    pub oldage_deaths: u64,
+    /// `own_colony_kills` for the colony species: how many of `killed` were
+    /// killed by their own colony.
+    pub kills_own_colony: u64,
+    /// **The dig funnel and the nest, cumulative, straight off
+    /// `CreatureStats`** (spec D16/D18): `dig_rolls` (the urge fired),
+    /// `digs_aimed_down` (the roll turned downward), `digs_down_refused` (no
+    /// way down: all three cells under the animal uncuttable),
+    /// `digs_refused_roof` (the cut lay in a nest's roof), and
+    /// `at_nest_ticks` (creature ticks taken standing at a nest). `digs` alone
+    /// cannot split *why not more digging* into "no roll", "vetoed" and "no
+    /// jaw"; these and `digs` beside them can. See each field's own doc on
+    /// `CreatureStats` for exactly what it counts.
+    pub dig_rolls: u64,
+    pub digs_aimed_down: u64,
+    pub digs_down_refused: u64,
+    pub digs_refused_roof: u64,
+    pub at_nest_ticks: u64,
+    /// **The seed-rides-home loop, cumulative, off `World`** (spec F24):
+    /// passengers loaded (`seeds_carried`), set down on wet ground
+    /// (`pips_set_on_soil`) or left on dry nest ground (`pips_set_on_nest`),
+    /// and lost with nowhere to go (`seeds_lost_no_room`). The loop the owner
+    /// watched in the 10-03 session and the file could not confirm.
+    pub seeds_carried: u64,
+    pub pips_set_on_soil: u64,
+    pub pips_set_on_nest: u64,
+    pub seeds_lost_no_room: u64,
     /// **Where the tick actually went, since the previous row** -- the eight
     /// phases `sim::frame::step` orders, drained from its stopwatch. `None`
-    /// unless `PIXEL_PHYSICS_PHASE_CLOCK=1`, which is the default.
+    /// when the clock is off: **on by default in the lab's own binary**
+    /// (`frame::phase_clock_default_on`, unless `PIXEL_PHYSICS_PHASE_CLOCK=0`)
+    /// and **off by default everywhere else** -- every harness, including
+    /// `examples/chronicle.rs`, unless `PIXEL_PHYSICS_PHASE_CLOCK=1`. This
+    /// doc used to call `=1` "the default", which it never was until the lab
+    /// made it so.
     ///
     /// This column group is the answer to the one question the owner's own
     /// session log could not ask. `Reports/evolution-lab-playtest-2026-09-13.md`
@@ -657,6 +827,8 @@ pub fn take_chronicle_row(
     // The chronicle's row has no old-age column of its own yet, so an age
     // death lands in `other_deaths` here rather than being dropped.
     let (starved, killed, oldage, other) = colony_deaths(world, colony_species);
+    // `othr` keeps old age in it, as it always has; `oldage_deaths` below is
+    // the split, printed in its own column at the end of the line.
     let other_deaths = other + oldage;
     let wall_clock_secs =
         std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
@@ -683,6 +855,18 @@ pub fn take_chronicle_row(
         awake_chunks: world.active_chunk_count(),
         active_sites: world.active_site_count(),
         perf,
+        gut,
+        oldage_deaths: oldage,
+        kills_own_colony: own_colony_kills(world, colony_species),
+        dig_rolls: st.dig_rolls,
+        digs_aimed_down: st.digs_aimed_down,
+        digs_down_refused: st.digs_down_refused,
+        digs_refused_roof: st.digs_refused_roof,
+        at_nest_ticks: st.at_nest_ticks,
+        seeds_carried: world.seeds_carried,
+        pips_set_on_soil: world.pips_set_on_soil,
+        pips_set_on_nest: world.pips_set_on_nest,
+        seeds_lost_no_room: world.seeds_lost_no_room,
         // **Drained here, unconditionally, and that is safe because the
         // accumulator is empty when the clock is off.** Draining rather than
         // reading is what makes each row the window since the previous one;
@@ -715,7 +899,59 @@ pub fn header_line() -> String {
         "roofed", "pit", "pack<", "pack^", "mnd", "bare", "band", "bare", "out", "pcIn", "pcOut",
         "wall", "awake", "sites",
         "ach/f", "req/f", "x", "dispHz", "debt", "skip"
-    ) + &phase_header_group()
+    ) + &counter_header_group()
+        + &phase_header_group()
+}
+
+/// **The counters group, appended after the perf group and before the
+/// stopwatch's** (spec D16, D18, E19, F24): the dig funnel, the nest, the
+/// seed loop, and the two death splits the row used to fold away.
+///
+/// Its own function and its own `|`-group for [`phase_header_group`]'s
+/// reason: appended, it cannot move a column `examples/latecensus.rs` shares,
+/// and that file is untouched. Before the stopwatch rather than after it so
+/// the stopwatch stays the line's last group -- the one a reader lops off, and
+/// the one `no_time_control_gives_dashes_not_zeros` used to read as "last".
+///
+/// | column | field |
+/// |---|---|
+/// | `dRoll` | `dig_rolls` |
+/// | `dDown` | `digs_aimed_down` |
+/// | `dDnX` | `digs_down_refused` |
+/// | `dRfX` | `digs_refused_roof` |
+/// | `atNest` | `at_nest_ticks` |
+/// | `sCarr` | `seeds_carried` |
+/// | `pipS` | `pips_set_on_soil` |
+/// | `pipN` | `pips_set_on_nest` |
+/// | `sLost` | `seeds_lost_no_room` |
+/// | `ownK` | `kills_own_colony` (of `killd`) |
+/// | `oldag` | `oldage_deaths` (of `othr`) |
+///
+/// Every one cumulative over the run, like `born`/`eats`/`digs`: a window is
+/// the difference of two rows.
+fn counter_header_group() -> String {
+    format!(
+        " | {:>7} {:>6} {:>5} {:>5} {:>8} {:>5} {:>5} {:>5} {:>5} {:>5} {:>5}",
+        "dRoll", "dDown", "dDnX", "dRfX", "atNest", "sCarr", "pipS", "pipN", "sLost", "ownK", "oldag"
+    )
+}
+
+/// The counters group's data, matching [`counter_header_group`].
+fn counter_row_group(row: &ChronicleRow) -> String {
+    format!(
+        " | {:>7} {:>6} {:>5} {:>5} {:>8} {:>5} {:>5} {:>5} {:>5} {:>5} {:>5}",
+        row.dig_rolls,
+        row.digs_aimed_down,
+        row.digs_down_refused,
+        row.digs_refused_roof,
+        row.at_nest_ticks,
+        row.seeds_carried,
+        row.pips_set_on_soil,
+        row.pips_set_on_nest,
+        row.seeds_lost_no_room,
+        row.kills_own_colony,
+        row.oldage_deaths
+    )
 }
 
 /// The stopwatch's own column group, appended to [`header_line`].
@@ -769,7 +1005,8 @@ pub fn row_line(row: &ChronicleRow) -> String {
         s.bare_in_band, s.band_cols, s.bare_outside, s.outside_cols, s.plant_cells_in_band, s.plant_cells_outside,
         row.wall_clock_secs, row.awake_chunks, row.active_sites,
         achf, reqf, mult, disp, debt, skip
-    ) + &phase_row_group(row.phases.as_ref())
+    ) + &counter_row_group(row)
+        + &phase_row_group(row.phases.as_ref())
 }
 
 /// The stopwatch's data columns, matching [`phase_header_group`].
@@ -816,7 +1053,32 @@ pub fn row_addendum(row: &ChronicleRow) -> String {
         pct(s.bare_in_band, s.band_cols), s.bare_in_band, s.band_cols,
         pct(s.bare_outside, s.outside_cols), s.bare_outside, s.outside_cols,
         s.packed_above, s.mound_high
-    ) + &phase_addendum(row)
+    ) + &gut_addendum(row)
+        + &dug_addendum(s)
+        + &phase_addendum(row)
+}
+
+/// **The gut the larder was priced at**, appended to the addendum's first
+/// line -- spec F23. `worth(J)` and the per-kind joule columns are a price at
+/// one gut, and since `ant_gut_bias` became a population mean that gut drifts
+/// with heredity; printed, a step in the columns can be checked against a
+/// step in the gut before anyone reads it as a change in the food.
+fn gut_addendum(row: &ChronicleRow) -> String {
+    format!(" | larder priced at gut {:+.3} (mean over living animals)", row.gut)
+}
+
+/// **What became of the ground the colony dug**, as one more clause on the
+/// addendum line -- [`Sample::dug`]'s partition, in words. Nothing at all
+/// when nothing has been dug, so a plant-only box's chronicle reads as it
+/// always did.
+fn dug_addendum(s: &Sample) -> String {
+    if s.dug == 0 {
+        return String::new();
+    }
+    format!(
+        " | dug below ground: {} cells -- open {}, ants in it {}, roots {}, other plant {}, water {}, soil back {}, other {} | empty below ground nobody dug: {}",
+        s.dug, s.dug_open, s.dug_bodies, s.dug_roots, s.dug_plant, s.dug_water, s.dug_soil, s.dug_other, s.void_undug
+    )
 }
 
 /// **The phase split as shares, in words, ranked** -- a second line under the
@@ -888,6 +1150,96 @@ pub fn chronicle_section(rows: &[ChronicleRow]) -> String {
     out
 }
 
+/// **The `.census.csv` sidecar's text** (spec H30): one header line and one
+/// line per row, every `ChronicleRow` field -- every `Sample` field, every
+/// counter, the gut, the six perf fields and the eight phases (as mean ms per
+/// tick, plus `phase_ticks`). Written beside the chronicle by
+/// `Lab::write_chronicle`, same stem, same moment.
+///
+/// Why a sidecar at all: the 10-03 analysis needed `parse_chronicle.py` to
+/// get the CENSUS table back out of fixed-width text, and fixed widths
+/// truncate. This is the same rows with nothing lost to a column.
+///
+/// **The `Sample` columns are read off its `Debug` output, not listed by
+/// hand.** `Sample` is a flat struct of numbers, so its derived `Debug` is
+/// `Sample { name: value, .. }` and splits cleanly; a field added to it (the
+/// nest lane's room columns are on their way) reaches this file with no edit
+/// here, which a hand list would silently miss. Empty cells where the text
+/// prints `--`.
+pub fn census_csv(rows: &[ChronicleRow]) -> String {
+    use std::fmt::Write as _;
+    let mut out = String::new();
+    let sample_names: Vec<String> = debug_fields(&format!("{:?}", Sample::default())).into_iter().map(|(k, _)| k).collect();
+    let mut head: Vec<String> = ["frame", "wall_clock_secs"].iter().map(|s| s.to_string()).collect();
+    head.extend(sample_names.iter().cloned());
+    head.extend(
+        [
+            "births", "deaths", "starved", "killed", "other_deaths", "oldage_deaths", "kills_own_colony", "eats", "digs", "deliveries",
+            "dig_rolls", "digs_aimed_down", "digs_down_refused", "digs_refused_roof", "at_nest_ticks", "seeds_carried",
+            "pips_set_on_soil", "pips_set_on_nest", "seeds_lost_no_room", "gut", "awake_chunks", "active_sites",
+            "ticks_per_frame", "requested_ticks_per_frame", "speed_multiple", "display_hz", "debt_ticks", "draws_skipped",
+            "phase_ticks",
+        ]
+        .iter()
+        .map(|s| s.to_string()),
+    );
+    head.extend(crate::sim::frame::PHASE_NAMES.iter().map(|n| format!("{n}_ms")));
+    let _ = writeln!(out, "{}", head.join(","));
+    for row in rows {
+        let mut v: Vec<String> = vec![row.frame.to_string(), row.wall_clock_secs.to_string()];
+        v.extend(debug_fields(&format!("{:?}", row.sample)).into_iter().map(|(_, val)| val));
+        v.extend(
+            [
+                row.births, row.deaths, row.starved, row.killed, row.other_deaths, row.oldage_deaths, row.kills_own_colony, row.eats,
+                row.digs, row.deliveries, row.dig_rolls, row.digs_aimed_down, row.digs_down_refused, row.digs_refused_roof,
+                row.at_nest_ticks, row.seeds_carried, row.pips_set_on_soil, row.pips_set_on_nest, row.seeds_lost_no_room,
+            ]
+            .iter()
+            .map(|n| n.to_string()),
+        );
+        v.push(format!("{:.4}", row.gut));
+        v.push(row.awake_chunks.to_string());
+        v.push(row.active_sites.to_string());
+        match &row.perf {
+            Some(p) => v.extend(
+                [
+                    u64::from(p.ticks_per_frame),
+                    u64::from(p.requested_ticks_per_frame),
+                    u64::from(p.speed_multiple),
+                    u64::from(p.display_hz),
+                    u64::from(p.debt_ticks),
+                    p.draws_skipped,
+                ]
+                .iter()
+                .map(|n| n.to_string()),
+            ),
+            None => v.extend(std::iter::repeat_n(String::new(), 6)),
+        }
+        match row.phases.filter(|p| p.ticks > 0) {
+            Some(p) => {
+                v.push(p.ticks.to_string());
+                v.extend((0..crate::sim::frame::PHASE_NAMES.len()).map(|i| format!("{:.4}", p.mean_ms(i))));
+            }
+            None => v.extend(std::iter::repeat_n(String::new(), 1 + crate::sim::frame::PHASE_NAMES.len())),
+        }
+        let _ = writeln!(out, "{}", v.join(","));
+    }
+    out
+}
+
+/// `Name { a: 1, b: 2.5 }` -> `[("a", "1"), ("b", "2.5")]`. Only for a flat
+/// struct of numbers ([`census_csv`]'s `Sample`): a nested struct, a string
+/// or a collection would split wrongly, which `census_csv_has_every_column`
+/// checks by counting.
+fn debug_fields(debug: &str) -> Vec<(String, String)> {
+    let inner = debug.split_once('{').map(|(_, r)| r).unwrap_or("").trim_end().trim_end_matches('}');
+    inner
+        .split(',')
+        .filter_map(|kv| kv.split_once(':'))
+        .map(|(k, v)| (k.trim().to_string(), v.trim().to_string()))
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -899,6 +1251,91 @@ mod tests {
     /// `take_chronicle_row` without a scenario or a colony.
     fn tiny_world() -> World {
         LabBox { founders: 0, colonies: 0, width: 128, height: 96, ..LabBox::default() }.build()
+    }
+
+    /// **`ant_gut_bias` is the mean over living animals, not the first one
+    /// found.** A founded colony with its guts set by hand to alternate two
+    /// values: the first-found rule would return whichever the first slot
+    /// held, the mean is the hand-computed average of all of them.
+    /// Sensitivity: the two values differ, so the first-found rule this
+    /// replaced fails the `assert` (put it back to watch it go red), and a
+    /// colony of one would not have been a test at all -- hence the count
+    /// check.
+    #[test]
+    fn gut_bias_is_the_population_mean() {
+        let spec = LabBox { founders: 0, colonies: 0, ..LabBox::default() };
+        let mut world = spec.build();
+        // Through the `COLONY` tool's own call, which puts live animals down
+        // at once -- the lab's own verb test founds one exactly this way.
+        let placed = world.found_colony_of(spec.width / 2, spec.ground_y, "ant", 8);
+        assert!(placed > 0, "found_colony_of placed nobody");
+        let animals: Vec<_> = world
+            .live_organism_ids()
+            .into_iter()
+            .filter(|id| world.organism(*id).is_some_and(|s| world.species.get(s.species).creature.is_some()))
+            .collect();
+        assert!(animals.len() >= 3, "the colony founded {} animals; the mean needs several", animals.len());
+        let mut sum = 0.0f64;
+        for (i, id) in animals.iter().enumerate() {
+            let g = if i % 2 == 0 { 0.8f32 } else { -0.4f32 };
+            world.organism_mut(*id).expect("live").traits[TRAIT_GUT_BIAS] = g;
+            sum += f64::from(g);
+        }
+        let want = (sum / animals.len() as f64) as f32;
+        let got = ant_gut_bias(&world);
+        assert!((got - want).abs() < 1e-5, "gut {got} is not the mean {want} -- first slot alone would read 0.8");
+        assert!((got - 0.8).abs() > 0.05, "the test cannot tell the mean from the first slot");
+        assert_eq!(ant_gut_bias(&tiny_world()), 0.0, "no animal alive must price at 0.0 as before");
+    }
+
+    /// **`own_colony_kills` counts only kills by the victim's own colony.**
+    /// Two `killed_by` entries on one ant group -- 5 by its own colony, 7 by
+    /// another -- and one entry on a group of a different species name: only
+    /// the 5 is the answer. Provable red by dropping either half of the
+    /// species+colony match.
+    #[test]
+    fn own_colony_kills_reads_only_the_victims_own_colony() {
+        let mut world = tiny_world();
+        let ant = world.species.id_of("ant").expect("the lab ships an ant");
+        let mut g = crate::sim::world::GroupDeaths { species: ant, colony: 3, by_cause: [0; organism::DEATH_CAUSES], killed_by: vec![(ant, 3, 5), (ant, 4, 7)] };
+        world.group_deaths.push(g.clone());
+        assert_eq!(own_colony_kills(&world, "ant"), 5);
+        assert_eq!(own_colony_kills(&world, "no_such_species"), 0);
+        g.colony = 4; // colony 4's own kill of colony 4 -- now (ant, 4, 7) is own
+        world.group_deaths.push(g);
+        assert_eq!(own_colony_kills(&world, "ant"), 12);
+    }
+
+    /// **Every census column reaches the `.census.csv` sidecar, and the
+    /// header and each row have the same number of cells.** The `Sample`
+    /// half is read off its `Debug`, so this counts it against `Sample`'s
+    /// own `Debug` and names a few fields that must be there -- a split that
+    /// went wrong (a nested struct, a comma in a value) shows as a count
+    /// mismatch. Also checks the counters group and the addendum's gut reach
+    /// the text.
+    #[test]
+    fn census_csv_has_every_column() {
+        let world = tiny_world();
+        let ids = Ids::resolve(&world);
+        let mut row = take_chronicle_row(&world, &LabBox::default(), 0.25, &[], &ids, "ant", None);
+        row.dig_rolls = 4321;
+        row.kills_own_colony = 17;
+        let csv = census_csv(&[row, row]);
+        let lines: Vec<&str> = csv.lines().collect();
+        assert_eq!(lines.len(), 3, "a header and two rows");
+        let head: Vec<&str> = lines[0].split(',').collect();
+        for l in &lines[1..] {
+            assert_eq!(l.split(',').count(), head.len(), "row and header disagree on width: {l}");
+        }
+        let n_sample = format!("{:?}", Sample::default()).matches(": ").count();
+        assert_eq!(debug_fields(&format!("{:?}", Sample::default())).len(), n_sample);
+        for name in ["frame", "ants", "roofed_bodies", "corpses", "dig_rolls", "kills_own_colony", "gut", "draws_skipped", "ca_sweep_ms"] {
+            assert!(head.contains(&name), "the sidecar has no {name} column: {}", lines[0]);
+        }
+        let at = head.iter().position(|h| *h == "dig_rolls").expect("dig_rolls column");
+        assert_eq!(lines[1].split(',').nth(at), Some("4321"));
+        assert!(row_line(&row).contains("4321"), "the counters group did not reach the text row");
+        assert!(row_addendum(&row).contains("gut +0.250"), "the addendum does not name the gut: {}", row_addendum(&row));
     }
 
     /// **`time: None` produces `perf: None`, and `row_line` prints `--` for
@@ -913,13 +1350,23 @@ mod tests {
         let ids = Ids::resolve(&world);
         let row = take_chronicle_row(&world, &LabBox::default(), 0.0, &[], &ids, "ant", None);
         assert!(row.perf.is_none(), "no TimeControl was given; perf must be None");
-        // The last `|`-group is exactly the six perf columns (`header_line`'s
-        // own layout: `... | wall awake sites | ach/f req/f x dispHz debt
-        // skip`) -- checked in isolation so a real, non-zero wall-clock
-        // timestamp or chunk count earlier in the line cannot hide a `0`
-        // that should have been a dash.
+        // The `|`-group headed `ach/f req/f x dispHz debt skip` is exactly
+        // the six perf columns -- checked in isolation so a real, non-zero
+        // wall-clock timestamp or chunk count elsewhere in the line cannot
+        // hide a `0` that should have been a dash.
+        //
+        // **Found by its header, not as "the last group".** This used to
+        // take `rsplit('|').next()`, which stopped being the perf group the
+        // day the stopwatch's group was appended after it -- and the
+        // stopwatch's group prints `--` throughout whenever the clock is off
+        // (every test process), so the assertion kept passing while reading
+        // the wrong eight columns. Caught 2026-10-03 adding the counters
+        // group; put the fault back (`p.unwrap_or_default()`) and this now
+        // goes red, which the old form did not.
         let line = row_line(&row);
-        let perf_columns = line.rsplit('|').next().expect("row_line always has at least one `|`");
+        let perf_at = header_line().split('|').position(|g| g.contains("ach/f")).expect("the header names its perf group");
+        let perf_columns = line.split('|').nth(perf_at).expect("row_line has as many groups as header_line");
+        assert_eq!(perf_columns.split_whitespace().count(), 6, "the perf group is six columns, got {perf_columns:?}");
         assert!(
             perf_columns.split_whitespace().all(|field| field == "--"),
             "expected every perf column to read '--' with no TimeControl, got: {perf_columns:?}"
@@ -1062,6 +1509,71 @@ mod tests {
         let vacated = at(&world, &spec, &ids);
         assert_eq!(vacated.roofed_bodies, 0, "the bodies column is still reporting ants that have gone");
         assert_eq!(vacated.roofed, 9, "and the empty count came back");
+    }
+
+    /// **A root in a gallery is counted; the same root in undug soil is
+    /// not** -- the split `Sample::dug` exists to make, and the one the grid
+    /// alone cannot, since roots thread soil freely.
+    ///
+    /// The positive control is a row of eight dug cells holding one of each
+    /// fate by hand. The negative half puts root tissue and water in cells
+    /// nobody dug, and one dug cell above the surface (a cut into a mound),
+    /// and none of them may move a column.
+    #[test]
+    fn what_fills_dug_ground_is_counted_and_undug_ground_is_not() {
+        let (mut world, spec, ids) = bare_bed();
+        let id = |w: &World, n: &str| w.materials.id_of(n).unwrap_or_else(|| panic!("{n} is compiled in"));
+        let (root, water, ant, spoil, litter) =
+            (id(&world, "grassroot"), id(&world, "water"), id(&world, "ant"), id(&world, "spoil"), id(&world, "litter"));
+        assert_eq!(world.materials.kind(water), MaterialKind::Liquid, "this guard's water must be a liquid");
+        let none = at(&world, &spec, &ids);
+        assert_eq!((none.dug, none.dug_accounted()), (0, 0), "a bed nobody has dug has no dug ground");
+
+        let (cx, cy) = (spec.width / 2, spec.ground_y + 10);
+        let fates = [
+            Cell::EMPTY,
+            Cell::EMPTY,
+            Cell::new(ant, 0),
+            Cell::new(root, 0),
+            Cell::new(root, 0),
+            Cell::new(water, 0),
+            Cell::new(spoil, 0),
+            Cell::new(litter, 0),
+        ];
+        for (i, c) in fates.iter().enumerate() {
+            world.set(cx + i as i32, cy, *c);
+            world.dug_cells.insert((cx + i as i32, cy));
+        }
+        let s = at(&world, &spec, &ids);
+        assert_eq!(s.dug, 8, "eight cells were dug below the surface");
+        assert_eq!(
+            (s.dug_open, s.dug_bodies, s.dug_roots, s.dug_plant, s.dug_water, s.dug_soil, s.dug_other),
+            (2, 1, 2, 0, 1, 1, 1),
+            "each fate lands in its own column: open, ant, root x2, water, spoil back, litter"
+        );
+        assert_eq!(s.dug_accounted(), s.dug, "the fates partition the dug ground exactly");
+        assert_eq!(s.void_undug, 0, "every empty cell below ground here was dug");
+
+        // The negative half. Root tissue and water in ground nobody dug, a
+        // row further down; and a dug cell above the surface, which is a
+        // cut into a heap rather than into the bed.
+        world.set(cx, cy + 3, Cell::new(root, 0));
+        world.set(cx + 1, cy + 3, Cell::new(water, 0));
+        let above = (cx + 20, spec.ground_y - 3);
+        world.dug_cells.insert(above);
+        let t = at(&world, &spec, &ids);
+        assert_eq!(
+            (t.dug, t.dug_roots, t.dug_water),
+            (s.dug, s.dug_roots, s.dug_water),
+            "a root or a pool in undug ground, or a cut above the surface, is not dug ground filling"
+        );
+        assert_eq!(t.void_undug, 0, "none of those is an empty cell");
+        // A hole nobody dug -- a dead root's, or one a slump moved up.
+        world.set(cx + 4, cy + 5, Cell::EMPTY);
+        let u = at(&world, &spec, &ids);
+        assert_eq!((u.void_undug, u.dug), (1, t.dug), "an empty cell nobody dug is room the dug record does not explain");
+        assert!(dug_addendum(&t).contains("roots 2"), "the chronicle line names the roots: {}", dug_addendum(&t));
+        assert_eq!(dug_addendum(&none), "", "an undug box's chronicle line is unchanged");
     }
 
     /// **An ant standing in an open pit is not in a chamber**, which is the

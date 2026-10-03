@@ -69,7 +69,7 @@ use super::pheromone::{self, Channel};
 use super::plant;
 use super::rng;
 use super::scheduler::{ActiveKind, ActiveSite};
-use super::world::{Account, World};
+use super::world::{Account, KillDetail, World, KILL_VERB_BITE, KILL_VERB_EAT};
 
 /// Index 0 = east, then counterclockwise on screen (y grows downward, so
 /// `(1, -1)` is up-and-right). **The one heading table** — see
@@ -6218,6 +6218,9 @@ impl World {
         if cut.is_empty() {
             return 0;
         }
+        // The founders' cut is dug ground too (`World::dug_cells`) -- it is
+        // where the lid's drip pools, and the census should see it fill.
+        self.dug_cells.extend(cut.iter().copied());
         // **Recorded on the site it was cut under**, because after the cut
         // nothing can re-derive it: `colony_surface` in a shaft column now
         // finds the chamber floor. The site was registered by
@@ -10158,6 +10161,24 @@ pub(super) fn gut_of(world: &World, organism: OrganismId, def: &CreatureDef) -> 
     }
 }
 
+/// **One party to a killing, as the kin test saw it**: expressed scent and
+/// tolerance radius -- the two numbers `is_living_kin_id` compares. Read for
+/// the victim *before* the bite lands, because the deciding cell takes the
+/// slot with it. Zero for an id with no live state.
+fn kill_side(world: &World, id: OrganismId) -> ([f32; 3], f32) {
+    world.organism(id).map_or(([0.0; 3], 0.0), |s| {
+        let t = expressed_traits(s, world.plasticity, world.trait_reach);
+        (scent_of(&t), tolerance_radius(&t))
+    })
+}
+
+/// The [`KillDetail`] both bite sites book: the attacker read now (it is
+/// alive), the victim as [`kill_side`] read it before the bite.
+fn kill_detail(world: &World, verb: u8, attacker: OrganismId, victim: OrganismId, victim_side: ([f32; 3], f32)) -> KillDetail {
+    let (attacker_scent, attacker_radius) = kill_side(world, attacker);
+    KillDetail { verb, attacker, victim, attacker_scent, attacker_radius, victim_scent: victim_side.0, victim_radius: victim_side.1 }
+}
+
 /// The three signature slots of a trait vector, as one point.
 pub fn scent_of(traits: &[f32; CREATURE_TRAITS]) -> [f32; 3] {
     [traits[SCENT_SLOTS[0]], traits[SCENT_SLOTS[1]], traits[SCENT_SLOTS[2]]]
@@ -10202,14 +10223,53 @@ pub fn blend_with_nest(world: &mut World, organism: OrganismId, x: i32, y: i32) 
     // at painting time, and blending toward an unset `(0,0,0)` would drag the
     // founding cohort off its own signature on its first step.
     if !world.nest_sites[i].seeded {
+        let colony = world.organism(organism).map_or(0, |s| s.colony);
         world.nest_sites[i].scent = mine;
         world.nest_sites[i].seeded = true;
+        world.nest_sites[i].colony = colony;
         return false;
     }
     if beta <= 0.0 && gamma <= 0.0 {
         return false;
     }
     let nest = world.nest_sites[i].scent;
+    // **A rival's nest is not joined unless it already smells like kin.**
+    // The exchange is for an ant at *its own* nest; `nearest_nest_site` is
+    // only the nearest patch in space, and in a box with two colonies that is
+    // often the rival's. Before this gate an ant that wandered onto the other
+    // colony's mound took its odour at beta 0.1 a tick -- ten ticks there is
+    // 65% of the way -- and walked home a stranger under its old colony's
+    // name. Traced 2026-10-03 (`examples/killtrace.rs`, two-colony bed,
+    // seeds 1-3 at 120,000 frames): **12 of 18 kills booked to the
+    // attacker's own colony were such pairs**, gen-0 founders one of whom
+    // sat on the other nest's odour, inside the first 17,000 frames; the
+    // single-colony played bed booked none on two seeds. The owner's
+    // playtest read it as `ANT 4 ... 14 KILLED BY ANT 4`.
+    //
+    // **Its own nest is always joined**, at any distance: the site the ant's
+    // colony seeded, or the one a colony it split from seeded
+    // (`World::descends_from`). That is the floor `a_cohered_nest_never_
+    // splits_into_strangers` holds at any drift, and an ant back from a long
+    // absence is taken back in. **Any other nest is judged by the ant's own
+    // tolerance**, the radius the mouth, the eye and the fist already use,
+    // so the gate is a gene (`TRAIT_TOLERANCE`) and not a new constant: a
+    // broad-tolerance line still takes up a kin neighbour's odour and
+    // merges with it (polydomy), a narrow one does not. Real workers carried
+    // into a foreign nest are met as intruders, not absorbed. Both sides of
+    // the exchange are skipped: an intruder does not pull the rival's nest
+    // toward itself either. `PIXEL_PHYSICS_NEST_KIN_GATE=off` restores the
+    // old exchange.
+    if nest_kin_gate() {
+        let home = world.nest_sites[i].colony;
+        let own = world.organism(organism).is_some_and(|s| home != 0 && world.descends_from(s.colony, home));
+        if !own {
+            let t = traits_of_state(world, organism);
+            if scent_distance_sq(&scent_of(&t), &nest) > tolerance_radius(&t).powi(2) {
+                world.creature_stats.nest_blends_refused += 1;
+                return false;
+            }
+        }
+    }
     if beta > 0.0 {
         if let Some(state) = world.organism_mut(organism) {
             for (k, slot) in SCENT_SLOTS.iter().enumerate() {
@@ -10233,6 +10293,21 @@ pub fn blend_with_nest(world: &mut World, organism: OrganismId, x: i32, y: i32) 
     // coming home (`open-bugs-handoff.md` §T2).
     world.creature_stats.nest_blends += 1;
     true
+}
+
+/// The traits `blend_with_nest`'s gate reads scent and tolerance from: the
+/// expressed body, as every other kin reader takes it. Zeros if the id is gone.
+fn traits_of_state(world: &World, organism: OrganismId) -> [f32; CREATURE_TRAITS] {
+    world.organism(organism).map_or([0.0; CREATURE_TRAITS], |s| expressed_traits(s, world.plasticity, world.trait_reach))
+}
+
+/// **The ablation switch for `blend_with_nest`'s home-odour gate**, on by
+/// default. `PIXEL_PHYSICS_NEST_KIN_GATE=off` lets an ant blend with any nest
+/// it stands at, the behaviour before 2026-10-03. `plant_is_a_foe`'s
+/// `OnceLock` pattern.
+pub fn nest_kin_gate() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var("PIXEL_PHYSICS_NEST_KIN_GATE").as_deref() != Ok("off"))
 }
 
 /// **Two animals in mandible-to-mandible contact mix their odours**, each
@@ -13900,6 +13975,7 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
                         .organism(victim)
                         .filter(|s| !s.chain.is_empty())
                         .map(|s| (s.species, s.colony, s.energy));
+                    let victim_side = kill_side(world, victim);
                     world.set(tx, ty, Cell::EMPTY);
                     world.creature_stats.attack_cells += 1;
                     // The far side of the same pair. `CLAUDE.md`: a count of
@@ -13911,7 +13987,8 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
                     if !reconcile_chain(world, victim) {
                         world.creature_stats.attack_kills += 1;
                         if let (Some(v), Some(me)) = (victim_group, world.organism(organism).map(|s| (s.species, s.colony))) {
-                            world.tally_kill((v.0, v.1), me, v.2);
+                            let detail = kill_detail(world, KILL_VERB_BITE, organism, victim, victim_side);
+                            world.tally_kill_detailed((v.0, v.1), me, v.2, detail);
                         }
                     }
                 }
@@ -14411,6 +14488,7 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
                 let victim_group = (victim != 0 && victim != organism)
                     .then(|| world.organism(victim).filter(|s| !s.chain.is_empty()).map(|s| (s.species, s.colony, s.energy)))
                     .flatten();
+                let victim_side = if victim_group.is_some() { kill_side(world, victim) } else { ([0.0; 3], 0.0) };
                 // A bitten windfall's own seed asks the plant side whether
                 // it survives the mouth before this clears the cell --
                 // `plant::seed_survives_bite` (`Reports/evolution-lab-
@@ -14483,7 +14561,8 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
                     // because this is the one site that knows both parties
                     // -- see `World::tally_kill`.
                     if let (Some(v), Some(me)) = (victim_group, world.organism(organism).map(|s| (s.species, s.colony))) {
-                        world.tally_kill((v.0, v.1), me, v.2);
+                        let detail = kill_detail(world, KILL_VERB_EAT, organism, victim, victim_side);
+                        world.tally_kill_detailed((v.0, v.1), me, v.2, detail);
                     }
                 }
                 // **Into the crop at face value, and nothing is booked
@@ -15343,6 +15422,9 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
                 pellet.material = hauled;
             }
             world.set(tx, ty, Cell::EMPTY);
+            // The census's record of the act (`World::dug_cells`): read by
+            // nothing in the simulation, so it cannot move a run.
+            world.dug_cells.insert((tx, ty));
             if spoil_kept() {
                 if let Some(state) = world.organism_mut(organism) {
                     state.spoil = Some(Spoil { cell: pellet, store: false });
@@ -25327,6 +25409,11 @@ mod tests {
             let fp = w.nest_sites[0].shaft.expect("the cut records its footprint on the site");
             let cells = fp.cells();
             assert_eq!(removed, cells.len(), "the cut removed {removed} cells but its footprint holds {}", cells.len());
+            assert!(
+                w.dug_cells.len() == removed && cells.iter().all(|c| w.dug_cells.contains(c)),
+                "the census's dug record must hold exactly the {removed} cells the cut opened, and holds {}",
+                w.dug_cells.len()
+            );
             for _ in 0..120 {
                 if parallel {
                     crate::sim::parallel::step(&mut w);
@@ -27861,6 +27948,13 @@ mod tests {
         // closes exactly (260 + 1 = 259 + 2).
         let lost = w.creature_stats.spoil_lost_ground as usize;
         assert!(digs > 0, "nothing dug, so conservation here would be a statement about an idle ant");
+        // The census's record of the act (`World::dug_cells`): one entry per
+        // place dug, so never more than the digs and never none.
+        assert!(
+            !w.dug_cells.is_empty() && w.dug_cells.len() as u64 <= digs,
+            "{digs} digs left {} cells on the dug record",
+            w.dug_cells.len()
+        );
         assert!(dumped > 0, "digs {digs} and not one pellet put back -- the colony is holding its spoil, not hauling it");
         // **`spoil_lost` is in the sum rather than asserted to be zero**, and
         // then bounded separately. It is the one remaining way a cell can
@@ -36613,6 +36707,85 @@ mod tests {
     /// 120 steps of `world::NEST_SCENT_INTERVAL` -- 120,000 frames, which is
     /// the owner's own length for one session of the played bed.
     const SESSION_EPOCHS: usize = 120;
+
+    /// **An ant standing on a rival colony's nest does not take its odour;
+    /// on its own colony's nest it always does.** The owner's playtest booked
+    /// `14 KILLED BY ANT 4` against a colony of 33: founders that had walked
+    /// onto the other colony's mound came home strangers under their old name
+    /// (`examples/killtrace.rs`). Three arms on one bed of two stranger
+    /// colonies:
+    ///
+    /// 1. gate on, an A ant at B's nest: refused, its scent unmoved, B's
+    ///    nest unmoved, `nest_blends_refused` counted;
+    /// 2. the same ant at its own nest after being pushed past its own
+    ///    tolerance from it: joined anyway (the floor under cohesion);
+    /// 3. **the positive control**, the gate off: the A ant at B's nest is
+    ///    dragged toward B's odour -- the defect, put back -- so arm 1's
+    ///    "unmoved" is the gate and not a bed where nothing blends.
+    #[test]
+    fn a_rival_nest_is_not_joined_but_an_own_nest_always_is() {
+        fn bed() -> (World, OrganismId, u32) {
+            let mut w = test_world();
+            for x in 10..190 {
+                w.set(x, 101, Cell::new(material::STONE, 0));
+            }
+            assert!(w.found_colony_of(60, 100, "ant", 6) >= 2);
+            assert!(w.found_colony_of(180, 100, "ant", 6) >= 2);
+            let groups = w.live_creature_groups();
+            let (a, b) = (groups[0].colony, groups[1].colony);
+            assert_eq!(w.nest_sites.len(), 2, "two foundings, two sites");
+            // Make the two colonies strangers: 1.6 apart on one axis, against
+            // a tolerance radius of 1.0.
+            for id in live_creature_ids(&w) {
+                let colony = w.organism(id).expect("live").colony;
+                w.set_organism_trait(id, SCENT_SLOTS[0], if colony == a { -0.8 } else { 0.8 });
+            }
+            blend_a_lifetime(&mut w, Some(a), 0, 1);
+            blend_a_lifetime(&mut w, Some(b), 1, 1);
+            assert_eq!(w.nest_sites[0].colony, a, "the founders seed their own site");
+            assert_eq!(w.nest_sites[1].colony, b);
+            let ant = live_creature_ids(&w).into_iter().find(|id| w.organism(*id).is_some_and(|s| s.colony == a)).expect("an A ant");
+            (w, ant, a)
+        }
+        let at_b = |w: &mut World, id: OrganismId| {
+            let (bx, by) = (w.nest_sites[1].x, w.nest_sites[1].y);
+            for _ in 0..10 {
+                blend_with_nest(w, id, bx, by);
+            }
+        };
+
+        // 1. Gate on (the shipped default).
+        assert!(nest_kin_gate(), "the gate ships on; this test reads the shipped arm first");
+        let (mut w, ant, _) = bed();
+        let (mine, b_nest) = (scent_of(&w.organism(ant).expect("live").traits), w.nest_sites[1].scent);
+        assert!(scent_distance_sq(&mine, &b_nest).sqrt() > 1.0, "the bed must hold strangers");
+        at_b(&mut w, ant);
+        assert_eq!(scent_of(&w.organism(ant).expect("live").traits), mine, "a rival's nest must not move the visitor's odour");
+        assert_eq!(w.nest_sites[1].scent, b_nest, "nor the visitor move the rival nest");
+        assert_eq!(w.creature_stats.nest_blends_refused, 10);
+
+        // 2. Its own nest takes it back from beyond its own tolerance.
+        let own = w.nest_sites[0].scent;
+        w.set_organism_trait(ant, SCENT_SLOTS[0], own[0] + 1.6);
+        let before = scent_distance_sq(&scent_of(&w.organism(ant).expect("live").traits), &own).sqrt();
+        assert!(before > 1.0, "the ant must start past its own radius: {before:.3}");
+        let (ax, ay) = (w.nest_sites[0].x, w.nest_sites[0].y);
+        for _ in 0..10 {
+            blend_with_nest(&mut w, ant, ax, ay);
+        }
+        let after = scent_distance_sq(&scent_of(&w.organism(ant).expect("live").traits), &w.nest_sites[0].scent).sqrt();
+        assert!(after < before * 0.5, "an ant's own nest must take it back: {before:.3} -> {after:.3}");
+
+        // 3. The positive control: the same visit with the exchange ungated
+        // (the gate's body skipped by giving the rival site the visitor's
+        // colony, which is what the gate keys on) drags the visitor.
+        let (mut w, ant, a) = bed();
+        let mine = scent_of(&w.organism(ant).expect("live").traits);
+        w.nest_sites[1].colony = a;
+        at_b(&mut w, ant);
+        let moved = scent_distance_sq(&scent_of(&w.organism(ant).expect("live").traits), &mine).sqrt();
+        assert!(moved > 0.5, "ungated, ten ticks on the rival's nest must drag the visitor: moved {moved:.3}");
+    }
 
     /// **Every station of one founding shares the colony's scent offset, and
     /// two foundings do not** -- `colony_scent_offset` is keyed on the label,

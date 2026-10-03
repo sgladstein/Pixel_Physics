@@ -39,6 +39,22 @@
 //! to the plain LOG-only export this file always was. This is the second
 //! form of "the chronicle as an export"; see `examples/latecensus.rs` for
 //! what each CENSUS column answers.
+//!
+//! **`export=DIR` runs the bed through a real `Lab` instead and writes the
+//! lab's own files into `DIR`** -- the chronicle text exactly as
+//! `Lab::write_chronicle` saves it (with the `BUILD`/`SWITCHES` header lines,
+//! the perf columns a `Lab`'s `TimeControl` fills in, and the `COUNTS:`
+//! kingdom split this binary's own printout does not carry) plus its two
+//! sidecars, `<stem>.census.csv` and `<stem>.actions.csv`. The one headless
+//! way to see the exported file whole, short of playing a session. Like the
+//! lab, the `Lab` autosaves at every CENSUS row, so `DIR` collects one set
+//! per row; the last set printed is the final one. The phase clock keeps the
+//! harness default here (off); set `PIXEL_PHYSICS_PHASE_CLOCK=1` to see the
+//! stopwatch group filled the way the lab binary fills it.
+//!
+//! ```text
+//! cargo run --release --example chronicle -- founders=8 colonies=1 frames=12000 export=/tmp/chron
+//! ```
 
 use pixel_physics::lab::census;
 use pixel_physics::lab::scenario::Scenario;
@@ -101,6 +117,10 @@ fn main() {
         if all == 1 { "ALL" } else { "LINES" },
         scenario.as_ref().map(|s| format!(" scenario={} ({})", s.name, s.question)).unwrap_or_default()
     );
+    if let Some(dir) = arg::<String>("export") {
+        export_through_lab(spec, scenario, frames, sample_every, &dir);
+        return;
+    }
     let mut world = match &scenario {
         Some(s) => {
             let (w, _planted, placed) = s.build();
@@ -112,6 +132,23 @@ fn main() {
         }
         None => spec.build(),
     };
+    // **The game's rain** (`lab::rain::tick`, which `Lab::tick` calls right
+    // after `frame::step`), `labforage.rs`'s own arg and default. This
+    // harness ran the box dry until 2026-10-03, and the CENSUS it prints is
+    // the lab chronicle's -- so its water columns (`dug ... water`) read
+    // 0-6 cells on boxes the game would have been watering. Unset it is the
+    // bed's own rate (`spec.rain`, Light on the played bed, as in the game);
+    // `rain=off` is this harness before, bit for bit (`tick` returns before
+    // any draw).
+    let rain = match arg::<String>("rain").as_deref() {
+        None => spec.rain,
+        Some("off") => pixel_physics::lab::rain::Rain::Off,
+        Some("light") => pixel_physics::lab::rain::Rain::Light,
+        Some("steady") => pixel_physics::lab::rain::Rain::Steady,
+        Some("heavy") => pixel_physics::lab::rain::Rain::Heavy,
+        Some(other) => panic!("rain={other}: expected off, light, steady or heavy"),
+    };
+    println!("  rain={} (the lab game's mister, lab::rain::tick)", rain.label());
     let mut particles = ParticleSystem::new();
     let mut blasts = Blasts::new();
     let tuning = player::Tuning::default();
@@ -137,6 +174,7 @@ fn main() {
             }
         }
         frame::step(&mut world, &mut particles, &mut blasts, player::PlayerInput::default(), &tuning);
+        pixel_physics::lab::rain::tick(&mut world, &spec, rain);
         // Right after `frame::step`, the lab's own cadence (`Lab::tick`):
         // this frame's settled state, sampled once every `sample_every`.
         if show_census && world.frame % sample_every == 0 {
@@ -197,4 +235,35 @@ fn main() {
         world.lineages_claimed(),
         world.run_log.dropped()
     );
+}
+
+/// **`export=DIR`**: the same bed through a real `Lab`, ticked by
+/// `Lab::tick_for_harness` so the scenario timeline, the CENSUS cadence and
+/// the autosave are the lab's own code, then `Lab::write_chronicle` once more
+/// at the end. See the module doc.
+fn export_through_lab(spec: LabBox, scenario: Option<Scenario>, frames: u64, sample_every: u64, dir: &str) {
+    std::env::set_var(pixel_physics::lab::Lab::CHRONICLE_DIR_ENV, dir);
+    std::env::set_var(pixel_physics::lab::Lab::CHRONICLE_CENSUS_EVERY_ENV, sample_every.to_string());
+    let mut lab = pixel_physics::lab::Lab::new(spec);
+    if let Some(sc) = scenario {
+        println!("  {}", lab.load_scenario(sc));
+    }
+    for _ in 0..frames {
+        lab.tick_for_harness();
+    }
+    lab.write_chronicle();
+    let mut written: Vec<std::path::PathBuf> = std::fs::read_dir(dir)
+        .map(|d| d.filter_map(|e| e.ok()).map(|e| e.path()).collect())
+        .unwrap_or_default();
+    written.sort();
+    // The newest text file and its sidecars: same stem, so they sort
+    // together, and the timestamped name sorts by time.
+    let Some(last) = written.iter().rev().find(|p| p.extension().is_some_and(|x| x == "txt")) else {
+        eprintln!("export: nothing was written to {dir}");
+        std::process::exit(1);
+    };
+    let stem = last.with_extension("");
+    for ext in ["txt", "census.csv", "actions.csv"] {
+        println!("export: {}", stem.with_extension(ext).display());
+    }
 }

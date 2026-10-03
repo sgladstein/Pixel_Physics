@@ -39,18 +39,19 @@
 //!
 //! It echoes its own parameters on the first line -- the megastudy gotcha.
 
-use pixel_physics::sim::cell::OrganismId;
 use pixel_physics::lab::rain::Rain;
 use pixel_physics::lab::scenario::Scenario;
-use pixel_physics::lab::Lab;
-use pixel_physics::sim::material::{self, MaterialKind};
+use pixel_physics::lab::{Lab, HEIGHT, WIDTH};
 use pixel_physics::sim::cell::Cell;
+use pixel_physics::sim::cell::OrganismId;
+use pixel_physics::sim::material::{self, MaterialKind};
 use pixel_physics::sim::world::World;
 
 fn arg<T: std::str::FromStr>(key: &str) -> Option<T> {
-    std::env::args()
-        .skip(1)
-        .find_map(|a| a.strip_prefix(&format!("{key}=")).map(|v| v.parse().ok().expect("parses")))
+    std::env::args().skip(1).find_map(|a| {
+        a.strip_prefix(&format!("{key}="))
+            .map(|v| v.parse().ok().expect("parses"))
+    })
 }
 
 const N8: [(i32, i32); 8] = [(-1, -1), (0, -1), (1, -1), (-1, 0), (1, 0), (-1, 1), (0, 1), (1, 1)];
@@ -93,8 +94,17 @@ fn water_above(world: &World, x: i32, y: i32) -> usize {
 
 fn census_door(world: &World, patch: &[(i32, i32)]) -> Door {
     let nest = world.materials.id_of("nest");
-    let mut d =
-        Door { held: 0, lost: 0, lost_by: Vec::new(), airy: 0, stand: 0, covered: 0, covered_by: Vec::new(), water_on: 0, water_off: 0 };
+    let mut d = Door {
+        held: 0,
+        lost: 0,
+        lost_by: Vec::new(),
+        airy: 0,
+        stand: 0,
+        covered: 0,
+        covered_by: Vec::new(),
+        water_on: 0,
+        water_off: 0,
+    };
     // The paired control, taken over the same number of columns: the band of
     // ordinary ground immediately outside each end of the patch, at the same
     // row the patch sits on.
@@ -133,7 +143,9 @@ fn census_door(world: &World, patch: &[(i32, i32)]) -> Door {
         d.stand += usize::from(stand);
         if !world.is_empty(x, y - 1) {
             d.covered += 1;
-            *cover_hist.entry(world.materials.get(world.get(x, y - 1).material).name.clone()).or_default() += 1;
+            *cover_hist
+                .entry(world.materials.get(world.get(x, y - 1).material).name.clone())
+                .or_default() += 1;
         }
     }
     d.lost_by = lost_hist.into_iter().collect();
@@ -143,11 +155,191 @@ fn census_door(world: &World, patch: &[(i32, i32)]) -> Door {
     d
 }
 
+/// **Is the founding cut still a way home?** What stands in every cell of
+/// each nest site's founding cut (`ShaftFootprint::cells`), by material name,
+/// with the empty cells first -- and how much of the dug home
+/// (`World::nest_dug`, the open cells a walk from the door reaches) lies
+/// nearest that site.
+///
+/// Added 2026-10-03 for the shut door the laying lane found on main with the
+/// door rules in (PR 562): from about 80,000 frames no ant's head reaches
+/// home and the dug home shrinks to 3-5 cells. The painted patch the
+/// `Door` census reads is the lid over that shaft, not the shaft, so it could
+/// not say what closed it.
+/// `dump=1` on the command line: [`census_cuts`] prints the cut cell by cell.
+fn dump_on() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| arg::<u8>("dump").unwrap_or(0) == 1)
+}
+
+fn census_cuts(world: &World) -> Vec<String> {
+    let mut out = Vec::new();
+    for (i, site) in world.nest_sites.iter().enumerate() {
+        let Some(cut) = site.shaft else { continue };
+        let mut hist: std::collections::BTreeMap<String, usize> = std::collections::BTreeMap::new();
+        let cells = cut.cells();
+        let mut open = 0;
+        let mut mouth_open = 0;
+        let mut mouth = 0;
+        for &(x, y) in &cells {
+            let m = world.get(x, y).material;
+            if y <= cut.mouth_bottom && (cut.x0..=cut.x1).contains(&x) {
+                mouth += 1;
+                mouth_open += usize::from(m == material::EMPTY);
+            }
+            if m == material::EMPTY {
+                open += 1;
+            } else {
+                *hist.entry(world.materials.get(m).name.clone()).or_default() += 1;
+            }
+        }
+        let mut hist: Vec<(String, usize)> = hist.into_iter().collect();
+        hist.sort_by_key(|e| std::cmp::Reverse(e.1));
+        // The ground the pit is cut into: every water-holding cell beside the
+        // cut, its mean moisture and how many are saturated. A pond stands in
+        // a pit only once its walls can take no more.
+        let inside: std::collections::HashSet<(i32, i32)> = cells.iter().copied().collect();
+        let mut walls: std::collections::HashSet<(i32, i32)> = std::collections::HashSet::new();
+        for &(x, y) in &cells {
+            for (dx, dy) in N8 {
+                let n = (x + dx, y + dy);
+                if !inside.contains(&n) && world.materials.get(world.get(n.0, n.1).material).water_capacity > 0 {
+                    walls.insert(n);
+                }
+            }
+        }
+        let wet: Vec<u16> = walls.iter().map(|&(x, y)| world.get(x, y).aux()).collect();
+        let wall_mean = if wet.is_empty() {
+            0.0
+        } else {
+            wet.iter().map(|&m| f64::from(m)).sum::<f64>() / wet.len() as f64
+        };
+        let wall_sat = wet.iter().filter(|&&m| m >= material::SOIL_SATURATED).count();
+        let home = world
+            .nest_dug
+            .iter()
+            .filter(|&&(x, _)| {
+                world
+                    .nest_sites
+                    .iter()
+                    .enumerate()
+                    .min_by_key(|(_, s)| (s.x - x).abs())
+                    .map(|(j, _)| j)
+                    == Some(i)
+            })
+            .count();
+        // **Crater or mound?** The ground's height over the mouth's row,
+        // every third column from 24 left of the cut to 24 right: the first
+        // powder or solid cell from 30 rows over the mouth down (so not air,
+        // water, an animal or a standing plant). Negative is below the founding surface. A door at the
+        // bottom of a bowl is a sump; one on a summit sheds its rain.
+        let mid = (cut.x0 + cut.x1) / 2;
+        // From 30 rows over the mouth: higher than any heap, under the lid.
+        let top_row = cut.top - 30;
+        let profile: Vec<i32> = (-8..=8)
+            .map(|k| {
+                let x = mid + 3 * k;
+                let mut y = top_row;
+                while y < cut.bottom + 40 {
+                    let m = world.get(x, y).material;
+                    let kind = world.materials.kind(m);
+                    if matches!(kind, MaterialKind::Powder | MaterialKind::Solid) {
+                        break;
+                    }
+                    y += 1;
+                }
+                cut.top - y
+            })
+            .collect();
+        out.push(format!(
+            "          ground over the mouth row, x {}..{} step 3: {profile:?}",
+            mid - 24,
+            mid + 24
+        ));
+        // **`dump=1`: the cut cell by cell**, so a pond that never drains can
+        // be read against the ground it sits on. Two grids over the cut and
+        // three cells round it: what is there (`.` air, `~` water, `s` soil,
+        // `p` packed soil, `o` spoil, `a` animal, `g` living plant, `#` other
+        // solid, `*` anything else), and its wetness in tenths of full
+        // (`X` saturated soil, `-` holds no water; water reads its fill).
+        // Any other material prints as its initial in upper case, with a
+        // legend.
+        if dump_on() {
+            let (gx0, gx1) = (cut.x0.min(cut.chamber_x0) - 3, cut.x1.max(cut.chamber_x1) + 3);
+            let (gy0, gy1) = (cut.top - 6, cut.chamber_bottom.max(cut.bottom) + 8);
+            let mut legend: std::collections::BTreeMap<char, String> = Default::default();
+            for y in gy0..=gy1 {
+                let mut what = String::new();
+                let mut wet = String::new();
+                for x in gx0..=gx1 {
+                    let c = world.get(x, y);
+                    let m = world.materials.get(c.material);
+                    let kind = world.materials.kind(c.material);
+                    what.push(match (kind, m.name.as_str()) {
+                        _ if c.material == material::EMPTY => '.',
+                        (MaterialKind::Liquid, _) => '~',
+                        (_, "soil") => 's',
+                        (_, "packedsoil") => 'p',
+                        (_, "spoil") => 'o',
+                        (MaterialKind::Creature, _) => 'a',
+                        (MaterialKind::Plant, _) => 'g',
+                        (MaterialKind::Solid, _) => '#',
+                        // Anything else by its initial, upper-case, named in
+                        // the legend line under the grid.
+                        (_, name) => {
+                            let ch = name.chars().next().unwrap_or('*').to_ascii_uppercase();
+                            legend.insert(ch, name.to_string());
+                            ch
+                        }
+                    });
+                    wet.push(if kind == MaterialKind::Liquid {
+                        char::from_digit(
+                            u32::from(pixel_physics::sim::update::liquid_fill(c)) * 9
+                                / u32::from(material::LIQUID_FULL),
+                            10,
+                        )
+                        .unwrap_or('?')
+                    } else if m.water_capacity == 0 {
+                        '-'
+                    } else if c.aux() >= material::SOIL_SATURATED {
+                        'X'
+                    } else {
+                        char::from_digit(u32::from(c.aux()) * 10 / u32::from(material::SOIL_SATURATED), 10)
+                            .unwrap_or('?')
+                    });
+                }
+                out.push(format!("          dump y {y:>3} x {gx0}..{gx1}: {what}  {wet}"));
+            }
+            out.push(format!("          dump legend: {legend:?}"));
+        }
+        out.push(format!(
+            "          cut {i} at x {}: dug home {home} | mouth open {mouth_open}/{mouth} | cut open {open}/{} | filled by {hist:?} | walls {} cells, moisture {wall_mean:.0}, saturated {wall_sat}",
+            site.x,
+            cells.len(),
+            walls.len()
+        ));
+    }
+    out
+}
+
+/// Is `(x, y)` home -- in or beside a dug home cell or the painted patch?
+/// The laying lane's probe predicate (`/mnt/project-files/laying/anchor-probe/`),
+/// so "reached home" means the same thing in both lanes.
+fn at_home(world: &World, (x, y): (i32, i32), nest: Option<material::MaterialId>) -> bool {
+    (-1..=1).any(|dy| {
+        (-1..=1).any(|dx| {
+            world.nest_dug.contains(&(x + dx, y + dy)) || nest.is_some_and(|m| world.get(x + dx, y + dy).material == m)
+        })
+    })
+}
+
 /// Every cell currently painted `nest`, wherever it is -- so a patch that
 /// *moved* (a nest cell carried off as spoil and set down elsewhere) is not
 /// read as a patch that vanished.
 fn all_nest_cells(world: &World) -> Vec<(i32, i32)> {
-    let Some(nest) = world.materials.id_of("nest") else { return Vec::new() };
+    let Some(nest) = world.materials.id_of("nest") else {
+        return Vec::new();
+    };
     let Some(b) = world.bounds() else { return Vec::new() };
     let mut out = Vec::new();
     for y in b.min_y..=b.max_y {
@@ -195,7 +387,10 @@ fn main() {
     // overriding the scenario's own setting, which is `waterstand`'s flag and
     // for the same reason.
     let rain: Option<u8> = arg("rain");
-    println!("nestdoor: control={control} scenario={scenario} seed={seed} frames={frames} every={every} rain={}", rain.map_or("-".to_string(), |r| r.to_string()));
+    println!(
+        "nestdoor: control={control} scenario={scenario} seed={seed} frames={frames} every={every} rain={}",
+        rain.map_or("-".to_string(), |r| r.to_string())
+    );
 
     let mut sc = Scenario::load(&scenario).unwrap_or_else(|e| {
         eprintln!("scenario {scenario}: {e}");
@@ -208,6 +403,83 @@ fn main() {
         lab.spec.rain = Rain::from_index(r);
     }
     println!("  {msg} | rain {}", lab.spec.rain.label());
+    // **Where does the water in a flooded door come from?** Three oracle
+    // arms, each removing one route and nothing else, so the route whose
+    // removal keeps the founding cut dry is the one that floods it:
+    //
+    // - `levels=1` turns on `World::soil_capillary_levels` (the bed's own
+    //   "water levels sideways" dial, off by the owner's ruling) -- a wall the
+    //   pit has soaked to saturation can then pass water on sideways;
+    // - `umbrella=1` deletes every liquid cell still falling through the air
+    //   over the mouth (its columns and one either side, from the room's top
+    //   to three rows above the mouth) -- rain straight into the hole;
+    // - `berm=1` sets two rows of stone either side of the mouth at founding
+    //   -- runoff across the surface into it.
+    //
+    // Oracles, not proposals: none is a mechanism the game would ship.
+    let levels = arg::<u8>("levels").unwrap_or(0) == 1;
+    let umbrella = arg::<u8>("umbrella").unwrap_or(0) == 1;
+    let berm = arg::<u8>("berm").unwrap_or(0) == 1;
+    // `pump=1`: the ceiling for any water fix -- every liquid cell inside
+    // the founding cut is deleted each frame, so the door can never hold a
+    // pond. What the colony does with a door that cannot flood is the most
+    // any route-specific fix could buy.
+    let pump = arg::<u8>("pump").unwrap_or(0) == 1;
+    // `wake=<k>`: every `k` frames every chunk is examined in full
+    // (`World::wake_all`, the engine's own control for "the rules are wrong"
+    // against "the sweep never looked"). If a pond that stands in the cut for
+    // ever drains under this, it stood because nothing visited the ground
+    // beside it, not because that ground was full.
+    let wake = arg::<u64>("wake").unwrap_or(0);
+    // `keepopen=1`: the door can never be shut -- every cell of the founding
+    // cut holding water, a plant, or ground (soil, packed soil, spoil) is
+    // deleted each frame. Brood, food, crumbs and corpses are left: the
+    // first version deleted everything but air and animals, which emptied
+    // the brood pile and the larder in the chamber and shrank the colony
+    // (seed 1, 43 ants to 13 by frame 80,000) -- an oracle that starves the
+    // colony answers a different question. Paired with the laying lane's
+    // scratch probe `PIXEL_PHYSICS_BIRTH_ANCHOR=nest` (newborns homed at the
+    // door; not on main, `/mnt/project-files/laying/anchor-probe/probe.diff`)
+    // it separates "the door shuts" from "nobody knows where the door is";
+    // the oracle line echoes that variable so a log says which it was.
+    let keepopen = arg::<u8>("keepopen").unwrap_or(0) == 1;
+    let mut kept_open: std::collections::BTreeMap<String, u64> = Default::default();
+    // `mist=half`: the mister at half its LIGHT rate -- the box's own
+    // `rain::tick` at LIGHT, called on every second due frame (every 80
+    // ticks rather than 40) with the box's own rain turned off. The lever is
+    // the box's water income, the one thing every route shares.
+    let mist_half = arg::<String>("mist").as_deref() == Some("half");
+    if mist_half {
+        lab.spec.rain = Rain::Off;
+    }
+    let mut pumped = 0u64;
+    if levels {
+        lab.world.soil_capillary_levels = true;
+    }
+    println!("  oracles: levels={levels} umbrella={umbrella} berm={berm} pump={pump} mist_half={mist_half} wake={wake} keepopen={keepopen} birth_anchor={} dump={} powder_floats={}", std::env::var("PIXEL_PHYSICS_BIRTH_ANCHOR").unwrap_or_else(|_| "-".into()), dump_on(), std::env::var("PIXEL_PHYSICS_POWDER_FLOATS").unwrap_or_else(|_| "-".into()));
+    let room_top = lab.spec.room_top();
+    let mut umbrella_caught = 0u64;
+    let mut bermed = false;
+    // **`shots=<dir>`: a cutaway of the nest at every sample**, through the
+    // lab's own renderer (`Lab::draw`, the pixels a player sees), camera
+    // centred on the founding cut at `zoom=` (default 4) and cropped to the
+    // world above the toolbar. Drawn after the census, so the picture is the
+    // state the printed numbers describe. Files are `door_f<frame>.png`.
+    let shots: Option<String> = arg("shots");
+    let zoom: u32 = arg("zoom").unwrap_or(4).max(1);
+    let mut camera_set = false;
+    if let Some(dir) = &shots {
+        std::fs::create_dir_all(dir).unwrap_or_else(|e| panic!("nestdoor: shots {dir}: {e}"));
+        // The key list paints over the whole box outside the real binary.
+        lab.show_help = false;
+        // ...and the biosphere readout opens showing after a load.
+        if lab.stats.showing() {
+            lab.stats.toggle();
+        }
+        for _ in 1..zoom {
+            lab.renderer.adjust_zoom(1);
+        }
+    }
 
     // The patch is painted when the colony is founded, which on the played
     // bed is frame 6,000 -- so it cannot be read before the run starts, and a
@@ -217,6 +489,11 @@ fn main() {
     // Per-window accumulators over *every* frame, not only the sample frames:
     // an ant at the door for one frame in ten thousand is the whole question.
     let mut seen_at_nest: std::collections::BTreeSet<OrganismId> = std::collections::BTreeSet::new();
+    // Distinct animals whose head was home (`at_home`) at least once in the
+    // window, and the most at once -- the coordinator's "did any ant reach
+    // home" over time.
+    let mut seen_home: std::collections::BTreeSet<OrganismId> = std::collections::BTreeSet::new();
+    let mut peak_home = 0usize;
     let mut peak_at_nest = 0usize;
     let mut laden_dist_sum = 0f64;
     let mut laden_dist_n = 0u64;
@@ -227,7 +504,22 @@ fn main() {
 
     println!(
         "  {:>7} | {:>4} {:>4} {:>4} {:>4} | {:>5} {:>5} {:>5} {:>5} | {:>5} {:>5} | {:>5} {:>4} {:>4} {:>3} | {:>6}",
-        "frame", "held", "lost", "stnd", "covd", "pickp", "drops", "deliv", "visit", "digs", "spoil", "alive", "born", "died", "gen", "atnest"
+        "frame",
+        "held",
+        "lost",
+        "stnd",
+        "covd",
+        "pickp",
+        "drops",
+        "deliv",
+        "visit",
+        "digs",
+        "spoil",
+        "alive",
+        "born",
+        "died",
+        "gen",
+        "atnest"
     );
 
     for f in 0..=frames {
@@ -236,8 +528,14 @@ fn main() {
             if !cells.is_empty() {
                 patch = cells;
                 founded = true;
-                let (x0, x1) = (patch.iter().map(|c| c.0).min().unwrap_or(0), patch.iter().map(|c| c.0).max().unwrap_or(0));
-                let (y0, y1) = (patch.iter().map(|c| c.1).min().unwrap_or(0), patch.iter().map(|c| c.1).max().unwrap_or(0));
+                let (x0, x1) = (
+                    patch.iter().map(|c| c.0).min().unwrap_or(0),
+                    patch.iter().map(|c| c.0).max().unwrap_or(0),
+                );
+                let (y0, y1) = (
+                    patch.iter().map(|c| c.1).min().unwrap_or(0),
+                    patch.iter().map(|c| c.1).max().unwrap_or(0),
+                );
                 // The centre is printed because a review card of the door has
                 // to be aimed at it: `labgif center=x,y` takes exactly this.
                 println!(
@@ -256,8 +554,16 @@ fn main() {
         if founded {
             let nest = lab.world.materials.id_of("nest");
             let mut at_now = 0usize;
+            let mut home_now = 0usize;
             for (id, (hx, hy), _gen, _del, laden) in animals(&lab.world) {
-                if N8.iter().any(|&(dx, dy)| Some(lab.world.get(hx + dx, hy + dy).material) == nest) {
+                if at_home(&lab.world, (hx, hy), nest) {
+                    home_now += 1;
+                    seen_home.insert(id);
+                }
+                if N8
+                    .iter()
+                    .any(|&(dx, dy)| Some(lab.world.get(hx + dx, hy + dy).material) == nest)
+                {
                     at_now += 1;
                     seen_at_nest.insert(id);
                 }
@@ -293,12 +599,22 @@ fn main() {
                 }
             }
             peak_at_nest = peak_at_nest.max(at_now);
+            peak_home = peak_home.max(home_now);
         }
 
         if f % every == 0 || f == frames {
             let w = &lab.world;
             let s = &w.creature_stats;
-            let now = [s.pickups, s.drops, s.deliveries, s.nest_visits, s.digs, s.spoil_dumped, s.births, s.deaths];
+            let now = [
+                s.pickups,
+                s.drops,
+                s.deliveries,
+                s.nest_visits,
+                s.digs,
+                s.spoil_dumped,
+                s.births,
+                s.deaths,
+            ];
             let d = census_door(w, &patch);
             let live = animals(w);
             let gen = live.iter().map(|a| a.2).max().unwrap_or(0);
@@ -339,6 +655,66 @@ fn main() {
                     gn_del
                 );
             }
+            if founded {
+                // Water anywhere the colony ever dug, and the deepest dug row
+                // holding it: a pond in the founding cut is the door shutting,
+                // one in a gallery below it is the nest flooding from the
+                // bottom up.
+                let dug_water: Vec<(i32, i32)> = w
+                    .dug_cells
+                    .iter()
+                    .copied()
+                    .filter(|&(x, y)| w.materials.kind(w.get(x, y).material) == MaterialKind::Liquid)
+                    .collect();
+                let dug_deepest = w.dug_cells.iter().map(|c| c.1).max().unwrap_or(0);
+                println!(
+                    "          home: reached by {} animal(s) this window, at most {} at once | dug home {} cells over {} site(s) | ever dug {} cells, deepest row {}, water in them {} (rows {}..{})",
+                    seen_home.len(),
+                    peak_home,
+                    w.nest_dug.len(),
+                    w.nest_sites.len(),
+                    w.dug_cells.len(),
+                    dug_deepest,
+                    dug_water.len(),
+                    dug_water.iter().map(|c| c.1).min().unwrap_or(0),
+                    dug_water.iter().map(|c| c.1).max().unwrap_or(0)
+                );
+                for line in census_cuts(w) {
+                    println!("{line}");
+                }
+            }
+            if let (Some(dir), true) = (&shots, founded) {
+                if let Some(cut) = lab.world.nest_sites.iter().find_map(|s| s.shaft) {
+                    let (full_w, full_h) = (WIDTH, HEIGHT);
+                    let bounds = pixel_physics::sim::chunk::Rect::new(0, 0, lab.spec.width - 1, lab.spec.height - 1);
+                    let (span_x, span_y) = lab.renderer.visible_span((full_w, full_h));
+                    if !camera_set {
+                        // Centred a little below the mouth: the room under the
+                        // shaft and the ground either side are the picture.
+                        let (ccx, ccy) = ((cut.x0 + cut.x1) / 2, cut.top + 14);
+                        lab.renderer
+                            .set_camera(ccx - span_x / 2, ccy - span_y / 2, (full_w, full_h), Some(bounds));
+                        camera_set = true;
+                        println!("  shots: camera on ({ccx},{ccy}) at {zoom}x, {span_x}x{span_y} cells");
+                    }
+                    let mut full = vec![0u8; (full_w * full_h * 4) as usize];
+                    lab.draw(&mut full, 60.0);
+                    // The world only: below the corner readout, above the toolbar.
+                    let (y0, rows) = (24u32, 216u32);
+                    let crop = full[(y0 * full_w * 4) as usize..((y0 + rows) * full_w * 4) as usize].to_vec();
+                    if let Some(img) = image::RgbaImage::from_raw(full_w, rows, crop) {
+                        let path = std::path::Path::new(dir).join(format!("door_f{f:06}.png"));
+                        if let Err(e) =
+                            image::imageops::resize(&img, full_w * 2, rows * 2, image::imageops::FilterType::Nearest)
+                                .save(&path)
+                        {
+                            eprintln!("nestdoor: shot {}: {e}", path.display());
+                        }
+                    }
+                }
+            }
+            seen_home.clear();
+            peak_home = 0;
             prev = now;
             seen_at_nest.clear();
             peak_at_nest = 0;
@@ -350,7 +726,86 @@ fn main() {
         }
         if f < frames {
             lab.tick_for_harness();
+            if berm && !bermed {
+                if let Some(cut) = lab.world.nest_sites.iter().find_map(|s| s.shaft) {
+                    let stone = lab.world.materials.id_of("stone").expect("stone ships");
+                    for x in [cut.x0 - 2, cut.x0 - 1, cut.x1 + 1, cut.x1 + 2] {
+                        for y in [cut.top - 2, cut.top - 1] {
+                            if lab.world.get(x, y).material == material::EMPTY {
+                                lab.world.set(x, y, Cell::new(stone, 0));
+                            }
+                        }
+                    }
+                    bermed = true;
+                    println!("  frame {f:>7}: berm set beside the mouth, columns {}..{} and {}..{}, rows {}..{} (mouth x {}..{}, top {}, mouth bottom {}, shaft bottom {}, chamber x {}..{} y {}..{})", cut.x0 - 2, cut.x0 - 1, cut.x1 + 1, cut.x1 + 2, cut.top - 2, cut.top - 1, cut.x0, cut.x1, cut.top, cut.mouth_bottom, cut.bottom, cut.chamber_x0, cut.chamber_x1, cut.chamber_top, cut.chamber_bottom);
+                }
+            }
+            if keepopen {
+                let cuts: Vec<_> = lab.world.nest_sites.iter().filter_map(|s| s.shaft).collect();
+                for cut in cuts {
+                    for (x, y) in cut.cells() {
+                        let c = lab.world.get(x, y);
+                        let kind = lab.world.materials.kind(c.material);
+                        let name = lab.world.materials.get(c.material).name.as_str();
+                        if matches!(kind, MaterialKind::Liquid | MaterialKind::Plant)
+                            || matches!(name, "soil" | "packedsoil" | "spoil")
+                        {
+                            *kept_open
+                                .entry(lab.world.materials.get(c.material).name.clone())
+                                .or_default() += 1;
+                            lab.world.set(x, y, Cell::EMPTY);
+                        }
+                    }
+                }
+            }
+            if wake > 0 && lab.world.frame.is_multiple_of(wake) {
+                lab.world.wake_all();
+            }
+            if mist_half && lab.world.frame.is_multiple_of(80) {
+                pixel_physics::lab::rain::tick(&mut lab.world, &lab.spec, Rain::Light);
+            }
+            if pump {
+                let cuts: Vec<_> = lab.world.nest_sites.iter().filter_map(|s| s.shaft).collect();
+                for cut in cuts {
+                    for (x, y) in cut.cells() {
+                        let c = lab.world.get(x, y);
+                        if lab.world.materials.kind(c.material) == MaterialKind::Liquid {
+                            pumped += u64::from(pixel_physics::sim::update::liquid_fill(c));
+                            lab.world.set(x, y, Cell::EMPTY);
+                        }
+                    }
+                }
+            }
+            if umbrella {
+                let cuts: Vec<_> = lab.world.nest_sites.iter().filter_map(|s| s.shaft).collect();
+                for cut in cuts {
+                    for x in cut.x0 - 1..=cut.x1 + 1 {
+                        for y in room_top..=cut.top - 3 {
+                            let c = lab.world.get(x, y);
+                            if lab.world.materials.kind(c.material) == MaterialKind::Liquid {
+                                umbrella_caught += u64::from(pixel_physics::sim::update::liquid_fill(c));
+                                lab.world.set(x, y, Cell::EMPTY);
+                            }
+                        }
+                    }
+                }
+            }
         }
+    }
+    if keepopen {
+        println!("KEEPOPEN cleared from the founding cut: {kept_open:?}");
+    }
+    if pump {
+        println!(
+            "PUMP took {pumped} units of water out of the founding cut ({:.1} full cells)",
+            pumped as f64 / f64::from(material::LIQUID_FULL)
+        );
+    }
+    if umbrella {
+        println!(
+            "UMBRELLA caught {umbrella_caught} units of falling water over the mouth ({:.1} full cells)",
+            umbrella_caught as f64 / f64::from(material::LIQUID_FULL)
+        );
     }
     let s = &lab.world.creature_stats;
     println!(
@@ -406,29 +861,70 @@ fn selftest(lab: &mut Lab, patch: &[(i32, i32)]) {
         println!("  {} {name}: {saw}", if pass { "PASS" } else { "FAIL" });
         ok &= pass;
     };
-    check("patch is non-trivial", patch.len() >= 8, format!("{} cells", patch.len()));
-    check("before: all held", before.held == patch.len(), format!("held {} of {}", before.held, patch.len()));
-    check("before: somewhere to stand", before.stand > 0, format!("stand {}", before.stand));
-    check("after: erased half reads lost", after.lost == patch.len() - half, format!("lost {} (erased {})", after.lost, patch.len() - half));
-    check("after: buried half still held", after.held == half, format!("held {} (expected {half})", after.held));
-    check("after: buried half reads covered", after.covered == half, format!("covered {} (expected {half})", after.covered));
-    check("after: burying costs footing", after.stand < before.stand, format!("stand {} -> {}", before.stand, after.stand));
-    check("after: the cover is named", after.covered_by.iter().any(|(n, _)| n == "packedsoil"), format!("{:?}", after.covered_by));
+    check(
+        "patch is non-trivial",
+        patch.len() >= 8,
+        format!("{} cells", patch.len()),
+    );
+    check(
+        "before: all held",
+        before.held == patch.len(),
+        format!("held {} of {}", before.held, patch.len()),
+    );
+    check(
+        "before: somewhere to stand",
+        before.stand > 0,
+        format!("stand {}", before.stand),
+    );
+    check(
+        "after: erased half reads lost",
+        after.lost == patch.len() - half,
+        format!("lost {} (erased {})", after.lost, patch.len() - half),
+    );
+    check(
+        "after: buried half still held",
+        after.held == half,
+        format!("held {} (expected {half})", after.held),
+    );
+    check(
+        "after: buried half reads covered",
+        after.covered == half,
+        format!("covered {} (expected {half})", after.covered),
+    );
+    check(
+        "after: burying costs footing",
+        after.stand < before.stand,
+        format!("stand {} -> {}", before.stand, after.stand),
+    );
+    check(
+        "after: the cover is named",
+        after.covered_by.iter().any(|(n, _)| n == "packedsoil"),
+        format!("{:?}", after.covered_by),
+    );
     check(
         "water over the patch moves water_on only",
         wet_on.water_on >= before.water_on + 4 && wet_on.water_off == before.water_off,
-        format!("on {} -> {}, off {} -> {}", before.water_on, wet_on.water_on, before.water_off, wet_on.water_off),
+        format!(
+            "on {} -> {}, off {} -> {}",
+            before.water_on, wet_on.water_on, before.water_off, wet_on.water_off
+        ),
     );
     check(
         "water beside the patch moves water_off only",
         wet_off.water_off >= wet_on.water_off + 4 && wet_off.water_on == wet_on.water_on,
-        format!("on {} -> {}, off {} -> {}", wet_on.water_on, wet_off.water_on, wet_on.water_off, wet_off.water_off),
+        format!(
+            "on {} -> {}, off {} -> {}",
+            wet_on.water_on, wet_off.water_on, wet_on.water_off, wet_off.water_off
+        ),
     );
     // A kind sanity line, so a rename of `packedsoil` fails loudly rather
     // than reading as a clean zero.
     check(
         "packedsoil is ground",
-        matches!(lab.world.materials.kind(packed), MaterialKind::Solid | MaterialKind::Powder),
+        matches!(
+            lab.world.materials.kind(packed),
+            MaterialKind::Solid | MaterialKind::Powder
+        ),
         format!("{:?}", lab.world.materials.kind(packed)),
     );
     println!("selftest: {}", if ok { "ALL PASS" } else { "FAILURES" });
