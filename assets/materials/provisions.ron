@@ -1,0 +1,52 @@
+// **Food a player put in by hand** -- what the lab's FOOD brush paints.
+// Owner, 2026-10-03: *"there is a food tool ... it creates windfall and that
+// seems to degrade very quickly. It shouldn't degrade or disappear at all."*
+//
+// **Why a material of its own rather than a flag on the brush.** Decay is
+// material-driven (`decay.rs` reads `decays_into` off the cell's material and
+// nothing else), so the only way to paint food that never rots, without
+// touching the rot schedule every natural `windfall` cell runs on, is a
+// material with no `decays_into` at all. Natural windfall keeps rotting
+// exactly as before; a run that never touches the brush never meets this
+// file.
+//
+// **Everything else is `windfall.ron`, copied, not re-argued** -- same
+// density, slope, flammability, softness and, above all, the same
+// `food_energy` and `food_class`, so an ant's gut reads a painted cell
+// exactly as it read the windfall the brush used to lay. Read that file for
+// why each value is what it is. The two differences:
+//
+// - **No `decays_into`.** It stays until something eats it, burns it or it
+//   is erased.
+// - **No seed inside.** The brush always painted ownerless windfall, so no
+//   painted cell ever carried a seed; a material of its own also stops those
+//   cells reaching `World::windfall_bitten_ownerless`, a counter that exists
+//   to find an upstream bug in *natural* windfall and was being fed by the
+//   player's brush.
+(
+    name: "provisions",
+    display: "Food",
+    kind: Powder,
+    density: 1.05,
+    friction_angle: 26.0,
+    // `windfall.ron`'s palette: the player asked for the food they already
+    // knew, not a new-looking thing.
+    colors: [
+        (160, 40, 34),
+        (120, 26, 36),
+        (84, 42, 94),
+        (40, 38, 64),
+        (182, 92, 30),
+        (176, 146, 48),
+    ],
+    flammability: 0.2,
+    burn_temperature: 470.0,
+    burn_duration: 40,
+    burns_into: "ash",
+    heat_conductivity: 0.2,
+    insubstantial: true,
+    falls_through_organisms: true,
+    food_energy: 960.0,
+    penetration_resistance: 0.05,
+    food_class: -1.0,
+)

@@ -4115,7 +4115,13 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   alive at the end 53 -> 107.5, gate rows level; split runs put the gain on
   the food rule. §3b: barring the chamber too left one colony in 12 nowhere
   at home to put food down. §6 lists the levers that left the door shut
-  (roof off, cue off, upkeep, sod, a new door, food on footing).
+  (roof off, cue off, upkeep, sod, a new door, food on footing). **§7
+  (round 2): the door now shuts with water** -- a pond the colony's own
+  food crumbs seal from below, since water never passes a powder. Letting
+  it pass (`powder_floats`, built, **left off**): door in use 12 -> 21 of
+  24 samples on 12 seeds, but ants at the end 151 -> 39 and boxes under 10
+  1 -> 3; holding the door open by hand went the same way. In the lab a
+  working door does not pay the colony (inferred).
 - [nest-one-entrance-2026-09-29.md](nest-one-entrance-2026-09-29.md) —
   **measurement and switches, 2026-09-29; since §18 (2026-09-30) the
   walked cycle, stacking at 4 and births on nestmates ship on as one

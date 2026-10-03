@@ -1353,17 +1353,39 @@ fn harness() {
     // sample after it dies -- not at the end, because the graveyard holds
     // 2,048 graves across plants and animals and a 120,000-frame box buries
     // more plants than that. Each creature birth is a `birth,child,born,parent`
-    // row, from the run log, at the first sample after it.
+    // row, from the run log, at the first sample after it, and each egg a
+    // `lay,egg,laid,parent,x,y,nest_d` row at the first sample after laying.
     let lifetrace_every: u64 = arg("lifetrace_every").unwrap_or(30);
+    let lifetrace_brood: bool = arg::<u32>("lifetrace_brood").unwrap_or(0) != 0;
+    // **`decisions=FILE`: every walking decision between `dfrom=` and `dto=`**,
+    // from the engine's own `World::decision_log` (`creature::DecisionRow`) --
+    // whether an ant that stands still beside food is failing its move roll,
+    // blocked, or choosing to stay. Added 2026-10-03 for `herb_first_colony`,
+    // where half the starved ants spent their last 1,500 frames within four
+    // cells of one spot.
+    let peek: Option<(i32, i32, i32, i32, u64)> = arg::<String>("peek").map(|v| {
+        let (rect, at) = v.split_once('@').expect("peek=x,y,w,h@frame");
+        let n: Vec<i32> = rect.split(',').map(|t| t.parse().expect("peek numbers")).collect();
+        (n[0], n[1], n[2], n[3], at.parse().expect("peek frame"))
+    });
+    let dfrom: u64 = arg("dfrom").unwrap_or(0);
+    let dto: u64 = arg("dto").unwrap_or(u64::MAX);
+    let mut decisions = arg::<String>("decisions").map(|p| {
+        use std::io::Write;
+        let mut w = std::io::BufWriter::new(std::fs::File::create(&p).expect("create decisions file"));
+        writeln!(w, "frame,id,x,y,x_after,y_after,outcome,energy,move_out,p_move,food_adjacent,at_nest,crowding,stillness,usable,nbr_other,drive").expect("write decisions header");
+        w
+    });
     let mut lifetrace = arg::<String>("lifetrace").map(|p| {
         use std::io::Write;
         let mut w = std::io::BufWriter::new(std::fs::File::create(&p).expect("create lifetrace file"));
-        writeln!(w, "frame,id,born,x,y,energy,crop,crop_mat,lunch,foraged,hungry_home,nest_d,food_d,food_dx,food_dy,food_mat,food_above,generation")
+        writeln!(w, "frame,id,born,x,y,energy,crop,crop_mat,lunch,foraged,hungry_home,nest_d,food_d,food_dx,food_dy,food_mat,food_above,generation,room,wall")
             .expect("write lifetrace header");
         w
     });
     let mut graves_written: std::collections::HashSet<(u32, u64)> = std::collections::HashSet::new();
     let mut births_written: std::collections::HashSet<(u32, u64)> = std::collections::HashSet::new();
+    let mut eggs_written: std::collections::HashSet<(u32, u64)> = std::collections::HashSet::new();
     let handout: u64 = arg("handout").unwrap_or(0);
     // **`no_colony=1` -- the colony-removed control, on a scenario or off
     // one alike.** See `strip_colony`'s own doc for why this is a
@@ -2040,9 +2062,47 @@ fn harness() {
                         ((x - hx).abs().max((y - hy).abs()), x - hx, y - hy, world.materials.get(m).name.clone(), spec.ground_y - y)
                     });
                     let (crop, crop_mat) = st.crop.map_or((0.0, "-".to_string()), |c| (c.worth(), world.materials.get(c.material).name.clone()));
+                    // **`room`: how many cells the head can reach without
+                    // digging**, a flood over empty cells and animals, capped
+                    // at 200 -- an ant walled into a pocket (roots, water,
+                    // packed soil) reads a small number however much food
+                    // stands outside it. `wall` names the commonest
+                    // material on the pocket's rim.
+                    let (room, wall) = {
+                        let mut seen: std::collections::HashSet<(i32, i32)> = std::collections::HashSet::new();
+                        let mut rim: std::collections::HashMap<MaterialId, u32> = std::collections::HashMap::new();
+                        let mut stack = vec![(hx, hy)];
+                        seen.insert((hx, hy));
+                        while let Some((x, y)) = stack.pop() {
+                            if seen.len() >= 200 {
+                                break;
+                            }
+                            for (dx, dy) in [(1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (1, -1), (-1, 1), (-1, -1)] {
+                                let (nx, ny) = (x + dx, y + dy);
+                                if !world.in_bounds(nx, ny) || seen.contains(&(nx, ny)) {
+                                    continue;
+                                }
+                                let c = world.get(nx, ny);
+                                let animal = world
+                                    .organism(c.organism_id())
+                                    .is_some_and(|o| world.species.get(o.species).creature.is_some());
+                                if c.material == pixel_physics::sim::material::EMPTY || animal {
+                                    seen.insert((nx, ny));
+                                    stack.push((nx, ny));
+                                } else {
+                                    *rim.entry(c.material).or_default() += 1;
+                                }
+                            }
+                        }
+                        let wall = rim
+                            .into_iter()
+                            .max_by_key(|&(m, n)| (n, m.0))
+                            .map_or("-".to_string(), |(m, _)| world.materials.get(m).name.clone());
+                        (seen.len(), wall)
+                    };
                     writeln!(
                         out,
-                        "{f},{id},{},{hx},{hy},{:.1},{crop:.1},{crop_mat},{},{},{},{nest_d},{fd},{fdx},{fdy},{fmat},{fabove},{}",
+                        "{f},{id},{},{hx},{hy},{:.1},{crop:.1},{crop_mat},{},{},{},{nest_d},{fd},{fdx},{fdy},{fmat},{fabove},{},{room},{wall}",
                         st.born_frame,
                         st.energy,
                         u8::from(st.lunch),
@@ -2051,6 +2111,58 @@ fn harness() {
                         st.generation
                     )
                     .expect("write lifetrace");
+                }
+                // **Eggs, at the first sample after laying**, as
+                // `lay,egg,laid,parent,x,y,nest_d`: the hatch's `birth` row
+                // comes a stage-length later (and only if the larva is fed),
+                // so a funnel keyed on births dates every first egg late by
+                // however long the brood took -- 7,000 frames on the herb
+                // bed's first one. Added 2026-10-03 for `herb_first_colony`.
+                // Brood lives outside `live_organism_ids`, hence its own loop.
+                for id in world.live_brood_ids() {
+                    let Some(st) = world.organism(id) else { continue };
+                    let Some(b) = st.brood.as_ref() else { continue };
+                    if eggs_written.insert((id, st.born_frame)) {
+                        let (ex, ey) = st.cells.keys().next().copied().unwrap_or((-1, -1));
+                        let nest_d = world.nearest_nest_site(ex, ey).map_or(-1, |i| {
+                            let n = world.nest_sites[i];
+                            (n.x - ex).abs().max((n.surface - ey).abs())
+                        });
+                        writeln!(out, "lay,{id},{},{},{ex},{ey},{nest_d}", st.born_frame, b.parent)
+                            .expect("write lifetrace lay");
+                    }
+                    // `lifetrace_brood=1`: every brood organism every sample, as
+                    // `brood,frame,id,laid,stage,energy,target,nest_d,nbr_ants,nbr_food`
+                    // -- whether a larva is being fed, by a nestmate or by food
+                    // lying beside it, and how far it still has to go.
+                    if lifetrace_brood {
+                        let (ex, ey) = st.cells.keys().next().copied().unwrap_or((-1, -1));
+                        let nest_d = world.nearest_nest_site(ex, ey).map_or(-1, |i| {
+                            let n = world.nest_sites[i];
+                            (n.x - ex).abs().max((n.surface - ey).abs())
+                        });
+                        let (mut ants, mut food) = (0, 0);
+                        for (dx, dy) in [(-1, -1), (0, -1), (1, -1), (-1, 0), (1, 0), (-1, 1), (0, 1), (1, 1)] {
+                            let c = world.get(ex + dx, ey + dy);
+                            let oid = c.organism_id();
+                            if oid != 0
+                                && oid != id
+                                && world.organism(oid).is_some_and(|o| {
+                                    o.brood.is_none() && world.species.get(o.species).creature.is_some()
+                                })
+                            {
+                                ants += 1;
+                            } else if diet_yield(&world, c, gut) > EAT_YIELD_THRESHOLD {
+                                food += 1;
+                            }
+                        }
+                        writeln!(
+                            out,
+                            "brood,{f},{id},{},{},{:.1},{:.1},{nest_d},{ants},{food}",
+                            st.born_frame, b.stage as u8, st.energy, b.target
+                        )
+                        .expect("write lifetrace brood");
+                    }
                 }
                 // Births, from the run log, as `birth,child,born,parent`: so a
                 // death can be read against what the animal had just done.
@@ -2177,9 +2289,91 @@ fn harness() {
                 );
             }
         }
+        // **`peek=x,y,w,h@frame`: the materials of a small window, as letters,
+        // at one frame** -- what boxes in an ant the decision trace shows
+        // pacing between two cells. Legend printed with it.
+        if let Some((px, py, pw, ph, pf)) = peek {
+            if f == pf {
+                let mut legend: std::collections::BTreeMap<char, String> = std::collections::BTreeMap::new();
+                println!("PEEK frame {f} x {px}..{} y {py}..{}", px + pw - 1, py + ph - 1);
+                for y in py..py + ph {
+                    let mut line = format!("  {y:4} ");
+                    for x in px..px + pw {
+                        let c = world.get(x, y);
+                        let name = world.materials.get(c.material).name.clone();
+                        let ch = if c.material == pixel_physics::sim::material::EMPTY {
+                            '.'
+                        } else if world
+                            .organism(c.organism_id())
+                            .is_some_and(|st| world.species.get(st.species).creature.is_some())
+                        {
+                            'A'
+                        } else {
+                            match name.as_str() {
+                                "soil" => '#',
+                                "packedsoil" => 'P',
+                                "rootwood" => 'r',
+                                "grassroot" => 'g',
+                                "wood" => 'W',
+                                "water" => '~',
+                                "leaf" => 'L',
+                                "litter" => 'l',
+                                "seed" => 's',
+                                "deadleaf" => 'd',
+                                "deadwood" => 'D',
+                                "flower" => '*',
+                                "stone" => '=',
+                                _ => name.chars().next().unwrap_or('?').to_ascii_uppercase(),
+                            }
+                        };
+                        if ch != '.' && ch != 'A' {
+                            legend.entry(ch).or_default().push_str(&format!("{name} "));
+                        }
+                        line.push(ch);
+                    }
+                    println!("{line}");
+                }
+                for (k, v) in legend {
+                    let mut names: Vec<&str> = v.split_whitespace().collect();
+                    names.sort();
+                    names.dedup();
+                    println!("  {k} = {}", names.join("/"));
+                }
+            }
+        }
         bench.observe(&world);
         if f < frames {
+            if decisions.is_some() {
+                world.decision_log = (f >= dfrom && f <= dto).then(Vec::new);
+            }
             frame::step(&mut world, &mut particles, &mut blasts, player::PlayerInput::default(), &tuning);
+            if let (Some(out), Some(log)) = (decisions.as_mut(), world.decision_log.as_mut()) {
+                use std::io::Write;
+                for r in log.drain(..) {
+                    writeln!(
+                        out,
+                        "{},{},{},{},{},{},{},{:.2},{:.3},{:.3},{:.2},{:.2},{:.2},{:.2},{},{},{:.2}",
+                        r.frame,
+                        r.id,
+                        r.head.0,
+                        r.head.1,
+                        r.head_after.0,
+                        r.head_after.1,
+                        pixel_physics::sim::creature::DECISION_OUTCOME_NAMES[r.outcome as usize],
+                        r.energy_j,
+                        r.move_out,
+                        r.p_move,
+                        r.food_adjacent,
+                        r.at_nest,
+                        r.crowding,
+                        r.stillness,
+                        r.usable,
+                        r.nbr_other,
+                        r.drive
+                    )
+                    .expect("write decisions");
+                }
+            }
             pixel_physics::lab::rain::tick(&mut world, &spec, rain);
         }
     }

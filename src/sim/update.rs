@@ -1983,6 +1983,11 @@ fn update_liquid<S: CellSurface>(surface: &mut S, x: i32, y: i32, rightward: boo
     if !hole_from_a_sideways_escape && try_move(surface, x, y, x, y + 1) {
         return true;
     }
+    // And through a lighter powder under it, which floats up in its place
+    // (`powder_floats`, off) -- so a crumb floor would no longer seal a pond.
+    if !hole_from_a_sideways_escape && sinks_under_lighter_powder(surface, x, y, below) {
+        return true;
+    }
     let (first, second) = if surface.rng().flip() { (-1, 1) } else { (1, -1) };
 
     // Long-range lateral descent, checked *before* the diagonal fall.
@@ -2889,6 +2894,72 @@ fn find_lateral_descent<S: CellSurface>(surface: &S, x: i32, y: i32, dir: i32) -
     None
 }
 
+/// **A powder lighter than the liquid it lies under floats up through it**
+/// -- crumbs, seeds and pips, leaf litter, deadwood, brood and snow, against
+/// water's 1.0. **Off**: `PIXEL_PHYSICS_POWDER_FLOATS=on` turns it on. Built
+/// 2026-10-03 and left off for a measured harm to the lab colony, below.
+///
+/// **What it fixes is a sealed floor, not a floating look.** `try_move` lets
+/// a mover displace only `Liquid` and `Gas` (`MaterialKind::is_displaceable`),
+/// so sand sinks through water but water can never pass a powder at all,
+/// whatever its density. Every light powder here also holds no water
+/// (`water_capacity` 0), so a floor of them is as tight as glass: rain that
+/// reaches it stands on it for good. Measured on the lab's played bed, where
+/// a colony's half-eaten food (`crumbs`) piles in and around its own nest
+/// and the mister keeps falling into the founding shaft: on seed 3 the shaft
+/// held 15-19 cells of standing water from frame 60,000 to 120,000, and a
+/// cell-by-cell dump (`nestdoor dump=1`) found every column under the pond
+/// capped by a crumb or a plant cell, over ground at 30-60% that had room
+/// for all of it. With this rule the same shaft was dry at 60,000.
+/// `Reports/dead-ends.md`'s drowned-door entry (§T2, the `nest` patch) is
+/// the same family -- a material that holds no water lying on a misted
+/// doorstep -- and it is why the fix is a move rather than a capacity: `aux`
+/// on `crumbs` is its worth (`carries_worth`), so it cannot hold water
+/// without putting two systems on one field.
+///
+/// **Why it is off.** Twelve paired played-bed seeds, 150,000 frames, main
+/// `9311b741`, one binary (`nestdoor`): the nest worked better -- samples
+/// after 30,000 frames with an ant at home, median 12 -> 21 of 24 (better
+/// on 8 of 12); food carried home +48%; water in the founding shaft at the
+/// end 12 -> 0 cells -- and the colonies did worse on the owner's own test:
+/// ants alive at the end 151 -> 39 (worse on 8 of 12), fall from peak 36%
+/// -> 71% (worse on 7), boxes under 10 ants at the end 1 -> 3. Holding the
+/// door open by hand (`nestdoor keepopen=1`) went the same way on four
+/// seeds -- home 0-101 -> 184-410 cells, ants alive at the end worse on 3 of
+/// 4 -- so the cost looks like the lab colony's rather than this rule's
+/// (inferred, not traced): it lives off the garden and lays anywhere, and
+/// nothing it needs is at home. Re-test when something is
+/// (`Reports/nest-door-2026-10-03.md` §7).
+///
+/// The swap is straight down only and one cell a visit, the same as a
+/// powder sinking through water: the liquid takes the powder's cell, the
+/// powder takes the liquid's, and a pond on a crumb floor drains through it
+/// into whatever is below at the rate the ground there drinks. Checked only
+/// after the straight-down move has failed, so free-falling water pays
+/// nothing; a resting cell pays one switch read, and when on a kind and a
+/// density.
+fn powder_floats() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var("PIXEL_PHYSICS_POWDER_FLOATS").as_deref() == Ok("on"))
+}
+
+/// One step of [`powder_floats`]: the liquid at `(x, y)` changes places with
+/// `below`, the cell under it, when that is a powder lighter than the
+/// liquid that has not already moved this frame.
+fn sinks_under_lighter_powder<S: CellSurface>(surface: &mut S, x: i32, y: i32, below: Cell) -> bool {
+    if !powder_floats() || below.moved() || !surface.in_bounds(x, y + 1) {
+        return false;
+    }
+    let materials = surface.materials();
+    if materials.kind(below.material) != MaterialKind::Powder
+        || materials.density(below.material) >= materials.density(surface.get(x, y).material)
+    {
+        return false;
+    }
+    surface.move_cell(x, y, x, y + 1, false);
+    true
+}
+
 fn try_move<S: CellSurface>(surface: &mut S, x: i32, y: i32, tx: i32, ty: i32) -> bool {
     if !surface.in_bounds(tx, ty) {
         return false;
@@ -3057,6 +3128,87 @@ mod tests {
             assert!(!sand_stayed, "sand at the tunnel mouth did not slide (parallel {parallel}): the scene cannot show a slide");
             assert!(crumbs_stayed, "crumbs at the tunnel mouth slid away (parallel {parallel})");
             assert_eq!(crumbs_fell, (40, 19), "crumbs in open air must drop straight down onto the stone (parallel {parallel})");
+        }
+    }
+
+    /// **Water on a floor of crumbs sinks through it into the ground below;
+    /// on a floor of sand it stands.** `powder_floats`, both halves in one
+    /// test so neither can pass alone.
+    ///
+    /// A three-wide pit cut in stone: three rows of dry soil, two of the
+    /// floor powder on them, two of water on that. Crumbs (0.8) are lighter
+    /// than water and hold none, so before the rule the water stood on them
+    /// for good -- the lab's flooded nest door, where a colony's own food
+    /// scraps floored the shaft (`nestdoor dump=1`, seed 3). Sand (1.6) is
+    /// denser and also holds none, so the water must still stand on it: that
+    /// arm is what says the rule reads density, not "any powder", and that
+    /// the soil cannot be reached some other way in this scene.
+    /// The rule ships off, so this is ignored: run it with
+    /// `PIXEL_PHYSICS_POWDER_FLOATS=on cargo test --release --lib -- --ignored
+    /// water_sinks_through`. Without the switch the first assertion is red
+    /// (checked: "soil holds 0").
+    #[test]
+    #[ignore = "powder_floats ships off; run with PIXEL_PHYSICS_POWDER_FLOATS=on"]
+    fn water_sinks_through_a_crumb_floor_into_the_ground_and_stands_on_sand() {
+        use super::super::chunk::Rect;
+        use super::super::world::World;
+        /// Moisture the soil took up, the lowest water row, the highest floor row.
+        fn pit(floor: &str, parallel: bool) -> (u32, i32, i32) {
+            let mut w = World::new(Rect::new(0, 0, 31, 31));
+            let stone = Cell::new(material::STONE, 0).with_attached(true);
+            for x in 0..32 {
+                for y in 10..32 {
+                    w.set(x, y, stone);
+                }
+            }
+            let soil = w.materials.id_of("soil").expect("soil compiled in");
+            let f = w.materials.id_of(floor).expect("floor compiled in");
+            for x in 10..13 {
+                for y in 10..13 {
+                    w.set(x, y, Cell::EMPTY);
+                }
+                for y in 13..15 {
+                    w.set(x, y, Cell::new(material::WATER, 0));
+                }
+                for y in 15..17 {
+                    w.set(x, y, Cell::new(f, 0).with_aux(400));
+                }
+                for y in 17..20 {
+                    w.set(x, y, Cell::new(soil, 0));
+                }
+            }
+            for _ in 0..400 {
+                if parallel {
+                    super::super::parallel::step(&mut w);
+                } else {
+                    step(&mut w);
+                }
+            }
+            let mut held = 0u32;
+            let (mut lowest_water, mut highest_floor) = (-1, 99);
+            for x in 10..13 {
+                for y in 0..20 {
+                    let c = w.get(x, y);
+                    if c.material == soil {
+                        held += u32::from(soil_moisture(c));
+                    } else if w.materials.kind(c.material) == MaterialKind::Liquid {
+                        lowest_water = lowest_water.max(y);
+                    } else if c.material == f {
+                        highest_floor = highest_floor.min(y);
+                    }
+                }
+            }
+            (held, lowest_water, highest_floor)
+        }
+        for parallel in [false, true] {
+            let (held, ..) = pit("crumbs", parallel);
+            assert!(
+                held >= 3 * u32::from(material::LIQUID_FULL),
+                "water on a crumb floor did not reach the soil under it (parallel {parallel}): soil holds {held}"
+            );
+            let (held, lowest_water, highest_sand) = pit("sand", parallel);
+            assert_eq!(held, 0, "water reached the soil under a sand floor (parallel {parallel}) -- the scene leaks, or the rule moved a powder denser than water");
+            assert!(lowest_water >= 0 && lowest_water < highest_sand, "water is no longer standing on the sand (parallel {parallel}): lowest water row {lowest_water}, top of the sand {highest_sand}");
         }
     }
 

@@ -1559,6 +1559,21 @@ and is not evidence that the narrow set grows a better bed; what it *is*
 evidence of is that the bed did not die, which is the null this needed to
 exclude. Before the default flips, run the sweep.
 
+**Done 2026-10-03, and the default is now on.** The blind A/B above came back
+2026-09-10, *"They look the same to me."* The sweep: played bed, 24 seeds x
+120,000 frames, paired, main f8141ded (`scripts/labbench.py . .
+--new-env PIXEL_PHYSICS_MOISTURE_MARKS=cells`, seeds 1-12 then 13-24). Births
+308.5 -> 231.0 median but **higher on 12 of 24** (sign p 1.0); food eaten,
+ant-frames and old-age deaths 10/14 and 9/14 (p 0.41-0.54); starved per
+million ant-frames lower on 15 of 24; colonies lost 1 -> 1. The medians move
+because this bed booms and busts and a one-tick delay reseeds the chaos -- the
+first twelve seeds alone read births 284 -> 181 and the second twelve 346 ->
+294, the opposite tilt in the per-seed counts. What it buys, measured the same
+day on the empty box the owner's playtest complained about (`Rain::Light`, no
+plants, no animals, one thread): **0.68 -> 0.48 ms a tick**, visits ~10,000 ->
+~3,700 for the same ~1,660 cells changed. `PIXEL_PHYSICS_MOISTURE_MARKS=rows`
+restores the hull.
+
 ### 17.4 What the gates were, and the two nulls that were not
 
 Every pure change was checked with `lab_cost`'s `world hash` **and** `field
