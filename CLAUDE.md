@@ -289,8 +289,12 @@ numbers behind each rule: the evidence report, same heading.
 - **When to land:** `branchcheck.sh` prints `BxF` (behind x files). **Above
   300, act.** If `behind` drives it, merge `main` in; if `files` drives it,
   the branch has become more than one feature — land it and start another.
-  It predicts *laborious* merges, never *wrong* ones: zero-conflict merges
-  have broken the tree.
+  It predicts *laborious* merges, never *wrong* ones: two zero-conflict
+  merges (2026-08-25) left a generated docs index stale, which only
+  `docscheck` caught. That is the whole record; no clean merge has been seen
+  to break code (9 of 9 merge-desk reruns green, 2026-10-03). So a merge desk
+  tests 2+ queued code PRs **stacked in one CI run** rather than one rerun
+  each (owner, 2026-10-03; procedure in `Reports/handoff/merge-desk.md`).
 - **Run `bash scripts/docscheck.sh` after every merge, unconditionally.** It
   is the only thing that catches a generated file (bug index, README TOC)
   going stale against its source; test, clippy, ascii and acceptance all stay
