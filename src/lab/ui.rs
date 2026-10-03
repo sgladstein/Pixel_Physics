@@ -7129,12 +7129,22 @@ pub struct EndedLine {
     /// is keyed on `(species, colony)`, never `colony` alone.
     pub species: SpeciesId,
     /// **The last member's own colony at death**, read off its grave the
-    /// same way `cause` is. `0` for a plant (no plant ever claims a colony --
-    /// `World::claim_colony`'s own doc, only `creature::place_creature`
-    /// calls it) and for a hand-built fixture whose grave was never pushed.
-    /// `HistorySummaryRow` is the only reader: a colony groups the founding
-    /// lines under it by this field, never by re-deriving it.
-    pub colony: u32,
+    /// same way `cause` is. `Some(0)` for a plant (no plant ever claims a
+    /// colony -- `World::claim_colony`'s own doc, only
+    /// `creature::place_creature` calls it) and for an animal stocked alone,
+    /// which belongs to no colony. `HistorySummaryRow` groups the founding
+    /// lines under a colony by this field, never by re-deriving it.
+    ///
+    /// **`None` when the grave is gone** -- the graveyard holds the newest
+    /// 2,048 and a long session ages the rest out. This was `u32` with
+    /// `grave.map_or(0, ..)`, which filed every such line under colony `0`:
+    /// the 10-03 playtest's LEGENDS printed *"THE ANT 0 COLONY ... 248 OF ITS
+    /// FOUNDING LINES HAVE ENDED"*, a colony that never existed (colony ids
+    /// start at 1, `World::next_colony`) holding the lines whose graves had
+    /// rolled out. Unknown is now said as unknown: these lines go in no
+    /// colony's roll-up, `history_summary` gathers them under one row of
+    /// their own, and `legend_paragraph` says the colony is not known.
+    pub colony: Option<u32>,
     /// `0` if the lineage's row was never found -- cannot happen for a real
     /// `LineEnded` event (a line cannot end without having been founded) but
     /// a hand-built test fixture can still produce one.
@@ -7166,7 +7176,7 @@ pub fn ended_lines(world: &World) -> Vec<EndedLine> {
                 name: names::line_name(world.seed, e.lineage),
                 creature: world.species.get(e.species).creature.is_some(),
                 species: e.species,
-                colony: grave.map_or(0, |g| g.colony),
+                colony: grave.map(|g| g.colony),
                 founder_frame: stats.map_or(0, |s| s.founder_frame),
                 generations: stats.map_or(e.generation, |s| s.deepest_generation.max(e.generation)),
                 peak_living: stats.map_or(0, |s| s.peak_living),
@@ -7212,8 +7222,12 @@ pub fn legend_paragraph(e: &EndedLine) -> String {
         Some(c) => format!(" {}.", c.label()),
         None => String::new(),
     };
+    // An animal line whose grave has aged out says so, rather than being
+    // silently counted under a colony -- `EndedLine::colony`'s own doc. A
+    // plant line never had a colony to lose, so it says nothing.
+    let unknown = if e.creature && e.colony.is_none() { format!(" {UNKNOWN_COLONY}.") } else { String::new() };
     format!(
-        "THE {} LINE ({kingdom}) {span}. FOUNDED F{}, PEAK {} LIVING, ENDED F{}.{cause}",
+        "THE {} LINE ({kingdom}) {span}. FOUNDED F{}, PEAK {} LIVING, ENDED F{}.{cause}{unknown}",
         e.name, e.founder_frame, e.peak_living, e.ended_frame
     )
 }
@@ -7381,10 +7395,15 @@ pub fn history_summary(world: &World) -> Vec<HistorySummaryRow> {
     // `SpeciesId` carrying no `Ord` -- it exists to catch a species and a
     // material slot crossing, not to be sorted.
     let mut colonies: std::collections::BTreeMap<u32, Vec<EndedLine>> = std::collections::BTreeMap::new();
+    // Animal lines whose last grave has aged out -- see `EndedLine::colony`.
+    let mut unknown: Vec<EndedLine> = Vec::new();
     let mut out: Vec<HistorySummaryRow> = Vec::new();
     for e in ended_lines(world) {
         if e.creature {
-            colonies.entry(e.colony).or_default().push(e);
+            match e.colony {
+                Some(c) => colonies.entry(c).or_default().push(e),
+                None => unknown.push(e),
+            }
         } else {
             // A plant line is already its own row -- no grouping, no second
             // pass. `ended` is newest-first by construction (there is only
@@ -7449,9 +7468,29 @@ pub fn history_summary(world: &World) -> Vec<HistorySummaryRow> {
             ended,
         });
     }
+    // **One row for every animal line whose colony is not known**, never
+    // folded into a colony -- `EndedLine::colony`'s own doc for the fake
+    // colony 0 this replaces. `colony: None`, so it opens no DETAIL (there is
+    // no colony to list) and `colony_summary_paragraph` words it as unknown.
+    if !unknown.is_empty() {
+        out.push(HistorySummaryRow {
+            name: UNKNOWN_COLONY.to_string(),
+            creature: true,
+            colony: None,
+            alive: None,
+            causes: "--".to_string(),
+            causes_full: "--".to_string(),
+            last_activity: unknown.first().map_or(0, |e| e.ended_frame),
+            ended: unknown,
+        });
+    }
     out.sort_by_key(|r| std::cmp::Reverse(r.last_activity));
     out
 }
+
+/// The name of [`history_summary`]'s row for animal lines whose colony is no
+/// longer known, and the words `legend_paragraph` uses for one such line.
+pub const UNKNOWN_COLONY: &str = "COLONY UNKNOWN (GRAVE DROPPED)";
 
 /// **One [`HistorySummaryRow`] naming an animal colony**, as the row's own
 /// hover note and the chronicle's per-colony LEGENDS paragraph -- shared for
@@ -7459,6 +7498,15 @@ pub fn history_summary(world: &World) -> Vec<HistorySummaryRow> {
 /// same way. Never called for a plant row, whose note is [`legend_paragraph`]
 /// on its own one ended line.
 pub fn colony_summary_paragraph(row: &HistorySummaryRow) -> String {
+    // The grave-dropped lines' row is not a colony and is not worded as one.
+    if row.colony.is_none() {
+        let n = row.ended.len();
+        return format!(
+            "{n} {} FOUNDING LINE{} ENDED IN NO KNOWN COLONY -- {UNKNOWN_COLONY}, SO WHICH COLONY THE LAST MEMBER BELONGED TO IS NOT RECORDED.",
+            kingdom_label(row.creature),
+            if n == 1 { "" } else { "S" }
+        );
+    }
     let status = match row.alive {
         Some(n) => format!("{n} ALIVE"),
         None => "ENDED".to_string(),
@@ -7478,7 +7526,7 @@ pub fn colony_summary_paragraph(row: &HistorySummaryRow) -> String {
 /// rather than re-derived, so an expansion can never name a line the
 /// summary above it did not count.
 pub fn history_lines_for_colony(world: &World, colony: u32) -> Vec<EndedLine> {
-    ended_lines(world).into_iter().filter(|e| e.creature && e.colony == colony).collect()
+    ended_lines(world).into_iter().filter(|e| e.creature && e.colony == Some(colony)).collect()
 }
 
 /// **The run's whole chronicle, as text** -- `Lab::write_chronicle`'s export
@@ -7495,7 +7543,18 @@ pub fn history_lines_for_colony(world: &World, colony: u32) -> Vec<EndedLine> {
 /// page's own newest-first table -- and a LEGENDS section built from
 /// [`ended_lines`]. Per-kind counts last, `CLAUDE.md`'s standing rule: prose
 /// says what and where, only the count says whether it fired.
-pub fn chronicle_text(world: &World, spec: &LabBox, bed_label: &str, dial: u32, census_rows: &[census::ChronicleRow], dial_changes: &[String]) -> String {
+///
+/// `scenario` is the name of the scenario the box was opened from, `None`
+/// for a hand-built bed -- the header's `BUILD` line says which.
+pub fn chronicle_text(
+    world: &World,
+    spec: &LabBox,
+    bed_label: &str,
+    scenario: Option<&str>,
+    dial: u32,
+    census_rows: &[census::ChronicleRow],
+    dial_changes: &[String],
+) -> String {
     use std::fmt::Write as _;
     let mut out = String::new();
     let _ = writeln!(out, "CHRONICLE OF {bed_label}");
@@ -7509,16 +7568,30 @@ pub fn chronicle_text(world: &World, spec: &LabBox, bed_label: &str, dial: u32, 
         world.frame,
         dial
     );
+    let _ = writeln!(out, "{}", chronicle_build_line(world, spec, scenario));
     if dial_changes.is_empty() {
         out.push_str("DIALS: SHIPPED DEFAULTS -- NOTHING CHANGED\n");
     } else {
         let _ = writeln!(out, "DIALS CHANGED FROM SHIPPED: {}", dial_changes.join(", "));
     }
+    let _ = writeln!(out, "{}", chronicle_switches_line(std::env::vars()));
     out.push('\n');
     out.push_str(&census::chronicle_section(census_rows));
     out.push('\n');
     let mut lines: Vec<&world::LogEvent> = world.run_log.recent().filter(|e| e.kind.is_line_event()).collect();
     lines.reverse(); // the log reads newest first; a story reads forward
+    // **Every player action, even the ones the line ring dropped** (spec
+    // B7). The ring drops oldest-first, so the actions it lost are exactly
+    // the first `actions().len() - in_ring` of the unbounded list, and every
+    // one of them is older than anything the ring still holds -- printed
+    // ahead of the story, in order, they splice in where they happened. On a
+    // run that never filled the ring this adds nothing and the section is
+    // byte-identical to what it was.
+    let in_ring = lines.iter().filter(|e| e.kind == world::LogKind::PlayerAction).count();
+    let lost = world.run_log.actions().len().saturating_sub(in_ring);
+    let mut story: Vec<&world::LogEvent> = world.run_log.actions()[..lost].iter().collect();
+    story.extend(lines);
+    let lines = story;
     if lines.is_empty() {
         out.push_str("NOTHING NOTABLE HAS HAPPENED YET.\n");
     }
@@ -7562,14 +7635,128 @@ pub fn chronicle_text(world: &World, spec: &LabBox, bed_label: &str, dial: u32, 
             // is a file the owner uploads and an agent reads, and reordering
             // a line that already exists in landed logs costs more than the
             // `LogKind::ALL` order is worth.
-            let mut counts: Vec<(&'static str, u64)> = world.run_log.pushed_by_kind().map(|(k, n)| (k.label(), n)).collect();
-            counts.sort_unstable_by_key(|(label, _)| *label);
-            counts.iter().map(|(label, n)| format!("{label} {n}")).collect::<Vec<_>>().join(", ")
+            let mut counts: Vec<(world::LogKind, u64)> = world.run_log.pushed_by_kind().collect();
+            counts.sort_unstable_by_key(|(k, _)| k.label());
+            let (born_animals, died_animals) = animal_births_and_deaths(world);
+            counts
+                .iter()
+                .map(|(k, n)| {
+                    // **Split by kingdom** (spec H31). The 10-03 file's
+                    // `BORN 3280` was 1,399 ants and 1,881 plants, and only
+                    // the row's own `born` column could say so. The totals
+                    // stay first and unchanged, so a reader of landed
+                    // chronicles reads the same number in the same place.
+                    let animals = match k {
+                        world::LogKind::Born => Some(born_animals),
+                        world::LogKind::Died => Some(died_animals),
+                        _ => None,
+                    };
+                    match animals {
+                        Some(a) => format!("{} {n} (ANIMALS {a}, PLANTS {})", k.label(), n.saturating_sub(a)),
+                        None => format!("{} {n}", k.label()),
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join(", ")
         },
         ended.len(),
         world.lineages_claimed(),
         world.run_log.dropped()
     );
+    out
+}
+
+/// **How many of the log's `Born` and `Died` were animals**, for the
+/// `COUNTS:` line's kingdom split. Both off tallies that are never trimmed:
+///
+/// - births: `CreatureStats::births`, incremented at exactly the two
+///   creature sites that push `LogKind::Born` (a hatch and a bud,
+///   `creature.rs`), so the two cannot disagree. A founder or stocked animal
+///   is `spawned`, not born, and pushes no `Born` either.
+/// - deaths: the sum of every `World::group_deaths` row's `by_cause`, which
+///   `free_organism` increments for a creature on the same call that pushes
+///   its `Died`.
+///
+/// The plant figure is the remainder, which today is germination (`Born`)
+/// and every plant freed (`Died`) -- `saturating_sub` so a hand-built test
+/// world that pushes synthetic events cannot print a negative.
+fn animal_births_and_deaths(world: &World) -> (u64, u64) {
+    let died: u64 = world.group_deaths.iter().map(|g| g.by_cause.iter().sum::<u64>()).sum();
+    (world.creature_stats.births, died)
+}
+
+/// **The header's build-and-box line** (spec A1-A2): which commit made the
+/// binary, and the box's own geometry -- the two things the 10-03 chronicle
+/// left out and its analysis had to find by elimination. Without the first,
+/// two chronicles cannot be put against the merge history; without the
+/// second, two chronicles cannot be compared at all.
+///
+/// - `BUILD <sha> OF <date>`: `build.rs`'s `PIXEL_PHYSICS_GIT_SHA` and that
+///   commit's date (not the build time -- `build.rs` says why), `unknown`
+///   from a tree with no git. Uncommitted edits are not flagged.
+/// - `RELEASE`/`DEBUG`: perf numbers from a debug build are not comparable to
+///   anything, and nothing else in the file says which this was.
+/// - `BINARY`: the running executable's stem -- `lab` from a played session,
+///   an example's name from a harness.
+/// - `BOX WxH SOIL n LAMPS n AT SPACING n`: `LabBox`'s own fields, and the
+///   lamp count **read off the world** (`LabBox::lamps_in`), because the
+///   player can add, move and remove fixtures and the spec does not follow.
+/// - `SCENARIO <name>` or `HAND-BUILT`.
+pub fn chronicle_build_line(world: &World, spec: &LabBox, scenario: Option<&str>) -> String {
+    let exe = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.file_stem().map(|s| s.to_string_lossy().into_owned()))
+        .unwrap_or_else(|| "unknown".into());
+    format!(
+        "BUILD {} OF {}  {}  BINARY {}  BOX {}X{}  SOIL {}  LAMPS {} AT SPACING {}  {}",
+        option_env!("PIXEL_PHYSICS_GIT_SHA").unwrap_or("unknown"),
+        option_env!("PIXEL_PHYSICS_GIT_DATE").unwrap_or("unknown"),
+        if cfg!(debug_assertions) { "DEBUG" } else { "RELEASE" },
+        exe,
+        spec.width,
+        spec.height,
+        spec.soil_depth,
+        spec.lamps_in(world).len(),
+        spec.lamp_spacing,
+        match scenario {
+            Some(name) => format!("SCENARIO {name}"),
+            None => "HAND-BUILT".to_string(),
+        }
+    )
+}
+
+/// **Every `PIXEL_PHYSICS_*` environment switch set in this process**, as
+/// `SWITCHES: NAME=value, ...` sorted by name, or `SWITCHES: NONE SET`.
+///
+/// The owner's question on 10-03 was whether settings are recorded with the
+/// log, and the answer was only half: the `DIALS` line covers the parameters
+/// page, and the ~190 launch-time env switches (`PIXEL_PHYSICS_DIG_ROOF`,
+/// `PIXEL_PHYSICS_STOREROOM`, ...) were invisible. There is no central
+/// registry of those switches with their shipped defaults to diff against
+/// -- each is read where it is used -- so this lists what is *set*, not what
+/// *differs*: a switch set to its own default prints too, which is noise
+/// rather than a lie. Takes the variables as an argument so a test can hand
+/// it a fixed set instead of the process's own.
+pub fn chronicle_switches_line(vars: impl Iterator<Item = (String, String)>) -> String {
+    let mut set: Vec<String> = vars.filter(|(k, _)| k.starts_with("PIXEL_PHYSICS_")).map(|(k, v)| format!("{k}={v}")).collect();
+    set.sort_unstable();
+    if set.is_empty() {
+        "SWITCHES: NONE SET".to_string()
+    } else {
+        format!("SWITCHES: {}", set.join(", "))
+    }
+}
+
+/// **The `.actions.csv` sidecar's text** (spec H30): `frame,text`, one row
+/// per player action, every one the run has had (`RunLog::actions`, never
+/// trimmed). The text is the same sentence the chronicle prints, quoted with
+/// any `"` doubled, since a sentence like `WALL AT 40 -- 2 COMPARTMENTS` or a
+/// dial value can carry a comma.
+pub fn actions_csv(world: &World) -> String {
+    let mut out = String::from("frame,text\n");
+    for e in world.run_log.actions() {
+        out.push_str(&format!("{},\"{}\"\n", e.frame, e.detail.replace('"', "\"\"")));
+    }
     out
 }
 
@@ -10865,7 +11052,7 @@ mod tests {
         let log_count = w.run_log.recent().filter(|e| e.kind == world::LogKind::LineEnded).count();
         assert_eq!(log_count, 3, "the fixture did not end three lines");
 
-        let text = chronicle_text(&w, &LabBox::default(), "TEST BED", 1, &[], &[]);
+        let text = chronicle_text(&w, &LabBox::default(), "TEST BED", None, 1, &[], &[]);
         // One legend paragraph opens `THE <NAME> LINE (`; counting that
         // prefix is the export's own row count, not a re-derivation of it.
         let legend_lines = text.lines().filter(|l| l.starts_with("THE ") && l.contains(" LINE (")).count();
@@ -10916,7 +11103,7 @@ mod tests {
             "the fixture did not overflow the ring ({in_ring} of {born}), so it cannot tell a tally from a census"
         );
 
-        let text = chronicle_text(&w, &LabBox::default(), "TEST BED", 1, &[], &[]);
+        let text = chronicle_text(&w, &LabBox::default(), "TEST BED", None, 1, &[], &[]);
         let counts = text.lines().find(|l| l.starts_with("COUNTS:")).expect("the chronicle always ends with a COUNTS line");
         assert!(
             counts.contains(&format!("BORN {born}")),
@@ -10931,6 +11118,80 @@ mod tests {
         assert!(counts.contains(&format!("LOG DROPPED {}", w.run_log.dropped())), "the drop count left the line: {counts:?}");
     }
 
+    /// **`BORN`/`DIED` are split by kingdom, and the split adds up.** Spec
+    /// H31: the 10-03 `BORN 3280` was 1,399 ants and 1,881 plants and the
+    /// line could not say so. Animal births are `CreatureStats::births`, so
+    /// setting it on a world whose log holds plant-free synthetic births
+    /// must move the split and not the total.
+    #[test]
+    fn the_chronicle_counts_split_births_by_kingdom() {
+        let mut w = world();
+        for f in 0..10u64 {
+            w.run_log.push(world::LogEvent {
+                frame: f,
+                id: 1,
+                born_frame: 0,
+                species: crate::sim::organism::SpeciesId(0),
+                kind: world::LogKind::Born,
+                other: 0,
+                lineage: 0,
+                generation: 0,
+                detail: String::new(),
+            });
+        }
+        w.creature_stats.births = 4;
+        let text = chronicle_text(&w, &LabBox::default(), "TEST BED", None, 1, &[], &[]);
+        let counts = text.lines().find(|l| l.starts_with("COUNTS:")).expect("a COUNTS line");
+        assert!(counts.contains("BORN 10 (ANIMALS 4, PLANTS 6)"), "the kingdom split is wrong: {counts:?}");
+    }
+
+    /// **Every player action reaches the chronicle, even past the line
+    /// ring** (spec B7). One action, then enough line events to age it out
+    /// of the ring: the LINES view must still open with it, once -- and a
+    /// second action still in the ring must print once, not twice.
+    /// Provable red by deleting the `lost` splice in `chronicle_text`.
+    #[test]
+    fn the_chronicle_prints_actions_the_ring_dropped() {
+        let (mut w, _) = world_with_ended_lines(1);
+        w.log_player_action("PLACED COLONY OF 8 ANT AT X 240");
+        for f in 0..world::LINE_LOG_CAP as u64 {
+            w.run_log.push(world::LogEvent {
+                frame: w.frame + f,
+                id: 1,
+                born_frame: 0,
+                species: crate::sim::organism::SpeciesId(0),
+                kind: world::LogKind::LineMilestone,
+                other: 0,
+                lineage: 0,
+                generation: 0,
+                detail: String::new(),
+            });
+        }
+        w.frame += world::LINE_LOG_CAP as u64;
+        w.log_player_action("SPEED 4X");
+        assert_eq!(w.run_log.recent().filter(|e| e.detail.starts_with("PLACED")).count(), 0, "the ring kept the action; no test");
+        let text = chronicle_text(&w, &LabBox::default(), "TEST BED", None, 1, &[], &[]);
+        assert_eq!(text.matches("PLACED COLONY OF 8 ANT AT X 240").count(), 1, "the dropped action is missing or doubled");
+        assert_eq!(text.matches("SPEED 4X").count(), 1, "the action still in the ring printed twice or not at all");
+        let csv = actions_csv(&w);
+        assert_eq!(csv.lines().count(), 3, "header plus two actions:\n{csv}");
+    }
+
+    /// **The `SWITCHES:` line lists every `PIXEL_PHYSICS_*` variable given,
+    /// sorted, and nothing else** -- and says `NONE SET` rather than nothing
+    /// on an empty set, so an absent line is never mistaken for a clean
+    /// launch.
+    #[test]
+    fn the_switches_line_lists_only_pixel_physics_variables() {
+        let vars = vec![
+            ("PIXEL_PHYSICS_STOREROOM".to_string(), "keep".to_string()),
+            ("HOME".to_string(), "/root".to_string()),
+            ("PIXEL_PHYSICS_DIG_ROOF".to_string(), "off".to_string()),
+        ];
+        assert_eq!(chronicle_switches_line(vars.into_iter()), "SWITCHES: PIXEL_PHYSICS_DIG_ROOF=off, PIXEL_PHYSICS_STOREROOM=keep");
+        assert_eq!(chronicle_switches_line(std::iter::empty()), "SWITCHES: NONE SET");
+    }
+
     /// **A kind that never happened is not printed as zero**, and one that
     /// did is printed once -- the negative half of the line above. Without
     /// it `pushed_by_kind` could emit all nine kinds every time and the
@@ -10938,7 +11199,7 @@ mod tests {
     #[test]
     fn the_chronicle_counts_omit_kinds_that_never_fired() {
         let (w, _) = world_with_ended_lines(2);
-        let text = chronicle_text(&w, &LabBox::default(), "TEST BED", 1, &[], &[]);
+        let text = chronicle_text(&w, &LabBox::default(), "TEST BED", None, 1, &[], &[]);
         let counts = text.lines().find(|l| l.starts_with("COUNTS:")).expect("a COUNTS line");
         assert!(counts.contains("LINE ENDED 2"), "the two ended lines are not counted: {counts:?}");
         assert!(!counts.contains("FIRST SEED"), "nothing set a seed in this fixture, yet the line reports it: {counts:?}");
@@ -11003,6 +11264,53 @@ mod tests {
         (w, colony, lineages)
     }
 
+    /// **An ended animal line whose grave has aged out lands under no
+    /// colony -- least of all a colony 0 that never existed.** The 10-03
+    /// playtest's LEGENDS printed "THE ANT 0 COLONY ... 248 OF ITS FOUNDING
+    /// LINES HAVE ENDED": `ended_lines` filed every grave-dropped line under
+    /// colony `0`. Two lines end in a real colony, then `GRAVE_CAP` plant
+    /// graves roll their graves out; both lines must then sit in the one
+    /// unknown row, the colony's own row must hold none of them, no row may
+    /// be colony `Some(0)`, and the chronicle must neither print an
+    /// `ANT 0 COLONY` paragraph nor drop the lines. Sensitivity: the graves
+    /// are checked gone first, and put `map_or(0, ..)` back in
+    /// `ended_lines` (with `Some(..)` around it) and the `Some(0)` and
+    /// paragraph assertions go red.
+    #[test]
+    fn an_ended_line_with_no_grave_is_not_filed_under_colony_zero() {
+        let (mut w, colony, lineages) = world_with_ant_colony(2);
+        for i in 0..world::GRAVE_CAP as u64 {
+            w.graveyard.push(world::Grave {
+                id: 1_000 + i as crate::sim::cell::OrganismId,
+                born_frame: 0,
+                died_frame: 500 + i,
+                species: crate::sim::organism::SpeciesId(0),
+                lineage: 0,
+                colony: 0,
+                generation: 0,
+                cause: crate::sim::organism::DeathCause::Starved,
+                life: crate::sim::organism::LifeCounters::default(),
+                at: (0, 0),
+                creature: false,
+            });
+        }
+        assert!(w.graveyard.recent().all(|g| !g.creature), "the ant graves are still held, so this proves nothing");
+        let ended = ended_lines(&w);
+        assert_eq!(ended.iter().filter(|e| e.creature && e.colony.is_none()).count(), 2, "the two grave-dropped lines are not marked unknown");
+        let rows = history_summary(&w);
+        assert!(rows.iter().all(|r| r.colony != Some(0)), "a row was filed under colony 0");
+        let own = rows.iter().find(|r| r.colony == Some(colony)).expect("the colony keeps its own row (group_deaths never ages out)");
+        assert!(own.ended.is_empty(), "grave-dropped lines were rolled up into a colony they cannot be shown to belong to");
+        let unknown = rows.iter().find(|r| r.name == UNKNOWN_COLONY).expect("an unknown-colony row");
+        let got: std::collections::BTreeSet<u32> = unknown.ended.iter().map(|e| e.lineage).collect();
+        assert_eq!(got, lineages.iter().copied().collect(), "the unknown row does not hold exactly the dropped lines");
+        assert!(history_lines_for_colony(&w, 0).is_empty(), "colony 0's expansion lists lines");
+        let text = chronicle_text(&w, &LabBox::default(), "TEST BED", None, 1, &[], &[]);
+        assert!(!text.contains("ANT 0 COLONY"), "the chronicle still names a colony 0:\n{text}");
+        assert!(text.contains("2 ANIMAL FOUNDING LINES ENDED IN NO KNOWN COLONY"), "the unknown row's paragraph is missing:\n{text}");
+        assert_eq!(text.matches(UNKNOWN_COLONY).count(), 3, "one summary paragraph and one mark per line legend:\n{text}");
+    }
+
     /// **A SUMMARY colony row's cause counts equal an independent tally of
     /// the graveyard itself for that colony.** `history_summary` is built
     /// from `World::group_deaths`, never the graveyard directly
@@ -11061,7 +11369,7 @@ mod tests {
             lineages_a.iter().copied().collect(),
             "colony A's expansion must be exactly its own two ended lines, no more and no fewer"
         );
-        assert!(rows.iter().all(|r| r.colony == colony_a), "a row from a different colony leaked into the expansion");
+        assert!(rows.iter().all(|r| r.colony == Some(colony_a)), "a row from a different colony leaked into the expansion");
         assert!(!got.contains(&lineage_b), "colony B's own line leaked into colony A's expansion");
     }
 

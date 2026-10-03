@@ -136,6 +136,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // `Lab::advance` runs its tick loop on the rayon pool (`parallel::on_pool`);
     // give the pool the stack a main thread had.
     pixel_physics::sim::parallel::init_pool_for_main();
+    // **The per-phase stopwatch is on in the lab unless the player says
+    // `PIXEL_PHYSICS_PHASE_CLOCK=0`** -- before `Handler::new` builds the
+    // `Lab`, because the switch is read once per process and the first tick
+    // would otherwise settle it at the harness default (off). Every CENSUS row
+    // of a played session's chronicle then carries where its ticks went; see
+    // `frame::phase_clock_default_on` for why and for what it costs.
+    pixel_physics::sim::frame::phase_clock_default_on();
     let event_loop = EventLoop::new()?;
     event_loop.set_control_flow(ControlFlow::Poll);
     let mut handler = Handler::new();
