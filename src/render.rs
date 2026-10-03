@@ -3102,6 +3102,32 @@ pub const ROOT_FADE: f32 = 0.8;
 /// How far either side of a nest's centre, in columns, roots fade.
 pub const ROOT_FADE_REACH: i32 = 40;
 
+/// **The nest cutaway's palette**: a fixed ramp, never a blend into the
+/// cell's own colour (`CLAUDE.md`, *a debug readout must not be a function
+/// of the thing it debugs*). Ground is dark, the colony's own work is
+/// bright: open tunnel pale, worked walls a step up from the ground, nest
+/// white, brood pink (not yellow: flowers are yellow), food green. Ants and
+/// water draw as themselves.
+pub const CUTAWAY_GROUND: [u8; 4] = [58, 40, 30, 255];
+pub const CUTAWAY_WORKED: [u8; 4] = [110, 84, 62, 255];
+pub const CUTAWAY_TUNNEL: [u8; 4] = [238, 214, 170, 255];
+pub const CUTAWAY_NEST: [u8; 4] = [255, 255, 255, 255];
+pub const CUTAWAY_BROOD: [u8; 4] = [255, 110, 200, 255];
+pub const CUTAWAY_FOOD: [u8; 4] = [60, 230, 90, 255];
+/// How far above the ground row the cutaway starts, and how far up an open
+/// cell looks for a roof: enough for a mound and a doorway over a flat bed.
+pub const CUTAWAY_ABOVE: i32 = 16;
+
+/// What the nest cutaway needs per cell, resolved once per `draw`.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct Cutaway {
+    ground: i32,
+    nest: Option<material::MaterialId>,
+    brood: Option<material::MaterialId>,
+    packed: Option<material::MaterialId>,
+    spoil: Option<material::MaterialId>,
+}
+
 /// Is `(x, y)` underground within [`ROOT_FADE_REACH`] columns of a nest?
 /// Read off `World::nest_sites` -- a handful of entries -- so this is a short
 /// loop on the plant cells that reach it and nothing on any other cell.
@@ -3464,6 +3490,15 @@ pub struct Renderer {
     /// `(fade_roots, nest count)` as of the last `draw`: either changing
     /// repaints every root near a nest with no chunk dirtied.
     last_root_fade: (bool, usize),
+    /// **The nest cutaway**: `Some(ground row)` draws everything below that
+    /// row on a fixed ramp -- tunnels pale, nest white, brood yellow, food
+    /// green, the rest dark -- so a colony's underground reads at a glance
+    /// at play zoom. Ants and water draw as themselves. One of the five
+    /// readouts the owner picked from the agents' own instruments
+    /// (2026-10-03); `labshot mark=cutaway` was its harness-only ancestor.
+    /// Off (`None`) here; the lab sets it from its own ground row.
+    pub nest_cutaway: Option<i32>,
+    cutaway: Option<Cutaway>,
     /// `organism_overlay` as of the last `draw` call. A change means every
     /// existing pixel in the buffer was tinted for a different channel, so
     /// one full redraw has to re-establish it — the same reason
@@ -3804,6 +3839,8 @@ impl Renderer {
             fade_roots: false,
             root_fade_soil: None,
             last_root_fade: (false, 0),
+            nest_cutaway: None,
+            cutaway: None,
             last_organism_overlay: OrganismOverlay::Off,
             focus_lineage: None,
             last_focus_lineage: None,
@@ -4651,6 +4688,18 @@ impl Renderer {
         let root_fade = (self.fade_roots, world.nest_sites.len());
         if self.last_root_fade != root_fade {
             self.last_root_fade = root_fade;
+            organism_overlay_changed = true;
+        }
+        // The cutaway: ids once per draw, and a toggle repaints everything.
+        let cutaway = self.nest_cutaway.map(|ground| Cutaway {
+            ground,
+            nest: world.materials.id_of("nest"),
+            brood: world.materials.id_of("brood"),
+            packed: world.materials.id_of("packedsoil"),
+            spoil: world.materials.id_of("spoil"),
+        });
+        if self.cutaway != cutaway {
+            self.cutaway = cutaway;
             organism_overlay_changed = true;
         }
 
@@ -7086,6 +7135,51 @@ impl Renderer {
     /// there, because outside the world there is no chunk worth looking up
     /// either, and because `World::get` answers `Cell::OUT_OF_BOUNDS` there,
     /// which is not a colour this ever wants. Out of bounds draws `VOID`.
+    /// The nest cutaway's colour for one cell, or `None` to draw it as
+    /// itself. **Open air counts as tunnel only when it is roofed** -- a
+    /// worked or earthen cell within [`CUTAWAY_ABOVE`] rows straight up --
+    /// because a nest is roofed void and a hole open to the sky is not a
+    /// room (`.claude/rules/measuring-the-world.md`). A plant is a root
+    /// below the ground row (drawn as ground, so it hides nothing) and
+    /// itself above it.
+    fn cutaway_colour(&self, world: &World, x: i32, y: i32, cell: Cell, mat: &material::Material, cut: Cutaway) -> Option<[u8; 4]> {
+        use material::MaterialKind as K;
+        let earthen = |k: K| !matches!(k, K::Empty | K::Plant | K::Creature | K::Liquid | K::Gas);
+        let m = Some(cell.material);
+        if matches!(mat.kind, K::Creature | K::Liquid | K::Gas) {
+            return None;
+        }
+        if m == cut.brood {
+            return Some(CUTAWAY_BROOD);
+        }
+        if m == cut.nest {
+            return Some(CUTAWAY_NEST);
+        }
+        if cell.material == material::EMPTY {
+            let roofed = (1..=CUTAWAY_ABOVE).any(|k| {
+                let above = world.get(x, y - k);
+                earthen(world.materials.get(above.material).kind)
+            });
+            return roofed.then_some(CUTAWAY_TUNNEL);
+        }
+        if mat.kind == K::Plant {
+            return (y >= cut.ground).then_some(CUTAWAY_GROUND);
+        }
+        // Food only below the ground row: food in the ground is the colony's
+        // (carried in, or a heap at a door), while litter lying on the
+        // surface is everywhere and would paint the whole skyline green.
+        if crate::sim::creature::food_value(world, cell) > 0.0 {
+            return (y >= cut.ground).then_some(CUTAWAY_FOOD);
+        }
+        if m == cut.packed || m == cut.spoil {
+            return Some(CUTAWAY_WORKED);
+        }
+        if mat.kind == K::Solid {
+            return None;
+        }
+        Some(CUTAWAY_GROUND)
+    }
+
     fn cell_colour(&self, world: &World, x: i32, y: i32, sub: (i32, i32), cell: Cell) -> [u8; 4] {
         // **One `Materials::get` for the cell, not six.** The palette, the
         // kind (three separate liquid tests), `water_capacity` and
@@ -7098,6 +7192,17 @@ impl Renderer {
         // Modulo keeps any shade value valid, so a palette can shrink on hot
         // reload in M3 without invalidating cells already in the world.
         let mut base = palette[cell.shade as usize % palette.len()];
+        // **The nest cutaway** -- see `nest_cutaway`. From a little above
+        // the ground row down, everything but an animal, a liquid, stone or
+        // open sky is replaced outright by its class on the fixed ramp. One
+        // compare for every cell above the band or with the cutaway off.
+        if let Some(cut) = self.cutaway {
+            if y >= cut.ground - CUTAWAY_ABOVE {
+                if let Some(c) = self.cutaway_colour(world, x, y, cell, mat, cut) {
+                    return c;
+                }
+            }
+        }
         // **A root near a nest fades into the soil** -- see `fade_roots`.
         // Gated cheapest first: a plant-kind cell (every other cell stops at
         // one compare), owned by an organism, under a nest's ground line and
@@ -9408,6 +9513,57 @@ pub(crate) fn draw_circle_outline(frame: &mut [u8], width: u32, height: u32, cx:
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// **The nest cutaway paints each class on its fixed ramp, and nothing
+    /// else.** Under the ground row: nest white, brood pink, worked soil a
+    /// step up from plain ground, carried food green, a roofed hole pale, a
+    /// root as ground. And the specificity half: a hole open to the sky is
+    /// not a tunnel, stone draws as itself, and with the cutaway off a nest
+    /// cell draws in its own palette.
+    #[test]
+    fn the_nest_cutaway_paints_each_underground_class_on_its_ramp() {
+        let mut w = World::new(crate::sim::chunk::Rect::new(0, 0, 127, 127));
+        let id = |w: &World, n: &str| w.materials.id_of(n).unwrap_or_else(|| panic!("{n}"));
+        let (soil, nest, brood, packed, provisions) = (id(&w, "soil"), id(&w, "nest"), id(&w, "brood"), id(&w, "packedsoil"), id(&w, "provisions"));
+        let ground = 60;
+        for x in 0..128 {
+            for y in ground..120 {
+                w.set(x, y, Cell::new(soil, 0));
+            }
+            for y in 120..128 {
+                w.set(x, y, Cell::new(material::STONE, 0));
+            }
+        }
+        w.set(10, 70, Cell::new(nest, 0));
+        w.set(11, 70, Cell::new(brood, 0));
+        w.set(12, 70, Cell::new(packed, 0));
+        w.set(13, 70, Cell::new(provisions, 0));
+        w.set(14, 70, Cell::EMPTY); // roofed: soil straight above
+        for y in ground..=66 {
+            w.set(40, y, Cell::EMPTY); // a shaft open to the sky
+        }
+        let cut = Cutaway {
+            ground,
+            nest: Some(nest),
+            brood: Some(brood),
+            packed: Some(packed),
+            spoil: w.materials.id_of("spoil"),
+        };
+        let mut r = Renderer::new();
+        r.nest_cutaway = Some(ground);
+        r.cutaway = Some(cut);
+        let at = |r: &Renderer, x: i32, y: i32| r.cell_colour(&w, x, y, (0, 0), w.get(x, y));
+        assert_eq!(at(&r, 10, 70), CUTAWAY_NEST);
+        assert_eq!(at(&r, 11, 70), CUTAWAY_BROOD);
+        assert_eq!(at(&r, 12, 70), CUTAWAY_WORKED);
+        assert_eq!(at(&r, 13, 70), CUTAWAY_FOOD);
+        assert_eq!(at(&r, 14, 70), CUTAWAY_TUNNEL, "a roofed hole is a tunnel");
+        assert_eq!(at(&r, 20, 90), CUTAWAY_GROUND);
+        assert_ne!(at(&r, 40, 62), CUTAWAY_TUNNEL, "a shaft open to the sky is not a room");
+        assert!(![CUTAWAY_GROUND, CUTAWAY_TUNNEL].contains(&at(&r, 20, 124)), "stone must draw as itself");
+        r.cutaway = None;
+        assert_ne!(at(&r, 10, 70), CUTAWAY_NEST, "with the cutaway off, the nest drew on the ramp anyway");
+    }
     use crate::sim::cell::Cell;
     use crate::sim::chunk::Rect;
     use crate::sim::material;

@@ -1,3 +1,30 @@
+// **Brought back in line with `ant.ron`, 2026-10-03** (owner: *"Can we
+// update longant to more closely match ant other than body difference?"*).
+// Since 2026-09-11 the shipped ant had moved on -- the home pull, the
+// colony scent, the 5,760 crop, food weighted at half, and a dozen brain
+// weights -- and this file had not, so a longant was the ant of a month
+// ago in a longer body. Everything from `tick_interval` down is now
+// `ant.ron` verbatim except four things: the body (above), the three
+// per-cell prices divided by seven cells rather than two
+// (`idle_cost_per_cell`, `move_cost_per_cell`, `body_energy`), the
+// `traffic_defer_max` this body needs to turn round in a dead end,
+// **no `brood`**: eggs, larvae and pupae belong to the laying work, so a
+// longant still buds a grown child as it always has -- and **its own
+// brain** (`instincts` down to `recurrence`), which is the 2026-09-11 one.
+//
+// **The ant's current brain collapses this animal, measured.** The played
+// bed, founded alone, 60,000 frames, seeds 1-3, alive at 59,400: the
+// unsynced longant 181/183/148; everything synced including the brain
+// 5/0/12 (blocked moves 11,163 -> 58,967 on seed 1); everything synced
+// but the brain 200/143/108. Synced but `home_bias` 0 still collapses
+// (11/2/43), and so does reverting `food_weight`/`crop_capacity` (44/1/6),
+// so it is the weights, not the home pull or the crop. Which weights is
+// the open half: the ant's brain is now tuned to a life with brood (its
+// `Lay` output and the drop and dig weights around the nest), and a
+// budding animal is not living that life. Re-sync the parameters by the
+// same rule when `ant.ron` changes; re-sync the brain only with a bed run
+// that shows it holds.
+//
 // **The long ant, 2026-09-11 -- the articulated body, placeable rather
 // than shipped.** `Reports/creature-articulated-body-2026-09-09.md` built
 // this seven-cell body as the ant's own for a day (2026-09-09/10); the
@@ -194,44 +221,27 @@
         // default to the recommended setting rather than off.
         founder_reserve_spread: 0.5,
 
-        // **Per body cell, since 2026-08-30, and re-derived again 2026-09-09
-        // for the seven-cell articulated body above.** The two values below
-        // are the same flat 0.10/0.25 this file has always derived from --
-        // see `organism.rs`'s `idle_cost_per_cell` -- now divided by *seven*
-        // cells instead of two, so the flat totals, and everything derived
-        // from them, are unmoved by the appearance change:
+        // No `brood` here: see this file's header. A longant buds a grown
+        // child (`reproduce_threshold` below), as it did before the sync.
+
+        // **Per body cell, since 2026-08-30, and this ant is the number
+        // both rates were calibrated from.** They were flat per *animal*
+        // and nothing in the cost path read `chain.len()`, so a longer body
+        // was free -- see `organism.rs`'s `idle_cost_per_cell`. The two
+        // values below are the old 0.10 and 0.25 divided by this body's two
+        // cells, so **a two-cell ant's bill is arithmetically unchanged**
+        // (0.05 x 2 = 0.10, 0.125 x 2 = 0.25) and E14's horizon is not
+        // disturbed. The 2.5:1 worm ratio the block above defends survives
+        // the division, because dividing both operands by the same 2 cannot
+        // move their ratio.
         //
-        //   idle_cost_per_cell = 0.10 / 7 = 0.0142857143
-        //   move_cost_per_cell = 0.25 / 7 = 0.0357142857
-        //
-        // **This is the whole of what keeps a 3.5x body from being a 3.5x
-        // metabolic change riding silently on it** (`CLAUDE.md`'s standing
-        // rule on a shared budget: name the constants calibrated against
-        // the old behaviour and re-derive them in the same change). Leaving
-        // the old 0.05/0.125 in place would have billed this ant 3.5x its
-        // own idle and move cost for no behavioural reason at all, and the
-        // two changes -- looks different, costs more to live -- could not
-        // have been told apart on screen.
-        //
-        // The identity that makes this safe is `idle_cost_per_cell * cells`
-        // -- every quantity derived from "idle ticks" below cancels the
-        // cell count out by construction, so **nothing past this point
-        // needed to move**: `idle ticks = start_energy / (idle_cost_per_cell
-        // * cells) = 200 / (0.0142857143 * 7) = 200 / 0.10 = 2,000`,
-        // identical to the two-cell figure, so `sight_fraction`,
-        // `curvature_fraction`, `force_fraction`, `armour_fraction` and
-        // `synapse_fraction` below are all still correct at their existing
-        // values without touching one of them. The 2.5:1 worm ratio the
-        // block above defends survives the same way: dividing both operands
-        // by the same 7 cannot move their ratio.
-        //
-        // What *does* move, deliberately, is `dig_cost_in_moves`, `emit_
-        // cost_in_moves` and `spoil_weight_cells`'s own totals: each of
-        // those already reads as `move_cost_per_cell * body_cells * price`,
-        // so the cell-count factor they multiply against is the same
-        // cancelling identity, and their *shares of the burn* (the table
-        // measured just below) are unmoved for the same reason.
+        // What *does* move is every body that is not two cells: `ant_long`
+        // at six now pays 3x and the nine-cell probe bodies 4.5x, which is
+        // the whole point of the change and is measured in
+        // `Reports/creature-body-extent-2026-08-30.md`.
+        // Longant: the ant's 0.10 per animal over seven cells, not two.
         idle_cost_per_cell: 0.0142857143,
+        // Longant: the ant's 0.25 per animal over seven cells, not two.
         move_cost_per_cell: 0.0357142857,
 
         // --- the verb prices -------------------------------------------
@@ -462,52 +472,86 @@
         // 288 reads (4.7% of an idle life) and r=16 is 1,088 (17.6%). No
         // hand-written cap is needed to make a broad sense expensive.
         curvature_fraction: 0.000000081168831,
-        // **Per body cell, exactly like `idle_cost_per_cell`/`move_cost_
-        // per_cell` above, and re-derived with them 2026-09-09 for the
-        // same reason.** `creature::place_creature`'s stamp is `body_energy
-        // * body_cells`, so this ant's own *whole-animal* meat value has to
-        // hold at 480 * 2 = 960 the way its idle and move bills hold, or a
-        // predator that eats this ant would be paid a different amount for
-        // the identical animal purely because it grew more cells:
-        //
-        //   body_energy = 960 / 7 = 137.1428571
-        //
-        // **`food_energy` on `assets/materials/ant.ron` moves by the same
-        // factor, in the same change, and it has to.** The two are one
-        // number wearing two names -- `Reports/dead-ends.md`'s 2026-08-30
-        // entry names this pairing directly: cutting `body_energy` alone
-        // while `food_energy` stayed at 480 would let a predator eat one
-        // cell of this ant for more energy than the whole animal's flesh
-        // cost to build, which is energy created inside `EnergyLedger`'s
-        // closed identity. `hopper.ron`'s matching material moves the same
-        // way for its own new cell count.
-        //
-        // **`corpse.ron`'s own fallback `food_energy: 480.0` is left
-        // alone, and that is a real gap rather than an oversight.** It is
-        // the price of a corpse that arrived with no stamp in `aux` (a
-        // burnt animal, mostly) and it is shared by every creature species
-        // that burns into `corpse` -- `beetle` and `worm` among them,
-        // neither of which changed cell count here. There is no single
-        // factor that re-derives it correctly for all of them at once, and
-        // picking one anyway would just move which species' unstamped
-        // corpse reads wrong. It no longer holds this file's own "smallest
-        // real stamp in the game" property once this ant's per-cell value
-        // drops below it -- flagged here rather than silently fixed, per
-        // this build's own instruction to say so plainly instead of
-        // working around it.
+        // **120, which is exactly what a corpse cell was worth before.**
+        // Under `eat_energy` any mouthful paid the eater 120, so pricing an
+        // ant's own meat at 120 a cell leaves scavenging worth precisely
+        // what it was worth yesterday -- the pump closes because the value
+        // is now finite and booked at spawn, not because meat got cheaper.
+        // Longant: the ant's 960 per animal over seven cells, so a birth stamp and a corpse are the ant's.
         body_energy: 137.1428571,
         // **The crop, which replaced `hunger_fraction`.** An ant no longer
         // decides between eating and carrying: it takes what it finds and
         // digests it as it walks, so what reaches the nest is what has not
         // been metabolised on the way. See `CreatureDef::crop_capacity`.
         //
-        // **1440 is three leaves at the shipped table (480 each), and three
-        // is a floor rather than a taste.** Food only leaves the crop a whole
-        // cell at a time, so an ant that can hold exactly one leaf is under
-        // one leaf within a tick of ingesting and can never deliver again --
-        // which would take `ascii`'s `deliveries > 0` red and read as the
-        // crop breaking foraging.
-        crop_capacity: 1440.0,
+        // **Three cells of the RICHEST food an ant forages, not of the
+        // cheapest.** Food only leaves the crop a whole cell at a time, so an
+        // ant that can hold exactly one cell is under one cell within a tick
+        // of ingesting and can never deliver again.
+        //
+        // **1440 was three leaves at 480 and that was the wrong denominator**,
+        // which went unnoticed for as long as nobody measured a delivery. A
+        // fruit cell is **960 J**, so 1440 held exactly one of them -- 0.667
+        // of the crop, with two unable to fit -- and put the ant in precisely
+        // the state the paragraph above forbids. Measured on one forager: its
+        // `crop_cells` was 1 on 1,740 ticks, 0 on 16,079, and **never 2** in
+        // 17,819 ticks of life, and the gap bed recorded **zero deliveries on
+        // every run it had ever produced**, at every distance, for that reason
+        // alone. `pheromone-trail-direction-2026-09-16.md` §7.38.
+        //
+        // 2880 is three fruit cells, and restores the floor the old comment
+        // was asking for against the food that actually sets it. It is priced:
+        // `carried_cells` charges `move_cost_per_cell` for whatever is still
+        // in the crop, so a fuller ant is a slower and more expensive one, and
+        // nothing here is free.
+        // **The homeward steering, 2026-09-20 — the other half of the wire
+        // this file already carries.** `(HomeAligned, Move, 3.0)` above is a
+        // THROTTLE: it decides *whether* a laden ant steps, and it was shipped
+        // while `home_bias` — which decides *which of the viable headings it
+        // takes* — was never authored here at all and defaulted to 0.0. So the
+        // ant ran hard when it happened to point home and tumbled at random
+        // otherwise. Owner's decision, 2026-09-20, after the loop census.
+        //
+        // **1.0 because the response is linear to the cap**, measured: this is
+        // saturated rather than tuned, so there is no interior optimum to find
+        // and sweeping it further is wasted (`Reports/lanes/homing-return-arm.md`).
+        //
+        // **What it buys, honestly: the best arm measured and not a
+        // significant one.** 24 seeds, paired within seed, loop completions as
+        // a share of ants that reached food: median **34.8% -> 37.5%**, median
+        // loopers **2 -> 3**, sign **14/9/1**. Its positive control does fire —
+        // homeward tumbles go **0.00% -> 3.52%**, which is the counter that
+        // reads exactly zero when this field is 0.0. Read the sign test rather
+        // than the medians: 14 of 23 non-ties is a lean, not a result.
+        //
+        // **It is shipped anyway because the alternative is a half-built
+        // mechanism**: a throttle with no steering is the configuration that
+        // produced the 52% sideways miss in the drop census, and the two
+        // halves were always meant to run together.
+        home_bias: 1.0,
+        // **5,760 and food at half the weight of flesh, shipped together
+        // 2026-09-25 on the owner's ruling** (*"Let's test it out"*, after
+        // `Reports/ant-scenes-2026-09-23.md` §17f-h). The ruling before it:
+        // a forager has to earn enough to feed itself and extra for the
+        // colony, or the loop has no point. At 2,880 with food as heavy as
+        // flesh, a trip put down about 1.3x what it cost the forager.
+        //
+        // **Neither half works alone, and that is measured.** The doubled
+        // crop at the old weight starved the carriers: a full crop weighed 12
+        // body cells, a step cost 1.75 J against a gut paying 0.825 J a tick,
+        // and starvation went 342 -> 461 of 480 (worse on 21 of 24 seeds). Half
+        // weight at the old crop helped (342 -> 293, 16/8). Together, on the
+        // colony bed: starved 342 -> 277 (16/5, p 0.027), foragers starved
+        // 109 -> 50 (18/2), about 2.7x put down per trip, and the average load
+        // carries 577 J at 1.2x the ant's weight against 337 J at 1.4x. In the
+        // lab box: intake 836k -> 1,158k J, births 450 -> 590, 1 extinct of
+        // 12 against 2, and plants standing 88 -> 28 (none of it significant
+        // at 12 seeds).
+        //
+        // **Foragers still eat on the way home.** Nothing here changes
+        // digestion; only what a load weighs and how much one holds.
+        crop_capacity: 5760.0,
+        food_weight: 0.5,
         // **Derived from two brackets, not chosen**, and to be swept before
         // it is trusted (`CreatureDef::digest_rate`):
         //
@@ -566,6 +610,47 @@
         // existence.
         armour_fraction: 0.0001,
         digest_fraction: 0.01515,
+        // **Digestion follows appetite, fully** -- see
+        // `CreatureDef::digest_hunger_weight` for the derivation, which is the
+        // whole argument and does not fit here.
+        //
+        // The short version: `digest_rate` above was setting two things at
+        // once -- how fast an ant feeds itself, and how long food survives in
+        // its crop -- and measured against a real journey the two brackets it
+        // is derived from want values five to ten times apart with no overlap.
+        // A forager metabolised its entire load before reaching home, so the
+        // gap bed recorded **zero deliveries on every run it ever produced**.
+        //
+        // **Authored at 0.0 -- built, wired, countered, and OFF -- because at
+        // 18 seeds it measured twice as bad as no gate at all.** Gap 90,
+        // `hand`, everything else identical:
+        //
+        //   deliveries  511 -> 255      median  6 -> 0
+        //   seeds delivering  9/18 -> 7/18
+        //
+        // No one seed carries that; drop the best seed from each arm and it is
+        // still 392 against 199. Survivors are a wash once seed 10's outlier
+        // colony is set aside (22 against 21).
+        //
+        // **The likely counterweight, and it is one this engine already
+        // charges twice.** `carried_cells` bills `move_cost_per_cell` for
+        // whatever is in the crop, and crop fill lowers `P(move)` -- measured
+        // as the *only* thing fill did, over 570,660 laden decisions
+        // (`home_bias`'s own doc). So protecting cargo keeps the ant heavy and
+        // slow for longer, and a slower ant has a longer journey, which is the
+        // quantity the gate exists to survive. Not confirmed; it is the
+        // mechanism that fits.
+        //
+        // **Kept rather than reverted, and at 1.0-or-nothing rather than
+        // tuned**, because it is the only lever that resolves a real
+        // contradiction: the two brackets `digest_rate` is derived from want
+        // values five to ten times apart once the trip is measured. It cannot
+        // pay for itself in a colony where nobody is ever rich -- the gate
+        // withheld about **1%** of throughput here, because almost no ant gets
+        // above `start_energy` in this bed. Turn it on when a granary makes
+        // colonies rich, which is the condition its usefulness depends on, and
+        // re-measure rather than assuming. `hungergate=` is the rider.
+        digest_hunger_weight: 0.0,
         digest_rate: 3.3,
 
         // **Detritus only, for now.** Owner open question #2: herbivory on
@@ -737,8 +822,17 @@
         // threshold -- 165 J for this ant, about half a mouthful of flower.
         // That is a step a lineage can actually be selected on inside a run
         // this long; a tenth of it would drift and never arrive.
-        // The last four entries (the scent signature and tolerance) are not
-        // read -- their width is the `scent_drift` field, not a tuple entry.
+        // Entries 10-13 (the scent signature and tolerance) are not read --
+        // their width is the `scent_drift` field, not a tuple entry.
+        // Entries 14-23 are the walk genes (`organism::WALK_SLOTS`: home
+        // pull, trail hold, route away, scout, patience, door read, and the
+        // four trail-plane weights laden/empty on A/B), at
+        // width 0.0 until a measurement says letting them drift is safe --
+        // so every bed breeds byte-identically to before they existed.
+        // Entries 24-25 are the door genes (`organism::DOOR_SLOTS`: how far
+        // round the door food is not put down, and how much the heap cue
+        // holds back re-opening the door), on the same terms. Entry 26 is
+        // the forage memory (`organism::TRAIT_RETURN_MEMORY`), likewise.
         trait_variance: (0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
 
         // **Budding: the bank an ant must reach before it makes another
@@ -974,6 +1068,109 @@
         // shared.
         climbs_over_kin: true,
 
+        // **The speed of speciation, and it ships ON.** Owner ruling
+        // 2026-09-12. Every newborn's three scent numbers and its tolerance
+        // land this far either side of its parent's, so a lineage wanders
+        // rather than cloning its signature -- which is what makes two nests
+        // that stop exchanging ants become two families the player can watch
+        // part, instead of one family for ever.
+        //
+        // **It could not ship before there was a nest to come home to.** With
+        // no cohesion any non-zero setting eventually spread a colony's
+        // odours past its own tolerance and it ate itself: measured at 0.5,
+        // `ANT 1 killed 22, 20 of them by ANT 1 itself`, the founding group
+        // wiped out and the colony a quarter its size. Now an ant standing on
+        // its nest blends toward the odour the nest holds
+        // (`World::nest_blend`), so the cloud a colony spreads over is
+        // `0.458 * scent_drift` -- 0.069 here, 7% of the 1.0 tolerance
+        // radius, and it does not reach that radius until 2.18, off the
+        // allele axis entirely. **No setting of this dial can make a cohered
+        // nest eat itself**, which is the whole of the case for turning it
+        // on. `Reports/evolution-lab-fission-design-2026-09-12.md` §1 and §5.
+        scent_drift: 0.15,
+
+        // **How far apart two colonies of ants start, in scent -- and it
+        // ships ON at 2.0.** Owner ruling 2026-09-14, overturning the
+        // default-off this was first proposed with. Every colony label draws
+        // one offset at founding, uniform in `-spread..=spread` on each of
+        // the three signature slots, so two clicks are two families rather
+        // than one: `creature::is_living_kin` is false across them,
+        // `nearest_foe` stops skipping them, and `adjacent_food` stops
+        // excluding them. Before this line the field defaulted to 0 and
+        // every ant in the world was every other ant's nestmate, which is
+        // the whole of why no colony had ever fought another
+        // (`Reports/why-colonies-do-not-fight-2026-09-14.md`).
+        //
+        // **2.0, and what the dial actually decides is how many world seeds
+        // clear the recognition radius at founding -- nothing else.**
+        // `is_living_kin` is `distance_sq <= tolerance_sq`, a **boolean**, so
+        // for two colonies already outside the acceptance radius
+        // (`tolerance + 1` = 1.0 here) moving them further apart changes no
+        // decision any animal ever makes. Measured: going 1 -> 2 leaves the
+        // cross-colony kill count **identical on 10 of 12 seeds**, and the
+        // whole gain is the two seeds that cross the threshold.
+        //
+        // Measured on the played bed, 12 seeds x 24,000 frames, gating the
+        // fraction of seeds where the switch does anything visible rather
+        // than a median -- the per-seed outcome is binary, so a median hides
+        // the seeds where it does nothing:
+        //
+        //   spread=0  ->   0 of 12 seeds, 0 kills   (the off arm, and it is
+        //                  genuinely off -- see below for why that matters)
+        //   spread=1  ->   9 of 12 seeds,  86 kills, median founding gap 1.62
+        //   spread=2  ->  11 of 12 seeds, 105 kills, median founding gap 2.28
+        //
+        // **The worst seed is no worse at 2.0** (0.561 against 0.566), so the
+        // clamp does not cost anything in the tail at this end of the axis --
+        // though it is still what stops the dial buying more further up, and
+        // it is why nothing above 2 is worth trying: `apply_colony_scent`
+        // clamps each slot to `[-1, 1]`, so past that the draws fold onto the
+        // corners of the cube instead of spreading. Lane D reached the same
+        // saturation from a different bed
+        // (`Reports/animal-conflict-research-2026-09-14.md` §8.3); the clamp
+        // is the mechanism under it.
+        //
+        // **This value was briefly changed to 1.0 on a measurement that was
+        // wrong, and the record is kept rather than tidied away**, because
+        // the way it was caught is the reusable part. `rivalry.rs`'s
+        // `spread=` override used to *add* its offset to whatever scent an
+        // animal already carried. While this field defaulted to 0 that was
+        // the same as re-deriving it; the moment this line went live,
+        // founding applied the authored offset and the override applied a
+        // **second** one -- so every arm measured `authored + requested`, and
+        // `spread=0` was not an off arm at all. It read as "1.0 and 2.0 are
+        // equivalent, and 2.0 has a worse tail", which is the opposite of the
+        // truth. **The control that caught it is the one this file's own
+        // notes demand everywhere else**: run the bed from the *authored*
+        // value and from the *runtime* override at the same seed and require
+        // them byte-identical. They disagreed on `gap` alone (1.817 against
+        // 2.289) while every outcome column matched -- matched only because
+        // both sat past a threshold, so a doubled offset changed no decision
+        // and would have gone on hiding until some arm sat near the boundary.
+        //
+        // **One seed in twelve still never separates.** Seed 9 is
+        // byte-identical to the unswitched bed on every column. That is a
+        // structural limit of a cube-clamped offset rather than a setting
+        // anyone can fix -- drawing on a sphere, or not clamping, is a design
+        // change and is not made here.
+        //
+        // **What it costs, paired against the same seeds at 0**: deaths
+        // **+99 median, up on 11 of 12 seeds and down on none**; starvation
+        // share **-4.3 points median, down on 10 of 12**, because killing
+        // displaces starving rather than adding to it; population and births
+        // unmoved (both medians exactly 0, up on 4 and down on 5). The bed
+        // carries it. **The constants
+        // this reallocates are named and NOT re-derived here** -- the birth
+        // bar, `colony_ants` and the starvation balance were all calibrated
+        // on a bed where no ant is food, and an ant is now food to another
+        // colony. That is the economy's to re-derive with these numbers in
+        // front of it, not this line's to pre-empt.
+        //
+        // **Set to 0 to get the old bed back**, exactly: `labstats spread=0`,
+        // `rivalry.rs spread=0`, or this line. Every measurement taken before
+        // today is reproducible against it.
+        scent_spread: 2.0,
+
         // **How many consecutive ticks a laden body waits out a jam before
         // it turns round anyway** -- round 29, and the one line in this
         // file that exists because of a playtest report rather than a
@@ -1021,7 +1218,6 @@
         // by it whatever it authors, because reversing is one ordinary step
         // onto its own vacating tail (§13c).
         traffic_defer_max: Some(4),
-
         nest: "nest",
 
         // Against Material::penetration_resistance, the pattern roots

@@ -113,6 +113,20 @@ fn main() {
     lab.set_cursor(None);
     tiles.push(("BAR AT REST".into(), shot(&mut lab)));
 
+    // 1a. **The `ADD` cell, pressed three times and hovered.** Soil, water,
+    // then food: the tile shows the face naming what it will put in and the
+    // hover note listing the rest, and the line below says whether each
+    // press actually stepped the tool (2026-10-03, owner's one-button ask).
+    let add = centre(&lab, Action::Place);
+    for _ in 0..3 {
+        click(&mut lab, add);
+    }
+    fired.push(format!("three ADD presses armed {:?} (expected Food)", lab.ui.tool()));
+    lab.set_cursor(Some(add));
+    tiles.push(("ADD: THIRD PRESS, HOVERED".into(), shot(&mut lab)));
+    lab.act(Action::Tool(lab.ui.tool()));
+    lab.set_cursor(None);
+
     // 2. Hover the MENU chip, which is also the hover-explanation case --
     // and, since round 30's master-menu lane, the one bar-level route to
     // every page that used to have its own chip.
@@ -1022,6 +1036,36 @@ fn main() {
         lab.set_cursor(Some((sx, sy)));
     }
     tiles.push(("VERB: CULL".into(), shot(&mut lab)));
+
+    // FIRE, through the ADD cell (owner, 2026-10-03): a click on a plant,
+    // then the box run for a few seconds so the tile shows the burn and what
+    // it left, with how many cells were alight and how much ash there is.
+    if let Some((wx, wy)) = living_cell_of(&lab, false) {
+        add_until(&mut lab, Tool::Fire);
+        let (sx, sy) = lab.renderer.world_to_screen(wx, wy).unwrap_or((wx, wy));
+        click(&mut lab, (sx, sy));
+        let burning = |lab: &Lab| {
+            let b = lab.world.bounds().expect("bounds");
+            (b.min_y..=b.max_y).flat_map(|y| (b.min_x..=b.max_x).map(move |x| (x, y))).filter(|&(x, y)| lab.world.get(x, y).is_burning()).count()
+        };
+        let lit = burning(&lab);
+        lab.act(Action::TogglePhase);
+        for _ in 0..180 {
+            lab.advance(std::time::Duration::from_millis(16));
+        }
+        lab.act(Action::TogglePhase);
+        let ash = {
+            let b = lab.world.bounds().expect("bounds");
+            (b.min_y..=b.max_y)
+                .flat_map(|y| (b.min_x..=b.max_x).map(move |x| (x, y)))
+                .filter(|&(x, y)| lab.world.get(x, y).material == pixel_physics::sim::material::ASH)
+                .count()
+        };
+        fired.push(format!("FIRE at {wx},{wy}: {lit} cells lit, then {} burning and {ash} ash", burning(&lab)));
+        lab.set_cursor(None);
+        tiles.push(("VERB: FIRE".into(), shot(&mut lab)));
+        lab.act(Action::Tool(Tool::Fire));
+    }
     // ...and the ant's death needs a tick to land, which is the honest half:
     // a stopped box does not kill anything, it only marks it.
     let creatures_before = lab.world.live_creature_count();
@@ -1052,8 +1096,7 @@ fn main() {
     ));
 
     // SOIL and WATER: a real drag, and the two `aux` conventions read back.
-    let at = centre(&lab, Action::Tool(Tool::Soil));
-    click(&mut lab, at);
+    add_until(&mut lab, Tool::Soil);
     for _ in 0..3 {
         let at = centre(&lab, Action::Brush(1));
     click(&mut lab, at);
@@ -1083,8 +1126,7 @@ fn main() {
     ));
     tiles.push(("BRUSH: SOIL".into(), shot(&mut lab)));
 
-    let at = centre(&lab, Action::Tool(Tool::Water));
-    click(&mut lab, at);
+    add_until(&mut lab, Tool::Water);
     let (wx0, wy0) = (gx + 90, gy - 50);
     lab.set_cursor(Some((wx0, wy0)));
     lab.press(wx0, wy0);
@@ -1653,6 +1695,21 @@ fn click(lab: &mut Lab, (x, y): (i32, i32)) {
 /// work for those four because they were always one click away from
 /// anywhere; now only MENU is, so this is the one place that knows to route
 /// through it, rather than teaching every call site.
+/// **Arm a hand-placed tool the way a player now has to: through the bar's
+/// `ADD` cell**, pressing it until it lands on `tool`. `SOIL` and `WATER`
+/// lost their own bar cells on 2026-10-03, so aiming at
+/// `Action::Tool(Tool::Soil)` finds no button.
+fn add_until(lab: &mut Lab, tool: Tool) {
+    for _ in 0..=pixel_physics::lab::ui::PLACEABLE.len() {
+        if lab.ui.tool() == tool {
+            return;
+        }
+        let at = centre(lab, Action::Place);
+        click(lab, at);
+    }
+    panic!("the ADD cell never reached {tool:?}");
+}
+
 fn reach(lab: &mut Lab, action: Action) -> (i32, i32) {
     if let Some(r) = lab.ui.widget_rect(action) {
         return (r.x + r.w / 2, r.y + r.h / 2);

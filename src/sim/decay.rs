@@ -73,6 +73,23 @@ fn decay_yield_override() -> Option<f32> {
     static OVERRIDE: std::sync::OnceLock<Option<f32>> = std::sync::OnceLock::new();
     *OVERRIDE.get_or_init(|| std::env::var("DECAY_YIELD").ok().and_then(|v| v.parse().ok()))
 }
+/// **`PIXEL_PHYSICS_WINDFALL_ROT=off` -- fallen fruit that never rots.** A
+/// test switch for the owner's ask of 2026-10-03 (natural windfall either
+/// rots, today's behaviour and the default, or stays for ever), measured on
+/// the played bed before it becomes a lab control. Unset or anything but
+/// `off` reads `true` and the cell takes the ordinary roll below, so a
+/// shipped run is byte-identical.
+///
+/// Off, a windfall site is **rescheduled without rolling** rather than
+/// dropped, so the cell is still on the decay schedule if the switch is
+/// ever made live at runtime -- a dropped site would never rot again. The
+/// fruit can still be eaten and can still germinate (`plant.rs`), it only
+/// stops weathering into soil. Hand-placed food that never rots is a
+/// separate material (`provisions`), not this switch.
+fn windfall_rots() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| !matches!(std::env::var("PIXEL_PHYSICS_WINDFALL_ROT").as_deref(), Ok("off")))
+}
 // The reseed chance moved onto the material (`ash.ron`'s `reseed_chance`,
 // which keeps this constant's old 0.15). It is checked once at the moment of
 // decay rather than scheduled to keep trying — succession happens, but not on
@@ -119,6 +136,9 @@ pub fn tick(world: &mut World, site: &ActiveSite) -> Vec<ActiveSite> {
     let (Some(into), reseed_chance) = (here.decays_into, here.reseed_chance) else {
         return Vec::new();
     };
+    if !windfall_rots() && world.materials.id_of("windfall").is_some_and(|id| id == cell.material) {
+        return vec![ActiveSite { x, y, kind: ActiveKind::Decay, next_frame: world.organism_due(DECAY_TICK_INTERVAL) }];
+    }
 
     // **The material's own rate, always -- there is no fallback branch here
     // and that is deliberate.** An unset rate resolves to `DECAY_CHANCE_DAMP`

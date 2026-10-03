@@ -364,6 +364,66 @@ fn excluded_column(x: i32) -> bool {
     plant_exclusion().is_some_and(|(a, b)| (a..=b).contains(&x))
 }
 
+/// **`PIXEL_PHYSICS_BURIED_SEED` -- a seed with ground on top of it is not
+/// food.** Owner's ruling 2026-10-03 (the garden lane's card, *Build it*):
+/// the colony ate litter and seed faster than the bed replaced them on every
+/// played-bed seed, and nothing in the garden was out of its reach. Read
+/// once; `off` restores the old behaviour.
+///
+/// **On by default, on measurement** (labgarden played_bed, 6 seeds x
+/// 300k frames, main 1bdf5e15+): the colony outlasted the shipped bed on
+/// 5 of 6 seeds and tied the sixth (last ant at a median ~201k without it;
+/// 3 of 6 still had ants at 300k with it, against 0 of 6), and the bed
+/// ended with a median 74 kJ of edible food standing against 6. The buried
+/// stock itself is small -- tens of seeds at any time -- so what it buys is a
+/// garden that is never eaten to the last seed, not a larger colony (median
+/// peak 327 against 338).
+fn buried_seed_enabled() -> bool {
+    use std::sync::OnceLock;
+    static ON: OnceLock<bool> = OnceLock::new();
+    *ON.get_or_init(|| !matches!(std::env::var("PIXEL_PHYSICS_BURIED_SEED").as_deref(), Ok("off")))
+}
+
+/// **Bury or unearth a dormant seed, by what is on top of it.** A species'
+/// own `seed_material` cell whose cell above is ground -- solid or powder,
+/// not living tissue and not itself food, so a seed under leaf litter or
+/// crumbs is still on the surface -- is rewritten as `buriedseed`, which
+/// `food_value` reads as worth nothing, so no forager sees it and no eat
+/// verb takes it. The tick the ground above is gone it turns back into its
+/// species' seed. Everything else on the cell (organism id, packed cell
+/// type, shade) is kept, and `germinate` does not read the material, so a
+/// buried seed still sprouts on the ordinary light and water rule.
+///
+/// **Only the bare seed is buried**, never `pip` or `windfall`: those carry
+/// their own rot and germination bookkeeping keyed on the material, and the
+/// way back is the species' `seed_material`, which only the bare seed is.
+///
+/// Rides the `Germinate` dispatch every dormant seed already gets on its
+/// own tick, so it costs one cell read above a seed, not a sweep.
+fn bury_or_unearth(world: &mut World, x: i32, y: i32, species_id: organism::SpeciesId, cell: Cell) -> Cell {
+    let Some(buried) = world.materials.id_of("buriedseed") else {
+        return cell;
+    };
+    let Some(seed) = world.materials.id_of(&world.species.get(species_id).seed_material) else {
+        return cell;
+    };
+    if cell.material != seed && cell.material != buried {
+        return cell;
+    }
+    let above = world.get(x, y - 1);
+    let covered = above.organism_id() == 0
+        && world.materials.get(above.material).food_energy <= 0.0
+        && matches!(world.materials.kind(above.material), MaterialKind::Solid | MaterialKind::Powder);
+    let want = if covered { buried } else { seed };
+    if want == cell.material {
+        return cell;
+    }
+    let mut next = cell;
+    next.material = want;
+    world.set(x, y, next);
+    next
+}
+
 /// **Does `(x, y)` touch ground in any of its eight neighbours?** Soil,
 /// sand, gravel or rock — anything that is not living tissue, air or water.
 ///
@@ -6281,6 +6341,7 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: OrganismId, sta
                 found_candidate = true;
             }
             Behavior::Germinate { light_threshold, soil_water_threshold, instant } => {
+                let cell = if buried_seed_enabled() { bury_or_unearth(world, x, y, species_id, cell) } else { cell };
                 // **A seed germinates where it lands, never in mid-air.**
                 // Now that a seed is a `Powder` it falls, and without this
                 // it could meet its light and moisture conditions on the way
@@ -23765,6 +23826,68 @@ GrowingTip again, the rootless-plant case is live and grass needs a drought deat
         );
         // And the half that says the leak it named is closed anyway.
         assert!(state.is_none(), "a seed with nowhere to go must not hold its slot for ever");
+    }
+
+    /// **Buried seed is not food, and comes back when uncovered.** The owner's
+    /// 2026-10-03 ruling (`bury_or_unearth`). Checked on the material a
+    /// forager actually reads -- `creature::food_value` -- not only on the
+    /// relabel, so a `buriedseed.ron` that forgot `food_energy: 0` fails here.
+    /// And the round trip is checked on the organism's own fields, because a
+    /// seed that lost its owner or cell type on the way down would not
+    /// germinate when dug back up.
+    #[test]
+    fn a_seed_under_soil_is_not_food_and_turns_back_into_seed_when_uncovered() {
+        let mut w = test_world();
+        let herb = w.species.id_of("herb").expect("herb species must be loaded");
+        let seed = w.materials.id_of(&w.species.get(herb).seed_material).expect("herb's seed material is compiled in");
+        let buried = w.materials.id_of("buriedseed").expect("buriedseed.ron must be registered in material.rs");
+        let soil = w.materials.id_of("soil").expect("soil");
+        let id = w.push_organism(herb).expect("an organism slot is free");
+        let (x, y) = (50, 50);
+        place(&mut w, (x, y), seed, id, CellType::Seed, (0.0, 0.0));
+        assert!(super::super::creature::food_value(&w, w.get(x, y)) > 0.0, "control: a bare seed on the surface is food");
+
+        // Open sky above: nothing changes.
+        let here = w.get(x, y);
+        let cell = bury_or_unearth(&mut w, x, y, herb, here);
+        assert_eq!(cell.material, seed, "a seed with air above it stays a seed");
+
+        // Ground on top: buried, and worth nothing to eat.
+        w.set(x, y - 1, Cell::new(soil, 0));
+        let here = w.get(x, y);
+        let cell = bury_or_unearth(&mut w, x, y, herb, here);
+        assert_eq!(cell.material, buried);
+        assert_eq!(w.get(x, y).material, buried, "the world cell, not only the returned copy");
+        assert_eq!(super::super::creature::food_value(&w, w.get(x, y)), 0.0, "a buried seed must be invisible to every eater");
+        assert_eq!(w.get(x, y).organism_id(), id);
+        assert_eq!(organism::cell_type(w.get(x, y).aux()), Some(CellType::Seed));
+
+        // Dug back out: its species' seed again, still the same organism.
+        w.set(x, y - 1, Cell::EMPTY);
+        let here = w.get(x, y);
+        let cell = bury_or_unearth(&mut w, x, y, herb, here);
+        assert_eq!(cell.material, seed, "an uncovered seed must turn back into its species' seed");
+        assert!(super::super::creature::food_value(&w, w.get(x, y)) > 0.0);
+        assert_eq!(w.get(x, y).organism_id(), id);
+        assert_eq!(organism::cell_type(w.get(x, y).aux()), Some(CellType::Seed));
+    }
+
+    /// **Pip and windfall are never buried.** Their rot and germination
+    /// bookkeeping is keyed on the material, and the way back is only the
+    /// species' bare `seed_material`.
+    #[test]
+    fn a_pip_under_soil_is_left_alone() {
+        let mut w = test_world();
+        let herb = w.species.id_of("herb").expect("herb species must be loaded");
+        let pip = w.materials.id_of("pip").expect("pip");
+        let soil = w.materials.id_of("soil").expect("soil");
+        let id = w.push_organism(herb).expect("an organism slot is free");
+        let (x, y) = (50, 50);
+        place(&mut w, (x, y), pip, id, CellType::Seed, (0.0, 0.0));
+        w.set(x, y - 1, Cell::new(soil, 0));
+        let here = w.get(x, y);
+        let cell = bury_or_unearth(&mut w, x, y, herb, here);
+        assert_eq!(cell.material, pip);
     }
 
     // --- A1: the seed survives the mouth ---------------------------------
