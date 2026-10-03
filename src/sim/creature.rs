@@ -21230,10 +21230,10 @@ fn is_partable(world: &World, cell: Cell) -> bool {
 }
 
 /// **What a body walks through besides soft tissue: loose crumbs, brood,
-/// both or neither** (`PIXEL_PHYSICS_PUSH_PAST=crumbs`, `brood`,
-/// `crumbs,brood`; unset or `off` is neither, the behaviour before either
-/// existed, while they are measured). From the owner's playtest,
-/// 2026-10-03:
+/// both or neither.** **Both, by default** (the owner, 2026-10-03: *"I do
+/// want both switches defaulting to on"*); `PIXEL_PHYSICS_PUSH_PAST=off` is
+/// neither, the behaviour before either existed, and `crumbs` or `brood`
+/// alone is the one. From the owner's playtest, 2026-10-03:
 ///
 /// - **Crumbs.** *"the nest just gets totally full of crumbs and then
 ///   they're just standing on the crumbs"*, *"what if ants have the ability
@@ -21267,6 +21267,16 @@ fn is_partable(world: &World, cell: Cell) -> bool {
 /// starving wait for the walker to step off, since both write the cell.
 /// Freezing it outright was the first version, and on the test bed it cost
 /// births (`CreatureStats::brood_held` counts the ticks).
+///
+/// **What it costs, measured before it was turned on** (digbox `ants=20
+/// food=60 hungry`, the owner's playtest set-up, 8 seeds, 40,000 frames,
+/// lane 3 on main `401f7c86`, medians, off against both). With eggs laid
+/// only at the nest, as the lab lays since PR 593: dug home 58 -> 69 cells
+/// (bigger on 6 of 8), ants 42 -> 33 (fewer on 6 of 8). Crumbs alone: home
+/// 76, ants 40; brood alone: home 66, ants 33. With eggs laid anywhere:
+/// ants 246 -> 181, fewer on 8 of 8, home 75 -> 72. A first version froze
+/// brood while it was stood on; that cost births more and was replaced by
+/// the growing-underneath rule below before these numbers were taken.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct PushPast {
     pub crumbs: bool,
@@ -21274,6 +21284,9 @@ pub struct PushPast {
 }
 
 impl PushPast {
+    /// Both on: what an unset `PIXEL_PHYSICS_PUSH_PAST` means.
+    pub const SHIPPED: PushPast = PushPast { crumbs: true, brood: true };
+
     /// Parse a `PIXEL_PHYSICS_PUSH_PAST` value: comma-separated `crumbs` and
     /// `brood`, `both` for the two, `off` or anything unknown for neither.
     pub fn parse(raw: &str) -> PushPast {
@@ -21299,7 +21312,7 @@ pub fn push_past_of(world: &World) -> PushPast {
 /// `PIXEL_PHYSICS_PUSH_PAST` read once per process; see [`PushPast`].
 pub fn push_past_from_env() -> PushPast {
     static V: std::sync::OnceLock<PushPast> = std::sync::OnceLock::new();
-    *V.get_or_init(|| std::env::var("PIXEL_PHYSICS_PUSH_PAST").map_or(PushPast::default(), |v| PushPast::parse(&v)))
+    *V.get_or_init(|| std::env::var("PIXEL_PHYSICS_PUSH_PAST").map_or(PushPast::SHIPPED, |v| PushPast::parse(&v)))
 }
 
 /// **Who is standing on this brood organism's cell, and where, if anyone is** --
