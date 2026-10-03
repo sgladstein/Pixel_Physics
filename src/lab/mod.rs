@@ -35,6 +35,7 @@
 //! with one from the other.
 
 pub mod batch;
+pub mod battle;
 pub mod bench;
 pub mod census;
 pub mod names;
@@ -3373,6 +3374,10 @@ impl Lab {
                 self.spec.plant_pace = self.spec.plant_pace.next();
                 self.spec.plant_pace.apply(&mut self.world);
                 self.ui.say(format!("PLANTS GROW AT {}", self.spec.plant_pace.label()));
+            }
+            ui::Action::ToggleBattle => {
+                let on = self.ui.battle.toggle();
+                self.ui.say(if on { "BATTLE VIEW ON" } else { "BATTLE VIEW OFF" });
             }
             ui::Action::ToggleWindfallRot => {
                 self.spec.windfall_rots = !self.spec.windfall_rots;
