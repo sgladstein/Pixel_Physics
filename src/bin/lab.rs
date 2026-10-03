@@ -616,7 +616,12 @@ impl Handler {
             KeyCode::KeyX => self.lab.act(Action::Tool(Tool::Plant)),
             KeyCode::KeyC => self.lab.act(Action::Tool(Tool::Colony)),
             KeyCode::KeyV => self.lab.act(Action::Tool(Tool::Cull)),
-            KeyCode::KeyB => self.lab.act(Action::Tool(Tool::Soil)),
+            // **`B` is the bar's `ADD` cell since 2026-10-03**, not `SOIL`:
+            // soil, water, food, wall, lamp and scent sit behind it, one
+            // press per step (owner: *"one button with food and anything
+            // else the user is manually putting into the game"*). Soil is
+            // the cell's first stop, so `B` from a fresh box is still soil.
+            KeyCode::KeyB => self.lab.act(Action::Place),
             KeyCode::KeyN => self.lab.act(Action::Tool(Tool::Water)),
             // The run continues past the six: `M` then `,`. Keeping and
             // releasing are tools like the rest -- what a click on the world
@@ -627,8 +632,10 @@ impl Handler {
             // actions the `KEEP` and `PLACE` buttons fire, which is the point
             // of routing every control through `Lab::act`.
             KeyCode::KeyM => self.lab.act(Action::KeepInspected),
-            // **Food is a brush with no button** — the bar measured 0 spare
-            // pixels on both rows, so it takes a key the way the wall does.
+            // **Food had no button until 2026-10-03** -- the bar measured 0
+            // spare pixels on both rows, so it took a key the way the wall
+            // does, and the owner could not find it. It is now a stop on the
+            // `ADD` cell (`B`), and keeps this key for a direct arm.
             KeyCode::KeyE => self.lab.act(Action::Tool(Tool::Food)),
             KeyCode::Comma => self.lab.act(Action::ShelfPlace),
             KeyCode::Period => self.lab.act(Action::NextSpecies),
