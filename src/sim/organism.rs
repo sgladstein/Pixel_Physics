@@ -6588,11 +6588,11 @@ pub struct OrganismState {
     /// page, for the one individual a player is actually looking at.
     ///
     /// High byte -- which channel changed:
-    /// - `0..=13` -- a `CREATURE_TRAITS` slot; low byte is the signed change
+    /// - `0..=19` -- a `CREATURE_TRAITS` slot; low byte is the signed change
     ///   as a percentage of that trait's `-1..=1` axis (e.g. `+12` is 12% of
     ///   the axis, not 12% of the old value, which would be meaningless near
     ///   zero), stored as an `i8`'s bit pattern.
-    /// - `14` -- no trait moved but synapses did; low byte is how many,
+    /// - `23` (`BORN_WITH_SYNAPSES`) -- no trait moved but synapses did; low byte is how many,
     ///   saturating at 255 (`brain::mutate`'s own return, otherwise
     ///   discarded).
     /// - `20` -- a discrete allele jumped; low byte is the locus index
@@ -7043,7 +7043,7 @@ pub const GENOTYPE_TRAITS: usize = 10;
 /// strictly weaker one, which is `CLAUDE.md`'s *when several knobs move the
 /// same number, check what each one trades*: this one trades nothing the
 /// weight does not already trade.
-pub const CREATURE_TRAITS: usize = 14;
+pub const CREATURE_TRAITS: usize = 20;
 
 /// Slot 0 of `CREATURE_TRAITS`: **diet as one heritable number**, `-1`
 /// (plant matter) to `+1` (flesh), scored against `MaterialDef::food_class`
@@ -7375,6 +7375,59 @@ pub const TRAIT_TOLERANCE: usize = 13;
 /// `CreatureDef::scent_drift` rather than an entry of `trait_variance` --
 /// see `creature::trait_width`.
 pub const SCENT_SIDE_SLOTS: [usize; 4] = [TRAIT_SCENT_A, TRAIT_SCENT_B, TRAIT_SCENT_C, TRAIT_TOLERANCE];
+
+/// **Slots 14-19 of `CREATURE_TRAITS`: the walk's numbers, as genes.**
+///
+/// Before these existed every directional term in `creature::chooser_step`'s
+/// heading score was a Rust `const` -- how hard a laden ant leans for home,
+/// how hard a trail holds an ant to its heading, how hard an empty ant on a
+/// route leans away from home, how hard a hungry one scouts outward, how
+/// long it persists on a leg that is not getting anywhere, and how hard the
+/// door reader turns it to the food side. The shipped ant walks that score
+/// (every species that names a `nest`), so where an ant goes was decided by
+/// code no lineage could reach -- the owner's ruling of 2026-10-03 names that
+/// as *the* problem, and the engine review ranked these second.
+///
+/// **Each is a factor on the constant it replaces, `1.0` at allele `0`**,
+/// read through `creature::walk_gain`: the reciprocal axis
+/// (`ratio_factor`), so `+1` is twice the shipped gain and `-1` half it,
+/// symmetric in ratio as a gain wants. At allele 0 the factor is exactly
+/// `1.0` and `x * 1.0 == x` in IEEE arithmetic, so an unevolved ant walks
+/// bit-for-bit as it did before the slots existed.
+///
+/// **Shipped at mutation width 0 on every species** (`trait_variance`), so
+/// nothing drifts until a measurement says turning it on is safe -- the lab
+/// and every other lane's baselines stay byte-identical. **They have no
+/// developmental weight** (`brain::DEV_TRAITS`): a live dev slot is drawn
+/// by every birth's `brain::mutate`, so giving them one would shift every
+/// mutation stream in the box even at width 0.
+pub const TRAIT_HOME_PULL: usize = 14;
+/// Slot 15: how hard a trail under a heading holds the ant to it
+/// (`creature::TRAIL_GAIN`).
+pub const TRAIT_TRAIL_HOLD: usize = 15;
+/// Slot 16: how hard an empty ant on a route leans away from home
+/// (`creature::AWAY_GAIN`).
+pub const TRAIT_ROUTE_AWAY: usize = 16;
+/// Slot 17: how hard a hungry ant off a route scouts outward
+/// (`creature::scout_of`, `SCOUT_DEFAULT` unless the bed sets it).
+pub const TRAIT_SCOUT: usize = 17;
+/// Slot 18: how long a leg that is not closing on its goal is kept up --
+/// both the walk home and the scout out. `+1` halves the per-step leak of
+/// patience (`1 - PATIENCE_DECAY`), so the ant keeps at it twice as many
+/// steps before it gives up or re-aims; `-1` doubles it.
+pub const TRAIT_PATIENCE: usize = 18;
+/// Slot 19: how hard the door reader turns an empty ant to the side the
+/// returning trail is on (`FoodTrail::gain`, `FOOD_TRAIL_GAIN`).
+pub const TRAIT_DOOR_READ: usize = 19;
+/// The walk slots, in order -- see `TRAIT_HOME_PULL`.
+pub const WALK_SLOTS: [usize; 6] = [TRAIT_HOME_PULL, TRAIT_TRAIL_HOLD, TRAIT_ROUTE_AWAY, TRAIT_SCOUT, TRAIT_PATIENCE, TRAIT_DOOR_READ];
+
+/// `OrganismState::born_with`'s channel for "no trait moved, synapses did".
+/// **Was 14 until the walk slots took 14-19** (2026-10-03); moved past the
+/// plant channels (20-22) so a trait slot and a sentinel can never share a
+/// byte again however far `CREATURE_TRAITS` grows below 20. A readout only:
+/// nothing in the simulation reads `born_with`.
+pub const BORN_WITH_SYNAPSES: u16 = 23;
 
 /// The ancestral trait vector for a species file that authors no `traits`
 /// line at all.
@@ -9625,6 +9678,14 @@ mod tests {
             let def = reg.get(reg.id_of(name).unwrap_or_else(|| panic!("{name}.ron should define \"{name}\"")));
             let def = def.creature.as_ref().expect("a creature");
             for slot in 0..CREATURE_TRAITS {
+                // **The walk genes ship at width 0** (`TRAIT_HOME_PULL`'s
+                // doc): heritable, not yet drifting. A 0.15 here would be the
+                // step that re-baselines every bed, taken by accident.
+                if WALK_SLOTS.contains(&slot) {
+                    assert_eq!(def.trait_variance[slot], 0.0, "{name}.ron's walk gene {slot} drifts; turning a walk gene's width on is a measured step, not a tuple edit");
+                    assert_eq!(def.traits[slot], 0.0, "{name}.ron's walk gene {slot} is off its ancestral 0 -- the walk is no longer the shipped one");
+                    continue;
+                }
                 if SCENT_SIDE_SLOTS.contains(&slot) {
                     assert_eq!(
                         def.trait_variance[slot], 0.0,
