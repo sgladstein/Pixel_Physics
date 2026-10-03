@@ -391,10 +391,10 @@ What the ants see:
 - Seeds, fallen litter and rotting remains carry no defence once they are
   off the plant; only living tissue on a growing plant is defended.
 
-**What it looks like when it is working: the colony booms less and lasts
-longer.** On the played bed (plants first, then ants), colonies outlived the
-undefended garden on 8 of 12 seeds, with a smaller peak and more food left
-standing.
+**What it does to the colony: not much yet, either way.** On the played bed
+(plants first, then ants), defence made colonies last longer than in the
+undefended garden on some seeds and shorter on others, with as many colonies
+alive at the end. The ants are paying a small, even tax on the whole garden.
 
 **What it does not do yet: the garden does not evolve to fight back.** At
 the normal pace of mutation, defence creeps up to about a twentieth whether
