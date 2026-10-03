@@ -12905,35 +12905,48 @@ fn food_drop_order(world: &World, x: i32, y: i32) -> &'static [(i32, i32); 8] {
     }
 }
 
-/// **Food is set down on ground, not let go over a hole**
-/// (`PIXEL_PHYSICS_FOOD_FOOTING=on|off`; [`World::food_footing`] for one
-/// world). On, a food drop takes only an empty cell with ground straight
-/// under it ([`is_footing`]: a `Powder` or `Solid`, not an animal), so a
-/// carrier at the door puts its load on the rim or a floor instead of
-/// dropping it down the shaft.
+/// **Food is not put down in a nest's doorway** (`PIXEL_PHYSICS_FOOD_DOOR=clear|off`;
+/// [`World::food_door`] for one world). On, a food drop never takes a cell of
+/// a founding shaft, or of the mouth over it ([`in_doorway`]), so a carrier at
+/// the door sets its load beside the way in rather than in it. The chamber at
+/// the shaft's foot is not doorway: food stored there is food in the nest.
 ///
-/// **Why** (nest lane, 2026-10-03, `labshot scenario=played_bed`, main
-/// d4418bf2). In the evolution lab the founding cut was 24 of 26 cells open
-/// at 6,500 frames on seed 1 and 0 by 14,000, filled by 13-20 cells of
-/// crumbs: loads put down at the door fell into the shaft. With the door
-/// shut every other cut near the nest is in the roof `DIG_ROOF` keeps, and
-/// the colony lived on the surface (110 ants, 25 cells of nest at 60,000
-/// frames). Ants place what they carry; they do not throw it.
-pub fn food_footing_of(world: &World) -> bool {
-    world.food_footing.unwrap_or_else(|| {
+/// **Why** (nest lane, 2026-10-03, `labforage scenario=played_bed`, main
+/// d4418bf2). In the evolution lab the founding cut is shut within a few
+/// thousand frames on 20 of 20 runs, and what shuts it is mostly food the
+/// colony put down at home: an oracle that emptied the cut every 64 frames
+/// took out 420-2,327 cells of crumbs in 36,000 frames on four seeds (46-84%
+/// of all it cleared; seeds 57-2,358, grass 31-250, water 75-146). Held open
+/// that way, home grew from 14-137 cells to 107-174 and dig attempts at home
+/// rose on 4 of 4 seeds. Real ants keep a passage clear and store food in
+/// chambers. **Tried first and not enough:** food set down only on footing
+/// (`FOOD_FOOTING`, withdrawn) still filled the shaft from its floor up.
+pub fn food_door_of(world: &World) -> bool {
+    world.food_door.unwrap_or_else(|| {
         static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-        *V.get_or_init(|| match std::env::var("PIXEL_PHYSICS_FOOD_FOOTING").as_deref() {
-            Ok("on") => true,
+        *V.get_or_init(|| match std::env::var("PIXEL_PHYSICS_FOOD_DOOR").as_deref() {
+            Ok("clear") => true,
             Ok("off") | Err(_) => false,
-            Ok(other) => panic!("PIXEL_PHYSICS_FOOD_FOOTING={other:?}: use on or off"),
+            Ok(other) => panic!("PIXEL_PHYSICS_FOOD_DOOR={other:?}: use clear or off"),
         })
     })
 }
 
+/// Columns either side of a founding shaft, and rows over its top, that are
+/// still its doorway for [`in_doorway`]: a crumb set down at the lip rolls in.
+const DOORWAY_MARGIN: i32 = 2;
+
+/// **Is `(x, y)` a nest's way in** ([`food_door_of`]): inside a founding
+/// shaft's columns, widened by [`DOORWAY_MARGIN`], from that many rows over
+/// its top down to its last row. The chamber below is not.
+fn in_doorway(world: &World, (x, y): (i32, i32)) -> bool {
+    world.nest_sites.iter().filter_map(|s| s.shaft).any(|c| (c.x0 - DOORWAY_MARGIN..=c.x1 + DOORWAY_MARGIN).contains(&x) && (c.top - DOORWAY_MARGIN..=c.bottom).contains(&y))
+}
+
 fn food_drop_site(world: &World, x: i32, y: i32, through_bodies: bool) -> Option<((i32, i32), u8)> {
     let order = food_drop_order(world, x, y);
-    let footed = food_footing_of(world);
-    let room = |px: i32, py: i32| world.is_empty(px, py) && (!footed || is_footing(world, px, py + 1));
+    let door = food_door_of(world);
+    let room = |px: i32, py: i32| world.is_empty(px, py) && !(door && in_doorway(world, (px, py)));
     if let Some(p) = order.iter().map(|&(dx, dy)| (x + dx, y + dy)).find(|&(px, py)| room(px, py)) {
         return Some((p, 1));
     }
@@ -14896,7 +14909,7 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
         // roof.
         if nest_upkeep_of(world)
             && target.organism_id() != 0
-            && world.materials.kind(target.material) == MaterialKind::Plant
+            && (world.materials.kind(target.material) == MaterialKind::Plant || is_live_seed(target))
             && in_nest_upkeep_zone(world, (tx, ty))
         {
             return clear_nest_plant(world, organism, def, (tx, ty), target, did);

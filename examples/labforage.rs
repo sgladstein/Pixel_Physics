@@ -1766,6 +1766,8 @@ fn main() {
         "d<16", "d<48", "d<128", "far", "high", "eats", "born", "died",
         "brdr", "gen", "bgen", "fvis", "necJ", "bseen"
     );
+    let mut oracle_cleared: u64 = 0;
+    let mut oracle_kinds: std::collections::BTreeMap<String, u64> = Default::default();
     for f in 0..=frames {
         // **Founding, deferred to here when `ants_at > 0`.** Checked before
         // `mark_visited`/`census` below so the frame it lands on already
@@ -2126,13 +2128,39 @@ fn main() {
         if f < frames {
             // TEMP cuttrace (not for commit)
             let trace_cut = std::env::var("CUTTRACE").is_ok();
+            let _ = &mut oracle_cleared;
             let before = if trace_cut { Some(cut_snapshot(&world)) } else { None };
             frame::step(&mut world, &mut particles, &mut blasts, player::PlayerInput::default(), &tuning);
             pixel_physics::lab::rain::tick(&mut world, &spec, rain);
             if let Some(b) = before {
                 cut_report(&world, &b, f);
             }
+            // TEMP oracle (not for commit): every N frames the founding cut
+            // is emptied of everything but animals and ground -- plants,
+            // seeds, food -- to ask whether a door kept open in the garden
+            // grows a nest.
+            if let Some(_n) = std::env::var("ORACLE_OPEN").ok().and_then(|v| v.parse::<u64>().ok()).filter(|n| *n > 0 && f % n == 0) {
+                use pixel_physics::sim::material::{self as mat, MaterialKind};
+                let cells: Vec<(i32, i32)> = world
+                    .nest_sites
+                    .iter()
+                    .filter_map(|site| site.shaft.map(|c| (site, c)))
+                    .flat_map(|(site, c)| (site.surface - 2..=site.surface + 40).flat_map(move |y| (site.x - 40..=site.x + 40).map(move |x| (x, y))).filter(move |&(x, y)| c.contains(x, y)))
+                    .collect();
+                for (x, y) in cells {
+                    let c = world.get(x, y);
+                    if c.material != mat::EMPTY && !matches!(world.materials.kind(c.material), MaterialKind::Creature | MaterialKind::Powder | MaterialKind::Solid) || (c.organism_id() != 0 && !matches!(world.materials.kind(c.material), MaterialKind::Creature)) || world.materials.get(c.material).food_energy > 0.0 && !matches!(world.materials.kind(c.material), MaterialKind::Creature) {
+                        let kind = if c.organism_id() != 0 && pixel_physics::sim::organism::cell_type(c.aux()).is_some_and(|t| matches!(t, pixel_physics::sim::organism::CellType::Seed)) { "seed".to_string() } else { world.materials.get(c.material).name.clone() };
+                        *oracle_kinds.entry(kind).or_insert(0u64) += 1;
+                        world.set(x, y, Cell::EMPTY);
+                        oracle_cleared += 1;
+                    }
+                }
+            }
         }
+    }
+    if std::env::var("ORACLE_OPEN").is_ok() {
+        println!("ORACLE cleared {oracle_cleared} cells from the founding cut: {oracle_kinds:?}");
     }
 
     if let Some(out) = lifetrace.as_mut() {
@@ -3014,6 +3042,7 @@ fn print_nest_line(world: &World, f: u64) {
     // only one holding neither reaches the dig. `free` counts those, `workers`
     // the nest-bound caste, and `near` anyone within 12 cells of a nest site.
     let (mut ants, mut under, mut free, mut free_near, mut laden_near, mut workers, mut workers_under, mut spoil) = (0u32, 0u32, 0u32, 0u32, 0u32, 0u32, 0u32, 0u32);
+    let (mut aloft, mut dist) = (0u32, [0u32; 4]);
     for id in world.live_organism_ids() {
         let Some(state) = world.organism(id) else { continue };
         if world.species.get(state.species).creature.is_none() {
@@ -3033,6 +3062,12 @@ fn print_nest_line(world: &World, f: u64) {
             workers += 1;
             workers_under += u32::from(roofed);
         }
+        // Where the ant is: up in the plants (head 4+ rows above the first
+        // ground in its column), and how far from the nearest nest site.
+        let first_ground = (hy..hy + 400).find(|&yy| ground(hx, yy)).unwrap_or(hy);
+        aloft += u32::from(first_ground - hy >= 4 && !roofed);
+        let d = world.nest_sites.iter().map(|n| (n.x - hx).abs()).min().unwrap_or(i32::MAX);
+        dist[match d { 0..=15 => 0, 16..=47 => 1, 48..=127 => 2, _ => 3 }] += 1;
     }
     let roofed: u32 = world.nest_room.iter().map(|r| r.roofed).sum();
     let (mut open, mut cells) = (0u32, 0u32);
@@ -3068,7 +3103,7 @@ fn print_nest_line(world: &World, f: u64) {
     }
     let st = world.creature_stats;
     println!(
-        "NEST frame={f} ants={ants} under={under} free={free} free_near={free_near} laden_near={laden_near} spoil={spoil} workers={workers} workers_under={workers_under} roofed={roofed} home={} digs={} rolls={} roof_refused={} plant_bites={} plant_cleared={} cut_open={open}/{cells} under_door: roots={rootc} ground={groundc}",
+        "NEST frame={f} ants={ants} under={under} free={free} free_near={free_near} laden_near={laden_near} spoil={spoil} workers={workers} workers_under={workers_under} roofed={roofed} home={} digs={} rolls={} roof_refused={} plant_bites={} plant_cleared={} cut_open={open}/{cells} under_door: roots={rootc} ground={groundc} aloft={aloft} by_x_from_nest(<16,<48,<128,far)={dist:?}",
         world.nest_dug.len(),
         st.digs,
         st.dig_rolls,

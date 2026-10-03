@@ -3810,9 +3810,9 @@ pub struct World {
     /// that many rows thick, `Some(None)` none; `None` reads the process's
     /// `PIXEL_PHYSICS_DIG_ROOF`.
     pub dig_roof: Option<Option<i32>>,
-    /// `creature::food_footing_of` for this world; `None` reads
-    /// `PIXEL_PHYSICS_FOOD_FOOTING`.
-    pub food_footing: Option<bool>,
+    /// `creature::food_door_of` for this world; `None` reads
+    /// `PIXEL_PHYSICS_FOOD_DOOR`.
+    pub food_door: Option<bool>,
     /// `creature::nest_upkeep_of` for this world; `None` reads
     /// `PIXEL_PHYSICS_NEST_UPKEEP`.
     pub nest_upkeep: Option<bool>,
@@ -6354,7 +6354,7 @@ impl World {
             chooser: None,
             bud_at_nest: None,
             dig_roof: None,
-            food_footing: None,
+            food_door: None,
             nest_upkeep: None,
             kin_footing: None,
             door_collar: None,
