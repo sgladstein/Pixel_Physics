@@ -37856,15 +37856,30 @@ mod tests {
             .collect();
         assert!(foods.len() >= 17, "the food table shrank to {}; this guard is sized against the seventeen materials that authored a food_energy in 2026-09", foods.len());
 
+        // **Bitten, not bitten-in-one.** Since the graded bite (owner,
+        // 2026-09-06: "nothing should be binary edible or inedible") a plate
+        // above the strongest mouth is worn down at `(bite/armour)^2` a
+        // bite, so the failure this guards is a plate so far above every
+        // mouth that the wear is nil -- the 100.0 default gives 0.0001 a
+        // bite. This read `resistance <= ant_force` until 2026-10-03, which
+        // held the binary contract and went red when the beetle's shell was
+        // set to 1.5 by the owner's pick (0.44 a bite: an ant needs about
+        // three, and `examples/beetle_duel` measures ants killing it).
+        // The bar: no food needs more than four of the strongest mouth's
+        // bites per cell. It is a balance bar, not a cliff -- at shell 2.5
+        // (0.16 a bite) four ants still killed 7 of 12 beetles.
+        const MIN_WEAR: f32 = 0.25;
+        let wear = |resist: f32| if resist <= 0.0 { 1.0 } else { (ant_force / resist).clamp(0.0, 1.0).powi(2) };
         let mut armoured = Vec::new();
         for &id in foods.iter() {
             let m = w.materials.get(id);
             assert!(
-                m.penetration_resistance <= ant_force,
-                "{} is food at {} and needs {} to bite, which is above the strongest shipped mouth ({ant_force}) -- nothing in the world can eat it",
+                wear(m.penetration_resistance) >= MIN_WEAR,
+                "{} is food at {} and needs {} to bite, so the strongest shipped mouth ({ant_force}) takes only {} of a cell a bite, past the four-bite bar -- a harder plate is a balance decision, so move MIN_WEAR with its measurement",
                 m.name,
                 m.food_energy,
-                m.penetration_resistance
+                m.penetration_resistance,
+                wear(m.penetration_resistance)
             );
             if m.penetration_resistance > beetle_force {
                 armoured.push(m.name.clone());
@@ -37886,7 +37901,7 @@ mod tests {
         let default_resist = 100.0_f32;
         for &id in foods.iter() {
             assert!(
-                default_resist > ant_force,
+                wear(default_resist) < MIN_WEAR,
                 "{} at the unauthored default must be refused, or this guard is blind and its green means nothing",
                 w.materials.get(id).name
             );
