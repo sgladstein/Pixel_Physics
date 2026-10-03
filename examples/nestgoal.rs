@@ -85,12 +85,14 @@ impl Census {
         if c.material == material::EMPTY {
             return What::Empty;
         }
+        // Brood first: an egg, larva or pupa carries its own organism id,
+        // which is a creature's, so the animal test below would take it.
+        if Some(c.material) == self.brood {
+            return What::Brood;
+        }
         let id = c.organism_id();
         if id != 0 && w.organism(id).is_some_and(|s| w.species.get(s.species).creature.is_some()) {
             return What::Ant;
-        }
-        if Some(c.material) == self.brood {
-            return What::Brood;
         }
         if w.materials.kind(c.material) == MaterialKind::Liquid {
             return What::Liquid;
@@ -223,9 +225,22 @@ fn separation(chambers: &[Chamber]) -> Option<f32> {
 
 fn report(frame: u64, census: &Census, w: &World, dropped: usize, food_x: i32) {
     let s = &w.creature_stats;
-    let ants = w.live_organism_ids().into_iter().filter(|&id| w.organism(id).is_some_and(|st| w.species.get(st.species).creature.is_some())).count();
+    // An egg, larva or pupa is an organism too; it is counted as brood, not as an ant.
+    let (mut ants, mut brood) = (0, 0);
+    for id in w.live_organism_ids() {
+        let Some(st) = w.organism(id) else { continue };
+        if w.species.get(st.species).creature.is_none() {
+            continue;
+        }
+        let is_brood = st.chain.first().is_some_and(|&(x, y)| Some(w.get(x, y).material) == census.brood);
+        if is_brood {
+            brood += 1;
+        } else {
+            ants += 1;
+        }
+    }
     let heap = heap_count(census, w, food_x);
-    println!("POP frame={frame} live ants {ants} | births {} deaths {} | food heap {heap} cells, ever dropped {dropped}", s.births, s.deaths);
+    println!("POP frame={frame} live ants {ants} | brood {brood} | births {} deaths {} | food heap {heap} cells, ever dropped {dropped}", s.births, s.deaths);
     let n = nest(census, w);
     let in_ch_food: usize = n.chambers.iter().map(|c| c.food).sum();
     let in_ch_brood: usize = n.chambers.iter().map(|c| c.brood).sum();
