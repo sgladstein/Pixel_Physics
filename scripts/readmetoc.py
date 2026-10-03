@@ -234,6 +234,8 @@ TOPICS = {
         # What a colony builds: the door, the dug entrance and the digging
         # rules that keep it one nest, and the granary with its nest workers.
         "Nest status — one door, a dug entrance, and a granary kept for the hungry",
+        # Breeding as a behaviour: the brain's Lay output, and where an egg goes.
+        "Laying status — whether to breed is the ant's decision, and an egg goes onto the brood pile",
     ],
     "structural collapse, felling and rigid bodies": [
         "M17 status",
