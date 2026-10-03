@@ -241,6 +241,13 @@ fn report(frame: u64, census: &Census, w: &World, dropped: usize, food_x: i32) {
     }
     let heap = heap_count(census, w, food_x);
     println!("POP frame={frame} live ants {ants} | brood {brood} | births {} deaths {} | food heap {heap} cells, ever dropped {dropped}", s.births, s.deaths);
+    // Why they died: the bed has no plants, so every death here is a creature's.
+    let causes: Vec<String> = pixel_physics::sim::organism::DEATH_CAUSE_LIST
+        .iter()
+        .filter(|c| w.deaths_by_cause[c.index()] > 0)
+        .map(|c| format!("{} {}", c.label(), w.deaths_by_cause[c.index()]))
+        .collect();
+    println!("DEATHS frame={frame} {}", causes.join(" | "));
     let n = nest(census, w);
     let in_ch_food: usize = n.chambers.iter().map(|c| c.food).sum();
     let in_ch_brood: usize = n.chambers.iter().map(|c| c.brood).sum();
@@ -394,6 +401,12 @@ fn main() {
     sc.bed.seed = seed;
     let mut lab = Lab::new(sc.bed.clone());
     let msg = lab.load_scenario(sc);
+    // The help card opens over a fresh box and would cover every shot.
+    lab.show_help = false;
+    // ...and the biosphere readout opens showing after a load.
+    if lab.stats.showing() {
+        lab.stats.toggle();
+    }
     println!("  {msg}");
     if let Some(dir) = &shots {
         let _ = std::fs::create_dir_all(dir);
