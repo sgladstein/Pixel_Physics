@@ -2555,11 +2555,17 @@ pub struct CreatureStats {
     /// recruitment to a fight.
     pub recruit_steps: u64,
     /// **Ants set walking home to recruit by a fight** (`creature::
-    /// call_to_fight`): one per animal per bite between two animals while
-    /// recruiting is on and the animal was not already recruiting.
+    /// call_to_fight`): one per bitten animal while recruiting is on and it
+    /// was not already recruiting.
     pub recruit_calls: u64,
     /// **Recruiters that reached their nest** before the window ran out.
     pub recruit_homes: u64,
+    /// **Steps an idle ant took out along a fight trail** (`creature::
+    /// call_to_fight`): the heading it picked carried a follow score.
+    pub recruit_follows: u64,
+    /// **Pulls dropped because the ant smelled a fight trail** (the nest
+    /// leash or the rest pull let go).
+    pub recruit_unleashed: u64,
     /// **Severing events**: a creature that lost a body cell and came apart
     /// at it, rather than merely shortening.
     ///
@@ -6714,6 +6720,13 @@ impl World {
     /// already at CA resolution. Out of world reads 0.
     pub fn pheromone_at(&self, channel: Channel, x: i32, y: i32) -> super::pheromone::Scent {
         self.pheromones.sample(channel, x, y)
+    }
+
+    /// Lay the fight trail (`creature::call_to_fight`), marking the cell
+    /// for the sense cache as every deposit does.
+    pub fn deposit_recruit(&mut self, x: i32, y: i32, amount: super::pheromone::Scent) {
+        self.write_watch.mark(x, y);
+        self.pheromones.deposit_recruit(x, y, amount);
     }
 
     /// Advance the M16 active-site schedule by one step. Its own frame

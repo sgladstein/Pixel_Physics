@@ -394,7 +394,7 @@ fn main() {
     // ---- summary
     let world = &lab.world;
     let last = snaps.last().cloned().unwrap_or_default();
-    println!("SUMMARY frames={frames} kills_total={} unmatched={unmatched} recruit_steps={} recruit_calls={} recruit_homes={} recruit_gain={}", kills.len(), world.creature_stats.recruit_steps, world.creature_stats.recruit_calls, world.creature_stats.recruit_homes, pixel_physics::sim::creature::fight_recruit_of(world));
+    println!("SUMMARY frames={frames} kills_total={} unmatched={unmatched} recruit_steps={} recruit_calls={} recruit_homes={} recruit_follows={} recruit_unleashed={} recruit_gain={}", kills.len(), world.creature_stats.recruit_steps, world.creature_stats.recruit_calls, world.creature_stats.recruit_homes, world.creature_stats.recruit_follows, world.creature_stats.recruit_unleashed, pixel_physics::sim::creature::fight_recruit_of(world));
     for (&c, &pk) in &peak {
         let a = last.alive.get(&c).copied().unwrap_or(0);
         let lost_rival = kills.iter().filter(|k| k.victim == c && k.attacker != c).count();

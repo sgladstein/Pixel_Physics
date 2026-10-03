@@ -713,15 +713,21 @@ and walks as before; one inside it climbs to the fight, where the shipped
 plane is shared, so both sides of a fight are drawn in. Not computed until the
 alarm plane exists. Counter: `recruit_steps` (the picked heading rose on the
 alarm). `World::fight_recruit` overrides the environment for one world.
-**The same switch sends a fight's animals home to recruit** (`call_to_fight`).
-Every bite one animal lands on another (the fight verb, or the mouth on an
-animal cell) marks both, unless already marked (`recruit_since`). A marked
-ant of a brood-keeping species carrying no spoil is pulled home by
-`home_pull` as a laden ant is, and lays trail B at 0.714 (`RECRUIT_LAY`, the
-genome's forager rate) whatever its crop holds, so the outbound trail walk
-(`trailaway`) and the door reader send empty ants back along it toward the
-fight. The mark clears beside the nest or after `RECRUIT_WINDOW` (4,000)
-frames. Counters: `recruit_calls`, `recruit_homes`.
+**The same switch sends a bitten ant home to recruit, along its own trail**
+(`call_to_fight`). Every bite one animal lands on another (the fight verb, or
+the mouth on an animal cell) marks the bitten one, unless already marked
+(`recruit_since`). A marked ant of a brood-keeping species carrying no spoil
+is pulled home by `home_pull` as a laden ant is, and lays the **fight trail**
+(a fourth plane beside A, B and the alarm, `Pheromones::deposit_recruit`;
+not a `Channel`, allocated on first use, blending and fading as B does) at
+0.714 of a full deposit (`RECRUIT_LAY`). The mark clears beside the nest or
+after `RECRUIT_WINDOW` (4,000) frames. An empty ant that is not itself
+recruiting, not hungry-homing and carries no spoil (`answers_call`) scores
+each heading `3 × presence × (1 − cos(heading, home)) / 2`
+(`RECRUIT_FOLLOW_GAIN`, `recruit_presence`): out along the trail. Where the
+trail reads 0.1 or more on any heading, its home pull (the nest leash or the
+rest pull) is dropped so it can go. Counters: `recruit_calls`,
+`recruit_homes`, `recruit_follows`, `recruit_unleashed`.
 
 **`PIXEL_PHYSICS_HUNGRY_HOME` (off) gives a hungry empty ant the laden ant's home
 pull.** It fires when the ant's energy is under what the walk home costs:

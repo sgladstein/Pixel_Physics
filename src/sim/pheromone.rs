@@ -841,6 +841,8 @@ pub struct PheromoneStats {
     /// a plane that does not exist and a plane that has decayed to zero
     /// sample identically.
     pub deposits_alarm: u64,
+    /// Fight-trail deposits (`Pheromones::deposit_recruit`).
+    pub deposits_recruit: u64,
     pub passes: u64,
     /// Tiles actually processed across every pass. **Zero on a settled
     /// world is the whole design goal**, and a counter is the only thing
@@ -866,6 +868,14 @@ pub struct Pheromones {
     /// more, and dropping and re-allocating 40 MB on a quiet minute is worse
     /// than holding it.
     alarm: Option<PheromonePlane>,
+    /// **The fight trail** (`creature::call_to_fight`,
+    /// `PIXEL_PHYSICS_FIGHT_RECRUIT`): laid by an ant bitten in a fight on
+    /// its way home, followed outward by idle nestmates. Not a `Channel`, so
+    /// no reader of the three channels has to learn a fourth; lazy for the
+    /// alarm's reason -- a world with recruiting off, or with no fight,
+    /// never allocates it. Blends and fades as trail B does
+    /// ([`DIFFUSE`], [`DECAY_RHO`]): it is a route, not a shout.
+    recruit: Option<PheromonePlane>,
     /// Kept so the lazy plane can be built to the same bounds as the other
     /// two, long after `new` returned.
     bounds: Rect,
@@ -905,6 +915,7 @@ impl Pheromones {
         Self {
             planes: [PheromonePlane::with_params(bounds, DIFFUSE, a_rho()), PheromonePlane::new(bounds)],
             alarm: None,
+            recruit: None,
             bounds,
             alarm_rho: ALARM_RHO,
             alarm_diffuse: DIFFUSE,
@@ -1037,6 +1048,7 @@ impl Pheromones {
         Self {
             planes: [PheromonePlane::with_params(bounds, diffuse, rho), PheromonePlane::with_params(bounds, diffuse, rho)],
             alarm: None,
+            recruit: None,
             bounds,
             alarm_rho: ALARM_RHO,
             alarm_diffuse: DIFFUSE,
@@ -1124,6 +1136,29 @@ impl Pheromones {
         self.alarm.is_some()
     }
 
+    /// The fight trail at a cell; 0 while it has never been laid.
+    #[inline]
+    pub fn sample_recruit(&self, x: i32, y: i32) -> Scent {
+        self.recruit.as_ref().map_or(0, |p| p.sample(x, y))
+    }
+
+    /// Lay the fight trail, allocating it on the first deposit.
+    pub fn deposit_recruit(&mut self, x: i32, y: i32, amount: Scent) {
+        if amount == 0 {
+            return;
+        }
+        let bounds = self.bounds;
+        let plane = self.recruit.get_or_insert_with(|| PheromonePlane::with_params(bounds, DIFFUSE, DECAY_RHO));
+        if plane.deposit(x, y, amount) {
+            self.stats.deposits_recruit += 1;
+        }
+    }
+
+    #[inline]
+    pub fn recruit_is_live(&self) -> bool {
+        self.recruit.is_some()
+    }
+
     /// Run a pass on both planes. Callers call this every frame; the
     /// interval gate lives here so no caller has to know about it —
     /// the same shape `World::step_fields` already uses.
@@ -1152,6 +1187,9 @@ impl Pheromones {
         // an hour ago is back to two planes' worth of work, not three.
         if let Some(alarm) = &mut self.alarm {
             self.stats.tiles_processed += alarm.step() as u64;
+        }
+        if let Some(recruit) = &mut self.recruit {
+            self.stats.tiles_processed += recruit.step() as u64;
         }
     }
 }
