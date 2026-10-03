@@ -2131,6 +2131,12 @@ pub struct CreatureStats {
     /// the pellets put down below the old ground line, which `digbox`'s
     /// `gridout=` census counts (`scripts/nestgrid.py`'s `put_inside`).
     pub spoil_held_near_door: u64,
+    /// **Pellets a lean ant put down where it stood** (`PIXEL_PHYSICS_
+    /// LEAN_FORAGE`'s `drop`, `creature::lean_forage_of`), and dig rolls a
+    /// lean ant did not take (`nodig`). The "it fired" half of the switch;
+    /// the effect half is the colony's own survival.
+    pub lean_dropped: u64,
+    pub lean_digs_skipped: u64,
     /// Decisions an idle ant walked under the rest pull
     /// (`PIXEL_PHYSICS_NEST_REST`, `creature::nest_rest_of`): to its door
     /// from outside, deeper along the passages inside. The "it fired" half;
@@ -4049,6 +4055,10 @@ pub struct World {
     /// `PIXEL_PHYSICS_FORAGE_THROTTLE`** (`creature::forage_throttle_of`).
     /// `None` follows the environment.
     pub forage_throttle: Option<crate::sim::creature::ForageThrottle>,
+    /// **Lean ants put their work down and go out, for this world,
+    /// overriding `PIXEL_PHYSICS_LEAN_FORAGE`** (`creature::lean_forage_of`).
+    /// `None` follows the environment.
+    pub lean_forage: Option<crate::sim::creature::LeanForage>,
     /// **The share's top-up for this world, overriding
     /// `PIXEL_PHYSICS_SHARE_TOPUP`** (`creature::share_topup_of`). `None`
     /// follows the environment.
@@ -6542,6 +6552,7 @@ impl World {
             trip_reach: None,
             food_trail: None,
             forage_throttle: None,
+            lean_forage: None,
             share_topup: None,
             mute_emit_b: false,
             birth_price: None,
