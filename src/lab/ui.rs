@@ -7054,12 +7054,22 @@ pub struct EndedLine {
     /// is keyed on `(species, colony)`, never `colony` alone.
     pub species: SpeciesId,
     /// **The last member's own colony at death**, read off its grave the
-    /// same way `cause` is. `0` for a plant (no plant ever claims a colony --
-    /// `World::claim_colony`'s own doc, only `creature::place_creature`
-    /// calls it) and for a hand-built fixture whose grave was never pushed.
-    /// `HistorySummaryRow` is the only reader: a colony groups the founding
-    /// lines under it by this field, never by re-deriving it.
-    pub colony: u32,
+    /// same way `cause` is. `Some(0)` for a plant (no plant ever claims a
+    /// colony -- `World::claim_colony`'s own doc, only
+    /// `creature::place_creature` calls it) and for an animal stocked alone,
+    /// which belongs to no colony. `HistorySummaryRow` groups the founding
+    /// lines under a colony by this field, never by re-deriving it.
+    ///
+    /// **`None` when the grave is gone** -- the graveyard holds the newest
+    /// 2,048 and a long session ages the rest out. This was `u32` with
+    /// `grave.map_or(0, ..)`, which filed every such line under colony `0`:
+    /// the 10-03 playtest's LEGENDS printed *"THE ANT 0 COLONY ... 248 OF ITS
+    /// FOUNDING LINES HAVE ENDED"*, a colony that never existed (colony ids
+    /// start at 1, `World::next_colony`) holding the lines whose graves had
+    /// rolled out. Unknown is now said as unknown: these lines go in no
+    /// colony's roll-up, `history_summary` gathers them under one row of
+    /// their own, and `legend_paragraph` says the colony is not known.
+    pub colony: Option<u32>,
     /// `0` if the lineage's row was never found -- cannot happen for a real
     /// `LineEnded` event (a line cannot end without having been founded) but
     /// a hand-built test fixture can still produce one.
@@ -7091,7 +7101,7 @@ pub fn ended_lines(world: &World) -> Vec<EndedLine> {
                 name: names::line_name(world.seed, e.lineage),
                 creature: world.species.get(e.species).creature.is_some(),
                 species: e.species,
-                colony: grave.map_or(0, |g| g.colony),
+                colony: grave.map(|g| g.colony),
                 founder_frame: stats.map_or(0, |s| s.founder_frame),
                 generations: stats.map_or(e.generation, |s| s.deepest_generation.max(e.generation)),
                 peak_living: stats.map_or(0, |s| s.peak_living),
@@ -7137,8 +7147,12 @@ pub fn legend_paragraph(e: &EndedLine) -> String {
         Some(c) => format!(" {}.", c.label()),
         None => String::new(),
     };
+    // An animal line whose grave has aged out says so, rather than being
+    // silently counted under a colony -- `EndedLine::colony`'s own doc. A
+    // plant line never had a colony to lose, so it says nothing.
+    let unknown = if e.creature && e.colony.is_none() { format!(" {UNKNOWN_COLONY}.") } else { String::new() };
     format!(
-        "THE {} LINE ({kingdom}) {span}. FOUNDED F{}, PEAK {} LIVING, ENDED F{}.{cause}",
+        "THE {} LINE ({kingdom}) {span}. FOUNDED F{}, PEAK {} LIVING, ENDED F{}.{cause}{unknown}",
         e.name, e.founder_frame, e.peak_living, e.ended_frame
     )
 }
@@ -7306,10 +7320,15 @@ pub fn history_summary(world: &World) -> Vec<HistorySummaryRow> {
     // `SpeciesId` carrying no `Ord` -- it exists to catch a species and a
     // material slot crossing, not to be sorted.
     let mut colonies: std::collections::BTreeMap<u32, Vec<EndedLine>> = std::collections::BTreeMap::new();
+    // Animal lines whose last grave has aged out -- see `EndedLine::colony`.
+    let mut unknown: Vec<EndedLine> = Vec::new();
     let mut out: Vec<HistorySummaryRow> = Vec::new();
     for e in ended_lines(world) {
         if e.creature {
-            colonies.entry(e.colony).or_default().push(e);
+            match e.colony {
+                Some(c) => colonies.entry(c).or_default().push(e),
+                None => unknown.push(e),
+            }
         } else {
             // A plant line is already its own row -- no grouping, no second
             // pass. `ended` is newest-first by construction (there is only
@@ -7374,9 +7393,29 @@ pub fn history_summary(world: &World) -> Vec<HistorySummaryRow> {
             ended,
         });
     }
+    // **One row for every animal line whose colony is not known**, never
+    // folded into a colony -- `EndedLine::colony`'s own doc for the fake
+    // colony 0 this replaces. `colony: None`, so it opens no DETAIL (there is
+    // no colony to list) and `colony_summary_paragraph` words it as unknown.
+    if !unknown.is_empty() {
+        out.push(HistorySummaryRow {
+            name: UNKNOWN_COLONY.to_string(),
+            creature: true,
+            colony: None,
+            alive: None,
+            causes: "--".to_string(),
+            causes_full: "--".to_string(),
+            last_activity: unknown.first().map_or(0, |e| e.ended_frame),
+            ended: unknown,
+        });
+    }
     out.sort_by_key(|r| std::cmp::Reverse(r.last_activity));
     out
 }
+
+/// The name of [`history_summary`]'s row for animal lines whose colony is no
+/// longer known, and the words `legend_paragraph` uses for one such line.
+pub const UNKNOWN_COLONY: &str = "COLONY UNKNOWN (GRAVE DROPPED)";
 
 /// **One [`HistorySummaryRow`] naming an animal colony**, as the row's own
 /// hover note and the chronicle's per-colony LEGENDS paragraph -- shared for
@@ -7384,6 +7423,15 @@ pub fn history_summary(world: &World) -> Vec<HistorySummaryRow> {
 /// same way. Never called for a plant row, whose note is [`legend_paragraph`]
 /// on its own one ended line.
 pub fn colony_summary_paragraph(row: &HistorySummaryRow) -> String {
+    // The grave-dropped lines' row is not a colony and is not worded as one.
+    if row.colony.is_none() {
+        let n = row.ended.len();
+        return format!(
+            "{n} {} FOUNDING LINE{} ENDED IN NO KNOWN COLONY -- {UNKNOWN_COLONY}, SO WHICH COLONY THE LAST MEMBER BELONGED TO IS NOT RECORDED.",
+            kingdom_label(row.creature),
+            if n == 1 { "" } else { "S" }
+        );
+    }
     let status = match row.alive {
         Some(n) => format!("{n} ALIVE"),
         None => "ENDED".to_string(),
@@ -7403,7 +7451,7 @@ pub fn colony_summary_paragraph(row: &HistorySummaryRow) -> String {
 /// rather than re-derived, so an expansion can never name a line the
 /// summary above it did not count.
 pub fn history_lines_for_colony(world: &World, colony: u32) -> Vec<EndedLine> {
-    ended_lines(world).into_iter().filter(|e| e.creature && e.colony == colony).collect()
+    ended_lines(world).into_iter().filter(|e| e.creature && e.colony == Some(colony)).collect()
 }
 
 /// **The run's whole chronicle, as text** -- `Lab::write_chronicle`'s export
@@ -11138,6 +11186,53 @@ mod tests {
         (w, colony, lineages)
     }
 
+    /// **An ended animal line whose grave has aged out lands under no
+    /// colony -- least of all a colony 0 that never existed.** The 10-03
+    /// playtest's LEGENDS printed "THE ANT 0 COLONY ... 248 OF ITS FOUNDING
+    /// LINES HAVE ENDED": `ended_lines` filed every grave-dropped line under
+    /// colony `0`. Two lines end in a real colony, then `GRAVE_CAP` plant
+    /// graves roll their graves out; both lines must then sit in the one
+    /// unknown row, the colony's own row must hold none of them, no row may
+    /// be colony `Some(0)`, and the chronicle must neither print an
+    /// `ANT 0 COLONY` paragraph nor drop the lines. Sensitivity: the graves
+    /// are checked gone first, and put `map_or(0, ..)` back in
+    /// `ended_lines` (with `Some(..)` around it) and the `Some(0)` and
+    /// paragraph assertions go red.
+    #[test]
+    fn an_ended_line_with_no_grave_is_not_filed_under_colony_zero() {
+        let (mut w, colony, lineages) = world_with_ant_colony(2);
+        for i in 0..world::GRAVE_CAP as u64 {
+            w.graveyard.push(world::Grave {
+                id: 1_000 + i as crate::sim::cell::OrganismId,
+                born_frame: 0,
+                died_frame: 500 + i,
+                species: crate::sim::organism::SpeciesId(0),
+                lineage: 0,
+                colony: 0,
+                generation: 0,
+                cause: crate::sim::organism::DeathCause::Starved,
+                life: crate::sim::organism::LifeCounters::default(),
+                at: (0, 0),
+                creature: false,
+            });
+        }
+        assert!(w.graveyard.recent().all(|g| !g.creature), "the ant graves are still held, so this proves nothing");
+        let ended = ended_lines(&w);
+        assert_eq!(ended.iter().filter(|e| e.creature && e.colony.is_none()).count(), 2, "the two grave-dropped lines are not marked unknown");
+        let rows = history_summary(&w);
+        assert!(rows.iter().all(|r| r.colony != Some(0)), "a row was filed under colony 0");
+        let own = rows.iter().find(|r| r.colony == Some(colony)).expect("the colony keeps its own row (group_deaths never ages out)");
+        assert!(own.ended.is_empty(), "grave-dropped lines were rolled up into a colony they cannot be shown to belong to");
+        let unknown = rows.iter().find(|r| r.name == UNKNOWN_COLONY).expect("an unknown-colony row");
+        let got: std::collections::BTreeSet<u32> = unknown.ended.iter().map(|e| e.lineage).collect();
+        assert_eq!(got, lineages.iter().copied().collect(), "the unknown row does not hold exactly the dropped lines");
+        assert!(history_lines_for_colony(&w, 0).is_empty(), "colony 0's expansion lists lines");
+        let text = chronicle_text(&w, &LabBox::default(), "TEST BED", None, 1, &[], &[]);
+        assert!(!text.contains("ANT 0 COLONY"), "the chronicle still names a colony 0:\n{text}");
+        assert!(text.contains("2 ANIMAL FOUNDING LINES ENDED IN NO KNOWN COLONY"), "the unknown row's paragraph is missing:\n{text}");
+        assert_eq!(text.matches(UNKNOWN_COLONY).count(), 3, "one summary paragraph and one mark per line legend:\n{text}");
+    }
+
     /// **A SUMMARY colony row's cause counts equal an independent tally of
     /// the graveyard itself for that colony.** `history_summary` is built
     /// from `World::group_deaths`, never the graveyard directly
@@ -11196,7 +11291,7 @@ mod tests {
             lineages_a.iter().copied().collect(),
             "colony A's expansion must be exactly its own two ended lines, no more and no fewer"
         );
-        assert!(rows.iter().all(|r| r.colony == colony_a), "a row from a different colony leaked into the expansion");
+        assert!(rows.iter().all(|r| r.colony == Some(colony_a)), "a row from a different colony leaked into the expansion");
         assert!(!got.contains(&lineage_b), "colony B's own line leaked into colony A's expansion");
     }
 
