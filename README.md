@@ -10282,12 +10282,16 @@ cell, one touching brood already lying there first (`brood::pile_site`,
 it ships on.
 
 **Known limitations.**
-- **The lab box still lays anywhere** (`LabBox::build_counted`, PR 550).
-  Traced on its nest: ants rich enough to lay are mostly laden and out on
-  the surface, the few home cells are held by other ants, and no egg had an
-  empty cell to go to. With every laying-side gate opened, colonies still
+- **The lab box lays only at the nest too, and it kills the box today**
+  (owner's ruling, 2026-10-03: "I understand it kills the colony we're
+  working together to fix that, but that is what it will be";
+  `PIXEL_PHYSICS_BUD_SITE=anywhere` restores laying anywhere). Traced on
+  its nest: ants rich enough to lay are mostly laden and out on the
+  surface, the few home cells are held by other ants, and the colony never
+  digs a home to lay in. With every laying-side gate opened, colonies still
   died out (120,000 frames, 4 seeds: alive 2/0/0/0 against 185/54/42/341
-  laying anywhere). It waits on a lab nest with room in it.
+  laying anywhere); 24 of 24 boxes were dead by 300,000 frames with the
+  door drained or not. It waits on a lab nest with room in it.
 - **The hold threshold is a constant.** Genes reach it only through the
   output's level. That is the same convention as every other verb's zero.
 

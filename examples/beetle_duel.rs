@@ -20,10 +20,11 @@
 //!
 //! `cargo run --release --example beetle_duel -- ants=1,2,4,8 seeds=8`
 
+use pixel_physics::sim::brain::{BrainInput, BrainOutput};
 use pixel_physics::sim::cell::Cell;
 use pixel_physics::sim::cell::OrganismId;
 use pixel_physics::sim::chunk::Rect;
-use pixel_physics::sim::creature::plant_creature_seed;
+use pixel_physics::sim::creature::{plant_creature_seed, probe_full};
 use pixel_physics::sim::organism::TRAIT_ARMOUR;
 use pixel_physics::sim::scheduler;
 use pixel_physics::sim::world::World;
@@ -89,6 +90,7 @@ fn main() {
     // hunting is hunger-driven -- so the shipped test's 100,000 J bank is
     // one arm, not the answer.
     let bank: f32 = arg("bank").unwrap_or(100_000.0);
+    let trace = arg::<u32>("trace").unwrap_or(0) != 0;
     let shipped = {
         let w = World::new(Rect::new(0, 0, 9, 9));
         w.materials
@@ -129,11 +131,57 @@ fn main() {
                 }
             }
             let mut died = None;
+            // `trace=1`: the beetle's last frames before it dies -- what it
+            // sensed (Crowding), what the gang gate made of it (hidden 0 and
+            // 1), what it chose (Feed, Dig, Move, Tumble), how many ants'
+            // cells touched it and its bank. Read the rows of every death,
+            // not a population figure (`CLAUDE.md`, tracing individuals).
+            let mut tail: std::collections::VecDeque<String> = std::collections::VecDeque::new();
             for f in 1..=budget {
+                if trace {
+                    if let Some(st) = w.organism(beetle) {
+                        let (hx, hy) = st.chain[0];
+                        let def = w.species.get(st.species).creature.clone().expect("creature");
+                        let (i, h, o, _) = probe_full(&w, hx, hy, beetle, &def);
+                        let mut touching = std::collections::BTreeSet::new();
+                        for &(cx, cy) in &st.chain {
+                            for dy in -1..=1 {
+                                for dx in -1..=1 {
+                                    let id = w.get(cx + dx, cy + dy).organism_id();
+                                    if id != 0 && id != beetle {
+                                        touching.insert(id);
+                                    }
+                                }
+                            }
+                        }
+                        tail.push_back(format!(
+                            "    f={f} alarm={:.2} crowd={:.2} h0={:.2} h1={:.2} feed={:.2} dig={:.2} move={:.2} tumble={:.2} ants_touching={} cells={} energy={:.0}",
+                            i[BrainInput::Alarm as usize],
+                            i[BrainInput::Crowding as usize],
+                            h[0],
+                            h[1],
+                            o[BrainOutput::Feed as usize],
+                            o[BrainOutput::Dig as usize],
+                            o[BrainOutput::Move as usize],
+                            o[BrainOutput::Tumble as usize],
+                            touching.len(),
+                            st.chain.len(),
+                            st.energy
+                        ));
+                        if tail.len() > 12 {
+                            tail.pop_front();
+                        }
+                    }
+                }
                 run(&mut w, 1);
                 if w.organism(beetle).is_none() {
                     died = Some(f);
                     break;
+                }
+            }
+            if trace && died.is_some() {
+                for l in &tail {
+                    println!("{l}");
                 }
             }
             kills.push(died);
