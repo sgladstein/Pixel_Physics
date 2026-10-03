@@ -3954,12 +3954,12 @@ fn bear_seed_at(world: &mut World, sx: i32, sy: i32, parent_id: OrganismId, seed
     // bare parameter override, matching the order the block above rolls
     // them: the rarest, most legible channel is reported first.
     let born_with: u16 = if let Some(locus) = jumped_locus {
-        (20u16 << 8) | locus as u16
+        (organism::BORN_WITH_LOCUS << 8) | locus as u16
     } else if fate_applied {
         let op_index = fate_op.and_then(|op| organism::FateOp::ALL.iter().position(|o| *o == op)).unwrap_or(0);
-        (21u16 << 8) | op_index as u16
+        (organism::BORN_WITH_RULE << 8) | op_index as u16
     } else if param_applied {
-        22u16 << 8
+        organism::BORN_WITH_PARAM << 8
     } else {
         0
     };
@@ -20876,9 +20876,11 @@ threshold {MIZ_THRESHOLD}  (+y is DOWN)");
     /// when the sky gets deeper is not a bound.
     #[test]
     fn the_turgor_gate_caps_height_independently_of_how_much_sky_there_is() {
-        let heights: Vec<i32> = [140, 220]
-            .iter()
-            .map(|&ground| {
+        // The two scenes run on their own threads: they share nothing, and
+        // serially this was 72 s of the debug CI job's lib suite, its
+        // longest test after the lab scenario guard (2026-10-03).
+        let heights: Vec<i32> = std::thread::scope(|scope| {
+            let runs: Vec<_> = [140, 220].iter().map(|&ground| scope.spawn(move || {
                 let scene = common_scene(ground);
                 let mut w = scene;
                 for _ in 0..30_000 {
@@ -20907,8 +20909,9 @@ threshold {MIZ_THRESHOLD}  (+y is DOWN)");
                     })
                     .unwrap_or(ground);
                 ground - top
-            })
-            .collect();
+            })).collect();
+            runs.into_iter().map(|h| h.join().unwrap_or_else(|p| std::panic::resume_unwind(p))).collect()
+        });
 
         // `tree.ron`'s own numbers give 0.9 / 0.0075 = 120 rows. Allow
         // slack for the tip that crosses the threshold mid-step and for
