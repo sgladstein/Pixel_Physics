@@ -3831,6 +3831,7 @@ fn store_drop(world: &mut World, organism: OrganismId, (x, y): (i32, i32), spoil
                 } else {
                     world.creature_stats.store_released += 1;
                 }
+                door_write_note(world, (px, py), "store_pile", spoil.cell);
                 world.set(px, py, spoil.cell);
                 if let Some(state) = world.organism_mut(organism) {
                     state.spoil = None;
@@ -3870,6 +3871,7 @@ fn store_drop(world: &mut World, organism: OrganismId, (x, y): (i32, i32), spoil
     };
     let delivered = site.is_some() && (in_room || storeroom_near(world, x, y).is_some_and(|room| room.in_store(x, y)));
     if let Some((px, py)) = site {
+        door_write_note(world, (px, py), "store_room", spoil.cell);
         world.set(px, py, spoil.cell);
         if let Some(state) = world.organism_mut(organism) {
             state.spoil = None;
@@ -7771,6 +7773,7 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
             // seed can actually stand.
             if left == 0 && std::env::var("PIXEL_PHYSICS_SEED_WHERE_EATEN").as_deref() != Ok("0") {
                 if let Some(passenger) = c.passenger {
+                    door_write_note(world, (hx, hy), "digest_pip_at_head", Cell::new(passenger.material, 0));
                     plant::deliver_seed_passenger(world, hx, hy, passenger);
                     world.pips_released_by_digestion += 1;
                     world.pip_digestion_release_x.push(hx);
@@ -12400,6 +12403,17 @@ fn dig_funnel_note(world: &World, organism: OrganismId, def: &CreatureDef, (x, y
     *g.get_or_insert_with(Default::default).entry(format!("{place} {what}{door}")).or_insert(0) += 1;
 }
 
+// TEMP door-write census (not for commit): what each call site puts into a
+// nest's founding cut, by material.
+pub static DOOR_WRITES: std::sync::Mutex<Option<std::collections::BTreeMap<String, u64>>> = std::sync::Mutex::new(None);
+fn door_write_note(world: &World, (x, y): (i32, i32), site: &str, cell: Cell) {
+    if std::env::var_os("DOORWRITES").is_none() || !world.nest_sites.iter().any(|n| n.shaft.is_some_and(|cut| cut.contains(x, y))) {
+        return;
+    }
+    let mut g = DOOR_WRITES.lock().unwrap();
+    *g.get_or_insert_with(Default::default).entry(format!("{site}:{}", world.materials.get(cell.material).name)).or_insert(0) += 1;
+}
+
 /// A live organism's seed cell, which [`jaw_can_cut`] will not dig.
 fn is_live_seed(cell: Cell) -> bool {
     cell.organism_id() != 0 && organism::cell_type(cell.aux()) == Some(CellType::Seed)
@@ -14499,8 +14513,10 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
                 // like any other fallen fruit. See `plant::deliver_
                 // seed_passenger_uneaten`'s own doc.
                 if let Some(passenger) = held.passenger {
+                    door_write_note(world, (dx, dy), "drop_seeded", unit.into_cell(world));
                     plant::deliver_seed_passenger_uneaten(world, dx, dy, passenger);
                 } else {
+                    door_write_note(world, (dx, dy), "drop", unit.into_cell(world));
                     world.set(dx, dy, unit.into_cell(world));
                 }
                 if let Some(state) = world.organism_mut(organism) {
@@ -14803,6 +14819,7 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
             }
 
             if let Some((px, py)) = site {
+                door_write_note(world, (px, py), "spoil", spoil.cell);
                 world.set(px, py, spoil.cell);
                 if let Some(state) = world.organism_mut(organism) {
                     state.spoil = None;
@@ -23309,6 +23326,7 @@ fn creature_dies(world: &mut World, organism: OrganismId, cause: organism::Death
             .find(|&(px, py)| world.is_empty(px, py));
         match site {
             Some((px, py)) => {
+                door_write_note(world, (px, py), "death_spoil", spoil.cell);
                 world.set(px, py, spoil.cell);
                 world.creature_stats.spoil_dumped += 1;
             }
@@ -23353,8 +23371,10 @@ fn creature_dies(world: &mut World, organism: OrganismId, cause: organism::Death
                 break;
             };
             if let Some(p) = passenger.take() {
+                door_write_note(world, (dx, dy), "death_seeded", unit.into_cell(world));
                 plant::deliver_seed_passenger_uneaten(world, dx, dy, p);
             } else {
+                door_write_note(world, (dx, dy), "death_crop", unit.into_cell(world));
                 world.set(dx, dy, unit.into_cell(world));
             }
             left -= 1;

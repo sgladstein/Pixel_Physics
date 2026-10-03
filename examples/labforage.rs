@@ -3107,6 +3107,9 @@ fn print_nest_line(world: &World, f: u64) {
         println!("DIGFUNNEL frame={f} {}", line.join(" | "));
     }
     println!("PLUG frame={f} {plug:?}");
+    if let Some(m) = pixel_physics::sim::creature::DOOR_WRITES.lock().unwrap().as_ref() {
+        println!("DOORWRITES frame={f} {m:?}");
+    }
     let st = world.creature_stats;
     println!(
         "NEST frame={f} ants={ants} under={under} free={free} free_near={free_near} laden_near={laden_near} spoil={spoil} workers={workers} workers_under={workers_under} roofed={roofed} home={} digs={} rolls={} roof_refused={} plant_bites={} plant_cleared={} cut_open={open}/{cells} under_door: roots={rootc} ground={groundc} aloft={aloft} by_x_from_nest(<16,<48,<128,far)={dist:?}",
