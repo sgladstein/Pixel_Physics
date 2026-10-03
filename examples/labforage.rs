@@ -2149,6 +2149,23 @@ fn main() {
                 }
             }
         }
+        // **The nest's own room, every 12,000 frames** -- the census line
+        // `labshot` prints, so a run that changes where ants walk can say
+        // whether the nest got dug (asked for by the nest lane, 2026-10-03:
+        // chambers form where crowded workers dig, so laying at home and
+        // digging may start each other).
+        if f % 12_000 == 0 {
+            if let Some(room) = world.nest_room.first() {
+                println!(
+                    "NEST frame={f} roofed {} ants in it {} | home cells (dug) {} | digs {} of {} rolls",
+                    room.roofed,
+                    room.ants,
+                    world.nest_dug.len(),
+                    world.creature_stats.digs,
+                    world.creature_stats.dig_rolls
+                );
+            }
+        }
         if f < frames {
             frame::step(&mut world, &mut particles, &mut blasts, player::PlayerInput::default(), &tuning);
             pixel_physics::lab::rain::tick(&mut world, &spec, rain);
@@ -2476,6 +2493,8 @@ fn main() {
             "BROOD standing {} (holding {held:.0} J) | laid {}, larvae {}, pupated {}, larvae starved {}, lost {}, hatches refused for room {} | J shared in {:.0}, nursed by touch {:.0}, eaten beside {:.0}, upkeep {:.0} | births held by the food brake {}",
             standing.len(), st.eggs_laid, st.larvae, st.pupae, st.larvae_starved, st.brood_lost, st.hatches_denied, st.brood_shared_j, st.brood_nursed_j, st.brood_ate_j, st.brood_upkeep_j, st.food_brake_held
         );
+        // `PIXEL_PHYSICS_HOME_REAIM`'s "it fired" half (`creature::home_reaim`).
+        println!("REAIM walks home re-aimed off a blocked anchor {}", st.home_reaims);
     }
 
     println!(

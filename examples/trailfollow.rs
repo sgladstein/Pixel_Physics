@@ -5294,6 +5294,8 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
             cs.pickups_at_nest,
             cs.food_brake_held
         );
+        // `PIXEL_PHYSICS_HOME_REAIM`'s "it fired" half (`creature::home_reaim`).
+        println!("    REAIM walks home re-aimed off a blocked anchor {}", cs.home_reaims);
         // **Where the colony's energy went, by verb** (2026-09-28): the
         // ledger's three sinks, with digging, trail-laying and exposure split
         // out of `metabolized`, so a question like "does building the nest

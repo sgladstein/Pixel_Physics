@@ -115,7 +115,8 @@ will be.
   `place_creature`'s `kin`, `births_on_kin`), and §12 that day for the
   carry's latch at the door (`carry_stage`, `ring_target`,
   `spoil_ring_let_go`). §9 and §12 on 2026-10-03 for the brood pile
-  (`brood::pile_site`, `egg_pile_reach`, `creature::home_at`).
+  (`brood::pile_site`, `egg_pile_reach`, `creature::home_at`), and §12
+  for the anchor re-aim switch (`home_reaim`).
   Update this line whenever a section is re-checked against the code.
 - **Edit it in place. Never append history.** When you change a mechanism
   described here, update the section in the same commit. When you find this
@@ -1057,6 +1058,7 @@ Read once per process from the environment. The default is what ships.
 | `PIXEL_PHYSICS_DROP_REACH` | through bodies | `adjacent`: a food drop looks only at the 8 neighbours |
 | `PIXEL_PHYSICS_BUD_SITE` | nest | a species with a nest material lays or buds only at its nest (§9); `anywhere` restores the old rule; the lab box defaults to anywhere |
 | `PIXEL_PHYSICS_EGG_PILE` | on, reach 4 (since 2026-10-03) | acting only when laying only at the nest: an egg goes onto an empty home cell up to that many steps from the layer's head, through nestmates, nearest the brood already there (§9, `brood::pile_site`); `off` (or 0) is the egg beside the head and "at the nest" read off the head; an integer sets the reach |
+| `PIXEL_PHYSICS_HOME_REAIM` | off | `loose` (or `on`): every 16th tick, an animal whose homing anchor (`forage_anchor`) stands in ground, water or a plant has it moved to the nearest empty home cell within 12 of it (`home_reaim`, counted in `CreatureStats::home_reaims`); `strict` also moves it off an animal or loose food. Off because it moved nothing on the lab nest (`dead-ends.md`) |
 | `PIXEL_PHYSICS_BUD_STORE` | off | `on`: a nesting species buds only at its storeroom, and food in the founding cut and its storeroom pays the whole birth (`bud_from_store`, `provisions_in_store`, §9). `bank`: the same place, but the parent's bank counts as at the door and the store tops it up from food over `BUD_RESERVE` (`bud_store_counts_bank`) |
 | `PIXEL_PHYSICS_BUD_RESERVE` | 0 | `<J>`: under `BUD_STORE=on`, a birth's bar is its price plus `<J>`, so the store must still hold that much after it; under `BUD_STORE=bank`, the store's food counts only above `<J>` (`bud_store_reserve`) |
 | `PIXEL_PHYSICS_BUD_STACK` | on (since 2026-09-30) | above a stack cap of 1, a birth with no free cell beside the parent stands on nestmates (§9); `off`: it is refused and tries again |
