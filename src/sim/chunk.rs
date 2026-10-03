@@ -547,7 +547,7 @@ fn full_moist_cells() -> Option<Box<[u128; SPAN_ROWS]>> {
 ///
 /// With both explained, what is left is the per-chunk RNG stream shifting
 /// under a different visit set -- a behaviour change, so it was judged as
-/// one, on the lab bench (README `Moisture marks` neighbour paragraph and the
+/// one, on the lab bench (README `Per-row sweep spans on by default` and the
 /// commit carry the numbers). The cost side: on the played bed with the
 /// mister on, **every awake chunk holds water, so every chunk's `reach` is
 /// 24-32 and the box spans nearly the whole chunk for any two marks** --
