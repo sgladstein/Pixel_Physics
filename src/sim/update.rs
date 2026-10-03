@@ -1984,7 +1984,7 @@ fn update_liquid<S: CellSurface>(surface: &mut S, x: i32, y: i32, rightward: boo
         return true;
     }
     // And through a lighter powder under it, which floats up in its place
-    // (`powder_floats`, off) -- so a crumb floor would no longer seal a pond.
+    // (`powder_floats`, on) -- so a crumb floor no longer seals a pond.
     if !hole_from_a_sideways_escape && sinks_under_lighter_powder(surface, x, y, below) {
         return true;
     }
@@ -2896,8 +2896,9 @@ fn find_lateral_descent<S: CellSurface>(surface: &S, x: i32, y: i32, dir: i32) -
 
 /// **A powder lighter than the liquid it lies under floats up through it**
 /// -- crumbs, seeds and pips, leaf litter, deadwood, brood and snow, against
-/// water's 1.0. **Off**: `PIXEL_PHYSICS_POWDER_FLOATS=on` turns it on. Built
-/// 2026-10-03 and left off for a measured harm to the lab colony, below.
+/// water's 1.0. **On since 2026-10-03**; `PIXEL_PHYSICS_POWDER_FLOATS=off`
+/// restores the sealed floor. Built the same day and first left off for what
+/// read as a harm to the lab colony and was not, below.
 ///
 /// **What it fixes is a sealed floor, not a floating look.** `try_move` lets
 /// a mover displace only `Liquid` and `Gas` (`MaterialKind::is_displaceable`),
@@ -2917,19 +2918,24 @@ fn find_lateral_descent<S: CellSurface>(surface: &S, x: i32, y: i32, dir: i32) -
 /// on `crumbs` is its worth (`carries_worth`), so it cannot hold water
 /// without putting two systems on one field.
 ///
-/// **Why it is off.** Twelve paired played-bed seeds, 150,000 frames, main
-/// `9311b741`, one binary (`nestdoor`): the nest worked better -- samples
-/// after 30,000 frames with an ant at home, median 12 -> 21 of 24 (better
-/// on 8 of 12); food carried home +48%; water in the founding shaft at the
-/// end 12 -> 0 cells -- and the colonies did worse on the owner's own test:
-/// ants alive at the end 151 -> 39 (worse on 8 of 12), fall from peak 36%
-/// -> 71% (worse on 7), boxes under 10 ants at the end 1 -> 3. Holding the
-/// door open by hand (`nestdoor keepopen=1`) went the same way on four
-/// seeds -- home 0-101 -> 184-410 cells, ants alive at the end worse on 3 of
-/// 4 -- so the cost looks like the lab colony's rather than this rule's
-/// (inferred, not traced): it lives off the garden and lays anywhere, and
-/// nothing it needs is at home. Re-test when something is
-/// (`Reports/nest-door-2026-10-03.md` §7).
+/// **Why it is on: neutral for the colony, twice the nest.** Twelve paired
+/// played-bed seeds, 300,000 frames, main `a583cc1b`, one binary
+/// (`nestdoor`): samples after 30,000 frames with an ant at home, median
+/// 12 -> 25 of 54 (more on 8 of 12); food carried home 2,254 -> 5,230 (more
+/// on 9); and the colony's own numbers moved neither way -- ants alive
+/// averaged after 30,000 frames 100 -> 93 (5 up, 7 down), peak 324 -> 366
+/// (7/5), births 1,178 -> 974 (4/8), boxes empty at 300,000 6 -> 8 (the
+/// seeds that differ split 3/1). No row better than a sign test's p 0.15.
+///
+/// **The harm it was first left off for was a reading, not a cost.** The
+/// first run (main `9311b741`, 150,000 frames) scored ants alive *at the
+/// last frame*: 151 -> 39, worse on 8 of 12. The lab colony booms and busts,
+/// so one frame's count depends on where in the swing it lands -- on main
+/// `50553e09` (the laying lane's runs) the same row read 69.5 -> 146,
+/// better on 8, and on `a583cc1b` 174 -> 128, worse on 8. Averaged over the
+/// run it never moved. Chart of all three builds:
+/// <https://claude.ai/artifact/BhaD6W2MnQWtNtQzYjEPmz>;
+/// `Reports/nest-door-2026-10-03.md` §7.
 ///
 /// The swap is straight down only and one cell a visit, the same as a
 /// powder sinking through water: the liquid takes the powder's cell, the
@@ -2940,7 +2946,7 @@ fn find_lateral_descent<S: CellSurface>(surface: &S, x: i32, y: i32, dir: i32) -
 /// density.
 fn powder_floats() -> bool {
     static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *ON.get_or_init(|| std::env::var("PIXEL_PHYSICS_POWDER_FLOATS").as_deref() == Ok("on"))
+    *ON.get_or_init(|| std::env::var("PIXEL_PHYSICS_POWDER_FLOATS").as_deref() != Ok("off"))
 }
 
 /// One step of [`powder_floats`]: the liquid at `(x, y)` changes places with
@@ -3143,12 +3149,9 @@ mod tests {
     /// denser and also holds none, so the water must still stand on it: that
     /// arm is what says the rule reads density, not "any powder", and that
     /// the soil cannot be reached some other way in this scene.
-    /// The rule ships off, so this is ignored: run it with
-    /// `PIXEL_PHYSICS_POWDER_FLOATS=on cargo test --release --lib -- --ignored
-    /// water_sinks_through`. Without the switch the first assertion is red
-    /// (checked: "soil holds 0").
+    /// With the switch off (`PIXEL_PHYSICS_POWDER_FLOATS=off`) the first
+    /// assertion is red (checked: "soil holds 0").
     #[test]
-    #[ignore = "powder_floats ships off; run with PIXEL_PHYSICS_POWDER_FLOATS=on"]
     fn water_sinks_through_a_crumb_floor_into_the_ground_and_stands_on_sand() {
         use super::super::chunk::Rect;
         use super::super::world::World;
