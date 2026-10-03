@@ -5432,6 +5432,19 @@ pub struct World {
     /// setting. The lab's parameters panel writes this one; see
     /// `lab::params::Knob::Rule`.
     pub plant_load_failure: bool,
+    /// **Whether water flows through a plant along real paths** rather than
+    /// being one tank every leaf reads equally (`plant::sap_flow`).
+    ///
+    /// On: roots drink into their own cells, the water collects at the
+    /// collar, climbs the trunk and splits into branches in proportion to
+    /// the leaves each one feeds; a branch above poorly-rooted ground, and
+    /// the tips furthest from the roots, run dry first; refilling after a
+    /// drought climbs the plant at sap speed; and nutrients ride the water,
+    /// so a growing tip prices its next cell against what actually reaches
+    /// it. Off is the one-tank engine exactly. Initialised from
+    /// `PIXEL_PHYSICS_SAP_FLOW` (`on`/`off`); a field rather than a process
+    /// global so a test can run both arms in one process.
+    pub sap_flow: bool,
     /// **Whether a plant may lean under load and wind.** `plant.rs`'s
     /// `bend_under_load`, and the `stress_field` that feeds it.
     ///
@@ -6620,6 +6633,7 @@ impl World {
             // On, because it is the shipped behaviour and a default that
             // silently disables a mechanism is a mechanism nobody measures.
             plant_load_failure: true,
+            sap_flow: super::plant::sap_flow_default(),
             soil_capillary_levels: false,
             plant_bending: true,
             windfall_rots: crate::sim::decay::windfall_rots_default(),
@@ -10331,9 +10345,22 @@ impl World {
     /// drought shedding reads. Deliberately not `water_status`: see
     /// `OrganismState::water_desiccation` for why prudence must not read
     /// as thirst.
+    ///
+    /// **Per cell when `sap_flow` is on**: the cell's own
+    /// `OrganismCell::sap_desiccation`, so a leaf far up a poorly-rooted
+    /// branch dries before one by the trunk. A cell not yet walked reads the
+    /// plant's number, as before.
     pub fn desiccation_at(&self, x: i32, y: i32) -> f32 {
         let id = self.get(x, y).organism_id();
-        self.organism(id).map_or(0.0, |s| s.water_desiccation)
+        let Some(state) = self.organism(id) else { return 0.0 };
+        if self.sap_flow {
+            if let Some(c) = state.cells.get(&(x, y)) {
+                if c.sap_desiccation >= 0.0 {
+                    return c.sap_desiccation;
+                }
+            }
+        }
+        state.water_desiccation
     }
 
     /// Carbon at `(x, y)`, or `0.0` where there is no organism cell —
