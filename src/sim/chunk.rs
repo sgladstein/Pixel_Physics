@@ -417,11 +417,12 @@ fn full_rows(coord: ChunkCoord) -> [(i16, i16); SPAN_ROWS] {
     rows
 }
 
-/// **How the soil-moisture pass remembers what to look at** --
-/// `PIXEL_PHYSICS_MOISTURE_MARKS=cells` swaps the per-row spans for a per-cell
-/// bitmap. Default off, and it is a **behaviour change**, not a pure one.
+/// **How the soil-moisture pass remembers what to look at** -- a per-cell
+/// bitmap, **on by default since 2026-10-03**;
+/// `PIXEL_PHYSICS_MOISTURE_MARKS=rows` restores the per-row spans. It is a
+/// **behaviour change**, not a pure one.
 ///
-/// The default set is the *row hull* of every mark, dilated by one row and one
+/// The old set is the *row hull* of every mark, dilated by one row and one
 /// column ([`Chunk::take_moist_plan`]). Two marks 40 columns apart on one row
 /// put all 40 cells between them in the set, and every one of them is walked.
 /// The bitmap set is each mark dilated by the **4-neighbourhood**, which is
@@ -438,13 +439,23 @@ fn full_rows(coord: ChunkCoord) -> [(i16, i16); SPAN_ROWS] {
 /// write leaves its own mark and the cell reacts on the next tick instead. So
 /// the water goes to the same place; some of it arrives a tick later.
 ///
-/// Off by default because that is an owner call, not a measurement:
-/// `Reports/evolution-lab-frame-cost-2026-09-01.md` §17 has the visit counts
-/// and the paired timings, and the blind A/B that asks whether a bed of wet
-/// soil looks any different.
+/// **Why it is on now.** It shipped off pending two things. The owner's blind
+/// A/B (`Reports/evolution-lab-frame-cost-2026-09-01.md` §17.3, card
+/// `20260907T030350034Z-de4164`) came back 2026-09-10: *"They look the same to
+/// me."* The seed sweep §17.3 said was owed ran 2026-10-03 on the played bed,
+/// 24 seeds x 120,000 frames, paired (`scripts/labbench.py . .
+/// --new-env PIXEL_PHYSICS_MOISTURE_MARKS=cells`, main f8141ded): births
+/// higher on **12 of 24**, food eaten 10/14, ant-frames 10/14, starved per
+/// million ant-frames lower on 15 of 24 -- every gate a coin flip (sign p
+/// 0.31-1.0), colonies lost 1 -> 1. What it buys is the owner's 2026-10-03
+/// playtest complaint: an empty box under the mister (no plants, no animals,
+/// `Rain::Light`, one thread) **0.68 -> 0.48 ms a tick**, the pass walking
+/// ~10,000 -> ~3,700 cells a tick to change the **same ~1,660**; a planted bed
+/// before the colony arrives 1.41 -> 1.03. With a colony in the box the ants
+/// dominate and a 120,000-frame run moves 242 -> 239 s.
 pub(crate) fn moisture_marks_cells() -> bool {
     static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *ON.get_or_init(|| std::env::var("PIXEL_PHYSICS_MOISTURE_MARKS").as_deref() == Ok("cells"))
+    *ON.get_or_init(|| std::env::var("PIXEL_PHYSICS_MOISTURE_MARKS").as_deref() != Ok("rows"))
 }
 
 /// Bits `1..=CHUNK_SIZE` of a [`MoistPlan::Cells`] row -- the chunk's own

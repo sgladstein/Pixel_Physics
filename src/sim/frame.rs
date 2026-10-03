@@ -76,7 +76,12 @@ impl PhaseTimes {
 
 /// **A per-phase stopwatch inside the live tick**, accumulating into a
 /// process-wide total that the caller drains. `PIXEL_PHYSICS_PHASE_CLOCK=1`
-/// turns it on; **default off**.
+/// turns it on; **default off -- except in the lab's own binary**, which
+/// calls [`phase_clock_default_on`] before its first tick, so a played
+/// session's chronicle carries the split without the player knowing the
+/// switch exists (`PIXEL_PHYSICS_PHASE_CLOCK=0` still turns it off there).
+/// Every harness keeps the old default, so no headless measurement moved.
+/// The cost of having it on is measured at [`phase_clock_default_on`].
 ///
 /// *Why it is here and not in a harness.* `Reports/evolution-lab-playtest-
 /// 2026-09-13.md` §1 is the owner's own session log at 39 -> 2,473 ants, and
@@ -103,9 +108,39 @@ impl PhaseTimes {
 /// drained by whoever prints it. `Mutex` rather than eight atomics so a drain
 /// is a consistent snapshot and not eight independent reads.
 fn phase_clock_enabled() -> bool {
-    use std::sync::OnceLock;
-    static ON: OnceLock<bool> = OnceLock::new();
-    *ON.get_or_init(|| std::env::var("PIXEL_PHYSICS_PHASE_CLOCK").as_deref() == Ok("1"))
+    *PHASE_CLOCK_ON.get_or_init(|| std::env::var("PIXEL_PHYSICS_PHASE_CLOCK").as_deref() == Ok("1"))
+}
+
+/// The switch, read once per process. Module-level rather than inside
+/// [`phase_clock_enabled`] only so [`phase_clock_default_on`] can settle it
+/// first.
+static PHASE_CLOCK_ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+
+/// **Make the stopwatch default to on for this process**, unless
+/// `PIXEL_PHYSICS_PHASE_CLOCK=0` says otherwise. Called by `bin/lab.rs`
+/// before the first tick and by nothing else, so every harness keeps
+/// default-off.
+///
+/// **Why the lab turns it on.** Spec C8 of the 10-03 logging proposal: that
+/// playtest's ms-per-tick had to be back-computed from wall clock over frames,
+/// render included, and a 2.8 ms tick could not be attributed to a phase at
+/// all. With this on, every CENSUS row carries the split for its own window.
+///
+/// **What it costs, measured 2026-10-03**: `examples/chronicle.rs
+/// founders=8 colonies=1 frames=12000 census=0`, `RAYON_NUM_THREADS=4`, three
+/// runs each way alternating off/on in one session on the 4-core cloud
+/// container. Off: 24.82, 24.22, 25.02 s (mean 24.69). On: 24.78, 24.78,
+/// 25.12 s (mean 24.90). **+0.21 s over 12,000 ticks, +0.9%, inside the
+/// 0.8 s run-to-run spread** -- at most ~0.02 ms on a tick the clock itself
+/// measured at ~2.3 ms on that bed. The mechanism predicts less still: sixteen
+/// `Instant::now` reads and one uncontended lock per tick is under a
+/// microsecond. Not distinguishable from zero at this bar; quoted as a bound.
+///
+/// Returns the value the switch settled at. A no-op if the switch was already
+/// read (anything that ticked first fixed it), which is why the binary calls
+/// this before building its `Lab`.
+pub fn phase_clock_default_on() -> bool {
+    *PHASE_CLOCK_ON.get_or_init(|| std::env::var("PIXEL_PHYSICS_PHASE_CLOCK").as_deref() != Ok("0"))
 }
 
 /// See [`phase_clock_enabled`] -- exposed so a printer can say `--` rather
@@ -195,7 +230,8 @@ pub fn step(
     // **The per-phase stopwatch is woven through the phases rather than
     // wrapping them**, because a wrapper would need a second copy of the
     // sequence and this module exists to have exactly one. `Lap::start`
-    // returns `None` with the clock off (the default), which makes every
+    // returns `None` with the clock off (the default outside the lab's own
+    // binary -- `phase_clock_default_on`), which makes every
     // `Lap::mark` below one `Option` test. See `phase_clock_enabled`.
     let mut lap = Lap::start();
     parallel::step(world);
