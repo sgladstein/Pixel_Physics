@@ -7062,6 +7062,24 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
         }
     }
 
+    // --- wounds mend -----------------------------------------------------
+    // `OrganismState::gnawed` used to be permanent, and that is why no
+    // beetle population lasted beside a colony (lane 7, 2026-10-03; 12 of
+    // 12 seeds extinct in five arms, `beetle_duel trace=1`): each beetle
+    // died touching ONE ant, already worn to 1-3 of its 4 cells by fights
+    // long over. See `wound_heal_frames` for the rate and why it leaves a
+    // swarm's arithmetic alone. Divided by this individual's interval, as
+    // old age is, so `pace` does not become a healing gene by accident.
+    // The interval is only asked of a wounded animal: it walks the body.
+    if let Some(frames) = wound_heal_frames() {
+        if world.organism(organism).is_some_and(|st| st.gnawed > 0.0) {
+            let interval = organism_tick_interval(world, organism, def);
+            if let Some(st) = world.organism_mut(organism) {
+                st.gnawed = (st.gnawed - interval as f32 / frames).max(0.0);
+            }
+        }
+    }
+
     // --- airborne: integrate, do not decide -----------------------------
     // **Before `sense`, and that ordering is the cost.** A creature in the
     // air does not read the world, does not evaluate its brain, and does not
@@ -10371,6 +10389,36 @@ pub fn scent_accepts(judge: &[f32; CREATURE_TRAITS], other: &[f32; CREATURE_TRAI
     let r = tolerance_radius(judge);
     scent_distance_sq(&scent_of(judge), &scent_of(other)) <= r * r
 }
+
+/// **Frames for an unbitten animal to mend one whole cell of bite damage**
+/// (`OrganismState::gnawed`), or `None` when wounds never heal.
+///
+/// On by default at `WOUND_HEAL_FRAMES`; `PIXEL_PHYSICS_WOUND_HEAL=off`
+/// restores permanent wounds (the behaviour before 2026-10-03), and a number
+/// sets the frames. Owner's pick, 2026-10-03, on lane 7's card: "Heal
+/// wounds". Insects do mend a breached cuticle -- epidermal cells close the
+/// gap and lay new cuticle over hours to days (Galko & Krasnow 2004, PLoS
+/// Biol 2:e239, *Drosophila* larvae) -- so a wound that never closes was the
+/// unrealistic half.
+///
+/// **Why this does not reopen what `gnawed`'s doc forbade.** That doc
+/// refused healing because a regenerating animal makes a swarm "a race
+/// against a clock". At thousands of frames per cell the clock is far
+/// slower than any fight: an ant's bite on a 1.5 shell banks 0.44, so even
+/// one ant biting once every hundred frames outpaces the mend thirteenfold, and a
+/// gang's arithmetic is unchanged. What it removes is damage carried from
+/// one fight into the next, long after the fight ended.
+pub fn wound_heal_frames() -> Option<f32> {
+    static F: std::sync::OnceLock<Option<f32>> = std::sync::OnceLock::new();
+    *F.get_or_init(|| match std::env::var("PIXEL_PHYSICS_WOUND_HEAL").as_deref() {
+        Ok("off") => None,
+        Ok(v) => v.parse::<f32>().ok().filter(|f| *f > 0.0).or(Some(WOUND_HEAL_FRAMES)),
+        Err(_) => Some(WOUND_HEAL_FRAMES),
+    })
+}
+
+/// See `wound_heal_frames`.
+pub const WOUND_HEAL_FRAMES: f32 = 3000.0;
 
 /// Tolerance's share of `scent_drift` per birth under
 /// `slow_tolerance_drift`. See `trait_width`.

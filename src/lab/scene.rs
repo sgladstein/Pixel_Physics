@@ -864,19 +864,22 @@ impl LabBox {
         // falling litter and seed (never above ~70 ants). A starting value,
         // like the two rows above: a later `set_rates` moves it.
         w.clock.set_rates(0, |c| c.growth_slowdown = 2);
-        // **The lab's ants lay anywhere**, while the engine default lays only
-        // at the nest (`creature::bud_at_nest`, PR 546). Measured 2026-10-02
-        // on `played_bed` (120k, 12 seeds, main 0738a8ca): nest-only laying
-        // took births 329 -> 4 and 10 of 12 boxes died out. The lab's nest is
-        // a small painted patch, and the ants that can afford an egg are
-        // mostly still laden, circling 4-10 cells out; walking them home to
-        // lay (`creature::ready_to_lay`), laden or not, a wider laying reach
-        // and a six-cell "at the nest" oracle all left the box dying. Scoped
-        // here like the two rows above; `PIXEL_PHYSICS_BUD_SITE` set
-        // explicitly still decides.
-        if std::env::var_os("PIXEL_PHYSICS_BUD_SITE").is_none() {
-            w.bud_at_nest = Some(false);
-        }
+        // **The lab's ants lay only at the nest**, the engine default
+        // (`creature::bud_at_nest`), with no lab override since 2026-10-03 --
+        // the owner's ruling that day: "I also just want brood on in the nest
+        // only by default. I understand it kills the colony we're working
+        // together to fix that, but that is what it will be."
+        //
+        // **The measured cost, kept in view.** On `played_bed` nest-only
+        // laying took births 329 -> 4 and 10 of 12 boxes died out (120k,
+        // main 0738a8ca, 2026-10-02), and killed 24 of 24 boxes by 300k
+        // with the door drained or not (main 50553e09, 2026-10-03,
+        // `/mnt/project-files/laying/door-x-home-laying-2026-10-03.md`): the
+        // colony never digs a home to lay in. Walking egg-ready ants home
+        // (`creature::ready_to_lay`), a wider laying reach and a six-cell
+        // "at the nest" oracle all left the box dying. Fixing that, not
+        // laying elsewhere, is the work. `PIXEL_PHYSICS_BUD_SITE=anywhere`
+        // restores laying wherever an ant can afford to.
         let soil =w.materials.id_of("soil").expect("soil is a compiled-in material");
         let ceiling = self.ceiling_y();
         let bed_bottom = self.bed_bottom();
@@ -1617,5 +1620,22 @@ mod tests {
             all.iter().all(|p| p.1 == all[0].1),
             "the chip's beetles and the predators are two colonies: {all:?}"
         );
+    }
+
+    /// **The lab box lays only at the nest** (owner, 2026-10-03): the box
+    /// sets no laying site of its own, so the engine default
+    /// (`creature::bud_at_nest`) decides, and `PIXEL_PHYSICS_BUD_SITE` is
+    /// the only way back to laying anywhere. Put the old override back
+    /// (`w.bud_at_nest = Some(false)` in `build_counted`) and this goes red.
+    #[test]
+    fn the_lab_box_lays_only_at_the_nest() {
+        let (w, _) = LabBox::default().build_counted();
+        assert_eq!(w.bud_at_nest, None, "the lab box overrides where its ants lay");
+        if std::env::var_os("PIXEL_PHYSICS_BUD_SITE").is_none() {
+            assert!(
+                crate::sim::creature::bud_at_nest(&w),
+                "the lab box lays anywhere by default"
+            );
+        }
     }
 }
