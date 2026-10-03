@@ -254,16 +254,25 @@ jobs:
   # every example. `cargo test` compiles examples but does not run their
   # `#[test]`s (examples default to `test = false`), so the example shards
   # use `cargo build`, not `cargo test --examples` -- the latter would start
-  # running `thicket_probe`'s tests, which this job never ran. The two
-  # example shards split cargo's example targets by alternating sorted name,
-  # so a new example lands in one of them without editing this file.
+  # running `thicket_probe`'s tests, which this job never ran. The example
+  # shards split cargo's example targets round-robin by sorted name, so a new
+  # example lands in one of them without editing this file.
+  #
+  # **Three example shards, not two** (2026-10-03). With the debug job split
+  # below, `examples-1` became the critical path: 11m37s to build 61 of 121
+  # examples, each its own thin-LTO link (run 37082163453). The shard count
+  # is read from the matrix itself (`EXAMPLE_SHARDS`), so changing it means
+  # editing the list and that number together -- and the listing below
+  # refuses a shard count that does not match.
   test:
     name: cargo test (release, ${{ matrix.shard }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        shard: [lib, bins-tests-doc, examples-1, examples-2]
+        shard: [lib, bins-tests-doc, examples-1, examples-2, examples-3]
+    env:
+      EXAMPLE_SHARDS: 3
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@1.98
@@ -278,15 +287,17 @@ jobs:
                             cargo test --release --locked --doc ;;
             examples-*)
               n="${{ matrix.shard }}"; n="${n#examples-}"
+              k="$EXAMPLE_SHARDS"
+              [ "$n" -ge 1 ] && [ "$n" -le "$k" ] || { echo "shard $n is outside 1..$k"; exit 1; }
               # Cargo's own target list, so a directory-form example
               # (examples/foo/main.rs) is counted too; a failed listing or an
               # empty shard is an error, never a green build of nothing.
               mapfile -t names < <(cargo metadata --no-deps --format-version 1 --locked \
                 | jq -r '.packages[].targets[] | select(.kind[] == "example") | .name' | sort)
-              [ "${#names[@]}" -gt 1 ] || { echo "no examples listed"; exit 1; }
+              [ "${#names[@]}" -gt "$k" ] || { echo "no examples listed"; exit 1; }
               args=()
               for i in "${!names[@]}"; do
-                [ $(( (i + 1) % 2 )) -eq $(( n % 2 )) ] && args+=(--example "${names[$i]}")
+                [ $(( i % k )) -eq $(( n - 1 )) ] && args+=(--example "${names[$i]}")
               done
               echo "building $(( ${#args[@]} / 2 )) of ${#names[@]} examples"
               cargo build --release --locked "${args[@]}" ;;
@@ -299,13 +310,42 @@ jobs:
     # cell, `set_aux` during a burn). Until this step existed, no CI
     # configuration ever compiled a single one of them — a guard that is
     # never built protects nothing.
-    name: cargo test (debug, compiles the debug_assert guards)
+    #
+    # **Sharded like the release job** (2026-10-03), because it was the whole
+    # critical path: 18 min against ~12 for the next job (run 37082163453 --
+    # 5m06s build, 549 s lib suite, 213 s `tests/*.rs`, run one after the
+    # other). The three shards together are exactly what plain `cargo test`
+    # did and no more: the lib's tests; the bins', `tests/*.rs` and the
+    # doctests; and a dev-profile build of every example (plain `cargo test`
+    # compiles examples without running them, so `cargo build --examples` is
+    # the same check). Each shard pays its own build, which is the trade the
+    # release job already makes.
+    #
+    # The lib suite itself was latency-bound, not CPU-bound: 388 s locally
+    # on 12.5 CPU-minutes, i.e. under two of four cores busy, because one
+    # lab scenario guard ran 214 s serially and held a lock three other
+    # tests queued on. That test now runs its scenarios on their own
+    # threads (`lab/scenario.rs`), and the suite measured 197 s.
+    name: cargo test (debug, ${{ matrix.shard }}; compiles the debug_assert guards)
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [lib, bins-tests-doc, examples]
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@1.98
       - uses: Swatinem/rust-cache@v2
-      - run: cargo test --locked
+      - name: run shard
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "${{ matrix.shard }}" in
+            lib)            cargo test --locked --lib ;;
+            bins-tests-doc) cargo test --locked --bins --test '*'
+                            cargo test --locked --doc ;;
+            examples)       cargo build --locked --examples ;;
+          esac
 
   clippy:
     name: cargo clippy
