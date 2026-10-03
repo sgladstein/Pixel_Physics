@@ -7477,6 +7477,7 @@ impl World {
             scout_lit: false,
             scout_dark: false,
             scout_e0: 0.0,
+            return_met: 0,
             sent_want: f32::NAN,
             foraged: false,
             store_return: false,

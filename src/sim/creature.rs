@@ -14891,6 +14891,7 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
                             }
                             world.nest_last_return[i] = world.frame.max(1);
                         }
+                        meet_returning_forager(world, organism, (dx, dy));
                     }
                 }
                 note_drop(world, if at_nest { DropWhy::Delivered } else { DropWhy::Placed });
@@ -17429,7 +17430,7 @@ pub fn scout_of(world: &World) -> f32 {
 /// early runs coincided with more founders starving at home: 125 -> 133 by
 /// frame 6,000 on `main`, 14 seeds worse and 8 better (p 0.29).
 ///
-/// Read once per process. Unset (or empty) it is `always`; `off` reads and
+/// Read once per process. Unset (or empty) it is `met` (`ForageDrive::SHIPPED`); `off` reads and
 /// writes nothing and takes no draw, so it is the ant before the drive, bit
 /// for bit. An unknown value is reported and read as unset.
 pub fn forage_drive_from_env() -> ForageDrive {
@@ -17445,11 +17446,12 @@ fn parse_forage_drive(raw: &str) -> ForageDrive {
         Some("off") => ForageNeed::Off,
         Some("hunger") => ForageNeed::Hunger,
         Some("larder") => ForageNeed::Larder,
-        Some("returns" | "") | None => ForageNeed::Returns,
+        Some("returns") => ForageNeed::Returns,
         Some("always") => ForageNeed::Always,
+        Some("met" | "") | None => ForageNeed::Met,
         Some(other) => {
-            eprintln!("PIXEL_PHYSICS_FORAGE_DRIVE={raw:?}: unknown need {other:?}, read as returns (off, hunger, larder, returns, always)");
-            ForageNeed::Returns
+            eprintln!("PIXEL_PHYSICS_FORAGE_DRIVE={raw:?}: unknown need {other:?}, read as met (off, hunger, larder, returns, always, met)");
+            ForageNeed::Met
         }
     };
     let mods: Vec<&str> = parts.collect();
@@ -17484,7 +17486,36 @@ pub enum ForageNeed {
     /// 159:509). The two needs above read the colony and failed because the
     /// colony keeps its food in its bodies (`dead-ends.md`, 2026-09-27).
     Returns,
+    /// **`returns`, sensed rather than told** (`met`): the same plateau
+    /// (`returns_drive`), but counted from the last time *this ant* met a
+    /// forager home with food -- a delivery within `RETURN_MEET` cells of it,
+    /// or its own (`OrganismState::return_met`) -- over a window scaled by
+    /// its own `TRAIT_RETURN_MEMORY`. Harvester ants leave on the rate of
+    /// *encounters* with returning foragers at the entrance (Gordon 2002;
+    /// Pinter-Wollman et al. 2013, *J R Soc Interface* 10:20120831), not on
+    /// a count the nest keeps; `returns` reads `World::nest_last_return`,
+    /// which no ant senses (owner's ruling 2026-10-03: colony-wide tallies
+    /// should become local cues where they can). Also replaces that clock
+    /// in the door reader's stale gate (`door_read`).
+    ///
+    /// **The default since 2026-10-03**, on the owner's ruling that it is the
+    /// more correct rule and ships unless it makes the world clearly worse.
+    /// Measured against `returns` on the lab's played bed, 12 paired seeds,
+    /// 240,000 frames: colonies that died out 4 -> 3, boxes that ever hit
+    /// zero ants 5 -> 5, deepest fall from peak median 97% -> 95.5% (deeper
+    /// on 4 seeds, shallower on 4), alive at the end 25.5 -> 34; the costs
+    /// are births 603 -> 552.5 (lower on 7 of 12, p 0.77) and starved per
+    /// million ant-frames 20.7 -> 21.8 (6/6, p 1.0), and the peak comes
+    /// later and lower (247.5 at 117k -> 178.5 at 141k). Nothing significant
+    /// either way. `PIXEL_PHYSICS_FORAGE_DRIVE=returns` is the ant before.
+    Met,
 }
+
+/// **How near a delivery an ant has to be to have met the forager**, in
+/// cells (Chebyshev), under `ForageNeed::Met`: a body and a half of
+/// antennal reach either side of a two-cell ant standing at the drop. Not
+/// tuned -- the first value, recorded so a sweep has a name to move.
+pub const RETURN_MEET: i32 = 3;
 
 /// **How long a nest keeps sending fed foragers after its last return**
 /// (`ForageNeed::Returns`), in frames: one round trip on the colony bed,
@@ -17547,9 +17578,10 @@ impl ForageDrive {
     /// No drive: the ant before 2026-09-27, `PIXEL_PHYSICS_FORAGE_DRIVE=off`.
     pub const OFF: ForageDrive = ForageDrive { need: ForageNeed::Off, pace: true, keep: false, fed: false };
 
-    /// The shipped drive, what an unset switch reads: `returns` (since
-    /// 2026-09-29), paced, with no `,keep` and no `,fed`.
-    pub const SHIPPED: ForageDrive = ForageDrive { need: ForageNeed::Returns, pace: true, keep: false, fed: false };
+    /// The shipped drive, what an unset switch reads: `met` (since
+    /// 2026-10-03; `returns` 2026-09-29 to 2026-10-03), paced, with no
+    /// `,keep` and no `,fed`.
+    pub const SHIPPED: ForageDrive = ForageDrive { need: ForageNeed::Met, pace: true, keep: false, fed: false };
     /// `always`, paced: the drive shipped 2026-09-27 to 2026-09-29, and the
     /// one a test means when it needs a fed forager sent out with no food
     /// coming home in its scene.
@@ -18063,9 +18095,50 @@ fn forage_drive_level(world: &World, state: &crate::sim::organism::OrganismState
                 .filter(|&t| t > 0)
                 .map_or(0.0, |t| returns_drive(world.frame.saturating_sub(t)))
         }
+        ForageNeed::Met => returns_drive_met(world, state),
         ForageNeed::Hunger | ForageNeed::Larder => {
             let (hx, hy) = home_target(world, state);
             world.nearest_nest_site(hx, hy).and_then(|i| world.nest_need.get(i).copied()).unwrap_or(0.0)
+        }
+    }
+}
+
+/// **The frame this ant's `met` memory counts from**: its last meeting with
+/// a returning forager, or its birth if it has met none.
+fn return_met_frame(state: &crate::sim::organism::OrganismState) -> u64 {
+    state.return_met.max(state.born_frame).max(1)
+}
+
+/// **The `met` drive** (`ForageNeed::Met`): `returns_drive`'s plateau and
+/// fade, on this ant's own memory and its own `TRAIT_RETURN_MEMORY` window.
+fn returns_drive_met(world: &World, state: &crate::sim::organism::OrganismState) -> f32 {
+    let factor = walk_gain(&expressed_traits(state, world.plasticity, world.trait_reach), organism::TRAIT_RETURN_MEMORY);
+    let age = world.frame.saturating_sub(return_met_frame(state)) as f32;
+    let w = return_window() * factor;
+    let over = age - w;
+    if over <= 0.0 { 1.0 } else { (-over / w).exp() }
+}
+
+/// **A forager home with food from a trip touches whoever is beside it**
+/// (`ForageNeed::Met`): it and every living animal of its own kind within
+/// `RETURN_MEET` cells of the drop note the frame. Stamped whatever the
+/// drive, so switching it on mid-session finds memories already kept.
+/// Cost: one `(2R+1)^2` scan per trip delivery.
+fn meet_returning_forager(world: &mut World, deliverer: OrganismId, (dx, dy): (i32, i32)) {
+    let now = world.frame.max(1);
+    let Some(species) = world.organism(deliverer).map(|s| s.species) else { return };
+    let mut met: Vec<OrganismId> = vec![deliverer];
+    for y in dy - RETURN_MEET..=dy + RETURN_MEET {
+        for x in dx - RETURN_MEET..=dx + RETURN_MEET {
+            let id = world.get(x, y).organism_id();
+            if id != 0 && !met.contains(&id) && world.organism(id).is_some_and(|s| s.species == species) {
+                met.push(id);
+            }
+        }
+    }
+    for id in met {
+        if let Some(s) = world.organism_mut(id) {
+            s.return_met = now;
         }
     }
 }
@@ -18413,7 +18486,7 @@ pub(crate) fn nest_needs(world: &World, need: ForageNeed) -> Vec<f32> {
                 })
                 .collect()
         }
-        ForageNeed::Off | ForageNeed::Always | ForageNeed::Returns => Vec::new(),
+        ForageNeed::Off | ForageNeed::Always | ForageNeed::Returns | ForageNeed::Met => Vec::new(),
     }
 }
 
@@ -18778,11 +18851,18 @@ fn door_read(world: &mut World, organism: OrganismId, def: &CreatureDef, (hx, hy
         return None;
     }
     let (want, _, _) = outward_want(world, st, def);
+    let met_last = return_met_frame(st);
     world.creature_stats.door_reads += 1;
-    let last = world.nest_last_return.get(site).copied().unwrap_or(0);
     let window = match food_trail_of(world).window {
         w if w > 0.0 => w,
         _ => return_window(),
+    };
+    // Under `met` the stale gate is the ant's own memory of meeting a
+    // returning forager, on its own window, not the nest's clock.
+    let (last, window) = if forage_drive_of(world).need == ForageNeed::Met {
+        (met_last, window * walk_gain(&traits_of(world, organism, def), organism::TRAIT_RETURN_MEMORY))
+    } else {
+        (world.nest_last_return.get(site).copied().unwrap_or(0), window)
     };
     if last == 0 || world.frame.saturating_sub(last) as f32 > window {
         world.creature_stats.door_stale += 1;
@@ -25565,6 +25645,39 @@ mod tests {
     /// a hungry one** ([`store_kept`]). A cell outside the store is never
     /// refused, and with the part off nothing is: the rule reads the switch
     /// first, which is what keeps every arm without it bit-exact.
+    /// **The `met` drive is the ant's own memory** (`ForageNeed::Met`): a
+    /// delivery stamps the deliverer and an ant beside it, not one standing
+    /// further off; the drive is full inside the window from the stamp and
+    /// falls past it; an ant that has met nobody counts from its birth; and
+    /// `TRAIT_RETURN_MEMORY` +1 doubles the window. Watched red with the
+    /// stamp radius at 0 (the neighbour kept its old memory).
+    #[test]
+    fn the_met_drive_counts_from_this_ants_own_meeting() {
+        assert_eq!(parse_forage_drive("met").need, ForageNeed::Met);
+        let mut w = founding_bed();
+        for x in [30, 32, 45] {
+            w.plant_ant(x, 38);
+        }
+        let id = |w: &World, x: i32| w.get(x, 38).organism_id();
+        let (a, b, far) = (id(&w, 30), id(&w, 32), id(&w, 45));
+        assert!(a != 0 && b != 0 && far != 0 && a != b && b != far, "three ants placed");
+        let born = w.organism(far).unwrap().born_frame;
+        w.frame = 10_000;
+        meet_returning_forager(&mut w, a, (30, 38));
+        assert_eq!(w.organism(a).unwrap().return_met, 10_000, "the deliverer notes its own return");
+        assert_eq!(w.organism(b).unwrap().return_met, 10_000, "an ant two cells off met it");
+        assert_eq!(w.organism(far).unwrap().return_met, 0, "an ant fifteen cells off did not");
+        assert_eq!(return_met_frame(w.organism(far).unwrap()), born.max(1), "an ant that met nobody counts from birth");
+        let win = return_window();
+        w.frame = 10_000 + win as u64;
+        assert_eq!(returns_drive_met(&w, w.organism(b).unwrap()), 1.0, "full for one window");
+        w.frame = 10_000 + 2 * win as u64;
+        let faded = returns_drive_met(&w, w.organism(b).unwrap());
+        assert!(faded < 0.5, "a window past it the drive has faded: {faded}");
+        w.organism_mut(b).unwrap().traits[organism::TRAIT_RETURN_MEMORY] = 1.0;
+        assert_eq!(returns_drive_met(&w, w.organism(b).unwrap()), 1.0, "+1 memory is twice the window");
+    }
+
     #[test]
     fn the_store_is_kept_for_the_hungry() {
         let mut w = founding_bed();
@@ -26392,6 +26505,12 @@ mod tests {
         let pulled = |form: NestRest, foraged: bool, worker: bool| {
             let (mut w, a) = rest_world(63, 47, true);
             w.nest_rest = Some(form);
+            // The forage drive is a rider here, not the subject: under the
+            // shipped `met` a newborn counts its memory from its birth and
+            // is driven out, which would keep a forager from resting under
+            // `on`. `returns` with no clock started reads 0, which is the
+            // world this test was written in.
+            w.forage_drive = Some(ForageDrive { need: ForageNeed::Returns, pace: true, keep: false, fed: false });
             let st = w.organism_mut(a).expect("live");
             st.foraged = foraged;
             st.nest_bound_until = if worker { u64::MAX } else { 0 };
@@ -33677,8 +33796,9 @@ mod tests {
     #[test]
     fn the_forage_drive_and_carry_patience_ship_on_and_off_turns_them_off() {
         assert_eq!(parse_forage_drive(""), ForageDrive::SHIPPED, "unset must be the shipped drive");
-        assert_eq!(ForageDrive::SHIPPED, ForageDrive { need: ForageNeed::Returns, pace: true, keep: false, fed: false });
-        assert_eq!(parse_forage_drive("returns"), ForageDrive::SHIPPED);
+        assert_eq!(ForageDrive::SHIPPED, ForageDrive { need: ForageNeed::Met, pace: true, keep: false, fed: false });
+        assert_eq!(parse_forage_drive("met"), ForageDrive::SHIPPED);
+        assert_eq!(parse_forage_drive("returns").need, ForageNeed::Returns, "returns must stay reachable: it is the ant before 2026-10-03");
         assert_eq!(parse_forage_drive("always"), ForageDrive::ALWAYS);
         assert_eq!(parse_forage_drive("off"), ForageDrive::OFF, "off must be the ant before the drive");
         assert!(!parse_forage_drive("off").on());
