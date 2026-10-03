@@ -17375,6 +17375,72 @@ const TRAIL_GAIN: f32 = 3.0;
 /// they started (`Reports/ant-scenes-2026-09-23.md` §9).
 const AWAY_GAIN: f32 = 1.0;
 
+/// **Recruitment to a fight: an ant that hears an alarm walks toward it**
+/// (`PIXEL_PHYSICS_FIGHT_RECRUIT`, or `World::fight_recruit` for one world).
+/// Each heading of an empty ant of a brood-keeping species also scores
+/// `gain x rise`, where `rise` is how much louder the alarm plane is one or
+/// two cells along that heading than where the ant stands, over two cells of
+/// [`pheromone::ALARM_FALL`], clamped to 0..1. The plane already has the
+/// gradient (`Spread::ActiveSpace`, about 20 cells of reach from one bite);
+/// what it lacked was a reader with a direction -- `BrainInput::Alarm` is a
+/// here-read, and its own doc says recruitment toward a distant fight "is
+/// not expressible with this slot". This is that reader, in the walk, where
+/// every other directional cue (home, trail, away) already lives.
+///
+/// **A local cue, not a pull to a spot**: nothing is aimed at a fight's
+/// position. An ant twenty cells off hears nothing and walks as it did; one
+/// inside the cloud is drawn up it, arrives, and the shipped wiring
+/// (`(Alarm, Attack, 2.0)`, `(Alarm, Move, -1.0)`) does the rest -- it
+/// fights, and slows where the alarm is loudest, so the arrivals gather.
+/// The plane is owned by nobody, so a rival's ants are drawn to the same
+/// fight: both sides reinforce, as at a real boundary dispute.
+///
+/// **Why** (`Reports/colony-wars` lane, 2026-10-03, 12 two-colony and 6
+/// three-colony lab beds): three kills in four were one ant killing one lone
+/// ant, and a victim had 0.2 nestmates within two cells on average. Real
+/// colonies recruit to a fight and local numbers decide who holds the ground
+/// (Adams 1990; Adler et al. 2018; Adams et al. 2019). Ours had no way to
+/// gather.
+///
+/// **Who answers**: an ant with brood (a colony species: the beetle and the
+/// hopper never read it), carrying neither food nor spoil. A laden forager
+/// keeps going home. `0` is the walk before this, bit for bit, and so is a
+/// box where nothing has been bitten (the plane is not allocated and the
+/// term is not computed).
+pub fn fight_recruit_of(world: &World) -> f32 {
+    world.fight_recruit.unwrap_or_else(fight_recruit_from_env)
+}
+
+/// `PIXEL_PHYSICS_FIGHT_RECRUIT`: `off`/`0` for none, `on` for
+/// [`FIGHT_RECRUIT_ON`], or a gain. Unset is [`FIGHT_RECRUIT_DEFAULT`].
+pub fn fight_recruit_from_env() -> f32 {
+    static V: std::sync::OnceLock<f32> = std::sync::OnceLock::new();
+    *V.get_or_init(|| match std::env::var("PIXEL_PHYSICS_FIGHT_RECRUIT").as_deref() {
+        Ok("off") => 0.0,
+        Ok("on") => FIGHT_RECRUIT_ON,
+        Ok(v) => v.parse::<f32>().ok().filter(|g| g.is_finite() && *g >= 0.0).unwrap_or(FIGHT_RECRUIT_DEFAULT),
+        Err(_) => FIGHT_RECRUIT_DEFAULT,
+    })
+}
+
+/// The gain `on` names: a heading straight up a full gradient scores 3, the
+/// same as a heading onto a full route (`TRAIL_GAIN`).
+pub const FIGHT_RECRUIT_ON: f32 = 3.0;
+
+/// What an unset environment gets. Off until measured.
+const FIGHT_RECRUIT_DEFAULT: f32 = 0.0;
+
+/// **How much louder the alarm is along `d` than here**, 0..1: the larger of
+/// the next cell and the one beyond, less the alarm under the head, over two
+/// cells of falloff. See [`fight_recruit_of`].
+fn alarm_rise(world: &World, (hx, hy): (i32, i32), d: u8) -> f32 {
+    let (dx, dy) = DIRS[d as usize];
+    let here = f32::from(world.pheromone_at(Channel::Alarm, hx, hy));
+    let near = world.pheromone_at(Channel::Alarm, hx + dx, hy + dy);
+    let far = world.pheromone_at(Channel::Alarm, hx + 2 * dx, hy + 2 * dy);
+    ((f32::from(near.max(far)) - here) / (2.0 * f32::from(pheromone::ALARM_FALL))).clamp(0.0, 1.0)
+}
+
 /// **Scouting: how hard a hungry empty ant off a route is drawn away from
 /// home.** `PIXEL_PHYSICS_SCOUT=<gain>`, or `World::scout` for one world
 /// (`scout_of`). Under `Chooser::TrailAway` a heading scores `gain x hunger x
@@ -19090,6 +19156,15 @@ fn chooser_step(
     };
     let planes = trail_planes(&walk, laden);
     let route = |d: u8| if reads_trail { trail_presence(world, (hx, hy), d, planes) } else { 0.0 };
+    // **Recruitment to a fight** ([`fight_recruit_of`]): 0 unless switched
+    // on, the plane has been written, and this is an empty ant of a colony
+    // species.
+    let recruit = if def.brood.is_some() && !laden && world.pheromones.alarm_is_live() && world.organism(organism).is_some_and(|s| s.spoil.is_none()) {
+        fight_recruit_of(world)
+    } else {
+        0.0
+    };
+    let rise = |d: u8| if recruit > 0.0 { recruit * alarm_rise(world, (hx, hy), d) } else { 0.0 };
     // **Stage 3, the give-up lets go** (`FoodTrail::giveup`,
     // `Reports/ant-scenes-2026-09-23.md` §23d): a scout that has given up is
     // no longer held by the trail it gave up on. The away term is 0, the pull
@@ -19141,6 +19216,7 @@ fn chooser_step(
                 scout_cos(d).map_or(0.0, |c| -scout_w * scout_patience * (1.0 - route(d)) * c)
             }
             + if door.is_some() { door_term(d) } else { 0.0 }
+            + rise(d)
     };
     // Usable headings in `DIRS` order, then the crossing, so the draw maps to
     // the same option every run.
@@ -19148,6 +19224,9 @@ fn chooser_step(
     let scores: Vec<f32> = options.iter().map(|&d| score(d)).collect();
     let pick = choose_weighted(&scores, k, draw.unit_f32());
     let picked_route = if reads_trail { route(options[pick]) } else { f32::NAN };
+    if recruit > 0.0 && pick < usable.len() && rise(options[pick]) > 0.0 {
+        world.creature_stats.recruit_steps += 1;
+    }
     if let Some((side, _)) = door {
         if pick < usable.len() && DIRS[options[pick] as usize].0 == side {
             world.creature_stats.door_followed += 1;
@@ -32411,6 +32490,61 @@ mod tests {
         let (away_net, away_far) = walk(Chooser::TrailAway);
         assert!(trail_net <= -20, "under Trail the ant should walk on toward home, and it moved {trail_net} cells: the scene cannot show a direction");
         assert!(away_net >= 20 && away_far >= 20, "under TrailAway the ant should turn and walk away from home: net {away_net}, furthest east {away_far}");
+    }
+
+    /// **Recruitment to a fight: an empty ant inside an alarm cloud walks up
+    /// it** (`fight_recruit_of`). A bare floor, home far to the west, an
+    /// alarm kept loud 5 cells east of the ant (as a fight that goes on would
+    /// keep it) -- inside the alarm's active space, which is about six cells
+    /// (`pheromone::ALARM_FALL`); 18 cells out the ant hears nothing. With the gain at 0 the ant walks as it always did, and
+    /// must not end beside the alarm -- the control that the scene does not
+    /// carry it there anyway. With the gain on it must reach the alarm, and
+    /// `recruit_steps` (the "it fired" count) must be non-zero, against
+    /// exactly 0 with the gain off.
+    #[test]
+    fn an_empty_ant_inside_an_alarm_walks_toward_it_only_when_recruiting_is_on() {
+        let walk = |gain: f32| -> (i32, u64) {
+            let stone = Cell::new(material::STONE, 0).with_attached(true);
+            let mut w = World::new(Rect::new(0, 0, 159, 63));
+            for x in 0..160 {
+                for y in 41..64 {
+                    w.set(x, y, stone);
+                }
+            }
+            for y in 0..41 {
+                for x in [0, 159] {
+                    w.set(x, y, stone);
+                }
+            }
+            w.chooser = Some(Chooser::TrailAway);
+            w.fight_recruit = Some(gain);
+            let ant = spawn(&mut w, "ant", 100, 40);
+            let fed = w.species.get(w.organism(ant).expect("live").species).creature.as_ref().expect("a creature").start_energy;
+            {
+                let st = w.organism_mut(ant).expect("live");
+                st.heading = 4;
+                st.forage_anchor = (20, 40);
+            }
+            let fight = (105, 40);
+            let mut beside = 0;
+            for _ in 0..900 {
+                let have = w.pheromone_at(Channel::Alarm, fight.0, fight.1);
+                if have < pheromone::ALARM_DEPOSIT {
+                    w.deposit_pheromone(Channel::Alarm, fight.0, fight.1, pheromone::ALARM_DEPOSIT - have);
+                }
+                w.organism_mut(ant).expect("live").energy = fed;
+                run(&mut w, 1);
+                w.step_pheromones();
+                let Some(st) = w.organism(ant) else { break };
+                beside += i32::from((st.chain[0].0 - fight.0).abs() <= 2);
+            }
+            (beside, w.creature_stats.recruit_steps)
+        };
+        let (off_near, off_steps) = walk(0.0);
+        let (on_near, on_steps) = walk(FIGHT_RECRUIT_ON);
+        assert_eq!(off_steps, 0, "with the gain at 0 no step may count as recruited");
+        assert!(on_steps > 0, "with recruiting on no step went up the alarm");
+        assert!(off_near * 4 < on_near && on_near >= 300, "with recruiting on the ant should go to the alarm and stay: frames within 2 cells of it, {on_near} on against {off_near} off");
     }
 
     /// **Scouting: off any route, a hungry empty ant runs out from home and,

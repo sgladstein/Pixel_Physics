@@ -2548,6 +2548,12 @@ pub struct CreatureStats {
     /// that stopped grazing, so this one keeps counting the bites and the
     /// alarm plane keeps not hearing them.
     pub alarm_eat_plant: u64,
+    /// **Steps an ant took up the alarm plane toward a fight**
+    /// (`creature::fight_recruit_gain`, `PIXEL_PHYSICS_FIGHT_RECRUIT`): the
+    /// heading it picked rose on the alarm. 0 with the switch off, and 0 in
+    /// a box where nothing has been bitten -- the "did it fire" counter for
+    /// recruitment to a fight.
+    pub recruit_steps: u64,
     /// **Severing events**: a creature that lost a body cell and came apart
     /// at it, rather than merely shortening.
     ///
@@ -3988,6 +3994,11 @@ pub struct World {
     /// `None` follows the environment, which is 0 (no pull) unless set; a
     /// field for the reason `chooser` is one.
     pub scout: Option<f32>,
+    /// **Recruitment to a fight, overriding `PIXEL_PHYSICS_FIGHT_RECRUIT`
+    /// for this world** (`creature::fight_recruit_of`): the gain on the
+    /// alarm plane's rise. `None` follows the environment. A field so a guard
+    /// can take both arms in one process.
+    pub fight_recruit: Option<f32>,
     /// **Whether a hungry empty animal turns for home before it starves,
     /// overriding `PIXEL_PHYSICS_HUNGRY_HOME` for this world**
     /// (`creature::hungry_home_of`). `None` follows the environment; a field
@@ -6468,6 +6479,7 @@ impl World {
             storeroom: None,
             nest_door: None,
             scout: None,
+            fight_recruit: None,
             hungry_home: None,
             forage_drive: None,
             carry_patience: None,

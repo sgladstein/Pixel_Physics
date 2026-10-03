@@ -363,7 +363,7 @@ fn main() {
     // ---- summary
     let world = &lab.world;
     let last = snaps.last().cloned().unwrap_or_default();
-    println!("SUMMARY frames={frames} kills_total={} unmatched={unmatched}", kills.len());
+    println!("SUMMARY frames={frames} kills_total={} unmatched={unmatched} recruit_steps={} recruit_gain={}", kills.len(), world.creature_stats.recruit_steps, pixel_physics::sim::creature::fight_recruit_of(world));
     for (&c, &pk) in &peak {
         let a = last.alive.get(&c).copied().unwrap_or(0);
         let lost_rival = kills.iter().filter(|k| k.victim == c && k.attacker != c).count();
