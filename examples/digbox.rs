@@ -3915,6 +3915,20 @@ fn harness() {
     if let Some(c) = cap {
         println!("  cap: no births while {c} or more creatures live (cap=; World::births_paused)");
     }
+    // **`antlife=PATH`: one row per adult ant every `antevery=` frames (200)**
+    // -- where it is, what it holds, what its brain wants and what is in front
+    // of it, and its running dig count. Built 2026-10-03 for the owner's
+    // question *"did you actually track individual ant behaviors and understand
+    // if when and why ants are or are not digging ... if when and why nest
+    // workers are staying in the nest"*. See [`ant_life_rows`].
+    let mut ant_life = arg::<String>("antlife").map(|path| {
+        use std::io::Write;
+        let mut w = std::io::BufWriter::new(std::fs::File::create(&path).expect("antlife: cannot create the file"));
+        let _ = writeln!(w, "{ANT_LIFE_HEADER}");
+        w
+    });
+    let ant_every: u64 = arg("antevery").unwrap_or(200);
+    let pile_x = food_pile.as_ref().map(|p| p.x);
     let mut paused_frames = 0u64;
     for f in 0..=frames {
         if f > 0 {
@@ -3942,6 +3956,12 @@ fn harness() {
         }
         if let Some(p) = food_pile.as_mut().filter(|p| f > 0 && p.refill > 0 && f.is_multiple_of(p.refill)) {
             p.place(&mut world);
+        }
+        if let Some(w) = ant_life.as_mut().filter(|_| f.is_multiple_of(ant_every)) {
+            use std::io::Write;
+            for row in ant_life_rows(&world, &b, f, pile_x) {
+                let _ = writeln!(w, "{row}");
+            }
         }
         if f == 0 && score_k > 0 {
             // Before any ant has dug (digging starts with frame 1's step)
@@ -4822,6 +4842,80 @@ fn write_grid(w: &mut std::io::BufWriter<std::fs::File>, world: &World, b: &Box2
 const PILE_REACH: i32 = 12;
 
 const PILE_PLACES: [&str; 4] = ["on the mound over the mouth", "in the mouth", "underground", "out on the surface"];
+
+const ANT_LIFE_HEADER: &str = "frame,id,worker,hx,hy,place,food_dx,crop_j,spoil,energy,at_nest,food_adj,dig_p,ahead,digs,deliveries";
+
+/// **One row per adult ant: where, holding what, wanting what, facing what**
+/// (`antlife=PATH`). `place` is `home` (a dug home cell in the head's eight
+/// neighbours or under it -- the shipped `NEST_HOME=dug` test), `door` (the
+/// founding cut's mouth), `under` (below the old ground line, not home) or
+/// `out`. `food_dx` is columns from the food pile (`food=`), blank without
+/// one. `at_nest`, `food_adj` and `dig_p` are the brain's own `AtNest`,
+/// `FoodAdjacent` and `Dig` read now (`probe_full`, which changes nothing).
+/// `ahead` is the cell the jaw would cut (the head's heading): `empty`,
+/// `ant`, `brood`, `food` (crumbs or any unowned food), `nest` (paint),
+/// `cuttable` (resistance within the shipped dig force, 1.0) or `hard`.
+/// `digs` and `deliveries` are the ant's own running counts (`life`).
+fn ant_life_rows(world: &World, b: &Box2, frame: u64, pile_x: Option<i32>) -> Vec<String> {
+    use pixel_physics::sim::brain::{BrainInput as I, BrainOutput as O};
+    use pixel_physics::sim::creature::DIRS;
+    let Some(sid) = world.species.id_of("ant") else { return Vec::new() };
+    let Some(def) = world.species.get(sid).creature.as_ref().cloned() else { return Vec::new() };
+    let nest = world.materials.id_of("nest");
+    let brood = world.materials.id_of("brood");
+    let cut = world.nest_sites.first().and_then(|s| s.shaft);
+    let mut rows = Vec::new();
+    for id in world.live_organism_ids() {
+        let Some(st) = world.organism(id) else { continue };
+        if st.species != sid {
+            continue;
+        }
+        let Some(&(hx, hy)) = st.chain.first() else { continue };
+        let home = (-1..=1).any(|dy| (-1..=1).any(|dx| world.nest_dug.contains(&(hx + dx, hy + dy))));
+        let place = if home {
+            "home"
+        } else if cut.is_some_and(|c| c.touches_mouth(hx, hy)) {
+            "door"
+        } else if hy >= b.surface {
+            "under"
+        } else {
+            "out"
+        };
+        let (inp, _hid, out, _) = pixel_physics::sim::creature::probe_full(world, hx, hy, id, &def);
+        let (dx, dy) = DIRS[(st.heading % 8) as usize];
+        let c = world.get(hx + dx, hy + dy);
+        let mat = world.materials.get(c.material);
+        let ahead = if c.material == material::EMPTY {
+            "empty"
+        } else if world.materials.kind(c.material) == MaterialKind::Creature {
+            "ant"
+        } else if Some(c.material) == brood {
+            "brood"
+        } else if c.organism_id() == 0 && pixel_physics::sim::creature::food_value(world, c) > 0.0 {
+            "food"
+        } else if Some(c.material) == nest {
+            "nest"
+        } else if c.organism_id() == 0 && mat.penetration_resistance <= 1.0 {
+            "cuttable"
+        } else {
+            "hard"
+        };
+        rows.push(format!(
+            "{frame},{id},{},{hx},{hy},{place},{},{:.1},{},{:.1},{:.3},{:.3},{:.3},{ahead},{},{}",
+            u8::from(st.nest_bound_until == u64::MAX),
+            pile_x.map_or(String::new(), |px| (hx - px).to_string()),
+            st.crop.as_ref().map_or(0.0, |c| c.worth()),
+            u8::from(st.spoil.is_some()),
+            st.energy,
+            inp[I::AtNest as usize],
+            inp[I::FoodAdjacent as usize],
+            out[O::Dig as usize],
+            st.life.digs,
+            st.life.deliveries,
+        ));
+    }
+    rows
+}
 
 const PILE_CSV_HEADER: &str = "frame,id,hx,hy,place,worker,holding,home_now,energy_j,frames_still,row_age,at_nest,crowding,stillness,energy_in,outcome,moved,p_move,drive,scout_w,scout_home,home_cos,anchor_x,anchor_y";
 

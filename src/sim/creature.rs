@@ -21197,6 +21197,19 @@ fn trip_source(world: &World, fx: i32, fy: i32, bite: Cell, reach: i32) -> u8 {
 /// correction for air the grid cannot hold. Neither is a claim that wood is
 /// soft.
 fn is_partable(world: &World, cell: Cell) -> bool {
+    let past = push_past_of(world);
+    if past.crumbs && cell.organism_id() == 0 && world.materials.get(cell.material).carries_worth {
+        return true;
+    }
+    // Brood is a powder cell owned by its brood organism; the kind test runs
+    // first so a plant cell never pays the organism lookup.
+    if past.brood
+        && cell.organism_id() != 0
+        && world.materials.kind(cell.material) == MaterialKind::Powder
+        && world.organism(cell.organism_id()).is_some_and(|s| s.brood.is_some())
+    {
+        return true;
+    }
     if !is_living_tissue(world, cell) {
         return false;
     }
@@ -21214,6 +21227,114 @@ fn is_partable(world: &World, cell: Cell) -> bool {
         return false;
     }
     material.climbable
+}
+
+/// **What a body walks through besides soft tissue: loose crumbs, brood,
+/// both or neither.** **Both, by default** (the owner, 2026-10-03: *"I do
+/// want both switches defaulting to on"*); `PIXEL_PHYSICS_PUSH_PAST=off` is
+/// neither, the behaviour before either existed, and `crumbs` or `brood`
+/// alone is the one. From the owner's playtest, 2026-10-03:
+///
+/// - **Crumbs.** *"the nest just gets totally full of crumbs and then
+///   they're just standing on the crumbs"*, *"what if ants have the ability
+///   to walk through crumbs?"* The lab's founding cut held 8-14 crumbs of its
+///   26 cells at every census from frame 10,000 to 65,000 on played-bed
+///   seed 3 (main `98c5f60c`, `nestdoor dump=1`), and the home never left
+///   founding size. Keyed on `carries_worth`, which only `crumbs` sets.
+/// - **Brood.** *"I have a situation right now where it just blocked the
+///   entrance and now ants can't go in the nest at all cuz there's a tall
+///   column of brood"*, and then *"we also want ants to be able to just walk
+///   through brood so that it doesn't block [them] which is the simplest
+///   solution"*. Eggs are laid beside the layer and nothing yet carries them
+///   (the laying lane's brood transport is the fuller fix), so a breeding
+///   colony stacks brood in its own doorway.
+///
+/// **Parted, not dug or swapped**, by the same machinery as foliage: the cell
+/// is lifted while a body stands in it and put back exactly as it was when the
+/// body leaves (`restore_parted`, `close_or_hand_over` when a nestmate is
+/// still standing there, `return_parted` when the body dies in it). A real ant
+/// climbs over loose scraps and over brood; a side-view grid cell cannot hold
+/// the gap between them, which is the 2D argument `is_partable` already makes
+/// for leaves. Any body with legs parts them, not only nestmates: the rule is
+/// about the grid, not about kin.
+///
+/// **Brood needs one more thing, because it is alive.** A brood organism
+/// finds its own cell through the grid every tick (`brood::brood_cell`), and
+/// a cell it cannot find is booked destroyed. So `brood_tick` first asks
+/// [`held_brood_at`] whether a body is standing on it, and if so the brood
+/// goes on growing underneath: it pays upkeep, eats what lies beside it, is
+/// nursed, and changes stage in the walker's held copy. Only hatching and
+/// starving wait for the walker to step off, since both write the cell.
+/// Freezing it outright was the first version, and on the test bed it cost
+/// births (`CreatureStats::brood_held` counts the ticks).
+///
+/// **What it costs, measured before it was turned on** (digbox `ants=20
+/// food=60 hungry`, the owner's playtest set-up, 8 seeds, 40,000 frames,
+/// lane 3 on main `401f7c86`, medians, off against both). With eggs laid
+/// only at the nest, as the lab lays since PR 593: dug home 58 -> 69 cells
+/// (bigger on 6 of 8), ants 42 -> 33 (fewer on 6 of 8). Crumbs alone: home
+/// 76, ants 40; brood alone: home 66, ants 33. With eggs laid anywhere:
+/// ants 246 -> 181, fewer on 8 of 8, home 75 -> 72. A first version froze
+/// brood while it was stood on; that cost births more and was replaced by
+/// the growing-underneath rule below before these numbers were taken.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct PushPast {
+    pub crumbs: bool,
+    pub brood: bool,
+}
+
+impl PushPast {
+    /// Both on: what an unset `PIXEL_PHYSICS_PUSH_PAST` means.
+    pub const SHIPPED: PushPast = PushPast { crumbs: true, brood: true };
+
+    /// Parse a `PIXEL_PHYSICS_PUSH_PAST` value: comma-separated `crumbs` and
+    /// `brood`, `both` for the two, `off` or anything unknown for neither.
+    pub fn parse(raw: &str) -> PushPast {
+        let mut past = PushPast::default();
+        for word in raw.split(',').map(str::trim) {
+            match word {
+                "crumbs" => past.crumbs = true,
+                "brood" => past.brood = true,
+                "both" => past = PushPast { crumbs: true, brood: true },
+                _ => {}
+            }
+        }
+        past
+    }
+}
+
+/// What this world's bodies walk through: `World::push_past` when a guard
+/// set it, else `PIXEL_PHYSICS_PUSH_PAST`. See [`PushPast`].
+pub fn push_past_of(world: &World) -> PushPast {
+    world.push_past.unwrap_or_else(push_past_from_env)
+}
+
+/// `PIXEL_PHYSICS_PUSH_PAST` read once per process; see [`PushPast`].
+pub fn push_past_from_env() -> PushPast {
+    static V: std::sync::OnceLock<PushPast> = std::sync::OnceLock::new();
+    *V.get_or_init(|| std::env::var("PIXEL_PHYSICS_PUSH_PAST").map_or(PushPast::SHIPPED, |v| PushPast::parse(&v)))
+}
+
+/// **Who is standing on this brood organism's cell, and where, if anyone is** --
+/// the cell parted out of the grid into the walker's `parted` list (see
+/// [`PushPast`]). Asked by `brood::brood_tick` only once the cell has not
+/// been found, so it costs nothing on an ordinary tick.
+///
+/// Looks at the brood's last scheduled cell and every cell its own list
+/// still names, since it may have fallen between ticks and `relocate_chain`
+/// keeps a parted cell in its owner's list (`keep_graph_enabled`). At each,
+/// the grid's owner and every rider are asked, because a held cell can be
+/// handed to whoever is still standing in it (`close_or_hand_over`).
+pub(super) fn held_brood_at(world: &World, brood: OrganismId, at: (i32, i32)) -> Option<(OrganismId, (i32, i32))> {
+    let holds = |who: OrganismId, p: (i32, i32)| world.organism(who).is_some_and(|s| s.parted.iter().any(|h| (h.x, h.y) == p && h.cell.organism_id() == brood));
+    let listed = world.organism(brood).map_or(Vec::new(), |s| s.cells.keys().copied().collect::<Vec<_>>());
+    std::iter::once(at).chain(listed).find_map(|p| {
+        let owner = world.get(p.0, p.1).organism_id();
+        if owner != 0 && owner != brood && holds(owner, p) {
+            return Some((owner, p));
+        }
+        world.riders_at(p.0, p.1).iter().find(|r| holds(r.organism, p)).map(|r| (r.organism, p))
+    })
 }
 
 /// **How far a body will look for the far side of a trunk.**
@@ -40873,6 +40994,183 @@ mod tests {
             before.1,
             after.1
         );
+    }
+
+    /// A one-cell-high stone tunnel with a plug of three brood cells in the
+    /// middle and two ants either side, run for `frames` with `past` set.
+    /// Returns how many ants ever got their head to the far side of the plug,
+    /// brood booked lost, and brood cells found (grid plus held) against brood
+    /// organisms alive at the end.
+    fn walk_a_brood_plug(past: PushPast, frames: u32) -> (usize, u64, usize, usize, u64, usize, usize) {
+        let mut w = test_world();
+        w.push_past = Some(past);
+        let brood_mat = w.materials.id_of("brood").expect("brood is compiled in");
+        let floor = 120;
+        for x in 40..160 {
+            for y in [floor - 2, floor - 3, floor, floor + 1] {
+                w.set(x, y, Cell::new(material::STONE, 0).with_attached(true));
+            }
+        }
+        for y in (floor - 3)..=floor {
+            w.set(39, y, Cell::new(material::STONE, 0).with_attached(true));
+            w.set(160, y, Cell::new(material::STONE, 0).with_attached(true));
+        }
+        let species = w.species.id_of("ant").expect("ant");
+        let plug = 98..101;
+        for x in plug.clone() {
+            let egg = w.push_organism(species).expect("an organism slot");
+            let frame = w.frame;
+            if let Some(st) = w.organism_mut(egg) {
+                st.energy = 120.0;
+                st.brood = Some(organism::Brood { stage: organism::BroodStage::Egg, since: frame, target: 1_060.0, parent: 0, last_tick: frame });
+            }
+            w.set(x, floor - 1, Cell::new(brood_mat, 0).with_organism_id(egg).with_aux(pack_cell_type(CellType::Seed)));
+            let due = w.creature_due(10);
+            w.schedule_active_site(ActiveSite { x, y: floor - 1, kind: ActiveKind::Creature { organism: egg }, next_frame: due });
+        }
+        let ants: Vec<(OrganismId, bool)> = [60, 75, 125, 140].iter().map(|&x| (spawn(&mut w, "ant", x, floor - 1), x < plug.start)).collect();
+        assert!(ants.iter().all(|&(a, _)| a != 0), "test setup: the ants were not placed");
+        let mut crossed = std::collections::HashSet::new();
+        for _ in 0..frames {
+            w.begin_step();
+            w.step_active_sites();
+            for &(ant, west) in &ants {
+                let Some(head) = w.organism(ant).and_then(|s| s.chain.first().copied()) else { continue };
+                if (west && head.0 >= plug.end) || (!west && head.0 < plug.start) {
+                    crossed.insert(ant);
+                }
+            }
+        }
+        let alive = w.live_brood_ids();
+        let mut cells: Vec<Cell> = (40..160).map(|x| w.get(x, floor - 1)).filter(|c| c.material == brood_mat).collect();
+        for id in w.live_organism_ids() {
+            cells.extend(w.organism(id).map_or(Vec::new(), |s| s.parted.iter().filter(|h| h.cell.material == brood_mat).map(|h| h.cell).collect()));
+        }
+        // A cell whose shade disagrees with its organism's stage was restaged
+        // somewhere other than where it lay.
+        let off_stage = cells.iter().filter(|c| w.organism(c.organism_id()).and_then(|s| s.brood).is_none_or(|b| b.stage as u8 != c.shade)).count();
+        (crossed.len(), w.creature_stats.brood_lost, cells.len(), alive.len(), w.creature_stats.brood_held, off_stage, w.live_creature_count())
+    }
+
+    /// **Ants walk through brood, and the brood is all still there and still
+    /// alive** -- the owner's playtest, 2026-10-03, where a column of brood
+    /// shut a colony out of its own nest.
+    ///
+    /// Three things, each one a way this goes wrong. Ants must actually get
+    /// past (the plug blocks them with the switch off, which is the positive
+    /// control that this bed is a plug at all). No brood may be booked lost:
+    /// a brood cell an ant is standing on is out of the grid, and
+    /// `brood_tick` destroys brood it cannot find unless it asks
+    /// `held_brood_at` first -- delete that check and this goes red. And
+    /// every live brood organism must still own a cell, in the grid or in a
+    /// walker's hands, so none was left registered but deleted.
+    #[test]
+    fn ants_walk_through_a_brood_plug_and_leave_it_alive() {
+        let (blocked, lost_off, found_off, alive_off, _, _, _) = walk_a_brood_plug(PushPast::default(), 3_000);
+        assert_eq!(blocked, 0, "with the switch off the plug must hold, or this bed proves nothing");
+        assert_eq!((lost_off, found_off, alive_off), (0, 3, 3), "the plug alone must not lose brood");
+
+        let (crossed, lost, found, alive, held, off_stage, ants) = walk_a_brood_plug(PushPast { crumbs: false, brood: true }, 3_000);
+        assert!(crossed > 0, "no ant got past the brood, so nothing was walked through");
+        assert!(held > 0, "no brood tick ever found an ant standing on it, so the held path never ran");
+        assert_eq!(lost, 0, "brood was booked destroyed while an ant stood on it");
+        assert_eq!(alive, 3, "a brood organism went missing");
+        assert_eq!(found, alive, "a live brood organism has no cell in the grid or in a walker's hands");
+        assert_eq!(off_stage, 0, "a brood cell's colour disagrees with its stage: restaged where it was not");
+        assert_eq!(ants, 4, "an ant died walking through brood -- a stage written over the walker's own cell kills it");
+    }
+
+    /// **Brood under a walker grows in the walker's hands, and neither hatches
+    /// nor starves there.** The plug bed above rarely has an ant standing on an
+    /// egg at the tick it turns, so this sets that moment up directly: an ant
+    /// holding an egg that is due, then a pupa that is due. Writing the new
+    /// stage into the grid would overwrite the ant's own cell, and hatching
+    /// would clear it; both are what this catches.
+    #[test]
+    fn held_brood_restages_in_the_hand_and_waits_to_hatch() {
+        let mut w = test_world();
+        w.push_past = Some(PushPast { crumbs: false, brood: true });
+        for x in 80..120 {
+            w.set(x, 121, Cell::new(material::STONE, 0).with_attached(true));
+        }
+        let ant = spawn(&mut w, "ant", 100, 120);
+        let head = w.organism(ant).expect("live").chain[0];
+        let species = w.organism(ant).expect("live").species;
+        let brood_mat = w.materials.id_of("brood").expect("brood is compiled in");
+        let egg = w.push_organism(species).expect("an organism slot");
+        for _ in 0..300 {
+            w.begin_step();
+        }
+        if let Some(st) = w.organism_mut(egg) {
+            st.energy = 120.0;
+            st.brood = Some(organism::Brood { stage: organism::BroodStage::Egg, since: 0, target: 1_060.0, parent: 0, last_tick: 0 });
+            st.cells.insert(head, organism::OrganismCell::default());
+        }
+        let cell = Cell::new(brood_mat, organism::BroodStage::Egg as u8).with_organism_id(egg).with_aux(pack_cell_type(CellType::Seed));
+        w.organism_mut(ant).expect("live").parted.push(organism::Parted { x: head.0, y: head.1, cell, scalars: Default::default() });
+        let tick = |w: &mut World| crate::sim::brood::brood_tick(w, &ActiveSite { x: head.0, y: head.1, kind: ActiveKind::Creature { organism: egg }, next_frame: 0 });
+
+        assert_eq!(tick(&mut w).len(), 1, "the held egg must be rescheduled, not dropped");
+        assert_eq!(w.get(head.0, head.1).organism_id(), ant, "the stage change was written over the ant's own cell");
+        let held = |w: &World| w.organism(ant).expect("live").parted.iter().find(|h| h.cell.organism_id() == egg).map(|h| h.cell.shade);
+        assert_eq!(held(&w), Some(organism::BroodStage::Larva as u8), "the egg in the ant's hands did not become a larva");
+        assert_eq!((w.creature_stats.brood_lost, w.creature_stats.brood_held), (0, 1));
+
+        // Paid up and long due, with open ground beside it, so a hatch would
+        // succeed if it were tried: a pupa that could not fit is put back
+        // where it was and would read the same as one that waited.
+        if let Some(st) = w.organism_mut(egg) {
+            st.energy = 1_200.0;
+            if let Some(b) = st.brood.as_mut() {
+                b.stage = organism::BroodStage::Pupa;
+                b.since = 0;
+            }
+        }
+        assert!(w.frame >= 250, "test setup: the pupa is not due yet at frame {}", w.frame);
+        let (births, denied) = (w.creature_stats.births, w.creature_stats.hatches_denied);
+        assert_eq!(tick(&mut w).len(), 1, "a held pupa must wait, not vanish");
+        // A hatch that was tried and did not fit puts the cell back, so the
+        // grid alone cannot tell it from one that waited; the refusal count can.
+        assert_eq!((w.creature_stats.births, w.creature_stats.hatches_denied), (births, denied), "a hatch was tried from under the ant standing on the pupa");
+        assert_eq!(w.get(head.0, head.1).organism_id(), ant, "hatching cleared the ant's own cell");
+        assert!(w.organism(egg).is_some_and(|s| s.brood.is_some()), "the pupa is gone");
+    }
+
+    /// **Brood in a passage cuts the dug home behind it only while ants
+    /// cannot walk through it.** A side room dug off the founding chamber,
+    /// with one egg lying in its neck: with brood a wall the room is not home,
+    /// with `PushPast::brood` it is, as a crumb in the same place always was.
+    #[test]
+    fn brood_in_a_neck_is_a_wall_to_home_only_while_it_blocks() {
+        let room = |brood: bool| {
+            let (mut w, low) = colony_bed();
+            w.push_past = Some(PushPast { crumbs: false, brood });
+            assert!(w.found_colony(200, low - 32) > 0, "test setup: no colony");
+            let cut = w.nest_sites[0].shaft.expect("test setup: the founding cut");
+            let y = cut.chamber_bottom;
+            let neck = cut.chamber_x1 + 1;
+            for x in neck..neck + 8 {
+                w.set(x, y, Cell::EMPTY);
+            }
+            let brood_mat = w.materials.id_of("brood").expect("brood is compiled in");
+            w.set(neck, y, Cell::new(brood_mat, 0));
+            w.nest_dug.clear();
+            w.step_nest_dug();
+            assert!(!w.nest_dug.is_empty(), "test setup: no dug home at all");
+            (neck + 1..neck + 8).filter(|&x| w.nest_dug.contains(&(x, y))).count()
+        };
+        assert_eq!(room(false), 0, "the egg did not cut the room off, so this bed tests nothing");
+        assert_eq!(room(true), 7, "with ants walking through brood the room behind it is home");
+    }
+
+    #[test]
+    fn push_past_parses_each_word_and_ignores_the_rest() {
+        assert_eq!(PushPast::parse("crumbs"), PushPast { crumbs: true, brood: false });
+        assert_eq!(PushPast::parse("brood"), PushPast { crumbs: false, brood: true });
+        assert_eq!(PushPast::parse("crumbs, brood"), PushPast { crumbs: true, brood: true });
+        assert_eq!(PushPast::parse("both"), PushPast { crumbs: true, brood: true });
+        assert_eq!(PushPast::parse("off"), PushPast::default());
+        assert_eq!(PushPast::parse("rocks"), PushPast::default());
     }
 
     #[test]
