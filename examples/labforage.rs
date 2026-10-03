@@ -3081,9 +3081,8 @@ fn print_nest_line(world: &World, f: u64) {
                     let c = world.get(x, y);
                     let is_open = c.material == mat::EMPTY || matches!(world.materials.kind(c.material), MaterialKind::Creature);
                     open += u32::from(is_open);
-                    if !is_open {
-                        *plug.entry(world.materials.get(c.material).name.clone()).or_insert(0u32) += 1;
-                    }
+                    let part = if (cut.x0..=cut.x1).contains(&x) && (cut.top..=cut.bottom).contains(&y) { "shaft" } else { "room" };
+                    *plug.entry(format!("{part} {}", if is_open { "OPEN".to_string() } else { world.materials.get(c.material).name.clone() })).or_insert(0u32) += 1;
                 }
             }
         }

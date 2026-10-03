@@ -12410,8 +12410,9 @@ fn door_write_note(world: &World, (x, y): (i32, i32), site: &str, cell: Cell) {
     if std::env::var_os("DOORWRITES").is_none() || !world.nest_sites.iter().any(|n| n.shaft.is_some_and(|cut| cut.contains(x, y))) {
         return;
     }
+    let part = if world.nest_sites.iter().any(|n| n.shaft.is_some_and(|c| (c.x0..=c.x1).contains(&x) && (c.top..=c.bottom).contains(&y))) { "shaft" } else { "room" };
     let mut g = DOOR_WRITES.lock().unwrap();
-    *g.get_or_insert_with(Default::default).entry(format!("{site}:{}", world.materials.get(cell.material).name)).or_insert(0) += 1;
+    *g.get_or_insert_with(Default::default).entry(format!("{part} {site}:{}", world.materials.get(cell.material).name)).or_insert(0) += 1;
 }
 
 /// A live organism's seed cell, which [`jaw_can_cut`] will not dig.
