@@ -8782,9 +8782,11 @@ generations **5 → 15**. Age deaths thin the colony before it strips the bed,
 so the stand keeps producing and the crash never arrives — the mechanism read
 from the other end.
 
-**Known limitations.** Only the ant and the long ant have a lifespan; the
-hopper, the flitter and the beetle are still immortal, because nobody has
-measured what their spans should be. It is not heritable — a trait slot widens
+**Known limitations.** The ancestor, hopper, flitter and beetle took the ant's
+`40000` on 2026-10-03, measured alone on `played_bed` (ancestor 218/164/177
+alive with 12/0/2 deaths -> 128/104/125 with 67/47/77, births about level;
+see the comment in each species file), so every stockable lab animal now
+ages. It is not heritable — a trait slot widens
 the genome and shifts every seeded draw, and an unpriced lifespan gene is a
 ratchet — and the design rules that it is priced before it is inherited. A
 *corrected label* rides along: the hazard's survival at `2.5T` was documented
