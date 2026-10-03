@@ -290,7 +290,8 @@ mod tests {
         let mut strips: HashMap<OrganismId, (Trips, Trips)> = HashMap::new();
         // Per ant: whether it was home last tick, when its current absence
         // began, and every (absence began, got home) pair.
-        let mut truth: HashMap<OrganismId, (bool, u64, Vec<(u64, u64)>)> = HashMap::new();
+        type Comings = (bool, u64, Vec<(u64, u64)>);
+        let mut truth: HashMap<OrganismId, Comings> = HashMap::new();
         for _ in 0..24_000 {
             crate::sim::frame::step(
                 &mut world,
