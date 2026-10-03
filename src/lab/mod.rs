@@ -35,6 +35,7 @@
 //! with one from the other.
 
 pub mod batch;
+pub mod bench;
 pub mod census;
 pub mod names;
 pub mod params;
@@ -1638,56 +1639,62 @@ impl Lab {
     pub fn advance(&mut self, elapsed: std::time::Duration) -> time::Advance {
         let plan = self.time.plan(elapsed);
         let started = std::time::Instant::now();
-        let mut ran = 0u32;
-        while ran < plan.ticks {
-            // **Checked inside the loop, not after it.** At 1024x one
-            // displayed frame is up to 1,024 ticks, so a check placed after
-            // this loop would compile, pass a test that only ever runs a
-            // handful of ticks, and land an auto-reaction up to a thousand
-            // frames late in the real box --
-            // `the_reaction_is_checked_inside_the_tick_loop` is what catches
-            // that placement; a version with the check moved after the loop
-            // is red under it.
-            //
-            // `RunLog::len() + RunLog::dropped()` is monotonic within one
-            // run (`push` bumps `dropped` whenever it trims), so a plain
-            // difference across one tick is "did a line get pushed this
-            // tick" with no need to hold a copy of the log or to wait for
-            // lane A's `RunLog::total()`.
-            let before = self.world.run_log.total();
-            self.tick();
-            ran += 1;
-            let after = self.world.run_log.total();
-            if after > before && self.time.react != time::Reaction::Off && self.time.can_react() {
-                // **Gated on the mask before anything heavier**, which is
-                // the scale answer: at 1,000+ ants an armed kind can still
-                // arrive every few frames, and `notable()`'s line-bounded
-                // set plus this cooldown are the only two things standing
-                // between that and a dial that can never leave 1x. Newest
-                // first, so `grew` covers exactly this tick's new lines;
-                // walking them front-to-back finds the most recent one this
-                // box is actually armed to notice.
-                let grew = (after - before) as usize;
-                let mut hit = None;
-                for e in self.world.run_log.recent().take(grew) {
-                    if self.time.reacts_to(e.kind) {
-                        // `LogEvent` lost `Copy` when `PlayerAction` (round
-                        // 31) added a `String` field -- `.clone()` where
-                        // `*e` used to suffice, the only change at this site.
-                        hit = Some(e.clone());
+        // The loop runs on a rayon worker (`parallel::on_pool`) so the
+        // tick's parallel passes dispatch without a cross-thread wake each;
+        // ~16% of a lab run, same output. See `on_pool`.
+        let ran = crate::sim::parallel::on_pool(|| {
+            let mut ran = 0u32;
+            while ran < plan.ticks {
+                // **Checked inside the loop, not after it.** At 1024x one
+                // displayed frame is up to 1,024 ticks, so a check placed after
+                // this loop would compile, pass a test that only ever runs a
+                // handful of ticks, and land an auto-reaction up to a thousand
+                // frames late in the real box --
+                // `the_reaction_is_checked_inside_the_tick_loop` is what catches
+                // that placement; a version with the check moved after the loop
+                // is red under it.
+                //
+                // `RunLog::len() + RunLog::dropped()` is monotonic within one
+                // run (`push` bumps `dropped` whenever it trims), so a plain
+                // difference across one tick is "did a line get pushed this
+                // tick" with no need to hold a copy of the log or to wait for
+                // lane A's `RunLog::total()`.
+                let before = self.world.run_log.total();
+                self.tick();
+                ran += 1;
+                let after = self.world.run_log.total();
+                if after > before && self.time.react != time::Reaction::Off && self.time.can_react() {
+                    // **Gated on the mask before anything heavier**, which is
+                    // the scale answer: at 1,000+ ants an armed kind can still
+                    // arrive every few frames, and `notable()`'s line-bounded
+                    // set plus this cooldown are the only two things standing
+                    // between that and a dial that can never leave 1x. Newest
+                    // first, so `grew` covers exactly this tick's new lines;
+                    // walking them front-to-back finds the most recent one this
+                    // box is actually armed to notice.
+                    let grew = (after - before) as usize;
+                    let mut hit = None;
+                    for e in self.world.run_log.recent().take(grew) {
+                        if self.time.reacts_to(e.kind) {
+                            // `LogEvent` lost `Copy` when `PlayerAction` (round
+                            // 31) added a `String` field -- `.clone()` where
+                            // `*e` used to suffice, the only change at this site.
+                            hit = Some(e.clone());
+                            break;
+                        }
+                    }
+                    if let Some(event) = hit {
+                        self.take_camera_to(&event);
+                        self.time.react();
                         break;
                     }
                 }
-                if let Some(event) = hit {
-                    self.take_camera_to(&event);
-                    self.time.react();
+                if started.elapsed() >= plan.budget {
                     break;
                 }
             }
-            if started.elapsed() >= plan.budget {
-                break;
-            }
-        }
+            ran
+        });
         let advance = self.time.record(ran, started.elapsed());
         // Never blocks; see `poll_batch`.
         self.poll_batch();
@@ -2802,6 +2809,19 @@ impl Lab {
                 self.renderer.cycle_field_overlay();
                 self.ui.say(format!("OVERLAY {}", self.renderer.field_overlay.label()));
             }
+            // The organism overlay (`L`) and the food road (`F7`), routed
+            // through here rather than poked at the renderer from the key
+            // handler, so the MENU page's rows can fire them too. Both had
+            // no mouse route at all until 2026-10-03, and a player who had
+            // not read the key list could not know they existed.
+            ui::Action::CycleLifeOverlay => {
+                self.renderer.cycle_organism_overlay();
+                self.ui.say(format!("LIFE OVERLAY {}", self.renderer.organism_overlay.label()));
+            }
+            ui::Action::CycleFoodOverlay => {
+                self.renderer.cycle_food_overlay();
+                self.ui.say(format!("FOOD {}", self.renderer.food.mode.label()));
+            }
             // **The renderer's own mode, mirrored into `Ui` in the same
             // action that changes it** -- see `Ui::creature_colour`'s doc for
             // why a mirror exists at all. The ANTS page's chart and legend
@@ -3656,8 +3676,8 @@ const HELP: [&str; 30] = [
     "THE EVOLUTION LAB",
     "",
     "THE BOX STARTS EMPTY. YOU STOCK IT.",
-    "EVERY CONTROL IS ALSO A BUTTON ON",
-    "THE BAR ALONG THE BOTTOM.",
+    "MOST CONTROLS ARE BUTTONS ON THE BAR.",
+    "F6 MENU LISTS EVERY PAGE AND EVERY VIEW.",
     "",
     "SPACE      STOP / RUN THE BOX",
     "UP DOWN    SPEED     1-7  PRESET",
@@ -3669,19 +3689,19 @@ const HELP: [&str; 30] = [
     "RIGHT      ERASE",
     ".          WHICH SPECIES TO PLANT",
     "[ ]        BRUSH NARROWER WIDER",
-    "O L H      FIELD / LIFE / ANIMAL OVERLAY",
-    "",
+    "O L F7     FIELD / LIFE / FOOD ROAD VIEW",
+    "H Y 0      ANIMAL COLOUR / MARKS / MAGNIFY",
     "P          PARAMETERS -- THE NUMBERS",
-    "           BEHIND THE VERBS",
-    "G          THE SHELF -- KEPT GENETICS.",
-    "           KEEP AND PLACE ARE BUTTONS NOW,",
-    "           ON THE CELL PAGE AND THE RACK",
+    "G          THE SHELF -- KEPT GENETICS",
     "; \x27        DRIFT A RELEASE, IN BROODS",
-    "K E I J Q U 9  WALL FOOD SCENT ALARM FLING LAMP CHRONICLE -- KEY ONLY",
-    "F1 F2 F3 F4   PLANTS ANTS BOX RACK   TAB STATS",
+    "K E I J Q U  WALL FOOD SCENT ALARM FLING LAMP",
+    "8 RAIN    9 SAVE CHRONICLE    T ON AN EVENT",
+    "F1 F2 F3 F4 F5  PLANTS ANTS BOX RACK HISTORY",
+    "F6 MENU    TAB STATS",
     "SHIFT+1..5   SWITCH CHAMBER    ALL   THE WHOLE RACK",
     "F RATE   WASD PAN   - = ZOOM   R REBUILD",
     "?          THIS PAGE",
+    "",
     "",
 ];
 

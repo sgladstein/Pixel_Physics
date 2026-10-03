@@ -3121,8 +3121,11 @@ impl App {
             // border` went red on it). The lab's cell page carries them;
             // `wiki/ants.md`, "Who is family", says what they mean. The
             // census still carries every slot, so a reader that wants them
-            // has them.
-            if organism::SCENT_SIDE_SLOTS.contains(&slot) {
+            // has them. **The six walk slots are left off for the same
+            // reason** (`organism::WALK_SLOTS`): width 0 on every species, so
+            // they read +0.00 six times over and clip the panel; the lab's
+            // WALK page and cell page carry them.
+            if organism::SCENT_SIDE_SLOTS.contains(&slot) || organism::WALK_SLOTS.contains(&slot) {
                 continue;
             }
             let label = Self::colony_trait_label(slot);

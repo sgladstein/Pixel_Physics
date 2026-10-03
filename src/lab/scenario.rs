@@ -673,8 +673,25 @@ mod tests {
     fn a_timeline_creature_arrival_fires_after_a_head_start() {
         let _guard = DIR_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let scenarios = Scenario::list();
-        let mut checked = 0;
-        for s in &scenarios {
+        // **One thread per scenario**, because each scenario is its own
+        // `Lab` and nothing in the check crosses between them. Run serially
+        // this was the single longest test in the debug CI job -- 214 s on
+        // its own, the whole tail of the lib suite (2026-10-03, main
+        // 5774baef) -- and every other `DIR_LOCK` test sat behind it. The
+        // assertions are unchanged; the lock is still held for the whole
+        // run, as before, because the tick reads process-global env.
+        let checked: usize = std::thread::scope(|scope| {
+            let runs: Vec<_> = scenarios.iter().map(|s| scope.spawn(move || check_arrivals(s))).collect();
+            runs.into_iter().map(|h| h.join().unwrap_or_else(|p| std::panic::resume_unwind(p))).sum()
+        });
+        assert!(checked > 0, "no shipped scenario has a Colony/Colonies/Animal/Predators event on its timeline -- this guard is not exercising anything");
+    }
+
+    /// One scenario's half of
+    /// [`a_timeline_creature_arrival_fires_after_a_head_start`]: 1 if it has
+    /// a creature arrival on its timeline and was checked, 0 if it has none.
+    fn check_arrivals(s: &Scenario) -> usize {
+        {
             let mut arrivals: Vec<u64> = s
                 .timeline
                 .iter()
@@ -683,8 +700,7 @@ mod tests {
                 .collect();
             arrivals.sort_unstable();
             arrivals.dedup();
-            let Some(&last) = arrivals.last() else { continue };
-            checked += 1;
+            let Some(&last) = arrivals.last() else { return 0 };
             let first = arrivals[0];
             let mut lab = super::super::Lab::new(s.bed.clone());
             lab.scenario = Some(s.clone());
@@ -707,7 +723,7 @@ mod tests {
                 before = after;
             }
         }
-        assert!(checked > 0, "no shipped scenario has a Colony/Colonies/Animal/Predators event on its timeline -- this guard is not exercising anything");
+        1
     }
 
     #[test]

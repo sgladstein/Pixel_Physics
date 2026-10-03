@@ -529,6 +529,23 @@ switch says, and so does the ant under `PIXEL_PHYSICS_CHOOSER=off`. The walk
 is built in layers, and the ant walks all of them: items 1–5 below (`on`),
 plus the trail terms (`trail`), plus the away term (`trailaway`).
 
+**Every gain below is the ant's own, inherited** (since 2026-10-03). Six
+`CREATURE_TRAITS` slots, `organism::WALK_GAIN_SLOTS` (14–19), each a factor on
+one constant through `walk_gain` on the reciprocal axis (+1 twice, −1 half,
+0 exactly 1.0): `TRAIT_HOME_PULL` on `HOME_GAIN`, `TRAIT_TRAIL_HOLD` on
+`TRAIL_GAIN`, `TRAIT_ROUTE_AWAY` on `AWAY_GAIN`, `TRAIT_SCOUT` on the
+scouting gain, `TRAIT_DOOR_READ` on the door reader's `FOOD_TRAIL_GAIN`, and
+`TRAIT_PATIENCE` on the leak of both patiences (`1 − PATIENCE_DECAY`; +1
+halves it). **They ship at allele 0 and mutation width 0 on every species**,
+so the walk is bit-for-bit the constants until a measurement turns the width
+on, and they have no developmental weight (`brain::DEV_TRAITS` stays 14,
+because a live dev slot is drawn by every birth's mutation). The constants
+named below are the ancestral values. **Which trail is a route is
+inherited too**: four more slots (`TRAIL_PLANE_SLOTS`, 20–23) weight each
+plane's presence for a laden and an empty ant, base 1 on the plane the code
+used to pick and 0 on the other (`trail_planes`), so allele 0 is laden-reads-A,
+empty-reads-B exactly.
+
 1. **Every decision, before any roll:** the support check and possible fall
    (§2). A fall is not a move: it lays no trail and costs no step.
 2. `p_move` as in §6a, except that `HomeAligned` reads **1 whenever the
@@ -569,7 +586,9 @@ plus the trail terms (`trail`), plus the away term (`trailaway`).
   reads the scent in the cell the head would enter and the one beyond it,
   takes the larger, and saturates it as `x / (1 + x)` over `TRAIL_HALF` (a
   tenth of one full deposit). Trail B for an ant carrying no food, trail A
-  for one that is. The heading's turn score is multiplied by
+  for one that is, at the ancestral alleles: the reading is each plane's
+  presence times the ant's inherited weight for it, summed and floored at 0
+  (`trail_planes`), and a zero-weight plane is not read. The heading's turn score is multiplied by
   `1 + TRAIL_GAIN × presence` (`TRAIL_GAIN` 3), so a heading onto a full
   route scores up to 4 times its turn alone, and turning round still scores
   0. Presence has no direction: both ways along a route score the same.

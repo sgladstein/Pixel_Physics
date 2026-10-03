@@ -1320,7 +1320,14 @@ fn mark_visited(world: &World, visited: &mut [bool], heat: &mut [u32], width: i3
     }
 }
 
+// Runs on the rayon pool so each tick's parallel passes dispatch without a
+// cross-thread wake: ~16% of a lab run, byte-identical output. See
+// `pixel_physics::sim::parallel::on_pool`.
 fn main() {
+    pixel_physics::sim::parallel::harness_main(harness);
+}
+
+fn harness() {
     let control: String = arg("control").unwrap_or_else(|| "run".to_string());
     let frames: u64 = arg("frames").unwrap_or(300_000);
     let sample_every: u64 = arg("sample").unwrap_or(900);
@@ -1759,6 +1766,10 @@ fn main() {
     // Round 29's second card: the owner marked three fixed points that do
     // not move in *either* arm. `CellProbe` is what names their occupants.
     let mut probe = CellProbe::new();
+    // **The lab bench's tally** (`lab::bench`): where eggs were laid, ants
+    // underground, colonies lost, fall from peak -- one `BENCH` line at the
+    // end. Read-only, so it changes nothing about the run.
+    let mut bench = pixel_physics::lab::bench::Bench::new(spec.ground_y);
 
     println!(
         "{:>7} {:>5} {:>6} {:>7} {:>10} {:>6} {:>6} {:>6} {:>9} | {:>5} {:>5} {:>5} {:>5} | {:>4} {:>5} {:>5} {:>6} | {:>4} {:>4} {:>4} | {:>5} {:>8} {:>5}",
@@ -2166,6 +2177,7 @@ fn main() {
                 );
             }
         }
+        bench.observe(&world);
         if f < frames {
             frame::step(&mut world, &mut particles, &mut blasts, player::PlayerInput::default(), &tuning);
             pixel_physics::lab::rain::tick(&mut world, &spec, rain);
@@ -2810,6 +2822,7 @@ fn main() {
         piles.idle_max_streak_any,
         piles.idle_streak_p90_any()
     );
+    println!("{}", bench.line(world.creature_stats.eggs_laid));
     // **The forage drive's "it fired" counts**, on a line of their own so the
     // `SUMMARY` keys an identity check compares are the same with it unset
     // (`creature::forage_drive_from_env`).

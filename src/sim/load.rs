@@ -88,7 +88,15 @@
 //! *only* because the root never failed on its own; once it does, the piece
 //! is a consequence of the model rather than a mechanism bolted beside it.
 
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::VecDeque;
+
+// The per-frame memos and flood sets are keyed by position and only ever
+// probed, never iterated in an order that matters (the one set that is
+// iterated, `failing_region`'s `region`, is sorted straight after). So the
+// fixed FxHash is behaviour-identical to std's SipHash here, and SipHash was
+// ~6% of a single-threaded lab tick inside `is_supported` alone (perf,
+// played_bed seed 1, 2026-10-03). `fxhash.rs` has the general argument.
+use super::fxhash::{FxHashMap, PosMap, PosSet};
 
 use super::material::MaterialKind;
 use super::structural::{edge_is_cracked, is_body_material, NEIGHBOURS_4};
@@ -808,7 +816,8 @@ fn is_supported(world: &World, x: i32, y: i32, memo: &mut AnchorMemo, budget: &m
     if chain_reaches_anchor(world, x, y, memo) {
         return true;
     }
-    let mut seen: HashSet<(i32, i32)> = HashSet::from([(x, y)]);
+    let mut seen = PosSet::default();
+    seen.insert((x, y));
     let mut queue = VecDeque::from([(x, y)]);
     let mut visited = 0usize;
     while let Some((cx, cy)) = queue.pop_front() {
@@ -856,7 +865,7 @@ fn is_supported(world: &World, x: i32, y: i32, memo: &mut AnchorMemo, budget: &m
 pub type Subtree = (i64, i64, bool);
 
 /// Per-frame cache of `subtree_sum` results, cleared by `scheduler::step`.
-pub type SubtreeMemo = HashMap<(i32, i32), Subtree>;
+pub type SubtreeMemo = PosMap<Subtree>;
 
 /// `rests_on_ground` answers for one frame, keyed by position.
 ///
@@ -876,7 +885,7 @@ pub type SubtreeMemo = HashMap<(i32, i32), Subtree>;
 /// difference on the means that sits well inside the baseline's own 3.08-3.44
 /// spread and is not resolvable by this instrument. Claimed as "no measurable
 /// cost", not as a speedup.
-pub type GroundMemo = HashMap<(i32, i32), bool>;
+pub type GroundMemo = PosMap<bool>;
 
 /// Per-frame cache of "does this cell's support chain reach an anchor",
 /// cleared alongside `SubtreeMemo`.
@@ -887,7 +896,7 @@ pub type GroundMemo = HashMap<(i32, i32), bool>;
 /// question from O(region) per check into O(region) per frame, which is
 /// what makes it affordable to search a large detached piece to the end
 /// instead of capping the search and guessing.
-pub type AnchorMemo = HashMap<(i32, i32), bool>;
+pub type AnchorMemo = PosMap<bool>;
 
 /// Everything `load` caches for the span of one frame. Held on `World` and
 /// handed to the walks as one borrow.
@@ -964,7 +973,7 @@ pub struct ShareCounts {
 /// end: `section_cells` grows outward from wherever it was asked and stops
 /// at `MAX_SECTION`, so two cells far apart in a long run see different
 /// forty-cell windows and genuinely must not share an entry.
-pub type CutMemo = HashMap<(i32, i32, i32), Subtree>;
+pub type CutMemo = FxHashMap<(i32, i32, i32), Subtree>;
 
 /// How many neighbours are genuinely holding `(x, y)` up: those strictly
 /// closer to an anchor, across an uncracked edge.
@@ -1326,7 +1335,8 @@ fn subtree_sum(world: &World, x: i32, y: i32, memo: &mut SubtreeMemo, ground: &m
 /// distance, which double-counts on equal-cost paths. See the module doc.
 fn supported_subtree(world: &World, x: i32, y: i32, budget: &mut u32) -> (Vec<(i32, i32)>, bool) {
     let mut out = Vec::new();
-    let mut seen: HashSet<(i32, i32)> = HashSet::from([(x, y)]);
+    let mut seen = PosSet::default();
+    seen.insert((x, y));
     let mut queue = VecDeque::from([(x, y)]);
     let mut truncated = false;
     while let Some((cx, cy)) = queue.pop_front() {
@@ -1366,7 +1376,8 @@ fn supported_subtree(world: &World, x: i32, y: i32, budget: &mut u32) -> (Vec<(i
 /// away whole rather than dissolving a cell at a time.
 fn detached_piece(world: &World, x: i32, y: i32, memo: &mut AnchorMemo, budget: &mut u32) -> Vec<(i32, i32)> {
     let mut out = Vec::new();
-    let mut seen: HashSet<(i32, i32)> = HashSet::from([(x, y)]);
+    let mut seen = PosSet::default();
+    seen.insert((x, y));
     let mut queue = VecDeque::from([(x, y)]);
     while let Some((cx, cy)) = queue.pop_front() {
         out.push((cx, cy));
@@ -2181,7 +2192,7 @@ pub fn failing_region(world: &World, x: i32, y: i32, cache: &mut Cache, budget: 
     // runs once something has already been judged to fail, and every walk
     // after the first is close to free because `Cache::subtrees` already
     // holds it.
-    let mut region: HashSet<(i32, i32)> = HashSet::new();
+    let mut region = PosSet::default();
     for (cx, cy) in section_cells(world, x, y, support_parent(world, x, y)) {
         let (sub, _) = supported_subtree(world, cx, cy, budget);
         region.extend(sub);
@@ -2336,6 +2347,7 @@ pub enum ChainVerdict {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashMap;
     use crate::sim::cell::Cell;
     use crate::sim::chunk::Rect;
     use crate::sim::material;
@@ -3011,7 +3023,7 @@ mod tests {
         assert!(rests_on_ground(&w, 21, 60), "...for both cells, or the test proves nothing");
 
         let mut kids = Vec::new();
-        dependants(&w, 20, 60, &mut GroundMemo::new(), &mut kids);
+        dependants(&w, 20, 60, &mut GroundMemo::default(), &mut kids);
         assert!(
             !kids.contains(&(21, 60)),
             "a cell the ground holds up leans on nobody; collecting it chains a hillside \
@@ -3033,7 +3045,7 @@ mod tests {
         bare.set(21, 60, Cell::new(material::STONE, 0).with_aux(24));
         assert!(!rests_on_ground(&bare, 21, 60), "nothing under it: this is the hanging arm");
         let mut kids = Vec::new();
-        dependants(&bare, 20, 60, &mut GroundMemo::new(), &mut kids);
+        dependants(&bare, 20, 60, &mut GroundMemo::default(), &mut kids);
         assert!(
             kids.contains(&(21, 60)),
             "a cell with nothing under it really does lean on its neighbour, and must still be collected"
@@ -3500,7 +3512,7 @@ mod tests {
         assert!(rests_on_ground(&propped, 14, 30), "the scene must contain the situation being tested");
 
         let mut kids = Vec::new();
-        dependants(&propped, 13, 30, &mut GroundMemo::new(), &mut kids);
+        dependants(&propped, 13, 30, &mut GroundMemo::default(), &mut kids);
         assert!(
             !kids.contains(&(14, 30)),
             "a tip standing on a pile that reaches the floor is held by the pile, not by the beam"
@@ -3510,7 +3522,7 @@ mod tests {
         // ordinary cantilever end the beam must still carry.
         let bare = beam(14);
         let mut kids = Vec::new();
-        dependants(&bare, 13, 30, &mut GroundMemo::new(), &mut kids);
+        dependants(&bare, 13, 30, &mut GroundMemo::default(), &mut kids);
         assert!(kids.contains(&(14, 30)), "with nothing under it the tip is the beam's to carry");
     }
 

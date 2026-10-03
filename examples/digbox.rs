@@ -3565,7 +3565,14 @@ fn trace(world: &World) {
     }
 }
 
+// Runs on the rayon pool so each tick's parallel passes dispatch without a
+// cross-thread wake: ~16% of a lab run, byte-identical output. See
+// `pixel_physics::sim::parallel::on_pool`.
 fn main() {
+    pixel_physics::sim::parallel::harness_main(harness);
+}
+
+fn harness() {
     let ants: i32 = arg("ants").unwrap_or(40);
     let soil: i32 = arg("soil").unwrap_or(60);
     let sky: i32 = arg("sky").unwrap_or(24);
