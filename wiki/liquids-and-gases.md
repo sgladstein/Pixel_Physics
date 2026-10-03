@@ -1,6 +1,8 @@
 # Liquids & Gases
 
-*Current as of: 2026-09-11 (water on a low plant soaks into the ground
+*Current as of: 2026-10-03 (water sinks through a floor of light powder --
+food crumbs, litter, seeds -- instead of standing on it, see
+[Powders](powders.md)). Before that, 2026-09-11 (water on a low plant soaks into the ground
 under it, not just off a branch into open air; a wet roof over a dug tunnel
 drips into it; and wet ground can be told to even itself out sideways).
 Before that, 2026-09-07
@@ -91,7 +93,9 @@ fallen any distance does not.
 
 - **Water** settles quickly and cleanly into a flat pool, and left in the
   open it slowly dries up — see [Weather](weather.md) for why a puddle goes
-  and a lake stays.
+  and a lake stays. Anything lighter than it that does not soak it up —
+  crumbs, litter, seeds, snow — floats up through it, so a pool on a floor
+  of them drains away into the ground beneath.
 - **Oil** is lighter than water, so poured together the oil rises and
   floats on top rather than mixing in. It's also noticeably thicker —
   it spreads more slowly and sluggishly than water does. Oil catches fire
