@@ -120,7 +120,9 @@ will be.
   2026-10-03 for the door rules (`food_door_of`, `door_clear_of`,
   `in_doorway`, `food_drop_site`, `door_reopen_of`, `door_cue_weight`, the
   heap cue's call in `act`), and §15's `free8` against
-  `note_drop_surroundings`.
+  `note_drop_surroundings`. §1, §4 and §9 on 2026-10-03 for the `Lay`
+  output (`BrainOutput::Lay`, `LAY_HOLD_BELOW`, `try_bud`, `lays_declined`)
+  and the header's `mutation_rate`.
   Update this line whenever a section is re-checked against the code.
 - **Edit it in place. Never append history.** When you change a mechanism
   described here, update the section in the same commit. When you find this
@@ -135,7 +137,7 @@ will be.
   a day in `creature.rs`.
 - **The weights below are the founder genome as authored.** Every ant carries
   its own copy of the genome, and descendants drift from it by mutation
-  (`mutation_rate: 0.0033758` per slot per birth). An evolved colony can
+  (`mutation_rate: 0.0032350` per slot per birth). An evolved colony can
   differ from this page, and a measurement that matters should read the
   genome it ran. §2, §5, §9 and §12 on 2026-09-30 for the default flip: stacking at 4 (`SHIPPED_STACK_CAP`, `parse_stack_depth`), the walked cycle (`parse_spoil_out`, `ring_gate`) and births on nestmates (`parse_bud_stack`).
 
@@ -164,7 +166,7 @@ can end the tick early.
 8. **Memory upkeep.** `phero_a_mem`, `since_nest += 1`, `still_ticks` (reset
    by a move, otherwise incremented).
 9. **Digest** the crop (§9), apply the energy change, starve if energy ≤ 0,
-   bud if eligible (`try_bud`).
+   bud if eligible and the brain's `Lay` does not hold it (`try_bud`).
 
 **How often.** `organism_tick_interval` is `tick_interval: 6`, scaled by the
 ant's expressed `TRAIT_PACE` and by its body's leg fraction. A founder decides
@@ -241,7 +243,7 @@ lineage can evolve eyes.
 ## 4. The brain
 
 `brain::eval_brain`: one hidden layer of 8 units, each with optional
-self-recurrence, and 16 outputs. `squash(x) = x / (1 + |x|)`.
+self-recurrence, and 17 outputs. `squash(x) = x / (1 + |x|)`.
 
 ```
 hidden_h = squash(rec_h * hidden_h(previous tick) + Σ w * input)
@@ -278,6 +280,7 @@ squash(0.5 − 6a))` for a forward difference `a`. That is ±1.5 at a = ±0.1,
 | `Share` | `Energy +2.5, KinNeed +1.9, Bias −2.5` | §5 |
 | `Attack` | `Alarm +2.0` | §5 |
 | `Impulse`, `Provision`, `Fly` | none (0): no hops, no birth provisioning, no flight | — |
+| `Lay` | none (0), and 0 never holds a birth: the hold is below −0.1 | §9 |
 
 **`P(move)` in common states**, founder genome, no trail reading, not still,
 nothing adjacent:
@@ -967,7 +970,13 @@ either plane: the other trail inputs are computed and wired to nothing (§3).
   - per dig: 6 × a step;
   - per laying tick: 0.0625 × a step × (emit A + emit B).
 - **Death:** starved at energy ≤ 0; old age by half-life. **Budding:**
-  `try_bud` above `reproduce_threshold: 1100`, wherever the ant stands.
+  `try_bud` above `reproduce_threshold: 1100`, wherever the ant stands,
+  **unless its brain holds the birth**: on a tick the ant could afford a
+  child, `BrainOutput::Lay` below −0.1 (`brain::LAY_HOLD_BELOW`) holds it,
+  before any rule about where, and `CreatureStats::lays_declined` counts
+  those ticks. The founder wires nothing into `Lay`, so it reads exactly 0
+  and never holds; a lineage that evolves weights there decides when and
+  where it breeds.
   The bar counts the food in the eight cells around the head as well as the
   bank (`reachable_provision`), and a birth the bank cannot cover eats that
   food to make up the difference (`place_creature`'s `Origin::Bud` arm),

@@ -51,7 +51,10 @@
       "Bash(git rev-list*)",
       "Bash(git rev-parse*)",
       "Bash(git check-ignore*)",
-      "Bash(git worktree list*)"
+      "Bash(git worktree list*)",
+      "Bash(git merge*)",
+      "Bash(git rebase*)",
+      "Bash(git push*)"
     ],
     "deny": [
       "Bash(git add -A*)",
@@ -62,7 +65,6 @@
       "Bash(git push --force*)",
       "Bash(git push -f*)",
       "Bash(git reset --hard*)",
-      "Bash(git rebase*)",
       "Bash(git commit --amend*)"
     ]
   }
