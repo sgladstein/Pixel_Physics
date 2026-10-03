@@ -7005,6 +7005,21 @@ forces one full redraw. `labshot cutaway=on` renders it headlessly. Guard:
 `the_nest_cutaway_paints_each_underground_class_on_its_ramp`, which goes red on
 the open shaft when the roof check is forced true.
 
+**What the colony is doing, on the BIOSPHERE page (2026-10-03).** The fill
+under the ANIMALS line is the colony's ants stacked by activity, from the floor
+up: out with nothing in the crop (slate), out with food in it or carrying a
+storeroom load (green), holding dug soil (brown), and touching the nest (violet,
+on top, against the line). A key row underneath gives each count now. "Home" is
+`creature::is_at_home`, a read-only wrapper over the `AtNest` input's own test,
+so the chart and the ant agree on where home is. Lone hunters and nestless
+animals are left out, so the bands stop short of the line by their number.
+`Census::activity` and `Sample::activity` carry the split, and `labstats` prints
+it. It shares the animals strip because the page was already exactly as tall as
+the room above the bar; the three section gaps went from 5 px to 2 px to fit the
+key. Default bed, seed 1, home/out/food/soil: 3/16/19/0 at frame 6,000 and
+6/9/10/4 at 30,000. Guard:
+`the_activity_split_counts_each_colony_ant_once_and_follows_its_load`.
+
 ## Lab parameters status — a save that reaches the founders, not just the file
 
 **Round three's finding, closed: *"There is no save — a parameter he changes

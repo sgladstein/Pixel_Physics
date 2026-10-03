@@ -13151,6 +13151,19 @@ pub(super) fn home_at(world: &World, x: i32, y: i32, def: &CreatureDef) -> bool 
     adjacent_nest(world, x, y, def)
 }
 
+/// **Is this animal at home, as it would sense it** -- the `AtNest` input's
+/// own test ([`nest_within_reach`] at the head), read-only, for readouts
+/// outside `sim` (the lab's activity strip, `src/lab/stats.rs`). One
+/// definition, so a chart that says "at home" means what the ant's brain
+/// means by it. `None` for anything that is not a creature with a nest.
+pub fn is_at_home(world: &World, organism: OrganismId) -> Option<bool> {
+    let state = world.organism(organism)?;
+    let def = world.species.get(state.species).creature.as_ref()?;
+    world.materials.id_of(&def.nest)?;
+    let &(x, y) = state.chain.first()?;
+    Some(nest_within_reach(world, organism, x, y, def))
+}
+
 fn adjacent_nest(world: &World, x: i32, y: i32, def: &CreatureDef) -> bool {
     // **The `nest` field is read as a flag in both branches, never only as a
     // material.** A species that authors no nest has no home under either
