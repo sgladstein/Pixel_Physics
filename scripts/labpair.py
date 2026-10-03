@@ -27,6 +27,12 @@ harm. It is printed in its own block with the peak and the crash frame.
 picked up from outside with no debit and delivered again. Raw `deliveries` is
 worse still: 86% of the default's are food picked up at home and put back.
 
+**Nest and laying** (2026-10-03, context, not gated): the `BENCH` line
+(`src/lab/bench.rs`) -- eggs at home vs away, animals underground, deepest
+fall from the running peak, colonies lost. Printed only when both arms carry
+it, with the eggs-seen/eggs-laid coverage beside it. `scripts/labbench.py`
+launches both arms and calls this.
+
 A parse is a measurement. Logs are keyed on (arm, seed); a file counts for an
 arm only if it is named exactly `<arm>-<digits>.log` (so `sl-ret-1.log` never
 lands in arm `sl` and overwrites seed 1), and the seed in the name must agree
@@ -51,10 +57,13 @@ HEADER_KV = re.compile(rb'(\w+) ?= ?([^\s;]+)')
 
 def read_log(path):
     """One log -> dict, or a dict with 'summary': None if the run never finished."""
-    hdr, rows, summary, in_header = {}, [], None, True
+    hdr, rows, summary, in_header, bench = {}, [], None, True, None
     with open(path, 'rb') as fh:
         for line in fh:
             if line.startswith(b'frame'):          # per-tick trace: the bulk of the file
+                continue
+            if line.startswith(b'BENCH '):            # lab::bench's tally (older logs lack it)
+                bench = line.decode(errors='replace').strip()
                 continue
             if line.startswith(b'SUMMARY seed='):
                 if summary is None:
@@ -74,6 +83,10 @@ def read_log(path):
     if summary is None:
         return out
     row = {k: float(v) for k, v in re.findall(r' (\w+)=(-?[\d.]+)(?= |$)', summary)}
+    # BENCH keys are prefixed so none can shadow a SUMMARY key of the same name
+    # (both lines carry a `peak`-like figure, measured differently).
+    if bench:
+        row.update({'b_' + k: float(v) for k, v in re.findall(r' (\w+)=(-?[\d.]+)(?= |$)', bench)})
     dm = re.search(r'deaths_by=ant\[([^\]]*)\]', summary) or re.search(r'deaths_by=\S*?\[([^\]]*)\]', summary)
     deaths = {k: float(v) for k, v in re.findall(r'([A-Z_]+):(\d+)', dm.group(1))} if dm else {}
     sample = int(hdr.get('sample', 900))
@@ -172,6 +185,20 @@ GATE = [  # key, label, which way is harm (None: context, not gated)
     ('starve_rate', 'starved per million ant-frames', 'higher'),
     ('starved', '  starved, raw (scales with ant-frames)', None),
 ]
+# `BENCH` (`src/lab/bench.rs`): the nest and laying readout the laying and nest
+# lanes each used to collect their own way. Context, not gated -- what it
+# moves is what those lanes are trying to move, so it reads the change rather
+# than judging it.
+NEST_BLOCK = [
+    ('b_eggs_seen', 'eggs seen (coverage check vs laid)'),
+    ('b_eggs_home_pct', 'eggs laid at home, % of seen'),
+    ('b_eggs_within8', 'eggs within 8 cols of a nest'),
+    ('b_eggs_beyond32', 'eggs over 32 cols from a nest'),
+    ('b_under_pct', 'animals underground, % (time avg)'),
+    ('b_under_now', 'animals underground at the end'),
+    ('b_worst_fall_pct', 'deepest fall from running peak, %'),
+    ('b_halvings', 'times halved from running peak'),
+]
 NOT_GATED = [
     ('net_home', 'net food into home (OVERCOUNT, s22j)'),
     ('deliveries', 'deliveries, raw'),
@@ -248,6 +275,28 @@ def compare(ra, rb, base, new):
     L.append(f"  {'fell below a quarter of peak (boxes)':40} {cr[0][0]:>11} -> {cr[1][0]:>11}   "
              f"median frame {fmt_frame(cr[0][1])} -> {fmt_frame(cr[1][1])}; at/after 100,000: {cr[0][2]} -> {cr[1][2]}")
 
+    bench_seeds = [x for x in seeds if 'b_eggs_seen' in A[x] and 'b_eggs_seen' in B[x]]
+    missing = [arm for arm, D in ((base, A), (new, B)) if seeds and not any('b_eggs_seen' in D[x] for x in seeds)]
+    if missing and len(missing) < 2:
+        L.append("")
+        L.append(f"NEST AND LAYING -- not shown: no BENCH line in {missing[0]}'s logs (a build before src/lab/bench.rs)")
+    if bench_seeds:
+        L.append("")
+        L.append(f"NEST AND LAYING -- context, not gated (BENCH line, src/lab/bench.rs){'' if len(bench_seeds) == len(seeds) else f' [n={len(bench_seeds)}]'}")
+        cov = [(A[x]['b_eggs_seen'], A[x].get('b_eggs_laid', 0)) for x in bench_seeds] + \
+              [(B[x]['b_eggs_seen'], B[x].get('b_eggs_laid', 0)) for x in bench_seeds]
+        seen, laid = sum(c[0] for c in cov), sum(c[1] for c in cov)
+        L.append(f"  eggs seen / laid, both arms pooled: {seen:,.0f} / {laid:,.0f}"
+                 + ("" if not laid or seen >= 0.95 * laid else "  LOW COVERAGE: the at-home share is of a biased sample"))
+        for k, label in NEST_BLOCK:
+            _, x, y, up, dn = paired(A, B, bench_seeds, k)
+            res[k] = (up, dn)
+            L.append(f"  {label:40} {fmt(med(x)):>11} -> {fmt(med(y)):>11}   {up:>2}/{dn:<2}  p {sign_p(up, dn):.3f}")
+        lost = tuple(sum(D[x].get('b_colonies_lost', 0) for x in bench_seeds) for D in (A, B))
+        ever = tuple(sum(D[x].get('b_colonies_ever', 0) for x in bench_seeds) for D in (A, B))
+        res['colonies_lost'] = lost
+        L.append(f"  {'colonies lost (held >=3, now none)':40} {lost[0]:>11.0f} -> {lost[1]:>11.0f}   of {ever[0]:.0f} -> {ever[1]:.0f} colonies")
+
     L.append("")
     L.append("NOT GATED -- kept for the record. Net food into home overcounts 3.4-4.6x "
              "(Reports/ant-scenes-2026-09-23.md s22j); raw deliveries are mostly home->home")
@@ -261,7 +310,7 @@ def compare(ra, rb, base, new):
 def selftest():
     d = tempfile.mkdtemp()
 
-    def log(fname, seed, dl, pk, born, alive, starved, ants, summary=True):
+    def log(fname, seed, dl, pk, born, alive, starved, ants, summary=True, bench=None):
         with open(os.path.join(d, fname), 'w') as fh:
             fh.write(f"labforage: frames={900 * len(ants)} sample=900 seed={seed} scenario=played_bed (x)\n")
             fh.write("  ant crop_capacity = 5760 face J; FORAGE_DRIVE=unset (ForageDrive { need: Always })\n")
@@ -270,14 +319,17 @@ def selftest():
                 fh.write(f"frame {i * 900} ant 3 pos 12 40 state forage\n")      # trace: never a row
                 fh.write(f"  {i * 900:>5} {a:>5}    18      18       2160     18\n")
             fh.write("       900:       5 /     171283\n")                    # histogram: never a row
+            if bench:
+                fh.write(f"BENCH eggs_laid=10 eggs_seen=10 eggs_home_pct={bench[0]} peak=999 halvings={bench[1]} "
+                         f"colonies_ever=1 colonies_lost={bench[2]}\n")
             if summary:
                 fh.write(f"SUMMARY seed={seed} deliveries={dl} pickups_at_nest={pk} intake=100 born={born} "
                          f"alive={alive} bgen=2 deaths_by=ant[STARVED:{starved}/OLD_AGE:1] moves=9\n")
     for s in (1, 2, 3):
         # base: 24 ants summed over the table -> 21,600 ant-frames; peak 12 at 1800, below 3 at 2700
-        log(f"base-{s}.log", s, 100, 90, 5, 5, 10, [0, 10, 12, 2])
+        log(f"base-{s}.log", s, 100, 90, 5, 5, 10, [0, 10, 12, 2], bench=(0, 1, 1))
         # new: more colony (108,000 ant-frames) starves more ants in total at a LOWER rate
-        log(f"new-{s}.log", s, 100, 70, 7, 5 if s < 3 else 0, 20, [0, 40, 40, 40])
+        log(f"new-{s}.log", s, 100, 70, 7, 5 if s < 3 else 0, 20, [0, 40, 40, 40], bench=(50, 0, 0))
     log("new-ret-1.log", 1, 100, 70, 1, 5, 20, [0, 40, 40, 40])   # another arm's log: must not overwrite new seed 1
     log("base-4.log", 4, 100, 90, 5, 5, 10, [0, 10])               # unpaired
     log("base-5.log", 5, 100, 90, 5, 5, 10, [0, 10])
@@ -306,6 +358,10 @@ def selftest():
         (res['crashed'] == (3, 0) and A[1]['crash_at'] == 2700, f"base boxes crash at 2700; read {res['crashed']}, {A[1]['crash_at']}"),
         (ig < ic < inh and ido > ic, f"order must be gate, crash timing, then net home; lines {ig}, {ic}, {inh}, died out {ido}"),
         ('none (the arms differ in the binary' in txt, "identical headers must say so"),
+        (res.get('b_eggs_home_pct') == (3, 0) and res.get('colonies_lost') == (3, 0) and res.get('b_halvings') == (0, 3),
+         f"BENCH: eggs at home up on 3, colonies lost 3 -> 0, halvings down on 3; read {res.get('b_eggs_home_pct')}, "
+         f"{res.get('colonies_lost')}, {res.get('b_halvings')}"),
+        (A[1]['peak'] == 12 and A[1].get('b_peak') == 999, f"BENCH's peak must not shadow the table's; read {A[1]['peak']}, {A[1].get('b_peak')}"),
         ('POOLS 2 DIFFERENT HEADER CONFIGS' in txt, "an arm holding two frame counts must say it pools two configs"),
     ]
     bad = [m for ok, m in checks if not ok]

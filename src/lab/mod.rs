@@ -35,6 +35,7 @@
 //! with one from the other.
 
 pub mod batch;
+pub mod bench;
 pub mod census;
 pub mod names;
 pub mod params;

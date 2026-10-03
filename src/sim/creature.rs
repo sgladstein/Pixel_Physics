@@ -17015,7 +17015,7 @@ const HOME_GAIN: f32 = 1.0;
 const PATIENCE_DECAY: f32 = 0.9;
 
 /// **This animal's factor on one of the walk's gains** -- a slot of
-/// `organism::WALK_SLOTS`, on the reciprocal axis (`ratio_factor`): `+1` is
+/// `organism::WALK_GAIN_SLOTS`, on the reciprocal axis (`ratio_factor`): `+1` is
 /// twice the shipped constant, `-1` half it, and `0` exactly `1.0`, so an
 /// ant at the ancestral allele walks bit-for-bit as before the slot existed
 /// (`walk_genes_at_zero_are_exactly_the_constants`).
@@ -18370,13 +18370,35 @@ fn update_hungry_home(world: &mut World, organism: OrganismId, def: &CreatureDef
 /// reach for a two-cell ant), saturated as `x / (1 + x)` over `TRAIL_HALF`.
 /// Trail B for an ant carrying no food, trail A for one that is (plan §4d:
 /// the laden ant reads the nest's trail, never its own).
-fn trail_presence(world: &World, head: (i32, i32), d: u8, laden: bool) -> f32 {
-    let channel = if laden { Channel::A } else { Channel::B };
-    let (dx, dy) = DIRS[d as usize];
-    let near = world.pheromone_at(channel, head.0 + dx, head.1 + dy);
-    let far = world.pheromone_at(channel, head.0 + 2 * dx, head.1 + 2 * dy);
-    let x = f32::from(near.max(far)) / TRAIL_HALF;
-    x / (1.0 + x)
+fn trail_presence(world: &World, head: (i32, i32), d: u8, planes: [f32; 2]) -> f32 {
+    // **Which plane is a route is the ant's own** (`organism::TRAIL_PLANE_
+    // SLOTS`): each plane's saturated presence, weighted by the inherited
+    // weight for this ant's state, summed and floored at 0. A zero weight
+    // reads nothing, so the ancestral ant (weights 1 and 0) samples exactly
+    // the one plane the hard-coded choice did, and `1 * p` is `p` to the bit.
+    let mut sum = 0.0;
+    for (channel, w) in [(Channel::A, planes[0]), (Channel::B, planes[1])] {
+        if w == 0.0 {
+            continue;
+        }
+        let (dx, dy) = DIRS[d as usize];
+        let near = world.pheromone_at(channel, head.0 + dx, head.1 + dy);
+        let far = world.pheromone_at(channel, head.0 + 2 * dx, head.1 + 2 * dy);
+        let x = f32::from(near.max(far)) / TRAIL_HALF;
+        sum += w * (x / (1.0 + x));
+    }
+    sum.max(0.0)
+}
+
+/// **The weights this ant reads trail A and trail B with**, for its state:
+/// laden or empty, base plus its own allele (`organism::TRAIT_LADEN_A`). The
+/// bases are the old hard-coded choice -- laden follows A, empty follows B.
+fn trail_planes(traits: &[f32; CREATURE_TRAITS], laden: bool) -> [f32; 2] {
+    if laden {
+        [1.0 + traits[organism::TRAIT_LADEN_A], traits[organism::TRAIT_LADEN_B]]
+    } else {
+        [traits[organism::TRAIT_EMPTY_A], 1.0 + traits[organism::TRAIT_EMPTY_B]]
+    }
 }
 
 /// **`PIXEL_PHYSICS_NEST_LEASH=deep`: a fed nest worker that strays is pulled
@@ -18714,7 +18736,7 @@ fn chooser_step(
     let turn = outputs[brain::BrainOutput::Turn as usize];
     let k = CHOICE_EXPLORATION_K * brain::unit_scale(outputs[brain::BrainOutput::Tumble as usize], 2.0);
     // **The walk's gains, as this ant inherited them** (`organism::
-    // WALK_SLOTS`): each a factor of exactly 1.0 at the ancestral allele.
+    // WALK_GAIN_SLOTS`): each a factor of exactly 1.0 at the ancestral allele.
     let walk = traits_of(world, organism, def);
     let home_gain = HOME_GAIN * walk_gain(&walk, organism::TRAIT_HOME_PULL);
     let trail_gain = TRAIL_GAIN * walk_gain(&walk, organism::TRAIT_TRAIL_HOLD);
@@ -18817,7 +18839,8 @@ fn chooser_step(
             0.0
         }
     };
-    let route = |d: u8| if reads_trail { trail_presence(world, (hx, hy), d, laden) } else { 0.0 };
+    let planes = trail_planes(&walk, laden);
+    let route = |d: u8| if reads_trail { trail_presence(world, (hx, hy), d, planes) } else { 0.0 };
     // **Stage 3, the give-up lets go** (`FoodTrail::giveup`,
     // `Reports/ant-scenes-2026-09-23.md` §23d): a scout that has given up is
     // no longer held by the trail it gave up on. The away term is 0, the pull
@@ -23487,14 +23510,30 @@ mod tests {
     /// bit** -- the whole of why adding them moved no bed. And the positive
     /// control: one step off 0 moves every one of them, so a gene that reads
     /// the wrong slot or none fails here rather than drifting silently.
+    /// **At allele 0 the ant follows exactly the plane the code used to
+    /// pick** -- laden A, empty B, the other plane at weight 0 and so never
+    /// read -- and each plane gene moves only its own weight.
+    #[test]
+    fn trail_plane_genes_at_zero_are_the_old_choice() {
+        let zero = [0.0f32; CREATURE_TRAITS];
+        assert_eq!(trail_planes(&zero, true), [1.0, 0.0]);
+        assert_eq!(trail_planes(&zero, false), [0.0, 1.0]);
+        let mut t = zero;
+        t[organism::TRAIT_EMPTY_A] = 0.5;
+        assert_eq!(trail_planes(&t, false), [0.5, 1.0], "an empty ant can come to read trail A");
+        assert_eq!(trail_planes(&t, true), [1.0, 0.0], "and the laden weights do not move with it");
+        t[organism::TRAIT_LADEN_A] = -1.0;
+        assert_eq!(trail_planes(&t, true), [0.0, 0.0], "a laden ant can stop reading A altogether");
+    }
+
     #[test]
     fn walk_genes_at_zero_are_exactly_the_constants() {
         let zero = [0.0f32; CREATURE_TRAITS];
-        for slot in organism::WALK_SLOTS {
+        for slot in organism::WALK_GAIN_SLOTS {
             assert_eq!(walk_gain(&zero, slot).to_bits(), 1.0f32.to_bits(), "walk gene {slot} at 0 is not exactly 1.0");
         }
         assert_eq!(patience_decay_of(&zero).to_bits(), PATIENCE_DECAY.to_bits(), "patience at allele 0 is not PATIENCE_DECAY to the bit");
-        for slot in organism::WALK_SLOTS {
+        for slot in organism::WALK_GAIN_SLOTS {
             let mut up = zero;
             up[slot] = 1.0;
             let mut down = zero;
@@ -23506,7 +23545,7 @@ mod tests {
                 assert_eq!(walk_gain(&up, slot), 2.0, "walk gene {slot} at +1 is twice the constant");
                 assert_eq!(walk_gain(&down, slot), 0.5, "walk gene {slot} at -1 is half the constant");
             }
-            for other in organism::WALK_SLOTS.into_iter().filter(|&o| o != slot && o != organism::TRAIT_PATIENCE) {
+            for other in organism::WALK_GAIN_SLOTS.into_iter().filter(|&o| o != slot && o != organism::TRAIT_PATIENCE) {
                 assert_eq!(walk_gain(&up, other), 1.0, "moving gene {slot} moved gene {other}");
             }
         }
