@@ -4031,7 +4031,7 @@ fn bear_seed_at(world: &mut World, sx: i32, sy: i32, parent_id: OrganismId, seed
         let parent_defence = world.organism(parent_id).map_or(0.0, |s| s.defence);
         let mut drng =
             rng::stream(world_seed ^ APPENDED_JITTER_SALT, sx as u64, sy as u64, (generation as u64) << 8 | DEFENCE_MUTATION_STREAM);
-        let defence = organism::mutate_defence(parent_defence, genotype_jitter(&mut drng, sigma * organism::defence_step()));
+        let defence = organism::mutate_defence(parent_defence, genotype_jitter(&mut drng, sigma));
         if let Some(state) = world.organism_mut(child) {
             state.defence = defence;
         }
