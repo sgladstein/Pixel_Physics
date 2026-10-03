@@ -4823,6 +4823,9 @@ pub struct HomeRing {
     pub egg_room: u32,
     pub lay_bar: f32,
     pub suppressed_bar: f32,
+    /// Whether the brood pile would take an egg from here
+    /// ([`super::brood::pile_site`] at the live reach).
+    pub pile: bool,
 }
 
 pub fn home_ring(world: &World, organism: OrganismId, radius: i32) -> Option<HomeRing> {
@@ -4832,7 +4835,7 @@ pub fn home_ring(world: &World, organism: OrganismId, radius: i32) -> Option<Hom
     let (hx, hy) = *state.chain.first()?;
     let kind = |c: Cell| world.materials.get(c.material).kind;
     let other_animal = |c: Cell| kind(c) == MaterialKind::Creature && c.organism_id() != organism;
-    let mut ring = HomeRing { home_d: -1, home_free: 0, home_ants: 0, near_free: 0, near_ants: 0, nbr_ants: 0, egg_room: 0, lay_bar: 0.0, suppressed_bar: 0.0 };
+    let mut ring = HomeRing { home_d: -1, home_free: 0, home_ants: 0, near_free: 0, near_ants: 0, nbr_ants: 0, egg_room: 0, lay_bar: 0.0, suppressed_bar: 0.0, pile: false };
     let mut cells: Vec<(i32, bool)> = Vec::new();
     for dy in -radius..=radius {
         for dx in -radius..=radius {
@@ -4869,6 +4872,8 @@ pub fn home_ring(world: &World, organism: OrganismId, radius: i32) -> Option<Hom
     let cost = birth_cost_of(def, birth_grant(def, &state.traits));
     ring.lay_bar = birth_bar(threshold, cost, def, super::brood::brood_of(world, def).as_ref());
     ring.suppressed_bar = suppress_bar(breeding_regime(), breeding_radius(), world, organism, state.colony, (hx, hy), ring.lay_bar).0;
+    let reach = super::brood::egg_pile_reach();
+    ring.pile = reach > 0 && super::brood::brood_of(world, def).is_some_and(|b| super::brood::pile_site(world, (hx, hy), def, &b, reach).is_some());
     Some(ring)
 }
 
@@ -5032,7 +5037,27 @@ pub(super) fn try_bud(world: &mut World, organism: OrganismId, def: &CreatureDef
     // cut is home only to nest workers, so this check held every forager's
     // store birth (seed 3 of the food box: 472 held ticks to 35 births by
     // frame 24,000, `Reports/nest-one-entrance-2026-09-29.md` §23).
-    if !from_store && bud_at_nest(world) && world.materials.id_of(&def.nest).is_some() && !nest_within_reach(world, organism, hx, hy, def) {
+    //
+    // **An egg is held to the nest by where the egg would land, not where
+    // the layer stands** ([`super::brood::pile_site`], `PIXEL_PHYSICS_EGG_PILE`):
+    // an ant within a few steps of an empty home cell, through its crowding
+    // nestmates, lays onto the brood pile there. Traced 2026-10-03 on the lab
+    // box: the head-only read found the few home cells held by other ants
+    // and no empty cell beside any ant that did stand at home (0 of 308
+    // samples), so nothing laid. Budding and a reach of 0 keep the head read.
+    let nest_gate = !from_store && bud_at_nest(world) && world.materials.id_of(&def.nest).is_some();
+    let pile_reach = if laying.is_some() { super::brood::egg_pile_reach() } else { 0 };
+    let pile = match laying.as_ref().filter(|_| nest_gate && pile_reach > 0) {
+        Some(brood) => match super::brood::pile_site(world, (hx, hy), def, brood, pile_reach) {
+            Some(cell) => Some(cell),
+            None => {
+                world.creature_stats.buds_held_for_nest += 1;
+                return None;
+            }
+        },
+        None => None,
+    };
+    if nest_gate && pile_reach == 0 && !nest_within_reach(world, organism, hx, hy, def) {
         world.creature_stats.buds_held_for_nest += 1;
         return None;
     }
@@ -5159,6 +5184,7 @@ pub(super) fn try_bud(world: &mut World, organism: OrganismId, def: &CreatureDef
                 made: provision.clamp(-1.0, 1.0),
                 fates: child_fates,
             },
+            pile,
         );
     } else {
     // **Two passes, and the second is a switch** ([`bud_stack_of`]): free
@@ -12799,6 +12825,13 @@ fn nest_reach_radius() -> i32 {
     })
 }
 
+/// **Is `(x, y)` a cell at home** -- [`adjacent_nest`], read-only, for the
+/// brood pile (`brood::pile_site`), which must agree with every other
+/// reader about where home is rather than carry its own definition.
+pub(super) fn home_at(world: &World, x: i32, y: i32, def: &CreatureDef) -> bool {
+    adjacent_nest(world, x, y, def)
+}
+
 fn adjacent_nest(world: &World, x: i32, y: i32, def: &CreatureDef) -> bool {
     // **The `nest` field is read as a flag in both branches, never only as a
     // material.** A species that authors no nest has no home under either
@@ -15395,14 +15428,13 @@ enum BreedingRegime {
 }
 
 /// **The ablation switch the evolution lab's generations-per-session
-/// measurement needs**: which regime governs who may bud, `individual` by
-/// default -- every animal buds on its own account, exactly as it does
-/// today.
+/// measurement needs**: which regime governs who may bud, **`graded` by
+/// default since 2026-10-02** (the match below); `individual` is every
+/// animal budding on its own account, the rule before.
 ///
 /// `PIXEL_PHYSICS_BREEDING` selects it:
-/// - `individual` (default, and anything unset or unrecognised): no
-///   suppression. `suppress_bar` returns the unsuppressed `bar` before it
-///   scans anything, so this arm is provably today's code.
+/// - `individual`: no suppression. `suppress_bar` returns the unsuppressed
+///   `bar` before it scans anything, so this arm is provably the old code.
 /// - `queen`: **colony-wide, not distance-based.** While any *other*
 ///   living animal in the same colony has `children > 0` -- has itself
 ///   already budded -- nobody else in that colony can bud at all. One
@@ -15416,10 +15448,11 @@ enum BreedingRegime {
 ///   apart: territorial spacing, not queen-only breeding, and a number
 ///   that is arithmetically correct while answering a different question
 ///   (`CLAUDE.md`'s "ask what your number counts when nothing is wrong").
-/// - `graded`: the bar to bud is scaled by distance to the nearest *other*
-///   living breeder (`children > 0`) in the colony, from a maximum at
-///   distance 0 down to exactly `1.0` (no suppression) at
-///   `PIXEL_PHYSICS_BREEDING_RADIUS` cells and beyond.
+/// - `graded` (default, and anything unset or unrecognised): the bar to bud
+///   is scaled by distance to the nearest *other* living breeder
+///   (`children > 0`) in the colony, from a maximum at distance 0 down to
+///   exactly `1.0` (no suppression) at `PIXEL_PHYSICS_BREEDING_RADIUS` cells
+///   and beyond.
 ///
 /// **A breeder is `children > 0`, full stop -- not a founder's generation
 /// too.** A colony is founded with every member at generation 0, so a

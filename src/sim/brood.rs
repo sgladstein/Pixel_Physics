@@ -149,6 +149,96 @@ fn lay_at_env() -> Option<f32> {
 /// of food beside it. One dispatch per larva per this many frames is the
 /// whole cost of brood to the frame; an egg or a pupa is one dispatch per
 /// stage.
+/// **How far an egg laid at the nest is carried to the brood pile**, in
+/// steps through the crowd ([`pile_site`]): `PIXEL_PHYSICS_EGG_PILE`, 4 when
+/// unset, `off` (or 0) for the egg beside the layer's head and "at the nest"
+/// read off the layer's head alone, the rule before 2026-10-03.
+pub fn egg_pile_reach() -> i32 {
+    static V: std::sync::OnceLock<i32> = std::sync::OnceLock::new();
+    *V.get_or_init(|| parse_egg_pile(&std::env::var("PIXEL_PHYSICS_EGG_PILE").unwrap_or_default()))
+}
+
+fn parse_egg_pile(raw: &str) -> i32 {
+    match raw.trim() {
+        "" | "on" => EGG_PILE_REACH,
+        "off" => 0,
+        v => v.parse().ok().filter(|r: &i32| *r >= 0).unwrap_or(EGG_PILE_REACH),
+    }
+}
+
+/// The shipped reach of [`egg_pile_reach`]. 4 is the reach the oracle that
+/// found the rule used (`laying-funnel-2026-10-03.md`): with the egg placed
+/// up to four cells out and "at the nest" read four cells out, eggs laid at
+/// the nest over four lab seeds went 49 -> 99 (graded suppression off in
+/// both arms).
+pub const EGG_PILE_REACH: i32 = 4;
+
+/// **Where an egg laid at the nest goes: onto the brood pile**, or `None`
+/// when there is nowhere at home to put one. Real ants keep their eggs in a
+/// pile in a brood chamber and carry them there
+/// (`Reports/ant-breeding-plan-2026-09-29.md`, the biology table, Franks &
+/// Deneubourg 1997 as cited there); the egg here is put down on the pile in
+/// the tick it is laid, rather than carried, which brood carry (B3b) would
+/// replace.
+///
+/// **Why.** Traced 2026-10-03 on the lab box (`labforage played_bed`, 30k
+/// frames, four seeds, main d4418bf2, `budtrace` with `creature::home_ring`):
+/// with laying only at the nest, an ant that could afford an egg and stood
+/// at the nest **never once** had an empty cell beside its head (0 of 308
+/// samples), because the nest is a packed mound of nestmates, crumbs and
+/// roots; and off the nest with home in view, the home cells nearest it were
+/// all held by other ants on 58-93% of samples. Both walls are the same
+/// fact -- the few cells that count as home are occupied -- so one rule
+/// answers both: the egg, not the layer, has to land at home.
+///
+/// **The rule.** A breadth-first walk of up to `reach` steps out from the
+/// head, through cells a body could pass -- empty, or another animal (the
+/// crowd the egg is handed through) -- to an **empty home cell**
+/// (`creature::home_at`, whatever the live home definition is). Among those,
+/// one touching brood already lying there wins (the pile), then the fewest
+/// steps; ties go to the walk's own `DIRS` order, so it is deterministic.
+/// Runs only on the rare tick an animal could otherwise already lay.
+pub(super) fn pile_site(world: &World, head: (i32, i32), def: &CreatureDef, brood: &BroodDef, reach: i32) -> Option<(i32, i32)> {
+    let material = world.materials.id_of(&brood.material)?;
+    let (hx, hy) = head;
+    let side = 2 * reach + 1;
+    let index = |x: i32, y: i32| ((y - hy + reach) * side + (x - hx + reach)) as usize;
+    let mut seen = vec![false; (side * side) as usize];
+    seen[index(hx, hy)] = true;
+    let mut frontier = vec![(hx, hy)];
+    let mut best: Option<((bool, i32), (i32, i32))> = None;
+    for depth in 1..=reach {
+        let mut next = Vec::new();
+        for &(x, y) in &frontier {
+            for (dx, dy) in creature::DIRS {
+                let (nx, ny) = (x + dx, y + dy);
+                if (nx - hx).abs() > reach || (ny - hy).abs() > reach || !world.in_bounds(nx, ny) || seen[index(nx, ny)] {
+                    continue;
+                }
+                seen[index(nx, ny)] = true;
+                let empty = world.is_empty(nx, ny);
+                if !empty && world.materials.get(world.get(nx, ny).material).kind != super::material::MaterialKind::Creature {
+                    continue;
+                }
+                next.push((nx, ny));
+                if empty && creature::home_at(world, nx, ny, def) {
+                    let on_pile = creature::DIRS.iter().any(|&(px, py)| world.get(nx + px, ny + py).material == material);
+                    let key = (!on_pile, depth);
+                    if best.is_none_or(|(k, _)| key < k) {
+                        best = Some((key, (nx, ny)));
+                    }
+                }
+            }
+        }
+        // A cell on the pile at this depth cannot be beaten further out.
+        if best.is_some_and(|((off_pile, _), _)| !off_pile) {
+            break;
+        }
+        frontier = next;
+    }
+    best.map(|(_, cell)| cell)
+}
+
 pub const LARVA_TICK: u64 = 60;
 /// Frames between attempts to hatch a pupa whose adult body does not fit.
 pub const HATCH_RETRY: u64 = 60;
@@ -178,16 +268,21 @@ pub struct Egg {
 /// caller counts that as a refused birth, as it does for a bud). The parent
 /// pays `egg_cost`; the bar it had to clear is the same as a bud's, so a
 /// laying ant keeps a reserve of roughly `reproduce_at - egg_cost`.
-pub(super) fn lay_egg(world: &mut World, parent: OrganismId, head: (i32, i32), def: &CreatureDef, brood: &BroodDef, egg: Egg) -> Option<ActiveSite> {
+pub(super) fn lay_egg(world: &mut World, parent: OrganismId, head: (i32, i32), def: &CreatureDef, brood: &BroodDef, egg: Egg, at: Option<(i32, i32)>) -> Option<ActiveSite> {
     let material = world.materials.id_of(&brood.material)?;
     let (hx, hy) = head;
     let ring = |r: i32| (-r..=r).flat_map(move |dy| (-r..=r).map(move |dx| (dx, dy))).filter(move |&(dx, dy)| dx.abs().max(dy.abs()) == r);
-    let (ex, ey) = creature::DIRS
-        .iter()
-        .copied()
-        .chain((2..=lay_reach()).flat_map(ring))
-        .map(|(dx, dy)| (hx + dx, hy + dy))
-        .find(|&(x, y)| world.is_empty(x, y))?;
+    // **On the brood pile when the caller found one** ([`pile_site`]), else
+    // the first empty cell beside the head.
+    let (ex, ey) = match at {
+        Some(cell) => cell,
+        None => creature::DIRS
+            .iter()
+            .copied()
+            .chain((2..=lay_reach()).flat_map(ring))
+            .map(|(dx, dy)| (hx + dx, hy + dy))
+            .find(|&(x, y)| world.is_empty(x, y))?,
+    };
     let child = world.push_organism(egg.species)?;
     // **Fixed at laying**: the adult this egg becomes costs what a bud of
     // this parent would have -- the authored body's stamp plus the grant the
@@ -710,5 +805,81 @@ mod tests {
         assert_eq!(w.creature_stats.brood_lost, 1);
         assert_eq!(w.deaths_by_cause.iter().sum::<u64>(), 0);
         assert!((gap(&w) - g0).abs() < 1e-2, "a lost egg moved the live identity by {}", gap(&w) - g0);
+    }
+
+    /// The `bed` with laying only at the nest, and nest material set into the
+    /// floor at `nest_x` -- the cells above it are home.
+    fn nest_bed(nest_x: i32) -> (World, OrganismId, CreatureDef, (i32, i32)) {
+        let (mut w, ant, def) = bed(true);
+        w.bud_at_nest = Some(true);
+        let nest = w.materials.id_of(&def.nest).expect("nest material");
+        w.set(nest_x, 101, Cell::new(nest, 0));
+        let head = w.organism(ant).expect("live").chain[0];
+        (w, ant, def, head)
+    }
+
+    /// **An ant a few steps from home lays onto it** (`pile_site`): the egg
+    /// lands on an empty home cell, where the head-only read would have held
+    /// the birth -- the lab's packed nest, where no ant at home ever had an
+    /// empty cell beside it (2026-10-03).
+    #[test]
+    fn an_ant_a_few_steps_from_home_lays_its_egg_at_home() {
+        let (mut w, ant, def, head) = nest_bed(104);
+        assert!(!creature::home_at(&w, head.0, head.1, &def), "test setup: the ant already stands at home");
+        let block = def.brood.clone().expect("brood");
+        assert!(pile_site(&w, head, &def, &block, 0).is_none(), "a reach of 0 must find nothing");
+        let site = creature::try_bud(&mut w, ant, &def, 0.0).expect("an ant four steps from home lays");
+        assert_eq!(w.creature_stats.eggs_laid, 1);
+        assert!(creature::home_at(&w, site.x, site.y, &def), "the egg landed off home at {:?}", (site.x, site.y));
+        assert!((site.x - head.0).abs().max((site.y - head.1).abs()) <= EGG_PILE_REACH);
+    }
+
+    /// **Home out of reach holds the egg**, and says so in the counter the
+    /// head-only rule used.
+    #[test]
+    fn home_out_of_reach_holds_the_egg() {
+        let (mut w, ant, def, _) = nest_bed(112);
+        assert!(creature::try_bud(&mut w, ant, &def, 0.0).is_none(), "laid with home eleven cells away");
+        assert_eq!(w.creature_stats.eggs_laid, 0);
+        assert_eq!(w.creature_stats.buds_held_for_nest, 1);
+    }
+
+    /// **The egg is handed through the crowd, never through rock**: a wall
+    /// between the ant and home, with no way round inside the reach, holds it.
+    #[test]
+    fn the_egg_is_not_put_through_a_wall() {
+        let (mut w, ant, def, head) = nest_bed(104);
+        for y in 90..=100 {
+            w.set(head.0 + 2, y, Cell::new(material::STONE, 0));
+        }
+        let block = def.brood.clone().expect("brood");
+        assert!(pile_site(&w, head, &def, &block, EGG_PILE_REACH).is_none(), "the walk went through stone");
+        assert!(creature::try_bud(&mut w, ant, &def, 0.0).is_none());
+    }
+
+    /// **Brood already at home draws the next egg to it** -- the pile -- even
+    /// when an empty home cell is nearer.
+    #[test]
+    fn a_new_egg_joins_the_brood_already_lying_at_home() {
+        let (mut w, _, def, head) = nest_bed(104);
+        let nest = w.materials.id_of(&def.nest).expect("nest");
+        w.set(head.0 + 2, 101, Cell::new(nest, 0));
+        let block = def.brood.clone().expect("brood");
+        let material = w.materials.id_of(&block.material).expect("brood material");
+        // A brood cell at the far end of home, on the floor.
+        w.set(head.0 + 5, 100, Cell::new(material, 0));
+        let cell = pile_site(&w, head, &def, &block, EGG_PILE_REACH).expect("home in reach");
+        assert!(creature::DIRS.iter().any(|&(dx, dy)| w.get(cell.0 + dx, cell.1 + dy).material == material), "the egg at {cell:?} is not on the pile");
+    }
+
+    /// `PIXEL_PHYSICS_EGG_PILE`'s value.
+    #[test]
+    fn egg_pile_parses_off_a_reach_and_garbage() {
+        assert_eq!(parse_egg_pile(""), EGG_PILE_REACH);
+        assert_eq!(parse_egg_pile("on"), EGG_PILE_REACH);
+        assert_eq!(parse_egg_pile("off"), 0);
+        assert_eq!(parse_egg_pile("6"), 6);
+        assert_eq!(parse_egg_pile("-2"), EGG_PILE_REACH);
+        assert_eq!(parse_egg_pile("wide"), EGG_PILE_REACH);
     }
 }

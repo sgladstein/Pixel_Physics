@@ -1328,7 +1328,7 @@ fn main() {
     let mut budtrace = arg::<String>("budtrace").map(|p| {
         use std::io::Write;
         let mut w = std::io::BufWriter::new(std::fs::File::create(&p).expect("create budtrace file"));
-        writeln!(w, "frame,id,x,y,bank,reachable,bar,at_nest,nest_d,crop,generation,children,child_lines,lay_bar,home_d,home_free,home_ants,near_free,near_ants,nbr_ants,supp_bar,egg_room").expect("write budtrace header");
+        writeln!(w, "frame,id,x,y,bank,reachable,bar,at_nest,nest_d,crop,generation,children,child_lines,lay_bar,home_d,home_free,home_ants,near_free,near_ants,nbr_ants,supp_bar,egg_room,pile").expect("write budtrace header");
         w
     });
     // **`lifetrace=FILE`: every animal, every `lifetrace_every=` frames
@@ -2115,7 +2115,7 @@ fn main() {
                     let h = pixel_physics::sim::creature::home_ring(&world, id, 12).expect("a nest species");
                     writeln!(
                         out,
-                        "{f},{id},{hx},{hy},{:.1},{:.1},{:.1},{},{nest_d},{crop:.1},{},{},{lines},{:.1},{},{},{},{},{},{},{:.1},{}",
+                        "{f},{id},{hx},{hy},{:.1},{:.1},{:.1},{},{nest_d},{crop:.1},{},{},{lines},{:.1},{},{},{},{},{},{},{:.1},{},{}",
                         r.bank,
                         r.reachable,
                         r.bar,
@@ -2130,7 +2130,8 @@ fn main() {
                         h.near_ants,
                         h.nbr_ants,
                         h.suppressed_bar,
-                        h.egg_room
+                        h.egg_room,
+                        u8::from(h.pile)
                     )
                     .expect("write budtrace");
                 }
