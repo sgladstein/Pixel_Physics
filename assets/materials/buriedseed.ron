@@ -1,0 +1,40 @@
+// A dormant seed with ground on top of it -- the seed bank. The same seed
+// as `seed.ron` in every physical respect, with one difference: **it is not
+// food** (`food_energy` 0), because a forager walking the surface does not
+// find a seed that has sunk into the soil. Owner's ruling 2026-10-03 on the
+// garden lane's card ("Make some fallen seed safe from ants so the garden
+// keeps a stock?" -- *Build it*): in every played-bed garden the colony ate
+// litter and seed faster than the plants replaced them, booming and then
+// starving on a bare bed. Real harvester ants are seed predators *and*
+// dispersers; the seeds they miss, buried ones above all, are what the
+// plants come back from (MacMahon et al. 2000).
+//
+// Only `plant.rs` writes it, and only over a species' own `seed_material`
+// (never `pip` or `windfall`): a seed whose cell above is ground becomes
+// this, and turns back into its species' seed the tick it is uncovered.
+// Germination does not read the material, so a buried seed sprouts on the
+// same light and water rule as any other -- it only stops being eaten.
+// Behind `PIXEL_PHYSICS_BURIED_SEED` (see `plant::buried_seed_enabled`).
+(
+    name: "buriedseed",
+    display: "Buried seed",
+    kind: Powder,
+    density: 0.6,
+    friction_angle: 55.0,
+    // `seed.ron`'s palette, one shade darker: soil-stained, and only ever
+    // seen in a cutaway.
+    colors: [
+        (108, 82, 44),
+        (122, 94, 52),
+        (94, 72, 38),
+        (134, 104, 60),
+    ],
+    falls_through_organisms: true,
+    flammability: 0.5,
+    burn_temperature: 500.0,
+    burn_duration: 30,
+    burns_into: "ash",
+    heat_conductivity: 0.15,
+    food_energy: 0.0,
+    penetration_resistance: 0.2,
+)

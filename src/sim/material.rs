@@ -2704,6 +2704,10 @@ const EMBEDDED: &[&str] = &[
     // brood -- egg, larva or pupa, the palette index being the stage
     // (`src/sim/brood.rs`). Addressed by name, never by number.
     include_str!("../../assets/materials/brood.ron"),
+    // Appended at the end, the only place a new material may go. A dormant
+    // seed with ground on top of it, which is not food (`buriedseed.ron`;
+    // written only by `plant.rs`). Addressed by name, never by number.
+    include_str!("../../assets/materials/buriedseed.ron"),
 ];
 
 /// Where the loader looks for material files, relative to the working directory.

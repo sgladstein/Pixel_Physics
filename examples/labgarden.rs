@@ -314,7 +314,7 @@ fn stop(
                 && s.cells.keys().all(|&(x, y)| {
                     matches!(
                         world.materials.get(world.get(x, y).material).name.as_str(),
-                        "seed" | "pip" | "windfall" | "reedseed"
+                        "seed" | "pip" | "windfall" | "reedseed" | "buriedseed"
                     )
                 });
             if seed_only {
@@ -380,7 +380,7 @@ fn stop(
             // the nest lane found filling the door.
             if matches!(
                 mname.as_str(),
-                "litter" | "deadleaf" | "crumbs" | "seed" | "pip" | "windfall"
+                "litter" | "deadleaf" | "crumbs" | "seed" | "pip" | "windfall" | "buriedseed"
             ) {
                 *loose.entry(mname.clone()).or_default() += 1;
                 if (x - nest_x).abs() < NEST_HALF {

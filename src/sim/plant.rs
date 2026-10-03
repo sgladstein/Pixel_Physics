@@ -364,6 +364,57 @@ fn excluded_column(x: i32) -> bool {
     plant_exclusion().is_some_and(|(a, b)| (a..=b).contains(&x))
 }
 
+/// **`PIXEL_PHYSICS_BURIED_SEED` -- a seed with ground on top of it is not
+/// food.** Owner's ruling 2026-10-03 (the garden lane's card, *Build it*):
+/// the colony ate litter and seed faster than the bed replaced them on every
+/// played-bed seed, and nothing in the garden was out of its reach. Read
+/// once; `off` restores the old behaviour.
+fn buried_seed_enabled() -> bool {
+    use std::sync::OnceLock;
+    static ON: OnceLock<bool> = OnceLock::new();
+    *ON.get_or_init(|| matches!(std::env::var("PIXEL_PHYSICS_BURIED_SEED").as_deref(), Ok("on")))
+}
+
+/// **Bury or unearth a dormant seed, by what is on top of it.** A species'
+/// own `seed_material` cell whose cell above is ground -- solid or powder,
+/// not living tissue and not itself food, so a seed under leaf litter or
+/// crumbs is still on the surface -- is rewritten as `buriedseed`, which
+/// `food_value` reads as worth nothing, so no forager sees it and no eat
+/// verb takes it. The tick the ground above is gone it turns back into its
+/// species' seed. Everything else on the cell (organism id, packed cell
+/// type, shade) is kept, and `germinate` does not read the material, so a
+/// buried seed still sprouts on the ordinary light and water rule.
+///
+/// **Only the bare seed is buried**, never `pip` or `windfall`: those carry
+/// their own rot and germination bookkeeping keyed on the material, and the
+/// way back is the species' `seed_material`, which only the bare seed is.
+///
+/// Rides the `Germinate` dispatch every dormant seed already gets on its
+/// own tick, so it costs one cell read above a seed, not a sweep.
+fn bury_or_unearth(world: &mut World, x: i32, y: i32, species_id: organism::SpeciesId, cell: Cell) -> Cell {
+    let Some(buried) = world.materials.id_of("buriedseed") else {
+        return cell;
+    };
+    let Some(seed) = world.materials.id_of(&world.species.get(species_id).seed_material) else {
+        return cell;
+    };
+    if cell.material != seed && cell.material != buried {
+        return cell;
+    }
+    let above = world.get(x, y - 1);
+    let covered = above.organism_id() == 0
+        && world.materials.get(above.material).food_energy <= 0.0
+        && matches!(world.materials.kind(above.material), MaterialKind::Solid | MaterialKind::Powder);
+    let want = if covered { buried } else { seed };
+    if want == cell.material {
+        return cell;
+    }
+    let mut next = cell;
+    next.material = want;
+    world.set(x, y, next);
+    next
+}
+
 /// **Does `(x, y)` touch ground in any of its eight neighbours?** Soil,
 /// sand, gravel or rock — anything that is not living tissue, air or water.
 ///
@@ -6281,6 +6332,7 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: OrganismId, sta
                 found_candidate = true;
             }
             Behavior::Germinate { light_threshold, soil_water_threshold, instant } => {
+                let cell = if buried_seed_enabled() { bury_or_unearth(world, x, y, species_id, cell) } else { cell };
                 // **A seed germinates where it lands, never in mid-air.**
                 // Now that a seed is a `Powder` it falls, and without this
                 // it could meet its light and moisture conditions on the way
