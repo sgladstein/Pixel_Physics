@@ -1,0 +1,42 @@
+{
+  "id": "20261003T083225392Z-e2e917",
+  "created": "2026-10-03T08:32:25Z",
+  "board": "inbox",
+  "origin": {
+    "worktree": "/home/claude/Pixel_Physics",
+    "branch": "claude/lab-overlays-rbz4jn",
+    "commit": "2c6794f6",
+    "agent": null,
+    "session_id": "4464f399-fbc7-5284-aae7-0e0bae2d423f",
+    "user": null,
+    "cwd": "/home/claude/Pixel_Physics"
+  },
+  "title": "Lab: one ADD button for soil, water, food, wall, lamp, scent",
+  "question": "Is one ADD cell that steps on each press easy to find and use? Food placed with it never rots.",
+  "context_md": "Bar row is now LOOK PLANT COLONY CULL then ADD (key B). Third press shown, landed on FOOD. meta: three presses armed Food; no-food run byte-identical to main 2c6794f6 (played_bed seed 3, 40k frames).",
+  "kind": "single",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "",
+      "files": [
+        "20261003T083225392Z-e2e917/000-add.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": [
+        0,
+        270,
+        512,
+        62
+      ]
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
