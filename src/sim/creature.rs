@@ -10859,6 +10859,14 @@ fn adjacent_food_counted(world: &World, organism: OrganismId, head: (i32, i32), 
         if gain <= EAT_YIELD_THRESHOLD {
             continue;
         }
+        // **A defended plant is passed over, not only worth less.** See
+        // `deterred_by_defence` for why the discount alone bought a plant
+        // nothing. In this scan rather than at the bite so the sense
+        // (`FoodAdjacent`) and the verb agree: a mouthful this ant will not
+        // take is not food to it.
+        if deterred_by_defence(world, organism, cell, nx, ny) {
+            continue;
+        }
         // **Armour, and it is the dig's own rule with flesh substituted for
         // stone.** Force against the target material's
         // `penetration_resistance` -- the test roots use for soil and the
@@ -23187,6 +23195,40 @@ pub fn food_value(world: &World, cell: Cell) -> f32 {
     worth
 }
 
+/// **How long one eater's verdict on one defended cell stands**, in frames:
+/// ten organism ticks. Within it the same ant decides the same way about the
+/// same cell, so its sense and its bite cannot disagree from one tick to
+/// the next; after it the ant may try again, as a real forager re-samples a
+/// food it once rejected.
+const DETER_WINDOW: u64 = 450;
+
+/// **Whether `eater` passes over this plant cell because of the plant's
+/// defence** -- with probability `defence`, drawn from a stream keyed on
+/// (eater, cell, window) so it is deterministic and independent per ant.
+///
+/// Why this exists, measured 2026-10-03 on `played_bed`, 12 paired seeds at
+/// 300,000 frames (`examples/labdefence`, logs in
+/// `/mnt/project-files/plants-explore/defence-runs/`): with the
+/// `food_value` discount alone, defence in a grazed garden settled at a
+/// median **0.057-0.067** and in the same garden with no animals at all
+/// **0.082** -- grazing did not select for it. It could not: an ant takes
+/// whatever qualifying mouthful is adjacent, so a defended seed was eaten
+/// exactly as often as an undefended one and its plant paid the growth
+/// price for nothing. Real ants reject unpalatable and chemically defended
+/// food and move on (the deterrence half of the growth-defence trade-off);
+/// this is that half, graded by the same number.
+fn deterred_by_defence(world: &World, eater: OrganismId, cell: Cell, x: i32, y: i32) -> bool {
+    let owner = cell.organism_id();
+    if owner == 0 || owner == eater {
+        return false;
+    }
+    let Some(d) = world.organism(owner).map(|s| s.defence).filter(|&d| d > 0.0) else {
+        return false;
+    };
+    let mut r = super::rng::stream(eater as u64 ^ 0xDEFE_7CE0, x as u64, y as u64, world.frame / DETER_WINDOW);
+    r.chance(d)
+}
+
 /// The energy standing in `area` as meat — cells that carry their own worth
 /// in `Cell::aux`.
 ///
@@ -23817,6 +23859,28 @@ mod tests {
         // An unowned cell of the same material is untouched by anybody's defence.
         let loose = Cell::new(cell.material, 0);
         assert_eq!(food_value(&w, loose), face, "defence leaked onto an unowned cell");
+    }
+
+    /// **A defended plant is passed over in proportion to its defence.**
+    /// Fully defended: always; undefended or unowned: never; half: about
+    /// half of a crowd of eaters. Goes red if the roll is dropped, inverted,
+    /// or stops being independent per eater (every ant agreeing would make
+    /// the 0.5 row read 0 or 1000).
+    #[test]
+    fn a_defended_plant_is_passed_over_in_proportion() {
+        let mut w = test_world();
+        assert!(w.plant_tree_species(50, 50, "herb"), "test setup: the seed should plant");
+        let cell = w.get(50, 50);
+        let id = cell.organism_id();
+        let eaters = 1000..2000u32;
+        let refused = |w: &World| eaters.clone().filter(|&e| deterred_by_defence(w, e, w.get(50, 50), 50, 50)).count();
+        assert_eq!(refused(&w), 0, "an undefended plant is never refused");
+        w.organism_mut(id).expect("owner").defence = 1.0;
+        assert_eq!(refused(&w), 1000, "a fully defended plant is always refused");
+        w.organism_mut(id).expect("owner").defence = 0.5;
+        let half = refused(&w);
+        assert!((400..600).contains(&half), "half defended refused {half} of 1000");
+        assert!(!deterred_by_defence(&w, 1000, Cell::new(cell.material, 0), 50, 50), "an unowned cell is never refused");
     }
 
     /// **The shipped default is on, and this is the test that says so.**
