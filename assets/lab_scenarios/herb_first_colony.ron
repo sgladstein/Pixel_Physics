@@ -1,0 +1,53 @@
+// **The owner's 2026-10-03 playtest opening, as a bed**: herbs alone, grown
+// for 35,000 frames, then one colony of 52 asked for (the shelf's default
+// stock) dropped in the middle. In the playtest 44 seated, fell to 9 by
+// frame 100,000, 83 of 124 deaths were starvation, and the first ant was
+// born ~40,000 frames after placement
+// (`/mnt/project-files/playtest-2026-10-03/findings.md`).
+//
+// The chronicle does not log where plants or the colony went, so the layout
+// is matched by counts, and there are two files because the two readings
+// differ: this one keeps the herbs clear of the nest, and
+// `herb_first_colony_near` puts them either side of it, which is what the
+// playtest's nest band (0 bare cells of 129) and its food (21k J at 40k)
+// look like. The near bed is the one that reproduces the starvation.
+//
+// Read with `labforage scenario=herb_first_colony lifetrace=F
+// lifetrace_brood=1 budtrace=G` -- eggs, larvae and each ant's reachable
+// room are in the lifetrace (see `labforage.rs`).
+(
+    name: "herb_first_colony",
+    title: "THE FIRST COLONY ON A HERB BED",
+    question: "Herbs alone, grown for 35,000 frames, then one colony of ants dropped on them. Who finds food, who eats, who banks enough to lay?",
+    bed: (
+        width: 512,
+        height: 320,
+        soil_depth: 80,
+        ground_y: 160,
+        compartments: 1,
+        founders: 0,
+        species: "herb",
+        colonies: 0,
+        colony_ants: 52,
+        colony_species: "ant",
+        predators: 0,
+        lamp_spacing: 33,
+        seed: 1,
+        extra_walls: [],
+    ),
+    settings: [],
+    placements: [
+        // Two herbs, well clear of the nest column. Matched by count, not by
+        // position (the playtest does not log where plants went): the owner's
+        // chronicle reads 49 / 133 / 182 plants-plus-seeds at 10k / 20k / 30k
+        // and 44 ants seated; this reads 43 / 119 / 201 and 42 seated on seed
+        // 1 (main 0bc13abb). Eight herbs read 226 at 10k -- five times too
+        // dense -- and seated 17.
+        Plant(species: "herb", x: 128),
+        Plant(species: "herb", x: 384),
+    ],
+    timeline: [
+        (at: 35000, every: 0, until: 0, what: Colony(species: "ant", x: 256, count: 52)),
+    ],
+    horizon: 100000,
+)

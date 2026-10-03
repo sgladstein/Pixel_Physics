@@ -7372,8 +7372,11 @@ pub const SCENT_SLOTS: [usize; 3] = [TRAIT_SCENT_A, TRAIT_SCENT_B, TRAIT_SCENT_C
 /// raiding both look like from the inside, and nobody has to write a rule
 /// for either.
 ///
-/// Heritable and mutated per birth at `scent_drift` like the signature, so a
-/// lineage can narrow itself into a stranger as well as drift into one.
+/// Heritable and mutated per birth at `scent_drift` like the signature --
+/// at a third of it since 2026-10-03 (`creature::trait_width`,
+/// `PIXEL_PHYSICS_TOLERANCE_DRIFT`), because lines narrowed fast enough to
+/// bite their own nestmates -- so a lineage can narrow itself into a
+/// stranger as well as drift into one.
 /// Inert while every signature in the box is one point -- a radius of zero
 /// still contains a distance of zero -- which is what keeps the shipped bed
 /// one family whatever this slot drifts to.
