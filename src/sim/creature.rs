@@ -23169,11 +23169,22 @@ pub fn food_value(world: &World, cell: Cell) -> f32 {
     // about creatures. So an ant that burned to death left meat worth
     // exactly nothing -- while `wiki/ants.md` promises in as many words that
     // "ants that die in a fire become the next colony's dinner".
-    if m.aux_is_worth() && cell.aux() != 0 {
-        cell.aux() as f32
-    } else {
-        m.food_energy
+    let worth = if m.aux_is_worth() && cell.aux() != 0 { cell.aux() as f32 } else { m.food_energy };
+    // **A plant's defence, priced here and nowhere else**, so every reader of
+    // a cell's worth -- the eat verb, the menu, the overlay, the ledger, the
+    // worth a carried unit is stamped with -- sees the same discounted meal.
+    // Only a plant ever carries a non-zero `defence`, so an animal's own
+    // cells and every unowned cell (litter, crumbs, a corpse) pass through
+    // untouched. See `OrganismState::defence`.
+    let owner = cell.organism_id();
+    if owner != 0 {
+        if let Some(state) = world.organism(owner) {
+            if state.defence > 0.0 {
+                return worth * organism::palatability(state.defence);
+            }
+        }
     }
+    worth
 }
 
 /// The energy standing in `area` as meat — cells that carry their own worth

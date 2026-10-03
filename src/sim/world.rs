@@ -7389,6 +7389,9 @@ impl World {
             dev_seed: 0,
             origin: None,
             germination_frame: 0,
+            // Undefended at birth -- `plant::bear_seed_at` writes a bred
+            // seed's from its parent. See `OrganismState::defence`.
+            defence: 0.0,
             water: 0.0,
             water_status: 1.0,
             water_uptake: 0.0,
