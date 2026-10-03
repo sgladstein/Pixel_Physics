@@ -539,6 +539,11 @@ fn main() {
     // above. Neither `adjust_zoom` nor the two reads below run at all when
     // both `center` and `follow` are unset, which is the byte-identity
     // `center=`'s own doc already promises and `follow=` inherits for free.
+    // **`channel=sap`** -- draw through the sap-flow overlay
+    // (`OrganismOverlay::SapFlow`), whose pulses only read in motion.
+    if arg::<String>("channel").as_deref() == Some("sap") {
+        lab.renderer.organism_overlay = pixel_physics::render::OrganismOverlay::SapFlow;
+    }
     let camera_mode = center.is_some() || follow.is_some();
     if camera_mode {
         for _ in 1..zoom {

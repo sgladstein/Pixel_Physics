@@ -1096,6 +1096,16 @@ pub enum OrganismOverlay {
     /// Plants only. A creature has `GutBias` and `FoodValue` of its own,
     /// and `water_status` is not a quantity an ant has.
     PlantHealth,
+    /// **Water moving through plants** (`plant::sap_flow`): blue by how
+    /// much water passes through each cell, on a log scale against the
+    /// whole crown's demand, so the trunk and the main roots draw as bright
+    /// channels and a twig as a thread; **pulses travel the way the water
+    /// does** -- inward along the roots, outward up the shoots, at the sap
+    /// speed (`plant::SAP_CELLS_PER_TICK`); and a cell short of water turns
+    /// toward rust by how short it is, so a drought shows as the crown tips
+    /// browning first. With `World::sap_flow` off every plant cell sits at
+    /// the ramp floor: a flat sheet that says "no flow map", not a dead one.
+    SapFlow,
     /// `Seed`/`GrowingTip`/`MatureBody`/`Leaf`/`RootTip`, one flat colour
     /// each. The only way to tell a retired `MatureBody` from a live
     /// `GrowingTip` on screen — both currently paint as plain `wood`.
@@ -1208,7 +1218,8 @@ impl OrganismOverlay {
             // working"; the eight behind it are debug scalars you go
             // looking for deliberately.
             OrganismOverlay::Off => OrganismOverlay::PlantHealth,
-            OrganismOverlay::PlantHealth => OrganismOverlay::CellType,
+            OrganismOverlay::PlantHealth => OrganismOverlay::SapFlow,
+            OrganismOverlay::SapFlow => OrganismOverlay::CellType,
             OrganismOverlay::CellType => OrganismOverlay::Resource,
             OrganismOverlay::Resource => OrganismOverlay::CanopyDensity,
             OrganismOverlay::CanopyDensity => OrganismOverlay::VeinConductance,
@@ -1226,6 +1237,7 @@ impl OrganismOverlay {
         match self {
             OrganismOverlay::Off => "OFF",
             OrganismOverlay::PlantHealth => "PLANT HEALTH",
+            OrganismOverlay::SapFlow => "SAP FLOW",
             OrganismOverlay::CellType => "CELL TYPE",
             OrganismOverlay::Resource => "RESOURCE",
             OrganismOverlay::CanopyDensity => "CANOPY DENSITY",
@@ -1872,6 +1884,42 @@ const SCALAR_RAMP_ALARM_FLOOR: f32 = 0.55;
 /// linear: this is a readout, and a perceptual or log curve would make
 /// "how much" harder to judge between two tiles of a contact sheet, which
 /// is the comparison these sheets exist to support.
+/// Water on the sap-flow channel, and dryness against it.
+const SCALAR_RAMP_SAP: [f32; 3] = [70.0, 175.0, 255.0];
+const SCALAR_RAMP_SAP_DRY: [f32; 3] = [215.0, 105.0, 40.0];
+/// Cells between pulse crests on the sap-flow channel.
+const SAP_PULSE_WAVELENGTH: f32 = 12.0;
+
+/// One plant cell on `OrganismOverlay::SapFlow` -- a full replace on fixed
+/// ramps, never a blend into the cell's own colour (`CLAUDE.md`'s debug
+/// readout rule).
+fn sap_flow_colour(world: &World, x: i32, y: i32) -> [f32; 3] {
+    let id = world.get(x, y).organism_id();
+    let (Some(state), Some(c)) = (world.organism(id), world.organism_cell(x, y)) else {
+        return scalar_ramp(0.0, SCALAR_RAMP_SAP);
+    };
+    if !world.sap_flow || world.species.get(state.species).creature.is_some() {
+        return scalar_ramp(0.0, SCALAR_RAMP_SAP);
+    }
+    // Log, against the crown's whole demand: the collar reads ~1, a leaf a
+    // few hundredths, and both stay legible.
+    let crown = state.water_demand.max(1e-3);
+    let t = ((1.0 + 99.0 * (c.sap_flux / crown).max(0.0)).log10() / 2.0).clamp(0.0, 1.0);
+    // The pulse: a crest every `SAP_PULSE_WAVELENGTH` cells of path,
+    // moving at the sap speed in display frames, outward in a shoot and
+    // inward in a root. Only cells actually carrying water pulse.
+    let below = state.collar_y.is_some_and(|collar| y > collar);
+    let speed = crate::sim::plant::SAP_CELLS_PER_TICK as f32
+        / (crate::sim::plant::ORGANISM_TICK_INTERVAL as f32 * world.clock.growth_slowdown.max(1) as f32);
+    let travelled = world.frame as f32 * speed;
+    let s = if below { c.path_len as f32 + travelled } else { c.path_len as f32 - travelled };
+    let pulse = if c.sap_flux > 0.0 { 0.7 + 0.3 * (std::f32::consts::TAU * s / SAP_PULSE_WAVELENGTH).cos() } else { 1.0 };
+    let wet = scalar_ramp(t * pulse, SCALAR_RAMP_SAP);
+    let dry = c.sap_desiccation.clamp(0.0, 1.0);
+    let rust = ramp_from(0.5 + 0.5 * dry, SCALAR_RAMP_SAP_DRY, 0.0);
+    [0, 1, 2].map(|k| wet[k] * (1.0 - dry) + rust[k] * dry)
+}
+
 fn scalar_ramp(t: f32, full: [f32; 3]) -> [f32; 3] {
     ramp_from(t, full, SCALAR_RAMP_FLOOR)
 }
@@ -8518,6 +8566,7 @@ impl Renderer {
                 };
                 (colour, CELL_TYPE_BLEND)
             }
+            OrganismOverlay::SapFlow => (sap_flow_colour(world, x, y), 1.0),
             OrganismOverlay::Resource => {
                 let t = (world.carbon_at(x, y) / organism::RESOURCE_SCALE).clamp(0.0, 1.0);
                 (scalar_ramp(t, SCALAR_RAMP_RESOURCE), 1.0)

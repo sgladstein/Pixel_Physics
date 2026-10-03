@@ -8802,9 +8802,9 @@ pub struct OrganismCell {
     /// **Water passing through this cell per organism tick** — the sap-flow
     /// map (`plant::sap_flow`, `World::sap_flow`). In a shoot it is the
     /// transpiration demand of every leaf this cell feeds; in a root it is
-    /// the uptake of every root behind it on the way to the collar. So the
-    /// trunk carries the whole crown, a twig carries its own leaves, and a
-    /// root carries what it and the roots beyond it drank.
+    /// its share of that same demand, by what its soil and the soil of every
+    /// root beyond it offers. So the trunk carries the whole crown, a twig
+    /// its own leaves, and a root in wet ground more than one in dry.
     ///
     /// Zero whenever the switch is off, and on any cell no walk reached.
     /// Kept per cell for the overlay as much as for the rule: brightness by
@@ -8826,10 +8826,6 @@ pub struct OrganismCell {
     /// (`0..=1`)** — what a growing tip prices its next cell against when
     /// `World::sap_flow` is on. Negative means "use the plant's".
     pub sap_nutrient: f32,
-    /// Water this root cell drank since the last walk — `absorb_water`
-    /// adds, `plant::sap_flow` reads and clears. The source end of
-    /// `sap_flux`.
-    pub sap_in: f32,
     /// What this root cell's soil offers, written by `organism_upkeep`'s
     /// root walk on the faces it already reads: the summed plant-available
     /// water of its drinkable faces, the summed nutrient fraction of its
@@ -8892,7 +8888,6 @@ impl Default for OrganismCell {
             sap_parent: SAP_NO_PARENT,
             sap_desiccation: -1.0,
             sap_nutrient: -1.0,
-            sap_in: 0.0,
             sap_soil_water: 0.0,
             sap_soil_nutrient: 0.0,
             sap_soil_faces: 0,

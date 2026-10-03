@@ -1065,13 +1065,6 @@ fn absorb_water(world: &mut World, x: i32, y: i32, rate: f32) {
                 }
             }
     credit_water(world, organism_id, water - stock);
-    // The source end of the sap-flow map: what *this* root drank, so
-    // `sap_flow` can route it to the collar along the root it entered.
-    if world.sap_flow && water > stock {
-        if let Some(slot) = world.organism_cell_mut(x, y) {
-            slot.sap_in += water - stock;
-        }
-    }
 }
 
 /// Mark (or clear) a cell as a primed lateral site — see
@@ -9362,9 +9355,9 @@ pub const SAP_CELLS_PER_TICK: usize = 8;
 /// fills and every leaf draws on -- but where the water goes now has a
 /// shape:
 ///
-/// 1. **Roots to collar.** Each root's drink this tick (`sap_in`) is routed
-///    along a root spanning tree to the collar cell it reaches first, so a
-///    root carries the water of every root beyond it (`sap_flux`).
+/// 1. **Roots to collar.** What each root's soil offers is carried toward
+///    the collar, shared over every root one step nearer, so a root carries
+///    the water of every root beyond it (`sap_flux`).
 /// 2. **Collar to leaves.** Each shoot cell carries the transpiration
 ///    demand of every leaf it feeds, on the spanning tree
 ///    `accumulate_support` already builds: the trunk carries the crown, a
@@ -9463,9 +9456,8 @@ pub(crate) fn sap_flow(world: &mut World, organism_id: OrganismId) {
     let (_, leaf_transp_mult) = leaf_econ_mults(world, organism_id);
     let ceiling = authored_height_ceiling(world, species_id);
     // Per-cell inputs: leaf demand (the formula `organism_upkeep` sums),
-    // root drink, what each root's soil offers, path length, last dryness.
+    // what each root's soil offers, path length, last dryness.
     let mut ask = vec![0.0f32; n];
-    let mut drink = vec![0.0f32; n];
     let mut soil_water = vec![0.0f32; n];
     let mut soil_nutrient = vec![0.0f32; n];
     let mut soil_faces = vec![0.0f32; n];
@@ -9482,7 +9474,6 @@ pub(crate) fn sap_flow(world: &mut World, organism_id: OrganismId) {
         path[i] = oc.path_len as f32;
         was[i] = oc.sap_desiccation;
         if y > collar {
-            drink[i] = oc.sap_in;
             soil_water[i] = oc.sap_soil_water;
             soil_nutrient[i] = oc.sap_soil_nutrient;
             soil_faces[i] = oc.sap_soil_faces as f32;
@@ -9504,27 +9495,40 @@ pub(crate) fn sap_flow(world: &mut World, organism_id: OrganismId) {
         }
     }
 
-    // 1-2. Basipetal: roots carry their drink and their soil's offer toward
-    // the collar, shoots carry their leaves' demand down to it.
+    // 1-2. Basipetal: roots carry their soil's offer toward the collar,
+    // shoots carry their leaves' demand down to it.
     for &i in order.iter().rev() {
         let m = nearer_n[i];
         if m == 0 {
             continue;
         }
         let share = 1.0 / m as f32;
-        let (a, d, w, nu, f) = (ask[i] * share, drink[i] * share, soil_water[i] * share, soil_nutrient[i] * share, soil_faces[i] * share);
+        let (a, w, nu, f) = (ask[i] * share, soil_water[i] * share, soil_nutrient[i] * share, soil_faces[i] * share);
         for k in 0..m as usize {
             let j = at(i, nearer[i][k]);
             ask[j] += a;
-            drink[j] += d;
             soil_water[j] += w;
             soil_nutrient[j] += nu;
             soil_faces[j] += f;
         }
     }
-    // `ask` on a root and `drink` on a shoot are zero by construction, so
-    // the two sums are the flux on their own sides.
-    let flux: Vec<f32> = (0..n).map(|i| if cells[i].1 > collar { drink[i] } else { ask[i] }).collect();
+    // A shoot carries its leaves' demand. **A root carries its share of the
+    // same demand, by what its soil offers** -- not this tick's drink. The
+    // tank buffers, so a full tank stops the drinking (`absorb_water` fills
+    // only to capacity) while the leaves go on drawing; over a day what the
+    // roots supply *is* what the crown transpires, and routing that by soil
+    // offer is the steady flow.
+    let crown: f32 = order.iter().copied().take_while(|&i| depth[i] == 0).map(|i| ask[i]).sum();
+    let offer: f32 = order.iter().copied().take_while(|&i| depth[i] == 0).map(|i| soil_water[i]).sum();
+    let flux: Vec<f32> = (0..n)
+        .map(|i| {
+            if cells[i].1 > collar {
+                if offer > 0.0 { crown * soil_water[i] / offer } else { 0.0 }
+            } else {
+                ask[i]
+            }
+        })
+        .collect();
 
     // 3. Sides. `share` is a collar cell's water offer against its share of
     //    the demand (1 = fair); its shortfall weight is the inverse,
@@ -9623,7 +9627,6 @@ pub(crate) fn sap_flow(world: &mut World, organism_id: OrganismId) {
         let Some(slot) = world.organism_cell_mut(x, y) else { continue };
         slot.sap_flux = flux[i];
         slot.sap_parent = dir;
-        slot.sap_in = 0.0;
         if target[i] >= 0.0 {
             slot.sap_desiccation = cur[i];
             slot.sap_nutrient = (plant_nutrient * side[i].1).clamp(0.0, 1.0);
@@ -25527,8 +25530,8 @@ GrowingTip again, the rootless-plant case is live and grass needs a drought deat
         for y in 100..=110 {
             stamp(&mut w, 50, y, rootwood, CellType::MatureBody, (y - 99) as u16);
         }
-        w.organism_cell_mut(50, 110).unwrap().sap_in = 2.0;
-        w.organism_cell_mut(50, 105).unwrap().sap_in = 1.0;
+        w.organism_cell_mut(50, 110).unwrap().sap_soil_water = 2.0;
+        w.organism_cell_mut(50, 105).unwrap().sap_soil_water = 1.0;
         w.organism_mut(id).unwrap().collar_y = Some(99);
         for _ in 0..8 {
             field::step(&mut w);
@@ -25565,8 +25568,11 @@ GrowingTip again, the rootless-plant case is live and grass needs a drought deat
         let row: Vec<f32> = (49..=51).map(|x| flux(x, 80)).collect();
         let (lo, hi) = row.iter().fold((f32::MAX, 0.0f32), |(a, b), &v| (a.min(v), b.max(v)));
         assert!(lo > 0.2 * hi, "one trunk column carries the crown and its neighbours nothing: {row:?}");
-        // Roots carry their drink to the collar: 3.0 entered, 3.0 arrives.
-        assert!((flux(50, 100) - 3.0).abs() < 1e-4, "the root below the collar carries {}, not the 3.0 drunk", flux(50, 100));
+        // Roots carry the crown's water up from the soil that offers it:
+        // the root below the collar carries all of it, and the tip, whose
+        // soil offers two thirds, two thirds.
+        assert!((flux(50, 100) / collar_flux - 1.0).abs() < 1e-3, "the root below the collar carries {}, not the crown's {collar_flux}", flux(50, 100));
+        assert!((flux(50, 110) / collar_flux - 2.0 / 3.0).abs() < 1e-3, "the root tip carries {}", flux(50, 110));
 
         // 3. A shortfall lands on the far tips, and is moved, not made.
         pin(&mut w, 0.3);
