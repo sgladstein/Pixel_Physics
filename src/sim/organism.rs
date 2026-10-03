@@ -6772,6 +6772,14 @@ pub fn plant_defence_on() -> bool {
     *ON.get_or_init(|| std::env::var("PIXEL_PHYSICS_PLANT_DEFENCE").map(|v| v != "0").unwrap_or(true))
 }
 
+/// **How much bigger defence's mutation step is than the genome's.**
+/// Trial only (2026-10-03): `PIXEL_PHYSICS_DEFENCE_STEP`, default 1.0.
+pub fn defence_step() -> f32 {
+    use std::sync::OnceLock;
+    static STEP: OnceLock<f32> = OnceLock::new();
+    *STEP.get_or_init(|| std::env::var("PIXEL_PHYSICS_DEFENCE_STEP").ok().and_then(|v| v.parse().ok()).unwrap_or(1.0))
+}
+
 /// **What a fully defended plant pays**: construction at
 /// `1 + DEFENCE_COST * defence` the undefended price, so 2x at `defence`
 /// 1.0. A starting point, not a measured value -- the literature agrees the
