@@ -4013,6 +4013,11 @@ fn harness() {
                 }
                 // `PIXEL_PHYSICS_HOME_REAIM`'s "it fired" half (`creature::home_reaim`).
                 println!("REAIM frame={f} walks home re-aimed off a blocked anchor {}", world.creature_stats.home_reaims);
+                // `BrainOutput::Lay`'s "it fired" half: births an ant could afford and its brain held.
+                println!(
+                    "LAY frame={f} births held by the brain {}",
+                    world.creature_stats.lays_declined
+                );
                 // `PIXEL_PHYSICS_DIG_ROOF` and `_DOOR_COLLAR`'s "it fired" halves.
                 println!(
                     "ROOF frame={f} cuts refused under the nest's roof (DIG_ROOF) {}, rim cells packed by the door's collar (DOOR_COLLAR) {}",
