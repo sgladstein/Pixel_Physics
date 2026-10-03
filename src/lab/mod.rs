@@ -47,6 +47,7 @@ pub mod scenario;
 pub mod scene;
 pub mod stats;
 pub mod time;
+pub mod trips;
 pub mod ui;
 
 use crate::render::Renderer;

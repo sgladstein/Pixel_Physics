@@ -1799,8 +1799,10 @@ const CHART_H: i32 = 40;
 enum Body {
     /// A named quantity: label on the left, value on the right.
     Value { label: String, value: String, tint: [u8; 4] },
-    /// A population over the last few dozen samples.
-    Spark { label: String, series: Vec<u32>, tint: [u8; 4] },
+    /// A population over the last few dozen samples. `tints`, when not
+    /// empty, colours each bar on its own (the pinned ant's trips, coloured
+    /// by load) and `tint` is unused; empty, every bar is `tint`.
+    Spark { label: String, series: Vec<u32>, tint: [u8; 4], tints: Vec<[u8; 4]> },
     /// **Several named populations on one shared y-axis.** See `draw_lines`
     /// for why this is not just `Spark` called several times: `Spark`
     /// normalises each series to *its own* peak, which is right for one
@@ -1869,7 +1871,12 @@ impl Row {
         tint: [u8; 4],
         note: impl Into<String>,
     ) -> Self {
-        Self { body: Body::Spark { label: label.into(), series, tint }, note: note.into() }
+        Self { body: Body::Spark { label: label.into(), series, tint, tints: Vec::new() }, note: note.into() }
+    }
+    /// A `spark` whose bars each carry their own colour -- see [`Body::Spark`].
+    fn spark_tinted(label: impl Into<String>, bars: Vec<(u32, [u8; 4])>, note: impl Into<String>) -> Self {
+        let (series, tints) = bars.into_iter().unzip();
+        Self { body: Body::Spark { label: label.into(), series, tint: VALUE, tints }, note: note.into() }
     }
     fn lines(caption: impl Into<String>, series: Vec<(Vec<u32>, [u8; 4])>, note: impl Into<String>) -> Self {
         Self { body: Body::Lines { caption: caption.into(), series }, note: note.into() }
@@ -2089,6 +2096,10 @@ pub struct Watch {
     who: Option<roster::Individual>,
     samples: VecDeque<Track>,
     next_at: u64,
+    /// **How far from home it has been, and with what** -- the trip strip,
+    /// on its own longer ring (`super::trips` says why), cleared with this
+    /// one so it can never be about somebody else either.
+    trips: super::trips::Trips,
 }
 
 impl Watch {
@@ -2098,8 +2109,14 @@ impl Watch {
             self.who = who;
             self.samples.clear();
             self.next_at = 0;
+            self.trips.clear();
         }
         let Some(who) = who else { return };
+        // Every tick, ahead of the trail's own cadence gate: the strip
+        // latches home per tick so a short visit is not lost between buckets.
+        if who.alive(world) {
+            self.trips.observe(world, who.id);
+        }
         // A rebuild puts the frame counter back, and a trail carried across it
         // would draw a path between two different worlds. Same guard
         // `History::observe` carries, and it is needed here for a stronger
@@ -5839,18 +5856,41 @@ impl Ui {
         let (lo, hi) = self.watch.range(|t| t.energy);
         let (clo, chi) = self.watch.range(|t| t.cells as f32);
         let mut out = Vec::new();
+        // **The trip strip first**, because it is the one a player pins an
+        // ant to see: where it goes and whether it comes back. Absent for
+        // anything with no nest to measure from -- a plant, a lone hunter.
+        if !self.watch.trips.is_empty() {
+            let (trips, fed) = self.watch.trips.visits();
+            let far = self.watch.trips.farthest() as u32;
+            // A visit home is drawn as a short violet stub on the floor, a
+            // sixth of the strip, not as the one-pixel floor bar its distance
+            // of 0 would draw: at 12 px tall that pixel was the colour of the
+            // background and every dip read as a gap rather than as home.
+            let stub = (far / 6).max(1);
+            out.push(Row::spark_tinted(
+                format!("TRIPS {trips}, {fed} WITH FOOD, 0-{far}"),
+                self.watch.trips.legs().map(|l| (if l.home { stub } else { l.height() as u32 } + 1, l.colour())).collect(),
+                format!("HOW FAR FROM ITS NEST IT HAS BEEN, IN CELLS, OVER THE LAST {} SIMULATED FRAMES, OLDEST ON THE LEFT. EVERY DIP TO THE FLOOR IS A VISIT HOME, DRAWN AS A SHORT VIOLET STUB. THE COLOUR IS WHAT IT WAS CARRYING: SLATE EMPTY, GREEN WITH FOOD (BRIGHTER THE FULLER ITS CROP), BROWN WITH DUG SOIL -- THE SAME KEY AS THE COLONY'S BANDS ON THE BIOSPHERE PAGE. A FORAGER THAT KEEPS BRINGING FOOD HOME DRAWS GREEN SLOPES DOWN TO VIOLET; ONE THAT HAS STOPPED COMING BACK DRAWS A PLATEAU. A TRIP IS COUNTED WHEN IT GETS HOME, AND IT IS WITH FOOD IF ITS CROP WAS NOT EMPTY ON THE WAY IN.", self.watch.trips.span()),
+            ));
+        }
         out.push(Row::spark(
             format!("BANK {lo:.0}-{hi:.0}"),
             self.watch.series(|t| t.energy),
             if hi > 0.0 && lo < hi * 0.5 { FAIR } else { GOOD },
             format!("THIS ONE'S OWN ENERGY OVER THE LAST {} SIMULATED FRAMES, OLDEST ON THE LEFT, ONE SAMPLE EVERY {WATCH_EVERY}. THE BARS ARE SCALED TO ITS OWN PEAK, SO THE CAPTION CARRIES THE RANGE -- A FLAT FULL STRIP AT 95-96 AND ONE AT 0-200 DRAW THE SAME SHAPE. AN ANIMAL WHOSE SAWTOOTH STOPS CLIMBING BACK IS ONE THAT HAS STOPPED FINDING FOOD.", span),
         ));
-        out.push(Row::spark(
-            format!("BODY {clo:.0}-{chi:.0} CELLS"),
-            self.watch.series(|t| t.cells as f32),
-            VALUE,
-            "HOW MANY CELLS IT HAS HELD OVER THE SAME WINDOW. FOR A PLANT THIS IS GROWTH, AND A STEP DOWN IS SOMETHING EATING IT OR A BRANCH COMING OFF; FOR AN ANIMAL IT IS FLAT UNLESS SOMETHING HAS BITTEN A PIECE OUT OF IT.".to_string(),
-        ));
+        // **Not for anything with a trip strip.** An animal's body is flat
+        // for its whole life barring a bite, `BODY` above already says how
+        // many cells it is, and the page had exactly one strip's room: the
+        // trip strip took it rather than pushing the page into folding.
+        if self.watch.trips.is_empty() {
+            out.push(Row::spark(
+                format!("BODY {clo:.0}-{chi:.0} CELLS"),
+                self.watch.series(|t| t.cells as f32),
+                VALUE,
+                "HOW MANY CELLS IT HAS HELD OVER THE SAME WINDOW. FOR A PLANT THIS IS GROWTH, AND A STEP DOWN IS SOMETHING EATING IT OR A BRANCH COMING OFF; FOR AN ANIMAL IT IS FLAT UNLESS SOMETHING HAS BITTEN A PIECE OUT OF IT.".to_string(),
+            ));
+        }
         out
     }
 
@@ -6122,8 +6162,8 @@ fn paint_rows(
                 text(hc, frame, left, y, label, FAINT);
                 text(hc, frame, right - hud::text_width(value), y, value, *tint);
             }
-            Body::Spark { label, series, tint } => {
-                draw_spark(hc, frame, Rect { x: left, y, w: right - left, h: 12 }, series, *tint);
+            Body::Spark { label, series, tint, tints } => {
+                draw_spark(hc, frame, Rect { x: left, y, w: right - left, h: 12 }, series, *tint, tints);
                 text(hc, frame, left, y + 14, label, FAINT);
             }
             Body::Lines { caption, series } => {
@@ -6275,7 +6315,7 @@ fn menu_rect(pages: &[Row], toggles: &[Row], anchor_x: i32, bottom: i32) -> Rect
 /// Scaled to the series' own peak rather than to a fixed axis: the two
 /// kingdoms differ by two orders of magnitude in this box, and one shared
 /// axis would draw the colony as a flat line on the floor whatever it did.
-fn draw_spark(hc: render::Hud, frame: &mut [u8], area: Rect, series: &[u32], tint: [u8; 4]) {
+fn draw_spark(hc: render::Hud, frame: &mut [u8], area: Rect, series: &[u32], tint: [u8; 4], tints: &[[u8; 4]]) {
     fill(hc, frame, area, [24, 27, 33, 255]);
     let peak = series.iter().copied().max().unwrap_or(0);
     if series.is_empty() {
@@ -6297,7 +6337,7 @@ fn draw_spark(hc: render::Hud, frame: &mut [u8], area: Rect, series: &[u32], tin
             ((*v as f32 / peak as f32) * (area.h - 1) as f32).round() as i32 + 1
         };
         let w = bar_w.min(area.right() - x);
-        fill(hc, frame, Rect { x, y: area.bottom() - h, w, h }, tint);
+        fill(hc, frame, Rect { x, y: area.bottom() - h, w, h }, tints.get(i).copied().unwrap_or(tint));
         // The top of each bar, brighter. A series that barely varies fills the
         // strip almost solid and reads as "no information"; the profile line
         // is what makes a *flat* population look flat rather than look full.
