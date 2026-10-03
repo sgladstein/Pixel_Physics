@@ -71,12 +71,19 @@
         // itself fires; re-deriving `start_energy` for the faster clock is
         // real work this file does not do yet.
         tick_interval: 4,
-        // **No `life_half_life`, so this kind is immortal** -- the field's
-        // default, and the shipped behaviour for every animal before
-        // 2026-09-12. Only the ant and the long ant die of age today, because
-        // the lifespan was authored against the ant colony's own boom period
-        // (a generation on the played bed, the larder's edge) and nobody has
-        // measured what this kind's would be. Set it here when somebody has.
+        // **Ageing at the shipped ant's value, measured 2026-10-03.** Before it,
+        // this animal was immortal and died only by starving, so a population
+        // grew without turning over. Founded alone on `played_bed`, 60,000
+        // frames, seeds 1-3, paired within seed: the ancestor went 218/164/177
+        // alive with 12/0/2 deaths -> 128/104/125 alive with 67/47/77 deaths at
+        // about the same births (187/137/137 -> 152/124/160); the hopper
+        // 116/98/105 -> 105/60/71 alive, births 133/114/152 -> 131/106/138.
+        // The flitter does not move (hunger kills it out first). A beetle
+        // stocked alone has no prey and starves either way, a little sooner
+        // with age (alive at 30,000: 43/25/41 -> 32/16/30); as the predator
+        // knob beside a colony it is unmeasured. Not inherited yet, as on
+        // the ant.
+        life_half_life: 40000,
 
         // Scaled from the worm's researched numbers (creature.rs's WORM_*
         // block): idle 0.3, open-ground move 1.0. An ant is smaller and
