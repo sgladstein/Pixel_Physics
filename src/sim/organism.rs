@@ -6264,6 +6264,13 @@ pub struct OrganismState {
     /// noreturn`): set when a new excursion starts. What it has spent since
     /// is the ant's own measure of what the walk home will cost.
     pub scout_e0: f32,
+    /// **The frame this ant last met a forager home with food from a trip**,
+    /// or delivered one itself (`creature::ForageNeed::Met`): a delivery
+    /// stamps every ant within `creature::RETURN_MEET` cells of the drop.
+    /// 0 until the first; the drive then counts from `born_frame`, as
+    /// though food had come home the day it was born. Written whatever the
+    /// drive; read only under `met`.
+    pub return_met: u64,
     /// **The colony's want when the forage throttle last judged this ant at
     /// its door** (`creature::ForageThrottle`), carried on the excursion it
     /// sent the ant on. NaN until the throttle first judges it.
@@ -7043,7 +7050,7 @@ pub const GENOTYPE_TRAITS: usize = 10;
 /// strictly weaker one, which is `CLAUDE.md`'s *when several knobs move the
 /// same number, check what each one trades*: this one trades nothing the
 /// weight does not already trade.
-pub const CREATURE_TRAITS: usize = 26;
+pub const CREATURE_TRAITS: usize = 27;
 
 /// Slot 0 of `CREATURE_TRAITS`: **diet as one heritable number**, `-1`
 /// (plant matter) to `+1` (flesh), scored against `MaterialDef::food_class`
@@ -7455,11 +7462,18 @@ pub const TRAIT_EMPTY_A: usize = 22;
 pub const TRAIT_EMPTY_B: usize = 23;
 /// The trail-plane slots -- see `TRAIT_LADEN_A`.
 pub const TRAIL_PLANE_SLOTS: [usize; 4] = [TRAIT_LADEN_A, TRAIT_LADEN_B, TRAIT_EMPTY_A, TRAIT_EMPTY_B];
-/// **Every walk slot**, gains and planes -- what ships at width 0 and has its
-/// own page in the lab.
-pub const WALK_SLOTS: [usize; 10] = [
+/// Slot 26: **how long this ant stays keen to forage after it last met a
+/// forager coming home with food** -- a factor on `creature::RETURN_WINDOW`,
+/// reciprocal axis (+1 twice as long, -1 half). Read only under the
+/// local-encounter forage drive (`creature::ForageNeed::Met`), where each
+/// ant keeps its own memory (`OrganismState::return_met`) in place of the
+/// nest-wide clock. Width 0, as the walk genes.
+pub const TRAIT_RETURN_MEMORY: usize = 26;
+/// **Every walk slot**, gains, planes and the forage memory -- what ships
+/// at width 0 and has its own page in the lab.
+pub const WALK_SLOTS: [usize; 11] = [
     TRAIT_HOME_PULL, TRAIT_TRAIL_HOLD, TRAIT_ROUTE_AWAY, TRAIT_SCOUT, TRAIT_PATIENCE, TRAIT_DOOR_READ,
-    TRAIT_LADEN_A, TRAIT_LADEN_B, TRAIT_EMPTY_A, TRAIT_EMPTY_B,
+    TRAIT_LADEN_A, TRAIT_LADEN_B, TRAIT_EMPTY_A, TRAIT_EMPTY_B, TRAIT_RETURN_MEMORY,
 ];
 
 /// **Slots 24-25: how an ant keeps its nest's door**, the two rules that
