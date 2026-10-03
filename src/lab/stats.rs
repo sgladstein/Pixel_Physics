@@ -177,6 +177,12 @@ pub struct Sample {
     /// cannot -- and the one site that relied on that (`Stats::observe`'s
     /// ring-halving `.copied()`) now clones instead.
     pub by_species: Vec<(String, u32)>,
+    /// **Brood standing at this sample** -- eggs, larvae and pupae, every
+    /// species summed. The colony's next adults, so a brood strip that falls
+    /// says the adult strip above it will fall next. labforage's `BROOD
+    /// standing` line, which agents read only at the end of a run, kept per
+    /// sample so a player can watch it (owner's pick, 2026-10-03).
+    pub brood: u32,
 }
 
 /// **What one birth needs, and what this animal can ever hold.**
@@ -469,6 +475,9 @@ const BLUE: [u8; 4] = [110, 175, 235, 255];
 /// a lab a hungry forager and a stand of annuals dying back are both
 /// ordinary.
 const AMBER: [u8; 4] = [220, 170, 90, 255];
+/// The brood strip: the cream the brood material itself is drawn in, so the
+/// strip and the eggs in the box read as the same thing.
+const BROOD: [u8; 4] = [232, 220, 170, 255];
 /// Separators, axes, and the empty half of a gauge.
 const RULE: [u8; 4] = [40, 52, 72, 255];
 
@@ -484,6 +493,17 @@ pub struct Stats {
     /// refreshed every census.
     standing: Vec<crate::sim::material::MaterialId>,
     standing_at: Option<u64>,
+    /// Eggs, larvae and pupae at the last census.
+    brood_now: [u32; 3],
+    /// **How steady the colony has been** -- `Reports/handoff/scripts/
+    /// stab.py`'s measure, the one the owner judges a colony by (project
+    /// goals, 2026-10-02: survive long term, no boom and bust). The highest
+    /// animal count at any sample and its frame, and the deepest fall from a
+    /// *running* peak so far, in permille, with the frame it bottomed out
+    /// at. Kept as the run goes rather than read off `history`, because the
+    /// ring decimates and a trough is exactly the point a halving can drop.
+    peak: (u32, u64),
+    worst_fall: (u32, u64),
 }
 
 impl Default for Stats {
@@ -501,6 +521,22 @@ impl Stats {
             interval: SAMPLE_INTERVAL,
             standing: Vec::new(),
             standing_at: None,
+            brood_now: [0; 3],
+            peak: (0, 0),
+            worst_fall: (0, 0),
+        }
+    }
+
+    /// Book one animal count into the running peak and the worst fall.
+    fn track_steadiness(&mut self, frame: u64, animals: u32) {
+        if animals > self.peak.0 {
+            self.peak = (animals, frame);
+        }
+        if self.peak.0 > 0 {
+            let fall = ((self.peak.0 - animals.min(self.peak.0)) as u64 * 1000 / self.peak.0 as u64) as u32;
+            if fall > self.worst_fall.0 {
+                self.worst_fall = (fall, frame);
+            }
         }
     }
 
@@ -521,13 +557,21 @@ impl Stats {
             [.., a, b] => (b.frame - a.frame).max(SAMPLE_INTERVAL),
             _ => SAMPLE_INTERVAL,
         };
-        Self {
+        let mut stats = Self {
             standing_at: Some(census.frame),
             census: Some(census),
             history,
             interval,
             ..Self::new()
+        };
+        // From the handed-over ring, decimated as it is: the best a run that
+        // happened elsewhere can say about its own troughs.
+        let samples: Vec<(u64, u32)> = stats.history.iter().map(|s| (s.frame, s.animals)).collect();
+        for (frame, animals) in samples {
+            stats.track_steadiness(frame, animals);
         }
+        stats.brood_now[0] = stats.history.last().map_or(0, |s| s.brood);
+        stats
     }
 
     pub fn showing(&self) -> bool {
@@ -577,6 +621,8 @@ impl Stats {
         }
         let census = take_census(world, &mut self.standing, refresh);
         if due {
+            self.brood_now = brood_by_stage(world);
+            self.track_steadiness(frame, census.animals as u32);
             // **Decimate rather than scroll.** Dropping the oldest sample
             // would make the strip a moving window on the last few seconds,
             // which is exactly the thing a fast-forwarded experiment cannot
@@ -606,6 +652,7 @@ impl Stats {
                 births: world.creature_stats.births,
                 deaths: world.creature_stats.deaths,
                 by_species: census.by_species.clone(),
+                brood: self.brood_now.iter().sum(),
             });
         }
         self.census = Some(census);
@@ -865,11 +912,18 @@ impl Stats {
                 census.seeds_standing
             ),
         ));
+        let (fell, fell_note, busted) = self.steadiness();
         rows.push(Row::text(
-            format!("ANIMALS BORN {}   DIED {}", world.creature_stats.births, world.creature_stats.deaths),
-            if world.creature_stats.births > 0 { GREEN } else { DIM },
+            format!("ANIMALS BORN {}  DIED {}{fell}", world.creature_stats.births, world.creature_stats.deaths),
+            if busted {
+                AMBER
+            } else if world.creature_stats.births > 0 {
+                GREEN
+            } else {
+                DIM
+            },
             format!(
-                "ANIMALS AN ANIMAL PAID FOR OUT OF ITS OWN BODY, AND ANIMALS THAT HAVE DIED. {} WERE PLACED BY HAND OR BY THE BOX ITSELF AND ARE NOT BIRTHS.",
+                "ANIMALS AN ANIMAL PAID FOR OUT OF ITS OWN BODY, AND ANIMALS THAT HAVE DIED. {} WERE PLACED BY HAND OR BY THE BOX ITSELF AND ARE NOT BIRTHS.{fell_note}",
                 world.creature_stats.spawned
             ),
         ));
@@ -1116,6 +1170,27 @@ impl Stats {
         }
     }
 
+    /// **How steady the animals have been, and what is coming up behind
+    /// them** -- the face and the note the births row carries. On that row
+    /// rather than a row of its own because the page has no row to spare:
+    /// `the_page_stays_inside_its_own_border` fits it exactly, and a live
+    /// box with a dying-back or refused line already runs past the bar.
+    fn steadiness(&self) -> (String, String, bool) {
+        let (peak, peak_at) = self.peak;
+        if peak == 0 {
+            return (String::new(), String::new(), false);
+        }
+        let [eggs, larvae, pupae] = self.brood_now;
+        let (worst, worst_at) = (self.worst_fall.0 / 10, self.worst_fall.1);
+        (
+            format!("  FELL {worst}%"),
+            format!(
+                " FELL IS HOW STEADY THE ANIMALS HAVE BEEN: THE DEEPEST DROP FROM A HIGH POINT SO FAR, EVEN IF IT RECOVERED, BOTTOMING OUT AT FRAME {worst_at} (THE PEAK, {peak}, WAS AT FRAME {peak_at}). A STABLE COLONY KEEPS IT LOW; ONE THAT BOOMS AND BUSTS LOSES HALF OR MORE, AND THE ROW TURNS AMBER. THE CREAM LINE ON THE ANIMALS STRIP IS THE BROOD -- RIGHT NOW {eggs} EGGS, {larvae} LARVAE, {pupae} PUPAE -- THE COLONY'S NEXT ADULTS: WHEN IT FALLS, THE BLUE LINE FALLS NEXT."
+            ),
+            worst >= 50,
+        )
+    }
+
     /// One population strip.
     ///
     /// **It starts empty and fills as you watch**, said in words rather than
@@ -1152,6 +1227,12 @@ impl Stats {
             return;
         }
         let peak = self.history.iter().map(value).max().unwrap_or(1).max(1);
+        // **Brood rides the animals strip, on the same axis**, as a cream
+        // line with no fill: the colony's next adults under its adults,
+        // without a strip of its own (the page is already taller than the
+        // room above the bar). Same axis so the two read against each other.
+        let brood_line = matches!(series, Series::Animals) && self.history.iter().any(|s| s.brood > 0);
+        let peak = if brood_line { peak.max(self.history.iter().map(|s| s.brood).max().unwrap_or(0)) } else { peak };
         // A quarter of headroom above the peak, so a flat line sits
         // somewhere you can see it is flat rather than pinned to the top.
         let axis = (peak * 5 / 4).max(peak + 1);
@@ -1184,6 +1265,21 @@ impl Stats {
             }
             previous = Some((px, ph));
         }
+        if brood_line {
+            let mut previous: Option<(i32, i32)> = None;
+            for sample in &self.history {
+                let (px, ph) = (column(sample), (sample.brood as i64 * height as i64 / axis as i64) as i32);
+                let from = previous.map_or(px, |(qx, _)| qx + 1);
+                for cx in from..=px {
+                    let ch = match previous {
+                        Some((qx, qh)) if px > qx => qh + ((ph - qh) as f32 * (cx - qx) as f32 / (px - qx) as f32).round() as i32,
+                        _ => ph,
+                    };
+                    hc.put(frame, cx, y + height - 1 - ch.min(height - 1), BROOD);
+                }
+                previous = Some((px, ph));
+            }
+        }
         text(hc, frame, x + width + 6, y + 1, label, FAINT);
         // **`MAX 43` rather than `43`.** Read off the rendered page, a bare
         // number beside a strip whose headline says `PLANTS 41` looks like a
@@ -1191,6 +1287,17 @@ impl Stats {
         // figures that are not the same quantity.
         text(hc, frame, x + width + 6, y + height - 7, &format!("MAX {peak}"), colour);
     }
+}
+
+/// Eggs, larvae and pupae standing now, every species summed.
+fn brood_by_stage(world: &World) -> [u32; 3] {
+    let mut n = [0u32; 3];
+    for id in world.live_brood_ids() {
+        if let Some(b) = world.organism(id).and_then(|s| s.brood) {
+            n[b.stage as usize] += 1;
+        }
+    }
+    n
 }
 
 /// **Is this plant still a seed lying in the ground?**
@@ -1613,6 +1720,25 @@ mod tests {
 
     use super::*;
     use crate::lab::scene::LabBox;
+
+    /// **stab.py's measure: the deepest fall from a running peak, which a
+    /// later, higher peak does not erase.** Positive control: boom to 100,
+    /// bust to 40, boom to 200 reads a 60% worst fall at the bust, not 0%.
+    /// Specificity: a count that only climbs has fallen nowhere.
+    #[test]
+    fn the_worst_fall_survives_a_later_peak() {
+        let mut stats = Stats::new();
+        for (frame, n) in [(0, 10), (1, 100), (2, 40), (3, 200), (4, 190)] {
+            stats.track_steadiness(frame, n);
+        }
+        assert_eq!(stats.peak, (200, 3));
+        assert_eq!(stats.worst_fall, (600, 2));
+        let mut climbing = Stats::new();
+        for f in 0..300 {
+            climbing.track_steadiness(f, f as u32);
+        }
+        assert_eq!(climbing.worst_fall.0, 0);
+    }
 
     /// A small bed, built by the same `scene::LabBox::build` the game uses —
     /// **not a private copy of it.** `scene`'s own module doc records why: a
