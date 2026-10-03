@@ -51,6 +51,14 @@ fn main() {
     let name: String = arg("scenario").unwrap_or_else(|| "played_bed".to_string());
     let with_colony = arg::<u32>("colony").unwrap_or(1) != 0;
     let scale: f32 = arg("scale").unwrap_or(1.0);
+    // **A dry spell**: no rain from `dry_from=` for `dry_for=` frames. Built
+    // for a drought-dieback trial (parked; see
+    // `/mnt/project-files/plants-explore/`): with the mister on, drought
+    // shedding barely fires on the played bed (1-173 sheds in 300,000 frames
+    // on 12 seeds), and even 80,000 rainless frames left 3 of 246 plants
+    // short of water on seed 1, 2026-10-03.
+    let dry_from: u64 = arg("dry_from").unwrap_or(u64::MAX);
+    let dry_for: u64 = arg("dry_for").unwrap_or(0);
     let mut sc = Scenario::load(&name).unwrap_or_else(|e| {
         eprintln!("scenario {name}: {e}");
         std::process::exit(2);
@@ -68,11 +76,10 @@ fn main() {
         world.mutation_sigma *= scale;
     }
     println!(
-        "labdefence: scenario={name} seed={} frames={frames} sample={sample} colony={} defence={} drought_reach={} mutation_sigma={:.3} cost={}",
+        "labdefence: scenario={name} seed={} frames={frames} sample={sample} colony={} defence={} mutation_sigma={:.3} cost={} dry_from={dry_from} dry_for={dry_for}",
         spec.seed,
         if with_colony { "on" } else { "OFF" },
         if world.plant_defence { "on" } else { "OFF" },
-        if world.drought_reach { "on" } else { "OFF" },
         world.mutation_sigma,
         organism::DEFENCE_COST,
     );
@@ -88,15 +95,16 @@ fn main() {
         }
         if f < frames {
             frame::step(&mut world, &mut particles, &mut blasts, player::PlayerInput::default(), &tuning);
-            pixel_physics::lab::rain::tick(&mut world, &spec, rain);
+            if !(f >= dry_from && f < dry_from.saturating_add(dry_for)) {
+                pixel_physics::lab::rain::tick(&mut world, &spec, rain);
+            }
         }
     }
     println!(
-        "DEFENCE_SUMMARY seed={} colony={} defence={} drought_reach={} frames={frames} ants_peak={ants_peak} deepest_generation={}",
+        "DEFENCE_SUMMARY seed={} colony={} defence={} frames={frames} ants_peak={ants_peak} deepest_generation={}",
         spec.seed,
         with_colony as u8,
         world.plant_defence as u8,
-        world.drought_reach as u8,
         world.deepest_generation
     );
 }
@@ -106,7 +114,7 @@ fn stop(world: &World, f: u64, (width, height): (i32, i32)) -> usize {
     let mut ants = 0usize;
     let mut plant_def: Vec<f32> = Vec::new();
     // Thirst: the plant-wide shortfall over growing plants, and how many
-    // are short at all -- what `DROUGHT_REACH` stretches by distance.
+    // are short at all.
     let mut thirsty = 0usize;
     let mut thirst_sum = 0f32;
     let mut plant_cells = 0usize;

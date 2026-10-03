@@ -19534,12 +19534,7 @@ this costs more than the bug"
             // twig of the *founder's own* tissue (DBG trace: organism 1,
             // generation 0, defence 0.0) -- a genuine cut-off, not a
             // traversal fault. The rule this guards is unchanged either way.
-            // `drought_reach` likewise: a crown leaf shed for thirst can
-            // strand the wood past it, which this rule then correctly sheds
-            // (2 cells on the same date) -- again real, again not this
-            // guard's question.
             w.plant_defence = false;
-            w.drought_reach = false;
             plant_tree_on_ground(&mut w, 100, 60);
             let id = w.get(100, 60).organism_id();
             assert_ne!(id, 0, "test setup: the planted seed should own its cell");

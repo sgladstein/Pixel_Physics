@@ -5400,10 +5400,6 @@ pub struct World {
     /// on); off, every plant stays at 0.0 and a run is byte-identical to the
     /// build before defence existed.
     pub plant_defence: bool,
-    /// **Whether drought is felt harder the farther a leaf is from the roots**
-    /// (`World::desiccation_at`). Initialised from `DROUGHT_REACH` (default
-    /// on); off restores the flat, plant-wide thirst.
-    pub drought_reach: bool,
     /// **Whether the world is *held* — nothing grows, breeds, ages, rots or
     /// weathers except inside a [`Quickening`].**
     ///
@@ -6548,7 +6544,6 @@ impl World {
             plant_bending: true,
             plant_size_cadence: false,
             plant_defence: super::organism::plant_defence_on(),
-            drought_reach: drought_reach_on(),
             held: false,
             quickenings: Vec::new(),
             carried: None,
@@ -10225,29 +10220,9 @@ impl World {
     /// drought shedding reads. Deliberately not `water_status`: see
     /// `OrganismState::water_desiccation` for why prudence must not read
     /// as thirst.
-    ///
-    /// **Scaled by how far this cell is from the roots** (`DROUGHT_REACH`,
-    /// default on). Water is one tank per plant -- a cell-to-cell water
-    /// channel was built and measured failing (`OrganismState::water`'s doc:
-    /// the median leaf held 0.00) -- so a leaf cannot actually be further
-    /// from its supply than any other. What can be true at no transport cost
-    /// is the *consequence* of distance: a longer water path is a drier
-    /// leaf, so a thirsty plant sheds its farthest leaves first and a dry
-    /// tree dies back from the crown tips inward, graded rather than all at
-    /// once. Real height is hydraulically limited by path length (Koch et
-    /// al. 2004, *Nature* 428:851; Ryan, Phillips & Bond 2006). A plant with
-    /// no shortfall reads 0.0 at every cell exactly as before; only a
-    /// shortfall is stretched. The only two readers are the drought shed
-    /// rolls in `plant::organism_tick` and `plant::organism_upkeep`.
     pub fn desiccation_at(&self, x: i32, y: i32) -> f32 {
         let id = self.get(x, y).organism_id();
-        let Some(state) = self.organism(id) else { return 0.0 };
-        let thirst = state.water_desiccation;
-        if thirst <= 0.0 || !self.drought_reach {
-            return thirst;
-        }
-        let path = state.cells.get(&(x, y)).map_or(0, |c| c.path_len) as f32;
-        thirst * (1.0 + path / DROUGHT_PATH_SCALE)
+        self.organism(id).map_or(0.0, |s| s.water_desiccation)
     }
 
     /// Carbon at `(x, y)`, or `0.0` where there is no organism cell —
@@ -12168,30 +12143,6 @@ fn aux_trap_frame() -> Option<u64> {
 
 #[cfg(test)]
 mod tests {
-    /// **A drought is felt harder the farther a cell is from the roots, and
-    /// not at all where there is no drought.** `desiccation_at` is the only
-    /// thing the two drought shed rolls read, so this is the whole effect:
-    /// at path 0 the plant-wide shortfall, at `DROUGHT_PATH_SCALE` twice it,
-    /// with the switch off flat, and with no shortfall 0.0 everywhere. Goes
-    /// red if the stretch is dropped, applied to a plant that is not short,
-    /// or keeps firing with the switch off.
-    #[test]
-    fn a_far_cell_feels_a_drought_harder_and_an_unthirsty_plant_feels_none() {
-        let mut w = World::new(Rect::new(0, 0, 63, 63));
-        w.drought_reach = true;
-        assert!(w.plant_tree_species(20, 20, "herb"), "test setup: the seed should plant");
-        let id = w.get(20, 20).organism_id();
-        w.organism_mut(id).expect("owner").water_desiccation = 0.3;
-        assert!((w.desiccation_at(20, 20) - 0.3).abs() < 1e-6, "path 0 reads the plant-wide shortfall");
-        w.organism_cell_mut(20, 20).expect("registered").path_len = DROUGHT_PATH_SCALE as u16;
-        assert!((w.desiccation_at(20, 20) - 0.6).abs() < 1e-5, "one scale of path doubles it");
-        w.drought_reach = false;
-        assert!((w.desiccation_at(20, 20) - 0.3).abs() < 1e-6, "off is the flat thirst");
-        w.drought_reach = true;
-        w.organism_mut(id).expect("owner").water_desiccation = 0.0;
-        assert_eq!(w.desiccation_at(20, 20), 0.0, "no shortfall is no shortfall at any distance");
-    }
-
     /// `PIXEL_PHYSICS_STACK_DEPTH`'s spellings: a count, else the shipped cap
     /// of four. Goes red if the shipped default is put back to 1.
     #[test]
@@ -13522,19 +13473,4 @@ mod tests {
         // Off-world writes were dropped rather than panicking.
         assert_eq!(w.get(-1, 0), Cell::OUT_OF_BOUNDS);
     }
-}
-
-/// **How far a leaf has to be from the roots to feel a drought twice as
-/// hard**, in cells of water path. A starting point chosen so a grass blade
-/// (a few cells of path) barely notices and the crown of a played-bed tree
-/// (path well past 100) feels it two to three times over; the sweep in the
-/// PR that added it is the evidence. See `World::desiccation_at`.
-pub const DROUGHT_PATH_SCALE: f32 = 64.0;
-
-/// `DROUGHT_REACH=0` restores the flat, plant-wide thirst; with it off a run
-/// is byte-identical to the build before. Default on per the owner's rule.
-pub fn drought_reach_on() -> bool {
-    use std::sync::OnceLock;
-    static ON: OnceLock<bool> = OnceLock::new();
-    *ON.get_or_init(|| std::env::var("DROUGHT_REACH").map(|v| v != "0").unwrap_or(true))
 }
