@@ -449,8 +449,9 @@ the tick: the ant still gets its move roll (§6) afterwards.
    itself, and it is never lifted.
 6. **Dig**, only if both crop and spoil are empty. **So a laden ant never
    digs.** The roll is against `Dig`, and the target is **the cell straight
-   ahead of the head, along its current heading**: nothing chooses a face or
-   a place near other digging. **An enclosed digger first turns down**: on a
+   ahead of the head, along its current heading**, except where the face
+   turn below picks another cell for a nest worker inside the nest. Nothing
+   chooses a place near other digging. **An enclosed digger first turns down**: on a
    won roll, an ant whose curvature is at or below -0.3 turns one octant
    toward straight down before it cuts (`dig_down_bias`, `dig_down_of`, on
    since 2026-09-28 in this enclosed form; `PIXEL_PHYSICS_DIG_DOWN=off`
@@ -465,13 +466,15 @@ the tick: the ant still gets its move roll (§6) afterwards.
    decided from the heading the ant had before `act`, so a step or a tumble
    replaces the turn and a lost move roll leaves it standing. **A digger
    inside the nest that faces no ground can turn to the nearest face**
-   (`PIXEL_PHYSICS_DIG_FACE`, off unless set; `dig_face_of`): on a won roll,
+   (`PIXEL_PHYSICS_DIG_FACE`, on for nest workers since 2026-10-03,
+   `=off` removes it; `dig_face_of`): on a won roll,
    when the cell ahead is not ground its jaw can take and no widening cut was
    chosen, an ant inside the nest (`inside_nest`) turns straight to the
    nearest octant round from its heading whose cell it can cut without the
    roof refusing it or the heap cue scaling it (`dig_face_turn`; the side
-   tried first is the half-turn coin), and cuts that (`digs_faced`). `on`
-   turns every such digger, `workers` only a nest-bound one. **The heap
+   tried first is the half-turn coin), and cuts that (`digs_faced`). The
+   shipped `workers` turns only a nest-bound ant, so a forager digs as
+   before; `on` turns every such digger. **The heap
    cue** (on since
    2026-09-28; `PIXEL_PHYSICS_SPOIL_CUE=off` removes it) lets a cut that
    would open the ground to the sky go ahead only with probability
@@ -1209,7 +1212,7 @@ Read once per process from the environment. The default is what ships.
 | `PIXEL_PHYSICS_TOLERANCE_DRIFT` | slow (since 2026-10-03) | `full`: `TRAIT_TOLERANCE` drifts per birth at the full `scent_drift`, the ant before 2026-10-03. Slow, at `TOLERANCE_DRIFT_SHARE` (a third) of it; the scent signature keeps the full rate. Lines that narrowed at the full rate bit nestmates on the two-colony bed (`trait_width`, `slow_tolerance_drift`) |
 | `PIXEL_PHYSICS_DOOR_COLLAR` | off | `on`: before `act`, an ant whose head is within the door's half-width + `COLLAR_REACH` (2) columns of a nest site and from `COLLAR_UP` (6) rows over its founding surface to one under it packs each neighbour on the rim of the opening (at or over the surface, in a column whose cell one row under the surface is ground, beside one where it is open), pellets included when footed (`collar_tamp`, `CreatureStats::collar_packed`); `World::door_collar` for one world |
 | `PIXEL_PHYSICS_SPOIL_CREST` | off | `on`: under the ring, a carrier walks on from its drawn column while the ground ahead still rises (at most `CREST_REACH` 8 columns) and drops on the crest (`crest_column`, used by `spoil_haul_target` and `spoil_ring_holds`); `World::spoil_crest` for one world. Nest report §25: alone it lost 2 of 4 food-box colonies |
-| `PIXEL_PHYSICS_DIG_FACE` | off | `on`: a digger inside the nest whose won roll faces open air or a nestmate turns straight to the nearest octant whose cell it can cut and keep underground (not refused by the roof, not scaled by the heap cue), and cuts it; `workers`: only a nest-bound ant (§5 step 6; `digs_faced`; `World::dig_face` for one world) |
+| `PIXEL_PHYSICS_DIG_FACE` | `workers` | `off`: no turn, the ant before 2026-10-03; `on`: a digger inside the nest whose won roll faces open air or a nestmate turns straight to the nearest octant whose cell it can cut and keep underground (not refused by the roof, not scaled by the heap cue), and cuts it; `workers` (shipped): only a nest-bound ant (§5 step 6; `digs_faced`; `World::dig_face` for one world) |
 | `PIXEL_PHYSICS_DIG_WIDEN` | off | `on`: tunnels one body length (two cells) wide. On a won dig roll, a digger whose way ahead is open and whose head stands where its passage is one cell wide (ground above and below, or either side) cuts one of those walls instead of turning down and cutting ahead (`ahead_is_open`, `dig_widen_site`); a digger at a face cuts a shoulder beside the cell ahead on half its rolls (`dig_shoulder_site`), so a gallery advances two cells across. A passage two wide is left alone. Both cuts are ordinary cuts after that: the heap cue and the jaw judge them (`digs_widened`; `World::dig_widen` for one world) |
 
 ## 13. Where the implementation lives

@@ -1836,7 +1836,7 @@ pub struct CreatureStats {
     /// (`creature::dig_face_of`): inside the nest, the cell ahead was not
     /// ground the jaw could take, and the digger turned to one that was.
     /// Counted at the turn, before the heap cue and the roof judge the cut;
-    /// the cut itself is in `digs`. 0 unless the switch is on.
+    /// the cut itself is in `digs`. 0 with the switch off.
     pub digs_faced: u64,
     /// **Dig rolls whose downward turn was refused because there is no way
     /// down** (`creature::way_down`): all three cells under the animal are
@@ -3975,7 +3975,7 @@ pub struct World {
     pub dig_widen: Option<bool>,
     /// **The turn to the nearest face, overriding `PIXEL_PHYSICS_DIG_FACE`
     /// for this world** (`creature::dig_face_of`). `None` follows the
-    /// environment, which is off unless it says `on` or `workers`. A field so
+    /// environment, which is `workers` unless it says otherwise. A field so
     /// a guard can take every arm in one process.
     pub dig_face: Option<crate::sim::creature::DigFace>,
     /// **Newborns on nestmates, overriding `PIXEL_PHYSICS_BUD_STACK` for this

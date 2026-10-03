@@ -12898,8 +12898,8 @@ fn parse_dig_widen(raw: &str) -> bool {
     }
 }
 
-/// **Who turns to the face**: `PIXEL_PHYSICS_DIG_FACE=on|workers|off`, off
-/// unless set ([`dig_face_of`]).
+/// **Who turns to the face**: `PIXEL_PHYSICS_DIG_FACE=on|workers|off`,
+/// [`DigFace::SHIPPED`] unless set ([`dig_face_of`]).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DigFace {
     /// No turn: the dig cuts the cell ahead or nothing, as it always has.
@@ -12911,8 +12911,17 @@ pub enum DigFace {
     Workers,
 }
 
+impl DigFace {
+    /// **On for nest workers since 2026-10-03**, the owner's card: on his
+    /// playtest setup (4 seeds) the home grew 70 -> 103 cells, bigger on 3
+    /// of 4, with ants 41 -> 47 (2 up, 2 down), and a forager's dig is
+    /// untouched. `PIXEL_PHYSICS_DIG_FACE=off` is the ant before.
+    pub const SHIPPED: DigFace = DigFace::Workers;
+}
+
 /// **A digger inside the nest that faces no ground turns to the nearest face
-/// and cuts it**: `PIXEL_PHYSICS_DIG_FACE`, off unless set.
+/// and cuts it**: `PIXEL_PHYSICS_DIG_FACE`, on for nest workers
+/// ([`DigFace::SHIPPED`]) unless set.
 ///
 /// **Why.** The owner, 2026-10-03, on a colony that barely digs a nest:
 /// nest ants should stay home digging and organising. Traced per ant on
@@ -12942,10 +12951,11 @@ pub fn dig_face_of(world: &World) -> DigFace {
     world.dig_face.unwrap_or_else(dig_face)
 }
 
-/// `PIXEL_PHYSICS_DIG_FACE`, read once ([`parse_dig_face`]).
+/// `PIXEL_PHYSICS_DIG_FACE`, read once ([`parse_dig_face`]); unset is
+/// [`DigFace::SHIPPED`].
 fn dig_face() -> DigFace {
     static V: std::sync::OnceLock<DigFace> = std::sync::OnceLock::new();
-    *V.get_or_init(|| parse_dig_face(&std::env::var("PIXEL_PHYSICS_DIG_FACE").unwrap_or_default()))
+    *V.get_or_init(|| std::env::var("PIXEL_PHYSICS_DIG_FACE").map_or(DigFace::SHIPPED, |v| parse_dig_face(&v)))
 }
 
 fn parse_dig_face(raw: &str) -> DigFace {
@@ -15504,7 +15514,7 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
         // **...and a digger inside the nest that faces no ground turns to the
         // nearest face** ([`dig_face_of`]): open air or a nestmate ahead, it
         // turns straight to the nearest cell round from its heading that its
-        // jaw can take, and cuts that. Off, no read.
+        // jaw can take and keep underground, and cuts that. Off, no read.
         if widen_to.is_none() && !jaw_can_cut(world, def, organism, world.get(tx, ty)) && dig_face_applies(world, organism, x, y) {
             if let Some(h) = dig_face_turn(world, def, organism, (x, y), heading) {
                 if let Some(state) = world.organism_mut(organism) {
