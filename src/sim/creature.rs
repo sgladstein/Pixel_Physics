@@ -12817,7 +12817,10 @@ fn half_turn_left(seed: u64, organism: OrganismId, frame: u64) -> bool {
 ///   the first build, and it took the foragers off the food: on the owner's
 ///   setup (4 seeds) home 70 -> 130 but food taken from the pile 833 -> 367
 ///   and births 74 -> 5 on seed 2 -- the dig-down turn's harm again
-///   (`Reports/dead-ends.md`).
+///   (`Reports/dead-ends.md`). `recruitfed` walks a nest-bound ant, and any
+///   other digger at or above its `start_energy`: a fed forager has nothing
+///   to fetch for itself, so it digs; a hungry one goes out (task allocation
+///   by response threshold, Beshers & Fewell 2001, Annu Rev Entomol 46:413).
 ///
 /// **How it differs from `PIXEL_PHYSICS_DIG_FACE`** (the Nest building lane's
 /// turn to the nearest underground wall): that one cuts any wall the digger
@@ -12831,6 +12834,7 @@ pub enum FreshCut {
     Draw,
     Recruit,
     RecruitAll,
+    RecruitFed,
 }
 
 /// How many recent cuts a world remembers ([`FreshCut`]). A colony of tens of
@@ -12860,6 +12864,7 @@ fn parse_fresh_cut(raw: &str) -> FreshCut {
         "draw" => FreshCut::Draw,
         "recruit" => FreshCut::Recruit,
         "recruitall" => FreshCut::RecruitAll,
+        "recruitfed" => FreshCut::RecruitFed,
         "" | "off" => FreshCut::Off,
         v => {
             eprintln!("PIXEL_PHYSICS_FRESH_CUT={v:?}: not `aim`, `draw` or `off`; read as off");
@@ -15587,7 +15592,10 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
                 let (fx, fy) = DIRS[h as usize];
                 (tx, ty) = (x + fx, y + fy);
                 world.creature_stats.digs_fresh_faced += 1;
-            } else if fresh == FreshCut::RecruitAll || (fresh == FreshCut::Recruit && world.organism(organism).is_some_and(|s| is_nest_bound(world, s))) {
+            } else if fresh == FreshCut::RecruitAll
+                || (matches!(fresh, FreshCut::Recruit | FreshCut::RecruitFed) && world.organism(organism).is_some_and(|s| is_nest_bound(world, s)))
+                || (fresh == FreshCut::RecruitFed && world.organism(organism).is_some_and(|s| s.energy >= def.start_energy))
+            {
                 if let Some(c) = fresh_cut_nearest(world, (x, y)) {
                     if let Some(state) = world.organism_mut(organism) {
                         if state.dig_return.is_none() {
@@ -24302,6 +24310,7 @@ mod tests {
         assert_eq!(parse_fresh_cut(" draw "), FreshCut::Draw);
         assert_eq!(parse_fresh_cut("recruit"), FreshCut::Recruit);
         assert_eq!(parse_fresh_cut("recruitall"), FreshCut::RecruitAll);
+        assert_eq!(parse_fresh_cut("recruitfed"), FreshCut::RecruitFed);
         for off in ["", "off", "on", "Draw"] {
             assert_eq!(parse_fresh_cut(off), FreshCut::Off, "{off:?} turned fresh-cut digging on");
         }
