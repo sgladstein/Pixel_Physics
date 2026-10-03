@@ -699,10 +699,12 @@ pub enum Tool {
     /// Drop a wall, floor to ceiling, in the column you click. Click a wall
     /// you placed to take it out again.
     Wall,
-    /// **Put food on the ground.** Paints `windfall` — the fruit a herb drops
-    /// — which falls, piles at its own angle of repose and rots back into
-    /// soil, so a heap you paint is food that behaves like food rather than a
-    /// permanent fixture.
+    /// **Put food on the ground.** Paints `provisions` -- a herb's dropped
+    /// fruit in every respect but one: it falls and piles at its own angle of
+    /// repose like windfall, and it never rots, so it stays until something
+    /// eats it. It painted rotting `windfall` until 2026-10-03, when the
+    /// owner found it *"seems to degrade very quickly. It shouldn't degrade
+    /// or disappear at all."*
     ///
     /// **This is the box's control arm as much as it is a verb.** `wiki/
     /// ants.md` records the two arms plainly: put food on the ground beside a
@@ -713,13 +715,15 @@ pub enum Tool {
     /// measurement in this bed could tell "the foraging is broken" from "the
     /// economy is broken". Now it can.
     ///
-    /// **Off the bar, like `Wall` and `Release`, and this was measured rather
-    /// than assumed.** `PIXEL_PHYSICS_BAR_TRACE` on the shipped layout reports
-    /// **row 0 slack 0 and row 1 slack 0** — both rows sit at exactly 508 of
-    /// 508 — so there is no seventh tool cell at any spacing `layout` tries.
+    /// **On the bar since 2026-10-03, as a stop on the `ADD` cell** (see
+    /// [`PLACEABLE`]). Before that it was off the bar, like `Wall` and
+    /// `Release`, and this was measured rather than assumed:
+    /// `PIXEL_PHYSICS_BAR_TRACE` on the shipped layout reported **row 0
+    /// slack 0 and row 1 slack 0** -- both rows at exactly 508 of 508 -- so
+    /// there was no seventh tool cell at any spacing `layout` tries, and
     /// `Reports/dead-ends.md` carries three earlier attempts at fitting one.
-    /// The key is in `HELP`, marked `(NO BUTTON)`, which is the pattern `K`
-    /// already set.
+    /// Folding soil, water and wall into the one `ADD` cell is what made the
+    /// room. `E` still arms it directly.
     Food,
     /// **Drag to lay a pheromone trail by hand** — the owner's idea,
     /// 2026-09-09: *"it might be fun if the user could manually lay down
