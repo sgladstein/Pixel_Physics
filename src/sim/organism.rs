@@ -9567,6 +9567,22 @@ pub fn moisture_pull(world: &World, x: f32, y: f32) -> Option<((f32, f32), f32)>
 mod tests {
     use super::*;
 
+    /// **A defence step is reflected back into range, never piled on a
+    /// bound**, and the price and the discount are the same graded scale.
+    /// Goes red if `mutate_defence` is turned into a clamp (a founding
+    /// population would then sit at exactly 0.0 and half of all steps would
+    /// be no-ops) or if either end of the trade stops being linear.
+    #[test]
+    fn defence_reflects_at_its_bounds_and_prices_linearly() {
+        assert!((mutate_defence(0.0, -0.1) - 0.1).abs() < 1e-6, "a step below zero reflects");
+        assert!((mutate_defence(0.95, 0.1) - 0.95).abs() < 1e-6, "a step past one reflects");
+        assert!((mutate_defence(0.3, 0.05) - 0.35).abs() < 1e-6, "an interior step is a step");
+        assert_eq!(palatability(0.0), 1.0);
+        assert_eq!(palatability(1.0), 0.0);
+        assert_eq!(defence_cost_multiplier(0.0), 1.0, "an undefended plant pays today's price");
+        assert!((defence_cost_multiplier(0.5) - (1.0 + 0.5 * DEFENCE_COST)).abs() < 1e-6);
+    }
+
     #[test]
     fn every_embedded_species_parses() {
         let reg = SpeciesRegistry::builtin();

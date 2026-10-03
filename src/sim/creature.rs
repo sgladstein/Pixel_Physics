@@ -23793,6 +23793,32 @@ mod tests {
         w
     }
 
+    /// **A plant's defence discounts what its tissue is worth, and nothing
+    /// else's.** The one reader of `OrganismState::defence` is
+    /// `food_value`, so this is the whole of the effect side: at 0.0 a seed
+    /// is worth its material, at 0.5 half, at 1.0 nothing -- graded, not a
+    /// threshold. Goes red if the term is dropped, inverted, or applied to
+    /// unowned cells.
+    #[test]
+    fn a_defended_plant_is_worth_less_to_eat_in_proportion() {
+        let mut w = test_world();
+        assert!(w.plant_tree_species(50, 50, "herb"), "test setup: the seed should plant");
+        let cell = w.get(50, 50);
+        let id = cell.organism_id();
+        assert_ne!(id, 0, "test setup: a planted seed is owned");
+        let face = w.materials.get(cell.material).food_energy;
+        assert!(face > 0.0, "test setup: seed must be food");
+        assert_eq!(food_value(&w, cell), face, "an undefended plant is worth its material");
+        for (d, want) in [(0.5, 0.5 * face), (1.0, 0.0), (0.25, 0.75 * face)] {
+            w.organism_mut(id).expect("owner").defence = d;
+            let got = food_value(&w, w.get(50, 50));
+            assert!((got - want).abs() < 1e-3, "defence {d}: worth {got}, expected {want}");
+        }
+        // An unowned cell of the same material is untouched by anybody's defence.
+        let loose = Cell::new(cell.material, 0);
+        assert_eq!(food_value(&w, loose), face, "defence leaked onto an unowned cell");
+    }
+
     /// **The shipped default is on, and this is the test that says so.**
     ///
     /// [`test_world`] pins `scent_spread` off so that every other kin test

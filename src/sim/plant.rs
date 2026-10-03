@@ -3967,7 +3967,7 @@ fn bear_seed_at(world: &mut World, sx: i32, sy: i32, parent_id: OrganismId, seed
     // Its own keyed substream, never `rng`, for the reason the parameter
     // mutation above gives. Skipped entirely when the switch is off, so a
     // `PLANT_DEFENCE=0` run draws nothing and stays byte-identical.
-    if organism::plant_defence_on() {
+    if world.plant_defence {
         let parent_defence = world.organism(parent_id).map_or(0.0, |s| s.defence);
         let mut drng =
             rng::stream(world_seed ^ APPENDED_JITTER_SALT, sx as u64, sy as u64, (generation as u64) << 8 | DEFENCE_MUTATION_STREAM);
@@ -19525,6 +19525,21 @@ this costs more than the bug"
             // the box with it off, nothing removes the crown, and the
             // economy goes on feeding it.
             w.plant_load_failure = load_failure;
+            // **Defence off, and why that is scoping rather than hiding.**
+            // This guard is about the cut-off traversal, and its specificity
+            // arm asserts an exact 0 on one trajectory. With
+            // `plant_defence` on, the founder's seedlings carry defence and
+            // grow at a different price, which changes the shading and
+            // crowding around the founder; on 2026-10-03 that stranded one
+            // twig of the *founder's own* tissue (DBG trace: organism 1,
+            // generation 0, defence 0.0) -- a genuine cut-off, not a
+            // traversal fault. The rule this guards is unchanged either way.
+            // `drought_reach` likewise: a crown leaf shed for thirst can
+            // strand the wood past it, which this rule then correctly sheds
+            // (2 cells on the same date) -- again real, again not this
+            // guard's question.
+            w.plant_defence = false;
+            w.drought_reach = false;
             plant_tree_on_ground(&mut w, 100, 60);
             let id = w.get(100, 60).organism_id();
             assert_ne!(id, 0, "test setup: the planted seed should own its cell");

@@ -68,10 +68,11 @@ fn main() {
         world.mutation_sigma *= scale;
     }
     println!(
-        "labdefence: scenario={name} seed={} frames={frames} sample={sample} colony={} defence={} mutation_sigma={:.3} cost={}",
+        "labdefence: scenario={name} seed={} frames={frames} sample={sample} colony={} defence={} drought_reach={} mutation_sigma={:.3} cost={}",
         spec.seed,
         if with_colony { "on" } else { "OFF" },
-        if organism::plant_defence_on() { "on" } else { "OFF" },
+        if world.plant_defence { "on" } else { "OFF" },
+        if world.drought_reach { "on" } else { "OFF" },
         world.mutation_sigma,
         organism::DEFENCE_COST,
     );
@@ -91,10 +92,11 @@ fn main() {
         }
     }
     println!(
-        "DEFENCE_SUMMARY seed={} colony={} defence={} frames={frames} ants_peak={ants_peak} deepest_generation={}",
+        "DEFENCE_SUMMARY seed={} colony={} defence={} drought_reach={} frames={frames} ants_peak={ants_peak} deepest_generation={}",
         spec.seed,
         with_colony as u8,
-        organism::plant_defence_on() as u8,
+        world.plant_defence as u8,
+        world.drought_reach as u8,
         world.deepest_generation
     );
 }
@@ -103,6 +105,11 @@ fn main() {
 fn stop(world: &World, f: u64, (width, height): (i32, i32)) -> usize {
     let mut ants = 0usize;
     let mut plant_def: Vec<f32> = Vec::new();
+    // Thirst: the plant-wide shortfall over growing plants, and how many
+    // are short at all -- what `DROUGHT_REACH` stretches by distance.
+    let mut thirsty = 0usize;
+    let mut thirst_sum = 0f32;
+    let mut plant_cells = 0usize;
     let mut seed_def: Vec<f32> = Vec::new();
     for id in world.live_organism_ids() {
         let Some(s) = world.organism(id) else { continue };
@@ -127,6 +134,11 @@ fn stop(world: &World, f: u64, (width, height): (i32, i32)) -> usize {
             seed_def.push(s.defence);
         } else {
             plant_def.push(s.defence);
+            plant_cells += s.cells.len();
+            thirst_sum += s.water_desiccation;
+            if s.water_desiccation > 0.0 {
+                thirsty += 1;
+            }
         }
     }
     plant_def.sort_by(|a, b| a.partial_cmp(b).unwrap());
@@ -156,7 +168,7 @@ fn stop(world: &World, f: u64, (width, height): (i32, i32)) -> usize {
         }
     }
     println!(
-        "STOP f={f} ants={ants} plants={} seeds={} edible_face_kJ={:.0} edible_got_kJ={:.0} def_plant_mean={:.3} def_plant_p50/90={:.3}/{:.3} def_seed_mean={:.3} deepest_gen={}",
+        "STOP f={f} ants={ants} plants={} seeds={} edible_face_kJ={:.0} edible_got_kJ={:.0} def_plant_mean={:.3} def_plant_p50/90={:.3}/{:.3} def_seed_mean={:.3} deepest_gen={} plant_cells={plant_cells} thirsty={thirsty} thirst_mean={:.3} shed_drought={} shed_shade={}",
         plant_def.len(),
         seed_def.len(),
         face_j / 1000.0,
@@ -166,6 +178,9 @@ fn stop(world: &World, f: u64, (width, height): (i32, i32)) -> usize {
         quantile(&plant_def, 0.9),
         mean(&seed_def),
         world.deepest_generation,
+        thirst_sum / plant_def.len().max(1) as f32,
+        world.shed_drought,
+        world.shed_shade,
     );
     ants
 }
