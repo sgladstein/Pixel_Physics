@@ -2940,7 +2940,7 @@ revamp rather than another round:
 
 ## The evolution lab  ·  `lab`
 
-The second game: a sealed box of soil under a grow light, run at speed, where
+The main game (owner, 2026-10-02): a sealed box of soil under a grow light, run at speed, where
 the shipped plants and creatures live under conditions a player sets. Design
 of record is the design guide (in flight, below); `two-games-one-repo-2026-08-30.md`
 above says what the two games share.

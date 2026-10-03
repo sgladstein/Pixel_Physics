@@ -1,6 +1,6 @@
 # Coordinator — the held world (`--bin druid`)
 
-**The druid program's standing note.** Its sibling for the second game is
+**The druid program's standing note.** Its sibling for the evolution lab (the main game) is
 [`evolution-lab-coordinator.md`](evolution-lab-coordinator.md), and this is
 deliberately the same shape: **kept small on purpose**, carrying only the
 standing owner rulings, the live round, and the environment facts that have

@@ -2,6 +2,17 @@
 
 For a fresh Claude with no context. Repo: sgladstein/Pixel_Physics. Branch: `claude/ant-breeding-plan-v9kpl5`.
 
+> **Correction (owner, 2026-10-02; main `d4418bf2`).** The evolution lab
+> (`cargo run --release --bin lab`) is **the main game**; the owner has not
+> worked on the outdoor sandbox or the held world in months. Where this note
+> says "lab box" it means the evolution lab itself; where it says "main game"
+> or "main bed" it means the food box, not the game the owner plays.
+> **PR 550** (merged as `d4418bf2`) made the lab's ants lay anywhere again
+> (`src/lab/scene.rs:843-845`). That is a **revert** of lay-only-at-the-nest in
+> the main game, not a fix, and it also moved the `trailfollow` long runs back
+> to laying anywhere, because they build through `LabBox`. **The top open
+> problem is making laying at the nest work in the evolution lab.**
+
 ## What the lane owns
 How ants reproduce: eggs/larvae/pupae (`src/sim/brood.rs`: `lay_egg`, `brood::nurse`), the birth bar and laying rules in `try_bud` (`src/sim/creature.rs`), `creature::kin_deficit` (larva hunger, the nest lane's larva-scent work must read it), and the breeding knobs. Plan of record: `Reports/ant-breeding-plan-2026-09-29.md` (biology table ~line 465). Living ant reference: `Reports/how-the-ant-works.md` (§9 breeding, §12 switches); update it in the same commit as any mechanism change. Wiki: `wiki/ants.md`.
 
@@ -22,13 +33,13 @@ How ants reproduce: eggs/larvae/pupae (`src/sim/brood.rs`: `lay_egg`, `brood::nu
 | 546 (main 0738a8ca) | lay only at the nest (`PIXEL_PHYSICS_BUD_SITE=anywhere` to undo); trailfollow `bankdump=` and EATING line | on |
 
 ## Unmerged work: the PR from `claude/ant-breeding-plan-v9kpl5` (head ebdafcce, main 6852a99c merged in)
-- **Lab box lays anywhere** (a8a8ad1b, `src/lab/scene.rs`): fixes the lab box that PR 546 broke. `LabBox::build_counted` sets `bud_at_nest` off unless `PIXEL_PHYSICS_BUD_SITE` is set. Lab, 12 paired seeds: births median 4 -> 329, died out 10 -> 0 of 12, alive at end 0 -> 178. The main game still lays only at the nest.
+- **Lab box lays anywhere** (a8a8ad1b, `src/lab/scene.rs`; merged in PR 550, `d4418bf2`): reverts PR 546's lay-only-at-the-nest in the lab, the main game. Not a fix: the lab's ants still cannot lay at the nest. `LabBox::build_counted` sets `bud_at_nest` off unless `PIXEL_PHYSICS_BUD_SITE` is set. Lab, 12 paired seeds: births median 4 -> 329, died out 10 -> 0 of 12, alive at end 0 -> 178. Only the other games (and the food box) still lay only at the nest.
 - **Walk home to lay** (f6accdf9, `PIXEL_PHYSICS_LAY_HOME`, on unless `off`; `laden` also pulls ants carrying food): an ant whose bank clears the laying bar walks home like a laden forager. Did NOT rescue the lab (births 4 -> 7, 10/12 still died): 90% of ready ants are laden and circle 4-10 cells from the small painted nest. Food box on the new main, 6 paired seeds: neutral (median live 220 vs 240, born 422 vs 426), so it stays on.
 - **Food brake** (d315658a, c2214bf4, `PIXEL_PHYSICS_FOOD_BRAKE`, OFF): raises the birth bar when colony income/burn (EMA, 3,000 frames) drops below 1.5, full stop at 1.0; colonies under 30 adults exempt. Mixed (one seed steadier, one crashed), no food store forms. Keep off.
 - Rejected on the lab (seed 1 or seeds 1-4): `LAY_REACH=3`, `NEST_REACH=r6` oracle, `LAY_HOME=laden`.
 
 ## Next steps in order
-1. Get the PR merged (lab fix). Decide LAY_HOME's default from the food-box/long-run check: keep on only if neutral or better.
+1. ~~Get the PR merged (lab fix).~~ Merged as PR 550 (`d4418bf2`), as a revert, not a fix: making laying at the nest work in the lab is still step one. Decide LAY_HOME's default from the food-box/long-run check: keep on only if neutral or better.
 2. Re-test the appetite gate (`digest_hunger_weight`, trailfollow `hungergate=`) once the nest lane's dug home lands. Last test (6a8dacd4): fruit -40% at gap 90, 4/6 died at gap 200. Rejected.
 3. Food store: none forms. Ants bank eaten food as energy with no ceiling; 1-7% of digestion happens at the nest; mouth-to-mouth sharing moves 23-45% of digestion, ~1/5 to brood. A store-keyed brake only makes sense once food stays at home.
 4. Later plan items: B5, B4 roles by age (agree with the nest lane first), B4b, B6 (founding, lifespan, mating flights).

@@ -1,6 +1,6 @@
 # The evolution lab — coordinator note
 
-*`cargo run --release --bin lab` is the second game: a sealed box of soil under
+*`cargo run --release --bin lab` is the main game (owner, 2026-10-02): a sealed box of soil under
 grow lights where the shipped plants and ants live. Design of record:
 [`../evolution-lab-design-guide-2026-08-30.md`](../evolution-lab-design-guide-2026-08-30.md),
 with [`../evolution-lab-feasibility-2026-08-30.md`](../evolution-lab-feasibility-2026-08-30.md)
