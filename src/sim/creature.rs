@@ -13770,6 +13770,45 @@ fn food_drop_site(world: &World, x: i32, y: i32, through_bodies: bool, clear: Op
     None
 }
 
+/// **Food is put down away from the brood** -- `PIXEL_PHYSICS_FOOD_SORT=on`;
+/// off (unset) is the ant as it was, bit for bit. Under it a forager at home
+/// does not empty its crop with a brood cell within [`FOOD_SORT_REACH`] of its
+/// head: the roll reads 0 and it walks on, so food goes down where the brood
+/// is not.
+///
+/// **Why** (the owner's goal of 2026-10-03: food and brood "somewhat
+/// organized", in separate chambers). Traced on the goal box (main 192b7103,
+/// `NEST_REST=on`, seeds 1 and 3, `nestgoal`'s `SITES` line): while the
+/// colony is small, 70-90% of food put down underground lands beside other
+/// food; once it grows, 55-60% lands with brood within two cells, and the one
+/// chamber holds both. Ants sort their brood and stores into separate places
+/// by local cues alone -- items are put down beside like items and away from
+/// unlike ones (Franks & Sendova-Franks 1992, doi 10.1016/0003-3472(92)90001-H)
+/// -- and a carrier's put-down is steered by what is already lying where it
+/// stands (Römer & Roces 2014, doi 10.1371/journal.pone.0097872). This is the
+/// "away from unlike" half only; the nest workers' `pile` rule
+/// ([`Storeroom::pile`]) already supplies "beside like".
+fn food_sort_on() -> bool {
+    static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *V.get_or_init(|| std::env::var("PIXEL_PHYSICS_FOOD_SORT").as_deref() == Ok("on"))
+}
+
+/// How near a brood cell holds a crop back, in cells (Chebyshev), under
+/// [`food_sort_on`]: the reach `nestgoal`'s `SITES` census classes by.
+const FOOD_SORT_REACH: i32 = 2;
+
+/// Whether a crop at `(x, y)` is held back by [`food_sort_on`]: on, and a
+/// brood cell within [`FOOD_SORT_REACH`].
+fn food_sort_holds(world: &World, x: i32, y: i32) -> bool {
+    if !food_sort_on() {
+        return false;
+    }
+    let Some(brood) = world.materials.id_of("brood") else {
+        return false;
+    };
+    (-FOOD_SORT_REACH..=FOOD_SORT_REACH).any(|dy| (-FOOD_SORT_REACH..=FOOD_SORT_REACH).any(|dx| world.get(x + dx, y + dy).material == brood))
+}
+
 /// Whether a blocked food drop is handed through bodies (`food_drop_site`).
 /// **On by default**; `PIXEL_PHYSICS_DROP_REACH=adjacent` restores the
 /// eight-neighbour drop exactly, for paired measurement.
@@ -15216,9 +15255,17 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
             // put down at a fed ant's rate, since the founding cut is not home
             // to a forager and `Drop` reads 0 there.
             let harvest = harvest_drop(world, organism, (x, y), def);
+            // **Not beside the brood** (`PIXEL_PHYSICS_FOOD_SORT`,
+            // [`food_sort_holds`]): at home, a crop is not put down with brood
+            // within reach, and the carrier walks on with it.
+            let sort_hold = harvest.is_none() && at_nest && food_sort_holds(world, x, y);
+            if sort_hold {
+                world.creature_stats.food_sort_held += 1;
+            }
             let p = match harvest {
                 Some(HarvestDrop::Hold) => 0.0,
                 Some(HarvestDrop::Store(_)) => HARVEST_DROP_P,
+                None if sort_hold => 0.0,
                 None => drop_urge,
             };
             // The same single draw as before, bound to a name so the trace can

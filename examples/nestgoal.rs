@@ -236,18 +236,48 @@ struct Flow {
     arrived: u64,
     left: u64,
     prev: [u64; 6],
+    /// Food cells underground last frame, to tell where new ones appear.
+    cells: HashSet<(i32, i32)>,
+    /// New food cells by what lay within two cells of them the frame they
+    /// appeared: [beside brood only, beside food only, beside both, neither].
+    site: [u64; 4],
 }
 
 impl Flow {
     fn step(&mut self, census: &Census, w: &World, nest_x: i32) {
-        let mut n = 0;
+        let mut now = HashSet::new();
         for y in census.ground_y + 1..census.ground_y + 80 {
             for x in nest_x - 80..=nest_x + 80 {
                 if census.what(w, x, y) == What::Food {
-                    n += 1;
+                    now.insert((x, y));
                 }
             }
         }
+        if self.last.is_some() {
+            for &(x, y) in now.difference(&self.cells) {
+                let (mut brood, mut food) = (false, false);
+                for dy in -2..=2 {
+                    for dx in -2..=2 {
+                        if (dx, dy) == (0, 0) {
+                            continue;
+                        }
+                        match census.what(w, x + dx, y + dy) {
+                            What::Brood => brood = true,
+                            What::Food if self.cells.contains(&(x + dx, y + dy)) => food = true,
+                            _ => {}
+                        }
+                    }
+                }
+                self.site[match (brood, food) {
+                    (true, false) => 0,
+                    (false, true) => 1,
+                    (true, true) => 2,
+                    (false, false) => 3,
+                }] += 1;
+            }
+        }
+        let n = now.len();
+        self.cells = now;
         if let Some(l) = self.last {
             if n > l {
                 self.arrived += (n - l) as u64;
@@ -266,9 +296,14 @@ impl Flow {
             "FLOW frame={frame} underground food now {} | arrived {} left {} | bites {} | crop drops {} (home {}) | store pickups {} delivered {} | harvest stored {}",
             self.last.unwrap_or(0), self.arrived, self.left, d[0], d[1], d[2], d[3], d[4], d[5]
         );
+        println!(
+            "SITES frame={frame} new food cells underground beside: brood only {} | food only {} | both {} | neither {} | sort holds (total) {}",
+            self.site[0], self.site[1], self.site[2], self.site[3], s.food_sort_held
+        );
         self.prev = now;
         self.arrived = 0;
         self.left = 0;
+        self.site = [0; 4];
     }
 }
 

@@ -1839,6 +1839,9 @@ pub struct CreatureStats {
     /// **Dig rolls with nothing to cut that turned the digger one octant
     /// toward the nearest fresh cut** under `PIXEL_PHYSICS_FRESH_CUT=draw`.
     pub digs_fresh_drawn: u64,
+    /// Crop drops at home held back because brood lay within reach
+    /// (`PIXEL_PHYSICS_FOOD_SORT`, `creature::food_sort_holds`). Zero when off.
+    pub food_sort_held: u64,
     /// **Won dig rolls inside the nest with no cuttable cell ahead, by why**
     /// (`PIXEL_PHYSICS_FRESH_CUT` on only): [0] no cuttable cell round the
     /// digger at all, [1] only cells the roof or heap cue would refuse,
