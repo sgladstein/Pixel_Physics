@@ -262,6 +262,11 @@ fn the_serial_driver_is_deterministic_across_identical_runs() {
 // ... gen p1`), against 0 at frame 900 — so `LAB_FRAMES` is 2,400, which
 // clears it with a third to spare without paying for the 45,000 frames the
 // stand needs to reach generation 5.
+//
+// **Doubled to 4,800 on 2026-10-03**, when the lab's plants went to half
+// speed (`scene.rs`, owner's card): the same first birth now arrives near
+// frame 3,600 of world time, so 2,400 frames left `plant_generation` at 0 and
+// this guard red for the right reason. Same plant time, same margin.
 
 use pixel_physics::lab::scene::LabBox;
 use pixel_physics::lab::stats::Stats;
@@ -270,7 +275,7 @@ use pixel_physics::sim::frame;
 use pixel_physics::sim::particle::ParticleSystem as LabParticles;
 use pixel_physics::sim::player;
 
-const LAB_FRAMES: u64 = 2_400;
+const LAB_FRAMES: u64 = 4_800;
 const LAB_CHECKPOINT_EVERY: u64 = 600;
 
 /// The shipped bed, with its colony. **Both halves deliberately**: the ants
@@ -362,7 +367,7 @@ fn the_lab_bed_is_deterministic_across_identical_runs() {
         a.windows(2).any(|w| w[0] != w[1]),
         "the bed never changed between checkpoints — it has stopped exercising anything"
     );
-    let census = stats.census().expect("a census after 2,400 frames");
+    let census = stats.census().expect("a census after 4,800 frames");
     assert!(census.plants > 0, "nothing is alive in the bed");
     assert!(
         world.live_creature_count() > 0,

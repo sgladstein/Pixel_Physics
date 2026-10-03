@@ -830,6 +830,17 @@ impl LabBox {
         // opens at rather than a value it is stuck with.
         w.plant_size_cadence = true;
         w.plant_bending = false;
+        // **Plants at half speed** (owner's card, 2026-10-03: "Run lab plants
+        // at half speed by default?" -- *Half speed*). Plants, seeding and
+        // litter rot all run on the organism clock this doubles; the ants'
+        // clock is untouched. Measured on `played_bed` (labgarden, 6 seeds x
+        // 300k, main 1bdf5e15): at full speed every colony was dead by 222k;
+        // at half speed 5 of 6 were alive at 300k, outlasting full speed on
+        // 6 of 6, with a smaller boom (median peak 229 against 338 ants) and
+        // edible food left standing. Quarter speed starved the colony of
+        // falling litter and seed (never above ~70 ants). A starting value,
+        // like the two rows above: a later `set_rates` moves it.
+        w.clock.set_rates(0, |c| c.growth_slowdown = 2);
         // **The lab's ants lay anywhere**, while the engine default lays only
         // at the nest (`creature::bud_at_nest`, PR 546). Measured 2026-10-02
         // on `played_bed` (120k, 12 seeds, main 0738a8ca): nest-only laying
