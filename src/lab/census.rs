@@ -56,6 +56,9 @@ pub struct Ids {
     /// it, splitting the pellet out of `packedsoil` would have silently taken
     /// `packed_above` -- the mound column every lane reads -- to near zero.
     packed_any: Vec<MaterialId>,
+    /// Root tissue, for the `dug_roots` column: a root threading undug soil
+    /// is ordinary, one standing in a gallery is room the colony has lost.
+    root: Vec<MaterialId>,
 }
 
 impl Ids {
@@ -71,6 +74,7 @@ impl Ids {
             ground: ids(&["soil", "packedsoil", "spoil", "nest"]),
             packed: world.materials.id_of("packedsoil"),
             packed_any: ids(&["packedsoil", "spoil"]),
+            root: ids(&["grassroot", "rootwood", "reedroot"]),
         }
     }
 }
@@ -161,9 +165,49 @@ pub struct Sample {
     /// it: a corpse burnt to charcoal or half digested can fall under the
     /// edible threshold and still be lying on the ground.
     pub corpses: usize,
+    /// **Every cell an ant dug below the original surface, and what stands
+    /// in it now** -- [`World::dug_cells`], filtered to `y >= surface`. The
+    /// seven `dug_*` columns after it partition it exactly
+    /// ([`Sample::dug_accounted`]).
+    ///
+    /// **Built for the question the room column cannot answer: where did
+    /// the nest go?** In the owner's playtest of 2026-10-03 the roofed room
+    /// peaked at 397 cells and fell to 311 while the colony went on digging
+    /// (`/mnt/project-files/playtest-2026-10-03/findings.md`). `roofed`
+    /// counts empty cells, so a gallery a root has grown into, or water has
+    /// pooled in, or spoil has been dropped back into, simply stops being
+    /// counted, and nothing said which. Read off the grid alone the
+    /// question is unanswerable: soil's `penetration_resistance` (0.8) is
+    /// under every shipped root's force, so most roots below ground are in
+    /// undug soil and belong there.
+    pub dug: usize,
+    /// ...still open: materially `EMPTY`.
+    pub dug_open: usize,
+    /// ...with an animal standing in it -- still room, as `roofed_bodies`.
+    pub dug_bodies: usize,
+    /// ...grown shut by root tissue (`grassroot`, `rootwood`, `reedroot`),
+    /// which an ant's jaw (dig force 1.0) cannot cut against a root's
+    /// default `penetration_resistance` of 100.
+    pub dug_roots: usize,
+    /// ...holding other plant tissue: a shoot, a buried seed.
+    pub dug_plant: usize,
+    /// ...standing full of water -- the lid's drip, pooled.
+    pub dug_water: usize,
+    /// ...filled back with the bed's own ground: spoil dropped back, a
+    /// wall slumped in, soil that ran down a shaft.
+    pub dug_soil: usize,
+    /// ...anything else: food, litter, a corpse, brood.
+    pub dug_other: usize,
 }
 
 impl Sample {
+    /// The seven `dug_*` fates summed -- equal to [`Sample::dug`] by
+    /// construction, and a test holds it there, so a new material that
+    /// falls through every arm shows up as a gap rather than vanishing.
+    pub fn dug_accounted(&self) -> usize {
+        self.dug_open + self.dug_bodies + self.dug_roots + self.dug_plant + self.dug_water + self.dug_soil + self.dug_other
+    }
+
     /// **The size of the nest: room whether or not somebody is standing in
     /// it.** This, not [`Sample::roofed`], is what a question about how much
     /// a colony has dug should read.
@@ -372,6 +416,35 @@ pub fn census(world: &World, spec: &LabBox, gut: f32, nest_cols: &[i32], ids: &I
             } else {
                 s.other_j += j;
             }
+        }
+    }
+    // **What became of the dug ground** -- see `Sample::dug`. Its own pass
+    // over the record rather than a test inside the grid walk above: the
+    // set is a few thousand cells against the whole bed, and a membership
+    // test per cell of the bed would cost more than the walk it rides on.
+    for &(x, y) in &world.dug_cells {
+        if !xs.contains(&x) || !ys.contains(&y) || y < surface_of(world, spec, x) {
+            continue;
+        }
+        s.dug += 1;
+        let cell = world.get(x, y);
+        let kind = world.materials.kind(cell.material);
+        // The raw material test, not `is_empty`: a promoted liquid body's
+        // container cells read not-empty there (`.claude/rules/src-sim-cells.md`).
+        if cell.material == material::EMPTY {
+            s.dug_open += 1;
+        } else if kind == MaterialKind::Creature {
+            s.dug_bodies += 1;
+        } else if ids.root.contains(&cell.material) {
+            s.dug_roots += 1;
+        } else if kind == MaterialKind::Plant || (cell.organism_id() != 0 && world.organism(cell.organism_id()).is_some_and(|st| world.species.get(st.species).creature.is_none())) {
+            s.dug_plant += 1;
+        } else if kind == MaterialKind::Liquid {
+            s.dug_water += 1;
+        } else if ids.ground.contains(&cell.material) {
+            s.dug_soil += 1;
+        } else {
+            s.dug_other += 1;
         }
     }
     // **Bare on the mound's own surface**, walked as its own pass because it
@@ -816,7 +889,22 @@ pub fn row_addendum(row: &ChronicleRow) -> String {
         pct(s.bare_in_band, s.band_cols), s.bare_in_band, s.band_cols,
         pct(s.bare_outside, s.outside_cols), s.bare_outside, s.outside_cols,
         s.packed_above, s.mound_high
-    ) + &phase_addendum(row)
+    ) + &dug_addendum(s)
+        + &phase_addendum(row)
+}
+
+/// **What became of the ground the colony dug**, as one more clause on the
+/// addendum line -- [`Sample::dug`]'s partition, in words. Nothing at all
+/// when nothing has been dug, so a plant-only box's chronicle reads as it
+/// always did.
+fn dug_addendum(s: &Sample) -> String {
+    if s.dug == 0 {
+        return String::new();
+    }
+    format!(
+        " | dug below ground: {} cells -- open {}, ants in it {}, roots {}, other plant {}, water {}, soil back {}, other {}",
+        s.dug, s.dug_open, s.dug_bodies, s.dug_roots, s.dug_plant, s.dug_water, s.dug_soil, s.dug_other
+    )
 }
 
 /// **The phase split as shares, in words, ranked** -- a second line under the
@@ -1062,6 +1150,65 @@ mod tests {
         let vacated = at(&world, &spec, &ids);
         assert_eq!(vacated.roofed_bodies, 0, "the bodies column is still reporting ants that have gone");
         assert_eq!(vacated.roofed, 9, "and the empty count came back");
+    }
+
+    /// **A root in a gallery is counted; the same root in undug soil is
+    /// not** -- the split `Sample::dug` exists to make, and the one the grid
+    /// alone cannot, since roots thread soil freely.
+    ///
+    /// The positive control is a row of eight dug cells holding one of each
+    /// fate by hand. The negative half puts root tissue and water in cells
+    /// nobody dug, and one dug cell above the surface (a cut into a mound),
+    /// and none of them may move a column.
+    #[test]
+    fn what_fills_dug_ground_is_counted_and_undug_ground_is_not() {
+        let (mut world, spec, ids) = bare_bed();
+        let id = |w: &World, n: &str| w.materials.id_of(n).unwrap_or_else(|| panic!("{n} is compiled in"));
+        let (root, water, ant, spoil, litter) =
+            (id(&world, "grassroot"), id(&world, "water"), id(&world, "ant"), id(&world, "spoil"), id(&world, "litter"));
+        assert_eq!(world.materials.kind(water), MaterialKind::Liquid, "this guard's water must be a liquid");
+        let none = at(&world, &spec, &ids);
+        assert_eq!((none.dug, none.dug_accounted()), (0, 0), "a bed nobody has dug has no dug ground");
+
+        let (cx, cy) = (spec.width / 2, spec.ground_y + 10);
+        let fates = [
+            Cell::EMPTY,
+            Cell::EMPTY,
+            Cell::new(ant, 0),
+            Cell::new(root, 0),
+            Cell::new(root, 0),
+            Cell::new(water, 0),
+            Cell::new(spoil, 0),
+            Cell::new(litter, 0),
+        ];
+        for (i, c) in fates.iter().enumerate() {
+            world.set(cx + i as i32, cy, *c);
+            world.dug_cells.insert((cx + i as i32, cy));
+        }
+        let s = at(&world, &spec, &ids);
+        assert_eq!(s.dug, 8, "eight cells were dug below the surface");
+        assert_eq!(
+            (s.dug_open, s.dug_bodies, s.dug_roots, s.dug_plant, s.dug_water, s.dug_soil, s.dug_other),
+            (2, 1, 2, 0, 1, 1, 1),
+            "each fate lands in its own column: open, ant, root x2, water, spoil back, litter"
+        );
+        assert_eq!(s.dug_accounted(), s.dug, "the fates partition the dug ground exactly");
+
+        // The negative half. Root tissue and water in ground nobody dug, a
+        // row further down; and a dug cell above the surface, which is a
+        // cut into a heap rather than into the bed.
+        world.set(cx, cy + 3, Cell::new(root, 0));
+        world.set(cx + 1, cy + 3, Cell::new(water, 0));
+        let above = (cx + 20, spec.ground_y - 3);
+        world.dug_cells.insert(above);
+        let t = at(&world, &spec, &ids);
+        assert_eq!(
+            (t.dug, t.dug_roots, t.dug_water),
+            (s.dug, s.dug_roots, s.dug_water),
+            "a root or a pool in undug ground, or a cut above the surface, is not dug ground filling"
+        );
+        assert!(dug_addendum(&t).contains("roots 2"), "the chronicle line names the roots: {}", dug_addendum(&t));
+        assert_eq!(dug_addendum(&none), "", "an undug box's chronicle line is unchanged");
     }
 
     /// **An ant standing in an open pit is not in a chamber**, which is the
