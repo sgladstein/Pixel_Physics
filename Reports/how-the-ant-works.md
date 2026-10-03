@@ -141,6 +141,7 @@ will be.
   differ from this page, and a measurement that matters should read the
   genome it ran. §2, §5, §9 and §12 on 2026-09-30 for the default flip: stacking at 4 (`SHIPPED_STACK_CAP`, `parse_stack_depth`), the walked cycle (`parse_spoil_out`, `ring_gate`) and births on nestmates (`parse_bud_stack`).
   §1 step 2 and §12 on 2026-10-03 for the nest-odour kin gate (`blend_with_nest`, `nest_kin_gate`, `CreatureStats::nest_blends_refused`).
+  §5 step 1 and §12 on 2026-10-03 for kin judged against the home nest's odour (`kin_template`, `PIXEL_PHYSICS_KIN_TEMPLATE`).
 
 ---
 
@@ -325,7 +326,15 @@ return**, so the order is part of the behaviour. A return ends `act`, not
 the tick: the ant still gets its move roll (§6) afterwards.
 
 1. **Attack** (at `Attack` probability): bite the nearest foe. It displays
-   instead of committing when `contest` odds say so.
+   instead of committing when `contest` odds say so. **Who is a foe** (and
+   who is kin to the mouth, the eye, the kin sense and Share alike): an
+   animal whose scent lies farther than the judge's tolerance radius from
+   the judge's **home nest odour**, the site its colony or one it split from
+   seeded (`kin_template`, `gut_of`). An ant with no seeded home, and every
+   non-colony animal, judges against its own body instead. The radius stays
+   the judge's own, so the test is still one-sided. Before 2026-10-03 the
+   reference was always the judge's body, and lines whose tolerance had
+   drifted narrow over generations bit nestmates on the two-colony bed.
 2. **Share (trophallaxis)**, on by default: give a quarter (`SHARE_FRACTION`)
    of the energy difference to the neediest adjacent nestmate that has less.
    Under `PIXEL_PHYSICS_SHARE_TOPUP` (off) a leaver beside the donor comes
@@ -1167,6 +1176,7 @@ Read once per process from the environment. The default is what ships.
 | `PIXEL_PHYSICS_DIG_ROOF` | `6` (on since 2026-10-02, `DIG_ROOF_SHIPPED`) | `<rows>` or `off`: a cut within `rows` under the nearest nest site's founding surface and outside the door's columns is refused (`dig_roof_of`, `under_roof`, `CreatureStats::digs_refused_roof`); a heap above the surface is never refused, nor anything with no door; `World::dig_roof` for one world. Nest report §25 |
 | `PIXEL_PHYSICS_KIN_FOOTING` | on (since 2026-10-02) | `off`: an ant is held up only by ground. On, a body touching a nestmate whose own body touches ground is held too, one level, while it has stood still under `KIN_GRIP_TICKS` (`held_by_kin`, `kin_footing_of`, `CreatureStats::kin_holds`); `World::kin_footing` for one world. Nest report §26 |
 | `PIXEL_PHYSICS_NEST_KIN_GATE` | on (since 2026-10-03) | `off`: an ant at any nest site exchanges odour with it, the ant before 2026-10-03. On, at a site seeded by a colony the ant does not descend from, the exchange is skipped (both ways) when the ant's scent is outside its own tolerance radius of the site's odour; its own colony's site is always joined (`nest_kin_gate`, `blend_with_nest`, `NestSite::colony`, `CreatureStats::nest_blends_refused`). §1 step 2 |
+| `PIXEL_PHYSICS_KIN_TEMPLATE` | on (since 2026-10-03) | `off`: kin and foe are judged against the judge's own body scent, the ant before 2026-10-03. On, an animal whose colony (or one it split from) seeded a nest site is judged against that site's odour, with its own tolerance radius (`kin_template`, `kin_template_on`, `gut_of`). §5 step 1 |
 | `PIXEL_PHYSICS_DOOR_COLLAR` | off | `on`: before `act`, an ant whose head is within the door's half-width + `COLLAR_REACH` (2) columns of a nest site and from `COLLAR_UP` (6) rows over its founding surface to one under it packs each neighbour on the rim of the opening (at or over the surface, in a column whose cell one row under the surface is ground, beside one where it is open), pellets included when footed (`collar_tamp`, `CreatureStats::collar_packed`); `World::door_collar` for one world |
 | `PIXEL_PHYSICS_SPOIL_CREST` | off | `on`: under the ring, a carrier walks on from its drawn column while the ground ahead still rises (at most `CREST_REACH` 8 columns) and drops on the crest (`crest_column`, used by `spoil_haul_target` and `spoil_ring_holds`); `World::spoil_crest` for one world. Nest report §25: alone it lost 2 of 4 food-box colonies |
 | `PIXEL_PHYSICS_DIG_WIDEN` | off | `on`: tunnels one body length (two cells) wide. On a won dig roll, a digger whose way ahead is open and whose head stands where its passage is one cell wide (ground above and below, or either side) cuts one of those walls instead of turning down and cutting ahead (`ahead_is_open`, `dig_widen_site`); a digger at a face cuts a shoulder beside the cell ahead on half its rolls (`dig_shoulder_site`), so a gallery advances two cells across. A passage two wide is left alone. Both cuts are ordinary cuts after that: the heap cue and the jaw judge them (`digs_widened`; `World::dig_widen` for one world) |
