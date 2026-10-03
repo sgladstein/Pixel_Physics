@@ -7005,6 +7005,21 @@ forces one full redraw. `labshot cutaway=on` renders it headlessly. Guard:
 `the_nest_cutaway_paints_each_underground_class_on_its_ramp`, which goes red on
 the open shaft when the roof check is forced true.
 
+**A battle view on `F9` (2026-10-03).** Drawn only once two colonies, or a
+colony and a predator, have been in the box (`src/lab/battle.rs`). A cross
+where each colony animal was killed, in the victim's colony colour, fading
+over 6,000 frames; a red ring instead when the killer has no colony (a
+beetle). A band along the top of the box, each column in the colour of the
+colony whose adults made up 70% of the ants seen there over about the last
+1,000 frames. A scoreboard, top right: per colony, alive, killed, lost and
+columns held, and per predator species, alive, ants eaten and lost; under it
+a strip of ants alive per colony (line) and food brought in per 1,000 frames
+(dots). No battle log, by the owner's call. It reads the kill log, the
+graveyard (for where each kill happened) and the colony books, and keeps only
+what it draws; the tally forgets by elapsed frames, so it reads the same at
+every clock speed. `F9` or the menu row `BATTLE VIEW` hides it. Guard:
+`a_column_is_held_only_by_a_clear_majority`.
+
 **What the colony is doing, on the BIOSPHERE page (2026-10-03).** The fill
 under the ANIMALS line is the colony's ants stacked by activity, from the floor
 up: out with nothing in the crop (slate), out with food in it or carrying a
