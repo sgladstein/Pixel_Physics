@@ -10152,57 +10152,13 @@ pub(super) fn gut_of(world: &World, organism: OrganismId, def: &CreatureDef) -> 
     Gut {
         bias: traits[TRAIT_GUT_BIAS],
         species: world.organism(organism).map_or(SpeciesId(0), |s| s.species),
-        scent: kin_template(world, organism).unwrap_or_else(|| scent_of(&traits)),
+        scent: scent_of(&traits),
         tolerance_sq: radius * radius,
         crosses_kinds: def.kin_crosses_kinds,
         eats_kin: def.eats_kin,
         nectar_only: def.nectar_only,
         bite: bite_force_of(def, &traits, world.trait_reach),
     }
-}
-
-/// **What an ant holds others up against: its home nest's odour**, when it
-/// has one, rather than its own body.
-///
-/// Kin recognition in real ants matches a newcomer's cuticular hydrocarbon
-/// profile against a *learned colony template*, and the template is the
-/// colony's shared gestalt odour, not the individual's own label
-/// (Crozier & Dix 1979 gestalt model; van Zweden & d'Ettorre 2010 review).
-/// Before this, the judge's own body scent was the template. Traced
-/// 2026-10-03 (`examples/killtrace.rs`, two-colony bed, seeds 6 and 10 at
-/// 120,000 frames, main eeb86947): **every own-colony kill left after the
-/// nest kin gate was a narrow-tolerance ant biting a nestmate** -- tolerance
-/// is one of the scent-side slots and random-walks at `scent_drift` per
-/// birth, so by generation 8-11 a line carries a radius of 0.3-0.68 while
-/// sitting ~0.6 from its own nest's odour; nestmates 0.1-0.4 from that odour
-/// fell outside the radius around the *attacker's body*. The victim, wider,
-/// still took the attacker for kin: the kills were one-sided. The nest
-/// exchange (`blend_with_nest`) pulls every member toward the same site
-/// odour, so the site is the colony's one shared reference.
-///
-/// The home is the site the ant's own colony seeded or the one a colony it
-/// split from seeded (`World::descends_from`) -- the same "own nest" the
-/// kin gate in `blend_with_nest` always lets the ant join. None for an
-/// animal with no colony or no seeded home site (beetles, a founder before
-/// its nest is first stood on), which keeps its body as the template.
-/// `PIXEL_PHYSICS_KIN_TEMPLATE=off` restores the body template everywhere.
-fn kin_template(world: &World, organism: OrganismId) -> Option<[f32; 3]> {
-    if !kin_template_on() {
-        return None;
-    }
-    let colony = world.organism(organism)?.colony;
-    if colony == 0 {
-        return None;
-    }
-    world.nest_sites.iter().find(|n| n.seeded && n.colony != 0 && world.descends_from(colony, n.colony)).map(|n| n.scent)
-}
-
-/// **Kin are judged against the home nest's odour.** On by default;
-/// `PIXEL_PHYSICS_KIN_TEMPLATE=off` judges them against the ant's own body,
-/// the behaviour before 2026-10-03. `nest_kin_gate`'s `OnceLock` pattern.
-pub fn kin_template_on() -> bool {
-    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *ON.get_or_init(|| std::env::var("PIXEL_PHYSICS_KIN_TEMPLATE").as_deref() != Ok("off"))
 }
 
 /// **One party to a killing, as the kin test saw it**: expressed scent and
@@ -36409,54 +36365,6 @@ mod tests {
         let b_head = (105, 100);
         assert!(adjacent_food(&w, a, a_head, gut_of(&w, a, &def)).is_none(), "the tolerant ant sees family and will not bite");
         assert!(adjacent_food(&w, b, b_head, gut_of(&w, b, &def)).is_some(), "the intolerant ant sees a stranger and will");
-    }
-
-    /// **A nestmate is judged against the home nest's odour, not the judge's
-    /// own body** (`kin_template`). The case traced on the two-colony bed:
-    /// a narrow-tolerance ant (radius 0.3) whose own scent has wandered 0.6
-    /// from its nest, beside a nestmate sitting on the nest's odour. Against
-    /// the judge's body the nestmate is 0.55 away -- a stranger, and food.
-    /// Against the home odour it is 0.05 away -- kin. The rival colony's ant,
-    /// 1.0 from that odour, stays a stranger, and the radius is still the
-    /// judge's own (`tolerance_is_judged_from_my_side_only` above).
-    #[test]
-    fn kin_are_judged_against_the_home_nest_not_the_judges_body() {
-        let mut w = test_world();
-        for x in 10..190 {
-            w.set(x, 101, Cell::new(material::STONE, 0));
-        }
-        assert!(w.found_colony_of(60, 100, "ant", 6) >= 2);
-        assert!(w.found_colony_of(180, 100, "ant", 6) >= 2);
-        let groups = w.live_creature_groups();
-        let (a, b) = (groups[0].colony, groups[1].colony);
-        blend_a_lifetime(&mut w, Some(a), 0, 1);
-        blend_a_lifetime(&mut w, Some(b), 1, 1);
-        assert_eq!(w.nest_sites[0].colony, a, "the founders seed their own site");
-        let home = w.nest_sites[0].scent;
-        let of = |w: &World, c: u32| live_creature_ids(w).into_iter().filter(|id| w.organism(*id).is_some_and(|s| s.colony == c)).collect::<Vec<_>>();
-        let (ours, theirs) = (of(&w, a), of(&w, b));
-        let (judge, mate, rival) = (ours[0], ours[1], theirs[0]);
-        let place = |w: &mut World, id: OrganismId, dx: f32| {
-            for (k, slot) in SCENT_SLOTS.iter().enumerate() {
-                assert!(w.set_organism_trait(id, *slot, home[k] + if k == 0 { dx } else { 0.0 }));
-            }
-        };
-        place(&mut w, judge, 0.6);
-        place(&mut w, mate, 0.05);
-        place(&mut w, rival, -1.0);
-        assert!(w.set_organism_trait(judge, TRAIT_TOLERANCE, -0.7));
-        let def = def_of(&w, "ant");
-
-        assert!(kin_template_on(), "the home template ships on; this test reads the shipped arm first");
-        let gut = gut_of(&w, judge, &def);
-        assert_eq!(gut.scent, home, "an ant with a seeded home judges against that site's odour");
-        assert!(is_living_kin_id(&w, mate, gut), "a nestmate on the home odour is kin to a narrow ant that has wandered off it");
-        assert!(!is_living_kin_id(&w, rival, gut), "the rival colony is still a stranger");
-
-        // The positive control: the same judge against its own body -- the
-        // template before 2026-10-03 -- takes its nestmate for a stranger.
-        let body = Gut { scent: scent_of(&traits_of(&w, judge, &def)), ..gut };
-        assert!(!is_living_kin_id(&w, mate, body), "against its own body the narrow ant must see a stranger, or this bed tests nothing");
     }
 
     /// **A beetle is never an ant's family unless the ant's kind crosses
