@@ -44,6 +44,7 @@ use pixel_physics::lab::scenario::Scenario;
 use pixel_physics::lab::{Lab, HEIGHT, WIDTH};
 use pixel_physics::sim::cell::Cell;
 use pixel_physics::sim::cell::OrganismId;
+use pixel_physics::sim::creature::DecisionRow;
 use pixel_physics::sim::material::{self, MaterialKind};
 use pixel_physics::sim::world::World;
 
@@ -468,6 +469,23 @@ fn main() {
     let shots: Option<String> = arg("shots");
     let zoom: u32 = arg("zoom").unwrap_or(4).max(1);
     let mut camera_set = false;
+    // **`anttrace=<file>`: every colony animal, every `antevery=` frames
+    // (default 1,000)** -- see [`ant_rows`]. Scott's "why are they not in the
+    // nest, why are they not digging", asked of individuals rather than of a
+    // population: one row per animal per sample, and one `ANTS` line per
+    // sample summing them. The engine's own decision log is switched on for
+    // the `ANT_LOG_FRAMES` frames before each sample only, so the anchor and
+    // the last outcome are each animal's latest decision.
+    let ant_every: u64 = arg("antevery").unwrap_or(1_000).max(ANT_LOG_FRAMES + 1);
+    let mut ant_out = arg::<String>("anttrace").map(|path| {
+        use std::io::Write;
+        let mut w = std::io::BufWriter::new(
+            std::fs::File::create(&path).unwrap_or_else(|e| panic!("nestdoor: anttrace {path}: {e}")),
+        );
+        writeln!(w, "{ANT_HEADER}").expect("write anttrace header");
+        w
+    });
+    let mut last_decision: std::collections::HashMap<OrganismId, DecisionRow> = Default::default();
     if let Some(dir) = &shots {
         std::fs::create_dir_all(dir).unwrap_or_else(|e| panic!("nestdoor: shots {dir}: {e}"));
         // The key list paints over the whole box outside the real binary.
@@ -602,6 +620,14 @@ fn main() {
             peak_home = peak_home.max(home_now);
         }
 
+        if founded && f % ant_every == 0 && f % every != 0 && f != frames {
+            if let Some(out) = ant_out.as_mut() {
+                println!(
+                    "{}",
+                    ant_rows(&lab.world, lab.spec.ground_y, &patch, &last_decision, out, f)
+                );
+            }
+        }
         if f % every == 0 || f == frames {
             let w = &lab.world;
             let s = &w.creature_stats;
@@ -683,6 +709,9 @@ fn main() {
                     println!("{line}");
                 }
             }
+            if let (Some(out), true) = (ant_out.as_mut(), founded && f % ant_every == 0) {
+                println!("{}", ant_rows(w, lab.spec.ground_y, &patch, &last_decision, out, f));
+            }
             if let (Some(dir), true) = (&shots, founded) {
                 if let Some(cut) = lab.world.nest_sites.iter().find_map(|s| s.shaft) {
                     let (full_w, full_h) = (WIDTH, HEIGHT);
@@ -725,7 +754,21 @@ fn main() {
             all_dist_n = 0;
         }
         if f < frames {
+            if ant_out.is_some() {
+                // This tick is one of the last `ANT_LOG_FRAMES` before a
+                // sample: log it; otherwise leave the engine's log off. A
+                // sample just taken has read the last window, so it is cleared.
+                if f % ant_every == 0 {
+                    last_decision.clear();
+                }
+                lab.world.decision_log = (ant_every - f % ant_every <= ANT_LOG_FRAMES).then(Vec::new);
+            }
             lab.tick_for_harness();
+            if let Some(log) = lab.world.decision_log.as_mut() {
+                for r in log.drain(..) {
+                    last_decision.insert(r.id, r);
+                }
+            }
             if berm && !bermed {
                 if let Some(cut) = lab.world.nest_sites.iter().find_map(|s| s.shaft) {
                     let stone = lab.world.materials.id_of("stone").expect("stone ships");
@@ -807,6 +850,10 @@ fn main() {
             umbrella_caught as f64 / f64::from(material::LIQUID_FULL)
         );
     }
+    if let Some(out) = ant_out.as_mut() {
+        use std::io::Write;
+        out.flush().expect("flush anttrace");
+    }
     let s = &lab.world.creature_stats;
     println!(
         "SUMMARY nestdoor seed={seed} frames={frames} pickups={} drops={} deliveries={} nest_visits={} digs={} spoil={} births={} deaths={} nest_cells_now={}",
@@ -820,6 +867,224 @@ fn main() {
         s.deaths,
         all_nest_cells(&lab.world).len()
     );
+}
+
+/// How many frames before each `anttrace` sample the engine's decision log
+/// runs. An ant decides every `tick_interval` (6) frames, so 12 catches every
+/// living animal at least once without paying for the log all run.
+const ANT_LOG_FRAMES: u64 = 12;
+
+const ANT_HEADER: &str = "frame,id,species,gen,x,y,cargo,energy,zone,home,d_home,route,route_wet,anchor_x,anchor_y,d_anchor,outcome,at_nest_in,crowding_in,dig_urge,ahead";
+
+/// Could an ant stand in this cell? Air, or another animal (ants pass
+/// through nestmates, `passes_through_kin`) -- not brood, which nothing moves,
+/// and not ground, which has to be dug. `wet` also lets it through liquid.
+fn open_for_ant(world: &World, x: i32, y: i32, wet: bool) -> bool {
+    let c = world.get(x, y);
+    if c.material == material::EMPTY {
+        return true;
+    }
+    let id = c.organism_id();
+    if id != 0 {
+        return world
+            .organism(id)
+            .is_some_and(|s| s.brood.is_none() && world.species.get(s.species).creature.is_some());
+    }
+    wet && world.materials.kind(c.material) == MaterialKind::Liquid
+}
+
+/// Steps from every open cell to home through cells an ant could stand in,
+/// 8-connected, from every open cell touching a home cell (`at_home`'s own
+/// reach): `-1` where there is no way home without digging.
+fn route_home(world: &World, home: &[(i32, i32)], wet: bool) -> (pixel_physics::sim::chunk::Rect, Vec<i32>) {
+    let b = world.bounds().expect("a lab world has bounds");
+    let w = (b.max_x - b.min_x + 1) as usize;
+    let h = (b.max_y - b.min_y + 1) as usize;
+    let mut dist = vec![-1i32; w * h];
+    let idx = |x: i32, y: i32| (y - b.min_y) as usize * w + (x - b.min_x) as usize;
+    let inside = |x: i32, y: i32| x >= b.min_x && x <= b.max_x && y >= b.min_y && y <= b.max_y;
+    let mut queue = std::collections::VecDeque::new();
+    for &(hx, hy) in home {
+        for dy in -1..=1 {
+            for dx in -1..=1 {
+                let (x, y) = (hx + dx, hy + dy);
+                if inside(x, y) && dist[idx(x, y)] < 0 && open_for_ant(world, x, y, wet) {
+                    dist[idx(x, y)] = 0;
+                    queue.push_back((x, y));
+                }
+            }
+        }
+    }
+    while let Some((x, y)) = queue.pop_front() {
+        let d = dist[idx(x, y)];
+        for (dx, dy) in N8 {
+            let (nx, ny) = (x + dx, y + dy);
+            if inside(nx, ny) && dist[idx(nx, ny)] < 0 && open_for_ant(world, nx, ny, wet) {
+                dist[idx(nx, ny)] = d + 1;
+                queue.push_back((nx, ny));
+            }
+        }
+    }
+    (b, dist)
+}
+
+/// **One `anttrace` row per colony animal, and the `ANTS` line that sums
+/// them** -- the per-individual answer to "why is it not in the nest, why is
+/// it not digging". For each animal:
+///
+/// - where it is: `zone` is `home` (`at_home`, the laying lane's predicate),
+///   `door` (within 3 cells of the painted patch), `below` (under the old
+///   ground line), `surface` (within 3 rows above it) or `aloft`;
+/// - whether it *could* get home: `route` is the walk home through air and
+///   nestmates (`-1`: none without digging), `route_wet` the same through
+///   water too, so a door shut by a pond reads `-1` then a number;
+/// - where it is *trying* to go: `anchor` is its latest decision's homing
+///   anchor (`creature::DecisionRow::anchor`), `-` if it made none in the log
+///   window;
+/// - whether it wants to dig: `dig_urge` is the brain's `Dig` output clamped
+///   as `act` clamps it, from `creature::probe_full` on its head now, beside
+///   the two inputs the nest's dig gate reads (`AtNest`, `Crowding`), and
+///   `ahead`, what it faces -- what it would cut. A laden animal never digs.
+fn ant_rows(
+    world: &World,
+    ground_y: i32,
+    patch: &[(i32, i32)],
+    last: &std::collections::HashMap<OrganismId, DecisionRow>,
+    out: &mut impl std::io::Write,
+    f: u64,
+) -> String {
+    use pixel_physics::sim::brain::{BrainInput as I, BrainOutput as O};
+    let nest = world.materials.id_of("nest");
+    let mut home: Vec<(i32, i32)> = world.nest_dug.iter().copied().collect();
+    home.extend(all_nest_cells(world));
+    home.sort_unstable();
+    home.dedup();
+    let (b, dry) = route_home(world, &home, false);
+    let (_, wet) = route_home(world, &home, true);
+    let w = b.max_x - b.min_x + 1;
+    let at = |v: &[i32], x: i32, y: i32| v[((y - b.min_y) * w + (x - b.min_x)) as usize];
+    let name = |x: i32, y: i32| -> String {
+        let c = world.get(x, y);
+        let id = c.organism_id();
+        if id != 0 {
+            if let Some(s) = world.organism(id) {
+                if s.brood.is_some() {
+                    return "brood".into();
+                }
+                if world.species.get(s.species).creature.is_some() {
+                    return "animal".into();
+                }
+            }
+        }
+        world.materials.get(c.material).name.clone()
+    };
+    let (mut n, mut n_home, mut n_door, mut n_below, mut n_surface, mut n_aloft) = (0, 0, 0, 0, 0, 0);
+    let (mut no_route, mut wet_only, mut laden) = (0, 0, 0);
+    let (mut urge_sum, mut urge_on, mut crowd_sum, mut home_empty) = (0f32, 0, 0f32, 0);
+    let mut ahead_home: std::collections::BTreeMap<String, u32> = Default::default();
+    for id in world.live_organism_ids() {
+        let Some(st) = world.organism(id) else { continue };
+        let Some(def) = world.species.get(st.species).creature.as_ref() else {
+            continue;
+        };
+        if world.colony_of(id) == 0 {
+            continue;
+        }
+        let Some(&(x, y)) = st.chain.first() else { continue };
+        n += 1;
+        let is_home = at_home(world, (x, y), nest);
+        let d_home = home
+            .iter()
+            .map(|&(hx, hy)| (hx - x).abs().max((hy - y).abs()))
+            .min()
+            .unwrap_or(-1);
+        let d_door = patch
+            .iter()
+            .map(|&(px, py)| (px - x).abs().max((py - y).abs()))
+            .min()
+            .unwrap_or(i32::MAX);
+        let zone = if is_home {
+            "home"
+        } else if d_door <= 3 {
+            "door"
+        } else if y >= ground_y {
+            "below"
+        } else if y >= ground_y - 3 {
+            "surface"
+        } else {
+            "aloft"
+        };
+        match zone {
+            "home" => n_home += 1,
+            "door" => n_door += 1,
+            "below" => n_below += 1,
+            "surface" => n_surface += 1,
+            _ => n_aloft += 1,
+        }
+        let route = at(&dry, x, y);
+        let route_wet = at(&wet, x, y);
+        if !is_home && route < 0 {
+            no_route += 1;
+            if route_wet >= 0 {
+                wet_only += 1;
+            }
+        }
+        let cargo = if st.crop.is_some() {
+            "food"
+        } else if st.spoil.is_some() {
+            "spoil"
+        } else {
+            "-"
+        };
+        if cargo != "-" {
+            laden += 1;
+        }
+        let (inp, _, outp, _) = pixel_physics::sim::creature::probe_full(world, x, y, id, def);
+        let urge = outp[O::Dig as usize].clamp(0.0, 1.0);
+        let (hdx, hdy) = pixel_physics::sim::creature::DIRS[(st.heading % 8) as usize];
+        let ahead = name(x + hdx, y + hdy);
+        if is_home {
+            urge_sum += urge;
+            crowd_sum += inp[I::Crowding as usize];
+            if urge > 0.05 && cargo == "-" {
+                urge_on += 1;
+            }
+            if cargo == "-" {
+                home_empty += 1;
+            }
+            *ahead_home.entry(ahead.clone()).or_default() += 1;
+        }
+        let (ax, ay, outcome) = match last.get(&id) {
+            Some(r) => (
+                r.anchor.0.to_string(),
+                r.anchor.1.to_string(),
+                pixel_physics::sim::creature::DECISION_OUTCOME_NAMES[r.outcome as usize],
+            ),
+            None => ("-".into(), "-".into(), "-"),
+        };
+        let d_anchor = last.get(&id).map_or("-".to_string(), |r| {
+            (r.anchor.0 - x).abs().max((r.anchor.1 - y).abs()).to_string()
+        });
+        writeln!(
+            out,
+            "{f},{id},{},{},{x},{y},{cargo},{:.0},{zone},{},{d_home},{route},{route_wet},{ax},{ay},{d_anchor},{outcome},{:.2},{:.2},{:.3},{ahead}",
+            world.species.get(st.species).name,
+            st.generation,
+            st.energy,
+            u8::from(is_home),
+            inp[I::AtNest as usize],
+            inp[I::Crowding as usize],
+            urge
+        )
+        .expect("write anttrace");
+    }
+    format!(
+        "ANTS frame={f} colony animals {n}: home {n_home}, at the door {n_door}, below the old ground line {n_below}, on the surface {n_surface}, aloft {n_aloft} | not home with no dry way home {no_route} (of them a way only through water {wet_only}) | carrying {laden} | home now {} cells | at home: empty-jawed {home_empty}, dig urge mean {:.3}, over 0.05 and empty {urge_on}, crowding mean {:.2}, facing {:?}",
+        home.len(),
+        if n_home == 0 { 0.0 } else { urge_sum / n_home as f32 },
+        if n_home == 0 { 0.0 } else { crowd_sum / n_home as f32 },
+        ahead_home
+    )
 }
 
 /// The positive control. Bury half the patch, erase the other half, and check

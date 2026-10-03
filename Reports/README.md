@@ -4118,10 +4118,13 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   (roof off, cue off, upkeep, sod, a new door, food on footing). **§7
   (round 2): the door now shuts with water** -- a pond the colony's own
   food crumbs seal from below, since water never passes a powder. Letting
-  it pass (`powder_floats`, built, **left off**): door in use 12 -> 21 of
-  24 samples on 12 seeds, but ants at the end 151 -> 39 and boxes under 10
-  1 -> 3; holding the door open by hand went the same way. In the lab a
-  working door does not pay the colony (inferred).
+  it pass (`powder_floats`): door in use 12 -> 21 of 24 samples on 12
+  seeds, but ants at the end 151 -> 39, so it was left off. **§8 (round
+  3, main `a583cc1b`, 300,000 frames): that harm was a one-frame reading
+  of a booming and busting colony** -- the same row flips sign between
+  builds, and averaged over the run colony size is level (100 -> 93, 5/7)
+  while the door is used twice as often (12 -> 25 of 54). **`powder_floats`
+  ships on** (`=off` restores).
 - [nest-one-entrance-2026-09-29.md](nest-one-entrance-2026-09-29.md) —
   **measurement and switches, 2026-09-29; since §18 (2026-09-30) the
   walked cycle, stacking at 4 and births on nestmates ship on as one
