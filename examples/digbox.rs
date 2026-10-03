@@ -3876,8 +3876,12 @@ fn harness() {
     // before that date was taken on; `fed` is still accepted and does
     // nothing more.
     let fed = !flag("hungry");
+    // **`surplus=J`: top every adult up to start_energy + J**, so a nurse has
+    // something above its own grant to hand a larva (`brood::nurse` gives only
+    // from above `start_energy`). See [`feed`].
+    let surplus: f32 = arg("surplus").unwrap_or(0.0);
     if fed {
-        println!("  fed: every ant topped up to start_energy each frame (booked as granted); no food on the ground, so FoodAdjacent stays 0 (`hungry` for the starving box)");
+        println!("  fed: every ant topped up to start_energy + {surplus} each frame (booked as granted); no food on the ground, so FoodAdjacent stays 0 (`hungry` for the starving box)");
     } else {
         println!("  hungry: no ant is fed, so the colony is below start_energy from its first tick and starves (the box before 2026-09-29)");
     }
@@ -3938,7 +3942,7 @@ fn harness() {
         }
         trickle.step(&mut world, &b);
         if fed {
-            feed(&mut world);
+            feed(&mut world, surplus);
         }
         if let Some(p) = food_pile.as_mut().filter(|p| f > 0 && p.refill > 0 && f.is_multiple_of(p.refill)) {
             p.place(&mut world);
@@ -4009,6 +4013,71 @@ fn harness() {
                     println!(
                         "BROOD frame={f} standing eggs {} larvae {} pupae {} (holding {:.0} J) | laid {}, larvae {}, pupated {}, hatched (births) {}, larvae starved {}, lost {}, hatches refused for room {} | J shared in {:.0}, nursed by touch {:.0}, eaten beside {:.0}, upkeep {:.0}, to corpse {:.0} | births held by the food brake {}",
                         by_stage[0], by_stage[1], by_stage[2], held, st.eggs_laid, st.larvae, st.pupae, st.births, st.larvae_starved, st.brood_lost, st.hatches_denied, st.brood_shared_j, st.brood_nursed_j, st.brood_ate_j, st.brood_upkeep_j, st.brood_corpse_j, st.food_brake_held
+                    );
+                }
+                // **Where the brood lies** (`PIXEL_PHYSICS_EGG_DOOR`,
+                // `PIXEL_PHYSICS_BROOD_CARRY`). The founding cut is the place
+                // it must not fill: on 2026-10-03, laying only at the nest,
+                // its 12-cell shaft was all brood by frame 666 and the box
+                // dug 0 cells by 40k. "Dug home" is a brood cell touching
+                // `nest_dug` (8 ways), since brood is not itself home. Piles
+                // are 8-connected brood cells; `carried` is the count of
+                // moves, so a carry switch that changes nothing reads 0.
+                {
+                    let brood_mat = world.materials.id_of("brood");
+                    let cut = world.nest_sites.first().and_then(|s| s.shaft);
+                    let surface = world.nest_sites.first().map_or(0, |s| s.surface);
+                    let mut cells: Vec<(i32, i32)> = Vec::new();
+                    for id in world.live_brood_ids() {
+                        if let Some(s) = world.organism(id) {
+                            for &(x, y) in s.cells.keys() {
+                                if Some(world.get(x, y).material) == brood_mat {
+                                    cells.push((x, y));
+                                }
+                            }
+                        }
+                    }
+                    let (mut shaft, mut chamber, mut dug, mut above, mut other) = (0, 0, 0, 0, 0);
+                    for &(x, y) in &cells {
+                        if cut.is_some_and(|c| c.in_shaft(x, y)) {
+                            shaft += 1;
+                        } else if cut.is_some_and(|c| c.contains(x, y)) {
+                            chamber += 1;
+                        } else if y < surface {
+                            above += 1;
+                        } else if (-1..=1).any(|dy| (-1..=1).any(|dx| world.nest_dug.contains(&(x + dx, y + dy)))) {
+                            dug += 1;
+                        } else {
+                            other += 1;
+                        }
+                    }
+                    let set: std::collections::HashSet<(i32, i32)> = cells.iter().copied().collect();
+                    let mut seen: std::collections::HashSet<(i32, i32)> = std::collections::HashSet::new();
+                    let (mut piles, mut largest) = (0, 0);
+                    for &c in &cells {
+                        if !seen.insert(c) {
+                            continue;
+                        }
+                        piles += 1;
+                        let mut stack = vec![c];
+                        let mut n = 0;
+                        while let Some((x, y)) = stack.pop() {
+                            n += 1;
+                            for dy in -1..=1 {
+                                for dx in -1..=1 {
+                                    let q = (x + dx, y + dy);
+                                    if set.contains(&q) && seen.insert(q) {
+                                        stack.push(q);
+                                    }
+                                }
+                            }
+                        }
+                        largest = largest.max(n);
+                    }
+                    println!(
+                        "BROODAT frame={f} brood cells {} | in the shaft {shaft}, rest of the founding cut {chamber}, dug home beyond it {dug}, above the old ground {above}, elsewhere {other} | piles {piles}, largest {largest} | carried {}",
+                        cells.len(),
+                        world.creature_stats.brood_carried
                     );
                 }
                 // `PIXEL_PHYSICS_HOME_REAIM`'s "it fired" half (`creature::home_reaim`).
@@ -4692,11 +4761,13 @@ impl FoodPile {
 /// ground, so `FoodAdjacent` stays 0 and the dig is still the nest
 /// mechanism alone; held at `start_energy` (1,000 on the lane's runs), an
 /// ant sits under the ~1,040 J budding floor, so the count stays fixed.
-fn feed(world: &mut World) {
+fn feed(world: &mut World, surplus: f32) {
     use pixel_physics::sim::world::Account;
     for id in world.live_organism_ids() {
         let Some(st) = world.organism(id) else { continue };
-        let Some(start) = world.species.get(st.species).creature.as_ref().map(|c| c.start_energy) else { continue };
+        let Some(start) = world.species.get(st.species).creature.as_ref().map(|c| c.start_energy + surplus) else {
+            continue;
+        };
         let short = start - st.energy;
         if short <= 0.0 {
             continue;

@@ -2680,6 +2680,9 @@ pub struct CreatureStats {
     pub brood_lost: u64,
     /// Hatch attempts refused because the adult body did not fit.
     pub hatches_denied: u64,
+    /// Brood a touching nestmate moved toward other brood or out of the
+    /// doorway (`brood::carry`, `PIXEL_PHYSICS_BROOD_CARRY`).
+    pub brood_carried: u64,
     /// Joules nestmates shared into larvae, mouth to mouth.
     pub brood_shared_j: f64,
     /// Energy handed to larvae by a nestmate touching them (`brood::nurse`).

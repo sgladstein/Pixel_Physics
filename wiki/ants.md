@@ -1,6 +1,6 @@
 # Ants
 
-*Current as of: 2026-10-03, when **a colony started keeping its own door open** (see *One door, and a granary under it*), and when **the lab's other animals started ageing like the ant** (see *Ants get old and die of it*); 2026-10-02, when **the whole dug nest became home and
+*Current as of: 2026-10-03, when **eggs stopped being laid in the nest's doorway** (see *New ants*), when **a colony started keeping its own door open** (see *One door, and a granary under it*), and when **the lab's other animals started ageing like the ant** (see *Ants get old and die of it*); 2026-10-02, when **the whole dug nest became home and
 food started gathering in piles** (see *One door, and a granary under it*),
 when **new ants started as eggs, laid only at
 home** (see *New ants*), and when **an ant started holding on to a nestmate
@@ -2428,6 +2428,17 @@ food now has to go through its young before it becomes more ants, colonies
 grow more slowly and stay smaller, and in long runs they stop booming and then
 dying of hunger the way budding colonies did. In the lab box the slower growth
 costs about half the births, which is still being looked into.
+
+**Since 2026-10-03 no egg is laid in the nest's doorway.** Before, a colony
+laying at home stacked its eggs in the one place every ant had to pass: the
+narrow shaft down from the surface filled with a pale column of brood, the
+diggers were shut out above it, and the nest never grew. Now an egg is handed
+past the doorway to home beyond it, so the way in stays open and the brood
+gathers in the room below, then in the new rooms once the colony digs past it. In a
+box of plain soil with the larvae fed, colonies that dug nothing at all now
+dig a few hundred cells and grow to two or three times the size. Two colonies
+in six still jam: the room under the shaft fills with brood before anyone has
+dug past it.
 
 ## Feeding each other, and resting
 
