@@ -2579,6 +2579,12 @@ pub struct CreatureStats {
     /// held back. 0 whenever the switch is off, which is the control that
     /// says the gate is what moved a birth count.
     pub buds_held_for_nest: u64,
+    /// **Walks home re-aimed** (`creature::home_reaim`): ticks on which an
+    /// animal's homing anchor stood in a cell nobody could stand in -- filled,
+    /// flooded, grown over or held by another animal -- and was moved to the
+    /// nearest open cell at home. 0 unless `PIXEL_PHYSICS_HOME_REAIM` is set
+    /// (off by default).
+    pub home_reaims: u64,
     /// **Ticks a birth was held by the food brake alone**
     /// (`creature::food_brake_factor`): the animal cleared its bar under the
     /// breeding regime and not after the brake raised it. 0 with the brake off.
