@@ -51,6 +51,15 @@
     burns_into: "ash",
     heat_conductivity: 0.15,
     breaks_into: "litter",
+    // **A fine root is cut like the soil it holds** (0.8, `soil.ron`'s own
+    // figure), so an ant clearing its nest (`creature::nest_upkeep_of`) can
+    // bite one off. Unauthored it sat at the 100.0 default and no jaw could
+    // touch it: in the evolution lab the bed's sod grew into the founding
+    // shaft and shut the door for good (nest lane, 2026-10-03). Read only by
+    // `armour_at`; grass root is not food and not a foe, and root growth
+    // reads this field for `Powder` only. Woody root (`rootwood`) stays
+    // unauthored: ants dig round a tree's roots, not through them.
+    penetration_resistance: 0.8,
     // As `grassblade`: not a load path, and opted out of the cantilever rule
     // by omission. A root mat reinforces the powder around it; it does not
     // hold a structure up.

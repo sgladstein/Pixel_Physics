@@ -5991,6 +5991,15 @@ impl World {
             })
             .collect();
         let mut cut: Vec<(i32, i32)> = Vec::new();
+        // TEMP arm `PIXEL_PHYSICS_FOUND_SOD=on`: the founders bite through
+        // fine roots in the shaft as well as soil -- a root whose authored
+        // resistance their jaw beats. Off, the cut steps round every
+        // organism cell and leaves the sod's roots standing in the hole.
+        let sod = std::env::var("PIXEL_PHYSICS_FOUND_SOD").is_ok_and(|v| v == "on");
+        let root_cut = |w: &World, cx: i32, cy: i32| {
+            let c = w.get(cx, cy);
+            sod && c.organism_id() != 0 && w.materials.kind(c.material) == MaterialKind::Plant && w.materials.get(c.material).penetration_resistance <= force
+        };
         // **The shaft.** Cut from the surface down, **through** the painted
         // door rather than under it: `colony_surface` returns the painted
         // row, so the shaft's first row is the door's own cells over it. That
@@ -5999,6 +6008,11 @@ impl World {
         for dy in 0..depth {
             for dx in 0..span {
                 let (cx, cy) = (x0 + dx, top + dy);
+                if !blocked[dx as usize] && self.in_bounds(cx, cy) && root_cut(self, cx, cy) {
+                    self.set(cx, cy, Cell::EMPTY);
+                    cut.push((cx, cy));
+                    continue;
+                }
                 if blocked[dx as usize] || !self.in_bounds(cx, cy) || !self.is_diggable_ground(cx, cy) {
                     continue;
                 }
@@ -6025,7 +6039,7 @@ impl World {
         for dy in 0..2 {
             for dx in -chamber_half..=chamber_half {
                 let (cx, cy) = (x + dx, floor + dy);
-                if reached && self.in_bounds(cx, cy) && self.is_diggable_ground(cx, cy) && founders_cut(self, cx, cy) {
+                if reached && self.in_bounds(cx, cy) && (root_cut(self, cx, cy) || (self.is_diggable_ground(cx, cy) && founders_cut(self, cx, cy))) {
                     self.set(cx, cy, Cell::EMPTY);
                     cut.push((cx, cy));
                 }
@@ -12357,6 +12371,34 @@ fn jaw_can_cut(world: &World, def: &CreatureDef, organism: OrganismId, cell: Cel
         && world.materials.get(cell.material).penetration_resistance <= dig_force_of(def, &traits_of(world, organism, def), world.trait_reach)
 }
 
+// TEMP dig funnel (not for commit): where each dig roll ends, by where the
+// digger stands.
+pub static DIG_FUNNEL: std::sync::Mutex<Option<std::collections::BTreeMap<String, u64>>> = std::sync::Mutex::new(None);
+fn dig_funnel_note(world: &World, organism: OrganismId, def: &CreatureDef, (x, y): (i32, i32), target: Cell, cue: bool, vetoed: bool) {
+    let place = if nest_within_reach(world, organism, x, y, def) {
+        "home"
+    } else if world.nest_sites.iter().any(|n| (n.x - x).abs() <= 12 && (n.surface - y).abs() <= 12) {
+        "near"
+    } else {
+        "far"
+    };
+    let what = if cue {
+        "cue".to_string()
+    } else if vetoed {
+        "roof".to_string()
+    } else if jaw_can_cut(world, def, organism, target) {
+        "CUT".to_string()
+    } else if target.material == material::EMPTY {
+        "air".to_string()
+    } else if is_live_seed(target) {
+        "seed".to_string()
+    } else {
+        format!("blocked:{}", world.materials.get(target.material).name)
+    };
+    let mut g = DIG_FUNNEL.lock().unwrap();
+    *g.get_or_insert_with(Default::default).entry(format!("{place} {what}")).or_insert(0) += 1;
+}
+
 /// A live organism's seed cell, which [`jaw_can_cut`] will not dig.
 fn is_live_seed(cell: Cell) -> bool {
     cell.organism_id() != 0 && organism::cell_type(cell.aux()) == Some(CellType::Seed)
@@ -12863,9 +12905,36 @@ fn food_drop_order(world: &World, x: i32, y: i32) -> &'static [(i32, i32); 8] {
     }
 }
 
+/// **Food is set down on ground, not let go over a hole**
+/// (`PIXEL_PHYSICS_FOOD_FOOTING=on|off`; [`World::food_footing`] for one
+/// world). On, a food drop takes only an empty cell with ground straight
+/// under it ([`is_footing`]: a `Powder` or `Solid`, not an animal), so a
+/// carrier at the door puts its load on the rim or a floor instead of
+/// dropping it down the shaft.
+///
+/// **Why** (nest lane, 2026-10-03, `labshot scenario=played_bed`, main
+/// d4418bf2). In the evolution lab the founding cut was 24 of 26 cells open
+/// at 6,500 frames on seed 1 and 0 by 14,000, filled by 13-20 cells of
+/// crumbs: loads put down at the door fell into the shaft. With the door
+/// shut every other cut near the nest is in the roof `DIG_ROOF` keeps, and
+/// the colony lived on the surface (110 ants, 25 cells of nest at 60,000
+/// frames). Ants place what they carry; they do not throw it.
+pub fn food_footing_of(world: &World) -> bool {
+    world.food_footing.unwrap_or_else(|| {
+        static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        *V.get_or_init(|| match std::env::var("PIXEL_PHYSICS_FOOD_FOOTING").as_deref() {
+            Ok("on") => true,
+            Ok("off") | Err(_) => false,
+            Ok(other) => panic!("PIXEL_PHYSICS_FOOD_FOOTING={other:?}: use on or off"),
+        })
+    })
+}
+
 fn food_drop_site(world: &World, x: i32, y: i32, through_bodies: bool) -> Option<((i32, i32), u8)> {
     let order = food_drop_order(world, x, y);
-    if let Some(p) = order.iter().map(|&(dx, dy)| (x + dx, y + dy)).find(|&(px, py)| world.is_empty(px, py)) {
+    let footed = food_footing_of(world);
+    let room = |px: i32, py: i32| world.is_empty(px, py) && (!footed || is_footing(world, px, py + 1));
+    if let Some(p) = order.iter().map(|&(dx, dy)| (x + dx, y + dy)).find(|&(px, py)| room(px, py)) {
         return Some((p, 1));
     }
     if !through_bodies {
@@ -12894,7 +12963,7 @@ fn food_drop_site(world: &World, x: i32, y: i32, through_bodies: bool) -> Option
                 if seen.contains(&p) {
                     continue;
                 }
-                if world.is_empty(p.0, p.1) {
+                if room(p.0, p.1) {
                     return Some((p, depth));
                 }
                 if is_body(p) {
@@ -14820,6 +14889,18 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
             world.creature_stats.digs_widened += 1;
         }
         let target = world.get(tx, ty);
+        // **Nest upkeep: a plant growing in the nest is cut out and carried
+        // off** ([`nest_upkeep_of`], [`in_nest_upkeep_zone`]). Ahead of the
+        // heap cue and the roof, which are about opening ground: a plant cell
+        // is not ground, and taking it neither opens the sky nor thins a
+        // roof.
+        if nest_upkeep_of(world)
+            && target.organism_id() != 0
+            && world.materials.kind(target.material) == MaterialKind::Plant
+            && in_nest_upkeep_zone(world, (tx, ty))
+        {
+            return clear_nest_plant(world, organism, def, (tx, ty), target, did);
+        }
         // **A heap draws where digging starts** ([`SpoilCue`], on since
         // 2026-09-28, [`spoil_cue_of`]): a cut that would open the ground to the sky goes
         // ahead with probability `f`, the heap factor for the pellets beside
@@ -14849,6 +14930,7 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
         // ground just under a nest's surface, outside its door, is refused,
         // so the crust over the nest stays whole and the chambers go below it.
         // No draw either way.
+        let cue_vetoed = vetoed;
         let vetoed = vetoed || {
             let refused = dig_roof_of(world).is_some_and(|rows| under_roof(world, (tx, ty), rows));
             if refused {
@@ -14862,6 +14944,9 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
         // at the cut, as it always was.
         if is_live_seed(target) {
             world.dig_diverted_seed += 1;
+        }
+        if std::env::var_os("DIGFUNNEL").is_some() {
+            dig_funnel_note(world, organism, def, (x, y), target, cue_vetoed, vetoed);
         }
         if !vetoed && jaw_can_cut(world, def, organism, target) {
             // **The spoil is picked up, not destroyed.** This line read
@@ -14975,6 +15060,89 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
         }
     }
     Did { dug: 0, ..did }
+}
+
+/// **Nest upkeep** (`PIXEL_PHYSICS_NEST_UPKEEP=on|off`; [`World::nest_upkeep`]
+/// for one world): an ant whose dig roll faces a plant growing in its nest
+/// bites the plant cell off and carries it away as a pellet of litter, by
+/// the same walked cycle it carries soil out with.
+///
+/// **Why** (nest lane, 2026-10-03, main d4418bf2). In the evolution lab the
+/// founding cut was shut on every one of 24 runs by 108,000 frames
+/// (`labforage` `NEST` line, `cut_open` 0-4 of 26), and traced cell by cell
+/// over seeds 1-4 to 16,000 frames (every cell of the cut that went from open
+/// to filled) the plug was grass growing into it on seeds 3 and 4 (1,243 and
+/// 154 fills by grass blade or root), seeds on seed 2, and crumbs on seed 1.
+/// An ant's jaw could not take a plant cell at all ([`jaw_can_cut`]), so a
+/// door a plant had grown into stayed shut for good, and with it every other
+/// cut near the nest fell in the roof [`dig_roof_of`] keeps: 80-87% of dig
+/// rolls were refused there.
+///
+/// **The biology.** Ants keep their nests clear of plants: harvester ants
+/// clear the vegetation round their entrances (*Pogonomyrmex*, the nest
+/// disc; Hernandez et al. 2024, MacMahon et al. 2000), leaf-cutters strip
+/// seedlings off their mound as upkeep rather than foraging (Stephan et al.
+/// 2015, *Neotropical Entomology*), and in *P. badius* seeds that germinate
+/// in the granary are removed quickly (Tschinkel & Kwapich 2016, *PLoS ONE*).
+/// Wood ants remove sticks laid over their entrances (Arscott et al. 2026).
+pub fn nest_upkeep_of(world: &World) -> bool {
+    world.nest_upkeep.unwrap_or_else(|| {
+        static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        *V.get_or_init(|| match std::env::var("PIXEL_PHYSICS_NEST_UPKEEP").as_deref() {
+            Ok("on") => true,
+            Ok("off") | Err(_) => false,
+            Ok(other) => panic!("PIXEL_PHYSICS_NEST_UPKEEP={other:?}: use on or off"),
+        })
+    })
+}
+
+/// Rows over a nest's founding surface that still count as its mouth for
+/// [`in_nest_upkeep_zone`]: a plant rooted in the door grows up out of it.
+const UPKEEP_MOUTH_UP: i32 = 3;
+
+/// **Is `(x, y)` in a nest, for [`nest_upkeep_of`]**: inside a founding cut,
+/// over a door (its columns, from [`UPKEEP_MOUTH_UP`] rows above the founding
+/// surface down to it), or beside a cell of the dug home ([`World::nest_dug`]),
+/// so a root grown into a tunnel's wall counts.
+fn in_nest_upkeep_zone(world: &World, (x, y): (i32, i32)) -> bool {
+    let door = nest_door_of(world).unwrap_or(NEST_DOOR_SHIPPED);
+    for site in &world.nest_sites {
+        if site.shaft.is_some_and(|cut| cut.contains(x, y)) {
+            return true;
+        }
+        if (x - site.x).abs() <= door && (site.surface - UPKEEP_MOUTH_UP..=site.surface).contains(&y) {
+            return true;
+        }
+    }
+    [(1, 0), (-1, 0), (0, 1), (0, -1)].iter().any(|&(dx, dy)| world.nest_dug.contains(&(x + dx, y + dy)))
+}
+
+/// One bite at a plant cell in the nest, for [`nest_upkeep_of`]: the jaw
+/// works it as it works a foe (`contest::bite_progress` against the cell's
+/// armour, carried over bites in the plant's `gnawed`), and when it gives
+/// the cell comes off and the ant holds it as a pellet of `litter`, which the
+/// spoil cycle carries out like any other. Nobody eats it.
+fn clear_nest_plant(world: &mut World, organism: OrganismId, def: &CreatureDef, (tx, ty): (i32, i32), target: Cell, did: Did) -> Did {
+    let victim = target.organism_id();
+    let damage = contest::bite_progress(gut_of(world, organism, def).bite, armour_at(world, target));
+    world.creature_stats.nest_clear_bites += 1;
+    let done = world.organism(victim).is_some_and(|st| st.gnawed + damage >= 1.0);
+    if let Some(st) = world.organism_mut(victim) {
+        st.gnawed = if done { 0.0 } else { st.gnawed + damage };
+    }
+    if done {
+        world.set(tx, ty, Cell::EMPTY);
+        reconcile_chain(world, victim);
+        world.creature_stats.nest_clear_cells += 1;
+        if let Some(litter) = world.materials.id_of("litter") {
+            if spoil_kept() {
+                if let Some(state) = world.organism_mut(organism) {
+                    state.spoil = Some(Spoil { cell: Cell::new(litter, target.shade), store: false });
+                }
+            }
+        }
+    }
+    Did { gnaws: did.gnaws + 1, ..did }
 }
 
 /// How far up `act`'s spoil lift may look — the first row holding something

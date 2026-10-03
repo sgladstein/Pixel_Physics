@@ -3960,6 +3960,11 @@ fn main() {
             if let Some(line) = cut_census(&world) {
                 println!("{line}");
             }
+            println!("{}", free_census(&world, f));
+            if let Some(m) = pixel_physics::sim::creature::DIG_FUNNEL.lock().unwrap().as_ref() {
+                let line: Vec<String> = m.iter().map(|(k, v)| format!("{k}={v}")).collect();
+                println!("DIGFUNNEL frame={f} {}", line.join(" | "));
+            }
             println!("{}", crater(&world, &b, f));
             println!("{}", widths(&world, &b, f));
             if flag("trace") {
@@ -5219,4 +5224,30 @@ fn selftest_run(b: &Box2) {
     assert!(st.dig_rolls > 0, "not one dig was even attempted -- the colony is not thinking, so any null from this box is the harness");
     assert!(st.digs > 0, "digs attempted but none landed -- every roll hit air, rock or another ant, and this box cannot answer a digging question");
     println!("digbox selftest: PASS -- the box is empty when nobody digs, finds a known chamber, calls a shaft open, and its ants dig");
+}
+
+/// **Who could dig, and where** -- the same census as `labforage`'s `NEST`
+/// line, so the food box and the lab can be read side by side. `act` sends an
+/// ant holding a whole crop cell to the drop branch and one holding spoil to
+/// the spoil branch, and only one holding neither reaches the dig: `free`
+/// counts those, `workers` the nest-bound caste, `near` anyone within 12
+/// cells of a nest site.
+fn free_census(world: &World, f: u64) -> String {
+    let (mut ants, mut free, mut free_near, mut laden_near, mut workers, mut spoil) = (0u32, 0u32, 0u32, 0u32, 0u32, 0u32);
+    for id in world.live_organism_ids() {
+        let Some(state) = world.organism(id) else { continue };
+        if world.species.get(state.species).creature.is_none() {
+            continue;
+        }
+        let Some(&(hx, hy)) = state.chain.first() else { continue };
+        ants += 1;
+        let is_free = state.crop.as_ref().is_none_or(|c| c.cells == 0) && state.spoil.is_none();
+        let near = world.nest_sites.iter().any(|n| (n.x - hx).abs() <= 12 && (n.surface - hy).abs() <= 12);
+        free += u32::from(is_free);
+        free_near += u32::from(is_free && near);
+        laden_near += u32::from(near && state.crop.as_ref().is_some_and(|c| c.cells > 0));
+        spoil += u32::from(state.spoil.is_some());
+        workers += u32::from(state.nest_bound_until > world.frame);
+    }
+    format!("FREE frame={f} ants={ants} free={free} free_near={free_near} laden_near={laden_near} spoil={spoil} workers={workers} digs={}", world.creature_stats.digs)
 }

@@ -2405,6 +2405,11 @@ pub struct CreatureStats {
     /// `wood`/`rootwood`/`grassroot` carry no `food_energy` at all, so
     /// nothing in the world is fed by any of these.
     pub attack_plant_cells: u64,
+    /// **Bites at a plant growing in a nest** (`creature::nest_upkeep_of`):
+    /// the "it fired" half; `nest_clear_cells` is the cells that came off.
+    pub nest_clear_bites: u64,
+    /// Plant cells cut out of a nest and carried off as litter.
+    pub nest_clear_cells: u64,
     /// **Plant cells taken off a plant by the MOUTH** — the denominator
     /// `attack_plant_cells` is read against, and the reason it had to be a
     /// cell count rather than joules.
@@ -3805,6 +3810,12 @@ pub struct World {
     /// that many rows thick, `Some(None)` none; `None` reads the process's
     /// `PIXEL_PHYSICS_DIG_ROOF`.
     pub dig_roof: Option<Option<i32>>,
+    /// `creature::food_footing_of` for this world; `None` reads
+    /// `PIXEL_PHYSICS_FOOD_FOOTING`.
+    pub food_footing: Option<bool>,
+    /// `creature::nest_upkeep_of` for this world; `None` reads
+    /// `PIXEL_PHYSICS_NEST_UPKEEP`.
+    pub nest_upkeep: Option<bool>,
     /// `creature::kin_footing_of` for this world; `None` reads the process's
     /// `PIXEL_PHYSICS_KIN_FOOTING`.
     pub kin_footing: Option<bool>,
@@ -6343,6 +6354,8 @@ impl World {
             chooser: None,
             bud_at_nest: None,
             dig_roof: None,
+            food_footing: None,
+            nest_upkeep: None,
             kin_footing: None,
             door_collar: None,
             spoil_crest: None,
