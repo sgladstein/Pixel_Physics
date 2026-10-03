@@ -10004,6 +10004,23 @@ against 59% with the room. **It does not rescue the lab box under laying
 only at the nest**: there the colony barely digs (home 40-74 cells) and the
 ants rich enough to lay are out on the surface.
 
+**Since 2026-10-03 the colony keeps its door open**
+(`Reports/nest-door-2026-10-03.md`). In the lab the founding cut was shut
+within a few thousand frames on 20 of 20 runs, mostly by food the colony put
+down at home, and the heap cue refused every re-cut of a door filled from
+above. Two rules, both on and both genes: food is never put down in a
+founding shaft or within 6 cells of it, from 6 rows over its mouth to its
+foot, while the chamber at the foot still takes food
+(`PIXEL_PHYSICS_FOOD_DOOR`, `organism::TRAIT_DOOR_CLEAR`); and a cut into a
+colony's own founding cut meets the heap cue only to its
+`TRAIT_DOOR_CUE` weight, none at allele 0 (`PIXEL_PHYSICS_DOOR_REOPEN`).
+Lab bench against main `98eb7fe7`, 12 paired seeds, 120k: animals
+underground 18.7% -> 23.4% (higher on 10), eggs laid at home 1.1% -> 3.9%
+(higher on 10), alive at the end 53 -> 107.5 (11 of 12), births and food
+eaten level. The food rule carries it; re-opening alone moves nothing.
+Barring the chamber too left one colony in 12 nowhere at home to put food
+down, and it never bred.
+
 **How the colony digs**, shipped the day before
 (`Reports/nest-dig-wiring-2026-09-28.md`, `Reports/nest-heap-cue-2026-09-28.md`):
 an ant digs where the ground curves in round it rather than whatever it faces;

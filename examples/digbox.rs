@@ -3967,11 +3967,6 @@ fn harness() {
             if let Some(line) = cut_census(&world) {
                 println!("{line}");
             }
-            println!("{}", free_census(&world, f));
-            if let Some(m) = pixel_physics::sim::creature::DIG_FUNNEL.lock().unwrap().as_ref() {
-                let line: Vec<String> = m.iter().map(|(k, v)| format!("{k}={v}")).collect();
-                println!("DIGFUNNEL frame={f} {}", line.join(" | "));
-            }
             println!("{}", crater(&world, &b, f));
             println!("{}", widths(&world, &b, f));
             if flag("trace") {
@@ -4519,10 +4514,6 @@ struct FoodPile {
     x: i32,
     top: i32,
     n: i32,
-    /// Where each of the `n` cells goes: one 12-wide heap at `x`, or under
-    /// `spread` one cell a column across the whole surface, stacked when
-    /// there are more cells than columns.
-    slots: Vec<(i32, i32)>,
     refill: u64,
     larder: MaterialId,
     /// Cells introduced, the first placing and every refill.
@@ -4652,26 +4643,14 @@ impl FoodPile {
             }
             world.materials.get_mut(larder).food_energy = keep;
         }
-        // **`spread`: the same food scattered over the whole surface** rather
-        // than heaped at one spot -- the lab's garden, where food is
-        // wherever an ant stands, put into the food box one condition at a
-        // time (nest lane, 2026-10-03). The nest's own 16 columns either side
-        // are left bare, so nobody is fed on the door.
-        let top = b.surface - 1;
-        let slots: Vec<(i32, i32)> = if flag("spread") {
-            let nest_x = b.w / 2;
-            let cols: Vec<i32> = (2..b.w - 2).filter(|&cx| (cx - nest_x).abs() > 16).collect();
-            (0..n as usize).map(|i| (cols[i % cols.len()], top - (i / cols.len()) as i32)).collect()
-        } else {
-            (0..n).map(|i| (x + (i % 12) - 6, top - i / 12)).collect()
-        };
-        let mut pile = FoodPile { x, top, n, slots, refill: arg("refill").unwrap_or(400), larder, placed: 0, skipped: 0 };
+        let mut pile = FoodPile { x, top: b.surface - 1, n, refill: arg("refill").unwrap_or(400), larder, placed: 0, skipped: 0 };
         pile.place(world);
         Some(pile)
     }
 
     fn place(&mut self, world: &mut World) {
-        for &(fx, fy) in &self.slots {
+        for i in 0..self.n {
+            let (fx, fy) = (self.x + (i % 12) - 6, self.top - i / 12);
             let m = world.get(fx, fy).material;
             if m == self.larder {
                 world.set(fx, fy, Cell::new(self.larder, 0));
@@ -4688,7 +4667,7 @@ impl FoodPile {
 
     /// Larder standing in the pile's slots now.
     fn standing(&self, world: &World) -> u64 {
-        self.slots.iter().filter(|&&(fx, fy)| world.get(fx, fy).material == self.larder).count() as u64
+        (0..self.n).filter(|i| world.get(self.x + (i % 12) - 6, self.top - i / 12).material == self.larder).count() as u64
     }
 }
 
@@ -5249,30 +5228,4 @@ fn selftest_run(b: &Box2) {
     assert!(st.dig_rolls > 0, "not one dig was even attempted -- the colony is not thinking, so any null from this box is the harness");
     assert!(st.digs > 0, "digs attempted but none landed -- every roll hit air, rock or another ant, and this box cannot answer a digging question");
     println!("digbox selftest: PASS -- the box is empty when nobody digs, finds a known chamber, calls a shaft open, and its ants dig");
-}
-
-/// **Who could dig, and where** -- the same census as `labforage`'s `NEST`
-/// line, so the food box and the lab can be read side by side. `act` sends an
-/// ant holding a whole crop cell to the drop branch and one holding spoil to
-/// the spoil branch, and only one holding neither reaches the dig: `free`
-/// counts those, `workers` the nest-bound caste, `near` anyone within 12
-/// cells of a nest site.
-fn free_census(world: &World, f: u64) -> String {
-    let (mut ants, mut free, mut free_near, mut laden_near, mut workers, mut spoil) = (0u32, 0u32, 0u32, 0u32, 0u32, 0u32);
-    for id in world.live_organism_ids() {
-        let Some(state) = world.organism(id) else { continue };
-        if world.species.get(state.species).creature.is_none() {
-            continue;
-        }
-        let Some(&(hx, hy)) = state.chain.first() else { continue };
-        ants += 1;
-        let is_free = state.crop.as_ref().is_none_or(|c| c.cells == 0) && state.spoil.is_none();
-        let near = world.nest_sites.iter().any(|n| (n.x - hx).abs() <= 12 && (n.surface - hy).abs() <= 12);
-        free += u32::from(is_free);
-        free_near += u32::from(is_free && near);
-        laden_near += u32::from(near && state.crop.as_ref().is_some_and(|c| c.cells > 0));
-        spoil += u32::from(state.spoil.is_some());
-        workers += u32::from(state.nest_bound_until > world.frame);
-    }
-    format!("FREE frame={f} ants={ants} free={free} free_near={free_near} laden_near={laden_near} spoil={spoil} workers={workers} digs={}", world.creature_stats.digs)
 }

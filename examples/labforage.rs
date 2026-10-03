@@ -1777,8 +1777,6 @@ fn harness() {
         "d<16", "d<48", "d<128", "far", "high", "eats", "born", "died",
         "brdr", "gen", "bgen", "fvis", "necJ", "bseen"
     );
-    let mut oracle_cleared: u64 = 0;
-    let mut oracle_kinds: std::collections::BTreeMap<String, u64> = Default::default();
     for f in 0..=frames {
         // **Founding, deferred to here when `ants_at > 0`.** Checked before
         // `mark_visited`/`census` below so the frame it lands on already
@@ -1945,18 +1943,6 @@ fn harness() {
             // how a finding gets skimmed past. `largest` is the owner's
             // *"big group/pile"* as a number; the durations are the
             // *"stuck"*, and only the summary can carry those.
-            // **The nest, every 12,000 frames** (`NEST`): is the colony
-            // underground at all, and why not. The lab's founding cut fills
-            // with crumbs and roots within a few thousand frames of the
-            // colony landing (nest lane, 2026-10-03), and nothing on the
-            // table above can say so: `roofed` is the dig gate's own room
-            // census, `home` the dug home's cells, `under` the live animals
-            // with ground over their heads within `ROOF_REACH` rows, `open`
-            // the founding cut's cells still empty or holding an animal,
-            // and `roof_refused` the cuts the nest roof refused.
-            if f % 12_000 == 0 || std::env::var("NESTEVERY").is_ok_and(|v| v.parse::<u64>().is_ok_and(|n| f % n == 0)) {
-                print_nest_line(&world, f);
-            }
             let largest = piles.sample(&world, f, pile_follow);
             if largest >= 3 {
                 println!("  pile f{f}: largest clump of body-boxed animals = {largest}");
@@ -2193,45 +2179,9 @@ fn harness() {
         }
         bench.observe(&world);
         if f < frames {
-            // TEMP cuttrace (not for commit)
-            let trace_cut = std::env::var("CUTTRACE").is_ok();
-            let _ = &mut oracle_cleared;
-            let before = if trace_cut { Some(cut_snapshot(&world)) } else { None };
             frame::step(&mut world, &mut particles, &mut blasts, player::PlayerInput::default(), &tuning);
             pixel_physics::lab::rain::tick(&mut world, &spec, rain);
-            if let Some(b) = before {
-                cut_report(&world, &b, f);
-            }
-            // TEMP oracle (not for commit): every N frames the founding cut
-            // is emptied of everything but animals and ground -- plants,
-            // seeds, food -- to ask whether a door kept open in the garden
-            // grows a nest.
-            if let Some(_n) = std::env::var("ORACLE_OPEN").ok().and_then(|v| v.parse::<u64>().ok()).filter(|n| *n > 0 && f % n == 0) {
-                use pixel_physics::sim::material::{self as mat, MaterialKind};
-                let cells: Vec<(i32, i32)> = world
-                    .nest_sites
-                    .iter()
-                    .filter_map(|site| site.shaft.map(|c| (site, c)))
-                    .flat_map(|(site, c)| (site.surface - 2..=site.surface + 40).flat_map(move |y| (site.x - 40..=site.x + 40).map(move |x| (x, y))).filter(move |&(x, y)| c.contains(x, y)))
-                    .collect();
-                for (x, y) in cells {
-                    let c = world.get(x, y);
-                    let water_only = std::env::var_os("ORACLE_WATERONLY").is_some();
-                    if water_only && c.material != mat::EMPTY && !matches!(world.materials.kind(c.material), MaterialKind::Liquid) {
-                        continue;
-                    }
-                    if c.material != mat::EMPTY && !matches!(world.materials.kind(c.material), MaterialKind::Creature | MaterialKind::Powder | MaterialKind::Solid) || (c.organism_id() != 0 && !matches!(world.materials.kind(c.material), MaterialKind::Creature)) || world.materials.get(c.material).food_energy > 0.0 && !matches!(world.materials.kind(c.material), MaterialKind::Creature) {
-                        let kind = if c.organism_id() != 0 && pixel_physics::sim::organism::cell_type(c.aux()).is_some_and(|t| matches!(t, pixel_physics::sim::organism::CellType::Seed)) { "seed".to_string() } else { world.materials.get(c.material).name.clone() };
-                        *oracle_kinds.entry(kind).or_insert(0u64) += 1;
-                        world.set(x, y, Cell::EMPTY);
-                        oracle_cleared += 1;
-                    }
-                }
-            }
         }
-    }
-    if std::env::var("ORACLE_OPEN").is_ok() {
-        println!("ORACLE cleared {oracle_cleared} cells from the founding cut: {oracle_kinds:?}");
     }
 
     if let Some(out) = lifetrace.as_mut() {
@@ -3102,140 +3052,4 @@ fn selftest(spec: LabBox) {
     );
 
     println!("labforage selftest: PASS -- every band moves for a case whose answer is known");
-}
-
-/// One `NEST` line: see its call site in the sampling loop.
-fn print_nest_line(world: &World, f: u64) {
-    use pixel_physics::sim::material::{self as mat, MaterialKind};
-    let ground = |x: i32, y: i32| {
-        let c = world.get(x, y);
-        c.material != mat::EMPTY && matches!(world.materials.kind(c.material), MaterialKind::Powder | MaterialKind::Solid) && c.organism_id() == 0
-    };
-    // **Who could dig, and where.** `act` sends an ant holding a whole crop
-    // cell to the drop branch and an ant holding spoil to the spoil branch;
-    // only one holding neither reaches the dig. `free` counts those, `workers`
-    // the nest-bound caste, and `near` anyone within 12 cells of a nest site.
-    let (mut ants, mut under, mut free, mut free_near, mut laden_near, mut workers, mut workers_under, mut spoil) = (0u32, 0u32, 0u32, 0u32, 0u32, 0u32, 0u32, 0u32);
-    let (mut aloft, mut dist) = (0u32, [0u32; 4]);
-    for id in world.live_organism_ids() {
-        let Some(state) = world.organism(id) else { continue };
-        if world.species.get(state.species).creature.is_none() {
-            continue;
-        }
-        let Some(&(hx, hy)) = state.chain.first() else { continue };
-        ants += 1;
-        let roofed = (1..=pixel_physics::sim::world::ROOF_REACH).any(|d| ground(hx, hy - d));
-        under += u32::from(roofed);
-        let is_free = state.crop.as_ref().is_none_or(|c| c.cells == 0) && state.spoil.is_none();
-        let near = world.nest_sites.iter().any(|n| (n.x - hx).abs() <= 12 && (n.surface - hy).abs() <= 12);
-        free += u32::from(is_free);
-        free_near += u32::from(is_free && near);
-        laden_near += u32::from(near && state.crop.as_ref().is_some_and(|c| c.cells > 0));
-        spoil += u32::from(state.spoil.is_some());
-        if state.nest_bound_until > world.frame {
-            workers += 1;
-            workers_under += u32::from(roofed);
-        }
-        // Where the ant is: up in the plants (head 4+ rows above the first
-        // ground in its column), and how far from the nearest nest site.
-        let first_ground = (hy..hy + 400).find(|&yy| ground(hx, yy)).unwrap_or(hy);
-        aloft += u32::from(first_ground - hy >= 4 && !roofed);
-        let d = world.nest_sites.iter().map(|n| (n.x - hx).abs()).min().unwrap_or(i32::MAX);
-        dist[match d { 0..=15 => 0, 16..=47 => 1, 48..=127 => 2, _ => 3 }] += 1;
-    }
-    let roofed: u32 = world.nest_room.iter().map(|r| r.roofed).sum();
-    let (mut open, mut cells) = (0u32, 0u32);
-    let mut plug = std::collections::BTreeMap::<String, u32>::new();
-    for site in &world.nest_sites {
-        let Some(cut) = site.shaft else { continue };
-        for y in site.surface - 2..=site.surface + 40 {
-            for x in site.x - 40..=site.x + 40 {
-                if cut.contains(x, y) {
-                    cells += 1;
-                    let c = world.get(x, y);
-                    let is_open = c.material == mat::EMPTY || matches!(world.materials.kind(c.material), MaterialKind::Creature);
-                    open += u32::from(is_open);
-                    let part = if (cut.x0..=cut.x1).contains(&x) && (cut.top..=cut.bottom).contains(&y) { "shaft" } else { "room" };
-                    *plug.entry(format!("{part} {}", if is_open { "OPEN".to_string() } else { world.materials.get(c.material).name.clone() })).or_insert(0u32) += 1;
-                }
-            }
-        }
-    }
-    // **What the ground under the door is made of**: plant cells (roots) and
-    // ground cells in the box 20 columns either side and 10 rows under each
-    // site's founding surface. An ant's jaw cuts ground, never a plant
-    // (`jaw_can_cut`), so a root is a cell no dig can open.
-    let (mut rootc, mut groundc) = (0u32, 0u32);
-    for site in &world.nest_sites {
-        for y in site.surface + 1..=site.surface + 10 {
-            for x in site.x - 20..=site.x + 20 {
-                let c = world.get(x, y);
-                rootc += u32::from(c.organism_id() != 0 && world.materials.kind(c.material) == MaterialKind::Plant);
-                groundc += u32::from(ground(x, y));
-            }
-        }
-    }
-    if let Some(m) = pixel_physics::sim::creature::DIG_FUNNEL.lock().unwrap().as_ref() {
-        let line: Vec<String> = m.iter().map(|(k, v)| format!("{k}={v}")).collect();
-        println!("DIGFUNNEL frame={f} {}", line.join(" | "));
-    }
-    println!("PLUG frame={f} {plug:?}");
-    if let Some(m) = pixel_physics::sim::creature::DOOR_WRITES.lock().unwrap().as_ref() {
-        println!("DOORWRITES frame={f} {m:?}");
-    }
-    let st = world.creature_stats;
-    println!(
-        "NEST frame={f} ants={ants} under={under} free={free} free_near={free_near} laden_near={laden_near} spoil={spoil} workers={workers} workers_under={workers_under} roofed={roofed} home={} digs={} rolls={} roof_refused={} plant_bites={} plant_cleared={} cut_open={open}/{cells} under_door: roots={rootc} ground={groundc} aloft={aloft} by_x_from_nest(<16,<48,<128,far)={dist:?}",
-        world.nest_dug.len(),
-        st.digs,
-        st.dig_rolls,
-        st.digs_refused_roof,
-        st.nest_clear_bites,
-        st.nest_clear_cells
-    );
-}
-
-// TEMP cuttrace (not for commit)
-struct CutSnap { cells: Vec<(i32, i32, Cell, Cell)>, ants: Vec<(u32, i32, i32, u16, bool)> }
-fn cut_snapshot(world: &World) -> CutSnap {
-    let mut cells = Vec::new();
-    for site in &world.nest_sites {
-        let Some(cut) = site.shaft else { continue };
-        for y in site.surface - 2..=site.surface + 40 {
-            for x in site.x - 40..=site.x + 40 {
-                if cut.contains(x, y) {
-                    cells.push((x, y, world.get(x, y), world.get(x, y - 1)));
-                }
-            }
-        }
-    }
-    let mut ants = Vec::new();
-    for id in world.live_organism_ids() {
-        let Some(st) = world.organism(id) else { continue };
-        if world.species.get(st.species).creature.is_none() { continue; }
-        let Some(&(hx, hy)) = st.chain.first() else { continue };
-        ants.push((id as u32, hx, hy, st.crop.as_ref().map_or(0, |c| c.cells), st.spoil.is_some()));
-    }
-    CutSnap { cells, ants }
-}
-fn cut_report(world: &World, b: &CutSnap, f: u64) {
-    use pixel_physics::sim::material::{self as mat, MaterialKind};
-    let open = |c: Cell| c.material == mat::EMPTY || matches!(world.materials.kind(c.material), MaterialKind::Creature);
-    for &(x, y, was, above_was) in &b.cells {
-        let now = world.get(x, y);
-        if open(was) && !open(now) {
-            let name = world.materials.get(now.material).name.clone();
-            let fell = above_was.material == now.material && world.get(x, y - 1).material != above_was.material;
-            // who near lost cargo of this kind
-            let mut who = String::new();
-            for &(id, hx, hy, cells, spoil) in &b.ants {
-                if (hx - x).abs() <= 2 && (hy - y).abs() <= 2 {
-                    let after = world.organism(id as _).map(|st| (st.crop.as_ref().map_or(0, |c| c.cells), st.spoil.is_some()));
-                    let tag = match after { Some((c2, s2)) => if c2 < cells { "dropfood" } else if spoil && !s2 { "dropspoil" } else { "near" }, None => "died" };
-                    who.push_str(&format!(" {tag}@{},{}", hx - x, hy - y));
-                }
-            }
-            println!("CUT f={f} x={x} y={y} now={name} fell={fell} plant={}{who}", matches!(world.materials.kind(now.material), MaterialKind::Plant));
-        }
-    }
 }

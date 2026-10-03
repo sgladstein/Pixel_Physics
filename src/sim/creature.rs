@@ -656,9 +656,10 @@ pub struct DecisionScratch {
     /// unless the drop was asked.
     pub drop_roll: f32,
     pub drop_p: f32,
-    /// How many of the head's eight neighbours were empty when the drop was
-    /// rolled, by `World::is_empty`, the test the drop's own search uses.
-    /// `u8::MAX` unless the drop was asked.
+    /// How many of the head's eight neighbours were room for food when the
+    /// drop was rolled: empty by `World::is_empty` and, under
+    /// [`food_door_of`], not in a nest's door ([`in_doorway`]) -- the test
+    /// the drop's own search uses. `u8::MAX` unless the drop was asked.
     pub free8: u8,
     /// The eight neighbours' material ids, in `NEIGHBOURS_8` order (NW, N,
     /// NE, W, E, SW, S, SE), when the drop was rolled.
@@ -783,11 +784,12 @@ fn note_drop_surroundings(world: &mut World, organism: OrganismId, x: i32, y: i3
     s.free8 = 0;
     s.nbr_self = 0;
     s.nbr_other = 0;
+    let clear = door_clear_of(world, organism);
     for (i, &(dx, dy)) in NEIGHBOURS_8.iter().enumerate() {
         let (px, py) = (x + dx, y + dy);
         let c = world.get(px, py);
         s.nbr[i] = c.material.0;
-        if world.is_empty(px, py) {
+        if world.is_empty(px, py) && !clear.is_some_and(|c| in_doorway(world, (px, py), c)) {
             s.free8 += 1;
         }
         match c.organism_id() {
@@ -3817,13 +3819,16 @@ fn store_drop(world: &mut World, organism: OrganismId, (x, y): (i32, i32), spoil
     if draw.unit_f32() >= dump_urge {
         return;
     }
+    let clear = door_clear_of(world, organism);
     // **Under `pile`, beside other food** ([`pile_drop_p`]), wherever that
     // is; a carrier that has given up lets go where it stands, as below.
     if storeroom_of(world).pile {
         let f = pile_food_share(world, x, y).0;
         let gave_up = world.organism(organism).is_some_and(|s| s.home_patience < SCOUT_GIVE_UP || s.still_ticks >= STORE_STUCK_TICKS);
         let by_rule = draw.unit_f32() < pile_drop_p(f);
-        let site = (by_rule || gave_up).then(|| food_drop_site(world, x, y, drop_through_bodies()).map(|(p, _)| p)).flatten();
+        let site = (by_rule || gave_up)
+            .then(|| food_drop_site(world, x, y, drop_through_bodies(), clear).map(|(p, _)| p))
+            .flatten();
         match site {
             Some((px, py)) => {
                 if by_rule {
@@ -3831,7 +3836,6 @@ fn store_drop(world: &mut World, organism: OrganismId, (x, y): (i32, i32), spoil
                 } else {
                     world.creature_stats.store_released += 1;
                 }
-                door_write_note(world, (px, py), "store_pile", spoil.cell);
                 world.set(px, py, spoil.cell);
                 if let Some(state) = world.organism_mut(organism) {
                     state.spoil = None;
@@ -3849,7 +3853,11 @@ fn store_drop(world: &mut World, organism: OrganismId, (x, y): (i32, i32), spoil
     // beside it puts the load on any empty neighbour, which is the room's rim.
     let in_room = storeroom_near(world, x, y).is_some_and(|room| room.touches_store(x, y));
     let posted = if storeroom_of(world).posts() { store_post_site(world, (x, y)) } else { None };
-    let site = match posted.or_else(|| storeroom_drop_site(world, x, y)).or_else(|| in_room.then(|| food_drop_site(world, x, y, drop_through_bodies()).map(|(p, _)| p)).flatten()) {
+    let site = match posted.or_else(|| storeroom_drop_site(world, x, y)).or_else(|| {
+        in_room
+            .then(|| food_drop_site(world, x, y, drop_through_bodies(), clear).map(|(p, _)| p))
+            .flatten()
+    }) {
         Some(p) => {
             world.creature_stats.store_delivered += 1;
             Some(p)
@@ -3858,7 +3866,7 @@ fn store_drop(world: &mut World, organism: OrganismId, (x, y): (i32, i32), spoil
             let gave_up = world.organism(organism).is_some_and(|s| s.home_patience < SCOUT_GIVE_UP || s.still_ticks >= STORE_STUCK_TICKS)
                 || storeroom_near(world, x, y).is_none_or(|room| !storeroom_has_room(world, room));
             if gave_up {
-                let p = food_drop_site(world, x, y, drop_through_bodies()).map(|(p, _)| p);
+                let p = food_drop_site(world, x, y, drop_through_bodies(), clear).map(|(p, _)| p);
                 if p.is_some() {
                     world.creature_stats.store_released += 1;
                 }
@@ -3871,7 +3879,6 @@ fn store_drop(world: &mut World, organism: OrganismId, (x, y): (i32, i32), spoil
     };
     let delivered = site.is_some() && (in_room || storeroom_near(world, x, y).is_some_and(|room| room.in_store(x, y)));
     if let Some((px, py)) = site {
-        door_write_note(world, (px, py), "store_room", spoil.cell);
         world.set(px, py, spoil.cell);
         if let Some(state) = world.organism_mut(organism) {
             state.spoil = None;
@@ -6098,15 +6105,6 @@ impl World {
             })
             .collect();
         let mut cut: Vec<(i32, i32)> = Vec::new();
-        // TEMP arm `PIXEL_PHYSICS_FOUND_SOD=on`: the founders bite through
-        // fine roots in the shaft as well as soil -- a root whose authored
-        // resistance their jaw beats. Off, the cut steps round every
-        // organism cell and leaves the sod's roots standing in the hole.
-        let sod = std::env::var("PIXEL_PHYSICS_FOUND_SOD").is_ok_and(|v| v == "on");
-        let root_cut = |w: &World, cx: i32, cy: i32| {
-            let c = w.get(cx, cy);
-            sod && c.organism_id() != 0 && w.materials.kind(c.material) == MaterialKind::Plant && w.materials.get(c.material).penetration_resistance <= force
-        };
         // **The shaft.** Cut from the surface down, **through** the painted
         // door rather than under it: `colony_surface` returns the painted
         // row, so the shaft's first row is the door's own cells over it. That
@@ -6115,11 +6113,6 @@ impl World {
         for dy in 0..depth {
             for dx in 0..span {
                 let (cx, cy) = (x0 + dx, top + dy);
-                if !blocked[dx as usize] && self.in_bounds(cx, cy) && root_cut(self, cx, cy) {
-                    self.set(cx, cy, Cell::EMPTY);
-                    cut.push((cx, cy));
-                    continue;
-                }
                 if blocked[dx as usize] || !self.in_bounds(cx, cy) || !self.is_diggable_ground(cx, cy) {
                     continue;
                 }
@@ -6146,7 +6139,7 @@ impl World {
         for dy in 0..2 {
             for dx in -chamber_half..=chamber_half {
                 let (cx, cy) = (x + dx, floor + dy);
-                if reached && self.in_bounds(cx, cy) && (root_cut(self, cx, cy) || (self.is_diggable_ground(cx, cy) && founders_cut(self, cx, cy))) {
+                if reached && self.in_bounds(cx, cy) && self.is_diggable_ground(cx, cy) && founders_cut(self, cx, cy) {
                     self.set(cx, cy, Cell::EMPTY);
                     cut.push((cx, cy));
                 }
@@ -8005,7 +7998,6 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
             // seed can actually stand.
             if left == 0 && std::env::var("PIXEL_PHYSICS_SEED_WHERE_EATEN").as_deref() != Ok("0") {
                 if let Some(passenger) = c.passenger {
-                    door_write_note(world, (hx, hy), "digest_pip_at_head", Cell::new(passenger.material, 0));
                     plant::deliver_seed_passenger(world, hx, hy, passenger);
                     world.pips_released_by_digestion += 1;
                     world.pip_digestion_release_x.push(hx);
@@ -12225,6 +12217,52 @@ pub fn spoil_cue_of(world: &World) -> Option<SpoilCue> {
     world.spoil_cue.unwrap_or_else(spoil_cue)
 }
 
+/// **Re-opening a nest's own door is not starting a new mouth**
+/// (`PIXEL_PHYSICS_DOOR_REOPEN=on|off`, on; [`World::door_reopen`] for one
+/// world). On, a cut into a founding cut -- shaft or room
+/// ([`crate::sim::world::ShaftFootprint::contains`]) -- meets the heap cue ([`SpoilCue`]) only
+/// to [`door_cue_weight`]'s share, which is none at the shipped allele.
+///
+/// **Why** (nest lane, 2026-10-03, `labforage scenario=played_bed`). The cue
+/// lets a cut that opens ground to the sky go ahead only beside a heap of
+/// pellets, and at floor 0 it refuses every such cut with no pellet within
+/// two cells. That is right for where a colony *starts* a mouth (Pielström &
+/// Roces 2013), and it also refused the colony re-cutting its own door once
+/// food, soil or grass had filled it from above: the dig funnel, at home,
+/// counted 443-5,130 such refusals over 72,000 frames on seeds 1 and 4.
+/// Wood ants clear what falls over their entrances (Arscott et al. 2026);
+/// nothing here asks them to find a heap first.
+pub fn door_reopen_of(world: &World) -> bool {
+    world.door_reopen.unwrap_or_else(|| {
+        static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        *V.get_or_init(|| match std::env::var("PIXEL_PHYSICS_DOOR_REOPEN").as_deref() {
+            Ok("on") | Err(_) => true,
+            Ok("off") => false,
+            Ok(other) => panic!("PIXEL_PHYSICS_DOOR_REOPEN={other:?}: use on or off"),
+        })
+    })
+}
+
+/// **How much of the heap cue a cut at `(tx, ty)` still meets because it is
+/// in a nest's door**: `None` outside every founding cut, or with
+/// [`door_reopen_of`] off; else this ant's [`organism::TRAIT_DOOR_CUE`]
+/// clamped to 0..=1 -- 0 (the shipped allele) waives the cue there, 1 is the
+/// cue as on any ground. The cue's chance `f` becomes `1 - w (1 - f)`.
+fn door_cue_weight(world: &World, organism: OrganismId, (tx, ty): (i32, i32)) -> Option<f32> {
+    if !door_reopen_of(world)
+        || !world
+            .nest_sites
+            .iter()
+            .any(|site| site.shaft.is_some_and(|cut| cut.contains(tx, ty)))
+    {
+        return None;
+    }
+    let allele = world.organism(organism).map_or(0.0, |st| {
+        expressed_traits(st, world.plasticity, world.trait_reach)[organism::TRAIT_DOOR_CUE]
+    });
+    Some(allele.clamp(0.0, 1.0))
+}
+
 /// `PIXEL_PHYSICS_SPOIL_CUE`'s value read as a cue ([`spoil_cue`]): unset
 /// and `on` are [`SPOIL_CUE_SHIPPED`], `off` is the ant before the cue, bit
 /// for bit, and `K[,floor]` sets the dials (the floor is the shipped one when
@@ -12408,38 +12446,7 @@ fn under_roof(world: &World, (x, y): (i32, i32), rows: i32) -> bool {
     let Some(door) = nest_door_of(world) else { return false };
     let Some(site) = world.nest_sites.iter().min_by_key(|s| (s.x - x).abs()) else { return false };
     let below = y - site.surface;
-    let door = door + new_door_widen(world, site);
     (0..rows).contains(&below) && (x - site.x).abs() > door
-}
-
-// TEMP arm (not for commit): PIXEL_PHYSICS_NEW_DOOR=<cols>. While a nest's
-// founding mouth is filled (no open cell in its top body length), the door
-// counts `cols` wider either side, for the roof and the heap cue alike, so
-// ants at a filled door may dig a new way in beside it.
-fn new_door_of() -> i32 {
-    static V: std::sync::OnceLock<i32> = std::sync::OnceLock::new();
-    *V.get_or_init(|| std::env::var("PIXEL_PHYSICS_NEW_DOOR").ok().and_then(|v| v.parse().ok()).unwrap_or(0))
-}
-fn mouth_filled(world: &World, site: &crate::sim::world::NestSite) -> bool {
-    let Some(c) = site.shaft else { return false };
-    !(c.top..=c.mouth_bottom).any(|y| (c.x0..=c.x1).any(|x| {
-        let cell = world.get(x, y);
-        cell.material == material::EMPTY || matches!(world.materials.kind(cell.material), MaterialKind::Creature)
-    }))
-}
-fn new_door_widen(world: &World, site: &crate::sim::world::NestSite) -> i32 {
-    let w = new_door_of();
-    if w > 0 && mouth_filled(world, site) { w } else { 0 }
-}
-/// TEMP: is `(tx, ty)` in a widened door zone, shallow enough that the roof would apply.
-fn in_new_door(world: &World, (tx, ty): (i32, i32)) -> bool {
-    if new_door_of() == 0 {
-        return false;
-    }
-    let Some(site) = world.nest_sites.iter().min_by_key(|s| (s.x - tx).abs()) else { return false };
-    let w = new_door_widen(world, site);
-    let door = nest_door_of(world).unwrap_or(NEST_DOOR_SHIPPED);
-    w > 0 && (tx - site.x).abs() <= door + w && (-UPKEEP_MOUTH_UP..dig_roof_of(world).unwrap_or(DIG_ROOF_SHIPPED)).contains(&(ty - site.surface))
 }
 
 /// **A collar round the door**: `PIXEL_PHYSICS_DOOR_COLLAR=on`, off unless
@@ -12635,47 +12642,6 @@ fn jaw_can_cut(world: &World, def: &CreatureDef, organism: OrganismId, cell: Cel
         && !is_live_seed(cell)
         && cell.material != material::EMPTY
         && world.materials.get(cell.material).penetration_resistance <= dig_force_of(def, &traits_of(world, organism, def), world.trait_reach)
-}
-
-// TEMP dig funnel (not for commit): where each dig roll ends, by where the
-// digger stands.
-pub static DIG_FUNNEL: std::sync::Mutex<Option<std::collections::BTreeMap<String, u64>>> = std::sync::Mutex::new(None);
-fn dig_funnel_note(world: &World, organism: OrganismId, def: &CreatureDef, (x, y): (i32, i32), (tx, ty): (i32, i32), target: Cell, cue: bool, vetoed: bool) {
-    let place = if nest_within_reach(world, organism, x, y, def) {
-        "home"
-    } else if world.nest_sites.iter().any(|n| (n.x - x).abs() <= 12 && (n.surface - y).abs() <= 12) {
-        "near"
-    } else {
-        "far"
-    };
-    let what = if cue {
-        "cue".to_string()
-    } else if vetoed {
-        "roof".to_string()
-    } else if jaw_can_cut(world, def, organism, target) {
-        "CUT".to_string()
-    } else if target.material == material::EMPTY {
-        "air".to_string()
-    } else if is_live_seed(target) {
-        "seed".to_string()
-    } else {
-        format!("blocked:{}", world.materials.get(target.material).name)
-    };
-    let door = if world.nest_sites.iter().any(|site| site.shaft.is_some_and(|cut| cut.contains(tx, ty))) { " door" } else { "" };
-    let mut g = DIG_FUNNEL.lock().unwrap();
-    *g.get_or_insert_with(Default::default).entry(format!("{place} {what}{door}")).or_insert(0) += 1;
-}
-
-// TEMP door-write census (not for commit): what each call site puts into a
-// nest's founding cut, by material.
-pub static DOOR_WRITES: std::sync::Mutex<Option<std::collections::BTreeMap<String, u64>>> = std::sync::Mutex::new(None);
-fn door_write_note(world: &World, (x, y): (i32, i32), site: &str, cell: Cell) {
-    if std::env::var_os("DOORWRITES").is_none() || !world.nest_sites.iter().any(|n| n.shaft.is_some_and(|cut| cut.contains(x, y))) {
-        return;
-    }
-    let part = if world.nest_sites.iter().any(|n| n.shaft.is_some_and(|c| (c.x0..=c.x1).contains(&x) && (c.top..=c.bottom).contains(&y))) { "shaft" } else { "room" };
-    let mut g = DOOR_WRITES.lock().unwrap();
-    *g.get_or_insert_with(Default::default).entry(format!("{part} {site}:{}", world.materials.get(cell.material).name)).or_insert(0) += 1;
 }
 
 /// A live organism's seed cell, which [`jaw_can_cut`] will not dig.
@@ -13191,56 +13157,88 @@ fn food_drop_order(world: &World, x: i32, y: i32) -> &'static [(i32, i32); 8] {
     }
 }
 
-/// **Food is not put down in a nest's doorway** (`PIXEL_PHYSICS_FOOD_DOOR=clear|off`;
-/// [`World::food_door`] for one world). On, a food drop never takes a cell of
-/// a founding shaft, or of the mouth over it ([`in_doorway`]), so a carrier at
-/// the door sets its load beside the way in rather than in it. The chamber at
-/// the shaft's foot is not doorway: food stored there is food in the nest.
+/// **Food is not put down in a nest's door** (`PIXEL_PHYSICS_FOOD_DOOR=on|off`,
+/// on; [`World::food_door`] for one world). A food drop never takes a cell of
+/// a founding shaft, nor of the ground round it: [`door_clear_of`] columns
+/// either side, from as many rows over its mouth down to its foot
+/// ([`in_doorway`]). A carrier at the door sets its load down beside the way
+/// in, not in it. **The chamber at the shaft's foot, and a side room, are
+/// not door**: food put down there is food stored in the nest.
 ///
-/// **Why** (nest lane, 2026-10-03, `labforage scenario=played_bed`, main
-/// d4418bf2). In the evolution lab the founding cut is shut within a few
-/// thousand frames on 20 of 20 runs, and what shuts it is mostly food the
-/// colony put down at home: an oracle that emptied the cut every 64 frames
-/// took out 420-2,327 cells of crumbs in 36,000 frames on four seeds (46-84%
-/// of all it cleared; seeds 57-2,358, grass 31-250, water 75-146). Held open
-/// that way, home grew from 14-137 cells to 107-174 and dig attempts at home
-/// rose on 4 of 4 seeds. Real ants keep a passage clear and store food in
-/// chambers. **Tried first and not enough:** food set down only on footing
-/// (`FOOD_FOOTING`, withdrawn) still filled the shaft from its floor up.
+/// **Why** (nest lane, 2026-10-03, `labforage scenario=played_bed`). In the
+/// evolution lab the founding cut was shut within a few thousand frames on
+/// 20 of 20 runs, and what shut it was mostly food the colony put down at
+/// home. An oracle that emptied the cut every 64 frames took out 420-2,327
+/// cells in 36,000 frames on four seeds, 46-84% of them crumbs; held open
+/// that way, the dug home grew from 14-137 cells to 107-174. Writes into the
+/// cut, censused by call site, were food set down: 27-354 crumbs into the
+/// shaft by 36,000 frames. Real ants keep a passage clear: wood ants carry
+/// sticks off their entrances (Arscott et al. 2026), harvester ants clear a
+/// disc round the nest (MacMahon et al. 2000) and store seed in chambers.
+///
+/// **Not the chamber too** (tried first, 2026-10-03): with the chamber
+/// barred as well, a colony that had dug little beyond its founding cut had
+/// nowhere at home to put food down -- on seed 11 deliveries at home by
+/// 33,000 frames fell from 2,436 to 982 while no-room drops rose from 1,450
+/// to 9,811, and the colony ended at one ant (main 297 born, it 19). On the
+/// lab bench (12 seeds, 120,000 frames) that version left 2 boxes under 10
+/// ants against 0; this one leaves 0, and puts 23% of animals underground
+/// against 19%. `Reports/nest-door-2026-10-03.md` has both benches.
 pub fn food_door_of(world: &World) -> bool {
     world.food_door.unwrap_or_else(|| {
         static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
         *V.get_or_init(|| match std::env::var("PIXEL_PHYSICS_FOOD_DOOR").as_deref() {
-            Ok("clear") | Ok("room") => true,
-            Ok("off") | Err(_) => false,
-            Ok(other) => panic!("PIXEL_PHYSICS_FOOD_DOOR={other:?}: use clear, room or off"),
+            Ok("on") | Err(_) => true,
+            Ok("off") => false,
+            Ok(other) => panic!("PIXEL_PHYSICS_FOOD_DOOR={other:?}: use on or off"),
         })
     })
 }
 
-/// Columns either side of a founding shaft, and rows over its top, that are
-/// still its doorway for [`in_doorway`]: a crumb set down at the lip rolls in.
-const DOORWAY_MARGIN: i32 = 2;
+/// How far round a founding shaft's mouth food is not put down, in cells, at
+/// [`organism::TRAIT_DOOR_CLEAR`]'s allele 0. **Six, not two**: at two, food
+/// piled at the lip slid and fell in (traced on seed 1 to 16,000 frames: 549
+/// falls and 781 slides of crumbs into the cut), and the door shut on 3 of 4
+/// seeds.
+pub const DOOR_CLEAR_CELLS: f32 = 6.0;
 
-/// **Is `(x, y)` a nest's way in** ([`food_door_of`]): inside a founding
-/// shaft's columns, widened by [`DOORWAY_MARGIN`], from that many rows over
-/// its top down to its last row. The chamber below is not.
-fn in_doorway(world: &World, (x, y): (i32, i32)) -> bool {
-    // TEMP sweep knob (not for commit): PIXEL_PHYSICS_DOORWAY_MARGIN.
-    static M: std::sync::OnceLock<i32> = std::sync::OnceLock::new();
-    let m = *M.get_or_init(|| std::env::var("PIXEL_PHYSICS_DOORWAY_MARGIN").ok().and_then(|v| v.parse().ok()).unwrap_or(DOORWAY_MARGIN));
-    // TEMP arm (not for commit): FOOD_DOOR=room keeps food out of the
-    // founding room at the shaft's foot as well.
-    static ROOM: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    let room = *ROOM.get_or_init(|| std::env::var("PIXEL_PHYSICS_FOOD_DOOR").as_deref() == Ok("room"));
-    world.nest_sites.iter().filter_map(|s| s.shaft).any(|c| ((c.x0 - m..=c.x1 + m).contains(&x) && (c.top - m..=c.bottom).contains(&y)) || (room && c.contains(x, y)))
+/// **How far round the door this ant keeps food off** -- `None` when the
+/// rule is off ([`food_door_of`]). [`DOOR_CLEAR_CELLS`] on the walk genes'
+/// reciprocal axis ([`walk_gain`]): twice it at `+1`, half at `-1`, exactly
+/// it at 0.
+fn door_clear_of(world: &World, organism: OrganismId) -> Option<i32> {
+    if !food_door_of(world) {
+        return None;
+    }
+    let allele = world.organism(organism).map_or(0.0, |st| {
+        expressed_traits(st, world.plasticity, world.trait_reach)[organism::TRAIT_DOOR_CLEAR]
+    });
+    Some((DOOR_CLEAR_CELLS / ratio_factor(allele)).round() as i32)
 }
 
-fn food_drop_site(world: &World, x: i32, y: i32, through_bodies: bool) -> Option<((i32, i32), u8)> {
+/// **Is `(x, y)` a nest's way in**, for [`food_door_of`]: within `clear`
+/// columns either side of a founding shaft, from `clear` rows over its
+/// mouth down to its foot. The shaft itself is inside at any `clear`; the
+/// chamber under its foot and a side room are not.
+fn in_doorway(world: &World, (x, y): (i32, i32), clear: i32) -> bool {
+    world
+        .nest_sites
+        .iter()
+        .filter_map(|s| s.shaft)
+        .any(|c| (c.x0 - clear..=c.x1 + clear).contains(&x) && (c.top - clear..=c.bottom).contains(&y))
+}
+
+/// Where a carrier at `(x, y)` puts food down: the first empty neighbour,
+/// else (with `through_bodies`) the nearest empty cell handed along bodies.
+/// `clear` is [`door_clear_of`]: with it, no cell [`in_doorway`] is taken.
+fn food_drop_site(world: &World, x: i32, y: i32, through_bodies: bool, clear: Option<i32>) -> Option<((i32, i32), u8)> {
     let order = food_drop_order(world, x, y);
-    let door = food_door_of(world);
-    let room = |px: i32, py: i32| world.is_empty(px, py) && !(door && in_doorway(world, (px, py)));
-    if let Some(p) = order.iter().map(|&(dx, dy)| (x + dx, y + dy)).find(|&(px, py)| room(px, py)) {
+    let room = |px: i32, py: i32| world.is_empty(px, py) && !clear.is_some_and(|c| in_doorway(world, (px, py), c));
+    if let Some(p) = order
+        .iter()
+        .map(|&(dx, dy)| (x + dx, y + dy))
+        .find(|&(px, py)| room(px, py))
+    {
         return Some((p, 1));
     }
     if !through_bodies {
@@ -14733,7 +14731,7 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
             let site = match harvest {
                 Some(HarvestDrop::Store(site)) => site.map(|p| (p, 1)),
                 Some(HarvestDrop::Hold) => None,
-                None if roll < p => food_drop_site(world, x, y, drop_through_bodies()),
+                None if roll < p => food_drop_site(world, x, y, drop_through_bodies(), door_clear_of(world, organism)),
                 None => None,
             };
             if roll >= p {
@@ -14788,10 +14786,8 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
                 // like any other fallen fruit. See `plant::deliver_
                 // seed_passenger_uneaten`'s own doc.
                 if let Some(passenger) = held.passenger {
-                    door_write_note(world, (dx, dy), "drop_seeded", unit.into_cell(world));
                     plant::deliver_seed_passenger_uneaten(world, dx, dy, passenger);
                 } else {
-                    door_write_note(world, (dx, dy), "drop", unit.into_cell(world));
                     world.set(dx, dy, unit.into_cell(world));
                 }
                 if let Some(state) = world.organism_mut(organism) {
@@ -15094,7 +15090,6 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
             }
 
             if let Some((px, py)) = site {
-                door_write_note(world, (px, py), "spoil", spoil.cell);
                 world.set(px, py, spoil.cell);
                 if let Some(state) = world.organism_mut(organism) {
                     state.spoil = None;
@@ -15198,18 +15193,6 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
             world.creature_stats.digs_widened += 1;
         }
         let target = world.get(tx, ty);
-        // **Nest upkeep: a plant growing in the nest is cut out and carried
-        // off** ([`nest_upkeep_of`], [`in_nest_upkeep_zone`]). Ahead of the
-        // heap cue and the roof, which are about opening ground: a plant cell
-        // is not ground, and taking it neither opens the sky nor thins a
-        // roof.
-        if nest_upkeep_of(world)
-            && target.organism_id() != 0
-            && (world.materials.kind(target.material) == MaterialKind::Plant || is_live_seed(target))
-            && in_nest_upkeep_zone(world, (tx, ty))
-        {
-            return clear_nest_plant(world, organism, def, (tx, ty), target, did);
-        }
         // **A heap draws where digging starts** ([`SpoilCue`], on since
         // 2026-09-28, [`spoil_cue_of`]): a cut that would open the ground to the sky goes
         // ahead with probability `f`, the heap factor for the pellets beside
@@ -15221,19 +15204,18 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
         // -> 212 over 12 seeds, three in four with no spoil beside them. A
         // draw is taken only while `f < 1`, so the floor-1 control takes none
         // and stays bit-exact with the cue off, as does the cue off.
-        // TEMP arm (not for commit): PIXEL_PHYSICS_DOOR_REDIG=on -- the heap
-        // cue stands aside for a cut inside a nest's founding cut, which is
-        // the existing mouth being re-dug, not a new one.
-        let redig = {
-            static R: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-            *R.get_or_init(|| std::env::var("PIXEL_PHYSICS_DOOR_REDIG").as_deref() == Ok("on"))
-        } && world.nest_sites.iter().any(|site| site.shaft.is_some_and(|cut| cut.contains(tx, ty)));
-        let redig = redig || in_new_door(world, (tx, ty));
-        let vetoed = match spoil_cue_of(world).filter(|_| !redig) {
+        //
+        // **Except at a nest's own door** ([`door_reopen_of`]): a cut into a
+        // founding cut is the mouth being re-opened, not a new one started,
+        // and there the cue counts for only [`door_cue_weight`] of itself --
+        // nothing, at the shipped allele, and then no draw is taken.
+        let door_w = door_cue_weight(world, organism, (tx, ty));
+        let vetoed = match spoil_cue_of(world).filter(|_| door_w != Some(0.0)) {
             Some(cue) => {
                 let radius = curvature_radius_of(def, &traits_of(world, organism, def)).max(1);
                 match spoil_cue_factor(world, (x, y), (tx, ty), radius, cue) {
                     Some(f) => {
+                        let f = door_w.map_or(f, |w| 1.0 - w * (1.0 - f));
                         world.creature_stats.spoil_cue_applied += 1;
                         world.creature_stats.spoil_cue_kept_milli += (f * 1000.0).round() as u64;
                         f < 1.0 && draw.unit_f32() >= f
@@ -15247,7 +15229,6 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
         // ground just under a nest's surface, outside its door, is refused,
         // so the crust over the nest stays whole and the chambers go below it.
         // No draw either way.
-        let cue_vetoed = vetoed;
         let vetoed = vetoed || {
             let refused = dig_roof_of(world).is_some_and(|rows| under_roof(world, (tx, ty), rows));
             if refused {
@@ -15261,9 +15242,6 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
         // at the cut, as it always was.
         if is_live_seed(target) {
             world.dig_diverted_seed += 1;
-        }
-        if std::env::var_os("DIGFUNNEL").is_some() {
-            dig_funnel_note(world, organism, def, (x, y), (tx, ty), target, cue_vetoed, vetoed);
         }
         if !vetoed && jaw_can_cut(world, def, organism, target) {
             // **The spoil is picked up, not destroyed.** This line read
@@ -15377,89 +15355,6 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
         }
     }
     Did { dug: 0, ..did }
-}
-
-/// **Nest upkeep** (`PIXEL_PHYSICS_NEST_UPKEEP=on|off`; [`World::nest_upkeep`]
-/// for one world): an ant whose dig roll faces a plant growing in its nest
-/// bites the plant cell off and carries it away as a pellet of litter, by
-/// the same walked cycle it carries soil out with.
-///
-/// **Why** (nest lane, 2026-10-03, main d4418bf2). In the evolution lab the
-/// founding cut was shut on every one of 24 runs by 108,000 frames
-/// (`labforage` `NEST` line, `cut_open` 0-4 of 26), and traced cell by cell
-/// over seeds 1-4 to 16,000 frames (every cell of the cut that went from open
-/// to filled) the plug was grass growing into it on seeds 3 and 4 (1,243 and
-/// 154 fills by grass blade or root), seeds on seed 2, and crumbs on seed 1.
-/// An ant's jaw could not take a plant cell at all ([`jaw_can_cut`]), so a
-/// door a plant had grown into stayed shut for good, and with it every other
-/// cut near the nest fell in the roof [`dig_roof_of`] keeps: 80-87% of dig
-/// rolls were refused there.
-///
-/// **The biology.** Ants keep their nests clear of plants: harvester ants
-/// clear the vegetation round their entrances (*Pogonomyrmex*, the nest
-/// disc; Hernandez et al. 2024, MacMahon et al. 2000), leaf-cutters strip
-/// seedlings off their mound as upkeep rather than foraging (Stephan et al.
-/// 2015, *Neotropical Entomology*), and in *P. badius* seeds that germinate
-/// in the granary are removed quickly (Tschinkel & Kwapich 2016, *PLoS ONE*).
-/// Wood ants remove sticks laid over their entrances (Arscott et al. 2026).
-pub fn nest_upkeep_of(world: &World) -> bool {
-    world.nest_upkeep.unwrap_or_else(|| {
-        static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-        *V.get_or_init(|| match std::env::var("PIXEL_PHYSICS_NEST_UPKEEP").as_deref() {
-            Ok("on") => true,
-            Ok("off") | Err(_) => false,
-            Ok(other) => panic!("PIXEL_PHYSICS_NEST_UPKEEP={other:?}: use on or off"),
-        })
-    })
-}
-
-/// Rows over a nest's founding surface that still count as its mouth for
-/// [`in_nest_upkeep_zone`]: a plant rooted in the door grows up out of it.
-const UPKEEP_MOUTH_UP: i32 = 3;
-
-/// **Is `(x, y)` in a nest, for [`nest_upkeep_of`]**: inside a founding cut,
-/// over a door (its columns, from [`UPKEEP_MOUTH_UP`] rows above the founding
-/// surface down to it), or beside a cell of the dug home ([`World::nest_dug`]),
-/// so a root grown into a tunnel's wall counts.
-fn in_nest_upkeep_zone(world: &World, (x, y): (i32, i32)) -> bool {
-    let door = nest_door_of(world).unwrap_or(NEST_DOOR_SHIPPED);
-    for site in &world.nest_sites {
-        if site.shaft.is_some_and(|cut| cut.contains(x, y)) {
-            return true;
-        }
-        if (x - site.x).abs() <= door && (site.surface - UPKEEP_MOUTH_UP..=site.surface).contains(&y) {
-            return true;
-        }
-    }
-    [(1, 0), (-1, 0), (0, 1), (0, -1)].iter().any(|&(dx, dy)| world.nest_dug.contains(&(x + dx, y + dy)))
-}
-
-/// One bite at a plant cell in the nest, for [`nest_upkeep_of`]: the jaw
-/// works it as it works a foe (`contest::bite_progress` against the cell's
-/// armour, carried over bites in the plant's `gnawed`), and when it gives
-/// the cell comes off and the ant holds it as a pellet of `litter`, which the
-/// spoil cycle carries out like any other. Nobody eats it.
-fn clear_nest_plant(world: &mut World, organism: OrganismId, def: &CreatureDef, (tx, ty): (i32, i32), target: Cell, did: Did) -> Did {
-    let victim = target.organism_id();
-    let damage = contest::bite_progress(gut_of(world, organism, def).bite, armour_at(world, target));
-    world.creature_stats.nest_clear_bites += 1;
-    let done = world.organism(victim).is_some_and(|st| st.gnawed + damage >= 1.0);
-    if let Some(st) = world.organism_mut(victim) {
-        st.gnawed = if done { 0.0 } else { st.gnawed + damage };
-    }
-    if done {
-        world.set(tx, ty, Cell::EMPTY);
-        reconcile_chain(world, victim);
-        world.creature_stats.nest_clear_cells += 1;
-        if let Some(litter) = world.materials.id_of("litter") {
-            if spoil_kept() {
-                if let Some(state) = world.organism_mut(organism) {
-                    state.spoil = Some(Spoil { cell: Cell::new(litter, target.shade), store: false });
-                }
-            }
-        }
-    }
-    Did { gnaws: did.gnaws + 1, ..did }
 }
 
 /// How far up `act`'s spoil lift may look — the first row holding something
@@ -23654,7 +23549,6 @@ fn creature_dies(world: &mut World, organism: OrganismId, cause: organism::Death
             .find(|&(px, py)| world.is_empty(px, py));
         match site {
             Some((px, py)) => {
-                door_write_note(world, (px, py), "death_spoil", spoil.cell);
                 world.set(px, py, spoil.cell);
                 world.creature_stats.spoil_dumped += 1;
             }
@@ -23699,10 +23593,8 @@ fn creature_dies(world: &mut World, organism: OrganismId, cause: organism::Death
                 break;
             };
             if let Some(p) = passenger.take() {
-                door_write_note(world, (dx, dy), "death_seeded", unit.into_cell(world));
                 plant::deliver_seed_passenger_uneaten(world, dx, dy, p);
             } else {
-                door_write_note(world, (dx, dy), "death_crop", unit.into_cell(world));
                 world.set(dx, dy, unit.into_cell(world));
             }
             left -= 1;
@@ -25445,6 +25337,122 @@ mod tests {
         }
         w.register_nest_site(60, 38, 2);
         w
+    }
+
+    /// **Food is not put down in a nest's door** ([`food_door_of`]): a
+    /// carrier standing anywhere in the founding cut, or on the ground round
+    /// its mouth, never sets its load on a cell [`in_doorway`]; a carrier in
+    /// the chamber at the shaft's foot still stores food there; and a
+    /// carrier well clear of the door drops exactly where it would without
+    /// the rule. The rule-off arm is the positive control: the same carriers
+    /// put food inside the door, so the scene can tell the two apart.
+    #[test]
+    fn food_is_never_put_down_in_a_nests_door() {
+        let mut w = founding_bed();
+        assert!(
+            w.cut_founding_shaft(60, 38, 16, 2, true) > 0,
+            "test setup: the cut removed nothing"
+        );
+        let cut = w.nest_sites[0].shaft.expect("the cut records its footprint");
+        let clear = DOOR_CLEAR_CELLS as i32;
+        // Carriers in every open cell of the cut, and along the surface
+        // round the mouth.
+        let mut stands: Vec<(i32, i32)> = cut
+            .cells()
+            .into_iter()
+            .filter(|&(x, y)| w.get(x, y).material == material::EMPTY)
+            .collect();
+        stands.extend((cut.x0 - clear - 2..=cut.x1 + clear + 2).map(|x| (x, 39)));
+        let mut inside_without = 0;
+        for &(x, y) in &stands {
+            let with = food_drop_site(&w, x, y, true, Some(clear)).map(|(p, _)| p);
+            assert!(
+                !with.is_some_and(|p| in_doorway(&w, p, clear)),
+                "a carrier at ({x},{y}) put food down in the door at {with:?}"
+            );
+            let without = food_drop_site(&w, x, y, true, None).map(|(p, _)| p);
+            inside_without += usize::from(without.is_some_and(|p| in_doorway(&w, p, clear)));
+        }
+        assert!(inside_without > 10, "control: with the rule off only {inside_without} carriers put food in the door -- the scene does not test the rule");
+        // The chamber is the nest's store, not its door: barring it too left a
+        // colony with a small nest nowhere at home to put food down.
+        let in_chamber = |(x, y): (i32, i32)| {
+            (cut.chamber_x0..=cut.chamber_x1).contains(&x) && (cut.chamber_top..=cut.chamber_bottom).contains(&y)
+        };
+        let stored = stands
+            .iter()
+            .filter(|&&p| in_chamber(p))
+            .filter(|&&(x, y)| food_drop_site(&w, x, y, true, Some(clear)).is_some_and(|(p, _)| in_chamber(p)))
+            .count();
+        assert!(stored > 0, "no carrier in the chamber could put food down in it");
+        // Well clear of the door the rule changes nothing.
+        let far = (cut.x1 + clear + 8, 39);
+        assert_eq!(
+            food_drop_site(&w, far.0, far.1, true, Some(clear)),
+            food_drop_site(&w, far.0, far.1, true, None),
+            "a carrier away from the door must drop where it always did"
+        );
+    }
+
+    /// **The door gene moves the clearance on the walk genes' axis**
+    /// ([`door_clear_of`]): 6 cells at the shipped allele 0, 12 at `+1`, 3
+    /// at `-1`, and no clearance at all with the rule off.
+    #[test]
+    fn the_door_clearance_is_a_gene() {
+        let mut w = founding_bed();
+        assert!(w.found_colony_of(60, 38, "ant", 2) > 0, "test setup: no ant was placed");
+        let id = *w.live_organism_ids().first().expect("an ant");
+        w.food_door = Some(true);
+        for (allele, cells) in [(0.0, 6), (1.0, 12), (-1.0, 3)] {
+            w.organism_mut(id).expect("the ant").traits[organism::TRAIT_DOOR_CLEAR] = allele;
+            assert_eq!(door_clear_of(&w, id), Some(cells), "allele {allele}");
+        }
+        w.food_door = Some(false);
+        assert_eq!(door_clear_of(&w, id), None, "the rule off keeps no clearance");
+    }
+
+    /// **Re-opening a nest's own door does not wait for a heap**
+    /// ([`door_reopen_of`]): inside a founding cut the heap cue counts for
+    /// the ant's [`organism::TRAIT_DOOR_CUE`] share -- none at the shipped
+    /// allele, all of it at `+1` -- and outside every cut, or with the rule
+    /// off, the cue is untouched (`None`).
+    #[test]
+    fn the_heap_cue_stands_aside_at_a_nests_own_door() {
+        let mut w = founding_bed();
+        assert!(w.found_colony_of(60, 38, "ant", 2) > 0, "test setup: no ant was placed");
+        let cut = w.nest_sites[0].shaft.expect("the founding cut records its footprint");
+        let id = *w.live_organism_ids().first().expect("an ant");
+        let in_cut = cut.cells()[0];
+        let outside = (cut.x1 + 20, cut.top);
+        w.door_reopen = Some(true);
+        assert_eq!(
+            door_cue_weight(&w, id, in_cut),
+            Some(0.0),
+            "the shipped ant waives the cue in its own door"
+        );
+        assert_eq!(
+            door_cue_weight(&w, id, outside),
+            None,
+            "away from the door the cue is the cue"
+        );
+        w.organism_mut(id).expect("the ant").traits[organism::TRAIT_DOOR_CUE] = 1.0;
+        assert_eq!(
+            door_cue_weight(&w, id, in_cut),
+            Some(1.0),
+            "at +1 the door is bare ground to the cue"
+        );
+        w.organism_mut(id).expect("the ant").traits[organism::TRAIT_DOOR_CUE] = -1.0;
+        assert_eq!(
+            door_cue_weight(&w, id, in_cut),
+            Some(0.0),
+            "a negative allele reads as 0"
+        );
+        w.door_reopen = Some(false);
+        assert_eq!(
+            door_cue_weight(&w, id, in_cut),
+            None,
+            "with the rule off the door meets the cue as before"
+        );
     }
 
     /// **A side storeroom is cut off one side of the entrance shaft, not at
@@ -34077,7 +34085,7 @@ mod tests {
         let (mut west, mut east) = (0, 0);
         for f in 0..400u64 {
             w.frame = f;
-            let ((px, _), reach) = food_drop_site(&w, 32, 40, false).expect("open ground has room");
+            let ((px, _), reach) = food_drop_site(&w, 32, 40, false, None).expect("open ground has room");
             assert_eq!(reach, 1, "open ground drops beside the ant");
             if px < 32 {
                 west += 1;
@@ -34149,13 +34157,13 @@ mod tests {
         // Its own tail behind it.
         let (mut w, ant, _) = build(false);
         assert_eq!(w.organism(ant).expect("live").chain, vec![(32, 40), (31, 40)], "the scene needs the ant head-east at the blind end");
-        assert_eq!(food_drop_site(&w, 32, 40, false), None, "the eight-neighbour drop must have no room here, or the scene is not the case");
-        assert_eq!(food_drop_site(&w, 32, 40, true), Some(((30, 40), 2)), "handed back along its own body");
+        assert_eq!(food_drop_site(&w, 32, 40, false, None), None, "the eight-neighbour drop must have no room here, or the scene is not the case");
+        assert_eq!(food_drop_site(&w, 32, 40, true, None), Some(((30, 40), 2)), "handed back along its own body");
 
         // Food lying in that cell plugs the tunnel.
         let leaf = w.materials.id_of("leaf").expect("leaf");
         w.set(30, 40, Cell::new(leaf, 0));
-        assert_eq!(food_drop_site(&w, 32, 40, true), None, "the search must not pass through food already put down");
+        assert_eq!(food_drop_site(&w, 32, 40, true, None), None, "the search must not pass through food already put down");
         w.set(30, 40, Cell::EMPTY);
 
         // `act` at the shipped default: the roll wins (`Drop` at 1) and there
@@ -34179,7 +34187,7 @@ mod tests {
         // A nestmate standing behind it.
         let (w, _, mate) = build(true);
         assert_eq!(w.organism(mate.expect("placed")).expect("live").chain, vec![(30, 40), (29, 40)], "the nestmate should stand right behind the tail");
-        assert_eq!(food_drop_site(&w, 32, 40, true), Some(((28, 40), 4)), "handed through its own tail and the nestmate");
+        assert_eq!(food_drop_site(&w, 32, 40, true, None), Some(((28, 40), 4)), "handed through its own tail and the nestmate");
     }
 
     /// **A part-eaten fruit put down and picked up again holds only what was
