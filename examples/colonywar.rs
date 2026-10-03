@@ -68,6 +68,12 @@ fn arg<T: std::str::FromStr>(key: &str) -> Option<T> {
     std::env::args().skip(1).find_map(|a| a.strip_prefix(&format!("{key}=")).and_then(|v| v.parse().ok()))
 }
 
+/// The pseudo-colony a non-colony party (any tracked species after the
+/// first -- a beetle on `species=ant,beetle`) is booked under on the mock, so
+/// a predator's kills draw and log as one more side rather than a second
+/// visual system.
+const PRED: u32 = u32::MAX;
+
 #[derive(Clone, Copy)]
 struct Kill {
     frame: u64,
@@ -98,13 +104,19 @@ fn is_ant(world: &World, sid: pixel_physics::sim::organism::SpeciesId) -> bool {
     tracked().iter().any(|n| *n == world.species.get(sid).name)
 }
 
+/// The first tracked species: the one whose colonies get `ROW` lines and a
+/// line on the scoreboard. Every other tracked species is a predator side.
+fn is_colony_species(world: &World, sid: pixel_physics::sim::organism::SpeciesId) -> bool {
+    tracked()[0] == world.species.get(sid).name
+}
+
 /// Which colony holds each nest site: the colony with the most living
 /// adults within `NEST_REACH` columns of it. `0` when nobody is there.
 fn nest_owners(world: &World) -> Vec<(i32, u32)> {
     let mut near: Vec<BTreeMap<u32, u32>> = vec![BTreeMap::new(); world.nest_sites.len()];
     for id in world.live_organism_ids() {
         let Some(st) = world.organism(id) else { continue };
-        if !is_ant(world, st.species) || st.brood.is_some() || st.colony == 0 {
+        if !is_colony_species(world, st.species) || st.brood.is_some() || st.colony == 0 {
             continue;
         }
         let Some(&(x, _)) = st.chain.first() else { continue };
@@ -232,8 +244,8 @@ fn main() {
                 };
                 let kill = Kill {
                     frame: k.frame,
-                    victim: k.victim_colony,
-                    attacker: k.attacker_colony,
+                    victim: if is_colony_species(world, k.victim_species) { k.victim_colony } else { PRED },
+                    attacker: if is_colony_species(world, k.attacker_species) { k.attacker_colony } else { PRED },
                     x,
                     y,
                     place,
@@ -264,7 +276,7 @@ fn main() {
             brood_of.clear();
             for id in world.live_organism_ids() {
                 let Some(st) = world.organism(id) else { continue };
-                if !is_ant(world, st.species) || st.colony == 0 {
+                if !is_colony_species(world, st.species) || st.colony == 0 {
                     continue;
                 }
                 brood_of.insert(id, st.brood.is_some());
@@ -296,7 +308,7 @@ fn main() {
             let mut alive: BTreeMap<u32, (u32, u32, f64)> = BTreeMap::new();
             for id in world.live_organism_ids() {
                 let Some(st) = world.organism(id) else { continue };
-                if !is_ant(world, st.species) || st.colony == 0 {
+                if !is_colony_species(world, st.species) || st.colony == 0 {
                     continue;
                 }
                 let e = alive.entry(st.colony).or_default();
@@ -309,7 +321,7 @@ fn main() {
             }
             let mut cols: Vec<u32> = alive.keys().copied().collect();
             for g in &world.group_deaths {
-                if is_ant(world, g.species) && g.colony != 0 && !cols.contains(&g.colony) {
+                if is_colony_species(world, g.species) && g.colony != 0 && !cols.contains(&g.colony) {
                     cols.push(g.colony);
                 }
             }
@@ -320,7 +332,7 @@ fn main() {
                 let books = world.colony_books(c);
                 let intake = books.get(pixel_physics::sim::world::Account::HarvestedPlant)
                     + books.get(pixel_physics::sim::world::Account::HarvestedCorpse);
-                let gd = world.group_deaths.iter().find(|g| g.colony == c && is_ant(world, g.species));
+                let gd = world.group_deaths.iter().find(|g| g.colony == c && is_colony_species(world, g.species));
                 let (st, kl, old) = gd
                     .map(|g| (g.by_cause[DeathCause::Starved.index()], g.by_cause[DeathCause::Killed.index()], g.by_cause[DeathCause::OldAge.index()]))
                     .unwrap_or_default();
@@ -379,8 +391,15 @@ fn main() {
 }
 
 fn colour_of(c: u32) -> [u8; 4] {
+    if c == PRED {
+        return [235, 60, 40, 255];
+    }
     let p = render::group_palette(c.saturating_sub(1) as usize);
     [p[0] as u8, p[1] as u8, p[2] as u8, 255]
+}
+
+fn side(c: u32) -> String {
+    if c == PRED { "BEETLE".into() } else { format!("ANT {c}") }
 }
 
 fn put(buf: &mut [u8], w: u32, h: u32, x: i32, y: i32, c: [u8; 4]) {
@@ -421,7 +440,7 @@ fn shoot(
     image::save_buffer(&plain, &world_buf, vw, vh, image::ColorType::Rgba8).expect("plain png");
 
     // ---- the mock: box on top-left, log on the right, strip below.
-    let log_w = 200u32;
+    let log_w = 270u32;
     let strip_h = 90u32;
     let (mw, mh) = (vw + log_w, vh + strip_h);
     let mut m = vec![0u8; (mw * mh * 4) as usize];
@@ -466,6 +485,19 @@ fn shoot(
     // kill markers: an X in the victim's colour with a white core, last MARK_WINDOW frames.
     for k in kills.iter().filter(|k| k.frame + MARK_WINDOW >= f && k.frame <= f && k.victim != k.attacker) {
         let col = colour_of(k.victim);
+        if k.attacker == PRED {
+            // a predator's kill: a red ring round the victim's colour
+            for d in -3..=3 {
+                for (dx, dy) in [(d, -3), (d, 3), (-3, d), (3, d)] {
+                    put(&mut m, mw, mh, k.x + dx, k.y + dy, colour_of(PRED));
+                }
+            }
+            for d in -1..=1 {
+                put(&mut m, mw, mh, k.x + d, k.y, col);
+                put(&mut m, mw, mh, k.x, k.y + d, col);
+            }
+            continue;
+        }
         for d in -2..=2 {
             put(&mut m, mw, mh, k.x + d, k.y + d, col);
             put(&mut m, mw, mh, k.x + d, k.y - d, col);
@@ -533,6 +565,21 @@ fn shoot(
         pixel_physics::hud::draw_text(&mut m, mw, mh, lx + 6, ly, &format!("HOLDS {terr} COLS"), [190, 190, 190, 255]);
         ly += 12;
     }
+    // the predators, as one more side
+    let preds = lab
+        .world
+        .live_organism_ids()
+        .into_iter()
+        .filter(|id| lab.world.organism(*id).is_some_and(|st| is_ant(&lab.world, st.species) && !is_colony_species(&lab.world, st.species)))
+        .count();
+    if tracked().len() > 1 {
+        let won = kills.iter().filter(|k| k.attacker == PRED && k.victim != PRED && k.frame <= f).count();
+        let lost = kills.iter().filter(|k| k.victim == PRED && k.attacker != PRED && k.frame <= f).count();
+        pixel_physics::hud::draw_text(&mut m, mw, mh, lx, ly, &format!("BEETLES {preds:>2} ALIVE"), colour_of(PRED));
+        ly += 9;
+        pixel_physics::hud::draw_text(&mut m, mw, mh, lx + 6, ly, &format!("ATE {won} ANTS LOST {lost}"), [190, 190, 190, 255]);
+        ly += 12;
+    }
     ly += 4;
     pixel_physics::hud::draw_text(&mut m, mw, mh, lx, ly, "BATTLE LOG", [230, 230, 230, 255]);
     ly += 11;
@@ -548,16 +595,23 @@ fn shoot(
     }
     for b in bouts.iter().rev().take(((mh as i32 - ly) / 9).max(0) as usize) {
         let place = match b.6 {
-            "victim_home" => format!("AT ANT {} NEST", b.3),
-            "killer_home" => format!("AT ANT {} NEST", b.2),
+            "victim_home" => "RAIDING NEST".to_string(),
+            "killer_home" => "DEFENDING NEST".to_string(),
             "open_plants" => "AT FOOD".to_string(),
             _ => "IN THE OPEN".to_string(),
         };
-        pixel_physics::hud::draw_text(&mut m, mw, mh, lx, ly, &format!("{:>3}K", b.0 / 1000), [150, 150, 150, 255]);
-        pixel_physics::hud::draw_text(&mut m, mw, mh, lx + 26, ly, &format!("{}", b.2), colour_of(b.2));
-        pixel_physics::hud::draw_text(&mut m, mw, mh, lx + 34, ly, &format!("X{}", b.5), [230, 230, 230, 255]);
-        pixel_physics::hud::draw_text(&mut m, mw, mh, lx + 34 + 6 * (2 + b.5.to_string().len() as i32), ly, &format!("{}", b.3), colour_of(b.3));
-        pixel_physics::hud::draw_text(&mut m, mw, mh, lx + 74, ly, &place, [190, 190, 190, 255]);
+        // "57K  3 KILLED 4 OF 2  AT FOOD", each colony number in its colour.
+        let mut cx = lx;
+        let mut say = |m: &mut Vec<u8>, t: &str, c: [u8; 4]| {
+            pixel_physics::hud::draw_text(m, mw, mh, cx, ly, t, c);
+            cx += 6 * t.chars().count() as i32;
+        };
+        let grey = [170, 170, 170, 255];
+        say(&mut m, &format!("{:>3}K ", b.0 / 1000), [130, 130, 130, 255]);
+        say(&mut m, &side(b.2), colour_of(b.2));
+        say(&mut m, &format!(" KILLED {} OF ", b.5), grey);
+        say(&mut m, &side(b.3), colour_of(b.3));
+        say(&mut m, &format!(" {place}"), grey);
         ly += 9;
     }
     let mock = format!("{out}/mock-{f}.png");
