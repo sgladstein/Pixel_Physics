@@ -12917,6 +12917,16 @@ impl DigFace {
     /// playtest setup (4 seeds) the home grew 70 -> 103 cells, bigger on 3
     /// of 4, with ants 41 -> 47 (2 up, 2 down), and a forager's dig is
     /// untouched. `PIXEL_PHYSICS_DIG_FACE=off` is the ant before.
+    ///
+    /// **Twelve seeds cut that to a modest gain, and it ships on because it
+    /// costs nothing, not because it fixes small nests.** Home at 40k
+    /// 69 -> 90 (8 of 12 up), but home per live ant 2.06 -> 2.09 (6 of 12):
+    /// on this setup the nest follows colony size at ~2 cells an ant, and the
+    /// 4-seed gain was mostly seed 1's colony booming (29 -> 119 ants). At a
+    /// matched 37 ants, 76 -> 84 cells. Live ants and births unchanged. Turns
+    /// are rare -- 16-62 a run against 11-21k won rolls -- because most idle
+    /// diggers stand by the crust with nothing underground beside them; each
+    /// turned cut is followed by a median 2.6 cuts made from inside it.
     pub const SHIPPED: DigFace = DigFace::Workers;
 }
 
