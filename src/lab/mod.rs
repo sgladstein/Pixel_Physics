@@ -1848,6 +1848,10 @@ impl Lab {
 
     pub fn draw(&mut self, frame_buf: &mut [u8], fps: f32) {
         self.apply_pixel_budget();
+        // The cutaway follows the bed's ground row, which a rebuild can move.
+        if self.renderer.nest_cutaway.is_some() {
+            self.renderer.nest_cutaway = Some(self.spec.ground_y);
+        }
         let hc = ui::hud_canvas(&self.renderer);
         let viewport = self.viewport();
         // **Before the camera is read, because it can move the camera.** The
@@ -2236,10 +2240,57 @@ impl Lab {
             ui::Tool::Alarm => self.alarm_at(x, y),
             ui::Tool::Fling => self.fling_at(x, y),
             ui::Tool::Lamp => self.lamp_at(x),
+            ui::Tool::Fire => self.fire_at(x, y),
             // The brushes never arrive here: they paint from `press`, so a
             // release that also painted would double the last dab.
             ui::Tool::Soil | ui::Tool::Water | ui::Tool::Food | ui::Tool::Scent => {}
         }
+    }
+
+    /// **Start a fire at `(x, y)`**: light every cell in the brush's disc
+    /// whose material can burn, and nothing else. `World::ignite_circle` is
+    /// the sandbox's debug brush and lights *anything*, soil and stone
+    /// included, on purpose (its own doc) -- a player tool that burned the
+    /// bed away under a click would be a different verb. Each cell burns for
+    /// its own material's `burn_duration`; spreading, ash and regrowth are
+    /// the engine's own fire from here on.
+    fn fire_at(&mut self, x: i32, y: i32) {
+        let r = self.ui.brush().max(0);
+        let mut lit = 0u32;
+        for wy in (y - r)..=(y + r) {
+            for wx in (x - r)..=(x + r) {
+                if (wx - x) * (wx - x) + (wy - y) * (wy - y) > r * r {
+                    continue;
+                }
+                let mut cell = self.world.get(wx, wy);
+                if cell.material == crate::sim::material::EMPTY || cell.is_burning() {
+                    continue;
+                }
+                let m = self.world.materials.get(cell.material);
+                if m.flammability <= 0.0 || m.burn_duration == 0 {
+                    continue;
+                }
+                let hot = m.burn_temperature;
+                cell.ignite(m.burn_duration);
+                // At the material's own flame temperature, as `fire.rs`'s
+                // `ignite` lights a cell -- a cold flame would give its
+                // neighbours nothing to catch from but contact, which the
+                // lab's damp ground refuses.
+                if hot.is_finite() {
+                    cell.set_temperature(hot.round() as i16);
+                }
+                self.world.set(wx, wy, cell);
+                lit += 1;
+            }
+        }
+        if lit > 0 {
+            self.world.log_player_action(format!("STARTED A FIRE AT {x},{y} -- {lit} CELLS"));
+        }
+        self.ui.say(if lit == 0 {
+            "NOTHING HERE WILL BURN -- CLICK A PLANT OR LITTER".to_string()
+        } else {
+            format!("FIRE STARTED -- {lit} CELLS ALIGHT")
+        });
     }
 
     /// **Drop alarm scent at `(x, y)`, at the strength a real bite writes.**
@@ -2360,6 +2411,10 @@ impl Lab {
         let (species, _) = self.selected_animal();
         let lower = species.to_lowercase();
         let n = self.ui.stock();
+        if self.is_lone_hunter(&lower) {
+            self.stock_hunters(x, y, &lower, &species, n);
+            return;
+        }
         if n <= 1 {
             let placed = self.stock_one(x, y, &lower);
             self.ui.say(match placed {
@@ -2395,6 +2450,104 @@ impl Lab {
             let asked = if placed as i64 == i64::from(n) { String::new() } else { format!(" ({n} ASKED)") };
             self.world.log_player_action(format!("PLACED COLONY OF {placed} {species}{asked} AT X {x}"));
         }
+    }
+
+    /// **Whether `species` is placed as lone hunters rather than as a
+    /// colony** -- read off the species' own gut, never its name. A gut at
+    /// [`LONE_HUNTER_GUT`] or above eats flesh and nothing else (the beetle's
+    /// `+1.0`; every ant ships at `0.0` and the flitter at `-1.0`), and a
+    /// predator dropped as a 52-strong clump is a pack that meets its prey,
+    /// and starves, all at one spot. Owner, 2026-10-03: beetles should be
+    /// lone predators with a population that sustains itself.
+    ///
+    /// **Not also keyed on an empty `nest`**, which the hand-off proposed:
+    /// `beetle.ron` declares `nest: "nest"` today, so that test would pick
+    /// out no species at all. A carnivore's `nest` is what its `AtNest`
+    /// sense reads, not a request to have one painted -- and this path
+    /// paints none.
+    fn is_lone_hunter(&self, species: &str) -> bool {
+        let Some(id) = self.world.species.id_of(species) else {
+            return false;
+        };
+        self.world
+            .species
+            .get(id)
+            .creature
+            .as_ref()
+            .is_some_and(|c| c.traits[crate::sim::organism::TRAIT_GUT_BIAS] >= LONE_HUNTER_GUT)
+    }
+
+    /// The colony every hunter of `species` already in the box belongs to,
+    /// so a hand-placed one joins it: one group on the ANTS page's chart and
+    /// one colour, and -- because they are one colony -- they do not hunt
+    /// each other. `LabBox::build` puts the bed's own predators in one colony
+    /// for the same reason.
+    fn hunter_colony(&self, species: &str) -> Option<u32> {
+        let id = self.world.species.id_of(species)?;
+        self.world
+            .live_organism_ids()
+            .iter()
+            .filter_map(|o| self.world.organism(*o))
+            .find(|s| s.species == id)
+            .map(|s| s.colony)
+    }
+
+    /// Put one hunter down at or above `(x, y)` in `colony`, lifting until
+    /// its body fits (`stock_one`'s loop), and say which colony it joined.
+    fn place_hunter(&mut self, x: i32, y: i32, species: &str, colony: Option<u32>) -> Option<((i32, i32), Option<u32>)> {
+        let mut site_y = y;
+        for _ in 0..MAX_PLANT_LIFT {
+            if let Some(s) = crate::sim::creature::plant_creature_seed_in(&mut self.world, x, site_y, species, colony) {
+                let joined = crate::sim::creature::colony_of_site(&self.world, &s);
+                self.world.schedule_active_site(s);
+                return Some(((x, site_y), joined));
+            }
+            site_y -= 1;
+        }
+        None
+    }
+
+    /// **Lone hunters: one where you click, or `n` scattered over the bed.**
+    /// At a stock of 1 it is exactly the click. Above 1 the click picks only
+    /// the moment: `n` go at `LabBox::predator_columns`' spread for that many,
+    /// each nudged until it is [`HUNTER_SPACING`] from every other and from
+    /// every nest -- at most as many as the bed has room for at that spacing.
+    /// No nest is painted.
+    fn stock_hunters(&mut self, x: i32, y: i32, lower: &str, species: &str, n: i32) {
+        let mut colony = self.hunter_colony(lower);
+        if n <= 1 {
+            let placed = self.place_hunter(x, y, lower, colony);
+            self.ui.say(match placed {
+                Some((at, _)) => format!("{species} RELEASED AT {},{} -- A LONE HUNTER", at.0, at.1),
+                None => format!("NO ROOM FOR A {species} HERE"),
+            });
+            // Logged as `stock_at`'s own one-animal branch logs it (spec B5).
+            if let Some((at, _)) = placed {
+                self.world.log_player_action(format!("PLACED 1 {species} AT {},{}", at.0, at.1));
+            }
+            return;
+        }
+        let columns = hunter_columns(&self.spec, &self.world.nest_sites, n.max(0) as usize);
+        let mut placed = 0i32;
+        for cx in columns {
+            if let Some((_, joined)) = self.place_hunter(cx, self.spec.ground_y - 2, lower, colony) {
+                colony = colony.or(joined);
+                placed += 1;
+            }
+        }
+        // `stock_at`'s colony line, with `SCATTERED` where it says `COLONY
+        // OF`: the chronicle has to tell a pack from lone hunters.
+        if placed > 0 {
+            let asked = if placed == n { String::new() } else { format!(" ({n} ASKED)") };
+            self.world.log_player_action(format!("PLACED {placed} {species} SCATTERED{asked}"));
+        }
+        self.ui.say(if placed == 0 {
+            format!("NO ROOM FOR {species} -- NONE PLACED")
+        } else if placed < n {
+            format!("{placed} OF {n} {species} SCATTERED -- NO ROOM FOR MORE {HUNTER_SPACING} APART AND CLEAR OF NESTS")
+        } else {
+            format!("{placed} {species} SCATTERED OVER THE BED")
+        });
     }
 
     /// Put **one** animal down at `(x, y)`, and say where it landed.
@@ -2887,6 +3040,17 @@ impl Lab {
             ui::Action::CycleLifeOverlay => {
                 self.renderer.cycle_organism_overlay();
                 self.ui.say(format!("LIFE OVERLAY {}", self.renderer.organism_overlay.label()));
+            }
+            ui::Action::ToggleCutaway => {
+                self.renderer.nest_cutaway = match self.renderer.nest_cutaway {
+                    Some(_) => None,
+                    None => Some(self.spec.ground_y),
+                };
+                self.ui.say(if self.renderer.nest_cutaway.is_some() {
+                    "NEST CUTAWAY -- TUNNELS PALE, NEST WHITE, YOUNG PINK, FOOD GREEN"
+                } else {
+                    "NEST CUTAWAY OFF"
+                });
             }
             ui::Action::CycleFoodOverlay => {
                 self.renderer.cycle_food_overlay();
@@ -3694,6 +3858,36 @@ fn earth_toned_nest(world: &mut World) {
 /// is how the two would silently drift apart the day one of them changes.
 pub(crate) const MAX_PLANT_LIFT: i32 = 12;
 
+/// The gut at which an animal is placed as a lone hunter -- see
+/// `Lab::is_lone_hunter`. Halfway to a pure carnivore's `+1.0`.
+const LONE_HUNTER_GUT: f32 = 0.5;
+
+/// How far apart scattered hunters land, and how far from any nest: the
+/// hand-off's 32 columns, so they spread out rather than meeting at once.
+const HUNTER_SPACING: i32 = 32;
+
+/// Where `n` scattered hunters go: `LabBox::predator_columns`' spread for
+/// `n`, each target nudged to the nearest column at least [`HUNTER_SPACING`]
+/// from every nest site and every hunter already chosen. Fewer than `n` when
+/// the bed has no more room at that spacing.
+fn hunter_columns(spec: &scene::LabBox, nests: &[crate::sim::world::NestSite], n: usize) -> Vec<i32> {
+    let mut wide = spec.clone();
+    wide.predators = n;
+    let (lo, hi) = (2, spec.width - 3);
+    let mut chosen: Vec<i32> = Vec::new();
+    for target in wide.predator_columns() {
+        let clear = |x: i32, chosen: &[i32]| {
+            nests.iter().all(|s| (x - s.x).abs() >= HUNTER_SPACING) && chosen.iter().all(|c| (x - c).abs() >= HUNTER_SPACING)
+        };
+        let found = (0..spec.width).flat_map(|d| [target - d, target + d]).find(|&x| (lo..=hi).contains(&x) && clear(x, &chosen));
+        if let Some(x) = found {
+            chosen.push(x);
+        }
+    }
+    chosen.sort_unstable();
+    chosen
+}
+
 /// How far from a `SCENT` gesture's start point the deposit ramps from
 /// empty to full strength (`Lab::paint_scent`). Roughly a third of the
 /// shipped bed's width: long enough that a trail from a nest to a distant
@@ -3759,13 +3953,13 @@ const HELP: [&str; 30] = [
     "UP DOWN    SPEED     1-7  PRESET",
     "",
     "Z X C V B  LOOK PLANT COLONY CULL ADD",
-    "B AGAIN    SOIL WATER FOOD WALL LAMP SCENT",
+    "B AGAIN    SOIL WATER FOOD WALL LAMP SCENT FIRE",
     "M ,          KEEP THIS ONE / PLACE A JAR",
     "CLICK      USE THE ARMED TOOL",
     "RIGHT      ERASE",
     ".          WHICH SPECIES TO PLANT",
     "[ ]        BRUSH NARROWER WIDER",
-    "O L F7     FIELD / LIFE / FOOD ROAD VIEW",
+    "O L F7 F8  FIELD / LIFE / FOOD ROAD / NEST VIEW",
     "H Y 0      ANIMAL COLOUR / MARKS / MAGNIFY",
     "P          PARAMETERS -- THE NUMBERS",
     "G          THE SHELF -- KEPT GENETICS",
@@ -6422,6 +6616,128 @@ mod tests {
         run(&mut lab, 6_000);
         let left = count(&lab);
         assert!(left < placed, "the colony ate none of the {placed} cells of food beside its nest");
+    }
+
+    /// **A carnivore is stocked as lone hunters, never as a clump.** Owner,
+    /// 2026-10-03: beetles should be lone predators. Before this, stocking
+    /// BEETLE at the shipped dial called `found_colony_of` and dropped the
+    /// whole stock in one band at the click. Now eight go scattered over the
+    /// bed, each at least `HUNTER_SPACING` from the others and from the nest,
+    /// all in one colony -- and a ninth placed by hand at a stock of one
+    /// lands where it was clicked and joins that same colony.
+    #[test]
+    fn a_carnivore_is_stocked_as_scattered_lone_hunters_in_one_colony() {
+        let mut lab = Lab::new(scene::LabBox { founders: 0, ..scene::LabBox::default() });
+        lab.show_help = false;
+        let mut frame = vec![0u8; (WIDTH * HEIGHT * 4) as usize];
+        lab.draw(&mut frame, 60.0);
+        lab.spec.colony_species = "beetle".to_string();
+        let beetle = lab.world.species.id_of("beetle").expect("beetle");
+        let nest_x = lab.world.nest_sites.first().map(|s| s.x).expect("the default box founds one colony");
+        let hunters = |lab: &Lab| -> Vec<(i32, u32)> {
+            lab.world
+                .live_organism_ids()
+                .iter()
+                .filter_map(|o| lab.world.organism(*o))
+                .filter(|s| s.species == beetle)
+                .map(|s| (roster::anchor_of(s).map_or(i32::MIN, |a| a.0), s.colony))
+                .collect()
+        };
+        // 52 -> 32 -> 16 -> 8.
+        lab.act(ui::Action::Stock(-3));
+        assert_eq!(lab.ui.stock(), 8, "test setup: the dial did not land on 8");
+        lab.act(ui::Action::Tool(ui::Tool::Colony));
+        let ground = lab.spec.ground_y;
+        click_cell(&mut lab, nest_x, ground);
+        let placed = hunters(&lab);
+        assert_eq!(placed.len(), 8, "asked for 8 beetles, got {}: {placed:?}", placed.len());
+        let mut xs: Vec<i32> = placed.iter().map(|p| p.0).collect();
+        xs.sort_unstable();
+        // Two cells of slack for a 2x2 body's position against its column.
+        for pair in xs.windows(2) {
+            assert!(pair[1] - pair[0] >= HUNTER_SPACING - 2, "two beetles landed {} apart: {xs:?}", pair[1] - pair[0]);
+        }
+        for x in &xs {
+            assert!((x - nest_x).abs() >= HUNTER_SPACING - 2, "a beetle landed {} from the nest at {nest_x}: {xs:?}", (x - nest_x).abs());
+        }
+        let colony = placed[0].1;
+        assert!(placed.iter().all(|p| p.1 == colony), "the beetles are not one colony: {placed:?}");
+
+        // One more, by hand, at a stock of one: where it was clicked, same colony.
+        lab.act(ui::Action::Stock(-3));
+        assert_eq!(lab.ui.stock(), 1, "test setup: the dial did not reach 1");
+        let x = lab.spec.width / 2;
+        click_cell(&mut lab, x, ground - 6);
+        let after = hunters(&lab);
+        assert_eq!(after.len(), 9, "a stock of one placed {} beetles", after.len() - 8);
+        let new = after.iter().find(|p| !placed.contains(p)).expect("the new beetle");
+        assert!((new.0 - x).abs() <= 2, "a lone beetle landed at {} for a click at {x}", new.0);
+        assert_eq!(new.1, colony, "a hand-placed beetle did not join the box's beetle colony");
+    }
+
+    /// **The fire tool burns plants, not the ground.** Owner, 2026-10-03:
+    /// *"there should be a tool to start a fire in the lab"*. A grown stand,
+    /// a click on one of its plants through the `ADD` cell: cells catch and
+    /// the fire leaves ash behind. **The control is a click on bare soil**, which must light nothing -- the sandbox's
+    /// `ignite_circle` would have burned the soil there too.
+    #[test]
+    fn the_fire_tool_burns_a_plant_and_not_bare_soil() {
+        let mut lab = Lab::new(scene::LabBox { colonies: 0, ..scene::LabBox::default() });
+        lab.show_help = false;
+        run(&mut lab, 3_000);
+        let mut frame = vec![0u8; (WIDTH * HEIGHT * 4) as usize];
+        lab.draw(&mut frame, 60.0);
+        let ash = crate::sim::material::ASH;
+        fn is_plant(w: &World, c: crate::sim::cell::Cell) -> bool {
+            c.organism_id() != 0 && w.organism(c.organism_id()).is_some_and(|s| w.species.get(s.species).creature.is_none())
+        }
+        let census = |lab: &Lab| {
+            let (mut plant, mut burning, mut ashes) = (0usize, 0usize, 0usize);
+            for y in 0..lab.spec.height {
+                for x in 0..lab.spec.width {
+                    let c = lab.world.get(x, y);
+                    plant += is_plant(&lab.world, c) as usize;
+                    burning += c.is_burning() as usize;
+                    ashes += (c.material == ash) as usize;
+                }
+            }
+            (plant, burning, ashes)
+        };
+        // Arm FIRE the way a player does: the ADD cell, pressed until it lands.
+        for _ in 0..ui::PLACEABLE.len() {
+            if lab.ui.tool() == ui::Tool::Fire {
+                break;
+            }
+            lab.act(ui::Action::Place);
+        }
+        assert_eq!(lab.ui.tool(), ui::Tool::Fire, "the ADD cell never reached FIRE");
+
+        // Bare soil first: a column with no plant within the brush.
+        let r = lab.ui.brush();
+        let bare = (r..lab.spec.width - r)
+            .find(|&x| {
+                ((x - r)..=(x + r)).all(|xx| ((lab.spec.ground_y - 30)..lab.spec.ground_y + r + 1).all(|yy| lab.world.get(xx, yy).organism_id() == 0))
+            })
+            .expect("test setup: no bare stretch of bed");
+        let soil_y = lab.spec.ground_y + 2;
+        click_cell(&mut lab, bare, soil_y);
+        assert_eq!(census(&lab).1, 0, "a click on bare soil set something alight");
+
+        // Then a plant above the ground.
+        let (px, py) = (0..lab.spec.width)
+            .flat_map(|x| (0..lab.spec.ground_y - 2).map(move |y| (x, y)))
+            .find(|&(x, y)| {
+                let c = lab.world.get(x, y);
+                is_plant(&lab.world, c)
+            })
+            .expect("test setup: nothing grew above ground");
+        let before = census(&lab);
+        click_cell(&mut lab, px, py);
+        let lit = census(&lab);
+        assert!(lit.1 > 0, "a click on a plant lit nothing");
+        run(&mut lab, 600);
+        let after = census(&lab);
+        assert!(after.2 > before.2, "the fire left no ash: {before:?} -> {after:?}");
     }
 
     /// A drag lays down one continuous band, not a dab at each end.

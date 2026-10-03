@@ -399,6 +399,8 @@ pub enum Action {
     CycleLifeOverlay,
     /// Cycle the food road and harvest map (`F7`) -- `food_road`.
     CycleFoodOverlay,
+    /// The nest cutaway (`F8`) on or off -- `render::Renderer::nest_cutaway`.
+    ToggleCutaway,
     /// Cycle which colour every animal wears in the box -- see
     /// `render::CreatureColour`. The ANTS page's chart and legend group and
     /// tint by the same mode, through `Ui::set_creature_colour`'s mirror.
@@ -699,10 +701,12 @@ pub enum Tool {
     /// Drop a wall, floor to ceiling, in the column you click. Click a wall
     /// you placed to take it out again.
     Wall,
-    /// **Put food on the ground.** Paints `windfall` — the fruit a herb drops
-    /// — which falls, piles at its own angle of repose and rots back into
-    /// soil, so a heap you paint is food that behaves like food rather than a
-    /// permanent fixture.
+    /// **Put food on the ground.** Paints `provisions` -- a herb's dropped
+    /// fruit in every respect but one: it falls and piles at its own angle of
+    /// repose like windfall, and it never rots, so it stays until something
+    /// eats it. It painted rotting `windfall` until 2026-10-03, when the
+    /// owner found it *"seems to degrade very quickly. It shouldn't degrade
+    /// or disappear at all."*
     ///
     /// **This is the box's control arm as much as it is a verb.** `wiki/
     /// ants.md` records the two arms plainly: put food on the ground beside a
@@ -713,13 +717,15 @@ pub enum Tool {
     /// measurement in this bed could tell "the foraging is broken" from "the
     /// economy is broken". Now it can.
     ///
-    /// **Off the bar, like `Wall` and `Release`, and this was measured rather
-    /// than assumed.** `PIXEL_PHYSICS_BAR_TRACE` on the shipped layout reports
-    /// **row 0 slack 0 and row 1 slack 0** — both rows sit at exactly 508 of
-    /// 508 — so there is no seventh tool cell at any spacing `layout` tries.
+    /// **On the bar since 2026-10-03, as a stop on the `ADD` cell** (see
+    /// [`PLACEABLE`]). Before that it was off the bar, like `Wall` and
+    /// `Release`, and this was measured rather than assumed:
+    /// `PIXEL_PHYSICS_BAR_TRACE` on the shipped layout reported **row 0
+    /// slack 0 and row 1 slack 0** -- both rows at exactly 508 of 508 -- so
+    /// there was no seventh tool cell at any spacing `layout` tries, and
     /// `Reports/dead-ends.md` carries three earlier attempts at fitting one.
-    /// The key is in `HELP`, marked `(NO BUTTON)`, which is the pattern `K`
-    /// already set.
+    /// Folding soil, water and wall into the one `ADD` cell is what made the
+    /// room. `E` still arms it directly.
     Food,
     /// **Drag to lay a pheromone trail by hand** — the owner's idea,
     /// 2026-09-09: *"it might be fun if the user could manually lay down
@@ -752,6 +758,16 @@ pub enum Tool {
     /// than once per click, because a trail is a *line*, not a point.
     /// **Off the bar**, for `Food`'s own reason: measured full at seven.
     Scent,
+    /// **Click to start a fire** (owner, 2026-10-03: *"there should be a
+    /// tool to start a fire in the lab"*). Lights every cell in the brush's
+    /// disc that can burn -- a plant, litter, a dead stalk, an animal -- and
+    /// leaves the rest alone, so a click on a stand sets the stand alight and
+    /// a click on bare soil lights nothing rather than burning the ground
+    /// away. After that it is the engine's own fire: it spreads to whatever
+    /// is flammable beside it, leaves ash, and the ash weathers back to soil.
+    /// One click, not a brush -- fire spreads by itself, and that is what
+    /// there is to watch. A stop on the `ADD` cell; no key of its own.
+    Fire,
     /// **Click to drop alarm scent at the cursor** — `sim::pheromone::
     /// Channel::Alarm`, the plane a bitten animal calls out on
     /// (`creature.rs`'s `cry_alarm`). One click, not a brush: a real alarm
@@ -839,8 +855,8 @@ pub const TOOLS: [Tool; 4] = [Tool::Look, Tool::Plant, Tool::Colony, Tool::Cull]
 
 /// **Everything a player puts into the box by hand**, in the order the bar's
 /// `ADD` cell steps through them. Material first (soil, water, food), then
-/// the fixtures (wall, lamp), then the trail. See [`TOOLS`].
-pub const PLACEABLE: [Tool; 6] = [Tool::Soil, Tool::Water, Tool::Food, Tool::Wall, Tool::Lamp, Tool::Scent];
+/// the fixtures (wall, lamp), then the trail, then fire. See [`TOOLS`].
+pub const PLACEABLE: [Tool; 7] = [Tool::Soil, Tool::Water, Tool::Food, Tool::Wall, Tool::Lamp, Tool::Scent, Tool::Fire];
 
 impl Tool {
     /// Whether this tool is one of [`PLACEABLE`], the `ADD` cell's list.
@@ -864,6 +880,7 @@ impl Tool {
             Tool::Alarm => "ALARM",
             Tool::Fling => "FLING",
             Tool::Lamp => "LAMP",
+            Tool::Fire => "FIRE",
             // Never drawn on the bar -- this is what the notice says while it
             // is armed, so it is the verb rather than the old `FREE`: what it
             // does now is put the jar you picked *somewhere*.
@@ -904,6 +921,8 @@ impl Tool {
             Tool::Alarm => "J",
             Tool::Fling => "Q",
             Tool::Lamp => "U",
+            // Reached only through the `ADD` cell, whose key this is.
+            Tool::Fire => "B",
         }
     }
     /// **Whether this tool puts animals in the box.** The two that do share a
@@ -933,7 +952,7 @@ impl Tool {
         match self {
             Tool::Look => "POINT AT A CELL AND READ IT. CLICK TO PIN THE CELL PAGE OPEN; CLICK IT AGAIN TO PUT IT AWAY. WHAT IS UNDER THE POINTER IS READ OUT WHILE THIS TOOL IS HELD -- SWITCH TOOLS AND IT GOES AWAY, BUT A PINNED PAGE STAYS.",
             Tool::Plant => "PUT ONE SEED IN THE SOIL WHERE YOU CLICK. THE CHIP TO THE RIGHT SAYS WHICH SPECIES AND WHAT IT COSTS TO GROW ONE. A SEED NEEDS BARE SOIL WITH ROOM ABOVE IT.",
-            Tool::Colony => "PUT ANIMALS IN THE BOX. THE CHIP TO THE RIGHT SAYS WHICH ANIMAL -- ANT, BEETLE, WORM -- AND THE STOCK DIAL BESIDE IT SAYS HOW MANY. AT 1 IT IS ONE ANIMAL WHERE YOU CLICK, WITH NO NEST. ABOVE 1 IT IS A COLONY AT THE SURFACE UNDER THE CLICK, ARRIVING WITH A PATCH OF NEST TO WALK HOME TO -- WITHOUT ONE THERE IS NO GRADIENT AND NOBODY FORAGES.",
+            Tool::Colony => "PUT ANIMALS IN THE BOX. THE CHIP TO THE RIGHT SAYS WHICH ANIMAL -- ANT, BEETLE, WORM -- AND THE STOCK DIAL BESIDE IT SAYS HOW MANY. AT 1 IT IS ONE ANIMAL WHERE YOU CLICK, WITH NO NEST. ABOVE 1 IT IS A COLONY AT THE SURFACE UNDER THE CLICK, ARRIVING WITH A PATCH OF NEST TO WALK HOME TO -- WITHOUT ONE THERE IS NO GRADIENT AND NOBODY FORAGES. A HUNTER THAT EATS ONLY FLESH, LIKE THE BEETLE, NEVER COMES AS A COLONY: ABOVE 1 THEY ARE SCATTERED ALONE OVER THE BED, AWAY FROM EVERY NEST.",
             Tool::Cull => "KILL THE ORGANISM YOU CLICK. IT IS MARKED SENESCENT, NOT DELETED, SO IT ROTS DOWN OVER ITS SPECIES HALF-LIFE AND FEEDS WHATEVER IS STILL ALIVE. THIS IS THE SELECTION LEVER: WHAT YOU CULL DOES NOT BREED.",
             Tool::Soil => "PAINT SOIL, AT FIELD CAPACITY -- DAMP ENOUGH FOR A ROOT, NOT SO WET IT SLUMPS. IT WILL NOT PAINT OVER STONE OR OVER A LIVING PLANT.",
             Tool::Water => "PAINT WATER, FULL. IT RUNS, IT SOAKS INTO SOIL, AND TOO MUCH OF IT DROWNS ROOTS -- WHICH IS AN EXPERIMENT, NOT A MISTAKE.",
@@ -943,6 +962,7 @@ impl Tool {
             Tool::Scent => "DRAG TO LAY PHEROMONE. STARTS ON THE HOME SCENT (CHANNEL A) -- A ROAD HOME: ANTS CARRYING FOOD FOLLOW IT. DRAW IT FROM A PATCH BACK TO THE NEST AND LADEN FORAGERS WILL RUN IT. PRESS I AGAIN FOR THE FOOD ROUTE (CHANNEL B), WHICH NO ANT CAN READ YET. LAYS AT THE SAME STRENGTH A REAL ANT'S OWN TRAIL DOES AT FULL SIGNAL.",
             Tool::Alarm => "CLICK TO CALL ALARM AT THE CURSOR, AS LOUD AS A REAL BITE. A NEARBY COLONY READS IT THE SAME AS THE REAL THING -- RECRUIT, SWARM OR FLEE. WATCH IT SPREAD AND FADE WITH THE ALARM OVERLAY (O).",
             Tool::Fling => "CLICK AN ANIMAL TO LAUNCH IT -- THE SAME BALLISTIC HOP THE BRAIN CAN ALREADY DO ON ITS OWN, NOW ON YOUR CLICK. IT GOES AWAY FROM WHICHEVER SIDE YOU CLICKED, OR STRAIGHT UP IF YOU CLICKED DEAD CENTRE. REFUSED IN MID-AIR -- THERE IS NOTHING TO PUSH OFF.",
+            Tool::Fire => "CLICK TO START A FIRE. EVERYTHING IN THE BRUSH THAT CAN BURN -- PLANTS, LITTER, ANIMALS -- CATCHES, AND BARE SOIL AND STONE DO NOT. IT SPREADS BY ITSELF TO WHATEVER WILL BURN BESIDE IT AND LEAVES ASH, WHICH WEATHERS BACK INTO SOIL. THE BRUSH DIAL SETS HOW BIG A FIRE YOU START.",
             Tool::Lamp => "CLICK A GROW LIGHT TO PULL IT OUT, CLICK BARE CEILING TO BOLT ONE IN, OR DRAG A LIGHT TO A NEW COLUMN TO MOVE IT. THE BENCH BELOW FOLLOWS ON THE NEXT FIELD STEP.",
         }
     }
@@ -1491,7 +1511,7 @@ fn lay_out(state: &BarState<'_>, pad: i32, gap: i32) -> Bar {
                 icon: None,
                 ratio: None,
                 note: format!(
-                    "PUT SOMETHING INTO THE BOX BY HAND: SOIL, WATER, FOOD, A WALL, A LAMP OR A SCENT TRAIL. PRESS AGAIN TO STEP TO THE NEXT. NOW: {}",
+                    "PUT SOMETHING INTO THE BOX BY HAND: SOIL, WATER, FOOD, A WALL, A LAMP, A SCENT TRAIL OR A FIRE. PRESS AGAIN TO STEP TO THE NEXT. NOW: {}",
                     state.place.note()
                 ),
             }
@@ -4669,6 +4689,8 @@ impl Ui {
                 "FALSE-COLOUR WHAT LIVING THINGS CARRY: PLANT HEALTH, CELL TYPE, GUT BIAS, FOUNDING LINES AND MORE. EACH CLICK STEPS TO THE NEXT."),
             Row::choice("FOOD ROAD", "F7", Action::CycleFoodOverlay,
                 "WHERE THE ANIMALS WALK AND HAUL FOOD, AND WHERE EACH COLONY'S FOOD COMES FROM. OFF, ROAD, HARVEST, BOTH."),
+            Row::choice("NEST CUTAWAY", "F8", Action::ToggleCutaway,
+                "SEE THE COLONY UNDERGROUND: TUNNELS PALE, NEST WHITE, EGGS AND YOUNG PINK, FOOD GREEN, THE GROUND DARK. ANTS AND WATER DRAW AS THEMSELVES."),
             Row::choice("REACTION ON EVENT", "T", Action::CycleReaction,
                 "WHAT THE CLOCK DOES WHEN A FOUNDING LINE ENDS -- OFF, LINGER OR STOP. ALSO A ROW ON THE BOX PAGE."),
             Row::choice("SAVE CHRONICLE NOW", "9", Action::WriteChronicle,

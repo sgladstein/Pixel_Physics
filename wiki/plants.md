@@ -3,7 +3,8 @@
 *What plants do, and what it looks like when they are working. No code, no
 file names — see `Reports/` for why any of it is built the way it is.*
 
-*Current as of: 2026-09-18 (**a plant can stand in water now, and one kind
+*Current as of: 2026-10-03 (**a seed with ground on top of it is out of the
+ants' reach** -- see *The seed bank*). Before that: 2026-09-18 (**a plant can stand in water now, and one kind
 does.** Until 2026-09-18 nothing grew in a pond: a shoot stopped dead at the
 waterline, and — the part nobody had noticed — a seed dropped on water
 *floats*, so a plant sown over a pond never reached the bottom to begin with
@@ -1157,6 +1158,18 @@ eating, which is usually somewhere else entirely: near the nest, on the spoil
 the colony has piled up, along whatever route it walks. So the bank does not
 only sit and wait to be found — it also gets *moved*, by the same mouths that
 used to end it, and the ground around a nest is where a lot of it ends up.
+
+**Since 2026-10-03, a seed with ground on top of it is out of the ants'
+reach.** Soil, sand or rock falling over a seed, or a spoil heap tipped onto
+it, buries it, and a buried seed is not food to anything: the colony walks
+over it and never finds it. Dig it back out, or let the ground over it wash
+away, and it is an ordinary seed again, edible and ready to sprout. Seed under
+leaf litter is still on the surface. Only a plain seed gets buried; a pip from
+a bitten fruit, or a fruit that has fallen, does not. In the lab this is a few
+dozen seeds at any one time, so it never feeds a colony. What it does is stop
+a colony eating its garden down to the last seed. On the played bed with this
+in place, the colony outlasted the one without it on five seeds of six, and
+the bed ended with a little food still standing instead of none.
 
 But a seed does not wait for ever. Viability runs out gradually, so a bank
 that is not being topped up thins away and a bank that is settles at a depth
