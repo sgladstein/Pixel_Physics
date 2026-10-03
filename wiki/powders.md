@@ -34,13 +34,15 @@ natural resting angle, the way real loose material does.
   also close in weight to water, so a puff of ash dropped into a pool drifts
   and sinks slowly instead of plunging straight through the way sand does.
 - **The light powders float.** Food crumbs, seeds and pips, leaf litter,
-  dead wood, brood and snow are all lighter than water and soak none of it
+  dead wood and brood are all lighter than water and soak none of it
   up. Water that lands on a layer of them sinks through it a cell at a time
   while they rise to the top, so a puddle on a crumb-strewn floor drains
   into the ground underneath instead of standing there for ever. It used to
   stand for ever, and the place that mattered was an ant nest's doorway,
   where the colony's own food scraps sealed a pond into the entrance. Sand
-  is heavier than water, so water still stands on sand.
+  is heavier than water, so water still stands on sand. Snow is light too
+  but does not float: it is frozen water, so water that reaches a drift
+  stays with it rather than slipping underneath.
 
 - **Packed soil** is the same ground after something has worked it. It is
   darker and denser than loose tilth, and the one thing that separates it

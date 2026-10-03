@@ -2895,7 +2895,7 @@ fn find_lateral_descent<S: CellSurface>(surface: &S, x: i32, y: i32, dir: i32) -
 }
 
 /// **A powder lighter than the liquid it lies under floats up through it**
-/// -- crumbs, seeds and pips, leaf litter, deadwood, brood and snow, against
+/// -- crumbs, seeds and pips, leaf litter, deadwood and brood, against
 /// water's 1.0. **On since 2026-10-03**; `PIXEL_PHYSICS_POWDER_FLOATS=off`
 /// restores the sealed floor. Built the same day and first left off for what
 /// read as a harm to the lab colony and was not, below.
@@ -2937,6 +2937,17 @@ fn find_lateral_descent<S: CellSurface>(surface: &S, x: i32, y: i32, dir: i32) -
 /// <https://claude.ai/artifact/BhaD6W2MnQWtNtQzYjEPmz>;
 /// `Reports/nest-door-2026-10-03.md` §7.
 ///
+/// **Not snow**, nor any powder that melts into the liquid over it: that is
+/// the liquid's own frozen phase, which water wets into slush rather than
+/// floats, and the weather's drift insulation was calibrated against water
+/// never passing a drift. Turned on with snow included, meltwater slid
+/// under a drift lying on pond ice and froze there, and
+/// `weather.rs`'s `a_drift_on_the_ice_slows_the_freeze_underneath_it` read
+/// ice under the drift 6.03 cells against 5.17 bare (6.23 against 6.83
+/// with the rule off) -- the drift no longer insulating. Keyed on
+/// `melts_into` as `weather.rs` keys water's frozen phases, so it is data
+/// rather than a name. The lab makes no snow, so the numbers above stand.
+///
 /// The swap is straight down only and one cell a visit, the same as a
 /// powder sinking through water: the liquid takes the powder's cell, the
 /// powder takes the liquid's, and a pond on a crumb floor drains through it
@@ -2957,8 +2968,12 @@ fn sinks_under_lighter_powder<S: CellSurface>(surface: &mut S, x: i32, y: i32, b
         return false;
     }
     let materials = surface.materials();
+    let liquid = surface.get(x, y).material;
     if materials.kind(below.material) != MaterialKind::Powder
-        || materials.density(below.material) >= materials.density(surface.get(x, y).material)
+        || materials.density(below.material) >= materials.density(liquid)
+        // Not the liquid's own frozen phase -- snow under water. See "Not
+        // snow" in [`powder_floats`].
+        || materials.get(below.material).melts_into == Some(liquid)
     {
         return false;
     }

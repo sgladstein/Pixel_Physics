@@ -94,8 +94,9 @@ fallen any distance does not.
 - **Water** settles quickly and cleanly into a flat pool, and left in the
   open it slowly dries up — see [Weather](weather.md) for why a puddle goes
   and a lake stays. Anything lighter than it that does not soak it up —
-  crumbs, litter, seeds, snow — floats up through it, so a pool on a floor
-  of them drains away into the ground beneath.
+  crumbs, litter, seeds — floats up through it, so a pool on a floor of
+  them drains away into the ground beneath. Snow, which is frozen water,
+  does not.
 - **Oil** is lighter than water, so poured together the oil rises and
   floats on top rather than mixing in. It's also noticeably thicker —
   it spreads more slowly and sluggishly than water does. Oil catches fire
