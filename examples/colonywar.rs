@@ -274,7 +274,10 @@ fn main() {
         // ---- presence + who-is-brood, every PRESENCE_EVERY
         if f % PRESENCE_EVERY == 0 {
             brood_of.clear();
-            for id in world.live_organism_ids() {
+            // **Brood is not in `live_organism_ids`** (it filters `brood.is_none()`),
+            // so the two lists are walked together; reading only the first
+            // counted 0 brood on every run and called every egg eaten an adult.
+            for id in world.live_organism_ids().into_iter().chain(world.live_brood_ids()) {
                 let Some(st) = world.organism(id) else { continue };
                 if !is_colony_species(world, st.species) || st.colony == 0 {
                     continue;
@@ -306,7 +309,7 @@ fn main() {
                 }
             }
             let mut alive: BTreeMap<u32, (u32, u32, f64)> = BTreeMap::new();
-            for id in world.live_organism_ids() {
+            for id in world.live_organism_ids().into_iter().chain(world.live_brood_ids()) {
                 let Some(st) = world.organism(id) else { continue };
                 if !is_colony_species(world, st.species) || st.colony == 0 {
                     continue;
