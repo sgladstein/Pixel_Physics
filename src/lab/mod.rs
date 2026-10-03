@@ -1848,6 +1848,10 @@ impl Lab {
 
     pub fn draw(&mut self, frame_buf: &mut [u8], fps: f32) {
         self.apply_pixel_budget();
+        // The cutaway follows the bed's ground row, which a rebuild can move.
+        if self.renderer.nest_cutaway.is_some() {
+            self.renderer.nest_cutaway = Some(self.spec.ground_y);
+        }
         let hc = ui::hud_canvas(&self.renderer);
         let viewport = self.viewport();
         // **Before the camera is read, because it can move the camera.** The
@@ -3037,6 +3041,17 @@ impl Lab {
                 self.renderer.cycle_organism_overlay();
                 self.ui.say(format!("LIFE OVERLAY {}", self.renderer.organism_overlay.label()));
             }
+            ui::Action::ToggleCutaway => {
+                self.renderer.nest_cutaway = match self.renderer.nest_cutaway {
+                    Some(_) => None,
+                    None => Some(self.spec.ground_y),
+                };
+                self.ui.say(if self.renderer.nest_cutaway.is_some() {
+                    "NEST CUTAWAY -- TUNNELS PALE, NEST WHITE, YOUNG PINK, FOOD GREEN"
+                } else {
+                    "NEST CUTAWAY OFF"
+                });
+            }
             ui::Action::CycleFoodOverlay => {
                 self.renderer.cycle_food_overlay();
                 self.ui.say(format!("FOOD {}", self.renderer.food.mode.label()));
@@ -3944,7 +3959,7 @@ const HELP: [&str; 30] = [
     "RIGHT      ERASE",
     ".          WHICH SPECIES TO PLANT",
     "[ ]        BRUSH NARROWER WIDER",
-    "O L F7     FIELD / LIFE / FOOD ROAD VIEW",
+    "O L F7 F8  FIELD / LIFE / FOOD ROAD / NEST VIEW",
     "H Y 0      ANIMAL COLOUR / MARKS / MAGNIFY",
     "P          PARAMETERS -- THE NUMBERS",
     "G          THE SHELF -- KEPT GENETICS",
