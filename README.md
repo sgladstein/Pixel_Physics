@@ -10358,13 +10358,25 @@ four runs in parallel on one machine). Ants died out in both arms on this
 main, unrelated (eggs are nest-only since PR 593). Chart page: the sap-flow
 artifact linked from the PR.
 
-**Where it bites, and where it cannot yet.** In a hard drought (`labsap
+**Where it bites: turning the mister off.** In a hard drought (`labsap
 parch=60000`, seed 2) far leaves read 0.89 dry against 0.51 for the near
-quarter; shipped, both read the same. **In the lab as it ships, drought
-almost never happens**: the lidded box hands transpired water back as
-condensation, so even with the mister off soil stays at 0.87–0.99 of
-plant-available water, and only a handful of plants are ever short. The
-drought half of this mechanism is waiting for a box that can dry out.
+quarter; shipped, both read the same. Until 2026-10-03 the box could not
+have one on its own: the lid handed transpired water back as condensation,
+so with the mister off soil stayed at 0.87–0.99 of plant-available water.
+**Since then the mister's OFF vents the lid** (`World::lid_vented`, set by
+`lab::rain::tick`; owner's card answer *"mister dial only"*;
+`PIXEL_PHYSICS_LID_VENT=off` is the old sealed box). The vented water stays
+in `atmospheric_bank`, so nothing is destroyed, and comes back as
+condensation once the mister is on again. Measured over 12 paired seeds with
+the mister off from frame 60,000 to 180,000 (`labsap dry_from=60000
+dry_for=120000`): standing water 127 → **7** cells, plants 193 → **121**,
+plant cells 10,230 → 8,540 — lower on **12 of 12** seeds at 180,000 — and
+60,000 frames after the mister returns the stand is back within 2% on plant
+cells (171 against 194 plants). The drought shows mostly as **seedlings that
+never establish** rather than leaves drying: deep soil still holds 0.92 of
+its water, so rooted plants rarely run short. Colonies alive at 180,000: 1
+of 12 vented against 7 of 12 sealed, on a main where colonies were already
+failing in both arms.
 
 **A latent die-back flaw it exposed, fixed here.** Die-back picked its whole
 batch against the plant before the batch, so a bare thick trunk — a row of

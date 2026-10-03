@@ -15,8 +15,8 @@
 //!
 //! - `growth=N` plants N times slower (`Clock::growth_slowdown`; the lab's
 //!   default is about to be 2).
-//! - `dry_from=`/`dry_for=` stop the mister for a spell (lane 17's
-//!   `labdefence` knob, same meaning).
+//! - `dry_from=`/`dry_for=` turn the mister OFF for a spell, which vents
+//!   the lid (`World::lid_vented`) exactly as the game's dial does.
 //! - `colony=0` runs the garden with no ants.
 //! - `parch=F` is a hard drought at frame `F`: every soil cell is dried to
 //!   just above the wilting point, standing water is removed, and the mister
@@ -74,7 +74,18 @@ fn main() {
         if world.sap_flow { "ON" } else { "off" },
         world.clock.growth_slowdown,
     );
-    let rain = spec.rain;
+    // `rain=off|light|steady|heavy` overrides the scenario's mister, as in
+    // `labforage`. `off` vents the lid (`World::lid_vented`) unless
+    // `PIXEL_PHYSICS_LID_VENT=off`.
+    let rain = match arg::<String>("rain").as_deref() {
+        None => spec.rain,
+        Some("off") => pixel_physics::lab::rain::Rain::Off,
+        Some("light") => pixel_physics::lab::rain::Rain::Light,
+        Some("steady") => pixel_physics::lab::rain::Rain::Steady,
+        Some("heavy") => pixel_physics::lab::rain::Rain::Heavy,
+        Some(other) => panic!("rain={other}: expected off, light, steady or heavy"),
+    };
+    println!("labsap: rain={} lid_vent_enabled={}", rain.label(), pixel_physics::lab::rain::lid_vent_enabled());
     let mut particles = ParticleSystem::new();
     let mut blasts = Blasts::new();
     let tuning = player::Tuning::default();
@@ -96,8 +107,13 @@ fn main() {
         }
         if f < frames {
             frame::step(&mut world, &mut particles, &mut blasts, player::PlayerInput::default(), &tuning);
-            if !(f >= dry_from && f < dry_from.saturating_add(dry_for)) && f < parch_at {
-                pixel_physics::lab::rain::tick(&mut world, &spec, rain);
+            // A dry spell is the mister turned OFF for the window, as a
+            // player would do it -- so it vents the lid (`World::lid_vented`)
+            // rather than merely skipping the drops.
+            if f < parch_at {
+                let dry = f >= dry_from && f < dry_from.saturating_add(dry_for);
+                let r = if dry { pixel_physics::lab::rain::Rain::Off } else { rain };
+                pixel_physics::lab::rain::tick(&mut world, &spec, r);
             }
         }
     }
@@ -114,6 +130,7 @@ fn main() {
 
 /// A hard drought: soil to just above the wilting point, standing water gone.
 pub fn parch(world: &mut World, (width, height): (i32, i32)) {
+    world.lid_vented = true;
     use pixel_physics::sim::cell::Cell;
     use pixel_physics::sim::material;
     for y in 0..height {
@@ -204,7 +221,7 @@ fn stop(world: &World, f: u64, (width, height): (i32, i32), ms_per_frame: f64) -
     }
     let mean_dry = if leaf_dry.is_empty() { 0.0 } else { leaf_dry.iter().sum::<f32>() / leaf_dry.len() as f32 };
     println!(
-        "STOP f={f} ants={ants} plants={plants} cells={cells} leaves={leaves} status={:.3} thirsty={thirsty} leaf_dry_mean={:.3} leaf_dry_p90={:.3} near_dry={:.3} far_dry={:.3} nf_plants={nf_n} shed_drought={} cut_off={} soil_avail={:.3} free_water={free_water} flux_max={:.2} biggest={biggest} ms_per_frame={ms_per_frame:.3}",
+        "STOP f={f} ants={ants} plants={plants} cells={cells} leaves={leaves} status={:.3} thirsty={thirsty} leaf_dry_mean={:.3} leaf_dry_p90={:.3} near_dry={:.3} far_dry={:.3} nf_plants={nf_n} shed_drought={} cut_off={} soil_avail={:.3} free_water={free_water} bank={:.0} flux_max={:.2} biggest={biggest} ms_per_frame={ms_per_frame:.3}",
         status_sum / plants.max(1) as f32,
         mean_dry,
         quantile(&mut leaf_dry, 0.9),
@@ -213,6 +230,7 @@ fn stop(world: &World, f: u64, (width, height): (i32, i32), ms_per_frame: f64) -
         world.shed_drought,
         world.plant_cut_off_cells_shed,
         soil_avail / soil_cells.max(1) as f64,
+        world.atmospheric_bank,
         flux_max,
     );
     ants

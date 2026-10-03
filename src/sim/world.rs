@@ -5313,6 +5313,24 @@ pub struct World {
     /// Written only by `credit_atmosphere` and `spend_atmosphere`; `pub` so
     /// a test can drain it and a harness can print it.
     pub atmospheric_bank: f64,
+    /// **The lid is vented: what the box breathes out stays out.**
+    ///
+    /// A sealed box hands every drop its plants transpire back as
+    /// condensation (`weather::condense_under_a_lid`), so with the mister
+    /// off the soil barely moved: 90,000 rainless frames on the played bed
+    /// left plants 0.87 of the water they could use, and drought never
+    /// happened (owner, 2026-10-03, on the "should the box dry out" card:
+    /// *mister dial only* -- turning the mister off is how a player makes a
+    /// drought). Set every frame by `lab::rain::tick` from the mister
+    /// setting: `Off` vents, any other setting seals.
+    ///
+    /// **The water is held in `atmospheric_bank`, not destroyed**, so the
+    /// conservation law that field documents still holds; turning the
+    /// mister back on seals the lid and the banked excess comes back down
+    /// as condensation at its usual capped rate -- a damp spell after a dry
+    /// one rather than a flood. `false` outdoors and in every world that
+    /// never runs the mister, so nothing outside the lab moves.
+    pub lid_vented: bool,
     /// Where a denser cell displaced near-full liquid at a free surface
     /// this frame — **candidate** splash sites, not splashes. See
     /// `CellSurface::report_splash` for why the sweep only reports them,
@@ -6672,6 +6690,7 @@ impl World {
             // saw rain until something had dried up first, which is not a
             // water cycle, it is a drought with a cycle bolted on.
             atmospheric_bank: crate::sim::weather::STORM_RESERVE,
+            lid_vented: false,
             dryness_counts: crate::sim::evaporation::DrynessCounts::default(),
             weather_override: None,
             splash_sites: Vec::new(),
