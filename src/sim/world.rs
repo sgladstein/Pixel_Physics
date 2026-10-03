@@ -6677,6 +6677,9 @@ impl World {
     /// Advance the coarse field grid by one step. Its own frame phase,
     /// deliberately separate from the CA sweep — see `field::step`.
     pub fn step_fields(&mut self) {
+        if !slow_systems_due(self.frame) {
+            return;
+        }
         field::step(self);
     }
 
@@ -10946,7 +10949,7 @@ impl World {
     /// Chunks are walked bottom row first, matching the sweep, because
     /// drainage moves water downward and a column drains as a unit that way.
     pub fn step_soil_water(&mut self) {
-        if !crate::sim::update::moisture_phase_enabled() {
+        if !crate::sim::update::moisture_phase_enabled() || !slow_systems_due(self.frame) {
             return;
         }
         let mut plans: Vec<(ChunkCoord, crate::sim::chunk::MoistPlan)> = Vec::new();
@@ -13631,4 +13634,24 @@ mod tests {
         // Off-world writes were dropped rather than panicking.
         assert_eq!(w.get(-1, 0), Cell::OUT_OF_BOUNDS);
     }
+}
+
+/// **`PIXEL_PHYSICS_SLOW_EVERY=N` runs the slow, diffusive systems -- the
+/// coarse field (heat, light, moisture, wind) and the soil-water pass -- on
+/// one frame in `N`.** Default 1, every frame, which is bit-identical to
+/// before the switch existed.
+///
+/// An experiment the owner asked for on 2026-10-03 ("is there any scenario
+/// where we can get a 2-10x improvement if we are willing to accept actual
+/// game behavior changes"). Both systems are diffusions whose marks
+/// accumulate while they are skipped -- the field's stale blocks and the
+/// moisture plan are taken, not cleared, when they run -- so a skipped frame
+/// delays work rather than dropping it. What it changes in play is pace:
+/// heat spreads and soil drains `N` times slower per frame.
+pub(crate) fn slow_systems_due(frame: u64) -> bool {
+    static EVERY: std::sync::OnceLock<u64> = std::sync::OnceLock::new();
+    let every = *EVERY.get_or_init(|| {
+        std::env::var("PIXEL_PHYSICS_SLOW_EVERY").ok().and_then(|v| v.parse().ok()).filter(|&n: &u64| n >= 1).unwrap_or(1)
+    });
+    every == 1 || frame.is_multiple_of(every)
 }
