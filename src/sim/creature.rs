@@ -33763,9 +33763,11 @@ mod tests {
     /// zone wants the patrol; a starving forager there, with no drive and no
     /// scent, wants nothing (held); trail B laid over the door sends it; far
     /// from the door it carries what it was sent with, and with nothing
-    /// carried it is on its hunger as before; off, hunger everywhere.
-    /// **Watched red** with hunger left in the zone's max: the held arm read
-    /// 0.8.
+    /// carried it is on its hunger as before; off, hunger everywhere. The
+    /// lean rule is held off (`LeanForage`) so the throttle is read alone;
+    /// its `out` arm, the starving forager at the door going on its hunger,
+    /// is the one assertion that turns it on. **Watched red** with hunger
+    /// left in the zone's max: the held arm read 0.8.
     #[test]
     fn the_forage_throttle_sends_from_the_door_and_the_want_rides_along() {
         let mut w = World::new(Rect::new(0, 0, 159, 63));
@@ -33777,6 +33779,7 @@ mod tests {
         let def = w.species.get(species).creature.clone().expect("a creature");
         w.forage_drive = Some(ForageDrive { need: ForageNeed::Off, pace: true, keep: false, fed: false });
         w.forage_throttle = Some(ForageThrottle::ON);
+        w.lean_forage = Some(LeanForage::OFF);
         let want = |w: &World, id| outward_want(w, w.organism(id).expect("live"), &def);
         for id in [near, far] {
             let st = w.organism_mut(id).expect("live");
@@ -33792,6 +33795,10 @@ mod tests {
         }
         let (held, _, hunger) = want(&w, near);
         assert_eq!(held, 0.0, "a starving forager at a door with no news should be held, read {held} (hunger {hunger:?})");
+        w.lean_forage = Some(LeanForage::ON);
+        let (lean, by_colony, _) = want(&w, near);
+        assert!((lean - 0.8).abs() < 1e-5 && !by_colony, "under the lean rule a starving forager at the door goes on its hunger, read {lean}");
+        w.lean_forage = Some(LeanForage::OFF);
         let door = w.nest_sites[0].x;
         for x in door - 3..=door + 3 {
             for y in walk - 1..=walk {
