@@ -1,0 +1,43 @@
+{
+  "id": "20261003T124401457Z-104cbf",
+  "created": "2026-10-03T12:44:01Z",
+  "board": "inbox",
+  "origin": {
+    "worktree": "/home/claude/Pixel_Physics",
+    "branch": "claude/lab-overlays-rbz4jn",
+    "commit": "a583cc1b",
+    "agent": null,
+    "session_id": "4464f399-fbc7-5284-aae7-0e0bae2d423f",
+    "user": null,
+    "cwd": "/home/claude/Pixel_Physics"
+  },
+  "title": "Lab: nest cutaway (F8)",
+  "question": "Does the cutaway make the colony underground easy to read? Anything you'd recolour or leave as itself?",
+  "context_md": "Top: the lab as it draws now. Bottom: the same frame with F8 on. Played bed, seed 4, frame 120,000, 3x zoom on the nest. Ground dark, packed/spoil soil a shade lighter, roofed tunnels pale, nest white, eggs and young pink, food green (below ground only). Ants, water and stone draw as themselves. This colony has barely dug, which is the nest lane's known finding, and the cutaway shows it plainly.",
+  "kind": "single",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "top: now / bottom: F8 cutaway",
+      "files": [
+        "20261003T124401457Z-104cbf/000-nest-cutaway-before-after.png"
+      ],
+      "caption": "played bed, seed 4, frame 120,000",
+      "meta": {
+        "tunnel cells": 267,
+        "nest cells": 8,
+        "brood cells": 32,
+        "food cells": 117,
+        "worked soil cells": 520
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
