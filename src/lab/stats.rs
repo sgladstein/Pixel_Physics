@@ -2070,14 +2070,17 @@ mod tests {
         let mut particles = crate::sim::particle::ParticleSystem::default();
         let mut blasts = crate::sim::explosion::Blasts::default();
         let tuning = crate::sim::player::Tuning::default();
-        for _ in 0..3_000 {
+        // 6,000 rather than the 3,000 this was written at: the lab's plants
+        // run at half speed since 2026-10-03 (`scene.rs`, owner's card), so
+        // this is the same 3,000 frames of plant time it always grew.
+        for _ in 0..6_000 {
             crate::sim::frame::step(&mut world, &mut particles, &mut blasts, crate::sim::player::PlayerInput::default(), &tuning);
         }
         let stats = censused(&world);
         let c = stats.census().expect("a census");
 
-        assert!(c.plants > 0, "nothing germinated in 3,000 frames, so there is no stand to tell from a bank");
-        assert!(c.seed_bank > 0, "nothing was sown in 3,000 frames, so there is no bank to tell from a stand");
+        assert!(c.plants > 0, "nothing germinated in 6,000 frames, so there is no stand to tell from a bank");
+        assert!(c.seed_bank > 0, "nothing was sown in 6,000 frames, so there is no bank to tell from a stand");
 
         // The conservation check, counted independently of the census.
         let live_plants = world
