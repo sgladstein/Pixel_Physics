@@ -614,6 +614,13 @@ pub enum Action {
     /// `spec: &LabBox` to build its own rows (`FRAME`, `BED`, `SOIL`, ...),
     /// so there is no second copy for a mirror to disagree with.
     CycleRain,
+    /// **Step how fast the plants grow against the ants** -- full, half,
+    /// quarter (`super::pace::PlantPace`). Writes `Lab::spec` and the live
+    /// clock, `CycleRain`'s reasoning for the spec.
+    CyclePlantPace,
+    /// **Flip whether natural windfall rots** (`LabBox::windfall_rots`,
+    /// `World::windfall_rots`), live.
+    ToggleWindfallRot,
     /// **Move the display-rate floor one stop**, the same ladder `F`
     /// (`bin/lab.rs`) already cycles. Routed through `Lab::act` rather than
     /// the direct call `F` used to make, now that the MENU page gives it a
@@ -5549,6 +5556,21 @@ impl Ui {
                     },
                     Action::CycleRain,
                     "THE MISTER ON THE LID -- WATER ARRIVES FROM THE TOP OF THE BOX AND FALLS ONTO THE BED, SPREAD ACROSS THE WIDTH, THROUGH THE SAME PLACEMENT THE WATER TOOL USES: A COLUMN WITH ROCK OR A GROWN PLANT ALREADY AT THE CEILING REFUSES A DROP EXACTLY AS IT WOULD REFUSE YOUR OWN BRUSH. CLICK TO CYCLE OFF -> LIGHT -> STEADY -> HEAVY, OR PRESS 8. LIGHTS STAY ON -- THIS ONLY EVER CHANGES WATER. SHIPS AT LIGHT, MEASURED: THE PLAYED BED (WITH ITS THICKET AND TREE) LOSES UP TO 16% OF ITS SOIL WATER ACROSS A FULL 120,000-FRAME SESSION WITH NO WATERING AT ALL, ON THE WORSE OF TWO SEEDS -- LIGHT HOLDS BOTH SEEDS WITHIN 8% OF THEIR STARTING LEVEL AND WITHOUT POOLING ON THE SURFACE, WHERE STEADY OVERWATERS BY 15-19% AND PILES UP STANDING WATER. OFF IS ONE PRESS AWAY IF YOU WANT TO WATER IT YOURSELF. LIGHT/STEADY/HEAVY PLACE ABOUT 50/150/400 CELLS PER 1,000 FRAMES.",
+                ),
+                // **The plant:ant speed dial and the fallen-fruit switch**,
+                // beside RAIN because all three are how the box is set to
+                // run, not what is in it (owner, 2026-10-03).
+                Row::choice(
+                    "PLANTS GROW",
+                    spec.plant_pace.label().to_string(),
+                    Action::CyclePlantPace,
+                    "HOW FAST EVERY PLANT GROWS, SETS SEED AND ROTS, AGAINST THE ANTS, WHOSE SPEED NEVER CHANGES. CLICK TO CYCLE FULL -> HALF -> QUARTER. SHIPS AT HALF, MEASURED ON THE PLAYED BED OVER 300,000 FRAMES AND 6 SEEDS: AT FULL SPEED THE GARDEN BOOMS AND BUSTS AND EVERY COLONY WAS DEAD BY 222,000; AT HALF 5 OF 6 WERE STILL ALIVE AT THE END; AT QUARTER TOO LITTLE FRUIT AND SEED FALLS AND THE COLONY NEVER PASSED ABOUT 70 ANTS. THIS IS NOT THE SPEED DIAL, WHICH RUNS EVERYTHING FASTER TOGETHER.",
+                ),
+                Row::choice(
+                    "FALLEN FRUIT",
+                    if spec.windfall_rots { "ROTS" } else { "STAYS" }.to_string(),
+                    Action::ToggleWindfallRot,
+                    "WHETHER FRUIT THAT DROPS FROM A PLANT ROTS BACK INTO SOIL OR LIES THERE UNTIL SOMETHING EATS IT. CLICK TO SWITCH. ROTS IS THE SHIPPED BEHAVIOUR; STAYS IS FOR PLAY-TESTING A GARDEN WHOSE FOOD NEVER GOES OFF. FALLEN FRUIT CAN STILL BE EATEN AND CAN STILL SPROUT EITHER WAY. FOOD YOU PUT DOWN YOURSELF WITH ADD NEVER ROTS, WHATEVER THIS SAYS.",
                 ),
                 Row::value(
                     "COMPARTMENTS",
