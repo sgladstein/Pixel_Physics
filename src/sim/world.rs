@@ -5462,7 +5462,7 @@ pub struct World {
     pub plant_size_cadence: bool,
     /// **Whether plants inherit and mutate a defence** (`OrganismState::defence`).
     /// A field rather than a process global for the reason `mutation_sigma`
-    /// gives: a test can scope it. Initialised from `PLANT_DEFENCE` (default
+    /// gives: a test can scope it. Initialised from `PIXEL_PHYSICS_PLANT_DEFENCE` (default
     /// on); off, every plant stays at 0.0 and a run is byte-identical to the
     /// build before defence existed.
     pub plant_defence: bool,

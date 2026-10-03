@@ -5,7 +5,7 @@ every tick, how each mechanism is implemented, and what it reads.** It is
 written from the source and describes the code as it is now, not as it was or
 will be.
 
-- **Verified against:** `main` at `bb65d507`, 2026-09-22; §2's support
+- **Verified against:** `main` at `bb65d507`, 2026-09-22; §5 step 3's defended-plant sentence 2026-10-03 against `deterred_by_defence` and `food_value`; §2's support
   bullet and §12's `KIN_FOOTING` row 2026-10-02 against `fall_if_unsupported`,
   `touches_ground` and `held_by_kin`; §5 step 2's top-up,
   §6d's throttle paragraph and §12's two rows 2026-10-02 against
@@ -343,7 +343,16 @@ the tick: the ant still gets its move roll (§6) afterwards.
    store for the hungry and unloads rather than re-taking; below
    `start_energy` it eats as before.
    A successful feed roll **removes one adjacent food cell from the world
-   into the crop**, and `act` returns. **Two storeroom rules come first**
+   into the crop**, and `act` returns. **A defended plant is passed over in
+   proportion to its defence** (`OrganismState::defence`, 0 to 1, evolved
+   by plants since 2026-10-03; `PIXEL_PHYSICS_PLANT_DEFENCE=0` turns it
+   off): `adjacent_food_counted`, the one scan both the `FoodAdjacent`
+   sense and the bite read, skips a living plant cell with probability
+   `defence` (`deterred_by_defence`, a keyed roll per eater, cell and
+   450-frame window, so the same ant keeps refusing the same cell for that
+   window rather than re-rolling every tick), and a cell it does take is
+   worth `1 - defence` of its face value (`food_value`, so the crop, the
+   overlay and the ledger all see the discount). **Two storeroom rules come first**
    (since 2026-09-29, §8; `PIXEL_PHYSICS_STOREROOM=off` removes both). A fed
    animal's won roll on a cell of the storeroom takes nothing and ends
    `act`: **the store is kept for the hungry** (`store_kept`, counted in

@@ -4026,7 +4026,7 @@ fn bear_seed_at(world: &mut World, sx: i32, sy: i32, parent_id: OrganismId, seed
     // **Defence, inherited with one jitter** (`OrganismState::defence`).
     // Its own keyed substream, never `rng`, for the reason the parameter
     // mutation above gives. Skipped entirely when the switch is off, so a
-    // `PLANT_DEFENCE=0` run draws nothing and stays byte-identical.
+    // `PIXEL_PHYSICS_PLANT_DEFENCE=0` run draws nothing and stays byte-identical.
     if world.plant_defence {
         let parent_defence = world.organism(parent_id).map_or(0.0, |s| s.defence);
         let mut drng =

@@ -3,7 +3,8 @@
 *What plants do, and what it looks like when they are working. No code, no
 file names — see `Reports/` for why any of it is built the way it is.*
 
-*Current as of: 2026-10-03 (**a seed with ground on top of it is out of the
+*Current as of: 2026-10-03 (**plants can be born harder to eat**, paying for
+it in growth -- see *Plants that are worse to eat*). Also 2026-10-03 (**a seed with ground on top of it is out of the
 ants' reach** -- see *The seed bank*). Before that: 2026-09-18 (**a plant can stand in water now, and one kind
 does.** Until 2026-09-18 nothing grew in a pond: a shoot stopped dead at the
 waterline, and — the part nobody had noticed — a seed dropped on water
@@ -369,6 +370,38 @@ The visible consequences:
   that is what stops it growing — and that alone never kills it. One bad
   spell does not either; the plant has to fail continuously, and any single
   day it manages to pay resets the clock.
+
+## Plants that are worse to eat
+
+**A plant can be born a little harder to eat than its parent, and pays for
+it in growth.** Every seed inherits its parent's defence with a small random
+nudge up or down. Defence runs from none to total. A defended plant builds
+every new shoot, leaf and flower at a higher price, up to double for a fully
+defended one, so it grows more slowly than an undefended neighbour in the
+same spot. Roots cost the same either way.
+
+What the ants see:
+
+- **An ant beside a defended plant often leaves it alone.** A plant at half
+  defence is passed over about half the time, and an ant that has turned a
+  plant down keeps turning it down for a while rather than changing its mind
+  at once.
+- **A bite it does take is worth less**, in the same proportion. A fruit at
+  half defence feeds an ant half as well.
+- Seeds, fallen litter and rotting remains carry no defence once they are
+  off the plant; only living tissue on a growing plant is defended.
+
+**What it looks like when it is working: the colony booms less and lasts
+longer.** On the played bed (plants first, then ants), colonies outlived the
+undefended garden on 8 of 12 seeds, with a smaller peak and more food left
+standing.
+
+**What it does not do yet: the garden does not evolve to fight back.** At
+the normal pace of mutation, defence creeps up to about a twentieth whether
+ants are there or not, so the ants are not choosing which plants survive.
+With mutation turned up fourfold the grazed garden does climb far above the
+same garden with no ants, so the pressure is real; it is too slow to show at
+the speed seeds vary today.
 
 ## What a healthy stand looks like
 

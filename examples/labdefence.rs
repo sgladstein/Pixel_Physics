@@ -15,7 +15,7 @@
 //! ```text
 //! cargo run --release --example labdefence -- seed=1 frames=300000
 //! cargo run --release --example labdefence -- seed=1 frames=300000 colony=0
-//! PLANT_DEFENCE=0 cargo run --release --example labdefence -- seed=1   # the off arm
+//! PIXEL_PHYSICS_PLANT_DEFENCE=0 cargo run --release --example labdefence -- seed=1   # the off arm
 //! ```
 //!
 //! `cost=` overrides nothing (the cost is a constant); `scale=` is the

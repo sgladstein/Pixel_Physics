@@ -6755,14 +6755,14 @@ pub struct OrganismState {
     pub defence: f32,
 }
 
-/// **The plant-defence switch** -- `PLANT_DEFENCE=0` turns the mutation off,
+/// **The plant-defence switch** -- `PIXEL_PHYSICS_PLANT_DEFENCE=0` turns the mutation off,
 /// and with every plant then at 0.0 the run is byte-identical to the build
 /// before this existed. Default on per the owner's rule (features ship on
 /// unless measured harm); the measurement is in the PR that added it.
 pub fn plant_defence_on() -> bool {
     use std::sync::OnceLock;
     static ON: OnceLock<bool> = OnceLock::new();
-    *ON.get_or_init(|| std::env::var("PLANT_DEFENCE").map(|v| v != "0").unwrap_or(true))
+    *ON.get_or_init(|| std::env::var("PIXEL_PHYSICS_PLANT_DEFENCE").map(|v| v != "0").unwrap_or(true))
 }
 
 /// **What a fully defended plant pays**: construction at
