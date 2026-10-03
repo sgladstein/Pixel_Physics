@@ -1035,9 +1035,9 @@ either plane: the other trail inputs are computed and wired to nothing (§3).
   head read. An ant whose own bank clears the bar
   with an empty crop walks home to lay as a laden ant walks home
   (`ready_to_lay`, `PIXEL_PHYSICS_LAY_HOME`, on; `laden` includes ants
-  carrying food). **The lab box lays anywhere** (`LabBox::build_counted`
-  sets `bud_at_nest` off unless `BUD_SITE` is set): there, nest-only laying
-  took births 329 -> 4 and none of the fixes tried brought it back. With `PIXEL_PHYSICS_BUD_STORE=on` (or
+  carrying food). **The lab box lays only at the nest too** (since
+  2026-10-03, the owner's ruling, though nest-only laying there took births
+  329 -> 4 and none of the fixes tried brought it back). With `PIXEL_PHYSICS_BUD_STORE=on` (or
   `World::bud_store`) a nesting species' births are paid from its store
   (`bud_from_store`): only an animal within a cell of the storeroom
   (`ShaftFootprint::touches_store`) buds, its own bank is read as 0 and the
@@ -1141,7 +1141,7 @@ Read once per process from the environment. The default is what ships.
 | `PIXEL_PHYSICS_LAB_ROOM` | on | `off`: at-nest `Crowding` falls back to local density |
 | `PIXEL_PHYSICS_TROPHALLAXIS` | on | `off` |
 | `PIXEL_PHYSICS_DROP_REACH` | through bodies | `adjacent`: a food drop looks only at the 8 neighbours |
-| `PIXEL_PHYSICS_BUD_SITE` | nest | a species with a nest material lays or buds only at its nest (§9); `anywhere` restores the old rule; the lab box defaults to anywhere |
+| `PIXEL_PHYSICS_BUD_SITE` | nest | a species with a nest material lays or buds only at its nest (§9), in the lab box too since 2026-10-03; `anywhere` restores the old rule |
 | `PIXEL_PHYSICS_EGG_PILE` | on, reach 4 (since 2026-10-03) | acting only when laying only at the nest: an egg goes onto an empty home cell up to that many steps from the layer's head, through nestmates, nearest the brood already there (§9, `brood::pile_site`); `off` (or 0) is the egg beside the head and "at the nest" read off the head; an integer sets the reach |
 | `PIXEL_PHYSICS_HOME_REAIM` | off | `loose` (or `on`): every 16th tick, an animal whose homing anchor (`forage_anchor`) stands in ground, water or a plant has it moved to the nearest empty home cell within 12 of it (`home_reaim`, counted in `CreatureStats::home_reaims`); `strict` also moves it off an animal or loose food. Off because it moved nothing on the lab nest (`dead-ends.md`) |
 | `PIXEL_PHYSICS_BUD_STORE` | off | `on`: a nesting species buds only at its storeroom, and food in the founding cut and its storeroom pays the whole birth (`bud_from_store`, `provisions_in_store`, §9). `bank`: the same place, but the parent's bank counts as at the door and the store tops it up from food over `BUD_RESERVE` (`bud_store_counts_bank`) |
