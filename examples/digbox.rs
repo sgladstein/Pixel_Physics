@@ -4640,6 +4640,12 @@ fn larder_census(world: &World, b: &Box2, p: &FoodPile, frame: u64) -> String {
         st.pile_left
     );
     let piles = format!("{piles}\nHOME frame={frame} dug cells that are home (PIXEL_PHYSICS_NEST_HOME=dug) {}", world.nest_dug.len());
+    let piles = format!(
+        "{piles}\nFRESH frame={frame} dig rolls turned onto a fresh cut {} | turned toward one {} | digs {} | dig rolls {}",
+        world.creature_stats.digs_fresh_faced, world.creature_stats.digs_fresh_drawn, world.creature_stats.digs, world.creature_stats.dig_rolls
+    );
+    let w = world.creature_stats.dig_idle_why;
+    let piles = format!("{piles}\nIDLEDIG frame={frame} won rolls in the nest with nothing ahead: no cuttable cell round {} | only crust {} | an underground face beside {}", w[0], w[1], w[2]);
     format!(
         "{piles}\nLARDER frame={frame} food standing (larder and crumbs, cells): in the storeroom {in_store}, elsewhere below the old ground line {below}, above it outside the pile {above} | storeroom carry: picked up {}, set down {}, let go outside {}, refused for a full room {}, bites kept from the fed {} | put down at home {}, taken back up at home {} | shares {} ({:.0} J), digested {:.0} J | births paid from the store (PIXEL_PHYSICS_BUD_STORE) {} | foragers' crop cells put down in the store (harvest) {}, ticks held on the way {} | bud ticks held for not being at the nest (BUD_SITE) {}",
         st.store_pickups, st.store_delivered, st.store_released, st.store_room_full, st.store_kept, st.deliveries, st.pickups_at_nest, st.shares, st.shared_j, st.digested_face, st.store_births, st.harvest_stored, st.harvest_held, st.buds_held_for_nest

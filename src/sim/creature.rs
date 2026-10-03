@@ -12775,6 +12775,161 @@ fn half_turn_left(seed: u64, organism: OrganismId, frame: u64) -> bool {
     rng::stream(seed, u64::from(organism), frame, RNG_SLOT_HALF_TURN).flip()
 }
 
+/// **Digging is drawn to where digging just happened**:
+/// `PIXEL_PHYSICS_FRESH_CUT=off|aim|draw`, off unless set ([`fresh_cut_of`]).
+///
+/// **Why.** Nothing in the dig chooses a place near other digging: a won roll
+/// cuts the cell ahead of the head or nothing, so a colony's cuts scatter over
+/// whatever wall each ant happens to face, and on the owner's setup
+/// (`digbox ants=20 food=60 hungry`) only about 1.5% of won rolls cut
+/// anything. Real excavation is self-organised round the active face: digging
+/// is amplified where it is already going on, so work concentrates into a few
+/// growing galleries rather than spreading thin: excavated volume grows
+/// exponentially before it saturates (Buhl et al. 2004, Naturwissenschaften
+/// 91:602, doi 10.1007/s00114-004-0577-x), and density at the face drives the
+/// shape (Toffin et al. 2009, PNAS 106:18616, doi 10.1073/pnas.0902685106).
+/// The cue a worker reads is local: freshly excavated pellets decide where
+/// leaf-cutters start digging (Pielstrom & Roces 2013, PLoS One 8:e57040,
+/// doi 10.1371/journal.pone.0057040), and diggers emit vibrational
+/// recruitment signals at the face (Pielstrom & Roces 2014, PLoS One
+/// 9:e95658, doi 10.1371/journal.pone.0095658).
+///
+/// **What it does.** Every cut made inside a nest ([`inside_nest`]) is
+/// remembered for [`FRESH_CUT_AGE`] frames (`World::fresh_cuts`). On a won dig
+/// roll inside the nest, when the cell ahead is not ground this jaw can take:
+/// - `aim`: if a cell round the digger is cuttable underground ground beside
+///   a fresh cut, the digger turns to it and cuts it ([`fresh_cut_face`]).
+/// - `draw`: as `aim`, and when there is none it turns one octant toward the
+///   nearest fresh cut within [`FRESH_CUT_REACH`] cells, so an idle digger
+///   drifts to the working face over its next rolls ([`fresh_cut_near`]).
+///   Measured near-inert (4 seeds, 2026-10-03): the turn fires 5,000-8,000
+///   times a run and the next step or tumble undoes it.
+/// - `recruit`: as `aim`, and when there is none the digger takes the
+///   nearest fresh cut within [`FRESH_CUT_REACH`] as the face to walk back to
+///   (`OrganismState::dig_return`), so the walk that already brings a digger
+///   back to its own face after tipping a pellet brings it to the colony's.
+///   Why: on the owner's setup, of won rolls in the nest with nothing ahead,
+///   50-80% stand where the only cuttable ground is the crust over the nest,
+///   which the roof and heap cue refuse, and only 2-6% have an underground
+///   face beside them. A turn cannot fix that; the digger has to go deeper.
+///   `recruit` walks only a nest-bound ant ([`is_nest_bound`]: the nest-worker
+///   caste and the young); `recruitall` walks every digger. Every digger was
+///   the first build, and it took the foragers off the food: on the owner's
+///   setup (4 seeds) home 70 -> 130 but food taken from the pile 833 -> 367
+///   and births 74 -> 5 on seed 2 -- the dig-down turn's harm again
+///   (`Reports/dead-ends.md`).
+///
+/// **How it differs from `PIXEL_PHYSICS_DIG_FACE`** (the Nest building lane's
+/// turn to the nearest underground wall): that one cuts any wall the digger
+/// stands beside; this one cuts only where the colony has just been cutting,
+/// and walks idle diggers there. The question it asks is whether
+/// concentrating the work, not merely aiming it, is what grows a nest.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FreshCut {
+    Off,
+    Aim,
+    Draw,
+    Recruit,
+    RecruitAll,
+}
+
+/// How many recent cuts a world remembers ([`FreshCut`]). A colony of tens of
+/// ants cuts a few hundred cells in 40,000 frames, so this holds the last
+/// several thousand frames of digging.
+pub const FRESH_CUT_KEEP: usize = 64;
+/// How long a cut stays fresh, in frames ([`FreshCut`]).
+pub const FRESH_CUT_AGE: u64 = 3000;
+/// How far a digger senses a fresh cut under `draw`, in cells ([`FreshCut`]):
+/// a few body lengths, the reach of a substrate vibration or of the smell of
+/// newly turned soil, not the nest's extent.
+pub const FRESH_CUT_REACH: i32 = 16;
+
+/// The switch for [`FreshCut`]: the world's override, else the environment.
+pub fn fresh_cut_of(world: &World) -> FreshCut {
+    world.fresh_cut.unwrap_or_else(fresh_cut)
+}
+
+fn fresh_cut() -> FreshCut {
+    static V: std::sync::OnceLock<FreshCut> = std::sync::OnceLock::new();
+    *V.get_or_init(|| parse_fresh_cut(&std::env::var("PIXEL_PHYSICS_FRESH_CUT").unwrap_or_default()))
+}
+
+fn parse_fresh_cut(raw: &str) -> FreshCut {
+    match raw.trim() {
+        "aim" => FreshCut::Aim,
+        "draw" => FreshCut::Draw,
+        "recruit" => FreshCut::Recruit,
+        "recruitall" => FreshCut::RecruitAll,
+        "" | "off" => FreshCut::Off,
+        v => {
+            eprintln!("PIXEL_PHYSICS_FRESH_CUT={v:?}: not `aim`, `draw` or `off`; read as off");
+            FreshCut::Off
+        }
+    }
+}
+
+/// The frame of the freshest remembered cut within one cell of `(x, y)`, if
+/// any is still fresh ([`FreshCut`]).
+fn fresh_cut_beside(world: &World, (x, y): (i32, i32)) -> Option<u64> {
+    world
+        .fresh_cuts
+        .iter()
+        .filter(|&&((cx, cy), at)| world.frame.saturating_sub(at) <= FRESH_CUT_AGE && (cx - x).abs() <= 1 && (cy - y).abs() <= 1)
+        .map(|&(_, at)| at)
+        .max()
+}
+
+/// **The octant round the digger whose cell is cuttable underground ground
+/// beside a fresh cut**, freshest first, then nearest the heading
+/// ([`FreshCut`]). "Underground" is the test the Nest building lane's face
+/// turn settled on: a cell the roof would refuse, or whose cut the heap cue
+/// would scale down because it opens the sky, is not a face.
+fn fresh_cut_face(world: &World, def: &CreatureDef, organism: OrganismId, (x, y): (i32, i32), heading: u8) -> Option<u8> {
+    let roof = dig_roof_of(world);
+    let cue = spoil_cue_of(world);
+    let radius = curvature_radius_of(def, &traits_of(world, organism, def)).max(1);
+    let mut best: Option<(u64, u8, u8)> = None;
+    for h in 0..8u8 {
+        let (dx, dy) = DIRS[h as usize];
+        let t = (x + dx, y + dy);
+        let Some(at) = fresh_cut_beside(world, t) else { continue };
+        if !jaw_can_cut(world, def, organism, world.get(t.0, t.1))
+            || roof.is_some_and(|rows| under_roof(world, t, rows))
+            || cue.is_some_and(|cue| spoil_cue_factor(world, (x, y), t, radius, cue).is_some_and(|f| f < 1.0))
+        {
+            continue;
+        }
+        let off = { let d = (h + 8 - heading) % 8; d.min(8 - d) };
+        if best.is_none_or(|(b_at, b_off, _)| at > b_at || (at == b_at && off < b_off)) {
+            best = Some((at, off, h));
+        }
+    }
+    best.map(|(_, _, h)| h)
+}
+
+/// **The octant toward the nearest fresh cut within [`FRESH_CUT_REACH`]**,
+/// not counting one the digger already stands beside ([`FreshCut`]).
+fn fresh_cut_near(world: &World, (x, y): (i32, i32)) -> Option<u8> {
+    let (cx, cy) = fresh_cut_nearest(world, (x, y))?;
+    // No `atan2`: the shared nearest-octant test, for determinism.
+    Some(octant_of((cx - x) as f32, (cy - y) as f32))
+}
+
+/// **The nearest fresh cut within [`FRESH_CUT_REACH`]**, not counting one
+/// the digger already stands beside ([`FreshCut`]).
+fn fresh_cut_nearest(world: &World, (x, y): (i32, i32)) -> Option<(i32, i32)> {
+    world
+        .fresh_cuts
+        .iter()
+        .filter(|&&(_, at)| world.frame.saturating_sub(at) <= FRESH_CUT_AGE)
+        .map(|&(c, _)| c)
+        .filter(|&(cx, cy)| {
+            let d = (cx - x).abs().max((cy - y).abs());
+            d > 1 && d <= FRESH_CUT_REACH
+        })
+        .min_by_key(|&(cx, cy)| (cx - x).pow(2) + (cy - y).pow(2))
+}
+
 /// **Could this animal cut `cell` out of the ground?** The dig's own test,
 /// kept in one place because two callers read it: the cut in `act`, and
 /// [`way_down`], which asks it of the cells under the animal before the
@@ -15397,6 +15552,60 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
             (tx, ty) = side;
             world.creature_stats.digs_widened += 1;
         }
+        // **...and a digger with nothing ahead to cut goes where the colony
+        // is cutting** ([`fresh_cut_of`]): beside a fresh cut it turns to it
+        // and cuts; under `draw`, out of reach of one it turns toward the
+        // nearest. Off, no read.
+        let fresh = fresh_cut_of(world);
+        if fresh != FreshCut::Off && widen_to.is_none() && !jaw_can_cut(world, def, organism, world.get(tx, ty)) && inside_nest(world, x, y) {
+            // Why the roll had nothing ahead to cut, for the race lane's
+            // census: no cuttable cell round the digger at all, only cells
+            // the roof or heap cue would refuse (the crust), or underground
+            // faces none of which is beside a fresh cut.
+            {
+                let roof = dig_roof_of(world);
+                let cue = spoil_cue_of(world);
+                let radius = curvature_radius_of(def, &traits_of(world, organism, def)).max(1);
+                let (mut any, mut under) = (false, false);
+                for &(dx, dy) in DIRS.iter() {
+                    let t = (x + dx, y + dy);
+                    if !jaw_can_cut(world, def, organism, world.get(t.0, t.1)) {
+                        continue;
+                    }
+                    any = true;
+                    if !roof.is_some_and(|rows| under_roof(world, t, rows)) && !cue.is_some_and(|cue| spoil_cue_factor(world, (x, y), t, radius, cue).is_some_and(|f| f < 1.0)) {
+                        under = true;
+                    }
+                }
+                let k = if !any { 0 } else if !under { 1 } else { 2 };
+                world.creature_stats.dig_idle_why[k] += 1;
+            }
+            if let Some(h) = fresh_cut_face(world, def, organism, (x, y), heading) {
+                if let Some(state) = world.organism_mut(organism) {
+                    state.heading = h;
+                }
+                let (fx, fy) = DIRS[h as usize];
+                (tx, ty) = (x + fx, y + fy);
+                world.creature_stats.digs_fresh_faced += 1;
+            } else if fresh == FreshCut::RecruitAll || (fresh == FreshCut::Recruit && world.organism(organism).is_some_and(|s| is_nest_bound(world, s))) {
+                if let Some(c) = fresh_cut_nearest(world, (x, y)) {
+                    if let Some(state) = world.organism_mut(organism) {
+                        if state.dig_return.is_none() {
+                            state.dig_return = Some(c);
+                            world.creature_stats.digs_fresh_drawn += 1;
+                        }
+                    }
+                }
+            } else if fresh == FreshCut::Draw {
+                if let Some(o) = fresh_cut_near(world, (x, y)) {
+                    let turned = turn_toward(heading, o, half_turn_left(world.seed, organism, world.frame));
+                    if let Some(state) = world.organism_mut(organism) {
+                        state.heading = turned;
+                    }
+                    world.creature_stats.digs_fresh_drawn += 1;
+                }
+            }
+        }
         let target = world.get(tx, ty);
         // **A heap draws where digging starts** ([`SpoilCue`], on since
         // 2026-09-28, [`spoil_cue_of`]): a cut that would open the ground to the sky goes
@@ -15525,6 +15734,13 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
             // The census's record of the act (`World::dug_cells`): read by
             // nothing in the simulation, so it cannot move a run.
             world.dug_cells.insert((tx, ty));
+            if fresh_cut_of(world) != FreshCut::Off && inside_nest(world, x, y) {
+                let frame = world.frame;
+                world.fresh_cuts.push_back(((tx, ty), frame));
+                while world.fresh_cuts.len() > FRESH_CUT_KEEP {
+                    world.fresh_cuts.pop_front();
+                }
+            }
             if spoil_kept() {
                 if let Some(state) = world.organism_mut(organism) {
                     state.spoil = Some(Spoil { cell: pellet, store: false });
@@ -24078,6 +24294,22 @@ fn creature_dies(world: &mut World, organism: OrganismId, cause: organism::Death
 
 #[cfg(test)]
 mod tests {
+    /// `PIXEL_PHYSICS_FRESH_CUT`'s spellings, and the octant a fresh cut
+    /// draws a digger toward.
+    #[test]
+    fn fresh_cut_parses_its_spellings_and_points_at_the_cut() {
+        assert_eq!(parse_fresh_cut("aim"), FreshCut::Aim);
+        assert_eq!(parse_fresh_cut(" draw "), FreshCut::Draw);
+        assert_eq!(parse_fresh_cut("recruit"), FreshCut::Recruit);
+        assert_eq!(parse_fresh_cut("recruitall"), FreshCut::RecruitAll);
+        for off in ["", "off", "on", "Draw"] {
+            assert_eq!(parse_fresh_cut(off), FreshCut::Off, "{off:?} turned fresh-cut digging on");
+        }
+        for (h, &(dx, dy)) in DIRS.iter().enumerate() {
+            assert_eq!(octant_of((dx * 5) as f32, (dy * 5) as f32), h as u8, "({dx}, {dy}) x5");
+        }
+    }
+
     use super::*;
     use crate::sim::chunk::Rect;
 

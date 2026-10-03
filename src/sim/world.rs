@@ -1832,6 +1832,18 @@ pub struct CreatureStats {
     /// the jaw judge it; the cut itself is in `digs`. 0 unless the switch is
     /// on.
     pub digs_widened: u64,
+    /// **Dig rolls turned onto a cell beside a fresh cut** under
+    /// `PIXEL_PHYSICS_FRESH_CUT` (`creature::fresh_cut_of`). Counted when the
+    /// face is chosen; the cut itself is in `digs`. 0 unless the switch is on.
+    pub digs_fresh_faced: u64,
+    /// **Dig rolls with nothing to cut that turned the digger one octant
+    /// toward the nearest fresh cut** under `PIXEL_PHYSICS_FRESH_CUT=draw`.
+    pub digs_fresh_drawn: u64,
+    /// **Won dig rolls inside the nest with no cuttable cell ahead, by why**
+    /// (`PIXEL_PHYSICS_FRESH_CUT` on only): [0] no cuttable cell round the
+    /// digger at all, [1] only cells the roof or heap cue would refuse,
+    /// [2] at least one underground face beside it.
+    pub dig_idle_why: [u64; 3],
     /// **Dig rolls whose downward turn was refused because there is no way
     /// down** (`creature::way_down`): all three cells under the animal are
     /// ground it cannot cut -- stone, bedrock, nest paint. Those rolls dig
@@ -3967,6 +3979,17 @@ pub struct World {
     /// which is off unless it says `on`. A field so a guard can take both
     /// arms in one process.
     pub dig_widen: Option<bool>,
+    /// **Fresh-cut digging, overriding `PIXEL_PHYSICS_FRESH_CUT` for this
+    /// world** (`creature::fresh_cut_of`). `None` follows the environment,
+    /// which is off unless set. A field so a guard can take both arms in one
+    /// process.
+    pub fresh_cut: Option<crate::sim::creature::FreshCut>,
+    /// **The colony's most recent cuts inside a nest, newest last**, with the
+    /// frame each was made (`creature::fresh_cut_of`): what a digger senses as
+    /// "digging is going on here". Bounded at `creature::FRESH_CUT_KEEP`
+    /// entries and read only while the switch is on; pushed only then, so the
+    /// switch off leaves it empty and the run bit-exact.
+    pub fresh_cuts: std::collections::VecDeque<((i32, i32), u64)>,
     /// **Newborns on nestmates, overriding `PIXEL_PHYSICS_BUD_STACK` for this
     /// world** (`creature::bud_stack_of`). `None` follows the environment,
     /// which is off unless it says `on`. A field so a guard can take both
@@ -6495,6 +6518,8 @@ impl World {
             bud_store: None,
             births_paused: false,
             dig_widen: None,
+            fresh_cut: None,
+            fresh_cuts: Default::default(),
             bud_stack: None,
             brood: None,
             push_past: None,
