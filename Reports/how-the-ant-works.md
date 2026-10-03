@@ -5,7 +5,7 @@ every tick, how each mechanism is implemented, and what it reads.** It is
 written from the source and describes the code as it is now, not as it was or
 will be.
 
-- **Verified against:** `main` at `bb65d507`, 2026-09-22; §5 step 3's defended-plant sentence 2026-10-03 against `deterred_by_defence` and `food_value`; §2's support
+- **Verified against:** `main` at `bb65d507`, 2026-09-22; §9's egg-rule sentence and §12's `EGG_DOOR` and `BROOD_CARRY` rows 2026-10-03 against `brood::EggBar`, `pile_site` and `carry`; §5 step 3's defended-plant sentence 2026-10-03 against `deterred_by_defence` and `food_value`; §2's support
   bullet and §12's `KIN_FOOTING` row 2026-10-02 against `fall_if_unsupported`,
   `touches_ground` and `held_by_kin`; §5 step 2's top-up,
   §6d's throttle paragraph and §12's two rows 2026-10-02 against
@@ -1035,7 +1035,11 @@ either plane: the other trail inputs are computed and wired to nothing (§3).
   a walk of up to 4 steps from the head, through empty cells and
   nestmates, to an empty cell at home (`creature::home_at`, the live home
   definition); one touching brood already lying there wins (the brood
-  pile), then the fewest steps. No such cell, no egg. Budding keeps the
+  pile), then the fewest steps. No such cell, no egg. Cells the egg rule
+  refuses (`brood::EggBar`, `PIXEL_PHYSICS_EGG_DOOR`, off by default: `door`
+  is the shaft and the ground round its mouth, the cells a food drop keeps
+  clear, at the layer's own door gene) are walked through but never chosen,
+  here and for an egg laid beside the head. Budding keeps the
   head read. An ant whose own bank clears the bar
   with an empty crop walks home to lay as a laden ant walks home
   (`ready_to_lay`, `PIXEL_PHYSICS_LAY_HOME`, on; `laden` includes ants
@@ -1146,6 +1150,8 @@ Read once per process from the environment. The default is what ships.
 | `PIXEL_PHYSICS_TROPHALLAXIS` | on | `off` |
 | `PIXEL_PHYSICS_DROP_REACH` | through bodies | `adjacent`: a food drop looks only at the 8 neighbours |
 | `PIXEL_PHYSICS_BUD_SITE` | nest | a species with a nest material lays or buds only at its nest (§9), in the lab box too since 2026-10-03; `anywhere` restores the old rule |
+| `PIXEL_PHYSICS_EGG_DOOR` | off | where an egg is never put down (§9, `brood::EggBar`): `door` is a nest's way in, the cells a food drop keeps clear; `cut` is the whole founding cut too (no egg when nothing dug beyond it is in reach); `deep` takes the founding cut only when nothing dug is in reach; `off` is anywhere |
+| `PIXEL_PHYSICS_BROOD_CARRY` | off | at a brood item's tick a touching nestmate with free jaws moves it, within that many steps, out of a cell the egg rule refuses, onto home, or next to more brood (`brood::carry`, counted in `CreatureStats::brood_carried`); `on` is a reach of 3 |
 | `PIXEL_PHYSICS_EGG_PILE` | on, reach 4 (since 2026-10-03) | acting only when laying only at the nest: an egg goes onto an empty home cell up to that many steps from the layer's head, through nestmates, nearest the brood already there (§9, `brood::pile_site`); `off` (or 0) is the egg beside the head and "at the nest" read off the head; an integer sets the reach |
 | `PIXEL_PHYSICS_HOME_REAIM` | off | `loose` (or `on`): every 16th tick, an animal whose homing anchor (`forage_anchor`) stands in ground, water or a plant has it moved to the nearest empty home cell within 12 of it (`home_reaim`, counted in `CreatureStats::home_reaims`); `strict` also moves it off an animal or loose food. Off because it moved nothing on the lab nest (`dead-ends.md`) |
 | `PIXEL_PHYSICS_BUD_STORE` | off | `on`: a nesting species buds only at its storeroom, and food in the founding cut and its storeroom pays the whole birth (`bud_from_store`, `provisions_in_store`, §9). `bank`: the same place, but the parent's bank counts as at the door and the store tops it up from food over `BUD_RESERVE` (`bud_store_counts_bank`) |
