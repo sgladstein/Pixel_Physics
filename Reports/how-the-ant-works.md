@@ -690,6 +690,19 @@ is older than `return_window()`, so a pile that has run out does not keep
 leashing the door. Counters: `door_reads`, `door_stale`, `door_pulled`, and
 `door_followed` (the picked heading was on g's side).
 
+**`PIXEL_PHYSICS_FIGHT_RECRUIT` (off until measured; `on` is a gain of 3)
+draws an empty ant to a fight it can smell** (`fight_recruit_of`). For an ant
+of a brood-keeping species (so not the beetle or the hopper) carrying neither
+food nor spoil, each heading also scores `gain × rise`, where `rise` is how
+much louder the alarm plane is one or two cells along the heading than under
+the head, over two cells of `ALARM_FALL`, clamped to 0..1 (`alarm_rise`). The
+alarm's active space is about six cells, so an ant further off hears nothing
+and walks as before; one inside it climbs to the fight, where the shipped
+`(Alarm, Attack, 2.0)` makes it fight and `(Alarm, Move, -1.0)` slows it. The
+plane is shared, so both sides of a fight are drawn in. Not computed until the
+alarm plane exists. Counter: `recruit_steps` (the picked heading rose on the
+alarm). `World::fight_recruit` overrides the environment for one world.
+
 **`PIXEL_PHYSICS_HUNGRY_HOME` (off) gives a hungry empty ant the laden ant's home
 pull.** It fires when the ant's energy is under what the walk home costs:
 `0.1 × start_energy + distance × (move_cost_per_cell + idle_cost_per_cell) ×
@@ -837,6 +850,8 @@ The channels carry no meaning in the engine; the meaning is in the wiring.
     open air, and leaks between parallel tunnels.
 - **Alarm:** spreads by distance falloff (`Spread::ActiveSpace`),
   `ALARM_RHO = 0.35`. It is laid by being bitten, and by displays.
+  Read here (`BrainInput::Alarm`, no direction), and, under
+  `PIXEL_PHYSICS_FIGHT_RECRUIT`, by the chooser as a gradient (§6d).
 
 **Who reads what.** Laden ants read A (units 0 and 1); empty ants read B
 (units 2 and 3). **Only the forward difference, and only into `Move`.**
