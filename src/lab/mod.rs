@@ -2802,6 +2802,19 @@ impl Lab {
                 self.renderer.cycle_field_overlay();
                 self.ui.say(format!("OVERLAY {}", self.renderer.field_overlay.label()));
             }
+            // The organism overlay (`L`) and the food road (`F7`), routed
+            // through here rather than poked at the renderer from the key
+            // handler, so the MENU page's rows can fire them too. Both had
+            // no mouse route at all until 2026-10-03, and a player who had
+            // not read the key list could not know they existed.
+            ui::Action::CycleLifeOverlay => {
+                self.renderer.cycle_organism_overlay();
+                self.ui.say(format!("LIFE OVERLAY {}", self.renderer.organism_overlay.label()));
+            }
+            ui::Action::CycleFoodOverlay => {
+                self.renderer.cycle_food_overlay();
+                self.ui.say(format!("FOOD {}", self.renderer.food.mode.label()));
+            }
             // **The renderer's own mode, mirrored into `Ui` in the same
             // action that changes it** -- see `Ui::creature_colour`'s doc for
             // why a mirror exists at all. The ANTS page's chart and legend
@@ -3656,8 +3669,8 @@ const HELP: [&str; 30] = [
     "THE EVOLUTION LAB",
     "",
     "THE BOX STARTS EMPTY. YOU STOCK IT.",
-    "EVERY CONTROL IS ALSO A BUTTON ON",
-    "THE BAR ALONG THE BOTTOM.",
+    "MOST CONTROLS ARE BUTTONS ON THE BAR.",
+    "F6 MENU LISTS EVERY PAGE AND EVERY VIEW.",
     "",
     "SPACE      STOP / RUN THE BOX",
     "UP DOWN    SPEED     1-7  PRESET",
@@ -3669,19 +3682,19 @@ const HELP: [&str; 30] = [
     "RIGHT      ERASE",
     ".          WHICH SPECIES TO PLANT",
     "[ ]        BRUSH NARROWER WIDER",
-    "O L H      FIELD / LIFE / ANIMAL OVERLAY",
-    "",
+    "O L F7     FIELD / LIFE / FOOD ROAD VIEW",
+    "H Y 0      ANIMAL COLOUR / MARKS / MAGNIFY",
     "P          PARAMETERS -- THE NUMBERS",
-    "           BEHIND THE VERBS",
-    "G          THE SHELF -- KEPT GENETICS.",
-    "           KEEP AND PLACE ARE BUTTONS NOW,",
-    "           ON THE CELL PAGE AND THE RACK",
+    "G          THE SHELF -- KEPT GENETICS",
     "; \x27        DRIFT A RELEASE, IN BROODS",
-    "K E I J Q U 9  WALL FOOD SCENT ALARM FLING LAMP CHRONICLE -- KEY ONLY",
-    "F1 F2 F3 F4   PLANTS ANTS BOX RACK   TAB STATS",
+    "K E I J Q U  WALL FOOD SCENT ALARM FLING LAMP",
+    "8 RAIN    9 SAVE CHRONICLE    T ON AN EVENT",
+    "F1 F2 F3 F4 F5  PLANTS ANTS BOX RACK HISTORY",
+    "F6 MENU    TAB STATS",
     "SHIFT+1..5   SWITCH CHAMBER    ALL   THE WHOLE RACK",
     "F RATE   WASD PAN   - = ZOOM   R REBUILD",
     "?          THIS PAGE",
+    "",
     "",
 ];
 
