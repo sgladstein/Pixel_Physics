@@ -636,6 +636,7 @@ fn trait_word(slot: usize) -> &'static str {
         organism::TRAIT_EMPTY_B => "EMPTY ON B",
         organism::TRAIT_DOOR_CLEAR => "DOOR CLEARING",
         organism::TRAIT_DOOR_CUE => "DOOR HEAP NEED",
+        organism::TRAIT_RETURN_MEMORY => "FORAGE MEMORY",
         _ => "A TRAIT",
     }
 }

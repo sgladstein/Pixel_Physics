@@ -10965,6 +10965,14 @@ fn adjacent_food_counted(world: &World, organism: OrganismId, head: (i32, i32), 
         if gain <= EAT_YIELD_THRESHOLD {
             continue;
         }
+        // **A defended plant is passed over, not only worth less.** See
+        // `deterred_by_defence` for why the discount alone bought a plant
+        // nothing. In this scan rather than at the bite so the sense
+        // (`FoodAdjacent`) and the verb agree: a mouthful this ant will not
+        // take is not food to it.
+        if deterred_by_defence(world, organism, cell, nx, ny) {
+            continue;
+        }
         // **Armour, and it is the dig's own rule with flesh substituted for
         // stone.** Force against the target material's
         // `penetration_resistance` -- the test roots use for soil and the
@@ -13155,6 +13163,19 @@ pub(super) fn home_at(world: &World, x: i32, y: i32, def: &CreatureDef) -> bool 
     adjacent_nest(world, x, y, def)
 }
 
+/// **Is this animal at home, as it would sense it** -- the `AtNest` input's
+/// own test ([`nest_within_reach`] at the head), read-only, for readouts
+/// outside `sim` (the lab's activity strip, `src/lab/stats.rs`). One
+/// definition, so a chart that says "at home" means what the ant's brain
+/// means by it. `None` for anything that is not a creature with a nest.
+pub fn is_at_home(world: &World, organism: OrganismId) -> Option<bool> {
+    let state = world.organism(organism)?;
+    let def = world.species.get(state.species).creature.as_ref()?;
+    world.materials.id_of(&def.nest)?;
+    let &(x, y) = state.chain.first()?;
+    Some(nest_within_reach(world, organism, x, y, def))
+}
+
 fn adjacent_nest(world: &World, x: i32, y: i32, def: &CreatureDef) -> bool {
     // **The `nest` field is read as a flag in both branches, never only as a
     // material.** A species that authors no nest has no home under either
@@ -15006,6 +15027,7 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
                             }
                             world.nest_last_return[i] = world.frame.max(1);
                         }
+                        meet_returning_forager(world, organism, (dx, dy));
                     }
                 }
                 note_drop(world, if at_nest { DropWhy::Delivered } else { DropWhy::Placed });
@@ -17660,7 +17682,7 @@ pub fn scout_of(world: &World) -> f32 {
 /// early runs coincided with more founders starving at home: 125 -> 133 by
 /// frame 6,000 on `main`, 14 seeds worse and 8 better (p 0.29).
 ///
-/// Read once per process. Unset (or empty) it is `always`; `off` reads and
+/// Read once per process. Unset (or empty) it is `met` (`ForageDrive::SHIPPED`); `off` reads and
 /// writes nothing and takes no draw, so it is the ant before the drive, bit
 /// for bit. An unknown value is reported and read as unset.
 pub fn forage_drive_from_env() -> ForageDrive {
@@ -17676,11 +17698,12 @@ fn parse_forage_drive(raw: &str) -> ForageDrive {
         Some("off") => ForageNeed::Off,
         Some("hunger") => ForageNeed::Hunger,
         Some("larder") => ForageNeed::Larder,
-        Some("returns" | "") | None => ForageNeed::Returns,
+        Some("returns") => ForageNeed::Returns,
         Some("always") => ForageNeed::Always,
+        Some("met" | "") | None => ForageNeed::Met,
         Some(other) => {
-            eprintln!("PIXEL_PHYSICS_FORAGE_DRIVE={raw:?}: unknown need {other:?}, read as returns (off, hunger, larder, returns, always)");
-            ForageNeed::Returns
+            eprintln!("PIXEL_PHYSICS_FORAGE_DRIVE={raw:?}: unknown need {other:?}, read as met (off, hunger, larder, returns, always, met)");
+            ForageNeed::Met
         }
     };
     let mods: Vec<&str> = parts.collect();
@@ -17715,7 +17738,36 @@ pub enum ForageNeed {
     /// 159:509). The two needs above read the colony and failed because the
     /// colony keeps its food in its bodies (`dead-ends.md`, 2026-09-27).
     Returns,
+    /// **`returns`, sensed rather than told** (`met`): the same plateau
+    /// (`returns_drive`), but counted from the last time *this ant* met a
+    /// forager home with food -- a delivery within `RETURN_MEET` cells of it,
+    /// or its own (`OrganismState::return_met`) -- over a window scaled by
+    /// its own `TRAIT_RETURN_MEMORY`. Harvester ants leave on the rate of
+    /// *encounters* with returning foragers at the entrance (Gordon 2002;
+    /// Pinter-Wollman et al. 2013, *J R Soc Interface* 10:20120831), not on
+    /// a count the nest keeps; `returns` reads `World::nest_last_return`,
+    /// which no ant senses (owner's ruling 2026-10-03: colony-wide tallies
+    /// should become local cues where they can). Also replaces that clock
+    /// in the door reader's stale gate (`door_read`).
+    ///
+    /// **The default since 2026-10-03**, on the owner's ruling that it is the
+    /// more correct rule and ships unless it makes the world clearly worse.
+    /// Measured against `returns` on the lab's played bed, 12 paired seeds,
+    /// 240,000 frames: colonies that died out 4 -> 3, boxes that ever hit
+    /// zero ants 5 -> 5, deepest fall from peak median 97% -> 95.5% (deeper
+    /// on 4 seeds, shallower on 4), alive at the end 25.5 -> 34; the costs
+    /// are births 603 -> 552.5 (lower on 7 of 12, p 0.77) and starved per
+    /// million ant-frames 20.7 -> 21.8 (6/6, p 1.0), and the peak comes
+    /// later and lower (247.5 at 117k -> 178.5 at 141k). Nothing significant
+    /// either way. `PIXEL_PHYSICS_FORAGE_DRIVE=returns` is the ant before.
+    Met,
 }
+
+/// **How near a delivery an ant has to be to have met the forager**, in
+/// cells (Chebyshev), under `ForageNeed::Met`: a body and a half of
+/// antennal reach either side of a two-cell ant standing at the drop. Not
+/// tuned -- the first value, recorded so a sweep has a name to move.
+pub const RETURN_MEET: i32 = 3;
 
 /// **How long a nest keeps sending fed foragers after its last return**
 /// (`ForageNeed::Returns`), in frames: one round trip on the colony bed,
@@ -17778,9 +17830,10 @@ impl ForageDrive {
     /// No drive: the ant before 2026-09-27, `PIXEL_PHYSICS_FORAGE_DRIVE=off`.
     pub const OFF: ForageDrive = ForageDrive { need: ForageNeed::Off, pace: true, keep: false, fed: false };
 
-    /// The shipped drive, what an unset switch reads: `returns` (since
-    /// 2026-09-29), paced, with no `,keep` and no `,fed`.
-    pub const SHIPPED: ForageDrive = ForageDrive { need: ForageNeed::Returns, pace: true, keep: false, fed: false };
+    /// The shipped drive, what an unset switch reads: `met` (since
+    /// 2026-10-03; `returns` 2026-09-29 to 2026-10-03), paced, with no
+    /// `,keep` and no `,fed`.
+    pub const SHIPPED: ForageDrive = ForageDrive { need: ForageNeed::Met, pace: true, keep: false, fed: false };
     /// `always`, paced: the drive shipped 2026-09-27 to 2026-09-29, and the
     /// one a test means when it needs a fed forager sent out with no food
     /// coming home in its scene.
@@ -18294,9 +18347,50 @@ fn forage_drive_level(world: &World, state: &crate::sim::organism::OrganismState
                 .filter(|&t| t > 0)
                 .map_or(0.0, |t| returns_drive(world.frame.saturating_sub(t)))
         }
+        ForageNeed::Met => returns_drive_met(world, state),
         ForageNeed::Hunger | ForageNeed::Larder => {
             let (hx, hy) = home_target(world, state);
             world.nearest_nest_site(hx, hy).and_then(|i| world.nest_need.get(i).copied()).unwrap_or(0.0)
+        }
+    }
+}
+
+/// **The frame this ant's `met` memory counts from**: its last meeting with
+/// a returning forager, or its birth if it has met none.
+fn return_met_frame(state: &crate::sim::organism::OrganismState) -> u64 {
+    state.return_met.max(state.born_frame).max(1)
+}
+
+/// **The `met` drive** (`ForageNeed::Met`): `returns_drive`'s plateau and
+/// fade, on this ant's own memory and its own `TRAIT_RETURN_MEMORY` window.
+fn returns_drive_met(world: &World, state: &crate::sim::organism::OrganismState) -> f32 {
+    let factor = walk_gain(&expressed_traits(state, world.plasticity, world.trait_reach), organism::TRAIT_RETURN_MEMORY);
+    let age = world.frame.saturating_sub(return_met_frame(state)) as f32;
+    let w = return_window() * factor;
+    let over = age - w;
+    if over <= 0.0 { 1.0 } else { (-over / w).exp() }
+}
+
+/// **A forager home with food from a trip touches whoever is beside it**
+/// (`ForageNeed::Met`): it and every living animal of its own kind within
+/// `RETURN_MEET` cells of the drop note the frame. Stamped whatever the
+/// drive, so switching it on mid-session finds memories already kept.
+/// Cost: one `(2R+1)^2` scan per trip delivery.
+fn meet_returning_forager(world: &mut World, deliverer: OrganismId, (dx, dy): (i32, i32)) {
+    let now = world.frame.max(1);
+    let Some(species) = world.organism(deliverer).map(|s| s.species) else { return };
+    let mut met: Vec<OrganismId> = vec![deliverer];
+    for y in dy - RETURN_MEET..=dy + RETURN_MEET {
+        for x in dx - RETURN_MEET..=dx + RETURN_MEET {
+            let id = world.get(x, y).organism_id();
+            if id != 0 && !met.contains(&id) && world.organism(id).is_some_and(|s| s.species == species) {
+                met.push(id);
+            }
+        }
+    }
+    for id in met {
+        if let Some(s) = world.organism_mut(id) {
+            s.return_met = now;
         }
     }
 }
@@ -18644,7 +18738,7 @@ pub(crate) fn nest_needs(world: &World, need: ForageNeed) -> Vec<f32> {
                 })
                 .collect()
         }
-        ForageNeed::Off | ForageNeed::Always | ForageNeed::Returns => Vec::new(),
+        ForageNeed::Off | ForageNeed::Always | ForageNeed::Returns | ForageNeed::Met => Vec::new(),
     }
 }
 
@@ -19014,11 +19108,18 @@ fn door_read(world: &mut World, organism: OrganismId, def: &CreatureDef, (hx, hy
         return None;
     }
     let (want, _, _) = outward_want(world, st, def);
+    let met_last = return_met_frame(st);
     world.creature_stats.door_reads += 1;
-    let last = world.nest_last_return.get(site).copied().unwrap_or(0);
     let window = match food_trail_of(world).window {
         w if w > 0.0 => w,
         _ => return_window(),
+    };
+    // Under `met` the stale gate is the ant's own memory of meeting a
+    // returning forager, on its own window, not the nest's clock.
+    let (last, window) = if forage_drive_of(world).need == ForageNeed::Met {
+        (met_last, window * walk_gain(&traits_of(world, organism, def), organism::TRAIT_RETURN_MEMORY))
+    } else {
+        (world.nest_last_return.get(site).copied().unwrap_or(0), window)
     };
     if last == 0 || world.frame.saturating_sub(last) as f32 > window {
         world.creature_stats.door_stale += 1;
@@ -23429,11 +23530,56 @@ pub fn food_value(world: &World, cell: Cell) -> f32 {
     // about creatures. So an ant that burned to death left meat worth
     // exactly nothing -- while `wiki/ants.md` promises in as many words that
     // "ants that die in a fire become the next colony's dinner".
-    if m.aux_is_worth() && cell.aux() != 0 {
-        cell.aux() as f32
-    } else {
-        m.food_energy
+    let worth = if m.aux_is_worth() && cell.aux() != 0 { cell.aux() as f32 } else { m.food_energy };
+    // **A plant's defence, priced here and nowhere else**, so every reader of
+    // a cell's worth -- the eat verb, the menu, the overlay, the ledger, the
+    // worth a carried unit is stamped with -- sees the same discounted meal.
+    // Only a plant ever carries a non-zero `defence`, so an animal's own
+    // cells and every unowned cell (litter, crumbs, a corpse) pass through
+    // untouched. See `OrganismState::defence`.
+    let owner = cell.organism_id();
+    if owner != 0 {
+        if let Some(state) = world.organism(owner) {
+            if state.defence > 0.0 {
+                return worth * organism::palatability(state.defence);
+            }
+        }
     }
+    worth
+}
+
+/// **How long one eater's verdict on one defended cell stands**, in frames:
+/// ten organism ticks. Within it the same ant decides the same way about the
+/// same cell, so its sense and its bite cannot disagree from one tick to
+/// the next; after it the ant may try again, as a real forager re-samples a
+/// food it once rejected.
+const DETER_WINDOW: u64 = 450;
+
+/// **Whether `eater` passes over this plant cell because of the plant's
+/// defence** -- with probability `defence`, drawn from a stream keyed on
+/// (eater, cell, window) so it is deterministic and independent per ant.
+///
+/// Why this exists, measured 2026-10-03 on `played_bed`, 12 paired seeds at
+/// 300,000 frames (`examples/labdefence`, logs in
+/// `/mnt/project-files/plants-explore/defence-runs/`): with the
+/// `food_value` discount alone, defence in a grazed garden settled at a
+/// median **0.057-0.067** and in the same garden with no animals at all
+/// **0.082** -- grazing did not select for it. It could not: an ant takes
+/// whatever qualifying mouthful is adjacent, so a defended seed was eaten
+/// exactly as often as an undefended one and its plant paid the growth
+/// price for nothing. Real ants reject unpalatable and chemically defended
+/// food and move on (the deterrence half of the growth-defence trade-off);
+/// this is that half, graded by the same number.
+fn deterred_by_defence(world: &World, eater: OrganismId, cell: Cell, x: i32, y: i32) -> bool {
+    let owner = cell.organism_id();
+    if owner == 0 || owner == eater {
+        return false;
+    }
+    let Some(d) = world.organism(owner).map(|s| s.defence).filter(|&d| d > 0.0) else {
+        return false;
+    };
+    let mut r = super::rng::stream(eater as u64 ^ 0xDEFE_7CE0, x as u64, y as u64, world.frame / DETER_WINDOW);
+    r.chance(d)
 }
 
 /// The energy standing in `area` as meat — cells that carry their own worth
@@ -24040,6 +24186,54 @@ mod tests {
             }
         }
         w
+    }
+
+    /// **A plant's defence discounts what its tissue is worth, and nothing
+    /// else's.** The one reader of `OrganismState::defence` is
+    /// `food_value`, so this is the whole of the effect side: at 0.0 a seed
+    /// is worth its material, at 0.5 half, at 1.0 nothing -- graded, not a
+    /// threshold. Goes red if the term is dropped, inverted, or applied to
+    /// unowned cells.
+    #[test]
+    fn a_defended_plant_is_worth_less_to_eat_in_proportion() {
+        let mut w = test_world();
+        assert!(w.plant_tree_species(50, 50, "herb"), "test setup: the seed should plant");
+        let cell = w.get(50, 50);
+        let id = cell.organism_id();
+        assert_ne!(id, 0, "test setup: a planted seed is owned");
+        let face = w.materials.get(cell.material).food_energy;
+        assert!(face > 0.0, "test setup: seed must be food");
+        assert_eq!(food_value(&w, cell), face, "an undefended plant is worth its material");
+        for (d, want) in [(0.5, 0.5 * face), (1.0, 0.0), (0.25, 0.75 * face)] {
+            w.organism_mut(id).expect("owner").defence = d;
+            let got = food_value(&w, w.get(50, 50));
+            assert!((got - want).abs() < 1e-3, "defence {d}: worth {got}, expected {want}");
+        }
+        // An unowned cell of the same material is untouched by anybody's defence.
+        let loose = Cell::new(cell.material, 0);
+        assert_eq!(food_value(&w, loose), face, "defence leaked onto an unowned cell");
+    }
+
+    /// **A defended plant is passed over in proportion to its defence.**
+    /// Fully defended: always; undefended or unowned: never; half: about
+    /// half of a crowd of eaters. Goes red if the roll is dropped, inverted,
+    /// or stops being independent per eater (every ant agreeing would make
+    /// the 0.5 row read 0 or 1000).
+    #[test]
+    fn a_defended_plant_is_passed_over_in_proportion() {
+        let mut w = test_world();
+        assert!(w.plant_tree_species(50, 50, "herb"), "test setup: the seed should plant");
+        let cell = w.get(50, 50);
+        let id = cell.organism_id();
+        let eaters = 1000..2000u32;
+        let refused = |w: &World| eaters.clone().filter(|&e| deterred_by_defence(w, e, w.get(50, 50), 50, 50)).count();
+        assert_eq!(refused(&w), 0, "an undefended plant is never refused");
+        w.organism_mut(id).expect("owner").defence = 1.0;
+        assert_eq!(refused(&w), 1000, "a fully defended plant is always refused");
+        w.organism_mut(id).expect("owner").defence = 0.5;
+        let half = refused(&w);
+        assert!((400..600).contains(&half), "half defended refused {half} of 1000");
+        assert!(!deterred_by_defence(&w, 1000, Cell::new(cell.material, 0), 50, 50), "an unowned cell is never refused");
     }
 
     /// **The shipped default is on, and this is the test that says so.**
@@ -25825,6 +26019,39 @@ mod tests {
     /// a hungry one** ([`store_kept`]). A cell outside the store is never
     /// refused, and with the part off nothing is: the rule reads the switch
     /// first, which is what keeps every arm without it bit-exact.
+    /// **The `met` drive is the ant's own memory** (`ForageNeed::Met`): a
+    /// delivery stamps the deliverer and an ant beside it, not one standing
+    /// further off; the drive is full inside the window from the stamp and
+    /// falls past it; an ant that has met nobody counts from its birth; and
+    /// `TRAIT_RETURN_MEMORY` +1 doubles the window. Watched red with the
+    /// stamp radius at 0 (the neighbour kept its old memory).
+    #[test]
+    fn the_met_drive_counts_from_this_ants_own_meeting() {
+        assert_eq!(parse_forage_drive("met").need, ForageNeed::Met);
+        let mut w = founding_bed();
+        for x in [30, 32, 45] {
+            w.plant_ant(x, 38);
+        }
+        let id = |w: &World, x: i32| w.get(x, 38).organism_id();
+        let (a, b, far) = (id(&w, 30), id(&w, 32), id(&w, 45));
+        assert!(a != 0 && b != 0 && far != 0 && a != b && b != far, "three ants placed");
+        let born = w.organism(far).unwrap().born_frame;
+        w.frame = 10_000;
+        meet_returning_forager(&mut w, a, (30, 38));
+        assert_eq!(w.organism(a).unwrap().return_met, 10_000, "the deliverer notes its own return");
+        assert_eq!(w.organism(b).unwrap().return_met, 10_000, "an ant two cells off met it");
+        assert_eq!(w.organism(far).unwrap().return_met, 0, "an ant fifteen cells off did not");
+        assert_eq!(return_met_frame(w.organism(far).unwrap()), born.max(1), "an ant that met nobody counts from birth");
+        let win = return_window();
+        w.frame = 10_000 + win as u64;
+        assert_eq!(returns_drive_met(&w, w.organism(b).unwrap()), 1.0, "full for one window");
+        w.frame = 10_000 + 2 * win as u64;
+        let faded = returns_drive_met(&w, w.organism(b).unwrap());
+        assert!(faded < 0.5, "a window past it the drive has faded: {faded}");
+        w.organism_mut(b).unwrap().traits[organism::TRAIT_RETURN_MEMORY] = 1.0;
+        assert_eq!(returns_drive_met(&w, w.organism(b).unwrap()), 1.0, "+1 memory is twice the window");
+    }
+
     #[test]
     fn the_store_is_kept_for_the_hungry() {
         let mut w = founding_bed();
@@ -26652,6 +26879,12 @@ mod tests {
         let pulled = |form: NestRest, foraged: bool, worker: bool| {
             let (mut w, a) = rest_world(63, 47, true);
             w.nest_rest = Some(form);
+            // The forage drive is a rider here, not the subject: under the
+            // shipped `met` a newborn counts its memory from its birth and
+            // is driven out, which would keep a forager from resting under
+            // `on`. `returns` with no clock started reads 0, which is the
+            // world this test was written in.
+            w.forage_drive = Some(ForageDrive { need: ForageNeed::Returns, pace: true, keep: false, fed: false });
             let st = w.organism_mut(a).expect("live");
             st.foraged = foraged;
             st.nest_bound_until = if worker { u64::MAX } else { 0 };
@@ -34044,8 +34277,9 @@ mod tests {
     #[test]
     fn the_forage_drive_and_carry_patience_ship_on_and_off_turns_them_off() {
         assert_eq!(parse_forage_drive(""), ForageDrive::SHIPPED, "unset must be the shipped drive");
-        assert_eq!(ForageDrive::SHIPPED, ForageDrive { need: ForageNeed::Returns, pace: true, keep: false, fed: false });
-        assert_eq!(parse_forage_drive("returns"), ForageDrive::SHIPPED);
+        assert_eq!(ForageDrive::SHIPPED, ForageDrive { need: ForageNeed::Met, pace: true, keep: false, fed: false });
+        assert_eq!(parse_forage_drive("met"), ForageDrive::SHIPPED);
+        assert_eq!(parse_forage_drive("returns").need, ForageNeed::Returns, "returns must stay reachable: it is the ant before 2026-10-03");
         assert_eq!(parse_forage_drive("always"), ForageDrive::ALWAYS);
         assert_eq!(parse_forage_drive("off"), ForageDrive::OFF, "off must be the ant before the drive");
         assert!(!parse_forage_drive("off").on());
@@ -37997,15 +38231,30 @@ mod tests {
             .collect();
         assert!(foods.len() >= 17, "the food table shrank to {}; this guard is sized against the seventeen materials that authored a food_energy in 2026-09", foods.len());
 
+        // **Bitten, not bitten-in-one.** Since the graded bite (owner,
+        // 2026-09-06: "nothing should be binary edible or inedible") a plate
+        // above the strongest mouth is worn down at `(bite/armour)^2` a
+        // bite, so the failure this guards is a plate so far above every
+        // mouth that the wear is nil -- the 100.0 default gives 0.0001 a
+        // bite. This read `resistance <= ant_force` until 2026-10-03, which
+        // held the binary contract and went red when the beetle's shell was
+        // set to 1.5 by the owner's pick (0.44 a bite: an ant needs about
+        // three, and `examples/beetle_duel` measures ants killing it).
+        // The bar: no food needs more than four of the strongest mouth's
+        // bites per cell. It is a balance bar, not a cliff -- at shell 2.5
+        // (0.16 a bite) four ants still killed 7 of 12 beetles.
+        const MIN_WEAR: f32 = 0.25;
+        let wear = |resist: f32| if resist <= 0.0 { 1.0 } else { (ant_force / resist).clamp(0.0, 1.0).powi(2) };
         let mut armoured = Vec::new();
         for &id in foods.iter() {
             let m = w.materials.get(id);
             assert!(
-                m.penetration_resistance <= ant_force,
-                "{} is food at {} and needs {} to bite, which is above the strongest shipped mouth ({ant_force}) -- nothing in the world can eat it",
+                wear(m.penetration_resistance) >= MIN_WEAR,
+                "{} is food at {} and needs {} to bite, so the strongest shipped mouth ({ant_force}) takes only {} of a cell a bite, past the four-bite bar -- a harder plate is a balance decision, so move MIN_WEAR with its measurement",
                 m.name,
                 m.food_energy,
-                m.penetration_resistance
+                m.penetration_resistance,
+                wear(m.penetration_resistance)
             );
             if m.penetration_resistance > beetle_force {
                 armoured.push(m.name.clone());
@@ -38027,7 +38276,7 @@ mod tests {
         let default_resist = 100.0_f32;
         for &id in foods.iter() {
             assert!(
-                default_resist > ant_force,
+                wear(default_resist) < MIN_WEAR,
                 "{} at the unauthored default must be refused, or this guard is blind and its green means nothing",
                 w.materials.get(id).name
             );

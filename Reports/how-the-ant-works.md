@@ -5,7 +5,7 @@ every tick, how each mechanism is implemented, and what it reads.** It is
 written from the source and describes the code as it is now, not as it was or
 will be.
 
-- **Verified against:** `main` at `bb65d507`, 2026-09-22; §2's support
+- **Verified against:** `main` at `bb65d507`, 2026-09-22; §5 step 3's defended-plant sentence 2026-10-03 against `deterred_by_defence` and `food_value`; §2's support
   bullet and §12's `KIN_FOOTING` row 2026-10-02 against `fall_if_unsupported`,
   `touches_ground` and `held_by_kin`; §5 step 2's top-up,
   §6d's throttle paragraph and §12's two rows 2026-10-02 against
@@ -122,7 +122,9 @@ will be.
   heap cue's call in `act`), and §15's `free8` against
   `note_drop_surroundings`. §1, §4 and §9 on 2026-10-03 for the `Lay`
   output (`BrainOutput::Lay`, `LAY_HOLD_BELOW`, `try_bud`, `lays_declined`)
-  and the header's `mutation_rate`.
+  and the header's `mutation_rate`. §6d, §8 and §12 on 2026-10-03 for the
+  `met` forage drive shipped on (`ForageNeed::Met`, `return_met`,
+  `meet_returning_forager`, `TRAIT_RETURN_MEMORY`, `door_read`).
   Update this line whenever a section is re-checked against the code.
 - **Edit it in place. Never append history.** When you change a mechanism
   described here, update the section in the same commit. When you find this
@@ -344,7 +346,16 @@ the tick: the ant still gets its move roll (§6) afterwards.
    store for the hungry and unloads rather than re-taking; below
    `start_energy` it eats as before.
    A successful feed roll **removes one adjacent food cell from the world
-   into the crop**, and `act` returns. **Two storeroom rules come first**
+   into the crop**, and `act` returns. **A defended plant is passed over in
+   proportion to its defence** (`OrganismState::defence`, 0 to 1, evolved
+   by plants since 2026-10-03; `PIXEL_PHYSICS_PLANT_DEFENCE=0` turns it
+   off): `adjacent_food_counted`, the one scan both the `FoodAdjacent`
+   sense and the bite read, skips a living plant cell with probability
+   `defence` (`deterred_by_defence`, a keyed roll per eater, cell and
+   450-frame window, so the same ant keeps refusing the same cell for that
+   window rather than re-rolling every tick), and a cell it does take is
+   worth `1 - defence` of its face value (`food_value`, so the crop, the
+   overlay and the ledger all see the discount). **Two storeroom rules come first**
    (since 2026-09-29, §8; `PIXEL_PHYSICS_STOREROOM=off` removes both). A fed
    animal's won roll on a cell of the storeroom takes nothing and ends
    `act`: **the store is kept for the hungry** (`store_kept`, counted in
@@ -740,9 +751,9 @@ ant's id ordering the neighbours so forks split the colony; where no step
 leads further in, the target is the ant's own head. Like any pull it
 suppresses scouting and the away term. Counted in `rest_pulls`.
 
-**`PIXEL_PHYSICS_FORAGE_DRIVE` (`returns` since 2026-09-29, `always` from
-2026-09-27; `off` is the ant before it) sends a fed forager out while food is
-coming home.** It reaches an animal that has foraged (`OrganismState::foraged`,
+**`PIXEL_PHYSICS_FORAGE_DRIVE` (`met` since 2026-10-03, `returns` from
+2026-09-29, `always` from 2026-09-27; `off` is the ant before it) sends a fed
+forager out while food is coming home.** It reaches an animal that has foraged (`OrganismState::foraged`,
 set by any pickup away from its nest), is empty (sensed empty and still empty
 after `act`) **or carries a packed lunch**, carries no spoil and walks
 `trailaway`. A packed lunch (`carries_lunch`, `PIXEL_PHYSICS_PACKED_LUNCH`,
@@ -774,7 +785,7 @@ The drive is the nest's need (`World::nest_need`, §8), found from
 - `always`: 1. Built as the control for the two needs; it measured best of
   the three on the bed and shipped from 2026-09-27 to 2026-09-29
   (`ForageDrive::ALWAYS`);
-- `returns` (the default, `ForageDrive::SHIPPED`): 1 while its nest last saw
+- `returns` (the default 2026-09-29 to 2026-10-03): 1 while its nest last saw
   a forager come home with food from a trip under `RETURN_WINDOW` (1,400)
   frames ago, then `e^-(age - W)/W` (`returns_drive`; `W` is
   `return_window`, `PIXEL_PHYSICS_RETURN_WINDOW`, unset 1,400). A return is
@@ -790,6 +801,20 @@ The drive is the nest's need (`World::nest_need`, §8), found from
   books nothing. A mark belongs to its crop: under the reach, a pickup into
   an empty crop clears `trip_load` and `trip_src` first, so a crop digested
   to nothing, or put down away from home, leaves no mark for the next one.
+- `met` (the default since 2026-10-03, `ForageDrive::SHIPPED`): `returns`
+  sensed rather than told. The same plateau and fade, counted from
+  `OrganismState::return_met`, the last frame *this ant* met a forager home
+  with food from a trip: the booking above also stamps the deliverer and
+  every live ant of its species within `RETURN_MEET` (3) cells of the drop
+  (`meet_returning_forager`). An ant that has met none counts from its
+  `born_frame`. The window is `W` times the ant's own `TRAIT_RETURN_MEMORY`
+  gene (slot 26, reciprocal axis, width 0). Under `met` the door reader's
+  stale gate reads the same memory in place of `nest_last_return`. Stamped
+  whatever the drive; read only under `met`. Shipped on the owner's ruling
+  that it is the more correct rule unless it makes the world clearly worse;
+  against `returns` (played bed, 12 paired seeds, 240k frames) colonies lost
+  4 -> 3, deepest fall from peak 97% -> 95.5% median, births 603 -> 552.5,
+  starved per million ant-frames 20.7 -> 21.8, none significant.
   `OrganismState::trip_src` records where a crop's marking pickups were
   taken, for `CreatureStats::trip_returns_near` and
   `trip_returns_tissue_near` (an upper bound on the tissue exemption: any
@@ -938,8 +963,8 @@ either plane: the other trail inputs are computed and wired to nothing (§3).
   foragers keep the door. The forage drive never reaches it (§6d), and it
   alone carries food into the storeroom (§5 step 3).
 - **`World::nest_last_return`**, one per nest site, is the frame a forager
-  last came home to it with food from a trip, read by the shipped `returns`
-  drive (§6d); `World::step_nest_need` stamps a site it has not seen with the
+  last came home to it with food from a trip, read by the `returns` drive
+  (§6d; the shipped `met` drive reads each ant's own `return_met` instead); `World::step_nest_need` stamps a site it has not seen with the
   current frame.
 - **`World::nest_need`**, one per nest site, is the forage drive's need
   (§6d), rebuilt every 256 frames by `World::step_nest_need` and empty unless
@@ -1164,7 +1189,7 @@ Read once per process from the environment. The default is what ships.
 | `PIXEL_PHYSICS_NEST_DOOR_FOUNDERS` | spread | `pile`: under the door, founders start heaped on it instead of spread along the ground (§8) |
 | `PIXEL_PHYSICS_SCOUT` | 2 | `<gain>`: under `trailaway`, a hungry empty ant off a route runs out from home and back (§6d); `0` turns it off; `World::scout` for one world |
 | `PIXEL_PHYSICS_HUNGRY_HOME` | off | `on`/`refed` or `tether`: an empty ant too hungry to be out is pulled home to its nest's larder (§6d, §8); `World::hungry_home` for one world |
-| `PIXEL_PHYSICS_FORAGE_DRIVE` | `returns` | `off`, `hunger`, `larder`, `returns` or `always`, then optionally `,nopace`, `,keep` and `,fed` (only foragers at or above `start_energy`): a fed forager goes out when its nest needs food (§6d), and with `,keep` leaves the store at home (§5); `World::forage_drive` for one world |
+| `PIXEL_PHYSICS_FORAGE_DRIVE` | `met` | `off`, `hunger`, `larder`, `returns`, `always` or `met`, then optionally `,nopace`, `,keep` and `,fed` (only foragers at or above `start_energy`): a fed forager goes out when its nest needs food (§6d), and with `,keep` leaves the store at home (§5); `World::forage_drive` for one world |
 | `PIXEL_PHYSICS_PACKED_LUNCH` | on | `off`: a crop filled only at home counts as a load, so the forage drive does not reach its carrier (§6d); `World::packed_lunch` for one world |
 | `PIXEL_PHYSICS_TRIP_REACH` | on (16) | `off`: a pickup away from home marks a trip once the ant has been `FORAGE_TRIP_MIN` cells from its last nest contact, wherever the food lay; on, the food must also be living tissue or loose food more than the reach (authored cells, scaled; an integer sets it) from every nest's door (§6d); `World::trip_reach` for one world |
 | `PIXEL_PHYSICS_RETURN_WINDOW` | 1400 | `<frames>`: the `returns` drive's window (§6d) |

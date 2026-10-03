@@ -5477,6 +5477,12 @@ pub struct World {
     ///
     /// Defaults **off**, so nothing changes until it is asked for.
     pub plant_size_cadence: bool,
+    /// **Whether plants inherit and mutate a defence** (`OrganismState::defence`).
+    /// A field rather than a process global for the reason `mutation_sigma`
+    /// gives: a test can scope it. Initialised from `PIXEL_PHYSICS_PLANT_DEFENCE` (default
+    /// on); off, every plant stays at 0.0 and a run is byte-identical to the
+    /// build before defence existed.
+    pub plant_defence: bool,
     /// **Whether the world is *held* — nothing grows, breeds, ages, rots or
     /// weathers except inside a [`Quickening`].**
     ///
@@ -6621,6 +6627,7 @@ impl World {
             soil_capillary_levels: false,
             plant_bending: true,
             plant_size_cadence: false,
+            plant_defence: super::organism::plant_defence_on(),
             held: false,
             quickenings: Vec::new(),
             carried: None,
@@ -7473,6 +7480,9 @@ impl World {
             dev_seed: 0,
             origin: None,
             germination_frame: 0,
+            // Undefended at birth -- `plant::bear_seed_at` writes a bred
+            // seed's from its parent. See `OrganismState::defence`.
+            defence: 0.0,
             water: 0.0,
             water_status: 1.0,
             water_uptake: 0.0,
@@ -7561,6 +7571,7 @@ impl World {
             scout_lit: false,
             scout_dark: false,
             scout_e0: 0.0,
+            return_met: 0,
             sent_want: f32::NAN,
             foraged: false,
             store_return: false,
