@@ -122,6 +122,28 @@
     // Still well above the beetle's own 0.3, so a beetle cannot crack another
     // beetle in one bite -- though under grading it can now wear one down,
     // which is a change to think about before authoring a second predator.
-    penetration_resistance: 0.8,
+    //
+    // **2026-10-03: 0.8 -> 1.5, the owner's pick.** At 0.8 the beetle was
+    // eaten by small gangs: one beetle against N ants on a stone floor,
+    // natural energies (`examples/beetle_duel bank=0`), beetles killed of 12
+    // seeds --
+    //
+    //     shell   1 ant  2    3    4    6    8    12
+    //     0.8     1      8    -    11   -    12   -
+    //     1.5     0      1    1    7    6    12   11
+    //     2.0     0      0    1    7    4    7    10
+    //     3.0     0      0    0    5    5    6    9
+    //
+    // so 1.5 moves "dead to two ants" to "even at four, certain at eight",
+    // a gang rather than a pair (no field figure was cited for the number;
+    // it is a game-balance pick). Above 2.0 eight ants stop
+    // winning reliably. On the lab bed (`labstats predators=6`, 60k frames,
+    // seeds 1-4) beetles at 1.5 killed 8/11/36/23 ants against 8/7/7/5 at
+    // 0.8, and on seed 3 they bred to six and crashed that colony -- the
+    // predator now matters, which is what was asked; whether a beetle
+    // population sustains beside a colony is the next measurement.
+    // The fed-beetle trap: `beetle_duel`'s default 100,000 J bank sates the
+    // beetle so it never hunts, and with it shell hardness looks inert.
+    penetration_resistance: 1.5,
     food_class: 1.0,
 )

@@ -6735,6 +6735,78 @@ pub struct OrganismState {
     /// **The frame this plant germinated on**, so growth draws advance on the
     /// plant's own clock rather than the world's. Zero on a creature.
     pub germination_frame: u64,
+    /// **How hard this plant is to make a meal of**, in `0..=1` -- the plant's
+    /// half of the plant-animal interface, and the first part of it a gene
+    /// can reach. Before this, what an ant got from a leaf or a seed was set
+    /// per *material*, identical for every plant in the box, so a colony
+    /// evolved against a garden that could not answer back
+    /// (`/mnt/project-files/plants-explore/directions-2026-10-03.md`).
+    ///
+    /// Read in one place, `creature::food_value`, which multiplies a plant
+    /// cell's worth by [`palatability`] -- so the eat verb, "is this food",
+    /// the overlay and the ledger cannot disagree. Paid for in one place,
+    /// `plant`'s `Grow` arm, where [`defence_cost_multiplier`] raises the
+    /// construction price of every non-root cell: the growth-defence
+    /// trade-off (Coley, Bryant & Chapin 1985; Endara & Coley 2011, a
+    /// meta-analysis of 50 studies), so a defended line grows slower and a
+    /// lever with a benefit has a counterweight -- the property
+    /// `param_mutation_chance` ships at 0 for want of.
+    ///
+    /// **0.0 at founding, which is today's plant**, and moved only by
+    /// [`mutate_defence`] at `plant::bear_seed_at`. It lives on the organism
+    /// rather than the cell or the material, so it survives any material
+    /// flip a seed goes through (buried seed) and rides with a seed carried
+    /// in a crop. Litter has no organism and is not defended; that is a
+    /// stated limit, not an oversight. Zero on a creature, and nothing
+    /// writes it there.
+    pub defence: f32,
+}
+
+/// **The plant-defence switch** -- `PIXEL_PHYSICS_PLANT_DEFENCE=0` turns the mutation off,
+/// and with every plant then at 0.0 the run is byte-identical to the build
+/// before this existed. Default on per the owner's rule (features ship on
+/// unless measured harm); the measurement is in the PR that added it.
+pub fn plant_defence_on() -> bool {
+    use std::sync::OnceLock;
+    static ON: OnceLock<bool> = OnceLock::new();
+    *ON.get_or_init(|| std::env::var("PIXEL_PHYSICS_PLANT_DEFENCE").map(|v| v != "0").unwrap_or(true))
+}
+
+/// **What a fully defended plant pays**: construction at
+/// `1 + DEFENCE_COST * defence` the undefended price, so 2x at `defence`
+/// 1.0. A starting point, not a measured value -- the literature agrees the
+/// cost is real and varies widely (Zust & Agrawal 2017), and this is the
+/// constant a sweep would move. A cost of 0 makes defence a free lever,
+/// which runs every line to 1.0 and is exactly the degeneracy
+/// `Reports/plant-engine-rethink-2026-09-03.md` §5.4 warns of.
+pub const DEFENCE_COST: f32 = 1.0;
+
+/// The fraction of a plant cell's worth an eater still gets. Linear, so the
+/// outcome is graded: half defended is half the meal, not a threshold.
+pub fn palatability(defence: f32) -> f32 {
+    1.0 - defence.clamp(0.0, 1.0)
+}
+
+/// The construction-price multiplier a plant pays for its defence.
+pub fn defence_cost_multiplier(defence: f32) -> f32 {
+    1.0 + DEFENCE_COST * defence.clamp(0.0, 1.0)
+}
+
+/// A child's defence: the parent's plus one jitter, **reflected** back into
+/// `0..=1` rather than clamped. Clamping would pile a founding population at
+/// exactly 0.0 and leave half of all mutations no-ops; reflection keeps every
+/// step a step. Reflection at 0 does give an *upward* drift under no
+/// selection at all (the mean of a reflected walk climbs), which is why a
+/// claim of selection must be read against the same bed with no animals.
+pub fn mutate_defence(parent: f32, jitter: f32) -> f32 {
+    let mut d = parent + jitter;
+    if d < 0.0 {
+        d = -d;
+    }
+    if d > 1.0 {
+        d = 2.0 - d;
+    }
+    d.clamp(0.0, 1.0)
 }
 
 /// **What a plant's growth draws are keyed on** — the developmental-noise
@@ -9563,6 +9635,22 @@ pub fn moisture_pull(world: &World, x: f32, y: f32) -> Option<((f32, f32), f32)>
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// **A defence step is reflected back into range, never piled on a
+    /// bound**, and the price and the discount are the same graded scale.
+    /// Goes red if `mutate_defence` is turned into a clamp (a founding
+    /// population would then sit at exactly 0.0 and half of all steps would
+    /// be no-ops) or if either end of the trade stops being linear.
+    #[test]
+    fn defence_reflects_at_its_bounds_and_prices_linearly() {
+        assert!((mutate_defence(0.0, -0.1) - 0.1).abs() < 1e-6, "a step below zero reflects");
+        assert!((mutate_defence(0.95, 0.1) - 0.95).abs() < 1e-6, "a step past one reflects");
+        assert!((mutate_defence(0.3, 0.05) - 0.35).abs() < 1e-6, "an interior step is a step");
+        assert_eq!(palatability(0.0), 1.0);
+        assert_eq!(palatability(1.0), 0.0);
+        assert_eq!(defence_cost_multiplier(0.0), 1.0, "an undefended plant pays today's price");
+        assert!((defence_cost_multiplier(0.5) - (1.0 + 0.5 * DEFENCE_COST)).abs() < 1e-6);
+    }
 
     #[test]
     fn every_embedded_species_parses() {
