@@ -1328,7 +1328,7 @@ fn main() {
     let mut budtrace = arg::<String>("budtrace").map(|p| {
         use std::io::Write;
         let mut w = std::io::BufWriter::new(std::fs::File::create(&p).expect("create budtrace file"));
-        writeln!(w, "frame,id,x,y,bank,reachable,bar,at_nest,nest_d,crop,generation,children,child_lines").expect("write budtrace header");
+        writeln!(w, "frame,id,x,y,bank,reachable,bar,at_nest,nest_d,crop,generation,children,child_lines,lay_bar,home_d,home_free,home_ants,near_free,near_ants,nbr_ants,supp_bar,egg_room").expect("write budtrace header");
         w
     });
     // **`lifetrace=FILE`: every animal, every `lifetrace_every=` frames
@@ -2107,7 +2107,32 @@ fn main() {
                     } else {
                         String::new()
                     };
-                    writeln!(out, "{f},{id},{hx},{hy},{:.1},{:.1},{:.1},{},{nest_d},{crop:.1},{},{},{lines}", r.bank, r.reachable, r.bar, u8::from(r.at_nest), st.generation, st.children).expect("write budtrace");
+                    // **Where home is from here, who stands on it, and what a
+                    // birth here would face** (`creature::home_ring`, radius
+                    // 12), added 2026-10-03 to ask whether an ant that could
+                    // lay is blocked off the nest, suppressed on it, or has
+                    // nowhere to put the egg.
+                    let h = pixel_physics::sim::creature::home_ring(&world, id, 12).expect("a nest species");
+                    writeln!(
+                        out,
+                        "{f},{id},{hx},{hy},{:.1},{:.1},{:.1},{},{nest_d},{crop:.1},{},{},{lines},{:.1},{},{},{},{},{},{},{:.1},{}",
+                        r.bank,
+                        r.reachable,
+                        r.bar,
+                        u8::from(r.at_nest),
+                        st.generation,
+                        st.children,
+                        h.lay_bar,
+                        h.home_d,
+                        h.home_free,
+                        h.home_ants,
+                        h.near_free,
+                        h.near_ants,
+                        h.nbr_ants,
+                        h.suppressed_bar,
+                        h.egg_room
+                    )
+                    .expect("write budtrace");
                 }
             }
         }

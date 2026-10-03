@@ -4799,6 +4799,79 @@ pub fn bud_readiness(world: &World, organism: OrganismId) -> Option<BudReadiness
     })
 }
 
+/// **Where home is from this animal, who is standing on it, and what a
+/// birth here would face** -- the trace for "is a ready ant blocked off the
+/// nest, or does it never find it" (owner, 2026-10-03: *"the nest is too
+/// small to find and blocked by other ants"*). Read-only; `labforage
+/// budtrace=` writes it. A *home cell* is a cell a head could stand in
+/// (empty, gas, or an animal) from which [`adjacent_nest`] is true. Within
+/// `radius` (Chebyshev) of the head: `home_d` is the nearest home cell (-1
+/// when none), `home_free`/`home_ants` the home cells that are clear or hold
+/// another animal, and `near_free`/`near_ants` the same over only the home
+/// cells at `home_d` -- the ones this animal would reach first. `nbr_ants`
+/// counts other animals' cells among the head's eight neighbours, `egg_room`
+/// the empty ones (where `brood::lay_egg` at its shipped reach of 1 can put
+/// an egg). `lay_bar` is the bank a birth needs ([`birth_bar`]) and
+/// `suppressed_bar` that after the breeding regime ([`suppress_bar`]).
+pub struct HomeRing {
+    pub home_d: i32,
+    pub home_free: u32,
+    pub home_ants: u32,
+    pub near_free: u32,
+    pub near_ants: u32,
+    pub nbr_ants: u32,
+    pub egg_room: u32,
+    pub lay_bar: f32,
+    pub suppressed_bar: f32,
+}
+
+pub fn home_ring(world: &World, organism: OrganismId, radius: i32) -> Option<HomeRing> {
+    let state = world.organism(organism)?;
+    let def = world.species.get(state.species).creature.as_ref()?;
+    world.materials.id_of(&def.nest)?;
+    let (hx, hy) = *state.chain.first()?;
+    let kind = |c: Cell| world.materials.get(c.material).kind;
+    let other_animal = |c: Cell| kind(c) == MaterialKind::Creature && c.organism_id() != organism;
+    let mut ring = HomeRing { home_d: -1, home_free: 0, home_ants: 0, near_free: 0, near_ants: 0, nbr_ants: 0, egg_room: 0, lay_bar: 0.0, suppressed_bar: 0.0 };
+    let mut cells: Vec<(i32, bool)> = Vec::new();
+    for dy in -radius..=radius {
+        for dx in -radius..=radius {
+            let (x, y) = (hx + dx, hy + dy);
+            if !world.in_bounds(x, y) {
+                continue;
+            }
+            let c = world.get(x, y);
+            let animal = other_animal(c);
+            if dx.abs() <= 1 && dy.abs() <= 1 && (dx, dy) != (0, 0) {
+                ring.nbr_ants += u32::from(animal);
+                ring.egg_room += u32::from(world.is_empty(x, y));
+            }
+            let standable = matches!(kind(c), MaterialKind::Empty | MaterialKind::Gas | MaterialKind::Creature);
+            if standable && adjacent_nest(world, x, y, def) {
+                cells.push((dx.abs().max(dy.abs()), animal));
+            }
+        }
+    }
+    if let Some(d) = cells.iter().map(|c| c.0).min() {
+        ring.home_d = d;
+        for &(cd, animal) in &cells {
+            let near = cd == d;
+            if animal {
+                ring.home_ants += 1;
+                ring.near_ants += u32::from(near);
+            } else {
+                ring.home_free += 1;
+                ring.near_free += u32::from(near);
+            }
+        }
+    }
+    let threshold = reproduce_at_of(def, &state.traits)?;
+    let cost = birth_cost_of(def, birth_grant(def, &state.traits));
+    ring.lay_bar = birth_bar(threshold, cost, def, super::brood::brood_of(world, def).as_ref());
+    ring.suppressed_bar = suppress_bar(breeding_regime(), breeding_radius(), world, organism, state.colony, (hx, hy), ring.lay_bar).0;
+    Some(ring)
+}
+
 /// **A newborn may stand on a nestmate** when no neighbour of its parent has
 /// room for it: `PIXEL_PHYSICS_BUD_STACK=on`, off unless set, and acting only
 /// above a stack cap of 1 ([`World::stack_cap`]) -- below it nobody may stand
