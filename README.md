@@ -6987,6 +6987,19 @@ brush lit 16 cells, left 13-14 ash, and nothing else caught, because
 Guards: `a_carnivore_is_stocked_as_scattered_lone_hunters_in_one_colony`,
 `the_fire_tool_burns_a_plant_and_not_bare_soil`.
 
+**A nest cutaway on `F8` (2026-10-03).** One menu row, `NEST CUTAWAY`,
+repaints everything from 16 rows above the ground line down on a fixed
+ramp: the ground dark, packed and spoil soil a shade lighter, roofed tunnels
+pale, nest cells white, brood pink (flowers are yellow), and food green below
+the ground line only, so surface litter does not paint the skyline. Ants,
+water and gas draw as themselves, as does stone, and plants keep their colour
+above ground and go dark below it. A tunnel is an empty cell with earth
+somewhere in the 16 rows straight above it; an open shaft is not one. It is a
+full replace through `Renderer::nest_cutaway`, never a blend, and toggling it
+forces one full redraw. `labshot cutaway=on` renders it headlessly. Guard:
+`the_nest_cutaway_paints_each_underground_class_on_its_ramp`, which goes red on
+the open shaft when the roof check is forced true.
+
 ## Lab parameters status — a save that reaches the founders, not just the file
 
 **Round three's finding, closed: *"There is no save — a parameter he changes
