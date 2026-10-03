@@ -10368,12 +10368,42 @@ pub fn scent_accepts(judge: &[f32; CREATURE_TRAITS], other: &[f32; CREATURE_TRAI
     scent_distance_sq(&scent_of(judge), &scent_of(other)) <= r * r
 }
 
+/// Tolerance's share of `scent_drift` per birth under
+/// `slow_tolerance_drift`. See `trait_width`.
+pub const TOLERANCE_DRIFT_SHARE: f32 = 1.0 / 3.0;
+
+/// **Tolerance drifts at `TOLERANCE_DRIFT_SHARE` of the signature's rate.**
+/// On by default; `PIXEL_PHYSICS_TOLERANCE_DRIFT=full` restores the full
+/// `scent_drift`, the behaviour before 2026-10-03. `nest_kin_gate`'s
+/// `OnceLock` pattern.
+pub fn slow_tolerance_drift() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var("PIXEL_PHYSICS_TOLERANCE_DRIFT").as_deref() != Ok("full"))
+}
+
 /// **The per-birth width of one trait slot.** `trait_variance` for the
 /// body slots; `scent_drift` -- one number, the speed of speciation -- for
 /// the four `SCENT_SIDE_SLOTS`, whose `trait_variance` entries are not
 /// read. In one place so `try_bud` and the jar's brood loop cannot answer
 /// it differently.
+///
+/// **Tolerance moves at a third of that** (`TOLERANCE_DRIFT_SHARE`, switch
+/// `PIXEL_PHYSICS_TOLERANCE_DRIFT`). At the full `scent_drift` a line's
+/// radius random-walks ~0.4 in eight generations, and traced 2026-10-03
+/// (`examples/killtrace.rs`, the colony-wars two-colony bed, seeds 6, 10 and
+/// 11 at 120,000 frames) every own-colony kill left after the nest kin gate
+/// was such a line -- radius 0.3-0.68 by generation 8-11 -- biting
+/// nestmates the wider victims still took for kin. At a third, 12 paired
+/// seeds on main 6c2f215b: own-colony kills 17 -> 0, cross-colony 222 ->
+/// 260 (seed 1 alone 11 -> 51, where both colonies lived), colonies alive
+/// at the end 19 -> 20. Still heritable: a line can still narrow itself
+/// into a stranger, over three times the generations. Judging kin against
+/// the home nest's odour instead was tried first and made it worse
+/// (`Reports/dead-ends.md`).
 pub fn trait_width(def: &CreatureDef, slot: usize) -> f32 {
+    if slot == TRAIT_TOLERANCE && slow_tolerance_drift() {
+        return def.scent_drift * TOLERANCE_DRIFT_SHARE;
+    }
     if SCENT_SIDE_SLOTS.contains(&slot) {
         def.scent_drift
     } else {
@@ -36919,6 +36949,22 @@ mod tests {
         at_b(&mut w, ant);
         let moved = scent_distance_sq(&scent_of(&w.organism(ant).expect("live").traits), &mine).sqrt();
         assert!(moved > 0.5, "ungated, ten ticks on the rival's nest must drag the visitor: moved {moved:.3}");
+    }
+
+    /// **Tolerance drifts at a third of the signature's rate; the signature
+    /// at the full rate.** The slow arm ships on (`slow_tolerance_drift`);
+    /// the other three scent-side slots are untouched, so speciation by
+    /// odour keeps its speed.
+    #[test]
+    fn tolerance_drifts_at_a_third_of_the_signature() {
+        let w = test_world();
+        let def = def_of(&w, "ant");
+        assert!(slow_tolerance_drift(), "the slow arm ships on");
+        assert!(def.scent_drift > 0.0);
+        assert!((trait_width(&def, TRAIT_TOLERANCE) - def.scent_drift / 3.0).abs() < 1e-6);
+        for slot in SCENT_SLOTS {
+            assert_eq!(trait_width(&def, slot), def.scent_drift, "the signature keeps the full rate");
+        }
     }
 
     /// **Every station of one founding shares the colony's scent offset, and
