@@ -2149,6 +2149,10 @@ fn main() {
                     .collect();
                 for (x, y) in cells {
                     let c = world.get(x, y);
+                    let water_only = std::env::var_os("ORACLE_WATERONLY").is_some();
+                    if water_only && c.material != mat::EMPTY && !matches!(world.materials.kind(c.material), MaterialKind::Liquid) {
+                        continue;
+                    }
                     if c.material != mat::EMPTY && !matches!(world.materials.kind(c.material), MaterialKind::Creature | MaterialKind::Powder | MaterialKind::Solid) || (c.organism_id() != 0 && !matches!(world.materials.kind(c.material), MaterialKind::Creature)) || world.materials.get(c.material).food_energy > 0.0 && !matches!(world.materials.kind(c.material), MaterialKind::Creature) {
                         let kind = if c.organism_id() != 0 && pixel_physics::sim::organism::cell_type(c.aux()).is_some_and(|t| matches!(t, pixel_physics::sim::organism::CellType::Seed)) { "seed".to_string() } else { world.materials.get(c.material).name.clone() };
                         *oracle_kinds.entry(kind).or_insert(0u64) += 1;
