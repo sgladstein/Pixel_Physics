@@ -639,15 +639,29 @@ pub fn brood_tick(world: &mut World, site: &ActiveSite) -> Vec<ActiveSite> {
     let Some(material) = world.materials.id_of(&block.material) else {
         return Vec::new();
     };
-    let Some((x, y)) = brood_cell(world, organism, material, (site.x, site.y)) else {
-        // **The cell is gone** -- burned, blasted, erased, buried by a write.
-        // What the brood held goes with it.
-        let bank = world.organism(organism).map_or(0.0, |s| s.energy);
-        let colony = world.colony_of(organism);
-        world.book(colony, Account::Dissipated, bank as f64);
-        world.creature_stats.brood_lost += 1;
-        world.free_brood(organism);
-        return Vec::new();
+    // **Stood on, not gone**: a body walking through brood holds its cell out
+    // of the grid (`creature::PushPast`). The brood goes on growing -- a stage
+    // change is written into the walker's held copy (`set_stage`) -- and only
+    // the two steps that write the world around it, hatching and starving,
+    // wait for the walker to step off.
+    let (x, y, holder) = match brood_cell(world, organism, material, (site.x, site.y)) {
+        Some((x, y)) => (x, y, None),
+        None => match creature::held_brood_at(world, organism, (site.x, site.y)) {
+            Some((holder, (x, y))) => {
+                world.creature_stats.brood_held += 1;
+                (x, y, Some(holder))
+            }
+            None => {
+                // **The cell is gone** -- burned, blasted, erased, buried by
+                // a write. What the brood held goes with it.
+                let bank = world.organism(organism).map_or(0.0, |s| s.energy);
+                let colony = world.colony_of(organism);
+                world.book(colony, Account::Dissipated, bank as f64);
+                world.creature_stats.brood_lost += 1;
+                world.free_brood(organism);
+                return Vec::new();
+            }
+        },
     };
     // **Carried to brood** ([`carry`]) before its stage runs, so the stage
     // runs where it now lies. Off, one branch.
@@ -660,7 +674,7 @@ pub fn brood_tick(world: &mut World, site: &ActiveSite) -> Vec<ActiveSite> {
             if frame < b.since + block.egg_frames {
                 return at(b.since + block.egg_frames);
             }
-            set_stage(world, organism, (x, y), material, BroodStage::Larva, frame);
+            set_stage(world, organism, (x, y), material, BroodStage::Larva, frame, holder);
             world.creature_stats.larvae += 1;
             at(world.creature_due(LARVA_TICK))
         }
@@ -679,6 +693,12 @@ pub fn brood_tick(world: &mut World, site: &ActiveSite) -> Vec<ActiveSite> {
             world.creature_stats.brood_upkeep_j += upkeep as f64;
             let bank = world.organism(organism).map_or(0.0, |s| s.energy);
             if bank <= 0.0 {
+                // The corpse is written where the larva lies, so not while a
+                // walker stands there; upkeep goes on and is booked overdrawn
+                // when it does starve.
+                if holder.is_some() {
+                    return at(world.creature_due(LARVA_TICK));
+                }
                 larva_starves(world, organism, (x, y), bank, colony);
                 return Vec::new();
             }
@@ -699,7 +719,7 @@ pub fn brood_tick(world: &mut World, site: &ActiveSite) -> Vec<ActiveSite> {
                 nurse(world, organism, (x, y), colony, &def, b.target);
             }
             if world.organism(organism).is_some_and(|s| s.energy >= b.target) {
-                set_stage(world, organism, (x, y), material, BroodStage::Pupa, frame);
+                set_stage(world, organism, (x, y), material, BroodStage::Pupa, frame, holder);
                 world.creature_stats.pupae += 1;
                 return at(world.creature_due(block.pupa_frames));
             }
@@ -708,6 +728,10 @@ pub fn brood_tick(world: &mut World, site: &ActiveSite) -> Vec<ActiveSite> {
         BroodStage::Pupa => {
             if frame < b.since + block.pupa_frames {
                 return at(b.since + block.pupa_frames);
+            }
+            // A callow walks out from under nobody: hatching clears the cell.
+            if holder.is_some() {
+                return at(world.creature_due(HATCH_RETRY));
             }
             match hatch(world, organism, (x, y), species, &def) {
                 Some(adult) => vec![adult],
@@ -786,13 +810,22 @@ fn nurse(world: &mut World, larva: OrganismId, (x, y): (i32, i32), colony: u32, 
 }
 
 /// Move a brood organism to `stage`, and its cell to that stage's shade.
-fn set_stage(world: &mut World, organism: OrganismId, (x, y): (i32, i32), material: super::material::MaterialId, stage: BroodStage, frame: u64) {
+fn set_stage(world: &mut World, organism: OrganismId, (x, y): (i32, i32), material: super::material::MaterialId, stage: BroodStage, frame: u64, holder: Option<OrganismId>) {
     if let Some(st) = world.organism_mut(organism) {
         if let Some(b) = st.brood.as_mut() {
             b.stage = stage;
             b.since = frame;
             b.last_tick = frame;
         }
+    }
+    // **Held by a walker: restage the copy it will put back**, since the grid
+    // cell is the walker's own (`creature::PushPast`).
+    if let Some(holder) = holder {
+        let held = world.organism_mut(holder).and_then(|s| s.parted.iter_mut().find(|h| (h.x, h.y) == (x, y) && h.cell.organism_id() == organism));
+        if let Some(h) = held {
+            h.cell = Cell::new(material, stage as u8).with_organism_id(organism).with_aux(h.cell.aux());
+        }
+        return;
     }
     let cell = world.get(x, y);
     world.set(x, y, Cell::new(material, stage as u8).with_organism_id(organism).with_aux(cell.aux()));

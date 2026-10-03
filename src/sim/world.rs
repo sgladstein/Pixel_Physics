@@ -2678,6 +2678,9 @@ pub struct CreatureStats {
     pub larvae_starved: u64,
     /// Brood whose cell was destroyed (burned, blasted, erased).
     pub brood_lost: u64,
+    /// Brood ticks taken while a body stood on the cell
+    /// (`PIXEL_PHYSICS_PUSH_PAST=brood`): it grew, but did not hatch or starve.
+    pub brood_held: u64,
     /// Hatch attempts refused because the adult body did not fit.
     pub hatches_denied: u64,
     /// Brood a touching nestmate moved toward other brood or out of the
@@ -3976,6 +3979,11 @@ pub struct World {
     /// (`brood::brood_of`), so a guard can run both arms in one process.
     /// Neither value turns brood on for a species without a brood block.
     pub brood: Option<bool>,
+    /// **What bodies walk through, overriding `PIXEL_PHYSICS_PUSH_PAST` for
+    /// this world** (`creature::push_past_of`): loose crumbs, brood, both or
+    /// neither. `None` follows the environment. A field so a guard can take
+    /// both arms in one process.
+    pub push_past: Option<crate::sim::creature::PushPast>,
     /// **The storeroom, overriding `PIXEL_PHYSICS_STOREROOM` for this world**
     /// (`creature::storeroom_of`). `None` follows the environment, which is
     /// `creature::Storeroom::SHIPPED` unless it says `off`.
@@ -6492,6 +6500,7 @@ impl World {
             dig_widen: None,
             bud_stack: None,
             brood: None,
+            push_past: None,
             storeroom: None,
             nest_door: None,
             scout: None,
@@ -8518,7 +8527,12 @@ impl World {
         // a pellet put down in a passage is a thing in the nest, not the
         // nest's wall, and read as wall a single crumb on the mouth took home
         // from 43 cells to 6 (seed 1, frame 8,000).
-        let loose: Vec<MaterialId> = ["spoil", "corpse", "crumbs"].iter().filter_map(|n| self.materials.id_of(n)).collect();
+        // **Brood too, once bodies walk through it** (`creature::PushPast`): an
+        // egg lying in the shaft was a wall here, and the dug home behind it
+        // dropped out of home (found by the laying lane, 2026-10-03). While
+        // ants cannot pass brood, the home behind a plug really is cut off.
+        let brood_open = crate::sim::creature::push_past_of(self).brood;
+        let loose: Vec<MaterialId> = ["spoil", "corpse", "crumbs"].iter().chain(brood_open.then_some(&"brood")).filter_map(|n| self.materials.id_of(n)).collect();
         let open = |w: &World, x: i32, y: i32| {
             let c = w.get(x, y);
             c.material == material::EMPTY || matches!(w.materials.kind(c.material), MaterialKind::Creature) || loose.contains(&c.material) || (c.organism_id() == 0 && crate::sim::creature::food_value(w, c) > 0.0)
