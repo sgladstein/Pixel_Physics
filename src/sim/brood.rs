@@ -166,6 +166,126 @@ fn parse_egg_pile(raw: &str) -> i32 {
     }
 }
 
+/// **Where an egg is never put down**: `PIXEL_PHYSICS_EGG_DOOR`. The
+/// laying lane's first brood-room rule (Scott, 2026-10-03: "dig an area and
+/// food can all be placed together in that chamber and dig another area
+/// and brood can all be placed together in that chamber").
+///
+/// - `off` (**the default**): anywhere at home, the rule before 2026-10-03.
+/// - `door`: not in a nest's way in -- the shaft and the ground round its
+///   mouth, the same cells a food drop keeps clear (`creature::in_doorway`),
+///   at the layer's own `TRAIT_DOOR_CLEAR`.
+/// - `cut`: not in the way in, and nowhere in the founding cut -- shaft,
+///   chamber (the storeroom, where the food goes) and side room. Brood then
+///   lies only in ground the colony dug itself, and with none dug in reach
+///   the egg is not laid.
+/// - `deep`: not in the way in, and **the founding cut only when nothing
+///   the colony dug is in reach** -- the graded form of `cut`: a home cell
+///   outside the cut beats any inside it, so eggs go to the chamber while
+///   it is all there is and to dug ground once there is some, and
+///   carrying ([`carry`]) takes brood out of the cut when it can.
+///
+/// **Why.** On the nest lane's test bed (`digbox`, 40 ants, larvae fed,
+/// 2026-10-03) eggs laid at home filled the 26-cell founding cut: 22 eggs
+/// held 16 of its cells by frame 2,000, and the colony dug 0 cells by
+/// 26,000 and 13 by 40,000 against ~97 by 12,000 with brood off, while
+/// 1,252 hatches were refused for lack of room. Real colonies keep the way
+/// in clear and the brood in its own chambers, and those chambers grow
+/// round the brood (Römer & Roces 2014, doi 10.1371/journal.pone.0097872:
+/// workers relocate brood, aggregate where it lies and dig more there).
+///
+/// **Measured** (2026-10-03, main a707e0a1, the shipped rule against each
+/// mode, paired by seed; `/mnt/project-files/laying/egg-door/` in the
+/// project). Test bed (`digbox ants=40 surplus=500`, 6 seeds, 40k frames):
+/// shipped dug 0 cells and grew to 178 ants with 12 brood in the 12-cell
+/// shaft; `door` dug 264 (more on 6 of 6) and grew to 500 (4 of 6; two
+/// seeds jam with brood filling the chamber before anything is dug); `cut`
+/// dug 346 and grew to 641 (6 of 6); `deep` was identical to `door` on all
+/// six, since the brood pile already sits beyond the cut once anything is
+/// dug. Lab (`nestdoor played_bed`, 12 seeds, 150k, laying only at the
+/// nest): births 76 shipped, `door` 88 (more on 8 of 12), `deep` 77, `cut`
+/// **18** (fewer on 10) with 4 of 12 boxes alive at the end against 11 --
+/// the lab colony has almost nothing dug beyond the cut, so `cut` mostly
+/// means no egg. `door` was the one mode worse nowhere.
+///
+/// **Then ants learned to walk through brood** (`creature::PushPast`, on
+/// since 2026-10-03), and the jam this was built for went away without it:
+/// on the same test bed the shipped rule grew to 3,139 ants and dug 1,811
+/// cells by 40k (6 seeds). `door` on top **slowed early growth on every
+/// seed** -- ants at 12k 733 -> 258, births 703 -> 222, 6 of 6 -- and was
+/// still behind at 40k (2,862 ants; lower on 3 of 6, digs lower on 4). In
+/// the lab (4 seeds, 150k) births went 40 -> 51 median (more on 3 of 4), ants
+/// at the end lower on 2, higher on 1. So all three modes ship off, kept as
+/// switches for when brood has a reason not to be walked through.
+///
+/// Unknown values panic (a mistyped switch must not fail open).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum EggDoor {
+    Off,
+    Door,
+    Cut,
+    Deep,
+}
+
+pub fn egg_door() -> EggDoor {
+    static V: std::sync::OnceLock<EggDoor> = std::sync::OnceLock::new();
+    *V.get_or_init(|| parse_egg_door(&std::env::var("PIXEL_PHYSICS_EGG_DOOR").unwrap_or_default()))
+}
+
+fn parse_egg_door(raw: &str) -> EggDoor {
+    match raw.trim() {
+        "" | "off" => EggDoor::Off,
+        "door" => EggDoor::Door,
+        "cut" => EggDoor::Cut,
+        "deep" => EggDoor::Deep,
+        other => panic!("PIXEL_PHYSICS_EGG_DOOR={other:?}: use off, door, cut or deep"),
+    }
+}
+
+/// **The cells an egg laid by one ant may not take** ([`EggDoor`]): the
+/// mode, and how far round the door that ant keeps clear.
+#[derive(Clone, Copy, Debug)]
+pub(super) struct EggBar {
+    pub mode: EggDoor,
+    pub clear: i32,
+}
+
+impl EggBar {
+    /// The live mode, at `layer`'s own door allele.
+    pub(super) fn of(world: &World, layer: OrganismId) -> Self {
+        Self::with(world, layer, egg_door())
+    }
+
+    /// `mode`, at `layer`'s own door allele.
+    pub(super) fn with(world: &World, layer: OrganismId, mode: EggDoor) -> Self {
+        let clear = if mode == EggDoor::Off { 0 } else { creature::door_clear_cells(world, layer) };
+        Self { mode, clear }
+    }
+
+    #[cfg(test)]
+    pub(super) const OFF: Self = Self { mode: EggDoor::Off, clear: 0 };
+
+    /// Whether an egg may not be put down at `(x, y)`. One scan over the
+    /// world's few nest sites; `off` reads nothing.
+    pub(super) fn bars(&self, world: &World, (x, y): (i32, i32)) -> bool {
+        match self.mode {
+            EggDoor::Off => false,
+            EggDoor::Door | EggDoor::Deep => creature::in_doorway(world, (x, y), self.clear),
+            EggDoor::Cut => creature::in_doorway(world, (x, y), self.clear) || in_founding_cut(world, (x, y)),
+        }
+    }
+
+    /// Whether `(x, y)` is allowed but second best: under `deep`, a cell of
+    /// a founding cut, taken only when nothing outside one is in reach.
+    pub(super) fn shuns(&self, world: &World, (x, y): (i32, i32)) -> bool {
+        self.mode == EggDoor::Deep && in_founding_cut(world, (x, y))
+    }
+}
+
+fn in_founding_cut(world: &World, (x, y): (i32, i32)) -> bool {
+    world.nest_sites.iter().filter_map(|s| s.shaft).any(|c| c.contains(x, y))
+}
+
 /// The shipped reach of [`egg_pile_reach`]. 4 is the reach the oracle that
 /// found the rule used (`laying-funnel-2026-10-03.md`): with the egg placed
 /// up to four cells out and "at the nest" read four cells out, eggs laid at
@@ -198,7 +318,12 @@ pub const EGG_PILE_REACH: i32 = 4;
 /// one touching brood already lying there wins (the pile), then the fewest
 /// steps; ties go to the walk's own `DIRS` order, so it is deterministic.
 /// Runs only on the rare tick an animal could otherwise already lay.
-pub(super) fn pile_site(world: &World, head: (i32, i32), def: &CreatureDef, brood: &BroodDef, reach: i32) -> Option<(i32, i32)> {
+///
+/// **A cell the egg bar refuses ([`EggBar`]) is walked through, never
+/// chosen**: the egg is handed past the doorway to the home beyond it. A
+/// cell it shuns (`deep`'s founding cut) loses to any it does not, ahead of
+/// the pile.
+pub(super) fn pile_site(world: &World, head: (i32, i32), def: &CreatureDef, brood: &BroodDef, reach: i32, bar: EggBar) -> Option<(i32, i32)> {
     let material = world.materials.id_of(&brood.material)?;
     let (hx, hy) = head;
     let side = 2 * reach + 1;
@@ -206,7 +331,9 @@ pub(super) fn pile_site(world: &World, head: (i32, i32), def: &CreatureDef, broo
     let mut seen = vec![false; (side * side) as usize];
     seen[index(hx, hy)] = true;
     let mut frontier = vec![(hx, hy)];
-    let mut best: Option<((bool, i32), (i32, i32))> = None;
+    // (shunned, off the pile, steps): the least wins.
+    type Key = (bool, bool, i32);
+    let mut best: Option<(Key, (i32, i32))> = None;
     for depth in 1..=reach {
         let mut next = Vec::new();
         for &(x, y) in &frontier {
@@ -221,22 +348,175 @@ pub(super) fn pile_site(world: &World, head: (i32, i32), def: &CreatureDef, broo
                     continue;
                 }
                 next.push((nx, ny));
-                if empty && creature::home_at(world, nx, ny, def) {
+                if empty && creature::home_at(world, nx, ny, def) && !bar.bars(world, (nx, ny)) {
                     let on_pile = creature::DIRS.iter().any(|&(px, py)| world.get(nx + px, ny + py).material == material);
-                    let key = (!on_pile, depth);
+                    let key = (bar.shuns(world, (nx, ny)), !on_pile, depth);
                     if best.is_none_or(|(k, _)| key < k) {
                         best = Some((key, (nx, ny)));
                     }
                 }
             }
         }
-        // A cell on the pile at this depth cannot be beaten further out.
-        if best.is_some_and(|((off_pile, _), _)| !off_pile) {
+        // A cell on the pile, and not shunned, at this depth cannot be
+        // beaten further out.
+        if best.is_some_and(|((shunned, off_pile, _), _)| !shunned && !off_pile) {
             break;
         }
         frontier = next;
     }
     best.map(|(_, cell)| cell)
+}
+
+/// **How far a nestmate carries brood in one move**, in steps through the
+/// crowd ([`carry`]): `PIXEL_PHYSICS_BROOD_CARRY`, `off` (0) by default;
+/// `on` is [`BROOD_CARRY_REACH`]; a number is that reach. Unknown values
+/// panic (a mistyped switch must not fail open).
+///
+/// **Off because it is close to inert** (2026-10-03, main a707e0a1): the
+/// egg pile already lays eggs beside eggs, so a carrier rarely finds a
+/// better place -- 0 to 19 moves in a 40k test-bed run. Carrying alone
+/// left ants at 40k lower on 3 of 6 test-bed seeds and higher on none
+/// (176 against 178), and with `deep` in the lab births went 77 -> 66
+/// (more on 6 of 12): no gain, a hint of cost. Worth re-measuring once
+/// something scatters brood that a pile rule cannot gather.
+pub fn brood_carry_reach() -> i32 {
+    static V: std::sync::OnceLock<i32> = std::sync::OnceLock::new();
+    *V.get_or_init(|| parse_brood_carry(&std::env::var("PIXEL_PHYSICS_BROOD_CARRY").unwrap_or_default()))
+}
+
+fn parse_brood_carry(raw: &str) -> i32 {
+    match raw.trim() {
+        "" | "off" => 0,
+        "on" => BROOD_CARRY_REACH,
+        v => v.parse().ok().filter(|r: &i32| *r >= 0).unwrap_or_else(|| panic!("PIXEL_PHYSICS_BROOD_CARRY={v:?}: use off, on or a reach")),
+    }
+}
+
+/// The reach `on` means: three steps, the span of an ant and a half, so one
+/// move is a short carry rather than a jump across the nest.
+pub const BROOD_CARRY_REACH: i32 = 3;
+
+/// **Brood carried to brood** ([`brood_carry_reach`]): at a brood item's
+/// tick, a grown nestmate touching it with free jaws moves it, if there is
+/// a better place within a short carry. Returns where it lies now.
+///
+/// **Why.** Brood was put down where it was laid and never moved, so eggs
+/// laid at home stacked in the founding cut and plugged it (the nest lane's
+/// test bed, 2026-10-03), and the owner's design is a brood chamber apart
+/// from the food: "dig an area and brood can all be placed together in that
+/// chamber". Real workers move brood constantly, and the piles they keep
+/// come from local rules, not a plan: many ant species keep their brood
+/// sorted and clustered by picking an item up where few like it lie and
+/// putting it down where many do (Holland & Melhuish 1999, doi
+/// 10.1162/106454699568737, reviewing the brood-sorting work; Franks &
+/// Sendova-Franks 1992 on *Leptothorax*). Workers relocate brood to suitable
+/// sites, gather where it lies and dig more there, so chambers emerge round
+/// it (Römer & Roces 2014, doi 10.1371/journal.pone.0097872).
+///
+/// **The rule**, a deterministic form of that pick-up/put-down:
+///
+/// - **The carrier** is the first grown kin nestmate on one of the item's
+///   eight neighbours (`DIRS` order) that holds no pellet. No carrier, no
+///   move: brood nobody tends stays where it is.
+/// - **The walk**: breadth-first from the item, up to `reach` steps through
+///   cells a carrier could pass -- empty, an animal, or brood (ants climb
+///   over the pile).
+/// - **Where it may go**: an empty cell with a floor under it (solid,
+///   powder or plant, so it lies on the ground rather than dropping through
+///   a body), that the egg bar ([`EggBar`], at the carrier's door gene)
+///   allows, and at home if it is at home now.
+/// - **Better** is, in order: out of a cell the bar refuses; onto home from
+///   off it; out of a cell the bar shuns (`deep`'s founding cut), never
+///   into one; next to strictly more brood than it touches now. Among better
+///   cells, home, then unshunned, then the most brood wins, then the fewest
+///   steps.
+///
+/// It always ends: every move but the three one-way kinds strictly raises the
+/// number of touching brood pairs, which is bounded. One walk of at most
+/// `(2 * reach + 1)^2` cells per brood tick with a carrier beside it.
+pub(super) fn carry(world: &mut World, organism: OrganismId, (x, y): (i32, i32), material: super::material::MaterialId, def: &CreatureDef, reach: i32, door: EggDoor) -> (i32, i32) {
+    use super::material::MaterialKind;
+    if reach <= 0 {
+        return (x, y);
+    }
+    let gut = creature::gut_of(world, organism, def);
+    let carrier = creature::DIRS.iter().find_map(|&(dx, dy)| {
+        let id = world.get(x + dx, y + dy).organism_id();
+        if id == 0 || id == organism {
+            return None;
+        }
+        let st = world.organism(id)?;
+        (st.brood.is_none() && st.spoil.is_none() && creature::is_living_kin_id(world, id, gut)).then_some(id)
+    });
+    let Some(carrier) = carrier else {
+        return (x, y);
+    };
+    // Only brood lying in its own cell is carried: one a walker is standing
+    // on (`creature::PushPast` holds it out of the grid) is not there to
+    // pick up, and the cell at `(x, y)` is the walker's.
+    let here = world.get(x, y);
+    if here.material != material || here.organism_id() != organism {
+        return (x, y);
+    }
+    let bar = EggBar::with(world, carrier, door);
+    let touching = |w: &World, (px, py): (i32, i32)| {
+        creature::DIRS.iter().filter(|&&(dx, dy)| (px + dx, py + dy) != (x, y) && w.get(px + dx, py + dy).material == material).count() as i32
+    };
+    let floored = |w: &World, (px, py): (i32, i32)| {
+        w.in_bounds(px, py + 1) && matches!(w.materials.kind(w.get(px, py + 1).material), MaterialKind::Solid | MaterialKind::Powder | MaterialKind::Plant)
+    };
+    let here_barred = bar.bars(world, (x, y));
+    let here_shunned = bar.shuns(world, (x, y));
+    let here_home = creature::home_at(world, x, y, def);
+    let here_touching = touching(world, (x, y));
+    let side = 2 * reach + 1;
+    let index = |px: i32, py: i32| ((py - y + reach) * side + (px - x + reach)) as usize;
+    let mut seen = vec![false; (side * side) as usize];
+    seen[index(x, y)] = true;
+    let mut frontier = vec![(x, y)];
+    // (home, not shunned, brood touching, -steps): the most wins.
+    type Key = (bool, bool, i32, i32);
+    let mut best: Option<(Key, (i32, i32))> = None;
+    for depth in 1..=reach {
+        let mut next = Vec::new();
+        for &(fx, fy) in &frontier {
+            for (dx, dy) in creature::DIRS {
+                let (nx, ny) = (fx + dx, fy + dy);
+                if (nx - x).abs() > reach || (ny - y).abs() > reach || !world.in_bounds(nx, ny) || seen[index(nx, ny)] {
+                    continue;
+                }
+                seen[index(nx, ny)] = true;
+                let c = world.get(nx, ny);
+                let empty = world.is_empty(nx, ny);
+                if !empty && c.material != material && world.materials.kind(c.material) != MaterialKind::Creature {
+                    continue;
+                }
+                next.push((nx, ny));
+                if !empty || !floored(world, (nx, ny)) || bar.bars(world, (nx, ny)) {
+                    continue;
+                }
+                let home = creature::home_at(world, nx, ny, def);
+                let shunned = bar.shuns(world, (nx, ny));
+                if (here_home && !home) || (shunned && !here_shunned) {
+                    continue;
+                }
+                let t = touching(world, (nx, ny));
+                let better = here_barred || (home && !here_home) || (home == here_home && here_shunned && !shunned) || (home == here_home && shunned == here_shunned && t > here_touching);
+                let key = (home, !shunned, t, -depth);
+                if better && best.is_none_or(|(k, _)| key > k) {
+                    best = Some((key, (nx, ny)));
+                }
+            }
+        }
+        frontier = next;
+    }
+    let Some((_, (tx, ty))) = best else {
+        return (x, y);
+    };
+    world.set(tx, ty, here);
+    world.set(x, y, super::cell::Cell::EMPTY);
+    world.creature_stats.brood_carried += 1;
+    (tx, ty)
 }
 
 pub const LARVA_TICK: u64 = 60;
@@ -259,6 +539,19 @@ pub struct Egg {
     pub fates: organism::FateGenome,
 }
 
+/// **The first empty cell beside the head an egg may take** ([`EggBar`]):
+/// the eight neighbours in `DIRS` order, then rings out to
+/// `PIXEL_PHYSICS_LAY_REACH`.
+fn beside_head(world: &World, (hx, hy): (i32, i32), bar: EggBar) -> Option<(i32, i32)> {
+    let ring = |r: i32| (-r..=r).flat_map(move |dy| (-r..=r).map(move |dx| (dx, dy))).filter(move |&(dx, dy)| dx.abs().max(dy.abs()) == r);
+    creature::DIRS
+        .iter()
+        .copied()
+        .chain((2..=lay_reach()).flat_map(ring))
+        .map(|(dx, dy)| (hx + dx, hy + dy))
+        .find(|&(x, y)| world.is_empty(x, y) && !bar.bars(world, (x, y)))
+}
+
 /// **Lay one egg beside the head**, in the first empty neighbour in `DIRS`
 /// order -- one cell fits where a whole body in a line rarely does, which is
 /// what makes laying at the nest possible at all (`BUD_SITE=nest` took births
@@ -271,17 +564,13 @@ pub struct Egg {
 pub(super) fn lay_egg(world: &mut World, parent: OrganismId, head: (i32, i32), def: &CreatureDef, brood: &BroodDef, egg: Egg, at: Option<(i32, i32)>) -> Option<ActiveSite> {
     let material = world.materials.id_of(&brood.material)?;
     let (hx, hy) = head;
-    let ring = |r: i32| (-r..=r).flat_map(move |dy| (-r..=r).map(move |dx| (dx, dy))).filter(move |&(dx, dy)| dx.abs().max(dy.abs()) == r);
     // **On the brood pile when the caller found one** ([`pile_site`]), else
-    // the first empty cell beside the head.
+    // the first empty cell beside the head that the egg bar allows: an ant
+    // laying where it stands in the shaft keeps its egg, as one laying with
+    // every neighbour taken does.
     let (ex, ey) = match at {
         Some(cell) => cell,
-        None => creature::DIRS
-            .iter()
-            .copied()
-            .chain((2..=lay_reach()).flat_map(ring))
-            .map(|(dx, dy)| (hx + dx, hy + dy))
-            .find(|&(x, y)| world.is_empty(x, y))?,
+        None => beside_head(world, head, EggBar::of(world, parent))?,
     };
     let child = world.push_organism(egg.species)?;
     // **Fixed at laying**: the adult this egg becomes costs what a bud of
@@ -383,6 +672,9 @@ pub fn brood_tick(world: &mut World, site: &ActiveSite) -> Vec<ActiveSite> {
             }
         },
     };
+    // **Carried to brood** ([`carry`]) before its stage runs, so the stage
+    // runs where it now lies. Off, one branch.
+    let (x, y) = carry(world, organism, (x, y), material, &def, brood_carry_reach(), egg_door());
     let frame = world.frame;
     let colony = world.colony_of(organism);
     let at = |next: u64| vec![ActiveSite { x, y, kind: ActiveKind::Creature { organism }, next_frame: next }];
@@ -860,7 +1152,7 @@ mod tests {
         let (mut w, ant, def, head) = nest_bed(104);
         assert!(!creature::home_at(&w, head.0, head.1, &def), "test setup: the ant already stands at home");
         let block = def.brood.clone().expect("brood");
-        assert!(pile_site(&w, head, &def, &block, 0).is_none(), "a reach of 0 must find nothing");
+        assert!(pile_site(&w, head, &def, &block, 0, EggBar::OFF).is_none(), "a reach of 0 must find nothing");
         let site = creature::try_bud(&mut w, ant, &def, 0.0, 0.0).expect("an ant four steps from home lays");
         assert_eq!(w.creature_stats.eggs_laid, 1);
         assert!(creature::home_at(&w, site.x, site.y, &def), "the egg landed off home at {:?}", (site.x, site.y));
@@ -886,7 +1178,7 @@ mod tests {
             w.set(head.0 + 2, y, Cell::new(material::STONE, 0));
         }
         let block = def.brood.clone().expect("brood");
-        assert!(pile_site(&w, head, &def, &block, EGG_PILE_REACH).is_none(), "the walk went through stone");
+        assert!(pile_site(&w, head, &def, &block, EGG_PILE_REACH, EggBar::OFF).is_none(), "the walk went through stone");
         assert!(creature::try_bud(&mut w, ant, &def, 0.0, 0.0).is_none());
     }
 
@@ -901,7 +1193,7 @@ mod tests {
         let material = w.materials.id_of(&block.material).expect("brood material");
         // A brood cell at the far end of home, on the floor.
         w.set(head.0 + 5, 100, Cell::new(material, 0));
-        let cell = pile_site(&w, head, &def, &block, EGG_PILE_REACH).expect("home in reach");
+        let cell = pile_site(&w, head, &def, &block, EGG_PILE_REACH, EggBar::OFF).expect("home in reach");
         assert!(creature::DIRS.iter().any(|&(dx, dy)| w.get(cell.0 + dx, cell.1 + dy).material == material), "the egg at {cell:?} is not on the pile");
     }
 
@@ -914,6 +1206,250 @@ mod tests {
         assert_eq!(parse_egg_pile("6"), 6);
         assert_eq!(parse_egg_pile("-2"), EGG_PILE_REACH);
         assert_eq!(parse_egg_pile("wide"), EGG_PILE_REACH);
+    }
+
+    /// `PIXEL_PHYSICS_EGG_DOOR`'s value.
+    #[test]
+    fn egg_door_parses_its_modes() {
+        assert_eq!(parse_egg_door(""), EggDoor::Off, "the default is laying anywhere at home");
+        assert_eq!(parse_egg_door("off"), EggDoor::Off);
+        assert_eq!(parse_egg_door("door"), EggDoor::Door);
+        assert_eq!(parse_egg_door(" cut "), EggDoor::Cut);
+        assert_eq!(parse_egg_door("deep"), EggDoor::Deep);
+        assert!(std::panic::catch_unwind(|| parse_egg_door("shaft")).is_err(), "a mistyped mode must not fail open");
+    }
+
+    /// Soil from row 40 down, a founding cut at column 60 drawn by hand --
+    /// shaft 60-61 on rows 40-45, chamber 56-65 on rows 46-47 -- and, with
+    /// `gallery`, a passage the colony dug east from the chamber along row 47
+    /// to column 80. Home is the dug nest. Returns the world and the ant's
+    /// species def (one ant stands on the surface far to the west, only so
+    /// the def is the live one).
+    fn cut_bed(gallery: bool) -> (World, CreatureDef, crate::sim::world::ShaftFootprint) {
+        let mut w = World::new(Rect::new(0, 0, 119, 99));
+        let soil = w.materials.id_of("soil").expect("soil");
+        for x in 0..=119 {
+            for y in 40..=99 {
+                let stone = y >= 92 || x == 0 || x == 119;
+                w.set(x, y, if stone { Cell::new(material::STONE, 0) } else { Cell::new(soil, 0) }.with_attached(true));
+            }
+        }
+        w.register_nest_site(60, 39, 2);
+        let cut = crate::sim::world::ShaftFootprint { x0: 60, x1: 61, top: 40, bottom: 45, mouth_bottom: 41, chamber_x0: 56, chamber_x1: 65, chamber_top: 46, chamber_bottom: 47, side: None };
+        w.nest_sites[0].shaft = Some(cut);
+        let mut open: Vec<(i32, i32)> = (40..=45).flat_map(|y| [(60, y), (61, y)]).chain((46..=47).flat_map(|y| (56..=65).map(move |x| (x, y)))).collect();
+        if gallery {
+            open.extend((66..=80).map(|x| (x, 47)));
+        }
+        for (x, y) in open {
+            w.set(x, y, Cell::EMPTY);
+        }
+        w.nest_home = Some(creature::NestHome::Dug);
+        w.step_nest_dug();
+        w.plant_ant(10, 38);
+        let ant = w.get(10, 38).organism_id();
+        assert_ne!(ant, 0, "test setup: the ant was not placed");
+        let species = w.organism(ant).expect("live").species;
+        let def = w.species.get(species).creature.clone().expect("ant is a creature");
+        (w, def, cut)
+    }
+
+    /// **An egg is handed past the doorway, never put down in it**
+    /// ([`EggBar`]). Layers standing in every open cell of the cut: with
+    /// `door`, no egg lands in the way in, and a layer in the chamber still
+    /// lays in it (the chamber is home); with `cut`, no egg lands anywhere
+    /// in the cut, and a layer near the gallery hands its egg out to it. The
+    /// `off` arm is the positive control: the same layers put eggs in the
+    /// door, so the scene can tell the rule from its absence. `deep` is
+    /// covered by `deep_lays_in_the_cut_only_while_nothing_dug_is_in_reach`.
+    #[test]
+    fn an_egg_is_handed_past_the_doorway_never_put_down_in_it() {
+        let (w, def, cut) = cut_bed(true);
+        let block = def.brood.clone().expect("brood");
+        let clear = creature::DOOR_CLEAR_CELLS as i32;
+        let door = EggBar { mode: EggDoor::Door, clear };
+        let whole = EggBar { mode: EggDoor::Cut, clear };
+        let heads: Vec<(i32, i32)> = (40..=47).flat_map(|y| (56..=65).map(move |x| (x, y))).filter(|&(x, y)| cut.contains(x, y)).collect();
+        let (mut in_door_off, mut in_chamber_door, mut to_gallery) = (0, 0, 0);
+        for &head in &heads {
+            let off = pile_site(&w, head, &def, &block, EGG_PILE_REACH, EggBar::OFF);
+            in_door_off += usize::from(off.is_some_and(|p| creature::in_doorway(&w, p, clear)));
+            let d = pile_site(&w, head, &def, &block, EGG_PILE_REACH, door);
+            assert!(!d.is_some_and(|p| creature::in_doorway(&w, p, clear)), "door: a layer at {head:?} put its egg in the way in at {d:?}");
+            in_chamber_door += usize::from(d.is_some_and(|(x, y)| cut.in_chamber(x, y)));
+            let c = pile_site(&w, head, &def, &block, EGG_PILE_REACH, whole);
+            assert!(!c.is_some_and(|(x, y)| cut.contains(x, y) || creature::in_doorway(&w, (x, y), clear)), "cut: a layer at {head:?} put its egg in the cut at {c:?}");
+            to_gallery += usize::from(c.is_some_and(|(x, y)| y == 47 && x > cut.chamber_x1));
+            // Beside the head, as a layer laying anywhere puts it: the same bar.
+            let b = beside_head(&w, head, door);
+            assert!(!b.is_some_and(|p| creature::in_doorway(&w, p, clear)), "door: beside the head at {head:?} took {b:?}");
+        }
+        assert!(in_door_off > 5, "control: with the bar off only {in_door_off} layers put an egg in the door -- the scene does not test the rule");
+        assert!(in_chamber_door > 0, "door: no layer in the chamber could lay in it");
+        assert!(to_gallery > 0, "cut: no layer handed its egg out to the gallery");
+    }
+
+    /// **With the whole cut barred and nothing dug beyond it, the egg is
+    /// held**: the colony lays at home only once it has dug somewhere to lay.
+    #[test]
+    fn with_nothing_dug_beyond_the_cut_the_egg_is_held() {
+        let (w, def, cut) = cut_bed(false);
+        let block = def.brood.clone().expect("brood");
+        let whole = EggBar { mode: EggDoor::Cut, clear: creature::DOOR_CLEAR_CELLS as i32 };
+        let head = (cut.chamber_x1, cut.chamber_bottom);
+        assert!(pile_site(&w, head, &def, &block, EGG_PILE_REACH, EggBar::OFF).is_some(), "test setup: the chamber is not home");
+        assert_eq!(pile_site(&w, head, &def, &block, EGG_PILE_REACH, whole), None);
+    }
+
+    /// **`deep` lays in the cut only while nothing dug is in reach**: with
+    /// no gallery the egg goes in the chamber (where `cut` holds it), out of
+    /// the doorway; with the gallery dug, the same layer hands it out to the
+    /// gallery even though the chamber is nearer. Every layer in the cut
+    /// that `cut` sends to the gallery, `deep` sends there too.
+    #[test]
+    fn deep_lays_in_the_cut_only_while_nothing_dug_is_in_reach() {
+        let clear = creature::DOOR_CLEAR_CELLS as i32;
+        let deep = EggBar { mode: EggDoor::Deep, clear };
+        let whole = EggBar { mode: EggDoor::Cut, clear };
+        let (w, def, cut) = cut_bed(false);
+        let block = def.brood.clone().expect("brood");
+        let head = (cut.chamber_x1, cut.chamber_bottom);
+        let site = pile_site(&w, head, &def, &block, EGG_PILE_REACH, deep).expect("deep: held an egg with the chamber free");
+        assert!(cut.in_chamber(site.0, site.1) && !creature::in_doorway(&w, site, clear), "deep: laid at {site:?}, not the chamber floor");
+        let (w, def, cut) = cut_bed(true);
+        let site = pile_site(&w, head, &def, &block, EGG_PILE_REACH, deep).expect("deep: no site with the gallery dug");
+        assert!(!cut.contains(site.0, site.1), "deep: laid in the cut at {site:?} with the gallery in reach");
+        for head in (40..=47).flat_map(|y| (56..=65).map(move |x| (x, y))).filter(|&(x, y)| cut.contains(x, y)) {
+            let c = pile_site(&w, head, &def, &block, EGG_PILE_REACH, whole);
+            let d = pile_site(&w, head, &def, &block, EGG_PILE_REACH, deep);
+            assert!(!d.is_some_and(|p| creature::in_doorway(&w, p, clear)), "deep: a layer at {head:?} put its egg in the way in at {d:?}");
+            if c.is_some() {
+                assert!(!d.is_some_and(|(x, y)| cut.contains(x, y)), "deep: a layer at {head:?} laid in the cut at {d:?}, cut found {c:?}");
+            }
+        }
+    }
+
+    /// `PIXEL_PHYSICS_BROOD_CARRY`'s value.
+    #[test]
+    fn brood_carry_parses_off_on_and_a_reach() {
+        assert_eq!(parse_brood_carry(""), 0);
+        assert_eq!(parse_brood_carry("off"), 0);
+        assert_eq!(parse_brood_carry("on"), BROOD_CARRY_REACH);
+        assert_eq!(parse_brood_carry("5"), 5);
+        assert!(std::panic::catch_unwind(|| parse_brood_carry("yes")).is_err(), "a mistyped switch must not fail open");
+    }
+
+    /// Lay one egg from `parent` onto `cell`, as the brood pile would.
+    fn lay_at(w: &mut World, parent: OrganismId, def: &CreatureDef, cell: (i32, i32)) -> OrganismId {
+        let block = def.brood.clone().expect("brood");
+        let st = w.organism(parent).expect("parent");
+        let egg = Egg { species: st.species, genome: st.genome.clone(), traits: st.traits, generation: st.generation + 1, lineage: st.lineage, colony: st.colony, made: 0.0, fates: st.fates };
+        let head = st.chain[0];
+        let site = lay_egg(w, parent, head, def, &block, egg, Some(cell)).expect("laid");
+        assert_eq!((site.x, site.y), cell);
+        w.get(cell.0, cell.1).organism_id()
+    }
+
+    /// **A lone larva is carried to the pile** ([`carry`]): with a nestmate
+    /// beside it and brood lying three cells off, it ends next to that
+    /// brood; a second carry from there moves nothing (it is no better
+    /// placed anywhere in reach); and with carrying off, or with nobody
+    /// beside it, it stays where it was laid.
+    #[test]
+    fn a_lone_larva_is_carried_to_the_pile_and_stays_there() {
+        let (mut w, ant, def) = bed(true);
+        let block = def.brood.clone().expect("brood");
+        let material = w.materials.id_of(&block.material).expect("brood material");
+        let head = w.organism(ant).expect("live").chain[0];
+        let start = (head.0 + 1, head.1);
+        assert!(w.is_empty(start.0, start.1), "test setup: the cell beside the head is taken");
+        let egg = lay_at(&mut w, ant, &def, start);
+        // The pile: two brood cells on the floor, three and four cells on.
+        for dx in [4, 5] {
+            w.set(start.0 + dx - 1, start.1, Cell::new(material, 0));
+        }
+        let touching = |w: &World, (px, py): (i32, i32)| creature::DIRS.iter().filter(|&&(dx, dy)| w.get(px + dx, py + dy).material == material).count();
+        assert_eq!(touching(&w, start), 0, "test setup: the egg already touches the pile");
+        assert_eq!(carry(&mut w, egg, start, material, &def, 0, EggDoor::Off), start, "a reach of 0 moved it");
+        let moved = carry(&mut w, egg, start, material, &def, BROOD_CARRY_REACH, EggDoor::Off);
+        assert_ne!(moved, start, "a nestmate beside a lone egg did not carry it to the pile");
+        assert_eq!(w.get(moved.0, moved.1).organism_id(), egg, "the egg's cell did not move with it");
+        assert!(w.is_empty(start.0, start.1), "the egg was copied, not moved");
+        assert!(touching(&w, moved) > 0, "the egg landed at {moved:?}, touching no brood");
+        assert_eq!(w.creature_stats.brood_carried, 1);
+        // Settled: nowhere in reach is strictly better, so it stays.
+        assert_eq!(carry(&mut w, egg, moved, material, &def, BROOD_CARRY_REACH, EggDoor::Off), moved, "a settled egg was carried again");
+        assert_eq!(w.creature_stats.brood_carried, 1);
+        // Nobody beside it: the ant leaves, and a lone egg laid far off stays.
+        let far = (start.0 - 30, start.1);
+        let lone = lay_at(&mut w, ant, &def, far);
+        assert_eq!(carry(&mut w, lone, far, material, &def, BROOD_CARRY_REACH, EggDoor::Off), far, "an egg with no nestmate beside it moved");
+    }
+
+    /// **Brood in the doorway is carried out of it** ([`carry`] under the
+    /// egg bar): an egg at the foot of the shaft, a nestmate standing under
+    /// it in the chamber, is carried onto the chamber's floor -- out of the
+    /// way in, still at home; under `cut`, out of the founding cut to the
+    /// gallery, and held where it is when no such home is in reach; under
+    /// `deep`, onto the chamber floor at a short reach, and on to the
+    /// gallery once it is in reach. With the bar off it stays, which is the
+    /// positive control: nothing else in the scene would move it.
+    #[test]
+    fn brood_in_the_doorway_is_carried_out_of_it() {
+        for (door, should_move) in [(EggDoor::Off, false), (EggDoor::Door, true), (EggDoor::Cut, true), (EggDoor::Deep, true)] {
+            let (mut w, def, cut) = cut_bed(true);
+            let block = def.brood.clone().expect("brood");
+            let material = w.materials.id_of(&block.material).expect("brood material");
+            w.plant_ant(61, 46);
+            let ant = w.get(61, 46).organism_id();
+            assert_ne!(ant, 0, "test setup: no ant in the chamber");
+            let start = (61, 45);
+            assert!(w.is_empty(start.0, start.1), "test setup: the shaft's foot is taken");
+            let egg = lay_at(&mut w, ant, &def, start);
+            let clear = creature::DOOR_CLEAR_CELLS as i32;
+            assert!(creature::in_doorway(&w, start, clear), "test setup: the egg is not in the doorway");
+            // Under `cut` the nearest home it may lie in is the gallery, five
+            // steps off, so this arm carries further.
+            let reach = if door == EggDoor::Cut { 6 } else { BROOD_CARRY_REACH };
+            if door == EggDoor::Cut {
+                assert_eq!(carry(&mut w, egg, start, material, &def, BROOD_CARRY_REACH, door), start, "cut: carried with no allowed home in reach");
+            }
+            let moved = carry(&mut w, egg, start, material, &def, reach, door);
+            if door == EggDoor::Deep {
+                // The gallery is out of a short carry, so out of the doorway
+                // onto the chamber floor, the only home in reach.
+                assert!(cut.in_chamber(moved.0, moved.1), "deep: carried to {moved:?}, not the chamber");
+                // An egg at the chamber's east end, a nestmate over it: the
+                // gallery is now in reach, and outside the cut wins.
+                let (mut w, def, cut) = cut_bed(true);
+                w.plant_ant(65, 46);
+                let ant = w.get(65, 46).organism_id();
+                assert_ne!(ant, 0, "test setup: no ant at the chamber's end");
+                let at = (64, 47);
+                let egg = lay_at(&mut w, ant, &def, at);
+                assert!(cut.in_chamber(at.0, at.1), "test setup: the egg is not in the chamber");
+                let next = carry(&mut w, egg, at, material, &def, BROOD_CARRY_REACH, door);
+                assert!(!cut.contains(next.0, next.1) && next.1 == 47, "deep: from {at:?} carried to {next:?}, not out to the gallery");
+                assert_eq!(carry(&mut w, egg, next, material, &def, BROOD_CARRY_REACH, door), next, "deep: carried again once out of the cut");
+                // The same egg under `door` stays: the chamber is home and
+                // not barred, and nothing in reach touches more brood.
+                let (mut w, def, _) = cut_bed(true);
+                w.plant_ant(65, 46);
+                let ant = w.get(65, 46).organism_id();
+                let egg = lay_at(&mut w, ant, &def, at);
+                assert_eq!(carry(&mut w, egg, at, material, &def, BROOD_CARRY_REACH, EggDoor::Door), at, "door: control moved the egg");
+            }
+            if !should_move {
+                assert_eq!(moved, start, "{door:?}: nothing should move an egg that touches no brood");
+                continue;
+            }
+            assert!(!creature::in_doorway(&w, moved, clear), "{door:?}: carried to {moved:?}, still in the doorway");
+            assert!(creature::home_at(&w, moved.0, moved.1, &def), "{door:?}: carried out of home to {moved:?}");
+            if door == EggDoor::Cut {
+                assert!(!cut.contains(moved.0, moved.1), "cut: carried to {moved:?}, still in the founding cut");
+                assert!(moved.1 == 47 && moved.0 > cut.chamber_x1, "cut: carried to {moved:?}, not the gallery");
+            }
+        }
     }
 
     /// **Whether to lay is the brain's call** (`BrainOutput::Lay`). A rich
