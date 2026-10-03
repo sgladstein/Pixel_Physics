@@ -471,8 +471,9 @@ impl Activity {
     /// cutaway's green, so the same thing is the same colour across the
     /// lab's views; out is a dull slate, empty-handed, and kept off the
     /// animals line's blue and the brood line's cream, which both draw over
-    /// these bands.
-    fn colour(self) -> [u8; 4] {
+    /// these bands. Shared with the pinned ant's trip strip (`lab::trips`),
+    /// so one key reads for both.
+    pub fn colour(self) -> [u8; 4] {
         match self {
             Activity::Home => [170, 120, 205, 255],
             Activity::Out => [104, 116, 138, 255],

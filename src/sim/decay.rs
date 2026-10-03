@@ -86,7 +86,12 @@ fn decay_yield_override() -> Option<f32> {
 /// fruit can still be eaten and can still germinate (`plant.rs`), it only
 /// stops weathering into soil. Hand-placed food that never rots is a
 /// separate material (`provisions`), not this switch.
-fn windfall_rots() -> bool {
+///
+/// **Live since 2026-10-03**: the env var only sets `World::windfall_rots`'
+/// starting value, and the lab's BOX page (`FALLEN FRUIT`) flips the field
+/// mid-run. The reschedule-not-drop rule above is what makes that safe in
+/// both directions.
+pub fn windfall_rots_default() -> bool {
     static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *ON.get_or_init(|| !matches!(std::env::var("PIXEL_PHYSICS_WINDFALL_ROT").as_deref(), Ok("off")))
 }
@@ -136,7 +141,7 @@ pub fn tick(world: &mut World, site: &ActiveSite) -> Vec<ActiveSite> {
     let (Some(into), reseed_chance) = (here.decays_into, here.reseed_chance) else {
         return Vec::new();
     };
-    if !windfall_rots() && world.materials.id_of("windfall").is_some_and(|id| id == cell.material) {
+    if !world.windfall_rots && world.materials.id_of("windfall").is_some_and(|id| id == cell.material) {
         return vec![ActiveSite { x, y, kind: ActiveKind::Decay, next_frame: world.organism_due(DECAY_TICK_INTERVAL) }];
     }
 

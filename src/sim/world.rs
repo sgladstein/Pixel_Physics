@@ -5464,6 +5464,11 @@ pub struct World {
     /// Defaults **on**, so the engine and every existing test are unchanged;
     /// the lab box turns it off, which is where the owner asked for it off.
     pub plant_bending: bool,
+    /// **Whether natural windfall rots into soil** -- read by
+    /// `decay::tick`, which reschedules a windfall site without rolling when
+    /// this is false. Starts at `decay::windfall_rots_default()` (true unless
+    /// `PIXEL_PHYSICS_WINDFALL_ROT=off`); the lab's BOX page flips it live.
+    pub windfall_rots: bool,
     /// **Whether a big plant ticks less often than a seedling.**
     ///
     /// `step_organisms` costs almost exactly its cells (measured flat at
@@ -6632,6 +6637,7 @@ impl World {
             plant_load_failure: true,
             soil_capillary_levels: false,
             plant_bending: true,
+            windfall_rots: crate::sim::decay::windfall_rots_default(),
             plant_size_cadence: false,
             plant_defence: super::organism::plant_defence_on(),
             held: false,
@@ -10480,6 +10486,17 @@ impl World {
         }
     }
 
+    /// Ask the next sweep to revisit `(x, y)` without writing anything --
+    /// see `Chunk::keep_awake`.
+    pub fn keep_awake(&mut self, x: i32, y: i32) {
+        if !self.in_bounds(x, y) {
+            return;
+        }
+        if let Some(chunk) = self.chunks.get_mut(&ChunkCoord::containing(x, y)) {
+            chunk.keep_awake(x, y);
+        }
+    }
+
     /// Clear a cell's undercut flag once the sweep has visited it. Quiet for
     /// the same reason `clear_moved` above is.
     pub fn clear_undercut(&mut self, x: i32, y: i32) {
@@ -11809,6 +11826,11 @@ impl CellSurface for World {
     }
 
     #[inline]
+    fn keep_awake(&mut self, x: i32, y: i32) {
+        World::keep_awake(self, x, y)
+    }
+
+    #[inline]
     fn materials(&self) -> &MaterialRegistry {
         &self.materials
     }
@@ -12139,6 +12161,14 @@ impl CellSurface for MoistureView<'_> {
             self.chunk.set_world_quiet(x, y, cell);
         } else {
             self.world.clear_undercut(x, y);
+        }
+    }
+
+    fn keep_awake(&mut self, x: i32, y: i32) {
+        if self.inner.contains(x, y) {
+            self.chunk.keep_awake(x, y);
+        } else {
+            self.world.keep_awake(x, y);
         }
     }
 

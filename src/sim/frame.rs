@@ -469,5 +469,13 @@ mod tests {
     /// could only be taken from `frame::step` itself. It still pins the
     /// second failure the test names -- a phase added to one loop and not
     /// the other -- but it is a regression pin now, not a cross-check.
-    const PRE_EXTRACTION_HASH: u64 = 6_411_500_948_612_927_299;
+    ///
+    /// **Re-taken 2026-10-03 for per-row sweep spans on by default**
+    /// (`chunk.rs`'s `row_spans_enabled`), the first case again: the sweep
+    /// visits fewer cells, so the per-chunk RNG stream it draws from shifts.
+    /// Attribution is clean: with `PIXEL_PHYSICS_SWEEP=box` and every other
+    /// edit on that branch in place this scene reproduces the previous value
+    /// `6_411_500_948_612_927_299` exactly. Stable across
+    /// `RAYON_NUM_THREADS` 1 and 4.
+    const PRE_EXTRACTION_HASH: u64 = 13_887_491_428_553_764_888;
 }
