@@ -5388,7 +5388,7 @@ pub(super) fn mutate_newborn(world: &mut World, child: OrganismId, def: &Creatur
         }
     }
     if strongest_pct == 0 && synapses_moved > 0 {
-        born_with = (14u16 << 8) | synapses_moved.min(255) as u16;
+        born_with = (organism::BORN_WITH_SYNAPSES << 8) | synapses_moved.min(255) as u16;
     }
     if let Some(state) = world.organism_mut(child) {
         state.born_with = born_with;
@@ -17014,6 +17014,28 @@ const HOME_GAIN: f32 = 1.0;
 /// one pressed into a dead end is following the passage within a few dozen.
 const PATIENCE_DECAY: f32 = 0.9;
 
+/// **This animal's factor on one of the walk's gains** -- a slot of
+/// `organism::WALK_SLOTS`, on the reciprocal axis (`ratio_factor`): `+1` is
+/// twice the shipped constant, `-1` half it, and `0` exactly `1.0`, so an
+/// ant at the ancestral allele walks bit-for-bit as before the slot existed
+/// (`walk_genes_at_zero_are_exactly_the_constants`).
+///
+/// Read in `chooser_step` only. The non-chooser walk (`step_chain` and the
+/// tumble) has no directional gain constants to replace: its heading is the
+/// brain's, already heritable.
+pub fn walk_gain(traits: &[f32; CREATURE_TRAITS], slot: usize) -> f32 {
+    1.0 / ratio_factor(traits[slot]).max(f32::EPSILON)
+}
+
+/// **This animal's patience decay**, `PATIENCE_DECAY` with its leak
+/// (`1 - decay`) scaled by `organism::TRAIT_PATIENCE` on the reciprocal axis:
+/// `+1` halves the leak (twice as many fruitless steps before it gives up),
+/// `-1` doubles it. Both subtractions are exact in f32 at the allele 0, so
+/// the ancestral value is `PATIENCE_DECAY` to the bit.
+fn patience_decay_of(traits: &[f32; CREATURE_TRAITS]) -> f32 {
+    1.0 - (1.0 - PATIENCE_DECAY) * ratio_factor(traits[organism::TRAIT_PATIENCE])
+}
+
 /// **How fast it comes back, per step that does** -- full again within four
 /// steps of closing on home.
 const PATIENCE_RECOVER: f32 = 0.25;
@@ -18691,7 +18713,14 @@ fn chooser_step(
     let persist = brain::unit_scale(outputs[brain::BrainOutput::Persist as usize], PERSIST_MAX);
     let turn = outputs[brain::BrainOutput::Turn as usize];
     let k = CHOICE_EXPLORATION_K * brain::unit_scale(outputs[brain::BrainOutput::Tumble as usize], 2.0);
-    let gain = pull.map_or(0.0, |(_, g)| HOME_GAIN * g * patience);
+    // **The walk's gains, as this ant inherited them** (`organism::
+    // WALK_SLOTS`): each a factor of exactly 1.0 at the ancestral allele.
+    let walk = traits_of(world, organism, def);
+    let home_gain = HOME_GAIN * walk_gain(&walk, organism::TRAIT_HOME_PULL);
+    let trail_gain = TRAIL_GAIN * walk_gain(&walk, organism::TRAIT_TRAIL_HOLD);
+    let away_gain = AWAY_GAIN * walk_gain(&walk, organism::TRAIT_ROUTE_AWAY);
+    let decay = patience_decay_of(&walk);
+    let gain = pull.map_or(0.0, |(_, g)| home_gain * g * patience);
     // A packed lunch is not a load (`carries_lunch`): its carrier scouts
     // outward and reads the outbound trail, as an empty ant does.
     let laden = world.organism(organism).is_some_and(|s| s.crop.is_some_and(|c| c.worth() > 0.0) && !carries_lunch(world, s));
@@ -18713,7 +18742,7 @@ fn chooser_step(
     let mut drove = false;
     let scout_w = match away_from {
         Some(_) => {
-            let g = scout_of(world);
+            let g = scout_of(world) * walk_gain(&walk, organism::TRAIT_SCOUT);
             if g > 0.0 {
                 // Under the throttle (`outward_want`) an ant near its door
                 // feels the colony's want in place of its hunger.
@@ -18774,7 +18803,7 @@ fn chooser_step(
     // The `!is_nest_bound` gate the design listed is not taken: the drive is
     // already 0 for a fed nest-bound ant, so it excluded only hungry ones.
     let door = if reads_trail && !laden && pull.is_none() && !scout_home && food_trail_of(world).read {
-        door_read(world, organism, def, (hx, hy))
+        door_read(world, organism, def, (hx, hy)).map(|(side, f)| (side, f * walk_gain(&walk, organism::TRAIT_DOOR_READ)))
     } else {
         None
     };
@@ -18805,7 +18834,7 @@ fn chooser_step(
     // the pile under `lay` and 12 of 30 when every give-up was spent, and on
     // the two-pile bed 41 founders starved by frame 6,000 against 19.
     let spent = scout_home && scout_dark && scout_w > 0.0 && food_trail_of(world).giveup;
-    let hold = |d: u8| if spent { 1.0 } else { 1.0 + TRAIL_GAIN * route(d) };
+    let hold = |d: u8| if spent { 1.0 } else { 1.0 + trail_gain * route(d) };
     // **Level, not radial**: the home cosine of the heading's sideways part
     // alone, so a heading straight up or down scores 0. Radial, an ant above
     // home level is drawn upward, and on the colony bed that drove scouts 91
@@ -18829,7 +18858,7 @@ fn chooser_step(
         persist * TURN_PREF[rel.min(8 - rel) as usize] * hold(d)
             + side
             + home_cos(d).map_or(0.0, |c| gain * c)
-            + if spent { 0.0 } else { away_home_cos(d).map_or(0.0, |c| -AWAY_GAIN * route(d) * c) }
+            + if spent { 0.0 } else { away_home_cos(d).map_or(0.0, |c| -away_gain * route(d) * c) }
             + if scout_w <= 0.0 {
                 0.0
             } else if spent {
@@ -18950,7 +18979,7 @@ fn chooser_step(
             state.scout_best = level;
             state.scout_patience = (state.scout_patience + PATIENCE_RECOVER).min(1.0);
         } else {
-            state.scout_patience *= PATIENCE_DECAY;
+            state.scout_patience *= decay;
             if state.scout_patience < SCOUT_GIVE_UP {
                 state.scout_home = true;
                 state.scout_dark = bound && !on_trail;
@@ -18970,7 +18999,7 @@ fn chooser_step(
             state.home_away = 0;
             state.home_patience = (state.home_patience + PATIENCE_RECOVER).min(1.0);
         } else {
-            state.home_patience *= PATIENCE_DECAY;
+            state.home_patience *= decay;
             let (bx, by) = state.home_best_at;
             let away = (nx - bx).abs().max((ny - by).abs()).clamp(0, u16::MAX as i32) as u16;
             state.home_away = state.home_away.max(away);
@@ -23454,6 +23483,35 @@ mod tests {
     /// binary, so no test could ever exercise an armed world beside one
     /// asserting the default. `World::room_target` is the precedent -- read
     /// from the environment once at construction, then a value you can set.
+    /// **The walk genes at their ancestral allele are the constants to the
+    /// bit** -- the whole of why adding them moved no bed. And the positive
+    /// control: one step off 0 moves every one of them, so a gene that reads
+    /// the wrong slot or none fails here rather than drifting silently.
+    #[test]
+    fn walk_genes_at_zero_are_exactly_the_constants() {
+        let zero = [0.0f32; CREATURE_TRAITS];
+        for slot in organism::WALK_SLOTS {
+            assert_eq!(walk_gain(&zero, slot).to_bits(), 1.0f32.to_bits(), "walk gene {slot} at 0 is not exactly 1.0");
+        }
+        assert_eq!(patience_decay_of(&zero).to_bits(), PATIENCE_DECAY.to_bits(), "patience at allele 0 is not PATIENCE_DECAY to the bit");
+        for slot in organism::WALK_SLOTS {
+            let mut up = zero;
+            up[slot] = 1.0;
+            let mut down = zero;
+            down[slot] = -1.0;
+            if slot == organism::TRAIT_PATIENCE {
+                assert!((patience_decay_of(&up) - 0.95).abs() < 1e-6, "+1 patience halves the leak");
+                assert!((patience_decay_of(&down) - 0.8).abs() < 1e-6, "-1 patience doubles it");
+            } else {
+                assert_eq!(walk_gain(&up, slot), 2.0, "walk gene {slot} at +1 is twice the constant");
+                assert_eq!(walk_gain(&down, slot), 0.5, "walk gene {slot} at -1 is half the constant");
+            }
+            for other in organism::WALK_SLOTS.into_iter().filter(|&o| o != slot && o != organism::TRAIT_PATIENCE) {
+                assert_eq!(walk_gain(&up, other), 1.0, "moving gene {slot} moved gene {other}");
+            }
+        }
+    }
+
     #[test]
     fn the_stacking_cap_defaults_to_the_shipped_cap() {
         let w = World::new(Rect::new(0, 0, 63, 63));

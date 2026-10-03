@@ -82,6 +82,11 @@ pub enum Group {
     /// drifted to. The gap between the two is the whole readout — a page
     /// called something else would hide that they are the same nine numbers.
     Genome,
+    /// **Where an ant goes** -- the six walk genes (`organism::WALK_SLOTS`),
+    /// split off `Genome` because the six rows took it over
+    /// `no_page_is_longer_than_two_screens`' ceiling. Same knobs as the
+    /// genome rows (ancestral values, saved to the species file).
+    Walk,
     /// **Everything an ant pays for** — its own page for the reason
     /// `Heredity` has one: the ants page was mixing *what an animal is* with
     /// *what it costs to be one*, and those are two different questions.
@@ -103,7 +108,7 @@ pub enum Group {
 
 /// In tab order. One list, so the tab strip, the key and the tests cannot
 /// disagree about what pages exist — `ui::TOOLS`' reason.
-pub const GROUPS: [Group; 7] = [Group::Ground, Group::Plant, Group::Heredity, Group::Ants, Group::Genome, Group::Costs, Group::Box];
+pub const GROUPS: [Group; 8] = [Group::Ground, Group::Plant, Group::Heredity, Group::Ants, Group::Genome, Group::Walk, Group::Costs, Group::Box];
 
 impl Group {
     pub fn label(self) -> &'static str {
@@ -112,6 +117,7 @@ impl Group {
             Group::Plant => "PLANT",
             Group::Ants => "ANTS",
             Group::Genome => "GENOME",
+            Group::Walk => "WALK",
             Group::Costs => "COSTS",
             Group::Box => "BOX",
             Group::Heredity => "HEREDITY",
@@ -125,6 +131,7 @@ impl Group {
             Group::Plant => "THE PLANT THE SPECIES CHIP ON THE BAR HAS ARMED. THESE ARE THE SPECIES' OWN NUMBERS, NOT ONE INDIVIDUAL'S -- MOVING ONE CHANGES EVERY PLANT OF THAT SPECIES ALREADY STANDING, ON THE NEXT TICK, AS WELL AS EVERY SEED YOU PLANT AFTERWARDS.",
             Group::Ants => "THE COLONY SPECIES. SAME RULE AS THE PLANT PAGE: THESE ARE THE SPECIES' NUMBERS AND THEY REACH EVERY ANT ALIVE. AN INDIVIDUAL'S OWN INHERITED TRAITS ARE ON THE CELL PAGE -- CLICK AN ANT WITH THE LOOK TOOL.",
             Group::Genome => "WHAT A LINEAGE INHERITS. THESE ARE THE ANCESTRAL VALUES A NEWBORN STARTS FROM, NOT WHAT ANY ANT ALIVE HAS -- CLICK ONE WITH THE LOOK TOOL AND THE SAME NINE NUMBERS ARE UNDER ITS OWN GENOME HEADING. THE GAP BETWEEN THE TWO IS HOW FAR THAT LINEAGE HAS DRIFTED, AND IT IS THE WHOLE POINT OF THE BOX. EVERY ONE OF THEM IS PAID FOR ON THE COSTS PAGE, WHICH IS WHAT STOPS A LINEAGE TAKING ALL OF EVERYTHING.",
+            Group::Walk => "WHERE AN ANT GOES, AS NUMBERS IT INHERITS: HOW HARD A LOADED ANT LEANS FOR HOME, HOW FAITHFULLY IT FOLLOWS A TRAIL, HOW HARD IT SCOUTS, HOW LONG IT KEEPS AT A LEG THAT IS GETTING IT NOWHERE. THESE WERE FIXED IN THE CODE AND ARE NOW GENES. 0 IS THE SHIPPED WALK EXACTLY, AND THEY DO NOT DRIFT YET -- THEIR MUTATION WIDTH IS 0 UNTIL A MEASUREMENT SAYS LETTING THEM DRIFT IS SAFE.",
             Group::Costs => "EVERYTHING AN ANT PAYS FOR, IN ONE PLACE. AN ANIMAL DIES OF EXACTLY TWO THINGS IN THIS WORLD -- RUNNING OUT OF ENERGY, OR BEING EATEN -- SO THIS PAGE IS ONE OF THE TWO WAYS ANYTHING HERE CAN EVER MATTER. A CAPABILITY THAT COSTS NOTHING CANNOT BE SELECTED AGAINST, WHICH IS WHY EVERY ONE OF THEM NOW HAS A LINE HERE: TURN ONE TO ZERO AND THAT PART OF AN ANT BECOMES FREE, AND THE COLONY WILL TAKE AS MUCH OF IT AS IT CAN GET.",
             Group::Box => "THE BED AND THE LAMPS OVER IT. THE LAMP IS LIVE. EVERYTHING ELSE HERE IS THE SPEC THE BOX IS BUILT FROM, SO IT TAKES EFFECT WHEN YOU REBUILD -- CHANGE IT, THEN PRESS REBUILD.",
             Group::Heredity => "HOW BREEDING BEHAVES, FOR EVERY PLANT IN THE BOX AT ONCE -- NOT ONE SPECIES' NUMBERS. THIS IS THE PAGE THE LAB IS ACTUALLY FOR. EVERYTHING HERE IS FELT AT THE NEXT SEED RATHER THAN THE NEXT TICK, SO GIVE IT A GENERATION BEFORE DECIDING IT DID NOTHING, AND NONE OF IT IS SAVED TO A SPECIES FILE -- IT LASTS THE SESSION.",
@@ -917,6 +924,18 @@ pub(crate) const TRAIT_ROWS: &[(usize, &str, &str)] = &[
         "THE THIRD SCENT NUMBER. THE DISTANCE BETWEEN TWO ANIMALS IS THE STRAIGHT-LINE DISTANCE ACROSS ALL THREE, SO TWO ANIMALS A WHOLE STEP APART ON EVERY NUMBER ARE 1.73 APART."),
     (organism::TRAIT_TOLERANCE, "tolerance",
         "HOW FAR ANOTHER ANIMAL'S SCENT MAY BE FROM MINE AND STILL COUNT AS FAMILY: -1 IS AN EXACT MATCH ONLY, SO EVERY OTHER COLONY IS A STRANGER (THIS IS WHAT COLONY RIVALRY USED TO BE); 0 IS ONE UNIT OF SCENT; +1 IS TWO. IT IS JUDGED FROM MY SIDE ONLY -- A TOLERANT ANT KEEPS WALKING UP TO AN INTOLERANT ONE THAT WILL BITE IT. HERITABLE, AND WHILE EVERY SCENT IN THE BOX IS THE SAME POINT IT CHANGES NOTHING."),
+    (organism::TRAIT_HOME_PULL, "home_pull",
+        "HOW HARD AN ANT CARRYING FOOD LEANS TOWARD HOME AT EACH STEP: +1 IS TWICE THE SHIPPED PULL AND -1 HALF IT. ONE OF SIX WALK GENES -- THE NUMBERS THAT DECIDE WHERE AN ANT GOES WERE ONCE FIXED IN THE CODE AND ARE NOW INHERITED. THEY DO NOT DRIFT YET: EVERY ANT STARTS AT 0, WHICH IS EXACTLY THE OLD WALK."),
+    (organism::TRAIT_TRAIL_HOLD, "trail_hold",
+        "HOW HARD A TRAIL UNDER ITS FEET KEEPS AN ANT GOING THE WAY IT IS GOING: +1 IS TWICE THE SHIPPED HOLD AND -1 HALF IT. HIGH IS A FAITHFUL FOLLOWER; LOW IS AN ANT THAT WANDERS OFF A ROAD."),
+    (organism::TRAIT_ROUTE_AWAY, "route_away",
+        "HOW HARD AN EMPTY ANT ON A TRAIL LEANS AWAY FROM HOME, WHICH IS HOW IT KNOWS WHICH WAY ALONG A ROAD THE FOOD IS: +1 IS TWICE THE SHIPPED LEAN AND -1 HALF IT."),
+    (organism::TRAIT_SCOUT, "scout",
+        "HOW HARD A HUNGRY EMPTY ANT OFF ANY TRAIL STRIKES OUT AWAY FROM HOME TO LOOK FOR FOOD: +1 IS TWICE THE SHIPPED SCOUTING AND -1 HALF IT."),
+    (organism::TRAIT_PATIENCE, "patience",
+        "HOW LONG AN ANT KEEPS AT A LEG THAT IS GETTING IT NOWHERE -- HOME THROUGH ROUGH GROUND, OR OUT ON A SEARCH -- BEFORE IT GIVES UP OR TRIES ANOTHER WAY: +1 IS TWICE AS MANY FRUITLESS STEPS AND -1 HALF AS MANY."),
+    (organism::TRAIT_DOOR_READ, "door_read",
+        "HOW HARD AN EMPTY ANT AT THE DOOR TURNS TOWARD THE SIDE THE RETURNING FORAGERS' TRAIL COMES IN ON: +1 IS TWICE THE SHIPPED TURN AND -1 HALF IT."),
 ];
 
 /// **What a lineage inherits.** Split off `ant_rows` when unlocking the four
@@ -956,7 +975,8 @@ fn genome_rows(world: &World, species: &str, out: &mut Vec<Param>) {
                 // and at the shipped reach of 1 this is the `span(-1.0, 1.0,
                 // 0.05)` that was written here, digit for digit.
                 let r = creature::allele_bound(*slot, world.trait_reach).max(1.0);
-                out.push(float(g, Knob::CreatureTrait { species: sp.clone(), slot: *slot }, species, name,
+                let page = if organism::WALK_SLOTS.contains(slot) { Group::Walk } else { g };
+                out.push(float(page, Knob::CreatureTrait { species: sp.clone(), slot: *slot }, species, name,
                     def.traits[*slot], span(-r, r, 0.05), note));
             }
             // **The reach, under the ten rows it governs.** Two of them --
