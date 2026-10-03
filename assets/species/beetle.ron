@@ -356,53 +356,5 @@
             // the owner. Full sweep in
             // `Reports/creature-sight-sense-2026-08-30.md`.
         ],
-        // **Back off from a gang** (owner's pick "Both", 2026-10-03). On
-        // main 98c5f60c six beetles beside a lab colony died out on 12 of
-        // 12 seeds by a median of 28k frames, killed by ants (median 11 a
-        // box) far more than by hunger or age, and a cheaper breeding bar
-        // only stretched that to 39k. So the beetle stops biting and walks
-        // off a random way when it is crowded -- `Crowding` away from a
-        // nest is creature cells in the 5x5 round the head over 8, so one
-        // two-celled ant reads ~0.25 and two read ~0.5.
-        //
-        // **And when it is bitten.** Crowding alone moved little: 12 seeds,
-        // beetles gone at a median 43k frames against 28k, still 12 of 12
-        // extinct, ants killing ~10 a box either way. Traced per death
-        // (`beetle_duel trace=1`, 4 ants): every beetle died touching ONE
-        // ant, crowd 0.12-0.25, already worn to 1-3 of its 4 cells, still
-        // feeding -- the ants take turns, so a gang never stands round it
-        // at once. What it did read at death was `Alarm` 0.94-1.00, the
-        // cry `cry_alarm` lays on a bitten cell. So `Alarm` feeds the same
-        // gate at half the crowding weight: a full alarm alone trips it.
-        // Duel, natural energies, beetles killed of 12: 4 ants 8 -> 3,
-        // 8 ants 8 -> 9 (both against the crowd-only gate).
-        //
-        // Unit 0 is the detector, `squash(40 * Crowding + 20 * Alarm - 16)`; unit 1
-        // is that unit's floor, `squash(-16)`, subtracted so the pair reads
-        // ~0 below the bar (0.08 of full at one ant) and ~1.7 above it.
-        // Plain synapses, so every weight here mutates like any other: a
-        // lineage that does better standing its ground can evolve it out.
-        // Field record: ground beetles (*Pterostichus magus*, 57 females
-        // against three red wood ants) split consistently by individual --
-        // bold ones fight, shy ones run, freeze or shake the ants off
-        // (Reznikova & Iakovlev, Behaviour 2015, "Encounters with enemies
-        // uncover personality in ground beetles"). So the retreat is a
-        // heritable lean, not a law, which is why it is synapses.
-        hidden_wiring: [
-            (Bias,     0, -16.0),
-            (Crowding, 0,  40.0),
-            (Alarm,    0,  20.0),
-            (Bias,     1, -16.0),
-        ],
-        hidden_outputs: [
-            (0, Feed,   -3.0),
-            (1, Feed,    3.0),
-            (0, Dig,    -3.0),
-            (1, Dig,     3.0),
-            (0, Move,    3.0),
-            (1, Move,   -3.0),
-            (0, Tumble,  2.0),
-            (1, Tumble, -2.0),
-        ],
     )),
 )
