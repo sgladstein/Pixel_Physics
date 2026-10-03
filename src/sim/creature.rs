@@ -12972,9 +12972,9 @@ pub fn food_door_of(world: &World) -> bool {
     world.food_door.unwrap_or_else(|| {
         static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
         *V.get_or_init(|| match std::env::var("PIXEL_PHYSICS_FOOD_DOOR").as_deref() {
-            Ok("clear") => true,
+            Ok("clear") | Ok("room") => true,
             Ok("off") | Err(_) => false,
-            Ok(other) => panic!("PIXEL_PHYSICS_FOOD_DOOR={other:?}: use clear or off"),
+            Ok(other) => panic!("PIXEL_PHYSICS_FOOD_DOOR={other:?}: use clear, room or off"),
         })
     })
 }
@@ -12990,7 +12990,11 @@ fn in_doorway(world: &World, (x, y): (i32, i32)) -> bool {
     // TEMP sweep knob (not for commit): PIXEL_PHYSICS_DOORWAY_MARGIN.
     static M: std::sync::OnceLock<i32> = std::sync::OnceLock::new();
     let m = *M.get_or_init(|| std::env::var("PIXEL_PHYSICS_DOORWAY_MARGIN").ok().and_then(|v| v.parse().ok()).unwrap_or(DOORWAY_MARGIN));
-    world.nest_sites.iter().filter_map(|s| s.shaft).any(|c| (c.x0 - m..=c.x1 + m).contains(&x) && (c.top - m..=c.bottom).contains(&y))
+    // TEMP arm (not for commit): FOOD_DOOR=room keeps food out of the
+    // founding room at the shaft's foot as well.
+    static ROOM: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    let room = *ROOM.get_or_init(|| std::env::var("PIXEL_PHYSICS_FOOD_DOOR").as_deref() == Ok("room"));
+    world.nest_sites.iter().filter_map(|s| s.shaft).any(|c| ((c.x0 - m..=c.x1 + m).contains(&x) && (c.top - m..=c.bottom).contains(&y)) || (room && c.contains(x, y)))
 }
 
 fn food_drop_site(world: &World, x: i32, y: i32, through_bodies: bool) -> Option<((i32, i32), u8)> {
