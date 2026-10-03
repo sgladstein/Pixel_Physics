@@ -4886,7 +4886,8 @@ pub fn home_ring(world: &World, organism: OrganismId, radius: i32) -> Option<Hom
     ring.lay_bar = birth_bar(threshold, cost, def, super::brood::brood_of(world, def).as_ref());
     ring.suppressed_bar = suppress_bar(breeding_regime(), breeding_radius(), world, organism, state.colony, (hx, hy), ring.lay_bar).0;
     let reach = super::brood::egg_pile_reach();
-    ring.pile = reach > 0 && super::brood::brood_of(world, def).is_some_and(|b| super::brood::pile_site(world, (hx, hy), def, &b, reach).is_some());
+    let bar = super::brood::EggBar::of(world, organism);
+    ring.pile = reach > 0 && super::brood::brood_of(world, def).is_some_and(|b| super::brood::pile_site(world, (hx, hy), def, &b, reach, bar).is_some());
     ring.target = home_target(world, state);
     ring.target_d = (ring.target.0 - hx).abs().max((ring.target.1 - hy).abs());
     Some(ring)
@@ -5083,7 +5084,7 @@ pub(super) fn try_bud(
     let nest_gate = !from_store && bud_at_nest(world) && world.materials.id_of(&def.nest).is_some();
     let pile_reach = if laying.is_some() { super::brood::egg_pile_reach() } else { 0 };
     let pile = match laying.as_ref().filter(|_| nest_gate && pile_reach > 0) {
-        Some(brood) => match super::brood::pile_site(world, (hx, hy), def, brood, pile_reach) {
+        Some(brood) => match super::brood::pile_site(world, (hx, hy), def, brood, pile_reach, super::brood::EggBar::of(world, organism)) {
             Some(cell) => Some(cell),
             None => {
                 world.creature_stats.buds_held_for_nest += 1;
@@ -13521,20 +13522,24 @@ pub const DOOR_CLEAR_CELLS: f32 = 6.0;
 /// reciprocal axis ([`walk_gain`]): twice it at `+1`, half at `-1`, exactly
 /// it at 0.
 fn door_clear_of(world: &World, organism: OrganismId) -> Option<i32> {
-    if !food_door_of(world) {
-        return None;
-    }
+    food_door_of(world).then(|| door_clear_cells(world, organism))
+}
+
+/// [`door_clear_of`] whether or not the food rule is on: the same allele,
+/// read for an egg as for a load (`brood::EggBar`), so one gene says how far
+/// round the door this ant keeps the way in clear of anything it puts down.
+pub(super) fn door_clear_cells(world: &World, organism: OrganismId) -> i32 {
     let allele = world.organism(organism).map_or(0.0, |st| {
         expressed_traits(st, world.plasticity, world.trait_reach)[organism::TRAIT_DOOR_CLEAR]
     });
-    Some((DOOR_CLEAR_CELLS / ratio_factor(allele)).round() as i32)
+    (DOOR_CLEAR_CELLS / ratio_factor(allele)).round() as i32
 }
 
 /// **Is `(x, y)` a nest's way in**, for [`food_door_of`]: within `clear`
 /// columns either side of a founding shaft, from `clear` rows over its
 /// mouth down to its foot. The shaft itself is inside at any `clear`; the
 /// chamber under its foot and a side room are not.
-fn in_doorway(world: &World, (x, y): (i32, i32), clear: i32) -> bool {
+pub(super) fn in_doorway(world: &World, (x, y): (i32, i32), clear: i32) -> bool {
     world
         .nest_sites
         .iter()
