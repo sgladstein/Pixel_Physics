@@ -171,11 +171,10 @@ fn parse_egg_pile(raw: &str) -> i32 {
 /// food can all be placed together in that chamber and dig another area
 /// and brood can all be placed together in that chamber").
 ///
-/// - `off`: anywhere, the rule before 2026-10-03.
-/// - `door` (**the default** since 2026-10-03): not in a nest's way in --
-///   the shaft and the ground round its mouth, the same cells a food drop
-///   keeps clear (`creature::in_doorway`), at the layer's own
-///   `TRAIT_DOOR_CLEAR`.
+/// - `off` (**the default**): anywhere at home, the rule before 2026-10-03.
+/// - `door`: not in a nest's way in -- the shaft and the ground round its
+///   mouth, the same cells a food drop keeps clear (`creature::in_doorway`),
+///   at the layer's own `TRAIT_DOOR_CLEAR`.
 /// - `cut`: not in the way in, and nowhere in the founding cut -- shaft,
 ///   chamber (the storeroom, where the food goes) and side room. Brood then
 ///   lies only in ground the colony dug itself, and with none dug in reach
@@ -207,7 +206,17 @@ fn parse_egg_pile(raw: &str) -> i32 {
 /// nest): births 76 shipped, `door` 88 (more on 8 of 12), `deep` 77, `cut`
 /// **18** (fewer on 10) with 4 of 12 boxes alive at the end against 11 --
 /// the lab colony has almost nothing dug beyond the cut, so `cut` mostly
-/// means no egg. `door` is the one mode worse nowhere, so it ships on.
+/// means no egg. `door` was the one mode worse nowhere.
+///
+/// **Then ants learned to walk through brood** (`creature::PushPast`, on
+/// since 2026-10-03), and the jam this was built for went away without it:
+/// on the same test bed the shipped rule grew to 3,139 ants and dug 1,811
+/// cells by 40k (6 seeds). `door` on top **slowed early growth on every
+/// seed** -- ants at 12k 733 -> 258, births 703 -> 222, 6 of 6 -- and was
+/// still behind at 40k (2,862 ants; lower on 3 of 6, digs lower on 4). In
+/// the lab (4 seeds, 150k) births went 40 -> 51 median (more on 3 of 4), ants
+/// at the end lower on 2, higher on 1. So all three modes ship off, kept as
+/// switches for when brood has a reason not to be walked through.
 ///
 /// Unknown values panic (a mistyped switch must not fail open).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -225,8 +234,8 @@ pub fn egg_door() -> EggDoor {
 
 fn parse_egg_door(raw: &str) -> EggDoor {
     match raw.trim() {
-        "off" => EggDoor::Off,
-        "" | "door" => EggDoor::Door,
+        "" | "off" => EggDoor::Off,
+        "door" => EggDoor::Door,
         "cut" => EggDoor::Cut,
         "deep" => EggDoor::Deep,
         other => panic!("PIXEL_PHYSICS_EGG_DOOR={other:?}: use off, door, cut or deep"),
@@ -1202,7 +1211,7 @@ mod tests {
     /// `PIXEL_PHYSICS_EGG_DOOR`'s value.
     #[test]
     fn egg_door_parses_its_modes() {
-        assert_eq!(parse_egg_door(""), EggDoor::Door, "the default is the doorway rule");
+        assert_eq!(parse_egg_door(""), EggDoor::Off, "the default is laying anywhere at home");
         assert_eq!(parse_egg_door("off"), EggDoor::Off);
         assert_eq!(parse_egg_door("door"), EggDoor::Door);
         assert_eq!(parse_egg_door(" cut "), EggDoor::Cut);
