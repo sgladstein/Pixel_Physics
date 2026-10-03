@@ -200,7 +200,11 @@ ant's expressed `TRAIT_PACE` and by its body's leg fraction. A founder decides
   hangs in the air. A fall counts as a move and lays trail.
 - **Enterable cell** (`cell_is_enterable`): empty, its own body, or living
   plant tissue (`is_partable`: leaf, wood, grass, reed, moss and fruit are
-  walk-through while alive; `TISSUE_PARTING` on). A nestmate is
+  walk-through while alive; `TISSUE_PARTING` on), and, under
+  `PIXEL_PHYSICS_PUSH_PAST`, loose `crumbs` and brood cells, parted the same
+  way (`PushPast`; neither is on by default). A brood cell an ant stands on is
+  out of the grid, so `brood_tick` asks `held_brood_at` before booking it lost
+  and waits a larva tick instead, changing nothing. A nestmate is
   enterable up to the stack cap, 4 by default since 2026-09-30
   (`PIXEL_PHYSICS_STACK_DEPTH`; at 1 it is not). Parted tissue is
   held by the ant standing in it and closes when the cell is left empty; when
@@ -1159,6 +1163,7 @@ Read once per process from the environment. The default is what ships.
 | `PIXEL_PHYSICS_SPOIL_CUE` | `on` (K 5, floor 0) | `off`: no heap cue, the ant before 2026-09-28; `K[,floor]` sets the dials. The cue: a dig that would open the ground to the sky, from the surface or from a tunnel breaking out, goes ahead only in proportion to the pellets beside its target (§5 step 6); `World::spoil_cue` for one world |
 | `PIXEL_PHYSICS_NEST_SHAFT` | 6 | `off` (or `0`): founding paints only and digs nothing, the ant before 2026-09-28; `<rows>`: a deeper or shallower founding shaft (§8); `_NEST_SHAFT_WIDTH=<cells>` its width (2); `World::nest_shaft` for one world |
 | `CROSS_TRUNK`, `TISSUE_PARTING` | on | `0` |
+| `PIXEL_PHYSICS_PUSH_PAST` | off | `crumbs`, `brood`, or `crumbs,brood`: bodies part loose crumbs, brood, or both, as they part foliage; the cell comes back exactly as it was when the body leaves (§2; `World::push_past` for one world) |
 | `PIXEL_PHYSICS_DIGEST` | continuous | `lump`: pays out per whole cell |
 | `PIXEL_PHYSICS_LOAD_BY` | joules | `cells`: a load weighs the cells in the crop, not its worth ÷ 480 (§9) |
 | `PIXEL_PHYSICS_NEST_DOOR` | 2 | `off`: founding paints the strip of up to 53 columns and every founder's home is its spawn cell, the ant before 2026-09-29; `<d>`: a door of `2d + 1` columns, every founder's home the door (§8); a value it cannot read is read as unset; `World::nest_door` for one world |
