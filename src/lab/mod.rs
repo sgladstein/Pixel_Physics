@@ -1916,6 +1916,7 @@ impl Lab {
             stats: self.stats.showing(),
             help: self.show_help,
             tool: self.ui.tool(),
+            place: self.ui.place(),
             species: &species,
             species_note: &species_note,
             brush: self.ui.brush(),
@@ -2090,8 +2091,14 @@ impl Lab {
                     Some(id) => (id, 0),
                     None => return,
                 },
+                // **`provisions`, not `windfall`, since 2026-10-03**: the
+                // same food with no `decays_into`, so what a player puts in
+                // stays until something eats it (owner: *"it shouldn't
+                // degrade or disappear at all"*). See its `.ron` for why it
+                // is a material and not a flag on this brush.
+                //
                 // **`aux` 0, and here that is not a convention call.**
-                // `windfall` does not set `worth_in_aux`, so
+                // `provisions` does not set `worth_in_aux`, so
                 // `creature::food_value` reads its `food_energy` (960) off the
                 // material whatever the cell carries — there is no stamp to
                 // write and no second pass to make. Painting it at anything
@@ -2102,7 +2109,7 @@ impl Lab {
                 // `_` arm paints soil, so a new brush that forgot to declare
                 // itself would silently lay down ground instead of food and
                 // look, on screen, like a tool that simply missed.
-                ui::Tool::Food => match self.world.materials.id_of("windfall") {
+                ui::Tool::Food => match self.world.materials.id_of("provisions") {
                     Some(id) => (id, 0),
                     None => return,
                 },
@@ -2764,6 +2771,19 @@ impl Lab {
             ui::Action::Tool(tool) => {
                 self.ui.set_tool(tool);
                 self.ui.say(format!("TOOL {}", self.ui.tool().label()));
+            }
+            // **The bar's `ADD` cell (`B`)**: everything a player puts in
+            // by hand behind one button, stepping on each press. Says what is
+            // next, so the cycle can be learned from the notice alone.
+            ui::Action::Place => {
+                let armed = self.ui.next_place();
+                let i = ui::PLACEABLE.iter().position(|t| *t == armed).unwrap_or(0);
+                let next = ui::PLACEABLE[(i + 1) % ui::PLACEABLE.len()].label();
+                self.ui.say(if armed == ui::Tool::Scent {
+                    format!("ADD SCENT -- LAYING {} -- B AGAIN FOR {next}", scent_channel_label(self.ui.scent_channel()))
+                } else {
+                    format!("ADD {} -- B AGAIN FOR {next}", armed.label())
+                });
             }
             // **The chip cycles whichever kingdom the armed tool stocks.** A
             // stocking tool is armed, so `.` walks the animals and arms
@@ -3685,8 +3705,8 @@ const HELP: [&str; 30] = [
     "SPACE      STOP / RUN THE BOX",
     "UP DOWN    SPEED     1-7  PRESET",
     "",
-    "Z X C V B N  LOOK PLANT COLONY",
-    "             CULL SOIL WATER",
+    "Z X C V B  LOOK PLANT COLONY CULL ADD",
+    "B AGAIN    SOIL WATER FOOD WALL LAMP SCENT",
     "M ,          KEEP THIS ONE / PLACE A JAR",
     "CLICK      USE THE ARMED TOOL",
     "RIGHT      ERASE",
@@ -3697,14 +3717,14 @@ const HELP: [&str; 30] = [
     "P          PARAMETERS -- THE NUMBERS",
     "G          THE SHELF -- KEPT GENETICS",
     "; \x27        DRIFT A RELEASE, IN BROODS",
-    "K E I J Q U  WALL FOOD SCENT ALARM FLING LAMP",
+    "N E K U I  WATER FOOD WALL LAMP SCENT",
+    "J Q        ALARM FLING",
     "8 RAIN    9 SAVE CHRONICLE    T ON AN EVENT",
     "F1 F2 F3 F4 F5  PLANTS ANTS BOX RACK HISTORY",
     "F6 MENU    TAB STATS",
     "SHIFT+1..5   SWITCH CHAMBER    ALL   THE WHOLE RACK",
     "F RATE   WASD PAN   - = ZOOM   R REBUILD",
     "?          THIS PAGE",
-    "",
     "",
 ];
 
@@ -6201,7 +6221,7 @@ mod tests {
         use crate::sim::creature;
         let mut lab = bench();
         let (x, y) = (lab.spec.width / 2, lab.spec.ground_y - 30);
-        let windfall = lab.world.materials.id_of("windfall").expect("windfall is compiled in");
+        let provisions = lab.world.materials.id_of("provisions").expect("provisions is compiled in");
 
         // The whole bed's standing food value, before and after. A census
         // rather than one cell, so a brush that wrote a single cell and a
@@ -6225,8 +6245,8 @@ mod tests {
         lab.release(at.0, at.1);
 
         let cell = lab.world.get(x, y);
-        assert_eq!(cell.material, windfall, "the food brush laid down something that is not windfall");
-        // The value is read off the material rather than a stamp -- windfall
+        assert_eq!(cell.material, provisions, "the food brush laid down something that is not provisions");
+        // The value is read off the material rather than a stamp -- provisions
         // does not set `worth_in_aux` -- so a cell painted at any `aux` is
         // worth the same, and that is the number a forager sees.
         assert!(
@@ -6243,6 +6263,78 @@ mod tests {
         lab.press_erase(at.0, at.1);
         lab.end_stroke();
         assert_eq!(lab.world.get(x, y).material, crate::sim::material::EMPTY, "the eraser left the food");
+    }
+
+    /// **Food a player puts in never rots; the windfall a plant drops still
+    /// does.** Owner, 2026-10-03: hand-placed food *"shouldn't degrade or
+    /// disappear at all"*. Both materials side by side in one damp trough --
+    /// `decay.rs`'s own litter test bed, because an open puddle drains before
+    /// the moisture field registers it -- each cell with a decay site
+    /// scheduled, so the only thing that can keep `provisions` standing is
+    /// its own data. **The windfall half is the positive control**: if it
+    /// does not rot either, the bed is dry and this proves nothing.
+    #[test]
+    fn hand_placed_food_never_rots_but_windfall_still_does() {
+        use crate::sim::chunk::Rect;
+        use crate::sim::scheduler::{self, ActiveKind, ActiveSite};
+        use crate::sim::cell::Cell;
+        use crate::sim::{decay, field, material};
+        let mut w = World::new(Rect::new(0, 0, 199, 199));
+        let windfall = w.materials.id_of("windfall").expect("windfall");
+        let provisions = w.materials.id_of("provisions").expect("provisions");
+        assert_eq!(w.materials.get(provisions).food_energy, w.materials.get(windfall).food_energy, "provisions must feed like windfall");
+        const LEFT: i32 = 10;
+        const RIGHT: i32 = 190;
+        for x in LEFT..RIGHT {
+            let m = if x % 2 == 0 { windfall } else { provisions };
+            w.set(x, 100, Cell::new(m, 0));
+            w.schedule_active_site(ActiveSite { x, y: 100, kind: ActiveKind::Decay, next_frame: decay::DECAY_TICK_INTERVAL });
+        }
+        w.set(LEFT - 1, 99, Cell::new(material::STONE, 0));
+        w.set(RIGHT, 99, Cell::new(material::STONE, 0));
+        for x in (LEFT + 2)..(RIGHT - 2) {
+            w.set(x, 99, Cell::new(material::WATER, 0));
+        }
+        let count = |w: &World, id| (LEFT..RIGHT).filter(|x| w.get(*x, 100).material == id).count();
+        let half = ((RIGHT - LEFT) / 2) as usize;
+        for _ in 0..20_000 {
+            w.begin_step();
+            field::step(&mut w);
+            scheduler::step(&mut w);
+            w.end_step();
+        }
+        assert!(count(&w, windfall) < half / 2, "windfall barely rotted ({} of {half} left) -- the bed is not damp, so this test proves nothing", count(&w, windfall));
+        assert_eq!(count(&w, provisions), half, "hand-placed food rotted away");
+    }
+
+    /// **And the colony eats it.** Food that never rots is only half the
+    /// ask: an ant decides what is food from the material's `food_energy`
+    /// and `food_class`, never its name, so `provisions` has to carry
+    /// windfall's -- and this is the behavioural check that it does. A heap
+    /// beside the founding nest, run until the colony has had time to find
+    /// it. Nothing else removes `provisions` (it does not rot, and nothing
+    /// erases it here), so any cell gone was eaten.
+    #[test]
+    fn a_colony_eats_hand_placed_food() {
+        let mut lab = Lab::new(scene::LabBox { founders: 0, ..scene::LabBox::default() });
+        let provisions = lab.world.materials.id_of("provisions").expect("provisions");
+        let site = lab.world.nest_sites.first().copied().expect("the default box founds one colony");
+        let count = |lab: &Lab| {
+            let mut n = 0;
+            for y in 0..lab.spec.height {
+                for x in 0..lab.spec.width {
+                    n += (lab.world.get(x, y).material == provisions) as usize;
+                }
+            }
+            n
+        };
+        let at = (site.x + 12, site.surface - 3);
+        lab.world.paint_capsule_as(at, at, 2, provisions, 1.0);
+        let placed = count(&lab);
+        assert!(placed > 5, "the heap did not paint: {placed} cells");
+        run(&mut lab, 6_000);
+        let left = count(&lab);
+        assert!(left < placed, "the colony ate none of the {placed} cells of food beside its nest");
     }
 
     /// A drag lays down one continuous band, not a dab at each end.
