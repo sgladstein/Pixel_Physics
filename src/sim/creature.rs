@@ -4826,6 +4826,10 @@ pub struct HomeRing {
     /// Whether the brood pile would take an egg from here
     /// ([`super::brood::pile_site`] at the live reach).
     pub pile: bool,
+    /// Where the animal's walk home is aimed ([`home_target`]), and its
+    /// Chebyshev distance from the head.
+    pub target: (i32, i32),
+    pub target_d: i32,
 }
 
 pub fn home_ring(world: &World, organism: OrganismId, radius: i32) -> Option<HomeRing> {
@@ -4835,7 +4839,7 @@ pub fn home_ring(world: &World, organism: OrganismId, radius: i32) -> Option<Hom
     let (hx, hy) = *state.chain.first()?;
     let kind = |c: Cell| world.materials.get(c.material).kind;
     let other_animal = |c: Cell| kind(c) == MaterialKind::Creature && c.organism_id() != organism;
-    let mut ring = HomeRing { home_d: -1, home_free: 0, home_ants: 0, near_free: 0, near_ants: 0, nbr_ants: 0, egg_room: 0, lay_bar: 0.0, suppressed_bar: 0.0, pile: false };
+    let mut ring = HomeRing { home_d: -1, home_free: 0, home_ants: 0, near_free: 0, near_ants: 0, nbr_ants: 0, egg_room: 0, lay_bar: 0.0, suppressed_bar: 0.0, pile: false, target: (0, 0), target_d: 0 };
     let mut cells: Vec<(i32, bool)> = Vec::new();
     for dy in -radius..=radius {
         for dx in -radius..=radius {
@@ -4874,6 +4878,8 @@ pub fn home_ring(world: &World, organism: OrganismId, radius: i32) -> Option<Hom
     ring.suppressed_bar = suppress_bar(breeding_regime(), breeding_radius(), world, organism, state.colony, (hx, hy), ring.lay_bar).0;
     let reach = super::brood::egg_pile_reach();
     ring.pile = reach > 0 && super::brood::brood_of(world, def).is_some_and(|b| super::brood::pile_site(world, (hx, hy), def, &b, reach).is_some());
+    ring.target = home_target(world, state);
+    ring.target_d = (ring.target.0 - hx).abs().max((ring.target.1 - hy).abs());
     Some(ring)
 }
 

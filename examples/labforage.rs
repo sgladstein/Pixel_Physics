@@ -1328,7 +1328,7 @@ fn main() {
     let mut budtrace = arg::<String>("budtrace").map(|p| {
         use std::io::Write;
         let mut w = std::io::BufWriter::new(std::fs::File::create(&p).expect("create budtrace file"));
-        writeln!(w, "frame,id,x,y,bank,reachable,bar,at_nest,nest_d,crop,generation,children,child_lines,lay_bar,home_d,home_free,home_ants,near_free,near_ants,nbr_ants,supp_bar,egg_room,pile").expect("write budtrace header");
+        writeln!(w, "frame,id,x,y,bank,reachable,bar,at_nest,nest_d,crop,generation,children,child_lines,lay_bar,home_d,home_free,home_ants,near_free,near_ants,nbr_ants,supp_bar,egg_room,pile,tx,ty,target_d,target_cell").expect("write budtrace header");
         w
     });
     // **`lifetrace=FILE`: every animal, every `lifetrace_every=` frames
@@ -2115,7 +2115,7 @@ fn main() {
                     let h = pixel_physics::sim::creature::home_ring(&world, id, 12).expect("a nest species");
                     writeln!(
                         out,
-                        "{f},{id},{hx},{hy},{:.1},{:.1},{:.1},{},{nest_d},{crop:.1},{},{},{lines},{:.1},{},{},{},{},{},{},{:.1},{},{}",
+                        "{f},{id},{hx},{hy},{:.1},{:.1},{:.1},{},{nest_d},{crop:.1},{},{},{lines},{:.1},{},{},{},{},{},{},{:.1},{},{},{},{},{},{}",
                         r.bank,
                         r.reachable,
                         r.bar,
@@ -2131,7 +2131,19 @@ fn main() {
                         h.nbr_ants,
                         h.suppressed_bar,
                         h.egg_room,
-                        u8::from(h.pile)
+                        u8::from(h.pile),
+                        h.target.0,
+                        h.target.1,
+                        h.target_d,
+                        {
+                            // What stands in the cell the walk home is aimed at.
+                            let c = world.get(h.target.0, h.target.1);
+                            if c.organism_id() != 0 {
+                                format!("animal:{}", world.materials.get(c.material).name)
+                            } else {
+                                world.materials.get(c.material).name.clone()
+                            }
+                        }
                     )
                     .expect("write budtrace");
                 }
@@ -2497,7 +2509,7 @@ fn main() {
         spec.seed, spec.founders, spec.colonies, last.plants, last.windfall, world.fruit_dropped, last.edible, last.unvisited, last.floor, last.aloft,
         st.eats, st.births, st.deaths, last.ants, l.harvested_plant + l.harvested_corpse, burn, st.shares, st.shared_j, st.moves,
         st.deliveries, st.pickups_at_nest, st.nest_visits,
-        std::env::var("PIXEL_PHYSICS_BREEDING").unwrap_or_else(|_| "individual".to_string()),
+        std::env::var("PIXEL_PHYSICS_BREEDING").unwrap_or_else(|_| "graded".to_string()),
         // Where an animal may bud (`creature::bud_at_nest`), and how many buds
         // the nest rule held back: the "did it fire" counter for that arm.
         if pixel_physics::sim::creature::bud_at_nest(&world) { "nest" } else { "anywhere" },
