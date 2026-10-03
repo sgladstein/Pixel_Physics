@@ -5296,6 +5296,8 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
         );
         // `PIXEL_PHYSICS_HOME_REAIM`'s "it fired" half (`creature::home_reaim`).
         println!("    REAIM walks home re-aimed off a blocked anchor {}", cs.home_reaims);
+        // `BrainOutput::Lay`'s "it fired" half: births an ant could afford and its brain held.
+        println!("    LAY births held by the brain {}", cs.lays_declined);
         // **Where the colony's energy went, by verb** (2026-09-28): the
         // ledger's three sinks, with digging, trail-laying and exposure split
         // out of `metabolized`, so a question like "does building the nest

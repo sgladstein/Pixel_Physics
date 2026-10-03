@@ -2585,6 +2585,13 @@ pub struct CreatureStats {
     /// nearest open cell at home. 0 unless `PIXEL_PHYSICS_HOME_REAIM` is set
     /// (off by default).
     pub home_reaims: u64,
+    /// **Ticks an animal could afford a child and its brain held it**
+    /// (`BrainOutput::Lay` below `brain::LAY_HOLD_BELOW`, in
+    /// `creature::try_bud`). Exactly 0 for any genome with no `Lay` weight,
+    /// which is every authored species, so a non-zero count is a lineage
+    /// that has evolved a hold -- the "did it fire at all" for laying as a
+    /// decision.
+    pub lays_declined: u64,
     /// **Ticks a birth was held by the food brake alone**
     /// (`creature::food_brake_factor`): the animal cleared its bar under the
     /// breeding regime and not after the brake raised it. 0 with the brake off.

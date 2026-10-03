@@ -653,7 +653,7 @@ mod tests {
         let block = def.brood.clone().expect("brood");
         let g0 = gap(&w);
         let animals = w.live_creature_count();
-        let site = creature::try_bud(&mut w, ant, &def, 0.0).expect("a rich ant lays");
+        let site = creature::try_bud(&mut w, ant, &def, 0.0, 0.0).expect("a rich ant lays");
         assert_eq!(w.creature_stats.eggs_laid, 1);
         assert_eq!(w.creature_stats.births, 0, "an egg is not a birth; births count adults that appeared");
         assert!((w.organism(ant).expect("parent lives").energy - (1_500.0 - block.egg_cost)).abs() < 1e-3, "the layer pays egg_cost, not an adult's price");
@@ -719,7 +719,7 @@ mod tests {
         let (mut w, ant, def) = bed(true);
         let block = def.brood.clone().expect("brood");
         let g0 = gap(&w);
-        let site = creature::try_bud(&mut w, ant, &def, 0.0).expect("lays");
+        let site = creature::try_bud(&mut w, ant, &def, 0.0, 0.0).expect("lays");
         let egg = the_egg(&w);
         w.frame = block.egg_frames;
         let sites = brood_tick(&mut w, &site);
@@ -742,7 +742,7 @@ mod tests {
     fn a_larva_that_starves_holding_energy_leaves_a_corpse_worth_it() {
         let (mut w, ant, def) = bed(true);
         let block = def.brood.clone().expect("brood");
-        let site = creature::try_bud(&mut w, ant, &def, 0.0).expect("lays");
+        let site = creature::try_bud(&mut w, ant, &def, 0.0, 0.0).expect("lays");
         let egg = the_egg(&w);
         w.frame = block.egg_frames;
         let sites = brood_tick(&mut w, &site);
@@ -762,7 +762,7 @@ mod tests {
     #[test]
     fn with_brood_off_the_ant_buds_a_whole_adult() {
         let (mut w, ant, def) = bed(false);
-        let site = creature::try_bud(&mut w, ant, &def, 0.0).expect("a rich ant buds");
+        let site = creature::try_bud(&mut w, ant, &def, 0.0, 0.0).expect("a rich ant buds");
         assert_eq!(w.creature_stats.births, 1);
         assert_eq!(w.creature_stats.eggs_laid, 0);
         assert!(w.live_brood_ids().is_empty());
@@ -776,7 +776,7 @@ mod tests {
     fn a_larva_is_needy_against_its_target_and_an_egg_is_not_fed() {
         let (mut w, ant, def) = bed(true);
         let block = def.brood.clone().expect("brood");
-        let site = creature::try_bud(&mut w, ant, &def, 0.0).expect("lays");
+        let site = creature::try_bud(&mut w, ant, &def, 0.0, 0.0).expect("lays");
         let egg = the_egg(&w);
         assert_eq!(creature::kin_deficit(&w, egg, def.start_energy), None, "an egg is not fed");
         w.frame = block.egg_frames;
@@ -796,7 +796,7 @@ mod tests {
     fn a_destroyed_egg_is_lost_with_the_books_closed() {
         let (mut w, ant, def) = bed(true);
         let g0 = gap(&w);
-        let site = creature::try_bud(&mut w, ant, &def, 0.0).expect("lays");
+        let site = creature::try_bud(&mut w, ant, &def, 0.0, 0.0).expect("lays");
         let egg = the_egg(&w);
         w.set(site.x, site.y, Cell::EMPTY);
         let sites = brood_tick(&mut w, &site);
@@ -828,7 +828,7 @@ mod tests {
         assert!(!creature::home_at(&w, head.0, head.1, &def), "test setup: the ant already stands at home");
         let block = def.brood.clone().expect("brood");
         assert!(pile_site(&w, head, &def, &block, 0).is_none(), "a reach of 0 must find nothing");
-        let site = creature::try_bud(&mut w, ant, &def, 0.0).expect("an ant four steps from home lays");
+        let site = creature::try_bud(&mut w, ant, &def, 0.0, 0.0).expect("an ant four steps from home lays");
         assert_eq!(w.creature_stats.eggs_laid, 1);
         assert!(creature::home_at(&w, site.x, site.y, &def), "the egg landed off home at {:?}", (site.x, site.y));
         assert!((site.x - head.0).abs().max((site.y - head.1).abs()) <= EGG_PILE_REACH);
@@ -839,7 +839,7 @@ mod tests {
     #[test]
     fn home_out_of_reach_holds_the_egg() {
         let (mut w, ant, def, _) = nest_bed(112);
-        assert!(creature::try_bud(&mut w, ant, &def, 0.0).is_none(), "laid with home eleven cells away");
+        assert!(creature::try_bud(&mut w, ant, &def, 0.0, 0.0).is_none(), "laid with home eleven cells away");
         assert_eq!(w.creature_stats.eggs_laid, 0);
         assert_eq!(w.creature_stats.buds_held_for_nest, 1);
     }
@@ -854,7 +854,7 @@ mod tests {
         }
         let block = def.brood.clone().expect("brood");
         assert!(pile_site(&w, head, &def, &block, EGG_PILE_REACH).is_none(), "the walk went through stone");
-        assert!(creature::try_bud(&mut w, ant, &def, 0.0).is_none());
+        assert!(creature::try_bud(&mut w, ant, &def, 0.0, 0.0).is_none());
     }
 
     /// **Brood already at home draws the next egg to it** -- the pile -- even
@@ -881,5 +881,46 @@ mod tests {
         assert_eq!(parse_egg_pile("6"), 6);
         assert_eq!(parse_egg_pile("-2"), EGG_PILE_REACH);
         assert_eq!(parse_egg_pile("wide"), EGG_PILE_REACH);
+    }
+
+    /// **Whether to lay is the brain's call** (`BrainOutput::Lay`). A rich
+    /// ant whose `Lay` reads below `LAY_HOLD_BELOW` keeps its egg and its
+    /// joules, and the hold is counted; the same ant just above the hold
+    /// lays. And the authored ant's own `Lay` is exactly 0.0 whatever it
+    /// senses, which is why generation zero lays exactly as it did before
+    /// the output existed. Put the fault back by dropping the gate in
+    /// `try_bud` and the first assertion goes red.
+    #[test]
+    fn a_brain_that_holds_its_egg_keeps_it() {
+        use crate::sim::brain;
+        let (mut w, ant, def) = bed(true);
+        let e0 = w.organism(ant).expect("alive").energy;
+        assert!(
+            creature::try_bud(&mut w, ant, &def, 0.0, brain::LAY_HOLD_BELOW - 0.01).is_none(),
+            "laid against a hold"
+        );
+        assert_eq!(w.creature_stats.lays_declined, 1);
+        assert_eq!(w.creature_stats.eggs_laid, 0);
+        assert_eq!(w.organism(ant).expect("alive").energy, e0, "a held egg cost the ant something");
+        assert!(
+            creature::try_bud(&mut w, ant, &def, 0.0, brain::LAY_HOLD_BELOW + 0.01).is_some(),
+            "a Lay just above the hold did not lay"
+        );
+        assert_eq!((w.creature_stats.lays_declined, w.creature_stats.eggs_laid), (1, 1));
+
+        let genome = w.organism(ant).expect("alive").genome.clone();
+        assert!(
+            !brain::output_row_wired(&genome, brain::BrainOutput::Lay),
+            "ant.ron wires Lay, so generation zero no longer lays as it did"
+        );
+        for fill in [0.0f32, 1.0, -1.0, 0.5] {
+            let mut hidden = [0.3f32; brain::BRAIN_HIDDEN];
+            let (out, _) = brain::eval_brain(&genome, &[fill; brain::BRAIN_INPUTS], &mut hidden);
+            assert_eq!(
+                out[brain::BrainOutput::Lay as usize],
+                0.0,
+                "an unwired Lay read non-zero at inputs {fill}"
+            );
+        }
     }
 }

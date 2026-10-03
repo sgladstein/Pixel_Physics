@@ -4944,7 +4944,17 @@ pub fn bud_stack_of(world: &World) -> bool {
 /// scheduling from here would in fact work today — returning the site
 /// keeps the birth path independent of that, and is the same shape
 /// `apply_creature_energy` already uses for the parent's own next tick.
-pub(super) fn try_bud(world: &mut World, organism: OrganismId, def: &CreatureDef, provision: f32) -> Option<ActiveSite> {
+///
+/// `lay` is this tick's `BrainOutput::Lay`: a child the animal can afford is
+/// held while it is below [`brain::LAY_HOLD_BELOW`] (see that output for why
+/// an unwired row lays exactly as before).
+pub(super) fn try_bud(
+    world: &mut World,
+    organism: OrganismId,
+    def: &CreatureDef,
+    provision: f32,
+    lay: f32,
+) -> Option<ActiveSite> {
     if world.births_paused {
         return None;
     }
@@ -5030,6 +5040,16 @@ pub(super) fn try_bud(world: &mut World, organism: OrganismId, def: &CreatureDef
         reachable_provision(world, hx, hy, gut)
     };
     if bank + reachable < bar {
+        return None;
+    }
+    // **Whether to lay is the animal's call** (`BrainOutput::Lay`), asked
+    // only now that it could afford a child, and before any rule about
+    // *where*: a lineage that has learned to hold its egg away from home is
+    // making the nest gate's decision itself. After the affordability check
+    // so the count below means "could have laid and chose not to", the one
+    // number that says whether a line has evolved a hold at all.
+    if lay < brain::LAY_HOLD_BELOW {
+        world.creature_stats.lays_declined += 1;
         return None;
     }
     // **Only at the nest, for a species that has one, when switched on**
@@ -8050,7 +8070,13 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
     // which turns the whole mechanism into a way of converting a doomed
     // animal into a fresh one for free.
     if !sites.is_empty() {
-        if let Some(child) = try_bud(world, organism, def, outputs[brain::BrainOutput::Provision as usize]) {
+        if let Some(child) = try_bud(
+            world,
+            organism,
+            def,
+            outputs[brain::BrainOutput::Provision as usize],
+            outputs[brain::BrainOutput::Lay as usize],
+        ) {
             sites.push(child);
         }
     }
@@ -26018,7 +26044,7 @@ mod tests {
             }
             let before = if rich { 20_000.0 } else { def.start_energy };
             w.organism_mut(a).expect("live").energy = before;
-            let born = try_bud(&mut w, a, &def, 0.0).is_some();
+            let born = try_bud(&mut w, a, &def, 0.0, 0.0).is_some();
             let after = w.organism(a).map_or(0.0, |s| s.energy);
             let left = NEIGH8_TEST.iter().filter(|(dx, dy)| w.get(hx + dx, hy + dy).material == fruit).count();
             assert!(!food || placed > 0, "test setup: no room for fruit around ({hx}, {hy})");
@@ -26045,7 +26071,7 @@ mod tests {
             w.set(x, y, Cell::new(fruit, 0));
         }
         w.organism_mut(a).expect("live").energy = def.start_energy;
-        assert!(try_bud(&mut w, a, &def, 0.0).is_some(), "with the switch on, fruit at the far end of the store did not pay for a birth");
+        assert!(try_bud(&mut w, a, &def, 0.0, 0.0).is_some(), "with the switch on, fruit at the far end of the store did not pay for a birth");
     }
 
     const NEIGH8_TEST: [(i32, i32); 8] = [(-1, -1), (0, -1), (1, -1), (-1, 0), (1, 0), (-1, 1), (0, 1), (1, 1)];
@@ -29133,15 +29159,15 @@ mod tests {
     #[test]
     fn a_walled_in_parent_bears_its_child_onto_a_nestmate_when_stacking_allows() {
         let (mut w, parent, def) = walled_in_parent(4, false);
-        assert!(try_bud(&mut w, parent, &def, 0.0).is_none(), "test setup: the gallery left a child room to stand on the ground");
+        assert!(try_bud(&mut w, parent, &def, 0.0, 0.0).is_none(), "test setup: the gallery left a child room to stand on the ground");
         assert_eq!(w.creature_stats.births_denied_no_space, 1, "test setup: the parent was not refused for want of room");
 
         let (mut w, parent, def) = walled_in_parent(1, true);
-        assert!(try_bud(&mut w, parent, &def, 0.0).is_none(), "a child stood on a nestmate at a stack cap of 1");
+        assert!(try_bud(&mut w, parent, &def, 0.0, 0.0).is_none(), "a child stood on a nestmate at a stack cap of 1");
         assert_eq!(w.creature_stats.births_on_kin, 0);
 
         let (mut w, parent, def) = walled_in_parent(4, true);
-        let site = try_bud(&mut w, parent, &def, 0.0).expect("a walled-in parent with nestmates to stand on was refused");
+        let site = try_bud(&mut w, parent, &def, 0.0, 0.0).expect("a walled-in parent with nestmates to stand on was refused");
         let ActiveKind::Creature { organism: child } = site.kind else { unreachable!() };
         assert_eq!(w.creature_stats.births_on_kin, 1, "the birth was not booked as one on a nestmate");
         assert_eq!(w.creature_stats.births_denied_no_space, 0, "the birth was booked as a refusal as well");
@@ -41486,7 +41512,7 @@ mod tests {
             // their face, or (the funded arm) by less than the spared price.
             let bank = if bank_short_by_spared { bar - (spared + seeds) / 2.0 } else { bar - spared / 2.0 };
             fund(&mut w, parent, bank);
-            let site = try_bud(&mut w, parent, &def, 0.0);
+            let site = try_bud(&mut w, parent, &def, 0.0, 0.0);
             (site.is_some(), w.organism(parent).map(|s| s.energy), bank)
         };
         let (born, energy, bank) = scene(true, true);
