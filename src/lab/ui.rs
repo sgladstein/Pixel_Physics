@@ -401,6 +401,8 @@ pub enum Action {
     CycleFoodOverlay,
     /// The nest cutaway (`F8`) on or off -- `render::Renderer::nest_cutaway`.
     ToggleCutaway,
+    /// The battle view (`F9`) on or off -- `battle::BattleView`.
+    ToggleBattle,
     /// Cycle which colour every animal wears in the box -- see
     /// `render::CreatureColour`. The ANTS page's chart and legend group and
     /// tint by the same mode, through `Ui::set_creature_colour`'s mirror.
@@ -3187,6 +3189,10 @@ pub struct Ui {
     /// nothing to leave shared -- the draw pass holds no state that could
     /// bleed across a chamber switch (see `draw_life_marks`'s doc).
     life_marks: LifeMarks,
+    /// **The battle view** (`F9`): kill marks, territory, scoreboard and
+    /// strength strip, drawn only when two sides are in the box. See
+    /// `battle`'s module doc.
+    pub battle: super::battle::BattleView,
     /// **The other individual**, for `Panel::Compare`.
     ///
     /// Deliberately not a second pin: only one individual is marked in the
@@ -4713,6 +4719,8 @@ impl Ui {
                 "FALSE-COLOUR WHAT LIVING THINGS CARRY: PLANT HEALTH, CELL TYPE, GUT BIAS, FOUNDING LINES AND MORE. EACH CLICK STEPS TO THE NEXT."),
             Row::choice("FOOD ROAD", "F7", Action::CycleFoodOverlay,
                 "WHERE THE ANIMALS WALK AND HAUL FOOD, AND WHERE EACH COLONY'S FOOD COMES FROM. OFF, ROAD, HARVEST, BOTH."),
+            Row::choice("BATTLE VIEW", "F9", Action::ToggleBattle,
+                "WHEN TWO COLONIES OR A COLONY AND A PREDATOR SHARE THE BOX: A CROSS WHERE EACH ANT WAS KILLED (A RED RING IF A PREDATOR DID IT), A BAND ALONG THE TOP IN THE COLOUR OF WHOEVER HOLDS THAT GROUND, AND A SCOREBOARD WITH ANTS ALIVE AND FOOD BROUGHT IN OVER TIME."),
             Row::choice("NEST CUTAWAY", "F8", Action::ToggleCutaway,
                 "SEE THE COLONY UNDERGROUND: TUNNELS PALE, NEST WHITE, EGGS AND YOUNG PINK, FOOD GREEN, THE GROUND DARK. ANTS AND WATER DRAW AS THEMSELVES."),
             Row::choice("REACTION ON EVENT", "T", Action::CycleReaction,
@@ -9698,6 +9706,12 @@ impl Ui {
         // `draw_life_marks`'s own doc for the shapes, the colour rule, and
         // why this reads the world fresh rather than sampling a ring.
         draw_life_marks(frame, world, renderer, self.creature_colour(), self.life_marks);
+        // **The battle view**, over the animals and under every page: it
+        // reads the world fresh each draw and keeps only what it needs to
+        // draw (`battle`'s module doc).
+        self.battle.update(world);
+        self.battle.draw_world(hc, frame, world, renderer, bar_top());
+        self.battle.draw_panel(hc, frame, world, W as i32 - MARGIN, MARGIN + 14);
 
         if self.pinned.is_some() {
             let n = self.watch.len();
