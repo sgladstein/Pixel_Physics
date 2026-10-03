@@ -561,7 +561,39 @@ pub struct KillRecord {
     pub victim_energy: f32,
     pub attacker_species: organism::SpeciesId,
     pub attacker_colony: u32,
+    /// Who the two animals were and what each smelt like at the bite --
+    /// [`KillDetail`]. Default (all zero) where a caller did not supply it.
+    pub detail: KillDetail,
 }
+
+/// **The two individuals behind one [`KillRecord`]**, for tracing a killing
+/// back to the kin test that allowed it rather than to two colony labels.
+///
+/// Added 2026-10-03 for the owner's playtest, where a colony lost 14 of its
+/// 33 dead to "killed by" its own label: a label is a census grouping
+/// (`World::regroup_by_scent`) and the bite is decided pairwise
+/// (`creature::is_living_kin`), so the record has to carry the pair's scents
+/// and tolerances or the two can never be checked against each other.
+/// Read-only: nothing in the simulation consults it.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct KillDetail {
+    /// `KILL_VERB_BITE` (the fight verb) or `KILL_VERB_EAT` (the mouth); 0 when
+    /// unrecorded.
+    pub verb: u8,
+    pub attacker: OrganismId,
+    pub victim: OrganismId,
+    /// Expressed scent and tolerance radius, read before the bite landed for
+    /// the victim and at the bite for the attacker.
+    pub attacker_scent: [f32; 3],
+    pub attacker_radius: f32,
+    pub victim_scent: [f32; 3],
+    pub victim_radius: f32,
+}
+
+/// [`KillDetail::verb`] for a kill by `BrainOutput::Attack`.
+pub const KILL_VERB_BITE: u8 = 1;
+/// [`KillDetail::verb`] for a kill by the mouth -- the victim was eaten.
+pub const KILL_VERB_EAT: u8 = 2;
 
 /// How many killings [`World::kills_log`] keeps before it stops recording.
 ///
@@ -1197,6 +1229,12 @@ pub struct NestSite {
     /// end of the strip facing the food, a median 15 cells east of centre,
     /// and ants starving at home died a median 16 cells west of it.
     pub larder: Option<(f32, f32)>,
+    /// **The colony label of the ant that seeded this site** -- its founders,
+    /// since they are the first to stand on their own patch (`seeded`). 0
+    /// until seeded. Read by `creature::blend_with_nest` to tell an ant's own
+    /// nest (this label or one it split from, `World::descends_from`) from a
+    /// rival's.
+    pub colony: u32,
 }
 
 /// **Where a founding cut went**, as two inclusive rectangles: the shaft,
@@ -2249,6 +2287,11 @@ pub struct CreatureStats {
     /// is also frozen means the ants stopped going home, which is a
     /// different finding and is `open-bugs-handoff.md` §T2.
     pub nest_blends: u64,
+    /// **At-nest exchanges refused at another colony's nest** -- a site
+    /// seeded by a colony this ant does not descend from, whose odour is
+    /// outside the ant's own tolerance radius (`creature::blend_with_nest`'s
+    /// kin gate). Zero with `PIXEL_PHYSICS_NEST_KIN_GATE=off`.
+    pub nest_blends_refused: u64,
     /// **Odour exchanges that rode a trophallaxis contact** — the free
     /// second path, one per executed `BrainOutput::Share`. Never the floor:
     /// `creature::blend_with_nest`'s doc says why.
@@ -8193,7 +8236,24 @@ impl World {
         // the top of a tailings pile home. The founding row is the fixed
         // datum `step_nest_room` already freezes for the same reason.
         let surface = crate::sim::creature::colony_surface(self, x, y).unwrap_or(y);
-        self.nest_sites.push(NestSite { x, y, surface, scent: [0.0; 3], seeded: false, drift_epoch: epoch, shaft: None, larder: None });
+        self.nest_sites.push(NestSite { x, y, surface, scent: [0.0; 3], seeded: false, drift_epoch: epoch, shaft: None, larder: None, colony: 0 });
+    }
+
+    /// **Is `colony` the label `ancestor`, or one minted from it** by
+    /// `regroup_by_scent`, at any depth (`colony_parents`). A label is never
+    /// re-parented, so the walk ends; it is bounded by the list's length too.
+    pub fn descends_from(&self, colony: u32, ancestor: u32) -> bool {
+        let mut c = colony;
+        for _ in 0..=self.colony_parents.len() {
+            if c == ancestor {
+                return true;
+            }
+            match self.colony_parents.iter().find(|(child, _)| *child == c) {
+                Some(&(_, parent)) => c = parent,
+                None => return false,
+            }
+        }
+        false
     }
 
     /// Index of the nest site nearest `(x, y)`, or `None` when the box holds
@@ -8757,6 +8817,12 @@ impl World {
     /// corpse. Plants are never victims here (a bitten leaf does not kill a
     /// tree) and never attackers, so both ids are animals by construction.
     pub fn tally_kill(&mut self, victim: (organism::SpeciesId, u32), attacker: (organism::SpeciesId, u32), victim_energy: f32) {
+        self.tally_kill_detailed(victim, attacker, victim_energy, KillDetail::default());
+    }
+
+    /// [`World::tally_kill`] with the two individuals attached -- what the
+    /// two bite sites in `creature.rs` call. See [`KillDetail`].
+    pub fn tally_kill_detailed(&mut self, victim: (organism::SpeciesId, u32), attacker: (organism::SpeciesId, u32), victim_energy: f32, detail: KillDetail) {
         // **The per-kill record, beside the tally rather than instead of it.**
         // The tally is what every page and every scene reads; this is the
         // attribution a census needs and cannot reconstruct from it.
@@ -8768,6 +8834,7 @@ impl World {
                 victim_energy,
                 attacker_species: attacker.0,
                 attacker_colony: attacker.1,
+                detail,
             });
         } else {
             self.kills_unlogged += 1;
