@@ -4009,6 +4009,8 @@ fn main() {
                         by_stage[0], by_stage[1], by_stage[2], held, st.eggs_laid, st.larvae, st.pupae, st.births, st.larvae_starved, st.brood_lost, st.hatches_denied, st.brood_shared_j, st.brood_nursed_j, st.brood_ate_j, st.brood_upkeep_j, st.brood_corpse_j, st.food_brake_held
                     );
                 }
+                // `PIXEL_PHYSICS_HOME_REAIM`'s "it fired" half (`creature::home_reaim`).
+                println!("REAIM frame={f} walks home re-aimed off a blocked anchor {}", world.creature_stats.home_reaims);
                 // `PIXEL_PHYSICS_DIG_ROOF` and `_DOOR_COLLAR`'s "it fired" halves.
                 println!(
                     "ROOF frame={f} cuts refused under the nest's roof (DIG_ROOF) {}, rim cells packed by the door's collar (DOOR_COLLAR) {}",

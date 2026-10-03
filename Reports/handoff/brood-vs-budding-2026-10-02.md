@@ -3,6 +3,17 @@
 Brood = eggs laid at 120 J, larvae fed by nestmates touching them and by food beside them, egg and pupa stages 500 frames each.
 Budding = today's shipped births. Kin footing (PR 541) on in both.
 
+> **Correction (owner, 2026-10-02; main `d4418bf2`).** The evolution lab
+> (`cargo run --release --bin lab`) is **the main game**; the owner has not
+> worked on the outdoor sandbox or the held world in months. Where this note
+> says "lab box" it means the evolution lab itself; where it says "main game"
+> or "main bed" it means the food box, not the game the owner plays.
+> **PR 550** (merged as `d4418bf2`) made the lab's ants lay anywhere again
+> (`src/lab/scene.rs:843-845`). That is a **revert** of lay-only-at-the-nest in
+> the main game, not a fix, and it also moved the `trailfollow` long runs back
+> to laying anywhere, because they build through `LabBox`. **The top open
+> problem is making laying at the nest work in the evolution lab.**
+
 ## Long runs: colony bed, 20 founders, 192,000 frames, one run per seed
 Each cell: ants alive at the end/fewest ever / fruit cells taken / born / starved.
 
@@ -112,8 +123,8 @@ Reading: in the lab box, births were paid by ants laying out at the food; the ne
 ## Food brake with small colonies exempt (c2214bf4): mixed, stays off
 Long runs, 6 seeds, gap 90: s2, s4, s6 steadier, s3 crashed (0-368 ants, 4 halvings); births held 651-4,098 per run. Gap 200: near neutral, s5 improved (78-317, 0 halvings vs 1-234, 4). Food box: live 333-393 vs off 261-538. No food store forms in any arm.
 
-## Lab box lays anywhere (a8a8ad1b, base 231ab3d1 = main 0738a8ca + branch)
-labforage played_bed 120k, 12 paired seeds, nest-only (LAY_HOME=off logs) -> lab lays anywhere: births median 4 -> 329 (12/12 higher), died out 10 -> 0, alive at end 0 -> 178.5, peak 42 -> 188, starved per million ant-frames 3.8 -> 4.7 (9/12 higher, p 0.15). The lab is back to its pre-546 births. Main game unchanged.
+## Lab box lays anywhere: a revert, not a fix (a8a8ad1b, base 231ab3d1 = main 0738a8ca + branch; merged in PR 550)
+labforage played_bed 120k, 12 paired seeds, nest-only (LAY_HOME=off logs) -> lab lays anywhere: births median 4 -> 329 (12/12 higher), died out 10 -> 0, alive at end 0 -> 178.5, peak 42 -> 188, starved per million ant-frames 3.8 -> 4.7 (9/12 higher, p 0.15). The lab is back to its pre-546 births because it no longer lays at the nest. The lab is the main game, so this undoes lay-at-the-nest where the owner plays; only the food box and the other games keep it.
 
 ## Re-check on main e8adc960 (dug home + piling) + branch b16787b4
 Food box (digbox hungry gap=90, 96k, 6 paired seeds), LAY_HOME on vs off, live/born at 96k: on 189/282 198/414 119/425 243/424 276/552 274/420; off 227/479 311/426 49/228 188/375 338/647 252/426. Median live 220 vs 240, born 422 vs 426; higher on 3/6. Neutral, no colony lost: LAY_HOME stays on.

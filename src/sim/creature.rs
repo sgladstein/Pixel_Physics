@@ -4801,6 +4801,90 @@ pub fn bud_readiness(world: &World, organism: OrganismId) -> Option<BudReadiness
     })
 }
 
+/// **Where home is from this animal, who is standing on it, and what a
+/// birth here would face** -- the trace for "is a ready ant blocked off the
+/// nest, or does it never find it" (owner, 2026-10-03: *"the nest is too
+/// small to find and blocked by other ants"*). Read-only; `labforage
+/// budtrace=` writes it. A *home cell* is a cell a head could stand in
+/// (empty, gas, or an animal) from which [`adjacent_nest`] is true. Within
+/// `radius` (Chebyshev) of the head: `home_d` is the nearest home cell (-1
+/// when none), `home_free`/`home_ants` the home cells that are clear or hold
+/// another animal, and `near_free`/`near_ants` the same over only the home
+/// cells at `home_d` -- the ones this animal would reach first. `nbr_ants`
+/// counts other animals' cells among the head's eight neighbours, `egg_room`
+/// the empty ones (where `brood::lay_egg` at its shipped reach of 1 can put
+/// an egg). `lay_bar` is the bank a birth needs ([`birth_bar`]) and
+/// `suppressed_bar` that after the breeding regime ([`suppress_bar`]).
+pub struct HomeRing {
+    pub home_d: i32,
+    pub home_free: u32,
+    pub home_ants: u32,
+    pub near_free: u32,
+    pub near_ants: u32,
+    pub nbr_ants: u32,
+    pub egg_room: u32,
+    pub lay_bar: f32,
+    pub suppressed_bar: f32,
+    /// Whether the brood pile would take an egg from here
+    /// ([`super::brood::pile_site`] at the live reach).
+    pub pile: bool,
+    /// Where the animal's walk home is aimed ([`home_target`]), and its
+    /// Chebyshev distance from the head.
+    pub target: (i32, i32),
+    pub target_d: i32,
+}
+
+pub fn home_ring(world: &World, organism: OrganismId, radius: i32) -> Option<HomeRing> {
+    let state = world.organism(organism)?;
+    let def = world.species.get(state.species).creature.as_ref()?;
+    world.materials.id_of(&def.nest)?;
+    let (hx, hy) = *state.chain.first()?;
+    let kind = |c: Cell| world.materials.get(c.material).kind;
+    let other_animal = |c: Cell| kind(c) == MaterialKind::Creature && c.organism_id() != organism;
+    let mut ring = HomeRing { home_d: -1, home_free: 0, home_ants: 0, near_free: 0, near_ants: 0, nbr_ants: 0, egg_room: 0, lay_bar: 0.0, suppressed_bar: 0.0, pile: false, target: (0, 0), target_d: 0 };
+    let mut cells: Vec<(i32, bool)> = Vec::new();
+    for dy in -radius..=radius {
+        for dx in -radius..=radius {
+            let (x, y) = (hx + dx, hy + dy);
+            if !world.in_bounds(x, y) {
+                continue;
+            }
+            let c = world.get(x, y);
+            let animal = other_animal(c);
+            if dx.abs() <= 1 && dy.abs() <= 1 && (dx, dy) != (0, 0) {
+                ring.nbr_ants += u32::from(animal);
+                ring.egg_room += u32::from(world.is_empty(x, y));
+            }
+            let standable = matches!(kind(c), MaterialKind::Empty | MaterialKind::Gas | MaterialKind::Creature);
+            if standable && adjacent_nest(world, x, y, def) {
+                cells.push((dx.abs().max(dy.abs()), animal));
+            }
+        }
+    }
+    if let Some(d) = cells.iter().map(|c| c.0).min() {
+        ring.home_d = d;
+        for &(cd, animal) in &cells {
+            let near = cd == d;
+            if animal {
+                ring.home_ants += 1;
+                ring.near_ants += u32::from(near);
+            } else {
+                ring.home_free += 1;
+                ring.near_free += u32::from(near);
+            }
+        }
+    }
+    let threshold = reproduce_at_of(def, &state.traits)?;
+    let cost = birth_cost_of(def, birth_grant(def, &state.traits));
+    ring.lay_bar = birth_bar(threshold, cost, def, super::brood::brood_of(world, def).as_ref());
+    ring.suppressed_bar = suppress_bar(breeding_regime(), breeding_radius(), world, organism, state.colony, (hx, hy), ring.lay_bar).0;
+    let reach = super::brood::egg_pile_reach();
+    ring.pile = reach > 0 && super::brood::brood_of(world, def).is_some_and(|b| super::brood::pile_site(world, (hx, hy), def, &b, reach).is_some());
+    ring.target = home_target(world, state);
+    ring.target_d = (ring.target.0 - hx).abs().max((ring.target.1 - hy).abs());
+    Some(ring)
+}
+
 /// **A newborn may stand on a nestmate** when no neighbour of its parent has
 /// room for it: `PIXEL_PHYSICS_BUD_STACK=on`, off unless set, and acting only
 /// above a stack cap of 1 ([`World::stack_cap`]) -- below it nobody may stand
@@ -4961,7 +5045,27 @@ pub(super) fn try_bud(world: &mut World, organism: OrganismId, def: &CreatureDef
     // cut is home only to nest workers, so this check held every forager's
     // store birth (seed 3 of the food box: 472 held ticks to 35 births by
     // frame 24,000, `Reports/nest-one-entrance-2026-09-29.md` §23).
-    if !from_store && bud_at_nest(world) && world.materials.id_of(&def.nest).is_some() && !nest_within_reach(world, organism, hx, hy, def) {
+    //
+    // **An egg is held to the nest by where the egg would land, not where
+    // the layer stands** ([`super::brood::pile_site`], `PIXEL_PHYSICS_EGG_PILE`):
+    // an ant within a few steps of an empty home cell, through its crowding
+    // nestmates, lays onto the brood pile there. Traced 2026-10-03 on the lab
+    // box: the head-only read found the few home cells held by other ants
+    // and no empty cell beside any ant that did stand at home (0 of 308
+    // samples), so nothing laid. Budding and a reach of 0 keep the head read.
+    let nest_gate = !from_store && bud_at_nest(world) && world.materials.id_of(&def.nest).is_some();
+    let pile_reach = if laying.is_some() { super::brood::egg_pile_reach() } else { 0 };
+    let pile = match laying.as_ref().filter(|_| nest_gate && pile_reach > 0) {
+        Some(brood) => match super::brood::pile_site(world, (hx, hy), def, brood, pile_reach) {
+            Some(cell) => Some(cell),
+            None => {
+                world.creature_stats.buds_held_for_nest += 1;
+                return None;
+            }
+        },
+        None => None,
+    };
+    if nest_gate && pile_reach == 0 && !nest_within_reach(world, organism, hx, hy, def) {
         world.creature_stats.buds_held_for_nest += 1;
         return None;
     }
@@ -5088,6 +5192,7 @@ pub(super) fn try_bud(world: &mut World, organism: OrganismId, def: &CreatureDef
                 made: provision.clamp(-1.0, 1.0),
                 fates: child_fates,
             },
+            pile,
         );
     } else {
     // **Two passes, and the second is a switch** ([`bud_stack_of`]): free
@@ -5285,7 +5390,7 @@ pub(super) fn mutate_newborn(world: &mut World, child: OrganismId, def: &Creatur
         }
     }
     if strongest_pct == 0 && synapses_moved > 0 {
-        born_with = (14u16 << 8) | synapses_moved.min(255) as u16;
+        born_with = (organism::BORN_WITH_SYNAPSES << 8) | synapses_moved.min(255) as u16;
     }
     if let Some(state) = world.organism_mut(child) {
         state.born_with = born_with;
@@ -6363,6 +6468,123 @@ fn home_target(world: &World, state: &crate::sim::organism::OrganismState) -> (i
 
 /// Whether `PIXEL_PHYSICS_HOME_TARGET` asks for the nest centre. `OnceLock`
 /// like its neighbours: `sense` runs per creature per decision tick.
+/// **Where a walk home should be re-aimed, if it should** -- `None` almost
+/// always. The homing anchor (`forage_anchor`) is one cell: the last spot
+/// the animal stood beside the nest. When that cell has since been filled,
+/// flooded, grown over or taken by another animal, every walk home
+/// ([`home_target`], the laden pace, `ready_to_lay`'s walk) is aimed at a
+/// place the animal cannot arrive at, and it circles outside. Traced
+/// 2026-10-03 on the lab box (`labforage played_bed`, 30k, laying at the
+/// nest, seeds 1 / 3): for laden ants off the nest the anchor cell held
+/// another ant 48 / 34% of samples, water 28 / 7%, crumbs 13 / 5%, grass
+/// 2 / 31%, and was empty 3 / 16%; they were within a cell of it 3.7 / 17%
+/// of the time, circling 4-8 cells out with full crops.
+///
+/// **The rule.** Only for a species with a nest, only on every
+/// [`HOME_REAIM_EVERY`]th tick of an animal (by id, so a colony does not
+/// re-aim in step), and only when the anchor cell is not empty or gas: the
+/// anchor moves to the nearest **open home cell** -- empty or gas, with
+/// [`adjacent_nest`] true there, the live home definition -- searched in
+/// rings outward from the old anchor to [`HOME_REAIM_REACH`], the one nearest
+/// the animal's head winning within a ring (then scan order). Nothing open
+/// within reach leaves the anchor where it is. This is aim, not a tether:
+/// it changes where the existing homing pull points, not whether one
+/// applies, and the next step beside the nest re-anchors as before.
+/// **Off unless `PIXEL_PHYSICS_HOME_REAIM` is set** ([`home_reaim_mode`] says
+/// why).
+fn home_reaim(world: &World, organism: OrganismId, def: &CreatureDef) -> Option<(i32, i32)> {
+    let mode = home_reaim_mode();
+    if mode == 0 || def.nest.is_empty() {
+        return None;
+    }
+    if !(world.frame / def.tick_interval.max(1) + organism as u64).is_multiple_of(HOME_REAIM_EVERY) {
+        return None;
+    }
+    let state = world.organism(organism)?;
+    let (ax, ay) = state.forage_anchor;
+    // **What an ant can arrive at**: under the shipped `loose` mode, what the
+    // dug home itself counts as open (`World::step_nest_dug`) -- empty, an
+    // animal, or loose spoil, a corpse, crumbs or unowned food lying there,
+    // since a laden ant putting food down on its anchor is a delivery, not a
+    // block -- plus gas; under `strict`, empty or gas only.
+    let loose: [Option<super::material::MaterialId>; 3] = ["spoil", "corpse", "crumbs"].map(|n| world.materials.id_of(n));
+    let open = |x: i32, y: i32| {
+        if !world.in_bounds(x, y) {
+            return false;
+        }
+        let c = world.get(x, y);
+        match world.materials.get(c.material).kind {
+            MaterialKind::Empty | MaterialKind::Gas => true,
+            _ if mode == 1 => false,
+            MaterialKind::Creature => true,
+            _ => loose.contains(&Some(c.material)) || (c.organism_id() == 0 && food_value(world, c) > 0.0),
+        }
+    };
+    if open(ax, ay) {
+        return None;
+    }
+    world.materials.id_of(&def.nest)?;
+    let (hx, hy) = *state.chain.first()?;
+    for r in 1..=HOME_REAIM_REACH {
+        let mut best: Option<(i64, (i32, i32))> = None;
+        for dy in -r..=r {
+            for dx in -r..=r {
+                if dx.abs().max(dy.abs()) != r {
+                    continue;
+                }
+                let (x, y) = (ax + dx, ay + dy);
+                if !matches!(world.materials.get(world.get(x, y).material).kind, MaterialKind::Empty | MaterialKind::Gas) || !adjacent_nest(world, x, y, def) {
+                    continue;
+                }
+                let d = ((x - hx) as i64).pow(2) + ((y - hy) as i64).pow(2);
+                if best.is_none_or(|(bd, _)| d < bd) {
+                    best = Some((d, (x, y)));
+                }
+            }
+        }
+        if let Some((_, cell)) = best {
+            return Some(cell);
+        }
+    }
+    None
+}
+
+/// How often, in an animal's own ticks, [`home_reaim`] looks at its anchor.
+/// 16: a laden ant spends thousands of frames circling a blocked anchor, so
+/// a look every 16 ticks (96 frames for the ant) loses nothing it could use,
+/// and the ring search runs on at most one tick in 16 of a blocked animal.
+pub const HOME_REAIM_EVERY: u64 = 16;
+
+/// How far from the old anchor [`home_reaim`] looks for an open home cell,
+/// in Chebyshev cells: 12, the radius the trace that found the blocked
+/// anchors read home over (`creature::home_ring`). At most a 25x25 square,
+/// one material read per cell plus the home read on open cells.
+pub const HOME_REAIM_REACH: i32 = 12;
+
+/// `PIXEL_PHYSICS_HOME_REAIM`: 0 `off` -- the default -- 1 `strict` (an
+/// anchor is blocked by anything but empty or gas), 2 `loose` or `on`
+/// (blocked by ground, water or a plant, not by an animal or loose food on
+/// it).
+///
+/// **Off by default: it did not help on the nest it was built for.** Lab
+/// box, `played_bed` 30k, laying at the nest, seeds 1-4, tree 0708f52a +
+/// this: eggs laid off 4/5/22/9, `loose` 11/1/24/9, `strict` 1/1/10/8; laden
+/// ants within a cell of their target 3.8/5.5/16.9/6.5% off against
+/// 3.5/1.9/17.1/4.2% `loose` -- the re-aim fired (314/62/367/323 times) and
+/// moved nothing, because the lab nest held 38-53 ants in 18-316 home cells
+/// at frame 24,000: whichever cell a walk is aimed at, the crowd is on it.
+/// `strict`, re-aiming off crumbs too, chased every pile a laden ant made
+/// and was worse on 3 of 4. `Reports/dead-ends.md` has the entry; re-test
+/// on a nest with room to stand.
+fn home_reaim_mode() -> u8 {
+    static V: std::sync::OnceLock<u8> = std::sync::OnceLock::new();
+    *V.get_or_init(|| match std::env::var("PIXEL_PHYSICS_HOME_REAIM").as_deref().map(str::trim) {
+        Ok("strict") => 1,
+        Ok("loose") | Ok("on") => 2,
+        _ => 0,
+    })
+}
+
 fn home_target_is_nest() -> bool {
     static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *V.get_or_init(|| std::env::var("PIXEL_PHYSICS_HOME_TARGET").as_deref() == Ok("nest"))
@@ -7503,8 +7725,18 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
     let (mem_x, mem_y) = world.organism(organism).and_then(|s| s.chain.first().copied()).unwrap_or((x, y));
     let phero_a_live = world.pheromone_at(Channel::A, mem_x, mem_y) as f32 / pheromone::Scent::MAX as f32;
 
+    // **A walk home aimed at a cell nobody can stand in is re-aimed**
+    // ([`home_reaim`]), read here while `world` is still shared.
+    let reaim = home_reaim(world, organism, def);
+    if reaim.is_some() {
+        world.creature_stats.home_reaims += 1;
+    }
+
     let mut rest_bout_ended = 0u16;
     if let Some(state) = world.organism_mut(organism) {
+        if let Some(cell) = reaim {
+            state.forage_anchor = cell;
+        }
         const PHERO_A_MEM_RECURRENCE: f32 = 0.995;
         state.phero_a_mem = PHERO_A_MEM_RECURRENCE * state.phero_a_mem + (1.0 - PHERO_A_MEM_RECURRENCE) * phero_a_live;
         state.since_nest = state.since_nest.saturating_add(1);
@@ -12815,6 +13047,13 @@ fn nest_reach_radius() -> i32 {
     })
 }
 
+/// **Is `(x, y)` a cell at home** -- [`adjacent_nest`], read-only, for the
+/// brood pile (`brood::pile_site`), which must agree with every other
+/// reader about where home is rather than carry its own definition.
+pub(super) fn home_at(world: &World, x: i32, y: i32, def: &CreatureDef) -> bool {
+    adjacent_nest(world, x, y, def)
+}
+
 fn adjacent_nest(world: &World, x: i32, y: i32, def: &CreatureDef) -> bool {
     // **The `nest` field is read as a flag in both branches, never only as a
     // material.** A species that authors no nest has no home under either
@@ -15568,14 +15807,13 @@ enum BreedingRegime {
 }
 
 /// **The ablation switch the evolution lab's generations-per-session
-/// measurement needs**: which regime governs who may bud, `individual` by
-/// default -- every animal buds on its own account, exactly as it does
-/// today.
+/// measurement needs**: which regime governs who may bud, **`graded` by
+/// default since 2026-10-02** (the match below); `individual` is every
+/// animal budding on its own account, the rule before.
 ///
 /// `PIXEL_PHYSICS_BREEDING` selects it:
-/// - `individual` (default, and anything unset or unrecognised): no
-///   suppression. `suppress_bar` returns the unsuppressed `bar` before it
-///   scans anything, so this arm is provably today's code.
+/// - `individual`: no suppression. `suppress_bar` returns the unsuppressed
+///   `bar` before it scans anything, so this arm is provably the old code.
 /// - `queen`: **colony-wide, not distance-based.** While any *other*
 ///   living animal in the same colony has `children > 0` -- has itself
 ///   already budded -- nobody else in that colony can bud at all. One
@@ -15589,10 +15827,11 @@ enum BreedingRegime {
 ///   apart: territorial spacing, not queen-only breeding, and a number
 ///   that is arithmetically correct while answering a different question
 ///   (`CLAUDE.md`'s "ask what your number counts when nothing is wrong").
-/// - `graded`: the bar to bud is scaled by distance to the nearest *other*
-///   living breeder (`children > 0`) in the colony, from a maximum at
-///   distance 0 down to exactly `1.0` (no suppression) at
-///   `PIXEL_PHYSICS_BREEDING_RADIUS` cells and beyond.
+/// - `graded` (default, and anything unset or unrecognised): the bar to bud
+///   is scaled by distance to the nearest *other* living breeder
+///   (`children > 0`) in the colony, from a maximum at distance 0 down to
+///   exactly `1.0` (no suppression) at `PIXEL_PHYSICS_BREEDING_RADIUS` cells
+///   and beyond.
 ///
 /// **A breeder is `children > 0`, full stop -- not a founder's generation
 /// too.** A colony is founded with every member at generation 0, so a
@@ -17021,6 +17260,28 @@ const HOME_GAIN: f32 = 1.0;
 /// one pressed into a dead end is following the passage within a few dozen.
 const PATIENCE_DECAY: f32 = 0.9;
 
+/// **This animal's factor on one of the walk's gains** -- a slot of
+/// `organism::WALK_GAIN_SLOTS`, on the reciprocal axis (`ratio_factor`): `+1` is
+/// twice the shipped constant, `-1` half it, and `0` exactly `1.0`, so an
+/// ant at the ancestral allele walks bit-for-bit as before the slot existed
+/// (`walk_genes_at_zero_are_exactly_the_constants`).
+///
+/// Read in `chooser_step` only. The non-chooser walk (`step_chain` and the
+/// tumble) has no directional gain constants to replace: its heading is the
+/// brain's, already heritable.
+pub fn walk_gain(traits: &[f32; CREATURE_TRAITS], slot: usize) -> f32 {
+    1.0 / ratio_factor(traits[slot]).max(f32::EPSILON)
+}
+
+/// **This animal's patience decay**, `PATIENCE_DECAY` with its leak
+/// (`1 - decay`) scaled by `organism::TRAIT_PATIENCE` on the reciprocal axis:
+/// `+1` halves the leak (twice as many fruitless steps before it gives up),
+/// `-1` doubles it. Both subtractions are exact in f32 at the allele 0, so
+/// the ancestral value is `PATIENCE_DECAY` to the bit.
+fn patience_decay_of(traits: &[f32; CREATURE_TRAITS]) -> f32 {
+    1.0 - (1.0 - PATIENCE_DECAY) * ratio_factor(traits[organism::TRAIT_PATIENCE])
+}
+
 /// **How fast it comes back, per step that does** -- full again within four
 /// steps of closing on home.
 const PATIENCE_RECOVER: f32 = 0.25;
@@ -18355,13 +18616,35 @@ fn update_hungry_home(world: &mut World, organism: OrganismId, def: &CreatureDef
 /// reach for a two-cell ant), saturated as `x / (1 + x)` over `TRAIL_HALF`.
 /// Trail B for an ant carrying no food, trail A for one that is (plan §4d:
 /// the laden ant reads the nest's trail, never its own).
-fn trail_presence(world: &World, head: (i32, i32), d: u8, laden: bool) -> f32 {
-    let channel = if laden { Channel::A } else { Channel::B };
-    let (dx, dy) = DIRS[d as usize];
-    let near = world.pheromone_at(channel, head.0 + dx, head.1 + dy);
-    let far = world.pheromone_at(channel, head.0 + 2 * dx, head.1 + 2 * dy);
-    let x = f32::from(near.max(far)) / TRAIL_HALF;
-    x / (1.0 + x)
+fn trail_presence(world: &World, head: (i32, i32), d: u8, planes: [f32; 2]) -> f32 {
+    // **Which plane is a route is the ant's own** (`organism::TRAIL_PLANE_
+    // SLOTS`): each plane's saturated presence, weighted by the inherited
+    // weight for this ant's state, summed and floored at 0. A zero weight
+    // reads nothing, so the ancestral ant (weights 1 and 0) samples exactly
+    // the one plane the hard-coded choice did, and `1 * p` is `p` to the bit.
+    let mut sum = 0.0;
+    for (channel, w) in [(Channel::A, planes[0]), (Channel::B, planes[1])] {
+        if w == 0.0 {
+            continue;
+        }
+        let (dx, dy) = DIRS[d as usize];
+        let near = world.pheromone_at(channel, head.0 + dx, head.1 + dy);
+        let far = world.pheromone_at(channel, head.0 + 2 * dx, head.1 + 2 * dy);
+        let x = f32::from(near.max(far)) / TRAIL_HALF;
+        sum += w * (x / (1.0 + x));
+    }
+    sum.max(0.0)
+}
+
+/// **The weights this ant reads trail A and trail B with**, for its state:
+/// laden or empty, base plus its own allele (`organism::TRAIT_LADEN_A`). The
+/// bases are the old hard-coded choice -- laden follows A, empty follows B.
+fn trail_planes(traits: &[f32; CREATURE_TRAITS], laden: bool) -> [f32; 2] {
+    if laden {
+        [1.0 + traits[organism::TRAIT_LADEN_A], traits[organism::TRAIT_LADEN_B]]
+    } else {
+        [traits[organism::TRAIT_EMPTY_A], 1.0 + traits[organism::TRAIT_EMPTY_B]]
+    }
 }
 
 /// **`PIXEL_PHYSICS_NEST_LEASH=deep`: a fed nest worker that strays is pulled
@@ -18698,7 +18981,14 @@ fn chooser_step(
     let persist = brain::unit_scale(outputs[brain::BrainOutput::Persist as usize], PERSIST_MAX);
     let turn = outputs[brain::BrainOutput::Turn as usize];
     let k = CHOICE_EXPLORATION_K * brain::unit_scale(outputs[brain::BrainOutput::Tumble as usize], 2.0);
-    let gain = pull.map_or(0.0, |(_, g)| HOME_GAIN * g * patience);
+    // **The walk's gains, as this ant inherited them** (`organism::
+    // WALK_GAIN_SLOTS`): each a factor of exactly 1.0 at the ancestral allele.
+    let walk = traits_of(world, organism, def);
+    let home_gain = HOME_GAIN * walk_gain(&walk, organism::TRAIT_HOME_PULL);
+    let trail_gain = TRAIL_GAIN * walk_gain(&walk, organism::TRAIT_TRAIL_HOLD);
+    let away_gain = AWAY_GAIN * walk_gain(&walk, organism::TRAIT_ROUTE_AWAY);
+    let decay = patience_decay_of(&walk);
+    let gain = pull.map_or(0.0, |(_, g)| home_gain * g * patience);
     // A packed lunch is not a load (`carries_lunch`): its carrier scouts
     // outward and reads the outbound trail, as an empty ant does.
     let laden = world.organism(organism).is_some_and(|s| s.crop.is_some_and(|c| c.worth() > 0.0) && !carries_lunch(world, s));
@@ -18720,7 +19010,7 @@ fn chooser_step(
     let mut drove = false;
     let scout_w = match away_from {
         Some(_) => {
-            let g = scout_of(world);
+            let g = scout_of(world) * walk_gain(&walk, organism::TRAIT_SCOUT);
             if g > 0.0 {
                 // Under the throttle (`outward_want`) an ant near its door
                 // feels the colony's want in place of its hunger.
@@ -18781,7 +19071,7 @@ fn chooser_step(
     // The `!is_nest_bound` gate the design listed is not taken: the drive is
     // already 0 for a fed nest-bound ant, so it excluded only hungry ones.
     let door = if reads_trail && !laden && pull.is_none() && !scout_home && food_trail_of(world).read {
-        door_read(world, organism, def, (hx, hy))
+        door_read(world, organism, def, (hx, hy)).map(|(side, f)| (side, f * walk_gain(&walk, organism::TRAIT_DOOR_READ)))
     } else {
         None
     };
@@ -18795,7 +19085,8 @@ fn chooser_step(
             0.0
         }
     };
-    let route = |d: u8| if reads_trail { trail_presence(world, (hx, hy), d, laden) } else { 0.0 };
+    let planes = trail_planes(&walk, laden);
+    let route = |d: u8| if reads_trail { trail_presence(world, (hx, hy), d, planes) } else { 0.0 };
     // **Stage 3, the give-up lets go** (`FoodTrail::giveup`,
     // `Reports/ant-scenes-2026-09-23.md` §23d): a scout that has given up is
     // no longer held by the trail it gave up on. The away term is 0, the pull
@@ -18812,7 +19103,7 @@ fn chooser_step(
     // the pile under `lay` and 12 of 30 when every give-up was spent, and on
     // the two-pile bed 41 founders starved by frame 6,000 against 19.
     let spent = scout_home && scout_dark && scout_w > 0.0 && food_trail_of(world).giveup;
-    let hold = |d: u8| if spent { 1.0 } else { 1.0 + TRAIL_GAIN * route(d) };
+    let hold = |d: u8| if spent { 1.0 } else { 1.0 + trail_gain * route(d) };
     // **Level, not radial**: the home cosine of the heading's sideways part
     // alone, so a heading straight up or down scores 0. Radial, an ant above
     // home level is drawn upward, and on the colony bed that drove scouts 91
@@ -18836,7 +19127,7 @@ fn chooser_step(
         persist * TURN_PREF[rel.min(8 - rel) as usize] * hold(d)
             + side
             + home_cos(d).map_or(0.0, |c| gain * c)
-            + if spent { 0.0 } else { away_home_cos(d).map_or(0.0, |c| -AWAY_GAIN * route(d) * c) }
+            + if spent { 0.0 } else { away_home_cos(d).map_or(0.0, |c| -away_gain * route(d) * c) }
             + if scout_w <= 0.0 {
                 0.0
             } else if spent {
@@ -18957,7 +19248,7 @@ fn chooser_step(
             state.scout_best = level;
             state.scout_patience = (state.scout_patience + PATIENCE_RECOVER).min(1.0);
         } else {
-            state.scout_patience *= PATIENCE_DECAY;
+            state.scout_patience *= decay;
             if state.scout_patience < SCOUT_GIVE_UP {
                 state.scout_home = true;
                 state.scout_dark = bound && !on_trail;
@@ -18977,7 +19268,7 @@ fn chooser_step(
             state.home_away = 0;
             state.home_patience = (state.home_patience + PATIENCE_RECOVER).min(1.0);
         } else {
-            state.home_patience *= PATIENCE_DECAY;
+            state.home_patience *= decay;
             let (bx, by) = state.home_best_at;
             let away = (nx - bx).abs().max((ny - by).abs()).clamp(0, u16::MAX as i32) as u16;
             state.home_away = state.home_away.max(away);
@@ -23464,6 +23755,51 @@ mod tests {
     /// binary, so no test could ever exercise an armed world beside one
     /// asserting the default. `World::room_target` is the precedent -- read
     /// from the environment once at construction, then a value you can set.
+    /// **The walk genes at their ancestral allele are the constants to the
+    /// bit** -- the whole of why adding them moved no bed. And the positive
+    /// control: one step off 0 moves every one of them, so a gene that reads
+    /// the wrong slot or none fails here rather than drifting silently.
+    /// **At allele 0 the ant follows exactly the plane the code used to
+    /// pick** -- laden A, empty B, the other plane at weight 0 and so never
+    /// read -- and each plane gene moves only its own weight.
+    #[test]
+    fn trail_plane_genes_at_zero_are_the_old_choice() {
+        let zero = [0.0f32; CREATURE_TRAITS];
+        assert_eq!(trail_planes(&zero, true), [1.0, 0.0]);
+        assert_eq!(trail_planes(&zero, false), [0.0, 1.0]);
+        let mut t = zero;
+        t[organism::TRAIT_EMPTY_A] = 0.5;
+        assert_eq!(trail_planes(&t, false), [0.5, 1.0], "an empty ant can come to read trail A");
+        assert_eq!(trail_planes(&t, true), [1.0, 0.0], "and the laden weights do not move with it");
+        t[organism::TRAIT_LADEN_A] = -1.0;
+        assert_eq!(trail_planes(&t, true), [0.0, 0.0], "a laden ant can stop reading A altogether");
+    }
+
+    #[test]
+    fn walk_genes_at_zero_are_exactly_the_constants() {
+        let zero = [0.0f32; CREATURE_TRAITS];
+        for slot in organism::WALK_GAIN_SLOTS {
+            assert_eq!(walk_gain(&zero, slot).to_bits(), 1.0f32.to_bits(), "walk gene {slot} at 0 is not exactly 1.0");
+        }
+        assert_eq!(patience_decay_of(&zero).to_bits(), PATIENCE_DECAY.to_bits(), "patience at allele 0 is not PATIENCE_DECAY to the bit");
+        for slot in organism::WALK_GAIN_SLOTS {
+            let mut up = zero;
+            up[slot] = 1.0;
+            let mut down = zero;
+            down[slot] = -1.0;
+            if slot == organism::TRAIT_PATIENCE {
+                assert!((patience_decay_of(&up) - 0.95).abs() < 1e-6, "+1 patience halves the leak");
+                assert!((patience_decay_of(&down) - 0.8).abs() < 1e-6, "-1 patience doubles it");
+            } else {
+                assert_eq!(walk_gain(&up, slot), 2.0, "walk gene {slot} at +1 is twice the constant");
+                assert_eq!(walk_gain(&down, slot), 0.5, "walk gene {slot} at -1 is half the constant");
+            }
+            for other in organism::WALK_GAIN_SLOTS.into_iter().filter(|&o| o != slot && o != organism::TRAIT_PATIENCE) {
+                assert_eq!(walk_gain(&up, other), 1.0, "moving gene {slot} moved gene {other}");
+            }
+        }
+    }
+
     #[test]
     fn the_stacking_cap_defaults_to_the_shipped_cap() {
         let w = World::new(Rect::new(0, 0, 63, 63));

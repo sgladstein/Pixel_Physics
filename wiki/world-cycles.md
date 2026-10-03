@@ -161,7 +161,7 @@ shell is decides how much gets in — a ceiling three rows thicker than it
 needs to be costs nearly half the light on the bench, and the only sign of
 it is that everything growing there grows less.
 
-This is what the sealed laboratory of the second game is made of; the
+This is what the sealed laboratory of the evolution lab, the main game, is made of; the
 outdoor world never declares itself a room and is drawn exactly as it always
 was.
 

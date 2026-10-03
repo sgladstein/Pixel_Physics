@@ -3,6 +3,17 @@
 This is for a fresh Claude that will run the merge desk for sgladstein/Pixel_Physics
 under a new account.
 
+> **Correction (owner, 2026-10-02; main `d4418bf2`).** The evolution lab
+> (`cargo run --release --bin lab`) is **the main game**; the owner has not
+> worked on the outdoor sandbox or the held world in months. Where this note
+> says "lab box" it means the evolution lab itself; where it says "main game"
+> or "main bed" it means the food box, not the game the owner plays.
+> **PR 550** (merged as `d4418bf2`) made the lab's ants lay anywhere again
+> (`src/lab/scene.rs:843-845`). That is a **revert** of lay-only-at-the-nest in
+> the main game, not a fix, and it also moved the `trailfollow` long runs back
+> to laying anywhere, because they build through `LabBox`. **The top open
+> problem is making laying at the nest work in the evolution lab.**
+
 ## What the desk is
 
 All merges go through one session, one PR at a time. Lanes never merge their own

@@ -179,6 +179,21 @@ pub const GENOME_LEN: usize = HO_END + TRAIT_SLOTS; // 12,416
 /// block on 2026-09-06 under the positional law: nothing before it moved.
 pub const TRAIT_SLOTS: usize = 64;
 
+/// **How many `CREATURE_TRAITS` slots have a live developmental weight**:
+/// the fourteen body slots, not the walk slots (`organism::WALK_SLOTS`).
+///
+/// Held apart from `CREATURE_TRAITS` because a live slot is *drawn* by every
+/// birth's [`mutate`] whether it moves or not, so growing the live block
+/// shifts every later draw of every birth's stream -- adding the walk genes
+/// at width 0 would otherwise have changed every bed in the box. A walk
+/// slot's dev weight is reserve: zero, never mutated, and
+/// `creature::expressed_traits` skips a zero weight, so the walk genes are
+/// the genotype as inherited. Raising this to `CREATURE_TRAITS` is the step
+/// that lets a parent's `Provision` move a child's walk too, and it is a
+/// re-baseline, not a free change.
+pub const DEV_TRAITS: usize = 14;
+const _: () = assert!(DEV_TRAITS <= super::organism::CREATURE_TRAITS && super::organism::CREATURE_TRAITS <= TRAIT_SLOTS);
+
 const IO_END: usize = OUTPUT_SLOTS * INPUT_SLOTS; // 4096
 const IH_END: usize = IO_END + HIDDEN_SLOTS * INPUT_SLOTS; // 8192
 const HH_END: usize = IH_END + HIDDEN_SLOTS; // 8256
@@ -227,7 +242,7 @@ pub fn is_live_slot(idx: usize) -> bool {
         let rel = idx - HH_END;
         rel / HIDDEN_SLOTS < BRAIN_OUTPUTS && rel % HIDDEN_SLOTS < BRAIN_HIDDEN
     } else {
-        idx - HO_END < super::organism::CREATURE_TRAITS
+        idx - HO_END < DEV_TRAITS
     }
 }
 
@@ -1618,7 +1633,7 @@ pub fn genome_from_wiring_struct(w: &Wiring) -> Vec<f32> {
 pub fn genome_from_wiring_plastic(instincts: &[Instinct], hidden: &[HiddenWire], outputs: &[OutputWire], recurrence: &[Recurrence], plastic: &[Plastic]) -> Vec<f32> {
     let mut g = genome_from_wiring(instincts, hidden, outputs, recurrence);
     for &Plastic(slot, w) in plastic {
-        assert!((slot as usize) < super::organism::CREATURE_TRAITS, "developmental weight names trait slot {slot}, and there are {} slots", super::organism::CREATURE_TRAITS);
+        assert!((slot as usize) < DEV_TRAITS, "developmental weight names trait slot {slot}, and there are {} slots with one (`DEV_TRAITS`)", DEV_TRAITS);
         g[dev_slot(slot as usize)] = w;
     }
     g
@@ -1776,7 +1791,7 @@ mod tests {
             v.extend((0..traits).map(|t| HO_END + t));
             v
         };
-        let traits = crate::sim::organism::CREATURE_TRAITS;
+        let traits = DEV_TRAITS;
         for (ins, outs, hid, traits) in [
             (BRAIN_INPUTS + 1, BRAIN_OUTPUTS, BRAIN_HIDDEN, traits),
             (BRAIN_INPUTS, BRAIN_OUTPUTS + 1, BRAIN_HIDDEN, traits),
@@ -1807,12 +1822,12 @@ mod tests {
         assert!(!is_live_slot(BRAIN_OUTPUTS * INPUT_SLOTS));
         assert_eq!(
             live_slots().count(),
-            BRAIN_OUTPUTS * BRAIN_INPUTS + BRAIN_HIDDEN * BRAIN_INPUTS + BRAIN_HIDDEN + BRAIN_OUTPUTS * BRAIN_HIDDEN + crate::sim::organism::CREATURE_TRAITS
+            BRAIN_OUTPUTS * BRAIN_INPUTS + BRAIN_HIDDEN * BRAIN_INPUTS + BRAIN_HIDDEN + BRAIN_OUTPUTS * BRAIN_HIDDEN + DEV_TRAITS
         );
         // The corner cases of the tail block: its last live slot, and the
         // first reserved one beside it.
-        assert!(is_live_slot(HO_END + crate::sim::organism::CREATURE_TRAITS - 1));
-        assert!(!is_live_slot(HO_END + crate::sim::organism::CREATURE_TRAITS));
+        assert!(is_live_slot(HO_END + DEV_TRAITS - 1));
+        assert!(!is_live_slot(HO_END + DEV_TRAITS));
     }
 
     #[test]
@@ -2451,8 +2466,8 @@ mod tests {
         assert_eq!(genome_from_wiring_struct(&w), g, "the block expands back bit-identically");
         let without = genome_from_wiring(&w.instincts, &w.hidden, &w.outputs, &w.recurrence);
         assert_eq!(without[dev_slot(super::super::organism::TRAIT_ARMOUR)], 0.0, "the four-list form is an empty block");
-        assert!(is_live_slot(dev_slot(0)) && is_live_slot(dev_slot(super::super::organism::CREATURE_TRAITS - 1)));
-        assert!(!is_live_slot(dev_slot(super::super::organism::CREATURE_TRAITS)), "the reserve past the live slots is not mutable");
+        assert!(is_live_slot(dev_slot(0)) && is_live_slot(dev_slot(DEV_TRAITS - 1)));
+        assert!(!is_live_slot(dev_slot(DEV_TRAITS)), "the reserve past the live slots is not mutable");
     }
 
     #[test]
@@ -2460,7 +2475,7 @@ mod tests {
         let live = live_slots().count();
         assert_eq!(
             live,
-            BRAIN_OUTPUTS * BRAIN_INPUTS + BRAIN_HIDDEN * BRAIN_INPUTS + BRAIN_HIDDEN + BRAIN_OUTPUTS * BRAIN_HIDDEN + crate::sim::organism::CREATURE_TRAITS,
+            BRAIN_OUTPUTS * BRAIN_INPUTS + BRAIN_HIDDEN * BRAIN_INPUTS + BRAIN_HIDDEN + BRAIN_OUTPUTS * BRAIN_HIDDEN + DEV_TRAITS,
             "live_slots disagrees with the block arithmetic"
         );
         // 544 -> 584 on 2026-09-06 with `ThreatNear`/`ThreatBearing`: two

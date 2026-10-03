@@ -674,11 +674,8 @@ impl Handler {
             // `VEIN CONDUCTANCE`, and a chip sized to hold that would take a
             // fifth of the row for a debug view. The field overlay -- which is
             // where the pheromones are -- is the one that earned the button.
-            KeyCode::KeyL => {
-                self.lab.renderer.cycle_organism_overlay();
-                let label = self.lab.renderer.organism_overlay.label();
-                self.lab.ui.say(format!("LIFE OVERLAY {label}"));
-            }
+            // Its mouse route is the MENU page's LIFE OVERLAY row (2026-10-03).
+            KeyCode::KeyL => self.lab.act(Action::CycleLifeOverlay),
             // **`H`, next to the two overlay keys it keeps company with --
             // and free: `A B C D E F G K L M N O P R S V W X Z` were already
             // bound, checked against this whole match and against `HELP`
@@ -733,13 +730,11 @@ impl Handler {
             // both — a scent plane under a haul route is exactly the pairing
             // that says whether the ants are following the trail they laid.
             //
-            // Poked straight at the renderer, the way `L` already is, rather
-            // than through an `Action`: it is a view and owns no lab state.
-            KeyCode::F7 => {
-                self.lab.renderer.cycle_food_overlay();
-                let label = self.lab.renderer.food.mode.label();
-                self.lab.ui.say(format!("FOOD {label}"));
-            }
+            // Routed through `Action::CycleFoodOverlay` since 2026-10-03 (it
+            // was poked straight at the renderer before), so the MENU page
+            // can carry a row for it -- a player cannot find a view whose
+            // only route is a key the key list did not name.
+            KeyCode::F7 => self.lab.act(Action::CycleFoodOverlay),
             // The parameters page. `P` rather than `F4`: it is the one page
             // you open to *change* something rather than to read something,
             // and it sits with the tools on the bar's top row for the same

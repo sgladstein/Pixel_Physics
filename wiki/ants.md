@@ -1,6 +1,6 @@
 # Ants
 
-*Current as of: 2026-10-02, when **the whole dug nest became home and
+*Current as of: 2026-10-03, when **the lab's other animals started ageing like the ant** (see *Ants get old and die of it*); 2026-10-02, when **the whole dug nest became home and
 food started gathering in piles** (see *One door, and a granary under it*),
 when **new ants started as eggs, laid only at
 home** (see *New ants*), and when **an ant started holding on to a nestmate
@@ -1536,11 +1536,12 @@ and a body is food -- so a colony that is losing its old is also feeding its
 young on them. A long run is now several generations deep instead of one line
 of animals that outlives the session.
 
-It is a number you can set, on the ANTS page, and it ships on only for the two
-ants. The hopper, the flitter and the beetle are still immortal, because
-nobody has measured what their lifespans should be. At zero -- which is what
-they are -- nothing ever dies of age and you get the old behaviour back
-exactly. It is not inherited yet: every ant of a kind lives the same span, and
+It is a number you can set, on the ANTS page. Since 2026-10-03 every animal
+you can stock in the lab ages at the ant's span -- the ancestor, the hopper,
+the flitter and the beetle were immortal until then, and an ancestor
+population on the played bed simply piled up, nearly two hundred animals with
+almost no deaths. With age it settles near a hundred and keeps turning over.
+At zero nothing ever dies of age and you get the old behaviour back exactly. It is not inherited yet: every ant of a kind lives the same span, and
 a lineage cannot evolve a longer one until living longer costs something.
 
 **Ants starve too, and that was the first thing that made a colony settle.**

@@ -614,6 +614,16 @@ fn trait_word(slot: usize) -> &'static str {
         organism::TRAIT_ARMOUR => "ARMOUR",
         organism::TRAIT_SCENT_A | organism::TRAIT_SCENT_B | organism::TRAIT_SCENT_C => "SCENT",
         organism::TRAIT_TOLERANCE => "TOLERANCE",
+        organism::TRAIT_HOME_PULL => "PULL HOME",
+        organism::TRAIT_TRAIL_HOLD => "TRAIL HOLD",
+        organism::TRAIT_ROUTE_AWAY => "ROUTE OUT",
+        organism::TRAIT_SCOUT => "SCOUTING",
+        organism::TRAIT_PATIENCE => "PATIENCE",
+        organism::TRAIT_DOOR_READ => "DOOR READ",
+        organism::TRAIT_LADEN_A => "LADEN ON A",
+        organism::TRAIT_LADEN_B => "LADEN ON B",
+        organism::TRAIT_EMPTY_A => "EMPTY ON A",
+        organism::TRAIT_EMPTY_B => "EMPTY ON B",
         _ => "A TRAIT",
     }
 }
@@ -649,15 +659,16 @@ pub fn describe_born_with(born_with: u16) -> Option<String> {
     }
     let channel = (born_with >> 8) as u8;
     let low = (born_with & 0x00FF) as u8;
-    Some(match channel {
-        0..=13 => format!("{} {:+}%", trait_word(channel as usize), low as i8),
-        14 => format!("{low} SYNAPSES MOVED"),
-        20 => format!("{} JUMPED", locus_word(low as usize)),
-        21 => format!(
+    let channel16 = u16::from(channel);
+    Some(match channel16 {
+        c if (c as usize) < organism::CREATURE_TRAITS => format!("{} {:+}%", trait_word(channel as usize), low as i8),
+        organism::BORN_WITH_SYNAPSES => format!("{low} SYNAPSES MOVED"),
+        organism::BORN_WITH_LOCUS => format!("{} JUMPED", locus_word(low as usize)),
+        organism::BORN_WITH_RULE => format!(
             "{} MUTATED",
             organism::FateOp::ALL.get(low as usize).map(|op| op.name().to_uppercase()).unwrap_or_else(|| "A RULE".to_string())
         ),
-        22 => "A PARAMETER OVERRIDDEN".to_string(),
+        organism::BORN_WITH_PARAM => "A PARAMETER OVERRIDDEN".to_string(),
         _ => "SOMETHING CHANGED".to_string(),
     })
 }

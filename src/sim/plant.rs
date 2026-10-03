@@ -3954,12 +3954,12 @@ fn bear_seed_at(world: &mut World, sx: i32, sy: i32, parent_id: OrganismId, seed
     // bare parameter override, matching the order the block above rolls
     // them: the rarest, most legible channel is reported first.
     let born_with: u16 = if let Some(locus) = jumped_locus {
-        (20u16 << 8) | locus as u16
+        (organism::BORN_WITH_LOCUS << 8) | locus as u16
     } else if fate_applied {
         let op_index = fate_op.and_then(|op| organism::FateOp::ALL.iter().position(|o| *o == op)).unwrap_or(0);
-        (21u16 << 8) | op_index as u16
+        (organism::BORN_WITH_RULE << 8) | op_index as u16
     } else if param_applied {
-        22u16 << 8
+        organism::BORN_WITH_PARAM << 8
     } else {
         0
     };

@@ -3,6 +3,17 @@
 Owner: Scottt (GitHub sgladstein). Repo: https://github.com/sgladstein/Pixel_Physics.
 Main is e8adc960 (PR 547, merged 22:23). PRs 529 to 547 have merged.
 
+> **Correction (owner, 2026-10-02; main `d4418bf2`).** The evolution lab
+> (`cargo run --release --bin lab`) is **the main game**; the owner has not
+> worked on the outdoor sandbox or the held world in months. Where this note
+> says "lab box" it means the evolution lab itself; where it says "main game"
+> or "main bed" it means the food box, not the game the owner plays.
+> **PR 550** (merged as `d4418bf2`) made the lab's ants lay anywhere again
+> (`src/lab/scene.rs:843-845`). That is a **revert** of lay-only-at-the-nest in
+> the main game, not a fix, and it also moved the `trailfollow` long runs back
+> to laying anywhere, because they build through `LabBox`. **The top open
+> problem is making laying at the nest work in the evolution lab.**
+
 ## Scottt's goals and standing decisions
 
 - **Colony goal: a stable colony, not a big one.** Smaller colonies are fine, even

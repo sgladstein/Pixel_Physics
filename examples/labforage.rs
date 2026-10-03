@@ -1328,7 +1328,7 @@ fn main() {
     let mut budtrace = arg::<String>("budtrace").map(|p| {
         use std::io::Write;
         let mut w = std::io::BufWriter::new(std::fs::File::create(&p).expect("create budtrace file"));
-        writeln!(w, "frame,id,x,y,bank,reachable,bar,at_nest,nest_d,crop,generation,children,child_lines").expect("write budtrace header");
+        writeln!(w, "frame,id,x,y,bank,reachable,bar,at_nest,nest_d,crop,generation,children,child_lines,lay_bar,home_d,home_free,home_ants,near_free,near_ants,nbr_ants,supp_bar,egg_room,pile,tx,ty,target_d,target_cell").expect("write budtrace header");
         w
     });
     // **`lifetrace=FILE`: every animal, every `lifetrace_every=` frames
@@ -1759,6 +1759,10 @@ fn main() {
     // Round 29's second card: the owner marked three fixed points that do
     // not move in *either* arm. `CellProbe` is what names their occupants.
     let mut probe = CellProbe::new();
+    // **The lab bench's tally** (`lab::bench`): where eggs were laid, ants
+    // underground, colonies lost, fall from peak -- one `BENCH` line at the
+    // end. Read-only, so it changes nothing about the run.
+    let mut bench = pixel_physics::lab::bench::Bench::new(spec.ground_y);
 
     println!(
         "{:>7} {:>5} {:>6} {:>7} {:>10} {:>6} {:>6} {:>6} {:>9} | {:>5} {:>5} {:>5} {:>5} | {:>4} {:>5} {:>5} {:>6} | {:>4} {:>4} {:>4} | {:>5} {:>8} {:>5}",
@@ -2121,10 +2125,66 @@ fn main() {
                     } else {
                         String::new()
                     };
-                    writeln!(out, "{f},{id},{hx},{hy},{:.1},{:.1},{:.1},{},{nest_d},{crop:.1},{},{},{lines}", r.bank, r.reachable, r.bar, u8::from(r.at_nest), st.generation, st.children).expect("write budtrace");
+                    // **Where home is from here, who stands on it, and what a
+                    // birth here would face** (`creature::home_ring`, radius
+                    // 12), added 2026-10-03 to ask whether an ant that could
+                    // lay is blocked off the nest, suppressed on it, or has
+                    // nowhere to put the egg.
+                    let h = pixel_physics::sim::creature::home_ring(&world, id, 12).expect("a nest species");
+                    writeln!(
+                        out,
+                        "{f},{id},{hx},{hy},{:.1},{:.1},{:.1},{},{nest_d},{crop:.1},{},{},{lines},{:.1},{},{},{},{},{},{},{:.1},{},{},{},{},{},{}",
+                        r.bank,
+                        r.reachable,
+                        r.bar,
+                        u8::from(r.at_nest),
+                        st.generation,
+                        st.children,
+                        h.lay_bar,
+                        h.home_d,
+                        h.home_free,
+                        h.home_ants,
+                        h.near_free,
+                        h.near_ants,
+                        h.nbr_ants,
+                        h.suppressed_bar,
+                        h.egg_room,
+                        u8::from(h.pile),
+                        h.target.0,
+                        h.target.1,
+                        h.target_d,
+                        {
+                            // What stands in the cell the walk home is aimed at.
+                            let c = world.get(h.target.0, h.target.1);
+                            if c.organism_id() != 0 {
+                                format!("animal:{}", world.materials.get(c.material).name)
+                            } else {
+                                world.materials.get(c.material).name.clone()
+                            }
+                        }
+                    )
+                    .expect("write budtrace");
                 }
             }
         }
+        // **The nest's own room, every 12,000 frames** -- the census line
+        // `labshot` prints, so a run that changes where ants walk can say
+        // whether the nest got dug (asked for by the nest lane, 2026-10-03:
+        // chambers form where crowded workers dig, so laying at home and
+        // digging may start each other).
+        if f % 12_000 == 0 {
+            if let Some(room) = world.nest_room.first() {
+                println!(
+                    "NEST frame={f} roofed {} ants in it {} | home cells (dug) {} | digs {} of {} rolls",
+                    room.roofed,
+                    room.ants,
+                    world.nest_dug.len(),
+                    world.creature_stats.digs,
+                    world.creature_stats.dig_rolls
+                );
+            }
+        }
+        bench.observe(&world);
         if f < frames {
             // TEMP cuttrace (not for commit)
             let trace_cut = std::env::var("CUTTRACE").is_ok();
@@ -2488,6 +2548,8 @@ fn main() {
             "BROOD standing {} (holding {held:.0} J) | laid {}, larvae {}, pupated {}, larvae starved {}, lost {}, hatches refused for room {} | J shared in {:.0}, nursed by touch {:.0}, eaten beside {:.0}, upkeep {:.0} | births held by the food brake {}",
             standing.len(), st.eggs_laid, st.larvae, st.pupae, st.larvae_starved, st.brood_lost, st.hatches_denied, st.brood_shared_j, st.brood_nursed_j, st.brood_ate_j, st.brood_upkeep_j, st.food_brake_held
         );
+        // `PIXEL_PHYSICS_HOME_REAIM`'s "it fired" half (`creature::home_reaim`).
+        println!("REAIM walks home re-aimed off a blocked anchor {}", st.home_reaims);
     }
 
     println!(
@@ -2521,7 +2583,7 @@ fn main() {
         spec.seed, spec.founders, spec.colonies, last.plants, last.windfall, world.fruit_dropped, last.edible, last.unvisited, last.floor, last.aloft,
         st.eats, st.births, st.deaths, last.ants, l.harvested_plant + l.harvested_corpse, burn, st.shares, st.shared_j, st.moves,
         st.deliveries, st.pickups_at_nest, st.nest_visits,
-        std::env::var("PIXEL_PHYSICS_BREEDING").unwrap_or_else(|_| "individual".to_string()),
+        std::env::var("PIXEL_PHYSICS_BREEDING").unwrap_or_else(|_| "graded".to_string()),
         // Where an animal may bud (`creature::bud_at_nest`), and how many buds
         // the nest rule held back: the "did it fire" counter for that arm.
         if pixel_physics::sim::creature::bud_at_nest(&world) { "nest" } else { "anywhere" },
@@ -2803,6 +2865,7 @@ fn main() {
         piles.idle_max_streak_any,
         piles.idle_streak_p90_any()
     );
+    println!("{}", bench.line(world.creature_stats.eggs_laid));
     // **The forage drive's "it fired" counts**, on a line of their own so the
     // `SUMMARY` keys an identity check compares are the same with it unset
     // (`creature::forage_drive_from_env`).

@@ -391,6 +391,11 @@ pub enum Action {
     Stock(i32),
     /// Cycle the false-colour view of the invisible channels.
     CycleOverlay,
+    /// Cycle the organism overlay (`L`): plant health, cell type, gut
+    /// bias, founding lines and the rest of `render::OrganismOverlay`.
+    CycleLifeOverlay,
+    /// Cycle the food road and harvest map (`F7`) -- `food_road`.
+    CycleFoodOverlay,
     /// Cycle which colour every animal wears in the box -- see
     /// `render::CreatureColour`. The ANTS page's chart and legend group and
     /// tint by the same mode, through `Ui::set_creature_colour`'s mirror.
@@ -4503,6 +4508,10 @@ impl Ui {
                 "WHICH MARK, IF ANY, A LIVING ANIMAL DRAWS. OFF BY DEFAULT. ALSO A ROW ON THE ANTS PAGE."),
             Row::choice("OVERLAY", "O", Action::CycleOverlay,
                 "FALSE-COLOUR THE INVISIBLE CHANNELS. ALSO ITS OWN CHIP ON THE BAR."),
+            Row::choice("LIFE OVERLAY", "L", Action::CycleLifeOverlay,
+                "FALSE-COLOUR WHAT LIVING THINGS CARRY: PLANT HEALTH, CELL TYPE, GUT BIAS, FOUNDING LINES AND MORE. EACH CLICK STEPS TO THE NEXT."),
+            Row::choice("FOOD ROAD", "F7", Action::CycleFoodOverlay,
+                "WHERE THE ANIMALS WALK AND HAUL FOOD, AND WHERE EACH COLONY'S FOOD COMES FROM. OFF, ROAD, HARVEST, BOTH."),
             Row::choice("REACTION ON EVENT", "T", Action::CycleReaction,
                 "WHAT THE CLOCK DOES WHEN A FOUNDING LINE ENDS -- OFF, LINGER OR STOP. ALSO A ROW ON THE BOX PAGE."),
             Row::choice("SAVE CHRONICLE NOW", "9", Action::WriteChronicle,
