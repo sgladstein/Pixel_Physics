@@ -3071,6 +3071,7 @@ fn print_nest_line(world: &World, f: u64) {
     }
     let roofed: u32 = world.nest_room.iter().map(|r| r.roofed).sum();
     let (mut open, mut cells) = (0u32, 0u32);
+    let mut plug = std::collections::BTreeMap::<String, u32>::new();
     for site in &world.nest_sites {
         let Some(cut) = site.shaft else { continue };
         for y in site.surface - 2..=site.surface + 40 {
@@ -3078,7 +3079,11 @@ fn print_nest_line(world: &World, f: u64) {
                 if cut.contains(x, y) {
                     cells += 1;
                     let c = world.get(x, y);
-                    open += u32::from(c.material == mat::EMPTY || matches!(world.materials.kind(c.material), MaterialKind::Creature));
+                    let is_open = c.material == mat::EMPTY || matches!(world.materials.kind(c.material), MaterialKind::Creature);
+                    open += u32::from(is_open);
+                    if !is_open {
+                        *plug.entry(world.materials.get(c.material).name.clone()).or_insert(0u32) += 1;
+                    }
                 }
             }
         }
@@ -3101,6 +3106,7 @@ fn print_nest_line(world: &World, f: u64) {
         let line: Vec<String> = m.iter().map(|(k, v)| format!("{k}={v}")).collect();
         println!("DIGFUNNEL frame={f} {}", line.join(" | "));
     }
+    println!("PLUG frame={f} {plug:?}");
     let st = world.creature_stats;
     println!(
         "NEST frame={f} ants={ants} under={under} free={free} free_near={free_near} laden_near={laden_near} spoil={spoil} workers={workers} workers_under={workers_under} roofed={roofed} home={} digs={} rolls={} roof_refused={} plant_bites={} plant_cleared={} cut_open={open}/{cells} under_door: roots={rootc} ground={groundc} aloft={aloft} by_x_from_nest(<16,<48,<128,far)={dist:?}",
