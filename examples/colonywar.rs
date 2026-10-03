@@ -59,6 +59,11 @@ fn gang_reach() -> i32 {
 }
 /// Presence is sampled every this many frames.
 const PRESENCE_EVERY: u64 = 25;
+/// Frames after a kill at which `RALLY` counts each side near it.
+const RALLY_AT: [u64; 4] = [0, 300, 1000, 2000];
+/// Columns either side of a kill that count as at the fight.
+const RALLY_REACH: i32 = 12;
+
 /// A column needs this many presence samples in a window to be held at all.
 const TERR_MIN: u32 = 4;
 /// Kill markers on the mock show this many frames back.
@@ -206,6 +211,10 @@ fn main() {
     let mut owners: Vec<(i32, u32)> = Vec::new();
     let mut snaps: Vec<Snap> = Vec::new();
     let mut peak: BTreeMap<u32, u32> = BTreeMap::new();
+    // **Who came to the fight** (`RALLY` lines): for each kill, the adults of
+    // each side within `RALLY_REACH` columns of it at the kill and at each of
+    // `RALLY_AT` frames after. The question recruitment is meant to change.
+    let mut rally: Vec<(u64, u32, u32, i32, Vec<(u32, u32)>)> = Vec::new();
 
     for f in 0..=frames {
         if f > 0 {
@@ -268,7 +277,29 @@ fn main() {
                     near(world, k.attacker_colony, k.attacker_species, (x, y)),
                     near(world, k.victim_colony, k.victim_species, (x, y))
                 );
+                rally.push((kill.frame, kill.victim, kill.attacker, x, Vec::new()));
                 kills.push(kill);
+            }
+        }
+        // ---- rally counts, at each kill's due frames
+        for (kf, vc, ac, kx, counts) in rally.iter_mut() {
+            let stage = counts.len();
+            if stage < RALLY_AT.len() && f == *kf + RALLY_AT[stage] {
+                let (mut nv, mut na) = (0, 0);
+                for id in world.live_organism_ids() {
+                    let Some(st) = world.organism(id) else { continue };
+                    let Some(&(ox, _)) = st.chain.first() else { continue };
+                    if (ox - *kx).abs() > RALLY_REACH || !is_colony_species(world, st.species) {
+                        continue;
+                    }
+                    nv += u32::from(st.colony == *vc);
+                    na += u32::from(st.colony == *ac);
+                }
+                counts.push((nv, na));
+                if counts.len() == RALLY_AT.len() {
+                    let cols: Vec<String> = counts.iter().map(|(v, a)| format!("{v}/{a}")).collect();
+                    println!("RALLY {kf} {vc} {ac} {kx} {}", cols.join(" "));
+                }
             }
         }
         // ---- presence + who-is-brood, every PRESENCE_EVERY
