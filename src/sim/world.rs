@@ -5441,6 +5441,11 @@ pub struct World {
     /// Defaults **on**, so the engine and every existing test are unchanged;
     /// the lab box turns it off, which is where the owner asked for it off.
     pub plant_bending: bool,
+    /// **Whether natural windfall rots into soil** -- read by
+    /// `decay::tick`, which reschedules a windfall site without rolling when
+    /// this is false. Starts at `decay::windfall_rots_default()` (true unless
+    /// `PIXEL_PHYSICS_WINDFALL_ROT=off`); the lab's BOX page flips it live.
+    pub windfall_rots: bool,
     /// **Whether a big plant ticks less often than a seedling.**
     ///
     /// `step_organisms` costs almost exactly its cells (measured flat at
@@ -5460,6 +5465,12 @@ pub struct World {
     ///
     /// Defaults **off**, so nothing changes until it is asked for.
     pub plant_size_cadence: bool,
+    /// **Whether plants inherit and mutate a defence** (`OrganismState::defence`).
+    /// A field rather than a process global for the reason `mutation_sigma`
+    /// gives: a test can scope it. Initialised from `PIXEL_PHYSICS_PLANT_DEFENCE` (default
+    /// on); off, every plant stays at 0.0 and a run is byte-identical to the
+    /// build before defence existed.
+    pub plant_defence: bool,
     /// **Whether the world is *held* — nothing grows, breeds, ages, rots or
     /// weathers except inside a [`Quickening`].**
     ///
@@ -6602,7 +6613,9 @@ impl World {
             plant_load_failure: true,
             soil_capillary_levels: false,
             plant_bending: true,
+            windfall_rots: crate::sim::decay::windfall_rots_default(),
             plant_size_cadence: false,
+            plant_defence: super::organism::plant_defence_on(),
             held: false,
             quickenings: Vec::new(),
             carried: None,
@@ -7455,6 +7468,9 @@ impl World {
             dev_seed: 0,
             origin: None,
             germination_frame: 0,
+            // Undefended at birth -- `plant::bear_seed_at` writes a bred
+            // seed's from its parent. See `OrganismState::defence`.
+            defence: 0.0,
             water: 0.0,
             water_status: 1.0,
             water_uptake: 0.0,

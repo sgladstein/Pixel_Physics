@@ -38,6 +38,7 @@ pub mod batch;
 pub mod bench;
 pub mod census;
 pub mod names;
+pub mod pace;
 pub mod params;
 pub mod plainspeak;
 pub mod rain;
@@ -3363,6 +3364,20 @@ impl Lab {
                 self.spec.rain = self.spec.rain.next();
                 self.ui.say(format!("RAIN -- {}", self.spec.rain.label()));
             }
+            // **On the spec and on the live world at once**: the spec so a
+            // rebuild and a save keep the choice (`LabBox::build_counted`
+            // applies both last), the world so it takes effect now rather
+            // than at the next REBUILD.
+            ui::Action::CyclePlantPace => {
+                self.spec.plant_pace = self.spec.plant_pace.next();
+                self.spec.plant_pace.apply(&mut self.world);
+                self.ui.say(format!("PLANTS GROW AT {}", self.spec.plant_pace.label()));
+            }
+            ui::Action::ToggleWindfallRot => {
+                self.spec.windfall_rots = !self.spec.windfall_rots;
+                self.world.windfall_rots = self.spec.windfall_rots;
+                self.ui.say(if self.spec.windfall_rots { "FALLEN FRUIT ROTS" } else { "FALLEN FRUIT STAYS UNTIL EATEN" });
+            }
             // **`F`'s own verb, routed through `Lab::act` now that the MENU
             // page gives it a second route in.** `Lab::act` exists to
             // dispatch a verb a button also draws, and until this page
@@ -6610,6 +6625,66 @@ mod tests {
         }
         assert!(count(&w, windfall) < half / 2, "windfall barely rotted ({} of {half} left) -- the bed is not damp, so this test proves nothing", count(&w, windfall));
         assert_eq!(count(&w, provisions), half, "hand-placed food rotted away");
+    }
+
+    /// **The FALLEN FRUIT row flips natural windfall's rot live, both ways.**
+    /// The same damp trough as above, all windfall: with the row at STAYS it
+    /// holds every cell for 20,000 frames, and flipped back to ROTS mid-run
+    /// it rots -- which is the positive control that the trough is damp, and
+    /// the proof that a STAYS site was rescheduled rather than dropped (a
+    /// dropped site would never rot again).
+    #[test]
+    fn the_fallen_fruit_row_stops_windfall_rotting_and_starts_it_again() {
+        use crate::sim::cell::Cell;
+        use crate::sim::scheduler::{self, ActiveKind, ActiveSite};
+        use crate::sim::{decay, field, material};
+        let mut lab = Lab::new(scene::LabBox { founders: 0, colonies: 0, ..scene::LabBox::default() });
+        assert!(lab.world.windfall_rots && lab.spec.windfall_rots, "fallen fruit rots by default");
+        lab.act(ui::Action::ToggleWindfallRot);
+        assert!(!lab.world.windfall_rots && !lab.spec.windfall_rots, "the row reached neither the world nor the spec");
+        let mut w = World::new(crate::sim::chunk::Rect::new(0, 0, 199, 199));
+        w.windfall_rots = lab.world.windfall_rots;
+        let windfall = w.materials.id_of("windfall").expect("windfall");
+        const LEFT: i32 = 10;
+        const RIGHT: i32 = 190;
+        for x in LEFT..RIGHT {
+            w.set(x, 100, Cell::new(windfall, 0));
+            w.schedule_active_site(ActiveSite { x, y: 100, kind: ActiveKind::Decay, next_frame: decay::DECAY_TICK_INTERVAL });
+        }
+        w.set(LEFT - 1, 99, Cell::new(material::STONE, 0));
+        w.set(RIGHT, 99, Cell::new(material::STONE, 0));
+        for x in (LEFT + 2)..(RIGHT - 2) {
+            w.set(x, 99, Cell::new(material::WATER, 0));
+        }
+        let count = |w: &World| (LEFT..RIGHT).filter(|x| w.get(*x, 100).material == windfall).count();
+        let all = (RIGHT - LEFT) as usize;
+        let run_for = |w: &mut World, frames: u32| {
+            for _ in 0..frames {
+                w.begin_step();
+                field::step(w);
+                scheduler::step(w);
+                w.end_step();
+            }
+        };
+        run_for(&mut w, 20_000);
+        assert_eq!(count(&w), all, "fallen fruit rotted with the row at STAYS");
+        lab.act(ui::Action::ToggleWindfallRot);
+        w.windfall_rots = lab.world.windfall_rots;
+        run_for(&mut w, 20_000);
+        assert!(count(&w) < all / 4, "flipped back to ROTS, the fruit barely rotted ({} of {all} left)", count(&w));
+    }
+
+    /// **The PLANTS GROW row reaches the live clock and the spec**, and a
+    /// REBUILD keeps the choice rather than snapping back to half speed.
+    #[test]
+    fn the_plants_grow_row_moves_the_clock_and_survives_a_rebuild() {
+        let mut lab = Lab::new(scene::LabBox { founders: 0, colonies: 0, ..scene::LabBox::default() });
+        assert_eq!(lab.world.clock.growth_slowdown, 2, "the box opens at half speed");
+        lab.act(ui::Action::CyclePlantPace);
+        assert_eq!(lab.spec.plant_pace, pace::PlantPace::Quarter);
+        assert_eq!(lab.world.clock.growth_slowdown, 4, "the row did not reach the running box");
+        lab.world = lab.spec.build();
+        assert_eq!(lab.world.clock.growth_slowdown, 4, "a rebuild forgot the player's choice");
     }
 
     /// **And the colony eats it.** Food that never rots is only half the
