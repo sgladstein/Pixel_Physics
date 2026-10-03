@@ -3095,6 +3095,20 @@ type HeldKey = Option<(Option<(i32, i32, i32)>, u64)>;
 /// reason, as `grain` being in the tuple at all.
 type MagnifyKey = (MagnifyStyle, NotchRule, u32, u32, u32);
 
+/// **How far a root near a nest fades toward the soil**: 0 draws it as
+/// before, 1 makes it vanish. "Mostly transparent" (owner, 2026-10-03), with
+/// a trace left so a player can still see a plant is rooted there.
+pub const ROOT_FADE: f32 = 0.8;
+/// How far either side of a nest's centre, in columns, roots fade.
+pub const ROOT_FADE_REACH: i32 = 40;
+
+/// Is `(x, y)` underground within [`ROOT_FADE_REACH`] columns of a nest?
+/// Read off `World::nest_sites` -- a handful of entries -- so this is a short
+/// loop on the plant cells that reach it and nothing on any other cell.
+fn under_a_nest(world: &World, x: i32, y: i32) -> bool {
+    world.nest_sites.iter().any(|s| y > s.surface && (x - s.x).abs() <= ROOT_FADE_REACH)
+}
+
 pub struct Renderer {
     /// Per-cell plant bending stress, refilled once per `draw` and only
     /// while `OrganismOverlay::Stress` is selected.
@@ -3435,6 +3449,21 @@ pub struct Renderer {
     /// reason: every creature pixel in the buffer was painted in the old
     /// mode, and a switch dirties no chunk.
     last_creature_colour: CreatureColour,
+    /// **Roots near a nest draw mostly see-through** -- faded toward the
+    /// soil they grow in, so a plant over the colony does not hide its
+    /// tunnels. Owner, 2026-10-03: *"when plants are growing over a nest The
+    /// Roots should become mostly transparent so they kind of fade into the
+    /// background and don't visually block the ant nest."* Drawing only:
+    /// the cells, and every plant and ant rule that reads them, are
+    /// untouched. Off here; the lab turns it on. See [`ROOT_FADE`].
+    pub fade_roots: bool,
+    /// The soil material roots fade toward, looked up once per `draw` (never
+    /// per cell), and `None` while `fade_roots` is off or the world has no
+    /// soil -- which is what `cell_colour` tests.
+    root_fade_soil: Option<material::MaterialId>,
+    /// `(fade_roots, nest count)` as of the last `draw`: either changing
+    /// repaints every root near a nest with no chunk dirtied.
+    last_root_fade: (bool, usize),
     /// `organism_overlay` as of the last `draw` call. A change means every
     /// existing pixel in the buffer was tinted for a different channel, so
     /// one full redraw has to re-establish it — the same reason
@@ -3772,6 +3801,9 @@ impl Renderer {
             organism_overlay: OrganismOverlay::Off,
             creature_colour: CreatureColour::Off,
             last_creature_colour: CreatureColour::Off,
+            fade_roots: false,
+            root_fade_soil: None,
+            last_root_fade: (false, 0),
             last_organism_overlay: OrganismOverlay::Off,
             focus_lineage: None,
             last_focus_lineage: None,
@@ -4612,6 +4644,13 @@ impl Renderer {
         // ~150 creature cells and no chunk is dirtied by it.
         if self.last_creature_colour != self.creature_colour {
             self.last_creature_colour = self.creature_colour;
+            organism_overlay_changed = true;
+        }
+        // Root fade: same trigger, for a toggle or a new nest.
+        self.root_fade_soil = if self.fade_roots { world.materials.id_of("soil") } else { None };
+        let root_fade = (self.fade_roots, world.nest_sites.len());
+        if self.last_root_fade != root_fade {
+            self.last_root_fade = root_fade;
             organism_overlay_changed = true;
         }
 
@@ -7059,6 +7098,20 @@ impl Renderer {
         // Modulo keeps any shade value valid, so a palette can shrink on hot
         // reload in M3 without invalidating cells already in the world.
         let mut base = palette[cell.shade as usize % palette.len()];
+        // **A root near a nest fades into the soil** -- see `fade_roots`.
+        // Gated cheapest first: a plant-kind cell (every other cell stops at
+        // one compare), owned by an organism, under a nest's ground line and
+        // within its reach. Blended toward the soil's own shade at this
+        // position so the faded root still carries the soil's grain.
+        if let Some(soil) = self.root_fade_soil {
+            if mat.kind == material::MaterialKind::Plant && cell.organism_id() != 0 && under_a_nest(world, x, y) {
+                let soil_palette = &world.materials.get(soil).palette;
+                let under = soil_palette[(x.wrapping_mul(7) ^ y.wrapping_mul(13)).unsigned_abs() as usize % soil_palette.len()];
+                for (c, u) in base.iter_mut().take(3).zip(under) {
+                    *c = (*c as f32 + (u as f32 - *c as f32) * ROOT_FADE).round() as u8;
+                }
+            }
+        }
         // **A specialised gut wears its diet.** Gated in three widening
         // steps so the cost lands only on the cells it is about: an
         // `organism_id` bit test (every cell), a cell-type decode (organism

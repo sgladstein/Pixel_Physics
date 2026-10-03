@@ -475,6 +475,9 @@ impl Lab {
             // whose whole point is watching groups.
             let mut r = Renderer::new();
             r.creature_colour = crate::render::CreatureColour::Colony;
+            // Roots under a nest fade so the tunnels show (owner,
+            // 2026-10-03). Lab only: the outdoor game has no nest to show.
+            r.fade_roots = true;
             r
         };
         // **`Ui` does not hold the renderer**, so the ANTS page's per-group
