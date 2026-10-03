@@ -9504,8 +9504,8 @@ pub(crate) fn sap_flow(world: &mut World, organism_id: OrganismId) {
         }
         let share = 1.0 / m as f32;
         let (a, w, nu, f) = (ask[i] * share, soil_water[i] * share, soil_nutrient[i] * share, soil_faces[i] * share);
-        for k in 0..m as usize {
-            let j = at(i, nearer[i][k]);
+        for &n in &nearer[i][..m as usize] {
+            let j = at(i, n);
             ask[j] += a;
             soil_water[j] += w;
             soil_nutrient[j] += nu;
@@ -9570,8 +9570,8 @@ pub(crate) fn sap_flow(world: &mut World, organism_id: OrganismId) {
             continue;
         }
         let (mut a, mut b) = (0.0f32, 0.0f32);
-        for k in 0..m as usize {
-            let j = at(i, nearer[i][k]);
+        for &n in &nearer[i][..m as usize] {
+            let j = at(i, n);
             a += side[j].0;
             b += side[j].1;
         }
@@ -12118,6 +12118,19 @@ fn organism_upkeep(world: &mut World, organism_id: OrganismId) {
                 break;
             }
             if world.get(cx, cy).organism_id() != organism_id {
+                continue;
+            }
+            // **The simple-point test again, against the plant as it now
+            // stands.** Each candidate passed it alone, against the plant
+            // before this batch; a thick bare trunk is a whole row of cells
+            // that each pass alone, and taking the row together cuts the
+            // crown off. Measured 2026-10-03 with `sap_flow` on: six trunk
+            // cells at one height went in one batch and
+            // `shed_cut_off_tissue` then shed 811 of 892 cells of an uncut
+            // tree (`a_severed_crown_is_shed_and_an_intact_plant_is_not`'s
+            // intact arm). Re-asked per removal it is ordinary sequential
+            // thinning, which keeps the plant in one piece.
+            if removal_would_disconnect_a_neighbour(world, cx, cy, organism_id) {
                 continue;
             }
             shed_to_litter(world, cx, cy);
@@ -19975,7 +19988,7 @@ this costs more than the bug"
     #[test]
     fn a_severed_crown_is_shed_and_an_intact_plant_is_not() {
         /// -> (cells shed as cut off, cells the plant still owns)
-        fn run(cut: bool, load_failure: bool) -> (u64, usize) {
+        fn run(cut: bool, load_failure: bool, sap_flow: bool) -> (u64, usize) {
             let mut w = test_world();
             // **The lab's configuration, which is where the bug lives.**
             // With `plant_load_failure` on -- the shipped default, and the
@@ -19994,6 +20007,12 @@ this costs more than the bug"
             // generation 0, defence 0.0) -- a genuine cut-off, not a
             // traversal fault. The rule this guards is unchanged either way.
             w.plant_defence = false;
+            // **Sap flow off in the exact-zero arms, for the same reason**,
+            // and on in an arm of its own below. With it on, the far
+            // leaves dry first, and on 2026-10-03 drought shed a leaf that
+            // was the only link to a six-leaf spray beside the collar: a
+            // genuine cut-off, traced cell by cell, not a traversal fault.
+            w.sap_flow = sap_flow;
             plant_tree_on_ground(&mut w, 100, 60);
             let id = w.get(100, 60).organism_id();
             assert_ne!(id, 0, "test setup: the planted seed should own its cell");
@@ -20022,13 +20041,15 @@ this costs more than the bug"
             (w.plant_cut_off_cells_shed - before, w.organism(id).map_or(0, |s| s.cells.len()))
         }
 
-        let (intact_shed, intact_cells) = run(false, false);
-        let (cut_shed, cut_cells) = run(true, false);
-        let (felling_shed, felling_cells) = run(true, true);
+        let (intact_shed, intact_cells) = run(false, false, false);
+        let (cut_shed, cut_cells) = run(true, false, false);
+        let (felling_shed, felling_cells) = run(true, true, false);
+        let (sap_shed, sap_cells) = run(false, false, true);
         println!(
             "intact (no falling):  shed {intact_shed}, {intact_cells} cells left\n\
 cut    (no falling):  shed {cut_shed}, {cut_cells} cells left\n\
-cut    (falling on):  shed {felling_shed}, {felling_cells} cells left"
+cut    (falling on):  shed {felling_shed}, {felling_cells} cells left\n\
+intact (sap flow on): shed {sap_shed}, {sap_cells} cells left"
         );
 
         // **The specificity half.** Nothing severed anything, so this rule
@@ -20060,6 +20081,19 @@ is §W7 exactly: water_at resolves on organism_id with no connectivity check."
             "with COLLAPSE UNDER LOAD on, the crown is felling's to take and this rule shed {felling_shed} \
 cells out from under it. That is what broke acceptance's `fell` case: withering the crown away steals the \
 pieces the verb exists to produce."
+        );
+
+        // **An uncut tree under sap flow keeps its crown.** Not exact zero
+        // -- a drought-shed leaf can strand a spray, which this rule is right
+        // to drop -- but a spray, not the tree. The failure this catches is
+        // die-back taking a whole row of a bare trunk in one batch, each
+        // cell a simple point alone and the row together a cut: measured
+        // 420 of 844 cells shed from this arm before die-back re-asked the
+        // simple-point test per removal.
+        assert!(
+            sap_shed * 20 < sap_cells as u64,
+            "with sap flow on, an uncut tree shed {sap_shed} cells as cut off ({sap_cells} left). More than a \
+stranded spray: check die-back still re-asks `removal_would_disconnect_a_neighbour` at each removal."
         );
     }
 

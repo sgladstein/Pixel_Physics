@@ -518,6 +518,29 @@ fn main() {
     // player's own experience of pressing the RAIN key on an established
     // bed, not a bed that was already soaked in it.
     lab.spec.rain = rain;
+    // **`parch=1`** -- a hard drought as the window opens: soil dried to
+    // just above the wilting point and standing water removed (the same
+    // drought `labsap`'s `parch=` applies). Pair with `rain=off`.
+    if arg::<u32>("parch").unwrap_or(0) != 0 {
+        use pixel_physics::sim::material::{self, MaterialKind};
+        let (w, h) = (lab.spec.width, lab.spec.height);
+        for y in 0..h {
+            for x in 0..w {
+                let c = lab.world.get(x, y);
+                if c.organism_id() != 0 {
+                    continue;
+                }
+                match lab.world.materials.kind(c.material) {
+                    MaterialKind::Liquid if c.material == material::WATER => lab.world.set(x, y, pixel_physics::sim::cell::Cell::EMPTY),
+                    MaterialKind::Powder if lab.world.materials.get(c.material).water_capacity > 0 => {
+                        let held = pixel_physics::sim::update::soil_moisture(c);
+                        lab.world.set(x, y, c.with_aux(held.min(material::SOIL_WILTING_POINT + 60)));
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
     let water_before = soil_total(&lab);
     let rain_before = lab.world.rain_cells;
     println!("  at frame {start}: soil water {water_before}, rain cells so far {rain_before} (rain now armed at {})", rain.label());

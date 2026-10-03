@@ -18,6 +18,12 @@
 //! - `dry_from=`/`dry_for=` stop the mister for a spell (lane 17's
 //!   `labdefence` knob, same meaning).
 //! - `colony=0` runs the garden with no ants.
+//! - `parch=F` is a hard drought at frame `F`: every soil cell is dried to
+//!   just above the wilting point, standing water is removed, and the mister
+//!   stays off from then on. Built because a dry spell alone does nothing in
+//!   the lab: 90,000 rainless frames on a quarter of the usual soil left
+//!   plant-available water at 0.87 of full, because the lidded box gives
+//!   transpired water back as condensation (`weather::condense_under_a_lid`).
 //!
 //! One process is one arm: the switch is read from the environment when the
 //! world is built, and the header line echoes it so a stale arm cannot pass
@@ -45,6 +51,7 @@ fn main() {
     let with_colony = arg::<u32>("colony").unwrap_or(1) != 0;
     let dry_from: u64 = arg("dry_from").unwrap_or(u64::MAX);
     let dry_for: u64 = arg("dry_for").unwrap_or(0);
+    let parch_at: u64 = arg("parch").unwrap_or(u64::MAX);
     let mut sc = Scenario::load(&name).unwrap_or_else(|e| {
         eprintln!("scenario {name}: {e}");
         std::process::exit(2);
@@ -61,7 +68,7 @@ fn main() {
         world.clock.set_rates(0, |c| c.growth_slowdown = n);
     }
     println!(
-        "labsap: scenario={name} seed={} frames={frames} sample={sample} colony={} sap_flow={} growth_slowdown={} dry_from={dry_from} dry_for={dry_for}",
+        "labsap: scenario={name} seed={} frames={frames} sample={sample} colony={} sap_flow={} growth_slowdown={} dry_from={dry_from} dry_for={dry_for} parch={parch_at}",
         spec.seed,
         if with_colony { "on" } else { "OFF" },
         if world.sap_flow { "ON" } else { "off" },
@@ -84,9 +91,12 @@ fn main() {
             alive_at_end = ants;
             window = Instant::now();
         }
+        if f == parch_at {
+            parch(&mut world, (spec.width, spec.height));
+        }
         if f < frames {
             frame::step(&mut world, &mut particles, &mut blasts, player::PlayerInput::default(), &tuning);
-            if !(f >= dry_from && f < dry_from.saturating_add(dry_for)) {
+            if !(f >= dry_from && f < dry_from.saturating_add(dry_for)) && f < parch_at {
                 pixel_physics::lab::rain::tick(&mut world, &spec, rain);
             }
         }
@@ -100,6 +110,28 @@ fn main() {
         world.shed_shade,
         total_ms / frames.max(1) as f64,
     );
+}
+
+/// A hard drought: soil to just above the wilting point, standing water gone.
+pub fn parch(world: &mut World, (width, height): (i32, i32)) {
+    use pixel_physics::sim::cell::Cell;
+    use pixel_physics::sim::material;
+    for y in 0..height {
+        for x in 0..width {
+            let c = world.get(x, y);
+            if c.organism_id() != 0 {
+                continue;
+            }
+            match world.materials.kind(c.material) {
+                MaterialKind::Liquid if c.material == material::WATER => world.set(x, y, Cell::EMPTY),
+                MaterialKind::Powder if world.materials.get(c.material).water_capacity > 0 => {
+                    let held = update::soil_moisture(c);
+                    world.set(x, y, c.with_aux(held.min(material::SOIL_WILTING_POINT + 60)));
+                }
+                _ => {}
+            }
+        }
+    }
 }
 
 fn quantile(v: &mut [f32], q: f32) -> f32 {
