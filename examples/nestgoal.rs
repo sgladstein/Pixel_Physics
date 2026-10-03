@@ -223,6 +223,55 @@ fn separation(chambers: &[Chamber]) -> Option<f32> {
     Some(1.0 - overlap)
 }
 
+/// **Where the food goes** -- the `FLOW` line. Food lying underground near the
+/// nest (loose food, 80 columns either side of the nest and 80 rows down) is
+/// counted every frame; a rise is food arriving, a fall is food leaving
+/// (eaten, or carried out). Arrivals and departures in the same frame cancel,
+/// so both are lower bounds. Beside them, the engine's own counters over the
+/// interval: bites taken anywhere, crop drops and the share counted home,
+/// nest-worker store pick-ups, and harvest drops.
+#[derive(Default)]
+struct Flow {
+    last: Option<usize>,
+    arrived: u64,
+    left: u64,
+    prev: [u64; 6],
+}
+
+impl Flow {
+    fn step(&mut self, census: &Census, w: &World, nest_x: i32) {
+        let mut n = 0;
+        for y in census.ground_y + 1..census.ground_y + 80 {
+            for x in nest_x - 80..=nest_x + 80 {
+                if census.what(w, x, y) == What::Food {
+                    n += 1;
+                }
+            }
+        }
+        if let Some(l) = self.last {
+            if n > l {
+                self.arrived += (n - l) as u64;
+            } else {
+                self.left += (l - n) as u64;
+            }
+        }
+        self.last = Some(n);
+    }
+
+    fn report(&mut self, frame: u64, w: &World) {
+        let s = &w.creature_stats;
+        let now = [s.eats, s.drops, s.deliveries, s.store_pickups, s.store_delivered, s.harvest_stored];
+        let d: Vec<u64> = now.iter().zip(self.prev).map(|(a, b)| a - b).collect();
+        println!(
+            "FLOW frame={frame} underground food now {} | arrived {} left {} | bites {} | crop drops {} (home {}) | store pickups {} delivered {} | harvest stored {}",
+            self.last.unwrap_or(0), self.arrived, self.left, d[0], d[1], d[2], d[3], d[4], d[5]
+        );
+        self.prev = now;
+        self.arrived = 0;
+        self.left = 0;
+    }
+}
+
 fn report(frame: u64, census: &Census, w: &World, dropped: usize, food_x: i32) {
     let s = &w.creature_stats;
     // An egg, larva or pupa is an organism too; it is counted as brood, not as an ant.
@@ -417,6 +466,7 @@ fn main() {
     let census = Census { ground_y: lab.spec.ground_y, brood: lab.world.materials.id_of("brood") };
     let mut food_x: Option<i32> = None;
     let mut dropped = 0usize;
+    let mut flow = Flow::default();
     for f in 0..=frames {
         if food_x.is_none() {
             // The spot is fixed once the colony has founded: 30 columns east
@@ -430,8 +480,10 @@ fn main() {
             if f % TOP_EVERY == 0 {
                 dropped += top_up(&census, &mut lab.world, x, target);
             }
+            flow.step(&census, &lab.world, x - 30);
             if f % every == 0 && f > 0 {
                 report(f, &census, &lab.world, dropped, x);
+                flow.report(f, &lab.world);
                 if let Some(dir) = &shots {
                     let centre = lab.world.nest_sites.first().map_or((x, census.ground_y), |s| (s.x + 10, census.ground_y + 12));
                     shot(&mut lab, dir, f, centre);
