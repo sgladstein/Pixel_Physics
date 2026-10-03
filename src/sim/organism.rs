@@ -6317,6 +6317,12 @@ pub struct OrganismState {
     /// booking. Under `PIXEL_PHYSICS_TRIP_REACH` a pickup must also be far
     /// from every door, or living tissue (`creature::trip_source`).
     pub trip_load: bool,
+    /// **The frame this ant was last in a fight, while it is walking home to
+    /// recruit** (`creature::call_to_fight`, `PIXEL_PHYSICS_FIGHT_RECRUIT`):
+    /// 0 when it is not. While set, an empty ant is pulled home and lays the
+    /// food trail as it goes, so the door reader sends nestmates back along
+    /// it. Cleared at the nest or after `creature::RECRUIT_WINDOW` frames.
+    pub recruit_since: u64,
     /// **Where this crop's marking pickups were taken**, as
     /// `creature::TRIP_SRC_*` bits OR-ed over every pickup that passed the
     /// roam gate; cleared with `trip_load` at the first put-down at home. It

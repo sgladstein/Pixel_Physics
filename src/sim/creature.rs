@@ -7602,7 +7602,11 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
         // exactly, so off is the ant before it): only a load from a trip lays
         // food scent (`FoodTrail::lay`). The cost below prices what is laid.
         let emit_b_brain = outputs[brain::BrainOutput::EmitB as usize].clamp(0.0, 1.0);
-        let emit_b = emit_b_brain * food_trail_lay(world, organism);
+        let mut emit_b = emit_b_brain * food_trail_lay(world, organism);
+        // A recruiter lays the trail back to its fight ([`call_to_fight`]).
+        if world.organism(organism).is_some_and(|s| recruiting(world, def, s)) {
+            emit_b = emit_b.max(RECRUIT_LAY);
+        }
         // **Where the mark goes: the head it arrived on, or the cell it just
         // left.** `PIXEL_PHYSICS_DEPOSIT_AT=vacated` is a measurement switch
         // for `open-bugs-handoff.md` §Z29, and it defaults to the shipped
@@ -13972,6 +13976,9 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
             if commits && damage > 0.0 && victim != 0 {
                 // Being bitten is being bitten, whichever verb did it.
                 cry_alarm(world, tx, ty);
+                if is_animal {
+                    call_to_fight(world, organism, victim);
+                }
                 world.creature_stats.alarm_attack += 1;
                 world.creature_stats.attacks += 1;
                 // **The near side of the §Z23 pair**, taken here rather than
@@ -14267,6 +14274,7 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
                     if is_animal_cell(world, bitten) {
                         world.creature_stats.alarm_eat_animal += 1;
                         cry_alarm(world, fxx, fyy);
+                        call_to_fight(world, organism, victim);
                     } else {
                         world.creature_stats.alarm_eat_plant += 1;
                         if plant_is_a_foe() {
@@ -14322,6 +14330,7 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
                 if is_animal_cell(world, bitten) {
                     world.creature_stats.alarm_eat_animal += 1;
                     cry_alarm(world, fxx, fyy);
+                    call_to_fight(world, organism, bitten.organism_id());
                 } else {
                     world.creature_stats.alarm_eat_plant += 1;
                     if plant_is_a_foe() {
@@ -17460,6 +17469,56 @@ pub const FIGHT_RECRUIT_ON: f32 = 3.0;
 /// What an unset environment gets. Off until measured.
 const FIGHT_RECRUIT_DEFAULT: f32 = 0.0;
 
+/// **How long a recruiter walks home laying trail before it gives up**, in
+/// frames. A recruiter whose way home is shut does not lay a trail for ever.
+pub const RECRUIT_WINDOW: u64 = 4000;
+
+/// **What a recruiter lays on trail B**, of a full deposit per step: the rate
+/// the shipped genome gives a forager with food in its crop (§7, `EmitB`
+/// 0.714), so the trail to a fight reads exactly as the trail to food does.
+const RECRUIT_LAY: f32 = 0.714;
+
+/// **Recruitment to a fight, second half: a fight sends its animals home to
+/// call nestmates** (`PIXEL_PHYSICS_FIGHT_RECRUIT`, the same switch as
+/// [`fight_recruit_of`]). Called at every bite one animal lands on another;
+/// both are marked (`OrganismState::recruit_since`) unless already marked.
+/// A marked ant of a brood-keeping species carrying no spoil is pulled home
+/// ([`home_pull`]) and lays trail B at [`RECRUIT_LAY`] on the way, so the
+/// nest's door reader (`door_read`) and the outbound trail walk send empty
+/// ants back along it toward the fight, where the alarm gradient takes them
+/// the last few cells. Fire ants recruit to enemies with the same trail
+/// pheromone they recruit to food with (Wilson 1962), which is why this
+/// reuses trail B rather than adding a plane.
+///
+/// **Why the first half was not enough** (12 two-colony and 6 three-colony
+/// lab beds, 120k frames, 2026-10-03): the alarm's active space is about six
+/// cells, so with only the gradient term 0-684 steps per bed went toward a
+/// fight and the share of kills made by two or more ants did not move
+/// (16% -> 17%, 32% -> 27%).
+fn call_to_fight(world: &mut World, a: OrganismId, b: OrganismId) {
+    if fight_recruit_of(world) <= 0.0 {
+        return;
+    }
+    let now = world.frame.max(1);
+    for id in [a, b] {
+        if let Some(s) = world.organism_mut(id) {
+            if s.recruit_since == 0 {
+                s.recruit_since = now;
+                world.creature_stats.recruit_calls += 1;
+            }
+        }
+    }
+}
+
+/// Whether this animal is walking home to recruit: marked, inside the
+/// window, of a brood-keeping species, and hauling no spoil.
+fn recruiting(world: &World, def: &CreatureDef, state: &crate::sim::organism::OrganismState) -> bool {
+    state.recruit_since != 0
+        && def.brood.is_some()
+        && state.spoil.is_none()
+        && world.frame < state.recruit_since + RECRUIT_WINDOW
+}
+
 /// **How much louder the alarm is along `d` than here**, 0..1: the larger of
 /// the next cell and the one beyond, less the alarm under the head, over two
 /// cells of falloff. See [`fight_recruit_of`].
@@ -18818,6 +18877,11 @@ fn home_pull(world: &World, organism: OrganismId, def: &CreatureDef, head: (i32,
     if def.home_bias > 0.0 && ready_to_lay(world, def, state) && !nest_within_reach(world, organism, head.0, head.1, def) {
         return Some((home_target(world, state), def.home_bias));
     }
+    // **A recruiter walks home from a fight** ([`call_to_fight`]), as a
+    // laden ant does, until it is beside the nest.
+    if def.home_bias > 0.0 && recruiting(world, def, state) && !nest_within_reach(world, organism, head.0, head.1, def) {
+        return Some((home_target(world, state), def.home_bias));
+    }
     // **A fed nest-bound ant that strays is pulled home** ([`is_nest_bound`]),
     // as a laden ant is, to where it last stood beside the nest.
     if def.home_bias > 0.0
@@ -19027,6 +19091,17 @@ fn chooser_step(
         if arrived || gave_up || target.is_none() {
             if let Some(s) = world.organism_mut(organism) {
                 s.dig_return = None;
+            }
+        }
+    }
+    // **A recruiter's walk ends** ([`call_to_fight`]) beside the nest, or
+    // when its window runs out.
+    if let Some(since) = world.organism(organism).map(|s| s.recruit_since).filter(|&t| t != 0) {
+        let home = nest_within_reach(world, organism, hx, hy, def);
+        if home || world.frame >= since + RECRUIT_WINDOW {
+            world.creature_stats.recruit_homes += u64::from(home);
+            if let Some(s) = world.organism_mut(organism) {
+                s.recruit_since = 0;
             }
         }
     }
@@ -32575,6 +32650,58 @@ mod tests {
         assert_eq!(off_steps, 0, "with the gain at 0 no step may count as recruited");
         assert!(on_steps > 0, "with recruiting on no step went up the alarm");
         assert!(off_near * 4 < on_near && on_near >= 300, "with recruiting on the ant should go to the alarm and stay: frames within 2 cells of it, {on_near} on against {off_near} off");
+    }
+
+    /// **A recruiter walks home from a fight laying the food trail; an ant
+    /// that was not in one does neither** (`call_to_fight`). A bare floor,
+    /// home 80 cells west, a fed empty ant facing east. Marked as fresh from a
+    /// fight, it must come at least 20 cells home (measured 27, against 27
+    /// away unmarked) and leave trail B behind it;
+    /// unmarked, the same ant is the control and must lay no trail B at all
+    /// (an empty ant's genome lays none). **Watched red** with the home pull's
+    /// recruiter branch removed (it does not come home) and with the lay
+    /// floor removed (no trail).
+    #[test]
+    fn a_recruiter_walks_home_from_a_fight_laying_trail_and_an_unmarked_ant_does_not() {
+        let walk = |marked: bool| -> (i32, u32) {
+            let stone = Cell::new(material::STONE, 0).with_attached(true);
+            let mut w = World::new(Rect::new(0, 0, 159, 63));
+            for x in 0..160 {
+                for y in 41..64 {
+                    w.set(x, y, stone);
+                }
+            }
+            for y in 0..41 {
+                for x in [0, 159] {
+                    w.set(x, y, stone);
+                }
+            }
+            w.chooser = Some(Chooser::TrailAway);
+            w.fight_recruit = Some(FIGHT_RECRUIT_ON);
+            let ant = spawn(&mut w, "ant", 100, 40);
+            let fed = w.species.get(w.organism(ant).expect("live").species).creature.as_ref().expect("a creature").start_energy;
+            let start = w.organism(ant).expect("live").chain[0].0;
+            {
+                let st = w.organism_mut(ant).expect("live");
+                st.heading = 0;
+                st.forage_anchor = (20, 40);
+                if marked {
+                    st.recruit_since = 1;
+                }
+            }
+            for _ in 0..900 {
+                w.organism_mut(ant).expect("live").energy = fed;
+                run(&mut w, 1);
+            }
+            let end = w.organism(ant).expect("live").chain[0].0;
+            let trail: u32 = (21..150).map(|x| u32::from(w.pheromone_at(Channel::B, x, 40))).sum();
+            (start - end, trail)
+        };
+        let (home_net, home_trail) = walk(true);
+        let (still_net, still_trail) = walk(false);
+        assert_eq!(still_trail, 0, "an empty ant that was in no fight laid trail B: the control is not a control");
+        assert!(home_net >= 20 && home_net >= still_net + 30, "a recruiter should walk home, and came {home_net} cells (unmarked: {still_net})");
+        assert!(home_trail > 0, "a recruiter laid no trail B on its way home");
     }
 
     /// **Scouting: off any route, a hungry empty ant runs out from home and,

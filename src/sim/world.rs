@@ -2554,6 +2554,12 @@ pub struct CreatureStats {
     /// a box where nothing has been bitten -- the "did it fire" counter for
     /// recruitment to a fight.
     pub recruit_steps: u64,
+    /// **Ants set walking home to recruit by a fight** (`creature::
+    /// call_to_fight`): one per animal per bite between two animals while
+    /// recruiting is on and the animal was not already recruiting.
+    pub recruit_calls: u64,
+    /// **Recruiters that reached their nest** before the window ran out.
+    pub recruit_homes: u64,
     /// **Severing events**: a creature that lost a body cell and came apart
     /// at it, rather than merely shortening.
     ///
@@ -7564,6 +7570,7 @@ impl World {
             nest_bound_until: 0,
             lunch: false,
             trip_load: false,
+            recruit_since: 0,
             trip_src: 0,
             since_trip: 0,
             eat_lunch_now: false,
