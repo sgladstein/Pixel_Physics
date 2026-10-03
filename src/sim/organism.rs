@@ -6121,9 +6121,13 @@ pub struct OrganismState {
     /// one" needs no rule of its own -- it is what the arithmetic already
     /// does.
     ///
-    /// It does not heal. That is a decision rather than an oversight: a
-    /// regenerating animal would make swarming a race against a clock and
-    /// give the result a threshold again, which is the shape this replaced.
+    /// It heals, slowly, since 2026-10-03 (`creature::wound_heal_frames`;
+    /// `PIXEL_PHYSICS_WOUND_HEAL=off` restores permanent wounds). It was
+    /// permanent first, on the worry that a regenerating animal makes
+    /// swarming a race against a clock; the mend is thousands of frames per
+    /// cell, far slower than any fight, so a swarm's arithmetic stands and
+    /// only damage carried between separate fights goes. Permanent wounds
+    /// were why no beetle population lasted beside a colony.
     pub gnawed: f32,
     /// **The frame this animal last gave or received a share of
     /// trophallaxis** (`brain::BrainOutput::Share`), `0` for never. Written
