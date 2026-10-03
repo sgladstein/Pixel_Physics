@@ -6588,18 +6588,18 @@ pub struct OrganismState {
     /// page, for the one individual a player is actually looking at.
     ///
     /// High byte -- which channel changed:
-    /// - `0..=19` -- a `CREATURE_TRAITS` slot; low byte is the signed change
+    /// - `0..CREATURE_TRAITS` -- a `CREATURE_TRAITS` slot; low byte is the signed change
     ///   as a percentage of that trait's `-1..=1` axis (e.g. `+12` is 12% of
     ///   the axis, not 12% of the old value, which would be meaningless near
     ///   zero), stored as an `i8`'s bit pattern.
-    /// - `23` (`BORN_WITH_SYNAPSES`) -- no trait moved but synapses did; low byte is how many,
+    /// - `BORN_WITH_SYNAPSES` -- no trait moved but synapses did; low byte is how many,
     ///   saturating at 255 (`brain::mutate`'s own return, otherwise
     ///   discarded).
-    /// - `20` -- a discrete allele jumped; low byte is the locus index
+    /// - `BORN_WITH_LOCUS` -- a discrete allele jumped; low byte is the locus index
     ///   (`DISCRETE_LOCI`).
-    /// - `21` -- the production rule mutated; low byte is the `FateOp`
+    /// - `BORN_WITH_RULE` -- the production rule mutated; low byte is the `FateOp`
     ///   discriminant (`FateOp::ALL`'s index).
-    /// - `22` -- a parameter was overridden; low byte is unused (the
+    /// - `BORN_WITH_PARAM` -- a parameter was overridden; low byte is unused (the
     ///   specific override is already on `params.overrides()`, which the
     ///   CELL page reads directly -- this only flags that one exists).
     ///
@@ -7043,7 +7043,7 @@ pub const GENOTYPE_TRAITS: usize = 10;
 /// strictly weaker one, which is `CLAUDE.md`'s *when several knobs move the
 /// same number, check what each one trades*: this one trades nothing the
 /// weight does not already trade.
-pub const CREATURE_TRAITS: usize = 20;
+pub const CREATURE_TRAITS: usize = 26;
 
 /// Slot 0 of `CREATURE_TRAITS`: **diet as one heritable number**, `-1`
 /// (plant matter) to `+1` (flesh), scored against `MaterialDef::food_class`
@@ -7419,15 +7419,85 @@ pub const TRAIT_PATIENCE: usize = 18;
 /// Slot 19: how hard the door reader turns an empty ant to the side the
 /// returning trail is on (`FoodTrail::gain`, `FOOD_TRAIL_GAIN`).
 pub const TRAIT_DOOR_READ: usize = 19;
-/// The walk slots, in order -- see `TRAIT_HOME_PULL`.
-pub const WALK_SLOTS: [usize; 6] = [TRAIT_HOME_PULL, TRAIT_TRAIL_HOLD, TRAIT_ROUTE_AWAY, TRAIT_SCOUT, TRAIT_PATIENCE, TRAIT_DOOR_READ];
+/// The walk's six gains, in order -- see `TRAIT_HOME_PULL`.
+pub const WALK_GAIN_SLOTS: [usize; 6] = [TRAIT_HOME_PULL, TRAIT_TRAIL_HOLD, TRAIT_ROUTE_AWAY, TRAIT_SCOUT, TRAIT_PATIENCE, TRAIT_DOOR_READ];
 
-/// `OrganismState::born_with`'s channel for "no trait moved, synapses did".
-/// **Was 14 until the walk slots took 14-19** (2026-10-03); moved past the
-/// plant channels (20-22) so a trait slot and a sentinel can never share a
-/// byte again however far `CREATURE_TRAITS` grows below 20. A readout only:
-/// nothing in the simulation reads `born_with`.
-pub const BORN_WITH_SYNAPSES: u16 = 23;
+/// **Slots 20-23: which trail an ant follows, as genes** -- how much of
+/// each plane's presence a laden and an empty ant read as "a route"
+/// (`creature::trail_presence`). Before these, Rust hard-wired it: laden
+/// reads trail A, empty reads trail B, which contradicted the planes'
+/// own design note that they are symmetric and their meaning lives in the
+/// wiring (engine review, `A-ant-behaviour.md` row 33).
+///
+/// **Additive on an authored base**: the weight is `base + allele`, base
+/// 1.0 on the plane the code used to pick (laden A, empty B) and 0.0 on the
+/// other, so allele 0 is the hard-coded choice exactly -- `1 * a + 0 * b`
+/// is `a` to the bit -- and a lineage can lean an empty ant onto trail A,
+/// or a laden one onto B, or away from a plane altogether (a negative
+/// weight; the summed route is floored at 0). Width 0 on every species, as
+/// the gains.
+///
+/// **Genes, not brain outputs, and that is a deliberate first step.** A
+/// pair of brain outputs could condition the choice on anything the brain
+/// senses, but adding outputs grows the live genome and re-derives every
+/// birth's mutation stream, and the laying lane is adding the Lay output to
+/// the same block at the same time. These four are byte-identical at 0 and
+/// already reachable by selection; an output pair can replace them later.
+pub const TRAIT_LADEN_A: usize = 20;
+/// Slot 21: how much a laden ant reads trail B (base 0).
+pub const TRAIT_LADEN_B: usize = 21;
+/// Slot 22: how much an empty ant reads trail A (base 0).
+pub const TRAIT_EMPTY_A: usize = 22;
+/// Slot 23: how much an empty ant reads trail B (base 1).
+pub const TRAIT_EMPTY_B: usize = 23;
+/// The trail-plane slots -- see `TRAIT_LADEN_A`.
+pub const TRAIL_PLANE_SLOTS: [usize; 4] = [TRAIT_LADEN_A, TRAIT_LADEN_B, TRAIT_EMPTY_A, TRAIT_EMPTY_B];
+/// **Every walk slot**, gains and planes -- what ships at width 0 and has its
+/// own page in the lab.
+pub const WALK_SLOTS: [usize; 10] = [
+    TRAIT_HOME_PULL, TRAIT_TRAIL_HOLD, TRAIT_ROUTE_AWAY, TRAIT_SCOUT, TRAIT_PATIENCE, TRAIT_DOOR_READ,
+    TRAIT_LADEN_A, TRAIT_LADEN_B, TRAIT_EMPTY_A, TRAIT_EMPTY_B,
+];
+
+/// **Slots 24-25: how an ant keeps its nest's door**, the two rules that
+/// keep the founding door open in the evolution lab, as genes rather than
+/// constants (owner ruling 2026-10-03 on code the genes cannot reach).
+///
+/// Slot 24: **how far round the door an ant will not put food down**
+/// (`creature::door_clear_of`), on the walk genes' reciprocal axis:
+/// `DOOR_CLEAR_CELLS` (6) times 2 at `+1` and times 0.5 at `-1`, exactly 6
+/// at 0.
+///
+/// Same terms as the walk genes: allele 0 on every species, mutation width
+/// 0, and no developmental weight (`brain::DEV_TRAITS`), so nothing drifts
+/// until a measurement says letting it is safe. Unlike them, allele 0 is not
+/// the old ant -- it is the shipped door rule, which the old ant did not
+/// have; `PIXEL_PHYSICS_FOOD_DOOR=off` and `PIXEL_PHYSICS_DOOR_REOPEN=off`
+/// are the old ant.
+pub const TRAIT_DOOR_CLEAR: usize = 24;
+/// Slot 25: **how much the heap cue still holds an ant back from re-opening
+/// a nest's own door** (`creature::door_cue_weight`). The cue
+/// (`creature::SpoilCue`) is for where a *new* mouth starts; at 0 it does
+/// not apply inside a founding cut at all, at 1 it applies there as on any
+/// bare ground (the ant before 2026-10-03). Clamped to that range, so a
+/// negative allele reads as 0.
+pub const TRAIT_DOOR_CUE: usize = 25;
+/// The door slots -- see `TRAIT_DOOR_CLEAR`.
+pub const DOOR_SLOTS: [usize; 2] = [TRAIT_DOOR_CLEAR, TRAIT_DOOR_CUE];
+
+/// `OrganismState::born_with`'s channels that are not a trait slot.
+/// **Were 14 (synapses) and 20-22 (plant) until the walk slots took 14-23**
+/// (2026-10-03); moved to the top of the byte so a trait slot and a sentinel
+/// can never share one again while `CREATURE_TRAITS` stays under 0xF0. A
+/// readout only: nothing in the simulation reads `born_with`.
+pub const BORN_WITH_SYNAPSES: u16 = 0xF0;
+/// A plant's discrete allele jumped; low byte is the locus.
+pub const BORN_WITH_LOCUS: u16 = 0xF1;
+/// A plant's production rule mutated; low byte is the `FateOp` index.
+pub const BORN_WITH_RULE: u16 = 0xF2;
+/// A plant's parameter was overridden.
+pub const BORN_WITH_PARAM: u16 = 0xF3;
+const _: () = assert!(CREATURE_TRAITS < BORN_WITH_SYNAPSES as usize);
 
 /// The ancestral trait vector for a species file that authors no `traits`
 /// line at all.
@@ -9684,6 +9754,12 @@ mod tests {
                 if WALK_SLOTS.contains(&slot) {
                     assert_eq!(def.trait_variance[slot], 0.0, "{name}.ron's walk gene {slot} drifts; turning a walk gene's width on is a measured step, not a tuple edit");
                     assert_eq!(def.traits[slot], 0.0, "{name}.ron's walk gene {slot} is off its ancestral 0 -- the walk is no longer the shipped one");
+                    continue;
+                }
+                // The door genes ship on the walk genes' terms (`TRAIT_DOOR_CLEAR`).
+                if DOOR_SLOTS.contains(&slot) {
+                    assert_eq!(def.trait_variance[slot], 0.0, "{name}.ron's door gene {slot} drifts; turning a door gene's width on is a measured step, not a tuple edit");
+                    assert_eq!(def.traits[slot], 0.0, "{name}.ron's door gene {slot} is off its ancestral 0 -- the door rule is no longer the shipped one");
                     continue;
                 }
                 if SCENT_SIDE_SLOTS.contains(&slot) {

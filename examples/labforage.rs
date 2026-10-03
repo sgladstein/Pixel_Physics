@@ -1320,7 +1320,14 @@ fn mark_visited(world: &World, visited: &mut [bool], heat: &mut [u32], width: i3
     }
 }
 
+// Runs on the rayon pool so each tick's parallel passes dispatch without a
+// cross-thread wake: ~16% of a lab run, byte-identical output. See
+// `pixel_physics::sim::parallel::on_pool`.
 fn main() {
+    pixel_physics::sim::parallel::harness_main(harness);
+}
+
+fn harness() {
     let control: String = arg("control").unwrap_or_else(|| "run".to_string());
     let frames: u64 = arg("frames").unwrap_or(300_000);
     let sample_every: u64 = arg("sample").unwrap_or(900);

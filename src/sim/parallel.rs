@@ -92,6 +92,54 @@ use super::surface::CellSurface;
 use super::update;
 use super::world::World;
 
+/// Run `f` on a thread of the current rayon pool, so that every `par_iter`
+/// the simulation makes inside it is dispatched *from* a worker rather than
+/// injected from outside the pool.
+///
+/// **Why it matters, measured.** A `par_iter` called from a thread that is
+/// not a pool worker goes through rayon's cold path: the job is queued on
+/// the pool and the caller blocks on a futex until a worker wakes and takes
+/// it. The tick makes several such dispatches (the four CA passes, the
+/// field, ...), and in the evolution lab each one carries little work, so
+/// the wake-and-sleep round trip is a real share of the frame: `perf` on
+/// `labforage scenario=played_bed seed=1`, single-threaded, put ~6% of all
+/// samples in the kernel's futex wake/schedule path, and running the same
+/// harness through this took 20,000 frames from 50 s to 42 s (2026-10-03,
+/// paired runs, byte-identical output). From inside a worker the same call
+/// runs inline or is stolen, with no cross-thread wake.
+///
+/// Behaviour cannot change: the sweep is already deterministic across
+/// thread counts (`labforage` output is identical at `RAYON_NUM_THREADS=1`
+/// and at the default), and this changes only which thread starts each
+/// dispatch. Already on a worker, `f` simply runs.
+///
+/// One cost to know about: `f` runs on a rayon worker's stack, which is
+/// rayon's default (2 MiB) unless the pool was built otherwise -- see
+/// [`init_pool_for_main`], which a binary or harness calls first.
+pub fn on_pool<R: Send>(f: impl FnOnce() -> R + Send) -> R {
+    if rayon::current_thread_index().is_some() {
+        return f();
+    }
+    rayon::scope(|_| f())
+}
+
+/// Build the global rayon pool with main-thread-sized stacks (8 MiB), for a
+/// binary that will run its serial simulation work through [`on_pool`].
+/// The serial half of the tick has always run on a main thread's 8 MiB, so
+/// this keeps that headroom rather than relying on the 2 MiB a worker gets
+/// by default. Honours `RAYON_NUM_THREADS` as the default pool does. A pool
+/// that already exists is left as it is (`build_global` fails harmlessly).
+pub fn init_pool_for_main() {
+    let _ = rayon::ThreadPoolBuilder::new().stack_size(8 << 20).build_global();
+}
+
+/// [`init_pool_for_main`] then [`on_pool`]: the whole `main` of a headless
+/// harness, run where its ticks dispatch cheaply.
+pub fn harness_main(f: impl FnOnce() + Send) {
+    init_pool_for_main();
+    on_pool(f);
+}
+
 /// Advance the CA sweep exactly like `update::step`, but with each of the
 /// four checkerboard passes run across chunks in parallel. Produces the same
 /// *kind* of outcome as the serial sweep — piles settle, liquids level, fire

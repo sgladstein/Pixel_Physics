@@ -116,7 +116,11 @@ will be.
   carry's latch at the door (`carry_stage`, `ring_target`,
   `spoil_ring_let_go`). §9 and §12 on 2026-10-03 for the brood pile
   (`brood::pile_site`, `egg_pile_reach`, `creature::home_at`), and §12
-  for the anchor re-aim switch (`home_reaim`).
+  for the anchor re-aim switch (`home_reaim`). §5 steps 4 and 6 and §12 on
+  2026-10-03 for the door rules (`food_door_of`, `door_clear_of`,
+  `in_doorway`, `food_drop_site`, `door_reopen_of`, `door_cue_weight`, the
+  heap cue's call in `act`), and §15's `free8` against
+  `note_drop_surroundings`.
   Update this line whenever a section is re-checked against the code.
 - **Edit it in place. Never append history.** When you change a mechanism
   described here, update the section in the same commit. When you find this
@@ -356,7 +360,18 @@ the tick: the ant still gets its move roll (§6) afterwards.
      its food back along its body or through the crowd;
    - if even that finds nothing, nothing happens: the roll is spent.
 
-   `PIXEL_PHYSICS_DROP_REACH=adjacent` turns the second rule off.
+   `PIXEL_PHYSICS_DROP_REACH=adjacent` turns the second rule off. **Neither
+   rule counts a cell in a nest's door as empty** (the food-door rule, on
+   since 2026-10-03; `PIXEL_PHYSICS_FOOD_DOOR=off` removes it): a cell within
+   the door clearance of any colony's founding shaft -- that many columns
+   either side of it, from that many rows above its mouth down to its foot --
+   is skipped (`in_doorway`); the chamber under the foot and a side room are
+   not door, and take food. A nest worker piling food (`store_drop`) asks
+   the same search, with the same test. The clearance is 6 cells at the shipped allele and is a
+   gene (`TRAIT_DOOR_CLEAR`, slot 24, on the reciprocal axis: allele +1
+   doubles it, -1 halves it; `door_clear_of`). So a fed ant at the door
+   walks its food out past the clearance, or hands it through the crowd,
+   before putting it down.
 
    The drop is
    not gated on being at the nest, but `Drop` is 0 elsewhere, and **at the
@@ -432,7 +447,13 @@ the tick: the ant still gets its move roll (§6) afterwards.
    head and cuts below itself (`spoil_cue_factor`, `open_to_the_sky`). So a
    tunnel's digger, and one on the floor of a wide room, dig freely until a
    cut would open the sky, while an ant in open ground under a roof meets
-   the cue when it cuts level or up. It must not be empty, a creature or
+   the cue when it cuts level or up. **A cut into a nest's own founding cut
+   meets only part of the cue** (the door-reopen rule, on since 2026-10-03;
+   `PIXEL_PHYSICS_DOOR_REOPEN=off` removes it): the cue's chance `f` becomes
+   `1 - w(1 - f)`, `w` the ant's `TRAIT_DOOR_CUE` gene (slot 25) clamped to
+   0..1, and 0 at the shipped allele, so a door that loose soil, grass or
+   water has plugged is dug open again as if it were a tunnel
+   (`door_cue_weight`). At `w` 1 the cue holds there as everywhere else. It must not be empty, a creature or
    plant cell, or a live seed, and needs `penetration_resistance ≤
    dig_force` (1.0) (`jaw_can_cut`). Soil, lining and spoil pass, and so do powder foods and
    litter such as crumbs; sand and the nest's own material do not. The cell
@@ -530,7 +551,7 @@ is built in layers, and the ant walks all of them: items 1–5 below (`on`),
 plus the trail terms (`trail`), plus the away term (`trailaway`).
 
 **Every gain below is the ant's own, inherited** (since 2026-10-03). Six
-`CREATURE_TRAITS` slots, `organism::WALK_SLOTS` (14–19), each a factor on
+`CREATURE_TRAITS` slots, `organism::WALK_GAIN_SLOTS` (14–19), each a factor on
 one constant through `walk_gain` on the reciprocal axis (+1 twice, −1 half,
 0 exactly 1.0): `TRAIT_HOME_PULL` on `HOME_GAIN`, `TRAIT_TRAIL_HOLD` on
 `TRAIL_GAIN`, `TRAIT_ROUTE_AWAY` on `AWAY_GAIN`, `TRAIT_SCOUT` on the
@@ -540,7 +561,11 @@ halves it). **They ship at allele 0 and mutation width 0 on every species**,
 so the walk is bit-for-bit the constants until a measurement turns the width
 on, and they have no developmental weight (`brain::DEV_TRAITS` stays 14,
 because a live dev slot is drawn by every birth's mutation). The constants
-named below are the ancestral values.
+named below are the ancestral values. **Which trail is a route is
+inherited too**: four more slots (`TRAIL_PLANE_SLOTS`, 20–23) weight each
+plane's presence for a laden and an empty ant, base 1 on the plane the code
+used to pick and 0 on the other (`trail_planes`), so allele 0 is laden-reads-A,
+empty-reads-B exactly.
 
 1. **Every decision, before any roll:** the support check and possible fall
    (§2). A fall is not a move: it lays no trail and costs no step.
@@ -582,7 +607,9 @@ named below are the ancestral values.
   reads the scent in the cell the head would enter and the one beyond it,
   takes the larger, and saturates it as `x / (1 + x)` over `TRAIL_HALF` (a
   tenth of one full deposit). Trail B for an ant carrying no food, trail A
-  for one that is. The heading's turn score is multiplied by
+  for one that is, at the ancestral alleles: the reading is each plane's
+  presence times the ant's inherited weight for it, summed and floored at 0
+  (`trail_planes`), and a zero-weight plane is not read. The heading's turn score is multiplied by
   `1 + TRAIL_GAIN × presence` (`TRAIL_GAIN` 3), so a heading onto a full
   route scores up to 4 times its turn alone, and turning round still scores
   0. Presence has no direction: both ways along a route score the same.
@@ -1082,6 +1109,8 @@ Read once per process from the environment. The default is what ships.
 | `PIXEL_PHYSICS_BURROW_LINING` | on | `off`: no `packedsoil` lining |
 | `PIXEL_PHYSICS_SPOIL_PACKS` | off | `on`: the lining packs spoil into wall too, so an undermined heap can hang (§5) |
 | `PIXEL_PHYSICS_SPOIL_FOOTING` | filled | `ground`: a pellet is put down only where the cell beneath is ground, never on an animal or over a hole (§5) |
+| `PIXEL_PHYSICS_FOOD_DOOR` | `on` | `off`: food may be put down in a nest's door, the ant before 2026-10-03. On: no food drop counts a cell within the door clearance of a founding shaft (6 cells at the shipped allele of `TRAIT_DOOR_CLEAR`, from that many rows over the mouth down to the foot) as room; the chamber and side room still take food (§5 step 4; `World::food_door` for one world) |
+| `PIXEL_PHYSICS_DOOR_REOPEN` | `on` | `off`: the heap cue holds at a plugged door as everywhere else, the ant before 2026-10-03. On: a cut into a founding cut meets the cue only to the ant's `TRAIT_DOOR_CUE` weight, 0 at the shipped allele (§5 step 6; `World::door_reopen` for one world) |
 | `PIXEL_PHYSICS_SPOIL_CUE` | `on` (K 5, floor 0) | `off`: no heap cue, the ant before 2026-09-28; `K[,floor]` sets the dials. The cue: a dig that would open the ground to the sky, from the surface or from a tunnel breaking out, goes ahead only in proportion to the pellets beside its target (§5 step 6); `World::spoil_cue` for one world |
 | `PIXEL_PHYSICS_NEST_SHAFT` | 6 | `off` (or `0`): founding paints only and digs nothing, the ant before 2026-09-28; `<rows>`: a deeper or shallower founding shaft (§8); `_NEST_SHAFT_WIDTH=<cells>` its width (2); `World::nest_shaft` for one world |
 | `CROSS_TRUNK`, `TISSUE_PARTING` | on | `0` |
@@ -1158,8 +1187,8 @@ is on, every walking decision, the move stage of `creature_tick`, pushes one
 - the homeward re-roll's gate (`HomewardWhy`) and, if it fired, the true
   cosine of the chosen heading;
 - the drop in `act` that same tick (`DropWhy`), its roll and probability,
-  and the head's eight neighbours at the roll: how many were empty
-  (`free8`), their materials, and which were the ant's own body or another
+  and the head's eight neighbours at the roll: how many were room for food,
+  empty and not in a nest's door (`free8`), their materials, and which were the ant's own body or another
   organism; and how far the food went (`drop_reach`: 1 for a neighbour,
   more when handed on through bodies);
 - the cone's three scores after the zeroing and the candidate taken;
