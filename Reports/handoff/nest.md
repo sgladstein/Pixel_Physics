@@ -3,6 +3,17 @@
 For a fresh Claude with no context. Repo `sgladstein/Pixel_Physics`, main
 `0738a8ca`. Read `CLAUDE.md` first; it is binding.
 
+> **Correction (owner, 2026-10-02; main `d4418bf2`).** The evolution lab
+> (`cargo run --release --bin lab`) is **the main game**; the owner has not
+> worked on the outdoor sandbox or the held world in months. Where this note
+> says "lab box" it means the evolution lab itself; where it says "main game"
+> or "main bed" it means the food box, not the game the owner plays.
+> **PR 550** (merged as `d4418bf2`) made the lab's ants lay anywhere again
+> (`src/lab/scene.rs:843-845`). That is a **revert** of lay-only-at-the-nest in
+> the main game, not a fix, and it also moved the `trailfollow` long runs back
+> to laying anywhere, because they build through `LabBox`. **The top open
+> problem is making laying at the nest work in the evolution lab.**
+
 ## What the lane owns
 
 The ant colony's nest: where "home" is, digging and nest shape, what the
@@ -167,9 +178,9 @@ The machine has 4 cores; run 4 at once. Gate on
 
 | bed | command | time per run | what it answers |
 |---|---|---|---|
-| **food box** (the main bed) | `digbox hungry gap=90 w=260 soil=60 nulls=0 pile food=400 refill=400 ants=40 seed=N frames=144000` | ~6 min | Foraging, eating, breeding and digging together. 12 seeds is the standard sample |
+| **food box** | `digbox hungry gap=90 w=260 soil=60 nulls=0 pile food=400 refill=400 ants=40 seed=N frames=144000` | ~6 min | Foraging, eating, breeding and digging together. 12 seeds is the standard sample |
 | **long runs** | the food box at `frames=240000` | ~10 min | Stability: fall from peak, colonies lost, end size. The owner's goal is judged here |
-| **lab box** (the second game) | `labforage frames=120000 seed=N` | ~6-8 min | The real lab. Read the `SUMMARY` line: `born`, `alive`, `intake`, `nest_visits`, `buds_held_for_nest`; also the `BROOD` line. **Lab numbers from before 0738a8ca are not comparable** (laying only at the nest changed the box) |
+| **lab box** (the evolution lab, the main game) | `labforage frames=120000 seed=N` | ~6-8 min | The real lab. Read the `SUMMARY` line: `born`, `alive`, `intake`, `nest_visits`, `buds_held_for_nest`; also the `BROOD` line. **Lab numbers from before 0738a8ca are not comparable** (laying only at the nest changed the box) |
 | **dig box, fed** | `digbox ants=40 frames=24000 seed=N` (or `ants=200`) | ~2 min | Digging alone: no food, every ant topped up |
 | **lab nest census** | `labnest frames=24000 seeds=3 founders=8` | ~5 min | Lab nest size over time (`roofed`, `digs`, ants) |
 

@@ -1,8 +1,13 @@
 # Ants that breed like ants: eggs, brood, a colony's own breeder, and colonies that found colonies — an implementable plan, 2026-09-29
 
-**Status:** plan, proposed 2026-09-29 for the owner's reading. Of its steps,
-only B0a is in the code: the crash fix it asked for first, done in the same
-pull request (§1d). Written against `main` at `2274e347`. Tag: `engine` — the
+**Status:** plan, proposed 2026-09-29. *(State on `main` `d4418bf2`,
+2026-10-03, from the code:)* B0a-c, B1 (eggs), B2 (graded fertility, 1.25x
+within radius 24) and B3 (fed larvae, nurses, pupae) are on by default
+(PRs 542-546, 550); B4, B4b, B5 and B6 are not started. Laying only at the
+nest is on in the engine but **off in the evolution lab, the main game**,
+since PR 550 reverted it there; making it work in the lab is the open
+problem. As proposed, only B0a was in the code: the crash fix it asked for
+first, done in the same pull request (§1d). Written against `main` at `2274e347`. Tag: `engine` — the
 mechanism is shared, and §7 says what each of the three games turns on. The
 owner answered three of §10's questions the same day: the evolution lab gets
 the full life cycle, breeders may be marked, and breeders may live longer.
