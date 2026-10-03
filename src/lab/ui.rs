@@ -389,6 +389,9 @@ pub enum Action {
     /// Move the stocking count one stop along [`STOCK_LADDER`], `-1` or `+1`.
     /// Shares the brush's cells; see `layout`.
     Stock(i32),
+    /// The bar's `ADD` cell: arm what it names, or step to the next of
+    /// [`PLACEABLE`]. See [`Ui::next_place`].
+    Place,
     /// Cycle the false-colour view of the invisible channels.
     CycleOverlay,
     /// Cycle the organism overlay (`L`): plant health, cell type, gut
@@ -824,8 +827,27 @@ pub enum Tool {
 /// applied at eight applies unchanged at seven: **run the fit guard before
 /// assuming the next lab control has anywhere to live**, and expect it to
 /// say no.
-pub const TOOLS: [Tool; 7] =
-    [Tool::Look, Tool::Plant, Tool::Colony, Tool::Cull, Tool::Soil, Tool::Water, Tool::Wall];
+///
+/// **Four since 2026-10-03, with one `ADD` cell after them.** Owner: *"the
+/// food tool ... it's almost impossible to find ... soil, water, wall could
+/// all be combined into one button with food and anything else the user is
+/// manually putting into the game."* So `SOIL`, `WATER` and `WALL` left the
+/// row and everything a player puts in by hand -- [`PLACEABLE`] -- sits
+/// behind one cell that names what it will add and steps to the next thing
+/// on each press. Their own keys (`N E K U I`) still arm each directly.
+pub const TOOLS: [Tool; 4] = [Tool::Look, Tool::Plant, Tool::Colony, Tool::Cull];
+
+/// **Everything a player puts into the box by hand**, in the order the bar's
+/// `ADD` cell steps through them. Material first (soil, water, food), then
+/// the fixtures (wall, lamp), then the trail. See [`TOOLS`].
+pub const PLACEABLE: [Tool; 6] = [Tool::Soil, Tool::Water, Tool::Food, Tool::Wall, Tool::Lamp, Tool::Scent];
+
+impl Tool {
+    /// Whether this tool is one of [`PLACEABLE`], the `ADD` cell's list.
+    pub fn is_placeable(self) -> bool {
+        PLACEABLE.contains(&self)
+    }
+}
 
 impl Tool {
     pub fn label(self) -> &'static str {
@@ -916,7 +938,7 @@ impl Tool {
             Tool::Soil => "PAINT SOIL, AT FIELD CAPACITY -- DAMP ENOUGH FOR A ROOT, NOT SO WET IT SLUMPS. IT WILL NOT PAINT OVER STONE OR OVER A LIVING PLANT.",
             Tool::Water => "PAINT WATER, FULL. IT RUNS, IT SOAKS INTO SOIL, AND TOO MUCH OF IT DROWNS ROOTS -- WHICH IS AN EXPERIMENT, NOT A MISTAKE.",
             Tool::Wall => "DROP A WALL FLOOR TO CEILING IN THE COLUMN YOU CLICK, OR CLICK ONE YOU PLACED TO TAKE IT OUT. A WALL IS WHAT MAKES TWO POPULATIONS IN ONE BOX INTO TWO POPULATIONS: THEY CANNOT MIX, SO THEY CAN DRIFT APART. IT CUTS WHATEVER IS IN THE WAY, WHICH IS THE POINT -- A WALL THROUGH A STAND IS A STAND SPLIT IN HALF. IT SURVIVES A REBUILD.",
-            Tool::Food => "PUT FOOD ON THE GROUND WHERE YOU PAINT. IT IS WINDFALL -- THE FRUIT A HERB DROPS -- SO IT FALLS, PILES UP AND ROTS BACK INTO THE SOIL RATHER THAN SITTING THERE FOR EVER. A COLONY WITH FOOD BESIDE THE NEST BREEDS HARD; THE SAME COLONY LEFT TO FORAGE THE SEALED BED MOSTLY DOES NOT. THIS IS HOW YOU TELL THOSE TWO APART.",
+            Tool::Food => "PUT FOOD ON THE GROUND WHERE YOU PAINT. IT IS WORTH AS MUCH AS A FALLEN FRUIT, IT FALLS AND PILES UP LIKE ONE, AND IT NEVER ROTS -- IT STAYS UNTIL SOMETHING EATS IT. A COLONY WITH FOOD BESIDE THE NEST BREEDS HARD; THE SAME COLONY LEFT TO FORAGE THE SEALED BED MOSTLY DOES NOT. THIS IS HOW YOU TELL THOSE TWO APART.",
             Tool::Release => "PUT THE ARMED JAR BACK IN THE BOX WHERE YOU CLICK. TWO DIALS DECIDE WHAT ARRIVES: THE STOCK DIAL ON THE BAR IS HOW MANY, AND THE DRIFT DIAL ON THE SHELF IS HOW FAR EACH ONE HAS MOVED FROM THE JAR. AT 0 BROODS IT IS THAT EXACT INDIVIDUAL AGAIN, SO A COLONY IS A COLONY OF CLONES; AT 1 EACH IS AS DIFFERENT AS ITS OWN CHILD WOULD HAVE BEEN, DRAWN SEPARATELY, SO A COLONY IS A COLONY OF SIBLINGS. OPEN THE SHELF WITH G TO PICK A JAR AND SET THAT DIAL.",
             Tool::Scent => "DRAG TO LAY PHEROMONE. STARTS ON THE HOME SCENT (CHANNEL A) -- A ROAD HOME: ANTS CARRYING FOOD FOLLOW IT. DRAW IT FROM A PATCH BACK TO THE NEST AND LADEN FORAGERS WILL RUN IT. PRESS I AGAIN FOR THE FOOD ROUTE (CHANNEL B), WHICH NO ANT CAN READ YET. LAYS AT THE SAME STRENGTH A REAL ANT'S OWN TRAIL DOES AT FULL SIGNAL.",
             Tool::Alarm => "CLICK TO CALL ALARM AT THE CURSOR, AS LOUD AS A REAL BITE. A NEARBY COLONY READS IT THE SAME AS THE REAL THING -- RECRUIT, SWARM OR FLEE. WATCH IT SPREAD AND FADE WITH THE ALARM OVERLAY (O).",
@@ -1140,6 +1162,8 @@ pub struct BarState<'a> {
     pub help: bool,
     /// What a left-click on the world does.
     pub tool: Tool,
+    /// What the `ADD` cell will arm, or is armed on -- one of [`PLACEABLE`].
+    pub place: Tool,
     /// The species the planting tool will put in, and one line about it.
     /// Borrowed from the world's species table rather than copied, so a chip
     /// naming a species cannot name one that is not loaded.
@@ -1452,6 +1476,26 @@ fn lay_out(state: &BarState<'_>, pad: i32, gap: i32) -> Bar {
     let tools: Vec<Spec> = TOOLS
         .iter()
         .map(|t| button(t.label(), t.key(), Action::Tool(*t), state.tool == *t, t.note(), pad))
+        .chain(std::iter::once({
+            // **The `ADD` cell.** Names what it will put in, and is sized to
+            // the widest name on the list so stepping it does not shove the
+            // row sideways (the species chip's reason).
+            let face = format!("ADD {}", state.place.label());
+            let widest = PLACEABLE.iter().map(|t| hud::text_width(&format!("ADD {}", t.label()))).max().unwrap_or(0);
+            Spec {
+                width: cell_width(widest, "B", pad),
+                line1: face,
+                line2: "B".to_string(),
+                action: Some(Action::Place),
+                latched: state.tool.is_placeable(),
+                icon: None,
+                ratio: None,
+                note: format!(
+                    "PUT SOMETHING INTO THE BOX BY HAND: SOIL, WATER, FOOD, A WALL, A LAMP OR A SCENT TRAIL. PRESS AGAIN TO STEP TO THE NEXT. NOW: {}",
+                    state.place.note()
+                ),
+            }
+        }))
         .collect();
 
     // The species chip. **Not decoration**: the design guide is explicit that
@@ -3024,6 +3068,9 @@ pub struct Ui {
     pub panel: Option<Panel>,
     /// What a left-click on the world does. See [`Tool`].
     tool: Tool,
+    /// The last [`PLACEABLE`] tool armed: what the bar's `ADD` cell names and
+    /// arms. Follows every arming, by key or by cell.
+    place: Tool,
     /// **Which plane [`Tool::Scent`] lays**, toggled by a second press of
     /// its key rather than armed and disarmed like every other tool -- see
     /// `Action::ToggleScentChannel` and `Tool::Scent`'s own doc for why. Not
@@ -3476,6 +3523,9 @@ impl Ui {
             // shipped in the tree is on the SCENARIOS page from the box's
             // first frame, not only after the first `RELOAD`.
             scenarios: super::scenario::Scenario::list(),
+            // Soil first: the `ADD` cell's list starts with it, and the box
+            // starts empty, so dirt is the first thing a player puts in.
+            place: Tool::Soil,
             ..Self::default()
         }
     }
@@ -3676,6 +3726,28 @@ impl Ui {
     /// switch off is a brush that paints the next time you meant to point.
     pub fn set_tool(&mut self, tool: Tool) {
         self.tool = if self.tool == tool { Tool::Look } else { tool };
+        if tool.is_placeable() {
+            self.place = tool;
+        }
+    }
+
+    /// What the `ADD` cell names and will arm.
+    pub fn place(&self) -> Tool {
+        self.place
+    }
+
+    /// **The `ADD` cell's press.** Arms what it names when something else is
+    /// armed; steps to the next of [`PLACEABLE`] and arms that when it is
+    /// already armed. Never toggles off: a cell that cycles is one you press
+    /// repeatedly, and putting the tool away halfway round would be the
+    /// species chip's bug again (`arm_tool`).
+    pub fn next_place(&mut self) -> Tool {
+        if self.tool.is_placeable() {
+            let i = PLACEABLE.iter().position(|t| *t == self.tool).unwrap_or(0);
+            self.place = PLACEABLE[(i + 1) % PLACEABLE.len()];
+        }
+        self.tool = self.place;
+        self.place
     }
 
     /// **Arm a tool, without the toggle.** For a control that *picks
@@ -3691,6 +3763,9 @@ impl Ui {
     /// a chip beside it: picking herb is never a request to stop planting.
     pub fn arm_tool(&mut self, tool: Tool) {
         self.tool = tool;
+        if tool.is_placeable() {
+            self.place = tool;
+        }
     }
 
     /// Which plane [`Tool::Scent`] is currently laying.
@@ -9938,6 +10013,9 @@ mod tests {
             stats: true,
             help: false,
             tool: Tool::Look,
+            // The widest face the `ADD` cell can show is sized in, whatever
+            // this names; `SCENT` is the longest today.
+            place: Tool::Scent,
             species: "HERB",
             species_note: "WHICH PLANT THE PLANTING TOOL PUTS IN.",
             brush: 6,
@@ -11103,7 +11181,7 @@ mod tests {
         // growing either list does not have to come here.
         assert_eq!(
             buttons,
-            TOOLS.len() + 1 + 2 + 1 + 1 + 3 + super::super::time::PRESETS.len() + 4,
+            TOOLS.len() + 1 + 1 + 2 + 1 + 1 + 3 + super::super::time::PRESETS.len() + 4,
             "the bar carried {buttons} pressable buttons"
         );
         // Nothing above the bar is pressable — that belongs to the world.

@@ -112,6 +112,23 @@ fn main() {
         }
         None => spec.build(),
     };
+    // **The game's rain** (`lab::rain::tick`, which `Lab::tick` calls right
+    // after `frame::step`), `labforage.rs`'s own arg and default. This
+    // harness ran the box dry until 2026-10-03, and the CENSUS it prints is
+    // the lab chronicle's -- so its water columns (`dug ... water`) read
+    // 0-6 cells on boxes the game would have been watering. Unset it is the
+    // bed's own rate (`spec.rain`, Light on the played bed, as in the game);
+    // `rain=off` is this harness before, bit for bit (`tick` returns before
+    // any draw).
+    let rain = match arg::<String>("rain").as_deref() {
+        None => spec.rain,
+        Some("off") => pixel_physics::lab::rain::Rain::Off,
+        Some("light") => pixel_physics::lab::rain::Rain::Light,
+        Some("steady") => pixel_physics::lab::rain::Rain::Steady,
+        Some("heavy") => pixel_physics::lab::rain::Rain::Heavy,
+        Some(other) => panic!("rain={other}: expected off, light, steady or heavy"),
+    };
+    println!("  rain={} (the lab game's mister, lab::rain::tick)", rain.label());
     let mut particles = ParticleSystem::new();
     let mut blasts = Blasts::new();
     let tuning = player::Tuning::default();
@@ -137,6 +154,7 @@ fn main() {
             }
         }
         frame::step(&mut world, &mut particles, &mut blasts, player::PlayerInput::default(), &tuning);
+        pixel_physics::lab::rain::tick(&mut world, &spec, rain);
         // Right after `frame::step`, the lab's own cadence (`Lab::tick`):
         // this frame's settled state, sampled once every `sample_every`.
         if show_census && world.frame % sample_every == 0 {
