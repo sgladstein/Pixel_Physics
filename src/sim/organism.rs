@@ -7043,7 +7043,7 @@ pub const GENOTYPE_TRAITS: usize = 10;
 /// strictly weaker one, which is `CLAUDE.md`'s *when several knobs move the
 /// same number, check what each one trades*: this one trades nothing the
 /// weight does not already trade.
-pub const CREATURE_TRAITS: usize = 24;
+pub const CREATURE_TRAITS: usize = 26;
 
 /// Slot 0 of `CREATURE_TRAITS`: **diet as one heritable number**, `-1`
 /// (plant matter) to `+1` (flesh), scored against `MaterialDef::food_class`
@@ -7458,6 +7458,32 @@ pub const WALK_SLOTS: [usize; 10] = [
     TRAIT_HOME_PULL, TRAIT_TRAIL_HOLD, TRAIT_ROUTE_AWAY, TRAIT_SCOUT, TRAIT_PATIENCE, TRAIT_DOOR_READ,
     TRAIT_LADEN_A, TRAIT_LADEN_B, TRAIT_EMPTY_A, TRAIT_EMPTY_B,
 ];
+
+/// **Slots 24-25: how an ant keeps its nest's door**, the two rules that
+/// keep the founding door open in the evolution lab, as genes rather than
+/// constants (owner ruling 2026-10-03 on code the genes cannot reach).
+///
+/// Slot 24: **how far round the door an ant will not put food down**
+/// (`creature::door_clear_of`), on the walk genes' reciprocal axis:
+/// `DOOR_CLEAR_CELLS` (6) times 2 at `+1` and times 0.5 at `-1`, exactly 6
+/// at 0.
+///
+/// Same terms as the walk genes: allele 0 on every species, mutation width
+/// 0, and no developmental weight (`brain::DEV_TRAITS`), so nothing drifts
+/// until a measurement says letting it is safe. Unlike them, allele 0 is not
+/// the old ant -- it is the shipped door rule, which the old ant did not
+/// have; `PIXEL_PHYSICS_FOOD_DOOR=off` and `PIXEL_PHYSICS_DOOR_REOPEN=off`
+/// are the old ant.
+pub const TRAIT_DOOR_CLEAR: usize = 24;
+/// Slot 25: **how much the heap cue still holds an ant back from re-opening
+/// a nest's own door** (`creature::door_cue_weight`). The cue
+/// (`creature::SpoilCue`) is for where a *new* mouth starts; at 0 it does
+/// not apply inside a founding cut at all, at 1 it applies there as on any
+/// bare ground (the ant before 2026-10-03). Clamped to that range, so a
+/// negative allele reads as 0.
+pub const TRAIT_DOOR_CUE: usize = 25;
+/// The door slots -- see `TRAIT_DOOR_CLEAR`.
+pub const DOOR_SLOTS: [usize; 2] = [TRAIT_DOOR_CLEAR, TRAIT_DOOR_CUE];
 
 /// `OrganismState::born_with`'s channels that are not a trait slot.
 /// **Were 14 (synapses) and 20-22 (plant) until the walk slots took 14-23**
@@ -9728,6 +9754,12 @@ mod tests {
                 if WALK_SLOTS.contains(&slot) {
                     assert_eq!(def.trait_variance[slot], 0.0, "{name}.ron's walk gene {slot} drifts; turning a walk gene's width on is a measured step, not a tuple edit");
                     assert_eq!(def.traits[slot], 0.0, "{name}.ron's walk gene {slot} is off its ancestral 0 -- the walk is no longer the shipped one");
+                    continue;
+                }
+                // The door genes ship on the walk genes' terms (`TRAIT_DOOR_CLEAR`).
+                if DOOR_SLOTS.contains(&slot) {
+                    assert_eq!(def.trait_variance[slot], 0.0, "{name}.ron's door gene {slot} drifts; turning a door gene's width on is a measured step, not a tuple edit");
+                    assert_eq!(def.traits[slot], 0.0, "{name}.ron's door gene {slot} is off its ancestral 0 -- the door rule is no longer the shipped one");
                     continue;
                 }
                 if SCENT_SIDE_SLOTS.contains(&slot) {

@@ -4101,6 +4101,21 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   from theirs), **contents exist without eggs** via the `live_seed` guard, the
   brain-input pricing as the argument *for* their call-site route, and the
   landing discipline. **Treat their plan as the plan.**
+- [nest-door-2026-10-03.md](nest-door-2026-10-03.md) — **measurement and
+  two switches, 2026-10-03, both shipped on as genes. `engine`/`lab`.** Why
+  the lab colony's door filled in and stayed shut (20 of 20 runs): food the
+  colony put down at home (an oracle that held the cut open took out 46-84%
+  crumbs and the dug home grew from 14-137 cells to 107-174), and a heap cue
+  that refused every re-cut of a door filled from above (443-5,130 refusals
+  per run). **Food is never put down in the shaft or within 6 cells of it**
+  (`PIXEL_PHYSICS_FOOD_DOOR`, slot 24; the chamber at its foot still takes
+  food) and **re-opening the colony's own door stands the heap cue aside**
+  (`PIXEL_PHYSICS_DOOR_REOPEN`, slot 25). Lab bench against main, 12 paired
+  seeds: animals underground 18.7% -> 23.4%, eggs at home 1.1% -> 3.9%,
+  alive at the end 53 -> 107.5, gate rows level; split runs put the gain on
+  the food rule. §3b: barring the chamber too left one colony in 12 nowhere
+  at home to put food down. §6 lists the levers that left the door shut
+  (roof off, cue off, upkeep, sod, a new door, food on footing).
 - [nest-one-entrance-2026-09-29.md](nest-one-entrance-2026-09-29.md) —
   **measurement and switches, 2026-09-29; since §18 (2026-09-30) the
   walked cycle, stacking at 4 and births on nestmates ship on as one
