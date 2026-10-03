@@ -139,6 +139,21 @@ fn main() {
         if with_colony { "on" } else { "OFF (garden alone)" }
     );
     let (mut world, _, _) = sc.build();
+    // **`growth=N` -- plants run N times slower than baseline**
+    // (`Clock::growth_slowdown`, the engine's existing plant clock: every
+    // organism schedule interval and litter decay scale by N; ants, physics
+    // and the sky do not). Owner, 2026-10-03: *"I can grow a whole tree ...
+    // in the time it takes a group of ants to dig a tunnel or two."* The
+    // clock's own header records the caveat: a slowed plant is not the same
+    // plant later (a 4x-slowed tree ends a median 0.61x the cells at the
+    // same tick count).
+    if let Some(n) = arg::<u32>("growth") {
+        world.clock.set_rates(0, |c| c.growth_slowdown = n);
+        println!(
+            "  growth_slowdown = {} (plants {}x slower)",
+            world.clock.growth_slowdown, world.clock.growth_slowdown
+        );
+    }
     let rain = spec.rain;
     let mut particles = ParticleSystem::new();
     let mut blasts = Blasts::new();
@@ -153,6 +168,7 @@ fn main() {
     let mut last_diet: BTreeMap<String, f64> = BTreeMap::new();
     let mut total_intake: BTreeMap<String, f64> = BTreeMap::new();
     let mut ants_peak = 0usize;
+    let mut track = Track::default();
 
     for f in 0..=frames {
         pixel_physics::lab::scenario::tick_timeline(&sc, &mut world, &spec);
@@ -187,6 +203,7 @@ fn main() {
                 &mut total_intake,
                 &mut pickups_stop,
                 &mut ants_peak,
+                &mut track,
             );
         }
         if f < frames {
@@ -240,6 +257,13 @@ fn main() {
     );
 }
 
+/// What the stop line needs to remember from the last stop.
+#[derive(Default)]
+struct Track {
+    growing: std::collections::BTreeSet<u32>,
+    germinations: u64,
+}
+
 #[allow(clippy::too_many_arguments)]
 fn stop(
     world: &World,
@@ -251,9 +275,12 @@ fn stop(
     total_intake: &mut BTreeMap<String, f64>,
     pickups_stop: &mut BTreeMap<String, [u64; 4]>,
     ants_peak: &mut usize,
+    track: &mut Track,
 ) {
-    // Plants by species, ants, gut genes.
+    // Plants by species (growing only), dormant seeds by species, ants, gut genes.
     let mut plants: BTreeMap<String, usize> = BTreeMap::new();
+    let mut seeds_by: BTreeMap<String, usize> = BTreeMap::new();
+    let mut growing_now: std::collections::BTreeSet<u32> = Default::default();
     let mut ants = 0usize;
     let mut ants_home = 0usize;
     let mut ants_under = 0usize;
@@ -273,7 +300,24 @@ fn stop(
                 }
             }
         } else {
-            *plants.entry(def.name.clone()).or_default() += 1;
+            // **A dormant seed is an organism too** -- one cell of seed
+            // material. Counting it as a plant made a bed losing its seed
+            // bank read as a bed losing its grass (caught 2026-10-03, after
+            // the first write-up had quoted it). Growing plants and seeds
+            // are kept apart from here on.
+            let seed_only = s.cells.len() <= 1
+                && s.cells.keys().all(|&(x, y)| {
+                    matches!(
+                        world.materials.get(world.get(x, y).material).name.as_str(),
+                        "seed" | "pip" | "windfall" | "reedseed"
+                    )
+                });
+            if seed_only {
+                *seeds_by.entry(def.name.clone()).or_default() += 1;
+            } else {
+                *plants.entry(def.name.clone()).or_default() += 1;
+                growing_now.insert(id);
+            }
         }
     }
     *ants_peak = (*ants_peak).max(ants);
@@ -290,12 +334,29 @@ fn stop(
     let (mut band_above, mut band_below) = (0usize, 0usize);
     let mut total_plant = 0usize;
     let mut loose: BTreeMap<String, usize> = BTreeMap::new();
+    let (mut edible, mut edible_j) = (0usize, 0f64);
     let mut col_has = vec![false; width as usize];
     let mut loose_nest: BTreeMap<String, usize> = BTreeMap::new();
     for y in 0..height {
         for x in 0..width {
             let c = world.get(x, y);
-            let mname = &world.materials.get(c.material).name;
+            let mat = world.materials.get(c.material);
+            let mname = &mat.name;
+            // **Edible plant food standing anywhere**: any cell whose
+            // material is plant-class food (`food_class < 0`, worth > 0),
+            // on a plant or lying loose, priced at face value. The ant's
+            // gut filter is left out on purpose: this is the garden's
+            // larder, not one colony's income.
+            if mat.food_energy > 0.0 && mat.food_class < 0.0 {
+                let owner_is_animal = c.organism_id() != 0
+                    && world
+                        .organism(c.organism_id())
+                        .is_some_and(|s| is_creature(world, s.species) || s.brood.is_some());
+                if !owner_is_animal {
+                    edible += 1;
+                    edible_j += mat.food_energy as f64;
+                }
+            }
             // Loose plant food lying about -- leaf litter, shed leaves,
             // crumbs, ungerminated seed (organism-owned, so counted before
             // the organism filter) -- the colony's actual staple, and what
@@ -358,6 +419,12 @@ fn stop(
     }
     *last_diet = diet_now;
 
+    // Plants that were growing at the last stop and are gone now, and
+    // seeds that sprouted since the last stop (`World::germinations`).
+    let died = track.growing.difference(&growing_now).count();
+    let sprouted = world.germinations - track.germinations;
+    track.growing = growing_now;
+    track.germinations = world.germinations;
     let fmt_map = |m: &BTreeMap<String, usize>| m.iter().map(|(k, v)| format!("{k}:{v}")).collect::<Vec<_>>().join(",");
     let picks = pickups_stop
         .iter()
@@ -365,15 +432,21 @@ fn stop(
         .collect::<Vec<_>>()
         .join(",");
     println!(
-        "STOP f={f} ants={ants} home={ants_home} under={ants_under} gut_p10/50/90={:.2}/{:.2}/{:.2} plants[{}] plant_cells={total_plant} plant_cols={cols} nearest_to_nest={nearest} nest_band_above={band_above} nest_band_below={band_below} loose[{}] loose_nest[{}] cells[{}] eaten_J[{}] pickups_near/48/128/far[{picks}]",
+        "STOP f={f} ants={ants} home={ants_home} under={ants_under} gut_p10/50/90={:.2}/{:.2}/{:.2} plants[{}] seeds[{}] sprouted={sprouted} plants_died={died} plant_cells={total_plant} edible={edible} edible_kJ={:.0} plant_cols={cols} nearest_to_nest={nearest} nest_band_above={band_above} nest_band_below={band_below} loose[{}] loose_nest[{}] cells[{}] eaten_J[{}] pickups_near/48/128/far[{picks}]",
         gut(0.1),
         gut(0.5),
         gut(0.9),
         fmt_map(&plants),
+        fmt_map(&seeds_by),
+        edible_j / 1000.0,
         fmt_map(&loose),
         fmt_map(&loose_nest),
         fmt_map(&cells),
-        delta.iter().map(|(m, d)| format!("{m}:{d:.0}")).collect::<Vec<_>>().join(","),
+        delta
+            .iter()
+            .map(|(m, d)| format!("{m}:{d:.0}"))
+            .collect::<Vec<_>>()
+            .join(","),
     );
     pickups_stop.clear();
 }

@@ -32,7 +32,7 @@ here. Lanes may push branches and open draft PRs without asking.
    The PR head must equal the head named at hand-off. If the lane pushed again
    without saying so (this happened on PR 544), read the new commit before merging.
 4. **Wait for CI.** It must be green on the current head. Only the latest run counts:
-   12 check runs per head. Ignore cancelled runs from superseded pushes. Marking a
+   15 check runs per head (since PR 559). Ignore cancelled runs from superseded pushes. Marking a
    draft ready starts a duplicate run; if a full green run already exists on that
    same head, you can merge without waiting for the duplicate (done on PR 546).
 5. **If main moved since the green run:**
@@ -44,6 +44,22 @@ here. Lanes may push branches and open draft PRs without asking.
    - Fix trivial conflicts yourself: doc indexes, and generated files rebuilt with
      their scripts, then run `bash scripts/docscheck.sh`.
    - Logic conflicts go back to the lane through the coordinator.
+   - **Two or more code PRs queued: stack them** (Scott, 2026-10-03, decision
+     card). On the desk's own `claude/merge-desk-*` branch, reset to current
+     main, merge each queued PR head in order, push; CI runs on `claude/**`
+     pushes. If all 15 checks are green on that stacked head, merge the PRs
+     into main back to back, checking with `ls-remote` that each PR head still
+     equals what was stacked; no per-PR rerun. If red, fall back to one at a
+     time to find which PR broke it. Never push the stack to a lane's branch.
+     Why: the only recorded clean-merge breakages (2026-08-25) were stale docs
+     indexes, docscheck catches those after every merge, and 9 of 9 desk
+     reruns on 2026-10-03 were green, so a rerun per PR cost ~11 minutes each
+     and caught nothing.
+     **Track it:** every stack gets a row in the rule watch's `Stacks` table
+     (PRs stacked, stacked head, green/red, and on red which PR or which pair
+     broke it, and whether either PR alone was green). A red stack where each
+     PR alone is green is the case this rule bets against; report the count
+     in the 2026-10-15 tally, and if it happens, say so to Scott at once.
 6. **Merge.** Use a merge commit (not squash or rebase). Pass the full 40-character
    `expectedHeadSha` to the merge tool.
 7. **Red CI** goes back to the lane through the coordinator, with the failing test

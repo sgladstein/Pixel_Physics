@@ -2507,6 +2507,21 @@ fn harness() {
         );
         // `PIXEL_PHYSICS_HOME_REAIM`'s "it fired" half (`creature::home_reaim`).
         println!("REAIM walks home re-aimed off a blocked anchor {}", st.home_reaims);
+        // `BrainOutput::Lay`: births an animal could afford and its brain held,
+        // and how many living animals carry any weight on that row at all.
+        // Both 0 at generation zero, since no species authors one.
+        let (mut brains, mut lay_wired) = (0, 0);
+        use pixel_physics::sim::brain::{output_row_wired, BrainOutput, GENOME_LEN};
+        for s in world.live_organism_ids().iter().filter_map(|&id| world.organism(id)) {
+            if s.genome.len() == GENOME_LEN {
+                brains += 1;
+                lay_wired += usize::from(output_row_wired(&s.genome, BrainOutput::Lay));
+            }
+        }
+        println!(
+            "LAY births held by the brain {} | animals with a Lay weight {lay_wired} of {brains}",
+            st.lays_declined
+        );
     }
 
     println!(
