@@ -4014,6 +4014,8 @@ fn harness() {
                         "BIRTHS frame={f} births {}, refused for no free cell {}, refused for animals in the way {}, born standing on kin {}, bud ticks held for not being at the nest {}",
                         st.births, st.births_denied_no_space, st.births_denied_animals, st.births_on_kin, st.buds_held_for_nest
                     );
+                    // **`PIXEL_PHYSICS_LEAN_FORAGE`**: 0 with it off.
+                    println!("LEAN frame={f} pellets a lean ant put down {}, dig rolls a lean ant skipped {}", st.lean_dropped, st.lean_digs_skipped);
                 }
                 // **Brood** (`PIXEL_PHYSICS_BROOD`): all 0 with it off. Standing
                 // brood by stage, from the brood's own list -- no census above

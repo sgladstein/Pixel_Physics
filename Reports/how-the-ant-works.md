@@ -5,7 +5,7 @@ every tick, how each mechanism is implemented, and what it reads.** It is
 written from the source and describes the code as it is now, not as it was or
 will be.
 
-- **Verified against:** `main` at `bb65d507`, 2026-09-22; §9's egg-rule sentence and §12's `EGG_DOOR` and `BROOD_CARRY` rows 2026-10-03 against `brood::EggBar`, `pile_site` and `carry`; §5 step 3's defended-plant sentence 2026-10-03 against `deterred_by_defence` and `food_value`; §2's support
+- **Verified against:** `main` at `bb65d507`, 2026-09-22; §5 step 6, the walked cycle's lean carrier, §6d's lean exception to the throttle and §12's `LEAN_FORAGE` row 2026-10-03 against `LeanForage`, `lean_drop_site` and `outward_want`; §9's egg-rule sentence and §12's `EGG_DOOR` and `BROOD_CARRY` rows 2026-10-03 against `brood::EggBar`, `pile_site` and `carry`; §5 step 3's defended-plant sentence 2026-10-03 against `deterred_by_defence` and `food_value`; §2's support
   bullet and §12's `KIN_FOOTING` row 2026-10-02 against `fall_if_unsupported`,
   `touches_ground` and `held_by_kin`; §5 step 2's top-up,
   §6d's throttle paragraph and §12's two rows 2026-10-02 against
@@ -443,12 +443,19 @@ the tick: the ant still gets its move roll (§6) afterwards.
    to the door, draws its column when it comes out by it (`carry_stage`,
    `SPOIL_RING`'s row), is held until it is that far out, and puts the
    pellet down there by the rule above; then, if not hungry, it walks back
-   to the cell it cut (`dig_return_target`). A carrier whose patience runs
+   to the cell it cut (`dig_return_target`). **A lean carrier puts its
+   pellet down where it stands** (`LeanForage::drop`), before any of this:
+   in the first cell beside it that is empty with two of the three cells
+   under it filled, no headroom asked (`lean_drop_site`, `lean_dropped`);
+   with no such cell it carries on as above. A carrier whose patience runs
    out inside keeps the pellet if it is within `SPOIL_HOLD`'s 12 cells of the
    haul's target (`spoil_hold_of`); further in it may lay the pellet beside
    itself, and it is never lifted.
 6. **Dig**, only if both crop and spoil are empty. **So a laden ant never
-   digs.** The roll is against `Dig`, and the target is **the cell straight
+   digs.** **Nor does a lean one** (`PIXEL_PHYSICS_LEAN_FORAGE`, on since
+   2026-10-03, `LeanForage::nodig`): below `LEAN_LINE` (half) of its
+   `start_energy` its `Dig` urge reads 0, and the roll still spends its draw
+   (`lean_digs_skipped`). The roll is against `Dig`, and the target is **the cell straight
    ahead of the head, along its current heading**, except where the face
    turn below picks another cell for a nest worker inside the nest. Nothing
    chooses a place near other digging. **An enclosed digger first turns down**: on a
@@ -821,7 +828,9 @@ the forage drive, the food scent at its door (`door_scent`: trail B summed
 over the door's box, the door's half-width plus one each side on the walking
 row and the one above, read as `b / (b + TRAIL_HALF × cells)`) and, if it has
 never foraged, `THROTTLE_PATROL` (1). **Its own hunger is not in it**, so a
-hungry forager at a door with no drive and no scent is held. Each such
+hungry forager at a door with no drive and no scent is held -- **unless it
+is lean** (`LeanForage::out`, below `LEAN_LINE` of its grant), when its
+hunger is its want there too. Each such
 scouting decision stores the want in `OrganismState::sent_want`; past the
 zone, an ant with one feels `max(drive, sent_want)` where that beats its
 hunger, else its hunger (under `,hold`, never its hunger). A nest-bound ant,
@@ -1191,6 +1200,7 @@ Read once per process from the environment. The default is what ships.
 | `PIXEL_PHYSICS_PACKED_LUNCH` | on | `off`: a crop filled only at home counts as a load, so the forage drive does not reach its carrier (§6d); `World::packed_lunch` for one world |
 | `PIXEL_PHYSICS_TRIP_REACH` | on (16) | `off`: a pickup away from home marks a trip once the ant has been `FORAGE_TRIP_MIN` cells from its last nest contact, wherever the food lay; on, the food must also be living tissue or loose food more than the reach (authored cells, scaled; an integer sets it) from every nest's door (§6d); `World::trip_reach` for one world |
 | `PIXEL_PHYSICS_RETURN_WINDOW` | 1400 | `<frames>`: the `returns` drive's window (§6d) |
+| `PIXEL_PHYSICS_LEAN_FORAGE` | `on` (since 2026-10-03) | below `line` (default 50%) of its `start_energy` an ant does not dig (`nodig`, §5 step 6), puts a pellet down beside it (`drop`, §5's walked cycle) and at its door goes out on its own hunger (`out`, §6d); `off` is the ant before it; a comma list of `nodig`, `drop`, `out`, `line=<pct>` takes what it names; `World::lean_forage` for one world |
 | `PIXEL_PHYSICS_FORAGE_THROTTLE` | `on` (since 2026-10-02) | near its door a forager's outward want is the colony's, not its hunger, and is carried on the excursion (§6d); `off` is the ant before it; parts `patrol=<p>` (default 1), `reach=<cells>` (default 16), `noscent`, `hold`; `World::forage_throttle` for one world |
 | `PIXEL_PHYSICS_SHARE_TOPUP` | off | `on`: a share goes first to the neediest leaver beside the donor, at `frac=<f>` of the difference (default 0.5) (§5); `World::share_topup` for one world |
 | `PIXEL_PHYSICS_FOOD_TRAIL` | `lay,read,giveup,window=700,noreturn` (since 2026-10-01; `lay` alone 09-30) | the food trail's recipe (`FoodTrail`): `lay` lays trail B only on a trip load (§7), `off` is the ant before 2026-09-30 (every ant with food in its crop lays), `t=<ticks>` adds an odometer; `giveup` lets a given-up scout go and bounds a scout at a walked trail's end (§6d), and `noreturn` lifts that bound past a scout's point of no return; `read` turns an empty ant at the door toward the food side (§6d), with `gain=` its gain (default 6) and `window=<frames>` its stale-pile window (700 when unset, `READ_WINDOW_SHIPPED`; 0 is `return_window()`); `reach=2\|6` and `follow=all` parse and do nothing yet; `on` is all four parts (`window=700` included); `World::food_trail` for one world |
