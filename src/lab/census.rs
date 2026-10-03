@@ -198,6 +198,19 @@ pub struct Sample {
     pub dug_soil: usize,
     /// ...anything else: food, litter, a corpse, brood.
     pub dug_other: usize,
+    /// **Empty cells counted in `roofed` or `pit` that no ant dug** -- the
+    /// half of the room column the dug record does not explain.
+    ///
+    /// **Measured 2026-10-03 on the played bed it is most of it**: at
+    /// 270,000 frames, 4 seeds, 157-662 empty cells stand below the surface
+    /// against 6-217 dug cells still open. Two sources are known and not yet
+    /// separated: a void *migrates* -- soil slumping into a dug cell (booked
+    /// as `dug_soil`) leaves the cell it came from empty, which is the
+    /// footprint test's own finding (`creature::the_founding_shaft_stands`)
+    /// -- and root tissue that dies out of the soil leaves its cells
+    /// behind empty. So `dug_soil` overstates the room lost and this
+    /// overstates the room gained, by the same migrated cells.
+    pub void_undug: usize,
 }
 
 impl Sample {
@@ -358,6 +371,9 @@ pub fn census(world: &World, spec: &LabBox, gut: f32, nest_cols: &[i32], ids: &I
                     s.roofed += 1;
                 } else {
                     s.pit += 1;
+                }
+                if !world.dug_cells.contains(&(x, y)) {
+                    s.void_undug += 1;
                 }
             // **A gallery with an ant in it is still a gallery.** The arm
             // above counts materially EMPTY cells only, so every occupied
@@ -902,8 +918,8 @@ fn dug_addendum(s: &Sample) -> String {
         return String::new();
     }
     format!(
-        " | dug below ground: {} cells -- open {}, ants in it {}, roots {}, other plant {}, water {}, soil back {}, other {}",
-        s.dug, s.dug_open, s.dug_bodies, s.dug_roots, s.dug_plant, s.dug_water, s.dug_soil, s.dug_other
+        " | dug below ground: {} cells -- open {}, ants in it {}, roots {}, other plant {}, water {}, soil back {}, other {} | empty below ground nobody dug: {}",
+        s.dug, s.dug_open, s.dug_bodies, s.dug_roots, s.dug_plant, s.dug_water, s.dug_soil, s.dug_other, s.void_undug
     )
 }
 
@@ -1193,6 +1209,7 @@ mod tests {
             "each fate lands in its own column: open, ant, root x2, water, spoil back, litter"
         );
         assert_eq!(s.dug_accounted(), s.dug, "the fates partition the dug ground exactly");
+        assert_eq!(s.void_undug, 0, "every empty cell below ground here was dug");
 
         // The negative half. Root tissue and water in ground nobody dug, a
         // row further down; and a dug cell above the surface, which is a
@@ -1207,6 +1224,11 @@ mod tests {
             (s.dug, s.dug_roots, s.dug_water),
             "a root or a pool in undug ground, or a cut above the surface, is not dug ground filling"
         );
+        assert_eq!(t.void_undug, 0, "none of those is an empty cell");
+        // A hole nobody dug -- a dead root's, or one a slump moved up.
+        world.set(cx + 4, cy + 5, Cell::EMPTY);
+        let u = at(&world, &spec, &ids);
+        assert_eq!((u.void_undug, u.dug), (1, t.dug), "an empty cell nobody dug is room the dug record does not explain");
         assert!(dug_addendum(&t).contains("roots 2"), "the chronicle line names the roots: {}", dug_addendum(&t));
         assert_eq!(dug_addendum(&none), "", "an undug box's chronicle line is unchanged");
     }
