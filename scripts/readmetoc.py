@@ -176,6 +176,7 @@ TOPICS = {
     "plants, trees and moss": [
         "M16 status",
         "Soil nutrient status \u2014 ground is worth something water is not",
+        "Sap flow status \u2014 water travels through the plant, and a drought lands on the far tips first",
         "Plant lines merged: the genome, and the ecology",
         "Inheritance status \u2014 the growth program has no fallback under it",
         "Parameter-genome status \u2014 a species file is a starting point, and it ships inert",

@@ -8803,7 +8803,47 @@ pub struct OrganismCell {
     /// cell never climbs off zero and `nectar_offer` always reads it dry,
     /// which is today's behaviour exactly.
     pub nectar: f32,
+    /// **Water passing through this cell per organism tick** — the sap-flow
+    /// map (`plant::sap_flow`, `World::sap_flow`). In a shoot it is the
+    /// transpiration demand of every leaf this cell feeds; in a root it is
+    /// its share of that same demand, by what its soil and the soil of every
+    /// root beyond it offers. So the trunk carries the whole crown, a twig
+    /// its own leaves, and a root in wet ground more than one in dry.
+    ///
+    /// Zero whenever the switch is off, and on any cell no walk reached.
+    /// Kept per cell for the overlay as much as for the rule: brightness by
+    /// flux draws the plant's plumbing, which no other channel shows.
+    pub sap_flux: f32,
+    /// **Which neighbour this cell's water path runs through toward the
+    /// collar**, an index into `NEIGHBOURS_8`; `SAP_NO_PARENT` for a collar
+    /// cell or one no walk reached. In a shoot, water *arrives* from here;
+    /// in a root, water *leaves* toward here. Stored so an overlay can draw
+    /// direction without rebuilding the tree.
+    pub sap_parent: u8,
+    /// **How short of water this cell is, `0..=1`** — this cell's own
+    /// desiccation, which `World::desiccation_at` and `plant::water_status`
+    /// read in place of the plant-wide number when `World::sap_flow` is on.
+    /// Negative means "never walked: use the plant's", the deferring answer
+    /// for a cell grown since the last organism tick.
+    pub sap_desiccation: f32,
+    /// **Nutrient arriving here with the water, as a `nutrient_status`
+    /// (`0..=1`)** — what a growing tip prices its next cell against when
+    /// `World::sap_flow` is on. Negative means "use the plant's".
+    pub sap_nutrient: f32,
+    /// What this root cell's soil offers, written by `organism_upkeep`'s
+    /// root walk on the faces it already reads: the summed plant-available
+    /// water of its drinkable faces, the summed nutrient fraction of its
+    /// soil faces, and how many soil faces that was. Sums plus a count, so
+    /// a side's concentration is pooled exactly as the plant-wide
+    /// `nutrient_status` is. Read by `plant::sap_flow` to say which side of
+    /// a plant is over better ground.
+    pub sap_soil_water: f32,
+    pub sap_soil_nutrient: f32,
+    pub sap_soil_faces: u8,
 }
+
+/// `OrganismCell::sap_parent` for "no path toward the collar".
+pub const SAP_NO_PARENT: u8 = u8::MAX;
 
 impl Default for OrganismCell {
     /// **Conductance starts at `CONDUCTANCE_MIN`, not zero, and that is
@@ -8848,6 +8888,13 @@ impl Default for OrganismCell {
             primed: false,
             ripeness: 0.0,
             nectar: 0.0,
+            sap_flux: 0.0,
+            sap_parent: SAP_NO_PARENT,
+            sap_desiccation: -1.0,
+            sap_nutrient: -1.0,
+            sap_soil_water: 0.0,
+            sap_soil_nutrient: 0.0,
+            sap_soil_faces: 0,
         }
     }
 }

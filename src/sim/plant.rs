@@ -1284,8 +1284,25 @@ fn credit_water(world: &mut World, organism_id: OrganismId, amount: f32) {
 /// closes its stomata and stops earning, exactly as a real one does. It is
 /// a fraction of `WATER_SCALE` rather than an absolute amount so that it
 /// means the same thing in a seedling and in a mature tree.
+///
+/// **Per cell when `World::sap_flow` is on.** The plant's stomatal term,
+/// less however much drier this cell is than the plant as a whole
+/// (`OrganismCell::sap_desiccation` against `water_desiccation`): a leaf the
+/// water reaches well reads the plant's number, one at the end of a long
+/// path or above dry roots reads lower. A plant with no shortfall anywhere
+/// reads exactly the plant's number at every cell, so a well-watered plant
+/// earns what it did before.
 fn water_status(world: &World, x: i32, y: i32) -> f32 {
-    world.water_at(x, y).1
+    let id = world.get(x, y).organism_id();
+    let Some(state) = world.organism(id) else { return 1.0 };
+    if world.sap_flow {
+        if let Some(c) = state.cells.get(&(x, y)) {
+            if c.sap_desiccation >= 0.0 {
+                return (state.water_status - (c.sap_desiccation - state.water_desiccation)).clamp(0.0, 1.0);
+            }
+        }
+    }
+    state.water_status
 }
 
 /// **The behaviour this *individual* runs**, not the one its species
@@ -4934,7 +4951,7 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: OrganismId, sta
                     cost * organism::defence_cost_multiplier(world.organism(organism_id).map_or(0.0, |s| s.defence))
                 };
                 let tissue_cost = cost;
-                let cost = cost * organism::wood_density(&alleles) * nutrient_construction_multiplier(world, organism_id, cell_type);
+                let cost = cost * organism::wood_density(&alleles) * nutrient_construction_multiplier_at(world, organism_id, cell_type, x, y);
                 // Slot 8: penetration, a root trait by consumption (a
                 // shoot's force is 0.0 and stays 0.0 under any
                 // multiplier). The variance is this behaviour's own
@@ -7264,6 +7281,16 @@ pub fn step_organisms(world: &mut World) {
             // `water_status`, which is what this gates on.
             timing.time(5, || break_root_tips(world, organism_id));
             timing.time(6, || organism_upkeep(world, organism_id));
+            // **After upkeep, because upkeep is what settles this tick's
+            // shortfall.** Every per-cell reading of it -- the leaf credits
+            // in the next upkeep, `allocate_to_frontier`, `break_buds`, a
+            // live tip's own photosynthesis -- happens before the next
+            // settle, so computing the map here makes them read one
+            // shortfall. Run before upkeep, the first tick of a drought read
+            // every leaf *wetter* than its plant.
+            if world.sap_flow {
+                sap_flow(world, organism_id);
+            }
             // Charged to the size it was when the tick began -- growth
             // during the tick belongs to the next one's bucket, and using
             // the after size would let a plant that just doubled read as
@@ -9276,6 +9303,337 @@ fn accumulate_support(world: &mut World, organism_id: OrganismId) {
     }
 }
 
+/// `World::sap_flow` default: **on unless `PIXEL_PHYSICS_SAP_FLOW=off`**.
+pub fn sap_flow_default() -> bool {
+    use std::sync::OnceLock;
+    static ON: OnceLock<bool> = OnceLock::new();
+    *ON.get_or_init(|| !matches!(std::env::var("PIXEL_PHYSICS_SAP_FLOW").as_deref(), Ok("off")))
+}
+
+/// How evenly a trunk shares between its sides, `0..=1`: the fraction of
+/// each side's water and nutrient pooled across the whole collar rather
+/// than kept for the branches above the roots that took it up.
+///
+/// Real stems are partly sectored -- water from a root mostly rises in the
+/// xylem on its own side, with some lateral exchange through pits (Orians,
+/// van Vuuren & Harris 2004, *Ecology* 85:2627; Watson & Casper 1984,
+/// *Annu Rev Ecol Syst* 15:233, "integrated physiological units"). Fully
+/// pooled (1.0) is the one-tank engine; fully sectored (0.0) would let one
+/// dead root kill a limb outright, which is stronger than most species show.
+pub const SAP_SHARING: f32 = 0.75;
+
+/// How strongly distance from the collar concentrates a shortfall onto the
+/// far tips. A leaf whose path is `SAP_PATH_SCALE` cells longer than the
+/// plant's average leaf's feels about twice the shortfall of one at the
+/// average... when the average itself is short (see `sap_flow` step 4).
+///
+/// Physically the water-potential drop along the xylem, which grows with
+/// path length; it is why a droughted crown dies back from its tips and why
+/// tree height is hydraulically limited (Koch et al. 2004, *Nature* 428:851;
+/// Ryan, Phillips & Bond 2006, *Plant Cell Environ* 29:367).
+pub const SAP_PATH_SCALE: f32 = 24.0;
+
+/// **Cells a returning water front climbs per organism tick** -- the sap
+/// speed, applied to refilling only.
+///
+/// Real sap climbs 1-6 m an hour and up to ~40 at midday in ring-porous
+/// oaks (Huber 1932; Swanson 1994, *Agric For Meteorol* 72:113), so it
+/// crosses a 20 m crown in a few daylight hours. A lab day is
+/// `DAY_NIGHT_PERIOD_FRAMES` (3,600) = 80 organism ticks, so 8 cells a tick
+/// crosses a 130-row tree in 16 ticks, about a fifth of a day.
+///
+/// **Drying is not delayed.** The water column is under tension, so a pull
+/// at the leaves is a pull at the roots the same instant (Dixon & Joly's
+/// cohesion-tension mechanism): a plant that runs short is short everywhere
+/// at once. What takes time is water arriving -- so after a drought the
+/// green comes back from the base upward.
+pub const SAP_CELLS_PER_TICK: usize = 8;
+
+/// **Water and nutrients moving through one plant along its own paths.**
+///
+/// The plant's tank stays its *store* -- the sapwood buffer every drink
+/// fills and every leaf draws on -- but where the water goes now has a
+/// shape:
+///
+/// 1. **Roots to collar.** What each root's soil offers is carried toward
+///    the collar, shared over every root one step nearer, so a root carries
+///    the water of every root beyond it (`sap_flux`).
+/// 2. **Collar to leaves.** Each shoot cell carries the transpiration
+///    demand of every leaf it feeds, on the spanning tree
+///    `accumulate_support` already builds: the trunk carries the crown, a
+///    twig its own leaves.
+/// 3. **Sides.** Each collar cell is a side of the plant. What its roots'
+///    soil offers (water and nutrient, from `organism_upkeep`'s root walk)
+///    is compared with what the branches above it ask, pooled at
+///    `SAP_SHARING`. A shortfall is shared out in inverse proportion: the
+///    side over dry ground takes more of it.
+/// 4. **Distance.** Within a side, the shortfall is concentrated on the
+///    farthest leaves by path length (`SAP_PATH_SCALE`), so drought dries
+///    the tips first and the crown dies back inward rather than all at once.
+/// 5. **Refill speed.** A cell's dryness rises at once but falls only as
+///    fast as water climbs (`SAP_CELLS_PER_TICK`).
+/// 6. **Nutrients ride along.** A tip receives its side's soil
+///    concentration (`sap_nutrient`); the plant-wide concentration is
+///    unchanged, only where it lands. *Not* scaled by how much water
+///    arrives: that charged a thirsty seedling's tip twice -- once in
+///    income and again at the nutrient-starved build price -- and the first
+///    run lost a fifth of the bed's plants by frame 6,000 on 5 of 6 seeds.
+///
+/// **Shares, not new water.** Steps 3 and 4 move a shortfall the plant
+/// already has; with no shortfall every cell reads the plant's own numbers,
+/// so a well-watered plant earns what it did before. What changes is where
+/// drought and poor soil land, which a single tank put everywhere evenly.
+///
+/// The earlier per-cell water diffused (`OrganismState::water`'s doc):
+/// diffusion spreads as the square root of time, so it reached a handful of
+/// cells up a 130-row tree and the leaves starved. Nothing here diffuses --
+/// every quantity is a sum along, or a copy along, a path.
+pub(crate) fn sap_flow(world: &mut World, organism_id: OrganismId) {
+    let Some(state) = world.organism(organism_id) else { return };
+    let Some(collar) = state.collar_y else { return };
+    let species_id = state.species;
+    let plant_desic = state.water_desiccation.clamp(0.0, 1.0);
+    let plant_nutrient = state.nutrient_status;
+    let mut cells: Vec<(i32, i32)> = state.cells.keys().copied().collect();
+    cells.sort_unstable_by_key(|&(x, y)| (y, x));
+    let n = cells.len();
+    let index: crate::sim::fxhash::PosMap<usize> = cells.iter().enumerate().map(|(i, &p)| (p, i)).collect();
+
+    // **Depth from the collar row, both ways, and every cell one step
+    // nearer is a path.** Not a spanning tree: a parent array over a
+    // thickened trunk -- a *blob* -- hands one spine cell the whole crown and
+    // its neighbours nothing (`Reports/dead-ends.md`, and `stress_field`'s
+    // doc for the 3,437 -> 704 it cost there). So water is shared like
+    // `load.rs` shares weight: each cell divides what it carries equally
+    // among all its neighbours one step nearer the collar, and girth carries
+    // the crown. A root and a shoot cell are never neighbours except
+    // through the collar row (rows two apart), so one breadth-first walk
+    // from that row gives both trees.
+    let mut depth = vec![u32::MAX; n];
+    let mut order: Vec<usize> = Vec::with_capacity(n);
+    let mut queue: std::collections::VecDeque<usize> = std::collections::VecDeque::new();
+    for (i, &(_, y)) in cells.iter().enumerate() {
+        if y == collar {
+            depth[i] = 0;
+            queue.push_back(i);
+        }
+    }
+    while let Some(i) = queue.pop_front() {
+        order.push(i);
+        let (x, y) = cells[i];
+        for (dx, dy) in NEIGHBOURS_8 {
+            let Some(&j) = index.get(&(x + dx, y + dy)) else { continue };
+            if depth[j] == u32::MAX {
+                depth[j] = depth[i] + 1;
+                queue.push_back(j);
+            }
+        }
+    }
+    // Each reached cell's neighbours one step nearer the collar, as
+    // `NEIGHBOURS_8` indices -- the only topology both sweeps need.
+    let mut nearer: Vec<[u8; 8]> = vec![[0; 8]; n];
+    let mut nearer_n = vec![0u8; n];
+    for &i in &order {
+        if depth[i] == 0 {
+            continue;
+        }
+        let (x, y) = cells[i];
+        for (k, (dx, dy)) in NEIGHBOURS_8.iter().enumerate() {
+            if let Some(&j) = index.get(&(x + dx, y + dy)) {
+                if depth[j] + 1 == depth[i] {
+                    nearer[i][nearer_n[i] as usize] = k as u8;
+                    nearer_n[i] += 1;
+                }
+            }
+        }
+    }
+    let at = |i: usize, k: u8| -> usize {
+        let (x, y) = cells[i];
+        let (dx, dy) = NEIGHBOURS_8[k as usize];
+        index[&(x + dx, y + dy)]
+    };
+
+    let (_, leaf_transp_mult) = leaf_econ_mults(world, organism_id);
+    let ceiling = authored_height_ceiling(world, species_id);
+    // Per-cell inputs: leaf demand (the formula `organism_upkeep` sums),
+    // what each root's soil offers, path length, last dryness.
+    let mut ask = vec![0.0f32; n];
+    let mut soil_water = vec![0.0f32; n];
+    let mut soil_nutrient = vec![0.0f32; n];
+    let mut soil_faces = vec![0.0f32; n];
+    let mut path = vec![0.0f32; n];
+    let mut was = vec![-1.0f32; n];
+    let (mut wsum, mut lsum) = (0.0f32, 0.0f32);
+    for &i in &order {
+        let (x, y) = cells[i];
+        let c = world.get(x, y);
+        if c.organism_id() != organism_id {
+            continue;
+        }
+        let Some(oc) = world.organism_cell(x, y) else { continue };
+        path[i] = oc.path_len as f32;
+        was[i] = oc.sap_desiccation;
+        if y > collar {
+            soil_water[i] = oc.sap_soil_water;
+            soil_nutrient[i] = oc.sap_soil_nutrient;
+            soil_faces[i] = oc.sap_soil_faces as f32;
+            continue;
+        }
+        if let Some(t @ (CellType::Leaf | CellType::GrowingTip)) = organism::cell_type(c.aux()) {
+            let rate = individual_behavior(world, organism_id, t, |b| match b {
+                Behavior::Photosynthesize { rate, .. } => Some(*rate * TRANSPIRATION_PER_RATE),
+                _ => None,
+            });
+            if let Some(rate) = rate {
+                let light = ambient_light_above(world, x, y);
+                let lift = thirst(oc.path_len as f32, ceiling);
+                let d = rate * leaf_transp_mult * lift * (light / crate::sim::field::MAX_LIGHT).clamp(0.0, 1.0);
+                ask[i] = d;
+                wsum += d;
+                lsum += d * path[i];
+            }
+        }
+    }
+
+    // 1-2. Basipetal: roots carry their soil's offer toward the collar,
+    // shoots carry their leaves' demand down to it.
+    for &i in order.iter().rev() {
+        let m = nearer_n[i];
+        if m == 0 {
+            continue;
+        }
+        let share = 1.0 / m as f32;
+        let (a, w, nu, f) = (ask[i] * share, soil_water[i] * share, soil_nutrient[i] * share, soil_faces[i] * share);
+        for &n in &nearer[i][..m as usize] {
+            let j = at(i, n);
+            ask[j] += a;
+            soil_water[j] += w;
+            soil_nutrient[j] += nu;
+            soil_faces[j] += f;
+        }
+    }
+    // A shoot carries its leaves' demand. **A root carries its share of the
+    // same demand, by what its soil offers** -- not this tick's drink. The
+    // tank buffers, so a full tank stops the drinking (`absorb_water` fills
+    // only to capacity) while the leaves go on drawing; over a day what the
+    // roots supply *is* what the crown transpires, and routing that by soil
+    // offer is the steady flow.
+    let crown: f32 = order.iter().copied().take_while(|&i| depth[i] == 0).map(|i| ask[i]).sum();
+    let offer: f32 = order.iter().copied().take_while(|&i| depth[i] == 0).map(|i| soil_water[i]).sum();
+    let flux: Vec<f32> = (0..n)
+        .map(|i| {
+            if cells[i].1 > collar {
+                if offer > 0.0 { crown * soil_water[i] / offer } else { 0.0 }
+            } else {
+                ask[i]
+            }
+        })
+        .collect();
+
+    // 3. Sides. `share` is a collar cell's water offer against its share of
+    //    the demand (1 = fair); its shortfall weight is the inverse,
+    //    normalised so the demand-weighted mean is 1 -- the plant's shortfall
+    //    is moved between sides, never made bigger or smaller.
+    let collar_cells: Vec<usize> = order.iter().copied().take_while(|&i| depth[i] == 0).collect();
+    let total_offer: f32 = collar_cells.iter().map(|&i| soil_water[i]).sum();
+    let total_ask: f32 = collar_cells.iter().map(|&i| ask[i]).sum();
+    let total_nutrient: f32 = collar_cells.iter().map(|&i| soil_nutrient[i]).sum();
+    let total_faces: f32 = collar_cells.iter().map(|&i| soil_faces[i]).sum();
+    let mean_conc = if total_faces > 0.0 { total_nutrient / total_faces } else { 0.0 };
+    let mut side = vec![(1.0f32, 1.0f32); n];
+    let mut weight_norm = 0.0f32;
+    for &i in &collar_cells {
+        let short = if total_offer > 0.0 && total_ask > 0.0 && ask[i] > 0.0 {
+            let share = (1.0 - SAP_SHARING) * (soil_water[i] / total_offer) / (ask[i] / total_ask) + SAP_SHARING;
+            1.0 / share.max(f32::EPSILON)
+        } else {
+            1.0
+        };
+        let nutrient = if soil_faces[i] > 0.0 && mean_conc > 0.0 {
+            (1.0 - SAP_SHARING) * (soil_nutrient[i] / soil_faces[i]) / mean_conc + SAP_SHARING
+        } else {
+            1.0
+        };
+        weight_norm += short * ask[i];
+        side[i] = (short, nutrient);
+    }
+    if total_ask > 0.0 && weight_norm > 0.0 {
+        let k = total_ask / weight_norm;
+        for &i in &collar_cells {
+            side[i].0 *= k;
+        }
+    }
+    // Acropetal: a shoot cell is the mean of the sides it is fed from.
+    for &i in &order {
+        let m = nearer_n[i];
+        if m == 0 || cells[i].1 > collar {
+            continue;
+        }
+        let (mut a, mut b) = (0.0f32, 0.0f32);
+        for &n in &nearer[i][..m as usize] {
+            let j = at(i, n);
+            a += side[j].0;
+            b += side[j].1;
+        }
+        side[i] = (a / m as f32, b / m as f32);
+    }
+
+    // 4. Distance, against the demand-weighted mean path of this plant's
+    //    leaves, so the shortfall moves outward without growing.
+    let mean_path = if wsum > 0.0 { lsum / wsum } else { 0.0 };
+    let mut target = vec![-1.0f32; n];
+    for &i in &order {
+        if cells[i].1 > collar {
+            continue; // roots are the source; they are not short of their own drink
+        }
+        let stretch = (path[i] + SAP_PATH_SCALE) / (mean_path + SAP_PATH_SCALE);
+        target[i] = (plant_desic * side[i].0 * stretch).clamp(0.0, 1.0);
+    }
+
+    // 5. Refill speed: drier takes effect at once; wetter only as far as
+    //    the cells feeding it had got by the previous sweep,
+    //    `SAP_CELLS_PER_TICK` sweeps a tick.
+    let mut cur: Vec<f32> = (0..n).map(|i| if was[i] < 0.0 || target[i] >= was[i] { target[i] } else { was[i] }).collect();
+    let mut next = cur.clone();
+    for _ in 0..SAP_CELLS_PER_TICK {
+        let mut moved = false;
+        for &i in &order {
+            if target[i] < 0.0 || cur[i] <= target[i] {
+                continue;
+            }
+            let m = nearer_n[i];
+            let from = if m == 0 {
+                target[i]
+            } else {
+                (0..m as usize).map(|k| cur[at(i, nearer[i][k])]).fold(0.0f32, f32::max)
+            };
+            next[i] = target[i].max(from.min(cur[i]));
+            moved |= next[i] != cur[i];
+        }
+        cur.copy_from_slice(&next);
+        if !moved {
+            break;
+        }
+    }
+
+    for &i in &order {
+        let (x, y) = cells[i];
+        // The overlay's arrow: the nearer neighbour this cell trades the
+        // most water with.
+        let dir = (0..nearer_n[i] as usize)
+            .map(|k| nearer[i][k])
+            .max_by(|&a, &b| flux[at(i, a)].partial_cmp(&flux[at(i, b)]).unwrap_or(std::cmp::Ordering::Equal).then(b.cmp(&a)))
+            .unwrap_or(organism::SAP_NO_PARENT);
+        let Some(slot) = world.organism_cell_mut(x, y) else { continue };
+        slot.sap_flux = flux[i];
+        slot.sap_parent = dir;
+        if target[i] >= 0.0 {
+            slot.sap_desiccation = cur[i];
+            slot.sap_nutrient = (plant_nutrient * side[i].1).clamp(0.0, 1.0);
+        }
+    }
+}
+
 /// **Where `break_root_tips` stops, counted — the instrument bug §A asked
 /// for, and the one bug §U needs too.**
 ///
@@ -10400,7 +10758,34 @@ pub(crate) fn nutrient_initial() -> u8 {
 /// cannot build still pays upkeep, so it stalls and then starves, which is
 /// the graded death `CLAUDE.md`'s first law asks for rather than a plant
 /// blinking out.
+#[cfg(test)]
 fn nutrient_construction_multiplier(world: &World, organism_id: OrganismId, cell_type: CellType) -> f32 {
+    let status = world.organism(organism_id).map_or(1.0, |st| st.nutrient_status);
+    nutrient_construction_multiplier_of(status, cell_type)
+}
+
+/// `nutrient_construction_multiplier` for the tip at `(x, y)`: **with
+/// `World::sap_flow` on, priced against the nutrient the water actually
+/// brings to this tip** (`OrganismCell::sap_nutrient`) rather than the
+/// plant's root-zone mean. Minerals travel in the transpiration stream
+/// (mass flow; Marschner's *Mineral Nutrition of Higher Plants*, ch. 2;
+/// Cramer et al. 2009, *Trends Plant Sci* 14:24), so a tip on a branch fed
+/// from roots in fresh soil builds cheaper than one fed from spent ground.
+/// A tip not yet walked reads the plant's number.
+fn nutrient_construction_multiplier_at(world: &World, organism_id: OrganismId, cell_type: CellType, x: i32, y: i32) -> f32 {
+    let Some(state) = world.organism(organism_id) else { return nutrient_construction_multiplier_of(1.0, cell_type) };
+    let mut status = state.nutrient_status;
+    if world.sap_flow {
+        if let Some(c) = state.cells.get(&(x, y)) {
+            if c.sap_nutrient >= 0.0 {
+                status = c.sap_nutrient;
+            }
+        }
+    }
+    nutrient_construction_multiplier_of(status, cell_type)
+}
+
+fn nutrient_construction_multiplier_of(status: f32, cell_type: CellType) -> f32 {
     if nutrient_initial() == 0 {
         return 1.0;
     }
@@ -10424,7 +10809,6 @@ fn nutrient_construction_multiplier(world: &World, organism_id: OrganismId, cell
     if cell_type == CellType::RootTip {
         return 1.0;
     }
-    let status = world.organism(organism_id).map_or(1.0, |st| st.nutrient_status);
     // **Priced off `nutrient_availability`, not off the raw status, so the
     // two nutrient prices cannot disagree about the same soil.** Bounded
     // either way: exactly 1.0 at full nutrient, exactly
@@ -10915,6 +11299,7 @@ fn organism_upkeep(world: &mut World, organism_id: OrganismId) {
             // disagree about which faces counted.
             let mut wet_faces = 0u32;
             let mut available = 0.0f32;
+            let (mut here_faces, mut here_nutrient) = (0u32, 0.0f32);
             for (dx, dy) in NEIGHBOURS_4 {
                 let n = world.get(cx + dx, cy + dy);
                 if drinkable_face(world, n) {
@@ -10925,9 +11310,22 @@ fn organism_upkeep(world: &mut World, organism_id: OrganismId) {
                     // the two axes different rather than one wearing two
                     // names.
                     if cell_carries_nutrient(world, n) {
+                        let f = world.soil_nutrient_fraction(cx + dx, cy + dy);
                         nutrient_faces += 1;
-                        nutrient_available += world.soil_nutrient_fraction(cx + dx, cy + dy);
+                        nutrient_available += f;
+                        here_faces += 1;
+                        here_nutrient += f;
                     }
+                }
+            }
+            // What the water this root drinks carries -- `sap_flow` routes
+            // it with the water. Zero where the root drinks only free water,
+            // which carries none, matching the plant-wide mean above.
+            if world.sap_flow {
+                if let Some(slot) = world.organism_cell_mut(cx, cy) {
+                    slot.sap_soil_water = available;
+                    slot.sap_soil_nutrient = here_nutrient;
+                    slot.sap_soil_faces = here_faces.min(u8::MAX as u32) as u8;
                 }
             }
             if wet_faces > 0 {
@@ -11720,6 +12118,19 @@ fn organism_upkeep(world: &mut World, organism_id: OrganismId) {
                 break;
             }
             if world.get(cx, cy).organism_id() != organism_id {
+                continue;
+            }
+            // **The simple-point test again, against the plant as it now
+            // stands.** Each candidate passed it alone, against the plant
+            // before this batch; a thick bare trunk is a whole row of cells
+            // that each pass alone, and taking the row together cuts the
+            // crown off. Measured 2026-10-03 with `sap_flow` on: six trunk
+            // cells at one height went in one batch and
+            // `shed_cut_off_tissue` then shed 811 of 892 cells of an uncut
+            // tree (`a_severed_crown_is_shed_and_an_intact_plant_is_not`'s
+            // intact arm). Re-asked per removal it is ordinary sequential
+            // thinning, which keeps the plant in one piece.
+            if removal_would_disconnect_a_neighbour(world, cx, cy, organism_id) {
                 continue;
             }
             shed_to_litter(world, cx, cy);
@@ -19594,7 +20005,7 @@ this costs more than the bug"
     #[test]
     fn a_severed_crown_is_shed_and_an_intact_plant_is_not() {
         /// -> (cells shed as cut off, cells the plant still owns)
-        fn run(cut: bool, load_failure: bool) -> (u64, usize) {
+        fn run(cut: bool, load_failure: bool, sap_flow: bool) -> (u64, usize) {
             let mut w = test_world();
             // **The lab's configuration, which is where the bug lives.**
             // With `plant_load_failure` on -- the shipped default, and the
@@ -19613,6 +20024,12 @@ this costs more than the bug"
             // generation 0, defence 0.0) -- a genuine cut-off, not a
             // traversal fault. The rule this guards is unchanged either way.
             w.plant_defence = false;
+            // **Sap flow off in the exact-zero arms, for the same reason**,
+            // and on in an arm of its own below. With it on, the far
+            // leaves dry first, and on 2026-10-03 drought shed a leaf that
+            // was the only link to a six-leaf spray beside the collar: a
+            // genuine cut-off, traced cell by cell, not a traversal fault.
+            w.sap_flow = sap_flow;
             plant_tree_on_ground(&mut w, 100, 60);
             let id = w.get(100, 60).organism_id();
             assert_ne!(id, 0, "test setup: the planted seed should own its cell");
@@ -19641,13 +20058,15 @@ this costs more than the bug"
             (w.plant_cut_off_cells_shed - before, w.organism(id).map_or(0, |s| s.cells.len()))
         }
 
-        let (intact_shed, intact_cells) = run(false, false);
-        let (cut_shed, cut_cells) = run(true, false);
-        let (felling_shed, felling_cells) = run(true, true);
+        let (intact_shed, intact_cells) = run(false, false, false);
+        let (cut_shed, cut_cells) = run(true, false, false);
+        let (felling_shed, felling_cells) = run(true, true, false);
+        let (sap_shed, sap_cells) = run(false, false, true);
         println!(
             "intact (no falling):  shed {intact_shed}, {intact_cells} cells left\n\
 cut    (no falling):  shed {cut_shed}, {cut_cells} cells left\n\
-cut    (falling on):  shed {felling_shed}, {felling_cells} cells left"
+cut    (falling on):  shed {felling_shed}, {felling_cells} cells left\n\
+intact (sap flow on): shed {sap_shed}, {sap_cells} cells left"
         );
 
         // **The specificity half.** Nothing severed anything, so this rule
@@ -19679,6 +20098,19 @@ is §W7 exactly: water_at resolves on organism_id with no connectivity check."
             "with COLLAPSE UNDER LOAD on, the crown is felling's to take and this rule shed {felling_shed} \
 cells out from under it. That is what broke acceptance's `fell` case: withering the crown away steals the \
 pieces the verb exists to produce."
+        );
+
+        // **An uncut tree under sap flow keeps its crown.** Not exact zero
+        // -- a drought-shed leaf can strand a spray, which this rule is right
+        // to drop -- but a spray, not the tree. The failure this catches is
+        // die-back taking a whole row of a bare trunk in one batch, each
+        // cell a simple point alone and the row together a cut: measured
+        // 420 of 844 cells shed from this arm before die-back re-asked the
+        // simple-point test per removal.
+        assert!(
+            sap_shed * 20 < sap_cells as u64,
+            "with sap flow on, an uncut tree shed {sap_shed} cells as cut off ({sap_cells} left). More than a \
+stranded spray: check die-back still re-asks `removal_would_disconnect_a_neighbour` at each removal."
         );
     }
 
@@ -25099,5 +25531,121 @@ GrowingTip again, the rootless-plant case is live and grass needs a drought deat
             "a shrub stand grown for 25,000 frames ({tissue} cells of tissue standing) built no organ \
              at all -- the determinate rule added to shrub.ron's GrowingTip fate table never fired"
         );
+    }
+
+    /// **The sap-flow map: water conserved along the paths, drought landing
+    /// on the far tips, and refilling that climbs rather than appears.**
+    ///
+    /// A hand-built plant -- a three-wide trunk forty rows tall with a crown
+    /// on top and one low branch, and a root below -- so the geometry is
+    /// known rather than whatever a seed happened to grow. `sap_flow` is
+    /// called directly with the plant's shortfall pinned, so each claim is
+    /// about the pass and not about whether a bed dried out:
+    ///
+    /// 1. With no shortfall every leaf reads dryness 0.
+    /// 2. The collar row carries the whole crown's demand, no shoot cell
+    ///    carries more than the collar does, **and the trunk's girth shares
+    ///    it** -- the spanning-tree failure (`Reports/dead-ends.md`) is one
+    ///    trunk column carrying everything and its neighbours nothing.
+    /// 3. With a shortfall, the crown is drier than the low branch, and the
+    ///    mean is still near the plant's (the shortfall is moved, not made).
+    /// 4. Lifting the shortfall, the crown is still dry after one tick and
+    ///    wet a few ticks later.
+    #[test]
+    fn sap_flow_conserves_water_dries_tips_first_and_refills_upward() {
+        let mut w = test_world();
+        w.sap_flow = true;
+        let wood = w.materials.id_of("wood").expect("wood");
+        let leaf = w.materials.id_of("leaf").expect("leaf");
+        let rootwood = w.materials.id_of("rootwood").expect("rootwood");
+        let species = w.species.id_of("tree").expect("tree");
+        let id = w.push_organism(species).expect("an organism slot");
+        let stamp = |w: &mut World, x: i32, y: i32, m, ty, path: u16| {
+            place(w, (x, y), m, id, ty, (1.0, 0.0));
+            w.organism_cell_mut(x, y).unwrap().path_len = path;
+        };
+        for y in 60..=99 {
+            for x in 49..=51 {
+                stamp(&mut w, x, y, wood, CellType::MatureBody, (99 - y) as u16);
+            }
+        }
+        for y in 54..60 {
+            for x in 44..=56 {
+                stamp(&mut w, x, y, leaf, CellType::Leaf, (99 - y) as u16 + (x - 50).unsigned_abs() as u16);
+            }
+        }
+        for x in 52..=58 {
+            stamp(&mut w, x, 90, wood, CellType::MatureBody, 9 + (x - 51) as u16);
+            stamp(&mut w, x, 89, leaf, CellType::Leaf, 10 + (x - 51) as u16);
+        }
+        for y in 100..=110 {
+            stamp(&mut w, 50, y, rootwood, CellType::MatureBody, (y - 99) as u16);
+        }
+        w.organism_cell_mut(50, 110).unwrap().sap_soil_water = 2.0;
+        w.organism_cell_mut(50, 105).unwrap().sap_soil_water = 1.0;
+        w.organism_mut(id).unwrap().collar_y = Some(99);
+        for _ in 0..8 {
+            field::step(&mut w);
+        }
+        let leaves = |w: &World| -> Vec<(u16, f32, f32)> {
+            let s = w.organism(id).unwrap();
+            let mut v: Vec<(u16, f32, f32)> = s
+                .cells
+                .iter()
+                .filter(|(&(x, y), _)| organism::cell_type(w.get(x, y).aux()) == Some(CellType::Leaf))
+                .map(|(&(x, y), c)| (c.path_len, w.desiccation_at(x, y), c.sap_flux))
+                .collect();
+            v.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            v
+        };
+        let pin = |w: &mut World, desic: f32| {
+            w.organism_mut(id).unwrap().water_desiccation = desic;
+            sap_flow(w, id);
+        };
+
+        // 1. No shortfall: nothing is dry.
+        pin(&mut w, 0.0);
+        let wet = leaves(&w);
+        assert!(wet.len() >= 16, "test setup: only {} leaves", wet.len());
+        assert!(wet.iter().all(|l| l.1 == 0.0), "a plant with no shortfall has a dry leaf");
+
+        // 2. The collar carries the crown, across its girth.
+        let s = w.organism(id).unwrap();
+        let flux = |x: i32, y: i32| s.cells[&(x, y)].sap_flux;
+        let collar_flux = flux(49, 99) + flux(50, 99) + flux(51, 99);
+        assert!(collar_flux > 0.0, "no water moved: the collar carries {collar_flux}");
+        let max_shoot = s.cells.iter().filter(|(&(_, y), _)| y < 99).map(|(_, c)| c.sap_flux).fold(0.0, f32::max);
+        assert!(max_shoot <= collar_flux * 1.0001, "a shoot cell carries {max_shoot}, more than the collar's {collar_flux}");
+        let row: Vec<f32> = (49..=51).map(|x| flux(x, 80)).collect();
+        let (lo, hi) = row.iter().fold((f32::MAX, 0.0f32), |(a, b), &v| (a.min(v), b.max(v)));
+        assert!(lo > 0.2 * hi, "one trunk column carries the crown and its neighbours nothing: {row:?}");
+        // Roots carry the crown's water up from the soil that offers it:
+        // the root below the collar carries all of it, and the tip, whose
+        // soil offers two thirds, two thirds.
+        assert!((flux(50, 100) / collar_flux - 1.0).abs() < 1e-3, "the root below the collar carries {}, not the crown's {collar_flux}", flux(50, 100));
+        assert!((flux(50, 110) / collar_flux - 2.0 / 3.0).abs() < 1e-3, "the root tip carries {}", flux(50, 110));
+
+        // 3. A shortfall lands on the far tips, and is moved, not made.
+        pin(&mut w, 0.3);
+        let dry = leaves(&w);
+        let at = |x: i32, y: i32| w.desiccation_at(x, y);
+        let near = (52..=58).map(|x| at(x, 89)).sum::<f32>() / 7.0;
+        let far = (44..=56).map(|x| at(x, 54)).sum::<f32>() / 13.0;
+        assert!(far > near * 1.2, "crown leaves {far:.3} are not drier than the low branch's {near:.3}");
+        // The pass normalises against each leaf's own demand, which shading
+        // spreads; an unweighted mean over leaves only has to stay close.
+        let mean = dry.iter().map(|l| l.1).sum::<f32>() / dry.len() as f32;
+        assert!((mean - 0.3).abs() < 0.12, "mean leaf dryness {mean:.3} drifted far from the plant's 0.3");
+
+        // 4. Refilling climbs: one tick later the far tips are still dry.
+        pin(&mut w, 0.0);
+        let still = (44..=56).map(|x| w.desiccation_at(x, 54)).sum::<f32>();
+        assert!(still > 0.0, "the crown, 45 rows up, refilled in one tick -- water arrived without travelling");
+        let low = (52..=58).map(|x| w.desiccation_at(x, 89)).sum::<f32>() / 7.0;
+        assert!(low < still / 13.0, "the low branch ({low:.3}) refilled no faster than the crown ({:.3})", still / 13.0);
+        for _ in 0..(50 / SAP_CELLS_PER_TICK + 2) {
+            pin(&mut w, 0.0);
+        }
+        assert!(leaves(&w).iter().all(|l| l.1 == 0.0), "leaves still dry long after the water came back");
     }
 }

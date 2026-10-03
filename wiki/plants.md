@@ -3,7 +3,9 @@
 *What plants do, and what it looks like when they are working. No code, no
 file names — see `Reports/` for why any of it is built the way it is.*
 
-*Current as of: 2026-10-03 (**plants can be born harder to eat**, paying for
+*Current as of: 2026-10-03 (**water runs through a plant along real paths**:
+up the roots, up the trunk, out along the branches, and a dry spell browns the
+far tips first -- see *How water moves through a plant*). Also 2026-10-03 (**plants can be born harder to eat**, paying for
 it in growth -- see *Plants that are worse to eat*). Also 2026-10-03 (**a seed with ground on top of it is out of the
 ants' reach** -- see *The seed bank*). Before that: 2026-09-18 (**a plant can stand in water now, and one kind
 does.** Until 2026-09-18 nothing grew in a pond: a shoot stopped dead at the
@@ -271,6 +273,40 @@ system:
   tree's canopy.
 - **A stand on deep soil out-grows the same stand on a thin skin of soil over
   rock.** Same seeds, different ground.
+
+### How water moves through a plant
+
+Water does not appear in every leaf at once. It comes in through the roots,
+runs along them to the base of the stem, climbs the trunk and splits into the
+branches, each branch taking as much as the leaves on it need. So the trunk
+carries the whole crown's water and a twig carries its own few leaves', and
+a root in wet ground carries more than one in dry. The **SAP FLOW** life
+overlay draws exactly this: the trunk and the main roots as bright blue
+channels, twigs as threads, and pulses running inward along the roots and
+outward up the shoots at the speed sap really climbs.
+
+What that changes, when water is short:
+
+- **The far tips go first.** A plant that cannot keep up is short
+  everywhere at once -- the pull on the water reaches the roots the moment a
+  leaf draws -- but the leaves at the end of the longest paths are shortest.
+  A drying tree browns and drops its outermost leaves first and dies back
+  inward, rather than thinning evenly all over. On the overlay the tips turn
+  rust while the trunk is still blue.
+- **A side over dry ground fares worse.** Water from a root mostly rises on
+  its own side of the stem, with some sharing across. A plant whose roots on
+  one side are in dry ground, or have been cut, feels the drought on the
+  branches above them first.
+- **Recovery climbs.** When water comes back, the green returns from the base
+  upward over a fraction of a day, the way refilling stems do, instead of the
+  whole crown recovering in the same instant.
+
+And **nutrients ride the water**. A growing tip builds with what the water
+brings it from the roots that feed its side, so a branch above fresh soil
+builds cheaper than one above ground the roots have already drawn down.
+
+A well-watered plant in even soil grows exactly as before: none of this moves
+anything until something is short.
 
 ## Roots
 
