@@ -480,6 +480,17 @@ pub struct RunLog {
     /// instead: to make a ring census true you would have to hold the whole
     /// session, which `RUN_LOG_CAP`'s own doc prices.
     pushed: [u64; LogKind::ALL.len()],
+    /// **Every `PlayerAction` ever pushed, in order, never trimmed** -- a copy
+    /// beside the `lines` ring, which still holds them for the LOG page.
+    ///
+    /// Spec B7 of the 10-03 logging proposal: a chronicle is read to find out
+    /// what the *player* did to the box, and a ring that can age the first
+    /// placement out from under a long session cannot say that. A playtest
+    /// has tens of these, not thousands (one per gesture, never per tick), so
+    /// unbounded costs nothing worth a cap; `chronicle_text` prints the ones
+    /// the ring dropped ahead of the story so the file always has all of
+    /// them, and the `.actions.csv` sidecar is this list verbatim.
+    actions: Vec<LogEvent>,
 }
 
 /// **How many `Born`/`Died`/`FirstFeed`/`FirstSeed` lines the individuals'
@@ -743,6 +754,9 @@ impl RunLog {
         // **Before the routing, and outside it**: the tally is about what
         // happened in the box, not about which ring absorbed it.
         self.pushed[event.kind.index()] += 1;
+        if event.kind == LogKind::PlayerAction {
+            self.actions.push(event.clone());
+        }
         if event.kind.is_line_event() {
             self.lines.push_back(event);
             while self.lines.len() > LINE_LOG_CAP {
@@ -812,6 +826,12 @@ impl RunLog {
         })
     }
 
+    /// **Every player action this run, oldest first, none ever dropped** --
+    /// see the `actions` field. The ring's copies are a suffix of this.
+    pub fn actions(&self) -> &[LogEvent] {
+        &self.actions
+    }
+
     /// **Every line ever pushed, trimmed or not.** Monotonic within one run,
     /// so a caller can tell "something happened this tick" from a
     /// before/after difference without holding a copy of the log or walking
@@ -833,6 +853,9 @@ impl RunLog {
         // not live, which is the same lie the ring census told from the
         // other direction.
         self.pushed = [0; LogKind::ALL.len()];
+        // And the player's own record, for the same reason: the parent's
+        // gestures were made to the parent's box.
+        self.actions.clear();
     }
 }
 
@@ -12730,6 +12753,43 @@ mod tests {
             log.recent().all(|e| e.frame >= OVER),
             "the line ring trimmed from the wrong end -- the newest lines went instead of the oldest"
         );
+    }
+
+    /// **The player's actions survive the line ring dropping them.** Spec B7
+    /// of the 10-03 logging proposal: a chronicle has to say what the player
+    /// did even after a long session has aged the first placement out of the
+    /// ring. One action, then enough line events to push it out of `lines`
+    /// -- the ring has lost it (the sensitivity half: without that this
+    /// would pass on a ring that never trimmed) and `actions()` still has it,
+    /// alone and in order.
+    ///
+    /// Provable red by dropping the `self.actions.push(..)` arm of
+    /// `RunLog::push`: `actions()` is then empty.
+    #[test]
+    fn player_actions_outlive_the_line_ring() {
+        let mut log = RunLog::default();
+        let event = |frame: u64, kind: LogKind, detail: &str| LogEvent {
+            frame,
+            id: 1,
+            born_frame: 0,
+            species: organism::SpeciesId(0),
+            kind,
+            other: 0,
+            lineage: 0,
+            generation: 0,
+            detail: detail.to_string(),
+        };
+        log.push(event(0, LogKind::PlayerAction, "PLACED COLONY OF 8 ANT AT X 240"));
+        for f in 1..=LINE_LOG_CAP as u64 {
+            log.push(event(f, LogKind::LineEnded, ""));
+        }
+        assert_eq!(log.recent().filter(|e| e.kind == LogKind::PlayerAction).count(), 0, "the ring never dropped the action, so this proves nothing");
+        assert_eq!(log.actions().len(), 1, "the unbounded action list lost what the ring trimmed");
+        assert_eq!(log.actions()[0].detail, "PLACED COLONY OF 8 ANT AT X 240");
+        log.push(event(LINE_LOG_CAP as u64 + 1, LogKind::PlayerAction, "SPEED 4X"));
+        assert_eq!(log.actions().iter().map(|e| e.frame).collect::<Vec<_>>(), vec![0, LINE_LOG_CAP as u64 + 1], "actions out of order");
+        log.clear();
+        assert!(log.actions().is_empty(), "a cleared log kept its parent's actions");
     }
 
     /// **A player action does not fall into a stranger's timeline.**
