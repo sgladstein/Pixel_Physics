@@ -14,7 +14,8 @@
 // this, and turns back into its species' seed the tick it is uncovered.
 // Germination does not read the material, so a buried seed sprouts on the
 // same light and water rule as any other -- it only stops being eaten.
-// Behind `PIXEL_PHYSICS_BURIED_SEED` (see `plant::buried_seed_enabled`).
+// On by default; `PIXEL_PHYSICS_BURIED_SEED=off` turns it off (see
+// `plant::buried_seed_enabled` for the measurement).
 (
     name: "buriedseed",
     display: "Buried seed",
