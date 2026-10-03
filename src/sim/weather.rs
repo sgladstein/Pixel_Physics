@@ -1483,6 +1483,12 @@ fn gust(world: &mut World, w: Weather) {
 /// currently giving back more or less.
 fn condense_under_a_lid(world: &mut World) {
     let Some(ceiling) = world.enclosure().map(|e| e.ceiling_y) else { return };
+    // **A vented lid gives nothing back** -- `World::lid_vented`, the
+    // mister's `Off`. The excess stays banked and comes down once the lid
+    // is sealed again.
+    if world.lid_vented {
+        return;
+    }
     // Only ever the *excess*. `STORM_RESERVE` is the endowment a fresh world
     // is created with (`World::new`), not water this box evaporated, so
     // spending into it would drain a reserve the box never earned.
