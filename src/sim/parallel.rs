@@ -801,6 +801,13 @@ impl CellSurface for ChunkView<'_> {
         self.chunk.set_world_quiet(x, y, cell);
     }
 
+    fn keep_awake(&mut self, x: i32, y: i32) {
+        // Same contract as `clear_moved`: only ever the position being
+        // visited, which is always inside this worker's own chunk.
+        debug_assert!(self.owns(x, y), "keep_awake called outside the chunk being swept");
+        self.chunk.keep_awake(x, y);
+    }
+
     fn materials(&self) -> &MaterialRegistry {
         &self.world.materials
     }

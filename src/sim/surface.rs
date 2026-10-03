@@ -189,6 +189,11 @@ pub trait CellSurface {
     /// `Chunk::set_world_quiet` for why neither may dirty its chunk.
     fn clear_undercut(&mut self, x: i32, y: i32);
 
+    /// Ask the next sweep to visit this cell again even though nothing was
+    /// written -- see `Chunk::keep_awake`. Always called on the position
+    /// currently being visited.
+    fn keep_awake(&mut self, x: i32, y: i32);
+
     fn materials(&self) -> &MaterialRegistry;
 
     /// **Open a cell's visit**, before any rule reads or writes it.

@@ -10454,6 +10454,17 @@ impl World {
         }
     }
 
+    /// Ask the next sweep to revisit `(x, y)` without writing anything --
+    /// see `Chunk::keep_awake`.
+    pub fn keep_awake(&mut self, x: i32, y: i32) {
+        if !self.in_bounds(x, y) {
+            return;
+        }
+        if let Some(chunk) = self.chunks.get_mut(&ChunkCoord::containing(x, y)) {
+            chunk.keep_awake(x, y);
+        }
+    }
+
     /// Clear a cell's undercut flag once the sweep has visited it. Quiet for
     /// the same reason `clear_moved` above is.
     pub fn clear_undercut(&mut self, x: i32, y: i32) {
@@ -11783,6 +11794,11 @@ impl CellSurface for World {
     }
 
     #[inline]
+    fn keep_awake(&mut self, x: i32, y: i32) {
+        World::keep_awake(self, x, y)
+    }
+
+    #[inline]
     fn materials(&self) -> &MaterialRegistry {
         &self.materials
     }
@@ -12113,6 +12129,14 @@ impl CellSurface for MoistureView<'_> {
             self.chunk.set_world_quiet(x, y, cell);
         } else {
             self.world.clear_undercut(x, y);
+        }
+    }
+
+    fn keep_awake(&mut self, x: i32, y: i32) {
+        if self.inner.contains(x, y) {
+            self.chunk.keep_awake(x, y);
+        } else {
+            self.world.keep_awake(x, y);
         }
     }
 
