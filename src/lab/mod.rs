@@ -2236,10 +2236,54 @@ impl Lab {
             ui::Tool::Alarm => self.alarm_at(x, y),
             ui::Tool::Fling => self.fling_at(x, y),
             ui::Tool::Lamp => self.lamp_at(x),
+            ui::Tool::Fire => self.fire_at(x, y),
             // The brushes never arrive here: they paint from `press`, so a
             // release that also painted would double the last dab.
             ui::Tool::Soil | ui::Tool::Water | ui::Tool::Food | ui::Tool::Scent => {}
         }
+    }
+
+    /// **Start a fire at `(x, y)`**: light every cell in the brush's disc
+    /// whose material can burn, and nothing else. `World::ignite_circle` is
+    /// the sandbox's debug brush and lights *anything*, soil and stone
+    /// included, on purpose (its own doc) -- a player tool that burned the
+    /// bed away under a click would be a different verb. Each cell burns for
+    /// its own material's `burn_duration`; spreading, ash and regrowth are
+    /// the engine's own fire from here on.
+    fn fire_at(&mut self, x: i32, y: i32) {
+        let r = self.ui.brush().max(0);
+        let mut lit = 0u32;
+        for wy in (y - r)..=(y + r) {
+            for wx in (x - r)..=(x + r) {
+                if (wx - x) * (wx - x) + (wy - y) * (wy - y) > r * r {
+                    continue;
+                }
+                let mut cell = self.world.get(wx, wy);
+                if cell.material == crate::sim::material::EMPTY || cell.is_burning() {
+                    continue;
+                }
+                let m = self.world.materials.get(cell.material);
+                if m.flammability <= 0.0 || m.burn_duration == 0 {
+                    continue;
+                }
+                let hot = m.burn_temperature;
+                cell.ignite(m.burn_duration);
+                // At the material's own flame temperature, as `fire.rs`'s
+                // `ignite` lights a cell -- a cold flame would give its
+                // neighbours nothing to catch from but contact, which the
+                // lab's damp ground refuses.
+                if hot.is_finite() {
+                    cell.set_temperature(hot.round() as i16);
+                }
+                self.world.set(wx, wy, cell);
+                lit += 1;
+            }
+        }
+        self.ui.say(if lit == 0 {
+            "NOTHING HERE WILL BURN -- CLICK A PLANT OR LITTER".to_string()
+        } else {
+            format!("FIRE STARTED -- {lit} CELLS ALIGHT")
+        });
     }
 
     /// **Drop alarm scent at `(x, y)`, at the strength a real bite writes.**
@@ -3881,7 +3925,7 @@ const HELP: [&str; 30] = [
     "UP DOWN    SPEED     1-7  PRESET",
     "",
     "Z X C V B  LOOK PLANT COLONY CULL ADD",
-    "B AGAIN    SOIL WATER FOOD WALL LAMP SCENT",
+    "B AGAIN    SOIL WATER FOOD WALL LAMP SCENT FIRE",
     "M ,          KEEP THIS ONE / PLACE A JAR",
     "CLICK      USE THE ARMED TOOL",
     "RIGHT      ERASE",
@@ -6601,6 +6645,71 @@ mod tests {
         let new = after.iter().find(|p| !placed.contains(p)).expect("the new beetle");
         assert!((new.0 - x).abs() <= 2, "a lone beetle landed at {} for a click at {x}", new.0);
         assert_eq!(new.1, colony, "a hand-placed beetle did not join the box's beetle colony");
+    }
+
+    /// **The fire tool burns plants, not the ground.** Owner, 2026-10-03:
+    /// *"there should be a tool to start a fire in the lab"*. A grown stand,
+    /// a click on one of its plants through the `ADD` cell: cells catch and
+    /// the fire leaves ash behind. **The control is a click on bare soil**, which must light nothing -- the sandbox's
+    /// `ignite_circle` would have burned the soil there too.
+    #[test]
+    fn the_fire_tool_burns_a_plant_and_not_bare_soil() {
+        let mut lab = Lab::new(scene::LabBox { colonies: 0, ..scene::LabBox::default() });
+        lab.show_help = false;
+        run(&mut lab, 3_000);
+        let mut frame = vec![0u8; (WIDTH * HEIGHT * 4) as usize];
+        lab.draw(&mut frame, 60.0);
+        let ash = crate::sim::material::ASH;
+        fn is_plant(w: &World, c: crate::sim::cell::Cell) -> bool {
+            c.organism_id() != 0 && w.organism(c.organism_id()).is_some_and(|s| w.species.get(s.species).creature.is_none())
+        }
+        let census = |lab: &Lab| {
+            let (mut plant, mut burning, mut ashes) = (0usize, 0usize, 0usize);
+            for y in 0..lab.spec.height {
+                for x in 0..lab.spec.width {
+                    let c = lab.world.get(x, y);
+                    plant += is_plant(&lab.world, c) as usize;
+                    burning += c.is_burning() as usize;
+                    ashes += (c.material == ash) as usize;
+                }
+            }
+            (plant, burning, ashes)
+        };
+        // Arm FIRE the way a player does: the ADD cell, pressed until it lands.
+        for _ in 0..ui::PLACEABLE.len() {
+            if lab.ui.tool() == ui::Tool::Fire {
+                break;
+            }
+            lab.act(ui::Action::Place);
+        }
+        assert_eq!(lab.ui.tool(), ui::Tool::Fire, "the ADD cell never reached FIRE");
+
+        // Bare soil first: a column with no plant within the brush.
+        let r = lab.ui.brush();
+        let bare = (r..lab.spec.width - r)
+            .find(|&x| {
+                ((x - r)..=(x + r)).all(|xx| ((lab.spec.ground_y - 30)..lab.spec.ground_y + r + 1).all(|yy| lab.world.get(xx, yy).organism_id() == 0))
+            })
+            .expect("test setup: no bare stretch of bed");
+        let soil_y = lab.spec.ground_y + 2;
+        click_cell(&mut lab, bare, soil_y);
+        assert_eq!(census(&lab).1, 0, "a click on bare soil set something alight");
+
+        // Then a plant above the ground.
+        let (px, py) = (0..lab.spec.width)
+            .flat_map(|x| (0..lab.spec.ground_y - 2).map(move |y| (x, y)))
+            .find(|&(x, y)| {
+                let c = lab.world.get(x, y);
+                is_plant(&lab.world, c)
+            })
+            .expect("test setup: nothing grew above ground");
+        let before = census(&lab);
+        click_cell(&mut lab, px, py);
+        let lit = census(&lab);
+        assert!(lit.1 > 0, "a click on a plant lit nothing");
+        run(&mut lab, 600);
+        let after = census(&lab);
+        assert!(after.2 > before.2, "the fire left no ash: {before:?} -> {after:?}");
     }
 
     /// A drag lays down one continuous band, not a dab at each end.

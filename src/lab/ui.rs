@@ -756,6 +756,16 @@ pub enum Tool {
     /// than once per click, because a trail is a *line*, not a point.
     /// **Off the bar**, for `Food`'s own reason: measured full at seven.
     Scent,
+    /// **Click to start a fire** (owner, 2026-10-03: *"there should be a
+    /// tool to start a fire in the lab"*). Lights every cell in the brush's
+    /// disc that can burn -- a plant, litter, a dead stalk, an animal -- and
+    /// leaves the rest alone, so a click on a stand sets the stand alight and
+    /// a click on bare soil lights nothing rather than burning the ground
+    /// away. After that it is the engine's own fire: it spreads to whatever
+    /// is flammable beside it, leaves ash, and the ash weathers back to soil.
+    /// One click, not a brush -- fire spreads by itself, and that is what
+    /// there is to watch. A stop on the `ADD` cell; no key of its own.
+    Fire,
     /// **Click to drop alarm scent at the cursor** — `sim::pheromone::
     /// Channel::Alarm`, the plane a bitten animal calls out on
     /// (`creature.rs`'s `cry_alarm`). One click, not a brush: a real alarm
@@ -843,8 +853,8 @@ pub const TOOLS: [Tool; 4] = [Tool::Look, Tool::Plant, Tool::Colony, Tool::Cull]
 
 /// **Everything a player puts into the box by hand**, in the order the bar's
 /// `ADD` cell steps through them. Material first (soil, water, food), then
-/// the fixtures (wall, lamp), then the trail. See [`TOOLS`].
-pub const PLACEABLE: [Tool; 6] = [Tool::Soil, Tool::Water, Tool::Food, Tool::Wall, Tool::Lamp, Tool::Scent];
+/// the fixtures (wall, lamp), then the trail, then fire. See [`TOOLS`].
+pub const PLACEABLE: [Tool; 7] = [Tool::Soil, Tool::Water, Tool::Food, Tool::Wall, Tool::Lamp, Tool::Scent, Tool::Fire];
 
 impl Tool {
     /// Whether this tool is one of [`PLACEABLE`], the `ADD` cell's list.
@@ -868,6 +878,7 @@ impl Tool {
             Tool::Alarm => "ALARM",
             Tool::Fling => "FLING",
             Tool::Lamp => "LAMP",
+            Tool::Fire => "FIRE",
             // Never drawn on the bar -- this is what the notice says while it
             // is armed, so it is the verb rather than the old `FREE`: what it
             // does now is put the jar you picked *somewhere*.
@@ -908,6 +919,8 @@ impl Tool {
             Tool::Alarm => "J",
             Tool::Fling => "Q",
             Tool::Lamp => "U",
+            // Reached only through the `ADD` cell, whose key this is.
+            Tool::Fire => "B",
         }
     }
     /// **Whether this tool puts animals in the box.** The two that do share a
@@ -947,6 +960,7 @@ impl Tool {
             Tool::Scent => "DRAG TO LAY PHEROMONE. STARTS ON THE HOME SCENT (CHANNEL A) -- A ROAD HOME: ANTS CARRYING FOOD FOLLOW IT. DRAW IT FROM A PATCH BACK TO THE NEST AND LADEN FORAGERS WILL RUN IT. PRESS I AGAIN FOR THE FOOD ROUTE (CHANNEL B), WHICH NO ANT CAN READ YET. LAYS AT THE SAME STRENGTH A REAL ANT'S OWN TRAIL DOES AT FULL SIGNAL.",
             Tool::Alarm => "CLICK TO CALL ALARM AT THE CURSOR, AS LOUD AS A REAL BITE. A NEARBY COLONY READS IT THE SAME AS THE REAL THING -- RECRUIT, SWARM OR FLEE. WATCH IT SPREAD AND FADE WITH THE ALARM OVERLAY (O).",
             Tool::Fling => "CLICK AN ANIMAL TO LAUNCH IT -- THE SAME BALLISTIC HOP THE BRAIN CAN ALREADY DO ON ITS OWN, NOW ON YOUR CLICK. IT GOES AWAY FROM WHICHEVER SIDE YOU CLICKED, OR STRAIGHT UP IF YOU CLICKED DEAD CENTRE. REFUSED IN MID-AIR -- THERE IS NOTHING TO PUSH OFF.",
+            Tool::Fire => "CLICK TO START A FIRE. EVERYTHING IN THE BRUSH THAT CAN BURN -- PLANTS, LITTER, ANIMALS -- CATCHES, AND BARE SOIL AND STONE DO NOT. IT SPREADS BY ITSELF TO WHATEVER WILL BURN BESIDE IT AND LEAVES ASH, WHICH WEATHERS BACK INTO SOIL. THE BRUSH DIAL SETS HOW BIG A FIRE YOU START.",
             Tool::Lamp => "CLICK A GROW LIGHT TO PULL IT OUT, CLICK BARE CEILING TO BOLT ONE IN, OR DRAG A LIGHT TO A NEW COLUMN TO MOVE IT. THE BENCH BELOW FOLLOWS ON THE NEXT FIELD STEP.",
         }
     }
@@ -1495,7 +1509,7 @@ fn lay_out(state: &BarState<'_>, pad: i32, gap: i32) -> Bar {
                 icon: None,
                 ratio: None,
                 note: format!(
-                    "PUT SOMETHING INTO THE BOX BY HAND: SOIL, WATER, FOOD, A WALL, A LAMP OR A SCENT TRAIL. PRESS AGAIN TO STEP TO THE NEXT. NOW: {}",
+                    "PUT SOMETHING INTO THE BOX BY HAND: SOIL, WATER, FOOD, A WALL, A LAMP, A SCENT TRAIL OR A FIRE. PRESS AGAIN TO STEP TO THE NEXT. NOW: {}",
                     state.place.note()
                 ),
             }

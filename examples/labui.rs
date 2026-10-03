@@ -1036,6 +1036,36 @@ fn main() {
         lab.set_cursor(Some((sx, sy)));
     }
     tiles.push(("VERB: CULL".into(), shot(&mut lab)));
+
+    // FIRE, through the ADD cell (owner, 2026-10-03): a click on a plant,
+    // then the box run for a few seconds so the tile shows the burn and what
+    // it left, with how many cells were alight and how much ash there is.
+    if let Some((wx, wy)) = living_cell_of(&lab, false) {
+        add_until(&mut lab, Tool::Fire);
+        let (sx, sy) = lab.renderer.world_to_screen(wx, wy).unwrap_or((wx, wy));
+        click(&mut lab, (sx, sy));
+        let burning = |lab: &Lab| {
+            let b = lab.world.bounds().expect("bounds");
+            (b.min_y..=b.max_y).flat_map(|y| (b.min_x..=b.max_x).map(move |x| (x, y))).filter(|&(x, y)| lab.world.get(x, y).is_burning()).count()
+        };
+        let lit = burning(&lab);
+        lab.act(Action::TogglePhase);
+        for _ in 0..180 {
+            lab.advance(std::time::Duration::from_millis(16));
+        }
+        lab.act(Action::TogglePhase);
+        let ash = {
+            let b = lab.world.bounds().expect("bounds");
+            (b.min_y..=b.max_y)
+                .flat_map(|y| (b.min_x..=b.max_x).map(move |x| (x, y)))
+                .filter(|&(x, y)| lab.world.get(x, y).material == pixel_physics::sim::material::ASH)
+                .count()
+        };
+        fired.push(format!("FIRE at {wx},{wy}: {lit} cells lit, then {} burning and {ash} ash", burning(&lab)));
+        lab.set_cursor(None);
+        tiles.push(("VERB: FIRE".into(), shot(&mut lab)));
+        lab.act(Action::Tool(Tool::Fire));
+    }
     // ...and the ant's death needs a tick to land, which is the honest half:
     // a stopped box does not kill anything, it only marks it.
     let creatures_before = lab.world.live_creature_count();
