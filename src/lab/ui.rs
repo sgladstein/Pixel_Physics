@@ -2337,6 +2337,72 @@ fn draw_tick(frame: &mut [u8], world: &World, renderer: &crate::render::Renderer
     }
 }
 
+/// **Which overlay mark, if any, is painted over world cell `(x, y)`** --
+/// read by LOOK so a mark cannot pass for an animal.
+///
+/// Owner's playtest, 2026-10-03: ants *"stuck in the ground and can't
+/// move"*, in their colony's colour, where LOOK read soil, spoil, nest or
+/// packed soil and NO ORGANISM -- *"unless I'm seeing a dead ant but it's
+/// still yellow"*. Nothing was stuck. Two overlays paint colony colour onto
+/// ground as a full replace: a `LifeMarks::Halo` ring one cell outside every
+/// living animal, which underground lands on the soil around an ant packed
+/// into a crowd and stays exactly as still as it does, and the harvest map
+/// (`food_road`), whose dither drops single colony-coloured cells on the
+/// ground a colony has eaten from -- around the nest, and on fallen plant
+/// litter. Both are drawn correctly; what was wrong was that the one tool
+/// for asking "what is this" answered for the cell under the paint and
+/// never mentioned the paint. Measured before blaming the overlays, on the
+/// played bed: 0 pixels differing from a fresh full redraw across 6,000
+/// frames on 3 seeds (the positive control found 2,024), and no ant body
+/// ever overwritten by ground.
+///
+/// The geometry is the drawing's own, in world cells rather than pixels:
+/// `draw_halo`/`draw_tick` above and `fill_mark_row`'s skip of any cell
+/// that has an organism, and `Renderer::apply_field_overlay`'s harvest
+/// branch (tile, dither, ground only, skin of the ground). The road channel
+/// is not reported: it is drawn on a fixed ramp, not in a colony's colour,
+/// so it cannot be mistaken for an animal.
+pub fn mark_at(world: &World, renderer: &crate::render::Renderer, marks: LifeMarks, (x, y): (i32, i32)) -> Option<String> {
+    let cell = world.get(x, y);
+    if marks != LifeMarks::Off && renderer.organism_overlay == render::OrganismOverlay::Off && cell.organism_id() == 0 {
+        for ((x0, y0, x1, y1), species, colony) in life_mark_dots(world) {
+            let hit = match marks {
+                LifeMarks::Off => false,
+                LifeMarks::Halo => {
+                    let outer = x >= x0 - 1 && x <= x1 + 1 && y >= y0 - 1 && y <= y1 + 1;
+                    let inner = x >= x0 && x <= x1 && y >= y0 && y <= y1;
+                    outer && !inner
+                }
+                LifeMarks::Tick => x == (x0 + x1) / 2 && y == y0 - 1,
+            };
+            if hit {
+                return Some(format!("{} OF {}", marks.label(), world.group_label(species, colony)));
+            }
+        }
+    }
+    let food = &renderer.food;
+    let harvest = matches!(food.mode, crate::food_road::FoodOverlay::Harvest | crate::food_road::FoodOverlay::Both);
+    let ground = cell.material != material::EMPTY;
+    if harvest && food.describes(world) && (ground || !food.harvest_on_ground) {
+        let tile = (x.div_euclid(food.tile), y.div_euclid(food.tile));
+        let painted = food.tile_colours(world.frame).get(&tile).is_some_and(|m| m.covers(x, y))
+            && (!food.harvest_on_ground || crate::food_road::near_open_air(world, x, y))
+            // Road over harvest, as the renderer draws them.
+            && !(food.mode == crate::food_road::FoodOverlay::Both && food.road_at(x, y, world.frame).is_some());
+        if painted {
+            // The tile wears the colony that took the most out of it.
+            let colony = food
+                .harvest_readout(world.frame)
+                .into_iter()
+                .filter(|&(_, tx, ty, _)| (tx, ty) == tile)
+                .max_by(|a, b| a.3.total_cmp(&b.3))
+                .map_or(0, |(c, ..)| c);
+            return Some(format!("HARVEST MAP, COLONY {colony}"));
+        }
+    }
+    None
+}
+
 /// The bar's short population strip for **one** chamber.
 ///
 /// `pub` and parked in `Chamber` rather than kept on `Ui`, because a strip
@@ -9540,7 +9606,18 @@ impl Ui {
         // takes the width that made the comparison legible, and puts the
         // duplicate on the side the reader is scanning toward.
         if let Some(at) = self.inspect.filter(|_| self.panel != Some(Panel::Compare)) {
-            let rows = self.inspect_rows(world, at);
+            let mut rows = self.inspect_rows(world, at);
+            // **What is painted over the cell, when something is** -- see
+            // `mark_at`. Here rather than in `inspect_rows` because the
+            // geometry needs the renderer, which that function is not given.
+            if let Some(mark) = mark_at(world, renderer, self.life_marks, at) {
+                rows.push(Row::value(
+                    "MARK",
+                    mark,
+                    VALUE,
+                    "AN OVERLAY IS PAINTED OVER THIS CELL IN A COLONY'S COLOUR -- THE HALO OR TICK THAT MARKS (Y) DRAWS AROUND EVERY LIVING ANIMAL, OR THE HARVEST MAP (F7) ON GROUND A COLONY HAS EATEN FROM. IT IS PAINT, NOT AN ANIMAL: THE ROWS ABOVE ARE WHAT THE CELL REALLY HOLDS.",
+                ));
+            }
             // Beside the open page rather than under it, so opening a page
             // does not hide the cell you are inspecting.
             // **`history_box` belongs in this chain.** Found by looking at a
@@ -9688,7 +9765,8 @@ impl Ui {
         if self.tool == Tool::Look {
             if let Some((cx, cy)) = self.cursor.filter(|&(x, y)| y < bar_top() && !self.covers(x, y)) {
                 let (wx, wy) = renderer.logical_to_world(cx, cy);
-                paint_hover_cell(hc, frame, world, (wx, wy), self.inspect_box);
+                let mark = mark_at(world, renderer, self.life_marks, (wx, wy));
+                paint_hover_cell(hc, frame, world, (wx, wy), self.inspect_box, mark);
             }
         }
 
@@ -9741,7 +9819,7 @@ impl Ui {
 /// **The transient one moves.** The readout follows the cursor and is gone
 /// the moment it leaves; the page is pinned and is what the player is
 /// reading.
-fn paint_hover_cell(hc: render::Hud, frame: &mut [u8], world: &World, (x, y): (i32, i32), avoid: Option<Rect>) {
+fn paint_hover_cell(hc: render::Hud, frame: &mut [u8], world: &World, (x, y): (i32, i32), avoid: Option<Rect>, mark: Option<String>) {
     use crate::sim::material::MaterialKind;
     let cell = world.get(x, y);
     let def = world.materials.get(cell.material);
@@ -9763,7 +9841,10 @@ fn paint_hover_cell(hc: render::Hud, frame: &mut [u8], world: &World, (x, y): (i
             world.species.get(state.species).name.to_uppercase(),
             state.energy
         ),
-        None => "NO ORGANISM".to_string(),
+        // **A mark painted over bare ground is named instead.** See
+        // `mark_at`: a halo or harvest dot in colony colour over a cell
+        // reading NO ORGANISM is exactly what was taken for a stuck ant.
+        None => mark.unwrap_or_else(|| "NO ORGANISM".to_string()),
     };
     let lines = [
         format!("{} {},{}", def.display.to_uppercase(), x, y),
@@ -12514,6 +12595,125 @@ mod tests {
             }
             assert!(body_pixels_checked > 0, "test setup: no organism-owned pixel was on screen to check for {mode:?}");
         }
+    }
+
+    /// **LOOK names every cell a life mark paints, and only those.** The
+    /// owner's 2026-10-03 playtest read halo rings on soil as ants "stuck in
+    /// the ground", because LOOK answered SOIL / NO ORGANISM for a cell
+    /// painted in colony colour and never mentioned the paint (`mark_at`).
+    ///
+    /// Checked against the drawing itself rather than against a copy of its
+    /// geometry: every world cell whose pixels changed when marks went on
+    /// must be claimed by `mark_at`, and every cell `mark_at` claims must
+    /// have changed. Positive controls, run by hand: `mark_at` never
+    /// claiming a halo fails the first half (375 painted cells unnamed), and
+    /// claiming the whole bounding box including the body fails the second
+    /// (9 cells claimed that nothing painted).
+    #[test]
+    fn look_names_every_cell_a_life_mark_paints() {
+        let mut lab = crate::lab::Lab::new(crate::lab::scene::LabBox {
+            colonies: 1,
+            founders: 2,
+            ..crate::lab::scene::LabBox::default()
+        });
+        lab.show_help = false;
+        // The STATS page draws its text straight over the world with no
+        // panel behind it, so a mark under a letter is hidden and the cell
+        // reads as claimed-but-unpainted. Put it away.
+        if lab.stats.showing() {
+            lab.stats.toggle();
+        }
+        for _ in 0..400 {
+            lab.tick_for_harness();
+        }
+        let mut off = vec![0u8; (W * H * 4) as usize];
+        lab.draw(&mut off, 60.0);
+        let cap = bar_top() - 1;
+        for mode in [LifeMarks::Halo, LifeMarks::Tick] {
+            while lab.ui.life_marks() != mode {
+                lab.ui.cycle_life_marks();
+            }
+            let mut on = vec![0u8; (W * H * 4) as usize];
+            lab.draw(&mut on, 60.0);
+            let (mut painted, mut claimed) = (std::collections::BTreeSet::new(), std::collections::BTreeSet::new());
+            for y in 0..=cap {
+                for x in 0..W as i32 {
+                    // A page standing over the world hides the mark under it
+                    // as well as the cell, so neither half can be read there.
+                    if lab.ui.covers(x, y) {
+                        continue;
+                    }
+                    let at = lab.renderer.logical_to_world(x, y);
+                    let o = ((y * W as i32 + x) * 4) as usize;
+                    if on[o..o + 4] != off[o..o + 4] {
+                        painted.insert(at);
+                    }
+                    if let Some(name) = mark_at(&lab.world, &lab.renderer, mode, at) {
+                        assert!(name.starts_with(mode.label()), "{mode:?}: the readout names the wrong mark: {name}");
+                        claimed.insert(at);
+                    }
+                }
+            }
+            assert!(!painted.is_empty(), "test setup: {mode:?} painted nothing on screen");
+            let unnamed: Vec<_> = painted.difference(&claimed).collect();
+            assert!(unnamed.is_empty(), "{mode:?}: {} painted cell(s) LOOK would not name, e.g. {:?}", unnamed.len(), unnamed.first());
+            let phantom: Vec<_> = claimed.difference(&painted).collect();
+            assert!(phantom.is_empty(), "{mode:?}: {} cell(s) LOOK calls marked that nothing painted, e.g. {:?}", phantom.len(), phantom.first());
+        }
+    }
+
+    /// **The same for the harvest map**, the other overlay that paints a
+    /// colony's colour onto bare ground (`mark_at`). A real colony is left
+    /// to eat so the map fills the way it does in play; the setup assert
+    /// says so if it did not. Positive control, run by hand: dropping the
+    /// skin-of-the-ground clip from `mark_at` fails it (43 cells claimed
+    /// that nothing painted).
+    #[test]
+    fn look_names_every_cell_the_harvest_map_paints() {
+        let mut lab = crate::lab::Lab::new(crate::lab::scene::LabBox {
+            colonies: 1,
+            founders: 8,
+            ..crate::lab::scene::LabBox::default()
+        });
+        lab.show_help = false;
+        if lab.stats.showing() {
+            lab.stats.toggle();
+        }
+        let mut off = vec![0u8; (W * H * 4) as usize];
+        let mut on = vec![0u8; (W * H * 4) as usize];
+        lab.renderer.food.mode = crate::food_road::FoodOverlay::Harvest;
+        for _ in 0..3000 {
+            lab.tick_for_harness();
+        }
+        lab.draw(&mut on, 60.0);
+        // Same world, overlay off, drawn in full: the difference is the wash.
+        lab.renderer.food.mode = crate::food_road::FoodOverlay::Off;
+        lab.draw(&mut off, 60.0);
+        lab.renderer.food.mode = crate::food_road::FoodOverlay::Harvest;
+        lab.draw(&mut on, 60.0);
+        let cap = bar_top() - 1;
+        let (mut painted, mut claimed) = (std::collections::BTreeSet::new(), std::collections::BTreeSet::new());
+        for y in 0..=cap {
+            for x in 0..W as i32 {
+                if lab.ui.covers(x, y) {
+                    continue;
+                }
+                let at = lab.renderer.logical_to_world(x, y);
+                let o = ((y * W as i32 + x) * 4) as usize;
+                if on[o..o + 4] != off[o..o + 4] {
+                    painted.insert(at);
+                }
+                if let Some(name) = mark_at(&lab.world, &lab.renderer, LifeMarks::Off, at) {
+                    assert!(name.starts_with("HARVEST MAP"), "the readout names the wrong mark: {name}");
+                    claimed.insert(at);
+                }
+            }
+        }
+        assert!(!painted.is_empty(), "test setup: the colony harvested nothing in 3,000 frames, so the map painted nothing");
+        let unnamed: Vec<_> = painted.difference(&claimed).collect();
+        assert!(unnamed.is_empty(), "{} painted cell(s) LOOK would not name, e.g. {:?}", unnamed.len(), unnamed.first());
+        let phantom: Vec<_> = claimed.difference(&painted).collect();
+        assert!(phantom.is_empty(), "{} cell(s) LOOK calls marked that nothing painted, e.g. {:?}", phantom.len(), phantom.first());
     }
 
     /// A rebuild puts the frame counter back to zero, and a series carried
