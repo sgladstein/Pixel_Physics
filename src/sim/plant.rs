@@ -338,6 +338,32 @@ fn roots_need_substrate() -> bool {
     *ON.get_or_init(|| !matches!(std::env::var("PIXEL_PHYSICS_ROOT_SUBSTRATE").as_deref(), Ok("off")))
 }
 
+/// **`PIXEL_PHYSICS_PLANT_EXCLUDE=x0..x1` -- a test-only band of columns no
+/// plant may grow or germinate in.** Unset (the default) it is `None` and
+/// nothing reads differently, so every shipped run is byte-identical.
+///
+/// Built 2026-10-03 for the owner's question *"we should test if plants
+/// might be fucking with the nests -- plants not allowed to grow near the
+/// nest vs they are"*: the nest lane found plants on the landing spot and
+/// roots in the shaft, and the only clean way to price that is the same bed
+/// with the band kept clear by the plants themselves, not by an ant verb.
+/// Both ends inclusive. Seeds still fall into the band and wait there
+/// dormant (they are food, and the doorway is the nest lane's); what they
+/// cannot do is sprout, and no shoot or root can grow into a band cell.
+fn plant_exclusion() -> Option<(i32, i32)> {
+    use std::sync::OnceLock;
+    static BAND: OnceLock<Option<(i32, i32)>> = OnceLock::new();
+    *BAND.get_or_init(|| {
+        let v = std::env::var("PIXEL_PHYSICS_PLANT_EXCLUDE").ok()?;
+        let (a, b) = v.split_once("..")?;
+        Some((a.trim().parse().ok()?, b.trim().parse().ok()?))
+    })
+}
+
+fn excluded_column(x: i32) -> bool {
+    plant_exclusion().is_some_and(|(a, b)| (a..=b).contains(&x))
+}
+
 /// **Does `(x, y)` touch ground in any of its eight neighbours?** Soil,
 /// sand, gravel or rock — anything that is not living tissue, air or water.
 ///
@@ -364,6 +390,9 @@ fn touches_substrate(world: &World, x: i32, y: i32) -> bool {
 }
 
 fn growable(world: &World, x: i32, y: i32, penetration_force: f32, submerged_shoot: bool) -> bool {
+    if excluded_column(x) {
+        return false;
+    }
     let cell = world.get(x, y);
     if cell.material == material::EMPTY {
         // **A shoot may take any empty cell; a root may not leave the
@@ -6381,7 +6410,7 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: OrganismId, sta
                     let soil_water = if holds_water { update::plant_available_fraction(below) } else { 0.0 };
                     light >= light_threshold && soil_water >= soil_water_threshold
                 });
-                if ready {
+                if ready && !excluded_column(x) {
                     return germinate(world, x, y, organism_id, cell, &mut rng);
                 }
                 // **Remember that it waited**, so `germinate` can tell a
