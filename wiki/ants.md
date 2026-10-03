@@ -1,6 +1,6 @@
 # Ants
 
-*Current as of: 2026-10-03, when **the lab's other animals started ageing like the ant** (see *Ants get old and die of it*); 2026-10-02, when **the whole dug nest became home and
+*Current as of: 2026-10-03, when **a colony started keeping its own door open** (see *One door, and a granary under it*), and when **the lab's other animals started ageing like the ant** (see *Ants get old and die of it*); 2026-10-02, when **the whole dug nest became home and
 food started gathering in piles** (see *One door, and a granary under it*),
 when **new ants started as eggs, laid only at
 home** (see *New ants*), and when **an ant started holding on to a nestmate
@@ -945,6 +945,31 @@ wide nest just under the surface, with
 several holes up through it and spires of spoil over them; the storeroom adds
 to that, in a way still being traced. Keeping one entrance without the strip's
 help is the next thing to fix.
+
+**Keeping the door open.** In the lab box a colony's door used to fill in
+within a few thousand frames of landing and stay shut. Fed ants at home put
+their food down in the first free cell beside them, which at the door is the
+shaft itself, and crumbs piled on the lip slid in after; grass, seeds, loose
+soil and water dripping off the lid did the rest. Nobody dug it open again,
+because a digger opens ground to the sky only beside a heap of its own soil,
+and a filled door has none. So the colony lived as a crowd on the ground over
+a shut door and dug almost nothing. Since 2026-10-03 a fed ant will not put
+food down in the shaft or within six cells of it: it walks it further out or
+passes it through the crowd first. The room at the foot of the shaft still
+takes food, as a harvester colony's chambers take its seed; keeping food out
+of that room too left a colony that had dug little else nowhere at home to
+put food down, and on one test box of twelve it never bred. And a digger
+digs into its own nest's door as freely as into a tunnel. Both are inherited,
+so a colony can evolve a wider or narrower clearing and a greater or smaller
+reluctance to dig at the door. Over twelve test boxes about twice as many ants
+were alive at the end, a quarter of the colony lived underground where a
+fifth had, one box fell below a quarter of its peak where four had, and three
+to four times as many eggs were laid at home, with as many born. Almost all
+of that comes from keeping food out of the door. Wood ants carry away sticks
+laid over their entrances, and harvester ants keep a bare disc round theirs.
+What is not right yet: most of the colony still lives above ground, most eggs
+are still laid away from home, and on some boxes the door still fills, now
+mostly with water and loose soil.
 
 ### They lay two scents, and the two do not keep
 
