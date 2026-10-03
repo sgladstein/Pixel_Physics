@@ -50,7 +50,10 @@ If it is ever noise, delete the `hooks` block; nothing else depends on it.
 
 `allow` is narrow and mostly read-only: the repo's own gates (`cargo test`,
 `clippy`, `check`, the `scripts/*.sh` checks, the two index generators) and
-read-only `git`. Nothing that writes to a remote is on it.
+read-only `git`, plus `git merge`, `git rebase` and `git push` (owner,
+2026-10-03: lanes kept stalling on approval prompts for these). Force-push
+stays on `ask`, and `ask` wins over `allow`, so `git push --force` / `-f`
+still stops for a confirmation.
 
 `deny` holds exactly one rule, and it is the one `CLAUDE.md` states without
 qualification: **`git add -A` (and `--all`) is banned here**, after it once
@@ -63,7 +66,9 @@ history *on someone else's branch* and defers to repo convention on a branch
 you created. A blanket deny would have blocked `--force-with-lease` on your own
 branch, which is routine and legitimate. `ask` matches the rule: it stops the
 dangerous case and lets the ordinary one through with a confirmation. Same
-reasoning for `rebase`, `commit --amend`, `reset --hard` and `git add .`.
+reasoning for `commit --amend`, `reset --hard` and `git add .`. (`rebase`
+was here too until 2026-10-03; it only rewrites a local branch, and the step
+that can damage someone else's — the force-push — is still on `ask`.)
 
 Add to these lists rather than widening a pattern: the whole value is that the
 list is short enough to read.
@@ -101,12 +106,12 @@ if a future CLI regresses them, the selftest is what will say so.
 
 <!-- BEGIN GENERATED CONTEXT BUDGET -- regenerate with scripts/contextbudget.py --write -->
 
-**Always-loaded floor: ~10,176 tokens** — `CLAUDE.md` at 40,702 B / 592 lines, bytes/4.0. Ceiling 12,000 (1,824 under). Plus ~430 for the hook, and the harness system prompt and tool schemas on top; this is a floor.
+**Always-loaded floor: ~10,262 tokens** — `CLAUDE.md` at 41,047 B / 596 lines, bytes/4.0. Ceiling 12,000 (1,738 under). Plus ~430 for the hook, and the harness system prompt and tool schemas on top; this is a floor.
 
-Paid by **every session, agent and subagent** — ten heads is ~101,760 tokens before any of them reads source.
+Paid by **every session, agent and subagent** — ten heads is ~102,620 tokens before any of them reads source.
 
-Consulted by lookup, paid unconditionally: 32% (~3,222 tokens) across Method, Gotchas, Conventions. Reachable target ~9,950, set when their worked cases moved out on 2026-09-30; the ceiling holds the line.
+Consulted by lookup, paid unconditionally: 31% (~3,222 tokens) across Method, Gotchas, Conventions. Reachable target ~9,950, set when their worked cases moved out on 2026-09-30; the ceiling holds the line.
 
-Cache-prefix churn, distinct versions per day (newest first): 2026-10-01 x1, 2026-09-30 x1, 2026-09-28 x1. Each one is a prefix no later session can share. A running session keeps the version it started with, so the remedy is batching edits into one commit near session end, not editing less.
+Cache-prefix churn, distinct versions per day (newest first): 2026-10-03 x1, 2026-10-01 x1, 2026-09-30 x1, 2026-09-28 x1. Each one is a prefix no later session can share. A running session keeps the version it started with, so the remedy is batching edits into one commit near session end, not editing less.
 
 <!-- END GENERATED CONTEXT BUDGET -->
