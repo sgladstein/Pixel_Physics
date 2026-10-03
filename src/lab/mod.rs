@@ -1848,6 +1848,10 @@ impl Lab {
 
     pub fn draw(&mut self, frame_buf: &mut [u8], fps: f32) {
         self.apply_pixel_budget();
+        // The cutaway follows the bed's ground row, which a rebuild can move.
+        if self.renderer.nest_cutaway.is_some() {
+            self.renderer.nest_cutaway = Some(self.spec.ground_y);
+        }
         let hc = ui::hud_canvas(&self.renderer);
         let viewport = self.viewport();
         // **Before the camera is read, because it can move the camera.** The
@@ -2461,16 +2465,10 @@ impl Lab {
     /// out no species at all. A carnivore's `nest` is what its `AtNest`
     /// sense reads, not a request to have one painted -- and this path
     /// paints none.
+    ///
+    /// The rule itself is [`lone_hunter`], which `LabBox::build` reads too.
     fn is_lone_hunter(&self, species: &str) -> bool {
-        let Some(id) = self.world.species.id_of(species) else {
-            return false;
-        };
-        self.world
-            .species
-            .get(id)
-            .creature
-            .as_ref()
-            .is_some_and(|c| c.traits[crate::sim::organism::TRAIT_GUT_BIAS] >= LONE_HUNTER_GUT)
+        lone_hunter(&self.world, species)
     }
 
     /// The colony every hunter of `species` already in the box belongs to,
@@ -2488,19 +2486,10 @@ impl Lab {
             .map(|s| s.colony)
     }
 
-    /// Put one hunter down at or above `(x, y)` in `colony`, lifting until
-    /// its body fits (`stock_one`'s loop), and say which colony it joined.
+    /// Put one hunter down at or above `(x, y)` in `colony` -- see
+    /// [`place_hunter_in`].
     fn place_hunter(&mut self, x: i32, y: i32, species: &str, colony: Option<u32>) -> Option<((i32, i32), Option<u32>)> {
-        let mut site_y = y;
-        for _ in 0..MAX_PLANT_LIFT {
-            if let Some(s) = crate::sim::creature::plant_creature_seed_in(&mut self.world, x, site_y, species, colony) {
-                let joined = crate::sim::creature::colony_of_site(&self.world, &s);
-                self.world.schedule_active_site(s);
-                return Some(((x, site_y), joined));
-            }
-            site_y -= 1;
-        }
-        None
+        place_hunter_in(&mut self.world, x, y, species, colony)
     }
 
     /// **Lone hunters: one where you click, or `n` scattered over the bed.**
@@ -3036,6 +3025,17 @@ impl Lab {
             ui::Action::CycleLifeOverlay => {
                 self.renderer.cycle_organism_overlay();
                 self.ui.say(format!("LIFE OVERLAY {}", self.renderer.organism_overlay.label()));
+            }
+            ui::Action::ToggleCutaway => {
+                self.renderer.nest_cutaway = match self.renderer.nest_cutaway {
+                    Some(_) => None,
+                    None => Some(self.spec.ground_y),
+                };
+                self.ui.say(if self.renderer.nest_cutaway.is_some() {
+                    "NEST CUTAWAY -- TUNNELS PALE, NEST WHITE, YOUNG PINK, FOOD GREEN"
+                } else {
+                    "NEST CUTAWAY OFF"
+                });
             }
             ui::Action::CycleFoodOverlay => {
                 self.renderer.cycle_food_overlay();
@@ -3851,6 +3851,45 @@ const LONE_HUNTER_GUT: f32 = 0.5;
 /// hand-off's 32 columns, so they spread out rather than meeting at once.
 const HUNTER_SPACING: i32 = 32;
 
+/// **Whether `species` is placed as lone hunters rather than as a colony**:
+/// a gut at [`LONE_HUNTER_GUT`] or above (`Lab::is_lone_hunter` has the
+/// why). A free function over the `World` so `LabBox::build` -- a REBUILD
+/// with a hunter on the COLONY chip -- asks the same question the stocking
+/// tool does, rather than a copy of it.
+fn lone_hunter(world: &World, species: &str) -> bool {
+    let Some(id) = world.species.id_of(species) else {
+        return false;
+    };
+    world
+        .species
+        .get(id)
+        .creature
+        .as_ref()
+        .is_some_and(|c| c.traits[crate::sim::organism::TRAIT_GUT_BIAS] >= LONE_HUNTER_GUT)
+}
+
+/// Put one hunter down at or above `(x, y)` in `colony`, lifting until its
+/// body fits (`stock_one`'s loop), and say where it landed and which colony
+/// it joined. Shared by the stocking tool and `LabBox::build`.
+fn place_hunter_in(
+    world: &mut World,
+    x: i32,
+    y: i32,
+    species: &str,
+    colony: Option<u32>,
+) -> Option<((i32, i32), Option<u32>)> {
+    let mut site_y = y;
+    for _ in 0..MAX_PLANT_LIFT {
+        if let Some(s) = crate::sim::creature::plant_creature_seed_in(world, x, site_y, species, colony) {
+            let joined = crate::sim::creature::colony_of_site(world, &s);
+            world.schedule_active_site(s);
+            return Some(((x, site_y), joined));
+        }
+        site_y -= 1;
+    }
+    None
+}
+
 /// Where `n` scattered hunters go: `LabBox::predator_columns`' spread for
 /// `n`, each target nudged to the nearest column at least [`HUNTER_SPACING`]
 /// from every nest site and every hunter already chosen. Fewer than `n` when
@@ -3944,7 +3983,7 @@ const HELP: [&str; 30] = [
     "RIGHT      ERASE",
     ".          WHICH SPECIES TO PLANT",
     "[ ]        BRUSH NARROWER WIDER",
-    "O L F7     FIELD / LIFE / FOOD ROAD VIEW",
+    "O L F7 F8  FIELD / LIFE / FOOD ROAD / NEST VIEW",
     "H Y 0      ANIMAL COLOUR / MARKS / MAGNIFY",
     "P          PARAMETERS -- THE NUMBERS",
     "G          THE SHELF -- KEPT GENETICS",

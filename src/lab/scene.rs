@@ -953,8 +953,29 @@ impl LabBox {
             planted += usize::from(w.plant_tree_species(x, self.ground_y - 2, &self.species));
         }
         let mut ants = 0usize;
-        for x in self.colony_columns() {
-            ants += w.found_colony_of(x, self.ground_y - 2, &self.colony_species, self.colony_ants);
+        // **A hunter on the COLONY chip is scattered, never founded.** The
+        // stocking tool's rule (`Lab::is_lone_hunter`, keyed on the gut), so
+        // a REBUILD with BEETLE on the chip places what a click with it does:
+        // the colonies' whole stock as lone hunters, each `HUNTER_SPACING`
+        // from the others and from every nest, in one colony -- not a clump
+        // of up to 52 per colony column that meets its prey as a gang.
+        // Fewer than asked when the bed runs out of room at that spacing;
+        // `Planted::ants` says how many.
+        let mut hunters: Option<u32> = None;
+        if super::lone_hunter(&w, &self.colony_species) {
+            let n = self.colonies * self.colony_ants.max(0) as usize;
+            for x in super::hunter_columns(self, &w.nest_sites, n) {
+                if let Some((_, joined)) =
+                    super::place_hunter_in(&mut w, x, self.ground_y - 2, &self.colony_species, hunters)
+                {
+                    hunters = hunters.or(joined);
+                    ants += 1;
+                }
+            }
+        } else {
+            for x in self.colony_columns() {
+                ants += w.found_colony_of(x, self.ground_y - 2, &self.colony_species, self.colony_ants);
+            }
         }
         // **Predators last, so they are placed into a bed that already has
         // its prey and its plants in it.** `plant_creature_seed` refuses a
@@ -964,8 +985,10 @@ impl LabBox {
         // the only place it is visible.
         let mut beetles = 0usize;
         // One colony for the bed's beetles, like the ants: the spec places
-        // them as a group, so they graph and colour as one.
-        let mut colony: Option<u32> = None;
+        // them as a group, so they graph and colour as one -- the same one
+        // as beetles scattered from the COLONY chip above, so the box has a
+        // single hunter colony however its beetles got there.
+        let mut colony: Option<u32> = if self.colony_species == "beetle" { hunters } else { None };
         for x in self.predator_columns() {
             if let Some(site) = crate::sim::creature::plant_creature_seed_in(&mut w, x, self.ground_y - 2, "beetle", colony) {
                 if colony.is_none() {
@@ -985,7 +1008,8 @@ pub struct Planted {
     pub asked: usize,
     pub planted: usize,
     /// Ants actually placed across every colony. `found_colony` refuses a
-    /// site with no footing and says so only through this number.
+    /// site with no footing and says so only through this number. With a
+    /// lone hunter on the COLONY chip, the hunters it scattered.
     pub ants: usize,
     /// Beetles actually released. Below `predators` means the bed refused a
     /// site — a 2x2 rigid body needs clearance a two-cell chain does not,
@@ -1492,5 +1516,76 @@ mod tests {
         // far side of the placer rather than the placer's own claim.
         let cells = beetle_cells(&w1, &some);
         assert!(cells >= p1.beetles, "reported {} beetles but only {cells} beetle cells stand in the world", p1.beetles);
+    }
+
+    /// **A REBUILD with BEETLE on the COLONY chip scatters lone hunters**, as
+    /// a click with it does (`Lab::stock_hunters`), rather than founding a
+    /// clump per colony column that hunts as a gang. Before this, eight
+    /// beetles asked for landed as one band at the colony's column. Now each
+    /// is at least `HUNTER_SPACING` from the next, all in one colony, and the
+    /// bed's own predators join that same colony.
+    #[test]
+    fn a_hunter_on_the_colony_chip_is_scattered_not_founded() {
+        let beetles = |w: &World| -> Vec<(i32, u32)> {
+            let beetle = w.species.id_of("beetle").expect("beetle");
+            let mut v: Vec<(i32, u32)> = w
+                .live_organism_ids()
+                .iter()
+                .filter_map(|o| w.organism(*o))
+                .filter(|s| s.species == beetle)
+                .map(|s| (super::super::roster::anchor_of(s).map_or(i32::MIN, |a| a.0), s.colony))
+                .collect();
+            v.sort_unstable();
+            v
+        };
+        let bed = LabBox {
+            founders: 0,
+            colonies: 1,
+            colony_ants: 8,
+            colony_species: "beetle".to_string(),
+            ..LabBox::default()
+        };
+        let (w, planted) = bed.build_counted();
+        let placed = beetles(&w);
+        assert_eq!(
+            planted.ants, 8,
+            "asked for 8 scattered beetles, the bed reported {}",
+            planted.ants
+        );
+        assert_eq!(placed.len(), 8, "8 reported, {} in the world: {placed:?}", placed.len());
+        assert!(w.nest_sites.is_empty(), "scattering hunters painted a nest");
+        // Two cells of slack for a 2x2 body's position against its column.
+        for pair in placed.windows(2) {
+            let gap = pair[1].0 - pair[0].0;
+            assert!(
+                gap >= super::super::HUNTER_SPACING - 2,
+                "two beetles landed {gap} apart: {placed:?}"
+            );
+        }
+        assert!(
+            placed.iter().all(|p| p.1 == placed[0].1),
+            "the scattered beetles are not one colony: {placed:?}"
+        );
+
+        // The bed's own predators join that same colony. Seven on the chip
+        // here, not eight: `spread(8)` puts two hunters exactly on
+        // `spread(2)`'s predator columns, where a predator does not fit.
+        let hunted = LabBox {
+            predators: 2,
+            colony_ants: 7,
+            ..bed
+        };
+        let (w2, p2) = hunted.build_counted();
+        let all = beetles(&w2);
+        assert_eq!(
+            all.len(),
+            p2.ants + p2.beetles,
+            "beetles in the world do not match what the bed reported: {all:?}"
+        );
+        assert!(p2.beetles > 0, "test setup: no predator was placed");
+        assert!(
+            all.iter().all(|p| p.1 == all[0].1),
+            "the chip's beetles and the predators are two colonies: {all:?}"
+        );
     }
 }

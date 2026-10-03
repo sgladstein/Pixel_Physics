@@ -492,6 +492,11 @@ fn main() {
     // (`Renderer::fade_roots`), on by default like the game; `show` is the
     // control arm.
     renderer.fade_roots = arg::<String>("roots").as_deref() != Some("show");
+    // **`cutaway=on`** -- the game's nest cutaway (`F8`,
+    // `Renderer::nest_cutaway`) from the bed's ground row.
+    if arg::<String>("cutaway").as_deref() == Some("on") {
+        renderer.nest_cutaway = Some(spec.ground_y);
+    }
     for _ in 1..zoom {
         renderer.adjust_zoom(1);
     }
