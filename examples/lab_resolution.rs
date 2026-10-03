@@ -123,6 +123,11 @@ fn spec_from_args() -> LabBox {
         // with box size; the shipped default keeps this harness's own
         // numbers exactly what they were before the field existed.
         rain: pixel_physics::lab::rain::Rain::Off,
+        // Held at the game's own settings -- neither is a length, and a
+        // ladder that slowed or sped the plants with box size would be
+        // measuring the garden, not the resolution.
+        plant_pace: pixel_physics::lab::pace::PlantPace::default(),
+        windfall_rots: pixel_physics::sim::decay::windfall_rots_default(),
         // **Exhaustive on purpose -- no `..LabBox::default()`.** Two lanes
         // repaired the same red build here at once, one by adding
         // `lamp_spacing` and one by adding a struct update, and together they
