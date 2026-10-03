@@ -3536,6 +3536,10 @@ const FATE_MUTATION_STREAM: u64 = 201;
 /// a measured property with a guard over it.
 const PARAM_MUTATION_STREAM: u64 = 202;
 
+/// The substream slot plant defence mutates from -- see
+/// `PARAM_MUTATION_STREAM`, and `OrganismState::defence`.
+const DEFENCE_MUTATION_STREAM: u64 = 203;
+
 /// The salt the seed throw's substream is keyed with — same shape and same
 /// reason as `APPENDED_JITTER_SALT`: it must not collide with
 /// `seed_genotype`'s `(world_seed, x, y, slot)` streams within a run.
@@ -4017,6 +4021,19 @@ fn bear_seed_at(world: &mut World, sx: i32, sy: i32, parent_id: OrganismId, seed
             if let Some(state) = world.organism_mut(child) {
                 state.params = params;
             }
+        }
+    }
+    // **Defence, inherited with one jitter** (`OrganismState::defence`).
+    // Its own keyed substream, never `rng`, for the reason the parameter
+    // mutation above gives. Skipped entirely when the switch is off, so a
+    // `PIXEL_PHYSICS_PLANT_DEFENCE=0` run draws nothing and stays byte-identical.
+    if world.plant_defence {
+        let parent_defence = world.organism(parent_id).map_or(0.0, |s| s.defence);
+        let mut drng =
+            rng::stream(world_seed ^ APPENDED_JITTER_SALT, sx as u64, sy as u64, (generation as u64) << 8 | DEFENCE_MUTATION_STREAM);
+        let defence = organism::mutate_defence(parent_defence, genotype_jitter(&mut drng, sigma));
+        if let Some(state) = world.organism_mut(child) {
+            state.defence = defence;
         }
     }
     if param_rolled {
@@ -4905,6 +4922,17 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: OrganismId, sta
                 // would be an arm of `WOOD_DENSITY_ALLELES` nobody
                 // designed. `leaf_construction_cost` below is the only
                 // reader.
+                // **Defence is paid for here** -- the growth half of the
+                // growth-defence trade-off, on every shoot-side cell (wood,
+                // leaf and organ all derive from this `cost`), so a defended
+                // line grows slower. Roots are exempt: nothing eats a root,
+                // and a defence nobody can bite through buys nothing there.
+                // See `OrganismState::defence`.
+                let cost = if cell_type == CellType::RootTip {
+                    cost
+                } else {
+                    cost * organism::defence_cost_multiplier(world.organism(organism_id).map_or(0.0, |s| s.defence))
+                };
                 let tissue_cost = cost;
                 let cost = cost * organism::wood_density(&alleles) * nutrient_construction_multiplier(world, organism_id, cell_type);
                 // Slot 8: penetration, a root trait by consumption (a
@@ -19558,6 +19586,16 @@ this costs more than the bug"
             // the box with it off, nothing removes the crown, and the
             // economy goes on feeding it.
             w.plant_load_failure = load_failure;
+            // **Defence off, and why that is scoping rather than hiding.**
+            // This guard is about the cut-off traversal, and its specificity
+            // arm asserts an exact 0 on one trajectory. With
+            // `plant_defence` on, the founder's seedlings carry defence and
+            // grow at a different price, which changes the shading and
+            // crowding around the founder; on 2026-10-03 that stranded one
+            // twig of the *founder's own* tissue (DBG trace: organism 1,
+            // generation 0, defence 0.0) -- a genuine cut-off, not a
+            // traversal fault. The rule this guards is unchanged either way.
+            w.plant_defence = false;
             plant_tree_on_ground(&mut w, 100, 60);
             let id = w.get(100, 60).organism_id();
             assert_ne!(id, 0, "test setup: the planted seed should own its cell");

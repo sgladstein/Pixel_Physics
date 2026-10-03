@@ -10961,6 +10961,14 @@ fn adjacent_food_counted(world: &World, organism: OrganismId, head: (i32, i32), 
         if gain <= EAT_YIELD_THRESHOLD {
             continue;
         }
+        // **A defended plant is passed over, not only worth less.** See
+        // `deterred_by_defence` for why the discount alone bought a plant
+        // nothing. In this scan rather than at the bite so the sense
+        // (`FoodAdjacent`) and the verb agree: a mouthful this ant will not
+        // take is not food to it.
+        if deterred_by_defence(world, organism, cell, nx, ny) {
+            continue;
+        }
         // **Armour, and it is the dig's own rule with flesh substituted for
         // stone.** Force against the target material's
         // `penetration_resistance` -- the test roots use for soil and the
@@ -13149,6 +13157,19 @@ fn nest_reach_radius() -> i32 {
 /// reader about where home is rather than carry its own definition.
 pub(super) fn home_at(world: &World, x: i32, y: i32, def: &CreatureDef) -> bool {
     adjacent_nest(world, x, y, def)
+}
+
+/// **Is this animal at home, as it would sense it** -- the `AtNest` input's
+/// own test ([`nest_within_reach`] at the head), read-only, for readouts
+/// outside `sim` (the lab's activity strip, `src/lab/stats.rs`). One
+/// definition, so a chart that says "at home" means what the ant's brain
+/// means by it. `None` for anything that is not a creature with a nest.
+pub fn is_at_home(world: &World, organism: OrganismId) -> Option<bool> {
+    let state = world.organism(organism)?;
+    let def = world.species.get(state.species).creature.as_ref()?;
+    world.materials.id_of(&def.nest)?;
+    let &(x, y) = state.chain.first()?;
+    Some(nest_within_reach(world, organism, x, y, def))
 }
 
 fn adjacent_nest(world: &World, x: i32, y: i32, def: &CreatureDef) -> bool {
@@ -23355,11 +23376,56 @@ pub fn food_value(world: &World, cell: Cell) -> f32 {
     // about creatures. So an ant that burned to death left meat worth
     // exactly nothing -- while `wiki/ants.md` promises in as many words that
     // "ants that die in a fire become the next colony's dinner".
-    if m.aux_is_worth() && cell.aux() != 0 {
-        cell.aux() as f32
-    } else {
-        m.food_energy
+    let worth = if m.aux_is_worth() && cell.aux() != 0 { cell.aux() as f32 } else { m.food_energy };
+    // **A plant's defence, priced here and nowhere else**, so every reader of
+    // a cell's worth -- the eat verb, the menu, the overlay, the ledger, the
+    // worth a carried unit is stamped with -- sees the same discounted meal.
+    // Only a plant ever carries a non-zero `defence`, so an animal's own
+    // cells and every unowned cell (litter, crumbs, a corpse) pass through
+    // untouched. See `OrganismState::defence`.
+    let owner = cell.organism_id();
+    if owner != 0 {
+        if let Some(state) = world.organism(owner) {
+            if state.defence > 0.0 {
+                return worth * organism::palatability(state.defence);
+            }
+        }
     }
+    worth
+}
+
+/// **How long one eater's verdict on one defended cell stands**, in frames:
+/// ten organism ticks. Within it the same ant decides the same way about the
+/// same cell, so its sense and its bite cannot disagree from one tick to
+/// the next; after it the ant may try again, as a real forager re-samples a
+/// food it once rejected.
+const DETER_WINDOW: u64 = 450;
+
+/// **Whether `eater` passes over this plant cell because of the plant's
+/// defence** -- with probability `defence`, drawn from a stream keyed on
+/// (eater, cell, window) so it is deterministic and independent per ant.
+///
+/// Why this exists, measured 2026-10-03 on `played_bed`, 12 paired seeds at
+/// 300,000 frames (`examples/labdefence`, logs in
+/// `/mnt/project-files/plants-explore/defence-runs/`): with the
+/// `food_value` discount alone, defence in a grazed garden settled at a
+/// median **0.057-0.067** and in the same garden with no animals at all
+/// **0.082** -- grazing did not select for it. It could not: an ant takes
+/// whatever qualifying mouthful is adjacent, so a defended seed was eaten
+/// exactly as often as an undefended one and its plant paid the growth
+/// price for nothing. Real ants reject unpalatable and chemically defended
+/// food and move on (the deterrence half of the growth-defence trade-off);
+/// this is that half, graded by the same number.
+fn deterred_by_defence(world: &World, eater: OrganismId, cell: Cell, x: i32, y: i32) -> bool {
+    let owner = cell.organism_id();
+    if owner == 0 || owner == eater {
+        return false;
+    }
+    let Some(d) = world.organism(owner).map(|s| s.defence).filter(|&d| d > 0.0) else {
+        return false;
+    };
+    let mut r = super::rng::stream(eater as u64 ^ 0xDEFE_7CE0, x as u64, y as u64, world.frame / DETER_WINDOW);
+    r.chance(d)
 }
 
 /// The energy standing in `area` as meat — cells that carry their own worth
@@ -23966,6 +24032,54 @@ mod tests {
             }
         }
         w
+    }
+
+    /// **A plant's defence discounts what its tissue is worth, and nothing
+    /// else's.** The one reader of `OrganismState::defence` is
+    /// `food_value`, so this is the whole of the effect side: at 0.0 a seed
+    /// is worth its material, at 0.5 half, at 1.0 nothing -- graded, not a
+    /// threshold. Goes red if the term is dropped, inverted, or applied to
+    /// unowned cells.
+    #[test]
+    fn a_defended_plant_is_worth_less_to_eat_in_proportion() {
+        let mut w = test_world();
+        assert!(w.plant_tree_species(50, 50, "herb"), "test setup: the seed should plant");
+        let cell = w.get(50, 50);
+        let id = cell.organism_id();
+        assert_ne!(id, 0, "test setup: a planted seed is owned");
+        let face = w.materials.get(cell.material).food_energy;
+        assert!(face > 0.0, "test setup: seed must be food");
+        assert_eq!(food_value(&w, cell), face, "an undefended plant is worth its material");
+        for (d, want) in [(0.5, 0.5 * face), (1.0, 0.0), (0.25, 0.75 * face)] {
+            w.organism_mut(id).expect("owner").defence = d;
+            let got = food_value(&w, w.get(50, 50));
+            assert!((got - want).abs() < 1e-3, "defence {d}: worth {got}, expected {want}");
+        }
+        // An unowned cell of the same material is untouched by anybody's defence.
+        let loose = Cell::new(cell.material, 0);
+        assert_eq!(food_value(&w, loose), face, "defence leaked onto an unowned cell");
+    }
+
+    /// **A defended plant is passed over in proportion to its defence.**
+    /// Fully defended: always; undefended or unowned: never; half: about
+    /// half of a crowd of eaters. Goes red if the roll is dropped, inverted,
+    /// or stops being independent per eater (every ant agreeing would make
+    /// the 0.5 row read 0 or 1000).
+    #[test]
+    fn a_defended_plant_is_passed_over_in_proportion() {
+        let mut w = test_world();
+        assert!(w.plant_tree_species(50, 50, "herb"), "test setup: the seed should plant");
+        let cell = w.get(50, 50);
+        let id = cell.organism_id();
+        let eaters = 1000..2000u32;
+        let refused = |w: &World| eaters.clone().filter(|&e| deterred_by_defence(w, e, w.get(50, 50), 50, 50)).count();
+        assert_eq!(refused(&w), 0, "an undefended plant is never refused");
+        w.organism_mut(id).expect("owner").defence = 1.0;
+        assert_eq!(refused(&w), 1000, "a fully defended plant is always refused");
+        w.organism_mut(id).expect("owner").defence = 0.5;
+        let half = refused(&w);
+        assert!((400..600).contains(&half), "half defended refused {half} of 1000");
+        assert!(!deterred_by_defence(&w, 1000, Cell::new(cell.material, 0), 50, 50), "an unowned cell is never refused");
     }
 
     /// **The shipped default is on, and this is the test that says so.**
@@ -37856,15 +37970,30 @@ mod tests {
             .collect();
         assert!(foods.len() >= 17, "the food table shrank to {}; this guard is sized against the seventeen materials that authored a food_energy in 2026-09", foods.len());
 
+        // **Bitten, not bitten-in-one.** Since the graded bite (owner,
+        // 2026-09-06: "nothing should be binary edible or inedible") a plate
+        // above the strongest mouth is worn down at `(bite/armour)^2` a
+        // bite, so the failure this guards is a plate so far above every
+        // mouth that the wear is nil -- the 100.0 default gives 0.0001 a
+        // bite. This read `resistance <= ant_force` until 2026-10-03, which
+        // held the binary contract and went red when the beetle's shell was
+        // set to 1.5 by the owner's pick (0.44 a bite: an ant needs about
+        // three, and `examples/beetle_duel` measures ants killing it).
+        // The bar: no food needs more than four of the strongest mouth's
+        // bites per cell. It is a balance bar, not a cliff -- at shell 2.5
+        // (0.16 a bite) four ants still killed 7 of 12 beetles.
+        const MIN_WEAR: f32 = 0.25;
+        let wear = |resist: f32| if resist <= 0.0 { 1.0 } else { (ant_force / resist).clamp(0.0, 1.0).powi(2) };
         let mut armoured = Vec::new();
         for &id in foods.iter() {
             let m = w.materials.get(id);
             assert!(
-                m.penetration_resistance <= ant_force,
-                "{} is food at {} and needs {} to bite, which is above the strongest shipped mouth ({ant_force}) -- nothing in the world can eat it",
+                wear(m.penetration_resistance) >= MIN_WEAR,
+                "{} is food at {} and needs {} to bite, so the strongest shipped mouth ({ant_force}) takes only {} of a cell a bite, past the four-bite bar -- a harder plate is a balance decision, so move MIN_WEAR with its measurement",
                 m.name,
                 m.food_energy,
-                m.penetration_resistance
+                m.penetration_resistance,
+                wear(m.penetration_resistance)
             );
             if m.penetration_resistance > beetle_force {
                 armoured.push(m.name.clone());
@@ -37886,7 +38015,7 @@ mod tests {
         let default_resist = 100.0_f32;
         for &id in foods.iter() {
             assert!(
-                default_resist > ant_force,
+                wear(default_resist) < MIN_WEAR,
                 "{} at the unauthored default must be refused, or this guard is blind and its green means nothing",
                 w.materials.get(id).name
             );
