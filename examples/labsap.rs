@@ -151,6 +151,7 @@ fn stop(world: &World, f: u64, (width, height): (i32, i32), ms_per_frame: f64) -
     let (mut near_dry, mut far_dry, mut nf_n) = (0f32, 0f32, 0usize);
     let mut leaf_dry: Vec<f32> = Vec::new();
     let mut flux_max = 0f32;
+    let mut biggest = 0usize;
     for id in world.live_organism_ids() {
         let Some(s) = world.organism(id) else { continue };
         if world.species.get(s.species).creature.is_some() {
@@ -162,6 +163,7 @@ fn stop(world: &World, f: u64, (width, height): (i32, i32), ms_per_frame: f64) -
         }
         plants += 1;
         cells += s.cells.len();
+        biggest = biggest.max(s.cells.len());
         status_sum += s.water_status;
         if s.water_desiccation > 0.0 {
             thirsty += 1;
@@ -202,13 +204,14 @@ fn stop(world: &World, f: u64, (width, height): (i32, i32), ms_per_frame: f64) -
     }
     let mean_dry = if leaf_dry.is_empty() { 0.0 } else { leaf_dry.iter().sum::<f32>() / leaf_dry.len() as f32 };
     println!(
-        "STOP f={f} ants={ants} plants={plants} cells={cells} leaves={leaves} status={:.3} thirsty={thirsty} leaf_dry_mean={:.3} leaf_dry_p90={:.3} near_dry={:.3} far_dry={:.3} nf_plants={nf_n} shed_drought={} soil_avail={:.3} free_water={free_water} flux_max={:.2} ms_per_frame={ms_per_frame:.3}",
+        "STOP f={f} ants={ants} plants={plants} cells={cells} leaves={leaves} status={:.3} thirsty={thirsty} leaf_dry_mean={:.3} leaf_dry_p90={:.3} near_dry={:.3} far_dry={:.3} nf_plants={nf_n} shed_drought={} cut_off={} soil_avail={:.3} free_water={free_water} flux_max={:.2} biggest={biggest} ms_per_frame={ms_per_frame:.3}",
         status_sum / plants.max(1) as f32,
         mean_dry,
         quantile(&mut leaf_dry, 0.9),
         if nf_n > 0 { near_dry / nf_n as f32 } else { f32::NAN },
         if nf_n > 0 { far_dry / nf_n as f32 } else { f32::NAN },
         world.shed_drought,
+        world.plant_cut_off_cells_shed,
         soil_avail / soil_cells.max(1) as f64,
         flux_max,
     );
