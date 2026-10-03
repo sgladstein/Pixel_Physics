@@ -50,7 +50,10 @@ If it is ever noise, delete the `hooks` block; nothing else depends on it.
 
 `allow` is narrow and mostly read-only: the repo's own gates (`cargo test`,
 `clippy`, `check`, the `scripts/*.sh` checks, the two index generators) and
-read-only `git`. Nothing that writes to a remote is on it.
+read-only `git`, plus `git merge`, `git rebase` and `git push` (owner,
+2026-10-03: lanes kept stalling on approval prompts for these). Force-push
+stays on `ask`, and `ask` wins over `allow`, so `git push --force` / `-f`
+still stops for a confirmation.
 
 `deny` holds exactly one rule, and it is the one `CLAUDE.md` states without
 qualification: **`git add -A` (and `--all`) is banned here**, after it once
@@ -63,7 +66,9 @@ history *on someone else's branch* and defers to repo convention on a branch
 you created. A blanket deny would have blocked `--force-with-lease` on your own
 branch, which is routine and legitimate. `ask` matches the rule: it stops the
 dangerous case and lets the ordinary one through with a confirmation. Same
-reasoning for `rebase`, `commit --amend`, `reset --hard` and `git add .`.
+reasoning for `commit --amend`, `reset --hard` and `git add .`. (`rebase`
+was here too until 2026-10-03; it only rewrites a local branch, and the step
+that can damage someone else's — the force-push — is still on `ask`.)
 
 Add to these lists rather than widening a pattern: the whole value is that the
 list is short enough to read.
