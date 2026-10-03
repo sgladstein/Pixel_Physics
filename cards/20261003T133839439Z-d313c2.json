@@ -1,0 +1,40 @@
+{
+  "id": "20261003T133839439Z-d313c2",
+  "created": "2026-10-03T13:38:39Z",
+  "board": "inbox",
+  "origin": {
+    "worktree": "/home/claude/Pixel_Physics",
+    "branch": "claude/lab-overlays-rbz4jn",
+    "commit": "f01875fd",
+    "agent": null,
+    "session_id": "4464f399-fbc7-5284-aae7-0e0bae2d423f",
+    "user": null,
+    "cwd": "/home/claude/Pixel_Physics"
+  },
+  "title": "Lab: what the colony is doing (Tab page)",
+  "question": "Can you read at a glance whether your ants are home, out looking, bringing food or digging? Too thin, or fine?",
+  "context_md": "The colony activity chart, third of the five readouts. On the BIOSPHERE page (Tab), the fill under the blue ANIMALS line is now the colony's ants stacked by what each is doing: slate = out with nothing, green = out with food, brown = carrying dug soil, violet (on top) = touching the nest. The key underneath gives the counts now. Default bed, seed 1. Top: frame 6,000. Bottom: frame 30,000. No new strip fitted on the page, so it shares the animals strip.",
+  "kind": "single",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "top 6,000 / bottom 30,000",
+      "files": [
+        "20261003T133839439Z-d313c2/000-colony-activity-bands.png"
+      ],
+      "caption": "default lab bed, seed 1",
+      "meta": {
+        "at 6k: home/out/food/soil": "3 / 16 / 19 / 0",
+        "at 30k: home/out/food/soil": "6 / 9 / 10 / 4"
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
