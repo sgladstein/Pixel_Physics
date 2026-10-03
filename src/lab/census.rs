@@ -66,7 +66,9 @@ impl Ids {
         let ids = |names: &[&str]| names.iter().filter_map(|n| world.materials.id_of(n)).collect::<Vec<_>>();
         Ids {
             leaf: ids(&["leaf", "grassblade", "moss"]),
-            fruit: ids(&["fruit", "windfall"]),
+            // `provisions` is the FOOD brush's never-rotting windfall; it
+            // was painted as `windfall` until 2026-10-03 and counted here.
+            fruit: ids(&["fruit", "windfall", "provisions"]),
             litter: ids(&["litter", "deadleaf"]),
             seed: ids(&["seed", "pip"]),
             corpse: ids(&["corpse"]),
