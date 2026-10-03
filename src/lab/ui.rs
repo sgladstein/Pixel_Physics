@@ -399,6 +399,8 @@ pub enum Action {
     CycleLifeOverlay,
     /// Cycle the food road and harvest map (`F7`) -- `food_road`.
     CycleFoodOverlay,
+    /// The nest cutaway (`F8`) on or off -- `render::Renderer::nest_cutaway`.
+    ToggleCutaway,
     /// Cycle which colour every animal wears in the box -- see
     /// `render::CreatureColour`. The ANTS page's chart and legend group and
     /// tint by the same mode, through `Ui::set_creature_colour`'s mirror.
@@ -4687,6 +4689,8 @@ impl Ui {
                 "FALSE-COLOUR WHAT LIVING THINGS CARRY: PLANT HEALTH, CELL TYPE, GUT BIAS, FOUNDING LINES AND MORE. EACH CLICK STEPS TO THE NEXT."),
             Row::choice("FOOD ROAD", "F7", Action::CycleFoodOverlay,
                 "WHERE THE ANIMALS WALK AND HAUL FOOD, AND WHERE EACH COLONY'S FOOD COMES FROM. OFF, ROAD, HARVEST, BOTH."),
+            Row::choice("NEST CUTAWAY", "F8", Action::ToggleCutaway,
+                "SEE THE COLONY UNDERGROUND: TUNNELS PALE, NEST WHITE, EGGS AND YOUNG PINK, FOOD GREEN, THE GROUND DARK. ANTS AND WATER DRAW AS THEMSELVES."),
             Row::choice("REACTION ON EVENT", "T", Action::CycleReaction,
                 "WHAT THE CLOCK DOES WHEN A FOUNDING LINE ENDS -- OFF, LINGER OR STOP. ALSO A ROW ON THE BOX PAGE."),
             Row::choice("SAVE CHRONICLE NOW", "9", Action::WriteChronicle,
