@@ -280,6 +280,11 @@ fn stop(
     // Plants by species (growing only), dormant seeds by species, ants, gut genes.
     let mut plants: BTreeMap<String, usize> = BTreeMap::new();
     let mut seeds_by: BTreeMap<String, usize> = BTreeMap::new();
+    // Seeds with ground on top of them -- soil, sand or rock directly above,
+    // not plant tissue. The question behind it: would a "buried seed is out
+    // of the ants' reach" rule protect anything, i.e. does seed get buried
+    // in this bed at all?
+    let mut seeds_buried = 0usize;
     let mut growing_now: std::collections::BTreeSet<u32> = Default::default();
     let mut ants = 0usize;
     let mut ants_home = 0usize;
@@ -314,6 +319,18 @@ fn stop(
                 });
             if seed_only {
                 *seeds_by.entry(def.name.clone()).or_default() += 1;
+                if let Some(&(sx, sy)) = s.cells.keys().next() {
+                    let above = world.get(sx, sy - 1);
+                    if above.organism_id() == 0
+                        && matches!(
+                            world.materials.kind(above.material),
+                            pixel_physics::sim::material::MaterialKind::Solid
+                                | pixel_physics::sim::material::MaterialKind::Powder
+                        )
+                    {
+                        seeds_buried += 1;
+                    }
+                }
             } else {
                 *plants.entry(def.name.clone()).or_default() += 1;
                 growing_now.insert(id);
@@ -432,7 +449,7 @@ fn stop(
         .collect::<Vec<_>>()
         .join(",");
     println!(
-        "STOP f={f} ants={ants} home={ants_home} under={ants_under} gut_p10/50/90={:.2}/{:.2}/{:.2} plants[{}] seeds[{}] sprouted={sprouted} plants_died={died} plant_cells={total_plant} edible={edible} edible_kJ={:.0} plant_cols={cols} nearest_to_nest={nearest} nest_band_above={band_above} nest_band_below={band_below} loose[{}] loose_nest[{}] cells[{}] eaten_J[{}] pickups_near/48/128/far[{picks}]",
+        "STOP f={f} ants={ants} home={ants_home} under={ants_under} gut_p10/50/90={:.2}/{:.2}/{:.2} plants[{}] seeds[{}] sprouted={sprouted} plants_died={died} plant_cells={total_plant} edible={edible} edible_kJ={:.0} plant_cols={cols} nearest_to_nest={nearest} nest_band_above={band_above} nest_band_below={band_below} loose[{}] loose_nest[{}] cells[{}] eaten_J[{}] pickups_near/48/128/far[{picks}] seed_ride_carried/soil/nest={}/{}/{} seeds_buried={seeds_buried}",
         gut(0.1),
         gut(0.5),
         gut(0.9),
@@ -447,6 +464,11 @@ fn stop(
             .map(|(m, d)| format!("{m}:{d:.0}"))
             .collect::<Vec<_>>()
             .join(","),
+        // Cumulative, from the "seed rides home" rule: seeds picked up in a
+        // crop, and pips an ant set down on bare soil or on its own nest.
+        world.seeds_carried,
+        world.pips_set_on_soil,
+        world.pips_set_on_nest,
     );
     pickups_stop.clear();
 }
