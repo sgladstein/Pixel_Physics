@@ -2279,6 +2279,9 @@ impl Lab {
                 lit += 1;
             }
         }
+        if lit > 0 {
+            self.world.log_player_action(format!("STARTED A FIRE AT {x},{y} -- {lit} CELLS"));
+        }
         self.ui.say(if lit == 0 {
             "NOTHING HERE WILL BURN -- CLICK A PLANT OR LITTER".to_string()
         } else {
@@ -2514,6 +2517,10 @@ impl Lab {
                 Some((at, _)) => format!("{species} RELEASED AT {},{} -- A LONE HUNTER", at.0, at.1),
                 None => format!("NO ROOM FOR A {species} HERE"),
             });
+            // Logged as `stock_at`'s own one-animal branch logs it (spec B5).
+            if let Some((at, _)) = placed {
+                self.world.log_player_action(format!("PLACED 1 {species} AT {},{}", at.0, at.1));
+            }
             return;
         }
         let columns = hunter_columns(&self.spec, &self.world.nest_sites, n.max(0) as usize);
@@ -2523,6 +2530,12 @@ impl Lab {
                 colony = colony.or(joined);
                 placed += 1;
             }
+        }
+        // `stock_at`'s colony line, with `SCATTERED` where it says `COLONY
+        // OF`: the chronicle has to tell a pack from lone hunters.
+        if placed > 0 {
+            let asked = if placed == n { String::new() } else { format!(" ({n} ASKED)") };
+            self.world.log_player_action(format!("PLACED {placed} {species} SCATTERED{asked}"));
         }
         self.ui.say(if placed == 0 {
             format!("NO ROOM FOR {species} -- NONE PLACED")
