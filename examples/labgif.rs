@@ -508,7 +508,14 @@ fn main() {
     // cost of this harness and it buys nothing, because a colony's peak is a
     // slow envelope and not a spike.
     const PEAK_EVERY: u64 = 100;
+    // **`arm_at=F`** arms the requested rate at frame `F` of the advance
+    // instead of at its end -- how a GIF shows a box that has *been* dry
+    // for a while (`rain=off` vents the lid, `World::lid_vented`).
+    let arm_at: u64 = arg("arm_at").unwrap_or(start);
     for f in 0..start {
+        if f == arm_at {
+            lab.spec.rain = rain;
+        }
         if f % PEAK_EVERY == 0 {
             note_peak(&lab, f, &mut peak_ants, &mut peak_frame);
         }

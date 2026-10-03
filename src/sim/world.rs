@@ -1844,6 +1844,12 @@ pub struct CreatureStats {
     /// digger at all, [1] only cells the roof or heap cue would refuse,
     /// [2] at least one underground face beside it.
     pub dig_idle_why: [u64; 3],
+    /// **Dig rolls turned to the nearest face** under `PIXEL_PHYSICS_DIG_FACE`
+    /// (`creature::dig_face_of`): inside the nest, the cell ahead was not
+    /// ground the jaw could take, and the digger turned to one that was.
+    /// Counted at the turn, before the heap cue and the roof judge the cut;
+    /// the cut itself is in `digs`. 0 with the switch off.
+    pub digs_faced: u64,
     /// **Dig rolls whose downward turn was refused because there is no way
     /// down** (`creature::way_down`): all three cells under the animal are
     /// ground it cannot cut -- stone, bedrock, nest paint. Those rolls dig
@@ -2695,6 +2701,9 @@ pub struct CreatureStats {
     pub brood_held: u64,
     /// Hatch attempts refused because the adult body did not fit.
     pub hatches_denied: u64,
+    /// Brood a touching nestmate moved toward other brood or out of the
+    /// doorway (`brood::carry`, `PIXEL_PHYSICS_BROOD_CARRY`).
+    pub brood_carried: u64,
     /// Joules nestmates shared into larvae, mouth to mouth.
     pub brood_shared_j: f64,
     /// Energy handed to larvae by a nestmate touching them (`brood::nurse`).
@@ -3990,6 +3999,11 @@ pub struct World {
     /// entries and read only while the switch is on; pushed only then, so the
     /// switch off leaves it empty and the run bit-exact.
     pub fresh_cuts: std::collections::VecDeque<((i32, i32), u64)>,
+    /// **The turn to the nearest face, overriding `PIXEL_PHYSICS_DIG_FACE`
+    /// for this world** (`creature::dig_face_of`). `None` follows the
+    /// environment, which is `workers` unless it says otherwise. A field so
+    /// a guard can take every arm in one process.
+    pub dig_face: Option<crate::sim::creature::DigFace>,
     /// **Newborns on nestmates, overriding `PIXEL_PHYSICS_BUD_STACK` for this
     /// world** (`creature::bud_stack_of`). `None` follows the environment,
     /// which is off unless it says `on`. A field so a guard can take both
@@ -5333,6 +5347,24 @@ pub struct World {
     /// Written only by `credit_atmosphere` and `spend_atmosphere`; `pub` so
     /// a test can drain it and a harness can print it.
     pub atmospheric_bank: f64,
+    /// **The lid is vented: what the box breathes out stays out.**
+    ///
+    /// A sealed box hands every drop its plants transpire back as
+    /// condensation (`weather::condense_under_a_lid`), so with the mister
+    /// off the soil barely moved: 90,000 rainless frames on the played bed
+    /// left plants 0.87 of the water they could use, and drought never
+    /// happened (owner, 2026-10-03, on the "should the box dry out" card:
+    /// *mister dial only* -- turning the mister off is how a player makes a
+    /// drought). Set every frame by `lab::rain::tick` from the mister
+    /// setting: `Off` vents, any other setting seals.
+    ///
+    /// **The water is held in `atmospheric_bank`, not destroyed**, so the
+    /// conservation law that field documents still holds; turning the
+    /// mister back on seals the lid and the banked excess comes back down
+    /// as condensation at its usual capped rate -- a damp spell after a dry
+    /// one rather than a flood. `false` outdoors and in every world that
+    /// never runs the mister, so nothing outside the lab moves.
+    pub lid_vented: bool,
     /// Where a denser cell displaced near-full liquid at a free surface
     /// this frame — **candidate** splash sites, not splashes. See
     /// `CellSurface::report_splash` for why the sweep only reports them,
@@ -6520,6 +6552,7 @@ impl World {
             dig_widen: None,
             fresh_cut: None,
             fresh_cuts: Default::default(),
+            dig_face: None,
             bud_stack: None,
             brood: None,
             push_past: None,
@@ -6694,6 +6727,7 @@ impl World {
             // saw rain until something had dried up first, which is not a
             // water cycle, it is a drought with a cycle bolted on.
             atmospheric_bank: crate::sim::weather::STORM_RESERVE,
+            lid_vented: false,
             dryness_counts: crate::sim::evaporation::DrynessCounts::default(),
             weather_override: None,
             splash_sites: Vec::new(),

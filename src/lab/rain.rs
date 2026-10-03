@@ -13,6 +13,19 @@
 //! grow lights are the box's whole income and are not part of what this
 //! knob turns. Only water changes.
 //!
+//! # OFF vents the lid (2026-10-03)
+//!
+//! **The table below was measured with a sealed lid** and is the box before
+//! this date. With the lid sealed, OFF barely dried anything: the plants'
+//! breath came back as condensation (`weather::condense_under_a_lid`). The
+//! owner asked for a drought a player can cause, by the mister dial alone,
+//! so `Off` now sets `World::lid_vented` and that water stays out until the
+//! mister comes back on (`PIXEL_PHYSICS_LID_VENT=off` restores the sealed
+//! box). Over 12 paired played-bed seeds, OFF from frame 60,000 to 180,000:
+//! standing water 127 -> 7 cells and plants 193 -> 121 at 180,000, lower on
+//! 12 of 12; plant cells back within 2% by 240,000. README `Sap flow status`
+//! has the rest.
+//!
 //! # Why LIGHT, not OFF — the measurement this ships from
 //!
 //! **This is not the bed `Off` was originally measured against.** The
@@ -281,7 +294,20 @@ impl Rain {
 /// **Nothing here is called while the box is paused.** See this file's own
 /// header: `Lab::tick` is the only caller, and `Lab::advance` never invokes
 /// it at all under `Phase::Paused`.
+/// `PIXEL_PHYSICS_LID_VENT=off` keeps the lid sealed with the mister off --
+/// the box before 2026-10-03, which barely dried. The control arm for
+/// `World::lid_vented`.
+pub fn lid_vent_enabled() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var("PIXEL_PHYSICS_LID_VENT").map_or(true, |v| v != "off" && v != "0"))
+}
+
 pub fn tick(world: &mut World, spec: &LabBox, rate: Rain) -> u32 {
+    // **Off vents the lid** (`World::lid_vented`): with the mister off the
+    // box loses what its plants breathe out and dries, which is the whole
+    // reason a player turns it off. Before the early return, so `Off` --
+    // which places nothing -- still says so every frame.
+    world.lid_vented = rate == Rain::Off && lid_vent_enabled();
     let Some((cells, interval)) = rate.drop() else { return 0 };
     if interval == 0 || !world.frame.is_multiple_of(interval) {
         return 0;
@@ -411,6 +437,33 @@ mod tests {
     /// rate most likely to show a leak, and advanced through real frames
     /// rather than a hand-set `world.frame` so this exercises the same
     /// `Phase::Paused` gate the game does.
+    /// **Off vents the lid; any other setting seals it** --
+    /// `World::lid_vented`, the owner's "mister dial only" answer to "should
+    /// the box be able to dry out". Read on the far side of the call: the
+    /// bank's excess is what condensation spends, so a vented lid leaves it
+    /// where it is and a sealed one draws it down. Both arms in one test, and
+    /// the sealed arm is the positive control -- if condensation stopped
+    /// firing for some other reason, the vented arm would pass for nothing.
+    #[test]
+    fn off_vents_the_lid_and_a_live_setting_seals_it() {
+        let banked = crate::sim::weather::STORM_RESERVE + 2_000.0;
+        let run = |rate: Rain| {
+            let (mut world, spec) = bare_bed();
+            world.atmospheric_bank = banked;
+            for _ in 0..2_000 {
+                tick(&mut world, &spec, rate);
+                crate::sim::weather::step(&mut world);
+                world.frame += 1;
+            }
+            (world.lid_vented, world.atmospheric_bank)
+        };
+        let (vented_off, bank_off) = run(Rain::Off);
+        let (vented_light, bank_light) = run(Rain::Light);
+        assert!(vented_off && !vented_light, "Off must vent and Light must seal: {vented_off} / {vented_light}");
+        assert!(bank_light < banked - 100.0, "a sealed lid should give banked water back: {banked} -> {bank_light}");
+        assert!(bank_off >= banked, "a vented lid gave {} cells of water back", banked - bank_off);
+    }
+
     #[test]
     fn a_paused_box_places_zero() {
         let spec = LabBox { founders: 0, colonies: 0, rain: Rain::Heavy, ..LabBox::default() };

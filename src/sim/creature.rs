@@ -4886,7 +4886,8 @@ pub fn home_ring(world: &World, organism: OrganismId, radius: i32) -> Option<Hom
     ring.lay_bar = birth_bar(threshold, cost, def, super::brood::brood_of(world, def).as_ref());
     ring.suppressed_bar = suppress_bar(breeding_regime(), breeding_radius(), world, organism, state.colony, (hx, hy), ring.lay_bar).0;
     let reach = super::brood::egg_pile_reach();
-    ring.pile = reach > 0 && super::brood::brood_of(world, def).is_some_and(|b| super::brood::pile_site(world, (hx, hy), def, &b, reach).is_some());
+    let bar = super::brood::EggBar::of(world, organism);
+    ring.pile = reach > 0 && super::brood::brood_of(world, def).is_some_and(|b| super::brood::pile_site(world, (hx, hy), def, &b, reach, bar).is_some());
     ring.target = home_target(world, state);
     ring.target_d = (ring.target.0 - hx).abs().max((ring.target.1 - hy).abs());
     Some(ring)
@@ -5083,7 +5084,7 @@ pub(super) fn try_bud(
     let nest_gate = !from_store && bud_at_nest(world) && world.materials.id_of(&def.nest).is_some();
     let pile_reach = if laying.is_some() { super::brood::egg_pile_reach() } else { 0 };
     let pile = match laying.as_ref().filter(|_| nest_gate && pile_reach > 0) {
-        Some(brood) => match super::brood::pile_site(world, (hx, hy), def, brood, pile_reach) {
+        Some(brood) => match super::brood::pile_site(world, (hx, hy), def, brood, pile_reach, super::brood::EggBar::of(world, organism)) {
             Some(cell) => Some(cell),
             None => {
                 world.creature_stats.buds_held_for_nest += 1;
@@ -13058,6 +13059,130 @@ fn parse_dig_widen(raw: &str) -> bool {
     }
 }
 
+/// **Who turns to the face**: `PIXEL_PHYSICS_DIG_FACE=on|workers|off`,
+/// [`DigFace::SHIPPED`] unless set ([`dig_face_of`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DigFace {
+    /// No turn: the dig cuts the cell ahead or nothing, as it always has.
+    Off,
+    /// Every digger inside the nest ([`inside_nest`]).
+    On,
+    /// Only a nest-bound digger inside the nest ([`is_nest_bound`]): the
+    /// nest-worker caste and the young, never a forager.
+    Workers,
+}
+
+impl DigFace {
+    /// **On for nest workers since 2026-10-03**, the owner's card: on his
+    /// playtest setup (4 seeds) the home grew 70 -> 103 cells, bigger on 3
+    /// of 4, with ants 41 -> 47 (2 up, 2 down), and a forager's dig is
+    /// untouched. `PIXEL_PHYSICS_DIG_FACE=off` is the ant before.
+    ///
+    /// **Twelve seeds cut that to a modest gain, and it ships on because it
+    /// costs nothing, not because it fixes small nests.** Home at 40k
+    /// 69 -> 90 (8 of 12 up), but home per live ant 2.06 -> 2.09 (6 of 12):
+    /// on this setup the nest follows colony size at ~2 cells an ant, and the
+    /// 4-seed gain was mostly seed 1's colony booming (29 -> 119 ants). At a
+    /// matched 37 ants, 76 -> 84 cells. Live ants and births unchanged. Turns
+    /// are rare -- 16-62 a run against 11-21k won rolls -- because most idle
+    /// diggers stand by the crust with nothing underground beside them; each
+    /// turned cut is followed by a median 2.6 cuts made from inside it.
+    pub const SHIPPED: DigFace = DigFace::Workers;
+}
+
+/// **A digger inside the nest that faces no ground turns to the nearest face
+/// and cuts it**: `PIXEL_PHYSICS_DIG_FACE`, on for nest workers
+/// ([`DigFace::SHIPPED`]) unless set.
+///
+/// **Why.** The owner, 2026-10-03, on a colony that barely digs a nest:
+/// nest ants should stay home digging and organising. Traced per ant on
+/// `examples/digbox` (20 founders, a 60-cell pile, eggs at the nest only,
+/// four seeds, frames 20,000-40,000): every ant inside the nest with empty
+/// jaws carries a `Dig` urge of about 0.8, and the roll wins, but the cut
+/// is only ever the cell straight ahead of the head -- and at those moments
+/// the head faces open air 33-56% of the time and a nestmate 17-39%, ground
+/// it can cut only 14-24%. So the colony digs when an ant happens to point
+/// at a wall, and the won roll is spent on nothing the rest of the time.
+///
+/// **What it does.** On a won roll, inside the nest ([`inside_nest`]), when
+/// the cell ahead is not ground this jaw can take ([`jaw_can_cut`]) and no
+/// widening cut was chosen, the digger turns straight to the nearest octant
+/// round from its heading whose cell it can cut ([`dig_face_turn`]) and the
+/// cut goes on from there: the heap cue, the roof and the jaw judge it as
+/// they would the cell ahead, and digging still licenses the step into the
+/// hole. Real excavators work at the tunnel face, where the last cut was
+/// (Toffin et al. 2009, PNAS 106:18616; Buhl et al. 2004).
+///
+/// **The risk it carries, and why `workers` exists.** The dig-down turn made
+/// digging at home more effective too, and it took the foragers underground:
+/// on the colony bed starvation 83 -> 295 (`Reports/dead-ends.md`, the
+/// dig-down entry). `workers` turns only a nest-bound ant, so a forager's
+/// dig is untouched.
+pub fn dig_face_of(world: &World) -> DigFace {
+    world.dig_face.unwrap_or_else(dig_face)
+}
+
+/// `PIXEL_PHYSICS_DIG_FACE`, read once ([`parse_dig_face`]); unset is
+/// [`DigFace::SHIPPED`].
+fn dig_face() -> DigFace {
+    static V: std::sync::OnceLock<DigFace> = std::sync::OnceLock::new();
+    *V.get_or_init(|| std::env::var("PIXEL_PHYSICS_DIG_FACE").map_or(DigFace::SHIPPED, |v| parse_dig_face(&v)))
+}
+
+fn parse_dig_face(raw: &str) -> DigFace {
+    match raw.trim() {
+        "on" => DigFace::On,
+        "workers" => DigFace::Workers,
+        "" | "off" => DigFace::Off,
+        v => {
+            eprintln!("PIXEL_PHYSICS_DIG_FACE={v:?}: not `on`, `workers` or `off`; read as off");
+            DigFace::Off
+        }
+    }
+}
+
+/// Whether [`dig_face_of`] turns `organism`, standing at `(x, y)`.
+fn dig_face_applies(world: &World, organism: OrganismId, x: i32, y: i32) -> bool {
+    let who = match dig_face_of(world) {
+        DigFace::Off => return false,
+        DigFace::On => true,
+        DigFace::Workers => world.organism(organism).is_some_and(|s| is_nest_bound(world, s)),
+    };
+    who && inside_nest(world, x, y)
+}
+
+/// **The nearest octant round from `heading` whose cell this digger can cut
+/// and keep underground** ([`dig_face_of`]), or `None`. One octant either
+/// side first, then two, then three, then behind; the side tried first at
+/// each step is the half-turn coin ([`half_turn_left`]), so the colony leans
+/// neither way and the main stream takes no draw.
+///
+/// **Underground: a cell the roof would refuse, or whose cut the heap cue
+/// would scale down because it opens the sky, is not a face.** The first
+/// build took any cell the jaw could cut, and in a nest one or two rows deep
+/// the nearest such cell is usually the crust overhead: on `digbox` (20
+/// founders, a 60-cell pile, eggs at the nest, 4 seeds) the turn fired
+/// 1,185-1,711 times a run and digs rose only 196 -> 283, because the heap
+/// cue let through about one turned cut in a thousand.
+fn dig_face_turn(world: &World, def: &CreatureDef, organism: OrganismId, (x, y): (i32, i32), heading: u8) -> Option<u8> {
+    let left = half_turn_left(world.seed, organism, world.frame);
+    let roof = dig_roof_of(world);
+    let cue = spoil_cue_of(world);
+    let radius = curvature_radius_of(def, &traits_of(world, organism, def)).max(1);
+    (1..=4u8)
+        .flat_map(|k| {
+            let (a, b) = ((heading + k) % 8, (heading + 8 - k) % 8);
+            if left { [a, b] } else { [b, a] }
+        })
+        .find(|&h| {
+            let (dx, dy) = DIRS[h as usize];
+            let t = (x + dx, y + dy);
+            jaw_can_cut(world, def, organism, world.get(t.0, t.1))
+                && !roof.is_some_and(|rows| under_roof(world, t, rows))
+                && !cue.is_some_and(|cue| spoil_cue_factor(world, (x, y), t, radius, cue).is_some_and(|f| f < 1.0))
+        })
+}
+
 /// **Whether the cell ahead of `organism`'s head is open** -- empty, or an
 /// animal -- so that it is walking along a passage rather than standing at
 /// a face ([`dig_widen_of`]).
@@ -13567,20 +13692,24 @@ pub const DOOR_CLEAR_CELLS: f32 = 6.0;
 /// reciprocal axis ([`walk_gain`]): twice it at `+1`, half at `-1`, exactly
 /// it at 0.
 fn door_clear_of(world: &World, organism: OrganismId) -> Option<i32> {
-    if !food_door_of(world) {
-        return None;
-    }
+    food_door_of(world).then(|| door_clear_cells(world, organism))
+}
+
+/// [`door_clear_of`] whether or not the food rule is on: the same allele,
+/// read for an egg as for a load (`brood::EggBar`), so one gene says how far
+/// round the door this ant keeps the way in clear of anything it puts down.
+pub(super) fn door_clear_cells(world: &World, organism: OrganismId) -> i32 {
     let allele = world.organism(organism).map_or(0.0, |st| {
         expressed_traits(st, world.plasticity, world.trait_reach)[organism::TRAIT_DOOR_CLEAR]
     });
-    Some((DOOR_CLEAR_CELLS / ratio_factor(allele)).round() as i32)
+    (DOOR_CLEAR_CELLS / ratio_factor(allele)).round() as i32
 }
 
 /// **Is `(x, y)` a nest's way in**, for [`food_door_of`]: within `clear`
 /// columns either side of a founding shaft, from `clear` rows over its
 /// mouth down to its foot. The shaft itself is inside at any `clear`; the
 /// chamber under its foot and a side room are not.
-fn in_doorway(world: &World, (x, y): (i32, i32), clear: i32) -> bool {
+pub(super) fn in_doorway(world: &World, (x, y): (i32, i32), clear: i32) -> bool {
     world
         .nest_sites
         .iter()
@@ -15556,6 +15685,20 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
         if let Some(side) = widen_to {
             (tx, ty) = side;
             world.creature_stats.digs_widened += 1;
+        }
+        // **...and a digger inside the nest that faces no ground turns to the
+        // nearest face** ([`dig_face_of`]): open air or a nestmate ahead, it
+        // turns straight to the nearest cell round from its heading that its
+        // jaw can take and keep underground, and cuts that. Off, no read.
+        if widen_to.is_none() && !jaw_can_cut(world, def, organism, world.get(tx, ty)) && dig_face_applies(world, organism, x, y) {
+            if let Some(h) = dig_face_turn(world, def, organism, (x, y), heading) {
+                if let Some(state) = world.organism_mut(organism) {
+                    state.heading = h;
+                }
+                let (fx, fy) = DIRS[h as usize];
+                (tx, ty) = (x + fx, y + fy);
+                world.creature_stats.digs_faced += 1;
+            }
         }
         // **...and a digger with nothing ahead to cut goes where the colony
         // is cutting** ([`fresh_cut_of`]): beside a fresh cut it turns to it
@@ -27243,6 +27386,69 @@ mod tests {
             }
         }
         assert!(ahead >= 3 && shoulder >= 3, "over 16 rolls at a face: {ahead} cuts ahead, {shoulder} shoulders");
+    }
+
+    /// `PIXEL_PHYSICS_DIG_FACE`'s spellings.
+    #[test]
+    fn dig_face_parses_its_spellings_and_reads_the_rest_as_off() {
+        assert_eq!(parse_dig_face("on"), DigFace::On);
+        assert_eq!(parse_dig_face(" workers "), DigFace::Workers);
+        for off in ["", "off", "yes", "1", "On"] {
+            assert_eq!(parse_dig_face(off), DigFace::Off, "{off:?} turned the face turn on");
+        }
+    }
+
+    /// A digger on the floor of a room three rows tall cut through soil
+    /// (rows 60-62, columns 50-70: ground over it, so it is inside the nest),
+    /// facing east along the open floor, one `act` with `Dig` 1 at `frame`
+    /// under `face`, nest-bound or not, with no dig-down turn and no
+    /// widening: the cells it cut, and `digs_faced`.
+    fn face_dig(face: DigFace, nest_bound: bool, frame: u64) -> (Vec<(i32, i32)>, u64) {
+        let mut w = World::new(Rect::new(0, 0, 119, 99));
+        founding_ground(&mut w);
+        for yy in 60..63 {
+            for xx in 50..=70 {
+                w.set(xx, yy, Cell::EMPTY);
+            }
+        }
+        w.dig_face = Some(face);
+        w.dig_widen = Some(false);
+        w.dig_down = Some(None);
+        w.frame = frame;
+        let a = spawn(&mut w, "ant", 60, 62);
+        let st = w.organism_mut(a).expect("live");
+        st.heading = 0;
+        st.nest_bound_until = if nest_bound { u64::MAX } else { 0 };
+        let (hx, hy) = w.organism(a).expect("live").chain[0];
+        assert!(inside_nest(&w, hx, hy), "the digger at {:?} is not inside the nest -- the scene is wrong, not the rule", (hx, hy));
+        let def = w.species.get(w.organism(a).expect("live").species).creature.clone().expect("a creature");
+        let before: Vec<(i32, i32)> = (40..92).flat_map(|y| (1..119).map(move |x| (x, y))).filter(|&(x, y)| w.get(x, y).material != material::EMPTY && w.get(x, y).organism_id() == 0).collect();
+        let mut outputs = [0.0f32; brain::BRAIN_OUTPUTS];
+        outputs[brain::BrainOutput::Dig as usize] = 1.0;
+        let mut draw = rng::stream(1, a as u64, frame, RNG_SLOT_MOVE);
+        act(&mut w, hx, hy, a, &def, &outputs, &mut draw);
+        let cut = before.into_iter().filter(|&(x, y)| w.get(x, y).material == material::EMPTY).collect();
+        (cut, w.creature_stats.digs_faced)
+    }
+
+    /// **A digger inside the nest facing open floor turns to the floor and
+    /// cuts it** ([`dig_face_of`]), one cell under or beside its head; with
+    /// the turn off the same roll cuts nothing, the way ahead being open --
+    /// the control that says the cut is the switch's. Under `workers` only a
+    /// nest-bound ant turns.
+    #[test]
+    fn a_digger_facing_open_floor_turns_to_the_nearest_face() {
+        for f in 0..8 {
+            let (cut, n) = face_dig(DigFace::On, false, f);
+            assert_eq!(n, 1, "frame {f}: the turn did not fire");
+            assert!(cut.len() == 1 && cut[0].1 == 63 && (59..=61).contains(&cut[0].0), "frame {f}: the digger cut {cut:?}, not the floor beside its head");
+        }
+        let (cut, n) = face_dig(DigFace::Off, false, 0);
+        assert!(cut.is_empty() && n == 0, "with the turn off a digger with its way open cut {cut:?}");
+        let (cut, n) = face_dig(DigFace::Workers, false, 0);
+        assert!(cut.is_empty() && n == 0, "under `workers` a forager turned and cut {cut:?}");
+        let (cut, n) = face_dig(DigFace::Workers, true, 0);
+        assert!(cut.len() == 1 && n == 1, "under `workers` a nest worker did not turn and cut: {cut:?}");
     }
 
     fn run(w: &mut World, frames: usize) {

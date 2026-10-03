@@ -5,7 +5,7 @@ every tick, how each mechanism is implemented, and what it reads.** It is
 written from the source and describes the code as it is now, not as it was or
 will be.
 
-- **Verified against:** `main` at `bb65d507`, 2026-09-22; §5 step 3's defended-plant sentence 2026-10-03 against `deterred_by_defence` and `food_value`; §2's support
+- **Verified against:** `main` at `bb65d507`, 2026-09-22; §9's egg-rule sentence and §12's `EGG_DOOR` and `BROOD_CARRY` rows 2026-10-03 against `brood::EggBar`, `pile_site` and `carry`; §5 step 3's defended-plant sentence 2026-10-03 against `deterred_by_defence` and `food_value`; §2's support
   bullet and §12's `KIN_FOOTING` row 2026-10-02 against `fall_if_unsupported`,
   `touches_ground` and `held_by_kin`; §5 step 2's top-up,
   §6d's throttle paragraph and §12's two rows 2026-10-02 against
@@ -449,8 +449,9 @@ the tick: the ant still gets its move roll (§6) afterwards.
    itself, and it is never lifted.
 6. **Dig**, only if both crop and spoil are empty. **So a laden ant never
    digs.** The roll is against `Dig`, and the target is **the cell straight
-   ahead of the head, along its current heading**: nothing chooses a face or
-   a place near other digging. **An enclosed digger first turns down**: on a
+   ahead of the head, along its current heading**, except where the face
+   turn below picks another cell for a nest worker inside the nest. Nothing
+   chooses a place near other digging. **An enclosed digger first turns down**: on a
    won roll, an ant whose curvature is at or below -0.3 turns one octant
    toward straight down before it cuts (`dig_down_bias`, `dig_down_of`, on
    since 2026-09-28 in this enclosed form; `PIXEL_PHYSICS_DIG_DOWN=off`
@@ -463,7 +464,17 @@ the tick: the ant still gets its move roll (§6) afterwards.
    is refused (`digs_down_refused`) and the roll digs straight ahead. At the
    shipped chance of 1.0 the turn takes no draw from the move stream. The move after it is still
    decided from the heading the ant had before `act`, so a step or a tumble
-   replaces the turn and a lost move roll leaves it standing. **The heap
+   replaces the turn and a lost move roll leaves it standing. **A digger
+   inside the nest that faces no ground can turn to the nearest face**
+   (`PIXEL_PHYSICS_DIG_FACE`, on for nest workers since 2026-10-03,
+   `=off` removes it; `dig_face_of`): on a won roll,
+   when the cell ahead is not ground its jaw can take and no widening cut was
+   chosen, an ant inside the nest (`inside_nest`) turns straight to the
+   nearest octant round from its heading whose cell it can cut without the
+   roof refusing it or the heap cue scaling it (`dig_face_turn`; the side
+   tried first is the half-turn coin), and cuts that (`digs_faced`). The
+   shipped `workers` turns only a nest-bound ant, so a forager digs as
+   before; `on` turns every such digger. **The heap
    cue** (on since
    2026-09-28; `PIXEL_PHYSICS_SPOIL_CUE=off` removes it) lets a cut that
    would open the ground to the sky go ahead only with probability
@@ -1035,7 +1046,11 @@ either plane: the other trail inputs are computed and wired to nothing (§3).
   a walk of up to 4 steps from the head, through empty cells and
   nestmates, to an empty cell at home (`creature::home_at`, the live home
   definition); one touching brood already lying there wins (the brood
-  pile), then the fewest steps. No such cell, no egg. Budding keeps the
+  pile), then the fewest steps. No such cell, no egg. Cells the egg rule
+  refuses (`brood::EggBar`, `PIXEL_PHYSICS_EGG_DOOR`, off by default: `door`
+  is the shaft and the ground round its mouth, the cells a food drop keeps
+  clear, at the layer's own door gene) are walked through but never chosen,
+  here and for an egg laid beside the head. Budding keeps the
   head read. An ant whose own bank clears the bar
   with an empty crop walks home to lay as a laden ant walks home
   (`ready_to_lay`, `PIXEL_PHYSICS_LAY_HOME`, on; `laden` includes ants
@@ -1146,6 +1161,8 @@ Read once per process from the environment. The default is what ships.
 | `PIXEL_PHYSICS_TROPHALLAXIS` | on | `off` |
 | `PIXEL_PHYSICS_DROP_REACH` | through bodies | `adjacent`: a food drop looks only at the 8 neighbours |
 | `PIXEL_PHYSICS_BUD_SITE` | nest | a species with a nest material lays or buds only at its nest (§9), in the lab box too since 2026-10-03; `anywhere` restores the old rule |
+| `PIXEL_PHYSICS_EGG_DOOR` | off | where an egg is never put down (§9, `brood::EggBar`): `door` is a nest's way in, the cells a food drop keeps clear; `cut` is the whole founding cut too (no egg when nothing dug beyond it is in reach); `deep` takes the founding cut only when nothing dug is in reach; `off` is anywhere |
+| `PIXEL_PHYSICS_BROOD_CARRY` | off | at a brood item's tick a touching nestmate with free jaws moves it, within that many steps, out of a cell the egg rule refuses, onto home, or next to more brood (`brood::carry`, counted in `CreatureStats::brood_carried`); `on` is a reach of 3 |
 | `PIXEL_PHYSICS_EGG_PILE` | on, reach 4 (since 2026-10-03) | acting only when laying only at the nest: an egg goes onto an empty home cell up to that many steps from the layer's head, through nestmates, nearest the brood already there (§9, `brood::pile_site`); `off` (or 0) is the egg beside the head and "at the nest" read off the head; an integer sets the reach |
 | `PIXEL_PHYSICS_HOME_REAIM` | off | `loose` (or `on`): every 16th tick, an animal whose homing anchor (`forage_anchor`) stands in ground, water or a plant has it moved to the nearest empty home cell within 12 of it (`home_reaim`, counted in `CreatureStats::home_reaims`); `strict` also moves it off an animal or loose food. Off because it moved nothing on the lab nest (`dead-ends.md`) |
 | `PIXEL_PHYSICS_BUD_STORE` | off | `on`: a nesting species buds only at its storeroom, and food in the founding cut and its storeroom pays the whole birth (`bud_from_store`, `provisions_in_store`, §9). `bank`: the same place, but the parent's bank counts as at the door and the store tops it up from food over `BUD_RESERVE` (`bud_store_counts_bank`) |
@@ -1201,6 +1218,7 @@ Read once per process from the environment. The default is what ships.
 | `PIXEL_PHYSICS_TOLERANCE_DRIFT` | slow (since 2026-10-03) | `full`: `TRAIT_TOLERANCE` drifts per birth at the full `scent_drift`, the ant before 2026-10-03. Slow, at `TOLERANCE_DRIFT_SHARE` (a third) of it; the scent signature keeps the full rate. Lines that narrowed at the full rate bit nestmates on the two-colony bed (`trait_width`, `slow_tolerance_drift`) |
 | `PIXEL_PHYSICS_DOOR_COLLAR` | off | `on`: before `act`, an ant whose head is within the door's half-width + `COLLAR_REACH` (2) columns of a nest site and from `COLLAR_UP` (6) rows over its founding surface to one under it packs each neighbour on the rim of the opening (at or over the surface, in a column whose cell one row under the surface is ground, beside one where it is open), pellets included when footed (`collar_tamp`, `CreatureStats::collar_packed`); `World::door_collar` for one world |
 | `PIXEL_PHYSICS_SPOIL_CREST` | off | `on`: under the ring, a carrier walks on from its drawn column while the ground ahead still rises (at most `CREST_REACH` 8 columns) and drops on the crest (`crest_column`, used by `spoil_haul_target` and `spoil_ring_holds`); `World::spoil_crest` for one world. Nest report §25: alone it lost 2 of 4 food-box colonies |
+| `PIXEL_PHYSICS_DIG_FACE` | `workers` | `off`: no turn, the ant before 2026-10-03; `on`: a digger inside the nest whose won roll faces open air or a nestmate turns straight to the nearest octant whose cell it can cut and keep underground (not refused by the roof, not scaled by the heap cue), and cuts it; `workers` (shipped): only a nest-bound ant (§5 step 6; `digs_faced`; `World::dig_face` for one world) |
 | `PIXEL_PHYSICS_DIG_WIDEN` | off | `on`: tunnels one body length (two cells) wide. On a won dig roll, a digger whose way ahead is open and whose head stands where its passage is one cell wide (ground above and below, or either side) cuts one of those walls instead of turning down and cutting ahead (`ahead_is_open`, `dig_widen_site`); a digger at a face cuts a shoulder beside the cell ahead on half its rolls (`dig_shoulder_site`), so a gallery advances two cells across. A passage two wide is left alone. Both cuts are ordinary cuts after that: the heap cue and the jaw judge them (`digs_widened`; `World::dig_widen` for one world) |
 
 ## 13. Where the implementation lives
