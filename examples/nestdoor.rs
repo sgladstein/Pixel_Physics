@@ -143,6 +143,65 @@ fn census_door(world: &World, patch: &[(i32, i32)]) -> Door {
     d
 }
 
+/// **Is the founding cut still a way home?** What stands in every cell of
+/// each nest site's founding cut (`ShaftFootprint::cells`), by material name,
+/// with the empty cells first -- and how much of the dug home
+/// (`World::nest_dug`, the open cells a walk from the door reaches) lies
+/// nearest that site.
+///
+/// Added 2026-10-03 for the shut door the laying lane found on main with the
+/// door rules in (PR 562): from about 80,000 frames no ant's head reaches
+/// home and the dug home shrinks to 3-5 cells. The painted patch the
+/// `Door` census reads is the lid over that shaft, not the shaft, so it could
+/// not say what closed it.
+fn census_cuts(world: &World) -> Vec<String> {
+    let mut out = Vec::new();
+    for (i, site) in world.nest_sites.iter().enumerate() {
+        let Some(cut) = site.shaft else { continue };
+        let mut hist: std::collections::BTreeMap<String, usize> = std::collections::BTreeMap::new();
+        let cells = cut.cells();
+        let mut open = 0;
+        let mut mouth_open = 0;
+        let mut mouth = 0;
+        for &(x, y) in &cells {
+            let m = world.get(x, y).material;
+            if y <= cut.mouth_bottom && (cut.x0..=cut.x1).contains(&x) {
+                mouth += 1;
+                mouth_open += usize::from(m == material::EMPTY);
+            }
+            if m == material::EMPTY {
+                open += 1;
+            } else {
+                *hist.entry(world.materials.get(m).name.clone()).or_default() += 1;
+            }
+        }
+        let mut hist: Vec<(String, usize)> = hist.into_iter().collect();
+        hist.sort_by_key(|e| std::cmp::Reverse(e.1));
+        let home = world
+            .nest_dug
+            .iter()
+            .filter(|&&(x, _)| {
+                world.nest_sites.iter().enumerate().min_by_key(|(_, s)| (s.x - x).abs()).map(|(j, _)| j) == Some(i)
+            })
+            .count();
+        out.push(format!(
+            "          cut {i} at x {}: dug home {home} | mouth open {mouth_open}/{mouth} | cut open {open}/{} | filled by {hist:?}",
+            site.x,
+            cells.len()
+        ));
+    }
+    out
+}
+
+/// Is `(x, y)` home -- in or beside a dug home cell or the painted patch?
+/// The laying lane's probe predicate (`/mnt/project-files/laying/anchor-probe/`),
+/// so "reached home" means the same thing in both lanes.
+fn at_home(world: &World, (x, y): (i32, i32), nest: Option<material::MaterialId>) -> bool {
+    (-1..=1).any(|dy| {
+        (-1..=1).any(|dx| world.nest_dug.contains(&(x + dx, y + dy)) || nest.is_some_and(|m| world.get(x + dx, y + dy).material == m))
+    })
+}
+
 /// Every cell currently painted `nest`, wherever it is -- so a patch that
 /// *moved* (a nest cell carried off as spoil and set down elsewhere) is not
 /// read as a patch that vanished.
@@ -217,6 +276,11 @@ fn main() {
     // Per-window accumulators over *every* frame, not only the sample frames:
     // an ant at the door for one frame in ten thousand is the whole question.
     let mut seen_at_nest: std::collections::BTreeSet<OrganismId> = std::collections::BTreeSet::new();
+    // Distinct animals whose head was home (`at_home`) at least once in the
+    // window, and the most at once -- the coordinator's "did any ant reach
+    // home" over time.
+    let mut seen_home: std::collections::BTreeSet<OrganismId> = std::collections::BTreeSet::new();
+    let mut peak_home = 0usize;
     let mut peak_at_nest = 0usize;
     let mut laden_dist_sum = 0f64;
     let mut laden_dist_n = 0u64;
@@ -256,7 +320,12 @@ fn main() {
         if founded {
             let nest = lab.world.materials.id_of("nest");
             let mut at_now = 0usize;
+            let mut home_now = 0usize;
             for (id, (hx, hy), _gen, _del, laden) in animals(&lab.world) {
+                if at_home(&lab.world, (hx, hy), nest) {
+                    home_now += 1;
+                    seen_home.insert(id);
+                }
                 if N8.iter().any(|&(dx, dy)| Some(lab.world.get(hx + dx, hy + dy).material) == nest) {
                     at_now += 1;
                     seen_at_nest.insert(id);
@@ -293,6 +362,7 @@ fn main() {
                 }
             }
             peak_at_nest = peak_at_nest.max(at_now);
+            peak_home = peak_home.max(home_now);
         }
 
         if f % every == 0 || f == frames {
@@ -339,6 +409,20 @@ fn main() {
                     gn_del
                 );
             }
+            if founded {
+                println!(
+                    "          home: reached by {} animal(s) this window, at most {} at once | dug home {} cells over {} site(s)",
+                    seen_home.len(),
+                    peak_home,
+                    w.nest_dug.len(),
+                    w.nest_sites.len()
+                );
+                for line in census_cuts(w) {
+                    println!("{line}");
+                }
+            }
+            seen_home.clear();
+            peak_home = 0;
             prev = now;
             seen_at_nest.clear();
             peak_at_nest = 0;

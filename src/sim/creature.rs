@@ -6218,6 +6218,9 @@ impl World {
         if cut.is_empty() {
             return 0;
         }
+        // The founders' cut is dug ground too (`World::dug_cells`) -- it is
+        // where the lid's drip pools, and the census should see it fill.
+        self.dug_cells.extend(cut.iter().copied());
         // **Recorded on the site it was cut under**, because after the cut
         // nothing can re-derive it: `colony_surface` in a shaft column now
         // finds the chamber floor. The site was registered by
@@ -15343,6 +15346,9 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
                 pellet.material = hauled;
             }
             world.set(tx, ty, Cell::EMPTY);
+            // The census's record of the act (`World::dug_cells`): read by
+            // nothing in the simulation, so it cannot move a run.
+            world.dug_cells.insert((tx, ty));
             if spoil_kept() {
                 if let Some(state) = world.organism_mut(organism) {
                     state.spoil = Some(Spoil { cell: pellet, store: false });
@@ -25327,6 +25333,11 @@ mod tests {
             let fp = w.nest_sites[0].shaft.expect("the cut records its footprint on the site");
             let cells = fp.cells();
             assert_eq!(removed, cells.len(), "the cut removed {removed} cells but its footprint holds {}", cells.len());
+            assert!(
+                w.dug_cells.len() == removed && cells.iter().all(|c| w.dug_cells.contains(c)),
+                "the census's dug record must hold exactly the {removed} cells the cut opened, and holds {}",
+                w.dug_cells.len()
+            );
             for _ in 0..120 {
                 if parallel {
                     crate::sim::parallel::step(&mut w);
@@ -27861,6 +27872,13 @@ mod tests {
         // closes exactly (260 + 1 = 259 + 2).
         let lost = w.creature_stats.spoil_lost_ground as usize;
         assert!(digs > 0, "nothing dug, so conservation here would be a statement about an idle ant");
+        // The census's record of the act (`World::dug_cells`): one entry per
+        // place dug, so never more than the digs and never none.
+        assert!(
+            !w.dug_cells.is_empty() && w.dug_cells.len() as u64 <= digs,
+            "{digs} digs left {} cells on the dug record",
+            w.dug_cells.len()
+        );
         assert!(dumped > 0, "digs {digs} and not one pellet put back -- the colony is holding its spoil, not hauling it");
         // **`spoil_lost` is in the sum rather than asserted to be zero**, and
         // then bounded separately. It is the one remaining way a cell can
