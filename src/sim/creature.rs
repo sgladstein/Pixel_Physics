@@ -12176,7 +12176,38 @@ fn under_roof(world: &World, (x, y): (i32, i32), rows: i32) -> bool {
     let Some(door) = nest_door_of(world) else { return false };
     let Some(site) = world.nest_sites.iter().min_by_key(|s| (s.x - x).abs()) else { return false };
     let below = y - site.surface;
+    let door = door + new_door_widen(world, site);
     (0..rows).contains(&below) && (x - site.x).abs() > door
+}
+
+// TEMP arm (not for commit): PIXEL_PHYSICS_NEW_DOOR=<cols>. While a nest's
+// founding mouth is filled (no open cell in its top body length), the door
+// counts `cols` wider either side, for the roof and the heap cue alike, so
+// ants at a filled door may dig a new way in beside it.
+fn new_door_of() -> i32 {
+    static V: std::sync::OnceLock<i32> = std::sync::OnceLock::new();
+    *V.get_or_init(|| std::env::var("PIXEL_PHYSICS_NEW_DOOR").ok().and_then(|v| v.parse().ok()).unwrap_or(0))
+}
+fn mouth_filled(world: &World, site: &crate::sim::world::NestSite) -> bool {
+    let Some(c) = site.shaft else { return false };
+    !(c.top..=c.mouth_bottom).any(|y| (c.x0..=c.x1).any(|x| {
+        let cell = world.get(x, y);
+        cell.material == material::EMPTY || matches!(world.materials.kind(cell.material), MaterialKind::Creature)
+    }))
+}
+fn new_door_widen(world: &World, site: &crate::sim::world::NestSite) -> i32 {
+    let w = new_door_of();
+    if w > 0 && mouth_filled(world, site) { w } else { 0 }
+}
+/// TEMP: is `(tx, ty)` in a widened door zone, shallow enough that the roof would apply.
+fn in_new_door(world: &World, (tx, ty): (i32, i32)) -> bool {
+    if new_door_of() == 0 {
+        return false;
+    }
+    let Some(site) = world.nest_sites.iter().min_by_key(|s| (s.x - tx).abs()) else { return false };
+    let w = new_door_widen(world, site);
+    let door = nest_door_of(world).unwrap_or(NEST_DOOR_SHIPPED);
+    w > 0 && (tx - site.x).abs() <= door + w && (-UPKEEP_MOUTH_UP..dig_roof_of(world).unwrap_or(DIG_ROOF_SHIPPED)).contains(&(ty - site.surface))
 }
 
 /// **A collar round the door**: `PIXEL_PHYSICS_DOOR_COLLAR=on`, off unless
@@ -14954,6 +14985,7 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
             static R: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
             *R.get_or_init(|| std::env::var("PIXEL_PHYSICS_DOOR_REDIG").as_deref() == Ok("on"))
         } && world.nest_sites.iter().any(|site| site.shaft.is_some_and(|cut| cut.contains(tx, ty)));
+        let redig = redig || in_new_door(world, (tx, ty));
         let vetoed = match spoil_cue_of(world).filter(|_| !redig) {
             Some(cue) => {
                 let radius = curvature_radius_of(def, &traits_of(world, organism, def)).max(1);
