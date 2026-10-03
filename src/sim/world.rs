@@ -480,6 +480,17 @@ pub struct RunLog {
     /// instead: to make a ring census true you would have to hold the whole
     /// session, which `RUN_LOG_CAP`'s own doc prices.
     pushed: [u64; LogKind::ALL.len()],
+    /// **Every `PlayerAction` ever pushed, in order, never trimmed** -- a copy
+    /// beside the `lines` ring, which still holds them for the LOG page.
+    ///
+    /// Spec B7 of the 10-03 logging proposal: a chronicle is read to find out
+    /// what the *player* did to the box, and a ring that can age the first
+    /// placement out from under a long session cannot say that. A playtest
+    /// has tens of these, not thousands (one per gesture, never per tick), so
+    /// unbounded costs nothing worth a cap; `chronicle_text` prints the ones
+    /// the ring dropped ahead of the story so the file always has all of
+    /// them, and the `.actions.csv` sidecar is this list verbatim.
+    actions: Vec<LogEvent>,
 }
 
 /// **How many `Born`/`Died`/`FirstFeed`/`FirstSeed` lines the individuals'
@@ -561,7 +572,39 @@ pub struct KillRecord {
     pub victim_energy: f32,
     pub attacker_species: organism::SpeciesId,
     pub attacker_colony: u32,
+    /// Who the two animals were and what each smelt like at the bite --
+    /// [`KillDetail`]. Default (all zero) where a caller did not supply it.
+    pub detail: KillDetail,
 }
+
+/// **The two individuals behind one [`KillRecord`]**, for tracing a killing
+/// back to the kin test that allowed it rather than to two colony labels.
+///
+/// Added 2026-10-03 for the owner's playtest, where a colony lost 14 of its
+/// 33 dead to "killed by" its own label: a label is a census grouping
+/// (`World::regroup_by_scent`) and the bite is decided pairwise
+/// (`creature::is_living_kin`), so the record has to carry the pair's scents
+/// and tolerances or the two can never be checked against each other.
+/// Read-only: nothing in the simulation consults it.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct KillDetail {
+    /// `KILL_VERB_BITE` (the fight verb) or `KILL_VERB_EAT` (the mouth); 0 when
+    /// unrecorded.
+    pub verb: u8,
+    pub attacker: OrganismId,
+    pub victim: OrganismId,
+    /// Expressed scent and tolerance radius, read before the bite landed for
+    /// the victim and at the bite for the attacker.
+    pub attacker_scent: [f32; 3],
+    pub attacker_radius: f32,
+    pub victim_scent: [f32; 3],
+    pub victim_radius: f32,
+}
+
+/// [`KillDetail::verb`] for a kill by `BrainOutput::Attack`.
+pub const KILL_VERB_BITE: u8 = 1;
+/// [`KillDetail::verb`] for a kill by the mouth -- the victim was eaten.
+pub const KILL_VERB_EAT: u8 = 2;
 
 /// How many killings [`World::kills_log`] keeps before it stops recording.
 ///
@@ -743,6 +786,9 @@ impl RunLog {
         // **Before the routing, and outside it**: the tally is about what
         // happened in the box, not about which ring absorbed it.
         self.pushed[event.kind.index()] += 1;
+        if event.kind == LogKind::PlayerAction {
+            self.actions.push(event.clone());
+        }
         if event.kind.is_line_event() {
             self.lines.push_back(event);
             while self.lines.len() > LINE_LOG_CAP {
@@ -812,6 +858,12 @@ impl RunLog {
         })
     }
 
+    /// **Every player action this run, oldest first, none ever dropped** --
+    /// see the `actions` field. The ring's copies are a suffix of this.
+    pub fn actions(&self) -> &[LogEvent] {
+        &self.actions
+    }
+
     /// **Every line ever pushed, trimmed or not.** Monotonic within one run,
     /// so a caller can tell "something happened this tick" from a
     /// before/after difference without holding a copy of the log or walking
@@ -833,6 +885,9 @@ impl RunLog {
         // not live, which is the same lie the ring census told from the
         // other direction.
         self.pushed = [0; LogKind::ALL.len()];
+        // And the player's own record, for the same reason: the parent's
+        // gestures were made to the parent's box.
+        self.actions.clear();
     }
 }
 
@@ -1197,6 +1252,12 @@ pub struct NestSite {
     /// end of the strip facing the food, a median 15 cells east of centre,
     /// and ants starving at home died a median 16 cells west of it.
     pub larder: Option<(f32, f32)>,
+    /// **The colony label of the ant that seeded this site** -- its founders,
+    /// since they are the first to stand on their own patch (`seeded`). 0
+    /// until seeded. Read by `creature::blend_with_nest` to tell an ant's own
+    /// nest (this label or one it split from, `World::descends_from`) from a
+    /// rival's.
+    pub colony: u32,
 }
 
 /// **Where a founding cut went**, as two inclusive rectangles: the shaft,
@@ -2249,6 +2310,11 @@ pub struct CreatureStats {
     /// is also frozen means the ants stopped going home, which is a
     /// different finding and is `open-bugs-handoff.md` §T2.
     pub nest_blends: u64,
+    /// **At-nest exchanges refused at another colony's nest** -- a site
+    /// seeded by a colony this ant does not descend from, whose odour is
+    /// outside the ant's own tolerance radius (`creature::blend_with_nest`'s
+    /// kin gate). Zero with `PIXEL_PHYSICS_NEST_KIN_GATE=off`.
+    pub nest_blends_refused: u64,
     /// **Odour exchanges that rode a trophallaxis contact** — the free
     /// second path, one per executed `BrainOutput::Share`. Never the floor:
     /// `creature::blend_with_nest`'s doc says why.
@@ -8220,7 +8286,24 @@ impl World {
         // the top of a tailings pile home. The founding row is the fixed
         // datum `step_nest_room` already freezes for the same reason.
         let surface = crate::sim::creature::colony_surface(self, x, y).unwrap_or(y);
-        self.nest_sites.push(NestSite { x, y, surface, scent: [0.0; 3], seeded: false, drift_epoch: epoch, shaft: None, larder: None });
+        self.nest_sites.push(NestSite { x, y, surface, scent: [0.0; 3], seeded: false, drift_epoch: epoch, shaft: None, larder: None, colony: 0 });
+    }
+
+    /// **Is `colony` the label `ancestor`, or one minted from it** by
+    /// `regroup_by_scent`, at any depth (`colony_parents`). A label is never
+    /// re-parented, so the walk ends; it is bounded by the list's length too.
+    pub fn descends_from(&self, colony: u32, ancestor: u32) -> bool {
+        let mut c = colony;
+        for _ in 0..=self.colony_parents.len() {
+            if c == ancestor {
+                return true;
+            }
+            match self.colony_parents.iter().find(|(child, _)| *child == c) {
+                Some(&(_, parent)) => c = parent,
+                None => return false,
+            }
+        }
+        false
     }
 
     /// Index of the nest site nearest `(x, y)`, or `None` when the box holds
@@ -8784,6 +8867,12 @@ impl World {
     /// corpse. Plants are never victims here (a bitten leaf does not kill a
     /// tree) and never attackers, so both ids are animals by construction.
     pub fn tally_kill(&mut self, victim: (organism::SpeciesId, u32), attacker: (organism::SpeciesId, u32), victim_energy: f32) {
+        self.tally_kill_detailed(victim, attacker, victim_energy, KillDetail::default());
+    }
+
+    /// [`World::tally_kill`] with the two individuals attached -- what the
+    /// two bite sites in `creature.rs` call. See [`KillDetail`].
+    pub fn tally_kill_detailed(&mut self, victim: (organism::SpeciesId, u32), attacker: (organism::SpeciesId, u32), victim_energy: f32, detail: KillDetail) {
         // **The per-kill record, beside the tally rather than instead of it.**
         // The tally is what every page and every scene reads; this is the
         // attribution a census needs and cannot reconstruct from it.
@@ -8795,6 +8884,7 @@ impl World {
                 victim_energy,
                 attacker_species: attacker.0,
                 attacker_colony: attacker.1,
+                detail,
             });
         } else {
             self.kills_unlogged += 1;
@@ -12757,6 +12847,43 @@ mod tests {
             log.recent().all(|e| e.frame >= OVER),
             "the line ring trimmed from the wrong end -- the newest lines went instead of the oldest"
         );
+    }
+
+    /// **The player's actions survive the line ring dropping them.** Spec B7
+    /// of the 10-03 logging proposal: a chronicle has to say what the player
+    /// did even after a long session has aged the first placement out of the
+    /// ring. One action, then enough line events to push it out of `lines`
+    /// -- the ring has lost it (the sensitivity half: without that this
+    /// would pass on a ring that never trimmed) and `actions()` still has it,
+    /// alone and in order.
+    ///
+    /// Provable red by dropping the `self.actions.push(..)` arm of
+    /// `RunLog::push`: `actions()` is then empty.
+    #[test]
+    fn player_actions_outlive_the_line_ring() {
+        let mut log = RunLog::default();
+        let event = |frame: u64, kind: LogKind, detail: &str| LogEvent {
+            frame,
+            id: 1,
+            born_frame: 0,
+            species: organism::SpeciesId(0),
+            kind,
+            other: 0,
+            lineage: 0,
+            generation: 0,
+            detail: detail.to_string(),
+        };
+        log.push(event(0, LogKind::PlayerAction, "PLACED COLONY OF 8 ANT AT X 240"));
+        for f in 1..=LINE_LOG_CAP as u64 {
+            log.push(event(f, LogKind::LineEnded, ""));
+        }
+        assert_eq!(log.recent().filter(|e| e.kind == LogKind::PlayerAction).count(), 0, "the ring never dropped the action, so this proves nothing");
+        assert_eq!(log.actions().len(), 1, "the unbounded action list lost what the ring trimmed");
+        assert_eq!(log.actions()[0].detail, "PLACED COLONY OF 8 ANT AT X 240");
+        log.push(event(LINE_LOG_CAP as u64 + 1, LogKind::PlayerAction, "SPEED 4X"));
+        assert_eq!(log.actions().iter().map(|e| e.frame).collect::<Vec<_>>(), vec![0, LINE_LOG_CAP as u64 + 1], "actions out of order");
+        log.clear();
+        assert!(log.actions().is_empty(), "a cleared log kept its parent's actions");
     }
 
     /// **A player action does not fall into a stranger's timeline.**

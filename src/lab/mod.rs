@@ -646,8 +646,29 @@ impl Lab {
         // once per `REBUILD` or quit, never per frame.
         let shipped = scene::LabBox { founders: 0, colonies: 0, ..scene::LabBox::default() }.build();
         let dial_changes = params::Dials::from_world(&self.world).changes_from(&params::Dials::from_world(&shipped));
-        let text = ui::chronicle_text(&self.world, &self.spec, &self.bed_label(), self.time.requested, &self.chronicle_census, &dial_changes);
-        let result = std::fs::create_dir_all(&dir).and_then(|()| std::fs::write(&path, text));
+        let text = ui::chronicle_text(
+            &self.world,
+            &self.spec,
+            &self.bed_label(),
+            self.scenario.as_ref().map(|s| s.name.as_str()),
+            self.time.requested,
+            &self.chronicle_census,
+            &dial_changes,
+        );
+        // **Two machine-readable sidecars, same stem, same moment** (spec
+        // H30): `<stem>.census.csv` -- every CENSUS field, one line per row,
+        // nothing lost to a fixed-width column -- and `<stem>.actions.csv`,
+        // every player action (`RunLog::actions`, never trimmed). Written
+        // after the text and through the same `and_then`, so a failure is
+        // reported once on the bar exactly as a text failure is, and a
+        // reader never finds sidecars without the chronicle they belong to.
+        let stem = path.with_extension("");
+        let census_path = stem.with_extension("census.csv");
+        let actions_path = stem.with_extension("actions.csv");
+        let result = std::fs::create_dir_all(&dir)
+            .and_then(|()| std::fs::write(&path, text))
+            .and_then(|()| std::fs::write(&census_path, census::census_csv(&self.chronicle_census)))
+            .and_then(|()| std::fs::write(&actions_path, ui::actions_csv(&self.world)));
         match result {
             Ok(()) => self.ui.say(format!("CHRONICLE SAVED -> {}", path.display())),
             Err(e) => self.ui.say(format!("CHRONICLE NOT SAVED: {e}")),
@@ -1916,6 +1937,7 @@ impl Lab {
             stats: self.stats.showing(),
             help: self.show_help,
             tool: self.ui.tool(),
+            place: self.ui.place(),
             species: &species,
             species_note: &species_note,
             brush: self.ui.brush(),
@@ -2090,8 +2112,14 @@ impl Lab {
                     Some(id) => (id, 0),
                     None => return,
                 },
+                // **`provisions`, not `windfall`, since 2026-10-03**: the
+                // same food with no `decays_into`, so what a player puts in
+                // stays until something eats it (owner: *"it shouldn't
+                // degrade or disappear at all"*). See its `.ron` for why it
+                // is a material and not a flag on this brush.
+                //
                 // **`aux` 0, and here that is not a convention call.**
-                // `windfall` does not set `worth_in_aux`, so
+                // `provisions` does not set `worth_in_aux`, so
                 // `creature::food_value` reads its `food_energy` (960) off the
                 // material whatever the cell carries — there is no stamp to
                 // write and no second pass to make. Painting it at anything
@@ -2102,7 +2130,7 @@ impl Lab {
                 // `_` arm paints soil, so a new brush that forgot to declare
                 // itself would silently lay down ground instead of food and
                 // look, on screen, like a tool that simply missed.
-                ui::Tool::Food => match self.world.materials.id_of("windfall") {
+                ui::Tool::Food => match self.world.materials.id_of("provisions") {
                     Some(id) => (id, 0),
                     None => return,
                 },
@@ -2341,6 +2369,11 @@ impl Lab {
                 Some(at) => format!("{species} RELEASED AT {},{}", at.0, at.1),
                 None => format!("NO ROOM FOR A {species} HERE"),
             });
+            // One animal is a placement too (spec B5) -- the colony branch
+            // below has the reason this path logged nothing before.
+            if let Some(at) = placed {
+                self.world.log_player_action(format!("PLACED 1 {species} AT {},{}", at.0, at.1));
+            }
             return;
         }
         let placed = self.world.found_colony_of(x, y, &lower, n);
@@ -2348,6 +2381,20 @@ impl Lab {
             0 => format!("NO ROOM FOR A COLONY OF {species} HERE"),
             k => format!("COLONY OF {k} {species} RELEASED"),
         });
+        // **The chronicle's record of the placement** -- spec B5. Why the
+        // 10-03 playtest's `COUNTS: ACTION 4` (a rebuild, two pauses and a
+        // resume) held none of its eight colony placements: round 31 wired
+        // `log_player_action` into the jar path (`release_at`) and this one,
+        // the `COLONY` tool every hand-founded colony goes through, never had
+        // a call at all -- not a `placed == 0` or an early return, an absent
+        // line. Count, species and the click's column; the frame is the
+        // event's own (`F` column, `.actions.csv`). The count is what
+        // actually landed, with the dial's ask beside it when the ground
+        // took fewer. Only on a placement, `release_at`'s rule.
+        if placed > 0 {
+            let asked = if placed as i64 == i64::from(n) { String::new() } else { format!(" ({n} ASKED)") };
+            self.world.log_player_action(format!("PLACED COLONY OF {placed} {species}{asked} AT X {x}"));
+        }
     }
 
     /// Put **one** animal down at `(x, y)`, and say where it landed.
@@ -2436,6 +2483,10 @@ impl Lab {
         let lower = name.to_lowercase();
         if self.world.plant_tree_species(x, site, &lower) {
             self.ui.say(format!("PLANTED {name} AT {x},{site}"));
+            // Spec B5: the 10-03 chronicle could not say how many plants the
+            // player put in, so every stand's founding had to be inferred
+            // from lineage frames. The bar's own sentence, kept.
+            self.world.log_player_action(format!("PLANTED {name} AT {x},{site}"));
         } else {
             self.ui.say(format!("NO ROOM TO PLANT {name} HERE"));
         }
@@ -2477,6 +2528,9 @@ impl Lab {
             self.world.mark_organism_senescent(id);
             self.ui.say(format!("CULLED {name} - {cells} CELLS LEFT TO ROT"));
         }
+        // Spec B6: a cull is a death the player caused, and without this the
+        // chronicle files it under whatever cause the engine records.
+        self.world.log_player_action(format!("CULLED {name} AT {x},{y}"));
     }
 
     /// **What the species chip says, for whichever tool is armed.**
@@ -2764,6 +2818,19 @@ impl Lab {
             ui::Action::Tool(tool) => {
                 self.ui.set_tool(tool);
                 self.ui.say(format!("TOOL {}", self.ui.tool().label()));
+            }
+            // **The bar's `ADD` cell (`B`)**: everything a player puts in
+            // by hand behind one button, stepping on each press. Says what is
+            // next, so the cycle can be learned from the notice alone.
+            ui::Action::Place => {
+                let armed = self.ui.next_place();
+                let i = ui::PLACEABLE.iter().position(|t| *t == armed).unwrap_or(0);
+                let next = ui::PLACEABLE[(i + 1) % ui::PLACEABLE.len()].label();
+                self.ui.say(if armed == ui::Tool::Scent {
+                    format!("ADD SCENT -- LAYING {} -- B AGAIN FOR {next}", scent_channel_label(self.ui.scent_channel()))
+                } else {
+                    format!("ADD {} -- B AGAIN FOR {next}", armed.label())
+                });
             }
             // **The chip cycles whichever kingdom the armed tool stocks.** A
             // stocking tool is armed, so `.` walks the animals and arms
@@ -3373,7 +3440,13 @@ impl Lab {
         // would tell a later reader an intervention happened when it did
         // not.
         if placed > 0 {
-            self.world.log_player_action(if placed == 1 { format!("PLACED {name}") } else { format!("PLACED {placed} OF {name}") });
+            // The click's column too (spec B5), so two releases of one jar can
+            // be told apart and put against a colony's founding site.
+            self.world.log_player_action(if placed == 1 {
+                format!("PLACED {name} AT {x},{y}")
+            } else {
+                format!("PLACED {placed} OF {name} AT X {x}")
+            });
         }
     }
 
@@ -3685,8 +3758,8 @@ const HELP: [&str; 30] = [
     "SPACE      STOP / RUN THE BOX",
     "UP DOWN    SPEED     1-7  PRESET",
     "",
-    "Z X C V B N  LOOK PLANT COLONY",
-    "             CULL SOIL WATER",
+    "Z X C V B  LOOK PLANT COLONY CULL ADD",
+    "B AGAIN    SOIL WATER FOOD WALL LAMP SCENT",
     "M ,          KEEP THIS ONE / PLACE A JAR",
     "CLICK      USE THE ARMED TOOL",
     "RIGHT      ERASE",
@@ -3697,14 +3770,14 @@ const HELP: [&str; 30] = [
     "P          PARAMETERS -- THE NUMBERS",
     "G          THE SHELF -- KEPT GENETICS",
     "; \x27        DRIFT A RELEASE, IN BROODS",
-    "K E I J Q U  WALL FOOD SCENT ALARM FLING LAMP",
+    "N E K U I  WATER FOOD WALL LAMP SCENT",
+    "J Q        ALARM FLING",
     "8 RAIN    9 SAVE CHRONICLE    T ON AN EVENT",
     "F1 F2 F3 F4 F5  PLANTS ANTS BOX RACK HISTORY",
     "F6 MENU    TAB STATS",
     "SHIFT+1..5   SWITCH CHAMBER    ALL   THE WHOLE RACK",
     "F RATE   WASD PAN   - = ZOOM   R REBUILD",
     "?          THIS PAGE",
-    "",
     "",
 ];
 
@@ -4088,6 +4161,22 @@ mod tests {
         assert!(text.contains("SPEED"), "the speed-dial line is missing:\n{text}");
         assert!(text.contains("POURED WATER"), "the water-pour line is missing:\n{text}");
         assert!(text.contains(" = "), "the dial-change line is missing:\n{text}");
+        // The header's two new lines (spec A1-A2, and the env switches), and
+        // the sidecars written beside the text at the same moment (spec H30).
+        assert!(text.lines().nth(2).is_some_and(|l| l.starts_with("BUILD ") && l.contains("HAND-BUILT")), "the BUILD line is not third:\n{text}");
+        assert!(text.contains(&format!("{}=", Lab::CHRONICLE_DIR_ENV)), "SWITCHES did not list the switch this test set:\n{text}");
+        let sidecar = |ext: &str| {
+            dir.read_dir()
+                .expect("chronicle dir")
+                .filter_map(|e| e.ok())
+                .map(|e| e.path())
+                .find(|p| p.to_string_lossy().ends_with(ext))
+                .map(|p| std::fs::read_to_string(p).expect("read sidecar"))
+                .unwrap_or_else(|| panic!("no {ext} sidecar was written"))
+        };
+        let actions = sidecar(".actions.csv");
+        assert!(actions.starts_with("frame,text\n") && actions.contains("\"WALL ADDED AT 40 -- 2 COMPARTMENTS\""), "actions sidecar:\n{actions}");
+        assert!(sidecar(".census.csv").starts_with("frame,wall_clock_secs,"), "census sidecar has no header");
 
         std::env::remove_var(Lab::CHRONICLE_DIR_ENV);
         let _ = std::fs::remove_dir_all(&dir);
@@ -4123,10 +4212,13 @@ mod tests {
     /// The most recently written file in a scratch chronicle directory, read
     /// back as text -- both chronicle-acceptance tests' shared helper.
     fn newest_chronicle_text(dir: &std::path::Path) -> String {
+        // `.txt` only: `write_chronicle` writes two `.csv` sidecars at the
+        // same moment, and the newest file in the directory is one of them.
         let path = dir
             .read_dir()
             .expect("chronicle dir")
             .filter_map(|e| e.ok())
+            .filter(|e| e.path().extension().is_some_and(|x| x == "txt"))
             .max_by_key(|e| e.metadata().and_then(|m| m.modified()).ok())
             .expect("write_chronicle wrote a file")
             .path();
@@ -5663,6 +5755,17 @@ mod tests {
             lab.world.live_creature_count() > before,
             "founding a colony released nobody: {before} creatures either side"
         );
+        // **Each verb that changed the box logged it, and the refusal did
+        // not** (spec B5/B6). The 10-03 playtest's chronicle held none of its
+        // eight colony placements: `stock_at` had no `log_player_action` at
+        // all. Put the fault back by deleting that call and the
+        // `PLACED COLONY OF` assertion goes red. The stone-base refusal above
+        // is the specificity half: it must have logged nothing, so the plant
+        // line is the only `PLANTED`.
+        let actions: Vec<String> = lab.world.run_log.actions().iter().map(|e| e.detail.clone()).collect();
+        assert_eq!(actions.iter().filter(|a| a.starts_with("PLANTED ")).count(), 1, "one planting, one refusal: {actions:?}");
+        let colony_line = actions.iter().find(|a| a.starts_with("PLACED COLONY OF ")).unwrap_or_else(|| panic!("the colony placement was not logged: {actions:?}"));
+        assert!(colony_line.ends_with(&format!(" AT X {colony_x}")), "the colony line does not name its column: {colony_line}");
 
         // Cull, aimed at the plant put in above — found by walking the live
         // list rather than by remembering an id, so this cannot pass against
@@ -5696,9 +5799,13 @@ mod tests {
         );
 
         // And a cull aimed at nothing says so rather than silently missing.
+        let culls = || lab.world.run_log.actions().iter().filter(|e| e.detail.starts_with("CULLED ")).count();
+        assert_eq!(culls(), 1, "the cull was not logged");
         let empty = lab.spec.ground_y - 40;
         assert!(lab.world.get(x, empty).organism_id() == 0, "test setup: that cell is bare");
         click_cell(&mut lab, x, empty);
+        let culls = lab.world.run_log.actions().iter().filter(|e| e.detail.starts_with("CULLED ")).count();
+        assert_eq!(culls, 1, "a cull of nothing was logged as a cull");
     }
 
     /// **A culled animal becomes a corpse, and it takes a tick.**
@@ -6201,7 +6308,7 @@ mod tests {
         use crate::sim::creature;
         let mut lab = bench();
         let (x, y) = (lab.spec.width / 2, lab.spec.ground_y - 30);
-        let windfall = lab.world.materials.id_of("windfall").expect("windfall is compiled in");
+        let provisions = lab.world.materials.id_of("provisions").expect("provisions is compiled in");
 
         // The whole bed's standing food value, before and after. A census
         // rather than one cell, so a brush that wrote a single cell and a
@@ -6225,8 +6332,8 @@ mod tests {
         lab.release(at.0, at.1);
 
         let cell = lab.world.get(x, y);
-        assert_eq!(cell.material, windfall, "the food brush laid down something that is not windfall");
-        // The value is read off the material rather than a stamp -- windfall
+        assert_eq!(cell.material, provisions, "the food brush laid down something that is not provisions");
+        // The value is read off the material rather than a stamp -- provisions
         // does not set `worth_in_aux` -- so a cell painted at any `aux` is
         // worth the same, and that is the number a forager sees.
         assert!(
@@ -6243,6 +6350,78 @@ mod tests {
         lab.press_erase(at.0, at.1);
         lab.end_stroke();
         assert_eq!(lab.world.get(x, y).material, crate::sim::material::EMPTY, "the eraser left the food");
+    }
+
+    /// **Food a player puts in never rots; the windfall a plant drops still
+    /// does.** Owner, 2026-10-03: hand-placed food *"shouldn't degrade or
+    /// disappear at all"*. Both materials side by side in one damp trough --
+    /// `decay.rs`'s own litter test bed, because an open puddle drains before
+    /// the moisture field registers it -- each cell with a decay site
+    /// scheduled, so the only thing that can keep `provisions` standing is
+    /// its own data. **The windfall half is the positive control**: if it
+    /// does not rot either, the bed is dry and this proves nothing.
+    #[test]
+    fn hand_placed_food_never_rots_but_windfall_still_does() {
+        use crate::sim::chunk::Rect;
+        use crate::sim::scheduler::{self, ActiveKind, ActiveSite};
+        use crate::sim::cell::Cell;
+        use crate::sim::{decay, field, material};
+        let mut w = World::new(Rect::new(0, 0, 199, 199));
+        let windfall = w.materials.id_of("windfall").expect("windfall");
+        let provisions = w.materials.id_of("provisions").expect("provisions");
+        assert_eq!(w.materials.get(provisions).food_energy, w.materials.get(windfall).food_energy, "provisions must feed like windfall");
+        const LEFT: i32 = 10;
+        const RIGHT: i32 = 190;
+        for x in LEFT..RIGHT {
+            let m = if x % 2 == 0 { windfall } else { provisions };
+            w.set(x, 100, Cell::new(m, 0));
+            w.schedule_active_site(ActiveSite { x, y: 100, kind: ActiveKind::Decay, next_frame: decay::DECAY_TICK_INTERVAL });
+        }
+        w.set(LEFT - 1, 99, Cell::new(material::STONE, 0));
+        w.set(RIGHT, 99, Cell::new(material::STONE, 0));
+        for x in (LEFT + 2)..(RIGHT - 2) {
+            w.set(x, 99, Cell::new(material::WATER, 0));
+        }
+        let count = |w: &World, id| (LEFT..RIGHT).filter(|x| w.get(*x, 100).material == id).count();
+        let half = ((RIGHT - LEFT) / 2) as usize;
+        for _ in 0..20_000 {
+            w.begin_step();
+            field::step(&mut w);
+            scheduler::step(&mut w);
+            w.end_step();
+        }
+        assert!(count(&w, windfall) < half / 2, "windfall barely rotted ({} of {half} left) -- the bed is not damp, so this test proves nothing", count(&w, windfall));
+        assert_eq!(count(&w, provisions), half, "hand-placed food rotted away");
+    }
+
+    /// **And the colony eats it.** Food that never rots is only half the
+    /// ask: an ant decides what is food from the material's `food_energy`
+    /// and `food_class`, never its name, so `provisions` has to carry
+    /// windfall's -- and this is the behavioural check that it does. A heap
+    /// beside the founding nest, run until the colony has had time to find
+    /// it. Nothing else removes `provisions` (it does not rot, and nothing
+    /// erases it here), so any cell gone was eaten.
+    #[test]
+    fn a_colony_eats_hand_placed_food() {
+        let mut lab = Lab::new(scene::LabBox { founders: 0, ..scene::LabBox::default() });
+        let provisions = lab.world.materials.id_of("provisions").expect("provisions");
+        let site = lab.world.nest_sites.first().copied().expect("the default box founds one colony");
+        let count = |lab: &Lab| {
+            let mut n = 0;
+            for y in 0..lab.spec.height {
+                for x in 0..lab.spec.width {
+                    n += (lab.world.get(x, y).material == provisions) as usize;
+                }
+            }
+            n
+        };
+        let at = (site.x + 12, site.surface - 3);
+        lab.world.paint_capsule_as(at, at, 2, provisions, 1.0);
+        let placed = count(&lab);
+        assert!(placed > 5, "the heap did not paint: {placed} cells");
+        run(&mut lab, 6_000);
+        let left = count(&lab);
+        assert!(left < placed, "the colony ate none of the {placed} cells of food beside its nest");
     }
 
     /// A drag lays down one continuous band, not a dab at each end.
