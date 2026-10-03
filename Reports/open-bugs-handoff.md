@@ -11,7 +11,7 @@ Read `CLAUDE.md` first; it holds the method these bugs keep re-teaching.
 
 <!-- BEGIN GENERATED INDEX -- regenerate with scripts/bugindex.py -->
 
-**66 open, 131 bugs** (plus 20 landing-note items,
+**65 open, 131 bugs** (plus 20 landing-note items,
 marked `note`). Generated from the headings by
 `scripts/bugindex.py` -- a bug's verdict is written into its own heading, so
 this is derived, never maintained by hand. Entries are never moved when they
@@ -140,43 +140,43 @@ point.
 | Z5 | closed | 9223 | Every homing odometer in the tree is dead: its charge wire is below W_EPS, so eval_brain ... |
 | W2 | **OPEN** | 9428 | Two soil constants annul each other, and the root depletion zone lost 6.3x of its depth |
 | W2a | **OPEN** | 9504 | The refutation, measured |
-| E2 | **OPEN** | 9585 | Narrowing the CA sweep's region changes the world, and the RNG is not the reason |
-| W3 | closed | 9657 | PlantScene's bed stands on a 512-span slab anchored only at the world edges, and it survi... |
-| W4 | **OPEN** | 9777 | A rooted bank now sheds *more* of its own soil than a bare one, because it still has the ... |
-| W5 | **OPEN** | 9837 | The lab's bed grows a water table on its stone floor, and it does not stop |
-| W6 | closed | 9888 | A plant EVOLVES root tips into shoot tips, and the shoot it then grows is made of root wood |
-| W7 | closed | 10280 | A severed plant is still one economy: the roots' water feeds a crown they have no path to |
-| Z6 | **OPEN** | 10386 | Every shipped bed starves its ant colony inside one play session |
-| Z7 | **OPEN** | 10564 | The trail-following gate saturates the signal it gates: the ant reads its own trail at ±0... |
-| Z8 | closed | 10739 | A fruit severed by ordinary structural failure lands as an ownerless windfall, and it can... |
-| Z9 | closed | 10860 | A hopping animal that comes down on water never lands: it hangs there, is charged the air... |
-| Z10 | closed | 10973 | The flitter's float never switches off on a bed that has flowers in it |
-| Z11 | closed | 11070 | At the widest zoom-out the view drew one cell in sixteen and dropped the rest, so thin th... |
-| Z12 | **OPEN** | 11165 | Most of what piles up in a long-run long-ant colony is one-cell ants, and they are bred t... |
-| Z13 | closed | 11245 | Every animal in both games can reach a rest it cannot leave (engine) |
-| Z14 | **OPEN** | 11640 | The played bed's 500,000-frame trajectory is chaotic, and scent_drift: 0.15 re-rolled it |
-| Z15 | **OPEN** | 11732 | A plant holds a creature up and also blocks it, so a bed of foliage is a cage: between a ... |
-| Z16 | closed | 11810 | DeathCause::Killed is not a killing counter, and the played bed's colony is being overgro... |
-| Z18 | **OPEN** | 11951 | Dug spoil stands in open sky, and the owner sees it before he sees anything else |
-| Z19 | closed | 12161 | A pellet of spoil crosses up to 116 rows with nothing carrying it |
-| Z17 | **OPEN** | 12278 | World::ground_datum is built and wrong inside a sealed lab box, and it reads as "the whol... |
-| Z20 | closed | 12330 | labgif wire= was a silent no-op for every card it has ever produced (lab) |
-| Z21 | closed | 12371 | The held world's grown and dead starts fill every organism slot, so C founds nothing |
-| Z22 | **OPEN** | 12558 | A colony inside a quickening eats about a sixth of the garden, and nothing on screen says so |
-| Z23 | closed | 12653 | nearest_foe counts a plant as a foe, so a fed colony quietly vandalises its own larder |
-| Z24 | **OPEN** | 12863 | A loop of plant_ant is a crowd of strangers, and nine harnesses still do it |
-| Z25 | closed | 12944 | Nothing can hear an alarm: the plane's audible radius is about two cells |
-| Z26 | **OPEN** | 13109 | review.py inbox shows every lane's verdicts as yours in a cloud session, and --mark-seen ... |
-| Z27 | **OPEN** | 13168 | Heat cannot cross a shallow gradient into ground already at ambient, and the fix that exi... |
-| Z28 | **OPEN** | 13225 | The moisture deposition preference was deleted rather than moved, and DropSpoil has no he... |
-| Z29 | **OPEN** | 13297 | An ant stands on its own freshest deposit, so the homing gradient reads "home is behind m... |
-| Z32 | closed | 13463 | An empty ant reads the food trail as exactly zero, tick after tick, so half the colony ne... |
-| Z30 | **OPEN** | 13579 | filmstrip never steps the pheromone planes, so every scene it runs ants in shows a trail ... |
-| Z31 | **OPEN** | 13670 | field::step carries derived arrays forward over a settled chunk that still holds an un-ta... |
-| Z33 | closed | 13750 | A part-eaten fruit put down comes back whole, so putting food down and picking it up crea... |
-| Z34 | **OPEN** | 13844 | deliveries - pickups_at_nest counts the same crumbs into home again and again, so "net fo... |
-| Z35 | closed | 13879 | A loaded forager's pull home runs out while it loads at the pile, so it walks off the far... |
-| Z36 | closed | 13918 | A birth topped up with bare seeds overdraws its parent, which dies next tick holding a cr... |
+| E2 | closed | 9585 | Narrowing the CA sweep's region changes the world, and the RNG is not the reason |
+| W3 | closed | 9678 | PlantScene's bed stands on a 512-span slab anchored only at the world edges, and it survi... |
+| W4 | **OPEN** | 9798 | A rooted bank now sheds *more* of its own soil than a bare one, because it still has the ... |
+| W5 | **OPEN** | 9858 | The lab's bed grows a water table on its stone floor, and it does not stop |
+| W6 | closed | 9909 | A plant EVOLVES root tips into shoot tips, and the shoot it then grows is made of root wood |
+| W7 | closed | 10301 | A severed plant is still one economy: the roots' water feeds a crown they have no path to |
+| Z6 | **OPEN** | 10407 | Every shipped bed starves its ant colony inside one play session |
+| Z7 | **OPEN** | 10585 | The trail-following gate saturates the signal it gates: the ant reads its own trail at ±0... |
+| Z8 | closed | 10760 | A fruit severed by ordinary structural failure lands as an ownerless windfall, and it can... |
+| Z9 | closed | 10881 | A hopping animal that comes down on water never lands: it hangs there, is charged the air... |
+| Z10 | closed | 10994 | The flitter's float never switches off on a bed that has flowers in it |
+| Z11 | closed | 11091 | At the widest zoom-out the view drew one cell in sixteen and dropped the rest, so thin th... |
+| Z12 | **OPEN** | 11186 | Most of what piles up in a long-run long-ant colony is one-cell ants, and they are bred t... |
+| Z13 | closed | 11266 | Every animal in both games can reach a rest it cannot leave (engine) |
+| Z14 | **OPEN** | 11661 | The played bed's 500,000-frame trajectory is chaotic, and scent_drift: 0.15 re-rolled it |
+| Z15 | **OPEN** | 11753 | A plant holds a creature up and also blocks it, so a bed of foliage is a cage: between a ... |
+| Z16 | closed | 11831 | DeathCause::Killed is not a killing counter, and the played bed's colony is being overgro... |
+| Z18 | **OPEN** | 11972 | Dug spoil stands in open sky, and the owner sees it before he sees anything else |
+| Z19 | closed | 12182 | A pellet of spoil crosses up to 116 rows with nothing carrying it |
+| Z17 | **OPEN** | 12299 | World::ground_datum is built and wrong inside a sealed lab box, and it reads as "the whol... |
+| Z20 | closed | 12351 | labgif wire= was a silent no-op for every card it has ever produced (lab) |
+| Z21 | closed | 12392 | The held world's grown and dead starts fill every organism slot, so C founds nothing |
+| Z22 | **OPEN** | 12579 | A colony inside a quickening eats about a sixth of the garden, and nothing on screen says so |
+| Z23 | closed | 12674 | nearest_foe counts a plant as a foe, so a fed colony quietly vandalises its own larder |
+| Z24 | **OPEN** | 12884 | A loop of plant_ant is a crowd of strangers, and nine harnesses still do it |
+| Z25 | closed | 12965 | Nothing can hear an alarm: the plane's audible radius is about two cells |
+| Z26 | **OPEN** | 13130 | review.py inbox shows every lane's verdicts as yours in a cloud session, and --mark-seen ... |
+| Z27 | **OPEN** | 13189 | Heat cannot cross a shallow gradient into ground already at ambient, and the fix that exi... |
+| Z28 | **OPEN** | 13246 | The moisture deposition preference was deleted rather than moved, and DropSpoil has no he... |
+| Z29 | **OPEN** | 13318 | An ant stands on its own freshest deposit, so the homing gradient reads "home is behind m... |
+| Z32 | closed | 13484 | An empty ant reads the food trail as exactly zero, tick after tick, so half the colony ne... |
+| Z30 | **OPEN** | 13600 | filmstrip never steps the pheromone planes, so every scene it runs ants in shows a trail ... |
+| Z31 | **OPEN** | 13691 | field::step carries derived arrays forward over a settled chunk that still holds an un-ta... |
+| Z33 | closed | 13771 | A part-eaten fruit put down comes back whole, so putting food down and picking it up crea... |
+| Z34 | **OPEN** | 13865 | deliveries - pickups_at_nest counts the same crumbs into home again and again, so "net fo... |
+| Z35 | closed | 13900 | A loaded forager's pull home runs out while it loads at the pile, so it walks off the far... |
+| Z36 | closed | 13939 | A birth topped up with bare seeds overdraws its parent, which dies next tick holding a cr... |
 
 <!-- END GENERATED INDEX -->
 
@@ -9582,7 +9582,28 @@ open and needs an arm that moves the gate alone.
 
 ---
 
-### E2. Narrowing the CA sweep's region changes the world, and the RNG is not the reason
+### E2. Narrowing the CA sweep's region changes the world, and the RNG is not the reason — **RESOLVED 2026-10-03: a drip on a clock and a one-frame lag; the spans are on by default now (`PIXEL_PHYSICS_SWEEP=box` restores the box)**
+
+**Resolution, 2026-10-03.** Re-bisected on `main` 5c09e618 with
+`PIXEL_PHYSICS_RNG=positional` and the reproduction below: the arms now first
+split at **frame 1,998**, and a per-cell dump of both arms there names it.
+A water cell at (442, 152) on a leaf drips five rows down in the box arm and
+not in the rows arm. **`drip_through_organism` acts on a clock** — `(frame +
+x) % 8` — and the sweep only visits a cell when something within its reach
+changed; the box happened to span the drop on its beat because a mark
+elsewhere in the chunk widened it. Not a cell the spans lose, but a rule that
+breaks the wake contract, and it stranded drops in sleeping chunks under the
+box too. Fixed at the rule: a drop off its beat that has somewhere to go calls
+`CellSurface::keep_awake`. With `CANOPY_DRIP=0` the next split is **frame
+2,564**: three part-filled water cells in a cup of leaves level a frame
+earlier in the box arm, again because another mark widened the box over them;
+the rows arm levels them on frame 2,565 once the write's own mark (made after
+that frame's sweep) is promoted. A one-frame timing shift. The leading
+hypothesis below — chunk wakefulness — was not it: the awake sets and the
+field hash were identical at the split. What is left between the arms is the
+per-chunk RNG stream, which made this a behaviour change, so it was judged on
+the lab bench (24 seeds, no gated harm, lab run 219 → 171 s; README, `Per-row
+sweep spans on by default`). The original record follows.
 
 **Measured 2026-09-05. Nothing shipping is broken — `PIXEL_PHYSICS_SWEEP=rows`
 is off by default — but the belief this file exists to check is false, and the

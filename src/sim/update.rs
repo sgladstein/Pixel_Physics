@@ -1662,6 +1662,22 @@ fn drip_through_organism<S: CellSurface>(surface: &mut S, x: i32, y: i32, below:
         return false;
     };
     if !(surface.frame() + x as u64).is_multiple_of(period) {
+        // **Off the beat, a drop that can drip asks to be visited again.**
+        // The beat is a clock, and the sweep only visits a cell when
+        // something within its reach changed -- so a drop with nothing
+        // moving beside it was revisited on its beat only by accident, when
+        // the chunk's dirty box happened to span it. Under per-row spans it
+        // usually does not, and in a chunk gone to sleep it never did: the
+        // drop sat on the leaf until something else disturbed it. This is the
+        // first of the two divergences `Reports/open-bugs-handoff.md` §E2
+        // found between the box and the spans.
+        //
+        // Only a drop with somewhere to go asks. A drop that the scan would
+        // refuse -- ground at capacity, a log, a nest -- keeps nothing awake,
+        // which is what lets a canopy holding standing water still sleep.
+        if drip_landing_open(surface, x, y) {
+            surface.keep_awake(x, y);
+        }
         return false;
     }
     for probe in (y + 1)..(y + 1 + ORGANISM_TUNNEL_REACH) {
@@ -1685,6 +1701,36 @@ fn drip_through_organism<S: CellSurface>(surface: &mut S, x: i32, y: i32, below:
             // takes it in; anything else -- stone, a fallen log, a nest, soil
             // already at capacity -- is a floor and the drop stays.
             return soak_into_ground(surface, x, y, probe, here);
+        }
+    }
+    false
+}
+
+/// **Would `drip_through_organism` move this drop if it were on its beat?**
+///
+/// The same scan and the same refusals, without a write: air under the
+/// tissue, more of the same liquid with room, or ground with room to drink.
+/// Kept beside the rule it predicts so the two are edited together -- a
+/// predicate that says yes where the rule says no keeps a chunk awake for a
+/// drop that never moves, and one that says no where the rule says yes is the
+/// stranded drop this exists to prevent.
+fn drip_landing_open<S: CellSurface>(surface: &S, x: i32, y: i32) -> bool {
+    for probe in (y + 1)..(y + 1 + ORGANISM_TUNNEL_REACH) {
+        let here = surface.get(x, probe);
+        if here.material == material::EMPTY {
+            return true;
+        }
+        if here.organism_id() == 0 && surface.materials().kind(here.material) != MaterialKind::Plant {
+            let src = surface.get(x, y);
+            if here.material == src.material {
+                if here.managed() {
+                    return false;
+                }
+                let room = (material::LIQUID_FULL + material::LIQUID_MAX_COMPRESS).saturating_sub(liquid_fill(here));
+                return surface.materials().get(src.material).flow_rate.min(room).min(liquid_fill(src)) > 0;
+            }
+            let capacity = surface.materials().get(here.material).water_capacity;
+            return capacity.saturating_sub(soil_moisture(here)) > 0 && liquid_fill(src) > 0;
         }
     }
     false
