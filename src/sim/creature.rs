@@ -12374,7 +12374,7 @@ fn jaw_can_cut(world: &World, def: &CreatureDef, organism: OrganismId, cell: Cel
 // TEMP dig funnel (not for commit): where each dig roll ends, by where the
 // digger stands.
 pub static DIG_FUNNEL: std::sync::Mutex<Option<std::collections::BTreeMap<String, u64>>> = std::sync::Mutex::new(None);
-fn dig_funnel_note(world: &World, organism: OrganismId, def: &CreatureDef, (x, y): (i32, i32), target: Cell, cue: bool, vetoed: bool) {
+fn dig_funnel_note(world: &World, organism: OrganismId, def: &CreatureDef, (x, y): (i32, i32), (tx, ty): (i32, i32), target: Cell, cue: bool, vetoed: bool) {
     let place = if nest_within_reach(world, organism, x, y, def) {
         "home"
     } else if world.nest_sites.iter().any(|n| (n.x - x).abs() <= 12 && (n.surface - y).abs() <= 12) {
@@ -12395,8 +12395,9 @@ fn dig_funnel_note(world: &World, organism: OrganismId, def: &CreatureDef, (x, y
     } else {
         format!("blocked:{}", world.materials.get(target.material).name)
     };
+    let door = if world.nest_sites.iter().any(|site| site.shaft.is_some_and(|cut| cut.contains(tx, ty))) { " door" } else { "" };
     let mut g = DIG_FUNNEL.lock().unwrap();
-    *g.get_or_insert_with(Default::default).entry(format!("{place} {what}")).or_insert(0) += 1;
+    *g.get_or_insert_with(Default::default).entry(format!("{place} {what}{door}")).or_insert(0) += 1;
 }
 
 /// A live organism's seed cell, which [`jaw_can_cut`] will not dig.
@@ -14928,7 +14929,14 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
         // -> 212 over 12 seeds, three in four with no spoil beside them. A
         // draw is taken only while `f < 1`, so the floor-1 control takes none
         // and stays bit-exact with the cue off, as does the cue off.
-        let vetoed = match spoil_cue_of(world) {
+        // TEMP arm (not for commit): PIXEL_PHYSICS_DOOR_REDIG=on -- the heap
+        // cue stands aside for a cut inside a nest's founding cut, which is
+        // the existing mouth being re-dug, not a new one.
+        let redig = {
+            static R: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+            *R.get_or_init(|| std::env::var("PIXEL_PHYSICS_DOOR_REDIG").as_deref() == Ok("on"))
+        } && world.nest_sites.iter().any(|site| site.shaft.is_some_and(|cut| cut.contains(tx, ty)));
+        let vetoed = match spoil_cue_of(world).filter(|_| !redig) {
             Some(cue) => {
                 let radius = curvature_radius_of(def, &traits_of(world, organism, def)).max(1);
                 match spoil_cue_factor(world, (x, y), (tx, ty), radius, cue) {
@@ -14962,7 +14970,7 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
             world.dig_diverted_seed += 1;
         }
         if std::env::var_os("DIGFUNNEL").is_some() {
-            dig_funnel_note(world, organism, def, (x, y), target, cue_vetoed, vetoed);
+            dig_funnel_note(world, organism, def, (x, y), (tx, ty), target, cue_vetoed, vetoed);
         }
         if !vetoed && jaw_can_cut(world, def, organism, target) {
             // **The spoil is picked up, not destroyed.** This line read
