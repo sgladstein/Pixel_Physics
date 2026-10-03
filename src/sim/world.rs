@@ -2678,6 +2678,9 @@ pub struct CreatureStats {
     pub larvae_starved: u64,
     /// Brood whose cell was destroyed (burned, blasted, erased).
     pub brood_lost: u64,
+    /// Brood ticks taken while a body stood on the cell
+    /// (`PIXEL_PHYSICS_PUSH_PAST=brood`): it grew, but did not hatch or starve.
+    pub brood_held: u64,
     /// Hatch attempts refused because the adult body did not fit.
     pub hatches_denied: u64,
     /// Joules nestmates shared into larvae, mouth to mouth.
@@ -3973,6 +3976,11 @@ pub struct World {
     /// (`brood::brood_of`), so a guard can run both arms in one process.
     /// Neither value turns brood on for a species without a brood block.
     pub brood: Option<bool>,
+    /// **What bodies walk through, overriding `PIXEL_PHYSICS_PUSH_PAST` for
+    /// this world** (`creature::push_past_of`): loose crumbs, brood, both or
+    /// neither. `None` follows the environment. A field so a guard can take
+    /// both arms in one process.
+    pub push_past: Option<crate::sim::creature::PushPast>,
     /// **The storeroom, overriding `PIXEL_PHYSICS_STOREROOM` for this world**
     /// (`creature::storeroom_of`). `None` follows the environment, which is
     /// `creature::Storeroom::SHIPPED` unless it says `off`.
@@ -5424,6 +5432,19 @@ pub struct World {
     /// setting. The lab's parameters panel writes this one; see
     /// `lab::params::Knob::Rule`.
     pub plant_load_failure: bool,
+    /// **Whether water flows through a plant along real paths** rather than
+    /// being one tank every leaf reads equally (`plant::sap_flow`).
+    ///
+    /// On: roots drink into their own cells, the water collects at the
+    /// collar, climbs the trunk and splits into branches in proportion to
+    /// the leaves each one feeds; a branch above poorly-rooted ground, and
+    /// the tips furthest from the roots, run dry first; refilling after a
+    /// drought climbs the plant at sap speed; and nutrients ride the water,
+    /// so a growing tip prices its next cell against what actually reaches
+    /// it. Off is the one-tank engine exactly. Initialised from
+    /// `PIXEL_PHYSICS_SAP_FLOW` (`on`/`off`); a field rather than a process
+    /// global so a test can run both arms in one process.
+    pub sap_flow: bool,
     /// **Whether a plant may lean under load and wind.** `plant.rs`'s
     /// `bend_under_load`, and the `stress_field` that feeds it.
     ///
@@ -6476,6 +6497,7 @@ impl World {
             dig_widen: None,
             bud_stack: None,
             brood: None,
+            push_past: None,
             storeroom: None,
             nest_door: None,
             scout: None,
@@ -6611,6 +6633,7 @@ impl World {
             // On, because it is the shipped behaviour and a default that
             // silently disables a mechanism is a mechanism nobody measures.
             plant_load_failure: true,
+            sap_flow: super::plant::sap_flow_default(),
             soil_capillary_levels: false,
             plant_bending: true,
             windfall_rots: crate::sim::decay::windfall_rots_default(),
@@ -8504,7 +8527,12 @@ impl World {
         // a pellet put down in a passage is a thing in the nest, not the
         // nest's wall, and read as wall a single crumb on the mouth took home
         // from 43 cells to 6 (seed 1, frame 8,000).
-        let loose: Vec<MaterialId> = ["spoil", "corpse", "crumbs"].iter().filter_map(|n| self.materials.id_of(n)).collect();
+        // **Brood too, once bodies walk through it** (`creature::PushPast`): an
+        // egg lying in the shaft was a wall here, and the dug home behind it
+        // dropped out of home (found by the laying lane, 2026-10-03). While
+        // ants cannot pass brood, the home behind a plug really is cut off.
+        let brood_open = crate::sim::creature::push_past_of(self).brood;
+        let loose: Vec<MaterialId> = ["spoil", "corpse", "crumbs"].iter().chain(brood_open.then_some(&"brood")).filter_map(|n| self.materials.id_of(n)).collect();
         let open = |w: &World, x: i32, y: i32| {
             let c = w.get(x, y);
             c.material == material::EMPTY || matches!(w.materials.kind(c.material), MaterialKind::Creature) || loose.contains(&c.material) || (c.organism_id() == 0 && crate::sim::creature::food_value(w, c) > 0.0)
@@ -10320,9 +10348,22 @@ impl World {
     /// drought shedding reads. Deliberately not `water_status`: see
     /// `OrganismState::water_desiccation` for why prudence must not read
     /// as thirst.
+    ///
+    /// **Per cell when `sap_flow` is on**: the cell's own
+    /// `OrganismCell::sap_desiccation`, so a leaf far up a poorly-rooted
+    /// branch dries before one by the trunk. A cell not yet walked reads the
+    /// plant's number, as before.
     pub fn desiccation_at(&self, x: i32, y: i32) -> f32 {
         let id = self.get(x, y).organism_id();
-        self.organism(id).map_or(0.0, |s| s.water_desiccation)
+        let Some(state) = self.organism(id) else { return 0.0 };
+        if self.sap_flow {
+            if let Some(c) = state.cells.get(&(x, y)) {
+                if c.sap_desiccation >= 0.0 {
+                    return c.sap_desiccation;
+                }
+            }
+        }
+        state.water_desiccation
     }
 
     /// Carbon at `(x, y)`, or `0.0` where there is no organism cell —

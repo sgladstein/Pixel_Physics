@@ -486,6 +486,8 @@ fn main() {
         Some("soil") => pixel_physics::render::OrganismOverlay::SoilMoisture,
         Some("celltype") => pixel_physics::render::OrganismOverlay::CellType,
         Some("resource") => pixel_physics::render::OrganismOverlay::Resource,
+        Some("sap") => pixel_physics::render::OrganismOverlay::SapFlow,
+        Some("health") => pixel_physics::render::OrganismOverlay::PlantHealth,
         _ => pixel_physics::render::OrganismOverlay::Off,
     };
     // **`roots=fade|show`** -- the lab's root fade under a nest
