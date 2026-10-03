@@ -2608,6 +2608,13 @@ pub struct CreatureStats {
     /// nearest open cell at home. 0 unless `PIXEL_PHYSICS_HOME_REAIM` is set
     /// (off by default).
     pub home_reaims: u64,
+    /// **Ticks an animal could afford a child and its brain held it**
+    /// (`BrainOutput::Lay` below `brain::LAY_HOLD_BELOW`, in
+    /// `creature::try_bud`). Exactly 0 for any genome with no `Lay` weight,
+    /// which is every authored species, so a non-zero count is a lineage
+    /// that has evolved a hold -- the "did it fire at all" for laying as a
+    /// decision.
+    pub lays_declined: u64,
     /// **Ticks a birth was held by the food brake alone**
     /// (`creature::food_brake_factor`): the animal cleared its bar under the
     /// breeding regime and not after the brake raised it. 0 with the brake off.
@@ -4265,6 +4272,25 @@ pub struct World {
     /// door, within `creature::DUG_HOME_REACH`. Rebuilt every
     /// `ROOM_INTERVAL` frames by `step_nest_dug`; empty under any other home.
     pub nest_dug: crate::sim::fxhash::PosSet,
+    /// **Every cell an ant has ever dug, and every cell a founding cut
+    /// opened** -- the record behind the census's `dug_*` columns
+    /// (`lab::census::Sample::dug`). Written only by `creature::dig` and
+    /// `cut_founding_shaft_with`; nothing in the simulation reads it, so it
+    /// cannot move a run.
+    ///
+    /// **A record of the act, because the cell cannot keep one.** A root
+    /// that grows into a gallery and a root that threaded undug soil are
+    /// the same cell -- soil's `penetration_resistance` of 0.8 is under
+    /// every shipped root's force, so roots below ground are normal and a
+    /// census reading the grid alone cannot say which ones are filling the
+    /// nest. `nest_dug` above cannot either: it is the room that is open
+    /// *now*, so a gallery a root has taken has already left it. The
+    /// playtest of 2026-10-03 is the question this answers -- the roofed
+    /// room peaked at 397 cells and shrank to 311 while the colony dug, and
+    /// nothing measured where the rest went (`Reports/nest-door-2026-10-03.md`
+    /// §5). All eight flag bits on a cell are taken, which is why it is a
+    /// set here rather than a bit there.
+    pub dug_cells: crate::sim::fxhash::PosSet,
     /// **What each nest needs, for the forage drive**, in `[0, 1]`: under
     /// `hunger` its animals' mean hunger, under `larder` how far the food
     /// standing at home falls short of a store (`creature::nest_needs`).
@@ -6437,6 +6463,7 @@ impl World {
             nest_sites: Vec::new(),
             nest_room: Vec::new(),
             nest_dug: Default::default(),
+            dug_cells: Default::default(),
             nest_need: Vec::new(),
             colony_pace: Vec::new(),
             nest_last_return: Vec::new(),
