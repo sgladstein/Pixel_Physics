@@ -80,7 +80,13 @@ pub const BRAIN_HIDDEN: usize = 8;
 /// -- so `live_slots()` goes 809 -> 846 and every species' `mutation_rate`
 /// is re-derived against it in the same change, which is the whole of the
 /// cost (see `the_live_slot_count_is_pinned_because_mutation_rate_is_derived_from_it`).
-pub const BRAIN_OUTPUTS: usize = 16;
+///
+/// **17 since 2026-10-03.** `Lay` appended -- whether to breed becomes the
+/// animal's decision (see that variant). Lawful under the reserve on the
+/// same terms: the row was already there and already zero. Its cost is the
+/// one above, at today's counts: **41** live slots (33 inputs + 8 hidden),
+/// `live_slots()` 942 -> 983, every species' `mutation_rate` re-derived.
+pub const BRAIN_OUTPUTS: usize = 17;
 
 /// **Reserved storage dimensions.** The live counts above say how much of
 /// the scaffold is wired; these say how much room the layout leaves it to
@@ -301,7 +307,7 @@ pub const INPUT_NAMES: [&str; BRAIN_INPUTS] = [
     "HomeAligned",
 ];
 pub const OUTPUT_NAMES: [&str; BRAIN_OUTPUTS] = [
-    "Turn", "Move", "EmitA", "EmitB", "Dig", "Drop", "Persist", "Tumble", "Caution", "Feed", "Impulse", "DropSpoil", "Attack", "Provision", "Share", "Fly",
+    "Turn", "Move", "EmitA", "EmitB", "Dig", "Drop", "Persist", "Tumble", "Caution", "Feed", "Impulse", "DropSpoil", "Attack", "Provision", "Share", "Fly", "Lay",
 ];
 
 /// **The genome's shape, as a stored jar remembers it.**
@@ -339,6 +345,19 @@ pub struct GenomeLayout {
     pub output_slots: usize,
     pub hidden_slots: usize,
     pub genome_len: usize,
+}
+
+/// **Does this genome carry any weight on `output`'s row** -- a direct wire
+/// from any input or a wire from any hidden unit, at or above `W_EPS`? The
+/// census half of an output that every authored species leaves silent
+/// (`BrainOutput::Lay`): it says how many animals a lineage has wired one
+/// into, which a count of what the output *did* cannot.
+///
+/// `false` for anything that is not a creature genome (a plant's is empty).
+pub fn output_row_wired(g: &[f32], output: BrainOutput) -> bool {
+    g.len() == GENOME_LEN
+        && (INPUTS.iter().any(|&i| g[io_slot(i, output)].abs() >= W_EPS)
+            || (0..BRAIN_HIDDEN).any(|h| g[ho_slot(h, output)].abs() >= W_EPS))
 }
 
 /// This build's layout.
@@ -1373,7 +1392,50 @@ pub enum BrainOutput {
     /// (`sight_range`, `curvature_radius`), and re-openable the day a
     /// species-level default price exists.
     Fly = 15,
+    /// **Lay now, or hold the egg** -- whether to breed is a decision the
+    /// animal makes, not a bookkeeping event. Read raw, once, at
+    /// `creature::try_bud`, on a tick the animal could already afford a
+    /// child; the birth is held while this is below [`LAY_HOLD_BELOW`].
+    ///
+    /// **Until this existed, breeding was not a behaviour at all.** Once the
+    /// bank cleared the bar the code fired the birth, so only the bar's
+    /// height was heritable, and *when* and *where* relative to anything the
+    /// animal senses -- at the nest, beside brood, in a crowd, laden -- could
+    /// not evolve (the engine review of 2026-10-03, ranked first of its
+    /// laying-side items; `ant-breeding-plan-2026-09-29.md` B1b). Laying
+    /// only at the nest is the case the owner named: a line that wires
+    /// `(Bias, Lay, -)` and `(AtNest, Lay, +)` breeds only at home, with no
+    /// code saying where home is for.
+    ///
+    /// **Read as a veto with the gate open at zero, which is the one
+    /// reading under which nothing moves.** `squash(0.0)` is exactly 0.0, so
+    /// a species that authors no weight here lays exactly when it always
+    /// did, takes no RNG draw and pays no synapse tax -- and so does every
+    /// jar on the shelf, whose stored wiring predates the row and loads with
+    /// it silent (`GenomeLayout::accepts`). Read as a verb that fires only
+    /// above zero, every unwired species and every saved animal would have
+    /// stopped breeding, and authoring a `(Bias, Lay, +)` wire into each
+    /// species to undo that would have cost every founder a synapse it pays
+    /// for every tick it lives.
+    ///
+    /// **Why the gate is below zero rather than at it.** At exactly zero
+    /// the founder would sit on the edge, and the first mutation to touch
+    /// the row -- one birth in eight, at 41 slots and today's
+    /// `mutation_rate` -- would hold the egg in whatever context its input
+    /// was positive, half the time. That is a fertility tax nobody chose,
+    /// and it would read in every breeding scene as evolution doing
+    /// something. One step from a zero weight moves the sum at most
+    /// `MUT_ABS_FLOOR` (0.04) per unit of input; the gate sits a few steps
+    /// past that, so a lineage has to *drift* to a hold, not stumble into
+    /// it.
+    Lay = 16,
 }
+
+/// **The level `BrainOutput::Lay` must fall below before an animal holds
+/// a child it can afford** -- see that variant for why it is below zero.
+/// `squash(x) < -0.1` is `x < -0.111`: about three same-sign steps of one
+/// zero-born weight, or one step of a weight that has already grown.
+pub const LAY_HOLD_BELOW: f32 = -0.1;
 
 /// One authored connection, as a species file writes it:
 /// `(PheroBLateral, Turn, 0.9)`.
@@ -1531,6 +1593,7 @@ pub const OUTPUTS: [BrainOutput; BRAIN_OUTPUTS] = [
     BrainOutput::Provision,
     BrainOutput::Share,
     BrainOutput::Fly,
+    BrainOutput::Lay,
 ];
 
 /// A genome written back out as the four sparse lists a species file
@@ -2540,7 +2603,15 @@ mod tests {
         // `Reports/ant-return-leg-plan-2026-09-20.md`). No output moved. Every
         // species' `mutation_rate` re-derived to `3.18 / 942 = 0.0033758` in
         // the same change.
-        assert_eq!(live, 942, "the mutable surface moved; re-derive every species' mutation_rate against it in the same change");
+        // 942 -> 983 on 2026-10-03 with `Lay` (an output row, 41 slots: 33
+        // inputs + 8 hidden) -- whether to breed becomes the animal's
+        // decision, the engine review's first laying-side item. No input
+        // moved. Every species' `mutation_rate` re-derived to
+        // `3.18 / 983 = 0.0032350` in the same change. **A new baseline cut
+        // for every breeding scene**: `brain::mutate` draws one `unit_f32`
+        // per live slot, so births diverge from the first one even though
+        // an unwired `Lay` changes no decision.
+        assert_eq!(live, 983, "the mutable surface moved; re-derive every species' mutation_rate against it in the same change");
     }
 
     #[test]
@@ -2716,7 +2787,12 @@ mod tests {
         //   which is exactly what the manifest exists to catch, and it does:
         //   any jar written before this refuses to load rather than being
         //   silently reinterpreted.
-        assert_eq!(genome_manifest(), 4_147_102_827);
+        // **Moved again 2026-10-03 by `Lay`**, an append: `BRAIN_OUTPUTS`
+        // 16 -> 17 lights up a row of the 64-wide reserve, no name is
+        // renumbered, `GENOME_LEN` does not change. A jar stored before it
+        // passes `GenomeLayout::accepts` and loads with the row silent, which
+        // `Lay` reads as "lay when able" -- the behaviour it was stored with.
+        assert_eq!(genome_manifest(), 925_349_372);
     }
 
     #[test]

@@ -241,6 +241,16 @@ fn phrasebook(input: BrainInput, output: BrainOutput) -> Option<(&'static str, &
         (I::Energy, O::Share) => ("SHARES WHEN WELL FED", "SHARES WHEN HUNGRY"),
         (I::Bias, O::Share) => ("SHARES WITH ANYONE", "KEEPS FOOD TO ITSELF"),
         (I::KinNeed, O::Move) => ("GOES OUT WHEN KIN HUNGER", "SITS WHILE KIN GO HUNGRY"),
+
+        // -- when and where to breed (`Lay`, 2026-10-03). No authored species
+        //    wires this row, so any line the page shows here is one a lineage
+        //    evolved. "Breeds" rather than "lays": `LAYS` already means a
+        //    scent trail on this page.
+        (I::AtNest, O::Lay) => ("BREEDS AT THE NEST", "BREEDS AWAY FROM HOME"),
+        (I::Bias, O::Lay) => ("BREEDS WHENEVER IT CAN", "HOLDS OFF BREEDING"),
+        (I::Crowding, O::Lay) => ("BREEDS IN A CROWD", "BREEDS WHEN ALONE"),
+        (I::CarryingFood, O::Lay) => ("BREEDS WHILE LADEN", "PUTS FOOD DOWN TO BREED"),
+        (I::KinNeed, O::Lay) => ("BREEDS WHEN KIN HUNGER", "WAITS WHILE KIN HUNGER"),
         _ => return None,
     })
 }
