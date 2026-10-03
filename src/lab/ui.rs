@@ -3401,6 +3401,17 @@ pub fn plantable_species(world: &World) -> Vec<crate::sim::organism::SpeciesId> 
     ids
 }
 
+/// **The five picture-test ants, held off the lab's animal chip** (owner's
+/// pick on 2026-10-03, "Hide from lab"). They were cut in August as arms of
+/// the appearance study (`Reports/creature-appearance-design.md`): no
+/// `reproduce_threshold` and `mutation_rate` 0, so none can breed or evolve,
+/// and on `played_bed` (60,000 frames, seeds 1-3) all five were born 0 times.
+/// `chitin_pale` and `ant_block_shaded` differ from `ant_block` only in colour
+/// and played out identical to it frame for frame. **Hidden, not deleted**:
+/// the druid game stocks three of them (`src/druid/founding.rs`) and the
+/// creature-look probes in `examples/` still render them.
+pub const NOT_STOCKABLE_IN_LAB: &[&str] = &["ant_block", "ant_block_shaded", "ant_long", "ant_wide", "chitin_pale"];
+
 /// Every species that can be *stocked* — the animals, in a stable order.
 ///
 /// [`plantable_species`]' mirror image, filtered the same way and for the same
@@ -3409,11 +3420,16 @@ pub fn plantable_species(world: &World) -> Vec<crate::sim::organism::SpeciesId> 
 /// gains a file. There were three animals in the table and exactly one of them
 /// -- the ant -- could be put in the box by hand, which is the gap this
 /// closes. Owner: *"I need to be able to add a beetle manually."*
+///
+/// **Less [`NOT_STOCKABLE_IN_LAB`]**, which is an exclusion list rather than
+/// the roster the paragraph above refuses: a new animal file still appears
+/// here on its own, and only the named ones are held back.
 pub fn stockable_species(world: &World) -> Vec<crate::sim::organism::SpeciesId> {
     use crate::sim::organism::SpeciesId;
     let mut ids: Vec<SpeciesId> = (0..world.species.len() as u16)
         .map(SpeciesId)
         .filter(|id| world.species.get(*id).creature.is_some())
+        .filter(|id| !NOT_STOCKABLE_IN_LAB.contains(&world.species.get(*id).name.as_str()))
         .collect();
     ids.sort_by(|a, b| world.species.get(*a).name.cmp(&world.species.get(*b).name));
     ids
@@ -9888,6 +9904,29 @@ mod tests {
 
     use super::*;
     use crate::sim::chunk::Rect as WorldRect;
+
+    /// **The picture-test ants are off the animal chip, and nothing else is.**
+    /// Fails if a hidden name comes back, and also if the filter starts
+    /// eating real animals. The second half is the one an exclusion list can
+    /// get wrong silently: every other creature in the table must still be
+    /// offered, the beetle and the hopper by name among them.
+    #[test]
+    fn the_picture_test_ants_are_hidden_and_every_other_animal_is_offered() {
+        let world = World::new(WorldRect::new(0, 0, 63, 63));
+        let offered: Vec<String> = stockable_species(&world).into_iter().map(|id| world.species.get(id).name.clone()).collect();
+        for hidden in NOT_STOCKABLE_IN_LAB {
+            assert!(world.species.id_of(hidden).is_some(), "{hidden} is no longer in the species table; drop it from the list");
+            assert!(!offered.iter().any(|n| n == hidden), "{hidden} is back on the animal chip: {offered:?}");
+        }
+        let animals = (0..world.species.len() as u16)
+            .map(crate::sim::organism::SpeciesId)
+            .filter(|id| world.species.get(*id).creature.is_some())
+            .count();
+        assert_eq!(offered.len(), animals - NOT_STOCKABLE_IN_LAB.len(), "the filter hid more than the five: {offered:?}");
+        for kept in ["ant", "ancestor", "beetle", "hopper", "flitter", "longant"] {
+            assert!(offered.iter().any(|n| n == kept), "{kept} fell off the animal chip: {offered:?}");
+        }
+    }
 
     fn state(running: bool, requested: u32) -> BarState<'static> {
         BarState {
