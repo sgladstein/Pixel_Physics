@@ -12940,7 +12940,10 @@ const DOORWAY_MARGIN: i32 = 2;
 /// shaft's columns, widened by [`DOORWAY_MARGIN`], from that many rows over
 /// its top down to its last row. The chamber below is not.
 fn in_doorway(world: &World, (x, y): (i32, i32)) -> bool {
-    world.nest_sites.iter().filter_map(|s| s.shaft).any(|c| (c.x0 - DOORWAY_MARGIN..=c.x1 + DOORWAY_MARGIN).contains(&x) && (c.top - DOORWAY_MARGIN..=c.bottom).contains(&y))
+    // TEMP sweep knob (not for commit): PIXEL_PHYSICS_DOORWAY_MARGIN.
+    static M: std::sync::OnceLock<i32> = std::sync::OnceLock::new();
+    let m = *M.get_or_init(|| std::env::var("PIXEL_PHYSICS_DOORWAY_MARGIN").ok().and_then(|v| v.parse().ok()).unwrap_or(DOORWAY_MARGIN));
+    world.nest_sites.iter().filter_map(|s| s.shaft).any(|c| (c.x0 - m..=c.x1 + m).contains(&x) && (c.top - m..=c.bottom).contains(&y))
 }
 
 fn food_drop_site(world: &World, x: i32, y: i32, through_bodies: bool) -> Option<((i32, i32), u8)> {
