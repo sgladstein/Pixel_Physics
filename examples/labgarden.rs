@@ -34,7 +34,7 @@
 //! ```
 use std::collections::BTreeMap;
 
-use pixel_physics::lab::scenario::{Placement, Scenario};
+use pixel_physics::lab::scenario::{Event, Placement, Scenario};
 use pixel_physics::sim::explosion::Blasts;
 use pixel_physics::sim::frame;
 use pixel_physics::sim::organism::TRAIT_GUT_BIAS;
@@ -76,6 +76,51 @@ fn main() {
     if let Some(sd) = arg::<u64>("seed") {
         sc.bed.seed = sd;
     }
+    // **`add=` -- the bed the owner actually plays** (2026-10-03: *"The
+    // actual game starts with no creatures or plants and the player gets to
+    // choose which creatures and plants get added and can add more over
+    // time."*). Strips the scenario's own plants and replaces them with
+    // `species:x@frame` entries, comma-separated; `colony_at=` moves the
+    // colony's landing frame (default: the scenario's own). So
+    // `add=grass:150@30000 colony_at=1` is a colony on an empty bed with one
+    // grass planted 106 columns away once the nest exists.
+    if let Some(list) = arg::<String>("add") {
+        sc.placements.retain(|p| !matches!(p, Placement::Plant { .. }));
+        sc.timeline.retain(|e| !matches!(e.what, Placement::Plant { .. }));
+        for entry in list.split(',').filter(|e| !e.is_empty()) {
+            let (what, at) = entry.split_once('@').unwrap_or((entry, "1"));
+            let (species, x) = what.split_once(':').expect("add= wants species:x@frame");
+            let at: u64 = at.parse().expect("add= frame parses");
+            let x: i32 = x.parse().expect("add= x parses");
+            let p = Placement::Plant {
+                species: species.to_string(),
+                x,
+            };
+            if at <= 1 {
+                sc.placements.push(p);
+            } else {
+                sc.timeline.push(Event {
+                    at,
+                    every: 0,
+                    until: 0,
+                    what: p,
+                });
+            }
+        }
+    }
+    if let Some(at) = arg::<u64>("colony_at") {
+        for e in sc.timeline.iter_mut() {
+            if matches!(e.what, Placement::Colony { .. }) {
+                e.at = at.max(1);
+            }
+        }
+    }
+    // `colony=0` drops only the colony from the timeline, so plants a
+    // player adds later still arrive.
+    if !with_colony {
+        sc.timeline
+            .retain(|e| !matches!(e.what, Placement::Colony { .. } | Placement::Colonies { .. }));
+    }
     let spec = sc.bed.clone();
     let nest_x: i32 = arg("nest").unwrap_or_else(|| {
         sc.timeline
@@ -88,7 +133,8 @@ fn main() {
     });
     let ground_y = spec.ground_y;
     println!(
-        "labgarden: scenario={name} seed={} frames={frames} sample={sample} colony={} nest_x={nest_x} ground_y={ground_y} nest band +-{NEST_HALF} | distance bands {DIST_BANDS:?}",
+        "labgarden: scenario={name} add={} seed={} frames={frames} sample={sample} colony={} nest_x={nest_x} ground_y={ground_y} nest band +-{NEST_HALF} | distance bands {DIST_BANDS:?}",
+        arg::<String>("add").unwrap_or_else(|| "scenario's own".into()),
         spec.seed,
         if with_colony { "on" } else { "OFF (garden alone)" }
     );
@@ -109,9 +155,7 @@ fn main() {
     let mut ants_peak = 0usize;
 
     for f in 0..=frames {
-        if with_colony {
-            pixel_physics::lab::scenario::tick_timeline(&sc, &mut world, &spec);
-        }
+        pixel_physics::lab::scenario::tick_timeline(&sc, &mut world, &spec);
         if f % 10 == 0 {
             for id in world.live_organism_ids() {
                 let Some(s) = world.organism(id) else { continue };
@@ -245,9 +289,26 @@ fn stop(
     let mut cells: BTreeMap<String, usize> = BTreeMap::new();
     let (mut band_above, mut band_below) = (0usize, 0usize);
     let mut total_plant = 0usize;
+    let mut loose: BTreeMap<String, usize> = BTreeMap::new();
+    let mut col_has = vec![false; width as usize];
+    let mut loose_nest: BTreeMap<String, usize> = BTreeMap::new();
     for y in 0..height {
         for x in 0..width {
             let c = world.get(x, y);
+            let mname = &world.materials.get(c.material).name;
+            // Loose plant food lying about -- leaf litter, shed leaves,
+            // crumbs, ungerminated seed (organism-owned, so counted before
+            // the organism filter) -- the colony's actual staple, and what
+            // the nest lane found filling the door.
+            if matches!(
+                mname.as_str(),
+                "litter" | "deadleaf" | "crumbs" | "seed" | "pip" | "windfall"
+            ) {
+                *loose.entry(mname.clone()).or_default() += 1;
+                if (x - nest_x).abs() < NEST_HALF {
+                    *loose_nest.entry(mname.clone()).or_default() += 1;
+                }
+            }
             let oid = c.organism_id();
             if oid == 0 {
                 continue;
@@ -257,6 +318,7 @@ fn stop(
                 continue;
             }
             total_plant += 1;
+            col_has[x as usize] = true;
             *cells.entry(world.materials.get(c.material).name.clone()).or_default() += 1;
             if (x - nest_x).abs() < NEST_HALF {
                 if y < ground_y {
@@ -268,6 +330,16 @@ fn stop(
         }
     }
 
+    // How far the garden has spread: columns holding any plant, and the
+    // nearest plant column to the nest.
+    let cols = col_has.iter().filter(|b| **b).count();
+    let nearest = col_has
+        .iter()
+        .enumerate()
+        .filter(|(_, b)| **b)
+        .map(|(x, _)| (x as i32 - nest_x).abs())
+        .min()
+        .map_or("none".to_string(), |d| d.to_string());
     // Intake since the last stop, by material.
     let mut diet_now: BTreeMap<String, f64> = BTreeMap::new();
     for books in world.all_colony_books() {
@@ -293,11 +365,13 @@ fn stop(
         .collect::<Vec<_>>()
         .join(",");
     println!(
-        "STOP f={f} ants={ants} home={ants_home} under={ants_under} gut_p10/50/90={:.2}/{:.2}/{:.2} plants[{}] plant_cells={total_plant} nest_band_above={band_above} nest_band_below={band_below} cells[{}] eaten_J[{}] pickups_near/48/128/far[{picks}]",
+        "STOP f={f} ants={ants} home={ants_home} under={ants_under} gut_p10/50/90={:.2}/{:.2}/{:.2} plants[{}] plant_cells={total_plant} plant_cols={cols} nearest_to_nest={nearest} nest_band_above={band_above} nest_band_below={band_below} loose[{}] loose_nest[{}] cells[{}] eaten_J[{}] pickups_near/48/128/far[{picks}]",
         gut(0.1),
         gut(0.5),
         gut(0.9),
         fmt_map(&plants),
+        fmt_map(&loose),
+        fmt_map(&loose_nest),
         fmt_map(&cells),
         delta.iter().map(|(m, d)| format!("{m}:{d:.0}")).collect::<Vec<_>>().join(","),
     );
