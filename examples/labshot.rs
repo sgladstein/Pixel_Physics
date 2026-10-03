@@ -488,6 +488,10 @@ fn main() {
         Some("resource") => pixel_physics::render::OrganismOverlay::Resource,
         _ => pixel_physics::render::OrganismOverlay::Off,
     };
+    // **`roots=fade|show`** -- the lab's root fade under a nest
+    // (`Renderer::fade_roots`), on by default like the game; `show` is the
+    // control arm.
+    renderer.fade_roots = arg::<String>("roots").as_deref() != Some("show");
     for _ in 1..zoom {
         renderer.adjust_zoom(1);
     }

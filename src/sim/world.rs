@@ -3818,6 +3818,12 @@ pub struct World {
     /// that many rows thick, `Some(None)` none; `None` reads the process's
     /// `PIXEL_PHYSICS_DIG_ROOF`.
     pub dig_roof: Option<Option<i32>>,
+    /// `creature::food_door_of` for this world; `None` reads
+    /// `PIXEL_PHYSICS_FOOD_DOOR`.
+    pub food_door: Option<bool>,
+    /// `creature::door_reopen_of` for this world; `None` reads
+    /// `PIXEL_PHYSICS_DOOR_REOPEN`.
+    pub door_reopen: Option<bool>,
     /// `creature::kin_footing_of` for this world; `None` reads the process's
     /// `PIXEL_PHYSICS_KIN_FOOTING`.
     pub kin_footing: Option<bool>,
@@ -6356,6 +6362,8 @@ impl World {
             chooser: None,
             bud_at_nest: None,
             dig_roof: None,
+            food_door: None,
+            door_reopen: None,
             kin_footing: None,
             door_collar: None,
             spoil_crest: None,

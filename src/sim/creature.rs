@@ -656,9 +656,10 @@ pub struct DecisionScratch {
     /// unless the drop was asked.
     pub drop_roll: f32,
     pub drop_p: f32,
-    /// How many of the head's eight neighbours were empty when the drop was
-    /// rolled, by `World::is_empty`, the test the drop's own search uses.
-    /// `u8::MAX` unless the drop was asked.
+    /// How many of the head's eight neighbours were room for food when the
+    /// drop was rolled: empty by `World::is_empty` and, under
+    /// [`food_door_of`], not in a nest's door ([`in_doorway`]) -- the test
+    /// the drop's own search uses. `u8::MAX` unless the drop was asked.
     pub free8: u8,
     /// The eight neighbours' material ids, in `NEIGHBOURS_8` order (NW, N,
     /// NE, W, E, SW, S, SE), when the drop was rolled.
@@ -783,11 +784,12 @@ fn note_drop_surroundings(world: &mut World, organism: OrganismId, x: i32, y: i3
     s.free8 = 0;
     s.nbr_self = 0;
     s.nbr_other = 0;
+    let clear = door_clear_of(world, organism);
     for (i, &(dx, dy)) in NEIGHBOURS_8.iter().enumerate() {
         let (px, py) = (x + dx, y + dy);
         let c = world.get(px, py);
         s.nbr[i] = c.material.0;
-        if world.is_empty(px, py) {
+        if world.is_empty(px, py) && !clear.is_some_and(|c| in_doorway(world, (px, py), c)) {
             s.free8 += 1;
         }
         match c.organism_id() {
@@ -3817,13 +3819,16 @@ fn store_drop(world: &mut World, organism: OrganismId, (x, y): (i32, i32), spoil
     if draw.unit_f32() >= dump_urge {
         return;
     }
+    let clear = door_clear_of(world, organism);
     // **Under `pile`, beside other food** ([`pile_drop_p`]), wherever that
     // is; a carrier that has given up lets go where it stands, as below.
     if storeroom_of(world).pile {
         let f = pile_food_share(world, x, y).0;
         let gave_up = world.organism(organism).is_some_and(|s| s.home_patience < SCOUT_GIVE_UP || s.still_ticks >= STORE_STUCK_TICKS);
         let by_rule = draw.unit_f32() < pile_drop_p(f);
-        let site = (by_rule || gave_up).then(|| food_drop_site(world, x, y, drop_through_bodies()).map(|(p, _)| p)).flatten();
+        let site = (by_rule || gave_up)
+            .then(|| food_drop_site(world, x, y, drop_through_bodies(), clear).map(|(p, _)| p))
+            .flatten();
         match site {
             Some((px, py)) => {
                 if by_rule {
@@ -3848,7 +3853,11 @@ fn store_drop(world: &mut World, organism: OrganismId, (x, y): (i32, i32), spoil
     // beside it puts the load on any empty neighbour, which is the room's rim.
     let in_room = storeroom_near(world, x, y).is_some_and(|room| room.touches_store(x, y));
     let posted = if storeroom_of(world).posts() { store_post_site(world, (x, y)) } else { None };
-    let site = match posted.or_else(|| storeroom_drop_site(world, x, y)).or_else(|| in_room.then(|| food_drop_site(world, x, y, drop_through_bodies()).map(|(p, _)| p)).flatten()) {
+    let site = match posted.or_else(|| storeroom_drop_site(world, x, y)).or_else(|| {
+        in_room
+            .then(|| food_drop_site(world, x, y, drop_through_bodies(), clear).map(|(p, _)| p))
+            .flatten()
+    }) {
         Some(p) => {
             world.creature_stats.store_delivered += 1;
             Some(p)
@@ -3857,7 +3866,7 @@ fn store_drop(world: &mut World, organism: OrganismId, (x, y): (i32, i32), spoil
             let gave_up = world.organism(organism).is_some_and(|s| s.home_patience < SCOUT_GIVE_UP || s.still_ticks >= STORE_STUCK_TICKS)
                 || storeroom_near(world, x, y).is_none_or(|room| !storeroom_has_room(world, room));
             if gave_up {
-                let p = food_drop_site(world, x, y, drop_through_bodies()).map(|(p, _)| p);
+                let p = food_drop_site(world, x, y, drop_through_bodies(), clear).map(|(p, _)| p);
                 if p.is_some() {
                     world.creature_stats.store_released += 1;
                 }
@@ -12234,6 +12243,52 @@ pub fn spoil_cue_of(world: &World) -> Option<SpoilCue> {
     world.spoil_cue.unwrap_or_else(spoil_cue)
 }
 
+/// **Re-opening a nest's own door is not starting a new mouth**
+/// (`PIXEL_PHYSICS_DOOR_REOPEN=on|off`, on; [`World::door_reopen`] for one
+/// world). On, a cut into a founding cut -- shaft or room
+/// ([`crate::sim::world::ShaftFootprint::contains`]) -- meets the heap cue ([`SpoilCue`]) only
+/// to [`door_cue_weight`]'s share, which is none at the shipped allele.
+///
+/// **Why** (nest lane, 2026-10-03, `labforage scenario=played_bed`). The cue
+/// lets a cut that opens ground to the sky go ahead only beside a heap of
+/// pellets, and at floor 0 it refuses every such cut with no pellet within
+/// two cells. That is right for where a colony *starts* a mouth (Pielström &
+/// Roces 2013), and it also refused the colony re-cutting its own door once
+/// food, soil or grass had filled it from above: the dig funnel, at home,
+/// counted 443-5,130 such refusals over 72,000 frames on seeds 1 and 4.
+/// Wood ants clear what falls over their entrances (Arscott et al. 2026);
+/// nothing here asks them to find a heap first.
+pub fn door_reopen_of(world: &World) -> bool {
+    world.door_reopen.unwrap_or_else(|| {
+        static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        *V.get_or_init(|| match std::env::var("PIXEL_PHYSICS_DOOR_REOPEN").as_deref() {
+            Ok("on") | Err(_) => true,
+            Ok("off") => false,
+            Ok(other) => panic!("PIXEL_PHYSICS_DOOR_REOPEN={other:?}: use on or off"),
+        })
+    })
+}
+
+/// **How much of the heap cue a cut at `(tx, ty)` still meets because it is
+/// in a nest's door**: `None` outside every founding cut, or with
+/// [`door_reopen_of`] off; else this ant's [`organism::TRAIT_DOOR_CUE`]
+/// clamped to 0..=1 -- 0 (the shipped allele) waives the cue there, 1 is the
+/// cue as on any ground. The cue's chance `f` becomes `1 - w (1 - f)`.
+fn door_cue_weight(world: &World, organism: OrganismId, (tx, ty): (i32, i32)) -> Option<f32> {
+    if !door_reopen_of(world)
+        || !world
+            .nest_sites
+            .iter()
+            .any(|site| site.shaft.is_some_and(|cut| cut.contains(tx, ty)))
+    {
+        return None;
+    }
+    let allele = world.organism(organism).map_or(0.0, |st| {
+        expressed_traits(st, world.plasticity, world.trait_reach)[organism::TRAIT_DOOR_CUE]
+    });
+    Some(allele.clamp(0.0, 1.0))
+}
+
 /// `PIXEL_PHYSICS_SPOIL_CUE`'s value read as a cue ([`spoil_cue`]): unset
 /// and `on` are [`SPOIL_CUE_SHIPPED`], `off` is the ant before the cue, bit
 /// for bit, and `K[,floor]` sets the dials (the floor is the shipped one when
@@ -13128,9 +13183,88 @@ fn food_drop_order(world: &World, x: i32, y: i32) -> &'static [(i32, i32); 8] {
     }
 }
 
-fn food_drop_site(world: &World, x: i32, y: i32, through_bodies: bool) -> Option<((i32, i32), u8)> {
+/// **Food is not put down in a nest's door** (`PIXEL_PHYSICS_FOOD_DOOR=on|off`,
+/// on; [`World::food_door`] for one world). A food drop never takes a cell of
+/// a founding shaft, nor of the ground round it: [`door_clear_of`] columns
+/// either side, from as many rows over its mouth down to its foot
+/// ([`in_doorway`]). A carrier at the door sets its load down beside the way
+/// in, not in it. **The chamber at the shaft's foot, and a side room, are
+/// not door**: food put down there is food stored in the nest.
+///
+/// **Why** (nest lane, 2026-10-03, `labforage scenario=played_bed`). In the
+/// evolution lab the founding cut was shut within a few thousand frames on
+/// 20 of 20 runs, and what shut it was mostly food the colony put down at
+/// home. An oracle that emptied the cut every 64 frames took out 420-2,327
+/// cells in 36,000 frames on four seeds, 46-84% of them crumbs; held open
+/// that way, the dug home grew from 14-137 cells to 107-174. Writes into the
+/// cut, censused by call site, were food set down: 27-354 crumbs into the
+/// shaft by 36,000 frames. Real ants keep a passage clear: wood ants carry
+/// sticks off their entrances (Arscott et al. 2026), harvester ants clear a
+/// disc round the nest (MacMahon et al. 2000) and store seed in chambers.
+///
+/// **Not the chamber too** (tried first, 2026-10-03): with the chamber
+/// barred as well, a colony that had dug little beyond its founding cut had
+/// nowhere at home to put food down -- on seed 11 deliveries at home by
+/// 33,000 frames fell from 2,436 to 982 while no-room drops rose from 1,450
+/// to 9,811, and the colony ended at one ant (main 297 born, it 19). On the
+/// lab bench (12 seeds, 120,000 frames) that version left 2 boxes under 10
+/// ants against 0; this one leaves 0, and puts 23% of animals underground
+/// against 19%. `Reports/nest-door-2026-10-03.md` has both benches.
+pub fn food_door_of(world: &World) -> bool {
+    world.food_door.unwrap_or_else(|| {
+        static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        *V.get_or_init(|| match std::env::var("PIXEL_PHYSICS_FOOD_DOOR").as_deref() {
+            Ok("on") | Err(_) => true,
+            Ok("off") => false,
+            Ok(other) => panic!("PIXEL_PHYSICS_FOOD_DOOR={other:?}: use on or off"),
+        })
+    })
+}
+
+/// How far round a founding shaft's mouth food is not put down, in cells, at
+/// [`organism::TRAIT_DOOR_CLEAR`]'s allele 0. **Six, not two**: at two, food
+/// piled at the lip slid and fell in (traced on seed 1 to 16,000 frames: 549
+/// falls and 781 slides of crumbs into the cut), and the door shut on 3 of 4
+/// seeds.
+pub const DOOR_CLEAR_CELLS: f32 = 6.0;
+
+/// **How far round the door this ant keeps food off** -- `None` when the
+/// rule is off ([`food_door_of`]). [`DOOR_CLEAR_CELLS`] on the walk genes'
+/// reciprocal axis ([`walk_gain`]): twice it at `+1`, half at `-1`, exactly
+/// it at 0.
+fn door_clear_of(world: &World, organism: OrganismId) -> Option<i32> {
+    if !food_door_of(world) {
+        return None;
+    }
+    let allele = world.organism(organism).map_or(0.0, |st| {
+        expressed_traits(st, world.plasticity, world.trait_reach)[organism::TRAIT_DOOR_CLEAR]
+    });
+    Some((DOOR_CLEAR_CELLS / ratio_factor(allele)).round() as i32)
+}
+
+/// **Is `(x, y)` a nest's way in**, for [`food_door_of`]: within `clear`
+/// columns either side of a founding shaft, from `clear` rows over its
+/// mouth down to its foot. The shaft itself is inside at any `clear`; the
+/// chamber under its foot and a side room are not.
+fn in_doorway(world: &World, (x, y): (i32, i32), clear: i32) -> bool {
+    world
+        .nest_sites
+        .iter()
+        .filter_map(|s| s.shaft)
+        .any(|c| (c.x0 - clear..=c.x1 + clear).contains(&x) && (c.top - clear..=c.bottom).contains(&y))
+}
+
+/// Where a carrier at `(x, y)` puts food down: the first empty neighbour,
+/// else (with `through_bodies`) the nearest empty cell handed along bodies.
+/// `clear` is [`door_clear_of`]: with it, no cell [`in_doorway`] is taken.
+fn food_drop_site(world: &World, x: i32, y: i32, through_bodies: bool, clear: Option<i32>) -> Option<((i32, i32), u8)> {
     let order = food_drop_order(world, x, y);
-    if let Some(p) = order.iter().map(|&(dx, dy)| (x + dx, y + dy)).find(|&(px, py)| world.is_empty(px, py)) {
+    let room = |px: i32, py: i32| world.is_empty(px, py) && !clear.is_some_and(|c| in_doorway(world, (px, py), c));
+    if let Some(p) = order
+        .iter()
+        .map(|&(dx, dy)| (x + dx, y + dy))
+        .find(|&(px, py)| room(px, py))
+    {
         return Some((p, 1));
     }
     if !through_bodies {
@@ -13159,7 +13293,7 @@ fn food_drop_site(world: &World, x: i32, y: i32, through_bodies: bool) -> Option
                 if seen.contains(&p) {
                     continue;
                 }
-                if world.is_empty(p.0, p.1) {
+                if room(p.0, p.1) {
                     return Some((p, depth));
                 }
                 if is_body(p) {
@@ -14623,7 +14757,7 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
             let site = match harvest {
                 Some(HarvestDrop::Store(site)) => site.map(|p| (p, 1)),
                 Some(HarvestDrop::Hold) => None,
-                None if roll < p => food_drop_site(world, x, y, drop_through_bodies()),
+                None if roll < p => food_drop_site(world, x, y, drop_through_bodies(), door_clear_of(world, organism)),
                 None => None,
             };
             if roll >= p {
@@ -15096,11 +15230,18 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
         // -> 212 over 12 seeds, three in four with no spoil beside them. A
         // draw is taken only while `f < 1`, so the floor-1 control takes none
         // and stays bit-exact with the cue off, as does the cue off.
-        let vetoed = match spoil_cue_of(world) {
+        //
+        // **Except at a nest's own door** ([`door_reopen_of`]): a cut into a
+        // founding cut is the mouth being re-opened, not a new one started,
+        // and there the cue counts for only [`door_cue_weight`] of itself --
+        // nothing, at the shipped allele, and then no draw is taken.
+        let door_w = door_cue_weight(world, organism, (tx, ty));
+        let vetoed = match spoil_cue_of(world).filter(|_| door_w != Some(0.0)) {
             Some(cue) => {
                 let radius = curvature_radius_of(def, &traits_of(world, organism, def)).max(1);
                 match spoil_cue_factor(world, (x, y), (tx, ty), radius, cue) {
                     Some(f) => {
+                        let f = door_w.map_or(f, |w| 1.0 - w * (1.0 - f));
                         world.creature_stats.spoil_cue_applied += 1;
                         world.creature_stats.spoil_cue_kept_milli += (f * 1000.0).round() as u64;
                         f < 1.0 && draw.unit_f32() >= f
@@ -25224,6 +25365,122 @@ mod tests {
         w
     }
 
+    /// **Food is not put down in a nest's door** ([`food_door_of`]): a
+    /// carrier standing anywhere in the founding cut, or on the ground round
+    /// its mouth, never sets its load on a cell [`in_doorway`]; a carrier in
+    /// the chamber at the shaft's foot still stores food there; and a
+    /// carrier well clear of the door drops exactly where it would without
+    /// the rule. The rule-off arm is the positive control: the same carriers
+    /// put food inside the door, so the scene can tell the two apart.
+    #[test]
+    fn food_is_never_put_down_in_a_nests_door() {
+        let mut w = founding_bed();
+        assert!(
+            w.cut_founding_shaft(60, 38, 16, 2, true) > 0,
+            "test setup: the cut removed nothing"
+        );
+        let cut = w.nest_sites[0].shaft.expect("the cut records its footprint");
+        let clear = DOOR_CLEAR_CELLS as i32;
+        // Carriers in every open cell of the cut, and along the surface
+        // round the mouth.
+        let mut stands: Vec<(i32, i32)> = cut
+            .cells()
+            .into_iter()
+            .filter(|&(x, y)| w.get(x, y).material == material::EMPTY)
+            .collect();
+        stands.extend((cut.x0 - clear - 2..=cut.x1 + clear + 2).map(|x| (x, 39)));
+        let mut inside_without = 0;
+        for &(x, y) in &stands {
+            let with = food_drop_site(&w, x, y, true, Some(clear)).map(|(p, _)| p);
+            assert!(
+                !with.is_some_and(|p| in_doorway(&w, p, clear)),
+                "a carrier at ({x},{y}) put food down in the door at {with:?}"
+            );
+            let without = food_drop_site(&w, x, y, true, None).map(|(p, _)| p);
+            inside_without += usize::from(without.is_some_and(|p| in_doorway(&w, p, clear)));
+        }
+        assert!(inside_without > 10, "control: with the rule off only {inside_without} carriers put food in the door -- the scene does not test the rule");
+        // The chamber is the nest's store, not its door: barring it too left a
+        // colony with a small nest nowhere at home to put food down.
+        let in_chamber = |(x, y): (i32, i32)| {
+            (cut.chamber_x0..=cut.chamber_x1).contains(&x) && (cut.chamber_top..=cut.chamber_bottom).contains(&y)
+        };
+        let stored = stands
+            .iter()
+            .filter(|&&p| in_chamber(p))
+            .filter(|&&(x, y)| food_drop_site(&w, x, y, true, Some(clear)).is_some_and(|(p, _)| in_chamber(p)))
+            .count();
+        assert!(stored > 0, "no carrier in the chamber could put food down in it");
+        // Well clear of the door the rule changes nothing.
+        let far = (cut.x1 + clear + 8, 39);
+        assert_eq!(
+            food_drop_site(&w, far.0, far.1, true, Some(clear)),
+            food_drop_site(&w, far.0, far.1, true, None),
+            "a carrier away from the door must drop where it always did"
+        );
+    }
+
+    /// **The door gene moves the clearance on the walk genes' axis**
+    /// ([`door_clear_of`]): 6 cells at the shipped allele 0, 12 at `+1`, 3
+    /// at `-1`, and no clearance at all with the rule off.
+    #[test]
+    fn the_door_clearance_is_a_gene() {
+        let mut w = founding_bed();
+        assert!(w.found_colony_of(60, 38, "ant", 2) > 0, "test setup: no ant was placed");
+        let id = *w.live_organism_ids().first().expect("an ant");
+        w.food_door = Some(true);
+        for (allele, cells) in [(0.0, 6), (1.0, 12), (-1.0, 3)] {
+            w.organism_mut(id).expect("the ant").traits[organism::TRAIT_DOOR_CLEAR] = allele;
+            assert_eq!(door_clear_of(&w, id), Some(cells), "allele {allele}");
+        }
+        w.food_door = Some(false);
+        assert_eq!(door_clear_of(&w, id), None, "the rule off keeps no clearance");
+    }
+
+    /// **Re-opening a nest's own door does not wait for a heap**
+    /// ([`door_reopen_of`]): inside a founding cut the heap cue counts for
+    /// the ant's [`organism::TRAIT_DOOR_CUE`] share -- none at the shipped
+    /// allele, all of it at `+1` -- and outside every cut, or with the rule
+    /// off, the cue is untouched (`None`).
+    #[test]
+    fn the_heap_cue_stands_aside_at_a_nests_own_door() {
+        let mut w = founding_bed();
+        assert!(w.found_colony_of(60, 38, "ant", 2) > 0, "test setup: no ant was placed");
+        let cut = w.nest_sites[0].shaft.expect("the founding cut records its footprint");
+        let id = *w.live_organism_ids().first().expect("an ant");
+        let in_cut = cut.cells()[0];
+        let outside = (cut.x1 + 20, cut.top);
+        w.door_reopen = Some(true);
+        assert_eq!(
+            door_cue_weight(&w, id, in_cut),
+            Some(0.0),
+            "the shipped ant waives the cue in its own door"
+        );
+        assert_eq!(
+            door_cue_weight(&w, id, outside),
+            None,
+            "away from the door the cue is the cue"
+        );
+        w.organism_mut(id).expect("the ant").traits[organism::TRAIT_DOOR_CUE] = 1.0;
+        assert_eq!(
+            door_cue_weight(&w, id, in_cut),
+            Some(1.0),
+            "at +1 the door is bare ground to the cue"
+        );
+        w.organism_mut(id).expect("the ant").traits[organism::TRAIT_DOOR_CUE] = -1.0;
+        assert_eq!(
+            door_cue_weight(&w, id, in_cut),
+            Some(0.0),
+            "a negative allele reads as 0"
+        );
+        w.door_reopen = Some(false);
+        assert_eq!(
+            door_cue_weight(&w, id, in_cut),
+            None,
+            "with the rule off the door meets the cue as before"
+        );
+    }
+
     /// **A side storeroom is cut off one side of the entrance shaft, not at
     /// its foot** (`PIXEL_PHYSICS_STOREROOM=side`, the owner's choice of
     /// 2026-09-28): within the shaft's rows, joined to its wall by a
@@ -33854,7 +34111,7 @@ mod tests {
         let (mut west, mut east) = (0, 0);
         for f in 0..400u64 {
             w.frame = f;
-            let ((px, _), reach) = food_drop_site(&w, 32, 40, false).expect("open ground has room");
+            let ((px, _), reach) = food_drop_site(&w, 32, 40, false, None).expect("open ground has room");
             assert_eq!(reach, 1, "open ground drops beside the ant");
             if px < 32 {
                 west += 1;
@@ -33926,13 +34183,13 @@ mod tests {
         // Its own tail behind it.
         let (mut w, ant, _) = build(false);
         assert_eq!(w.organism(ant).expect("live").chain, vec![(32, 40), (31, 40)], "the scene needs the ant head-east at the blind end");
-        assert_eq!(food_drop_site(&w, 32, 40, false), None, "the eight-neighbour drop must have no room here, or the scene is not the case");
-        assert_eq!(food_drop_site(&w, 32, 40, true), Some(((30, 40), 2)), "handed back along its own body");
+        assert_eq!(food_drop_site(&w, 32, 40, false, None), None, "the eight-neighbour drop must have no room here, or the scene is not the case");
+        assert_eq!(food_drop_site(&w, 32, 40, true, None), Some(((30, 40), 2)), "handed back along its own body");
 
         // Food lying in that cell plugs the tunnel.
         let leaf = w.materials.id_of("leaf").expect("leaf");
         w.set(30, 40, Cell::new(leaf, 0));
-        assert_eq!(food_drop_site(&w, 32, 40, true), None, "the search must not pass through food already put down");
+        assert_eq!(food_drop_site(&w, 32, 40, true, None), None, "the search must not pass through food already put down");
         w.set(30, 40, Cell::EMPTY);
 
         // `act` at the shipped default: the roll wins (`Drop` at 1) and there
@@ -33956,7 +34213,7 @@ mod tests {
         // A nestmate standing behind it.
         let (w, _, mate) = build(true);
         assert_eq!(w.organism(mate.expect("placed")).expect("live").chain, vec![(30, 40), (29, 40)], "the nestmate should stand right behind the tail");
-        assert_eq!(food_drop_site(&w, 32, 40, true), Some(((28, 40), 4)), "handed through its own tail and the nestmate");
+        assert_eq!(food_drop_site(&w, 32, 40, true, None), Some(((28, 40), 4)), "handed through its own tail and the nestmate");
     }
 
     /// **A part-eaten fruit put down and picked up again holds only what was
