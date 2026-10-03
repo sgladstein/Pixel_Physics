@@ -16,8 +16,10 @@
 //!   `killed` by whether the killer carried another colony's label.
 //!   `terr` is columns this colony held over the last window (>= 70% of the
 //!   ant presence sampled in that column, and at least `TERR_MIN` samples).
-//! - `KILL frame victim attacker x y place depth brood e vsp asp` -- every
-//!   killing off `World::kills_log` with a tracked species on either side, located by its `Grave`. `place` is
+//! - `KILL frame victim attacker x y place depth brood e vsp asp gang friends` -- every
+//!   killing off `World::kills_log` with a tracked species on either side,
+//!   then `gang` and `friends`: the killer's and the victim's colony-mates
+//!   within `gang=` cells (default 2) at that frame, located by its `Grave`. `place` is
 //!   `victim_home` / `killer_home` / `other_nest` / `open` by the nearest
 //!   nest within `NEST_REACH` columns and who holds it; `depth` is
 //!   `under` below the founding ground line, else `surface`; `brood` is
@@ -47,6 +49,14 @@ use std::collections::{BTreeMap, HashMap};
 /// A kill is "at" a nest when it lands within this many columns of the
 /// nest's centre. The founding cut and the first rooms sit well inside it.
 const NEST_REACH: i32 = 20;
+/// A killer's gang is its colony's adults whose head is within this many
+/// cells of the victim's grave (Chebyshev). An ant's body is two cells and a
+/// bite reaches the 8-neighbourhood, so 2 holds the heads of everyone that
+/// could have been biting. `gang=` overrides it.
+fn gang_reach() -> i32 {
+    static G: std::sync::OnceLock<i32> = std::sync::OnceLock::new();
+    *G.get_or_init(|| arg("gang").unwrap_or(2))
+}
 /// Presence is sampled every this many frames.
 const PRESENCE_EVERY: u64 = 25;
 /// A column needs this many presence samples in a window to be held at all.
@@ -110,6 +120,25 @@ fn nest_owners(world: &World) -> Vec<(i32, u32)> {
         .zip(near)
         .map(|(n, m)| (n.x, m.into_iter().max_by_key(|&(c, k)| (k, std::cmp::Reverse(c))).map(|(c, _)| c).unwrap_or(0)))
         .collect()
+}
+
+/// Living adults of `colony` (of `species`) whose head is within
+/// `gang_reach()` cells of `at` -- the gang on a kill, and the friends the
+/// victim had beside it. Read the frame the kill is logged, so the killer is
+/// still standing where it bit.
+fn near(world: &World, colony: u32, species: pixel_physics::sim::organism::SpeciesId, at: (i32, i32)) -> u32 {
+    let mut n = 0;
+    for id in world.live_organism_ids() {
+        let Some(st) = world.organism(id) else { continue };
+        if st.species != species || st.colony != colony || st.brood.is_some() {
+            continue;
+        }
+        let Some(&(x, y)) = st.chain.first() else { continue };
+        if (x - at.0).abs() <= gang_reach() && (y - at.1).abs() <= gang_reach() {
+            n += 1;
+        }
+    }
+    n
 }
 
 fn plant_near(world: &World, x: i32, y: i32) -> bool {
@@ -212,7 +241,7 @@ fn main() {
                     brood: brood_of.get(&g.id).copied().unwrap_or(false),
                 };
                 println!(
-                    "KILL {} {} {} {} {} {} {} {} {:.0} {} {}",
+                    "KILL {} {} {} {} {} {} {} {} {:.0} {} {} {} {}",
                     kill.frame,
                     kill.victim,
                     kill.attacker,
@@ -223,7 +252,9 @@ fn main() {
                     u8::from(kill.brood),
                     k.victim_energy,
                     world.species.get(k.victim_species).name,
-                    world.species.get(k.attacker_species).name
+                    world.species.get(k.attacker_species).name,
+                    near(world, k.attacker_colony, k.attacker_species, (x, y)),
+                    near(world, k.victim_colony, k.victim_species, (x, y))
                 );
                 kills.push(kill);
             }
