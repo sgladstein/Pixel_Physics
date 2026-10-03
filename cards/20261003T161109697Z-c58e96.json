@@ -1,0 +1,40 @@
+{
+  "id": "20261003T161109697Z-c58e96",
+  "created": "2026-10-03T16:11:09Z",
+  "board": "inbox",
+  "origin": {
+    "worktree": "/home/claude/Pixel_Physics",
+    "branch": "claude/lab-overlays-rbz4jn",
+    "commit": "95141197",
+    "agent": null,
+    "session_id": "4464f399-fbc7-5284-aae7-0e0bae2d423f",
+    "user": null,
+    "cwd": "/home/claude/Pixel_Physics"
+  },
+  "title": "Lab: one ant's trips (pinned-ant page)",
+  "question": "Does the strip make it obvious, at a glance, which ants are bringing food home?",
+  "context_md": "The last of the five readouts. Pin an ant and its cell page now shows, under WALKED, how far from the nest it has been over the last ~12,000 frames, oldest on the left: violet stub = at home, green = carrying food (brighter the fuller), brown = carrying dug soil, slate = empty-handed. Four real ants on the default bed, pinned at ~23,600 and shown at 36,000. The body-size strip is gone for animals to make room (BODY above still gives the number).",
+  "kind": "single",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "four pinned ants",
+      "files": [
+        "20261003T161109697Z-c58e96/000-one-ant-trips.png"
+      ],
+      "caption": "default lab bed, seed 1, frame 36,000",
+      "meta": {
+        "trips (with food)": "9 (4) / 6 (4) / 9 (3) / 6 (4)",
+        "checked": "all 59 ants' counts bracketed by their tick-by-tick comings and goings"
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
