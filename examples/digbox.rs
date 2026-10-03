@@ -4510,6 +4510,10 @@ struct FoodPile {
     x: i32,
     top: i32,
     n: i32,
+    /// Where each of the `n` cells goes: one 12-wide heap at `x`, or under
+    /// `spread` one cell a column across the whole surface, stacked when
+    /// there are more cells than columns.
+    slots: Vec<(i32, i32)>,
     refill: u64,
     larder: MaterialId,
     /// Cells introduced, the first placing and every refill.
@@ -4639,14 +4643,26 @@ impl FoodPile {
             }
             world.materials.get_mut(larder).food_energy = keep;
         }
-        let mut pile = FoodPile { x, top: b.surface - 1, n, refill: arg("refill").unwrap_or(400), larder, placed: 0, skipped: 0 };
+        // **`spread`: the same food scattered over the whole surface** rather
+        // than heaped at one spot -- the lab's garden, where food is
+        // wherever an ant stands, put into the food box one condition at a
+        // time (nest lane, 2026-10-03). The nest's own 16 columns either side
+        // are left bare, so nobody is fed on the door.
+        let top = b.surface - 1;
+        let slots: Vec<(i32, i32)> = if flag("spread") {
+            let nest_x = b.w / 2;
+            let cols: Vec<i32> = (2..b.w - 2).filter(|&cx| (cx - nest_x).abs() > 16).collect();
+            (0..n as usize).map(|i| (cols[i % cols.len()], top - (i / cols.len()) as i32)).collect()
+        } else {
+            (0..n).map(|i| (x + (i % 12) - 6, top - i / 12)).collect()
+        };
+        let mut pile = FoodPile { x, top, n, slots, refill: arg("refill").unwrap_or(400), larder, placed: 0, skipped: 0 };
         pile.place(world);
         Some(pile)
     }
 
     fn place(&mut self, world: &mut World) {
-        for i in 0..self.n {
-            let (fx, fy) = (self.x + (i % 12) - 6, self.top - i / 12);
+        for &(fx, fy) in &self.slots {
             let m = world.get(fx, fy).material;
             if m == self.larder {
                 world.set(fx, fy, Cell::new(self.larder, 0));
@@ -4663,7 +4679,7 @@ impl FoodPile {
 
     /// Larder standing in the pile's slots now.
     fn standing(&self, world: &World) -> u64 {
-        (0..self.n).filter(|i| world.get(self.x + (i % 12) - 6, self.top - i / 12).material == self.larder).count() as u64
+        self.slots.iter().filter(|&&(fx, fy)| world.get(fx, fy).material == self.larder).count() as u64
     }
 }
 
