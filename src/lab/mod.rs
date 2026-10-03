@@ -1638,56 +1638,62 @@ impl Lab {
     pub fn advance(&mut self, elapsed: std::time::Duration) -> time::Advance {
         let plan = self.time.plan(elapsed);
         let started = std::time::Instant::now();
-        let mut ran = 0u32;
-        while ran < plan.ticks {
-            // **Checked inside the loop, not after it.** At 1024x one
-            // displayed frame is up to 1,024 ticks, so a check placed after
-            // this loop would compile, pass a test that only ever runs a
-            // handful of ticks, and land an auto-reaction up to a thousand
-            // frames late in the real box --
-            // `the_reaction_is_checked_inside_the_tick_loop` is what catches
-            // that placement; a version with the check moved after the loop
-            // is red under it.
-            //
-            // `RunLog::len() + RunLog::dropped()` is monotonic within one
-            // run (`push` bumps `dropped` whenever it trims), so a plain
-            // difference across one tick is "did a line get pushed this
-            // tick" with no need to hold a copy of the log or to wait for
-            // lane A's `RunLog::total()`.
-            let before = self.world.run_log.total();
-            self.tick();
-            ran += 1;
-            let after = self.world.run_log.total();
-            if after > before && self.time.react != time::Reaction::Off && self.time.can_react() {
-                // **Gated on the mask before anything heavier**, which is
-                // the scale answer: at 1,000+ ants an armed kind can still
-                // arrive every few frames, and `notable()`'s line-bounded
-                // set plus this cooldown are the only two things standing
-                // between that and a dial that can never leave 1x. Newest
-                // first, so `grew` covers exactly this tick's new lines;
-                // walking them front-to-back finds the most recent one this
-                // box is actually armed to notice.
-                let grew = (after - before) as usize;
-                let mut hit = None;
-                for e in self.world.run_log.recent().take(grew) {
-                    if self.time.reacts_to(e.kind) {
-                        // `LogEvent` lost `Copy` when `PlayerAction` (round
-                        // 31) added a `String` field -- `.clone()` where
-                        // `*e` used to suffice, the only change at this site.
-                        hit = Some(e.clone());
+        // The loop runs on a rayon worker (`parallel::on_pool`) so the
+        // tick's parallel passes dispatch without a cross-thread wake each;
+        // ~16% of a lab run, same output. See `on_pool`.
+        let ran = crate::sim::parallel::on_pool(|| {
+            let mut ran = 0u32;
+            while ran < plan.ticks {
+                // **Checked inside the loop, not after it.** At 1024x one
+                // displayed frame is up to 1,024 ticks, so a check placed after
+                // this loop would compile, pass a test that only ever runs a
+                // handful of ticks, and land an auto-reaction up to a thousand
+                // frames late in the real box --
+                // `the_reaction_is_checked_inside_the_tick_loop` is what catches
+                // that placement; a version with the check moved after the loop
+                // is red under it.
+                //
+                // `RunLog::len() + RunLog::dropped()` is monotonic within one
+                // run (`push` bumps `dropped` whenever it trims), so a plain
+                // difference across one tick is "did a line get pushed this
+                // tick" with no need to hold a copy of the log or to wait for
+                // lane A's `RunLog::total()`.
+                let before = self.world.run_log.total();
+                self.tick();
+                ran += 1;
+                let after = self.world.run_log.total();
+                if after > before && self.time.react != time::Reaction::Off && self.time.can_react() {
+                    // **Gated on the mask before anything heavier**, which is
+                    // the scale answer: at 1,000+ ants an armed kind can still
+                    // arrive every few frames, and `notable()`'s line-bounded
+                    // set plus this cooldown are the only two things standing
+                    // between that and a dial that can never leave 1x. Newest
+                    // first, so `grew` covers exactly this tick's new lines;
+                    // walking them front-to-back finds the most recent one this
+                    // box is actually armed to notice.
+                    let grew = (after - before) as usize;
+                    let mut hit = None;
+                    for e in self.world.run_log.recent().take(grew) {
+                        if self.time.reacts_to(e.kind) {
+                            // `LogEvent` lost `Copy` when `PlayerAction` (round
+                            // 31) added a `String` field -- `.clone()` where
+                            // `*e` used to suffice, the only change at this site.
+                            hit = Some(e.clone());
+                            break;
+                        }
+                    }
+                    if let Some(event) = hit {
+                        self.take_camera_to(&event);
+                        self.time.react();
                         break;
                     }
                 }
-                if let Some(event) = hit {
-                    self.take_camera_to(&event);
-                    self.time.react();
+                if started.elapsed() >= plan.budget {
                     break;
                 }
             }
-            if started.elapsed() >= plan.budget {
-                break;
-            }
-        }
+            ran
+        });
         let advance = self.time.record(ran, started.elapsed());
         // Never blocks; see `poll_batch`.
         self.poll_batch();

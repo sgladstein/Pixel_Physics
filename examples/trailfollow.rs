@@ -5499,7 +5499,14 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
     }
 }
 
+// Runs on the rayon pool so each tick's parallel passes dispatch without a
+// cross-thread wake: ~16% of a lab run, byte-identical output. See
+// `pixel_physics::sim::parallel::on_pool`.
 fn main() {
+    pixel_physics::sim::parallel::harness_main(harness);
+}
+
+fn harness() {
     let mode = arg_str("mode").unwrap_or_else(|| "colony".into());
     let gate = gate_by_name(&arg_str("gate").unwrap_or_else(|| "saturated".into()));
     let frames: u64 = arg("frames").unwrap_or(3000);
