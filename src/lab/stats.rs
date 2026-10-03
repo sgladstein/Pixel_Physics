@@ -183,6 +183,9 @@ pub struct Sample {
     /// standing` line, which agents read only at the end of a run, kept per
     /// sample so a player can watch it (owner's pick, 2026-10-03).
     pub brood: u32,
+    /// [`Census::activity`] at this sample: the colony at home, out
+    /// empty-handed, bringing food and hauling soil.
+    pub activity: [u32; ACTIVITIES],
 }
 
 /// **What one birth needs, and what this animal can ever hold.**
@@ -378,6 +381,10 @@ pub struct Census {
     pub slots_high_water: usize,
     pub slots_ceiling: usize,
     pub refused: u64,
+    /// **What the colony is doing right now**: every animal with a nest
+    /// that is not a lone hunter, split four ways by [`Activity`]. See
+    /// [`activity_of`] for the rule and why it is ordered as it is.
+    pub activity: [u32; ACTIVITIES],
 }
 
 impl Census {
@@ -402,6 +409,10 @@ enum Body {
     Generations,
     /// A 0..1 gauge with a label to its right.
     Gauge(f32, String, [u8; 4]),
+    /// The activity strip's key: each of the four counts now, in its own
+    /// band's colour, so the key and the strip cannot disagree about which
+    /// colour is which.
+    ActivityKey([u32; ACTIVITIES]),
 }
 
 /// Which series a strip draws. Two, because the two kingdoms have wildly
@@ -411,6 +422,97 @@ enum Body {
 enum Series {
     Plants,
     Animals,
+}
+
+/// How many ways [`Activity`] splits the colony.
+pub const ACTIVITIES: usize = 4;
+
+/// **What one ant is doing at the moment of a reading** -- Scott's colony
+/// activity chart (the third of the five player readouts, 2026-10-03): is
+/// the colony at home, out looking, bringing food back, or digging?
+///
+/// The player-facing cut of what agents read from `labforage`'s dig, haul
+/// and delivery counters, at a glance and over the whole run. Four rather
+/// than three because a digging colony and a foraging one look the same at
+/// play zoom and want different responses.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Activity {
+    Home = 0,
+    Out = 1,
+    Food = 2,
+    Soil = 3,
+}
+
+impl Activity {
+    /// The key's order, and the stacking order from the floor up -- with
+    /// [`Activity::STACK`] deciding the stacking. Home reads first in the
+    /// key because it is the question a player asks first.
+    pub const ALL: [Activity; ACTIVITIES] = [Activity::Home, Activity::Out, Activity::Food, Activity::Soil];
+
+    /// **Stacking order, floor up: out, food, soil, home.** Home was on the
+    /// floor first and vanished: on the played bed it is 3-6 ants of 30-40,
+    /// one pixel at this strip's height, and the brood line is drawn along
+    /// the floor in cream over whatever is there. Out-and-empty is the
+    /// biggest band and the least needed at a glance, so it takes the floor
+    /// and home sits on top, against the animals line.
+    const STACK: [Activity; ACTIVITIES] = [Activity::Out, Activity::Food, Activity::Soil, Activity::Home];
+
+    fn word(self) -> &'static str {
+        match self {
+            Activity::Home => "HOME",
+            Activity::Out => "OUT",
+            Activity::Food => "FOOD",
+            Activity::Soil => "SOIL",
+        }
+    }
+
+    /// **A fixed ramp, not the ant's colour** (`CLAUDE.md`: a readout must
+    /// not be a function of the thing it reads). Food is the nest
+    /// cutaway's green, so the same thing is the same colour across the
+    /// lab's views; out is a dull slate, empty-handed, and kept off the
+    /// animals line's blue and the brood line's cream, which both draw over
+    /// these bands.
+    fn colour(self) -> [u8; 4] {
+        match self {
+            Activity::Home => [170, 120, 205, 255],
+            Activity::Out => [104, 116, 138, 255],
+            Activity::Food => [60, 230, 90, 255],
+            Activity::Soil => [190, 135, 80, 255],
+        }
+    }
+}
+
+/// **Which [`Activity`] one animal is in**, or `None` for an animal the
+/// chart does not count: anything with no nest (`creature::is_at_home`
+/// says `None`) and the lone hunters (`super::LONE_HUNTER_GUT`), which have
+/// a nest field and no colony life.
+///
+/// **Ordered on purpose.** Soil first: a lump of dug ground (not a
+/// storeroom load, which is food) is in the
+/// mandibles until it is put down, and the walk out of the nest with it is
+/// the dig, not a foray. Then home, so food carried back reads as home the
+/// moment the ant is touching the nest, which is the delivery. Then the
+/// crop: an ant out with food in it is bringing food (or carrying its own
+/// meal; the crop is one store and cannot say which), and one with an empty
+/// crop is out looking.
+fn activity_of(world: &World, id: crate::sim::cell::OrganismId, state: &organism::OrganismState) -> Option<Activity> {
+    let def = world.species.get(state.species).creature.as_ref()?;
+    if def.traits[organism::TRAIT_GUT_BIAS] >= super::LONE_HUNTER_GUT {
+        return None;
+    }
+    let home = crate::sim::creature::is_at_home(world, id)?;
+    // A storeroom load (`Spoil::store`) is food picked up at home and walked
+    // to the chamber, so it is food, not dug ground.
+    let store_load = state.spoil.is_some_and(|sp| sp.store);
+    Some(if state.spoil.is_some() && !store_load {
+        Activity::Soil
+    } else if home {
+        Activity::Home
+    } else if store_load || state.crop.is_some_and(|c| c.worth() > 0.0) {
+        Activity::Food
+    } else {
+        Activity::Out
+    })
 }
 
 /// One drawn row, and what it means.
@@ -435,13 +537,18 @@ impl Row {
     fn height(&self) -> i32 {
         match self.body {
             Body::Text(..) => LINE,
-            Body::Gap => 5,
+            // 2, down from 5 on 2026-10-03 to make room for the activity
+            // key: the page was already exactly as tall as the room above
+            // the bar, and the three section gaps were the only slack. Each
+            // section still opens on a heading in its own colour.
+            Body::Gap => 2,
             Body::Strip(..) => 20,
             // 26 rather than the histogram's own 15: the axis labels sit
             // *under* the bars and a row that measured only the bars would
             // let `0 1 2 3 4 5 6 7+` overprint the next row's text.
             Body::Generations => 26,
             Body::Gauge(..) => LINE + 3,
+            Body::ActivityKey(..) => LINE,
         }
     }
 }
@@ -653,6 +760,7 @@ impl Stats {
                 deaths: world.creature_stats.deaths,
                 by_species: census.by_species.clone(),
                 brood: self.brood_now.iter().sum(),
+                activity: census.activity,
             });
         }
         self.census = Some(census);
@@ -738,6 +846,14 @@ impl Stats {
                 Body::Generations => {
                     if let Some(census) = &self.census {
                         draw_generations(hc, frame, census, pad, y);
+                    }
+                }
+                Body::ActivityKey(counts) => {
+                    let mut x = pad;
+                    for a in Activity::ALL {
+                        let s = format!("{} {}", a.word(), counts[a as usize]);
+                        text(hc, frame, x, y, &s, a.colour());
+                        x += crate::hud::text_width(&s) + 8;
                     }
                 }
                 Body::Gauge(fill, label, colour) => {
@@ -862,6 +978,13 @@ impl Stats {
             note: "EVERY LIVING ANIMAL, ON ITS OWN AXIS. TWO STRIPS RATHER THAN ONE BECAUSE A BOX HOLDS THOUSANDS OF PLANTS AND TENS OF ANIMALS, AND A SHARED AXIS WOULD DRAW THE COLONY FLAT ON THE FLOOR WHATEVER IT DID."
                 .to_string(),
         });
+        // --- what the colony is doing ----------------------------------------
+        // Only once a colony has been censused: a box of plants alone, or of
+        // lone hunters, has nobody to split and would draw four zeroes.
+        if self.history.iter().any(|s| s.activity.iter().any(|n| *n > 0)) {
+            let note = "THE KEY TO THE COLOURED BANDS UNDER THE BLUE LINE ON THE ANIMALS STRIP ABOVE, WITH EACH COUNT NOW: EVERY COLONY ANT, SPLIT BY WHAT IT IS DOING AT THE MOMENT OF THE READING. HOME: TOUCHING THE NEST, THE SAME TEST THE ANT ITSELF USES TO KNOW IT IS HOME. OUT: AWAY FROM IT WITH NOTHING IN ITS CROP. FOOD: AWAY FROM IT WITH FOOD IN ITS CROP (A FED ANT CARRIES ITS OWN MEAL THERE TOO), OR CARRYING FOOD TO THE STORE. SOIL: HOLDING A LUMP OF DUG GROUND, WHEREVER IT IS. EVERY COLONY IN THE BOX POOLED; LONE HUNTERS ARE LEFT OUT, SO THE BANDS STOP SHORT OF THE LINE BY THEIR NUMBER. A COLONY THAT SITS AT HOME BESIDE FOOD, OR SENDS EVERYONE OUT AND BRINGS NOTHING BACK, SHOWS IN THE BANDS BEFORE THE LINE MOVES.";
+            rows.push(Row { body: Body::ActivityKey(census.activity), note: note.to_string() });
+        }
         rows.push(Row::text(
             format!("BIOMASS {} CELLS  {} PLANT", census.biomass(), census.plant_cells),
             WHITE,
@@ -1243,12 +1366,51 @@ impl Stats {
             x + ((s.frame.saturating_sub(first) as u128 * (width - 1) as u128) / span as u128) as i32
         };
         let bar = |s: &Sample| (value(s) as i64 * height as i64 / axis as i64) as i32;
+        // **What the colony is doing, as the fill under the animals line**
+        // (Scott's colony activity chart, 2026-10-03). The fill was a flat
+        // dark that said nothing; now it is the colony's ants stacked by
+        // [`Activity`] on the line's own axis, so the band's top is the
+        // colony and the gap up to the blue line is anything else alive
+        // (lone hunters). A strip of its own did not fit: this page was
+        // already exactly as tall as the room above the bar.
+        //
+        // Per column, the latest reading at or before it -- steps rather than
+        // the line's blend, because stacked bands cannot be blended band by
+        // band without crossing. The paint loop below only fills up to the
+        // line's own height, so a band can never cover the line.
+        let bands: Option<Vec<[i32; ACTIVITIES]>> = (matches!(series, Series::Animals)
+            && self.history.iter().any(|s| s.activity.iter().any(|n| *n > 0)))
+        .then(|| {
+            let mut at = 0usize;
+            (0..width)
+                .map(|cx| {
+                    let column_frame = first + (cx as u128 * span as u128 / (width - 1) as u128) as u64;
+                    while at + 1 < self.history.len() && self.history[at + 1].frame <= column_frame {
+                        at += 1;
+                    }
+                    let mut tops = [0i32; ACTIVITIES];
+                    let mut below = 0u32;
+                    for a in Activity::STACK {
+                        below += self.history[at].activity[a as usize];
+                        tops[a as usize] = (below as i64 * height as i64 / axis as i64) as i32;
+                    }
+                    tops
+                })
+                .collect()
+        });
+        let under = |px: i32, dy: i32| -> [u8; 4] {
+            bands
+                .as_ref()
+                .and_then(|b| b.get((px - x) as usize))
+                .and_then(|tops| Activity::STACK.into_iter().find(|a| dy < tops[*a as usize]))
+                .map_or(UNDER, Activity::colour)
+        };
 
         let mut previous: Option<(i32, i32)> = None;
         for sample in &self.history {
             let (px, ph) = (column(sample), bar(sample));
             for dy in 0..ph {
-                hc.put(frame, px, y + height - 1 - dy, UNDER);
+                hc.put(frame, px, y + height - 1 - dy, under(px, dy));
             }
             hc.put(frame, px, y + height - 1 - ph.min(height - 1), colour);
             // Join to the previous point: with a decimated ring the columns
@@ -1258,7 +1420,7 @@ impl Stats {
                     let t = (cx - qx) as f32 / (px - qx).max(1) as f32;
                     let ch = qh + ((ph - qh) as f32 * t).round() as i32;
                     for dy in 0..ch {
-                        hc.put(frame, cx, y + height - 1 - dy, UNDER);
+                        hc.put(frame, cx, y + height - 1 - dy, under(cx, dy));
                     }
                     hc.put(frame, cx, y + height - 1 - ch.min(height - 1), colour);
                 }
@@ -1363,6 +1525,7 @@ fn take_census(
         slots_high_water: 0,
         slots_ceiling: 0,
         refused: world.organisms_refused(),
+        activity: [0; ACTIVITIES],
     };
     let (slots_used, _) = world.organism_slot_usage();
     let (high_water, ceiling) = world.organism_slot_high_water();
@@ -1414,6 +1577,9 @@ fn take_census(
             None => lineages.push((state.lineage, 1)),
         }
         if creature {
+            if let Some(a) = activity_of(world, *id, state) {
+                census.activity[a as usize] += 1;
+            }
             census.animals += 1;
             census.animal_cells += cells;
             census.animal_generation = census.animal_generation.max(state.generation);
@@ -1700,6 +1866,11 @@ pub fn dump(stats: &Stats, world: &World) -> Vec<String> {
                 stats.census.as_ref().map(|c| c.generations).unwrap_or_default()
             ),
             Body::Gauge(fill, label, _) => format!("[gauge {fill:.3}] {label}"),
+            Body::ActivityKey(counts) => Activity::ALL
+                .iter()
+                .map(|a| format!("{} {}", a.word(), counts[*a as usize]))
+                .collect::<Vec<_>>()
+                .join("  "),
         })
         .collect()
 }
@@ -1843,6 +2014,42 @@ mod tests {
 
         let sum: u32 = c.by_species.iter().map(|(_, n)| n).sum();
         assert_eq!(sum as usize, c.animals, "by_species ({sum}) does not sum to the animal total ({})", c.animals);
+    }
+
+    /// **The activity split counts every colony ant once, leaves the lone
+    /// hunters out, and moves an ant between bands when what it holds
+    /// changes.** The sum alone would pass a classifier that put everyone in
+    /// one band, so the test also hands one ant dug ground and watches it move
+    /// to SOIL, then turns the load into a storeroom load and watches it leave
+    /// SOIL again: a store load is food, not digging.
+    #[test]
+    fn the_activity_split_counts_each_colony_ant_once_and_follows_its_load() {
+        use crate::sim::cell::Cell;
+        let mut world = LabBox { width: 256, height: 128, soil_depth: 24, ground_y: 64, founders: 0, colonies: 1, colony_ants: 8, ..LabBox::default() }.build();
+        for x in [12, 244] {
+            let site = crate::sim::creature::plant_creature_seed(&mut world, x, 62, "beetle").expect("a beetle seats at this column");
+            world.schedule_active_site(site);
+        }
+        let c = censused(&world).census().expect("a census").clone();
+        let ants = c.by_species.iter().find(|(name, _)| name == "ANT").map(|(_, n)| *n).unwrap_or(0);
+        assert!(ants > 0, "a colony was founded");
+        assert_eq!(c.activity.iter().sum::<u32>(), ants, "every ant once and no beetle: {:?} against {ants} ants", c.activity);
+        assert_eq!(c.activity[Activity::Soil as usize], 0, "nobody has dug yet: {:?}", c.activity);
+
+        let ant = world
+            .live_organism_ids()
+            .into_iter()
+            .find(|id| world.organism(*id).is_some_and(|st| world.species.get(st.species).name == "ant"))
+            .expect("an ant");
+        let soil = world.materials.id_of("soil").expect("soil");
+        world.organism_mut(ant).expect("live").spoil = Some(organism::Spoil { cell: Cell::new(soil, 0), store: false });
+        let c = censused(&world).census().expect("a census").clone();
+        assert_eq!(c.activity[Activity::Soil as usize], 1, "the ant holding dug ground is hauling soil: {:?}", c.activity);
+        assert_eq!(c.activity.iter().sum::<u32>(), ants, "and is still counted once");
+
+        world.organism_mut(ant).expect("live").spoil = Some(organism::Spoil { cell: Cell::new(soil, 0), store: true });
+        let c = censused(&world).census().expect("a census").clone();
+        assert_eq!(c.activity[Activity::Soil as usize], 0, "a storeroom load is food, not digging: {:?}", c.activity);
     }
 
     /// **The stand and the seed bank are counted apart, and nothing falls
