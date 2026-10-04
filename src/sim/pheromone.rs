@@ -535,10 +535,6 @@ pub struct PheromonePlane {
 }
 
 impl PheromonePlane {
-    fn new(bounds: Rect) -> Self {
-        Self::with_params(bounds, DIFFUSE, DECAY_RHO)
-    }
-
     /// Re-derive the decay table for a new rate, in place.
     ///
     /// **The table, not a stored rate**, because `step` reads
@@ -900,10 +896,57 @@ fn a_rho() -> f32 {
     *V.get_or_init(|| std::env::var("PIXEL_PHYSICS_A_RHO").ok().and_then(|s| s.parse().ok()).unwrap_or(TRAIL_A_RHO))
 }
 
+/// **The switch for how long a food trail (channel B) lasts** --
+/// `PIXEL_PHYSICS_B_RHO` (fade per pass, shipped [`DECAY_RHO`]) and
+/// `PIXEL_PHYSICS_B_DIFFUSE` (blend per pass, shipped [`DIFFUSE`]), unset
+/// meaning the shipped value, so the shipped box is unchanged.
+///
+/// Owner, 2026-10-04, watching a colony beside an endless pile: *"pheromone
+/// b fades way too fast ... I don't see anything ever building up even
+/// though they're going back and forth on this trail."* Measured on that box
+/// (`examples/trailprofile.rs`, seeds 1-2, 30k frames): at the shipped pair
+/// B never builds -- it is 2-30 of 255 behind whichever laden ants are on
+/// the path and falls to nearly 0 between waves, because one pass lays ~29
+/// and a lone trail is gone in ~144 frames, mostly to the blend
+/// ([`Pheromones::set_channel_diffuse`]'s doc). `B_RHO=0.005 B_DIFFUSE=0.05`
+/// held 10-120 along the whole path in every sample; `B_RHO=0` floods the
+/// corridor at 70-160 with no shape at all.
+///
+/// **An env var and not a constant change** because the other side of this
+/// is measured too: faster B decay *raised* colony intake on the played box
+/// (`bdecay=`, 54,722 -> 127,339 J from 0.03 to 0.25, 12 seeds), since a
+/// trail that outlives its patch recruits to food that is gone. Which one
+/// the box wants is the owner's call. Built through `new` rather than a
+/// setter for [`a_rho`]'s reason: every harness and all three games build
+/// their world through here, so one env var reaches all of them.
+pub fn b_rho() -> f32 {
+    static V: std::sync::OnceLock<f32> = std::sync::OnceLock::new();
+    *V.get_or_init(|| {
+        std::env::var("PIXEL_PHYSICS_B_RHO")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(DECAY_RHO)
+    })
+}
+
+/// The other half of [`b_rho`]'s switch.
+pub fn b_diffuse() -> f32 {
+    static V: std::sync::OnceLock<f32> = std::sync::OnceLock::new();
+    *V.get_or_init(|| {
+        std::env::var("PIXEL_PHYSICS_B_DIFFUSE")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(DIFFUSE)
+    })
+}
+
 impl Pheromones {
     pub fn new(bounds: Rect) -> Self {
         Self {
-            planes: [PheromonePlane::with_params(bounds, DIFFUSE, a_rho()), PheromonePlane::new(bounds)],
+            planes: [
+                PheromonePlane::with_params(bounds, DIFFUSE, a_rho()),
+                PheromonePlane::with_params(bounds, b_diffuse(), b_rho()),
+            ],
             alarm: None,
             bounds,
             alarm_rho: ALARM_RHO,
@@ -952,6 +995,17 @@ impl Pheromones {
             Channel::Alarm => self.set_alarm_rho(rho),
             c => self.planes[c as usize].set_rho(rho),
         }
+    }
+
+    /// **A trail plane's live fade and blend per pass**, for a readout to
+    /// name the setting in force -- the lab's scent strip prints it, so a
+    /// [`b_rho`] switch that did not take is visible on screen rather than
+    /// assumed. The fade is read back off the decay table's fixed-point
+    /// factor, so it is the rate the plane actually applies, to 1/65536.
+    /// `None` for the alarm plane before anything has called out.
+    pub fn channel_rates(&self, channel: Channel) -> Option<(f32, f32)> {
+        self.plane_opt(channel)
+            .map(|p| (1.0 - p.decay_factor as f32 / DECAY_ONE as f32, p.diffuse))
     }
 
     /// **How fast one plane spreads**, against `DIFFUSE`'s 0.25 shipped on
