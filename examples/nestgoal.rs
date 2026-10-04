@@ -438,6 +438,66 @@ fn report(frame: u64, census: &Census, w: &World, dropped: usize, food_x: i32) {
         separation(&n.chambers).map_or("n/a".to_string(), |v| format!("{v:.2}")),
         if list.is_empty() { "none".to_string() } else { list.join(" ") }
     );
+    // **Is the door open?** Whether the nest's underground space joins the
+    // sky through cells an ant can walk (air, an ant, brood, food); and what
+    // stands in the founding shaft's columns from 8 rows over its mouth down
+    // to the mouth's last row. A colony sealed in, or out, reads `shut`.
+    if let Some(cut) = w.nest_sites.first().and_then(|s| s.shaft) {
+        let start = census.open_space(w);
+        let mut seen: HashSet<(i32, i32)> = start.clone();
+        let mut q: VecDeque<(i32, i32)> = start.into_iter().collect();
+        let mut open = false;
+        while let Some((x, y)) = q.pop_front() {
+            if y < cut.top - 20 {
+                open = true;
+                break;
+            }
+            for (dx, dy) in [(1, 0), (-1, 0), (0, 1), (0, -1)] {
+                let c = (x + dx, y + dy);
+                if w.in_bounds(c.0, c.1) && !seen.contains(&c) && Census::open(census.what(w, c.0, c.1)) && seen.len() < 400_000 {
+                    seen.insert(c);
+                    q.push_back(c);
+                }
+            }
+        }
+        let mut plug: std::collections::BTreeMap<String, usize> = Default::default();
+        for y in cut.top - 8..=cut.mouth_bottom {
+            for x in cut.x0..=cut.x1 {
+                let c = w.get(x, y);
+                let name = match census.what(w, x, y) {
+                    What::Empty => continue,
+                    What::Ant => "ant".to_string(),
+                    _ => w.materials.get(c.material).name.clone(),
+                };
+                *plug.entry(name).or_default() += 1;
+            }
+        }
+        // Ants standing over the door, outside: within 3 columns of the
+        // shaft and above its mouth row -- the ones a shut door keeps out.
+        let (mut near, mut laden, mut pellet, mut hungry) = (0, 0, 0, 0);
+        for id in w.live_organism_ids() {
+            let Some(st) = w.organism(id) else { continue };
+            let Some(cdef) = w.species.get(st.species).creature.as_ref() else { continue };
+            let Some(&(hx, hy)) = st.chain.first() else { continue };
+            if Some(w.get(hx, hy).material) == census.brood || hx < cut.x0 - 3 || hx > cut.x1 + 3 || hy > cut.top || hy < cut.top - 12 {
+                continue;
+            }
+            near += 1;
+            laden += usize::from(st.crop.is_some_and(|c| c.worth() > 0.0));
+            pellet += usize::from(st.spoil.is_some());
+            hungry += usize::from(st.energy < 0.5 * cdef.start_energy);
+        }
+        println!(
+            "DOOR frame={frame} {} | dug back in: aimed {} cut {} | over the door: {near} ants ({laden} with food in the crop, {pellet} holding a pellet, {hungry} under half start energy) | shaft columns {}..{} mouth row {}, cells from 8 over it to the mouth's foot: {}",
+            if open { "open" } else { "shut" },
+            w.creature_stats.digs_door_aimed,
+            w.creature_stats.digs_door_back,
+            cut.x0,
+            cut.x1,
+            cut.top,
+            plug.iter().map(|(k, v)| format!("{k} {v}")).collect::<Vec<_>>().join(" | ")
+        );
+    }
     // Dug cells that are ground again, by what fills them: spoil put down
     // inside, soil slumped in, or packed walls.
     let mut refill: std::collections::BTreeMap<String, usize> = Default::default();

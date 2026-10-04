@@ -12431,6 +12431,23 @@ pub fn door_reopen_of(world: &World) -> bool {
     })
 }
 
+/// **Ground heaped over a nest's door is the door too** (scratch,
+/// `PIXEL_PHYSICS_DOOR_HEAP=<rows>`, unset = off): a cut in the shaft's own
+/// columns, up to `rows` rows above its mouth, counts as re-opening it.
+///
+/// **Why** (laying lane, 2026-10-04, goal bed seed 4 with walking on water).
+/// Loose soil slid into the mouth one row above the founding surface and was
+/// packed by a cut beside it; every one of 63 cuts tried at it from inside was
+/// refused by the heap cue at chance 0.00, because the heap over the mouth was
+/// soil, not spoil pellets, and the waiver above stops at the founding
+/// surface. The colony was locked outside and died. With this at 8 rows the
+/// same seed lived (0 -> 292 ants at 200k).
+fn over_the_door(cut: crate::sim::world::ShaftFootprint, (tx, ty): (i32, i32)) -> bool {
+    static V: std::sync::OnceLock<Option<i32>> = std::sync::OnceLock::new();
+    let rows = *V.get_or_init(|| std::env::var("PIXEL_PHYSICS_DOOR_HEAP").ok().and_then(|v| v.parse().ok()).filter(|&r: &i32| r > 0));
+    rows.is_some_and(|rows| (cut.x0..=cut.x1).contains(&tx) && (cut.top - rows..cut.top).contains(&ty))
+}
+
 /// **How much of the heap cue a cut at `(tx, ty)` still meets because it is
 /// in a nest's door**: `None` outside every founding cut, or with
 /// [`door_reopen_of`] off; else this ant's [`organism::TRAIT_DOOR_CUE`]
@@ -12441,14 +12458,67 @@ fn door_cue_weight(world: &World, organism: OrganismId, (tx, ty): (i32, i32)) ->
         || !world
             .nest_sites
             .iter()
-            .any(|site| site.shaft.is_some_and(|cut| cut.contains(tx, ty)))
+            .any(|site| site.shaft.is_some_and(|cut| cut.contains(tx, ty) || over_the_door(cut, (tx, ty))))
     {
         return None;
     }
+    Some(door_allele(world, organism))
+}
+
+/// This ant's [`organism::TRAIT_DOOR_CUE`], clamped to 0..=1: how much of
+/// the heap cue it still meets at a cut into its door.
+fn door_allele(world: &World, organism: OrganismId) -> f32 {
     let allele = world.organism(organism).map_or(0.0, |st| {
         expressed_traits(st, world.plasticity, world.trait_reach)[organism::TRAIT_DOOR_CUE]
     });
-    Some(allele.clamp(0.0, 1.0))
+    allele.clamp(0.0, 1.0)
+}
+
+/// Scratch (lane 3): `PIXEL_PHYSICS_DOOR_DIG=on`, off unless set. **An ant
+/// shut out of its own nest digs back in.** On a won dig roll, an ant
+/// outside its nest standing over its door -- within two columns of the
+/// founding shaft, from the mouth row up to [`DOOR_DIG_UP`] rows over it --
+/// turns to the ground in the shaft's columns below or beside it
+/// ([`door_plug`]) and cuts that, the heap cue met only to its door
+/// allele's share as for any cut into the door ([`door_cue_weight`]).
+///
+/// **Why** (laying lane and lane 3, goal bed seed 1, 2026-10-04). Soil
+/// slumps into the mouth and is packed by the traffic; once the door is
+/// shut (no walkable way from the nest to the sky: the `DOOR` line), 13-24
+/// ants stand over it from 42k to 65k, 8-19 of them holding nothing, and
+/// almost none cuts toward it -- an ant on the surface cuts the cell ahead
+/// of its heading, which is along the surface, and the turn down is only
+/// for an enclosed digger. The colony was shut out, laid nothing, and died.
+/// Ants reopen a blocked entrance from outside: wood ants clear what falls
+/// over their entrances (Arscott et al. 2026).
+pub fn door_dig_of() -> bool {
+    static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *V.get_or_init(|| std::env::var("PIXEL_PHYSICS_DOOR_DIG").as_deref() == Ok("on"))
+}
+
+/// How far over a founding surface [`door_dig_of`] still counts an ant as
+/// standing over its door: the mound over the mouth grows to about 6 rows.
+const DOOR_DIG_UP: i32 = 10;
+
+/// The cut [`door_dig_of`] turns an ant at `(x, y)` to: straight down, then
+/// down and in, then level -- the first in the nearest nest's shaft columns,
+/// no lower than the mouth's foot, that the jaw can take. `None` inside a
+/// nest, or away from a door.
+fn door_plug(world: &World, def: &CreatureDef, organism: OrganismId, (x, y): (i32, i32)) -> Option<(u8, (i32, i32))> {
+    if inside_nest(world, x, y) {
+        return None;
+    }
+    let cut = world.nearest_nest_site(x, y).and_then(|i| world.nest_sites.get(i)).and_then(|s| s.shaft)?;
+    if x < cut.x0 - 2 || x > cut.x1 + 2 || y > cut.top || y < cut.top - DOOR_DIG_UP {
+        return None;
+    }
+    [6u8, 5, 7, 0, 4]
+        .into_iter()
+        .map(|h| {
+            let (dx, dy) = DIRS[h as usize];
+            (h, (x + dx, y + dy))
+        })
+        .find(|&(_, (tx, ty))| (cut.x0..=cut.x1).contains(&tx) && ty <= cut.mouth_bottom && jaw_can_cut(world, def, organism, world.get(tx, ty)))
 }
 
 /// `PIXEL_PHYSICS_SPOIL_CUE`'s value read as a cue ([`spoil_cue`]): unset
@@ -16326,7 +16396,23 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
         // ahead, along its heading after any dig-down turn, so the gallery
         // advances as a band two cells across rather than a line one cell
         // across ([`dig_shoulder_site`]).
-        let widen_to = widen_to.or_else(|| if dig_widen_of(world) { dig_shoulder_site(world, def, organism, (x, y), (dx, dy)) } else { None });
+        // Scratch (lane 3): **an ant shut out of its own nest digs back in**
+        // ([`door_dig_of`]): over its door, it turns to the ground filling
+        // the shaft's columns below it and cuts that. Off, no read.
+        let door_dig = door_dig_of() && widen_to.is_none() && {
+            match door_plug(world, def, organism, (x, y)) {
+                Some((h, t)) => {
+                    if let Some(state) = world.organism_mut(organism) {
+                        state.heading = h;
+                    }
+                    (tx, ty) = t;
+                    world.creature_stats.digs_door_aimed += 1;
+                    true
+                }
+                None => false,
+            }
+        };
+        let widen_to = widen_to.or_else(|| if dig_widen_of(world) && !door_dig { dig_shoulder_site(world, def, organism, (x, y), (dx, dy)) } else { None });
         // The widening cut: everything below judges and takes the wall as it
         // would the cell ahead.
         if let Some(side) = widen_to {
@@ -16456,7 +16542,7 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
         // founding cut is the mouth being re-opened, not a new one started,
         // and there the cue counts for only [`door_cue_weight`] of itself --
         // nothing, at the shipped allele, and then no draw is taken.
-        let door_w = door_cue_weight(world, organism, (tx, ty));
+        let door_w = if door_dig { Some(door_allele(world, organism)) } else { door_cue_weight(world, organism, (tx, ty)) };
         let vetoed = match spoil_cue_of(world).filter(|_| door_w != Some(0.0)) {
             Some(cue) => {
                 let radius = curvature_radius_of(def, &traits_of(world, organism, def)).max(1);
@@ -16618,6 +16704,9 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
                 if let Some(back_to) = back_to {
                     state.dig_return = back_to;
                 }
+            }
+            if door_dig {
+                world.creature_stats.digs_door_back += 1;
             }
             if dig_trace() {
                 eprintln!("DIGC {} {} {} {} {} {} {} {}", world.frame, organism, x, y, tx, ty, u8::from(widening), open_round(world, (tx, ty)));

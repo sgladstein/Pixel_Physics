@@ -1935,6 +1935,10 @@ pub struct CreatureStats {
     pub digs_refused_flat: u64,
     /// Scratch (lane 3): dig rolls turned to the wall beside brood by `PIXEL_PHYSICS_BROOD_DIG`.
     pub digs_brood_drawn: u64,
+    /// Scratch (lane 3): dig rolls an ant over its own door turned down
+    /// into the door (`PIXEL_PHYSICS_DOOR_DIG`), and the cuts they made.
+    pub digs_door_aimed: u64,
+    pub digs_door_back: u64,
     /// **`creature::held_by_kin`'s count**: support checks an animal passed
     /// only because it touched a nestmate on the ground -- each a fall that
     /// did not happen. 0 under `PIXEL_PHYSICS_KIN_FOOTING=off`.
