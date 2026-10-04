@@ -104,6 +104,8 @@ const BAND_CAP: i32 = 16;
 const SEED_BASE: u64 = pixel_physics::sim::world::DEFAULT_WORLD_SEED;
 
 fn main() {
+    // Births inherit exactly unless PIXEL_PHYSICS_MUTATION=on (`creature::mutation_of`).
+    pixel_physics::sim::creature::mutation_off_for_measuring();
     let mut frames = 6000usize;
     let mut every = 500usize;
     let mut seeds = 18u64;

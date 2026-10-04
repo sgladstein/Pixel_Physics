@@ -5178,9 +5178,13 @@ pub(super) fn try_bud(
     // shape far higher than anything else evolved in this engine, where
     // `mutation_rate` (brain) and `fate_mutation_chance` (everywhere else)
     // are both built to fire on a minority of events.
+    //
+    // **Not at all with mutation off** ([`mutation_of`]): the child gets the
+    // parent's body plan exactly. `fate_rng` is this birth's own stream and
+    // nothing else reads it, so skipping it moves no other draw.
     let mut child_fates = parent_fates;
     let mut fate_rng = rng::stream(world.seed, organism as u64, world.frame, RNG_SLOT_BODY_FATE);
-    if fate_rng.chance(world.fate_mutation_chance) {
+    if mutation_of(world) && fate_rng.chance(world.fate_mutation_chance) {
         child_fates.mutate(&mut fate_rng);
     }
 
@@ -5347,6 +5351,76 @@ pub(super) fn try_bud(
     Some(site)
 }
 
+/// The process default under [`mutation_of`]: on, so the game and the test
+/// suite breed with mutation, until a measuring example calls
+/// [`set_mutation_default`]`(false)` (through [`mutation_off_for_measuring`]).
+static MUTATION_DEFAULT: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
+
+/// Set the process default [`mutation_of`] falls back to when neither the
+/// world nor `PIXEL_PHYSICS_MUTATION` says.
+pub fn set_mutation_default(on: bool) {
+    MUTATION_DEFAULT.store(on, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// `PIXEL_PHYSICS_MUTATION`, read once: `Some` only when it is set.
+fn mutation_env() -> Option<bool> {
+    static V: std::sync::OnceLock<Option<bool>> = std::sync::OnceLock::new();
+    *V.get_or_init(|| match std::env::var("PIXEL_PHYSICS_MUTATION").as_deref() {
+        Ok("on") => Some(true),
+        Ok("off") => Some(false),
+        Err(_) => None,
+        Ok(other) => panic!("PIXEL_PHYSICS_MUTATION={other:?}: use on or off"),
+    })
+}
+
+/// **Whether a birth mutates** (`PIXEL_PHYSICS_MUTATION`, built
+/// 2026-10-04). Off, every child inherits its parent exactly: an ant's
+/// brain genome, its traits and its body plan ([`mutate_newborn`], and the
+/// body-fate roll in [`try_bud`]), and a plant seed's genotype, discrete
+/// loci, growth rules and parameter overrides (`plant::bear_seed_at`). The
+/// specimen jar's broods are the player's own breeding tool and are not
+/// covered.
+///
+/// **On in the game, off in the measuring examples**, because evolution
+/// was adding noise to every A/B the lanes ran. The deep trace (goal box,
+/// seeds 1-4, 2026-10-04) found mutation roughly doubling seed-to-seed
+/// spread -- 307-577 live ants with it, 270-384 without -- and one variant
+/// (the laden ant's trail-reading weight, 45.5 -> 40) taking over seed 1
+/// and parking ants on the food pile. A switch measured in a 12-seed A/B
+/// is meant to be the only difference between the arms; with mutation on,
+/// each arm also evolves its own way, and the puddle-walking A/B on the played
+/// bed had already seen 12 seeds say "harm" and the next 12 reverse it
+/// (`water_footing_of`). The owner, the same day: "It should probably
+/// default to off for any testing." Evolution is the point of the engine,
+/// so the played lab keeps it.
+///
+/// Resolved in this order: the world's own [`World::mutation`], then
+/// `PIXEL_PHYSICS_MUTATION=on|off`, then the process default
+/// ([`set_mutation_default`]), which is on unless a measuring example
+/// turned it off. The test suite never calls it, so every test breeds as
+/// before. **Lab numbers from the measuring examples before this switch
+/// and after it do not compare.**
+pub fn mutation_of(world: &World) -> bool {
+    world
+        .mutation
+        .or_else(mutation_env)
+        .unwrap_or_else(|| MUTATION_DEFAULT.load(std::sync::atomic::Ordering::Relaxed))
+}
+
+/// **The first line of a measuring example's `main`**: turn the process
+/// default off, so its births inherit exactly unless
+/// `PIXEL_PHYSICS_MUTATION=on` says otherwise, and say which on stderr
+/// (stdout is what the parsers read). Examples that study evolution do not
+/// call it. See [`mutation_of`].
+pub fn mutation_off_for_measuring() {
+    set_mutation_default(false);
+    let on = mutation_env().unwrap_or(false);
+    eprintln!(
+        "mutation {} (measuring default is off; PIXEL_PHYSICS_MUTATION=on|off)",
+        if on { "ON" } else { "off: births inherit exactly" }
+    );
+}
+
 /// **Mutate a newborn on its own handle**, and stamp its `born_with` -- the
 /// tail of a birth, shared by a bud (`try_bud`) and an egg (`brood::lay_egg`),
 /// so heredity is one rule whichever way the child arrives. Returns the
@@ -5357,6 +5431,10 @@ pub(super) fn mutate_newborn(world: &mut World, child: OrganismId, def: &Creatur
     // because `organism_mut` holds the world for the whole loop.
     let reach = world.trait_reach;
     let mute_emit_b = world.mute_emit_b;
+    // **With mutation off ([`mutation_of`]) the child keeps its parent's
+    // genome and traits exactly.** `draw` is this child's own stream and
+    // nothing reads it afterwards, so skipping its draws moves nothing else.
+    let mutates = mutation_of(world);
     // **Captured out of the borrow below, for `born_with` and the line
     // records — both need `&mut World` and cannot be called while `state`
     // holds it.** Defaulted to the pre-mutation values so a stale-handle
@@ -5374,7 +5452,9 @@ pub(super) fn mutate_newborn(world: &mut World, child: OrganismId, def: &Creatur
         // `born_with` needs a fallback for the case a mutation changes the
         // brain and not the body: a bud whose trait jitter rounds to zero on
         // every slot still bred something different.
-        synapses_moved = brain::mutate(&mut genome, def.mutation_rate, &mut draw);
+        if mutates {
+            synapses_moved = brain::mutate(&mut genome, def.mutation_rate, &mut draw);
+        }
         // **A silenced colony stays silent** (`World::mute_emit_b`, the
         // no-trail control's switch): after the mutation, so the draw stream
         // and `synapses_moved` are what they would have been.
@@ -5384,7 +5464,7 @@ pub(super) fn mutate_newborn(world: &mut World, child: OrganismId, def: &Creatur
         state.genome = genome;
         for (slot, t) in state.traits.iter_mut().enumerate() {
             let width = trait_width(def, slot);
-            if width > 0.0 {
+            if mutates && width > 0.0 {
                 // `gut_bias` is a position on a `-1..=1` axis and every
                 // other slot in `CREATURE_TRAITS` is defined the same way,
                 // so the clamp is the axis rather than a tuning choice.
@@ -23987,9 +24067,9 @@ fn head_has_foothold(world: &World, (x, y): (i32, i32), kin: Option<Kin>) -> boo
 }
 
 /// **An animal can stand on a puddle** -- the surface film holds it -- for
-/// this world, under `PIXEL_PHYSICS_WATER_FOOTING` (`on`; **off by default**,
-/// which is the animal before it: it could neither enter liquid nor find
-/// footing over it, so any pool wider than a body was a wall).
+/// this world, under `PIXEL_PHYSICS_WATER_FOOTING` (**on by default** since
+/// 2026-10-04; `off` is the animal before it: it could neither enter liquid
+/// nor find footing over it, so any pool wider than a body was a wall).
 ///
 /// **Why it exists.** On the nest goal bed the mister's water collects in
 /// the dip between the colony's dirt mound and the food heap, which dams it.
@@ -24013,7 +24093,33 @@ fn head_has_foothold(world: &World, (x, y): (i32, i32), kin: Option<Kin>) -> boo
 /// would land in liquid. Counted per step in `CreatureStats::water_steps`
 /// ([`commit_step`]).
 ///
-/// **Off because it kills colonies that have no puddle to cross**
+/// **On by default together with the loose doorway** ([`door_loose_of`],
+/// `PIXEL_PHYSICS_DOOR_LOOSE`), and the two ship as a pair: alone it killed
+/// colonies, and the door was what killed them. The owner asked for it
+/// (2026-10-04: "let ants walk over them"). With the doorway loose (main
+/// c55cd60e, 200k frames, ants alive at the end), the drained, misted goal
+/// bed, seeds 1-6: 461 / 176 / 701 / 313 / 508 / 394 without it and 165 /
+/// 602 / 723 / 299 / 368 / 437 with it -- none died in either arm, 3 seeds
+/// better and 3 worse, the door shut at 14 and 13 of 48 looks. With the
+/// mister off there is no water to stand on, and the goal bed runs the same
+/// frame for frame with it and without it. The played bed (`labforage
+/// scenario=played_bed`, 120k, seeds 1-12): births 39 -> 34 median, lower
+/// on 9 of 12 (sign p 0.15); food eaten lower on 7 (p 0.77); ant-frames
+/// lived higher on 7; starvation 0.4 -> 0.7 per million ant-frames (worse
+/// on 5 of 11); colonies lost 3 -> 1. On the nest branch before it merged
+/// (the same doorway rule, 665a5b142) twelve more seeds leaned the other
+/// way, births higher on 7 of 12, so over 24 seeds births were higher on 10
+/// and lower on 14 -- no measured harm. Rechecked on main 3f3aa06d (the
+/// narrow food trail), 24 seeds: births higher on 12 and lower on 12, ants
+/// alive at the end higher on 11 and lower on 13, colonies lost 2 -> 5. Its
+/// first twelve seeds alone read as harm (alive at the end lower on 11 of
+/// 12, sign p 0.006) and the next twelve reversed it (higher on 10, p
+/// 0.04): on this bed a 12-seed end count can mislead in either direction.
+/// Steps onto water are rare there (235 / 215 / 989 a run on seeds 1, 7
+/// and 9), mostly onto water lying on plants beside the nest; 3 / 19 / 4 of
+/// them were over open air.
+///
+/// **Alone it killed colonies that had no puddle to cross**
 /// (2026-10-04, main 0b3e264a, goal bed `nestgoal`, 200k frames, ants alive
 /// at the end). On the bed with its surface drained, where every colony
 /// lives without it (seeds 1-5: 384 / 345 / 253 / 71 / 593), it left
@@ -24032,7 +24138,11 @@ fn head_has_foothold(world: &World, (x, y): (i32, i32), kin: Option<Kin>) -> boo
 pub fn water_footing_of(world: &World) -> bool {
     world.water_footing.unwrap_or_else(|| {
         static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-        *V.get_or_init(|| std::env::var("PIXEL_PHYSICS_WATER_FOOTING").as_deref() == Ok("on"))
+        *V.get_or_init(|| match std::env::var("PIXEL_PHYSICS_WATER_FOOTING").as_deref() {
+            Ok("on") | Err(_) => true,
+            Ok("off") => false,
+            Ok(other) => panic!("PIXEL_PHYSICS_WATER_FOOTING={other:?}: use on or off"),
+        })
     })
 }
 
@@ -42983,6 +43093,54 @@ mod tests {
                 "born_with fired on organism {id} with every mutation channel at zero"
             );
         }
+    }
+
+    /// **With mutation off, every young ant is a copy of a founder**
+    /// ([`mutation_of`]): brain genome, traits and body plan, with every
+    /// channel wide open -- `mutation_rate` 1, the shipped trait variance,
+    /// and the body-fate roll at certainty. **The switch-on arm is the fault
+    /// put back**, run every time: the same scene's young must not all match,
+    /// or the off arm's green says nothing.
+    #[test]
+    fn with_mutation_off_young_ants_inherit_their_parent_exactly() {
+        let arm = |mutation: bool| {
+            let (mut w, founders) = breeding_colony(12, 2000.0, 1.0);
+            w.mutation = Some(mutation);
+            w.fate_mutation_chance = 1.0;
+            let heritage = |w: &World, id: OrganismId| w.organism(id).map(|s| (s.genome.clone(), s.traits, s.fates));
+            let parents: Vec<_> = founders.iter().filter_map(|&id| heritage(&w, id)).collect();
+            run(&mut w, 200);
+            let young: Vec<OrganismId> = w
+                .live_organism_ids()
+                .into_iter()
+                .filter(|id| !founders.contains(id))
+                .collect();
+            let copies = young
+                .iter()
+                .filter(|&&id| heritage(&w, id).is_some_and(|h| parents.contains(&h)))
+                .count();
+            (young.len(), copies)
+        };
+        let (young, copies) = arm(false);
+        assert!(
+            young > 0,
+            "12 funded ants over 200 frames left no young alive -- the rest of this test proves nothing"
+        );
+        assert_eq!(
+            copies,
+            young,
+            "{} of {young} young differ from every founder with mutation off",
+            young - copies
+        );
+        let (young_on, copies_on) = arm(true);
+        assert!(
+            young_on > 0,
+            "the mutation-on arm bred no young -- it controls for nothing"
+        );
+        assert!(
+            copies_on < young_on,
+            "all {young_on} young match a founder with mutation on, so this test cannot see mutation at all"
+        );
     }
 
     /// **A silenced colony breeds silent young** (`World::mute_emit_b`,

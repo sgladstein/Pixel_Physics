@@ -217,6 +217,8 @@ fn census(world: &World, bands: &Bands, c: &mut Census) {
 }
 
 fn main() {
+    // Births inherit exactly unless PIXEL_PHYSICS_MUTATION=on (`creature::mutation_of`).
+    pixel_physics::sim::creature::mutation_off_for_measuring();
     let scene = arg_str("scene", "probe");
     let seed: u64 = arg("seed", 1);
     let default_frames = match scene.as_str() {

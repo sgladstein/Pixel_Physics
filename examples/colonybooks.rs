@@ -255,6 +255,8 @@ fn snapshot(books: &ColonyBooks, materials: usize) -> Sample {
 }
 
 fn main() {
+    // Births inherit exactly unless PIXEL_PHYSICS_MUTATION=on (`creature::mutation_of`).
+    pixel_physics::sim::creature::mutation_off_for_measuring();
     let control: String = arg("control").unwrap_or_else(|| "run".to_string());
     let frames: u64 = arg("frames").unwrap_or(60_000);
     let sample_every: u64 = arg("sample").unwrap_or(10_000);

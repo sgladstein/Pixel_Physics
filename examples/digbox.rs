@@ -3569,6 +3569,8 @@ fn trace(world: &World) {
 // cross-thread wake: ~16% of a lab run, byte-identical output. See
 // `pixel_physics::sim::parallel::on_pool`.
 fn main() {
+    // Births inherit exactly unless PIXEL_PHYSICS_MUTATION=on (`creature::mutation_of`).
+    pixel_physics::sim::creature::mutation_off_for_measuring();
     pixel_physics::sim::parallel::harness_main(harness);
 }
 

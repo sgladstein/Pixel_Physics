@@ -3782,11 +3782,18 @@ fn bear_seed_at(world: &mut World, sx: i32, sy: i32, parent_id: OrganismId, seed
     let world_seed = world.seed;
     // Read beside `world_seed` and for the same reason: both are wanted after
     // `organism_mut` takes `world` mutably below.
-    let sigma = world.mutation_sigma;
-    let fate_chance = world.fate_mutation_chance;
+    //
+    // **All three read as zero with mutation off** (`creature::mutation_of`),
+    // and the seed inherits its parent exactly. Zeroed rather than skipped:
+    // `genotype_jitter` still takes its draw from the caller's `rng` at a
+    // sigma of zero, so the stream the caller goes on using is where it would
+    // have been (`set_seed_leaves_the_callers_rng_position_alone` guards it).
+    let mutates = super::creature::mutation_of(world);
+    let sigma = if mutates { world.mutation_sigma } else { 0.0 };
+    let fate_chance = if mutates { world.fate_mutation_chance } else { 0.0 };
     // Read here for the same reason `sigma` and `fate_chance` are: the
     // `organism_mut` borrow below holds `world` for the whole block.
-    let param_chance = world.param_mutation_chance;
+    let param_chance = if mutates { world.param_mutation_chance } else { 0.0 };
     let param_sigma = world.param_mutation_sigma;
     // **The registry, cloned out? No — the mutation needs it and the borrow
     // cannot span the block, so the parameter roll happens *after* the state
@@ -3886,6 +3893,11 @@ fn bear_seed_at(world: &mut World, sx: i32, sy: i32, parent_id: OrganismId, seed
         // where `fates` and `params` each needed one.
         state.lineage_seed = parent_dev;
         organism::jump_alleles(&mut state.alleles, rng);
+        // Jumped and then put back with mutation off, for the caller's `rng`
+        // as `sigma` above: the jump's draws are taken either way.
+        if !mutates {
+            state.alleles = parent_alleles;
+        }
         // **Which locus, not just how many** -- `jump_alleles` returns a
         // count (a jump may redraw the allele it already had, so a landed
         // draw is not always a change), and `born_with` wants to name the
@@ -17480,6 +17492,60 @@ they are the same world. Got {median}, which means something other than the leve
             "a child must inherit its parent's production rule. At FATE_MUTATION_CHANCE this draw does not \
              mutate, so any difference here is the table being re-read from the species rather than inherited \
              -- which is exactly the pre-change behaviour wearing the new field's name"
+        );
+    }
+
+    /// **With mutation off a seed is its parent's copy, and the caller's
+    /// stream moves the same** (`creature::mutation_of`). Every channel wide
+    /// open -- `mutation_sigma` 0.5, the fate and parameter rolls at
+    /// certainty -- so the on arm, run every time as the fault put back,
+    /// must differ somewhere; and the draw the caller makes next must be the
+    /// same in both arms, because `bear_seed_at` zeroes the jitter rather
+    /// than skipping its draws.
+    #[test]
+    fn with_mutation_off_a_seed_inherits_its_parent_exactly() {
+        let arm = |mutation: bool| {
+            let mut w = test_world();
+            w.seed = 909;
+            w.mutation = Some(mutation);
+            w.mutation_sigma = 0.5;
+            w.fate_mutation_chance = 1.0;
+            w.param_mutation_chance = 1.0;
+            let id = w.species.id_of("tree").expect("tree is compiled in");
+            for x in 40..60 {
+                w.set(x, 60, Cell::new(material::STONE, 0));
+            }
+            let parent = w.push_organism(id).expect("an organism slot is free");
+            let wood = w.materials.id_of("wood").expect("wood");
+            place(&mut w, (50, 59), wood, parent, CellType::MatureBody, (4.0, 0.0));
+            let heritage =
+                |w: &World, id: OrganismId| w.organism(id).map(|s| (s.genotype_draws, s.alleles, s.fates, s.params));
+            let before = heritage(&w, parent).expect("the parent is live");
+            let mut rng = rng::stream(5, 6, 7, 8);
+            assert!(
+                set_seed(&mut w, 50, 59, parent, 0.2, 0.0, &mut rng),
+                "the parent must manage to bear a seed"
+            );
+            let child = (40..70)
+                .flat_map(|x| (40..70).map(move |y| (x, y)))
+                .map(|(x, y)| w.get(x, y).organism_id())
+                .find(|&o| o != 0 && o != parent)
+                .expect("the seed created a child organism");
+            (
+                heritage(&w, child).expect("the child is live") == before,
+                rng.next_u64(),
+            )
+        };
+        let (same_off, next_off) = arm(false);
+        let (same_on, next_on) = arm(true);
+        assert!(
+            same_off,
+            "with mutation off the seed's genotype, loci, rules or parameters differ from its parent's"
+        );
+        assert!(!same_on, "with every mutation channel at its widest the seed still matched its parent, so this test cannot see mutation");
+        assert_eq!(
+            next_off, next_on,
+            "switching mutation off moved the caller's stream, so every draw after a seed shifts with it"
         );
     }
 

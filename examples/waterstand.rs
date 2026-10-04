@@ -373,6 +373,8 @@ fn shoot(lab: &mut Lab, prefix: &str, zoom: u32) {
 }
 
 fn main() {
+    // Births inherit exactly unless PIXEL_PHYSICS_MUTATION=on (`creature::mutation_of`).
+    pixel_physics::sim::creature::mutation_off_for_measuring();
     let frames: u64 = arg("frames").unwrap_or(24_000);
     let every: u64 = arg("every").unwrap_or(8_000);
     let seed: u64 = arg("seed").unwrap_or(1);

@@ -3974,6 +3974,12 @@ pub struct World {
     /// `creature::water_footing_of` for this world; `None` reads the
     /// process's `PIXEL_PHYSICS_WATER_FOOTING`.
     pub water_footing: Option<bool>,
+    /// `creature::mutation_of` for this world: `Some(false)` and every
+    /// birth -- an ant's bud or egg, a plant's seed -- inherits its parent
+    /// exactly. `None` reads the process's `PIXEL_PHYSICS_MUTATION`, then the
+    /// process default (`creature::set_mutation_default`), which is on for
+    /// the game and the test suite and off in the measuring examples.
+    pub mutation: Option<bool>,
     /// `creature::door_collar_of` for this world; `None` reads the process's
     /// `PIXEL_PHYSICS_DOOR_COLLAR`.
     pub door_collar: Option<bool>,
@@ -6611,6 +6617,7 @@ impl World {
             door_loose: None,
             kin_footing: None,
             water_footing: None,
+            mutation: None,
             door_collar: None,
             spoil_crest: None,
             nest_home: None,
