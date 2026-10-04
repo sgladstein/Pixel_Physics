@@ -13487,7 +13487,26 @@ fn jaw_can_cut(world: &World, def: &CreatureDef, organism: OrganismId, cell: Cel
     ground
         && !is_live_seed(cell)
         && cell.material != material::EMPTY
+        && !(jaw_spares_food() && world.materials.get(cell.material).food_energy > 0.0)
         && world.materials.get(cell.material).penetration_resistance <= dig_force_of(def, &traits_of(world, organism, def), world.trait_reach)
+}
+
+/// Scratch (lane 3): `PIXEL_PHYSICS_JAW_FOOD=off`, off unless set. **Food is
+/// not dug**: [`jaw_can_cut`] refuses a cell worth eating, as it already
+/// refuses flesh, plants and live seeds, so food is eaten or carried and
+/// never hauled out as dirt.
+///
+/// **Why** (lane 3, goal bed, today's game, seeds 1 and 5 to 130k, a
+/// temporary line at every cut): 7-18% of all cuts took a food cell (seed 1:
+/// 530 of 6,822, 420 of them below the old ground line; seed 5: 341 of
+/// 1,864, 237 below). Crumbs are `Powder` at penetration resistance 0.2,
+/// under an ant's dig force, with neither `spoils_into` nor `packs_into`, so
+/// the pellet stays crumbs and is set down in the heap with the spoil -- the
+/// owner's "crumbs stuck in" the patchwork over the nest, and food carried
+/// out of the nest it had been carried into.
+fn jaw_spares_food() -> bool {
+    static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *V.get_or_init(|| std::env::var("PIXEL_PHYSICS_JAW_FOOD").as_deref() == Ok("off"))
 }
 
 /// A live organism's seed cell, which [`jaw_can_cut`] will not dig.
