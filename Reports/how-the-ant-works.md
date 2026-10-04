@@ -427,7 +427,18 @@ the tick: the ant still gets its move roll (§6) afterwards.
    `ant-scenes-2026-09-23.md` §22j): both counters judge the acting ant's
    head, not the food cell, so a crumb at the nest's edge is picked up from
    outside, uncounted, and delivered again. On the colony bed it overcounts
-   3.4-4.6×; food taken from the pile is the honest flow.
+   3.4-4.6×; food taken from the pile is the honest flow. **That flow is
+   `trip_deliveries`** (2026-10-04): a delivery of a cell the same ant bit on
+   a trip, on the gate that marks a trip load (step 3's `trip_load`: the ant
+   had been `FORAGE_TRIP_MIN` cells from its last nest contact, and the food
+   lay beyond the trip reach from every door, or was living tissue). The crop
+   keeps `trip_cells`, the count of its cells taken that way; a put-down
+   spends one (trip cells first) and a delivery while one is spent books it.
+   Each such cell counts once, so a crumb shuffled about the nest afterwards
+   does not count again. Per ant it is `life.trip_deliveries`, shown on the
+   cell page as `DELIVERED n (m FROM TRIPS)`. Why: the deep trace's top
+   "forager" by `deliveries` had 291, of which 16 were food bitten at the
+   pile.
 5. **Drop spoil**, if holding a dig pellet, then **return**, placed or not,
    so an ant holding a pellet never digs. The roll is against `DropSpoil`,
    its own output (§4), not the food drop's. On a win the pellet goes on the

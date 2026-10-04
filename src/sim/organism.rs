@@ -6341,6 +6341,15 @@ pub struct OrganismState {
     /// trace (`creature::DecisionRow::since_trip`): the age of the cargo that
     /// a food-charged trail would lay by (`Reports/food-trail-plan-2026-09-29.md`).
     pub since_trip: u16,
+    /// **How many of the crop's cells were taken on a trip** -- each pickup
+    /// that passes the same gate that sets `trip_load` adds one, a pickup
+    /// into an empty crop starts it at zero, and every put-down spends one
+    /// (trip cells first) and clips it to what the crop still holds. Read
+    /// only by the booking of `LifeCounters::trip_deliveries` /
+    /// `CreatureStats::trip_deliveries`, so it changes no behaviour. Per
+    /// cell rather than per crop because `deliveries` is per cell, and the
+    /// two are read side by side.
+    pub trip_cells: u16,
     /// **Finish the packed lunch this tick** (`creature::carries_lunch`):
     /// set by `act` when a lunch meets food its crop cannot swallow, read and
     /// cleared by the same tick's digestion, which completes the cell in
@@ -6973,6 +6982,9 @@ pub struct LifeCounters {
     pub digs: u32,
     /// Loads delivered to the nest. Mirrors `CreatureStats::deliveries`.
     pub deliveries: u32,
+    /// The part of `deliveries` that was food taken on a trip, away from
+    /// home. Mirrors `CreatureStats::trip_deliveries`.
+    pub trip_deliveries: u32,
     /// Young this one has budded. Mirrors `CreatureStats::births`, and is
     /// incremented on the **parent** rather than on the child.
     pub offspring: u32,
@@ -6991,6 +7003,7 @@ impl LifeCounters {
         self.bites += other.bites;
         self.digs += other.digs;
         self.deliveries += other.deliveries;
+        self.trip_deliveries += other.trip_deliveries;
         self.offspring += other.offspring;
         self.seeds_set += other.seeds_set;
     }
