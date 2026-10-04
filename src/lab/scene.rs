@@ -1132,7 +1132,9 @@ pub const LAB_ANT_GUT: f32 = -0.5;
 /// 3b91258b, mutation off, seeds 1-4). [`LAB_ANT_GUT`] alone makes the colony
 /// grow but not last: peaks of 290-378 near 100,000 frames, then 129/0/120/104
 /// ants at 200,000. These founders held 398/341/278/399 at 300,000, a mean
-/// over 100,000-200,000 of 455/467/384/408 against 238/149/164/226. With
+/// over 100,000-200,000 of 455/467/384/408 against 238/149/164/226. Over
+/// seeds 1-12 it held on 11 (fewest live ants over 100,000-300,000: 278-390);
+/// seed 9 boomed to 767 near 100,000 and was gone by 240,000. With
 /// mutation on (the game) the mean over 100,000-200,000 was higher on 4 of 4
 /// (432/552/484/546 against 362/522/442/468). **It is the body, not the
 /// brain** -- these founders carry the ancestral brain, frozen.
