@@ -13770,6 +13770,38 @@ fn food_drop_site(world: &World, x: i32, y: i32, through_bodies: bool, clear: Op
     None
 }
 
+/// **Food is kept on the floor, and breeding draws on it** --
+/// `PIXEL_PHYSICS_STORE_CHAMBER=on`; unset (or `off`) is the ant as it was,
+/// bit for bit. Under it an ant at home, at or above its `start_energy`, has
+/// its `Feed` urge scaled by [`store_eat_p`] of the share of the 24 cells
+/// round its head that hold loose food ([`pile_food_share`]): a lone crumb is
+/// left alone, a big pile is eaten from at up to about two-thirds of the
+/// usual rate. Below its grant an ant eats as before. Laying still needs the
+/// banked `lay_at`; what changes is that a fed ant banks from a pile, so food
+/// lies on the floor until enough has gathered to breed on.
+///
+/// **Why** (the owner's goal of 2026-10-03, a food chamber; his card of
+/// 2026-10-04, recommended option). Drained goal box, main 192b7103: food on
+/// the floor underground is 0-23 cells at every sample on four colonies of
+/// 400-632 ants, because whatever is put down is eaten within the interval
+/// it arrives. `STOREROOM keep` (fed ants refuse piled food outright) killed
+/// both colonies on the puddle bed: it cut breeding off. This grades the
+/// refusal by the size of the pile instead, the clustering rule's drop curve
+/// reused ([`pile_drop_p`]; Deneubourg et al. 1991), so the store is eaten
+/// from only once there is one.
+fn store_chamber_on() -> bool {
+    static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *V.get_or_init(|| std::env::var("PIXEL_PHYSICS_STORE_CHAMBER").as_deref() == Ok("on"))
+}
+
+/// The share of a fed ant's `Feed` urge left under [`store_chamber_on`],
+/// from the loose-food share `f` round it: [`pile_drop_p`]'s curve, `(f /
+/// (k2 + f))^2` -- 0 for a lone cell, 0.21 at six cells round, 0.59 at a
+/// solid pile.
+fn store_eat_p(f: f32) -> f32 {
+    pile_drop_p(f)
+}
+
 /// **A fed ant at home puts its crop down** -- `PIXEL_PHYSICS_CROP_UNLOAD=<p>`;
 /// unset (or `off`) is the ant as it was, bit for bit. Under it an ant at
 /// home, at or above its `start_energy`, with food in its crop, puts a cell
@@ -14307,6 +14339,13 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
                 world.creature_stats.satiate_tapered += 1;
             }
         }
+    }
+    // **A full ant leaves the floor for the store** (`PIXEL_PHYSICS_STORE_CHAMBER`,
+    // [`store_chamber_on`]): at home and at or above its grant, it eats only
+    // as readily as food is piled round it.
+    if store_chamber_on() && world.organism(organism).is_some_and(|st| st.energy >= def.start_energy) && nest_within_reach(world, organism, x, y, def) {
+        feed_urge *= store_eat_p(pile_food_share(world, x, y).0);
+        world.creature_stats.store_chamber_scaled += 1;
     }
     let feed_urge = feed_urge;
     let drop_urge = outputs[O::Drop as usize].clamp(0.0, 1.0);

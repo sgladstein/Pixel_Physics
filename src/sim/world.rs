@@ -1848,6 +1848,9 @@ pub struct CreatureStats {
     /// Drop decisions at home given `PIXEL_PHYSICS_CROP_UNLOAD`'s floor
     /// (`creature::crop_unload_of`). Zero when off.
     pub crop_unload_ticks: u64,
+    /// Feed decisions at home scaled by the pile round a fed ant
+    /// (`PIXEL_PHYSICS_STORE_CHAMBER`, `creature::store_chamber_on`).
+    pub store_chamber_scaled: u64,
     /// **Won dig rolls inside the nest with no cuttable cell ahead, by why**
     /// (`PIXEL_PHYSICS_FRESH_CUT` on only): [0] no cuttable cell round the
     /// digger at all, [1] only cells the roof or heap cue would refuse,

@@ -297,8 +297,8 @@ impl Flow {
             self.last.unwrap_or(0), self.arrived, self.left, d[0], d[1], d[2], d[3], d[4], d[5]
         );
         println!(
-            "SITES frame={frame} new food cells underground beside: brood only {} | food only {} | both {} | neither {} | sort holds (total) {} | unload ticks (total) {}",
-            self.site[0], self.site[1], self.site[2], self.site[3], s.food_sort_held, s.crop_unload_ticks
+            "SITES frame={frame} new food cells underground beside: brood only {} | food only {} | both {} | neither {} | sort holds (total) {} | unload ticks (total) {} | store scaled (total) {}",
+            self.site[0], self.site[1], self.site[2], self.site[3], s.food_sort_held, s.crop_unload_ticks, s.store_chamber_scaled
         );
         self.prev = now;
         self.arrived = 0;
