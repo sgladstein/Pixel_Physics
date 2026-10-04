@@ -1832,6 +1832,33 @@ pub struct CreatureStats {
     /// the jaw judge it; the cut itself is in `digs`. 0 unless the switch is
     /// on.
     pub digs_widened: u64,
+    /// **Dig rolls turned onto a cell beside a fresh cut** under
+    /// `PIXEL_PHYSICS_FRESH_CUT` (`creature::fresh_cut_of`). Counted when the
+    /// face is chosen; the cut itself is in `digs`. 0 unless the switch is on.
+    pub digs_fresh_faced: u64,
+    /// **Dig rolls with nothing to cut that turned the digger one octant
+    /// toward the nearest fresh cut** under `PIXEL_PHYSICS_FRESH_CUT=draw`.
+    pub digs_fresh_drawn: u64,
+    /// Crop drops at home held back because brood lay within reach
+    /// (`PIXEL_PHYSICS_FOOD_SORT`, `creature::food_sort_holds`). Zero when off.
+    pub food_sort_held: u64,
+    /// Feed decisions at home tapered because the ant was above its grant
+    /// (`PIXEL_PHYSICS_SATIATE`, `creature::satiate_of`). Zero when off.
+    pub satiate_tapered: u64,
+    /// Drop decisions at home given `PIXEL_PHYSICS_CROP_UNLOAD`'s floor
+    /// (`creature::crop_unload_of`). Zero when off.
+    pub crop_unload_ticks: u64,
+    /// Feed decisions at home scaled by the pile round a fed ant
+    /// (`PIXEL_PHYSICS_STORE_CHAMBER`, `creature::store_chamber_on`).
+    pub store_chamber_scaled: u64,
+    /// Takes refused because the food was still being handled
+    /// (`PIXEL_PHYSICS_FOOD_HANDLE`, `creature::food_handle_holds`).
+    pub food_handle_held: u64,
+    /// **Won dig rolls inside the nest with no cuttable cell ahead, by why**
+    /// (`PIXEL_PHYSICS_FRESH_CUT` on only): [0] no cuttable cell round the
+    /// digger at all, [1] only cells the roof or heap cue would refuse,
+    /// [2] at least one underground face beside it.
+    pub dig_idle_why: [u64; 3],
     /// **Dig rolls turned to the nearest face** under `PIXEL_PHYSICS_DIG_FACE`
     /// (`creature::dig_face_of`): inside the nest, the cell ahead was not
     /// ground the jaw could take, and the digger turned to one that was.
@@ -3982,6 +4009,21 @@ pub struct World {
     /// which is off unless it says `on`. A field so a guard can take both
     /// arms in one process.
     pub dig_widen: Option<bool>,
+    /// **Fresh-cut digging, overriding `PIXEL_PHYSICS_FRESH_CUT` for this
+    /// world** (`creature::fresh_cut_of`). `None` follows the environment,
+    /// which is off unless set. A field so a guard can take both arms in one
+    /// process.
+    pub fresh_cut: Option<crate::sim::creature::FreshCut>,
+    /// **The colony's most recent cuts inside a nest, newest last**, with the
+    /// frame each was made (`creature::fresh_cut_of`): what a digger senses as
+    /// "digging is going on here". Bounded at `creature::FRESH_CUT_KEEP`
+    /// entries and read only while the switch is on; pushed only then, so the
+    /// switch off leaves it empty and the run bit-exact.
+    pub fresh_cuts: std::collections::VecDeque<((i32, i32), u64)>,
+    /// Food put down at home under `PIXEL_PHYSICS_FOOD_HANDLE`, by position,
+    /// with the frame it went down (`creature::food_handle_of`). Pruned of
+    /// entries older than the handling time when it reaches 4,096. Empty when off.
+    pub handled_food: std::collections::HashMap<(i32, i32), u64>,
     /// **The turn to the nearest face, overriding `PIXEL_PHYSICS_DIG_FACE`
     /// for this world** (`creature::dig_face_of`). `None` follows the
     /// environment, which is `workers` unless it says otherwise. A field so
@@ -6542,6 +6584,9 @@ impl World {
             bud_store: None,
             births_paused: false,
             dig_widen: None,
+            fresh_cut: None,
+            fresh_cuts: Default::default(),
+            handled_food: Default::default(),
             dig_face: None,
             bud_stack: None,
             brood: None,

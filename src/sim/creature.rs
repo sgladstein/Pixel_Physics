@@ -12776,6 +12776,166 @@ fn half_turn_left(seed: u64, organism: OrganismId, frame: u64) -> bool {
     rng::stream(seed, u64::from(organism), frame, RNG_SLOT_HALF_TURN).flip()
 }
 
+/// **Digging is drawn to where digging just happened**:
+/// `PIXEL_PHYSICS_FRESH_CUT=off|aim|draw`, off unless set ([`fresh_cut_of`]).
+///
+/// **Why.** Nothing in the dig chooses a place near other digging: a won roll
+/// cuts the cell ahead of the head or nothing, so a colony's cuts scatter over
+/// whatever wall each ant happens to face, and on the owner's setup
+/// (`digbox ants=20 food=60 hungry`) only about 1.5% of won rolls cut
+/// anything. Real excavation is self-organised round the active face: digging
+/// is amplified where it is already going on, so work concentrates into a few
+/// growing galleries rather than spreading thin: excavated volume grows
+/// exponentially before it saturates (Buhl et al. 2004, Naturwissenschaften
+/// 91:602, doi 10.1007/s00114-004-0577-x), and density at the face drives the
+/// shape (Toffin et al. 2009, PNAS 106:18616, doi 10.1073/pnas.0902685106).
+/// The cue a worker reads is local: freshly excavated pellets decide where
+/// leaf-cutters start digging (Pielstrom & Roces 2013, PLoS One 8:e57040,
+/// doi 10.1371/journal.pone.0057040), and diggers emit vibrational
+/// recruitment signals at the face (Pielstrom & Roces 2014, PLoS One
+/// 9:e95658, doi 10.1371/journal.pone.0095658).
+///
+/// **What it does.** Every cut made inside a nest ([`inside_nest`]) is
+/// remembered for [`FRESH_CUT_AGE`] frames (`World::fresh_cuts`). On a won dig
+/// roll inside the nest, when the cell ahead is not ground this jaw can take:
+/// - `aim`: if a cell round the digger is cuttable underground ground beside
+///   a fresh cut, the digger turns to it and cuts it ([`fresh_cut_face`]).
+/// - `draw`: as `aim`, and when there is none it turns one octant toward the
+///   nearest fresh cut within [`FRESH_CUT_REACH`] cells, so an idle digger
+///   drifts to the working face over its next rolls ([`fresh_cut_near`]).
+///   Measured near-inert (4 seeds, 2026-10-03): the turn fires 5,000-8,000
+///   times a run and the next step or tumble undoes it.
+/// - `recruit`: as `aim`, and when there is none the digger takes the
+///   nearest fresh cut within [`FRESH_CUT_REACH`] as the face to walk back to
+///   (`OrganismState::dig_return`), so the walk that already brings a digger
+///   back to its own face after tipping a pellet brings it to the colony's.
+///   Why: on the owner's setup, of won rolls in the nest with nothing ahead,
+///   50-80% stand where the only cuttable ground is the crust over the nest,
+///   which the roof and heap cue refuse, and only 2-6% have an underground
+///   face beside them. A turn cannot fix that; the digger has to go deeper.
+///   `recruit` walks only a nest-bound ant ([`is_nest_bound`]: the nest-worker
+///   caste and the young); `recruitall` walks every digger. Every digger was
+///   the first build, and it took the foragers off the food: on the owner's
+///   setup (4 seeds) home 70 -> 130 but food taken from the pile 833 -> 367
+///   and births 74 -> 5 on seed 2 -- the dig-down turn's harm again
+///   (`Reports/dead-ends.md`). `recruitfed` walks a nest-bound ant, and any
+///   other digger at or above its `start_energy`: a fed forager has nothing
+///   to fetch for itself, so it digs; a hungry one goes out (task allocation
+///   by response threshold, Beshers & Fewell 2001, Annu Rev Entomol 46:413).
+///
+/// **How it differs from `PIXEL_PHYSICS_DIG_FACE`** (the Nest building lane's
+/// turn to the nearest underground wall): that one cuts any wall the digger
+/// stands beside; this one cuts only where the colony has just been cutting,
+/// and walks idle diggers there. The question it asks is whether
+/// concentrating the work, not merely aiming it, is what grows a nest.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FreshCut {
+    Off,
+    Aim,
+    Draw,
+    Recruit,
+    RecruitAll,
+    RecruitFed,
+}
+
+/// How many recent cuts a world remembers ([`FreshCut`]). A colony of tens of
+/// ants cuts a few hundred cells in 40,000 frames, so this holds the last
+/// several thousand frames of digging.
+pub const FRESH_CUT_KEEP: usize = 64;
+/// How long a cut stays fresh, in frames ([`FreshCut`]).
+pub const FRESH_CUT_AGE: u64 = 3000;
+/// How far a digger senses a fresh cut under `draw`, in cells ([`FreshCut`]):
+/// a few body lengths, the reach of a substrate vibration or of the smell of
+/// newly turned soil, not the nest's extent.
+pub const FRESH_CUT_REACH: i32 = 16;
+
+/// The switch for [`FreshCut`]: the world's override, else the environment.
+pub fn fresh_cut_of(world: &World) -> FreshCut {
+    world.fresh_cut.unwrap_or_else(fresh_cut)
+}
+
+fn fresh_cut() -> FreshCut {
+    static V: std::sync::OnceLock<FreshCut> = std::sync::OnceLock::new();
+    *V.get_or_init(|| parse_fresh_cut(&std::env::var("PIXEL_PHYSICS_FRESH_CUT").unwrap_or_default()))
+}
+
+fn parse_fresh_cut(raw: &str) -> FreshCut {
+    match raw.trim() {
+        "aim" => FreshCut::Aim,
+        "draw" => FreshCut::Draw,
+        "recruit" => FreshCut::Recruit,
+        "recruitall" => FreshCut::RecruitAll,
+        "recruitfed" => FreshCut::RecruitFed,
+        "" | "off" => FreshCut::Off,
+        v => {
+            eprintln!("PIXEL_PHYSICS_FRESH_CUT={v:?}: not `aim`, `draw` or `off`; read as off");
+            FreshCut::Off
+        }
+    }
+}
+
+/// The frame of the freshest remembered cut within one cell of `(x, y)`, if
+/// any is still fresh ([`FreshCut`]).
+fn fresh_cut_beside(world: &World, (x, y): (i32, i32)) -> Option<u64> {
+    world
+        .fresh_cuts
+        .iter()
+        .filter(|&&((cx, cy), at)| world.frame.saturating_sub(at) <= FRESH_CUT_AGE && (cx - x).abs() <= 1 && (cy - y).abs() <= 1)
+        .map(|&(_, at)| at)
+        .max()
+}
+
+/// **The octant round the digger whose cell is cuttable underground ground
+/// beside a fresh cut**, freshest first, then nearest the heading
+/// ([`FreshCut`]). "Underground" is the test the Nest building lane's face
+/// turn settled on: a cell the roof would refuse, or whose cut the heap cue
+/// would scale down because it opens the sky, is not a face.
+fn fresh_cut_face(world: &World, def: &CreatureDef, organism: OrganismId, (x, y): (i32, i32), heading: u8) -> Option<u8> {
+    let roof = dig_roof_of(world);
+    let cue = spoil_cue_of(world);
+    let radius = curvature_radius_of(def, &traits_of(world, organism, def)).max(1);
+    let mut best: Option<(u64, u8, u8)> = None;
+    for h in 0..8u8 {
+        let (dx, dy) = DIRS[h as usize];
+        let t = (x + dx, y + dy);
+        let Some(at) = fresh_cut_beside(world, t) else { continue };
+        if !jaw_can_cut(world, def, organism, world.get(t.0, t.1))
+            || roof.is_some_and(|rows| under_roof(world, t, rows))
+            || cue.is_some_and(|cue| spoil_cue_factor(world, (x, y), t, radius, cue).is_some_and(|f| f < 1.0))
+        {
+            continue;
+        }
+        let off = { let d = (h + 8 - heading) % 8; d.min(8 - d) };
+        if best.is_none_or(|(b_at, b_off, _)| at > b_at || (at == b_at && off < b_off)) {
+            best = Some((at, off, h));
+        }
+    }
+    best.map(|(_, _, h)| h)
+}
+
+/// **The octant toward the nearest fresh cut within [`FRESH_CUT_REACH`]**,
+/// not counting one the digger already stands beside ([`FreshCut`]).
+fn fresh_cut_near(world: &World, (x, y): (i32, i32)) -> Option<u8> {
+    let (cx, cy) = fresh_cut_nearest(world, (x, y))?;
+    // No `atan2`: the shared nearest-octant test, for determinism.
+    Some(octant_of((cx - x) as f32, (cy - y) as f32))
+}
+
+/// **The nearest fresh cut within [`FRESH_CUT_REACH`]**, not counting one
+/// the digger already stands beside ([`FreshCut`]).
+fn fresh_cut_nearest(world: &World, (x, y): (i32, i32)) -> Option<(i32, i32)> {
+    world
+        .fresh_cuts
+        .iter()
+        .filter(|&&(_, at)| world.frame.saturating_sub(at) <= FRESH_CUT_AGE)
+        .map(|&(c, _)| c)
+        .filter(|&(cx, cy)| {
+            let d = (cx - x).abs().max((cy - y).abs());
+            d > 1 && d <= FRESH_CUT_REACH
+        })
+        .min_by_key(|&(cx, cy)| (cx - x).pow(2) + (cy - y).pow(2))
+}
+
 /// **Could this animal cut `cell` out of the ground?** The dig's own test,
 /// kept in one place because two callers read it: the cut in `act`, and
 /// [`way_down`], which asks it of the cells under the animal before the
@@ -13610,6 +13770,189 @@ fn food_drop_site(world: &World, x: i32, y: i32, through_bodies: bool, clear: Op
     None
 }
 
+/// **Food brought home must be handled before it can be eaten** --
+/// `PIXEL_PHYSICS_FOOD_HANDLE=<frames>`; unset (or `off`) is the ant as it
+/// was, bit for bit. Under it a cell a forager puts down at home cannot be
+/// taken -- eaten, swallowed or picked up -- for `<frames>` frames after it
+/// went down ([`food_handle_holds`]). Tracked by position
+/// (`World::handled_food`), and any food within a cell of a fresh put-down is
+/// held: a cell that slides further is released early, which errs toward
+/// the shipped ant.
+///
+/// **Why** (the owner's goal of 2026-10-03, a food chamber). On the drained
+/// goal box (main 192b7103) every rule that refused *who* may eat floor food
+/// -- `STOREROOM keep`, `STORE_CHAMBER`, `SATIATE` -- left no store and cost
+/// colonies, because whatever arrived was eaten within the interval by some
+/// ant. Ants that keep granaries store food that cannot be eaten on
+/// arrival: harvester ants (*Messor*, *Pogonomyrmex*) bring seeds home whole
+/// and must crack them before eating -- *Messor barbarus* carries seeds
+/// home and discards about 69% of one plant's seeds intact as too tough to
+/// open (Oliveras et al. 2008, doi 10.1007/s00114-008-0349-0) -- and keep
+/// what waits in the nest (stored seeds kept from moulding: Wu et al. 2022,
+/// doi 10.3390/insects13080691). A standing stock forms between delivery and
+/// use. This models that delay as a handling time on the food, not a rule on
+/// the eater.
+fn food_handle_of() -> Option<u64> {
+    static V: std::sync::OnceLock<Option<u64>> = std::sync::OnceLock::new();
+    *V.get_or_init(|| {
+        let raw = std::env::var("PIXEL_PHYSICS_FOOD_HANDLE").unwrap_or_default();
+        match raw.as_str() {
+            "" | "off" => None,
+            v => v.parse::<u64>().ok().filter(|&f| f > 0).or_else(|| {
+                eprintln!("PIXEL_PHYSICS_FOOD_HANDLE={raw:?}: not a positive frame count, read as off");
+                None
+            }),
+        }
+    })
+}
+
+/// Whether the food at `(fx, fy)` is still being handled
+/// ([`food_handle_of`]): put down at home less than the handling time ago.
+fn food_handle_holds(world: &World, (fx, fy): (i32, i32)) -> bool {
+    let Some(wait) = food_handle_of() else {
+        return false;
+    };
+    // A cell slides as it settles, so a put-down within a cell counts: read
+    // only at the exact spot, 97,886 refusals on the goal box (s1, to 100k)
+    // still left 0-26 cells lying, the rest having slid out from under
+    // their record.
+    (-1..=1).any(|dy| (-1..=1).any(|dx| world.handled_food.get(&(fx + dx, fy + dy)).is_some_and(|&put| world.frame < put + wait)))
+}
+
+/// **Food is kept on the floor, and breeding draws on it** --
+/// `PIXEL_PHYSICS_STORE_CHAMBER=on`; unset (or `off`) is the ant as it was,
+/// bit for bit. Under it an ant at home, at or above its `start_energy`, has
+/// its `Feed` urge scaled by [`store_eat_p`] of the share of the 24 cells
+/// round its head that hold loose food ([`pile_food_share`]): a lone crumb is
+/// left alone, a big pile is eaten from at up to about two-thirds of the
+/// usual rate. Below its grant an ant eats as before. Laying still needs the
+/// banked `lay_at`; what changes is that a fed ant banks from a pile, so food
+/// lies on the floor until enough has gathered to breed on.
+///
+/// **Why** (the owner's goal of 2026-10-03, a food chamber; his card of
+/// 2026-10-04, recommended option). Drained goal box, main 192b7103: food on
+/// the floor underground is 0-23 cells at every sample on four colonies of
+/// 400-632 ants, because whatever is put down is eaten within the interval
+/// it arrives. `STOREROOM keep` (fed ants refuse piled food outright) killed
+/// both colonies on the puddle bed: it cut breeding off. This grades the
+/// refusal by the size of the pile instead, the clustering rule's drop curve
+/// reused ([`pile_drop_p`]; Deneubourg et al. 1991), so the store is eaten
+/// from only once there is one.
+fn store_chamber_on() -> bool {
+    static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *V.get_or_init(|| std::env::var("PIXEL_PHYSICS_STORE_CHAMBER").as_deref() == Ok("on"))
+}
+
+/// The share of a fed ant's `Feed` urge left under [`store_chamber_on`],
+/// from the loose-food share `f` round it: [`pile_drop_p`]'s curve, `(f /
+/// (k2 + f))^2` -- 0 for a lone cell, 0.21 at six cells round, 0.59 at a
+/// solid pile.
+fn store_eat_p(f: f32) -> f32 {
+    pile_drop_p(f)
+}
+
+/// **A fed ant at home puts its crop down** -- `PIXEL_PHYSICS_CROP_UNLOAD=<p>`;
+/// unset (or `off`) is the ant as it was, bit for bit. Under it an ant at
+/// home, at or above its `start_energy`, with food in its crop, puts a cell
+/// down on at least `p` of its drop rolls (`max(Drop, p)`).
+///
+/// **Why** (the owner's goal of 2026-10-03: food stored in a chamber).
+/// Measured on the goal box (main 192b7103, `NEST_REST=on`, seeds 1/3,
+/// `nestgoal`'s `ENERGY` line): the colony carries the equivalent of 49-171
+/// food cells in its crops while 0-14 lie on the floor underground. Its store
+/// is the social stomach, held by ants that are already fed. A floor store
+/// needs the fed to set it down; the nest workers' piling rule
+/// ([`Storeroom::pile`]) then gathers what lies. Harvester ants keep their
+/// stores on the floor of granary chambers, not in their bodies.
+fn crop_unload_of() -> Option<f32> {
+    static V: std::sync::OnceLock<Option<f32>> = std::sync::OnceLock::new();
+    *V.get_or_init(|| {
+        let raw = std::env::var("PIXEL_PHYSICS_CROP_UNLOAD").unwrap_or_default();
+        match raw.as_str() {
+            "" | "off" => None,
+            v => v.parse::<f32>().ok().filter(|f| f.is_finite() && (0.0..=1.0).contains(f)).or_else(|| {
+                eprintln!("PIXEL_PHYSICS_CROP_UNLOAD={raw:?}: not a chance in 0..1, read as off");
+                None
+            }),
+        }
+    })
+}
+
+/// **A full ant eats less, so food can lie** -- `PIXEL_PHYSICS_SATIATE=<f>`;
+/// unset (or `off`) is the ant as it was, bit for bit. Under it an ant at
+/// home above its `start_energy` has its `Feed` urge scaled by
+/// `1 - (energy - start) / (f * reproduce_threshold - start)`, clamped to
+/// 0..1: graded, full urge at the grant, none at the ceiling. With `f` above
+/// 1 an ant still reaches the breeding threshold, only more slowly, so food
+/// brought home is left lying for longer.
+///
+/// **Why** (the owner's goal of 2026-10-03: food stored in its own chamber).
+/// On the goal box (main 192b7103, `NEST_REST=on`, seeds 1/3 to 150k) food
+/// underground never exceeds 14 cells while colonies of 170-380 live beside
+/// an endless heap: each ant eats on until it has banked up to the 1,100 J
+/// breeding threshold (5.5 grants), so the colony keeps its food in its
+/// bodies and nothing lies on the floor to be stored or sorted. Refusing the
+/// fed outright (`STOREROOM keep` at 100% of the grant) killed both colonies,
+/// because it stops the banking breeding needs. This tapers instead of
+/// forbidding. Real workers do not fill to capacity: *Lasius niger*
+/// foragers stop drinking at an individual threshold well below what the
+/// crop holds (Mailleux, Deneubourg & Detrain 2008, doi
+/// 10.1016/j.crvi.2008.10.005), and a nest's intake follows its members'
+/// crop states (Greenwald, Baltiansky & Feinerman 2018, *eLife* 7:e31730),
+/// so food a full colony cannot take in is left where it lies.
+fn satiate_of() -> Option<f32> {
+    static V: std::sync::OnceLock<Option<f32>> = std::sync::OnceLock::new();
+    *V.get_or_init(|| {
+        let raw = std::env::var("PIXEL_PHYSICS_SATIATE").unwrap_or_default();
+        match raw.as_str() {
+            "" | "off" => None,
+            v => v.parse::<f32>().ok().filter(|f| f.is_finite() && *f > 0.0).or_else(|| {
+                eprintln!("PIXEL_PHYSICS_SATIATE={raw:?}: not a positive number, read as off");
+                None
+            }),
+        }
+    })
+}
+
+/// **Food is put down away from the brood** -- `PIXEL_PHYSICS_FOOD_SORT=on`;
+/// off (unset) is the ant as it was, bit for bit. Under it a forager at home
+/// does not empty its crop with a brood cell within [`FOOD_SORT_REACH`] of its
+/// head: the roll reads 0 and it walks on, so food goes down where the brood
+/// is not.
+///
+/// **Why** (the owner's goal of 2026-10-03: food and brood "somewhat
+/// organized", in separate chambers). Traced on the goal box (main 192b7103,
+/// `NEST_REST=on`, seeds 1 and 3, `nestgoal`'s `SITES` line): while the
+/// colony is small, 70-90% of food put down underground lands beside other
+/// food; once it grows, 55-60% lands with brood within two cells, and the one
+/// chamber holds both. Ants sort their brood and stores into separate places
+/// by local cues alone -- items are put down beside like items and away from
+/// unlike ones (Franks & Sendova-Franks 1992, doi 10.1016/0003-3472(92)90001-H)
+/// -- and a carrier's put-down is steered by what is already lying where it
+/// stands (Römer & Roces 2014, doi 10.1371/journal.pone.0097872). This is the
+/// "away from unlike" half only; the nest workers' `pile` rule
+/// ([`Storeroom::pile`]) already supplies "beside like".
+fn food_sort_on() -> bool {
+    static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *V.get_or_init(|| std::env::var("PIXEL_PHYSICS_FOOD_SORT").as_deref() == Ok("on"))
+}
+
+/// How near a brood cell holds a crop back, in cells (Chebyshev), under
+/// [`food_sort_on`]: the reach `nestgoal`'s `SITES` census classes by.
+const FOOD_SORT_REACH: i32 = 2;
+
+/// Whether a crop at `(x, y)` is held back by [`food_sort_on`]: on, and a
+/// brood cell within [`FOOD_SORT_REACH`].
+fn food_sort_holds(world: &World, x: i32, y: i32) -> bool {
+    if !food_sort_on() {
+        return false;
+    }
+    let Some(brood) = world.materials.id_of("brood") else {
+        return false;
+    };
+    (-FOOD_SORT_REACH..=FOOD_SORT_REACH).any(|dy| (-FOOD_SORT_REACH..=FOOD_SORT_REACH).any(|dx| world.get(x + dx, y + dy).material == brood))
+}
+
 /// Whether a blocked food drop is handed through bodies (`food_drop_site`).
 /// **On by default**; `PIXEL_PHYSICS_DROP_REACH=adjacent` restores the
 /// eight-neighbour drop exactly, for paired measurement.
@@ -14034,6 +14377,24 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
             feed_urge *= 1.0 - drive;
             world.creature_stats.forage_kept += 1;
         }
+    }
+    // **A full ant eats less** (`PIXEL_PHYSICS_SATIATE`, [`satiate_of`]):
+    // at home and above its grant, the urge tapers to 0 at the ceiling.
+    if let Some(ceiling) = satiate_of() {
+        if let Some(e) = world.organism(organism).map(|st| st.energy).filter(|&e| e > def.start_energy) {
+            if nest_within_reach(world, organism, x, y, def) {
+                let top = (ceiling * def.reproduce_threshold).max(def.start_energy + 1.0);
+                feed_urge *= (1.0 - (e - def.start_energy) / (top - def.start_energy)).clamp(0.0, 1.0);
+                world.creature_stats.satiate_tapered += 1;
+            }
+        }
+    }
+    // **A full ant leaves the floor for the store** (`PIXEL_PHYSICS_STORE_CHAMBER`,
+    // [`store_chamber_on`]): at home and at or above its grant, it eats only
+    // as readily as food is piled round it.
+    if store_chamber_on() && world.organism(organism).is_some_and(|st| st.energy >= def.start_energy) && nest_within_reach(world, organism, x, y, def) {
+        feed_urge *= store_eat_p(pile_food_share(world, x, y).0);
+        world.creature_stats.store_chamber_scaled += 1;
     }
     let feed_urge = feed_urge;
     let drop_urge = outputs[O::Drop as usize].clamp(0.0, 1.0);
@@ -14574,6 +14935,12 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
                     world.creature_stats.store_kept += 1;
                     return did;
                 }
+                // **Not yet handled** ([`food_handle_of`]): food put down at
+                // home less than the handling time ago is not taken.
+                if food_handle_holds(world, (fxx, fyy)) {
+                    world.creature_stats.food_handle_held += 1;
+                    return did;
+                }
                 // **Home is read before the mouthful leaves**, for
                 // `pickups_at_nest` below, on the predicate the drop's
                 // `deliveries` uses. **They do not subtract to food brought
@@ -15056,10 +15423,27 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
             // put down at a fed ant's rate, since the founding cut is not home
             // to a forager and `Drop` reads 0 there.
             let harvest = harvest_drop(world, organism, (x, y), def);
+            // **Not beside the brood** (`PIXEL_PHYSICS_FOOD_SORT`,
+            // [`food_sort_holds`]): at home, a crop is not put down with brood
+            // within reach, and the carrier walks on with it.
+            let sort_hold = harvest.is_none() && at_nest && food_sort_holds(world, x, y);
+            if sort_hold {
+                world.creature_stats.food_sort_held += 1;
+            }
+            // **A fed ant at home empties its crop** (`PIXEL_PHYSICS_CROP_UNLOAD`,
+            // [`crop_unload_of`]): its drop chance is at least the floor.
+            let unload = match crop_unload_of() {
+                Some(floor) if at_nest && world.organism(organism).is_some_and(|st| st.energy >= def.start_energy) => {
+                    world.creature_stats.crop_unload_ticks += 1;
+                    floor
+                }
+                _ => 0.0,
+            };
             let p = match harvest {
                 Some(HarvestDrop::Hold) => 0.0,
                 Some(HarvestDrop::Store(_)) => HARVEST_DROP_P,
-                None => drop_urge,
+                None if sort_hold => 0.0,
+                None => drop_urge.max(unload),
             };
             // The same single draw as before, bound to a name so the trace can
             // report it. **The roll is spent before the search for an empty
@@ -15081,6 +15465,15 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
             if roll >= p {
                 note_drop(world, DropWhy::RollLost);
             } else if let Some(((dx, dy), reach)) = site {
+                // **Food put down at home is handled before it is eaten**
+                // (`PIXEL_PHYSICS_FOOD_HANDLE`, [`food_handle_of`]).
+                if let (true, Some(wait)) = (at_nest, food_handle_of()) {
+                    let frame = world.frame;
+                    if world.handled_food.len() >= 4096 {
+                        world.handled_food.retain(|_, put| *put + wait > frame);
+                    }
+                    world.handled_food.insert((dx, dy), frame);
+                }
                 // **And back up after, as a nest worker's store carry is**
                 // ([`store_return_target`]): a forager emptied in the room is
                 // inside a cut that is not its home, and nothing else takes it
@@ -15566,6 +15959,63 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
                 world.creature_stats.digs_faced += 1;
             }
         }
+        // **...and a digger with nothing ahead to cut goes where the colony
+        // is cutting** ([`fresh_cut_of`]): beside a fresh cut it turns to it
+        // and cuts; under `draw`, out of reach of one it turns toward the
+        // nearest. Off, no read.
+        let fresh = fresh_cut_of(world);
+        if fresh != FreshCut::Off && widen_to.is_none() && !jaw_can_cut(world, def, organism, world.get(tx, ty)) && inside_nest(world, x, y) {
+            // Why the roll had nothing ahead to cut, for the race lane's
+            // census: no cuttable cell round the digger at all, only cells
+            // the roof or heap cue would refuse (the crust), or underground
+            // faces none of which is beside a fresh cut.
+            {
+                let roof = dig_roof_of(world);
+                let cue = spoil_cue_of(world);
+                let radius = curvature_radius_of(def, &traits_of(world, organism, def)).max(1);
+                let (mut any, mut under) = (false, false);
+                for &(dx, dy) in DIRS.iter() {
+                    let t = (x + dx, y + dy);
+                    if !jaw_can_cut(world, def, organism, world.get(t.0, t.1)) {
+                        continue;
+                    }
+                    any = true;
+                    if !roof.is_some_and(|rows| under_roof(world, t, rows)) && !cue.is_some_and(|cue| spoil_cue_factor(world, (x, y), t, radius, cue).is_some_and(|f| f < 1.0)) {
+                        under = true;
+                    }
+                }
+                let k = if !any { 0 } else if !under { 1 } else { 2 };
+                world.creature_stats.dig_idle_why[k] += 1;
+            }
+            if let Some(h) = fresh_cut_face(world, def, organism, (x, y), heading) {
+                if let Some(state) = world.organism_mut(organism) {
+                    state.heading = h;
+                }
+                let (fx, fy) = DIRS[h as usize];
+                (tx, ty) = (x + fx, y + fy);
+                world.creature_stats.digs_fresh_faced += 1;
+            } else if fresh == FreshCut::RecruitAll
+                || (matches!(fresh, FreshCut::Recruit | FreshCut::RecruitFed) && world.organism(organism).is_some_and(|s| is_nest_bound(world, s)))
+                || (fresh == FreshCut::RecruitFed && world.organism(organism).is_some_and(|s| s.energy >= def.start_energy))
+            {
+                if let Some(c) = fresh_cut_nearest(world, (x, y)) {
+                    if let Some(state) = world.organism_mut(organism) {
+                        if state.dig_return.is_none() {
+                            state.dig_return = Some(c);
+                            world.creature_stats.digs_fresh_drawn += 1;
+                        }
+                    }
+                }
+            } else if fresh == FreshCut::Draw {
+                if let Some(o) = fresh_cut_near(world, (x, y)) {
+                    let turned = turn_toward(heading, o, half_turn_left(world.seed, organism, world.frame));
+                    if let Some(state) = world.organism_mut(organism) {
+                        state.heading = turned;
+                    }
+                    world.creature_stats.digs_fresh_drawn += 1;
+                }
+            }
+        }
         let target = world.get(tx, ty);
         // **A heap draws where digging starts** ([`SpoilCue`], on since
         // 2026-09-28, [`spoil_cue_of`]): a cut that would open the ground to the sky goes
@@ -15694,6 +16144,13 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
             // The census's record of the act (`World::dug_cells`): read by
             // nothing in the simulation, so it cannot move a run.
             world.dug_cells.insert((tx, ty));
+            if fresh_cut_of(world) != FreshCut::Off && inside_nest(world, x, y) {
+                let frame = world.frame;
+                world.fresh_cuts.push_back(((tx, ty), frame));
+                while world.fresh_cuts.len() > FRESH_CUT_KEEP {
+                    world.fresh_cuts.pop_front();
+                }
+            }
             if spoil_kept() {
                 if let Some(state) = world.organism_mut(organism) {
                     state.spoil = Some(Spoil { cell: pellet, store: false });
@@ -24444,6 +24901,23 @@ fn creature_dies(world: &mut World, organism: OrganismId, cause: organism::Death
 
 #[cfg(test)]
 mod tests {
+    /// `PIXEL_PHYSICS_FRESH_CUT`'s spellings, and the octant a fresh cut
+    /// draws a digger toward.
+    #[test]
+    fn fresh_cut_parses_its_spellings_and_points_at_the_cut() {
+        assert_eq!(parse_fresh_cut("aim"), FreshCut::Aim);
+        assert_eq!(parse_fresh_cut(" draw "), FreshCut::Draw);
+        assert_eq!(parse_fresh_cut("recruit"), FreshCut::Recruit);
+        assert_eq!(parse_fresh_cut("recruitall"), FreshCut::RecruitAll);
+        assert_eq!(parse_fresh_cut("recruitfed"), FreshCut::RecruitFed);
+        for off in ["", "off", "on", "Draw"] {
+            assert_eq!(parse_fresh_cut(off), FreshCut::Off, "{off:?} turned fresh-cut digging on");
+        }
+        for (h, &(dx, dy)) in DIRS.iter().enumerate() {
+            assert_eq!(octant_of((dx * 5) as f32, (dy * 5) as f32), h as u8, "({dx}, {dy}) x5");
+        }
+    }
+
     use super::*;
     use crate::sim::chunk::Rect;
 
