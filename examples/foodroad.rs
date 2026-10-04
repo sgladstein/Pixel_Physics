@@ -141,6 +141,8 @@ fn laden_now(lab: &Lab) -> (usize, usize) {
 }
 
 fn main() {
+    // Births inherit exactly unless PIXEL_PHYSICS_MUTATION=on (`creature::mutation_of`).
+    pixel_physics::sim::creature::mutation_off_for_measuring();
     let scenario_name: String = arg("scenario").unwrap_or_else(|| "far_larder".into());
     let seed: u64 = arg("seed").unwrap_or(1);
     let start: u64 = arg("start").unwrap_or(12_000);

@@ -375,6 +375,8 @@ fn animals(world: &World) -> Vec<Animal> {
 }
 
 fn main() {
+    // Births inherit exactly unless PIXEL_PHYSICS_MUTATION=on (`creature::mutation_of`).
+    pixel_physics::sim::creature::mutation_off_for_measuring();
     let control: String = arg("control").unwrap_or_else(|| "run".to_string());
     let seed: u64 = arg("seed").unwrap_or(1);
     let frames: u64 = arg("frames").unwrap_or(120_000);

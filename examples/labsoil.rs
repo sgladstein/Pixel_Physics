@@ -219,6 +219,8 @@ fn median(mut v: Vec<f64>) -> f64 {
 }
 
 fn main() {
+    // Births inherit exactly unless PIXEL_PHYSICS_MUTATION=on (`creature::mutation_of`).
+    pixel_physics::sim::creature::mutation_off_for_measuring();
     let soils = list("soils", "40,64,96,128");
     let seeds: u64 = arg("seeds").unwrap_or(12);
     let seed0: u64 = arg("seed0").unwrap_or(1);

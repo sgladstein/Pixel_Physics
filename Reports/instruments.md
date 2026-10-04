@@ -26,6 +26,15 @@ studies:
   eight byte-identical logs because the binary predated the flag it was being
   given. Make a harness echo its own parameters, and treat identical output
   across a change that must have moved something as a stale-binary tell.
+- **Since 2026-10-04 a measuring example breeds without mutation.** Its first
+  line is `creature::mutation_off_for_measuring()` (it prints `mutation off`
+  on stderr), so births inherit exactly and the two arms of an A/B differ only
+  by the switch; `PIXEL_PHYSICS_MUTATION=on` puts evolution back. 25 examples
+  call it, from `labforage`, `digbox`, `nestdoor` and `trailprofile` down; the
+  ones that study evolution (`genome_drift`, `selection_arena`, `labdefence`,
+  `labstats`, `killtrace`, ...) do not. **A lab number from before that date
+  does not compare with one after it.** A new measuring harness over a box
+  that breeds should make the same call.
 
 ## Agents, context and cost
 

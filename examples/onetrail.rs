@@ -673,6 +673,8 @@ fn stream_mode() {
 }
 
 fn main() {
+    // Births inherit exactly unless PIXEL_PHYSICS_MUTATION=on (`creature::mutation_of`).
+    pixel_physics::sim::creature::mutation_off_for_measuring();
     let mode = arg_str("mode", "both");
     // Before the shared header: its defaults (frames, span) are the bed's,
     // and the stream's first line has to echo the stream's own.
