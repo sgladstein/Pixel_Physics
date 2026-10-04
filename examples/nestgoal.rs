@@ -807,6 +807,14 @@ fn main() {
     sc.bed.seed = seed;
     let mut lab = Lab::new(sc.bed.clone());
     let msg = lab.load_scenario(sc);
+    // **`rain=<0-3>` overrides the mister after the box is built**, as
+    // `soil_drawdown` does (`Rain::from_index`; 0 is off). The owner,
+    // 2026-10-04: the mister has no function for the nest goal and may be
+    // causing problems, so goal runs from then are `rain=0`.
+    if let Some(idx) = arg::<u8>("rain") {
+        lab.spec.rain = pixel_physics::lab::rain::Rain::from_index(idx);
+        println!("  mister: {} (rain={idx})", lab.spec.rain.label());
+    }
     // The help card opens over a fresh box and would cover every shot.
     lab.show_help = false;
     // ...and the biosphere readout opens showing after a load.
