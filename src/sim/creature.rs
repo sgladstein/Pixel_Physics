@@ -13995,7 +13995,18 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
     let mut did = Did::default();
     use brain::BrainOutput as O;
     let crop = world.organism(organism).and_then(|s| s.crop);
-    let dig_urge = outputs[O::Dig as usize].clamp(0.0, 1.0);
+    let mut dig_urge = outputs[O::Dig as usize].clamp(0.0, 1.0);
+    // **A lean ant does not dig** (`LeanForage::nodig`): the urge is read as
+    // 0, so the roll below still spends its draw and fails.
+    let lean = {
+        let lf = lean_forage_of(world);
+        lf.on && world.organism(organism).is_some_and(|s| lf.lean(s.energy, def))
+    };
+    if lean && lean_forage_of(world).nodig && dig_urge > 0.0 {
+        dig_urge = 0.0;
+        world.creature_stats.lean_digs_skipped += 1;
+    }
+    let dig_urge = dig_urge;
     // **Feeding is its own verb, and it was not.** Both branches below used
     // to roll against `dig_urge`, so one weight decided whether an animal
     // excavated *and* whether it ate -- §13d's `(Bias, Dig, 0.4)`, added to
@@ -15233,6 +15244,21 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
         if is_store_load(world, Some(spoil)) {
             store_drop(world, organism, (x, y), spoil, dump_urge, draw);
             return did;
+        }
+        // **A lean ant puts its pellet down where it stands**
+        // (`LeanForage::drop`), before any of the rules about where tailings
+        // may lie; with no cell beside it that will hold one, it carries on.
+        if lean && lean_forage_of(world).drop {
+            if let Some((px, py)) = lean_drop_site(world, (x, y)) {
+                world.set(px, py, spoil.cell);
+                if let Some(state) = world.organism_mut(organism) {
+                    state.spoil = None;
+                    state.spoil_ring = None;
+                }
+                world.creature_stats.spoil_dumped += 1;
+                world.creature_stats.lean_dropped += 1;
+                return did;
+            }
         }
         // **The fifth placement rule, and the one the record asks for by
         // name.** `dead-ends.md`'s `LightHere` entry closes with *"an honest
@@ -18635,6 +18661,132 @@ pub fn forage_throttle_of(world: &World) -> ForageThrottle {
     world.forage_throttle.unwrap_or_else(forage_throttle_from_env)
 }
 
+/// **`PIXEL_PHYSICS_LEAN_FORAGE`: a lean ant puts its work down and goes to
+/// eat** (on since 2026-10-03; `off` is the ant before it, line for line).
+/// Built for the owner's nest
+/// goal, a colony that does not die beside endless food. On his food box
+/// (`digbox ants=20 food=60 hungry`, main c3a7dac1, 4 seeds to 250k) every
+/// colony boomed to 200-320 ants and crashed with the pile 52-60 of 60
+/// full: of the ants that starved in the crashes, 9 in 10 spent their last
+/// 5,000 frames at the nest and none at the food, and they held a dirt
+/// pellet for 70% of it -- the walked spoil cycle keeps a pellet inside
+/// while patience lasts, `Dig` reads no hunger, and a held pellet stops
+/// both eating and foraging.
+///
+/// Real workers' tasks follow their own reserves: lean workers forage and
+/// corpulent ones stay home (Blanchard et al. 2000,
+/// doi:10.1006/anbe.1999.1374), and a fat threshold triggers the move to
+/// foraging (Bernadou et al. 2020, doi:10.1242/jeb.219238). So below
+/// `line` of its `start_energy`, an ant
+/// - `nodig`: does not take its dig roll (the draw is still spent, so the
+///   stream does not shift);
+/// - `drop`: puts a pellet down in the first cell beside it that is empty
+///   with two of the three cells under it filled -- no headroom asked, no
+///   keeping it inside -- since a pellet left in a gallery is a pellet
+///   another digger carries on (Pielström & Roces 2013, sequential soil
+///   transport);
+/// - `out`: at its door, feels its own hunger as its outward want, where
+///   the throttle otherwise reads only the colony's (`outward_want`).
+///
+/// A nest-bound ant is lean the same way: hungry, it already scouts as any
+/// ant does, and now it also stops digging to do so.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct LeanForage {
+    pub on: bool,
+    /// Fraction of `start_energy` below which an ant is lean.
+    pub line: f32,
+    pub nodig: bool,
+    pub drop: bool,
+    pub out: bool,
+}
+
+impl LeanForage {
+    pub const OFF: LeanForage = LeanForage { on: false, line: LEAN_LINE, nodig: false, drop: false, out: false };
+    pub const ON: LeanForage = LeanForage { on: true, line: LEAN_LINE, nodig: true, drop: true, out: true };
+    /// Whether an animal at `energy` is lean under this switch.
+    pub fn lean(self, energy: f32, def: &CreatureDef) -> bool {
+        self.on && energy < self.line * def.start_energy
+    }
+}
+
+/// **Half its grant.** Not tuned: the forage drive's `,fed` reads the whole
+/// grant as "fed", and half is the hunger at which `Dig` at the nest
+/// (about 0.8) and the walk to food a gap of 90 away (about 80 J) can both
+/// still be paid for.
+pub const LEAN_LINE: f32 = 0.5;
+
+/// `on` (unset, since 2026-10-03), `off`, or a comma list of `nodig`,
+/// `drop`, `out` and `line=<pct>` (a list without any of the first three
+/// takes all three). **On by default** on the owner's rule that a more
+/// correct rule ships unless it is measured worse: on his food box (4
+/// seeds, 200k) ants alive at the end 3/142/0/31 -> 230/354/129/94, and on
+/// the nest-goal bed (4 seeds, 150k) 408/0/4/4 -> 0/37/148/267 -- the one
+/// seed that fell starved at home at 60-70k on both arms, and only on this
+/// one did the survivors then scatter and stop laying.
+fn parse_lean_forage(raw: &str) -> LeanForage {
+    match raw.trim() {
+        "" | "on" => return LeanForage::ON,
+        "off" => return LeanForage::OFF,
+        _ => {}
+    }
+    let mut t = LeanForage { on: true, ..LeanForage::OFF };
+    let mut parts = false;
+    for part in raw.split(',').map(str::trim) {
+        let ok = match part {
+            "on" => true,
+            "nodig" => {
+                t.nodig = true;
+                parts = true;
+                true
+            }
+            "drop" => {
+                t.drop = true;
+                parts = true;
+                true
+            }
+            "out" => {
+                t.out = true;
+                parts = true;
+                true
+            }
+            _ => match part.split_once('=') {
+                Some(("line", v)) => v.parse::<f32>().ok().filter(|p| (0.0..=100.0).contains(p)).map(|p| t.line = p / 100.0).is_some(),
+                _ => false,
+            },
+        };
+        if !ok {
+            eprintln!("PIXEL_PHYSICS_LEAN_FORAGE={raw:?}: unknown part {part:?}, read as off (off, on, nodig, drop, out, line=<pct>)");
+            return LeanForage::OFF;
+        }
+    }
+    if !parts {
+        t.nodig = true;
+        t.drop = true;
+        t.out = true;
+    }
+    t
+}
+
+pub fn lean_forage_from_env() -> LeanForage {
+    static V: std::sync::OnceLock<LeanForage> = std::sync::OnceLock::new();
+    *V.get_or_init(|| parse_lean_forage(&std::env::var("PIXEL_PHYSICS_LEAN_FORAGE").unwrap_or_default()))
+}
+
+/// This world's lean rule: `World::lean_forage` if set, else the
+/// environment's.
+pub fn lean_forage_of(world: &World) -> LeanForage {
+    world.lean_forage.unwrap_or_else(lean_forage_from_env)
+}
+
+/// **Where a lean ant can set its pellet down**: empty, with two of the
+/// three cells under it filled, so it does not hang in the air. Unlike
+/// [`spoil_site_open`] it asks no headroom, because the ant is in a gallery.
+fn lean_drop_site(world: &World, (x, y): (i32, i32)) -> Option<(i32, i32)> {
+    NEIGHBOURS_8.iter().map(|&(dx, dy)| (x + dx, y + dy)).find(|&(px, py)| {
+        world.get(px, py).material == material::EMPTY && [(-1, 1), (0, 1), (1, 1)].iter().filter(|(dx, dy)| world.get(px + dx, py + dy).material != material::EMPTY).count() >= 2
+    })
+}
+
 /// The nest site whose throttle zone holds `(hx, hy)`: within `reach`
 /// (scaled) of the site's centre column and of its walking row.
 fn throttle_site(world: &World, reach: i32, (hx, hy): (i32, i32)) -> Option<usize> {
@@ -18682,6 +18834,11 @@ fn outward_want(world: &World, st: &crate::sim::organism::OrganismState, def: &C
             let scent = if th.scent { door_scent(world, site) } else { 0.0 };
             let patrol = if st.foraged { 0.0 } else { th.patrol };
             let want = drive.max(scent).max(patrol);
+            // **A lean ant goes on its own hunger** (`LeanForage::out`).
+            let lf = lean_forage_of(world);
+            if lf.out && hunger > want && lf.lean(st.energy, def) {
+                return (hunger, false, Some(hunger));
+            }
             return (want, want > 0.0, Some(hunger));
         }
         // Past the zone: what the door sent it with rides along.
@@ -26964,6 +27121,84 @@ mod tests {
         assert_eq!(held(Some(5)), (false, 0), "a hold of five kept a pellet six cells out");
     }
 
+    /// **A lean carrier puts its pellet down inside; a fed one keeps it**
+    /// ([`LeanForage`]'s `drop`). The hold's room under the door, the carrier
+    /// on its floor with its haul's patience full, so the walked cycle keeps
+    /// the pellet inside whatever `DropSpoil` says. Fed with the switch on,
+    /// and lean with it off, the pellet is kept -- the controls that say the
+    /// scene holds it. Lean with it on, the pellet goes down beside the
+    /// carrier and is counted. Watched red with the drop taken out of `act`.
+    #[test]
+    fn a_lean_carrier_puts_its_pellet_down_inside_and_a_fed_one_keeps_it() {
+        let room: Vec<(i32, i32)> = (42..=46).flat_map(|y| (54..=68).map(move |x| (x, y))).collect();
+        let run = |lean: bool, rule: LeanForage| -> (bool, u64) {
+            let (mut w, a) = carry_world(62, 46, None, &room, &[]);
+            w.lean_forage = Some(rule);
+            let start = w.species.get(w.organism(a).expect("live").species).creature.as_ref().expect("a creature").start_energy;
+            let st = w.organism_mut(a).expect("live");
+            st.home_patience = 1.0;
+            st.energy = if lean { start * 0.3 } else { start };
+            let (hx, hy) = w.organism(a).expect("live").chain[0];
+            assert!(inside_nest(&w, hx, hy), "test setup: the carrier at ({hx}, {hy}) is not inside the nest");
+            carry_act(&mut w, a);
+            (w.organism(a).expect("live").spoil.is_some(), w.creature_stats.lean_dropped)
+        };
+        assert_eq!(run(false, LeanForage::ON), (true, 0), "control: a fed carrier inside with its patience full put its pellet down");
+        assert_eq!(run(true, LeanForage::OFF), (true, 0), "with the switch off a lean carrier inside put its pellet down");
+        assert_eq!(run(true, LeanForage::ON), (false, 1), "a lean carrier inside kept its pellet");
+    }
+
+    /// **A lean ant does not dig** ([`LeanForage`]'s `nodig`). The dig-face
+    /// scene (a nest worker in a gallery facing open floor, `Dig` at 1, the
+    /// face turn on), which cuts one cell for a fed ant and for a lean one
+    /// with the switch off -- the controls -- and none for a lean one with it
+    /// on. Watched red with the urge left alone in `act`.
+    #[test]
+    fn a_lean_ant_does_not_take_its_dig_roll() {
+        let cut = |lean: bool, rule: LeanForage| -> (usize, u64) {
+            let mut w = World::new(Rect::new(0, 0, 119, 99));
+            founding_ground(&mut w);
+            for yy in 60..63 {
+                for xx in 50..=70 {
+                    w.set(xx, yy, Cell::EMPTY);
+                }
+            }
+            w.dig_face = Some(DigFace::On);
+            w.dig_widen = Some(false);
+            w.dig_down = Some(None);
+            w.lean_forage = Some(rule);
+            let a = spawn(&mut w, "ant", 60, 62);
+            let def = w.species.get(w.organism(a).expect("live").species).creature.clone().expect("a creature");
+            let st = w.organism_mut(a).expect("live");
+            st.heading = 0;
+            st.energy = if lean { def.start_energy * 0.3 } else { def.start_energy };
+            let (hx, hy) = w.organism(a).expect("live").chain[0];
+            let before = w.creature_stats.digs;
+            let mut outputs = [0.0f32; brain::BRAIN_OUTPUTS];
+            outputs[brain::BrainOutput::Dig as usize] = 1.0;
+            let mut draw = rng::stream(1, a as u64, 0, RNG_SLOT_MOVE);
+            act(&mut w, hx, hy, a, &def, &outputs, &mut draw);
+            ((w.creature_stats.digs - before) as usize, w.creature_stats.lean_digs_skipped)
+        };
+        assert_eq!(cut(false, LeanForage::ON), (1, 0), "control: a fed ant facing open floor did not cut");
+        assert_eq!(cut(true, LeanForage::OFF), (1, 0), "with the switch off a lean ant did not cut");
+        assert_eq!(cut(true, LeanForage::ON), (0, 1), "a lean ant cut");
+    }
+
+    /// `PIXEL_PHYSICS_LEAN_FORAGE`'s spellings: unset and `on` are all three
+    /// parts at half the grant, `off` none, a list takes what it names, and
+    /// anything it cannot read is off.
+    #[test]
+    fn the_lean_rule_parses_its_spellings() {
+        assert_eq!(parse_lean_forage(""), LeanForage::ON, "unset is on");
+        assert_eq!(parse_lean_forage("on"), LeanForage::ON);
+        assert_eq!(parse_lean_forage("off"), LeanForage::OFF);
+        assert_eq!(parse_lean_forage("nodig"), LeanForage { on: true, nodig: true, ..LeanForage::OFF });
+        assert_eq!(parse_lean_forage("drop,out,line=30"), LeanForage { on: true, drop: true, out: true, line: 0.3, ..LeanForage::OFF });
+        assert_eq!(parse_lean_forage("line=30"), LeanForage { line: 0.3, ..LeanForage::ON });
+        assert_eq!(parse_lean_forage("x"), LeanForage::OFF);
+    }
+
     /// A founding cut at column 60 -- a shaft two wide from row 40 to 45, a
     /// chamber from 56 to 65 on rows 46-47 -- a gallery east along row 47 to
     /// column 80, and a second way up out of its far end, column 80 from row
@@ -33594,9 +33829,11 @@ mod tests {
     /// zone wants the patrol; a starving forager there, with no drive and no
     /// scent, wants nothing (held); trail B laid over the door sends it; far
     /// from the door it carries what it was sent with, and with nothing
-    /// carried it is on its hunger as before; off, hunger everywhere.
-    /// **Watched red** with hunger left in the zone's max: the held arm read
-    /// 0.8.
+    /// carried it is on its hunger as before; off, hunger everywhere. The
+    /// lean rule is held off (`LeanForage`) so the throttle is read alone;
+    /// its `out` arm, the starving forager at the door going on its hunger,
+    /// is the one assertion that turns it on. **Watched red** with hunger
+    /// left in the zone's max: the held arm read 0.8.
     #[test]
     fn the_forage_throttle_sends_from_the_door_and_the_want_rides_along() {
         let mut w = World::new(Rect::new(0, 0, 159, 63));
@@ -33608,6 +33845,7 @@ mod tests {
         let def = w.species.get(species).creature.clone().expect("a creature");
         w.forage_drive = Some(ForageDrive { need: ForageNeed::Off, pace: true, keep: false, fed: false });
         w.forage_throttle = Some(ForageThrottle::ON);
+        w.lean_forage = Some(LeanForage::OFF);
         let want = |w: &World, id| outward_want(w, w.organism(id).expect("live"), &def);
         for id in [near, far] {
             let st = w.organism_mut(id).expect("live");
@@ -33623,6 +33861,10 @@ mod tests {
         }
         let (held, _, hunger) = want(&w, near);
         assert_eq!(held, 0.0, "a starving forager at a door with no news should be held, read {held} (hunger {hunger:?})");
+        w.lean_forage = Some(LeanForage::ON);
+        let (lean, by_colony, _) = want(&w, near);
+        assert!((lean - 0.8).abs() < 1e-5 && !by_colony, "under the lean rule a starving forager at the door goes on its hunger, read {lean}");
+        w.lean_forage = Some(LeanForage::OFF);
         let door = w.nest_sites[0].x;
         for x in door - 3..=door + 3 {
             for y in walk - 1..=walk {
