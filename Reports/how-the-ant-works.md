@@ -916,7 +916,11 @@ The channels carry no meaning in the engine; the meaning is in the wiring.
   awake tile: each cell becomes `here + 0.25 × (mean of its 3×3 − here)`,
   then fades by `× (1 − rho)` with a forced minimum drop of 1 raw unit.
   - **A:** `rho = TRAIL_A_RHO = 0.0`, so it fades only by that minimum.
-  - **B:** `rho = DECAY_RHO = 0.03`.
+  - **B:** `rho = DECAY_RHO = 0.03`, blend 0.25. Both are switches
+    (`PIXEL_PHYSICS_B_RHO`, `PIXEL_PHYSICS_B_DIFFUSE`). At the shipped pair a
+    lone laden pass lays ~29 of 255 and is gone in ~144 frames, mostly to the
+    blend, so on a colony beside an endless pile B never builds up
+    (`examples/trailprofile.rs`).
   - **Terrain is ignored.** Scent spreads into rock and sky exactly as into
     open air, and leaks between parallel tunnels.
 - **Alarm:** spreads by distance falloff (`Spread::ActiveSpace`),
@@ -1216,6 +1220,8 @@ Read once per process from the environment. The default is what ships.
 | `PIXEL_PHYSICS_TRAIL_READ` | here-vs-front | `fwd`: trail A read as far-minus-near at 6 and 12 cells |
 | `PIXEL_PHYSICS_SENSOR_PROJECT` | on | `off`: no row projection; `none`: also no honesty gate |
 | `PIXEL_PHYSICS_A_RHO` | 0.0 | trail A's fade rate |
+| `PIXEL_PHYSICS_B_RHO` | 0.03 | trail B's fade rate per pass |
+| `PIXEL_PHYSICS_B_DIFFUSE` | 0.25 | trail B's blend toward its 3x3 mean per pass; `0.05` with `B_RHO=0.005` holds a food trail along its whole path |
 | `PIXEL_PHYSICS_NEST_REACH` | r1 | `rN`: nest contact within radius N; `body`: any body cell |
 | `PIXEL_PHYSICS_NEST_HOME` | `dug`: the dug nest joined to the door (§ on `adjacent_nest`) | `material` (or `off`): nest material only, the door strip; `shaft`: a head within one cell of the founding cut (dug by `PIXEL_PHYSICS_NEST_SHAFT=<rows>`, `_NEST_SHAFT_WIDTH=<cells>`, lined) also reads `AtNest`; `mouth`: only within one cell of its top two rows (§8) |
 | `PIXEL_PHYSICS_LAB_ROOM` | on | `off`: at-nest `Crowding` falls back to local density |

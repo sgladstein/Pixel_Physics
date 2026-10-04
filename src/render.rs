@@ -8859,7 +8859,17 @@ impl Renderer {
             _ => None,
         };
         if let Some((channel, full)) = pheromone_channel {
-            let t = world.pheromone_at(channel, x, y) as f32 / crate::sim::pheromone::Scent::MAX as f32;
+            // **Square root, not linear** (2026-10-04). Linear put a food
+            // trail -- B at 2-30 of 255 between laden ants, measured on a
+            // colony beside an endless pile (`examples/trailprofile.rs`) --
+            // at 0.18-0.25 of the ramp, against a floor of 0.18: the owner
+            // watched B and saw single ants and nothing between them. The
+            // root lifts 20 to 0.28 of the way and still leaves A's
+            // nest-to-pile fall (250 -> 50) a visible gradient, which a log
+            // curve flattens; `scalar_ramp`'s "deliberately linear" is about
+            // comparing tiles, and the number now lives on the lab's hover
+            // readout and scent strip instead.
+            let t = (world.pheromone_at(channel, x, y) as f32 / crate::sim::pheromone::Scent::MAX as f32).sqrt();
             let ramp = scalar_ramp(t, full);
             let mut out = base;
             for (c, r) in out.iter_mut().take(3).zip(ramp) {
