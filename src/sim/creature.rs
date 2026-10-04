@@ -13504,6 +13504,43 @@ fn jaw_can_cut(world: &World, def: &CreatureDef, organism: OrganismId, cell: Cel
 /// the pellet stays crumbs and is set down in the heap with the spoil -- the
 /// owner's "crumbs stuck in" the patchwork over the nest, and food carried
 /// out of the nest it had been carried into.
+/// Scratch (lane 3): `PIXEL_PHYSICS_SPOIL_ON_FOOD=refuse|swap`, off unless
+/// set. **A pellet is not left lying on food.** `refuse`: no pellet is set
+/// down on a cell whose cell below is loose food (ordinary drop, lift, lean
+/// drop) -- the carrier walks on. `swap`: it is set down, and if loose food
+/// lies under it the two change places, so the crumb stays on top.
+///
+/// **Why** (owner, 2026-10-04, from play): spoil is laid on crumbs left at
+/// the nest edge; a crumb picked up later from under it leaves a pellet with
+/// nothing beneath, which comes down as loose soil -- the spotty patchwork.
+/// Measured first (today's game, seeds 1 and 5 to 130k): about 30 pellets a
+/// run set down on food, of 1,800-6,700; 349-497 set down with food in the
+/// 3x3 round them.
+fn spoil_on_food() -> Option<bool> {
+    static V: std::sync::OnceLock<Option<bool>> = std::sync::OnceLock::new();
+    *V.get_or_init(|| match std::env::var("PIXEL_PHYSICS_SPOIL_ON_FOOD").as_deref() {
+        Ok("refuse") => Some(false),
+        Ok("swap") => Some(true),
+        _ => None,
+    })
+}
+
+/// Is `(x, y)` loose food: worth eating, owned by no organism.
+fn loose_food_at(world: &World, (x, y): (i32, i32)) -> bool {
+    let c = world.get(x, y);
+    c.material != material::EMPTY && c.organism_id() == 0 && world.materials.get(c.material).food_energy > 0.0
+}
+
+/// After a pellet is set down at `(px, py)` under `swap`: if loose food lies
+/// directly under it, the two change places.
+fn swap_off_food(world: &mut World, (px, py): (i32, i32)) {
+    if spoil_on_food() == Some(true) && loose_food_at(world, (px, py + 1)) {
+        let (pellet, food) = (world.get(px, py), world.get(px, py + 1));
+        world.set(px, py, food);
+        world.set(px, py + 1, pellet);
+    }
+}
+
 fn jaw_spares_food() -> bool {
     static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *V.get_or_init(|| std::env::var("PIXEL_PHYSICS_JAW_FOOD").as_deref() == Ok("off"))
@@ -16164,6 +16201,7 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
         if lean && lean_forage_of(world).drop {
             if let Some((px, py)) = lean_drop_site(world, (x, y)) {
                 world.set(px, py, spoil.cell);
+                swap_off_food(world, (px, py));
                 if let Some(state) = world.organism_mut(organism) {
                     state.spoil = None;
                     state.spoil_ring = None;
@@ -16286,7 +16324,8 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
             // then turns it to loose soil within a few frames.
             let footed = spoil_footing_drop();
             let clear = door_clear().0;
-            let open = |px: i32, py: i32| spoil_site_open(world, px, py, footed) && !(clear && over_a_door(world, (px, py)));
+            let refuse_food = spoil_on_food() == Some(false);
+            let open = |px: i32, py: i32| spoil_site_open(world, px, py, footed) && !(clear && over_a_door(world, (px, py))) && !(refuse_food && loose_food_at(world, (px, py + 1)));
             // **...and if there is no such cell beside it, up the shaft.**
             // An animal at the face has nowhere to lie a pellet down -- every
             // neighbour is either the gallery or the bank -- and the two
@@ -16369,6 +16408,7 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
 
             if let Some((px, py)) = site {
                 world.set(px, py, spoil.cell);
+                swap_off_food(world, (px, py));
                 if let Some(state) = world.organism_mut(organism) {
                     state.spoil = None;
                     state.spoil_ring = None;
@@ -16916,7 +16956,7 @@ fn lift_out(world: &World, x: i32, y: i32, footed: bool) -> Option<(i32, i32)> {
             if c.material != material::EMPTY && world.materials.kind(c.material) != MaterialKind::Creature {
                 continue;
             }
-            if spoil_site_open(world, nx, ny, footed) && !under_cover(world, nx, ny) && !(door_clear().0 && over_a_door(world, (nx, ny))) {
+            if spoil_site_open(world, nx, ny, footed) && !under_cover(world, nx, ny) && !(door_clear().0 && over_a_door(world, (nx, ny))) && !(spoil_on_food() == Some(false) && loose_food_at(world, (nx, ny + 1))) {
                 return Some((nx, ny));
             }
             queue.push_back((nx, ny));
@@ -19854,6 +19894,7 @@ fn lean_drop_site(world: &World, (x, y): (i32, i32)) -> Option<(i32, i32)> {
             && [(-1, 1), (0, 1), (1, 1)].iter().filter(|(dx, dy)| world.get(px + dx, py + dy).material != material::EMPTY).count() >= 2
             && !(lean_door_keep() && in_a_door(world, (px, py)))
             && !(door_clear().0 && over_a_door(world, (px, py)))
+            && !(spoil_on_food() == Some(false) && loose_food_at(world, (px, py + 1)))
     })
 }
 
