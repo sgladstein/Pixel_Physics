@@ -1,6 +1,6 @@
 # Ants
 
-*Current as of: 2026-10-04, when **a colony stopped sealing its own door with packed soil** (see *One door, and a granary under it*); 2026-10-03, when **a hungry ant started putting its digging down to go and eat.** A colony beside endless food used to grow to a few hundred and then starve at home all at once, the food untouched: its hungry foragers were still digging and carrying soil, and an ant holding soil cannot eat or fetch food. Now an ant under half its fill stops digging, sets its soil down where it stands, and goes out on its own hunger, and those colonies live. Also 2026-10-03, when **a colony started keeping its own door open** (see *One door, and a granary under it*), and when **the lab's other animals started ageing like the ant** (see *Ants get old and die of it*); 2026-10-02, when **the whole dug nest became home and
+*Current as of: 2026-10-04, when **ants started walking across puddles** (see *Coming home*) and when **a colony stopped sealing its own door with packed soil** (see *One door, and a granary under it*); 2026-10-03, when **a hungry ant started putting its digging down to go and eat.** A colony beside endless food used to grow to a few hundred and then starve at home all at once, the food untouched: its hungry foragers were still digging and carrying soil, and an ant holding soil cannot eat or fetch food. Now an ant under half its fill stops digging, sets its soil down where it stands, and goes out on its own hunger, and those colonies live. Also 2026-10-03, when **a colony started keeping its own door open** (see *One door, and a granary under it*), and when **the lab's other animals started ageing like the ant** (see *Ants get old and die of it*); 2026-10-02, when **the whole dug nest became home and
 food started gathering in piles** (see *One door, and a granary under it*),
 when **new ants started as eggs, laid only at
 home** (see *New ants*), and when **an ant started holding on to a nestmate
@@ -870,6 +870,17 @@ The threshold has drains in it now — every third column of it is left as
 ordinary earth — so a film has one cell to travel before the ground drinks it,
 exactly as it does everywhere else in the bed. On screen that is a door which
 looks faintly speckled rather than a door with a puddle on it.
+
+**Since 2026-10-04 an ant walks across a puddle.** Water used to be a wall:
+an ant could neither wade into it nor stand on it, so a pool a few cells wide
+between the nest and the food was as good as a cliff, and a colony once
+starved in full view of an endless heap with a puddle in between. Now a
+pool's top is a floor, the way real ants run across a film of water. Only the
+water *under* its feet holds an ant, so it still cannot climb a falling
+stream. On its own this killed colonies, for a reason that had nothing to do
+with water: the soil piled round the door got packed into a plug with the
+colony outside. So it ships together with a doorway the ants never tamp shut,
+and with both, no colony died in the runs that tested it.
 
 **What is still not right**, and it is worth knowing before you read a run:
 even with the door clear a colony can lose track of home for a long stretch —
