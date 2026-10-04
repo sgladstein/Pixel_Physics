@@ -1,6 +1,6 @@
 # Ants
 
-*Current as of: 2026-10-03, when **a hungry ant started putting its digging down to go and eat.** A colony beside endless food used to grow to a few hundred and then starve at home all at once, the food untouched: its hungry foragers were still digging and carrying soil, and an ant holding soil cannot eat or fetch food. Now an ant under half its fill stops digging, sets its soil down where it stands, and goes out on its own hunger, and those colonies live. Also 2026-10-03, when **a colony started keeping its own door open** (see *One door, and a granary under it*), and when **the lab's other animals started ageing like the ant** (see *Ants get old and die of it*); 2026-10-02, when **the whole dug nest became home and
+*Current as of: 2026-10-04, when **a colony stopped sealing its own door with packed soil** (see *One door, and a granary under it*); 2026-10-03, when **a hungry ant started putting its digging down to go and eat.** A colony beside endless food used to grow to a few hundred and then starve at home all at once, the food untouched: its hungry foragers were still digging and carrying soil, and an ant holding soil cannot eat or fetch food. Now an ant under half its fill stops digging, sets its soil down where it stands, and goes out on its own hunger, and those colonies live. Also 2026-10-03, when **a colony started keeping its own door open** (see *One door, and a granary under it*), and when **the lab's other animals started ageing like the ant** (see *Ants get old and die of it*); 2026-10-02, when **the whole dug nest became home and
 food started gathering in piles** (see *One door, and a granary under it*),
 when **new ants started as eggs, laid only at
 home** (see *New ants*), and when **an ant started holding on to a nestmate
@@ -970,6 +970,22 @@ laid over their entrances, and harvester ants keep a bare disc round theirs.
 What is not right yet: most of the colony still lives above ground, most eggs
 are still laid away from home, and on some boxes the door still fills, now
 mostly with water and loose soil.
+
+**Not sealing it again.** Even then, on some boxes the colony shut itself in,
+and the plug was hard packed soil. The soil a colony carries out is heaped
+right over its door, the ants dig into that heap as well, and every cut presses
+the loose soil round it into hard wall; so soil that had slid into the mouth
+was pressed into a plug that stayed. Since 2026-10-04 ants leave the doorway
+itself unpressed: soil that slides in stays loose dirt, which falls on down the
+shaft or goes out with the next ant through. Over twelve test boxes no colony
+fell below a hundred ants where three had, the door was found shut a little
+over half as often, and the middle colony was about a tenth larger; with the
+mister off, on four boxes, the door was shut a quarter as often and three of
+the four colonies were several times larger. Keeping the soil heap off the
+door as well, sending shut-out ants to dig back in, and keeping soil off
+crumbs did not help further. Wood ants carry away what falls over their
+entrances. What is not right yet: the colony still tunnels into its own heap
+and lives there, so the heap over the nest is a honeycomb, not a cone.
 
 ### They lay two scents, and the two do not keep
 

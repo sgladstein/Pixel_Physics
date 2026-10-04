@@ -12431,6 +12431,56 @@ pub fn door_reopen_of(world: &World) -> bool {
     })
 }
 
+/// **A nest's doorway is not tamped** (`PIXEL_PHYSICS_DOOR_LOOSE=on|off`, on;
+/// [`World::door_loose`] for one world). On, the burrow lining
+/// ([`line_burrow`], and the founding cut's own) leaves loose any cell in a
+/// founding shaft's own columns from 8 rows over its mouth down to the
+/// mouth's last row ([`in_a_passage`]): soil that slides into the doorway
+/// stays loose soil, which the next ant through cuts as freely as spoil or
+/// which falls on down the shaft, instead of becoming `packedsoil` wall.
+/// The shaft's side walls and everything deeper line as before.
+///
+/// **Why** (nest lane, goal bed, 2026-10-04). In play, the owner saw ants
+/// close off their own nests with packed soil, some nests and not others.
+/// Traced at every cut and pellet on seeds 1 and 5: the plug is packed soil,
+/// 3-11 cells; the mound over the nest is mostly packed and loose soil
+/// (seed 1 at 105k: 392 packed, 178 soil, 35 spoil), because pellets that
+/// lose their footing come down as loose soil; 22-43% of all cuts are ants
+/// re-cutting that mound, and each cut tamps the loose soil round it; and on
+/// seed 1, 433 of about 3,700 pellets set down above ground landed within
+/// two columns of the mouth, 14-26 rows over it. So the mound is built on
+/// the door, and every ant digging in it tamps whatever has slid into the
+/// mouth. Over twelve goal beds (200k frames, misted bed, seeds 1-12): no
+/// colony under 100 ants where three were, the door shut at 32 of 192
+/// checks where it was at 58, median colony 365 -> 408 ants.
+///
+/// **Tried beside it and not shipped** (`Reports/dead-ends.md`): keeping
+/// every pellet off the door as well (no fewer shut doors, one colony of
+/// twelve lost), and sending locked-out ants to dig back toward their nest
+/// (fewer shut doors, smaller colonies). Wood ants clear what falls over
+/// their entrances (Arscott et al. 2026); this keeps the doorway something
+/// they can clear.
+pub fn door_loose_of(world: &World) -> bool {
+    world.door_loose.unwrap_or_else(|| {
+        static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        *V.get_or_init(|| match std::env::var("PIXEL_PHYSICS_DOOR_LOOSE").as_deref() {
+            Ok("on") | Err(_) => true,
+            Ok("off") => false,
+            Ok(other) => panic!("PIXEL_PHYSICS_DOOR_LOOSE={other:?}: use on or off"),
+        })
+    })
+}
+
+/// Is `(x, y)` in a nest's doorway: a founding shaft's own columns, from 8
+/// rows over its mouth row down to the mouth's last row ([`door_loose_of`]).
+fn in_a_passage(world: &World, (x, y): (i32, i32)) -> bool {
+    world
+        .nest_sites
+        .iter()
+        .filter_map(|s| s.shaft)
+        .any(|c| (c.x0..=c.x1).contains(&x) && (c.top - 8..=c.mouth_bottom).contains(&y))
+}
+
 /// **How much of the heap cue a cut at `(tx, ty)` still meets because it is
 /// in a nest's door**: `None` outside every founding cut, or with
 /// [`door_reopen_of`] off; else this ant's [`organism::TRAIT_DOOR_CUE`]
@@ -16581,6 +16631,10 @@ fn pack_neighbours_with(world: &mut World, x: i32, y: i32, keep_spoil: bool) -> 
         };
         // Placed ground stays placed ground: see [`spoil_packs`].
         if keep_spoil && world.materials.get(cell.material).needs_footing {
+            continue;
+        }
+        // The doorway is not wall: see [`door_loose_of`].
+        if door_loose_of(world) && in_a_passage(world, (nx, ny)) {
             continue;
         }
         // Everything but the material rides across: the held water
@@ -26460,6 +26514,30 @@ mod tests {
             None,
             "with the rule off the door meets the cue as before"
         );
+    }
+
+    /// **A nest's doorway is not tamped** ([`door_loose_of`]): soil that has
+    /// slid into the mouth is left as soil by the lining while the shaft's
+    /// side wall beside it is still lined, and with the rule off the lining
+    /// packs both, as before. A rule that stopped lining near the door at all
+    /// turns the wall half red; one that reached nothing turns the first.
+    #[test]
+    fn the_lining_leaves_a_nests_doorway_loose() {
+        let arm = |loose: bool| {
+            let mut w = founding_bed();
+            assert!(w.cut_founding_shaft_with((60, 38), 6, 2, true, None, None) > 0, "the cut removed nothing");
+            let cut = w.nest_sites[0].shaft.expect("the cut records its footprint");
+            let (soil, packed) = (w.materials.id_of("soil").unwrap(), w.materials.id_of("packedsoil").unwrap());
+            w.door_loose = Some(loose);
+            let (x, y) = (cut.x0, cut.mouth_bottom);
+            assert!(y < cut.bottom, "test setup: the cut under the mouth's last row must be in the shaft");
+            w.set(x, y, Cell::new(soil, 0));
+            w.set(cut.x0 - 1, y, Cell::new(soil, 0));
+            pack_neighbours_with(&mut w, x, y + 1, true);
+            (w.get(x, y).material == packed, w.get(cut.x0 - 1, y).material == packed)
+        };
+        assert_eq!(arm(true), (false, true), "shipped: the doorway stays soil, the wall beside it is lined");
+        assert_eq!(arm(false), (true, true), "rule off: the lining packs the doorway as before");
     }
 
     /// **A side storeroom is cut off one side of the entrance shaft, not at
