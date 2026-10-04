@@ -940,7 +940,11 @@ either plane: the other trail inputs are computed and wired to nothing (§3).
   that a 4-connected walk reaches from the door's surface cells or the
   founding cut, within `DUG_HOME_REACH` (60x60) of the site, rebuilt every
   `ROOM_INTERVAL` frames (`World::step_nest_dug`). So every tunnel and room
-  the colony digs from the door is home. `PIXEL_PHYSICS_NEST_HOME=material`
+  the colony digs from the door is home. **A plant grown into a dug cell does
+  not cut it** (`PIXEL_PHYSICS_HOME_PAST_TISSUE`, on since 2026-10-03): a dug
+  cell (`World::dug_cells`) holding living tissue a body gets through (a
+  blade, root or leaf it parts, a stem it crosses) is open to the fill; the
+  same tissue in undug ground is not. `PIXEL_PHYSICS_NEST_HOME=material`
   is the painted door strip, the home before this.
 - **Under `PIXEL_PHYSICS_NEST_HOME=shaft`** (§12), a cell within one cell of
   the founding cut (the shaft, its chamber, and the rim of its mouth, as
@@ -1189,6 +1193,7 @@ Read once per process from the environment. The default is what ships.
 | `PIXEL_PHYSICS_SPOIL_CUE` | `on` (K 5, floor 0) | `off`: no heap cue, the ant before 2026-09-28; `K[,floor]` sets the dials. The cue: a dig that would open the ground to the sky, from the surface or from a tunnel breaking out, goes ahead only in proportion to the pellets beside its target (§5 step 6); `World::spoil_cue` for one world |
 | `PIXEL_PHYSICS_NEST_SHAFT` | 6 | `off` (or `0`): founding paints only and digs nothing, the ant before 2026-09-28; `<rows>`: a deeper or shallower founding shaft (§8); `_NEST_SHAFT_WIDTH=<cells>` its width (2); `World::nest_shaft` for one world |
 | `CROSS_TRUNK`, `TISSUE_PARTING` | on | `0` |
+| `PIXEL_PHYSICS_HOME_PAST_TISSUE` | `on` | `off`: a plant grown into the dug nest is a wall to the dug home, as before 2026-10-03. On, a dug cell holding living tissue a body parts or crosses is open to `World::step_nest_dug` (`body_gets_through_tissue`; `World::home_past_tissue` for one world) |
 | `PIXEL_PHYSICS_PUSH_PAST` | `crumbs,brood` | `off`: neither crumbs nor brood can be walked through, the ant before 2026-10-03; `crumbs` or `brood` alone. On, bodies part loose crumbs and brood as they part foliage, the cell coming back exactly as it was when the body leaves, and the dug home reads past brood (§2; `World::push_past` for one world) |
 | `PIXEL_PHYSICS_DIGEST` | continuous | `lump`: pays out per whole cell |
 | `PIXEL_PHYSICS_LOAD_BY` | joules | `cells`: a load weighs the cells in the crop, not its worth ÷ 480 (§9) |
