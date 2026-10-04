@@ -12510,6 +12510,56 @@ pub fn door_reopen_of(world: &World) -> bool {
     })
 }
 
+/// **A nest's doorway is not tamped** (`PIXEL_PHYSICS_DOOR_LOOSE=on|off`, on;
+/// [`World::door_loose`] for one world). On, the burrow lining
+/// ([`line_burrow`], and the founding cut's own) leaves loose any cell in a
+/// founding shaft's own columns from 8 rows over its mouth down to the
+/// mouth's last row ([`in_a_passage`]): soil that slides into the doorway
+/// stays loose soil, which the next ant through cuts as freely as spoil or
+/// which falls on down the shaft, instead of becoming `packedsoil` wall.
+/// The shaft's side walls and everything deeper line as before.
+///
+/// **Why** (nest lane, goal bed, 2026-10-04). In play, the owner saw ants
+/// close off their own nests with packed soil, some nests and not others.
+/// Traced at every cut and pellet on seeds 1 and 5: the plug is packed soil,
+/// 3-11 cells; the mound over the nest is mostly packed and loose soil
+/// (seed 1 at 105k: 392 packed, 178 soil, 35 spoil), because pellets that
+/// lose their footing come down as loose soil; 22-43% of all cuts are ants
+/// re-cutting that mound, and each cut tamps the loose soil round it; and on
+/// seed 1, 433 of about 3,700 pellets set down above ground landed within
+/// two columns of the mouth, 14-26 rows over it. So the mound is built on
+/// the door, and every ant digging in it tamps whatever has slid into the
+/// mouth. Over twelve goal beds (200k frames, misted bed, seeds 1-12): no
+/// colony under 100 ants where three were, the door shut at 32 of 192
+/// checks where it was at 58, median colony 365 -> 408 ants.
+///
+/// **Tried beside it and not shipped** (`Reports/dead-ends.md`): keeping
+/// every pellet off the door as well (no fewer shut doors, one colony of
+/// twelve lost), and sending locked-out ants to dig back toward their nest
+/// (fewer shut doors, smaller colonies). Wood ants clear what falls over
+/// their entrances (Arscott et al. 2026); this keeps the doorway something
+/// they can clear.
+pub fn door_loose_of(world: &World) -> bool {
+    world.door_loose.unwrap_or_else(|| {
+        static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        *V.get_or_init(|| match std::env::var("PIXEL_PHYSICS_DOOR_LOOSE").as_deref() {
+            Ok("on") | Err(_) => true,
+            Ok("off") => false,
+            Ok(other) => panic!("PIXEL_PHYSICS_DOOR_LOOSE={other:?}: use on or off"),
+        })
+    })
+}
+
+/// Is `(x, y)` in a nest's doorway: a founding shaft's own columns, from 8
+/// rows over its mouth row down to the mouth's last row ([`door_loose_of`]).
+fn in_a_passage(world: &World, (x, y): (i32, i32)) -> bool {
+    world
+        .nest_sites
+        .iter()
+        .filter_map(|s| s.shaft)
+        .any(|c| (c.x0..=c.x1).contains(&x) && (c.top - 8..=c.mouth_bottom).contains(&y))
+}
+
 /// **How much of the heap cue a cut at `(tx, ty)` still meets because it is
 /// in a nest's door**: `None` outside every founding cut, or with
 /// [`door_reopen_of`] off; else this ant's [`organism::TRAIT_DOOR_CUE`]
@@ -17128,6 +17178,10 @@ fn pack_neighbours_with(world: &mut World, x: i32, y: i32, keep_spoil: bool) -> 
         if keep_spoil && world.materials.get(cell.material).needs_footing {
             continue;
         }
+        // The doorway is not wall: see [`door_loose_of`].
+        if door_loose_of(world) && in_a_passage(world, (nx, ny)) {
+            continue;
+        }
         // Everything but the material rides across: the held water
         // (`aux`), the palette index, the attached flag, the temperature.
         // Writing a fresh `Cell` here would read as *dry* ground on a
@@ -18914,6 +18968,28 @@ fn carries_lunch(world: &World, state: &crate::sim::organism::OrganismState) -> 
     state.lunch && state.spoil.is_none() && state.crop.is_some_and(|c| c.worth() > 0.0) && packed_lunch_of(world)
 }
 
+/// **The crop a nestmate can feed a larva from** (`brood::nurse` under
+/// `PIXEL_PHYSICS_CROP_NURSE`): food it carried, not a packed lunch
+/// ([`carries_lunch`], food for the road), with no seed riding in it (a
+/// passenger leaves only with its holder's own last cell) and no pellet in
+/// the jaws. `None` for anything else.
+pub(super) fn crop_to_feed(world: &World, state: &crate::sim::organism::OrganismState) -> Option<Crop> {
+    if state.spoil.is_some() || carries_lunch(world, state) {
+        return None;
+    }
+    state.crop.filter(|c| c.cells > 0 && c.unit > 0.0 && c.worth() > 0.0 && c.passenger.is_none())
+}
+
+/// **What `organism` keeps of a joule of `material`** eaten some way other
+/// than out of its own crop (`brood::nurse` feeding a larva from a carrier's
+/// crop): digestion's `quality` for its gut and `overhead` for its rate,
+/// unscaled by appetite because the eater is hungry.
+pub(super) fn yield_of(world: &World, organism: OrganismId, def: &CreatureDef, material: material::MaterialId) -> (f32, f32) {
+    let quality = diet_quality(world, material, gut_of(world, organism, def).bias);
+    let overhead = (def.digest_fraction * digest_rate_of(def, &traits_of(world, organism, def))).clamp(0.0, MAX_DIGEST_OVERHEAD);
+    (quality, overhead)
+}
+
 /// **`PIXEL_PHYSICS_HAUL_BITE`: whether an animal hauling a dirt pellet can
 /// take a mouthful.** Unset or `on` is the ant before it: it can, and does --
 /// on the colony bed (24 seeds, 90 cells, `main` after #510) 51% of the crops
@@ -20029,6 +20105,46 @@ fn chooser_step(
     // A packed lunch is not a load (`carries_lunch`): its carrier scouts
     // outward and reads the outbound trail, as an empty ant does.
     let laden = world.organism(organism).is_some_and(|s| s.crop.is_some_and(|c| c.worth() > 0.0) && !carries_lunch(world, s));
+    // **Nurses find hungry larvae by scent** ([`brood::nurse_seek_of`]): an
+    // ant with something to give -- a bank over its stamp, which is what
+    // `brood::nurse` takes from -- carrying no load and no pellet, inside the
+    // nest, is drawn along [`brood::larva_scent`]. `None` leaves every score
+    // as it was.
+    //
+    // **A carrier is drawn too, under `PIXEL_PHYSICS_CROP_NURSE=on`**
+    // ([`brood::crop_nurse_of`]): food it brought home ([`crop_to_feed`]) is
+    // what `brood::nurse` feeds a larva from, and a laden ant was 54% of the
+    // food box's walking decisions -- the ants `NURSE_SEEK` could never move.
+    let crop_seek = super::brood::crop_nurse_of(world) == super::brood::CropNurse::On;
+    let bank_seek = super::brood::nurse_seek_of(world);
+    let nurse = if bank_seek.is_none() && !crop_seek {
+        None
+    } else {
+        world.organism(organism).and_then(|s| {
+            if s.spoil.is_some() || s.energy <= def.start_energy || !inside_nest(world, hx, hy) {
+                return None;
+            }
+            let gain = if laden {
+                (crop_seek && crop_to_feed(world, s).is_some()).then_some(super::brood::NURSE_SEEK_GAIN)?
+            } else {
+                let seek = bank_seek?;
+                if seek.workers_only && !is_nest_bound(world, s) {
+                    return None;
+                }
+                seek.gain
+            };
+            let material = super::brood::brood_material(world, def)?;
+            super::brood::larva_scent(world, (hx, hy), s.colony, material).map(|(ux, uy, f)| (ux, uy, gain * f))
+        })
+    };
+    if nurse.is_some() {
+        world.creature_stats.nurse_seeks += 1;
+    }
+    let nurse_term = |d: u8| -> f32 {
+        let Some((ux, uy, w)) = nurse else { return 0.0 };
+        let (dx, dy) = DIRS[d as usize];
+        w * (dx as f32 * ux + dy as f32 * uy) / DIR_LEN[(d & 1) as usize]
+    };
     // **Which way along a route, for an empty ant** (`AWAY_GAIN`): the
     // cosine of each heading with home, from `home_target` as the laden ant
     // uses it. `None` for a laden ant, one hauling spoil, or one standing on
@@ -20175,6 +20291,7 @@ fn chooser_step(
                 scout_cos(d).map_or(0.0, |c| -scout_w * scout_patience * (1.0 - route(d)) * c)
             }
             + if door.is_some() { door_term(d) } else { 0.0 }
+            + nurse_term(d)
     };
     // Usable headings in `DIRS` order, then the crossing, so the draw maps to
     // the same option every run.
@@ -26959,6 +27076,30 @@ mod tests {
             None,
             "with the rule off the door meets the cue as before"
         );
+    }
+
+    /// **A nest's doorway is not tamped** ([`door_loose_of`]): soil that has
+    /// slid into the mouth is left as soil by the lining while the shaft's
+    /// side wall beside it is still lined, and with the rule off the lining
+    /// packs both, as before. A rule that stopped lining near the door at all
+    /// turns the wall half red; one that reached nothing turns the first.
+    #[test]
+    fn the_lining_leaves_a_nests_doorway_loose() {
+        let arm = |loose: bool| {
+            let mut w = founding_bed();
+            assert!(w.cut_founding_shaft_with((60, 38), 6, 2, true, None, None) > 0, "the cut removed nothing");
+            let cut = w.nest_sites[0].shaft.expect("the cut records its footprint");
+            let (soil, packed) = (w.materials.id_of("soil").unwrap(), w.materials.id_of("packedsoil").unwrap());
+            w.door_loose = Some(loose);
+            let (x, y) = (cut.x0, cut.mouth_bottom);
+            assert!(y < cut.bottom, "test setup: the cut under the mouth's last row must be in the shaft");
+            w.set(x, y, Cell::new(soil, 0));
+            w.set(cut.x0 - 1, y, Cell::new(soil, 0));
+            pack_neighbours_with(&mut w, x, y + 1, true);
+            (w.get(x, y).material == packed, w.get(cut.x0 - 1, y).material == packed)
+        };
+        assert_eq!(arm(true), (false, true), "shipped: the doorway stays soil, the wall beside it is lined");
+        assert_eq!(arm(false), (true, true), "rule off: the lining packs the doorway as before");
     }
 
     /// **A side storeroom is cut off one side of the entrance shaft, not at

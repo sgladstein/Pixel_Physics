@@ -4036,6 +4036,10 @@ fn harness() {
                         "BROOD frame={f} standing eggs {} larvae {} pupae {} (holding {:.0} J) | laid {}, larvae {}, pupated {}, hatched (births) {}, larvae starved {}, lost {}, hatches refused for room {} | J shared in {:.0}, nursed by touch {:.0}, eaten beside {:.0}, upkeep {:.0}, to corpse {:.0} | births held by the food brake {}",
                         by_stage[0], by_stage[1], by_stage[2], held, st.eggs_laid, st.larvae, st.pupae, st.births, st.larvae_starved, st.brood_lost, st.hatches_denied, st.brood_shared_j, st.brood_nursed_j, st.brood_ate_j, st.brood_upkeep_j, st.brood_corpse_j, st.food_brake_held
                     );
+                    println!(
+                        "NURSE frame={f} seeks {} | hungry larva ticks {} with a nurse beside {} | fed from a crop {} ({:.0} J) | live ants {}",
+                        st.nurse_seeks, st.larva_ticks_hungry, st.larva_ticks_nursed, st.larva_ticks_crop_fed, st.brood_crop_fed_j, world.live_creature_count()
+                    );
                 }
                 // **Where the brood lies** (`PIXEL_PHYSICS_EGG_DOOR`,
                 // `PIXEL_PHYSICS_BROOD_CARRY`). The founding cut is the place
@@ -4097,9 +4101,10 @@ fn harness() {
                         largest = largest.max(n);
                     }
                     println!(
-                        "BROODAT frame={f} brood cells {} | in the shaft {shaft}, rest of the founding cut {chamber}, dug home beyond it {dug}, above the old ground {above}, elsewhere {other} | piles {piles}, largest {largest} | carried {}",
+                        "BROODAT frame={f} brood cells {} | in the shaft {shaft}, rest of the founding cut {chamber}, dug home beyond it {dug}, above the old ground {above}, elsewhere {other} | piles {piles}, largest {largest} | carried {} | spread {}",
                         cells.len(),
-                        world.creature_stats.brood_carried
+                        world.creature_stats.brood_carried,
+                        world.creature_stats.brood_spread
                     );
                 }
                 // `PIXEL_PHYSICS_HOME_REAIM`'s "it fired" half (`creature::home_reaim`).
