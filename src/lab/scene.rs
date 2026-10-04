@@ -864,6 +864,14 @@ impl LabBox {
         // falling litter and seed (never above ~70 ants). A starting value,
         // like the two rows above: a later `set_rates` moves it.
         w.clock.set_rates(0, |c| c.growth_slowdown = 2);
+        // **The lab's ants start on a half-plant diet** (owner's card,
+        // 2026-10-04: "Start lab ants on the half-plant diet they evolve to:
+        // in test runs only, or in the game too?" -- *Game too*). Before
+        // the colonies below are founded, because a founder copies its
+        // species' ancestral traits. See [`LAB_ANT_GUT`].
+        if let Some(gut) = lab_ant_gut() {
+            set_ancestral_gut(&mut w, "ant", gut);
+        }
         // **The lab's ants lay only at the nest**, the engine default
         // (`creature::bud_at_nest`), with no lab override since 2026-10-03 --
         // the owner's ruling that day: "I also just want brood on in the nest
@@ -1042,6 +1050,75 @@ impl LabBox {
     }
 }
 
+/// **The ancestral gut a lab box gives its ants: half way to plant matter.**
+/// The shipped ant is a generalist (`gut_bias` 0, `assets/species/ant.ron`),
+/// and nearly everything a lab box feeds it is plant matter -- the player's
+/// `provisions` and every crop on the bench are `food_class` -1 -- which
+/// `creature::diet_quality` pays that gut a quarter of: 240 of a provisions
+/// cell's 960 J.
+///
+/// **Measured, main 01766c2e, 2026-10-04.** With mutation on, the colony's
+/// mean gut drifted to -0.43..-0.68 by 80,000-100,000 frames on all four
+/// goal-box seeds, and each colony stayed near its 50 founders until it
+/// moved (30,000-60,000 frames), then grew to 340-430. With mutation off
+/// (`creature::mutation_of`, every measuring example since PR 611) it never
+/// moved and the colony held near 35 to 200,000 frames on 4 of 4. Founders
+/// at -0.5 with mutation off grew at once on 4 of 4 (peaks 330-380). Every
+/// other trait and the brain evolving, diet alone frozen: stuck near 30 on
+/// 4 of 4. Played bed, 120,000 frames, seeds 1-4, mutation off: births
+/// 23 -> 180, peak ants 42 -> 113, higher on 4 of 4.
+///
+/// **The visible cost: the garden is grazed from the first frame.** A leaf
+/// on a living plant (40 J) pays this gut 22.5 J, over
+/// `creature::EAT_YIELD_THRESHOLD`'s 12, where the generalist's 10 J was
+/// under it -- so the ants eat the standing plants at once, which an
+/// evolving colony did anyway once its gut passed about -0.1. Played bed,
+/// 120,000 frames: fewer plants at the end on 4 of 4 (12-46%).
+///
+/// **-0.5 sits inside the range the colonies evolved to**, not at the plant
+/// end. -1.0 was built for the whole game once and reverted: there a corpse
+/// (`food_class` +1) pays exactly 0 and the ant stops seeing carrion
+/// (`ant.ron`'s slot-0 note; `Reports/dead-ends.md`). At -0.5 a corpse pays
+/// a sixteenth of its worth against a quarter at 0, and stays on the menu:
+/// a 480 J corpse pays 30 J, over the 12 J bar, so the owner's "an omnivore
+/// should be viable" still holds. Carrion leaves the menu near -0.68. Lab-scoped, like the plant rows above: nothing
+/// has measured what it does outdoors, where ants eat carrion and flowers.
+/// The gut stays heritable, so a lineage still moves from here.
+///
+/// `PIXEL_PHYSICS_LAB_ANT_GUT` names another value (-1 to 1), or `ancestral`
+/// for the species' own; the parameters page's `gut_bias` row and a
+/// scenario's `settings` still win, being applied after the box is built.
+pub const LAB_ANT_GUT: f32 = -0.5;
+
+/// [`LAB_ANT_GUT`], or what `PIXEL_PHYSICS_LAB_ANT_GUT` names; `None` for
+/// `ancestral`. Anything else panics rather than run a box nobody asked for.
+pub fn lab_ant_gut() -> Option<f32> {
+    static V: std::sync::OnceLock<Option<f32>> = std::sync::OnceLock::new();
+    *V.get_or_init(|| match std::env::var("PIXEL_PHYSICS_LAB_ANT_GUT") {
+        Err(_) => Some(LAB_ANT_GUT),
+        Ok(v) if v.trim() == "ancestral" => None,
+        Ok(v) => Some(
+            v.trim()
+                .parse::<f32>()
+                .ok()
+                .filter(|g| (-1.0..=1.0).contains(g))
+                .unwrap_or_else(|| panic!("PIXEL_PHYSICS_LAB_ANT_GUT={v}: want a number from -1 to 1, or `ancestral`")),
+        ),
+    })
+}
+
+/// Set `species`' ancestral `gut_bias` in this world only -- the same write
+/// the parameters page's row makes. A species the world does not know, or
+/// one that is not a creature, is left alone.
+fn set_ancestral_gut(w: &mut World, species: &str, gut: f32) {
+    let Some(id) = w.species.id_of(species) else { return };
+    let Some(mut def) = w.species.get(id).creature.clone() else {
+        return;
+    };
+    def.traits[crate::sim::organism::TRAIT_GUT_BIAS] = gut;
+    w.species.set_creature(id, def);
+}
+
 /// What `build` managed to place, against what it was asked for.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Planted {
@@ -1071,6 +1148,36 @@ mod tests {
 
     fn scratch_path(tag: &str) -> std::path::PathBuf {
         std::env::temp_dir().join(format!("pixel_physics_lab_{tag}_{}.ron", std::process::id()))
+    }
+
+    /// **A lab box's ants are founded half-plant; the engine's ant is not.**
+    /// Fails if the line in `build_counted` goes, or moves below the
+    /// founding (founders copy the species' traits when they are placed).
+    #[test]
+    fn a_lab_box_founds_its_ants_on_the_half_plant_diet() {
+        let w = LabBox {
+            founders: 0,
+            ..LabBox::default()
+        }
+        .build();
+        let ant = w.species.id_of("ant").expect("the lab's colony species");
+        let guts: Vec<f32> = w
+            .live_organism_ids()
+            .into_iter()
+            .filter_map(|id| w.organism(id))
+            .filter(|st| st.species == ant)
+            .map(|st| st.traits[crate::sim::organism::TRAIT_GUT_BIAS])
+            .collect();
+        assert!(!guts.is_empty(), "the default box founds a colony");
+        assert!(
+            guts.iter().all(|&g| g == LAB_ANT_GUT),
+            "founders' guts {guts:?}, want {LAB_ANT_GUT}"
+        );
+        // Scoped to the lab: a plain world keeps the shipped generalist.
+        let outdoor = World::new(crate::sim::chunk::Rect::new(0, 0, 63, 63));
+        let id = outdoor.species.id_of("ant").expect("ant is compiled in");
+        let def = outdoor.species.get(id).creature.as_ref().expect("ant is a creature");
+        assert_eq!(def.traits[crate::sim::organism::TRAIT_GUT_BIAS], 0.0);
     }
 
     #[test]
