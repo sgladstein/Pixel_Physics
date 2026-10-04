@@ -202,6 +202,8 @@ fn selftest() {
 }
 
 fn main() {
+    // Births inherit exactly unless PIXEL_PHYSICS_MUTATION=on (`creature::mutation_of`).
+    pixel_physics::sim::creature::mutation_off_for_measuring();
     let control: String = arg("control").unwrap_or_else(|| "run".to_string());
     if control == "selftest" {
         selftest();

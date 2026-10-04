@@ -329,6 +329,8 @@ fn scene(w: i32, h: i32, floor: i32, ants: usize, food: bool, seed: u64, arm: Ar
 }
 
 fn main() {
+    // Births inherit exactly unless PIXEL_PHYSICS_MUTATION=on (`creature::mutation_of`).
+    pixel_physics::sim::creature::mutation_off_for_measuring();
     let mut frames = 6000usize;
     let mut seeds = 1u64;
     // `None` = whatever `ant.ron` says. `climb=0` / `climb=1` force the arm.

@@ -48,6 +48,8 @@ fn arg<T: std::str::FromStr>(key: &str) -> Option<T> {
 }
 
 fn main() {
+    // Births inherit exactly unless PIXEL_PHYSICS_MUTATION=on (`creature::mutation_of`).
+    pixel_physics::sim::creature::mutation_off_for_measuring();
     let seed: u64 = arg("seed").unwrap_or(1);
     let gap: i32 = arg("gap").unwrap_or(40);
     let radius: i32 = arg("pile").unwrap_or(8);

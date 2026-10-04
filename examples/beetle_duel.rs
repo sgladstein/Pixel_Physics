@@ -76,6 +76,8 @@ fn world(seed: u64, plate: Option<f32>) -> World {
 }
 
 fn main() {
+    // Births inherit exactly unless PIXEL_PHYSICS_MUTATION=on (`creature::mutation_of`).
+    pixel_physics::sim::creature::mutation_off_for_measuring();
     let ants: Vec<i32> = arg::<String>("ants")
         .unwrap_or_else(|| "1,2,4,8".into())
         .split(',')

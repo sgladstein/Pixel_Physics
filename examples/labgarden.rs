@@ -63,6 +63,8 @@ fn is_creature(world: &World, sp: pixel_physics::sim::organism::SpeciesId) -> bo
 }
 
 fn main() {
+    // Births inherit exactly unless PIXEL_PHYSICS_MUTATION=on (`creature::mutation_of`).
+    pixel_physics::sim::creature::mutation_off_for_measuring();
     let frames: u64 = arg("frames").unwrap_or(300_000);
     let sample: u64 = arg("sample").unwrap_or(6_000);
     let name: String = arg("scenario").unwrap_or_else(|| "played_bed".to_string());

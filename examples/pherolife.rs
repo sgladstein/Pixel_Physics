@@ -273,6 +273,8 @@ fn fmt(frames: u64) -> String {
 }
 
 fn main() {
+    // Births inherit exactly unless PIXEL_PHYSICS_MUTATION=on (`creature::mutation_of`).
+    pixel_physics::sim::creature::mutation_off_for_measuring();
     let args = Args::parse();
     if args.selftest {
         selftest(&args);

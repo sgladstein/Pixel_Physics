@@ -547,6 +547,8 @@ fn fork(scenario: pixel_physics::lab::scenario::Scenario, shared: u64, after: u6
 }
 
 fn main() {
+    // Births inherit exactly unless PIXEL_PHYSICS_MUTATION=on (`creature::mutation_of`).
+    pixel_physics::sim::creature::mutation_off_for_measuring();
     let mode: String = arg("mode").unwrap_or_else(|| "run".to_string());
     if mode == "selftest" {
         selftest();

@@ -45,6 +45,8 @@ struct Life {
 }
 
 fn main() {
+    // Births inherit exactly unless PIXEL_PHYSICS_MUTATION=on (`creature::mutation_of`).
+    pixel_physics::sim::creature::mutation_off_for_measuring();
     let seed: u64 = arg("seed").unwrap_or(1);
     let frames: u64 = arg("frames").unwrap_or(60_000);
     let predators: u32 = arg("predators").unwrap_or(6);
