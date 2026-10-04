@@ -607,6 +607,7 @@ fn selftest() {
 }
 
 fn main() {
+    pixel_physics::sim::creature::mutation_off_for_measuring();
     if arg::<String>("control").as_deref() == Some("selftest") {
         selftest();
         return;
@@ -633,6 +634,29 @@ fn main() {
         lab.stats.toggle();
     }
     println!("  {msg}");
+    // The founders' diet, so a run says which start it measured (PR 613
+    // founds lab ants at gut -0.5; before it they were generalists at 0).
+    {
+        let w = &lab.world;
+        let ant = w.species.id_of("ant");
+        let guts: Vec<f32> = w
+            .live_organism_ids()
+            .into_iter()
+            .filter_map(|id| w.organism(id))
+            .filter(|st| Some(st.species) == ant)
+            .map(|st| st.traits[pixel_physics::sim::organism::TRAIT_GUT_BIAS])
+            .collect();
+        let anc = ant
+            .and_then(|id| w.species.get(id).creature.as_ref())
+            .map(|d| d.traits[pixel_physics::sim::organism::TRAIT_GUT_BIAS]);
+        let lo = guts.iter().cloned().fold(f32::INFINITY, f32::min);
+        let hi = guts.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+        match anc {
+            Some(g) if guts.is_empty() => println!("  founders: ancestral ant gut {g:.2} (none placed yet)"),
+            Some(g) => println!("  founders: ancestral ant gut {g:.2}; {} placed, gut {lo:.2}..{hi:.2}", guts.len()),
+            None => println!("  founders: no ant species"),
+        }
+    }
     if let Some(dir) = &shots {
         let _ = std::fs::create_dir_all(dir);
         for _ in 1..zoom {
