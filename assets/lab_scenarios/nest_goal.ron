@@ -13,6 +13,12 @@
 // colony lands; `examples/nestgoal.rs` keeps that heap topped up so it
 // never runs out, and reports the goal readout. In the app the heap is
 // placed once and the player tops it up by hand, as in a playtest.
+//
+// **Mister off** (the owner, 2026-10-04: "we can turn misters off for this
+// current goal. It has no function and is potentially causing problems").
+// Its water pooled in the dip between nest and food, cutting the colony off
+// from it, and on the nest floor, where it split one room into "chambers"
+// in the census. With the mister off the lid vents (PR 600).
 (
     name: "nest_goal",
     title: "THE NEST GOAL",
@@ -33,7 +39,9 @@
         seed: 1,
         extra_walls: [],
     ),
-    settings: [],
+    settings: [
+        (subject: "the bed", field: "rain", value: 0),
+    ],
     placements: [],
     timeline: [
         (at: 6000, every: 0, until: 0, what: Colony(species: "ant", x: 256, count: 52)),

@@ -432,7 +432,8 @@ fn heap_count(census: &Census, w: &World, food_x: i32) -> usize {
 
 /// Drop provisions into empty cells above the food spot until the heap holds
 /// `target` cells or this call has dropped `target`. Returns cells dropped.
-/// **The bed drains its own surface** (`drain=1`, the default): every
+/// **The bed can drain its own surface** (`drain=1`; off by default since
+/// the scenario turned the mister off on 2026-10-04): every
 /// [`TOP_EVERY`] frames, standing liquid on or above the ground row between
 /// the nest and the food heap (60 columns left of the nest to 30 right of the
 /// heap) is removed, and the count is returned. Underground water is left
@@ -444,9 +445,9 @@ fn heap_count(census: &Census, w: &World, food_x: i32) -> usize {
 /// only). In all five dead goal-box colonies the dip held 13-47 water cells
 /// and the ants on the food side fell to 0-2 just before the crash; on seed
 /// 4, 88 of 89 hungry ants turned back at the pool's edge. The bed exists to
-/// measure the ants' rules, not where a puddle happened to form. The mister
-/// stays on, since soil moisture is part of the lab. `drain=0` restores the
-/// puddle.
+/// measure the ants' rules, not where a puddle happened to form. The owner
+/// then ruled the mister off for the goal, which removes the water at
+/// source, so the drain is kept only for runs that turn the mister back on.
 fn drain_surface(census: &Census, w: &mut World, nest_x: i32, food_x: i32) -> usize {
     let mut n = 0;
     for y in census.ground_y - 40..=census.ground_y {
@@ -591,7 +592,7 @@ fn main() {
     let mut food_x: Option<i32> = None;
     let mut dropped = 0usize;
     let mut flow = Flow::default();
-    let drain = arg::<u8>("drain").unwrap_or(1) != 0;
+    let drain = arg::<u8>("drain").unwrap_or(0) != 0;
     let mut drained = 0usize;
     for f in 0..=frames {
         if food_x.is_none() {
