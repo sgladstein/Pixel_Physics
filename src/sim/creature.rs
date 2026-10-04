@@ -23484,7 +23484,15 @@ fn head_has_foothold(world: &World, (x, y): (i32, i32), kin: Option<Kin>) -> boo
 /// on 5 of 11); colonies lost 3 -> 1. On the nest branch before it merged
 /// (the same doorway rule, 665a5b142) twelve more seeds leaned the other
 /// way, births higher on 7 of 12, so over 24 seeds births were higher on 10
-/// and lower on 14 -- no measured harm.
+/// and lower on 14 -- no measured harm. Rechecked on main 3f3aa06d (the
+/// narrow food trail), 24 seeds: births higher on 12 and lower on 12, ants
+/// alive at the end higher on 11 and lower on 13, colonies lost 2 -> 5. Its
+/// first twelve seeds alone read as harm (alive at the end lower on 11 of
+/// 12, sign p 0.006) and the next twelve reversed it (higher on 10, p
+/// 0.04): on this bed a 12-seed end count can mislead in either direction.
+/// Steps onto water are rare there (235 / 215 / 989 a run on seeds 1, 7
+/// and 9), mostly onto water lying on plants beside the nest; 3 / 19 / 4 of
+/// them were over open air.
 ///
 /// **Alone it killed colonies that had no puddle to cross**
 /// (2026-10-04, main 0b3e264a, goal bed `nestgoal`, 200k frames, ants alive
