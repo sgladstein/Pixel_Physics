@@ -34,7 +34,12 @@ studies:
   ones that study evolution (`genome_drift`, `selection_arena`, `labdefence`,
   `labstats`, `killtrace`, ...) do not. **A lab number from before that date
   does not compare with one after it.** A new measuring harness over a box
-  that breeds should make the same call.
+  that breeds should make the same call. **And from the same day a lab box
+  founds its ants half-plant** (`scene::LAB_ANT_GUT`): with mutation off at
+  the ancestral gut of 0, every lab colony starved on its plant food and
+  never grew, so a mutation-off lab number taken on main 01766c2e before it
+  measured that starving colony. `PIXEL_PHYSICS_LAB_ANT_GUT=ancestral` puts
+  the old gut back.
 
 ## Agents, context and cost
 
