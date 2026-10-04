@@ -1,0 +1,54 @@
+{
+  "id": "20261004T053321537Z-725138",
+  "created": "2026-10-04T05:33:21Z",
+  "board": "inbox",
+  "origin": {
+    "worktree": "/home/claude/Pixel_Physics",
+    "branch": "claude/lab-overlays-rbz4jn",
+    "commit": "99e0be4f",
+    "agent": null,
+    "session_id": "4464f399-fbc7-5284-aae7-0e0bae2d423f",
+    "user": null,
+    "cwd": "/home/claude/Pixel_Physics"
+  },
+  "title": "Food trail (B): today vs a slower fade",
+  "question": "Same colony, same endless food pile, frame 21,000. Which food trail looks right?",
+  "context_md": "Scent strip under the box: pink A, cyan B, square-root scale. Left B fades 0.03 and spreads 0.25 per pass (today). Right fades 0.005 and spreads 0.05 (PIXEL_PHYSICS_B_RHO / _B_DIFFUSE). Earlier tests found a faster fade fed colonies more, so the slow one may cost food on a patchy box.",
+  "kind": "ab",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "Today",
+      "files": [
+        "20261004T053321537Z-725138/000-b-today.png"
+      ],
+      "caption": "B between waves: 0-2 along the path",
+      "meta": {
+        "B mass in corridor": "383",
+        "peak B on row": "27",
+        "laden ants on path": "3"
+      },
+      "focus": null
+    },
+    {
+      "label": "Slower fade",
+      "files": [
+        "20261004T053321537Z-725138/001-b-slow-switch.png"
+      ],
+      "caption": "B holds along the whole path",
+      "meta": {
+        "B mass in corridor": "8,984",
+        "peak B on row": "138",
+        "laden ants on path": "7"
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
