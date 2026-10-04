@@ -1854,6 +1854,9 @@ pub struct CreatureStats {
     /// Takes refused because the food was still being handled
     /// (`PIXEL_PHYSICS_FOOD_HANDLE`, `creature::food_handle_holds`).
     pub food_handle_held: u64,
+    /// Widening cuts inside the nest refused for want of a crowd
+    /// (`PIXEL_PHYSICS_CROWD_DIG`, `creature::crowd_dig_refuses`).
+    pub crowd_dig_refused: u64,
     /// **Won dig rolls inside the nest with no cuttable cell ahead, by why**
     /// (`PIXEL_PHYSICS_FRESH_CUT` on only): [0] no cuttable cell round the
     /// digger at all, [1] only cells the roof or heap cue would refuse,

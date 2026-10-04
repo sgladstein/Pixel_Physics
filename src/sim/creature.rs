@@ -11620,6 +11620,85 @@ fn parse_spoil_out(raw: &str) -> SpoilOut {
     }
 }
 
+/// **Rooms are dug where ants crowd; elsewhere the nest only tunnels** --
+/// `PIXEL_PHYSICS_CROWD_DIG=<k>`; unset (or `off`) is the ant as it was, bit
+/// for bit. Under it a cut inside the nest ([`inside_nest`]) that would
+/// *widen* open ground -- the target has [`CROWD_WIDEN_OPEN`] or more open
+/// cells among its eight neighbours -- is refused unless at least `k` grown
+/// animals (distinct bodies, brood not counted) have a cell within
+/// [`CROWD_REACH`] of it. A cut at a tunnel's tip, with one or two open
+/// neighbours, is never refused. No draw either way.
+///
+/// **Why** (the owner's goal of 2026-10-03, separate chambers). On the
+/// drained goal box every rule tried so far digs one room that keeps
+/// widening round the brood (lane 3, 01:00; lane 20, 04:10). In real nests
+/// digging is density-dependent: excavation rate follows the number of
+/// workers present and falls as the nest grows to fit them, so nest size is
+/// regulated by population (Rasse & Deneubourg 2001; Buhl et al. 2004, doi
+/// 10.1007/s00114-004-0577-x). A chamber that already fits its crowd stops
+/// growing, and diggers with nothing to widen push tunnels on; where workers
+/// gather at a tunnel's end, a new chamber starts there. *Pogonomyrmex
+/// badius* nests are stacks of flat chambers strung down a shaft, each
+/// smaller than the one above (Tschinkel 2004, *J Insect Sci* 4:21). This is
+/// the room-or-tunnel choice read off the crowd, not off what lies on the
+/// floor (lane 3's two digging modes) or where brood is put (lane 2's
+/// spread).
+fn crowd_dig_of() -> Option<u32> {
+    static V: std::sync::OnceLock<Option<u32>> = std::sync::OnceLock::new();
+    *V.get_or_init(|| {
+        let raw = std::env::var("PIXEL_PHYSICS_CROWD_DIG").unwrap_or_default();
+        match raw.as_str() {
+            "" | "off" => None,
+            v => v.parse::<u32>().ok().filter(|&k| k > 0).or_else(|| {
+                eprintln!("PIXEL_PHYSICS_CROWD_DIG={raw:?}: not a positive count, read as off");
+                None
+            }),
+        }
+    })
+}
+
+/// How many of a cut's eight neighbours must be open for it to widen rather
+/// than extend, under [`crowd_dig_of`]. A tunnel's tip has the cell its
+/// digger stands in, and at most a diagonal, open beside it.
+const CROWD_WIDEN_OPEN: u32 = 3;
+
+/// How near a body must be to count toward the crowd, in cells (Chebyshev),
+/// under [`crowd_dig_of`].
+const CROWD_REACH: i32 = 3;
+
+/// Whether [`crowd_dig_of`] refuses the cut at `(tx, ty)`.
+fn crowd_dig_refuses(world: &World, (tx, ty): (i32, i32)) -> bool {
+    let Some(k) = crowd_dig_of() else {
+        return false;
+    };
+    if !inside_nest(world, tx, ty) || world.nearest_nest_site(tx, ty).and_then(|i| world.nest_sites.get(i)).is_none_or(|s| ty <= s.surface) {
+        return false;
+    }
+    let open = |x: i32, y: i32| {
+        let c = world.get(x, y);
+        c.material == material::EMPTY || c.organism_id() != 0 || matches!(world.materials.kind(c.material), MaterialKind::Creature | MaterialKind::Liquid | MaterialKind::Gas)
+    };
+    let around = super::structural::NEIGHBOURS_8.iter().filter(|&&(dx, dy)| open(tx + dx, ty + dy)).count() as u32;
+    if around < CROWD_WIDEN_OPEN {
+        return false;
+    }
+    let brood = world.materials.id_of("brood");
+    let mut seen: Vec<OrganismId> = Vec::new();
+    for dy in -CROWD_REACH..=CROWD_REACH {
+        for dx in -CROWD_REACH..=CROWD_REACH {
+            let c = world.get(tx + dx, ty + dy);
+            let id = c.organism_id();
+            if id != 0 && Some(c.material) != brood && world.materials.kind(c.material) == MaterialKind::Creature && !seen.contains(&id) {
+                seen.push(id);
+                if seen.len() as u32 >= k {
+                    return false;
+                }
+            }
+        }
+    }
+    true
+}
+
 /// **Inside the nest**, for [`SpoilOut`]: ground over the cell within
 /// `COVER_REACH` rows ([`under_cover`]), **or inside the founding cut** of the
 /// nearest nest site. The second clause is what a cover test alone gets wrong:
@@ -16057,6 +16136,15 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
             let refused = dig_roof_of(world).is_some_and(|rows| under_roof(world, (tx, ty), rows));
             if refused {
                 world.creature_stats.digs_refused_roof += 1;
+            }
+            refused
+        };
+        // **A room grows only where ants crowd** ([`crowd_dig_of`], off):
+        // a cut that would widen open ground inside the nest needs company.
+        let vetoed = vetoed || {
+            let refused = crowd_dig_refuses(world, (tx, ty));
+            if refused {
+                world.creature_stats.crowd_dig_refused += 1;
             }
             refused
         };
