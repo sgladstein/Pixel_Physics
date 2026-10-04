@@ -12056,10 +12056,12 @@ fn build_nest_way(world: &World, site: usize) -> Option<NestWay> {
 }
 
 /// **Every nest's way in, rebuilt on [`REST_REFRESH`]**, from
-/// `World::begin_step` beside the room census. Off the switch it clears the
-/// cache and returns, so a world that does not rest pays one branch a frame.
+/// `World::begin_step` beside the room census. With neither of its readers
+/// on (the rest pull, [`nest_rest_of`], and the way out, [`hungry_out_of`])
+/// it clears the cache and returns, so a world that reads neither pays one
+/// branch a frame.
 pub fn step_nest_rest(world: &mut World) {
-    if !nest_rest_of(world).on() || world.nest_sites.is_empty() {
+    if !(nest_rest_of(world).on() || hungry_out_of(world)) || world.nest_sites.is_empty() {
         world.nest_ways.clear();
         return;
     }
@@ -12116,6 +12118,98 @@ fn rest_pull(world: &World, organism: OrganismId, def: &CreatureDef, head: (i32,
         at = p;
     }
     Some((at, gain))
+}
+
+/// **A hungry ant inside its nest is drawn out the way it came in**
+/// (`PIXEL_PHYSICS_HUNGRY_OUT=on|off`, off; [`World::hungry_out`] for one
+/// world). An ant carrying nothing -- no food, no pellet -- that has fallen
+/// under its grant (`start_energy`), standing on its nest's way in
+/// ([`NestWay`]), is pulled along the passages towards the door,
+/// [`REST_LOOKAHEAD`] steps at a time, at the gain the scout's pull out
+/// would have ([`outward_want`]: its hunger, or what the throttle lets out
+/// at the door). At the door, and outside, there is no pull: scouting and
+/// the trail take a hungry ant on from there as they take any that has left.
+///
+/// **Why** (the deep trace lane, 2026-10-04: seed 1, dry goal box, main
+/// 3f3aa06d, evolution on; 150 ants that starved in the nest against 50
+/// that died of old age, each one's last 5,000 frames). The starvers made
+/// 81% of their decisions inside (old age 9%), with an empty crop 89% of
+/// the time, and their home anchor sat on their own head in 80% of their
+/// decisions (11%): inside a dug nest every step lands beside home, so the
+/// anchor follows the ant (`Reports/how-the-ant-works.md` §8), and the
+/// scout's pull out from home, the one direction hunger gives an empty ant,
+/// has none. A food trail was in front of them 11% of the time (45%). They
+/// were not sealed in: 65 of the 150 had reached the surface at some point.
+///
+/// **The cue is local.** The way in is the breadth-first step count from
+/// the door over the cells an ant can stand in, and the pull reads it only
+/// round the ant's own head. It stands in for the nest's air, stale where
+/// the ants are and fresh at the entrance: diffusion lays that gradient
+/// along the passages, flat at the back of a chamber and steepest in the
+/// entrance tunnel, and it carries the ant's position and heading relative
+/// to the entrance (Cox & Blanchard 2000, J Theor Biol 204:223, doi
+/// 10.1006/jtbi.2000.2010, via PubMed). Hunger sending a worker out to
+/// forage is the ordinary order of things: in a clonal ant a worker's fat
+/// reserve falling past a threshold is what starts it foraging (Bernadou et
+/// al. 2020, J Exp Biol 223:jeb219238, doi 10.1242/jeb.219238, via PubMed).
+///
+/// **Not yet measured**: built 2026-10-04 while lab colony runs waited on
+/// the starting diet for test runs. The known risk is the spoil route's
+/// (`Reports/dead-ends.md`, `SPOIL_ROUTE`): carriers led out along the same
+/// field queued at the shaft's foot behind the ants already in it.
+pub fn hungry_out_of(world: &World) -> bool {
+    world.hungry_out.unwrap_or_else(|| {
+        static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        *V.get_or_init(|| match std::env::var("PIXEL_PHYSICS_HUNGRY_OUT").as_deref() {
+            Ok("on") => true,
+            Ok("off") | Err(_) => false,
+            Ok(other) => panic!("PIXEL_PHYSICS_HUNGRY_OUT={other:?}: use on or off"),
+        })
+    })
+}
+
+/// **Where a hungry ant inside its nest is pulled, and how hard**
+/// ([`hungry_out_of`]); `None` for an animal that is fed, carrying, outside
+/// its nest's way in, already at the door, or not let out.
+fn hungry_out_pull(world: &World, organism: OrganismId, def: &CreatureDef, head: (i32, i32)) -> Option<((i32, i32), f32)> {
+    if !hungry_out_of(world) || def.home_bias <= 0.0 {
+        return None;
+    }
+    let state = world.organism(organism)?;
+    if state.spoil.is_some() || state.crop.is_some_and(|c| c.worth() > 0.0) || state.hungry_home || state.store_return {
+        return None;
+    }
+    if state.energy >= def.start_energy {
+        return None;
+    }
+    // **As hard as the scout would be pulled out** -- its hunger, or at the
+    // door what the throttle lets out -- so this gives the scout's pull the
+    // direction it lacks inside, and adds no pull of its own.
+    let (out, _, _) = outward_want(world, state, def);
+    if out <= 0.0 {
+        return None;
+    }
+    let site = world.nearest_nest_site(head.0, head.1)?;
+    let way = world.nest_ways.iter().find(|w| w.site == site)?;
+    let mut d = way.at(head.0, head.1).filter(|&d| d > 0)?;
+    // The ant's own order to try its neighbours in, as the rest pull's, so
+    // ties where two ways lead out split the colony between them.
+    let turn = (organism as usize).wrapping_mul(0x9E37_79B9) >> 7;
+    let mut at = head;
+    for step in 0..REST_LOOKAHEAD {
+        let mut best: Option<(u16, (i32, i32))> = None;
+        for k in 0..8 {
+            let (dx, dy) = NEIGHBOURS_8[(turn + step + k) % 8];
+            let p = (at.0 + dx, at.1 + dy);
+            if let Some(v) = way.at(p.0, p.1).filter(|&v| v < d && best.is_none_or(|(b, _)| v < b)) {
+                best = Some((v, p));
+            }
+        }
+        let Some((v, p)) = best else { break };
+        d = v;
+        at = p;
+    }
+    (at != head).then_some((at, def.home_bias * out.min(1.0)))
 }
 
 /// The carry this process names ([`SpoilRing`]): [`SpoilRing::SHIPPED`]
@@ -19582,6 +19676,18 @@ fn chooser_step(
     // The home memory, started again whenever the target is new, and cleared
     // whenever there is nothing to take home.
     let pull = home_pull(world, organism, def, (hx, hy));
+    // **Hungry inside: the way out** ([`hungry_out_of`]) -- only where
+    // nothing above pulled. It and the rest pull never both fire: one wants
+    // an ant under its grant that something lets out, the other an ant the
+    // pull out does not reach.
+    let pull = match pull {
+        Some(p) => Some(p),
+        None => {
+            let out = hungry_out_pull(world, organism, def, (hx, hy));
+            world.creature_stats.hungry_out_pulls += u64::from(out.is_some());
+            out
+        }
+    };
     // **Nothing else to do: rest inside** ([`nest_rest_of`]) -- only where
     // nothing above pulled, so every other trip keeps its own target.
     let pull = match pull {
@@ -27649,6 +27755,55 @@ mod tests {
         let start = w.species.get(w.organism(a).expect("live").species).creature.as_ref().expect("a creature").start_energy;
         w.organism_mut(a).expect("live").energy = 0.4 * start;
         assert_eq!(pull(&w, a).1, None, "an ant hungrier than the balance was pulled in");
+    }
+
+    /// **A hungry ant inside is pulled out along the passages, towards its
+    /// door** ([`hungry_out_pull`]). At the gallery's far end, a hungry empty
+    /// ant's pull is aimed west, nearer the door by the way in; in the
+    /// chamber it is aimed back towards the shaft. The same ant fed, carrying food, out on the surface,
+    /// or with the switch off, has none. Watched red with the comparison
+    /// turned (`v > d`, the rest pull's way in) and with the hunger gate
+    /// removed.
+    #[test]
+    fn a_hungry_ant_inside_is_pulled_out_along_the_passages() {
+        let pull_driven = |x: i32, y: i32, on: bool, energy: f32, laden: bool, driven: bool| {
+            let (mut w, a) = rest_world(x, y, false);
+            w.hungry_out = Some(on);
+            if driven {
+                // A forager the colony sends out whatever its hunger: the
+                // fed arm below must be refused by hunger, not by a pull
+                // out of nothing.
+                w.forage_drive = Some(ForageDrive { need: ForageNeed::Always, pace: true, keep: false, fed: false });
+                w.organism_mut(a).expect("live").foraged = true;
+            }
+            step_nest_rest(&mut w);
+            let def = w.species.get(w.organism(a).expect("live").species).creature.clone().expect("a creature");
+            w.organism_mut(a).expect("live").energy = energy * def.start_energy;
+            if laden {
+                let fruit = w.materials.id_of("fruit").expect("fruit");
+                w.organism_mut(a).expect("live").crop = Some(Crop { material: fruit, cells: 1, digesting: 0.0, unit: 960.0, shade: 0, passenger: None });
+            }
+            let head = w.organism(a).expect("live").chain[0];
+            let way_at = |p: (i32, i32)| w.nest_ways.first().and_then(|wy| wy.at(p.0, p.1));
+            let got = hungry_out_pull(&w, a, &def, head);
+            (way_at(head), got.map(|(t, g)| (t, way_at(t), g)))
+        };
+        let pull = |x: i32, y: i32, on: bool, energy: f32, laden: bool| pull_driven(x, y, on, energy, laden, false);
+        let (here, got) = pull(78, 47, true, 0.3, false);
+        let (t, there, gain) = got.expect("a hungry empty ant at the gallery's end was given no way out");
+        assert!(here.is_some() && there < here, "the pull at {t:?} ({there:?} steps) is not nearer the door than the ant ({here:?} steps)");
+        assert!(t.0 < 78, "the pull at {t:?} is not west, back along the gallery");
+        assert!(gain > 0.0);
+        let (here, got) = pull(64, 47, true, 0.3, false);
+        let (t, there, _) = got.expect("a hungry empty ant in the chamber was given no way out");
+        assert!(there < here && t.0 < 64, "the pull at {t:?} ({there:?} steps) is not back towards the shaft from (64, 47) ({here:?} steps)");
+
+        assert_eq!(pull(78, 47, true, 1.0, false).1, None, "a fed ant was pulled out");
+        assert!(pull_driven(78, 47, true, 0.3, false, true).1.is_some(), "control: a hungry forager the colony sends out was not pulled");
+        assert_eq!(pull_driven(78, 47, true, 1.0, false, true).1, None, "a fed forager the colony sends out was pulled: the way out is for the hungry");
+        assert_eq!(pull(78, 47, true, 0.3, true).1, None, "an ant carrying food was pulled out");
+        assert_eq!(pull(90, 39, true, 0.3, false).1, None, "an ant out on the surface was pulled");
+        assert_eq!(pull(78, 47, false, 0.3, false).1, None, "with the switch off a hungry ant was pulled");
     }
 
     /// **The narrower forms keep a scout out** ([`NestRest`]): the same fed

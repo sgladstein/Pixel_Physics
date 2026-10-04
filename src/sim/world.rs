@@ -2147,6 +2147,11 @@ pub struct CreatureStats {
     /// from outside, deeper along the passages inside. The "it fired" half;
     /// the effect half is where the colony stands (`digbox`'s `PILE` line).
     pub rest_pulls: u64,
+    /// Decisions a hungry empty ant inside its nest walked under the way out
+    /// (`PIXEL_PHYSICS_HUNGRY_OUT`, `creature::hungry_out_of`): towards the
+    /// door along the passages. The "it fired" half; the effect half is where
+    /// the colony's starved die (`deeptrace`) and the colony's size.
+    pub hungry_out_pulls: u64,
     /// **Carry distances drawn** under `PIXEL_PHYSICS_SPOIL_RING`
     /// (`creature::spoil_ring`): when its carrier comes out by the door with
     /// it (`creature::carry_stage`), and again for a carrier that went back
@@ -3999,10 +4004,16 @@ pub struct World {
     /// world** (`creature::nest_rest_of`). `None` follows the environment; a
     /// field so a guard can take both arms in one process.
     pub nest_rest: Option<crate::sim::creature::NestRest>,
+    /// **The way out for a hungry ant inside, overriding
+    /// `PIXEL_PHYSICS_HUNGRY_OUT` for this world** (`creature::hungry_out_of`).
+    /// `None` follows the environment; a field so a guard can take both arms
+    /// in one process.
+    pub hungry_out: Option<bool>,
     /// **Each nest's way in**, as steps from its door through the cells
     /// inside it an ant can stand in (`creature::NestWay`), rebuilt every
     /// `creature::REST_REFRESH` frames by `creature::step_nest_rest` while
-    /// resting is on, and empty otherwise. Read only by the rest pull.
+    /// resting or the way out is on, and empty otherwise. Read only by the
+    /// rest pull and the way out.
     pub nest_ways: Vec<crate::sim::creature::NestWay>,
     /// **`PIXEL_PHYSICS_BUD_STORE` for this world** (`creature::bud_from_store`).
     /// `None` follows the environment, which is off unless set.
@@ -6582,6 +6593,7 @@ impl World {
             spoil_ring: None,
             spoil_hold: None,
             nest_rest: None,
+            hungry_out: None,
             nest_ways: Vec::new(),
             bud_store: None,
             births_paused: false,
