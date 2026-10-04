@@ -959,11 +959,19 @@ fn nurse(world: &mut World, larva: OrganismId, (x, y): (i32, i32), colony: u32, 
     // box (main 34b46b64, 24 seeds) gave identical births per seed either
     // way, because its ants do carry a colony.
     let gut = creature::gut_of(world, larva, def);
-    let need = target - world.organism(larva).map_or(target, |s| s.energy);
+    let mut need = target - world.organism(larva).map_or(target, |s| s.energy);
     if need <= 0.0 {
         return;
     }
     world.creature_stats.larva_ticks_hungry += 1;
+    // **Crop first** ([`crop_feed`]): food a carrier brought home costs no
+    // nestmate's bank, so it goes in before anyone's savings do.
+    if crop_nurse_of(world) != CropNurse::Off {
+        need -= crop_feed(world, larva, (x, y), colony, def, gut, need);
+        if need <= 0.0 {
+            return;
+        }
+    }
     let mut best: Option<(OrganismId, f32)> = None;
     for (dx, dy) in super::structural::NEIGHBOURS_8 {
         let c = world.get(x + dx, y + dy);
@@ -998,6 +1006,146 @@ fn nurse(world: &mut World, larva: OrganismId, (x, y): (i32, i32), colony: u32, 
     let donor_colony = world.colony_of(donor);
     world.book(donor_colony, Account::SharedOut, amount as f64);
     world.book(colony, Account::SharedIn, amount as f64);
+}
+
+/// **Fed from a carrier's crop** (`PIXEL_PHYSICS_CROP_NURSE`, [`nurse`]):
+/// the nestmate touching the larva with the most food in its crop
+/// ([`creature::crop_to_feed`]) gives it what it still lacks, out of the
+/// cell it is on and no further, and the larva is credited as if it had
+/// eaten that food itself. Returns the energy the larva gained.
+///
+/// The donor must be kin by scent and over its own stamp: a hungry carrier
+/// eats its own load first, as its own digestion does at full rate below
+/// its stamp. Off under `PIXEL_PHYSICS_DIGEST=lump`, where `digesting` is
+/// progress not yet paid for and a cell taken from would be paid twice.
+///
+/// **Booked as a meal, not a share**: the food was never anyone's energy,
+/// so it goes in under the harvest account of what it was, through the
+/// larva's own gut -- the same `quality` and overhead digestion would have
+/// charged it -- and the carrier's crop gives up face value exactly as its
+/// own chewing would (`digesting` advances, a finished cell leaves). The
+/// live identity is untouched; standing meat falls by face and the harvest
+/// by yield, digestion's one-directional slack.
+#[allow(clippy::too_many_arguments)]
+fn crop_feed(world: &mut World, larva: OrganismId, (x, y): (i32, i32), colony: u32, def: &CreatureDef, gut: creature::Gut, need: f32) -> f32 {
+    if super::organism::digest_is_lumpy() {
+        return 0.0;
+    }
+    let mut best: Option<(OrganismId, super::organism::Crop)> = None;
+    for (dx, dy) in super::structural::NEIGHBOURS_8 {
+        let id = world.get(x + dx, y + dy).organism_id();
+        if id == 0 || id == larva || best.is_some_and(|(b, _)| b == id) {
+            continue;
+        }
+        let Some(st) = world.organism(id) else { continue };
+        if st.brood.is_some() || st.energy <= def.start_energy || !creature::is_living_kin_id(world, id, gut) {
+            continue;
+        }
+        let Some(crop) = creature::crop_to_feed(world, st) else { continue };
+        if best.is_none_or(|(_, b)| crop.worth() > b.worth()) {
+            best = Some((id, crop));
+        }
+    }
+    let Some((donor, c)) = best else { return 0.0 };
+    let (quality, overhead) = creature::yield_of(world, larva, def, c.material);
+    let keep = quality * (1.0 - overhead);
+    let left_in_cell = (c.unit - c.digesting).max(0.0);
+    if keep <= 0.0 || left_in_cell <= 0.0 {
+        return 0.0;
+    }
+    let face = (need / keep).min(left_in_cell);
+    let finished = face >= left_in_cell;
+    let left = if finished { c.cells - 1 } else { c.cells };
+    if let Some(s) = world.organism_mut(donor) {
+        s.crop = (left > 0).then_some(super::organism::Crop { cells: left, digesting: if finished { 0.0 } else { c.digesting + face }, ..c });
+    }
+    let gain = face * keep;
+    if let Some(s) = world.organism_mut(larva) {
+        s.energy += gain;
+    }
+    if world.materials.get(c.material).worth_in_aux {
+        world.book_meal(colony, Account::HarvestedCorpse, c.material, gain as f64);
+    } else {
+        world.book_meal(colony, Account::HarvestedPlant, c.material, gain as f64);
+    }
+    world.creature_stats.digest_overhead_energy += (face * quality * overhead) as f64;
+    world.creature_stats.larva_ticks_crop_fed += 1;
+    world.creature_stats.brood_crop_fed_j += gain as f64;
+    gain
+}
+
+/// **Larvae fed from the food carriers bring home**
+/// (`PIXEL_PHYSICS_CROP_NURSE`): `touch` **by default** (a larva touching a
+/// carrier is fed from its crop, [`crop_feed`]), `off`, or `on` (that, and a
+/// carrier inside the nest is drawn up [`larva_scent`] as [`nurse_seek`]
+/// draws an empty nurse). [`World::crop_nurse`] for one world;
+/// [`crop_nurse_of`] reads both. Unknown values panic.
+///
+/// **`touch` ships on because it measured neutral, and `on` stays off
+/// because it leaned worse** (2026-10-04, main 99e0be4f, 200,000 frames,
+/// live ants at the end, each seed paired with today's game):
+///
+/// | bed | today | `touch` | `on` |
+/// |---|---|---|---|
+/// | food box, seeds 1-8 | 230 354 128 94 572 523 529 17 | 465 417 500 404 67 428 128 0 | 588 48 565 105 75 263 139 465 |
+/// | goal bed, mister on, seeds 1-6 | 384 345 253 71 593 38 | 121 45 0 282 0 383 | 0 63 148 447 226 447 |
+/// | goal bed, mister off, seeds 1-6 | 45 334 0 4 0 75 | 0 388 206 474 0 114 | -- |
+///
+/// `touch` was better on 10 of the 20 seeds and worse on 9 (one tie, both
+/// dead), and 6 of 20 colonies ended under 50 ants in each arm; `on` was
+/// better on 6 of 14 and worse on 8. The swings are the boxes' own: the goal
+/// colonies that died under `touch` were fed 3-10 kJ from crops in 200,000
+/// frames.
+///
+/// **Why so little**: carriers are seldom beside the brood. At a hungry
+/// larva's tick (food box, `touch`, seeds 1-3 to 100,000 frames) the
+/// nestmate touching it had an empty crop 64-83% of the time, none touched
+/// it 14-34%, one held crop food it could not give (a packed lunch, or a
+/// pellet in its jaws) 2-5%, and a fed carrier stood there on 0.2-0.5% of
+/// ticks. Under `on` crop food was 6% of what larvae ate on the food box;
+/// food dropped beside them is most of it.
+///
+/// **Why**: [`nurse`] gives from a nestmate's bank, and an ant's bank is
+/// also what it lays from, so it moved energy between eggs and larvae
+/// without adding any ([`nurse_seek`]'s note). Food in a crop is the
+/// colony's store (owner, 2026-10-04: crops are the food store, no larder
+/// room), and more than half of all walking on the food box was done with
+/// food in it. Scott, 2026-10-04: "so the issue is that nurse workers have
+/// food in the crop and therefore it doesn't work".
+///
+/// **Biology.** Ants pass liquid food mouth to mouth out of the crop, the
+/// "social stomach", between adults and from adults to larvae (LeBoeuf et
+/// al. 2016, doi 10.7554/eLife.20375); in *Camponotus* the food a forager
+/// brings home spreads from its crop through the colony this way (Greenwald
+/// et al. 2018, doi 10.7554/eLife.31730).
+pub fn crop_nurse() -> CropNurse {
+    static V: std::sync::OnceLock<CropNurse> = std::sync::OnceLock::new();
+    *V.get_or_init(|| parse_crop_nurse(&std::env::var("PIXEL_PHYSICS_CROP_NURSE").unwrap_or_default()))
+}
+
+/// How larvae get carriers' food ([`crop_nurse`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CropNurse {
+    Off,
+    /// A carrier touching a hungry larva feeds it from its crop.
+    Touch,
+    /// `Touch`, and carriers inside the nest follow larva scent.
+    On,
+}
+
+fn parse_crop_nurse(raw: &str) -> CropNurse {
+    match raw.trim() {
+        "off" => CropNurse::Off,
+        "" | "touch" => CropNurse::Touch,
+        "on" => CropNurse::On,
+        v => panic!("PIXEL_PHYSICS_CROP_NURSE={v:?}: use on, touch or off"),
+    }
+}
+
+/// The crop nursing in force in `world`: [`World::crop_nurse`] if set, else
+/// [`crop_nurse`].
+pub fn crop_nurse_of(world: &World) -> CropNurse {
+    world.crop_nurse.unwrap_or_else(crop_nurse)
 }
 
 /// **Nurses find hungry larvae by their scent** (`PIXEL_PHYSICS_NURSE_SEEK`):
@@ -1659,6 +1807,66 @@ mod tests {
         assert_eq!(parse_nurse_seek("2.5"), Some(NurseSeek { gain: 2.5, workers_only: true }));
         assert!(std::panic::catch_unwind(|| parse_nurse_seek("0")).is_err(), "a gain of 0 must be spelt off");
         assert!(std::panic::catch_unwind(|| parse_nurse_seek("of")).is_err(), "a mistyped switch must not fail open");
+    }
+
+    #[test]
+    fn crop_nurse_parses_on_touch_and_off() {
+        assert_eq!(parse_crop_nurse(""), CropNurse::Touch, "touch is the default");
+        assert_eq!(parse_crop_nurse("off"), CropNurse::Off);
+        assert_eq!(parse_crop_nurse("touch"), CropNurse::Touch);
+        assert_eq!(parse_crop_nurse("on"), CropNurse::On);
+        assert!(std::panic::catch_unwind(|| parse_crop_nurse("of")).is_err(), "a mistyped switch must not fail open");
+    }
+
+    /// **A carrier touching a hungry larva feeds it from its crop**
+    /// ([`crop_feed`]), crop first and bank second, with the live identity
+    /// closed: the crop gives up face value, the larva gains the yield, and
+    /// what the larva gained is exactly what the crop and the carrier's bank
+    /// were booked as giving. Off, or with a carrier at its own stamp (a
+    /// hungry carrier eats its own load), the crop is not touched.
+    #[test]
+    fn a_carrier_feeds_a_touching_larva_from_its_crop_with_the_books_closed() {
+        // A 960 J fruit cell is used up whole (the larva needs more than it
+        // yields); a 9,600 J one is only part-chewed, through `digesting`.
+        for (mode, hungry, unit) in [(CropNurse::Off, false, 960.0), (CropNurse::Touch, false, 960.0), (CropNurse::Touch, false, 9_600.0), (CropNurse::Touch, true, 960.0)] {
+            let (mut w, ant, def) = bed(true);
+            w.crop_nurse = Some(mode);
+            let block = def.brood.clone().expect("brood");
+            let site = creature::try_bud(&mut w, ant, &def, 0.0, 0.0).expect("lays");
+            let larva = the_egg(&w);
+            w.frame = block.egg_frames;
+            let sites = brood_tick(&mut w, &site);
+            assert_eq!(w.organism(larva).and_then(|s| s.brood).map(|b| b.stage), Some(BroodStage::Larva));
+            let fruit = w.materials.id_of("fruit").expect("fruit");
+            let crop = crate::sim::organism::Crop { material: fruit, cells: 2, digesting: 0.0, unit, shade: 0, passenger: None };
+            if hungry {
+                w.organism_mut(ant).expect("live").energy = def.start_energy;
+            }
+            w.organism_mut(ant).expect("live").crop = Some(crop);
+            let g0 = gap(&w);
+            let (bank0, larva0) = (w.organism(ant).expect("live").energy, w.organism(larva).expect("larva").energy);
+            w.frame += LARVA_TICK;
+            brood_tick(&mut w, &sites[0]);
+            let held = w.organism(ant).expect("live").crop;
+            let gained = w.organism(larva).expect("larva").energy - larva0;
+            let from_bank = bank0 - w.organism(ant).expect("live").energy;
+            assert!((gap(&w) - g0).abs() < 1e-2, "{mode:?}: feeding moved the live identity by {}", gap(&w) - g0);
+            if mode == CropNurse::Off || hungry {
+                assert_eq!(held, Some(crop), "{mode:?} hungry {hungry}: the crop was fed from");
+                assert_eq!(w.creature_stats.brood_crop_fed_j, 0.0);
+                continue;
+            }
+            let given = crop.worth() - held.map_or(0.0, |c| c.worth());
+            assert!(given > 0.0, "a fed carrier touching a hungry larva gave nothing from its crop");
+            assert!(given <= crop.unit + 1e-3, "more than the cell in progress left the crop in one tick: {given}");
+            let st = &w.creature_stats;
+            assert!(gained > 0.0 && (gained as f64 - st.brood_crop_fed_j - st.brood_nursed_j + st.brood_upkeep_j).abs() < 1e-2, "the larva gained {gained}, booked crop {} + bank {} - upkeep {}", st.brood_crop_fed_j, st.brood_nursed_j, st.brood_upkeep_j);
+            assert!((from_bank as f64 - w.creature_stats.brood_nursed_j).abs() < 1e-2, "the bank gave {from_bank}, booked {}", w.creature_stats.brood_nursed_j);
+            let (quality, overhead) = creature::yield_of(&w, larva, &def, fruit);
+            let keep = (quality * (1.0 - overhead)) as f64;
+            assert!(keep < 1.0 && (w.creature_stats.brood_crop_fed_j - given as f64 * keep).abs() < 1e-2, "the larva was credited {} for {given} face, not the gut's {keep} of it", w.creature_stats.brood_crop_fed_j);
+            assert_eq!(held.map(|c| c.cells), Some(if unit < 1_000.0 { 1 } else { 2 }), "unit {unit}: the wrong number of cells left the crop");
+        }
     }
 
     /// **The scent points at a hungry larva of the ant's own colony**

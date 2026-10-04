@@ -4037,8 +4037,8 @@ fn harness() {
                         by_stage[0], by_stage[1], by_stage[2], held, st.eggs_laid, st.larvae, st.pupae, st.births, st.larvae_starved, st.brood_lost, st.hatches_denied, st.brood_shared_j, st.brood_nursed_j, st.brood_ate_j, st.brood_upkeep_j, st.brood_corpse_j, st.food_brake_held
                     );
                     println!(
-                        "NURSE frame={f} seeks {} | hungry larva ticks {} with a nurse beside {} | live ants {}",
-                        st.nurse_seeks, st.larva_ticks_hungry, st.larva_ticks_nursed, world.live_creature_count()
+                        "NURSE frame={f} seeks {} | hungry larva ticks {} with a nurse beside {} | fed from a crop {} ({:.0} J) | live ants {}",
+                        st.nurse_seeks, st.larva_ticks_hungry, st.larva_ticks_nursed, st.larva_ticks_crop_fed, st.brood_crop_fed_j, world.live_creature_count()
                     );
                 }
                 // **Where the brood lies** (`PIXEL_PHYSICS_EGG_DOOR`,

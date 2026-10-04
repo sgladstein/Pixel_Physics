@@ -5,7 +5,7 @@ every tick, how each mechanism is implemented, and what it reads.** It is
 written from the source and describes the code as it is now, not as it was or
 will be.
 
-- **Verified against:** `main` at `bb65d507`, 2026-09-22; §2's support and foothold bullets and §12's `WATER_FOOTING` row 2026-10-04 against `water_footing_of`, `stands_on_water`, `head_has_foothold`, `fall_if_unsupported` and `commit_step`; §5 step 6, the walked cycle's lean carrier, §6d's lean exception to the throttle and §12's `LEAN_FORAGE` row 2026-10-03 against `LeanForage`, `lean_drop_site` and `outward_want`; §9's spread and nurse sentences, §6d's nurse paragraph and §12's `BROOD_SPREAD` and `NURSE_SEEK` rows 2026-10-04 against `brood::spread`, `brood::larva_scent`, `brood::nurse` and `chooser_step`; §9's egg-rule sentence and §12's `EGG_DOOR` and `BROOD_CARRY` rows 2026-10-03 against `brood::EggBar`, `pile_site` and `carry`; §5 step 3's defended-plant sentence 2026-10-03 against `deterred_by_defence` and `food_value`; §2's support
+- **Verified against:** `main` at `bb65d507`, 2026-09-22; §2's support and foothold bullets and §12's `WATER_FOOTING` row 2026-10-04 against `water_footing_of`, `stands_on_water`, `head_has_foothold`, `fall_if_unsupported` and `commit_step`; §5 step 6, the walked cycle's lean carrier, §6d's lean exception to the throttle and §12's `LEAN_FORAGE` row 2026-10-03 against `LeanForage`, `lean_drop_site` and `outward_want`; §9's spread and nurse sentences, §6d's nurse paragraph and §12's `BROOD_SPREAD` and `NURSE_SEEK` rows 2026-10-04 against `brood::spread`, `brood::larva_scent`, `brood::nurse` and `chooser_step`; §9's crop sentence, §6d's carrier paragraph and §12's `CROP_NURSE` row 2026-10-04 against `brood::crop_feed`, `creature::crop_to_feed`, `yield_of` and `chooser_step`; §9's egg-rule sentence and §12's `EGG_DOOR` and `BROOD_CARRY` rows 2026-10-03 against `brood::EggBar`, `pile_site` and `carry`; §5 step 3's defended-plant sentence 2026-10-03 against `deterred_by_defence` and `food_value`; §2's support
   bullet and §12's `KIN_FOOTING` row 2026-10-02 against `fall_if_unsupported`,
   `touches_ground` and `held_by_kin`; §5 step 2's top-up,
   §6d's throttle paragraph and §12's two rows 2026-10-02 against
@@ -876,6 +876,15 @@ scent. Counted in `CreatureStats::nurse_seeks`; `larva_ticks_hungry` and
 `larva_ticks_nursed` count the larva ticks that ended hungry and, of those,
 the ones with a fed nestmate touching it. `World::nurse_seek` for one world.
 
+**Under `PIXEL_PHYSICS_CROP_NURSE=on` (not the default, which is `touch`) a
+carrier walks up the same scent**, because food in its crop is what a
+larva can be fed from (§9). The ant must hold crop food it can give
+(`creature::crop_to_feed`: not a packed lunch, no seed riding in it, no
+pellet in its jaws), a bank over its `start_energy`, and its head inside the
+nest; it scores the same `larva_scent` pull at gain 1 (`NURSE_SEEK_GAIN`),
+counted in the same `nurse_seeks`. Nest-bound or forager makes no
+difference. `touch` leaves the walk alone and only feeds.
+
 The decision trace records the patience each choice scored with, the home
 cosine of the heading picked (for an empty ant too, under `trailaway`), and
 under stage 2 its trail presence (`patience`, `chosen_cos`, `chosen_route`).
@@ -1143,7 +1152,13 @@ either plane: the other trail inputs are computed and wired to nothing (§3).
   (`nurse`: the richest grown nestmate on one of its eight neighbours gives
   a quarter of what it holds above `start_energy`, capped at the need;
   `PIXEL_PHYSICS_NURSE=off` removes it; nothing brings a nurse there unless
-  `PIXEL_PHYSICS_NURSE_SEEK` is on, §6d); pupa for `pupa_frames` (250), then
+  `PIXEL_PHYSICS_NURSE_SEEK` is on, §6d). The crop comes before the bank
+  (`crop_feed`, `PIXEL_PHYSICS_CROP_NURSE`, `touch` by default): the
+  touching kin with the most food in its crop, over its own `start_energy`,
+  gives the shortfall out of the cell it is on and no further, the larva
+  keeping what its own gut would (`creature::yield_of`: digestion's quality
+  and overhead), booked as a harvest of that food; the crop gives up face
+  value as its own chewing would. Pupa for `pupa_frames` (250), then
   it hatches. A hatchling is laid on the pupa's cell or the nearest open
   cell out to 3 rings, then the same rings again standing on a nestmate
   when `bud_stack_of` allows (`place_hatchling`, `Origin::Hatch`); a pupa
@@ -1210,6 +1225,7 @@ Read once per process from the environment. The default is what ships.
 | `PIXEL_PHYSICS_EGG_DOOR` | off | where an egg is never put down (§9, `brood::EggBar`): `door` is a nest's way in, the cells a food drop keeps clear; `cut` is the whole founding cut too (no egg when nothing dug beyond it is in reach); `deep` takes the founding cut only when nothing dug is in reach; `off` is anywhere |
 | `PIXEL_PHYSICS_BROOD_CARRY` | off | at a brood item's tick a touching nestmate with free jaws moves it, within that many steps, out of a cell the egg rule refuses, onto home, or next to more brood (`brood::carry`, counted in `CreatureStats::brood_carried`); `on` is a reach of 3 |
 | `PIXEL_PHYSICS_BROOD_SPREAD` | off | `on` (a crowd of 6) or a crowd of 3 or more: at a brood item's tick, an item with that many brood in the 24 cells round it and a touching nestmate with free jaws is carried 5-10 steps to a home cell with at most crowd - 2 brood round it and no loose food within 3 (§9, `brood::spread`, counted in `CreatureStats::brood_spread`) |
+| `PIXEL_PHYSICS_CROP_NURSE` | `touch` | `touch`: a hungry larva is fed first from the crop of a fed kin carrier touching it (§9, `brood::crop_feed`, counted in `CreatureStats::larva_ticks_crop_fed` and `brood_crop_fed_j`); `on`: that, and a carrier with its head inside the nest walks up larva scent (§6d); `off`: neither; `World::crop_nurse` for one world |
 | `PIXEL_PHYSICS_NURSE_SEEK` | off | `on` or `workers`: a fed, empty-jawed nest worker inside the nest walks up the hunger-weighted scent of its colony's larvae (§6d, `brood::larva_scent`, counted in `CreatureStats::nurse_seeks`); `all`: any such ant; a number over 0 is the workers' gain (1 for `on`); `World::nurse_seek` for one world |
 | `PIXEL_PHYSICS_EGG_PILE` | on, reach 4 (since 2026-10-03) | acting only when laying only at the nest: an egg goes onto an empty home cell up to that many steps from the layer's head, through nestmates, nearest the brood already there (§9, `brood::pile_site`); `off` (or 0) is the egg beside the head and "at the nest" read off the head; an integer sets the reach |
 | `PIXEL_PHYSICS_HOME_REAIM` | off | `loose` (or `on`): every 16th tick, an animal whose homing anchor (`forage_anchor`) stands in ground, water or a plant has it moved to the nearest empty home cell within 12 of it (`home_reaim`, counted in `CreatureStats::home_reaims`); `strict` also moves it off an animal or loose food. Off because it moved nothing on the lab nest (`dead-ends.md`) |

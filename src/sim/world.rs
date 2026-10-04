@@ -2711,6 +2711,11 @@ pub struct CreatureStats {
     /// first is how often a hungry larva has a nurse beside it.
     pub larva_ticks_hungry: u64,
     pub larva_ticks_nursed: u64,
+    /// Larva ticks a carrier touching the larva fed it from its crop, and
+    /// the energy that put into larvae (`brood::crop_feed`,
+    /// `PIXEL_PHYSICS_CROP_NURSE`).
+    pub larva_ticks_crop_fed: u64,
+    pub brood_crop_fed_j: f64,
     /// Brood a touching nestmate carried out of a crowded pile to a quieter
     /// spot (`brood::spread`, `PIXEL_PHYSICS_BROOD_SPREAD`).
     pub brood_spread: u64,
@@ -3927,6 +3932,9 @@ pub struct World {
     /// `brood::nurse_seek_of` for this world: `Some(None)` is off; `None`
     /// reads `PIXEL_PHYSICS_NURSE_SEEK`.
     pub nurse_seek: Option<Option<crate::sim::brood::NurseSeek>>,
+    /// `brood::crop_nurse_of` for this world; `None` reads
+    /// `PIXEL_PHYSICS_CROP_NURSE`.
+    pub crop_nurse: Option<crate::sim::brood::CropNurse>,
     /// `creature::kin_footing_of` for this world; `None` reads the process's
     /// `PIXEL_PHYSICS_KIN_FOOTING`.
     pub kin_footing: Option<bool>,
@@ -6551,6 +6559,7 @@ impl World {
             food_door: None,
             door_reopen: None,
             nurse_seek: None,
+            crop_nurse: None,
             kin_footing: None,
             water_footing: None,
             door_collar: None,

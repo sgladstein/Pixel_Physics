@@ -10360,6 +10360,21 @@ nest stays one room in every arm: spread brood is dug round until it
 rejoins the room it left.
 Chart: https://claude.ai/artifact/YPXa7NPbZmoREaRvcqdVA3.
 
+**Larvae fed from the food carriers bring home: on by default** (2026-10-04,
+`PIXEL_PHYSICS_CROP_NURSE=touch`, `off` or `on`; `brood::crop_feed`). A
+nestmate touching a hungry larva with food in its crop feeds it from the
+crop before anyone's savings are drawn on, through the larva's own gut,
+booked as a meal of that food. It measured neutral and ships on: live ants
+at 200,000 frames over 20 seeds on three beds (food box, goal bed with and
+without the mister) were better on 10 and worse on 9 against today's game,
+with 6 colonies under 50 ants in each arm. It rarely fires, because
+carriers are seldom beside the brood: at a hungry larva's tick the
+nestmate touching it had an empty crop 64-83% of the time and a fed
+carrier stood there on 0.2-0.5% of ticks. `on` also draws carriers inside
+the nest up the larva scent; it leaned worse (better on 6 of 14 seeds,
+worse on 8) and stays off.
+Chart: https://claude.ai/artifact/UHKWPnACtsiRCVsRtf9ZAp.
+
 **Known limitations.**
 - **The lab box lays only at the nest too, and it kills the box today**
   (owner's ruling, 2026-10-03: "I understand it kills the colony we're
