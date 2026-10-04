@@ -368,6 +368,25 @@ fn report(frame: u64, census: &Census, w: &World, dropped: usize, food_x: i32) {
         .map(|c| format!("{} {}", c.label(), w.deaths_by_cause[c.index()]))
         .collect();
     println!("DEATHS frame={frame} {}", causes.join(" | "));
+    // How deep the nest goes: the colony's open space below the old ground
+    // line, by 5-row band, and the brood in each band. A real nest is a
+    // shaft with chambers strung down it (Tschinkel 2004); a nest that is
+    // all in the top bands is one room under the roof, whatever the
+    // chamber count says.
+    {
+        let open = census.open_space(w);
+        let mut bands = std::collections::BTreeMap::<i32, (usize, usize)>::new();
+        for &(x, y) in &open {
+            let b = bands.entry((y - census.ground_y - 1) / 5).or_default();
+            b.0 += 1;
+            if census.what(w, x, y) == What::Brood {
+                b.1 += 1;
+            }
+        }
+        let deepest = open.iter().map(|&(_, y)| y - census.ground_y).max().unwrap_or(0);
+        let row: Vec<String> = bands.iter().map(|(b, (o, br))| format!("{}-{}:{o}/{br}", b * 5 + 1, b * 5 + 5)).collect();
+        println!("DEPTH frame={frame} deepest {deepest} rows | open/brood by rows under ground: {}", row.join(" "));
+    }
     let n = nest(census, w);
     let in_ch_food: usize = n.chambers.iter().map(|c| c.food).sum();
     let in_ch_brood: usize = n.chambers.iter().map(|c| c.brood).sum();
