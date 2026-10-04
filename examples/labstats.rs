@@ -212,6 +212,12 @@ fn main() {
             let n = set_allele("beetle", pixel_physics::sim::organism::TRAIT_SIGHT_RANGE, v);
             println!("labstats: beetle sight allele {v}, applied to {n} standing beetle(s) and to what they breed");
         }
+        // **The beetle's gut** (`TRAIT_GUT_BIAS`): 1.0 is the shipped pure
+        // carnivore, lower reaches plant food (`creature::diet_yield`).
+        if let Some(v) = arg::<f32>("beetlegut") {
+            let n = set_allele("beetle", pixel_physics::sim::organism::TRAIT_GUT_BIAS, v);
+            println!("labstats: beetle gut allele {v}, applied to {n} standing beetle(s) and to what they breed");
+        }
         // **The pace allele, on the ants, because it is the one gene a person
         // can watch.** A quick ant scurries and a slow one plods, and the
         // counters below say what that costs: every levy is charged once per

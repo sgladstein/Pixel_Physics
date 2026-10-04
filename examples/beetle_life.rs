@@ -69,6 +69,17 @@ fn main() {
         def.head_armour = v;
         lab.world.species.set_creature(beetle, def);
     }
+    // `gut=` sets the beetle's `TRAIT_GUT_BIAS` (1.0 shipped carnivore).
+    if let Some(v) = arg::<f32>("gut") {
+        let mut def = lab.world.species.get(beetle).creature.clone().expect("creature");
+        def.traits[pixel_physics::sim::organism::TRAIT_GUT_BIAS] = v;
+        lab.world.species.set_creature(beetle, def);
+        for id in lab.world.live_organism_ids() {
+            if lab.world.organism(id).is_some_and(|st| st.species == beetle) {
+                lab.world.set_organism_trait(id, pixel_physics::sim::organism::TRAIT_GUT_BIAS, v);
+            }
+        }
+    }
     // `nest=none` gives the beetle no nest (`CreatureDef::nest` empty).
     if arg::<String>("nest").as_deref() == Some("none") {
         let mut def = lab.world.species.get(beetle).creature.clone().expect("creature");
