@@ -12630,6 +12630,222 @@ pub const DIG_ROOF_SHIPPED: i32 = 6;
 /// Whether `(x, y)` lies in the roof [`dig_roof_of`] keeps: within `rows`
 /// rows under the founding surface of the nearest nest site (by column),
 /// outside that nest's door.
+/// Scratch (lane 3): **flat rooms**, `PIXEL_PHYSICS_FLAT_ROOM=<rows>`.
+/// A cut is refused when it is more than `rows` above the floor under the
+/// digger, or into that floor while the digger stands in a room (7 of the 9
+/// cells round it open). A digger in a shaft or tunnel can still go down. Tschinkel 2004: chambers are flat with near-constant
+/// height; the floor half is the excavation report's modelling hypothesis.
+pub fn flat_room_rows() -> Option<i32> {
+    static V: std::sync::OnceLock<Option<i32>> = std::sync::OnceLock::new();
+    *V.get_or_init(|| std::env::var("PIXEL_PHYSICS_FLAT_ROOM").ok().and_then(|v| v.trim().parse::<i32>().ok()).filter(|r| *r > 0))
+}
+
+fn room_open(world: &World, x: i32, y: i32) -> bool {
+    if !world.in_bounds(x, y) {
+        return false;
+    }
+    let c = world.get(x, y);
+    c.material == material::EMPTY || matches!(world.materials.kind(c.material), MaterialKind::Creature | MaterialKind::Liquid | MaterialKind::Gas) || c.organism_id() != 0
+}
+
+fn flat_room_refuses(world: &World, (x, y): (i32, i32), (tx, ty): (i32, i32), rows: i32) -> bool {
+    let Some(site) = world.nest_sites.iter().min_by_key(|s| (s.x - tx).abs()) else { return false };
+    if ty <= site.surface || (tx - site.x).abs() > DUG_HOME_REACH.0 {
+        return false;
+    }
+    // The floor the digger stands over: the first cell straight down from
+    // its head that is not open.
+    let mut floor = y + 1;
+    while floor < y + 64 && room_open(world, x, floor) {
+        floor += 1;
+    }
+    // Too high: more than `rows` over that floor (Tschinkel 2004's flat
+    // chambers; the excavation report's h_ceiling hypothesis).
+    if ty < floor - rows {
+        return true;
+    }
+    if ty >= floor {
+        // In a room: at least 7 of the 9 cells of the digger's 3x3 open (the
+        // goal readout's room cell). A tunnel two high or a shaft two wide
+        // never reaches 7.
+        let mut open = 0;
+        for dy in -1..=1 {
+            for dx in -1..=1 {
+                open += i32::from(room_open(world, x + dx, y + dy));
+            }
+        }
+        return open >= 7;
+    }
+    false
+}
+
+/// Scratch (lane 3): **pillars**, `PIXEL_PHYSICS_PILLAR=<cells>`. A cut below
+/// a nest's founding surface is refused when it would leave an open run on
+/// its row wider than `<cells>`: the ground left standing is a pillar
+/// (Khuong et al. 2016 for pillars; in soil a wide unsupported roof falls).
+pub fn pillar_span() -> Option<i32> {
+    static V: std::sync::OnceLock<Option<i32>> = std::sync::OnceLock::new();
+    *V.get_or_init(|| std::env::var("PIXEL_PHYSICS_PILLAR").ok().and_then(|v| v.trim().parse::<i32>().ok()).filter(|r| *r > 0))
+}
+
+fn pillar_refuses(world: &World, (tx, ty): (i32, i32), span: i32) -> bool {
+    let Some(site) = world.nest_sites.iter().min_by_key(|s| (s.x - tx).abs()) else { return false };
+    if ty <= site.surface || (tx - site.x).abs() > DUG_HOME_REACH.0 {
+        return false;
+    }
+    let mut run = 1;
+    let mut i = 1;
+    while run <= span && room_open(world, tx - i, ty) {
+        run += 1;
+        i += 1;
+    }
+    let mut i = 1;
+    while run <= span && room_open(world, tx + i, ty) {
+        run += 1;
+        i += 1;
+    }
+    run > span
+}
+
+/// Scratch (lane 3): `PIXEL_PHYSICS_BROOD_DIG=on|<rows>`. **Brood draws
+/// digging**: a digger inside the nest with brood round it cuts the wall
+/// beside that brood, level with itself or one row up, instead of what is
+/// ahead. `on` (0 rows): never a cell with open space straight over it.
+/// `<rows>`: never a cell with open space anywhere in the `rows` cells
+/// straight over it, so a brood room widens only once it is that far below
+/// the room above, and is left a floor of ground away from it. Römer &
+/// Roces 2014: workers gather where brood lies and dig there; Tschinkel
+/// 2004: chambers bud off the shaft, spaced down it.
+pub fn brood_dig() -> Option<i32> {
+    static V: std::sync::OnceLock<Option<i32>> = std::sync::OnceLock::new();
+    *V.get_or_init(|| match std::env::var("PIXEL_PHYSICS_BROOD_DIG").as_deref() {
+        Ok("on") => Some(1),
+        Ok(v) => v.parse().ok().filter(|&r: &i32| r >= 1),
+        Err(_) => None,
+    })
+}
+
+fn brood_wall(world: &World, def: &CreatureDef, organism: OrganismId, (x, y): (i32, i32), heading: u8, gap: i32) -> Option<(u8, (i32, i32))> {
+    let brood = world.materials.id_of(&def.brood.as_ref()?.material)?;
+    let near = |(cx, cy): (i32, i32)| DIRS.iter().any(|&(dx, dy)| world.get(cx + dx, cy + dy).material == brood);
+    if !near((x, y)) {
+        return None;
+    }
+    let left = half_turn_left(world.seed, organism, world.frame);
+    let roof = dig_roof_of(world);
+    (0..=4u8)
+        .flat_map(|k| {
+            let (a, b) = ((heading + k) % 8, (heading + 8 - k) % 8);
+            if left { [a, b] } else { [b, a] }
+        })
+        .map(|h| {
+            let (dx, dy) = DIRS[h as usize];
+            (h, (x + dx, y + dy))
+        })
+        .find(|&(_, t)| {
+            (t.1 == y || t.1 == y - 1)
+                && jaw_can_cut(world, def, organism, world.get(t.0, t.1))
+                && near(t)
+                && !(1..=gap).any(|k| room_open(world, t.0, t.1 - k))
+                && !roof.is_some_and(|rows| under_roof(world, t, rows))
+        })
+}
+
+/// Scratch (lane 3): `PIXEL_PHYSICS_DIG_MODES=on|<n>`. **Two digging
+/// modes**, advance and widen (`Reports/nest-biology-digging-signals-2026-09-19.md`
+/// §6; Römer & Roces 2014: workers dig only tunnels unless contents are
+/// present, and chambers are dug where brood or stores lie). A digger
+/// inside the nest with contents beside it -- brood, or food lying loose --
+/// **widens**: it cuts the wall next to them, level with itself or one row
+/// up, never with open space straight over the cut ([`contents_wall`]).
+/// Any other digger inside the nest **advances**: a cut is refused when more
+/// than `n` (`on`: 6) of the 24 cells round the target are already open, so
+/// it extends a tip (a two-wide tunnel's tip has about 4) rather than
+/// shaving a room's wall (about 10).
+pub fn dig_modes() -> Option<usize> {
+    static V: std::sync::OnceLock<Option<usize>> = std::sync::OnceLock::new();
+    *V.get_or_init(|| match std::env::var("PIXEL_PHYSICS_DIG_MODES").as_deref() {
+        Ok("on") => Some(6),
+        Ok(v) => v.parse().ok(),
+        Err(_) => None,
+    })
+}
+
+fn is_contents(world: &World, brood: Option<material::MaterialId>, (x, y): (i32, i32)) -> bool {
+    let c = world.get(x, y);
+    Some(c.material) == brood || (c.organism_id() == 0 && c.material != material::EMPTY && world.materials.get(c.material).food_energy > 0.0)
+}
+
+fn contents_wall(world: &World, def: &CreatureDef, organism: OrganismId, (x, y): (i32, i32), heading: u8) -> Option<(u8, (i32, i32))> {
+    let brood = def.brood.as_ref().and_then(|b| world.materials.id_of(&b.material));
+    let near = |(cx, cy): (i32, i32)| DIRS.iter().any(|&(dx, dy)| is_contents(world, brood, (cx + dx, cy + dy)));
+    if !near((x, y)) {
+        return None;
+    }
+    let left = half_turn_left(world.seed, organism, world.frame);
+    let roof = dig_roof_of(world);
+    (0..=4u8)
+        .flat_map(|k| {
+            let (a, b) = ((heading + k) % 8, (heading + 8 - k) % 8);
+            if left { [a, b] } else { [b, a] }
+        })
+        .map(|h| {
+            let (dx, dy) = DIRS[h as usize];
+            (h, (x + dx, y + dy))
+        })
+        .find(|&(_, t)| {
+            (t.1 == y || t.1 == y - 1)
+                && jaw_can_cut(world, def, organism, world.get(t.0, t.1))
+                && near(t)
+                && !room_open(world, t.0, t.1 - 1)
+                && !roof.is_some_and(|rows| under_roof(world, t, rows))
+        })
+}
+
+/// Scratch (lane 3): `PIXEL_PHYSICS_DIG_TIP=on` with [`dig_modes`]: an
+/// advancing digger whose target is not a tip turns to the most tip-like
+/// cut round it ([`tip_face`]) instead of losing the roll.
+pub fn tip_reaim() -> bool {
+    static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *V.get_or_init(|| std::env::var("PIXEL_PHYSICS_DIG_TIP").as_deref() == Ok("on"))
+}
+
+/// The cut round `(x, y)` with the fewest open cells round it, at most `n`,
+/// that the jaw can take and the roof and heap cue would not refuse.
+fn tip_face(world: &World, def: &CreatureDef, organism: OrganismId, (x, y): (i32, i32), n: usize) -> Option<(u8, (i32, i32))> {
+    let roof = dig_roof_of(world);
+    let cue = spoil_cue_of(world);
+    let radius = curvature_radius_of(def, &traits_of(world, organism, def)).max(1);
+    (0..8u8)
+        .filter_map(|h| {
+            let (dx, dy) = DIRS[h as usize];
+            let t = (x + dx, y + dy);
+            let ok = jaw_can_cut(world, def, organism, world.get(t.0, t.1))
+                && !roof.is_some_and(|rows| under_roof(world, t, rows))
+                && !cue.is_some_and(|cue| spoil_cue_factor(world, (x, y), t, radius, cue).is_some_and(|f| f < 1.0));
+            if !ok {
+                return None;
+            }
+            let o = open_round(world, t);
+            (o <= n).then_some((o, h, t))
+        })
+        .min_by_key(|&(o, h, _)| (o, h))
+        .map(|(_, h, t)| (h, t))
+}
+
+/// Open cells in the 5x5 round `(tx, ty)`, the target itself excluded.
+fn open_round(world: &World, (tx, ty): (i32, i32)) -> usize {
+    let mut n = 0;
+    for dy in -2..=2 {
+        for dx in -2..=2 {
+            if (dx, dy) != (0, 0) && room_open(world, tx + dx, ty + dy) {
+                n += 1;
+            }
+        }
+    }
+    n
+}
+
 fn under_roof(world: &World, (x, y): (i32, i32), rows: i32) -> bool {
     let Some(door) = nest_door_of(world) else { return false };
     let Some(site) = world.nest_sites.iter().min_by_key(|s| (s.x - x).abs()) else { return false };
@@ -16016,6 +16232,41 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
                 }
             }
         }
+        // Scratch (lane 3): two digging modes ([`dig_modes`]): beside
+        // contents the digger widens round them. Off, no read.
+        let mut widening = false;
+        if dig_modes().is_some() && widen_to.is_none() && inside_nest(world, x, y) {
+            if let Some((h, t)) = contents_wall(world, def, organism, (x, y), heading) {
+                if let Some(state) = world.organism_mut(organism) {
+                    state.heading = h;
+                }
+                (tx, ty) = t;
+                widening = true;
+                world.creature_stats.digs_brood_drawn += 1;
+            }
+        }
+        // ...and anywhere else it advances: a target that is not a tip is
+        // swapped for the most tip-like cut round the digger, if any is.
+        if let Some(n) = dig_modes().filter(|_| tip_reaim() && !widening && widen_to.is_none() && inside_nest(world, x, y)) {
+            if open_round(world, (tx, ty)) > n {
+                if let Some((h, t)) = tip_face(world, def, organism, (x, y), n) {
+                    if let Some(state) = world.organism_mut(organism) {
+                        state.heading = h;
+                    }
+                    (tx, ty) = t;
+                }
+            }
+        }
+        // Scratch (lane 3): brood draws digging ([`brood_dig`]). Off, no read.
+        if let Some(gap) = brood_dig().filter(|_| widen_to.is_none() && inside_nest(world, x, y)) {
+            if let Some((h, t)) = brood_wall(world, def, organism, (x, y), heading, gap) {
+                if let Some(state) = world.organism_mut(organism) {
+                    state.heading = h;
+                }
+                (tx, ty) = t;
+                world.creature_stats.digs_brood_drawn += 1;
+            }
+        }
         let target = world.get(tx, ty);
         // **A heap draws where digging starts** ([`SpoilCue`], on since
         // 2026-09-28, [`spoil_cue_of`]): a cut that would open the ground to the sky goes
@@ -16053,6 +16304,15 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
         // ground just under a nest's surface, outside its door, is refused,
         // so the crust over the nest stays whole and the chambers go below it.
         // No draw either way.
+        let vetoed = vetoed || {
+            let refused = flat_room_rows().is_some_and(|rows| flat_room_refuses(world, (x, y), (tx, ty), rows))
+                || pillar_span().is_some_and(|s| pillar_refuses(world, (tx, ty), s))
+                || dig_modes().is_some_and(|n| !widening && inside_nest(world, x, y) && open_round(world, (tx, ty)) > n);
+            if refused {
+                world.creature_stats.digs_refused_flat += 1;
+            }
+            refused
+        };
         let vetoed = vetoed || {
             let refused = dig_roof_of(world).is_some_and(|rows| under_roof(world, (tx, ty), rows));
             if refused {

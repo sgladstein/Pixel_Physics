@@ -360,7 +360,7 @@ fn report(frame: u64, census: &Census, w: &World, dropped: usize, food_x: i32) {
         bins[0], bins[1], bins[2], bins[3], bins[4], body_j, crop_j
     );
     let heap = heap_count(census, w, food_x);
-    println!("POP frame={frame} live ants {ants} | brood {brood} | births {} deaths {} | food heap {heap} cells, ever dropped {dropped}", s.births, s.deaths);
+    println!("POP frame={frame} live ants {ants} | brood {brood} | births {} deaths {} | food heap {heap} cells, ever dropped {dropped} | digs {} refused roof {} flat {} brood-drawn {} | spoil dumped {} lean dropped {}", s.births, s.deaths, s.digs, s.digs_refused_roof, s.digs_refused_flat, s.digs_brood_drawn, s.spoil_dumped, s.lean_dropped);
     // Why they died: the bed has no plants, so every death here is a creature's.
     let causes: Vec<String> = pixel_physics::sim::organism::DEATH_CAUSE_LIST
         .iter()
@@ -373,8 +373,9 @@ fn report(frame: u64, census: &Census, w: &World, dropped: usize, food_x: i32) {
     let in_ch_brood: usize = n.chambers.iter().map(|c| c.brood).sum();
     let in_ch_ants: usize = n.chambers.iter().map(|c| c.ants).sum();
     println!(
-        "NEST frame={frame} open {} cells in {} region(s), largest {} | ever dug {} | chambers {} ({} cells) | food underground {} ({} in chambers) | brood underground {} ({} in chambers) | ants in chambers {in_ch_ants}",
+        "NEST frame={frame} open {} cells ({} never cut) in {} region(s), largest {} | ever dug {} | chambers {} ({} cells) | food underground {} ({} in chambers) | brood underground {} ({} in chambers) | ants in chambers {in_ch_ants}",
         n.open,
+        census.open_space(w).iter().filter(|p| !w.dug_cells.contains(p)).count(),
         n.regions,
         n.largest,
         w.dug_cells.len(),
@@ -480,6 +481,72 @@ fn shot(lab: &mut Lab, dir: &str, frame: u64, centre: (i32, i32)) {
     }
 }
 
+/// Scratch (lane 3): a categorical map of the nest, one colour per kind of
+/// cell, so the dug shape is visible without the lab's panels over it.
+fn map(census: &Census, w: &World, dir: &str, frame: u64, nest_x: i32) {
+    let open = census.open_space(w);
+    let room: HashSet<(i32, i32)> = open
+        .iter()
+        .copied()
+        .filter(|&(x, y)| {
+            let mut n = 0;
+            for dy in -1..=1 {
+                for dx in -1..=1 {
+                    n += usize::from(open.contains(&(x + dx, y + dy)));
+                }
+            }
+            n >= ROOM_MIN
+        })
+        .collect();
+    let (x0, x1, y0, y1) = (nest_x - 50, nest_x + 50, census.ground_y - 8, census.ground_y + 52);
+    let k = 6u32;
+    let (wd, ht) = (((x1 - x0 + 1) as u32) * k, ((y1 - y0 + 1) as u32) * k);
+    let mut img = image::RgbaImage::new(wd, ht);
+    let packed = w.materials.id_of("packedsoil");
+    let soil = w.materials.id_of("soil");
+    for y in y0..=y1 {
+        for x in x0..=x1 {
+            let what = census.what(w, x, y);
+            let m = w.get(x, y).material;
+            let col: [u8; 3] = match what {
+                What::Ant => [26, 26, 26],
+                What::Brood => [255, 110, 200],
+                What::Food => [70, 230, 70],
+                What::Liquid => [40, 90, 220],
+                What::Empty => {
+                    if room.contains(&(x, y)) {
+                        [236, 227, 204]
+                    } else if open.contains(&(x, y)) {
+                        [196, 180, 146]
+                    } else if y <= census.ground_y {
+                        [18, 18, 30]
+                    } else {
+                        [120, 0, 0]
+                    }
+                }
+                What::Ground => {
+                    if Some(m) == soil {
+                        if w.dug_cells.contains(&(x, y)) { [150, 100, 40] } else { [70, 48, 30] }
+                    } else if Some(m) == packed {
+                        [125, 95, 70]
+                    } else {
+                        [200, 180, 60]
+                    }
+                }
+            };
+            for py in 0..k {
+                for px in 0..k {
+                    img.put_pixel(((x - x0) as u32) * k + px, ((y - y0) as u32) * k + py, image::Rgba([col[0], col[1], col[2], 255]));
+                }
+            }
+        }
+    }
+    let path = std::path::Path::new(dir).join(format!("map_f{frame:06}.png"));
+    if let Err(e) = img.save(&path) {
+        eprintln!("nestgoal: map {}: {e}", path.display());
+    }
+}
+
 fn selftest() {
     let mut w = World::new(pixel_physics::sim::chunk::Rect::new(0, 0, 99, 99));
     let soil = w.materials.id_of("soil").expect("soil");
@@ -540,6 +607,10 @@ fn main() {
     let target: usize = arg("food").unwrap_or(120);
     let scenario: String = arg("scenario").unwrap_or_else(|| "nest_goal".to_string());
     let shots: Option<String> = arg("shots");
+    let maps: Option<String> = arg("map");
+    if let Some(dir) = &maps {
+        let _ = std::fs::create_dir_all(dir);
+    }
     let zoom: u32 = arg("zoom").unwrap_or(3).max(1);
     println!("nestgoal: scenario={scenario} seed={seed} frames={frames} every={every} food={target} shots={}", shots.as_deref().unwrap_or("-"));
     let mut sc = Scenario::load(&scenario).unwrap_or_else(|e| {
@@ -589,6 +660,9 @@ fn main() {
                 report(f, &census, &lab.world, dropped, x);
                 println!("BED frame={f} surface water drained {drained} cells (drain={})", u8::from(drain));
                 flow.report(f, &lab.world);
+                if let Some(dir) = &maps {
+                    map(&census, &lab.world, dir, f, x - 30);
+                }
                 if let Some(dir) = &shots {
                     let centre = lab.world.nest_sites.first().map_or((x, census.ground_y), |s| (s.x + 10, census.ground_y + 12));
                     shot(&mut lab, dir, f, centre);
