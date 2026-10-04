@@ -12489,27 +12489,56 @@ fn door_allele(world: &World, organism: OrganismId) -> f32 {
 /// almost none cuts toward it -- an ant on the surface cuts the cell ahead
 /// of its heading, which is along the surface, and the turn down is only
 /// for an enclosed digger. The colony was shut out, laid nothing, and died.
-/// Ants reopen a blocked entrance from outside: wood ants clear what falls
-/// over their entrances (Arscott et al. 2026).
+/// Ants reopen a blocked entrance from outside: wood ants removed sticks laid
+/// over their nest entrances, as routine nest maintenance (Arscott,
+/// Buehlmann, Philippides & Graham 2026, J Exp Biol 229(14),
+/// doi 10.1242/jeb.252597).
 pub fn door_dig_of() -> bool {
-    static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *V.get_or_init(|| std::env::var("PIXEL_PHYSICS_DOOR_DIG").as_deref() == Ok("on"))
+    door_dig_mode().is_some()
+}
+
+/// [`door_dig_of`]'s value: `on` is an ant in the open only, `heap` also an
+/// ant in a tunnel through the heap over its door (`Some(true)`).
+///
+/// **Why `heap`** (lane 3, goal bed seed 5, 2026-10-04). With `on` and the
+/// door waiver, the colony boomed (366 ants at 50k against 71 without) and
+/// its spoil heap grew to about 15 rows over the mouth and 45 columns
+/// across, honeycombed with its own tunnels. From 75k the ants lived in
+/// that heap -- food was carried into it, and an ant under it reads as
+/// inside its nest -- while the mouth under it was packed shut (9 cells)
+/// and all the brood lay below. With no ant in the chamber from 120k the
+/// brood went unfed, births stopped at 1,010, and the colony died (7 ants
+/// at 200k against 593). `on` never fired for them: an ant under the heap
+/// is not in the open.
+fn door_dig_mode() -> Option<bool> {
+    static V: std::sync::OnceLock<Option<bool>> = std::sync::OnceLock::new();
+    *V.get_or_init(|| match std::env::var("PIXEL_PHYSICS_DOOR_DIG").as_deref() {
+        Ok("on") => Some(false),
+        Ok("heap") => Some(true),
+        _ => None,
+    })
 }
 
 /// How far over a founding surface [`door_dig_of`] still counts an ant as
 /// standing over its door: the mound over the mouth grows to about 6 rows.
 const DOOR_DIG_UP: i32 = 10;
 
+/// [`DOOR_DIG_UP`] under `heap`: a heap over a busy door was measured at
+/// about 15 rows (seed 5 above).
+const DOOR_DIG_UP_HEAP: i32 = 24;
+
 /// The cut [`door_dig_of`] turns an ant at `(x, y)` to: straight down, then
 /// down and in, then level -- the first in the nearest nest's shaft columns,
 /// no lower than the mouth's foot, that the jaw can take. `None` inside a
 /// nest, or away from a door.
 fn door_plug(world: &World, def: &CreatureDef, organism: OrganismId, (x, y): (i32, i32)) -> Option<(u8, (i32, i32))> {
-    if inside_nest(world, x, y) {
+    let heap = door_dig_mode() == Some(true);
+    if !heap && inside_nest(world, x, y) {
         return None;
     }
     let cut = world.nearest_nest_site(x, y).and_then(|i| world.nest_sites.get(i)).and_then(|s| s.shaft)?;
-    if x < cut.x0 - 2 || x > cut.x1 + 2 || y > cut.top || y < cut.top - DOOR_DIG_UP {
+    let up = if heap { DOOR_DIG_UP_HEAP } else { DOOR_DIG_UP };
+    if x < cut.x0 - 2 || x > cut.x1 + 2 || y > cut.top || y < cut.top - up {
         return None;
     }
     [6u8, 5, 7, 0, 4]
@@ -16108,6 +16137,9 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
                 }
                 world.creature_stats.spoil_dumped += 1;
                 world.creature_stats.lean_dropped += 1;
+                if dig_trace() {
+                    eprintln!("SPD {} L {} {} {} 0", world.frame, organism, px, py);
+                }
                 return did;
             }
         }
@@ -16307,6 +16339,9 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
                     state.spoil_ring = None;
                 }
                 world.creature_stats.spoil_dumped += 1;
+                if dig_trace() {
+                    eprintln!("SPD {} N {} {} {} {}", world.frame, organism, px, py, u8::from(lifted));
+                }
                 if lifted {
                     let rows = (y - py).max(0) as u32;
                     world.creature_stats.spoil_lifted += 1;
@@ -19774,8 +19809,36 @@ pub fn lean_forage_of(world: &World) -> LeanForage {
 /// [`spoil_site_open`] it asks no headroom, because the ant is in a gallery.
 fn lean_drop_site(world: &World, (x, y): (i32, i32)) -> Option<(i32, i32)> {
     NEIGHBOURS_8.iter().map(|&(dx, dy)| (x + dx, y + dy)).find(|&(px, py)| {
-        world.get(px, py).material == material::EMPTY && [(-1, 1), (0, 1), (1, 1)].iter().filter(|(dx, dy)| world.get(px + dx, py + dy).material != material::EMPTY).count() >= 2
+        world.get(px, py).material == material::EMPTY
+            && [(-1, 1), (0, 1), (1, 1)].iter().filter(|(dx, dy)| world.get(px + dx, py + dy).material != material::EMPTY).count() >= 2
+            && !(lean_door_keep() && in_a_door(world, (px, py)))
     })
+}
+
+/// Scratch (lane 3): `PIXEL_PHYSICS_LEAN_DOOR=keep`, off unless set. **A
+/// lean ant does not put its pellet down in its nest's door** -- a founding
+/// shaft's columns and one either side, from 8 rows over the mouth to the
+/// mouth's foot ([`in_a_door`]); with nowhere else beside it, it carries on.
+///
+/// **Why** (lane 3, goal bed seeds 4 and 5, 2026-10-04, a temporary line at
+/// every pellet set down). Pellets set down in the door over 130k: hungry
+/// ants 18-19 without the door rules and 51-96 with them, against 5-15 from
+/// the ordinary drop and 5-21 from deaths; they come in bursts (30+ in 10k
+/// frames) while the door is shut and the colony is hungry, so a shut door
+/// feeds itself.
+fn lean_door_keep() -> bool {
+    static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *V.get_or_init(|| std::env::var("PIXEL_PHYSICS_LEAN_DOOR").as_deref() == Ok("keep"))
+}
+
+/// Is `(x, y)` in a nest's door: a founding shaft's columns and one either
+/// side, from 8 rows over its mouth row down to the mouth's last row.
+fn in_a_door(world: &World, (x, y): (i32, i32)) -> bool {
+    world
+        .nest_sites
+        .iter()
+        .filter_map(|s| s.shaft)
+        .any(|c| (c.x0 - 1..=c.x1 + 1).contains(&x) && (c.top - 8..=c.mouth_bottom).contains(&y))
 }
 
 /// The nest site whose throttle zone holds `(hx, hy)`: within `reach`
@@ -25425,6 +25488,9 @@ fn creature_dies(world: &mut World, organism: OrganismId, cause: organism::Death
             Some((px, py)) => {
                 world.set(px, py, spoil.cell);
                 world.creature_stats.spoil_dumped += 1;
+                if dig_trace() {
+                    eprintln!("SPD {} D {} {} {} 0", world.frame, organism, px, py);
+                }
             }
             // **Counted rather than silent.** A cell with nowhere to go is
             // genuinely gone, and this whole mechanism exists because a

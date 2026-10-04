@@ -498,6 +498,43 @@ fn report(frame: u64, census: &Census, w: &World, dropped: usize, food_x: i32) {
             plug.iter().map(|(k, v)| format!("{k} {v}")).collect::<Vec<_>>().join(" | ")
         );
     }
+    // Scratch (lane 3): **where the colony lives** -- live ants by where the
+    // head is: below the old ground line, above it under ground (inside the
+    // heap), or in the open; and food and brood in the heap the same way.
+    {
+        let covered = |x: i32, y: i32| (y - 40..y).any(|yy| w.in_bounds(x, yy) && census.what(w, x, yy) == What::Ground);
+        let (mut under, mut heap, mut open_air, mut hungry_under, mut hungry_heap, mut hungry_open) = (0, 0, 0, 0, 0, 0);
+        for id in w.live_organism_ids() {
+            let Some(st) = w.organism(id) else { continue };
+            let Some(cdef) = w.species.get(st.species).creature.as_ref() else { continue };
+            let Some(&(hx, hy)) = st.chain.first() else { continue };
+            let hungry = usize::from(st.energy < 0.5 * cdef.start_energy);
+            if hy > census.ground_y {
+                under += 1;
+                hungry_under += hungry;
+            } else if covered(hx, hy) {
+                heap += 1;
+                hungry_heap += hungry;
+            } else {
+                open_air += 1;
+                hungry_open += hungry;
+            }
+        }
+        let (mut food_heap, mut brood_heap) = (0, 0);
+        for y in census.ground_y - 40..=census.ground_y {
+            let cx = w.nest_sites.first().map_or(0, |s| s.x);
+            for x in cx - 60..=cx + 60 {
+                match census.what(w, x, y) {
+                    What::Food if covered(x, y) => food_heap += 1,
+                    What::Brood => brood_heap += 1,
+                    _ => {}
+                }
+            }
+        }
+        println!(
+            "WHERE frame={frame} ants underground {under} ({hungry_under} under half energy) | in the heap {heap} ({hungry_heap}) | in the open {open_air} ({hungry_open}) | food cells inside the heap {food_heap} | brood above ground {brood_heap}"
+        );
+    }
     // Dug cells that are ground again, by what fills them: spoil put down
     // inside, soil slumped in, or packed walls.
     let mut refill: std::collections::BTreeMap<String, usize> = Default::default();
@@ -622,7 +659,7 @@ fn map(census: &Census, w: &World, dir: &str, frame: u64, nest_x: i32) {
             n >= ROOM_MIN
         })
         .collect();
-    let (x0, x1, y0, y1) = (nest_x - 50, nest_x + 50, census.ground_y - 8, census.ground_y + 52);
+    let (x0, x1, y0, y1) = (nest_x - 50, nest_x + 50, census.ground_y - arg::<i32>("maptop").unwrap_or(8), census.ground_y + 52);
     let k = 6u32;
     let (wd, ht) = (((x1 - x0 + 1) as u32) * k, ((y1 - y0 + 1) as u32) * k);
     let mut img = image::RgbaImage::new(wd, ht);
