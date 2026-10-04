@@ -232,13 +232,24 @@ struct Pre {
     anchor: (i32, i32),
     spoil_ring: Option<i32>,
     dig_return: Option<(i32, i32)>,
+    // The body behind the numbers: what the crop and the jaw hold, how well
+    // this gut takes the crop's food (`creature::diet_quality`, 0..1), and
+    // the expressed traits that set how fast it digests and decides. Added
+    // after a young starver was seen holding 475 J in its crop at 25 J of
+    // body energy and gaining 0.02 J a frame from it.
+    crop_mat: Option<material::MaterialId>,
+    crop_q: f32,
+    spoil_mat: Option<material::MaterialId>,
+    gut: f32,
+    digest: f32,
+    tick: u64,
     inp: [f32; BRAIN_INPUTS],
     hid: [f32; BRAIN_HIDDEN],
     outp: [f32; BRAIN_OUTPUTS],
 }
 
 impl Pre {
-    fn format(&self, f: u64, born: u64) -> String {
+    fn format(&self, f: u64, born: u64, names: &[String]) -> String {
         let sn = &self.sn;
         let mut s = format!(
             "{f},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
@@ -278,6 +289,20 @@ impl Pre {
             self.spoil_ring.map_or(String::new(), |c| c.to_string()),
             self.dig_return.map_or(String::new(), |(x, y)| format!("{x} {y}")),
         );
+        let name = |m: Option<material::MaterialId>| m.map_or(String::new(), |m| names[m.0 as usize].clone());
+        s.push_str(&format!(
+            ",{},{},{},{},{},{}",
+            name(self.crop_mat),
+            if self.crop_mat.is_some() {
+                fl(self.crop_q)
+            } else {
+                String::new()
+            },
+            name(self.spoil_mat),
+            fl(self.gut),
+            fl(self.digest),
+            self.tick
+        ));
         for v in self.inp.iter().chain(self.hid.iter()).chain(self.outp.iter()) {
             s.push(',');
             s.push_str(&fl(*v));
@@ -293,6 +318,12 @@ fn main() {
     // number follows that many focal ants instead (see the module doc).
     let ants_arg: String = arg("ants").unwrap_or_else(|| "all".to_string());
     let all_ants = ants_arg == "all";
+    // `only=id,id,...` with `ants=all`: write (and probe) just these ants. The
+    // world is the same run either way -- the trace takes no draw -- so a
+    // re-run with `only=` reproduces any ant of an earlier full run cheaply.
+    let only: HashSet<OrganismId> = arg::<String>("only")
+        .map(|v| v.split(',').filter_map(|t| t.trim().parse().ok()).collect())
+        .unwrap_or_default();
     let n_ants: usize = if all_ants {
         0
     } else {
@@ -339,7 +370,7 @@ fn main() {
         .expect("gzip");
     let mut ticks = std::io::BufWriter::with_capacity(1 << 20, gz.stdin.take().expect("gzip stdin"));
     let mut header = String::from(
-        "frame,slot,id,age,worker,colony,hx,hy,zone,heading,ahead,eggs,larvae,hungry_larvae,pupae,energy_j,crop_cells,crop_j,digesting,spoil,since_nest,hungry_home,lunch,nest_bound,anchor_x,anchor_y,spoil_ring,dig_return",
+        "frame,slot,id,age,worker,colony,hx,hy,zone,heading,ahead,eggs,larvae,hungry_larvae,pupae,energy_j,crop_cells,crop_j,digesting,spoil,since_nest,hungry_home,lunch,nest_bound,anchor_x,anchor_y,spoil_ring,dig_return,crop_mat,crop_q,spoil_mat,gut,digest,tick",
     );
     for n in INPUT_NAMES {
         header.push_str(&format!(",i_{n}"));
@@ -368,6 +399,9 @@ fn main() {
         .cloned()
         .expect("ant is a creature");
     lab.world.decision_log = Some(Vec::new());
+    let names: Vec<String> = (0..lab.world.materials.len())
+        .map(|i| lab.world.materials.get(material::MaterialId(i as u16)).name.clone())
+        .collect();
     // **Experiment dials, harness-only.** `mutation=<rate>` overrides the
     // ant's per-slot mutation rate (0 freezes the founders' brain);
     // `knockin=<slot>:<value>[,...]` writes those genome slots into the
@@ -507,7 +541,10 @@ fn main() {
         // only; a row is formatted only if it is written (`all` reads every
         // live ant every frame and writes about one in six).
         let tracked: Vec<(usize, OrganismId)> = if all_ants {
-            live.iter().map(|&id| (usize::MAX, id)).collect()
+            live.iter()
+                .filter(|id| only.is_empty() || only.contains(id))
+                .map(|&id| (usize::MAX, id))
+                .collect()
         } else {
             slots
                 .iter()
@@ -521,6 +558,7 @@ fn main() {
             let w = &lab.world;
             let st = w.organism(id).expect("snapped");
             let (inp, hid, outp, _) = creature::probe_full(w, sn.head.0, sn.head.1, id, &def);
+            let traits = creature::expressed_traits(st, w.plasticity, w.trait_reach);
             pre.push(Pre {
                 k,
                 id,
@@ -538,6 +576,14 @@ fn main() {
                 anchor: st.forage_anchor,
                 spoil_ring: st.spoil_ring,
                 dig_return: st.dig_return,
+                crop_mat: st.crop.as_ref().map(|c| c.material),
+                crop_q: st.crop.as_ref().map_or(0.0, |c| {
+                    creature::diet_quality(w, c.material, traits[organism::TRAIT_GUT_BIAS])
+                }),
+                spoil_mat: st.spoil.as_ref().map(|sp| sp.cell.material),
+                gut: traits[organism::TRAIT_GUT_BIAS],
+                digest: creature::digest_rate_of(&def, &traits),
+                tick: creature::tick_interval_of(&def, &traits),
                 inp,
                 hid,
                 outp,
@@ -577,7 +623,7 @@ fn main() {
                     continue;
                 }
             }
-            let mut s = p.format(f, born.get(&id).copied().unwrap_or(0));
+            let mut s = p.format(f, born.get(&id).copied().unwrap_or(0), &names);
             match by_id.get(&id) {
                 Some(r) => s.push_str(&format!(
                     ",1,{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
