@@ -897,9 +897,9 @@ fn a_rho() -> f32 {
 }
 
 /// **The switch for how long a food trail (channel B) lasts** --
-/// `PIXEL_PHYSICS_B_RHO` (fade per pass, shipped [`DECAY_RHO`]) and
-/// `PIXEL_PHYSICS_B_DIFFUSE` (blend per pass, shipped [`DIFFUSE`]), unset
-/// meaning the shipped value, so the shipped box is unchanged.
+/// `PIXEL_PHYSICS_B_RHO` (fade per pass) and `PIXEL_PHYSICS_B_DIFFUSE`
+/// (blend per pass). Unset, the engine runs [`DECAY_RHO`]/[`DIFFUSE`] and
+/// the lab box [`LAB_B_RHO`]/[`LAB_B_DIFFUSE`].
 ///
 /// Owner, 2026-10-04, watching a colony beside an endless pile: *"pheromone
 /// b fades way too fast ... I don't see anything ever building up even
@@ -912,33 +912,57 @@ fn a_rho() -> f32 {
 /// held 10-120 along the whole path in every sample; `B_RHO=0` floods the
 /// corridor at 70-160 with no shape at all.
 ///
-/// **An env var and not a constant change** because the other side of this
-/// is measured too: faster B decay *raised* colony intake on the played box
-/// (`bdecay=`, 54,722 -> 127,339 J from 0.03 to 0.25, 12 seeds), since a
-/// trail that outlives its patch recruits to food that is gone. Which one
-/// the box wants is the owner's call. Built through `new` rather than a
-/// setter for [`a_rho`]'s reason: every harness and all three games build
-/// their world through here, so one env var reaches all of them.
+/// **The engine keeps today's pair; the lab box ships the slow one**
+/// ([`LAB_B_RHO`], [`LAB_B_DIFFUSE`], applied by `LabBox::build`). Owner,
+/// 2026-10-04, after playing it: *"I think this should be default ... my
+/// colonies look way better."* The other side of this was measured once:
+/// faster B decay *raised* colony intake on the played box (`bdecay=`,
+/// 54,722 -> 127,339 J from 0.03 to 0.25, 12 seeds, before 0b3e264a), since
+/// a trail that outlives its patch recruits to food that is gone. On current
+/// main, 2 seeds of the played bed split (slow B 364k vs 254k J on seed 1,
+/// 329k vs 455k on seed 2); the 12-seed check is the fail-check. Scoped to
+/// the lab because the held world's player trail also rides channel B and
+/// nobody has looked at it slow.
+///
+/// Both env vars win wherever they are set, so `PIXEL_PHYSICS_B_RHO=0.03
+/// PIXEL_PHYSICS_B_DIFFUSE=0.25` puts the old lab trail back. Read in `new`
+/// rather than through a setter for [`a_rho`]'s reason: every harness and
+/// all three games build their world through here.
 pub fn b_rho() -> f32 {
-    static V: std::sync::OnceLock<f32> = std::sync::OnceLock::new();
-    *V.get_or_init(|| {
-        std::env::var("PIXEL_PHYSICS_B_RHO")
-            .ok()
-            .and_then(|s| s.parse().ok())
-            .unwrap_or(DECAY_RHO)
-    })
+    b_rho_switch().unwrap_or(DECAY_RHO)
 }
 
 /// The other half of [`b_rho`]'s switch.
 pub fn b_diffuse() -> f32 {
-    static V: std::sync::OnceLock<f32> = std::sync::OnceLock::new();
+    b_diffuse_switch().unwrap_or(DIFFUSE)
+}
+
+/// `PIXEL_PHYSICS_B_RHO` alone, `None` when unset -- for a caller with its
+/// own default, the lab box's [`LAB_B_RHO`].
+pub fn b_rho_switch() -> Option<f32> {
+    static V: std::sync::OnceLock<Option<f32>> = std::sync::OnceLock::new();
+    *V.get_or_init(|| std::env::var("PIXEL_PHYSICS_B_RHO").ok().and_then(|s| s.parse().ok()))
+}
+
+/// `PIXEL_PHYSICS_B_DIFFUSE` alone, as [`b_rho_switch`].
+pub fn b_diffuse_switch() -> Option<f32> {
+    static V: std::sync::OnceLock<Option<f32>> = std::sync::OnceLock::new();
     *V.get_or_init(|| {
         std::env::var("PIXEL_PHYSICS_B_DIFFUSE")
             .ok()
             .and_then(|s| s.parse().ok())
-            .unwrap_or(DIFFUSE)
     })
 }
+
+/// **The lab's food-trail fade per pass**, against the engine's
+/// [`DECAY_RHO`] (0.03). With [`LAB_B_DIFFUSE`] it holds a food trail at
+/// 10-120 of 255 along a 40-cell nest-to-pile path where the engine pair
+/// falls to ~0 between waves of laden ants (`examples/trailprofile.rs`).
+pub const LAB_B_RHO: f32 = 0.005;
+/// **The lab's food-trail blend per pass**, against [`DIFFUSE`] (0.25) --
+/// the larger lever of the two, since the blend is most of what erases a
+/// one-cell line ([`Pheromones::set_channel_diffuse`]'s doc).
+pub const LAB_B_DIFFUSE: f32 = 0.05;
 
 impl Pheromones {
     pub fn new(bounds: Rect) -> Self {

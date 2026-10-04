@@ -4583,6 +4583,26 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// **The lab box runs the slow food trail** (`pheromone::LAB_B_RHO`, the
+    /// owner's default of 2026-10-04), and the engine pair stays the
+    /// engine's. Fails if `LabBox::build` stops applying it -- the overlay
+    /// and every lab harness would silently go back to a trail that never
+    /// builds -- or if the slow pair leaks into a bare `World`.
+    #[test]
+    fn the_lab_box_runs_the_slow_food_trail() {
+        use crate::sim::pheromone::{self, Channel};
+        if pheromone::b_rho_switch().is_some() || pheromone::b_diffuse_switch().is_some() {
+            return; // the switch is set for this process; it wins, by design
+        }
+        let lab_world = scene::LabBox { founders: 0, colonies: 0, ..rack_bed(1) }.build();
+        let (rho, diffuse) = lab_world.pheromones.channel_rates(Channel::B).expect("B exists");
+        assert!((rho - pheromone::LAB_B_RHO).abs() < 1e-3, "lab B fade {rho}");
+        assert!((diffuse - pheromone::LAB_B_DIFFUSE).abs() < 1e-6, "lab B spread {diffuse}");
+        let bare = crate::sim::world::World::new(crate::sim::chunk::Rect::new(0, 0, 63, 63));
+        let (rho, diffuse) = bare.pheromones.channel_rates(Channel::B).expect("B exists");
+        assert!((rho - pheromone::DECAY_RHO).abs() < 1e-3 && (diffuse - pheromone::DIFFUSE).abs() < 1e-6, "the engine's B moved: {rho} {diffuse}");
+    }
+
     /// The most recently written file in a scratch chronicle directory, read
     /// back as text -- both chronicle-acceptance tests' shared helper.
     fn newest_chronicle_text(dir: &std::path::Path) -> String {
