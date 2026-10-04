@@ -13770,6 +13770,55 @@ fn food_drop_site(world: &World, x: i32, y: i32, through_bodies: bool, clear: Op
     None
 }
 
+/// **Food brought home must be handled before it can be eaten** --
+/// `PIXEL_PHYSICS_FOOD_HANDLE=<frames>`; unset (or `off`) is the ant as it
+/// was, bit for bit. Under it a cell a forager puts down at home cannot be
+/// taken -- eaten, swallowed or picked up -- for `<frames>` frames after it
+/// went down ([`food_handle_holds`]). Tracked by position
+/// (`World::handled_food`), and any food within a cell of a fresh put-down is
+/// held: a cell that slides further is released early, which errs toward
+/// the shipped ant.
+///
+/// **Why** (the owner's goal of 2026-10-03, a food chamber). On the drained
+/// goal box (main 192b7103) every rule that refused *who* may eat floor food
+/// -- `STOREROOM keep`, `STORE_CHAMBER`, `SATIATE` -- left no store and cost
+/// colonies, because whatever arrived was eaten within the interval by some
+/// ant. Ants that keep granaries store food that cannot be eaten on
+/// arrival: harvester ants (*Messor*, *Pogonomyrmex*) bring seeds home whole
+/// and must crack them before eating -- *Messor barbarus* carries seeds
+/// home and discards about 69% of one plant's seeds intact as too tough to
+/// open (Oliveras et al. 2008, doi 10.1007/s00114-008-0349-0) -- and keep
+/// what waits in the nest (stored seeds kept from moulding: Wu et al. 2022,
+/// doi 10.3390/insects13080691). A standing stock forms between delivery and
+/// use. This models that delay as a handling time on the food, not a rule on
+/// the eater.
+fn food_handle_of() -> Option<u64> {
+    static V: std::sync::OnceLock<Option<u64>> = std::sync::OnceLock::new();
+    *V.get_or_init(|| {
+        let raw = std::env::var("PIXEL_PHYSICS_FOOD_HANDLE").unwrap_or_default();
+        match raw.as_str() {
+            "" | "off" => None,
+            v => v.parse::<u64>().ok().filter(|&f| f > 0).or_else(|| {
+                eprintln!("PIXEL_PHYSICS_FOOD_HANDLE={raw:?}: not a positive frame count, read as off");
+                None
+            }),
+        }
+    })
+}
+
+/// Whether the food at `(fx, fy)` is still being handled
+/// ([`food_handle_of`]): put down at home less than the handling time ago.
+fn food_handle_holds(world: &World, (fx, fy): (i32, i32)) -> bool {
+    let Some(wait) = food_handle_of() else {
+        return false;
+    };
+    // A cell slides as it settles, so a put-down within a cell counts: read
+    // only at the exact spot, 97,886 refusals on the goal box (s1, to 100k)
+    // still left 0-26 cells lying, the rest having slid out from under
+    // their record.
+    (-1..=1).any(|dy| (-1..=1).any(|dx| world.handled_food.get(&(fx + dx, fy + dy)).is_some_and(|&put| world.frame < put + wait)))
+}
+
 /// **Food is kept on the floor, and breeding draws on it** --
 /// `PIXEL_PHYSICS_STORE_CHAMBER=on`; unset (or `off`) is the ant as it was,
 /// bit for bit. Under it an ant at home, at or above its `start_energy`, has
@@ -14886,6 +14935,12 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
                     world.creature_stats.store_kept += 1;
                     return did;
                 }
+                // **Not yet handled** ([`food_handle_of`]): food put down at
+                // home less than the handling time ago is not taken.
+                if food_handle_holds(world, (fxx, fyy)) {
+                    world.creature_stats.food_handle_held += 1;
+                    return did;
+                }
                 // **Home is read before the mouthful leaves**, for
                 // `pickups_at_nest` below, on the predicate the drop's
                 // `deliveries` uses. **They do not subtract to food brought
@@ -15410,6 +15465,15 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
             if roll >= p {
                 note_drop(world, DropWhy::RollLost);
             } else if let Some(((dx, dy), reach)) = site {
+                // **Food put down at home is handled before it is eaten**
+                // (`PIXEL_PHYSICS_FOOD_HANDLE`, [`food_handle_of`]).
+                if let (true, Some(wait)) = (at_nest, food_handle_of()) {
+                    let frame = world.frame;
+                    if world.handled_food.len() >= 4096 {
+                        world.handled_food.retain(|_, put| *put + wait > frame);
+                    }
+                    world.handled_food.insert((dx, dy), frame);
+                }
                 // **And back up after, as a nest worker's store carry is**
                 // ([`store_return_target`]): a forager emptied in the room is
                 // inside a cut that is not its home, and nothing else takes it

@@ -1851,6 +1851,9 @@ pub struct CreatureStats {
     /// Feed decisions at home scaled by the pile round a fed ant
     /// (`PIXEL_PHYSICS_STORE_CHAMBER`, `creature::store_chamber_on`).
     pub store_chamber_scaled: u64,
+    /// Takes refused because the food was still being handled
+    /// (`PIXEL_PHYSICS_FOOD_HANDLE`, `creature::food_handle_holds`).
+    pub food_handle_held: u64,
     /// **Won dig rolls inside the nest with no cuttable cell ahead, by why**
     /// (`PIXEL_PHYSICS_FRESH_CUT` on only): [0] no cuttable cell round the
     /// digger at all, [1] only cells the roof or heap cue would refuse,
@@ -4017,6 +4020,10 @@ pub struct World {
     /// entries and read only while the switch is on; pushed only then, so the
     /// switch off leaves it empty and the run bit-exact.
     pub fresh_cuts: std::collections::VecDeque<((i32, i32), u64)>,
+    /// Food put down at home under `PIXEL_PHYSICS_FOOD_HANDLE`, by position,
+    /// with the frame it went down (`creature::food_handle_of`). Pruned of
+    /// entries older than the handling time when it reaches 4,096. Empty when off.
+    pub handled_food: std::collections::HashMap<(i32, i32), u64>,
     /// **The turn to the nearest face, overriding `PIXEL_PHYSICS_DIG_FACE`
     /// for this world** (`creature::dig_face_of`). `None` follows the
     /// environment, which is `workers` unless it says otherwise. A field so
@@ -6574,6 +6581,7 @@ impl World {
             dig_widen: None,
             fresh_cut: None,
             fresh_cuts: Default::default(),
+            handled_food: Default::default(),
             dig_face: None,
             bud_stack: None,
             brood: None,

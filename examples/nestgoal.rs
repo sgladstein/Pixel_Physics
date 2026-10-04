@@ -241,6 +241,9 @@ struct Flow {
     /// New food cells by what lay within two cells of them the frame they
     /// appeared: [beside brood only, beside food only, beside both, neither].
     site: [u64; 4],
+    /// Food cells gone from underground by what stands there the frame after:
+    /// [empty, an organism (ant or brood), liquid, other].
+    gone: [u64; 4],
 }
 
 impl Flow {
@@ -276,6 +279,19 @@ impl Flow {
                 }] += 1;
             }
         }
+        for &(x, y) in self.cells.difference(&now) {
+            let c = w.get(x, y);
+            let k = if c.material == material::EMPTY {
+                0
+            } else if c.organism_id() != 0 {
+                1
+            } else if w.materials.kind(c.material) == MaterialKind::Liquid {
+                2
+            } else {
+                3
+            };
+            self.gone[k] += 1;
+        }
         let n = now.len();
         self.cells = now;
         if let Some(l) = self.last {
@@ -297,13 +313,18 @@ impl Flow {
             self.last.unwrap_or(0), self.arrived, self.left, d[0], d[1], d[2], d[3], d[4], d[5]
         );
         println!(
-            "SITES frame={frame} new food cells underground beside: brood only {} | food only {} | both {} | neither {} | sort holds (total) {} | unload ticks (total) {} | store scaled (total) {}",
-            self.site[0], self.site[1], self.site[2], self.site[3], s.food_sort_held, s.crop_unload_ticks, s.store_chamber_scaled
+            "SITES frame={frame} new food cells underground beside: brood only {} | food only {} | both {} | neither {} | sort holds (total) {} | unload ticks (total) {} | store scaled (total) {} | handle held (total) {}",
+            self.site[0], self.site[1], self.site[2], self.site[3], s.food_sort_held, s.crop_unload_ticks, s.store_chamber_scaled, s.food_handle_held
         );
         self.prev = now;
         self.arrived = 0;
         self.left = 0;
+        println!(
+            "GONE frame={frame} underground food cells gone, now holding: empty {} | organism {} | liquid {} | other {}",
+            self.gone[0], self.gone[1], self.gone[2], self.gone[3]
+        );
         self.site = [0; 4];
+        self.gone = [0; 4];
     }
 }
 
