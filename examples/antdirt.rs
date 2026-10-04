@@ -590,6 +590,8 @@ fn fit(pts: &[(f64, f64)]) -> (f64, f64) {
 }
 
 fn main() {
+    // Births inherit exactly unless PIXEL_PHYSICS_MUTATION=on (`creature::mutation_of`).
+    pixel_physics::sim::creature::mutation_off_for_measuring();
     let d = LabBox::default();
     let ants_arg: String = arg("ants").unwrap_or_else(|| "0,80,240,420".to_string());
     let wants: Vec<usize> = ants_arg.split(',').map(|s| s.parse().expect("an ant count")).collect();

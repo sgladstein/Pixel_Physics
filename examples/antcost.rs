@@ -274,6 +274,8 @@ fn stock(lab: &mut Lab, species: &str, want: usize, ground_y: i32, width: i32, r
 }
 
 fn main() {
+    // Births inherit exactly unless PIXEL_PHYSICS_MUTATION=on (`creature::mutation_of`).
+    pixel_physics::sim::creature::mutation_off_for_measuring();
     let ants_arg: String = arg("ants").unwrap_or_else(|| "0,150,400,800,1400".to_string());
     let wants: Vec<usize> = ants_arg.split(',').map(|s| s.parse().expect("an ant count")).collect();
     // **`par=on,off` is the paired arm round 33 exists to measure**, and the

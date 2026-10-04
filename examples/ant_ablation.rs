@@ -171,6 +171,8 @@ struct Metrics {
 }
 
 fn main() {
+    // Births inherit exactly unless PIXEL_PHYSICS_MUTATION=on (`creature::mutation_of`).
+    pixel_physics::sim::creature::mutation_off_for_measuring();
     let mut seeds = 5u64;
     let mut frames = 6000usize;
     let mut rough = true;
