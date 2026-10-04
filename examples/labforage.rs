@@ -2434,10 +2434,13 @@ fn harness() {
     // §22j, 2026-09-27): both are judged at the acting ant's head, so a crumb
     // at the nest's edge is picked up from outside uncounted and delivered
     // again. Printed for continuity with older logs, under a name that does
-    // not claim more than it counts.
+    // not claim more than it counts. **`from trips` is the net flow**
+    // (`CreatureStats::trip_deliveries`, 2026-10-04): food bitten on a trip
+    // and put down at home by the ant that bit it, once.
     println!(
-        "  round trips: deliveries {} nest visits {} | picked up at home {} -> drops minus home pickups {}",
+        "  round trips: deliveries {} (from trips {}) nest visits {} | picked up at home {} -> drops minus home pickups {}",
         st.deliveries,
+        st.trip_deliveries,
         st.nest_visits,
         st.pickups_at_nest,
         st.deliveries as i64 - st.pickups_at_nest as i64
@@ -2722,7 +2725,7 @@ fn harness() {
 
     println!(
         "SUMMARY seed={} founders={} colonies={} frames={frames} handout={handout} cols={cols} plants={} windfall={} fruit_dropped={} edible={} unvisited={} floor={} aloft={} \
-         peak_edible={peak_edible} eats={} born={} died={} alive={} intake={:.0} burn={:.0} shares={} shared_j={:.0} moves={} deliveries={} pickups_at_nest={} nest_visits={} \
+         peak_edible={peak_edible} eats={} born={} died={} alive={} intake={:.0} burn={:.0} shares={} shared_j={:.0} moves={} deliveries={} trip_deliveries={} pickups_at_nest={} nest_visits={} \
          regime={} bud_site={} buds_held_for_nest={} births_denied_no_space={} births_overdrawn={} breeders={} gen={} bgen={} windfall_bitten={} seeds_spilled={} plants_from_pip={} pips_rotted={} pips_eaten={} \
          windfall_bitten_ownerless={} seeds_carried={} seeds_delivered={} plants_from_pip_near_nest={} seed_transit_median={} lookup={} visits={} \
          flower_visits={} nectar_paid={:.0} nectar_j_per_1000f={:.2} organs_built={} bloom_seen={} \
@@ -2750,7 +2753,7 @@ fn harness() {
          idle_streaks_any={} idle_streak_max_any={} idle_streak_p90_any={}",
         spec.seed, spec.founders, spec.colonies, last.plants, last.windfall, world.fruit_dropped, last.edible, last.unvisited, last.floor, last.aloft,
         st.eats, st.births, st.deaths, last.ants, l.harvested_plant + l.harvested_corpse, burn, st.shares, st.shared_j, st.moves,
-        st.deliveries, st.pickups_at_nest, st.nest_visits,
+        st.deliveries, st.trip_deliveries, st.pickups_at_nest, st.nest_visits,
         std::env::var("PIXEL_PHYSICS_BREEDING").unwrap_or_else(|_| "graded".to_string()),
         // Where an animal may bud (`creature::bud_at_nest`), and how many buds
         // the nest rule held back: the "did it fire" counter for that arm.

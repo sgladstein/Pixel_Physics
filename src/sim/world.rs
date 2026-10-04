@@ -2230,7 +2230,7 @@ pub struct CreatureStats {
     /// about a cell. What this counts is pickups made at home, a lower bound
     /// on how much of `deliveries` is the same food going round. A net flow
     /// needs both judged at the food cell's own position, or only a crumb's
-    /// first delivery counted.
+    /// first delivery counted -- which `trip_deliveries` now is.
     ///
     /// Added 2026-09-26 (`Reports/nest-mouth-2026-09-26.md` §6-§7), when a
     /// home that climbed the colony's own food heap raised deliveries
@@ -2238,6 +2238,27 @@ pub struct CreatureStats {
     /// births, food eaten and colony-frames split 6 / 6. The heap was a
     /// tower, and every drop on its top counted as a delivery.
     pub pickups_at_nest: u64,
+    /// **Deliveries of food that was taken on a trip** -- the part of
+    /// `deliveries` that is food coming home rather than food going round
+    /// it. A cell counts when it was bitten away from home on the gate that
+    /// marks a trip load (`OrganismState::trip_load`: the ant had been
+    /// `creature::FORAGE_TRIP_MIN` cells from its last nest contact, and
+    /// under the trip reach the food lay beyond it from every door, or was
+    /// living tissue) and is then put down at home by the same ant. Each
+    /// such cell counts once, at its first put-down at home; a crumb picked
+    /// up again there and moved is not a trip, so it does not count twice.
+    ///
+    /// Added 2026-10-04 from the deep trace's single-ant path maps (seed 1,
+    /// goal box, main 3f3aa06d): the colony's top ant by `deliveries` had
+    /// 291, of which 16 were food it bit at the pile and 241 food it picked
+    /// up inside the nest and put straight back down. Mirrors
+    /// `LifeCounters::trip_deliveries`.
+    ///
+    /// **What it does not count**: food handed on mouth to mouth arrives
+    /// in the receiver's energy, not its crop, so it is not a cell; and a
+    /// load a nestmate takes off the ground near the door and carries in is
+    /// judged as that nestmate's pickup, which the trip gate refuses.
+    pub trip_deliveries: u64,
     /// **Times an empty animal turned for home too hungry to stay out**
     /// (`creature::hungry_home_of`): one per setting of
     /// `OrganismState::hungry_home`, never per tick it stays set.
@@ -7701,6 +7722,7 @@ impl World {
             trip_load: false,
             trip_src: 0,
             since_trip: 0,
+            trip_cells: 0,
             eat_lunch_now: false,
             hungry_home: false,
             // Zero is "no memory yet"; the first tick's read sees `live - 0`,

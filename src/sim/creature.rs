@@ -8084,6 +8084,8 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
                     digesting: if finished { 0.0 } else { matured },
                     ..c
                 });
+                // A trip cell eaten on the road is not delivered.
+                state.trip_cells = state.trip_cells.min(left);
                 state.eat_lunch_now = false;
             }
             // **The owner's rule, 2026-09-11: "where should the seed drop
@@ -15137,6 +15139,12 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
                         state.trip_load = false;
                         state.trip_src = 0;
                     }
+                    // `trip_cells` starts afresh with every crop, whatever
+                    // the switch: it is a readout and leaks nothing into
+                    // behaviour.
+                    if crop.is_none_or(|c| c.worth() <= 0.0) {
+                        state.trip_cells = 0;
+                    }
                     if !picked_at_home {
                         state.foraged = true;
                         state.store_carried = false;
@@ -15149,6 +15157,7 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
                             if trip_reach.is_none() || src_bits & TRIP_SRC_FAR != 0 {
                                 state.trip_load = true;
                                 state.since_trip = 0;
+                                state.trip_cells = state.trip_cells.saturating_add(1);
                             }
                         }
                     }
@@ -15361,6 +15370,7 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
                 } else {
                     world.set(dx, dy, unit.into_cell(world));
                 }
+                let mut trip_cell = false;
                 if let Some(state) = world.organism_mut(organism) {
                     // `passenger: None` unconditionally: either it was
                     // already empty, or it was just delivered above and
@@ -15397,6 +15407,14 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
                         let digesting = if keep_chewing { c.digesting } else { 0.0 };
                         (left > 0).then_some(Crop { cells: left, digesting, passenger: None, ..c })
                     });
+                    // **Trip cells go down first** (`OrganismState::
+                    // trip_cells`): a crop is one pool, so which cell leaves
+                    // is not recorded, and a mixed crop -- a trip load
+                    // topped up at home -- is rare. Spent on every put-down,
+                    // home or not, so a trip cell set down on the way is
+                    // not booked again when the rest arrive.
+                    trip_cell = state.trip_cells > 0;
+                    state.trip_cells = state.trip_cells.saturating_sub(1).min(state.crop.map_or(0, |c| c.cells));
                 }
                 world.creature_stats.drops += 1;
                 if at_nest {
@@ -15407,8 +15425,14 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
                         site.larder = Some(site.larder.map_or((fx, fy), |(lx, ly)| (lx + LARDER_EMA * (fx - lx), ly + LARDER_EMA * (fy - ly))));
                     }
                     world.creature_stats.deliveries += 1;
+                    // **Food home from a trip**, beside the plain count
+                    // (`CreatureStats::trip_deliveries`).
+                    if trip_cell {
+                        world.creature_stats.trip_deliveries += 1;
+                    }
                     let (returned, src) = world.organism_mut(organism).map_or((false, 0), |state| {
                         state.life.deliveries += 1;
+                        state.life.trip_deliveries += u32::from(trip_cell);
                         (std::mem::take(&mut state.trip_load), std::mem::take(&mut state.trip_src))
                     });
                     // **What the trip reach removes, or would** (counted
@@ -25386,6 +25410,7 @@ mod tests {
             ("bites", live(&w, |l| l.bites), w.dead_life.bites as u64, w.creature_stats.pickups),
             ("digs", live(&w, |l| l.digs), w.dead_life.digs as u64, w.creature_stats.digs),
             ("deliveries", live(&w, |l| l.deliveries), w.dead_life.deliveries as u64, w.creature_stats.deliveries),
+            ("trip_deliveries", live(&w, |l| l.trip_deliveries), w.dead_life.trip_deliveries as u64, w.creature_stats.trip_deliveries),
             ("offspring", live(&w, |l| l.offspring), w.dead_life.offspring as u64, w.creature_stats.births),
         ] {
             assert_eq!(
@@ -34490,6 +34515,119 @@ mod tests {
         let (deliveries, returns, _) = delivered(false);
         assert!(deliveries > 0, "the unmarked load was never put down: the control cannot show anything");
         assert_eq!(returns, 0, "a load from home booked {returns} returns");
+    }
+
+    /// **A delivery counts as food from a trip only when the ant bit it on
+    /// one** (`CreatureStats::trip_deliveries`, 2026-10-04). The deep trace's
+    /// top "forager" by `deliveries` had 291, of which 16 were food it bit at
+    /// the pile and 241 food picked up inside the nest and put straight back.
+    /// Three scenes: a bite on an outing marks one trip cell and a bite near
+    /// home marks none; a crop of two trip cells put down at home books two,
+    /// and an unmarked crop none; and an ant that lifts crumbs off its own
+    /// nest and sets them down again books deliveries and no trip. Watched
+    /// red by booking every delivery as a trip: the second and third scenes
+    /// fail.
+    #[test]
+    fn only_food_bitten_on_a_trip_counts_as_a_trip_delivery() {
+        let stone = Cell::new(material::STONE, 0).with_attached(true);
+        let floor = |w: &mut World| {
+            for x in 0..160 {
+                for y in 41..64 {
+                    w.set(x, y, stone);
+                }
+            }
+        };
+        let picked = |excursion: u16| -> u16 {
+            let mut w = World::new(Rect::new(0, 0, 159, 63));
+            floor(&mut w);
+            w.chooser = Some(Chooser::TrailAway);
+            w.register_nest_site(20, 40, 4);
+            w.trip_reach = Some(Some(TRIP_REACH_SHIPPED));
+            let crumbs = w.materials.id_of("crumbs").expect("crumbs.ron must be registered");
+            let ant = spawn(&mut w, "ant", 100, 40);
+            let energy = w.species.get(w.organism(ant).expect("live").species).creature.as_ref().expect("a creature").start_energy;
+            for x in 90..111 {
+                if w.get(x, 40).material == material::EMPTY {
+                    w.set(x, 40, Cell::new(crumbs, 0).with_aux(400));
+                }
+            }
+            for _ in 0..2000 {
+                {
+                    let st = w.organism_mut(ant).expect("live");
+                    st.energy = energy;
+                    st.forage_max = excursion;
+                    st.forage_anchor = (20, 40);
+                }
+                w.begin_step();
+                scheduler::step(&mut w);
+                w.end_step();
+                let st = w.organism(ant).expect("live");
+                if st.crop.is_some_and(|c| c.worth() > 0.0) {
+                    return st.trip_cells;
+                }
+            }
+            panic!("the ant never took a crumb in 2,000 frames: the scene cannot show the mark");
+        };
+        assert_eq!(picked(20), 1, "a cell taken 20 cells into an outing did not count as one trip cell");
+        assert_eq!(picked(2), 0, "a cell taken 2 cells from home counted as a trip cell");
+        // A nest floor under the ant, so every put-down is at home.
+        let at_home = |w: &mut World| -> OrganismId {
+            floor(w);
+            let nest = w.materials.id_of("nest").expect("nest is compiled in");
+            for x in 90..111 {
+                w.set(x, 41, Cell::new(nest, 0).with_attached(true));
+            }
+            w.chooser = Some(Chooser::TrailAway);
+            w.register_nest_site(100, 40, 10);
+            spawn(w, "ant", 100, 40)
+        };
+        let run = |w: &mut World, ant: OrganismId| {
+            let energy = w.species.get(w.organism(ant).expect("live").species).creature.as_ref().expect("a creature").start_energy;
+            for _ in 0..1500 {
+                if let Some(st) = w.organism_mut(ant) {
+                    st.energy = energy;
+                }
+                w.begin_step();
+                scheduler::step(w);
+                w.end_step();
+            }
+        };
+        let carried = |trip_cells: u16| -> (u64, u64, u32) {
+            let mut w = World::new(Rect::new(0, 0, 159, 63));
+            let ant = at_home(&mut w);
+            let fruit = w.materials.id_of("fruit").expect("fruit.ron must be registered");
+            {
+                let st = w.organism_mut(ant).expect("live");
+                st.crop = Some(Crop { material: fruit, cells: 2, digesting: 0.0, unit: 960.0, shade: 0, passenger: None });
+                st.trip_load = trip_cells > 0;
+                st.trip_cells = trip_cells;
+                st.foraged = true;
+            }
+            run(&mut w, ant);
+            let life = w.organism(ant).map_or(0, |s| s.life.trip_deliveries);
+            (w.creature_stats.deliveries, w.creature_stats.trip_deliveries, life)
+        };
+        let (deliveries, trips, life) = carried(2);
+        assert!(deliveries >= 2, "the two-cell load was not put down at home ({deliveries} deliveries): the scene cannot show the count");
+        assert_eq!(trips, 2, "two trip cells put down at home booked {trips} trip deliveries over {deliveries} deliveries");
+        assert_eq!(life, 2, "the ant's own count read {life}, the world's {trips}");
+        let (deliveries, trips, _) = carried(0);
+        assert!(deliveries >= 2, "the unmarked load was not put down: the control cannot show anything");
+        assert_eq!(trips, 0, "a load not taken on a trip booked {trips} trip deliveries");
+        // The shuffle: crumbs lying on the nest, an empty crop, and nothing
+        // else to do.
+        let mut w = World::new(Rect::new(0, 0, 159, 63));
+        let ant = at_home(&mut w);
+        let crumbs = w.materials.id_of("crumbs").expect("crumbs.ron must be registered");
+        for x in 94..107 {
+            if w.get(x, 40).material == material::EMPTY {
+                w.set(x, 40, Cell::new(crumbs, 0).with_aux(400));
+            }
+        }
+        run(&mut w, ant);
+        let st = w.creature_stats;
+        assert!(st.deliveries > 0 && st.pickups_at_nest > 0, "the ant never moved a crumb about its own nest ({} deliveries, {} picked up at home): the scene cannot show the shuffle", st.deliveries, st.pickups_at_nest);
+        assert_eq!(st.trip_deliveries, 0, "crumbs moved about the nest booked {} trip deliveries over {} deliveries", st.trip_deliveries, st.deliveries);
     }
 
     /// **`PIXEL_PHYSICS_TRIP_REACH` reads its spellings, and a value it

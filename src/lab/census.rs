@@ -783,6 +783,11 @@ pub struct ChronicleRow {
     pub pips_set_on_soil: u64,
     pub pips_set_on_nest: u64,
     pub seeds_lost_no_room: u64,
+    /// **Deliveries of food bitten on a trip** (`CreatureStats::
+    /// trip_deliveries`): the part of `deliveries` that is food coming
+    /// home, not food going round it. Last in the counters group, so no
+    /// earlier column moves.
+    pub trip_deliveries: u64,
     /// **Where the tick actually went, since the previous row** -- the eight
     /// phases `sim::frame::step` orders, drained from its stopwatch. `None`
     /// when the clock is off: **on by default in the lab's own binary**
@@ -867,6 +872,7 @@ pub fn take_chronicle_row(
         pips_set_on_soil: world.pips_set_on_soil,
         pips_set_on_nest: world.pips_set_on_nest,
         seeds_lost_no_room: world.seeds_lost_no_room,
+        trip_deliveries: st.trip_deliveries,
         // **Drained here, unconditionally, and that is safe because the
         // accumulator is empty when the clock is off.** Draining rather than
         // reading is what makes each row the window since the previous one;
@@ -926,20 +932,21 @@ pub fn header_line() -> String {
 /// | `sLost` | `seeds_lost_no_room` |
 /// | `ownK` | `kills_own_colony` (of `killd`) |
 /// | `oldag` | `oldage_deaths` (of `othr`) |
+/// | `tripD` | `trip_deliveries` (of `delivs`) |
 ///
 /// Every one cumulative over the run, like `born`/`eats`/`digs`: a window is
 /// the difference of two rows.
 fn counter_header_group() -> String {
     format!(
-        " | {:>7} {:>6} {:>5} {:>5} {:>8} {:>5} {:>5} {:>5} {:>5} {:>5} {:>5}",
-        "dRoll", "dDown", "dDnX", "dRfX", "atNest", "sCarr", "pipS", "pipN", "sLost", "ownK", "oldag"
+        " | {:>7} {:>6} {:>5} {:>5} {:>8} {:>5} {:>5} {:>5} {:>5} {:>5} {:>5} {:>6}",
+        "dRoll", "dDown", "dDnX", "dRfX", "atNest", "sCarr", "pipS", "pipN", "sLost", "ownK", "oldag", "tripD"
     )
 }
 
 /// The counters group's data, matching [`counter_header_group`].
 fn counter_row_group(row: &ChronicleRow) -> String {
     format!(
-        " | {:>7} {:>6} {:>5} {:>5} {:>8} {:>5} {:>5} {:>5} {:>5} {:>5} {:>5}",
+        " | {:>7} {:>6} {:>5} {:>5} {:>8} {:>5} {:>5} {:>5} {:>5} {:>5} {:>5} {:>6}",
         row.dig_rolls,
         row.digs_aimed_down,
         row.digs_down_refused,
@@ -950,7 +957,8 @@ fn counter_row_group(row: &ChronicleRow) -> String {
         row.pips_set_on_nest,
         row.seeds_lost_no_room,
         row.kills_own_colony,
-        row.oldage_deaths
+        row.oldage_deaths,
+        row.trip_deliveries
     )
 }
 
@@ -1176,7 +1184,7 @@ pub fn census_csv(rows: &[ChronicleRow]) -> String {
         [
             "births", "deaths", "starved", "killed", "other_deaths", "oldage_deaths", "kills_own_colony", "eats", "digs", "deliveries",
             "dig_rolls", "digs_aimed_down", "digs_down_refused", "digs_refused_roof", "at_nest_ticks", "seeds_carried",
-            "pips_set_on_soil", "pips_set_on_nest", "seeds_lost_no_room", "gut", "awake_chunks", "active_sites",
+            "pips_set_on_soil", "pips_set_on_nest", "seeds_lost_no_room", "trip_deliveries", "gut", "awake_chunks", "active_sites",
             "ticks_per_frame", "requested_ticks_per_frame", "speed_multiple", "display_hz", "debt_ticks", "draws_skipped",
             "phase_ticks",
         ]
@@ -1193,6 +1201,7 @@ pub fn census_csv(rows: &[ChronicleRow]) -> String {
                 row.births, row.deaths, row.starved, row.killed, row.other_deaths, row.oldage_deaths, row.kills_own_colony, row.eats,
                 row.digs, row.deliveries, row.dig_rolls, row.digs_aimed_down, row.digs_down_refused, row.digs_refused_roof,
                 row.at_nest_ticks, row.seeds_carried, row.pips_set_on_soil, row.pips_set_on_nest, row.seeds_lost_no_room,
+                row.trip_deliveries,
             ]
             .iter()
             .map(|n| n.to_string()),
