@@ -312,6 +312,13 @@ impl Pre {
 }
 
 fn main() {
+    // Births inherit exactly unless `PIXEL_PHYSICS_MUTATION=on` (PR 611).
+    // The seed-1 recording of 2026-10-04 was made with mutation ON (before
+    // the switch); to replay it, run with `PIXEL_PHYSICS_MUTATION=on`.
+    // Mutation-off runs: the lab founders' gut (0) gets only a quarter of the
+    // player's plant-class food -- set founders' gut_bias to -0.5 in the
+    // scenario until the owner picks how tests start the diet.
+    creature::mutation_off_for_measuring();
     let seed: u64 = arg("seed").unwrap_or(1);
     let frames: u64 = arg("frames").unwrap_or(300_000);
     // `ants=all` (the default) records every live ant at every decision; a
@@ -403,7 +410,8 @@ fn main() {
         .map(|i| lab.world.materials.get(material::MaterialId(i as u16)).name.clone())
         .collect();
     // **Experiment dials, harness-only.** `mutation=<rate>` overrides the
-    // ant's per-slot mutation rate (0 freezes the founders' brain);
+    // ant's per-slot brain mutation rate (0 freezes the founders' brain only;
+    // traits and body still mutate -- the game switch above freezes all);
     // `knockin=<slot>:<value>[,...]` writes those genome slots into the
     // species genome before the colony lands, to test one allele in a whole colony.
     if let Some(m) = arg::<f32>("mutation") {
