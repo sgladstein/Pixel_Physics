@@ -16266,7 +16266,8 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
             // be set on its carrier's own back, and the footing rule (§Z18)
             // then turns it to loose soil within a few frames.
             let footed = spoil_footing_drop();
-            let open = |px: i32, py: i32| spoil_site_open(world, px, py, footed);
+            let clear = door_clear().0;
+            let open = |px: i32, py: i32| spoil_site_open(world, px, py, footed) && !(clear && over_a_door(world, (px, py)));
             // **...and if there is no such cell beside it, up the shaft.**
             // An animal at the face has nowhere to lie a pellet down -- every
             // neighbour is either the gallery or the bank -- and the two
@@ -16896,7 +16897,7 @@ fn lift_out(world: &World, x: i32, y: i32, footed: bool) -> Option<(i32, i32)> {
             if c.material != material::EMPTY && world.materials.kind(c.material) != MaterialKind::Creature {
                 continue;
             }
-            if spoil_site_open(world, nx, ny, footed) && !under_cover(world, nx, ny) {
+            if spoil_site_open(world, nx, ny, footed) && !under_cover(world, nx, ny) && !(door_clear().0 && over_a_door(world, (nx, ny))) {
                 return Some((nx, ny));
             }
             queue.push_back((nx, ny));
@@ -17614,6 +17615,10 @@ fn pack_neighbours_with(world: &mut World, x: i32, y: i32, keep_spoil: bool) -> 
         };
         // Placed ground stays placed ground: see [`spoil_packs`].
         if keep_spoil && world.materials.get(cell.material).needs_footing {
+            continue;
+        }
+        // Scratch (lane 3, [`door_clear`] `tamp`): the passage is not a wall.
+        if door_clear().1 && in_a_passage(world, (nx, ny)) {
             continue;
         }
         // Everything but the material rides across: the held water
@@ -19829,6 +19834,7 @@ fn lean_drop_site(world: &World, (x, y): (i32, i32)) -> Option<(i32, i32)> {
         world.get(px, py).material == material::EMPTY
             && [(-1, 1), (0, 1), (1, 1)].iter().filter(|(dx, dy)| world.get(px + dx, py + dy).material != material::EMPTY).count() >= 2
             && !(lean_door_keep() && in_a_door(world, (px, py)))
+            && !(door_clear().0 && over_a_door(world, (px, py)))
     })
 }
 
@@ -19856,6 +19862,50 @@ fn in_a_door(world: &World, (x, y): (i32, i32)) -> bool {
         .iter()
         .filter_map(|s| s.shaft)
         .any(|c| (c.x0 - 1..=c.x1 + 1).contains(&x) && (c.top - 8..=c.mouth_bottom).contains(&y))
+}
+
+/// Scratch (lane 3): `PIXEL_PHYSICS_DOOR_CLEAR=drop|tamp|both`, off unless
+/// set. **Keep the door from sealing in the first place**, two halves:
+///
+/// - `drop`: **no pellet is set down over a door** -- a founding shaft's
+///   columns and two either side, at any height down to the mouth's foot
+///   ([`over_a_door`]) -- by the ordinary drop or a lean ant's; the carrier
+///   walks on. The heap rings the mouth instead of capping it.
+/// - `tamp`: **the passage is not tamped** -- `line_burrow` leaves loose a
+///   cell in a shaft's own columns from 8 rows over the mouth to its foot
+///   ([`in_a_passage`]), so soil that slides into the mouth stays loose and
+///   falls through instead of becoming a wall.
+///
+/// **Why** (lane 3, goal bed, seeds 1 and 5, 2026-10-04, a temporary line at
+/// every cut and pellet). The mouth plug is packed soil (3-11 cells). The
+/// heap over the nest is mostly packed soil and loose soil, with spoil a
+/// small part (seed 1 at 105k: 392 packed, 178 soil, 35 spoil): pellets
+/// that lose their footing come down as loose soil, and 22-43% of all cuts
+/// are ants re-cutting that heap, each tamping the loose soil round it. On
+/// seed 1, 433 of about 3,700 pellets set down above ground landed within
+/// two columns of the mouth, 14-26 rows over it, so the heap is built on top
+/// of the door. The owner, from play: ants close off their own nests with
+/// packed soil, some nests and not others.
+fn door_clear() -> (bool, bool) {
+    static V: std::sync::OnceLock<(bool, bool)> = std::sync::OnceLock::new();
+    *V.get_or_init(|| match std::env::var("PIXEL_PHYSICS_DOOR_CLEAR").as_deref() {
+        Ok("drop") => (true, false),
+        Ok("tamp") => (false, true),
+        Ok("both") => (true, true),
+        _ => (false, false),
+    })
+}
+
+/// Is `(x, y)` over a nest's door: a founding shaft's columns and two either
+/// side, at any height down to the mouth's last row.
+fn over_a_door(world: &World, (x, y): (i32, i32)) -> bool {
+    world.nest_sites.iter().filter_map(|s| s.shaft).any(|c| (c.x0 - 2..=c.x1 + 2).contains(&x) && y <= c.mouth_bottom)
+}
+
+/// Is `(x, y)` in a nest's passage: a founding shaft's own columns, from 8
+/// rows over its mouth row down to the mouth's last row.
+fn in_a_passage(world: &World, (x, y): (i32, i32)) -> bool {
+    world.nest_sites.iter().filter_map(|s| s.shaft).any(|c| (c.x0..=c.x1).contains(&x) && (c.top - 8..=c.mouth_bottom).contains(&y))
 }
 
 /// The nest site whose throttle zone holds `(hx, hy)`: within `reach`
