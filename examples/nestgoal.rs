@@ -103,8 +103,14 @@ impl Census {
         What::Ground
     }
 
+    /// Liquid is open space: it is dug room the mister has flooded, and
+    /// counting it as wall split one room into "chambers" that rejoined
+    /// when the puddle soaked away -- 99 of 107 brood-room merges traced on
+    /// 2026-10-04 had no cut near the join, and the cell that opened was
+    /// water in 46 of them. Chamber counts before that day are not
+    /// comparable.
     fn open(what: What) -> bool {
-        matches!(what, What::Empty | What::Ant | What::Brood | What::Food)
+        matches!(what, What::Empty | What::Ant | What::Brood | What::Food | What::Liquid)
     }
 
     /// The colony's open space below the old ground line: every open cell
