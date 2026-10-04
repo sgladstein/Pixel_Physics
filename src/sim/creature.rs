@@ -14526,10 +14526,13 @@ pub fn trail_sample_point(x: i32, y: i32, heading: u8, so: i32, airborne: bool, 
 /// *zero on both planes*, which on a lit plane is rare. A non-zero reading is
 /// its own proof that a trail can be there.
 fn trail_could_be_here(world: &World, x: i32, y: i32) -> bool {
-    !matches!(
-        world.materials.kind(world.get(x, y).material),
-        MaterialKind::Solid | MaterialKind::Powder | MaterialKind::Plant
-    ) && head_has_foothold(world, (x, y), None)
+    let kind = world.materials.kind(world.get(x, y).material);
+    // A cell *of* water is not one an animal can stand in, and over a pool
+    // [`water_footing_of`] would otherwise read one as standable on the
+    // water under it. Off, the shipped answer is kept to the bit.
+    !matches!(kind, MaterialKind::Solid | MaterialKind::Powder | MaterialKind::Plant)
+        && !(kind == MaterialKind::Liquid && water_footing_of(world))
+        && head_has_foothold(world, (x, y), None)
 }
 
 /// Local `|grad moisture|`, normalized.
@@ -17616,11 +17619,12 @@ pub fn kin_footing_of(world: &World) -> bool {
 /// ask it every decision rather than only after a step roll won. The shipped
 /// walk still asks it only there, and still counts the fall as a move.
 fn fall_if_unsupported(world: &mut World, organism: OrganismId, def: &CreatureDef, chain: &[(i32, i32)], groups: &[u8], stacker: Option<Stacker>) -> bool {
-    let supported = touches_ground(world, chain) || {
-        let held = kin_footing_of(world) && held_by_kin(world, organism, chain);
-        world.creature_stats.kin_holds += u64::from(held);
-        held
-    };
+    let supported = touches_ground(world, chain)
+        || {
+            let held = kin_footing_of(world) && held_by_kin(world, organism, chain);
+            world.creature_stats.kin_holds += u64::from(held);
+            held
+        };
     if !supported {
         let fallen: Vec<(i32, i32)> = chain.iter().map(|&(cx, cy)| (cx, cy + 1)).collect();
         // Tissue-aware for the same reason the step below is: an animal
@@ -18118,6 +18122,12 @@ fn commit_step(
         world.creature_stats.tucked_segment_steps += authored_widths.iter().zip(&next_groups).filter(|&(&a, &g)| a == 2 && g == 1).count() as u64;
     }
     relocate_chain(world, organism, def, authored, BodySide { cells: chain, groups }, BodySide { cells: &next, groups: &next_groups });
+    // `PIXEL_PHYSICS_WATER_FOOTING`'s "it fired" count: a step whose new head
+    // stands on water and on nothing else ([`water_footing_of`]). Three
+    // reads per step while it is on, and the ground test only over water.
+    if water_footing_of(world) && stands_on_water(world, (tx, ty)) && !head_has_ground(world, (tx, ty), None) {
+        world.creature_stats.water_steps += 1;
+    }
     if let Some(state) = world.organism_mut(organism) {
         state.heading = new_heading;
         state.life.moves += 1;
@@ -24205,6 +24215,68 @@ fn kin_footing(world: &World, organism: OrganismId, def: &CreatureDef) -> Option
 /// Two fixes failing the same way meant the predicate was wrong, not the
 /// tuning.
 fn head_has_foothold(world: &World, (x, y): (i32, i32), kin: Option<Kin>) -> bool {
+    head_has_ground(world, (x, y), kin) || (water_footing_of(world) && stands_on_water(world, (x, y)))
+}
+
+/// **An animal can stand on a puddle** -- the surface film holds it -- for
+/// this world, under `PIXEL_PHYSICS_WATER_FOOTING` (`on`; **off by default**,
+/// which is the animal before it: it could neither enter liquid nor find
+/// footing over it, so any pool wider than a body was a wall).
+///
+/// **Why it exists.** On the nest goal bed the mister's water collects in
+/// the dip between the colony's dirt mound and the food heap, which dams it.
+/// Every hungry ant traced on seed 4 (82-94k frames, 89 ants) turned back at
+/// the pool's near edge and one reached the food; the colony starved beside
+/// an endless heap. In five colonies that died, the dip held 13-47 water
+/// cells just before the crash; in the two that lived it held 0-6. With the
+/// mister off (same binary) those colonies live: seed 1 0 -> 45, seed 2
+/// 1 -> 334 ants at 200k.
+///
+/// **Biology.** Most ants cannot drown in a puddle: dropped on water, 20 of
+/// 35 tropical ant species moved across the surface under control (Yanoviak
+/// & Frederick 2014, J Exp Biol 217:2163, doi:10.1242/jeb.101600), and
+/// carpenter ants cross liquid-covered ground and swim to a landmark
+/// (Notomi et al. 2025, J Exp Biol 228, doi:10.1242/jeb.250278).
+///
+/// **Only the three cells under the head count** ([`stands_on_water`]), so
+/// water is a floor and never a wall: an animal can walk across a pool's top
+/// but cannot climb the side of a falling stream. It is the step's rule only
+/// ([`head_has_foothold`]); a body standing on water stays because its fall
+/// would land in liquid. Counted per step in `CreatureStats::water_steps`
+/// ([`commit_step`]).
+///
+/// **Off because it kills colonies that have no puddle to cross**
+/// (2026-10-04, main 0b3e264a, goal bed `nestgoal`, 200k frames, ants alive
+/// at the end). On the bed with its surface drained, where every colony
+/// lives without it (seeds 1-5: 384 / 345 / 253 / 71 / 593), it left
+/// 532 / **0** / 337 / **0** / **0**; leaving water under a standing animal
+/// undrained did not save them (seeds 1, 2, 4, 5: 0 / 201 / 0 / 0). On
+/// seed 4 the steps onto water were few (10-50 per 2,500 frames) and almost
+/// all at the mound and the door, and the door was sealed by packed soil at
+/// 40k with the colony outside it; why walking on the door's water leads
+/// there is not known. On the undrained bed it does what it was built for:
+/// 0 / 1 -> 333 / 490 at 200k (seeds 1-2; seed 3 548, its arm without
+/// not run). The first build
+/// also counted water in the fall check (`fall_if_unsupported`), so a body
+/// with water under any one cell was held up; that was worse -- 0 / 0 / 6
+/// on drained seeds 1-3, and the fall half alone killed seed 3 -- and is
+/// gone. `Reports/dead-ends.md` has the entry.
+pub fn water_footing_of(world: &World) -> bool {
+    world.water_footing.unwrap_or_else(|| {
+        static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        *V.get_or_init(|| std::env::var("PIXEL_PHYSICS_WATER_FOOTING").as_deref() == Ok("on"))
+    })
+}
+
+/// Whether liquid lies in any of the three cells under `(x, y)` -- the
+/// surface it would stand on. See [`water_footing_of`].
+fn stands_on_water(world: &World, (x, y): (i32, i32)) -> bool {
+    [(-1, 1), (0, 1), (1, 1)].iter().any(|&(dx, dy)| world.in_bounds(x + dx, y + dy) && world.materials.kind(world.get(x + dx, y + dy).material) == MaterialKind::Liquid)
+}
+
+/// [`head_has_foothold`] without the water: solid, powder, living tissue or
+/// a walkable nestmate in any of the eight neighbours.
+fn head_has_ground(world: &World, (x, y): (i32, i32), kin: Option<Kin>) -> bool {
     NEIGHBOURS_8.iter().any(|&(dx, dy)| {
         let (nx, ny) = (x + dx, y + dy);
         // **The edge of the world is not scenery.** `World::get` returns a
@@ -39374,6 +39446,22 @@ mod tests {
     /// the out-of-bounds `BEDROCK` sentinel that turned the world edge into
     /// an infinitely tall ladder, except that this ladder would follow the
     /// animal.
+    /// **Water is a floor under `WATER_FOOTING` and never a wall**, and off it
+    /// is neither: the three cells under a cell are what count, so a pool's
+    /// top holds an animal and a column of water beside it does not.
+    #[test]
+    fn a_puddle_is_footing_and_a_stream_beside_is_not() {
+        let mut w = test_world();
+        w.set(100, 101, Cell::new(material::WATER, 0));
+        for on in [false, true] {
+            w.water_footing = Some(on);
+            assert_eq!(head_has_foothold(&w, (100, 100), None), on, "on water, water footing {on}");
+            assert_eq!(head_has_foothold(&w, (99, 100), None), on, "a diagonal over water is under it too, water footing {on}");
+            assert!(!head_has_foothold(&w, (101, 101), None), "beside the water is not on it, water footing {on}");
+            assert!(!head_has_foothold(&w, (100, 102), None), "under the water is not on it, water footing {on}");
+        }
+    }
+
     #[test]
     fn a_climbing_ant_is_never_its_own_foothold() {
         let mut w = test_world();
