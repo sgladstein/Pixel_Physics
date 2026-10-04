@@ -1,6 +1,6 @@
 # Ants
 
-*Current as of: 2026-10-04, when **ants started walking across puddles** (see *Coming home*) and when **a colony stopped sealing its own door with packed soil** (see *One door, and a granary under it*); 2026-10-03, when **a hungry ant started putting its digging down to go and eat.** A colony beside endless food used to grow to a few hundred and then starve at home all at once, the food untouched: its hungry foragers were still digging and carrying soil, and an ant holding soil cannot eat or fetch food. Now an ant under half its fill stops digging, sets its soil down where it stands, and goes out on its own hunger, and those colonies live. Also 2026-10-03, when **a colony started keeping its own door open** (see *One door, and a granary under it*), and when **the lab's other animals started ageing like the ant** (see *Ants get old and die of it*); 2026-10-02, when **the whole dug nest became home and
+*Current as of: 2026-10-04, when **ants in the lab started out half way to plant-eaters** (see *New ants, and why you will not see any yet*), when **ants started walking across puddles** (see *Coming home*) and when **a colony stopped sealing its own door with packed soil** (see *One door, and a granary under it*); 2026-10-03, when **a hungry ant started putting its digging down to go and eat.** A colony beside endless food used to grow to a few hundred and then starve at home all at once, the food untouched: its hungry foragers were still digging and carrying soil, and an ant holding soil cannot eat or fetch food. Now an ant under half its fill stops digging, sets its soil down where it stands, and goes out on its own hunger, and those colonies live. Also 2026-10-03, when **a colony started keeping its own door open** (see *One door, and a granary under it*), and when **the lab's other animals started ageing like the ant** (see *Ants get old and die of it*); 2026-10-02, when **the whole dug nest became home and
 food started gathering in piles** (see *One door, and a granary under it*),
 when **new ants started as eggs, laid only at
 home** (see *New ants*), and when **an ant started holding on to a nestmate
@@ -2343,6 +2343,17 @@ over many generations a line of ants can drift into something that behaves a
 little differently from the ants you first placed. That is the whole point of
 it: everything the ants have that could be inherited was, until now, the same
 in every ant that ever existed.
+
+**In the lab, a colony now starts out half way to eating plants.** The ant
+you place is a generalist, and almost everything in a lab box is plant food,
+so a newly placed colony was getting a quarter of every bite. Left to
+breed, every colony drifted toward plants on its own, and only grew once it
+had, after a long stretch of a stuck colony; and with that drift
+switched off for testing, it never grew at all. So lab ants now begin where
+their colonies were going anyway. Two things come with it: they graze the
+leaves of living plants from the start, so the garden is eaten harder, and a
+dead nestmate is worth much less to them as a meal. Ants in the outdoor world
+are unchanged, and a lab line can still drift either way from here.
 
 **How much a parent hands its newcomer is now a thing an ant inherits**,
 rather than a fixed rule every ant in the world obeys. It is the oldest
