@@ -3935,6 +3935,9 @@ pub struct World {
     /// `brood::crop_nurse_of` for this world; `None` reads
     /// `PIXEL_PHYSICS_CROP_NURSE`.
     pub crop_nurse: Option<crate::sim::brood::CropNurse>,
+    /// `creature::door_loose_of` for this world; `None` reads
+    /// `PIXEL_PHYSICS_DOOR_LOOSE`.
+    pub door_loose: Option<bool>,
     /// `creature::kin_footing_of` for this world; `None` reads the process's
     /// `PIXEL_PHYSICS_KIN_FOOTING`.
     pub kin_footing: Option<bool>,
@@ -6560,6 +6563,7 @@ impl World {
             door_reopen: None,
             nurse_seek: None,
             crop_nurse: None,
+            door_loose: None,
             kin_footing: None,
             water_footing: None,
             door_collar: None,
