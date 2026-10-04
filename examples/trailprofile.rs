@@ -25,8 +25,8 @@
 //! `shot=PATH` also saves the lab's own screen at the last frame, as the
 //! player sees it: the trail overlay (`overlay=a|b`, default `b`) and the
 //! scent strip with the pointer on the ground halfway along the trail.
-//! The box is the lab's, so B runs the lab's slow pair (`pheromone::
-//! LAB_B_RHO`) unless the B switch (`PIXEL_PHYSICS_B_RHO` /
+//! The box is the lab's, so B runs the lab's narrow pair (`pheromone::
+//! LAB_B_DIFFUSE`) unless the B switch (`PIXEL_PHYSICS_B_RHO` /
 //! `PIXEL_PHYSICS_B_DIFFUSE`) or `brho=`/`bdiffuse=` says otherwise; the
 //! header line prints the rates actually in force. `brho=0.03
 //! bdiffuse=0.25` is the lab before 2026-10-04.

@@ -916,14 +916,16 @@ The channels carry no meaning in the engine; the meaning is in the wiring.
   awake tile: each cell becomes `here + 0.25 × (mean of its 3×3 − here)`,
   then fades by `× (1 − rho)` with a forced minimum drop of 1 raw unit.
   - **A:** `rho = TRAIL_A_RHO = 0.0`, so it fades only by that minimum.
-  - **B, in the lab box:** `rho = LAB_B_RHO = 0.005`, blend
-    `LAB_B_DIFFUSE = 0.05` (owner's default, 2026-10-04), so a food trail
-    holds at 10-120 of 255 along its path. **Elsewhere** (the outdoor and
-    held worlds) B is the engine pair, `DECAY_RHO = 0.03`, blend 0.25, at
-    which a lone laden pass lays ~29 and is gone in ~144 frames, mostly to
-    the blend, so B never builds up beside an endless pile
-    (`examples/trailprofile.rs`). `PIXEL_PHYSICS_B_RHO` /
-    `PIXEL_PHYSICS_B_DIFFUSE` override both.
+  - **B, in the lab box:** `rho = LAB_B_RHO = DECAY_RHO = 0.03`, blend
+    `LAB_B_DIFFUSE = 0.05` (2026-10-04): a thin food trail at 10-46 of 255
+    along the path. **Elsewhere** (the outdoor and held worlds) B is the
+    engine pair, `DECAY_RHO = 0.03`, blend 0.25, at which a lone laden pass
+    lays ~29 and is gone in ~144 frames, mostly to the blend, so B never
+    builds up beside an endless pile (`examples/trailprofile.rs`).
+    `PIXEL_PHYSICS_B_RHO` / `PIXEL_PHYSICS_B_DIFFUSE` override both. **A
+    slower fade fails**: at `rho = 0.005` old side paths stay lit, empty ants
+    follow any lit B away from home, and the goal box lost a fifth of its
+    food (`pheromone::b_rho`'s doc).
   - **Terrain is ignored.** Scent spreads into rock and sky exactly as into
     open air, and leaks between parallel tunnels.
 - **Alarm:** spreads by distance falloff (`Spread::ActiveSpace`),
@@ -1223,7 +1225,7 @@ Read once per process from the environment. The default is what ships.
 | `PIXEL_PHYSICS_TRAIL_READ` | here-vs-front | `fwd`: trail A read as far-minus-near at 6 and 12 cells |
 | `PIXEL_PHYSICS_SENSOR_PROJECT` | on | `off`: no row projection; `none`: also no honesty gate |
 | `PIXEL_PHYSICS_A_RHO` | 0.0 | trail A's fade rate |
-| `PIXEL_PHYSICS_B_RHO` | 0.005 in the lab, 0.03 elsewhere | trail B's fade rate per pass; `0.03` with `B_DIFFUSE=0.25` is the lab before 2026-10-04 |
+| `PIXEL_PHYSICS_B_RHO` | 0.03 everywhere (`LAB_B_RHO = DECAY_RHO`) | trail B's fade rate per pass; `0.005` is the lasting trail the owner played 2026-10-04, which cost the goal box a fifth of its food (`pheromone::b_rho`) |
 | `PIXEL_PHYSICS_B_DIFFUSE` | 0.05 in the lab, 0.25 elsewhere | trail B's blend toward its 3x3 mean per pass |
 | `PIXEL_PHYSICS_NEST_REACH` | r1 | `rN`: nest contact within radius N; `body`: any body cell |
 | `PIXEL_PHYSICS_NEST_HOME` | `dug`: the dug nest joined to the door (§ on `adjacent_nest`) | `material` (or `off`): nest material only, the door strip; `shaft`: a head within one cell of the founding cut (dug by `PIXEL_PHYSICS_NEST_SHAFT=<rows>`, `_NEST_SHAFT_WIDTH=<cells>`, lined) also reads `AtNest`; `mouth`: only within one cell of its top two rows (§8) |

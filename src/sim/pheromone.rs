@@ -912,17 +912,31 @@ fn a_rho() -> f32 {
 /// held 10-120 along the whole path in every sample; `B_RHO=0` floods the
 /// corridor at 70-160 with no shape at all.
 ///
-/// **The engine keeps today's pair; the lab box ships the slow one**
-/// ([`LAB_B_RHO`], [`LAB_B_DIFFUSE`], applied by `LabBox::build`). Owner,
-/// 2026-10-04, after playing it: *"I think this should be default ... my
-/// colonies look way better."* The other side of this was measured once:
-/// faster B decay *raised* colony intake on the played box (`bdecay=`,
-/// 54,722 -> 127,339 J from 0.03 to 0.25, 12 seeds, before 0b3e264a), since
-/// a trail that outlives its patch recruits to food that is gone. On current
-/// main, 2 seeds of the played bed split (slow B 364k vs 254k J on seed 1,
-/// 329k vs 455k on seed 2); the 12-seed check is the fail-check. Scoped to
-/// the lab because the held world's player trail also rides channel B and
-/// nobody has looked at it slow.
+/// **The engine keeps today's pair; the lab box ships a narrow one**
+/// ([`LAB_B_RHO`], [`LAB_B_DIFFUSE`], applied by `LabBox::build`): today's
+/// fade, a fifth of the blend. The owner played `B_RHO=0.005 B_DIFFUSE=0.05`
+/// first, 2026-10-04 (*"I think this should be default ... my colonies look
+/// way better"*), and it failed the fail-check: on the goal box (`nestgoal`,
+/// dry, 12 seeds, 200k frames) food collected 104,340 -> 82,820 (lower on
+/// 8/12) and mean ants over 100k-200k 4,025 -> 2,756 (lower on 10/12).
+/// **Why, traced ant by ant** (seeds 8 and 11): a trail that lasts keeps
+/// every old side path lit -- B read 5-17 across the whole west half of the
+/// box on seed 8, away from the only pile, against 0 at the engine pair --
+/// and an empty ant follows any lit B that leads away from home (the
+/// chooser's away term cannot tell a dead branch from the live one), so
+/// mid-run foragers spent 62-74% of their trip time heading the wrong way
+/// against 45%. Faster B decay had already been measured raising intake on
+/// the played box (`bdecay=`, 54,722 -> 127,339 J from 0.03 to 0.25, 12
+/// seeds, before 0b3e264a) for the same reason: a trail that outlives its
+/// patch recruits to food that is gone.
+///
+/// **The narrow pair keeps the fade and drops the blend**, which is most of
+/// what erased a one-cell line: a visible thin trail of 10-46 along the
+/// path (`trailprofile`, seed 1, 30k frames), dead branches still gone in a
+/// few hundred frames. Goal box, same 12 seeds: food collected 104,340 ->
+/// 136,761 (higher on 9/12), mean ants 4,025 -> 4,521 (higher on 8/12).
+/// Scoped to the lab because the held world's player trail also rides
+/// channel B and nobody has looked at it narrow.
 ///
 /// Both env vars win wherever they are set, so `PIXEL_PHYSICS_B_RHO=0.03
 /// PIXEL_PHYSICS_B_DIFFUSE=0.25` puts the old lab trail back. Read in `new`
@@ -954,14 +968,17 @@ pub fn b_diffuse_switch() -> Option<f32> {
     })
 }
 
-/// **The lab's food-trail fade per pass**, against the engine's
-/// [`DECAY_RHO`] (0.03). With [`LAB_B_DIFFUSE`] it holds a food trail at
-/// 10-120 of 255 along a 40-cell nest-to-pile path where the engine pair
-/// falls to ~0 between waves of laden ants (`examples/trailprofile.rs`).
-pub const LAB_B_RHO: f32 = 0.005;
+/// **The lab's food-trail fade per pass: the engine's own** [`DECAY_RHO`].
+/// A slower fade (0.005) lit dead side trails and cost the goal box a fifth
+/// of its food ([`b_rho`]'s doc); kept as a named constant so the lab's pair
+/// reads in one place.
+pub const LAB_B_RHO: f32 = DECAY_RHO;
 /// **The lab's food-trail blend per pass**, against [`DIFFUSE`] (0.25) --
 /// the larger lever of the two, since the blend is most of what erases a
-/// one-cell line ([`Pheromones::set_channel_diffuse`]'s doc).
+/// one-cell line ([`Pheromones::set_channel_diffuse`]'s doc). With the
+/// engine's fade it holds a thin food trail at 10-46 of 255 along a 40-cell
+/// nest-to-pile path, where the engine pair falls to ~0 between waves of
+/// laden ants (`examples/trailprofile.rs`).
 pub const LAB_B_DIFFUSE: f32 = 0.05;
 
 impl Pheromones {

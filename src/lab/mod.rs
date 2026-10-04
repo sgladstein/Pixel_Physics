@@ -4517,13 +4517,13 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// **The lab box runs the slow food trail** (`pheromone::LAB_B_RHO`, the
-    /// owner's default of 2026-10-04), and the engine pair stays the
+    /// **The lab box runs the narrow food trail** (`pheromone::LAB_B_DIFFUSE`,
+    /// 2026-10-04), and the engine pair stays the
     /// engine's. Fails if `LabBox::build` stops applying it -- the overlay
     /// and every lab harness would silently go back to a trail that never
-    /// builds -- or if the slow pair leaks into a bare `World`.
+    /// builds -- or if the narrow pair leaks into a bare `World`.
     #[test]
-    fn the_lab_box_runs_the_slow_food_trail() {
+    fn the_lab_box_runs_the_narrow_food_trail() {
         use crate::sim::pheromone::{self, Channel};
         if pheromone::b_rho_switch().is_some() || pheromone::b_diffuse_switch().is_some() {
             return; // the switch is set for this process; it wins, by design

@@ -1031,7 +1031,7 @@ impl LabBox {
         // runs at. `set_rates` re-anchors the clock at frame 0, a no-op here.
         self.plant_pace.apply(&mut w);
         w.windfall_rots = self.windfall_rots;
-        // The lab's slower food trail (`pheromone::LAB_B_RHO`), unless the
+        // The lab's narrow food trail (`pheromone::LAB_B_DIFFUSE`), unless the
         // env switch names a value -- which `Pheromones::new` already read.
         {
             use crate::sim::pheromone::{self, Channel};
