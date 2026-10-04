@@ -393,6 +393,53 @@ fn report(frame: u64, census: &Census, w: &World, dropped: usize, food_x: i32) {
         let row: Vec<String> = bands.iter().map(|(b, (o, br))| format!("{}-{}:{o}/{br}", b * 5 + 1, b * 5 + 5)).collect();
         println!("DEPTH frame={frame} deepest {deepest} rows | open/brood by rows under ground: {}", row.join(" "));
     }
+    // Is the nest still joined to the open air? A flood from the colony's
+    // open space through open cells (any height) that reaches 20 rows over
+    // the old ground line, above any mound, is a door; none is a sealed nest
+    // (lane 2's lock-out: soil slumps into the mouth and the colony is shut
+    // out). Also how many live ants stand in the sealed part.
+    {
+        let start = census.open_space(w);
+        let mut seen: HashSet<(i32, i32)> = start.clone();
+        let mut q: VecDeque<(i32, i32)> = start.iter().copied().collect();
+        let mut door = false;
+        while let Some((x, y)) = q.pop_front() {
+            if y <= census.ground_y - 20 {
+                door = true;
+                break;
+            }
+            for (dx, dy) in [(1, 0), (-1, 0), (0, 1), (0, -1)] {
+                let p = (x + dx, y + dy);
+                if !seen.contains(&p) && Census::open(census.what(w, p.0, p.1)) {
+                    seen.insert(p);
+                    q.push_back(p);
+                }
+            }
+        }
+        let inside = start.iter().filter(|&&(x, y)| census.what(w, x, y) == What::Ant).count();
+        // Where the live ants' heads are: under the old ground line, in the
+        // mound (above it, within 30 columns of the nest), or elsewhere.
+        let nx = w.nest_sites.first().map_or(0, |s| s.x);
+        let (mut under, mut mound, mut away) = (0, 0, 0);
+        for id in w.live_organism_ids() {
+            let Some(st) = w.organism(id) else { continue };
+            if w.species.get(st.species).creature.is_none() || st.brood.is_some() {
+                continue;
+            }
+            let Some(&(x, y)) = st.chain.first() else { continue };
+            if Some(w.get(x, y).material) == census.brood {
+                continue;
+            }
+            if y > census.ground_y {
+                under += 1;
+            } else if (x - nx).abs() <= 30 && y > census.ground_y - 20 {
+                mound += 1;
+            } else {
+                away += 1;
+            }
+        }
+        println!("DOOR frame={frame} nest joined to open air {} | ant cells in the nest's open space {inside} | ants under ground {under}, in/on mound {mound}, elsewhere {away}", if door { "yes" } else { "NO (sealed)" });
+    }
     let n = nest(census, w);
     let in_ch_food: usize = n.chambers.iter().map(|c| c.food).sum();
     let in_ch_brood: usize = n.chambers.iter().map(|c| c.brood).sum();
