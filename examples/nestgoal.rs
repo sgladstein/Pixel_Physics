@@ -440,6 +440,10 @@ fn report(frame: u64, census: &Census, w: &World, dropped: usize, food_x: i32) {
         }
         println!("DOOR frame={frame} nest joined to open air {} | ant cells in the nest's open space {inside} | ants under ground {under}, in/on mound {mound}, elsewhere {away}", if door { "yes" } else { "NO (sealed)" });
     }
+    println!(
+        "BROOD frame={frame} eggs laid {} | larvae {} | pupae {} | larvae starved {} | brood lost {} | hatches denied {} | brood carried {}",
+        s.eggs_laid, s.larvae, s.pupae, s.larvae_starved, s.brood_lost, s.hatches_denied, s.brood_carried
+    );
     let n = nest(census, w);
     let in_ch_food: usize = n.chambers.iter().map(|c| c.food).sum();
     let in_ch_brood: usize = n.chambers.iter().map(|c| c.brood).sum();
