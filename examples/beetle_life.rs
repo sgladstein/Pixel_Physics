@@ -10,7 +10,7 @@
 //! "Carried in" is the question wound healing answers: if beetles walk into
 //! the last fight whole, healing cannot save them.
 //!
-//! Args: `seed=1 frames=60000 predators=6 gap=300`. Honours
+//! Args: `seed=1 frames=60000 predators=6 gap=300 head=<beetle head_armour>`. Honours
 //! `PIXEL_PHYSICS_WOUND_HEAL` like everything else.
 //!
 //! `cargo run --release --example beetle_life -- seed=1 frames=60000`
@@ -50,12 +50,19 @@ fn main() {
     let predators: u32 = arg("predators").unwrap_or(6);
     let gap: u64 = arg("gap").unwrap_or(300);
     println!(
-        "beetle_life: seed={seed} frames={frames} predators={predators} gap={gap} heal={:?}",
-        pixel_physics::sim::creature::wound_heal_frames()
+        "beetle_life: seed={seed} frames={frames} predators={predators} gap={gap} heal={:?} head={:?}",
+        pixel_physics::sim::creature::wound_heal_frames(),
+        arg::<f32>("head")
     );
     let spec = LabBox { predators: predators as _, seed, ..LabBox::default() };
     let mut lab = Lab::new(spec);
     let beetle = lab.world.species.id_of("beetle").expect("beetle");
+    // `head=` overrides `CreatureDef::head_armour` for the run.
+    if let Some(v) = arg::<f32>("head") {
+        let mut def = lab.world.species.get(beetle).creature.clone().expect("creature");
+        def.head_armour = v;
+        lab.world.species.set_creature(beetle, def);
+    }
     let mut lives: BTreeMap<OrganismId, Life> = BTreeMap::new();
     for f in 0..=frames {
         pixel_physics::sim::frame::step(

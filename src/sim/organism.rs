@@ -4326,6 +4326,22 @@ pub struct CreatureDef {
     #[serde(default)]
     pub bite_force: Option<f32>,
 
+    /// **How much harder this animal's head is than the rest of its body**,
+    /// as a multiplier on the armour a bite is scored against
+    /// (`creature::armour_at`). 1.0 -- the default -- is a head exactly as
+    /// tough as the body, which is every species but the beetle.
+    ///
+    /// A head is where an animal dies (`reconcile_chain`: losing the deciding
+    /// cell ends it), so a head no harder than a leg is an animal one bite
+    /// from death wherever it is touched. Measured on the beetle beside a lab
+    /// colony (lane 7, 2026-10-03, `examples/beetle_life`): 24 of 42 beetles
+    /// that died fighting lost only their head. A real beetle's head is a
+    /// sclerotised capsule it can draw under the pronotum, and ants fighting
+    /// one grab legs and antennae (Hölldobler & Kwapich 2017, PLoS ONE,
+    /// *Amphotis marginata*). Owner's pick, 2026-10-04: "Harder head".
+    #[serde(default = "one")]
+    pub head_armour: f32,
+
     /// **How far this animal can see another animal, in cells. Zero — the
     /// default — means it has no eyes at all**, which is every species in
     /// the world except the beetle and is what keeps the sense off the
@@ -4547,6 +4563,7 @@ impl CreatureDef {
             nest,
             dig_force,
             bite_force,
+            head_armour,
             sight_range,
             curvature_radius,
             sensor_offset,
@@ -4687,6 +4704,8 @@ impl CreatureDef {
             // Dimensionless like `dig_force`, and against the same
             // resolution-invariant material field: x 1.
             bite_force: *bite_force,
+            // A ratio of two armours: x 1.
+            head_armour: *head_armour,
 
             // ---- verb prices, in multiples of a term that already scales:
             // ---- x 1, with a limit worth stating rather than hiding ----

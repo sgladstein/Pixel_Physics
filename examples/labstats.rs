@@ -163,6 +163,18 @@ fn main() {
                 }
             }
         }
+        // **The beetle's head plate** (`CreatureDef::head_armour`), as a
+        // sweep arm without a rebuild per value.
+        if let Some(v) = arg::<f32>("beetlehead") {
+            if let Some(bid) = lab.world.species.id_of("beetle") {
+                if let Some(def) = lab.world.species.get(bid).creature.as_ref() {
+                    let mut def = def.clone();
+                    def.head_armour = v;
+                    println!("labstats: beetle head_armour = {v}");
+                    lab.world.species.set_creature(bid, def);
+                }
+            }
+        }
         // **The sight allele, on the one shipped species that has an eye.**
         // The ant is authored blind, so a bed of ants cannot demonstrate that
         // `TRAIT_SIGHT_RANGE` reaches a running world at all -- the beetle

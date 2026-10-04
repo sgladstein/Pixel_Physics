@@ -4625,13 +4625,22 @@ pub fn armour_of(traits: &[f32; CREATURE_TRAITS], reach: f32) -> f32 {
 /// A loose cell -- a corpse, a leaf, a wall -- has no occupant and no allele,
 /// so it resists exactly what its material says. Only a living animal carries
 /// a plate it inherited.
-fn armour_at(world: &World, cell: Cell) -> f32 {
+///
+/// **`(x, y)` is where `cell` stands**, so the head can be told from the
+/// body: a living animal's head cell is scored against
+/// `CreatureDef::head_armour` times everything else here.
+fn armour_at(world: &World, cell: Cell, x: i32, y: i32) -> f32 {
     let base = world.materials.get(cell.material).penetration_resistance;
     let organism = cell.organism_id();
     if organism == 0 {
         return base;
     }
     let plate = world.organism(organism).map_or(1.0, |st| armour_of(&expressed_traits(st, world.plasticity, world.trait_reach), world.trait_reach));
+    let head = world
+        .organism(organism)
+        .filter(|st| st.chain.first() == Some(&(x, y)))
+        .and_then(|st| world.species.get(st.species).creature.as_ref().map(|d| d.head_armour))
+        .unwrap_or(1.0);
     // **The composition axis, on top of the trait axis rather than folded
     // into `armour_of` itself.** `armour_of` is also read at the *cost*
     // site, `creature_tick`'s own `armour_tax`, which prices the heritable
@@ -4641,7 +4650,7 @@ fn armour_at(world: &World, cell: Cell) -> f32 {
     // reach that call site. Only the *defensive* reading — how tough this
     // specific struck cell actually is — belongs here.
     let mix = composition_mix(body_mix(world, organism).armour, BASELINE_ARMOUR_FRAC);
-    base * plate * mix
+    base * plate * mix * head
 }
 
 /// **How wide a patch of ground this particular animal feels**, in cells.
@@ -11056,7 +11065,7 @@ fn adjacent_food_counted(world: &World, organism: OrganismId, head: (i32, i32), 
         // discontinuity**: at `bite == armour` this returns exactly 1.0 and
         // the mouthful is taken on the spot, so every bite that succeeded
         // before succeeds now, in the same tick, for the same cells.
-        let armour = armour_at(world, cell);
+        let armour = armour_at(world, cell, nx, ny);
         let ratio = if armour <= 0.0 { 1.0 } else { (gut.bite / armour).clamp(0.0, 1.0) };
         let damage = ratio * ratio;
         if damage <= 0.0 {
@@ -14080,7 +14089,7 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
             // Since 2026-09-14 that function is `contest::bite_progress`, so
             // the assessment below and the bite that follows it cannot hold
             // different opinions about how hard this cell is.
-            let armour = armour_at(world, cell);
+            let armour = armour_at(world, cell, tx, ty);
             let damage = contest::bite_progress(gut.bite, armour);
             let victim = cell.organism_id();
             // --- assessment, before commitment --------------------------
@@ -14124,7 +14133,7 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
                 // `armour_of` on the traits: `armour_at` is the *defensive*
                 // reading and carries the composition axis, which is the
                 // whole of what a chitin soldier buys over an ant-flesh one.
-                let my_armour = armour_at(world, world.get(x, y));
+                let my_armour = armour_at(world, world.get(x, y), x, y);
                 let odds = contest::Assessment {
                     mine: damage,
                     theirs: contest::bite_progress(their_bite, my_armour),
@@ -38154,7 +38163,7 @@ mod tests {
         w.plasticity = 0.0;
         let st = w.organism(id).expect("live");
         assert_eq!(expressed_traits(st, w.plasticity, w.trait_reach), genotype, "at dial zero the expressed body is the genotype, whatever the block says");
-        let armour_off = armour_at(&w, cell);
+        let armour_off = armour_at(&w, cell, 100, 100);
         w.plasticity = 1.0;
         let st = w.organism(id).expect("live");
         let expressed = expressed_traits(st, w.plasticity, w.trait_reach);
@@ -38164,7 +38173,7 @@ mod tests {
                 assert_eq!(expressed[slot], genotype[slot], "a slot with no developmental weight does not move");
             }
         }
-        assert!(armour_at(&w, cell) > armour_off, "the bite's own reader sees the expressed plate, not the genotype's");
+        assert!(armour_at(&w, cell, 100, 100) > armour_off, "the bite's own reader sees the expressed plate, not the genotype's");
         assert_eq!(w.organism(id).expect("live").traits, genotype, "the genotype is untouched -- it is what the children inherit");
     }
 
