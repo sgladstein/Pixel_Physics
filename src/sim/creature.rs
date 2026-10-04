@@ -18369,6 +18369,28 @@ fn carries_lunch(world: &World, state: &crate::sim::organism::OrganismState) -> 
     state.lunch && state.spoil.is_none() && state.crop.is_some_and(|c| c.worth() > 0.0) && packed_lunch_of(world)
 }
 
+/// **The crop a nestmate can feed a larva from** (`brood::nurse` under
+/// `PIXEL_PHYSICS_CROP_NURSE`): food it carried, not a packed lunch
+/// ([`carries_lunch`], food for the road), with no seed riding in it (a
+/// passenger leaves only with its holder's own last cell) and no pellet in
+/// the jaws. `None` for anything else.
+pub(super) fn crop_to_feed(world: &World, state: &crate::sim::organism::OrganismState) -> Option<Crop> {
+    if state.spoil.is_some() || carries_lunch(world, state) {
+        return None;
+    }
+    state.crop.filter(|c| c.cells > 0 && c.unit > 0.0 && c.worth() > 0.0 && c.passenger.is_none())
+}
+
+/// **What `organism` keeps of a joule of `material`** eaten some way other
+/// than out of its own crop (`brood::nurse` feeding a larva from a carrier's
+/// crop): digestion's `quality` for its gut and `overhead` for its rate,
+/// unscaled by appetite because the eater is hungry.
+pub(super) fn yield_of(world: &World, organism: OrganismId, def: &CreatureDef, material: material::MaterialId) -> (f32, f32) {
+    let quality = diet_quality(world, material, gut_of(world, organism, def).bias);
+    let overhead = (def.digest_fraction * digest_rate_of(def, &traits_of(world, organism, def))).clamp(0.0, MAX_DIGEST_OVERHEAD);
+    (quality, overhead)
+}
+
 /// **`PIXEL_PHYSICS_HAUL_BITE`: whether an animal hauling a dirt pellet can
 /// take a mouthful.** Unset or `on` is the ant before it: it can, and does --
 /// on the colony bed (24 seeds, 90 cells, `main` after #510) 51% of the crops
@@ -19484,6 +19506,46 @@ fn chooser_step(
     // A packed lunch is not a load (`carries_lunch`): its carrier scouts
     // outward and reads the outbound trail, as an empty ant does.
     let laden = world.organism(organism).is_some_and(|s| s.crop.is_some_and(|c| c.worth() > 0.0) && !carries_lunch(world, s));
+    // **Nurses find hungry larvae by scent** ([`brood::nurse_seek_of`]): an
+    // ant with something to give -- a bank over its stamp, which is what
+    // `brood::nurse` takes from -- carrying no load and no pellet, inside the
+    // nest, is drawn along [`brood::larva_scent`]. `None` leaves every score
+    // as it was.
+    //
+    // **A carrier is drawn too, under `PIXEL_PHYSICS_CROP_NURSE=on`**
+    // ([`brood::crop_nurse_of`]): food it brought home ([`crop_to_feed`]) is
+    // what `brood::nurse` feeds a larva from, and a laden ant was 54% of the
+    // food box's walking decisions -- the ants `NURSE_SEEK` could never move.
+    let crop_seek = super::brood::crop_nurse_of(world) == super::brood::CropNurse::On;
+    let bank_seek = super::brood::nurse_seek_of(world);
+    let nurse = if bank_seek.is_none() && !crop_seek {
+        None
+    } else {
+        world.organism(organism).and_then(|s| {
+            if s.spoil.is_some() || s.energy <= def.start_energy || !inside_nest(world, hx, hy) {
+                return None;
+            }
+            let gain = if laden {
+                (crop_seek && crop_to_feed(world, s).is_some()).then_some(super::brood::NURSE_SEEK_GAIN)?
+            } else {
+                let seek = bank_seek?;
+                if seek.workers_only && !is_nest_bound(world, s) {
+                    return None;
+                }
+                seek.gain
+            };
+            let material = super::brood::brood_material(world, def)?;
+            super::brood::larva_scent(world, (hx, hy), s.colony, material).map(|(ux, uy, f)| (ux, uy, gain * f))
+        })
+    };
+    if nurse.is_some() {
+        world.creature_stats.nurse_seeks += 1;
+    }
+    let nurse_term = |d: u8| -> f32 {
+        let Some((ux, uy, w)) = nurse else { return 0.0 };
+        let (dx, dy) = DIRS[d as usize];
+        w * (dx as f32 * ux + dy as f32 * uy) / DIR_LEN[(d & 1) as usize]
+    };
     // **Which way along a route, for an empty ant** (`AWAY_GAIN`): the
     // cosine of each heading with home, from `home_target` as the laden ant
     // uses it. `None` for a laden ant, one hauling spoil, or one standing on
@@ -19630,6 +19692,7 @@ fn chooser_step(
                 scout_cos(d).map_or(0.0, |c| -scout_w * scout_patience * (1.0 - route(d)) * c)
             }
             + if door.is_some() { door_term(d) } else { 0.0 }
+            + nurse_term(d)
     };
     // Usable headings in `DIRS` order, then the crossing, so the draw maps to
     // the same option every run.
