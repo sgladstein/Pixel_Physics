@@ -1908,6 +1908,11 @@ pub struct CreatureStats {
     /// only because it touched a nestmate on the ground -- each a fall that
     /// did not happen. 0 under `PIXEL_PHYSICS_KIN_FOOTING=off`.
     pub kin_holds: u64,
+    /// **Support checks an animal passed only because it stood on water**
+    /// (`creature::water_footing_of`): each a tick spent on a puddle's
+    /// surface that would otherwise have been a fall or a refused step. 0
+    /// under `PIXEL_PHYSICS_WATER_FOOTING=off`.
+    pub water_holds: u64,
     /// **`creature::collar_tamp`'s count**: rim cells packed by ants at the
     /// door. 0 unless `PIXEL_PHYSICS_DOOR_COLLAR` is set.
     pub collar_packed: u64,
@@ -3911,6 +3916,9 @@ pub struct World {
     /// `creature::kin_footing_of` for this world; `None` reads the process's
     /// `PIXEL_PHYSICS_KIN_FOOTING`.
     pub kin_footing: Option<bool>,
+    /// `creature::water_footing_of` for this world; `None` reads the
+    /// process's `PIXEL_PHYSICS_WATER_FOOTING`.
+    pub water_footing: Option<bool>,
     /// `creature::door_collar_of` for this world; `None` reads the process's
     /// `PIXEL_PHYSICS_DOOR_COLLAR`.
     pub door_collar: Option<bool>,
@@ -6524,6 +6532,7 @@ impl World {
             food_door: None,
             door_reopen: None,
             kin_footing: None,
+            water_footing: None,
             door_collar: None,
             spoil_crest: None,
             nest_home: None,

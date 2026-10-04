@@ -5,7 +5,7 @@ every tick, how each mechanism is implemented, and what it reads.** It is
 written from the source and describes the code as it is now, not as it was or
 will be.
 
-- **Verified against:** `main` at `bb65d507`, 2026-09-22; §5 step 6, the walked cycle's lean carrier, §6d's lean exception to the throttle and §12's `LEAN_FORAGE` row 2026-10-03 against `LeanForage`, `lean_drop_site` and `outward_want`; §9's egg-rule sentence and §12's `EGG_DOOR` and `BROOD_CARRY` rows 2026-10-03 against `brood::EggBar`, `pile_site` and `carry`; §5 step 3's defended-plant sentence 2026-10-03 against `deterred_by_defence` and `food_value`; §2's support
+- **Verified against:** `main` at `bb65d507`, 2026-09-22; §2's support and foothold bullets and §12's `WATER_FOOTING` row 2026-10-04 against `water_footing_of`, `stands_on_water`, `head_has_foothold` and `fall_if_unsupported`; §5 step 6, the walked cycle's lean carrier, §6d's lean exception to the throttle and §12's `LEAN_FORAGE` row 2026-10-03 against `LeanForage`, `lean_drop_site` and `outward_want`; §9's egg-rule sentence and §12's `EGG_DOOR` and `BROOD_CARRY` rows 2026-10-03 against `brood::EggBar`, `pile_site` and `carry`; §5 step 3's defended-plant sentence 2026-10-03 against `deterred_by_defence` and `food_value`; §2's support
   bullet and §12's `KIN_FOOTING` row 2026-10-02 against `fall_if_unsupported`,
   `touches_ground` and `held_by_kin`; §5 step 2's top-up,
   §6d's throttle paragraph and §12's two rows 2026-10-02 against
@@ -195,7 +195,10 @@ ant's expressed `TRAIT_PACE` and by its body's leg fraction. A founder decides
   touches ground** (`held_by_kin`, `PIXEL_PHYSICS_KIN_FOOTING`, on): one ant
   holds the next and no further, and only while the held ant has stood still
   for fewer than `KIN_GRIP_TICKS` (60) ticks, so resting ants do not perch on
-  each other. Otherwise the ant falls one cell. **The fall happens only inside `step_chain`, so only
+  each other. **Or, since 2026-10-04, any of its cells has liquid in one of
+  the three cells under it** (`stands_on_water`, `PIXEL_PHYSICS_WATER_FOOTING`,
+  on): a puddle's top is a floor, so a pool between the mound and the food is
+  walked across rather than a wall. Otherwise the ant falls one cell. **The fall happens only inside `step_chain`, so only
   after a successful move roll**: an unsupported ant with `P(move) = 0`
   hangs in the air. A fall counts as a move and lays trail.
 - **Enterable cell** (`cell_is_enterable`): empty, its own body, or living
@@ -212,7 +215,10 @@ ant's expressed `TRAIT_PACE` and by its body's leg fraction. A founder decides
   above 1), the nestmate holds the tissue instead (`close_or_hand_over`).
 - **Foothold** (`head_has_foothold`): the **head's** 8 neighbours include
   `Solid`, `Powder` or `Plant`, or a nestmate (`climbs_over_kin: true`).
-  Ants walk on walls and ceilings.
+  Ants walk on walls and ceilings. Under `WATER_FOOTING` (on) liquid counts
+  too, but **only in the three cells under the head**: water is a floor and
+  never a wall, so an ant crosses a pool's top and cannot climb a stream.
+  Liquid itself is still not enterable.
 - **Usable heading** (`usable_headings`): enterable **and** footed. This one
   predicate decides what the ant can do in each setting, and both the tumble
   and the decision trace's setting class read it:
@@ -1223,6 +1229,7 @@ Read once per process from the environment. The default is what ships.
 | `PIXEL_PHYSICS_NEST_REST` | off | `workers`, `on` or `all` (`NestRest`: nest workers; nest workers and ants that have foraged; every ant): such an ant with nothing to do and more fed than hungry, not sent out by the forage drive, is pulled to its door and then along the passages away from it (§6d, `rest_pull`, `NestWay`, counted in `rest_pulls`); `World::nest_rest` for one world |
 | `PIXEL_PHYSICS_SPOIL_RING` | `2,2`, **acting only under the walked cycle** (`SPOIL_OUT`, on by default since 2026-09-30; with it `off` the lift is untouched) | `<shape>,<scale>` or `off`; `spoil_ring_of` gates it on the walked cycle, and a world's own `World::spoil_ring` overrides both: when a carrier comes out by the door with its pellet (on or above the door's row, nothing overhead: `carry_stage`) it draws a column on its own side, the door's half-width plus one plus a Gamma(shape, scale) draw from the nest's centre (`spoil_ring_column`, `OrganismState::spoil_ring`, its own stream), is pulled to the top of the ground in that column (`ring_target`, climbing any mound; `spoil_haul_target`), and its drop roll is held until its head is that far out (`spoil_ring_holds`; `spoil_ring_drawn`, `spoil_ring_held`). The column is kept under a mound's overhang and let go only back in a tunnel (more than two rows under the door's row with ground overhead, or in the founding cut: `spoil_ring_let_go`); before it has come out, under `keep`, the pellet is held wherever the carrier stands; `World::spoil_ring` for one world |
 | `PIXEL_PHYSICS_DIG_ROOF` | `6` (on since 2026-10-02, `DIG_ROOF_SHIPPED`) | `<rows>` or `off`: a cut within `rows` under the nearest nest site's founding surface and outside the door's columns is refused (`dig_roof_of`, `under_roof`, `CreatureStats::digs_refused_roof`); a heap above the surface is never refused, nor anything with no door; `World::dig_roof` for one world. Nest report §25 |
+| `PIXEL_PHYSICS_WATER_FOOTING` | on (since 2026-10-04) | `off`: liquid is neither footing nor enterable, so a pool wider than a body is a wall. On, liquid in the three cells under a cell holds an animal up and footed a step (`water_footing_of`, `stands_on_water`, `CreatureStats::water_holds`); every walking animal, not only the ant; `World::water_footing` for one world |
 | `PIXEL_PHYSICS_KIN_FOOTING` | on (since 2026-10-02) | `off`: an ant is held up only by ground. On, a body touching a nestmate whose own body touches ground is held too, one level, while it has stood still under `KIN_GRIP_TICKS` (`held_by_kin`, `kin_footing_of`, `CreatureStats::kin_holds`); `World::kin_footing` for one world. Nest report §26 |
 | `PIXEL_PHYSICS_NEST_KIN_GATE` | on (since 2026-10-03) | `off`: an ant at any nest site exchanges odour with it, the ant before 2026-10-03. On, at a site seeded by a colony the ant does not descend from, the exchange is skipped (both ways) when the ant's scent is outside its own tolerance radius of the site's odour; its own colony's site is always joined (`nest_kin_gate`, `blend_with_nest`, `NestSite::colony`, `CreatureStats::nest_blends_refused`). §1 step 2 |
 | `PIXEL_PHYSICS_TOLERANCE_DRIFT` | slow (since 2026-10-03) | `full`: `TRAIT_TOLERANCE` drifts per birth at the full `scent_drift`, the ant before 2026-10-03. Slow, at `TOLERANCE_DRIFT_SHARE` (a third) of it; the scent signature keeps the full rate. Lines that narrowed at the full rate bit nestmates on the two-colony bed (`trait_width`, `slow_tolerance_drift`) |

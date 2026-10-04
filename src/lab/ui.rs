@@ -13229,6 +13229,20 @@ mod tests {
                 if let Some(name) = mark_at(&lab.world, &lab.renderer, LifeMarks::Off, at) {
                     assert!(name.starts_with("HARVEST MAP"), "the readout names the wrong mark: {name}");
                     claimed.insert(at);
+                    // **Paint on paint is invisible to a difference.** The
+                    // wash is the colony's own hue, and a cell already drawn
+                    // in exactly that hue (found 2026-10-04: a wood cell
+                    // between two cells of a colony-1 ant's corpse, amber
+                    // with the map off) reads unpainted though the map did
+                    // paint it. So a claimed cell whose pixel *is* its tile's
+                    // wash counts as painted; one showing anything else
+                    // still fails below.
+                    let tile = (at.0.div_euclid(lab.renderer.food.tile), at.1.div_euclid(lab.renderer.food.tile));
+                    if let Some(mark) = lab.renderer.food.tile_colours(lab.world.frame).get(&tile) {
+                        if on[o..o + 3].iter().zip(mark.rgb).all(|(&p, c)| p == c.round().clamp(0.0, 255.0) as u8) {
+                            painted.insert(at);
+                        }
+                    }
                 }
             }
         }
