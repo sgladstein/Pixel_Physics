@@ -1904,6 +1904,10 @@ pub struct CreatureStats {
     /// within the roof's rows under a nest's founding surface and outside its
     /// door. 0 under `PIXEL_PHYSICS_DIG_ROOF=off`.
     pub digs_refused_roof: u64,
+    /// **`creature::solid_mound_of`'s count**: cuts refused because they lay
+    /// in the heap over a nest and outside the columns over its door. 0 with
+    /// the rule off.
+    pub digs_refused_mound: u64,
     /// **`creature::held_by_kin`'s count**: support checks an animal passed
     /// only because it touched a nestmate on the ground -- each a fall that
     /// did not happen. 0 under `PIXEL_PHYSICS_KIN_FOOTING=off`.
@@ -3938,6 +3942,9 @@ pub struct World {
     /// `creature::door_loose_of` for this world; `None` reads
     /// `PIXEL_PHYSICS_DOOR_LOOSE`.
     pub door_loose: Option<bool>,
+    /// `creature::solid_mound_of` for this world; `None` reads
+    /// `PIXEL_PHYSICS_SOLID_MOUND`.
+    pub solid_mound: Option<bool>,
     /// `creature::kin_footing_of` for this world; `None` reads the process's
     /// `PIXEL_PHYSICS_KIN_FOOTING`.
     pub kin_footing: Option<bool>,
@@ -6564,6 +6571,7 @@ impl World {
             nurse_seek: None,
             crop_nurse: None,
             door_loose: None,
+            solid_mound: None,
             kin_footing: None,
             water_footing: None,
             door_collar: None,

@@ -12481,6 +12481,73 @@ fn in_a_passage(world: &World, (x, y): (i32, i32)) -> bool {
         .any(|c| (c.x0..=c.x1).contains(&x) && (c.top - 8..=c.mouth_bottom).contains(&y))
 }
 
+/// **The heap over a nest stays a heap** (`PIXEL_PHYSICS_SOLID_MOUND=on|off`,
+/// off; [`World::solid_mound`] for one world). Two halves, both about the
+/// ground a colony has piled over its own nest ([`in_a_mound`]: over a
+/// founding shaft's mouth row, within [`MOUND_REACH`] columns of the nest):
+///
+/// - a cut into it is refused, outside the columns over the door
+///   ([`over_a_door`]), so the way in can still be cut through it; and
+/// - the burrow lining never packs it, so it stays the loose soil and spoil
+///   it was put down as, and a tunnel that does open in it caves in.
+///
+/// **Why** (nest lane, goal bed, 2026-10-04). The owner: the entrance is not
+/// a solid volcano shape but has inner chambers above the nest. Traced, ants
+/// make 6-39% of all their cuts into their own mound and up to 218 live in
+/// it: under it an ant reads as inside its nest, so the heap cue no longer
+/// holds it back, and every cut tamps the soil round it into wall. A heap
+/// of dug soil is loose in real nests: leaf-cutting ants deposit the soil
+/// they excavate as loose mounds round their entrance holes (Soares et al.
+/// 2025, Braz J Biol 85:e295068, doi 10.1590/1519-6984.295068).
+///
+/// **Off, because it caps the colony.** Main 06202f79, goal bed, seeds
+/// 1-12, 200,000 frames, evolution on. The heap does stay a cone: holes in
+/// it 212 -> 31 dry and 206 -> 47 misted (median), ants living in it
+/// 120 -> 16. Colonies are level with today's at 100-120k, then stop near
+/// 200 ants while today's keep growing: mean live ants over 180-200k
+/// 451 -> 194 dry (1 of 12 seeds above today's), 342 -> 190 misted (0 of
+/// 12). The nest under the ground is as big (open cells ~500 either way)
+/// and holds as much brood (~120); what falls is laying (eggs over
+/// 100-200k 1,314 -> 851 dry) and the adults below ground (84 -> 24), so
+/// the third of the colony that lived in the heap has nowhere else to go.
+/// One dry colony locked itself out (door shut at 13 of 16 checks) and
+/// died. On an older build (main 99e0be4f with lane 3's door work) the
+/// same two halves looked nearly free, 308 -> 290; why the builds differ is
+/// not traced. Either half alone cost colony there: refusing the cuts alone
+/// a third (308 -> 181, 11 of 12 seeds lower), loose heap alone a fifth.
+pub fn solid_mound_of(world: &World) -> bool {
+    world.solid_mound.unwrap_or_else(|| {
+        static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        *V.get_or_init(|| match std::env::var("PIXEL_PHYSICS_SOLID_MOUND").as_deref() {
+            Ok("on") => true,
+            Ok("off") | Err(_) => false,
+            Ok(other) => panic!("PIXEL_PHYSICS_SOLID_MOUND={other:?}: use on or off"),
+        })
+    })
+}
+
+/// How far either side of a nest the heap over it reaches
+/// ([`solid_mound_of`]): goal-bed heaps run to about 25 columns.
+const MOUND_REACH: i32 = 40;
+
+/// Is `(x, y)` in the heap over a nest ([`solid_mound_of`]): above a
+/// founding shaft's mouth row, within [`MOUND_REACH`] columns of the nest.
+fn in_a_mound(world: &World, (x, y): (i32, i32)) -> bool {
+    world.nest_sites.iter().any(|s| s.shaft.is_some_and(|c| y < c.top && (x - s.x).abs() <= MOUND_REACH))
+}
+
+/// Is `(x, y)` over a nest's door ([`solid_mound_of`]): within two columns
+/// of a founding shaft, no deeper than its mouth.
+fn over_a_door(world: &World, (x, y): (i32, i32)) -> bool {
+    world.nest_sites.iter().filter_map(|s| s.shaft).any(|c| (c.x0 - 2..=c.x1 + 2).contains(&x) && y <= c.mouth_bottom)
+}
+
+/// Is a cut at `(x, y)` refused by [`solid_mound_of`]: in the heap over a
+/// nest and not over its door.
+fn mound_refuses(world: &World, (x, y): (i32, i32)) -> bool {
+    solid_mound_of(world) && in_a_mound(world, (x, y)) && !over_a_door(world, (x, y))
+}
+
 /// **How much of the heap cue a cut at `(tx, ty)` still meets because it is
 /// in a nest's door**: `None` outside every founding cut, or with
 /// [`door_reopen_of`] off; else this ant's [`organism::TRAIT_DOOR_CUE`]
@@ -15652,6 +15719,16 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
             }
             None => false,
         };
+        // **The heap over a nest is not dug into** ([`solid_mound_of`], off):
+        // a cut into it outside the columns over its door is refused. No
+        // draw either way.
+        let vetoed = vetoed || {
+            let refused = mound_refuses(world, (tx, ty));
+            if refused {
+                world.creature_stats.digs_refused_mound += 1;
+            }
+            refused
+        };
         // **A roof over the nest** ([`dig_roof_of`], off): a cut into the
         // ground just under a nest's surface, outside its door, is refused,
         // so the crust over the nest stays whole and the chambers go below it.
@@ -16635,6 +16712,10 @@ fn pack_neighbours_with(world: &mut World, x: i32, y: i32, keep_spoil: bool) -> 
         }
         // The doorway is not wall: see [`door_loose_of`].
         if door_loose_of(world) && in_a_passage(world, (nx, ny)) {
+            continue;
+        }
+        // ...and nor is the heap over the nest: see [`solid_mound_of`].
+        if solid_mound_of(world) && in_a_mound(world, (nx, ny)) {
             continue;
         }
         // Everything but the material rides across: the held water
@@ -26568,6 +26649,34 @@ mod tests {
         };
         assert_eq!(arm(true), (false, true), "shipped: the doorway stays soil, the wall beside it is lined");
         assert_eq!(arm(false), (true, true), "rule off: the lining packs the doorway as before");
+    }
+
+    /// **The heap over a nest is neither lined nor cut into**
+    /// ([`solid_mound_of`]): a cut into heaped ground clear of the door is
+    /// refused while one over the door and one under the founding surface
+    /// are not, and the lining leaves the heap's soil loose while it still
+    /// packs the ground under the surface. With the rule off, nothing is
+    /// refused and both are packed.
+    #[test]
+    fn the_heap_over_a_nest_is_neither_lined_nor_cut_into() {
+        let arm = |on: bool| {
+            let mut w = founding_bed();
+            assert!(w.cut_founding_shaft_with((60, 38), 6, 2, true, None, None) > 0, "the cut removed nothing");
+            let cut = w.nest_sites[0].shaft.expect("the cut records its footprint");
+            let (soil, packed) = (w.materials.id_of("soil").unwrap(), w.materials.id_of("packedsoil").unwrap());
+            w.solid_mound = Some(on);
+            let heap = (cut.x1 + 10, cut.top - 2);
+            let door = (cut.x0, cut.top - 2);
+            let under = (cut.x1 + 10, cut.top + 2);
+            assert_eq!(w.get(under.0, under.1).material, soil, "test setup: the bed under the surface is soil");
+            let refused = (mound_refuses(&w, heap), mound_refuses(&w, door), mound_refuses(&w, under));
+            w.set(heap.0, heap.1, Cell::new(soil, 0));
+            pack_neighbours_with(&mut w, heap.0, heap.1 - 1, true);
+            pack_neighbours_with(&mut w, under.0, under.1 - 1, true);
+            (refused, w.get(heap.0, heap.1).material == packed, w.get(under.0, under.1).material == packed)
+        };
+        assert_eq!(arm(true), ((true, false, false), false, true), "on: the heap is uncut and loose, the door and the ground under it are not");
+        assert_eq!(arm(false), ((false, false, false), true, true), "off: nothing refused and the lining packs both");
     }
 
     /// **A side storeroom is cut off one side of the entrance shaft, not at
