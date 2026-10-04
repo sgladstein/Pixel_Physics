@@ -5,7 +5,7 @@ every tick, how each mechanism is implemented, and what it reads.** It is
 written from the source and describes the code as it is now, not as it was or
 will be.
 
-- **Verified against:** `main` at `bb65d507`, 2026-09-22; §2's support and foothold bullets and §12's `WATER_FOOTING` row 2026-10-04 against `water_footing_of`, `stands_on_water`, `head_has_foothold`, `fall_if_unsupported` and `commit_step`; §5 step 6, the walked cycle's lean carrier, §6d's lean exception to the throttle and §12's `LEAN_FORAGE` row 2026-10-03 against `LeanForage`, `lean_drop_site` and `outward_want`; §9's spread and nurse sentences, §6d's nurse paragraph and §12's `BROOD_SPREAD` and `NURSE_SEEK` rows 2026-10-04 against `brood::spread`, `brood::larva_scent`, `brood::nurse` and `chooser_step`; §9's crop sentence, §6d's carrier paragraph and §12's `CROP_NURSE` row 2026-10-04 against `brood::crop_feed`, `creature::crop_to_feed`, `yield_of` and `chooser_step`; §9's egg-rule sentence and §12's `EGG_DOOR` and `BROOD_CARRY` rows 2026-10-03 against `brood::EggBar`, `pile_site` and `carry`; §5 step 3's defended-plant sentence 2026-10-03 against `deterred_by_defence` and `food_value`; §2's support
+- **Verified against:** `main` at `bb65d507`, 2026-09-22; §5 step 6's doorway sentence and §12's `DOOR_LOOSE` row 2026-10-04 against `door_loose_of`, `in_a_passage` and `pack_neighbours_with`; §2's support and foothold bullets and §12's `WATER_FOOTING` row 2026-10-04 against `water_footing_of`, `stands_on_water`, `head_has_foothold`, `fall_if_unsupported` and `commit_step`; §5 step 6, the walked cycle's lean carrier, §6d's lean exception to the throttle and §12's `LEAN_FORAGE` row 2026-10-03 against `LeanForage`, `lean_drop_site` and `outward_want`; §9's spread and nurse sentences, §6d's nurse paragraph and §12's `BROOD_SPREAD` and `NURSE_SEEK` rows 2026-10-04 against `brood::spread`, `brood::larva_scent`, `brood::nurse` and `chooser_step`; §9's crop sentence, §6d's carrier paragraph and §12's `CROP_NURSE` row 2026-10-04 against `brood::crop_feed`, `creature::crop_to_feed`, `yield_of` and `chooser_step`; §9's egg-rule sentence and §12's `EGG_DOOR` and `BROOD_CARRY` rows 2026-10-03 against `brood::EggBar`, `pile_site` and `carry`; §5 step 3's defended-plant sentence 2026-10-03 against `deterred_by_defence` and `food_value`; §2's support
   bullet and §12's `KIN_FOOTING` row 2026-10-02 against `fall_if_unsupported`,
   `touches_ground` and `held_by_kin`; §5 step 2's top-up,
   §6d's throttle paragraph and §12's two rows 2026-10-02 against
@@ -520,7 +520,14 @@ the tick: the ant still gets its move roll (§6) afterwards.
    becomes `packedsoil`, **except spoil**: a neighbour whose material
    `needs_footing` is left as it is, so a heap undermined by the cut slumps
    into loose soil rather than hanging as wall (`packedsoil` needs no
-   footing). `PIXEL_PHYSICS_SPOIL_PACKS=on` packs spoil as well.
+   footing). `PIXEL_PHYSICS_SPOIL_PACKS=on` packs spoil as well. **Nor
+   does it pack a nest's doorway** (on since 2026-10-04;
+   `PIXEL_PHYSICS_DOOR_LOOSE=off` packs it as before): a cell in a founding
+   shaft's own columns, from 8 rows over the mouth down to the mouth's last
+   row, is left as it is (`door_loose_of`, `in_a_passage`), so soil that
+   slides into the mouth stays loose soil and is cut or falls on down the
+   shaft instead of being tamped into a plug. The shaft's side walls and
+   everything deeper are lined as before.
 
 ## 6. Moving
 
@@ -1252,6 +1259,7 @@ Read once per process from the environment. The default is what ships.
 | `PIXEL_PHYSICS_SPOIL_FOOTING` | filled | `ground`: a pellet is put down only where the cell beneath is ground, never on an animal or over a hole (§5) |
 | `PIXEL_PHYSICS_FOOD_DOOR` | `on` | `off`: food may be put down in a nest's door, the ant before 2026-10-03. On: no food drop counts a cell within the door clearance of a founding shaft (6 cells at the shipped allele of `TRAIT_DOOR_CLEAR`, from that many rows over the mouth down to the foot) as room; the chamber and side room still take food (§5 step 4; `World::food_door` for one world) |
 | `PIXEL_PHYSICS_DOOR_REOPEN` | `on` | `off`: the heap cue holds at a plugged door as everywhere else, the ant before 2026-10-03. On: a cut into a founding cut meets the cue only to the ant's `TRAIT_DOOR_CUE` weight, 0 at the shipped allele (§5 step 6; `World::door_reopen` for one world) |
+| `PIXEL_PHYSICS_DOOR_LOOSE` | `on` | `off`: the lining tamps a nest's doorway as any other neighbour, the ant before 2026-10-04. On: a cell in a founding shaft's own columns from 8 rows over its mouth to the mouth's last row is never packed (§5 step 6; `World::door_loose` for one world) |
 | `PIXEL_PHYSICS_SPOIL_CUE` | `on` (K 5, floor 0) | `off`: no heap cue, the ant before 2026-09-28; `K[,floor]` sets the dials. The cue: a dig that would open the ground to the sky, from the surface or from a tunnel breaking out, goes ahead only in proportion to the pellets beside its target (§5 step 6); `World::spoil_cue` for one world |
 | `PIXEL_PHYSICS_NEST_SHAFT` | 6 | `off` (or `0`): founding paints only and digs nothing, the ant before 2026-09-28; `<rows>`: a deeper or shallower founding shaft (§8); `_NEST_SHAFT_WIDTH=<cells>` its width (2); `World::nest_shaft` for one world |
 | `CROSS_TRUNK`, `TISSUE_PARTING` | on | `0` |
