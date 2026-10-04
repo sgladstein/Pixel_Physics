@@ -120,52 +120,6 @@ fn chronicle_timestamp() -> String {
     format!("{y:04}-{m:02}-{d:02}-{h:02}{mi:02}{s:02}")
 }
 
-/// **One play session's chronicle file.** Owner, 2026-10-04: *"each session
-/// should just have one log file that gets overwritten as it updates instead
-/// of giving me a thousand different files"*, and then *"each session should
-/// have a different log file, but there should just be one at the end of the
-/// session"*. The autosave on every CENSUS row had minted a fresh
-/// timestamped name per write.
-///
-/// So the name is taken on the session's first write and kept, and every
-/// write rewrites that one file (and its two `.csv` sidecars). Overwriting
-/// loses nothing: a write is the whole of the box on screen
-/// (`chronicle_census` and `RunLog` both accumulate), and **a `REBUILD`
-/// carries the outgoing box's last write forward** as the top of the file,
-/// so a session that rebuilt three times ends with one file holding all
-/// four boxes in order. A new launch is a new session and a new file.
-#[derive(Default)]
-struct ChronicleFile {
-    /// `chronicle-<stamp>-<bed>-s<seed>`, no extension; `None` until the
-    /// session first writes.
-    name: Option<String>,
-    /// The finished boxes above the one on screen: text, census CSV, actions
-    /// CSV, as they were last written.
-    earlier: [String; 3],
-    /// What the latest write put on disk, so `reset()` can carry it forward
-    /// without writing again.
-    last: Option<[String; 3]>,
-}
-
-impl ChronicleFile {
-    fn carry_into_next_box(&mut self) {
-        if let Some([text, census, actions]) = self.last.take() {
-            self.earlier = [format!("{text}\n==== REBUILT -- THE NEXT BOX IN THIS SESSION FOLLOWS ====\n\n"), census, actions];
-        }
-    }
-}
-
-/// Append a CSV's rows to an earlier one with the same header, dropping the
-/// repeated header. Frames restart at each rebuild, so a reader that needs
-/// to split boxes looks for the frame going backwards.
-fn join_csv(earlier: &str, current: String) -> String {
-    if earlier.is_empty() {
-        return current;
-    }
-    let rows = current.split_once('\n').map_or("", |(_, rest)| rest);
-    format!("{earlier}{rows}")
-}
-
 /// The whole lab: a world, the systems that live beside the cell grid, a view
 /// on it, and the two things the player drives — time and what is on screen.
 pub struct Lab {
@@ -188,11 +142,16 @@ pub struct Lab {
     /// on `reset()` alongside `stats` because it belongs to the run that is
     /// about to be thrown away, not the box that replaces it.
     pub chronicle_census: Vec<census::ChronicleRow>,
-    /// **This session's one chronicle file**: named on its first write and
-    /// rewritten in place by every later one, `REBUILD`s included. See
-    /// [`ChronicleFile`]. Parked with its box on a rack switch, like the
-    /// census.
-    chronicle_file: ChronicleFile,
+    /// **The timestamp this run's chronicle file is named for**, taken on its
+    /// first write and kept until `reset()` -- so a run is one file,
+    /// overwritten in place by every later write, rather than a new file per
+    /// write. Owner, 2026-10-04: *"each session should just have one log file
+    /// that gets overwritten as it updates instead of giving me a thousand
+    /// different files"* -- the autosave on every CENSUS row had been minting
+    /// a fresh timestamped name each time. Overwriting loses nothing: every
+    /// write is the whole run (`chronicle_census` and `RunLog` both
+    /// accumulate). Parked with its box on a rack switch, like the census.
+    chronicle_stamp: Option<String>,
     /// The control bar along the bottom, the pages it opens, and the mouse.
     /// See `ui`.
     pub ui: ui::Ui,
@@ -365,8 +324,8 @@ pub struct Chamber {
     /// whichever box is on screen, and must come back intact when you
     /// switch to it again.
     pub chronicle_census: Vec<census::ChronicleRow>,
-    /// The box's chronicle file, parked for `chronicle_census`'s reason.
-    chronicle_file: ChronicleFile,
+    /// The box's chronicle file name, parked for `chronicle_census`'s reason.
+    chronicle_stamp: Option<String>,
     pub particles: ParticleSystem,
     pub blasts: Blasts,
     /// The population strip `Ui` keeps for the bar. Parked with its box for
@@ -566,7 +525,7 @@ impl Lab {
             time,
             stats: stats::Stats::new(),
             chronicle_census: Vec::new(),
-            chronicle_file: ChronicleFile::default(),
+            chronicle_stamp: None,
             ui,
             spec,
             scenario: None,
@@ -680,27 +639,23 @@ impl Lab {
     /// with nothing under it -- clutter, not a record.
     ///
     /// **The filename carries a timestamp, not just a date, as of round
-    /// 31** -- and since 2026-10-04 it is the timestamp of the session's
-    /// *first* write ([`ChronicleFile`]), so every later write overwrites
-    /// that one file with the whole session so far. Round 31 had stamped
-    /// every write, which kept sessions apart but left a played session
-    /// with a new file per autosave.
+    /// 31** -- and since 2026-10-04 it is the timestamp of the run's *first*
+    /// write (`chronicle_stamp`), so every later write in the same run
+    /// overwrites that one file with the whole history so far. Round 31 had
+    /// stamped every write, which kept two runs on one day apart but left a
+    /// played session with a new file per autosave.
     pub fn write_chronicle(&mut self) -> Option<std::path::PathBuf> {
         if self.world.frame == 0 {
             return None;
         }
         let dir = Self::chronicle_dir();
-        // Named for the first box of the session, at its first write, and
-        // kept: a rebuild onto another bed or seed stays in the same file.
-        let name = match &self.chronicle_file.name {
-            Some(n) => n.clone(),
-            None => {
-                let n = format!("chronicle-{}-{}-s{}", chronicle_timestamp(), self.bed_slug(), self.spec.seed);
-                self.chronicle_file.name = Some(n.clone());
-                n
-            }
-        };
-        let path = dir.join(format!("{name}.txt"));
+        let stamp = self.chronicle_stamp.get_or_insert_with(chronicle_timestamp).clone();
+        let path = dir.join(format!(
+            "chronicle-{}-{}-s{}.txt",
+            stamp,
+            self.bed_slug(),
+            self.spec.seed
+        ));
         // **What the player actually changed, against a bed nobody has
         // touched.** `founders: 0, colonies: 0` only skips the planting
         // pass -- every dial field lives on `World` itself and is set the
@@ -728,18 +683,10 @@ impl Lab {
         let stem = path.with_extension("");
         let census_path = stem.with_extension("census.csv");
         let actions_path = stem.with_extension("actions.csv");
-        // Earlier boxes of this session first, then this one.
-        let earlier = &self.chronicle_file.earlier;
-        let written = [
-            format!("{}{}", earlier[0], text),
-            join_csv(&earlier[1], census::census_csv(&self.chronicle_census)),
-            join_csv(&earlier[2], ui::actions_csv(&self.world)),
-        ];
         let result = std::fs::create_dir_all(&dir)
-            .and_then(|()| std::fs::write(&path, &written[0]))
-            .and_then(|()| std::fs::write(&census_path, &written[1]))
-            .and_then(|()| std::fs::write(&actions_path, &written[2]));
-        self.chronicle_file.last = Some(written);
+            .and_then(|()| std::fs::write(&path, text))
+            .and_then(|()| std::fs::write(&census_path, census::census_csv(&self.chronicle_census)))
+            .and_then(|()| std::fs::write(&actions_path, ui::actions_csv(&self.world)));
         // **Silent on success** (owner, 2026-10-04: *"It shouldn't
         // constantly pop up to tell me that a log was saved"*) -- the
         // autosave fires every CENSUS row. A failure still says so, and
@@ -803,9 +750,9 @@ impl Lab {
         // the box that replaces it starts its own history at frame 0, same
         // reason `stats` resets here.
         self.chronicle_census.clear();
-        // The same session, so the same file: what the outgoing box just
-        // wrote becomes the part above the new box's own record.
-        self.chronicle_file.carry_into_next_box();
+        // A new box is a new run, so its own file -- the outgoing one keeps
+        // the record `write_chronicle` above just finished.
+        self.chronicle_stamp = None;
         placed
     }
 
@@ -976,7 +923,7 @@ impl Lab {
             scenario: std::mem::replace(&mut self.scenario, incoming.scenario),
             stats: std::mem::replace(&mut self.stats, incoming.stats),
             chronicle_census: std::mem::replace(&mut self.chronicle_census, incoming.chronicle_census),
-            chronicle_file: std::mem::replace(&mut self.chronicle_file, incoming.chronicle_file),
+            chronicle_stamp: std::mem::replace(&mut self.chronicle_stamp, incoming.chronicle_stamp),
             particles: std::mem::replace(&mut self.particles, incoming.particles),
             blasts: std::mem::replace(&mut self.blasts, incoming.blasts),
             history: std::mem::replace(&mut self.ui.history, incoming.history),
@@ -1034,7 +981,7 @@ impl Lab {
             batch: None,
             stats: stats::Stats::new(),
             chronicle_census: Vec::new(),
-            chronicle_file: ChronicleFile::default(),
+            chronicle_stamp: None,
             particles: ParticleSystem::new(),
             blasts: Blasts::new(),
             history: ui::History::default(),
@@ -1303,7 +1250,7 @@ impl Lab {
             // `Lab::tick`, so a landed row never took a CENSUS sample --
             // same reason it adopts with fresh `particles`/`blasts` below.
             chronicle_census: Vec::new(),
-            chronicle_file: ChronicleFile::default(),
+            chronicle_stamp: None,
             particles: ParticleSystem::new(),
             blasts: Blasts::new(),
             history: ui::History::default(),
@@ -4533,24 +4480,21 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// **One session, one chronicle file, rewritten in place, rebuilds
-    /// included.** The owner's ask (2026-10-04). Two writes must leave one
-    /// `.txt` holding the later frame; a `reset()` onto another seed must
-    /// write into the same file, with the first box still in it above the
-    /// second, and the census CSV must keep one header.
-    ///
-    /// Put the fault back (the name re-taken on every write) and the first
-    /// assertion goes red once the writes straddle a second, which the sleep
-    /// guarantees; drop the carry in `reset()` and the first box's header
-    /// goes missing.
+    /// **One run, one chronicle file, rewritten in place; a rebuild starts
+    /// the next.** The owner's ask (2026-10-04): the autosave used to mint a
+    /// new timestamped file on every write. Two writes in one run must leave
+    /// one `.txt`, holding the later frame; `reset()` must start a second.
+    /// Put the fault back (`chronicle_stamp` re-taken on every write) and
+    /// the first assertion goes red once the two writes straddle a second,
+    /// which the sleep guarantees.
     #[test]
-    fn a_session_keeps_one_chronicle_file_across_writes_and_rebuilds() {
+    fn a_run_keeps_one_chronicle_file_and_a_rebuild_starts_another() {
         let _guard = CENSUS_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let dir = scratch_chronicle_dir("one_file");
         let _ = std::fs::remove_dir_all(&dir);
         std::env::set_var(Lab::CHRONICLE_DIR_ENV, &dir);
-        let count = |dir: &std::path::Path, ext: &str| -> usize {
-            dir.read_dir().map_or(0, |r| r.filter_map(|e| e.ok()).filter(|e| e.path().to_string_lossy().ends_with(ext)).count())
+        let txts = |dir: &std::path::Path| -> usize {
+            dir.read_dir().map_or(0, |r| r.filter_map(|e| e.ok()).filter(|e| e.path().extension().is_some_and(|x| x == "txt")).count())
         };
         let mut lab = Lab::new(scene::LabBox { founders: 0, colonies: 0, ..rack_bed(1) });
         run(&mut lab, 3);
@@ -4558,26 +4502,16 @@ mod tests {
         std::thread::sleep(std::time::Duration::from_millis(1_100));
         run(&mut lab, 3);
         let second = lab.write_chronicle().expect("written");
-        assert_eq!(first, second, "a second write in the same session named a new file");
-        assert_eq!(count(&dir, ".txt"), 1, "one session left more than one chronicle");
+        assert_eq!(first, second, "a second write in the same run named a new file");
+        assert_eq!(txts(&dir), 1, "one run left more than one chronicle");
         let text = std::fs::read_to_string(&second).expect("read back");
         assert!(text.contains(&format!("FRAMES {} ", lab.world.frame)), "the file was not rewritten with the later frame:\n{text}");
-
         std::thread::sleep(std::time::Duration::from_millis(1_100));
-        let frames_before = lab.world.frame;
         lab.reset();
         run(&mut lab, 2);
         let third = lab.write_chronicle().expect("written");
-        assert_eq!(third, second, "a rebuild moved the session to a new file");
-        assert_eq!(count(&dir, ".txt"), 1, "a rebuild left a second chronicle");
-        let text = std::fs::read_to_string(&third).expect("read back");
-        // Told apart by length: the box before the rebuild ran longer.
-        let first_box = text.find(&format!("FRAMES {frames_before} ")).unwrap_or_else(|| panic!("the first box's record was lost:\n{text}"));
-        let second_box = text.find(&format!("FRAMES {} ", lab.world.frame)).unwrap_or_else(|| panic!("the rebuilt box is missing:\n{text}"));
-        assert!(first_box < second_box, "the boxes are out of order");
-        assert!(text.contains("REBUILT -- THE NEXT BOX"), "no line marks where the rebuild happened");
-        let census_csv = std::fs::read_to_string(third.with_extension("census.csv")).expect("census sidecar");
-        assert_eq!(census_csv.matches("frame,wall_clock_secs,").count(), 1, "the census CSV repeats its header");
+        assert_ne!(third, second, "a rebuilt box wrote over the previous run's record");
+        assert_eq!(txts(&dir), 2, "a rebuild should start exactly one new file");
 
         std::env::remove_var(Lab::CHRONICLE_DIR_ENV);
         let _ = std::fs::remove_dir_all(&dir);
