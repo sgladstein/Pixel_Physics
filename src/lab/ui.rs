@@ -10146,6 +10146,21 @@ impl Ui {
             }
         }
 
+        // **Scent along the row under the pointer, while a trail overlay is
+        // up** -- whatever the tool, because the trail is the thing being
+        // watched and the overlay is how the player said so. See
+        // `paint_scent_strip`.
+        if matches!(
+            renderer.field_overlay,
+            render::FieldOverlay::PheromoneA | render::FieldOverlay::PheromoneB
+        ) {
+            if let Some((cx, cy)) = self.cursor.filter(|&(x, y)| y < bar_top() && !self.covers(x, y)) {
+                // Above the tabs and the verb notice, which sits 16 over the bar.
+                let floor = tab_strip_y(state.chambers.len()).min(bar_top() - 16) - 1;
+                paint_scent_strip(hc, frame, world, renderer, (cx, cy), floor);
+            }
+        }
+
         // The last verb's notice, over everything, just above the bar.
         if let Some((text, at)) = &self.notice {
             if at.elapsed().as_secs_f32() < NOTICE_SECONDS {
@@ -10170,7 +10185,7 @@ impl Ui {
 
 /// **What is in the cell under the pointer**, docked top right.
 ///
-/// Four lines, always four, present or absent — a readout that changes height
+/// A fixed set of lines, present or absent — a readout that changes height
 /// as the cursor moves is one you cannot read while moving. Every line names
 /// the accessor it came from:
 ///
@@ -10180,7 +10195,15 @@ impl Ui {
 ///   point opposite ways (`CLAUDE.md`: on a `Liquid` `aux == 0` is *full*, on
 ///   a `Powder` it is *dry*), so this goes through `update::liquid_fill` for
 ///   the first rather than reading `aux` and getting it backwards;
-/// - the organism owning the cell, and its whole-body energy.
+/// - the organism owning the cell, and its whole-body energy;
+/// - **both trail planes at this cell**, `SCENT A .. B ..`, in the planes' own
+///   0-255 units (`World::pheromone_at` over `pheromone::SCALE`). Owner,
+///   2026-10-04, watching B on a colony beside a food pile: *"Hard to really
+///   tell without being able to measure it."* The overlay is a colour, and a
+///   B trail at 2-30 of 255 is the bottom tenth of any ramp; the number is
+///   what says whether the trail under the pointer is building or not.
+///
+/// Five lines, always five, for the reason above.
 ///
 /// **It docks clear of whatever is already parked there.** `avoid` is the
 /// cell page's rectangle, when one is open. Both want the
@@ -10197,6 +10220,7 @@ impl Ui {
 /// reading.
 fn paint_hover_cell(hc: render::Hud, frame: &mut [u8], world: &World, (x, y): (i32, i32), avoid: Option<Rect>, mark: Option<String>) {
     use crate::sim::material::MaterialKind;
+    use crate::sim::pheromone::Channel;
     let cell = world.get(x, y);
     let def = world.materials.get(cell.material);
     let wet = match world.materials.kind(cell.material) {
@@ -10222,11 +10246,13 @@ fn paint_hover_cell(hc: render::Hud, frame: &mut [u8], world: &World, (x, y): (i
         // reading NO ORGANISM is exactly what was taken for a stuck ant.
         None => mark.unwrap_or_else(|| "NO ORGANISM".to_string()),
     };
+    let scent = |ch| scent_text(scent_units(world, ch, x, y));
     let lines = [
         format!("{} {},{}", def.display.to_uppercase(), x, y),
         format!("{}C{}", cell.temperature(), if cell.is_burning() { " BURNING" } else { "" }),
         wet,
         life,
+        format!("SCENT A {} B {}", scent(Channel::A), scent(Channel::B)),
     ];
     let w = lines.iter().map(|l| hud::text_width(l)).max().unwrap_or(0) + 12;
     let h = lines.len() as i32 * LINE + 8;
@@ -10250,6 +10276,142 @@ fn paint_hover_cell(hc: render::Hud, frame: &mut [u8], world: &World, (x, y): (i
         let tint = if i == 0 { VALUE } else if organism.is_some() && i == 3 { GOOD } else { FAINT };
         text_at(hc, frame, r.x + 6, r.y + 4 + i as i32 * LINE, line, tint);
     }
+}
+
+/// One trail plane at one cell, in the plane's own 0-255 units -- the scale
+/// `pheromone::DEPOSIT` (40) and every report quote, not the raw `u16`.
+fn scent_units(world: &World, channel: crate::sim::pheromone::Channel, x: i32, y: i32) -> f32 {
+    world.pheromone_at(channel, x, y) as f32 / crate::sim::pheromone::SCALE as f32
+}
+
+/// A scent reading as text: whole units from 10 up, one decimal below, so a
+/// B trail at 0.4 does not print as 0 next to an A of 250.
+fn scent_text(v: f32) -> String {
+    if v >= 9.95 {
+        format!("{v:.0}")
+    } else {
+        format!("{v:.1}")
+    }
+}
+
+/// Rows above and below the pointer the strip reads. A trail is laid where
+/// the ants walk, which is one cell wide and wanders a row or two up and down
+/// the surface; a strip of the pointer's row alone would drop out every time
+/// the trail stepped off it.
+const SCENT_BAND: i32 = 3;
+/// The strip's height in screen pixels, header line included.
+const SCENT_STRIP_H: i32 = 60;
+/// The guide lines, in the plane's 0-255 units. Not 4: on the root scale it
+/// sits six pixels under 16 and the two labels print over each other.
+const SCENT_GUIDES: [f32; 3] = [16.0, 64.0, 255.0];
+/// The two trail colours, the overlay's own ramp tops (`render.rs`
+/// `SCALAR_RAMP_PHERO_A`/`_B`), so the strip and the world say which line is
+/// which the same way.
+const SCENT_A_INK: [u8; 4] = [255, 80, 220, 255];
+const SCENT_B_INK: [u8; 4] = [80, 240, 255, 255];
+
+/// **Trail strength along the row under the pointer**, both planes, as a
+/// strip across the whole screen above the bar, lined up column for column
+/// with the world above it.
+///
+/// Owner, 2026-10-04: *"A glows pretty steadily along the path ... it's kind
+/// of like a bright spot at the nest and then the rest of the trail seems
+/// somewhat uniform. Hard to really tell without being able to measure it"*,
+/// and of B, *"I don't see anything ever building up."* Both are questions
+/// about a **profile** -- how strength changes along a trail -- and a colour
+/// overlay answers neither: measured the same day on that box
+/// (`examples/trailprofile.rs`), A fell smoothly from ~250 at the nest to
+/// ~50 at the pile, which the eye read as flat, and B sat at 2-30.
+///
+/// Each screen column plots the strongest A and B within `SCENT_BAND` rows of
+/// the pointer's row, over every world column that screen column stands for
+/// (more than one when zoomed out, so a one-cell trail cannot fall between
+/// two sampled columns). The vertical scale is a square root of the 0-255
+/// unit, with guides at 16/64/255: linear, a B trail at 20 is two pixels
+/// off the floor. The pointer's column is marked, and the header prints the
+/// row's peak of each plane and the reading at the pointer, so the strip
+/// is a number as well as a shape (`CLAUDE.md`: pair every overlay with a
+/// probe that prints the values).
+///
+/// **It moves out of the way of the row it describes**: docked above the
+/// bar, unless the pointer is on or below the strip's own rows, when it
+/// docks at the top of the screen instead -- a strip drawn over the trail it
+/// plots would hide the thing being measured.
+///
+/// A readout, not a sample of anything: it reads `World::pheromone_at` and
+/// nothing else, so it cannot disagree with what an ant smells.
+fn paint_scent_strip(
+    hc: render::Hud,
+    frame: &mut [u8],
+    world: &World,
+    renderer: &crate::render::Renderer,
+    (cx, cy): (i32, i32),
+    bottom: i32,
+) {
+    use crate::sim::pheromone::Channel;
+    let (wx, wy) = renderer.logical_to_world(cx, cy);
+    let low = bottom - SCENT_STRIP_H;
+    let r = Rect {
+        x: 0,
+        y: if cy >= low - 2 { 0 } else { low },
+        w: W as i32,
+        h: SCENT_STRIP_H,
+    };
+    fill(hc, frame, r, READOUT_BG);
+    outline(hc, frame, r, PANEL_EDGE);
+    let floor = r.bottom() - 3;
+    let plot_h = (floor - (r.y + LINE + 4)) as f32;
+    let y_of = |v: f32| floor - ((v / 255.0).clamp(0.0, 1.0).sqrt() * plot_h).round() as i32;
+    for g in SCENT_GUIDES {
+        let gy = y_of(g);
+        for x in (0..W as i32).step_by(3) {
+            hc.put(frame, x, gy, DIVIDER);
+        }
+        let label = format!("{g:.0}");
+        let x = W as i32 - MARGIN - hud::text_width(&label);
+        text_at(hc, frame, x, gy - hud::GLYPH_HEIGHT / 2, &label, FAINT);
+    }
+    let mut peak = [0f32; 2];
+    let mut prev: [Option<i32>; 2] = [None, None];
+    for lx in 0..W as i32 {
+        let (x0, _) = renderer.logical_to_world(lx, cy);
+        let (x1, _) = renderer.logical_to_world(lx + 1, cy);
+        let mut v = [0f32; 2];
+        for x in x0..x1.max(x0 + 1) {
+            for y in wy - SCENT_BAND..=wy + SCENT_BAND {
+                v[0] = v[0].max(scent_units(world, Channel::A, x, y));
+                v[1] = v[1].max(scent_units(world, Channel::B, x, y));
+            }
+        }
+        // B over A where they cross: B is the faint one, and the plane the
+        // complaint is about.
+        for (k, ink) in [(0, SCENT_A_INK), (1, SCENT_B_INK)] {
+            peak[k] = peak[k].max(v[k]);
+            let y = y_of(v[k]);
+            // Joined to the last column, so a steep edge reads as a line and
+            // not as two dots.
+            let (lo, hi) = prev[k].map_or((y, y), |p| (p.min(y), p.max(y)));
+            for py in lo..=hi {
+                hc.put(frame, lx, py, ink);
+            }
+            prev[k] = Some(y);
+        }
+    }
+    for py in (r.y + LINE + 2..=floor).step_by(2) {
+        hc.put(frame, cx, py, MARKER);
+    }
+    let here = |ch| scent_text(scent_units(world, ch, wx, wy));
+    // The B switch in force, named on screen (`pheromone::b_rho`): a setting
+    // that did not take must be visible, not assumed.
+    let (b_fade, b_spread) = world.pheromones.channel_rates(Channel::B).unwrap_or_default();
+    let head = format!(
+        "SCENT ROW +-{SCENT_BAND}  PEAK A {} B {}  HERE A {} B {}  B FADE {b_fade:.3} SPREAD {b_spread:.2}",
+        scent_text(peak[0]),
+        scent_text(peak[1]),
+        here(Channel::A),
+        here(Channel::B)
+    );
+    text_at(hc, frame, MARGIN, r.y + 3, &head, VALUE);
 }
 
 #[cfg(test)]
@@ -11740,6 +11902,51 @@ mod tests {
     /// docked box `paint_hover_cell` draws, not the pinned cell page --
     /// `the_inspector_toggles_on_the_cell_it_is_pointed_at` above covers that
     /// one, and it is deliberately untouched by this change.
+    /// **The scent strip plots the trail under the pointer, at that trail's
+    /// own screen column, and only while a trail overlay is up.**
+    ///
+    /// The positive control is the deposit: before it the B line lies on the
+    /// strip's floor in every column (a fresh box has laid no B), after it the
+    /// line leaves the floor at the deposit's column and nowhere far from it.
+    /// A strip that sampled the wrong row, the wrong columns or the wrong
+    /// plane fails the second half; one drawn with the overlay off fails the
+    /// third.
+    #[test]
+    fn the_scent_strip_lifts_off_the_floor_only_over_a_laid_trail() {
+        use crate::sim::pheromone::{Channel, SCALE};
+        let mut lab = crate::lab::Lab::new(crate::lab::scene::LabBox::default());
+        lab.show_help = false;
+        // The biosphere page covers the right half; shut it so every
+        // column of the strip is ours to read.
+        lab.act(Action::Stats);
+        let cursor = (60, 150);
+        lab.set_cursor(Some(cursor));
+        let (wx, wy) = lab.renderer.logical_to_world(cursor.0, cursor.1);
+        let floor_bottom = tab_strip_y(1).min(bar_top() - 16) - 1;
+        let top = floor_bottom - SCENT_STRIP_H;
+        // Columns where the B line is drawn above the strip's floor row.
+        let lifted = |lab: &mut crate::lab::Lab| -> Vec<i32> {
+            let mut buf = vec![0u8; (W * H * 4) as usize];
+            lab.draw(&mut buf, 60.0);
+            let px = |x: i32, y: i32| {
+                let i = ((y as u32 * W + x as u32) * 4) as usize;
+                [buf[i], buf[i + 1], buf[i + 2], buf[i + 3]]
+            };
+            (0..W as i32).filter(|&x| (top + LINE + 4..floor_bottom - 4).any(|y| px(x, y) == SCENT_B_INK)).collect()
+        };
+        lab.renderer.field_overlay = render::FieldOverlay::PheromoneB;
+        assert_eq!(lifted(&mut lab), Vec::<i32>::new(), "a fresh box has laid no B, so the line must lie on the floor");
+
+        lab.world.deposit_pheromone(Channel::B, wx + 20, wy + 1, 200 * SCALE);
+        let up = lifted(&mut lab);
+        let (sx, _) = lab.renderer.world_to_screen(wx + 20, wy).expect("on screen");
+        assert!(up.contains(&sx), "the deposit's own column {sx} is not lifted: {up:?}");
+        assert!(up.iter().all(|&x| (x - sx).abs() <= 1), "the line left the floor away from the deposit: {up:?}");
+
+        lab.renderer.field_overlay = render::FieldOverlay::Off;
+        assert_eq!(lifted(&mut lab), Vec::<i32>::new(), "the strip must not draw without a trail overlay");
+    }
+
     #[test]
     fn the_hover_readout_only_shows_under_the_look_tool() {
         let mut lab = crate::lab::Lab::new(crate::lab::scene::LabBox::default());
@@ -13229,6 +13436,20 @@ mod tests {
                 if let Some(name) = mark_at(&lab.world, &lab.renderer, LifeMarks::Off, at) {
                     assert!(name.starts_with("HARVEST MAP"), "the readout names the wrong mark: {name}");
                     claimed.insert(at);
+                    // **Paint on paint is invisible to a difference.** The
+                    // wash is the colony's own hue, and a cell already drawn
+                    // in exactly that hue (found 2026-10-04: a wood cell
+                    // between two cells of a colony-1 ant's corpse, amber
+                    // with the map off) reads unpainted though the map did
+                    // paint it. So a claimed cell whose pixel *is* its tile's
+                    // wash counts as painted; one showing anything else
+                    // still fails below.
+                    let tile = (at.0.div_euclid(lab.renderer.food.tile), at.1.div_euclid(lab.renderer.food.tile));
+                    if let Some(mark) = lab.renderer.food.tile_colours(lab.world.frame).get(&tile) {
+                        if on[o..o + 3].iter().zip(mark.rgb).all(|(&p, c)| p == c.round().clamp(0.0, 255.0) as u8) {
+                            painted.insert(at);
+                        }
+                    }
                 }
             }
         }

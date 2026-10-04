@@ -142,6 +142,16 @@ pub struct Lab {
     /// on `reset()` alongside `stats` because it belongs to the run that is
     /// about to be thrown away, not the box that replaces it.
     pub chronicle_census: Vec<census::ChronicleRow>,
+    /// **The timestamp this run's chronicle file is named for**, taken on its
+    /// first write and kept until `reset()` -- so a run is one file,
+    /// overwritten in place by every later write, rather than a new file per
+    /// write. Owner, 2026-10-04: *"each session should just have one log file
+    /// that gets overwritten as it updates instead of giving me a thousand
+    /// different files"* -- the autosave on every CENSUS row had been minting
+    /// a fresh timestamped name each time. Overwriting loses nothing: every
+    /// write is the whole run (`chronicle_census` and `RunLog` both
+    /// accumulate). Parked with its box on a rack switch, like the census.
+    chronicle_stamp: Option<String>,
     /// The control bar along the bottom, the pages it opens, and the mouse.
     /// See `ui`.
     pub ui: ui::Ui,
@@ -314,6 +324,8 @@ pub struct Chamber {
     /// whichever box is on screen, and must come back intact when you
     /// switch to it again.
     pub chronicle_census: Vec<census::ChronicleRow>,
+    /// The box's chronicle file name, parked for `chronicle_census`'s reason.
+    chronicle_stamp: Option<String>,
     pub particles: ParticleSystem,
     pub blasts: Blasts,
     /// The population strip `Ui` keeps for the bar. Parked with its box for
@@ -513,6 +525,7 @@ impl Lab {
             time,
             stats: stats::Stats::new(),
             chronicle_census: Vec::new(),
+            chronicle_stamp: None,
             ui,
             spec,
             scenario: None,
@@ -606,8 +619,8 @@ impl Lab {
             .collect()
     }
 
-    /// **Write this run's chronicle to a text file, and say on the bar where
-    /// it went.** Called from `reset()`, on the world about to be thrown
+    /// **Write this run's chronicle to a text file**, returning where it went
+    /// (`None` if skipped or failed; a failure is said on the bar). Called from `reset()`, on the world about to be thrown
     /// away; from the binary's own shutdown hook -- `bin/lab.rs`'s
     /// `exiting`; from pressing `9` (`Action::WriteChronicle`); and, as of
     /// round 31, from `tick()` on every CENSUS row -- so a run's history
@@ -626,18 +639,20 @@ impl Lab {
     /// with nothing under it -- clutter, not a record.
     ///
     /// **The filename carries a timestamp, not just a date, as of round
-    /// 31.** A player who never rebuilds or presses `9` used to get exactly
-    /// one save a day regardless of how many times something wrote one --
-    /// the autosave below and a quit on the same day would silently
-    /// overwrite each other, the very failure this feature exists to close.
-    pub fn write_chronicle(&mut self) {
+    /// 31** -- and since 2026-10-04 it is the timestamp of the run's *first*
+    /// write (`chronicle_stamp`), so every later write in the same run
+    /// overwrites that one file with the whole history so far. Round 31 had
+    /// stamped every write, which kept two runs on one day apart but left a
+    /// played session with a new file per autosave.
+    pub fn write_chronicle(&mut self) -> Option<std::path::PathBuf> {
         if self.world.frame == 0 {
-            return;
+            return None;
         }
         let dir = Self::chronicle_dir();
+        let stamp = self.chronicle_stamp.get_or_insert_with(chronicle_timestamp).clone();
         let path = dir.join(format!(
             "chronicle-{}-{}-s{}.txt",
-            chronicle_timestamp(),
+            stamp,
             self.bed_slug(),
             self.spec.seed
         ));
@@ -672,10 +687,15 @@ impl Lab {
             .and_then(|()| std::fs::write(&path, text))
             .and_then(|()| std::fs::write(&census_path, census::census_csv(&self.chronicle_census)))
             .and_then(|()| std::fs::write(&actions_path, ui::actions_csv(&self.world)));
-        match result {
-            Ok(()) => self.ui.say(format!("CHRONICLE SAVED -> {}", path.display())),
-            Err(e) => self.ui.say(format!("CHRONICLE NOT SAVED: {e}")),
+        // **Silent on success** (owner, 2026-10-04: *"It shouldn't
+        // constantly pop up to tell me that a log was saved"*) -- the
+        // autosave fires every CENSUS row. A failure still says so, and
+        // pressing `9` still names the file (`Action::WriteChronicle`).
+        if let Err(e) = result {
+            self.ui.say(format!("CHRONICLE NOT SAVED: {e}"));
+            return None;
         }
+        Some(path)
     }
 
     /// Rebuild the box on screen from `self.spec`, keeping the view and the
@@ -730,6 +750,9 @@ impl Lab {
         // the box that replaces it starts its own history at frame 0, same
         // reason `stats` resets here.
         self.chronicle_census.clear();
+        // A new box is a new run, so its own file -- the outgoing one keeps
+        // the record `write_chronicle` above just finished.
+        self.chronicle_stamp = None;
         placed
     }
 
@@ -900,6 +923,7 @@ impl Lab {
             scenario: std::mem::replace(&mut self.scenario, incoming.scenario),
             stats: std::mem::replace(&mut self.stats, incoming.stats),
             chronicle_census: std::mem::replace(&mut self.chronicle_census, incoming.chronicle_census),
+            chronicle_stamp: std::mem::replace(&mut self.chronicle_stamp, incoming.chronicle_stamp),
             particles: std::mem::replace(&mut self.particles, incoming.particles),
             blasts: std::mem::replace(&mut self.blasts, incoming.blasts),
             history: std::mem::replace(&mut self.ui.history, incoming.history),
@@ -957,6 +981,7 @@ impl Lab {
             batch: None,
             stats: stats::Stats::new(),
             chronicle_census: Vec::new(),
+            chronicle_stamp: None,
             particles: ParticleSystem::new(),
             blasts: Blasts::new(),
             history: ui::History::default(),
@@ -1225,6 +1250,7 @@ impl Lab {
             // `Lab::tick`, so a landed row never took a CENSUS sample --
             // same reason it adopts with fresh `particles`/`blasts` below.
             chronicle_census: Vec::new(),
+            chronicle_stamp: None,
             particles: ParticleSystem::new(),
             blasts: Blasts::new(),
             history: ui::History::default(),
@@ -3396,7 +3422,13 @@ impl Lab {
                 self.ui.say(format!("DISPLAY FLOOR MIN {}HZ", self.time.display_floor()));
             }
             // `Digit9`'s own verb, `CycleDisplayFloor`'s own reason.
-            ui::Action::WriteChronicle => self.write_chronicle(),
+            // The one write the player asked for by name, so the one that
+            // says where it went; the autosave and a rebuild stay quiet.
+            ui::Action::WriteChronicle => {
+                if let Some(path) = self.write_chronicle() {
+                    self.ui.say(format!("CHRONICLE SAVED -> {}", path.display()));
+                }
+            }
             // **The outdoor game's own cycle**, `Renderer::cycle_magnify_
             // style` -- `Shift`+`=` there, this action's key (`0`) and MENU
             // row here. Reused rather than re-derived so the lab and the
@@ -4443,6 +4475,43 @@ mod tests {
         lab.write_chronicle();
         let text = newest_chronicle_text(&dir);
         assert!(text.contains("REBUILT"), "the rebuild line is missing from the new run's own chronicle:\n{text}");
+
+        std::env::remove_var(Lab::CHRONICLE_DIR_ENV);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// **One run, one chronicle file, rewritten in place; a rebuild starts
+    /// the next.** The owner's ask (2026-10-04): the autosave used to mint a
+    /// new timestamped file on every write. Two writes in one run must leave
+    /// one `.txt`, holding the later frame; `reset()` must start a second.
+    /// Put the fault back (`chronicle_stamp` re-taken on every write) and
+    /// the first assertion goes red once the two writes straddle a second,
+    /// which the sleep guarantees.
+    #[test]
+    fn a_run_keeps_one_chronicle_file_and_a_rebuild_starts_another() {
+        let _guard = CENSUS_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let dir = scratch_chronicle_dir("one_file");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::env::set_var(Lab::CHRONICLE_DIR_ENV, &dir);
+        let txts = |dir: &std::path::Path| -> usize {
+            dir.read_dir().map_or(0, |r| r.filter_map(|e| e.ok()).filter(|e| e.path().extension().is_some_and(|x| x == "txt")).count())
+        };
+        let mut lab = Lab::new(scene::LabBox { founders: 0, colonies: 0, ..rack_bed(1) });
+        run(&mut lab, 3);
+        let first = lab.write_chronicle().expect("written");
+        std::thread::sleep(std::time::Duration::from_millis(1_100));
+        run(&mut lab, 3);
+        let second = lab.write_chronicle().expect("written");
+        assert_eq!(first, second, "a second write in the same run named a new file");
+        assert_eq!(txts(&dir), 1, "one run left more than one chronicle");
+        let text = std::fs::read_to_string(&second).expect("read back");
+        assert!(text.contains(&format!("FRAMES {} ", lab.world.frame)), "the file was not rewritten with the later frame:\n{text}");
+        std::thread::sleep(std::time::Duration::from_millis(1_100));
+        lab.reset();
+        run(&mut lab, 2);
+        let third = lab.write_chronicle().expect("written");
+        assert_ne!(third, second, "a rebuilt box wrote over the previous run's record");
+        assert_eq!(txts(&dir), 2, "a rebuild should start exactly one new file");
 
         std::env::remove_var(Lab::CHRONICLE_DIR_ENV);
         let _ = std::fs::remove_dir_all(&dir);
