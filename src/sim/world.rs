@@ -4009,6 +4009,9 @@ pub struct World {
     /// neither. `None` follows the environment. A field so a guard can take
     /// both arms in one process.
     pub push_past: Option<crate::sim::creature::PushPast>,
+    /// `creature::home_past_tissue_of`'s per-world override: the dug home's
+    /// fill reads past a plant grown into a dug cell.
+    pub home_past_tissue: Option<bool>,
     /// **The storeroom, overriding `PIXEL_PHYSICS_STOREROOM` for this world**
     /// (`creature::storeroom_of`). `None` follows the environment, which is
     /// `creature::Storeroom::SHIPPED` unless it says `off`.
@@ -4358,8 +4361,10 @@ pub struct World {
     /// **Every cell an ant has ever dug, and every cell a founding cut
     /// opened** -- the record behind the census's `dug_*` columns
     /// (`lab::census::Sample::dug`). Written only by `creature::dig` and
-    /// `cut_founding_shaft_with`; nothing in the simulation reads it, so it
-    /// cannot move a run.
+    /// `cut_founding_shaft_with`. **Read by the simulation in one place**:
+    /// `step_nest_dug`'s fill passes a plant grown into a dug cell
+    /// (`creature::home_past_tissue_of`), and only a dug one -- which is the
+    /// question below, asked of the home rather than the census.
     ///
     /// **A record of the act, because the cell cannot keep one.** A root
     /// that grows into a gallery and a root that threaded undug soil are
@@ -6550,6 +6555,7 @@ impl World {
             bud_stack: None,
             brood: None,
             push_past: None,
+            home_past_tissue: None,
             storeroom: None,
             nest_door: None,
             scout: None,
@@ -8584,9 +8590,10 @@ impl World {
         // ants cannot pass brood, the home behind a plug really is cut off.
         let brood_open = crate::sim::creature::push_past_of(self).brood;
         let loose: Vec<MaterialId> = ["spoil", "corpse", "crumbs"].iter().chain(brood_open.then_some(&"brood")).filter_map(|n| self.materials.id_of(n)).collect();
+        let past_tissue = crate::sim::creature::home_past_tissue_of(self);
         let open = |w: &World, x: i32, y: i32| {
             let c = w.get(x, y);
-            c.material == material::EMPTY || matches!(w.materials.kind(c.material), MaterialKind::Creature) || loose.contains(&c.material) || (c.organism_id() == 0 && crate::sim::creature::food_value(w, c) > 0.0)
+            c.material == material::EMPTY || matches!(w.materials.kind(c.material), MaterialKind::Creature) || loose.contains(&c.material) || (c.organism_id() == 0 && crate::sim::creature::food_value(w, c) > 0.0) || (past_tissue && w.dug_cells.contains(&(x, y)) && crate::sim::creature::body_gets_through_tissue(w, c))
         };
         let mut dug = crate::sim::fxhash::PosSet::default();
         for site in self.nest_sites.clone() {

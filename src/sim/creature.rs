@@ -21624,6 +21624,72 @@ pub fn push_past_from_env() -> PushPast {
     *V.get_or_init(|| std::env::var("PIXEL_PHYSICS_PUSH_PAST").map_or(PushPast::SHIPPED, |v| PushPast::parse(&v)))
 }
 
+/// **The dug home reads past a plant grown into it, as a body does**
+/// (`PIXEL_PHYSICS_HOME_PAST_TISSUE=on|off`, **on**
+/// ([`HOME_PAST_TISSUE_SHIPPED`]) unless set; `World::home_past_tissue` for
+/// one world). On, a dug cell (`World::dug_cells`) holding living plant tissue
+/// a body gets through ([`body_gets_through_tissue`]: a grass blade, a root,
+/// a leaf parted, a stem crossed) is open to `World::step_nest_dug`'s fill, as
+/// crumbs and brood already were. `off` is the home before 2026-10-03.
+///
+/// **Why** (lane 3, lab `nestdoor` seeds 1 and 3, a probe that books every
+/// cell leaving the home by what then stands in it). The lab nest lies in
+/// the top 11-12 rows of 80, and plants grow into it: grass blades, grass
+/// roots, leaves and wood took 35% of the home cells lost on both seeds, and
+/// cells cut off behind them (crumbs, ants, bare floor) another third. A body
+/// walks through every one of them, but the fill read them as wall, so a
+/// blade across the shaft took everything behind it out of home, and with
+/// it the dig urge, the laying site and the home pull. On seed 1 one plug of
+/// wood and crumbs at 57,000 frames took home 47 -> 3 for good.
+///
+/// **Only dug cells, and that is load-bearing.** The first form read past
+/// any tissue, and home ran out along the root zone into undug ground: home
+/// peaked above everything ever dug on all 4 seeds tried (seed 3: 406 cells
+/// against 126 dug, at 30k), and births were lower on 3 of 4.
+/// `a_plant_in_a_dug_neck_cuts_home_only_while_the_fill_reads_it_as_wall`
+/// goes red for that form.
+///
+/// **Measured** (lab `played_bed` via `nestdoor`, main c3a7dac1, 70,000
+/// frames, seeds 1-12 paired, medians): home at 50k/70k 56 -> 79.5 and
+/// 53.5 -> 85 (bigger at 70k on 8, smaller on 3), ever dug 206 -> 214.5,
+/// ants alive 25.5 -> 23.5 and born 26.5 -> 25.5 (each 5 up / 7 down: no
+/// clear change). Seed 1 keeps its nest (2 -> 87 cells at 70k).
+pub fn home_past_tissue_of(world: &World) -> bool {
+    world.home_past_tissue.unwrap_or_else(home_past_tissue_from_env)
+}
+
+/// Shipped setting of [`home_past_tissue_of`].
+pub const HOME_PAST_TISSUE_SHIPPED: bool = true;
+
+fn home_past_tissue_from_env() -> bool {
+    static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *V.get_or_init(|| match std::env::var("PIXEL_PHYSICS_HOME_PAST_TISSUE").unwrap_or_default().trim() {
+        "on" => true,
+        "off" => false,
+        "" => HOME_PAST_TISSUE_SHIPPED,
+        v => {
+            eprintln!("PIXEL_PHYSICS_HOME_PAST_TISSUE={v:?}: not `on` or `off`; read as unset");
+            HOME_PAST_TISSUE_SHIPPED
+        }
+    })
+}
+
+/// **Does a body get through this cell without digging it** -- parted, as
+/// soft living tissue is ([`is_partable`]'s plant arm), or crossed, as a
+/// trunk is ([`trunk_crossing`]). Loose crumbs and brood are the dug home's
+/// own `loose` list and are not asked here.
+pub fn body_gets_through_tissue(world: &World, cell: Cell) -> bool {
+    if !is_living_tissue(world, cell) {
+        return false;
+    }
+    let m = world.materials.get(cell.material);
+    if m.woody {
+        crossing_enabled()
+    } else {
+        parting_enabled() && m.climbable
+    }
+}
+
 /// **Who is standing on this brood organism's cell, and where, if anyone is** --
 /// the cell parted out of the grid into the walker's `parted` list (see
 /// [`PushPast`]). Asked by `brood::brood_tick` only once the cell has not
@@ -41675,6 +41741,44 @@ mod tests {
         };
         assert_eq!(room(false), 0, "the egg did not cut the room off, so this bed tests nothing");
         assert_eq!(room(true), 7, "with ants walking through brood the room behind it is home");
+    }
+
+    /// **A plant grown into a dug passage cuts the home behind it only
+    /// while the fill reads it as a wall** ([`home_past_tissue_of`]), and
+    /// reading past it reaches no further than dug ground: a root that runs
+    /// on from the room into undug soil does not carry home to a void at its
+    /// far end. The second half is the guard on the replacement artifact --
+    /// the first form read past any tissue and took home out through the
+    /// root zone.
+    #[test]
+    fn a_plant_in_a_dug_neck_cuts_home_only_while_the_fill_reads_it_as_wall() {
+        let room = |past: bool| {
+            let (mut w, low) = colony_bed();
+            w.home_past_tissue = Some(past);
+            assert!(w.found_colony(200, low - 32) > 0, "test setup: no colony");
+            let cut = w.nest_sites[0].shaft.expect("test setup: the founding cut");
+            let y = cut.chamber_bottom;
+            let neck = cut.chamber_x1 + 1;
+            for x in neck..neck + 8 {
+                w.set(x, y, Cell::EMPTY);
+                w.dug_cells.insert((x, y));
+            }
+            let blade = w.materials.id_of("grassblade").expect("grassblade is compiled in");
+            let root = w.materials.id_of("grassroot").expect("grassroot is compiled in");
+            w.set(neck, y, Cell::new(blade, 0).with_organism_id(1));
+            let far = neck + 8;
+            for x in far..far + 3 {
+                w.set(x, y, Cell::new(root, 0).with_organism_id(1));
+            }
+            w.set(far + 3, y, Cell::EMPTY);
+            assert!(body_gets_through_tissue(&w, w.get(neck, y)) && body_gets_through_tissue(&w, w.get(far, y)), "test setup: a body cannot get through this tissue");
+            w.nest_dug.clear();
+            w.step_nest_dug();
+            assert!(!w.nest_dug.is_empty(), "test setup: no dug home at all");
+            ((neck + 1..neck + 8).filter(|&x| w.nest_dug.contains(&(x, y))).count(), w.nest_dug.contains(&(far + 3, y)))
+        };
+        assert_eq!(room(false), (0, false), "the blade did not cut the room off, so this bed tests nothing");
+        assert_eq!(room(true), (7, false), "reading past tissue: the room behind the blade is home, the void past the undug root is not");
     }
 
     #[test]
