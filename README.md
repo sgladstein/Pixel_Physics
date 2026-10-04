@@ -10347,8 +10347,8 @@ column standing in the shaft. Spreading has a nestmate carry an item out of
 a crowded pile 5 to 10 steps to a quiet floor cell clear of food, which ends
 the column, but larvae out of the crowd are fed less and more of them
 starve: colonies dead or under 50 ants at 200,000 frames, food box
-4 of 9 seeds against 1 of 9 without; the goal box lived on
-seeds 1-2 (396 and 377 ants), more seeds running.
+4 of 9 seeds against 1 of 9 without, goal box 2 of 6 against 1 of
+6.
 Nurses that walk up the hunger-weighted scent of their colony's larvae were
 built to feed the spread brood and did not: with spreading, 4 of 9 food-box
 and 3 of 6 goal-box colonies died. The ant they act on is rare -- fed, crop
