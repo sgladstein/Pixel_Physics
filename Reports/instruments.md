@@ -39,7 +39,11 @@ studies:
   the ancestral gut of 0, every lab colony starved on its plant food and
   never grew, so a mutation-off lab number taken on main 01766c2e before it
   measured that starving colony. `PIXEL_PHYSICS_LAB_ANT_GUT=ancestral` puts
-  the old gut back.
+  the old gut back. **The half-plant colony still declines past about
+  100,000 frames** with mutation off (goal box, 0-129 ants by 200,000), so a
+  goal-box comparison read past there compares dying colonies;
+  `PIXEL_PHYSICS_LAB_ANT=evolved` founds the evolved body, which holds to
+  300,000 (`scene::LAB_ANT_TRAITS`).
 
 ## Agents, context and cost
 

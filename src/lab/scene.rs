@@ -868,9 +868,11 @@ impl LabBox {
         // 2026-10-04: "Start lab ants on the half-plant diet they evolve to:
         // in test runs only, or in the game too?" -- *Game too*). Before
         // the colonies below are founded, because a founder copies its
-        // species' ancestral traits. See [`LAB_ANT_GUT`].
-        if let Some(gut) = lab_ant_gut() {
-            set_ancestral_gut(&mut w, "ant", gut);
+        // species' ancestral traits. See [`LAB_ANT_GUT`], and
+        // [`LAB_ANT_TRAITS`] for the whole evolved body, which a box takes
+        // only when asked.
+        for &(slot, value) in lab_ant_traits() {
+            set_ancestral_trait(&mut w, "ant", slot, value);
         }
         // **The lab's ants lay only at the nest**, the engine default
         // (`creature::bud_at_nest`), with no lab override since 2026-10-03 --
@@ -1086,36 +1088,142 @@ impl LabBox {
 /// The gut stays heritable, so a lineage still moves from here.
 ///
 /// `PIXEL_PHYSICS_LAB_ANT_GUT` names another value (-1 to 1), or `ancestral`
-/// for the species' own; the parameters page's `gut_bias` row and a
+/// for the species' own; `PIXEL_PHYSICS_LAB_ANT` swaps the whole founder
+/// (see [`lab_ant_traits`]). The parameters page's `gut_bias` row and a
 /// scenario's `settings` still win, being applied after the box is built.
 pub const LAB_ANT_GUT: f32 = -0.5;
 
-/// [`LAB_ANT_GUT`], or what `PIXEL_PHYSICS_LAB_ANT_GUT` names; `None` for
-/// `ancestral`. Anything else panics rather than run a box nobody asked for.
-pub fn lab_ant_gut() -> Option<f32> {
-    static V: std::sync::OnceLock<Option<f32>> = std::sync::OnceLock::new();
-    *V.get_or_init(|| match std::env::var("PIXEL_PHYSICS_LAB_ANT_GUT") {
-        Err(_) => Some(LAB_ANT_GUT),
-        Ok(v) if v.trim() == "ancestral" => None,
-        Ok(v) => Some(
-            v.trim()
-                .parse::<f32>()
-                .ok()
-                .filter(|g| (-1.0..=1.0).contains(g))
-                .unwrap_or_else(|| panic!("PIXEL_PHYSICS_LAB_ANT_GUT={v}: want a number from -1 to 1, or `ancestral`")),
-        ),
+/// **The evolved lab ant: the body a goal-box colony evolves to.** Six of
+/// the ant's heritable traits, each at the mean a lab colony evolved to with
+/// mutation on (goal box, 120,000 frames, main 3b91258b, seeds 1-4, adults
+/// only, rounded). Every other slot stays `ant.ron`'s, and every one stays
+/// heritable. **Not the default**, because on a planted bed it overgrazes
+/// (below). A box takes it through `PIXEL_PHYSICS_LAB_ANT=evolved`, or
+/// through six rows of a scenario's `settings`:
+///
+/// ```text
+/// (subject: "ant", field: "gut_bias", value: -0.8),
+/// (subject: "ant", field: "birth_grant", value: -0.27),
+/// (subject: "ant", field: "reproduce_at", value: -0.14),
+/// (subject: "ant", field: "pace", value: 0.21),
+/// (subject: "ant", field: "curvature_radius", value: 3),
+/// (subject: "ant", field: "digest_rate", value: 3.96),
+/// ```
+///
+/// **The last two are the species' own rows, not the trait slots**: a
+/// scenario naming `curvature_radius` or `digest_rate` gets the authored
+/// field, which `scenario::resolve_setting` prefers when a trait shares the
+/// name. So they carry what the slot works out to -- a radius of 3, and
+/// `ant.ron`'s 3.3 times 1.2 -- and the founder is the same animal: the goal
+/// box with these six rows matched `PIXEL_PHYSICS_LAB_ANT=evolved` bit for
+/// bit over 60,000 frames (seed 1, mutation off). With mutation on, a lineage
+/// then drifts from those two values rather than from the slot offsets.
+///
+/// | trait | `ant.ron` | here | what the ant does differently |
+/// |---|---|---|---|
+/// | gut | 0 | -0.8 | a plant cell pays 0.81 of its worth (0.25 at 0, 0.56 at -0.5) |
+/// | birth grant | -0.2 | -0.27 | a newborn is handed about 9% less (`grant_fraction`) |
+/// | breeding bar | 0 | -0.14 | buds at 86% of the species' bar (`reproduce_fraction`) |
+/// | pace | 0 | +0.21 | decides every 5 frames, not 6 (`tick_interval_of`) |
+/// | ground feel | 0 | +0.11 | feels a radius-3 patch of ground, not 2 (`curvature_radius_of`) |
+/// | digestion | 0 | +0.2 | empties its crop about 20% faster (`digest_rate_of`) |
+///
+/// **Where it holds: the goal box** (no plants, endless player food; main
+/// 3b91258b, mutation off, seeds 1-4). [`LAB_ANT_GUT`] alone makes the colony
+/// grow but not last: peaks of 290-378 near 100,000 frames, then 129/0/120/104
+/// ants at 200,000. These founders held 398/341/278/399 at 300,000, a mean
+/// over 100,000-200,000 of 455/467/384/408 against 238/149/164/226. With
+/// mutation on (the game) the mean over 100,000-200,000 was higher on 4 of 4
+/// (432/552/484/546 against 362/522/442/468). **It is the body, not the
+/// brain** -- these founders carry the ancestral brain, frozen.
+///
+/// **No one trait does it.** Put back to `ant.ron`'s one at a time (from the
+/// unrounded means), the gut cost the most (mean 100k-200k 303-358) and the
+/// breeding bar killed seed 1 outright (2 ants at 200,000); grant, pace,
+/// ground feel and digestion each cost a little; sight (slot 3, evolved to
+/// -0.17) changed nothing in the goal box, bit for bit, and is left at
+/// `ant.ron`'s. Added one at a time to the half-plant ant, only the gut came
+/// near the whole set (323-381), and the grant alone did nothing (172-234).
+/// The same body at the half-plant gut also held to 300,000, about 15-20%
+/// smaller (255-396).
+///
+/// **Where it does not: a planted bed.** Played bed, 120,000 frames, seeds
+/// 1-12, mutation off, against [`LAB_ANT_GUT`]: births 153 -> 286 and peak
+/// ants 94 -> 167 (higher on 12 of 12), but the boom comes earlier (median
+/// peak frame 50,850 -> 35,550), the garden ends with 42% fewer plants
+/// (fewer on 11 of 12), starvation per ant-frame rises on 12 of 12 (2.4 ->
+/// 9.2 per million) and 2 of 12 colonies died out (0 of 12). The half-plant
+/// gut with the rest of this body: 1 of 12 died out, starvation up on 11 of
+/// 12. The values were evolved in a box with no plants, and they fit it.
+///
+/// **And dead nestmates are no longer eaten.** At -0.8 a 480 J corpse
+/// (`food_class` +1) pays 4.8 J, under `creature::EAT_YIELD_THRESHOLD`'s 12;
+/// carrion leaves the menu near -0.68, and a corpse rots into soil instead
+/// (`corpse.ron`'s `decays_into`). That is where the goal-box colonies took
+/// themselves, but it is the line `ant.ron`'s slot-0 note drew for the whole
+/// game (`Reports/dead-ends.md`, gut -1.0).
+pub const LAB_ANT_TRAITS: [(usize, f32); 6] = {
+    use crate::sim::organism::*;
+    [
+        (TRAIT_GUT_BIAS, -0.8),
+        (TRAIT_BIRTH_GRANT, -0.27),
+        (TRAIT_REPRODUCE_AT, -0.14),
+        (TRAIT_PACE, 0.21),
+        (TRAIT_CURVATURE_RADIUS, 0.11),
+        (TRAIT_DIGEST_RATE, 0.2),
+    ]
+};
+
+/// The traits a lab box founds its ants with, as `(slot, value)`, from
+/// `PIXEL_PHYSICS_LAB_ANT` and `PIXEL_PHYSICS_LAB_ANT_GUT` (see
+/// [`lab_ant_preset`]), read once.
+pub fn lab_ant_traits() -> &'static [(usize, f32)] {
+    static V: std::sync::OnceLock<Vec<(usize, f32)>> = std::sync::OnceLock::new();
+    V.get_or_init(|| {
+        lab_ant_preset(
+            std::env::var("PIXEL_PHYSICS_LAB_ANT").ok().as_deref(),
+            std::env::var("PIXEL_PHYSICS_LAB_ANT_GUT").ok().as_deref(),
+        )
     })
 }
 
-/// Set `species`' ancestral `gut_bias` in this world only -- the same write
-/// the parameters page's row makes. A species the world does not know, or
-/// one that is not a creature, is left alone.
-fn set_ancestral_gut(w: &mut World, species: &str, gut: f32) {
+/// The founder a lab box gets, as `(slot, value)` over `ant.ron`'s traits.
+/// `founder`: `half-plant` (the default, [`LAB_ANT_GUT`]), `evolved`
+/// ([`LAB_ANT_TRAITS`]) or `ancestral` (`ant.ron`'s own). `gut` then
+/// overrides the gut alone: a number from -1 to 1, or `ancestral` for
+/// `ant.ron`'s 0. Anything else panics rather than run a box nobody asked
+/// for.
+pub fn lab_ant_preset(founder: Option<&str>, gut: Option<&str>) -> Vec<(usize, f32)> {
+    use crate::sim::organism::TRAIT_GUT_BIAS;
+    let mut v = match founder.map(str::trim) {
+        None | Some("half-plant") => vec![(TRAIT_GUT_BIAS, LAB_ANT_GUT)],
+        Some("evolved") => LAB_ANT_TRAITS.to_vec(),
+        Some("ancestral") => Vec::new(),
+        Some(f) => panic!("PIXEL_PHYSICS_LAB_ANT={f}: want `half-plant`, `evolved` or `ancestral`"),
+    };
+    if let Some(g) = gut.map(str::trim) {
+        v.retain(|&(slot, _)| slot != TRAIT_GUT_BIAS);
+        if g != "ancestral" {
+            let value = g
+                .parse::<f32>()
+                .ok()
+                .filter(|x| (-1.0..=1.0).contains(x))
+                .unwrap_or_else(|| panic!("PIXEL_PHYSICS_LAB_ANT_GUT={g}: want a number from -1 to 1, or `ancestral`"));
+            v.push((TRAIT_GUT_BIAS, value));
+        }
+    }
+    v
+}
+
+/// Set one of `species`' ancestral traits in this world only -- the same
+/// write the parameters page's rows make. A species the world does not
+/// know, or one that is not a creature, is left alone.
+fn set_ancestral_trait(w: &mut World, species: &str, slot: usize, value: f32) {
     let Some(id) = w.species.id_of(species) else { return };
     let Some(mut def) = w.species.get(id).creature.clone() else {
         return;
     };
-    def.traits[crate::sim::organism::TRAIT_GUT_BIAS] = gut;
+    def.traits[slot] = value;
     w.species.set_creature(id, def);
 }
 
@@ -1151,33 +1259,86 @@ mod tests {
     }
 
     /// **A lab box's ants are founded half-plant; the engine's ant is not.**
-    /// Fails if the line in `build_counted` goes, or moves below the
-    /// founding (founders copy the species' traits when they are placed).
+    /// The gut is [`LAB_ANT_GUT`] and every other body slot is still
+    /// `ant.ron`'s. Fails if the line in `build_counted` goes, or moves
+    /// below the founding (founders copy the species' traits when they are
+    /// placed).
     #[test]
     fn a_lab_box_founds_its_ants_on_the_half_plant_diet() {
+        use crate::sim::organism::{CREATURE_TRAITS, TRAIT_GUT_BIAS, TRAIT_SCENT_A};
         let w = LabBox {
             founders: 0,
             ..LabBox::default()
         }
         .build();
         let ant = w.species.id_of("ant").expect("the lab's colony species");
-        let guts: Vec<f32> = w
+        let founders: Vec<[f32; CREATURE_TRAITS]> = w
             .live_organism_ids()
             .into_iter()
             .filter_map(|id| w.organism(id))
             .filter(|st| st.species == ant)
-            .map(|st| st.traits[crate::sim::organism::TRAIT_GUT_BIAS])
+            .map(|st| st.traits)
             .collect();
-        assert!(!guts.is_empty(), "the default box founds a colony");
-        assert!(
-            guts.iter().all(|&g| g == LAB_ANT_GUT),
-            "founders' guts {guts:?}, want {LAB_ANT_GUT}"
-        );
+        assert!(!founders.is_empty(), "the default box founds a colony");
         // Scoped to the lab: a plain world keeps the shipped generalist.
         let outdoor = World::new(crate::sim::chunk::Rect::new(0, 0, 63, 63));
         let id = outdoor.species.id_of("ant").expect("ant is compiled in");
-        let def = outdoor.species.get(id).creature.as_ref().expect("ant is a creature");
-        assert_eq!(def.traits[crate::sim::organism::TRAIT_GUT_BIAS], 0.0);
+        let shipped = outdoor
+            .species
+            .get(id)
+            .creature
+            .as_ref()
+            .expect("ant is a creature")
+            .traits;
+        assert_eq!(shipped[TRAIT_GUT_BIAS], 0.0);
+        let mut want = shipped;
+        want[TRAIT_GUT_BIAS] = LAB_ANT_GUT;
+        // The body slots only: each colony is founded on a scent of its own.
+        let body = ..TRAIT_SCENT_A;
+        for t in &founders {
+            assert_eq!(
+                t[body], want[body],
+                "a founder's body traits, against ant.ron's with the lab gut"
+            );
+        }
+    }
+
+    /// **What each name of `PIXEL_PHYSICS_LAB_ANT` founds.** The evolved
+    /// set must move every slot it names off `ant.ron`'s value, or a row of
+    /// it would be a no-op nobody could see; and the gut override replaces
+    /// the gut in whichever founder it is laid over.
+    #[test]
+    fn the_lab_ant_switch_names_three_founders_and_a_gut() {
+        use crate::sim::organism::TRAIT_GUT_BIAS;
+        assert_eq!(lab_ant_preset(None, None), vec![(TRAIT_GUT_BIAS, LAB_ANT_GUT)]);
+        assert_eq!(lab_ant_preset(Some("half-plant"), None), lab_ant_preset(None, None));
+        assert_eq!(lab_ant_preset(Some("evolved"), None), LAB_ANT_TRAITS.to_vec());
+        assert!(lab_ant_preset(Some("ancestral"), None).is_empty());
+        let shipped = World::new(crate::sim::chunk::Rect::new(0, 0, 63, 63));
+        let id = shipped.species.id_of("ant").expect("ant is compiled in");
+        let traits = shipped
+            .species
+            .get(id)
+            .creature
+            .as_ref()
+            .expect("ant is a creature")
+            .traits;
+        for &(slot, value) in &LAB_ANT_TRAITS {
+            assert_ne!(
+                traits[slot], value,
+                "slot {slot} of the evolved ant is ant.ron's already"
+            );
+        }
+        let evolved_wet = lab_ant_preset(Some("evolved"), Some("-0.5"));
+        assert_eq!(evolved_wet.len(), LAB_ANT_TRAITS.len());
+        assert!(evolved_wet.contains(&(TRAIT_GUT_BIAS, -0.5)));
+        assert!(lab_ant_preset(Some("evolved"), Some("ancestral"))
+            .iter()
+            .all(|&(slot, _)| slot != TRAIT_GUT_BIAS));
+        assert_eq!(
+            lab_ant_preset(Some("ancestral"), Some("0.3")),
+            vec![(TRAIT_GUT_BIAS, 0.3)]
+        );
     }
 
     #[test]
