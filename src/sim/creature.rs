@@ -12255,7 +12255,7 @@ fn spoil_back() -> bool {
 /// it cut.
 fn dig_return_target(world: &World, def: &CreatureDef, state: &crate::sim::organism::OrganismState) -> Option<(i32, i32)> {
     let site = state.dig_return?;
-    if !spoil_back() || state.spoil.is_some() || state.crop.is_some_and(|c| c.worth() > 0.0) || state.energy < DIG_RETURN_FED * def.start_energy {
+    if !spoil_back() || state.spoil.is_some() || (state.crop.is_some_and(|c| c.worth() > 0.0) && !stay_face(world, site)) || state.energy < DIG_RETURN_FED * def.start_energy {
         return None;
     }
     let &(hx, hy) = state.chain.first()?;
@@ -12773,7 +12773,17 @@ pub fn dig_modes() -> Option<usize> {
 
 fn is_contents(world: &World, brood: Option<material::MaterialId>, (x, y): (i32, i32)) -> bool {
     let c = world.get(x, y);
-    Some(c.material) == brood || (c.organism_id() == 0 && c.material != material::EMPTY && world.materials.get(c.material).food_energy > 0.0)
+    Some(c.material) == brood || (!widen_brood_only() && c.organism_id() == 0 && c.material != material::EMPTY && world.materials.get(c.material).food_energy > 0.0)
+}
+
+/// Scratch (lane 3): `PIXEL_PHYSICS_WIDEN_ON=brood` with [`dig_modes`]:
+/// **only brood draws widening**, not loose food. On the goal bed the
+/// first galleries (two arms along the roof, ~10 cells each at 50k) fill
+/// with crumbs dropped by fed ants, which are eaten within frames but draw
+/// the widening while they lie, so every gallery becomes room by 75k.
+pub fn widen_brood_only() -> bool {
+    static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *V.get_or_init(|| std::env::var("PIXEL_PHYSICS_WIDEN_ON").as_deref() == Ok("brood"))
 }
 
 fn contents_wall(world: &World, def: &CreatureDef, organism: OrganismId, (x, y): (i32, i32), heading: u8) -> Option<(u8, (i32, i32))> {
@@ -12799,6 +12809,7 @@ fn contents_wall(world: &World, def: &CreatureDef, organism: OrganismId, (x, y):
                 && near(t)
                 && !room_open(world, t.0, t.1 - 1)
                 && !roof.is_some_and(|rows| under_roof(world, t, rows))
+                && !widen_ahead().is_some_and(|r| open_ahead(world, (x, y), t, r))
         })
 }
 
@@ -12810,9 +12821,161 @@ pub fn tip_reaim() -> bool {
     *V.get_or_init(|| std::env::var("PIXEL_PHYSICS_DIG_TIP").as_deref() == Ok("on"))
 }
 
+/// Scratch (lane 3): `PIXEL_PHYSICS_DIG_AHEAD=<r>` with [`dig_modes`]: **a
+/// tunnel is not cut toward open space**. An advancing cut is refused when
+/// any open cell lies ahead of it -- up to `r` cells along the cut's
+/// direction, one cell either side of its line -- so a tip runs on into
+/// solid ground and never breaks into another tunnel or room; and a refused
+/// digger re-aims ([`tip_face`]) to the passing cut nearest its own heading,
+/// so the tunnel keeps its line instead of curling back.
+pub fn dig_ahead() -> Option<i32> {
+    static V: std::sync::OnceLock<Option<i32>> = std::sync::OnceLock::new();
+    *V.get_or_init(|| std::env::var("PIXEL_PHYSICS_DIG_AHEAD").ok().and_then(|v| v.parse().ok()).filter(|&r: &i32| r >= 1))
+}
+
+/// Scratch (lane 3): `PIXEL_PHYSICS_DIG_STRAIGHT=on` with [`dig_modes`]: **a
+/// tunnel is not branched**. An advancing cut is refused when an open cell
+/// stands beside it -- two or more cells off its line, no more than a cell
+/// behind it -- which is a cut into a tunnel's side wall, not its tip.
+pub fn dig_straight() -> bool {
+    static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *V.get_or_init(|| std::env::var("PIXEL_PHYSICS_DIG_STRAIGHT").as_deref() == Ok("on"))
+}
+
+/// Scratch (lane 3): `PIXEL_PHYSICS_DIG_STAY=on`. **A digger back at its
+/// face stays there**: the walk back to the cell it cut
+/// (`OrganismState::dig_return`, [`spoil_back`]) does not end on arrival
+/// but when it cuts again (which sets the next face) or its patience runs
+/// out, so its next dig roll is taken at the face rather than wherever it
+/// has wandered; and food in its crop does not cancel the walk back (on
+/// the goal bed nearly every ant carries some, so the shipped gate ended
+/// almost every return). Traced on the goal bed with two digging modes (seed 1,
+/// 100k): 282 diggers made 878 cuts, a median of 3 each, and only 92 of 432
+/// advancing cuts that followed the same digger's last cut were within two
+/// cells of it (median 8 cells away) -- so no tip was carried on by the ant
+/// that started it. Workers return to and keep working one face (Aguilar et
+/// al. 2018, Science 361:672, doi 10.1126/science.aan3891).
+///
+/// `on` holds every face; `tip` only a face at a tunnel's end (at most
+/// [`STAY_TIP_OPEN`] of the 24 cells round it open). Holding every face
+/// put the work into widening round the room's contents (seed 1: 646 of
+/// 980 cuts widening, against 265 of 878) and no tunnel grew longer.
+pub fn dig_stay() -> Option<bool> {
+    static V: std::sync::OnceLock<Option<bool>> = std::sync::OnceLock::new();
+    *V.get_or_init(|| match std::env::var("PIXEL_PHYSICS_DIG_STAY").as_deref() {
+        Ok("on") => Some(false),
+        Ok("tip") => Some(true),
+        _ => None,
+    })
+}
+
+const STAY_TIP_OPEN: usize = 8;
+
+/// Whether [`dig_stay`] holds a digger to the face at `site`.
+fn stay_face(world: &World, site: (i32, i32)) -> bool {
+    dig_stay().is_some_and(|tip| !tip || open_round(world, site) <= STAY_TIP_OPEN)
+}
+
+/// Scratch (lane 3): `PIXEL_PHYSICS_DIG_NARROW=<m>` with [`dig_modes`]: **a
+/// tunnel is advanced only from inside a tunnel**. An advancing cut is
+/// refused unless the digger itself stands where at most `m` of the 24
+/// cells round it are open, so a digger in a room never starts a stub
+/// through a nook in its wall (traced: nearly every advancing cut sat at
+/// the tip test's limit, 5-6 open, and most digging ants stood where 8-20
+/// were open), and new tunnels start only off tunnels.
+pub fn dig_narrow() -> Option<usize> {
+    static V: std::sync::OnceLock<Option<usize>> = std::sync::OnceLock::new();
+    *V.get_or_init(|| std::env::var("PIXEL_PHYSICS_DIG_NARROW").ok().and_then(|v| v.parse().ok()))
+}
+
+/// Whether two digging modes refuse an advancing cut from `(x, y)` into
+/// `(tx, ty)`: not a tip (more than `n` of the 24 cells round it open), or,
+/// under [`dig_ahead`], open space ahead of it, or, under [`dig_straight`],
+/// open space beside it.
+/// Scratch (lane 3): `PIXEL_PHYSICS_WIDEN_AHEAD=<r>` with [`dig_modes`]:
+/// **a room is not widened into other open space**. A widening cut beside
+/// contents ([`contents_wall`]) is refused when open space lies ahead of it
+/// within `r` cells ([`open_ahead`]), so a room grows round its brood but
+/// stops `r` cells short of any other room or tunnel, and does not eat the
+/// tunnel it was reached by. Measured before it: with brood moved beyond a
+/// tunnel (lane 2's `SPREAD_PAST`), seed 1 had four brood chambers at 100k
+/// (101, 46, 11 and 10 cells, one 17 steps out) and one of 178 at 125k --
+/// they widened round their brood until they met.
+pub fn widen_ahead() -> Option<i32> {
+    static V: std::sync::OnceLock<Option<i32>> = std::sync::OnceLock::new();
+    *V.get_or_init(|| std::env::var("PIXEL_PHYSICS_WIDEN_AHEAD").ok().and_then(|v| v.parse().ok()).filter(|&r: &i32| r >= 1))
+}
+
+/// Whether open space lies ahead of a cut from `(x, y)` into `(tx, ty)`: up
+/// to `r` cells along its direction, one cell either side of its line.
+fn open_ahead(world: &World, (x, y): (i32, i32), (tx, ty): (i32, i32), r: i32) -> bool {
+    let (dx, dy) = ((tx - x) as f32, (ty - y) as f32);
+    let len = (dx * dx + dy * dy).sqrt().max(1.0);
+    for j in -r..=r {
+        for i in -r..=r {
+            let along = (i as f32 * dx + j as f32 * dy) / len;
+            let perp = (i as f32 * dy - j as f32 * dx).abs() / len;
+            if along >= 0.7 && along <= r as f32 + 0.5 && perp <= 1.2 && room_open(world, tx + i, ty + j) {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+fn advance_refused(world: &World, (x, y): (i32, i32), (tx, ty): (i32, i32), n: usize) -> bool {
+    if open_round(world, (tx, ty)) > n || dig_narrow().is_some_and(|m| open_round(world, (x, y)) > m) {
+        return true;
+    }
+    let ahead = dig_ahead();
+    let straight = dig_straight();
+    if ahead.is_none() && !straight {
+        return false;
+    }
+    let (dx, dy) = ((tx - x) as f32, (ty - y) as f32);
+    let len = (dx * dx + dy * dy).sqrt().max(1.0);
+    let reach = ahead.unwrap_or(2).max(2);
+    for j in -reach..=reach {
+        for i in -reach..=reach {
+            if (i, j) == (0, 0) {
+                continue;
+            }
+            let along = (i as f32 * dx + j as f32 * dy) / len;
+            let perp = (i as f32 * dy - j as f32 * dx).abs() / len;
+            let ahead_hit = ahead.is_some_and(|r| along >= 0.7 && along <= r as f32 + 0.5 && perp <= 1.2);
+            let beside_hit = straight && i.abs() <= 2 && j.abs() <= 2 && along >= -1.2 && perp >= 1.9;
+            if (ahead_hit || beside_hit) && room_open(world, tx + i, ty + j) {
+                return true;
+            }
+        }
+    }
+    false
+}
+
 /// The cut round `(x, y)` with the fewest open cells round it, at most `n`,
 /// that the jaw can take and the roof and heap cue would not refuse.
+/// Under [`dig_ahead`], the passing cut nearest the digger's heading
+/// instead.
 fn tip_face(world: &World, def: &CreatureDef, organism: OrganismId, (x, y): (i32, i32), n: usize) -> Option<(u8, (i32, i32))> {
+    if dig_ahead().is_some() || dig_straight() || dig_narrow().is_some() {
+        let heading = world.organism(organism).map_or(0, |s| s.heading);
+        let roof = dig_roof_of(world);
+        let cue = spoil_cue_of(world);
+        let radius = curvature_radius_of(def, &traits_of(world, organism, def)).max(1);
+        return (0..8u8)
+            .filter_map(|h| {
+                let (dx, dy) = DIRS[h as usize];
+                let t = (x + dx, y + dy);
+                let ok = jaw_can_cut(world, def, organism, world.get(t.0, t.1))
+                    && !roof.is_some_and(|rows| under_roof(world, t, rows))
+                    && !cue.is_some_and(|cue| spoil_cue_factor(world, (x, y), t, radius, cue).is_some_and(|f| f < 1.0))
+                    && !advance_refused(world, (x, y), t, n);
+                let turn = (h as i32 - heading as i32).rem_euclid(8);
+                ok.then_some((turn.min(8 - turn), h, t))
+            })
+            .min_by_key(|&(turn, h, _)| (turn, h))
+            .map(|(_, h, t)| (h, t));
+    }
     let roof = dig_roof_of(world);
     let cue = spoil_cue_of(world);
     let radius = curvature_radius_of(def, &traits_of(world, organism, def)).max(1);
@@ -12831,6 +12994,12 @@ fn tip_face(world: &World, def: &CreatureDef, organism: OrganismId, (x, y): (i32
         })
         .min_by_key(|&(o, h, _)| (o, h))
         .map(|(_, h, t)| (h, t))
+}
+
+/// SCRATCH TRACE (lane 3, not for commit): `PIXEL_PHYSICS_DIG_TRACE=on`.
+fn dig_trace() -> bool {
+    static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *V.get_or_init(|| std::env::var("PIXEL_PHYSICS_DIG_TRACE").as_deref() == Ok("on"))
 }
 
 /// Open cells in the 5x5 round `(tx, ty)`, the target itself excluded.
@@ -16248,7 +16417,7 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
         // ...and anywhere else it advances: a target that is not a tip is
         // swapped for the most tip-like cut round the digger, if any is.
         if let Some(n) = dig_modes().filter(|_| tip_reaim() && !widening && widen_to.is_none() && inside_nest(world, x, y)) {
-            if open_round(world, (tx, ty)) > n {
+            if advance_refused(world, (x, y), (tx, ty), n) {
                 if let Some((h, t)) = tip_face(world, def, organism, (x, y), n) {
                     if let Some(state) = world.organism_mut(organism) {
                         state.heading = h;
@@ -16307,9 +16476,12 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
         let vetoed = vetoed || {
             let refused = flat_room_rows().is_some_and(|rows| flat_room_refuses(world, (x, y), (tx, ty), rows))
                 || pillar_span().is_some_and(|s| pillar_refuses(world, (tx, ty), s))
-                || dig_modes().is_some_and(|n| !widening && inside_nest(world, x, y) && open_round(world, (tx, ty)) > n);
+                || dig_modes().is_some_and(|n| !widening && inside_nest(world, x, y) && advance_refused(world, (x, y), (tx, ty), n));
             if refused {
                 world.creature_stats.digs_refused_flat += 1;
+                if dig_trace() && world.creature_stats.digs_refused_flat.is_multiple_of(20) {
+                    eprintln!("DIGR {} {} {} {} {} {}", world.frame, organism, x, y, open_round(world, (x, y)), world.organism(organism).is_some_and(|s| s.dig_return.is_some()));
+                }
             }
             refused
         };
@@ -16443,6 +16615,9 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
                 if let Some(back_to) = back_to {
                     state.dig_return = back_to;
                 }
+            }
+            if dig_trace() {
+                eprintln!("DIGC {} {} {} {} {} {} {} {}", world.frame, organism, x, y, tx, ty, u8::from(widening), open_round(world, (tx, ty)));
             }
             line_burrow(world, tx, ty);
             return Did { dug: 1, ..did };
@@ -20122,7 +20297,9 @@ fn chooser_step(
     if let Some(s) = world.organism(organism).filter(|s| s.dig_return.is_some() && s.spoil.is_none()) {
         let (sx, sy) = s.dig_return.expect("filtered above");
         let target = dig_return_target(world, def, s);
-        let arrived = target == Some((sx, sy)) && (hx - sx).abs() <= 2 && (hy - sy).abs() <= 2;
+        // Scratch (lane 3): under [`dig_stay`] arriving does not end it; the
+        // digger stays at its face until it cuts again or gives up.
+        let arrived = !stay_face(world, (sx, sy)) && target == Some((sx, sy)) && (hx - sx).abs() <= 2 && (hy - sy).abs() <= 2;
         let gave_up = target.is_some_and(|t| s.home_best_for == t) && s.home_patience < DIG_RETURN_GIVE_UP;
         if arrived || gave_up || target.is_none() {
             if let Some(s) = world.organism_mut(organism) {

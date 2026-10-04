@@ -35,6 +35,9 @@
 //!   `1 - sum_i min(food_i / food, brood_i / brood)` over chambers, 1 when
 //!   no chamber holds both, 0 when food and brood are spread identically.
 //!   `n/a` until both are stored in chambers.
+//! - `TUNNELS`: how far the open space runs out of the largest chamber, in
+//!   steps along the shortest way ([`tunnels`]), and how far out each other
+//!   chamber starts.
 //!
 //! **Positive control** (`control=selftest`): a hand-dug pair of rooms
 //! joined by a one-cell passage, one holding food and one brood, must read
@@ -157,6 +160,8 @@ fn components(cells: &HashSet<(i32, i32)>) -> Vec<Vec<(i32, i32)>> {
 }
 
 struct Chamber {
+    /// Its room cells.
+    room: Vec<(i32, i32)>,
     cells: usize,
     food: usize,
     brood: usize,
@@ -205,11 +210,51 @@ fn nest(census: &Census, w: &World) -> Nest {
         let count = |k: What| rim.iter().filter(|&&(x, y)| census.what(w, x, y) == k).count();
         let n = comp.len() as i32;
         let centre = (comp.iter().map(|c| c.0).sum::<i32>() / n, comp.iter().map(|c| c.1).sum::<i32>() / n);
-        chambers.push(Chamber { cells: comp.len(), food: count(What::Food), brood: count(What::Brood), ants: count(What::Ant), centre });
+        chambers.push(Chamber { room: comp.clone(), cells: comp.len(), food: count(What::Food), brood: count(What::Brood), ants: count(What::Ant), centre });
     }
     let food_open = open.iter().filter(|&&(x, y)| census.what(w, x, y) == What::Food).count();
     let brood_open = open.iter().filter(|&&(x, y)| census.what(w, x, y) == What::Brood).count();
     Nest { open: open.len(), regions: regions.len(), largest: regions.first().map_or(0, |c| c.len()), chambers, food_open, brood_open }
+}
+
+/// **How far the tunnels run out of the main room** -- the `TUNNELS` line.
+/// Steps through open cells (4-connected, the shortest way) from the
+/// largest chamber's room cells: the farthest open cell, how many open cells
+/// lie [`FAR`] or more steps out, how many of those are tips (no neighbour
+/// farther out), and how far out each other chamber starts. A chamber
+/// [`FAR`] or more out is one a tunnel reached before opening into it.
+const FAR: u32 = 10;
+
+struct Tunnels {
+    reach: u32,
+    far_cells: usize,
+    far_tips: usize,
+    /// (cells, steps out) for every chamber but the main one.
+    out: Vec<(usize, u32)>,
+}
+
+fn tunnels(census: &Census, w: &World, n: &Nest) -> Option<Tunnels> {
+    let main = n.chambers.first()?;
+    let open = census.open_space(w);
+    let mut d: std::collections::HashMap<(i32, i32), u32> = main.room.iter().map(|&c| (c, 0)).collect();
+    let mut q: VecDeque<(i32, i32)> = main.room.iter().copied().collect();
+    while let Some((x, y)) = q.pop_front() {
+        let k = d[&(x, y)];
+        for (dx, dy) in [(1, 0), (-1, 0), (0, 1), (0, -1)] {
+            let c = (x + dx, y + dy);
+            if open.contains(&c) && !d.contains_key(&c) {
+                d.insert(c, k + 1);
+                q.push_back(c);
+            }
+        }
+    }
+    let far: Vec<_> = d.iter().filter(|&(_, &k)| k >= FAR).collect();
+    let far_tips = far
+        .iter()
+        .filter(|&&(&(x, y), &k)| [(1, 0), (-1, 0), (0, 1), (0, -1)].iter().all(|&(dx, dy)| d.get(&(x + dx, y + dy)).is_none_or(|&j| j <= k)))
+        .count();
+    let out = n.chambers[1..].iter().map(|c| (c.cells, c.room.iter().filter_map(|p| d.get(p).copied()).min().unwrap_or(u32::MAX))).collect();
+    Some(Tunnels { reach: d.values().copied().max().unwrap_or(0), far_cells: far.len(), far_tips, out })
 }
 
 /// `1 - sum_i min(f_i/F, b_i/B)`; `None` until chambers hold both.
@@ -393,6 +438,25 @@ fn report(frame: u64, census: &Census, w: &World, dropped: usize, food_x: i32) {
         separation(&n.chambers).map_or("n/a".to_string(), |v| format!("{v:.2}")),
         if list.is_empty() { "none".to_string() } else { list.join(" ") }
     );
+    // Dug cells that are ground again, by what fills them: spoil put down
+    // inside, soil slumped in, or packed walls.
+    let mut refill: std::collections::BTreeMap<String, usize> = Default::default();
+    for &(x, y) in w.dug_cells.iter() {
+        if y > census.ground_y && census.what(w, x, y) == What::Ground {
+            *refill.entry(w.materials.get(w.get(x, y).material).name.clone()).or_default() += 1;
+        }
+    }
+    println!("REFILL frame={frame} dug cells now ground: {}", refill.iter().map(|(k, v)| format!("{k} {v}")).collect::<Vec<_>>().join(" | "));
+    if let Some(tu) = tunnels(census, w, &n) {
+        let out: Vec<String> = tu.out.iter().map(|&(c, k)| if k == u32::MAX { format!("{c}c cut off") } else { format!("{c}c {k} out") }).collect();
+        println!(
+            "TUNNELS frame={frame} reach {} | cells {FAR}+ out {} | tips {FAR}+ out {} | other chambers {}",
+            tu.reach,
+            tu.far_cells,
+            tu.far_tips,
+            if out.is_empty() { "none".to_string() } else { out.join(" ") }
+        );
+    }
 }
 
 fn heap_count(census: &Census, w: &World, food_x: i32) -> usize {
@@ -583,6 +647,10 @@ fn selftest() {
     assert_eq!(n.regions, 1, "the pair is one connected region");
     assert_eq!(n.chambers.len(), 2, "two rooms joined by a passage must read as two chambers");
     assert!(sep.is_some_and(|s| s > 0.99), "food in one, brood in the other must read separation 1");
+    let tu = tunnels(&census, &w, &n).expect("chambers");
+    println!("SELFTEST tunnels: reach {} far cells {} far tips {} out {:?}", tu.reach, tu.far_cells, tu.far_tips, tu.out);
+    assert!(tu.out.len() == 1 && tu.out[0].1 >= 14, "a room 14 cells down a passage must read 14+ out");
+    assert!(tu.far_cells > 0, "the passage and far room must count as far cells");
     for x in 20..23 {
         w.set(x, 64, Cell::new(brood_m, 0));
     }
