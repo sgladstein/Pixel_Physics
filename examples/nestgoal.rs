@@ -521,18 +521,38 @@ fn report(frame: u64, census: &Census, w: &World, dropped: usize, food_x: i32) {
             }
         }
         let (mut food_heap, mut brood_heap) = (0, 0);
+        let mut heap_mat: std::collections::BTreeMap<String, usize> = Default::default();
+        let crumbs = w.materials.id_of("crumbs");
+        let (mut crumbs_heap, mut crumbs_open) = (0, 0);
+        let cx = w.nest_sites.first().map_or(0, |s| s.x);
         for y in census.ground_y - 40..=census.ground_y {
-            let cx = w.nest_sites.first().map_or(0, |s| s.x);
             for x in cx - 60..=cx + 60 {
-                match census.what(w, x, y) {
+                let what = census.what(w, x, y);
+                match what {
                     What::Food if covered(x, y) => food_heap += 1,
                     What::Brood => brood_heap += 1,
                     _ => {}
+                }
+                if what == What::Food && Some(w.get(x, y).material) == crumbs {
+                    if covered(x, y) {
+                        crumbs_heap += 1;
+                    } else {
+                        crumbs_open += 1;
+                    }
+                }
+                // Ground standing above the old ground line within 30 columns
+                // of the nest: the heap, by what it is made of.
+                if what == What::Ground && y < census.ground_y && (x - cx).abs() <= 30 {
+                    *heap_mat.entry(w.materials.get(w.get(x, y).material).name.clone()).or_default() += 1;
                 }
             }
         }
         println!(
             "WHERE frame={frame} ants underground {under} ({hungry_under} under half energy) | in the heap {heap} ({hungry_heap}) | in the open {open_air} ({hungry_open}) | food cells inside the heap {food_heap} | brood above ground {brood_heap}"
+        );
+        println!(
+            "HEAP frame={frame} ground over the old ground line within 30 columns: {} | crumbs above the old ground line: {crumbs_heap} buried in the heap, {crumbs_open} in the open",
+            heap_mat.iter().map(|(k, v)| format!("{k} {v}")).collect::<Vec<_>>().join(" | ")
         );
     }
     // Dug cells that are ground again, by what fills them: spoil put down
@@ -665,6 +685,7 @@ fn map(census: &Census, w: &World, dir: &str, frame: u64, nest_x: i32) {
     let mut img = image::RgbaImage::new(wd, ht);
     let packed = w.materials.id_of("packedsoil");
     let soil = w.materials.id_of("soil");
+    let crumbs = w.materials.id_of("crumbs");
     for y in y0..=y1 {
         for x in x0..=x1 {
             let what = census.what(w, x, y);
@@ -672,6 +693,7 @@ fn map(census: &Census, w: &World, dir: &str, frame: u64, nest_x: i32) {
             let col: [u8; 3] = match what {
                 What::Ant => [26, 26, 26],
                 What::Brood => [255, 110, 200],
+                What::Food if Some(m) == crumbs => [60, 220, 220],
                 What::Food => [70, 230, 70],
                 What::Liquid => [40, 90, 220],
                 What::Empty => {

@@ -13114,6 +13114,20 @@ fn open_round(world: &World, (tx, ty): (i32, i32)) -> usize {
     n
 }
 
+/// SCRATCH TRACE (lane 3): loose food cells (no owner, food value) in the
+/// 3x3 round `(x, y)`, the cell itself included, and whether the cell under
+/// it is one.
+fn food_round(world: &World, (x, y): (i32, i32)) -> (usize, bool) {
+    let food = |c: Cell| c.material != material::EMPTY && c.organism_id() == 0 && world.materials.get(c.material).food_energy > 0.0;
+    let mut n = 0;
+    for dy in -1..=1 {
+        for dx in -1..=1 {
+            n += usize::from(food(world.get(x + dx, y + dy)));
+        }
+    }
+    (n, food(world.get(x, y + 1)))
+}
+
 fn under_roof(world: &World, (x, y): (i32, i32), rows: i32) -> bool {
     let Some(door) = nest_door_of(world) else { return false };
     let Some(site) = world.nest_sites.iter().min_by_key(|s| (s.x - x).abs()) else { return false };
@@ -16138,7 +16152,8 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
                 world.creature_stats.spoil_dumped += 1;
                 world.creature_stats.lean_dropped += 1;
                 if dig_trace() {
-                    eprintln!("SPD {} L {} {} {} 0", world.frame, organism, px, py);
+                    let (fr, fu) = food_round(world, (px, py));
+                    eprintln!("SPD {} L {} {} {} 0 {} {}", world.frame, organism, px, py, fr, u8::from(fu));
                 }
                 return did;
             }
@@ -16340,7 +16355,8 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
                 }
                 world.creature_stats.spoil_dumped += 1;
                 if dig_trace() {
-                    eprintln!("SPD {} N {} {} {} {}", world.frame, organism, px, py, u8::from(lifted));
+                    let (fr, fu) = food_round(world, (px, py));
+                    eprintln!("SPD {} N {} {} {} {} {} {}", world.frame, organism, px, py, u8::from(lifted), fr, u8::from(fu));
                 }
                 if lifted {
                     let rows = (y - py).max(0) as u32;
@@ -16744,7 +16760,8 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
                 world.creature_stats.digs_door_back += 1;
             }
             if dig_trace() {
-                eprintln!("DIGC {} {} {} {} {} {} {} {}", world.frame, organism, x, y, tx, ty, u8::from(widening), open_round(world, (tx, ty)));
+                let cut_food = world.materials.get(target.material).food_energy > 0.0;
+                eprintln!("DIGC {} {} {} {} {} {} {} {} {} {}", world.frame, organism, x, y, tx, ty, u8::from(widening), open_round(world, (tx, ty)), food_round(world, (tx, ty)).0, u8::from(cut_food));
             }
             line_burrow(world, tx, ty);
             return Did { dug: 1, ..did };
@@ -25489,7 +25506,8 @@ fn creature_dies(world: &mut World, organism: OrganismId, cause: organism::Death
                 world.set(px, py, spoil.cell);
                 world.creature_stats.spoil_dumped += 1;
                 if dig_trace() {
-                    eprintln!("SPD {} D {} {} {} 0", world.frame, organism, px, py);
+                    let (fr, fu) = food_round(world, (px, py));
+                    eprintln!("SPD {} D {} {} {} 0 {} {}", world.frame, organism, px, py, fr, u8::from(fu));
                 }
             }
             // **Counted rather than silent.** A cell with nowhere to go is
