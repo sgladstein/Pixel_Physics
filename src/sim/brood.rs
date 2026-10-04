@@ -519,6 +519,183 @@ pub(super) fn carry(world: &mut World, organism: OrganismId, (x, y): (i32, i32),
     (tx, ty)
 }
 
+/// **How crowded a brood pile gets before nestmates spread it**
+/// ([`spread`]): `PIXEL_PHYSICS_BROOD_SPREAD`, **off by default**; `on` is
+/// [`BROOD_SPREAD_CROWD`]; a number of at least 3 is the crowd. Unknown
+/// values panic (a mistyped switch must not fail open).
+///
+/// **What it is for**: eggs laid at home stack where they are put down,
+/// which on the goal box is a pink column standing in the shaft (Scott,
+/// 22:52 on 2026-10-03: "Brood form a tall column coming straight down the
+/// tunnel. This doesn't look right"). With the rule the brood lies spread
+/// over the chamber floor.
+///
+/// **Off because it costs colonies** (2026-10-04, main 0b3e264a, measured
+/// in the commit that added it): larvae carried out of the crowd are fed
+/// less -- food beside them and mouth-to-mouth food both fall -- and more of
+/// them starve, so fewer colonies get through the boom. Nurses that seek
+/// hungry larvae by scent ([`nurse_seek`]) did not make it up.
+pub fn brood_spread() -> Option<i32> {
+    static V: std::sync::OnceLock<Option<i32>> = std::sync::OnceLock::new();
+    *V.get_or_init(|| parse_brood_spread(&std::env::var("PIXEL_PHYSICS_BROOD_SPREAD").unwrap_or_default()))
+}
+
+fn parse_brood_spread(raw: &str) -> Option<i32> {
+    match raw.trim() {
+        "on" => Some(BROOD_SPREAD_CROWD),
+        "" | "off" => None,
+        v => Some(v.parse().ok().filter(|c: &i32| *c >= 3).unwrap_or_else(|| panic!("PIXEL_PHYSICS_BROOD_SPREAD={v:?}: use on, off or a crowd of 3 or more"))),
+    }
+}
+
+/// The crowd `on` means: an item with 6 of the 24 cells round it holding
+/// brood is in a pile a quarter full or more, two deep against the floor.
+pub const BROOD_SPREAD_CROWD: i32 = 6;
+/// How far a crowded item may be carried, in steps through the nest.
+pub const BROOD_SPREAD_REACH: i32 = 10;
+/// The nearest it is put down, in steps: past the pile's own edge, so a move
+/// thins the pile rather than shuffling it.
+pub const BROOD_SPREAD_MIN: i32 = 5;
+/// No loose food within this many cells of where it is put down.
+pub const BROOD_SPREAD_FOOD: i32 = 3;
+
+/// **A crowded brood pile is spread out** ([`brood_spread`]): at a brood
+/// item's tick, if `crowd` or more of the 24 cells round it hold brood and
+/// a grown nestmate touching it has free jaws, the nestmate carries it to a
+/// quieter spot of the nest, away from food. Returns where it lies now.
+///
+/// **Why.** Eggs are laid onto the pile ([`pile_site`]) and stay where they
+/// are put, so a busy colony's brood grows as one stack -- in a narrow
+/// shaft, a column up its middle. Real workers do not keep brood packed:
+/// they space it out by need over the floor of the brood chamber, the
+/// pick-up/put-down rule that sorts and spreads it (Franks &
+/// Sendova-Franks 1992 on *Leptothorax*; Holland & Melhuish 1999, doi
+/// 10.1162/106454699568737), and a harvester-ant nest keeps its brood over
+/// several chambers (Tschinkel 2004, doi 10.1093/jis/4.1.21).
+///
+/// **The rule**:
+///
+/// - **Crowded**: at least `crowd` of the 24 cells round the item (its
+///   5x5, itself left out) hold brood.
+/// - **The carrier** is the first grown kin nestmate on one of the item's
+///   eight neighbours that holds no pellet, as for [`carry`].
+/// - **The walk**: breadth-first from the item, up to
+///   [`BROOD_SPREAD_REACH`] steps through cells a carrier could pass.
+/// - **Where it may go**: at least [`BROOD_SPREAD_MIN`] steps out, an empty
+///   cell with a floor under it, at home, that the egg bar allows and does
+///   not shun, with at most `crowd - 2` brood round it and no loose food
+///   within [`BROOD_SPREAD_FOOD`] cells.
+/// - **Which**: the most brood round it (an item joins the last one put
+///   down there, so a thinned pile is a pile, not a scatter), then the most
+///   steps.
+///
+/// It always ends: every move takes an item from `crowd` or more brood
+/// round it to at most `crowd - 2`, so the number of brood pairs within two
+/// cells of each other falls by at least two. One walk of at most
+/// `(2 * BROOD_SPREAD_REACH + 1)^2` cells per crowded brood tick with a
+/// carrier beside it.
+///
+/// **It does not make a second room on its own** (2026-10-04, with the nest
+/// lane's two digging modes, which widen only round brood or food): spread
+/// brood is dug round until it joins the room it came from, and carrying it
+/// farther, or only past a narrow passage, gave one room every time
+/// (`Reports/dead-ends.md`).
+pub(super) fn spread(world: &mut World, organism: OrganismId, (x, y): (i32, i32), material: super::material::MaterialId, def: &CreatureDef, crowd: Option<i32>, door: EggDoor) -> (i32, i32) {
+    use super::material::MaterialKind;
+    let Some(crowd) = crowd else {
+        return (x, y);
+    };
+    let here = world.get(x, y);
+    if here.material != material || here.organism_id() != organism {
+        return (x, y);
+    }
+    // Brood round a cell, the item itself left out wherever it is counted
+    // from.
+    let round = |w: &World, (px, py): (i32, i32)| {
+        let mut n = 0;
+        for dy in -2..=2 {
+            for dx in -2..=2 {
+                if (dx, dy) != (0, 0) && (px + dx, py + dy) != (x, y) && w.get(px + dx, py + dy).material == material {
+                    n += 1;
+                }
+            }
+        }
+        n
+    };
+    if round(world, (x, y)) < crowd {
+        return (x, y);
+    }
+    let gut = creature::gut_of(world, organism, def);
+    let carrier = creature::DIRS.iter().find_map(|&(dx, dy)| {
+        let id = world.get(x + dx, y + dy).organism_id();
+        if id == 0 || id == organism {
+            return None;
+        }
+        let st = world.organism(id)?;
+        (st.brood.is_none() && st.spoil.is_none() && creature::is_living_kin_id(world, id, gut)).then_some(id)
+    });
+    let Some(carrier) = carrier else {
+        return (x, y);
+    };
+    let bar = EggBar::with(world, carrier, door);
+    let food_near = |w: &World, (px, py): (i32, i32)| {
+        (-BROOD_SPREAD_FOOD..=BROOD_SPREAD_FOOD).any(|dy| {
+            (-BROOD_SPREAD_FOOD..=BROOD_SPREAD_FOOD).any(|dx| {
+                let c = w.get(px + dx, py + dy);
+                c.organism_id() == 0 && c.material != super::material::EMPTY && w.materials.get(c.material).food_energy > 0.0
+            })
+        })
+    };
+    let floored = |w: &World, (px, py): (i32, i32)| {
+        w.in_bounds(px, py + 1) && matches!(w.materials.kind(w.get(px, py + 1).material), MaterialKind::Solid | MaterialKind::Powder | MaterialKind::Plant)
+    };
+    let reach = BROOD_SPREAD_REACH;
+    let side = 2 * reach + 1;
+    let index = |px: i32, py: i32| ((py - y + reach) * side + (px - x + reach)) as usize;
+    let mut seen = vec![false; (side * side) as usize];
+    seen[index(x, y)] = true;
+    let mut frontier = vec![(x, y)];
+    // (brood round it, steps): the most wins.
+    let mut best: Option<((i32, i32), (i32, i32))> = None;
+    for depth in 1..=reach {
+        let mut next = Vec::new();
+        for &(fx, fy) in &frontier {
+            for (dx, dy) in creature::DIRS {
+                let (nx, ny) = (fx + dx, fy + dy);
+                if (nx - x).abs() > reach || (ny - y).abs() > reach || !world.in_bounds(nx, ny) || seen[index(nx, ny)] {
+                    continue;
+                }
+                seen[index(nx, ny)] = true;
+                let c = world.get(nx, ny);
+                let empty = world.is_empty(nx, ny);
+                if !empty && c.material != material && world.materials.kind(c.material) != MaterialKind::Creature {
+                    continue;
+                }
+                next.push((nx, ny));
+                if depth < BROOD_SPREAD_MIN || !empty || !floored(world, (nx, ny)) || bar.bars(world, (nx, ny)) || bar.shuns(world, (nx, ny)) || !creature::home_at(world, nx, ny, def) {
+                    continue;
+                }
+                let n = round(world, (nx, ny));
+                if n > crowd - 2 || food_near(world, (nx, ny)) {
+                    continue;
+                }
+                let key = (n, depth);
+                if best.is_none_or(|(k, _)| key > k) {
+                    best = Some((key, (nx, ny)));
+                }
+            }
+        }
+        frontier = next;
+    }
+    let Some((_, (tx, ty))) = best else {
+        return (x, y);
+    };
+    world.set(tx, ty, here);
+    world.set(x, y, super::cell::Cell::EMPTY);
+    world.creature_stats.brood_spread += 1;
+    (tx, ty)
+}
+
 pub const LARVA_TICK: u64 = 60;
 /// Frames between attempts to hatch a pupa whose adult body does not fit.
 pub const HATCH_RETRY: u64 = 60;
@@ -675,6 +852,9 @@ pub fn brood_tick(world: &mut World, site: &ActiveSite) -> Vec<ActiveSite> {
     // **Carried to brood** ([`carry`]) before its stage runs, so the stage
     // runs where it now lies. Off, one branch.
     let (x, y) = carry(world, organism, (x, y), material, &def, brood_carry_reach(), egg_door());
+    // **Spread out of a crowded pile** ([`spread`]), likewise before the
+    // stage runs. Brood a walker holds is not lying in its cell, so it stays.
+    let (x, y) = if holder.is_none() { spread(world, organism, (x, y), material, &def, brood_spread(), egg_door()) } else { (x, y) };
     let frame = world.frame;
     let colony = world.colony_of(organism);
     let at = |next: u64| vec![ActiveSite { x, y, kind: ActiveKind::Creature { organism }, next_frame: next }];
@@ -783,6 +963,7 @@ fn nurse(world: &mut World, larva: OrganismId, (x, y): (i32, i32), colony: u32, 
     if need <= 0.0 {
         return;
     }
+    world.creature_stats.larva_ticks_hungry += 1;
     let mut best: Option<(OrganismId, f32)> = None;
     for (dx, dy) in super::structural::NEIGHBOURS_8 {
         let c = world.get(x + dx, y + dy);
@@ -802,6 +983,7 @@ fn nurse(world: &mut World, larva: OrganismId, (x, y): (i32, i32), colony: u32, 
         }
     }
     let Some((donor, mine)) = best else { return };
+    world.creature_stats.larva_ticks_nursed += 1;
     let amount = (creature::SHARE_FRACTION * (mine - start_energy)).min(need);
     if amount <= 0.0 {
         return;
@@ -816,6 +998,122 @@ fn nurse(world: &mut World, larva: OrganismId, (x, y): (i32, i32), colony: u32, 
     let donor_colony = world.colony_of(donor);
     world.book(donor_colony, Account::SharedOut, amount as f64);
     world.book(colony, Account::SharedIn, amount as f64);
+}
+
+/// **Nurses find hungry larvae by their scent** (`PIXEL_PHYSICS_NURSE_SEEK`):
+/// **off by default**; `on` (or `workers`) lets fed nest workers seek at
+/// [`NURSE_SEEK_GAIN`], `all` every fed ant, a number over 0 is the workers'
+/// gain; [`World::nurse_seek`] for one world. Read by
+/// `creature::chooser_step`, which adds the pull of [`larva_scent`] to every
+/// heading an idle nurse scores.
+///
+/// **Off because it moves energy between laying and larvae without adding
+/// any** (2026-10-04, main 0b3e264a, measured in the commit that added it).
+/// The ant it acts on -- fed, jaws and crop empty, inside the nest -- is
+/// rare: on the food box, of every walking decision, 54% carry food in the
+/// crop, 14% a pellet, 6% are unfed and, under `on`, 23% are foragers, so
+/// the pull is felt on 0.14% of decisions (`on`) or 1.2% (`all`). Under
+/// `all` the givers are the ants saving to lay, and eggs laid by 80k fell
+/// on 6 of 6 paired seeds. Under `on` it is nearly a placebo, and it did
+/// not keep spread brood alive: with spreading, 4 of 9 food-box and 3 of 6
+/// goal-box colonies died, against 1 of 9 and 1 of 6 with neither.
+///
+/// **Why.** A larva is fed by food lying beside it, by a nestmate touching it
+/// ([`nurse`]) and by a brain's `Share`, and every one of those needs an
+/// adult to be beside it already. Nothing brought one there, so larvae were
+/// fed where the crowd happened to stand, and a larva carried out of the
+/// crowd went hungry: spreading crowded brood ([`spread`]) cut mouth-to-mouth
+/// food into larvae from 327k to 59k J on the food box, and births fell on 3
+/// of 3 seeds (2026-10-04, main 0b3e264a).
+///
+/// **Biology.** Fire-ant nurses taste each larva briefly and feed it at a
+/// rate set by its own hunger (Cassill & Tschinkel 1995, *Anim. Behav.*
+/// 50:801-813). Starved honeybee larvae give off more of a volatile,
+/// E-beta-ocimene, that draws workers to their cells (He et al. 2016, doi
+/// 10.1038/srep22359), and ant brood odours draw workers, though whether they
+/// are true pheromones is argued (Schultner & Pulliainen 2020, doi
+/// 10.1007/s00040-019-00747-3). Not every ant: *Formica* workers were not
+/// drawn to starved larvae's odour (Peignier et al. 2019, doi
+/// 10.3389/fevo.2019.00398). So the scent is short-range and scaled by
+/// hunger.
+pub fn nurse_seek() -> Option<NurseSeek> {
+    static V: std::sync::OnceLock<Option<NurseSeek>> = std::sync::OnceLock::new();
+    *V.get_or_init(|| parse_nurse_seek(&std::env::var("PIXEL_PHYSICS_NURSE_SEEK").unwrap_or_default()))
+}
+
+/// Who seeks, and how hard ([`nurse_seek`]).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct NurseSeek {
+    /// The pull of a full scent.
+    pub gain: f32,
+    /// Only nest-bound workers seek (`on`, `workers`); `all` lets every fed
+    /// ant seek.
+    pub workers_only: bool,
+}
+
+fn parse_nurse_seek(raw: &str) -> Option<NurseSeek> {
+    let workers = |gain| Some(NurseSeek { gain, workers_only: true });
+    match raw.trim() {
+        "on" | "workers" => workers(NURSE_SEEK_GAIN),
+        "all" => Some(NurseSeek { gain: NURSE_SEEK_GAIN, workers_only: false }),
+        "" | "off" => None,
+        v => workers(v.parse().ok().filter(|g: &f32| g.is_finite() && *g > 0.0).unwrap_or_else(|| panic!("PIXEL_PHYSICS_NURSE_SEEK={v:?}: use on, workers, all, off or a gain over 0"))),
+    }
+}
+
+/// The nurse seeking in force in `world`: [`World::nurse_seek`] if set, else
+/// [`nurse_seek`].
+pub fn nurse_seek_of(world: &World) -> Option<NurseSeek> {
+    world.nurse_seek.unwrap_or_else(nurse_seek)
+}
+
+/// The pull of a full scent, the home pull's own size (`HOME_GAIN` 1).
+pub const NURSE_SEEK_GAIN: f32 = 1.0;
+/// How far a larva can be smelt, in cells either way.
+pub const NURSE_SCENT_REACH: i32 = 6;
+/// The summed scent at which the pull is half its gain: one starving larva
+/// two cells off.
+pub const NURSE_SCENT_HALF: f32 = 0.25;
+
+/// **Which way the hungry larvae of `colony` lie from `(hx, hy)`, and how
+/// strongly they smell**: a unit direction and a strength in 0..1, `None`
+/// where none is in reach.
+///
+/// Every larva within [`NURSE_SCENT_REACH`] cells either way adds its hunger
+/// -- the share of its pupation target it still lacks -- over its distance
+/// squared, along the line to it, so a near or a hungrier larva pulls
+/// harder, and larvae on opposite sides cancel. The strength saturates as
+/// `s / (s + NURSE_SCENT_HALF)` of the summed vector's length. A larva a
+/// walker holds is out of the grid and gives no scent while it is held.
+pub(super) fn larva_scent(world: &World, (hx, hy): (i32, i32), colony: u32, material: super::material::MaterialId) -> Option<(f32, f32, f32)> {
+    let (mut vx, mut vy) = (0.0f32, 0.0f32);
+    for dy in -NURSE_SCENT_REACH..=NURSE_SCENT_REACH {
+        for dx in -NURSE_SCENT_REACH..=NURSE_SCENT_REACH {
+            if (dx, dy) == (0, 0) {
+                continue;
+            }
+            let c = world.get(hx + dx, hy + dy);
+            if c.material != material {
+                continue;
+            }
+            let Some(st) = world.organism(c.organism_id()) else { continue };
+            let Some(b) = st.brood.filter(|b| b.stage == BroodStage::Larva && b.target > 0.0) else { continue };
+            if st.colony != colony {
+                continue;
+            }
+            let need = ((b.target - st.energy) / b.target).clamp(0.0, 1.0);
+            let d2 = (dx * dx + dy * dy) as f32;
+            vx += need * dx as f32 / d2;
+            vy += need * dy as f32 / d2;
+        }
+    }
+    let len = (vx * vx + vy * vy).sqrt();
+    (len > 0.0).then(|| (vx / len, vy / len, len / (len + NURSE_SCENT_HALF)))
+}
+
+/// The brood material an animal of `def`'s species lays, if it lays any.
+pub(super) fn brood_material(world: &World, def: &CreatureDef) -> Option<super::material::MaterialId> {
+    block_of(def).and_then(|b| world.materials.id_of(&b.material))
 }
 
 /// Move a brood organism to `stage`, and its cell to that stage's shade.
@@ -1350,6 +1648,59 @@ mod tests {
         w.get(cell.0, cell.1).organism_id()
     }
 
+    #[test]
+    fn nurse_seek_parses_on_off_and_a_gain() {
+        let workers = Some(NurseSeek { gain: NURSE_SEEK_GAIN, workers_only: true });
+        assert_eq!(parse_nurse_seek(""), None);
+        assert_eq!(parse_nurse_seek("on"), workers);
+        assert_eq!(parse_nurse_seek("workers"), workers);
+        assert_eq!(parse_nurse_seek("all"), Some(NurseSeek { gain: NURSE_SEEK_GAIN, workers_only: false }));
+        assert_eq!(parse_nurse_seek("off"), None);
+        assert_eq!(parse_nurse_seek("2.5"), Some(NurseSeek { gain: 2.5, workers_only: true }));
+        assert!(std::panic::catch_unwind(|| parse_nurse_seek("0")).is_err(), "a gain of 0 must be spelt off");
+        assert!(std::panic::catch_unwind(|| parse_nurse_seek("of")).is_err(), "a mistyped switch must not fail open");
+    }
+
+    /// **The scent points at a hungry larva of the ant's own colony**
+    /// ([`larva_scent`]): a starving larva three cells east pulls due east; a
+    /// fed one (at its target) and one of another colony give no scent; two
+    /// larvae equally hungry and equally far on opposite sides cancel; and
+    /// out of [`NURSE_SCENT_REACH`] nothing is smelt.
+    #[test]
+    fn larva_scent_points_at_a_hungry_larva_of_its_own_colony() {
+        let (mut w, ant, def) = bed(true);
+        let material = brood_material(&w, &def).expect("brood material");
+        let colony = w.organism(ant).expect("live").colony;
+        let head = w.organism(ant).expect("live").chain[0];
+        let larva_at = |w: &mut World, cell: (i32, i32), fed: bool, colony: u32| {
+            let id = lay_at(w, ant, &def, cell);
+            let st = w.organism_mut(id).expect("laid");
+            let b = st.brood.as_mut().expect("brood");
+            b.stage = BroodStage::Larva;
+            st.energy = if fed { b.target } else { 0.1 * b.target };
+            st.colony = colony;
+            id
+        };
+        let from = (head.0 - 10, head.1);
+        assert_eq!(larva_scent(&w, from, colony, material), None, "no brood, yet a scent");
+        let east = larva_at(&mut w, (from.0 + 3, from.1), false, colony);
+        let (ux, uy, f) = larva_scent(&w, from, colony, material).expect("a starving larva three cells off gave no scent");
+        assert!(ux > 0.99 && uy.abs() < 1e-3, "the scent points ({ux}, {uy}), not at the larva due east");
+        assert!(f > 0.0 && f < 1.0, "strength {f} is not in 0..1");
+        assert_eq!(larva_scent(&w, (from.0 - NURSE_SCENT_REACH + 2, from.1), colony, material), None, "a larva out of reach was smelt");
+        // Fed, it is no longer smelt.
+        let target = w.organism(east).and_then(|s| s.brood).expect("brood").target;
+        w.organism_mut(east).expect("live").energy = target;
+        assert_eq!(larva_scent(&w, from, colony, material), None, "a fed larva still gave a scent");
+        // Another colony's larva is not this ant's to smell.
+        larva_at(&mut w, (from.0 - 2, from.1 - 1), false, colony + 1);
+        assert_eq!(larva_scent(&w, from, colony, material), None, "another colony's larva was smelt");
+        // Two starving larvae of its own, mirror images: they cancel.
+        w.organism_mut(east).expect("live").energy = 0.1 * target;
+        larva_at(&mut w, (from.0 - 3, from.1), false, colony);
+        assert_eq!(larva_scent(&w, from, colony, material), None, "two equal pulls on opposite sides did not cancel");
+    }
+
     /// **A lone larva is carried to the pile** ([`carry`]): with a nestmate
     /// beside it and brood lying three cells off, it ends next to that
     /// brood; a second carry from there moves nothing (it is no better
@@ -1450,6 +1801,69 @@ mod tests {
                 assert!(moved.1 == 47 && moved.0 > cut.chamber_x1, "cut: carried to {moved:?}, not the gallery");
             }
         }
+    }
+
+    /// `PIXEL_PHYSICS_BROOD_SPREAD`'s value.
+    #[test]
+    fn brood_spread_parses_on_off_and_a_crowd() {
+        assert_eq!(parse_brood_spread(""), None);
+        assert_eq!(parse_brood_spread("on"), Some(BROOD_SPREAD_CROWD));
+        assert_eq!(parse_brood_spread("off"), None);
+        assert_eq!(parse_brood_spread("8"), Some(8));
+        assert!(std::panic::catch_unwind(|| parse_brood_spread("2")).is_err(), "a crowd under 3 must not pass");
+        assert!(std::panic::catch_unwind(|| parse_brood_spread("yes")).is_err(), "a mistyped switch must not fail open");
+    }
+
+    /// **A crowded pile is spread** ([`spread`]): an egg in the middle of a
+    /// pile on the chamber floor, a nestmate touching it, is carried at least
+    /// [`BROOD_SPREAD_MIN`] steps to a home cell with few brood round it, and
+    /// stays there (it is no longer crowded). One brood fewer round it and
+    /// it is not crowded, so it stays -- the threshold is the crowd, not
+    /// something else in the scene. Off, it stays. And it is never put down
+    /// within [`BROOD_SPREAD_FOOD`] cells of loose food.
+    #[test]
+    fn a_crowded_pile_is_spread_and_never_onto_food() {
+        let scene = |food: bool| {
+            let (mut w, def, cut) = cut_bed(true);
+            let block = def.brood.clone().expect("brood");
+            let material = w.materials.id_of(&block.material).expect("brood material");
+            w.plant_ant(61, 46);
+            let ant = w.get(61, 46).organism_id();
+            assert_ne!(ant, 0, "test setup: no ant in the chamber");
+            let start = (60, 47);
+            let egg = lay_at(&mut w, ant, &def, start);
+            // The pile: the chamber floor either side of the egg, two deep
+            // to the west.
+            for (x, y) in (56..=63).map(|x| (x, 47)).chain((56..=59).map(|x| (x, 46))) {
+                if w.is_empty(x, y) {
+                    w.set(x, y, Cell::new(material, 0));
+                }
+            }
+            if food {
+                let provisions = w.materials.id_of("provisions").expect("provisions");
+                w.set(67, 48, Cell::new(provisions, 0));
+            }
+            (w, def, cut, material, egg, start)
+        };
+        let round = |w: &World, material, (px, py): (i32, i32)| (-2..=2).flat_map(|dy| (-2..=2).map(move |dx| (dx, dy))).filter(|&(dx, dy)| (dx, dy) != (0, 0) && w.get(px + dx, py + dy).material == material).count() as i32;
+        let (mut w, def, _, material, egg, start) = scene(false);
+        let crowd = round(&w, material, start);
+        assert!(crowd >= 3, "test setup: only {crowd} brood round the egg");
+        assert_eq!(spread(&mut w, egg, start, material, &def, None, EggDoor::Off), start, "off: moved");
+        assert_eq!(spread(&mut w, egg, start, material, &def, Some(crowd + 1), EggDoor::Off), start, "one short of crowded: moved");
+        let moved = spread(&mut w, egg, start, material, &def, Some(crowd), EggDoor::Off);
+        assert_ne!(moved, start, "a crowded egg with a nestmate beside it was not spread");
+        assert_eq!(w.get(moved.0, moved.1).organism_id(), egg, "the egg's cell did not move with it");
+        assert!(w.is_empty(start.0, start.1), "the egg was copied, not moved");
+        assert_eq!(w.creature_stats.brood_spread, 1);
+        assert!((moved.0 - start.0).abs().max((moved.1 - start.1).abs()) >= BROOD_SPREAD_MIN, "spread only to {moved:?}, inside its own pile");
+        assert!(creature::home_at(&w, moved.0, moved.1, &def), "spread out of home to {moved:?}");
+        assert!(round(&w, material, moved) <= crowd - 2, "spread into another crowd at {moved:?}");
+        assert_eq!(spread(&mut w, egg, moved, material, &def, Some(crowd), EggDoor::Off), moved, "spread again once out of the crowd");
+        // Food near every spot that won: never put down beside it.
+        let (mut w, def, _, material, egg, start) = scene(true);
+        let to = spread(&mut w, egg, start, material, &def, Some(crowd), EggDoor::Off);
+        assert!((to.0 - 67).abs().max((to.1 - 48).abs()) > BROOD_SPREAD_FOOD, "spread to {to:?}, beside the food at (67, 48)");
     }
 
     /// **Whether to lay is the brain's call** (`BrainOutput::Lay`). A rich

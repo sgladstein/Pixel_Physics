@@ -97,7 +97,7 @@ whole, then run `python3 scripts/readmetoc.py`.
 | [Field wake status — the field solves for the ants, and only one half of the fix is free](#field-wake-status--the-field-solves-for-the-ants-and-only-one-half-of-the-fix-is-free) | 10088 |
 | [Nest status — one door, a dug entrance, and a granary kept for the hungry](#nest-status--one-door-a-dug-entrance-and-a-granary-kept-for-the-hungry) | 10166 |
 | [Laying status — whether to breed is the ant's decision, and an egg goes onto the brood pile](#laying-status--whether-to-breed-is-the-ants-decision-and-an-egg-goes-onto-the-brood-pile) | 10277 |
-| [Sap flow status — water travels through the plant, and a drought lands on the far tips first](#sap-flow-status--water-travels-through-the-plant-and-a-drought-lands-on-the-far-tips-first) | 10359 |
+| [Sap flow status — water travels through the plant, and a drought lands on the far tips first](#sap-flow-status--water-travels-through-the-plant-and-a-drought-lands-on-the-far-tips-first) | 10380 |
 
 ### Milestones, in numeric order
 
@@ -142,7 +142,7 @@ your time goes, not a rule about what you may read.
 
 | Topic | Game | Sections, primary first |
 |---|---|---|
-| **plants, trees and moss** | engine | [M16 status](#m16-status) 1948, [Soil nutrient status](#soil-nutrient-status--ground-is-worth-something-water-is-not) 7826, [Sap flow status](#sap-flow-status--water-travels-through-the-plant-and-a-drought-lands-on-the-far-tips-first) 10359, [Plant lines merged](#plant-lines-merged-the-genome-and-the-ecology) 1439, [Inheritance status](#inheritance-status--the-growth-program-has-no-fallback-under-it) 4754, [Parameter-genome status](#parameter-genome-status--a-species-file-is-a-starting-point-and-it-ships-inert) 4857, [The economy re-derived](#the-economy-re-derived-standing-tissue-costs-something) 1590, [Plants that stop](#plants-that-stop-organs-determinacy-and-a-price-on-both) 1880, [The generation loop](#the-generation-loop-plants-die-seeds-expire-slots-come-back) 1509, [Stems draw a line](#stems-draw-a-line-the-growth-walk-renders-its-heading) 1798, [Felling status](#felling-status--the-verb-works-and-what-it-produces-is-pieces) 5037, [Bending status](#bending-status--soft-tissue-lies-over-and-the-wind-is-what-pushes-it) 5274, [Breaking status](#breaking-status--a-badly-grown-tree-comes-down-on-its-own) 5351, [Specimen shelf status](#specimen-shelf-status--an-individuals-genetics-outlive-the-box) 6812, [Cell page status](#cell-page-status--the-specimen-readout-is-in-three-groups-and-folds) 5671, [Roster status](#roster-status--every-plant-and-every-animal-as-a-list-you-click-through) 5719, [Plain-speech status](#plain-speech-status--the-genome-read-back-as-sentences) 5950, [Life record status](#life-record-status--what-an-individual-has-done-and-what-killed-it) 6704 |
+| **plants, trees and moss** | engine | [M16 status](#m16-status) 1948, [Soil nutrient status](#soil-nutrient-status--ground-is-worth-something-water-is-not) 7826, [Sap flow status](#sap-flow-status--water-travels-through-the-plant-and-a-drought-lands-on-the-far-tips-first) 10380, [Plant lines merged](#plant-lines-merged-the-genome-and-the-ecology) 1439, [Inheritance status](#inheritance-status--the-growth-program-has-no-fallback-under-it) 4754, [Parameter-genome status](#parameter-genome-status--a-species-file-is-a-starting-point-and-it-ships-inert) 4857, [The economy re-derived](#the-economy-re-derived-standing-tissue-costs-something) 1590, [Plants that stop](#plants-that-stop-organs-determinacy-and-a-price-on-both) 1880, [The generation loop](#the-generation-loop-plants-die-seeds-expire-slots-come-back) 1509, [Stems draw a line](#stems-draw-a-line-the-growth-walk-renders-its-heading) 1798, [Felling status](#felling-status--the-verb-works-and-what-it-produces-is-pieces) 5037, [Bending status](#bending-status--soft-tissue-lies-over-and-the-wind-is-what-pushes-it) 5274, [Breaking status](#breaking-status--a-badly-grown-tree-comes-down-on-its-own) 5351, [Specimen shelf status](#specimen-shelf-status--an-individuals-genetics-outlive-the-box) 6812, [Cell page status](#cell-page-status--the-specimen-readout-is-in-three-groups-and-folds) 5671, [Roster status](#roster-status--every-plant-and-every-animal-as-a-list-you-click-through) 5719, [Plain-speech status](#plain-speech-status--the-genome-read-back-as-sentences) 5950, [Life record status](#life-record-status--what-an-individual-has-done-and-what-killed-it) 6704 |
 | **creatures — worms and the ant colony** | engine | [M18 status](#m18-status) 2361, [The ant colony](#the-ant-colony--status) 3935, [Specimen shelf status](#specimen-shelf-status--an-individuals-genetics-outlive-the-box) 6812, [Roster status](#roster-status--every-plant-and-every-animal-as-a-list-you-click-through) 5719, [Plain-speech status](#plain-speech-status--the-genome-read-back-as-sentences) 5950, [Lab hand-verbs status](#lab-hand-verbs-status--what-a-click-puts-in-the-box-and-what-the-view-shows) 6874, [Life record status](#life-record-status--what-an-individual-has-done-and-what-killed-it) 6704, [Lab soil status](#lab-soil-status--a-hole-that-stays-a-hole-anywhere-in-the-bed-and-a-bed-that-stops-running-out) 7869, [Hunger status](#hunger-status--a-fed-ant-rests-a-hungry-one-walks-and-the-founding-cliff-is-walking-cost) 8186, [Rest status](#rest-status--a-rest-that-ends-so-a-resting-animal-is-not-a-stopped-one) 8337, [Hopper status](#hopper-status--the-jump-has-a-species-and-it-hops-itself-to-death) 8306, [Trophallaxis status](#trophallaxis-status--the-colonys-stomach-shipped-on-and-a-first-measurement-that-says-wait) 8468, [Stacking status](#stacking-status--many-ants-of-one-colony-in-one-cell-off-by-default) 8526, [Trail status](#trail-status--the-ant-reads-its-way-home-and-the-food-trail-is-the-larders-problem) 8580, [Trail lifetime status](#trail-lifetime-status--the-way-home-keeps-the-food-trail-still-fades) 8617, [Walk status](#walk-status--the-ant-chooses-where-to-step-and-a-colony-builds-its-own-road) 8692, [Forage status](#forage-status--a-forager-keeps-going-out-and-heads-home-from-the-last-mouthful) 8718, [Lifespan status](#lifespan-status--an-ant-gets-old-and-the-colonys-fall-becomes-a-slope) 8846, [Colony books status](#colony-books-status--what-each-colony-is-living-on-in-joules) 9902, [Food road status](#food-road-status--the-trail-the-colony-actually-walks-and-the-box-that-was-not-there) 10033, [Nest status](#nest-status--one-door-a-dug-entrance-and-a-granary-kept-for-the-hungry) 10166, [Laying status](#laying-status--whether-to-breed-is-the-ants-decision-and-an-egg-goes-onto-the-brood-pile) 10277 |
 | **structural collapse, felling and rigid bodies** | outdoor | [M17 status](#m17-status) 2134, [Felling status](#felling-status--the-verb-works-and-what-it-produces-is-pieces) 5037, [Bending status](#bending-status--soft-tissue-lies-over-and-the-wind-is-what-pushes-it) 5274, [Breaking status](#breaking-status--a-badly-grown-tree-comes-down-on-its-own) 5351, [M8 status](#m8-status--started-not-complete) 3129 |
 | **fire, heat and phase change** | engine | [M14 status](#m14-status) 1026, [Materials](#materials) 304 |
@@ -10338,6 +10338,27 @@ all 6 seeds (733 -> 258 ants at 12,000). So all three ship off. Brood
 carrying (`PIXEL_PHYSICS_BROOD_CARRY`, a touching nestmate moves brood
 next to more brood) is built and off: 0 to 19 moves a run, no gain.
 Chart and data: `laying/egg-door/` in the project.
+
+**Spreading a crowded brood pile, and nurses that follow larva scent: built
+and shipped off** (2026-10-04, `PIXEL_PHYSICS_BROOD_SPREAD=on`,
+`PIXEL_PHYSICS_NURSE_SEEK=on|all`; `brood::spread`, `brood::larva_scent`).
+Eggs laid at home stack where they are put, which on the goal bed is a pink
+column standing in the shaft. Spreading has a nestmate carry an item out of
+a crowded pile 5 to 10 steps to a quiet floor cell clear of food, which ends
+the column, but larvae out of the crowd are fed less and more of them
+starve: colonies dead or under 50 ants at 200,000 frames, food box
+4 of 9 seeds against 1 of 9 without; the goal box lived on
+seeds 1-2 (396 and 377 ants), more seeds running.
+Nurses that walk up the hunger-weighted scent of their colony's larvae were
+built to feed the spread brood and did not: with spreading, 4 of 9 food-box
+and 3 of 6 goal-box colonies died. The ant they act on is rare -- fed, crop
+and jaws empty, inside the nest -- so nest workers feel the pull on 0.14%
+of their walking decisions; letting every fed ant nurse (`all`) reaches
+1.2% and costs eggs, since the givers are the ants saving to lay. Neither
+mode added energy, only moved it between laying and larvae. The goal-box
+nest stays one room in every arm: spread brood is dug round until it
+rejoins the room it left.
+Chart: https://claude.ai/artifact/YPXa7NPbZmoREaRvcqdVA3.
 
 **Known limitations.**
 - **The lab box lays only at the nest too, and it kills the box today**

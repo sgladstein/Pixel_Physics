@@ -19484,6 +19484,27 @@ fn chooser_step(
     // A packed lunch is not a load (`carries_lunch`): its carrier scouts
     // outward and reads the outbound trail, as an empty ant does.
     let laden = world.organism(organism).is_some_and(|s| s.crop.is_some_and(|c| c.worth() > 0.0) && !carries_lunch(world, s));
+    // **Nurses find hungry larvae by scent** ([`brood::nurse_seek_of`]): an
+    // ant with something to give -- a bank over its stamp, which is what
+    // `brood::nurse` takes from -- carrying no load and no pellet, inside the
+    // nest, is drawn along [`brood::larva_scent`]. `None` leaves every score
+    // as it was.
+    let nurse = super::brood::nurse_seek_of(world).and_then(|seek| {
+        let s = world.organism(organism)?;
+        if laden || s.spoil.is_some() || s.energy <= def.start_energy || (seek.workers_only && !is_nest_bound(world, s)) || !inside_nest(world, hx, hy) {
+            return None;
+        }
+        let material = super::brood::brood_material(world, def)?;
+        super::brood::larva_scent(world, (hx, hy), s.colony, material).map(|(ux, uy, f)| (ux, uy, seek.gain * f))
+    });
+    if nurse.is_some() {
+        world.creature_stats.nurse_seeks += 1;
+    }
+    let nurse_term = |d: u8| -> f32 {
+        let Some((ux, uy, w)) = nurse else { return 0.0 };
+        let (dx, dy) = DIRS[d as usize];
+        w * (dx as f32 * ux + dy as f32 * uy) / DIR_LEN[(d & 1) as usize]
+    };
     // **Which way along a route, for an empty ant** (`AWAY_GAIN`): the
     // cosine of each heading with home, from `home_target` as the laden ant
     // uses it. `None` for a laden ant, one hauling spoil, or one standing on
@@ -19630,6 +19651,7 @@ fn chooser_step(
                 scout_cos(d).map_or(0.0, |c| -scout_w * scout_patience * (1.0 - route(d)) * c)
             }
             + if door.is_some() { door_term(d) } else { 0.0 }
+            + nurse_term(d)
     };
     // Usable headings in `DIRS` order, then the crossing, so the draw maps to
     // the same option every run.
