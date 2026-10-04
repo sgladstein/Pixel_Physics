@@ -33,6 +33,7 @@ struct Life {
     cells: usize,
     gnawed: f32,
     energy: f32,
+    peak: f32,
     bites: u32,
     fights: u32,
     last_bite: u64,
@@ -54,13 +55,24 @@ fn main() {
         pixel_physics::sim::creature::wound_heal_frames(),
         arg::<f32>("head")
     );
-    let spec = LabBox { predators: predators as _, seed, ..LabBox::default() };
+    // `colonies=0 feed=J`: no ants, and every beetle's bank set to J at
+    // frame 100 -- a control for "can a rich beetle breed at all", with
+    // every birth counter attributable to beetles.
+    let colonies: usize = arg("colonies").unwrap_or(1);
+    let feed: Option<f32> = arg("feed");
+    let spec = LabBox { predators: predators as _, seed, colonies, ..LabBox::default() };
     let mut lab = Lab::new(spec);
     let beetle = lab.world.species.id_of("beetle").expect("beetle");
     // `head=` overrides `CreatureDef::head_armour` for the run.
     if let Some(v) = arg::<f32>("head") {
         let mut def = lab.world.species.get(beetle).creature.clone().expect("creature");
         def.head_armour = v;
+        lab.world.species.set_creature(beetle, def);
+    }
+    // `nest=none` gives the beetle no nest (`CreatureDef::nest` empty).
+    if arg::<String>("nest").as_deref() == Some("none") {
+        let mut def = lab.world.species.get(beetle).creature.clone().expect("creature");
+        def.nest = String::new();
         lab.world.species.set_creature(beetle, def);
     }
     let mut lives: BTreeMap<OrganismId, Life> = BTreeMap::new();
@@ -72,6 +84,15 @@ fn main() {
             pixel_physics::sim::player::PlayerInput::default(),
             &pixel_physics::sim::player::Tuning::default(),
         );
+        if f == 100 {
+            if let Some(j) = feed {
+                for id in lab.world.live_organism_ids() {
+                    if lab.world.organism(id).is_some_and(|st| st.species == beetle) {
+                        lab.world.set_organism_energy(id, j);
+                    }
+                }
+            }
+        }
         let w = &lab.world;
         let mut seen = Vec::new();
         for id in w.live_organism_ids() {
@@ -100,15 +121,17 @@ fn main() {
             l.cells_max = l.cells_max.max(cells);
             l.gnawed = st.gnawed;
             l.energy = st.energy;
+            l.peak = l.peak.max(st.energy);
         }
         let dead: Vec<OrganismId> = lives.keys().copied().filter(|id| !seen.contains(id)).collect();
         for id in dead {
             let l = lives.remove(&id).unwrap();
             let in_fight = l.bites > 0 && f - l.last_bite <= gap;
             println!(
-                "DEATH f={f} id={id} age={} energy={:.0} cells_last={} cells_max={} bites={} fights={} {}",
+                "DEATH f={f} id={id} age={} energy={:.0} peak_energy={:.0} cells_last={} cells_max={} bites={} fights={} {}",
                 f - l.born,
                 l.energy,
+                l.peak,
                 l.cells,
                 l.cells_max,
                 l.bites,
@@ -127,8 +150,17 @@ fn main() {
                 }
             );
         }
-        if f % 10_000 == 0 {
-            println!("  frame {f}: beetles {}", lives.len());
+        if f % 10_000 == 0 || (feed.is_some() && f % 1_000 == 0 && f <= 5_000) {
+            let c = &lab.world.creature_stats;
+            println!(
+                "  frame {f}: beetles {} | denied_no_space {} denied_animals {} held_for_nest {} lays_declined {} food_brake_held {}",
+                lives.len(),
+                c.births_denied_no_space,
+                c.births_denied_animals,
+                c.buds_held_for_nest,
+                c.lays_declined,
+                c.food_brake_held
+            );
         }
     }
 }

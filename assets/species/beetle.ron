@@ -252,7 +252,17 @@
         // `3.18 / 983 = 0.0032350`.
         mutation_rate: 0.0032350,
 
-        nest: "nest",
+        // **No nest: a beetle is a lone hunter** (owner, 2026-10-03, "Beetles
+        // don't have colonies, right? Should this be more like a lone
+        // predator?"). It carried the ant's `"nest"` from the template, which
+        // did nothing until the lab began laying only at the nest (PR 593,
+        // `creature::bud_at_nest`): from then a beetle could only bud beside
+        // nest material it never builds, and no beetle was born in any of 36
+        // boxes (lane 7, 2026-10-04, `beetle_life feed=8000 colonies=0`:
+        // `buds_held_for_nest` 3,671 in 5,000 frames, 0 births; with no nest,
+        // 6 -> 24 beetles by frame 1,000). `try_bud`'s own comment: "a
+        // solitary species has no nest and must still breed".
+        nest: "",
         // **The jaw price, derived at this animal's own constants** -- see
         // `ant.ron`'s for the argument. A beetle is much larger and much
         // longer-lived, so the same share of a lifetime is a different
