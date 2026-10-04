@@ -13770,6 +13770,69 @@ fn food_drop_site(world: &World, x: i32, y: i32, through_bodies: bool, clear: Op
     None
 }
 
+/// **A fed ant at home puts its crop down** -- `PIXEL_PHYSICS_CROP_UNLOAD=<p>`;
+/// unset (or `off`) is the ant as it was, bit for bit. Under it an ant at
+/// home, at or above its `start_energy`, with food in its crop, puts a cell
+/// down on at least `p` of its drop rolls (`max(Drop, p)`).
+///
+/// **Why** (the owner's goal of 2026-10-03: food stored in a chamber).
+/// Measured on the goal box (main 192b7103, `NEST_REST=on`, seeds 1/3,
+/// `nestgoal`'s `ENERGY` line): the colony carries the equivalent of 49-171
+/// food cells in its crops while 0-14 lie on the floor underground. Its store
+/// is the social stomach, held by ants that are already fed. A floor store
+/// needs the fed to set it down; the nest workers' piling rule
+/// ([`Storeroom::pile`]) then gathers what lies. Harvester ants keep their
+/// stores on the floor of granary chambers, not in their bodies.
+fn crop_unload_of() -> Option<f32> {
+    static V: std::sync::OnceLock<Option<f32>> = std::sync::OnceLock::new();
+    *V.get_or_init(|| {
+        let raw = std::env::var("PIXEL_PHYSICS_CROP_UNLOAD").unwrap_or_default();
+        match raw.as_str() {
+            "" | "off" => None,
+            v => v.parse::<f32>().ok().filter(|f| f.is_finite() && (0.0..=1.0).contains(f)).or_else(|| {
+                eprintln!("PIXEL_PHYSICS_CROP_UNLOAD={raw:?}: not a chance in 0..1, read as off");
+                None
+            }),
+        }
+    })
+}
+
+/// **A full ant eats less, so food can lie** -- `PIXEL_PHYSICS_SATIATE=<f>`;
+/// unset (or `off`) is the ant as it was, bit for bit. Under it an ant at
+/// home above its `start_energy` has its `Feed` urge scaled by
+/// `1 - (energy - start) / (f * reproduce_threshold - start)`, clamped to
+/// 0..1: graded, full urge at the grant, none at the ceiling. With `f` above
+/// 1 an ant still reaches the breeding threshold, only more slowly, so food
+/// brought home is left lying for longer.
+///
+/// **Why** (the owner's goal of 2026-10-03: food stored in its own chamber).
+/// On the goal box (main 192b7103, `NEST_REST=on`, seeds 1/3 to 150k) food
+/// underground never exceeds 14 cells while colonies of 170-380 live beside
+/// an endless heap: each ant eats on until it has banked up to the 1,100 J
+/// breeding threshold (5.5 grants), so the colony keeps its food in its
+/// bodies and nothing lies on the floor to be stored or sorted. Refusing the
+/// fed outright (`STOREROOM keep` at 100% of the grant) killed both colonies,
+/// because it stops the banking breeding needs. This tapers instead of
+/// forbidding. Real workers do not fill to capacity: *Lasius niger*
+/// foragers stop drinking at an individual threshold well below what the
+/// crop holds (Mailleux, Deneubourg & Detrain 2008, doi
+/// 10.1016/j.crvi.2008.10.005), and a nest's intake follows its members'
+/// crop states (Greenwald, Baltiansky & Feinerman 2018, *eLife* 7:e31730),
+/// so food a full colony cannot take in is left where it lies.
+fn satiate_of() -> Option<f32> {
+    static V: std::sync::OnceLock<Option<f32>> = std::sync::OnceLock::new();
+    *V.get_or_init(|| {
+        let raw = std::env::var("PIXEL_PHYSICS_SATIATE").unwrap_or_default();
+        match raw.as_str() {
+            "" | "off" => None,
+            v => v.parse::<f32>().ok().filter(|f| f.is_finite() && *f > 0.0).or_else(|| {
+                eprintln!("PIXEL_PHYSICS_SATIATE={raw:?}: not a positive number, read as off");
+                None
+            }),
+        }
+    })
+}
+
 /// **Food is put down away from the brood** -- `PIXEL_PHYSICS_FOOD_SORT=on`;
 /// off (unset) is the ant as it was, bit for bit. Under it a forager at home
 /// does not empty its crop with a brood cell within [`FOOD_SORT_REACH`] of its
@@ -14232,6 +14295,17 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
         if drive > 0.0 && nest_within_reach(world, organism, x, y, def) {
             feed_urge *= 1.0 - drive;
             world.creature_stats.forage_kept += 1;
+        }
+    }
+    // **A full ant eats less** (`PIXEL_PHYSICS_SATIATE`, [`satiate_of`]):
+    // at home and above its grant, the urge tapers to 0 at the ceiling.
+    if let Some(ceiling) = satiate_of() {
+        if let Some(e) = world.organism(organism).map(|st| st.energy).filter(|&e| e > def.start_energy) {
+            if nest_within_reach(world, organism, x, y, def) {
+                let top = (ceiling * def.reproduce_threshold).max(def.start_energy + 1.0);
+                feed_urge *= (1.0 - (e - def.start_energy) / (top - def.start_energy)).clamp(0.0, 1.0);
+                world.creature_stats.satiate_tapered += 1;
+            }
         }
     }
     let feed_urge = feed_urge;
@@ -15262,11 +15336,20 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
             if sort_hold {
                 world.creature_stats.food_sort_held += 1;
             }
+            // **A fed ant at home empties its crop** (`PIXEL_PHYSICS_CROP_UNLOAD`,
+            // [`crop_unload_of`]): its drop chance is at least the floor.
+            let unload = match crop_unload_of() {
+                Some(floor) if at_nest && world.organism(organism).is_some_and(|st| st.energy >= def.start_energy) => {
+                    world.creature_stats.crop_unload_ticks += 1;
+                    floor
+                }
+                _ => 0.0,
+            };
             let p = match harvest {
                 Some(HarvestDrop::Hold) => 0.0,
                 Some(HarvestDrop::Store(_)) => HARVEST_DROP_P,
                 None if sort_hold => 0.0,
-                None => drop_urge,
+                None => drop_urge.max(unload),
             };
             // The same single draw as before, bound to a name so the trace can
             // report it. **The roll is spent before the search for an empty

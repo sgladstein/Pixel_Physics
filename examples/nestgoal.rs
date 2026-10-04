@@ -297,8 +297,8 @@ impl Flow {
             self.last.unwrap_or(0), self.arrived, self.left, d[0], d[1], d[2], d[3], d[4], d[5]
         );
         println!(
-            "SITES frame={frame} new food cells underground beside: brood only {} | food only {} | both {} | neither {} | sort holds (total) {}",
-            self.site[0], self.site[1], self.site[2], self.site[3], s.food_sort_held
+            "SITES frame={frame} new food cells underground beside: brood only {} | food only {} | both {} | neither {} | sort holds (total) {} | unload ticks (total) {}",
+            self.site[0], self.site[1], self.site[2], self.site[3], s.food_sort_held, s.crop_unload_ticks
         );
         self.prev = now;
         self.arrived = 0;
@@ -311,6 +311,7 @@ fn report(frame: u64, census: &Census, w: &World, dropped: usize, food_x: i32) {
     let s = &w.creature_stats;
     // An egg, larva or pupa is an organism too; it is counted as brood, not as an ant.
     let (mut ants, mut brood) = (0, 0);
+    let (mut bins, mut body_j, mut crop_j) = ([0u32; 5], 0f64, 0f64);
     for id in w.live_organism_ids() {
         let Some(st) = w.organism(id) else { continue };
         if w.species.get(st.species).creature.is_none() {
@@ -321,8 +322,22 @@ fn report(frame: u64, census: &Census, w: &World, dropped: usize, food_x: i32) {
             brood += 1;
         } else {
             ants += 1;
+            let e = st.energy;
+            bins[match e {
+                e if e < 100.0 => 0,
+                e if e < 200.0 => 1,
+                e if e < 500.0 => 2,
+                e if e < 1100.0 => 3,
+                _ => 4,
+            }] += 1;
+            body_j += f64::from(e);
+            crop_j += st.crop.map_or(0.0, |c| f64::from(c.worth()));
         }
     }
+    println!(
+        "ENERGY frame={frame} ants by energy (J): <100 {} | 100-200 {} | 200-500 {} | 500-1100 {} | >=1100 {} | in bodies {:.0} J, in crops {:.0} J",
+        bins[0], bins[1], bins[2], bins[3], bins[4], body_j, crop_j
+    );
     let heap = heap_count(census, w, food_x);
     println!("POP frame={frame} live ants {ants} | brood {brood} | births {} deaths {} | food heap {heap} cells, ever dropped {dropped}", s.births, s.deaths);
     // Why they died: the bed has no plants, so every death here is a creature's.
@@ -371,6 +386,34 @@ fn heap_count(census: &Census, w: &World, food_x: i32) -> usize {
 
 /// Drop provisions into empty cells above the food spot until the heap holds
 /// `target` cells or this call has dropped `target`. Returns cells dropped.
+/// **The bed drains its own surface** (`drain=1`, the default): every
+/// [`TOP_EVERY`] frames, standing liquid on or above the ground row between
+/// the nest and the food heap (60 columns left of the nest to 30 right of the
+/// heap) is removed, and the count is returned. Underground water is left
+/// alone; the nest's own flooding is part of what is measured.
+///
+/// **Why** (lane 2's trace, 2026-10-04): the mister's water pools in the dip
+/// between the spoil mound and the food heap, which dams it, and an ant
+/// cannot cross liquid (`head_has_foothold` counts solid, powder and plant
+/// only). In all five dead goal-box colonies the dip held 13-47 water cells
+/// and the ants on the food side fell to 0-2 just before the crash; on seed
+/// 4, 88 of 89 hungry ants turned back at the pool's edge. The bed exists to
+/// measure the ants' rules, not where a puddle happened to form. The mister
+/// stays on, since soil moisture is part of the lab. `drain=0` restores the
+/// puddle.
+fn drain_surface(census: &Census, w: &mut World, nest_x: i32, food_x: i32) -> usize {
+    let mut n = 0;
+    for y in census.ground_y - 40..=census.ground_y {
+        for x in nest_x - 60..=food_x + 30 {
+            if w.in_bounds(x, y) && w.materials.kind(w.get(x, y).material) == MaterialKind::Liquid {
+                w.set(x, y, Cell::EMPTY);
+                n += 1;
+            }
+        }
+    }
+    n
+}
+
 fn top_up(census: &Census, w: &mut World, food_x: i32, target: usize) -> usize {
     let provisions = w.materials.id_of("provisions").expect("provisions ships");
     let have = heap_count(census, w, food_x);
@@ -502,6 +545,8 @@ fn main() {
     let mut food_x: Option<i32> = None;
     let mut dropped = 0usize;
     let mut flow = Flow::default();
+    let drain = arg::<u8>("drain").unwrap_or(1) != 0;
+    let mut drained = 0usize;
     for f in 0..=frames {
         if food_x.is_none() {
             // The spot is fixed once the colony has founded: 30 columns east
@@ -514,10 +559,14 @@ fn main() {
         if let Some(x) = food_x {
             if f % TOP_EVERY == 0 {
                 dropped += top_up(&census, &mut lab.world, x, target);
+                if drain {
+                    drained += drain_surface(&census, &mut lab.world, x - 30, x);
+                }
             }
             flow.step(&census, &lab.world, x - 30);
             if f % every == 0 && f > 0 {
                 report(f, &census, &lab.world, dropped, x);
+                println!("BED frame={f} surface water drained {drained} cells (drain={})", u8::from(drain));
                 flow.report(f, &lab.world);
                 if let Some(dir) = &shots {
                     let centre = lab.world.nest_sites.first().map_or((x, census.ground_y), |s| (s.x + 10, census.ground_y + 12));

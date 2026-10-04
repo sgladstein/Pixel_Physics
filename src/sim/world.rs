@@ -1842,6 +1842,12 @@ pub struct CreatureStats {
     /// Crop drops at home held back because brood lay within reach
     /// (`PIXEL_PHYSICS_FOOD_SORT`, `creature::food_sort_holds`). Zero when off.
     pub food_sort_held: u64,
+    /// Feed decisions at home tapered because the ant was above its grant
+    /// (`PIXEL_PHYSICS_SATIATE`, `creature::satiate_of`). Zero when off.
+    pub satiate_tapered: u64,
+    /// Drop decisions at home given `PIXEL_PHYSICS_CROP_UNLOAD`'s floor
+    /// (`creature::crop_unload_of`). Zero when off.
+    pub crop_unload_ticks: u64,
     /// **Won dig rolls inside the nest with no cuttable cell ahead, by why**
     /// (`PIXEL_PHYSICS_FRESH_CUT` on only): [0] no cuttable cell round the
     /// digger at all, [1] only cells the roof or heap cue would refuse,
