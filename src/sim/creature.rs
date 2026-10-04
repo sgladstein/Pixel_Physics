@@ -16732,11 +16732,6 @@ fn fall_if_unsupported(world: &mut World, organism: OrganismId, def: &CreatureDe
             let held = kin_footing_of(world) && held_by_kin(world, organism, chain);
             world.creature_stats.kin_holds += u64::from(held);
             held
-        }
-        || {
-            let held = water_footing_of(world) && chain.iter().any(|&c| stands_on_water(world, c));
-            world.creature_stats.water_holds += u64::from(held);
-            held
         };
     if !supported {
         let fallen: Vec<(i32, i32)> = chain.iter().map(|&(cx, cy)| (cx, cy + 1)).collect();
@@ -17235,6 +17230,12 @@ fn commit_step(
         world.creature_stats.tucked_segment_steps += authored_widths.iter().zip(&next_groups).filter(|&(&a, &g)| a == 2 && g == 1).count() as u64;
     }
     relocate_chain(world, organism, def, authored, BodySide { cells: chain, groups }, BodySide { cells: &next, groups: &next_groups });
+    // `PIXEL_PHYSICS_WATER_FOOTING`'s "it fired" count: a step whose new head
+    // stands on water and on nothing else ([`water_footing_of`]). Three
+    // reads per step while it is on, and the ground test only over water.
+    if water_footing_of(world) && stands_on_water(world, (tx, ty)) && !head_has_ground(world, (tx, ty), None) {
+        world.creature_stats.water_steps += 1;
+    }
     if let Some(state) = world.organism_mut(organism) {
         state.heading = new_heading;
         state.life.moves += 1;
@@ -23324,16 +23325,18 @@ fn head_has_foothold(world: &World, (x, y): (i32, i32), kin: Option<Kin>) -> boo
 }
 
 /// **An animal can stand on a puddle** -- the surface film holds it -- for
-/// this world, under `PIXEL_PHYSICS_WATER_FOOTING` (default on; `off` is the
-/// animal before it, which could neither enter liquid nor find footing over
-/// it, so any pool wider than a body was a wall).
+/// this world, under `PIXEL_PHYSICS_WATER_FOOTING` (`on`; **off by default**,
+/// which is the animal before it: it could neither enter liquid nor find
+/// footing over it, so any pool wider than a body was a wall).
 ///
 /// **Why it exists.** On the nest goal bed the mister's water collects in
 /// the dip between the colony's dirt mound and the food heap, which dams it.
 /// Every hungry ant traced on seed 4 (82-94k frames, 89 ants) turned back at
 /// the pool's near edge and one reached the food; the colony starved beside
 /// an endless heap. In five colonies that died, the dip held 13-47 water
-/// cells just before the crash; in the two that lived it held 0-6.
+/// cells just before the crash; in the two that lived it held 0-6. With the
+/// mister off (same binary) those colonies live: seed 1 0 -> 45, seed 2
+/// 1 -> 334 ants at 200k.
 ///
 /// **Biology.** Most ants cannot drown in a puddle: dropped on water, 20 of
 /// 35 tropical ant species moved across the surface under control (Yanoviak
@@ -23341,14 +23344,33 @@ fn head_has_foothold(world: &World, (x, y): (i32, i32), kin: Option<Kin>) -> boo
 /// carpenter ants cross liquid-covered ground and swim to a landmark
 /// (Notomi et al. 2025, J Exp Biol 228, doi:10.1242/jeb.250278).
 ///
-/// **Only the three cells under the cell count** ([`stands_on_water`]), so
+/// **Only the three cells under the head count** ([`stands_on_water`]), so
 /// water is a floor and never a wall: an animal can walk across a pool's top
-/// but cannot climb the side of a falling stream. Every animal with legs
-/// gets it, because footing is a body rule and not a gene.
+/// but cannot climb the side of a falling stream. It is the step's rule only
+/// ([`head_has_foothold`]); a body standing on water stays because its fall
+/// would land in liquid. Counted per step in `CreatureStats::water_steps`
+/// ([`commit_step`]).
+///
+/// **Off because it kills colonies that have no puddle to cross**
+/// (2026-10-04, main 0b3e264a, goal bed `nestgoal`, 200k frames, ants alive
+/// at the end). On the bed with its surface drained, where every colony
+/// lives without it (seeds 1-5: 384 / 345 / 253 / 71 / 593), it left
+/// 532 / **0** / 337 / **0** / **0**; leaving water under a standing animal
+/// undrained did not save them (seeds 1, 2, 4, 5: 0 / 201 / 0 / 0). On
+/// seed 4 the steps onto water were few (10-50 per 2,500 frames) and almost
+/// all at the mound and the door, and the door was sealed by packed soil at
+/// 40k with the colony outside it; why walking on the door's water leads
+/// there is not known. On the undrained bed it does what it was built for:
+/// 0 / 1 -> 333 / 490 at 200k (seeds 1-2; seed 3 548, its arm without
+/// not run). The first build
+/// also counted water in the fall check (`fall_if_unsupported`), so a body
+/// with water under any one cell was held up; that was worse -- 0 / 0 / 6
+/// on drained seeds 1-3, and the fall half alone killed seed 3 -- and is
+/// gone. `Reports/dead-ends.md` has the entry.
 pub fn water_footing_of(world: &World) -> bool {
     world.water_footing.unwrap_or_else(|| {
         static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-        *V.get_or_init(|| std::env::var("PIXEL_PHYSICS_WATER_FOOTING").as_deref() != Ok("off"))
+        *V.get_or_init(|| std::env::var("PIXEL_PHYSICS_WATER_FOOTING").as_deref() == Ok("on"))
     })
 }
 

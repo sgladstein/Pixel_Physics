@@ -1,6 +1,6 @@
 # Ants
 
-*Current as of: 2026-10-04, when **an ant started walking across a puddle instead of stopping at it.** The lab's mister leaves water standing in the dip between a colony's dirt mound and its food, and an ant could neither step into water nor stand on it, so a pool a few cells wide cut the colony off and it starved beside a full heap. Now the top of a puddle is a floor: ants and beetles walk over it, though they still cannot go into it or climb a falling stream (see *Coming home*). Also 2026-10-03, when **a hungry ant started putting its digging down to go and eat.** A colony beside endless food used to grow to a few hundred and then starve at home all at once, the food untouched: its hungry foragers were still digging and carrying soil, and an ant holding soil cannot eat or fetch food. Now an ant under half its fill stops digging, sets its soil down where it stands, and goes out on its own hunger, and those colonies live. Also 2026-10-03, when **a colony started keeping its own door open** (see *One door, and a granary under it*), and when **the lab's other animals started ageing like the ant** (see *Ants get old and die of it*); 2026-10-02, when **the whole dug nest became home and
+*Current as of: 2026-10-03, when **a hungry ant started putting its digging down to go and eat.** A colony beside endless food used to grow to a few hundred and then starve at home all at once, the food untouched: its hungry foragers were still digging and carrying soil, and an ant holding soil cannot eat or fetch food. Now an ant under half its fill stops digging, sets its soil down where it stands, and goes out on its own hunger, and those colonies live. Also 2026-10-03, when **a colony started keeping its own door open** (see *One door, and a granary under it*), and when **the lab's other animals started ageing like the ant** (see *Ants get old and die of it*); 2026-10-02, when **the whole dug nest became home and
 food started gathering in piles** (see *One door, and a granary under it*),
 when **new ants started as eggs, laid only at
 home** (see *New ants*), and when **an ant started holding on to a nestmate
@@ -870,17 +870,6 @@ The threshold has drains in it now — every third column of it is left as
 ordinary earth — so a film has one cell to travel before the ground drinks it,
 exactly as it does everywhere else in the bed. On screen that is a door which
 looks faintly speckled rather than a door with a puddle on it.
-
-**Since 2026-10-04 a puddle is a floor rather than a wall.** An ant still
-cannot go into water, but it can stand on the top of it, the way a real ant
-is held up by the water's skin, and walk across. This matters most beside the
-food: the mister's water gathers in the hollow between the colony's dirt
-mound and the food pile, and before this a pool there a few cells wide was the
-end of foraging. You will see ants crossing it in a line along the water's
-surface. Water standing beside them, such as a stream falling down a wall,
-gives no grip, so nothing climbs a waterfall. In field trials more than half
-of the ant species dropped on water moved across it under their own control,
-so this is the ordinary case rather than a trick of one species.
 
 **What is still not right**, and it is worth knowing before you read a run:
 even with the door clear a colony can lose track of home for a long stretch —
