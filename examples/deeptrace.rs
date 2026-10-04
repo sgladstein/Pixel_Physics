@@ -328,6 +328,7 @@ fn main() {
     // `only=id,id,...` with `ants=all`: write (and probe) just these ants. The
     // world is the same run either way -- the trace takes no draw -- so a
     // re-run with `only=` reproduces any ant of an earlier full run cheaply.
+    let census = arg::<u8>("census").unwrap_or(0) == 1;
     let only: HashSet<OrganismId> = arg::<String>("only")
         .map(|v| v.split(',').filter_map(|t| t.trim().parse().ok()).collect())
         .unwrap_or_default();
@@ -354,6 +355,17 @@ fn main() {
         std::process::exit(1);
     });
     sc.bed.seed = seed;
+    // `gut=<v>`: the founders' diet (`gut_bias`), as a scenario setting. With
+    // mutation off the authored 0 takes only a quarter of plant-class food
+    // and the colony stalls near 35 ants; -0.5 is what seed 1 drifted to.
+    if let Some(v) = arg::<f32>("gut") {
+        sc.settings.push(pixel_physics::lab::scenario::Setting {
+            subject: "ant".into(),
+            field: "gut_bias".into(),
+            value: v,
+        });
+        println!("  founders' gut_bias set to {v}");
+    }
     let mut lab = Lab::new(sc.bed.clone());
     let msg = lab.load_scenario(sc);
     lab.show_help = false;
@@ -597,10 +609,48 @@ fn main() {
                 outp,
             });
         }
+        let wanted_pre: HashSet<OrganismId> = pre.iter().map(|p| p.id).collect();
         let deaths_before = lab.world.deaths_by_cause;
+        // `census=1`: a cheap death record for every ant not being traced
+        // (no brain probe), so a first pass can find who starved where and a
+        // second `only=` pass can replay them. Same line shape as DIED.
+        let census_pre: Vec<(OrganismId, Snap)> = if census {
+            live.iter()
+                .filter(|id| !wanted_pre.contains(id))
+                .filter_map(|&id| snap(&lab.world, id).map(|s| (id, s)))
+                .collect()
+        } else {
+            Vec::new()
+        };
 
         if f < frames {
             lab.tick_for_harness();
+        }
+        for (id, before) in &census_pre {
+            if lab.world.organism(*id).is_none() {
+                let w = &lab.world;
+                let causes: Vec<&str> = organism::DEATH_CAUSE_LIST
+                    .iter()
+                    .filter(|c| w.deaths_by_cause[c.index()] > deaths_before[c.index()])
+                    .map(|c| c.label())
+                    .collect();
+                writeln!(
+                    events,
+                    "{f} DIED census=1 id={id} age={} at=({},{}) zone={} energy={:.0} crop_cells={} cause={}",
+                    f.saturating_sub(born.get(id).copied().unwrap_or(0)),
+                    before.head.0,
+                    before.head.1,
+                    zone(w, g, before.head),
+                    before.energy,
+                    before.crop_cells,
+                    if causes.is_empty() {
+                        "?".to_string()
+                    } else {
+                        causes.join("+")
+                    }
+                )
+                .unwrap();
+            }
         }
 
         // After the tick: the decision rows and what changed.
