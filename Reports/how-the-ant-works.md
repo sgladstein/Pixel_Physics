@@ -1020,8 +1020,9 @@ moves it. **Off because, with `SOIL_WAY`, `WAY_GAPS` and `FACE_TRIP` on, it
 kills colonies** (owner's rule: such a fix stays built but off until the
 deaths are understood). Same box and seeds on main 043e9104, 100k-300k:
 live ants 128-293 against 529-573 with nurses off, grown ants starved
-477-1070 a run against 7-12, heap intake 8.3k-25.0k cells against
-54.4k-64.5k, and seed 2 died out by 260k; nurses with the three off are
+477-1070 a run against 7-12, heap intake 3.6k-11.0k cells against
+21.4k-25.2k (bites taken 8.3k-25.0k against 54.4k-64.5k), and seed 2 died
+out by 260k; nurses with the three off are
 488-583. Why the pair starves the colony is not yet traced.
 
 The decision trace records the patience each choice scored with, the home

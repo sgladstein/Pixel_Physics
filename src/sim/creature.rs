@@ -13166,7 +13166,9 @@ fn carriers_seek_larvae(world: &World) -> bool {
 /// (main 043e9104), 100k-300k: live ants 293/128/181/292 against
 /// 547/551/529/573 with this switch off, lowest count 103/0/40/68 against
 /// 495/509/462/492, grown ants starved 586/672/1070/477 against 11/7/11/12,
-/// food taken from the heap 8.3k-25.0k cells against 54.4k-64.5k; seed 2
+/// food taken from the heap 11.0k/3.6k/7.8k/9.8k cells against
+/// 25.2k/21.4k/22.8k/23.2k (bites taken 8.3k-25.0k against 54.4k-64.5k: the
+/// first version of this note gave the bites as the heap's intake); seed 2
 /// died out by 260k. Each alone holds: this switch with the three off is
 /// 488/583/543/545 (the numbers above, to the ant), and the three with this
 /// one off are the 547-573 just given. Why the pair starves the colony is
