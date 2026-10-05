@@ -55,7 +55,8 @@
 //! cargo run --release --example deeptrace -- seed=1 frames=300000 out=/mnt/project-files/deep-trace/s1
 //! ```
 //!
-//! `scripts/deeptrace.py OUT` reads the result into a life story per ant.
+//! `scripts/deeptrace.py OUT` reads the result into a life story per ant;
+//! `scripts/deeptrace_dig.py dig|soil|rooms|brood OUT` reads the `dig=1` record.
 
 use pixel_physics::lab::scenario::Scenario;
 use pixel_physics::lab::{Lab, HEIGHT, WIDTH};
@@ -1032,6 +1033,10 @@ struct DigPre {
     ground8: u8,
 }
 
+/// Where a brood item was seen (its cell) and its stage (`BroodStage as u8`,
+/// 3 for a brood cell whose organism has no brood record).
+type BroodSeen = ((i32, i32), u8);
+
 /// **The digging deep dive's record** (`dig=1`), added 2026-10-04 for the
 /// owner's *"deep dive on digging ... and why those who should dig are
 /// not"*. Five outputs, none of which needs the brain probe `ants=` pays for:
@@ -1071,7 +1076,7 @@ struct DigLog {
     brood: std::io::BufWriter<std::fs::File>,
     broodlog: std::io::BufWriter<std::fs::File>,
     /// Where each brood item in the region was last frame, and its stage.
-    brood_at: HashMap<OrganismId, ((i32, i32), u8)>,
+    brood_at: HashMap<OrganismId, BroodSeen>,
     zips: Vec<std::process::Child>,
     /// x0, y0, width, height of the watched region, once the nest is founded.
     region: Option<(i32, i32, i32, i32)>,
@@ -1366,7 +1371,7 @@ impl DigLog {
     ) {
         let Some((x0, y0, wd, ht)) = self.region else { return };
         let cheb = |a: (i32, i32), b: (i32, i32)| (a.0 - b.0).abs().max((a.1 - b.1).abs());
-        let mut brood_here: HashMap<OrganismId, ((i32, i32), u8)> = HashMap::new();
+        let mut brood_here: HashMap<OrganismId, BroodSeen> = HashMap::new();
         for j in 0..ht {
             for i in 0..wd {
                 let (x, y) = (x0 + i, y0 + j);
@@ -1455,7 +1460,7 @@ impl DigLog {
                 }
             }
         }
-        let mut gone: Vec<(OrganismId, ((i32, i32), u8))> = self
+        let mut gone: Vec<(OrganismId, BroodSeen)> = self
             .brood_at
             .iter()
             .filter(|(id, _)| !brood_here.contains_key(id))
