@@ -2152,6 +2152,16 @@ pub struct CreatureStats {
     /// door along the passages. The "it fired" half; the effect half is where
     /// the colony's starved die (`deeptrace`) and the colony's size.
     pub hungry_out_pulls: u64,
+    /// Decisions a hungry nest worker inside was held in rather than let out
+    /// (`PIXEL_PHYSICS_NEST_KEEP`'s `stay`, `creature::NestKeep`), and
+    /// decisions a fed one was pulled in below the old ground (`home`): the
+    /// "it fired" halves. The effect half is where the nest workers are.
+    pub keep_stays: u64,
+    pub keep_home_pulls: u64,
+    /// Shares a hungry nest worker inside took from a full nestmate touching
+    /// it (`NestKeep`'s `beg`), and the joules they moved.
+    pub keep_begs: u64,
+    pub keep_beg_j: f64,
     /// Decisions a pellet carrier inside its nest walked out along the nest's
     /// way (`PIXEL_PHYSICS_SOIL_WAY`, `creature::soil_way_of`). The "it
     /// fired" half; the effect half is where the soil goes down.
@@ -4062,6 +4072,10 @@ pub struct World {
     /// `None` follows the environment; a field so a guard can take both arms
     /// in one process.
     pub hungry_out: Option<bool>,
+    /// **Nest workers kept in the nest, overriding `PIXEL_PHYSICS_NEST_KEEP`
+    /// for this world** (`creature::nest_keep_of`). `None` follows the
+    /// environment; a field so a guard can take both arms in one process.
+    pub nest_keep: Option<crate::sim::creature::NestKeep>,
     /// **The lost laden ant's search, overriding `PIXEL_PHYSICS_HOME_SEARCH`
     /// for this world** (`creature::home_search_of`). `None` follows the
     /// environment; a field so a guard can take both arms in one process.
@@ -6673,6 +6687,7 @@ impl World {
             spoil_hold: None,
             nest_rest: None,
             hungry_out: None,
+            nest_keep: None,
             home_search: None,
             way_gaps: None,
             soil_way: None,

@@ -12551,6 +12551,198 @@ pub fn hungry_out_of(world: &World) -> bool {
     })
 }
 
+/// **Nest workers stay in the nest** (`PIXEL_PHYSICS_NEST_KEEP=on|off|stay|beg|home`,
+/// a comma list; off while it is measured; [`World::nest_keep`] for one
+/// world). Three parts, each for a nest worker ([`is_nest_bound`]) only:
+///
+/// - `stay`: hungry inside its nest ([`kept_inside`]) and not yet lean
+///   ([`LEAN_LINE`] of its grant), it feels no pull out -- neither the way
+///   out ([`hungry_out_pull`]) nor the scout's pull from home. Lean, it goes
+///   out as any ant does: a worker's reserve falling past a threshold is
+///   what starts it foraging (Bernadou et al. 2020, J Exp Biol
+///   223:jeb219238, doi 10.1242/jeb.219238).
+/// - `beg`: hungry inside, it takes food from a full nestmate beside it --
+///   one over its own grant -- at the share's fraction of the difference,
+///   never taking the giver under its grant ([`nest_keep_beg`]). The share
+///   the brain rolls is the donor's; this one is the taker's. In a real
+///   colony the flow inward is set by the receivers' crop loads as much as
+///   the givers' (Greenwald, Baltiansky & Feinerman 2018, eLife 7:e31730,
+///   doi 10.7554/eLife.31730).
+/// - `home`: fed and carrying nothing, above the founding chamber's top or
+///   outside the dug nest, it is pulled in -- to the mouth from outside the
+///   cut, then to the chamber's floor -- and the pull never loses patience
+///   ([`keep_home_target`]). Inside, at the chamber's depth or deeper, it is
+///   home and nothing pulls.
+/// - `face`: fed, its pellet put down, it walks back to the face it dug
+///   ([`dig_return_target`]) before the leash can take it. The leash's
+///   branch in [`home_pull`] comes before the walk back, so on main a nest
+///   worker that carried its pellet out past the nest's reach was leashed
+///   to the surface over the door instead of sent back to its face.
+///
+/// **Why** (lane 3, 2026-10-05; owner the same evening: "Nurses and nest
+/// workers should never leave the nest should they? If you are hungry at the
+/// nest ... get food from another full ant in the nest"). On the dry goal box
+/// (`deeptrace ants=0 dig=1`, the evolved founder rows, main 724b6da5,
+/// 50-200k, seeds 1-4) nest workers made 8-10% of their decisions below the
+/// old ground, and 76-79% of those hungry; on the heap and the surface 0-4%
+/// were hungry. Walking (`walk=1`, main 043e9104, 50-100k, seeds 1-2) the
+/// hungry ones inside were pulled out by the way out on 58-61% of their
+/// scored steps, and no pull a fed nest worker on the heap had aimed below
+/// the old ground (0%): the leash's target is its anchor, the surface cell
+/// over the door, at patience 0.27. Sampled, 45-50% of nest workers were fed,
+/// empty-jawed and out on the heap or the surface. **The leash took the
+/// diggers**: nest workers walking back to a face had the leash's pull on
+/// 17,085 and 19,736 scored steps against the walk back's 5,211 and 6,480
+/// (92% of all leash steps were diggers with a face to go back to), at a
+/// median patience of 0.01, 56% under 0.05, spread 0-40+ columns from the
+/// door.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct NestKeep {
+    pub stay: bool,
+    pub beg: bool,
+    pub home: bool,
+    pub face: bool,
+}
+
+impl NestKeep {
+    pub const OFF: NestKeep = NestKeep { stay: false, beg: false, home: false, face: false };
+    pub const ON: NestKeep = NestKeep { stay: true, beg: true, home: true, face: true };
+
+    /// Parse a `PIXEL_PHYSICS_NEST_KEEP` value: `on`, `off`, or a comma list
+    /// of `stay`, `beg`, `home` and `face`. Anything else panics.
+    pub fn parse(raw: &str) -> NestKeep {
+        let mut k = NestKeep::OFF;
+        for part in raw.split(',').map(str::trim).filter(|p| !p.is_empty()) {
+            match part {
+                "on" => k = NestKeep::ON,
+                "off" => k = NestKeep::OFF,
+                "stay" => k.stay = true,
+                "beg" => k.beg = true,
+                "home" => k.home = true,
+                "face" => k.face = true,
+                other => panic!("PIXEL_PHYSICS_NEST_KEEP={raw:?}: {other:?} is not on, off, stay, beg, home or face"),
+            }
+        }
+        k
+    }
+}
+
+/// This world's [`NestKeep`]: `World::nest_keep` if set, else the environment's.
+pub fn nest_keep_of(world: &World) -> NestKeep {
+    world.nest_keep.unwrap_or_else(|| {
+        static V: std::sync::OnceLock<NestKeep> = std::sync::OnceLock::new();
+        *V.get_or_init(|| std::env::var("PIXEL_PHYSICS_NEST_KEEP").map_or(NestKeep::OFF, |v| NestKeep::parse(&v)))
+    })
+}
+
+/// **Inside its nest, for [`NestKeep`]**: below the old ground of the nearest
+/// nest site, in the dug nest (`World::nest_dug`) or the founding cut. The
+/// spoil heap is not inside, though it is cover: it is where the nest
+/// workers were sitting.
+fn kept_inside(world: &World, (x, y): (i32, i32)) -> bool {
+    let Some(site) = world.nearest_nest_site(x, y).and_then(|i| world.nest_sites.get(i)) else {
+        return false;
+    };
+    y > site.surface && (world.nest_dug.contains(&(x, y)) || site.shaft.is_some_and(|c| c.contains(x, y)))
+}
+
+/// **Held in by [`NestKeep`]'s `stay`**: a nest worker, hungry but not lean,
+/// inside its nest. Neither the way out nor the scout's pull reaches it.
+fn kept_in(world: &World, def: &CreatureDef, state: &crate::sim::organism::OrganismState, head: (i32, i32)) -> bool {
+    nest_keep_of(world).stay && is_nest_bound(world, state) && state.energy < def.start_energy && state.energy >= LEAN_LINE * def.start_energy && kept_inside(world, head)
+}
+
+/// **Where [`NestKeep`]'s `home` pulls a fed nest worker**, or `None` when it
+/// does not: off, not a nest worker, under its grant, holding spoil or crop
+/// food, on its way back to a face it dug ([`dig_return_target`]), or home
+/// already -- inside the nest at the founding chamber's depth or deeper. From
+/// outside the cut the target is the mouth's middle cell, and from the
+/// shaft, the chamber or the nest below the old ground it is the chamber's
+/// floor: a straight pull at the floor from the surface presses an ant into
+/// the ground beside the mouth (`store_route`'s note).
+fn keep_home_target(world: &World, organism: OrganismId, def: &CreatureDef, head: (i32, i32)) -> Option<(i32, i32)> {
+    if !nest_keep_of(world).home || def.home_bias <= 0.0 {
+        return None;
+    }
+    let state = world.organism(organism)?;
+    if !is_nest_bound(world, state) || state.energy < def.start_energy || state.spoil.is_some() || state.crop.is_some_and(|c| c.worth() > 0.0) || state.brood.is_some() {
+        return None;
+    }
+    if dig_return_target(world, def, state).is_some() {
+        return None;
+    }
+    let (ax, ay) = state.forage_anchor;
+    let room = storeroom_near(world, ax, ay)?;
+    let inside = kept_inside(world, head);
+    if inside && head.1 >= room.chamber_top {
+        return None;
+    }
+    Some(if inside || room.contains(head.0, head.1) { room.chamber_floor() } else { ((room.x0 + room.x1) / 2, room.top) })
+}
+
+/// **Where [`NestKeep`]'s `face` sends a nest worker**: back to its face
+/// ([`dig_return_target`]), for a nest worker with no pellet in its jaws;
+/// `None` otherwise, and then [`home_pull`] goes on as before.
+fn keep_face_target(world: &World, def: &CreatureDef, state: &crate::sim::organism::OrganismState) -> Option<(i32, i32)> {
+    if !nest_keep_of(world).face || def.home_bias <= 0.0 || state.spoil.is_some() || !is_nest_bound(world, state) {
+        return None;
+    }
+    dig_return_target(world, def, state)
+}
+
+/// **[`NestKeep`]'s `beg`**: a hungry nest worker inside its nest takes food
+/// from the fullest nestmate touching its body that is over its own grant:
+/// [`SHARE_FRACTION`] of the difference, never taking the giver under its
+/// grant. Billed as a share to the taker, which is the one acting. Grid
+/// owners only: a nestmate riding in a stacked cell is not asked.
+fn nest_keep_beg(world: &mut World, organism: OrganismId, def: &CreatureDef, head: (i32, i32)) -> bool {
+    if !nest_keep_of(world).beg {
+        return false;
+    }
+    let Some(state) = world.organism(organism) else { return false };
+    if !is_nest_bound(world, state) || state.brood.is_some() || state.energy >= def.start_energy || !kept_inside(world, head) {
+        return false;
+    }
+    let mine = state.energy;
+    let gut = gut_of(world, organism, def);
+    let mut best: Option<(OrganismId, f32)> = None;
+    for &(bx, by) in state.chain.iter() {
+        for &(dx, dy) in NEIGHBOURS_8.iter() {
+            let cell = world.get(bx + dx, by + dy);
+            let owner = cell.organism_id();
+            if owner == 0 || owner == organism || !is_living_kin(world, cell, gut) {
+                continue;
+            }
+            let Some(kin) = world.organism(owner).filter(|k| k.brood.is_none()) else { continue };
+            if kin.energy > def.start_energy && kin.energy > mine && best.is_none_or(|(_, e)| kin.energy > e) {
+                best = Some((owner, kin.energy));
+            }
+        }
+    }
+    let Some((donor, theirs)) = best else { return false };
+    let amount = (SHARE_FRACTION * (theirs - mine)).min(theirs - def.start_energy);
+    if amount <= 0.0 {
+        return false;
+    }
+    let frame = world.frame;
+    if let Some(s) = world.organism_mut(donor) {
+        s.energy -= amount;
+        s.last_share_frame = frame;
+    }
+    if let Some(s) = world.organism_mut(organism) {
+        s.energy += amount;
+        s.last_share_frame = frame;
+    }
+    world.creature_stats.shares += 1;
+    world.creature_stats.shared_j += amount as f64;
+    world.creature_stats.keep_begs += 1;
+    world.creature_stats.keep_beg_j += amount as f64;
+    let (giver, taker) = (world.colony_of(donor), world.colony_of(organism));
+    world.book(giver, Account::SharedOut, amount as f64);
+    world.book(taker, Account::SharedIn, amount as f64);
+    true
+}
+
 /// **Where a hungry ant inside its nest is pulled, and how hard**
 /// ([`hungry_out_of`]); `None` for an animal that is fed, carrying, outside
 /// its nest's way in, already at the door, or not let out.
@@ -12563,6 +12755,10 @@ fn hungry_out_pull(world: &World, organism: OrganismId, def: &CreatureDef, head:
         return None;
     }
     if state.energy >= def.start_energy {
+        return None;
+    }
+    // **A nest worker held in** ([`NestKeep`]'s `stay`) is not let out.
+    if kept_in(world, def, state, head) {
         return None;
     }
     // **As hard as the scout would be pulled out** -- its hunger, or at the
@@ -15551,6 +15747,13 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
                 world.creature_stats.share_blends += 1;
             }
         }
+    }
+
+    // **A hungry nest worker begs** ([`NestKeep`]'s `beg`): the taker's
+    // half of the share, rolled by nobody -- touching a full nestmate is
+    // enough. Billed to the taker as a share is to the giver.
+    if nest_keep_beg(world, organism, def, (x, y)) {
+        did.shares += 1; // billed by `creature_tick`
     }
 
     // --- ingest ---------------------------------------------------------
@@ -20580,6 +20783,17 @@ fn home_pull(world: &World, organism: OrganismId, def: &CreatureDef, head: (i32,
     if def.home_bias > 0.0 && ready_to_lay(world, def, state) && !nest_within_reach(world, organism, head.0, head.1, def) {
         return Some((home_target(world, state), def.home_bias));
     }
+    // **A nest worker goes back to its face before the leash can take it**
+    // ([`NestKeep`]'s `face`): the same walk back as below, asked first.
+    if let Some(target) = keep_face_target(world, def, state) {
+        return Some((target, spoil_haul().unwrap_or(1.0)));
+    }
+    // **A fed nest worker with nothing to carry is pulled in, below the old
+    // ground** ([`NestKeep`]'s `home`), ahead of the leash, whose target is
+    // the surface over the door.
+    if let Some(target) = keep_home_target(world, organism, def, head) {
+        return Some((target, def.home_bias));
+    }
     // **A fed nest-bound ant that strays is pulled home** ([`is_nest_bound`]),
     // as a laden ant is, to where it last stood beside the nest.
     if def.home_bias > 0.0
@@ -20657,6 +20871,12 @@ fn home_pull_why(world: &World, organism: OrganismId, def: &CreatureDef, head: (
         }
         if ready_to_lay(world, def, state) && !nest_within_reach(world, organism, head.0, head.1, def) {
             return (PULL_LAY, Some(home_target(world, state)));
+        }
+        if let Some(t) = keep_face_target(world, def, state) {
+            return (PULL_BACK_TO_FACE, Some(t));
+        }
+        if let Some(t) = keep_home_target(world, organism, def, head) {
+            return (PULL_LEASH, Some(t));
         }
         if is_nest_bound(world, state)
             && state.energy >= def.start_energy
@@ -20900,6 +21120,7 @@ fn chooser_step(
         None => {
             let out = hungry_out_pull(world, organism, def, (hx, hy));
             world.creature_stats.hungry_out_pulls += u64::from(out.is_some());
+            world.creature_stats.keep_stays += u64::from(out.is_none() && world.organism(organism).is_some_and(|s| kept_in(world, def, s, (hx, hy))));
             out
         }
     };
@@ -20915,8 +21136,10 @@ fn chooser_step(
         }
     };
     // A nest worker's leash under `NEST_LEASH=deep` never gives up
-    // ([`nest_leash_deep`]).
-    let leashed = nest_leash_deep() && pull.is_some() && nest_leash_holds(world, organism, def);
+    // ([`nest_leash_deep`]), nor [`NestKeep`]'s `home`.
+    let kept_home = pulled_home && pull.is_some_and(|(t, _)| keep_home_target(world, organism, def, (hx, hy)) == Some(t));
+    world.creature_stats.keep_home_pulls += u64::from(kept_home);
+    let leashed = kept_home || (nest_leash_deep() && pull.is_some() && nest_leash_holds(world, organism, def));
     let patience = {
         let state = world.organism_mut(organism).expect("live: its chain was just read");
         match pull {
@@ -21012,8 +21235,12 @@ fn chooser_step(
     // uses it. `None` for a laden ant, one hauling spoil, or one standing on
     // its target.
     let away_from = if mode == Chooser::TrailAway && pull.is_none() && !laden {
-        // A fed nest-bound ant does not take the way out ([`is_nest_bound`]).
-        world.organism(organism).filter(|s| s.spoil.is_none() && !(is_nest_bound(world, s) && s.energy >= def.start_energy)).map(|s| home_target(world, s))
+        // A fed nest-bound ant does not take the way out ([`is_nest_bound`]),
+        // nor a hungry one held in ([`NestKeep`]'s `stay`).
+        world
+            .organism(organism)
+            .filter(|s| s.spoil.is_none() && !(is_nest_bound(world, s) && s.energy >= def.start_energy) && !kept_in(world, def, s, (hx, hy)))
+            .map(|s| home_target(world, s))
     } else {
         None
     };
@@ -29109,6 +29336,93 @@ mod tests {
         assert_eq!(pull(78, 47, true, 0.3, true).1, None, "an ant carrying food was pulled out");
         assert_eq!(pull(90, 39, true, 0.3, false).1, None, "an ant out on the surface was pulled");
         assert_eq!(pull(78, 47, false, 0.3, false).1, None, "with the switch off a hungry ant was pulled");
+    }
+
+    /// **Nest workers are kept in the nest** ([`NestKeep`]), in
+    /// [`rest_world`]'s cut, part by part:
+    ///
+    /// - `stay`: a hungry nest worker in the chamber is given no way out
+    ///   ([`hungry_out_pull`]); the same ant lean, or not a nest worker, or
+    ///   with the switch off, is -- the off arm is the positive control.
+    /// - `beg`: beside a full nestmate it takes a quarter of the difference,
+    ///   and from one barely over its grant only down to that grant; nothing
+    ///   from a nestmate under its grant, nothing on the surface, nothing off.
+    /// - `home`: fed and empty-jawed, on the surface it is pulled to the
+    ///   mouth, in the shaft to the chamber's floor, and in the chamber it is
+    ///   home; hungry, holding spoil, not a nest worker, or off, never.
+    ///
+    /// Watched red with `kept_in`'s lean gate removed (the lean arm stayed
+    /// in), with the beg's cap at the giver's grant removed (the giver ended
+    /// under it), and with `keep_home_target`'s "home" test removed (the ant
+    /// in the chamber was pulled).
+    #[test]
+    fn nest_workers_are_kept_in_and_fed_ones_pulled_home() {
+        let worker = |w: &mut World, a: OrganismId, bound: bool| w.organism_mut(a).expect("live").nest_bound_until = if bound { u64::MAX } else { 0 };
+        let start = |w: &World, a: OrganismId| w.species.get(w.organism(a).expect("live").species).creature.as_ref().expect("a creature").start_energy;
+        // stay
+        let out = |keep: NestKeep, bound: bool, energy: f32| {
+            let (mut w, a) = rest_world(64, 47, false);
+            w.hungry_out = Some(true);
+            w.nest_keep = Some(keep);
+            worker(&mut w, a, bound);
+            let s = start(&w, a);
+            w.organism_mut(a).expect("live").energy = energy * s;
+            let def = w.species.get(w.organism(a).expect("live").species).creature.clone().expect("a creature");
+            let head = w.organism(a).expect("live").chain[0];
+            hungry_out_pull(&w, a, &def, head).is_some()
+        };
+        assert!(out(NestKeep::OFF, true, 0.7), "control: off, a hungry nest worker in the chamber was given no way out");
+        assert!(!out(NestKeep::ON, true, 0.7), "a hungry nest worker was let out");
+        assert!(out(NestKeep::ON, true, 0.3), "a lean nest worker was held in");
+        assert!(out(NestKeep::ON, false, 0.7), "a forager was held in");
+
+        // beg
+        let beg = |keep: NestKeep, taker_at: (i32, i32), mine: f32, theirs: f32, bound: bool| {
+            let (mut w, a) = rest_world(taker_at.0, taker_at.1, false);
+            w.nest_keep = Some(keep);
+            let b = spawn(&mut w, "ant", taker_at.0 + 2, taker_at.1);
+            worker(&mut w, a, bound);
+            let s = start(&w, a);
+            w.organism_mut(a).expect("live").energy = mine * s;
+            w.organism_mut(b).expect("live").energy = theirs * s;
+            let def = w.species.get(w.organism(a).expect("live").species).creature.clone().expect("a creature");
+            let head = w.organism(a).expect("live").chain[0];
+            let begged = nest_keep_beg(&mut w, a, &def, head);
+            (begged, w.organism(a).expect("live").energy / s, w.organism(b).expect("live").energy / s)
+        };
+        let (begged, mine, theirs) = beg(NestKeep::ON, (60, 47), 0.6, 1.8, true);
+        assert!(begged && (mine - 0.9).abs() < 1e-4 && (theirs - 1.5).abs() < 1e-4, "beside a nestmate at 1.8 a worker at 0.6 begged {begged} and ended at {mine}, the giver at {theirs}");
+        let (begged, mine, theirs) = beg(NestKeep::ON, (60, 47), 0.6, 1.1, true);
+        assert!(begged && (mine - 0.7).abs() < 1e-4 && (theirs - 1.0).abs() < 1e-4, "the giver at 1.1 was taken to {theirs}, not to its grant (taker {mine})");
+        assert!(!beg(NestKeep::ON, (60, 47), 0.6, 0.9, true).0, "a worker begged from a nestmate under its grant");
+        assert!(!beg(NestKeep::ON, (60, 47), 0.6, 1.8, false).0, "a forager begged");
+        assert!(!beg(NestKeep::ON, (90, 39), 0.6, 1.8, true).0, "a worker on the surface begged");
+        assert!(!beg(NestKeep::OFF, (60, 47), 0.6, 1.8, true).0, "a worker begged with the switch off");
+
+        // home
+        let home = |keep: NestKeep, at: (i32, i32), energy: f32, bound: bool, spoil: bool| {
+            let (mut w, a) = rest_world(at.0, at.1, false);
+            w.nest_keep = Some(keep);
+            worker(&mut w, a, bound);
+            let s = start(&w, a);
+            w.organism_mut(a).expect("live").energy = energy * s;
+            if spoil {
+                let soil = w.materials.id_of("soil").expect("soil");
+                w.organism_mut(a).expect("live").spoil = Some(crate::sim::organism::Spoil { cell: Cell::new(soil, 0), store: false });
+            }
+            let def = w.species.get(w.organism(a).expect("live").species).creature.clone().expect("a creature");
+            let head = w.organism(a).expect("live").chain[0];
+            keep_home_target(&w, a, &def, head)
+        };
+        assert_eq!(home(NestKeep::ON, (90, 39), 1.2, true, false), Some((60, 40)), "a fed nest worker on the surface was not pulled to the mouth");
+        assert_eq!(home(NestKeep::ON, (60, 43), 1.2, true, false), Some((60, 47)), "a fed nest worker in the shaft was not pulled to the chamber's floor");
+        assert_eq!(home(NestKeep::ON, (64, 47), 1.2, true, false), None, "a fed nest worker in the chamber was pulled: it is home");
+        assert_eq!(home(NestKeep::ON, (90, 39), 0.7, true, false), None, "a hungry nest worker was pulled home");
+        assert_eq!(home(NestKeep::ON, (90, 39), 1.2, false, false), None, "a forager was pulled home");
+        assert_eq!(home(NestKeep::ON, (90, 39), 1.2, true, true), None, "a nest worker holding spoil was pulled home");
+        assert_eq!(home(NestKeep::OFF, (90, 39), 1.2, true, false), None, "a nest worker was pulled home with the switch off");
+        assert_eq!(NestKeep::parse("stay,home"), NestKeep { stay: true, beg: false, home: true, face: false });
+        assert_eq!(NestKeep::parse("on"), NestKeep::ON);
     }
 
     /// [`rest_world`]'s nest dug on down, as a colony digs under its door:
