@@ -12598,9 +12598,15 @@ fn in_nest_for_soil(world: &World, x: i32, y: i32) -> bool {
 /// next cut at the face 13/14/15/13% -> 30/43/34/35%, and with evolution on
 /// (seeds 1 and 3) 12/12% -> 25/29%; but starved deaths rise on 5 of those
 /// 6 runs (7 -> 121 on seed 2, whose colony fell 620 -> 560 with the door
-/// shut 5 of 6 samples), which is why it ships off. Inferred, not traced:
-/// the same broken way-out map that starved [`SoilWay`]'s diggers, since on
-/// the whole map ([`WayGaps`]) it costs nothing measured.
+/// shut 5 of 6 samples), which is why it ships off. **With the way-out map
+/// whole nobody starves:** [`WayGaps`] alone (no soil way), seeds 1-4,
+/// starved 0/1/2/1 -> 0/0/0/5, mean ants 467/504/499/494 ->
+/// 636/583/650/552, next cut at the face 23/21/27/18% -> 60/59/57/61%,
+/// cells ever dug 973/964/950/1,046 -> 1,496/1,302/1,536/1,148. So the
+/// starving points at the same broken map that starved [`SoilWay`]'s
+/// diggers (inferred from this pair, not traced ant by ant), and the switch
+/// wins back most of the colony [`WayGaps`] costs. That pair still digs
+/// 12-34% less new ground than today's nest (1,735/1,825/1,750/1,733).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct FaceTrip {
     pub door: bool,
