@@ -56,7 +56,8 @@
 //! ```
 //!
 //! `scripts/deeptrace.py OUT` reads the result into a life story per ant;
-//! `scripts/deeptrace_dig.py dig|soil|rooms|brood OUT` reads the `dig=1` record.
+//! `scripts/deeptrace_dig.py dig|soil|rooms|brood|journeys|face OUT` reads the
+//! `dig=1` record.
 
 use pixel_physics::lab::scenario::Scenario;
 use pixel_physics::lab::{Lab, HEIGHT, WIDTH};
@@ -1031,6 +1032,14 @@ struct DigPre {
     ahead: &'static str,
     /// Of the head's eight neighbours, how many are ground (`DigLog::is_ground`).
     ground8: u8,
+    /// The face this digger is walking back to (`OrganismState::dig_return`,
+    /// set by a cut inside the nest and cleared on arrival, on giving up, or
+    /// once it holds food or is hungry), and the patience its home pull has
+    /// left (`home_patience`). Added 2026-10-05 for *what pulls a digger off
+    /// its face*: the row where `ret` goes from the cut cell to empty, read
+    /// against what else changed there, says which of those it was.
+    ret: Option<(i32, i32)>,
+    patience: f32,
 }
 
 /// Where a brood item was seen (its cell) and its stage (`BroodStage as u8`,
@@ -1045,7 +1054,9 @@ type BroodSeen = ((i32, i32), u8);
 ///   it was, what it held, the five senses on the dig's wires (with the
 ///   brain's fixed weights a reader can rebuild the urge term by term), and
 ///   how far the dig got (`creature::DigWhy`): not reached, lean, roll lost,
-///   refused by the heap cue or the roof, nothing to cut, or cut.
+///   refused by the heap cue or the roof, nothing to cut, or cut. Last, the
+///   face the ant is walking back to and its home pull's patience
+///   (`ret_x`, `ret_y`, `patience`; see `DigPre::ret`).
 /// - `cuts.csv`: every cut, with the ground round it -- open neighbours,
 ///   ground in the 5x5, whether it joined two spaces that were apart within
 ///   six cells (`local_joins`), the nearest brood, the nestmates within
@@ -1110,7 +1121,7 @@ impl DigLog {
         let mut brood = std::io::BufWriter::new(std::fs::File::create(format!("{out}/brood.csv")).unwrap());
         writeln!(
             rows,
-            "frame,id,age,worker,hx,hy,zone,heading,hold,ahead,ground8,at_nest,crowding,curvature,food_adj,moisture_grad,energy,dig,dig_p,dig_flags,dig_x,dig_y,dig_mat,outcome,moved,hx_after,hy_after"
+            "frame,id,age,worker,hx,hy,zone,heading,hold,ahead,ground8,at_nest,crowding,curvature,food_adj,moisture_grad,energy,dig,dig_p,dig_flags,dig_x,dig_y,dig_mat,outcome,moved,hx_after,hy_after,ret_x,ret_y,patience"
         )
         .unwrap();
         writeln!(cells, "frame,x,y,from,to,cause,id").unwrap();
@@ -1207,6 +1218,8 @@ impl DigLog {
                     zone: zone(w, g, head),
                     ahead: ahead(w, head, st.heading),
                     ground8,
+                    ret: st.dig_return,
+                    patience: st.home_patience,
                 },
             );
         }
@@ -1231,7 +1244,7 @@ impl DigLog {
             let target = r.dig_at != DIG_NO_TARGET;
             writeln!(
                 self.rows,
-                "{f},{},{age},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
+                "{f},{},{age},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
                 r.id,
                 u8::from(p.worker),
                 r.head.0,
@@ -1261,6 +1274,9 @@ impl DigLog {
                 u8::from(r.moved),
                 r.head_after.0,
                 r.head_after.1,
+                p.ret.map_or(String::new(), |c| c.0.to_string()),
+                p.ret.map_or(String::new(), |c| c.1.to_string()),
+                fl(p.patience),
             )
             .unwrap();
             if r.dig == DigWhy::Cut {

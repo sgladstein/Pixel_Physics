@@ -6,6 +6,8 @@ dig, where the soil they cut goes, the rooms it leaves, and every egg.
     python3 scripts/deeptrace_dig.py soil  OUT [OUT...]   # cells.csv.gz
     python3 scripts/deeptrace_dig.py rooms OUT [OUT...]   # nest_f*.txt
     python3 scripts/deeptrace_dig.py brood OUT [OUT...]   # broodlog.csv
+    python3 scripts/deeptrace_dig.py journeys OUT [OUT...]  # cells.csv.gz
+    python3 scripts/deeptrace_dig.py face  OUT [OUT...]   # digrows.csv.gz with ret_x, ret_y
 
 `dig`: every turn taken by an ant standing in the nest (under the old ground
 line), by how far its dig got -- holding soil or food first, then the trace's
@@ -32,8 +34,30 @@ shows it `gone` then `seen`: that gap is time under a walker, not a move. A
 move is any change of cell between two sightings: straight down is a fall,
 anything else a carry.
 
+`journeys`: every pellet set down after 100k, followed cell by cell to where
+it stops, and every cut linked to the pellet its cutter next set down, so one
+piece of soil can be followed across trips. A pellet that falls or slides
+shows as its cell emptying with no cause and a cell within two filling on the
+same frame; the follower chains those, preferring the cell below. Pieces
+falling together in a column are interchangeable (only the top cell empties
+and the bottom one fills), so inside a column it follows the soil, not the
+grain, and a trail ends where no cell within two fills. Prints how much of
+what is set down falls again, how much is dug again, what share of cuts take
+soil set down before (by the trail, and by the cell having been cut before,
+which needs no trail), and how much soil is carried out of the nest against
+back in from the mound.
+
+`face`: every cut under the old ground after 100k, followed to the end of the
+digger's walk back to it (`dig_return`, recorded as `ret_x`, `ret_y` since
+2026-10-05; older runs lack the columns). Each ending is read the way the
+engine clears the walk: food in the crop or energy under half its start
+(which leave no target) before arrival within two cells, then patience under
+0.1; a new cut overwrites the face. Then how often the same ant's next cut is
+at the face.
+
 Written 2026-10-05 for the digging deep dive; the numbers it produced are in
-/mnt/project-files/deep-trace/digging-trace-2026-10-05.md.
+/mnt/project-files/deep-trace/digging-trace-2026-10-05.md, and those from
+`journeys` and `face` in soil-journeys-2026-10-05.md beside it.
 """
 import csv
 import glob
@@ -261,8 +285,177 @@ def brood(out):
     print("  of those that ended, last seen as: " + ", ".join(f"{s} {pct(c, m)}" for s, c in ended.most_common()))
 
 
+# What the goal box's ground is made of: the names a pellet can land as.
+GROUND = {"soil", "packedsoil", "spoil", "sand", "stone", "gravel", "clay"}
+
+
+def follow(out):
+    """Set-down pellets followed to where they stop, and cuts linked to them.
+
+    Returns (nx, gy, pellets, cuts). A pellet: `f0` and `c0` (frame and cell
+    it was set down), `who`, `path` [(frame, cell)], `end` (`dug again`,
+    `lost`, `still there`), `end_f`, `end_at`, and `by` (the cut that took it
+    again). A cut: `f`, `at`, `who`, `prev` (the pellet it took, or None for
+    ground nobody had set down), `pellet` (the one its cutter set down next).
+    """
+    nx, gy = geo(out)
+    by_frame = {}
+    with gzip.open(f"{out}/cells.csv.gz", "rt") as fh:
+        for r in csv.DictReader(fh):
+            by_frame.setdefault(int(r["frame"]), []).append(
+                (int(r["x"]), int(r["y"]), r["from"], r["to"], r["cause"], int(r["id"] or 0)))
+    at, pellets, cuts, last_cut = {}, [], [], {}
+    end = max(by_frame) if by_frame else 0
+    for f in sorted(by_frame):
+        evs = by_frame[f]
+        filled = {(x, y): (c, who) for x, y, fr, to, c, who in evs if fr not in GROUND and to in GROUND}
+        free = {k for k, (c, _) in filled.items() if c == ""}
+        born = [(k, who, last_cut.pop(who, None)) for k, (c, who) in sorted(filled.items()) if c in ("drop", "lift")]
+        moves = []
+        for x, y, fr, to, c, who in evs:
+            if not (fr in GROUND and to not in GROUND):
+                continue
+            p = at.pop((x, y), None)
+            if c == "cut":
+                cuts.append(dict(f=f, at=(x, y), who=who, prev=p))
+                last_cut[who] = len(cuts) - 1
+                if p is not None:
+                    pellets[p].update(end="dug again", end_f=f, end_at=(x, y), by=len(cuts) - 1)
+            elif p is not None:
+                near = [k for k in free if max(abs(k[0] - x), abs(k[1] - y)) <= 2]
+                if not near:
+                    pellets[p].update(end="lost", end_f=f, end_at=(x, y))
+                    continue
+                k = min(near, key=lambda k: (k[1] <= y, max(abs(k[0] - x), abs(k[1] - y)), abs(k[0] - x)))
+                free.discard(k)
+                moves.append((p, k))
+        for p, k in moves:
+            pellets[p]["path"].append((f, k))
+            at[k] = p
+        for k, who, src in born:
+            pellets.append(dict(f0=f, c0=k, who=who, path=[(f, k)], end=None))
+            at[k] = len(pellets) - 1
+            if src is not None:
+                cuts[src]["pellet"] = len(pellets) - 1
+    for k, p in at.items():
+        pellets[p].update(end="still there", end_f=end, end_at=k)
+    return nx, gy, pellets, cuts
+
+
+def journeys(out):
+    nx, gy, P, C = follow(out)
+    inside = lambda c: c[1] > gy
+    print(f"== {os.path.basename(out)}: soil set down after 100k, followed cell by cell (nest = under the old ground)")
+    for name, here in (("nest", inside), ("mound", lambda c: not inside(c))):
+        S = [p for p in P if p["f0"] >= 100000 and here(p["c0"])]
+        fell = [p for p in S if len(p["path"]) > 1]
+        print(f"  set down in the {name}: {len(S)}; fell again {pct(len(fell), len(S))}"
+              f" (median {q([p['path'][1][0] - p['f0'] for p in fell], 0.5)} frames after, {q([len(p['path']) - 1 for p in fell], 0.5)} cells);"
+              f" followed to where it stopped {pct(sum(p['end'] != 'lost' for p in S), len(S))};"
+              f" dug again {pct(sum(p['end'] == 'dug again' for p in S), len(S))}")
+    seen, old = set(), Counter()
+    for c in sorted(C, key=lambda c: c["f"]):
+        if c["f"] >= 100000:
+            old[(inside(c["at"]), c["at"] in seen)] += 1
+        seen.add(c["at"])
+    for name, flag in (("nest", True), ("mound", False)):
+        cs = [c for c in C if c["f"] >= 100000 and inside(c["at"]) == flag]
+        print(f"  cuts in the {name}: {len(cs)}; of soil set down before {pct(sum(c['prev'] is not None for c in cs), len(cs))}"
+              f" (trail), at a cell cut before {pct(old[(flag, True)], len(cs))} (no trail needed)")
+    late = [c for c in C if c["f"] >= 100000 and "pellet" in c]
+    out_ = sum(inside(c["at"]) and not inside(P[c["pellet"]]["c0"]) for c in late)
+    back = sum(not inside(c["at"]) and inside(P[c["pellet"]]["c0"]) for c in late)
+    print(f"  pellets cut in the nest and set down outside it: {out_}; cut outside and set down in the nest: {back}")
+
+
+def face(out):
+    nx, gy = geo(out)
+    cheb = lambda a, b: max(abs(a[0] - b[0]), abs(a[1] - b[1]))
+    walks, open_, waiting, last_row = [], {}, {}, {}
+    with gzip.open(f"{out}/digrows.csv.gz", "rt") as fh:
+        col = {k: n for n, k in enumerate(next(fh).rstrip("\n").split(","))}
+        if "ret_x" not in col:
+            sys.exit(f"{out}: digrows.csv.gz has no ret_x column (recorded before 2026-10-05)")
+        F, I, HX, HY, HX2, HY2 = (col[k] for k in ("frame", "id", "hx", "hy", "hx_after", "hy_after"))
+        HOLD, E, DIG, DX, DY, RX, RY, PAT = (col[k] for k in ("hold", "energy", "dig", "dig_x", "dig_y", "ret_x", "ret_y", "patience"))
+        for line in fh:
+            a = line.rstrip("\n").split(",")
+            f, i = int(a[F]), int(a[I])
+            head, head2 = (int(a[HX]), int(a[HY])), (int(a[HX2]), int(a[HY2]))
+            hold, energy, pat = a[HOLD], float(a[E]), float(a[PAT])
+            ret = (int(a[RX]), int(a[RY])) if a[RX] else None
+            w = open_.get(i)
+
+            def close(why):
+                w.update(end=why, end_f=f)
+                del open_[i]
+                waiting[i] = w
+
+            if w is not None and w["phase"] == "walk":
+                if ret == w["cut"]:
+                    w["prev"] = (head, head2, pat)
+                elif ret is None:
+                    ph, ph2, ppat = w["prev"]
+                    # The engine clears the walk for a missing target (food, hunger)
+                    # before it asks about arrival, so read those first.
+                    if hold == "1":
+                        close("food in its crop")
+                    elif energy < 0.5:
+                        close("too hungry")
+                    elif min(cheb(ph, w["cut"]), cheb(ph2, w["cut"]), cheb(head, w["cut"])) <= 2:
+                        close("got back to its face")
+                    elif ppat < 0.1:
+                        close("gave up (patience ran out)")
+                    else:
+                        close("other")
+            elif w is not None and w["phase"] == "carry":
+                if hold != "2":
+                    w["drop_at"] = head
+                    if ret == w["cut"]:
+                        w.update(phase="walk", prev=(head, head2, pat))
+                    elif not w["ret_seen"] and w["cut"][1] <= gy:
+                        close("cut in the open: no walk back")
+                    elif ret is not None:
+                        close("face changed while carrying")
+                    elif hold == "1":
+                        close("food in its crop")
+                    elif energy < 0.5:
+                        close("too hungry")
+                    elif cheb(head, w["cut"]) <= 2:
+                        close("set down at its face")
+                    else:
+                        close("other")
+                elif ret == w["cut"]:
+                    w["ret_seen"] = True
+            if a[DIG] == "cut":
+                cut = (int(a[DX]), int(a[DY]))
+                w = open_.get(i)
+                if w is not None:
+                    close("cut at its face on the way" if cheb(cut, w["cut"]) <= 2 else "cut somewhere else on the way")
+                p = waiting.pop(i, None)
+                if p is not None:
+                    p["next_cut"] = cut
+                w = dict(cut_f=f, cut=cut, phase="carry", ret_seen=False)
+                open_[i] = w
+                walks.append(w)
+            last_row[i] = f
+    end = max(last_row.values()) if last_row else 0
+    for i, w in open_.items():
+        w["end"] = "still walking at the end" if last_row[i] > end - 100 else "died"
+    nest = [w for w in walks if w["cut_f"] >= 100000 and w["cut"][1] > gy]
+    n = len(nest)
+    print(f"== {os.path.basename(out)}: cuts under the old ground after 100k, by how the walk back to the face ended: {n}")
+    ends = Counter(w["end"] for w in nest)
+    for k, v in ends.most_common():
+        print(f"  {k}: {v} ({pct(v, n)})")
+    nc = [w for w in nest if "next_cut" in w]
+    print(f"  same ant's next cut within 2 cells of this one: {pct(sum(cheb(w['next_cut'], w['cut']) <= 2 for w in nc), len(nc))} of {len(nc)}")
+    back = [w for w in nc if w["end"] in ("got back to its face", "set down at its face")]
+    print(f"  ...after getting back to its face: {pct(sum(cheb(w['next_cut'], w['cut']) <= 2 for w in back), len(back))} of {len(back)}")
+
+
 if __name__ == "__main__":
-    if len(sys.argv) < 3 or sys.argv[1] not in ("dig", "soil", "rooms", "brood"):
+    if len(sys.argv) < 3 or sys.argv[1] not in ("dig", "soil", "rooms", "brood", "journeys", "face"):
         sys.exit(__doc__)
     for out in sys.argv[2:]:
         globals()[sys.argv[1]](out)
