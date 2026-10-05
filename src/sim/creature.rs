@@ -605,6 +605,45 @@ pub enum DropWhy {
 pub const DROP_WHYS: usize = 5;
 pub const DROP_WHY_NAMES: [&str; DROP_WHYS] = ["not_asked", "roll_lost", "placed", "delivered", "no_room"];
 
+/// **What the dig in `act` did this decision**, for the trace only: the
+/// funnel from "may dig" to "cut", so a run can say why an animal that
+/// should dig did not. Written to `DecisionScratch` while a decision log is
+/// running and read by nothing in the simulation; it takes no draw. The
+/// refusals are judged in the order a reader needs, not the code's: a cell
+/// the jaw cannot take is `NoGround` even where the heap cue or the roof
+/// would also have refused it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+#[repr(u8)]
+pub enum DigWhy {
+    /// The dig was not reached: `act` returned before it (food or a pellet
+    /// in the jaws, a feed or a fight this tick).
+    #[default]
+    NotAsked = 0,
+    /// Reached, but the urge was read as 0 because the animal is lean
+    /// (`LeanForage::nodig`); the roll spends its draw and fails.
+    Lean = 1,
+    /// The roll against `Dig` lost.
+    RollLost = 2,
+    /// The roll won and the heap cue refused a cut that opens the ground to
+    /// the sky (`spoil_cue_factor`).
+    Cue = 3,
+    /// The roll won and the roof over the nest refused it (`dig_roof_of`).
+    Roof = 4,
+    /// The roll won and the target was nothing the jaw can take
+    /// (`jaw_can_cut`): open air, a nestmate, brood, food it cannot cut.
+    NoGround = 5,
+    /// A cell was cut.
+    Cut = 6,
+}
+pub const DIG_WHYS: usize = 7;
+pub const DIG_WHY_NAMES: [&str; DIG_WHYS] = ["not_asked", "lean", "roll_lost", "cue", "roof", "no_ground", "cut"];
+/// `DecisionScratch::dig_flags`: what turned or moved the target before it
+/// was judged.
+pub const DIG_FLAG_DOWN: u8 = 1;
+pub const DIG_FLAG_FACED: u8 = 2;
+pub const DIG_FLAG_WIDENED: u8 = 4;
+pub const DIG_FLAG_DOWN_REFUSED: u8 = 8;
+
 /// Which of the forward cone's three candidates a step took -- C3. The index
 /// into `CreatureStats::cone_picks`: heading + `AHEAD_LEFT`, the heading,
 /// heading + `AHEAD_RIGHT`.
@@ -727,7 +766,19 @@ pub struct DecisionScratch {
     /// Whether the chooser read trail B for this decision (it was not laden:
     /// an empty ant, or one carrying a packed lunch, `carries_lunch`).
     pub reads_b: bool,
+    /// **The dig's funnel** ([`DigWhy`]): how far it got, the brain's urge
+    /// before the lean gate (NaN unless the roll was taken), the cell it was
+    /// judged on and that cell's material (`DIG_NO_TARGET` and 0 unless the
+    /// roll won), and [`DIG_FLAG_DOWN`] and friends.
+    pub dig: DigWhy,
+    pub dig_p: f32,
+    pub dig_at: (i32, i32),
+    pub dig_mat: u16,
+    pub dig_flags: u8,
 }
+
+/// `DecisionScratch::dig_at` when no cell was judged.
+pub const DIG_NO_TARGET: (i32, i32) = (i32::MIN, i32::MIN);
 
 impl Default for DecisionScratch {
     fn default() -> Self {
@@ -762,6 +813,11 @@ impl Default for DecisionScratch {
             k: f32::NAN,
             chose: NO_PICK,
             reads_b: false,
+            dig: DigWhy::NotAsked,
+            dig_p: f32::NAN,
+            dig_at: DIG_NO_TARGET,
+            dig_mat: 0,
+            dig_flags: 0,
         }
     }
 }
@@ -902,6 +958,17 @@ pub struct DecisionRow {
     pub k: f32,
     pub chose: u8,
     pub reads_b: bool,
+    /// The two senses on the dig's own wires that the row did not carry
+    /// (`SurfaceCurvature`, `MoistureGrad`), so with `at_nest`, `crowding`
+    /// and `food_adjacent` above a reader can rebuild the urge term by term.
+    pub curvature: f32,
+    pub moisture_grad: f32,
+    /// The dig's funnel: see `DecisionScratch::dig`.
+    pub dig: DigWhy,
+    pub dig_p: f32,
+    pub dig_at: (i32, i32),
+    pub dig_mat: u16,
+    pub dig_flags: u8,
 }
 
 fn worm_tick(world: &mut World, x: i32, y: i32, organism: OrganismId) -> Vec<ActiveSite> {
@@ -7832,6 +7899,13 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
             k: sc.k,
             chose: sc.chose,
             reads_b: sc.reads_b,
+            curvature: inputs[I::SurfaceCurvature as usize],
+            moisture_grad: inputs[I::MoistureGrad as usize],
+            dig: sc.dig,
+            dig_p: sc.dig_p,
+            dig_at: sc.dig_at,
+            dig_mat: sc.dig_mat,
+            dig_flags: sc.dig_flags,
         };
         if let Some(log) = world.decision_log.as_mut() {
             log.push(row);
@@ -14131,14 +14205,19 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
     use brain::BrainOutput as O;
     let crop = world.organism(organism).and_then(|s| s.crop);
     let mut dig_urge = outputs[O::Dig as usize].clamp(0.0, 1.0);
+    // The trace's `dig_p` is the brain's urge, before the lean gate below
+    // takes it away, so a lean animal's row still says how much it wanted to.
+    let brain_dig_urge = dig_urge;
     // **A lean ant does not dig** (`LeanForage::nodig`): the urge is read as
     // 0, so the roll below still spends its draw and fails.
     let lean = {
         let lf = lean_forage_of(world);
         lf.on && world.organism(organism).is_some_and(|s| lf.lean(s.energy, def))
     };
+    let mut lean_took_dig = false;
     if lean && lean_forage_of(world).nodig && dig_urge > 0.0 {
         dig_urge = 0.0;
+        lean_took_dig = true;
         world.creature_stats.lean_digs_skipped += 1;
     }
     let dig_urge = dig_urge;
@@ -15641,7 +15720,16 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
     // moisture_gradient(..))`, the inverse coefficient of the drop's, so
     // excavation ran toward wetter ground by a rule no lineage could alter.
     // It is `(MoistureGrad, Dig, w)` now, with the sign free.
-    if draw.unit_f32() < dig_urge {
+    //
+    // **The roll is drawn into a local so the trace can book it**, and is
+    // still the one draw it always was, taken at the same point.
+    let dig_roll = draw.unit_f32();
+    if world.decision_log.is_some() {
+        let sc = &mut world.decision_scratch;
+        sc.dig = if lean_took_dig { DigWhy::Lean } else { DigWhy::RollLost };
+        sc.dig_p = brain_dig_urge;
+    }
+    if dig_roll < dig_urge {
         // **Before any of the target tests below**, which is what makes it
         // the "it fired" half of the pair: a roll counted only once a cell
         // came out would be `digs` again under another name. See
@@ -15683,6 +15771,9 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
                 // else in the stream.
                 if !way_down(world, def, organism, x, y) {
                     world.creature_stats.digs_down_refused += 1;
+                    if world.decision_log.is_some() {
+                        world.decision_scratch.dig_flags |= DIG_FLAG_DOWN_REFUSED;
+                    }
                 } else if dd.w >= 1.0 || draw.unit_f32() < dd.w {
                     if let Some(state) = world.organism_mut(organism) {
                         state.heading = turned;
@@ -15690,6 +15781,7 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
                     world.creature_stats.digs_aimed_down += 1;
                     if world.decision_log.is_some() {
                         world.decision_scratch.dig_turned = true;
+                        world.decision_scratch.dig_flags |= DIG_FLAG_DOWN;
                     }
                 }
             }
@@ -15708,6 +15800,9 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
         if let Some(side) = widen_to {
             (tx, ty) = side;
             world.creature_stats.digs_widened += 1;
+            if world.decision_log.is_some() {
+                world.decision_scratch.dig_flags |= DIG_FLAG_WIDENED;
+            }
         }
         // **...and a digger inside the nest that faces no ground turns to the
         // nearest face** ([`dig_face_of`]): open air or a nestmate ahead, it
@@ -15721,9 +15816,16 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
                 let (fx, fy) = DIRS[h as usize];
                 (tx, ty) = (x + fx, y + fy);
                 world.creature_stats.digs_faced += 1;
+                if world.decision_log.is_some() {
+                    world.decision_scratch.dig_flags |= DIG_FLAG_FACED;
+                }
             }
         }
         let target = world.get(tx, ty);
+        if world.decision_log.is_some() {
+            world.decision_scratch.dig_at = (tx, ty);
+            world.decision_scratch.dig_mat = target.material.0;
+        }
         // **A heap draws where digging starts** ([`SpoilCue`], on since
         // 2026-09-28, [`spoil_cue_of`]): a cut that would open the ground to the sky goes
         // ahead with probability `f`, the heap factor for the pellets beside
@@ -15741,7 +15843,7 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
         // and there the cue counts for only [`door_cue_weight`] of itself --
         // nothing, at the shipped allele, and then no draw is taken.
         let door_w = door_cue_weight(world, organism, (tx, ty));
-        let vetoed = match spoil_cue_of(world).filter(|_| door_w != Some(0.0)) {
+        let cue_vetoed = match spoil_cue_of(world).filter(|_| door_w != Some(0.0)) {
             Some(cue) => {
                 let radius = curvature_radius_of(def, &traits_of(world, organism, def)).max(1);
                 match spoil_cue_factor(world, (x, y), (tx, ty), radius, cue) {
@@ -15759,20 +15861,35 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
         // **A roof over the nest** ([`dig_roof_of`], off): a cut into the
         // ground just under a nest's surface, outside its door, is refused,
         // so the crust over the nest stays whole and the chambers go below it.
-        // No draw either way.
-        let vetoed = vetoed || {
+        // No draw either way. Judged only where the heap cue let the cut
+        // through, as it always was; the two are named apart for the trace.
+        let roof_refused = !cue_vetoed && {
             let refused = dig_roof_of(world).is_some_and(|rows| under_roof(world, (tx, ty), rows));
             if refused {
                 world.creature_stats.digs_refused_roof += 1;
             }
             refused
         };
+        let vetoed = cue_vetoed || roof_refused;
         // **What the jaw can take is [`jaw_can_cut`]**, one test shared with
         // the dig-down turn above so the two cannot drift apart; the argument
         // for each of its terms is there. A live seed is still counted here,
         // at the cut, as it always was.
         if is_live_seed(target) {
             world.dig_diverted_seed += 1;
+        }
+        // The trace's verdict, `NoGround` first ([`DigWhy`]): `jaw_can_cut`
+        // reads the world and changes nothing, so asking it twice is free.
+        if world.decision_log.is_some() {
+            world.decision_scratch.dig = if !jaw_can_cut(world, def, organism, target) {
+                DigWhy::NoGround
+            } else if cue_vetoed {
+                DigWhy::Cue
+            } else if roof_refused {
+                DigWhy::Roof
+            } else {
+                DigWhy::Cut
+            };
         }
         if !vetoed && jaw_can_cut(world, def, organism, target) {
             // **The spoil is picked up, not destroyed.** This line read
@@ -33250,6 +33367,15 @@ mod tests {
         assert_eq!(count(&|r| matches!(r.drop, DropWhy::Placed | DropWhy::Delivered)), after.drops - before.drops, "placed+delivered rows against `drops`");
         assert_eq!(count(&|r| r.drop == DropWhy::Delivered), after.deliveries - before.deliveries, "delivered rows against `deliveries`");
         assert_eq!(count(&|r| r.drop_reach >= 2), after.drops_passed_on - before.drops_passed_on, "handed-on rows against `drops_passed_on`");
+        // The dig's funnel (`DigWhy`) against the dig's own two counters,
+        // which are incremented at the roll and at the cut: every row the
+        // funnel took past the roll is a won roll, and every cut row a cell.
+        assert_eq!(
+            count(&|r| matches!(r.dig, DigWhy::Cue | DigWhy::Roof | DigWhy::NoGround | DigWhy::Cut)),
+            after.dig_rolls - before.dig_rolls,
+            "won dig rows against `dig_rolls`"
+        );
+        assert_eq!(count(&|r| r.dig == DigWhy::Cut), after.digs - before.digs, "cut rows against `digs`");
         for (i, name) in CONE_PICK_NAMES.iter().enumerate() {
             assert_eq!(count(&|r| r.pick as usize == i), after.cone_picks[i] - before.cone_picks[i], "cone `{name}` rows against `cone_picks`");
         }
@@ -33283,6 +33409,14 @@ mod tests {
                 }
             }
             assert_eq!(r.drop_reach != 0, matches!(r.drop, DropWhy::Placed | DropWhy::Delivered), "a reach is recorded exactly when food went down: {r:?}");
+            // The dig's fields agree with how far it got: an urge exactly when
+            // the roll was drawn, a target exactly when the roll won.
+            assert_eq!(r.dig == DigWhy::NotAsked, r.dig_p.is_nan(), "a dig urge is recorded exactly when the roll was drawn: {r:?}");
+            assert_eq!(
+                r.dig_at == DIG_NO_TARGET,
+                matches!(r.dig, DigWhy::NotAsked | DigWhy::Lean | DigWhy::RollLost),
+                "a dig target is recorded exactly when the roll won: {r:?}"
+            );
             // The cone chose exactly when a step was taken, and the step went
             // where the pick says: the heading it names, and the head moved
             // one cell along it.
@@ -33324,6 +33458,8 @@ mod tests {
             ("with a drop rolled", count(&|r| r.drop != DropWhy::NotAsked)),
             ("with the homeward re-roll fired", count(&|r| fired(r))),
             ("stepped to a side", count(&|r| r.pick == 0 || r.pick == 2)),
+            ("with a dig roll lost", count(&|r| r.dig == DigWhy::RollLost)),
+            ("with a cell cut", count(&|r| r.dig == DigWhy::Cut)),
         ] {
             assert!(n > 0, "no decision {what} on this bed, so the checks on it are vacuous");
         }
