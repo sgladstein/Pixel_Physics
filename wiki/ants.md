@@ -1,6 +1,6 @@
 # Ants
 
-*Current as of: 2026-10-05, when **soil started leaving the nest by its passages and diggers started going back to their own face** (see *One door, and a granary under it*); 2026-10-04, when **a hungry ant deep in the nest started finding its way out** (see *One door, and a granary under it*), when **ants in the lab started out half way to plant-eaters** (see *New ants, and why you will not see any yet*), when **ants started walking across puddles** (see *Coming home*) and when **a colony stopped sealing its own door with packed soil** (see *One door, and a granary under it*); 2026-10-03, when **a hungry ant started putting its digging down to go and eat.** A colony beside endless food used to grow to a few hundred and then starve at home all at once, the food untouched: its hungry foragers were still digging and carrying soil, and an ant holding soil cannot eat or fetch food. Now an ant under half its fill stops digging, sets its soil down where it stands, and goes out on its own hunger, and those colonies live. Also 2026-10-03, when **a colony started keeping its own door open** (see *One door, and a granary under it*), and when **the lab's other animals started ageing like the ant** (see *Ants get old and die of it*); 2026-10-02, when **the whole dug nest became home and
+*Current as of: 2026-10-05, when **soil started leaving the nest by its passages and diggers started going back to their own face**, and when **the heap over the nest became a solid cone with one lined way through it** (both in *One door, and a granary under it*); 2026-10-04, when **a hungry ant deep in the nest started finding its way out** (see *One door, and a granary under it*), when **ants in the lab started out half way to plant-eaters** (see *New ants, and why you will not see any yet*), when **ants started walking across puddles** (see *Coming home*) and when **a colony stopped sealing its own door with packed soil** (see *One door, and a granary under it*); 2026-10-03, when **a hungry ant started putting its digging down to go and eat.** A colony beside endless food used to grow to a few hundred and then starve at home all at once, the food untouched: its hungry foragers were still digging and carrying soil, and an ant holding soil cannot eat or fetch food. Now an ant under half its fill stops digging, sets its soil down where it stands, and goes out on its own hunger, and those colonies live. Also 2026-10-03, when **a colony started keeping its own door open** (see *One door, and a granary under it*), and when **the lab's other animals started ageing like the ant** (see *Ants get old and die of it*); 2026-10-02, when **the whole dug nest became home and
 food started gathering in piles** (see *One door, and a granary under it*),
 when **new ants started as eggs, laid only at
 home** (see *New ants*), and when **an ant started holding on to a nestmate
@@ -1023,8 +1023,19 @@ mister off, on four boxes, the door was shut a quarter as often and three of
 the four colonies were several times larger. Keeping the soil heap off the
 door as well, sending shut-out ants to dig back in, and keeping soil off
 crumbs did not help further. Wood ants carry away what falls over their
-entrances. What is not right yet: the colony still tunnels into its own heap
-and lives there, so the heap over the nest is a honeycomb, not a cone.
+entrances.
+
+**The heap over the nest is a cone now, not a honeycomb** (since
+2026-10-05). The colony used to tunnel into its own heap of dug soil and
+live in it. Now an ant does not dig into that heap except right over the
+door, and the heap is never pressed into wall, so it stays a loose cone of
+dirt, as real ants' spoil heaps are. The one way through it is different:
+its walls are pressed hard. Without that, the loose cone kept sliding into
+its own doorway and sealing the nest, and the ants shut inside starved,
+many still holding the soil they had been clearing. With the walls pressed
+the colony never gets shut out, its underground nest is a little bigger,
+and the colony is about a quarter smaller than when it lived in the heap;
+most of the extra hunger is while the colony is young.
 
 ### They lay two scents, and the two do not keep
 

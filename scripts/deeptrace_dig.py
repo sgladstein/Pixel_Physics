@@ -114,11 +114,11 @@ def pct(a, b):
 
 
 WINDOWS = [(6000, 50000, "6-50k"), (50000, 100000, "50-100k"), (100000, 10**9, "100k-end")]
-FUNNEL = ["lean", "soil", "food", "not_asked", "roll_lost", "met_brood", "met_ant", "met_air", "met_other", "cue", "face", "roof", "cut"]
+FUNNEL = ["lean", "soil", "food", "not_asked", "roll_lost", "met_brood", "met_ant", "met_air", "met_other", "cue", "mound", "face", "roof", "cut"]
 LABEL = {
     "lean": "too hungry", "soil": "holding soil", "food": "food in crop", "not_asked": "not asked",
     "roll_lost": "lost the roll", "met_brood": "jaw met brood", "met_ant": "jaw met an ant", "met_air": "jaw met air",
-    "met_other": "jaw met other", "cue": "heap cue", "face": "off its face (FACE_TRIP)", "roof": "roof", "cut": "cut",
+    "met_other": "jaw met other", "cue": "heap cue", "mound": "heap over the nest (SOLID_MOUND)", "face": "off its face (FACE_TRIP)", "roof": "roof", "cut": "cut",
 }
 
 
