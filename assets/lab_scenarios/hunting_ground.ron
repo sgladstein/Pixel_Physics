@@ -15,6 +15,14 @@
 // half; raised to 20 cells (19,200, 61.5% -- the same margin `the_bank.ron`
 // runs at) so a room that also loses ants to a beetle is not starving on
 // top of that.
+//
+// **The ant's gut is pinned to `ant.ron`'s own 0**, since 2026-10-05, when
+// a lab box began founding the evolved ant (`scene::LAB_ANT_TRAITS`, gut
+// -0.8). At -0.8 a beetle is not food: its cells pay under
+// `creature::EAT_YIELD_THRESHOLD`, so `is_visible_prey` never sees one and
+// `PreyNear` reads 0 whatever the eye -- the line this scenario exists to
+// turn on. The question is about an ant that eats beetles, so the scenario
+// founds one. The rest of the evolved body stays.
 (
     name: "hunting_ground",
     title: "HUNTING GROUND",
@@ -37,6 +45,7 @@
     ),
     settings: [
         (subject: "ant", field: "sight_range", value: 32),
+        (subject: "ant", field: "gut_bias", value: 0),
     ],
     placements: [
         Colony(species: "ant", x: 120, count: 52),
