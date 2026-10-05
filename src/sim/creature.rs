@@ -766,6 +766,20 @@ pub struct DecisionScratch {
     /// Whether the chooser read trail B for this decision (it was not laden:
     /// an empty ant, or one carrying a packed lunch, `carries_lunch`).
     pub reads_b: bool,
+    /// **Which pull steered this decision, where to, and how hard**
+    /// ([`PULL_WHY_NAMES`]): `home_pull`'s branch, the hungry ant's way out
+    /// or the rest pull, in the order `chooser_step` asks them; its target;
+    /// and the home term's weight as scored (`HOME_GAIN` x the pull's gain x
+    /// patience, 0 with no pull). [`PULL_NOT_SCORED`], [`DIG_NO_TARGET`] and
+    /// NaN when the chooser did not choose. Added 2026-10-05 for the trace of
+    /// why fed ants keep to the lane under the door.
+    pub pull_why: u8,
+    pub pull_at: (i32, i32),
+    pub pull_gain: f32,
+    /// The brain's `Persist` as the chooser scaled it (`unit_scale` to
+    /// `PERSIST_MAX`), so a reader can split each score into its terms. NaN
+    /// when the chooser did not choose.
+    pub persist: f32,
     /// **The dig's funnel** ([`DigWhy`]): how far it got, the brain's urge
     /// before the lean gate (NaN unless the roll was taken), the cell it was
     /// judged on and that cell's material (`DIG_NO_TARGET` and 0 unless the
@@ -779,6 +793,41 @@ pub struct DecisionScratch {
 
 /// `DecisionScratch::dig_at` when no cell was judged.
 pub const DIG_NO_TARGET: (i32, i32) = (i32::MIN, i32::MIN);
+
+/// [`DecisionScratch::pull_why`]: the chooser did not choose (a lost roll,
+/// or a walk that is not the chooser's).
+pub const PULL_NOT_SCORED: u8 = 0;
+/// No pull: nothing to take home, not hungry inside, no rest.
+pub const PULL_NONE: u8 = 1;
+/// `home_pull`'s branches, in its order ([`home_pull_why`]).
+pub const PULL_STORE: u8 = 2;
+pub const PULL_LAY: u8 = 3;
+pub const PULL_LEASH: u8 = 4;
+pub const PULL_SPOIL_HAUL: u8 = 5;
+pub const PULL_BACK_TO_FACE: u8 = 6;
+pub const PULL_HUNGRY_HOME: u8 = 7;
+pub const PULL_LADEN: u8 = 8;
+/// [`hungry_out_pull`] and [`rest_pull`], asked after `home_pull`.
+pub const PULL_HUNGRY_OUT: u8 = 9;
+pub const PULL_REST: u8 = 10;
+/// `home_pull` pulled and [`home_pull_why`] named a branch with another
+/// target: the mirror has drifted from `home_pull`.
+pub const PULL_MISMATCH: u8 = 11;
+/// [`DecisionScratch::pull_why`]'s names, by value.
+pub const PULL_WHY_NAMES: [&str; 12] = [
+    "not scored",
+    "none",
+    "store trip",
+    "walk home to lay",
+    "nest worker leash",
+    "spoil haul",
+    "back to the face",
+    "hungry home",
+    "laden home",
+    "hungry out",
+    "rest",
+    "mismatch",
+];
 
 impl Default for DecisionScratch {
     fn default() -> Self {
@@ -813,6 +862,10 @@ impl Default for DecisionScratch {
             k: f32::NAN,
             chose: NO_PICK,
             reads_b: false,
+            pull_why: PULL_NOT_SCORED,
+            pull_at: DIG_NO_TARGET,
+            pull_gain: f32::NAN,
+            persist: f32::NAN,
             dig: DigWhy::NotAsked,
             dig_p: f32::NAN,
             dig_at: DIG_NO_TARGET,
@@ -969,6 +1022,12 @@ pub struct DecisionRow {
     pub dig_at: (i32, i32),
     pub dig_mat: u16,
     pub dig_flags: u8,
+    /// The pull and the persistence the chooser scored with: see
+    /// `DecisionScratch::pull_why` and `DecisionScratch::persist`.
+    pub pull_why: u8,
+    pub pull_at: (i32, i32),
+    pub pull_gain: f32,
+    pub persist: f32,
 }
 
 fn worm_tick(world: &mut World, x: i32, y: i32, organism: OrganismId) -> Vec<ActiveSite> {
@@ -7906,6 +7965,10 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
             dig_at: sc.dig_at,
             dig_mat: sc.dig_mat,
             dig_flags: sc.dig_flags,
+            pull_why: sc.pull_why,
+            pull_at: sc.pull_at,
+            pull_gain: sc.pull_gain,
+            persist: sc.persist,
         };
         if let Some(log) = world.decision_log.as_mut() {
             log.push(row);
@@ -19730,6 +19793,61 @@ fn home_pull(world: &World, organism: OrganismId, def: &CreatureDef, head: (i32,
     }
 }
 
+/// **Which of [`home_pull`]'s branches pulls, and to where -- for the
+/// decision trace only** ([`DecisionScratch::pull_why`]). A mirror of
+/// `home_pull`'s order: `chooser_step` books [`PULL_MISMATCH`] when its target
+/// is not `home_pull`'s, so a branch added there and not here shows in the
+/// trace rather than wearing a wrong name. Read only while the trace is on.
+fn home_pull_why(world: &World, organism: OrganismId, def: &CreatureDef, head: (i32, i32)) -> (u8, Option<(i32, i32)>) {
+    let Some(state) = world.organism(organism) else {
+        return (PULL_NONE, None);
+    };
+    if def.home_bias > 0.0 {
+        if let Some(t) = store_target(world, state)
+            .or_else(|| harvest_target(world, state))
+            .or_else(|| store_return_target(world, state))
+        {
+            return (PULL_STORE, Some(t));
+        }
+        if ready_to_lay(world, def, state) && !nest_within_reach(world, organism, head.0, head.1, def) {
+            return (PULL_LAY, Some(home_target(world, state)));
+        }
+        if is_nest_bound(world, state)
+            && state.energy >= def.start_energy
+            && state.spoil.is_none()
+            && state.crop.is_none_or(|c| c.worth() <= 0.0)
+            && !nest_within_reach(world, organism, head.0, head.1, def)
+        {
+            if nest_leash_off() {
+                return (PULL_NONE, None);
+            }
+            let (ax, ay) = state.forage_anchor;
+            let deep = nest_leash_deep()
+                .then(|| storeroom_near(world, ax, ay))
+                .flatten()
+                .map(|room| room.chamber_floor());
+            return (PULL_LEASH, Some(deep.unwrap_or_else(|| home_target(world, state))));
+        }
+    }
+    if spoil_haul().is_some() && state.spoil.is_some() {
+        return (PULL_SPOIL_HAUL, spoil_haul_target(world, state, head));
+    }
+    if def.home_bias <= 0.0 {
+        return (PULL_NONE, None);
+    }
+    if let Some(t) = dig_return_target(world, def, state) {
+        return (PULL_BACK_TO_FACE, Some(t));
+    }
+    if state.crop.is_none_or(|c| c.worth() <= 0.0) || carries_lunch(world, state) {
+        return if state.hungry_home && state.spoil.is_none() {
+            (PULL_HUNGRY_HOME, Some(hungry_target(world, state)))
+        } else {
+            (PULL_NONE, None)
+        };
+    }
+    (PULL_LADEN, Some(home_target(world, state)))
+}
+
 /// The support check and fall of `fall_if_unsupported`, for a caller that
 /// has not already read the body.
 fn fall_now_if_unsupported(world: &mut World, organism: OrganismId, def: &CreatureDef) -> bool {
@@ -19905,6 +20023,7 @@ fn chooser_step(
     // The home memory, started again whenever the target is new, and cleared
     // whenever there is nothing to take home.
     let pull = home_pull(world, organism, def, (hx, hy));
+    let pulled_home = pull.is_some();
     // **Hungry inside: the way out** ([`hungry_out_of`]) -- only where
     // nothing above pulled. It and the rest pull never both fire: one wants
     // an ant under its grant that something lets out, the other an ant the
@@ -19917,6 +20036,7 @@ fn chooser_step(
             out
         }
     };
+    let pulled_out = !pulled_home && pull.is_some();
     // **Nothing else to do: rest inside** ([`nest_rest_of`]) -- only where
     // nothing above pulled, so every other trip keeps its own target.
     let pull = match pull {
@@ -20199,7 +20319,23 @@ fn chooser_step(
             opts |= 1 << d;
             score_by[d as usize] = scores[i];
         }
+        let pull_why = if pulled_home {
+            match home_pull_why(world, organism, def, (hx, hy)) {
+                (why, Some(t)) if pull.is_some_and(|(p, _)| p == t) => why,
+                _ => PULL_MISMATCH,
+            }
+        } else if pulled_out {
+            PULL_HUNGRY_OUT
+        } else if pull.is_some() {
+            PULL_REST
+        } else {
+            PULL_NONE
+        };
         let s = &mut world.decision_scratch;
+        s.pull_why = pull_why;
+        s.pull_at = pull.map_or(DIG_NO_TARGET, |(t, _)| t);
+        s.pull_gain = gain;
+        s.persist = persist;
         s.patience = patience;
         s.chosen_cos = picked_cos;
         s.chosen_route = picked_route;
@@ -33446,6 +33582,18 @@ mod tests {
             assert!(on_rows.iter().any(|r| r.emit_b_laid > 0), "{mode:?}: no traced decision laid trail B");
             if mode == Chooser::TrailAway {
                 assert!(on_rows.iter().any(|r| r.opts != 0 && r.score.iter().any(|v| v.is_finite())), "{mode:?}: no chooser options were traced");
+                // The pull each scored decision was scored with
+                // (`DecisionScratch::pull_why`): never a branch whose target
+                // is not `home_pull`'s (`home_pull_why` is a mirror of it),
+                // and the laden branch exercised, or the check is vacuous.
+                assert!(
+                    !on_rows.iter().any(|r| r.pull_why == PULL_MISMATCH),
+                    "{mode:?}: home_pull_why named a branch home_pull did not take"
+                );
+                assert!(
+                    on_rows.iter().any(|r| r.pull_why == PULL_LADEN),
+                    "{mode:?}: no laden pull was traced, so the mirror's laden branch is untested here"
+                );
             }
             assert_eq!(off, on, "{mode:?}: turning the decision trace on changed the world it records");
         }

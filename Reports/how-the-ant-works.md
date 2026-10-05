@@ -5,7 +5,7 @@ every tick, how each mechanism is implemented, and what it reads.** It is
 written from the source and describes the code as it is now, not as it was or
 will be.
 
-- **Verified against:** `main` at `bb65d507`, 2026-09-22; §5 step 6's doorway sentence and §12's `DOOR_LOOSE` row 2026-10-04 against `door_loose_of`, `in_a_passage` and `pack_neighbours_with`; §6d's way-out paragraph and §12's `HUNGRY_OUT` row 2026-10-04 against `hungry_out_of`, `hungry_out_pull`, `step_nest_rest` and `chooser_step`; §6d step 5's search sentence and §12's `HOME_SEARCH` row 2026-10-04 against `home_search_of`, `home_search_reach` and `chooser_step`; §2's support and foothold bullets and §12's `WATER_FOOTING` row 2026-10-04 against `water_footing_of`, `stands_on_water`, `head_has_foothold`, `fall_if_unsupported` and `commit_step`; §5 step 6, the walked cycle's lean carrier, §6d's lean exception to the throttle and §12's `LEAN_FORAGE` row 2026-10-03 against `LeanForage`, `lean_drop_site` and `outward_want`; §9's spread and nurse sentences, §6d's nurse paragraph and §12's `BROOD_SPREAD` and `NURSE_SEEK` rows 2026-10-04 against `brood::spread`, `brood::larva_scent`, `brood::nurse` and `chooser_step`; §9's crop sentence, §6d's carrier paragraph and §12's `CROP_NURSE` row 2026-10-04 against `brood::crop_feed`, `creature::crop_to_feed`, `yield_of` and `chooser_step`; §9's egg-rule sentence and §12's `EGG_DOOR` and `BROOD_CARRY` rows 2026-10-03 against `brood::EggBar`, `pile_site` and `carry`; §5 step 3's defended-plant sentence 2026-10-03 against `deterred_by_defence` and `food_value`; §2's support
+- **Verified against:** `main` at `bb65d507`, 2026-09-22; §15's pull bullet and its guard 2026-10-05 against `home_pull_why`, `home_pull`, `hungry_out_pull`, `rest_pull` and `chooser_step`; §5 step 6's doorway sentence and §12's `DOOR_LOOSE` row 2026-10-04 against `door_loose_of`, `in_a_passage` and `pack_neighbours_with`; §6d's way-out paragraph and §12's `HUNGRY_OUT` row 2026-10-04 against `hungry_out_of`, `hungry_out_pull`, `step_nest_rest` and `chooser_step`; §6d step 5's search sentence and §12's `HOME_SEARCH` row 2026-10-04 against `home_search_of`, `home_search_reach` and `chooser_step`; §2's support and foothold bullets and §12's `WATER_FOOTING` row 2026-10-04 against `water_footing_of`, `stands_on_water`, `head_has_foothold`, `fall_if_unsupported` and `commit_step`; §5 step 6, the walked cycle's lean carrier, §6d's lean exception to the throttle and §12's `LEAN_FORAGE` row 2026-10-03 against `LeanForage`, `lean_drop_site` and `outward_want`; §9's spread and nurse sentences, §6d's nurse paragraph and §12's `BROOD_SPREAD` and `NURSE_SEEK` rows 2026-10-04 against `brood::spread`, `brood::larva_scent`, `brood::nurse` and `chooser_step`; §9's crop sentence, §6d's carrier paragraph and §12's `CROP_NURSE` row 2026-10-04 against `brood::crop_feed`, `creature::crop_to_feed`, `yield_of` and `chooser_step`; §9's egg-rule sentence and §12's `EGG_DOOR` and `BROOD_CARRY` rows 2026-10-03 against `brood::EggBar`, `pile_site` and `carry`; §5 step 3's defended-plant sentence 2026-10-03 against `deterred_by_defence` and `food_value`; §2's support
   bullet and §12's `KIN_FOOTING` row 2026-10-02 against `fall_if_unsupported`,
   `touches_ground` and `held_by_kin`; §5 step 2's top-up,
   §6d's throttle paragraph and §12's two rows 2026-10-02 against
@@ -1410,6 +1410,17 @@ is on, every walking decision, the move stage of `creature_tick`, pushes one
 - under the chooser (§6d), the patience it scored with and the home cosine
   of the heading it picked, and under stage 2 that heading's trail presence
   (`chosen_route`).
+- under the chooser, which pull it scored with (`pull_why`, named by
+  `PULL_WHY_NAMES`: one of `home_pull`'s branches -- store trip, walk home to
+  lay, nest worker leash, spoil haul, back to the face, hungry home, laden
+  home -- or the hungry ant's way out, the rest pull, or none), that pull's
+  target (`pull_at`), the home term's weight as scored (`pull_gain`: the
+  home gain × the pull's own gain × patience, 0 with no pull) and the
+  persistence (`persist`), so every option's score splits into persistence
+  × turn preference × trail hold, the side term and the pull.
+  `home_pull_why` names the branch by mirroring `home_pull`'s order, read
+  only while the trace is on; a branch whose target is not the one
+  `home_pull` returned is booked `mismatch`.
 - the animal's energy in joules (`energy_j`: `energy` is the clamped input),
   the forage drive it felt (`drive`, NaN when off or carrying), and scouting
   as the chooser scored it (`scout_w`, `scout_patience`, `scout_home`).
@@ -1434,7 +1445,9 @@ are always on.
   same tick.
 - **Guards:**
   - `the_decision_trace_changes_nothing_it_watches` compares a whole bed
-    with it on and off;
+    with it on and off, and checks no scored decision's pull is booked
+    `mismatch` and the laden branch is exercised (red with the mirror's
+    laden target broken);
   - `the_setting_class_reads_the_ground_the_ant_stands_on` checks the
     classifier on three known terrains;
   - `every_traced_decision_agrees_with_the_counters_and_the_positions`
