@@ -2481,9 +2481,10 @@ coming home with food in its crop hands the whole crop to a young nestmate
 at the door, or to one standing deeper inside. That young ant keeps it,
 follows the smell of hungry larvae down into the nest and feeds them, and
 having fed one it stays at home a while longer. About half as many larvae
-starve as before. It has a price that is still being looked into: grown
-foragers go hungry more often, some starve out on the surface, and a
-colony takes longer to grow, though it catches up.
+starve as before. It has a price that is still being looked into: many
+grown ants live on the spoil heap by the door, fed by carriers passing
+through, and with the food now going below they go hungry and some
+starve; a colony takes longer to grow, though it catches up.
 
 ## Feeding each other, and resting
 
