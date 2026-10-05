@@ -41,9 +41,14 @@ studies:
   measured that starving colony. `PIXEL_PHYSICS_LAB_ANT_GUT=ancestral` puts
   the old gut back. **The half-plant colony still declines past about
   100,000 frames** with mutation off (goal box, 0-129 ants by 200,000), so a
-  goal-box comparison read past there compares dying colonies;
-  `PIXEL_PHYSICS_LAB_ANT=evolved` founds the evolved body, which holds to
-  300,000 (`scene::LAB_ANT_TRAITS`).
+  goal-box comparison read past there compares dying colonies. **Since
+  2026-10-05 a lab box founds the evolved ant** (`scene::LAB_ANT_TRAITS`,
+  the owner's ruling), which holds to 300,000: a lab number from before that
+  date compares only with `PIXEL_PHYSICS_LAB_ANT=half-plant`, and a goal-box
+  run made with `deeptrace founder=evolved` (or the six scenario rows) before
+  it is the same ant as the default after it. `deeptrace founder=evolved`
+  pushes no rows over the default, which would count the two species rows
+  twice.
 
 ## Agents, context and cost
 
