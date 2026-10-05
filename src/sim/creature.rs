@@ -12148,12 +12148,15 @@ impl NestWay {
 /// Can an ant stand at `(x, y)`: open or another animal, with ground or an
 /// animal in its 8-neighbourhood -- `head_has_foothold`'s rule with every
 /// animal counted as footing, because in a crowded room ants stand on ants.
-fn way_cell(world: &World, x: i32, y: i32) -> bool {
+/// With `parted` ([`WayGaps::brood`]), a cell the walk parts as it goes
+/// ([`is_partable`]: brood and crumbs under [`PushPast`]) is open too, as the
+/// walk itself counts it ([`cell_is_enterable`]).
+fn way_cell(world: &World, x: i32, y: i32, parted: bool) -> bool {
     if !world.in_bounds(x, y) {
         return false;
     }
     let c = world.get(x, y);
-    (c.material == material::EMPTY || is_animal_cell(world, c))
+    (c.material == material::EMPTY || is_animal_cell(world, c) || (parted && parting_enabled() && is_partable(world, c)))
         && NEIGHBOURS_8.iter().any(|&(dx, dy)| {
             world.in_bounds(x + dx, y + dy) && matches!(world.materials.kind(world.get(x + dx, y + dy).material), MaterialKind::Solid | MaterialKind::Powder | MaterialKind::Plant | MaterialKind::Creature)
         })
@@ -12161,11 +12164,14 @@ fn way_cell(world: &World, x: i32, y: i32) -> bool {
 
 /// **Build a nest's way in**: breadth first from the door over the mouth,
 /// 8-connected in `NEIGHBOURS_8`'s fixed order, over [`way_cell`]s that are
-/// inside the nest -- in the founding cut, or under cover below the door.
-/// **Inside only**, so a second entrance does not lead a resting ant out:
-/// along a gallery that opens on the surface the way stops at the opening.
+/// inside the nest -- in the founding cut, or under cover below the door,
+/// or, under [`WayGaps::below`], anywhere below the ground the nest was
+/// founded on. **Inside only**, so a second entrance does not lead a resting
+/// ant out: along a gallery that opens on the surface the way stops at the
+/// opening (under `below`, one row under the founding ground).
 fn build_nest_way(world: &World, site: usize) -> Option<NestWay> {
     let s = world.nest_sites[site];
+    let gaps = way_gaps_of(world);
     let cut = s.shaft?;
     let door = ((cut.x0 + cut.x1) / 2, cut.top - 1);
     let (x0, y0) = (s.x - REST_REACH_X, door.1);
@@ -12175,7 +12181,7 @@ fn build_nest_way(world: &World, site: usize) -> Option<NestWay> {
         let (lx, ly) = (x - x0, y - y0);
         (lx >= 0 && ly >= 0 && lx < w && ly < h).then(|| (ly * w + lx) as usize)
     };
-    let inside = |x: i32, y: i32| cut.contains(x, y) || (y >= cut.top && under_cover(world, x, y));
+    let inside = |x: i32, y: i32| cut.contains(x, y) || (y >= cut.top && (under_cover(world, x, y) || (gaps.below && y > s.surface)));
     let mut q = std::collections::VecDeque::new();
     dist[idx(door.0, door.1).expect("the door is the box's top row")] = 0;
     q.push_back(door);
@@ -12184,7 +12190,7 @@ fn build_nest_way(world: &World, site: usize) -> Option<NestWay> {
         for &(dx, dy) in NEIGHBOURS_8.iter() {
             let (nx, ny) = (x + dx, y + dy);
             let Some(i) = idx(nx, ny) else { continue };
-            if dist[i] != u16::MAX || !inside(nx, ny) || !way_cell(world, nx, ny) {
+            if dist[i] != u16::MAX || !inside(nx, ny) || !way_cell(world, nx, ny, gaps.brood) {
                 continue;
             }
             dist[i] = d.saturating_add(1);
@@ -12194,13 +12200,79 @@ fn build_nest_way(world: &World, site: usize) -> Option<NestWay> {
     Some(NestWay { site, door, x0, y0, w, h, dist })
 }
 
+/// **The two gaps in a nest's way in, closed**
+/// (`PIXEL_PHYSICS_WAY_GAPS=on|off|below|brood`, a comma list; off;
+/// [`World::way_gaps`] for one world). [`NestWay`] is the way out that
+/// [`hungry_out_pull`] walks a hungry ant along, and the way in that the
+/// rest pull walks a resting one along. It had two holes, each a place the
+/// colony really uses that the map called outside or a wall:
+///
+/// - `below`: **the room under the door.** [`build_nest_way`] counts a cell
+///   as inside the nest when it is in the founding cut or has ground within
+///   [`COVER_REACH`] rows overhead ([`under_cover`]). The colony digs
+///   straight down under its door, and a cell there more than twenty rows
+///   under the mouth has nothing over it but the open shaft, so it was
+///   outside. Under `below` a cell lower than the row the nest was founded
+///   on (`NestSite::surface`) is inside wherever it is.
+/// - `brood`: **the brood pile.** A body walks through brood and crumbs
+///   under [`PushPast`] (both on since 2026-09-26), but [`way_cell`] counted
+///   only open cells and animals as standing room, so brood was a wall to
+///   the map that is not a wall to the ant. Eggs are laid at the door and
+///   fall, so the brood column stands in the shaft's foot and cut the way
+///   there. Under `brood` the way reads it as the walk does.
+///
+/// **Why** (lane 3, 2026-10-05: dry goal box, `nestgoal` with the laying
+/// lane's evolved founder rows, evolution off, main 6e42f0fa). An adult that
+/// starved underground over 100-150k spent 75-83% of its last 3,000 frames
+/// with no pull at all, and 3-11% under the way out (seeds 1 and 3, 39
+/// starvers). Rebuilt each thousand frames over 90-120k on seed 1, the way
+/// reached a median 124 cells, and 401 with brood counted open; only 14% of
+/// the lean empty adults underground stood on it. On seed 1, 14 of 21
+/// starvers died within four columns of the door and more than twenty rows
+/// down (median 28).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct WayGaps {
+    pub below: bool,
+    pub brood: bool,
+}
+
+impl WayGaps {
+    pub const OFF: WayGaps = WayGaps { below: false, brood: false };
+    pub const ON: WayGaps = WayGaps { below: true, brood: true };
+
+    /// Parse a `PIXEL_PHYSICS_WAY_GAPS` value: `on`, `off`, or a comma list
+    /// of `below` and `brood`. Anything else panics, so a typo is not a
+    /// silent `off`.
+    pub fn parse(raw: &str) -> WayGaps {
+        let mut gaps = WayGaps::OFF;
+        for part in raw.split(',').map(str::trim).filter(|p| !p.is_empty()) {
+            match part {
+                "on" => gaps = WayGaps::ON,
+                "off" => gaps = WayGaps::OFF,
+                "below" => gaps.below = true,
+                "brood" => gaps.brood = true,
+                other => panic!("PIXEL_PHYSICS_WAY_GAPS={raw:?}: {other:?} is not on, off, below or brood"),
+            }
+        }
+        gaps
+    }
+}
+
+/// This world's [`WayGaps`]: `World::way_gaps` if set, else the environment's.
+pub fn way_gaps_of(world: &World) -> WayGaps {
+    world.way_gaps.unwrap_or_else(|| {
+        static V: std::sync::OnceLock<WayGaps> = std::sync::OnceLock::new();
+        *V.get_or_init(|| std::env::var("PIXEL_PHYSICS_WAY_GAPS").map_or(WayGaps::OFF, |v| WayGaps::parse(&v)))
+    })
+}
+
 /// **Every nest's way in, rebuilt on [`REST_REFRESH`]**, from
-/// `World::begin_step` beside the room census. With neither of its readers
-/// on (the rest pull, [`nest_rest_of`], and the way out, [`hungry_out_of`])
-/// it clears the cache and returns, so a world that reads neither pays one
-/// branch a frame.
+/// `World::begin_step` beside the room census. With none of its readers on
+/// (the rest pull, [`nest_rest_of`], the way out, [`hungry_out_of`], and the
+/// soil's way out, [`soil_way_of`]) it clears the cache and returns, so a
+/// world that reads none pays one branch a frame.
 pub fn step_nest_rest(world: &mut World) {
-    if !(nest_rest_of(world).on() || hungry_out_of(world)) || world.nest_sites.is_empty() {
+    if !(nest_rest_of(world).on() || hungry_out_of(world) || soil_way_of(world) != SoilWay::OFF) || world.nest_sites.is_empty() {
         world.nest_ways.clear();
         return;
     }
@@ -12338,6 +12410,13 @@ fn hungry_out_pull(world: &World, organism: OrganismId, def: &CreatureDef, head:
     if out <= 0.0 {
         return None;
     }
+    Some((way_out_from(world, organism, head)?, def.home_bias * out.min(1.0)))
+}
+
+/// **[`REST_LOOKAHEAD`] steps out along the nest's way in** from `head`,
+/// towards the door: the point both [`hungry_out_pull`] and [`soil_way_pull`]
+/// aim at. `None` for a head off the way, at the door, or with no step out.
+fn way_out_from(world: &World, organism: OrganismId, head: (i32, i32)) -> Option<(i32, i32)> {
     let site = world.nearest_nest_site(head.0, head.1)?;
     let way = world.nest_ways.iter().find(|w| w.site == site)?;
     let mut d = way.at(head.0, head.1).filter(|&d| d > 0)?;
@@ -12358,7 +12437,120 @@ fn hungry_out_pull(world: &World, organism: OrganismId, def: &CreatureDef, head:
         d = v;
         at = p;
     }
-    (at != head).then_some((at, def.home_bias * out.min(1.0)))
+    (at != head).then_some(at)
+}
+
+/// **Soil cut in the nest leaves by the nest's way out**
+/// (`PIXEL_PHYSICS_SOIL_WAY=on|off|way|lean`, a comma list; off;
+/// [`World::soil_way`] for one world).
+///
+/// - `way`: a pellet carrier inside its nest ([`in_nest_for_soil`]) is
+///   pulled along the nest's way in ([`NestWay`]) towards the door,
+///   [`REST_LOOKAHEAD`] steps at a time, at the haul's gain, as a hungry
+///   ant is pulled out ([`hungry_out_pull`]), instead of straight at the
+///   shaft's top ([`spoil_haul_target`]); and below the ground the nest was
+///   founded on it never lets the pellet go (`SpoilOut`'s keep, in `act`).
+///   Off the way, the straight haul stands.
+/// - `lean`: a lean carrier inside keeps its pellet ([`LeanForage`]'s drop
+///   waits until it is out of the nest) and takes the same way out.
+///
+/// **Why** (lane 3, 2026-10-05; the deep trace lane's digging trace,
+/// `/mnt/project-files/deep-trace/digging-trace-2026-10-05.md`). On the dry
+/// goal box (`nestgoal`, the laying lane's evolved founder rows, evolution
+/// off, main 6e42f0fa, 100-150k, seeds 1-3) 67-75% of the soil cut in the
+/// nest went back down inside it. Two ways: a fed carrier whose patience ran
+/// out (39-48% of nest pellets, every one at patience under 0.1, a median
+/// 17-18 cells from the door, in the room's wings, after about 600 frames
+/// of carrying), and a lean one putting it down where it stood (23-27%).
+/// The straight haul aims at the shaft's top through the room's ceiling, so
+/// from a wing it makes no progress and its patience runs out; holding the
+/// pellet longer (`SPOIL_HOLD=60`) only moved the put-backs to the lean drop
+/// (79% and 71%).
+///
+/// **Measured** (same bed, same span). Put back inside: 67-75% -> 0% on
+/// 3 of 3. Dug cells that are ground again (refills) 106-117 -> 11-19;
+/// open space in the nest 817-868 -> 890-1,014. The nest is still one
+/// room. Re-digging fell with the put-backs: nest cuts after 100k about a
+/// quarter of the base's, and soil carried back in from the mound 0 against
+/// 3.6-4.8 of every 10 carried out. **Cost, traced**: mean ants 606-620 ->
+/// 545-576 and starved deaths 7-22 -> 99-167 (100-150k). The starvers were
+/// adults underground, empty, with no pull at all for 75-83% of their last
+/// 3,000 frames, and the cause is the way out's map, not the haul: the brood
+/// column under the door is a wall to [`NestWay`] (though not to the walk),
+/// and under this switch it stood in the shaft's foot and cut the way to a
+/// median 19 cells against 511 with brood counted open. With both gaps in
+/// the map closed ([`WayGaps`]) the switch costs nothing measured on seeds 1
+/// and 3: ants 467/499 -> 522/470, starved 0/2 -> 3/0, put-back 61-68% -> 0%.
+///
+/// **Not `SPOIL_ROUTE` again** (`Reports/dead-ends.md`, 2026-10-01). That
+/// route steered by a similar field and measured patience along it, in
+/// `digbox`'s one-cell shaft, and its carriers gave up queued at the shaft's
+/// foot. Here the pellet is held below the founding ground whatever the
+/// patience, and the goal box's shaft is two cells wide, the entry's own
+/// re-test condition. The walk earns its place over the hold alone: holding
+/// without the pull (a local control, gaps closed, seeds 1 and 3) also put
+/// back 0%, but nest cuts after 100k were 84/86 against 279/166 and cells
+/// ever dug by 150k 728/904 against 987/1,034.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct SoilWay {
+    pub way: bool,
+    pub lean: bool,
+}
+
+impl SoilWay {
+    pub const OFF: SoilWay = SoilWay { way: false, lean: false };
+    pub const ON: SoilWay = SoilWay { way: true, lean: true };
+
+    /// Parse a `PIXEL_PHYSICS_SOIL_WAY` value: `on`, `off`, or a comma list
+    /// of `way` and `lean`. Anything else panics.
+    pub fn parse(raw: &str) -> SoilWay {
+        let mut sw = SoilWay::OFF;
+        for part in raw.split(',').map(str::trim).filter(|p| !p.is_empty()) {
+            match part {
+                "on" => sw = SoilWay::ON,
+                "off" => sw = SoilWay::OFF,
+                "way" => sw.way = true,
+                "lean" => sw.lean = true,
+                other => panic!("PIXEL_PHYSICS_SOIL_WAY={raw:?}: {other:?} is not on, off, way or lean"),
+            }
+        }
+        sw
+    }
+}
+
+/// This world's [`SoilWay`]: `World::soil_way` if set, else the environment's.
+pub fn soil_way_of(world: &World) -> SoilWay {
+    world.soil_way.unwrap_or_else(|| {
+        static V: std::sync::OnceLock<SoilWay> = std::sync::OnceLock::new();
+        *V.get_or_init(|| std::env::var("PIXEL_PHYSICS_SOIL_WAY").map_or(SoilWay::OFF, |v| SoilWay::parse(&v)))
+    })
+}
+
+/// **Below the ground the nearest nest was founded on** (`NestSite::surface`).
+fn below_founding_ground(world: &World, x: i32, y: i32) -> bool {
+    world.nearest_nest_site(x, y).and_then(|i| world.nest_sites.get(i)).is_some_and(|s| y > s.surface)
+}
+
+/// **In the nest, for [`soil_way_of`]**: [`inside_nest`], or anywhere below
+/// the founding ground -- the room under an open shaft has no ground over
+/// it in its own column, and is still the nest.
+fn in_nest_for_soil(world: &World, x: i32, y: i32) -> bool {
+    inside_nest(world, x, y) || below_founding_ground(world, x, y)
+}
+
+/// Where [`soil_way_of`] pulls this pellet carrier, or `None` for the
+/// straight haul: a carrier of tailings (not a store load) inside its nest,
+/// under `way`, or under `lean` while it is lean.
+fn soil_way_pull(world: &World, organism: OrganismId, def: &CreatureDef, state: &crate::sim::organism::OrganismState, head: (i32, i32)) -> Option<(i32, i32)> {
+    let sw = soil_way_of(world);
+    if !(sw.way || sw.lean) || is_store_load(world, state.spoil) || !in_nest_for_soil(world, head.0, head.1) {
+        return None;
+    }
+    let lf = lean_forage_of(world);
+    if !(sw.way || lf.lean(state.energy, def)) {
+        return None;
+    }
+    way_out_from(world, organism, head)
 }
 
 /// The carry this process names ([`SpoilRing`]): [`SpoilRing::SHIPPED`]
@@ -15651,7 +15843,8 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
         // **A lean ant puts its pellet down where it stands**
         // (`LeanForage::drop`), before any of the rules about where tailings
         // may lie; with no cell beside it that will hold one, it carries on.
-        if lean && lean_forage_of(world).drop {
+        // Under [`soil_way_of`]'s `lean` the drop waits until it is out.
+        if lean && lean_forage_of(world).drop && !(soil_way_of(world).lean && in_nest_for_soil(world, x, y)) {
             if let Some((px, py)) = lean_drop_site(world, (x, y)) {
                 world.set(px, py, spoil.cell);
                 if let Some(state) = world.organism_mut(organism) {
@@ -15713,7 +15906,11 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
             }
             None => (false, false),
         };
-        let keep_inside = (spoil_out().keep && (inside_nest(world, x, y) || unlatched)) || ring_hold;
+        // Under [`soil_way_of`]'s `way` the nest is everything below its
+        // founding ground too: the room under the open shaft is no less
+        // inside for having no roof in its own column.
+        let soil_way = soil_way_of(world).way;
+        let keep_inside = (spoil_out().keep && (inside_nest(world, x, y) || unlatched || (soil_way && in_nest_for_soil(world, x, y)))) || ring_hold;
         // **...and near the door, kept even after it has run out**
         // ([`spoil_hold_of`]): the room under the door is where nearly every
         // pellet the old rule let go inside went down.
@@ -15724,7 +15921,11 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
                 world.organism(organism).and_then(|s| spoil_haul_target(world, s, (x, y))).is_some_and(|(tx, ty)| (x - tx).abs().max((y - ty).abs()) <= r)
             });
         world.creature_stats.spoil_held_near_door += u64::from(held_near_door);
-        let kept_inside = keep_inside && (patient || held_near_door);
+        // **Never let go below the founding ground** ([`soil_way_of`]): a
+        // carrier there is on the way out, however long it has taken.
+        let held_below = keep_inside && soil_way && below_founding_ground(world, x, y);
+        world.creature_stats.spoil_held_below += u64::from(held_below && !patient && !held_near_door);
+        let kept_inside = keep_inside && (patient || held_near_door || held_below);
         let cover_scale = if kept_inside {
             world.creature_stats.spoil_kept_inside += 1;
             0.0
@@ -19771,7 +19972,14 @@ fn home_pull(world: &World, organism: OrganismId, def: &CreatureDef, head: (i32,
         return Some((home_target(world, state), def.home_bias));
     }
     match spoil_haul().filter(|_| state.spoil.is_some()) {
-        Some(w) => Some((spoil_haul_target(world, state, head)?, w)),
+        Some(w) => {
+            // **Out along the passages** ([`soil_way_of`]), where the way
+            // reaches; the straight haul everywhere else.
+            if let Some(p) = soil_way_pull(world, organism, def, state, head) {
+                return Some((p, w));
+            }
+            Some((spoil_haul_target(world, state, head)?, w))
+        }
         None => {
             if def.home_bias <= 0.0 {
                 return None;
@@ -20024,6 +20232,12 @@ fn chooser_step(
     // whenever there is nothing to take home.
     let pull = home_pull(world, organism, def, (hx, hy));
     let pulled_home = pull.is_some();
+    // The soil's way out fired ([`soil_way_of`]): the "it fired" half; the
+    // effect half is where the colony's soil goes down.
+    if pull.is_some() && soil_way_of(world) != SoilWay::OFF {
+        let fired = world.organism(organism).is_some_and(|st| st.spoil.is_some() && soil_way_pull(world, organism, def, st, (hx, hy)).is_some());
+        world.creature_stats.soil_way_pulls += u64::from(fired);
+    }
     // **Hungry inside: the way out** ([`hungry_out_of`]) -- only where
     // nothing above pulled. It and the rest pull never both fire: one wants
     // an ant under its grant that something lets out, the other an ant the
@@ -28185,6 +28399,182 @@ mod tests {
         assert_eq!(pull(78, 47, true, 0.3, true).1, None, "an ant carrying food was pulled out");
         assert_eq!(pull(90, 39, true, 0.3, false).1, None, "an ant out on the surface was pulled");
         assert_eq!(pull(78, 47, false, 0.3, false).1, None, "with the switch off a hungry ant was pulled");
+    }
+
+    /// [`rest_world`]'s nest dug on down, as a colony digs under its door:
+    /// the shaft's two columns continued from the chamber floor to row 75,
+    /// and a room over columns 54-67 on rows 70-75 at their foot, so the
+    /// room's middle has nothing over it but the open mouth for thirty rows.
+    /// The way out on, [`WayGaps::below`] as `below`; an ant spawned at
+    /// `(x, y)` and left at 0.3 of its grant, carrying nothing.
+    fn deep_world(x: i32, y: i32, below: bool) -> (World, OrganismId) {
+        let mut w = World::new(Rect::new(0, 0, 119, 99));
+        founding_ground(&mut w);
+        w.register_nest_site(60, 38, 2);
+        let cut = crate::sim::world::ShaftFootprint { x0: 60, x1: 61, top: 40, bottom: 45, mouth_bottom: 41, chamber_x0: 56, chamber_x1: 65, chamber_top: 46, chamber_bottom: 47, side: None };
+        w.nest_sites[0].shaft = Some(cut);
+        let open = (40..=45)
+            .flat_map(|y| [(60, y), (61, y)])
+            .chain((46..=47).flat_map(|y| (56..=65).map(move |x| (x, y))))
+            .chain((48..=75).flat_map(|y| [(60, y), (61, y)]))
+            .chain((70..=75).flat_map(|y| (54..=67).map(move |x| (x, y))));
+        for (px, py) in open {
+            w.set(px, py, Cell::EMPTY);
+        }
+        w.hungry_out = Some(true);
+        w.way_gaps = Some(WayGaps { below, brood: false });
+        w.forage_throttle = Some(ForageThrottle::OFF);
+        let a = spawn(&mut w, "ant", x, y);
+        let start = w.species.get(w.organism(a).expect("live").species).creature.as_ref().expect("a creature").start_energy;
+        w.organism_mut(a).expect("live").energy = 0.3 * start;
+        step_nest_rest(&mut w);
+        (w, a)
+    }
+
+    /// **Under `WAY_GAPS=below` the way in reaches a room dug under the
+    /// open door** ([`WayGaps::below`]). In [`deep_world`] the shaft dug on under
+    /// the chamber has nothing over it but the open mouth, so under the
+    /// cover rule alone it is off the way, and the room at its foot is cut
+    /// off with it: a hungry ant on the room's floor is given no way out.
+    /// Under the switch the way runs from the door down the shaft and over
+    /// the room's floor unbroken, and the same ant is pulled nearer the
+    /// door. Ground above the founding row stays off the way in both,
+    /// and so does the open surface. The off arm is the positive control:
+    /// the hole is in the scene. Watched red with `below` ignored in
+    /// [`build_nest_way`].
+    #[test]
+    fn with_the_gap_below_closed_a_hungry_ant_deep_under_the_door_is_given_the_way_out() {
+        let probe = |below: bool| {
+            let (w, a) = deep_world(60, 75, below);
+            assert_eq!(w.nest_sites[0].surface, 40, "test setup: the founding ground row moved");
+            let def = w.species.get(w.organism(a).expect("live").species).creature.clone().expect("a creature");
+            let head = w.organism(a).expect("live").chain[0];
+            let way = w.nest_ways.first().expect("the way out is on, so the ways are built").clone();
+            let got = hungry_out_pull(&w, a, &def, head);
+            (way, head, got)
+        };
+        let (way, head, got) = probe(false);
+        assert!(way.at(61, 60).is_none() && way.at(head.0, head.1).is_none(), "control: under the cover rule the shaft under the chamber, or the ant at {head:?} on the room's floor, is on the way, so the scene has no hole");
+        assert!(way.at(55, 75).is_none(), "control: the room's covered end is on the way, so the hole cuts nothing off");
+        assert!(way.at(63, 47).is_some(), "control: the founding chamber is off the way");
+        assert_eq!(got, None, "control: a hungry ant at {head:?} in the hole was given a way out");
+
+        let (way, head, got) = probe(true);
+        assert!((48..=69).all(|y| way.at(60, y).is_some()), "with the gap below closed the shaft dug on under the chamber is not all on the way: {:?}", (48..=69).map(|y| way.at(60, y)).collect::<Vec<_>>());
+        assert!(way.at(55, 75).is_some(), "with the gap below closed the room's far end is off the way");
+        let here = way.at(head.0, head.1).expect("with the gap below closed the ant's own cell is off the way");
+        let ((tx, ty), gain) = got.expect("with the gap below closed a hungry ant deep under the door was given no way out");
+        let there = way.at(tx, ty).expect("the pull's target is on the way");
+        assert!(there < here, "the pull at ({tx}, {ty}), {there} steps, is not up towards the door from {head:?}, {here} steps");
+        assert!(gain > 0.0);
+        assert!(way.at(90, 39).is_none(), "the open surface is on the way with the gap below closed");
+    }
+
+    /// **Under `WAY_GAPS=brood` the way out runs through a brood pile, as
+    /// the walk does** ([`WayGaps::brood`]). In [`rest_world`] with eggs
+    /// over columns 58-63 of the chamber, under the shaft's foot, the
+    /// chamber's ends and the gallery are reached from the door only
+    /// through brood. With brood a wall to the map, a hungry ant at the
+    /// gallery's end is off the way and given no way out, though ants walk
+    /// through brood in both arms ([`PushPast::SHIPPED`]); with the gap
+    /// closed it is on the way and pulled west, nearer the door. The off
+    /// arm is the positive control: the pile cuts the way. Watched red with
+    /// `parted` ignored in [`way_cell`].
+    #[test]
+    fn with_the_brood_gap_closed_the_way_out_runs_through_a_brood_pile() {
+        let probe = |brood: bool| {
+            let (mut w, a) = rest_world(78, 47, false);
+            w.push_past = Some(PushPast::SHIPPED);
+            w.hungry_out = Some(true);
+            w.way_gaps = Some(WayGaps { below: false, brood });
+            let species = w.organism(a).expect("live").species;
+            let brood_mat = w.materials.id_of("brood").expect("brood is compiled in");
+            for x in 58..=63 {
+                for y in 46..=47 {
+                    let egg = w.push_organism(species).expect("an organism slot");
+                    let frame = w.frame;
+                    if let Some(st) = w.organism_mut(egg) {
+                        st.energy = 120.0;
+                        st.brood = Some(organism::Brood { stage: organism::BroodStage::Egg, since: frame, target: 1_060.0, parent: 0, last_tick: frame });
+                    }
+                    w.set(x, y, Cell::new(brood_mat, 0).with_organism_id(egg).with_aux(pack_cell_type(CellType::Seed)));
+                }
+            }
+            let def = w.species.get(species).creature.clone().expect("a creature");
+            w.organism_mut(a).expect("live").energy = 0.3 * def.start_energy;
+            step_nest_rest(&mut w);
+            let head = w.organism(a).expect("live").chain[0];
+            let way = w.nest_ways.first().expect("the way out is on, so the ways are built").clone();
+            let got = hungry_out_pull(&w, a, &def, head);
+            (way, head, got)
+        };
+        let (way, head, got) = probe(false);
+        assert!(way.at(60, 44).is_some(), "control: the shaft is off the way");
+        assert!(way.at(head.0, head.1).is_none() && way.at(65, 47).is_none(), "control: the gallery's end {head:?} or the chamber's east end is on the way past the brood, so the pile cuts nothing");
+        assert_eq!(got, None, "control: a hungry ant cut off behind the brood was given a way out");
+
+        let (way, head, got) = probe(true);
+        assert!(way.at(60, 46).is_some() && way.at(65, 47).is_some(), "with the brood gap closed the way does not run through the pile to the chamber's east end");
+        let here = way.at(head.0, head.1).expect("with the brood gap closed the gallery's end is off the way");
+        let ((tx, ty), gain) = got.expect("with the brood gap closed a hungry ant at the gallery's end was given no way out");
+        let there = way.at(tx, ty).expect("the pull's target is on the way");
+        assert!(there < here && tx < head.0, "the pull at ({tx}, {ty}), {there} steps, is not west towards the door from {head:?}, {here} steps");
+        assert!(gain > 0.0);
+    }
+
+    /// **Under `SOIL_WAY` a pellet carrier inside is walked out along the
+    /// passages** ([`soil_way_of`]). In [`rest_world`], a carrier at the
+    /// gallery's far end is aimed by the straight haul at the door through
+    /// the gallery's roof; under `way` it is aimed west along the gallery,
+    /// nearer the door by the way. Under `lean` alone only a lean carrier is;
+    /// a store load never is, and nor is a carrier out on the surface. The
+    /// off arm is the positive control: the straight haul's target is not on
+    /// the way. Watched red with [`soil_way_pull`] returning `None`.
+    #[test]
+    fn under_soil_way_a_carrier_inside_is_walked_out_along_the_passages() {
+        let aim = |x: i32, y: i32, sw: SoilWay, energy: f32, store: bool| {
+            let (mut w, a) = rest_world(x, y, false);
+            w.soil_way = Some(sw);
+            w.hungry_out = Some(false); // the soil's own reader builds the ways
+            step_nest_rest(&mut w);
+            let def = w.species.get(w.organism(a).expect("live").species).creature.clone().expect("a creature");
+            let soil = w.materials.id_of("soil").expect("soil");
+            let st = w.organism_mut(a).expect("live");
+            st.energy = energy * def.start_energy;
+            st.spoil = Some(Spoil { cell: Cell::new(soil, 0), store });
+            let head = w.organism(a).expect("live").chain[0];
+            let way_at = |p: (i32, i32)| w.nest_ways.first().and_then(|wy| wy.at(p.0, p.1));
+            let got = home_pull(&w, a, &def, head).map(|(t, _)| t);
+            (head, way_at(head), got, got.and_then(way_at))
+        };
+        let (_, _, straight, on_way) = aim(78, 47, SoilWay::OFF, 1.0, false);
+        assert!(straight.is_some() && on_way.is_none(), "control: the straight haul from the gallery's end aims at {straight:?}, on the way ({on_way:?})");
+        let (head, here, got, there) = aim(78, 47, SoilWay::ON, 1.0, false);
+        let t = got.expect("under SOIL_WAY a carrier at the gallery's end has no pull");
+        // `Option`'s order puts `None` first, so each side is unwrapped: a
+        // target off the way must fail here, not compare as nearer.
+        let (here, there) = (here.expect("test setup: the gallery's end is off the way"), there.expect("under SOIL_WAY the pull's target is off the way"));
+        assert!(there < here && t.0 < head.0 && Some(t) != straight, "under SOIL_WAY the pull at {t:?} ({there} steps) is not west along the way from {head:?} ({here} steps)");
+        let lean_only = SoilWay { way: false, lean: true };
+        assert_eq!(aim(78, 47, lean_only, 1.0, false).2, straight, "under `lean` alone a fed carrier left the straight haul");
+        assert!(aim(78, 47, lean_only, 0.3, false).3.is_some(), "under `lean` a lean carrier was not walked out along the way");
+        assert_eq!(aim(78, 47, SoilWay::ON, 1.0, true).2, aim(78, 47, SoilWay::OFF, 1.0, true).2, "a store load was walked out along the way");
+        let (_, _, out_on, _) = aim(90, 39, SoilWay::ON, 1.0, false);
+        let (_, _, out_off, _) = aim(90, 39, SoilWay::OFF, 1.0, false);
+        assert_eq!(out_on, out_off, "a carrier out on the surface left the straight haul");
+    }
+
+    #[test]
+    fn soil_way_and_way_gaps_parse_their_words_and_refuse_the_rest() {
+        assert_eq!(SoilWay::parse("on"), SoilWay::ON);
+        assert_eq!(SoilWay::parse("off"), SoilWay::OFF);
+        assert_eq!(SoilWay::parse("way"), SoilWay { way: true, lean: false });
+        assert_eq!(SoilWay::parse("lean, way"), SoilWay::ON);
+        assert_eq!(WayGaps::parse("on"), WayGaps::ON);
+        assert_eq!(WayGaps::parse("brood"), WayGaps { below: false, brood: true });
+        assert_eq!(WayGaps::parse("below,brood"), WayGaps::ON);
+        assert!(std::panic::catch_unwind(|| SoilWay::parse("wya")).is_err(), "a misspelt SOIL_WAY did not panic");
+        assert!(std::panic::catch_unwind(|| WayGaps::parse("brod")).is_err(), "a misspelt WAY_GAPS did not panic");
     }
 
     /// **The narrower forms keep a scout out** ([`NestRest`]): the same fed
