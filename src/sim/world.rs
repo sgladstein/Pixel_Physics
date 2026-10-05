@@ -2165,6 +2165,11 @@ pub struct CreatureStats {
     /// (`PIXEL_PHYSICS_FACE_TRIP`'s `only`). The "it fired" half; the effect
     /// half is how often a digger's next cut is at its face.
     pub digs_refused_face: u64,
+    /// Drop rolls at home skipped because a fed carrier was keeping its last
+    /// crop cells for the brood (`PIXEL_PHYSICS_CROP_DOWN`'s `hold`,
+    /// `creature::CropDown`). The "it fired" half; the effect half is larvae
+    /// starved per egg laid.
+    pub crop_down_holds: u64,
     /// Search loops begun by a laden ant that had lost its pull home and
     /// strayed past its search reach (`PIXEL_PHYSICS_HOME_SEARCH`,
     /// `creature::home_search_of`). The "it fired" half; the effect half is
@@ -4067,6 +4072,11 @@ pub struct World {
     /// `None` follows the environment; a field so a guard can take both arms
     /// in one process.
     pub face_trip: Option<crate::sim::creature::FaceTrip>,
+    /// **A fed carrier bringing crop food down to the brood, overriding
+    /// `PIXEL_PHYSICS_CROP_DOWN` for this world** (`creature::crop_down_of`).
+    /// `None` follows the environment; a field so a guard can take both arms
+    /// in one process.
+    pub crop_down: Option<crate::sim::creature::CropDown>,
     /// **Each nest's way in**, as steps from its door through the cells
     /// inside it an ant can stand in (`creature::NestWay`), rebuilt every
     /// `creature::REST_REFRESH` frames by `creature::step_nest_rest` while
@@ -6656,6 +6666,7 @@ impl World {
             way_gaps: None,
             soil_way: None,
             face_trip: None,
+            crop_down: None,
             nest_ways: Vec::new(),
             bud_store: None,
             births_paused: false,
