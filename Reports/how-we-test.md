@@ -136,7 +136,10 @@ Before building anything new, grep [`instruments.md`](instruments.md).
 - `rustfmt` the files you touched (never a whole-project `cargo fmt` riding
   along), then
   `cargo clippy --all-targets --release --locked -- -D warnings`.
-- The touched module's tests; CI runs the rest.
+- The touched module's tests only (`cargo test --release --lib <module>`, plus
+  the `tests/*.rs` file for any registry you added to). **Do not run the full
+  suite locally**: CI runs it on every push (the owner caught three lanes
+  running it locally, 2026-10-05).
 - Merge `main` in right before hand-off; `bash scripts/docscheck.sh` after
   every merge.
 - `bash scripts/branchcheck.sh --who-touched <path>` before writing into a
