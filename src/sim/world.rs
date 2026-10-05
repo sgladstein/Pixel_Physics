@@ -2160,6 +2160,11 @@ pub struct CreatureStats {
     /// below its nest's founding ground (`PIXEL_PHYSICS_SOIL_WAY`'s `way`):
     /// each one a pellet the old rule would have let go inside.
     pub spoil_held_below: u64,
+    /// Won dig rolls refused because the digger was walking back to its face
+    /// and the cell was more than `creature::FACE_TRIP_REACH` from it
+    /// (`PIXEL_PHYSICS_FACE_TRIP`'s `only`). The "it fired" half; the effect
+    /// half is how often a digger's next cut is at its face.
+    pub digs_refused_face: u64,
     /// Search loops begun by a laden ant that had lost its pull home and
     /// strayed past its search reach (`PIXEL_PHYSICS_HOME_SEARCH`,
     /// `creature::home_search_of`). The "it fired" half; the effect half is
@@ -4057,6 +4062,11 @@ pub struct World {
     /// `None` follows the environment; a field so a guard can take both arms
     /// in one process.
     pub soil_way: Option<crate::sim::creature::SoilWay>,
+    /// **A digger keeping its face through the trip out and back, overriding
+    /// `PIXEL_PHYSICS_FACE_TRIP` for this world** (`creature::face_trip_of`).
+    /// `None` follows the environment; a field so a guard can take both arms
+    /// in one process.
+    pub face_trip: Option<crate::sim::creature::FaceTrip>,
     /// **Each nest's way in**, as steps from its door through the cells
     /// inside it an ant can stand in (`creature::NestWay`), rebuilt every
     /// `creature::REST_REFRESH` frames by `creature::step_nest_rest` while
@@ -6645,6 +6655,7 @@ impl World {
             home_search: None,
             way_gaps: None,
             soil_way: None,
+            face_trip: None,
             nest_ways: Vec::new(),
             bud_store: None,
             births_paused: false,
