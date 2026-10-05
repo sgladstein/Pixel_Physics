@@ -2147,6 +2147,34 @@ pub struct CreatureStats {
     /// from outside, deeper along the passages inside. The "it fired" half;
     /// the effect half is where the colony stands (`digbox`'s `PILE` line).
     pub rest_pulls: u64,
+    /// Decisions a hungry empty ant inside its nest walked under the way out
+    /// (`PIXEL_PHYSICS_HUNGRY_OUT`, `creature::hungry_out_of`): towards the
+    /// door along the passages. The "it fired" half; the effect half is where
+    /// the colony's starved die (`deeptrace`) and the colony's size.
+    pub hungry_out_pulls: u64,
+    /// Decisions a pellet carrier inside its nest walked out along the nest's
+    /// way (`PIXEL_PHYSICS_SOIL_WAY`, `creature::soil_way_of`). The "it
+    /// fired" half; the effect half is where the soil goes down.
+    pub soil_way_pulls: u64,
+    /// Ticks a carrier out of patience kept its pellet only because it stood
+    /// below its nest's founding ground (`PIXEL_PHYSICS_SOIL_WAY`'s `way`):
+    /// each one a pellet the old rule would have let go inside.
+    pub spoil_held_below: u64,
+    /// Won dig rolls refused because the digger was walking back to its face
+    /// and the cell was more than `creature::FACE_TRIP_REACH` from it
+    /// (`PIXEL_PHYSICS_FACE_TRIP`'s `only`). The "it fired" half; the effect
+    /// half is how often a digger's next cut is at its face.
+    pub digs_refused_face: u64,
+    /// Drop rolls at home skipped because a fed carrier was keeping its last
+    /// crop cells for the brood (`PIXEL_PHYSICS_CROP_DOWN`'s `hold`,
+    /// `creature::CropDown`). The "it fired" half; the effect half is larvae
+    /// starved per egg laid.
+    pub crop_down_holds: u64,
+    /// Search loops begun by a laden ant that had lost its pull home and
+    /// strayed past its search reach (`PIXEL_PHYSICS_HOME_SEARCH`,
+    /// `creature::home_search_of`). The "it fired" half; the effect half is
+    /// `trip_deliveries` and where the food trail is laid.
+    pub home_searches: u64,
     /// **Carry distances drawn** under `PIXEL_PHYSICS_SPOIL_RING`
     /// (`creature::spoil_ring`): when its carrier comes out by the door with
     /// it (`creature::carry_stage`), and again for a carrier that went back
@@ -2737,6 +2765,30 @@ pub struct CreatureStats {
     /// `PIXEL_PHYSICS_CROP_NURSE`).
     pub larva_ticks_crop_fed: u64,
     pub brood_crop_fed_j: f64,
+    /// **Nurses that stay** (`creature::NurseStay`,
+    /// `PIXEL_PHYSICS_NURSE_STAY`): crops a forager home from a trip handed
+    /// to a nest worker touching it, and drop rolls a nurse skipped to keep
+    /// its crop for the brood.
+    pub nurse_handoffs: u64,
+    pub nurse_holds: u64,
+    /// Of `nurse_handoffs`: those a nurse above the founding ground passed
+    /// down, and those whose receiver was not a nest worker until then.
+    pub nurse_passed_down: u64,
+    pub nurse_converted: u64,
+    /// **Larvae away from the door's lane** (more than
+    /// `brood::DOOR_LANE` columns off the founding door), whatever the
+    /// switches: larva ticks that ended hungry, the ones of those a nestmate
+    /// fed (from its crop or its bank), and the energy that put in. Over the
+    /// whole nest's `larva_ticks_hungry` and `brood_nursed_j +
+    /// brood_crop_fed_j`, it says whether food reaches brood off the lane.
+    pub larva_ticks_hungry_away: u64,
+    pub larva_ticks_fed_away: u64,
+    pub brood_fed_away_j: f64,
+    /// Away from the door's lane too: joules larvae ate from food lying
+    /// beside them, and larvae that finished there, as pupae or starved.
+    pub brood_ate_away_j: f64,
+    pub pupae_away: u64,
+    pub larvae_starved_away: u64,
     /// Brood a touching nestmate carried out of a crowded pile to a quieter
     /// spot (`brood::spread`, `PIXEL_PHYSICS_BROOD_SPREAD`).
     pub brood_spread: u64,
@@ -3926,6 +3978,10 @@ pub struct World {
     /// drains it. Recording draws nothing and changes nothing -- see
     /// `creature::DecisionRow`.
     pub decision_log: Option<Vec<crate::sim::creature::DecisionRow>>,
+    /// **Every meal a larva is given** (`creature::FeedRow`), off (`None`)
+    /// unless a harness turns it on by setting `Some(Vec::new())`, and
+    /// drained by that harness. Recording draws nothing and changes nothing.
+    pub feed_log: Option<Vec<crate::sim::creature::FeedRow>>,
     /// Scratch that `step_chain` and `tumble` write while a decision is being
     /// traced; meaningless otherwise.
     pub decision_scratch: crate::sim::creature::DecisionScratch,
@@ -4020,10 +4076,44 @@ pub struct World {
     /// world** (`creature::nest_rest_of`). `None` follows the environment; a
     /// field so a guard can take both arms in one process.
     pub nest_rest: Option<crate::sim::creature::NestRest>,
+    /// **The way out for a hungry ant inside, overriding
+    /// `PIXEL_PHYSICS_HUNGRY_OUT` for this world** (`creature::hungry_out_of`).
+    /// `None` follows the environment; a field so a guard can take both arms
+    /// in one process.
+    pub hungry_out: Option<bool>,
+    /// **The lost laden ant's search, overriding `PIXEL_PHYSICS_HOME_SEARCH`
+    /// for this world** (`creature::home_search_of`). `None` follows the
+    /// environment; a field so a guard can take both arms in one process.
+    pub home_search: Option<bool>,
+    /// **The two gaps in the nest's way in, overriding
+    /// `PIXEL_PHYSICS_WAY_GAPS` for this world** (`creature::way_gaps_of`).
+    /// `None` follows the environment; a field so a guard can take both arms
+    /// in one process.
+    pub way_gaps: Option<crate::sim::creature::WayGaps>,
+    /// **Soil leaving by the nest's way out, overriding
+    /// `PIXEL_PHYSICS_SOIL_WAY` for this world** (`creature::soil_way_of`).
+    /// `None` follows the environment; a field so a guard can take both arms
+    /// in one process.
+    pub soil_way: Option<crate::sim::creature::SoilWay>,
+    /// **A digger keeping its face through the trip out and back, overriding
+    /// `PIXEL_PHYSICS_FACE_TRIP` for this world** (`creature::face_trip_of`).
+    /// `None` follows the environment; a field so a guard can take both arms
+    /// in one process.
+    pub face_trip: Option<crate::sim::creature::FaceTrip>,
+    /// **A fed carrier bringing crop food down to the brood, overriding
+    /// `PIXEL_PHYSICS_CROP_DOWN` for this world** (`creature::crop_down_of`).
+    /// `None` follows the environment; a field so a guard can take both arms
+    /// in one process.
+    pub crop_down: Option<crate::sim::creature::CropDown>,
+    /// **`PIXEL_PHYSICS_NURSE_STAY` for this world**
+    /// (`creature::nurse_stay_of`). `None` follows the environment; a field so
+    /// a guard can take both arms in one process.
+    pub nurse_stay: Option<crate::sim::creature::NurseStay>,
     /// **Each nest's way in**, as steps from its door through the cells
     /// inside it an ant can stand in (`creature::NestWay`), rebuilt every
     /// `creature::REST_REFRESH` frames by `creature::step_nest_rest` while
-    /// resting is on, and empty otherwise. Read only by the rest pull.
+    /// resting or the way out is on, and empty otherwise. Read only by the
+    /// rest pull and the way out.
     pub nest_ways: Vec<crate::sim::creature::NestWay>,
     /// **`PIXEL_PHYSICS_BUD_STORE` for this world** (`creature::bud_from_store`).
     /// `None` follows the environment, which is off unless set.
@@ -6582,6 +6672,7 @@ impl World {
             soil_water_stats: SoilWaterStats::default(),
             creature_stats: CreatureStats::default(),
             decision_log: None,
+            feed_log: None,
             decision_scratch: crate::sim::creature::DecisionScratch::default(),
             chooser: None,
             bud_at_nest: None,
@@ -6603,6 +6694,13 @@ impl World {
             spoil_ring: None,
             spoil_hold: None,
             nest_rest: None,
+            hungry_out: None,
+            home_search: None,
+            way_gaps: None,
+            soil_way: None,
+            face_trip: None,
+            crop_down: None,
+            nurse_stay: None,
             nest_ways: Vec::new(),
             bud_store: None,
             births_paused: false,
@@ -7691,6 +7789,7 @@ impl World {
             home_best_at: (0, 0),
             home_away: 0,
             home_patience: 1.0,
+            home_search_loops: 0,
             scout_best: 0.0,
             scout_for: (i32::MIN, i32::MIN),
             scout_patience: 1.0,
