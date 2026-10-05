@@ -2152,6 +2152,14 @@ pub struct CreatureStats {
     /// door along the passages. The "it fired" half; the effect half is where
     /// the colony's starved die (`deeptrace`) and the colony's size.
     pub hungry_out_pulls: u64,
+    /// Decisions a pellet carrier inside its nest walked out along the nest's
+    /// way (`PIXEL_PHYSICS_SOIL_WAY`, `creature::soil_way_of`). The "it
+    /// fired" half; the effect half is where the soil goes down.
+    pub soil_way_pulls: u64,
+    /// Ticks a carrier out of patience kept its pellet only because it stood
+    /// below its nest's founding ground (`PIXEL_PHYSICS_SOIL_WAY`'s `way`):
+    /// each one a pellet the old rule would have let go inside.
+    pub spoil_held_below: u64,
     /// Search loops begun by a laden ant that had lost its pull home and
     /// strayed past its search reach (`PIXEL_PHYSICS_HOME_SEARCH`,
     /// `creature::home_search_of`). The "it fired" half; the effect half is
@@ -4039,6 +4047,16 @@ pub struct World {
     /// for this world** (`creature::home_search_of`). `None` follows the
     /// environment; a field so a guard can take both arms in one process.
     pub home_search: Option<bool>,
+    /// **The two gaps in the nest's way in, overriding
+    /// `PIXEL_PHYSICS_WAY_GAPS` for this world** (`creature::way_gaps_of`).
+    /// `None` follows the environment; a field so a guard can take both arms
+    /// in one process.
+    pub way_gaps: Option<crate::sim::creature::WayGaps>,
+    /// **Soil leaving by the nest's way out, overriding
+    /// `PIXEL_PHYSICS_SOIL_WAY` for this world** (`creature::soil_way_of`).
+    /// `None` follows the environment; a field so a guard can take both arms
+    /// in one process.
+    pub soil_way: Option<crate::sim::creature::SoilWay>,
     /// **Each nest's way in**, as steps from its door through the cells
     /// inside it an ant can stand in (`creature::NestWay`), rebuilt every
     /// `creature::REST_REFRESH` frames by `creature::step_nest_rest` while
@@ -6625,6 +6643,8 @@ impl World {
             nest_rest: None,
             hungry_out: None,
             home_search: None,
+            way_gaps: None,
+            soil_way: None,
             nest_ways: Vec::new(),
             bud_store: None,
             births_paused: false,
