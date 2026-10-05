@@ -13059,8 +13059,8 @@ fn carriers_seek_larvae(world: &World) -> bool {
 }
 
 /// **Nurses carry forager food to the brood** (`PIXEL_PHYSICS_NURSE_STAY=
-/// on|off|relay|nurse|down|stay|stayN`, a comma list; `on`, every part,
-/// since 2026-10-05). A nurse is a young nest worker ([`is_nest_bound`])
+/// on|off|relay|nurse|down|stay|stayN`, a comma list; built 2026-10-05,
+/// **off** unless set: see the end of this doc). A nurse is a young nest worker ([`is_nest_bound`])
 /// holding crop food:
 ///
 /// - `relay`: a forager home with crop food ([`crop_to_feed`]), not itself
@@ -13098,8 +13098,9 @@ fn carriers_seek_larvae(world: &World) -> bool {
 /// 10.7554/eLife.31730), and nurses stay with brood (Mersch, Crespi &
 /// Keller 2013, doi 10.1126/science.1234316).
 ///
-/// **Measured** 2026-10-05 (dry goal box, evolved founder, evolution off,
-/// seeds 1-4, 300k frames, means and totals over 100k-300k): larvae starved
+/// **Measured** 2026-10-05, before PR 629 turned the nest switches on (dry
+/// goal box, evolved founder, evolution off, seeds 1-4, 300k frames, means
+/// and totals over 100k-300k): larvae starved
 /// per egg laid 20.2/20.5/21.0/19.1% -> 10.7/14.8/11.1/13.5%, and
 /// 31.7/34.6/29.7/31.4% -> 13.4/20.4/24.5/25.4% with the brood spread
 /// (`PIXEL_PHYSICS_BROOD_SPREAD=on`), where the larvae more than 3 columns
@@ -13110,8 +13111,19 @@ fn carriers_seek_larvae(world: &World) -> bool {
 /// over 200k-300k (528-632 ants against 547-610), takes 12-30% less food
 /// from the heap, and grown foragers (mean age 17k-28k frames) starve above
 /// ground, 66-342 a run against 27-38, while starvation underground falls.
-/// On by the owner's rule of 2026-10-05: a fix that works on its own
-/// measure ships, and its cost is traced rather than used to reject it.
+///
+/// **Off, because with the nest switches on it kills colonies** -- the
+/// owner's rule of 2026-10-05: a fix that kills colonies outright stays
+/// built but off until the deaths are understood. With [`SoilWay`],
+/// [`WayGaps`] and [`FaceTrip`] on (PR 629), same box and seeds, one build
+/// (main 043e9104), 100k-300k: live ants 293/128/181/292 against
+/// 547/551/529/573 with this switch off, lowest count 103/0/40/68 against
+/// 495/509/462/492, grown ants starved 586/672/1070/477 against 11/7/11/12,
+/// food taken from the heap 8.3k-25.0k cells against 54.4k-64.5k; seed 2
+/// died out by 260k. Each alone holds: this switch with the three off is
+/// 488/583/543/545 (the numbers above, to the ant), and the three with this
+/// one off are the 547-573 just given. Why the pair starves the colony is
+/// not yet traced.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct NurseStay {
     pub relay: bool,
@@ -13136,8 +13148,9 @@ impl NurseStay {
         down: true,
         stay: NURSE_STAY_FRAMES,
     };
-    /// What a world gets with the variable unset.
-    pub const SHIPPED: NurseStay = NurseStay::ON;
+    /// What a world gets with the variable unset: off since 2026-10-05,
+    /// see the type's doc.
+    pub const SHIPPED: NurseStay = NurseStay::OFF;
 
     /// Parse a `PIXEL_PHYSICS_NURSE_STAY` value. Anything else panics.
     pub fn parse(raw: &str) -> NurseStay {
@@ -26857,6 +26870,9 @@ mod tests {
         // Today's walk, pinned: the identity needs a blocked move, and the chooser
         // only ever picks a usable heading, so it counts none.
         w.chooser = Some(Chooser::Off);
+        // Nurses on although they ship off: a hand-off passed down is the one
+        // booking this guard caught (a delivery the world never counted).
+        w.nurse_stay = Some(NurseStay::ON);
         let placed = w.found_colony(200, low - 32);
         assert!(placed > 0, "the bed placed no ants -- the scene is wrong, not the rule");
         // `run` is this module's own way to advance a world -- a second one
@@ -35951,6 +35967,9 @@ mod tests {
         // Today's walk, pinned: these are that walk's rules (a tumble roll after every
         // lost move roll). The chooser's rows reconcile in `trailfollow decisioncsv`.
         w.chooser = Some(Chooser::Off);
+        // Nurses on although they ship off: a hand-off with no `Delivered` row,
+        // and the nest workers `down` makes, are what this guard was fixed for.
+        w.nurse_stay = Some(NurseStay::ON);
         assert!(w.found_colony(200, low - 32) > 0, "the bed placed no ants -- the scene is wrong, not the rule");
         let before = w.creature_stats;
         w.decision_log = Some(Vec::new());
