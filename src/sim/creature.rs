@@ -634,9 +634,22 @@ pub enum DigWhy {
     NoGround = 5,
     /// A cell was cut.
     Cut = 6,
+    /// The roll won and the heap cue let it through, and the digger was
+    /// walking back to its face with the cell too far from it
+    /// ([`FaceTrip`]'s `only`).
+    Face = 7,
 }
-pub const DIG_WHYS: usize = 7;
-pub const DIG_WHY_NAMES: [&str; DIG_WHYS] = ["not_asked", "lean", "roll_lost", "cue", "roof", "no_ground", "cut"];
+pub const DIG_WHYS: usize = 8;
+pub const DIG_WHY_NAMES: [&str; DIG_WHYS] = [
+    "not_asked",
+    "lean",
+    "roll_lost",
+    "cue",
+    "roof",
+    "no_ground",
+    "cut",
+    "face",
+];
 /// `DecisionScratch::dig_flags`: what turned or moved the target before it
 /// was judged.
 pub const DIG_FLAG_DOWN: u8 = 1;
@@ -12542,6 +12555,163 @@ fn in_nest_for_soil(world: &World, x: i32, y: i32) -> bool {
     inside_nest(world, x, y) || below_founding_ground(world, x, y)
 }
 
+/// **A digger keeps its face through the trip out and back**
+/// (`PIXEL_PHYSICS_FACE_TRIP=on|off|door|food|only|stay|below`, a comma list;
+/// off; [`World::face_trip`] for one world). Five parts of [`spoil_back`]'s
+/// trip, each a word:
+///
+/// - `below`: any cut below the ground the nest was founded on is a face to
+///   come back to, wherever the digger stands. Without it a cut is a face
+///   only if the digger stands [`inside_nest`], which the room under an open
+///   door is not (no ground over it in its own column), and a cut in the
+///   spoil mound is one.
+/// - `door`: walking back, a digger not yet below the founding ground (nor in
+///   the founding cut) is aimed at the door, not straight through the
+///   mound's floor at its face.
+/// - `food`: food in the crop pauses the trip instead of ending it; the
+///   digger takes the food in and goes back afterwards.
+/// - `only`: walking back, a digger cuts nothing more than
+///   [`FACE_TRIP_REACH`] from its face ([`DigWhy::Face`]).
+/// - `stay`: arriving does not end the trip; the next cut does (it is a new
+///   face), or patience running out ([`DIG_RETURN_GIVE_UP`]).
+///
+/// **Why** (lane 3, 2026-10-05; the deep trace lane's face trace,
+/// `/mnt/project-files/deep-trace/soil-journeys-2026-10-05.md`). A digger
+/// that carries its soil out of the nest almost never cuts at its face again:
+/// on main 1-2% of the time, 72-79% of its next cuts in the spoil mound; under
+/// [`SoilWay`], which carries every pellet out, 0-4% and 88-95%. The trip back
+/// aimed at the face through the mound's floor, was ended by food in the
+/// crop, let a cut in the mound replace the face, and 16-28% of nest cuts
+/// set no face at all (made from under the open door).
+///
+/// **Measured** (dry goal box, the laying lane's evolved founder rows,
+/// evolution off, 150k; the effect read is how often a digger's next cut
+/// after a nest cut past 100k is within two cells of it). With [`SoilWay`]
+/// and [`WayGaps`] on, seeds 1-4: next cut at the face 0/3/4/3% ->
+/// 35/57/59/45%, next cut in the mound 95/89/88/93% -> 36/20/18/23%, cells
+/// ever dug 987/1,085/1,034/970 -> 1,183/1,379/1,221/1,293, mean ants
+/// 100-150k 522/495/470/452 -> 558/554/500/553, starved 3/2/0/1 ->
+/// 2/0/3/6. **Every word is needed** (seeds 1 and 3, all five less one):
+/// without `food` the face share is 11/8%, without `only` 10/1%, without
+/// `door` 10/39%, without `below` 29/29%, without `stay` 41/14%; `below`
+/// alone 1/2%. On today's default nest (no soil way, no gaps), seeds 1-4:
+/// next cut at the face 13/14/15/13% -> 30/43/34/35%, and with evolution on
+/// (seeds 1 and 3) 12/12% -> 25/29%; but starved deaths rise on 5 of those
+/// 6 runs (7 -> 121 on seed 2, whose colony fell 620 -> 560 with the door
+/// shut 5 of 6 samples), which is why it ships off. **With the way-out map
+/// whole nobody starves:** [`WayGaps`] alone (no soil way), seeds 1-4,
+/// starved 0/1/2/1 -> 0/0/0/5, mean ants 467/504/499/494 ->
+/// 636/583/650/552, next cut at the face 23/21/27/18% -> 60/59/57/61%,
+/// cells ever dug 973/964/950/1,046 -> 1,496/1,302/1,536/1,148. So the
+/// starving points at the same broken map that starved [`SoilWay`]'s
+/// diggers (inferred from this pair, not traced ant by ant), and the switch
+/// wins back most of the colony [`WayGaps`] costs. That pair still digs
+/// 12-34% less new ground than today's nest (1,735/1,825/1,750/1,733).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct FaceTrip {
+    pub door: bool,
+    pub food: bool,
+    pub only: bool,
+    pub stay: bool,
+    pub below: bool,
+}
+
+impl FaceTrip {
+    pub const OFF: FaceTrip = FaceTrip {
+        door: false,
+        food: false,
+        only: false,
+        stay: false,
+        below: false,
+    };
+    pub const ON: FaceTrip = FaceTrip {
+        door: true,
+        food: true,
+        only: true,
+        stay: true,
+        below: true,
+    };
+
+    /// Parse a `PIXEL_PHYSICS_FACE_TRIP` value: `on`, `off`, or a comma list
+    /// of `door`, `food`, `only`, `stay` and `below`. Anything else panics.
+    pub fn parse(raw: &str) -> FaceTrip {
+        let mut ft = FaceTrip::OFF;
+        for part in raw.split(',').map(str::trim).filter(|p| !p.is_empty()) {
+            match part {
+                "on" => ft = FaceTrip::ON,
+                "off" => ft = FaceTrip::OFF,
+                "door" => ft.door = true,
+                "food" => ft.food = true,
+                "only" => ft.only = true,
+                "stay" => ft.stay = true,
+                "below" => ft.below = true,
+                other => {
+                    panic!("PIXEL_PHYSICS_FACE_TRIP={raw:?}: {other:?} is not on, off, door, food, only, stay or below")
+                }
+            }
+        }
+        ft
+    }
+}
+
+/// This world's [`FaceTrip`]: `World::face_trip` if set, else the environment's.
+pub fn face_trip_of(world: &World) -> FaceTrip {
+    world.face_trip.unwrap_or_else(|| {
+        static V: std::sync::OnceLock<FaceTrip> = std::sync::OnceLock::new();
+        *V.get_or_init(|| std::env::var("PIXEL_PHYSICS_FACE_TRIP").map_or(FaceTrip::OFF, |v| FaceTrip::parse(&v)))
+    })
+}
+
+/// [`FaceTrip`]'s `only`: how far from its face, in cells (Chebyshev), a
+/// digger walking back may still cut -- the arrival test's two cells and one
+/// more, for the cell ahead of a head two cells off.
+pub const FACE_TRIP_REACH: i32 = 3;
+
+/// Is a cell cut from `head` at `cut` a face to come back to ([`spoil_back`])?
+/// Where the digger stands is [`inside_nest`]; under [`FaceTrip`]'s `below`,
+/// the cut is below the founding ground.
+fn face_for_cut(world: &World, head: (i32, i32), cut: (i32, i32)) -> bool {
+    if face_trip_of(world).below {
+        below_founding_ground(world, cut.0, cut.1)
+    } else {
+        inside_nest(world, head.0, head.1)
+    }
+}
+
+/// [`FaceTrip`]'s `only`: is this animal walking back to its face, with the
+/// cell `cut` more than [`FACE_TRIP_REACH`] from it?
+fn face_trip_refuses(world: &World, organism: OrganismId, cut: (i32, i32)) -> bool {
+    face_trip_of(world).only
+        && world.organism(organism).is_some_and(|s| {
+            s.dig_return
+                .is_some_and(|(fx, fy)| (fx - cut.0).abs().max((fy - cut.1).abs()) > FACE_TRIP_REACH)
+        })
+}
+
+/// **Is the trip back to the face over** ([`spoil_back`])? On arrival --
+/// within two cells of the cell it cut, aimed at it -- unless [`FaceTrip`]'s
+/// `stay`; when patience has run out on it; or when the animal is no longer
+/// an empty digger that is not hungry ([`dig_return_target`] gives no
+/// target), except that under [`FaceTrip`]'s `food` food in the crop of a
+/// digger not hungry only pauses it.
+fn dig_trip_over(
+    world: &World,
+    def: &CreatureDef,
+    s: &crate::sim::organism::OrganismState,
+    head: (i32, i32),
+    site: (i32, i32),
+) -> bool {
+    let target = dig_return_target(world, def, s);
+    let ft = face_trip_of(world);
+    let arrived = !ft.stay && target == Some(site) && (head.0 - site.0).abs() <= 2 && (head.1 - site.1).abs() <= 2;
+    let gave_up = target.is_some_and(|t| s.home_best_for == t) && s.home_patience < DIG_RETURN_GIVE_UP;
+    let paused = ft.food
+        && target.is_none()
+        && s.crop.is_some_and(|c| c.worth() > 0.0)
+        && s.energy >= DIG_RETURN_FED * def.start_energy;
+    arrived || gave_up || (target.is_none() && !paused)
+}
+
 /// Where [`soil_way_of`] pulls this pellet carrier, or `None` for the
 /// straight haul: a carrier of tailings (not a store load) inside its nest,
 /// under `way`, or under `lean` while it is lean.
@@ -12778,7 +12948,17 @@ fn dig_return_target(world: &World, def: &CreatureDef, state: &crate::sim::organ
         return None;
     }
     let &(hx, hy) = state.chain.first()?;
-    if inside_nest(world, hx, hy) {
+    // [`FaceTrip`]'s `door`: inside means below the founding ground or in the
+    // founding cut, so a digger in the spoil mound is aimed at the door.
+    let inside = if face_trip_of(world).door {
+        world
+            .nearest_nest_site(site.0, site.1)
+            .and_then(|i| world.nest_sites.get(i))
+            .is_some_and(|s| hy > s.surface || s.shaft.is_some_and(|c| c.contains(hx, hy)))
+    } else {
+        inside_nest(world, hx, hy)
+    };
+    if inside {
         Some(site)
     } else {
         let ns = world.nearest_nest_site(site.0, site.1).and_then(|i| world.nest_sites.get(i))?;
@@ -16235,14 +16415,20 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
         // so the crust over the nest stays whole and the chambers go below it.
         // No draw either way. Judged only where the heap cue let the cut
         // through, as it always was; the two are named apart for the trace.
-        let roof_refused = !cue_vetoed && {
+        // **Walking back to its face, a digger cuts only at it**
+        // ([`FaceTrip`]'s `only`): a cell more than [`FACE_TRIP_REACH`] from
+        // the face it is going back to is refused. No draw either way; judged
+        // where the heap cue let the cut through.
+        let face_refused = !cue_vetoed && face_trip_refuses(world, organism, (tx, ty));
+        world.creature_stats.digs_refused_face += u64::from(face_refused);
+        let roof_refused = !cue_vetoed && !face_refused && {
             let refused = dig_roof_of(world).is_some_and(|rows| under_roof(world, (tx, ty), rows));
             if refused {
                 world.creature_stats.digs_refused_roof += 1;
             }
             refused
         };
-        let vetoed = cue_vetoed || roof_refused;
+        let vetoed = cue_vetoed || face_refused || roof_refused;
         // **What the jaw can take is [`jaw_can_cut`]**, one test shared with
         // the dig-down turn above so the two cannot drift apart; the argument
         // for each of its terms is there. A live seed is still counted here,
@@ -16257,6 +16443,8 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
                 DigWhy::NoGround
             } else if cue_vetoed {
                 DigWhy::Cue
+            } else if face_refused {
+                DigWhy::Face
             } else if roof_refused {
                 DigWhy::Roof
             } else {
@@ -16366,7 +16554,7 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
             // **The face to come back to** ([`spoil_back`]): a cut made inside
             // the nest is remembered, and one made in the open forgets it, so
             // a digger that worked a heap is pulled nowhere.
-            let back_to = spoil_back().then(|| inside_nest(world, x, y).then_some((tx, ty)));
+            let back_to = spoil_back().then(|| face_for_cut(world, (x, y), (tx, ty)).then_some((tx, ty)));
             if let Some(state) = world.organism_mut(organism) {
                 state.life.digs += 1;
                 if let Some(back_to) = back_to {
@@ -20219,17 +20407,18 @@ fn chooser_step(
             }
         }
     }
-    // **The trip back to the face ends** ([`spoil_back`]) on arrival --
-    // under cover and within two cells of the cell it cut -- when patience
-    // has run out on it, or when the animal is no longer an empty digger that
-    // is not hungry (food in the crop, or below [`DIG_RETURN_FED`]), which
-    // [`dig_return_target`] reads.
-    if let Some(s) = world.organism(organism).filter(|s| s.dig_return.is_some() && s.spoil.is_none()) {
+    // **The trip back to the face ends** ([`spoil_back`], [`dig_trip_over`])
+    // on arrival -- under cover and within two cells of the cell it cut --
+    // when patience has run out on it, or when the animal is no longer an
+    // empty digger that is not hungry (food in the crop, or below
+    // [`DIG_RETURN_FED`]), which [`dig_return_target`] reads; [`FaceTrip`]'s
+    // `stay` and `food` take arrival and the crop out of that.
+    if let Some(s) = world
+        .organism(organism)
+        .filter(|s| s.dig_return.is_some() && s.spoil.is_none())
+    {
         let (sx, sy) = s.dig_return.expect("filtered above");
-        let target = dig_return_target(world, def, s);
-        let arrived = target == Some((sx, sy)) && (hx - sx).abs() <= 2 && (hy - sy).abs() <= 2;
-        let gave_up = target.is_some_and(|t| s.home_best_for == t) && s.home_patience < DIG_RETURN_GIVE_UP;
-        if arrived || gave_up || target.is_none() {
+        if dig_trip_over(world, def, s, (hx, hy), (sx, sy)) {
             if let Some(s) = world.organism_mut(organism) {
                 s.dig_return = None;
             }
@@ -28584,6 +28773,224 @@ mod tests {
         assert!(std::panic::catch_unwind(|| WayGaps::parse("brod")).is_err(), "a misspelt WAY_GAPS did not panic");
     }
 
+    /// [`deep_world`] with a spoil mound over the ground east of the door
+    /// (rows 30-35, columns 66-75), the ant fed to its grant and its face in
+    /// the chamber at (57, 46), and [`FaceTrip`] set to `ft`.
+    fn face_world(x: i32, y: i32, ft: FaceTrip) -> (World, OrganismId) {
+        let (mut w, a) = deep_world(x, y, true);
+        let soil = w.get(10, 60);
+        assert_ne!(
+            soil.material,
+            material::EMPTY,
+            "test setup: no ground to copy for the mound"
+        );
+        for (px, py) in (30..=35).flat_map(|py| (66..=75).map(move |px| (px, py))) {
+            w.set(px, py, soil);
+        }
+        let start = w
+            .species
+            .get(w.organism(a).expect("live").species)
+            .creature
+            .as_ref()
+            .expect("a creature")
+            .start_energy;
+        let st = w.organism_mut(a).expect("live");
+        st.energy = start;
+        st.dig_return = Some((57, 46));
+        w.face_trip = Some(ft);
+        (w, a)
+    }
+
+    /// **Under `FACE_TRIP=below` a cut below the founding ground is a face
+    /// wherever the digger stands, and one in the spoil mound is not**
+    /// ([`face_for_cut`]). A digger in the shaft deep under the open door has
+    /// no ground over it in its own column, so it is not [`inside_nest`] and
+    /// its cut there set no face (16-28% of nest cuts on the goal box); one
+    /// under the mound is, and its cut in the mound became its face. Both
+    /// positive controls are asserted on the scene. Watched red with `below`
+    /// ignored in [`face_for_cut`].
+    #[test]
+    fn under_face_trip_below_a_cut_under_the_open_door_is_a_face_and_a_mound_cut_is_not() {
+        let below = FaceTrip {
+            below: true,
+            ..FaceTrip::OFF
+        };
+        let (w, _) = face_world(60, 72, FaceTrip::OFF);
+        assert!(
+            !inside_nest(&w, 60, 72),
+            "test setup: the shaft under the open door counts as inside"
+        );
+        assert!(
+            inside_nest(&w, 70, 36),
+            "test setup: the ground under the mound is not under cover"
+        );
+        assert!(
+            !face_for_cut(&w, (60, 72), (59, 72)),
+            "off: a cut from under the open door set a face"
+        );
+        assert!(
+            face_for_cut(&w, (70, 36), (70, 35)),
+            "off: a cut in the mound set no face"
+        );
+        let (w, _) = face_world(60, 72, below);
+        assert!(
+            face_for_cut(&w, (60, 72), (59, 72)),
+            "below: a cut below the founding ground from under the open door set no face"
+        );
+        assert!(
+            !face_for_cut(&w, (70, 36), (70, 35)),
+            "below: a cut in the mound set a face"
+        );
+    }
+
+    /// **Under `FACE_TRIP=door` a digger in the spoil mound walks back by the
+    /// door** ([`dig_return_target`]). Under the mound it is [`inside_nest`],
+    /// so off it is aimed straight at its face, through the mound's floor and
+    /// the ground under it; with `door` it is aimed at the door until it is
+    /// below the founding ground, and then at its face. Watched red with
+    /// `door` ignored in [`dig_return_target`].
+    #[test]
+    fn under_face_trip_door_a_digger_in_the_mound_is_aimed_at_the_door() {
+        let target = |ft: FaceTrip, x: i32, y: i32| {
+            let (w, a) = face_world(x, y, ft);
+            let def = w
+                .species
+                .get(w.organism(a).expect("live").species)
+                .creature
+                .clone()
+                .expect("a creature");
+            dig_return_target(&w, &def, w.organism(a).expect("live"))
+        };
+        let door = FaceTrip {
+            door: true,
+            ..FaceTrip::OFF
+        };
+        assert_eq!(
+            target(FaceTrip::OFF, 70, 36),
+            Some((57, 46)),
+            "off: a digger under the mound was not aimed at its face"
+        );
+        assert_eq!(
+            target(door, 70, 36),
+            Some((60, 40)),
+            "door: a digger under the mound was not aimed at the door"
+        );
+        assert_eq!(
+            target(door, 63, 46),
+            Some((57, 46)),
+            "door: a digger in the chamber was not aimed at its face"
+        );
+    }
+
+    /// **Under `FACE_TRIP=only` a digger walking back cuts only at its face**
+    /// ([`face_trip_refuses`]): a cell within [`FACE_TRIP_REACH`] of its face
+    /// is allowed, one in the room below is refused, and off nothing is; with
+    /// no face to walk back to nothing is refused either. Watched red with
+    /// the reach test turned round.
+    #[test]
+    fn under_face_trip_only_a_digger_walking_back_cuts_nothing_off_its_face() {
+        let only = FaceTrip {
+            only: true,
+            ..FaceTrip::OFF
+        };
+        let (w, a) = face_world(63, 46, FaceTrip::OFF);
+        assert!(
+            !face_trip_refuses(&w, a, (66, 72)),
+            "off: a cut off the face was refused"
+        );
+        let (mut w, a) = face_world(63, 46, only);
+        assert!(
+            !face_trip_refuses(&w, a, (59, 48)),
+            "only: a cut at the face was refused"
+        );
+        assert!(
+            face_trip_refuses(&w, a, (66, 72)),
+            "only: a cut in the room below was allowed"
+        );
+        w.organism_mut(a).expect("live").dig_return = None;
+        assert!(
+            !face_trip_refuses(&w, a, (66, 72)),
+            "only: a digger with no face to go back to was refused"
+        );
+    }
+
+    /// **Under `FACE_TRIP=stay` arriving does not end the trip, and under
+    /// `food` food in the crop pauses it** ([`dig_trip_over`]). At its face,
+    /// fed and empty, off ends it (arrived); `stay` does not. Away from its
+    /// face with fruit in the crop, off ends it (no target) and `food` does
+    /// not; hungry, `food` ends it as well. Watched red with each word
+    /// ignored in [`dig_trip_over`].
+    #[test]
+    fn under_face_trip_stay_and_food_the_trip_back_outlasts_arrival_and_a_meal() {
+        let over = |ft: FaceTrip, x: i32, y: i32, fed: f32, crop: bool| {
+            let (mut w, a) = face_world(x, y, ft);
+            let def = w
+                .species
+                .get(w.organism(a).expect("live").species)
+                .creature
+                .clone()
+                .expect("a creature");
+            let fruit = w.materials.id_of("fruit").expect("fruit");
+            let st = w.organism_mut(a).expect("live");
+            st.energy = fed * def.start_energy;
+            if crop {
+                st.crop = Some(Crop {
+                    material: fruit,
+                    cells: 1,
+                    digesting: 0.0,
+                    unit: 960.0,
+                    shade: 0,
+                    passenger: None,
+                });
+            }
+            let s = w.organism(a).expect("live");
+            dig_trip_over(&w, &def, s, s.chain[0], (57, 46))
+        };
+        let stay = FaceTrip {
+            stay: true,
+            ..FaceTrip::OFF
+        };
+        let food = FaceTrip {
+            food: true,
+            ..FaceTrip::OFF
+        };
+        assert!(
+            over(FaceTrip::OFF, 57, 46, 1.0, false),
+            "off: arriving at the face did not end the trip"
+        );
+        assert!(
+            !over(stay, 57, 46, 1.0, false),
+            "stay: arriving at the face ended the trip"
+        );
+        assert!(
+            over(FaceTrip::OFF, 66, 72, 1.0, true),
+            "off: food in the crop did not end the trip"
+        );
+        assert!(
+            !over(food, 66, 72, 1.0, true),
+            "food: food in the crop of a fed digger ended the trip"
+        );
+        assert!(over(food, 66, 72, 0.3, true), "food: a hungry digger's trip went on");
+    }
+
+    #[test]
+    fn face_trip_parses_its_words_and_refuses_the_rest() {
+        assert_eq!(FaceTrip::parse("on"), FaceTrip::ON);
+        assert_eq!(FaceTrip::parse("off"), FaceTrip::OFF);
+        assert_eq!(
+            FaceTrip::parse("stay"),
+            FaceTrip {
+                stay: true,
+                ..FaceTrip::OFF
+            }
+        );
+        assert_eq!(FaceTrip::parse("door, food,only,stay,below"), FaceTrip::ON);
+        assert!(
+            std::panic::catch_unwind(|| FaceTrip::parse("deep")).is_err(),
+            "an unknown FACE_TRIP word did not panic"
+        );
+    }
+
     /// **The narrower forms keep a scout out** ([`NestRest`]): the same fed
     /// ant in its chamber is not pulled under `workers` or `on` while it has
     /// neither foraged nor been made a nest worker; under `on` it is once it
@@ -34226,7 +34633,10 @@ mod tests {
         // which are incremented at the roll and at the cut: every row the
         // funnel took past the roll is a won roll, and every cut row a cell.
         assert_eq!(
-            count(&|r| matches!(r.dig, DigWhy::Cue | DigWhy::Roof | DigWhy::NoGround | DigWhy::Cut)),
+            count(&|r| matches!(
+                r.dig,
+                DigWhy::Cue | DigWhy::Face | DigWhy::Roof | DigWhy::NoGround | DigWhy::Cut
+            )),
             after.dig_rolls - before.dig_rolls,
             "won dig rows against `dig_rolls`"
         );
