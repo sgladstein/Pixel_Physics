@@ -793,6 +793,24 @@ pub struct DecisionScratch {
     /// `PERSIST_MAX`), so a reader can split each score into its terms. NaN
     /// when the chooser did not choose.
     pub persist: f32,
+    /// **The nurse term the chooser scored with** (`chooser_step`'s
+    /// `nurse`): its weight -- the seek's gain times the larva scent's
+    /// strength ([`brood::larva_scent`](super::brood)) -- and the scent's unit
+    /// direction, so a reader adds `nurse_w x cos(heading, (nurse_ux,
+    /// nurse_uy))` back into each option's split. NaN when the chooser did
+    /// not choose or added no such term. Added 2026-10-05: under
+    /// [`CropDown`]'s `scent` a carrier below the founding ground is steered
+    /// by this term alone, and a split without it left a remainder.
+    pub nurse_w: f32,
+    pub nurse_ux: f32,
+    pub nurse_uy: f32,
+    /// **Why the walk back to the face ended this decision**
+    /// ([`TRIP_END_NAMES`]), as [`dig_trip_over`] ended it;
+    /// [`TRIP_END_NONE`] when it did not end here. A cut that replaces or
+    /// forgets the face is not booked here: it shows as the cut. Added
+    /// 2026-10-05, because under [`FaceTrip`]'s `food` and `stay` a reader
+    /// can no longer infer the ending from the crop and the distance.
+    pub trip_end: u8,
     /// **The dig's funnel** ([`DigWhy`]): how far it got, the brain's urge
     /// before the lean gate (NaN unless the roll was taken), the cell it was
     /// judged on and that cell's material (`DIG_NO_TARGET` and 0 unless the
@@ -829,6 +847,74 @@ pub const PULL_REST: u8 = 11;
 /// `home_pull` pulled and [`home_pull_why`] named a branch with another
 /// target: the mirror has drifted from `home_pull`.
 pub const PULL_MISMATCH: u8 = 12;
+/// [`DecisionScratch::trip_end`]: the walk back to the face did not end.
+pub const TRIP_END_NONE: u8 = 0;
+/// Within two cells of the face and aimed at it (not under [`FaceTrip`]'s
+/// `stay`).
+pub const TRIP_END_ARRIVED: u8 = 1;
+/// Patience ran out on its target ([`DIG_RETURN_GIVE_UP`]).
+pub const TRIP_END_GAVE_UP: u8 = 2;
+/// No target: under [`DIG_RETURN_FED`] of its start.
+pub const TRIP_END_HUNGRY: u8 = 3;
+/// No target: food in the crop, and [`FaceTrip`]'s `food` did not pause it.
+pub const TRIP_END_FOOD: u8 = 4;
+/// No target for another reason ([`dig_return_target`]: the trip back is
+/// off, or there is no nest site).
+pub const TRIP_END_OTHER: u8 = 5;
+/// [`dig_trip_over`] ended it and [`dig_trip_end_why`] named none of the
+/// above: the mirror has drifted.
+pub const TRIP_END_MISMATCH: u8 = 6;
+/// [`DecisionScratch::trip_end`]'s names, by value.
+pub const TRIP_END_NAMES: [&str; 7] = ["", "arrived", "gave_up", "hungry", "food", "other", "mismatch"];
+
+/// **One meal a larva was given**, for the trace only ([`World::feed_log`],
+/// off unless a harness sets it to `Some`; recording draws nothing and
+/// changes nothing): the larva, the cell it lay in, how it was fed
+/// ([`FEED_KIND_NAMES`]), by whom (0 for food it ate off the floor), and the
+/// energy it gained. Added 2026-10-05 for the question of whether
+/// [`CropDown`] brings crop food down to the brood: `brood_crop_fed_j` and
+/// its siblings in `CreatureStats` say how much a larva was fed, never
+/// where.
+#[derive(Clone, Copy, Debug)]
+pub struct FeedRow {
+    pub frame: u64,
+    pub larva: OrganismId,
+    pub at: (i32, i32),
+    pub kind: u8,
+    pub donor: OrganismId,
+    pub gain: f32,
+}
+
+/// [`FeedRow::kind`]: food in reach that the larva ate (`brood_ate_j`).
+pub const FEED_ATE: u8 = 0;
+/// From a carrier's crop (`brood::crop_feed`, `brood_crop_fed_j`).
+pub const FEED_CROP: u8 = 1;
+/// From a nestmate's bank (`brood::nurse`, `brood_nursed_j`).
+pub const FEED_BANK: u8 = 2;
+/// A brain's `Share` to a larva (`brood_shared_j`).
+pub const FEED_SHARE: u8 = 3;
+/// [`FeedRow::kind`]'s names, by value.
+pub const FEED_KIND_NAMES: [&str; 4] = ["ate", "crop", "bank", "share"];
+
+/// Book a larva's meal in [`World::feed_log`] while one is running; a
+/// no-op otherwise, and for a meal that gave nothing.
+pub(super) fn note_feed(world: &mut World, larva: OrganismId, at: (i32, i32), kind: u8, donor: OrganismId, gain: f32) {
+    if gain <= 0.0 {
+        return;
+    }
+    let frame = world.frame;
+    if let Some(log) = world.feed_log.as_mut() {
+        log.push(FeedRow {
+            frame,
+            larva,
+            at,
+            kind,
+            donor,
+            gain,
+        });
+    }
+}
+
 /// [`DecisionScratch::pull_why`]'s names, by value.
 pub const PULL_WHY_NAMES: [&str; 13] = [
     "not scored",
@@ -883,6 +969,10 @@ impl Default for DecisionScratch {
             pull_at: DIG_NO_TARGET,
             pull_gain: f32::NAN,
             persist: f32::NAN,
+            nurse_w: f32::NAN,
+            nurse_ux: f32::NAN,
+            nurse_uy: f32::NAN,
+            trip_end: TRIP_END_NONE,
             dig: DigWhy::NotAsked,
             dig_p: f32::NAN,
             dig_at: DIG_NO_TARGET,
@@ -1045,6 +1135,13 @@ pub struct DecisionRow {
     pub pull_at: (i32, i32),
     pub pull_gain: f32,
     pub persist: f32,
+    /// The nurse term the chooser scored with, and why the walk back to the
+    /// face ended: see `DecisionScratch::nurse_w` and
+    /// `DecisionScratch::trip_end`.
+    pub nurse_w: f32,
+    pub nurse_ux: f32,
+    pub nurse_uy: f32,
+    pub trip_end: u8,
 }
 
 fn worm_tick(world: &mut World, x: i32, y: i32, organism: OrganismId) -> Vec<ActiveSite> {
@@ -7986,6 +8083,10 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
             pull_at: sc.pull_at,
             pull_gain: sc.pull_gain,
             persist: sc.persist,
+            nurse_w: sc.nurse_w,
+            nurse_ux: sc.nurse_ux,
+            nurse_uy: sc.nurse_uy,
+            trip_end: sc.trip_end,
         };
         if let Some(log) = world.decision_log.as_mut() {
             log.push(row);
@@ -11035,14 +11136,11 @@ struct FoodScan {
 struct NeedyKin {
     deficit: f32,
     id: OrganismId,
-    /// Where the neediest kin was found. Unread today — kept for whatever
-    /// consumer wants the position rather than only the identity (a probe,
-    /// or a future pair-drawing marker), which is the `CLAUDE.md` channel
-    /// rule's "written and never read" case: dead weight, not a bug, unlike
-    /// a reader with no writer.
-    #[allow(dead_code)]
+    /// Where the neediest kin was found. Read by the feed trace only
+    /// ([`note_feed`], for a share to a larva); kept for whatever consumer
+    /// wants the position rather than only the identity (a probe, or a
+    /// future pair-drawing marker).
     x: i32,
-    #[allow(dead_code)]
     y: i32,
 }
 
@@ -12866,6 +12964,35 @@ fn dig_trip_over(
         && s.crop.is_some_and(|c| c.worth() > 0.0)
         && s.energy >= DIG_RETURN_FED * def.start_energy;
     arrived || gave_up || (target.is_none() && !paused)
+}
+
+/// **Why [`dig_trip_over`] ended the trip**, for the decision trace only
+/// ([`DecisionScratch::trip_end`]): a mirror of its tests, in its order, with
+/// "no target" split by what [`dig_return_target`] refused on -- under
+/// [`DIG_RETURN_FED`] before food in the crop, since a hungry digger goes to
+/// eat whatever it holds. [`TRIP_END_MISMATCH`] if none of its tests holds.
+fn dig_trip_end_why(
+    world: &World,
+    def: &CreatureDef,
+    s: &crate::sim::organism::OrganismState,
+    head: (i32, i32),
+    site: (i32, i32),
+) -> u8 {
+    let target = dig_return_target(world, def, s);
+    let ft = face_trip_of(world);
+    if !ft.stay && target == Some(site) && (head.0 - site.0).abs() <= 2 && (head.1 - site.1).abs() <= 2 {
+        TRIP_END_ARRIVED
+    } else if target.is_some_and(|t| s.home_best_for == t) && s.home_patience < DIG_RETURN_GIVE_UP {
+        TRIP_END_GAVE_UP
+    } else if target.is_some() {
+        TRIP_END_MISMATCH
+    } else if s.energy < DIG_RETURN_FED * def.start_energy {
+        TRIP_END_HUNGRY
+    } else if s.crop.is_some_and(|c| c.worth() > 0.0) {
+        TRIP_END_FOOD
+    } else {
+        TRIP_END_OTHER
+    }
 }
 
 /// Where [`soil_way_of`] pulls this pellet carrier, or `None` for the
@@ -15226,6 +15353,7 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
                 world.creature_stats.shares += 1;
                 world.creature_stats.shared_j += amount as f64;
                 world.creature_stats.brood_shared_j += amount as f64;
+                note_feed(world, kin.id, (kin.x, kin.y), FEED_SHARE, organism, amount);
                 // Per colony, as any share is: a rival's larva is never kin,
                 // so donor and taker are one colony and this nets to zero.
                 let donor = world.colony_of(organism);
@@ -20591,8 +20719,16 @@ fn chooser_step(
     {
         let (sx, sy) = s.dig_return.expect("filtered above");
         if dig_trip_over(world, def, s, (hx, hy), (sx, sy)) {
+            let why = if world.decision_log.is_some() {
+                dig_trip_end_why(world, def, s, (hx, hy), (sx, sy))
+            } else {
+                TRIP_END_NONE
+            };
             if let Some(s) = world.organism_mut(organism) {
                 s.dig_return = None;
+            }
+            if world.decision_log.is_some() {
+                world.decision_scratch.trip_end = why;
             }
         }
     }
@@ -20921,6 +21057,7 @@ fn chooser_step(
         s.pull_at = pull.map_or(DIG_NO_TARGET, |(t, _)| t);
         s.pull_gain = gain;
         s.persist = persist;
+        (s.nurse_ux, s.nurse_uy, s.nurse_w) = nurse.unwrap_or((f32::NAN, f32::NAN, f32::NAN));
         s.patience = patience;
         s.chosen_cos = picked_cos;
         s.chosen_route = picked_route;
@@ -29148,6 +29285,102 @@ mod tests {
         assert!(over(food, 66, 72, 0.3, true), "food: a hungry digger's trip went on");
     }
 
+    /// **The decision trace names why the walk back ended**
+    /// ([`dig_trip_end_why`], [`DecisionScratch::trip_end`]), in the scenes
+    /// the test above judges [`dig_trip_over`] in and one whose patience has
+    /// run out on its target: at its face it arrived; away with fruit in the
+    /// crop, food; hungry, with or without the fruit and under `food` too,
+    /// hungry; patience spent, gave up. Where `dig_trip_over` goes on, the
+    /// fed empty digger walking back and the meal `food` pauses, there is
+    /// nothing to name. **Watched red** with the hungry and food tests
+    /// swapped in the mirror, and with its arrival test dropped.
+    #[test]
+    fn the_trip_end_trace_names_why_the_walk_back_ended() {
+        let why = |ft: FaceTrip, x: i32, y: i32, fed: f32, crop: bool, spent: bool| {
+            let (mut w, a) = face_world(x, y, ft);
+            let def = w
+                .species
+                .get(w.organism(a).expect("live").species)
+                .creature
+                .clone()
+                .expect("a creature");
+            let fruit = w.materials.id_of("fruit").expect("fruit");
+            let st = w.organism_mut(a).expect("live");
+            st.energy = fed * def.start_energy;
+            if crop {
+                st.crop = Some(Crop {
+                    material: fruit,
+                    cells: 1,
+                    digesting: 0.0,
+                    unit: 960.0,
+                    shade: 0,
+                    passenger: None,
+                });
+            }
+            if spent {
+                let t = dig_return_target(&w, &def, w.organism(a).expect("live"))
+                    .expect("test setup: no target to give up on");
+                let st = w.organism_mut(a).expect("live");
+                st.home_best_for = t;
+                st.home_patience = 0.5 * DIG_RETURN_GIVE_UP;
+            }
+            let s = w.organism(a).expect("live");
+            let over = dig_trip_over(&w, &def, s, s.chain[0], (57, 46));
+            (
+                over,
+                if over {
+                    dig_trip_end_why(&w, &def, s, s.chain[0], (57, 46))
+                } else {
+                    TRIP_END_NONE
+                },
+            )
+        };
+        let food = FaceTrip {
+            food: true,
+            ..FaceTrip::OFF
+        };
+        assert_eq!(
+            why(FaceTrip::OFF, 57, 46, 1.0, false, false),
+            (true, TRIP_END_ARRIVED),
+            "at its face"
+        );
+        assert_eq!(
+            why(FaceTrip::OFF, 66, 72, 1.0, true, false),
+            (true, TRIP_END_FOOD),
+            "fruit in the crop"
+        );
+        assert_eq!(
+            why(FaceTrip::OFF, 66, 72, 0.3, true, false),
+            (true, TRIP_END_HUNGRY),
+            "hungry, with fruit"
+        );
+        assert_eq!(
+            why(FaceTrip::OFF, 66, 72, 0.3, false, false),
+            (true, TRIP_END_HUNGRY),
+            "hungry, empty"
+        );
+        assert_eq!(
+            why(food, 66, 72, 0.3, true, false),
+            (true, TRIP_END_HUNGRY),
+            "food: hungry, with fruit"
+        );
+        assert_eq!(
+            why(FaceTrip::OFF, 66, 72, 1.0, false, true),
+            (true, TRIP_END_GAVE_UP),
+            "patience spent"
+        );
+        assert_eq!(
+            why(FaceTrip::OFF, 66, 72, 1.0, false, false),
+            (false, TRIP_END_NONE),
+            "control: a fed, empty digger walking back"
+        );
+        assert_eq!(
+            why(food, 66, 72, 1.0, true, false),
+            (false, TRIP_END_NONE),
+            "food: a fed digger's meal"
+        );
+    }
+
     /// [`deep_world`] with the ant fed to `fed` of its stamp, `cells` cells of
     /// fruit in its crop, and [`CropDown`] set to `cd`.
     fn carrier_world(x: i32, y: i32, cd: CropDown, fed: f32, cells: u16) -> (World, OrganismId, CreatureDef) {
@@ -29284,6 +29517,90 @@ mod tests {
             pull(scent, 63, 47, 0.8).0.is_some(),
             "scent: a hungry carrier in the chamber lost its pull home"
         );
+    }
+
+    /// **The decision trace carries the nurse term the chooser scored with**
+    /// ([`DecisionScratch::nurse_w`]). Under `CROP_DOWN` a fed carrier at the
+    /// foot of [`deep_world`]'s founding cut -- below the founding ground, so
+    /// with no pull home, and within the rows where it keeps its last crop
+    /// cell -- has one starving larva of its own colony on the chamber floor
+    /// beside it, and the walls are stone, so it cannot take up a pellet
+    /// instead. Its scored decisions carry a weight in (0, 1] and the unit
+    /// direction from its head to the larva, exactly, since one larva is the
+    /// whole scent. Off, the same carrier is pulled home and none carries a
+    /// term. **Watched red** with the term left out of the trace.
+    #[test]
+    fn the_decision_trace_carries_the_nurse_term_it_scored_with() {
+        const LARVA: (i32, i32) = (58, 47);
+        let scored = |cd: CropDown| {
+            let (mut w, a, def) = carrier_world(61, 45, cd, 1.5, 3);
+            let stone = Cell::new(material::STONE, 0).with_attached(true);
+            for (x, y) in (50..=72).flat_map(|x| (36..=52).map(move |y| (x, y))) {
+                let c = w.get(x, y);
+                if c.material != material::EMPTY && c.organism_id() == 0 {
+                    w.set(x, y, stone);
+                }
+            }
+            let block = def.brood.clone().expect("ant.ron authors a brood block");
+            let st = w.organism(a).expect("live");
+            let egg = crate::sim::brood::Egg {
+                species: st.species,
+                genome: st.genome.clone(),
+                traits: st.traits,
+                generation: st.generation + 1,
+                lineage: st.lineage,
+                colony: st.colony,
+                made: 0.0,
+                fates: st.fates,
+            };
+            let head = st.chain[0];
+            crate::sim::brood::lay_egg(&mut w, a, head, &def, &block, egg, Some(LARVA))
+                .expect("test setup: no egg laid");
+            let larva = w.get(LARVA.0, LARVA.1).organism_id();
+            let st = w.organism_mut(larva).expect("laid");
+            let b = st.brood.as_mut().expect("brood");
+            b.stage = organism::BroodStage::Larva;
+            st.energy = 0.1 * b.target;
+            // A fed ant with nowhere it is pulled stands still, and a
+            // decision that loses its move roll is never scored; a strong
+            // bias on `Move` makes it walk, which is what is under test.
+            let carrier = w.organism_mut(a).expect("live");
+            carrier.energy = 1.5 * def.start_energy;
+            carrier.genome[brain::io_slot(brain::BrainInput::Bias, brain::BrainOutput::Move)] += 5.0;
+            let (rows, _, _) = traced(&mut w, a, 600);
+            rows.into_iter()
+                .filter(|r| r.pull_why != PULL_NOT_SCORED)
+                .collect::<Vec<_>>()
+        };
+        let off = scored(CropDown::OFF);
+        assert!(!off.is_empty(), "control: off, the carrier made no scored decision");
+        assert!(
+            off.iter().all(|r| r.nurse_w.is_nan()),
+            "off: a scored decision carried a nurse term"
+        );
+        let on = scored(CropDown::ON);
+        let nursed: Vec<&DecisionRow> = on.iter().filter(|r| r.nurse_w.is_finite()).collect();
+        assert!(
+            !nursed.is_empty(),
+            "on: no scored decision of the carrier carried the nurse term ({} scored)",
+            on.len()
+        );
+        for r in &nursed {
+            assert!(
+                r.nurse_w > 0.0 && r.nurse_w <= 1.0,
+                "on: nurse weight {} is not in (0, 1]",
+                r.nurse_w
+            );
+            let (dx, dy) = ((LARVA.0 - r.head.0) as f32, (LARVA.1 - r.head.1) as f32);
+            let len = dx.hypot(dy);
+            assert!(
+                (r.nurse_ux - dx / len).abs() < 1e-3 && (r.nurse_uy - dy / len).abs() < 1e-3,
+                "on: at {:?} the scent points ({}, {}), not at the larva at {LARVA:?}",
+                r.head,
+                r.nurse_ux,
+                r.nurse_uy
+            );
+        }
     }
 
     #[test]

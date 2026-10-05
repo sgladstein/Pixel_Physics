@@ -5,7 +5,7 @@ every tick, how each mechanism is implemented, and what it reads.** It is
 written from the source and describes the code as it is now, not as it was or
 will be.
 
-- **Verified against:** `main` at `bb65d507`, 2026-09-22; §15's pull bullet and its guard 2026-10-05 against `home_pull_why`, `home_pull`, `hungry_out_pull`, `rest_pull` and `chooser_step`; §5 step 6's doorway sentence and §12's `DOOR_LOOSE` row 2026-10-04 against `door_loose_of`, `in_a_passage` and `pack_neighbours_with`; §6d's way-out paragraph and §12's `HUNGRY_OUT` row 2026-10-04 against `hungry_out_of`, `hungry_out_pull`, `step_nest_rest` and `chooser_step`; §6d's way-gaps paragraph, §5 step 5's soil-way sentence and §12's `WAY_GAPS` and `SOIL_WAY` rows 2026-10-05 against `WayGaps`, `way_cell`, `build_nest_way`, `SoilWay`, `soil_way_pull`, `way_out_from` and `act`'s keep; §5 step 5's face-trip sentence, §15's dig verdicts and §12's `FACE_TRIP` row 2026-10-05 against `FaceTrip`, `face_for_cut`, `face_trip_refuses`, `dig_trip_over`, `dig_return_target` and `act`'s dig; §6d's crop-down paragraph and §12's `CROP_DOWN` row 2026-10-05 against `CropDown`, `crop_down_holds`, `crop_down_unpulled`, `carriers_seek_larvae`, `home_pull` and `act`'s drop; §6d step 5's search sentence and §12's `HOME_SEARCH` row 2026-10-04 against `home_search_of`, `home_search_reach` and `chooser_step`; §2's support and foothold bullets and §12's `WATER_FOOTING` row 2026-10-04 against `water_footing_of`, `stands_on_water`, `head_has_foothold`, `fall_if_unsupported` and `commit_step`; §5 step 6, the walked cycle's lean carrier, §6d's lean exception to the throttle and §12's `LEAN_FORAGE` row 2026-10-03 against `LeanForage`, `lean_drop_site` and `outward_want`; §9's spread and nurse sentences, §6d's nurse paragraph and §12's `BROOD_SPREAD` and `NURSE_SEEK` rows 2026-10-04 against `brood::spread`, `brood::larva_scent`, `brood::nurse` and `chooser_step`; §9's crop sentence, §6d's carrier paragraph and §12's `CROP_NURSE` row 2026-10-04 against `brood::crop_feed`, `creature::crop_to_feed`, `yield_of` and `chooser_step`; §9's egg-rule sentence and §12's `EGG_DOOR` and `BROOD_CARRY` rows 2026-10-03 against `brood::EggBar`, `pile_site` and `carry`; §5 step 3's defended-plant sentence 2026-10-03 against `deterred_by_defence` and `food_value`; §2's support
+- **Verified against:** `main` at `bb65d507`, 2026-09-22; §15's pull bullet and its guard 2026-10-05 against `home_pull_why`, `home_pull`, `hungry_out_pull`, `rest_pull` and `chooser_step`; §15's nurse-term, walk-back and larva-meal paragraphs 2026-10-05 against `chooser_step`, `dig_trip_over`, `dig_trip_end_why`, `note_feed`, `brood::crop_feed`, `brood::nurse`, `brood_tick` and `act`'s share; §5 step 6's doorway sentence and §12's `DOOR_LOOSE` row 2026-10-04 against `door_loose_of`, `in_a_passage` and `pack_neighbours_with`; §6d's way-out paragraph and §12's `HUNGRY_OUT` row 2026-10-04 against `hungry_out_of`, `hungry_out_pull`, `step_nest_rest` and `chooser_step`; §6d's way-gaps paragraph, §5 step 5's soil-way sentence and §12's `WAY_GAPS` and `SOIL_WAY` rows 2026-10-05 against `WayGaps`, `way_cell`, `build_nest_way`, `SoilWay`, `soil_way_pull`, `way_out_from` and `act`'s keep; §5 step 5's face-trip sentence, §15's dig verdicts and §12's `FACE_TRIP` row 2026-10-05 against `FaceTrip`, `face_for_cut`, `face_trip_refuses`, `dig_trip_over`, `dig_return_target` and `act`'s dig; §6d's crop-down paragraph and §12's `CROP_DOWN` row 2026-10-05 against `CropDown`, `crop_down_holds`, `crop_down_unpulled`, `carriers_seek_larvae`, `home_pull` and `act`'s drop; §6d step 5's search sentence and §12's `HOME_SEARCH` row 2026-10-04 against `home_search_of`, `home_search_reach` and `chooser_step`; §2's support and foothold bullets and §12's `WATER_FOOTING` row 2026-10-04 against `water_footing_of`, `stands_on_water`, `head_has_foothold`, `fall_if_unsupported` and `commit_step`; §5 step 6, the walked cycle's lean carrier, §6d's lean exception to the throttle and §12's `LEAN_FORAGE` row 2026-10-03 against `LeanForage`, `lean_drop_site` and `outward_want`; §9's spread and nurse sentences, §6d's nurse paragraph and §12's `BROOD_SPREAD` and `NURSE_SEEK` rows 2026-10-04 against `brood::spread`, `brood::larva_scent`, `brood::nurse` and `chooser_step`; §9's crop sentence, §6d's carrier paragraph and §12's `CROP_NURSE` row 2026-10-04 against `brood::crop_feed`, `creature::crop_to_feed`, `yield_of` and `chooser_step`; §9's egg-rule sentence and §12's `EGG_DOOR` and `BROOD_CARRY` rows 2026-10-03 against `brood::EggBar`, `pile_site` and `carry`; §5 step 3's defended-plant sentence 2026-10-03 against `deterred_by_defence` and `food_value`; §2's support
   bullet and §12's `KIN_FOOTING` row 2026-10-02 against `fall_if_unsupported`,
   `touches_ground` and `held_by_kin`; §5 step 2's top-up,
   §6d's throttle paragraph and §12's two rows 2026-10-02 against
@@ -1473,6 +1473,16 @@ is on, every walking decision, the move stage of `creature_tick`, pushes one
   `home_pull_why` names the branch by mirroring `home_pull`'s order, read
   only while the trace is on; a branch whose target is not the one
   `home_pull` returned is booked `mismatch`.
+- under the chooser, the larva-scent term it scored with (`nurse_w`,
+  `nurse_ux`, `nurse_uy`: the term's weight and unit direction, NaN when it
+  added none), so an option's score splits with no remainder for a carrier
+  steered by the scent (`CROP_DOWN`'s `scent`, `CROP_NURSE=on`).
+- why a digger's walk back to its face ended on this decision (`trip_end`,
+  named by `TRIP_END_NAMES`: arrived, gave up, hungry, food in the crop,
+  other, or `mismatch`), from `dig_trip_end_why`, a mirror of
+  `dig_trip_over`'s tests in its order read only while the trace is on. A
+  cut that replaces or forgets the face is not booked here; it shows as the
+  cut.
 - the animal's energy in joules (`energy_j`: `energy` is the clamped input),
   the forage drive it felt (`drive`, NaN when off or carrying), and scouting
   as the chooser scored it (`scout_w`, `scout_patience`, `scout_home`).
@@ -1485,6 +1495,16 @@ is on, every walking decision, the move stage of `creature_tick`, pushes one
   cells `trail_presence` reads) and at the six-cell sensor point (`b_six`),
   the option mask, whether a crossing forced the pick, the blend `k`, every
   option's score, the heading chosen and whether the trail was read.
+
+**The larva-meal log** rides beside it: off unless a harness sets
+`World::feed_log = Some(Vec::new())`, and while it is on every meal a larva
+is given pushes one `FeedRow` (`note_feed`): the larva, the cell it lay in,
+how it was fed (`FEED_KIND_NAMES`: food in reach it ate, a carrier's crop, a
+nestmate's bank, a brain's `Share`), the donor (0 for food it ate) and the
+energy it gained. The four kinds are booked where `brood_ate_j`,
+`brood_crop_fed_j`, `brood_nursed_j` and `brood_shared_j` are, so the rows
+sum to those counters exactly; the counters say how much, the log says
+where.
 
 `CreatureStats::decision_census` counts the same decisions by leg × setting
 × outcome, and only while the trace is on, because the setting needs all
@@ -1500,6 +1520,16 @@ are always on.
     with it on and off, and checks no scored decision's pull is booked
     `mismatch` and the laden branch is exercised (red with the mirror's
     laden target broken);
+  - `the_decision_trace_carries_the_nurse_term_it_scored_with` (red with
+    the chooser's nurse line removed) and
+    `the_trip_end_trace_names_why_the_walk_back_ended` check the two
+    columns above on scenes with known answers;
+  - `the_feed_trace_changes_nothing_it_logs` feeds one larva every way a
+    bed can (food beside it, its parent's crop and bank) and compares the
+    state bit for bit with the log on and off (red with `note_feed` taking a
+    joule off the larva it logs); the crop and egg-life tests in `brood.rs`
+    check each row's larva, cell and donor and that the rows sum to the
+    counters;
   - `the_setting_class_reads_the_ground_the_ant_stands_on` checks the
     classifier on three known terrains;
   - `every_traced_decision_agrees_with_the_counters_and_the_positions`
@@ -1528,5 +1558,7 @@ are always on.
   cone columns; `scripts/trailclimb.py` checks the logged scores reproduce
   the draws and reads the climb and the door departures. `deeptrace` writes
   every row of every ant in the goal box, and with `dig=1` a narrow row per
-  decision carrying the dig's funnel (`digrows.csv.gz`).
+  decision carrying the dig's funnel (`digrows.csv.gz`) and the larva-meal
+  log (`feeds.csv`); `scripts/deeptrace_plan.py` reads its `walk=1` runs
+  into one table per nest-plan switch.
 
