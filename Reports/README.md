@@ -2960,6 +2960,13 @@ was **no food verb** (there is one now: `E`) although hand-placed food is the on
 intervention measured to separate generation 13 from generation 0, and the plant mutation rates the
 design guide's §7b-i calls "already data" are Rust `const`s.
 
+- [how-we-test.md](how-we-test.md) — **living playbook, 2026-10-05.** How the lab
+  colony is measured: mutation off, the evolved founder in the dry goal box,
+  four seeds paired, 100k–300k means; a fix judged on its own metric, then a
+  picture, then its traced cost; the deep-trace method; the numbers that have
+  misled. Links to `instruments.md` and `measuring-the-world.md` rather than
+  repeating them.
+
 - [druid-rounds-archive.md](druid-rounds-archive.md) — **record, 2026-09-14.**
   Finished rounds of the **held world**'s coordinator note, moved out of
   `Reports/lanes/druid-program-coordinator.md` so that note can stay a
