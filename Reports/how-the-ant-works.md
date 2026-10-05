@@ -1433,8 +1433,9 @@ is on, every walking decision, the move stage of `creature_tick`, pushes one
   (`chosen_route`).
 - under the chooser, which pull it scored with (`pull_why`, named by
   `PULL_WHY_NAMES`: one of `home_pull`'s branches -- store trip, walk home to
-  lay, nest worker leash, spoil haul, back to the face, hungry home, laden
-  home -- or the hungry ant's way out, the rest pull, or none), that pull's
+  lay, nest worker leash, spoil haul, the spoil haul's soil way out
+  (`SOIL_WAY`), back to the face, hungry home, laden home -- or the hungry
+  ant's way out, the rest pull, or none), that pull's
   target (`pull_at`), the home term's weight as scored (`pull_gain`: the
   home gain × the pull's own gain × patience, 0 with no pull) and the
   persistence (`persist`), so every option's score splits into persistence

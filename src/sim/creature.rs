@@ -804,23 +804,27 @@ pub const PULL_STORE: u8 = 2;
 pub const PULL_LAY: u8 = 3;
 pub const PULL_LEASH: u8 = 4;
 pub const PULL_SPOIL_HAUL: u8 = 5;
-pub const PULL_BACK_TO_FACE: u8 = 6;
-pub const PULL_HUNGRY_HOME: u8 = 7;
-pub const PULL_LADEN: u8 = 8;
+/// The spoil haul out along the passages ([`soil_way_pull`]), which
+/// `home_pull` asks first inside its spoil branch.
+pub const PULL_SOIL_WAY: u8 = 6;
+pub const PULL_BACK_TO_FACE: u8 = 7;
+pub const PULL_HUNGRY_HOME: u8 = 8;
+pub const PULL_LADEN: u8 = 9;
 /// [`hungry_out_pull`] and [`rest_pull`], asked after `home_pull`.
-pub const PULL_HUNGRY_OUT: u8 = 9;
-pub const PULL_REST: u8 = 10;
+pub const PULL_HUNGRY_OUT: u8 = 10;
+pub const PULL_REST: u8 = 11;
 /// `home_pull` pulled and [`home_pull_why`] named a branch with another
 /// target: the mirror has drifted from `home_pull`.
-pub const PULL_MISMATCH: u8 = 11;
+pub const PULL_MISMATCH: u8 = 12;
 /// [`DecisionScratch::pull_why`]'s names, by value.
-pub const PULL_WHY_NAMES: [&str; 12] = [
+pub const PULL_WHY_NAMES: [&str; 13] = [
     "not scored",
     "none",
     "store trip",
     "walk home to lay",
     "nest worker leash",
     "spoil haul",
+    "soil way out",
     "back to the face",
     "hungry home",
     "laden home",
@@ -20038,6 +20042,9 @@ fn home_pull_why(world: &World, organism: OrganismId, def: &CreatureDef, head: (
         }
     }
     if spoil_haul().is_some() && state.spoil.is_some() {
+        if let Some(p) = soil_way_pull(world, organism, def, state, head) {
+            return (PULL_SOIL_WAY, Some(p));
+        }
         return (PULL_SPOIL_HAUL, spoil_haul_target(world, state, head));
     }
     if def.home_bias <= 0.0 {
@@ -33987,6 +33994,58 @@ mod tests {
             }
             assert_eq!(off, on, "{mode:?}: turning the decision trace on changed the world it records");
         }
+    }
+
+    /// **The decision trace names the soil's way out, at `home_pull`'s own
+    /// target** ([`home_pull_why`], [`PULL_SOIL_WAY`]). `SOIL_WAY` is off by
+    /// default, so the guard above never reaches the branch; this asks the
+    /// mirror directly, in the scene [`soil_way_pull`]'s own test uses: a
+    /// pellet carrier at the gallery's far end. Off, the mirror names the
+    /// straight haul; on, the way out; in both, at `home_pull`'s target.
+    /// **Watched red** with the mirror's soil-way branch taken out: under
+    /// `on` it named the spoil haul, at the straight haul's target.
+    #[test]
+    fn the_pull_trace_names_the_soil_way_at_home_pulls_target() {
+        let why = |sw: SoilWay| {
+            let (mut w, a) = rest_world(78, 47, false);
+            w.soil_way = Some(sw);
+            w.hungry_out = Some(false); // the soil's own reader builds the ways
+            step_nest_rest(&mut w);
+            let def = w
+                .species
+                .get(w.organism(a).expect("live").species)
+                .creature
+                .clone()
+                .expect("a creature");
+            let soil = w.materials.id_of("soil").expect("soil");
+            let st = w.organism_mut(a).expect("live");
+            st.energy = def.start_energy;
+            st.spoil = Some(Spoil {
+                cell: Cell::new(soil, 0),
+                store: false,
+            });
+            let head = w.organism(a).expect("live").chain[0];
+            (
+                home_pull_why(&w, a, &def, head),
+                home_pull(&w, a, &def, head).map(|(t, _)| t),
+            )
+        };
+        let (off_why, off_pull) = why(SoilWay::OFF);
+        assert_eq!(
+            off_why,
+            (PULL_SPOIL_HAUL, off_pull),
+            "off: the mirror did not name the straight haul at home_pull's target"
+        );
+        let (on_why, on_pull) = why(SoilWay::ON);
+        assert!(
+            on_pull.is_some() && on_pull != off_pull,
+            "the scene, not the mirror: SOIL_WAY did not move home_pull's target ({on_pull:?}, off {off_pull:?})"
+        );
+        assert_eq!(
+            on_why,
+            (PULL_SOIL_WAY, on_pull),
+            "on: the mirror did not name the soil's way out at home_pull's target"
+        );
     }
 
     /// **A copy of the trail planes fed only the traced deposits stays equal
