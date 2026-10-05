@@ -3958,6 +3958,11 @@ pub struct World {
     /// unless a harness turns it on by setting `Some(Vec::new())`, and
     /// drained by that harness. Recording draws nothing and changes nothing.
     pub feed_log: Option<Vec<crate::sim::creature::FeedRow>>,
+    /// **Every mouthful an animal takes off the world**
+    /// (`creature::BiteRow`), off (`None`) unless a harness turns it on by
+    /// setting `Some(Vec::new())`, and drained by that harness. Recording
+    /// draws nothing and changes nothing.
+    pub bite_log: Option<Vec<crate::sim::creature::BiteRow>>,
     /// Scratch that `step_chain` and `tumble` write while a decision is being
     /// traced; meaningless otherwise.
     pub decision_scratch: crate::sim::creature::DecisionScratch,
@@ -6645,6 +6650,7 @@ impl World {
             creature_stats: CreatureStats::default(),
             decision_log: None,
             feed_log: None,
+            bite_log: None,
             decision_scratch: crate::sim::creature::DecisionScratch::default(),
             chooser: None,
             bud_at_nest: None,

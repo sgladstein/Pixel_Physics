@@ -60,6 +60,14 @@
 //!   nestmate's bank, a brain's share), the donor (0 for food it ate) and the
 //!   energy it gained. The log takes no RNG draw and changes no branch; the
 //!   rows sum to the world's own brood-food counters exactly.
+//! - with `garden=1`, **the garden record** (see `GardenLog`): every mouthful
+//!   any animal took off the world, whose plant it was and what it was worth
+//!   (`bites.csv.gz`, from `World::bite_log`), every plant's tissue every
+//!   `plantevery=` frames (500) with cells gained, lost and bitten
+//!   (`plants.csv.gz`), and `PLANT_BORN`/`PLANT_GONE` in `events.txt`. With
+//!   `scenario=played_bed food=0 ants=0` it records a garden and its colony
+//!   whole; the recording takes no draw (stats and colony files byte-identical
+//!   with and without it, seed 1 at 15,000 frames, 2026-10-05).
 //! - **`stats.csv`**: the world's running totals every `colonyevery=` frames:
 //!   deaths by cause, eggs, pupae, births and larvae starved, the brood's food
 //!   by source, each nest-plan switch's "it fired" counter, and the foraging
@@ -90,7 +98,7 @@ use pixel_physics::lab::{Lab, HEIGHT, WIDTH};
 use pixel_physics::sim::brain::{BRAIN_HIDDEN, BRAIN_INPUTS, BRAIN_OUTPUTS, INPUT_NAMES, OUTPUT_NAMES};
 use pixel_physics::sim::cell::{Cell, OrganismId};
 use pixel_physics::sim::creature::{
-    self, DecisionRow, DigWhy, FeedRow, DECISION_LEG_NAMES, DECISION_OUTCOME_NAMES, DIG_NO_TARGET, DIG_WHY_NAMES, DIRS,
+    self, BiteRow, DecisionRow, DigWhy, FeedRow, DECISION_LEG_NAMES, DECISION_OUTCOME_NAMES, DIG_NO_TARGET, DIG_WHY_NAMES, DIRS,
     DROP_WHY_NAMES, FEED_KIND_NAMES, HOMEWARD_WHY_NAMES, PULL_WHY_NAMES, TRIP_END_NAMES,
 };
 use pixel_physics::sim::material::{self, MaterialKind};
@@ -405,6 +413,11 @@ fn main() {
     let walk = arg::<u8>("walk").unwrap_or(0) == 1;
     let dig = arg::<u8>("dig").unwrap_or(0) == 1 || walk;
     let nest_every: u64 = arg("nestevery").unwrap_or(2_500);
+    // `garden=1`: every mouthful taken off the world (`bites.csv.gz`) and
+    // every plant's tissue every `plantevery=` frames (`plants.csv.gz`), with
+    // plant births and deaths in `events.txt`. See `GardenLog`.
+    let garden = arg::<u8>("garden").unwrap_or(0) == 1;
+    let plant_every: u64 = arg("plantevery").unwrap_or(500);
     println!(
         "deeptrace: scenario={scenario} seed={seed} frames={frames} ants={n_ants} bornafter={born_after} colonyevery={colony_every} mapevery={map_every} food={target} shots={} dig={} nestevery={nest_every} out={out}",
         u8::from(shots),
@@ -493,6 +506,9 @@ fn main() {
     if dig {
         lab.world.feed_log = Some(Vec::new());
     }
+    if garden {
+        lab.world.bite_log = Some(Vec::new());
+    }
     // Every `colonyevery=` frames, the world's own running totals that the
     // nest-plan switches move (`stats.csv`): deaths by cause, the brood's
     // food by source, each switch's "it fired" counter, and the foraging and
@@ -513,6 +529,7 @@ fn main() {
         .map(|i| lab.world.materials.get(material::MaterialId(i as u16)).name.clone())
         .collect();
     let mut diglog = dig.then(|| DigLog::new(&out, &lab.world, &names, walk, def.start_energy));
+    let mut gardenlog = garden.then(|| GardenLog::new(&out));
     // **Experiment dials, harness-only.** `mutation=<rate>` overrides the
     // ant's per-slot brain mutation rate (0 freezes the founders' brain only;
     // traits and body still mutate -- the game switch above freezes all);
@@ -597,6 +614,10 @@ fn main() {
             }
             if let Some(log) = lab.world.feed_log.as_mut() {
                 log.clear();
+            }
+            if let Some(gl) = gardenlog.as_mut() {
+                let bites = lab.world.bite_log.as_mut().map(std::mem::take).unwrap_or_default();
+                gl.after(&lab.world, &bites, f, plant_every, &names, &mut events);
             }
             continue;
         };
@@ -755,6 +776,10 @@ fn main() {
         // After the tick: the decision rows and what changed.
         let rows: Vec<DecisionRow> = lab.world.decision_log.as_mut().map(std::mem::take).unwrap_or_default();
         let feeds: Vec<FeedRow> = lab.world.feed_log.as_mut().map(std::mem::take).unwrap_or_default();
+        if let Some(gl) = gardenlog.as_mut() {
+            let bites = lab.world.bite_log.as_mut().map(std::mem::take).unwrap_or_default();
+            gl.after(&lab.world, &bites, f, plant_every, &names, &mut events);
+        }
         if let Some(d) = diglog.as_mut() {
             d.after(&lab.world, g, f, &rows, &dig_pre, &born, f % colony_every == 0);
             d.feeds(&feeds);
@@ -1033,6 +1058,9 @@ fn main() {
     if let Some(d) = diglog {
         d.finish();
     }
+    if let Some(gl) = gardenlog {
+        gl.finish();
+    }
     println!("deeptrace: done, {rows_written} focal rows");
 }
 
@@ -1210,6 +1238,134 @@ struct DigLog {
     packed: Option<material::MaterialId>,
     spoil: Option<material::MaterialId>,
     cut_count: u64,
+}
+
+/// **The garden record** (`garden=1`), added 2026-10-05 for the question
+/// *why does a booming colony eat its garden to nothing and then starve?*:
+///
+/// - **`bites.csv.gz`**: every mouthful any animal took off the world, from
+///   `World::bite_log` (draws nothing, changes nothing): frame, eater, where,
+///   material, owner (0 for loose food, else the plant it was cut from),
+///   `living` (cut from a live plant), its face worth after defence, and
+///   whether the cell survived the bite (a spared seed). What the eater's gut
+///   got is `worth * diet_quality(material, gut)`; with mutation off every
+///   ant shares the founders' gut.
+/// - **`plants.csv.gz`**: every plant (any organism that is not an animal or
+///   brood, seeds included) every `plantevery=` frames: cells, how many are
+///   edible and their face worth, cells gained and lost since its last row,
+///   and those lost to mouths (from the bite record), so tissue lost to
+///   shedding, rot or fire is `lost - bitten`.
+/// - **`events.txt`**: `PLANT_BORN` and `PLANT_GONE` the row a plant first and
+///   last appears (to the `plantevery=` grain).
+struct GardenLog {
+    bites: std::io::BufWriter<std::process::ChildStdin>,
+    plants: std::io::BufWriter<std::process::ChildStdin>,
+    zips: Vec<std::process::Child>,
+    /// Cells each plant had at its last row.
+    last: HashMap<OrganismId, usize>,
+    /// Living cells bitten off each plant since its last row.
+    bitten: HashMap<OrganismId, u32>,
+}
+
+impl GardenLog {
+    fn new(out: &str) -> Self {
+        let (z1, mut bites) = gzip_to(&format!("{out}/bites.csv.gz"));
+        let (z2, mut plants) = gzip_to(&format!("{out}/plants.csv.gz"));
+        writeln!(bites, "frame,eater,x,y,material,owner,living,worth,spared").unwrap();
+        writeln!(plants, "frame,id,species,generation,x,y,cells,edible,edible_j,gained,lost,bitten,defence,seed").unwrap();
+        GardenLog { bites, plants, zips: vec![z1, z2], last: HashMap::new(), bitten: HashMap::new() }
+    }
+
+    fn after(&mut self, w: &World, log: &[BiteRow], f: u64, every: u64, names: &[String], events: &mut impl Write) {
+        {
+            for b in log {
+                writeln!(
+                    self.bites,
+                    "{},{},{},{},{},{},{},{:.1},{}",
+                    b.frame,
+                    b.eater,
+                    b.at.0,
+                    b.at.1,
+                    names[b.material.0 as usize],
+                    b.owner,
+                    u8::from(b.living),
+                    b.worth,
+                    u8::from(b.spared)
+                )
+                .unwrap();
+                if b.living && !b.spared {
+                    *self.bitten.entry(b.owner).or_insert(0) += 1;
+                }
+            }
+        }
+        if !f.is_multiple_of(every) {
+            return;
+        }
+        let mut seen: HashSet<OrganismId> = HashSet::new();
+        for id in w.live_organism_ids() {
+            let Some(s) = w.organism(id) else { continue };
+            let def = w.species.get(s.species);
+            if def.creature.is_some() || s.brood.is_some() {
+                continue;
+            }
+            seen.insert(id);
+            let n = s.cells.len();
+            let (mut edible, mut edible_j, mut seedish) = (0usize, 0f64, true);
+            let (mut x, mut y) = (i32::MAX, i32::MIN);
+            for &(cx, cy) in s.cells.keys() {
+                let c = w.get(cx, cy);
+                let m = w.materials.get(c.material);
+                if m.food_energy > 0.0 {
+                    edible += 1;
+                    edible_j += f64::from(creature::food_value(w, c));
+                }
+                if !matches!(m.name.as_str(), "seed" | "pip" | "windfall" | "reedseed" | "buriedseed") {
+                    seedish = false;
+                }
+                // The plant's foot: its lowest cell above ground is not
+                // known here, so report the deepest-then-leftmost cell.
+                if cy > y || (cy == y && cx < x) {
+                    x = cx;
+                    y = cy;
+                }
+            }
+            let prev = self.last.insert(id, n);
+            if prev.is_none() {
+                writeln!(events, "{f} PLANT_BORN id={id} species={} generation={} x={x} y={y} cells={n}", def.name, s.generation).unwrap();
+            }
+            let prev = prev.unwrap_or(0);
+            let bitten = self.bitten.remove(&id).unwrap_or(0);
+            // Gained and lost are net over the window: a cell grown and lost
+            // inside one window shows in neither.
+            let (gained, lost) = if n >= prev { (n - prev, 0) } else { (0, prev - n) };
+            writeln!(
+                self.plants,
+                "{f},{id},{},{},{x},{y},{n},{edible},{:.0},{gained},{lost},{bitten},{:.3},{}",
+                def.name,
+                s.generation,
+                edible_j,
+                s.defence,
+                u8::from(seedish && n <= 1)
+            )
+            .unwrap();
+        }
+        let gone: Vec<OrganismId> = self.last.keys().filter(|id| !seen.contains(id)).copied().collect();
+        for id in gone {
+            let n = self.last.remove(&id).unwrap_or(0);
+            let bitten = self.bitten.remove(&id).unwrap_or(0);
+            writeln!(events, "{f} PLANT_GONE id={id} cells_last={n} bitten_since={bitten}").unwrap();
+        }
+    }
+
+    fn finish(mut self) {
+        self.bites.flush().unwrap();
+        self.plants.flush().unwrap();
+        drop(self.bites);
+        drop(self.plants);
+        for mut z in self.zips {
+            let _ = z.wait();
+        }
+    }
 }
 
 fn gzip_to(path: &str) -> (std::process::Child, std::io::BufWriter<std::process::ChildStdin>) {
