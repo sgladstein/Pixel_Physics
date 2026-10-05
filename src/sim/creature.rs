@@ -12667,6 +12667,162 @@ pub fn face_trip_of(world: &World) -> FaceTrip {
 /// more, for the cell ahead of a head two cells off.
 pub const FACE_TRIP_REACH: i32 = 3;
 
+/// **A fed carrier brings crop food down to the brood**
+/// (`PIXEL_PHYSICS_CROP_DOWN=on|off|all|hold|scent|keepN`, a comma list; off;
+/// [`World::crop_down`] for one world). Two parts, each for an ant that
+/// [`crop_down_carrier`] names -- over its start energy, with crop food a
+/// larva could be fed from ([`crop_to_feed`]):
+///
+/// - `hold`: the drop roll at home ([`act`]) is skipped while its crop is
+///   down to its last [`CropDown::keep`] cells (0 = every cell) and its head
+///   is no more than [`CROP_DOWN_DEPTH`] rows under its nest's founding
+///   ground. The roll is still drawn, so the stream is the same. Counted in
+///   `CreatureStats::crop_down_holds`.
+/// - `scent`: below the founding ground it has no pull home ([`home_pull`])
+///   and walks up its colony's larva scent instead, as under
+///   `PIXEL_PHYSICS_CROP_NURSE=on` ([`chooser_step`]'s nurse term).
+///
+/// `on` is `hold,scent` keeping the last cell; `all` keeps every cell.
+///
+/// **Why.** The deep trace (fed ants at the door, 2026-10-05) found that food
+/// never takes its last step to the brood: fed ants stand in the top five
+/// rows under the door and give their surplus to hungry adults there, and
+/// 4-5% of larvae in the lane under them and 1-2% in the room have a fed
+/// ant's head within two cells. Ants carrying crop food are no help either:
+/// on the dry goal box (evolved founder, evolution off, seed 1, 100-150k)
+/// 92% of their walking decisions are in the mound and on the door, 0.6%
+/// below the old ground, because their pull home is the door and they drop
+/// the crop there. And the bank a fed ant nurses from is what it saves to
+/// lay, which is why `NURSE_SEEK` (`Reports/dead-ends.md`) moved energy
+/// rather than adding it; its re-test condition is exactly this, crop food
+/// reaching the brood.
+///
+/// **Measured** (dry goal box, evolved-founder rows, evolution off, 150k,
+/// deltas 100-150k, seeds 1-6). Larvae starved per egg laid: off
+/// 16.8/12.3/16.0/16.0/13.0/15.8%; `on` 9.4/8.8/15.0/11.1/15.2/13.0% (lower
+/// on 5 of 6); `all` 9.0/14.0/12.9/11.9/7.9/14.1% (lower on 5 of 6). Larva
+/// food from a carrier's crop: 0-4.5k J -> 25-81k (`on`), 96-228k (`all`).
+/// **Read it per egg**: fewer eggs are laid with either on, and the raw count
+/// of starved larvae falls with them. On seed 1's deep trace, larvae dying
+/// per larva standing in the lane under the door 0.67 -> 0.37 (`on`), in the
+/// room 1.11 -> 0.65. **It costs the colony**: mean ants 100-150k
+/// 612/620/606/593/600/570 -> 629/600/500/538/553/509 (`on`) and
+/// 480/390/457/502/404/494 (`all`); adults starved by 150k
+/// 47/39/63/54/36/33 -> 29/83/188/46/68/33 (`on`). **Traced** (deep trace
+/// with `census=1`, seeds 1 and 3 to 60k, every cell held, with the door aim
+/// below): no crumbs are left at the door, so newborns and hungry adults
+/// there starve (79 against 1 starving 10-60k on seed 1, 44 of them first
+/// seen in the nest, most dying under the door), and a carrier keeps its
+/// crop until it has digested or fed it out, so it makes fewer trips (4.5
+/// laden legs per ant 20-60k against 6.9-7.7) and pile bites 20-60k halve.
+/// `on` still drops 90% of the food `off` does by 150k (seed 1) and gives
+/// back most of the colony. Leave-one-out (seeds 1 and 3, `all`): without `hold`
+/// larvae get almost nothing from crops (0-3.4k J), so `hold` is both the
+/// fix and the cost. A third part, aiming the carrier at three rows under
+/// the door while above the founding ground, made larvae starve more per
+/// egg (with `on`'s parts, 18.8/16.1% against 9.4/15.0%) and is not kept.
+/// Still one room. Ships off.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CropDown {
+    pub hold: bool,
+    pub scent: bool,
+    /// `hold` keeps only the last this many crop cells; 0 keeps every cell.
+    pub keep: u16,
+}
+
+impl CropDown {
+    pub const OFF: CropDown = CropDown {
+        hold: false,
+        scent: false,
+        keep: 1,
+    };
+    pub const ON: CropDown = CropDown {
+        hold: true,
+        scent: true,
+        keep: 1,
+    };
+    pub const ALL: CropDown = CropDown {
+        hold: true,
+        scent: true,
+        keep: 0,
+    };
+
+    /// Parse a `PIXEL_PHYSICS_CROP_DOWN` value: `on`, `off`, `all`, or a comma
+    /// list of `hold`, `scent` and `keepN`. Anything else panics.
+    pub fn parse(raw: &str) -> CropDown {
+        let mut cd = CropDown::OFF;
+        for part in raw.split(',').map(str::trim).filter(|p| !p.is_empty()) {
+            match part {
+                "on" => cd = CropDown::ON,
+                "off" => cd = CropDown::OFF,
+                "all" => cd = CropDown::ALL,
+                "hold" => cd.hold = true,
+                "scent" => cd.scent = true,
+                other => match other.strip_prefix("keep").and_then(|n| n.parse().ok()) {
+                    Some(n) => cd.keep = n,
+                    None => {
+                        panic!("PIXEL_PHYSICS_CROP_DOWN={raw:?}: {other:?} is not on, off, all, hold, scent or keepN")
+                    }
+                },
+            }
+        }
+        cd
+    }
+}
+
+/// This world's [`CropDown`]: `World::crop_down` if set, else the environment's.
+pub fn crop_down_of(world: &World) -> CropDown {
+    world.crop_down.unwrap_or_else(|| {
+        static V: std::sync::OnceLock<CropDown> = std::sync::OnceLock::new();
+        *V.get_or_init(|| std::env::var("PIXEL_PHYSICS_CROP_DOWN").map_or(CropDown::OFF, |v| CropDown::parse(&v)))
+    })
+}
+
+/// [`CropDown`]'s `hold`: how many rows under its nest's founding ground a
+/// carrier keeps its crop -- the top five rows the fed ants stand in, where
+/// the deep trace found the brood is already reached.
+pub const CROP_DOWN_DEPTH: i32 = 5;
+
+/// **A carrier [`CropDown`] acts on**: over its start energy, with crop food
+/// a larva could be fed from ([`crop_to_feed`]). A hungry carrier eats its
+/// crop as before.
+fn crop_down_carrier(world: &World, def: &CreatureDef, state: &crate::sim::organism::OrganismState) -> bool {
+    state.energy > def.start_energy && crop_to_feed(world, state).is_some()
+}
+
+/// [`CropDown`]'s `hold` for `organism` at `(x, y)` this tick: a carrier
+/// ([`crop_down_carrier`]) down to its last `keep` cells, no deeper than
+/// [`CROP_DOWN_DEPTH`] under the founding ground (anywhere, with no nest).
+fn crop_down_holds(world: &World, organism: OrganismId, def: &CreatureDef, (x, y): (i32, i32)) -> bool {
+    let cd = crop_down_of(world);
+    cd.hold
+        && world.organism(organism).is_some_and(|s| {
+            crop_down_carrier(world, def, s) && (cd.keep == 0 || s.crop.is_some_and(|c| c.cells <= cd.keep))
+        })
+        && !world
+            .nearest_nest_site(x, y)
+            .and_then(|i| world.nest_sites.get(i))
+            .is_some_and(|s| y > s.surface + CROP_DOWN_DEPTH)
+}
+
+/// [`CropDown`]'s `scent` for a carrier at `head`: below the founding ground
+/// it has no pull home, so [`chooser_step`]'s nurse term steers it.
+fn crop_down_unpulled(
+    world: &World,
+    def: &CreatureDef,
+    state: &crate::sim::organism::OrganismState,
+    head: (i32, i32),
+) -> bool {
+    crop_down_of(world).scent && crop_down_carrier(world, def, state) && below_founding_ground(world, head.0, head.1)
+}
+
+/// Whether a fed carrier inside the nest is drawn up its colony's larva
+/// scent ([`chooser_step`]'s nurse term): under `PIXEL_PHYSICS_CROP_NURSE=on`
+/// or [`CropDown`]'s `scent`.
+fn carriers_seek_larvae(world: &World) -> bool {
+    super::brood::crop_nurse_of(world) == super::brood::CropNurse::On || crop_down_of(world).scent
+}
+
 /// Is a cell cut from `head` at `cut` a face to come back to ([`spoil_back`])?
 /// Where the digger stands is [`inside_nest`]; under [`FaceTrip`]'s `below`,
 /// the cut is below the founding ground.
@@ -15820,9 +15976,17 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
             // put down at a fed ant's rate, since the founding cut is not home
             // to a forager and `Drop` reads 0 there.
             let harvest = harvest_drop(world, organism, (x, y), def);
+            // **A fed carrier keeps its last crop cells for the brood** under
+            // `PIXEL_PHYSICS_CROP_DOWN`'s `hold` ([`CropDown`]) until it is
+            // below the door's top rows. The roll below is still drawn.
+            let crop_held = crop_down_holds(world, organism, def, (x, y));
+            if crop_held {
+                world.creature_stats.crop_down_holds += 1;
+            }
             let p = match harvest {
                 Some(HarvestDrop::Hold) => 0.0,
                 Some(HarvestDrop::Store(_)) => HARVEST_DROP_P,
+                None if crop_held => 0.0,
                 None => drop_urge,
             };
             // The same single draw as before, bound to a name so the trace can
@@ -20188,6 +20352,11 @@ fn home_pull(world: &World, organism: OrganismId, def: &CreatureDef, head: (i32,
             if state.crop.is_none_or(|c| c.worth() <= 0.0) || carries_lunch(world, state) {
                 return (state.hungry_home && state.spoil.is_none()).then(|| (hungry_target(world, state), def.home_bias));
             }
+            // **A fed carrier below the door follows the larvae instead**
+            // (`PIXEL_PHYSICS_CROP_DOWN`'s `scent`, [`CropDown`]).
+            if crop_down_unpulled(world, def, state, head) {
+                return None;
+            }
             Some((home_target(world, state), def.home_bias))
         }
     }
@@ -20247,6 +20416,9 @@ fn home_pull_why(world: &World, organism: OrganismId, def: &CreatureDef, head: (
         } else {
             (PULL_NONE, None)
         };
+    }
+    if crop_down_unpulled(world, def, state, head) {
+        return (PULL_NONE, None);
     }
     (PULL_LADEN, Some(home_target(world, state)))
 }
@@ -20517,7 +20689,10 @@ fn chooser_step(
     // ([`brood::crop_nurse_of`]): food it brought home ([`crop_to_feed`]) is
     // what `brood::nurse` feeds a larva from, and a laden ant was 54% of the
     // food box's walking decisions -- the ants `NURSE_SEEK` could never move.
-    let crop_seek = super::brood::crop_nurse_of(world) == super::brood::CropNurse::On;
+    //
+    // **And under `PIXEL_PHYSICS_CROP_DOWN`'s `scent`** ([`CropDown`]), which
+    // also takes the carrier's pull home away below the founding ground.
+    let crop_seek = carriers_seek_larvae(world);
     let bank_seek = super::brood::nurse_seek_of(world);
     let nurse = if bank_seek.is_none() && !crop_seek {
         None
@@ -28971,6 +29146,165 @@ mod tests {
             "food: food in the crop of a fed digger ended the trip"
         );
         assert!(over(food, 66, 72, 0.3, true), "food: a hungry digger's trip went on");
+    }
+
+    /// [`deep_world`] with the ant fed to `fed` of its stamp, `cells` cells of
+    /// fruit in its crop, and [`CropDown`] set to `cd`.
+    fn carrier_world(x: i32, y: i32, cd: CropDown, fed: f32, cells: u16) -> (World, OrganismId, CreatureDef) {
+        let (mut w, a) = deep_world(x, y, true);
+        let def = w
+            .species
+            .get(w.organism(a).expect("live").species)
+            .creature
+            .clone()
+            .expect("a creature");
+        let fruit = w.materials.id_of("fruit").expect("fruit");
+        let st = w.organism_mut(a).expect("live");
+        st.energy = fed * def.start_energy;
+        st.crop = Some(Crop {
+            material: fruit,
+            cells,
+            digesting: 0.0,
+            unit: 960.0,
+            shade: 0,
+            passenger: None,
+        });
+        w.crop_down = Some(cd);
+        // Pinned to the shipped `touch`, so a runner with
+        // `PIXEL_PHYSICS_CROP_NURSE=on` set cannot draw carriers in the off arm.
+        w.crop_nurse = Some(crate::sim::brood::CropNurse::Touch);
+        (w, a, def)
+    }
+
+    /// **Under `CROP_DOWN`'s `hold` a fed carrier by the door keeps its last
+    /// crop cell** ([`crop_down_holds`], read by [`act`]'s drop roll). The
+    /// carrier stands on the ground near the door (outside the way in it
+    /// keeps clear, [`door_clear_of`]) with two cells of fruit and its
+    /// `Drop` output at 1, and twenty rolls are drawn: off it puts
+    /// both down (the positive control: the scene lets it drop); `on` puts
+    /// one down and keeps the last; `all` keeps both. Hungry, or in the
+    /// chamber more than [`CROP_DOWN_DEPTH`] rows down, `on` drops as off
+    /// does. Watched red with the hold left out of the roll's odds, and with
+    /// the keep and the depth tests each ignored in [`crop_down_holds`].
+    #[test]
+    fn under_crop_down_a_fed_carrier_by_the_door_keeps_its_last_crop_cell() {
+        let left = |cd: CropDown, x: i32, y: i32, fed: f32| {
+            let (mut w, a, def) = carrier_world(x, y, cd, fed, 2);
+            assert_eq!(w.nest_sites[0].surface, 40, "test setup: the founding ground row moved");
+            assert!(
+                crop_to_feed(&w, w.organism(a).expect("live")).is_some(),
+                "test setup: the crop is not one a larva could be fed from"
+            );
+            let (hx, hy) = w.organism(a).expect("live").chain[0];
+            let mut outputs = [0.0f32; brain::BRAIN_OUTPUTS];
+            outputs[brain::BrainOutput::Drop as usize] = 1.0;
+            let mut draw = rng::stream(1, a as u64, 0, RNG_SLOT_MOVE);
+            for _ in 0..20 {
+                act(&mut w, hx, hy, a, &def, &outputs, &mut draw);
+            }
+            (
+                w.organism(a).expect("live").crop.map_or(0, |c| c.cells),
+                w.creature_stats.crop_down_holds > 0,
+            )
+        };
+        assert_eq!(
+            left(CropDown::OFF, 72, 39, 1.5),
+            (0, false),
+            "control: off, a fed carrier by the door did not put its crop down"
+        );
+        assert_eq!(
+            left(CropDown::ON, 72, 39, 1.5).0,
+            1,
+            "on: a fed carrier by the door did not keep exactly its last crop cell"
+        );
+        assert!(left(CropDown::ON, 72, 39, 1.5).1, "on: the hold was not counted");
+        assert_eq!(
+            left(CropDown::ALL, 72, 39, 1.5).0,
+            2,
+            "all: a fed carrier by the door put crop down"
+        );
+        assert_eq!(
+            left(CropDown::ON, 72, 39, 0.8),
+            (0, false),
+            "on: a hungry carrier kept its crop"
+        );
+        assert_eq!(
+            left(CropDown::ON, 63, 47, 1.5),
+            (0, false),
+            "on: a fed carrier in the chamber, seven rows down, kept its crop"
+        );
+    }
+
+    /// **Under `CROP_DOWN`'s `scent` a fed carrier below the founding ground
+    /// has no pull home** ([`crop_down_unpulled`], in [`home_pull`] and its
+    /// trace mirror [`home_pull_why`]), so the nurse term steers it
+    /// ([`carriers_seek_larvae`]). Off, the same carrier in the chamber is
+    /// pulled home (the positive control); on the surface, or hungry, it
+    /// still is. Watched red with the test ignored in `home_pull`, in
+    /// `home_pull_why`, and with `scent` left out of `carriers_seek_larvae`.
+    #[test]
+    fn under_crop_down_scent_a_fed_carrier_below_the_door_follows_the_larvae_not_home() {
+        let pull = |cd: CropDown, x: i32, y: i32, fed: f32| {
+            let (w, a, def) = carrier_world(x, y, cd, fed, 1);
+            let head = w.organism(a).expect("live").chain[0];
+            (
+                home_pull(&w, a, &def, head).map(|(t, _)| t),
+                home_pull_why(&w, a, &def, head),
+                carriers_seek_larvae(&w),
+            )
+        };
+        let scent = CropDown {
+            scent: true,
+            ..CropDown::OFF
+        };
+        let (off, why, seek) = pull(CropDown::OFF, 63, 47, 1.5);
+        assert!(
+            off.is_some(),
+            "control: off, a fed carrier in the chamber was not pulled home"
+        );
+        assert_eq!(
+            why,
+            (PULL_LADEN, off),
+            "control: off, the trace did not name the laden pull home"
+        );
+        let (on, why, seek_on) = pull(scent, 63, 47, 1.5);
+        assert_eq!(on, None, "scent: a fed carrier in the chamber was pulled home");
+        assert_eq!(
+            why,
+            (PULL_NONE, None),
+            "scent: the trace named a pull for a fed carrier in the chamber"
+        );
+        assert!(!seek, "control: off, carriers were drawn up the larva scent");
+        assert!(seek_on, "scent: carriers are not drawn up the larva scent");
+        assert!(
+            pull(scent, 90, 39, 1.5).0.is_some(),
+            "scent: a fed carrier on the surface was not pulled home"
+        );
+        assert!(
+            pull(scent, 63, 47, 0.8).0.is_some(),
+            "scent: a hungry carrier in the chamber lost its pull home"
+        );
+    }
+
+    #[test]
+    fn crop_down_parses_its_words_and_refuses_the_rest() {
+        assert_eq!(CropDown::parse("on"), CropDown::ON);
+        assert_eq!(CropDown::parse("off"), CropDown::OFF);
+        assert_eq!(CropDown::parse("all"), CropDown::ALL);
+        assert_eq!(CropDown::parse("hold, scent"), CropDown::ON);
+        assert_eq!(CropDown::parse("hold,scent,keep0"), CropDown::ALL);
+        assert_eq!(
+            CropDown::parse("hold,keep3"),
+            CropDown {
+                hold: true,
+                scent: false,
+                keep: 3
+            }
+        );
+        assert!(
+            std::panic::catch_unwind(|| CropDown::parse("hodl")).is_err(),
+            "a misspelt CROP_DOWN did not panic"
+        );
     }
 
     #[test]
