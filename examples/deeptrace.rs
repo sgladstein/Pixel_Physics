@@ -84,7 +84,8 @@
 //!   want of a pile site, declined, or braked).
 //!
 //! `founder=evolved` lands the colony with lane 2's evolved founder (the six
-//! scenario rows in `EVOLVED_FOUNDER`), before any `gut=`.
+//! scenario rows in `EVOLVED_FOUNDER`), before any `gut=`. It is the lab's
+//! default since 2026-10-05, and then the flag pushes nothing.
 //!
 //! **Focal ants.** Half the slots are founders picked at landing, the rest
 //! the first ants born after `bornafter=` (20,000). A focal ant that dies is
@@ -135,8 +136,13 @@ const WALK_RISE: i32 = 6;
 const WALK_REACH: i32 = 45;
 
 /// **Lane 2's evolved founder** (2026-10-04): the six scenario rows that are
-/// bit-identical to draft PR 617's `PIXEL_PHYSICS_LAB_ANT=evolved`. The last
-/// two are species rows on purpose. `founder=evolved` pushes them.
+/// bit-identical to `PIXEL_PHYSICS_LAB_ANT=evolved`. The last two are species
+/// rows on purpose. `founder=evolved` pushes them only when the box is not
+/// already founding that ant: it is the lab's default since 2026-10-05
+/// (`scene::LAB_ANT_TRAITS`), and on top of it the two species rows would
+/// count twice (a slot scales its species field). So `founder=evolved` keeps
+/// meaning the same ant under `PIXEL_PHYSICS_LAB_ANT=half-plant` and on the
+/// builds before.
 const EVOLVED_FOUNDER: [(&str, f32); 6] = [
     ("gut_bias", -0.8),
     ("birth_grant", -0.27),
@@ -444,7 +450,11 @@ fn main() {
         std::process::exit(1);
     });
     sc.bed.seed = seed;
-    if arg::<String>("founder").as_deref() == Some("evolved") {
+    if arg::<String>("founder").as_deref() == Some("evolved")
+        && pixel_physics::lab::scene::lab_ant_traits() == &pixel_physics::lab::scene::LAB_ANT_TRAITS[..]
+    {
+        println!("  evolved founder: the lab's default already (scene::LAB_ANT_TRAITS); no rows pushed");
+    } else if arg::<String>("founder").as_deref() == Some("evolved") {
         for (field, value) in EVOLVED_FOUNDER {
             sc.settings.push(pixel_physics::lab::scenario::Setting {
                 subject: "ant".into(),

@@ -12997,6 +12997,13 @@ pub const FACE_TRIP_REACH: i32 = 3;
 /// the door while above the founding ground, made larvae starve more per
 /// egg (with `on`'s parts, 18.8/16.1% against 9.4/15.0%) and is not kept.
 /// Still one room. Ships off.
+///
+/// **Retired the same day** (`Reports/dead-ends.md`). The deep trace read it
+/// on its own target (main dee7aa77, seeds 1-4, 200k, 100k-200k): crop food
+/// reaching larvae below the shaft went 0-0.1 -> 0.1-0.3 J per larva per
+/// 1,000 frames, against 156-228 for the 1-4 larvae in the shaft's top five
+/// rows, so its food stops at the top of the shaft. [`NurseStay`] carries
+/// crop food all the way down instead and ships on; this stays built, off.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct CropDown {
     pub hold: bool,
@@ -13096,6 +13103,272 @@ fn crop_down_unpulled(
 /// or [`CropDown`]'s `scent`.
 fn carriers_seek_larvae(world: &World) -> bool {
     super::brood::crop_nurse_of(world) == super::brood::CropNurse::On || crop_down_of(world).scent
+}
+
+/// **Nurses carry forager food to the brood** (`PIXEL_PHYSICS_NURSE_STAY=
+/// on|off|relay|nurse|down|stay|stayN`, a comma list; built 2026-10-05,
+/// **off** unless set: see the end of this doc). A nurse is a young nest worker ([`is_nest_bound`])
+/// holding crop food:
+///
+/// - `relay`: a forager home with crop food ([`crop_to_feed`]), not itself
+///   nest-bound, hands its whole crop to a nest worker touching its head
+///   whose crop is empty, instead of putting it down ([`act`]'s drop). It is
+///   booked as a trip home (`forage_returns`), so the forager walks out empty
+///   as after a drop, but not as a delivery: `deliveries` and
+///   `trip_deliveries` count put-downs only, and miss food handed on.
+///   Counted in `CreatureStats::nurse_handoffs`.
+/// - `down`: a carrier at its nest may hand its crop instead to any kin
+///   touching it, with an empty crop, below the founding ground and below
+///   its head, the deepest first; a nurse still above the founding ground
+///   does the same. The receiver becomes a nest worker for
+///   [`NURSE_STAY_FRAMES`] (`nurse_converted`, `nurse_passed_down`).
+///   Without it the nurses never got in: they stood on the spoil mound
+///   behind the fed ants idling in the doorway, 0.3-2 of 5-28 underground
+///   (seed 1, 10-60k; `Reports/dead-ends.md`).
+/// - `nurse`: a nest worker with crop food is a nurse ([`is_crop_nurse`]):
+///   it never puts its crop down, has no pull home below the founding ground,
+///   and walks up its colony's larva scent there ([`chooser_step`]'s nurse
+///   term) whether or not it is fed. A hungry nurse eats out of its own crop,
+///   as any carrier does, so it stays fed while it stays with the brood.
+///   Above the founding ground it is pulled in under the door
+///   ([`nurse_in_target`]).
+/// - `stay`: a nest worker that feeds a larva (`brood::nurse`) stays a nest
+///   worker for [`NURSE_STAY_FRAMES`] (or N) more frames.
+///
+/// **Why.** Food never reaches brood off the lane under the door: 94-98% of
+/// the nest's fed ants stand in it, and the fed ants are mound visitors that
+/// share their surplus to hungry adults in the top five rows and leave
+/// (deep trace, fed ants at the door, 2026-10-05). Making a feeder stay
+/// alone (scratch, 2026-10-05) kept nobody fed: fed contact off the lane
+/// 0.13-0.30% against 0.46-0.53%. Foragers hand food to nest workers at
+/// the entrance in real nests (Greenwald et al. 2018, doi
+/// 10.7554/eLife.31730), and nurses stay with brood (Mersch, Crespi &
+/// Keller 2013, doi 10.1126/science.1234316).
+///
+/// **Measured** 2026-10-05, before PR 629 turned the nest switches on (dry
+/// goal box, evolved founder, evolution off, seeds 1-4, 300k frames, means
+/// and totals over 100k-300k): larvae starved
+/// per egg laid 20.2/20.5/21.0/19.1% -> 10.7/14.8/11.1/13.5%, and
+/// 31.7/34.6/29.7/31.4% -> 13.4/20.4/24.5/25.4% with the brood spread
+/// (`PIXEL_PHYSICS_BROOD_SPREAD=on`), where the larvae more than 3 columns
+/// off the door that starve go 72/82/89/86% -> 32/40/63/68%; larvae ate
+/// 1.0-1.4 MJ from crops against 2-28 kJ. Without `stay` the brood is worse
+/// again (seeds 1-2: 16.2/21.9% per egg). **The cost**, traced as far as
+/// who dies: the colony is 6-33% smaller over 40k-150k and the same size
+/// over 200k-300k (528-632 ants against 547-610), takes 12-30% less food
+/// from the heap, and grown foragers (mean age 17k-28k frames) starve above
+/// ground, 66-342 a run against 27-38, while starvation underground falls.
+///
+/// **Off, because with the nest switches on it kills colonies** -- the
+/// owner's rule of 2026-10-05: a fix that kills colonies outright stays
+/// built but off until the deaths are understood. With [`SoilWay`],
+/// [`WayGaps`] and [`FaceTrip`] on (PR 629), same box and seeds, one build
+/// (main 043e9104), 100k-300k: live ants 293/128/181/292 against
+/// 547/551/529/573 with this switch off, lowest count 103/0/40/68 against
+/// 495/509/462/492, grown ants starved 586/672/1070/477 against 11/7/11/12,
+/// food taken from the heap 8.3k-25.0k cells against 54.4k-64.5k; seed 2
+/// died out by 260k. Each alone holds: this switch with the three off is
+/// 488/583/543/545 (the numbers above, to the ant), and the three with this
+/// one off are the 547-573 just given. Why the pair starves the colony is
+/// not yet traced.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct NurseStay {
+    pub relay: bool,
+    pub nurse: bool,
+    /// Hand crop food down into the nest to any ant below the founding
+    /// ground with an empty crop, which becomes a nurse.
+    pub down: bool,
+    /// Frames a feeding nest worker stays one; 0 for none.
+    pub stay: u64,
+}
+
+impl NurseStay {
+    pub const OFF: NurseStay = NurseStay {
+        relay: false,
+        nurse: false,
+        down: false,
+        stay: 0,
+    };
+    pub const ON: NurseStay = NurseStay {
+        relay: true,
+        nurse: true,
+        down: true,
+        stay: NURSE_STAY_FRAMES,
+    };
+    /// What a world gets with the variable unset: off since 2026-10-05,
+    /// see the type's doc.
+    pub const SHIPPED: NurseStay = NurseStay::OFF;
+
+    /// Parse a `PIXEL_PHYSICS_NURSE_STAY` value. Anything else panics.
+    pub fn parse(raw: &str) -> NurseStay {
+        let mut ns = NurseStay::OFF;
+        for part in raw.split(',').map(str::trim).filter(|p| !p.is_empty()) {
+            match part {
+                "on" => ns = NurseStay::ON,
+                "off" => ns = NurseStay::OFF,
+                "relay" => ns.relay = true,
+                "nurse" => ns.nurse = true,
+                "down" => ns.down = true,
+                "stay" => ns.stay = NURSE_STAY_FRAMES,
+                other => match other.strip_prefix("stay").and_then(|n| n.parse().ok()) {
+                    Some(n) => ns.stay = n,
+                    None => panic!(
+                        "PIXEL_PHYSICS_NURSE_STAY={raw:?}: {other:?} is not on, off, relay, nurse, down, stay or stayN"
+                    ),
+                },
+            }
+        }
+        ns
+    }
+}
+
+/// [`NurseStay`]'s `stay`: frames a nest worker that fed a larva stays one.
+pub const NURSE_STAY_FRAMES: u64 = 2_000;
+
+/// This world's [`NurseStay`]: `World::nurse_stay` if set, else the
+/// environment's, else [`NurseStay::SHIPPED`].
+pub fn nurse_stay_of(world: &World) -> NurseStay {
+    world.nurse_stay.unwrap_or_else(|| {
+        static V: std::sync::OnceLock<NurseStay> = std::sync::OnceLock::new();
+        *V.get_or_init(|| {
+            std::env::var("PIXEL_PHYSICS_NURSE_STAY").map_or(NurseStay::SHIPPED, |v| NurseStay::parse(&v))
+        })
+    })
+}
+
+/// **A nurse** ([`NurseStay`]'s `nurse`): a nest worker with crop food a
+/// larva could be fed from.
+pub(super) fn is_crop_nurse(world: &World, state: &crate::sim::organism::OrganismState) -> bool {
+    nurse_stay_of(world).nurse && is_nest_bound(world, state) && crop_to_feed(world, state).is_some()
+}
+
+/// [`NurseStay`]'s `nurse` for a carrier at `head`: below the founding
+/// ground a nurse has no pull home, so [`chooser_step`]'s nurse term steers it.
+fn nurse_unpulled(world: &World, state: &crate::sim::organism::OrganismState, head: (i32, i32)) -> bool {
+    is_crop_nurse(world, state) && below_founding_ground(world, head.0, head.1)
+}
+
+/// **Where a nurse above the founding ground is pulled** ([`NurseStay`]'s
+/// `nurse`): [`NURSE_IN_DEPTH`] rows under its nest's door, so it goes in
+/// rather than home to the doorstep. Without it (seed 1, 100k) young nest
+/// workers holding crop food stood underground 4% of the time -- about 0.8
+/// of 19 -- and the rest held their crops in the spoil mound, where no larva
+/// scent reaches.
+fn nurse_in_target(world: &World, state: &crate::sim::organism::OrganismState, head: (i32, i32)) -> Option<(i32, i32)> {
+    if !is_crop_nurse(world, state) || below_founding_ground(world, head.0, head.1) {
+        return None;
+    }
+    let s = world.nest_sites.get(world.nearest_nest_site(head.0, head.1)?)?;
+    Some((s.x, s.surface + NURSE_IN_DEPTH))
+}
+
+/// Rows under the founding ground a nurse is pulled to ([`nurse_in_target`]).
+pub const NURSE_IN_DEPTH: i32 = 3;
+
+/// [`NurseStay`]'s `stay`: `donor`, if a nest worker, stays one a while longer.
+pub(super) fn nurse_stays(world: &mut World, donor: OrganismId) {
+    let stay = nurse_stay_of(world).stay;
+    if stay == 0 {
+        return;
+    }
+    let until = world.frame + stay;
+    let frame = world.frame;
+    if let Some(s) = world.organism_mut(donor) {
+        if s.nest_bound_until > frame {
+            s.nest_bound_until = s.nest_bound_until.max(until);
+        }
+    }
+}
+
+/// [`NurseStay`]'s `relay` for the forager `organism` at `(x, y)`, beside its
+/// nest: hand the whole crop to the hungriest nest worker touching its head
+/// with an empty crop. Returns whether it did.
+fn relay_crop(world: &mut World, organism: OrganismId, (x, y): (i32, i32), def: &CreatureDef) -> bool {
+    let ns = nurse_stay_of(world);
+    if !ns.relay && !ns.down {
+        return false;
+    }
+    let Some(st) = world.organism(organism) else {
+        return false;
+    };
+    let Some(crop) = crop_to_feed(world, st) else {
+        return false;
+    };
+    // A forager hands to a nest worker (`relay`) or down into the nest
+    // (`down`); a nurse still above the founding ground only hands down.
+    let giver_young = is_nest_bound(world, st);
+    if giver_young && !(ns.down && is_crop_nurse(world, st) && !below_founding_ground(world, x, y)) {
+        return false;
+    }
+    let gut = gut_of(world, organism, def);
+    let mut best: Option<(OrganismId, i32, f32)> = None;
+    for (dx, dy) in super::structural::NEIGHBOURS_8 {
+        let (cx, cy) = (x + dx, y + dy);
+        let id = world.get(cx, cy).organism_id();
+        if id == 0 || id == organism || best.is_some_and(|(b, _, _)| b == id) {
+            continue;
+        }
+        let Some(r) = world.organism(id) else { continue };
+        if r.brood.is_some()
+            || r.spoil.is_some()
+            || r.crop.is_some_and(|c| c.worth() > 0.0 || c.cells > 0)
+            || !is_living_kin_id(world, id, gut)
+        {
+            continue;
+        }
+        let to_worker = ns.relay && !giver_young && is_nest_bound(world, r);
+        let down = ns.down && cy > y && below_founding_ground(world, cx, cy);
+        if !(to_worker || down) {
+            continue;
+        }
+        // The deepest first, then the hungriest.
+        if best.is_none_or(|(_, by, be)| cy > by || (cy == by && r.energy < be)) {
+            best = Some((id, cy, r.energy));
+        }
+    }
+    let Some((to, _, _)) = best else { return false };
+    // **A hand-off is a trip home, not a delivery.** `deliveries` and
+    // `trip_deliveries` (world and `life`) count cells put down at home, and
+    // the decision trace's `Delivered` rows are closed against them, so a
+    // crop handed on is booked in `nurse_handoffs` and `forage_returns` only.
+    // Under this switch `trip_deliveries` therefore misses the food that came
+    // home in a hand-off; `forage_returns` still counts every trip.
+    let returned = world.organism_mut(organism).is_some_and(|s| {
+        s.crop = None;
+        s.trip_cells = 0;
+        s.trip_src = 0;
+        std::mem::take(&mut s.trip_load)
+    });
+    // **The receiver is a nurse now** ([`NURSE_STAY_FRAMES`]), if it was
+    // not a nest worker already.
+    let frame = world.frame;
+    let mut converted = false;
+    if let Some(r) = world.organism_mut(to) {
+        r.crop = Some(crop);
+        r.trip_cells = 0;
+        r.trip_load = false;
+        r.lunch = false;
+        converted = r.nest_bound_until <= frame;
+        r.nest_bound_until = r.nest_bound_until.max(frame + NURSE_STAY_FRAMES);
+    }
+    world.creature_stats.nurse_converted += u64::from(converted);
+    world.creature_stats.nurse_handoffs += 1;
+    if giver_young {
+        world.creature_stats.nurse_passed_down += 1;
+        return true;
+    }
+    if returned {
+        world.creature_stats.forage_returns += 1;
+        if let Some(i) = world.nearest_nest_site(x, y) {
+            if world.nest_last_return.len() <= i {
+                let now = world.frame.max(1);
+                world.nest_last_return.resize(i + 1, now);
+            }
+            world.nest_last_return[i] = world.frame.max(1);
+        }
+        meet_returning_forager(world, organism, (x, y));
+    }
+    true
 }
 
 /// Is a cell cut from `head` at `cut` a face to come back to ([`spoil_back`])?
@@ -16270,6 +16543,11 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
             // counter that disagrees with the behaviour it counts is worse
             // than no counter.
             let at_nest = nest_within_reach(world, organism, x, y, def);
+            // **A forager home hands its crop to a nest worker touching it**
+            // ([`NurseStay`]'s `relay`) instead of putting it down.
+            if at_nest && relay_crop(world, organism, (x, y), def) {
+                return did;
+            }
             // **A packed lunch is finished where there is a load to take**
             // (`carries_lunch`): away from the nest, beside food its crop
             // cannot swallow (a crop holds one material), this tick's
@@ -16303,10 +16581,15 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
             if crop_held {
                 world.creature_stats.crop_down_holds += 1;
             }
+            // **A nurse keeps its crop for the brood** ([`NurseStay`]'s `nurse`).
+            let nurse_held = world.organism(organism).is_some_and(|s| is_crop_nurse(world, s));
+            if nurse_held {
+                world.creature_stats.nurse_holds += 1;
+            }
             let p = match harvest {
                 Some(HarvestDrop::Hold) => 0.0,
                 Some(HarvestDrop::Store(_)) => HARVEST_DROP_P,
-                None if crop_held => 0.0,
+                None if crop_held || nurse_held => 0.0,
                 None => drop_urge,
             };
             // The same single draw as before, bound to a name so the trace can
@@ -20677,9 +20960,14 @@ fn home_pull(world: &World, organism: OrganismId, def: &CreatureDef, head: (i32,
                 return (state.hungry_home && state.spoil.is_none()).then(|| (hungry_target(world, state), def.home_bias));
             }
             // **A fed carrier below the door follows the larvae instead**
-            // (`PIXEL_PHYSICS_CROP_DOWN`'s `scent`, [`CropDown`]).
-            if crop_down_unpulled(world, def, state, head) {
+            // (`PIXEL_PHYSICS_CROP_DOWN`'s `scent`, [`CropDown`]), and so
+            // does a nurse ([`NurseStay`]'s `nurse`).
+            if crop_down_unpulled(world, def, state, head) || nurse_unpulled(world, state, head) {
                 return None;
+            }
+            // **A nurse above the founding ground goes in** ([`nurse_in_target`]).
+            if let Some(t) = nurse_in_target(world, state, head) {
+                return Some((t, def.home_bias));
             }
             Some((home_target(world, state), def.home_bias))
         }
@@ -20741,10 +21029,13 @@ fn home_pull_why(world: &World, organism: OrganismId, def: &CreatureDef, head: (
             (PULL_NONE, None)
         };
     }
-    if crop_down_unpulled(world, def, state, head) {
+    if crop_down_unpulled(world, def, state, head) || nurse_unpulled(world, state, head) {
         return (PULL_NONE, None);
     }
-    (PULL_LADEN, Some(home_target(world, state)))
+    (
+        PULL_LADEN,
+        Some(nurse_in_target(world, state, head).unwrap_or_else(|| home_target(world, state))),
+    )
 }
 
 /// The support check and fall of `fall_if_unsupported`, for a caller that
@@ -20978,7 +21269,15 @@ fn chooser_step(
     };
     // A nest worker's leash under `NEST_LEASH=deep` never gives up
     // ([`nest_leash_deep`]).
-    let leashed = nest_leash_deep() && pull.is_some() && nest_leash_holds(world, organism, def);
+    // So does a nurse going in ([`nurse_in_target`]): measured without it
+    // (seed 1, 10-60k), nurses holding crop food above ground had patience
+    // 0.19-0.38, stood 4-20 columns off the door on the mound, and 0.3-2.0
+    // of 5-28 were underground.
+    let leashed = (nest_leash_deep() && pull.is_some() && nest_leash_holds(world, organism, def))
+        || (pull.is_some()
+            && world
+                .organism(organism)
+                .is_some_and(|s| nurse_in_target(world, s, (hx, hy)).is_some()));
     let patience = {
         let state = world.organism_mut(organism).expect("live: its chain was just read");
         match pull {
@@ -21041,15 +21340,23 @@ fn chooser_step(
     // also takes the carrier's pull home away below the founding ground.
     let crop_seek = carriers_seek_larvae(world);
     let bank_seek = super::brood::nurse_seek_of(world);
-    let nurse = if bank_seek.is_none() && !crop_seek {
+    let nurses = nurse_stay_of(world).nurse;
+    let nurse = if bank_seek.is_none() && !crop_seek && !nurses {
         None
     } else {
         world.organism(organism).and_then(|s| {
-            if s.spoil.is_some() || s.energy <= def.start_energy || !inside_nest(world, hx, hy) {
+            // **A nurse ([`NurseStay`]) is drawn fed or hungry**, anywhere
+            // below the founding ground: it eats out of its own crop.
+            let crop_nurse = is_crop_nurse(world, s);
+            if s.spoil.is_some()
+                || (!crop_nurse && s.energy <= def.start_energy)
+                || !(inside_nest(world, hx, hy) || (crop_nurse && below_founding_ground(world, hx, hy)))
+            {
                 return None;
             }
             let gain = if laden {
-                (crop_seek && crop_to_feed(world, s).is_some()).then_some(super::brood::NURSE_SEEK_GAIN)?
+                ((crop_seek || crop_nurse) && crop_to_feed(world, s).is_some())
+                    .then_some(super::brood::NURSE_SEEK_GAIN)?
             } else {
                 let seek = bank_seek?;
                 if seek.workers_only && !is_nest_bound(world, s) {
@@ -26630,6 +26937,9 @@ mod tests {
         // Today's walk, pinned: the identity needs a blocked move, and the chooser
         // only ever picks a usable heading, so it counts none.
         w.chooser = Some(Chooser::Off);
+        // Nurses on although they ship off: a hand-off passed down is the one
+        // booking this guard caught (a delivery the world never counted).
+        w.nurse_stay = Some(NurseStay::ON);
         let placed = w.found_colony(200, low - 32);
         assert!(placed > 0, "the bed placed no ants -- the scene is wrong, not the rule");
         // `run` is this module's own way to advance a world -- a second one
@@ -29891,6 +30201,208 @@ mod tests {
                 r.nurse_uy
             );
         }
+    }
+
+    /// [`carrier_world`] with [`NurseStay`] set to `ns`, the carrier a nest
+    /// worker or not, and a second, fed, empty-cropped ant spawned at `(rx,
+    /// ry)` -- a nest worker if `young`. Returns the world, carrier,
+    /// receiver and the carrier's species.
+    fn relay_world(
+        ns: NurseStay,
+        (gx, gy): (i32, i32),
+        giver_young: bool,
+        (rx, ry): (i32, i32),
+        young: bool,
+    ) -> (World, OrganismId, OrganismId, CreatureDef) {
+        let (mut w, a, def) = carrier_world(gx, gy, CropDown::OFF, 1.5, 1);
+        w.nurse_stay = Some(ns);
+        let r = spawn(&mut w, "ant", rx, ry);
+        // Kin by scent, as a nestmate is: a spawned ant draws its own traits.
+        let traits = w.organism(a).expect("live").traits;
+        w.organism_mut(r).expect("live").traits = traits;
+        for (id, nest) in [(a, giver_young), (r, young)] {
+            let st = w.organism_mut(id).expect("live");
+            st.nest_bound_until = if nest { u64::MAX } else { 0 };
+            if id == r {
+                st.energy = 1.5 * def.start_energy;
+                st.crop = None;
+            }
+        }
+        (w, a, r, def)
+    }
+
+    /// **A forager hands its crop on in the nest** ([`relay_crop`]): to a nest
+    /// worker touching its head (`relay`), or to any ant below the founding
+    /// ground deeper than its head (`down`), which becomes a nest worker for
+    /// [`NURSE_STAY_FRAMES`]. Off, nothing is handed (the control); `relay`
+    /// alone passes nothing to an ant that is not a nest worker; `down` passes
+    /// nothing up. Watched red with the depth test and the conversion each
+    /// left out of `relay_crop`.
+    #[test]
+    fn under_nurse_stay_a_forager_hands_its_crop_into_the_nest() {
+        let relay = NurseStay {
+            relay: true,
+            nurse: true,
+            ..NurseStay::OFF
+        };
+        let down = NurseStay {
+            down: true,
+            nurse: true,
+            ..NurseStay::OFF
+        };
+        // The carrier lies along the chamber's top row, the receiver along
+        // the row under it.
+        let hand = |ns: NurseStay, g: (i32, i32), r: (i32, i32), young: bool| {
+            let (mut w, a, b, def) = relay_world(ns, g, false, r, young);
+            let head = w.organism(a).expect("live").chain[0];
+            let below: Vec<(i32, i32)> = w
+                .organism(b)
+                .expect("live")
+                .chain
+                .iter()
+                .copied()
+                .filter(|&(x, y)| (x - head.0).abs() <= 1 && (y - head.1).abs() <= 1)
+                .collect();
+            assert!(
+                !below.is_empty(),
+                "test setup: the receiver does not touch the carrier's head {head:?}"
+            );
+            let did = relay_crop(&mut w, a, head, &def);
+            let frame = w.frame;
+            let rb = w.organism(b).expect("live");
+            (
+                did,
+                w.organism(a).expect("live").crop.is_none(),
+                rb.crop.is_some(),
+                rb.nest_bound_until > frame,
+                w.creature_stats.nurse_converted,
+            )
+        };
+        assert_eq!(
+            hand(NurseStay::OFF, (57, 46), (57, 47), true),
+            (false, false, false, true, 0),
+            "off: a crop was handed on"
+        );
+        assert_eq!(
+            hand(relay, (57, 46), (57, 47), true),
+            (true, true, true, true, 0),
+            "relay: a forager did not hand its crop to a nest worker"
+        );
+        assert_eq!(
+            hand(relay, (57, 46), (57, 47), false),
+            (false, false, false, false, 0),
+            "relay: a forager handed its crop to an ant that is not a nest worker"
+        );
+        assert_eq!(
+            hand(down, (57, 46), (57, 47), false),
+            (true, true, true, true, 1),
+            "down: a forager did not hand its crop to the ant below it, or it did not become a nurse"
+        );
+        assert_eq!(
+            hand(down, (57, 47), (57, 46), false),
+            (false, false, false, false, 0),
+            "down: a forager handed its crop up"
+        );
+    }
+
+    /// **A nurse keeps its crop and goes to the brood, not home**
+    /// ([`is_crop_nurse`]): a nest worker with crop food by the door, its
+    /// `Drop` output at 1, puts nothing down in twenty rolls (off it puts its
+    /// crop down: the control); below the founding ground it has no pull home
+    /// ([`nurse_unpulled`]); on the surface it is pulled to
+    /// [`NURSE_IN_DEPTH`] rows under the door ([`nurse_in_target`]), and the
+    /// trace names that pull. Watched red with the hold left out of the
+    /// roll's odds, with `nurse_unpulled` ignored in `home_pull`, and with
+    /// the target left out of `home_pull_why`.
+    #[test]
+    fn under_nurse_stay_a_nurse_keeps_its_crop_for_the_brood() {
+        let nurse = |ns: NurseStay, x: i32, y: i32| {
+            let (mut w, a, def) = carrier_world(x, y, CropDown::OFF, 1.5, 1);
+            w.nurse_stay = Some(ns);
+            w.organism_mut(a).expect("live").nest_bound_until = u64::MAX;
+            (w, a, def)
+        };
+        let kept = |ns: NurseStay| {
+            let (mut w, a, def) = nurse(ns, 72, 39);
+            let (hx, hy) = w.organism(a).expect("live").chain[0];
+            let mut outputs = [0.0f32; brain::BRAIN_OUTPUTS];
+            outputs[brain::BrainOutput::Drop as usize] = 1.0;
+            let mut draw = rng::stream(1, a as u64, 0, RNG_SLOT_MOVE);
+            for _ in 0..20 {
+                act(&mut w, hx, hy, a, &def, &outputs, &mut draw);
+            }
+            (
+                w.organism(a).expect("live").crop.map_or(0, |c| c.cells),
+                w.creature_stats.nurse_holds > 0,
+            )
+        };
+        assert_eq!(
+            kept(NurseStay::OFF),
+            (0, false),
+            "control: off, a nest worker by the door did not put its crop down"
+        );
+        assert_eq!(
+            kept(NurseStay::ON),
+            (1, true),
+            "on: a nurse put its crop down, or the hold was not counted"
+        );
+        let pull = |ns: NurseStay, x: i32, y: i32| {
+            let (w, a, def) = nurse(ns, x, y);
+            let head = w.organism(a).expect("live").chain[0];
+            (
+                home_pull(&w, a, &def, head).map(|(t, _)| t),
+                home_pull_why(&w, a, &def, head),
+            )
+        };
+        let (off, _) = pull(NurseStay::OFF, 63, 47);
+        assert!(
+            off.is_some(),
+            "control: off, a nest worker with food in the chamber was not pulled home"
+        );
+        assert_eq!(
+            pull(NurseStay::ON, 63, 47),
+            (None, (PULL_NONE, None)),
+            "on: a nurse in the chamber was pulled home"
+        );
+        let into = Some((60, 40 + NURSE_IN_DEPTH));
+        assert_eq!(
+            pull(NurseStay::ON, 90, 39),
+            (into, (PULL_LADEN, into)),
+            "on: a nurse on the surface was not pulled in under the door"
+        );
+    }
+
+    #[test]
+    fn nurse_stay_parses_its_words_and_refuses_the_rest() {
+        assert_eq!(NurseStay::parse("on"), NurseStay::ON);
+        assert_eq!(NurseStay::parse("off"), NurseStay::OFF);
+        assert_eq!(NurseStay::parse("relay, nurse, down, stay"), NurseStay::ON);
+        assert_eq!(
+            NurseStay::parse("relay,nurse,down"),
+            NurseStay {
+                stay: 0,
+                ..NurseStay::ON
+            }
+        );
+        assert_eq!(
+            NurseStay::parse("on,stay500"),
+            NurseStay {
+                stay: 500,
+                ..NurseStay::ON
+            }
+        );
+        assert_eq!(
+            NurseStay::parse("nurse,stay500"),
+            NurseStay {
+                nurse: true,
+                stay: 500,
+                ..NurseStay::OFF
+            }
+        );
+        assert!(
+            std::panic::catch_unwind(|| NurseStay::parse("nures")).is_err(),
+            "a misspelt NURSE_STAY did not panic"
+        );
     }
 
     #[test]
@@ -35522,6 +36034,9 @@ mod tests {
         // Today's walk, pinned: these are that walk's rules (a tumble roll after every
         // lost move roll). The chooser's rows reconcile in `trailfollow decisioncsv`.
         w.chooser = Some(Chooser::Off);
+        // Nurses on although they ship off: a hand-off with no `Delivered` row,
+        // and the nest workers `down` makes, are what this guard was fixed for.
+        w.nurse_stay = Some(NurseStay::ON);
         assert!(w.found_colony(200, low - 32) > 0, "the bed placed no ants -- the scene is wrong, not the rule");
         let before = w.creature_stats;
         w.decision_log = Some(Vec::new());
@@ -35649,10 +36164,26 @@ mod tests {
             assert_eq!(r.homeward != HomewardWhy::NotAsked, tumbled, "the homeward reason is set exactly when a tumble happened: {r:?}");
             assert_eq!(r.roll_tumble.is_nan(), r.roll_move < r.p_move, "a tumble roll is taken exactly when the move roll fails: {r:?}");
             if r.outcome == D::RollFailedIdle {
-                // The one thing that may have turned it is `act`'s dig-down
-                // turn, which the walk does not undo on a lost roll.
-                let left = if r.dig_turned { turn_toward(r.heading, DOWN_DIR, half_turn_left(w.seed, r.id, r.frame)) } else { r.heading };
-                assert_eq!(r.heading_after, left, "nothing happened but the dig-down turn, yet the heading changed: {r:?}");
+                // The things that may have turned it are `act`'s dig-down
+                // turn and, after it, the face turn ([`dig_face_turn`],
+                // `DIG_FLAG_FACED`), which points the heading at the cell it
+                // then cuts; the walk undoes neither on a lost roll. The face
+                // turn was missing here until 2026-10-05: it turns only a
+                // nest worker, and this scene had none until `NurseStay`'s
+                // `down` made some.
+                let left = if r.dig_flags & DIG_FLAG_FACED != 0 {
+                    DIRS.iter()
+                        .position(|&d| d == (r.dig_at.0 - r.head.0, r.dig_at.1 - r.head.1))
+                        .map_or(u8::MAX, |i| i as u8)
+                } else if r.dig_turned {
+                    turn_toward(r.heading, DOWN_DIR, half_turn_left(w.seed, r.id, r.frame))
+                } else {
+                    r.heading
+                };
+                assert_eq!(
+                    r.heading_after, left,
+                    "nothing happened but the dig-down and face turns, yet the heading changed: {r:?}"
+                );
             }
         }
 
