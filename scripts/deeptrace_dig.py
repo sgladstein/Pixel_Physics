@@ -13,7 +13,9 @@ dig, where the soil they cut goes, the rooms it leaves, and every egg.
 `dig`: every turn taken by an ant standing in the nest (under the old ground
 line), by how far its dig got -- holding soil or food first, then the trace's
 `creature::DigWhy` verdict, with "nothing to cut" split by what the jaw met --
-in three windows. Then every cell cut in the nest, followed to the frame its
+in three windows. A verdict this reader does not name yet is printed under its
+own name, flagged as new, rather than dropped from the line (FACE_TRIP's
+`face` was the first that would have been). Then every cell cut in the nest, followed to the frame its
 digger let go of the pellet: where the digger stood then, and whether it was
 under the lean line (energy below 0.5 of start, so LEAN_FORAGE's drop). A
 pellet let go in the nest is soil put back. Last, how far each digger's next
@@ -112,11 +114,11 @@ def pct(a, b):
 
 
 WINDOWS = [(6000, 50000, "6-50k"), (50000, 100000, "50-100k"), (100000, 10**9, "100k-end")]
-FUNNEL = ["lean", "soil", "food", "not_asked", "roll_lost", "met_brood", "met_ant", "met_air", "met_other", "cue", "roof", "cut"]
+FUNNEL = ["lean", "soil", "food", "not_asked", "roll_lost", "met_brood", "met_ant", "met_air", "met_other", "cue", "face", "roof", "cut"]
 LABEL = {
     "lean": "too hungry", "soil": "holding soil", "food": "food in crop", "not_asked": "not asked",
     "roll_lost": "lost the roll", "met_brood": "jaw met brood", "met_ant": "jaw met an ant", "met_air": "jaw met air",
-    "met_other": "jaw met other", "cue": "heap cue", "roof": "roof", "cut": "cut",
+    "met_other": "jaw met other", "cue": "heap cue", "face": "off its face (FACE_TRIP)", "roof": "roof", "cut": "cut",
 }
 
 
@@ -161,7 +163,8 @@ def dig(out):
     for _, _, w in WINDOWS:
         c = funnel[w]
         n = sum(c.values())
-        print(f"  {w:>8} n={n}: " + "  ".join(f"{LABEL[k]} {100 * c[k] / max(1, n):.1f}%" for k in FUNNEL if c[k]))
+        keys = FUNNEL + sorted(k for k in c if k not in FUNNEL)  # a new verdict is shown, never dropped
+        print(f"  {w:>8} n={n}: " + "  ".join(f"{LABEL.get(k, k + ' (new verdict)')} {100 * c[k] / max(1, n):.1f}%" for k in keys if c[k]))
     print("  pellets cut in the nest, where the digger let go of them (and the share it was too hungry then):")
     for w, c in let_go.items():
         n = sum(c.values())
