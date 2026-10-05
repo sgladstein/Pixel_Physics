@@ -8,6 +8,7 @@ dig, where the soil they cut goes, the rooms it leaves, and every egg.
     python3 scripts/deeptrace_dig.py brood OUT [OUT...]   # broodlog.csv
     python3 scripts/deeptrace_dig.py journeys OUT [OUT...]  # cells.csv.gz
     python3 scripts/deeptrace_dig.py face  OUT [OUT...]   # digrows.csv.gz with ret_x, ret_y
+    python3 scripts/deeptrace_dig.py fed   OUT [OUT...]   # walkrows.csv.gz (`walk=1`), colony.csv, brood.csv
 
 `dig`: every turn taken by an ant standing in the nest (under the old ground
 line), by how far its dig got -- holding soil or food first, then the trace's
@@ -61,6 +62,22 @@ where the digger's next five cuts were; for soil carried out, how close the
 walk back came to the door cell and whether it got into the nest. Last, of
 the diggers that got back, how many arrived touching no ground (`ground8` 0),
 and how often the next cut was at the face, workers and others apart.
+
+`fed`: where the ants that can feed a larva are, and why (a `walk=1` run).
+Fed means energy over the ant's start, the only ants that nurse or crop-feed
+a larva; places are the top five rows under the door, the lane (3 columns
+either side of the door) under them, and the room (the rest of the nest).
+Prints, after 100k: where fed ants' nest decisions are; the colony census by
+zone and the nest's fed ants and larvae by place, with the share of larvae
+that have a fed ant's head within 2 cells; P(move) of empty ants in the top
+rows by how full they are; the pulls on fed nest decisions; every nest visit
+that holds a fed decision, from how it came in to how it went out, and how
+soon an ant that came in fed turned hungry; energy given and taken between
+two decisions of an ant carrying nothing (steps of 4 J or more are transfers:
+shares given or taken, a larva nursed; the rest is upkeep), by place; and, at
+a lane cell with a room cell beside it, how often an ant with no pull that
+stepped took the room. Built for the question of why fed ants keep to the lane
+under the door; numbers in fed-ants-lane-2026-10-05.md.
 
 Written 2026-10-05 for the digging deep dive; the numbers it produced are in
 /mnt/project-files/deep-trace/digging-trace-2026-10-05.md, and those from
@@ -500,12 +517,166 @@ def face(out):
         print(f"    {lab}: {pct(sum(cheb(w['next_cut'], w['cut']) <= 2 for w in s), len(s))} of {len(s)}")
 
 
+FED_PLACES = (("top", "the top five rows under the door"), ("lane", "the lane under them"), ("room", "the room"))
+FED_BANDS = ((0.8, "under 0.8"), (0.9, "0.8-0.9"), (0.95, "0.9-0.95"), (1.0, "0.95-1"), (1.2, "1-1.2"), (9e9, "over 1.2"))
+# `creature::DIRS`: E, NE, N, NW, W, SW, S, SE, y down.
+FED_DX = (1, 1, 0, -1, -1, -1, 0, 1)
+FED_DY = (0, -1, -1, -1, 0, 1, 1, 1)
+
+
+def fed(out, f0=100000):
+    path = f"{out}/walkrows.csv.gz"
+    if not os.path.exists(path):
+        sys.exit(f"{out}: no walkrows.csv.gz -- record with `deeptrace ants=0 walk=1`")
+    nx, gy = geo(out)
+    start_j = None
+    for e in open(f"{out}/events.txt"):
+        p = e.split()
+        if len(p) > 1 and p[1] == "FOUNDED":
+            start_j = dict(t.split("=") for t in p[2:] if "=" in t).get("start_j")
+    if start_j is None:
+        print(f"  ({out}: no start_j on the FOUNDED line, recorded before 2026-10-05: reading the census against 200 J, the shipped ant's start)")
+    start_j = float(start_j or 200.0)
+
+    def place(x, y):
+        if y <= gy:
+            return "out"
+        if abs(x - nx) <= 3:
+            return "top" if y - gy <= 5 else "lane"
+        return "room"
+
+    nest_fed = Counter()
+    fed_pull = Counter()
+    pm, pm_n = Counter(), Counter()
+    flow = {}
+    junc, junc_room = Counter(), Counter()
+    last, vis, visits = {}, {}, []
+    with gzip.open(path, "rt") as fh:
+        col = {k: i for i, k in enumerate(next(fh).rstrip("\n").split(","))}
+        F, I, W, HX, HY, E, LEG, PULL, PM, OPTS, CHOSE = (col[k] for k in ("frame", "id", "worker", "hx", "hy", "e", "leg", "pull", "p_move", "opts", "chose"))
+        for line in fh:
+            a = line.rstrip("\n").split(",")
+            f = int(a[F])
+            if f < f0:
+                continue
+            i = int(a[I])
+            x, y = int(a[HX]), int(a[HY])
+            e = float(a[E])
+            leg = a[LEG]
+            pl = place(x, y)
+            is_fed = e > 1.0
+            prev = last.get(i)
+            last[i] = (f, e, pl, leg)
+            if prev is not None and f - prev[0] <= 12 and prev[3] == "empty" and leg == "empty":
+                d = e - prev[1]
+                s = flow.setdefault((prev[2], prev[1] > 1.0), Counter())
+                s["frames"] += f - prev[0]
+                if d <= -0.02:
+                    s["gave"] += -d
+                elif d >= 0.02:
+                    s["got"] += d
+                else:
+                    s["upkeep"] += -d
+            v = vis.get(i)
+            if v is not None and (pl == "out" or f - v["last"] > 60):
+                v["out_door"] = pl == "out" and f - v["last"] <= 60
+                visits.append(v)
+                del vis[i]
+                v = None
+            if pl == "out":
+                continue
+            if v is None:
+                came = prev is not None and f - prev[0] <= 60 and prev[2] == "out"
+                v = vis[i] = dict(start=f, last=f, door=came, e0=e, worker=a[W] == "1", fed_n=0, hungry_at=None)
+            v["last"] = f
+            v["end"] = ("fed" if is_fed else "hungry", a[PULL])
+            if is_fed:
+                v["fed_n"] += 1
+                nest_fed[pl] += 1
+                fed_pull[a[PULL]] += 1
+            elif v["e0"] > 1.0 and v["hungry_at"] is None:
+                v["hungry_at"] = f - v["start"]
+            if pl == "top" and leg == "empty":
+                band = next(lab for hi, lab in FED_BANDS if e < hi)
+                pm[band] += float(a[PM])
+                pm_n[band] += 1
+            if pl != "room" and a[PULL] == "none" and a[OPTS] != "" and a[CHOSE] != "":
+                opts = int(a[OPTS])
+                room = [d for d in range(8) if opts >> d & 1 and place(x + FED_DX[d], y + FED_DY[d]) == "room"]
+                if room:
+                    junc[is_fed] += 1
+                    junc_room[is_fed] += int(a[CHOSE]) in room
+    for v in vis.values():
+        v["out_door"] = False
+        visits.append(v)
+    print(f"== {out}: after {f0}, nest x {nx}, old ground y {gy}, start {start_j:.0f} J")
+    nf = sum(nest_fed.values())
+    print(f"  fed ants' decisions in the nest: in the lane {pct(nest_fed['top'] + nest_fed['lane'], nf)} (in the top five rows {pct(nest_fed['top'], nf)}), in the room {pct(nest_fed['room'], nf)}, of {nf}")
+    # the census: every ant and every brood cell every 1,000 frames
+    zones = Counter()
+    ants = {}
+    with open(f"{out}/colony.csv") as fh:
+        for r in csv.DictReader(fh):
+            fr = int(r["frame"])
+            if fr < f0:
+                continue
+            is_fed = float(r["energy_j"]) > start_j
+            zones[(r["zone"], is_fed)] += 1
+            ants.setdefault(fr, []).append((int(r["hx"]), int(r["hy"]), is_fed))
+    larvae = {}
+    with open(f"{out}/brood.csv") as fh:
+        for r in csv.DictReader(fh):
+            fr = int(r["frame"])
+            if fr >= f0 and r["stage"] == "larva":
+                larvae.setdefault(fr, []).append((int(r["x"]), int(r["y"])))
+    frames = sorted(set(ants) & set(larvae))
+    n = max(len(frames), 1)
+    fed_at, lv, near = Counter(), Counter(), Counter()
+    for fr in frames:
+        # Counted per ant, not per cell: ants stand on nestmates as riders, so
+        # a head cell can hold two (about 1 decision in 10 round the door).
+        fed_heads = [(x, y) for x, y, fd in ants[fr] if fd]
+        for x, y in fed_heads:
+            fed_at[place(x, y)] += 1
+        fed_cells = set(fed_heads)
+        for x, y in larvae[fr]:
+            pl = place(x, y)
+            lv[pl] += 1
+            near[pl] += any((x + dx, y + dy) in fed_cells for dx in range(-2, 3) for dy in range(-2, 3))
+    nframes = len({fr for fr in ants})
+    print("  census, per sample: fed by zone " + ", ".join(f"{z} {c / max(nframes, 1):.1f}" for (z, fd), c in sorted(zones.items(), key=lambda kv: -kv[1]) if fd) +
+          "; hungry in the nest " + f"{zones[('nest', False)] / max(nframes, 1):.1f}")
+    for key, lab in FED_PLACES:
+        print(f"    {lab}: fed ants {fed_at[key] / n:.1f}, larvae {lv[key] / n:.1f}, larvae with a fed ant's head within 2 cells {pct(near[key], lv[key])}")
+    print("  P(move), empty ants in the top five rows, by energy over start: " + ", ".join(f"{lab} {pm[lab] / pm_n[lab]:.2f}" for _, lab in FED_BANDS if pm_n[lab] >= 100))
+    print("  pulls on fed decisions in the nest: " + ", ".join(f"{k} {pct(c, nf)}" for k, c in fed_pull.most_common(6)))
+    fv = [v for v in visits if v["fed_n"] > 0]
+    for wk, lab in ((False, "foragers"), (True, "nest workers")):
+        s = [v for v in fv if v["worker"] == wk]
+        if not s:
+            continue
+        came_fed = [v for v in s if v["e0"] > 1.0]
+        turned = [v["hungry_at"] for v in came_fed if v["hungry_at"] is not None]
+        ends = Counter(f"{v['end'][0]}, {v['end'][1]}" for v in s if v["out_door"])
+        print(f"  {lab}' nest visits with a fed decision: {len(s)}; came in by the door {pct(sum(v['door'] for v in s), len(s))}, fed on entry {pct(len(came_fed), len(s))},"
+              f" left by the door {pct(sum(v['out_door'] for v in s), len(s))}, median {q([v['last'] - v['start'] for v in s], 0.5)} frames;"
+              f" came in fed and turned hungry inside {pct(len(turned), len(came_fed))}, median {q(turned, 0.5)} frames after coming in")
+        print("    left by the door: " + ", ".join(f"{k} {pct(c, len(s))}" for k, c in ends.most_common(4)))
+    print("  between two decisions of an ant carrying nothing, per 1,000 ant-frames (1.0 = its start):")
+    for key, lab in FED_PLACES:
+        fd, hu = flow.get((key, True), Counter()), flow.get((key, False), Counter())
+        kf, kh = fd["frames"] / 1000.0, hu["frames"] / 1000.0
+        if kf >= 1 and kh >= 1:
+            print(f"    {lab}: fed ants gave {fd['gave'] / kf:.2f} against upkeep {fd['upkeep'] / kf:.2f}; hungry ants took in {hu['got'] / kh:.2f} and gave {hu['gave'] / kh:.2f}")
+    print(f"  at a lane cell with a room cell beside it, an ant with no pull that stepped took the room: fed {pct(junc_room[True], junc[True])} of {junc[True]}, hungry {pct(junc_room[False], junc[False])} of {junc[False]}")
+
+
 def ends_n(ws, end):
     return sum(w["end"] == end for w in ws)
 
 
 if __name__ == "__main__":
-    if len(sys.argv) < 3 or sys.argv[1] not in ("dig", "soil", "rooms", "brood", "journeys", "face"):
+    if len(sys.argv) < 3 or sys.argv[1] not in ("dig", "soil", "rooms", "brood", "journeys", "face", "fed"):
         sys.exit(__doc__)
     for out in sys.argv[2:]:
         globals()[sys.argv[1]](out)

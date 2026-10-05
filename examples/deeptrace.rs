@@ -42,6 +42,14 @@
 //!   brood item moved, frame by frame (`broodlog.csv`), and the nest as a
 //!   picture (`nest_fNNNNNN.txt`) every `nestevery=` frames (2,500). No brain probe,
 //!   so `ants=0 dig=1` records the whole colony for a fraction of `ants=all`.
+//! - with `walk=1` (which turns `dig=1` on), **every walking decision in and
+//!   round the nest** (`walkrows.csv.gz`, see `DigLog::walk_row`): the
+//!   chooser's options and scores, the pull it scored with
+//!   (`creature::PULL_WHY_NAMES`) and its target, the persistence, and the
+//!   ant's energy against its start, for the question of what moves an ant
+//!   between the lane under the door and the rest of the nest. Reader:
+//!   `scripts/deeptrace_dig.py fed`. `events.txt`'s `FOUNDED` line carries
+//!   that start (`start_j`) since the same day.
 //!
 //! `founder=evolved` lands the colony with lane 2's evolved founder (the six
 //! scenario rows in `EVOLVED_FOUNDER`), before any `gut=`.
@@ -65,7 +73,7 @@ use pixel_physics::sim::brain::{BRAIN_HIDDEN, BRAIN_INPUTS, BRAIN_OUTPUTS, INPUT
 use pixel_physics::sim::cell::{Cell, OrganismId};
 use pixel_physics::sim::creature::{
     self, DecisionRow, DigWhy, DECISION_LEG_NAMES, DECISION_OUTCOME_NAMES, DIG_NO_TARGET, DIG_WHY_NAMES, DIRS,
-    DROP_WHY_NAMES, HOMEWARD_WHY_NAMES,
+    DROP_WHY_NAMES, HOMEWARD_WHY_NAMES, PULL_WHY_NAMES,
 };
 use pixel_physics::sim::material::{self, MaterialKind};
 use pixel_physics::sim::organism::{self, BroodStage};
@@ -84,6 +92,11 @@ const TOP_EVERY: u64 = 250;
 const FOOD_REACH: i32 = 12;
 /// Columns either side of the nest counted as the mound.
 const MOUND_REACH: i32 = 40;
+/// `walk=1` writes a decision whose head is under the old ground line or
+/// up to this many rows above it (the door box and the mound's foot)...
+const WALK_RISE: i32 = 6;
+/// ...and within this many columns of the nest's centre.
+const WALK_REACH: i32 = 45;
 
 /// **Lane 2's evolved founder** (2026-10-04): the six scenario rows that are
 /// bit-identical to draft PR 617's `PIXEL_PHYSICS_LAB_ANT=evolved`. The last
@@ -371,7 +384,8 @@ fn main() {
     let shots = arg::<u8>("shots").unwrap_or(0) != 0;
     let scenario: String = arg("scenario").unwrap_or_else(|| "nest_goal".to_string());
     let out: String = arg("out").unwrap_or_else(|| "deeptrace-out".to_string());
-    let dig = arg::<u8>("dig").unwrap_or(0) == 1;
+    let walk = arg::<u8>("walk").unwrap_or(0) == 1;
+    let dig = arg::<u8>("dig").unwrap_or(0) == 1 || walk;
     let nest_every: u64 = arg("nestevery").unwrap_or(2_500);
     println!(
         "deeptrace: scenario={scenario} seed={seed} frames={frames} ants={n_ants} bornafter={born_after} colonyevery={colony_every} mapevery={map_every} food={target} shots={} dig={} nestevery={nest_every} out={out}",
@@ -460,7 +474,7 @@ fn main() {
     let names: Vec<String> = (0..lab.world.materials.len())
         .map(|i| lab.world.materials.get(material::MaterialId(i as u16)).name.clone())
         .collect();
-    let mut diglog = dig.then(|| DigLog::new(&out, &lab.world, &names));
+    let mut diglog = dig.then(|| DigLog::new(&out, &lab.world, &names, walk, def.start_energy));
     // **Experiment dials, harness-only.** `mutation=<rate>` overrides the
     // ant's per-slot brain mutation rate (0 freezes the founders' brain only;
     // traits and body still mutate -- the game switch above freezes all);
@@ -528,8 +542,8 @@ fn main() {
                 );
                 writeln!(
                     events,
-                    "{f} FOUNDED nest_x={} food_x={} ground_y={ground_y}",
-                    g.nest_x, g.food_x
+                    "{f} FOUNDED nest_x={} food_x={} ground_y={ground_y} start_j={}",
+                    g.nest_x, g.food_x, def.start_energy
                 )
                 .unwrap();
                 if let Some(d) = diglog.as_mut() {
@@ -1083,6 +1097,10 @@ type BroodSeen = ((i32, i32), u8);
 struct DigLog {
     rows: std::io::BufWriter<std::process::ChildStdin>,
     cells: std::io::BufWriter<std::process::ChildStdin>,
+    /// `walk=1`: `walkrows.csv.gz` (see [`DigLog::walk_row`]), and the
+    /// species' start energy its `e` column is read against.
+    walk: Option<std::io::BufWriter<std::process::ChildStdin>>,
+    start_energy: f32,
     cuts: std::io::BufWriter<std::fs::File>,
     brood: std::io::BufWriter<std::fs::File>,
     broodlog: std::io::BufWriter<std::fs::File>,
@@ -1114,9 +1132,20 @@ fn gzip_to(path: &str) -> (std::process::Child, std::io::BufWriter<std::process:
 }
 
 impl DigLog {
-    fn new(out: &str, w: &World, names: &[String]) -> Self {
+    fn new(out: &str, w: &World, names: &[String], walk: bool, start_energy: f32) -> Self {
         let (z1, mut rows) = gzip_to(&format!("{out}/digrows.csv.gz"));
         let (z2, mut cells) = gzip_to(&format!("{out}/cells.csv.gz"));
+        let mut zips = vec![z1, z2];
+        let walk = walk.then(|| {
+            let (z, mut wr) = gzip_to(&format!("{out}/walkrows.csv.gz"));
+            writeln!(
+                wr,
+                "frame,id,worker,hx,hy,heading,e,leg,fill,ret_x,ret_y,pull,px,py,gain,patience,persist,turn,p_move,roll,outcome,usable,opts,chose,k,s0,s1,s2,s3,s4,s5,s6,s7,scout_w,drive,moved,hx_after,hy_after"
+            )
+            .unwrap();
+            zips.push(z);
+            wr
+        });
         let mut cuts = std::io::BufWriter::new(std::fs::File::create(format!("{out}/cuts.csv")).unwrap());
         let mut brood = std::io::BufWriter::new(std::fs::File::create(format!("{out}/brood.csv")).unwrap());
         writeln!(
@@ -1149,11 +1178,13 @@ impl DigLog {
         DigLog {
             rows,
             cells,
+            walk,
+            start_energy,
             cuts,
             brood,
             broodlog,
             brood_at: HashMap::new(),
-            zips: vec![z1, z2],
+            zips,
             region: None,
             prev: Vec::new(),
             prev_mat: Vec::new(),
@@ -1279,6 +1310,9 @@ impl DigLog {
                 fl(p.patience),
             )
             .unwrap();
+            if self.walk.is_some() && r.head.1 > g.ground_y - WALK_RISE && (r.head.0 - g.nest_x).abs() <= WALK_REACH {
+                self.walk_row(f, r, p);
+            }
             if r.dig == DigWhy::Cut {
                 cut_at.insert(r.dig_at, r.id);
                 self.cut_row(w, g, f, r, p, age);
@@ -1549,6 +1583,62 @@ impl DigLog {
         let _ = std::fs::write(path, s);
     }
 
+    /// **One walking decision in and round the nest** (`walk=1`), added
+    /// 2026-10-05 for *why fed ants keep to the lane under the door*. Where
+    /// the head was and went, its energy against the species' start (`e`;
+    /// over 1 is what a larva can be fed from), what it carried (`leg`,
+    /// `fill`), the face it was walking back to, and -- when the chooser
+    /// chose -- the pull it scored with (`creature::PULL_WHY_NAMES`), the
+    /// pull's target and weight, the persistence and turn, every option's
+    /// score in `DIRS` order (blank for a heading that was not an option),
+    /// the draw's `k` and the heading drawn. Rows with `pull` "not scored"
+    /// are lost move rolls: the ant stood. Every score splits as
+    /// `persist x TURN_PREF[turn] x trail hold + turn's side bias + gain x
+    /// cos(heading, pull)` plus the outward terms, which are 0 inside a dug
+    /// nest because the anchor stands on the ant.
+    fn walk_row(&mut self, f: u64, r: &DecisionRow, p: &DigPre) {
+        let Some(wr) = self.walk.as_mut() else { return };
+        let scored = r.pull_why != creature::PULL_NOT_SCORED;
+        let pull_at = (r.pull_at != DIG_NO_TARGET).then_some(r.pull_at);
+        let chose = (scored && r.chose < 8).then_some(r.chose);
+        let score: Vec<String> = r.score.iter().map(|&v| fl(v)).collect();
+        writeln!(
+            wr,
+            "{f},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
+            r.id,
+            u8::from(p.worker),
+            r.head.0,
+            r.head.1,
+            r.heading,
+            fl(r.energy_j / self.start_energy),
+            DECISION_LEG_NAMES[r.leg as usize],
+            fl(r.fill),
+            p.ret.map_or(String::new(), |c| c.0.to_string()),
+            p.ret.map_or(String::new(), |c| c.1.to_string()),
+            PULL_WHY_NAMES[r.pull_why as usize],
+            pull_at.map_or(String::new(), |c| c.0.to_string()),
+            pull_at.map_or(String::new(), |c| c.1.to_string()),
+            fl(r.pull_gain),
+            fl(r.patience),
+            fl(r.persist),
+            fl(r.turn),
+            fl(r.p_move),
+            fl(r.roll_move),
+            DECISION_OUTCOME_NAMES[r.outcome as usize],
+            r.usable,
+            if scored { r.opts.to_string() } else { String::new() },
+            chose.map_or(String::new(), |c| c.to_string()),
+            fl(r.k),
+            score.join(","),
+            fl(r.scout_w),
+            fl(r.drive),
+            u8::from(r.moved),
+            r.head_after.0,
+            r.head_after.1,
+        )
+        .unwrap();
+    }
+
     fn finish(mut self) {
         self.rows.flush().unwrap();
         self.cells.flush().unwrap();
@@ -1557,6 +1647,9 @@ impl DigLog {
         self.broodlog.flush().unwrap();
         drop(self.rows);
         drop(self.cells);
+        if let Some(mut wr) = self.walk.take() {
+            wr.flush().unwrap();
+        }
         for mut z in self.zips {
             let _ = z.wait();
         }
