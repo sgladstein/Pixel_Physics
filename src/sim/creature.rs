@@ -811,6 +811,23 @@ pub struct DecisionScratch {
     /// 2026-10-05, because under [`FaceTrip`]'s `food` and `stay` a reader
     /// can no longer infer the ending from the crop and the distance.
     pub trip_end: u8,
+    /// **What the scout was sent out with** ([`outward_want`]): the want its
+    /// pull out was scaled by -- its hunger, or near its door the colony's
+    /// want (the forage drive, the door's food scent, the patrol) as the
+    /// throttle reads it -- and whether the head stood in the door's throttle
+    /// zone. NaN and false when the chooser added no scouting term. Added
+    /// 2026-10-05 for why hungry ants on the spoil mound never walk to the
+    /// heap: a hungry forager in the zone goes out on the colony's want, not
+    /// its own hunger.
+    pub want: f32,
+    pub zoned: bool,
+    /// **Whether the door read turned the ant to the food side**
+    /// ([`door_read`], [`DOOR_WHY_NAMES`]), and the term as scored, signed
+    /// by side (+ east; NaN unless read). Added 2026-10-05 with `want`: the
+    /// read is withheld once the ant has met no forager home with food for
+    /// its window, which a reader cannot see in the scores.
+    pub door_why: u8,
+    pub door_f: f32,
     /// **The dig's funnel** ([`DigWhy`]): how far it got, the brain's urge
     /// before the lean gate (NaN unless the roll was taken), the cell it was
     /// judged on and that cell's material (`DIG_NO_TARGET` and 0 unless the
@@ -866,6 +883,22 @@ pub const TRIP_END_OTHER: u8 = 5;
 pub const TRIP_END_MISMATCH: u8 = 6;
 /// [`DecisionScratch::trip_end`]'s names, by value.
 pub const TRIP_END_NAMES: [&str; 7] = ["", "arrived", "gave_up", "hungry", "food", "other", "mismatch"];
+
+/// [`DecisionScratch::door_why`]: [`door_read`] was not asked -- the ant was
+/// laden, pulled, a given-up scout, or the reader is off.
+pub const DOOR_NOT_ASKED: u8 = 0;
+/// Asked, and the head was not in a door box ([`door_site`]).
+pub const DOOR_OFF: u8 = 1;
+/// Asked at the door while hauling spoil.
+pub const DOOR_SPOIL: u8 = 2;
+/// Withheld: the ant has met no forager home with food within its window.
+pub const DOOR_STALE: u8 = 3;
+/// No term: no trail B difference east to west, or no want.
+pub const DOOR_DARK: u8 = 4;
+/// Read: the food side's headings got the term.
+pub const DOOR_READ: u8 = 5;
+/// [`DecisionScratch::door_why`]'s names, by value.
+pub const DOOR_WHY_NAMES: [&str; 6] = ["not asked", "off door", "spoil", "stale", "dark", "read"];
 
 /// **One meal a larva was given**, for the trace only ([`World::feed_log`],
 /// off unless a harness sets it to `Some`; recording draws nothing and
@@ -995,6 +1028,10 @@ impl Default for DecisionScratch {
             nurse_ux: f32::NAN,
             nurse_uy: f32::NAN,
             trip_end: TRIP_END_NONE,
+            want: f32::NAN,
+            zoned: false,
+            door_why: DOOR_NOT_ASKED,
+            door_f: f32::NAN,
             dig: DigWhy::NotAsked,
             dig_p: f32::NAN,
             dig_at: DIG_NO_TARGET,
@@ -1164,6 +1201,12 @@ pub struct DecisionRow {
     pub nurse_ux: f32,
     pub nurse_uy: f32,
     pub trip_end: u8,
+    /// What the scout was sent out with, and the door read: see
+    /// `DecisionScratch::want` and `DecisionScratch::door_why`.
+    pub want: f32,
+    pub zoned: bool,
+    pub door_why: u8,
+    pub door_f: f32,
 }
 
 fn worm_tick(world: &mut World, x: i32, y: i32, organism: OrganismId) -> Vec<ActiveSite> {
@@ -8109,6 +8152,10 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
             nurse_ux: sc.nurse_ux,
             nurse_uy: sc.nurse_uy,
             trip_end: sc.trip_end,
+            want: sc.want,
+            zoned: sc.zoned,
+            door_why: sc.door_why,
+            door_f: sc.door_f,
         };
         if let Some(log) = world.decision_log.as_mut() {
             log.push(row);
@@ -20779,11 +20826,15 @@ fn door_site(world: &World, hx: i32, hy: i32) -> Option<usize> {
 /// pile ran out, a leash to a pile that is gone. It is the forage drive's own
 /// clock, so it adds no constant.
 fn door_read(world: &mut World, organism: OrganismId, def: &CreatureDef, (hx, hy): (i32, i32)) -> Option<(i32, f32)> {
-    let site = door_site(world, hx, hy)?;
-    let st = world.organism(organism)?;
-    if st.spoil.is_some() {
+    let Some(site) = door_site(world, hx, hy) else {
+        note_door(world, DOOR_OFF);
+        return None;
+    };
+    if world.organism(organism)?.spoil.is_some() {
+        note_door(world, DOOR_SPOIL);
         return None;
     }
+    let st = world.organism(organism)?;
     let (want, _, _) = outward_want(world, st, def);
     let met_last = return_met_frame(st);
     world.creature_stats.door_reads += 1;
@@ -20800,6 +20851,7 @@ fn door_read(world: &mut World, organism: OrganismId, def: &CreatureDef, (hx, hy
     };
     if last == 0 || world.frame.saturating_sub(last) as f32 > window {
         world.creature_stats.door_stale += 1;
+        note_door(world, DOOR_STALE);
         return None;
     }
     let so = def.sensor_offset;
@@ -20807,10 +20859,20 @@ fn door_read(world: &mut World, organism: OrganismId, def: &CreatureDef, (hx, hy
     let b_w = f32::from(world.pheromone_at(Channel::B, hx - so, hy));
     let g = (b_e - b_w) / (b_e + b_w + TRAIL_HALF);
     if g == 0.0 || want <= 0.0 {
+        note_door(world, DOOR_DARK);
         return None;
     }
     world.creature_stats.door_pulled += 1;
+    note_door(world, DOOR_READ);
     Some((if g > 0.0 { 1 } else { -1 }, food_trail_of(world).gain * want * g.abs()))
+}
+
+/// Book why [`door_read`] did or did not add its term, for the trace only
+/// ([`DecisionScratch::door_why`]); nothing is written while it is off.
+fn note_door(world: &mut World, why: u8) {
+    if world.decision_log.is_some() {
+        world.decision_scratch.door_why = why;
+    }
 }
 
 fn chooser_step(
@@ -21023,6 +21085,8 @@ fn chooser_step(
     // needs feels the larger of its own hunger and the drive, so a fed one
     // runs out too; off, `drive` is 0 and this is `hunger` exactly.
     let mut drove = false;
+    // The want and the zone as read, for the trace only.
+    let mut sent: Option<(f32, bool)> = None;
     let scout_w = match away_from {
         Some(_) => {
             let g = scout_of(world) * walk_gain(&walk, organism::TRAIT_SCOUT);
@@ -21031,6 +21095,7 @@ fn chooser_step(
                 // feels the colony's want in place of its hunger.
                 let (want, by_colony, zoned) = world.organism(organism).map_or((0.0, false, None), |s| outward_want(world, s, def));
                 drove = by_colony;
+                sent = Some((want, zoned.is_some()));
                 if let Some(hunger) = zoned {
                     if let Some(s) = world.organism_mut(organism) {
                         s.sent_want = want;
@@ -21213,6 +21278,8 @@ fn chooser_step(
         s.scout_w = scout_w;
         s.scout_patience = scout_patience;
         s.scout_home = scout_home;
+        (s.want, s.zoned) = sent.unwrap_or((f32::NAN, false));
+        s.door_f = door.map_or(f32::NAN, |(side, f)| side as f32 * f);
         s.b_near = b_near;
         s.b_far = b_far;
         s.b_six = b_six;
