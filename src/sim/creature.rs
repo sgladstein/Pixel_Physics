@@ -12123,8 +12123,8 @@ fn rest_pull(world: &World, organism: OrganismId, def: &CreatureDef, head: (i32,
 }
 
 /// **A hungry ant inside its nest is drawn out the way it came in**
-/// (`PIXEL_PHYSICS_HUNGRY_OUT=on|off`, off; [`World::hungry_out`] for one
-/// world). An ant carrying nothing -- no food, no pellet -- that has fallen
+/// (`PIXEL_PHYSICS_HUNGRY_OUT=on|off`, on since 2026-10-04;
+/// [`World::hungry_out`] for one world). An ant carrying nothing -- no food, no pellet -- that has fallen
 /// under its grant (`start_energy`), standing on its nest's way in
 /// ([`NestWay`]), is pulled along the passages towards the door,
 /// [`REST_LOOKAHEAD`] steps at a time, at the gain the scout's pull out
@@ -12155,16 +12155,26 @@ fn rest_pull(world: &World, organism: OrganismId, def: &CreatureDef, head: (i32,
 /// reserve falling past a threshold is what starts it foraging (Bernadou et
 /// al. 2020, J Exp Biol 223:jeb219238, doi 10.1242/jeb.219238, via PubMed).
 ///
-/// **Not yet measured**: built 2026-10-04 while lab colony runs waited on
-/// the starting diet for test runs. The known risk is the spoil route's
-/// (`Reports/dead-ends.md`, `SPOIL_ROUTE`): carriers led out along the same
-/// field queued at the shaft's foot behind the ants already in it.
+/// **Measured** (dry goal box, `nestgoal` with the laying lane's evolved
+/// founder rows, 300k frames, seeds 1-4, this rule on main cdfff228; mean
+/// live ants over 100-300k, starved deaths over the same span). Evolution
+/// off: 436/461/367/399 -> 609/604/571/587 (higher on 4 of 4, 1.31-1.56x),
+/// starved 2,134/2,325/1,710/2,364 -> 152/200/244/161, and ants
+/// underground under half their fill (mean of the samples) 49-81 -> 11-14.
+/// Evolution on: 536/504/404/482 -> 599/611/608/659 (4 of 4, 1.12-1.50x),
+/// starved down 77-89%. The extra ants live in the spoil mound and outside
+/// it: underground a mean of 47-50 against 63-100, and at 300k 252-346 in
+/// the mound against 164-192. The dug nest is still one room. The door is
+/// no more often shut (3-10 of 21 samples against 2-11), so the spoil
+/// route's queue at the shaft's foot (`Reports/dead-ends.md`,
+/// `SPOIL_ROUTE`) did not come back. A 300k run takes 1,050 s against 740
+/// (+42%), with 43% more ants.
 pub fn hungry_out_of(world: &World) -> bool {
     world.hungry_out.unwrap_or_else(|| {
         static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
         *V.get_or_init(|| match std::env::var("PIXEL_PHYSICS_HUNGRY_OUT").as_deref() {
-            Ok("on") => true,
-            Ok("off") | Err(_) => false,
+            Ok("on") | Err(_) => true,
+            Ok("off") => false,
             Ok(other) => panic!("PIXEL_PHYSICS_HUNGRY_OUT={other:?}: use on or off"),
         })
     })
@@ -17878,8 +17888,19 @@ pub const EXCURSION_CELLS: u16 = 6;
 /// `nopatience` escapes the U-bend in 0 of 24 (`ant-scenes-2026-09-23.md`
 /// §3); and measuring progress level rather than straight, which does
 /// nothing for the ant already over the door, where most of the giving up
-/// happens. **Not yet measured**: lab colony runs wait on the founders'
-/// traits. The risk to watch is more carriers waiting at the neck.
+/// happens.
+///
+/// **Off, because it shrinks the colony** (dry goal box, `nestgoal` with
+/// the laying lane's evolved founder rows, evolution off, 300k frames,
+/// seeds 1-4, main cdfff228; mean live ants over 100-300k): 436/461/367/399
+/// -> 257/341/12/388, lower on 4 of 4. It does what it was built for --
+/// ants on the surface west of the mound 129/95/110/94 -> 30/53/7/68 --
+/// but fewer are born (100-300k: 3,513/3,854/3,673 -> 1,837/2,578/3,134 on
+/// seeds 1, 2 and 4), and on two of those three less food is put down
+/// underground (20-100k: 3,014/5,168 -> 1,652/3,049 cells; seed 4 4,523
+/// -> 4,613). Seed 3 died at 80-100k with the door shut, after deliveries
+/// stopped. Why bringing the lost carriers back to the mound costs the
+/// colony is not traced.
 pub fn home_search_of(world: &World) -> bool {
     world.home_search.unwrap_or_else(|| {
         static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
