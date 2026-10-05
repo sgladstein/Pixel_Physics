@@ -6237,6 +6237,12 @@ pub struct OrganismState {
     /// direct line and follows the passage, and an ant that is closing on home
     /// trusts it again within a few steps. 1.0 at rest.
     pub home_patience: f32,
+    /// **How many search loops a lost laden ant has made on this carry**
+    /// (`creature::home_search_of`): each one sent it back for home from
+    /// further out than the last, `creature::HOME_SEARCH_REACH` cells
+    /// doubled this many times. 0 at the start of every carry, and whenever
+    /// there is nothing to take home.
+    pub home_search_loops: u8,
     /// **The scout's memory of getting further from home** (`creature::
     /// scout_of`), the mirror of `home_best`: the furthest this animal has
     /// been, level distance in cells, from `scout_for` on this excursion.

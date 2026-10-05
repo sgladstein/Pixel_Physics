@@ -5,7 +5,7 @@ every tick, how each mechanism is implemented, and what it reads.** It is
 written from the source and describes the code as it is now, not as it was or
 will be.
 
-- **Verified against:** `main` at `bb65d507`, 2026-09-22; §5 step 6's doorway sentence and §12's `DOOR_LOOSE` row 2026-10-04 against `door_loose_of`, `in_a_passage` and `pack_neighbours_with`; §2's support and foothold bullets and §12's `WATER_FOOTING` row 2026-10-04 against `water_footing_of`, `stands_on_water`, `head_has_foothold`, `fall_if_unsupported` and `commit_step`; §5 step 6, the walked cycle's lean carrier, §6d's lean exception to the throttle and §12's `LEAN_FORAGE` row 2026-10-03 against `LeanForage`, `lean_drop_site` and `outward_want`; §9's spread and nurse sentences, §6d's nurse paragraph and §12's `BROOD_SPREAD` and `NURSE_SEEK` rows 2026-10-04 against `brood::spread`, `brood::larva_scent`, `brood::nurse` and `chooser_step`; §9's crop sentence, §6d's carrier paragraph and §12's `CROP_NURSE` row 2026-10-04 against `brood::crop_feed`, `creature::crop_to_feed`, `yield_of` and `chooser_step`; §9's egg-rule sentence and §12's `EGG_DOOR` and `BROOD_CARRY` rows 2026-10-03 against `brood::EggBar`, `pile_site` and `carry`; §5 step 3's defended-plant sentence 2026-10-03 against `deterred_by_defence` and `food_value`; §2's support
+- **Verified against:** `main` at `bb65d507`, 2026-09-22; §5 step 6's doorway sentence and §12's `DOOR_LOOSE` row 2026-10-04 against `door_loose_of`, `in_a_passage` and `pack_neighbours_with`; §6d's way-out paragraph and §12's `HUNGRY_OUT` row 2026-10-04 against `hungry_out_of`, `hungry_out_pull`, `step_nest_rest` and `chooser_step`; §6d step 5's search sentence and §12's `HOME_SEARCH` row 2026-10-04 against `home_search_of`, `home_search_reach` and `chooser_step`; §2's support and foothold bullets and §12's `WATER_FOOTING` row 2026-10-04 against `water_footing_of`, `stands_on_water`, `head_has_foothold`, `fall_if_unsupported` and `commit_step`; §5 step 6, the walked cycle's lean carrier, §6d's lean exception to the throttle and §12's `LEAN_FORAGE` row 2026-10-03 against `LeanForage`, `lean_drop_site` and `outward_want`; §9's spread and nurse sentences, §6d's nurse paragraph and §12's `BROOD_SPREAD` and `NURSE_SEEK` rows 2026-10-04 against `brood::spread`, `brood::larva_scent`, `brood::nurse` and `chooser_step`; §9's crop sentence, §6d's carrier paragraph and §12's `CROP_NURSE` row 2026-10-04 against `brood::crop_feed`, `creature::crop_to_feed`, `yield_of` and `chooser_step`; §9's egg-rule sentence and §12's `EGG_DOOR` and `BROOD_CARRY` rows 2026-10-03 against `brood::EggBar`, `pile_site` and `carry`; §5 step 3's defended-plant sentence 2026-10-03 against `deterred_by_defence` and `food_value`; §2's support
   bullet and §12's `KIN_FOOTING` row 2026-10-02 against `fall_if_unsupported`,
   `touches_ground` and `held_by_kin`; §5 step 2's top-up,
   §6d's throttle paragraph and §12's two rows 2026-10-02 against
@@ -676,6 +676,18 @@ empty-reads-B exactly.
    pile's face ran it down, and a loaded forager with no pull home walked
    off the pile's far side (bug Z35). `PIXEL_PHYSICS_CARRY_PATIENCE=off` is
    the old rule. `PIXEL_PHYSICS_CHOOSER=nopatience` holds it at 1.
+   **`PIXEL_PHYSICS_HOME_SEARCH` (off) gives a food carrier whose patience
+   has run out a search** (`home_search_of`): once it is under
+   `SCOUT_GIVE_UP` (0.1) and more than 8 cells (`HOME_SEARCH_REACH`,
+   Chebyshev) from where it set its best, the carry starts over from where
+   it stands, patience 1 and the best forgotten, and the next loop may go
+   twice as far (`home_search_loops`, held at 64 times). Nearer than that it
+   wanders, which is the search. Built 2026-10-04 for the carriers that lost
+   the pull on the spoil mound and walked off west laying trail B (48-68% of
+   food trips on the goal box). **Off, because it shrinks the colony**:
+   on the dry goal box with the evolved founder (evolution off, 4 seeds,
+   300k) fewer carriers end up west, but mean ants over 100-300k fall on 4
+   of 4 (436/461/367/399 -> 257/341/12/388); why is not traced.
 
 **Stage 2 (`PIXEL_PHYSICS_CHOOSER=trail`) adds two things:**
 - **The trail where a step would go.** For each heading, `trail_presence`
@@ -778,6 +790,22 @@ or under cover below the door, rebuilt every `REST_REFRESH` (30) frames by
 ant's id ordering the neighbours so forks split the colony; where no step
 leads further in, the target is the ant's own head. Like any pull it
 suppresses scouting and the away term. Counted in `rest_pulls`.
+
+**`PIXEL_PHYSICS_HUNGRY_OUT` (on since 2026-10-04; `off` is the ant before
+it) gives a hungry ant inside its nest the way out.** Inside a dug nest the anchor follows the ant (§8), so the scout's pull
+out from home has no direction there. Under the switch, an ant that carries
+nothing (no food, no pellet), is under its grant, and stands on its nest's
+way in (`NestWay`, the rest pull's field, built while either reads it) is
+pulled along the passages towards the door, `REST_LOOKAHEAD` (3) steps at a
+time (`hungry_out_pull`), at `home_bias` times what the scout's pull out
+would be (`outward_want`: its hunger, or at the door what the throttle lets
+out). It is tried after `home_pull` and before the rest pull, and never meets
+it: the rest pull wants an ant the pull out does not reach. At the door
+(step 0) and outside there is no pull. Counted in `hungry_out_pulls`. On
+the dry goal box with the evolved founder (300k, 4 seeds, mean ants over
+100-300k) colonies are 1.31-1.56 times the size with evolution off and
+1.12-1.50 with it on, higher on 4 of 4 each, and starvation over the same
+span falls 77-93%.
 
 **`PIXEL_PHYSICS_FORAGE_DRIVE` (`met` since 2026-10-03, `returns` from
 2026-09-29, `always` from 2026-09-27; `off` is the ant before it) sends a fed
@@ -1313,6 +1341,8 @@ Read once per process from the environment. The default is what ships.
 | `PIXEL_PHYSICS_SPOIL_OUT` | on (since 2026-09-30) | the excavation cycle walked (`SpoilOut`): parts, comma-joined, `on` for all four, `off` for the lift. `haul`: a pellet carrier is pulled to the door over the mouth (`spoil_haul_target`); `pace`: at the laden pace, `HomeAligned` read against that target (`spoil_pace_target`); `keep`: inside the nest (`inside_nest`: under cover, or in the founding cut) the pellet is not put down while patience lasts, and is never lifted from there (`spoil_kept_inside`, `spoil_kept_no_lift`); `back`: a digger not hungry walks back to the cell it cut once its pellet is down (`OrganismState::dig_return`, `dig_return_target`) |
 | `PIXEL_PHYSICS_SPOIL_LIFT` | `climb` | where a pellet with no cell beside its carrier goes: `climb` up the carrier's column as far as it could have walked (`lift_reach`); `out` through the passages to the nearest cell in the open that holds a pellet (`lift_out`, `spoil_lifted_out`); `none`, `dig`, `unbounded` the older reaches |
 | `PIXEL_PHYSICS_SPOIL_HOLD` | `12`, **acting only under the walked cycle's `keep`** | `<cells>`, `on` or `off` (`0`): a carrier inside the nest whose haul patience has run out keeps its pellet while its head is within that Chebyshev distance of the haul's target (`spoil_haul_target`), instead of laying it beside itself (`spoil_hold_of`, counted in `spoil_held_near_door`); `World::spoil_hold` for one world |
+| `PIXEL_PHYSICS_HOME_SEARCH` | off | `on`: a food carrier whose home patience has run out and that has strayed past its search reach (8 cells from where it last got nearer home, doubling each loop) starts its carry over from where it stands (§6d step 5; `World::home_search` for one world, `CreatureStats::home_searches`). Built 2026-10-04; off because colonies came out smaller on 4 of 4 seeds |
+| `PIXEL_PHYSICS_HUNGRY_OUT` | on (since 2026-10-04) | an ant under its grant carrying nothing, inside its nest's way in, is pulled towards the door along the passages at the scout's pull out (§6d; `World::hungry_out` for one world); `off`: no such pull |
 | `PIXEL_PHYSICS_NEST_REST` | off | `workers`, `on` or `all` (`NestRest`: nest workers; nest workers and ants that have foraged; every ant): such an ant with nothing to do and more fed than hungry, not sent out by the forage drive, is pulled to its door and then along the passages away from it (§6d, `rest_pull`, `NestWay`, counted in `rest_pulls`); `World::nest_rest` for one world |
 | `PIXEL_PHYSICS_SPOIL_RING` | `2,2`, **acting only under the walked cycle** (`SPOIL_OUT`, on by default since 2026-09-30; with it `off` the lift is untouched) | `<shape>,<scale>` or `off`; `spoil_ring_of` gates it on the walked cycle, and a world's own `World::spoil_ring` overrides both: when a carrier comes out by the door with its pellet (on or above the door's row, nothing overhead: `carry_stage`) it draws a column on its own side, the door's half-width plus one plus a Gamma(shape, scale) draw from the nest's centre (`spoil_ring_column`, `OrganismState::spoil_ring`, its own stream), is pulled to the top of the ground in that column (`ring_target`, climbing any mound; `spoil_haul_target`), and its drop roll is held until its head is that far out (`spoil_ring_holds`; `spoil_ring_drawn`, `spoil_ring_held`). The column is kept under a mound's overhang and let go only back in a tunnel (more than two rows under the door's row with ground overhead, or in the founding cut: `spoil_ring_let_go`); before it has come out, under `keep`, the pellet is held wherever the carrier stands; `World::spoil_ring` for one world |
 | `PIXEL_PHYSICS_DIG_ROOF` | `6` (on since 2026-10-02, `DIG_ROOF_SHIPPED`) | `<rows>` or `off`: a cut within `rows` under the nearest nest site's founding surface and outside the door's columns is refused (`dig_roof_of`, `under_roof`, `CreatureStats::digs_refused_roof`); a heap above the surface is never refused, nor anything with no door; `World::dig_roof` for one world. Nest report §25 |

@@ -12058,10 +12058,12 @@ fn build_nest_way(world: &World, site: usize) -> Option<NestWay> {
 }
 
 /// **Every nest's way in, rebuilt on [`REST_REFRESH`]**, from
-/// `World::begin_step` beside the room census. Off the switch it clears the
-/// cache and returns, so a world that does not rest pays one branch a frame.
+/// `World::begin_step` beside the room census. With neither of its readers
+/// on (the rest pull, [`nest_rest_of`], and the way out, [`hungry_out_of`])
+/// it clears the cache and returns, so a world that reads neither pays one
+/// branch a frame.
 pub fn step_nest_rest(world: &mut World) {
-    if !nest_rest_of(world).on() || world.nest_sites.is_empty() {
+    if !(nest_rest_of(world).on() || hungry_out_of(world)) || world.nest_sites.is_empty() {
         world.nest_ways.clear();
         return;
     }
@@ -12118,6 +12120,108 @@ fn rest_pull(world: &World, organism: OrganismId, def: &CreatureDef, head: (i32,
         at = p;
     }
     Some((at, gain))
+}
+
+/// **A hungry ant inside its nest is drawn out the way it came in**
+/// (`PIXEL_PHYSICS_HUNGRY_OUT=on|off`, on since 2026-10-04;
+/// [`World::hungry_out`] for one world). An ant carrying nothing -- no food, no pellet -- that has fallen
+/// under its grant (`start_energy`), standing on its nest's way in
+/// ([`NestWay`]), is pulled along the passages towards the door,
+/// [`REST_LOOKAHEAD`] steps at a time, at the gain the scout's pull out
+/// would have ([`outward_want`]: its hunger, or what the throttle lets out
+/// at the door). At the door, and outside, there is no pull: scouting and
+/// the trail take a hungry ant on from there as they take any that has left.
+///
+/// **Why** (the deep trace lane, 2026-10-04: seed 1, dry goal box, main
+/// 3f3aa06d, evolution on; 150 ants that starved in the nest against 50
+/// that died of old age, each one's last 5,000 frames). The starvers made
+/// 81% of their decisions inside (old age 9%), with an empty crop 89% of
+/// the time, and their home anchor sat on their own head in 80% of their
+/// decisions (11%): inside a dug nest every step lands beside home, so the
+/// anchor follows the ant (`Reports/how-the-ant-works.md` §8), and the
+/// scout's pull out from home, the one direction hunger gives an empty ant,
+/// has none. A food trail was in front of them 11% of the time (45%). They
+/// were not sealed in: 65 of the 150 had reached the surface at some point.
+///
+/// **The cue is local.** The way in is the breadth-first step count from
+/// the door over the cells an ant can stand in, and the pull reads it only
+/// round the ant's own head. It stands in for the nest's air, stale where
+/// the ants are and fresh at the entrance: diffusion lays that gradient
+/// along the passages, flat at the back of a chamber and steepest in the
+/// entrance tunnel, and it carries the ant's position and heading relative
+/// to the entrance (Cox & Blanchard 2000, J Theor Biol 204:223, doi
+/// 10.1006/jtbi.2000.2010, via PubMed). Hunger sending a worker out to
+/// forage is the ordinary order of things: in a clonal ant a worker's fat
+/// reserve falling past a threshold is what starts it foraging (Bernadou et
+/// al. 2020, J Exp Biol 223:jeb219238, doi 10.1242/jeb.219238, via PubMed).
+///
+/// **Measured** (dry goal box, `nestgoal` with the laying lane's evolved
+/// founder rows, 300k frames, seeds 1-4, this rule on main cdfff228; mean
+/// live ants over 100-300k, starved deaths over the same span). Evolution
+/// off: 436/461/367/399 -> 609/604/571/587 (higher on 4 of 4, 1.31-1.56x),
+/// starved 2,134/2,325/1,710/2,364 -> 152/200/244/161, and ants
+/// underground under half their fill (mean of the samples) 49-81 -> 11-14.
+/// Evolution on: 536/504/404/482 -> 599/611/608/659 (4 of 4, 1.12-1.50x),
+/// starved down 77-89%. The extra ants live in the spoil mound and outside
+/// it: underground a mean of 47-50 against 63-100, and at 300k 252-346 in
+/// the mound against 164-192. The dug nest is still one room. The door is
+/// no more often shut (3-10 of 21 samples against 2-11), so the spoil
+/// route's queue at the shaft's foot (`Reports/dead-ends.md`,
+/// `SPOIL_ROUTE`) did not come back. A 300k run takes 1,050 s against 740
+/// (+42%), with 43% more ants.
+pub fn hungry_out_of(world: &World) -> bool {
+    world.hungry_out.unwrap_or_else(|| {
+        static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        *V.get_or_init(|| match std::env::var("PIXEL_PHYSICS_HUNGRY_OUT").as_deref() {
+            Ok("on") | Err(_) => true,
+            Ok("off") => false,
+            Ok(other) => panic!("PIXEL_PHYSICS_HUNGRY_OUT={other:?}: use on or off"),
+        })
+    })
+}
+
+/// **Where a hungry ant inside its nest is pulled, and how hard**
+/// ([`hungry_out_of`]); `None` for an animal that is fed, carrying, outside
+/// its nest's way in, already at the door, or not let out.
+fn hungry_out_pull(world: &World, organism: OrganismId, def: &CreatureDef, head: (i32, i32)) -> Option<((i32, i32), f32)> {
+    if !hungry_out_of(world) || def.home_bias <= 0.0 {
+        return None;
+    }
+    let state = world.organism(organism)?;
+    if state.spoil.is_some() || state.crop.is_some_and(|c| c.worth() > 0.0) || state.hungry_home || state.store_return {
+        return None;
+    }
+    if state.energy >= def.start_energy {
+        return None;
+    }
+    // **As hard as the scout would be pulled out** -- its hunger, or at the
+    // door what the throttle lets out -- so this gives the scout's pull the
+    // direction it lacks inside, and adds no pull of its own.
+    let (out, _, _) = outward_want(world, state, def);
+    if out <= 0.0 {
+        return None;
+    }
+    let site = world.nearest_nest_site(head.0, head.1)?;
+    let way = world.nest_ways.iter().find(|w| w.site == site)?;
+    let mut d = way.at(head.0, head.1).filter(|&d| d > 0)?;
+    // The ant's own order to try its neighbours in, as the rest pull's, so
+    // ties where two ways lead out split the colony between them.
+    let turn = (organism as usize).wrapping_mul(0x9E37_79B9) >> 7;
+    let mut at = head;
+    for step in 0..REST_LOOKAHEAD {
+        let mut best: Option<(u16, (i32, i32))> = None;
+        for k in 0..8 {
+            let (dx, dy) = NEIGHBOURS_8[(turn + step + k) % 8];
+            let p = (at.0 + dx, at.1 + dy);
+            if let Some(v) = way.at(p.0, p.1).filter(|&v| v < d && best.is_none_or(|(b, _)| v < b)) {
+                best = Some((v, p));
+            }
+        }
+        let Some((v, p)) = best else { break };
+        d = v;
+        at = p;
+    }
+    (at != head).then_some((at, def.home_bias * out.min(1.0)))
 }
 
 /// The carry this process names ([`SpoilRing`]): [`SpoilRing::SHIPPED`]
@@ -17744,6 +17848,84 @@ const PATIENCE_PROGRESS: f32 = 0.25;
 /// never resets it; a climb that returns to its foot does.
 pub const EXCURSION_CELLS: u16 = 6;
 
+/// **A laden ant that has lost its pull home searches round where it last
+/// got closest, in loops that widen** (`PIXEL_PHYSICS_HOME_SEARCH=on|off`,
+/// off; [`World::home_search`] for one world). Once its patience has run
+/// out (under [`SCOUT_GIVE_UP`]), a carrier that strays more than
+/// [`HOME_SEARCH_REACH`] cells (Chebyshev) from the spot where it last got
+/// nearer home starts its carry over from where it stands: patience back
+/// to 1, and the best distance forgotten, so each step back counts as
+/// closing on home. Each loop doubles the reach for the next
+/// (`OrganismState::home_search_loops`), so a way round that truly runs
+/// away from home -- the U-bend patience exists for -- is still walked,
+/// a loop or two later. Close to its best spot the lost ant is left to
+/// wander, and that is the search: it keeps coming back past the way in.
+/// Only food carriers search; nothing else that rides the home pull does.
+///
+/// **Why** (the deep trace lane, 2026-10-04, dry goal box; seed 1 main
+/// 3f3aa06d evolution on, seeds 2-4 evolution off at 60-90k): on 48-68% of
+/// food trips the home pull ran out before delivery, 83-90% of those on
+/// the spoil mound, where the home point lies under the heap and an ant on
+/// top often cannot get nearer -- falls, a crowded neck, loose spoil. With
+/// no pull it walked off west on trail A, which is lit everywhere, eating
+/// its load and laying food trail B: those ants laid 31-51% of all B, which
+/// is what sends empty foragers west, away from the only pile. Refilling
+/// patience only on return to the best spot (`EXCURSION_CELLS`) cannot
+/// catch an ant that never comes back. Trips that did deliver after
+/// losing the pull took 1,320-2,027 frames against 405-455.
+/// `Reports/how-the-ant-works.md` §6d.
+///
+/// **This is what a lost forager does.** An ant whose home vector has run
+/// out without finding the entrance searches round where it expected the
+/// nest, turning in loops of ever increasing size (Schwarz, Wystrach &
+/// Cheng 2017, Sci Rep 7:14161, doi 10.1038/s41598-017-14036-1, via
+/// PubMed); in Cataglyphis it is a search spiral with a random walk laid
+/// over it, the same for nest and food (Pfeffer et al. 2015, Anim Cogn
+/// 18:885, doi 10.1007/s10071-015-0858-0, via PubMed).
+///
+/// **Rejected for it**: holding patience for laden ants (as `NEST_LEASH=
+/// deep` does for nest workers), which pins a carrier at a blind end --
+/// `nopatience` escapes the U-bend in 0 of 24 (`ant-scenes-2026-09-23.md`
+/// §3); and measuring progress level rather than straight, which does
+/// nothing for the ant already over the door, where most of the giving up
+/// happens.
+///
+/// **Off, because it shrinks the colony** (dry goal box, `nestgoal` with
+/// the laying lane's evolved founder rows, evolution off, 300k frames,
+/// seeds 1-4, main cdfff228; mean live ants over 100-300k): 436/461/367/399
+/// -> 257/341/12/388, lower on 4 of 4. It does what it was built for --
+/// ants on the surface west of the mound 129/95/110/94 -> 30/53/7/68 --
+/// but fewer are born (100-300k: 3,513/3,854/3,673 -> 1,837/2,578/3,134 on
+/// seeds 1, 2 and 4), and on two of those three less food is put down
+/// underground (20-100k: 3,014/5,168 -> 1,652/3,049 cells; seed 4 4,523
+/// -> 4,613). Seed 3 died at 80-100k with the door shut, after deliveries
+/// stopped. Why bringing the lost carriers back to the mound costs the
+/// colony is not traced.
+pub fn home_search_of(world: &World) -> bool {
+    world.home_search.unwrap_or_else(|| {
+        static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        *V.get_or_init(|| match std::env::var("PIXEL_PHYSICS_HOME_SEARCH").as_deref() {
+            Ok("on") => true,
+            Ok("off") | Err(_) => false,
+            Ok(other) => panic!("PIXEL_PHYSICS_HOME_SEARCH={other:?}: use on or off"),
+        })
+    })
+}
+
+/// **How far a lost laden ant strays before its first search loop turns
+/// it back**, in cells (Chebyshev) from where it last got nearer home
+/// ([`home_search_of`]). More than [`EXCURSION_CELLS`], so a way round
+/// that comes back gets its refill first, and well short of how far the
+/// lost carriers wandered (the trace's ant 471: 26-136 cells west of its
+/// door).
+pub const HOME_SEARCH_REACH: u16 = 8;
+
+/// The reach of the next search loop after `loops` of them: doubled each
+/// time, held at [`HOME_SEARCH_REACH`] x 64.
+fn home_search_reach(loops: u8) -> u16 {
+    HOME_SEARCH_REACH << loops.min(6)
+}
+
 /// `|d|` for `DIRS[d]`, by parity: 1 on the four straight headings, `sqrt 2`
 /// on the diagonals. Divided out so a home cosine is a cosine.
 const DIR_LEN: [f32; 2] = [1.0, std::f32::consts::SQRT_2];
@@ -19606,6 +19788,18 @@ fn chooser_step(
     // The home memory, started again whenever the target is new, and cleared
     // whenever there is nothing to take home.
     let pull = home_pull(world, organism, def, (hx, hy));
+    // **Hungry inside: the way out** ([`hungry_out_of`]) -- only where
+    // nothing above pulled. It and the rest pull never both fire: one wants
+    // an ant under its grant that something lets out, the other an ant the
+    // pull out does not reach.
+    let pull = match pull {
+        Some(p) => Some(p),
+        None => {
+            let out = hungry_out_pull(world, organism, def, (hx, hy));
+            world.creature_stats.hungry_out_pulls += u64::from(out.is_some());
+            out
+        }
+    };
     // **Nothing else to do: rest inside** ([`nest_rest_of`]) -- only where
     // nothing above pulled, so every other trip keeps its own target.
     let pull = match pull {
@@ -19627,12 +19821,14 @@ fn chooser_step(
                 state.home_best = f32::INFINITY;
                 state.home_away = 0;
                 state.home_patience = 1.0;
+                state.home_search_loops = 0;
             }
             Some(_) => {}
             None => {
                 state.home_best = f32::INFINITY;
                 state.home_away = 0;
                 state.home_patience = 1.0;
+                state.home_search_loops = 0;
             }
         }
         if patience_on && !leashed { state.home_patience } else { 1.0 }
@@ -19970,11 +20166,13 @@ fn chooser_step(
     }
 
     // Did that step close on home?
+    let searching = laden && home_search_of(world);
     if let Some(((ax, ay), _)) = pull {
         let state = world.organism_mut(organism).expect("live: it just stepped");
         let (nx, ny) = state.chain.first().copied().unwrap_or((hx, hy));
         let (vx, vy) = ((ax - nx) as f32, (ay - ny) as f32);
         let dist = (vx * vx + vy * vy).sqrt();
+        let mut searched = false;
         if dist < state.home_best - PATIENCE_PROGRESS {
             state.home_best = dist;
             state.home_best_at = (nx, ny);
@@ -19988,8 +20186,19 @@ fn chooser_step(
             if state.home_away >= EXCURSION_CELLS && away <= 1 {
                 state.home_patience = 1.0;
                 state.home_away = 0;
+            } else if searching && state.home_patience < SCOUT_GIVE_UP && away > home_search_reach(state.home_search_loops) {
+                // **Lost and strayed past the search's reach: home again,
+                // from here** ([`home_search_of`]). The carry starts over
+                // at this cell, so every step back counts as closing on
+                // home, and the next loop may go twice as far.
+                state.home_best = f32::INFINITY;
+                state.home_away = 0;
+                state.home_patience = 1.0;
+                state.home_search_loops = state.home_search_loops.saturating_add(1);
+                searched = true;
             }
         }
+        world.creature_stats.home_searches += u64::from(searched);
     }
     true
 }
@@ -27676,6 +27885,55 @@ mod tests {
         assert_eq!(pull(&w, a).1, None, "an ant hungrier than the balance was pulled in");
     }
 
+    /// **A hungry ant inside is pulled out along the passages, towards its
+    /// door** ([`hungry_out_pull`]). At the gallery's far end, a hungry empty
+    /// ant's pull is aimed west, nearer the door by the way in; in the
+    /// chamber it is aimed back towards the shaft. The same ant fed, carrying food, out on the surface,
+    /// or with the switch off, has none. Watched red with the comparison
+    /// turned (`v > d`, the rest pull's way in) and with the hunger gate
+    /// removed.
+    #[test]
+    fn a_hungry_ant_inside_is_pulled_out_along_the_passages() {
+        let pull_driven = |x: i32, y: i32, on: bool, energy: f32, laden: bool, driven: bool| {
+            let (mut w, a) = rest_world(x, y, false);
+            w.hungry_out = Some(on);
+            if driven {
+                // A forager the colony sends out whatever its hunger: the
+                // fed arm below must be refused by hunger, not by a pull
+                // out of nothing.
+                w.forage_drive = Some(ForageDrive { need: ForageNeed::Always, pace: true, keep: false, fed: false });
+                w.organism_mut(a).expect("live").foraged = true;
+            }
+            step_nest_rest(&mut w);
+            let def = w.species.get(w.organism(a).expect("live").species).creature.clone().expect("a creature");
+            w.organism_mut(a).expect("live").energy = energy * def.start_energy;
+            if laden {
+                let fruit = w.materials.id_of("fruit").expect("fruit");
+                w.organism_mut(a).expect("live").crop = Some(Crop { material: fruit, cells: 1, digesting: 0.0, unit: 960.0, shade: 0, passenger: None });
+            }
+            let head = w.organism(a).expect("live").chain[0];
+            let way_at = |p: (i32, i32)| w.nest_ways.first().and_then(|wy| wy.at(p.0, p.1));
+            let got = hungry_out_pull(&w, a, &def, head);
+            (way_at(head), got.map(|(t, g)| (t, way_at(t), g)))
+        };
+        let pull = |x: i32, y: i32, on: bool, energy: f32, laden: bool| pull_driven(x, y, on, energy, laden, false);
+        let (here, got) = pull(78, 47, true, 0.3, false);
+        let (t, there, gain) = got.expect("a hungry empty ant at the gallery's end was given no way out");
+        assert!(here.is_some() && there < here, "the pull at {t:?} ({there:?} steps) is not nearer the door than the ant ({here:?} steps)");
+        assert!(t.0 < 78, "the pull at {t:?} is not west, back along the gallery");
+        assert!(gain > 0.0);
+        let (here, got) = pull(64, 47, true, 0.3, false);
+        let (t, there, _) = got.expect("a hungry empty ant in the chamber was given no way out");
+        assert!(there < here && t.0 < 64, "the pull at {t:?} ({there:?} steps) is not back towards the shaft from (64, 47) ({here:?} steps)");
+
+        assert_eq!(pull(78, 47, true, 1.0, false).1, None, "a fed ant was pulled out");
+        assert!(pull_driven(78, 47, true, 0.3, false, true).1.is_some(), "control: a hungry forager the colony sends out was not pulled");
+        assert_eq!(pull_driven(78, 47, true, 1.0, false, true).1, None, "a fed forager the colony sends out was pulled: the way out is for the hungry");
+        assert_eq!(pull(78, 47, true, 0.3, true).1, None, "an ant carrying food was pulled out");
+        assert_eq!(pull(90, 39, true, 0.3, false).1, None, "an ant out on the surface was pulled");
+        assert_eq!(pull(78, 47, false, 0.3, false).1, None, "with the switch off a hungry ant was pulled");
+    }
+
     /// **The narrower forms keep a scout out** ([`NestRest`]): the same fed
     /// ant in its chamber is not pulled under `workers` or `on` while it has
     /// neither foraged nor been made a nest worker; under `on` it is once it
@@ -33470,6 +33728,70 @@ mod tests {
         assert!(impatient_steps >= 20, "without patience the chooser took {impatient_steps} steps, so the control is not stepping at all");
         assert!(impatient <= 4, "without patience it got {impatient} cells from the dead end: the home term is not turning it back");
         assert!(chooser >= 40, "with patience it got only {chooser} cells from the dead end in 600 decisions");
+    }
+
+    /// **A lost laden ant searches back and forth round where it last got
+    /// closest, and still walks the long way round** (`PIXEL_PHYSICS_HOME_SEARCH`,
+    /// [`home_search_of`]), on the dead end above: home 30 cells east through
+    /// rock, the only way on 80 cells west, so home is never reached and
+    /// every arm runs out of patience at the blind end.
+    ///
+    /// Counted as returns: times the ant came back within 2 cells of the
+    /// blind end after being more than [`HOME_SEARCH_REACH`] out. Measured
+    /// 2026-10-04 over 600 decisions: off 1 return, 0 searches, 80 cells out
+    /// at most; on 5 returns, 4 searches, 65 out. An ant with an empty crop
+    /// has no pull home, so nothing to search with: 0 searches. **Watched
+    /// red** with the search never starting (the searches check) and with
+    /// its reach never doubling (the 40-cell check: a long way round is a
+    /// trap again).
+    #[test]
+    fn a_lost_laden_ant_searches_in_widening_loops_round_its_best_spot() {
+        let run_arm = |search: bool, laden: bool| -> (i32, usize, u64) {
+            let stone = Cell::new(material::STONE, 0).with_attached(true);
+            let mut w = World::new(Rect::new(0, 0, 159, 63));
+            for x in 0..160 {
+                for y in 0..64 {
+                    w.set(x, y, stone);
+                }
+            }
+            for x in 20..=100 {
+                w.set(x, 30, Cell::EMPTY);
+            }
+            w.chooser = Some(Chooser::On);
+            w.home_search = Some(search);
+            let ant = spawn(&mut w, "ant", 100, 30);
+            let head = w.organism(ant).expect("live").chain[0];
+            w.organism_mut(ant).expect("live").forage_anchor = (130, 30);
+            let before = w.creature_stats.home_searches;
+            let rows = if laden {
+                traced_laden(&mut w, ant, 3600)
+            } else {
+                w.decision_log = Some(Vec::new());
+                run(&mut w, 3600);
+                w.decision_log.take().expect("the log was on").into_iter().filter(|r| r.id == ant).collect()
+            };
+            assert!(rows.len() >= 400, "only {} decisions: the scene no longer runs", rows.len());
+            let west: Vec<i32> = rows.iter().map(|r| head.0 - r.head_after.0).collect();
+            let mut returns = 0;
+            let mut out = false;
+            for &d in &west {
+                out |= d > i32::from(HOME_SEARCH_REACH);
+                if out && d <= 2 {
+                    returns += 1;
+                    out = false;
+                }
+            }
+            (west.iter().copied().max().unwrap_or(0), returns, w.creature_stats.home_searches - before)
+        };
+        let (off_far, off_returns, off_searches) = run_arm(false, true);
+        let (on_far, on_returns, on_searches) = run_arm(true, true);
+        let (_, _, empty_searches) = run_arm(true, false);
+        assert_eq!(off_searches, 0, "searches with the switch off");
+        assert_eq!(empty_searches, 0, "an ant with nothing to take home searched");
+        assert!(off_far >= 40, "off, the lost ant got only {off_far} cells out: the scene no longer loses it");
+        assert!(on_searches >= 2, "{on_searches} searches on: the lost ant is not being turned back");
+        assert!(on_returns >= off_returns + 2, "returns to the blind end: on {on_returns}, off {off_returns}");
+        assert!(on_far >= 40, "searching, it got only {on_far} cells out: the loops do not widen, and a long way round is a trap again");
     }
 
     /// **Under the chooser, falling does not wait for the step roll** (plan
