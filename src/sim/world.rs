@@ -649,9 +649,28 @@ pub struct GroupDeaths {
     pub species: organism::SpeciesId,
     pub colony: u32,
     pub by_cause: [u64; organism::DEATH_CAUSES],
+    /// **`by_cause`, split by where the head was** ([`DEATH_PLACE_NAMES`]:
+    /// under the old ground, above it near a nest, above it far from one).
+    /// Sums to `by_cause` less the deaths whose animal left no cell to
+    /// place. A tally and nothing reads it back: it exists so a chronicle
+    /// can say *where* the starved died, which `by_cause` cannot (the
+    /// 2026-10-05 mound-ant trace was asking whether the starvers die in
+    /// the nest or above it).
+    pub by_place: [[u64; organism::DEATH_CAUSES]; DEATH_PLACES],
     /// `(attacker species, attacker colony, kills)`.
     pub killed_by: Vec<(organism::SpeciesId, u32, u64)>,
 }
+
+/// How many places [`World::death_place`] tells apart.
+pub const DEATH_PLACES: usize = 3;
+/// Their names, in index order: **under** the original ground, **near** a
+/// nest (above ground, within [`NEAR_NEST_COLS`] columns of a nest site --
+/// the door, the mound and the foraging close round it) and **afield**.
+pub const DEATH_PLACE_NAMES: [&str; DEATH_PLACES] = ["under", "near", "afield"];
+/// Columns either side of a nest site that count as *near* it: the mound's
+/// reach in `examples/deeptrace.rs`, so the chronicle and the deep trace
+/// call the same ground the same thing.
+pub const NEAR_NEST_COLS: i32 = 40;
 
 /// The fewest animals a drifted cluster needs before `World::regroup_by_scent`
 /// names it as a group of its own. Three, because a line on the ANTS page
@@ -8172,16 +8191,21 @@ impl World {
         // goes back on the free list two lines below for some other
         // individual to be born into. The grave itself is *pushed* after the
         // borrow of `self.organisms` ends -- see below.
-        let (generation, at) = match slot.state.as_ref() {
+        let (generation, head) = match slot.state.as_ref() {
             Some(state) => (
                 state.generation,
                 // A creature's head, else any cell it still owns. A plant
                 // felled whole owns none by the time it reaches here, and
                 // `(0, 0)` is honest for that: there is nowhere to point.
-                state.chain.first().copied().or_else(|| state.cells.keys().next().copied()).unwrap_or((0, 0)),
+                state
+                    .chain
+                    .first()
+                    .copied()
+                    .or_else(|| state.cells.keys().next().copied()),
             ),
-            None => (0, (0, 0)),
+            None => (0, None),
         };
+        let at = head.unwrap_or((0, 0));
         slot.state = None;
         self.free_organism_slots.push(slot_index);
         // **Which table it belonged in, decided from the species and not from
@@ -8205,7 +8229,15 @@ impl World {
         self.dead_life.absorb(&life);
         self.deaths_by_cause[cause.index()] += 1;
         if creature {
-            self.group_deaths_mut(species, colony).by_cause[cause.index()] += 1;
+            // **Where it died, tallied beside the cause and read by no rule.**
+            // An animal that left no cell to place (`head` is `None`) is in
+            // `by_cause` and in no `by_place` row.
+            let place = head.map(|h| self.death_place(h));
+            let group = self.group_deaths_mut(species, colony);
+            group.by_cause[cause.index()] += 1;
+            if let Some(p) = place {
+                group.by_place[p][cause.index()] += 1;
+            }
         }
         self.log_for(
             LogKind::Died,
@@ -8580,6 +8612,31 @@ impl World {
                 dx * dx + dy * dy
             })
             .map(|(i, _)| i)
+    }
+
+    /// **Where a death at `(x, y)` counts**, as an index into
+    /// [`DEATH_PLACE_NAMES`]: 0 under the original ground, 1 above it within
+    /// [`NEAR_NEST_COLS`] columns of a nest site, 2 anywhere else above it.
+    ///
+    /// "The original ground" is the frozen room datum, the same answer the
+    /// census gives (`room_surface_at`), falling back to the nearest nest
+    /// site's surface in a world that has not been stepped yet. A world with
+    /// neither has no under-ground to speak of, so everything is above it.
+    /// **Under means strictly below the datum's row**, the top ground row
+    /// itself being the doorway: `examples/deeptrace.rs`'s `zone` draws the
+    /// line there (`y > ground_y`), and the lanes quote its numbers.
+    /// A read of three fields, called once per animal death.
+    pub fn death_place(&self, (x, y): (i32, i32)) -> usize {
+        let surface = self
+            .room_surface_at(x)
+            .or_else(|| self.nearest_nest_site(x, y).map(|i| self.nest_sites[i].surface));
+        if surface.is_some_and(|s| y > s) {
+            0
+        } else if self.nest_sites.iter().any(|n| (n.x - x).abs() <= NEAR_NEST_COLS) {
+            1
+        } else {
+            2
+        }
     }
 
     /// **Take the standing room census**, once per [`ROOM_INTERVAL`] frames.
@@ -9103,7 +9160,13 @@ impl World {
         let at = match self.group_deaths.iter().position(|g| g.species == species && g.colony == colony) {
             Some(i) => i,
             None => {
-                self.group_deaths.push(GroupDeaths { species, colony, by_cause: [0; organism::DEATH_CAUSES], killed_by: Vec::new() });
+                self.group_deaths.push(GroupDeaths {
+                    species,
+                    colony,
+                    by_cause: [0; organism::DEATH_CAUSES],
+                    by_place: [[0; organism::DEATH_CAUSES]; DEATH_PLACES],
+                    killed_by: Vec::new(),
+                });
                 self.group_deaths.len() - 1
             }
         };
