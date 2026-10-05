@@ -8260,6 +8260,10 @@ per egg on 5 of 6 seeds (mean 15% -> 12%). It costs the colony 0-17% on 5
 of 6. `all` (every cell kept) helps the larvae about as much and costs
 13-37%; traced there, no crumbs are left at the door for newborns, who
 starve, and carriers make fewer trips. Both ship off. Still one room.
+Retired the same day: the deep trace found its food stops at the top of
+the shaft (larvae below it get 0.1-0.3 J per 1,000 frames, those in the
+top five rows 156-228), and the nurses below carry food all the way down.
+It stays built and off (`Reports/dead-ends.md`).
 
 **Foragers hand their food to nurses, who carry it to the brood** (on,
 built 2026-10-05: `PIXEL_PHYSICS_NURSE_STAY`; `off` is the ant before). A
@@ -8271,8 +8275,9 @@ and a nest worker that feeds a larva stays one longer. Across 4 seeds to
 and with the brood spread across the room from 30-35% to 13-25%; larvae
 get 1.0-1.4 MJ from crops where they got almost none. The colony grows
 slower (6-33% fewer ants from 40k to 150k) and catches up by 200k, takes
-12-30% less food from the heap, and more grown foragers starve above
-ground (66-342 a run against 27-38); why is being traced. The brood still
+12-30% less food from the heap, and more grown ants starve on the spoil
+mound and at the door (66-342 a run against 27-38), most of them ants that
+never went to the heap; why they don't go is being traced. The brood still
 piles in a column under the door, and the nest is still one room.
 
 **An animal standing on a puddle's surface: on by default, with the

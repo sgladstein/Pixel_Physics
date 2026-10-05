@@ -12820,6 +12820,13 @@ pub const FACE_TRIP_REACH: i32 = 3;
 /// the door while above the founding ground, made larvae starve more per
 /// egg (with `on`'s parts, 18.8/16.1% against 9.4/15.0%) and is not kept.
 /// Still one room. Ships off.
+///
+/// **Retired the same day** (`Reports/dead-ends.md`). The deep trace read it
+/// on its own target (main dee7aa77, seeds 1-4, 200k, 100k-200k): crop food
+/// reaching larvae below the shaft went 0-0.1 -> 0.1-0.3 J per larva per
+/// 1,000 frames, against 156-228 for the 1-4 larvae in the shaft's top five
+/// rows, so its food stops at the top of the shaft. [`NurseStay`] carries
+/// crop food all the way down instead and ships on; this stays built, off.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct CropDown {
     pub hold: bool,
