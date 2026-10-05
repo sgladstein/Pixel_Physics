@@ -274,6 +274,16 @@ mod tests {
     /// the return lands in a later one) and **nothing** that was not an
     /// absence of at least one bucket. Both bounds are asserted.
     ///
+    /// **An ant first seen away from home opens on a one-tick bucket.** A
+    /// strip's first leg is pushed on the tick it starts, so an ant hatched
+    /// outside the home reach that walks in within one bucket is counted a
+    /// visit home -- correctly: it was away, and it got home. The truth
+    /// below opens every ant at home and dates that absence from the tick
+    /// it was first seen, so it is short; the ceiling admits it by that
+    /// date, and only for a strip that still holds its opening leg. Exposed
+    /// 2026-10-05, when a lab box began founding the evolved ant and two
+    /// newborns on the shipped bed hatched outside home.
+    ///
     /// **The positive control** is the same strip offered only the tick each
     /// bucket closes on -- the strip without the latch. It must break a bound
     /// on some ant: a stay home shorter than a bucket goes unseen and two
@@ -289,8 +299,9 @@ mod tests {
         let tuning = crate::sim::player::Tuning::default();
         let mut strips: HashMap<OrganismId, (Trips, Trips)> = HashMap::new();
         // Per ant: whether it was home last tick, when its current absence
-        // began, and every (absence began, got home) pair.
-        type Comings = (bool, u64, Vec<(u64, u64)>);
+        // began, every (absence began, got home) pair, and the tick it was
+        // first seen.
+        type Comings = (bool, u64, Vec<(u64, u64)>, u64);
         let mut truth: HashMap<OrganismId, Comings> = HashMap::new();
         for _ in 0..24_000 {
             crate::sim::frame::step(
@@ -304,7 +315,7 @@ mod tests {
                 let Some(home) = crate::sim::creature::is_at_home(&world, id) else {
                     continue;
                 };
-                let t = truth.entry(id).or_insert((true, world.frame, Vec::new()));
+                let t = truth.entry(id).or_insert((true, world.frame, Vec::new(), world.frame));
                 if home && !t.0 {
                     t.2.push((t.1, world.frame));
                 } else if !home && t.0 {
@@ -319,7 +330,10 @@ mod tests {
             }
         }
         // `(floor, ceiling)` for one ant over the frames a strip covers.
-        let bounds = |strip: &Trips, returns: &[(u64, u64)]| {
+        // `seen` is the tick the ant was first seen: a strip whose first leg
+        // is that tick opens on a one-tick bucket, so the absence the ant
+        // was already on then is countable however short it was.
+        let bounds = |strip: &Trips, returns: &[(u64, u64)], seen: u64| {
             let (Some(first), Some(last)) = (strip.legs.front(), strip.legs.back()) else {
                 return (0, 0);
             };
@@ -332,21 +346,21 @@ mod tests {
             let ceiling = returns
                 .iter()
                 .filter(inside)
-                .filter(|(gone, back)| back - gone >= TRIP_EVERY)
+                .filter(|(gone, back)| back - gone >= TRIP_EVERY || (*gone == seen && first.frame == seen))
                 .count();
             (floor, ceiling)
         };
         let (mut trips, mut fed, mut broken, mut control_broken) = (0, 0, Vec::new(), 0);
         for (id, (every, closing)) in &strips {
-            let returns = &truth[id].2;
+            let (returns, seen) = (&truth[id].2, truth[id].3);
             let (t, f) = every.visits();
             trips += t;
             fed += f;
-            let (lo, hi) = bounds(every, returns);
+            let (lo, hi) = bounds(every, returns, seen);
             if t < lo || t > hi {
                 broken.push((*id, lo, t, hi));
             }
-            let (clo, chi) = bounds(closing, returns);
+            let (clo, chi) = bounds(closing, returns, seen);
             let c = closing.visits().0;
             if c < clo || c > chi {
                 control_broken += 1;

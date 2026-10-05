@@ -1167,7 +1167,10 @@ pub const LAB_ANT_GUT: f32 = -0.5;
 /// carrion leaves the menu near -0.68, and a corpse rots into soil instead
 /// (`corpse.ron`'s `decays_into`). That is where the goal-box colonies took
 /// themselves, but it is the line `ant.ron`'s slot-0 note drew for the whole
-/// game (`Reports/dead-ends.md`, gut -1.0).
+/// game (`Reports/dead-ends.md`, gut -1.0). **Nor is a beetle prey**: it pays
+/// under the same bar, so `is_visible_prey` never sees one and `PreyNear`
+/// reads 0 at any eye (the hunting ground's own test went red on it; the
+/// scenario now pins the gut to `ant.ron`'s 0).
 pub const LAB_ANT_TRAITS: [(usize, f32); 6] = {
     use crate::sim::organism::*;
     [
