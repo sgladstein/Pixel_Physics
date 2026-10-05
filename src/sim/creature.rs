@@ -885,6 +885,28 @@ pub struct FeedRow {
     pub gain: f32,
 }
 
+/// **One mouthful taken off the world**, for the trace only
+/// ([`World::bite_log`], off unless a harness sets it to `Some`; recording
+/// draws nothing and changes nothing): who took it, where, what it was,
+/// whose it was (`owner` 0 for loose food; a plant's id for living tissue,
+/// `living`), what it was worth at face value (`worth`, after defence and,
+/// for a spared bare seed, its provision fraction), and whether the cell
+/// survived the bite (a spared seed). What the eater's gut gets from it is
+/// `worth * diet_quality(material, gut)`, left to the reader. Added
+/// 2026-10-05 for the garden trace: who eats which plant, alive or dead,
+/// through a boom and the crash after it.
+#[derive(Clone, Copy, Debug)]
+pub struct BiteRow {
+    pub frame: u64,
+    pub eater: OrganismId,
+    pub at: (i32, i32),
+    pub material: material::MaterialId,
+    pub owner: OrganismId,
+    pub living: bool,
+    pub worth: f32,
+    pub spared: bool,
+}
+
 /// [`FeedRow::kind`]: food in reach that the larva ate (`brood_ate_j`).
 pub const FEED_ATE: u8 = 0;
 /// From a carrier's crop (`brood::crop_feed`, `brood_crop_fed_j`).
@@ -15796,6 +15818,21 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
                     plant::SeedBite::SurvivedBare => worth * plant::seed_provision_fraction(world, fxx, fyy),
                     _ => worth,
                 };
+                if world.bite_log.is_some() {
+                    let row = BiteRow {
+                        frame: world.frame,
+                        eater: organism,
+                        at: (fxx, fyy),
+                        material: bite.material,
+                        owner: victim,
+                        living: is_living_tissue(world, bite),
+                        worth,
+                        spared: seed_saved.survived(),
+                    };
+                    if let Some(log) = world.bite_log.as_mut() {
+                        log.push(row);
+                    }
+                }
                 if !seed_saved.survived() {
                     // **The mouth's half of the §Z23 ledger**, booked at the
                     // one line where a cell actually leaves the world and on
