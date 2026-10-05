@@ -144,6 +144,7 @@ will be.
   genome it ran. §2, §5, §9 and §12 on 2026-09-30 for the default flip: stacking at 4 (`SHIPPED_STACK_CAP`, `parse_stack_depth`), the walked cycle (`parse_spoil_out`, `ring_gate`) and births on nestmates (`parse_bud_stack`).
   §1 step 2 and §12 on 2026-10-03 for the nest-odour kin gate (`blend_with_nest`, `nest_kin_gate`, `CreatureStats::nest_blends_refused`).
   §12 on 2026-10-03 for tolerance drifting at a third of the scent rate (`PIXEL_PHYSICS_TOLERANCE_DRIFT`).
+  §15 on 2026-10-05 for the dig's funnel in the trace (`DigWhy`, `DIG_FLAG_DOWN` and friends, `DIG_NO_TARGET`, `act`'s dig roll drawn into a local).
 
 ---
 
@@ -1397,6 +1398,14 @@ is on, every walking decision, the move stage of `creature_tick`, pushes one
   empty and not in a nest's door (`free8`), their materials, and which were the ant's own body or another
   organism; and how far the food went (`drop_reach`: 1 for a neighbour,
   more when handed on through bodies);
+- the dig in `act` that same tick (`DigWhy`): how far it got (not reached,
+  lean, roll lost, refused by the heap cue or the roof, nothing the jaw can
+  take, cut), the brain's urge before the lean gate (`dig_p`), the cell it
+  was judged on and that cell's material (`dig_at`, `dig_mat`), what turned
+  or moved the target first (`dig_flags`: turned down, faced, widened, the
+  turn down refused), and the two senses on the dig's wires the row did not
+  otherwise carry (`curvature`, `moisture_grad`), so the urge can be rebuilt
+  term by term;
 - the cone's three scores after the zeroing and the candidate taken;
 - under the chooser (§6d), the patience it scored with and the home cosine
   of the heading it picked, and under stage 2 that heading's trail presence
@@ -1430,8 +1439,8 @@ are always on.
     classifier on three known terrains;
   - `every_traced_decision_agrees_with_the_counters_and_the_positions`
     checks rows against the census, against every counter above and the
-    per-verb counters (`moves`, `drops`, `deliveries`, `tumbles_homeward`),
-    and against where the head went;
+    per-verb counters (`moves`, `drops`, `deliveries`, `tumbles_homeward`,
+    and the dig's `dig_rolls` and `digs`), and against where the head went;
   - four scenes with known answers: `the_homeward_re_roll_aims_along_a_known_floor_at_the_rate_its_fill_sets`,
     `a_drop_with_nowhere_to_go_is_counted_and_one_with_room_is_delivered`,
     `a_blocked_drop_passes_the_food_through_bodies_to_the_nearest_empty_cell`,
@@ -1452,5 +1461,7 @@ are always on.
   100 frames, and `cf=<rules>` lays copies under other rules along the same
   paths. `scripts/decisioncensus.py` reads the rows, including the drop and
   cone columns; `scripts/trailclimb.py` checks the logged scores reproduce
-  the draws and reads the climb and the door departures.
+  the draws and reads the climb and the door departures. `deeptrace` writes
+  every row of every ant in the goal box, and with `dig=1` a narrow row per
+  decision carrying the dig's funnel (`digrows.csv.gz`).
 
