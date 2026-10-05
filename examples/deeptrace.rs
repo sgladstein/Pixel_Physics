@@ -49,7 +49,22 @@
 //!   ant's energy against its start, for the question of what moves an ant
 //!   between the lane under the door and the rest of the nest. Reader:
 //!   `scripts/deeptrace_dig.py fed`. `events.txt`'s `FOUNDED` line carries
-//!   that start (`start_j`) since the same day.
+//!   that start (`start_j`) since the same day. Since 2026-10-05 each row
+//!   also carries the larva-scent term the chooser scored with (`nurse_w`,
+//!   `nurse_ux`, `nurse_uy`; blank when it scored none) and, like
+//!   `digrows.csv.gz`, why a digger's walk back to its face ended on this
+//!   decision (`trip_end`, `creature::TRIP_END_NAMES`).
+//! - with `dig=1`, **every meal a larva is given** (`feeds.csv`, from
+//!   `World::feed_log`): where the larva lay, how it was fed
+//!   (`creature::FEED_KIND_NAMES`: food in reach it ate, a carrier's crop, a
+//!   nestmate's bank, a brain's share), the donor (0 for food it ate) and the
+//!   energy it gained. The log takes no RNG draw and changes no branch; the
+//!   rows sum to the world's own brood-food counters exactly.
+//! - **`stats.csv`**: the world's running totals every `colonyevery=` frames:
+//!   deaths by cause, eggs, pupae, births and larvae starved, the brood's food
+//!   by source, each nest-plan switch's "it fired" counter, and the foraging
+//!   and laying funnels (meals, pick-ups, trips and deliveries; eggs held for
+//!   want of a pile site, declined, or braked).
 //!
 //! `founder=evolved` lands the colony with lane 2's evolved founder (the six
 //! scenario rows in `EVOLVED_FOUNDER`), before any `gut=`.
@@ -65,15 +80,18 @@
 //!
 //! `scripts/deeptrace.py OUT` reads the result into a life story per ant;
 //! `scripts/deeptrace_dig.py dig|soil|rooms|brood|journeys|face OUT` reads the
-//! `dig=1` record.
+//! `dig=1` record; `scripts/deeptrace_plan.py OUT...` reads `walk=1 census=1`
+//! runs (`census=1` adds a death line for every ant to `events.txt`) into one
+//! table with a column per run, each nest-plan switch on the behaviour it was
+//! built to change.
 
 use pixel_physics::lab::scenario::Scenario;
 use pixel_physics::lab::{Lab, HEIGHT, WIDTH};
 use pixel_physics::sim::brain::{BRAIN_HIDDEN, BRAIN_INPUTS, BRAIN_OUTPUTS, INPUT_NAMES, OUTPUT_NAMES};
 use pixel_physics::sim::cell::{Cell, OrganismId};
 use pixel_physics::sim::creature::{
-    self, DecisionRow, DigWhy, DECISION_LEG_NAMES, DECISION_OUTCOME_NAMES, DIG_NO_TARGET, DIG_WHY_NAMES, DIRS,
-    DROP_WHY_NAMES, HOMEWARD_WHY_NAMES, PULL_WHY_NAMES,
+    self, DecisionRow, DigWhy, FeedRow, DECISION_LEG_NAMES, DECISION_OUTCOME_NAMES, DIG_NO_TARGET, DIG_WHY_NAMES, DIRS,
+    DROP_WHY_NAMES, FEED_KIND_NAMES, HOMEWARD_WHY_NAMES, PULL_WHY_NAMES, TRIP_END_NAMES,
 };
 use pixel_physics::sim::material::{self, MaterialKind};
 use pixel_physics::sim::organism::{self, BroodStage};
@@ -471,6 +489,26 @@ fn main() {
         .cloned()
         .expect("ant is a creature");
     lab.world.decision_log = Some(Vec::new());
+    // `dig=1`: every meal a larva is given, for `feeds.csv` (see `DigLog`).
+    if dig {
+        lab.world.feed_log = Some(Vec::new());
+    }
+    // Every `colonyevery=` frames, the world's own running totals that the
+    // nest-plan switches move (`stats.csv`): deaths by cause, the brood's
+    // food by source, each switch's "it fired" counter, and the foraging and
+    // laying funnels (meals, trips and deliveries; eggs held for want of a
+    // pile site, declined, or braked).
+    let mut stats_csv = std::io::BufWriter::new(std::fs::File::create(format!("{out}/stats.csv")).unwrap());
+    writeln!(
+        stats_csv,
+        "frame,ants,brood,{},eggs_laid,pupae,births,larvae_starved,brood_ate_j,brood_crop_fed_j,brood_nursed_j,brood_shared_j,brood_upkeep_j,larva_ticks_hungry,larva_ticks_crop_fed,larva_ticks_nursed,crop_down_holds,nurse_seeks,soil_way_pulls,hungry_out_pulls,spoil_held_below,spoil_kept_inside,spoil_dumped,lean_dropped,digs,eats,pickups,drops,deliveries,trip_deliveries,forage_trips,forage_returns,topup_shares,throttle_held,throttle_sent,at_nest_ticks,nest_visits,buds_held_for_nest,lays_declined,births_denied_no_space,food_brake_held",
+        organism::DEATH_CAUSE_LIST
+            .iter()
+            .map(|c| format!("died_{}", c.label().to_lowercase().replace(['?'], "unknown").replace(' ', "_")))
+            .collect::<Vec<_>>()
+            .join(",")
+    )
+    .unwrap();
     let names: Vec<String> = (0..lab.world.materials.len())
         .map(|i| lab.world.materials.get(material::MaterialId(i as u16)).name.clone())
         .collect();
@@ -555,6 +593,9 @@ fn main() {
         let Some(g) = geo.as_ref() else {
             lab.tick_for_harness();
             if let Some(log) = lab.world.decision_log.as_mut() {
+                log.clear();
+            }
+            if let Some(log) = lab.world.feed_log.as_mut() {
                 log.clear();
             }
             continue;
@@ -713,8 +754,10 @@ fn main() {
 
         // After the tick: the decision rows and what changed.
         let rows: Vec<DecisionRow> = lab.world.decision_log.as_mut().map(std::mem::take).unwrap_or_default();
+        let feeds: Vec<FeedRow> = lab.world.feed_log.as_mut().map(std::mem::take).unwrap_or_default();
         if let Some(d) = diglog.as_mut() {
             d.after(&lab.world, g, f, &rows, &dig_pre, &born, f % colony_every == 0);
+            d.feeds(&feeds);
             if f % nest_every == 0 {
                 d.nest_map(&lab.world, &format!("{out}/nest_f{f:06}.txt"));
             }
@@ -852,6 +895,52 @@ fn main() {
         }
 
         if f % colony_every == 0 {
+            let st = &w.creature_stats;
+            writeln!(
+                stats_csv,
+                "{f},{},{},{},{},{},{},{},{:.0},{:.0},{:.0},{:.0},{:.0},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
+                live.len(),
+                w.live_brood_ids().len(),
+                w.deaths_by_cause.iter().map(|d| d.to_string()).collect::<Vec<_>>().join(","),
+                st.eggs_laid,
+                st.pupae,
+                st.births,
+                st.larvae_starved,
+                st.brood_ate_j,
+                st.brood_crop_fed_j,
+                st.brood_nursed_j,
+                st.brood_shared_j,
+                st.brood_upkeep_j,
+                st.larva_ticks_hungry,
+                st.larva_ticks_crop_fed,
+                st.larva_ticks_nursed,
+                st.crop_down_holds,
+                st.nurse_seeks,
+                st.soil_way_pulls,
+                st.hungry_out_pulls,
+                st.spoil_held_below,
+                st.spoil_kept_inside,
+                st.spoil_dumped,
+                st.lean_dropped,
+                st.digs,
+                st.eats,
+                st.pickups,
+                st.drops,
+                st.deliveries,
+                st.trip_deliveries,
+                st.forage_trips,
+                st.forage_returns,
+                st.topup_shares,
+                st.throttle_held,
+                st.throttle_sent,
+                st.at_nest_ticks,
+                st.nest_visits,
+                st.buds_held_for_nest,
+                st.lays_declined,
+                st.births_denied_no_space,
+                st.food_brake_held,
+            )
+            .unwrap();
             for &id in &live {
                 let Some(st) = w.organism(id) else { continue };
                 let Some(&h) = st.chain.first() else { continue };
@@ -940,6 +1029,7 @@ fn main() {
     events.flush().unwrap();
     genome_out.flush().unwrap();
     colony_csv.flush().unwrap();
+    stats_csv.flush().unwrap();
     if let Some(d) = diglog {
         d.finish();
     }
@@ -1104,6 +1194,8 @@ struct DigLog {
     cuts: std::io::BufWriter<std::fs::File>,
     brood: std::io::BufWriter<std::fs::File>,
     broodlog: std::io::BufWriter<std::fs::File>,
+    /// `feeds.csv`: every meal a larva was given (`World::feed_log`).
+    feeds: std::io::BufWriter<std::fs::File>,
     /// Where each brood item in the region was last frame, and its stage.
     brood_at: HashMap<OrganismId, BroodSeen>,
     zips: Vec<std::process::Child>,
@@ -1140,7 +1232,7 @@ impl DigLog {
             let (z, mut wr) = gzip_to(&format!("{out}/walkrows.csv.gz"));
             writeln!(
                 wr,
-                "frame,id,worker,hx,hy,heading,e,leg,fill,ret_x,ret_y,pull,px,py,gain,patience,persist,turn,p_move,roll,outcome,usable,opts,chose,k,s0,s1,s2,s3,s4,s5,s6,s7,scout_w,drive,moved,hx_after,hy_after"
+                "frame,id,worker,hx,hy,heading,e,leg,fill,ret_x,ret_y,pull,px,py,gain,patience,persist,turn,p_move,roll,outcome,usable,opts,chose,k,s0,s1,s2,s3,s4,s5,s6,s7,scout_w,drive,moved,hx_after,hy_after,nurse_w,nurse_ux,nurse_uy,trip_end"
             )
             .unwrap();
             zips.push(z);
@@ -1150,7 +1242,7 @@ impl DigLog {
         let mut brood = std::io::BufWriter::new(std::fs::File::create(format!("{out}/brood.csv")).unwrap());
         writeln!(
             rows,
-            "frame,id,age,worker,hx,hy,zone,heading,hold,ahead,ground8,at_nest,crowding,curvature,food_adj,moisture_grad,energy,dig,dig_p,dig_flags,dig_x,dig_y,dig_mat,outcome,moved,hx_after,hy_after,ret_x,ret_y,patience"
+            "frame,id,age,worker,hx,hy,zone,heading,hold,ahead,ground8,at_nest,crowding,curvature,food_adj,moisture_grad,energy,dig,dig_p,dig_flags,dig_x,dig_y,dig_mat,outcome,moved,hx_after,hy_after,ret_x,ret_y,patience,trip_end"
         )
         .unwrap();
         writeln!(cells, "frame,x,y,from,to,cause,id").unwrap();
@@ -1166,6 +1258,8 @@ impl DigLog {
             "frame,id,event,x,y,stage,from_x,from_y,parent,parent_x,parent_y,parent_zone,parent_energy,cell_now"
         )
         .unwrap();
+        let mut feeds = std::io::BufWriter::new(std::fs::File::create(format!("{out}/feeds.csv")).unwrap());
+        writeln!(feeds, "frame,larva,x,y,kind,donor,gain").unwrap();
         let n = w.materials.len();
         let mut ground = vec![false; n];
         let mut hard = vec![false; n];
@@ -1183,6 +1277,7 @@ impl DigLog {
             cuts,
             brood,
             broodlog,
+            feeds,
             brood_at: HashMap::new(),
             zips,
             region: None,
@@ -1275,7 +1370,7 @@ impl DigLog {
             let target = r.dig_at != DIG_NO_TARGET;
             writeln!(
                 self.rows,
-                "{f},{},{age},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
+                "{f},{},{age},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
                 r.id,
                 u8::from(p.worker),
                 r.head.0,
@@ -1308,6 +1403,7 @@ impl DigLog {
                 p.ret.map_or(String::new(), |c| c.0.to_string()),
                 p.ret.map_or(String::new(), |c| c.1.to_string()),
                 fl(p.patience),
+                TRIP_END_NAMES[r.trip_end as usize],
             )
             .unwrap();
             if self.walk.is_some() && r.head.1 > g.ground_y - WALK_RISE && (r.head.0 - g.nest_x).abs() <= WALK_REACH {
@@ -1604,7 +1700,7 @@ impl DigLog {
         let score: Vec<String> = r.score.iter().map(|&v| fl(v)).collect();
         writeln!(
             wr,
-            "{f},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
+            "{f},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
             r.id,
             u8::from(p.worker),
             r.head.0,
@@ -1635,8 +1731,34 @@ impl DigLog {
             u8::from(r.moved),
             r.head_after.0,
             r.head_after.1,
+            fl(r.nurse_w),
+            fl(r.nurse_ux),
+            fl(r.nurse_uy),
+            TRIP_END_NAMES[r.trip_end as usize],
         )
         .unwrap();
+    }
+
+    /// **Every meal a larva was given this frame** (`feeds.csv`), added
+    /// 2026-10-05 for whether `CROP_DOWN` brings crop food down to the brood:
+    /// where the larva lay, how it was fed (`creature::FEED_KIND_NAMES`: food
+    /// in reach it ate, a carrier's crop, a nestmate's bank, a brain's share),
+    /// the donor (0 for food it ate) and the energy it gained.
+    fn feeds(&mut self, rows: &[FeedRow]) {
+        for r in rows {
+            writeln!(
+                self.feeds,
+                "{},{},{},{},{},{},{}",
+                r.frame,
+                r.larva,
+                r.at.0,
+                r.at.1,
+                FEED_KIND_NAMES[r.kind as usize],
+                r.donor,
+                fl(r.gain)
+            )
+            .unwrap();
+        }
     }
 
     fn finish(mut self) {
@@ -1645,6 +1767,7 @@ impl DigLog {
         self.cuts.flush().unwrap();
         self.brood.flush().unwrap();
         self.broodlog.flush().unwrap();
+        self.feeds.flush().unwrap();
         drop(self.rows);
         drop(self.cells);
         if let Some(mut wr) = self.walk.take() {

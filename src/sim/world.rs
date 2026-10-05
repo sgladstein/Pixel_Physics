@@ -3978,6 +3978,10 @@ pub struct World {
     /// drains it. Recording draws nothing and changes nothing -- see
     /// `creature::DecisionRow`.
     pub decision_log: Option<Vec<crate::sim::creature::DecisionRow>>,
+    /// **Every meal a larva is given** (`creature::FeedRow`), off (`None`)
+    /// unless a harness turns it on by setting `Some(Vec::new())`, and
+    /// drained by that harness. Recording draws nothing and changes nothing.
+    pub feed_log: Option<Vec<crate::sim::creature::FeedRow>>,
     /// Scratch that `step_chain` and `tumble` write while a decision is being
     /// traced; meaningless otherwise.
     pub decision_scratch: crate::sim::creature::DecisionScratch,
@@ -6668,6 +6672,7 @@ impl World {
             soil_water_stats: SoilWaterStats::default(),
             creature_stats: CreatureStats::default(),
             decision_log: None,
+            feed_log: None,
             decision_scratch: crate::sim::creature::DecisionScratch::default(),
             chooser: None,
             bud_at_nest: None,

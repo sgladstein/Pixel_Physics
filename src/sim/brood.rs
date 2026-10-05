@@ -908,6 +908,7 @@ pub fn brood_tick(world: &mut World, site: &ActiveSite) -> Vec<ActiveSite> {
                     if away_from_door(world, x) {
                         world.creature_stats.brood_ate_away_j += (after - bank) as f64;
                     }
+                    creature::note_feed(world, organism, (x, y), creature::FEED_ATE, 0, after - bank);
                 }
             }
             if nurse_env() {
@@ -1026,6 +1027,7 @@ fn nurse(world: &mut World, larva: OrganismId, (x, y): (i32, i32), colony: u32, 
         s.energy += amount;
     }
     world.creature_stats.brood_nursed_j += amount as f64;
+    creature::note_feed(world, larva, (x, y), creature::FEED_BANK, donor, amount);
     let donor_colony = world.colony_of(donor);
     world.book(donor_colony, Account::SharedOut, amount as f64);
     world.book(colony, Account::SharedIn, amount as f64);
@@ -1113,6 +1115,7 @@ fn crop_feed(world: &mut World, larva: OrganismId, (x, y): (i32, i32), colony: u
     world.creature_stats.digest_overhead_energy += (face * quality * overhead) as f64;
     world.creature_stats.larva_ticks_crop_fed += 1;
     world.creature_stats.brood_crop_fed_j += gain as f64;
+    creature::note_feed(world, larva, (x, y), creature::FEED_CROP, donor, gain);
     gain
 }
 
@@ -1491,6 +1494,7 @@ mod tests {
         // Food beside the larva: fruit is worth 960, so two bites fill it.
         let fruit = w.materials.id_of("fruit").expect("fruit");
         let mut site = sites[0];
+        w.feed_log = Some(Vec::new());
         for _ in 0..6 {
             for (dx, dy) in [(0, -1), (1, -1), (-1, -1)] {
                 if w.is_empty(ex + dx, ey + dy) {
@@ -1507,6 +1511,44 @@ mod tests {
         assert_eq!(w.organism(egg).and_then(|s| s.brood).map(|b| b.stage), Some(BroodStage::Pupa), "a larva with food beside it was not fed to its target");
         assert!(w.creature_stats.brood_ate_j > 0.0);
         assert!((gap(&w) - g0).abs() < 1e-2, "feeding moved the live identity by {}", gap(&w) - g0);
+        // The feed trace logged every meal at what was booked: each bite of
+        // the food in reach from no donor, and the parent's top-ups from its
+        // bank as the parent's.
+        let fed = w.feed_log.take().unwrap_or_default();
+        assert!(
+            fed.iter().all(|r| r.larva == egg && r.at == (ex, ey)),
+            "a meal was logged for the wrong larva or cell: {fed:?}"
+        );
+        let logged = |kind: u8| {
+            fed.iter()
+                .filter(|r| r.kind == kind)
+                .map(|r| r.gain as f64)
+                .sum::<f64>()
+        };
+        assert!(
+            fed.iter()
+                .filter(|r| r.kind == creature::FEED_ATE)
+                .all(|r| r.donor == 0),
+            "a bite of food in reach was logged with a donor: {fed:?}"
+        );
+        assert!(
+            fed.iter()
+                .filter(|r| r.kind == creature::FEED_BANK)
+                .all(|r| r.donor == ant),
+            "a bank top-up was logged from someone other than the parent: {fed:?}"
+        );
+        assert!(
+            (logged(creature::FEED_ATE) - w.creature_stats.brood_ate_j).abs() < 1e-2,
+            "logged bites {} against booked {}",
+            logged(creature::FEED_ATE),
+            w.creature_stats.brood_ate_j
+        );
+        assert!(
+            (logged(creature::FEED_BANK) - w.creature_stats.brood_nursed_j).abs() < 1e-2,
+            "logged top-ups {} against booked {}",
+            logged(creature::FEED_BANK),
+            w.creature_stats.brood_nursed_j
+        );
 
         // Hatch: an adult on the brood's own cell, the brood freed.
         let bank = w.organism(egg).expect("pupa").energy;
@@ -1888,7 +1930,10 @@ mod tests {
             let g0 = gap(&w);
             let (bank0, larva0) = (w.organism(ant).expect("live").energy, w.organism(larva).expect("larva").energy);
             w.frame += LARVA_TICK;
+            // The feed trace (`World::feed_log`), on for this tick only.
+            w.feed_log = Some(Vec::new());
             brood_tick(&mut w, &sites[0]);
+            let fed = w.feed_log.take().unwrap_or_default();
             let held = w.organism(ant).expect("live").crop;
             let gained = w.organism(larva).expect("larva").energy - larva0;
             let from_bank = bank0 - w.organism(ant).expect("live").energy;
@@ -1896,8 +1941,43 @@ mod tests {
             if mode == CropNurse::Off || hungry {
                 assert_eq!(held, Some(crop), "{mode:?} hungry {hungry}: the crop was fed from");
                 assert_eq!(w.creature_stats.brood_crop_fed_j, 0.0);
+                assert!(
+                    !fed.iter().any(|r| r.kind == creature::FEED_CROP),
+                    "{mode:?} hungry {hungry}: the feed trace logged a crop meal that never happened"
+                );
                 continue;
             }
+            // **The feed trace logs each meal as booked**: the crop meal and
+            // the bank's top-up, from this carrier to this larva on its own
+            // cell, at what the books credited. Watched red with
+            // `creature::note_feed` returning before it logs.
+            let logged = |kind: u8| {
+                fed.iter()
+                    .filter(|r| r.kind == kind)
+                    .map(|r| r.gain as f64)
+                    .sum::<f64>()
+            };
+            assert!(
+                fed.iter().any(|r| r.kind == creature::FEED_CROP),
+                "unit {unit}: the feed trace logged no crop meal"
+            );
+            assert!(
+                fed.iter()
+                    .all(|r| r.larva == larva && r.donor == ant && r.at == (site.x, site.y) && r.frame == w.frame),
+                "unit {unit}: a logged meal names the wrong larva, donor, cell or frame: {fed:?}"
+            );
+            assert!(
+                (logged(creature::FEED_CROP) - w.creature_stats.brood_crop_fed_j).abs() < 1e-2,
+                "unit {unit}: logged crop {} against booked {}",
+                logged(creature::FEED_CROP),
+                w.creature_stats.brood_crop_fed_j
+            );
+            assert!(
+                (logged(creature::FEED_BANK) - w.creature_stats.brood_nursed_j).abs() < 1e-2,
+                "unit {unit}: logged bank {} against booked {}",
+                logged(creature::FEED_BANK),
+                w.creature_stats.brood_nursed_j
+            );
             let given = crop.worth() - held.map_or(0.0, |c| c.worth());
             assert!(given > 0.0, "a fed carrier touching a hungry larva gave nothing from its crop");
             assert!(given <= crop.unit + 1e-3, "more than the cell in progress left the crop in one tick: {given}");
@@ -1909,6 +1989,79 @@ mod tests {
             assert!(keep < 1.0 && (w.creature_stats.brood_crop_fed_j - given as f64 * keep).abs() < 1e-2, "the larva was credited {} for {given} face, not the gut's {keep} of it", w.creature_stats.brood_crop_fed_j);
             assert_eq!(held.map(|c| c.cells), Some(if unit < 1_000.0 { 1 } else { 2 }), "unit {unit}: the wrong number of cells left the crop");
         }
+    }
+
+    /// **The feed trace changes nothing it logs** (`World::feed_log`): one
+    /// larva fed every way this bed can feed it -- food beside it, its
+    /// parent's crop and its parent's bank -- ends in the same state to the
+    /// bit with the log on and off, and the log is not empty. (The colony
+    /// bed of `creature`'s `the_decision_trace_changes_nothing_it_watches`
+    /// raises no larva in its 9,000 frames, so it cannot carry this.)
+    /// **Watched red** with `creature::note_feed` taking a joule off the
+    /// larva it logs.
+    #[test]
+    fn the_feed_trace_changes_nothing_it_logs() {
+        let run = |log: bool| {
+            let (mut w, ant, def) = bed(true);
+            w.crop_nurse = Some(CropNurse::Touch);
+            if log {
+                w.feed_log = Some(Vec::new());
+            }
+            let block = def.brood.clone().expect("brood");
+            let site = creature::try_bud(&mut w, ant, &def, 0.0, 0.0).expect("lays");
+            let larva = the_egg(&w);
+            w.frame = block.egg_frames;
+            let mut site = brood_tick(&mut w, &site)[0];
+            let (ex, ey) = (site.x, site.y);
+            let fruit = w.materials.id_of("fruit").expect("fruit");
+            w.organism_mut(ant).expect("live").crop = Some(crate::sim::organism::Crop {
+                material: fruit,
+                cells: 2,
+                digesting: 0.0,
+                unit: 960.0,
+                shade: 0,
+                passenger: None,
+            });
+            for _ in 0..4 {
+                for (dx, dy) in [(0, -1), (1, -1), (-1, -1)] {
+                    if w.is_empty(ex + dx, ey + dy) {
+                        w.set(ex + dx, ey + dy, Cell::new(fruit, 0));
+                    }
+                }
+                w.frame += LARVA_TICK;
+                site = brood_tick(&mut w, &site)[0];
+            }
+            let kinds: std::collections::BTreeSet<u8> =
+                w.feed_log.take().unwrap_or_default().iter().map(|r| r.kind).collect();
+            let st = &w.creature_stats;
+            let state = (
+                w.organism(larva)
+                    .map(|s| (s.energy.to_bits(), s.brood.map(|b| b.stage as u8))),
+                w.organism(ant)
+                    .map(|s| (s.energy.to_bits(), s.crop.map(|c| (c.cells, c.digesting.to_bits())))),
+                [
+                    st.brood_ate_j,
+                    st.brood_crop_fed_j,
+                    st.brood_nursed_j,
+                    st.brood_upkeep_j,
+                ]
+                .map(f64::to_bits),
+                [(0, -1), (1, -1), (-1, -1)].map(|(dx, dy)| w.get(ex + dx, ey + dy)),
+            );
+            (state, kinds)
+        };
+        let ((off, off_kinds), (on, on_kinds)) = (run(false), run(true));
+        assert!(off_kinds.is_empty(), "the untraced run logged meals: {off_kinds:?}");
+        assert!(
+            [creature::FEED_ATE, creature::FEED_CROP, creature::FEED_BANK]
+                .iter()
+                .all(|k| on_kinds.contains(k)),
+            "the traced run logged only {on_kinds:?}: the scene did not feed the larva every way it is meant to"
+        );
+        assert_eq!(
+            off, on,
+            "turning the feed trace on changed the larva, its parent or the books"
+        );
     }
 
     /// **A nest worker that feeds a larva stays one longer** ([`creature::
