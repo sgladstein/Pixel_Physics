@@ -122,6 +122,16 @@ impl Trips {
             return;
         };
         self.home_latch |= home;
+        // **The first tick opens a bucket; it does not close one.** Closing
+        // on it made a bucket one tick long, so an ant pinned in the moment
+        // it stepped off home drew that tick as an away bar and its return a
+        // few frames later as a trip -- the bracket test below caught it on
+        // the lab box (an ant away at frame 1 and home at 42, counted as a
+        // trip) when the nest's soil and face switches went on, 2026-10-05.
+        if self.legs.is_empty() && self.next_at == 0 {
+            self.next_at = world.frame + TRIP_EVERY;
+            return;
+        }
         if world.frame < self.next_at {
             return;
         }
