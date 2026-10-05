@@ -5,7 +5,7 @@ every tick, how each mechanism is implemented, and what it reads.** It is
 written from the source and describes the code as it is now, not as it was or
 will be.
 
-- **Verified against:** `main` at `bb65d507`, 2026-09-22; §15's pull bullet and its guard 2026-10-05 against `home_pull_why`, `home_pull`, `hungry_out_pull`, `rest_pull` and `chooser_step`; §5 step 6's doorway sentence and §12's `DOOR_LOOSE` row 2026-10-04 against `door_loose_of`, `in_a_passage` and `pack_neighbours_with`; §6d's way-out paragraph and §12's `HUNGRY_OUT` row 2026-10-04 against `hungry_out_of`, `hungry_out_pull`, `step_nest_rest` and `chooser_step`; §6d's way-gaps paragraph, §5 step 5's soil-way sentence and §12's `WAY_GAPS` and `SOIL_WAY` rows 2026-10-05 against `WayGaps`, `way_cell`, `build_nest_way`, `SoilWay`, `soil_way_pull`, `way_out_from` and `act`'s keep; §5 step 5's face-trip sentence, §15's dig verdicts and §12's `FACE_TRIP` row 2026-10-05 against `FaceTrip`, `face_for_cut`, `face_trip_refuses`, `dig_trip_over`, `dig_return_target` and `act`'s dig; §6d's crop-down paragraph and §12's `CROP_DOWN` row 2026-10-05 against `CropDown`, `crop_down_holds`, `crop_down_unpulled`, `carriers_seek_larvae`, `home_pull` and `act`'s drop; §6d step 5's search sentence and §12's `HOME_SEARCH` row 2026-10-04 against `home_search_of`, `home_search_reach` and `chooser_step`; §2's support and foothold bullets and §12's `WATER_FOOTING` row 2026-10-04 against `water_footing_of`, `stands_on_water`, `head_has_foothold`, `fall_if_unsupported` and `commit_step`; §5 step 6, the walked cycle's lean carrier, §6d's lean exception to the throttle and §12's `LEAN_FORAGE` row 2026-10-03 against `LeanForage`, `lean_drop_site` and `outward_want`; §9's spread and nurse sentences, §6d's nurse paragraph and §12's `BROOD_SPREAD` and `NURSE_SEEK` rows 2026-10-04 against `brood::spread`, `brood::larva_scent`, `brood::nurse` and `chooser_step`; §9's crop sentence, §6d's carrier paragraph and §12's `CROP_NURSE` row 2026-10-04 against `brood::crop_feed`, `creature::crop_to_feed`, `yield_of` and `chooser_step`; §9's egg-rule sentence and §12's `EGG_DOOR` and `BROOD_CARRY` rows 2026-10-03 against `brood::EggBar`, `pile_site` and `carry`; §5 step 3's defended-plant sentence 2026-10-03 against `deterred_by_defence` and `food_value`; §2's support
+- **Verified against:** `main` at `bb65d507`, 2026-09-22; §6d's nurse-stay paragraph, §9's nurse-stay sentence and §12's `NURSE_STAY` row 2026-10-05 against `NurseStay`, `relay_crop`, `is_crop_nurse`, `nurse_in_target`, `nurse_unpulled`, `nurse_stays`, `home_pull`, `chooser_step` and `act`'s drop; §15's pull bullet and its guard 2026-10-05 against `home_pull_why`, `home_pull`, `hungry_out_pull`, `rest_pull` and `chooser_step`; §5 step 6's doorway sentence and §12's `DOOR_LOOSE` row 2026-10-04 against `door_loose_of`, `in_a_passage` and `pack_neighbours_with`; §6d's way-out paragraph and §12's `HUNGRY_OUT` row 2026-10-04 against `hungry_out_of`, `hungry_out_pull`, `step_nest_rest` and `chooser_step`; §6d's way-gaps paragraph, §5 step 5's soil-way sentence and §12's `WAY_GAPS` and `SOIL_WAY` rows 2026-10-05 against `WayGaps`, `way_cell`, `build_nest_way`, `SoilWay`, `soil_way_pull`, `way_out_from` and `act`'s keep; §5 step 5's face-trip sentence, §15's dig verdicts and §12's `FACE_TRIP` row 2026-10-05 against `FaceTrip`, `face_for_cut`, `face_trip_refuses`, `dig_trip_over`, `dig_return_target` and `act`'s dig; §6d's crop-down paragraph and §12's `CROP_DOWN` row 2026-10-05 against `CropDown`, `crop_down_holds`, `crop_down_unpulled`, `carriers_seek_larvae`, `home_pull` and `act`'s drop; §6d step 5's search sentence and §12's `HOME_SEARCH` row 2026-10-04 against `home_search_of`, `home_search_reach` and `chooser_step`; §2's support and foothold bullets and §12's `WATER_FOOTING` row 2026-10-04 against `water_footing_of`, `stands_on_water`, `head_has_foothold`, `fall_if_unsupported` and `commit_step`; §5 step 6, the walked cycle's lean carrier, §6d's lean exception to the throttle and §12's `LEAN_FORAGE` row 2026-10-03 against `LeanForage`, `lean_drop_site` and `outward_want`; §9's spread and nurse sentences, §6d's nurse paragraph and §12's `BROOD_SPREAD` and `NURSE_SEEK` rows 2026-10-04 against `brood::spread`, `brood::larva_scent`, `brood::nurse` and `chooser_step`; §9's crop sentence, §6d's carrier paragraph and §12's `CROP_NURSE` row 2026-10-04 against `brood::crop_feed`, `creature::crop_to_feed`, `yield_of` and `chooser_step`; §9's egg-rule sentence and §12's `EGG_DOOR` and `BROOD_CARRY` rows 2026-10-03 against `brood::EggBar`, `pile_site` and `carry`; §5 step 3's defended-plant sentence 2026-10-03 against `deterred_by_defence` and `food_value`; §2's support
   bullet and §12's `KIN_FOOTING` row 2026-10-02 against `fall_if_unsupported`,
   `touches_ground` and `held_by_kin`; §5 step 2's top-up,
   §6d's throttle paragraph and §12's two rows 2026-10-02 against
@@ -980,6 +980,38 @@ lower on 5 of 6 under `on` and under `all`, colony 0-17% smaller under `on`
 and 13-37% under `all`; traced under `all`, no crumbs are left at the door
 for newborns and carriers make fewer trips.
 
+**Under `PIXEL_PHYSICS_NURSE_STAY` (`on` by default since 2026-10-05)
+foragers hand their crops to nurses, who take them to the brood**
+(`creature::NurseStay`). A nurse is a nest-bound ant holding crop food it
+can give (`is_crop_nurse`). `relay`: a forager at its nest that is not
+nest-bound and holds crop food (`crop_to_feed`) hands its whole crop, before
+its drop roll, to a touching kin nest worker with an empty crop; it is
+booked as a trip home (`forage_returns`) but not as a delivery, so
+`deliveries` and `trip_deliveries` miss food handed on (`relay_crop`).
+`down`: it may hand it instead to any touching kin with an empty crop below
+the founding ground and below its own head, the deepest first, and a nurse
+still above the founding ground does the same; the receiver becomes a nest
+worker for 2000 frames (`NURSE_STAY_FRAMES`). `nurse`: a nurse never puts
+its crop down at home (`nurse_holds`); below the founding ground it has no
+pull home and walks up the larva scent fed or hungry, eating out of its own
+crop; above it, it is pulled to 3 rows under its nest's door
+(`NURSE_IN_DEPTH`, `nurse_in_target`) and keeps its patience on the way, as
+a leashed ant does. `stay`: a nest worker that feeds a larva, from its crop
+or its bank, stays one 2000 frames longer (`nurse_stays`). Counted in
+`CreatureStats::nurse_handoffs`, `nurse_passed_down`, `nurse_converted` and
+`nurse_holds`; `larva_ticks_fed_away`, `brood_fed_away_j`, `pupae_away` and
+`larvae_starved_away` count larvae more than 3 columns off the door
+(`brood::DOOR_LANE`). Without `down`, nurses holding food stood on the spoil
+mound behind the idle ants in the doorway, 0.3-2 of 5-28 underground.
+Measured 2026-10-05 (dry goal box, evolved founder, seeds 1-4, 100k-300k):
+larvae starved per egg laid 19-21% -> 11-15%, and 30-35% -> 13-25% with the
+brood spread; larvae ate 1.0-1.4 MJ from crops against almost none; the
+colony is 6-33% smaller from 40k to 150k and the same size from 200k; food
+taken from the heap is 12-30% lower; grown foragers starving above ground
+rise from 27-38 to 66-342 a run, starving underground falls. The brood
+column under the door comes back by 200k-300k: nurses feed it, nothing
+moves it.
+
 The decision trace records the patience each choice scored with, the home
 cosine of the heading picked (for an empty ant too, under `trailaway`), and
 under stage 2 its trail presence (`patience`, `chosen_cos`, `chosen_route`).
@@ -1268,7 +1300,10 @@ either plane: the other trail inputs are computed and wired to nothing (§3).
   gives the shortfall out of the cell it is on and no further, the larva
   keeping what its own gut would (`creature::yield_of`: digestion's quality
   and overhead), booked as a harvest of that food; the crop gives up face
-  value as its own chewing would. Pupa for `pupa_frames` (250), then
+  value as its own chewing would. Under `PIXEL_PHYSICS_NURSE_STAY` (on) foragers hand
+  their crops to nest workers at the door and down the nest, and those
+  nurses carry them to hungry larvae (§6d); a nest worker that feeds a
+  larva, from its crop or its bank, stays one 2000 frames longer. Pupa for `pupa_frames` (250), then
   it hatches. A hatchling is laid on the pupa's cell or the nearest open
   cell out to 3 rings, then the same rings again standing on a nestmate
   when `bud_stack_of` allows (`place_hatchling`, `Origin::Hatch`); a pupa
@@ -1394,6 +1429,7 @@ Read once per process from the environment. The default is what ships.
 | `PIXEL_PHYSICS_WAY_GAPS` | off | the nest's way in (`NestWay`) closes its two gaps (§6d, `WayGaps`): `below` counts every cell under the founding ground as inside, `brood` counts brood and crumbs the walk parts as open; `on` is both, a comma list takes what it names; `World::way_gaps` for one world. Built 2026-10-05: starvers in the nest fall to nearly none and the colony is about a fifth smaller |
 | `PIXEL_PHYSICS_FACE_TRIP` | off | a digger keeps its face through the trip out and back (§5 step 5, `FaceTrip`): `below`, `door`, `food`, `only`, `stay`, comma-joined, `on` for all five; `World::face_trip` for one world. Built 2026-10-05: next cut at the face after a nest cut 0-4% -> 35-59% with `SOIL_WAY` and `WAY_GAPS` on (seeds 1-4, new ground dug +18-33%, colony no smaller), 13-15% -> 30-43% on today's nest, where starved deaths rise on 5 of 6 runs; with `WAY_GAPS` alone 18-27% -> 57-61%, starved 0-5, colony about today's size |
 | `PIXEL_PHYSICS_CROP_DOWN` | off | a fed carrier brings crop food down to the brood (§6d, `CropDown`): `hold` keeps its last crop cell (`keepN`: N cells, `keep0` every cell) until more than 5 rows under the founding ground, `scent` takes its pull home away below the founding ground so it walks up the larva scent; `on` is `hold,scent`, `all` is both keeping every cell; `World::crop_down` for one world, `CreatureStats::crop_down_holds`. Built 2026-10-05: larvae starved per egg laid 16.8/12.3/16.0/16.0/13.0/15.8% -> 9.4/8.8/15.0/11.1/15.2/13.0% (`on`, seeds 1-6), larva food from crops 0-4.5k -> 25-81k J; colony 0-17% smaller on 5 of 6 (`all`: 13-37%) |
+| `PIXEL_PHYSICS_NURSE_STAY` | `on` (`relay,nurse,down,stay`) | foragers hand their crops to nurses, who take them to the brood (§6d, `NurseStay`): `relay`, a forager at its nest hands its whole crop to a touching nest worker with an empty crop; `down`, to the deepest touching ant below the founding ground and its own head, which becomes a nest worker for 2000 frames; `nurse`, a nest worker with crop food keeps it, has no pull home underground and walks the larva scent, and is pulled to 3 rows under the door from above; `stay` (`stayN`), a nest worker that feeds a larva stays one 2000 (N) frames longer; `off` is the ant before 2026-10-05; `World::nurse_stay` for one world. Built 2026-10-05: larvae starved per egg laid 20.2/20.5/21.0/19.1% -> 10.7/14.8/11.1/13.5% (seeds 1-4), larva food from crops ~0 -> 1.0-1.4 MJ; colony 6-33% smaller 40k-150k, the same 200k-300k; grown foragers starving above ground 27-38 -> 66-342 a run |
 | `PIXEL_PHYSICS_SOIL_WAY` | off | soil cut in the nest leaves by its way out (§5 step 5, `SoilWay`): `way` pulls a pellet carrier inside along the nest's way in and never lets the pellet go below the founding ground, `lean` keeps a lean carrier's pellet until it is out; `on` is both; `World::soil_way` for one world. Built 2026-10-05: put back in the nest 67-75% -> 0%; on today's way in its starvers rise, with `WAY_GAPS` it costs nothing measured |
 | `PIXEL_PHYSICS_NEST_REST` | off | `workers`, `on` or `all` (`NestRest`: nest workers; nest workers and ants that have foraged; every ant): such an ant with nothing to do and more fed than hungry, not sent out by the forage drive, is pulled to its door and then along the passages away from it (§6d, `rest_pull`, `NestWay`, counted in `rest_pulls`); `World::nest_rest` for one world |
 | `PIXEL_PHYSICS_SPOIL_RING` | `2,2`, **acting only under the walked cycle** (`SPOIL_OUT`, on by default since 2026-09-30; with it `off` the lift is untouched) | `<shape>,<scale>` or `off`; `spoil_ring_of` gates it on the walked cycle, and a world's own `World::spoil_ring` overrides both: when a carrier comes out by the door with its pellet (on or above the door's row, nothing overhead: `carry_stage`) it draws a column on its own side, the door's half-width plus one plus a Gamma(shape, scale) draw from the nest's centre (`spoil_ring_column`, `OrganismState::spoil_ring`, its own stream), is pulled to the top of the ground in that column (`ring_target`, climbing any mound; `spoil_haul_target`), and its drop roll is held until its head is that far out (`spoil_ring_holds`; `spoil_ring_drawn`, `spoil_ring_held`). The column is kept under a mound's overhang and let go only back in a tunnel (more than two rows under the door's row with ground overhead, or in the founding cut: `spoil_ring_let_go`); before it has come out, under `keep`, the pellet is held wherever the carrier stands; `World::spoil_ring` for one world |

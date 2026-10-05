@@ -2765,6 +2765,30 @@ pub struct CreatureStats {
     /// `PIXEL_PHYSICS_CROP_NURSE`).
     pub larva_ticks_crop_fed: u64,
     pub brood_crop_fed_j: f64,
+    /// **Nurses that stay** (`creature::NurseStay`,
+    /// `PIXEL_PHYSICS_NURSE_STAY`): crops a forager home from a trip handed
+    /// to a nest worker touching it, and drop rolls a nurse skipped to keep
+    /// its crop for the brood.
+    pub nurse_handoffs: u64,
+    pub nurse_holds: u64,
+    /// Of `nurse_handoffs`: those a nurse above the founding ground passed
+    /// down, and those whose receiver was not a nest worker until then.
+    pub nurse_passed_down: u64,
+    pub nurse_converted: u64,
+    /// **Larvae away from the door's lane** (more than
+    /// `brood::DOOR_LANE` columns off the founding door), whatever the
+    /// switches: larva ticks that ended hungry, the ones of those a nestmate
+    /// fed (from its crop or its bank), and the energy that put in. Over the
+    /// whole nest's `larva_ticks_hungry` and `brood_nursed_j +
+    /// brood_crop_fed_j`, it says whether food reaches brood off the lane.
+    pub larva_ticks_hungry_away: u64,
+    pub larva_ticks_fed_away: u64,
+    pub brood_fed_away_j: f64,
+    /// Away from the door's lane too: joules larvae ate from food lying
+    /// beside them, and larvae that finished there, as pupae or starved.
+    pub brood_ate_away_j: f64,
+    pub pupae_away: u64,
+    pub larvae_starved_away: u64,
     /// Brood a touching nestmate carried out of a crowded pile to a quieter
     /// spot (`brood::spread`, `PIXEL_PHYSICS_BROOD_SPREAD`).
     pub brood_spread: u64,
@@ -4077,6 +4101,10 @@ pub struct World {
     /// `None` follows the environment; a field so a guard can take both arms
     /// in one process.
     pub crop_down: Option<crate::sim::creature::CropDown>,
+    /// **`PIXEL_PHYSICS_NURSE_STAY` for this world**
+    /// (`creature::nurse_stay_of`). `None` follows the environment; a field so
+    /// a guard can take both arms in one process.
+    pub nurse_stay: Option<crate::sim::creature::NurseStay>,
     /// **Each nest's way in**, as steps from its door through the cells
     /// inside it an ant can stand in (`creature::NestWay`), rebuilt every
     /// `creature::REST_REFRESH` frames by `creature::step_nest_rest` while
@@ -6667,6 +6695,7 @@ impl World {
             soil_way: None,
             face_trip: None,
             crop_down: None,
+            nurse_stay: None,
             nest_ways: Vec::new(),
             bud_store: None,
             births_paused: false,

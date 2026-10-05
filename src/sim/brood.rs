@@ -888,6 +888,9 @@ pub fn brood_tick(world: &mut World, site: &ActiveSite) -> Vec<ActiveSite> {
                 if holder.is_some() {
                     return at(world.creature_due(LARVA_TICK));
                 }
+                if away_from_door(world, x) {
+                    world.creature_stats.larvae_starved_away += 1;
+                }
                 larva_starves(world, organism, (x, y), bank, colony);
                 return Vec::new();
             }
@@ -902,6 +905,9 @@ pub fn brood_tick(world: &mut World, site: &ActiveSite) -> Vec<ActiveSite> {
                     creature::eat_toward_birth(world, organism, colony, cells, b.target - bank);
                     let after = world.organism(organism).map_or(bank, |s| s.energy);
                     world.creature_stats.brood_ate_j += (after - bank) as f64;
+                    if away_from_door(world, x) {
+                        world.creature_stats.brood_ate_away_j += (after - bank) as f64;
+                    }
                 }
             }
             if nurse_env() {
@@ -910,6 +916,9 @@ pub fn brood_tick(world: &mut World, site: &ActiveSite) -> Vec<ActiveSite> {
             if world.organism(organism).is_some_and(|s| s.energy >= b.target) {
                 set_stage(world, organism, (x, y), material, BroodStage::Pupa, frame, holder);
                 world.creature_stats.pupae += 1;
+                if away_from_door(world, x) {
+                    world.creature_stats.pupae_away += 1;
+                }
                 return at(world.creature_due(block.pupa_frames));
             }
             at(world.creature_due(LARVA_TICK))
@@ -964,11 +973,19 @@ fn nurse(world: &mut World, larva: OrganismId, (x, y): (i32, i32), colony: u32, 
         return;
     }
     world.creature_stats.larva_ticks_hungry += 1;
+    let away = away_from_door(world, x);
+    if away {
+        world.creature_stats.larva_ticks_hungry_away += 1;
+    }
     // **Crop first** ([`crop_feed`]): food a carrier brought home costs no
     // nestmate's bank, so it goes in before anyone's savings do.
+    let mut fed = 0.0;
     if crop_nurse_of(world) != CropNurse::Off {
-        need -= crop_feed(world, larva, (x, y), colony, def, gut, need);
+        let gain = crop_feed(world, larva, (x, y), colony, def, gut, need);
+        need -= gain;
+        fed += gain;
         if need <= 0.0 {
+            note_fed_away(world, away, fed);
             return;
         }
     }
@@ -990,12 +1007,18 @@ fn nurse(world: &mut World, larva: OrganismId, (x, y): (i32, i32), colony: u32, 
             best = Some((id, st.energy));
         }
     }
-    let Some((donor, mine)) = best else { return };
+    let Some((donor, mine)) = best else {
+        note_fed_away(world, away, fed);
+        return;
+    };
     world.creature_stats.larva_ticks_nursed += 1;
     let amount = (creature::SHARE_FRACTION * (mine - start_energy)).min(need);
     if amount <= 0.0 {
+        note_fed_away(world, away, fed);
         return;
     }
+    note_fed_away(world, away, fed + amount);
+    creature::nurse_stays(world, donor);
     if let Some(s) = world.organism_mut(donor) {
         s.energy -= amount;
     }
@@ -1006,6 +1029,24 @@ fn nurse(world: &mut World, larva: OrganismId, (x, y): (i32, i32), colony: u32, 
     let donor_colony = world.colony_of(donor);
     world.book(donor_colony, Account::SharedOut, amount as f64);
     world.book(colony, Account::SharedIn, amount as f64);
+}
+
+/// **How far off the founding door a larva has to lie to be away from the
+/// door's lane**, in columns: the lane the fed ants stand in (94-98% of
+/// them, 2026-10-05).
+pub const DOOR_LANE: i32 = 3;
+
+/// Whether column `x` is more than [`DOOR_LANE`] off the founding door.
+fn away_from_door(world: &World, x: i32) -> bool {
+    world.nest_sites.first().is_some_and(|s| (x - s.x).abs() > DOOR_LANE)
+}
+
+/// Count a hungry larva tick away from the door's lane that a nestmate fed.
+fn note_fed_away(world: &mut World, away: bool, fed: f32) {
+    if away && fed > 0.0 {
+        world.creature_stats.larva_ticks_fed_away += 1;
+        world.creature_stats.brood_fed_away_j += f64::from(fed);
+    }
 }
 
 /// **Fed from a carrier's crop** (`PIXEL_PHYSICS_CROP_NURSE`, [`nurse`]):
@@ -1060,6 +1101,7 @@ fn crop_feed(world: &mut World, larva: OrganismId, (x, y): (i32, i32), colony: u
         s.crop = (left > 0).then_some(super::organism::Crop { cells: left, digesting: if finished { 0.0 } else { c.digesting + face }, ..c });
     }
     let gain = face * keep;
+    creature::nurse_stays(world, donor);
     if let Some(s) = world.organism_mut(larva) {
         s.energy += gain;
     }
@@ -1866,6 +1908,81 @@ mod tests {
             let keep = (quality * (1.0 - overhead)) as f64;
             assert!(keep < 1.0 && (w.creature_stats.brood_crop_fed_j - given as f64 * keep).abs() < 1e-2, "the larva was credited {} for {given} face, not the gut's {keep} of it", w.creature_stats.brood_crop_fed_j);
             assert_eq!(held.map(|c| c.cells), Some(if unit < 1_000.0 { 1 } else { 2 }), "unit {unit}: the wrong number of cells left the crop");
+        }
+    }
+
+    /// **A nest worker that feeds a larva stays one longer** ([`creature::
+    /// NurseStay`]'s `stay`, through [`creature::nurse_stays`]), whether it
+    /// fed from its crop ([`crop_feed`]) or its bank ([`nurse`]): its
+    /// `nest_bound_until` moves out to the feeding frame plus the stay. With
+    /// the stay at 0 it is left alone (the control), and a forager that feeds
+    /// is not made a nest worker by it. Each arm checks the larva was fed, and
+    /// fed one way only, so a feeding that never happened cannot pass for a
+    /// stay withheld. Watched red with either call left out.
+    #[test]
+    fn under_nurse_stay_a_nest_worker_that_feeds_a_larva_stays_one_longer() {
+        const STAY: u64 = 700;
+        for (from_crop, stay, bound) in [
+            (true, STAY, true),
+            (false, STAY, true),
+            (true, 0, true),
+            (false, 0, true),
+            (true, STAY, false),
+            (false, STAY, false),
+        ] {
+            let (mut w, ant, def) = bed(true);
+            w.crop_nurse = Some(CropNurse::Touch);
+            w.nurse_stay = Some(creature::NurseStay {
+                stay,
+                ..creature::NurseStay::OFF
+            });
+            let block = def.brood.clone().expect("brood");
+            let site = creature::try_bud(&mut w, ant, &def, 0.0, 0.0).expect("lays");
+            let larva = the_egg(&w);
+            w.frame = block.egg_frames;
+            let sites = brood_tick(&mut w, &site);
+            if from_crop {
+                let fruit = w.materials.id_of("fruit").expect("fruit");
+                // A 9,600 J cell meets the larva's whole need, so the bank is
+                // never reached and the crop's own call is what is tested.
+                w.organism_mut(ant).expect("live").crop = Some(crate::sim::organism::Crop {
+                    material: fruit,
+                    cells: 2,
+                    digesting: 0.0,
+                    unit: 9_600.0,
+                    shade: 0,
+                    passenger: None,
+                });
+            }
+            w.frame += LARVA_TICK;
+            let until0 = if bound { w.frame + 10 } else { 0 };
+            w.organism_mut(ant).expect("live").nest_bound_until = until0;
+            let larva0 = w.organism(larva).expect("larva").energy;
+            let (crop0, bank0) = (w.creature_stats.brood_crop_fed_j, w.creature_stats.brood_nursed_j);
+            brood_tick(&mut w, &sites[0]);
+            let (by_crop, by_bank) = (
+                w.creature_stats.brood_crop_fed_j - crop0,
+                w.creature_stats.brood_nursed_j - bank0,
+            );
+            let (fed, other) = if from_crop {
+                (by_crop, by_bank)
+            } else {
+                (by_bank, by_crop)
+            };
+            assert_eq!(
+                other, 0.0,
+                "test setup: crop {from_crop}: the larva was fed the other way too, so this arm tests both calls"
+            );
+            assert!(
+                fed > 0.0 && w.organism(larva).expect("larva").energy > larva0,
+                "test setup: crop {from_crop} stay {stay} bound {bound}: the ant did not feed the larva"
+            );
+            let want = if bound && stay > 0 { w.frame + stay } else { until0 };
+            assert_eq!(
+                w.organism(ant).expect("live").nest_bound_until,
+                want,
+                "crop {from_crop} stay {stay} bound {bound}: the feeder's stay at home is wrong"
+            );
         }
     }
 
