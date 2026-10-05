@@ -53,7 +53,14 @@ digger's walk back to it (`dig_return`, recorded as `ret_x`, `ret_y` since
 engine clears the walk: food in the crop or energy under half its start
 (which leave no target) before arrival within two cells, then patience under
 0.1; a new cut overwrites the face. Then how often the same ant's next cut is
-at the face.
+at the face. Then the same walks split by where the soil was set down --
+inside the nest, or carried out over the old ground line -- because a digger
+that carries its soil out almost never gets back: how each walk ended (a cut
+on the way split by whether the cut cell was in the nest, from cuts.csv) and
+where the digger's next five cuts were; for soil carried out, how close the
+walk back came to the door cell and whether it got into the nest. Last, of
+the diggers that got back, how many arrived touching no ground (`ground8` 0),
+and how often the next cut was at the face, workers and others apart.
 
 Written 2026-10-05 for the digging deep dive; the numbers it produced are in
 /mnt/project-files/deep-trace/digging-trace-2026-10-05.md, and those from
@@ -371,13 +378,18 @@ def journeys(out):
 def face(out):
     nx, gy = geo(out)
     cheb = lambda a, b: max(abs(a[0] - b[0]), abs(a[1] - b[1]))
-    walks, open_, waiting, last_row = [], {}, {}, {}
+    walks, open_, waiting, last_row, cut_zones = [], {}, {}, {}, {}
+    # Where each cut was, by the cut cell rather than the head (cuts.csv is
+    # written beside digrows.csv.gz by every `dig=1` run).
+    with open(f"{out}/cuts.csv") as fh:
+        cut_zone_at = {(int(r["frame"]), int(r["id"])): r["zone"] for r in csv.DictReader(fh)}
     with gzip.open(f"{out}/digrows.csv.gz", "rt") as fh:
         col = {k: n for n, k in enumerate(next(fh).rstrip("\n").split(","))}
         if "ret_x" not in col:
             sys.exit(f"{out}: digrows.csv.gz has no ret_x column (recorded before 2026-10-05)")
         F, I, HX, HY, HX2, HY2 = (col[k] for k in ("frame", "id", "hx", "hy", "hx_after", "hy_after"))
         HOLD, E, DIG, DX, DY, RX, RY, PAT = (col[k] for k in ("hold", "energy", "dig", "dig_x", "dig_y", "ret_x", "ret_y", "patience"))
+        ZONE, G8, WK = col["zone"], col["ground8"], col["worker"]
         for line in fh:
             a = line.rstrip("\n").split(",")
             f, i = int(a[F]), int(a[I])
@@ -387,13 +399,15 @@ def face(out):
             w = open_.get(i)
 
             def close(why):
-                w.update(end=why, end_f=f)
+                w.update(end=why, end_f=f, touching=a[G8] != "0", worker=a[WK] == "1")
                 del open_[i]
                 waiting[i] = w
 
             if w is not None and w["phase"] == "walk":
                 if ret == w["cut"]:
                     w["prev"] = (head, head2, pat)
+                    w["door"] = min(w["door"], cheb(head, (nx, gy)))
+                    w["entered"] |= a[ZONE] == "nest"
                 elif ret is None:
                     ph, ph2, ppat = w["prev"]
                     # The engine clears the walk for a missing target (food, hunger)
@@ -412,7 +426,7 @@ def face(out):
                 if hold != "2":
                     w["drop_at"] = head
                     if ret == w["cut"]:
-                        w.update(phase="walk", prev=(head, head2, pat))
+                        w.update(phase="walk", prev=(head, head2, pat), door=cheb(head, (nx, gy)), entered=a[ZONE] == "nest")
                     elif not w["ret_seen"] and w["cut"][1] <= gy:
                         close("cut in the open: no walk back")
                     elif ret is not None:
@@ -429,13 +443,16 @@ def face(out):
                     w["ret_seen"] = True
             if a[DIG] == "cut":
                 cut = (int(a[DX]), int(a[DY]))
+                zone = cut_zone_at.get((f, i), a[ZONE])
+                cut_zones.setdefault(i, []).append((f, zone))
                 w = open_.get(i)
                 if w is not None:
                     close("cut at its face on the way" if cheb(cut, w["cut"]) <= 2 else "cut somewhere else on the way")
+                    w["cut_zone"] = zone
                 p = waiting.pop(i, None)
                 if p is not None:
                     p["next_cut"] = cut
-                w = dict(cut_f=f, cut=cut, phase="carry", ret_seen=False)
+                w = dict(cut_f=f, cut=cut, phase="carry", ret_seen=False, id=i)
                 open_[i] = w
                 walks.append(w)
             last_row[i] = f
@@ -452,6 +469,39 @@ def face(out):
     print(f"  same ant's next cut within 2 cells of this one: {pct(sum(cheb(w['next_cut'], w['cut']) <= 2 for w in nc), len(nc))} of {len(nc)}")
     back = [w for w in nc if w["end"] in ("got back to its face", "set down at its face")]
     print(f"  ...after getting back to its face: {pct(sum(cheb(w['next_cut'], w['cut']) <= 2 for w in back), len(back))} of {len(back)}")
+    # Added 2026-10-05 (soil-journeys-2026-10-05.md, "Soil taken out loses its
+    # digger"): the same walks split by where the soil was set down, because a
+    # digger that carries its soil out almost never gets back, and that is the
+    # number a soil-out rule has to be judged on.
+    got = ("got back to its face", "set down at its face", "cut at its face on the way")
+    for where, here in (("set it down inside the nest", lambda w: w["drop_at"][1] > gy), ("carried it out", lambda w: w["drop_at"][1] <= gy)):
+        s = [w for w in nest if "drop_at" in w and here(w)]
+        m = len(s)
+        cut_in = sum(w["end"] == "cut somewhere else on the way" and w.get("cut_zone") == "nest" for w in s)
+        cut_out = sum(w["end"] == "cut somewhere else on the way" and w.get("cut_zone") != "nest" for w in s)
+        print(f"  {where}: {m}; got back {pct(sum(w['end'] in got for w in s), m)}; cut other soil in the nest {pct(cut_in, m)},"
+              f" outside it {pct(cut_out, m)}; too hungry {pct(ends_n(s, 'too hungry'), m)}; food {pct(ends_n(s, 'food in its crop'), m)};"
+              f" gave up {pct(ends_n(s, 'gave up (patience ran out)'), m)}")
+        nxt = Counter()
+        for w in s:
+            later = [z for f, z in cut_zones.get(w["id"], []) if f > w["cut_f"]][:5]
+            nxt.update("nest" if z == "nest" else "mound" if z == "mound_in" else "other" for z in later)
+        t = sum(nxt.values())
+        print(f"    next five cuts: in the nest {pct(nxt['nest'], t)}, in the mound {pct(nxt['mound'], t)}")
+        if where == "carried it out":
+            wk = [w for w in s if "door" in w]
+            print(f"    walking back: closest to the door cell median {q([w['door'] for w in wk], 0.5)};"
+                  f" within 3 of it {pct(sum(w['door'] <= 3 for w in wk), len(wk))}; got into the nest {pct(sum(w['entered'] for w in wk), len(wk))}")
+    arr = [w for w in back if "touching" in w]
+    tn = [w for w in arr if not w["touching"]]
+    print(f"  arriving at its face, touching no ground: {pct(len(tn), len(arr))} of {len(arr)}; next cut at the face:")
+    for lab, s in (("workers touching ground", [w for w in arr if w["worker"] and w["touching"]]), ("workers touching none", [w for w in arr if w["worker"] and not w["touching"]]),
+                   ("others touching ground", [w for w in arr if not w["worker"] and w["touching"]]), ("others touching none", [w for w in arr if not w["worker"] and not w["touching"]])):
+        print(f"    {lab}: {pct(sum(cheb(w['next_cut'], w['cut']) <= 2 for w in s), len(s))} of {len(s)}")
+
+
+def ends_n(ws, end):
+    return sum(w["end"] == end for w in ws)
 
 
 if __name__ == "__main__":
