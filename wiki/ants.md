@@ -1,6 +1,6 @@
 # Ants
 
-*Current as of: 2026-10-05, when **nest workers with nothing to do started going inside to rest** (see *One door, and a granary under it*), when **the young carrying food down to the larvae was built, and left switched off** (see *New ants, and why you will not see any yet*), when **lab colonies started out as the ant they evolve into** (same section) and when **soil started leaving the nest by its passages and diggers started going back to their own face** (see *One door, and a granary under it*); 2026-10-04, when **a hungry ant deep in the nest started finding its way out** (see *One door, and a granary under it*), when **ants in the lab started out half way to plant-eaters** (see *New ants, and why you will not see any yet*), when **ants started walking across puddles** (see *Coming home*) and when **a colony stopped sealing its own door with packed soil** (see *One door, and a granary under it*); 2026-10-03, when **a hungry ant started putting its digging down to go and eat.** A colony beside endless food used to grow to a few hundred and then starve at home all at once, the food untouched: its hungry foragers were still digging and carrying soil, and an ant holding soil cannot eat or fetch food. Now an ant under half its fill stops digging, sets its soil down where it stands, and goes out on its own hunger, and those colonies live. Also 2026-10-03, when **a colony started keeping its own door open** (see *One door, and a granary under it*), and when **the lab's other animals started ageing like the ant** (see *Ants get old and die of it*); 2026-10-02, when **the whole dug nest became home and
+*Current as of: 2026-10-06, when **nest workers stopped going inside to rest again**, a day after they started, because two colonies in four collapsed late under it (see *One door, and a granary under it*), when **the young carrying food down to the larvae was built, and left switched off** (see *New ants, and why you will not see any yet*), when **lab colonies started out as the ant they evolve into** (same section) and when **soil started leaving the nest by its passages and diggers started going back to their own face** (see *One door, and a granary under it*); 2026-10-04, when **a hungry ant deep in the nest started finding its way out** (see *One door, and a granary under it*), when **ants in the lab started out half way to plant-eaters** (see *New ants, and why you will not see any yet*), when **ants started walking across puddles** (see *Coming home*) and when **a colony stopped sealing its own door with packed soil** (see *One door, and a granary under it*); 2026-10-03, when **a hungry ant started putting its digging down to go and eat.** A colony beside endless food used to grow to a few hundred and then starve at home all at once, the food untouched: its hungry foragers were still digging and carrying soil, and an ant holding soil cannot eat or fetch food. Now an ant under half its fill stops digging, sets its soil down where it stands, and goes out on its own hunger, and those colonies live. Also 2026-10-03, when **a colony started keeping its own door open** (see *One door, and a granary under it*), and when **the lab's other animals started ageing like the ant** (see *Ants get old and die of it*); 2026-10-02, when **the whole dug nest became home and
 food started gathering in piles** (see *One door, and a granary under it*),
 when **new ants started as eggs, laid only at
 home** (see *New ants*), and when **an ant started holding on to a nestmate
@@ -925,16 +925,18 @@ dug part of the nest, the shaft and the rooms off it, eats and breeds there,
 and the colony never sends it out for food. The other three in four are
 foragers, and for them home is the door.
 
-**A nest worker with nothing to do goes in and rests.** It used to stand
-about on the mound of dug soil over the door with the foragers, because
-nothing told it to go anywhere else. Now a fed nest worker with no load and
-no digging to go back to walks in through the door and on down the passages
-until it reaches the end of one, and stays there until it is hungry or has
-work. A little more of its time is spent down in the nest, fewer nest
-workers starve, the nest gets dug a little more and the colony comes out a
-little larger. It does not fill the nest: most ants still live on and in the
-mound. In a small test colony that has to go ninety cells for its food it
-costs a few young and a few more starved ants, for a reason not yet found.
+**A nest worker with nothing to do stands about on the mound.** Nothing
+tells it to go anywhere else, so it waits over the door with the foragers.
+For one day it went in instead: a fed nest worker with no load and no digging
+to go back to walked in through the door and on down the passages to the end
+of one, and stayed there until it was hungry or had work. Over the first
+two hundred thousand frames that looked like a small gain everywhere: a
+little more time down in the nest, fewer nest workers starving, a little more
+digging and a slightly larger colony. Run longer, two colonies of four fell
+apart late in their lives, one with its shaft choked with soil and young and
+every ant shut outside, the other with food no longer coming home, while the
+same colonies without it carried on. So it is switched off again until the
+reason is found.
 
 **A hungry ant inside finds its way out.** Deep in a dug nest every step is
 beside home, so an ant that had run low used to have nothing telling it which

@@ -12188,8 +12188,10 @@ fn parse_spoil_hold(raw: &str) -> Option<i32> {
 
 /// **An ant with nothing to do goes inside and rests deep in the nest**:
 /// `PIXEL_PHYSICS_NEST_REST=workers|on|all|off` (built 2026-10-01; owner: the
-/// colony lives inside its nest). **`workers` since 2026-10-05**: unset reads
-/// as [`NestRest::SHIPPED`], and `off` is the ant before it.
+/// colony lives inside its nest). **Off again since 2026-10-06**, after a day
+/// shipped as `workers` (2026-10-05): unset reads as [`NestRest::SHIPPED`].
+/// Under `workers` two colonies of four collapse late in the run; see
+/// [`NestRest`], *Why it is off again*.
 ///
 /// **Why.** Real workers rest inside the nest, not on its entrance. Here
 /// every founder's home is the cell over the mouth (`World::door_anchor`),
@@ -12230,7 +12232,7 @@ pub fn nest_rest_of(world: &World) -> NestRest {
 /// and come back. Fed scouts are how a colony finds food at all, so the
 /// narrower forms keep them out.
 ///
-/// **Why `workers` ships** (lane 3, 2026-10-05; dry goal box, evolved
+/// **Why `workers` shipped** (lane 3, 2026-10-05; dry goal box, evolved
 /// founder, evolution off, `deeptrace ants=0 dig=1`, seeds 1-4 to 200k on
 /// main f4cc3972, means over 100-200k, off -> `workers`). The lab colony is
 /// larger on 4 of 4 (543/541/543/562 -> 551/613/586/607 ants), nest workers
@@ -12260,6 +12262,21 @@ pub fn nest_rest_of(world: &World) -> NestRest {
 /// 18/10%, into the mound 62/76%) and starved 111 against 34 on seed 1;
 /// inferred, not traced, that resting foragers settle at the passages' far
 /// ends, which are the faces.
+///
+/// **Why it is off again** (2026-10-06; the same goal box run on to 300k on
+/// main 33389072, off -> `workers`). The 200k runs above stopped before the
+/// colonies fail. Under `workers` two of four collapse after about 230k and
+/// none do under `off`: seed 1 ends with 553 -> 57 ants (starved over the run
+/// 41 -> 189), seed 4 with 586 -> 17 (24 -> 426). Seeds 2 and 3 hold, and are
+/// larger under `workers` (568 -> 593 and 568 -> 616; starved 86 -> 41 and
+/// 74 -> 63). The arms track each other to about 230k and then `workers`
+/// falls: on seed 1 the shaft fills with soil and brood and every ant ends
+/// up outside; on seed 4 food stops coming home (trip deliveries over
+/// 230-300k 1,930 -> 549) with the door open. `off` here is bit-identical to the ant before #637.
+/// How the rest pull leads there is not yet traced; a change that kills
+/// colonies outright stays built and off until the deaths are understood
+/// (owner's standing rule). **Run a default change to 300k**: collapses here
+/// start after 240k.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum NestRest {
     Off,
@@ -12274,8 +12291,9 @@ pub enum NestRest {
 }
 
 impl NestRest {
-    /// The form an unset `PIXEL_PHYSICS_NEST_REST` reads as.
-    pub const SHIPPED: NestRest = NestRest::Workers;
+    /// The form an unset `PIXEL_PHYSICS_NEST_REST` reads as: off again since
+    /// 2026-10-06 (`Workers` for a day; see [`NestRest`]).
+    pub const SHIPPED: NestRest = NestRest::Off;
 
     pub fn on(self) -> bool {
         self != NestRest::Off
@@ -19354,27 +19372,34 @@ pub fn home_search_of(world: &World) -> bool {
 /// Roces 2000, J Insect Physiol 46:1103, doi
 /// 10.1016/s0022-1910(99)00220-6, via PubMed).
 ///
-/// **Off, because one colony of four died** (both parts as first built,
-/// before [`fills_before_walking`] checked the load's material and the
-/// `Feed` urge: the two builds part at 14-19k, where the first had booked
-/// 5-18% more holds; the setup above on main b081040e, seeds 1-4, 300k
-/// frames). Food delivered from trips
-/// over 100-300k rose on seeds 1-3 (9,276/14,125/13,636 cells against
-/// 8,018/6,788/7,821) and those colonies held (mean ants 492/514/526
-/// against 547/551/529). Seed 4 grew to 724 ants at 200k, then 324
-/// starved in 251-256k. Traced so far: on seeds 1 and 4 (not 2 and 3),
-/// from 80k on, the ants holding a soil pellet in the spoil mound's tunnels
-/// ran at up to three times today's (seed 4, 200-240k: 213-288 against
-/// 75-102), milling a median 14 cells from the door the mound covers --
-/// `SpoilOut`'s `keep` holds a pellet under cover, and the haul's target is
-/// that door. At 245k trip carriers stopped reaching the door (trip
-/// deliveries 22-56 per 1,000 frames over 239-244k, 0-6 over 247-253k), the
-/// meals taken at the door fell from 786 to 14 per 1,000 frames over
-/// 250-252k, and 273 of the 328 dead starved in the mound's tunnels. A
-/// hungry ant holding a pellet can neither eat ([`haul_bite_blocks`]) nor
-/// be walked out (`HUNGRY_OUT` takes only an empty ant). `turn` alone
-/// killed the same seed in the same window. Why the switch raises the
-/// pellets held under the mound is not traced yet.
+/// **Off, because colonies still die late with it on** (this build, the setup
+/// above, seeds 1-4, 300k frames, against the same build with the switch
+/// unset; `deep-trace/home-search-2026-10-05.md` §13 in the project). On main
+/// db14d10fe's game (measured on 33389072 with `NEST_REST=off`, which is all
+/// db14d10fe changed), food delivered from trips over 100-300k rose on every
+/// seed (9,191/7,567/16,656/14,392 cells against 8,018/6,788/7,821/8,154),
+/// but seed 2 fell from 650 ants at 200k to 150 at 300k (431 starved over the
+/// run against 55; its door was shut on the 200k map and open on the four
+/// after it, a map every 25k), and the other three ended smaller (461/412/456
+/// ants against 553/568/586). With the rest pull on for its one day
+/// (`workers`), seed 4 died out by 245k and seed 3 fell from 435 ants to 160
+/// over 270-300k, while seed 1 held (478 at 300k, where the unset game fell
+/// to 57). As first built (main b081040e, before [`fills_before_walking`]
+/// checked the load's material and the `Feed` urge), seed 4 died at 251k.
+///
+/// **How seed 4 died under the rest pull, traced.** From 80k the ants
+/// holding a soil pellet in the spoil mound's tunnels ran above the unset
+/// game's; in both arms they rise with the size of the mound's inside, and
+/// the switch's colony reached each size about 30k frames sooner (inferred
+/// from maps and the colony census). `SpoilOut`'s `keep` holds a pellet
+/// under cover, the mound's tunnels read as under cover, and none of their
+/// cells has the headroom a drop needs, so a holder keeps its pellet until
+/// it is lean. At 176k the mound cut the door off from the open air, and
+/// kept it cut off on 22 of 25 maps to 200k. The plug was usually one cell
+/// of loose soil, but 381 of the 400 ants shut in held a pellet, which stops
+/// the dig as [`haul_bite_blocks`] stops the bite, and 8 of the 12 dig rolls
+/// aimed at the plug were refused by [`FaceTrip`]'s `only`. Trip deliveries
+/// stopped by 186k and 192 starved in 186-190k.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct CarryHome {
     pub fill: bool,
@@ -30693,8 +30718,8 @@ mod tests {
     /// `PIXEL_PHYSICS_NEST_REST`'s spellings.
     #[test]
     fn the_nest_rest_parses_its_spellings_and_refuses_the_rest() {
-        assert_eq!(parse_nest_rest(""), NestRest::Workers, "unset is the shipped form");
-        assert_eq!(NestRest::SHIPPED, NestRest::Workers);
+        assert_eq!(parse_nest_rest(""), NestRest::Off, "unset is the shipped form");
+        assert_eq!(NestRest::SHIPPED, NestRest::Off);
         assert_eq!(parse_nest_rest("off"), NestRest::Off);
         assert_eq!(parse_nest_rest(" workers "), NestRest::Workers);
         assert_eq!(parse_nest_rest("on"), NestRest::Foragers);
