@@ -21950,9 +21950,9 @@ fn update_hungry_home(world: &mut World, organism: OrganismId, def: &CreatureDef
 ///   first (measured: 42 of the 59 ants latched before frame 20,000 on the
 ///   goal box's seed 1 were founders). At the door it is re-anchored hungry,
 ///   so its next excursion is free. It lets go within
-///   [`HUNGRY_ARRIVED`] of the anchor (and so at any nest contact, which
-///   re-anchors on the head), once fed back to the grant, or once it
-///   carries anything. It is set only in the open, and **pulls only in the
+///   [`FORAGE_TRIP_MIN`] of the anchor (and so at any nest contact, which
+///   re-anchors on the head), which starts its next trip as a nest contact
+///   does, once fed back to the grant, or once it carries anything. It is set only in the open, and **pulls only in the
 ///   open** (`OrganismState::way_latched` holds; `way_home` is the pull):
 ///   under cover ([`under_cover`]: the mound's tunnels, the dug nest) a
 ///   straight pull pressed latched ants into the mound's pockets, and
@@ -22063,7 +22063,15 @@ fn update_way_home(world: &mut World, organism: OrganismId, def: &CreatureDef, h
     };
     let state = world.organism(organism).expect("read above");
     let mut billed = false;
-    let now = if !empty || !hungry || d < HUNGRY_ARRIVED {
+    // **Home is the trip's length round the anchor**, the same ring the
+    // latch is set outside of, not [`HUNGRY_ARRIVED`]'s two cells. Measured
+    // with two (heap at 90, seed 4, to 150k): latched ants that could not
+    // reach the anchor itself circled the door, pulled in from the open and
+    // held latched in the mound, and never went back out for food; 82 of the
+    // 90 that starved shut in the mound at 96-99k (sealed 96-101k) had been
+    // walking home since 80k, 72 of them hungry since 85k.
+    let home = d <= f32::from(FORAGE_TRIP_MIN);
+    let now = if !empty || !hungry || home {
         false
     } else if was {
         true
@@ -22090,6 +22098,12 @@ fn update_way_home(world: &mut World, organism: OrganismId, def: &CreatureDef, h
     if let Some(state) = world.organism_mut(organism) {
         state.way_latched = now;
         state.way_home = now && !covered;
+        // **Got home: its next trip starts here**, as a nest contact would
+        // start it: what it sets out with, and a fresh bill.
+        if was && !now && home {
+            state.way_e0 = state.energy;
+            state.way_bill_e0 = f32::NAN;
+        }
     }
 }
 
@@ -40350,7 +40364,7 @@ mod tests {
         assert!(off_turns == 0 && off_east >= 120, "with the switch off a hungry ant should scout east, and got to x {off_east}: the scene cannot show a difference");
         let (turns, home, west, _) = walk(WayHome::ON, true);
         assert!(turns >= 1, "an ant that left fed and turned hungry on dark ground never turned for home");
-        assert!(west <= 22, "it should walk home to x 20, and got only to x {west}");
+        assert!(west <= 28, "it should walk home to within a trip's length (8) of x 20, and got only to x {west}");
         assert!(home >= 1, "it was not let go at home");
         let (hungry_turns, _, _, hungry_east) = walk(WayHome::ON, false);
         assert_eq!(hungry_turns, 0, "an ant that left home hungry was turned for home");
@@ -40466,7 +40480,7 @@ mod tests {
         let (turns, west, east) = walk(WayHome::ON);
         assert!(turns >= 1, "the billed ant never turned for home");
         assert!(east >= 110, "it should scout east first, while it could afford to, and got only to x {east}");
-        assert!(west <= 22, "it should walk home to x 20, and got only to x {west}");
+        assert!(west <= 28, "it should walk home to within a trip's length (8) of x 20, and got only to x {west}");
     }
 
     /// **A fed, laden ant beside food and facing away from home still walks

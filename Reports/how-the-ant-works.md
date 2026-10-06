@@ -831,8 +831,9 @@ of the grant plus 1.5 times what it has spent since its first step in the open
 more than 8 cells out (`OrganismState::way_bill_e0`, reset at each nest
 contact): it may make its long trip while it can afford one. A founder, born at its grant and landed under it away from the door,
 is latched once and walked to the door, where contact re-anchors it hungry. It
-lets go within
-`HUNGRY_ARRIVED` (2) of the anchor (so at any nest contact), once fed back to
+lets go within `FORAGE_TRIP_MIN` (8) of the anchor (so at any nest contact),
+where its next trip starts as at a nest contact (`way_e0` and the bill reset),
+once fed back to
 the grant, or once it carries anything. It is set only in the open, and it
 pulls only in the open: under cover (`under_cover`: the mound's tunnels and the
 dug nest) the latch (`way_latched`) holds and the pull (`way_home`) is off, so
