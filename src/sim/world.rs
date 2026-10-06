@@ -2194,6 +2194,18 @@ pub struct CreatureStats {
     /// `creature::home_search_of`). The "it fired" half; the effect half is
     /// `trip_deliveries` and where the food trail is laid.
     pub home_searches: u64,
+    /// Decisions a trip's carrier stood beside far food to take another
+    /// mouthful instead of walking (`PIXEL_PHYSICS_CARRY_HOME`'s `fill`,
+    /// `creature::CarryHome`). The "it fired" half; the effect half is how
+    /// full carriers' crops are when they leave the food (`deeptrace
+    /// laden=1`).
+    pub carry_fills: u64,
+    /// Decisions in which a trip's carrier on a trail had its hold counted
+    /// from the weakest open heading's presence rather than from zero
+    /// (`PIXEL_PHYSICS_CARRY_HOME`'s `turn`): the floor was above 0, so the
+    /// even part of the scent held nothing. The "it fired" half; the effect
+    /// half is how many carries lose the pull home (`deeptrace laden=1`).
+    pub carry_turns: u64,
     /// **Carry distances drawn** under `PIXEL_PHYSICS_SPOIL_RING`
     /// (`creature::spoil_ring`): when its carrier comes out by the door with
     /// it (`creature::carry_stage`), and again for a carrier that went back
@@ -4109,6 +4121,11 @@ pub struct World {
     /// for this world** (`creature::home_search_of`). `None` follows the
     /// environment; a field so a guard can take both arms in one process.
     pub home_search: Option<bool>,
+    /// **A trip's carrier filling up and turning for home, overriding
+    /// `PIXEL_PHYSICS_CARRY_HOME` for this world** (`creature::carry_home_of`).
+    /// `None` follows the environment; a field so a guard can take both arms
+    /// in one process.
+    pub carry_home: Option<crate::sim::creature::CarryHome>,
     /// **The two gaps in the nest's way in, overriding
     /// `PIXEL_PHYSICS_WAY_GAPS` for this world** (`creature::way_gaps_of`).
     /// `None` follows the environment; a field so a guard can take both arms
@@ -6721,6 +6738,7 @@ impl World {
             nest_rest: None,
             hungry_out: None,
             home_search: None,
+            carry_home: None,
             way_gaps: None,
             soil_way: None,
             face_trip: None,

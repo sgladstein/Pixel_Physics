@@ -536,10 +536,13 @@ pub enum DecisionOutcome {
     RollFailedIdle = 8,
     /// `step_chain` found no live body to move. Should never appear.
     NoBody = 9,
+    /// A trip's carrier stood beside far food to take another mouthful
+    /// ([`CarryHome`]'s `fill`): the walk was not asked.
+    Filling = 10,
 }
-pub const DECISION_OUTCOMES: usize = 10;
+pub const DECISION_OUTCOMES: usize = 11;
 pub const DECISION_OUTCOME_NAMES: [&str; DECISION_OUTCOMES] =
-    ["stepped", "fell", "launched", "swapped", "crossing", "reversed", "blocked_tumbled", "roll_failed_tumbled", "roll_failed_idle", "no_body"];
+    ["stepped", "fell", "launched", "swapped", "crossing", "reversed", "blocked_tumbled", "roll_failed_tumbled", "roll_failed_idle", "no_body", "filling"];
 
 /// Why the homeward re-roll did or did not aim a tumble -- one value per
 /// call to `home_weighted_pick_why`, in the order its gates are tested.
@@ -19245,8 +19248,15 @@ pub const EXCURSION_CELLS: u16 = 6;
 /// seeds 1, 2 and 4), and on two of those three less food is put down
 /// underground (20-100k: 3,014/5,168 -> 1,652/3,049 cells; seed 4 4,523
 /// -> 4,613). Seed 3 died at 80-100k with the door shut, after deliveries
-/// stopped. Why bringing the lost carriers back to the mound costs the
-/// colony is not traced.
+/// stopped. **Why, traced since** (the deep trace lane, 2026-10-05, main
+/// 01320ff7's game, nurses off): the lost carriers it brings back are the
+/// ants that ate their fill at the heap, so carriers leave it with less --
+/// a median of 73-98 decisions there per carry against 98-107, and 34-45%
+/// filled their crop against 44-52% (seeds 1-4, carries started 150-250k)
+/// -- and the colony takes less food. Over 12 seeds of that game it was
+/// smaller on 9 (mean ants 100-300k, mean ratio 0.89) and fell below 300
+/// ants on 5, against none with it off. [`CarryHome`] has the same cost,
+/// and its `fill` is the counter to it.
 pub fn home_search_of(world: &World) -> bool {
     world.home_search.unwrap_or_else(|| {
         static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
@@ -19256,6 +19266,154 @@ pub fn home_search_of(world: &World) -> bool {
             Ok(other) => panic!("PIXEL_PHYSICS_HOME_SEARCH={other:?}: use on or off"),
         })
     })
+}
+
+/// **A trip's carrier fills its crop at the food, then turns for home on
+/// nest scent that lies even** (`PIXEL_PHYSICS_CARRY_HOME=on|off|fill|turn`,
+/// a comma list; [`World::carry_home`] for one world). Both parts act only
+/// while the crop holds a trip's load (`OrganismState::trip_load`), so a
+/// packed lunch, door food and a nurse's load walk as before.
+///
+/// - `fill`: a carrier with room for another cell does not step away from
+///   food beside it that lies beyond the trip reach of every door
+///   ([`fills_before_walking`]), so `act` takes the next mouthful before
+///   the walk takes it home. Food at a door never holds a carrier.
+/// - `turn`: on a trail, a carrier's hold on each heading counts how far
+///   that heading's presence stands above the weakest open heading's, not
+///   its level ([`carry_route_floor`]). A real route still holds it; the
+///   even fog over the mound holds nothing, so the pull home can turn it.
+///
+/// **Why** (the deep trace lane, 2026-10-05; dry goal box, the laying
+/// lane's evolved founder, evolution off, nurses off, main 01320ff7's game,
+/// seeds 1-4, 300k frames; `/mnt/project-files/deep-trace/
+/// home-search-2026-10-05.md`). 84-89% of carries lost the pull home at
+/// least once, and 51-67% of all food trail was laid while lost. In the
+/// last 22 steps before a carrier gave up, a step toward home was open on
+/// 83-86% of them and it stepped away on 60-66%. Nest scent lies at
+/// 0.98-0.99 on every heading over the mound, so the trail hold (1 +
+/// [`TRAIL_GAIN`] x presence) held every heading about four times over;
+/// going straight scored 3.9 against a pull home of at most 1, faded to
+/// 0.37 by then.
+///
+/// **Why the two go together: `turn` alone starves the colony.** Today's
+/// lost carriers are also the ants that eat their fill at the heap: held
+/// by the fog there too, a carrier stayed a median of 98-107 decisions at
+/// the heap per carry, 44-52% filled their crop, and 73% came back to the
+/// heap before the carry ended. With `turn` alone carriers came home (the
+/// pull lost on 15-22% of early carries against 45-58%), but they left the
+/// heap after 21-38 decisions, 47-53% of them holding one cell; the colony
+/// took 15-50% less food off the heap over 150-250k, its carriers set out
+/// at 223-990 J against 880-1,900, and the colony shrank (mean ants
+/// 100-300k 478/469/398/400 against 547/551/529/573). On seed 4 the hungry
+/// rose from 167 to 368, lean carriers digested their one cell before
+/// they got home, deliveries stopped for 4,000 frames, and 247 ants
+/// starved in 250-270k, 86% of their last hunger spent on the mound. The
+/// home search ([`home_search_of`]) has the same cost, milder.
+///
+/// **This is what a forager does.** Foragers fill their crops fuller, and
+/// feed for longer at the source, the hungrier their colony (Josens &
+/// Roces 2000, J Insect Physiol 46:1103, doi
+/// 10.1016/s0022-1910(99)00220-6, via PubMed).
+///
+/// **Off, because one colony of four died** (both parts as first built,
+/// before [`fills_before_walking`] checked the load's material and the
+/// `Feed` urge: the two builds part at 14-19k, where the first had booked
+/// 5-18% more holds; the setup above on main b081040e, seeds 1-4, 300k
+/// frames). Food delivered from trips
+/// over 100-300k rose on seeds 1-3 (9,276/14,125/13,636 cells against
+/// 8,018/6,788/7,821) and those colonies held (mean ants 492/514/526
+/// against 547/551/529). Seed 4 grew to 724 ants at 200k, then 324
+/// starved in 251-256k. Traced so far: on seeds 1 and 4 (not 2 and 3),
+/// from 80k on, the ants holding a soil pellet in the spoil mound's tunnels
+/// ran at up to three times today's (seed 4, 200-240k: 213-288 against
+/// 75-102), milling a median 14 cells from the door the mound covers --
+/// `SpoilOut`'s `keep` holds a pellet under cover, and the haul's target is
+/// that door. At 245k trip carriers stopped reaching the door (trip
+/// deliveries 22-56 per 1,000 frames over 239-244k, 0-6 over 247-253k), the
+/// meals taken at the door fell from 786 to 14 per 1,000 frames over
+/// 250-252k, and 273 of the 328 dead starved in the mound's tunnels. A
+/// hungry ant holding a pellet can neither eat ([`haul_bite_blocks`]) nor
+/// be walked out (`HUNGRY_OUT` takes only an empty ant). `turn` alone
+/// killed the same seed in the same window. Why the switch raises the
+/// pellets held under the mound is not traced yet.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CarryHome {
+    pub fill: bool,
+    pub turn: bool,
+}
+
+impl CarryHome {
+    pub const OFF: CarryHome = CarryHome { fill: false, turn: false };
+    pub const ON: CarryHome = CarryHome { fill: true, turn: true };
+
+    /// Parse a `PIXEL_PHYSICS_CARRY_HOME` value: `on`, `off`, or a comma
+    /// list of `fill` and `turn`. Anything else panics.
+    pub fn parse(raw: &str) -> CarryHome {
+        let mut ch = CarryHome::OFF;
+        for part in raw.split(',').map(str::trim).filter(|p| !p.is_empty()) {
+            match part {
+                "on" => ch = CarryHome::ON,
+                "off" => ch = CarryHome::OFF,
+                "fill" => ch.fill = true,
+                "turn" => ch.turn = true,
+                other => panic!("PIXEL_PHYSICS_CARRY_HOME={raw:?}: {other:?} is not on, off, fill or turn"),
+            }
+        }
+        ch
+    }
+}
+
+/// This world's [`CarryHome`]: `World::carry_home` if set, else the
+/// environment's, else [`CARRY_HOME_UNSET`].
+pub fn carry_home_of(world: &World) -> CarryHome {
+    world.carry_home.unwrap_or_else(|| {
+        static V: std::sync::OnceLock<CarryHome> = std::sync::OnceLock::new();
+        *V.get_or_init(|| std::env::var("PIXEL_PHYSICS_CARRY_HOME").map_or(CARRY_HOME_UNSET, |v| CarryHome::parse(&v)))
+    })
+}
+
+/// What `PIXEL_PHYSICS_CARRY_HOME` unset means.
+pub const CARRY_HOME_UNSET: CarryHome = CarryHome::OFF;
+
+/// **Whether a trip's carrier stands to take another mouthful**
+/// ([`CarryHome`]'s `fill`): its crop holds a trip's load with room for
+/// one more cell of it, and the food beside it that `act` would take lies
+/// beyond the trip reach of every door -- where a pickup books a trip
+/// ([`trip_source`]), so a carrier at its own door pile is never held.
+///
+/// **Only food `act` can take.** A hold replaces a step, so one beside food
+/// that `act` refuses is never let go: the same material as the load (a
+/// crop is single-material, see `Crop`), and a `Feed` urge above 0, since
+/// `act`'s roll is `draw < feed_urge`. Off a door the forage drive's keep
+/// does not scale that urge, so the brain's output is the one `act` rolls
+/// against. A pellet in the mandibles blocks the mouthful
+/// ([`haul_bite_blocks`]), so a carrier holding one is never held either.
+fn fills_before_walking(world: &World, organism: OrganismId, def: &CreatureDef, head: (i32, i32), feed_urge: f32) -> bool {
+    let Some(st) = world.organism(organism) else { return false };
+    if !st.trip_load || st.spoil.is_some() || feed_urge <= 0.0 {
+        return false;
+    }
+    let cap = organism_crop_capacity(world, organism, def);
+    let Some(load) = st.crop.filter(|c| c.worth() > 0.0 && c.worth() + c.unit <= cap) else { return false };
+    let reach = scaled_cells(world, trip_reach_of(world).unwrap_or(TRIP_REACH_SHIPPED));
+    let FoodScan { best, .. } = adjacent_food_counted(world, organism, head, gut_of(world, organism, def), def.start_energy);
+    best.is_some_and(|(_, fx, fy, m)| m == load.material && door_distance(world, fx, fy).is_none_or(|d| d > reach))
+}
+
+/// **The trail presence a trip's carrier's hold counts from**
+/// ([`CarryHome`]'s `turn`): the weakest presence over its open headings
+/// (and the crossing, if it has one), or 0 when it reads no trail, is not
+/// on a trip, or the switch is off.
+fn carry_route_floor(world: &World, organism: OrganismId, laden: bool, reads_trail: bool, headings: impl Iterator<Item = u8>, route: impl Fn(u8) -> f32) -> f32 {
+    if !(laden && reads_trail && carry_home_of(world).turn && world.organism(organism).is_some_and(|s| s.trip_load)) {
+        return 0.0;
+    }
+    let floor = headings.map(route).fold(f32::INFINITY, f32::min);
+    if floor.is_finite() {
+        floor
+    } else {
+        0.0
+    }
 }
 
 /// **How far a lost laden ant strays before its first search loop turns
@@ -21197,6 +21355,14 @@ fn chooser_step(
     if usable.is_empty() && crossing.is_none() {
         return step_chain(world, organism, heading, outputs, def, draw);
     }
+    // **A trip's carrier fills up before it walks** ([`CarryHome`]'s
+    // `fill`): beside far food with room in its crop it stands, and `act`
+    // takes the next mouthful on the next tick.
+    if carry_home_of(world).fill && fills_before_walking(world, organism, def, (hx, hy), outputs[brain::BrainOutput::Feed as usize]) {
+        world.creature_stats.carry_fills += 1;
+        note_outcome(world, DecisionOutcome::Filling);
+        return false;
+    }
 
     let hungry_mode = hungry_home_of(world);
     if hungry_mode != HungryHome::Off {
@@ -21492,7 +21658,12 @@ fn chooser_step(
     // the pile under `lay` and 12 of 30 when every give-up was spent, and on
     // the two-pile bed 41 founders starved by frame 6,000 against 19.
     let spent = scout_home && scout_dark && scout_w > 0.0 && food_trail_of(world).giveup;
-    let hold = |d: u8| if spent { 1.0 } else { 1.0 + trail_gain * route(d) };
+    // **A trip's carrier is held by a route's contrast, not its level**
+    // ([`CarryHome`]'s `turn`): nest scent lies even over the whole mound,
+    // and its level held every heading about four times over, so the pull
+    // home could not turn a carrier facing away.
+    let route_floor = carry_route_floor(world, organism, laden, reads_trail, usable.iter().copied().chain(crossing.map(|_| heading)), route);
+    let hold = |d: u8| if spent { 1.0 } else { 1.0 + trail_gain * (route(d) - route_floor).max(0.0) };
     // **Level, not radial**: the home cosine of the heading's sideways part
     // alone, so a heading straight up or down scores 0. Radial, an ant above
     // home level is drawn upward, and on the colony bed that drove scouts 91
@@ -21540,6 +21711,8 @@ fn chooser_step(
             world.creature_stats.door_followed += 1;
         }
     }
+    // Booked here, past the scores' last read of the trail.
+    world.creature_stats.carry_turns += u64::from(route_floor > 0.0);
     // The home cosine of the heading picked, for an empty ant under
     // `TrailAway` too (negative: outward).
     let picked_cos = home_cos(options[pick]).or_else(|| away_home_cos(options[pick])).unwrap_or(f32::NAN);
@@ -36410,6 +36583,197 @@ mod tests {
         assert!(on_searches >= 2, "{on_searches} searches on: the lost ant is not being turned back");
         assert!(on_returns >= off_returns + 2, "returns to the blind end: on {on_returns}, off {off_returns}");
         assert!(on_far >= 40, "searching, it got only {on_far} cells out: the loops do not widen, and a long way round is a trap again");
+    }
+
+    /// `PIXEL_PHYSICS_CARRY_HOME` reads `on`, `off` and a comma list of its
+    /// two parts ([`CarryHome::parse`]).
+    #[test]
+    fn carry_home_reads_on_off_and_a_list_of_its_parts() {
+        assert_eq!(CARRY_HOME_UNSET, CarryHome::OFF);
+        assert_eq!(CarryHome::parse("on"), CarryHome::ON);
+        assert_eq!(CarryHome::parse("off"), CarryHome::OFF);
+        assert_eq!(CarryHome::parse("fill"), CarryHome { fill: true, turn: false });
+        assert_eq!(CarryHome::parse("turn"), CarryHome { fill: false, turn: true });
+        assert_eq!(CarryHome::parse("fill, turn"), CarryHome::ON);
+    }
+
+    /// A misspelt arm stops the run rather than measuring the wrong one.
+    #[test]
+    #[should_panic(expected = "is not on, off, fill or turn")]
+    fn carry_home_refuses_an_arm_it_does_not_know() {
+        CarryHome::parse("fill,home");
+    }
+
+    /// A laden ant on a stone floor with two cells of the heap's food
+    /// (`provisions`) in front of its head, holding one cell of it taken on
+    /// a trip, home 70 cells behind it. `door` registers a nest site 7 cells
+    /// from the food.
+    fn carrier_at_food(carry: CarryHome, door: bool) -> (World, OrganismId) {
+        let stone = Cell::new(material::STONE, 0).with_attached(true);
+        let mut w = World::new(Rect::new(0, 0, 199, 63));
+        for x in 0..200 {
+            for y in 41..64 {
+                w.set(x, y, stone);
+            }
+        }
+        w.chooser = Some(Chooser::TrailAway);
+        w.carry_home = Some(carry);
+        let ant = spawn(&mut w, "ant", 100, 40);
+        let chain = w.organism(ant).expect("live").chain.clone();
+        let (head, tail) = (chain[0], chain[chain.len() - 1]);
+        let out = (head.0 - tail.0).signum();
+        let food = w.materials.id_of("provisions").expect("provisions");
+        for y in 39..=40 {
+            w.set(head.0 + out, y, Cell::new(food, 0));
+        }
+        if door {
+            w.register_nest_site(head.0 + out * 8, 40, 4);
+        }
+        let def = w.species.get(w.organism(ant).expect("live").species).creature.clone().expect("a creature");
+        let cap = organism_crop_capacity(&w, ant, &def);
+        let st = w.organism_mut(ant).expect("live");
+        st.heading = if out < 0 { 4 } else { 0 };
+        st.forage_anchor = (head.0 - out * 70, 40);
+        st.crop = Some(Crop { material: food, cells: 1, digesting: 0.0, unit: cap / 6.0, shade: 0, passenger: None });
+        st.trip_load = true;
+        st.foraged = true;
+        (w, ant)
+    }
+
+    /// **A trip's carrier stands at far food until its crop is full, and
+    /// never at food beside a door** ([`CarryHome`]'s `fill`,
+    /// [`fills_before_walking`]). The scene of [`carrier_at_food`], 600
+    /// frames with energy held full so hunger cannot be what eats. Off, the
+    /// carrier walks off with its one cell; with `fill` it stands
+    /// (`Filling`, counted in `carry_fills`) and takes mouthfuls until the
+    /// crop is full, then walks. Beside a door it walks as off. A carrier
+    /// whose load was not a trip's is never held, nor one beside food `act`
+    /// will not take: `windfall`, which feeds as `provisions` does but is
+    /// not the load's material.
+    ///
+    /// Measured on this scene: off, 0 decisions filling, the crop at 1 cell
+    /// and the carrier 71 cells from the food; with `fill`, 9 decisions
+    /// filling, the crop at 6 and the carrier 67 cells off. **Watched red**
+    /// (2026-10-06): with the door test taken out of the predicate the door
+    /// arm failed, and with the material test taken out the `windfall` arm
+    /// failed (held every step, its crop never growing).
+    #[test]
+    fn a_trip_carrier_fills_up_at_far_food_and_not_beside_a_door() {
+        let run_arm = |carry: CarryHome, door: bool, trip: bool, pile_food: &str| -> (usize, u64, u16, i32) {
+            let (mut w, ant) = carrier_at_food(carry, door);
+            w.organism_mut(ant).expect("live").trip_load = trip;
+            let start = w.organism(ant).expect("live").chain[0];
+            let food = w.materials.id_of(pile_food).expect("a food material");
+            let side = DIRS[w.organism(ant).expect("live").heading as usize].0;
+            let pile = [(start.0 + side, 39), (start.0 + side, 40)];
+            for (x, y) in pile {
+                w.set(x, y, Cell::new(food, 0));
+            }
+            let energy = w.species.get(w.organism(ant).expect("live").species).creature.as_ref().expect("a creature").start_energy;
+            w.decision_log = Some(Vec::new());
+            let mut fullest = 0u16;
+            for _ in 0..600 {
+                if let Some(st) = w.organism_mut(ant) {
+                    st.energy = energy;
+                    fullest = fullest.max(st.crop.map_or(0, |c| c.cells));
+                }
+                for (x, y) in pile {
+                    if w.get(x, y).material == material::EMPTY {
+                        w.set(x, y, Cell::new(food, 0));
+                    }
+                }
+                run(&mut w, 1);
+            }
+            let rows: Vec<DecisionRow> = w.decision_log.take().expect("the log was on").into_iter().filter(|r| r.id == ant).collect();
+            let fills = rows.iter().filter(|r| r.outcome == DecisionOutcome::Filling).count();
+            let far = rows.iter().map(|r| (r.head_after.0 - start.0).abs()).max().unwrap_or(0);
+            assert!(rows.len() >= 60, "only {} decisions: the scene no longer runs", rows.len());
+            (fills, w.creature_stats.carry_fills, fullest, far)
+        };
+        let fill = CarryHome { fill: true, turn: false };
+        let (fills, counted, fullest, far) = run_arm(CarryHome::OFF, false, true, "provisions");
+        assert_eq!((fills, counted, fullest), (0, 0, 1), "off, the carrier must walk off with its one cell");
+        assert!(far >= 30, "off, it got only {far} cells from the food: the scene no longer walks it away");
+        let (fills, counted, fullest, far) = run_arm(fill, false, true, "provisions");
+        assert!(fills >= 5, "{fills} decisions stood filling: it should stand for every mouthful");
+        assert_eq!(counted, fills as u64, "`carry_fills` must count exactly the decisions booked `Filling`");
+        assert_eq!(fullest, 6, "with `fill` the crop should fill to capacity before it walks");
+        assert!(far >= 30, "full, it got only {far} cells from the food: a full crop must walk");
+        for (door, trip, pile, what) in [
+            (true, true, "provisions", "beside a door"),
+            (false, false, "provisions", "holding a load that was not a trip's"),
+            (false, true, "windfall", "beside food of another material than its load"),
+        ] {
+            let (fills, counted, fullest, _) = run_arm(fill, door, trip, pile);
+            assert_eq!((fills, counted, fullest), (0, 0, 1), "a carrier {what} was held to fill");
+        }
+    }
+
+    /// **A trip's carrier on nest scent that lies even turns for home**
+    /// ([`CarryHome`]'s `turn`, [`carry_route_floor`]). A laden ant on a
+    /// long stone floor, facing away from home 80 cells behind it, with
+    /// trail A held at the same level (presence 0.95) over the whole floor
+    /// every frame, as nest scent lies over the mound.
+    ///
+    /// Measured on this scene: off, the carrier went 156 cells out and came
+    /// no nearer home than 81; with `turn` it never went out, reached home,
+    /// and 146 decisions counted a floor under the hold; a load that was not
+    /// a trip's walked exactly the off path. **Watched red** (2026-10-06):
+    /// with the floor forced to nothing the `turn` arm failed.
+    #[test]
+    fn a_trip_carrier_on_even_nest_scent_turns_for_home() {
+        let run_arm = |carry: CarryHome, trip: bool| -> (Vec<(i32, i32)>, i32, i32, u64) {
+            let stone = Cell::new(material::STONE, 0).with_attached(true);
+            let mut w = World::new(Rect::new(0, 0, 399, 63));
+            for x in 0..400 {
+                for y in 41..64 {
+                    w.set(x, y, stone);
+                }
+            }
+            w.chooser = Some(Chooser::TrailAway);
+            w.carry_home = Some(carry);
+            let ant = spawn(&mut w, "ant", 200, 40);
+            let chain = w.organism(ant).expect("live").chain.clone();
+            let (head, tail) = (chain[0], chain[chain.len() - 1]);
+            let out = (head.0 - tail.0).signum();
+            let home = (head.0 - out * 80, 40);
+            {
+                let st = w.organism_mut(ant).expect("live");
+                st.heading = if out < 0 { 4 } else { 0 };
+                st.forage_anchor = home;
+            }
+            let even = (TRAIL_HALF * 19.0) as pheromone::Scent;
+            w.decision_log = Some(Vec::new());
+            for _ in 0..1200 {
+                for x in 0..400 {
+                    for y in 36..=40 {
+                        let now = w.pheromone_at(Channel::A, x, y);
+                        if now < even {
+                            w.deposit_pheromone(Channel::A, x, y, even - now);
+                        }
+                    }
+                }
+                fill_crop(&mut w, ant);
+                w.organism_mut(ant).expect("live").trip_load = trip;
+                run(&mut w, 1);
+            }
+            let rows: Vec<DecisionRow> = w.decision_log.take().expect("the log was on").into_iter().filter(|r| r.id == ant).collect();
+            let path: Vec<(i32, i32)> = rows.iter().map(|r| r.head_after).collect();
+            let away = path.iter().map(|p| (p.0 - head.0) * out).max().unwrap_or(0);
+            let nearest = path.iter().map(|p| (p.0 - home.0).abs()).min().unwrap_or(i32::MAX);
+            assert!(path.len() >= 100, "only {} decisions: the scene no longer runs", path.len());
+            (path, away, nearest, w.creature_stats.carry_turns)
+        };
+        let turn = CarryHome { fill: false, turn: true };
+        let (off_path, away, nearest, turns) = run_arm(CarryHome::OFF, true);
+        assert_eq!(turns, 0, "turns counted with the switch off");
+        assert!(away >= 60 && nearest >= 75, "off, the carrier went {away} cells out and came within {nearest} of home: the even scent no longer holds it, so this scene shows nothing");
+        let (_, away, nearest, turns) = run_arm(turn, true);
+        assert!(turns > 0, "no decision counted a floor under the hold");
+        assert!(away <= 5 && nearest <= 5, "with `turn` the carrier went {away} cells out and came within {nearest} of home: the even scent still holds it");
+        let (path, _, _, turns) = run_arm(turn, false);
+        assert_eq!(turns, 0, "a load that was not a trip's counted turns");
+        assert_eq!(path, off_path, "a load that was not a trip's walked differently from the switch off");
     }
 
     /// **Under the chooser, falling does not wait for the step roll** (plan
