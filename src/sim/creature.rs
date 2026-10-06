@@ -21947,8 +21947,11 @@ fn update_hungry_home(world: &mut World, organism: OrganismId, def: &CreatureDef
 ///   goal box's seed 1 were founders). At the door it is re-anchored hungry,
 ///   so its next excursion is free. It lets go within
 ///   [`HUNGRY_ARRIVED`] of the anchor (and so at any nest contact, which
-///   re-anchors on the head), once fed back to the grant, or once it carries
-///   anything. While set, [`home_pull`] pulls it to its anchor at the laden
+///   re-anchors on the head), once fed back to the grant, once it carries
+///   anything, or **under cover** ([`under_cover`]: in the mound's tunnels
+///   or the dug nest the nest's own ways out steer it, and a straight pull
+///   pressed latched ants into the mound's pockets). It is set only in the
+///   open. While set, [`home_pull`] pulls it to its anchor at the laden
 ///   ant's gain, patience and all, and scouting is off (a pull suppresses it).
 /// - `bare`: the walk home is not held by trail under the latched ant: the
 ///   heading's turn score is not multiplied by trail presence, as a given-up
@@ -22002,7 +22005,14 @@ fn update_way_home(world: &mut World, organism: OrganismId, def: &CreatureDef, h
     let d = (((ax - head.0) as f32).powi(2) + ((ay - head.1) as f32).powi(2)).sqrt();
     let hungry = state.energy < def.start_energy;
     let was = state.way_home;
-    let now = if !empty || !hungry || d < HUNGRY_ARRIVED {
+    // **Open ground only**: under cover (the spoil mound's tunnels, the dug
+    // nest) a straight pull at the anchor presses the ant into walls, and the
+    // nest's own ways out are what should steer it there. Measured without
+    // this (goal box, heap at 30, seed 3): 13 latched ants starved in pockets
+    // of the mound's foot within 15 columns of the door, pulled at the
+    // anchor on 350-376 of their last 600 hungry decisions without moving.
+    let covered = under_cover(world, head.0, head.1);
+    let now = if !empty || !hungry || d < HUNGRY_ARRIVED || covered {
         false
     } else if was {
         true
@@ -22014,6 +22024,8 @@ fn update_way_home(world: &mut World, organism: OrganismId, def: &CreatureDef, h
     if now != was {
         if now {
             world.creature_stats.way_home_turns += 1;
+        } else if covered && empty && hungry && d >= HUNGRY_ARRIVED {
+            world.creature_stats.way_home_cover += 1;
         } else if empty && hungry {
             world.creature_stats.way_home_home += 1;
         }

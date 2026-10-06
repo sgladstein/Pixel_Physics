@@ -830,12 +830,14 @@ latched; a founder, born at its grant and landed under it away from the door,
 is latched once and walked to the door, where contact re-anchors it hungry. It
 lets go within
 `HUNGRY_ARRIVED` (2) of the anchor (so at any nest contact), once fed back to
-the grant, or once it carries anything. While set, `home_pull` pulls it to its
+the grant, once it carries anything, or under cover (`under_cover`: the mound's
+tunnels and the dug nest, where the nest's own ways out steer it); it is set
+only in the open. While set, `home_pull` pulls it to its
 anchor (`home_target`) at `home_bias`, patience and all, and so scouting, the
 door read, the way out and the rest pull are off. `bare`: the latched walk is
 not held by trail (the hold factor is 1, as for a given-up scout's spent walk).
-Counted in `way_home_turns` (latches), `way_home_home` (let go hungry, at home)
-and `way_home_pulls` (decisions it steered); the trace books the pull as
+Counted in `way_home_turns` (latches), `way_home_home` (let go hungry, at home),
+`way_home_cover` (let go hungry, under cover) and `way_home_pulls` (decisions it steered); the trace books the pull as
 "way home".
 
 **`PIXEL_PHYSICS_NEST_REST` (off; `workers` was the default for one day,
