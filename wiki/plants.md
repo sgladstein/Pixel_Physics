@@ -3,7 +3,7 @@
 *What plants do, and what it looks like when they are working. No code, no
 file names — see `Reports/` for why any of it is built the way it is.*
 
-*Current as of: 2026-10-03 (**water runs through a plant along real paths**:
+*Current as of: 2026-10-05 (**grass grows back** -- a tussock that loses its blades sends up new ones from its crown, so a meadow keeps seeding instead of fading -- see *Species*). Also 2026-10-03 (**water runs through a plant along real paths**:
 up the roots, up the trunk, out along the branches, and a dry spell browns the
 far tips first -- see *How water moves through a plant*). Also 2026-10-03 (**plants can be born harder to eat**, paying for
 it in growth -- see *Plants that are worse to eat*). Also 2026-10-03 (**a seed with ground on top of it is out of the
@@ -591,6 +591,17 @@ Three consequences follow from that, and none of them is a rule about grass:
   sward is thinned by whatever grows over it and not by drought, which is
   the reverse of what a tree faces, and it is why grass and trees are not
   competing for the same thing.
+- And **it grows back** (2026-10-05). A tussock that has lost blades — to
+  shade, to a neighbour growing over it, to anything that eats it — sends
+  up a new blade from its crown after a while, the way real grass regrows
+  from the base after grazing. Before, a grass plant only ever grew in its
+  first moments: once its growing tips stopped, nothing could start
+  another, so it froze at whatever size it reached and then shrank, blade
+  by blade, to a stub of one that stood for ever and never seeded. A garden
+  left alone made a burst of seed from its first grass and then went quiet;
+  by late in a long session it held a fifth of its food and almost no loose
+  seed. Now the same garden is still a seeding meadow from wall to wall at
+  the end, and a colony living on it does not run out of food.
 
 Grass cannot get into dry sand, though, and neither can a tree: sand is
 simply harder to push a root through than either of them can manage.

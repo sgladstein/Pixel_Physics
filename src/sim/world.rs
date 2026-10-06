@@ -4018,6 +4018,8 @@ pub struct World {
     /// setting `Some(Vec::new())`, and drained by that harness. Recording
     /// draws nothing and changes nothing.
     pub bite_log: Option<Vec<crate::sim::creature::BiteRow>>,
+    /// Crown cells turned back into a growing tip by `plant::break_tillers`.
+    pub tillers_broken: u64,
     /// Scratch that `step_chain` and `tumble` write while a decision is being
     /// traced; meaningless otherwise.
     pub decision_scratch: crate::sim::creature::DecisionScratch,
@@ -6715,6 +6717,7 @@ impl World {
             decision_log: None,
             feed_log: None,
             bite_log: None,
+            tillers_broken: 0,
             decision_scratch: crate::sim::creature::DecisionScratch::default(),
             chooser: None,
             bud_at_nest: None,

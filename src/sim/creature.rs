@@ -12187,8 +12187,9 @@ fn parse_spoil_hold(raw: &str) -> Option<i32> {
 }
 
 /// **An ant with nothing to do goes inside and rests deep in the nest**:
-/// `PIXEL_PHYSICS_NEST_REST=on` (built 2026-10-01; owner: the colony lives
-/// inside its nest).
+/// `PIXEL_PHYSICS_NEST_REST=workers|on|all|off` (built 2026-10-01; owner: the
+/// colony lives inside its nest). **`workers` since 2026-10-05**: unset reads
+/// as [`NestRest::SHIPPED`], and `off` is the ant before it.
 ///
 /// **Why.** Real workers rest inside the nest, not on its entrance. Here
 /// every founder's home is the cell over the mouth (`World::door_anchor`),
@@ -12228,6 +12229,37 @@ pub fn nest_rest_of(world: &World) -> NestRest {
 /// half its reserve was gone -- too little to find food ninety cells away
 /// and come back. Fed scouts are how a colony finds food at all, so the
 /// narrower forms keep them out.
+///
+/// **Why `workers` ships** (lane 3, 2026-10-05; dry goal box, evolved
+/// founder, evolution off, `deeptrace ants=0 dig=1`, seeds 1-4 to 200k on
+/// main f4cc3972, means over 100-200k, off -> `workers`). The lab colony is
+/// larger on 4 of 4 (543/541/543/562 -> 551/613/586/607 ants), nest workers
+/// starve less on 4 of 4 (11/21/15/3 -> 4/2/11/1 over the run) and stand
+/// in the nest more on 4 of 4 (13.5/12.9/11.4/14.1 -> 14.2/17.2/13.3/18.8 a
+/// sample; their share of decisions below the founding ground 10.0/9.2/
+/// 8.3/10.3% -> 10.3/10.5/9.3/12.3%), and the nest is cut more on 4 of 4
+/// (384/391/392/336 -> 442/582/597/507 cuts below the founding ground).
+/// Larvae starved per egg is unchanged (0.13-0.15 both). Diggers go back to
+/// their face a little less: next cut at the face after a nest cut (50-100k)
+/// 48/47/52/39% -> 43/42/43/44%, lower on 3 of 4. In the played lab
+/// box (`scripts/labbench.py`, 12 seeds, 120k, one binary) births are
+/// 290.5 -> 325.5 (higher on 9), animals underground 16.6% -> 19.9% (8),
+/// starved per million ant-frames 5.4 -> 6.4 (7 of 12, p 0.77), and no
+/// gate row is harmed. Small, but on the switch's own target and against
+/// no cost in either lab box. **What it still
+/// costs**: the colony bed (`trailfollow` B1, 24 seeds, 20 founders, gap
+/// 90) is where §20's 2026-10-01 rejection was measured, and it still costs
+/// there: born 4,362 -> 3,931 (lower on 16 of 24, sign p 0.05), starved
+/// 47 -> 97 (1.0% -> 2.2% of ants that lived, higher on 17, p 0.003), net
+/// food into home lower on 19 (p 0.007). The bed's extra deaths come in
+/// bursts of ants dying together on the nest (seed 2: all 10 within 140
+/// frames); why is not traced. `Reports/dead-ends.md` keeps the two
+/// mechanisms tried and dropped on the way here (`NestKeep`). **`on` stays
+/// off**: on the same goal box it made the largest colonies (572-628 ants)
+/// but sent diggers' next cut off their face on 2 of 4 seeds (48/52% ->
+/// 18/10%, into the mound 62/76%) and starved 111 against 34 on seed 1;
+/// inferred, not traced, that resting foragers settle at the passages' far
+/// ends, which are the faces.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum NestRest {
     Off,
@@ -12242,6 +12274,9 @@ pub enum NestRest {
 }
 
 impl NestRest {
+    /// The form an unset `PIXEL_PHYSICS_NEST_REST` reads as.
+    pub const SHIPPED: NestRest = NestRest::Workers;
+
     pub fn on(self) -> bool {
         self != NestRest::Off
     }
@@ -12264,18 +12299,22 @@ pub fn nest_rest() -> NestRest {
     *V.get_or_init(|| parse_nest_rest(&std::env::var("PIXEL_PHYSICS_NEST_REST").unwrap_or_default()))
 }
 
-/// `PIXEL_PHYSICS_NEST_REST`'s value: unset and `off` are off, `workers`,
-/// `on` (nest workers and foragers) and `all` the forms of [`NestRest`].
-/// Anything else is reported and read as unset.
+/// `PIXEL_PHYSICS_NEST_REST`'s value: unset is [`NestRest::SHIPPED`],
+/// `off` is off, and `workers`, `on` (nest workers and foragers) and `all`
+/// the forms of [`NestRest`]. Anything else is reported and read as unset.
 fn parse_nest_rest(raw: &str) -> NestRest {
     match raw.trim() {
-        "" | "off" => NestRest::Off,
+        "" => NestRest::SHIPPED,
+        "off" => NestRest::Off,
         "workers" => NestRest::Workers,
         "on" => NestRest::Foragers,
         "all" => NestRest::All,
         other => {
-            eprintln!("PIXEL_PHYSICS_NEST_REST={other:?}: not `off`, `workers`, `on` or `all`; read as unset (off)");
-            NestRest::Off
+            eprintln!(
+                "PIXEL_PHYSICS_NEST_REST={other:?}: not `off`, `workers`, `on` or `all`; read as unset ({:?})",
+                NestRest::SHIPPED
+            );
+            NestRest::SHIPPED
         }
     }
 }
@@ -30654,12 +30693,13 @@ mod tests {
     /// `PIXEL_PHYSICS_NEST_REST`'s spellings.
     #[test]
     fn the_nest_rest_parses_its_spellings_and_refuses_the_rest() {
-        assert_eq!(parse_nest_rest(""), NestRest::Off);
+        assert_eq!(parse_nest_rest(""), NestRest::Workers, "unset is the shipped form");
+        assert_eq!(NestRest::SHIPPED, NestRest::Workers);
         assert_eq!(parse_nest_rest("off"), NestRest::Off);
         assert_eq!(parse_nest_rest(" workers "), NestRest::Workers);
         assert_eq!(parse_nest_rest("on"), NestRest::Foragers);
         assert_eq!(parse_nest_rest("all"), NestRest::All);
-        assert_eq!(parse_nest_rest("yes"), NestRest::Off);
+        assert_eq!(parse_nest_rest("yes"), NestRest::SHIPPED);
     }
 
     /// `PIXEL_PHYSICS_DIG_WIDEN`'s spellings: `on`, and off for everything
