@@ -2171,6 +2171,16 @@ pub struct CreatureStats {
     /// door along the passages. The "it fired" half; the effect half is where
     /// the colony's starved die (`deeptrace`) and the colony's size.
     pub hungry_out_pulls: u64,
+    /// Decisions walked under the nest's store (`PIXEL_PHYSICS_NEST_STORE`,
+    /// `creature::nest_store_of`): a store load carried in, a hungry ant
+    /// going to the store, a fed nest worker going deeper. The "it fired"
+    /// half; the effect half is where the colony stands and eats.
+    pub nest_store_carry_pulls: u64,
+    pub nest_store_eat_pulls: u64,
+    pub nest_store_home_pulls: u64,
+    /// Won bites of a store cell that were not refused: the meals the store
+    /// gave.
+    pub nest_store_bites: u64,
     /// Decisions a pellet carrier inside its nest walked out along the nest's
     /// way (`PIXEL_PHYSICS_SOIL_WAY`, `creature::soil_way_of`). The "it
     /// fired" half; the effect half is where the soil goes down.
@@ -4133,6 +4143,10 @@ pub struct World {
     /// (`creature::nurse_stay_of`). `None` follows the environment; a field so
     /// a guard can take both arms in one process.
     pub nurse_stay: Option<crate::sim::creature::NurseStay>,
+    /// **`PIXEL_PHYSICS_NEST_STORE` for this world**
+    /// (`creature::nest_store_of`). `None` follows the environment; a field
+    /// so a guard can take both arms in one process.
+    pub nest_store: Option<crate::sim::creature::NestStore>,
     /// **Each nest's way in**, as steps from its door through the cells
     /// inside it an ant can stand in (`creature::NestWay`), rebuilt every
     /// `creature::REST_REFRESH` frames by `creature::step_nest_rest` while
@@ -6726,6 +6740,7 @@ impl World {
             face_trip: None,
             crop_down: None,
             nurse_stay: None,
+            nest_store: None,
             nest_ways: Vec::new(),
             bud_store: None,
             births_paused: false,
