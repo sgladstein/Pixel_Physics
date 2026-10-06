@@ -12849,9 +12849,9 @@ pub fn hungry_out_of(world: &World) -> bool {
     world.hungry_out.unwrap_or_else(|| {
         static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
         *V.get_or_init(|| match std::env::var("PIXEL_PHYSICS_HUNGRY_OUT").as_deref() {
-            Ok("on") | Err(_) => true,
+            Ok("on") | Ok("lean") | Err(_) => true,
             Ok("off") => false,
-            Ok(other) => panic!("PIXEL_PHYSICS_HUNGRY_OUT={other:?}: use on or off"),
+            Ok(other) => panic!("PIXEL_PHYSICS_HUNGRY_OUT={other:?}: use on, off or lean"),
         })
     })
 }
@@ -12868,8 +12868,33 @@ fn hungry_out_pull(world: &World, organism: OrganismId, def: &CreatureDef, head:
     if store_feeds_here(world, head) {
         return None;
     }
+    // **`lean`: only below [`LeanForage`]'s line** (Nest race, 2026-10-06,
+    // for the owner's "this rule is failing us"). On, the pull acts on any
+    // empty ant under its grant, and inside the nest that is every ant:
+    // on hunger-first, the stack and the shipped game alike, ants in the
+    // nest carry a median 130-195 J against a 200 J grant and 600-940 J
+    // outside (`/mnt/project-files/nest-race/inside/stack/deep-who-s1-3.md`).
+    // Under `lean` an ant between half and full grant is not walked out,
+    // unless it is shut in, the same reading as [`needs_hungry`].
+    //
+    // **Tried once and crashed colonies** (`Reports/dead-ends.md`, lean-only
+    // `hungry_out_pull`, main 6e42f0fa, 2026-10-05): the fed-enough diggers
+    // stayed in and dug, pellet carriers over the door rose to 25-50 and the
+    // door was shut on 4-6 of 6 samples. Re-tested on hunger-first + the
+    // clear door column, which drop and clear the soil that sealed it.
+    if hungry_out_lean() && world.organism(organism).is_some_and(|s| s.energy >= lean_forage_of(world).line * def.start_energy && !shut_in(world, head.0, head.1)) {
+        return None;
+    }
     let gain = hungry_out_gain(world, organism, def)?;
     Some((way_out_from(world, organism, head)?, gain))
+}
+
+/// `PIXEL_PHYSICS_HUNGRY_OUT=lean`: [`hungry_out_pull`] only below the lean
+/// line. Off unless asked; read from the environment only (a test-only
+/// field is not worth it for a measuring arm).
+fn hungry_out_lean() -> bool {
+    static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *V.get_or_init(|| std::env::var("PIXEL_PHYSICS_HUNGRY_OUT").as_deref() == Ok("lean"))
 }
 
 /// **How hard a hungry ant is pulled out**, for [`hungry_out_pull`] and
