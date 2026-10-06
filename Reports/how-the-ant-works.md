@@ -817,7 +817,8 @@ dry goal box (evolved founder, evolution off, 4 seeds to 200k, means over
 100-200k) `workers` against `off`: colonies larger on 4 of 4 (541-562 ->
 551-613 ants), nest workers starved over the run 3-21 -> 1-11, their share
 of decisions below the founding ground 8.3-10.3% -> 9.3-12.3%, and cuts
-below it 336-392 -> 442-597. On the colony bed (B1, 24 seeds) it still
+below it 336-392 -> 442-597; in the played lab box (12 seeds) births
+290.5 -> 325.5 and animals underground 16.6% -> 19.9%. On the colony bed (B1, 24 seeds) it still
 costs what §20 of the nest report found: born 4,362 -> 3,931, starved
 47 -> 97 (`NestRest`'s doc).
 

@@ -12236,8 +12236,12 @@ pub fn nest_rest_of(world: &World) -> NestRest {
 /// sample; their share of decisions below the founding ground 10.0/9.2/
 /// 8.3/10.3% -> 10.3/10.5/9.3/12.3%), and the nest is cut more on 4 of 4
 /// (384/391/392/336 -> 442/582/597/507 cuts below the founding ground).
-/// Larvae starved per egg is unchanged (0.13-0.15 both). Small, but on the
-/// switch's own target and against no cost in the lab. **What it still
+/// Larvae starved per egg is unchanged (0.13-0.15 both). In the played lab
+/// box (`scripts/labbench.py`, 12 seeds, 120k, one binary) births are
+/// 290.5 -> 325.5 (higher on 9), animals underground 16.6% -> 19.9% (8),
+/// starved per million ant-frames 5.4 -> 6.4 (7 of 12, p 0.77), and no
+/// gate row is harmed. Small, but on the switch's own target and against
+/// no cost in either lab box. **What it still
 /// costs**: the colony bed (`trailfollow` B1, 24 seeds, 20 founders, gap
 /// 90) is where §20's 2026-10-01 rejection was measured, and it still costs
 /// there: born 4,362 -> 3,931 (lower on 16 of 24, sign p 0.05), starved
@@ -12245,7 +12249,12 @@ pub fn nest_rest_of(world: &World) -> NestRest {
 /// food into home lower on 19 (p 0.007). The bed's extra deaths come in
 /// bursts of ants dying together on the nest (seed 2: all 10 within 140
 /// frames); why is not traced. `Reports/dead-ends.md` keeps the two
-/// mechanisms tried and dropped on the way here (`NestKeep`).
+/// mechanisms tried and dropped on the way here (`NestKeep`). **`on` stays
+/// off**: on the same goal box it made the largest colonies (572-628 ants)
+/// but sent diggers' next cut off their face on 2 of 4 seeds (48/52% ->
+/// 18/10%, into the mound 62/76%) and starved 111 against 34 on seed 1;
+/// inferred, not traced, that resting foragers settle at the passages' far
+/// ends, which are the faces.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum NestRest {
     Off,
