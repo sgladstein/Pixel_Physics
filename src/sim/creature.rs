@@ -12860,38 +12860,42 @@ fn step_down_way(way: &NestWay, organism: OrganismId, head: (i32, i32)) -> Optio
 /// steps to the open air stand in for the draught from it, fresh at an
 /// opening and absent in a sealed pocket.
 ///
-/// **Off, because neither part reaches the ants that starve** (lane 3,
-/// 2026-10-06, `/mnt/project-files/nest-race/lane3/mound-out-2026-10-06.md`).
-/// Main ecca174e6's game against the shared baseline (identity-checked),
-/// dry goal box, evolved founder, mutation off, `deeptrace hungry=1`,
-/// seeds 1-4, 300k:
+/// **Measured** (lane 3, 2026-10-06,
+/// `/mnt/project-files/nest-race/lane3/mound-out-2026-10-06.md`): main
+/// ecca174e6's game against the shared baseline (identity-checked), dry
+/// goal box, evolved founder, mutation off, `deeptrace hungry=1`, 300k.
 ///
-/// - `dig` alone: grown ants starved 12/55/41/14 -> 42/8/15/12 (122 -> 77),
-///   mean ants over 100-300k up on 3 of 4 (+1.6%), food home from trips
-///   +6%.
-/// - `way` alone: starved 136, mean ants -1.6%, trip food -10%.
-/// - both: starved 151, mean ants -5%, trip food -13%; the door shut on 48
-///   maps against 23.
+/// - **`dig` saves ants shut in the mound.** Twelve seeds: grown ants
+///   starved over 20-300k 374 -> 143, lower on 8, level on 1, higher on 3;
+///   mean ants over 100-300k +1.1%, ants at 300k 6,632 -> 6,874; food home
+///   from trips -1.7%. Counted over the ants at risk (seeds 1-8): of the
+///   ants' spells shut in (behind a sealed door, in a closed pocket or
+///   encased, 1k census), 1.3% ended starved off and 0.5% under `dig`,
+///   lower on 7 of 8 seeds; 1.5% -> 0.7% for spells begun holding a pellet,
+///   1.0% -> 0.3% for those begun empty. The share of ants shut in barely
+///   moved, so it gets them out rather than keeping them from being shut
+///   in. Seed 1's rise (12 -> 42) is a door sealed at 24k by sliding soil
+///   and fed carriers' pellets before the part had fired once, with 22
+///   ants starving in the shaft below the founding ground, which
+///   [`shut_in_mound`] does not reach.
+/// - **`way` saves none.** Seeds 1-8: 1.2% of shut-in spells ended starved
+///   (it acts only where the open air reaches, so never on an ant shut
+///   in), mean ants -3.8%, trip food -11%. Most of its pull went to ants a
+///   hair under their grant (median 1.00 at the first mound decision, 86%
+///   back above 0.95 with no bite), so 7-29 of 6-9k pulled spells a run
+///   reached the heap.
+/// - Both together: seeds 1-8, 0.6% of shut-in spells starved, mean ants
+///   -2.4%, trip food -7%. Each part rescued all three late collapses it was
+///   tried on (`NEST_REST=workers` seeds 1 and 4, `CARRY_HOME=on` seed 2:
+///   ants at 300k 17-150 off, 273-623 with a part), though each arm parts
+///   from its control within 8-19k frames and so is a fresh draw.
 ///
-/// The baseline's own eight seeds starved 5-152 and shut the door on 0-77
-/// maps, so every one of those per-seed numbers is inside the spread
-/// between seeds. Every part rescued all three late collapses it was tried
-/// on (ants at 300k, off -> `way`/`dig`/both): `NEST_REST=workers` seed 1
-/// 57 -> 547/463/622 and seed 4 17 -> 273/623/383, `CARRY_HOME=on` seed 2
-/// 150 -> 393/362/500; but each arm parts from its control within 8-19k
-/// frames, so each is a fresh draw from a game that falls on 5 seeds of 12.
-///
-/// **Why neither part is the fix** (traced). The starvers hold a soil
-/// pellet, shut in the mound: encased, in a pocket or behind the door (63
-/// of 64 on `way` seed 1). [`hungry_out_gain`] gives a pellet holder no
-/// pull, and a laden ant never reaches the dig; the mound pull ever reached
-/// 0-3 of 21-64 starvers a run (23 of 78 on both, seed 2). Going lean does
-/// not free a holder either: [`lean_drop_site`] wants an empty cell with
-/// footing beside it, and of 19,930 lean pellet decisions by the 152 ants
-/// that starved on the `CARRY_HOME` control, the pellet went down on 425.
-/// Most of the pull went to ants a hair under their grant (median 1.00 at
-/// the first mound decision, 86% back above 0.95 with no bite), which is
-/// why only 7-29 of 6-9k pulled spells a run reached the heap.
+/// **Off until it is turned on by a yes**: `dig` meets the twelve-seed bar
+/// for a default and turning it on is the game change that waits for one.
+/// What `dig` still leaves: an ant encased with its pellet, which
+/// [`lean_drop_site`] finds no cell for (the pellet went down on 425 of
+/// 19,930 lean pellet decisions by the ants that starved on the
+/// `CARRY_HOME` control), and the shaft below the founding ground.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct MoundOut {
     pub way: bool,
