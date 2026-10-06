@@ -1304,6 +1304,47 @@ pub(super) fn larva_scent(world: &World, (hx, hy): (i32, i32), colony: u32, mate
     (len > 0.0).then(|| (vx / len, vy / len, len / (len + NURSE_SCENT_HALF)))
 }
 
+/// **The nearest hungry larva of `colony` within `reach` cells either way of
+/// `(hx, hy)`**, for a nurse past [`NURSE_SCENT_REACH`]
+/// (`creature::NurseStay`'s `pace`, and the nurse's exception to
+/// `NestStore`'s `keep`). Ring by ring outward, so the cost stops at the
+/// first ring that holds one; on that ring the hungriest, the first in scan
+/// order on a tie. Hungry as [`larva_scent`] reads it: short of its
+/// pupation target.
+pub(super) fn nearest_hungry_larva(world: &World, (hx, hy): (i32, i32), colony: u32, material: super::material::MaterialId, reach: i32) -> Option<(i32, i32)> {
+    let need_at = |x: i32, y: i32| -> Option<f32> {
+        let c = world.get(x, y);
+        if c.material != material {
+            return None;
+        }
+        let st = world.organism(c.organism_id())?;
+        let b = st.brood.filter(|b| b.stage == BroodStage::Larva && b.target > 0.0)?;
+        (st.colony == colony && st.energy < b.target).then(|| (b.target - st.energy) / b.target)
+    };
+    for r in 1..=reach {
+        let mut best: Option<(f32, (i32, i32))> = None;
+        let mut look = |x: i32, y: i32| {
+            if let Some(need) = need_at(x, y) {
+                if best.is_none_or(|(n, _)| need > n) {
+                    best = Some((need, (x, y)));
+                }
+            }
+        };
+        for dx in -r..=r {
+            look(hx + dx, hy - r);
+            look(hx + dx, hy + r);
+        }
+        for dy in 1 - r..r {
+            look(hx - r, hy + dy);
+            look(hx + r, hy + dy);
+        }
+        if let Some((_, at)) = best {
+            return Some(at);
+        }
+    }
+    None
+}
+
 /// The brood material an animal of `def`'s species lays, if it lays any.
 pub(super) fn brood_material(world: &World, def: &CreatureDef) -> Option<super::material::MaterialId> {
     block_of(def).and_then(|b| world.materials.id_of(&b.material))
@@ -2177,6 +2218,43 @@ mod tests {
         w.organism_mut(east).expect("live").energy = 0.1 * target;
         larva_at(&mut w, (from.0 - 3, from.1), false, colony);
         assert_eq!(larva_scent(&w, from, colony, material), None, "two equal pulls on opposite sides did not cancel");
+    }
+
+    /// **The nearest hungry larva is found past the scent** ([`nearest_hungry_larva`]):
+    /// with none laid there is none; a starving larva ten cells east, past
+    /// [`NURSE_SCENT_REACH`], is found; a nearer one three cells west wins
+    /// over it; fed, the nearer one is passed over for the far one; another
+    /// colony's is not this ant's; and past `reach` nothing is found.
+    #[test]
+    fn the_nearest_hungry_larva_is_found_past_the_scent() {
+        let (mut w, ant, def) = bed(true);
+        let material = brood_material(&w, &def).expect("brood material");
+        let colony = w.organism(ant).expect("live").colony;
+        let head = w.organism(ant).expect("live").chain[0];
+        let larva_at = |w: &mut World, cell: (i32, i32), colony: u32| {
+            let id = lay_at(w, ant, &def, cell);
+            let st = w.organism_mut(id).expect("laid");
+            let b = st.brood.as_mut().expect("brood");
+            b.stage = BroodStage::Larva;
+            st.energy = 0.1 * b.target;
+            st.colony = colony;
+            id
+        };
+        let from = (head.0 - 12, head.1);
+        assert_eq!(nearest_hungry_larva(&w, from, colony, material, 16), None, "no brood, yet a larva");
+        let far = (from.0 + 10, from.1);
+        larva_at(&mut w, far, colony);
+        assert_eq!(nearest_hungry_larva(&w, from, colony, material, 16), Some(far), "a starving larva ten cells off was not found");
+        assert_eq!(nearest_hungry_larva(&w, from, colony, material, 9), None, "a larva past reach was found");
+        let near = (from.0 - 3, from.1);
+        let id = larva_at(&mut w, near, colony);
+        assert_eq!(nearest_hungry_larva(&w, from, colony, material, 16), Some(near), "the nearer larva did not win");
+        let target = w.organism(id).and_then(|s| s.brood).expect("brood").target;
+        w.organism_mut(id).expect("live").energy = target;
+        assert_eq!(nearest_hungry_larva(&w, from, colony, material, 16), Some(far), "a fed larva was taken for a hungry one");
+        w.organism_mut(id).expect("live").colony = colony + 1;
+        w.organism_mut(id).expect("live").energy = 0.1 * target;
+        assert_eq!(nearest_hungry_larva(&w, from, colony, material, 16), Some(far), "another colony's larva was taken");
     }
 
     /// **A lone larva is carried to the pile** ([`carry`]): with a nestmate

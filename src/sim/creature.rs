@@ -4342,7 +4342,7 @@ const PILE_KEEP_BESIDE: u32 = 2;
 fn store_kept(world: &World, organism: OrganismId, def: &CreatureDef, (x, y): (i32, i32), (fx, fy): (i32, i32)) -> bool {
     // **[`NestStore`]'s `keep`**: the deep store is for the hungry, and for
     // a nurse filling up for a hungry larva ([`store_nurse_may_fill`]).
-    if nest_store_of(world).keep && world.organism(organism).is_some_and(|s| s.energy >= def.start_energy) && is_store_cell(world, (fx, fy)) && !store_nurse_may_fill(world, organism) {
+    if nest_store_of(world).keep && world.organism(organism).is_some_and(|s| s.energy >= def.start_energy) && is_store_cell(world, (fx, fy)) && !store_nurse_may_fill(world, organism, def, (x, y)) {
         return true;
     }
     let rule = storeroom_of(world);
@@ -13036,14 +13036,41 @@ fn is_store_cell(world: &World, (fx, fy): (i32, i32)) -> bool {
         && nest_way_near(world, fx, fy).is_some_and(|way| NEIGHBOURS_8.iter().any(|&(dx, dy)| way.at(fx + dx, fy + dy).is_some_and(|d| d >= depth)))
 }
 
-/// **The nurse's exception to `keep`** ([`NestStore`]; Laying's gate, a
-/// hook for that lane to fill): a fed nest worker may fill its crop at the
-/// store only while a hungry larva is within scent reach, and that crop goes
-/// only to larvae. Nurses are off on main ([`NurseStay::SHIPPED`]), so for
-/// now no fed ant is let in.
-fn store_nurse_may_fill(_world: &World, _organism: OrganismId) -> bool {
-    false
+/// **The nurse's exception to `keep`** ([`NestStore`]): a fed nest worker
+/// ([`is_nest_bound`]) may fill its crop at the store while a hungry larva of
+/// its colony lies within [`NURSE_FILL_REACH`] of its head, under
+/// [`NurseStay`]'s `nurse`. Filled, it is a nurse ([`is_crop_nurse`]): it
+/// never puts that crop down and walks it to the larvae ([`nurse_pace_target`]),
+/// though a hungry adult it touches may still be fed from it. Nurses are off
+/// on main ([`NurseStay::SHIPPED`]), so there no fed ant is let in.
+///
+/// **Why the store and not the door.** With the hand-off at the door
+/// (`relay`, `down`) the nurses took 36-42% of the foragers' loads from the
+/// ants that ate at the door, and the door eaters starved: 310-398 grown ants
+/// by 120k against 1-48 (seeds 1-4, Laying, meal by meal, 2026-10-06). Filled
+/// at the store, a nurse eats into what the nest workers carried down, not
+/// into the door.
+fn store_nurse_may_fill(world: &World, organism: OrganismId, def: &CreatureDef, head: (i32, i32)) -> bool {
+    if !nurse_stay_of(world).nurse {
+        return false;
+    }
+    let Some(s) = world.organism(organism).filter(|s| is_nest_bound(world, s)) else {
+        return false;
+    };
+    super::brood::brood_material(world, def).is_some_and(|m| super::brood::nearest_hungry_larva(world, head, s.colony, m, NURSE_FILL_REACH).is_some())
 }
+
+/// How far a nurse looks for a hungry larva past the scent's reach
+/// ([`super::brood::NURSE_SCENT_REACH`]), in cells either way: for filling at
+/// the store ([`store_nurse_may_fill`]) and for walking to the brood
+/// ([`nurse_pace_target`]).
+pub const NURSE_FILL_REACH: i32 = 16;
+
+/// How many cells ahead, along the larva scent, a nurse's
+/// [`nurse_pace_target`] lies: far enough that the bearing reads as one
+/// (`HomeAligned` reads 0 inside a cell), near enough to stay inside the
+/// scent's reach.
+const NURSE_PACE_LEAD: f32 = 4.0;
 
 /// **[`REST_LOOKAHEAD`] steps along a field from `head`**, always to the
 /// neighbour that moves furthest the asked way (`down`: to smaller values),
@@ -13201,10 +13228,11 @@ fn store_carry_arrived(world: &World, organism: OrganismId, head: (i32, i32)) ->
 /// bearing** -- the one place a carry's own destination replaces the forage
 /// anchor, which the nest re-sets to wherever the ant stands, so that a
 /// carrier inside reads "already home" and stands. A store load
-/// ([`NestStore`]'s `carry`) aims where its pull aims; a nurse is
-/// [`nurse_pace_target`]'s, the hook Laying's nurse gate fills. `None` for
-/// everyone else, and on arrival, and the caller falls back to
-/// [`spoil_pace_target`] and then `home_target` as before.
+/// ([`NestStore`]'s `carry`) aims where its pull aims; a worker fetching
+/// door food at that food ([`fetch_target`]); a nurse where
+/// [`nurse_pace_target`] says. `None` for everyone else, and on arrival, and
+/// the caller falls back to [`spoil_pace_target`] and then `home_target` as
+/// before.
 fn pull_pace_target(world: &World, organism: OrganismId, def: &CreatureDef, state: &crate::sim::organism::OrganismState, head: (i32, i32)) -> Option<(i32, i32)> {
     if nest_store_of(world).carry && state.spoil.is_some_and(|s| s.store) {
         return store_inward(world, organism, head, i32::MAX, true);
@@ -13214,18 +13242,41 @@ fn pull_pace_target(world: &World, organism: OrganismId, def: &CreatureDef, stat
     if let Some(t) = fetch_target(world, def, state, head) {
         return Some(t);
     }
-    nurse_pace_target(world, organism, state, head)
+    nurse_pace_target(world, def, state, head)
 }
 
-/// **Where a nurse is going, for its `HomeAligned` bearing**: a hook for
-/// Laying's nurse switch ([`NurseStay`]). A nurse holds crop food, so it
-/// reads `HomeAligned` against its forage anchor and, inside the nest, stands
-/// on it (Laying, 2026-10-06: laden ants inside on their own anchor 97-99% of
-/// decisions, idle 74-76%). Meant to return the larvae it is feeding, or the
-/// store ([`store_inward`]) when its crop is empty. `None` until Laying fills
-/// it, so nothing changes.
-fn nurse_pace_target(_world: &World, _organism: OrganismId, _state: &crate::sim::organism::OrganismState, _head: (i32, i32)) -> Option<(i32, i32)> {
-    None
+/// **Where a nurse is going, for its `HomeAligned` bearing** ([`NurseStay`]'s
+/// `pace`). A nurse holds crop food, so it reads `HomeAligned` and, read
+/// against its forage anchor, which the nest re-sets to where it stands, it
+/// was always home: laden ants inside the nest stood on their own anchor in
+/// 97-99% of their decisions and idled in 74-76% (seeds 1-4, 2026-10-06; the
+/// home-sense fault Nest race found for store carriers the same night).
+/// So it reads the way to the larvae instead:
+///
+/// - above the founding ground, [`nurse_in_target`]'s point under the door,
+///   where its pull already takes it;
+/// - below it, inside the larva scent ([`super::brood::larva_scent`]),
+///   [`NURSE_PACE_LEAD`] cells up the scent;
+/// - past the scent, the nearest hungry larva within [`NURSE_FILL_REACH`]
+///   ([`super::brood::nearest_hungry_larva`]).
+///
+/// `None` with no hungry larva in reach, and for every ant that is not a
+/// nurse ([`is_crop_nurse`]). An empty nest worker never reads it --
+/// `HomeAligned` is read only for carriers -- and is taken to the store by
+/// [`NestStore`]'s `home` pull, where [`store_nurse_may_fill`] lets it fill
+/// for the larvae.
+fn nurse_pace_target(world: &World, def: &CreatureDef, state: &crate::sim::organism::OrganismState, head: (i32, i32)) -> Option<(i32, i32)> {
+    if !nurse_stay_of(world).pace || !is_crop_nurse(world, state) {
+        return None;
+    }
+    if !below_founding_ground(world, head.0, head.1) {
+        return nurse_in_target(world, state, head);
+    }
+    let material = super::brood::brood_material(world, def)?;
+    if let Some((ux, uy, _)) = super::brood::larva_scent(world, head, state.colony, material) {
+        return Some((head.0 + (ux * NURSE_PACE_LEAD).round() as i32, head.1 + (uy * NURSE_PACE_LEAD).round() as i32));
+    }
+    super::brood::nearest_hungry_larva(world, head, state.colony, material, NURSE_FILL_REACH)
 }
 
 /// **Food in each nest's store** ([`NestStore`]), in cells, at the last
@@ -13691,7 +13742,7 @@ fn carriers_seek_larvae(world: &World) -> bool {
 }
 
 /// **Nurses carry forager food to the brood** (`PIXEL_PHYSICS_NURSE_STAY=
-/// on|off|relay|nurse|down|stay|stayN`, a comma list; built 2026-10-05,
+/// on|off|relay|nurse|down|stay|stayN|pace`, a comma list; built 2026-10-05,
 /// **off** unless set: see the end of this doc). A nurse is a young nest worker ([`is_nest_bound`])
 /// holding crop food:
 ///
@@ -13719,6 +13770,9 @@ fn carriers_seek_larvae(world: &World) -> bool {
 ///   ([`nurse_in_target`]).
 /// - `stay`: a nest worker that feeds a larva (`brood::nurse`) stays a nest
 ///   worker for [`NURSE_STAY_FRAMES`] (or N) more frames.
+/// - `pace` (2026-10-06): a nurse reads its `HomeAligned` bearing to the
+///   larvae ([`nurse_pace_target`]), not to its forage anchor, which inside
+///   the nest is where it stands.
 ///
 /// **Why.** Food never reaches brood off the lane under the door: 94-98% of
 /// the nest's fed ants stand in it, and the fed ants are mound visitors that
@@ -13756,8 +13810,9 @@ fn carriers_seek_larvae(world: &World) -> bool {
 /// first version of this note gave the bites as the heap's intake); seed 2
 /// died out by 260k. Each alone holds: this switch with the three off is
 /// 488/583/543/545 (the numbers above, to the ant), and the three with this
-/// one off are the 547-573 just given. Why the pair starves the colony is
-/// not yet traced.
+/// one off are the 547-573 just given. Why the pair starves the colony,
+/// traced meal by meal (2026-10-06): the hand-off takes 36-42% of the
+/// foragers' loads from the ants that ate them at the door, which starve.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct NurseStay {
     pub relay: bool,
@@ -13767,6 +13822,9 @@ pub struct NurseStay {
     pub down: bool,
     /// Frames a feeding nest worker stays one; 0 for none.
     pub stay: u64,
+    /// A nurse's `HomeAligned` reads the way to the larvae
+    /// ([`nurse_pace_target`]).
+    pub pace: bool,
 }
 
 impl NurseStay {
@@ -13775,12 +13833,14 @@ impl NurseStay {
         nurse: false,
         down: false,
         stay: 0,
+        pace: false,
     };
     pub const ON: NurseStay = NurseStay {
         relay: true,
         nurse: true,
         down: true,
         stay: NURSE_STAY_FRAMES,
+        pace: true,
     };
     /// What a world gets with the variable unset: off since 2026-10-05,
     /// see the type's doc.
@@ -13797,10 +13857,11 @@ impl NurseStay {
                 "nurse" => ns.nurse = true,
                 "down" => ns.down = true,
                 "stay" => ns.stay = NURSE_STAY_FRAMES,
+                "pace" => ns.pace = true,
                 other => match other.strip_prefix("stay").and_then(|n| n.parse().ok()) {
                     Some(n) => ns.stay = n,
                     None => panic!(
-                        "PIXEL_PHYSICS_NURSE_STAY={raw:?}: {other:?} is not on, off, relay, nurse, down, stay or stayN"
+                        "PIXEL_PHYSICS_NURSE_STAY={raw:?}: {other:?} is not on, off, relay, nurse, down, stay, stayN or pace"
                     ),
                 },
             }
@@ -31086,15 +31147,138 @@ mod tests {
         );
     }
 
+    /// **A nurse reads its way to the larvae, not to where it stands**
+    /// ([`NurseStay`]'s `pace`, [`nurse_pace_target`], read by `sense`'s
+    /// `HomeAligned`). A nest worker with crop food in [`deep_world`]'s
+    /// chamber, its forage anchor re-set to its head as the nest re-sets it,
+    /// facing west: with a starving larva three cells west it reads
+    /// `HomeAligned` near 1 under `pace` and 0 without it (the control, the
+    /// fault: "already home"); with the only larva fifteen rows down the
+    /// shaft, past the scent, the target is that larva; with it in the room
+    /// at the foot, past [`NURSE_FILL_REACH`], there is none; an ant that is
+    /// not a nest worker gets none; and on the surface the target is
+    /// [`nurse_in_target`]'s. The store's gate for the same nurse
+    /// ([`store_nurse_may_fill`]) opens with the larva in reach, and stays
+    /// shut with it out of reach, with the ant not a nest worker, and with
+    /// nurses off. Watched red with the scent branch and the ring search each
+    /// left out of `nurse_pace_target`.
+    #[test]
+    fn under_nurse_stay_pace_a_nurse_reads_its_way_to_the_larvae() {
+        let unpaced = NurseStay {
+            pace: false,
+            ..NurseStay::ON
+        };
+        let nurse = |ns: NurseStay, (x, y): (i32, i32), larva: Option<(i32, i32)>, bound: bool| {
+            let (mut w, a, def) = carrier_world(x, y, CropDown::OFF, 1.5, 1);
+            w.nurse_stay = Some(ns);
+            if let Some(cell) = larva {
+                assert!(w.is_empty(cell.0, cell.1), "test setup: the larva's cell {cell:?} is taken");
+                let block = def.brood.clone().expect("ant.ron authors a brood block");
+                let st = w.organism(a).expect("live");
+                let egg = crate::sim::brood::Egg {
+                    species: st.species,
+                    genome: st.genome.clone(),
+                    traits: st.traits,
+                    generation: st.generation + 1,
+                    lineage: st.lineage,
+                    colony: st.colony,
+                    made: 0.0,
+                    fates: st.fates,
+                };
+                let head = st.chain[0];
+                crate::sim::brood::lay_egg(&mut w, a, head, &def, &block, egg, Some(cell)).expect("test setup: no egg laid");
+                let id = w.get(cell.0, cell.1).organism_id();
+                let st = w.organism_mut(id).expect("laid");
+                let b = st.brood.as_mut().expect("brood");
+                b.stage = organism::BroodStage::Larva;
+                st.energy = 0.1 * b.target;
+            }
+            let st = w.organism_mut(a).expect("live");
+            st.energy = 1.5 * def.start_energy;
+            st.nest_bound_until = if bound { u64::MAX } else { 0 };
+            st.forage_anchor = st.chain[0];
+            (w, a, def)
+        };
+        let target = |ns: NurseStay, at: (i32, i32), larva: Option<(i32, i32)>, bound: bool| {
+            let (w, a, def) = nurse(ns, at, larva, bound);
+            let st = w.organism(a).expect("live");
+            (st.chain[0], nurse_pace_target(&w, &def, st, st.chain[0]))
+        };
+        let aligned = |ns: NurseStay, larva: Option<(i32, i32)>| {
+            let (w, a, def) = nurse(ns, (63, 47), larva, true);
+            let head = w.organism(a).expect("live").chain[0];
+            let (inputs, _, _, _) = sense(&w, head.0, head.1, a, 4, &def, false);
+            inputs[brain::BrainInput::HomeAligned as usize]
+        };
+        let (head, _) = target(NurseStay::ON, (63, 47), None, true);
+        assert!(head.1 > 40, "test setup: the nurse's head {head:?} is not below the founding ground");
+        let west = (head.0 - 3, head.1);
+        assert_eq!(
+            aligned(unpaced, Some(west)),
+            0.0,
+            "control: without pace a nurse on its anchor read a bearing"
+        );
+        let on = aligned(NurseStay::ON, Some(west));
+        assert!(on > 0.9, "pace: a nurse facing a starving larva read HomeAligned {on}, not near 1");
+        assert_eq!(
+            target(unpaced, (63, 47), Some(west), true).1,
+            None,
+            "control: without pace the hook gave a target"
+        );
+        let (_, scent) = target(NurseStay::ON, (63, 47), Some(west), true);
+        assert_eq!(
+            scent,
+            Some((head.0 - 4, head.1)),
+            "pace: the target is not four cells up the scent, due west of {head:?}"
+        );
+        let shaft = (60, 62);
+        assert_eq!(
+            target(NurseStay::ON, (63, 47), Some(shaft), true).1,
+            Some(shaft),
+            "pace: past the scent the nearest hungry larva was not the target"
+        );
+        assert_eq!(
+            target(NurseStay::ON, (63, 47), Some((56, 74)), true).1,
+            None,
+            "pace: a larva past NURSE_FILL_REACH was the target"
+        );
+        assert_eq!(
+            target(NurseStay::ON, (63, 47), Some(west), false).1,
+            None,
+            "pace: an ant that is not a nest worker was given a nurse's target"
+        );
+        assert_eq!(
+            target(NurseStay::ON, (90, 39), None, true).1,
+            Some((60, 40 + NURSE_IN_DEPTH)),
+            "pace: a nurse on the surface was not aimed in under the door"
+        );
+        let may = |ns: NurseStay, larva: (i32, i32), bound: bool| {
+            let (w, a, def) = nurse(ns, (63, 47), Some(larva), bound);
+            let head = w.organism(a).expect("live").chain[0];
+            store_nurse_may_fill(&w, a, &def, head)
+        };
+        assert!(may(NurseStay::ON, shaft, true), "the store refused a nest worker with a hungry larva in reach");
+        assert!(!may(NurseStay::ON, (56, 74), true), "the store let a nest worker fill with no hungry larva in reach");
+        assert!(!may(NurseStay::ON, shaft, false), "the store let an ant that is not a nest worker fill");
+        assert!(!may(NurseStay::OFF, shaft, true), "control: with nurses off the store let a fed ant fill");
+    }
+
     #[test]
     fn nurse_stay_parses_its_words_and_refuses_the_rest() {
         assert_eq!(NurseStay::parse("on"), NurseStay::ON);
         assert_eq!(NurseStay::parse("off"), NurseStay::OFF);
-        assert_eq!(NurseStay::parse("relay, nurse, down, stay"), NurseStay::ON);
+        assert_eq!(NurseStay::parse("relay, nurse, down, stay, pace"), NurseStay::ON);
         assert_eq!(
-            NurseStay::parse("relay,nurse,down"),
+            NurseStay::parse("relay,nurse,down,pace"),
             NurseStay {
                 stay: 0,
+                ..NurseStay::ON
+            }
+        );
+        assert_eq!(
+            NurseStay::parse("relay,nurse,down,stay"),
+            NurseStay {
+                pace: false,
                 ..NurseStay::ON
             }
         );
