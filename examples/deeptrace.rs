@@ -42,6 +42,12 @@
 //!   brood item moved, frame by frame (`broodlog.csv`), and the nest as a
 //!   picture (`nest_fNNNNNN.txt`) every `nestevery=` frames (2,500). No brain probe,
 //!   so `ants=0 dig=1` records the whole colony for a fraction of `ants=all`.
+//!   Since 2026-10-06 each dig row also carries **the pellet's funnel**
+//!   (`spoil_why`, `creature::SPOIL_WHY_NAMES`: kept by the keep rule, roll
+//!   lost, no cell to hold it, placed, lifted; `spoil_flags`, the keep rule's
+//!   inputs as `creature::SPOIL_FLAG_*` bits; `spoil_p`, the drop's
+//!   probability as rolled) and the pull the walk scored with (`pull_why`,
+//!   `pull_x`, `pull_y`), for why nest workers at the door hold pellets.
 //! - with `walk=1` (which turns `dig=1` on), **every walking decision in and
 //!   round the nest** (`walkrows.csv.gz`, see `DigLog::walk_row`): the
 //!   chooser's options and scores, the pull it scored with
@@ -68,14 +74,32 @@
 //!   `scenario=played_bed food=0 ants=0` it records a garden and its colony
 //!   whole; the recording takes no draw (stats and colony files byte-identical
 //!   with and without it, seed 1 at 15,000 frames, 2026-10-05).
+//! - `colony=0` takes the colony out of the scenario's timeline (the garden
+//!   alone, paired on the same seed), and `set=subject.field=value;...`
+//!   applies any scenario setting, as `labgarden`'s `colony=0` and the lab's
+//!   own parameter page do. Both added 2026-10-05 for the grass trace in
+//!   `Reports/garden-harmony-2026-10-05.md`.
+//! - with `hungry=1` (which turns `census=1` on), **every decision of every
+//!   hungry ant, wherever it stands** (`hungry.csv.gz`, see `HungryLog`): the
+//!   pull, what the scout was sent out with (`want`, `zoned`), its weight,
+//!   patience and give-up, the door read and why (`creature::DOOR_WHY_NAMES`),
+//!   trail B under the picked heading and six cells east and west, every
+//!   option's score and the step; and every ant's life in one line
+//!   (`ledger.csv`). Reader: `scripts/deeptrace_hunger.py` (`funnel`, `walk`,
+//!   `starved`). Built 2026-10-05 for why hungry ants on the spoil mound never
+//!   walk to the heap.
 //! - **`stats.csv`**: the world's running totals every `colonyevery=` frames:
 //!   deaths by cause, eggs, pupae, births and larvae starved, the brood's food
 //!   by source, each nest-plan switch's "it fired" counter, and the foraging
 //!   and laying funnels (meals, pick-ups, trips and deliveries; eggs held for
-//!   want of a pile site, declined, or braked).
+//!   want of a pile site, declined, or braked), the shares between ants, and
+//!   the carriers' homing switches' counters (`home_searches`, and
+//!   `PIXEL_PHYSICS_CARRY_HOME`'s `carry_fills` and `carry_turns`), and
+//!   `PIXEL_PHYSICS_MOUND_OUT`'s `mound_out_pulls` and `mound_digs_let`.
 //!
 //! `founder=evolved` lands the colony with lane 2's evolved founder (the six
-//! scenario rows in `EVOLVED_FOUNDER`), before any `gut=`.
+//! scenario rows in `EVOLVED_FOUNDER`), before any `gut=`. It is the lab's
+//! default since 2026-10-05, and then the flag pushes nothing.
 //!
 //! **Focal ants.** Half the slots are founders picked at landing, the rest
 //! the first ants born after `bornafter=` (20,000). A focal ant that dies is
@@ -98,8 +122,9 @@ use pixel_physics::lab::{Lab, HEIGHT, WIDTH};
 use pixel_physics::sim::brain::{BRAIN_HIDDEN, BRAIN_INPUTS, BRAIN_OUTPUTS, INPUT_NAMES, OUTPUT_NAMES};
 use pixel_physics::sim::cell::{Cell, OrganismId};
 use pixel_physics::sim::creature::{
-    self, BiteRow, DecisionRow, DigWhy, FeedRow, DECISION_LEG_NAMES, DECISION_OUTCOME_NAMES, DIG_NO_TARGET, DIG_WHY_NAMES, DIRS,
-    DROP_WHY_NAMES, FEED_KIND_NAMES, HOMEWARD_WHY_NAMES, PULL_WHY_NAMES, TRIP_END_NAMES,
+    self, BiteRow, DecisionRow, DigWhy, FeedRow, DECISION_LEG_NAMES, DECISION_OUTCOME_NAMES, DIG_NO_TARGET,
+    DIG_WHY_NAMES, DIRS, DOOR_WHY_NAMES, DROP_WHY_NAMES, FEED_KIND_NAMES, HOMEWARD_WHY_NAMES, PULL_WHY_NAMES,
+    SPOIL_WHY_NAMES, TRIP_END_NAMES,
 };
 use pixel_physics::sim::material::{self, MaterialKind};
 use pixel_physics::sim::organism::{self, BroodStage};
@@ -125,8 +150,13 @@ const WALK_RISE: i32 = 6;
 const WALK_REACH: i32 = 45;
 
 /// **Lane 2's evolved founder** (2026-10-04): the six scenario rows that are
-/// bit-identical to draft PR 617's `PIXEL_PHYSICS_LAB_ANT=evolved`. The last
-/// two are species rows on purpose. `founder=evolved` pushes them.
+/// bit-identical to `PIXEL_PHYSICS_LAB_ANT=evolved`. The last two are species
+/// rows on purpose. `founder=evolved` pushes them only when the box is not
+/// already founding that ant: it is the lab's default since 2026-10-05
+/// (`scene::LAB_ANT_TRAITS`), and on top of it the two species rows would
+/// count twice (a slot scales its species field). So `founder=evolved` keeps
+/// meaning the same ant under `PIXEL_PHYSICS_LAB_ANT=half-plant` and on the
+/// builds before.
 const EVOLVED_FOUNDER: [(&str, f32); 6] = [
     ("gut_bias", -0.8),
     ("birth_grant", -0.27),
@@ -393,7 +423,10 @@ fn main() {
     // `only=id,id,...` with `ants=all`: write (and probe) just these ants. The
     // world is the same run either way -- the trace takes no draw -- so a
     // re-run with `only=` reproduces any ant of an earlier full run cheaply.
-    let census = arg::<u8>("census").unwrap_or(0) == 1;
+    // `hungry=1`: every decision of every hungry ant, and a line per life
+    // (see `HungryLog`); it needs the census's death lines, so it turns them on.
+    let hungry = arg::<u8>("hungry").unwrap_or(0) == 1;
+    let census = arg::<u8>("census").unwrap_or(0) == 1 || hungry;
     let only: HashSet<OrganismId> = arg::<String>("only")
         .map(|v| v.split(',').filter_map(|t| t.trim().parse().ok()).collect())
         .unwrap_or_default();
@@ -419,9 +452,11 @@ fn main() {
     let garden = arg::<u8>("garden").unwrap_or(0) == 1;
     let plant_every: u64 = arg("plantevery").unwrap_or(500);
     println!(
-        "deeptrace: scenario={scenario} seed={seed} frames={frames} ants={n_ants} bornafter={born_after} colonyevery={colony_every} mapevery={map_every} food={target} shots={} dig={} nestevery={nest_every} out={out}",
+        "deeptrace: scenario={scenario} seed={seed} frames={frames} ants={n_ants} bornafter={born_after} colonyevery={colony_every} mapevery={map_every} food={target} shots={} dig={} garden={} hungry={} nestevery={nest_every} out={out}",
         u8::from(shots),
-        u8::from(dig)
+        u8::from(dig),
+        u8::from(garden),
+        u8::from(hungry)
     );
     std::fs::create_dir_all(&out).expect("out dir");
     let mut sc = Scenario::load(&scenario).unwrap_or_else(|e| {
@@ -429,7 +464,11 @@ fn main() {
         std::process::exit(1);
     });
     sc.bed.seed = seed;
-    if arg::<String>("founder").as_deref() == Some("evolved") {
+    if arg::<String>("founder").as_deref() == Some("evolved")
+        && pixel_physics::lab::scene::lab_ant_traits() == &pixel_physics::lab::scene::LAB_ANT_TRAITS[..]
+    {
+        println!("  evolved founder: the lab's default already (scene::LAB_ANT_TRAITS); no rows pushed");
+    } else if arg::<String>("founder").as_deref() == Some("evolved") {
         for (field, value) in EVOLVED_FOUNDER {
             sc.settings.push(pixel_physics::lab::scenario::Setting {
                 subject: "ant".into(),
@@ -449,6 +488,26 @@ fn main() {
             value: v,
         });
         println!("  founders' gut_bias set to {v}");
+    }
+    // `set=subject.field=value[;...]`: any scenario setting, before the bed
+    // is built -- how the grass old-age and seed-size arms were run.
+    if let Some(list) = arg::<String>("set") {
+        for item in list.split(';') {
+            let (lhs, v) = item.split_once('=').expect("set=subject.field=value");
+            let (subject, field) = lhs.split_once('.').expect("subject.field");
+            sc.settings.push(pixel_physics::lab::scenario::Setting { subject: subject.into(), field: field.into(), value: v.parse().expect("number") });
+            println!("  set {subject}.{field} = {v}");
+        }
+    }
+    if arg::<u8>("colony").unwrap_or(1) == 0 {
+        sc.timeline.retain(|e| {
+            !matches!(
+                e.what,
+                pixel_physics::lab::scenario::Placement::Colony { .. }
+                    | pixel_physics::lab::scenario::Placement::Colonies { .. }
+            )
+        });
+        println!("  colony=0: the garden alone");
     }
     let mut lab = Lab::new(sc.bed.clone());
     let msg = lab.load_scenario(sc);
@@ -517,7 +576,7 @@ fn main() {
     let mut stats_csv = std::io::BufWriter::new(std::fs::File::create(format!("{out}/stats.csv")).unwrap());
     writeln!(
         stats_csv,
-        "frame,ants,brood,{},eggs_laid,pupae,births,larvae_starved,brood_ate_j,brood_crop_fed_j,brood_nursed_j,brood_shared_j,brood_upkeep_j,larva_ticks_hungry,larva_ticks_crop_fed,larva_ticks_nursed,crop_down_holds,nurse_seeks,soil_way_pulls,hungry_out_pulls,spoil_held_below,spoil_kept_inside,spoil_dumped,lean_dropped,digs,eats,pickups,drops,deliveries,trip_deliveries,forage_trips,forage_returns,topup_shares,throttle_held,throttle_sent,at_nest_ticks,nest_visits,buds_held_for_nest,lays_declined,births_denied_no_space,food_brake_held",
+        "frame,ants,brood,{},eggs_laid,pupae,births,larvae_starved,brood_ate_j,brood_crop_fed_j,brood_nursed_j,brood_shared_j,brood_upkeep_j,larva_ticks_hungry,larva_ticks_crop_fed,larva_ticks_nursed,crop_down_holds,nurse_seeks,soil_way_pulls,hungry_out_pulls,spoil_held_below,spoil_kept_inside,spoil_dumped,lean_dropped,digs,eats,pickups,drops,deliveries,trip_deliveries,forage_trips,forage_returns,topup_shares,throttle_held,throttle_sent,at_nest_ticks,nest_visits,buds_held_for_nest,lays_declined,births_denied_no_space,food_brake_held,shares,home_searches,carry_fills,carry_turns,mound_out_pulls,mound_digs_let",
         organism::DEATH_CAUSE_LIST
             .iter()
             .map(|c| format!("died_{}", c.label().to_lowercase().replace(['?'], "unknown").replace(' ', "_")))
@@ -530,6 +589,7 @@ fn main() {
         .collect();
     let mut diglog = dig.then(|| DigLog::new(&out, &lab.world, &names, walk, def.start_energy));
     let mut gardenlog = garden.then(|| GardenLog::new(&out));
+    let mut hunglog = hungry.then(|| HungryLog::new(&out, def.start_energy));
     // **Experiment dials, harness-only.** `mutation=<rate>` overrides the
     // ant's per-slot brain mutation rate (0 freezes the founders' brain only;
     // traits and body still mutate -- the game switch above freezes all);
@@ -746,6 +806,15 @@ fn main() {
         if f < frames {
             lab.tick_for_harness();
         }
+        // After the tick: the decision rows and what changed. Taken before
+        // the census books this frame's deaths, so a dying ant's last row
+        // lands on its own life before `died` closes it -- booked after, it
+        // opened a fresh life born at frame 0, a ghost line in `ledger.csv`.
+        let rows: Vec<DecisionRow> = lab.world.decision_log.as_mut().map(std::mem::take).unwrap_or_default();
+        let feeds: Vec<FeedRow> = lab.world.feed_log.as_mut().map(std::mem::take).unwrap_or_default();
+        if let Some(h) = hunglog.as_mut() {
+            h.after(&lab.world, g, f, &rows);
+        }
         for (id, before) in &census_pre {
             if lab.world.organism(*id).is_none() {
                 let w = &lab.world;
@@ -770,12 +839,17 @@ fn main() {
                     }
                 )
                 .unwrap();
+                if let Some(h) = hunglog.as_mut() {
+                    let cause = if causes.is_empty() {
+                        "?".to_string()
+                    } else {
+                        causes.join("+")
+                    };
+                    h.died(*id, f, &cause, zone(w, g, before.head), before.energy);
+                }
             }
         }
 
-        // After the tick: the decision rows and what changed.
-        let rows: Vec<DecisionRow> = lab.world.decision_log.as_mut().map(std::mem::take).unwrap_or_default();
-        let feeds: Vec<FeedRow> = lab.world.feed_log.as_mut().map(std::mem::take).unwrap_or_default();
         if let Some(gl) = gardenlog.as_mut() {
             let bites = lab.world.bite_log.as_mut().map(std::mem::take).unwrap_or_default();
             gl.after(&lab.world, &bites, f, plant_every, &names, &mut events);
@@ -923,7 +997,7 @@ fn main() {
             let st = &w.creature_stats;
             writeln!(
                 stats_csv,
-                "{f},{},{},{},{},{},{},{},{:.0},{:.0},{:.0},{:.0},{:.0},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
+                "{f},{},{},{},{},{},{},{},{:.0},{:.0},{:.0},{:.0},{:.0},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
                 live.len(),
                 w.live_brood_ids().len(),
                 w.deaths_by_cause.iter().map(|d| d.to_string()).collect::<Vec<_>>().join(","),
@@ -964,6 +1038,12 @@ fn main() {
                 st.lays_declined,
                 st.births_denied_no_space,
                 st.food_brake_held,
+                st.shares,
+                st.home_searches,
+                st.carry_fills,
+                st.carry_turns,
+                st.mound_out_pulls,
+                st.mound_digs_let,
             )
             .unwrap();
             for &id in &live {
@@ -1061,16 +1141,26 @@ fn main() {
     if let Some(gl) = gardenlog {
         gl.finish();
     }
+    if let Some(h) = hunglog {
+        h.finish(&lab.world, geo.as_ref(), frames);
+    }
     println!("deeptrace: done, {rows_written} focal rows");
 }
 
 /// The box round the nest and food as one character a cell: `.` air, `#`
-/// ground, `s` loose spoil (powder), `~` water, `a` ant, `b` brood, `f` food.
+/// ground, `s` loose spoil (powder), `~` water, `a` ant, `b` brood, `f` food,
+/// with two foods drawn apart since 2026-10-06: `c` crumbs and `x` corpses.
+/// The walk parts brood and crumbs (`creature::PushPast`) and is walled by
+/// corpses and the player's provisions, so a map that drew them all `f` could
+/// not say whether a door was shut: `deep-trace/tools/doorseal.py` (in the
+/// project), counting every food cell as wall, read seed 4's door under
+/// `CARRY_HOME` shut on 22 of 25 maps where the walk's own rule finds 20.
 /// First line: `x0 y0 width height`.
 fn write_map(w: &World, g: &Geo, path: &str) {
     let (x0, x1) = (g.nest_x - 80, g.food_x + 40);
     let (y0, y1) = (g.ground_y - 60, g.ground_y + 70);
     let brood = w.materials.id_of("brood");
+    let (crumbs, corpse) = (w.materials.id_of("crumbs"), w.materials.id_of("corpse"));
     let mut s = format!("{x0} {y0} {} {}\n", x1 - x0 + 1, y1 - y0 + 1);
     for y in y0..=y1 {
         for x in x0..=x1 {
@@ -1088,7 +1178,13 @@ fn write_map(w: &World, g: &Geo, path: &str) {
                 } else if kind == MaterialKind::Liquid {
                     '~'
                 } else if c.organism_id() == 0 && creature::food_value(w, c) > 0.0 {
-                    'f'
+                    if Some(c.material) == crumbs {
+                        'c'
+                    } else if Some(c.material) == corpse {
+                        'x'
+                    } else {
+                        'f'
+                    }
                 } else if kind == MaterialKind::Powder {
                     's'
                 } else {
@@ -1208,7 +1304,10 @@ type BroodSeen = ((i32, i32), u8);
 /// - `nest_fNNNNNN.txt`: the region as one character a cell every
 ///   `nestevery=` frames: `.` open and never dug, `o` open and dug, `#`
 ///   untouched ground, `=` packed wall, `s` spoil, `r` ground the jaw cannot
-///   take, `~` water, `a` an adult, `e`/`l`/`p` egg, larva, pupa, `f` food.
+///   take, `~` water, `a` an adult, `e`/`l`/`p` egg, larva, pupa, `f` food,
+///   `c` crumbs and `x` corpses (drawn apart from other food since
+///   2026-10-06, as in `write_map`: the walk parts crumbs and is walled by
+///   corpses).
 ///
 /// "Ground" is any powder or solid cell owned by no organism and holding no
 /// food, which is what a cut can take and a pellet becomes.
@@ -1272,7 +1371,7 @@ impl GardenLog {
         let (z1, mut bites) = gzip_to(&format!("{out}/bites.csv.gz"));
         let (z2, mut plants) = gzip_to(&format!("{out}/plants.csv.gz"));
         writeln!(bites, "frame,eater,x,y,material,owner,living,worth,spared").unwrap();
-        writeln!(plants, "frame,id,species,generation,x,y,cells,edible,edible_j,gained,lost,bitten,defence,seed").unwrap();
+        writeln!(plants, "frame,id,species,generation,x,y,cells,edible,edible_j,gained,lost,bitten,defence,seed,carbon,tips,water,canopy,age,light,above").unwrap();
         GardenLog { bites, plants, zips: vec![z1, z2], last: HashMap::new(), bitten: HashMap::new() }
     }
 
@@ -1300,6 +1399,9 @@ impl GardenLog {
         }
         if !f.is_multiple_of(every) {
             return;
+        }
+        if f.is_multiple_of(10_000) {
+            writeln!(events, "{f} TILLERS total={}", w.tillers_broken).unwrap();
         }
         let mut seen: HashSet<OrganismId> = HashSet::new();
         for id in w.live_organism_ids() {
@@ -1329,6 +1431,22 @@ impl GardenLog {
                     y = cy;
                 }
             }
+            let (mut carbon, mut tips, mut canopy) = (0f32, 0usize, 0f32);
+            let mut light = 0f32;
+            let mut top: Option<(i32, i32)> = None;
+            for (&(cx, cy), oc) in s.cells.iter() {
+                carbon += oc.carbon;
+                if !w.materials.get(w.get(cx, cy).material).reinforces_powder {
+                    light = light.max(pixel_physics::sim::plant::ambient_light_above(w, cx, cy));
+                    if top.is_none_or(|(_, ty)| cy < ty) {
+                        top = Some((cx, cy));
+                    }
+                }
+                canopy += oc.canopy_density;
+                if pixel_physics::sim::organism::cell_type(w.get(cx, cy).aux()) == Some(pixel_physics::sim::organism::CellType::GrowingTip) {
+                    tips += 1;
+                }
+            }
             let prev = self.last.insert(id, n);
             if prev.is_none() {
                 writeln!(events, "{f} PLANT_BORN id={id} species={} generation={} x={x} y={y} cells={n}", def.name, s.generation).unwrap();
@@ -1340,12 +1458,16 @@ impl GardenLog {
             let (gained, lost) = if n >= prev { (n - prev, 0) } else { (0, prev - n) };
             writeln!(
                 self.plants,
-                "{f},{id},{},{},{x},{y},{n},{edible},{:.0},{gained},{lost},{bitten},{:.3},{}",
+                "{f},{id},{},{},{x},{y},{n},{edible},{:.0},{gained},{lost},{bitten},{:.3},{},{carbon:.1},{tips},{:.2},{:.2},{},{light:.3},{}",
                 def.name,
                 s.generation,
                 edible_j,
                 s.defence,
-                u8::from(seedish && n <= 1)
+                u8::from(seedish && n <= 1),
+                s.water_status,
+                canopy / n.max(1) as f32,
+                s.age_ticks,
+                top.map_or("-".to_string(), |(tx, ty)| w.materials.get(w.get(tx, ty - 1).material).name.clone())
             )
             .unwrap();
         }
@@ -1398,7 +1520,7 @@ impl DigLog {
         let mut brood = std::io::BufWriter::new(std::fs::File::create(format!("{out}/brood.csv")).unwrap());
         writeln!(
             rows,
-            "frame,id,age,worker,hx,hy,zone,heading,hold,ahead,ground8,at_nest,crowding,curvature,food_adj,moisture_grad,energy,dig,dig_p,dig_flags,dig_x,dig_y,dig_mat,outcome,moved,hx_after,hy_after,ret_x,ret_y,patience,trip_end"
+            "frame,id,age,worker,hx,hy,zone,heading,hold,ahead,ground8,at_nest,crowding,curvature,food_adj,moisture_grad,energy,dig,dig_p,dig_flags,dig_x,dig_y,dig_mat,outcome,moved,hx_after,hy_after,ret_x,ret_y,patience,trip_end,spoil_why,spoil_flags,spoil_p,pull_why,pull_x,pull_y"
         )
         .unwrap();
         writeln!(cells, "frame,x,y,from,to,cause,id").unwrap();
@@ -1526,7 +1648,7 @@ impl DigLog {
             let target = r.dig_at != DIG_NO_TARGET;
             writeln!(
                 self.rows,
-                "{f},{},{age},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
+                "{f},{},{age},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
                 r.id,
                 u8::from(p.worker),
                 r.head.0,
@@ -1560,6 +1682,12 @@ impl DigLog {
                 p.ret.map_or(String::new(), |c| c.1.to_string()),
                 fl(p.patience),
                 TRIP_END_NAMES[r.trip_end as usize],
+                SPOIL_WHY_NAMES[r.spoil_why as usize],
+                r.spoil_flags,
+                fl(r.spoil_p),
+                PULL_WHY_NAMES[r.pull_why as usize],
+                if r.pull_at != DIG_NO_TARGET { r.pull_at.0.to_string() } else { String::new() },
+                if r.pull_at != DIG_NO_TARGET { r.pull_at.1.to_string() } else { String::new() },
             )
             .unwrap();
             if self.walk.is_some() && r.head.1 > g.ground_y - WALK_RISE && (r.head.0 - g.nest_x).abs() <= WALK_REACH {
@@ -1787,6 +1915,7 @@ impl DigLog {
 
     fn nest_map(&self, w: &World, path: &str) {
         let Some((x0, y0, wd, ht)) = self.region else { return };
+        let (crumbs, corpse) = (w.materials.id_of("crumbs"), w.materials.id_of("corpse"));
         let mut s = format!("{x0} {y0} {wd} {ht}\n");
         for y in y0..y0 + ht {
             for x in x0..x0 + wd {
@@ -1823,7 +1952,13 @@ impl DigLog {
                             '#'
                         }
                     } else if c.organism_id() == 0 && creature::food_value(w, c) > 0.0 {
-                        'f'
+                        if Some(c.material) == crumbs {
+                            'c'
+                        } else if Some(c.material) == corpse {
+                            'x'
+                        } else {
+                            'f'
+                        }
                     } else {
                         '?'
                     }
@@ -1932,6 +2067,240 @@ impl DigLog {
         for mut z in self.zips {
             let _ = z.wait();
         }
+    }
+}
+
+/// **Every decision of every hungry ant, and every ant's life in one line**
+/// (`hungry=1`), added 2026-10-05 for *why hungry ants on the spoil mound
+/// never walk to the heap* -- the cost of the nurses' switch, the young-mound
+/// famines and the carriers that lose their way home on the mound top all
+/// meet there. `walk=1` writes only the door box and the nest; a hungry ant
+/// on the mound or the open ground is outside it.
+///
+/// - **`hungry.csv.gz`**: one row per decision of an ant holding less than
+///   its start grant (`e` under 1, where the walk's own hunger is above 0
+///   and the scout's pull out is live), wherever it stands: its age, whether
+///   it is nest-bound (`nb`), has ever foraged and how long since it met a
+///   forager home with food (`met_age`, what the `met` drive and the door
+///   read's stale gate count), its anchor, the pull it scored with, the
+///   forage drive, what the scout was sent out with (`want`, `zoned`) and its
+///   weight and patience, the door read (`door`, `door_f`, + east), the trail
+///   B presence of the heading picked (`route`) and trail B six cells east
+///   and west (`b6e`, `b6w`, what the door read compares), every option's
+///   score in `DIRS` order, and the step.
+/// - **`ledger.csv`**: one line per ant, at its death (the census's cause) or
+///   at the end of the run: decisions by zone, the first and last decision at
+///   the heap, pick-ups away from home and at the heap, decisions spent
+///   hungry (on the mound, east and west of the door), the last decision it
+///   was fed, and its life counters.
+struct HungryLog {
+    rows: std::io::BufWriter<std::process::ChildStdin>,
+    zip: std::process::Child,
+    ledger: std::io::BufWriter<std::fs::File>,
+    lives: HashMap<OrganismId, Life>,
+    start_energy: f32,
+}
+
+/// One ant's line in `ledger.csv`, built decision by decision. Frames are 0
+/// for "never".
+#[derive(Default)]
+struct Life {
+    decisions: u32,
+    nest: u32,
+    mound: u32,
+    surface: u32,
+    heap: u32,
+    first_heap: u64,
+    last_heap: u64,
+    pickups_away: u32,
+    pickups_heap: u32,
+    hungry: u32,
+    first_hungry: u64,
+    hungry_mound: u32,
+    hungry_east: u32,
+    hungry_west: u32,
+    last_fed: u64,
+    born: u64,
+    nb: bool,
+    foraged: bool,
+    met_age: u64,
+    bites: u32,
+    deliveries: u32,
+}
+
+impl HungryLog {
+    fn new(out: &str, start_energy: f32) -> Self {
+        let (zip, mut rows) = gzip_to(&format!("{out}/hungry.csv.gz"));
+        writeln!(
+            rows,
+            "frame,id,age,nb,foraged,met_age,hx,hy,zone,heading,e,leg,fill,anchor_x,anchor_y,pull,px,py,gain,drive,want,zoned,scout_w,scout_pat,scout_home,door,door_f,route,chosen_cos,b6e,b6w,chose,opts,s0,s1,s2,s3,s4,s5,s6,s7,outcome,p_move,moved,hx_after,hy_after,bite"
+        )
+        .unwrap();
+        let mut ledger = std::io::BufWriter::new(std::fs::File::create(format!("{out}/ledger.csv")).unwrap());
+        writeln!(
+            ledger,
+            "id,born,end,died,cause,zone_end,nb,foraged,met_age,energy_end,decisions,nest,mound,surface,heap,first_heap,last_heap,pickups_away,pickups_heap,hungry,first_hungry,hungry_mound,hungry_east,hungry_west,last_fed,bites,deliveries"
+        )
+        .unwrap();
+        HungryLog {
+            rows,
+            zip,
+            ledger,
+            lives: HashMap::new(),
+            start_energy,
+        }
+    }
+
+    fn after(&mut self, w: &World, g: &Geo, f: u64, rows: &[DecisionRow]) {
+        // Trail B six cells east and west: `DIRS[0]` is east, `DIRS[4]` west.
+        const EAST: usize = 0;
+        const WEST: usize = 4;
+        for r in rows {
+            let z = zone(w, g, r.head);
+            let e = r.energy_j / self.start_energy;
+            let life = self.lives.entry(r.id).or_default();
+            if let Some(st) = w.organism(r.id) {
+                life.born = st.born_frame;
+                life.nb = st.nest_bound_until == u64::MAX;
+                life.foraged = st.foraged;
+                life.met_age = f.saturating_sub(st.return_met.max(st.born_frame).max(1));
+                life.bites = st.life.bites;
+                life.deliveries = st.life.deliveries;
+            }
+            life.decisions += 1;
+            match z {
+                "nest" => life.nest += 1,
+                "surface" => life.surface += 1,
+                "food" => {
+                    life.heap += 1;
+                    if life.first_heap == 0 {
+                        life.first_heap = f;
+                    }
+                    life.last_heap = f;
+                }
+                _ => life.mound += 1,
+            }
+            if let Some((bx, by, _, _)) = r.bite {
+                life.pickups_away += 1;
+                life.pickups_heap += u32::from(zone(w, g, (bx, by)) == "food");
+            }
+            if e >= 1.0 {
+                life.last_fed = f;
+                continue;
+            }
+            life.hungry += 1;
+            if life.first_hungry == 0 {
+                life.first_hungry = f;
+            }
+            life.hungry_mound += u32::from(z.starts_with("mound"));
+            life.hungry_east += u32::from(r.head.0 > g.nest_x + 3);
+            life.hungry_west += u32::from(r.head.0 < g.nest_x - 3);
+            let scored = r.pull_why != creature::PULL_NOT_SCORED;
+            let pull_at = (r.pull_at != DIG_NO_TARGET).then_some(r.pull_at);
+            let chose = (scored && r.chose < 8).then_some(r.chose);
+            let score: Vec<String> = r.score.iter().map(|&v| fl(v)).collect();
+            writeln!(
+                self.rows,
+                "{f},{},{},{},{},{},{},{},{z},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
+                r.id,
+                f.saturating_sub(life.born),
+                u8::from(life.nb),
+                u8::from(life.foraged),
+                life.met_age,
+                r.head.0,
+                r.head.1,
+                r.heading,
+                fl(e),
+                DECISION_LEG_NAMES[r.leg as usize],
+                fl(r.fill),
+                r.anchor.0,
+                r.anchor.1,
+                PULL_WHY_NAMES[r.pull_why as usize],
+                pull_at.map_or(String::new(), |c| c.0.to_string()),
+                pull_at.map_or(String::new(), |c| c.1.to_string()),
+                fl(r.pull_gain),
+                fl(r.drive),
+                fl(r.want),
+                u8::from(r.zoned),
+                fl(r.scout_w),
+                fl(r.scout_patience),
+                u8::from(r.scout_home),
+                DOOR_WHY_NAMES[r.door_why as usize],
+                fl(r.door_f),
+                fl(r.chosen_route),
+                fl(r.chosen_cos),
+                r.b_six[EAST],
+                r.b_six[WEST],
+                chose.map_or(String::new(), |c| c.to_string()),
+                if scored { r.opts.to_string() } else { String::new() },
+                score.join(","),
+                DECISION_OUTCOME_NAMES[r.outcome as usize],
+                fl(r.p_move),
+                u8::from(r.moved),
+                r.head_after.0,
+                r.head_after.1,
+                r.bite.map_or(String::new(), |(bx, by, _, _)| format!("{bx}:{by}")),
+            )
+            .unwrap();
+        }
+    }
+
+    /// The line of an ant that died this frame; `before` is what the census
+    /// snapped before the tick.
+    fn died(&mut self, id: OrganismId, f: u64, cause: &str, zone: &str, energy: f32) {
+        let life = self.lives.remove(&id).unwrap_or_default();
+        self.line(id, &life, f, true, cause, zone, energy);
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn line(&mut self, id: OrganismId, l: &Life, f: u64, died: bool, cause: &str, zone: &str, energy: f32) {
+        writeln!(
+            self.ledger,
+            "{id},{},{f},{},{cause},{zone},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
+            l.born,
+            u8::from(died),
+            u8::from(l.nb),
+            u8::from(l.foraged),
+            l.met_age,
+            fl(energy),
+            l.decisions,
+            l.nest,
+            l.mound,
+            l.surface,
+            l.heap,
+            l.first_heap,
+            l.last_heap,
+            l.pickups_away,
+            l.pickups_heap,
+            l.hungry,
+            l.first_hungry,
+            l.hungry_mound,
+            l.hungry_east,
+            l.hungry_west,
+            l.last_fed,
+            l.bites,
+            l.deliveries,
+        )
+        .unwrap();
+    }
+
+    /// The lines of every ant still alive at the end.
+    fn finish(mut self, w: &World, g: Option<&Geo>, f: u64) {
+        let mut ids: Vec<OrganismId> = self.lives.keys().copied().collect();
+        ids.sort();
+        let lives = std::mem::take(&mut self.lives);
+        for id in ids {
+            let l = &lives[&id];
+            let (zone_end, energy) = match (w.organism(id).and_then(|s| s.chain.first().map(|&h| (h, s.energy))), g) {
+                (Some((h, e)), Some(g)) => (zone(w, g, h), e),
+                _ => ("?", f32::NAN),
+            };
+            self.line(id, l, f, false, "", zone_end, energy);
+        }
+        self.ledger.flush().unwrap();
+        self.rows.flush().unwrap();
+        drop(self.rows);
+        let _ = self.zip.wait();
     }
 }
 

@@ -72,6 +72,13 @@
 // gate opens, and deleting it would silently make grass a species that
 // declines to bud rather than one that never gets the chance.
 //
+// **Regrowth since 2026-10-05.** The two reasons above still hold for
+// `BudBreak`, so grass regrows by a different door: `plant::break_tillers`
+// turns a crown cell of a plant with no live tip back into a `GrowingTip`
+// (and resets its turgor path). Without it the path below ended in a frozen
+// tussock that shed to a one-blade stub and never seeded again --
+// `Reports/garden-harmony-2026-10-05.md`.
+//
 // **So what actually runs, end to end:** a seed germinates, throws
 // tillers from `Grow` on `GrowingTip` until crowding and the turgor bound
 // stop it, every tip retires to `MatureBody` at the staleness limit, and

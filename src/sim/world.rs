@@ -649,9 +649,28 @@ pub struct GroupDeaths {
     pub species: organism::SpeciesId,
     pub colony: u32,
     pub by_cause: [u64; organism::DEATH_CAUSES],
+    /// **`by_cause`, split by where the head was** ([`DEATH_PLACE_NAMES`]:
+    /// under the old ground, above it near a nest, above it far from one).
+    /// Sums to `by_cause` less the deaths whose animal left no cell to
+    /// place. A tally and nothing reads it back: it exists so a chronicle
+    /// can say *where* the starved died, which `by_cause` cannot (the
+    /// 2026-10-05 mound-ant trace was asking whether the starvers die in
+    /// the nest or above it).
+    pub by_place: [[u64; organism::DEATH_CAUSES]; DEATH_PLACES],
     /// `(attacker species, attacker colony, kills)`.
     pub killed_by: Vec<(organism::SpeciesId, u32, u64)>,
 }
+
+/// How many places [`World::death_place`] tells apart.
+pub const DEATH_PLACES: usize = 3;
+/// Their names, in index order: **under** the original ground, **near** a
+/// nest (above ground, within [`NEAR_NEST_COLS`] columns of a nest site --
+/// the door, the mound and the foraging close round it) and **afield**.
+pub const DEATH_PLACE_NAMES: [&str; DEATH_PLACES] = ["under", "near", "afield"];
+/// Columns either side of a nest site that count as *near* it: the mound's
+/// reach in `examples/deeptrace.rs`, so the chronicle and the deep trace
+/// call the same ground the same thing.
+pub const NEAR_NEST_COLS: i32 = 40;
 
 /// The fewest animals a drifted cluster needs before `World::regroup_by_scent`
 /// names it as a group of its own. Three, because a line on the ANTS page
@@ -2175,6 +2194,28 @@ pub struct CreatureStats {
     /// `creature::home_search_of`). The "it fired" half; the effect half is
     /// `trip_deliveries` and where the food trail is laid.
     pub home_searches: u64,
+    /// Decisions a trip's carrier stood beside far food to take another
+    /// mouthful instead of walking (`PIXEL_PHYSICS_CARRY_HOME`'s `fill`,
+    /// `creature::CarryHome`). The "it fired" half; the effect half is how
+    /// full carriers' crops are when they leave the food (`deeptrace
+    /// laden=1`).
+    pub carry_fills: u64,
+    /// Decisions in which a trip's carrier on a trail had its hold counted
+    /// from the weakest open heading's presence rather than from zero
+    /// (`PIXEL_PHYSICS_CARRY_HOME`'s `turn`): the floor was above 0, so the
+    /// even part of the scent held nothing. The "it fired" half; the effect
+    /// half is how many carries lose the pull home (`deeptrace laden=1`).
+    pub carry_turns: u64,
+    /// Decisions a hungry empty ant under cover at or above its nest's
+    /// founding ground walked out through the mound's passages towards the
+    /// open air (`PIXEL_PHYSICS_MOUND_OUT`'s `way`, `creature::MoundOut`).
+    /// The "it fired" half; the effect half is where the colony's starved
+    /// die. 0 unless the switch is on.
+    pub mound_out_pulls: u64,
+    /// Dig rolls a lean ant shut in a pocket of the mound kept
+    /// (`PIXEL_PHYSICS_MOUND_OUT`'s `dig`): each one a roll `LeanForage`'s
+    /// `nodig` would have taken. 0 unless the switch is on.
+    pub mound_digs_let: u64,
     /// **Carry distances drawn** under `PIXEL_PHYSICS_SPOIL_RING`
     /// (`creature::spoil_ring`): when its carrier comes out by the door with
     /// it (`creature::carry_stage`), and again for a carrier that went back
@@ -2765,6 +2806,30 @@ pub struct CreatureStats {
     /// `PIXEL_PHYSICS_CROP_NURSE`).
     pub larva_ticks_crop_fed: u64,
     pub brood_crop_fed_j: f64,
+    /// **Nurses that stay** (`creature::NurseStay`,
+    /// `PIXEL_PHYSICS_NURSE_STAY`): crops a forager home from a trip handed
+    /// to a nest worker touching it, and drop rolls a nurse skipped to keep
+    /// its crop for the brood.
+    pub nurse_handoffs: u64,
+    pub nurse_holds: u64,
+    /// Of `nurse_handoffs`: those a nurse above the founding ground passed
+    /// down, and those whose receiver was not a nest worker until then.
+    pub nurse_passed_down: u64,
+    pub nurse_converted: u64,
+    /// **Larvae away from the door's lane** (more than
+    /// `brood::DOOR_LANE` columns off the founding door), whatever the
+    /// switches: larva ticks that ended hungry, the ones of those a nestmate
+    /// fed (from its crop or its bank), and the energy that put in. Over the
+    /// whole nest's `larva_ticks_hungry` and `brood_nursed_j +
+    /// brood_crop_fed_j`, it says whether food reaches brood off the lane.
+    pub larva_ticks_hungry_away: u64,
+    pub larva_ticks_fed_away: u64,
+    pub brood_fed_away_j: f64,
+    /// Away from the door's lane too: joules larvae ate from food lying
+    /// beside them, and larvae that finished there, as pupae or starved.
+    pub brood_ate_away_j: f64,
+    pub pupae_away: u64,
+    pub larvae_starved_away: u64,
     /// Brood a touching nestmate carried out of a crowded pile to a quieter
     /// spot (`brood::spread`, `PIXEL_PHYSICS_BROOD_SPREAD`).
     pub brood_spread: u64,
@@ -3963,6 +4028,8 @@ pub struct World {
     /// setting `Some(Vec::new())`, and drained by that harness. Recording
     /// draws nothing and changes nothing.
     pub bite_log: Option<Vec<crate::sim::creature::BiteRow>>,
+    /// Crown cells turned back into a growing tip by `plant::break_tillers`.
+    pub tillers_broken: u64,
     /// Scratch that `step_chain` and `tumble` write while a decision is being
     /// traced; meaningless otherwise.
     pub decision_scratch: crate::sim::creature::DecisionScratch,
@@ -4066,6 +4133,11 @@ pub struct World {
     /// for this world** (`creature::home_search_of`). `None` follows the
     /// environment; a field so a guard can take both arms in one process.
     pub home_search: Option<bool>,
+    /// **A trip's carrier filling up and turning for home, overriding
+    /// `PIXEL_PHYSICS_CARRY_HOME` for this world** (`creature::carry_home_of`).
+    /// `None` follows the environment; a field so a guard can take both arms
+    /// in one process.
+    pub carry_home: Option<crate::sim::creature::CarryHome>,
     /// **The two gaps in the nest's way in, overriding
     /// `PIXEL_PHYSICS_WAY_GAPS` for this world** (`creature::way_gaps_of`).
     /// `None` follows the environment; a field so a guard can take both arms
@@ -4086,12 +4158,25 @@ pub struct World {
     /// `None` follows the environment; a field so a guard can take both arms
     /// in one process.
     pub crop_down: Option<crate::sim::creature::CropDown>,
+    /// **`PIXEL_PHYSICS_NURSE_STAY` for this world**
+    /// (`creature::nurse_stay_of`). `None` follows the environment; a field so
+    /// a guard can take both arms in one process.
+    pub nurse_stay: Option<crate::sim::creature::NurseStay>,
+    /// **`PIXEL_PHYSICS_MOUND_OUT` for this world** (`creature::mound_out_of`).
+    /// `None` follows the environment; a field so a guard can take both arms
+    /// in one process.
+    pub mound_out: Option<crate::sim::creature::MoundOut>,
     /// **Each nest's way in**, as steps from its door through the cells
     /// inside it an ant can stand in (`creature::NestWay`), rebuilt every
     /// `creature::REST_REFRESH` frames by `creature::step_nest_rest` while
     /// resting or the way out is on, and empty otherwise. Read only by the
     /// rest pull and the way out.
     pub nest_ways: Vec<crate::sim::creature::NestWay>,
+    /// **Each nest's way out of its mound**, as steps from the open air
+    /// through the covered cells at or above its founding ground
+    /// (`creature::build_mound_way`), rebuilt beside `nest_ways` while
+    /// `PIXEL_PHYSICS_MOUND_OUT` is on, and empty otherwise.
+    pub mound_ways: Vec<crate::sim::creature::NestWay>,
     /// **`PIXEL_PHYSICS_BUD_STORE` for this world** (`creature::bud_from_store`).
     /// `None` follows the environment, which is off unless set.
     pub bud_store: Option<bool>,
@@ -6651,6 +6736,7 @@ impl World {
             decision_log: None,
             feed_log: None,
             bite_log: None,
+            tillers_broken: 0,
             decision_scratch: crate::sim::creature::DecisionScratch::default(),
             chooser: None,
             bud_at_nest: None,
@@ -6674,11 +6760,15 @@ impl World {
             nest_rest: None,
             hungry_out: None,
             home_search: None,
+            carry_home: None,
             way_gaps: None,
             soil_way: None,
             face_trip: None,
             crop_down: None,
+            nurse_stay: None,
+            mound_out: None,
             nest_ways: Vec::new(),
+            mound_ways: Vec::new(),
             bud_store: None,
             births_paused: false,
             dig_widen: None,
@@ -8143,16 +8233,21 @@ impl World {
         // goes back on the free list two lines below for some other
         // individual to be born into. The grave itself is *pushed* after the
         // borrow of `self.organisms` ends -- see below.
-        let (generation, at) = match slot.state.as_ref() {
+        let (generation, head) = match slot.state.as_ref() {
             Some(state) => (
                 state.generation,
                 // A creature's head, else any cell it still owns. A plant
                 // felled whole owns none by the time it reaches here, and
                 // `(0, 0)` is honest for that: there is nowhere to point.
-                state.chain.first().copied().or_else(|| state.cells.keys().next().copied()).unwrap_or((0, 0)),
+                state
+                    .chain
+                    .first()
+                    .copied()
+                    .or_else(|| state.cells.keys().next().copied()),
             ),
-            None => (0, (0, 0)),
+            None => (0, None),
         };
+        let at = head.unwrap_or((0, 0));
         slot.state = None;
         self.free_organism_slots.push(slot_index);
         // **Which table it belonged in, decided from the species and not from
@@ -8176,7 +8271,15 @@ impl World {
         self.dead_life.absorb(&life);
         self.deaths_by_cause[cause.index()] += 1;
         if creature {
-            self.group_deaths_mut(species, colony).by_cause[cause.index()] += 1;
+            // **Where it died, tallied beside the cause and read by no rule.**
+            // An animal that left no cell to place (`head` is `None`) is in
+            // `by_cause` and in no `by_place` row.
+            let place = head.map(|h| self.death_place(h));
+            let group = self.group_deaths_mut(species, colony);
+            group.by_cause[cause.index()] += 1;
+            if let Some(p) = place {
+                group.by_place[p][cause.index()] += 1;
+            }
         }
         self.log_for(
             LogKind::Died,
@@ -8551,6 +8654,31 @@ impl World {
                 dx * dx + dy * dy
             })
             .map(|(i, _)| i)
+    }
+
+    /// **Where a death at `(x, y)` counts**, as an index into
+    /// [`DEATH_PLACE_NAMES`]: 0 under the original ground, 1 above it within
+    /// [`NEAR_NEST_COLS`] columns of a nest site, 2 anywhere else above it.
+    ///
+    /// "The original ground" is the frozen room datum, the same answer the
+    /// census gives (`room_surface_at`), falling back to the nearest nest
+    /// site's surface in a world that has not been stepped yet. A world with
+    /// neither has no under-ground to speak of, so everything is above it.
+    /// **Under means strictly below the datum's row**, the top ground row
+    /// itself being the doorway: `examples/deeptrace.rs`'s `zone` draws the
+    /// line there (`y > ground_y`), and the lanes quote its numbers.
+    /// A read of three fields, called once per animal death.
+    pub fn death_place(&self, (x, y): (i32, i32)) -> usize {
+        let surface = self
+            .room_surface_at(x)
+            .or_else(|| self.nearest_nest_site(x, y).map(|i| self.nest_sites[i].surface));
+        if surface.is_some_and(|s| y > s) {
+            0
+        } else if self.nest_sites.iter().any(|n| (n.x - x).abs() <= NEAR_NEST_COLS) {
+            1
+        } else {
+            2
+        }
     }
 
     /// **Take the standing room census**, once per [`ROOM_INTERVAL`] frames.
@@ -9074,7 +9202,13 @@ impl World {
         let at = match self.group_deaths.iter().position(|g| g.species == species && g.colony == colony) {
             Some(i) => i,
             None => {
-                self.group_deaths.push(GroupDeaths { species, colony, by_cause: [0; organism::DEATH_CAUSES], killed_by: Vec::new() });
+                self.group_deaths.push(GroupDeaths {
+                    species,
+                    colony,
+                    by_cause: [0; organism::DEATH_CAUSES],
+                    by_place: [[0; organism::DEATH_CAUSES]; DEATH_PLACES],
+                    killed_by: Vec::new(),
+                });
                 self.group_deaths.len() - 1
             }
         };

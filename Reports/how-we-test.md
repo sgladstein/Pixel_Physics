@@ -116,6 +116,7 @@ frame cost) are in `.claude/rules/measuring-the-world.md`; method traps
 | Digging in a simple box | `digbox` |
 | The nest door and its pictures | `nestdoor` (`shots=` renders with the game's renderer) |
 | Foraging and trails | `labforage`, `trailprofile`, `trailfollow` |
+| What did a *played* session's nest do: rooms, brood, who starved where? | the lab's chronicle: the nest block at the end of `census.csv` and the indented lines under each CENSUS row (`lab::nestcensus`; README *Chronicle status*). `chronicle scenario=nest_goal export=DIR` writes the same files headlessly |
 | Did a fix that works on a simple bed also hold in the played game? | `scripts/labbench.py BASE NEW` (two worktrees, pinned binaries, interleaved seeds, `labpair.py` table) — the **last** check, not a diagnosis |
 
 Before building anything new, grep [`instruments.md`](instruments.md).

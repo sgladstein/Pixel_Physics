@@ -67,7 +67,7 @@ OUTCOME_GROUPS = [
     ("tumbled", {"roll_failed_tumbled"}),
     ("idle", {"roll_failed_idle"}),
     ("blocked", {"blocked_tumbled", "reversed", "crossing", "swapped"}),
-    ("other", {"launched", "no_body"}),
+    ("other", {"launched", "no_body", "filling"}),
 ]
 RELOCATING = {"stepped", "fell", "swapped", "reversed"}
 LONG_STALL = 10

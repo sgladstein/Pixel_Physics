@@ -58,8 +58,10 @@ def main():
         x0, y0, w, h = map(int, lines[0].split())
         g = lines[1:]
         at = lambda x, y: g[y - y0][x - x0] if 0 <= y - y0 < h and 0 <= x - x0 < w else "#"
-        # Open under ground joined to the nest's column.
-        opn = lambda c: c in ".abf~"
+        # Open under ground joined to the nest's column. Food counts as open, as it always has here: since
+        # 2026-10-06 the map draws crumbs `c` and corpses `x` apart from other food `f`, and this reader keeps
+        # reading all three as food (`tools/doorseal.py` in the project applies the walk's own rule instead).
+        opn = lambda c: c in ".abfcx~"
         seen = set()
         q = deque()
         for y in range(ground_y + 1, ground_y + 6):
@@ -81,7 +83,7 @@ def main():
         top = min((y for y in range(y0, ground_y) for x in range(nest_x - 40, nest_x + 41) if at(x, y) in "#s"), default=ground_y)
         maps[fr] = {
             "nest_open": len(seen), "deepest_row": max((y - ground_y for _, y in seen), default=0),
-            "brood_under": under["b"], "food_under": under["f"], "ants_under": under["a"], "water_under": under["~"],
+            "brood_under": under["b"], "food_under": under["f"] + under["c"] + under["x"], "ants_under": under["a"], "water_under": under["~"],
             "mound_cells": mound_cells, "mound_height": ground_y - top, "_unused": mound,
         }
         maps[fr].pop("_unused")

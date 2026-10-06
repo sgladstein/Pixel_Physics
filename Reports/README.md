@@ -1185,6 +1185,16 @@ drift that two of these documents still reflect.**
   212k frames the two yields bracket the defect rather than fixing it —
   1.0 accumulates and buries, 0.05 depletes to half the world's soil and
   stalls.
+- [garden-harmony-2026-10-05.md](garden-harmony-2026-10-05.md)
+  — **grass regrowth shipped on 2026-10-05.** Why the lab garden crashed: the
+  ants were not overgrazing (living tissue 2-15% of intake); both colonies
+  lived on one burst of seed from the first grass, and the garden ran itself
+  down with no ants at all because a grass plant only grew in its first
+  ~1,500 frames and then froze to a one-blade stub that never died or seeded.
+  Five fixes failed the same way until a counted `Grow` exit showed a regrown
+  blade inheriting "full height" from the turgor path. With `break_tillers`
+  the no-ant garden still seeds at 400k (5.7-17k vs 0.3-1.3k per 100k) and the
+  evolved colony lives on 4/4 seeds.
 
 ## Creatures and ecology  ·  `engine`
 
@@ -4184,7 +4194,9 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   the surface (69.5 -> 8 ants at 200) and digs half again more, but jams
   the shaft (pellets put inside 12 -> 117.5) and starves the colony bed
   (births 22 -> 5 a seed: fed founders stop scouting); nest workers alone
-  spare the bed (22 -> 18) and change little. **§21** (2026-10-01): the
+  spare the bed (22 -> 18) and change little (`workers` shipped on
+  2026-10-05, measured on the goal and played lab boxes to 200k, and went
+  off again 2026-10-06: run to 300k it collapses two colonies of four). **§21** (2026-10-01): the
   food box (`digbox food=400 gap=90 hungry`, `BUD_SITE=nest`), a colony
   that feeds itself: its nest follows the colony (52-86 cells at 24,000
   frames, 1,800-2,200 by 240,000), the door is not where carriers stand,

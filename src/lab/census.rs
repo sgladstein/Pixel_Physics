@@ -19,11 +19,12 @@
 //! command lines) is still the reference for what each field means.
 
 use crate::sim::cell::OrganismId;
+use crate::lab::nestcensus::{self, NestRow};
 use crate::lab::scenario::{Placement, Scenario};
 use crate::lab::scene::LabBox;
 use crate::sim::creature::{diet_yield, EAT_YIELD_THRESHOLD};
 use crate::sim::material::{self, MaterialId, MaterialKind};
-use crate::sim::organism::{self, DeathCause, TRAIT_GUT_BIAS};
+use crate::sim::organism::{self, DeathCause, CREATURE_TRAITS, TRAIT_GUT_BIAS};
 use crate::sim::world::World;
 
 /// Half-width of the nest band, in columns, for the dead-zone ratio. The
@@ -283,7 +284,7 @@ fn is_waiting_seed(world: &World, id: OrganismId, state: &organism::OrganismStat
 /// player leaves the page without pressing the button, which is most of a
 /// played session. Falls back to the spec only for a world with no bounds
 /// at all, which cannot be walked either way.
-fn extents(world: &World, spec: &LabBox) -> (std::ops::RangeInclusive<i32>, std::ops::RangeInclusive<i32>) {
+pub(crate) fn extents(world: &World, spec: &LabBox) -> (std::ops::RangeInclusive<i32>, std::ops::RangeInclusive<i32>) {
     match world.bounds() {
         Some(b) => (b.min_x..=b.max_x, b.min_y..=b.max_y),
         None => (0..=(spec.width - 1), 0..=(spec.height - 1)),
@@ -312,7 +313,7 @@ fn extents(world: &World, spec: &LabBox) -> (std::ops::RangeInclusive<i32>, std:
 /// world stores and what `World::step_nest_room` already reads: two rules
 /// for one word is what `freeze_room_datum`'s own doc records going wrong
 /// the last time.
-fn surface_of(world: &World, spec: &LabBox, x: i32) -> i32 {
+pub(crate) fn surface_of(world: &World, spec: &LabBox, x: i32) -> i32 {
     world.room_surface_at(x).unwrap_or(spec.ground_y)
 }
 
@@ -810,6 +811,16 @@ pub struct ChronicleRow {
     ///
     /// A **window**, not a session mean -- see `frame::take_phase_times`.
     pub phases: Option<crate::sim::frame::PhaseTimes>,
+    /// **The brood, the rooms, the colony's animals by place, and the
+    /// brood's and nest plan's books** -- `nestcensus::NestRow`, added
+    /// 2026-10-05 for the playtest after the nurses and nest-plan merges
+    /// (`/mnt/project-files/playtest-2026-10-05/chronicle-gaps.md`). Last in
+    /// the struct and last in `census.csv`, so no earlier column moves.
+    pub nest: NestRow,
+    /// Mean of each heritable trait over the colony species' living animals,
+    /// in `CREATURE_TRAITS` slot order (`nestcensus::trait_columns` names
+    /// them): the evolved founder's drift, which `gut` alone cannot show.
+    pub traits: [f32; CREATURE_TRAITS],
 }
 
 /// Take one `ChronicleRow` off `world` right now, at `world.frame`.
@@ -828,6 +839,7 @@ pub fn take_chronicle_row(
     time: Option<&crate::lab::time::TimeControl>,
 ) -> ChronicleRow {
     let sample = census(world, spec, gut, nest_cols, ids);
+    let (nest, traits) = nestcensus::nest_row(world, spec, nest_cols, colony_species);
     let st = world.creature_stats;
     // The chronicle's row has no old-age column of its own yet, so an age
     // death lands in `other_deaths` here rather than being dropped.
@@ -882,6 +894,8 @@ pub fn take_chronicle_row(
         // rather than `0.000` for it -- the same distinction the perf columns
         // above already make, and for the same reason.
         phases: crate::sim::frame::phase_clock_on().then(crate::sim::frame::take_phase_times),
+        nest,
+        traits,
     }
 }
 
@@ -1064,6 +1078,7 @@ pub fn row_addendum(row: &ChronicleRow) -> String {
     ) + &gut_addendum(row)
         + &dug_addendum(s)
         + &phase_addendum(row)
+        + &nestcensus::addendum(&row.nest, &row.traits, row.births)
 }
 
 /// **The gut the larder was priced at**, appended to the addendum's first
@@ -1192,6 +1207,13 @@ pub fn census_csv(rows: &[ChronicleRow]) -> String {
         .map(|s| s.to_string()),
     );
     head.extend(crate::sim::frame::PHASE_NAMES.iter().map(|n| format!("{n}_ms")));
+    // The nest census and the trait means, last, so no earlier column moves.
+    head.extend(
+        debug_fields(&format!("{:?}", NestRow::default()))
+            .into_iter()
+            .map(|(k, _)| k),
+    );
+    head.extend(nestcensus::trait_columns());
     let _ = writeln!(out, "{}", head.join(","));
     for row in rows {
         let mut v: Vec<String> = vec![row.frame.to_string(), row.wall_clock_secs.to_string()];
@@ -1231,6 +1253,8 @@ pub fn census_csv(rows: &[ChronicleRow]) -> String {
             }
             None => v.extend(std::iter::repeat_n(String::new(), 1 + crate::sim::frame::PHASE_NAMES.len())),
         }
+        v.extend(debug_fields(&format!("{:?}", row.nest)).into_iter().map(|(_, val)| val));
+        v.extend(row.traits.iter().map(|t| format!("{t:.4}")));
         let _ = writeln!(out, "{}", v.join(","));
     }
     out
@@ -1240,7 +1264,7 @@ pub fn census_csv(rows: &[ChronicleRow]) -> String {
 /// struct of numbers ([`census_csv`]'s `Sample`): a nested struct, a string
 /// or a collection would split wrongly, which `census_csv_has_every_column`
 /// checks by counting.
-fn debug_fields(debug: &str) -> Vec<(String, String)> {
+pub(crate) fn debug_fields(debug: &str) -> Vec<(String, String)> {
     let inner = debug.split_once('{').map(|(_, r)| r).unwrap_or("").trim_end().trim_end_matches('}');
     inner
         .split(',')
@@ -1306,7 +1330,13 @@ mod tests {
     fn own_colony_kills_reads_only_the_victims_own_colony() {
         let mut world = tiny_world();
         let ant = world.species.id_of("ant").expect("the lab ships an ant");
-        let mut g = crate::sim::world::GroupDeaths { species: ant, colony: 3, by_cause: [0; organism::DEATH_CAUSES], killed_by: vec![(ant, 3, 5), (ant, 4, 7)] };
+        let mut g = crate::sim::world::GroupDeaths {
+            species: ant,
+            colony: 3,
+            by_cause: [0; organism::DEATH_CAUSES],
+            by_place: [[0; organism::DEATH_CAUSES]; crate::sim::world::DEATH_PLACES],
+            killed_by: vec![(ant, 3, 5), (ant, 4, 7)],
+        };
         world.group_deaths.push(g.clone());
         assert_eq!(own_colony_kills(&world, "ant"), 5);
         assert_eq!(own_colony_kills(&world, "no_such_species"), 0);
@@ -1345,6 +1375,115 @@ mod tests {
         assert_eq!(lines[1].split(',').nth(at), Some("4321"));
         assert!(row_line(&row).contains("4321"), "the counters group did not reach the text row");
         assert!(row_addendum(&row).contains("gut +0.250"), "the addendum does not name the gut: {}", row_addendum(&row));
+    }
+
+    /// **The nest census and the trait means ride last, a column each, and
+    /// reach both files.** Every older column keeps its place (the tail is
+    /// the new block, so a reader keyed on a position or a name from before
+    /// this block existed is unaffected), the values land in the cells their
+    /// names say, and the text rows carry the lines a reader without a parser
+    /// wants. Provable red by putting `nest` before `perf` in `census_csv`
+    /// (the tail check) or by dropping the call to `nestcensus::addendum` in
+    /// `row_addendum` (the text check).
+    #[test]
+    fn census_csv_ends_with_the_nest_block_and_the_trait_means() {
+        let world = tiny_world();
+        let ids = Ids::resolve(&world);
+        let mut row = take_chronicle_row(&world, &LabBox::default(), 0.25, &[], &ids, "ant", None);
+        row.nest.room_big = 70;
+        row.nest.starved_near = 9;
+        row.nest.brood_larvae_hungry = 5;
+        row.traits[crate::sim::organism::TRAIT_GUT_BIAS] = -0.25;
+        row.traits[crate::sim::organism::TRAIT_PACE] = 0.5;
+        let csv = census_csv(&[row]);
+        let lines: Vec<&str> = csv.lines().collect();
+        let head: Vec<&str> = lines[0].split(',').collect();
+        let cells: Vec<&str> = lines[1].split(',').collect();
+        assert_eq!(cells.len(), head.len(), "row and header disagree on width");
+
+        let trait_names = nestcensus::trait_columns();
+        let nest_names: Vec<String> = debug_fields(&format!("{:?}", NestRow::default()))
+            .into_iter()
+            .map(|(k, _)| k)
+            .collect();
+        assert_eq!(trait_names.len(), CREATURE_TRAITS);
+        let tail = head.len() - trait_names.len();
+        assert_eq!(
+            head[tail..].to_vec(),
+            trait_names.iter().map(String::as_str).collect::<Vec<_>>(),
+            "the trait means are the last columns"
+        );
+        assert_eq!(
+            head[tail - nest_names.len()..tail].to_vec(),
+            nest_names.iter().map(String::as_str).collect::<Vec<_>>(),
+            "the nest block is just before them"
+        );
+        assert_eq!(
+            head[tail - nest_names.len() - 1],
+            "pheromones_ms",
+            "and the last older column is where it was: {:?}",
+            &head[tail - nest_names.len() - 3..tail - nest_names.len()]
+        );
+        let mut sorted: Vec<&&str> = head.iter().collect();
+        sorted.sort();
+        sorted.dedup();
+        assert_eq!(
+            sorted.len(),
+            head.len(),
+            "two columns share a name, and a parser keyed on names reads one of them: {:?}",
+            head
+        );
+        assert!(
+            !head.contains(&"trait_?"),
+            "a trait slot has no parameters-page row to name it by"
+        );
+
+        let cell = |name: &str| {
+            cells[head
+                .iter()
+                .position(|h| *h == name)
+                .unwrap_or_else(|| panic!("no {name} column"))]
+        };
+        assert_eq!(cell("room_big"), "70");
+        assert_eq!(cell("starved_near"), "9");
+        assert_eq!(cell("brood_larvae_hungry"), "5");
+        assert_eq!(cell("trait_gut_bias"), "-0.2500");
+        assert_eq!(cell("trait_pace"), "0.5000");
+        assert_eq!(cell("trait_dig_force"), "0.0000", "a slot nobody set reads zero");
+        for name in [
+            "brood_eggs",
+            "rooms_30",
+            "room2_steps",
+            "hungry_mound_top",
+            "fill_afield",
+            "larvae_starved",
+            "soil_way_pulls",
+            "forage_returns",
+        ] {
+            assert!(head.contains(&name), "the sidecar has no {name} column");
+        }
+
+        let text = row_addendum(&row);
+        for want in [
+            "brood now:",
+            "brood fed (J):",
+            "rooms:",
+            "the colony by place",
+            "the colony's deaths by place",
+            "nest plan fired:",
+            "traits (mean over the colony's animals): gut_bias -0.25",
+        ] {
+            assert!(text.contains(want), "the addendum has no `{want}` line: {text}");
+        }
+        // Every added line is indented eight spaces, the way the older
+        // addendum lines are, so a parser that skips indented lines under a
+        // row skips these too.
+        for line in text.lines() {
+            assert!(
+                line.starts_with("        "),
+                "an addendum line is not indented like the rest: `{line}`"
+            );
+        }
     }
 
     /// **`time: None` produces `perf: None`, and `row_line` prints `--` for
