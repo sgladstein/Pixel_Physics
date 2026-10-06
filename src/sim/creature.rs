@@ -13639,6 +13639,32 @@ pub struct NestStore {
     /// 8-12% to 6.0-6.5% -- it walks them out to the door, and most arrive
     /// holding a soil pellet, which the pick-up refuses.
     pub fetch: bool,
+    /// `smell=<steps>`: **the store draws only the hungry that can smell it**
+    /// (Nest race, 2026-10-06, built off). Under `eat` every hungry empty ant
+    /// on the way in was sent down once the store held [`STORE_EAT_MIN`]
+    /// cells, however many it could feed, and the walk out stood aside for
+    /// all of them: with the store at 8-17 cells (crumbs) seeds 1 and 3
+    /// starved 2,309 and 1,206, packed solid over it, in bursts exactly while
+    /// the eat pull fired (`hungry=1`, `pick=20`, hunger-first + homing +
+    /// `DOOR_COLUMN`, 300k). Under `smell` the eat pull, and its hold on the
+    /// walk out, act only within this many steps of the way from the store
+    /// ([`NestWay::store_at`]); farther in, the walk out is as without the
+    /// store. 0, the default, is the old reach.
+    pub smell: u16,
+    /// `sated`: **a fed ant leaves the nest's food for the store** (Nest
+    /// race, 2026-10-06, built off). A won `Feed` roll on loose food at home
+    /// or on the doorstep that the carry does not take is not eaten by an
+    /// ant at or above its grant. Traced (storeroom seed 1, 50-100k, every
+    /// delivery and every won roll at home): of 9,191 cells delivered home,
+    /// 53% were eaten by ants that are not nest workers and 40% by nest
+    /// workers, 3% carried in; the eaters' energy was a median 5-6 grants,
+    /// three in four above one.
+    pub sated: bool,
+    /// `whole`: **crumbs are not the store** (built off). The store's cells
+    /// ([`fill_nest_store`]) counted crumbs, the part-eaten loads carriers
+    /// and eaters set down; below ground on that run there was never one
+    /// whole food cell, and a dozen crumbs drew the hungry down.
+    pub whole: bool,
 }
 
 /// How deep the store is by default ([`NestStore`]'s `depth`), in steps of
@@ -13661,8 +13687,8 @@ pub const STORE_DOOR_REACH: i32 = 8;
 pub const STORE_ROOMY: u32 = 12;
 
 impl NestStore {
-    pub const OFF: NestStore = NestStore { carry: false, eat: false, keep: false, home: false, larder: false, depth: STORE_DEPTH, pick: 0, jaws: false, fetch: false };
-    pub const ON: NestStore = NestStore { carry: true, eat: true, keep: true, home: true, larder: true, depth: STORE_DEPTH, pick: 0, jaws: false, fetch: false };
+    pub const OFF: NestStore = NestStore { carry: false, eat: false, keep: false, home: false, larder: false, depth: STORE_DEPTH, pick: 0, jaws: false, fetch: false, smell: 0, sated: false, whole: false };
+    pub const ON: NestStore = NestStore { carry: true, eat: true, keep: true, home: true, larder: true, depth: STORE_DEPTH, pick: 0, jaws: false, fetch: false, smell: 0, sated: false, whole: false };
     /// What a world gets with the variable unset: off, see the type's doc.
     pub const SHIPPED: NestStore = NestStore::OFF;
 
@@ -13677,19 +13703,22 @@ impl NestStore {
         let mut ns = NestStore::OFF;
         for part in raw.split(',').map(str::trim).filter(|p| !p.is_empty()) {
             match part {
-                "on" => ns = NestStore { depth: ns.depth, pick: ns.pick, jaws: ns.jaws, fetch: ns.fetch, ..NestStore::ON },
-                "off" => ns = NestStore { depth: ns.depth, pick: ns.pick, jaws: ns.jaws, fetch: ns.fetch, ..NestStore::OFF },
+                "on" => ns = NestStore { depth: ns.depth, pick: ns.pick, jaws: ns.jaws, fetch: ns.fetch, smell: ns.smell, sated: ns.sated, whole: ns.whole, ..NestStore::ON },
+                "off" => ns = NestStore { depth: ns.depth, pick: ns.pick, jaws: ns.jaws, fetch: ns.fetch, smell: ns.smell, sated: ns.sated, whole: ns.whole, ..NestStore::OFF },
                 "jaws" => ns.jaws = true,
                 "fetch" => ns.fetch = true,
+                "sated" => ns.sated = true,
+                "whole" => ns.whole = true,
                 "carry" => ns.carry = true,
                 "eat" => ns.eat = true,
                 "keep" => ns.keep = true,
                 "home" => ns.home = true,
                 "larder" => ns.larder = true,
-                other => match (other.strip_prefix("depth=").and_then(|n| n.parse().ok()), other.strip_prefix("pick=").and_then(|n| n.parse().ok())) {
-                    (Some(n), _) => ns.depth = n,
-                    (_, Some(n)) => ns.pick = n,
-                    _ => panic!("PIXEL_PHYSICS_NEST_STORE={raw:?}: {other:?} is not on, off, carry, eat, keep, home, larder, jaws, fetch, depth=<steps> or pick=<cols>"),
+                other => match (other.strip_prefix("depth=").and_then(|n| n.parse().ok()), other.strip_prefix("pick=").and_then(|n| n.parse().ok()), other.strip_prefix("smell=").and_then(|n| n.parse().ok())) {
+                    (Some(n), _, _) => ns.depth = n,
+                    (_, Some(n), _) => ns.pick = n,
+                    (_, _, Some(n)) => ns.smell = n,
+                    _ => panic!("PIXEL_PHYSICS_NEST_STORE={raw:?}: {other:?} is not on, off, carry, eat, keep, home, larder, jaws, fetch, sated, whole, depth=<steps>, pick=<cols> or smell=<steps>"),
                 },
             }
         }
@@ -13775,6 +13804,8 @@ fn fill_nest_store(world: &World, way: &mut NestWay, depth: u16) {
             }
         }
     }
+    let whole = nest_store_of(world).whole;
+    let crumbs = world.materials.id_of("crumbs");
     let mut seeds = Vec::new();
     for ly in 0..way.h {
         for lx in 0..way.w {
@@ -13786,7 +13817,7 @@ fn fill_nest_store(world: &World, way: &mut NestWay, depth: u16) {
             let mut touches = false;
             for &(dx, dy) in NEIGHBOURS_8.iter() {
                 let (fx, fy) = (x + dx, y + dy);
-                if world.in_bounds(fx, fy) && loose_food(world, world.get(fx, fy)) {
+                if world.in_bounds(fx, fy) && loose_food(world, world.get(fx, fy)) && !(whole && Some(world.get(fx, fy).material) == crumbs) {
                     touches = true;
                     way.store_cells.push((fx, fy));
                 }
@@ -13996,7 +14027,7 @@ fn nest_store_pull(world: &World, organism: OrganismId, def: &CreatureDef, head:
     if state.crop.is_some_and(|c| c.worth() > 0.0) {
         return None;
     }
-    if ns.eat && state.energy < def.start_energy && nest_way_near(world, head.0, head.1).is_some_and(store_can_feed) {
+    if ns.eat && state.energy < def.start_energy && nest_way_near(world, head.0, head.1).is_some_and(|w| store_can_feed(w) && store_smelt(w, ns, head)) {
         return store_inward(world, organism, head, STORE_DOOR_REACH, true).map(|t| (t, def.home_bias, StorePull::Eat));
     }
     if ns.home && state.energy >= def.start_energy && is_nest_bound(world, state) && dig_return_target(world, def, state).is_none() && !ready_to_lay(world, def, state) {
@@ -14009,7 +14040,21 @@ fn nest_store_pull(world: &World, organism: OrganismId, def: &CreatureDef, head:
 /// the way in, the store holding food. [`hungry_out_pull`] does not fire
 /// for it; with the store empty it does, as before.
 fn store_feeds_here(world: &World, head: (i32, i32)) -> bool {
-    nest_store_of(world).eat && nest_way_near(world, head.0, head.1).is_some_and(|w| store_can_feed(w) && w.at(head.0, head.1).is_some())
+    let ns = nest_store_of(world);
+    ns.eat && nest_way_near(world, head.0, head.1).is_some_and(|w| store_can_feed(w) && w.at(head.0, head.1).is_some() && store_smelt(w, ns, head))
+}
+
+/// SCRATCH: `PIXEL_PHYSICS_STORE_TRACE=1` prints the store's offers and
+/// deliveries to stderr (trace only).
+fn store_trace() -> bool {
+    static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *V.get_or_init(|| std::env::var("PIXEL_PHYSICS_STORE_TRACE").as_deref() == Ok("1"))
+}
+
+/// **Within smell of the store** ([`NestStore`]'s `smell`): always with the
+/// part off, else within that many way steps of it.
+fn store_smelt(way: &NestWay, ns: NestStore, head: (i32, i32)) -> bool {
+    ns.smell == 0 || way.store_at(head.0, head.1).is_some_and(|d| d <= ns.smell)
 }
 
 /// **A store worth walking down to** ([`NestStore`]'s `eat`): at least
@@ -17712,6 +17757,17 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
                 // to carry would empty every small pile it passed.
                 let left = world.creature_stats.pile_left;
                 let take = (picked_at_home || store_doorstep(world, (x, y))) && storeroom_of(world).carries() && store_pickup_ok(world, organism, def, (x, y), (fxx, fyy), bite, crop, draw);
+                // SCRATCH, trace only (Nest race 2026-10-06): every won Feed
+                // roll on food at home or on the doorstep, and why the store
+                // did or did not take it. Draws nothing.
+                if store_trace() && (picked_at_home || store_doorstep(world, (x, y))) {
+                    if let Some(st) = world.organism(organism) {
+                        let rule = storeroom_of(world);
+                        let crop_full = crop.filter(|_| !nest_store_of(world).jaws).is_some_and(|c| c.cells > 0);
+                        let why = if take { "taken" } else if crop_full { "crop" } else if bite.organism_id() != 0 || food_value(world, bite) <= 0.0 || world.materials.get(bite.material).worth_in_aux { "not_loose" } else if st.spoil.is_some_and(|l| l.store) { "store_load" } else if st.spoil.is_some() { "pellet" } else if st.energy < def.start_energy * f32::from(rule.stock_pct) / 100.0 { "low_energy" } else if (rule.nest_bound > 0 || rule.caste > 0) && !is_nest_bound(world, st) { "not_nest_worker" } else if is_store_cell(world, (fxx, fyy)) { "store_cell" } else { "other" };
+                        eprintln!("SO,{},{},{},{:.3},{},{},{},{},{},{},{}", world.frame, organism, u8::from(is_nest_bound(world, st)), st.energy / def.start_energy, x, y, fxx, fyy, world.materials.get(bite.material).name, u8::from(picked_at_home), why);
+                    }
+                }
                 if world.creature_stats.pile_left != left {
                     return did;
                 }
@@ -17722,6 +17778,11 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
                         state.store_carried = true;
                     }
                     world.creature_stats.store_pickups += 1;
+                    return did;
+                }
+                // **[`NestStore`]'s `sated`: a fed ant leaves home food** for
+                // the carry and the hungry; the roll is spent, as `keep`'s is.
+                if nest_store_of(world).sated && (picked_at_home || store_doorstep(world, (x, y))) && loose_food(world, bite) && world.organism(organism).is_some_and(|s| s.energy >= def.start_energy) {
                     return did;
                 }
                 // **A flower an animal can afford to feed at pays nectar and
@@ -18338,6 +18399,9 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
                     // (`CreatureStats::trip_deliveries`).
                     if trip_cell {
                         world.creature_stats.trip_deliveries += 1;
+                    }
+                    if store_trace() {
+                        eprintln!("DL,{},{},{},{},{}", world.frame, organism, dx, dy, u8::from(trip_cell));
                     }
                     let (returned, src) = world.organism_mut(organism).map_or((false, 0), |state| {
                         state.life.deliveries += 1;
