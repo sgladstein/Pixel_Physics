@@ -2248,6 +2248,15 @@ pub struct CreatureStats {
     /// refused: counted, not changed, under any of `NeedsFirst`'s escape
     /// parts, so the one veto they leave in place is still seen.
     pub needs_roof_refused: u64,
+    /// Dig rolls a hungry ant did not take (`NeedsFirst`'s `hungry`): the
+    /// need holds new loads off as it puts the old one down. 0 unless the
+    /// part is on.
+    pub needs_dig_held: u64,
+    /// Decisions on which a need fired and no cell beside the head would take
+    /// the load without closing a way or standing in a doorway
+    /// (`creature::need_drop_site`): the load is kept. 0 unless the switch is
+    /// on.
+    pub needs_no_site: u64,
     /// **Carry distances drawn** under `PIXEL_PHYSICS_SPOIL_RING`
     /// (`creature::spoil_ring`): when its carrier comes out by the door with
     /// it (`creature::carry_stage`), and again for a carrier that went back

@@ -12652,7 +12652,7 @@ pub fn way_gaps_of(world: &World) -> WayGaps {
 /// world that reads none pays one branch a frame.
 pub fn step_nest_rest(world: &mut World) {
     let mound = mound_out_of(world) != MoundOut::OFF;
-    let escape = needs_first_of(world).escape();
+    let escape = needs_first_of(world).ways();
     let read = nest_rest_of(world).on() || hungry_out_of(world) || soil_way_of(world) != SoilWay::OFF || mound || escape;
     if !read || world.nest_sites.is_empty() {
         world.nest_ways.clear();
@@ -13001,20 +13001,38 @@ pub fn mound_out_of(world: &World) -> MoundOut {
 ///   scout's hunger read) with no food in the crop. Puts down whatever is in
 ///   the jaws, store load included, and gives up the walk back to its face or
 ///   up from the store: both are rungs above the hungry way out, and a
-///   hungry ant on either is held off it. Measured before building, on the
+///   hungry ant on either is held off it. **And takes up no new load while
+///   the need holds**: its dig roll is held (`needs_dig_held`) unless it is
+///   shut in ([`shut_in`], or [`shut_in_mound`] under [`MoundOut`]'s
+///   `dig`), where digging is the way out. Measured before building, on the
 ///   dig-on game (seeds 2-3 to 60k): 90-95% of pellet decisions are at or
-///   over the grant, so this reaches the hungry few, not the haul.
-/// - `laden`: food in the crop. A soil pellet goes down so the food goes
-///   home, or to a larva, first.
+///   over the grant, and on the baseline 4-5% of ant-time is under it
+///   (seeds 1-4, 100-300k), so this reaches the hungry few, not the haul.
+///   The first build had no hold, and traced (seed 2 to 50k, digging
+///   record): 81% of the ants that put a pellet down cut again while still
+///   hungry, half of them within 10 frames, and 7% reached food or the
+///   surface first -- digs 2,646 against the baseline's 924, ants 318
+///   against 403.
+/// - `laden`: food in the crop it could feed from (over its grant, as
+///   `brood::crop_feed` asks of a donor) **and a hungry larva beside its
+///   head**: the pellet is the one thing between them, since
+///   [`crop_to_feed`] refuses a holder. The first build put the pellet down
+///   for any food in the crop, and 73-85% of holders carry some: door sealed
+///   on 15 of 45 maps against the baseline's 6, ants 263 against 403 (seed
+///   2 to 50k). No dig hold: a fed ant with food is the colony's digger.
 /// - `job`: a fed worker beside loose food at home that the storeroom would
 ///   carry, refused only for the pellet ([`store_pickup_ok`]; Nest race
 ///   traced 77% of fed nest workers at door food holding one).
-/// - `pack`: a hungry soil carrier with no empty cell beside it cuts the
-///   cell ahead, steps into it, and packs its old pellet into the cell its
-///   tail left ([`pack_behind`]). The pocket moves through the soil and no
-///   soil is made or lost. Aimed one octant a step towards straight up --
-///   gravity is the one cue an encased ant has. A store load is never packed:
-///   food packed into a wall is food lost.
+/// - `pack`: a hungry soil carrier walled in -- every cell beside its head
+///   its own body or bare ground ([`walled_in`]) -- cuts the cell ahead,
+///   steps into it, and packs its old pellet into the cell its tail left
+///   ([`pack_behind`]). The pocket moves through the soil and no soil is
+///   made or lost. Aimed one octant a step towards straight up -- gravity is
+///   the one cue an encased ant has. A store load is never packed: food
+///   packed into a wall is food lost. The first build asked only for no
+///   empty cell beside the head, which a crowd of nestmates also gives, and
+///   packed onto ants standing in the cells it left: 582 killed by seed 2's
+///   50k (`DeathCause::Killed`, a head cell lost), against none.
 /// - `throttle`: in the door's throttle zone ([`outward_want`]) an ant's
 ///   own hunger counts against the colony's want, the larger winning,
 ///   instead of only once it is lean: a step at half the grant becomes a
@@ -13032,11 +13050,14 @@ pub fn mound_out_of(world: &World) -> MoundOut {
 ///   face. The roof rule still applies to all three; its refusals of a
 ///   shut-in digger are counted (`needs_roof_refused`), not changed.
 ///
-/// **Where it goes down: [`lean_drop_site`]**, an empty cell beside the head
+/// **Where it goes down: [`need_drop_site`]**, an empty cell beside the head
 /// with ground under it, never the keep rule's headroom, since the keep rule
-/// is what this outranks. That is the risk to measure: a pellet laid in the
-/// shaft or the door re-seals it, which is what the keep rule was built to
-/// stop.
+/// is what this outranks -- **but never one that closes a way** (the open
+/// cells round it must make one run, so filling it parts nothing), and never
+/// in a doorway, the founding shaft's columns from 8 rows over its mouth to
+/// its foot. That is the keep rule's own reason kept as a rule about the
+/// cell rather than the ant: a pellet laid in the shaft or the door re-seals
+/// it. With no such cell the load is kept (`needs_no_site`).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct NeedsFirst {
     pub hungry: bool,
@@ -13082,6 +13103,12 @@ impl NeedsFirst {
         self.weak || self.breakthrough || self.door
     }
 
+    /// Whether [`shut_in`]'s ways must be built: an escape part, or `hungry`,
+    /// whose dig hold stands aside for the shut in.
+    pub fn ways(self) -> bool {
+        self.escape() || self.hungry
+    }
+
     /// Whether a part that reads the jaws ([`needs_first_act`]) is on.
     pub fn jaws(self) -> bool {
         self.hungry || self.laden || self.job || self.pack
@@ -13107,12 +13134,19 @@ enum NeedsDid {
     Packed,
 }
 
+/// **Hungry, as [`NeedsFirst`] reads it**: under its start grant with no
+/// food in the crop.
+fn needs_hungry(st: &crate::sim::organism::OrganismState, def: &CreatureDef) -> bool {
+    !st.crop.is_some_and(|c| c.worth() > 0.0) && st.energy < def.start_energy
+}
+
 /// **[`NeedsFirst`] for one decision of `act`**, before anything in it reads
 /// the jaws.
 fn needs_first_act(world: &mut World, organism: OrganismId, def: &CreatureDef, head: (i32, i32), rule: NeedsFirst) -> NeedsDid {
     let Some(st) = world.organism(organism) else { return NeedsDid::Nothing };
     let food = st.crop.is_some_and(|c| c.worth() > 0.0);
-    let hungry = !food && st.energy < def.start_energy;
+    let donor = food && st.energy > def.start_energy;
+    let hungry = needs_hungry(st, def);
     if rule.hungry && hungry && (st.dig_return.is_some() || st.store_return) {
         if let Some(s) = world.organism_mut(organism) {
             s.dig_return = None;
@@ -13121,9 +13155,9 @@ fn needs_first_act(world: &mut World, organism: OrganismId, def: &CreatureDef, h
         world.creature_stats.needs_quit += 1;
     }
     let Some(load) = world.organism(organism).and_then(|s| s.spoil) else { return NeedsDid::Nothing };
-    let need = (rule.hungry && hungry) || (rule.laden && food && !load.store) || (rule.job && !load.store && store_job_waits(world, organism, def, head));
+    let need = (rule.hungry && hungry) || (rule.laden && donor && !load.store && hungry_larva_beside(world, organism, def, head)) || (rule.job && !load.store && store_job_waits(world, organism, def, head));
     if need {
-        if let Some((px, py)) = lean_drop_site(world, head) {
+        if let Some((px, py)) = need_drop_site(world, head) {
             world.set(px, py, load.cell);
             if let Some(s) = world.organism_mut(organism) {
                 s.spoil = None;
@@ -13136,14 +13170,82 @@ fn needs_first_act(world: &mut World, organism: OrganismId, def: &CreatureDef, h
             note_spoil(world, SpoilWhy::Need, 0, f32::NAN);
             return NeedsDid::Down;
         }
+        world.creature_stats.needs_no_site += 1;
     }
-    let open = NEIGHBOURS_8.iter().any(|&(dx, dy)| world.get(head.0 + dx, head.1 + dy).material == material::EMPTY);
-    if rule.pack && hungry && !load.store && !open && pack_behind(world, organism, def, head, load) {
+    if rule.pack && hungry && !load.store && walled_in(world, organism, head) && pack_behind(world, organism, def, head, load) {
         world.creature_stats.needs_packed += 1;
         note_spoil(world, SpoilWhy::Packed, 0, f32::NAN);
         return NeedsDid::Packed;
     }
     NeedsDid::Nothing
+}
+
+/// **A hungry larva beside the head** ([`NeedsFirst`]'s `laden`): a larva
+/// whose bank is under its target ([`kin_deficit`]), in the head's 8
+/// neighbours -- the cells `brood::crop_feed` looks for a donor in.
+fn hungry_larva_beside(world: &World, organism: OrganismId, def: &CreatureDef, (x, y): (i32, i32)) -> bool {
+    NEIGHBOURS_8.iter().any(|&(dx, dy)| {
+        let id = world.get(x + dx, y + dy).organism_id();
+        id != 0
+            && id != organism
+            && world.organism(id).is_some_and(|s| s.brood.is_some_and(|b| b.stage == organism::BroodStage::Larva))
+            && kin_deficit(world, id, def.start_energy).is_some_and(|d| d > 0.0)
+    })
+}
+
+/// **In a nest's doorway** ([`NeedsFirst`]): a founding shaft's own columns,
+/// from 8 rows over its mouth row ([`in_a_passage`]'s top) down to the
+/// shaft's foot. The chamber at the foot is not in it.
+fn in_a_doorway(world: &World, (x, y): (i32, i32)) -> bool {
+    world
+        .nest_sites
+        .iter()
+        .filter_map(|s| s.shaft)
+        .any(|c| (c.x0..=c.x1).contains(&x) && (c.top - 8..=c.bottom).contains(&y))
+}
+
+/// **Whether filling `(x, y)` would part the open cells round it**: walked
+/// round its 8 neighbours in order, the ones an ant can pass ([`way_cell`]'s
+/// open: empty, an animal, or a cell the walk parts) must make at most one
+/// run. Two neighbours next to each other in that order share an edge, so
+/// one run is joined without the cell, and filling it closes no way
+/// through it -- for a walker that may step diagonally or may not.
+fn closes_a_way(world: &World, (x, y): (i32, i32)) -> bool {
+    const RING: [(i32, i32); 8] = [(0, -1), (1, -1), (1, 0), (1, 1), (0, 1), (-1, 1), (-1, 0), (-1, -1)];
+    let parted = parting_enabled();
+    let open = |(dx, dy): (i32, i32)| {
+        let c = world.get(x + dx, y + dy);
+        c.material == material::EMPTY || is_animal_cell(world, c) || (parted && is_partable(world, c))
+    };
+    let o: Vec<bool> = RING.iter().map(|&d| open(d)).collect();
+    (0..8).filter(|&i| o[i] && !o[(i + 1) % 8]).count() > 1
+}
+
+/// **Where a need puts the load down** ([`NeedsFirst`]): [`lean_drop_site`]'s
+/// cell -- empty, with ground under it -- that is not in a doorway and does
+/// not close a way ([`closes_a_way`]). `None` with the head itself in a
+/// doorway.
+fn need_drop_site(world: &World, head: (i32, i32)) -> Option<(i32, i32)> {
+    if in_a_doorway(world, head) {
+        return None;
+    }
+    NEIGHBOURS_8.iter().map(|&(dx, dy)| (head.0 + dx, head.1 + dy)).find(|&p| drop_footing(world, p) && !in_a_doorway(world, p) && !closes_a_way(world, p))
+}
+
+/// **Walled in** ([`NeedsFirst`]'s `pack`): every cell of the body its own,
+/// nobody riding in one, and every cell beside the head its own body or bare
+/// ground -- solid or powder, owned by no organism, worth nothing as food.
+/// A nestmate, brood, food or an empty cell beside the head is a way, or a
+/// need, that is not soil.
+fn walled_in(world: &World, organism: OrganismId, head: (i32, i32)) -> bool {
+    let Some(st) = world.organism(organism) else { return false };
+    if !st.chain.iter().all(|&(x, y)| world.get(x, y).organism_id() == organism && world.riders_at(x, y).is_empty()) {
+        return false;
+    }
+    NEIGHBOURS_8.iter().all(|&(dx, dy)| {
+        let c = world.get(head.0 + dx, head.1 + dy);
+        c.organism_id() == organism || (c.organism_id() == 0 && matches!(world.materials.kind(c.material), MaterialKind::Solid | MaterialKind::Powder) && food_value(world, c) <= 0.0)
+    })
 }
 
 /// **Whether the storeroom would take loose food beside this ant if its jaws
@@ -13179,7 +13281,7 @@ fn pack_behind(world: &mut World, organism: OrganismId, def: &CreatureDef, head:
     let Some((chain, groups, fates, heading)) = world.organism(organism).map(|s| (s.chain.clone(), s.segment_groups.clone(), s.fates, s.heading)) else {
         return false;
     };
-    if chain.first() != Some(&head) {
+    if chain.first() != Some(&head) || in_a_doorway(world, head) {
         return false;
     }
     let aim = turn_toward(heading, UP_DIR, half_turn_left(world.seed, organism, world.frame));
@@ -13191,18 +13293,25 @@ fn pack_behind(world: &mut World, organism: OrganismId, def: &CreatureDef, head:
     }
     let authored = segment_authored(def, fates);
     let widths = segment_authored_widths(def, fates);
-    let push = parting_enabled();
-    let stacker = stacker_of(world, organism);
+    // **No parting, and only its own cells**: the body lands on the cut and
+    // on cells it already holds, so nothing else is moved and the cell its
+    // tail leaves is empty for the pellet. The first build parted and stood
+    // through tissue, and its pellets landed on nestmates (`NeedsFirst`).
+    let push = false;
     world.set(ahead.0, ahead.1, Cell::EMPTY);
     let body = BodyShape { chain: &chain, groups: &groups, authored: &widths };
     let (landing, _) = body_after_step(world, def, body, ahead, heading, aim, push);
     let vacated = chain.iter().rev().copied().find(|c| !landing.contains(c));
-    let Some((vx, vy)) = vacated.filter(|_| landing_is_placeable_through_tissue(world, &chain, &landing, push, stacker)) else {
+    let own = landing.iter().all(|c| *c == ahead || chain.contains(c));
+    let Some((vx, vy)) = vacated.filter(|&v| own && !in_a_doorway(world, v) && landing_is_placeable_through_tissue(world, &chain, &landing, push, None)) else {
         world.set(ahead.0, ahead.1, target);
         return false;
     };
     commit_step(world, organism, def, body, &authored, &widths, heading, aim, push);
-    world.set(vx, vy, load.cell);
+    debug_assert_eq!(world.get(vx, vy).material, material::EMPTY, "the cell the tail left at ({vx}, {vy}) is not empty");
+    if world.get(vx, vy).material == material::EMPTY {
+        world.set(vx, vy, load.cell);
+    }
     let mut pellet = target;
     let ground_def = world.materials.get(target.material);
     let hauled = if crate::sim::update::spoil_footing() { ground_def.spoils_into.or(ground_def.packs_into) } else { ground_def.packs_into };
@@ -16206,10 +16315,22 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
             world.creature_stats.lean_digs_skipped += 1;
         }
     }
+    // **A hungry ant takes up no new load** ([`NeedsFirst`]'s `hungry`):
+    // the urge is read as 0, as the lean gate reads it, so the roll still
+    // spends its draw -- unless it is shut in, where digging is the way out.
+    let needs_first = needs_first_of(world);
+    if needs_first.hungry
+        && dig_urge > 0.0
+        && world.organism(organism).is_some_and(|s| needs_hungry(s, def))
+        && !(mound_out_of(world).dig && shut_in_mound(world, x, y))
+        && !shut_in(world, x, y)
+    {
+        dig_urge = 0.0;
+        world.creature_stats.needs_dig_held += 1;
+    }
     let dig_urge = dig_urge;
     // **Soil is the lowest job** ([`NeedsFirst`]): a need puts the jaws' load
     // down before anything below reads it. Unset, no read and no draw.
-    let needs_first = needs_first_of(world);
     if needs_first.jaws() {
         match needs_first_act(world, organism, def, (x, y), needs_first) {
             NeedsDid::Nothing => {}
@@ -21447,9 +21568,13 @@ pub fn lean_forage_of(world: &World) -> LeanForage {
 /// three cells under it filled, so it does not hang in the air. Unlike
 /// [`spoil_site_open`] it asks no headroom, because the ant is in a gallery.
 fn lean_drop_site(world: &World, (x, y): (i32, i32)) -> Option<(i32, i32)> {
-    NEIGHBOURS_8.iter().map(|&(dx, dy)| (x + dx, y + dy)).find(|&(px, py)| {
-        world.get(px, py).material == material::EMPTY && [(-1, 1), (0, 1), (1, 1)].iter().filter(|(dx, dy)| world.get(px + dx, py + dy).material != material::EMPTY).count() >= 2
-    })
+    NEIGHBOURS_8.iter().map(|&(dx, dy)| (x + dx, y + dy)).find(|&p| drop_footing(world, p))
+}
+
+/// [`lean_drop_site`]'s test of one cell: empty, with two of the three cells
+/// under it filled.
+fn drop_footing(world: &World, (px, py): (i32, i32)) -> bool {
+    world.get(px, py).material == material::EMPTY && [(-1, 1), (0, 1), (1, 1)].iter().filter(|(dx, dy)| world.get(px + dx, py + dy).material != material::EMPTY).count() >= 2
 }
 
 /// The nest site whose throttle zone holds `(hx, hy)`: within `reach`
@@ -30223,23 +30348,49 @@ mod tests {
         assert_eq!(NeedsFirst::SHIPPED, NeedsFirst::OFF, "built off until it is scored against the dig-on baseline");
     }
 
-    /// **Under `NEEDS_FIRST` a hungry or laden carrier inside puts its pellet
-    /// down, and a hungry one gives up its walk back to the face**
-    /// ([`NeedsFirst`]). The lean test's room under the door, the carrier on
-    /// its floor with its haul's patience full, so the keep rule holds the
-    /// pellet whatever `DropSpoil` says: with the switch off, hungry or laden,
-    /// it is kept -- the controls that say the scene holds it -- and fed and
-    /// empty-cropped with the parts on it is kept too, since no need fired.
-    /// Hungry (under its grant, over the lean line) under `hungry`, and fed
-    /// with food in the crop under `laden`, it goes down and is counted.
-    /// Watched red with the hook taken out of `act`.
+    /// A larva laid by `parent` at `cell`, at a tenth of its target: hungry.
+    fn hungry_larva_at(w: &mut World, parent: OrganismId, cell: (i32, i32)) -> OrganismId {
+        let def = w.species.get(w.organism(parent).expect("live").species).creature.clone().expect("a creature");
+        let block = def.brood.clone().expect("ant.ron authors a brood block");
+        let st = w.organism(parent).expect("live");
+        let egg = crate::sim::brood::Egg { species: st.species, genome: st.genome.clone(), traits: st.traits, generation: st.generation + 1, lineage: st.lineage, colony: st.colony, made: 0.0, fates: st.fates };
+        let head = st.chain[0];
+        crate::sim::brood::lay_egg(w, parent, head, &def, &block, egg, Some(cell)).expect("test setup: no egg laid");
+        let larva = w.get(cell.0, cell.1).organism_id();
+        let st = w.organism_mut(larva).expect("laid");
+        let b = st.brood.as_mut().expect("brood");
+        b.stage = organism::BroodStage::Larva;
+        st.energy = 0.1 * b.target;
+        larva
+    }
+
+    /// **Under `NEEDS_FIRST` a hungry carrier inside puts its pellet down, and
+    /// gives up its walk back to the face; a laden one does beside a hungry
+    /// larva** ([`NeedsFirst`]). The lean test's room under the door, the
+    /// carrier on its floor with its haul's patience full, so the keep rule
+    /// holds the pellet whatever `DropSpoil` says: with the switch off,
+    /// hungry or laden, it is kept -- the controls that say the scene holds
+    /// it -- and fed and empty-cropped with the parts on it is kept too, since
+    /// no need fired. Hungry (under its grant, over the lean line) under
+    /// `hungry` it goes down and is counted. Laden, with a donor's bank, under
+    /// `laden` it goes down only with a hungry larva beside the head. In a
+    /// gallery one cell high the only cells beside it close the way, so a
+    /// hungry carrier keeps it (`needs_no_site`). Watched red with the hook
+    /// taken out of `act`, with the larva test taken out of `laden`, and with
+    /// [`closes_a_way`] reading false.
     #[test]
     fn under_needs_first_a_hungry_or_laden_carrier_puts_its_pellet_down_inside() {
         let room: Vec<(i32, i32)> = (42..=46).flat_map(|y| (54..=68).map(move |x| (x, y))).collect();
-        let run = |energy: f32, food: bool, rule: NeedsFirst| -> (bool, u64, bool) {
-            let (mut w, a) = carry_world(62, 46, None, &room, &[]);
+        let gallery: Vec<(i32, i32)> = (54..=68).map(|x| (x, 46)).collect();
+        let run = |open: &[(i32, i32)], energy: f32, food: bool, larva: bool, rule: NeedsFirst| -> (bool, u64, bool, u64) {
+            let (mut w, a) = carry_world(62, 46, None, open, &[]);
             w.needs_first = Some(rule);
             w.soil_way = Some(SoilWay::OFF); // whose `lean` keeps the pellet down here
+            let (hx, hy) = w.organism(a).expect("live").chain[0];
+            if larva {
+                // Laid first: laying is paid from the layer's bank, set below.
+                hungry_larva_at(&mut w, a, (hx, hy - 1));
+            }
             let fruit = w.materials.id_of("fruit").expect("fruit material");
             let start = w.species.get(w.organism(a).expect("live").species).creature.as_ref().expect("a creature").start_energy;
             let st = w.organism_mut(a).expect("live");
@@ -30251,15 +30402,59 @@ mod tests {
             }
             let (hx, hy) = w.organism(a).expect("live").chain[0];
             assert!(inside_nest(&w, hx, hy), "test setup: the carrier at ({hx}, {hy}) is not inside the nest");
+            if larva {
+                assert!(hungry_larva_beside(&w, a, &w.species.get(w.organism(a).expect("live").species).creature.clone().expect("a creature"), (hx, hy)), "test setup: no hungry larva beside the head");
+            }
             carry_act(&mut w, a);
             let st = w.organism(a).expect("live");
-            (st.spoil.is_some(), w.creature_stats.needs_down, st.dig_return.is_some())
+            (st.spoil.is_some(), w.creature_stats.needs_down, st.dig_return.is_some(), w.creature_stats.needs_no_site)
         };
-        assert_eq!(run(0.8, false, NeedsFirst::OFF), (true, 0, true), "control: with the switch off a hungry carrier inside put its pellet down");
-        assert_eq!(run(1.0, true, NeedsFirst::OFF), (true, 0, true), "control: with the switch off a laden carrier inside put its pellet down");
-        assert_eq!(run(1.0, false, NeedsFirst::ON), (true, 0, true), "a fed carrier with an empty crop put its pellet down: no need fired");
-        assert_eq!(run(0.8, false, NeedsFirst::parse("hungry")), (false, 1, false), "a hungry carrier kept its pellet, or kept its walk back to the face");
-        assert_eq!(run(1.0, true, NeedsFirst::parse("laden")), (false, 1, true), "a carrier with food in its crop kept its pellet");
+        assert_eq!(run(&room, 0.8, false, false, NeedsFirst::OFF), (true, 0, true, 0), "control: with the switch off a hungry carrier inside put its pellet down");
+        assert_eq!(run(&room, 1.2, true, true, NeedsFirst::OFF), (true, 0, true, 0), "control: with the switch off a laden carrier beside a larva put its pellet down");
+        assert_eq!(run(&room, 1.0, false, false, NeedsFirst::ON), (true, 0, true, 0), "a fed carrier with an empty crop put its pellet down: no need fired");
+        assert_eq!(run(&room, 0.8, false, false, NeedsFirst::parse("hungry")), (false, 1, false, 0), "a hungry carrier kept its pellet, or kept its walk back to the face");
+        assert_eq!(run(&room, 1.2, true, false, NeedsFirst::parse("laden")), (true, 0, true, 0), "a laden carrier with no larva beside it put its pellet down");
+        assert_eq!(run(&room, 1.2, true, true, NeedsFirst::parse("laden")), (false, 1, true, 0), "a laden carrier beside a hungry larva kept its pellet");
+        assert_eq!(run(&gallery, 0.8, false, false, NeedsFirst::parse("hungry")), (true, 0, false, 1), "a hungry carrier in a gallery one cell high put its pellet where it closes the way");
+    }
+
+    /// **Under `NEEDS_FIRST`'s `hungry` a hungry ant takes up no new load**:
+    /// [`a_lean_ant_does_not_take_its_dig_roll`]'s scene (a gallery, `Dig` at
+    /// 1, facing open floor) with the ant under its grant but over the lean
+    /// line. With the switch off, and fed with it on, it cuts -- the controls;
+    /// hungry with it on, the roll is held and counted. Watched red with the
+    /// hold taken out of `act`.
+    #[test]
+    fn under_needs_first_a_hungry_ant_does_not_take_its_dig_roll() {
+        let cut = |energy: f32, rule: NeedsFirst| -> (usize, u64) {
+            let mut w = World::new(Rect::new(0, 0, 119, 99));
+            founding_ground(&mut w);
+            for yy in 60..63 {
+                for xx in 50..=70 {
+                    w.set(xx, yy, Cell::EMPTY);
+                }
+            }
+            w.dig_face = Some(DigFace::On);
+            w.dig_widen = Some(false);
+            w.dig_down = Some(None);
+            w.lean_forage = Some(LeanForage::ON);
+            w.needs_first = Some(rule);
+            let a = spawn(&mut w, "ant", 60, 62);
+            let def = w.species.get(w.organism(a).expect("live").species).creature.clone().expect("a creature");
+            let st = w.organism_mut(a).expect("live");
+            st.heading = 0;
+            st.energy = def.start_energy * energy;
+            let (hx, hy) = w.organism(a).expect("live").chain[0];
+            let before = w.creature_stats.digs;
+            let mut outputs = [0.0f32; brain::BRAIN_OUTPUTS];
+            outputs[brain::BrainOutput::Dig as usize] = 1.0;
+            let mut draw = rng::stream(1, a as u64, 0, RNG_SLOT_MOVE);
+            act(&mut w, hx, hy, a, &def, &outputs, &mut draw);
+            ((w.creature_stats.digs - before) as usize, w.creature_stats.needs_dig_held)
+        };
+        assert_eq!(cut(0.8, NeedsFirst::OFF), (1, 0), "control: with the switch off a hungry ant facing open floor did not cut");
+        assert_eq!(cut(1.0, NeedsFirst::parse("hungry")), (1, 0), "control: a fed ant under `hungry` did not cut");
+        assert_eq!(cut(0.8, NeedsFirst::parse("hungry")), (0, 1), "a hungry ant under `hungry` cut");
     }
 
     /// **Under `NEEDS_FIRST`'s `pack` a hungry carrier shut in the soil cuts on
@@ -30269,11 +30464,14 @@ mod tests {
     /// controls. Under `pack` the head steps one cell into the ground, the
     /// cell the tail left holds a pellet, the carrier holds the cut, and the
     /// box has exactly as many empty cells as before: no soil made or lost.
-    /// Watched red with the tail cell left empty: the count moved.
+    /// With a larva beside the head in place of soil the carrier is not
+    /// walled in ([`walled_in`]) and does not pack: what it would pack onto
+    /// may be alive. Watched red with the tail cell left empty (the count
+    /// moved) and with [`walled_in`] reading true (the larva arm packed).
     #[test]
     fn under_needs_first_an_encased_hungry_carrier_packs_its_pellet_behind_it() {
         let boxed: Vec<(i32, i32)> = (46..=54).flat_map(|y| (56..=68).map(move |x| (x, y))).collect();
-        let run = |rule: NeedsFirst| -> ((i32, i32), (i32, i32), bool, bool, usize, usize, u64) {
+        let run_with = |rule: NeedsFirst, larva: bool| -> ((i32, i32), (i32, i32), bool, bool, usize, usize, u64) {
             let (mut w, a) = carry_world(62, 50, None, &boxed, &[]);
             let soil = w.materials.id_of("soil").expect("soil material");
             for &(x, y) in &boxed {
@@ -30287,6 +30485,11 @@ mod tests {
             w.organism_mut(a).expect("live").energy = start * 0.8;
             let chain = w.organism(a).expect("live").chain.clone();
             let (head, tail) = (chain[0], *chain.last().expect("a body"));
+            if larva {
+                let cell = NEIGHBOURS_8.iter().map(|&(dx, dy)| (head.0 + dx, head.1 + dy)).find(|c| !chain.contains(c)).expect("a cell beside the head");
+                w.set(cell.0, cell.1, Cell::EMPTY);
+                hungry_larva_at(&mut w, a, cell);
+            }
             assert!(NEIGHBOURS_8.iter().all(|&(dx, dy)| w.get(head.0 + dx, head.1 + dy).material != material::EMPTY), "test setup: an empty cell beside the head");
             let empty = |w: &World| (44..=56).flat_map(|y| (54..=70).map(move |x| (x, y))).filter(|&(x, y)| w.get(x, y).material == material::EMPTY).count();
             let before = empty(&w);
@@ -30296,8 +30499,11 @@ mod tests {
             let packed_tail = tail_cell.material != material::EMPTY && tail_cell.organism_id() == 0;
             (head, st.chain[0], st.spoil.is_some(), packed_tail, before, empty(&w), w.creature_stats.needs_packed)
         };
+        let run = |rule: NeedsFirst| run_with(rule, false);
         let (head, after, held, _, before, now, n) = run(NeedsFirst::OFF);
         assert_eq!((after, held, now, n), (head, true, before, 0), "control: with the switch off an encased carrier moved");
+        let (head, after, held, _, _, _, n) = run_with(NeedsFirst::parse("pack"), true);
+        assert_eq!((after, held, n), (head, true, 0), "a carrier with a larva beside its head packed");
         let (head, after, held, _, before, now, n) = run(NeedsFirst::parse("hungry"));
         assert_eq!((after, held, now, n), (head, true, before, 0), "control: under `hungry` alone an encased carrier found a cell to put its pellet on");
         let (head, after, held, packed_tail, before, now, n) = run(NeedsFirst::parse("pack"));
@@ -30501,11 +30707,15 @@ mod tests {
     /// refused by the heap cue with the part off and cuts with it on. `door`:
     /// a fed ant behind the sealed shaft walking back to a face across the
     /// box is refused by `FaceTrip`'s `only` with the part off and cuts with
-    /// it on. Watched red with `shut_in` returning false.
+    /// it on. `hungry`'s dig hold stands aside for the same ant: hungry (under
+    /// its grant, over the lean line) and shut in the pocket or behind the
+    /// sealed shaft it cuts, and in the chamber with the shaft open it is
+    /// held (a fed one there cuts -- the control). Watched red with `shut_in`
+    /// returning false.
     #[test]
     fn under_needs_first_a_digger_with_no_way_out_may_cut_its_way_out() {
-        // (cuts, lean rolls taken, weak digs let, cue waived, face refused, face waived)
-        let cut = |x: i32, y: i32, heading: u8, fill: f32, rule: NeedsFirst, sealed: bool, face: Option<(i32, i32)>| -> (u64, u64, u64, u64, u64, u64) {
+        // (cuts, lean rolls taken, weak digs let, cue waived, face refused, face waived, digs held)
+        let cut = |x: i32, y: i32, heading: u8, fill: f32, rule: NeedsFirst, sealed: bool, face: Option<(i32, i32)>| -> (u64, u64, u64, u64, u64, u64, u64) {
             let (mut w, a) = mound_world(x, y, fill, MoundOut::OFF);
             let soil = w.materials.id_of("soil").expect("soil material");
             if sealed {
@@ -30535,10 +30745,10 @@ mod tests {
             let mut draw = rng::stream(1, a as u64, 0, RNG_SLOT_MOVE);
             act(&mut w, hx, hy, a, &def, &outputs, &mut draw);
             let n = w.creature_stats;
-            (n.digs - c.digs, n.lean_digs_skipped - c.lean_digs_skipped, n.needs_weak_digs - c.needs_weak_digs, n.needs_cue_waived - c.needs_cue_waived, n.digs_refused_face - c.digs_refused_face, n.needs_face_waived - c.needs_face_waived)
+            (n.digs - c.digs, n.lean_digs_skipped - c.lean_digs_skipped, n.needs_weak_digs - c.needs_weak_digs, n.needs_cue_waived - c.needs_cue_waived, n.digs_refused_face - c.digs_refused_face, n.needs_face_waived - c.needs_face_waived, n.needs_dig_held - c.needs_dig_held)
         };
         let weak = NeedsFirst { weak: true, ..NeedsFirst::OFF };
-        assert_eq!(cut(49, 33, 0, 0.3, NeedsFirst::OFF, false, None), (0, 1, 0, 0, 0, 0), "control: with the part off a lean ant in the pocket kept its dig roll");
+        assert_eq!(cut(49, 33, 0, 0.3, NeedsFirst::OFF, false, None), (0, 1, 0, 0, 0, 0, 0), "control: with the part off a lean ant in the pocket kept its dig roll");
         let r = cut(49, 33, 0, 0.3, weak, false, None);
         assert_eq!((r.0, r.1, r.2), (1, 0, 1), "under `weak` a lean ant shut in the mound's pocket did not cut");
         let r = cut(63, 47, 0, 0.3, weak, false, None);
@@ -30557,6 +30767,16 @@ mod tests {
         let r = cut(63, 47, 0, 1.0, door, true, far);
         assert_eq!((r.0, r.4, r.5), (1, 0, 1), "under `door` a digger behind the sealed shaft walking back to its face did not cut");
         assert_eq!(cut(63, 47, 0, 1.0, door, false, far).4, 1, "a digger with the shaft open had `FaceTrip`'s `only` waived");
+
+        let hungry = NeedsFirst { hungry: true, ..NeedsFirst::OFF };
+        let r = cut(63, 47, 0, 1.0, hungry, false, None);
+        assert_eq!((r.0, r.6), (1, 0), "control: under `hungry` a fed ant in the founding chamber did not cut");
+        let r = cut(63, 47, 0, 0.8, hungry, false, None);
+        assert_eq!((r.0, r.6), (0, 1), "under `hungry` a hungry ant in the chamber with the shaft open, a way out, was let dig");
+        let r = cut(49, 33, 0, 0.8, hungry, false, None);
+        assert_eq!((r.0, r.6), (1, 0), "under `hungry` a hungry ant shut in the mound's pocket was held from digging out");
+        let r = cut(63, 47, 0, 0.8, hungry, true, None);
+        assert_eq!((r.0, r.6), (1, 0), "under `hungry` a hungry ant behind the sealed shaft was held from digging out");
     }
 
     /// `PIXEL_PHYSICS_MOUND_OUT`'s spellings: `on` both parts, `off` none, a
