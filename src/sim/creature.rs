@@ -12236,7 +12236,9 @@ pub fn nest_rest_of(world: &World) -> NestRest {
 /// sample; their share of decisions below the founding ground 10.0/9.2/
 /// 8.3/10.3% -> 10.3/10.5/9.3/12.3%), and the nest is cut more on 4 of 4
 /// (384/391/392/336 -> 442/582/597/507 cuts below the founding ground).
-/// Larvae starved per egg is unchanged (0.13-0.15 both). In the played lab
+/// Larvae starved per egg is unchanged (0.13-0.15 both). Diggers go back to
+/// their face a little less: next cut at the face after a nest cut (50-100k)
+/// 48/47/52/39% -> 43/42/43/44%, lower on 3 of 4. In the played lab
 /// box (`scripts/labbench.py`, 12 seeds, 120k, one binary) births are
 /// 290.5 -> 325.5 (higher on 9), animals underground 16.6% -> 19.9% (8),
 /// starved per million ant-frames 5.4 -> 6.4 (7 of 12, p 0.77), and no
