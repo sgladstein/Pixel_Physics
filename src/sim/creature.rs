@@ -13184,6 +13184,13 @@ fn fetch_target(world: &World, def: &CreatureDef, state: &crate::sim::organism::
     if !ns.jaws && state.crop.is_some_and(|c| c.cells > 0) {
         return None;
     }
+    // **A nurse with crop food is not called to the door** ([`NurseStay`]'s
+    // `nurse`): under `jaws` its crop no longer stops the call, and its
+    // `HomeAligned` would read the door food while its nurse term pulls it
+    // to the larvae (Laying's review of #640). All three are off by default.
+    if is_crop_nurse(world, state) {
+        return None;
+    }
     let way = nest_way_near(world, head.0, head.1)?;
     if way.at(head.0, head.1).is_none() && !store_doorstep(world, head) {
         return None;
