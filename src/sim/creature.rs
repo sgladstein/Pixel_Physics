@@ -19506,11 +19506,35 @@ pub fn home_search_of(world: &World) -> bool {
 /// under cover, the mound's tunnels read as under cover, and none of their
 /// cells has the headroom a drop needs, so a holder keeps its pellet until
 /// it is lean. At 176k the mound cut the door off from the open air, and
-/// kept it cut off on 22 of 25 maps to 200k. The plug was usually one cell
-/// of loose soil, but 381 of the 400 ants shut in held a pellet, which stops
-/// the dig as [`haul_bite_blocks`] stops the bite, and 8 of the 12 dig rolls
-/// aimed at the plug were refused by [`FaceTrip`]'s `only`. Trip deliveries
-/// stopped by 186k and 192 starved in 186-190k.
+/// kept it cut off on 20 of 25 maps to 200k (by the walk's own rule: brood
+/// and crumbs parted, soil, corpses and the player's provisions walls). The
+/// plug was usually one cell of loose soil, but 364 of the 380 ants shut in
+/// held a pellet, and an ant with a pellet in its jaws is never asked to
+/// dig; 11 of the 17 dig rolls aimed at the cells that would have reopened
+/// it were refused by [`FaceTrip`]'s `only`. Trip deliveries stopped by
+/// 186k and 192 starved in 186-190k. (First counted, 2026-10-06, with every
+/// food cell read as wall: 22 of 25 maps, 381 of 400, 8 of 12. This
+/// paragraph then also said a pellet stops the bite ([`haul_bite_blocks`]);
+/// it does not, since [`HaulBite`] ships `on`, under which a holder eats
+/// food beside it. What a pellet takes from a hungry ant is the pulls that
+/// lead to food, [`hungry_out_pull`] and the hungry walk home, until it is
+/// lean.)
+///
+/// **How seed 2 fell with the rest pull off, traced** (the same report;
+/// `CARRY_HOME=on` against unset, maps every 1,000 frames and the digging
+/// record). Its starvers were the same soil carriers: they held their
+/// pellets in the mound's tunnels until lean, and [`LeanForage`]'s `drop`
+/// then let them go there (779 pellets over the run against 45). Soil
+/// falling and sliding in the mound, those pellets and corpses shut the
+/// lean ants into pockets joined to neither the door nor the open air: of
+/// the 127 that starved with empty jaws over 200-300k, 105 died in one. A
+/// lean ant takes no dig roll ([`LeanForage`]'s `nodig`), and
+/// [`hungry_out_pull`] walks an ant only along the nest's way, which starts
+/// at the door row ([`build_nest_way`]), while 85% of their empty-jawed
+/// decisions were above it. Births fell as well (692 over 200-300k against
+/// 1,323; not traced). So the switch's colonies reach the mound's trap
+/// sooner, and the fix belongs to the four rules that meet there, not to
+/// this switch.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct CarryHome {
     pub fill: bool,
