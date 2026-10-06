@@ -12846,17 +12846,25 @@ pub struct NestStore {
     /// ([`store_doorstep`]); 0, the default, is the dug nest alone.
     pub pick: i32,
     /// `jaws`: **a nest worker with food in its crop still carries in its
-    /// jaws.** The carry's pick-up refused any ant with a crop, and 40-46%
-    /// of fed nest workers' won rolls beside door food were refused for it
-    /// (seeds 1 and 4, 0-60k, `pick=20`). Workers carry in the mandibles
-    /// whatever their crop holds.
+    /// jaws.** The carry's pick-up refused any ant with a crop. Workers carry
+    /// in the mandibles whatever their crop holds. **It moves nothing**
+    /// (2026-10-06, seeds 1-4, 150k, `pick=20`, `NEST_REST=off`): a first
+    /// count that asked the crop before the jaws put 40-46% of fed nest
+    /// workers' won rolls beside door food down to the crop, but asked the
+    /// other way round 892 of 1,156 held a soil pellet and about 17 had only
+    /// a full crop (seed 1, 0-60k). Loads carried in 189-299 a run against
+    /// 230-282 without it.
     pub jaws: bool,
     /// `fetch`: **an idle fed nest worker at home is pulled to food on the
     /// doorstep** ([`fetch_target`]), the nearest loose cell within the
     /// pick-up's reach, so the carry has carriers where the food is. Only
     /// about 2,300 times in 60k frames was a fed nest worker beside door food
     /// at all. Implies the doorstep pick-up ([`STORE_FETCH_REACH`] when
-    /// `pick` is 0).
+    /// `pick` is 0). **Measured harmful to the goal** (2026-10-06, seeds 1-4,
+    /// 150k, `pick=20`, `NEST_REST=off`): loads 221-352 a run against
+    /// 230-282 without it, while nest workers inside the nest fell from
+    /// 8-12% to 6.0-6.5% -- it walks them out to the door, and most arrive
+    /// holding a soil pellet, which the pick-up refuses.
     pub fetch: bool,
 }
 
