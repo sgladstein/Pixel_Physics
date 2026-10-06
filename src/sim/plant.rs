@@ -3056,6 +3056,16 @@ fn deliver_seed_passenger_with_material(world: &mut World, x: i32, y: i32, passe
             .or_else(|| find_midden_site(world, x, y, threshold))
     };
     let Some((x, y)) = site else {
+        // **Booked `Eaten`** (`OrganismState::last_loss`): its cell was
+        // cleared at the pickup, so nothing else will ever name what took
+        // it, and from the plant's side it went into a mouth and never came
+        // back down alive. Unlabelled, these were most of the `Unknown`
+        // seed deaths left with a colony on the played bed (2026-10-06).
+        if let Some(st) = world.organism_mut(passenger.organism_id) {
+            if !st.senescent {
+                st.last_loss = organism::DeathCause::Eaten;
+            }
+        }
         world.carried_seed_organisms.remove(&passenger.organism_id);
         world.seeds_lost_no_room += 1;
         if std::env::var("A2_DEBUG").as_deref() == Ok("1") {
@@ -3153,7 +3163,7 @@ fn deliver_seed_passenger_with_material(world: &mut World, x: i32, y: i32, passe
             // Round 28's garden-loop instrument: "where" -- see
             // `World::pip_rot_x`'s own doc.
             world.pip_rot_x.push(x);
-            shed_to_litter(world, x, y);
+            shed_to_litter(world, x, y, organism::DeathCause::SeedRotted);
         }
     }
 }
@@ -3829,6 +3839,9 @@ fn bear_seed_at(world: &mut World, sx: i32, sy: i32, parent_id: OrganismId, seed
     let mut fate_op: Option<organism::FateOp> = None;
     let mut jumped_locus: Option<usize> = None;
     if let Some(state) = world.organism_mut(child) {
+        // A seed until `germinate` says otherwise -- see
+        // `OrganismState::dormant_seed`. Draws nothing.
+        state.dormant_seed = true;
         // Each trait drifts independently, so a genome is not a single
         // dial: two offspring of one parent can differ on branching and
         // agree on height, which is what lets a population explore corners
@@ -4803,7 +4816,7 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: OrganismId, sta
                 // Round 28's garden-loop instrument: "where".
                 world.pip_rot_x.push(x);
             }
-            shed_to_litter(world, x, y);
+            shed_to_litter(world, x, y, organism::DeathCause::SeedRotted);
             // No reschedule: the organism now owns no cells, and
             // `step_organisms`' existing empty-cell-list check returns its
             // slot within one organism tick. Nothing new has to decide the
@@ -5805,7 +5818,15 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: OrganismId, sta
                 }
                 displace_soil_water(world, tx, ty);
                 displace_liquid(world, tx, ty);
+                // **Labelled in case it is a seed's last cell.** `growable`
+                // lets a root into any soft loose cell, and another plant's
+                // dormant seed is one -- nothing asks whose it is. Traced
+                // 2026-10-06 at 160-300 seeds a run on the played bed. If
+                // this write empties that seed, it was `Overgrown`; any other
+                // target leaves the label unread.
+                world.loss_context = Some(organism::DeathCause::Overgrown);
                 world.set(tx, ty, new_cell);
+                world.loss_context = None;
                 // Straight continuation of this shoot, so the child keeps
                 // the parent's order. The lateral below is what increments.
                 write_order(world, tx, ty, order);
@@ -6046,7 +6067,10 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: OrganismId, sta
                             }
                             displace_soil_water(world, bx, by);
                             displace_liquid(world, bx, by);
+                            // Labelled as the continuation's write is.
+                            world.loss_context = Some(organism::DeathCause::Overgrown);
                             world.set(bx, by, branch_cell);
+                            world.loss_context = None;
                             // **The only place order increases.** A lateral
                             // is one branching further from the seed, so it
                             // starts the next tier: rarer branching becomes
@@ -6344,17 +6368,29 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: OrganismId, sta
                     // reasons the upkeep arm gives: a graded pressure rather
                     // than a threshold, and a cell being shed does not also
                     // earn on the tick it dies.
-                    let mut shed = false;
+                    //
+                    // **Which roll fired is kept**, for the death record: this
+                    // arm is what thins a leafless sward, and until 2026-10-06
+                    // nothing said which of its two rolls ended a plant -- a
+                    // grass plant shed to nothing here was booked as felled.
+                    // Same draws in the same order as the bool it replaced --
+                    // the drought roll is still taken only when the shade
+                    // roll did not fire.
+                    let mut shed: Option<organism::DeathCause> = None;
                     if shade_death > 0.0 {
                         let darkness = (1.0 - light / crate::sim::field::MAX_LIGHT).clamp(0.0, 1.0);
-                        shed = rng.chance(shade_death * darkness * darkness * darkness);
+                        if rng.chance(shade_death * darkness * darkness * darkness) {
+                            shed = Some(organism::DeathCause::ShadedOut);
+                        }
                     }
-                    if !shed && drought_death > 0.0 {
+                    if shed.is_none() && drought_death > 0.0 {
                         let thirst = world.desiccation_at(x, y).clamp(0.0, 1.0);
-                        shed = rng.chance(drought_death * thirst * thirst * thirst);
+                        if rng.chance(drought_death * thirst * thirst * thirst) {
+                            shed = Some(organism::DeathCause::DriedOut);
+                        }
                     }
-                    if shed {
-                        shed_to_litter(world, x, y);
+                    if let Some(cause) = shed {
+                        shed_to_litter(world, x, y, cause);
                         // No `shed_stranded_leaves`: that walk is over
                         // *leaves*, and a species reaching this arm has
                         // none. A shoot cell that loses its neighbour is a
@@ -7426,7 +7462,10 @@ fn rot_remains(world: &mut World, organism_id: OrganismId) {
         }
         let mut rng = growth_stream(world, organism_id, x, y);
         if rng.chance(chance) {
-            shed_to_litter(world, x, y);
+            // `Unknown`, and never read: this plant is already `senescent`,
+            // and what happens to a declared death's remains is not its cause
+            // (`World::reindex_organism_cell` skips it).
+            shed_to_litter(world, x, y, organism::DeathCause::Unknown);
         }
     }
 }
@@ -11708,7 +11747,16 @@ fn organism_upkeep(world: &mut World, organism_id: OrganismId) {
         // Set here rather than in a pass of its own because this walk has
         // already visited every cell; a separate pass would be a second
         // traversal per organism per tick for one boolean.
-        if vital_cells == 0 && !cells.is_empty() && has_economy {
+        // **Each of the three rules below declares a death once.** All three
+        // used to run on a plant already rotting, and whichever fired last
+        // rewrote the cause -- a per-plant trace (2026-10-06, played bed)
+        // found 2-9 a run booked as something other than what killed them,
+        // a starved plant relabelled `LostVitalTissue` because its leaves
+        // happened to rot before its roots. Guarding the declaration on
+        // `!senescent` changes nothing else: setting the flag on a plant that
+        // already carries it was a no-op, and `starving_ticks` (which the
+        // starving tint and the inspector read) still counts.
+        if vital_cells == 0 && !cells.is_empty() && has_economy && !state.senescent {
             state.senescent = true;
             state.senescence_cause = organism::DeathCause::LostVitalTissue;
         }
@@ -11755,15 +11803,22 @@ fn organism_upkeep(world: &mut World, organism_id: OrganismId) {
         // is what `rot_remains` reads, and it then thins the plant at the
         // species' `remains_half_life`, so what the player sees is a tree
         // going over and coming apart rather than a tree vanishing.
-        if dies_of_age {
+        //
+        // **It names its cause** (2026-10-06). It used to set the flag and
+        // nothing else, so a plant that died of age reached
+        // `World::free_organism` with no cause and was booked as felled. The
+        // roll is re-drawn every tick, rotting or not, so the guard is what
+        // stops it relabelling a plant some other rule already killed.
+        if dies_of_age && !state.senescent {
             state.senescent = true;
+            state.senescence_cause = organism::DeathCause::OldAge;
         }
         if has_economy && has_leaf_stage {
             let alive = (root_cells + shoot_cells) as f32;
             let collected = state.income * MEAN_NIGHT_INCOME_FACTOR;
             if alive > 0.0 && collected < MAINTENANCE_PER_CELL * alive {
                 state.starving_ticks = state.starving_ticks.saturating_add(1);
-                if state.starving_ticks >= STARVATION_DEATH_TICKS {
+                if state.starving_ticks >= STARVATION_DEATH_TICKS && !state.senescent {
                     state.senescent = true;
                     state.senescence_cause = organism::DeathCause::Starved;
                 }
@@ -11876,7 +11931,7 @@ fn organism_upkeep(world: &mut World, organism_id: OrganismId) {
                         let darkness = (1.0 - light / crate::sim::field::MAX_LIGHT).clamp(0.0, 1.0);
                         if rng.chance(shade_death * darkness * darkness * darkness) {
                             world.shed_shade += 1;
-                            shed_to_litter(world, cx, cy);
+                            shed_to_litter(world, cx, cy, organism::DeathCause::ShadedOut);
                             // Reclaim any spray this stranded. NOT a
                             // structural check -- see
                             // `shed_stranded_leaves` for the measured 26x
@@ -11910,7 +11965,7 @@ fn organism_upkeep(world: &mut World, organism_id: OrganismId) {
                         let thirst = world.desiccation_at(cx, cy).clamp(0.0, 1.0);
                         if rng.chance(drought_death * thirst * thirst * thirst) {
                             world.shed_drought += 1;
-                            shed_to_litter(world, cx, cy);
+                            shed_to_litter(world, cx, cy, organism::DeathCause::DriedOut);
                             shed_stranded_leaves(world, cx, cy, organism_id);
                             continue;
                         }
@@ -12293,7 +12348,7 @@ fn organism_upkeep(world: &mut World, organism_id: OrganismId) {
             if removal_would_disconnect_a_neighbour(world, cx, cy, organism_id) {
                 continue;
             }
-            shed_to_litter(world, cx, cy);
+            shed_to_litter(world, cx, cy, organism::DeathCause::Starved);
             shed_stranded_leaves(world, cx, cy, organism_id);
             recovered += bill;
             starved_cells += 1;
@@ -12350,7 +12405,7 @@ fn organism_upkeep(world: &mut World, organism_id: OrganismId) {
             if !rng.chance(turnover_rate * pressure) {
                 continue;
             }
-            shed_to_litter(world, cx, cy);
+            shed_to_litter(world, cx, cy, organism::DeathCause::Withered);
             world.roots_shed += 1;
             shed += 1;
         }
@@ -12706,16 +12761,21 @@ fn shed_cut_off_tissue(world: &mut World, organism_id: OrganismId, contact_roots
         if world.get(cx, cy).organism_id() != organism_id {
             continue;
         }
-        shed_to_litter(world, cx, cy);
+        shed_to_litter(world, cx, cy, organism::DeathCause::Withered);
         shed_stranded_leaves(world, cx, cy, organism_id);
         shed += 1;
     }
     shed
 }
 
-fn shed_to_litter(world: &mut World, x: i32, y: i32) {
+/// `cause` is what this shedding is, for `OrganismState::last_loss`: if this
+/// clear empties a living plant, that is what the plant died of. It labels
+/// and does nothing else -- `World::loss_context` is read by no rule.
+fn shed_to_litter(world: &mut World, x: i32, y: i32, cause: organism::DeathCause) {
     let Some(litter) = world.materials.id_of("litter") else {
+        world.loss_context = Some(cause);
         world.set(x, y, Cell::EMPTY);
+        world.loss_context = None;
         return;
     };
     // `base_shades`, not `palette.len()`: a material may ship several
@@ -12726,7 +12786,9 @@ fn shed_to_litter(world: &mut World, x: i32, y: i32) {
     let shade = world.rng.below(shades) as u8;
     // Cleared before the walk, so the leaf's own cell reads as air and is a
     // valid landing spot for the boxed-in case below.
+    world.loss_context = Some(cause);
     world.set(x, y, Cell::EMPTY);
+    world.loss_context = None;
     // Lowest air cell reached. **Starts at the leaf's own now-empty cell**,
     // which is where a leaf walled in on every side stays. An earlier version
     // started this at "no landing found" and returned without writing
@@ -13026,7 +13088,7 @@ pub(crate) fn shed_stranded_leaves(world: &mut World, x: i32, y: i32, organism_i
         if !anchored && !overflowed {
             for &(lx, ly) in &component {
                 world.shed_stranded += 1;
-                shed_to_litter(world, lx, ly);
+                shed_to_litter(world, lx, ly, organism::DeathCause::Withered);
             }
         }
         visited.extend(component);
@@ -13148,6 +13210,11 @@ fn germinate(world: &mut World, x: i32, y: i32, organism_id: OrganismId, cell: C
     // bred seed skips the line above (`inherited`) and must not skip this
     // one -- see `stamp_origin`.
     stamp_origin(world, organism_id, x, y);
+    // No longer a seed: from here its death gets a grave
+    // (`OrganismState::dormant_seed`).
+    if let Some(state) = world.organism_mut(organism_id) {
+        state.dormant_seed = false;
+    }
     // The seed cell is `seed` material; the shoot it becomes is whatever
     // this species declares -- `wood` for every shipped tree, and the
     // reason a non-woody species is expressible at all. See
@@ -13686,6 +13753,8 @@ impl World {
         };
         if let Some(state) = self.organism_mut(organism_id) {
             state.lineage = lineage;
+            // A seed until `germinate` says otherwise (`OrganismState::dormant_seed`).
+            state.dormant_seed = true;
         }
         let aux = organism::pack_cell_type(CellType::Seed);
         self.set(x, y, Cell::new(seed_material, shade).with_organism_id(organism_id).with_aux(aux));
@@ -13776,6 +13845,8 @@ pub(crate) fn sow_specimen_seed(
         state.foliage_band = foliage_first + alleles[organism::LOCUS_LEAF_ECONOMY].min(foliage_count.saturating_sub(1));
         state.bark_band = organism::bark_band_for_density(bark_bands, alleles[organism::LOCUS_WOOD_DENSITY]);
         state.lineage = lineage;
+        // A seed until `germinate` says otherwise (`OrganismState::dormant_seed`).
+        state.dormant_seed = true;
         state.generation = 0;
         state.inherited = true;
         state.stocked = true;
@@ -15174,9 +15245,9 @@ mortality -- see the doc on this test"
         let leaf = w.materials.id_of("leaf").expect("leaf is compiled in");
         place(&mut w, (60, 44), leaf, organism, CellType::Leaf, (0.0, 0.0));
 
-        shed_to_litter(&mut w, 45, 55);
-        shed_to_litter(&mut w, 51, 55);
-        shed_to_litter(&mut w, 60, 44);
+        shed_to_litter(&mut w, 45, 55, organism::DeathCause::Withered);
+        shed_to_litter(&mut w, 51, 55, organism::DeathCause::Withered);
+        shed_to_litter(&mut w, 60, 44, organism::DeathCause::Withered);
 
         assert_eq!(
             w.get(45, 55).material,
@@ -15246,7 +15317,7 @@ mortality -- see the doc on this test"
         }
         let before = w.active_site_count();
         for &(x, y) in &abandoned {
-            shed_to_litter(&mut w, x, y);
+            shed_to_litter(&mut w, x, y, organism::DeathCause::Withered);
             shed_stranded_leaves(&mut w, x, y, organism);
         }
         let litter = w.materials.id_of("litter").expect("litter is compiled in");
@@ -16231,6 +16302,76 @@ they are the same world. Got {median}, which means something other than the leve
             w.step_active_sites();
             field::step(w);
         }
+    }
+
+    /// **A tree that dies of old age is booked OLD AGE.** Until 2026-10-06
+    /// the old-age roll marked the plant dying and wrote no cause, so it
+    /// reached `World::free_organism` with none and was booked as felled.
+    /// The tree's age is set past the point where the hazard per tick
+    /// reaches 1 (`old_age_chance` clamps), so the roll cannot miss.
+    #[test]
+    fn a_tree_that_dies_of_old_age_is_booked_old_age() {
+        let mut w = test_world();
+        plant_tree_on_ground(&mut w, 100, 20);
+        let id = w.get(100, 20).organism_id();
+        run_with_fields(&mut w, 1_500);
+        assert!(
+            w.organism(id)
+                .is_some_and(|st| st.origin.is_some() && st.cells.len() > 3),
+            "test setup: the tree did not germinate and grow"
+        );
+        w.organism_mut(id).expect("alive").age_ticks = 2_000_000;
+        run_with_fields(&mut w, 200);
+        let st = w.organism(id).expect("test setup: it rotted away inside 200 frames");
+        assert!(st.senescent, "a tree past any lifespan did not die of age");
+        assert_eq!(
+            st.senescence_cause,
+            organism::DeathCause::OldAge,
+            "old age wrote no cause, or the wrong one"
+        );
+    }
+
+    /// **A starved plant whose leaves rot before its roots stays STARVED.**
+    /// The lost-tissue rule ran on plants already rotting and rewrote their
+    /// cause the tick their last vital cell went; a per-plant trace found
+    /// that relabelling 2-9 deaths a run (2026-10-06). The leaves are taken
+    /// by hand here, which is the state rotting reaches by chance.
+    #[test]
+    fn a_starved_plant_whose_leaves_rot_first_stays_starved() {
+        let mut w = test_world();
+        plant_tree_on_ground(&mut w, 100, 20);
+        let id = w.get(100, 20).organism_id();
+        run_with_fields(&mut w, 1_500);
+        let species = w.organism(id).expect("test setup: no tree").species;
+        {
+            let st = w.organism_mut(id).expect("alive");
+            st.senescent = true;
+            st.senescence_cause = organism::DeathCause::Starved;
+        }
+        let cells: Vec<(i32, i32)> = w.organism(id).expect("alive").cells.keys().copied().collect();
+        let (mut vital, mut rest) = (0, 0);
+        for (x, y) in cells {
+            let ty = organism::cell_type(w.get(x, y).aux());
+            if ty.is_some_and(|t| w.species.get(species).is_vital(t)) {
+                w.set(x, y, Cell::EMPTY);
+                vital += 1;
+            } else {
+                rest += 1;
+            }
+        }
+        assert!(
+            vital > 0 && rest > 0,
+            "test setup: needs vital tissue to take and other tissue to leave ({vital} vital, {rest} other)"
+        );
+        run_with_fields(&mut w, 100);
+        let st = w
+            .organism(id)
+            .expect("test setup: the remains rotted away inside 100 frames");
+        assert_eq!(
+            st.senescence_cause,
+            organism::DeathCause::Starved,
+            "the lost-tissue rule relabelled a plant that had already starved"
+        );
     }
 
     /// **A held world grows only inside a quickening, and the rule is

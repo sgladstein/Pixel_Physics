@@ -3,7 +3,7 @@
 *What plants do, and what it looks like when they are working. No code, no
 file names — see `Reports/` for why any of it is built the way it is.*
 
-*Current as of: 2026-10-05 (**grass grows back** -- a tussock that loses its blades sends up new ones from its crown, so a meadow keeps seeding instead of fading -- see *Species*). Also 2026-10-03 (**water runs through a plant along real paths**:
+*Current as of: 2026-10-06 (**the list of the dead says what killed each plant** -- shaded out, dried out, eaten, old age and the rest; *felled* now means felled, and a seed that rots unsprouted is counted but not listed -- see *Fire and death*). Also 2026-10-05 (**grass grows back** -- a tussock that loses its blades sends up new ones from its crown, so a meadow keeps seeding instead of fading -- see *Species*). Also 2026-10-03 (**water runs through a plant along real paths**:
 up the roots, up the trunk, out along the branches, and a dry spell browns the
 far tips first -- see *How water moves through a plant*). Also 2026-10-03 (**plants can be born harder to eat**, paying for
 it in growth -- see *Plants that are worse to eat*). Also 2026-10-03 (**a seed with ground on top of it is out of the
@@ -1206,6 +1206,26 @@ the following while and from there into the soil, the same path a shed leaf
 takes. A tussock browns off and is gone quickly; a woody stem stands a good
 deal longer before it goes. A plant with dormant buds, or one still in its
 seed, is not dead by this reckoning and is left alone.
+
+**The list of the dead says what took each plant, in plain words.** Shaded
+out, dried out, withered, eaten, starved, old age, culled — and, for a seed
+that never came up, that it rotted as a seed, or that another plant's root
+grew into it. *Felled* means felled: only a plant whose last piece was cut
+loose and fell is called that. Until 2026-10-06 nearly every plant death was
+called felled -- mostly seeds that had simply rotted -- so if an older note or
+picture says most plants were felled, that is the old label.
+
+Felling is not rare, though, even with nobody cutting anything. A small
+seedling whose footing gives way is cut loose by the same rule that drops a
+cut trunk, and on a quiet bed that is well over a thousand seedlings in a long
+session, nearly all of them grass. That is a known problem rather than a design
+-- a living plant should not lose its own anchorage -- and now that the list
+says *felled* only when it means it, it can be counted.
+
+A seed that rots before it ever sprouts is counted among the dead but takes no
+place in the list of them. There are thousands, and they would push every
+animal off the list. Two still get a place: a seed you culled yourself, and the
+last seed of a line, so the end of every line stays on the record.
 
 ## The seed bank
 

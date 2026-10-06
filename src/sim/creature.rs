@@ -2823,7 +2823,15 @@ pub(super) fn eat_toward_birth(world: &mut World, parent: OrganismId, colony: u3
             _ => yielded,
         };
         if !bite_outcome.survived() {
+            // Labelled for `OrganismState::last_loss`, as the sibling bite
+            // in `act` is. Unlabelled, this was the whole of the colony's
+            // UNKNOWN residue: a larva eating a stored seed beside it
+            // (`brood.rs`, one bite per larva tick) took 179 dormant seeds
+            // in a 100k-frame run (played bed, seed 3), every one of them
+            // traced to this write.
+            world.loss_context = Some(organism::DeathCause::Eaten);
             world.set(px, py, Cell::EMPTY);
+            world.loss_context = None;
         }
         if banked {
             world.book_meal(colony, Account::HarvestedCorpse, material, yielded as f64);
@@ -16646,7 +16654,11 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
                     if bite.organism_id() != 0 && world.materials.kind(bite.material) == MaterialKind::Plant {
                         world.creature_stats.eaten_plant_cells += 1;
                     }
+                    // Labelled for `OrganismState::last_loss`: if this was a
+                    // plant's (or a seed's) last cell, it was `Eaten`.
+                    world.loss_context = Some(organism::DeathCause::Eaten);
                     world.set(fxx, fyy, Cell::EMPTY);
+                    world.loss_context = None;
                 }
                 // **A2 -- ride home instead of standing.** `seed_saved` just
                 // converted the bitten cell to `pip` *in place*; if this
@@ -27075,6 +27087,13 @@ fn creature_dies(world: &mut World, organism: OrganismId, cause: organism::Death
         // empty-cell-list rule reclaim it on the next organism tick, same
         // as any other seed that never found ground.
         if let Some(p) = passenger {
+            // Booked `Eaten`, as `plant::deliver_seed_passenger`'s own
+            // no-room exit books it: taken into a mouth, never set down.
+            if let Some(st) = world.organism_mut(p.organism_id) {
+                if !st.senescent {
+                    st.last_loss = organism::DeathCause::Eaten;
+                }
+            }
             world.carried_seed_organisms.remove(&p.organism_id);
         }
         // Cells that had nowhere to go are gone from the world; book them if

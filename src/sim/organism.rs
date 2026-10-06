@@ -6649,8 +6649,47 @@ pub struct OrganismState {
     ///
     /// A one-way flag can carry a one-way cause at no risk: `senescent` is
     /// declared once and never taken back, so this is written beside it and
-    /// read at [`World::free_organism`].
+    /// read at [`World::free_organism`]. **Written once**: since 2026-10-06
+    /// every rule that declares a plant dead checks `senescent` first, so a
+    /// cause decided by one rule is never overwritten by another while the
+    /// remains rot (a per-plant trace had found causes flipping, 2-9 a run).
     pub senescence_cause: DeathCause,
+    /// **What took this plant's last cell, if it left without declaring
+    /// itself dead.** `Unknown` until then.
+    ///
+    /// Writer: `World::reindex_organism_cell`, the one place every
+    /// organism's cell list changes, at the moment a living (not
+    /// `senescent`) organism's list goes empty. It stores
+    /// `World::loss_context`, which the removals that know what they are --
+    /// seed rot, shade and drought shedding, a bite, a felling, a root
+    /// growing in -- set around their own write. Reader:
+    /// `World::free_organism`, which books it when nothing else named a
+    /// cause.
+    ///
+    /// **The last cell, deliberately, not the latest one.** A healthy plant
+    /// sheds fine roots and shaded leaves all its life; a label kept from the
+    /// latest loss would book whatever it shed last week when something
+    /// unlabelled finally took its last cell, and the `Unknown` that is
+    /// supposed to expose an unlabelled path would read near zero whether the
+    /// labelling was complete or not. Recorded only when the list empties,
+    /// an unlabelled removal stays `Unknown` -- a gap that shows as a gap.
+    pub last_loss: DeathCause,
+    /// **A seed that has not germinated yet.** Set where a seed organism is
+    /// made (`plant::bear_seed_at`, `World::plant_tree_species`,
+    /// `plant::sow_specimen_seed`) and cleared in `plant::germinate`; read by
+    /// `World::free_organism`, which counts a dormant seed's death but gives
+    /// it no grave and no run-log line unless the player culled it or it was
+    /// the last of its line (owner's choice, 2026-10-06: seeds were ~85% of
+    /// plant graves and pushed the colony's out of the shared graveyard).
+    /// Data on the organism rather than a guess from its shape, so a plant
+    /// built by hand in a test is never mistaken for one.
+    pub dormant_seed: bool,
+    /// **An outside hand culled it** -- set by `World::mark_organism_senescent`
+    /// whether or not the box had already decided its death (a cull does not
+    /// overwrite a decided cause). Read by `World::free_organism`: a death
+    /// the player acted on always gets a grave, even a dormant seed's, so a
+    /// cull is never followed by a record that does not appear.
+    pub culled: bool,
     /// **This individual's discrete genes** — see [`DISCRETE_LOCI`]. One
     /// small integer per locus, inherited whole and mutated by *jumping*
     /// rather than drifting, which is what makes a population clump instead
@@ -7043,35 +7082,76 @@ pub enum DeathCause {
     /// A plant that lost every vital cell but still owns tissue -- grazed,
     /// burned, or shed until nothing could pay.
     LostVitalTissue,
-    /// **A plant that left the world owning no cells and never declared
-    /// itself dead**, which until now was recorded nowhere.
+    /// **A plant whose last cell went with a felled piece** --
+    /// `rigid::fell_severed_tissue` took it (`Reports/open-bugs-handoff.md`
+    /// §B2: the support check severing a *living* plant whole).
     ///
-    /// `Reports/open-bugs-handoff.md` §B2: the support check severs a *living*
-    /// plant whole, and `plant.rs`'s senescence rule is guarded on
-    /// `!cells.is_empty()` -- so a whole-plant felling empties the list, the
-    /// guard is false, `senescent` is never set, and the organism falls
-    /// through to slot reclamation indistinguishable from one that was
-    /// allocated and never given a cell. §B2 has only ever had *cell-level*
-    /// numbers and cannot say how many plants died this way. This is that
-    /// count, for the price of one boolean at the closing seam.
+    /// **Named for its history, and the history is a measurement.** Until
+    /// 2026-10-06 this was the fallback for *every* plant that left owning no
+    /// cells and no cause, on the theory that only a felling did that. A
+    /// per-plant trace of the played bed with no animals and no player (100k
+    /// frames, seeds 1-4) found it booked **93-97% of all plant deaths**,
+    /// nearly all of them seeds rotting on their own clock, plus old age. The
+    /// count §B2 wanted was under ten thousand others. It is now written only
+    /// by the felling, through [`OrganismState::last_loss`], so a plant booked
+    /// here was felled -- and the same trace, re-run with the labels in, put
+    /// that count at **1,161-1,751 plants a run** on the quiet bed, 1,064-1,155
+    /// of them grass seedlings the support check cut loose. (Their cells going
+    /// empty had first been read as seedlings shaded or dried out; the label
+    /// is what said otherwise.)
     FelledOrLost,
-    /// **An animal that simply got old**, on the graded hazard
-    /// [`CreatureDef::life_half_life`] describes. Plants have died this way
-    /// since the growth clock landed, but `plant.rs` records it as `Starved`
-    /// -- a plant that cannot pay its maintenance genuinely is starving. An
-    /// animal's age death pays nothing and owes nothing, so it wanted a cause
-    /// of its own, and telling it from `Starved` is the whole point of the
-    /// counter: "the colony settled at a size" and "the colony ran out of
-    /// food" look identical in a population line and nowhere else.
+    /// **An individual that simply got old**, on the graded hazard
+    /// [`CreatureDef::life_half_life`] (and a plant species' own
+    /// `life_half_life`) describes. An animal's age death pays nothing and
+    /// owes nothing, so it wanted a cause of its own, and telling it from
+    /// `Starved` is the whole point of the counter: "the colony settled at a
+    /// size" and "the colony ran out of food" look identical in a population
+    /// line and nowhere else. **Plants book it too since 2026-10-06**; before
+    /// that `plant.rs`'s old-age roll marked the plant dying and wrote no
+    /// cause at all, so a tree that died of age was booked as felled.
     ///
     /// **Appended rather than filed beside `Starved`** so that no existing
     /// cause's [`DeathCause::index`] moves: `World::deaths_by_cause` and
-    /// every `GroupDeaths::by_cause` row are positional arrays.
+    /// every `GroupDeaths::by_cause` row are positional arrays. The six plant
+    /// causes below are appended for the same reason.
     OldAge,
+    /// **A seed that rotted before it ever germinated** -- it lost the
+    /// species' viability race (`SpeciesDef::seed_half_life`), on the ground
+    /// or in a mouth. The commonest death in any planted bed by an order of
+    /// magnitude, which is why a dormant seed's death is counted but not
+    /// buried (`World::free_organism`).
+    SeedRotted,
+    /// **A plant whose last tissue was shed for want of light** -- the shade
+    /// rolls in `Behavior::Photosynthesize` and `organism_upkeep`'s
+    /// abscission. What thins a stand under a closing canopy.
+    ShadedOut,
+    /// **A plant whose last tissue was shed for want of water** -- the
+    /// drought rolls beside the shade ones.
+    DriedOut,
+    /// **A plant whose last tissue went by its own shedding for any other
+    /// reason** -- spent fine roots, tissue cut off from every drinking root,
+    /// leaves left with nothing to hang from.
+    Withered,
+    /// **A plant whose last cell an animal ate.**
+    Eaten,
+    /// **A dormant seed another plant's root grew into.** Roots may enter any
+    /// soft loose cell (`plant::growable`), and a seed is one; nothing asks
+    /// whose it is. Registered as a finding rather than changed: it is how the
+    /// box behaves today, and this cause is what makes it visible.
+    Overgrown,
 }
 
 impl DeathCause {
     /// The label a page shows.
+    ///
+    /// **Eight characters at most for the six plant causes**, because the
+    /// roster's `STATE` column is sized to `STARVING` and a dead row's cause
+    /// is drawn in it: the first render of the plant graveyard showed `LOST
+    /// ITS TISSUE` as `LOST ITS`, and the first wordings here (`SHADED OUT`,
+    /// `DRIED OUT`, `SEED ROTTED`, `OVERGROWN`) would each have lost their
+    /// tail the same way. `STARVED ALOFT` and `LOST ITS TISSUE` predate the
+    /// rule and still clip; `lab::ui`'s roster-column test names them, so a
+    /// ninth letter on any other cause goes red there.
     pub fn label(self) -> &'static str {
         match self {
             DeathCause::Unknown => "UNKNOWN",
@@ -7082,12 +7162,18 @@ impl DeathCause {
             DeathCause::LostVitalTissue => "LOST ITS TISSUE",
             DeathCause::FelledOrLost => "FELLED",
             DeathCause::OldAge => "OLD AGE",
+            DeathCause::SeedRotted => "ROTTED",
+            DeathCause::ShadedOut => "SHADED",
+            DeathCause::DriedOut => "DRIED UP",
+            DeathCause::Withered => "WITHERED",
+            DeathCause::Eaten => "EATEN",
+            DeathCause::Overgrown => "OVERRUN",
         }
     }
 }
 
 /// How many variants [`DeathCause`] has, for the world's by-cause histogram.
-pub const DEATH_CAUSES: usize = 8;
+pub const DEATH_CAUSES: usize = 14;
 
 /// Every cause, in the order the histogram indexes them.
 pub const DEATH_CAUSE_LIST: [DeathCause; DEATH_CAUSES] = [
@@ -7099,6 +7185,12 @@ pub const DEATH_CAUSE_LIST: [DeathCause; DEATH_CAUSES] = [
     DeathCause::LostVitalTissue,
     DeathCause::FelledOrLost,
     DeathCause::OldAge,
+    DeathCause::SeedRotted,
+    DeathCause::ShadedOut,
+    DeathCause::DriedOut,
+    DeathCause::Withered,
+    DeathCause::Eaten,
+    DeathCause::Overgrown,
 ];
 
 impl DeathCause {
