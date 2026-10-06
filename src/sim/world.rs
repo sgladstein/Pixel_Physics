@@ -2264,6 +2264,14 @@ pub struct CreatureStats {
     /// (`creature::need_drop_site`): the load is kept. 0 unless the switch is
     /// on.
     pub needs_no_site: u64,
+    /// Pellet drops whose cell beside the carrier would have taken it but for
+    /// lying in a nest's door column above the ground (`creature::door_column_of`).
+    /// 0 with the switch off.
+    pub column_refused: u64,
+    /// Soil cells taken out of a nest's door column above the ground
+    /// (`creature::clear_door_column`). 0 unless the switch's `clear` part
+    /// is on.
+    pub column_cleared: u64,
     /// **Carry distances drawn** under `PIXEL_PHYSICS_SPOIL_RING`
     /// (`creature::spoil_ring`): when its carrier comes out by the door with
     /// it (`creature::carry_stage`), and again for a carrier that went back
@@ -4111,6 +4119,9 @@ pub struct World {
     /// `creature::door_loose_of` for this world; `None` reads
     /// `PIXEL_PHYSICS_DOOR_LOOSE`.
     pub door_loose: Option<bool>,
+    /// `creature::door_column_of` for this world; `None` reads
+    /// `PIXEL_PHYSICS_DOOR_COLUMN`.
+    pub door_column: Option<crate::sim::creature::DoorColumn>,
     /// `creature::kin_footing_of` for this world; `None` reads the process's
     /// `PIXEL_PHYSICS_KIN_FOOTING`.
     pub kin_footing: Option<bool>,
@@ -6808,6 +6819,7 @@ impl World {
             nurse_seek: None,
             crop_nurse: None,
             door_loose: None,
+            door_column: None,
             kin_footing: None,
             water_footing: None,
             mutation: None,
@@ -11601,6 +11613,9 @@ impl World {
         // **And each nest's way in, for resting ants**, on its own cadence
         // and only while resting is on (`creature::step_nest_rest`).
         crate::sim::creature::step_nest_rest(self);
+        // **And the door's column kept clear of soil**, only under that
+        // stopgap's `clear` part (`creature::clear_door_column`).
+        crate::sim::creature::clear_door_column(self);
         // No world-time bookkeeping here on purpose. The phase clocks are
         // *derived* from `frame` (`clock::Clock::sky_frame`), not advanced
         // beside it -- an earlier version incremented a counter from this
