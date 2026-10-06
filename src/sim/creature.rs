@@ -16688,23 +16688,6 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
             // (`haul_bite_from_env`). After the roll, so the draw is taken
             // whatever the switch and the stream is unchanged.
             let won = draw.unit_f32() < feed_urge;
-            // SCRATCH store pick-up funnel (lane 20, not to ship).
-            if nest_store_of(world).carry && world.get(fxx, fyy).organism_id() == 0 && !is_store_cell(world, (fxx, fyy)) {
-                if let Some((bound, energy, holding)) = world.organism(organism).map(|st| (is_nest_bound(world, st), st.energy, st.spoil.is_some())) {
-                    if bound && (nest_within_reach(world, organism, x, y, def) || store_doorstep(world, (x, y))) {
-                        let fed = energy >= def.start_energy;
-                        let i = if fed { 0 } else { 3 };
-                        world.creature_stats.store_funnel[i] += 1;
-                        world.creature_stats.store_funnel[i + 1] += u64::from(won);
-                        world.creature_stats.store_funnel[i + 2] += (feed_urge * 1000.0) as u64;
-                        if fed && won {
-                            let b = world.get(fxx, fyy);
-                            let g = if crop.is_some_and(|c| c.cells > 0) { 0 } else if holding { 1 } else if food_value(world, b) <= 0.0 || world.materials.get(b.material).worth_in_aux { 2 } else if haul_bite_blocks(world, organism, def) { 3 } else { 4 };
-                            world.creature_stats.store_gate[g] += 1;
-                        }
-                    }
-                }
-            }
             let blocked = won && haul_bite_blocks(world, organism, def);
             if blocked {
                 world.creature_stats.haul_bites_refused += 1;
