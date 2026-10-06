@@ -7292,6 +7292,7 @@ pub fn step_organisms(world: &mut World) {
             // before the roots ask -- and after `organism_upkeep` has set
             // `water_status`, which is what this gates on.
             timing.time(5, || break_root_tips(world, organism_id));
+            break_tillers(world, organism_id);
             timing.time(6, || organism_upkeep(world, organism_id));
             // **After upkeep, because upkeep is what settles this tick's
             // shortfall.** Every per-cell reading of it -- the leaf credits
@@ -9992,6 +9993,153 @@ fn break_root_tips(world: &mut World, organism_id: OrganismId) {
     note_root_tip_exit(ROOT_TIP_FIRED);
 }
 
+
+/// **A grass regrows from its crown** -- `PIXEL_PHYSICS_GRASS_REGROW`, the
+/// shoot analogue of `break_root_tips` for a species with no buds.
+///
+/// Traced 2026-10-05 (`Reports/garden-harmony-2026-10-05.md`): a grass plant
+/// grew only for its first ~1,500 frames. Every `GrowingTip` then retires at
+/// `ORGANISM_STALE_LIMIT` and nothing can ever make another one -- grass has
+/// no `DormantBud` (no `SecondaryThicken`, `plastochron: 0`), so `break_buds`
+/// returns at its first line. The plant froze at whatever size it reached
+/// (founders 6-38 cells, a seedling that started badly at one blade), shed
+/// blades to shade over the next hundred thousand frames down to one-blade
+/// stubs, and -- under the 10-shoot-cell `seed_maturity` -- stopped seeding.
+/// The garden's grass seed fell from 2,400-4,800 per 100k frames to 0-153.
+///
+/// Real grass keeps its meristems at the base, which is why it outlives
+/// grazing (McNaughton 1983, *Oikos* 40:329, "Compensatory plant growth as
+/// a response to herbivory"). So: a plant with **no live shoot tip** may
+/// turn one crown cell back into a `GrowingTip`, with a per-tick hazard so
+/// regrowth is gradual rather than a refill on the tick a blade is lost.
+/// The tip then grows under exactly the rules the first one did -- turgor,
+/// crowding and the light it can find decide how far it gets -- and retires
+/// the same way, so this adds no new bound and removes none.
+///
+/// Gated on a species with an economy and **no leaf stage** (grass today);
+/// a species with buds regrows through `break_buds` and is never touched.
+///
+/// **Measured, lab played bed, no ants, seeds 1-4, 400k frames, mutation
+/// off, regrowth off -> on:** grass seed made in the last 100k frames
+/// 327-1,277 -> 5,657-17,224; edible plant food standing 60-133 kJ ->
+/// 679-1,982 kJ; 4 of 4 seeds. With the evolved ant over 200k frames the
+/// colony's mean size over 100-200k went 8/54/105/106 -> 187/146/183/229
+/// and every colony was alive at the end (1/2/29/17 -> 262/75/127/160).
+/// What was built beside it and **made things worse**, so is not here:
+/// seeds that wait for open air above them, smothered grass dying, grass
+/// old age (`life_half_life` 20k/40k) and `seed_maturity` 3 -- each raised
+/// early seed and each still lost the grass by 300-400k, and on top of
+/// regrowth the first two cut seed (smothering drove grass extinct).
+/// `Reports/dead-ends.md` has them.
+fn break_tillers(world: &mut World, organism_id: OrganismId) {
+    if !grass_regrow_on() {
+        return;
+    }
+    let Some(state) = world.organism(organism_id) else { return };
+    let species_id = state.species;
+    let def = world.species.get(species_id);
+    if def.has_leaf_stage() || !def.has_economy() {
+        return;
+    }
+    let Some(cost) = individual_behavior(world, organism_id, CellType::GrowingTip, |b| match b {
+        Behavior::Grow { cost, .. } => Some(*cost),
+        _ => None,
+    }) else {
+        return;
+    };
+    if state.cells.len() <= 1 {
+        return; // a seed: nothing to regrow from
+    }
+    let mut rng = rng::stream(world.seed ^ TILLER_SALT, organism_id as u64, 0, world.frame);
+    if !rng.chance(half_life_chance(tiller_half_life(), ORGANISM_TICK_INTERVAL)) {
+        return;
+    }
+    let mut cells: Vec<(i32, i32)> = state.cells.keys().copied().collect();
+    cells.sort_unstable_by_key(|&(x, y)| (y, x));
+    let mut richest: Option<(i32, i32, f32)> = None;
+    // The crown: the lowest shoot cell with open air beside or above it.
+    let mut crown: Option<(i32, i32)> = None;
+    for &(x, y) in &cells {
+        let cell = world.get(x, y);
+        if cell.organism_id() != organism_id {
+            continue;
+        }
+        let carbon = world.carbon_at(x, y);
+        if richest.is_none_or(|(_, _, best)| carbon > best) {
+            richest = Some((x, y, carbon));
+        }
+        match organism::cell_type(cell.aux()) {
+            Some(CellType::GrowingTip) => return, // still growing: nothing to regrow
+            Some(CellType::MatureBody) if !world.materials.get(cell.material).reinforces_powder => {
+                let open = [(0, -1), (-1, 0), (1, 0)].iter().any(|&(dx, dy)| growable(world, x + dx, y + dy, 0.0, false));
+                // `cells` is sorted by row, so the last open one is lowest.
+                if open && crown.is_none_or(|(_, cy)| y >= cy) {
+                    crown = Some((x, y));
+                }
+            }
+            _ => {}
+        }
+    }
+    let (Some((bx, by)), Some((rx, ry, held))) = (crown, richest) else { return };
+    if held < cost {
+        return;
+    }
+    // **A crown in deep shade does not tiller.** Light below the species' own
+    // germination threshold -- the same "is there enough light to start a
+    // shoot here" question, asked of the crown instead of a seed. Without it
+    // a sward in the dark spent its stored carbon regrowing faster than shade
+    // shed it (`a_shaded_sward_thins_and_a_lit_one_does_not`: 17 standing of
+    // 12 in the dark arm). Noon-equivalent, so night is not a shade event.
+    let light_threshold = individual_behavior(world, organism_id, CellType::Seed, |b| match b {
+        Behavior::Germinate { light_threshold, .. } => Some(*light_threshold),
+        _ => None,
+    })
+    .unwrap_or(0.0);
+    if ambient_light_above(world, bx, by) < light_threshold.max(f32::EPSILON) {
+        return;
+    }
+    let cell = world.get(bx, by);
+    world.set(bx, by, cell.with_aux(organism::pack_cell_type(CellType::GrowingTip)));
+    write_carbon(world, rx, ry, held - cost);
+    let stake = world.carbon_at(bx, by).max(cost);
+    write_carbon(world, bx, by, stake);
+    // **A tiller starts at the crown, so its path is reset to the crown's.**
+    // Without this, regrowth fired and changed nothing: the stub's surviving
+    // cell kept the path length it had as the top of a blade whose lower
+    // cells were shed, so the turgor bound read it as already full height.
+    // Counted over one 300k-frame bed: the turgor gate refused 9,885 of
+    // ~18,000 grass grow attempts with regrowth on and this line absent;
+    // grass seed at 400k stayed at 0.4-1.1k per 100k frames, as with
+    // regrowth off. `1` stamps path 2, one step above the collar.
+    write_path_len(world, bx, by, 1);
+    let site = reschedule_organism(bx, by, organism_id, 0, 0, world.organism_due(ORGANISM_TICK_INTERVAL));
+    world.schedule_active_site(site);
+    world.tillers_broken = world.tillers_broken.saturating_add(1);
+}
+
+/// How long a tipless grass waits, on average, before its crown sends up a
+/// new blade, in frames at the nominal organism cadence. Measured rather
+/// than derived: the hazard rolls once per organism tick, and a grass plant
+/// is ticked less often than `ORGANISM_TICK_INTERVAL` suggests (a 20k-frame
+/// bed fired 25 tillers per 10k frames across ~150 grass plants at 3,000),
+/// so 600 was swept against 3,000 -- the faster setting kept more grass
+/// standing (88-144 against 63-89 at 400k) before the path fix landed, and
+/// is the one every number in `break_tillers`' doc was taken at.
+/// Overridable for the sweep: `PIXEL_PHYSICS_TILLER_HALF_LIFE`.
+const TILLER_HALF_LIFE_DEFAULT: f32 = 600.0;
+fn tiller_half_life() -> f32 {
+    use std::sync::OnceLock;
+    static N: OnceLock<f32> = OnceLock::new();
+    *N.get_or_init(|| std::env::var("PIXEL_PHYSICS_TILLER_HALF_LIFE").ok().and_then(|v| v.parse().ok()).unwrap_or(TILLER_HALF_LIFE_DEFAULT))
+}
+const TILLER_SALT: u64 = 0x5469_6C6C_6572_2121;
+
+/// `PIXEL_PHYSICS_GRASS_REGROW=off` is the ablation; see `break_tillers`.
+fn grass_regrow_on() -> bool {
+    use std::sync::OnceLock;
+    static ON: OnceLock<bool> = OnceLock::new();
+    *ON.get_or_init(|| !matches!(std::env::var("PIXEL_PHYSICS_GRASS_REGROW").as_deref(), Ok("off" | "0")))
+}
 
 fn break_buds(world: &mut World, organism_id: OrganismId) {
     let Some(state) = world.organism(organism_id) else { return };
@@ -23942,7 +24090,14 @@ mis-wired {miswired_root}, so `slot_1_is_a_root_locus_and_not_a_shoot_one` would
         let lit = build(true);
         let dark = build(false);
         println!("grass blades standing after {FRAMES} frames: lit {lit}, dark {dark} (of {BLADES})");
-        assert_eq!(lit as i32, BLADES, "a fully lit sward must lose nothing: {lit} of {BLADES}");
+        // `>=` since grass regrowth (`break_tillers`, 2026-10-05): a lit sward
+        // now grows *back* -- 17 blades from 12 -- which is the point of it, so
+        // "lost nothing" is the property and "exactly 12" was an artifact of a
+        // grass that could never grow again. The dark arm below is what keeps
+        // this a shade test, and it still thins (5 of 12 with regrowth on,
+        // after `break_tillers` learned not to tiller below its own light
+        // threshold; 17 of 12 before it did).
+        assert!(lit as i32 >= BLADES, "a fully lit sward must lose nothing: {lit} of {BLADES}");
         // 300 ticks at `shade_death` 0.004 leaves 12 x 0.996^300 = 3.6
         // expected. The bar is set with headroom against that rather than
         // on it, and it is one-sided: the claim is "shade now reaches
