@@ -12658,6 +12658,7 @@ pub fn step_nest_rest(world: &mut World) {
         world.nest_ways.clear();
         world.mound_ways.clear();
         world.out_ways.clear();
+        world.air_ways.clear();
         return;
     }
     if !world.frame.is_multiple_of(REST_REFRESH) && !world.nest_ways.is_empty() {
@@ -12674,6 +12675,14 @@ pub fn step_nest_rest(world: &mut World) {
     // The ways to the open air ([`NeedsFirst`]'s escape parts), likewise.
     world.out_ways = if escape {
         (0..world.nest_sites.len()).filter_map(|i| build_out_way(world, i)).collect()
+    } else {
+        Vec::new()
+    };
+    // The ways to the nearest opening ([`AirWay`]), likewise.
+    world.air_ways = if air_way_of(world).hungry {
+        (0..world.nest_sites.len())
+            .filter_map(|i| build_air_way(world, i))
+            .collect()
     } else {
         Vec::new()
     };
@@ -12794,7 +12803,91 @@ fn hungry_out_pull(world: &World, organism: OrganismId, def: &CreatureDef, head:
         return None;
     }
     let gain = hungry_out_gain(world, organism, def)?;
-    Some((way_out_from(world, organism, head)?, gain))
+    // The founding door's way decides *whether* (inside, not at the door);
+    // under [`AirWay`]'s `hungry` the nearest opening's way decides *where*.
+    let founding = way_out_from(world, organism, head)?;
+    Some((air_way_from(world, organism, head).unwrap_or(founding), gain))
+}
+
+/// **A hungry ant inside is pulled to its nearest way to the open air, not
+/// only to its founding door** (`PIXEL_PHYSICS_AIR_WAY=on|off|hungry`, a
+/// comma list, `on` every part; **built off, 2026-10-06; a stopgap** in the
+/// sense the way out itself is one: a step map stands in for the draught,
+/// fresh at every opening, that an ant could feel, and the ant reads it only
+/// round its own head; [`World::air_way`] for one world). One part:
+///
+/// - `hungry`: [`hungry_out_pull`] aims [`REST_LOOKAHEAD`] steps along the
+///   way to the nearest opening ([`build_air_way`]) in place of the way to
+///   the founding door. Who is pulled does not change: an ant is pulled only
+///   where the founding door's way would pull it (inside the nest, not at
+///   the door). Where the air's way gives no step -- an ant standing at an
+///   opening, or in a pocket no opening reaches -- the founding door's aim
+///   stands. The soil's way out and the rest pull keep the founding door's
+///   map, so a second opening neither takes the colony's soil nor leads a
+///   resting ant out.
+///
+/// **Why** (lane 3, 2026-10-06,
+/// `/mnt/project-files/nest-race/lane3/door-column/dieoff/dieoff-and-300k-2026-10-06.md`):
+/// [`build_nest_way`] starts from the founding door only. When a second
+/// opening broke through, the young hatched under it were walked away from
+/// it, back through the room to a door already packed. Clear column seed 4
+/// (hunger-first, the trip home, `DOOR_COLUMN=on`): a hole under the food
+/// heap at 140k; under it the hungry pull pointed back west to the old door
+/// on 88% of 9,710 decisions by 921 ants; about 890 young ants starved over
+/// 140-180k, 882 in the room beside the old shaft, where the cells toward
+/// the door held four ants (the stack cap) on 94% of the decisions that
+/// offered no step that way. Homing seed 2: the same, at a hole 15 columns
+/// west of the door (92%, 51 starved in the room).
+pub fn air_way_of(world: &World) -> AirWay {
+    world.air_way.unwrap_or_else(|| {
+        static V: std::sync::OnceLock<AirWay> = std::sync::OnceLock::new();
+        *V.get_or_init(|| std::env::var("PIXEL_PHYSICS_AIR_WAY").map_or(AirWay::SHIPPED, |v| AirWay::parse(&v)))
+    })
+}
+
+/// [`air_way_of`]'s parts.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct AirWay {
+    /// The hungry pull out aims at the nearest opening ([`air_way_from`]).
+    pub hungry: bool,
+}
+
+impl AirWay {
+    pub const OFF: Self = Self { hungry: false };
+    pub const ON: Self = Self { hungry: true };
+    /// Off until scored.
+    pub const SHIPPED: Self = Self::OFF;
+
+    /// Parse a `PIXEL_PHYSICS_AIR_WAY` value: `on`, `off`, or a comma list
+    /// of parts (`hungry`).
+    pub fn parse(raw: &str) -> Self {
+        match raw {
+            "on" => Self::ON,
+            "off" => Self::OFF,
+            list => {
+                let mut parts = Self::OFF;
+                for word in list.split(',').map(str::trim) {
+                    match word {
+                        "hungry" => parts.hungry = true,
+                        other => panic!("PIXEL_PHYSICS_AIR_WAY={raw:?}: {other:?} is not on, off or hungry"),
+                    }
+                }
+                parts
+            }
+        }
+    }
+}
+
+/// **[`REST_LOOKAHEAD`] steps along the way to the nearest opening**
+/// ([`AirWay`]'s `hungry`) from `head`; `None` with the part off, its way not
+/// built, `head` off it, or at an opening.
+fn air_way_from(world: &World, organism: OrganismId, head: (i32, i32)) -> Option<(i32, i32)> {
+    if !air_way_of(world).hungry {
+        return None;
+    }
+    let site = world.nearest_nest_site(head.0, head.1)?;
+    let way = world.air_ways.iter().find(|w| w.site == site)?;
+    step_down_way(way, organism, head)
 }
 
 /// **How hard a hungry ant is pulled out**, for [`hungry_out_pull`] and
@@ -13410,6 +13503,20 @@ fn shut_in_mound(world: &World, x: i32, y: i32) -> bool {
 /// so the nest and its shaft are in it as well as the mound. A covered cell
 /// it leaves unreached has no way out that an ant could walk: [`shut_in`].
 pub fn build_out_way(world: &World, site: usize) -> Option<NestWay> {
+    open_air_way(world, site, |_, _| true)
+}
+
+/// **Build a nest's way to its nearest opening** ([`AirWay`]): the fill of
+/// [`build_out_way`], started only from the open cells under open sky at or
+/// above the ground the nest was founded on -- the founding door, a hole the
+/// colony broke through, the open ground round them. A cell under open sky
+/// below that ground is the floor of an open shaft, not a way out.
+pub fn build_air_way(world: &World, site: usize) -> Option<NestWay> {
+    open_air_way(world, site, |w, (x, y)| !below_founding_ground(w, x, y))
+}
+
+/// [`build_out_way`]'s fill, its starts filtered by `start`.
+fn open_air_way(world: &World, site: usize, start: impl Fn(&World, (i32, i32)) -> bool) -> Option<NestWay> {
     let s = world.nest_sites[site];
     let gaps = way_gaps_of(world);
     let cut = s.shaft?;
@@ -13424,7 +13531,7 @@ pub fn build_out_way(world: &World, site: usize) -> Option<NestWay> {
     let mut q = std::collections::VecDeque::new();
     for y in y0..y0 + h {
         for x in x0..x0 + w {
-            if way_cell(world, x, y, gaps.brood) && !under_cover(world, x, y) {
+            if way_cell(world, x, y, gaps.brood) && !under_cover(world, x, y) && start(world, (x, y)) {
                 dist[idx(x, y).expect("in the box")] = 0;
                 q.push_back((x, y));
             }
@@ -22485,6 +22592,10 @@ fn chooser_step(
         None => {
             let out = hungry_out_pull(world, organism, def, (hx, hy));
             world.creature_stats.hungry_out_pulls += u64::from(out.is_some());
+            if let (Some((t, _)), true) = (out, air_way_of(world).hungry) {
+                world.creature_stats.air_way_pulls += 1;
+                world.creature_stats.air_way_turned += u64::from(way_out_from(world, organism, (hx, hy)) != Some(t));
+            }
             world.creature_stats.needs_throttle_lifted += u64::from(out.is_some() && world.organism(organism).is_some_and(|st| throttle_lifted(world, st, def)));
             if out.is_some() {
                 out
@@ -31182,6 +31293,60 @@ mod tests {
         assert_eq!(pull(78, 47, true, 0.3, true).1, None, "an ant carrying food was pulled out");
         assert_eq!(pull(90, 39, true, 0.3, false).1, None, "an ant out on the surface was pulled");
         assert_eq!(pull(78, 47, false, 0.3, false).1, None, "with the switch off a hungry ant was pulled");
+    }
+
+    /// **Under `AIR_WAY`'s `hungry`, a hungry ant inside is pulled to its
+    /// nearest opening** ([`AirWay`]). [`rest_world`]'s gallery runs east
+    /// from the chamber to a second way up at column 80. At the gallery's
+    /// far end the second way is nearer, so the pull turns east and up the
+    /// second way instead of west back to the founding door; in the chamber
+    /// the founding door is nearer and the pull is as before. The switch off
+    /// is the positive control (the far-end ant is pulled west, as
+    /// `a_hungry_ant_inside_is_pulled_out_along_the_passages` asserts). Who is
+    /// pulled does not change: a fed ant is still not. Watched red with
+    /// [`build_air_way`] started from the founding door's own cell only.
+    #[test]
+    fn under_air_way_a_hungry_ant_is_pulled_to_its_nearest_opening() {
+        let pull = |x: i32, y: i32, air: AirWay, energy: f32| {
+            let (mut w, a) = rest_world(x, y, false);
+            w.hungry_out = Some(true);
+            w.air_way = Some(air);
+            step_nest_rest(&mut w);
+            let def = w
+                .species
+                .get(w.organism(a).expect("live").species)
+                .creature
+                .clone()
+                .expect("a creature");
+            w.organism_mut(a).expect("live").energy = energy * def.start_energy;
+            let head = w.organism(a).expect("live").chain[0];
+            assert_eq!(
+                w.air_ways.is_empty(),
+                !air.hungry,
+                "the air's way is built exactly when its part is on"
+            );
+            hungry_out_pull(&w, a, &def, head).map(|(t, _)| t)
+        };
+        let off = pull(78, 47, AirWay::OFF, 0.3).expect("control: the far-end ant is pulled with the part off");
+        assert!(
+            off.0 < 78,
+            "control: with the part off the pull at {off:?} is not back west to the founding door"
+        );
+        let on = pull(78, 47, AirWay::ON, 0.3).expect("a hungry ant at the gallery's end was given no way out");
+        assert!(
+            on.0 >= 79 && on.1 <= 47,
+            "the pull at {on:?} is not east and up the second way, the nearer opening"
+        );
+        let chamber = pull(64, 47, AirWay::ON, 0.3).expect("a hungry ant in the chamber was given no way out");
+        assert!(
+            chamber.0 < 64,
+            "the pull at {chamber:?} is not back to the founding door, the nearer opening from the chamber"
+        );
+        assert_eq!(pull(78, 47, AirWay::ON, 1.0), None, "a fed ant was pulled out");
+        assert_eq!(AirWay::parse("on"), AirWay::ON);
+        assert_eq!(AirWay::parse("hungry"), AirWay::ON);
+        assert_eq!(AirWay::parse("off"), AirWay::OFF);
+        assert_eq!(AirWay::SHIPPED, AirWay::OFF, "built off until scored");
     }
 
     /// [`rest_world`]'s nest dug on down, as a colony digs under its door:

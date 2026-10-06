@@ -2261,6 +2261,12 @@ pub struct CreatureStats {
     /// (`creature::clear_door_column`). 0 unless the switch's `clear` part
     /// is on.
     pub column_cleared: u64,
+    /// Hungry pulls out (`creature::hungry_out_pull`) made with
+    /// `PIXEL_PHYSICS_AIR_WAY`'s `hungry` on, and of them those aimed at a
+    /// different cell than the founding door's way would have aimed: the
+    /// part's "it fired". 0 with the switch off.
+    pub air_way_pulls: u64,
+    pub air_way_turned: u64,
     /// **Carry distances drawn** under `PIXEL_PHYSICS_SPOIL_RING`
     /// (`creature::spoil_ring`): when its carrier comes out by the door with
     /// it (`creature::carry_stage`), and again for a carrier that went back
@@ -4111,6 +4117,9 @@ pub struct World {
     /// `creature::door_column_of` for this world; `None` reads
     /// `PIXEL_PHYSICS_DOOR_COLUMN`.
     pub door_column: Option<crate::sim::creature::DoorColumn>,
+    /// `creature::air_way_of` for this world; `None` reads
+    /// `PIXEL_PHYSICS_AIR_WAY`.
+    pub air_way: Option<crate::sim::creature::AirWay>,
     /// `creature::kin_footing_of` for this world; `None` reads the process's
     /// `PIXEL_PHYSICS_KIN_FOOTING`.
     pub kin_footing: Option<bool>,
@@ -4235,6 +4244,10 @@ pub struct World {
     /// `PIXEL_PHYSICS_NEEDS_FIRST`'s escape parts is on, and empty otherwise.
     /// A covered cell in its box that it does not reach is shut in.
     pub out_ways: Vec<crate::sim::creature::NestWay>,
+    /// **Each nest's way to its nearest opening** (`creature::build_air_way`),
+    /// rebuilt beside `nest_ways` while `PIXEL_PHYSICS_AIR_WAY`'s `hungry` is
+    /// on, and empty otherwise.
+    pub air_ways: Vec<crate::sim::creature::NestWay>,
     /// **`PIXEL_PHYSICS_BUD_STORE` for this world** (`creature::bud_from_store`).
     /// `None` follows the environment, which is off unless set.
     pub bud_store: Option<bool>,
@@ -6805,6 +6818,7 @@ impl World {
             crop_nurse: None,
             door_loose: None,
             door_column: None,
+            air_way: None,
             kin_footing: None,
             water_footing: None,
             mutation: None,
@@ -6830,6 +6844,7 @@ impl World {
             nest_ways: Vec::new(),
             mound_ways: Vec::new(),
             out_ways: Vec::new(),
+            air_ways: Vec::new(),
             bud_store: None,
             births_paused: false,
             dig_widen: None,

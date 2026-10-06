@@ -99,7 +99,8 @@
 //!   `PIXEL_PHYSICS_NEEDS_FIRST`'s `needs_down`, `needs_packed`,
 //!   `needs_quit`, `needs_weak_digs`, `needs_cue_waived`,
 //!   `needs_face_waived`, `needs_throttle_lifted`, `needs_roof_refused` and
-//!   `needs_no_site`; then `PIXEL_PHYSICS_DOOR_COLUMN`'s `column_refused` and `column_cleared`.
+//!   `needs_no_site`; then `PIXEL_PHYSICS_DOOR_COLUMN`'s `column_refused` and `column_cleared`,
+//!   and `PIXEL_PHYSICS_AIR_WAY`'s `air_way_pulls` and `air_way_turned`.
 //!
 //! `founder=evolved` lands the colony with lane 2's evolved founder (the six
 //! scenario rows in `EVOLVED_FOUNDER`), before any `gut=`. It is the lab's
@@ -580,7 +581,7 @@ fn main() {
     let mut stats_csv = std::io::BufWriter::new(std::fs::File::create(format!("{out}/stats.csv")).unwrap());
     writeln!(
         stats_csv,
-        "frame,ants,brood,{},eggs_laid,pupae,births,larvae_starved,brood_ate_j,brood_crop_fed_j,brood_nursed_j,brood_shared_j,brood_upkeep_j,larva_ticks_hungry,larva_ticks_crop_fed,larva_ticks_nursed,crop_down_holds,nurse_seeks,soil_way_pulls,hungry_out_pulls,spoil_held_below,spoil_kept_inside,spoil_dumped,lean_dropped,digs,eats,pickups,drops,deliveries,trip_deliveries,forage_trips,forage_returns,topup_shares,throttle_held,throttle_sent,at_nest_ticks,nest_visits,buds_held_for_nest,lays_declined,births_denied_no_space,food_brake_held,shares,home_searches,carry_fills,carry_turns,mound_out_pulls,mound_digs_let,needs_down,needs_packed,needs_quit,needs_weak_digs,needs_cue_waived,needs_face_waived,needs_throttle_lifted,needs_roof_refused,needs_no_site,column_refused,column_cleared",
+        "frame,ants,brood,{},eggs_laid,pupae,births,larvae_starved,brood_ate_j,brood_crop_fed_j,brood_nursed_j,brood_shared_j,brood_upkeep_j,larva_ticks_hungry,larva_ticks_crop_fed,larva_ticks_nursed,crop_down_holds,nurse_seeks,soil_way_pulls,hungry_out_pulls,spoil_held_below,spoil_kept_inside,spoil_dumped,lean_dropped,digs,eats,pickups,drops,deliveries,trip_deliveries,forage_trips,forage_returns,topup_shares,throttle_held,throttle_sent,at_nest_ticks,nest_visits,buds_held_for_nest,lays_declined,births_denied_no_space,food_brake_held,shares,home_searches,carry_fills,carry_turns,mound_out_pulls,mound_digs_let,needs_down,needs_packed,needs_quit,needs_weak_digs,needs_cue_waived,needs_face_waived,needs_throttle_lifted,needs_roof_refused,needs_no_site,column_refused,column_cleared,air_way_pulls,air_way_turned",
         organism::DEATH_CAUSE_LIST
             .iter()
             .map(|c| format!("died_{}", c.label().to_lowercase().replace(['?'], "unknown").replace(' ', "_")))
@@ -1001,7 +1002,7 @@ fn main() {
             let st = &w.creature_stats;
             writeln!(
                 stats_csv,
-                "{f},{},{},{},{},{},{},{},{:.0},{:.0},{:.0},{:.0},{:.0},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
+                "{f},{},{},{},{},{},{},{},{:.0},{:.0},{:.0},{:.0},{:.0},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
                 live.len(),
                 w.live_brood_ids().len(),
                 w.deaths_by_cause.iter().map(|d| d.to_string()).collect::<Vec<_>>().join(","),
@@ -1059,6 +1060,8 @@ fn main() {
                 st.needs_no_site,
                 st.column_refused,
                 st.column_cleared,
+                st.air_way_pulls,
+                st.air_way_turned,
             )
             .unwrap();
             for &id in &live {
