@@ -938,6 +938,8 @@ pub const PULL_REST: u8 = 11;
 pub const PULL_MISMATCH: u8 = 12;
 /// [`mound_out_pull`], asked where [`hungry_out_pull`] gave nothing.
 pub const PULL_MOUND_OUT: u8 = 13;
+/// [`home_pull`]'s hungry walk home on dark ground ([`WayHome`]).
+pub const PULL_WAY_HOME: u8 = 14;
 /// [`DecisionScratch::trip_end`]: the walk back to the face did not end.
 pub const TRIP_END_NONE: u8 = 0;
 /// Within two cells of the face and aimed at it (not under [`FaceTrip`]'s
@@ -1045,7 +1047,7 @@ pub(super) fn note_feed(world: &mut World, larva: OrganismId, at: (i32, i32), ki
 }
 
 /// [`DecisionScratch::pull_why`]'s names, by value.
-pub const PULL_WHY_NAMES: [&str; 14] = [
+pub const PULL_WHY_NAMES: [&str; 15] = [
     "not scored",
     "none",
     "store trip",
@@ -1060,6 +1062,7 @@ pub const PULL_WHY_NAMES: [&str; 14] = [
     "rest",
     "mismatch",
     "mound out",
+    "way home",
 ];
 
 impl Default for DecisionScratch {
@@ -2599,6 +2602,8 @@ fn place_creature(
         // `OrganismState::forage_anchor` — measurement only.
         state.forage_anchor = (x, y);
         state.forage_max = 0;
+        // What it "set out with" ([`WayHome`]): born at home, with this.
+        state.way_e0 = state.energy;
     }
     // **This lineage's standing facts, seeded once, at the one moment its
     // number is fresh.** A `Bud` copies its parent's `lineage` and never
@@ -7912,7 +7917,7 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
     // as empty here (`carries_lunch`), on both sides of `act`.
     let lunch = world.organism(organism).is_some_and(|s| carries_lunch(world, s));
     if drive_now.on() && (sensed_empty || lunch) && chooser_for(world, def) == Chooser::TrailAway {
-        let felt = world.organism(organism).filter(|s| (s.crop.is_none_or(|c| c.worth() <= 0.0) || lunch) && s.spoil.is_none() && !s.hungry_home).map(|st| {
+        let felt = world.organism(organism).filter(|s| (s.crop.is_none_or(|c| c.worth() <= 0.0) || lunch) && s.spoil.is_none() && !s.hungry_home && !s.way_home).map(|st| {
             let d = forage_drive_level(world, st, def);
             let move_out = outputs[brain::BrainOutput::Move as usize];
             (d, if drive_now.pace { forage_pace(&st.genome, move_out, inputs[brain::BrainInput::Energy as usize], d) } else { None })
@@ -12690,7 +12695,7 @@ fn rest_pull(world: &World, organism: OrganismId, def: &CreatureDef, head: (i32,
     if !form.rests(world, state) {
         return None;
     }
-    if state.spoil.is_some() || state.crop.is_some_and(|c| c.worth() > 0.0) || state.hungry_home || state.store_return {
+    if state.spoil.is_some() || state.crop.is_some_and(|c| c.worth() > 0.0) || state.hungry_home || state.way_home || state.store_return {
         return None;
     }
     // **The pull out and the pull in, weighed as the scout weighs them**: out
@@ -12802,7 +12807,7 @@ fn hungry_out_pull(world: &World, organism: OrganismId, def: &CreatureDef, head:
 /// walking home hungry or with a store load, or not let out.
 fn hungry_out_gain(world: &World, organism: OrganismId, def: &CreatureDef) -> Option<f32> {
     let state = world.organism(organism)?;
-    if state.spoil.is_some() || state.crop.is_some_and(|c| c.worth() > 0.0) || state.hungry_home || state.store_return {
+    if state.spoil.is_some() || state.crop.is_some_and(|c| c.worth() > 0.0) || state.hungry_home || state.way_home || state.store_return {
         return None;
     }
     if state.energy >= def.start_energy {
@@ -19808,6 +19813,9 @@ fn commit_step(
             // 32-cell nest patch from accumulating a 30-cell "excursion".
             state.forage_anchor = (tx, ty);
             state.forage_max = 0;
+            // What it sets out with from here ([`WayHome`]'s "left home
+            // fed"): written whatever the switch, read only under it.
+            state.way_e0 = state.energy;
             // The profile is booked for *every* excursion, including the
             // one-cell ones — it is the distribution that makes the bar
             // below defensible, so it must not be filtered by that bar.
@@ -21894,6 +21902,127 @@ fn update_hungry_home(world: &mut World, organism: OrganismId, def: &CreatureDef
     }
 }
 
+/// **A forager that turns hungry far out on dark ground heads home on its own
+/// sense of where home is** -- `PIXEL_PHYSICS_WAY_HOME`, off unless set
+/// (`way_home_of`, or `World::way_home` for one world). Built 2026-10-06 at
+/// the owner's "Build it" for the lost young foragers: with the heap 90 cells
+/// east, 197 of 359 starvers on seeds 1 and 3 were empty ants that died more
+/// than 6 columns west of the door and never came back past it. On their last
+/// hunger no pull acted on 95-98% of decisions, they were off any trail on
+/// 95-96%, the scouting walk was on 66-72%, and 76-77% of their steps went
+/// west: the walk's only direction outside is "away from home", and west of
+/// the door that is away from the food. The hunger began a median 24 columns
+/// west of the door at 0.99 of the grant, so they left fed and turned hungry
+/// out there (Laying's `food-distance-2026-10-06.md`, Redesign's
+/// `starvetrace.py`).
+///
+/// **The behaviour it serves**: a lost hungry forager gets back past its
+/// door. Desert ants keep a running home vector by path integration and run
+/// it off home from wherever they are (Bühlmann, Cheng & Wehner 2011,
+/// doi 10.1242/jeb.054601); an ant taken off its route with nothing to go
+/// on searches round its nest, not out (Merkle & Wehner 2008,
+/// doi 10.1242/jeb.022715). The ant's home vector here is its anchor
+/// (`home_target`), the last cell it stood on beside the nest: its own
+/// memory, nothing global.
+///
+/// **How a trace shows it working**: the decision trace books the pull as
+/// "way home"; a lost forager's hungry rows should turn from scouting west
+/// to stepping east, and end at a nest contact (`way_home_home`) or a meal
+/// rather than a death more than 6 columns west of the door.
+///
+/// Two parts:
+/// - `turn`: the latch (`OrganismState::way_home`, set by
+///   [`update_way_home`]). An empty animal (no food, or only a packed lunch;
+///   no pellet) under its grant, off any trail (trail B under the head under
+///   [`HUNGRY_ROUTE`]), more than [`FORAGE_TRIP_MIN`] cells from its anchor,
+///   that **left home fed** (`OrganismState::way_e0`, its energy at its last
+///   nest contact, at or over the grant). That last test keeps it off an ant
+///   that sets out hungry, so a hungry ant may still make the long trip that
+///   finds far food: the earlier come-home rule (`HUNGRY_HOME`'s tether)
+///   fired on every hungry ant off a road and forbade those trips
+///   (`Reports/dead-ends.md`). **The founders are reached once, on landing**:
+///   each is born at its grant (`way_e0`) and lands spread up to ~100
+///   columns either side of the door under it, so it is walked to the door
+///   first (measured: 42 of the 59 ants latched before frame 20,000 on the
+///   goal box's seed 1 were founders). At the door it is re-anchored hungry,
+///   so its next excursion is free. It lets go within
+///   [`HUNGRY_ARRIVED`] of the anchor (and so at any nest contact, which
+///   re-anchors on the head), once fed back to the grant, or once it carries
+///   anything. While set, [`home_pull`] pulls it to its anchor at the laden
+///   ant's gain, patience and all, and scouting is off (a pull suppresses it).
+/// - `bare`: the walk home is not held by trail under the latched ant: the
+///   heading's turn score is not multiplied by trail presence, as a given-up
+///   scout's on dark ground is not (`FoodTrail::giveup`'s `spent`). False
+///   roads lie over the west of the mound (carriers that lost their pull lay
+///   31-51% of trail B there, `mound-hunger-2026-10-05.md`), and a given-up
+///   ant on one stepped toward home only 36-44% of the time.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub struct WayHome {
+    pub turn: bool,
+    pub bare: bool,
+}
+
+impl WayHome {
+    pub const OFF: WayHome = WayHome { turn: false, bare: false };
+    pub const ON: WayHome = WayHome { turn: true, bare: true };
+    /// Off until measured.
+    pub const SHIPPED: WayHome = WayHome::OFF;
+
+    pub fn parse(raw: &str) -> WayHome {
+        let mut m = WayHome::OFF;
+        for part in raw.split(',').map(str::trim).filter(|p| !p.is_empty()) {
+            match part {
+                "on" => m = WayHome::ON,
+                "off" => m = WayHome::OFF,
+                "turn" => m.turn = true,
+                "bare" => m.bare = true,
+                other => panic!("PIXEL_PHYSICS_WAY_HOME={raw:?}: {other:?} is not on, off, turn or bare"),
+            }
+        }
+        m
+    }
+}
+
+/// This world's `PIXEL_PHYSICS_WAY_HOME`: `World::way_home` if set, else the
+/// environment's, else [`WayHome::SHIPPED`].
+pub fn way_home_of(world: &World) -> WayHome {
+    world.way_home.unwrap_or_else(|| {
+        static V: std::sync::OnceLock<WayHome> = std::sync::OnceLock::new();
+        *V.get_or_init(|| std::env::var("PIXEL_PHYSICS_WAY_HOME").map_or(WayHome::SHIPPED, |v| WayHome::parse(&v)))
+    })
+}
+
+/// **Should this animal be walking home hungry?** Sets and clears
+/// `OrganismState::way_home` under [`WayHome`]'s `turn`; with it off the
+/// latch is never touched.
+fn update_way_home(world: &mut World, organism: OrganismId, def: &CreatureDef, head: (i32, i32)) {
+    let Some(state) = world.organism(organism) else { return };
+    let empty = state.spoil.is_none() && (state.crop.is_none_or(|c| c.worth() <= 0.0) || carries_lunch(world, state));
+    let (ax, ay) = home_target(world, state);
+    let d = (((ax - head.0) as f32).powi(2) + ((ay - head.1) as f32).powi(2)).sqrt();
+    let hungry = state.energy < def.start_energy;
+    let was = state.way_home;
+    let now = if !empty || !hungry || d < HUNGRY_ARRIVED {
+        false
+    } else if was {
+        true
+    } else {
+        let x = f32::from(world.pheromone_at(Channel::B, head.0, head.1)) / TRAIL_HALF;
+        let dark = x / (1.0 + x) < HUNGRY_ROUTE;
+        dark && d > f32::from(FORAGE_TRIP_MIN) && state.way_e0 >= def.start_energy && def.home_bias > 0.0
+    };
+    if now != was {
+        if now {
+            world.creature_stats.way_home_turns += 1;
+        } else if empty && hungry {
+            world.creature_stats.way_home_home += 1;
+        }
+        if let Some(state) = world.organism_mut(organism) {
+            state.way_home = now;
+        }
+    }
+}
+
 /// **Is the step along `d` onto a route?** The scent where the head would go
 /// and one cell beyond, the larger of the two (plan §4b: about an antenna's
 /// reach for a two-cell ant), saturated as `x / (1 + x)` over `TRAIL_HALF`.
@@ -22049,7 +22178,12 @@ fn home_pull(world: &World, organism: OrganismId, def: &CreatureDef, head: (i32,
             // to where the food is kept. A packed lunch is not a load
             // (`carries_lunch`): no pull home for it either.
             if state.crop.is_none_or(|c| c.worth() <= 0.0) || carries_lunch(world, state) {
-                return (state.hungry_home && state.spoil.is_none()).then(|| (hungry_target(world, state), def.home_bias));
+                if state.hungry_home && state.spoil.is_none() {
+                    return Some((hungry_target(world, state), def.home_bias));
+                }
+                // **Hungry far out on dark ground: home by its own home
+                // vector** ([`WayHome`]), to its anchor.
+                return (state.way_home && state.spoil.is_none()).then(|| (home_target(world, state), def.home_bias));
             }
             // **A fed carrier below the door follows the larvae instead**
             // (`PIXEL_PHYSICS_CROP_DOWN`'s `scent`, [`CropDown`]), and so
@@ -22117,6 +22251,8 @@ fn home_pull_why(world: &World, organism: OrganismId, def: &CreatureDef, head: (
     if state.crop.is_none_or(|c| c.worth() <= 0.0) || carries_lunch(world, state) {
         return if state.hungry_home && state.spoil.is_none() {
             (PULL_HUNGRY_HOME, Some(hungry_target(world, state)))
+        } else if state.way_home && state.spoil.is_none() {
+            (PULL_WAY_HOME, Some(home_target(world, state)))
         } else {
             (PULL_NONE, None)
         };
@@ -22300,6 +22436,10 @@ fn chooser_step(
     if hungry_mode != HungryHome::Off {
         update_hungry_home(world, organism, def, (hx, hy), hungry_mode);
     }
+    let way = way_home_of(world);
+    if way.turn {
+        update_way_home(world, organism, def, (hx, hy));
+    }
     // **Back up from the storeroom** ([`store_return_target`]): the trip ends
     // with the head above the mouth.
     if world.organism(organism).is_some_and(|s| s.store_return) && store_return_target(world, world.organism(organism).expect("read above")).is_none() {
@@ -22378,6 +22518,9 @@ fn chooser_step(
             rest
         }
     };
+    // The hungry walk home ([`WayHome`]) steered this decision.
+    let homing = way.turn && pulled_home && world.organism(organism).is_some_and(|s| s.way_home);
+    world.creature_stats.way_home_pulls += u64::from(homing);
     // A nest worker's leash under `NEST_LEASH=deep` never gives up
     // ([`nest_leash_deep`]).
     // So does a nurse going in ([`nurse_in_target`]): measured without it
@@ -22606,7 +22749,10 @@ fn chooser_step(
     // and its level held every heading about four times over, so the pull
     // home could not turn a carrier facing away.
     let route_floor = carry_route_floor(world, organism, laden, reads_trail, usable.iter().copied().chain(crossing.map(|_| heading)), route);
-    let hold = |d: u8| if spent { 1.0 } else { 1.0 + trail_gain * (route(d) - route_floor).max(0.0) };
+    // **The hungry walk home is not held by trail either** ([`WayHome`]'s
+    // `bare`): false roads lie over the west of the mound.
+    let homing_bare = way.bare && homing;
+    let hold = |d: u8| if spent || homing_bare { 1.0 } else { 1.0 + trail_gain * (route(d) - route_floor).max(0.0) };
     // **Level, not radial**: the home cosine of the heading's sideways part
     // alone, so a heading straight up or down scores 0. Radial, an ant above
     // home level is drawn upward, and on the colony bed that drove scouts 91
@@ -40082,6 +40228,118 @@ mod tests {
         if let Some((x, y)) = first_on {
             assert!(y < 40 || x >= 157, "on a route the hungry ant was called home in the middle of the road, at ({x}, {y})");
         }
+    }
+
+    /// **The way home: an ant that left home fed and turned hungry on dark
+    /// ground walks home and is let go there; one that left hungry scouts on**
+    /// ([`WayHome`]). The tether's scene: a stone floor, home (the anchor) at
+    /// x 20, the ant at x 100 facing east, energy held at 0.8 of its grant.
+    /// Left fed (`way_e0` at the grant) it turns for home once
+    /// (`way_home_turns`, the "it fired" count), walks there (the effect), and
+    /// is let go within reach (`way_home_home`). Left hungry, as an ant the
+    /// colony sends out hungry does, it scouts east as with the switch off. **Watched red**: with the "left home fed" test removed from
+    /// `update_way_home` the second walk turns for home at once.
+    #[test]
+    fn the_way_home_brings_an_ant_that_left_fed_home_and_leaves_one_that_left_hungry_scouting() {
+        let walk = |rule: WayHome, left_fed: bool| -> (u64, u64, i32, i32) {
+            let stone = Cell::new(material::STONE, 0).with_attached(true);
+            let mut w = World::new(Rect::new(0, 0, 159, 63));
+            for x in 0..160 {
+                for y in 41..64 {
+                    w.set(x, y, stone);
+                }
+            }
+            for y in 0..41 {
+                for x in [0, 159] {
+                    w.set(x, y, stone);
+                }
+            }
+            w.chooser = Some(Chooser::TrailAway);
+            w.scout = Some(SCOUT_DEFAULT);
+            w.way_home = Some(rule);
+            let ant = spawn(&mut w, "ant", 100, 40);
+            let grant = w.species.get(w.organism(ant).expect("live").species).creature.as_ref().expect("a creature").start_energy;
+            {
+                let st = w.organism_mut(ant).expect("live");
+                st.heading = 0;
+                st.forage_anchor = (20, 40);
+                st.way_e0 = if left_fed { grant } else { 0.5 * grant };
+            }
+            let (mut west, mut east) = (100, 100);
+            for _ in 0..1800 {
+                w.organism_mut(ant).expect("live").energy = 0.8 * grant;
+                run(&mut w, 1);
+                let st = w.organism(ant).expect("live");
+                assert!(st.crop.is_none(), "the ant must stay empty");
+                west = west.min(st.chain[0].0);
+                east = east.max(st.chain[0].0);
+            }
+            (w.creature_stats.way_home_turns, w.creature_stats.way_home_home, west, east)
+        };
+        let (off_turns, _, _, off_east) = walk(WayHome::OFF, true);
+        assert!(off_turns == 0 && off_east >= 120, "with the switch off a hungry ant should scout east, and got to x {off_east}: the scene cannot show a difference");
+        let (turns, home, west, _) = walk(WayHome::ON, true);
+        assert!(turns >= 1, "an ant that left fed and turned hungry on dark ground never turned for home");
+        assert!(west <= 22, "it should walk home to x 20, and got only to x {west}");
+        assert!(home >= 1, "it was not let go at home");
+        let (hungry_turns, _, _, hungry_east) = walk(WayHome::ON, false);
+        assert_eq!(hungry_turns, 0, "an ant that left home hungry was turned for home");
+        assert!(hungry_east >= 120, "an ant that left home hungry should scout east as with the switch off, and got to x {hungry_east}");
+    }
+
+    /// **`bare`: on a trail, the hungry walk home is not held by it**
+    /// ([`WayHome`]). Trail B laid along the whole floor; the ant already
+    /// walking home (`way_home` set), at x 100 facing east, home at x 20. The
+    /// trail holds the heading it faces about four times over, so under `turn`
+    /// alone it keeps going east first; under `bare` it turns and walks home.
+    /// **Watched red** with `homing_bare` forced false in `chooser_step`.
+    #[test]
+    fn bare_lets_the_hungry_walk_home_turn_on_a_trail() {
+        let walk = |rule: WayHome| -> (i32, i32) {
+            let stone = Cell::new(material::STONE, 0).with_attached(true);
+            let mut w = World::new(Rect::new(0, 0, 159, 63));
+            for x in 0..160 {
+                for y in 41..64 {
+                    w.set(x, y, stone);
+                }
+            }
+            for y in 0..41 {
+                for x in [0, 159] {
+                    w.set(x, y, stone);
+                }
+            }
+            w.chooser = Some(Chooser::TrailAway);
+            w.scout = Some(SCOUT_DEFAULT);
+            w.way_home = Some(rule);
+            let ant = spawn(&mut w, "ant", 100, 40);
+            let grant = w.species.get(w.organism(ant).expect("live").species).creature.as_ref().expect("a creature").start_energy;
+            {
+                let st = w.organism_mut(ant).expect("live");
+                st.heading = 0;
+                st.forage_anchor = (20, 40);
+                st.way_e0 = grant;
+                st.way_home = true;
+            }
+            let (mut west, mut east) = (100, 100);
+            for _ in 0..300 {
+                for x in 1..159 {
+                    let have = w.pheromone_at(Channel::B, x, 40);
+                    if have < pheromone::DEPOSIT {
+                        w.deposit_pheromone(Channel::B, x, 40, pheromone::DEPOSIT - have);
+                    }
+                }
+                w.organism_mut(ant).expect("live").energy = 0.8 * grant;
+                run(&mut w, 1);
+                let st = w.organism(ant).expect("live");
+                west = west.min(st.chain[0].0);
+                east = east.max(st.chain[0].0);
+            }
+            (west, east)
+        };
+        let (_, held_east) = walk(WayHome { turn: true, bare: false });
+        let (bare_west, bare_east) = walk(WayHome::ON);
+        assert!(held_east > bare_east, "the trail should hold the walk home east under turn alone (got to x {held_east}) more than under bare (x {bare_east}): the scene cannot show a difference");
+        assert!(bare_west < 100 - 20, "under bare the ant should walk home along the trail, and got only to x {bare_west}");
     }
 
     /// **A fed, laden ant beside food and facing away from home still walks

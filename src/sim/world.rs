@@ -2364,6 +2364,14 @@ pub struct CreatureStats {
     /// (`creature::hungry_home_of`): one per setting of
     /// `OrganismState::hungry_home`, never per tick it stays set.
     pub hungry_home_turns: u64,
+    /// `PIXEL_PHYSICS_WAY_HOME`'s `turn` (`creature::WayHome`): empty
+    /// animals that turned for home hungry on dark ground, once per turn (the
+    /// "it fired" count). Its effect counters are `way_home_home` (the latch
+    /// let go within reach of home) and `way_home_pulls` (decisions it
+    /// steered).
+    pub way_home_turns: u64,
+    pub way_home_home: u64,
+    pub way_home_pulls: u64,
     /// **Decisions where the colony's need, not the animal's own hunger, set
     /// how hard it scouted** (`creature::forage_drive_from_env`): the forage
     /// drive's "it fired" count on the walk. 0 unless the switch is on.
@@ -4283,6 +4291,9 @@ pub struct World {
     /// (`creature::hungry_home_of`). `None` follows the environment; a field
     /// for the reason `chooser` is one.
     pub hungry_home: Option<crate::sim::creature::HungryHome>,
+    /// This world's `PIXEL_PHYSICS_WAY_HOME` (`creature::way_home_of`), or
+    /// `None` for the environment's.
+    pub way_home: Option<crate::sim::creature::WayHome>,
     /// **Whether the colony's need sends a fed forager out, overriding
     /// `PIXEL_PHYSICS_FORAGE_DRIVE` for this world** (`creature::
     /// forage_drive_of`). `None` follows the environment, which is `always`
@@ -6830,6 +6841,7 @@ impl World {
             nest_door: None,
             scout: None,
             hungry_home: None,
+            way_home: None,
             forage_drive: None,
             carry_patience: None,
             packed_lunch: None,
@@ -7928,6 +7940,8 @@ impl World {
             trip_cells: 0,
             eat_lunch_now: false,
             hungry_home: false,
+            way_home: false,
+            way_e0: 0.0,
             // Zero is "no memory yet"; the first tick's read sees `live - 0`,
             // which normalises to +1 and decays to the true reading within a
             // few ticks. See `OrganismState::phero_a_mem`.

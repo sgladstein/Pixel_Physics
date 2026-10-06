@@ -6368,6 +6368,18 @@ pub struct OrganismState {
     /// eaten back up (`creature::HUNGRY_REFED`). While set, the chooser pulls
     /// it home exactly as it pulls a laden animal, patience and all.
     pub hungry_home: bool,
+    /// **Hungry far out on dark ground: heading home on its own sense of
+    /// where home is** (`creature::way_home_of`, `PIXEL_PHYSICS_WAY_HOME`).
+    /// Set when an empty animal that left home fed turns hungry off any
+    /// trail, more than a trip's length from its anchor; cleared at home, when
+    /// fed again, or when it carries anything. While set the chooser pulls it
+    /// to its anchor as it pulls a laden animal. Always false with the switch
+    /// off.
+    pub way_home: bool,
+    /// **The energy this animal had at its last nest contact** (or at birth):
+    /// what it set out with, for [`OrganismState::way_home`]'s "left home fed".
+    /// Written on every contact whatever the switch; read only under it.
+    pub way_e0: f32,
     /// **A fading memory of the trail strength under this animal's own feet**,
     /// in the same normalised units `sense` reads the plane in.
     ///
