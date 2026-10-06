@@ -1185,6 +1185,16 @@ drift that two of these documents still reflect.**
   212k frames the two yields bracket the defect rather than fixing it —
   1.0 accumulates and buries, 0.05 depletes to half the world's soil and
   stalls.
+- [garden-harmony-2026-10-05.md](garden-harmony-2026-10-05.md)
+  — **grass regrowth shipped on 2026-10-05.** Why the lab garden crashed: the
+  ants were not overgrazing (living tissue 2-15% of intake); both colonies
+  lived on one burst of seed from the first grass, and the garden ran itself
+  down with no ants at all because a grass plant only grew in its first
+  ~1,500 frames and then froze to a one-blade stub that never died or seeded.
+  Five fixes failed the same way until a counted `Grow` exit showed a regrown
+  blade inheriting "full height" from the turgor path. With `break_tillers`
+  the no-ant garden still seeds at 400k (5.7-17k vs 0.3-1.3k per 100k) and the
+  evolved colony lives on 4/4 seeds.
 
 ## Creatures and ecology  ·  `engine`
 

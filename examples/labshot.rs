@@ -263,6 +263,11 @@ fn main() {
         // this build's own contour lay. Placements (frame-0 founding, no
         // scenario here uses it for `Colony` yet) are swapped too, for the
         // harness's own future use rather than any shipped scenario today.
+        // `colony=0` drops the scenario's own colony from its timeline, so the
+        // garden can be looked at alone -- `labgarden`'s and `deeptrace`'s flag.
+        if arg::<u8>("colony").unwrap_or(1) == 0 {
+            sc.timeline.retain(|e| !matches!(e.what, pixel_physics::lab::scenario::Placement::Colony { .. } | pixel_physics::lab::scenario::Placement::Colonies { .. }));
+        }
         if let Some(species) = arg::<String>("colony_species") {
             use pixel_physics::lab::scenario::Placement;
             let swap = |p: &mut Placement| match p {

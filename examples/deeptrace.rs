@@ -68,6 +68,11 @@
 //!   `scenario=played_bed food=0 ants=0` it records a garden and its colony
 //!   whole; the recording takes no draw (stats and colony files byte-identical
 //!   with and without it, seed 1 at 15,000 frames, 2026-10-05).
+//! - `colony=0` takes the colony out of the scenario's timeline (the garden
+//!   alone, paired on the same seed), and `set=subject.field=value;...`
+//!   applies any scenario setting, as `labgarden`'s `colony=0` and the lab's
+//!   own parameter page do. Both added 2026-10-05 for the grass trace in
+//!   `Reports/garden-harmony-2026-10-05.md`.
 //! - with `hungry=1` (which turns `census=1` on), **every decision of every
 //!   hungry ant, wherever it stands** (`hungry.csv.gz`, see `HungryLog`): the
 //!   pull, what the scout was sent out with (`want`, `zoned`), its weight,
@@ -474,6 +479,26 @@ fn main() {
             value: v,
         });
         println!("  founders' gut_bias set to {v}");
+    }
+    // `set=subject.field=value[;...]`: any scenario setting, before the bed
+    // is built -- how the grass old-age and seed-size arms were run.
+    if let Some(list) = arg::<String>("set") {
+        for item in list.split(';') {
+            let (lhs, v) = item.split_once('=').expect("set=subject.field=value");
+            let (subject, field) = lhs.split_once('.').expect("subject.field");
+            sc.settings.push(pixel_physics::lab::scenario::Setting { subject: subject.into(), field: field.into(), value: v.parse().expect("number") });
+            println!("  set {subject}.{field} = {v}");
+        }
+    }
+    if arg::<u8>("colony").unwrap_or(1) == 0 {
+        sc.timeline.retain(|e| {
+            !matches!(
+                e.what,
+                pixel_physics::lab::scenario::Placement::Colony { .. }
+                    | pixel_physics::lab::scenario::Placement::Colonies { .. }
+            )
+        });
+        println!("  colony=0: the garden alone");
     }
     let mut lab = Lab::new(sc.bed.clone());
     let msg = lab.load_scenario(sc);
@@ -1315,7 +1340,7 @@ impl GardenLog {
         let (z1, mut bites) = gzip_to(&format!("{out}/bites.csv.gz"));
         let (z2, mut plants) = gzip_to(&format!("{out}/plants.csv.gz"));
         writeln!(bites, "frame,eater,x,y,material,owner,living,worth,spared").unwrap();
-        writeln!(plants, "frame,id,species,generation,x,y,cells,edible,edible_j,gained,lost,bitten,defence,seed").unwrap();
+        writeln!(plants, "frame,id,species,generation,x,y,cells,edible,edible_j,gained,lost,bitten,defence,seed,carbon,tips,water,canopy,age,light,above").unwrap();
         GardenLog { bites, plants, zips: vec![z1, z2], last: HashMap::new(), bitten: HashMap::new() }
     }
 
@@ -1343,6 +1368,9 @@ impl GardenLog {
         }
         if !f.is_multiple_of(every) {
             return;
+        }
+        if f.is_multiple_of(10_000) {
+            writeln!(events, "{f} TILLERS total={}", w.tillers_broken).unwrap();
         }
         let mut seen: HashSet<OrganismId> = HashSet::new();
         for id in w.live_organism_ids() {
@@ -1372,6 +1400,22 @@ impl GardenLog {
                     y = cy;
                 }
             }
+            let (mut carbon, mut tips, mut canopy) = (0f32, 0usize, 0f32);
+            let mut light = 0f32;
+            let mut top: Option<(i32, i32)> = None;
+            for (&(cx, cy), oc) in s.cells.iter() {
+                carbon += oc.carbon;
+                if !w.materials.get(w.get(cx, cy).material).reinforces_powder {
+                    light = light.max(pixel_physics::sim::plant::ambient_light_above(w, cx, cy));
+                    if top.is_none_or(|(_, ty)| cy < ty) {
+                        top = Some((cx, cy));
+                    }
+                }
+                canopy += oc.canopy_density;
+                if pixel_physics::sim::organism::cell_type(w.get(cx, cy).aux()) == Some(pixel_physics::sim::organism::CellType::GrowingTip) {
+                    tips += 1;
+                }
+            }
             let prev = self.last.insert(id, n);
             if prev.is_none() {
                 writeln!(events, "{f} PLANT_BORN id={id} species={} generation={} x={x} y={y} cells={n}", def.name, s.generation).unwrap();
@@ -1383,12 +1427,16 @@ impl GardenLog {
             let (gained, lost) = if n >= prev { (n - prev, 0) } else { (0, prev - n) };
             writeln!(
                 self.plants,
-                "{f},{id},{},{},{x},{y},{n},{edible},{:.0},{gained},{lost},{bitten},{:.3},{}",
+                "{f},{id},{},{},{x},{y},{n},{edible},{:.0},{gained},{lost},{bitten},{:.3},{},{carbon:.1},{tips},{:.2},{:.2},{},{light:.3},{}",
                 def.name,
                 s.generation,
                 edible_j,
                 s.defence,
-                u8::from(seedish && n <= 1)
+                u8::from(seedish && n <= 1),
+                s.water_status,
+                canopy / n.max(1) as f32,
+                s.age_ticks,
+                top.map_or("-".to_string(), |(tx, ty)| w.materials.get(w.get(tx, ty - 1).material).name.clone())
             )
             .unwrap();
         }
