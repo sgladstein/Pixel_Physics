@@ -12859,6 +12859,39 @@ fn step_down_way(way: &NestWay, organism: OrganismId, head: (i32, i32)) -> Optio
 /// **The cue is local** in the sense the nest's way is ([`hungry_out_of`]):
 /// steps to the open air stand in for the draught from it, fresh at an
 /// opening and absent in a sealed pocket.
+///
+/// **Off, because neither part reaches the ants that starve** (lane 3,
+/// 2026-10-06, `/mnt/project-files/nest-race/lane3/mound-out-2026-10-06.md`).
+/// Main ecca174e6's game against the shared baseline (identity-checked),
+/// dry goal box, evolved founder, mutation off, `deeptrace hungry=1`,
+/// seeds 1-4, 300k:
+///
+/// - `dig` alone: grown ants starved 12/55/41/14 -> 42/8/15/12 (122 -> 77),
+///   mean ants over 100-300k up on 3 of 4 (+1.6%), food home from trips
+///   +6%.
+/// - `way` alone: starved 136, mean ants -1.6%, trip food -10%.
+/// - both: starved 151, mean ants -5%, trip food -13%; the door shut on 48
+///   maps against 23.
+///
+/// The baseline's own eight seeds starved 5-152 and shut the door on 0-77
+/// maps, so every one of those per-seed numbers is inside the spread
+/// between seeds. Every part rescued all three late collapses it was tried
+/// on (ants at 300k, off -> `way`/`dig`/both): `NEST_REST=workers` seed 1
+/// 57 -> 547/463/622 and seed 4 17 -> 273/623/383, `CARRY_HOME=on` seed 2
+/// 150 -> 393/362/500; but each arm parts from its control within 8-19k
+/// frames, so each is a fresh draw from a game that falls on 5 seeds of 12.
+///
+/// **Why neither part is the fix** (traced). The starvers hold a soil
+/// pellet, shut in the mound: encased, in a pocket or behind the door (63
+/// of 64 on `way` seed 1). [`hungry_out_gain`] gives a pellet holder no
+/// pull, and a laden ant never reaches the dig; the mound pull ever reached
+/// 0-3 of 21-64 starvers a run (23 of 78 on both, seed 2). Going lean does
+/// not free a holder either: [`lean_drop_site`] wants an empty cell with
+/// footing beside it, and of 19,930 lean pellet decisions by the 152 ants
+/// that starved on the `CARRY_HOME` control, the pellet went down on 425.
+/// Most of the pull went to ants a hair under their grant (median 1.00 at
+/// the first mound decision, 86% back above 0.95 with no bite), which is
+/// why only 7-29 of 6-9k pulled spells a run reached the heap.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct MoundOut {
     pub way: bool,
