@@ -11,7 +11,7 @@
 //!
 //! Runs the `nest_goal` scenario (dry, no plants, colony lands at 6,000,
 //! one heap of player food 30 columns east of the nest kept topped up, as
-//! `nestgoal` does) with the engine's own decision trace on
+//! `nestgoal` does; `foodgap=` moves the heap) with the engine's own decision trace on
 //! (`World::decision_log`, which takes no RNG draw and changes no branch),
 //! and follows `ants=` focal ants (8):
 //!
@@ -511,6 +511,33 @@ fn main() {
             println!("  set {subject}.{field} = {v}");
         }
     }
+    // `foodgap=<cells>`: how far east of the nest the player's heap sits
+    // (the scenario's own 30 when unset). Moves the scenario's provisions
+    // heap and the spot `top_up` refills together, so the two never split
+    // into a stale heap at 30 and a fed one further out. Added 2026-10-06 for
+    // the owner's question of how much the near heap changes: the foraging
+    // loop was developed on `trailfollow` with the food 90 (and 140) cells
+    // from the nest (`Reports/lanes/foraging-loop.md`), this box at 30.
+    let food_gap: Option<i32> = arg("foodgap");
+    if let Some(gap) = food_gap {
+        let colony_x = sc
+            .timeline
+            .iter()
+            .find_map(|e| match e.what {
+                pixel_physics::lab::scenario::Placement::Colony { x, .. } => Some(x),
+                _ => None,
+            })
+            .expect("foodgap= needs a scenario with a Colony event");
+        for e in &mut sc.timeline {
+            if let pixel_physics::lab::scenario::Placement::Heap { material, x, .. } = &mut e.what {
+                if material == "provisions" {
+                    *x = colony_x + gap;
+                }
+            }
+        }
+        println!("  foodgap={gap}: the provisions heap moved to x {}", colony_x + gap);
+    }
+    let food_gap = food_gap.unwrap_or(30);
     if arg::<u8>("colony").unwrap_or(1) == 0 {
         sc.timeline.retain(|e| {
             !matches!(
@@ -665,7 +692,7 @@ fn main() {
                 let g = Geo {
                     ground_y,
                     nest_x: s.x,
-                    food_x: s.x + 30,
+                    food_x: s.x + food_gap,
                 };
                 println!(
                     "  colony founded by frame {f}: nest at x {}, food spot x {}",
