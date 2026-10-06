@@ -1,4 +1,4 @@
-"""scorecard.py RUN_DIR... [--from F] [--to T] -- one column per deeptrace run of the goal box (deep trace lane, 2026-10-06)
+"""scorecard.py RUN_DIR... [--from F] [--to T] [--stays] -- one column per deeptrace run of the goal box (deep trace lane, 2026-10-06)
 
 The measuring lane's shared baseline card. Point it at the baseline's runs and at your own arm's runs (same seeds, same
 `deeptrace` arguments: `scenario=nest_goal founder=evolved ants=0 mapevery=1000 hungry=1`, `RAYON_NUM_THREADS=1`) and
@@ -16,7 +16,19 @@ Rows:
   inside the door): four bands that add up to the headline, as shares of all ant-time -- the door knot (within 4
   columns of the door and 10 rows of the old ground line), the rest of the top 10 rows, the door column deeper than 10
   rows, and deeper than 10 rows off the door column; then DEEPER THAN 10 ROWS on its own line (share of ant-time, mean
-  ants there), the number to score stay-in work on.
+  ants there), the number to score stay-in work on; then ANTS DEEP (added 2026-10-06 18:40 for the owner's reporting rule:
+  give deep time as ants, "about N of M ants", next to the baseline, door column and off it, and say plainly when it is
+  still near zero): the mean ants deeper than 10 rows of the mean live ants (both per census sample), then the same
+  ants split door column / off it. Then ANTS LIVING DEEP (added 2026-10-06 20:00, so a deep count separates ants living
+  there from a jam or ants passing through): of those deep ants, the ones fed (energy at or above the lean line, half
+  the founding grant, `creature::LEAN_LINE`), and of the fed ones, those that were also deep at the census before
+  (1,000 frames earlier). A census cannot see a stay, so with `--stays` and a `dig=1` record in the run
+  (`digrows.csv.gz`, one row per ant per decision, every 5 frames) the next line counts it exactly: mean ants that are
+  fed and in a stay of 50+ frames deeper than 10 rows, of the deep ants by the same record, and the median stay, by
+  stays and by deep time. Slow (10-20 s per 100k frames of record), so it is asked for. Checked on homing's `dig=1`
+  reruns at 70-92k (`NEEDS_FIRST=on CARRY_HOME=on`, claude/pack-behind 4ca0631cf): seed 2's jam reads 34.8 deep ants,
+  4.2 living deep, median stay 10 frames (census: 33.4 deep, 6.5 fed); seeds 1 and 3 read 1.5 and 1.6 deep, 1.4 and 1.5
+  living, median stays 60 and 70 frames. The census and the record agree on the deep count within 4%.
 - digs over the window (the engine's `digs`) and pellets dumped (`spoil_dumped`).
 - chambers at 100/200/300k by the owner's rule (`chambers.py` in this folder, `examples/digbox.rs`'s `chambers_of`
   ported): count, each chamber tall x wide, how many are spec-shaped (8-16 tall, wider than tall), the passage bore and
@@ -45,6 +57,7 @@ import chambers as chamber_rule  # noqa: E402
 
 OPEN = set("o.aelpfcx~?b")
 MARKS = (100_000, 200_000, 300_000)
+STAYS = False  # --stays: read the dig=1 record for the stays line (slow)
 
 
 def founded(run):
@@ -142,7 +155,95 @@ def nest_bands(run, a, b):
         else:
             band["shaft" if door else "deep"] += 1
     shares = {k: band[k] / max(1, n) for k in ("knot", "top", "shaft", "deep")}
+    shares["ants"] = n / max(1, len(frames))  # mean live ants per census sample, for ANTS DEEP's "of M"
     return shares, (band["shaft"] + band["deep"]) / max(1, len(frames))
+
+
+LEAN = 0.5  # creature::LEAN_LINE: an ant under half its founding grant is lean
+STAY_MIN = 50  # frames: a stay this long or longer is living there, shorter is passing through
+
+
+def start_j(run):
+    for line in open(f"{run}/events.txt"):
+        if "FOUNDED" in line:
+            kv = dict(t.split("=") for t in line.split() if "=" in t)
+            return float(kv.get("start_j", 200))
+    return 200.0
+
+
+def living_deep(run, a, b):
+    """ANTS LIVING DEEP from the census: per sample over a..b, the ants deeper than KNOT_ROWS (zone nest), the fed ones
+    among them (energy_j >= LEAN x the founding grant), and the fed ones also deep at the sample before. Means per
+    sample."""
+    nx, gy = founded(run)
+    line = LEAN * start_j(run)
+    deep_at = collections.defaultdict(set)
+    rows = []
+    for r in csv.DictReader(open(f"{run}/colony.csv")):
+        f = int(r["frame"])
+        if f < a - 1000 or f > b or r["zone"] != "nest" or int(r["hy"]) - gy <= KNOT_ROWS:
+            continue
+        deep_at[f].add(r["id"])
+        if f >= a:
+            rows.append((f, r["id"], float(r["energy_j"]) >= line))
+    frames = {int(r["frame"]) for r in csv.DictReader(open(f"{run}/colony.csv")) if a <= int(r["frame"]) <= b}
+    n = max(1, len(frames))
+    step = min((g - f for f, g in zip(sorted(frames), sorted(frames)[1:])), default=1000)
+    deep = len(rows) / n
+    fed = sum(1 for _, _, ok in rows if ok) / n
+    stay = sum(1 for f, i, ok in rows if ok and i in deep_at.get(f - step, ())) / n
+    return deep, fed, stay
+
+
+def deep_stays(run, a, b):
+    """With a dig=1 record: every ant's runs of consecutive decisions deeper than KNOT_ROWS in the dug nest (rows 5
+    frames apart; a gap over 15 frames ends the run). Returns mean deep ants, mean ants fed and in a stay of
+    STAY_MIN+ frames, and the median stay by stays and by deep time; None without the record."""
+    import gzip
+    p = f"{run}/digrows.csv.gz"
+    if not os.path.exists(p):
+        return None
+    nx, gy = founded(run)
+    open_ = {}  # id -> [first frame, last frame, fed rows, rows]
+    stays = []
+
+    def close(k):
+        s0, s1, fed, n = open_.pop(k)
+        stays.append((s1 - s0 + 5, fed, n))
+
+    with gzip.open(p, "rt") as fh:
+        hdr = fh.readline().rstrip("\n").split(",")
+        fi, ii, yi, zi, ei = (hdr.index(c) for c in ("frame", "id", "hy", "zone", "energy"))
+        for ln in fh:
+            r = ln.split(",")
+            f = int(r[fi])
+            if f < a:
+                continue
+            if f > b:
+                break
+            k = r[ii]
+            deep = r[zi] == "nest" and int(r[yi]) - gy > KNOT_ROWS
+            cur = open_.get(k)
+            if cur and (not deep or f - cur[1] > 15):
+                close(k)
+                cur = None
+            if deep:
+                ok = float(r[ei]) >= LEAN
+                if cur:
+                    cur[1] = f
+                    cur[2] += ok
+                    cur[3] += 1
+                else:
+                    open_[k] = [f, f, int(ok), 1]
+    for k in list(open_):
+        close(k)
+    per = (b - a) / 5  # decision slots per ant over the window
+    deep_rows = sum(n for _, _, n in stays)
+    living = sum(fed for ln_, fed, _ in stays if ln_ >= STAY_MIN)
+    lens = sorted(ln_ for ln_, _, _ in stays)
+    by_time = sorted((ln_ for ln_, _, n in stays for _ in range(n)))
+    med = lambda v: v[len(v) // 2] if v else 0
+    return deep_rows / per, living / per, med(lens), med(by_time), len(stays)
 
 
 def rooms(path, gy):
@@ -191,6 +292,14 @@ def card(run, a, b):
     c["  nest workers / other ants"] = f"{100 * nw:.0f}% / {100 * rest:.0f}%"
     c["  ants sampled 10+ times: never / under half / half+"] = " / ".join(f"{100 * x:.0f}%" for x in spread) + f" of {n_ants}"
     c["DEEPER THAN 10 ROWS: ant-time (mean ants there)"] = f"{100 * (bands['shaft'] + bands['deep']):.2f}% ({deep_ants:.1f})"
+    m = bands["ants"]
+    c["ANTS DEEP: mean ants deeper than 10 rows, of all (door column / off it)"] = f"{deep_ants:.1f} of {m:.0f} ({bands['shaft'] * m:.1f} / {bands['deep'] * m:.1f})"
+    d_all, d_fed, d_stay = living_deep(run, a, b)
+    c["ANTS LIVING DEEP: of the deep ants, fed (and deep 1,000 frames earlier too)"] = f"{d_fed:.1f} of {d_all:.1f} ({d_stay:.1f})"
+    if STAYS:
+        st_ = deep_stays(run, a, b)
+        c["  stays, dig=1 record: fed in 50+ frame stays, of deep; median stay by stays / by time"] = (
+            f"{st_[1]:.1f} of {st_[0]:.1f}; {st_[2]} / {st_[3]} fr" if st_ else "needs dig=1")
     c["frames recorded"] = f"{end // 1000}k"
     c["ants at 100k / 200k / 300k"] = " / ".join(f"{at(st, m, 'ants'):.0f}" if m <= end else "-" for m in MARKS)
     span = [f for f in st if a <= f <= b]
@@ -229,7 +338,11 @@ def card(run, a, b):
 
 def main():
     args = sys.argv[1:]
+    global STAYS
     a, b = 100_000, 300_000
+    if "--stays" in args:
+        args.remove("--stays")
+        STAYS = True
     if "--from" in args:
         i = args.index("--from")
         a = int(args[i + 1])
