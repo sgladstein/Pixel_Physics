@@ -2253,6 +2253,26 @@ pub struct CreatureStats {
     /// (`creature::need_drop_site`): the load is kept. 0 unless the switch is
     /// on.
     pub needs_no_site: u64,
+    /// Decisions on which an idle nest worker at home had its step chance
+    /// cut by how deep it remembers being (`PIXEL_PHYSICS_DEPTH_SLOW`,
+    /// `creature::depth_slow_of`). The "it fired" half; `depth_pauses` is the
+    /// effect on the walk, and where the colony stands (`deeptrace`'s
+    /// `colony.csv`) the effect that matters. 0 unless the switch is on.
+    pub depth_slowed: u64,
+    /// Of `depth_slowed`, the decisions the ant stood still only because of
+    /// the cut: its step roll fell between the slowed chance and the
+    /// unslowed one. 0 unless the switch is on.
+    pub depth_pauses: u64,
+    /// Decisions of an idle nest worker at home that remembers no row away
+    /// from home (born inside, never out), and so is not slowed. 0 unless the
+    /// switch is on.
+    pub depth_unknown: u64,
+    /// Over `depth_slowed`: rows below its remembered row away from home
+    /// (the depth the ant uses), rows below its nest's founding ground (the
+    /// depth a map would give), and the gap between the two, each summed.
+    pub depth_rows: u64,
+    pub depth_ground_rows: u64,
+    pub depth_err_rows: u64,
     /// **Carry distances drawn** under `PIXEL_PHYSICS_SPOIL_RING`
     /// (`creature::spoil_ring`): when its carrier comes out by the door with
     /// it (`creature::carry_stage`), and again for a carrier that went back
@@ -4207,6 +4227,10 @@ pub struct World {
     /// `None` follows the environment; a field so a guard can take both arms
     /// in one process.
     pub needs_first: Option<crate::sim::creature::NeedsFirst>,
+    /// **`PIXEL_PHYSICS_DEPTH_SLOW` for this world** (`creature::depth_slow_of`).
+    /// `None` follows the environment; a field so a guard can take both arms
+    /// in one process.
+    pub depth_slow: Option<crate::sim::creature::DepthSlow>,
     /// **Each nest's way in**, as steps from its door through the cells
     /// inside it an ant can stand in (`creature::NestWay`), rebuilt every
     /// `creature::REST_REFRESH` frames by `creature::step_nest_rest` while
@@ -6815,6 +6839,7 @@ impl World {
             nurse_stay: None,
             mound_out: None,
             needs_first: None,
+            depth_slow: None,
             nest_ways: Vec::new(),
             mound_ways: Vec::new(),
             out_ways: Vec::new(),
@@ -7900,6 +7925,8 @@ impl World {
             traffic_deferred: 0,
             forage_anchor: (0, 0),
             forage_max: 0,
+            // Never away from home yet: no depth (`creature::depth_slow_of`).
+            last_out_row: None,
             home_best: f32::INFINITY,
             home_best_for: (i32::MIN, i32::MIN),
             home_best_at: (0, 0),

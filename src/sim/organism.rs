@@ -6215,6 +6215,16 @@ pub struct OrganismState {
     /// See `forage_anchor`. Chebyshev cells, saturating; reset to 0 at every
     /// nest contact.
     pub forage_max: u16,
+    /// **The row the head stood on at this animal's last decision away from
+    /// home** (`BrainInput::AtNest` reading 0) -- for an ant that came in by
+    /// its door, about the old ground line, so the rows below it are how
+    /// deep in its nest it is now. `None` until it has once been away: an
+    /// ant born inside and never out has no depth. Written and read only
+    /// under `PIXEL_PHYSICS_DEPTH_SLOW` (`creature::depth_slow_of`), which
+    /// slows an idle nest worker by it; `forage_anchor` cannot serve, since
+    /// inside a dug nest every step lands beside home and it follows the ant
+    /// (`Reports/how-the-ant-works.md` §8).
+    pub last_out_row: Option<i32>,
     /// **The chooser's memory of getting nearer home** (`creature::chooser_step`,
     /// `Reports/ant-movement-plan-2026-09-22.md` §4a): the closest this animal
     /// has come to `home_best_for` on the current carry, in cells.
