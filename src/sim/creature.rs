@@ -840,7 +840,68 @@ pub struct DecisionScratch {
     pub dig_at: (i32, i32),
     pub dig_mat: u16,
     pub dig_flags: u8,
+    /// **The pellet's funnel** ([`SpoilWhy`]): why a carrier still holds its
+    /// pellet after `act`, or how it let go; the keep rule's inputs as
+    /// [`SPOIL_FLAG_INSIDE`] and friends; and the drop's probability as
+    /// rolled (`dump_urge` times the cover scale, NaN unless the roll was
+    /// taken). Added 2026-10-06 for why nest workers at the door hold
+    /// pellets: the hold columns say *that* one is held, never which rule
+    /// kept it.
+    pub spoil_why: SpoilWhy,
+    pub spoil_flags: u8,
+    pub spoil_p: f32,
 }
+
+/// **How the pellet branch of `act` ended, for the trace only**
+/// ([`DecisionScratch::spoil_why`]). `NotAsked` is a decision with no pellet,
+/// or one that returned before the branch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+#[repr(u8)]
+pub enum SpoilWhy {
+    #[default]
+    NotAsked = 0,
+    /// A store load: [`store_drop`]'s, not the spoil rules.
+    Store = 1,
+    /// Put down where it stood, lean ([`LeanForage`]'s `drop`).
+    Lean = 2,
+    /// The keep rule held it ([`SPOIL_FLAG_KEPT`]): the roll was not taken.
+    Kept = 3,
+    /// The roll was taken and lost.
+    RollLost = 4,
+    /// The roll won and no cell would hold it.
+    NoSite = 5,
+    /// Laid on a cell beside the carrier.
+    Placed = 6,
+    /// Lifted up the column or out along the passages.
+    Lifted = 7,
+}
+pub const SPOIL_WHYS: usize = 8;
+pub const SPOIL_WHY_NAMES: [&str; SPOIL_WHYS] = [
+    "not_asked",
+    "store",
+    "lean",
+    "kept",
+    "roll_lost",
+    "no_site",
+    "placed",
+    "lifted",
+];
+/// [`DecisionScratch::spoil_flags`]: the head is `inside_nest`.
+pub const SPOIL_FLAG_INSIDE: u8 = 1;
+/// ...the carrier is at a nest with no ring column drawn (`unlatched`).
+pub const SPOIL_FLAG_UNLATCHED: u8 = 2;
+/// ...`in_nest_for_soil` under the soil way.
+pub const SPOIL_FLAG_SOIL_NEST: u8 = 4;
+/// ...the ring holds it (walking out to its column).
+pub const SPOIL_FLAG_RING: u8 = 8;
+/// ...the haul still has patience (`home_patience` at or over give-up).
+pub const SPOIL_FLAG_PATIENT: u8 = 16;
+/// ...held near the door ([`spoil_hold_of`]).
+pub const SPOIL_FLAG_NEAR_DOOR: u8 = 32;
+/// ...below the founding ground under the soil way.
+pub const SPOIL_FLAG_BELOW: u8 = 64;
+/// ...kept: `keep_inside` and one of patient, near the door or below.
+pub const SPOIL_FLAG_KEPT: u8 = 128;
 
 /// `DecisionScratch::dig_at` when no cell was judged.
 pub const DIG_NO_TARGET: (i32, i32) = (i32::MIN, i32::MIN);
@@ -1040,7 +1101,18 @@ impl Default for DecisionScratch {
             dig_at: DIG_NO_TARGET,
             dig_mat: 0,
             dig_flags: 0,
+            spoil_why: SpoilWhy::NotAsked,
+            spoil_flags: 0,
+            spoil_p: f32::NAN,
         }
+    }
+}
+
+/// The pellet's funnel, in the trace only ([`DecisionScratch::spoil_why`]).
+fn note_spoil(world: &mut World, why: SpoilWhy, flags: u8, p: f32) {
+    if world.decision_log.is_some() {
+        let s = &mut world.decision_scratch;
+        (s.spoil_why, s.spoil_flags, s.spoil_p) = (why, flags, p);
     }
 }
 
@@ -1210,6 +1282,10 @@ pub struct DecisionRow {
     pub zoned: bool,
     pub door_why: u8,
     pub door_f: f32,
+    /// The pellet's funnel: see `DecisionScratch::spoil_why`.
+    pub spoil_why: SpoilWhy,
+    pub spoil_flags: u8,
+    pub spoil_p: f32,
 }
 
 fn worm_tick(world: &mut World, x: i32, y: i32, organism: OrganismId) -> Vec<ActiveSite> {
@@ -8159,6 +8235,9 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
             zoned: sc.zoned,
             door_why: sc.door_why,
             door_f: sc.door_f,
+            spoil_why: sc.spoil_why,
+            spoil_flags: sc.spoil_flags,
+            spoil_p: sc.spoil_p,
         };
         if let Some(log) = world.decision_log.as_mut() {
             log.push(row);
@@ -16850,6 +16929,7 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
         // the same `DropSpoil` roll, one draw, and none of the spoil rules
         // below, which are about where tailings can lie.
         if is_store_load(world, Some(spoil)) {
+            note_spoil(world, SpoilWhy::Store, 0, f32::NAN);
             store_drop(world, organism, (x, y), spoil, dump_urge, draw);
             return did;
         }
@@ -16870,6 +16950,7 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
                 }
                 world.creature_stats.spoil_dumped += 1;
                 world.creature_stats.lean_dropped += 1;
+                note_spoil(world, SpoilWhy::Lean, 0, f32::NAN);
                 return did;
             }
         }
@@ -16943,6 +17024,21 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
         let held_below = keep_inside && soil_way && below_founding_ground(world, x, y);
         world.creature_stats.spoil_held_below += u64::from(held_below && !patient && !held_near_door);
         let kept_inside = keep_inside && (patient || held_near_door || held_below);
+        // The keep rule's inputs, each read on its own for the trace (the
+        // rule above short-circuits). Reads only; no draw.
+        let spoil_flags = if world.decision_log.is_some() {
+            let bit = |on: bool, f: u8| if on { f } else { 0 };
+            bit(inside_nest(world, x, y), SPOIL_FLAG_INSIDE)
+                | bit(unlatched, SPOIL_FLAG_UNLATCHED)
+                | bit(soil_way && in_nest_for_soil(world, x, y), SPOIL_FLAG_SOIL_NEST)
+                | bit(ring_hold, SPOIL_FLAG_RING)
+                | bit(patient, SPOIL_FLAG_PATIENT)
+                | bit(held_near_door, SPOIL_FLAG_NEAR_DOOR)
+                | bit(held_below, SPOIL_FLAG_BELOW)
+                | bit(kept_inside, SPOIL_FLAG_KEPT)
+        } else {
+            0
+        };
         let cover_scale = if kept_inside {
             world.creature_stats.spoil_kept_inside += 1;
             0.0
@@ -16955,7 +17051,12 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
                 _ => 1.0,
             }
         };
-        if draw.unit_f32() < dump_urge * cover_scale {
+        let spoil_p = dump_urge * cover_scale;
+        let spoil_won = draw.unit_f32() < spoil_p;
+        if !spoil_won {
+            note_spoil(world, if kept_inside { SpoilWhy::Kept } else { SpoilWhy::RollLost }, spoil_flags, spoil_p);
+        }
+        if spoil_won {
             // **Ground under it and air over it** -- a pellet goes down where
             // it can lie, which is the open surface, and the two halves of
             // that are the two ways it otherwise goes wrong.
@@ -17070,6 +17171,16 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
                 world.creature_stats.spoil_drops_discriminable += 1;
             }
 
+            note_spoil(
+                world,
+                match site {
+                    None => SpoilWhy::NoSite,
+                    Some(_) if lifted => SpoilWhy::Lifted,
+                    Some(_) => SpoilWhy::Placed,
+                },
+                spoil_flags,
+                spoil_p,
+            );
             if let Some((px, py)) = site {
                 world.set(px, py, spoil.cell);
                 if let Some(state) = world.organism_mut(organism) {
@@ -36362,6 +36473,26 @@ mod tests {
             "won dig rows against `dig_rolls`"
         );
         assert_eq!(count(&|r| r.dig == DigWhy::Cut), after.digs - before.digs, "cut rows against `digs`");
+        // The pellet's funnel (`SpoilWhy`) against the pellet's own counters,
+        // booked on the same branches. `spoil_dumped` also counts a pellet a
+        // dying carrier lets fall, which no decision row sees.
+        assert_eq!(count(&|r| r.spoil_why == SpoilWhy::Kept), after.spoil_kept_inside - before.spoil_kept_inside, "kept rows against `spoil_kept_inside`");
+        assert_eq!(count(&|r| r.spoil_why == SpoilWhy::Lean), after.lean_dropped - before.lean_dropped, "lean rows against `lean_dropped`");
+        assert_eq!(count(&|r| r.spoil_why == SpoilWhy::Lifted), after.spoil_lifted - before.spoil_lifted, "lifted rows against `spoil_lifted`");
+        assert!(
+            count(&|r| matches!(r.spoil_why, SpoilWhy::Lean | SpoilWhy::Placed | SpoilWhy::Lifted)) <= after.spoil_dumped - before.spoil_dumped,
+            "more pellets let go in the rows than `spoil_dumped` booked"
+        );
+        eprintln!(
+            "pellet rows: kept {} roll_lost {} no_site {} placed {} lifted {} lean {} store {}",
+            count(&|r| r.spoil_why == SpoilWhy::Kept),
+            count(&|r| r.spoil_why == SpoilWhy::RollLost),
+            count(&|r| r.spoil_why == SpoilWhy::NoSite),
+            count(&|r| r.spoil_why == SpoilWhy::Placed),
+            count(&|r| r.spoil_why == SpoilWhy::Lifted),
+            count(&|r| r.spoil_why == SpoilWhy::Lean),
+            count(&|r| r.spoil_why == SpoilWhy::Store)
+        );
         for (i, name) in CONE_PICK_NAMES.iter().enumerate() {
             assert_eq!(count(&|r| r.pick as usize == i), after.cone_picks[i] - before.cone_picks[i], "cone `{name}` rows against `cone_picks`");
         }

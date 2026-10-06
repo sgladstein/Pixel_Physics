@@ -42,6 +42,12 @@
 //!   brood item moved, frame by frame (`broodlog.csv`), and the nest as a
 //!   picture (`nest_fNNNNNN.txt`) every `nestevery=` frames (2,500). No brain probe,
 //!   so `ants=0 dig=1` records the whole colony for a fraction of `ants=all`.
+//!   Since 2026-10-06 each dig row also carries **the pellet's funnel**
+//!   (`spoil_why`, `creature::SPOIL_WHY_NAMES`: kept by the keep rule, roll
+//!   lost, no cell to hold it, placed, lifted; `spoil_flags`, the keep rule's
+//!   inputs as `creature::SPOIL_FLAG_*` bits; `spoil_p`, the drop's
+//!   probability as rolled) and the pull the walk scored with (`pull_why`,
+//!   `pull_x`, `pull_y`), for why nest workers at the door hold pellets.
 //! - with `walk=1` (which turns `dig=1` on), **every walking decision in and
 //!   round the nest** (`walkrows.csv.gz`, see `DigLog::walk_row`): the
 //!   chooser's options and scores, the pull it scored with
@@ -117,7 +123,7 @@ use pixel_physics::sim::cell::{Cell, OrganismId};
 use pixel_physics::sim::creature::{
     self, BiteRow, DecisionRow, DigWhy, FeedRow, DECISION_LEG_NAMES, DECISION_OUTCOME_NAMES, DIG_NO_TARGET,
     DIG_WHY_NAMES, DIRS, DOOR_WHY_NAMES, DROP_WHY_NAMES, FEED_KIND_NAMES, HOMEWARD_WHY_NAMES, PULL_WHY_NAMES,
-    TRIP_END_NAMES,
+    SPOIL_WHY_NAMES, TRIP_END_NAMES,
 };
 use pixel_physics::sim::material::{self, MaterialKind};
 use pixel_physics::sim::organism::{self, BroodStage};
@@ -1511,7 +1517,7 @@ impl DigLog {
         let mut brood = std::io::BufWriter::new(std::fs::File::create(format!("{out}/brood.csv")).unwrap());
         writeln!(
             rows,
-            "frame,id,age,worker,hx,hy,zone,heading,hold,ahead,ground8,at_nest,crowding,curvature,food_adj,moisture_grad,energy,dig,dig_p,dig_flags,dig_x,dig_y,dig_mat,outcome,moved,hx_after,hy_after,ret_x,ret_y,patience,trip_end"
+            "frame,id,age,worker,hx,hy,zone,heading,hold,ahead,ground8,at_nest,crowding,curvature,food_adj,moisture_grad,energy,dig,dig_p,dig_flags,dig_x,dig_y,dig_mat,outcome,moved,hx_after,hy_after,ret_x,ret_y,patience,trip_end,spoil_why,spoil_flags,spoil_p,pull_why,pull_x,pull_y"
         )
         .unwrap();
         writeln!(cells, "frame,x,y,from,to,cause,id").unwrap();
@@ -1639,7 +1645,7 @@ impl DigLog {
             let target = r.dig_at != DIG_NO_TARGET;
             writeln!(
                 self.rows,
-                "{f},{},{age},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
+                "{f},{},{age},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
                 r.id,
                 u8::from(p.worker),
                 r.head.0,
@@ -1673,6 +1679,12 @@ impl DigLog {
                 p.ret.map_or(String::new(), |c| c.1.to_string()),
                 fl(p.patience),
                 TRIP_END_NAMES[r.trip_end as usize],
+                SPOIL_WHY_NAMES[r.spoil_why as usize],
+                r.spoil_flags,
+                fl(r.spoil_p),
+                PULL_WHY_NAMES[r.pull_why as usize],
+                if r.pull_at != DIG_NO_TARGET { r.pull_at.0.to_string() } else { String::new() },
+                if r.pull_at != DIG_NO_TARGET { r.pull_at.1.to_string() } else { String::new() },
             )
             .unwrap();
             if self.walk.is_some() && r.head.1 > g.ground_y - WALK_RISE && (r.head.0 - g.nest_x).abs() <= WALK_REACH {
