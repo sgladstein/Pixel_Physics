@@ -195,7 +195,8 @@ def soil(out):
     print(f"  after 100k: {c} cut, {d} put back, {10 * d / max(1, c):.1f} put back per 10 cut")
 
 
-OPEN = set("o.aelpf~?b")
+# Food is open here, as before; `c` crumbs and `x` corpses are drawn apart from other food `f` since 2026-10-06.
+OPEN = set("o.aelpfcx~?b")
 BROOD = set("elpb")
 
 

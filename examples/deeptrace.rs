@@ -1139,12 +1139,19 @@ fn main() {
 }
 
 /// The box round the nest and food as one character a cell: `.` air, `#`
-/// ground, `s` loose spoil (powder), `~` water, `a` ant, `b` brood, `f` food.
+/// ground, `s` loose spoil (powder), `~` water, `a` ant, `b` brood, `f` food,
+/// with two foods drawn apart since 2026-10-06: `c` crumbs and `x` corpses.
+/// The walk parts brood and crumbs (`creature::PushPast`) and is walled by
+/// corpses and the player's provisions, so a map that drew them all `f` could
+/// not say whether a door was shut: `deep-trace/tools/doorseal.py` (in the
+/// project), counting every food cell as wall, read seed 4's door under
+/// `CARRY_HOME` shut on 22 of 25 maps where the walk's own rule finds 20.
 /// First line: `x0 y0 width height`.
 fn write_map(w: &World, g: &Geo, path: &str) {
     let (x0, x1) = (g.nest_x - 80, g.food_x + 40);
     let (y0, y1) = (g.ground_y - 60, g.ground_y + 70);
     let brood = w.materials.id_of("brood");
+    let (crumbs, corpse) = (w.materials.id_of("crumbs"), w.materials.id_of("corpse"));
     let mut s = format!("{x0} {y0} {} {}\n", x1 - x0 + 1, y1 - y0 + 1);
     for y in y0..=y1 {
         for x in x0..=x1 {
@@ -1162,7 +1169,13 @@ fn write_map(w: &World, g: &Geo, path: &str) {
                 } else if kind == MaterialKind::Liquid {
                     '~'
                 } else if c.organism_id() == 0 && creature::food_value(w, c) > 0.0 {
-                    'f'
+                    if Some(c.material) == crumbs {
+                        'c'
+                    } else if Some(c.material) == corpse {
+                        'x'
+                    } else {
+                        'f'
+                    }
                 } else if kind == MaterialKind::Powder {
                     's'
                 } else {
@@ -1282,7 +1295,10 @@ type BroodSeen = ((i32, i32), u8);
 /// - `nest_fNNNNNN.txt`: the region as one character a cell every
 ///   `nestevery=` frames: `.` open and never dug, `o` open and dug, `#`
 ///   untouched ground, `=` packed wall, `s` spoil, `r` ground the jaw cannot
-///   take, `~` water, `a` an adult, `e`/`l`/`p` egg, larva, pupa, `f` food.
+///   take, `~` water, `a` an adult, `e`/`l`/`p` egg, larva, pupa, `f` food,
+///   `c` crumbs and `x` corpses (drawn apart from other food since
+///   2026-10-06, as in `write_map`: the walk parts crumbs and is walled by
+///   corpses).
 ///
 /// "Ground" is any powder or solid cell owned by no organism and holding no
 /// food, which is what a cut can take and a pellet becomes.
@@ -1884,6 +1900,7 @@ impl DigLog {
 
     fn nest_map(&self, w: &World, path: &str) {
         let Some((x0, y0, wd, ht)) = self.region else { return };
+        let (crumbs, corpse) = (w.materials.id_of("crumbs"), w.materials.id_of("corpse"));
         let mut s = format!("{x0} {y0} {wd} {ht}\n");
         for y in y0..y0 + ht {
             for x in x0..x0 + wd {
@@ -1920,7 +1937,13 @@ impl DigLog {
                             '#'
                         }
                     } else if c.organism_id() == 0 && creature::food_value(w, c) > 0.0 {
-                        'f'
+                        if Some(c.material) == crumbs {
+                            'c'
+                        } else if Some(c.material) == corpse {
+                            'x'
+                        } else {
+                            'f'
+                        }
                     } else {
                         '?'
                     }
