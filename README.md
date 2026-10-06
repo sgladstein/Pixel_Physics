@@ -184,7 +184,7 @@ cargo run --release --bin lab      # the evolution lab -- the main game
 cargo run                          # the outdoor sandbox
 cargo run --release --bin druid    # the held world
 cargo run --example ascii          # headless terminal view, no GPU needed
-cargo test
+cargo test --release --lib sim::   # the touched module's tests; CI runs the full suite on every push
 ```
 
 Three games share this engine. **The evolution lab is the main game** (owner,
