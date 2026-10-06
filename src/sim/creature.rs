@@ -12185,8 +12185,10 @@ fn parse_spoil_hold(raw: &str) -> Option<i32> {
 
 /// **An ant with nothing to do goes inside and rests deep in the nest**:
 /// `PIXEL_PHYSICS_NEST_REST=workers|on|all|off` (built 2026-10-01; owner: the
-/// colony lives inside its nest). **`workers` since 2026-10-05**: unset reads
-/// as [`NestRest::SHIPPED`], and `off` is the ant before it.
+/// colony lives inside its nest). **Off again since 2026-10-06**, after a day
+/// shipped as `workers` (2026-10-05): unset reads as [`NestRest::SHIPPED`].
+/// Under `workers` two colonies of four collapse late in the run; see
+/// [`NestRest`], *Why it is off again*.
 ///
 /// **Why.** Real workers rest inside the nest, not on its entrance. Here
 /// every founder's home is the cell over the mouth (`World::door_anchor`),
@@ -12227,7 +12229,7 @@ pub fn nest_rest_of(world: &World) -> NestRest {
 /// and come back. Fed scouts are how a colony finds food at all, so the
 /// narrower forms keep them out.
 ///
-/// **Why `workers` ships** (lane 3, 2026-10-05; dry goal box, evolved
+/// **Why `workers` shipped** (lane 3, 2026-10-05; dry goal box, evolved
 /// founder, evolution off, `deeptrace ants=0 dig=1`, seeds 1-4 to 200k on
 /// main f4cc3972, means over 100-200k, off -> `workers`). The lab colony is
 /// larger on 4 of 4 (543/541/543/562 -> 551/613/586/607 ants), nest workers
@@ -12257,6 +12259,21 @@ pub fn nest_rest_of(world: &World) -> NestRest {
 /// 18/10%, into the mound 62/76%) and starved 111 against 34 on seed 1;
 /// inferred, not traced, that resting foragers settle at the passages' far
 /// ends, which are the faces.
+///
+/// **Why it is off again** (2026-10-06; the same goal box run on to 300k on
+/// main 33389072, off -> `workers`). The 200k runs above stopped before the
+/// colonies fail. Under `workers` two of four collapse after about 230k and
+/// none do under `off`: seed 1 ends with 553 -> 57 ants (starved over the run
+/// 41 -> 189), seed 4 with 586 -> 17 (24 -> 426). Seeds 2 and 3 hold, and are
+/// larger under `workers` (568 -> 593 and 568 -> 616; starved 86 -> 41 and
+/// 74 -> 63). The arms track each other to about 230k and then `workers`
+/// falls: on seed 1 the shaft fills with soil and brood and every ant ends
+/// up outside; on seed 4 food stops coming home (trip deliveries over
+/// 230-300k 1,930 -> 549) with the door open. `off` here is bit-identical to the ant before #637.
+/// How the rest pull leads there is not yet traced; a change that kills
+/// colonies outright stays built and off until the deaths are understood
+/// (owner's standing rule). **Run a default change to 300k**: collapses here
+/// start after 240k.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum NestRest {
     Off,
@@ -12271,8 +12288,9 @@ pub enum NestRest {
 }
 
 impl NestRest {
-    /// The form an unset `PIXEL_PHYSICS_NEST_REST` reads as.
-    pub const SHIPPED: NestRest = NestRest::Workers;
+    /// The form an unset `PIXEL_PHYSICS_NEST_REST` reads as: off again since
+    /// 2026-10-06 (`Workers` for a day; see [`NestRest`]).
+    pub const SHIPPED: NestRest = NestRest::Off;
 
     pub fn on(self) -> bool {
         self != NestRest::Off
@@ -30520,8 +30538,8 @@ mod tests {
     /// `PIXEL_PHYSICS_NEST_REST`'s spellings.
     #[test]
     fn the_nest_rest_parses_its_spellings_and_refuses_the_rest() {
-        assert_eq!(parse_nest_rest(""), NestRest::Workers, "unset is the shipped form");
-        assert_eq!(NestRest::SHIPPED, NestRest::Workers);
+        assert_eq!(parse_nest_rest(""), NestRest::Off, "unset is the shipped form");
+        assert_eq!(NestRest::SHIPPED, NestRest::Off);
         assert_eq!(parse_nest_rest("off"), NestRest::Off);
         assert_eq!(parse_nest_rest(" workers "), NestRest::Workers);
         assert_eq!(parse_nest_rest("on"), NestRest::Foragers);
