@@ -105,6 +105,12 @@ frame cost) are in `.claude/rules/measuring-the-world.md`; method traps
   ants dipping below row 10 for a few frames at a time, not ants living
   there; the line counts the fed ones, and `--stays` on a `dig=1` run counts
   the fed ones in stays of 50+ frames and gives the median stay.
+- **An ant standing on brood hides it in every picture.** The brood cell is lifted
+  out from under the walker, so the grid, the maps (`a`) and the lab's own drawing
+  all show the ant. On the shipped game 63-99% of the ants in each row of the
+  column over and under the door stand on brood (2026-10-06), so a solid column
+  of ants reads as ants that will not walk into it. Read `walk=1`'s `nb` column
+  (`B`) or `broodstep.py`, not the picture.
 - **`digbox` `SCORE`** — read its `n=` first.
 - **Room censuses** on a wet floor (water splits one room into "chambers"),
   or split by a brood pile; brood pockets under 30 cells are not rooms;
@@ -129,6 +135,7 @@ frame cost) are in `.claude/rules/measuring-the-world.md`; method traps
 | Did a dropped pellet have a choice of cell? | `deeptrace drops=1` + `scripts/deeptrace_tools/dropchoice.py` |
 | Is the nest full, and which part? | `scripts/deeptrace_tools/bandfill.py`: free cells, ants and brood per depth band, map by map, beside the ants there (`--show F1-F2` for each map) |
 | Is there a clear way into the nest through the mound? | `scripts/deeptrace_tools/moundway.py`: the shortest way in from outside, its narrowest neck, how full of ants it is, the mound's dead ends, and maps with no way in at all (`--png` draws it with the ants hidden) |
+| Do ants step into the brood, or does something refuse them? | `deeptrace walk=1 digfrom=F` + `scripts/deeptrace_tools/broodstep.py` (steps offered against taken, brood against open ground by direction, beside what the chooser's scores predict; what was refused and why) and `fedboundary.py` (fed and hungry ants by what is straight below them, row band by row band) |
 | Does a dig rule's input reach the ants that dig? | `deeptrace dig=1` + `scripts/deeptrace_tools/digtrace.py`: each dig decision by where the ant stood and by the Crowding it read |
 | Digging in a simple box | `digbox` |
 | The nest door and its pictures | `nestdoor` (`shots=` renders with the game's renderer) |

@@ -59,7 +59,13 @@
 //!   also carries the larva-scent term the chooser scored with (`nurse_w`,
 //!   `nurse_ux`, `nurse_uy`; blank when it scored none) and, like
 //!   `digrows.csv.gz`, why a digger's walk back to its face ended on this
-//!   decision (`trip_end`, `creature::TRIP_END_NAMES`).
+//!   decision (`trip_end`, `creature::TRIP_END_NAMES`). Since 2026-10-06
+//!   each row ends with **what stood in the eight cells round the head and
+//!   in its own** (`nb`, `DIRS` order then the head, one character a cell:
+//!   see `step_cell`; `b` brood, `B` an ant standing on brood) and how many
+//!   ants stood in each (`nbn`), so brood cells offered (`opts`) can be
+//!   counted against brood cells taken (`chose`). `digfrom=F` writes
+//!   `digrows.csv.gz` and `walkrows.csv.gz` from frame F only.
 //! - with `dig=1`, **every meal a larva is given** (`feeds.csv`, from
 //!   `World::feed_log`): where the larva lay, how it was fed
 //!   (`creature::FEED_KIND_NAMES`: food in reach it ate, a carrier's crop, a
@@ -456,6 +462,9 @@ fn main() {
     let out: String = arg("out").unwrap_or_else(|| "deeptrace-out".to_string());
     let walk = arg::<u8>("walk").unwrap_or(0) == 1;
     let dig = arg::<u8>("dig").unwrap_or(0) == 1 || walk;
+    // `digfrom=F`: `digrows.csv.gz` and `walkrows.csv.gz` from frame F on
+    // (see `DigLog::from`).
+    let dig_from: u64 = arg("digfrom").unwrap_or(0);
     // `drops=1`: every pellet put down and the choice of cell it had
     // (`drops.csv`), and the mound by material (`mound.csv`). See `DropLog`.
     let drops = arg::<u8>("drops").unwrap_or(0) == 1;
@@ -466,9 +475,10 @@ fn main() {
     let garden = arg::<u8>("garden").unwrap_or(0) == 1;
     let plant_every: u64 = arg("plantevery").unwrap_or(500);
     println!(
-        "deeptrace: scenario={scenario} seed={seed} frames={frames} ants={n_ants} bornafter={born_after} colonyevery={colony_every} mapevery={map_every} food={target} shots={} dig={} garden={} hungry={} nestevery={nest_every} out={out}",
+        "deeptrace: scenario={scenario} seed={seed} frames={frames} ants={n_ants} bornafter={born_after} colonyevery={colony_every} mapevery={map_every} food={target} shots={} dig={} walk={} digfrom={dig_from} garden={} hungry={} nestevery={nest_every} out={out}",
         u8::from(shots),
         u8::from(dig),
+        u8::from(walk),
         u8::from(garden),
         u8::from(hungry)
     );
@@ -628,7 +638,7 @@ fn main() {
     let names: Vec<String> = (0..lab.world.materials.len())
         .map(|i| lab.world.materials.get(material::MaterialId(i as u16)).name.clone())
         .collect();
-    let mut diglog = dig.then(|| DigLog::new(&out, &lab.world, &names, walk, def.start_energy));
+    let mut diglog = dig.then(|| DigLog::new(&out, &lab.world, &names, walk, def.start_energy, dig_from));
     let mut gardenlog = garden.then(|| GardenLog::new(&out));
     let mut hunglog = hungry.then(|| HungryLog::new(&out, def.start_energy));
     let mut droplog = drops.then(|| DropLog::new(&out, &lab.world));
@@ -1473,6 +1483,79 @@ struct DigPre {
     /// against what else changed there, says which of those it was.
     ret: Option<(i32, i32)>,
     patience: f32,
+    /// `walk=1` only: what stood in each of the eight cells round the head,
+    /// in `DIRS` order, and then in the head's own cell, as [`step_cell`]
+    /// reads them before the tick (`nb`), and how many animals stood in each
+    /// (`nbn`). Added 2026-10-06 for the owner's *"is there a reason that
+    /// they often do not"* step into the brood under the door: beside the
+    /// row's `opts` and `chose`, a reader counts brood cells offered against
+    /// brood cells taken.
+    nb: [u8; 9],
+    nbn: [u8; 9],
+}
+
+/// **What a body stepping into `(x, y)` finds there**, as one character,
+/// with the number of animals standing in it -- `walkrows.csv.gz`'s `nb`
+/// and `nbn` columns (see [`DigPre::nb`]).
+///
+/// `.` empty, `b` brood, `c` crumbs, `a` an animal on open ground, `B`, `C`
+/// or `T` an animal standing on brood, crumbs or plant tissue it has parted
+/// out of the grid (`organism::Parted`, held by the grid's owner or a rider
+/// there), `~` liquid, `x` a corpse, `f` other food, `s` other powder, `#`
+/// anything else and the world's edge. Brood is told by its organism, as
+/// the walk's own `is_partable` tells it, so a cell under a walker still
+/// reads as brood: what moves a brood cell within a frame is a nurse, a
+/// fall, an egg or a hatch, and the rest of the class is fixed for the
+/// frame even though the walkers in it are not.
+fn step_cell(
+    w: &World,
+    crumbs: Option<material::MaterialId>,
+    corpse: Option<material::MaterialId>,
+    (x, y): (i32, i32),
+) -> (u8, u8) {
+    if !w.in_bounds(x, y) {
+        return (b'#', 0);
+    }
+    let c = w.get(x, y);
+    let kind = w.materials.kind(c.material);
+    let is_brood = |c: Cell| c.organism_id() != 0 && w.organism(c.organism_id()).is_some_and(|s| s.brood.is_some());
+    if c.material == material::EMPTY {
+        return (b'.', 0);
+    }
+    if kind == MaterialKind::Creature {
+        let riders = w.riders_at(x, y);
+        let n = (1 + riders.len()).min(9) as u8;
+        let held = std::iter::once(c.organism_id())
+            .chain(riders.iter().map(|r| r.organism))
+            .filter_map(|id| w.organism(id))
+            .find_map(|s| s.parted.iter().find(|h| (h.x, h.y) == (x, y)).map(|h| h.cell));
+        let ch = match held {
+            None => b'a',
+            Some(h) if is_brood(h) => b'B',
+            Some(h) if Some(h.material) == crumbs => b'C',
+            Some(_) => b'T',
+        };
+        return (ch, n);
+    }
+    if kind == MaterialKind::Powder && is_brood(c) {
+        return (b'b', 0);
+    }
+    if kind == MaterialKind::Liquid {
+        return (b'~', 0);
+    }
+    if c.organism_id() == 0 && creature::food_value(w, c) > 0.0 {
+        return (
+            if Some(c.material) == crumbs {
+                b'c'
+            } else if Some(c.material) == corpse {
+                b'x'
+            } else {
+                b'f'
+            },
+            0,
+        );
+    }
+    (if kind == MaterialKind::Powder { b's' } else { b'#' }, 0)
 }
 
 /// Where a brood item was seen (its cell) and its stage (`BroodStage as u8`,
@@ -1523,6 +1606,15 @@ struct DigLog {
     /// species' start energy its `e` column is read against.
     walk: Option<std::io::BufWriter<std::process::ChildStdin>>,
     start_energy: f32,
+    /// `digfrom=`: the first frame `digrows.csv.gz` and `walkrows.csv.gz`
+    /// are written for (0 unless set); every other `dig=1` output runs the
+    /// whole run. Added 2026-10-06, so a window late in a run does not pay
+    /// the disk for the whole run's rows (a 100,000-frame `dig=1` run wrote
+    /// 166 MB of `digrows.csv.gz` on homing seed 1).
+    from: u64,
+    /// For [`step_cell`]'s `C`/`c` and `x`.
+    crumbs: Option<material::MaterialId>,
+    corpse: Option<material::MaterialId>,
     cuts: std::io::BufWriter<std::fs::File>,
     brood: std::io::BufWriter<std::fs::File>,
     broodlog: std::io::BufWriter<std::fs::File>,
@@ -1707,7 +1799,7 @@ fn gzip_to(path: &str) -> (std::process::Child, std::io::BufWriter<std::process:
 }
 
 impl DigLog {
-    fn new(out: &str, w: &World, names: &[String], walk: bool, start_energy: f32) -> Self {
+    fn new(out: &str, w: &World, names: &[String], walk: bool, start_energy: f32, from: u64) -> Self {
         let (z1, mut rows) = gzip_to(&format!("{out}/digrows.csv.gz"));
         let (z2, mut cells) = gzip_to(&format!("{out}/cells.csv.gz"));
         let mut zips = vec![z1, z2];
@@ -1715,7 +1807,7 @@ impl DigLog {
             let (z, mut wr) = gzip_to(&format!("{out}/walkrows.csv.gz"));
             writeln!(
                 wr,
-                "frame,id,worker,hx,hy,heading,e,leg,fill,ret_x,ret_y,pull,px,py,gain,patience,persist,turn,p_move,roll,outcome,usable,opts,chose,k,s0,s1,s2,s3,s4,s5,s6,s7,scout_w,drive,moved,hx_after,hy_after,nurse_w,nurse_ux,nurse_uy,trip_end"
+                "frame,id,worker,hx,hy,heading,e,leg,fill,ret_x,ret_y,pull,px,py,gain,patience,persist,turn,p_move,roll,outcome,usable,opts,chose,k,s0,s1,s2,s3,s4,s5,s6,s7,scout_w,drive,moved,hx_after,hy_after,nurse_w,nurse_ux,nurse_uy,trip_end,nb,nbn"
             )
             .unwrap();
             zips.push(z);
@@ -1757,6 +1849,9 @@ impl DigLog {
             cells,
             walk,
             start_energy,
+            from,
+            crumbs: w.materials.id_of("crumbs"),
+            corpse: w.materials.id_of("corpse"),
             cuts,
             brood,
             broodlog,
@@ -1815,6 +1910,12 @@ impl DigLog {
                 .flat_map(|dy| (-1..=1).map(move |dx| (dx, dy)))
                 .filter(|&(dx, dy)| (dx, dy) != (0, 0) && self.ground_at(w, head.0 + dx, head.1 + dy))
                 .count() as u8;
+            let (mut nb, mut nbn) = ([0u8; 9], [0u8; 9]);
+            if self.walk.is_some() {
+                for (k, &(dx, dy)) in DIRS.iter().chain(std::iter::once(&(0, 0))).enumerate() {
+                    (nb[k], nbn[k]) = step_cell(w, self.crumbs, self.corpse, (head.0 + dx, head.1 + dy));
+                }
+            }
             m.insert(
                 id,
                 DigPre {
@@ -1829,6 +1930,8 @@ impl DigLog {
                     ground8,
                     ret: st.dig_return,
                     patience: st.home_patience,
+                    nb,
+                    nbn,
                 },
             );
         }
@@ -1851,8 +1954,11 @@ impl DigLog {
             let Some(p) = pre.get(&r.id) else { continue };
             let age = f.saturating_sub(born.get(&r.id).copied().unwrap_or(0));
             let target = r.dig_at != DIG_NO_TARGET;
+            // `digfrom=`: before the window the row goes nowhere.
+            let mut skip = std::io::sink();
+            let rows_out: &mut dyn Write = if f >= self.from { &mut self.rows } else { &mut skip };
             writeln!(
-                self.rows,
+                rows_out,
                 "{f},{},{age},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
                 r.id,
                 u8::from(p.worker),
@@ -1895,7 +2001,11 @@ impl DigLog {
                 if r.pull_at != DIG_NO_TARGET { r.pull_at.1.to_string() } else { String::new() },
             )
             .unwrap();
-            if self.walk.is_some() && r.head.1 > g.ground_y - WALK_RISE && (r.head.0 - g.nest_x).abs() <= WALK_REACH {
+            if self.walk.is_some()
+                && f >= self.from
+                && r.head.1 > g.ground_y - WALK_RISE
+                && (r.head.0 - g.nest_x).abs() <= WALK_REACH
+            {
                 self.walk_row(f, r, p);
             }
             if r.dig == DigWhy::Cut {
@@ -2194,9 +2304,10 @@ impl DigLog {
         let pull_at = (r.pull_at != DIG_NO_TARGET).then_some(r.pull_at);
         let chose = (scored && r.chose < 8).then_some(r.chose);
         let score: Vec<String> = r.score.iter().map(|&v| fl(v)).collect();
+        let nbn: String = p.nbn.iter().map(|&n| char::from(b'0' + n)).collect();
         writeln!(
             wr,
-            "{f},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
+            "{f},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
             r.id,
             u8::from(p.worker),
             r.head.0,
@@ -2231,6 +2342,8 @@ impl DigLog {
             fl(r.nurse_ux),
             fl(r.nurse_uy),
             TRIP_END_NAMES[r.trip_end as usize],
+            String::from_utf8_lossy(&p.nb),
+            nbn,
         )
         .unwrap();
     }
