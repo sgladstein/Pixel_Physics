@@ -2178,9 +2178,13 @@ pub struct CreatureStats {
     pub nest_store_carry_pulls: u64,
     pub nest_store_eat_pulls: u64,
     pub nest_store_home_pulls: u64,
+    pub nest_store_fetch_pulls: u64,
     /// Won bites of a store cell that were not refused: the meals the store
     /// gave.
     pub nest_store_bites: u64,
+    /// SCRATCH: [fed offers, fed won, fed urge*1000 sum, hungry offers, hungry won, hungry urge sum].
+    pub store_funnel: [u64; 6],
+    pub store_gate: [u64; 5],
     /// Decisions a pellet carrier inside its nest walked out along the nest's
     /// way (`PIXEL_PHYSICS_SOIL_WAY`, `creature::soil_way_of`). The "it
     /// fired" half; the effect half is where the soil goes down.

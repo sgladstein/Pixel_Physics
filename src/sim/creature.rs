@@ -4233,6 +4233,8 @@ fn store_drop(world: &mut World, organism: OrganismId, (x, y): (i32, i32), spoil
 /// room: a cell to put it on, else refused and counted (`store_room_full`).
 #[allow(clippy::too_many_arguments)]
 fn store_pickup_ok(world: &mut World, organism: OrganismId, def: &CreatureDef, (x, y): (i32, i32), (fx, fy): (i32, i32), bite: Cell, crop: Option<Crop>, draw: &mut rng::Rng) -> bool {
+    // **[`NestStore`]'s `jaws`: the crop does not stop the jaws.**
+    let crop = crop.filter(|_| !nest_store_of(world).jaws);
     if crop.is_some_and(|c| c.cells > 0) || bite.organism_id() != 0 || food_value(world, bite) <= 0.0 || world.materials.get(bite.material).worth_in_aux {
         return false;
     }
@@ -9105,14 +9107,14 @@ fn sense(
         // door against 0.77-0.79 a row deeper, and 30-45% of its decisions a
         // step against 75-86% (`examples/digbox`, 40 ants, seed 1,
         // 2026-09-29).
-        inputs[I::HomeAligned as usize] = if crop_fill > 0.0 || is_store_load(world, state.spoil) || store_return_target(world, state).is_some() || spoil_haul_pace(world, def, state) || ready_to_lay(world, def, state) {
+        inputs[I::HomeAligned as usize] = if crop_fill > 0.0 || is_store_load(world, state.spoil) || store_return_target(world, state).is_some() || spoil_haul_pace(world, def, state) || ready_to_lay(world, def, state) || fetch_target(world, def, state, (x, y)).is_some() {
             // **A carrier for the nest's store reads the way it is going**
             // ([`NestStore`]'s `carry`), not its forage anchor: read against
             // the anchor, which the nest re-sets to where it stands, the
             // carrier at the door read 0 and stood (seed 1, 20-60k: 64-70%
             // of its decisions at the door a lost move roll, median P(move)
             // 0.11), the failure the paragraph above records for pellets.
-            let (ax, ay) = pull_pace_target(world, organism, state, (x, y))
+            let (ax, ay) = pull_pace_target(world, organism, def, state, (x, y))
                 .or_else(|| spoil_pace_target(world, def, state, (x, y)))
                 .unwrap_or_else(|| home_target(world, state));
             let (vx, vy) = ((ax - x) as f32, (ay - y) as f32);
@@ -12401,6 +12403,8 @@ pub struct NestWay {
     pub store: Vec<u16>,
     /// The store's food cells ([`fill_nest_store`]).
     pub store_cells: Vec<(i32, i32)>,
+    /// Loose food on the doorstep ([`store_doorstep`]), for `fetch`.
+    pub door_food: Vec<(i32, i32)>,
 }
 
 impl NestWay {
@@ -12481,7 +12485,7 @@ fn build_nest_way(world: &World, site: usize) -> Option<NestWay> {
             q.push_back((nx, ny));
         }
     }
-    let mut way = NestWay { site, door, x0, y0, w, h, dist, store: Vec::new(), store_cells: Vec::new() };
+    let mut way = NestWay { site, door, x0, y0, w, h, dist, store: Vec::new(), store_cells: Vec::new(), door_food: Vec::new() };
     let ns = nest_store_of(world);
     if ns.on() {
         fill_nest_store(world, &mut way, ns.depth);
@@ -12820,6 +12824,19 @@ pub struct NestStore {
     /// `pick=<cols>`: the doorstep reach of the carry's pick-up
     /// ([`store_doorstep`]); 0, the default, is the dug nest alone.
     pub pick: i32,
+    /// `jaws`: **a nest worker with food in its crop still carries in its
+    /// jaws.** The carry's pick-up refused any ant with a crop, and 40-46%
+    /// of fed nest workers' won rolls beside door food were refused for it
+    /// (seeds 1 and 4, 0-60k, `pick=20`). Workers carry in the mandibles
+    /// whatever their crop holds.
+    pub jaws: bool,
+    /// `fetch`: **an idle fed nest worker at home is pulled to food on the
+    /// doorstep** ([`fetch_target`]), the nearest loose cell within the
+    /// pick-up's reach, so the carry has carriers where the food is. Only
+    /// about 2,300 times in 60k frames was a fed nest worker beside door food
+    /// at all. Implies the doorstep pick-up ([`STORE_FETCH_REACH`] when
+    /// `pick` is 0).
+    pub fetch: bool,
 }
 
 /// How deep the store is by default ([`NestStore`]'s `depth`), in steps of
@@ -12842,8 +12859,8 @@ pub const STORE_DOOR_REACH: i32 = 8;
 pub const STORE_ROOMY: u32 = 12;
 
 impl NestStore {
-    pub const OFF: NestStore = NestStore { carry: false, eat: false, keep: false, home: false, larder: false, depth: STORE_DEPTH, pick: 0 };
-    pub const ON: NestStore = NestStore { carry: true, eat: true, keep: true, home: true, larder: true, depth: STORE_DEPTH, pick: 0 };
+    pub const OFF: NestStore = NestStore { carry: false, eat: false, keep: false, home: false, larder: false, depth: STORE_DEPTH, pick: 0, jaws: false, fetch: false };
+    pub const ON: NestStore = NestStore { carry: true, eat: true, keep: true, home: true, larder: true, depth: STORE_DEPTH, pick: 0, jaws: false, fetch: false };
     /// What a world gets with the variable unset: off, see the type's doc.
     pub const SHIPPED: NestStore = NestStore::OFF;
 
@@ -12858,8 +12875,10 @@ impl NestStore {
         let mut ns = NestStore::OFF;
         for part in raw.split(',').map(str::trim).filter(|p| !p.is_empty()) {
             match part {
-                "on" => ns = NestStore { depth: ns.depth, pick: ns.pick, ..NestStore::ON },
-                "off" => ns = NestStore { depth: ns.depth, pick: ns.pick, ..NestStore::OFF },
+                "on" => ns = NestStore { depth: ns.depth, pick: ns.pick, jaws: ns.jaws, fetch: ns.fetch, ..NestStore::ON },
+                "off" => ns = NestStore { depth: ns.depth, pick: ns.pick, jaws: ns.jaws, fetch: ns.fetch, ..NestStore::OFF },
+                "jaws" => ns.jaws = true,
+                "fetch" => ns.fetch = true,
                 "carry" => ns.carry = true,
                 "eat" => ns.eat = true,
                 "keep" => ns.keep = true,
@@ -12868,7 +12887,7 @@ impl NestStore {
                 other => match (other.strip_prefix("depth=").and_then(|n| n.parse().ok()), other.strip_prefix("pick=").and_then(|n| n.parse().ok())) {
                     (Some(n), _) => ns.depth = n,
                     (_, Some(n)) => ns.pick = n,
-                    _ => panic!("PIXEL_PHYSICS_NEST_STORE={raw:?}: {other:?} is not on, off, carry, eat, keep, home, larder, depth=<steps> or pick=<cols>"),
+                    _ => panic!("PIXEL_PHYSICS_NEST_STORE={raw:?}: {other:?} is not on, off, carry, eat, keep, home, larder, jaws, fetch, depth=<steps> or pick=<cols>"),
                 },
             }
         }
@@ -12912,9 +12931,27 @@ const STORE_PICK_ROWS: i32 = 30;
 
 /// Whether `(x, y)` is on a nest's doorstep for the store's carry.
 fn store_doorstep(world: &World, (x, y): (i32, i32)) -> bool {
-    let ns = nest_store_of(world);
-    ns.carry && ns.pick > 0 && world.nest_sites.iter().any(|n| (x - n.x).abs() <= ns.pick && y <= n.surface && y >= n.surface - STORE_PICK_ROWS)
+    let reach = store_pick_reach(world);
+    reach > 0 && world.nest_sites.iter().any(|n| (x - n.x).abs() <= reach && y <= n.surface && y >= n.surface - STORE_PICK_ROWS)
 }
+
+/// The doorstep's reach in columns ([`NestStore`]'s `pick`, or
+/// [`STORE_FETCH_REACH`] under `fetch`); 0 with the carry off.
+fn store_pick_reach(world: &World) -> i32 {
+    let ns = nest_store_of(world);
+    if !ns.carry {
+        0
+    } else if ns.pick > 0 {
+        ns.pick
+    } else if ns.fetch {
+        STORE_FETCH_REACH
+    } else {
+        0
+    }
+}
+
+/// The doorstep's reach under `fetch` with no `pick` set: the probe's 20.
+const STORE_FETCH_REACH: i32 = 20;
 
 /// **Fill a nest's store** ([`NestStore`]): the loose food cells beside a
 /// way cell at least `depth` steps in (`store_cells`), and the breadth-first
@@ -12924,6 +12961,18 @@ fn store_doorstep(world: &World, (x, y): (i32, i32)) -> bool {
 fn fill_nest_store(world: &World, way: &mut NestWay, depth: u16) {
     way.store.clear();
     way.store_cells.clear();
+    way.door_food.clear();
+    if nest_store_of(world).fetch {
+        let n = world.nest_sites[way.site];
+        let reach = store_pick_reach(world);
+        for y in n.surface - STORE_PICK_ROWS..=n.surface {
+            for x in n.x - reach..=n.x + reach {
+                if world.in_bounds(x, y) && loose_food(world, world.get(x, y)) {
+                    way.door_food.push((x, y));
+                }
+            }
+        }
+    }
     let mut seeds = Vec::new();
     for ly in 0..way.h {
         for lx in 0..way.w {
@@ -13062,6 +13111,31 @@ enum StorePull {
     Carry,
     Eat,
     Home,
+    Fetch,
+}
+
+/// **Where `fetch` sends an idle fed nest worker** ([`NestStore`]): the
+/// nearest loose food on its nest's doorstep at the last rebuild, while the
+/// worker is at home or on the doorstep, holds nothing in its jaws, has no
+/// face to go back to and no egg to lay, and -- without `jaws` -- nothing in
+/// its crop. The doorstep's food stands in for the smell of food at the
+/// door; a worker that is not at home is not called.
+fn fetch_target(world: &World, def: &CreatureDef, state: &crate::sim::organism::OrganismState, head: (i32, i32)) -> Option<(i32, i32)> {
+    let ns = nest_store_of(world);
+    if !(ns.fetch && ns.carry) || state.spoil.is_some() || state.energy < def.start_energy || !is_nest_bound(world, state) {
+        return None;
+    }
+    if !ns.jaws && state.crop.is_some_and(|c| c.cells > 0) {
+        return None;
+    }
+    let way = nest_way_near(world, head.0, head.1)?;
+    if way.at(head.0, head.1).is_none() && !store_doorstep(world, head) {
+        return None;
+    }
+    if dig_return_target(world, def, state).is_some() || ready_to_lay(world, def, state) {
+        return None;
+    }
+    way.door_food.iter().copied().min_by_key(|&(fx, fy)| (fx - head.0).abs().max((fy - head.1).abs()))
 }
 
 /// **Where [`NestStore`] pulls this animal, and how hard**, asked first in
@@ -13079,6 +13153,9 @@ fn nest_store_pull(world: &World, organism: OrganismId, def: &CreatureDef, head:
             return None;
         }
         return store_inward(world, organism, head, i32::MAX, true).map(|t| (t, def.home_bias, StorePull::Carry));
+    }
+    if let Some(t) = fetch_target(world, def, state, head) {
+        return Some((t, def.home_bias, StorePull::Fetch));
     }
     if state.crop.is_some_and(|c| c.worth() > 0.0) {
         return None;
@@ -13128,9 +13205,14 @@ fn store_carry_arrived(world: &World, organism: OrganismId, head: (i32, i32)) ->
 /// [`nurse_pace_target`]'s, the hook Laying's nurse gate fills. `None` for
 /// everyone else, and on arrival, and the caller falls back to
 /// [`spoil_pace_target`] and then `home_target` as before.
-fn pull_pace_target(world: &World, organism: OrganismId, state: &crate::sim::organism::OrganismState, head: (i32, i32)) -> Option<(i32, i32)> {
+fn pull_pace_target(world: &World, organism: OrganismId, def: &CreatureDef, state: &crate::sim::organism::OrganismState, head: (i32, i32)) -> Option<(i32, i32)> {
     if nest_store_of(world).carry && state.spoil.is_some_and(|s| s.store) {
         return store_inward(world, organism, head, i32::MAX, true);
+    }
+    // A worker fetching door food ([`fetch_target`]) walks to it at the
+    // laden pace, or it is an idle fed ant that steps one decision in five.
+    if let Some(t) = fetch_target(world, def, state, head) {
+        return Some(t);
     }
     nurse_pace_target(world, organism, state, head)
 }
@@ -16545,6 +16627,23 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
             // (`haul_bite_from_env`). After the roll, so the draw is taken
             // whatever the switch and the stream is unchanged.
             let won = draw.unit_f32() < feed_urge;
+            // SCRATCH store pick-up funnel (lane 20, not to ship).
+            if nest_store_of(world).carry && world.get(fxx, fyy).organism_id() == 0 && !is_store_cell(world, (fxx, fyy)) {
+                if let Some((bound, energy, holding)) = world.organism(organism).map(|st| (is_nest_bound(world, st), st.energy, st.spoil.is_some())) {
+                    if bound && (nest_within_reach(world, organism, x, y, def) || store_doorstep(world, (x, y))) {
+                        let fed = energy >= def.start_energy;
+                        let i = if fed { 0 } else { 3 };
+                        world.creature_stats.store_funnel[i] += 1;
+                        world.creature_stats.store_funnel[i + 1] += u64::from(won);
+                        world.creature_stats.store_funnel[i + 2] += (feed_urge * 1000.0) as u64;
+                        if fed && won {
+                            let b = world.get(fxx, fyy);
+                            let g = if crop.is_some_and(|c| c.cells > 0) { 0 } else if holding { 1 } else if food_value(world, b) <= 0.0 || world.materials.get(b.material).worth_in_aux { 2 } else if haul_bite_blocks(world, organism, def) { 3 } else { 4 };
+                            world.creature_stats.store_gate[g] += 1;
+                        }
+                    }
+                }
+            }
             let blocked = won && haul_bite_blocks(world, organism, def);
             if blocked {
                 world.creature_stats.haul_bites_refused += 1;
@@ -21783,6 +21882,7 @@ fn chooser_step(
         Some(StorePull::Carry) => world.creature_stats.nest_store_carry_pulls += 1,
         Some(StorePull::Eat) => world.creature_stats.nest_store_eat_pulls += 1,
         Some(StorePull::Home) => world.creature_stats.nest_store_home_pulls += 1,
+        Some(StorePull::Fetch) => world.creature_stats.nest_store_fetch_pulls += 1,
         None => {}
     }
     // The soil's way out fired ([`soil_way_of`]): the "it fired" half; the
