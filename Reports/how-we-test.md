@@ -113,6 +113,10 @@ frame cost) are in `.claude/rules/measuring-the-world.md`; method traps
 |---|---|
 | Why does every ant do what it does? | `deeptrace` + its readers (§3) |
 | Does a switch hit its own target? | `deeptrace walk=1 census=1` + `scripts/deeptrace_plan.py` |
+| Is my arm's off run the shipped game, and how does the arm compare with the baseline? | `scripts/deeptrace_tools/identity.py` first, then `scripts/deeptrace_tools/scorecard.py` (one column per run). Read its deeper-than-10-rows line, not the headline alone: most of the time in the dug nest is the knot at the door |
+| Who starved where, and were they shut in? | `scripts/deeptrace_tools/starvewhere.py`, `spells.py` and `doorseal.py`, on runs made with `hungry=1 mapevery=1000` |
+| Where did the digging go, and how many chambers? | `scripts/deeptrace_tools/digwhere.py` and `chambers.py` (the owner's chamber rule) |
+| Did a dropped pellet have a choice of cell? | `deeptrace drops=1` + `scripts/deeptrace_tools/dropchoice.py` |
 | Digging in a simple box | `digbox` |
 | The nest door and its pictures | `nestdoor` (`shots=` renders with the game's renderer) |
 | Foraging and trails | `labforage`, `trailprofile`, `trailfollow` |
