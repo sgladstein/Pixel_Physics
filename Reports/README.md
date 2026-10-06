@@ -4194,7 +4194,8 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   the surface (69.5 -> 8 ants at 200) and digs half again more, but jams
   the shaft (pellets put inside 12 -> 117.5) and starves the colony bed
   (births 22 -> 5 a seed: fed founders stop scouting); nest workers alone
-  spare the bed (22 -> 18) and change little. **§21** (2026-10-01): the
+  spare the bed (22 -> 18) and change little (`workers` ships on since
+  2026-10-05, measured on the goal and played lab boxes). **§21** (2026-10-01): the
   food box (`digbox food=400 gap=90 hungry`, `BUD_SITE=nest`), a colony
   that feeds itself: its nest follows the colony (52-86 cells at 24,000
   frames, 1,800-2,200 by 240,000), the door is not where carriers stand,
