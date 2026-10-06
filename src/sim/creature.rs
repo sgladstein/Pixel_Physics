@@ -14713,6 +14713,46 @@ pub fn door_loose_of(world: &World) -> bool {
     })
 }
 
+/// **No soil set down over the door** (`PIXEL_PHYSICS_DOOR_COLUMN=on|off`,
+/// **built off; a stopgap**, the owner's test of 2026-10-06: "could we just
+/// not allow ... any soil placed in a column above the entrance tunnel?").
+/// A pellet is never set down in a founding shaft's columns, one either
+/// side, at or above its mouth's row ([`in_door_column`]): not by the
+/// ordinary drop ([`spoil_site_open`], which the lift up the column and the
+/// lift out also read), a lean ant's drop or a need's drop
+/// ([`drop_footing`]), nor a dead carrier's ([`creature_dies`]' rings).
+/// Soil that slides there from beside is not stopped. **It is a fixed
+/// column, not something an ant senses**, so it measures what a clear way
+/// up would do; it is not a rule to ship as it stands.
+///
+/// **Tried before on an older game** (`Reports/dead-ends.md`,
+/// `DOOR_CLEAR=drop`, 2026-10-04: two columns either side at any height;
+/// "it moved the heap without opening the door ... the plug is soil tamped
+/// into the mouth, not pellets landing in it"). Re-tested at the owner's
+/// ask on the game since then (the doorway left unpacked, lean ants digging
+/// out of the mound, hunger-first and the trip home).
+pub fn door_column_of(world: &World) -> bool {
+    world.door_column.unwrap_or_else(|| {
+        static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        *V.get_or_init(|| match std::env::var("PIXEL_PHYSICS_DOOR_COLUMN").as_deref() {
+            Ok("on") => true,
+            Ok("off") | Err(_) => false,
+            Ok(other) => panic!("PIXEL_PHYSICS_DOOR_COLUMN={other:?}: use on or off"),
+        })
+    })
+}
+
+/// Is `(x, y)` kept clear of pellets by [`door_column_of`]: within one column
+/// of a founding shaft, at or above its mouth's row. False with the switch off.
+fn in_door_column(world: &World, (x, y): (i32, i32)) -> bool {
+    door_column_of(world)
+        && world
+            .nest_sites
+            .iter()
+            .filter_map(|s| s.shaft)
+            .any(|c| (c.x0 - 1..=c.x1 + 1).contains(&x) && y <= c.top)
+}
+
 /// Is `(x, y)` in a nest's doorway: a founding shaft's own columns, from 8
 /// rows over its mouth row down to the mouth's last row ([`door_loose_of`]).
 fn in_a_passage(world: &World, (x, y): (i32, i32)) -> bool {
@@ -15007,6 +15047,11 @@ fn collar_tamp(world: &mut World, x: i32, y: i32) -> u64 {
 /// [`spoil_footing_drop`]: whether "a footing" means ground, as the footing
 /// rule reads it, or merely a filled cell.
 fn spoil_site_open(world: &World, px: i32, py: i32, footed: bool) -> bool {
+    spoil_site_fits(world, px, py, footed) && !in_door_column(world, (px, py))
+}
+
+/// [`spoil_site_open`] without [`door_column_of`]'s column.
+fn spoil_site_fits(world: &World, px: i32, py: i32, footed: bool) -> bool {
     world.is_empty(px, py)
         // **A footing, not a point.** One cell beneath is enough to stop a
         // pellet hanging in the air and not enough to stop it being balanced
@@ -17781,6 +17826,13 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
             // be set on its carrier's own back, and the footing rule (§Z18)
             // then turns it to loose soil within a few frames.
             let footed = spoil_footing_drop();
+            // [`door_column_of`]'s it-fired count: a cell beside the carrier
+            // that would have taken the pellet but for the door's column.
+            let column_refused = door_column_of(world)
+                && NEIGHBOURS_8.iter().any(|&(dx, dy)| {
+                    in_door_column(world, (x + dx, y + dy)) && spoil_site_fits(world, x + dx, y + dy, footed)
+                });
+            world.creature_stats.column_refused += u64::from(column_refused);
             let open = |px: i32, py: i32| spoil_site_open(world, px, py, footed);
             // **...and if there is no such cell beside it, up the shaft.**
             // An animal at the face has nowhere to lie a pellet down -- every
@@ -21566,7 +21618,9 @@ fn lean_drop_site(world: &World, (x, y): (i32, i32)) -> Option<(i32, i32)> {
 /// [`lean_drop_site`]'s test of one cell: empty, with two of the three cells
 /// under it filled.
 fn drop_footing(world: &World, (px, py): (i32, i32)) -> bool {
-    world.get(px, py).material == material::EMPTY && [(-1, 1), (0, 1), (1, 1)].iter().filter(|(dx, dy)| world.get(px + dx, py + dy).material != material::EMPTY).count() >= 2
+    world.get(px, py).material == material::EMPTY
+        && [(-1, 1), (0, 1), (1, 1)].iter().filter(|(dx, dy)| world.get(px + dx, py + dy).material != material::EMPTY).count() >= 2
+        && !in_door_column(world, (px, py))
 }
 
 /// The nest site whose throttle zone holds `(hx, hy)`: within `reach`
@@ -27515,7 +27569,7 @@ fn creature_dies(world: &mut World, organism: OrganismId, cause: organism::Death
             .copied()
             .chain(rings)
             .map(|(dx, dy)| (cx + dx, cy + dy))
-            .find(|&(px, py)| world.is_empty(px, py));
+            .find(|&(px, py)| world.is_empty(px, py) && !in_door_column(world, (px, py)));
         match site {
             Some((px, py)) => {
                 world.set(px, py, spoil.cell);
@@ -29347,6 +29401,41 @@ mod tests {
             let (lined, n) = open_after(true, parallel);
             assert!(lined * 10 >= n * 9, "a lined founding cut must stand (parallel={parallel}): only {lined} of {n} cells are open after 120 frames");
         }
+    }
+
+    /// **No pellet is set down over the door** under [`door_column_of`]: a
+    /// cell over the shaft's mouth and one a column beside it are refused by
+    /// the ordinary drop ([`spoil_site_open`]) and the lean or need drop
+    /// ([`drop_footing`]), while one three columns out and the same cells with
+    /// the switch off are not. The off arm is the positive control: every
+    /// cell here is a site a pellet could go down on.
+    #[test]
+    fn under_door_column_no_pellet_is_set_down_over_the_door() {
+        let arm = |on: bool| {
+            let mut w = founding_bed();
+            assert!(
+                w.cut_founding_shaft_with((60, 38), 6, 2, true, None, None) > 0,
+                "the cut removed nothing"
+            );
+            let c = w.nest_sites[0].shaft.expect("the cut records its footprint");
+            let soil = w.materials.id_of("soil").expect("soil material");
+            for x in c.x0..=c.x0 + 1 {
+                w.set(x, c.top, Cell::new(soil, 0));
+            }
+            w.door_column = Some(on);
+            let cells = [(c.x0, c.top - 1), (c.x1 + 1, c.top - 1), (c.x1 + 3, c.top - 1)];
+            cells.map(|(x, y)| (spoil_site_open(&w, x, y, true), drop_footing(&w, (x, y))))
+        };
+        assert_eq!(
+            arm(false),
+            [(true, true); 3],
+            "off: all three cells take a pellet (the scene's positive control)"
+        );
+        assert_eq!(
+            arm(true),
+            [(false, false), (false, false), (true, true)],
+            "on: over the door and beside it refused, three columns out not"
+        );
     }
 
     /// The founding-shaft tests' bed: soil from row 40 over a stone floor,
