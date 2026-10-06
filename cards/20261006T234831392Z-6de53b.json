@@ -1,0 +1,82 @@
+{
+  "id": "20261006T234831392Z-6de53b",
+  "created": "2026-10-06T23:48:31Z",
+  "board": "plants",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/gifted-darwin-n4h041",
+    "commit": "f2086465",
+    "agent": null,
+    "session_id": "6f42e8fc-01de-5857-8ab5-583894e8f71e",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Dead plants list: each row is now a plant that lived, with what killed it",
+  "question": "Does this list now read as a record of what killed each plant?",
+  "context_md": "**What changed (step 1 of tracing plants one at a time).** The game booked 93-97% of all plant deaths as FELLED, nearly all of them seeds rotting before they ever grew, and the list of dead plants showed them. Now:\n\n- a seed that never grew is **counted but not listed** (your call), unless you culled it or it was the last of its line;\n- a cause, once decided, is final, so the culled plant on the left stops being rewritten to LOST ITS TISSUE while it rots;\n- six new causes name what took a plant's last cell: ROTTED, SHADED, DRIED UP, WITHERED, EATEN, OVERRUN (another plant's root grew into a seed). They are kept to 8 letters so they fit this column; none happens to be on these two screens.\n\n**What is left on the list is real.** The 39 FELLED rows on the right are grass seedlings the support check cut loose (bug B2), which the old label had buried under 180 rotted seeds. Whole-run census, 100k frames, 4 seeds, garden alone: 1,161-1,751 plants felled a run.\n\n**Ignore:** the CELL panel overlapping the right edge in the short shots is the screenshot script's own state, and LOST ITS TISSUE clipping to 'LOST ITS' is old (main does it too). Say if you want a shorter word for it.\n\nThe world itself is unchanged: with the colony on, 30,000 frames of every plant, bite and ant are byte-identical to main.",
+  "kind": "gallery",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "main, 900 frames in",
+      "files": [
+        "20261006T234831392Z-6de53b/000-a_main_900.png"
+      ],
+      "caption": "four rotted seeds shown as FELLED; the culled plant rewritten to LOST ITS TISSUE",
+      "meta": {
+        "rows on the list": 5,
+        "seeds that never grew, shown as FELLED": 4,
+        "the plant you culled shows as": "LOST ITS TISSUE"
+      },
+      "focus": null
+    },
+    {
+      "label": "this branch, 900 frames in",
+      "files": [
+        "20261006T234831392Z-6de53b/001-b_branch_900.png"
+      ],
+      "caption": "only the plant that lived",
+      "meta": {
+        "rows on the list": 1,
+        "seeds that never grew, shown": 0,
+        "the plant you culled shows as": "CULLED"
+      },
+      "focus": null
+    },
+    {
+      "label": "main, 38,400 frames in",
+      "files": [
+        "20261006T234831392Z-6de53b/002-c_main_38400.png"
+      ],
+      "caption": "271 rows, mostly seeds",
+      "meta": {
+        "rows on the list": 271,
+        "FELLED": 219,
+        "LOST ITS TISSUE": 38,
+        "STARVED": 14
+      },
+      "focus": null
+    },
+    {
+      "label": "this branch, 38,400 frames in",
+      "files": [
+        "20261006T234831392Z-6de53b/003-d_branch_38400.png"
+      ],
+      "caption": "79 rows, every one a plant that grew",
+      "meta": {
+        "rows on the list": 79,
+        "FELLED": 39,
+        "LOST ITS TISSUE": 38,
+        "STARVED": 2
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
