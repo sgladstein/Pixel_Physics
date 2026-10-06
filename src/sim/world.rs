@@ -2206,6 +2206,16 @@ pub struct CreatureStats {
     /// even part of the scent held nothing. The "it fired" half; the effect
     /// half is how many carries lose the pull home (`deeptrace laden=1`).
     pub carry_turns: u64,
+    /// Decisions a hungry empty ant under cover at or above its nest's
+    /// founding ground walked out through the mound's passages towards the
+    /// open air (`PIXEL_PHYSICS_MOUND_OUT`'s `way`, `creature::MoundOut`).
+    /// The "it fired" half; the effect half is where the colony's starved
+    /// die. 0 unless the switch is on.
+    pub mound_out_pulls: u64,
+    /// Dig rolls a lean ant shut in a pocket of the mound kept
+    /// (`PIXEL_PHYSICS_MOUND_OUT`'s `dig`): each one a roll `LeanForage`'s
+    /// `nodig` would have taken. 0 unless the switch is on.
+    pub mound_digs_let: u64,
     /// **Carry distances drawn** under `PIXEL_PHYSICS_SPOIL_RING`
     /// (`creature::spoil_ring`): when its carrier comes out by the door with
     /// it (`creature::carry_stage`), and again for a carrier that went back
@@ -4152,12 +4162,21 @@ pub struct World {
     /// (`creature::nurse_stay_of`). `None` follows the environment; a field so
     /// a guard can take both arms in one process.
     pub nurse_stay: Option<crate::sim::creature::NurseStay>,
+    /// **`PIXEL_PHYSICS_MOUND_OUT` for this world** (`creature::mound_out_of`).
+    /// `None` follows the environment; a field so a guard can take both arms
+    /// in one process.
+    pub mound_out: Option<crate::sim::creature::MoundOut>,
     /// **Each nest's way in**, as steps from its door through the cells
     /// inside it an ant can stand in (`creature::NestWay`), rebuilt every
     /// `creature::REST_REFRESH` frames by `creature::step_nest_rest` while
     /// resting or the way out is on, and empty otherwise. Read only by the
     /// rest pull and the way out.
     pub nest_ways: Vec<crate::sim::creature::NestWay>,
+    /// **Each nest's way out of its mound**, as steps from the open air
+    /// through the covered cells at or above its founding ground
+    /// (`creature::build_mound_way`), rebuilt beside `nest_ways` while
+    /// `PIXEL_PHYSICS_MOUND_OUT` is on, and empty otherwise.
+    pub mound_ways: Vec<crate::sim::creature::NestWay>,
     /// **`PIXEL_PHYSICS_BUD_STORE` for this world** (`creature::bud_from_store`).
     /// `None` follows the environment, which is off unless set.
     pub bud_store: Option<bool>,
@@ -6747,7 +6766,9 @@ impl World {
             face_trip: None,
             crop_down: None,
             nurse_stay: None,
+            mound_out: None,
             nest_ways: Vec::new(),
+            mound_ways: Vec::new(),
             bud_store: None,
             births_paused: false,
             dig_widen: None,
