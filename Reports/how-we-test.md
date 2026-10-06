@@ -11,7 +11,8 @@ does, and `.claude/rules/measuring-the-world.md` on world-wide metric traps.*
 **The short version.** Freeze mutation, land the evolved founder in the dry
 goal box, run four seeds side by side, read 100k–300k means. Judge a fix by
 the number it was built to move, look at a picture, then trace what it cost
-ant by ant. Colony size is never the verdict on its own.
+ant by ant. Colony size is never the verdict on its own. Deep-trace every
+test until the result is understood, and propose no new fix before then.
 
 ## 1. The standard setup
 
@@ -31,6 +32,16 @@ once with mutation **on** (2 seeds to 150k is the usual check) — a fix that
 only holds in a frozen colony is not finished.
 
 ## 2. Judging a fix
+
+**Trace every test until the problem is understood, before the next fix**
+(owner, 2026-10-06): *"You run your test and you deep trace it to understand
+the problem in full. If you don't fully understand what's going on, stop
+suggesting new fixes and implementing and testing them."* So every test run
+is followed by a deep trace (§3) of what happened in it. Until that trace
+explains the result — what each ant did and why, traced rather than inferred
+— the next step is more tracing, not a new switch, a new arm or a re-tune.
+A result you cannot explain is reported as unexplained, with what the trace
+has ruled out so far.
 
 Owner rulings, 2026-10-05:
 
