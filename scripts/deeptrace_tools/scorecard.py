@@ -16,7 +16,10 @@ Rows:
   inside the door): four bands that add up to the headline, as shares of all ant-time -- the door knot (within 4
   columns of the door and 10 rows of the old ground line), the rest of the top 10 rows, the door column deeper than 10
   rows, and deeper than 10 rows off the door column; then DEEPER THAN 10 ROWS on its own line (share of ant-time, mean
-  ants there), the number to score stay-in work on.
+  ants there), the number to score stay-in work on; then ANTS DEEP (added 2026-10-06 18:40 for the owner's reporting rule:
+  give deep time as ants, "about N of M ants", next to the baseline, door column and off it, and say plainly when it is
+  still near zero): the mean ants deeper than 10 rows of the mean live ants (both per census sample), then the same
+  ants split door column / off it.
 - digs over the window (the engine's `digs`) and pellets dumped (`spoil_dumped`).
 - chambers at 100/200/300k by the owner's rule (`chambers.py` in this folder, `examples/digbox.rs`'s `chambers_of`
   ported): count, each chamber tall x wide, how many are spec-shaped (8-16 tall, wider than tall), the passage bore and
@@ -142,6 +145,7 @@ def nest_bands(run, a, b):
         else:
             band["shaft" if door else "deep"] += 1
     shares = {k: band[k] / max(1, n) for k in ("knot", "top", "shaft", "deep")}
+    shares["ants"] = n / max(1, len(frames))  # mean live ants per census sample, for ANTS DEEP's "of M"
     return shares, (band["shaft"] + band["deep"]) / max(1, len(frames))
 
 
@@ -191,6 +195,8 @@ def card(run, a, b):
     c["  nest workers / other ants"] = f"{100 * nw:.0f}% / {100 * rest:.0f}%"
     c["  ants sampled 10+ times: never / under half / half+"] = " / ".join(f"{100 * x:.0f}%" for x in spread) + f" of {n_ants}"
     c["DEEPER THAN 10 ROWS: ant-time (mean ants there)"] = f"{100 * (bands['shaft'] + bands['deep']):.2f}% ({deep_ants:.1f})"
+    m = bands["ants"]
+    c["ANTS DEEP: mean ants deeper than 10 rows, of all (door column / off it)"] = f"{deep_ants:.1f} of {m:.0f} ({bands['shaft'] * m:.1f} / {bands['deep'] * m:.1f})"
     c["frames recorded"] = f"{end // 1000}k"
     c["ants at 100k / 200k / 300k"] = " / ".join(f"{at(st, m, 'ants'):.0f}" if m <= end else "-" for m in MARKS)
     span = [f for f in st if a <= f <= b]
