@@ -13689,7 +13689,17 @@ fn carriers_seek_larvae(world: &World) -> bool {
 ///   worker for [`NURSE_STAY_FRAMES`] (or N) more frames.
 /// - `pace` (2026-10-06): a nurse reads its `HomeAligned` bearing to the
 ///   larvae ([`nurse_pace_target`]), not to its forage anchor, which inside
-///   the nest is where it stands.
+///   the nest is where it stands. It does that: nurses carrying food inside
+///   idle on 21-38% of their decisions against 73-80% (seeds 1-4, 30-150k).
+///   **And it makes the switch lethal**: with `NEST_STORE=on` and
+///   `NEST_REST=off`, `on` killed 4 of 4 colonies by 300k, where the same
+///   parts without `pace` killed none (lowest 33 ants), and
+///   `nurse,stay,pace` (filled at the store, no hand-off) killed one of
+///   four. Traced on seed 1 (Laying, 2026-10-06): the larvae get more of the
+///   nurses' crop food (534 kJ against 426 kJ over 30-100k; 5 kJ with nurses
+///   off), not more hand-offs, so less is left to share with hungry adults,
+///   who then die in the pellet and false-road traps
+///   (`/mnt/project-files/laying/nurse-stay/pace-cost-trace-2026-10-06.md`).
 ///
 /// **Why.** Food never reaches brood off the lane under the door: 94-98% of
 /// the nest's fed ants stand in it, and the fed ants are mound visitors that
