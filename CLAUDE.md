@@ -142,7 +142,9 @@ something that cost effort to find.
 ## Commands
 
 ```
-cargo test                                       # unit + integration -- the ONLY one that reaches tests/*.rs, where the preset and worldgen guards live; `--lib` cannot see them
+cargo test --release --lib sim::creature       # BEFORE A PUSH: only the touched module's tests (name your module). CI runs the full suite on every push; do not run it locally
+cargo test --release --test <name>             # ...plus the tests/*.rs file that iterates a registry you added to (presets, species, materials) -- `--lib` cannot see tests/*.rs
+cargo test                                       # the full suite, unit + integration: CI's job, not a pre-push step. Run it locally only to reproduce a CI failure
 cargo clippy --all-targets --release --locked -- -D warnings   # exactly what CI runs. `rust-toolchain.toml` pins 1.98 so this needs no `+1.98.0`
 cargo run --release --example ascii              # headless behaviour + worst-frame timing; CI runs it
 cargo run --release --example filmstrip -- scene=fall zoom=2 crop=0,140,256,110
