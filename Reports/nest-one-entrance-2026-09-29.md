@@ -1241,7 +1241,9 @@ off -> `workers`; `on` alike):
 At 200 ants more nest workers stand on the mound: a resting worker outside
 the nest is pulled to the door, and the door is where the shaft jams.
 
-**So, as of this section, resting stays off.** The form that gives the
+**So, as of this section, resting stays off.** *(Superseded for `workers`
+2026-10-05: it ships on, measured on the dry goal box and the played lab
+box -- `creature::NestRest`'s doc. The colony bed cost below still holds.)* The form that gives the
 picture asked for (`all`) takes the colony's scouts off the surface, which
 in a box with no food is all of its idle ants and on the bed is how it
 finds food; the forms that spare the scouts change little. Every form meets
