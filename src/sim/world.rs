@@ -2267,6 +2267,9 @@ pub struct CreatureStats {
     /// from home (born inside, never out), and so is not slowed. 0 unless the
     /// switch is on.
     pub depth_unknown: u64,
+    /// Of `depth_slowed`, the decisions of an ant under its grant that
+    /// `DepthSlow::lean` slowed by a share of its depth. 0 unless `lean` is on.
+    pub depth_lean_slowed: u64,
     /// Over `depth_slowed`: rows below its remembered row away from home
     /// (the depth the ant uses), rows below its nest's founding ground (the
     /// depth a map would give), and the gap between the two, each summed.

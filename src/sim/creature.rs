@@ -12783,10 +12783,21 @@ pub struct DepthSlow {
     /// Rows below the remembered row at which an idle nest worker steps half
     /// as often. 0 is off.
     pub half_rows: u16,
+    /// `lean`: **hunger fades the slowing out instead of stopping it at the
+    /// grant.** Under `workers` alone an ant under its grant is not slowed;
+    /// under `lean` it keeps a share that falls from all of it at the grant
+    /// to none at the lean line (`LeanForage`'s `line`, which is where
+    /// `NeedsFirst` calls an ant hungry), and none for an ant `NeedsFirst`
+    /// calls hungry for being shut in. Why it exists: on hunger-first (seeds
+    /// 1-4, 100-300k) 77-87% of the nest workers deeper than 10 rows at a
+    /// census were empty and between 125 and 200 J, under the 200 J grant and
+    /// over the 100 J lean line, and 1-3% were fed -- so `workers` alone
+    /// never meets the ants that are deep.
+    pub lean: bool,
 }
 
 impl DepthSlow {
-    pub const OFF: DepthSlow = DepthSlow { half_rows: 0 };
+    pub const OFF: DepthSlow = DepthSlow { half_rows: 0, lean: false };
     /// The form an unset `PIXEL_PHYSICS_DEPTH_SLOW` reads as: off.
     pub const SHIPPED: DepthSlow = DepthSlow::OFF;
 
@@ -12811,29 +12822,44 @@ pub fn depth_slow_of(world: &World) -> DepthSlow {
 
 /// `PIXEL_PHYSICS_DEPTH_SLOW`'s value: unset and `off` are off, `workers` is
 /// on at [`DEPTH_SLOW_HALF_ROWS`], `workers:<rows>` at that many rows (1 or
-/// more). Anything else is reported and read as unset.
+/// more), and `,lean` after either adds [`DepthSlow::lean`]. Anything else,
+/// or `lean` with no `workers`, is reported and read as unset.
 fn parse_depth_slow(raw: &str) -> DepthSlow {
     match raw.trim() {
-        "" => DepthSlow::SHIPPED,
-        "off" => DepthSlow::OFF,
-        "workers" => DepthSlow { half_rows: DEPTH_SLOW_HALF_ROWS },
-        other => match other.strip_prefix("workers:").and_then(|n| n.parse::<u16>().ok()).filter(|&n| n > 0) {
-            Some(half_rows) => DepthSlow { half_rows },
-            None => {
-                eprintln!("PIXEL_PHYSICS_DEPTH_SLOW={other:?}: not `off`, `workers` or `workers:<rows>`; read as unset ({:?})", DepthSlow::SHIPPED);
-                DepthSlow::SHIPPED
-            }
-        },
+        "" => return DepthSlow::SHIPPED,
+        "off" => return DepthSlow::OFF,
+        _ => {}
     }
+    let mut rule = DepthSlow::OFF;
+    for word in raw.trim().split(',').map(str::trim) {
+        match word {
+            "workers" => rule.half_rows = DEPTH_SLOW_HALF_ROWS,
+            "lean" => rule.lean = true,
+            other => match other.strip_prefix("workers:").and_then(|n| n.parse::<u16>().ok()).filter(|&n| n > 0) {
+                Some(half_rows) => rule.half_rows = half_rows,
+                None => {
+                    eprintln!("PIXEL_PHYSICS_DEPTH_SLOW={raw:?}: {other:?} is not `workers`, `workers:<rows>` or `lean`; read as unset ({:?})", DepthSlow::SHIPPED);
+                    return DepthSlow::SHIPPED;
+                }
+            },
+        }
+    }
+    if !rule.on() {
+        eprintln!("PIXEL_PHYSICS_DEPTH_SLOW={raw:?}: names no `workers`; read as unset ({:?})", DepthSlow::SHIPPED);
+        return DepthSlow::SHIPPED;
+    }
+    rule
 }
 
 /// **How much of its step chance an idle nest worker keeps `depth` rows
 /// down**: `half / (half + depth)`, 1 at the top and never 0, so a slowed
 /// ant still walks -- and `Stillness` still ends its rests -- only less
-/// often.
-pub fn depth_slow_factor(depth: i32, half_rows: u16) -> f32 {
+/// often. `depth` is in rows, scaled by what hunger leaves of the slowing
+/// under [`DepthSlow::lean`] (exactly the rows otherwise: a factor of 1.0 is
+/// exact in floating point).
+pub fn depth_slow_factor(depth: f32, half_rows: u16) -> f32 {
     let half = f32::from(half_rows.max(1));
-    half / (half + depth.max(0) as f32)
+    half / (half + depth.max(0.0))
 }
 
 /// **[`DepthSlow`] for one decision**, called just before the step roll with
@@ -12857,9 +12883,22 @@ fn depth_slowed(world: &mut World, organism: OrganismId, def: &CreatureDef, (hx,
         && st.crop.is_none_or(|c| c.worth() <= 0.0)
         && !st.hungry_home
         && !st.store_return
-        && st.dig_return.is_none()
-        && st.energy >= def.start_energy;
+        && st.dig_return.is_none();
     if !idle {
+        return p_move;
+    }
+    // **What hunger leaves of the slowing**: all of it at or above the
+    // grant; under the grant none, or under `lean` a share fading to none at
+    // the lean line, and none for an ant `NeedsFirst` calls hungry.
+    let fed = if st.energy >= def.start_energy {
+        1.0
+    } else if rule.lean && !needs_hungry(world, st, def, (hx, hy)) {
+        let line = lean_forage_of(world).line * def.start_energy;
+        ((st.energy - line) / (def.start_energy - line).max(f32::EPSILON)).clamp(0.0, 1.0)
+    } else {
+        0.0
+    };
+    if fed <= 0.0 {
         return p_move;
     }
     let Some(top) = st.last_out_row else {
@@ -12875,10 +12914,11 @@ fn depth_slowed(world: &mut World, organism: OrganismId, def: &CreatureDef, (hx,
     let ground = world.nearest_nest_site(hx, hy).map_or(0, |i| (hy - world.nest_sites[i].surface).max(0));
     let s = &mut world.creature_stats;
     s.depth_slowed += 1;
+    s.depth_lean_slowed += u64::from(fed < 1.0);
     s.depth_rows += depth as u64;
     s.depth_ground_rows += ground as u64;
     s.depth_err_rows += u64::from((depth - ground).unsigned_abs());
-    p_move * depth_slow_factor(depth, rule.half_rows)
+    p_move * depth_slow_factor(fed * depth as f32, rule.half_rows)
 }
 
 /// **A hungry ant inside its nest is drawn out the way it came in**
@@ -32140,11 +32180,15 @@ mod tests {
         assert_eq!(parse_depth_slow(""), DepthSlow::OFF, "unset is off");
         assert_eq!(DepthSlow::SHIPPED, DepthSlow::OFF);
         assert_eq!(parse_depth_slow("off"), DepthSlow::OFF);
-        assert_eq!(parse_depth_slow(" workers "), DepthSlow { half_rows: DEPTH_SLOW_HALF_ROWS });
-        assert_eq!(parse_depth_slow("workers:5"), DepthSlow { half_rows: 5 });
+        assert_eq!(parse_depth_slow(" workers "), DepthSlow { half_rows: DEPTH_SLOW_HALF_ROWS, lean: false });
+        assert_eq!(parse_depth_slow("workers:5"), DepthSlow { half_rows: 5, lean: false });
+        assert_eq!(parse_depth_slow("workers,lean"), DepthSlow { half_rows: DEPTH_SLOW_HALF_ROWS, lean: true });
+        assert_eq!(parse_depth_slow("lean, workers:5"), DepthSlow { half_rows: 5, lean: true });
         assert_eq!(parse_depth_slow("workers:0"), DepthSlow::SHIPPED);
+        assert_eq!(parse_depth_slow("lean"), DepthSlow::SHIPPED, "lean names no workers");
+        assert_eq!(parse_depth_slow("workers,x"), DepthSlow::SHIPPED);
         assert_eq!(parse_depth_slow("on"), DepthSlow::SHIPPED);
-        assert!(!DepthSlow::OFF.on() && DepthSlow { half_rows: 1 }.on());
+        assert!(!DepthSlow::OFF.on() && DepthSlow { half_rows: 1, lean: false }.on());
     }
 
     /// **An idle nest worker steps less often the deeper it remembers
@@ -32157,7 +32201,7 @@ mod tests {
     /// home the memory is written and nothing is slowed.
     #[test]
     fn an_idle_nest_worker_steps_less_often_the_deeper_it_remembers_being() {
-        let on = DepthSlow { half_rows: 10 };
+        let on = DepthSlow { half_rows: 10, lean: false };
         let run = |(x, y): (i32, i32), rule: DepthSlow, worker: bool, fed: bool, top: Option<i32>| {
             let (mut w, a) = rest_world(x, y, false);
             w.depth_slow = Some(rule);
@@ -32201,6 +32245,16 @@ mod tests {
         let (p, home, row, s) = run((90, 39), on, true, true, Some(30));
         assert!(!home, "test setup: the open surface is home");
         assert_eq!((p, row, s.depth_slowed), (0.5, Some(39), 0), "away from home the memory was not written, or the ant was slowed");
+        // **`lean`: under the grant the slowing fades rather than stops.** At
+        // 0.9 of the grant, with the lean line at half, the ant keeps four
+        // fifths of it: nine rows count as 7.2. Fed, `lean` changes nothing.
+        let lean = DepthSlow { half_rows: 10, lean: true };
+        let (p, _, _, s) = run(room, lean, true, false, Some(38));
+        let line = lean_forage_of(&rest_world(63, 47, false).0).line;
+        let share = (0.9 - line) / (1.0 - line);
+        assert!((p - 0.5 * 10.0 / (10.0 + share * 9.0)).abs() < 1e-5, "under lean, a nest worker at 0.9 of its grant kept {p}");
+        assert_eq!((s.depth_slowed, s.depth_lean_slowed), (1, 1), "the lean counters");
+        assert_eq!(run(room, lean, true, true, Some(38)).0, run(room, on, true, true, Some(38)).0, "lean changed a fed ant's slowing");
     }
 
     /// `PIXEL_PHYSICS_DIG_WIDEN`'s spellings: `on`, and off for everything
