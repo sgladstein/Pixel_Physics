@@ -12823,7 +12823,8 @@ fn step_down_way(way: &NestWay, organism: OrganismId, head: (i32, i32)) -> Optio
 
 /// **A hungry ant in the spoil mound is given a way out, and a lean one shut
 /// in it may dig** (`PIXEL_PHYSICS_MOUND_OUT=on|off|way|dig`, a comma list;
-/// off by default, built 2026-10-06; [`World::mound_out`] for one world).
+/// built 2026-10-06, `dig` alone on by default since the same day;
+/// [`World::mound_out`] for one world).
 /// The mound is the colony's own soil, heaped round the door, and its
 /// tunnels are where the colony's lean ants die. Two parts, each a word:
 ///
@@ -12890,9 +12891,14 @@ fn step_down_way(way: &NestWay, organism: OrganismId, head: (i32, i32)) -> Optio
 ///   ants at 300k 17-150 off, 273-623 with a part), though each arm parts
 ///   from its control within 8-19k frames and so is a fresh draw.
 ///
-/// **Off until it is turned on by a yes**: `dig` meets the twelve-seed bar
-/// for a default and turning it on is the game change that waits for one.
-/// What `dig` still leaves: an ant encased with its pellet, which
+/// **`dig` ships on and `way` off** (2026-10-06): `dig` meets the
+/// twelve-seed bar for a default, and `way` saves no one and costs trip
+/// food. The deep trace lane recounted the spells independently
+/// (`/mnt/project-files/deep-trace/crosscheck-mound-out-2026-10-06.md`):
+/// the same totals, and over twelve seeds `dig` lower per spell on 8, level
+/// on 2, higher on 2 (sign test p = 0.11), with 136 of the 231 fewer
+/// starved on seed 8 -- a consistent direction, not a decisive one seed by
+/// seed. What `dig` still leaves: an ant encased with its pellet, which
 /// [`lean_drop_site`] finds no cell for (the pellet went down on 425 of
 /// 19,930 lean pellet decisions by the ants that starved on the
 /// `CARRY_HOME` control), and the shaft below the founding ground.
@@ -12905,8 +12911,9 @@ pub struct MoundOut {
 impl MoundOut {
     pub const OFF: MoundOut = MoundOut { way: false, dig: false };
     pub const ON: MoundOut = MoundOut { way: true, dig: true };
-    /// Unset: off until it is scored.
-    pub const SHIPPED: MoundOut = MoundOut::OFF;
+    /// Unset: the lean dig alone (on 2026-10-06, the twelve seeds above);
+    /// the mound way stays off.
+    pub const SHIPPED: MoundOut = MoundOut { way: false, dig: true };
 
     /// Parse a `PIXEL_PHYSICS_MOUND_OUT` value: `on`, `off`, or a comma list
     /// of `way` and `dig`. Anything else panics, so a typo is not a silent
@@ -30002,14 +30009,14 @@ mod tests {
     }
 
     /// `PIXEL_PHYSICS_MOUND_OUT`'s spellings: `on` both parts, `off` none, a
-    /// list what it names; unset is [`MoundOut::SHIPPED`], off.
+    /// list what it names; unset is [`MoundOut::SHIPPED`], `dig` alone.
     #[test]
     fn mound_out_parses_its_spellings() {
         assert_eq!(MoundOut::parse("on"), MoundOut::ON);
         assert_eq!(MoundOut::parse("off"), MoundOut::OFF);
         assert_eq!(MoundOut::parse("way"), MoundOut { way: true, dig: false });
         assert_eq!(MoundOut::parse("dig, way"), MoundOut::ON);
-        assert_eq!(MoundOut::SHIPPED, MoundOut::OFF, "the switch ships on before it is scored");
+        assert_eq!(MoundOut::SHIPPED, MoundOut { way: false, dig: true }, "unset is the lean dig alone; the mound way stays off");
     }
 
     /// `PIXEL_PHYSICS_LEAN_FORAGE`'s spellings: unset and `on` are all three
@@ -30355,6 +30362,10 @@ mod tests {
             let (mut w, a) = rest_world(x, y, false);
             w.soil_way = Some(sw);
             w.hungry_out = Some(false); // the soil's own reader builds the ways
+            // ... and not the mound's (`MOUND_OUT`, `dig` on since 2026-10-06):
+            // with no reader on, no way is built, which the control below reads
+            // as the straight haul's target being off it.
+            w.mound_out = Some(MoundOut::OFF);
             step_nest_rest(&mut w);
             let def = w.species.get(w.organism(a).expect("live").species).creature.clone().expect("a creature");
             let soil = w.materials.id_of("soil").expect("soil");
