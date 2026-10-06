@@ -96,6 +96,11 @@
 //!   the carriers' homing switches' counters (`home_searches`, and
 //!   `PIXEL_PHYSICS_CARRY_HOME`'s `carry_fills` and `carry_turns`), and
 //!   `PIXEL_PHYSICS_MOUND_OUT`'s `mound_out_pulls` and `mound_digs_let`.
+//! - with `drops=1`, **every pellet put down and the choice of cell it had**
+//!   (`drops.csv`), and the mound by material at every map frame
+//!   (`mound.csv`); see `DropLog`. Added 2026-10-06 for the redesign's check
+//!   C3: how often a soil pellet drop could choose between a cell beside spoil
+//!   and one without.
 //!
 //! `founder=evolved` lands the colony with lane 2's evolved founder (the six
 //! scenario rows in `EVOLVED_FOUNDER`), before any `gut=`. It is the lab's
@@ -445,6 +450,9 @@ fn main() {
     let out: String = arg("out").unwrap_or_else(|| "deeptrace-out".to_string());
     let walk = arg::<u8>("walk").unwrap_or(0) == 1;
     let dig = arg::<u8>("dig").unwrap_or(0) == 1 || walk;
+    // `drops=1`: every pellet put down and the choice of cell it had
+    // (`drops.csv`), and the mound by material (`mound.csv`). See `DropLog`.
+    let drops = arg::<u8>("drops").unwrap_or(0) == 1;
     let nest_every: u64 = arg("nestevery").unwrap_or(2_500);
     // `garden=1`: every mouthful taken off the world (`bites.csv.gz`) and
     // every plant's tissue every `plantevery=` frames (`plants.csv.gz`), with
@@ -590,6 +598,10 @@ fn main() {
     let mut diglog = dig.then(|| DigLog::new(&out, &lab.world, &names, walk, def.start_energy));
     let mut gardenlog = garden.then(|| GardenLog::new(&out));
     let mut hunglog = hungry.then(|| HungryLog::new(&out, def.start_energy));
+    let mut droplog = drops.then(|| DropLog::new(&out, &lab.world));
+    if drops {
+        println!("  drops=1: every pellet put down -> drops.csv, the mound by material -> mound.csv");
+    }
     // **Experiment dials, harness-only.** `mutation=<rate>` overrides the
     // ant's per-slot brain mutation rate (0 freezes the founders' brain only;
     // traits and body still mutate -- the game switch above freezes all);
@@ -803,8 +815,14 @@ fn main() {
             Vec::new()
         };
 
+        if let Some(d) = droplog.as_mut() {
+            d.pre(&lab.world, g, &live);
+        }
         if f < frames {
             lab.tick_for_harness();
+        }
+        if let Some(d) = droplog.as_mut() {
+            d.after(&lab.world, f);
         }
         // After the tick: the decision rows and what changed. Taken before
         // the census books this frame's deaths, so a dying ant's last row
@@ -1112,6 +1130,9 @@ fn main() {
                 }
             }
             write_map(w, g, &format!("{out}/map_f{f:06}.txt"));
+            if let Some(d) = droplog.as_mut() {
+                d.mound(w, g, f);
+            }
             if shots {
                 let centre = (g.nest_x + 10, ground_y + 12);
                 shot(&mut lab, &out, f, centre);
@@ -1144,7 +1165,144 @@ fn main() {
     if let Some(h) = hunglog {
         h.finish(&lab.world, geo.as_ref(), frames);
     }
+    if let Some(d) = droplog {
+        d.finish();
+    }
     println!("deeptrace: done, {rows_written} focal rows");
+}
+
+/// `drops=1`: **every pellet put down, and the choice of cell it had** --
+/// the redesign's check C3 (2026-10-06): on the lab bed, how often did a
+/// soil pellet drop have a real choice between a cell beside spoil and one
+/// without? The answer decides whether a haul job gets a drop term at all.
+/// The only earlier number was the bare dig box's, about one drop in ninety
+/// (`Reports/dead-ends.md`, the Khuong drop rule), taken before the mound
+/// stopped being packed into lining.
+///
+/// Reads only: no draw, no write to the world, so a run with it is the run
+/// without it, file for file.
+///
+/// - `drops.csv`: one row per frame in which anything was put down. The
+///   world's own counters, as this frame's change: `dumped` (every pellet
+///   put down, `spoil_dumped`), `lifted` (up the column, no neighbour to
+///   choose), `lean` (`LeanForage::drop`), `kept_no_lift`, and the drop
+///   census `creature.rs` takes at the scan over the eight neighbours
+///   (`cand`, places a pellet would stay; `by_spoil`, those with spoil in
+///   reach; `discr`, scans with some of each). Then who: every ant that held
+///   a pellet before the tick and not after, as `id:x:y:zone:x_after:y_after`
+///   (head and zone before the tick, since the pellet itself can change the
+///   zone), and `died`, holders that died this frame (a dying carrier's
+///   pellet goes down beside its body, booked in `dumped`). A scan with any
+///   candidate always places beside the ant, so in a frame with one dropper
+///   and nothing lifted, lean or dead, `cand`/`by_spoil` are that one drop's.
+/// - `mound.csv`: at every map frame, the cells above the old ground line
+///   within `MOUND_REACH` of the door by material: `spoil` (a pellet as put
+///   down, which is what the drop census looks for), `soil` (which spoil
+///   slumps into, `spoil.ron`'s `slumps_into`) and `packedsoil`.
+struct DropLog {
+    csv: std::io::BufWriter<std::fs::File>,
+    mound: std::io::BufWriter<std::fs::File>,
+    /// Holders before the tick: id, head, zone.
+    holders: Vec<(OrganismId, (i32, i32), &'static str)>,
+    before: [u64; 7],
+    ids: [Option<material::MaterialId>; 3],
+}
+
+impl DropLog {
+    fn new(out: &str, w: &World) -> Self {
+        let mut csv = std::io::BufWriter::new(std::fs::File::create(format!("{out}/drops.csv")).unwrap());
+        writeln!(csv, "frame,droppers,died,dumped,lifted,lean,kept_no_lift,cand,by_spoil,discr,who").unwrap();
+        let mut mound = std::io::BufWriter::new(std::fs::File::create(format!("{out}/mound.csv")).unwrap());
+        writeln!(mound, "frame,spoil,soil,packedsoil").unwrap();
+        let ids = [w.materials.id_of("spoil"), w.materials.id_of("soil"), w.materials.id_of("packedsoil")];
+        DropLog { csv, mound, holders: Vec::new(), before: [0; 7], ids }
+    }
+
+    fn counters(w: &World) -> [u64; 7] {
+        let st = &w.creature_stats;
+        [
+            st.spoil_dumped,
+            st.spoil_lifted,
+            st.lean_dropped,
+            st.spoil_kept_no_lift,
+            st.spoil_drop_candidates,
+            st.spoil_drop_candidates_by_spoil,
+            st.spoil_drops_discriminable,
+        ]
+    }
+
+    fn pre(&mut self, w: &World, g: &Geo, live: &[OrganismId]) {
+        self.before = Self::counters(w);
+        self.holders.clear();
+        for &id in live {
+            let Some(st) = w.organism(id) else { continue };
+            if st.spoil.is_none() {
+                continue;
+            }
+            let Some(&h) = st.chain.first() else { continue };
+            self.holders.push((id, h, zone(w, g, h)));
+        }
+    }
+
+    fn after(&mut self, w: &World, f: u64) {
+        let now = Self::counters(w);
+        let d: [u64; 7] = std::array::from_fn(|i| now[i] - self.before[i]);
+        let mut who: Vec<String> = Vec::new();
+        let mut died = 0u32;
+        for &(id, h, z) in &self.holders {
+            match w.organism(id) {
+                None => died += 1,
+                Some(st) if st.spoil.is_none() => {
+                    let a = st.chain.first().copied().unwrap_or(h);
+                    who.push(format!("{id}:{}:{}:{z}:{}:{}", h.0, h.1, a.0, a.1));
+                }
+                Some(_) => {}
+            }
+        }
+        if who.is_empty() && died == 0 && d.iter().all(|&v| v == 0) {
+            return;
+        }
+        writeln!(
+            self.csv,
+            "{f},{},{died},{},{},{},{},{},{},{},{}",
+            who.len(),
+            d[0],
+            d[1],
+            d[2],
+            d[3],
+            d[4],
+            d[5],
+            d[6],
+            who.join(";")
+        )
+        .unwrap();
+    }
+
+    fn mound(&mut self, w: &World, g: &Geo, f: u64) {
+        let mut n = [0u32; 3];
+        for y in (g.ground_y - 60)..g.ground_y {
+            for x in (g.nest_x - MOUND_REACH)..=(g.nest_x + MOUND_REACH) {
+                if !w.in_bounds(x, y) {
+                    continue;
+                }
+                let c = w.get(x, y);
+                if c.organism_id() != 0 {
+                    continue;
+                }
+                for (k, id) in self.ids.iter().enumerate() {
+                    if *id == Some(c.material) {
+                        n[k] += 1;
+                    }
+                }
+            }
+        }
+        writeln!(self.mound, "{f},{},{},{}", n[0], n[1], n[2]).unwrap();
+    }
+
+    fn finish(mut self) {
+        self.csv.flush().unwrap();
+        self.mound.flush().unwrap();
+    }
 }
 
 /// The box round the nest and food as one character a cell: `.` air, `#`
