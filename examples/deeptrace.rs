@@ -458,12 +458,20 @@ fn main() {
     // plant births and deaths in `events.txt`. See `GardenLog`.
     let garden = arg::<u8>("garden").unwrap_or(0) == 1;
     let plant_every: u64 = arg("plantevery").unwrap_or(500);
+    // `needs=<mode> needsat=<frame>`: hand every ant to the needs walk
+    // (`creature::needs`) at that frame, the colony having founded and dug
+    // under today's ant. `needs=passthrough` is the control for the hooks
+    // themselves: it must leave every output byte-identical.
+    let needs: Option<creature::needs::NeedsMode> =
+        arg::<String>("needs").map(|m| creature::needs::NeedsMode::parse(&m));
+    let needs_at: u64 = arg("needsat").unwrap_or(0);
     println!(
-        "deeptrace: scenario={scenario} seed={seed} frames={frames} ants={n_ants} bornafter={born_after} colonyevery={colony_every} mapevery={map_every} food={target} shots={} dig={} garden={} hungry={} nestevery={nest_every} out={out}",
+        "deeptrace: scenario={scenario} seed={seed} frames={frames} ants={n_ants} bornafter={born_after} colonyevery={colony_every} mapevery={map_every} food={target} shots={} dig={} garden={} hungry={} nestevery={nest_every} needs={} needsat={needs_at} out={out}",
         u8::from(shots),
         u8::from(dig),
         u8::from(garden),
-        u8::from(hungry)
+        u8::from(hungry),
+        needs.map_or("off".to_string(), |m| format!("{m:?}").to_lowercase())
     );
     std::fs::create_dir_all(&out).expect("out dir");
     let mut sc = Scenario::load(&scenario).unwrap_or_else(|e| {
@@ -810,6 +818,10 @@ fn main() {
             Vec::new()
         };
 
+        if let Some(mode) = needs.filter(|_| f == needs_at) {
+            lab.world.needs = Some(Box::new(creature::needs::NeedsWalk::new(mode, lab.world.frame)));
+            writeln!(events, "{f} NEEDS mode={mode:?} world_frame={}", lab.world.frame).unwrap();
+        }
         if f < frames {
             lab.tick_for_harness();
         }

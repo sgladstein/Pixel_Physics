@@ -4234,6 +4234,12 @@ pub struct World {
     /// `None` follows the environment; a field so a guard can take both arms
     /// in one process.
     pub depth_slow: Option<crate::sim::creature::DepthSlow>,
+    /// **The needs-and-jobs walk** (`creature::needs`): `None` is today's ant.
+    /// Set by a harness at a frame and never from the environment, which is
+    /// read once per process and so cannot hand a running colony over; from
+    /// then on every ant decides by it. The walk's memory of each ant lives
+    /// in here, not on `OrganismState`.
+    pub needs: Option<Box<crate::sim::creature::needs::NeedsWalk>>,
     /// **Each nest's way in**, as steps from its door through the cells
     /// inside it an ant can stand in (`creature::NestWay`), rebuilt every
     /// `creature::REST_REFRESH` frames by `creature::step_nest_rest` while
@@ -6843,6 +6849,7 @@ impl World {
             mound_out: None,
             needs_first: None,
             depth_slow: None,
+            needs: None,
             nest_ways: Vec::new(),
             mound_ways: Vec::new(),
             out_ways: Vec::new(),

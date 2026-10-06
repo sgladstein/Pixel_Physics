@@ -71,6 +71,10 @@ use super::rng;
 use super::scheduler::{ActiveKind, ActiveSite};
 use super::world::{Account, KillDetail, World, KILL_VERB_BITE, KILL_VERB_EAT};
 
+/// **The needs-and-jobs walk**, a second way for an ant to decide, off unless a
+/// harness sets `World::needs` (`creature/needs.rs` says where it hooks in).
+pub mod needs;
+
 /// Index 0 = east, then counterclockwise on screen (y grows downward, so
 /// `(1, -1)` is up-and-right). **The one heading table** — see
 /// `OrganismState::heading`: headings are a discrete 0..8 compass index, a
@@ -7842,7 +7846,14 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
     if door_collar_of(world) {
         world.creature_stats.collar_packed += collar_tamp(world, x, y);
     }
-    let Did { dug, gnaws, shares, packed } = act(world, x, y, organism, def, &outputs, &mut draw);
+    // **The needs walk picks the verb** ([`needs::decide`], only while
+    // `World::needs` is set): `act` is handed the urges its drive wants and
+    // does the rest exactly as it does for today's ant.
+    let decided = world.needs.is_some().then(|| needs::decide(world, x, y, organism, def, &inputs, &outputs));
+    let Did { dug, gnaws, shares, packed } = match decided {
+        Some(needs::Decided::Act(urges)) => act(world, x, y, organism, def, &urges, &mut draw),
+        None => act(world, x, y, organism, def, &outputs, &mut draw),
+    };
     // **Working the jaw costs, and leaving it free was a real defect.**
     // Measured the moment the beetle was armoured for play: an ant beat a
     // beetle that had just been made *tougher* -- two cells off it, none off
@@ -7930,6 +7941,12 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
     // step chance cut by how far below that it stands. Off, one branch.
     let p_unslowed = p_move;
     let p_move = depth_slowed(world, organism, def, (x, y), inputs[brain::BrainInput::AtNest as usize] > 0.0, p_move);
+    // **...and under the needs walk, its own kinesis** ([`needs::kinesis`]).
+    let p_move = if world.needs.is_some() {
+        needs::kinesis(world, organism, def, (x, y), &inputs, p_move)
+    } else {
+        p_move
+    };
     // Set by either arm that actually puts the body somewhere else -- the
     // walk and the launch. `moved` cannot serve: it gates the pheromone
     // deposit and is held false for a creature in the air on purpose.
@@ -8016,7 +8033,9 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
             // `CreatureStats::moves` meaning exactly one walking step, which
             // is what §7's falls-per-move bar was baselined against.
         } else {
-            moved = if chooser == Chooser::Off {
+            moved = if world.needs.is_some() {
+                needs::step(world, organism, heading, &outputs, def, &mut draw, chooser)
+            } else if chooser == Chooser::Off {
                 step_chain(world, organism, heading, &outputs, def, &mut draw)
             } else {
                 chooser_step(world, organism, heading, &outputs, def, &mut draw, chooser)
@@ -8052,6 +8071,9 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
     // compares false both ways.
     if roll_move >= p_move && roll_move < p_unslowed {
         world.creature_stats.depth_pauses += 1;
+    }
+    if world.needs.is_some() {
+        needs::after(world, organism, def, moved || left_the_spot);
     }
 
     // --- deposit, only on a successful move (P-11) ----------------------
