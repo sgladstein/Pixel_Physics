@@ -9106,7 +9106,15 @@ fn sense(
         // step against 75-86% (`examples/digbox`, 40 ants, seed 1,
         // 2026-09-29).
         inputs[I::HomeAligned as usize] = if crop_fill > 0.0 || is_store_load(world, state.spoil) || store_return_target(world, state).is_some() || spoil_haul_pace(world, def, state) || ready_to_lay(world, def, state) {
-            let (ax, ay) = spoil_pace_target(world, def, state, (x, y)).unwrap_or_else(|| home_target(world, state));
+            // **A carrier for the nest's store reads the way it is going**
+            // ([`NestStore`]'s `carry`), not its forage anchor: read against
+            // the anchor, which the nest re-sets to where it stands, the
+            // carrier at the door read 0 and stood (seed 1, 20-60k: 64-70%
+            // of its decisions at the door a lost move roll, median P(move)
+            // 0.11), the failure the paragraph above records for pellets.
+            let (ax, ay) = pull_pace_target(world, organism, state, (x, y))
+                .or_else(|| spoil_pace_target(world, def, state, (x, y)))
+                .unwrap_or_else(|| home_target(world, state));
             let (vx, vy) = ((ax - x) as f32, (ay - y) as f32);
             let len = (vx * vx + vy * vy).sqrt();
             // **Standing on the anchor is not a direction** -- the guard
@@ -13110,6 +13118,32 @@ const STORE_EAT_MIN: usize = 8;
 /// in, with nowhere further in to go.
 fn store_carry_arrived(world: &World, organism: OrganismId, head: (i32, i32)) -> bool {
     nest_way_near(world, head.0, head.1).is_some_and(|w| w.at(head.0, head.1).is_some()) && store_inward(world, organism, head, i32::MAX, true).is_none()
+}
+
+/// **Where a carrier inside the nest is going, for its `HomeAligned`
+/// bearing** -- the one place a carry's own destination replaces the forage
+/// anchor, which the nest re-sets to wherever the ant stands, so that a
+/// carrier inside reads "already home" and stands. A store load
+/// ([`NestStore`]'s `carry`) aims where its pull aims; a nurse is
+/// [`nurse_pace_target`]'s, the hook Laying's nurse gate fills. `None` for
+/// everyone else, and on arrival, and the caller falls back to
+/// [`spoil_pace_target`] and then `home_target` as before.
+fn pull_pace_target(world: &World, organism: OrganismId, state: &crate::sim::organism::OrganismState, head: (i32, i32)) -> Option<(i32, i32)> {
+    if nest_store_of(world).carry && state.spoil.is_some_and(|s| s.store) {
+        return store_inward(world, organism, head, i32::MAX, true);
+    }
+    nurse_pace_target(world, organism, state, head)
+}
+
+/// **Where a nurse is going, for its `HomeAligned` bearing**: a hook for
+/// Laying's nurse switch ([`NurseStay`]). A nurse holds crop food, so it
+/// reads `HomeAligned` against its forage anchor and, inside the nest, stands
+/// on it (Laying, 2026-10-06: laden ants inside on their own anchor 97-99% of
+/// decisions, idle 74-76%). Meant to return the larvae it is feeding, or the
+/// store ([`store_inward`]) when its crop is empty. `None` until Laying fills
+/// it, so nothing changes.
+fn nurse_pace_target(_world: &World, _organism: OrganismId, _state: &crate::sim::organism::OrganismState, _head: (i32, i32)) -> Option<(i32, i32)> {
+    None
 }
 
 /// **Food in each nest's store** ([`NestStore`]), in cells, at the last
