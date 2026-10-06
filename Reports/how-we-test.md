@@ -95,6 +95,16 @@ frame cost) are in `.claude/rules/measuring-the-world.md`; method traps
 - **Raw larvae starved** falls whenever eggs fall. Use **larvae starved per egg**.
 - **Total cuts.** 80–85% of nest cuts are re-digs of soil already moved. Count
   **new-ground cuts**.
+- **A share of ant-time deep in the nest, read as a gain.** 0.5% against
+  0.6–1.6% of ant-time reads as "raised on all four seeds"; it is about 3
+  against 4–9 ants of ~550, still basically nobody (owner, 2026-10-06). Give
+  it as ants, beside the baseline: the scorecard's **ANTS DEEP** line, door
+  column apart from the rest, because most deep ants sit on the brood pile in
+  the shaft under the door. Then read **ANTS LIVING DEEP** under it: a jam
+  shows as deep ants too. Homing seed 2's 12 deep ants were a crowd of hungry
+  ants dipping below row 10 for a few frames at a time, not ants living
+  there; the line counts the fed ones, and `--stays` on a `dig=1` run counts
+  the fed ones in stays of 50+ frames and gives the median stay.
 - **`digbox` `SCORE`** — read its `n=` first.
 - **Room censuses** on a wet floor (water splits one room into "chambers"),
   or split by a brood pile; brood pockets under 30 cells are not rooms;
@@ -113,10 +123,13 @@ frame cost) are in `.claude/rules/measuring-the-world.md`; method traps
 |---|---|
 | Why does every ant do what it does? | `deeptrace` + its readers (§3) |
 | Does a switch hit its own target? | `deeptrace walk=1 census=1` + `scripts/deeptrace_plan.py` |
-| Is my arm's off run the shipped game, and how does the arm compare with the baseline? | `scripts/deeptrace_tools/identity.py` first, then `scripts/deeptrace_tools/scorecard.py` (one column per run). Read its deeper-than-10-rows line, not the headline alone: most of the time in the dug nest is the knot at the door |
+| Is my arm's off run the shipped game, and how does the arm compare with the baseline? | `scripts/deeptrace_tools/identity.py` first, then `scripts/deeptrace_tools/scorecard.py` (one column per run). Read its ANTS DEEP line (about N of M ants, door column / off it) and ANTS LIVING DEEP under it, not the headline alone: most of the time in the dug nest is the knot at the door |
 | Who starved where, and were they shut in? | `scripts/deeptrace_tools/starvewhere.py`, `spells.py` and `doorseal.py`, on runs made with `hungry=1 mapevery=1000` |
 | Where did the digging go, and how many chambers? | `scripts/deeptrace_tools/digwhere.py` and `chambers.py` (the owner's chamber rule) |
 | Did a dropped pellet have a choice of cell? | `deeptrace drops=1` + `scripts/deeptrace_tools/dropchoice.py` |
+| Is the nest full, and which part? | `scripts/deeptrace_tools/bandfill.py`: free cells, ants and brood per depth band, map by map, beside the ants there (`--show F1-F2` for each map) |
+| Is there a clear way into the nest through the mound? | `scripts/deeptrace_tools/moundway.py`: the shortest way in from outside, its narrowest neck, how full of ants it is, the mound's dead ends, and maps with no way in at all (`--png` draws it with the ants hidden) |
+| Does a dig rule's input reach the ants that dig? | `deeptrace dig=1` + `scripts/deeptrace_tools/digtrace.py`: each dig decision by where the ant stood and by the Crowding it read |
 | Digging in a simple box | `digbox` |
 | The nest door and its pictures | `nestdoor` (`shots=` renders with the game's renderer) |
 | Foraging and trails | `labforage`, `trailprofile`, `trailfollow` |
