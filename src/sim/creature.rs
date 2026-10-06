@@ -12809,6 +12809,9 @@ pub struct NestStore {
     pub home: bool,
     pub larder: bool,
     pub depth: u16,
+    /// `pick=<cols>`: the doorstep reach of the carry's pick-up
+    /// ([`store_doorstep`]); 0, the default, is the dug nest alone.
+    pub pick: i32,
 }
 
 /// How deep the store is by default ([`NestStore`]'s `depth`), in steps of
@@ -12831,8 +12834,8 @@ pub const STORE_DOOR_REACH: i32 = 8;
 pub const STORE_ROOMY: u32 = 12;
 
 impl NestStore {
-    pub const OFF: NestStore = NestStore { carry: false, eat: false, keep: false, home: false, larder: false, depth: STORE_DEPTH };
-    pub const ON: NestStore = NestStore { carry: true, eat: true, keep: true, home: true, larder: true, depth: STORE_DEPTH };
+    pub const OFF: NestStore = NestStore { carry: false, eat: false, keep: false, home: false, larder: false, depth: STORE_DEPTH, pick: 0 };
+    pub const ON: NestStore = NestStore { carry: true, eat: true, keep: true, home: true, larder: true, depth: STORE_DEPTH, pick: 0 };
     /// What a world gets with the variable unset: off, see the type's doc.
     pub const SHIPPED: NestStore = NestStore::OFF;
 
@@ -12847,16 +12850,17 @@ impl NestStore {
         let mut ns = NestStore::OFF;
         for part in raw.split(',').map(str::trim).filter(|p| !p.is_empty()) {
             match part {
-                "on" => ns = NestStore { depth: ns.depth, ..NestStore::ON },
-                "off" => ns = NestStore { depth: ns.depth, ..NestStore::OFF },
+                "on" => ns = NestStore { depth: ns.depth, pick: ns.pick, ..NestStore::ON },
+                "off" => ns = NestStore { depth: ns.depth, pick: ns.pick, ..NestStore::OFF },
                 "carry" => ns.carry = true,
                 "eat" => ns.eat = true,
                 "keep" => ns.keep = true,
                 "home" => ns.home = true,
                 "larder" => ns.larder = true,
-                other => match other.strip_prefix("depth=").and_then(|n| n.parse().ok()) {
-                    Some(n) => ns.depth = n,
-                    None => panic!("PIXEL_PHYSICS_NEST_STORE={raw:?}: {other:?} is not on, off, carry, eat, keep, home, larder or depth=<steps>"),
+                other => match (other.strip_prefix("depth=").and_then(|n| n.parse().ok()), other.strip_prefix("pick=").and_then(|n| n.parse().ok())) {
+                    (Some(n), _) => ns.depth = n,
+                    (_, Some(n)) => ns.pick = n,
+                    _ => panic!("PIXEL_PHYSICS_NEST_STORE={raw:?}: {other:?} is not on, off, carry, eat, keep, home, larder, depth=<steps> or pick=<cols>"),
                 },
             }
         }
@@ -12885,18 +12889,23 @@ fn loose_food(world: &World, c: Cell) -> bool {
 }
 
 /// **How far round its nest a nest worker picks food up for the store**
-/// ([`NestStore`]'s `carry`): columns either side of the site, and rows
-/// above its founding ground. The doorstep, where foragers put food down by
-/// design and lost carriers let it go. The pile rule's own "at home" is the
-/// dug nest and a cell round it, and it turned nest workers away from food
-/// 2,600 times for every 35 it let through (seed 1, 60k frames, lane 20's
-/// re-trace 2026-10-05); the probe with this reach carried ~1,500 loads a
-/// run against ~50.
-const STORE_PICK_REACH: (i32, i32) = (20, 30);
+/// ([`NestStore`]'s `pick=<cols>`): columns either side of the site, and
+/// this many rows above its founding ground. The doorstep, where foragers
+/// put food down by design and lost carriers let it go. The pile rule's own
+/// "at home" is the dug nest and a cell round it, and it turned nest workers
+/// away from food 2,600 times for every 35 it let through (seed 1, 60k
+/// frames, lane 20's re-trace 2026-10-05); the probe with `pick=20` carried
+/// ~1,500 loads a run against ~50. **Off by default**: under the full set
+/// with `pick=20` (main b081040e, seeds 1-4, 150k) 68% of store carriers'
+/// decisions were above ground, nearly all within six cells of the door,
+/// held in the doorway crowd, and the mound they took the food from starved
+/// (99-298 starved in the mound against 0-48).
+const STORE_PICK_ROWS: i32 = 30;
 
 /// Whether `(x, y)` is on a nest's doorstep for the store's carry.
 fn store_doorstep(world: &World, (x, y): (i32, i32)) -> bool {
-    nest_store_of(world).carry && world.nest_sites.iter().any(|n| (x - n.x).abs() <= STORE_PICK_REACH.0 && y <= n.surface && y >= n.surface - STORE_PICK_REACH.1)
+    let ns = nest_store_of(world);
+    ns.carry && ns.pick > 0 && world.nest_sites.iter().any(|n| (x - n.x).abs() <= ns.pick && y <= n.surface && y >= n.surface - STORE_PICK_ROWS)
 }
 
 /// **Fill a nest's store** ([`NestStore`]): the loose food cells beside a
@@ -13066,7 +13075,7 @@ fn nest_store_pull(world: &World, organism: OrganismId, def: &CreatureDef, head:
     if state.crop.is_some_and(|c| c.worth() > 0.0) {
         return None;
     }
-    if ns.eat && state.energy < def.start_energy && nest_way_near(world, head.0, head.1).is_some_and(|w| !w.store.is_empty()) {
+    if ns.eat && state.energy < def.start_energy && nest_way_near(world, head.0, head.1).is_some_and(store_can_feed) {
         return store_inward(world, organism, head, STORE_DOOR_REACH, true).map(|t| (t, def.home_bias, StorePull::Eat));
     }
     if ns.home && state.energy >= def.start_energy && is_nest_bound(world, state) && dig_return_target(world, def, state).is_none() && !ready_to_lay(world, def, state) {
@@ -13079,8 +13088,23 @@ fn nest_store_pull(world: &World, organism: OrganismId, def: &CreatureDef, head:
 /// the way in, the store holding food. [`hungry_out_pull`] does not fire
 /// for it; with the store empty it does, as before.
 fn store_feeds_here(world: &World, head: (i32, i32)) -> bool {
-    nest_store_of(world).eat && nest_way_near(world, head.0, head.1).is_some_and(|w| !w.store.is_empty() && w.at(head.0, head.1).is_some())
+    nest_store_of(world).eat && nest_way_near(world, head.0, head.1).is_some_and(|w| store_can_feed(w) && w.at(head.0, head.1).is_some())
 }
+
+/// **A store worth walking down to** ([`NestStore`]'s `eat`): at least
+/// [`STORE_EAT_MIN`] food cells at the last rebuild.
+fn store_can_feed(way: &NestWay) -> bool {
+    way.store_cells.len() >= STORE_EAT_MIN
+}
+
+/// **The smallest store that draws the hungry in.** One or two crumbs at the
+/// bottom of the nest drew every hungry ant inside down to them and held it
+/// from the way out until the next rebuild found them gone: seed 4 (main
+/// 33389072, `on`, 150k) starved 397 in the nest in two bursts, 70-80k and
+/// 110-120k, each while the store held 1-2 cells and the eat pull fired
+/// 29k-41k times for 36-160 bites. Eight is a guess with headroom, not a
+/// measurement of the threshold.
+const STORE_EAT_MIN: usize = 8;
 
 /// **Has this store carrier arrived** ([`NestStore`]'s `carry`): on the way
 /// in, with nowhere further in to go.
@@ -29944,7 +29968,7 @@ mod tests {
     /// **A hungry ant goes to the store, stays there to eat, and only with
     /// the store empty is it walked out** ([`NestStore`]'s `eat` and
     /// `keep`). Fruit on the gallery's floor near its far end is the store
-    /// (deeper than `depth=10`). A hungry ant in the chamber is pulled east,
+    /// (deeper than `depth=10`, eight cells, [`STORE_EAT_MIN`]). A hungry ant in the chamber is pulled east,
     /// nearer the store by the store field; beside the store it has no pull
     /// and no way out; the fruit refused to it fed and given to it hungry.
     /// With the fruit gone the way out pulls it as before; with the switch
@@ -29958,7 +29982,9 @@ mod tests {
             w.nest_store = Some(ns);
             if food {
                 let fruit = w.materials.id_of("fruit").expect("fruit");
-                w.set(78, 48, Cell::new(fruit, 0));
+                for x in 72..=79 {
+                    w.set(x, 48, Cell::new(fruit, 0));
+                }
             }
             w.nest_ways.clear();
             step_nest_rest(&mut w);
@@ -29969,7 +29995,7 @@ mod tests {
         };
         let on = NestStore { depth: 10, ..NestStore::ON };
         let (w, a, def, head) = world(64, 47, on, true);
-        assert!(!w.nest_ways[0].store.is_empty(), "test setup: the fruit at (78, 48) is not the store; way depth there {:?}", w.nest_ways[0].at(78, 47));
+        assert!(store_can_feed(&w.nest_ways[0]), "test setup: the fruit on row 48 is not the store; way depth there {:?}", w.nest_ways[0].at(78, 47));
         let ((tx, ty), gain, kind) = nest_store_pull(&w, a, &def, head).expect("a hungry ant in the chamber was not pulled to the store");
         let way = &w.nest_ways[0];
         assert_eq!(kind, StorePull::Eat);
