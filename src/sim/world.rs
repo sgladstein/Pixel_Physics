@@ -2253,6 +2253,13 @@ pub struct CreatureStats {
     /// (`creature::need_drop_site`): the load is kept. 0 unless the switch is
     /// on.
     pub needs_no_site: u64,
+    /// **Scouts that turned for home on their own reckoning**
+    /// (`PIXEL_PHYSICS_LOST_HOME`, `creature::LostHome`): an empty ant off a
+    /// route, on its way out, whose energy fell to what the walk back would
+    /// cost. One per excursion it fires on. The "it fired" half; the effect
+    /// half is how many ants lost far from the door get back past it, and
+    /// where the colony's starved die. 0 unless the switch is on.
+    pub lost_home_turns: u64,
     /// **Carry distances drawn** under `PIXEL_PHYSICS_SPOIL_RING`
     /// (`creature::spoil_ring`): when its carrier comes out by the door with
     /// it (`creature::carry_stage`), and again for a carrier that went back
@@ -4207,6 +4214,10 @@ pub struct World {
     /// `None` follows the environment; a field so a guard can take both arms
     /// in one process.
     pub needs_first: Option<crate::sim::creature::NeedsFirst>,
+    /// **`PIXEL_PHYSICS_LOST_HOME` for this world** (`creature::lost_home_of`).
+    /// `None` follows the environment; a field so a guard can take both arms
+    /// in one process.
+    pub lost_home: Option<crate::sim::creature::LostHome>,
     /// **Each nest's way in**, as steps from its door through the cells
     /// inside it an ant can stand in (`creature::NestWay`), rebuilt every
     /// `creature::REST_REFRESH` frames by `creature::step_nest_rest` while
@@ -6815,6 +6826,7 @@ impl World {
             nurse_stay: None,
             mound_out: None,
             needs_first: None,
+            lost_home: None,
             nest_ways: Vec::new(),
             mound_ways: Vec::new(),
             out_ways: Vec::new(),
@@ -7913,6 +7925,7 @@ impl World {
             scout_lit: false,
             scout_dark: false,
             scout_e0: 0.0,
+            lost_e0: f32::NAN,
             return_met: 0,
             sent_want: f32::NAN,
             foraged: false,

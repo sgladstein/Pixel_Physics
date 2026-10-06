@@ -6274,6 +6274,13 @@ pub struct OrganismState {
     /// noreturn`): set when a new excursion starts. What it has spent since
     /// is the ant's own measure of what the walk home will cost.
     pub scout_e0: f32,
+    /// **Energy when this excursion first stood in the open, more than
+    /// `creature::FORAGE_TRIP_MIN` cells from its anchor** (`creature::
+    /// LostHome`'s `walk`): what it has spent since is what the walk out has
+    /// cost, without the time it spent in the nest or the mound before it.
+    /// NaN until then, and set back to NaN when a new excursion starts.
+    /// Written only under `walk`.
+    pub lost_e0: f32,
     /// **The frame this ant last met a forager home with food from a trip**,
     /// or delivered one itself (`creature::ForageNeed::Met`): a delivery
     /// stamps every ant within `creature::RETURN_MEET` cells of the drop.

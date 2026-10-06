@@ -21854,6 +21854,122 @@ const HUNGRY_MARGIN: f32 = 2.0;
 /// Fed enough to go out again, as a fraction of `start_energy`.
 const HUNGRY_REFED: f32 = 0.5;
 
+/// **A scout carrying nothing turns for home on its own reckoning, while it
+/// can still get there** (`PIXEL_PHYSICS_LOST_HOME`, built 2026-10-06, off).
+///
+/// **The behaviour it serves**: a hungry forager that has found nothing
+/// comes back to the nest before the walk back costs more than it holds, so
+/// it is home -- where the door read can send it down the road to food --
+/// and not dying alone far out on bare ground. **How a trace shows it
+/// working**: in `deeptrace hungry=1`'s rows, scouts far out on the dark side
+/// with `scout_home` set while they still hold more than the reserve, stepping
+/// toward their anchor, and ants lost far from the door crossing back past
+/// its column; `lost_home_turns` is the "it fired" count. Where the colony's
+/// starved die is the effect half.
+///
+/// **Why** (Laying, 2026-10-06, the goal box with its food 90 cells east,
+/// shipped game, seeds 1 and 3; `/mnt/project-files/laying/food-distance/`):
+/// 110 of 203 and 87 of 156 starvers were foragers lost west of the door,
+/// 94 and 84 of them more than 60 columns out. On their last hunger they had
+/// no pull on 95-98% of decisions and were off any trail on 95-96%, and
+/// scouting ones stepped west on 87-89% of their steps: the scouting walk
+/// ([`scout_of`]) counts every step further out as progress, so on open
+/// ground its patience never runs out until a wall, and the box's west wall
+/// is about 250 columns from the door. Once they had given up they did walk
+/// home (85-87% of steps east) -- **the walk home works; it starts too late.**
+/// A given-up scout in the box paid 2.5-3.6 J for each cell it closed on
+/// home (`homecost.py`, 40k-300k), so 250 cells is 600-900 J against a 200 J
+/// grant.
+///
+/// **How the ant knows.** Where home is: path integration. A foraging ant
+/// keeps a running vector back to its nest from its own steps and turns, and
+/// runs it home straight from wherever its search ended (Müller & Wehner
+/// 1988, *PNAS* 85:5287; Wehner 2003, *J Comp Physiol A* 189:579). Here that
+/// is the anchor the walk already steers by ([`home_target`]). What the walk
+/// back costs: what the way out has cost it since its last nest contact
+/// (`OrganismState::scout_e0`), so the bill is the ant's own pace, idling
+/// included, and not the species' price for a cell. That a forager turns on
+/// what it has left is this design's own choice, not taken from a paper.
+///
+/// **Not [`HungryHome`]**, whose bill is `distance x the species' step and
+/// idle price x HUNGRY_MARGIN`: priced at the colony bed's 0.35 J a cell it
+/// leashed long trips there and, at 2-3.6 J a cell, would not get a lost ant
+/// in the box home at all. And it never holds an ant at home: `refed` held
+/// hungry ants at a home with no food and they starved there
+/// (`Reports/dead-ends.md`, `update_hungry_home`).
+///
+/// Parts (`on` is both):
+/// - `budget`: on a scout's way out ([`scout_of`], empty, no pull, not given
+///   up), more than [`FORAGE_TRIP_MIN`] cells from its anchor and off a route
+///   (the heading it picked under [`HUNGRY_ROUTE`]), once its energy is under
+///   `HUNGRY_RESERVE x start_energy + LOST_MARGIN x (scout_e0 - energy)` it
+///   gives up there and then, as a spent scout: `scout_home` and `scout_dark`
+///   both set, so the walk home is the full home cosine and no trail holds it
+///   ([`FoodTrail`]'s `giveup`). It is let go where every given-up scout is,
+///   at its next nest contact, when the anchor moves and the excursion starts
+///   again from what it then holds. An ant on a road is not turned: the road
+///   to food is taken.
+/// - `walk`: the bill is what the walk out has cost, counted from where the
+///   scout first stood in the open ([`under_cover`] false) more than
+///   [`FORAGE_TRIP_MIN`] cells from its anchor (`OrganismState::lost_e0`),
+///   not from its last nest contact; with `budget` only. **Why**: the first
+///   build billed from the nest contact, and the mound is a sponge most ants
+///   queue through (Deep trace, 2026-10-06: about 43% of ants in mound
+///   tunnels), so an ant that had spent its energy queuing came out with the
+///   bill already run up and turned a few cells into its trip. With food at
+///   90, seed 1, the colony died out between 180k and 290k as trip food fell
+///   away (deliveries a 20k window 956 -> 0), while hungry scouts gave up east
+///   of the door a median 9-30 cells out (`doortrail.py`).
+///
+/// **The cost to watch**: it is a leash on dark-ground trips the other way
+/// too. A scout heading for food no trail leads to yet turns once its budget
+/// is spent, so `hungry.csv`'s turns are split by side of the anchor.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct LostHome {
+    pub budget: bool,
+    pub walk: bool,
+}
+
+impl LostHome {
+    pub const OFF: LostHome = LostHome { budget: false, walk: false };
+    pub const ON: LostHome = LostHome { budget: true, walk: true };
+    /// Off until scored: built 2026-10-06.
+    pub const SHIPPED: LostHome = LostHome::OFF;
+
+    pub fn parse(raw: &str) -> LostHome {
+        let mut m = LostHome::OFF;
+        for part in raw.split(',').map(str::trim).filter(|p| !p.is_empty()) {
+            match part {
+                "on" => m = LostHome::ON,
+                "off" => m = LostHome::OFF,
+                "budget" => m.budget = true,
+                "walk" => m.walk = true,
+                other => panic!("PIXEL_PHYSICS_LOST_HOME={raw:?}: {other:?} is not on, off, budget or walk"),
+            }
+        }
+        m
+    }
+}
+
+/// This world's [`LostHome`]: `World::lost_home` if set, else the
+/// environment's `PIXEL_PHYSICS_LOST_HOME`.
+pub fn lost_home_of(world: &World) -> LostHome {
+    world.lost_home.unwrap_or_else(|| {
+        static V: std::sync::OnceLock<LostHome> = std::sync::OnceLock::new();
+        *V.get_or_init(|| std::env::var("PIXEL_PHYSICS_LOST_HOME").map_or(LostHome::SHIPPED, |v| LostHome::parse(&v)))
+    })
+}
+
+/// **How many times what the way out cost, the way back is reckoned to
+/// cost** ([`LostHome`]'s `budget`). Measured in the goal box with food at
+/// 90 (`homecost.py`, 40k-300k): a given-up scout paid 1.27-1.75 times per
+/// cell closed on home what a scout on its way out paid per cell gained
+/// (shipped seeds 1 / 3: 3.64 against 2.08, 2.47 against 1.95; the stack,
+/// seed 1: 2.09 against 1.49). 1.5 is the middle; the way out's bill also
+/// carries any time spent standing near the door before the scout began,
+/// which errs early.
+const LOST_MARGIN: f32 = 1.5;
+
 /// **Is this animal too hungry to be out?** Sets and clears
 /// `OrganismState::hungry_home` (`hungry_home_of`). Only an empty animal
 /// with no spoil is ever set; one carrying anything is cleared, since a
@@ -22557,6 +22673,7 @@ fn chooser_step(
                 st.scout_lit = false;
                 st.scout_dark = false;
                 st.scout_e0 = st.energy;
+                st.lost_e0 = f32::NAN;
             }
             (st.scout_patience, st.scout_home, st.scout_dark)
         }
@@ -22744,6 +22861,21 @@ fn chooser_step(
     // that never met one scouts as before, which is how new food is found.
     let bound = food_trail_of(world).giveup;
     let noreturn = food_trail_of(world).noreturn;
+    let lost = lost_home_of(world);
+    let mut reckoned = false;
+    // **Where the walk out began** ([`LostHome`]'s `walk`): the step that
+    // first stands in the open, read while `world` is shared, and only until
+    // this excursion has one.
+    let open_air = lost.budget
+        && lost.walk
+        && away_from.is_some()
+        && scout_w > 0.0
+        && !scout_home
+        && world.organism(organism).is_some_and(|s| s.lost_e0.is_nan())
+        && {
+            let (nx, ny) = world.organism(organism).and_then(|s| s.chain.first().copied()).unwrap_or((hx, hy));
+            !under_cover(world, nx, ny)
+        };
     if let (Some((ax, _)), true) = (away_from, scout_w > 0.0 && !scout_home) {
         let state = world.organism_mut(organism).expect("live: it just stepped");
         let nx = state.chain.first().map_or(hx, |c| c.0);
@@ -22771,7 +22903,24 @@ fn chooser_step(
         // broken, against none without the bound.
         let stranded = noreturn && state.energy < state.scout_e0 - state.energy;
         let dark_past_a_trail = bound && state.scout_lit && !on_trail && !stranded;
-        if level > state.scout_best + PATIENCE_PROGRESS && !dark_past_a_trail {
+        // **Its own reckoning turns it** ([`LostHome`]'s `budget`): out on a
+        // trip, off a road, and what it holds is down to the reserve plus
+        // what the way back is reckoned to cost.
+        // The bill runs from the nest contact, or under `walk` from the
+        // first step out in the open.
+        if open_air && level > f32::from(FORAGE_TRIP_MIN) {
+            state.lost_e0 = state.energy;
+        }
+        let e0 = if lost.walk { state.lost_e0 } else { state.scout_e0 };
+        reckoned = lost.budget
+            && level > f32::from(FORAGE_TRIP_MIN)
+            && (picked_route.is_nan() || picked_route < HUNGRY_ROUTE)
+            && !e0.is_nan()
+            && state.energy < HUNGRY_RESERVE * def.start_energy + LOST_MARGIN * (e0 - state.energy);
+        if reckoned {
+            state.scout_home = true;
+            state.scout_dark = true;
+        } else if level > state.scout_best + PATIENCE_PROGRESS && !dark_past_a_trail {
             state.scout_best = level;
             state.scout_patience = (state.scout_patience + PATIENCE_RECOVER).min(1.0);
         } else {
@@ -22782,6 +22931,7 @@ fn chooser_step(
             }
         }
     }
+    world.creature_stats.lost_home_turns += u64::from(reckoned);
 
     // Did that step close on home?
     let searching = laden && home_search_of(world);
@@ -38452,6 +38602,148 @@ mod tests {
             }
             println!("M4 energy {frac:.2} of start: furthest x {far} ({} cells past the start, {} from home); gave up {:?}", far - 100, far - 20, gave);
         }
+    }
+
+    /// **`LOST_HOME`: a scout on open ground turns for home once
+    /// what it holds is down to what its own way out says the way back will
+    /// cost, and not before** ([`LostHome`]). The M4 probe's scene: a bare
+    /// floor 560 cells wide with no east wall, the ant 80 cells east of its
+    /// home point facing east, where the patience give-up never fires. Energy
+    /// is held at half its grant for 300 frames, so the excursion starts
+    /// there (`scout_e0`), then at 0.3 of it: 40 J spent against 60 J left,
+    /// under the reserve plus 1.5 times the spend. Off, it walks on east and
+    /// never gives up. On, it gives up as soon as the energy drops (one turn
+    /// counted) and walks back west at least 20 cells. On a trail laid the
+    /// whole floor's width the two arms walk the same path position for
+    /// position (an ant on a road is not turned), and so does a fed ant.
+    /// And `walk`: told it spent half its grant before its first step out
+    /// (`scout_e0` raised once the excursion has begun), the scout billed
+    /// from its nest contact turns at once and the one billed from the open
+    /// turns when its energy falls. **Watched red** with `reckoned` forced
+    /// false: the on arm walked east with the off arm and never gave up; and
+    /// with the bill always from `scout_e0`, the queued `walk` scout turned
+    /// at frame 29.
+    #[test]
+    fn lost_home_turns_a_scout_whose_way_back_costs_what_it_holds() {
+        // The path, the frame and column it gave up at, and the turns counted.
+        type Walk = (Vec<(i32, i32)>, Option<(usize, i32)>, u64);
+        let walk = |rule: LostHome, trail: bool, fed: bool, queued: bool| -> Walk {
+            let stone = Cell::new(material::STONE, 0).with_attached(true);
+            let mut w = World::new(Rect::new(0, 0, 559, 63));
+            for x in 0..560 {
+                for y in 41..64 {
+                    w.set(x, y, stone);
+                }
+            }
+            for y in 0..41 {
+                w.set(0, y, stone);
+            }
+            w.chooser = Some(Chooser::TrailAway);
+            w.scout = Some(SCOUT_DEFAULT);
+            w.lost_home = Some(rule);
+            let ant = spawn(&mut w, "ant", 100, 40);
+            let start = w
+                .species
+                .get(w.organism(ant).expect("live").species)
+                .creature
+                .as_ref()
+                .expect("a creature")
+                .start_energy;
+            {
+                let st = w.organism_mut(ant).expect("live");
+                st.heading = 0;
+                st.forage_anchor = (20, 40);
+            }
+            let (mut path, mut gave, mut bumped) = (Vec::new(), None, false);
+            for f in 0..1500 {
+                if trail {
+                    for x in 10..550 {
+                        let have = w.pheromone_at(Channel::B, x, 40);
+                        if have < pheromone::DEPOSIT {
+                            w.deposit_pheromone(Channel::B, x, 40, pheromone::DEPOSIT - have);
+                        }
+                    }
+                }
+                w.organism_mut(ant).expect("live").energy = if fed {
+                    start
+                } else if f < 300 {
+                    0.5 * start
+                } else {
+                    0.3 * start
+                };
+                run(&mut w, 1);
+                if queued && !bumped && w.organism(ant).expect("live").scout_for == (20, 40) {
+                    // As though it had spent half its grant in the mound
+                    // before this excursion's first step out.
+                    w.organism_mut(ant).expect("live").scout_e0 = start;
+                    bumped = true;
+                }
+                let st = w.organism(ant).expect("live");
+                assert!(st.crop.is_none(), "the ant must stay empty");
+                assert_eq!(
+                    st.forage_anchor,
+                    (20, 40),
+                    "the ant touched a nest: the scene has lost its home point"
+                );
+                if gave.is_none() && st.scout_home {
+                    gave = Some((f, st.chain[0].0));
+                }
+                path.push(st.chain[0]);
+            }
+            (path, gave, w.creature_stats.lost_home_turns)
+        };
+        let (off, off_gave, off_turns) = walk(LostHome::OFF, false, false, false);
+        let (on, on_gave, on_turns) = walk(LostHome::ON, false, false, false);
+        let far = |p: &[(i32, i32)]| p.iter().map(|c| c.0).max().expect("walked");
+        assert!(
+            off_gave.is_none() && off_turns == 0,
+            "off, the scout gave up on open ground ({off_gave:?}): the scene cannot show the turn"
+        );
+        assert!(
+            far(&off) >= 200,
+            "off, the scout should walk on east, and got no further than x {}",
+            far(&off)
+        );
+        let (at, x) = on_gave.expect("on, the scout never turned for home");
+        assert!(
+            (300..340).contains(&at),
+            "on, the scout turned at frame {at}, not when its energy fell at 300"
+        );
+        assert_eq!(on_turns, 1, "one excursion, one turn");
+        let back = on[at..].iter().map(|c| c.0).min().expect("walked");
+        assert!(
+            x - back >= 20,
+            "on, the scout turned at x {x} but came back only {} cells",
+            x - back
+        );
+        assert!(
+            far(&off) > far(&on) + 40,
+            "the off arm must walk well past where the on arm turned"
+        );
+        assert_eq!(
+            walk(LostHome::OFF, true, false, false).0,
+            walk(LostHome::ON, true, false, false).0,
+            "an ant on a road was turned"
+        );
+        assert_eq!(
+            walk(LostHome::OFF, false, true, false).0,
+            walk(LostHome::ON, false, true, false).0,
+            "a fed ant's walk changed with the rule on"
+        );
+        // `walk`: what was spent before the first step in the open is not on
+        // the bill. Billed from the excursion's start, the queued scout turns
+        // at once; billed from its first step out, when its energy falls.
+        let budget_only = LostHome { budget: true, walk: false };
+        let (_, queued_budget, _) = walk(budget_only, false, false, true);
+        let (_, queued_walk, _) = walk(LostHome::ON, false, false, true);
+        assert!(
+            queued_budget.is_some_and(|(f, _)| f < 30),
+            "billed from the nest contact, the queued scout should turn at once: {queued_budget:?}"
+        );
+        assert!(
+            queued_walk.is_some_and(|(f, _)| (300..340).contains(&f)),
+            "billed from its first step in the open, the queued scout should turn when its energy falls: {queued_walk:?}"
+        );
     }
 
     /// **Under `FOOD_TRAIL=giveup` a scout that walked a trail off its end
