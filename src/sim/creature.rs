@@ -928,6 +928,8 @@ pub const PULL_REST: u8 = 11;
 /// `home_pull` pulled and [`home_pull_why`] named a branch with another
 /// target: the mirror has drifted from `home_pull`.
 pub const PULL_MISMATCH: u8 = 12;
+/// [`mound_out_pull`], asked where [`hungry_out_pull`] gave nothing.
+pub const PULL_MOUND_OUT: u8 = 13;
 /// [`DecisionScratch::trip_end`]: the walk back to the face did not end.
 pub const TRIP_END_NONE: u8 = 0;
 /// Within two cells of the face and aimed at it (not under [`FaceTrip`]'s
@@ -1035,7 +1037,7 @@ pub(super) fn note_feed(world: &mut World, larva: OrganismId, at: (i32, i32), ki
 }
 
 /// [`DecisionScratch::pull_why`]'s names, by value.
-pub const PULL_WHY_NAMES: [&str; 13] = [
+pub const PULL_WHY_NAMES: [&str; 14] = [
     "not scored",
     "none",
     "store trip",
@@ -1049,6 +1051,7 @@ pub const PULL_WHY_NAMES: [&str; 13] = [
     "hungry out",
     "rest",
     "mismatch",
+    "mound out",
 ];
 
 impl Default for DecisionScratch {
@@ -12462,6 +12465,11 @@ impl NestWay {
         self.dist.get((ly * self.w + lx) as usize).copied().filter(|&d| d != u16::MAX)
     }
 
+    /// Whether `(x, y)` is in the box the way was built over, on it or not.
+    pub fn covers(&self, x: i32, y: i32) -> bool {
+        (self.x0..self.x0 + self.w).contains(&x) && (self.y0..self.y0 + self.h).contains(&y)
+    }
+
     /// The deepest cell's distance, 0 for a nest that is only its door.
     pub fn depth(&self) -> u16 {
         self.dist.iter().copied().filter(|&d| d != u16::MAX).max().unwrap_or(0)
@@ -12620,14 +12628,24 @@ pub fn way_gaps_of(world: &World) -> WayGaps {
 /// soil's way out, [`soil_way_of`]) it clears the cache and returns, so a
 /// world that reads none pays one branch a frame.
 pub fn step_nest_rest(world: &mut World) {
-    if !(nest_rest_of(world).on() || hungry_out_of(world) || soil_way_of(world) != SoilWay::OFF) || world.nest_sites.is_empty() {
+    let mound = mound_out_of(world) != MoundOut::OFF;
+    let read = nest_rest_of(world).on() || hungry_out_of(world) || soil_way_of(world) != SoilWay::OFF || mound;
+    if !read || world.nest_sites.is_empty() {
         world.nest_ways.clear();
+        world.mound_ways.clear();
         return;
     }
     if !world.frame.is_multiple_of(REST_REFRESH) && !world.nest_ways.is_empty() {
         return;
     }
     world.nest_ways = (0..world.nest_sites.len()).filter_map(|i| build_nest_way(world, i)).collect();
+    // The mound's ways ([`MoundOut`]), only while it is on: off, nothing
+    // reads them and nothing is built.
+    world.mound_ways = if mound {
+        (0..world.nest_sites.len()).filter_map(|i| build_mound_way(world, i)).collect()
+    } else {
+        Vec::new()
+    };
 }
 
 /// **Where a resting ant is pulled, and how hard** ([`nest_rest_of`]); `None`
@@ -12744,6 +12762,14 @@ fn hungry_out_pull(world: &World, organism: OrganismId, def: &CreatureDef, head:
     if !hungry_out_of(world) || def.home_bias <= 0.0 {
         return None;
     }
+    let gain = hungry_out_gain(world, organism, def)?;
+    Some((way_out_from(world, organism, head)?, gain))
+}
+
+/// **How hard a hungry ant is pulled out**, for [`hungry_out_pull`] and
+/// [`mound_out_pull`] alike; `None` for one that is fed, carrying, already
+/// walking home hungry or with a store load, or not let out.
+fn hungry_out_gain(world: &World, organism: OrganismId, def: &CreatureDef) -> Option<f32> {
     let state = world.organism(organism)?;
     if state.spoil.is_some() || state.crop.is_some_and(|c| c.worth() > 0.0) || state.hungry_home || state.store_return {
         return None;
@@ -12758,7 +12784,7 @@ fn hungry_out_pull(world: &World, organism: OrganismId, def: &CreatureDef, head:
     if out <= 0.0 {
         return None;
     }
-    Some((way_out_from(world, organism, head)?, def.home_bias * out.min(1.0)))
+    Some(def.home_bias * out.min(1.0))
 }
 
 /// **[`REST_LOOKAHEAD`] steps out along the nest's way in** from `head`,
@@ -12767,6 +12793,13 @@ fn hungry_out_pull(world: &World, organism: OrganismId, def: &CreatureDef, head:
 fn way_out_from(world: &World, organism: OrganismId, head: (i32, i32)) -> Option<(i32, i32)> {
     let site = world.nearest_nest_site(head.0, head.1)?;
     let way = world.nest_ways.iter().find(|w| w.site == site)?;
+    step_down_way(way, organism, head)
+}
+
+/// **[`REST_LOOKAHEAD`] steps down `way`** from `head`: [`way_out_from`]'s
+/// walk, over the nest's way or its mound's ([`mound_out_pull`]). `None`
+/// for a head off the way, at its zero, or with no step down.
+fn step_down_way(way: &NestWay, organism: OrganismId, head: (i32, i32)) -> Option<(i32, i32)> {
     let mut d = way.at(head.0, head.1).filter(|&d| d > 0)?;
     // The ant's own order to try its neighbours in, as the rest pull's, so
     // ties where two ways lead out split the colony between them.
@@ -12786,6 +12819,157 @@ fn way_out_from(world: &World, organism: OrganismId, head: (i32, i32)) -> Option
         at = p;
     }
     (at != head).then_some(at)
+}
+
+/// **A hungry ant in the spoil mound is given a way out, and a lean one shut
+/// in it may dig** (`PIXEL_PHYSICS_MOUND_OUT=on|off|way|dig`, a comma list;
+/// off by default, built 2026-10-06; [`World::mound_out`] for one world).
+/// The mound is the colony's own soil, heaped round the door, and its
+/// tunnels are where the colony's lean ants die. Two parts, each a word:
+///
+/// - `way`: **the hungry pull out reaches the mound's tunnels.** The nest's
+///   way ([`NestWay`]) starts at the door and runs down, so
+///   [`hungry_out_pull`] has nothing to give an ant at the door or above
+///   it. Under `way` each nest also has a way out of its mound
+///   ([`build_mound_way`]): steps from the open air through the covered
+///   cells at or above the founding ground. A hungry empty ant there that
+///   the way out does not pull is pulled along it towards the open air, at
+///   the way out's gain ([`mound_out_pull`]). Out under the sky there is no
+///   pull: scouting and the trail take it on, as they take any ant the way
+///   out has brought to the door.
+/// - `dig`: **a lean ant shut in the mound may dig.** [`LeanForage`]'s
+///   `nodig` takes a lean ant's dig roll, so a starving ant spends nothing
+///   on soil. In a pocket of the mound that neither way reaches
+///   ([`shut_in_mound`]) that leaves it no move that leads out, so under
+///   `dig` the roll is kept there. The pellet it cuts goes down beside it
+///   (`LeanForage`'s `drop`, which applies at and above the founding
+///   ground).
+///
+/// **Why** (lane 3, 2026-10-06,
+/// `/mnt/project-files/nest-race/lane3/pellet-starvation-2026-10-06.md`;
+/// main 33389072, `deeptrace dig=1`, seeds 1 and 4). The grown ants that
+/// starved held a pellet until they were lean (249 of 255 on the rest
+/// pull's seed 4), put it down in the mound's tunnels at half their grant
+/// (175 of 214), and 112 of 151 never gained energy again: nothing above
+/// the door row pulled them out, and `nodig` took their dig. On the deep
+/// trace lane's seed 2 under `CARRY_HOME`, 105 of 127 starvers died in a
+/// pocket joined to neither the door nor the open air, and the lean gate
+/// took the dig on 82% and 55% of their empty decisions.
+///
+/// **The cue is local** in the sense the nest's way is ([`hungry_out_of`]):
+/// steps to the open air stand in for the draught from it, fresh at an
+/// opening and absent in a sealed pocket.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct MoundOut {
+    pub way: bool,
+    pub dig: bool,
+}
+
+impl MoundOut {
+    pub const OFF: MoundOut = MoundOut { way: false, dig: false };
+    pub const ON: MoundOut = MoundOut { way: true, dig: true };
+    /// Unset: off until it is scored.
+    pub const SHIPPED: MoundOut = MoundOut::OFF;
+
+    /// Parse a `PIXEL_PHYSICS_MOUND_OUT` value: `on`, `off`, or a comma list
+    /// of `way` and `dig`. Anything else panics, so a typo is not a silent
+    /// `off`.
+    pub fn parse(raw: &str) -> MoundOut {
+        let mut m = MoundOut::OFF;
+        for part in raw.split(',').map(str::trim).filter(|p| !p.is_empty()) {
+            match part {
+                "on" => m = MoundOut::ON,
+                "off" => m = MoundOut::OFF,
+                "way" => m.way = true,
+                "dig" => m.dig = true,
+                other => panic!("PIXEL_PHYSICS_MOUND_OUT={raw:?}: {other:?} is not on, off, way or dig"),
+            }
+        }
+        m
+    }
+}
+
+/// This world's [`MoundOut`]: `World::mound_out` if set, else the
+/// environment's.
+pub fn mound_out_of(world: &World) -> MoundOut {
+    world.mound_out.unwrap_or_else(|| {
+        static V: std::sync::OnceLock<MoundOut> = std::sync::OnceLock::new();
+        *V.get_or_init(|| std::env::var("PIXEL_PHYSICS_MOUND_OUT").map_or(MoundOut::SHIPPED, |v| MoundOut::parse(&v)))
+    })
+}
+
+/// **Build a nest's way out of its mound** ([`MoundOut`]): breadth first,
+/// 8-connected in `NEIGHBOURS_8`'s fixed order, from every cell in the box
+/// an ant can stand in under open sky ([`way_cell`], not [`under_cover`]),
+/// over the covered cells an ant can stand in. The box is the nest way's
+/// columns, on the rows from [`REST_REACH_Y`] over the founding ground down
+/// to it, so nothing below the founding ground is on it. A pocket the mound
+/// has closed is not on it.
+pub fn build_mound_way(world: &World, site: usize) -> Option<NestWay> {
+    let s = world.nest_sites[site];
+    let gaps = way_gaps_of(world);
+    let cut = s.shaft?;
+    let door = ((cut.x0 + cut.x1) / 2, cut.top - 1);
+    let (x0, y0) = (s.x - REST_REACH_X, s.surface - REST_REACH_Y);
+    let (w, h) = (2 * REST_REACH_X + 1, REST_REACH_Y + 1);
+    let mut dist = vec![u16::MAX; (w * h) as usize];
+    let idx = |x: i32, y: i32| -> Option<usize> {
+        let (lx, ly) = (x - x0, y - y0);
+        (lx >= 0 && ly >= 0 && lx < w && ly < h).then(|| (ly * w + lx) as usize)
+    };
+    let mut q = std::collections::VecDeque::new();
+    for y in y0..y0 + h {
+        for x in x0..x0 + w {
+            if way_cell(world, x, y, gaps.brood) && !under_cover(world, x, y) {
+                dist[idx(x, y).expect("in the box")] = 0;
+                q.push_back((x, y));
+            }
+        }
+    }
+    while let Some((x, y)) = q.pop_front() {
+        let d = dist[idx(x, y).expect("queued in the box")];
+        for &(dx, dy) in NEIGHBOURS_8.iter() {
+            let (nx, ny) = (x + dx, y + dy);
+            let Some(i) = idx(nx, ny) else { continue };
+            if dist[i] != u16::MAX || !under_cover(world, nx, ny) || !way_cell(world, nx, ny, gaps.brood) {
+                continue;
+            }
+            dist[i] = d.saturating_add(1);
+            q.push_back((nx, ny));
+        }
+    }
+    Some(NestWay { site, door, x0, y0, w, h, dist })
+}
+
+/// **Where a hungry ant in its nest's mound is pulled, and how hard**
+/// ([`MoundOut`]'s `way`): [`hungry_out_pull`]'s ant at its gain
+/// ([`hungry_out_gain`]), [`REST_LOOKAHEAD`] steps towards the open air
+/// along the mound's way. `None` with the part off, off the mound's way,
+/// under open sky, or for an ant the way out would not pull.
+fn mound_out_pull(world: &World, organism: OrganismId, def: &CreatureDef, head: (i32, i32)) -> Option<((i32, i32), f32)> {
+    if !mound_out_of(world).way || def.home_bias <= 0.0 {
+        return None;
+    }
+    let gain = hungry_out_gain(world, organism, def)?;
+    let site = world.nearest_nest_site(head.0, head.1)?;
+    let way = world.mound_ways.iter().find(|w| w.site == site)?;
+    Some((step_down_way(way, organism, head)?, gain))
+}
+
+/// **Shut in the mound** ([`MoundOut`]'s `dig`): under cover at or above
+/// the founding ground, inside the box the mound's way was built over, and
+/// on neither the nest's way nor the mound's. False wherever the mound's
+/// way was not built, so a world without it shuts nobody in.
+fn shut_in_mound(world: &World, x: i32, y: i32) -> bool {
+    let Some(site) = world.nearest_nest_site(x, y) else { return false };
+    let Some(mound) = world.mound_ways.iter().find(|w| w.site == site) else { return false };
+    if !mound.covers(x, y) || mound.at(x, y).is_some() {
+        return false;
+    }
+    if below_founding_ground(world, x, y) || !under_cover(world, x, y) {
+        return false;
+    }
+    !world.nest_ways.iter().find(|w| w.site == site).is_some_and(|w| w.at(x, y).is_some())
 }
 
 /// **Soil cut in the nest leaves by the nest's way out**
@@ -15633,9 +15817,15 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
     };
     let mut lean_took_dig = false;
     if lean && lean_forage_of(world).nodig && dig_urge > 0.0 {
-        dig_urge = 0.0;
-        lean_took_dig = true;
-        world.creature_stats.lean_digs_skipped += 1;
+        // **...unless it is shut in the mound** ([`MoundOut`]'s `dig`),
+        // where digging is the only move that leads out.
+        if mound_out_of(world).dig && shut_in_mound(world, x, y) {
+            world.creature_stats.mound_digs_let += 1;
+        } else {
+            dig_urge = 0.0;
+            lean_took_dig = true;
+            world.creature_stats.lean_digs_skipped += 1;
+        }
     }
     let dig_urge = dig_urge;
     // **Feeding is its own verb, and it was not.** Both branches below used
@@ -21591,12 +21781,22 @@ fn chooser_step(
     // nothing above pulled. It and the rest pull never both fire: one wants
     // an ant under its grant that something lets out, the other an ant the
     // pull out does not reach.
+    // **...and on out of the mound** ([`MoundOut`]'s `way`), where the way
+    // out gave nothing: at the door and above it.
+    let mut pulled_mound = false;
     let pull = match pull {
         Some(p) => Some(p),
         None => {
             let out = hungry_out_pull(world, organism, def, (hx, hy));
             world.creature_stats.hungry_out_pulls += u64::from(out.is_some());
-            out
+            if out.is_some() {
+                out
+            } else {
+                let mound = mound_out_pull(world, organism, def, (hx, hy));
+                pulled_mound = mound.is_some();
+                world.creature_stats.mound_out_pulls += u64::from(pulled_mound);
+                mound
+            }
         }
     };
     let pulled_out = !pulled_home && pull.is_some();
@@ -21916,6 +22116,8 @@ fn chooser_step(
                 (why, Some(t)) if pull.is_some_and(|(p, _)| p == t) => why,
                 _ => PULL_MISMATCH,
             }
+        } else if pulled_mound {
+            PULL_MOUND_OUT
         } else if pulled_out {
             PULL_HUNGRY_OUT
         } else if pull.is_some() {
@@ -29628,6 +29830,125 @@ mod tests {
         assert_eq!(cut(false, LeanForage::ON), (1, 0), "control: a fed ant facing open floor did not cut");
         assert_eq!(cut(true, LeanForage::OFF), (1, 0), "with the switch off a lean ant did not cut");
         assert_eq!(cut(true, LeanForage::ON), (0, 1), "a lean ant cut");
+    }
+
+    /// **A spoil mound beside the door** for [`MoundOut`]: [`founding_ground`]
+    /// with the founding cut at column 60 (door row 39), and soil heaped on
+    /// columns 30-55 over rows 30-39. Through it run a tunnel on rows 35-37
+    /// from its west face (column 30) to column 45, open to the air at
+    /// column 29, and a closed pocket on rows 31-33 over columns 46-52 that
+    /// nothing joins. An ant spawned at `(x, y)` at `fill` of its grant,
+    /// carrying nothing, under `rule`; the ways built.
+    fn mound_world(x: i32, y: i32, fill: f32, rule: MoundOut) -> (World, OrganismId) {
+        let mut w = World::new(Rect::new(0, 0, 119, 99));
+        founding_ground(&mut w);
+        let soil = w.materials.id_of("soil").expect("soil material");
+        w.register_nest_site(60, 38, 2);
+        let cut = crate::sim::world::ShaftFootprint { x0: 60, x1: 61, top: 40, bottom: 45, mouth_bottom: 41, chamber_x0: 56, chamber_x1: 65, chamber_top: 46, chamber_bottom: 47, side: None };
+        w.nest_sites[0].shaft = Some(cut);
+        for (px, py) in (40..=45).flat_map(|y| [(60, y), (61, y)]).chain((46..=47).flat_map(|y| (56..=65).map(move |x| (x, y)))) {
+            w.set(px, py, Cell::EMPTY);
+        }
+        for py in 30..=39 {
+            for px in 30..=55 {
+                let tunnel = (35..=37).contains(&py) && px <= 45;
+                let pocket = (31..=33).contains(&py) && (46..=52).contains(&px);
+                w.set(px, py, if tunnel || pocket { Cell::EMPTY } else { Cell::new(soil, 0) });
+            }
+        }
+        w.hungry_out = Some(true);
+        w.way_gaps = Some(WayGaps::ON);
+        w.forage_throttle = Some(ForageThrottle::OFF);
+        w.mound_out = Some(rule);
+        let a = spawn(&mut w, "ant", x, y);
+        let start = w.species.get(w.organism(a).expect("live").species).creature.as_ref().expect("a creature").start_energy;
+        w.organism_mut(a).expect("live").energy = fill * start;
+        step_nest_rest(&mut w);
+        (w, a)
+    }
+
+    /// **Under `MOUND_OUT=way` a hungry ant in the mound's tunnel is pulled
+    /// towards the open air** ([`MoundOut`]'s `way`). In [`mound_world`] the
+    /// way out does not reach the tunnel (it starts at the door and runs
+    /// down), so with the part off the ant has no pull: the positive
+    /// control, the hole is in the scene. With it on the mound's way runs
+    /// along the tunnel's floor from its mouth to its end, and the ant is pulled a step
+    /// nearer the mouth. The closed pocket is off the way, so is the nest
+    /// below the founding ground, and an ant under the open sky is not
+    /// pulled. A fed ant is not pulled either. Watched red with
+    /// `mound_out_pull` returning `None`.
+    #[test]
+    fn under_mound_out_a_hungry_ant_in_the_mound_is_pulled_to_the_open_air() {
+        let probe = |x: i32, y: i32, fill: f32, rule: MoundOut| {
+            let (w, a) = mound_world(x, y, fill, rule);
+            let def = w.species.get(w.organism(a).expect("live").species).creature.clone().expect("a creature");
+            let head = w.organism(a).expect("live").chain[0];
+            let got = hungry_out_pull(&w, a, &def, head).or_else(|| mound_out_pull(&w, a, &def, head));
+            (w, head, got)
+        };
+        let (w, head, got) = probe(40, 36, 0.3, MoundOut::OFF);
+        assert!(w.mound_ways.is_empty(), "with the switch off the mound's way was built");
+        assert!(w.nest_ways.first().is_some_and(|way| way.at(head.0, head.1).is_none()), "control: the way out reaches the ant at {head:?} in the mound, so the scene has no hole");
+        assert_eq!(got, None, "control: with the switch off a hungry ant at {head:?} in the mound was pulled");
+
+        let (w, head, got) = probe(40, 36, 0.3, MoundOut { way: true, dig: false });
+        let way = w.mound_ways.first().expect("under `way` the mound's way is built");
+        assert!((30..=45).all(|x| way.at(x, 37).is_some()), "the mound's way does not run the length of the tunnel's floor: {:?}", (30..=45).map(|x| way.at(x, 37)).collect::<Vec<_>>());
+        assert_eq!(way.at(29, 37), Some(0), "the open air at the tunnel's mouth is not the way's zero");
+        assert!((31..=33).all(|y| (46..=52).all(|x| way.at(x, y).is_none())), "the closed pocket is on the mound's way");
+        assert!(way.at(60, 47).is_none() && !way.covers(60, 47), "the founding chamber, below the ground, is in the mound's way");
+        let ((tx, ty), gain) = got.expect("under `way` a hungry ant in the mound's tunnel was not pulled");
+        assert!(gain > 0.0, "the pull out of the mound has no gain");
+        assert!(way.at(tx, ty).expect("the pull aims off the way") < way.at(head.0, head.1).expect("the ant is on the way"), "the pull at {head:?} aims at ({tx}, {ty}), no nearer the open air");
+
+        let (_, head, got) = probe(48, 33, 0.3, MoundOut::ON);
+        assert_eq!(got, None, "a hungry ant at {head:?} in the closed pocket was pulled");
+        let (_, head, got) = probe(20, 39, 0.3, MoundOut::ON);
+        assert_eq!(got, None, "a hungry ant at {head:?} under the open sky was pulled");
+        let (_, head, got) = probe(40, 36, 1.0, MoundOut::ON);
+        assert_eq!(got, None, "a fed ant at {head:?} in the mound was pulled");
+    }
+
+    /// **Under `MOUND_OUT=dig` a lean ant shut in the mound keeps its dig
+    /// roll** ([`MoundOut`]'s `dig`), [`a_lean_ant_does_not_take_its_dig_roll`]'s
+    /// scene moved into [`mound_world`]'s pocket. The lean rule takes the
+    /// roll with the part off (the control) and in the tunnel the air
+    /// reaches with it on (the specificity: an ant with a way out still does
+    /// not dig); in the pocket, with it on, the ant cuts. Watched red with
+    /// `shut_in_mound` returning false.
+    #[test]
+    fn under_mound_out_a_lean_ant_shut_in_the_mound_may_dig() {
+        let cut = |x: i32, y: i32, rule: MoundOut| -> (usize, u64, u64) {
+            let (mut w, a) = mound_world(x, y, 0.3, rule);
+            w.dig_face = Some(DigFace::On);
+            w.dig_widen = Some(false);
+            w.dig_down = Some(None);
+            w.lean_forage = Some(LeanForage::ON);
+            let def = w.species.get(w.organism(a).expect("live").species).creature.clone().expect("a creature");
+            w.organism_mut(a).expect("live").heading = 0;
+            let (hx, hy) = w.organism(a).expect("live").chain[0];
+            let before = (w.creature_stats.digs, w.creature_stats.lean_digs_skipped, w.creature_stats.mound_digs_let);
+            let mut outputs = [0.0f32; brain::BRAIN_OUTPUTS];
+            outputs[brain::BrainOutput::Dig as usize] = 1.0;
+            let mut draw = rng::stream(1, a as u64, 0, RNG_SLOT_MOVE);
+            act(&mut w, hx, hy, a, &def, &outputs, &mut draw);
+            ((w.creature_stats.digs - before.0) as usize, w.creature_stats.lean_digs_skipped - before.1, w.creature_stats.mound_digs_let - before.2)
+        };
+        let dig = MoundOut { way: false, dig: true };
+        assert_eq!(cut(49, 33, MoundOut::OFF), (0, 1, 0), "control: with the switch off a lean ant in the pocket kept its dig roll");
+        assert_eq!(cut(40, 37, dig), (0, 1, 0), "a lean ant in the tunnel the air reaches kept its dig roll");
+        assert_eq!(cut(49, 33, dig), (1, 0, 1), "under `dig` a lean ant shut in the pocket did not cut");
+    }
+
+    /// `PIXEL_PHYSICS_MOUND_OUT`'s spellings: `on` both parts, `off` none, a
+    /// list what it names; unset is [`MoundOut::SHIPPED`], off.
+    #[test]
+    fn mound_out_parses_its_spellings() {
+        assert_eq!(MoundOut::parse("on"), MoundOut::ON);
+        assert_eq!(MoundOut::parse("off"), MoundOut::OFF);
+        assert_eq!(MoundOut::parse("way"), MoundOut { way: true, dig: false });
+        assert_eq!(MoundOut::parse("dig, way"), MoundOut::ON);
+        assert_eq!(MoundOut::SHIPPED, MoundOut::OFF, "the switch ships on before it is scored");
     }
 
     /// `PIXEL_PHYSICS_LEAN_FORAGE`'s spellings: unset and `on` are all three
