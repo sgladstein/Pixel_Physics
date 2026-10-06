@@ -2371,8 +2371,12 @@ pub struct CreatureStats {
     /// steered).
     pub way_home_turns: u64,
     pub way_home_home: u64,
-    /// ...and the latch let go hungry under cover, away from home.
+    /// ...and decisions a latched animal spent under cover, its pull held
+    /// off there (the latch holds).
     pub way_home_cover: u64,
+    /// ...and of `way_home_turns`, those set by the `bill` (an ant that set
+    /// out hungry), not by "left home fed".
+    pub way_home_billed: u64,
     pub way_home_pulls: u64,
     /// **Decisions where the colony's need, not the animal's own hunger, set
     /// how hard it scouted** (`creature::forage_drive_from_env`): the forage
@@ -7944,6 +7948,8 @@ impl World {
             hungry_home: false,
             way_home: false,
             way_e0: 0.0,
+            way_latched: false,
+            way_bill_e0: f32::NAN,
             // Zero is "no memory yet"; the first tick's read sees `live - 0`,
             // which normalises to +1 and decays to the true reading within a
             // few ticks. See `OrganismState::phero_a_mem`.

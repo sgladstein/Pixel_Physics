@@ -825,19 +825,24 @@ on dark ground home on its own home vector** (`WayHome`). `turn` is the latch
 packed lunch; no pellet) under its grant, with trail B under its head under
 `HUNGRY_ROUTE` (0.5), more than `FORAGE_TRIP_MIN` (8) cells from its anchor,
 that **left home fed**: `OrganismState::way_e0`, its energy at its last nest
-contact (or birth), at or over the grant. So an ant sent out hungry is never
-latched; a founder, born at its grant and landed under it away from the door,
+contact (or birth), at or over the grant. Under `turn` alone an ant sent out
+hungry is never latched; `bill` latches it too, once its energy is under 0.1
+of the grant plus 1.5 times what it has spent since its first step in the open
+more than 8 cells out (`OrganismState::way_bill_e0`, reset at each nest
+contact): it may make its long trip while it can afford one. A founder, born at its grant and landed under it away from the door,
 is latched once and walked to the door, where contact re-anchors it hungry. It
 lets go within
 `HUNGRY_ARRIVED` (2) of the anchor (so at any nest contact), once fed back to
-the grant, once it carries anything, or under cover (`under_cover`: the mound's
-tunnels and the dug nest, where the nest's own ways out steer it); it is set
-only in the open. While set, `home_pull` pulls it to its
+the grant, or once it carries anything. It is set only in the open, and it
+pulls only in the open: under cover (`under_cover`: the mound's tunnels and the
+dug nest) the latch (`way_latched`) holds and the pull (`way_home`) is off, so
+the nest's own ways steer it there. While it pulls, `home_pull` pulls it to its
 anchor (`home_target`) at `home_bias`, patience and all, and so scouting, the
 door read, the way out and the rest pull are off. `bare`: the latched walk is
 not held by trail (the hold factor is 1, as for a given-up scout's spent walk).
-Counted in `way_home_turns` (latches), `way_home_home` (let go hungry, at home),
-`way_home_cover` (let go hungry, under cover) and `way_home_pulls` (decisions it steered); the trace books the pull as
+Counted in `way_home_turns` (latches; `way_home_billed` of them by `bill`),
+`way_home_home` (let go hungry, at home), `way_home_cover` (latched decisions
+under cover, pull off) and `way_home_pulls` (decisions it steered); the trace books the pull as
 "way home".
 
 **`PIXEL_PHYSICS_NEST_REST` (off; `workers` was the default for one day,
@@ -1473,7 +1478,7 @@ Read once per process from the environment. The default is what ships.
 | `PIXEL_PHYSICS_NEST_DOOR_FOUNDERS` | spread | `pile`: under the door, founders start heaped on it instead of spread along the ground (§8) |
 | `PIXEL_PHYSICS_SCOUT` | 2 | `<gain>`: under `trailaway`, a hungry empty ant off a route runs out from home and back (§6d); `0` turns it off; `World::scout` for one world |
 | `PIXEL_PHYSICS_HUNGRY_HOME` | off | `on`/`refed` or `tether`: an empty ant too hungry to be out is pulled home to its nest's larder (§6d, §8); `World::hungry_home` for one world |
-| `PIXEL_PHYSICS_WAY_HOME` | off (built 2026-10-06) | `on`, `off`, or parts `turn` (an empty ant that left home fed and turned hungry off any trail, more than 8 cells from its anchor, is pulled to its anchor until home, fed or loaded) and `bare` (that walk is not held by trail) (§6d); `World::way_home` for one world |
+| `PIXEL_PHYSICS_WAY_HOME` | off (built 2026-10-06) | `on`, `off`, or parts `turn` (an empty ant that left home fed and turned hungry off any trail, more than 8 cells from its anchor, is pulled to its anchor in the open until home, fed or loaded), `bill` (the same for one that set out hungry, once the way back costs what it holds) and `bare` (that walk is not held by trail) (§6d); `World::way_home` for one world |
 | `PIXEL_PHYSICS_FORAGE_DRIVE` | `met` | `off`, `hunger`, `larder`, `returns`, `always` or `met`, then optionally `,nopace`, `,keep` and `,fed` (only foragers at or above `start_energy`): a fed forager goes out when its nest needs food (§6d), and with `,keep` leaves the store at home (§5); `World::forage_drive` for one world |
 | `PIXEL_PHYSICS_PACKED_LUNCH` | on | `off`: a crop filled only at home counts as a load, so the forage drive does not reach its carrier (§6d); `World::packed_lunch` for one world |
 | `PIXEL_PHYSICS_TRIP_REACH` | on (16) | `off`: a pickup away from home marks a trip once the ant has been `FORAGE_TRIP_MIN` cells from its last nest contact, wherever the food lay; on, the food must also be living tissue or loose food more than the reach (authored cells, scaled; an integer sets it) from every nest's door (§6d); `World::trip_reach` for one world |

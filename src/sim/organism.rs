@@ -6376,10 +6376,17 @@ pub struct OrganismState {
     /// to its anchor as it pulls a laden animal. Always false with the switch
     /// off.
     pub way_home: bool,
+    /// **The latch behind `way_home`**: set and cleared as `way_home` is
+    /// described, but held under cover, where `way_home` (the pull) is off.
+    pub way_latched: bool,
     /// **The energy this animal had at its last nest contact** (or at birth):
     /// what it set out with, for [`OrganismState::way_home`]'s "left home fed".
     /// Written on every contact whatever the switch; read only under it.
     pub way_e0: f32,
+    /// **The energy this animal had at its first step in the open more than a
+    /// trip's length out since its last nest contact** (NaN until it takes
+    /// one): where `WayHome`'s `bill` starts. Written only under that part.
+    pub way_bill_e0: f32,
     /// **A fading memory of the trail strength under this animal's own feet**,
     /// in the same normalised units `sense` reads the plane in.
     ///
