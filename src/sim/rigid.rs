@@ -1342,7 +1342,14 @@ pub(crate) fn fell_severed_tissue(world: &mut World, region: &[(i32, i32)], brok
         );
     }
     let hinge = (alpha != 0.0).then_some(Hinge { pivot: stump, alpha, omega: 0.0 });
+    // **Labelled for `OrganismState::last_loss`.** A plant this felling
+    // empties was felled (`DeathCause::FelledOrLost`); one that keeps a
+    // stump is not touched by the label, because it is only read when a
+    // living plant's last cell goes. Other callers of the fracture
+    // (explosions) leave it unset, so what they take books `Unknown`.
+    world.loss_context = Some(crate::sim::organism::DeathCause::FelledOrLost);
     let (promoted, grit) = fracture_with_impulse(world, region, None, size_bias(extent), Some(broke_at), true, hinge);
+    world.loss_context = None;
     ((promoted + grit) as u32, promoted as u32)
 }
 

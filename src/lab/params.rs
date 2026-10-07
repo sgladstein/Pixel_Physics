@@ -1998,6 +1998,59 @@ const GENOME_NOTE: &str = "WHAT IT WAS DEALT AND CANNOT CHANGE, DRAWN WHEN IT WA
 /// about what the numbers *are*, not about how they are drawn: `STATE` is the
 /// block a player watches change while the box runs, and that is the same fact
 /// whether it is folded, scrolled or printed by a harness.
+/// The `TIPS STOPPED` row: its value, the commonest reason a plant's tips
+/// stopped for good and how many stopped for anything else (`49 TOO POOR
+/// +1`), and the whole breakdown, shoot and root, for the row's note.
+///
+/// **One reason in the row, all of them in the note, because the page is as
+/// wide as its widest row.** The first build showed the top two (`49 TOO
+/// POOR, 1 ROOT SHARE`) and widened the CELL page from 156 px to about 250,
+/// over the panel beside it; the note costs no width and is read on hover.
+fn tips_stopped(retired: &[[u16; crate::sim::plant::GROW_WHYS]; 2]) -> (String, String) {
+    use crate::sim::plant::{GROW_WHYS, GROW_WHY_LABELS};
+    let ranked = |counts: &[u32]| {
+        let mut by: Vec<(u32, usize)> = counts
+            .iter()
+            .enumerate()
+            .filter(|(_, n)| **n > 0)
+            .map(|(why, &n)| (n, why))
+            .collect();
+        // Most first; ties by the reason's order, so the row does not flicker.
+        by.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)));
+        by
+    };
+    let both: Vec<u32> = (0..GROW_WHYS)
+        .map(|why| u32::from(retired[0][why]) + u32::from(retired[1][why]))
+        .collect();
+    let by = ranked(&both);
+    let Some(&(n, why)) = by.first() else {
+        return ("NONE YET".to_string(), "NO TIP HAS STOPPED YET.".to_string());
+    };
+    let rest: u32 = by.iter().skip(1).map(|&(n, _)| n).sum();
+    let value = if rest > 0 {
+        format!("{n} {} +{rest}", GROW_WHY_LABELS[why])
+    } else {
+        format!("{n} {}", GROW_WHY_LABELS[why])
+    };
+    let kind = |k: usize, name: &str| {
+        let counts: Vec<u32> = retired[k].iter().map(|&n| u32::from(n)).collect();
+        let list = ranked(&counts)
+            .iter()
+            .map(|&(n, why)| format!("{n} {}", GROW_WHY_LABELS[why]))
+            .collect::<Vec<_>>()
+            .join(", ");
+        format!("{name}: {}.", if list.is_empty() { "NONE".to_string() } else { list })
+    };
+    (
+        value,
+        format!(
+            "THIS PLANT, SHOOT TIPS {} ROOT TIPS {}",
+            kind(0, "STOPPED"),
+            kind(1, "STOPPED")
+        ),
+    )
+}
+
 pub fn specimen_sections(world: &World, id: OrganismId) -> Vec<SpecimenSection> {
     let Some(state) = world.organism_state(id) else { return Vec::new() };
     let species = world.species.get(state.species);
@@ -2119,6 +2172,22 @@ pub fn specimen_sections(world: &World, id: OrganismId) -> Vec<SpecimenSection> 
         "HOW MUCH SHOOT IT HAS GROWN. THIS IS THE NUMBER THE PLANT PAGE'S SEED MATURITY IS COMPARED AGAINST -- BELOW THAT FENCE THIS PLANT CANNOT SET A SEED AT ALL, HOWEVER MUCH ENERGY IT HAS.");
     row("ROOT", state.root_cells.to_string(),
         "HOW MUCH ROOT IT HAS. AGAINST THE SHOOT COUNT IT IS THE ROOT-TO-SHOOT BALANCE, WHICH IS WHAT DECIDES WHETHER IT DIES OF THIRST OR OF SHADE.");
+    // **Where it can still grow from, and why the rest stopped** (step 3 of
+    // tracing plants one individual at a time, `plant::GrowWhy`). A plant
+    // with no tip left has stopped growing whatever its carbon says, and the
+    // second row is the only place the box says which gate stopped it.
+    let (shoot_tips, root_tips) =
+        state.cells.keys().fold((0u32, 0u32), |(s, r), &(cx, cy)| {
+            match organism::cell_type(world.get(cx, cy).aux()) {
+                Some(CellType::GrowingTip) => (s + 1, r),
+                Some(CellType::RootTip) => (s, r + 1),
+                _ => (s, r),
+            }
+        });
+    row("TIPS", format!("{shoot_tips} SHOOT, {root_tips} ROOT"),
+        "HOW MANY GROWING TIPS IT HAS NOW, ON THE SHOOT AND UNDER GROUND. A PLANT GROWS ONLY FROM ITS TIPS, SO ONE WITH NONE LEFT HAS STOPPED GROWING, WHATEVER ITS CARBON SAYS. THE ROW BELOW SAYS WHY THE OTHERS STOPPED.");
+    let (stopped, breakdown) = tips_stopped(&state.tips_retired);
+    row("TIPS STOPPED", stopped, &format!("WHY ITS TIPS STOPPED FOR GOOD: THE COMMONEST REASON AND HOW MANY, AND HOW MANY STOPPED FOR ANYTHING ELSE. {breakdown} HEIGHT: WATER CANNOT BE LIFTED ANY FURTHER UP THE STEM. NO ROOM: NOTHING TO GROW INTO. TOO POOR: NOT CARBON ENOUGH FOR ONE MORE CELL. HARD GROUND: ONLY GROUND TOO DEAR TO PUSH INTO. NO GOOD WAY: EVERY WAY OPEN SCORED AGAINST GROWING. ROOT SHARE: AS MUCH ROOT AS THE SHOOT CAN FEED. TIP CAP: AS MANY TIPS AS ITS KIND GROWS AT ONCE. FLOWER COST: DUE TO FLOWER AND COULD NOT PAY."));
     // **A plant's clock starts at seed set, not at germination**, because
     // that is when `bear_seed_at` allocates its organism. So this includes
     // however long it lay in the seed bank, and the row says so rather than
@@ -2522,7 +2591,7 @@ mod tests {
             state.contact_root_cells,
             state.root_cells
         );
-        for label in ["ROOT IN SOIL", "UPTAKE/DEMAND", "INCOME/UPKEEP", "UNPAID", "STARVING", "BREEDING FUND"] {
+        for label in ["ROOT IN SOIL", "UPTAKE/DEMAND", "INCOME/UPKEEP", "UNPAID", "STARVING", "BREEDING FUND", "TIPS", "TIPS STOPPED"] {
             let v = find(label);
             assert!(!v.is_empty(), "`{label}` rendered an empty value");
         }

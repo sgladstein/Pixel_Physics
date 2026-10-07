@@ -2399,7 +2399,7 @@ pub fn sun_rising(frame: u64) -> bool {
 /// time constant at dusk (~15% for ~60 frames), and fire floods its own
 /// block via `add_light` — so a burning canopy at midnight reads as "full
 /// sun", which is the right answer for a plant and for the fire.
-pub(crate) fn noon_equivalent_light(light: f32, frame: u64) -> f32 {
+pub fn noon_equivalent_light(light: f32, frame: u64) -> f32 {
     (light / sky_light_amplitude(frame) * MAX_LIGHT).clamp(0.0, MAX_LIGHT)
 }
 

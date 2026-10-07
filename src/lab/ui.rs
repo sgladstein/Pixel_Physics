@@ -10933,6 +10933,54 @@ mod tests {
         }
     }
 
+    /// **Every cause of death fits the HISTORY page's CAUSE column**, which
+    /// is sized from one sample label rather than from the list. Six plant
+    /// causes were appended on 2026-10-06 and the first wording of one of
+    /// them ("ROTTED AS A SEED") was a character wider than the sample, so a
+    /// new cause is checked against the column here rather than by noticing
+    /// a clipped word on screen.
+    #[test]
+    fn every_cause_of_death_fits_the_history_cause_column() {
+        let (head, sample) = HISTORY_COLS[HISTORY_COLS.len() - 1];
+        assert_eq!(head, "CAUSE", "the CAUSE column moved; point this guard at it");
+        let budget = hud::text_width(sample);
+        for cause in crate::sim::organism::DEATH_CAUSE_LIST {
+            assert!(
+                hud::text_width(cause.label()) <= budget,
+                "`{}` is {} px wide and the CAUSE column budgets {budget} px for `{sample}` -- it would clip",
+                cause.label(),
+                hud::text_width(cause.label())
+            );
+        }
+    }
+
+    /// **And in the roster's STATE column, which is narrower**: a dead row
+    /// draws its cause there, in a column sized to `STARVING`. The guard
+    /// above passed the six plant causes' first wordings, and the first
+    /// render of the graveyard then showed `LOST ITS TISSUE` drawn as `LOST
+    /// ITS` -- four of the six new ones were as wide. Two older labels already
+    /// clipped there and are named rather than exempted silently: a new cause
+    /// one letter too wide fails this, and so does fixing one of the two
+    /// without updating it.
+    #[test]
+    fn every_cause_of_death_fits_the_roster_state_column_but_two_old_ones() {
+        use crate::sim::organism::DeathCause;
+        for cols in [&PLANT_COLS, &ANT_COLS] {
+            let (head, sample, _) = cols[7];
+            assert_eq!(head, "STATE", "the STATE column moved; point this guard at it");
+            let budget = hud::text_width(sample);
+            let clipped: Vec<DeathCause> = crate::sim::organism::DEATH_CAUSE_LIST
+                .into_iter()
+                .filter(|c| hud::text_width(c.label()) > budget)
+                .collect();
+            assert_eq!(
+                clipped,
+                vec![DeathCause::StarvedInFlight, DeathCause::LostVitalTissue],
+                "the STATE column budgets {budget} px for `{sample}`"
+            );
+        }
+    }
+
     /// **The font cannot draw everything, and what it cannot draw it draws as
     /// nothing.** `[`/`]`, then `_`/`<`/`>`, then `;`/`'` have each shipped
     /// blank in this engine's UI for as long as they were bound — three

@@ -11,7 +11,8 @@ does, and `.claude/rules/measuring-the-world.md` on world-wide metric traps.*
 **The short version.** Freeze mutation, land the evolved founder in the dry
 goal box, run four seeds side by side, read 100k–300k means. Judge a fix by
 the number it was built to move, look at a picture, then trace what it cost
-ant by ant. Colony size is never the verdict on its own.
+ant by ant. Colony size is never the verdict on its own. Deep-trace every
+test until the result is understood, and propose no new fix before then.
 
 ## 1. The standard setup
 
@@ -31,6 +32,16 @@ once with mutation **on** (2 seeds to 150k is the usual check) — a fix that
 only holds in a frozen colony is not finished.
 
 ## 2. Judging a fix
+
+**Trace every test until the problem is understood, before the next fix**
+(owner, 2026-10-06): *"You run your test and you deep trace it to understand
+the problem in full. If you don't fully understand what's going on, stop
+suggesting new fixes and implementing and testing them."* So every test run
+is followed by a deep trace (§3) of what happened in it. Until that trace
+explains the result — what each ant did and why, traced rather than inferred
+— the next step is more tracing, not a new switch, a new arm or a re-tune.
+A result you cannot explain is reported as unexplained, with what the trace
+has ruled out so far.
 
 Owner rulings, 2026-10-05:
 
@@ -95,6 +106,28 @@ frame cost) are in `.claude/rules/measuring-the-world.md`; method traps
 - **Raw larvae starved** falls whenever eggs fall. Use **larvae starved per egg**.
 - **Total cuts.** 80–85% of nest cuts are re-digs of soil already moved. Count
   **new-ground cuts**.
+- **A share of ant-time deep in the nest, read as a gain.** 0.5% against
+  0.6–1.6% of ant-time reads as "raised on all four seeds"; it is about 3
+  against 4–9 ants of ~550, still basically nobody (owner, 2026-10-06). Give
+  it as ants, beside the baseline: the scorecard's **ANTS DEEP** line, door
+  column apart from the rest, because most deep ants sit on the brood pile in
+  the shaft under the door. Then read **ANTS LIVING DEEP** under it: a jam
+  shows as deep ants too. Homing seed 2's 12 deep ants were a crowd of hungry
+  ants dipping below row 10 for a few frames at a time, not ants living
+  there; the line counts the fed ones, and `--stays` on a `dig=1` run counts
+  the fed ones in stays of 50+ frames and gives the median stay.
+- **An ant standing on brood hides it in every picture.** The brood cell is lifted
+  out from under the walker, so the grid, the maps (`a`) and the lab's own drawing
+  all show the ant. On the shipped game 63-99% of the ants in each row of the
+  column over and under the door stand on brood (2026-10-06), so a solid column
+  of ants reads as ants that will not walk into it. Read `walk=1`'s `nb` column
+  (`B`) or `broodstep.py`, not the picture.
+- **`starvewhere.py` "encased" before 2026-10-07** counted depth, not soil.
+  Its flood stopped at row 175, so every starver deeper than 15 rows read
+  encased whatever was round it: 50 of 51 on LAY_BAR=body seed 1 with the
+  smell store, 0 after the fix (all 50 "door open"). Re-run the tool before
+  quoting an older "encased". And "door open" says a path joins the ant to
+  the door, not that it can climb it: a body with nothing beside it falls.
 - **`digbox` `SCORE`** — read its `n=` first.
 - **Room censuses** on a wet floor (water splits one room into "chambers"),
   or split by a brood pile; brood pockets under 30 cells are not rooms;
@@ -113,6 +146,16 @@ frame cost) are in `.claude/rules/measuring-the-world.md`; method traps
 |---|---|
 | Why does every ant do what it does? | `deeptrace` + its readers (§3) |
 | Does a switch hit its own target? | `deeptrace walk=1 census=1` + `scripts/deeptrace_plan.py` |
+| Is my arm's off run the shipped game, and how does the arm compare with the baseline? | `scripts/deeptrace_tools/identity.py` first, then `scripts/deeptrace_tools/scorecard.py` (one column per run). Read its ANTS DEEP line (about N of M ants, door column / off it) and ANTS LIVING DEEP under it, not the headline alone: most of the time in the dug nest is the knot at the door |
+| Who starved where, and were they shut in? | `scripts/deeptrace_tools/starvewhere.py`, `spells.py` and `doorseal.py`, on runs made with `hungry=1 mapevery=1000` |
+| Where did the digging go, and how many chambers? | `scripts/deeptrace_tools/digwhere.py` and `chambers.py` (the owner's chamber rule) |
+| Did a dropped pellet have a choice of cell? | `deeptrace drops=1` + `scripts/deeptrace_tools/dropchoice.py` |
+| Is the nest full, and which part? | `scripts/deeptrace_tools/bandfill.py`: free cells, ants and brood per depth band, map by map, beside the ants there (`--show F1-F2` for each map) |
+| Is there a clear way into the nest through the mound? | `scripts/deeptrace_tools/moundway.py`: the shortest way in from outside, its narrowest neck, how full of ants it is, the mound's dead ends, and maps with no way in at all (`--png` draws it with the ants hidden) |
+| Do ants step into the brood, or does something refuse them? | `deeptrace walk=1 digfrom=F` + `scripts/deeptrace_tools/broodstep.py` (steps offered against taken, brood against open ground by direction, beside what the chooser's scores predict; what was refused and why) and `fedboundary.py` (fed and hungry ants by what is straight below them, row band by row band) |
+| Does a dig rule's input reach the ants that dig? | `deeptrace dig=1` + `scripts/deeptrace_tools/digtrace.py`: each dig decision by where the ant stood and by the Crowding it read |
+| How far does each plant get, and what stops it? (seed, germinated, grown to seed size, seeded; what each one died of) | `planttrace life=1` + `scripts/planttrace.py` (`funnel`, `deaths`, `spells`, `tips` for why growing tips stopped, `life ID` for one plant's biography); `cull=F` is the known-answer control |
+| Why did this tip go where it went, or stop where it stopped? | `planttrace growlog=1 only=ID` + `scripts/planttrace.py tip OUT ID [X Y]` (one tip, visit by visit); `check` proves the log is the rule's own arithmetic, `--drop TERM` its positive control; `shots=F,F at=x,y,w,h` photographs the same run |
 | Digging in a simple box | `digbox` |
 | The nest door and its pictures | `nestdoor` (`shots=` renders with the game's renderer) |
 | Foraging and trails | `labforage`, `trailprofile`, `trailfollow` |
@@ -137,7 +180,10 @@ Before building anything new, grep [`instruments.md`](instruments.md).
 - `rustfmt` the files you touched (never a whole-project `cargo fmt` riding
   along), then
   `cargo clippy --all-targets --release --locked -- -D warnings`.
-- The touched module's tests; CI runs the rest.
+- The touched module's tests only (`cargo test --release --lib <module>`, plus
+  the `tests/*.rs` file for any registry you added to). **Do not run the full
+  suite locally**: CI runs it on every push (the owner caught three lanes
+  running it locally, 2026-10-05).
 - Merge `main` in right before hand-off; `bash scripts/docscheck.sh` after
   every merge.
 - `bash scripts/branchcheck.sh --who-touched <path>` before writing into a

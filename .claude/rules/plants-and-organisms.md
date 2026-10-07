@@ -24,3 +24,15 @@ set. See `Reports/plant-appearance-design.md`.
 **A threshold on light must divide the day out**: use
 `field::noon_equivalent_light`, or a night-time sample makes a nightly
 extinction event (live tips 71 at noon against 28 at night).
+
+**Why did a plant die, or one of its tips stop? Trace the individuals.**
+`examples/planttrace.rs life=1` follows every plant from seed to grave, and
+`scripts/planttrace.py` answers from it: `funnel` (how far each one got),
+`deaths` (what killed it, and when), `spells` (its starving spells), `tips`
+(why its growing tips stopped, `plant::GrowWhy`) and `life ID` (one plant's
+biography). Reach for it before a stand census: a count of what is standing
+cannot say which gate each plant met. **Why did one tip go where it went, or
+stop where it stopped?** `planttrace growlog=1 only=ID` logs every decision
+its tips made; `tip OUT ID [X Y]` follows one, `check` proves the log is the
+rule's own arithmetic, and `shots=` photographs the same run (`labshot`
+steps a different copy of the bed).
