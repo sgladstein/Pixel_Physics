@@ -21987,12 +21987,33 @@ fn update_hungry_home(world: &mut World, organism: OrganismId, def: &CreatureDef
 ///   from the last nest contact charged it for time queued in the mound and
 ///   turned scouts a few cells out (food at 90, seed 1 died out), which is
 ///   why the bill here starts in the open.
+/// - `rebill`: the bill starts again whenever the ant is under cover, so it
+///   runs from this trip's first step out of the mound, not from its first
+///   step out since its last nest contact. Laying's review (2026-10-07):
+///   without it an ant fed at the nest that stood on the mound top more than
+///   a trip's length out carries a bill start so high that it counts as
+///   spent the moment it steps out hungry -- the seed 4 crash by another
+///   route.
+/// - `line`: `turn` latches only under [`WAY_LINE`] of the grant, not at it.
+///   At the grant nearly every would-be latch is an ant hovering there, fed
+///   again a median 55-90 frames later; at 0.9 the far-west starvers still
+///   latch (29 / 12 / 11 / 21 of 30 / 12 / 11 / 23, seeds 1-4, heap at 90,
+///   switch-off runs, Laying's `openlatch.py`) and latches east of the door,
+///   where the trip food is, fall from 1,800-3,136 per seed to 0-3.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub struct WayHome {
     pub turn: bool,
     pub bare: bool,
     pub bill: bool,
+    pub rebill: bool,
+    pub line: bool,
 }
+
+/// **How far under its grant an ant that went hungry in the open must be
+/// before `turn` latches it** ([`WayHome`]'s `line`). Laying's 0.9, set from
+/// the switch-off runs' would-be latches; a lost ant turns about 20 J later,
+/// some 6-8 cells more walking out.
+const WAY_LINE: f32 = 0.9;
 
 /// **How many times what the way out cost, the way back is reckoned to
 /// cost** ([`WayHome`]'s `bill`). Laying's measure in the goal box with food
@@ -22002,8 +22023,8 @@ pub struct WayHome {
 const WAY_BILL_MARGIN: f32 = 1.5;
 
 impl WayHome {
-    pub const OFF: WayHome = WayHome { turn: false, bare: false, bill: false };
-    pub const ON: WayHome = WayHome { turn: true, bare: true, bill: true };
+    pub const OFF: WayHome = WayHome { turn: false, bare: false, bill: false, rebill: false, line: false };
+    pub const ON: WayHome = WayHome { turn: true, bare: true, bill: true, rebill: true, line: true };
     /// Off until measured.
     pub const SHIPPED: WayHome = WayHome::OFF;
 
@@ -22016,7 +22037,9 @@ impl WayHome {
                 "turn" => m.turn = true,
                 "bare" => m.bare = true,
                 "bill" => m.bill = true,
-                other => panic!("PIXEL_PHYSICS_WAY_HOME={raw:?}: {other:?} is not on, off, turn, bare or bill"),
+                "rebill" => m.rebill = true,
+                "line" => m.line = true,
+                other => panic!("PIXEL_PHYSICS_WAY_HOME={raw:?}: {other:?} is not on, off, turn, bare, bill, rebill or line"),
             }
         }
         m
@@ -22079,7 +22102,7 @@ fn update_way_home(world: &mut World, organism: OrganismId, def: &CreatureDef, h
     } else {
         let x = f32::from(world.pheromone_at(Channel::B, head.0, head.1)) / TRAIL_HALF;
         let dark = x / (1.0 + x) < HUNGRY_ROUTE;
-        let left_fed = way.turn && state.way_open_fed;
+        let left_fed = way.turn && state.way_open_fed && (!way.line || state.energy < WAY_LINE * def.start_energy);
         let spent = way.bill && !bill_e0.is_nan() && state.energy < HUNGRY_RESERVE * def.start_energy + WAY_BILL_MARGIN * (bill_e0 - state.energy);
         let latch = dark && d > f32::from(FORAGE_TRIP_MIN) && (left_fed || spent) && def.home_bias > 0.0;
         billed = latch && !left_fed;
@@ -22100,6 +22123,9 @@ fn update_way_home(world: &mut World, organism: OrganismId, def: &CreatureDef, h
         // **Fed in the open, and not under cover since** (`turn`'s test):
         // cover clears it, as the nest resets a desert ant's home vector.
         state.way_open_fed = !covered && (state.way_open_fed || state.energy >= def.start_energy);
+        if way.rebill && covered {
+            state.way_bill_e0 = f32::NAN;
+        }
     }
 }
 
@@ -40417,7 +40443,7 @@ mod tests {
             }
             (west, east)
         };
-        let (_, held_east) = walk(WayHome { turn: true, bare: false, bill: false });
+        let (_, held_east) = walk(WayHome { turn: true, bare: false, bill: false, rebill: false, line: false });
         let (bare_west, bare_east) = walk(WayHome::ON);
         assert!(held_east > bare_east, "the trail should hold the walk home east under turn alone (got to x {held_east}) more than under bare (x {bare_east}): the scene cannot show a difference");
         assert!(bare_west < 100 - 20, "under bare the ant should walk home along the trail, and got only to x {bare_west}");
@@ -40471,7 +40497,7 @@ mod tests {
             }
             (w.creature_stats.way_home_turns, west, east)
         };
-        let (turn_turns, _, turn_east) = walk(WayHome { turn: true, bare: true, bill: false });
+        let (turn_turns, _, turn_east) = walk(WayHome { turn: true, bare: true, bill: false, rebill: false, line: false });
         assert!(turn_turns == 0 && turn_east >= 120, "`turn` alone should leave an ant that set out hungry scouting east, and got to x {turn_east} with {turn_turns} turns");
         let (turns, west, east) = walk(WayHome::ON);
         assert!(turns >= 1, "the billed ant never turned for home");
@@ -40509,7 +40535,7 @@ mod tests {
             }
             w.chooser = Some(Chooser::TrailAway);
             w.scout = Some(SCOUT_DEFAULT);
-            w.way_home = Some(WayHome { turn: true, bare: true, bill: false });
+            w.way_home = Some(WayHome { turn: true, bare: true, bill: false, rebill: false, line: false });
             let ant = spawn(&mut w, "ant", 100, 40);
             let grant = w.species.get(w.organism(ant).expect("live").species).creature.as_ref().expect("a creature").start_energy;
             {
@@ -40530,6 +40556,58 @@ mod tests {
         assert!(open_turns >= 1, "without the roof the ant went hungry in the open and should turn for home: the scene cannot show a difference");
         let (turns, east) = walk(true);
         assert_eq!(turns, 0, "an ant that went hungry under cover was turned for home on stepping out");
+        assert!(east >= 120, "it should scout east out from under the roof, and got to x {east}");
+    }
+
+    /// **`rebill` starts the bill at this trip's first step out of cover** --
+    /// Laying's review of the open-fed turn (2026-10-07). The cover test's
+    /// scene: the ant under the roof, hungry at 0.8 of its grant (held), its
+    /// bill started long before at 3 times the grant, as for an ant fed at
+    /// the nest that stood on the mound top more than a trip's length out.
+    /// Without `rebill` it counts as spent the moment it steps out from under
+    /// the roof and is turned home at once, the seed 4 crash by another
+    /// route; with it, the bill restarts under cover and the ant scouts on.
+    #[test]
+    fn rebill_starts_the_bill_at_the_step_out_of_cover() {
+        let walk = |rebill: bool| -> (u64, i32) {
+            let stone = Cell::new(material::STONE, 0).with_attached(true);
+            let mut w = World::new(Rect::new(0, 0, 159, 63));
+            for x in 0..160 {
+                for y in 41..64 {
+                    w.set(x, y, stone);
+                }
+            }
+            for y in 0..41 {
+                for x in [0, 159] {
+                    w.set(x, y, stone);
+                }
+            }
+            for x in 80..=112 {
+                w.set(x, 30, stone);
+            }
+            w.chooser = Some(Chooser::TrailAway);
+            w.scout = Some(SCOUT_DEFAULT);
+            w.way_home = Some(WayHome { turn: false, bare: true, bill: true, rebill, line: true });
+            let ant = spawn(&mut w, "ant", 100, 40);
+            let grant = w.species.get(w.organism(ant).expect("live").species).creature.as_ref().expect("a creature").start_energy;
+            {
+                let st = w.organism_mut(ant).expect("live");
+                st.heading = 0;
+                st.forage_anchor = (20, 40);
+                st.way_bill_e0 = 3.0 * grant;
+            }
+            let mut east = 100;
+            for _ in 0..1800 {
+                w.organism_mut(ant).expect("live").energy = 0.8 * grant;
+                run(&mut w, 1);
+                east = east.max(w.organism(ant).expect("live").chain[0].0);
+            }
+            (w.creature_stats.way_home_turns, east)
+        };
+        let (stale_turns, _) = walk(false);
+        assert!(stale_turns >= 1, "without rebill the stale bill should turn the ant home on stepping out: the scene cannot show a difference");
+        let (turns, east) = walk(true);
+        assert_eq!(turns, 0, "with rebill the ant was billed from before it went under cover");
         assert!(east >= 120, "it should scout east out from under the roof, and got to x {east}");
     }
 
