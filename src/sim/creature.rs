@@ -10828,6 +10828,7 @@ pub fn blend_with_nest(world: &mut World, organism: OrganismId, x: i32, y: i32) 
     // founding cohort off its own signature on its first step.
     if !world.nest_sites[i].seeded {
         let colony = world.organism(organism).map_or(0, |s| s.colony);
+        world.nest_sites[i].gut = traits_of_state(world, organism)[TRAIT_GUT_BIAS];
         world.nest_sites[i].scent = mine;
         world.nest_sites[i].seeded = true;
         world.nest_sites[i].colony = colony;
@@ -13955,6 +13956,23 @@ pub struct NestStore {
     /// `sky`: **a carrier's soil goes down under open sky** (Nest race,
     /// 2026-10-07, built off). See [`ring_target`].
     pub sky: bool,
+    /// `edible`: **store food is food the colony's mouth can take** (Nest
+    /// race, 2026-10-07, built off; Deep trace's review
+    /// `store-edible-review-deep-trace-2026-10-07.md`). The store counted
+    /// every loose cell worth more than 0 J ([`loose_food`]), while the
+    /// mouth sees only [`diet_yield`] over [`EAT_YIELD_THRESHOLD`]. Late in
+    /// the WAY_FOOT + backfill rerun (heap 90, seeds 3 and 4, 200-300k) the
+    /// store filled with crumbs worth 0-15 J: they kept it reading "can
+    /// feed" (8+ cells), seeded its field and held the walk out off, and
+    /// 337 of 396 nest starvers died with such a crumb within 10 cells and
+    /// no edible store cell within 10 (Deep trace, measured). Under `edible`
+    /// the store's count, its field's seeds and the bite-time check all use
+    /// the mouth's test at the colony's expressed gut ([`NestSite`]'s `gut`,
+    /// taken from the founder that seeded the site). **Not the species
+    /// file's gut**: `ant.ron` authors 0 while the lab founder expresses
+    /// -0.8, and at 0 a crumb counts only above 48 J. With mutation on, an
+    /// ant whose gut drifted can still disagree at the margin (left visible).
+    pub edible: bool,
 }
 
 /// How deep the store is by default ([`NestStore`]'s `depth`), in steps of
@@ -13977,8 +13995,8 @@ pub const STORE_DOOR_REACH: i32 = 8;
 pub const STORE_ROOMY: u32 = 12;
 
 impl NestStore {
-    pub const OFF: NestStore = NestStore { carry: false, eat: false, keep: false, home: false, larder: false, depth: STORE_DEPTH, pick: 0, jaws: false, fetch: false, smell: 0, sated: false, whole: false, meal: false, sky: false };
-    pub const ON: NestStore = NestStore { carry: true, eat: true, keep: true, home: true, larder: true, depth: STORE_DEPTH, pick: 0, jaws: false, fetch: false, smell: 0, sated: false, whole: false, meal: false, sky: false };
+    pub const OFF: NestStore = NestStore { carry: false, eat: false, keep: false, home: false, larder: false, depth: STORE_DEPTH, pick: 0, jaws: false, fetch: false, smell: 0, sated: false, whole: false, meal: false, sky: false, edible: false };
+    pub const ON: NestStore = NestStore { carry: true, eat: true, keep: true, home: true, larder: true, depth: STORE_DEPTH, pick: 0, jaws: false, fetch: false, smell: 0, sated: false, whole: false, meal: false, sky: false, edible: false };
     /// What a world gets with the variable unset: off, see the type's doc.
     pub const SHIPPED: NestStore = NestStore::OFF;
 
@@ -13993,14 +14011,15 @@ impl NestStore {
         let mut ns = NestStore::OFF;
         for part in raw.split(',').map(str::trim).filter(|p| !p.is_empty()) {
             match part {
-                "on" => ns = NestStore { depth: ns.depth, pick: ns.pick, jaws: ns.jaws, fetch: ns.fetch, smell: ns.smell, sated: ns.sated, whole: ns.whole, meal: ns.meal, sky: ns.sky, ..NestStore::ON },
-                "off" => ns = NestStore { depth: ns.depth, pick: ns.pick, jaws: ns.jaws, fetch: ns.fetch, smell: ns.smell, sated: ns.sated, whole: ns.whole, meal: ns.meal, sky: ns.sky, ..NestStore::OFF },
+                "on" => ns = NestStore { depth: ns.depth, pick: ns.pick, jaws: ns.jaws, fetch: ns.fetch, smell: ns.smell, sated: ns.sated, whole: ns.whole, meal: ns.meal, sky: ns.sky, edible: ns.edible, ..NestStore::ON },
+                "off" => ns = NestStore { depth: ns.depth, pick: ns.pick, jaws: ns.jaws, fetch: ns.fetch, smell: ns.smell, sated: ns.sated, whole: ns.whole, meal: ns.meal, sky: ns.sky, edible: ns.edible, ..NestStore::OFF },
                 "jaws" => ns.jaws = true,
                 "fetch" => ns.fetch = true,
                 "sated" => ns.sated = true,
                 "whole" => ns.whole = true,
                 "meal" => ns.meal = true,
                 "sky" => ns.sky = true,
+                "edible" => ns.edible = true,
                 "carry" => ns.carry = true,
                 "eat" => ns.eat = true,
                 "keep" => ns.keep = true,
@@ -14010,7 +14029,7 @@ impl NestStore {
                     (Some(n), _, _) => ns.depth = n,
                     (_, Some(n), _) => ns.pick = n,
                     (_, _, Some(n)) => ns.smell = n,
-                    _ => panic!("PIXEL_PHYSICS_NEST_STORE={raw:?}: {other:?} is not on, off, carry, eat, keep, home, larder, jaws, fetch, sated, whole, meal, sky, depth=<steps>, pick=<cols> or smell=<steps>"),
+                    _ => panic!("PIXEL_PHYSICS_NEST_STORE={raw:?}: {other:?} is not on, off, carry, eat, keep, home, larder, jaws, fetch, sated, whole, meal, sky, edible, depth=<steps>, pick=<cols> or smell=<steps>"),
                 },
             }
         }
@@ -14036,6 +14055,14 @@ pub fn nest_store_of(world: &World) -> NestStore {
 /// where the dead lay, and the rebuild without corpses is the test).
 fn loose_food(world: &World, c: Cell) -> bool {
     c.organism_id() == 0 && food_value(world, c) > 0.0 && Some(c.material) != world.materials.id_of("corpse")
+}
+
+/// **A store cell's food test** ([`NestStore`]'s `edible`): [`loose_food`],
+/// and under `edible` also food the mouth of nest `site`'s colony can take
+/// ([`diet_yield`] at the site's expressed gut over [`EAT_YIELD_THRESHOLD`],
+/// the test [`adjacent_food_counted`] makes). Without `edible`, `loose_food`.
+fn store_food(world: &World, c: Cell, site: usize) -> bool {
+    loose_food(world, c) && (!nest_store_of(world).edible || diet_yield(world, c, world.nest_sites[site].gut) > EAT_YIELD_THRESHOLD)
 }
 
 /// **How far round its nest a nest worker picks food up for the store**
@@ -14110,7 +14137,7 @@ fn fill_nest_store(world: &World, way: &mut NestWay, depth: u16) {
             let mut touches = false;
             for &(dx, dy) in NEIGHBOURS_8.iter() {
                 let (fx, fy) = (x + dx, y + dy);
-                if world.in_bounds(fx, fy) && loose_food(world, world.get(fx, fy)) && !(whole && Some(world.get(fx, fy).material) == crumbs) {
+                if world.in_bounds(fx, fy) && store_food(world, world.get(fx, fy), way.site) && !(whole && Some(world.get(fx, fy).material) == crumbs) {
                     touches = true;
                     way.store_cells.push((fx, fy));
                 }
@@ -14162,8 +14189,10 @@ fn nest_way_near(world: &World, x: i32, y: i32) -> Option<&NestWay> {
 /// rebuild, so food put down since counts.
 fn is_store_cell(world: &World, (fx, fy): (i32, i32)) -> bool {
     let depth = nest_store_of(world).depth;
-    loose_food(world, world.get(fx, fy))
-        && nest_way_near(world, fx, fy).is_some_and(|way| NEIGHBOURS_8.iter().any(|&(dx, dy)| way.at(fx + dx, fy + dy).is_some_and(|d| d >= depth)))
+    nest_way_near(world, fx, fy).is_some_and(|way| {
+        store_food(world, world.get(fx, fy), way.site)
+            && NEIGHBOURS_8.iter().any(|&(dx, dy)| way.at(fx + dx, fy + dy).is_some_and(|d| d >= depth))
+    })
 }
 
 /// **The nurse's exception to `keep`** ([`NestStore`]): a fed nest worker
@@ -32704,6 +32733,7 @@ mod tests {
         assert_eq!(NestStore::parse("eat,keep"), NestStore { eat: true, keep: true, ..NestStore::OFF });
         assert_eq!(NestStore::parse("depth=7,on"), NestStore { depth: 7, ..NestStore::ON });
         assert!(!NestStore::SHIPPED.on(), "the nest store ships off");
+        assert_eq!(NestStore::parse("on,edible"), NestStore { edible: true, ..NestStore::ON });
         assert!(std::panic::catch_unwind(|| NestStore::parse("eats")).is_err());
     }
 
@@ -32759,6 +32789,51 @@ mod tests {
         let (w, a, def, head) = world(64, 47, NestStore::OFF, true);
         assert_eq!(nest_store_pull(&w, a, &def, head), None, "with the switch off the store pulled");
         assert!(w.nest_ways[0].store.is_empty(), "with the switch off a store field was built");
+    }
+
+    /// **Under `edible` the store holds only food the colony's mouth can
+    /// take** ([`NestStore`]'s `edible`, [`store_food`]). Eight crumbs on the
+    /// gallery floor deeper than `depth=10` ([`STORE_EAT_MIN`]), at three
+    /// worths, under the lab founder's expressed gut (-0.8, crumbs pay 0.81)
+    /// and the species file's (0, crumbs pay 0.25). 5 J crumbs are a store
+    /// without `edible` and none with it; 30 J crumbs are one under the
+    /// founder's gut and none under the file's -- the case the review asked
+    /// for, since a 5 J store reads empty under both; 500 J crumbs are a
+    /// store under every setting (specificity). The bite-time check agrees
+    /// with the count. And an unseeded site takes the seeding ant's
+    /// expressed gut. Watched red with `store_food` reading gut 0.0.
+    #[test]
+    fn under_edible_the_store_holds_only_food_the_colony_can_eat() {
+        let store = |worth: u16, gut: f32, edible: bool| {
+            let (mut w, _a) = rest_world(64, 47, false);
+            w.hungry_out = Some(true);
+            w.nest_store = Some(NestStore { depth: 10, edible, ..NestStore::ON });
+            w.nest_sites[0].gut = gut;
+            let crumbs = w.materials.id_of("crumbs").expect("crumbs");
+            for x in 72..=79 {
+                w.set(x, 48, Cell::new(crumbs, 0).with_aux(worth));
+            }
+            w.nest_ways.clear();
+            step_nest_rest(&mut w);
+            let can = store_can_feed(&w.nest_ways[0]);
+            let cell = is_store_cell(&w, (78, 48));
+            assert_eq!(can, cell, "the count and the bite-time check disagree at {worth} J, gut {gut}, edible {edible}");
+            can
+        };
+        assert!(store(5, -0.8, false), "test setup: without `edible` eight 5 J crumbs are not a store");
+        assert!(!store(5, -0.8, true), "under `edible` eight 5 J crumbs the mouth cannot take read as a store");
+        assert!(store(30, -0.8, true), "under `edible` eight 30 J crumbs the founder's mouth takes (24 J) are not a store");
+        assert!(!store(30, 0.0, true), "under `edible` at the file's gut 30 J crumbs (7.5 J) read as a store");
+        assert!(store(500, 0.0, true) && store(500, -0.8, true), "500 J crumbs are not a store under `edible`");
+
+        let (mut w, a) = rest_world(64, 47, false);
+        w.nest_sites[0].seeded = false;
+        w.nest_sites[0].gut = 9.0;
+        w.organism_mut(a).expect("live").traits[TRAIT_GUT_BIAS] = -0.8;
+        let head = w.organism(a).expect("live").chain[0];
+        blend_with_nest(&mut w, a, head.0, head.1);
+        assert!(w.nest_sites[0].seeded, "test setup: the site was not seeded");
+        assert_eq!(w.nest_sites[0].gut, traits_of_state(&w, a)[TRAIT_GUT_BIAS], "the site did not take the seeding ant's expressed gut");
     }
 
     /// **A hungry ant inside is pulled out along the passages, towards its

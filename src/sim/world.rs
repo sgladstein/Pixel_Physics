@@ -1277,6 +1277,11 @@ pub struct NestSite {
     /// nest (this label or one it split from, `World::descends_from`) from a
     /// rival's.
     pub colony: u32,
+    /// **The expressed gut (`TRAIT_GUT_BIAS`) of the ant that seeded this
+    /// site**, taken with `colony`; 0 until seeded. Read only by the store's
+    /// `edible` part (`creature::NestStore`), so the store judges food by the
+    /// same test as its colony's mouth. Passive: nothing else reads it.
+    pub gut: f32,
 }
 
 /// **Where a founding cut went**, as two inclusive rectangles: the shaft,
@@ -8712,7 +8717,7 @@ impl World {
         // the top of a tailings pile home. The founding row is the fixed
         // datum `step_nest_room` already freezes for the same reason.
         let surface = crate::sim::creature::colony_surface(self, x, y).unwrap_or(y);
-        self.nest_sites.push(NestSite { x, y, surface, scent: [0.0; 3], seeded: false, drift_epoch: epoch, shaft: None, larder: None, colony: 0 });
+        self.nest_sites.push(NestSite { x, y, surface, scent: [0.0; 3], seeded: false, drift_epoch: epoch, shaft: None, larder: None, colony: 0, gut: 0.0 });
     }
 
     /// **Is `colony` the label `ancestor`, or one minted from it** by
