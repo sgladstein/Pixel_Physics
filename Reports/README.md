@@ -5486,6 +5486,16 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   adjudication. Pick it up from this file — it
   carries what a later session must not re-derive, including the two rubric
   rules that are under-applied by default.
+- [handoff/PLAN-2026-10-07.md](handoff/PLAN-2026-10-07.md) — **the account
+  handoff and plan for the ant program, 2026-10-07 (main 9c362015); start here.**
+  Written for a new account with only the repo: the owner's goals, every working
+  rule that lived only in project memory (trace before the next fix, keep failed
+  experiments findable, the 12-seed merge bar, reporting rules, numbers that
+  misled), the stack of six switches heading to main and what each did, what
+  failed or is inconclusive and why, every live branch, and the ordered next
+  steps (stack on main, food caps births, why ants live in the mound, rooms). The
+  key write-ups and readers it cites are copied beside it in `handoff/2026-10-07/`.
+  Supersedes the 2026-10-02 handoff below for the ant program.
 - [handoff/HANDOFF-2026-10-02.md](handoff/HANDOFF-2026-10-02.md) — **the
   account handoff for the ant program, 2026-10-02 (main e8adc960).** The owner's
   standing rulings, how the coordinator, the nest and breeding lanes and the
