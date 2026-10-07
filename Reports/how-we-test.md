@@ -122,6 +122,12 @@ frame cost) are in `.claude/rules/measuring-the-world.md`; method traps
   column over and under the door stand on brood (2026-10-06), so a solid column
   of ants reads as ants that will not walk into it. Read `walk=1`'s `nb` column
   (`B`) or `broodstep.py`, not the picture.
+- **`starvewhere.py` "encased" before 2026-10-07** counted depth, not soil.
+  Its flood stopped at row 175, so every starver deeper than 15 rows read
+  encased whatever was round it: 50 of 51 on LAY_BAR=body seed 1 with the
+  smell store, 0 after the fix (all 50 "door open"). Re-run the tool before
+  quoting an older "encased". And "door open" says a path joins the ant to
+  the door, not that it can climb it: a body with nothing beside it falls.
 - **`digbox` `SCORE`** — read its `n=` first.
 - **Room censuses** on a wet floor (water splits one room into "chambers"),
   or split by a brood pile; brood pockets under 30 cells are not rooms;
