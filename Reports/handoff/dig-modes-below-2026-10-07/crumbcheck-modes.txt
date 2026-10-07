@@ -1,0 +1,36 @@
+/dev/shm/nb/modes-food-s1 20000-300000: starved 4382, of them in the nest 4378 (with a last row and a census: 4378; missing 0)
+  store read "can feed" (8+ counted cells) at the death: 4319 of 4378
+  Deep trace's headline (storecensus2 near_stub_only): inedible crumb within 10 and no edible store cell within 10: 4047 of 4378
+  empty store   4319 of 4378
+  wrong crumb     48 of 4378
+  food near        0 of 4378
+  far             11 of 4378
+  median at the death: store cells 15, edible store cells 1; nearest edible store cell 31, nearest inedible crumb 2, nearest edible loose food 23
+  by 40k window of death: 40k empty589 wrong0 food0 far0 | 80k empty674 wrong0 food0 far0 | 120k empty624 wrong30 food0 far0 | 160k empty544 wrong0 food0 far0 | 200k empty676 wrong12 food0 far5 | 240k empty764 wrong0 food0 far0 | 280k empty448 wrong6 food0 far6
+/dev/shm/nb/modes-food-s2 20000-300000: starved 5202, of them in the nest 5200 (with a last row and a census: 5200; missing 0)
+  store read "can feed" (8+ counted cells) at the death: 4685 of 5200
+  Deep trace's headline (storecensus2 near_stub_only): inedible crumb within 10 and no edible store cell within 10: 4950 of 5200
+  empty store   4685 of 5200
+  wrong crumb    466 of 5200
+  food near       14 of 5200
+  far             35 of 5200
+  median at the death: store cells 12, edible store cells 0; nearest edible store cell 999, nearest inedible crumb 2, nearest edible loose food 19
+  by 40k window of death: 0k empty0 wrong0 food0 far10 | 40k empty421 wrong47 food10 far0 | 80k empty755 wrong86 food2 far1 | 120k empty724 wrong136 food2 far1 | 160k empty677 wrong175 food0 far23 | 200k empty853 wrong22 food0 far0 | 240k empty854 wrong0 food0 far0 | 280k empty401 wrong0 food0 far0
+/dev/shm/nb/modes-food-s3 20000-300000: starved 4328, of them in the nest 4325 (with a last row and a census: 4325; missing 0)
+  store read "can feed" (8+ counted cells) at the death: 3943 of 4325
+  Deep trace's headline (storecensus2 near_stub_only): inedible crumb within 10 and no edible store cell within 10: 4101 of 4325
+  empty store   3741 of 4325
+  wrong crumb    541 of 4325
+  food near       37 of 4325
+  far              6 of 4325
+  median at the death: store cells 10, edible store cells 0; nearest edible store cell 999, nearest inedible crumb 3, nearest edible loose food 19
+  by 40k window of death: 40k empty0 wrong124 food26 far2 | 80k empty478 wrong53 food6 far2 | 120k empty741 wrong97 food0 far0 | 160k empty668 wrong68 food3 far0 | 200k empty798 wrong53 food2 far1 | 240k empty599 wrong138 food0 far1 | 280k empty457 wrong8 food0 far0
+/dev/shm/nb/modes-food-s4 20000-300000: starved 2551, of them in the nest 2545 (with a last row and a census: 2545; missing 0)
+  store read "can feed" (8+ counted cells) at the death: 2510 of 2545
+  Deep trace's headline (storecensus2 near_stub_only): inedible crumb within 10 and no edible store cell within 10: 2369 of 2545
+  empty store   2115 of 2545
+  wrong crumb    377 of 2545
+  food near       37 of 2545
+  far             16 of 2545
+  median at the death: store cells 18, edible store cells 4; nearest edible store cell 22, nearest inedible crumb 2, nearest edible loose food 11
+  by 40k window of death: 40k empty89 wrong23 food7 far10 | 80k empty752 wrong0 food0 far0 | 120k empty390 wrong7 food1 far0 | 160k empty96 wrong46 food6 far0 | 200k empty471 wrong6 food1 far0 | 240k empty169 wrong209 food21 far3 | 280k empty148 wrong86 food1 far3
