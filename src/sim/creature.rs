@@ -8073,7 +8073,7 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
         world.creature_stats.depth_pauses += 1;
     }
     if world.needs.is_some() {
-        needs::after(world, organism, def, moved || left_the_spot);
+        needs::after(world, organism, def, moved || left_the_spot, roll_move < p_move);
     }
 
     // --- deposit, only on a successful move (P-11) ----------------------
@@ -27819,6 +27819,25 @@ fn creature_dies(world: &mut World, organism: OrganismId, cause: organism::Death
     }
     world.creature_stats.deaths += 1;
     world.free_organism(organism);
+}
+
+/// **Does this ant hold food it picked up to eat, so it keeps and digests it
+/// rather than putting it down?** Keyed on *why* the food is held, not where
+/// the ant stands (Scott 2026-10-07 01:26: eating from the store must not stop
+/// a forager delivering, a nest worker stocking the store, or a nurse feeding
+/// brood). True when the crop holds only food taken at home
+/// (`OrganismState::lunch`, written on every pickup), the jaws are empty (a
+/// store load or pellet rides there, not in the crop), and the ant is under
+/// its grant. A forager's crop from away is not a lunch; a fed ant puts home
+/// food down as before. Deep trace, 2026-10-07: hungry ants at the nest put
+/// 158 of 161 home bites back down a median 25 frames later with ~660 J still
+/// in the crop, because the brain's `Drop` output switches on at the nest.
+///
+/// One helper for both ant designs: the shipped walk reads it under
+/// `NEST_STORE`'s `meal` at the drop roll; the needs walk calls it for its own
+/// "eat what it holds".
+pub(crate) fn keeps_home_meal(s: &super::organism::OrganismState, def: &CreatureDef) -> bool {
+    s.lunch && s.spoil.is_none() && s.energy < def.start_energy && s.crop.is_some_and(|c| c.worth() > 0.0)
 }
 
 #[cfg(test)]

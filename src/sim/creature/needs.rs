@@ -99,6 +99,65 @@
 //! eat, reach the open air or dig if sealed, before it starves. It reads what
 //! happened in the scene, never a weight, and today's ant fails 16 of its 36
 //! rows (`the_guard_on_todays_ant`).
+//!
+//! **The fix round** ([`WalkParts`], 2026-10-07). Slice 1 failed its gate:
+//! all four colonies collapsed late. Two faults were traced on seed 1 (the
+//! project's `needs-ant/slice1/results.md`, cited here by step), one round of
+//! fixes was proposed, and another lane reviewed it before any of it was
+//! built. Each fix is a named part, off unless a harness names it, so a
+//! failure can be pinned on one, and with every part off the walk is slice 1
+//! exactly (checked: `deeptrace` seed 1, the switch at 50k, every map,
+//! colony row and walk count identical to slice 1's to 55k).
+//!
+//! - **Only diggers dig** (`only_diggers`, `dig_job`). Slice 1 handed the
+//!   brain's dig urge to every drive: 98% of the extra cuts came from ants
+//!   not on the dig job (foraging 63%, walking home 23%, resting 12%), in
+//!   the mound's tunnels they cut 4.5 times as often per decision as
+//!   shipped ants, and the soil choked the way in (steps 1-5). `only_diggers`
+//!   gives `act` a dig urge for the dig job alone; escape and the door cut
+//!   make their own cuts. `dig_job` lets an ant below ground take the job on
+//!   the design's own stimulus, soil ahead plus the other adults within
+//!   [`DIG_REACH`] of its head ([`DIG_THRESHOLD`]), where slice 1 gave it
+//!   only to an ant that remembered a face (1% of its cuts). It is its own
+//!   part because crowding-driven digging is a new mechanism here, not a
+//!   proven one: an older trial was a coin flip on rooms, but never had ants
+//!   deep enough to act on (dead-ends 1878; check C2 inconclusive).
+//! - **The door cut** (`clear`). With only diggers digging, nothing outside
+//!   could cut back in through a shut door, and the trace had carriers
+//!   circling the mound while it was shut (step 5). The review scoped the
+//!   cut to the door ([`in_door_scope`]), since an unscoped one is Fault 1
+//!   again: an empty ant walking home that has won the step roll
+//!   [`CLEAR_STALL`] decisions running without getting nearer may cut the
+//!   one soil cell toward the door, from the nearest point it has reached
+//!   only. Near the door its home is the door itself ([`home_pull_target`]):
+//!   the first test draft never stalled in 500 decisions, because an idle
+//!   ant re-anchors its home at every step beside the nest and so is home
+//!   anywhere on the mound. An ant with food in its crop never makes it: a
+//!   pellet cut into its jaws could never be put down, since `act`'s drop
+//!   branch returns first.
+//! - **Foragers keep walking, and give up outside** (`pace`, `give_up`,
+//!   `lay_home`). Late on, empty ants outside stepped on 12% of decisions
+//!   against shipped's 49% (step 6): slice 1 left the step to the brain,
+//!   which barely moves an empty ant below the egg bar (step 7), and the
+//!   forage job never ended outside (step 8). `pace` floors an empty
+//!   forager's step chance at [`P_HOME`], flat while the job holds, as the
+//!   review asked; `give_up` ends the job outside once the scout's patience
+//!   for home has run out (that patience falls only on a step, so a frozen
+//!   ant never gave up); `lay_home` sends an empty forager rich enough to
+//!   lay home on the shipped lay pull, where 81% of them were out on the
+//!   forage drive (step 8).
+//! - **Food keeps its purpose** (`meal`): a bite taken at home to eat is
+//!   kept and digested, never put back down. 77 of the 78 home bites the
+//!   walk's traced ants took went back down a median 15 frames later. The
+//!   rule is `keeps_home_meal`, the shipped storeroom's own helper, with its
+//!   line ("under its grant"), called rather than copied.
+//! - **Escape counts only real stalls** (`won_stall`): the way out's stall
+//!   rises only on a decision that won the step roll and got no nearer,
+//!   never on one where the ant chose to stay; escape had fired on a
+//!   resting ant at hunger 0.06. The review's correction: the proposal said
+//!   "a step tried and refused", which never happens here (the step draws
+//!   only from usable headings), so that count would never have risen and
+//!   escape would never have fired.
 
 use super::*;
 use std::collections::HashMap;
@@ -122,6 +181,121 @@ impl NeedsMode {
             "passthrough" => NeedsMode::Passthrough,
             "walk" => NeedsMode::Walk,
             other => panic!("needs={other:?}: the walk's modes are passthrough and walk"),
+        }
+    }
+}
+
+/// **The fix round's parts** (slice 1's one round of fixes, 2026-10-07):
+/// each a named part, so a failure can be pinned on one. All off, which
+/// [`NeedsWalk::new`] sets, is slice 1 exactly, so the gate round stays
+/// reproducible. What each part answers is in the module doc's *The fix
+/// round*.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct WalkParts {
+    /// Only the dig job digs at `act`'s urge: every other drive hands `act`
+    /// no dig urge (escape and the door cut make their own cuts).
+    pub only_diggers: bool,
+    /// The dig job is taken on its own stimulus, soil at the face plus the
+    /// bodies round the head, not only by an ant that remembers a face.
+    pub dig_job: bool,
+    /// Near the door, an idle ant walking home aims at the door itself
+    /// rather than its last nest contact, and an empty one that has stopped
+    /// getting nearer may cut the soil cell toward it, near the door only.
+    pub clear: bool,
+    /// An empty forager steps at least at [`P_HOME`] while it holds the job.
+    pub pace: bool,
+    /// The forage job ends outside when the scout's patience runs out.
+    pub give_up: bool,
+    /// An empty forager rich enough to lay walks home to lay.
+    pub lay_home: bool,
+    /// Food picked up at home to eat is kept and digested, never put back
+    /// down (`keeps_home_meal`, the helper the shipped walk's storeroom shares).
+    pub meal: bool,
+    /// The way out's stall counts only decisions that won the step roll and
+    /// got no nearer, never a decision the ant chose to stay.
+    pub won_stall: bool,
+}
+
+impl WalkParts {
+    pub const NONE: WalkParts = WalkParts {
+        only_diggers: false,
+        dig_job: false,
+        clear: false,
+        pace: false,
+        give_up: false,
+        lay_home: false,
+        meal: false,
+        won_stall: false,
+    };
+    pub const ALL: WalkParts = WalkParts {
+        only_diggers: true,
+        dig_job: true,
+        clear: true,
+        pace: true,
+        give_up: true,
+        lay_home: true,
+        meal: true,
+        won_stall: true,
+    };
+    const NAMES: [&'static str; 8] = [
+        "only_diggers",
+        "dig_job",
+        "clear",
+        "pace",
+        "give_up",
+        "lay_home",
+        "meal",
+        "won_stall",
+    ];
+
+    /// `all`, `none`, or a comma list of the part names, as a harness names
+    /// them. Anything else is refused rather than read as a default, so a
+    /// typo cannot run one arm under another's label.
+    pub fn parse(raw: &str) -> WalkParts {
+        let mut p = WalkParts::NONE;
+        for part in raw.split(',').map(str::trim).filter(|s| !s.is_empty()) {
+            match part {
+                "all" => p = WalkParts::ALL,
+                "none" => p = WalkParts::NONE,
+                "only_diggers" => p.only_diggers = true,
+                "dig_job" => p.dig_job = true,
+                "clear" => p.clear = true,
+                "pace" => p.pace = true,
+                "give_up" => p.give_up = true,
+                "lay_home" => p.lay_home = true,
+                "meal" => p.meal = true,
+                "won_stall" => p.won_stall = true,
+                other => panic!(
+                    "needsparts={raw:?}: {other:?} is not all, none or one of {}",
+                    WalkParts::NAMES.join(", ")
+                ),
+            }
+        }
+        p
+    }
+
+    /// The parts that are on, comma-separated, or `none`.
+    pub fn label(self) -> String {
+        let on = [
+            self.only_diggers,
+            self.dig_job,
+            self.clear,
+            self.pace,
+            self.give_up,
+            self.lay_home,
+            self.meal,
+            self.won_stall,
+        ];
+        let names: Vec<&str> = WalkParts::NAMES
+            .iter()
+            .zip(on)
+            .filter(|&(_, on)| on)
+            .map(|(n, _)| *n)
+            .collect();
+        if names.is_empty() {
+            "none".to_string()
+        } else {
+            names.join(",")
         }
     }
 }
@@ -156,6 +330,8 @@ pub struct NeedsWalk {
     /// **The guard's positive control**: needs never win, so every ant does
     /// its job or idles whatever its hunger. Never set outside a test.
     pub veto_needs: bool,
+    /// The fix round's parts that are on ([`WalkParts`]); none by default.
+    pub parts: WalkParts,
 }
 
 impl NeedsWalk {
@@ -170,6 +346,7 @@ impl NeedsWalk {
             rows: Vec::new(),
             counts: WalkCounts::default(),
             veto_needs: false,
+            parts: WalkParts::NONE,
         }
     }
 
@@ -343,7 +520,39 @@ pub struct WalkCounts {
     pub escape_packs: u64,
     /// Foragers that unloaded beside food already lying uneaten.
     pub gluts: u64,
+    /// **Cuts `act` made, by the drive that made them**, in
+    /// [`Drive::ALL`]'s order: the share the dig job makes is the first check
+    /// on [`WalkParts::only_diggers`]. Escape's and the door's own cuts are
+    /// counted apart, in `escape_cuts` and `clear_cuts`.
+    pub cuts: [u64; DRIVES],
+    /// The fix round's, each zero with its part off: idle ants that took the
+    /// dig job on its stimulus, dig jobs ended because the stimulus fell or
+    /// because patience ran out with no cut ([`WalkParts::dig_job`]); cuts
+    /// toward home at the door ([`WalkParts::clear`]); forage jobs ended
+    /// outside when the scout gave up ([`WalkParts::give_up`]); a forager's
+    /// decisions turned home to lay ([`WalkParts::lay_home`]); decisions a
+    /// home meal was kept from a drop the brain asked for
+    /// ([`WalkParts::meal`]); and way-out decisions the ant chose to stay,
+    /// not counted as a stall ([`WalkParts::won_stall`]).
+    pub dig_took: u64,
+    pub dig_quit: u64,
+    pub dig_tired: u64,
+    pub clear_cuts: u64,
+    pub gave_up: u64,
+    pub lay_walks: u64,
+    pub meals_kept: u64,
+    pub stays_not_stalls: u64,
 }
+
+/// What a decision cut, for the trace ([`WalkRow::cut`]).
+pub const CUT_NONE: u8 = 0;
+/// `act`'s own dig.
+pub const CUT_ACT: u8 = 1;
+/// Escape's cut, and the pellet it packed behind instead.
+pub const CUT_ESCAPE: u8 = 2;
+pub const CUT_PACK: u8 = 3;
+/// The door cut ([`WalkParts::clear`]).
+pub const CUT_CLEAR: u8 = 4;
 
 /// **One decision of a traced ant** ([`NeedsWalk::trace_every`]).
 #[derive(Clone, Copy, Debug)]
@@ -371,6 +580,13 @@ pub struct WalkRow {
     pub stall: u16,
     /// Where the drive's pull aimed, if it had one.
     pub target: Option<(i32, i32)>,
+    /// **The step roll was won**: the ant meant to step, whether or not it
+    /// got anywhere. `moved` alone cannot tell a chosen stay from a step
+    /// that went nowhere.
+    pub won: bool,
+    /// What this decision cut: [`CUT_NONE`], [`CUT_ACT`], [`CUT_ESCAPE`],
+    /// [`CUT_PACK`] or [`CUT_CLEAR`].
+    pub cut: u8,
 }
 
 /// **One ant's memory under the walk.** Set at its first decision from what
@@ -400,14 +616,27 @@ struct Mind {
     /// Food lying uneaten where it last unloaded, 1 fading at [`GLUT_TAU`].
     glut: f32,
     glut_at: u64,
+    /// **The way home's progress** ([`WalkParts::clear`]): the pull's
+    /// target it is measured to, the nearest it has come, and how many
+    /// decisions that won the step roll have not come nearer.
+    home_for: Option<(i32, i32)>,
+    home_best: f32,
+    home_stall: u16,
+    /// No dig job taken on its stimulus before this frame: set when one ran
+    /// out of patience ([`WalkParts::dig_job`]).
+    dig_rest_until: u64,
+    /// Gave up foraging outside and has not been home since
+    /// ([`WalkParts::give_up`]): it takes no forage job until it is.
+    gave_up: bool,
     /// This decision's: the drive, its hunger and hold, the forage
-    /// stimulus, food it sensed, the step chance.
+    /// stimulus, food it sensed, the step chance, what it cut.
     drive: Drive,
     hunger: f32,
     hold: f32,
     forage: f32,
     food: Option<(i32, i32)>,
     p_move: f32,
+    cut: u8,
     /// Where it stood when it decided, for the trace.
     at: (i32, i32),
 }
@@ -459,12 +688,18 @@ impl Mind {
             meet_at: world.frame,
             glut: 0.0,
             glut_at: world.frame,
+            home_for: None,
+            home_best: f32::INFINITY,
+            home_stall: 0,
+            dig_rest_until: 0,
+            gave_up: false,
             drive: Drive::Rest,
             hunger: 0.0,
             hold: 0.0,
             forage: 0.0,
             food: None,
             p_move: f32::NAN,
+            cut: CUT_NONE,
             at: head,
         }
     }
@@ -476,6 +711,10 @@ impl Mind {
 const RNG_SLOT_NEEDS: u64 = 12;
 /// ...and the one each ant's jitter is drawn from, once, at frame 0.
 const RNG_SLOT_NEEDS_JITTER: u64 = 13;
+/// ...and the dig job's roll ([`WalkParts::dig_job`]), apart from the forage
+/// roll's so that turning the part on leaves who takes the forage job as it
+/// was.
+const RNG_SLOT_NEEDS_DIG: u64 = 14;
 
 /// **Hunger's ramp**: 0 at and above this share of the budget (200 J), 1 at
 /// and below [`HUNGER_FULL`], smooth between. The design's starting values;
@@ -543,6 +782,41 @@ const FOOD_REACH: i32 = 6;
 /// mildly hungry the ant.
 const OUT_GAIN_MIN: f32 = 0.3;
 
+/// **The dig job's stimulus and threshold** ([`WalkParts::dig_job`]): soil
+/// at the face counts 1 and each other adult animal with a cell within
+/// [`DIG_REACH`] of the head counts 1, against this threshold times the ant's
+/// jitter, taken with probability `r^2 / (1 + r^2)` as the forage job is. At
+/// 6 an ant alone at a wall takes the job on about one decision in 37, one
+/// with three nestmates round it and no soil ahead on one in 5, and one with
+/// both on one in 3. A first value, for the
+/// fix round's smoke run to check against the shipped walk's cuts below the
+/// ground line (199 over 60-100k on seed 1, `results.md` step 1).
+pub const DIG_THRESHOLD: f32 = 6.0;
+const DIG_REACH: i32 = 2;
+/// A dig job taken on its stimulus is held at least this long, so the ant
+/// can cut where it stands, and then while its stimulus holds half the
+/// threshold (the forage job's hysteresis).
+const DIG_DWELL: u64 = 60;
+/// ...and ends, whatever its stimulus, after this long with no cut: the
+/// design's "or patience runs out". It is not taken again for as long.
+const DIG_PATIENCE: u64 = 1_200;
+
+/// **The door cut** ([`WalkParts::clear`]): an empty ant walking home whose
+/// last this many decisions that won the step roll brought it no nearer
+/// home -- escape's own count -- may cut the soil cell toward home, if that
+/// cell is within [`CLEAR_COLS`] columns of the founding cut's and from
+/// [`CLEAR_ABOVE`] rows over the founding ground to [`CLEAR_BELOW`] under
+/// it. Every one of seed 1's six door seals over 50-99k had a cell of its
+/// thinnest wall in that box (3-17 rows over the ground, `results.md` step
+/// 4); outside it, carriers circling on the mound would cut the mound's
+/// walls apart, which is fault 1 again (Nest building's review, must-fix 2).
+const CLEAR_STALL: u16 = 30;
+/// Nearer by less than this is no progress (in cells, straight-line).
+const HOME_PROGRESS: f32 = 0.1;
+const CLEAR_COLS: i32 = 5;
+const CLEAR_ABOVE: i32 = 24;
+const CLEAR_BELOW: i32 = 3;
+
 /// Memories of ants no longer alive are let go this often.
 const PRUNE_EVERY: u64 = 5_000;
 
@@ -604,7 +878,8 @@ pub(super) fn kinesis(
             let Some(mut mind) = mind_of(world, organism) else {
                 return p_move;
             };
-            let p = walk_kinesis(world, head, &mind, p_move);
+            let parts = world.needs.as_ref().map_or(WalkParts::NONE, |n| n.parts);
+            let p = walk_kinesis(world, head, &mind, p_move, parts);
             mind.p_move = p;
             keep_mind(world, organism, mind);
             p
@@ -637,11 +912,14 @@ pub(super) fn step(
 }
 
 /// **After the move**: what the walk remembers of this tick. Pass-through
-/// remembers nothing.
-pub(super) fn after(world: &mut World, organism: OrganismId, _def: &CreatureDef, moved: bool) {
+/// remembers nothing. `won` is whether the step roll was won -- the ant
+/// meant to step -- which a stall must tell apart from a chosen stay
+/// ([`WalkParts::won_stall`]); a fall or a pack takes no roll and reads
+/// false.
+pub(super) fn after(world: &mut World, organism: OrganismId, _def: &CreatureDef, moved: bool, won: bool) {
     match world.needs.as_ref().map(|n| n.mode) {
         Some(NeedsMode::Passthrough) | None => {}
-        Some(NeedsMode::Walk) => walk_after(world, organism, moved),
+        Some(NeedsMode::Walk) => walk_after(world, organism, moved, won),
     }
 }
 
@@ -679,10 +957,23 @@ fn walk_act(
     let covered = under_cover(world, head.0, head.1);
     let outside = !below && !covered;
     let at_home = inputs[brain::BrainInput::AtNest as usize] > 0.0;
+    // The fix round's reads of the ant ([`WalkParts`]), taken while its
+    // state is borrowed; each is false with its part off.
+    let parts = world.needs.as_ref().map_or(WalkParts::NONE, |n| n.parts);
+    let ready_lay = parts.lay_home && ready_to_lay(world, def, st);
+    let keeps_meal = parts.meal && keeps_home_meal(st, def);
+    // The scout's patience ran out on this excursion: its memory is for the
+    // home it is out from now, not one it left before.
+    let scout_spent = parts.give_up && st.scout_home && st.scout_for == home_target(world, st);
+    let heading = st.heading;
     let mut mind = mind_of(world, organism).unwrap_or_else(|| Mind::at_switch(world, organism, st, head, outside));
     mind.at = head;
     mind.food = None;
     mind.hunger = hunger;
+    mind.cut = CUT_NONE;
+    if at_home {
+        mind.gave_up = false;
+    }
 
     // --- memory ---------------------------------------------------------
     if outside {
@@ -706,6 +997,15 @@ fn walk_act(
     // a trip's food (or any food, outside the nest) carried home, a face
     // walked back to. Then foraging, by its stimulus against the threshold.
     let carrying_home = laden && (trip || !below);
+    // **The dig job's stimulus** ([`WalkParts::dig_job`]), read only where
+    // the job can be taken or held on it: inside the dug nest, empty.
+    let can_dig = parts.dig_job && below && !laden && spoil.is_none();
+    let dig_threshold = DIG_THRESHOLD * mind.jitter;
+    let dig_stim = if can_dig {
+        dig_stimulus(world, organism, def, head, heading)
+    } else {
+        0.0
+    };
     let job = if spoil.is_some_and(|s| !s.store) {
         Job::Haul
     } else if carrying_home {
@@ -725,14 +1025,51 @@ fn walk_act(
                     Job::Idle
                 }
             }
+            // **The scout's patience has run out** ([`WalkParts::give_up`]):
+            // the design's "or patience runs out", which slice 1 kept and
+            // never read, so a forager that found nothing stayed out for
+            // good (`results.md` step 8). It stops, walks home idle, and
+            // takes the job again only from home.
+            Job::Forage if scout_spent && outside && !laden => {
+                mind.gave_up = true;
+                world.needs.as_mut().expect("walking").counts.gave_up += 1;
+                Job::Idle
+            }
             Job::Forage => Job::Forage,
+            // **A dig job taken on its stimulus, with no face yet**
+            // ([`WalkParts::dig_job`]): held for its dwell, then while its
+            // stimulus holds half the threshold, and ended by patience --
+            // so long with no cut -- whatever the stimulus. An ant whose cut
+            // left it a face is held by the face instead, above.
+            Job::Dig if can_dig => {
+                let on = frame.saturating_sub(mind.since);
+                if on > DIG_PATIENCE {
+                    mind.dig_rest_until = frame + DIG_PATIENCE;
+                    world.needs.as_mut().expect("walking").counts.dig_tired += 1;
+                    Job::Idle
+                } else if on < DIG_DWELL || dig_stim >= 0.5 * dig_threshold {
+                    Job::Dig
+                } else {
+                    world.needs.as_mut().expect("walking").counts.dig_quit += 1;
+                    Job::Idle
+                }
+            }
             Job::Haul | Job::Dig | Job::Idle => {
                 let r = mind.forage / threshold;
                 let p = r * r / (1.0 + r * r);
-                if rng::stream(world.seed, organism as u64, frame, RNG_SLOT_NEEDS).unit_f32() < p {
+                let dig_roll = || {
+                    let r = dig_stim / dig_threshold;
+                    rng::stream(world.seed, organism as u64, frame, RNG_SLOT_NEEDS_DIG).unit_f32()
+                        < r * r / (1.0 + r * r)
+                };
+                if !mind.gave_up && rng::stream(world.seed, organism as u64, frame, RNG_SLOT_NEEDS).unit_f32() < p {
                     mind.since = frame;
                     world.needs.as_mut().expect("walking").counts.took_forage += 1;
                     Job::Forage
+                } else if can_dig && frame >= mind.dig_rest_until && dig_roll() {
+                    mind.since = frame;
+                    world.needs.as_mut().expect("walking").counts.dig_took += 1;
+                    Job::Dig
                 } else {
                     Job::Idle
                 }
@@ -744,11 +1081,15 @@ fn walk_act(
     }
     mind.job = job;
     // **The job's hold**: its own patience under the ceiling. Idle holds
-    // nothing.
+    // nothing. A dig job on its stimulus has no pull to lose patience on, so
+    // its patience is the time left before it runs out with no cut.
     mind.hold = HOLD_CEILING
         * match (job, carrying_home) {
             (Job::Idle, _) => 0.0,
             (Job::Forage, false) => scout_patience,
+            (Job::Dig, _) if can_dig && !face => {
+                1.0 - (frame.saturating_sub(mind.since) as f32 / DIG_PATIENCE as f32).clamp(0.0, 1.0)
+            }
             _ => home_patience,
         };
     let veto = world.needs.as_ref().is_some_and(|n| n.veto_needs);
@@ -766,6 +1107,13 @@ fn walk_act(
         mind.drive = match job {
             Job::Haul => Drive::Haul,
             Job::Forage if laden => Drive::Carry,
+            // **Rich enough to lay, it walks home to lay**
+            // ([`WalkParts::lay_home`]), as the shipped ant's lay-home pull
+            // takes it (`ready_to_lay`), instead of steering out.
+            Job::Forage if ready_lay => {
+                world.needs.as_mut().expect("walking").counts.lay_walks += 1;
+                Drive::Home
+            }
             Job::Forage => Drive::Forage,
             Job::Dig => Drive::Dig,
             Job::Idle if below => Drive::Rest,
@@ -777,7 +1125,40 @@ fn walk_act(
             urges[O::DropSpoil as usize] = 1.0;
             urges[O::Dig as usize] = 0.0;
         }
-        None
+        // **Only the dig job digs at `act`'s urge** ([`WalkParts::
+        // only_diggers`]), as the design's act table has it. Slice 1 handed
+        // the brain's own dig urge to every job and to idling, and foraging,
+        // walking home and resting made 98% of the cuts the shipped walk did
+        // not, in the mound's unprotected walls (`results.md` steps 1-2).
+        if parts.only_diggers && mind.drive != Drive::Dig {
+            urges[O::Dig as usize] = 0.0;
+        }
+        // **Food picked up to eat is kept** ([`WalkParts::meal`]): a bite at
+        // home that met the walk's hunger, which counts the crop, ended the
+        // need and handed `act` the brain's drop, which is on at the nest --
+        // 77 of 78 traced bites at home put back down a median 15 frames
+        // later (`results.md`).
+        if keeps_meal && urges[O::Drop as usize] > 0.0 {
+            urges[O::Drop as usize] = 0.0;
+            world.needs.as_mut().expect("walking").counts.meals_kept += 1;
+        }
+        // **The door cut** ([`WalkParts::clear`]): walking home, stalled,
+        // the soil cell toward home near the door is cut.
+        if parts.clear
+            && mind.drive == Drive::Home
+            && mind.home_stall >= CLEAR_STALL
+            && clear_cut(world, organism, def, head, &mind)
+        {
+            mind.cut = CUT_CLEAR;
+            mind.home_stall = 0;
+            world.needs.as_mut().expect("walking").counts.clear_cuts += 1;
+            Some(Did {
+                dug: 1,
+                ..Did::default()
+            })
+        } else {
+            None
+        }
     };
     world.needs.as_mut().expect("walking").counts.decisions[mind.drive as usize] += 1;
     let did = match did {
@@ -785,6 +1166,14 @@ fn walk_act(
         None => {
             let delivered = world.creature_stats.trip_deliveries;
             let did = super::act(world, head.0, head.1, organism, def, &urges, draw);
+            if did.dug > 0 && !did.packed {
+                world.needs.as_mut().expect("walking").counts.cuts[mind.drive as usize] += 1;
+                mind.cut = CUT_ACT;
+                // A cut renews the dig job's patience.
+                if mind.drive == Drive::Dig {
+                    mind.since = world.frame;
+                }
+            }
             // **Unloaded beside food already lying uneaten**: more than
             // enough food, remembered.
             if world.creature_stats.trip_deliveries > delivered {
@@ -894,6 +1283,7 @@ fn hungry_act(
             // cuts on; otherwise it found nowhere to put it down and waits.
             if walled_in(world, organism, head) && pack_behind(world, organism, def, head, load) {
                 world.needs.as_mut().expect("walking").counts.escape_packs += 1;
+                mind.cut = CUT_PACK;
                 return Some(Did {
                     dug: 1,
                     packed: true,
@@ -906,6 +1296,7 @@ fn hungry_act(
         None => {
             if escape_cut(world, organism, def, head, aim) {
                 world.needs.as_mut().expect("walking").counts.escape_cuts += 1;
+                mind.cut = CUT_ESCAPE;
                 Some(Did {
                     dug: 1,
                     ..Did::default()
@@ -1024,8 +1415,14 @@ fn out_score(world: &World, head: (i32, i32), kind: u8, mind: &Mind) -> i32 {
 /// target, or straight up with none.
 fn escape_aim(world: &World, organism: OrganismId, head: (i32, i32), mind: &Mind) -> u8 {
     let (_, target) = out_target(world, organism, head, mind);
-    let Some((tx, ty)) = target else { return UP_DIR };
-    let (vx, vy) = ((tx - head.0) as f32, (ty - head.1) as f32);
+    let Some(target) = target else { return UP_DIR };
+    heading_toward(head, target)
+}
+
+/// The heading whose step points most nearly from `from` to `to`; straight
+/// up when they are the same cell.
+fn heading_toward(from: (i32, i32), to: (i32, i32)) -> u8 {
+    let (vx, vy) = ((to.0 - from.0) as f32, (to.1 - from.1) as f32);
     let mut best = (f32::NEG_INFINITY, UP_DIR);
     for d in 0..8u8 {
         let (dx, dy) = DIRS[d as usize];
@@ -1076,6 +1473,137 @@ fn escape_cut(world: &mut World, organism: OrganismId, def: &CreatureDef, head: 
     true
 }
 
+/// **The door cut** ([`WalkParts::clear`]): the one cell an empty ant
+/// walking home needs cut to get nearer home -- the cell its heading toward
+/// home points at -- when that cell is soil near the door
+/// ([`in_door_scope`]). [`escape_cut`]'s mechanics: the cell becomes the
+/// pellet in its jaws, which the haul job then takes out. A blocked path,
+/// not an urge: the caller asks only once the ant has stalled
+/// ([`CLEAR_STALL`]).
+///
+/// **Empty jaws and an empty crop only.** `act` never lets a laden ant dig,
+/// and a pellet in the jaws of an ant with food in its crop could not be put
+/// down: `act`'s drop branch returns before its soil branch. So a carrier
+/// waits at a shut door for an empty ant to open it.
+fn clear_cut(world: &mut World, organism: OrganismId, def: &CreatureDef, head: (i32, i32), mind: &Mind) -> bool {
+    let Some(st) = world.organism(organism) else {
+        return false;
+    };
+    if st.spoil.is_some() || st.crop.is_some_and(|c| c.worth() > 0.0) {
+        return false;
+    }
+    let Some(target) = mind.home_for.filter(|&t| t != head) else {
+        return false;
+    };
+    // From where it came nearest, which is where the way is blocked: not
+    // from wherever its wandering had taken it when the count ran out.
+    if home_distance(head, target) > mind.home_best + HOME_PROGRESS {
+        return false;
+    }
+    let aim = heading_toward(head, target);
+    let (dx, dy) = DIRS[aim as usize];
+    let cell = (head.0 + dx, head.1 + dy);
+    if !in_door_scope(world, cell) || !jaw_can_cut(world, def, organism, world.get(cell.0, cell.1)) {
+        return false;
+    }
+    if let Some(s) = world.organism_mut(organism) {
+        s.heading = aim;
+    }
+    escape_cut(world, organism, def, head, aim)
+}
+
+/// **Near the door** ([`WalkParts::clear`]'s box): within [`CLEAR_COLS`]
+/// columns of the nearest nest's founding cut (of the site's own column,
+/// with no cut), and from [`CLEAR_ABOVE`] rows over the founding ground down
+/// to [`CLEAR_BELOW`] rows under it, or to the cut's mouth if that is deeper.
+/// It holds the way through the mound to the door and the door itself, and
+/// none of the mound's flanks.
+fn in_door_scope(world: &World, (x, y): (i32, i32)) -> bool {
+    let Some(i) = world.nearest_nest_site(x, y) else {
+        return false;
+    };
+    let site = &world.nest_sites[i];
+    let (x0, x1, bottom) = match site.shaft {
+        Some(c) => (c.x0, c.x1, (site.surface + CLEAR_BELOW).max(c.mouth_bottom)),
+        None => (site.x, site.x, site.surface + CLEAR_BELOW),
+    };
+    (x0 - CLEAR_COLS..=x1 + CLEAR_COLS).contains(&x) && (site.surface - CLEAR_ABOVE..=bottom).contains(&y)
+}
+
+/// **Where an idle ant walking home aims** ([`Drive::Home`]): its home
+/// vector's origin, the last nest contact (`home_target`), as slice 1 has it
+/// -- except near the door under [`WalkParts::clear`], where it aims at the
+/// door itself ([`door_cell`]).
+///
+/// **Why the door cut needs it.** The last nest contact is re-anchored at
+/// every step that touches the nest, and the nest's reach covers the ground
+/// round the door, so the anchor follows an idle ant along the surface: it is
+/// home wherever it stands there and never tries to get in. Put down outside
+/// a shut door in the guard's bed, an ant walking home re-anchored at every
+/// step from (64, 39) to (59, 39) and back, 500 decisions and no stall, so
+/// no cut (`the_door_cut_opens_a_shut_door`, first draft, 2026-10-07). The
+/// design's idle ant walks home *and rests inside*; the door is a labelled
+/// stand-in for the way in, as the nest's way is for the way out. A carrier
+/// keeps the anchor: it delivers at the doorstep by design.
+fn home_pull_target(world: &World, st: &crate::sim::organism::OrganismState, head: (i32, i32)) -> (i32, i32) {
+    let near_door = world.needs.as_ref().is_some_and(|n| n.parts.clear) && in_door_scope(world, head);
+    near_door
+        .then(|| door_cell(world, head))
+        .flatten()
+        .unwrap_or_else(|| home_target(world, st))
+}
+
+/// Straight-line distance from `head` to `target`, in cells.
+fn home_distance(head: (i32, i32), target: (i32, i32)) -> f32 {
+    let (dx, dy) = ((head.0 - target.0) as f32, (head.1 - target.1) as f32);
+    (dx * dx + dy * dy).sqrt()
+}
+
+/// **The door**, as [`home_pull_target`] aims at it: the founding cut's
+/// first cell under its mouth, in its west column; with no cut, two rows
+/// under the site's founding ground.
+fn door_cell(world: &World, head: (i32, i32)) -> Option<(i32, i32)> {
+    let site = &world.nest_sites[world.nearest_nest_site(head.0, head.1)?];
+    Some(match site.shaft {
+        Some(c) => (c.x0, c.mouth_bottom + 1),
+        None => (site.x, site.surface + 2),
+    })
+}
+
+/// **The dig job's stimulus** ([`WalkParts::dig_job`]; the design's *Jobs*
+/// table): soil at its face -- 1 if its jaws could cut the cell its heading
+/// points at -- plus the other adult animals with a cell within
+/// [`DIG_REACH`] of its head, counted rather than divided by the open cells
+/// round it, which would favour tunnel tips. It falls as the ants spread into
+/// the room the digging makes.
+fn dig_stimulus(world: &World, organism: OrganismId, def: &CreatureDef, head: (i32, i32), heading: u8) -> f32 {
+    let (dx, dy) = DIRS[heading as usize % 8];
+    let soil = jaw_can_cut(world, def, organism, world.get(head.0 + dx, head.1 + dy));
+    f32::from(u8::from(soil)) + bodies_near(world, organism, head, DIG_REACH) as f32
+}
+
+/// Other adult animals with a cell within `reach` of `head`, each counted
+/// once. Brood is not a body that crowds: a larva is carried, not met.
+fn bodies_near(world: &World, organism: OrganismId, head: (i32, i32), reach: i32) -> u32 {
+    let mut seen: Vec<OrganismId> = Vec::new();
+    for y in head.1 - reach..=head.1 + reach {
+        for x in head.0 - reach..=head.0 + reach {
+            if !world.in_bounds(x, y) {
+                continue;
+            }
+            let c = world.get(x, y);
+            let id = c.organism_id();
+            if id == 0 || id == organism || seen.contains(&id) || !is_animal_cell(world, c) {
+                continue;
+            }
+            if world.organism(id).is_some_and(|s| s.brood.is_none()) {
+                seen.push(id);
+            }
+        }
+    }
+    seen.len() as u32
+}
+
 /// Let go of the memories of ants no longer alive, every [`PRUNE_EVERY`]
 /// frames.
 fn prune(world: &mut World) {
@@ -1097,7 +1625,19 @@ fn prune(world: &mut World) {
 /// forage drive's pace); an idle ant inside steps less the nearer it is to
 /// its own preferred depth; an idle ant outside walks home at
 /// [`P_HOME`]; a need lifts the ant's chance toward 1 as its hunger rises.
-fn walk_kinesis(world: &World, head: (i32, i32), mind: &Mind, p_move: f32) -> f32 {
+///
+/// **An empty forager walks at least at [`P_HOME`]** ([`WalkParts::pace`]):
+/// the design lists "step or stay" as the walk's own, and slice 1 handed it
+/// back to the brain, whose chance for a fed empty ant below the egg bar is
+/// near zero in both walks -- the shipped ant outside moves because the
+/// lay-home pull lifts it. Late on (seed 1, 80-100k) empty ants outside
+/// stepped on 20-25% of their decisions against 41-51% shipped, and
+/// forage-drive ants under 1,000 J on 5-9%; and scouting patience decays
+/// only on a step, so a still forager never gives up (`results.md` steps
+/// 6-7, the last by code-read). A flat floor while the job holds, not one
+/// falling with the stimulus: the job's own end already stops them (Nest
+/// building's review, Q2).
+fn walk_kinesis(world: &World, head: (i32, i32), mind: &Mind, p_move: f32, parts: WalkParts) -> f32 {
     let depth = depth_of(world, head);
     let rest = match depth {
         Some(d) if d > 0 => {
@@ -1110,6 +1650,7 @@ fn walk_kinesis(world: &World, head: (i32, i32), mind: &Mind, p_move: f32) -> f3
         Drive::Escape => 1.0,
         Drive::Eat => rest + (1.0 - rest) * mind.hunger.max(0.5),
         Drive::Out | Drive::Seek => rest + (1.0 - rest) * mind.hunger,
+        Drive::Forage if parts.pace => p_move.max(P_HOME),
         Drive::Forage | Drive::Carry | Drive::Haul | Drive::Dig => p_move,
         Drive::Home => p_move.max(P_HOME),
         Drive::Rest => rest,
@@ -1207,7 +1748,8 @@ fn walk_step(
             let gain = def.home_bias.max(1.0) * mind.hunger.max(OUT_GAIN_MIN);
             Some((target.unwrap_or((hx, hy - COVER_REACH)), gain))
         }
-        Drive::Carry | Drive::Home => Some((home_target(world, st), def.home_bias.max(1.0))),
+        Drive::Carry => Some((home_target(world, st), def.home_bias.max(1.0))),
+        Drive::Home => Some((home_pull_target(world, st, (hx, hy)), def.home_bias.max(1.0))),
         Drive::Haul => soil_way_pull(world, organism, def, st, (hx, hy))
             .or_else(|| spoil_haul_target(world, st, (hx, hy)))
             .map(|t| (t, spoil_haul().unwrap_or(1.0))),
@@ -1509,11 +2051,12 @@ fn walk_door_read(
 // --- the walk: after ------------------------------------------------------
 
 /// **After the step**: the way out's progress, which is what escape reads,
-/// and the trace row.
-fn walk_after(world: &mut World, organism: OrganismId, moved: bool) {
+/// the way home's, which the door cut reads, and the trace row.
+fn walk_after(world: &mut World, organism: OrganismId, moved: bool, won: bool) {
     let Some(mut mind) = mind_of(world, organism) else {
         return;
     };
+    let parts = world.needs.as_ref().map_or(WalkParts::NONE, |n| n.parts);
     let head = world
         .organism(organism)
         .and_then(|s| s.chain.first().copied())
@@ -1537,13 +2080,58 @@ fn walk_after(world: &mut World, organism: OrganismId, moved: bool) {
             if mind.drive != Drive::Escape {
                 mind.stall = 0;
             }
-        } else {
+        } else if won || !parts.won_stall {
             mind.stall = mind.stall.saturating_add(1);
+        } else {
+            // **A chosen stay is not a stall** ([`WalkParts::won_stall`]):
+            // slice 1 counted every decision that got no nearer, so an ant
+            // that mostly chose to stay -- the way out's chance is its
+            // resting chance plus its hunger's share -- reached the stall on
+            // standing still, and escape fired on a resting ant at hunger
+            // 0.06. **Not "a refused step"**, the proposal's first form:
+            // the walk offers only headings an ant can take, so a chosen step
+            // is never refused (0 in about 147k shaft decisions, Nest
+            // building's door-column traces), and a count of refusals would
+            // never let escape fire at all (its review, must-fix 1). A won
+            // roll that got no nearer -- nothing usable toward the way, or a
+            // step that did not bring it closer -- still counts.
+            world.needs.as_mut().expect("walking").counts.stays_not_stalls += 1;
         }
     } else {
         mind.out_kind = OUT_NONE;
         mind.out_best = i32::MAX;
         mind.stall = 0;
+    }
+    // **The way home's progress** ([`WalkParts::clear`]): straight-line
+    // distance to the pull's own target, counting only decisions that won the
+    // step roll, for the same reason. Within a cell of its target it has
+    // arrived, not stalled. Straight-line, not steps: by steps every cell of
+    // the ground over a door is as near the door as the one over its mouth,
+    // and the first draft's stall ran out three columns off and cut a new
+    // way in beside the seal (`the_door_cut_opens_a_shut_door`).
+    match world
+        .organism(organism)
+        .filter(|_| parts.clear && mind.drive == Drive::Home)
+    {
+        Some(st) => {
+            let target = home_pull_target(world, st, head);
+            let d = home_distance(head, target);
+            if mind.home_for != Some(target) || d < 1.5 {
+                mind.home_for = Some(target);
+                mind.home_best = d;
+                mind.home_stall = 0;
+            } else if d < mind.home_best - HOME_PROGRESS {
+                mind.home_best = d;
+                mind.home_stall = 0;
+            } else if won {
+                mind.home_stall = mind.home_stall.saturating_add(1);
+            }
+        }
+        None => {
+            mind.home_for = None;
+            mind.home_best = f32::INFINITY;
+            mind.home_stall = 0;
+        }
     }
     if let Some(n) = world.needs.as_ref() {
         if n.traces(organism) {
@@ -1567,6 +2155,8 @@ fn walk_after(world: &mut World, organism: OrganismId, moved: bool) {
                 moved,
                 stall: mind.stall,
                 target: walk_target(world, organism, head, &mind),
+                won,
+                cut: mind.cut,
             };
             world.needs.as_mut().expect("walking").rows.push(row);
         }
@@ -1581,7 +2171,8 @@ fn walk_target(world: &World, organism: OrganismId, head: (i32, i32), mind: &Min
     match mind.drive {
         Drive::Eat => mind.food,
         Drive::Out | Drive::Escape => out_target(world, organism, head, mind).1,
-        Drive::Carry | Drive::Home => Some(home_target(world, st)),
+        Drive::Carry => Some(home_target(world, st)),
+        Drive::Home => Some(home_pull_target(world, st, head)),
         Drive::Haul => world.organism(organism).and_then(|s| spoil_haul_target(world, s, head)),
         Drive::Dig => st.dig_return,
         Drive::Seek | Drive::Forage | Drive::Rest => None,
@@ -2147,9 +2738,238 @@ mod tests {
     /// on it.
     const VETO_RED: usize = 5;
 
+    /// **The guard under the walk with every part of the fix round on**
+    /// ([`WalkParts::ALL`]): the fix round takes dig urges away from every
+    /// drive but the dig job and changes what escape's stall counts, so the
+    /// rows to watch are the two sealed pockets (Nest building's review,
+    /// must-fix 1): escape must still fire there.
+    #[test]
+    fn the_guard_under_the_walk_with_every_fix() {
+        let rows = guard(None, |w| {
+            let mut n = NeedsWalk::new(NeedsMode::Walk, w.frame);
+            n.parts = WalkParts::ALL;
+            w.needs = Some(Box::new(n));
+        });
+        print_guard(&rows);
+        let red: Vec<String> = rows
+            .iter()
+            .filter(|r| !r.green())
+            .map(|r| format!("{:?}/{:?}/{:?}", r.place, r.load, r.role))
+            .collect();
+        assert!(
+            red.is_empty(),
+            "{} of {} rows red under the walk with every fix: {red:?}",
+            red.len(),
+            rows.len()
+        );
+    }
+
+    /// The parts parse as a harness names them, label back the same way, and
+    /// none is slice 1.
+    #[test]
+    fn walk_parts_parse_and_label() {
+        assert_eq!(WalkParts::parse("all"), WalkParts::ALL);
+        assert_eq!(WalkParts::parse("none"), WalkParts::NONE);
+        assert_eq!(WalkParts::parse(""), WalkParts::NONE);
+        assert_eq!(NeedsWalk::new(NeedsMode::Walk, 0).parts, WalkParts::NONE);
+        let p = WalkParts::parse("pace, give_up");
+        assert!(p.pace && p.give_up && !p.clear && !p.only_diggers);
+        assert_eq!(p.label(), "pace,give_up");
+        assert_eq!(WalkParts::parse(&WalkParts::ALL.label()), WalkParts::ALL);
+        assert_eq!(WalkParts::NONE.label(), "none");
+    }
+
+    #[test]
+    #[should_panic(expected = "is not all, none or one of")]
+    fn walk_parts_refuse_an_unknown_name() {
+        WalkParts::parse("pace,giveup");
+    }
+
+    /// **The door cut's box**: the way through the mound over the door and
+    /// the door itself, none of the mound's flanks and none of the nest.
+    /// The guard's bed has its founding cut on columns 60-61 under ground
+    /// row 40.
+    #[test]
+    fn the_door_box_holds_the_door_and_not_the_mound() {
+        let w = guard_bed();
+        let surface = w.nest_sites[0].surface;
+        for (cell, inside) in [
+            ((60, surface - 10), true),
+            ((61, surface + 1), true),
+            ((55, surface - 2), true),
+            ((66, surface - 2), true),
+            ((54, surface - 2), false),
+            ((67, surface - 2), false),
+            ((40, 37), false),
+            ((60, 61), false),
+            ((60, surface - CLEAR_ABOVE - 1), false),
+        ] {
+            assert_eq!(in_door_scope(&w, cell), inside, "{cell:?} (surface row {surface})");
+        }
+    }
+
+    /// One ant, fed and empty, put down outside a nest whose door is shut:
+    /// the bed's founding cut sealed across its top row, one cell thick as
+    /// four of seed 1's six seals were (`results.md` step 4), the ant's home
+    /// (its last nest contact) inside below the seal. Run under the walk with
+    /// `parts` for [`BOUND`] frames; what it cut, and whether the door opened.
+    /// A two-row seal takes two cuts and the haul trip between them, about
+    /// 400 frames over the mound and back in the first draft's trace.
+    fn shut_door_row(parts: WalkParts) -> (WalkCounts, bool, Vec<WalkRow>) {
+        let mut w = guard_bed();
+        let packed = w.materials.id_of("packedsoil").expect("packed soil material");
+        for x in 60..=61 {
+            w.set(x, 40, Cell::new(packed, 0));
+        }
+        let site = plant_creature_seed(&mut w, 64, 39, "ant").expect("test setup: the ant does not fit");
+        w.schedule_active_site(site);
+        let a = w.get(64, 39).organism_id();
+        assert_ne!(a, 0, "test setup: no ant");
+        w.organism_mut(a).expect("live").forage_anchor = (60, 44);
+        let mut n = NeedsWalk::new(NeedsMode::Walk, w.frame);
+        n.parts = parts;
+        n.trace_every = 1;
+        w.needs = Some(Box::new(n));
+        let shut = |w: &World| (60..=61).all(|x| w.get(x, 40).material == packed);
+        assert!(shut(&w), "test setup: the door is not shut");
+        let mut rows = Vec::new();
+        for _ in 0..BOUND {
+            crate::sim::update::step(&mut w);
+            w.step_active_sites();
+            rows.append(&mut w.needs.as_mut().expect("walking").rows);
+            if w.organism(a).is_none() {
+                break;
+            }
+        }
+        (w.needs.as_ref().expect("walking").counts, !shut(&w), rows)
+    }
+
+    /// **The door cut opens a shut door, and nothing else does** with only
+    /// the dig job digging: the ant walking home stalls on the seal and cuts
+    /// toward home. Its control, the same walk without the cut, never cuts.
+    #[test]
+    fn the_door_cut_opens_a_shut_door() {
+        let only = WalkParts {
+            only_diggers: true,
+            ..WalkParts::NONE
+        };
+        let (c, opened, rows) = shut_door_row(WalkParts { clear: true, ..only });
+        if std::env::var("NEEDS_DEBUG").is_ok() {
+            for r in &rows {
+                println!(
+                    "{} {:?}->{:?} {} {} won {} moved {} cut {} target {:?} p {:.2}",
+                    r.frame,
+                    r.at,
+                    r.to,
+                    r.drive.label(),
+                    r.job.label(),
+                    r.won,
+                    r.moved,
+                    r.cut,
+                    r.target,
+                    r.p_move
+                );
+            }
+        }
+        let home = rows.iter().filter(|r| r.drive == Drive::Home).count();
+        assert!(
+            c.clear_cuts >= 1 && opened,
+            "door cuts {}, door opened {opened}, {home} of {} decisions walking home, cuts by drive {:?}",
+            c.clear_cuts,
+            rows.len(),
+            c.cuts
+        );
+        assert!(
+            rows.iter()
+                .filter(|r| r.cut == CUT_CLEAR)
+                .all(in_door_scope_of_row),
+            "a door cut outside the door's box"
+        );
+        let (c, opened, rows) = shut_door_row(only);
+        assert!(
+            c.clear_cuts == 0 && c.cuts.iter().sum::<u64>() == 0 && !opened,
+            "control: door cuts {}, cuts {:?}, door opened {opened} over {} decisions",
+            c.clear_cuts,
+            c.cuts,
+            rows.len()
+        );
+    }
+
+    /// A door cut row's ant stood next to the cell it cut, which was in the
+    /// box; read back loosely, as "its head was within a cell of the box".
+    fn in_door_scope_of_row(r: &WalkRow) -> bool {
+        let w = guard_bed();
+        NEIGHBOURS_8
+            .iter()
+            .any(|&(dx, dy)| in_door_scope(&w, (r.at.0 + dx, r.at.1 + dy)))
+    }
+
+    /// **The dig job can be taken on its stimulus at all**: fed, empty ants
+    /// put down together in the bed's deep room take it and cut, with only the
+    /// dig job digging; with the stimulus off nobody does. A counter, not a
+    /// picture -- the fix round's dig job is a new mechanism, and "did it fire"
+    /// is its first question.
+    #[test]
+    fn the_dig_job_is_taken_in_a_crowd() {
+        let run = |parts: WalkParts| -> WalkCounts {
+            let mut w = guard_bed();
+            let mut ants = 0;
+            for x in (54..=67).step_by(2) {
+                for y in [60, 61] {
+                    if w.get(x, y).material == material::EMPTY {
+                        if let Some(site) = plant_creature_seed(&mut w, x, y, "ant") {
+                            w.schedule_active_site(site);
+                            ants += 1;
+                        }
+                    }
+                }
+            }
+            assert!(ants >= 4, "test setup: only {ants} ants fit in the deep room");
+            let mut n = NeedsWalk::new(NeedsMode::Walk, w.frame);
+            n.parts = parts;
+            w.needs = Some(Box::new(n));
+            for _ in 0..BOUND {
+                crate::sim::update::step(&mut w);
+                w.step_active_sites();
+            }
+            w.needs.as_ref().expect("walking").counts
+        };
+        let only = WalkParts {
+            only_diggers: true,
+            ..WalkParts::NONE
+        };
+        let on = run(WalkParts { dig_job: true, ..only });
+        let dig = Drive::Dig as usize;
+        println!(
+            "dig job on: took {}, quit {}, tired {}, cuts by drive {:?}",
+            on.dig_took, on.dig_quit, on.dig_tired, on.cuts
+        );
+        assert!(
+            on.dig_took > 0 && on.cuts[dig] > 0,
+            "the dig job was taken {} times and cut {} cells",
+            on.dig_took,
+            on.cuts[dig]
+        );
+        assert_eq!(
+            on.cuts.iter().sum::<u64>(),
+            on.cuts[dig],
+            "a drive other than the dig job cut with only_diggers on: {:?}",
+            on.cuts
+        );
+        let off = run(only);
+        assert!(
+            off.dig_took == 0 && off.cuts.iter().sum::<u64>() == 0,
+            "control: took {}, cuts {:?}",
+            off.dig_took,
+            off.cuts
+        );
+    }
+
     /// **One row of the guard under the walk, every decision printed**: the
     /// per-ant trace for a row that needs understanding. Name the row in
-    /// `NEEDS_GUARD_ROW` as `place,load,role` (`MoundPocket,Nothing,Forager`).
+    /// `NEEDS_GUARD_ROW` as `place,load,role` (`MoundPocket,Nothing,Forager`),
+    /// and the fix round's parts, if any, in `NEEDS_PARTS` (`all`, or a comma
+    /// list).
     #[test]
     #[ignore = "a tool, not a gate: prints one guard row's every decision"]
     fn trace_one_guard_row() {
@@ -2170,15 +2990,16 @@ mod tests {
         let row = guard_row(place, load, role, None, |w| {
             let mut n = NeedsWalk::new(NeedsMode::Walk, w.frame);
             n.trace_every = 1;
+            n.parts = std::env::var("NEEDS_PARTS").map_or(WalkParts::NONE, |p| WalkParts::parse(&p));
             w.needs = Some(Box::new(n));
         });
         print_guard(std::slice::from_ref(&row));
         println!(
-            "frame  at        to        drive   job     energy  crop   hunger hold  depth p_move moved stall target"
+            "frame  at        to        drive   job     energy  crop   hunger hold  depth p_move moved won cut stall target"
         );
         for t in &row.trace {
             println!(
-                "{:>6} {:<9} {:<9} {:<7} {:<7} {:>6.1} {:>6.1} {:>6.3} {:>5.2} {:>5} {:>6.3} {:>5} {:>5} {:?}",
+                "{:>6} {:<9} {:<9} {:<7} {:<7} {:>6.1} {:>6.1} {:>6.3} {:>5.2} {:>5} {:>6.3} {:>5} {:>3} {:>3} {:>5} {:?}",
                 t.frame,
                 format!("{:?}", t.at),
                 format!("{:?}", t.to),
@@ -2191,6 +3012,8 @@ mod tests {
                 t.depth,
                 t.p_move,
                 t.moved,
+                u8::from(t.won),
+                t.cut,
                 t.stall,
                 t.target
             );

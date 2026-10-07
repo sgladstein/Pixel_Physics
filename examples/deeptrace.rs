@@ -122,7 +122,13 @@
 //! beside `colony.csv` at the same frames; **`walk_counts.csv`**, the walk's
 //! running totals at those frames; and with `walktrace=N`, **`walk.csv.gz`**,
 //! every decision of about one ant in `N`, picked by a hash of its id (with
-//! `only=`, of exactly those ants). The brain's columns (`o_`, `h`) are
+//! `only=`, of exactly those ants). `needsparts=` turns on the fix round's
+//! parts (`creature::needs::WalkParts`: `all`, `none` -- the default, which
+//! is slice 1 -- or a comma list), and the walk's files then carry what each
+//! did: `walk_counts.csv` the cuts `act` made by drive (`cut_<drive>`) and
+//! each part's counter, `walk.csv.gz` whether the step roll was won (`won`)
+//! and what the decision cut (`cut`: 0 nothing, 1 `act`'s dig, 2 escape's cut,
+//! 3 escape's pack, 4 the door cut). The brain's columns (`o_`, `h`) are
 //! what it computed on what it is shown (`creature::probe_full`) only since
 //! 2026-10-07; before then they read the raw senses, trail along the heading
 //! included, which the shipped brain is never shown.
@@ -500,14 +506,21 @@ fn main() {
     // none unless `only=` names some. Not by the id's remainder: one ant in
     // four by id is the nest-worker caste.
     let walk_trace: u32 = arg("walktrace").unwrap_or(0);
+    // `needsparts=`: the fix round's parts under `needs=walk` (none, slice 1,
+    // by default). A name it does not know panics rather than running an arm
+    // under another's label.
+    let needs_parts = arg::<String>("needsparts").map_or(creature::needs::WalkParts::NONE, |p| {
+        creature::needs::WalkParts::parse(&p)
+    });
     println!(
-        "deeptrace: scenario={scenario} seed={seed} frames={frames} ants={n_ants} bornafter={born_after} colonyevery={colony_every} mapevery={map_every} food={target} shots={} dig={} walk={} digfrom={dig_from} garden={} hungry={} nestevery={nest_every} needs={} needsat={needs_at} out={out}",
+        "deeptrace: scenario={scenario} seed={seed} frames={frames} ants={n_ants} bornafter={born_after} colonyevery={colony_every} mapevery={map_every} food={target} shots={} dig={} walk={} digfrom={dig_from} garden={} hungry={} nestevery={nest_every} needs={} needsat={needs_at} needsparts={} out={out}",
         u8::from(shots),
         u8::from(dig),
         u8::from(walk),
         u8::from(garden),
         u8::from(hungry),
-        needs.map_or("off".to_string(), |m| format!("{m:?}").to_lowercase())
+        needs.map_or("off".to_string(), |m| format!("{m:?}").to_lowercase()),
+        needs_parts.label()
     );
     std::fs::create_dir_all(&out).expect("out dir");
     let mut sc = Scenario::load(&scenario).unwrap_or_else(|e| {
@@ -612,17 +625,19 @@ fn main() {
     let mut walk_counts = walking.then(|| {
         let mut f = std::io::BufWriter::new(std::fs::File::create(format!("{out}/walk_counts.csv")).unwrap());
         let drives: Vec<String> = creature::needs::Drive::ALL.iter().map(|d| format!("dec_{}", d.label())).collect();
+        let cuts: Vec<String> = creature::needs::Drive::ALL.iter().map(|d| format!("cut_{}", d.label())).collect();
         writeln!(
             f,
-            "frame,minds,{},took_forage,quit_forage,need_over_job,ate_held,pellets_down,escape_cuts,escape_packs,gluts",
-            drives.join(",")
+            "frame,minds,{},took_forage,quit_forage,need_over_job,ate_held,pellets_down,escape_cuts,escape_packs,gluts,{},dig_took,dig_quit,dig_tired,clear_cuts,gave_up,lay_walks,meals_kept,stays_not_stalls",
+            drives.join(","),
+            cuts.join(",")
         )
         .unwrap();
         f
     });
     let mut walk_rows = (walking && (walk_trace > 0 || !only.is_empty())).then(|| {
         let (zip, mut rows) = gzip_to(&format!("{out}/walk.csv.gz"));
-        writeln!(rows, "frame,id,ax,ay,tx,ty,drive,job,energy,crop,hunger,hold,forage,threshold,depth,pref,p_move,moved,stall,target_x,target_y").unwrap();
+        writeln!(rows, "frame,id,ax,ay,tx,ty,drive,job,energy,crop,hunger,hold,forage,threshold,depth,pref,p_move,moved,stall,target_x,target_y,won,cut").unwrap();
         (zip, rows)
     });
 
@@ -886,8 +901,15 @@ fn main() {
             let mut walk = creature::needs::NeedsWalk::new(mode, lab.world.frame);
             walk.trace_every = walk_trace;
             walk.trace_ids = only.clone();
+            walk.parts = needs_parts;
             lab.world.needs = Some(Box::new(walk));
-            writeln!(events, "{f} NEEDS mode={mode:?} world_frame={}", lab.world.frame).unwrap();
+            writeln!(
+                events,
+                "{f} NEEDS mode={mode:?} parts={} world_frame={}",
+                needs_parts.label(),
+                lab.world.frame
+            )
+            .unwrap();
         }
         if let Some(d) = droplog.as_mut() {
             d.pre(&lab.world, g, &live);
@@ -908,7 +930,7 @@ fn main() {
                 let (tx, ty) = r.target.map_or((String::new(), String::new()), |t| (t.0.to_string(), t.1.to_string()));
                 writeln!(
                     out,
-                    "{},{},{},{},{},{},{},{},{:.1},{:.1},{:.3},{:.3},{:.4},{:.3},{},{:.1},{:.3},{},{},{tx},{ty}",
+                    "{},{},{},{},{},{},{},{},{:.1},{:.1},{:.3},{:.3},{:.4},{:.3},{},{:.1},{:.3},{},{},{tx},{ty},{},{}",
                     r.frame,
                     r.id,
                     r.at.0,
@@ -927,7 +949,9 @@ fn main() {
                     r.pref,
                     r.p_move,
                     u8::from(r.moved),
-                    r.stall
+                    r.stall,
+                    u8::from(r.won),
+                    r.cut
                 )
                 .unwrap();
             }
@@ -1227,9 +1251,10 @@ fn main() {
             if let (Some(wn), Some(walk)) = (walk_counts.as_mut(), w.needs.as_ref()) {
                 let c = walk.counts;
                 let dec: Vec<String> = c.decisions.iter().map(u64::to_string).collect();
+                let cut: Vec<String> = c.cuts.iter().map(u64::to_string).collect();
                 writeln!(
                     wn,
-                    "{f},{},{},{},{},{},{},{},{},{},{}",
+                    "{f},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
                     walk.minds(),
                     dec.join(","),
                     c.took_forage,
@@ -1239,7 +1264,16 @@ fn main() {
                     c.pellets_down,
                     c.escape_cuts,
                     c.escape_packs,
-                    c.gluts
+                    c.gluts,
+                    cut.join(","),
+                    c.dig_took,
+                    c.dig_quit,
+                    c.dig_tired,
+                    c.clear_cuts,
+                    c.gave_up,
+                    c.lay_walks,
+                    c.meals_kept,
+                    c.stays_not_stalls
                 )
                 .unwrap();
             }
