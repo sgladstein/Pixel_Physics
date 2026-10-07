@@ -31,9 +31,13 @@ with a second ant, eight ant cells). On that baseline the starvers' closed space
 the floor of doorseal.py's door walk, where it does no harm. A head deeper than that joined no space, and `bucket`
 read it "encased" whatever was round it, so in a nest dug deeper than 15 rows "encased" counted depth. On
 LAY_BAR=body seed 1 with the smell store (95d65cd66, starvers of 55-70k) 50 of 51 starvers read encased and, with
-the flood to the map bottom, 0: all 50 "door system, door open", their last census row a median 192. On arm 2b seeds
-1-4 (c9e8a860, 20k to the end) 433 / 360 / 153 / 291 encased starvers became 0 / 1 / 0 / 11, and the all-ant base rate
-went from 6-14% to 0%. An "encased" read made before this date with starvers deeper than row 175 needs re-reading.
+the flood to the map bottom, 0: all 50 "door system, door open", their last census row a median 192. On the
+storeroom test's arms (c9e8a860, seeds 1-4, 20k to the end) encased starvers went from 433 / 360 / 153 / 291 to
+0 / 1 / 0 / 11 (arm 2, with `whole`) and from 1,890 / 3,379 / 873 / 2,046 to 8 / 35 / 9 / 11 (arm 2b), and every
+all-ant base rate (up to 37%) to 0%. spells.py's shut-in spells on the MOUND_OUT=dig check (ecca174e6 against dig, seeds
+1-12) fell 5-33% a seed, but the ones ending starved barely moved (seeds 1-8: 293 and 69 became 293 and 67) and dig
+stayed lower per spell on 8 of 12 seeds. An "encased" read made before this date with starvers deeper than row 175
+needs re-reading.
 "door system, door open" says an unbroken 8-way path of air, ants, brood or crumbs joins the head to the door. It does
 not say an ant can climb it: a body with nothing solid, powdery or plant beside it and no grip on a grounded nestmate
 falls a cell instead of stepping (creature.rs `fall_if_unsupported`).
