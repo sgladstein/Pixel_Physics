@@ -7846,13 +7846,13 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
     if door_collar_of(world) {
         world.creature_stats.collar_packed += collar_tamp(world, x, y);
     }
-    // **The needs walk picks the verb** ([`needs::decide`], only while
+    // **The needs walk picks the verb** ([`needs::act`], only while
     // `World::needs` is set): `act` is handed the urges its drive wants and
     // does the rest exactly as it does for today's ant.
-    let decided = world.needs.is_some().then(|| needs::decide(world, x, y, organism, def, &inputs, &outputs));
-    let Did { dug, gnaws, shares, packed } = match decided {
-        Some(needs::Decided::Act(urges)) => act(world, x, y, organism, def, &urges, &mut draw),
-        None => act(world, x, y, organism, def, &outputs, &mut draw),
+    let Did { dug, gnaws, shares, packed } = if world.needs.is_some() {
+        needs::act(world, x, y, organism, def, &inputs, &outputs, &mut draw)
+    } else {
+        act(world, x, y, organism, def, &outputs, &mut draw)
     };
     // **Working the jaw costs, and leaving it free was a real defect.**
     // Measured the moment the beetle was armoured for play: an ant beat a
