@@ -1,0 +1,42 @@
+{
+  "id": "20261007T010451260Z-456085",
+  "created": "2026-10-07T01:04:51Z",
+  "board": "plants",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/gifted-darwin-n4h041",
+    "commit": "7c66a17f",
+    "agent": null,
+    "session_id": "6f42e8fc-01de-5857-8ab5-583894e8f71e",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "A plant's page now says why it stopped growing",
+  "question": "Do the TIPS and TIPS STOPPED rows tell you, at a glance, why this plant stopped growing?",
+  "context_md": "**What changed (step 3 of tracing plants one at a time).** A plant grows only from its tips, and a tip that finds nowhere to go four visits running stops for good. Every stop is now booked under the gate it kept meeting: HEIGHT (water cannot be lifted further up the stem), NO ROOM, TOO POOR, HARD GROUND, NO GOOD WAY, ROOT SHARE (as much root as the shoot can feed), TIP CAP, FLOWER COST.\n\n- **TIPS**: growing tips now, shoot and root.\n- **TIPS STOPPED**: the commonest reason and how many stopped for anything else (`49 TOO POOR +1`). Hovering it lists every reason, shoot and root apart.\n\nOne reason in the row, not two, because the page is as wide as its widest row: two reasons widened it from about 156 px to 250 and covered the panel beside it.\n\n**What it already says** (4 seeds, garden alone): nearly every grass and shrub root tip stops at ROOT SHARE (96% of 158,663 grass root tips), which an old register note suspected might be roots retired by a passing ratio. Half of grass and tree shoot tips stop at HEIGHT, most of the rest at NO ROOM. The world is unchanged: same grid digest as before the counters.\n\n**Ignore** the battle panel at the top right; it is the screenshot script's own state.",
+  "kind": "single",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "a herb's STATE group, 900 frames in",
+      "files": [
+        "20261007T010451260Z-456085/000-plant_state.png"
+      ],
+      "caption": "TIPS 1 SHOOT, 3 ROOT -- TIPS STOPPED 49 TOO POOR +1",
+      "meta": {
+        "growing tips now": "1 shoot, 3 root",
+        "tips stopped, commonest": "49 too poor",
+        "stopped for anything else": 1,
+        "grass root tips that stopped because the plant had all the root its shoot can feed (4 seeds)": "96% of 158,663"
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
