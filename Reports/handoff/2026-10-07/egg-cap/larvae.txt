@@ -1,0 +1,80 @@
+== base-s1 20-50k: standing per sample: eggs 5, larvae 146, pupae 4
+   larvae lie: door col >10 89%, door col 0-10 6%, off col >10 5%, off col mound 0%
+   larvae with an adult over 200 J within 2 cells: 17%; with a crop carrier within 2: 9%
+   larval food 799 kJ: ate 47%, share 31%, bank 21%, crop 2%; pupae made 618 (1293 J per pupa); larvae starved 0
+   larva -> pupa: median 3180 frames, p90 11580 (n=295)
+== base-s1 50-100k: standing per sample: eggs 3, larvae 313, pupae 2
+   larvae lie: door col >10 63%, off col >10 30%, door col 0-10 6%, off col 0-10 1%
+   larvae with an adult over 200 J within 2 cells: 7%; with a crop carrier within 2: 2%
+   larval food 846 kJ: share 40%, bank 33%, ate 27%, crop 0%; pupae made 715 (1183 J per pupa); larvae starved 83
+   larva -> pupa: median 6900 frames, p90 49260 (n=233)
+== base-s1 100-150k: standing per sample: eggs 2, larvae 355, pupae 3
+   larvae lie: door col >10 58%, off col >10 35%, door col 0-10 6%, off col 0-10 1%
+   larvae with an adult over 200 J within 2 cells: 7%; with a crop carrier within 2: 2%
+   larval food 912 kJ: share 43%, bank 35%, ate 21%, crop 1%; pupae made 786 (1161 J per pupa); larvae starved 165
+   larva -> pupa: median 3720 frames, p90 35100 (n=198)
+== base-s1 150-200k: standing per sample: eggs 2, larvae 374, pupae 3
+   larvae lie: door col >10 62%, off col >10 32%, door col 0-10 5%, off col 0-10 1%
+   larvae with an adult over 200 J within 2 cells: 6%; with a crop carrier within 2: 2%
+   larval food 994 kJ: share 38%, ate 31%, bank 29%, crop 1%; pupae made 822 (1210 J per pupa); larvae starved 173
+   larva -> pupa: median 2340 frames, p90 18540 (n=176)
+== base-s2 20-50k: standing per sample: eggs 2, larvae 127, pupae 3
+   larvae lie: door col >10 88%, door col 0-10 10%, off col >10 2%, off col mound 0%
+   larvae with an adult over 200 J within 2 cells: 16%; with a crop carrier within 2: 5%
+   larval food 593 kJ: share 37%, ate 34%, bank 25%, crop 4%; pupae made 482 (1230 J per pupa); larvae starved 13
+   larva -> pupa: median 2700 frames, p90 15420 (n=179)
+== base-s2 50-100k: standing per sample: eggs 2, larvae 260, pupae 3
+   larvae lie: door col >10 69%, off col >10 22%, door col 0-10 8%, off col 0-10 1%
+   larvae with an adult over 200 J within 2 cells: 9%; with a crop carrier within 2: 4%
+   larval food 980 kJ: share 40%, bank 32%, ate 27%, crop 1%; pupae made 848 (1155 J per pupa); larvae starved 32
+   larva -> pupa: median 6600 frames, p90 65100 (n=223)
+== base-s2 100-150k: standing per sample: eggs 2, larvae 387, pupae 2
+   larvae lie: door col >10 61%, off col >10 33%, door col 0-10 5%, off col 0-10 1%
+   larvae with an adult over 200 J within 2 cells: 6%; with a crop carrier within 2: 3%
+   larval food 931 kJ: share 42%, bank 35%, ate 22%, crop 1%; pupae made 783 (1188 J per pupa); larvae starved 155
+   larva -> pupa: median 6960 frames, p90 41400 (n=213)
+== base-s2 150-200k: standing per sample: eggs 2, larvae 396, pupae 3
+   larvae lie: door col >10 66%, off col >10 28%, door col 0-10 5%, off col 0-10 1%
+   larvae with an adult over 200 J within 2 cells: 6%; with a crop carrier within 2: 2%
+   larval food 1001 kJ: share 43%, bank 35%, ate 21%, crop 2%; pupae made 866 (1156 J per pupa); larvae starved 190
+   larva -> pupa: median 2610 frames, p90 13620 (n=144)
+== base-s3 20-50k: standing per sample: eggs 2, larvae 121, pupae 3
+   larvae lie: door col >10 81%, door col 0-10 16%, off col >10 3%
+   larvae with an adult over 200 J within 2 cells: 15%; with a crop carrier within 2: 3%
+   larval food 525 kJ: share 39%, ate 31%, bank 26%, crop 4%; pupae made 437 (1201 J per pupa); larvae starved 0
+   larva -> pupa: median 4620 frames, p90 15540 (n=173)
+== base-s3 50-100k: standing per sample: eggs 2, larvae 197, pupae 3
+   larvae lie: door col >10 86%, door col 0-10 8%, off col >10 6%
+   larvae with an adult over 200 J within 2 cells: 13%; with a crop carrier within 2: 5%
+   larval food 1019 kJ: ate 41%, share 32%, bank 26%, crop 1%; pupae made 853 (1195 J per pupa); larvae starved 3
+   larva -> pupa: median 5550 frames, p90 19140 (n=306)
+== base-s3 100-150k: standing per sample: eggs 3, larvae 296, pupae 3
+   larvae lie: door col >10 74%, off col >10 19%, door col 0-10 6%, off col 0-10 0%
+   larvae with an adult over 200 J within 2 cells: 8%; with a crop carrier within 2: 5%
+   larval food 996 kJ: share 35%, ate 35%, bank 29%, crop 1%; pupae made 842 (1183 J per pupa); larvae starved 82
+   larva -> pupa: median 8400 frames, p90 29880 (n=295)
+== base-s3 150-200k: standing per sample: eggs 3, larvae 364, pupae 3
+   larvae lie: door col >10 71%, off col >10 24%, door col 0-10 5%, off col 0-10 0%
+   larvae with an adult over 200 J within 2 cells: 5%; with a crop carrier within 2: 4%
+   larval food 1097 kJ: share 36%, ate 32%, bank 30%, crop 2%; pupae made 908 (1208 J per pupa); larvae starved 149
+   larva -> pupa: median 3270 frames, p90 17940 (n=180)
+== base-s4 20-50k: standing per sample: eggs 3, larvae 138, pupae 3
+   larvae lie: door col >10 84%, door col 0-10 14%, off col >10 2%, door col mound 0%
+   larvae with an adult over 200 J within 2 cells: 11%; with a crop carrier within 2: 5%
+   larval food 565 kJ: share 37%, ate 34%, bank 26%, crop 2%; pupae made 443 (1276 J per pupa); larvae starved 2
+   larva -> pupa: median 3540 frames, p90 25080 (n=189)
+== base-s4 50-100k: standing per sample: eggs 2, larvae 288, pupae 2
+   larvae lie: door col >10 67%, off col >10 25%, door col 0-10 6%, off col 0-10 1%
+   larvae with an adult over 200 J within 2 cells: 7%; with a crop carrier within 2: 2%
+   larval food 898 kJ: share 40%, bank 31%, ate 27%, crop 2%; pupae made 776 (1158 J per pupa); larvae starved 110
+   larva -> pupa: median 4260 frames, p90 49980 (n=233)
+== base-s4 100-150k: standing per sample: eggs 2, larvae 346, pupae 2
+   larvae lie: door col >10 66%, off col >10 27%, door col 0-10 7%, off col 0-10 1%
+   larvae with an adult over 200 J within 2 cells: 5%; with a crop carrier within 2: 3%
+   larval food 903 kJ: share 42%, bank 33%, ate 23%, crop 2%; pupae made 790 (1144 J per pupa); larvae starved 186
+   larva -> pupa: median 2400 frames, p90 28920 (n=167)
+== base-s4 150-200k: standing per sample: eggs 2, larvae 410, pupae 2
+   larvae lie: door col >10 65%, off col >10 29%, door col 0-10 5%, off col 0-10 1%
+   larvae with an adult over 200 J within 2 cells: 5%; with a crop carrier within 2: 3%
+   larval food 947 kJ: share 44%, bank 35%, ate 19%, crop 2%; pupae made 808 (1172 J per pupa); larvae starved 234
+   larva -> pupa: median 3120 frames, p90 23880 (n=149)

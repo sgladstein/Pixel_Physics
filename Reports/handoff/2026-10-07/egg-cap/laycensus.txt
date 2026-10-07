@@ -1,0 +1,176 @@
+== base-s1 20-50k: 30 samples, adults/sample 445, bar 1034 J
+   energy all: median 441  p75 972  p90 1635  max 8015
+   affordable (>= bar): 101.4 per sample = 22.8% of adults; their energy median 1536
+   counters over window: eggs laid 836, held no pile site 587857, declined 0, larvae starved 0, births 608
+   affordable by zone (share of affordable | share of that zone that is affordable): mound_top 59% | 27%, mound_in 21% | 28%, surface 19% | 26%, nest 1% | 1%, food 0% | 13%
+   home within 4: 10% of affordable (no home in reach: 90%)
+     nearest home cell at: d0 2%, d1 1%, d2 1%, d3 2%, d4 3%
+     pile site found: 35 (1.2% of affordable) -- an ant with one lays at its next tick unless its brain declines
+     at home with no site (8% of affordable): 9x9 round head mean brood 0.1, food 1.2, other ants 40.8, empty home cells 0.0; near home cells free 0.04 / held by ants 8.9
+       would find a cell if brood were passable: 0%;  zero empty home cells in the 9x9: 99%
+       their zones: mound_in 65%, mound_top 34%, nest 1%
+== base-s1 50-100k: 50 samples, adults/sample 642, bar 1034 J
+   energy all: median 497  p75 1106  p90 1915  max 8115
+   affordable (>= bar): 174.7 per sample = 27.2% of adults; their energy median 1630
+   counters over window: eggs laid 908, held no pile site 1743445, declined 0, larvae starved 83, births 716
+   affordable by zone (share of affordable | share of that zone that is affordable): mound_top 42% | 29%, mound_in 37% | 33%, surface 20% | 29%, food 0% | 15%, nest 0% | 1%
+   home within 4: 7% of affordable (no home in reach: 93%)
+     nearest home cell at: d0 1%, d1 1%, d2 1%, d3 2%, d4 2%
+     pile site found: 11 (0.1% of affordable) -- an ant with one lays at its next tick unless its brain declines
+     at home with no site (7% of affordable): 9x9 round head mean brood 0.2, food 2.0, other ants 42.3, empty home cells 0.1; near home cells free 0.05 / held by ants 9.6
+       would find a cell if brood were passable: 0%;  zero empty home cells in the 9x9: 98%
+       their zones: mound_in 72%, mound_top 25%, nest 3%
+== base-s1 100-150k: 50 samples, adults/sample 676, bar 1034 J
+   energy all: median 438  p75 1012  p90 1860  max 7686
+   affordable (>= bar): 164.7 per sample = 24.4% of adults; their energy median 1676
+   counters over window: eggs laid 990, held no pile site 1643498, declined 0, larvae starved 165, births 795
+   affordable by zone (share of affordable | share of that zone that is affordable): mound_top 39% | 26%, mound_in 37% | 27%, surface 24% | 30%, food 1% | 18%, nest 0% | 0%
+   home within 4: 6% of affordable (no home in reach: 94%)
+     nearest home cell at: d0 1%, d1 1%, d2 1%, d3 2%, d4 2%
+     pile site found: 6 (0.1% of affordable) -- an ant with one lays at its next tick unless its brain declines
+     at home with no site (6% of affordable): 9x9 round head mean brood 0.6, food 2.2, other ants 40.4, empty home cells 0.1; near home cells free 0.01 / held by ants 9.4
+       would find a cell if brood were passable: 1%;  zero empty home cells in the 9x9: 97%
+       their zones: mound_in 81%, mound_top 17%, nest 2%
+== base-s1 150-200k: 50 samples, adults/sample 681, bar 1034 J
+   energy all: median 404  p75 921  p90 1701  max 6084
+   affordable (>= bar): 148.0 per sample = 21.7% of adults; their energy median 1624
+   counters over window: eggs laid 993, held no pile site 1468018, declined 0, larvae starved 173, births 806
+   affordable by zone (share of affordable | share of that zone that is affordable): mound_in 46% | 28%, mound_top 33% | 21%, surface 21% | 25%, food 1% | 13%, nest 0% | 0%
+   home within 4: 6% of affordable (no home in reach: 94%)
+     nearest home cell at: d0 1%, d1 0%, d2 1%, d3 1%, d4 2%
+     pile site found: 12 (0.2% of affordable) -- an ant with one lays at its next tick unless its brain declines
+     at home with no site (5% of affordable): 9x9 round head mean brood 0.5, food 2.4, other ants 40.3, empty home cells 0.1; near home cells free 0.02 / held by ants 8.2
+       would find a cell if brood were passable: 1%;  zero empty home cells in the 9x9: 97%
+       their zones: mound_in 79%, mound_top 20%, nest 1%
+== base-s2 20-50k: 30 samples, adults/sample 354, bar 1034 J
+   energy all: median 334  p75 647  p90 1119  max 6368
+   affordable (>= bar): 41.1 per sample = 11.6% of adults; their energy median 1449
+   counters over window: eggs laid 659, held no pile site 236477, declined 0, larvae starved 13, births 470
+   affordable by zone (share of affordable | share of that zone that is affordable): mound_top 67% | 16%, surface 17% | 11%, mound_in 15% | 11%, nest 0% | 0%, food 0% | 5%
+   home within 4: 9% of affordable (no home in reach: 91%)
+     nearest home cell at: d0 2%, d1 1%, d2 2%, d3 1%, d4 3%
+     pile site found: 13 (1.1% of affordable) -- an ant with one lays at its next tick unless its brain declines
+     at home with no site (8% of affordable): 9x9 round head mean brood 0.9, food 1.2, other ants 41.2, empty home cells 0.2; near home cells free 0.05 / held by ants 9.8
+       would find a cell if brood were passable: 3%;  zero empty home cells in the 9x9: 89%
+       their zones: mound_in 61%, mound_top 36%, nest 2%
+== base-s2 50-100k: 50 samples, adults/sample 658, bar 1034 J
+   energy all: median 438  p75 1018  p90 1894  max 7246
+   affordable (>= bar): 161.6 per sample = 24.5% of adults; their energy median 1683
+   counters over window: eggs laid 1013, held no pile site 1598318, declined 0, larvae starved 32, births 850
+   affordable by zone (share of affordable | share of that zone that is affordable): mound_top 42% | 26%, mound_in 34% | 27%, surface 24% | 32%, food 1% | 20%, nest 0% | 0%
+   home within 4: 8% of affordable (no home in reach: 92%)
+     nearest home cell at: d0 1%, d1 1%, d2 2%, d3 2%, d4 2%
+     pile site found: 5 (0.1% of affordable) -- an ant with one lays at its next tick unless its brain declines
+     at home with no site (8% of affordable): 9x9 round head mean brood 0.5, food 1.6, other ants 42.3, empty home cells 0.0; near home cells free 0.03 / held by ants 8.2
+       would find a cell if brood were passable: 0%;  zero empty home cells in the 9x9: 98%
+       their zones: mound_in 84%, mound_top 15%, nest 1%
+== base-s2 100-150k: 50 samples, adults/sample 695, bar 1034 J
+   energy all: median 402  p75 950  p90 1813  max 6994
+   affordable (>= bar): 157.3 per sample = 22.6% of adults; their energy median 1685
+   counters over window: eggs laid 997, held no pile site 1570586, declined 0, larvae starved 155, births 777
+   affordable by zone (share of affordable | share of that zone that is affordable): mound_in 44% | 29%, mound_top 37% | 23%, surface 18% | 24%, food 1% | 13%, nest 0% | 0%
+   home within 4: 8% of affordable (no home in reach: 92%)
+     nearest home cell at: d0 1%, d1 1%, d2 2%, d3 2%, d4 2%
+     pile site found: 12 (0.2% of affordable) -- an ant with one lays at its next tick unless its brain declines
+     at home with no site (8% of affordable): 9x9 round head mean brood 0.4, food 2.9, other ants 43.0, empty home cells 0.0; near home cells free 0.03 / held by ants 8.7
+       would find a cell if brood were passable: 0%;  zero empty home cells in the 9x9: 98%
+       their zones: mound_in 84%, mound_top 15%, nest 1%
+== base-s2 150-200k: 50 samples, adults/sample 688, bar 1034 J
+   energy all: median 462  p75 1040  p90 1835  max 8964
+   affordable (>= bar): 173.4 per sample = 25.2% of adults; their energy median 1624
+   counters over window: eggs laid 1065, held no pile site 1726462, declined 0, larvae starved 190, births 862
+   affordable by zone (share of affordable | share of that zone that is affordable): mound_in 48% | 31%, mound_top 33% | 25%, surface 18% | 29%, food 0% | 13%, nest 0% | 0%
+   home within 4: 8% of affordable (no home in reach: 92%)
+     nearest home cell at: d0 1%, d1 1%, d2 2%, d3 2%, d4 2%
+     pile site found: 14 (0.2% of affordable) -- an ant with one lays at its next tick unless its brain declines
+     at home with no site (7% of affordable): 9x9 round head mean brood 0.6, food 3.1, other ants 43.9, empty home cells 0.1; near home cells free 0.03 / held by ants 8.3
+       would find a cell if brood were passable: 1%;  zero empty home cells in the 9x9: 98%
+       their zones: mound_in 83%, mound_top 16%, nest 1%
+== base-s3 20-50k: 30 samples, adults/sample 329, bar 1034 J
+   energy all: median 325  p75 655  p90 1197  max 6840
+   affordable (>= bar): 43.0 per sample = 13.1% of adults; their energy median 1418
+   counters over window: eggs laid 520, held no pile site 251826, declined 0, larvae starved 0, births 433
+   affordable by zone (share of affordable | share of that zone that is affordable): mound_top 73% | 17%, surface 21% | 13%, mound_in 4% | 6%, food 1% | 12%, nest 0% | 0%
+   home within 4: 4% of affordable (no home in reach: 96%)
+     nearest home cell at: d0 1%, d1 1%, d2 1%, d3 1%, d4 1%
+     pile site found: 10 (0.8% of affordable) -- an ant with one lays at its next tick unless its brain declines
+     at home with no site (4% of affordable): 9x9 round head mean brood 0.8, food 2.0, other ants 39.9, empty home cells 0.1; near home cells free 0.06 / held by ants 10.9
+       would find a cell if brood were passable: 0%;  zero empty home cells in the 9x9: 94%
+       their zones: mound_in 52%, mound_top 48%
+== base-s3 50-100k: 50 samples, adults/sample 629, bar 1034 J
+   energy all: median 370  p75 824  p90 1481  max 6119
+   affordable (>= bar): 116.8 per sample = 18.6% of adults; their energy median 1536
+   counters over window: eggs laid 977, held no pile site 1144869, declined 0, larvae starved 3, births 842
+   affordable by zone (share of affordable | share of that zone that is affordable): mound_top 47% | 21%, mound_in 32% | 23%, surface 20% | 20%, food 0% | 9%, nest 0% | 0%
+   home within 4: 8% of affordable (no home in reach: 92%)
+     nearest home cell at: d0 2%, d1 1%, d2 2%, d3 2%, d4 2%
+     pile site found: 17 (0.3% of affordable) -- an ant with one lays at its next tick unless its brain declines
+     at home with no site (8% of affordable): 9x9 round head mean brood 0.3, food 1.6, other ants 41.8, empty home cells 0.0; near home cells free 0.04 / held by ants 9.8
+       would find a cell if brood were passable: 0%;  zero empty home cells in the 9x9: 98%
+       their zones: mound_in 78%, mound_top 21%, nest 1%
+== base-s3 100-150k: 50 samples, adults/sample 722, bar 1034 J
+   energy all: median 434  p75 984  p90 1800  max 7521
+   affordable (>= bar): 169.5 per sample = 23.5% of adults; their energy median 1646
+   counters over window: eggs laid 1048, held no pile site 1694840, declined 0, larvae starved 82, births 844
+   affordable by zone (share of affordable | share of that zone that is affordable): mound_in 40% | 27%, mound_top 40% | 26%, surface 20% | 27%, food 0% | 14%, nest 0% | 0%
+   home within 4: 8% of affordable (no home in reach: 92%)
+     nearest home cell at: d0 1%, d1 1%, d2 2%, d3 2%, d4 2%
+     pile site found: 12 (0.1% of affordable) -- an ant with one lays at its next tick unless its brain declines
+     at home with no site (8% of affordable): 9x9 round head mean brood 0.3, food 2.0, other ants 42.0, empty home cells 0.0; near home cells free 0.03 / held by ants 9.3
+       would find a cell if brood were passable: 0%;  zero empty home cells in the 9x9: 98%
+       their zones: mound_in 83%, mound_top 16%, nest 1%
+== base-s3 150-200k: 50 samples, adults/sample 728, bar 1034 J
+   energy all: median 430  p75 971  p90 1726  max 7358
+   affordable (>= bar): 167.4 per sample = 23.0% of adults; their energy median 1604
+   counters over window: eggs laid 1132, held no pile site 1662689, declined 0, larvae starved 149, births 909
+   affordable by zone (share of affordable | share of that zone that is affordable): mound_in 50% | 29%, mound_top 34% | 24%, surface 15% | 25%, food 0% | 12%, nest 0% | 0%
+   home within 4: 9% of affordable (no home in reach: 91%)
+     nearest home cell at: d0 1%, d1 1%, d2 2%, d3 2%, d4 2%
+     pile site found: 8 (0.1% of affordable) -- an ant with one lays at its next tick unless its brain declines
+     at home with no site (9% of affordable): 9x9 round head mean brood 0.2, food 2.1, other ants 42.6, empty home cells 0.0; near home cells free 0.02 / held by ants 9.3
+       would find a cell if brood were passable: 0%;  zero empty home cells in the 9x9: 99%
+       their zones: mound_in 84%, mound_top 16%, nest 1%
+== base-s4 20-50k: 30 samples, adults/sample 364, bar 1034 J
+   energy all: median 302  p75 637  p90 1217  max 6957
+   affordable (>= bar): 48.7 per sample = 13.4% of adults; their energy median 1522
+   counters over window: eggs laid 618, held no pile site 283141, declined 0, larvae starved 2, births 439
+   affordable by zone (share of affordable | share of that zone that is affordable): mound_top 67% | 18%, surface 21% | 14%, mound_in 11% | 10%, nest 0% | 0%, food 0% | 5%
+   home within 4: 6% of affordable (no home in reach: 94%)
+     nearest home cell at: d0 1%, d1 1%, d2 0%, d3 1%, d4 2%
+     pile site found: 12 (0.8% of affordable) -- an ant with one lays at its next tick unless its brain declines
+     at home with no site (5% of affordable): 9x9 round head mean brood 0.6, food 1.3, other ants 38.2, empty home cells 0.1; near home cells free 0.04 / held by ants 9.0
+       would find a cell if brood were passable: 0%;  zero empty home cells in the 9x9: 95%
+       their zones: mound_in 54%, mound_top 46%
+== base-s4 50-100k: 50 samples, adults/sample 570, bar 1034 J
+   energy all: median 385  p75 900  p90 1664  max 9897
+   affordable (>= bar): 120.3 per sample = 21.1% of adults; their energy median 1610
+   counters over window: eggs laid 1048, held no pile site 1188887, declined 0, larvae starved 110, births 774
+   affordable by zone (share of affordable | share of that zone that is affordable): mound_top 45% | 23%, mound_in 32% | 26%, surface 23% | 24%, food 0% | 12%, nest 0% | 0%
+   home within 4: 9% of affordable (no home in reach: 91%)
+     nearest home cell at: d0 1%, d1 1%, d2 1%, d3 2%, d4 3%
+     pile site found: 11 (0.2% of affordable) -- an ant with one lays at its next tick unless its brain declines
+     at home with no site (8% of affordable): 9x9 round head mean brood 0.3, food 1.9, other ants 40.9, empty home cells 0.1; near home cells free 0.03 / held by ants 8.4
+       would find a cell if brood were passable: 0%;  zero empty home cells in the 9x9: 98%
+       their zones: mound_in 79%, mound_top 20%, nest 1%
+== base-s4 100-150k: 50 samples, adults/sample 673, bar 1034 J
+   energy all: median 398  p75 962  p90 1780  max 8477
+   affordable (>= bar): 155.0 per sample = 23.0% of adults; their energy median 1646
+   counters over window: eggs laid 956, held no pile site 1535190, declined 0, larvae starved 186, births 781
+   affordable by zone (share of affordable | share of that zone that is affordable): mound_in 42% | 31%, mound_top 38% | 23%, surface 20% | 24%, food 1% | 15%, nest 0% | 0%
+   home within 4: 7% of affordable (no home in reach: 93%)
+     nearest home cell at: d0 1%, d1 1%, d2 1%, d3 2%, d4 2%
+     pile site found: 11 (0.1% of affordable) -- an ant with one lays at its next tick unless its brain declines
+     at home with no site (7% of affordable): 9x9 round head mean brood 0.7, food 1.8, other ants 39.2, empty home cells 0.1; near home cells free 0.03 / held by ants 8.1
+       would find a cell if brood were passable: 0%;  zero empty home cells in the 9x9: 96%
+       their zones: mound_in 84%, mound_top 15%, nest 1%
+== base-s4 150-200k: 50 samples, adults/sample 675, bar 1034 J
+   energy all: median 407  p75 981  p90 1749  max 10169
+   affordable (>= bar): 158.0 per sample = 23.4% of adults; their energy median 1599
+   counters over window: eggs laid 1137, held no pile site 1570777, declined 0, larvae starved 234, births 802
+   affordable by zone (share of affordable | share of that zone that is affordable): mound_in 50% | 30%, mound_top 31% | 23%, surface 18% | 27%, food 0% | 15%, nest 0% | 0%
+   home within 4: 7% of affordable (no home in reach: 93%)
+     nearest home cell at: d0 1%, d1 1%, d2 2%, d3 2%, d4 2%
+     pile site found: 4 (0.1% of affordable) -- an ant with one lays at its next tick unless its brain declines
+     at home with no site (7% of affordable): 9x9 round head mean brood 0.7, food 2.0, other ants 40.5, empty home cells 0.1; near home cells free 0.02 / held by ants 9.1
+       would find a cell if brood were passable: 1%;  zero empty home cells in the 9x9: 96%
+       their zones: mound_in 88%, mound_top 11%, nest 1%
