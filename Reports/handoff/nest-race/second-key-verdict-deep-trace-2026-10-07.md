@@ -1,4 +1,4 @@
-# Second key on the nest stack going to main (Deep trace, 2026-10-07 ~22:55 UTC)
+# Second key on the nest stack going to main (Deep trace, 2026-10-07 ~22:55 UTC, seed 2 added 23:45)
 
 For Nest race's PR of the whole stack, and for the coordinator's brief to the merge desk. Scott's decision at 22:34, as
 the coordinator recorded it: put the stack on main, "defaults on only where they clear the bar; Deep trace written yes".
@@ -9,7 +9,7 @@ Measured unless marked *inferred*.
 | switch | my answer | on what |
 |---|---|---|
 | `WAY_FOOT` | **Yes, on by default.** Clearly better. | 12 seeds at heap 90, plus my exact reruns of s3 and s4 |
-| `NEST_STORE` part `edible` | **Yes to the fix. Off by default until two checks pass:** seed 2's 44 deaths in the mound tunnels are traced, and a 12-seed set. | 4 seeds at heap 90 |
+| `NEST_STORE` part `edible` | **Yes to the fix. On by default after its 12-seed set,** checking deaths in the mound tunnels per seed. Seed 2's 44 are traced (below): ants walled into the mound, not the store. | 4 seeds at heap 90, plus my seed 2 rerun |
 | the rest of the stack: `NEEDS_FIRST`+backfill, `CARRY_HOME`, `DOOR_COLUMN`, `LAY_BAR`, `NEST_STORE` | **Not reviewed by me against main.** | Every trace of mine had them on in both arms |
 
 ## `WAY_FOOT`: yes
@@ -32,7 +32,7 @@ counting crumbs too small to bite (`store-arms/way-foot/residual-nest-deaths-dee
 1.3-1.8% of those starvers' decisions. The residual starvers on s5, s8 and s11 (364, 276, 297) are not traced; `edible`'s
 12-seed set will show whether they are the same cause.
 
-## `edible`: yes to the fix, default on after two checks
+## `edible`: yes to the fix, default on after its 12-seed set
 
 **It fixes the traced cause.** The store's count, its pull and its "can feed" now use the mouth's own test, with the
 ants' own gut. Checked in the code at b5922852:
@@ -50,12 +50,9 @@ ants' own gut. Checked in the code at b5922852:
 
 **What holds back default-on:**
 
-1. **Seed 2 rose from 9 starved to 47,** and 44 of them died in the mound tunnels at 200-300k. That is not
-   colony-killing (782 ants at 300k), but it is an untraced rise.
-   - It may be the release I warned of: a store that now reads empty lets its hungry go all at once, and they die on
-     the way out. That is not checked.
-   - I am rerunning s2 with and without `edible`, with the store census, to trace it. The result goes in the section
-     below.
+1. **Seed 2 rose from 9 starved to 47,** 44 of them in the mound tunnels.
+   - Traced in the section below: ants walled into small pockets of the mound, not the release I warned of.
+   - Whether `edible` makes that more likely is not shown by one seed.
 2. **Only 4 seeds.** Scott's decision asks for 12.
 
 **Left over, a separate part and Nest race's call:** the store's meal cycle keeps making crumbs no mouth takes, ~190 per
@@ -68,9 +65,59 @@ Every run I traced had the rest of the stack on in both arms, so none of my numb
 turns any of those switches on by default, the bar is a 12-seed table against main: heap 90, and heap 30 too, per
 Scott's note that the heap distance is a confound. I have not seen that table.
 
-## Seed 2's mound-tunnel deaths under `edible`
+## Seed 2's mound-tunnel deaths under `edible` (traced 23:45 UTC)
 
-Pending: the rerun started at 22:50 UTC.
+**They are ants walled into small pockets inside the mound, not the store letting the hungry go.**
+
+Rerun of s2 with and without `edible`, b5922852 + probe v5 (store census only, measuring only). The runs match Nest race's:
+782 and 771 ants at 300k. 46 and 8 starved by the ledger, against Nest race's 47 and 9: one fewer on both arms, so a
+counting edge, *inferred*. Of `edible`'s 44 deaths in the mound tunnels, 40 were at 200-300k; the base arm had 1 there.
+Tools: `store-arms/way-foot/tools/zonedeaths.py`, `moundfood.py`.
+
+**Not the release:**
+
+- None of the 40 began its last hungry spell in the nest, and none entered it during the spell.
+- The store held 160-212 cells, always 8 or more, through every one of their spells.
+
+**Who and how:**
+
+- **Foragers:** none was a nest worker.
+- **Fed at the start:** each began its spell at about the grant (energy 0.90-1.00), already inside the mound.
+- **No bites:** none bit anything from then until it starved, a median 3,550 frames later.
+- **No pull fired:** their decisions were 65% plain steps and 35% idle.
+
+**They died in three groups.** Each group was shut into a small pocket of soil (nest maps every 1,000 frames, flood-filled
+from each ant's own cell):
+
+| when | ants | the pocket |
+|---|---|---|
+| 210k and 248k | 2 + 3 | 2 cells, sealed for at least 4-6k frames before death |
+| 251.4-251.6k | 15 | open 4k frames before death; a sealed 26-cell pocket from about 2k before |
+| 260.5-262.1k | 20 | open only through diagonal cracks. Counting side-by-side steps only, 18 of the 20 were in 16-17-cell pockets 1k frames before death |
+
+Whether an ant can squeeze through a diagonal crack is not checked. If it can, the third group was not sealed in.
+
+**Food round them:**
+
+- No food a mouth can take within 10 cells of any of the 40; the nearest was 12-51 cells away.
+- Crumbs too small to bite (median 6 J, at most 14 J) were within 10 cells of all 40, and within 3 of 23 of them.
+
+**The mound's dig-out rule** (`MOUND_OUT=dig`) let 1,257 digs at 248-252k and 146 at 260-264k (cumulative counter).
+*Inferred:* the walled-in ants tried to dig out and did not get out in time.
+
+**Is it `edible`'s doing?** Not shown by one seed.
+
+- One measured difference: late in the run, the mound pocket held more crumbs too small to bite under `edible`.
+  - The box is x 226-248, y 140-159; the counts are cell-samples per 5k.
+  - From 255k: 226-318 under `edible` against 94-157 on base.
+  - Before that: 150-238 against 114-189.
+- How they got there is not traced. *Inferred:* crumbs that no longer count as store food may be dug out of the store as
+  soil. Probe v5's `foodmoves=1` log can check that.
+- Only seed 2 of the 4 shows these deaths.
+
+**What this changes in my answer.** The release worry is not borne out on seed 2. Seed 2's deaths are ants shut in the
+mound, a known failure. Default-on for `edible` now waits only on its 12-seed set. In that set, count the starved in
+`mound_in` (ledger `zone_end`) per seed on both arms. If they rise on several seeds, trace them before default-on.
 
 ## For the handoff: where my work is
 
