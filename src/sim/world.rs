@@ -2868,6 +2868,9 @@ pub struct CreatureStats {
     /// its crop for the brood.
     pub nurse_handoffs: u64,
     pub nurse_holds: u64,
+    /// Drop rolls at the nest held so a hungry ant keeps the meal it took
+    /// at home (`creature::NestStore`'s `meal`).
+    pub meal_holds: u64,
     /// Of `nurse_handoffs`: those a nurse above the founding ground passed
     /// down, and those whose receiver was not a nest worker until then.
     pub nurse_passed_down: u64,

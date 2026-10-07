@@ -12082,8 +12082,29 @@ fn spoil_haul() -> Option<f32> {
 /// (`Reports/nest-one-entrance-2026-09-29.md` §17).
 fn spoil_haul_target(world: &World, state: &crate::sim::organism::OrganismState, head: (i32, i32)) -> Option<(i32, i32)> {
     let site = world.nearest_nest_site(head.0, head.1).and_then(|i| world.nest_sites.get(i))?;
+    // **Under [`NestStore`]'s `sky`, out of the mound first, then to open
+    // sky in the drawn column** (Nest race, 2026-10-07, traced on three runs:
+    // `/mnt/project-files/nest-race/store-arms/arm1b/soil-on-mound.md`).
+    // `ring_target` takes the first *open* cell over the founding ground, and
+    // the mound's own tunnels are open: 89-97% of the targets nest workers on
+    // the mound were hauling to had soil overhead, so `keep` (no drop under
+    // cover) never let the pellet go there, and 53-115 of ~320 nest workers
+    // held one pellet a median ~1,900-2,400 frames, 10-15% of their time.
+    // The haul is a heading pull and a laden ant does not cut, so a carrier
+    // under cover is walked along the mound's way to the open air
+    // ([`build_mound_way`], Nest building's review) before the column
+    // target, now the first cell in it with no ground overhead, takes over.
+    if nest_store_of(world).sky && under_cover(world, head.0, head.1) && !below_founding_ground(world, head.0, head.1) {
+        if let Some(step) = world.mound_ways.iter().find(|w| Some(w.site) == world.nearest_nest_site(head.0, head.1)).and_then(|w| step_out_way(w, head)) {
+            return Some(step);
+        }
+    }
     if let Some(col) = state.spoil_ring.filter(|_| spoil_ring_of(world).is_some()) {
-        return Some(ring_target(world, site, crest_column(world, site, col)));
+        let col = crest_column(world, site, col);
+        if nest_store_of(world).sky {
+            return Some(sky_target(world, site, col));
+        }
+        return Some(ring_target(world, site, col));
     }
     Some(match site.shaft {
         Some(cut) if spoil_out().haul => (site.x, cut.top - 1),
@@ -13665,6 +13686,27 @@ pub struct NestStore {
     /// and eaters set down; below ground on that run there was never one
     /// whole food cell, and a dozen crumbs drew the hungry down.
     pub whole: bool,
+    /// `meal`: **a hungry ant keeps what it bit at home and digests it**
+    /// (Nest race, 2026-10-07, built off). An ant gains energy only from food
+    /// in its crop, and the founder brain's `Drop` output switches on at the
+    /// nest (`AtNest`). So a hungry ant that bit store food put it back down
+    /// a median 25 frames later with ~660 of ~670 J still in the crop: 158 of
+    /// 161 bites by hungry ants 10+ rows down on 60 traced ants (Deep trace,
+    /// arm 2b seed 2, 125-135k), and 88-91% of hungry crop episodes in the
+    /// dug nest with the store off. Under `meal` the at-home put-down roll
+    /// is held at 0 while the crop holds **only food taken at home**
+    /// (`OrganismState::lunch`, written always) and the ant is under its
+    /// grant. **Keyed on why the food is held**, so it leaves every other
+    /// carry alone (Scott, 2026-10-07): a forager's crop holds food from away
+    /// (`lunch` false) and is delivered as before; a nest worker's store load
+    /// rides in the jaws, not the crop; a nurse feeds larvae from a crop
+    /// that is not a lunch (`crop_to_feed`), unchanged; a fed ant (at or
+    /// over its grant) puts home food down as before. The roll is still
+    /// drawn.
+    pub meal: bool,
+    /// `sky`: **a carrier's soil goes down under open sky** (Nest race,
+    /// 2026-10-07, built off). See [`ring_target`].
+    pub sky: bool,
 }
 
 /// How deep the store is by default ([`NestStore`]'s `depth`), in steps of
@@ -13687,8 +13729,8 @@ pub const STORE_DOOR_REACH: i32 = 8;
 pub const STORE_ROOMY: u32 = 12;
 
 impl NestStore {
-    pub const OFF: NestStore = NestStore { carry: false, eat: false, keep: false, home: false, larder: false, depth: STORE_DEPTH, pick: 0, jaws: false, fetch: false, smell: 0, sated: false, whole: false };
-    pub const ON: NestStore = NestStore { carry: true, eat: true, keep: true, home: true, larder: true, depth: STORE_DEPTH, pick: 0, jaws: false, fetch: false, smell: 0, sated: false, whole: false };
+    pub const OFF: NestStore = NestStore { carry: false, eat: false, keep: false, home: false, larder: false, depth: STORE_DEPTH, pick: 0, jaws: false, fetch: false, smell: 0, sated: false, whole: false, meal: false, sky: false };
+    pub const ON: NestStore = NestStore { carry: true, eat: true, keep: true, home: true, larder: true, depth: STORE_DEPTH, pick: 0, jaws: false, fetch: false, smell: 0, sated: false, whole: false, meal: false, sky: false };
     /// What a world gets with the variable unset: off, see the type's doc.
     pub const SHIPPED: NestStore = NestStore::OFF;
 
@@ -13703,12 +13745,14 @@ impl NestStore {
         let mut ns = NestStore::OFF;
         for part in raw.split(',').map(str::trim).filter(|p| !p.is_empty()) {
             match part {
-                "on" => ns = NestStore { depth: ns.depth, pick: ns.pick, jaws: ns.jaws, fetch: ns.fetch, smell: ns.smell, sated: ns.sated, whole: ns.whole, ..NestStore::ON },
-                "off" => ns = NestStore { depth: ns.depth, pick: ns.pick, jaws: ns.jaws, fetch: ns.fetch, smell: ns.smell, sated: ns.sated, whole: ns.whole, ..NestStore::OFF },
+                "on" => ns = NestStore { depth: ns.depth, pick: ns.pick, jaws: ns.jaws, fetch: ns.fetch, smell: ns.smell, sated: ns.sated, whole: ns.whole, meal: ns.meal, sky: ns.sky, ..NestStore::ON },
+                "off" => ns = NestStore { depth: ns.depth, pick: ns.pick, jaws: ns.jaws, fetch: ns.fetch, smell: ns.smell, sated: ns.sated, whole: ns.whole, meal: ns.meal, sky: ns.sky, ..NestStore::OFF },
                 "jaws" => ns.jaws = true,
                 "fetch" => ns.fetch = true,
                 "sated" => ns.sated = true,
                 "whole" => ns.whole = true,
+                "meal" => ns.meal = true,
+                "sky" => ns.sky = true,
                 "carry" => ns.carry = true,
                 "eat" => ns.eat = true,
                 "keep" => ns.keep = true,
@@ -13718,7 +13762,7 @@ impl NestStore {
                     (Some(n), _, _) => ns.depth = n,
                     (_, Some(n), _) => ns.pick = n,
                     (_, _, Some(n)) => ns.smell = n,
-                    _ => panic!("PIXEL_PHYSICS_NEST_STORE={raw:?}: {other:?} is not on, off, carry, eat, keep, home, larder, jaws, fetch, sated, whole, depth=<steps>, pick=<cols> or smell=<steps>"),
+                    _ => panic!("PIXEL_PHYSICS_NEST_STORE={raw:?}: {other:?} is not on, off, carry, eat, keep, home, larder, jaws, fetch, sated, whole, meal, sky, depth=<steps>, pick=<cols> or smell=<steps>"),
                 },
             }
         }
@@ -15144,6 +15188,58 @@ fn ring_target(world: &World, site: &crate::sim::world::NestSite, col: i32) -> (
     let start = site.surface - 1;
     (col, (0..=RING_CLIMB).map(|d| start - d).find(|&y| open(y)).unwrap_or(start - RING_CLIMB))
 }
+
+/// **The cell a latched carrier heads for under [`NestStore`]'s `sky`**:
+/// its column, on the first cell over the founding ground an ant could stand
+/// in with no ground overhead ([`under_cover`]). [`ring_target`]'s first open
+/// cell is, once the mound has grown over the column, a tunnel inside it.
+/// An ant there is not sky: a cell holding one is open only if nothing
+/// covers it.
+fn sky_target(world: &World, site: &crate::sim::world::NestSite, col: i32) -> (i32, i32) {
+    let open = |y: i32| matches!(world.materials.kind(world.get(col, y).material), MaterialKind::Empty | MaterialKind::Gas | MaterialKind::Plant | MaterialKind::Creature);
+    let start = site.surface - 1;
+    (col, (0..=RING_CLIMB).map(|d| start - d).find(|&y| open(y) && !under_cover(world, col, y)).unwrap_or(start - RING_CLIMB))
+}
+
+/// **[`REST_LOOKAHEAD`] steps towards the open air along a mound's way**
+/// ([`build_mound_way`]), in the fixed neighbour order; `None` off the way or
+/// already out. [`step_down_way`] without the ant's own tie order, which
+/// needs its id; a pellet carrier's state is all the haul target is given.
+fn step_out_way(way: &NestWay, head: (i32, i32)) -> Option<(i32, i32)> {
+    let mut d = way.at(head.0, head.1).filter(|&d| d > 0)?;
+    let mut at = head;
+    for _ in 0..REST_LOOKAHEAD {
+        let mut best: Option<(u16, (i32, i32))> = None;
+        for &(dx, dy) in NEIGHBOURS_8.iter() {
+            let p = (at.0 + dx, at.1 + dy);
+            if let Some(v) = way.at(p.0, p.1).filter(|&v| v < d && best.is_none_or(|(b, _)| v < b)) {
+                best = Some((v, p));
+            }
+        }
+        let Some((v, p)) = best else { break };
+        d = v;
+        at = p;
+    }
+    (at != head).then_some(at)
+}
+
+/// **Not beside a hole in the mound** ([`NestStore`]'s `sky`): no covered
+/// cell of the mound's way within [`SKY_CLEAR`] cells. A pellet put down at
+/// a tunnel's mouth caps it, and `SPOIL_LIFT=out` grew a heap on every hole
+/// (Nest building's review, 2026-10-07).
+fn beside_mound_hole(world: &World, (x, y): (i32, i32)) -> bool {
+    let Some(way) = world.nearest_nest_site(x, y).and_then(|s| world.mound_ways.iter().find(|w| w.site == s)) else { return false };
+    (-SKY_CLEAR..=SKY_CLEAR).any(|dy| (-SKY_CLEAR..=SKY_CLEAR).any(|dx| way.at(x + dx, y + dy).is_some_and(|d| d > 0)))
+}
+
+/// **On the covered part of the mound's way** ([`build_mound_way`]): a cell
+/// with a way out that is not yet out.
+fn on_mound_way_covered(world: &World, (x, y): (i32, i32)) -> bool {
+    world.nearest_nest_site(x, y).and_then(|s| world.mound_ways.iter().find(|w| w.site == s)).is_some_and(|w| w.at(x, y).is_some_and(|d| d > 0))
+}
+
+/// How far from a covered cell of the mound's way a `sky` pellet must go down.
+const SKY_CLEAR: i32 = 2;
 
 /// **A hauled pellet is carried at the laden pace** ([`SpoilOut`]'s `pace`):
 /// `HomeAligned` reads as it does for a load of food, so the step roll is the
@@ -18261,10 +18357,16 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
             if nurse_held {
                 world.creature_stats.nurse_holds += 1;
             }
+            // **A hungry ant keeps the meal it took at home** ([`NestStore`]'s
+            // `meal`): crop food taken only at home, the ant under its grant.
+            let meal_held = at_nest && nest_store_of(world).meal && world.organism(organism).is_some_and(|s| s.lunch && s.spoil.is_none() && s.energy < def.start_energy && s.crop.is_some_and(|c| c.worth() > 0.0));
+            if meal_held {
+                world.creature_stats.meal_holds += 1;
+            }
             let p = match harvest {
                 Some(HarvestDrop::Hold) => 0.0,
                 Some(HarvestDrop::Store(_)) => HARVEST_DROP_P,
-                None if crop_held || nurse_held => 0.0,
+                None if crop_held || nurse_held || meal_held => 0.0,
                 None => drop_urge,
             };
             // The same single draw as before, bound to a name so the trace can
@@ -18560,7 +18662,13 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
         // carrier there is on the way out, however long it has taken.
         let held_below = keep_inside && soil_way && below_founding_ground(world, x, y);
         world.creature_stats.spoil_held_below += u64::from(held_below && !patient && !held_near_door);
-        let kept_inside = keep_inside && (patient || held_near_door || held_below);
+        // **Under `sky`, not on the mound's covered way, nor beside a hole
+        // in it** ([`NestStore`]'s `sky`): held as inside, so the carrier
+        // walks on to open ground. A carrier in a pocket the way does not
+        // reach is left to the rules above, which may let it lay the pellet
+        // beside itself, rather than held with nowhere to take it.
+        let sky_held = nest_store_of(world).sky && spoil_out().keep && !below_founding_ground(world, x, y) && (on_mound_way_covered(world, (x, y)) || (!under_cover(world, x, y) && beside_mound_hole(world, (x, y))));
+        let kept_inside = (keep_inside && (patient || held_near_door || held_below)) || sky_held;
         // The keep rule's inputs, each read on its own for the trace (the
         // rule above short-circuits). Reads only; no draw.
         let spoil_flags = if world.decision_log.is_some() {
