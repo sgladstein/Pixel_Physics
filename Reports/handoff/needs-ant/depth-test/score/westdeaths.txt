@@ -1,0 +1,13 @@
+window 20-300k; starved by where they died: nest / door / west near / west far / east / food
+/home/claude/runs/base/on-s1: peak 603 ants at 280k (ants at 300k: 487); starved 22: 1 / 1 / 6 / 13 / 1 / 0; in the 60k after the peak 17: 0 / 1 / 5 / 11 / 0 / 0; ants far west at a time mean 95.1, most 159
+/home/claude/runs/base/on-s2: peak 639 ants at 228k (ants at 300k: 597); starved 3: 2 / 0 / 0 / 0 / 1 / 0; in the 60k after the peak 1: 1 / 0 / 0 / 0 / 0 / 0; ants far west at a time mean 104.0, most 152
+/home/claude/runs/base/on-s3: peak 587 ants at 195k (ants at 300k: 551); starved 4: 1 / 0 / 1 / 1 / 0 / 1; in the 60k after the peak 2: 0 / 0 / 0 / 1 / 0 / 1; ants far west at a time mean 104.0, most 170
+/home/claude/runs/base/on-s4: peak 603 ants at 154k (ants at 300k: 589); starved 9: 6 / 0 / 2 / 0 / 1 / 0; in the 60k after the peak 6: 4 / 0 / 2 / 0 / 0 / 0; ants far west at a time mean 91.5, most 143
+/mnt/project-files/nest-race/lane3/needs-first/runs/oncarry-s1: peak 596 ants at 262k (ants at 300k: 511); starved 10: 3 / 1 / 4 / 1 / 1 / 0; in the 60k after the peak 1: 1 / 0 / 0 / 0 / 0 / 0; ants far west at a time mean 47.0, most 113
+/mnt/project-files/nest-race/lane3/needs-first/runs/oncarry-s2: peak 1058 ants at 125k (ants at 300k: 511); starved 65: 54 / 0 / 10 / 0 / 1 / 0; in the 60k after the peak 4: 0 / 0 / 4 / 0 / 0 / 0; ants far west at a time mean 76.0, most 217
+/mnt/project-files/nest-race/lane3/needs-first/runs/oncarry-s3: peak 709 ants at 113k (ants at 300k: 637); starved 6: 1 / 0 / 5 / 0 / 0 / 0; in the 60k after the peak 1: 0 / 0 / 1 / 0 / 0 / 0; ants far west at a time mean 50.5, most 135
+/mnt/project-files/nest-race/lane3/needs-first/runs/oncarry-s4: peak 614 ants at 146k (ants at 300k: 530); starved 4: 1 / 0 / 0 / 1 / 2 / 0; in the 60k after the peak 1: 0 / 0 / 0 / 0 / 1 / 0; ants far west at a time mean 52.8, most 117
+/home/claude/runs/depth/slow-s1: peak 600 ants at 288k (ants at 300k: 554); starved 2: 1 / 0 / 0 / 0 / 1 / 0; in the 60k after the peak 0: 0 / 0 / 0 / 0 / 0 / 0; ants far west at a time mean 100.9, most 160
+/home/claude/runs/depth/slow-s2: peak 621 ants at 270k (ants at 300k: 556); starved 2: 2 / 0 / 0 / 0 / 0 / 0; in the 60k after the peak 1: 1 / 0 / 0 / 0 / 0 / 0; ants far west at a time mean 99.1, most 139
+/home/claude/runs/depth/slow-s3: peak 1040 ants at 108k (ants at 300k: 600); starved 7: 3 / 0 / 0 / 3 / 1 / 0; in the 60k after the peak 3: 3 / 0 / 0 / 0 / 0 / 0; ants far west at a time mean 115.7, most 247
+/home/claude/runs/depth/slow-s4: peak 986 ants at 277k (ants at 300k: 751); starved 131: 3 / 0 / 20 / 108 / 0 / 0; in the 60k after the peak 72: 0 / 0 / 14 / 58 / 0 / 0; ants far west at a time mean 101.5, most 151

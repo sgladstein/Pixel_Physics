@@ -1,0 +1,192 @@
+62075 code 2 ant 516 at (+12,-9) escape e100: cut (+12,-8) packedsoil>ant cause -; refilled after 978 frames by a fall
+62156 code 2 ant 3146025 at (+5,-3) escape e94: cut (+4,-2) spoil>ant cause -; refilled after 3506 frames by a fall
+62330 code 2 ant 516 at (+10,-5) escape e82: cut (+9,-6) spoil>empty cause -; refilled after 20 frames by a fall
+62345 code 2 ant 516 at (+9,-6) escape e79: cut (+8,-7) packedsoil>ant cause -; refilled after 10 frames by a fall
+62355 code 4 ant 560 at (-3,-5) home e515: cut (-2,-4) packedsoil>empty cause -; refilled after 3197 frames by a fall
+62380 code 2 ant 1049049 at (+12,-9) escape e78: cut (+12,-10) packedsoil>ant cause -; refilled after 186 frames by drop ant 5243104
+62471 code 2 ant 5243104 at (+12,-8) escape e54: cut (+11,-8) packedsoil>ant cause -; refilled after 20 frames by a fall
+62491 code 2 ant 5243104 at (+12,-9) escape e51: cut (+11,-9) packedsoil>empty cause -; refilled after 86 frames by a fall
+62506 code 2 ant 5243104 at (+11,-6) escape e48: cut (+10,-6) packedsoil>ant cause -; refilled after 102 frames by a fall
+62521 code 2 ant 5243104 at (+12,-7) escape e45: cut (+11,-8) soil>empty cause -; refilled after 55 frames by a fall
+62536 code 2 ant 5243104 at (+12,-10) escape e53: cut (+11,-10) packedsoil>ant cause -; refilled after 72 frames by a fall
+62586 code 2 ant 5243104 at (+13,-5) escape e46: cut (+12,-5) spoil>empty cause -; refilled after 8 frames by a fall
+62591 code 2 ant 5243104 at (+12,-6) escape e44: cut (+11,-6) packedsoil>empty cause -; refilled after 2 frames by a fall
+62595 code 2 ant 1049049 at (+12,-10) escape e61: cut (+12,-11) packedsoil>ant cause -; refilled after 23 frames by a fall
+62596 code 2 ant 5243104 at (+11,-7) escape e42: cut (+11,-8) soil>empty cause -; refilled after 12 frames by a fall
+62601 code 2 ant 5243104 at (+10,-6) escape e40: cut (+9,-6) spoil>ant cause -; refilled after 10 frames by a fall
+62601 code 2 ant 485 at (+11,-10) escape e70: cut (+11,-11) packedsoil>empty cause -; refilled after 5 frames by a fall
+62606 code 2 ant 5243104 at (+9,-6) escape e38: cut (+8,-7) spoil>ant cause -; refilled after 200 frames by a fall
+62606 code 2 ant 485 at (+12,-11) escape e68: cut (+11,-10) soil>empty cause -; refilled after 4843 frames by a fall
+62636 code 4 ant 1049160 at (+0,-12) home e591: cut (+0,-11) packedsoil>empty cause -; refilled after 1256 frames by a fall
+62796 code 4 ant 4194631 at (-1,-4) home e196: cut (+0,-5) soil>empty cause -; refilled after 9919 frames by a fall
+62801 code 2 ant 5243104 at (+8,-7) escape e20: cut (+7,-7) packedsoil>ant cause -; refilled after 10 frames by a fall
+62855 code 2 ant 2097486 at (+8,-2) escape e70: cut (+8,-3) soil>ant cause -; refilled after 10 frames by a fall
+62860 code 2 ant 2097486 at (+8,-3) escape e68: no ground change logged beside it
+62916 code 4 ant 4194420 at (-4,-7) home e1387: cut (-3,-6) soil>ant cause -; refilled after 1881 frames by a fall
+62936 code 4 ant 397 at (+0,-11) home e341: cut (+0,-10) packedsoil>empty cause -; refilled after 996 frames by a fall
+62945 code 4 ant 2097408 at (+1,-14) home e207: cut (+1,-13) packedsoil>ant cause -; refilled after 867 frames by a fall
+63410 code 4 ant 1048789 at (-1,-4) home e2645: cut (-1,-3) soil>ant cause -; refilled after 2147 frames by a fall
+63411 code 4 ant 3145954 at (+0,-4) home e1594: cut (-1,-3) soil>ant cause -; refilled after 2147 frames by a fall
+63910 code 4 ant 180 at (-1,-3) home e1289: cut (-1,-2) packedsoil>ant cause -; refilled after 9137 frames by a fall
+64021 code 4 ant 1048809 at (+0,-3) home e204: cut (+0,-2) soil>ant cause -; refilled after 9796 frames by a fall
+64191 code 4 ant 397 at (+1,-14) home e224: cut (+1,-13) soil>ant cause -; refilled after 346 frames by a fall
+64470 code 4 ant 1049164 at (+0,-10) home e772: cut (+0,-9) packedsoil>ant cause -; refilled after 807 frames by a fall
+64691 code 4 ant 1048763 at (+1,-14) home e582: cut (+1,-13) soil>empty cause -; refilled after 58 frames by a fall
+65930 code 4 ant 2097489 at (+2,-14) home e587: cut (+2,-13) packedsoil>empty cause -; refilled after 112 frames by a fall
+65931 code 4 ant 3146004 at (+1,-14) home e255: cut (+2,-13) packedsoil>empty cause -; refilled after 112 frames by a fall
+66110 code 4 ant 176 at (+0,-14) home e797: cut (+0,-13) packedsoil>empty cause -; refilled after 1652 frames by a fall
+66150 code 4 ant 4194319 at (+5,-7) home e3621: cut (+4,-6) packedsoil>ant cause -; refilled after 10121 frames by drop ant 3145817
+66155 code 4 ant 2097513 at (-4,-9) home e1040: cut (-4,-8) soil>ant cause -; refilled after 6132 frames by a fall
+66460 code 4 ant 1048630 at (-3,-5) home e1637: cut (-2,-4) soil>ant cause -; refilled after 9761 frames by drop ant 1048958
+67036 code 4 ant 1048670 at (+1,-13) home e478: cut (+1,-12) packedsoil>ant cause -; refilled after 761 frames by a fall
+68140 code 4 ant 369 at (+1,-14) home e266: cut (+1,-13) soil>empty cause -; refilled after 44 frames by a fall
+68301 code 4 ant 1048965 at (+0,-14) home e304: cut (+0,-13) packedsoil>ant cause -; refilled after 96 frames by a fall
+69130 code 4 ant 1049170 at (+1,-14) home e322: cut (+1,-13) packedsoil>ant cause -; refilled after 782 frames by a fall
+69605 code 2 ant 544 at (+6,+6) escape e62: cut (+6,+5) packedsoil>empty cause -; refilled after 5 frames by a fall
+69610 code 2 ant 544 at (+7,+6) escape e60: cut (+6,+5) soil>empty cause -; refilled after 145 frames by a fall
+69625 code 2 ant 544 at (+9,+7) escape e57: no ground change logged beside it
+69630 code 2 ant 544 at (+10,+7) escape e55: no ground change logged beside it
+69645 code 2 ant 2097321 at (-2,+3) escape e57: cut (-2,+2) soil>ant cause -; refilled after 1278 frames by a fall
+69651 code 2 ant 4194386 at (+2,+3) escape e60: cut (+2,+2) soil>ant cause -; refilled after 611 frames by a fall
+69655 code 2 ant 1048885 at (-5,+6) escape e60: cut (-5,+5) packedsoil>empty cause -; refilled after 12174 frames by a fall
+69661 code 2 ant 1048668 at (-1,+3) escape e55: cut (+0,+4) soil>empty cause -; refilled after 2279 frames by a fall
+69665 code 2 ant 2097366 at (-1,-2) escape e67: cut (-1,-3) packedsoil>ant cause -; refilled after 6612 frames by a fall
+69665 code 2 ant 544 at (+12,+6) escape e50: cut (+11,+5) packedsoil>empty cause -; refilled after 5 frames by a fall
+69670 code 2 ant 544 at (+11,+6) escape e48: cut (+11,+5) soil>empty cause -; still open at the end
+69685 code 2 ant 2097385 at (+2,-1) escape e65: cut (+2,-2) packedsoil>ant cause -; refilled after 15 frames by drop ant 5242881
+69686 code 2 ant 1048775 at (+0,+7) escape e58: cut (+0,+6) soil>empty cause -; refilled after 10 frames by drop ant 1048668
+69700 code 2 ant 1048885 at (-14,+6) escape e54: cut (-14,+5) packedsoil>ant cause -; refilled after 60 frames by a fall
+69701 code 2 ant 1049012 at (+3,+11) escape e53: no ground change logged beside it
+69705 code 2 ant 2097329 at (-10,+6) escape e58: cut (-9,+5) packedsoil>empty cause -; still open at the end
+69710 code 2 ant 4194580 at (+4,-4) escape e71: cut (+4,-5) packedsoil>empty cause -; refilled after 6556 frames by a fall
+69716 code 2 ant 1049012 at (+4,+14) escape e50: no ground change logged beside it
+69720 code 2 ant 544 at (+14,+6) escape e42: cut (+13,+5) packedsoil>ant cause -; still open at the end
+69730 code 2 ant 544 at (+13,+6) escape e39: cut (+14,+7) soil>empty cause -; still open at the end
+69736 code 2 ant 1048911 at (-1,-7) escape e93: no ground change logged beside it
+69741 code 2 ant 1048668 at (+0,+7) escape e46: cut (+0,+6) soil>empty cause -; refilled after 5 frames by drop ant 1048668
+69746 code 2 ant 5243151 at (+7,+5) escape e56: cut (+7,+4) packedsoil>empty cause -; refilled after 5 frames by a fall
+69751 code 2 ant 5243151 at (+6,+5) escape e54: cut (+7,+5) soil>empty cause -; refilled after 12 frames by drop ant 5243151
+69755 code 2 ant 2097329 at (-14,+6) escape e52: cut (-13,+5) packedsoil>ant cause -; refilled after 10 frames by a fall
+69756 code 2 ant 1048668 at (-3,+6) escape e43: cut (-3,+5) packedsoil>empty cause -; refilled after 5 frames by a fall
+69756 code 2 ant 5243151 at (+6,+4) escape e52: cut (+7,+4) soil>empty cause -; refilled after 83 frames by drop ant 5243151
+69760 code 2 ant 2097329 at (-13,+5) escape e50: cut (-14,+5) soil>empty cause -; still open at the end
+69761 code 2 ant 1048668 at (-4,+6) escape e41: cut (-4,+5) packedsoil>ant cause -; refilled after 82 frames by a fall
+69766 code 2 ant 4194631 at (-2,-4) escape e72: cut (-2,-5) packedsoil>empty cause -; refilled after 4 frames by drop ant 1048888
+69771 code 2 ant 5243151 at (+6,+3) escape e49: cut (+6,+2) packedsoil>ant cause -; refilled after 6144 frames by a fall
+69775 code 2 ant 1048789 at (-11,+18) escape e68: cut (-11,+17) packedsoil>ant cause -; refilled after 18 frames by a fall
+69785 code 2 ant 1048789 at (-10,+17) escape e66: cut (-10,+16) soil>empty cause -; refilled after 5 frames by drop ant 1048789
+69785 code 2 ant 2097216 at (-1,-7) escape e79: cut (-1,-8) soil>ant cause -; refilled after 4002 frames by a fall
+69805 code 2 ant 1048885 at (-5,+6) escape e42: no ground change logged beside it
+69810 code 2 ant 1049049 at (-2,-4) escape e82: no ground change logged beside it
+69810 code 2 ant 3145947 at (+2,+2) escape e53: cut (+2,+1) soil>ant cause -; refilled after 445 frames by drop ant 3146183
+69816 code 2 ant 2097250 at (-1,+2) escape e46: cut (-1,+1) soil>ant cause -; refilled after 6385 frames by a fall
+69820 code 2 ant 1048885 at (-3,+6) escape e38: no ground change logged beside it
+69821 code 2 ant 2097629 at (-2,+2) escape e45: cut (-2,+1) packedsoil>ant cause -; refilled after 1099 frames by drop ant 1048585
+69825 code 2 ant 1048885 at (-4,+5) escape e36: cut (-3,+5) soil>empty cause -; refilled after 57 frames by drop ant 3145947
+69825 code 2 ant 1049037 at (-1,-8) escape e66: cut (-1,-9) packedsoil>ant cause -; refilled after 2667 frames by a fall
+69831 code 2 ant 449 at (-2,-4) escape e89: no ground change logged beside it
+69880 code 2 ant 344 at (-2,-4) escape e78: no ground change logged beside it
+69891 code 4 ant 602 at (+1,-13) home e690: cut (+1,-12) packedsoil>empty cause -; refilled after 1726 frames by a fall
+69900 code 2 ant 1049164 at (+2,-4) escape e74: cut (+2,-5) packedsoil>ant cause -; refilled after 2847 frames by a fall
+69966 code 2 ant 2097201 at (-2,-4) escape e86: no ground change logged beside it
+69996 code 2 ant 3146025 at (-1,-9) escape e52: cut (-1,-10) packedsoil>ant cause -; refilled after 2391 frames by a fall
+70150 code 2 ant 3146183 at (-3,+5) escape e66: cut (-3,+4) packedsoil>ant cause -; refilled after 421 frames by drop ant 5243151
+70195 code 2 ant 3145947 at (-4,+4) escape e61: cut (-3,+3) packedsoil>ant cause -; refilled after 575 frames by drop ant 3145947
+70515 code 4 ant 1048796 at (+1,-14) home e316: cut (+1,-13) soil>ant cause -; refilled after 512 frames by a fall
+70551 code 2 ant 5243151 at (+2,+3) escape e53: cut (+1,+3) packedsoil>ant cause -; refilled after 4226 frames by a fall
+70580 code 2 ant 1049090 at (+2,+3) escape e59: cut (+1,+2) packedsoil>empty cause -; refilled after 4172 frames by a fall
+70675 code 2 ant 3146183 at (+2,+1) escape e47: cut (+1,+0) spoil>ant cause -; refilled after 5868 frames by a fall
+70755 code 2 ant 543 at (+4,-4) escape e93: cut (+3,-3) packedsoil>ant cause -; refilled after 5470 frames by a fall
+70790 code 2 ant 1048797 at (+2,+3) escape e63: cut (+2,+2) packedsoil>ant cause -; refilled after 4410 frames by drop ant 3146069
+70820 code 2 ant 1049168 at (+2,+2) escape e50: cut (+1,+1) soil>ant cause -; refilled after 5390 frames by drop ant 3146023
+71236 code 2 ant 1048958 at (-4,-9) escape e94: cut (-3,-10) packedsoil>ant cause -; refilled after 356 frames by a fall
+71606 code 4 ant 589 at (+2,-16) home e1411: cut (+2,-15) soil>empty cause -; refilled after 486 frames by a fall
+71680 code 4 ant 255 at (+2,-15) home e374: cut (+2,-14) packedsoil>empty cause -; refilled after 452 frames by a fall
+71791 code 2 ant 1048958 at (-4,-8) escape e82: cut (-3,-9) packedsoil>ant cause -; refilled after 3814 frames by drop ant 2097194
+71865 code 4 ant 3145825 at (+1,-16) home e2705: cut (+1,-15) packedsoil>ant cause -; refilled after 2380 frames by a fall
+71876 code 2 ant 1048958 at (-3,-9) escape e73: cut (-2,-10) packedsoil>ant cause -; still open at the end
+72395 code 4 ant 1048946 at (+1,-12) home e331: cut (+1,-11) packedsoil>ant cause -; refilled after 422 frames by a fall
+72400 code 4 ant 3145767 at (+1,-15) home e5889: cut (+1,-14) packedsoil>empty cause -; refilled after 377 frames by a fall
+73620 code 4 ant 3145892 at (+1,-12) home e190: cut (+1,-11) soil>ant cause -; refilled after 1510 frames by a fall
+73686 code 4 ant 573 at (+2,-15) home e940: cut (+2,-14) packedsoil>empty cause -; refilled after 251 frames by a fall
+73971 code 4 ant 1048604 at (+2,-15) home e986: cut (+2,-14) soil>ant cause -; refilled after 1164 frames by drop ant 3145892
+75325 code 4 ant 3145892 at (+1,-12) home e1446: cut (+1,-11) spoil>ant cause -; refilled after 650 frames by a fall
+75445 code 2 ant 294 at (-1,+5) escape e61: cut (-1,+4) packedsoil>ant cause -; refilled after 130 frames by drop ant 9437316
+75450 code 2 ant 1049164 at (+0,+6) escape e81: cut (+0,+5) packedsoil>empty cause -; refilled after 137 frames by a fall
+75471 code 2 ant 570 at (+3,-3) escape e88: cut (+3,-4) packedsoil>ant cause -; refilled after 764 frames by a fall
+75475 code 2 ant 4194378 at (-2,-10) escape e84: cut (-2,-11) packedsoil>ant cause -; refilled after 20 frames by drop ant 4194378
+75486 code 2 ant 5243104 at (-1,+4) escape e54: cut (-1,+3) soil>ant cause -; still open at the end
+75486 code 2 ant 1048743 at (+4,-6) escape e56: cut (+3,-7) packedsoil>ant cause -; refilled after 1065 frames by a fall
+75525 code 2 ant 129 at (+2,-1) escape e42: cut (+2,-2) packedsoil>ant cause -; refilled after 788 frames by a fall
+75571 code 2 ant 538 at (+2,-2) escape e76: cut (+2,-3) packedsoil>ant cause -; refilled after 619 frames by drop ant 1049049
+75575 code 2 ant 2097194 at (-2,-10) escape e86: cut (-1,-11) packedsoil>ant cause -; still open at the end
+75576 code 2 ant 1048775 at (-1,-1) escape e45: cut (-1,-2) soil>ant cause -; refilled after 686 frames by a fall
+75610 code 2 ant 2097194 at (-1,-11) escape e81: cut (+0,-12) packedsoil>ant cause -; still open at the end
+75720 code 2 ant 1049168 at (+3,-4) escape e55: cut (+3,-5) packedsoil>ant cause -; refilled after 685 frames by a fall
+75746 code 2 ant 1048874 at (-1,+5) escape e42: no ground change logged beside it
+75746 code 2 ant 1049020 at (+4,-3) escape e50: cut (+4,-4) packedsoil>ant cause -; refilled after 485 frames by drop ant 2097250
+75811 code 2 ant 1048986 at (-12,-5) escape e105: cut (-12,-6) soil>ant cause -; refilled after 460 frames by drop ant 2097198
+75875 code 4 ant 4194378 at (-2,-10) home e1155: cut (-2,-9) packedsoil>ant cause -; refilled after 220 frames by a fall
+76040 code 2 ant 442 at (-11,-4) escape e91: cut (-11,-5) packedsoil>ant cause -; refilled after 210 frames by drop ant 2097329
+76091 code 2 ant 2097198 at (-11,-5) escape e83: cut (-11,-6) packedsoil>empty cause -; refilled after 179 frames by drop ant 591
+76120 code 2 ant 2097329 at (-11,-4) escape e55: cut (-10,-4) spoil>ant cause -; refilled after 127 frames by a fall
+76140 code 2 ant 2097329 at (-11,-6) escape e52: cut (-10,-6) packedsoil>ant cause -; refilled after 45 frames by drop ant 442
+76170 code 2 ant 591 at (-10,-4) escape e77: cut (-10,-5) packedsoil>ant cause -; refilled after 47 frames by a fall
+76175 code 2 ant 591 at (-10,-5) escape e75: no ground change logged beside it
+76176 code 2 ant 574 at (+2,-5) escape e15: cut (+2,-6) packedsoil>ant cause -; refilled after 228 frames by a fall
+76190 code 2 ant 442 at (-11,-6) escape e75: cut (-12,-7) packedsoil>empty cause -; refilled after 241 frames by drop ant 1048986
+76191 code 2 ant 2097198 at (-12,-6) escape e72: cut (-12,-7) packedsoil>empty cause -; refilled after 241 frames by drop ant 1048986
+76195 code 2 ant 3146069 at (+2,-6) escape e0: no ground change logged beside it
+76200 code 2 ant 591 at (-10,-5) escape e71: cut (-9,-5) packedsoil>ant cause -; refilled after 165 frames by drop ant 4194760
+76200 code 2 ant 2097329 at (-10,-5) escape e44: cut (-9,-5) packedsoil>ant cause -; refilled after 165 frames by drop ant 4194760
+76211 code 2 ant 5243194 at (-1,-6) escape e3: cut (-1,-7) soil>ant cause -; refilled after 170 frames by drop ant 2097201
+76220 code 2 ant 1048589 at (-2,-5) escape e2: no ground change logged beside it
+76230 code 2 ant 1049049 at (+3,-5) escape e3: cut (+3,-6) packedsoil>ant cause -; refilled after 320 frames by a fall
+76231 code 2 ant 2097198 at (-12,-7) escape e67: cut (-12,-8) packedsoil>ant cause -; still open at the end
+76255 code 2 ant 2097329 at (-10,-6) escape e37: cut (-9,-6) packedsoil>ant cause -; refilled after 20 frames by drop ant 442
+76276 code 2 ant 3145817 at (+4,-8) escape e6: cut (+4,-9) soil>ant cause -; refilled after 206 frames by a fall
+76325 code 2 ant 4194760 at (-9,-5) escape e63: cut (-10,-5) packedsoil>empty cause -; refilled after 25 frames by drop ant 4194760
+76336 code 2 ant 2097201 at (+3,-7) escape e18: cut (+2,-8) packedsoil>ant cause -; refilled after 135 frames by a fall
+76351 code 2 ant 2097279 at (+3,-5) escape e22: no ground change logged beside it
+76355 code 2 ant 4194760 at (-10,-6) escape e58: cut (-11,-5) spoil>ant cause -; refilled after 50 frames by a fall
+76360 code 2 ant 442 at (-8,-5) escape e59: cut (-9,-6) packedsoil>ant cause -; refilled after 85 frames by drop ant 591
+76371 code 2 ant 2097279 at (-1,-4) escape e18: no ground change logged beside it
+76371 code 2 ant 2097201 at (+2,-8) escape e13: cut (+1,-9) packedsoil>ant cause -; still open at the end
+76375 code 2 ant 4194760 at (-8,-5) escape e55: cut (-9,-5) spoil>ant cause -; refilled after 10 frames by drop ant 442
+76391 code 2 ant 2097201 at (-1,-6) escape e9: cut (-1,-7) soil>ant cause -; refilled after 85 frames by drop ant 2097279
+76395 code 2 ant 442 at (-9,-6) escape e54: cut (-10,-7) packedsoil>ant cause -; refilled after 62 frames by a fall
+76405 code 2 ant 442 at (-10,-6) escape e52: cut (-11,-7) packedsoil>empty cause -; refilled after 75 frames by drop ant 414
+76406 code 2 ant 1048986 at (-10,-7) escape e57: cut (-11,-7) packedsoil>empty cause -; refilled after 75 frames by drop ant 414
+76411 code 2 ant 2097201 at (+1,-9) escape e6: cut (+0,-9) packedsoil>ant cause -; refilled after 3630 frames by a fall
+76421 code 2 ant 2097279 at (+2,-8) escape e13: cut (+1,-8) soil>empty cause -; still open at the end
+76425 code 2 ant 591 at (-12,-8) escape e50: cut (-12,-9) packedsoil>ant cause -; refilled after 230 frames by drop ant 2097329
+76441 code 2 ant 2097636 at (+4,-9) escape e7: cut (+4,-10) packedsoil>ant cause -; refilled after 30 frames by a fall
+76445 code 2 ant 1048853 at (-11,-8) escape e63: no ground change logged beside it
+76450 code 2 ant 2097329 at (-11,-8) escape e16: cut (-12,-7) soil>empty cause -; refilled after 2 frames by drop ant 4194760
+76450 code 2 ant 1048853 at (-11,-7) escape e61: cut (-12,-6) spoil>ant cause -; refilled after 12 frames by a fall
+76450 code 2 ant 414 at (-10,-7) escape e61: cut (-11,-6) packedsoil>empty cause -; refilled after 3 frames by a fall
+76455 code 2 ant 591 at (-12,-9) escape e46: cut (-12,-10) packedsoil>ant cause -; refilled after 25 frames by drop ant 414
+76460 code 4 ant 253 at (+7,-18) home e418: cut (+6,-17) soil>empty cause -; refilled after 2576 frames by drop ant 2097593
+76461 code 2 ant 2097279 at (+3,-7) escape e8: cut (+2,-7) soil>empty cause -; refilled after 9 frames by a fall
+76466 code 2 ant 2097636 at (+4,-10) escape e3: cut (+4,-11) packedsoil>ant cause -; refilled after 78 frames by a fall
+76470 code 2 ant 4194760 at (-11,-7) escape e44: cut (-12,-6) soil>empty cause -; refilled after 3 frames by a fall
+76475 code 2 ant 414 at (-12,-8) escape e57: no ground change logged beside it
+76475 code 2 ant 4194760 at (-12,-8) escape e42: no ground change logged beside it
+76481 code 2 ant 2097731 at (-1,-5) escape e9: cut (-1,-6) soil>empty cause -; refilled after 5 frames by drop ant 2097731
+76486 code 2 ant 2097279 at (+0,-9) escape e4: cut (+0,-10) packedsoil>ant cause -; still open at the end
+76500 code 2 ant 414 at (-12,-7) escape e53: cut (-12,-6) packedsoil>ant cause -; refilled after 105 frames by drop ant 414
+76525 code 2 ant 2097329 at (-11,-8) escape e7: no ground change logged beside it
+76596 code 2 ant 1048986 at (-10,-8) escape e40: cut (-11,-9) packedsoil>ant cause -; still open at the end
+76610 code 2 ant 2097329 at (-11,-8) escape e9: no ground change logged beside it
+76615 code 2 ant 2097329 at (-11,-9) escape e7: cut (-10,-9) packedsoil>ant cause -; refilled after 25 frames by drop ant 4194760
+76625 code 2 ant 591 at (-11,-9) escape e31: cut (-12,-10) packedsoil>ant cause -; refilled after 100 frames by drop ant 591
+76645 code 2 ant 4194760 at (-11,-8) escape e23: cut (-11,-7) spoil>ant cause -; refilled after 120 frames by drop ant 414
+76665 code 2 ant 2097329 at (-11,-7) escape e0: no ground change logged beside it
+76750 code 2 ant 414 at (-12,-7) escape e30: cut (-12,-6) spoil>ant cause -; refilled after 21 frames by drop ant 1048986
+76765 code 2 ant 1048853 at (-12,-7) escape e22: no ground change logged beside it
+76835 code 2 ant 591 at (-12,-8) escape e11: cut (-12,-9) soil>empty cause -; refilled after 3 frames by a fall
+76871 code 2 ant 1048986 at (-11,-9) escape e13: cut (-12,-10) spoil>ant cause -; still open at the end
+76905 code 2 ant 1048853 at (-11,-8) escape e6: no ground change logged beside it
+76920 code 2 ant 414 at (-12,-7) escape e15: cut (-12,-6) spoil>ant cause -; refilled after 30 frames by drop ant 414
+76930 code 2 ant 1048853 at (-12,-10) escape e2: no ground change logged beside it
+SUMMARY [(('2', 'no cut logged'), 27), (('2', 'refilled drop <500'), 40), (('2', 'refilled drop >=500'), 6), (('2', 'refilled fall <500'), 42), (('2', 'refilled fall >=500'), 25), (('2', 'stayed open'), 15), (('4', 'refilled drop >=500'), 4), (('4', 'refilled fall <500'), 12), (('4', 'refilled fall >=500'), 20)]

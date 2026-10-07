@@ -1,0 +1,28 @@
+/home/claude/runs/depth/slowrest-s1: 201 maps 100-300k, means per map
+  band           room   free   ants  brood  other  heads   fill free/head
+  knot             70      7     27     37      0   26.8    90%       0.3
+  top             214    205      5      3      0    2.7     4%      75.3
+  shaft           194      3      4    186      0    2.2    98%       1.5
+  deep            382    323      4     54      0    2.0    15%     164.8
+  2nd chamber       0      0      0      0      0    0.0   nan%       nan   (on 0 maps)
+/home/claude/runs/depth/slowrest-s2: 201 maps 100-300k, means per map
+  band           room   free   ants  brood  other  heads   fill free/head
+  knot             70     16     32     22      0   37.6    78%       0.4
+  top             242    184     26     28      4   21.9    24%       8.4
+  shaft           206     32      4    169      1    2.2    84%      14.6
+  deep            414    240      5    169      0    2.7    42%      88.2
+  2nd chamber       5      1      1      3      0    0.8    76%       1.6   (on 20 maps)
+/home/claude/runs/depth/slowrest-s3: 201 maps 100-300k, means per map
+  band           room   free   ants  brood  other  heads   fill free/head
+  knot             70     11     20     39      0   18.6    85%       0.6
+  top             185    181      4      1      0    1.9     2%      92.8
+  shaft           221     19      4    199      0    1.8    91%      10.8
+  deep            385    352      2     30      0    1.2     9%     292.6
+  2nd chamber       0      0      0      0      0    0.0   nan%       nan   (on 0 maps)
+/home/claude/runs/depth/slowrest-s4: 201 maps 100-300k, means per map
+  band           room   free   ants  brood  other  heads   fill free/head
+  knot             70      5     29     36      0   31.2    93%       0.2
+  top             227    215      6      6      0    3.1     5%      70.2
+  shaft           213      2      4    207      0    2.2    99%       0.8
+  deep            434    371      4     58      0    2.2    14%     168.2
+  2nd chamber       0      0      0      0      0    0.0   nan%       nan   (on 0 maps)

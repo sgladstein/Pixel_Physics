@@ -1,0 +1,34 @@
+== /home/claude/runs/depth/slowrest-s2: 48 starved 20-300k (door x=256, food x=286, food is east)
+  where they died: in the nest 36, west, near (6-60) 3, west, far (>60) 9
+  of them nest-bound (ledger nb=1): in the nest 17, west, near (6-60) 1, west, far (>60) 0
+
+  -- died west of the door: 12 ants
+     ledger: nest-bound 1, ever foraged 11, ever at the food 5, ever delivered 10; age at death median 38074 frames
+     last hunger: 12 with rows; length median 3090 frames; began at column (door = 0) median -81 (range -84 to +10); began in surface 9, mound_in 3; energy then median 1.00 of the grant
+     during it: crossed the door's column 0; furthest east reached median -79; home point at the door (within 6) 6, home point away from the door 6, home point fixed 12
+     decisions 7285: pull none 44%, not scored 40%, spoil haul 16%
+     zone surface 84%, mound_in 16%
+     scored decisions: scout given up 71%, no scout 27%, scouting 2%; door read not asked 98%, off door 2%
+     trail: on a trail (route > 0.5) 20%, off a trail 80%; stronger west 72%, trail stronger 6 east than 6 west 28%, east = west 0%
+     steps 4403: east 46%, west 46%, up/down 8%; outcomes stepped 60%, roll_failed_idle 40%
+     empty steps with no other pull, by side of the home point (deeptrace_hunger's walk split):
+       west of home scouting  on a trail        18: home  28%  away  50%  up/down  22%
+       west of home scouting  off a trail       51: home  49%  away  39%  up/down  12%
+       west of home given up  on a trail       403: home  32%  away  59%  up/down   9%
+       west of home given up  off a trail     2738: home  48%  away  44%  up/down   9%
+
+  -- died in the nest: 36 ants
+     ledger: nest-bound 17, ever foraged 17, ever at the food 12, ever delivered 19; age at death median 10944 frames
+     last hunger: 36 with rows; length median 1945 frames; began at column (door = 0) median -9 (range -17 to +2); began in nest 35, mound_in 1; energy then median 0.97 of the grant
+     during it: crossed the door's column 35; furthest east reached median +5; home point at the door (within 6) 35, home point away from the door 1, home point moved 36
+     decisions 21381: pull hungry out 61%, not scored 33%, soil way out 3%, none 1%, rest 1%, back to the face 0%, spoil haul 0%
+     zone nest 100%, mound_in 0%
+     scored decisions: scout no scout 98%, scouting 2%; door read not asked 98%, off door 2%
+     trail: on a trail (route > 0.5) 0%, off a trail 100%; stronger west 5%, east = west 95%, trail stronger 6 east than 6 west 1%
+     steps 14220: east 40%, west 38%, up/down 22%; outcomes stepped 67%, roll_failed_idle 29%, fell 4%
+     empty steps with no other pull, by side of the home point (deeptrace_hunger's walk split):
+Traceback (most recent call last):
+  File "/tmp/claude-0/-home-claude-Pixel-Physics/c8162b93-2657-592f-b840-597b957aa530/scratchpad/depth/starvetrace.py", line 183, in <module>
+    step = max(1, len(west) // NS)
+                  ~~~~~~~~~~^^~~~
+ZeroDivisionError: integer division or modulo by zero

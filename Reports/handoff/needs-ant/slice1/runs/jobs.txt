@@ -1,0 +1,12 @@
+W /home/claude/bins/deeptrace-walk2 1 300000 - needs=walk|needsat=50000|walktrace=20
+W /home/claude/bins/deeptrace-walk2 2 300000 - needs=walk|needsat=50000|walktrace=20
+W /home/claude/bins/deeptrace-walk2 3 300000 - needs=walk|needsat=50000|walktrace=20
+W /home/claude/bins/deeptrace-walk2 4 300000 - needs=walk|needsat=50000|walktrace=20
+S /home/claude/bins/deeptrace-walk2 1 300000 PIXEL_PHYSICS_NEEDS_FIRST=on|PIXEL_PHYSICS_CARRY_HOME=on|PIXEL_PHYSICS_NEST_REST=on -
+S /home/claude/bins/deeptrace-walk2 2 300000 PIXEL_PHYSICS_NEEDS_FIRST=on|PIXEL_PHYSICS_CARRY_HOME=on|PIXEL_PHYSICS_NEST_REST=on -
+S /home/claude/bins/deeptrace-walk2 3 300000 PIXEL_PHYSICS_NEEDS_FIRST=on|PIXEL_PHYSICS_CARRY_HOME=on|PIXEL_PHYSICS_NEST_REST=on -
+S /home/claude/bins/deeptrace-walk2 4 300000 PIXEL_PHYSICS_NEEDS_FIRST=on|PIXEL_PHYSICS_CARRY_HOME=on|PIXEL_PHYSICS_NEST_REST=on -
+O /home/claude/bins/deeptrace-walk2 1 300000 - -
+O /home/claude/bins/deeptrace-walk2 2 300000 - -
+O /home/claude/bins/deeptrace-walk2 3 300000 - -
+O /home/claude/bins/deeptrace-walk2 4 300000 - -

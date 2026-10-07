@@ -1,0 +1,8 @@
+s1@200k: source in R0-sealed cells 34.5 (mound 34.5) vs connected 599.6; max rel change with them 3.7e-02, without them 1.3e-04; without: span 8.10->8.10%, read 10.18->10.18%, out 10.06->10.06%, fol1 0.47->0.47%
+s2@100k: source in R0-sealed cells 81.4 (mound 81.4) vs connected 492.7; max rel change with them 1.8e-01, without them 6.7e-05; without: span 8.64->8.64%, read 16.27->16.27%, out 14.47->14.47%, fol1 0.72->0.72%
+s2@295k: source in R0-sealed cells 83.9 (mound 83.9) vs connected 602.3; max rel change with them 1.3e-01, without them 1.2e-04; without: span 8.78->8.78%, read 8.70->8.70%, out 8.41->8.41%, fol1 0.48->0.48%
+s3@100k: source in R0-sealed cells 11.4 (mound 11.3) vs connected 460.0; max rel change with them 2.7e-02, without them 2.4e-04; without: span 4.39->4.39%, read 9.68->9.68%, out 8.94->8.94%, fol1 0.37->0.37%
+s3@200k: source in R0-sealed cells 16.5 (mound 16.5) vs connected 546.0; max rel change with them 3.3e-02, without them 1.6e-04; without: span 5.98->5.98%, read 9.14->9.14%, out 8.50->8.50%, fol1 0.00->0.00%
+s4@100k: source in R0-sealed cells 3.9 (mound 3.9) vs connected 557.0; max rel change with them 5.6e-03, without them 3.6e-04; without: span 2.91->2.91%, read 4.12->4.12%, out 2.23->2.23%, fol1 0.00->0.00%
+s4@295k: source in R0-sealed cells 60.5 (mound 60.0) vs connected 643.9; max rel change with them 4.2e-02, without them 1.8e-04; without: span 4.78->4.78%, read 3.25->3.25%, out 3.17->3.17%, fol1 0.00->0.00%
+sensitivity of (a): Field eps 0.1 vs solve_p eps 0.1001 on s1@200k: max rel diff 2.58e-04 (must be > 0)

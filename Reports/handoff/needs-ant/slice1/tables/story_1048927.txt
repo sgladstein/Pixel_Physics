@@ -1,0 +1,15 @@
+ant 1048927: 3882 decisions, frames 80590..99995
+  from     to    n   drive    job      zone         load step%   p50     E0     E1  hung events
+ 80590  80590    1   carry forage mound_top         crop   100  0.75    400    400  0.00 
+ 80595  80595    1   carry forage  mound_in         crop   100  0.75    402    402  0.00 
+ 80600  81550  191   carry forage mound_top         crop    76  0.75    405    904  0.00 
+ 81555  81555    1   carry forage  mound_in         crop   100  0.75    907    907  0.00 
+ 81560  81560    1   carry forage mound_top         crop   100  0.75    910    910  0.00 
+ 81565  81565    1   carry forage  mound_in         crop   100  0.75    912    912  0.00 
+ 81570  81570    1   carry forage mound_top         crop   100  0.75    915    915  0.00 
+ 81575  81575    1   carry forage  mound_in         crop     0  0.75    918    918  0.00 
+ 81580  81580    1   carry forage mound_top         crop   100  0.75    920    920  0.00 
+ 81585  81585    1   carry forage  mound_in         crop   100  0.75    923    923  0.00 
+ 81590  81730   29   carry forage mound_top         crop    59  0.75    926   1002  0.00 
+ 81735  81960   46  forage forage mound_top            -    46  0.45   1003    992  0.00 
+ 81965  99995 3607  forage forage   surface            -    10  0.04    991    240  0.00 

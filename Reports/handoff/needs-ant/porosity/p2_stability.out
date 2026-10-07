@@ -1,0 +1,10 @@
+seed 1, 101 maps 150000..250000 every 1,000 frames, single-map sources
+R0 eps=0 diag=0: gas-sealed 43/101 (walk door shut 0); nest median level min 1569 med 2984 max 6814 (x4.3); per-refresh |dlog| median 0.173 (19%), p90 0.720 (105%), max 0.972 (164%); jumps >25%: 19 of 43 refreshes with both maps open; descent direction changes per refresh: median 8% of cells; read&out status flips: median 1.7%
+R1 eps=0.02 diag=0: gas-sealed 0/101 (walk door shut 0); nest median level min 1080 med 1441 max 2236 (x2.1); per-refresh |dlog| median 0.092 (10%), p90 0.228 (26%), max 0.433 (54%); jumps >25%: 11 of 100 refreshes with both maps open; descent direction changes per refresh: median 10% of cells; read&out status flips: median 0.9%
+R1 eps=0.1 diag=0: gas-sealed 0/101 (walk door shut 0); nest median level min 590 med 756 max 1005 (x1.7); per-refresh |dlog| median 0.056 (6%), p90 0.143 (15%), max 0.195 (21%); jumps >25%: 0 of 100 refreshes with both maps open; descent direction changes per refresh: median 10% of cells; read&out status flips: median 1.7%
+R0 eps=0 diag=0.5: gas-sealed 0/101 (walk door shut 0); nest median level min 434 med 673 max 1490 (x3.4); per-refresh |dlog| median 0.147 (16%), p90 0.450 (57%), max 0.601 (82%); jumps >25%: 39 of 100 refreshes with both maps open; descent direction changes per refresh: median 10% of cells; read&out status flips: median 2.0%
+R1 eps=0.1 diag=0.5: gas-sealed 0/101 (walk door shut 0); nest median level min 271 med 348 max 470 (x1.7); per-refresh |dlog| median 0.052 (5%), p90 0.140 (15%), max 0.193 (21%); jumps >25%: 0 of 100 refreshes with both maps open; descent direction changes per refresh: median 10% of cells; read&out status flips: median 2.1%
+
+real	0m13.621s
+user	0m11.724s
+sys	0m0.516s

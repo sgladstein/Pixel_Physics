@@ -1,0 +1,6 @@
+s1@200k R2 eps 0.02: nest within 50% 856800, 25% 2082000, 10% 4790400 frames (explicit, tested every 1,200)
+s1@200k R2 eps 0.1: nest within 50% 602400, 25% 1572000, 10% 4376400 frames (explicit, tested every 1,200)
+
+real	0m54.526s
+user	0m53.513s
+sys	0m0.175s

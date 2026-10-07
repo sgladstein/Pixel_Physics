@@ -1,0 +1,59 @@
+== /home/claude/runs/depth/leanrest-s3: 150 starved 175-260k (door x=256, food x=286, food is east)
+  where they died: at the door 2, west, near (6-60) 54, west, far (>60) 93, east of the door 1
+  of them nest-bound (ledger nb=1): at the door 1, west, near (6-60) 9, west, far (>60) 10, east of the door 1
+
+  -- died west of the door: 147 ants
+     ledger: nest-bound 19, ever foraged 114, ever at the food 54, ever delivered 90; age at death median 31184 frames
+     last hunger: 147 with rows; length median 3245 frames; began at column (door = 0) median -12 (range -234 to +15); began in mound_in 61, mound_top 54, surface 28, nest 4; energy then median 0.99 of the grant
+     during it: crossed the door's column 64; furthest east reached median -6; home point at the door (within 6) 147, home point fixed 98, home point moved 49
+     decisions 104775: pull none 44%, not scored 43%, spoil haul 11%, rest 1%, soil way out 0%, laden home 0%, hungry out 0%, back to the face 0%
+     zone surface 44%, mound_in 32%, mound_top 23%, nest 1%
+     scored decisions: scout given up 39%, scouting 38%, no scout 22%; door read not asked 62%, off door 38%, stale 0%, read 0%
+     trail: off a trail 58%, on a trail (route > 0.5) 42%; trail stronger 6 east than 6 west 48%, stronger west 26%, east = west 27%
+     steps 59611: west 54%, east 28%, up/down 17%; outcomes stepped 57%, roll_failed_idle 39%, fell 4%
+     empty steps with no other pull, by side of the home point (deeptrace_hunger's walk split):
+       west of home scouting  on a trail      4391: home  11%  away  68%  up/down  21%
+       west of home scouting  off a trail    17793: home   2%  away  89%  up/down   9%
+       west of home given up  on a trail     11295: home  36%  away  43%  up/down  21%
+       west of home given up  off a trail    11622: home  57%  away  25%  up/down  18%
+       east of home scouting  on a trail       290: home  30%  away  45%  up/down  25%
+       east of home scouting  off a trail       37: home  22%  away  57%  up/down  22%
+       east of home given up  on a trail       181: home  51%  away  31%  up/down  18%
+       east of home given up  off a trail       90: home  42%  away  28%  up/down  30%
+
+  -- died at or east of the door: 3 ants
+     ledger: nest-bound 2, ever foraged 3, ever at the food 1, ever delivered 3; age at death median 49029 frames
+     last hunger: 3 with rows; length median 140 frames; began at column (door = 0) median +2 (range -3 to +7); began in mound_in 3; energy then median 1.00 of the grant
+     during it: crossed the door's column 2; furthest east reached median +3; home point at the door (within 6) 3, home point fixed 3
+     decisions 878: pull not scored 59%, none 40%, back to the face 1%, rest 0%
+     zone mound_in 100%
+     scored decisions: scout given up 97%, no scout 3%; door read not asked 100%
+     trail: on a trail (route > 0.5) 100%; trail stronger 6 east than 6 west 99%, stronger west 1%
+     steps 358: up/down 98%, east 1%, west 1%; outcomes roll_failed_idle 59%, stepped 41%
+     empty steps with no other pull, by side of the home point (deeptrace_hunger's walk split):
+
+  -- sample of 8 west deaths (every 18th by death frame); columns relative to the door
+   ant 5243491 born 174741, starved 185890 at column -35 (mound_in), age 11149; nest-bound 0, foraged 1, deliveries 0, decisions surface/mound/nest/heap 45/2007/178/0, last fed frame 183330
+     census (frame: column, zone, crop, energy J): 175k: +1 nest c0 191; 180k: -30 mound_in c0 277; 185k: -34 mound_in c0 75
+     last hunger 183335-185890: began column -35 mound_in e=0.999, home point -2 -> -2; pulls {'spoil haul': 423, 'not scored': 89}; scout {'none': 423}; steps {'E': 212, 'W': 211}
+   ant 2097997 born 212025, starved 224689 at column -252 (surface), age 12664; nest-bound 0, foraged 0, deliveries 0, decisions surface/mound/nest/heap 452/1840/241/0, last fed frame 221439
+     census (frame: column, zone, crop, energy J): 214k: +1 mound_in c0 234; 219k: -22 mound_top c0 274; 224k: -185 surface c0 40
+     last hunger 221444-224689: began column -26 mound_top e=1, home point +1 -> +1; pulls {'not scored': 385, 'none': 265}; scout {'scouting': 265}; steps {'W': 232, 'v': 27, 'E': 6}
+   ant 14680110 born 201090, starved 225534 at column -222 (surface), age 24444; nest-bound 0, foraged 0, deliveries 0, decisions surface/mound/nest/heap 1511/3366/12/0, last fed frame 220534
+     census (frame: column, zone, crop, energy J): 205k: +0 mound_in c0 201; 210k: -25 mound_top c0 205; 215k: -38 mound_top c0 270; 220k: -74 surface c0 198; 225k: -155 surface c0 31
+     last hunger 220539-225534: began column -82 surface e=0.974, home point +1 -> +1; pulls {'not scored': 582, 'none': 417, 'hungry out': 1}; scout {'scouting': 294, 'given up': 123, 'none': 1}; steps {'W': 256, 'v': 46, 'E': 116}
+   ant 6291705 born 174722, starved 226586 at column -45 (surface), age 51864; nest-bound 0, foraged 1, deliveries 0, decisions surface/mound/nest/heap 3492/6640/241/0, last fed frame 221851
+     census (frame: column, zone, crop, energy J): 186k: -5 mound_top c0 329; 191k: -15 mound_top c0 205; 196k: -30 mound_top c0 498; 201k: -61 surface c0 300; 206k: -61 surface c0 276; 211k: -60 surface c0 214; 216k: -15 mound_in c0 219; 221k: -20 mound_top c0 218; 226k: -32 mound_top c0 33
+     last hunger 221726-226586: began column -22 mound_top e=0.995, home point +2 -> +2; pulls {'not scored': 486, 'none': 485}; scout {'given up': 485}; steps {'v': 104, 'W': 202, 'E': 179}
+   ant 5243157 born 189430, starved 226814 at column -40 (mound_top), age 37384; nest-bound 0, foraged 1, deliveries 1, decisions surface/mound/nest/heap 1712/5320/386/59, last fed frame 220754
+     census (frame: column, zone, crop, energy J): 191k: +1 mound_in c0 322; 196k: +7 mound_in c1 731; 201k: +18 food c0 1030; 206k: -16 mound_top c0 602; 211k: -32 mound_top c0 262; 216k: -40 mound_top c0 200; 221k: -53 surface c0 191; 226k: -41 surface c0 36
+     last hunger 220759-226814: began column -50 surface e=0.994, home point -3 -> -3; pulls {'none': 642, 'not scored': 570}; scout {'given up': 642}; steps {'W': 240, 'v': 151, 'E': 251}
+   ant 7340499 born 182290, starved 227269 at column -23 (mound_in), age 44979; nest-bound 0, foraged 1, deliveries 0, decisions surface/mound/nest/heap 4027/4697/171/101, last fed frame 220574
+     census (frame: column, zone, crop, energy J): 187k: +12 mound_in c0 306; 192k: +0 mound_in c0 199; 197k: -49 surface c0 579; 202k: -3 mound_in c0 783; 207k: -60 surface c0 573; 212k: -67 surface c0 362; 217k: -54 surface c0 192; 222k: -37 mound_top c0 166; 227k: -23 mound_in c0 17
+     last hunger 220579-227269: began column -43 surface e=0.999, home point -1 -> -1; pulls {'not scored': 689, 'none': 650}; scout {'given up': 650}; steps {'W': 248, 'E': 267, 'v': 135}
+   ant 8389011 born 212166, starved 227550 at column -16 (mound_top), age 15384; nest-bound 0, foraged 1, deliveries 3, decisions surface/mound/nest/heap 253/2802/22/0, last fed frame 222945
+     census (frame: column, zone, crop, energy J): 217k: +13 mound_in c0 223; 222k: -3 mound_in c0 190; 227k: -23 mound_top c0 35
+     last hunger 222950-227550: began column +1 mound_in e=0.987, home point +2 -> -1; pulls {'none': 544, 'not scored': 317, 'spoil haul': 60}; scout {'none': 60, 'scouting': 50, 'given up': 494}; steps {'E': 227, 'W': 247, 'v': 130}
+   ant 4194911 born 202680, starved 227874 at column -145 (surface), age 25194; nest-bound 0, foraged 0, deliveries 0, decisions surface/mound/nest/heap 740/4173/126/0, last fed frame 221524
+     census (frame: column, zone, crop, energy J): 207k: -5 mound_in c0 214; 212k: -25 mound_top c0 244; 217k: -34 mound_top c0 199; 222k: -88 surface c0 163; 227k: -36 mound_top c0 52
+     last hunger 221529-227874: began column -65 surface e=0.997, home point -3 -> +1; pulls {'not scored': 603, 'none': 479, 'spoil haul': 188}; scout {'scouting': 281, 'given up': 198, 'none': 188}; steps {'W': 314, 'v': 120, 'E': 233}

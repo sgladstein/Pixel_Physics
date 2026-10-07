@@ -1,0 +1,60 @@
+== /home/claude/runs/base/on-s1  (100-300k, 201 samples)
+  live ants (mean): 562  (nest workers 139, others 423)
+  nest workers: mean ants at door knot / rest of top 10 rows / deeper in door column / deeper off it: 7.0 / 1.4 / 1.5 / 0.7   (idle: 1.5 / 0.1 / 0.0 / 0.0)
+  other ants: mean ants at door knot / rest of top 10 rows / deeper in door column / deeper off it: 12.4 / 0.2 / 0.1 / 0.0   (idle: 5.3 / 0.1 / 0.0 / 0.0)
+  DEEPER THAN 10 ROWS: about 2.3 of 562 ants (0.40%): door column 1.5, off it 0.7
+  nest workers in the dug nest by rows below ground (0-9,10-19,...,60+): 8.1 / 1.9 / 0.5 / 0.2 / 0.0 / 0.0 / 0.0
+  rest pulls 0, hungry way-out pulls 221222
+== /home/claude/runs/depth/slow-s1  (100-300k, 201 samples)
+  live ants (mean): 530  (nest workers 130, others 399)
+  nest workers: mean ants at door knot / rest of top 10 rows / deeper in door column / deeper off it: 9.0 / 1.7 / 1.3 / 0.9   (idle: 2.1 / 0.1 / 0.0 / 0.0)
+  other ants: mean ants at door knot / rest of top 10 rows / deeper in door column / deeper off it: 14.4 / 0.2 / 0.1 / 0.1   (idle: 6.1 / 0.1 / 0.0 / 0.0)
+  DEEPER THAN 10 ROWS: about 2.5 of 530 ants (0.46%): door column 1.4, off it 1.0
+  nest workers in the dug nest by rows below ground (0-9,10-19,...,60+): 10.2 / 2.1 / 0.5 / 0.1 / 0.0 / 0.0 / 0.0
+  depth rule over the window: slowed 103267 decisions, pauses it made 2494, never-out decisions 63347; mean depth remembered 2.3 rows vs below founding ground 0.9 (mean gap 1.4)
+  rest pulls 0, hungry way-out pulls 269901
+== /home/claude/runs/base/on-s2  (100-300k, 201 samples)
+  live ants (mean): 569  (nest workers 141, others 428)
+  nest workers: mean ants at door knot / rest of top 10 rows / deeper in door column / deeper off it: 8.5 / 1.7 / 1.6 / 1.2   (idle: 2.1 / 0.1 / 0.0 / 0.0)
+  other ants: mean ants at door knot / rest of top 10 rows / deeper in door column / deeper off it: 20.3 / 0.3 / 0.2 / 0.1   (idle: 8.8 / 0.2 / 0.0 / 0.1)
+  DEEPER THAN 10 ROWS: about 3.1 of 569 ants (0.55%): door column 1.8, off it 1.3
+  nest workers in the dug nest by rows below ground (0-9,10-19,...,60+): 9.8 / 2.4 / 0.6 / 0.1 / 0.0 / 0.0 / 0.0
+  rest pulls 0, hungry way-out pulls 291758
+== /home/claude/runs/depth/slow-s2  (100-300k, 201 samples)
+  live ants (mean): 560  (nest workers 140, others 420)
+  nest workers: mean ants at door knot / rest of top 10 rows / deeper in door column / deeper off it: 10.6 / 1.8 / 1.4 / 1.6   (idle: 3.1 / 0.1 / 0.0 / 0.0)
+  other ants: mean ants at door knot / rest of top 10 rows / deeper in door column / deeper off it: 20.2 / 0.2 / 0.1 / 0.1   (idle: 9.6 / 0.1 / 0.0 / 0.0)
+  DEEPER THAN 10 ROWS: about 3.2 of 560 ants (0.57%): door column 1.5, off it 1.7
+  nest workers in the dug nest by rows below ground (0-9,10-19,...,60+): 11.8 / 2.8 / 0.6 / 0.1 / 0.0 / 0.0 / 0.0
+  depth rule over the window: slowed 124210 decisions, pauses it made 2699, never-out decisions 93728; mean depth remembered 2.3 rows vs below founding ground 0.9 (mean gap 1.4)
+  rest pulls 0, hungry way-out pulls 315694
+== /home/claude/runs/base/on-s3  (100-300k, 201 samples)
+  live ants (mean): 546  (nest workers 139, others 407)
+  nest workers: mean ants at door knot / rest of top 10 rows / deeper in door column / deeper off it: 7.7 / 1.5 / 1.4 / 0.8   (idle: 1.6 / 0.1 / 0.0 / 0.0)
+  other ants: mean ants at door knot / rest of top 10 rows / deeper in door column / deeper off it: 11.5 / 0.2 / 0.1 / 0.0   (idle: 4.7 / 0.1 / 0.0 / 0.0)
+  DEEPER THAN 10 ROWS: about 2.3 of 546 ants (0.42%): door column 1.5, off it 0.8
+  nest workers in the dug nest by rows below ground (0-9,10-19,...,60+): 8.8 / 1.8 / 0.6 / 0.2 / 0.0 / 0.0 / 0.0
+  rest pulls 0, hungry way-out pulls 231769
+== /home/claude/runs/depth/slow-s3  (100-300k, 201 samples)
+  live ants (mean): 618  (nest workers 154, others 463)
+  nest workers: mean ants at door knot / rest of top 10 rows / deeper in door column / deeper off it: 9.6 / 3.7 / 1.7 / 1.5   (idle: 2.0 / 1.3 / 0.0 / 0.0)
+  other ants: mean ants at door knot / rest of top 10 rows / deeper in door column / deeper off it: 25.2 / 4.1 / 0.3 / 0.2   (idle: 9.9 / 2.2 / 0.1 / 0.0)
+  DEEPER THAN 10 ROWS: about 3.7 of 618 ants (0.60%): door column 2.0, off it 1.7
+  nest workers in the dug nest by rows below ground (0-9,10-19,...,60+): 12.6 / 3.3 / 0.5 / 0.0 / 0.0 / 0.0 / 0.0
+  depth rule over the window: slowed 89442 decisions, pauses it made 1994, never-out decisions 72559; mean depth remembered 2.5 rows vs below founding ground 1.1 (mean gap 1.4)
+  rest pulls 0, hungry way-out pulls 413017
+== /home/claude/runs/base/on-s4  (100-300k, 201 samples)
+  live ants (mean): 554  (nest workers 140, others 414)
+  nest workers: mean ants at door knot / rest of top 10 rows / deeper in door column / deeper off it: 9.0 / 1.8 / 1.4 / 1.1   (idle: 2.2 / 0.0 / 0.0 / 0.0)
+  other ants: mean ants at door knot / rest of top 10 rows / deeper in door column / deeper off it: 13.2 / 0.3 / 0.1 / 0.1   (idle: 6.1 / 0.1 / 0.0 / 0.0)
+  DEEPER THAN 10 ROWS: about 2.7 of 554 ants (0.48%): door column 1.5, off it 1.2
+  nest workers in the dug nest by rows below ground (0-9,10-19,...,60+): 10.4 / 2.0 / 0.6 / 0.3 / 0.0 / 0.0 / 0.0
+  rest pulls 0, hungry way-out pulls 269569
+== /home/claude/runs/depth/slow-s4  (100-300k, 201 samples)
+  live ants (mean): 615  (nest workers 157, others 458)
+  nest workers: mean ants at door knot / rest of top 10 rows / deeper in door column / deeper off it: 8.0 / 3.3 / 1.4 / 1.1   (idle: 1.5 / 1.2 / 0.0 / 0.0)
+  other ants: mean ants at door knot / rest of top 10 rows / deeper in door column / deeper off it: 10.8 / 2.5 / 0.4 / 0.4   (idle: 3.9 / 1.4 / 0.0 / 0.1)
+  DEEPER THAN 10 ROWS: about 3.3 of 615 ants (0.53%): door column 1.8, off it 1.5
+  nest workers in the dug nest by rows below ground (0-9,10-19,...,60+): 10.8 / 2.3 / 0.6 / 0.1 / 0.0 / 0.0 / 0.0
+  depth rule over the window: slowed 123738 decisions, pauses it made 2762, never-out decisions 50718; mean depth remembered 2.2 rows vs below founding ground 0.9 (mean gap 1.4)
+  rest pulls 0, hungry way-out pulls 266558
