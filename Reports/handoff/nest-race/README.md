@@ -52,12 +52,47 @@ drop; side rooms appearing near 300k).
    places; most recent bugs here were a pull misfiring.
 4. Retry the room rules (brood carry, dig modes) on top.
 
+## Finishing the default flip (the next session's first job)
+
+The 48 runs below were left going in the old container, at
+`/home/claude/runs/ss/{m90,ed90ed,m30,ed30ed}-s{1..12}`. **That container is
+not reachable from a new account**, so plan on re-running them. Each is about
+20 minutes of one core and costs no tokens while it runs.
+
+```
+cargo build --release --example deeptrace
+for heap in 90 30; do for s in $(seq 1 12); do
+  for arm in main stack; do bash Reports/handoff/nest-race/tools/pair12.sh $arm $heap $s runs & done
+done; wait; done          # 24 at a time; throttle to your core count
+for d in runs/*-s*/; do python3 Reports/handoff/nest-race/tools/one12.py ${d%/}; done
+python3 Reports/handoff/nest-race/tools/second_way.py runs/stack90-s1 50000 100000 150000 200000 250000 300000
+python3 Reports/handoff/nest-race/tools/nestpic.py out.png "main=runs/main90-s1@300000,stack=runs/stack90-s1@300000"
+```
+
+- `main` is the stack with every switch off, which is `main`'s game
+  (identity checked). Use it rather than a `main` build, because only this
+  branch's `deeptrace` knows `foodgap=`. Older builds silently ignore it and
+  put the heap where they always did.
+- **Pair by seed.** Read heap 90 first.
+- **The bar to turn a switch on by default** (owner, 2026-10-07):
+  - clearly better, or a traced fix of a specific problem;
+  - 12 seeds at each heap;
+  - no untraced die-offs, and a colony-killing change stays off until its deaths are traced;
+  - a smaller colony alone is not a veto;
+  - a second reviewer's written yes;
+  - CI green.
+- **Report deep time as N of M ants**, with the baseline beside it, the door column split out, and a fed/staying check. Say plainly when a number is near zero.
+- **Two results are partial so far.**
+  - Stack + `edible` on heap 90, seeds 1-4: deep starvers 0/2/1/1.
+  - Seed 2 had 44 deaths in the mound tunnels at 200-300k that are not yet traced. Check them before flipping `edible`.
+
 ## Tools (`tools/`)
 
 Python 3, no libraries. Read `deeptrace` output directories.
 
 - `nestpic.py OUT.png "label=RUNDIR@FRAME,..." ...` -- nest pictures over time from `nest_fNNNNNN.txt`.
 - `second_way.py RUNDIR F1 F2 ...` -- is the nest open to the sky anywhere but its door (positive control: a run with a known second entrance).
+- `pair12.sh ARM HEAP SEED OUTROOT` -- one run of the default-flip comparison (`main` or `stack`).
 - `one12.py` -- the per-seed table (ants, starved, deep falls, deep starvers, store bites, digs); reads `hungry.csv` reduced to `hred.csv.gz` (frame,id,hy,zone,outcome).
 - `rebuild.py`, `spellfunnel.py`, `storecensus2.py`, `nestdeaths.py`, `hspells.awk` -- Deep trace's census tools behind the edible finding.
 
