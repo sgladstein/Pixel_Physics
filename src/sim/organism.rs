@@ -6690,6 +6690,17 @@ pub struct OrganismState {
     /// the player acted on always gets a grave, even a dormant seed's, so a
     /// cull is never followed by a record that does not appear.
     pub culled: bool,
+    /// **Which plant set this seed**, read with [`OrganismState::parent_born`]
+    /// as one identity (a handle alone is reused -- `born_frame`'s own doc).
+    /// `0` for a founder -- anything sown, planted or placed rather than
+    /// borne -- and for every animal. Written once, in `plant::bear_seed_at`,
+    /// and read by nothing in the simulation: it is there so a harness can
+    /// follow a line from parent to child after the parent has died and its
+    /// slot has moved on, which no counter can (`examples/planttrace.rs`'s
+    /// offspring columns).
+    pub parent: OrganismId,
+    /// The parent's `born_frame`; `0` beside a `0` parent.
+    pub parent_born: u64,
     /// **This individual's discrete genes** — see [`DISCRETE_LOCI`]. One
     /// small integer per locus, inherited whole and mutated by *jumping*
     /// rather than drifting, which is what makes a population clump instead

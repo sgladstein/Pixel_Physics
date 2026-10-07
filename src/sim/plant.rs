@@ -3536,6 +3536,23 @@ fn authored_seed_maturity(world: &World, species_id: organism::SpeciesId, cell_t
         .unwrap_or(0)
 }
 
+/// **The shoot cells this individual needs before it may set seed** -- its
+/// own `seed_maturity`, any override applied, from whichever cell type
+/// carries its `Reproduce`. `None` for an organism that never reproduces.
+///
+/// For a harness asking "has this plant grown up": `seed_maturity_met`
+/// against `OrganismState::shoot_cells` is the gate the organism tick
+/// applies, so a plant that clears this number is one the box would let
+/// breed. Reads only.
+pub fn seed_maturity_of(world: &World, organism_id: OrganismId) -> Option<u32> {
+    organism::PLANT_CELL_TYPES.iter().find_map(|&cell_type| {
+        individual_behavior(world, organism_id, cell_type, |b| match b {
+            Behavior::Reproduce { seed_maturity, .. } => Some(*seed_maturity),
+            _ => None,
+        })
+    })
+}
+
 /// How much of `seed_cost` one root-cell of launch reach adds.
 ///
 /// Set from the ceiling rather than by eye: `REPRODUCTIVE_BUDGET_CAP` is
@@ -3782,9 +3799,9 @@ fn launch_offset(world: &World, sx: i32, sy: i32, reach: f32) -> i32 {
 /// sequence *choose a spot, draw a shade, mutate the genome* exactly where it
 /// was. The drop path has no spot draw at all: a fruit lets go where it hangs.
 fn bear_seed_at(world: &mut World, sx: i32, sy: i32, parent_id: OrganismId, seed_cost: f32, seed_material: material::MaterialId, rng: &mut Rng) -> bool {
-    let Some((species, draws, generation, parent_alleles, parent_fates, parent_params, parent_lineage, parent_dev)) = world
+    let Some((species, draws, generation, parent_alleles, parent_fates, parent_params, parent_lineage, parent_dev, parent_born)) = world
         .organism(parent_id)
-        .map(|s| (s.species, s.genotype_draws, s.generation, s.alleles, s.fates, s.params, s.lineage, s.lineage_seed))
+        .map(|s| (s.species, s.genotype_draws, s.generation, s.alleles, s.fates, s.params, s.lineage, s.lineage_seed, s.born_frame))
     else {
         return false;
     };
@@ -3842,6 +3859,10 @@ fn bear_seed_at(world: &mut World, sx: i32, sy: i32, parent_id: OrganismId, seed
         // A seed until `germinate` says otherwise -- see
         // `OrganismState::dormant_seed`. Draws nothing.
         state.dormant_seed = true;
+        // Who set it, for a harness following a line (`OrganismState::
+        // parent`). Draws nothing and nothing in the simulation reads it.
+        state.parent = parent_id;
+        state.parent_born = parent_born;
         // Each trait drifts independently, so a genome is not a single
         // dial: two offspring of one parent can differ on branching and
         // agree on height, which is what lets a population explore corners
@@ -19231,6 +19252,32 @@ they are the same world. Got {median}, which means something other than the leve
              `DISCRETE_LOCI = 7` (round 28, `LOCUS_FLOWER_COLOUR`) and must not move again when the \
              genome widens further."
         );
+    }
+
+    /// **A seed names the plant that set it** (`OrganismState::parent`), with
+    /// that plant's born frame, so a harness can follow a line from parent to
+    /// child after the parent's slot has moved on; a planted founder names
+    /// nobody. The test above is the half that says recording it drew nothing.
+    #[test]
+    fn a_seed_names_its_parent_and_a_planted_founder_names_none() {
+        let mut w = test_world();
+        let tree = w.species.id_of("tree").expect("tree species is compiled in");
+        w.frame = 77;
+        let parent = w.push_organism(tree).expect("an organism slot is free");
+        let parent_born = w.organism(parent).expect("alive").born_frame;
+        assert_eq!(parent_born, 77, "test setup: the parent should be born on the frame it was pushed");
+        let mut rng = rng::stream(1, 2, 3, 4);
+        assert!(set_seed(&mut w, 30, 20, parent, 1.0, 0.0, &mut rng), "test setup: no seed was set");
+        // Found by id rather than by cell: `set_seed` places the seed where
+        // it can stand, which need not be the cell it was given.
+        let born: Vec<OrganismId> = w.live_organism_ids().into_iter().filter(|&id| id != parent).collect();
+        assert_eq!(born.len(), 1, "test setup: expected exactly one new organism, the seed");
+        let s = w.organism(born[0]).expect("the seed lives");
+        assert_eq!((s.parent, s.parent_born), (parent, parent_born), "the seed does not name its parent");
+        assert!(w.plant_tree_species(50, 20, "tree"), "test setup: the founder could not be planted");
+        let founder = w.get(50, 20).organism_id();
+        let f = w.organism(founder).expect("the founder lives");
+        assert_eq!((f.parent, f.parent_born), (0, 0), "a planted founder names a parent");
     }
 
     /// **Crowding must reorder choices, never veto all of them.** Under

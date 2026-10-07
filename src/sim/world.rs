@@ -7798,6 +7798,8 @@ impl World {
             last_loss: organism::DeathCause::Unknown,
             dormant_seed: false,
             culled: false,
+            parent: 0,
+            parent_born: 0,
             // **Founders carry no overrides**, which is what makes the
             // parameter genome inert until something breeds — see
             // `organism::ParamGenome`. `plant::bear_seed_at` overwrites this
