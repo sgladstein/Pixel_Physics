@@ -82,9 +82,15 @@ python3 Reports/handoff/nest-race/tools/nestpic.py out.png "main=runs/main90-s1@
   - a second reviewer's written yes;
   - CI green.
 - **Report deep time as N of M ants**, with the baseline beside it, the door column split out, and a fed/staying check. Say plainly when a number is near zero.
-- **Two results are partial so far.**
-  - Stack + `edible` on heap 90, seeds 1-4: deep starvers 0/2/1/1.
-  - Seed 2 had 44 deaths in the mound tunnels at 200-300k that are not yet traced. Check them before flipping `edible`.
+- **Deep trace's written yes** (`second-key-verdict-deep-trace-2026-10-07.md`):
+  - `WAY_FOOT` is cleared to go on by default.
+  - `edible` goes on once its 12-seed set is in. In that set, count the
+    starved deaths with ledger `zone_end == mound_in` per seed, on both arms.
+  - The seed-2 mound deaths are traced and are not the store. They were 40
+    fed foragers walled into soil pockets in the mound, with no food in
+    reach. Tools: `zonedeaths.py`, `moundfood.py`.
+  - The rest of the stack has no yes yet: there is no 12-seed table of it
+    against `main`.
 
 ## Tools (`tools/`)
 
