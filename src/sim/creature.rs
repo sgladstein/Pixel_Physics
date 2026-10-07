@@ -15195,10 +15195,22 @@ fn ring_target(world: &World, site: &crate::sim::world::NestSite, col: i32) -> (
 /// cell is, once the mound has grown over the column, a tunnel inside it.
 /// An ant there is not sky: a cell holding one is open only if nothing
 /// covers it.
+///
+/// **Walked outward to the first column where the pellet may go down**
+/// (Nest building's code-read of the first build, 2026-10-07): the crust
+/// over the mound's tunnels is about a cell thick, so the sky cell over a
+/// drawn column is often beside a covered way cell, where the hold keeps
+/// the pellet -- a carrier that reached it would mill there holding, the
+/// same hold moved onto the mound's top. Up to [`CREST_REACH`] columns
+/// further out, as [`crest_column`] walks; past that, the drawn column.
 fn sky_target(world: &World, site: &crate::sim::world::NestSite, col: i32) -> (i32, i32) {
-    let open = |y: i32| matches!(world.materials.kind(world.get(col, y).material), MaterialKind::Empty | MaterialKind::Gas | MaterialKind::Plant | MaterialKind::Creature);
-    let start = site.surface - 1;
-    (col, (0..=RING_CLIMB).map(|d| start - d).find(|&y| open(y) && !under_cover(world, col, y)).unwrap_or(start - RING_CLIMB))
+    let at = |c: i32| -> (i32, i32) {
+        let open = |y: i32| matches!(world.materials.kind(world.get(c, y).material), MaterialKind::Empty | MaterialKind::Gas | MaterialKind::Plant | MaterialKind::Creature);
+        let start = site.surface - 1;
+        (c, (0..=RING_CLIMB).map(|d| start - d).find(|&y| open(y) && !under_cover(world, c, y)).unwrap_or(start - RING_CLIMB))
+    };
+    let out = if col >= site.x { 1 } else { -1 };
+    (0..=CREST_REACH).map(|k| at(col + out * k)).find(|&p| !beside_mound_hole(world, p)).unwrap_or_else(|| at(col))
 }
 
 /// **[`REST_LOOKAHEAD`] steps towards the open air along a mound's way**
@@ -15224,7 +15236,8 @@ fn step_out_way(way: &NestWay, head: (i32, i32)) -> Option<(i32, i32)> {
 }
 
 /// **Not beside a hole in the mound** ([`NestStore`]'s `sky`): no covered
-/// cell of the mound's way within [`SKY_CLEAR`] cells. A pellet put down at
+/// cell of the mound's way within [`SKY_CLEAR`] cells (1: at 2 most columns
+/// near the door had no legal cell, Nest building's code-read). A pellet put down at
 /// a tunnel's mouth caps it, and `SPOIL_LIFT=out` grew a heap on every hole
 /// (Nest building's review, 2026-10-07).
 fn beside_mound_hole(world: &World, (x, y): (i32, i32)) -> bool {
@@ -15239,7 +15252,7 @@ fn on_mound_way_covered(world: &World, (x, y): (i32, i32)) -> bool {
 }
 
 /// How far from a covered cell of the mound's way a `sky` pellet must go down.
-const SKY_CLEAR: i32 = 2;
+const SKY_CLEAR: i32 = 1;
 
 /// **A hauled pellet is carried at the laden pace** ([`SpoilOut`]'s `pace`):
 /// `HomeAligned` reads as it does for a load of food, so the step roll is the
