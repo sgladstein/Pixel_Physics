@@ -5487,6 +5487,17 @@ pub(super) fn try_bud(
         } else {
             stored
         }
+    } else if laying.is_some() && lay_bar_body() {
+        // **`PIXEL_PHYSICS_LAY_BAR=body`: an egg's bar is the layer's own
+        // body.** `lay_egg` charges the egg to the bank and lets food in reach
+        // pay only below the egg's price, so food counted here was never
+        // spent: a 200 J ant beside a store laid and walked off with 80 J
+        // while the food qualified the next one. Store on, 10-35% of eggs came
+        // from layers left under 200 J against 2-4% off; at the heap the same
+        // chain booms a colony past the refill and starves it
+        // (`/mnt/project-files/nest-race/laying-bar-proposal-2026-10-07.md`,
+        // reviewed by Laying). Budding keeps the reach rule below.
+        0.0
     } else {
         // **Face first, because this runs every tick an animal survives.** A
         // guaranteed price is never above face, so an animal the face sum
@@ -20962,6 +20973,14 @@ pub fn bud_from_store(world: &World, def: &CreatureDef) -> bool {
 fn bud_store_counts_bank() -> bool {
     static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *V.get_or_init(|| std::env::var("PIXEL_PHYSICS_BUD_STORE").as_deref() == Ok("bank"))
+}
+
+/// **`PIXEL_PHYSICS_LAY_BAR=body`: a laying species clears its egg bar from
+/// its own energy alone**, food in reach not counted (`try_bud`). Off, unset,
+/// is today's reach rule and bit-identical.
+fn lay_bar_body() -> bool {
+    static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *V.get_or_init(|| std::env::var("PIXEL_PHYSICS_LAY_BAR").as_deref() == Ok("body"))
 }
 
 /// **`PIXEL_PHYSICS_BUD_RESERVE=<J>`: what a store must still hold after a
