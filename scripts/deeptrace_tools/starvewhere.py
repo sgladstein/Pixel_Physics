@@ -1,4 +1,4 @@
-"""starvewhere.py RUN... [--from F] [--to T] -- where were the ants that starved, and since when? (deep trace lane, 2026-10-06)
+"""starvewhere.py RUN... [--from F] [--to T] | --selftest -- where were the ants that starved, and since when? (deep trace lane, 2026-10-06)
 
 Needs a run with the census on (deeptrace `hungry=1`: death lines in events.txt, every ant in colony.csv every 1k) and
 maps every 1k (`mapevery=1000`), as in deep-trace/baseline/. A digging record without hungry=1 has no death lines.
@@ -7,7 +7,7 @@ For each death with cause=STARVED alone in the window (default 20k-300k; STARVED
 died_starved books some of those as starved, so the count runs a few under it: 11 against 12 on ecca174e6 seed 1, 145
 against 152 on seed 8) it takes the ant's last census sample (hx, hy, pellet, energy) and the map written on that same frame (so up to 999 frames before the death), and asks which space
 its head was in. Spaces are the connected walkable cells by doorseal.py's rule (air, dug, ants, brood and crumbs
-open; soil, corpses and other food walls; 8-way; down to row 175):
+open; soil, corpses and other food walls; 8-way; to the bottom of the map):
   door system, door open    -- the space beside the door anchor, and doorseal.py reads the door open: with the
                                door open this is also the open ground, so it means "free to walk out and in"
   door system, door SEALED  -- the same space with the door sealed: shut in behind the door
@@ -26,6 +26,23 @@ and whether it held a pellet then.
 The flood is 8-way with no corner rule, so it joins diagonal gaps the walk cannot: 'pocket' and 'encased' are lower
 bounds. Checked by eye on ecca174e6 seed 2 at 34k (an encased starver: four ant cells in solid soil; another packed
 with a second ant, eight ant cells). On that baseline the starvers' closed spaces of 7-10 cells were all ant cells.
+
+**Corrected 2026-10-07** (deep trace lane): until then the flood stopped at row 175, 15 rows under the ground line,
+the floor of doorseal.py's door walk, where it does no harm. A head deeper than that joined no space, and `bucket`
+read it "encased" whatever was round it, so in a nest dug deeper than 15 rows "encased" counted depth. On
+LAY_BAR=body seed 1 with the smell store (95d65cd66, starvers of 55-70k) 50 of 51 starvers read encased and, with
+the flood to the map bottom, 0: all 50 "door system, door open", their last census row a median 192. On the
+storeroom test's arms (c9e8a860, seeds 1-4, 20k to the end) encased starvers went from 433 / 360 / 153 / 291 to
+0 / 1 / 0 / 11 (arm 2, with `whole`) and from 1,890 / 3,379 / 873 / 2,046 to 8 / 35 / 9 / 11 (arm 2b), and every
+all-ant base rate (up to 37%) to 0%. spells.py's shut-in spells on the MOUND_OUT=dig check (ecca174e6 against dig, seeds
+1-12) fell 5-33% a seed, but the ones ending starved barely moved (seeds 1-8: 293 and 69 became 293 and 67) and dig
+stayed lower per spell on 8 of 12 seeds. An "encased" read made before this date with starvers deeper than row 175
+needs re-reading.
+"door system, door open" says an unbroken 8-way path of air, ants, brood or crumbs joins the head to the door. It does
+not say an ant can climb it: a body with nothing solid, powdery or plant beside it and no grip on a grounded nestmate
+falls a cell instead of stepping (creature.rs `fall_if_unsupported`).
+`--selftest` builds a room reaching 45 rows under the ground line and two sealed pockets, checks each bucket, and shows
+the old floor reading the deep room's ant "encased".
 """
 import os, sys, re, csv, collections
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -36,13 +53,16 @@ ORDER = ['door system, door open', 'door system, door SEALED', 'elsewhere, open 
 TRAPPED = {'door system, door SEALED', 'closed pocket', 'encased'}
 
 
-def spaces(path):
+def spaces(path, floor=None):
+    """The map's spaces. `floor`: flood only the rows above it (None, the default, is the whole map; 176 is the floor
+    this tool had until 2026-10-07, kept for --selftest to show the fault)."""
     L = open(path).read().split('\n')
     x0, y0, w, h = map(int, L[0].split())
     at = D.load(path)
     comp, info = {}, []
-    inside = lambda p: x0 <= p[0] < x0 + w and y0 <= p[1] < min(y0 + h, 176)
-    for yy in range(y0, min(y0 + h, 176)):
+    bottom = y0 + h if floor is None else min(y0 + h, floor)
+    inside = lambda p: x0 <= p[0] < x0 + w and y0 <= p[1] < bottom
+    for yy in range(y0, bottom):
         for xx in range(x0, x0 + w):
             if (xx, yy) in comp or at(xx, yy) not in D.PASS:
                 continue
@@ -76,8 +96,45 @@ def bucket(sp, x, y):
     return 'closed pocket' if sum(info[c][2] for c in cs) else 'encased'
 
 
+def selftest():
+    """A goal-box map (door anchor (256,159), ground row 160) with a shaft, a room 35 rows deep with ants at its floor,
+    and two pockets of ants sealed in soil, one above row 175 and one below. Each head must land in its bucket, and the
+    old floor (176) must read the deep room's ant encased -- the fault this test exists for."""
+    import tempfile
+    x0, y0, w, h = 176, 100, 151, 131
+    g = [['.' if y0 + j < 160 else 's' for i in range(w)] for j in range(h)]
+    def put(xa, xb, ya, yb, c):
+        for y in range(ya, yb + 1):
+            for x in range(xa, xb + 1):
+                g[y - y0][x - x0] = c
+    put(254, 258, 160, 169, '.')    # the shaft under the door
+    put(240, 270, 170, 205, '.')    # a room from 10 to 45 rows under the ground line
+    put(244, 252, 203, 205, 'a')    # a crowd on its floor
+    put(280, 283, 190, 191, 'a')    # a pocket of ants sealed in soil, 30 rows down
+    put(290, 292, 165, 166, 'a')    # and one 5 rows down
+    with tempfile.TemporaryDirectory() as d:
+        path = f'{d}/map_f000000.txt'
+        open(path, 'w').write(f'{x0} {y0} {w} {h}\n' + '\n'.join(''.join(r) for r in g) + '\n')
+        new, old = spaces(path), spaces(path, floor=176)
+        rows = [('the shaft', 256, 165, new, 'door system, door open'),
+                ('the deep room, 44 rows down', 248, 204, new, 'door system, door open'),
+                ('the deep pocket', 281, 190, new, 'encased'),
+                ('the shallow pocket', 291, 165, new, 'encased'),
+                ('the shallow pocket, old floor', 291, 165, old, 'encased'),
+                ('the deep room, old floor (the fault)', 248, 204, old, 'encased')]
+        bad = 0
+        for name, x, y, sp, want in rows:
+            got = bucket(sp, x, y)
+            bad += got != want
+            print(f"  {'ok ' if got == want else 'BAD'} {name:38s} -> {got}" + ('' if got == want else f' (want {want})'))
+    print('selftest:', 'PASS' if not bad else f'FAIL ({bad})')
+    return 1 if bad else 0
+
+
 def main():
     a = sys.argv[1:]
+    if '--selftest' in a:
+        sys.exit(selftest())
     lo = int(a[a.index('--from') + 1]) if '--from' in a else 20000
     hi = int(a[a.index('--to') + 1]) if '--to' in a else 300000
     runs = [x for j, x in enumerate(a) if not x.startswith('--') and (j == 0 or a[j - 1] not in ('--from', '--to'))]
