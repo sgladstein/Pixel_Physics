@@ -138,10 +138,18 @@ pub struct NeedsWalk {
     minds: HashMap<OrganismId, Mind>,
     /// When the memories of the dead were last let go.
     pruned_at: u64,
-    /// **The trace**: every decision of every ant whose id is a multiple of
-    /// this is kept in [`NeedsWalk::rows`] for a harness to drain. 0 keeps
-    /// none.
+    /// **The trace**: every decision of about one ant in this many, picked
+    /// by a hash of its id ([`NeedsWalk::traces`]), is kept in
+    /// [`NeedsWalk::rows`] for a harness to drain. 0 keeps none.
+    ///
+    /// **Never by the id's remainder**: the shipped storeroom makes every ant
+    /// whose id is a multiple of 4 a nest worker for life (`caste=4`), so the
+    /// first form of this trace, ids that are multiples of 20, followed the
+    /// nest-worker caste and nobody else -- all 26 ants of the first slice-1
+    /// trace (2026-10-07), whose foragers were all nest workers.
     pub trace_every: u32,
+    /// ...or exactly these ants, when not empty (a harness's `only=` list).
+    pub trace_ids: std::collections::HashSet<OrganismId>,
     pub rows: Vec<WalkRow>,
     /// What the walk did, summed over every ant, for a harness to read.
     pub counts: WalkCounts,
@@ -158,10 +166,23 @@ impl NeedsWalk {
             minds: HashMap::new(),
             pruned_at: frame,
             trace_every: 0,
+            trace_ids: std::collections::HashSet::new(),
             rows: Vec::new(),
             counts: WalkCounts::default(),
             veto_needs: false,
         }
+    }
+
+    /// **Whether this ant's decisions go in the trace**: one of
+    /// [`NeedsWalk::trace_ids`] if any are named, else one ant in about
+    /// [`NeedsWalk::trace_every`] by a hash of its id that no id-keyed rule
+    /// (a caste, a founder share) lines up with.
+    pub fn traces(&self, organism: OrganismId) -> bool {
+        if !self.trace_ids.is_empty() {
+            return self.trace_ids.contains(&organism);
+        }
+        let mixed = (organism as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15) >> 32;
+        self.trace_every > 0 && mixed.is_multiple_of(u64::from(self.trace_every))
     }
 
     /// How many ants the walk is remembering (live ones, to within
@@ -1525,7 +1546,7 @@ fn walk_after(world: &mut World, organism: OrganismId, moved: bool) {
         mind.stall = 0;
     }
     if let Some(n) = world.needs.as_ref() {
-        if n.trace_every > 0 && organism.is_multiple_of(n.trace_every) {
+        if n.traces(organism) {
             let st = world.organism(organism);
             let row = WalkRow {
                 frame: world.frame,

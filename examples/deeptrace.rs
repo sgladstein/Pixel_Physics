@@ -110,7 +110,11 @@
 //! stimulus against its threshold, preferred depth, step chance and stall,
 //! beside `colony.csv` at the same frames; **`walk_counts.csv`**, the walk's
 //! running totals at those frames; and with `walktrace=N`, **`walk.csv.gz`**,
-//! every decision of every ant whose id is a multiple of `N`.
+//! every decision of about one ant in `N`, picked by a hash of its id (with
+//! `only=`, of exactly those ants). The brain's columns (`o_`, `h`) are
+//! what it computed on what it is shown (`creature::probe_full`) only since
+//! 2026-10-07; before then they read the raw senses, trail along the heading
+//! included, which the shipped brain is never shown.
 //!
 //! `founder=evolved` lands the colony with lane 2's evolved founder (the six
 //! scenario rows in `EVOLVED_FOUNDER`), before any `gut=`. It is the lab's
@@ -473,8 +477,11 @@ fn main() {
     let needs: Option<creature::needs::NeedsMode> =
         arg::<String>("needs").map(|m| creature::needs::NeedsMode::parse(&m));
     let needs_at: u64 = arg("needsat").unwrap_or(0);
-    // `walktrace=N`: under `needs=walk`, every decision of every ant whose
-    // id is a multiple of N, to `walk.csv.gz`. 0 (the default) keeps none.
+    // `walktrace=N`: under `needs=walk`, every decision of about one ant in
+    // N, picked by a hash of its id (`NeedsWalk::traces`), to `walk.csv.gz`;
+    // with `only=`, exactly those ants whatever N is. 0 (the default) keeps
+    // none unless `only=` names some. Not by the id's remainder: one ant in
+    // four by id is the nest-worker caste.
     let walk_trace: u32 = arg("walktrace").unwrap_or(0);
     println!(
         "deeptrace: scenario={scenario} seed={seed} frames={frames} ants={n_ants} bornafter={born_after} colonyevery={colony_every} mapevery={map_every} food={target} shots={} dig={} garden={} hungry={} nestevery={nest_every} needs={} needsat={needs_at} out={out}",
@@ -595,7 +602,7 @@ fn main() {
         .unwrap();
         f
     });
-    let mut walk_rows = (walking && walk_trace > 0).then(|| {
+    let mut walk_rows = (walking && (walk_trace > 0 || !only.is_empty())).then(|| {
         let (zip, mut rows) = gzip_to(&format!("{out}/walk.csv.gz"));
         writeln!(rows, "frame,id,ax,ay,tx,ty,drive,job,energy,crop,hunger,hold,forage,threshold,depth,pref,p_move,moved,stall,target_x,target_y").unwrap();
         (zip, rows)
@@ -856,6 +863,7 @@ fn main() {
         if let Some(mode) = needs.filter(|_| f == needs_at) {
             let mut walk = creature::needs::NeedsWalk::new(mode, lab.world.frame);
             walk.trace_every = walk_trace;
+            walk.trace_ids = only.clone();
             lab.world.needs = Some(Box::new(walk));
             writeln!(events, "{f} NEEDS mode={mode:?} world_frame={}", lab.world.frame).unwrap();
         }
