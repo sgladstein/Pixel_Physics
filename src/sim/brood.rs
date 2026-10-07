@@ -434,6 +434,15 @@ pub const BROOD_CARRY_REACH: i32 = 3;
 /// It always ends: every move but the three one-way kinds strictly raises the
 /// number of touching brood pairs, which is bounded. One walk of at most
 /// `(2 * reach + 1)^2` cells per brood tick with a carrier beside it.
+/// `PIXEL_PHYSICS_BROOD_DEEP=on` (lane 3's scratch, re-ported 2026-10-07 with
+/// `FLAT_ROOM` for the "two crowds" retest), off unless set: depth ranks
+/// before touching, so brood is carried down wherever a floor lower than its
+/// own is in reach.
+fn brood_deep() -> bool {
+    static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *V.get_or_init(|| std::env::var("PIXEL_PHYSICS_BROOD_DEEP").as_deref() == Ok("on"))
+}
+
 pub(super) fn carry(world: &mut World, organism: OrganismId, (x, y): (i32, i32), material: super::material::MaterialId, def: &CreatureDef, reach: i32, door: EggDoor) -> (i32, i32) {
     use super::material::MaterialKind;
     if reach <= 0 {
@@ -474,8 +483,10 @@ pub(super) fn carry(world: &mut World, organism: OrganismId, (x, y): (i32, i32),
     let mut seen = vec![false; (side * side) as usize];
     seen[index(x, y)] = true;
     let mut frontier = vec![(x, y)];
-    // (home, not shunned, brood touching, -steps): the most wins.
-    type Key = (bool, bool, i32, i32);
+    // (home, not shunned, brood touching, -steps): the most wins. Under
+    // `BROOD_DEEP` the row ranks before touching.
+    let deep = brood_deep();
+    type Key = (bool, bool, i32, i32, i32);
     let mut best: Option<(Key, (i32, i32))> = None;
     for depth in 1..=reach {
         let mut next = Vec::new();
@@ -501,8 +512,10 @@ pub(super) fn carry(world: &mut World, organism: OrganismId, (x, y): (i32, i32),
                     continue;
                 }
                 let t = touching(world, (nx, ny));
-                let better = here_barred || (home && !here_home) || (home == here_home && here_shunned && !shunned) || (home == here_home && shunned == here_shunned && t > here_touching);
-                let key = (home, !shunned, t, -depth);
+                let lower = deep && ny > y;
+                let level = !deep || ny == y;
+                let better = here_barred || (home && !here_home) || (home == here_home && here_shunned && !shunned) || (home == here_home && shunned == here_shunned && (lower || (level && t > here_touching)));
+                let key = (home, !shunned, if deep { ny } else { 0 }, t, -depth);
                 if better && best.is_none_or(|(k, _)| key > k) {
                     best = Some((key, (nx, ny)));
                 }

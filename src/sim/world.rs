@@ -1923,6 +1923,8 @@ pub struct CreatureStats {
     /// within the roof's rows under a nest's founding surface and outside its
     /// door. 0 under `PIXEL_PHYSICS_DIG_ROOF=off`.
     pub digs_refused_roof: u64,
+    /// Cuts refused by `PIXEL_PHYSICS_FLAT_ROOM` ([`crate::sim::creature::flat_room_rows`]). 0 unless set.
+    pub digs_refused_flat: u64,
     /// **`creature::held_by_kin`'s count**: support checks an animal passed
     /// only because it touched a nestmate on the ground -- each a fall that
     /// did not happen. 0 under `PIXEL_PHYSICS_KIN_FOOTING=off`.

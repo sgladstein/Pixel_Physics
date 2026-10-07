@@ -16098,6 +16098,59 @@ pub fn dig_roof_of(world: &World) -> Option<i32> {
 /// ([`dig_roof_of`]).
 pub const DIG_ROOF_SHIPPED: i32 = 6;
 
+/// **Flat rooms** (lane 3's scratch from 2026-10-03, `dcafc8cc` on
+/// `claude/parked-nest-experiments-2026-10-04`, re-ported 2026-10-07 for the
+/// owner's retest of "two crowds"), `PIXEL_PHYSICS_FLAT_ROOM=<rows>`, off
+/// unless set. A cut is refused when it is more than `rows` above the floor
+/// under the digger, or into that floor while the digger stands in a room (7
+/// of the 9 cells round it open). A digger in a shaft or tunnel can still go
+/// down. Tschinkel 2004: chambers are flat with near-constant height; the
+/// floor half is the excavation report's modelling hypothesis. First tested
+/// on a colony that could not live in the nest (no food inside, hunger
+/// stopping most digging): with `BROOD_CARRY=on` + `BROOD_DEEP=on` it made
+/// separate brood chambers on 4 of 12 runs and halved colonies on the
+/// resting base. Inconclusive, so retested on the storeroom stack.
+pub fn flat_room_rows() -> Option<i32> {
+    static V: std::sync::OnceLock<Option<i32>> = std::sync::OnceLock::new();
+    *V.get_or_init(|| std::env::var("PIXEL_PHYSICS_FLAT_ROOM").ok().and_then(|v| v.trim().parse::<i32>().ok()).filter(|r| *r > 0))
+}
+
+fn room_open(world: &World, x: i32, y: i32) -> bool {
+    if !world.in_bounds(x, y) {
+        return false;
+    }
+    let c = world.get(x, y);
+    c.material == material::EMPTY || matches!(world.materials.kind(c.material), MaterialKind::Creature | MaterialKind::Liquid | MaterialKind::Gas) || c.organism_id() != 0
+}
+
+fn flat_room_refuses(world: &World, (x, y): (i32, i32), (tx, ty): (i32, i32), rows: i32) -> bool {
+    let Some(site) = world.nest_sites.iter().min_by_key(|s| (s.x - tx).abs()) else { return false };
+    if ty <= site.surface || (tx - site.x).abs() > DUG_HOME_REACH.0 {
+        return false;
+    }
+    // The floor the digger stands over: the first cell straight down from
+    // its head that is not open.
+    let mut floor = y + 1;
+    while floor < y + 64 && room_open(world, x, floor) {
+        floor += 1;
+    }
+    if ty < floor - rows {
+        return true;
+    }
+    if ty >= floor {
+        // In a room: at least 7 of the 9 cells of the digger's 3x3 open. A
+        // tunnel two high or a shaft two wide never reaches 7.
+        let mut open = 0;
+        for dy in -1..=1 {
+            for dx in -1..=1 {
+                open += i32::from(room_open(world, x + dx, y + dy));
+            }
+        }
+        return open >= 7;
+    }
+    false
+}
+
 /// Whether `(x, y)` lies in the roof [`dig_roof_of`] keeps: within `rows`
 /// rows under the founding surface of the nearest nest site (by column),
 /// outside that nest's door.
@@ -19302,7 +19355,9 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
             }
             refused
         };
-        let vetoed = cue_vetoed || face_refused || roof_refused;
+        let flat_refused = !cue_vetoed && !face_refused && !roof_refused && flat_room_rows().is_some_and(|rows| flat_room_refuses(world, (x, y), (tx, ty), rows));
+        world.creature_stats.digs_refused_flat += u64::from(flat_refused);
+        let vetoed = cue_vetoed || face_refused || roof_refused || flat_refused;
         // **What the jaw can take is [`jaw_can_cut`]**, one test shared with
         // the dig-down turn above so the two cannot drift apart; the argument
         // for each of its terms is there. A live seed is still counted here,
