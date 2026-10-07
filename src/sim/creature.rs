@@ -8640,6 +8640,20 @@ pub fn probe(world: &World, x: i32, y: i32, organism: OrganismId, def: &Creature
 /// **Still non-mutating, and for the same reason `probe` is**: `eval_brain`
 /// writes the new hidden layer back through `&mut state`, so this hands it a
 /// *copy* and returns that copy rather than storing it. Looking stays free.
+///
+/// **The inputs returned are what the senses read; the hidden layer and the
+/// outputs are the brain's on what it is shown** (`brain_inputs`, which under
+/// `Trail` and `TrailAway` hands it `PheroAAlong` and `PheroBAlong` as 0, so
+/// the trail reader above is cut on the shipped walk). Until 2026-10-07 this
+/// fed the brain the raw senses, so on any ant with scent along its heading
+/// it returned outputs the tick never acted on -- and on the goal box that is
+/// nearly every ant: the two inputs are nonzero on 99% of empty decisions
+/// under the shipped walk (`deeptrace`, seed 1, 50k-100k). Under the needs
+/// walk (its own branch), 85% of the decisions whose step chance is the
+/// brain's own `Move` disagreed with the probe's (156,207 decisions; an ant
+/// reading `Move` 0.77 stepped at the probe's -0.31). Every
+/// `o_`/`h` column `deeptrace` wrote before then, and `digbox`'s, `nestdoor`'s
+/// and `trailfollow`'s brain readouts, carry it.
 pub fn probe_full(
     world: &World,
     x: i32,
@@ -8652,7 +8666,7 @@ pub fn probe_full(
     };
     let (inputs, _, _, _) = sense(world, x, y, organism, state.heading, def, state.flight.is_some());
     let mut brain_state = state.brain_state;
-    let (outputs, active) = brain::eval_brain(&state.genome, &inputs, &mut brain_state);
+    let (outputs, active) = brain::eval_brain(&state.genome, &brain_inputs(world, def, &inputs), &mut brain_state);
     (inputs, brain_state, outputs, active)
 }
 
