@@ -13365,6 +13365,32 @@ pub fn mound_out_of(world: &World) -> MoundOut {
 ///   empty cell beside the head, which a crowd of nestmates also gives, and
 ///   packed onto ants standing in the cells it left: 582 killed by seed 2's
 ///   50k (`DeathCause::Killed`, a head cell lost), against none.
+/// - `backfill` (**not in `on`**; name it, `on,backfill`): what `pack` sets
+///   in the cell the tail left is the pellet's packed form
+///   (`Material::packs_into`, spoil -> `packedsoil`) rather than the pellet,
+///   so the backfill is wall, as the line above has always said it is.
+///   **Why** (Way home and Nest building, 2026-10-07, heap 90 on the stack):
+///   unpacked, a carrier that packed its way up from a room to the mound
+///   floor left a one-cell column of spoil through native loose ground, with
+///   nothing lined round it -- seed 3, ant 1048804 at 47,920-47,970,
+///   (268,161-168). An ordinary cut under its foot at 53,110 took its
+///   footing: the spoil slumped by the footing rule, the loose ground beside
+///   it followed, and the room opened into the mound's tunnels (+47 open
+///   cells), where carriers began putting food down and ants laid beside it
+///   -- the east brood pile, its boom and its famine (seeds 3 and 7; trace in
+///   `/mnt/project-files/way-home/trace-east-brood-pile-2026-10-07.md`).
+///   Lining the cut instead was not enough on paper: the column itself would
+///   still slump and open a one-cell shaft. Packed, it stands over a cut as a
+///   gallery roof does. **Only below the founding ground**
+///   ([`below_founding_ground`]); in the spoil mound the backfill stays the
+///   pellet (Way home's review). 63-77% of pack events are in the mound
+///   (seed 3 to 300k: 236 of 306), and a packed stack there stands once the
+///   spoil round it slumps away -- the crumb rule only takes a cell with
+///   empty directly under it -- which is §Z18's tower of dirt in the air
+///   coming back. The drain is wholly below ground: the first pack below
+///   it on seeds 3 and 7 is the drained column itself (47,930 at (268,167);
+///   82,854 at (267,166)), so a run with the part forks there and not at the
+///   first pack in the mound (about 20k).
 /// - `throttle`: in the door's throttle zone ([`outward_want`]) an ant's
 ///   own hunger counts against the colony's want, the larger winning,
 ///   instead of only once it is lean: a step at half the grant becomes a
@@ -13400,11 +13426,15 @@ pub struct NeedsFirst {
     pub weak: bool,
     pub breakthrough: bool,
     pub door: bool,
+    /// Not in [`NeedsFirst::ON`]: `on` stays the eight parts it was scored as.
+    pub backfill: bool,
 }
 
 impl NeedsFirst {
-    pub const OFF: NeedsFirst = NeedsFirst { hungry: false, laden: false, job: false, pack: false, throttle: false, weak: false, breakthrough: false, door: false };
-    pub const ON: NeedsFirst = NeedsFirst { hungry: true, laden: true, job: true, pack: true, throttle: true, weak: true, breakthrough: true, door: true };
+    pub const OFF: NeedsFirst = NeedsFirst { hungry: false, laden: false, job: false, pack: false, throttle: false, weak: false, breakthrough: false, door: false, backfill: false };
+    /// The eight parts. `backfill` is left out, so `on` means what every run
+    /// before it measured; it is named alongside (`on,backfill`).
+    pub const ON: NeedsFirst = NeedsFirst { hungry: true, laden: true, job: true, pack: true, throttle: true, weak: true, breakthrough: true, door: true, backfill: false };
     /// Off until scored: built 2026-10-06 and not yet measured against the
     /// dig-on baseline.
     pub const SHIPPED: NeedsFirst = NeedsFirst::OFF;
@@ -13423,7 +13453,8 @@ impl NeedsFirst {
                 "weak" => m.weak = true,
                 "breakthrough" => m.breakthrough = true,
                 "door" => m.door = true,
-                other => panic!("PIXEL_PHYSICS_NEEDS_FIRST={raw:?}: {other:?} is not on, off, hungry, laden, job, pack, throttle, weak, breakthrough or door"),
+                "backfill" => m.backfill = true,
+                other => panic!("PIXEL_PHYSICS_NEEDS_FIRST={raw:?}: {other:?} is not on, off, hungry, laden, job, pack, throttle, weak, breakthrough, door or backfill"),
             }
         }
         m
@@ -13505,7 +13536,7 @@ fn needs_first_act(world: &mut World, organism: OrganismId, def: &CreatureDef, h
         }
         world.creature_stats.needs_no_site += 1;
     }
-    if rule.pack && hungry && !load.store && walled_in(world, organism, head) && pack_behind(world, organism, def, head, load) {
+    if rule.pack && hungry && !load.store && walled_in(world, organism, head) && pack_behind(world, organism, def, head, load, rule.backfill) {
         world.creature_stats.needs_packed += 1;
         note_spoil(world, SpoilWhy::Packed, 0, f32::NAN);
         return NeedsDid::Packed;
@@ -13610,7 +13641,7 @@ const UP_DIR: u8 = 2;
 /// fit. None of the dig's vetoes (the heap cue, `FaceTrip`, the roof): they
 /// are about where a nest may grow, and this grows nothing -- the pocket the
 /// ant stands in moves, and keeps its size.
-fn pack_behind(world: &mut World, organism: OrganismId, def: &CreatureDef, head: (i32, i32), load: Spoil) -> bool {
+fn pack_behind(world: &mut World, organism: OrganismId, def: &CreatureDef, head: (i32, i32), load: Spoil, backfill: bool) -> bool {
     let Some((chain, groups, fates, heading)) = world.organism(organism).map(|s| (s.chain.clone(), s.segment_groups.clone(), s.fates, s.heading)) else {
         return false;
     };
@@ -13643,7 +13674,16 @@ fn pack_behind(world: &mut World, organism: OrganismId, def: &CreatureDef, head:
     commit_step(world, organism, def, body, &authored, &widths, heading, aim, push);
     debug_assert_eq!(world.get(vx, vy).material, material::EMPTY, "the cell the tail left at ({vx}, {vy}) is not empty");
     if world.get(vx, vy).material == material::EMPTY {
-        world.set(vx, vy, load.cell);
+        // `backfill`: the pellet's packed form below the founding ground,
+        // everything else carried across as the lining carries it
+        // ([`pack_neighbours_with`]).
+        let mut fill = load.cell;
+        if backfill && below_founding_ground(world, vx, vy) {
+            if let Some(packed) = world.materials.get(fill.material).packs_into {
+                fill.material = packed;
+            }
+        }
+        world.set(vx, vy, fill);
     }
     let mut pellet = target;
     let ground_def = world.materials.get(target.material);
@@ -31673,6 +31713,8 @@ mod tests {
         assert_eq!(NeedsFirst::parse("throttle,weak,breakthrough,door"), NeedsFirst { throttle: true, weak: true, breakthrough: true, door: true, ..NeedsFirst::OFF });
         assert!(NeedsFirst::parse("door").escape() && !NeedsFirst::parse("door").jaws() && NeedsFirst::parse("pack").jaws() && !NeedsFirst::parse("throttle").escape());
         assert_eq!(NeedsFirst::SHIPPED, NeedsFirst::OFF, "built off until it is scored against the dig-on baseline");
+        assert!(!NeedsFirst::parse("on").backfill, "`on` must stay the eight parts every run before `backfill` measured");
+        assert_eq!(NeedsFirst::parse("on,backfill"), NeedsFirst { backfill: true, ..NeedsFirst::ON });
     }
 
     /// A larva laid by `parent` at `cell`, at a tenth of its target: hungry.
@@ -31808,6 +31850,123 @@ mod tests {
         assert!(held, "the carrier does not hold the cut");
         assert!(packed_tail, "the cell the tail left holds no pellet");
         assert_eq!(now, before, "packing made or lost empty cells: {before} -> {now}");
+    }
+
+    /// **Under `NEEDS_FIRST`'s `backfill` a packed column stands over a cut at
+    /// its foot; unpacked it drains** ([`pack_behind`], `backfill`). The east
+    /// opening on heap-90 seeds 3 and 7 (2026-10-07): a carrier packed its way
+    /// up from a room through loose ground, leaving a one-cell column of
+    /// spoil, and a cut under the column's foot drained it and the ground
+    /// beside it into the room. Two halves. **What the tail cell gets**: under
+    /// `pack`, the pellet (spoil); under `pack,backfill`, its packed form.
+    /// **What a cut at the foot then does**, with exactly that material in an
+    /// eight-cell column in loose ground over a lined room, the cut lined as
+    /// `act` lines it: the spoil column drains (the positive control: well
+    /// over its own length emptied above the cut), the packed one leaves
+    /// nothing above the cut but the cut. **And the gate**: a carrier encased
+    /// in soil heaped above the founding ground still leaves the pellet, so a
+    /// mound cannot grow packed stacks. Watched red with the backfill written
+    /// as the pellet (the material half fails, and so does the drain) and with
+    /// the gate dropped (the mound arm packs).
+    #[test]
+    fn under_needs_first_backfill_a_packed_column_stands_over_a_cut_at_its_foot() {
+        let boxed: Vec<(i32, i32)> = (46..=54).flat_map(|y| (56..=68).map(move |x| (x, y))).collect();
+        // Soil heaped on the founding ground (its surface is row 40 here).
+        let heaped: Vec<(i32, i32)> = (26..=39).flat_map(|y| (56..=68).map(move |x| (x, y))).collect();
+        let tail_material = |rule: NeedsFirst, at: (i32, i32), boxed: &[(i32, i32)]| -> material::MaterialId {
+            let (mut w, a) = carry_world(at.0, at.1, None, boxed, &[]);
+            let soil = w.materials.id_of("soil").expect("soil material");
+            for &(x, y) in boxed {
+                if w.get(x, y).material == material::EMPTY {
+                    w.set(x, y, Cell::new(soil, 0));
+                }
+            }
+            // The pellet the game hands a digger (`act`'s cut: `spoils_into`),
+            // not [`carry_world`]'s plain soil.
+            let pellet = w.materials.id_of("spoil").expect("spoil material");
+            w.organism_mut(a).expect("live").spoil = Some(Spoil {
+                cell: Cell::new(pellet, 0),
+                store: false,
+            });
+            w.needs_first = Some(rule);
+            w.soil_way = Some(SoilWay::OFF);
+            let start = w
+                .species
+                .get(w.organism(a).expect("live").species)
+                .creature
+                .as_ref()
+                .expect("a creature")
+                .start_energy;
+            w.organism_mut(a).expect("live").energy = start * 0.3;
+            let tail = *w.organism(a).expect("live").chain.last().expect("a body");
+            assert_eq!(
+                below_founding_ground(&w, tail.0, tail.1),
+                at.1 > 40,
+                "test setup: the tail at {tail:?} is on the wrong side of the founding ground"
+            );
+            carry_act(&mut w, a);
+            assert_eq!(
+                w.creature_stats.needs_packed, 1,
+                "test setup: the encased carrier did not pack under {rule:?}"
+            );
+            w.get(tail.0, tail.1).material
+        };
+        let mut w = World::new(Rect::new(0, 0, 119, 99));
+        founding_ground(&mut w);
+        let (spoil, packed) = (
+            w.materials.id_of("spoil").expect("spoil"),
+            w.materials.id_of("packedsoil").expect("packedsoil"),
+        );
+        assert_eq!(
+            tail_material(NeedsFirst::parse("pack"), (62, 50), &boxed),
+            spoil,
+            "control: under `pack` alone the backfill is not the pellet"
+        );
+        assert_eq!(
+            tail_material(NeedsFirst::parse("pack,backfill"), (62, 50), &boxed),
+            packed,
+            "under `backfill` the cell the tail left below the founding ground is not packed"
+        );
+        assert_eq!(tail_material(NeedsFirst::parse("pack,backfill"), (62, 32), &heaped), spoil, "under `backfill` a carrier in soil heaped on the founding ground packed its backfill: the mound would grow packed stacks");
+        // Emptied above the cut once a column of `fill` over a lined room is
+        // cut at its foot and the world is stepped.
+        let drained = |fill: material::MaterialId| -> usize {
+            let mut w = World::new(Rect::new(0, 0, 119, 99));
+            founding_ground(&mut w);
+            let room: Vec<(i32, i32)> = (59..=63).flat_map(|y| (52..=68).map(move |x| (x, y))).collect();
+            for &(x, y) in &room {
+                w.set(x, y, Cell::EMPTY);
+            }
+            for &(x, y) in &room {
+                pack_neighbours(&mut w, x, y);
+            }
+            for y in 50..=57 {
+                w.set(60, y, Cell::new(fill, 0));
+            }
+            let above = |w: &World| {
+                (41..=58)
+                    .flat_map(|y| (40..=80).map(move |x| (x, y)))
+                    .filter(|&(x, y)| w.get(x, y).material == material::EMPTY)
+                    .count()
+            };
+            for _ in 0..60 {
+                crate::sim::update::step(&mut w);
+            }
+            assert_eq!(
+                above(&w),
+                0,
+                "test setup: the ground over the room moved before the cut"
+            );
+            w.set(60, 58, Cell::EMPTY);
+            pack_neighbours(&mut w, 60, 58);
+            for _ in 0..400 {
+                crate::sim::update::step(&mut w);
+            }
+            above(&w) - 1
+        };
+        let unpacked = drained(spoil);
+        assert!(unpacked > 8, "control: a spoil column cut at its foot drained only {unpacked} cells -- the drain this part exists for did not happen");
+        assert_eq!(drained(packed), 0, "a packed column cut at its foot drained");
     }
 
     /// **Under `SOIL_WAY`'s `lean` a lean carrier keeps its pellet below the
