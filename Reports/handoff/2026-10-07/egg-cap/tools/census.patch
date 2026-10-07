@@ -1,0 +1,115 @@
+diff --git a/examples/deeptrace.rs b/examples/deeptrace.rs
+index 9a92488d0..224a8f457 100644
+--- a/examples/deeptrace.rs
++++ b/examples/deeptrace.rs
+@@ -203,6 +203,67 @@ fn zone(w: &World, g: &Geo, (x, y): (i32, i32)) -> &'static str {
+     "surface"
+ }
+ 
++/// **Round an ant's head, within the egg pile's reach of 4**: brood cells,
++/// loose food cells, empty cells touching the dug home, and other animals'
++/// cells; and whether the pile's walk would find an empty dug-home cell if it
++/// could also pass through brood (the pile walk passes only empty cells and
++/// animals). Home here is the dug home alone, an approximation of
++/// `creature::home_at` that leaves out the storeroom and site branches.
++fn lay_census(w: &World, (hx, hy): (i32, i32)) -> (u32, u32, u32, u32, bool) {
++    const R: i32 = 4;
++    let brood = w.materials.id_of("brood");
++    let me = w.get(hx, hy).organism_id();
++    let dug = |x: i32, y: i32| (-1..=1).any(|dy| (-1..=1).any(|dx| w.nest_dug.contains(&(x + dx, y + dy))));
++    let (mut nb, mut nf, mut ne, mut na) = (0, 0, 0, 0);
++    for y in hy - R..=hy + R {
++        for x in hx - R..=hx + R {
++            if !w.in_bounds(x, y) || (x, y) == (hx, hy) {
++                continue;
++            }
++            let c = w.get(x, y);
++            if Some(c.material) == brood {
++                nb += 1;
++            } else if w.materials.kind(c.material) == MaterialKind::Creature {
++                na += u32::from(c.organism_id() != me);
++            } else if c.material == material::EMPTY {
++                ne += u32::from(dug(x, y));
++            } else if c.organism_id() == 0 && creature::food_value(w, c) > 0.0 {
++                nf += 1;
++            }
++        }
++    }
++    let side = (2 * R + 1) as usize;
++    let mut seen = vec![false; side * side];
++    let idx = |x: i32, y: i32| ((y - hy + R) as usize) * side + (x - hx + R) as usize;
++    seen[idx(hx, hy)] = true;
++    let mut frontier = vec![(hx, hy)];
++    let mut found = false;
++    'walk: for _ in 1..=R {
++        let mut next = Vec::new();
++        for &(x, y) in &frontier {
++            for (dx, dy) in DIRS {
++                let (nx, ny) = (x + dx, y + dy);
++                if (nx - hx).abs() > R || (ny - hy).abs() > R || !w.in_bounds(nx, ny) || seen[idx(nx, ny)] {
++                    continue;
++                }
++                seen[idx(nx, ny)] = true;
++                let c = w.get(nx, ny);
++                let empty = c.material == material::EMPTY;
++                if !empty && w.materials.kind(c.material) != MaterialKind::Creature && Some(c.material) != brood {
++                    continue;
++                }
++                if empty && dug(nx, ny) {
++                    found = true;
++                    break 'walk;
++                }
++                next.push((nx, ny));
++            }
++        }
++        frontier = next;
++    }
++    (nb, nf, ne, na, found)
++}
++
+ /// The cell the jaw faces, as `digbox antlife=` names it.
+ fn ahead(w: &World, (hx, hy): (i32, i32), heading: u8) -> &'static str {
+     let (dx, dy) = DIRS[(heading % 8) as usize];
+@@ -579,7 +640,7 @@ fn main() {
+     );
+     writeln!(ticks, "{header}").unwrap();
+     let mut colony_csv = std::io::BufWriter::new(std::fs::File::create(format!("{out}/colony.csv")).unwrap());
+-    writeln!(colony_csv, "frame,id,worker,hx,hy,zone,crop_cells,spoil,energy_j,home").unwrap();
++    writeln!(colony_csv, "frame,id,worker,hx,hy,zone,crop_cells,spoil,energy_j,home,bar,pile,home_d,near_free,home_free,home_ants,egg_room,nbr_ants,r4_brood,r4_food,r4_emptyhome,r4_ant,pile_thru_brood").unwrap();
+     let mut events = std::io::BufWriter::new(std::fs::File::create(format!("{out}/events.txt")).unwrap());
+ 
+     let sid = lab.world.species.id_of("ant").expect("ant ships");
+@@ -1104,9 +1165,17 @@ fn main() {
+                 let Some(st) = w.organism(id) else { continue };
+                 let Some(&h) = st.chain.first() else { continue };
+                 let home = (-1..=1).any(|dy| (-1..=1).any(|dx| w.nest_dug.contains(&(h.0 + dx, h.1 + dy))));
++                // **The laying census** (Laying, 2026-10-07): what a birth
++                // here would face -- `creature::home_ring` at the egg pile's
++                // reach -- and what fills the cells round the head, so a held
++                // egg can be split into "away from home" and "at home with no
++                // room", and the room's filling named.
++                let ring = creature::home_ring(w, id, 4);
++                let lay = lay_census(w, h);
++                let (bar, pile, hd, nf, hf, ha, er, na) = ring.map_or((0.0, 0, -1, 0, 0, 0, 0, 0), |r| (r.lay_bar, u8::from(r.pile), r.home_d, r.near_free, r.home_free, r.home_ants, r.egg_room, r.nbr_ants));
+                 writeln!(
+                     colony_csv,
+-                    "{f},{id},{},{},{},{},{},{},{:.0},{}",
++                    "{f},{id},{},{},{},{},{},{},{:.0},{},{:.0},{pile},{hd},{nf},{hf},{ha},{er},{na},{},{},{},{},{}",
+                     u8::from(st.nest_bound_until == u64::MAX),
+                     h.0,
+                     h.1,
+@@ -1114,7 +1183,13 @@ fn main() {
+                     st.crop.as_ref().map_or(0, |c| c.cells),
+                     st.spoil.as_ref().map_or(0, |_| 1),
+                     st.energy,
+-                    u8::from(home)
++                    u8::from(home),
++                    bar,
++                    lay.0,
++                    lay.1,
++                    lay.2,
++                    lay.3,
++                    u8::from(lay.4)
+                 )
+                 .unwrap();
+             }

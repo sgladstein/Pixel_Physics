@@ -8,6 +8,11 @@ tools and traps already written up elsewhere rather than repeating them;
 [`instruments.md`](instruments.md) stays the authority on what each binary
 does, and `.claude/rules/measuring-the-world.md` on world-wide metric traps.*
 
+**Picking up the ant work in a new session?** Read
+[`handoff/PLAN-2026-10-07.md`](handoff/PLAN-2026-10-07.md) first: the owner's
+goals and working rules, what is on main and on branches, and the ordered next
+steps (2026-10-07).
+
 **The short version.** Freeze mutation, land the evolved founder in the dry
 goal box, run four seeds side by side, read 100k–300k means. Judge a fix by
 the number it was built to move, look at a picture, then trace what it cost
