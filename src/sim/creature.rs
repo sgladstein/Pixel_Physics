@@ -12575,6 +12575,15 @@ pub struct NestWay {
     pub store_cells: Vec<(i32, i32)>,
     /// Loose food on the doorstep ([`store_doorstep`]), for `fetch`.
     pub door_food: Vec<(i32, i32)>,
+    /// **The way out as the walk-out and the soil's way out aim it**
+    /// ([`WayFoot`]'s `way`): `dist` re-costed so a cell held up only by
+    /// other ants costs `k` steps. Empty with the part off, and then
+    /// [`NestWay::foot_at`] reads `dist`. Never read as a step count.
+    pub foot: Vec<u16>,
+    /// **The store field as the store pull walks it** ([`WayFoot`]'s
+    /// `store`): `store`, re-costed the same way. Empty with the part off.
+    /// The store's smell still reads `store`, as steps.
+    pub store_foot: Vec<u16>,
 }
 
 impl NestWay {
@@ -12590,6 +12599,28 @@ impl NestWay {
     /// Whether `(x, y)` is in the box the way was built over, on it or not.
     pub fn covers(&self, x: i32, y: i32) -> bool {
         (self.x0..self.x0 + self.w).contains(&x) && (self.y0..self.y0 + self.h).contains(&y)
+    }
+
+    /// **The way out's aim at `(x, y)`**: [`WayFoot`]'s cost from the door
+    /// where its `way` part built one, else [`NestWay::at`]'s steps.
+    pub fn foot_at(&self, x: i32, y: i32) -> Option<u16> {
+        let d = self.at(x, y)?;
+        if self.foot.is_empty() {
+            return Some(d);
+        }
+        let (lx, ly) = (x - self.x0, y - self.y0);
+        self.foot.get((ly * self.w + lx) as usize).copied().filter(|&f| f != u16::MAX).or(Some(d))
+    }
+
+    /// **The store field's aim at `(x, y)`**: [`WayFoot`]'s cost to the
+    /// store where its `store` part built one, else [`NestWay::store_at`].
+    pub fn store_foot_at(&self, x: i32, y: i32) -> Option<u16> {
+        let s = self.store_at(x, y)?;
+        if self.store_foot.is_empty() {
+            return Some(s);
+        }
+        let (lx, ly) = (x - self.x0, y - self.y0);
+        self.store_foot.get((ly * self.w + lx) as usize).copied().filter(|&f| f != u16::MAX).or(Some(s))
     }
 
     /// Steps to the store from `(x, y)` ([`NestStore`]), or `None` with no
@@ -12660,7 +12691,11 @@ fn build_nest_way(world: &World, site: usize) -> Option<NestWay> {
             q.push_back((nx, ny));
         }
     }
-    let mut way = NestWay { site, door, x0, y0, w, h, dist, store: Vec::new(), store_cells: Vec::new(), door_food: Vec::new() };
+    let mut way = NestWay { site, door, x0, y0, w, h, dist, store: Vec::new(), store_cells: Vec::new(), door_food: Vec::new(), foot: Vec::new(), store_foot: Vec::new() };
+    let wf = way_foot_of(world);
+    if wf.way {
+        way.foot = foot_field(world, &way, &[door], wf.k);
+    }
     let ns = nest_store_of(world);
     if ns.on() {
         fill_nest_store(world, &mut way, ns.depth);
@@ -12757,6 +12792,155 @@ pub fn way_gaps_of(world: &World) -> WayGaps {
         static V: std::sync::OnceLock<WayGaps> = std::sync::OnceLock::new();
         *V.get_or_init(|| std::env::var("PIXEL_PHYSICS_WAY_GAPS").map_or(WayGaps::ON, |v| WayGaps::parse(&v)))
     })
+}
+
+/// **The ways lead along the walls, not over the backs of the crowd**
+/// (`PIXEL_PHYSICS_WAY_FOOT=off|on|way|store[,k=N]`, a comma list; built
+/// 2026-10-07, off by default; [`World::way_foot`] for one world). `on` is
+/// `way,store` at `k=4`.
+///
+/// [`way_cell`] counts an animal beside a cell as footing, "because in a
+/// crowded room ants stand on ants", and [`build_nest_way`] takes the
+/// shortest way over such cells. So in a crowded room the shortest way up
+/// runs over the crowd in the open middle, and by the time an ant steps
+/// there the crowd has moved: the way is rebuilt every [`REST_REFRESH`]
+/// frames and the crowd moves within it. Under this switch the way is
+/// costed again ([`foot_field`]): a step into a cell whose only footing is
+/// another animal costs `k`, into one with ground, powder (brood) or a plant
+/// beside it costs 1. **It prefers, it does not forbid**: every cell the
+/// way reaches it still reaches, so an ant on the crowd with no wall route
+/// near it still has a direction. `dist` itself is untouched, because five
+/// readers take it as a step count (the store's depth, `store_inward`'s
+/// arrival and its deeper walk, the rest pull's walk up); the costed field
+/// is a second one, read only where a walk aims down it.
+///
+/// - `way`: [`NestWay::foot`], read by [`way_out_from`]: the hungry
+///   walk-out ([`hungry_out_pull`]) and the soil's way out
+///   ([`soil_way_pull`]).
+/// - `store`: [`NestWay::store_foot`], read by [`store_inward`]'s walk down
+///   the store field (the store pull's `Eat` and `Carry`). The smell
+///   ([`NestStore`]'s `smell`) still reads `store`, as steps.
+/// - Not the mound's way ([`build_mound_way`]): the same footing, but no
+///   trace has looked at falls there. Not the way out [`shut_in`] reads
+///   ([`build_out_way`]): it asks reached-or-not, so costing it is a no-op.
+///
+/// **Why** (Nest race and Deep trace, 2026-10-07, storeroom arms with
+/// `LAY_BAR=body` on the `NEEDS_FIRST` stack; `deeptrace` with Deep trace's
+/// shut-in probe, measuring only). Hungry ants starved deep in the nest with
+/// the door open, climbing and falling back: on heap-90 seed 4 the 127
+/// starvers stepped 17,525 cells up and fell 18,562 in their last 10k
+/// frames. 82% of deep hungry falls were in a room's open middle, and 89-94%
+/// of falls had only ants round the head (seed 4 heap 90; seed 1 heap 30).
+/// A walk-out step toward a target held up only by ants was followed by a
+/// fall 18-22% of the time, against 1.1-1.2% toward one with ground beside
+/// it; the store pull 14.6% against 1.8%, the soil way out 24-26% against
+/// 1.5-2.5%. A way over ground alone reached the door from within 3 cells of
+/// 95-97% of the rows on the crowd, a median of the same length and 1.16x
+/// (seed 4) to 1.55x (seed 1) at p90.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct WayFoot {
+    pub way: bool,
+    pub store: bool,
+    /// What a step onto a cell held up only by animals costs, in steps.
+    /// `k=1` is today's way, cell for cell.
+    pub k: u16,
+}
+
+impl WayFoot {
+    pub const OFF: WayFoot = WayFoot { way: false, store: false, k: 4 };
+    pub const ON: WayFoot = WayFoot { way: true, store: true, k: 4 };
+
+    /// Parse a `PIXEL_PHYSICS_WAY_FOOT` value: `on`, `off`, or a comma list
+    /// of `way`, `store` and `k=N` (N at least 1). Anything else panics, so a
+    /// typo is not a silent `off`.
+    pub fn parse(raw: &str) -> WayFoot {
+        let mut wf = WayFoot::OFF;
+        for part in raw.split(',').map(str::trim).filter(|p| !p.is_empty()) {
+            match part {
+                "on" => {
+                    wf.way = true;
+                    wf.store = true;
+                }
+                "off" => {
+                    wf.way = false;
+                    wf.store = false;
+                }
+                "way" => wf.way = true,
+                "store" => wf.store = true,
+                other => match other.strip_prefix("k=").and_then(|n| n.parse::<u16>().ok()).filter(|&n| n >= 1) {
+                    Some(n) => wf.k = n,
+                    None => panic!("PIXEL_PHYSICS_WAY_FOOT={raw:?}: {other:?} is not on, off, way, store or k=N (N >= 1)"),
+                },
+            }
+        }
+        wf
+    }
+}
+
+/// This world's [`WayFoot`]: `World::way_foot` if set, else the environment's.
+pub fn way_foot_of(world: &World) -> WayFoot {
+    world.way_foot.unwrap_or_else(|| {
+        static V: std::sync::OnceLock<WayFoot> = std::sync::OnceLock::new();
+        *V.get_or_init(|| std::env::var("PIXEL_PHYSICS_WAY_FOOT").map_or(WayFoot::OFF, |v| WayFoot::parse(&v)))
+    })
+}
+
+/// Ground, powder (brood is powder) or a plant among `(x, y)`'s eight
+/// neighbours: footing that does not walk away. [`way_cell`]'s footing
+/// without its animals.
+fn ground_footed(world: &World, x: i32, y: i32) -> bool {
+    NEIGHBOURS_8.iter().any(|&(dx, dy)| world.in_bounds(x + dx, y + dy) && matches!(world.materials.kind(world.get(x + dx, y + dy).material), MaterialKind::Solid | MaterialKind::Powder | MaterialKind::Plant))
+}
+
+/// **[`WayFoot`]'s costed field** over `way`'s cells, from `seeds`: a step
+/// into a [`ground_footed`] cell costs 1, into any other way cell `k`. A
+/// shortest-path search in `k + 1` circular buckets (Dial's), in
+/// `NEIGHBOURS_8`'s fixed order, so it is deterministic. Covers exactly the
+/// cells the way covers; at `k = 1` it is the breadth-first distance, cell
+/// for cell (guarded).
+fn foot_field(world: &World, way: &NestWay, seeds: &[(i32, i32)], k: u16) -> Vec<u16> {
+    let idx = |x: i32, y: i32| ((y - way.y0) * way.w + (x - way.x0)) as usize;
+    let k = k.max(1);
+    let ring = usize::from(k) + 1;
+    let mut f = vec![u16::MAX; way.dist.len()];
+    let mut buckets: Vec<std::collections::VecDeque<(i32, i32)>> = (0..ring).map(|_| std::collections::VecDeque::new()).collect();
+    let mut queued = 0usize;
+    for &(x, y) in seeds {
+        if way.at(x, y).is_some() && f[idx(x, y)] != 0 {
+            f[idx(x, y)] = 0;
+            buckets[0].push_back((x, y));
+            queued += 1;
+        }
+    }
+    let mut cur: u16 = 0;
+    while queued > 0 {
+        while let Some((x, y)) = buckets[usize::from(cur) % ring].pop_front() {
+            queued -= 1;
+            // A cell queued again at a lower cost leaves its old entry
+            // behind; that entry is skipped here.
+            if f[idx(x, y)] != cur {
+                continue;
+            }
+            for &(dx, dy) in NEIGHBOURS_8.iter() {
+                let (nx, ny) = (x + dx, y + dy);
+                if way.at(nx, ny).is_none() {
+                    continue;
+                }
+                let v = cur.saturating_add(if ground_footed(world, nx, ny) { 1 } else { k });
+                let j = idx(nx, ny);
+                if v < f[j] {
+                    f[j] = v;
+                    buckets[usize::from(v) % ring].push_back((nx, ny));
+                    queued += 1;
+                }
+            }
+        }
+        if cur == u16::MAX {
+            break;
+        }
+        cur += 1;
+    }
+    f
 }
 
 /// **Every nest's way in, rebuilt on [`REST_REFRESH`]**, from
@@ -12968,32 +13152,33 @@ fn hungry_out_gain(world: &World, organism: OrganismId, def: &CreatureDef) -> Op
 fn way_out_from(world: &World, organism: OrganismId, head: (i32, i32)) -> Option<(i32, i32)> {
     let site = world.nearest_nest_site(head.0, head.1)?;
     let way = world.nest_ways.iter().find(|w| w.site == site)?;
-    step_down_way(way, organism, head)
+    step_down_way(|x, y| way.foot_at(x, y), organism, head)
 }
 
-/// **[`REST_LOOKAHEAD`] steps down `way`** from `head`: [`way_out_from`]'s
-/// walk, over the nest's way or its mound's ([`mound_out_pull`]). `None`
-/// for a head off the way, at its zero, or with no step down.
-fn step_down_way(way: &NestWay, organism: OrganismId, head: (i32, i32)) -> Option<(i32, i32)> {
-    let mut d = way.at(head.0, head.1).filter(|&d| d > 0)?;
+/// **[`REST_LOOKAHEAD`] steps down a way's field `at`** from `head`:
+/// [`way_out_from`]'s walk, over the nest's way ([`NestWay::foot_at`]) or
+/// its mound's ([`mound_out_pull`], [`NestWay::at`]). `None` for a head off
+/// the way, at its zero, or with no step down.
+fn step_down_way(at: impl Fn(i32, i32) -> Option<u16>, organism: OrganismId, head: (i32, i32)) -> Option<(i32, i32)> {
+    let mut d = at(head.0, head.1).filter(|&d| d > 0)?;
     // The ant's own order to try its neighbours in, as the rest pull's, so
     // ties where two ways lead out split the colony between them.
     let turn = (organism as usize).wrapping_mul(0x9E37_79B9) >> 7;
-    let mut at = head;
+    let mut here = head;
     for step in 0..REST_LOOKAHEAD {
         let mut best: Option<(u16, (i32, i32))> = None;
         for k in 0..8 {
             let (dx, dy) = NEIGHBOURS_8[(turn + step + k) % 8];
-            let p = (at.0 + dx, at.1 + dy);
-            if let Some(v) = way.at(p.0, p.1).filter(|&v| v < d && best.is_none_or(|(b, _)| v < b)) {
+            let p = (here.0 + dx, here.1 + dy);
+            if let Some(v) = at(p.0, p.1).filter(|&v| v < d && best.is_none_or(|(b, _)| v < b)) {
                 best = Some((v, p));
             }
         }
         let Some((v, p)) = best else { break };
         d = v;
-        at = p;
+        here = p;
     }
-    (at != head).then_some(at)
+    (here != head).then_some(here)
 }
 
 /// **A hungry ant in the spoil mound is given a way out, and a lean one shut
@@ -13513,7 +13698,7 @@ pub fn build_mound_way(world: &World, site: usize) -> Option<NestWay> {
             q.push_back((nx, ny));
         }
     }
-    Some(NestWay { site, door, x0, y0, w, h, dist, store: Vec::new(), store_cells: Vec::new(), door_food: Vec::new() })
+    Some(NestWay { site, door, x0, y0, w, h, dist, store: Vec::new(), store_cells: Vec::new(), door_food: Vec::new(), foot: Vec::new(), store_foot: Vec::new() })
 }
 
 /// **Where a hungry ant in its nest's mound is pulled, and how hard**
@@ -13528,7 +13713,7 @@ fn mound_out_pull(world: &World, organism: OrganismId, def: &CreatureDef, head: 
     let gain = hungry_out_gain(world, organism, def)?;
     let site = world.nearest_nest_site(head.0, head.1)?;
     let way = world.mound_ways.iter().find(|w| w.site == site)?;
-    Some((step_down_way(way, organism, head)?, gain))
+    Some((step_down_way(|x, y| way.at(x, y), organism, head)?, gain))
 }
 
 /// **Shut in the mound** ([`MoundOut`]'s `dig`): under cover at or above
@@ -13586,7 +13771,7 @@ pub fn build_out_way(world: &World, site: usize) -> Option<NestWay> {
             q.push_back((nx, ny));
         }
     }
-    Some(NestWay { site, door, x0, y0, w, h, dist, store: Vec::new(), store_cells: Vec::new(), door_food: Vec::new() })
+    Some(NestWay { site, door, x0, y0, w, h, dist, store: Vec::new(), store_cells: Vec::new(), door_food: Vec::new(), foot: Vec::new(), store_foot: Vec::new() })
 }
 
 /// **Shut in, with no way an ant could walk to the open air**
@@ -13858,6 +14043,7 @@ const STORE_FETCH_REACH: i32 = 20;
 /// store holds nothing.
 fn fill_nest_store(world: &World, way: &mut NestWay, depth: u16) {
     way.store.clear();
+    way.store_foot.clear();
     way.store_cells.clear();
     way.door_food.clear();
     if nest_store_of(world).fetch {
@@ -13918,6 +14104,10 @@ fn fill_nest_store(world: &World, way: &mut NestWay, depth: u16) {
                 q.push_back((nx, ny));
             }
         }
+    }
+    let wf = way_foot_of(world);
+    if wf.store {
+        way.store_foot = foot_field(world, way, &seeds, wf.k);
     }
 }
 
@@ -14022,7 +14212,7 @@ fn store_inward(world: &World, organism: OrganismId, head: (i32, i32), reach: i3
         if s == 0 {
             return None;
         }
-        let p = field_walk(organism, head, |x, y| way.store_at(x, y), true);
+        let p = field_walk(organism, head, |x, y| way.store_foot_at(x, y), true);
         return (p != head).then_some(p);
     }
     if d >= depth && way_roomy(way, head.0, head.1) {
@@ -32253,6 +32443,65 @@ mod tests {
         assert!(there < here, "the pull at ({tx}, {ty}), {there} steps, is not up towards the door from {head:?}, {here} steps");
         assert!(gain > 0.0);
         assert!(way.at(90, 39).is_none(), "the open surface is on the way with the gap below closed");
+    }
+
+    /// **[`WayFoot`] at `k=1` is the way it re-costs, cell for cell**, and
+    /// it covers exactly the way's cells. In [`deep_world`] with a crowd of
+    /// ants in the room under the shaft ([`way_foot_world`]), so the way has
+    /// cells held up only by ants and the costed field has something to
+    /// re-cost. At `k=4` the same field differs somewhere: the positive
+    /// control that the crowd is in the scene. Watched red with the cost of a
+    /// ground-footed step set to 2.
+    #[test]
+    fn the_way_foot_field_at_k_1_is_the_way_itself() {
+        let (w, _) = way_foot_world(WayFoot { way: true, store: false, k: 1 });
+        let way = w.nest_ways.first().expect("the ways are built").clone();
+        assert_eq!(way.foot, way.dist, "at k=1 the costed way is not the breadth-first way");
+        let k4 = foot_field(&w, &way, &[way.door], 4);
+        assert!(k4.iter().zip(&way.dist).all(|(f, d)| (*f == u16::MAX) == (*d == u16::MAX)), "at k=4 the costed way does not cover the way's cells");
+        assert!(k4.iter().zip(&way.dist).any(|(f, d)| f != d), "control: at k=4 nothing on the way is held up only by ants, so the scene has no crowd");
+        let off = way_foot_world(WayFoot::OFF).0;
+        assert!(off.nest_ways[0].foot.is_empty() && off.nest_ways[0].store_foot.is_empty(), "with the switch off a costed field was built");
+    }
+
+    /// **Under [`WayFoot`]'s `way` a hungry ant in a crowded room is aimed
+    /// along the wall, not over the crowd.** [`way_foot_world`]: a hungry ant
+    /// on the floor of the room under the shaft, with a crowd standing on
+    /// the diagonal between it and the shaft's foot, so the shortest way out
+    /// runs over cells held up only by ants. At `k=1` (today's way) the
+    /// walk-out aims at such a cell: the positive control. At `k=4` it aims
+    /// at a cell with ground beside it, still nearer the door by the costed
+    /// way, and up. Watched red with the `way` part ignored in
+    /// [`build_nest_way`].
+    #[test]
+    fn under_way_foot_the_walk_out_aims_along_the_wall_not_over_the_crowd() {
+        let aim = |k: u16| {
+            let (w, a) = way_foot_world(WayFoot { way: true, store: false, k });
+            let def = w.species.get(w.organism(a).expect("live").species).creature.clone().expect("a creature");
+            let head = w.organism(a).expect("live").chain[0];
+            let ((tx, ty), _) = hungry_out_pull(&w, a, &def, head).expect("a hungry ant in the room is given a way out");
+            let way = &w.nest_ways[0];
+            assert!(way.foot_at(tx, ty).expect("the target is on the way") < way.foot_at(head.0, head.1).expect("the ant is on the way"), "k={k}: the target ({tx}, {ty}) is not nearer the door, by the costed way, than {head:?}");
+            ((tx, ty), ground_footed(&w, tx, ty))
+        };
+        let (t1, g1) = aim(1);
+        assert!(!g1, "control: at k=1 the walk-out aims at {t1:?}, which has ground beside it, so the scene's crowd is not on the way out");
+        let (t4, g4) = aim(4);
+        assert!(g4, "at k=4 the walk-out still aims at {t4:?}, held up only by ants");
+        assert!(t4.1 < 75, "at k=4 the walk-out at {t4:?} does not climb");
+    }
+
+    /// [`deep_world`] with the gap below closed, a hungry ant on the floor
+    /// of the room under the shaft at (66, 75), and a crowd of ants standing
+    /// in the room's open middle between it and the shaft's foot.
+    fn way_foot_world(wf: WayFoot) -> (World, OrganismId) {
+        let (mut w, a) = deep_world(66, 75, true);
+        w.way_foot = Some(wf);
+        for &(x, y) in &[(63, 72), (65, 73)] {
+            spawn(&mut w, "ant", x, y);
+        }
+        step_nest_rest(&mut w);
+        (w, a)
     }
 
     /// **Under `WAY_GAPS=brood` the way out runs through a brood pile, as

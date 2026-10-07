@@ -4205,6 +4205,11 @@ pub struct World {
     /// `None` follows the environment; a field so a guard can take both arms
     /// in one process.
     pub way_gaps: Option<crate::sim::creature::WayGaps>,
+    /// **The ways leading along the walls rather than over the crowd,
+    /// overriding `PIXEL_PHYSICS_WAY_FOOT` for this world**
+    /// (`creature::way_foot_of`). `None` follows the environment; a field so
+    /// a guard can take both arms in one process.
+    pub way_foot: Option<crate::sim::creature::WayFoot>,
     /// **Soil leaving by the nest's way out, overriding
     /// `PIXEL_PHYSICS_SOIL_WAY` for this world** (`creature::soil_way_of`).
     /// `None` follows the environment; a field so a guard can take both arms
@@ -6839,6 +6844,7 @@ impl World {
             home_search: None,
             carry_home: None,
             way_gaps: None,
+            way_foot: None,
             soil_way: None,
             face_trip: None,
             crop_down: None,
