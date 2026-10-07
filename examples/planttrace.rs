@@ -62,6 +62,11 @@
 //! - **`events.txt`**: GERMINATED, ESTABLISHED, FIRST_SEED, MARKED and GONE
 //!   for every plant that germinated. A seed that never came up has its row
 //!   and its death and nothing between.
+//! - **Why tips stop** (step 3, `plant::GrowWhy`): each life's tips stopped
+//!   for good, shoot and root, with its main reason, in `lives.csv` and
+//!   per sample in `plants.csv.gz`; every reason per plant in **`tips.csv`**;
+//!   and the world's census of every `Grow` visit and every retirement by
+//!   species and reason in **`census.csv`**, which it also prints.
 //!
 //! **Exact and late.** Germination (the plant's own `germination_frame`) and
 //! death (the log) are exact. Established, first seed, marked and the spells
@@ -139,6 +144,15 @@ fn opt<T: std::fmt::Display>(v: Option<T>) -> String {
     v.map_or(String::new(), |v| v.to_string())
 }
 
+/// The reason most of these tips stopped on, if any stopped.
+fn main_why(counts: &[u16; plant::GROW_WHYS]) -> Option<usize> {
+    let (why, &n) = counts
+        .iter()
+        .enumerate()
+        .max_by(|a, b| a.1.cmp(b.1).then(b.0.cmp(&a.0)))?;
+    (n > 0).then_some(why)
+}
+
 /// One plant's life, seed to grave.
 struct Life {
     species: String,
@@ -163,6 +177,9 @@ struct Life {
     died: Option<(u64, DeathCause, bool, bool)>,
     /// Culled by `cull=`, the known-answer control.
     culled_here: bool,
+    /// Its tips stopped for good, `[shoot, root][plant::GrowWhy]`, as of the
+    /// last read (`OrganismState::tips_retired`).
+    retired: [[u16; plant::GROW_WHYS]; 2],
 }
 
 struct Ledger {
@@ -190,7 +207,7 @@ impl Ledger {
         let mut plants = gzip_to(&format!("{out}/plants.csv.gz"));
         writeln!(
             plants.1,
-            "frame,id,born,species,cells,shoot,root,organs,income,upkeep,unpaid,starving,water,uptake,demand,nutrients,root_contact,fund,anchor,dying,tips,root_tips,light,above"
+            "frame,id,born,species,cells,shoot,root,organs,income,upkeep,unpaid,starving,water,uptake,demand,nutrients,root_contact,fund,anchor,dying,tips,root_tips,light,above,retired_shoot,retired_root"
         )
         .unwrap();
         let mut spells =
@@ -249,6 +266,7 @@ impl Ledger {
                     marked: None,
                     died: None,
                     culled_here: false,
+                    retired: [[0; plant::GROW_WHYS]; 2],
                 },
             );
             self.alive.insert(key);
@@ -312,6 +330,7 @@ impl Ledger {
                 }
             }
             life.seeds_set = s.seeds_set;
+            life.retired = s.tips_retired;
             life.max_starving = life.max_starving.max(s.starving_ticks);
             if s.starving_ticks > 0 {
                 let (start, worst, seed) = life.spell.unwrap_or((f, 0, s.dormant_seed));
@@ -374,7 +393,7 @@ impl Ledger {
             });
             writeln!(
                 self.plants.1,
-                "{f},{id},{born},{name},{},{},{},{},{:.3},{:.3},{:.3},{},{:.2},{:.3},{:.3},{:.2},{},{:.3},{:.2},{},{tips},{root_tips},{light:.3},{above}",
+                "{f},{id},{born},{name},{},{},{},{},{:.3},{:.3},{:.3},{},{:.2},{:.3},{:.3},{:.2},{},{:.3},{:.2},{},{tips},{root_tips},{light:.3},{above},{},{}",
                 s.cells.len(),
                 s.shoot_cells,
                 s.root_cells,
@@ -391,6 +410,8 @@ impl Ledger {
                 s.reproductive_budget,
                 s.anchor_status,
                 u8::from(s.senescent),
+                s.tips_retired[0].iter().map(|&n| u32::from(n)).sum::<u32>(),
+                s.tips_retired[1].iter().map(|&n| u32::from(n)).sum::<u32>(),
             )
             .unwrap();
         }
@@ -420,6 +441,7 @@ impl Ledger {
                 marked: None,
                 died: None,
                 culled_here: false,
+                retired: [[0; plant::GROW_WHYS]; 2],
             }
         });
         // Germinated and gone inside one `track=` window: the frame is not
@@ -488,7 +510,7 @@ impl Ledger {
         );
     }
 
-    fn finish(mut self, out: &str, end: u64) {
+    fn finish(mut self, out: &str, end: u64, w: &World) {
         for (&(id, born), life) in self.lives.iter_mut() {
             if let Some((start, worst, seed)) = life.spell.take() {
                 let kind = if seed { "seed" } else { "plant" };
@@ -513,14 +535,14 @@ impl Ledger {
         let mut lives = std::io::BufWriter::new(std::fs::File::create(format!("{out}/lives.csv")).expect("lives.csv"));
         writeln!(
             lives,
-            "id,born,species,generation,lineage,parent,parent_born,kind,germinated,origin_x,origin_y,peak_cells,maturity,established,first_seed,seeds_set,offspring,offspring_germinated,offspring_established,max_starving,marked,marked_cause,died,cause,declared,buried,culled_here"
+            "id,born,species,generation,lineage,parent,parent_born,kind,germinated,origin_x,origin_y,peak_cells,maturity,established,first_seed,seeds_set,offspring,offspring_germinated,offspring_established,max_starving,marked,marked_cause,died,cause,declared,buried,culled_here,retired_shoot,retired_root,stopped_shoot,stopped_root"
         )
         .unwrap();
         for (&(id, born), l) in &self.lives {
             let (set, germinated, established) = kids.get(&(id, born)).copied().unwrap_or_default();
             writeln!(
                 lives,
-                "{id},{born},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{set},{germinated},{established},{},{},{},{},{},{},{},{}",
+                "{id},{born},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{set},{germinated},{established},{},{},{},{},{},{},{},{},{},{},{},{}",
                 l.species,
                 l.generation,
                 l.lineage,
@@ -543,10 +565,85 @@ impl Ledger {
                 opt(l.died.map(|d| u8::from(d.2))),
                 opt(l.died.map(|d| u8::from(d.3))),
                 u8::from(l.culled_here),
+                l.retired[0].iter().map(|&n| u32::from(n)).sum::<u32>(),
+                l.retired[1].iter().map(|&n| u32::from(n)).sum::<u32>(),
+                main_why(&l.retired[0]).map_or("", |why| plant::GROW_WHY_NAMES[why]),
+                main_why(&l.retired[1]).map_or("", |why| plant::GROW_WHY_NAMES[why]),
             )
             .unwrap();
         }
         lives.flush().unwrap();
+        // Each plant's retirements by reason, and the world's census of every
+        // `Grow` visit and retirement by species -- `scripts/planttrace.py tips`.
+        let mut tips = std::io::BufWriter::new(std::fs::File::create(format!("{out}/tips.csv")).expect("tips.csv"));
+        writeln!(tips, "id,born,species,kind,why,count").unwrap();
+        for (&(id, born), l) in &self.lives {
+            for (kind, counts) in ["shoot", "root"].iter().zip(l.retired.iter()) {
+                for (why, &n) in counts.iter().enumerate().filter(|(_, n)| **n > 0) {
+                    writeln!(
+                        tips,
+                        "{id},{born},{},{kind},{},{n}",
+                        l.species,
+                        plant::GROW_WHY_NAMES[why]
+                    )
+                    .unwrap();
+                }
+            }
+        }
+        tips.flush().unwrap();
+        let mut census =
+            std::io::BufWriter::new(std::fs::File::create(format!("{out}/census.csv")).expect("census.csv"));
+        writeln!(census, "species,kind,why,visits,retired").unwrap();
+        println!("\nWHY TIPS GROW OR STOP (every Grow visit, and every tip retired, by reason)");
+        for (sp, c) in w.grow_census.iter().enumerate() {
+            let name = w.species.get(organism::SpeciesId(sp as u16)).name.clone();
+            for (k, kind) in ["shoot", "root"].iter().enumerate() {
+                let (visits, retired): (u64, u64) = (c.visits[k].iter().sum(), c.retired[k].iter().sum());
+                if visits == 0 && retired == 0 {
+                    continue;
+                }
+                for why in 0..plant::GROW_WHYS {
+                    if c.visits[k][why] > 0 || c.retired[k][why] > 0 {
+                        writeln!(
+                            census,
+                            "{name},{kind},{},{},{}",
+                            plant::GROW_WHY_NAMES[why],
+                            c.visits[k][why],
+                            c.retired[k][why]
+                        )
+                        .unwrap();
+                    }
+                }
+                let top = |row: &[u64; plant::GROW_WHYS], total: u64| {
+                    let mut v: Vec<(u64, usize)> = row
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, n)| **n > 0)
+                        .map(|(w, &n)| (n, w))
+                        .collect();
+                    v.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)));
+                    v.iter()
+                        .take(4)
+                        .map(|&(n, why)| {
+                            format!(
+                                "{} {:.0}%",
+                                plant::GROW_WHY_NAMES[why],
+                                100.0 * n as f64 / total.max(1) as f64
+                            )
+                        })
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                };
+                println!("  {name:10} {kind:5} visits {visits:8}: {}", top(&c.visits[k], visits));
+                println!(
+                    "  {:10} {:5} retired {retired:7}: {}",
+                    "",
+                    "",
+                    top(&c.retired[k], retired)
+                );
+            }
+        }
+        census.flush().unwrap();
         self.events.flush().unwrap();
         self.spells.flush().unwrap();
         self.plants.1.flush().unwrap();
@@ -763,7 +860,7 @@ fn main() {
         );
     }
     if let Some(l) = ledger {
-        l.finish(&out, frames);
+        l.finish(&out, frames, &lab.world);
     }
     println!(
         "planttrace: done, {rows} deaths -> {out}/deaths.csv, digests -> {out}/hash.txt{}",

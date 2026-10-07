@@ -6,6 +6,7 @@
     python3 scripts/planttrace.py funnel OUT [OUT...] [--species S]
     python3 scripts/planttrace.py deaths OUT [OUT...] [--species S]
     python3 scripts/planttrace.py spells OUT [OUT...] [--species S]
+    python3 scripts/planttrace.py tips   OUT [OUT...] [--species S]
     python3 scripts/planttrace.py life   OUT ID [BORN]
 
 A life is its id and its born frame: ids are slots, reused after a death.
@@ -29,6 +30,16 @@ every `track=` frames): how many plants ever starved, how each spell ended
 (`recovered`, the cause the plant died of, or `ongoing`), and its length --
 and apart from them, the same for dormant seeds, which starve on the grown
 plant's clock (`Reports/open-bugs-handoff.md` §V5).
+
+`tips`: why growing tips grow or stop (`plant::GrowWhy`), per species,
+shoot and root apart: every visit of the `Grow` rule by reason, every tip
+retired by reason (the reason of its last stale visit), and how many plants'
+tips stopped mainly on each. A tip retires after four visits in a row that
+found nowhere to go; `height_limit` is the turgor bound, `too_poor` carbon,
+`boxed` no cell to grow into, `ground_too_hard` none it could pay to enter,
+`no_good_direction` every way open scored against it, `root_share` a root
+on a plant with as much root as its shoot can feed, `tip_cap` the species'
+cap on growing tips. `not_asked` is a gap in the census and should be zero.
 
 `life`: one plant's biography -- its row, its events, its sampled economy, its
 spells and its offspring. With no BORN, every life that held the id.
@@ -187,6 +198,50 @@ def spells(outs, args):
         spells_of(pooled, pooled_spells, f"pooled over {len(outs)} runs")
 
 
+def census_rows(out, species=None):
+    with open(os.path.join(out, "census.csv")) as f:
+        return [r for r in csv.DictReader(f) if species is None or r["species"] == species]
+
+
+def tips_of(census, rows, title):
+    print(f"\n=== {title}")
+    by = collections.defaultdict(lambda: collections.defaultdict(lambda: [0, 0]))
+    for r in census:
+        cell = by[(r["species"], r["kind"])][r["why"]]
+        cell[0] += int(r["visits"])
+        cell[1] += int(r["retired"])
+
+    def shares(d, i, total):
+        ranked = sorted(((v[i], why) for why, v in d.items() if v[i] > 0), reverse=True)
+        return ", ".join(f"{why} {100.0 * n / total:.0f}%" for n, why in ranked[:5]) or "-"
+
+    for (sp, kind) in sorted(by):
+        d = by[(sp, kind)]
+        visits = sum(v[0] for v in d.values())
+        retired = sum(v[1] for v in d.values())
+        print(f"  {sp:10} {kind:5} {visits:9,} visits:  {shares(d, 0, visits)}")
+        print(f"  {'':10} {'':5} {retired:9,} retired: {shares(d, 1, retired)}")
+    plants = [r for r in rows if r["kind"] == "plant"]
+    print("  plants by the reason most of their tips stopped on:")
+    for kind in ("shoot", "root"):
+        col = f"stopped_{kind}"
+        for sp in sorted({r["species"] for r in plants}):
+            c = collections.Counter(r[col] or "none stopped" for r in plants if r["species"] == sp)
+            print(f"    {sp:10} {kind:5} {top(c, 5)}")
+
+
+def tips(outs, args):
+    sp = flags(args, "--species")
+    pooled_c, pooled_r = [], []
+    for out in outs:
+        c, r = census_rows(out, sp), lives(out, sp)
+        pooled_c += c
+        pooled_r += r
+        tips_of(c, r, out)
+    if len(outs) > 1:
+        tips_of(pooled_c, pooled_r, f"pooled over {len(outs)} runs")
+
+
 SAMPLE_COLS = ["frame", "cells", "shoot", "root", "income", "upkeep", "unpaid", "starving", "water", "fund", "dying", "tips", "root_tips", "light", "above"]
 
 
@@ -210,7 +265,7 @@ def life(outs, args):
     print(f"  parent: {r['parent']} born {r['parent_born']}" if r["parent"] != "0" else "  parent: none (a founder)")
     for k in ["kind", "germinated", "origin_x", "origin_y", "peak_cells", "maturity", "established", "first_seed", "seeds_set",
               "offspring", "offspring_germinated", "offspring_established", "max_starving", "marked", "marked_cause", "died", "cause",
-              "declared", "buried"]:
+              "declared", "buried", "retired_shoot", "retired_root", "stopped_shoot", "stopped_root"]:
         print(f"  {k:22} {r[k] or '-'}")
     print("  events:")
     with open(os.path.join(out, "events.txt")) as f:
@@ -235,7 +290,7 @@ def life(outs, args):
 
 
 if __name__ == "__main__":
-    cmds = {"funnel": funnel, "deaths": deaths, "spells": spells, "life": life}
+    cmds = {"funnel": funnel, "deaths": deaths, "spells": spells, "tips": tips, "life": life}
     if len(sys.argv) < 3 or sys.argv[1] not in cmds:
         sys.exit(__doc__)
     args = sys.argv[2:]

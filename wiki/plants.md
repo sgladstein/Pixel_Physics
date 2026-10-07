@@ -3,7 +3,7 @@
 *What plants do, and what it looks like when they are working. No code, no
 file names — see `Reports/` for why any of it is built the way it is.*
 
-*Current as of: 2026-10-06 (**the list of the dead says what killed each plant** -- shaded out, dried out, eaten, old age and the rest; *felled* now means felled, and a seed that rots unsprouted is counted but not listed -- see *Fire and death*). Also 2026-10-05 (**grass grows back** -- a tussock that loses its blades sends up new ones from its crown, so a meadow keeps seeding instead of fading -- see *Species*). Also 2026-10-03 (**water runs through a plant along real paths**:
+*Current as of: 2026-10-07 (**a plant's page says why its tips stopped growing** -- the height its water reaches, no room, too poor and the rest -- see *What a healthy stand looks like*). Also 2026-10-06 (**the list of the dead says what killed each plant** -- shaded out, dried out, eaten, old age and the rest; *felled* now means felled, and a seed that rots unsprouted is counted but not listed -- see *Fire and death*). Also 2026-10-05 (**grass grows back** -- a tussock that loses its blades sends up new ones from its crown, so a meadow keeps seeding instead of fading -- see *Species*). Also 2026-10-03 (**water runs through a plant along real paths**:
 up the roots, up the trunk, out along the branches, and a dry spell browns the
 far tips first -- see *How water moves through a plant*). Also 2026-10-03 (**plants can be born harder to eat**, paying for
 it in growth -- see *Plants that are worse to eat*). Also 2026-10-03 (**a seed with ground on top of it is out of the
@@ -460,6 +460,20 @@ saying so: seed is set per mature cell, so size buys offspring.
 
 Growth is fastest when young and tails off — a plant stops when its income
 can no longer cover another cell, not because it hit a size limit.
+
+**Why a plant stopped growing is on its page** (2026-10-07). A plant grows
+only from its tips, and a tip that finds nowhere to go a few times running
+stops for good — so income is one reason, not the only one. Each stopped tip
+is counted under the reason it kept meeting: the height its water can be
+lifted to, no room to grow into, too poor to pay for a cell, ground too hard
+to push into, every way open being worse than staying, or, for a root, the
+plant already holding as much root as its shoot can feed. The page shows the
+commonest and how many stopped for anything else; hold the pointer over it
+for the rest. On a quiet bed about half the grass and tree shoot tips that
+stop do so at the height their water reaches, and most of the rest for want
+of room; nearly every grass and shrub root tip stops at its share, while a
+tree's roots stop for want of carbon. A plant with no growing tip left has
+stopped growing, however much it is earning.
 
 ## How a stem is shaped
 

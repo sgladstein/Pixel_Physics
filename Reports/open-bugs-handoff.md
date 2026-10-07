@@ -116,69 +116,69 @@ point.
 | S3 | closed | 8012 | A world nobody has touched pulls its own ground apart |
 | -- | closed | 8061 | The plant model bounds height and does not bound width FIXED |
 | 1 | note | 8152 | MAX_ROOT_FRACTION feeds the staleness counter, permanently retiring roots |
-| 2 | note | 8166 | Grow into soil destroys the soil's stored water |
-| 3 | note | 8178 | Capillary exchange can push a neighbour above its own capacity |
-| U | note | 8191 | A crown hangs on by its leaves, so a snapped limb never falls |
-| W1a | note | 8310 | creeper.ron's root tips still run the superseded in-tick branch path |
-| W1b | note | 8331 | A material-counting guard cannot see a species |
-| W1c | note | 8344 | generated_terrain_is_already_at_rest went red on main |
-| T1a | note | 8478 | load::grain_is_footing reads *attachment* where it means *supported* |
-| T1b | note | 8556 | The structural opt-out did not hold against bearing |
-| T1d | note | 8567 | acceptance.sh's lavadrop sits close enough to its frame budget to flake, and is over it o... |
-| T1e | note | 8601 | "The pieces hit the ground and turn to dust" was not settle, and the measurement says so |
-| T1f | note | 8655 | The felled pile is 74% powder because the tree is 56% leaves. The piece ladder cannot fix... |
-| T1g | note | 8709 | A "refixed" claim went out over a settled state that had barely moved |
-| T1c | note | 8738 | §1c's settle loss is now a counter |
-| -- | note | 8755 | What landed |
-| -- | note | 8778 | Do not re-derive these |
-| -- | note | 8806 | Measurements that contradict something written |
-| -- | note | 8826 | Open |
-| -- | note | 8861 | Unmerged at close, and one of it is a fix main needs anyway |
-| 1n | note | 8879 | grass sets zero seeds on main |
-| B2 | **OPEN** | 9072 | A living plant in the lab pulls its own anchorage out from under itself and is felled whole |
-| Z4 | closed | 9164 | World::germinations can exceed the number of seeds that ever existed |
-| Z5 | closed | 9249 | Every homing odometer in the tree is dead: its charge wire is below W_EPS, so eval_brain ... |
-| W2 | **OPEN** | 9454 | Two soil constants annul each other, and the root depletion zone lost 6.3x of its depth |
-| W2a | **OPEN** | 9530 | The refutation, measured |
-| E2 | closed | 9611 | Narrowing the CA sweep's region changes the world, and the RNG is not the reason |
-| W3 | closed | 9704 | PlantScene's bed stands on a 512-span slab anchored only at the world edges, and it survi... |
-| W4 | **OPEN** | 9824 | A rooted bank now sheds *more* of its own soil than a bare one, because it still has the ... |
-| W5 | **OPEN** | 9884 | The lab's bed grows a water table on its stone floor, and it does not stop |
-| W6 | closed | 9935 | A plant EVOLVES root tips into shoot tips, and the shoot it then grows is made of root wood |
-| W7 | closed | 10327 | A severed plant is still one economy: the roots' water feeds a crown they have no path to |
-| Z6 | **OPEN** | 10433 | Every shipped bed starves its ant colony inside one play session |
-| Z7 | **OPEN** | 10611 | The trail-following gate saturates the signal it gates: the ant reads its own trail at ±0... |
-| Z8 | closed | 10786 | A fruit severed by ordinary structural failure lands as an ownerless windfall, and it can... |
-| Z9 | closed | 10907 | A hopping animal that comes down on water never lands: it hangs there, is charged the air... |
-| Z10 | closed | 11020 | The flitter's float never switches off on a bed that has flowers in it |
-| Z11 | closed | 11117 | At the widest zoom-out the view drew one cell in sixteen and dropped the rest, so thin th... |
-| Z12 | **OPEN** | 11212 | Most of what piles up in a long-run long-ant colony is one-cell ants, and they are bred t... |
-| Z13 | closed | 11292 | Every animal in both games can reach a rest it cannot leave (engine) |
-| Z14 | **OPEN** | 11687 | The played bed's 500,000-frame trajectory is chaotic, and scent_drift: 0.15 re-rolled it |
-| Z15 | **OPEN** | 11779 | A plant holds a creature up and also blocks it, so a bed of foliage is a cage: between a ... |
-| Z16 | closed | 11857 | DeathCause::Killed is not a killing counter, and the played bed's colony is being overgro... |
-| Z18 | **OPEN** | 11998 | Dug spoil stands in open sky, and the owner sees it before he sees anything else |
-| Z19 | closed | 12208 | A pellet of spoil crosses up to 116 rows with nothing carrying it |
-| Z17 | **OPEN** | 12325 | World::ground_datum is built and wrong inside a sealed lab box, and it reads as "the whol... |
-| Z20 | closed | 12377 | labgif wire= was a silent no-op for every card it has ever produced (lab) |
-| Z21 | closed | 12418 | The held world's grown and dead starts fill every organism slot, so C founds nothing |
-| Z22 | **OPEN** | 12605 | A colony inside a quickening eats about a sixth of the garden, and nothing on screen says so |
-| Z23 | closed | 12700 | nearest_foe counts a plant as a foe, so a fed colony quietly vandalises its own larder |
-| Z24 | **OPEN** | 12910 | A loop of plant_ant is a crowd of strangers, and nine harnesses still do it |
-| Z25 | closed | 12991 | Nothing can hear an alarm: the plane's audible radius is about two cells |
-| Z26 | **OPEN** | 13156 | review.py inbox shows every lane's verdicts as yours in a cloud session, and --mark-seen ... |
-| Z27 | **OPEN** | 13215 | Heat cannot cross a shallow gradient into ground already at ambient, and the fix that exi... |
-| Z28 | **OPEN** | 13272 | The moisture deposition preference was deleted rather than moved, and DropSpoil has no he... |
-| Z29 | **OPEN** | 13344 | An ant stands on its own freshest deposit, so the homing gradient reads "home is behind m... |
-| Z32 | closed | 13510 | An empty ant reads the food trail as exactly zero, tick after tick, so half the colony ne... |
-| Z30 | **OPEN** | 13626 | filmstrip never steps the pheromone planes, so every scene it runs ants in shows a trail ... |
-| Z31 | **OPEN** | 13717 | field::step carries derived arrays forward over a settled chunk that still holds an un-ta... |
-| Z33 | closed | 13797 | A part-eaten fruit put down comes back whole, so putting food down and picking it up crea... |
-| Z34 | **OPEN** | 13891 | deliveries - pickups_at_nest counts the same crumbs into home again and again, so "net fo... |
-| Z35 | closed | 13926 | A loaded forager's pull home runs out while it loads at the pile, so it walks off the far... |
-| Z36 | closed | 13965 | A birth topped up with bare seeds overdraws its parent, which dies next tick holding a cr... |
-| W8 | **OPEN** | 13996 | A root grows into another plant's dormant seed and destroys it (engine/plants) |
-| V5 | **OPEN** | 14021 | A dormant seed of a leafy species dies on the grown-plant starvation clock, beside its ow... |
+| 2 | note | 8179 | Grow into soil destroys the soil's stored water |
+| 3 | note | 8191 | Capillary exchange can push a neighbour above its own capacity |
+| U | note | 8204 | A crown hangs on by its leaves, so a snapped limb never falls |
+| W1a | note | 8323 | creeper.ron's root tips still run the superseded in-tick branch path |
+| W1b | note | 8344 | A material-counting guard cannot see a species |
+| W1c | note | 8357 | generated_terrain_is_already_at_rest went red on main |
+| T1a | note | 8491 | load::grain_is_footing reads *attachment* where it means *supported* |
+| T1b | note | 8569 | The structural opt-out did not hold against bearing |
+| T1d | note | 8580 | acceptance.sh's lavadrop sits close enough to its frame budget to flake, and is over it o... |
+| T1e | note | 8614 | "The pieces hit the ground and turn to dust" was not settle, and the measurement says so |
+| T1f | note | 8668 | The felled pile is 74% powder because the tree is 56% leaves. The piece ladder cannot fix... |
+| T1g | note | 8722 | A "refixed" claim went out over a settled state that had barely moved |
+| T1c | note | 8751 | §1c's settle loss is now a counter |
+| -- | note | 8768 | What landed |
+| -- | note | 8791 | Do not re-derive these |
+| -- | note | 8819 | Measurements that contradict something written |
+| -- | note | 8839 | Open |
+| -- | note | 8874 | Unmerged at close, and one of it is a fix main needs anyway |
+| 1n | note | 8892 | grass sets zero seeds on main |
+| B2 | **OPEN** | 9085 | A living plant in the lab pulls its own anchorage out from under itself and is felled whole |
+| Z4 | closed | 9177 | World::germinations can exceed the number of seeds that ever existed |
+| Z5 | closed | 9262 | Every homing odometer in the tree is dead: its charge wire is below W_EPS, so eval_brain ... |
+| W2 | **OPEN** | 9467 | Two soil constants annul each other, and the root depletion zone lost 6.3x of its depth |
+| W2a | **OPEN** | 9543 | The refutation, measured |
+| E2 | closed | 9624 | Narrowing the CA sweep's region changes the world, and the RNG is not the reason |
+| W3 | closed | 9717 | PlantScene's bed stands on a 512-span slab anchored only at the world edges, and it survi... |
+| W4 | **OPEN** | 9837 | A rooted bank now sheds *more* of its own soil than a bare one, because it still has the ... |
+| W5 | **OPEN** | 9897 | The lab's bed grows a water table on its stone floor, and it does not stop |
+| W6 | closed | 9948 | A plant EVOLVES root tips into shoot tips, and the shoot it then grows is made of root wood |
+| W7 | closed | 10340 | A severed plant is still one economy: the roots' water feeds a crown they have no path to |
+| Z6 | **OPEN** | 10446 | Every shipped bed starves its ant colony inside one play session |
+| Z7 | **OPEN** | 10624 | The trail-following gate saturates the signal it gates: the ant reads its own trail at ±0... |
+| Z8 | closed | 10799 | A fruit severed by ordinary structural failure lands as an ownerless windfall, and it can... |
+| Z9 | closed | 10920 | A hopping animal that comes down on water never lands: it hangs there, is charged the air... |
+| Z10 | closed | 11033 | The flitter's float never switches off on a bed that has flowers in it |
+| Z11 | closed | 11130 | At the widest zoom-out the view drew one cell in sixteen and dropped the rest, so thin th... |
+| Z12 | **OPEN** | 11225 | Most of what piles up in a long-run long-ant colony is one-cell ants, and they are bred t... |
+| Z13 | closed | 11305 | Every animal in both games can reach a rest it cannot leave (engine) |
+| Z14 | **OPEN** | 11700 | The played bed's 500,000-frame trajectory is chaotic, and scent_drift: 0.15 re-rolled it |
+| Z15 | **OPEN** | 11792 | A plant holds a creature up and also blocks it, so a bed of foliage is a cage: between a ... |
+| Z16 | closed | 11870 | DeathCause::Killed is not a killing counter, and the played bed's colony is being overgro... |
+| Z18 | **OPEN** | 12011 | Dug spoil stands in open sky, and the owner sees it before he sees anything else |
+| Z19 | closed | 12221 | A pellet of spoil crosses up to 116 rows with nothing carrying it |
+| Z17 | **OPEN** | 12338 | World::ground_datum is built and wrong inside a sealed lab box, and it reads as "the whol... |
+| Z20 | closed | 12390 | labgif wire= was a silent no-op for every card it has ever produced (lab) |
+| Z21 | closed | 12431 | The held world's grown and dead starts fill every organism slot, so C founds nothing |
+| Z22 | **OPEN** | 12618 | A colony inside a quickening eats about a sixth of the garden, and nothing on screen says so |
+| Z23 | closed | 12713 | nearest_foe counts a plant as a foe, so a fed colony quietly vandalises its own larder |
+| Z24 | **OPEN** | 12923 | A loop of plant_ant is a crowd of strangers, and nine harnesses still do it |
+| Z25 | closed | 13004 | Nothing can hear an alarm: the plane's audible radius is about two cells |
+| Z26 | **OPEN** | 13169 | review.py inbox shows every lane's verdicts as yours in a cloud session, and --mark-seen ... |
+| Z27 | **OPEN** | 13228 | Heat cannot cross a shallow gradient into ground already at ambient, and the fix that exi... |
+| Z28 | **OPEN** | 13285 | The moisture deposition preference was deleted rather than moved, and DropSpoil has no he... |
+| Z29 | **OPEN** | 13357 | An ant stands on its own freshest deposit, so the homing gradient reads "home is behind m... |
+| Z32 | closed | 13523 | An empty ant reads the food trail as exactly zero, tick after tick, so half the colony ne... |
+| Z30 | **OPEN** | 13639 | filmstrip never steps the pheromone planes, so every scene it runs ants in shows a trail ... |
+| Z31 | **OPEN** | 13730 | field::step carries derived arrays forward over a settled chunk that still holds an un-ta... |
+| Z33 | closed | 13810 | A part-eaten fruit put down comes back whole, so putting food down and picking it up crea... |
+| Z34 | **OPEN** | 13904 | deliveries - pickups_at_nest counts the same crumbs into home again and again, so "net fo... |
+| Z35 | closed | 13939 | A loaded forager's pull home runs out while it loads at the pile, so it walks off the far... |
+| Z36 | closed | 13978 | A birth topped up with bare seeds overdraws its parent, which dies next tick holding a cr... |
+| W8 | **OPEN** | 14009 | A root grows into another plant's dormant seed and destroys it (engine/plants) |
+| V5 | **OPEN** | 14034 | A dormant seed of a leafy species dies on the grown-plant starvation clock, beside its ow... |
 
 <!-- END GENERATED INDEX -->
 
@@ -8162,6 +8162,19 @@ The gate is meant to say "not now", which is the "temporary shortfall"
 framing `Divide`'s own resource gate uses — that path sets
 `found_candidate` and this one does not. Suspect this first if roots look
 like they stop drinking on a mature tree.
+
+**2026-10-07: now counted, and it is most of what stops a root.** The `Grow`
+rule books why every visit ended (`plant::GrowWhy`), and why every tip that
+retires retired. On the played bed with no animals (seeds 1–4, 100k frames,
+`planttrace life=1`, `scripts/planttrace.py tips`), **96% of the 158,663 grass
+root tips that retired retired on this gate**, and 95% of the 1,086,994 grass
+root visits were refused at it; shrub 96% of 6,973, scrambler 56% of 9,505,
+herb 34% of 4,682, tree 17% of 738 (a tree's roots retire for want of carbon
+instead, 76%). Whether that is this note's defect — a passing ratio retiring
+a root for good — or the gate doing its job on plants that really do hold as
+much root as their shoot can feed is the open question; the counts do not
+settle it, a trace of root-tip lives against the plant's ratio at the time
+would. The inspector's `TIPS STOPPED` row shows `ROOT SHARE` per plant.
 
 ### 2. `Grow` into soil destroys the soil's stored water
 

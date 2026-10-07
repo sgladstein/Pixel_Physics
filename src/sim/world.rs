@@ -4074,6 +4074,10 @@ pub struct World {
     pub loss_context: Option<organism::DeathCause>,
     /// Crown cells turned back into a growing tip by `plant::break_tillers`.
     pub tillers_broken: u64,
+    /// **Why growing tips grow or stop, per species** -- every visit of the
+    /// `Grow` rule and every tip retired, by `plant::GrowWhy`, indexed by
+    /// `SpeciesId`. Counted after the behaviours run and read by no rule.
+    pub grow_census: Vec<crate::sim::plant::GrowCensus>,
     /// Scratch that `step_chain` and `tumble` write while a decision is being
     /// traced; meaningless otherwise.
     pub decision_scratch: crate::sim::creature::DecisionScratch,
@@ -6783,6 +6787,7 @@ impl World {
             death_log: None,
             loss_context: None,
             tillers_broken: 0,
+            grow_census: Vec::new(),
             decision_scratch: crate::sim::creature::DecisionScratch::default(),
             chooser: None,
             bud_at_nest: None,
@@ -7800,6 +7805,7 @@ impl World {
             culled: false,
             parent: 0,
             parent_born: 0,
+            tips_retired: [[0; crate::sim::plant::GROW_WHYS]; 2],
             // **Founders carry no overrides**, which is what makes the
             // parameter genome inert until something breeds — see
             // `organism::ParamGenome`. `plant::bear_seed_at` overwrites this

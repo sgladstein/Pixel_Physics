@@ -6701,6 +6701,13 @@ pub struct OrganismState {
     pub parent: OrganismId,
     /// The parent's `born_frame`; `0` beside a `0` parent.
     pub parent_born: u64,
+    /// **Its growing tips that have stopped for good, by why** --
+    /// `[shoot, root][plant::GrowWhy]`, the reason of each tip's last stale
+    /// visit (`plant::GrowWhy::retirement`). Read by the inspector's `WHY TIPS
+    /// STOPPED` row and by `examples/planttrace.rs`; no rule reads it. `u16`
+    /// and saturating: a plant retiring 65,535 tips for one reason has told
+    /// you the reason.
+    pub tips_retired: [[u16; crate::sim::plant::GROW_WHYS]; 2],
     /// **This individual's discrete genes** — see [`DISCRETE_LOCI`]. One
     /// small integer per locus, inherited whole and mutated by *jumping*
     /// rather than drifting, which is what makes a population clump instead

@@ -1523,12 +1523,62 @@ fn main() {
             None => fired.push(format!("SPECIMEN {what}: no WORDS heading to click")),
         }
 
+        // **A plant's STATE group, open**, which carries `TIPS` and `TIPS
+        // STOPPED` (why its growing tips stopped, `plant::GrowWhy`) -- and no
+        // tile showed STATE open on a plant before 2026-10-07. WORDS is left
+        // open by the tile above and is longer than the page, so it is shut
+        // first; the group is found by its name, since index 2 is STATE on a
+        // plant's page and GENOME on an animal's.
+        if !animal {
+            let id = lab.world.get(wx, wy).organism_id();
+            if lab.ui.specimen_section() == Some(0) {
+                if let Some(r) = lab.ui.widget_rect(words) {
+                    click(&mut lab, (r.x + 20, r.y + 4));
+                    // Redrawn before aiming again: `widget_rect` reads the
+                    // layout the last draw kept.
+                    let _ = shot(&mut lab);
+                }
+            }
+            let sections = pixel_physics::lab::params::specimen_sections(&lab.world, id);
+            let state_at = sections.iter().position(|(l, _, _)| *l == "STATE");
+            let value = |label: &str| {
+                sections.iter().flat_map(|(_, _, rows)| rows).find(|(l, _, _)| l == label).map_or("-".to_string(), |(_, v, _)| v.clone())
+            };
+            let (tips, stopped) = (value("TIPS"), value("TIPS STOPPED"));
+            match state_at.and_then(|i| lab.ui.widget_rect(pixel_physics::lab::ui::Action::SpecimenSection(i))) {
+                Some(r) => {
+                    click(&mut lab, (r.x + 20, r.y + 4));
+                    fired.push(format!(
+                        "SPECIMEN PLANT STATE: group {:?} open; TIPS {tips}; TIPS STOPPED {stopped}",
+                        lab.ui.specimen_section()
+                    ));
+                    lab.set_cursor(None);
+                    tiles.push(("SPECIMEN: PLANT STATE".into(), shot(&mut lab)));
+                }
+                None => fired.push(format!("SPECIMEN PLANT: no STATE heading to click (TIPS {tips}; TIPS STOPPED {stopped})")),
+            }
+        }
+
         // **Open the genome group by clicking its heading**, which is the
         // whole click path -- the heading is drawn by `paint_page`, collected
         // into `inspect_bar` in the same loop, hit-tested by `Ui::hit` and
         // handled in `Lab::act`. A page can look right and have a dead
         // heading, and the tile above cannot tell the two apart.
-        let group = pixel_physics::lab::ui::Action::SpecimenSection(2);
+        // Found by name, like the STATE tile above: index 2 is STATE on a
+        // plant's page, so this tile used to toggle STATE on a plant. WORDS,
+        // still open on an animal's page, is shut first for the same reason
+        // as there: it is longer than the page and crowds the heading out.
+        if lab.ui.specimen_section() == Some(0) {
+            if let Some(r) = lab.ui.widget_rect(words) {
+                click(&mut lab, (r.x + 20, r.y + 4));
+                let _ = shot(&mut lab);
+            }
+        }
+        let genome_at = pixel_physics::lab::params::specimen_sections(&lab.world, lab.world.get(wx, wy).organism_id())
+            .iter()
+            .position(|(l, _, _)| *l == "GENOME")
+            .unwrap_or(2);
+        let group = pixel_physics::lab::ui::Action::SpecimenSection(genome_at);
         match lab.ui.widget_rect(group) {
             Some(r) => {
                 click(&mut lab, (r.x + 20, r.y + 4));

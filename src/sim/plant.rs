@@ -4354,6 +4354,120 @@ fn half_life_chance(half_life: f32, interval: u64) -> f32 {
 /// candidate can be transiently unavailable.
 const ORGANISM_STALE_LIMIT: u8 = 4;
 
+/// **Why one visit of a tip's `Grow` rule ended where it did** -- whether it
+/// grew this tick, and on the stale tick that retires it, why it stopped for
+/// good. The plant line's `creature::DigWhy`, built 2026-10-07 (step 3 of
+/// tracing plants one individual at a time) because "the tip retired" says
+/// nothing about which gate it kept meeting.
+///
+/// **One visit, one reason, and recording decides nothing.** Each exit from
+/// the arm writes its own variant as it leaves, and the census is counted
+/// after the behaviours have run. It does not touch which exits set
+/// `found_candidate`: marking a refused tip as "had somewhere to try" is the
+/// reverted change that made a resource-starved tree grow forever
+/// (`Reports/dead-ends.md`).
+#[repr(u8)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum GrowWhy {
+    /// **A gap, never a cause**: the visit left the arm by a way no exit
+    /// labels, or a tip retired on a tick that ran no `Grow` at all. Zero in
+    /// a normal run, which is what
+    /// `every_grow_visit_and_every_retirement_is_booked_with_a_reason` holds.
+    #[default]
+    NotAsked = 0,
+    /// Its fate was a terminal organ and it could not pay for one.
+    OrganUnaffordable = 1,
+    /// Not carbon enough for one more cell.
+    TooPoor = 2,
+    /// Past the turgor bound: water cannot be lifted this far along the path.
+    HeightLimit = 3,
+    /// Inside the bound's tapering last stretch, and the roll said not yet.
+    /// Folded into `HeightLimit` at retirement (`GrowWhy::retirement`).
+    TaperRoll = 4,
+    /// A root, and the plant already holds its largest share of root.
+    RootShare = 5,
+    /// The species' cap on growing tips is full.
+    TipCap = 6,
+    /// No neighbour cell it could grow into at all.
+    Boxed = 7,
+    /// Cells to grow into, but none it could pay to push into.
+    GroundTooHard = 8,
+    /// Cells it could pay for, and every direction scored against it.
+    NoGoodDirection = 9,
+    /// It grew.
+    Grew = 10,
+    /// It became a terminal organ.
+    Flowered = 11,
+}
+
+impl GrowWhy {
+    /// What a retirement is booked as. The taper's roll is the height bound
+    /// arriving early at random, so a tip that retired on it retired on
+    /// height; kept apart only in the per-visit census, where the two say
+    /// different things about how close the bound is.
+    pub fn retirement(self) -> Self {
+        if self == GrowWhy::TaperRoll {
+            GrowWhy::HeightLimit
+        } else {
+            self
+        }
+    }
+}
+
+pub const GROW_WHYS: usize = 12;
+/// For CSV columns and harness output.
+pub const GROW_WHY_NAMES: [&str; GROW_WHYS] = [
+    "not_asked",
+    "organ_unaffordable",
+    "too_poor",
+    "height_limit",
+    "taper_roll",
+    "root_share",
+    "tip_cap",
+    "boxed",
+    "ground_too_hard",
+    "no_good_direction",
+    "grew",
+    "flowered",
+];
+/// For the inspector's `WHY TIPS STOPPED` row: short enough to sit three to a
+/// row in the CELL panel.
+pub const GROW_WHY_LABELS: [&str; GROW_WHYS] = [
+    "NOT ASKED",
+    "FLOWER COST",
+    "TOO POOR",
+    "HEIGHT",
+    "NEAR HEIGHT",
+    "ROOT SHARE",
+    "TIP CAP",
+    "NO ROOM",
+    "HARD GROUND",
+    "NO GOOD WAY",
+    "GREW",
+    "FLOWERED",
+];
+
+/// **Every `Grow` visit and every tip retirement of one species, by reason**
+/// -- `World::grow_census`, indexed by `SpeciesId`. `[0]` is shoot tips,
+/// `[1]` root tips. Written by `organism_tick` only, which runs serially.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct GrowCensus {
+    /// Every visit of the `Grow` rule, by reason.
+    pub visits: [[u64; GROW_WHYS]; 2],
+    /// Every tip retired at `ORGANISM_STALE_LIMIT`, by the reason of its
+    /// last stale visit (`GrowWhy::retirement`).
+    pub retired: [[u64; GROW_WHYS]; 2],
+}
+
+/// The census row for `species`, grown on first use.
+fn grow_census_mut(world: &mut World, species: organism::SpeciesId) -> &mut GrowCensus {
+    let i = species.0 as usize;
+    if world.grow_census.len() <= i {
+        world.grow_census.resize(i + 1, GrowCensus::default());
+    }
+    &mut world.grow_census[i]
+}
+
 /// Minimum moisture-gradient magnitude before MIZ1-style suppression of
 /// gravity kicks in and a `RootTip`'s `Grow` steers toward water instead of
 /// straight down. A gradient, not a raw moisture reading — MIZ1 biology is
@@ -4728,6 +4842,9 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: OrganismId, sta
     let Some(mut cell_type) = organism::cell_type(cell.aux()) else {
         return Vec::new(); // unrecognized cell-type bits -- nothing this dispatch knows how to run
     };
+    // What this cell was when its tick began, for the `GrowWhy` census: a tip
+    // that flowers is an organ by the end of the tick.
+    let entered_as = cell_type;
     // The resource scalar now comes from the sidecar rather than out of
     // `aux` alongside the cell type. Read once into a local and written
     // back through `world.organism_cell_mut` at each point the old code
@@ -4850,6 +4967,11 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: OrganismId, sta
 
     let mut next = Vec::new();
     let mut found_candidate = false;
+    // Why this tick's `Grow` visit ended where it did; `None` if the cell ran
+    // no `Grow`. Written at each exit of the arm, read only by the census
+    // below -- see `GrowWhy`.
+    let mut grow_why: Option<GrowWhy> = None;
+    let mut grow_entered = false;
     for behavior in behavior_buf.into_iter().take(behavior_count).flatten() {
         match behavior {
             // Evaluated once per organism in `break_buds`, never from the
@@ -4953,6 +5075,11 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: OrganismId, sta
                 internode,
                 stem_stiffness,
             } => {
+                // So a way out of this arm that no exit labels shows in the
+                // census as `NotAsked` instead of vanishing from it. A flag,
+                // not a provisional `grow_why`: rustc proves every exit
+                // overwrites the latter today, and warns that it is dead.
+                grow_entered = true;
                 // Per-order parameters resolved once, against *this cell's*
                 // own order. A tip reads only its own tier -- no traversal,
                 // no whole-plant query -- which is what keeps architecture
@@ -5156,6 +5283,7 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: OrganismId, sta
                         // a plant that is either flowering or gone has the
                         // same defect the uniform rubble did.
                         world.organ_charge_blocked += 1;
+                        grow_why = Some(GrowWhy::OrganUnaffordable);
                         continue;
                     }
                     world.organ_charge_available += 1;
@@ -5243,6 +5371,7 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: OrganismId, sta
                     // The organ's own clock starts now, on the ordinary
                     // organism cadence -- `Behavior::Ripen` runs from here.
                     found_candidate = true;
+                    grow_why = Some(GrowWhy::Flowered);
                     // Nothing else this cell was going to do this tick
                     // applies to what it has just become: the remaining
                     // behaviours in the buffer were fetched for a
@@ -5252,6 +5381,7 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: OrganismId, sta
                 }
 
                 if resource < cost {
+                    grow_why = Some(GrowWhy::TooPoor);
                     continue;
                 }
                 // **The height bound** -- `organism::Behavior::Grow`'s
@@ -5292,6 +5422,7 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: OrganismId, sta
                         let path = own_path as f32;
                         let margin = turgor_source - turgor_per_cell * path - turgor_yield;
                         if margin <= 0.0 {
+                            grow_why = Some(GrowWhy::HeightLimit);
                             continue;
                         }
                         // **The taper, and why the hard cutoff alone was
@@ -5318,6 +5449,7 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: OrganismId, sta
                         if turgor_taper > 0.0 {
                             let full = (turgor_source - turgor_yield).max(f32::EPSILON);
                             if !rng.chance((margin / full / turgor_taper).min(1.0)) {
+                                grow_why = Some(GrowWhy::TaperRoll);
                                 continue;
                             }
                         }
@@ -5330,6 +5462,7 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: OrganismId, sta
                     if let Some(state) = world.organism(organism_id) {
                         let total = state.root_cells + state.shoot_cells;
                         if total > 0 && (state.root_cells as f32 / total as f32) >= MAX_ROOT_FRACTION {
+                            grow_why = Some(GrowWhy::RootShare);
                             continue;
                         }
                     }
@@ -5338,6 +5471,7 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: OrganismId, sta
                     // At the species' own cap -- try again later, the same
                     // "temporary shortfall, not a dead end" framing
                     // `Divide`'s own resource gate already uses.
+                    grow_why = Some(GrowWhy::TipCap);
                     continue;
                 }
 
@@ -5482,11 +5616,15 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: OrganismId, sta
                 let internode_here = ((internode.at(order) as f32) * internode_scale).round() as u32;
                 let rigid_step = internode_here > 0 && (plastochron as u32) < internode_here;
                 let mut candidates: Vec<(i32, i32, f32)> = Vec::new();
+                // How far the empty set got, for `GrowWhy`: cells it could
+                // grow into, and of those, cells it could pay to enter.
+                let (mut open_cells, mut affordable_cells) = (0u8, 0u8);
                 for (dx, dy) in NEIGHBOURS_8 {
                     let (nx, ny) = (x + dx, y + dy);
                     if !growable(world, nx, ny, penetration_force, submerged_shoot) {
                         continue;
                     }
+                    open_cells += 1;
                     // Affordable-this-tick ground only. A poor root
                     // prefers soft ground -- roots really do follow the
                     // path of least resistance -- and one that can only
@@ -5497,6 +5635,7 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: OrganismId, sta
                     if resource < cost * penetration_cost_mult(world, nx, ny) {
                         continue;
                     }
+                    affordable_cells += 1;
                     let dir = normalize((dx as f32, dy as f32));
                     let density = candidate_crowding(world, nx, ny);
                     // **Crowding divides; it does not subtract.** The
@@ -5591,9 +5730,17 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: OrganismId, sta
                     }
                 }
                 if candidates.is_empty() {
+                    grow_why = Some(if open_cells == 0 {
+                        GrowWhy::Boxed
+                    } else if affordable_cells == 0 {
+                        GrowWhy::GroundTooHard
+                    } else {
+                        GrowWhy::NoGoodDirection
+                    });
                     continue; // every direction actively discouraged, or nothing open -- a genuine dead end, not forced through
                 }
                 found_candidate = true;
+                grow_why = Some(GrowWhy::Grew);
 
                 // A `GrowingTip` that successfully grows retires to
                 // `MatureBody` immediately, in the same tick, rather than
@@ -6760,6 +6907,13 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: OrganismId, sta
         }
     }
 
+    // **The `GrowWhy` census**, counted once the behaviours have run so it
+    // can change nothing they did. Shoot tips in `[0]`, root tips in `[1]`.
+    let tip_kind = usize::from(entered_as == CellType::RootTip);
+    let grow_why = grow_why.or(grow_entered.then_some(GrowWhy::NotAsked));
+    if let Some(why) = grow_why {
+        grow_census_mut(world, species_id).visits[tip_kind][why as usize] += 1;
+    }
     // An ungerminated seed keeps the fast cadence -- it may still be
     // falling, and germination should follow it down promptly rather than
     // 45 frames after it lands. No longer a *correctness* requirement:
@@ -6807,6 +6961,15 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: OrganismId, sta
     } else if stale_ticks + 1 < ORGANISM_STALE_LIMIT {
         next.push(reschedule_organism(x, y, organism_id, stale_ticks + 1, plastochron, due));
     } else if matches!(cell_type, CellType::GrowingTip | CellType::RootTip) {
+        // **Why it stopped**: the reason its last stale visit gave, the taper
+        // folded into the height bound (`GrowWhy::retirement`). A tip whose
+        // cell ran no `Grow` at all books `NotAsked`, which is a gap to read,
+        // not a cause.
+        let why = grow_why.unwrap_or(GrowWhy::NotAsked).retirement() as usize;
+        grow_census_mut(world, species_id).retired[tip_kind][why] += 1;
+        if let Some(state) = world.organism_mut(organism_id) {
+            state.tips_retired[tip_kind][why] = state.tips_retired[tip_kind][why].saturating_add(1);
+        }
         // `Reports/tree-rewrite-design.md` §4: the staleness-limit
         // transition to `MatureBody` made real, not just asserted -- an
         // independent review of the design caught that describing this in
@@ -21980,6 +22143,132 @@ threshold {MIZ_THRESHOLD}  (+y is DOWN)");
             Some(CellType::MatureBody),
             "a root tip blocked by allometry until it aged out must retire to MatureBody, not stay              an unschedulable RootTip that still counts against root_cells and max_active_tips"
         );
+    }
+
+    /// **A tip that ages out is booked by the gate it kept meeting**
+    /// (`GrowWhy`), one tip of `tree` at a time against the species' own
+    /// numbers: no carbon is `TooPoor`, past the turgor bound is
+    /// `HeightLimit`, walled in by stone is `Boxed`, and a root on a plant
+    /// that is already nearly all root is `RootShare`. Each of its four stale
+    /// visits books the same reason, the retirement books it once, and so
+    /// does the plant's own tally that the inspector reads.
+    #[test]
+    fn a_tip_that_ages_out_is_booked_by_the_gate_it_kept_meeting() {
+        type Setup = fn(&mut World, OrganismId) -> (i32, i32);
+        fn open_tip(w: &mut World, id: OrganismId) -> (i32, i32) {
+            let wood = w.materials.id_of("wood").expect("wood is a compiled-in material");
+            place(w, (50, 100), wood, id, CellType::GrowingTip, (4.0, 0.0));
+            (50, 100)
+        }
+        let poor: Setup = |w, id| {
+            let wood = w.materials.id_of("wood").expect("wood is a compiled-in material");
+            place(w, (50, 100), wood, id, CellType::GrowingTip, (0.0, 0.0));
+            (50, 100)
+        };
+        let too_high: Setup = |w, id| {
+            let at = open_tip(w, id);
+            // `tree.ron`: (1.0 - 0.1) / 0.0075 = 120 cells of path.
+            write_path_len(w, at.0, at.1, 199);
+            at
+        };
+        let walled: Setup = |w, id| {
+            for x in 49..=51 {
+                for y in 99..=101 {
+                    w.set(x, y, Cell::new(material::STONE, 0));
+                }
+            }
+            open_tip(w, id)
+        };
+        let all_root: Setup = |w, id| {
+            let wood = w.materials.id_of("wood").expect("wood is a compiled-in material");
+            let rootwood = w.materials.id_of("rootwood").unwrap_or(wood);
+            for x in 40..60 {
+                place(w, (x, 60), rootwood, id, CellType::MatureBody, (4.0, 0.0));
+            }
+            place(w, (50, 61), rootwood, id, CellType::RootTip, (4.0, 0.0));
+            (50, 61)
+        };
+        let cases: [(&str, Setup, usize, GrowWhy); 4] = [
+            ("no carbon", poor, 0, GrowWhy::TooPoor),
+            ("past the turgor bound", too_high, 0, GrowWhy::HeightLimit),
+            ("walled in by stone", walled, 0, GrowWhy::Boxed),
+            ("a plant already all root", all_root, 1, GrowWhy::RootShare),
+        ];
+        for (what, setup, kind, want) in cases {
+            let mut w = test_world();
+            let tree = w.species.id_of("tree").expect("tree is a compiled-in species");
+            let id = w.push_organism(tree).expect("an organism slot is free");
+            let (x, y) = setup(&mut w, id);
+            organism_upkeep(&mut w, id); // refresh root_cells / shoot_cells, as the gates read them
+            for stale in 0..ORGANISM_STALE_LIMIT {
+                organism_tick(&mut w, x, y, id, stale, 0);
+            }
+            assert_ne!(
+                organism::cell_type(w.get(x, y).aux()),
+                Some(if kind == 0 {
+                    CellType::GrowingTip
+                } else {
+                    CellType::RootTip
+                }),
+                "{what}: test setup -- the tip did not retire, so nothing below is about a retirement"
+            );
+            let census = w.grow_census[tree.0 as usize];
+            assert_eq!(
+                census.visits[kind][want as usize], ORGANISM_STALE_LIMIT as u64,
+                "{what}: every stale visit should book {want:?}; visits by reason {:?}",
+                census.visits[kind]
+            );
+            assert_eq!(
+                census.retired[kind][want as usize], 1,
+                "{what}: retirements by reason {:?}",
+                census.retired[kind]
+            );
+            assert_eq!(
+                w.organism(id).expect("live").tips_retired[kind][want as usize],
+                1,
+                "{what}: the plant's own tally, which the inspector reads"
+            );
+        }
+    }
+
+    /// **Every `Grow` visit and every tip retirement is booked with a reason**
+    /// in an ordinary run -- the completeness half of `GrowWhy`. The arm books
+    /// `NotAsked` on entry and every exit overwrites it, so an exit nobody
+    /// labels shows here as a non-zero `NotAsked` rather than as a visit the
+    /// census silently lost. The four trees of the harness scene, 6,000
+    /// frames: enough for tips to grow, to be refused and to retire.
+    #[test]
+    fn every_grow_visit_and_every_retirement_is_booked_with_a_reason() {
+        let mut w = common_scene(140);
+        for _ in 0..6_000 {
+            super::super::parallel::step(&mut w);
+            w.step_active_sites();
+            field::step(&mut w);
+        }
+        let sum = |f: &dyn Fn(&GrowCensus) -> u64| w.grow_census.iter().map(f).sum::<u64>();
+        let visits = sum(&|c| c.visits.iter().flatten().sum());
+        let retired = sum(&|c| c.retired.iter().flatten().sum());
+        let grew = sum(&|c| c.visits[0][GrowWhy::Grew as usize] + c.visits[1][GrowWhy::Grew as usize]);
+        println!("grow visits {visits}, grew {grew}, retired {retired}");
+        // Visits, not growth: an unlabelled `Grew` exit must fail the check
+        // below, not this one.
+        assert!(
+            visits > 0 && retired > 0,
+            "test setup: the scene must visit tips and retire some, or the check below is vacuous"
+        );
+        for (species, c) in w.grow_census.iter().enumerate() {
+            for kind in 0..2 {
+                assert_eq!(
+                    (
+                        c.visits[kind][GrowWhy::NotAsked as usize],
+                        c.retired[kind][GrowWhy::NotAsked as usize]
+                    ),
+                    (0, 0),
+                    "species {species}, {} tips: a visit or retirement left `Grow` by an exit that books no reason",
+                    if kind == 0 { "shoot" } else { "root" }
+                );
+            }
+        }
     }
 
     /// A widening trunk must stop widening, and the *end* of the run is
