@@ -79,12 +79,34 @@
 //! CULLED count must equal the number it culled. It changes the world, so it
 //! is a different run from the same seed without it.
 //!
-//! Read with `scripts/planttrace.py` (`funnel`, `deaths`, `spells`, `life`).
+//! **`growlog=1`: every growing tip's every decision** (step 4, 2026-10-07),
+//! from `World::grow_log` into `growlog.csv.gz`: the visit's carbon and
+//! price, its turgor headroom, why it ended (`plant::GrowWhy`), the four
+//! steering directions and their weights, every direction it could pay for
+//! with its crowding and score, the draw, the cell it chose and the cell it
+//! grew into. `species=`, `only=` and `from=` narrow it. Independent of
+//! `life=1`.
+//!
+//! **`shots=F,F,...` photographs this run's own world** at those frames,
+//! through the shipped `Renderer`, as one strip `shots.png`; `at=x,y,w,h`
+//! crops it to the plant a trace is about and `scale=` magnifies it by whole
+//! pixels. Taken here rather than with `labshot` because `labshot` steps its
+//! own copy of the bed -- without the lab's mister, and with mutation as the
+//! game has it -- so its picture is of a different world from the one this
+//! traced. The draw only reads the world (a full redraw over an empty touched
+//! set, never `World::take_touched_chunks`), so it changes no digest.
+//!
+//! Read with `scripts/planttrace.py` (`funnel`, `deaths`, `spells`, `tips`,
+//! `life`; and over `growlog.csv.gz`, `tip` for one tip's run of decisions
+//! and `check`, which rebuilds every score from its terms and every pick
+//! from its draw).
 //!
 //! ```text
 //! cargo run --release --example planttrace -- seed=1 frames=100000 colony=0 out=planttrace-out
 //! cargo run --release --example planttrace -- seed=1 frames=100000 life=1 out=planttrace-out
 //! python3 scripts/planttrace.py funnel planttrace-out
+//! cargo run --release --example planttrace -- seed=1 frames=20000 colony=0 growlog=1 only=18 shots=3000,9000,15000,20000 at=440,40,60,125 out=pt
+//! python3 scripts/planttrace.py tip pt 18 455 159
 //! ```
 
 use pixel_physics::lab::scenario::{Placement, Scenario};
@@ -697,6 +719,200 @@ impl Ledger {
     }
 }
 
+/// `growlog=1`: every visit of a tip's `Grow` rule from `World::grow_log`,
+/// written as `growlog.csv.gz`. `species=`, `only=` (organism ids, comma
+/// separated) and `from=` (first frame) keep it to what a trace needs: the
+/// whole quiet bed is 280k-370k visits per 100k frames (seeds 1-4, 3-4 MB
+/// gzipped), 93-96% of them root tips, and most of those refused on the
+/// plant's root share (`GrowWhy::RootShare`, `open-bugs-handoff.md` note §1).
+/// Every float is written at full `f32` round-trip precision, which is what
+/// lets `scripts/planttrace.py check` rebuild each score bit for bit.
+struct GrowLog {
+    file: (std::process::Child, std::io::BufWriter<std::process::ChildStdin>),
+    species: Option<String>,
+    only: Option<Vec<OrganismId>>,
+    from: u64,
+    written: u64,
+    seen: u64,
+}
+
+impl GrowLog {
+    fn new(out: &str, species: Option<String>, only: Option<Vec<OrganismId>>, from: u64) -> Self {
+        let mut file = gzip_to(&format!("{out}/growlog.csv.gz"));
+        writeln!(
+            file.1,
+            "frame,id,x,y,kind,order,path,stale,plastochron,carbon,cost,margin,why,retired,open,affordable,rigid,hx,hy,px,py,wx,wy,ux,uy,w_cont,w_light,w_wind,w_up,w_sum,w_crowd,draw,chosen_x,chosen_y,step_x,step_y,scored"
+        )
+        .unwrap();
+        GrowLog {
+            file,
+            species,
+            only,
+            from,
+            written: 0,
+            seen: 0,
+        }
+    }
+
+    fn drain(&mut self, w: &mut World) {
+        let Some(log) = w.grow_log.as_mut() else { return };
+        let rows = std::mem::take(log);
+        for r in rows {
+            self.seen += 1;
+            if r.frame < self.from || self.only.as_ref().is_some_and(|ids| !ids.contains(&r.organism)) {
+                continue;
+            }
+            if let Some(want) = &self.species {
+                let name = w.organism(r.organism).map(|s| w.species.get(s.species).name.as_str());
+                if name != Some(want.as_str()) {
+                    continue;
+                }
+            }
+            let pair = |v: Option<(i32, i32)>| v.map_or(",".to_string(), |(a, b)| format!("{a},{b}"));
+            let scored = r
+                .scored
+                .iter()
+                .map(|c| format!("{}:{}:{}:{}", c.dx, c.dy, c.density, c.score))
+                .collect::<Vec<_>>()
+                .join("|");
+            writeln!(
+                self.file.1,
+                "{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
+                r.frame,
+                r.organism,
+                r.x,
+                r.y,
+                if r.root { "root" } else { "shoot" },
+                r.order,
+                r.path,
+                r.stale,
+                r.plastochron,
+                r.carbon,
+                r.cost,
+                opt(r.margin),
+                plant::GROW_WHY_NAMES[r.why as usize],
+                u8::from(r.retired),
+                r.open,
+                r.affordable,
+                u8::from(r.rigid),
+                r.heading.0,
+                r.heading.1,
+                r.photo.0,
+                r.photo.1,
+                r.wind.0,
+                r.wind.1,
+                r.up.0,
+                r.up.1,
+                r.weights[0],
+                r.weights[1],
+                r.weights[2],
+                r.weights[3],
+                r.weight_sum,
+                r.crowding_weight,
+                opt(r.draw),
+                pair(r.chosen),
+                pair(r.step),
+                scored,
+            )
+            .unwrap();
+            self.written += 1;
+        }
+    }
+
+    fn finish(mut self, out: &str) {
+        self.file.1.flush().unwrap();
+        drop(self.file.1);
+        self.file.0.wait().expect("gzip");
+        println!(
+            "GROWLOG: {} of {} Grow visits written -> {out}/growlog.csv.gz",
+            self.written, self.seen
+        );
+    }
+}
+
+/// `shots=`: the traced world, photographed. See the module doc.
+struct Shots {
+    frames: Vec<u64>,
+    at: Option<(i32, i32, i32, i32)>,
+    scale: u32,
+    tiles: Vec<(u32, u32, Vec<u8>)>,
+}
+
+impl Shots {
+    fn take(&mut self, f: u64, lab: &Lab) {
+        if !self.frames.contains(&f) {
+            return;
+        }
+        let (vw, vh) = (lab.spec.width as u32, lab.spec.height as u32);
+        let mut full = vec![0u8; (vw * vh * 4) as usize];
+        // A fresh renderer per shot: nothing cached from an earlier draw can
+        // stand in for this frame's world, and the empty touched set means
+        // nothing is drained from the world to make it.
+        let mut renderer = pixel_physics::render::Renderer::new();
+        renderer.draw(
+            &lab.world,
+            &lab.particles,
+            &Default::default(),
+            &mut full,
+            (vw, vh),
+            true,
+        );
+        let (x, y, w, h) = self.at.unwrap_or((0, 0, vw as i32, vh as i32));
+        assert!(
+            x >= 0 && y >= 0 && x + w <= vw as i32 && y + h <= vh as i32,
+            "at={x},{y},{w},{h} does not fit the {vw}x{vh} box"
+        );
+        let k = self.scale as usize;
+        let (tw, th) = (w as usize * k, h as usize * k);
+        let mut tile = vec![0u8; tw * th * 4];
+        for ty in 0..th {
+            for tx in 0..tw {
+                let src = (((y as usize + ty / k) * vw as usize) + x as usize + tx / k) * 4;
+                tile[(ty * tw + tx) * 4..(ty * tw + tx) * 4 + 4].copy_from_slice(&full[src..src + 4]);
+            }
+        }
+        println!("SHOT: frame {f}, cells {x},{y} {w}x{h} at {k}x");
+        self.tiles.push((tw as u32, th as u32, tile));
+    }
+
+    fn finish(self, out: &str, frames: u64) {
+        let missed: Vec<String> = self
+            .frames
+            .iter()
+            .filter(|&&f| f > frames)
+            .map(|f| f.to_string())
+            .collect();
+        if !missed.is_empty() {
+            println!(
+                "SHOTS: frame(s) {} never reached -- the run stopped at {frames}",
+                missed.join(",")
+            );
+        }
+        if self.tiles.is_empty() {
+            return;
+        }
+        const GAP: u32 = 4;
+        let sw = self.tiles.iter().map(|t| t.0).sum::<u32>() + GAP * (self.tiles.len() as u32 - 1);
+        let sh = self.tiles.iter().map(|t| t.1).max().unwrap_or(0);
+        let mut sheet = vec![0u8; (sw * sh * 4) as usize];
+        for px in sheet.chunks_exact_mut(4) {
+            px.copy_from_slice(&[40, 40, 40, 255]);
+        }
+        let mut left = 0u32;
+        for (tw, th, tile) in &self.tiles {
+            for row in 0..*th {
+                let dst = ((row * sw + left) * 4) as usize;
+                let src = (row * tw * 4) as usize;
+                sheet[dst..dst + (*tw * 4) as usize].copy_from_slice(&tile[src..src + (*tw * 4) as usize]);
+            }
+            left += tw + GAP;
+        }
+        let path = format!("{out}/shots.png");
+        image::save_buffer(&path, &sheet, sw, sh, image::ColorType::Rgba8).expect("writing shots.png");
+        println!("SHOTS: {} frame(s) -> {path}", self.tiles.len());
+    }
+}
+
 fn main() {
     // Births inherit exactly unless `PIXEL_PHYSICS_MUTATION=on`
     // (`Reports/how-we-test.md` §1): two arms that differ by one frame
@@ -717,14 +933,42 @@ fn main() {
     let est: Option<u32> = arg("est");
     let species: Option<String> = arg("species");
     let cull_at: Option<u64> = arg("cull");
+    let growlog_on = arg::<u8>("growlog").unwrap_or(0) == 1;
+    let only: Option<Vec<OrganismId>> =
+        arg::<String>("only").map(|v| v.split(',').filter_map(|id| id.trim().parse().ok()).collect());
+    let from: u64 = arg("from").unwrap_or(0);
+    let mut shots = Shots {
+        frames: arg::<String>("shots")
+            .map(|v| v.split(',').filter_map(|f| f.trim().parse().ok()).collect())
+            .unwrap_or_default(),
+        at: arg::<String>("at").map(|v| {
+            let n: Vec<i32> = v
+                .split(',')
+                .map(|p| p.trim().parse().expect("at wants x,y,w,h"))
+                .collect();
+            assert_eq!(n.len(), 4, "at wants exactly x,y,w,h, got {v:?}");
+            (n[0], n[1], n[2], n[3])
+        }),
+        scale: arg("scale").unwrap_or(3).max(1),
+        tiles: Vec::new(),
+    };
     println!(
-        "planttrace: scenario={scenario} seed={seed} frames={frames} colony={} hashevery={hash_every} log={} life={} every={every} track={track} est={} species={} cull={} out={out}",
+        "planttrace: scenario={scenario} seed={seed} frames={frames} colony={} hashevery={hash_every} log={} life={} every={every} track={track} est={} species={} cull={} growlog={} only={} from={from} shots={} at={} scale={} out={out}",
         colony.map_or("as-written".to_string(), |c| c.to_string()),
         u8::from(log_on),
         u8::from(life_on),
         opt(est),
         species.as_deref().unwrap_or("all"),
         opt(cull_at),
+        u8::from(growlog_on),
+        only.as_ref().map_or("all".to_string(), |ids| ids.iter().map(|i| i.to_string()).collect::<Vec<_>>().join(",")),
+        if shots.frames.is_empty() {
+            "none".to_string()
+        } else {
+            shots.frames.iter().map(|f| f.to_string()).collect::<Vec<_>>().join(",")
+        },
+        shots.at.map_or("box".to_string(), |(x, y, w, h)| format!("{x},{y},{w},{h}")),
+        shots.scale,
     );
     if life_on && !log_on {
         eprintln!("planttrace: life=1 reads the death log; it needs log=1");
@@ -747,10 +991,15 @@ fn main() {
         lab.world.death_log = Some(Vec::new());
     }
     let mut ledger = life_on.then(|| Ledger::new(&out, every, track, est, species.clone()));
+    let mut growlog = growlog_on.then(|| {
+        lab.world.grow_log = Some(Vec::new());
+        GrowLog::new(&out, species.clone(), only.clone(), from)
+    });
     if let Some(l) = ledger.as_mut() {
         l.discover(&lab.world);
     }
 
+    shots.take(0, &lab);
     let mut deaths = std::io::BufWriter::new(std::fs::File::create(format!("{out}/deaths.csv")).expect("deaths.csv"));
     writeln!(deaths, "frame,id,born,species,lineage,kind,cause,declared,buried,x,y").unwrap();
     let mut hashes = std::io::BufWriter::new(std::fs::File::create(format!("{out}/hash.txt")).expect("hash.txt"));
@@ -817,11 +1066,19 @@ fn main() {
                 l.cull(&mut lab.world);
             }
         }
+        if let Some(g) = growlog.as_mut() {
+            g.drain(&mut lab.world);
+        }
+        shots.take(f, &lab);
         if f % hash_every == 0 || f == frames {
             writeln!(hashes, "{f},{:016x}", grid_hash(&lab.world)).unwrap();
         }
     }
     deaths.flush().unwrap();
+    if let Some(g) = growlog {
+        g.finish(&out);
+    }
+    shots.finish(&out, frames);
     hashes.flush().unwrap();
 
     let w = &lab.world;

@@ -149,6 +149,7 @@ frame cost) are in `.claude/rules/measuring-the-world.md`; method traps
 | Do ants step into the brood, or does something refuse them? | `deeptrace walk=1 digfrom=F` + `scripts/deeptrace_tools/broodstep.py` (steps offered against taken, brood against open ground by direction, beside what the chooser's scores predict; what was refused and why) and `fedboundary.py` (fed and hungry ants by what is straight below them, row band by row band) |
 | Does a dig rule's input reach the ants that dig? | `deeptrace dig=1` + `scripts/deeptrace_tools/digtrace.py`: each dig decision by where the ant stood and by the Crowding it read |
 | How far does each plant get, and what stops it? (seed, germinated, grown to seed size, seeded; what each one died of) | `planttrace life=1` + `scripts/planttrace.py` (`funnel`, `deaths`, `spells`, `tips` for why growing tips stopped, `life ID` for one plant's biography); `cull=F` is the known-answer control |
+| Why did this tip go where it went, or stop where it stopped? | `planttrace growlog=1 only=ID` + `scripts/planttrace.py tip OUT ID [X Y]` (one tip, visit by visit); `check` proves the log is the rule's own arithmetic, `--drop TERM` its positive control; `shots=F,F at=x,y,w,h` photographs the same run |
 | Digging in a simple box | `digbox` |
 | The nest door and its pictures | `nestdoor` (`shots=` renders with the game's renderer) |
 | Foraging and trails | `labforage`, `trailprofile`, `trailfollow` |

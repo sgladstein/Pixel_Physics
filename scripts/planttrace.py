@@ -1,13 +1,16 @@
 #!/usr/bin/env python3
-"""Read a `planttrace life=1` run: every plant from seed to grave
+"""Read a `planttrace` run: from `life=1`, every plant from seed to grave
 (`lives.csv`), its sampled economy (`plants.csv.gz`), its starving spells
-(`spells.csv`) and its events (`events.txt`).
+(`spells.csv`) and its events (`events.txt`); from `growlog=1`, every
+decision its growing tips made (`growlog.csv.gz`).
 
     python3 scripts/planttrace.py funnel OUT [OUT...] [--species S]
     python3 scripts/planttrace.py deaths OUT [OUT...] [--species S]
     python3 scripts/planttrace.py spells OUT [OUT...] [--species S]
     python3 scripts/planttrace.py tips   OUT [OUT...] [--species S]
     python3 scripts/planttrace.py life   OUT ID [BORN]
+    python3 scripts/planttrace.py tip    OUT ID [X Y]
+    python3 scripts/planttrace.py check  OUT [OUT...] [--drop cont|light|wind|up|crowd]
 
 A life is its id and its born frame: ids are slots, reused after a death.
 A plant is a life that germinated; a seed is one that never did. Several OUT
@@ -44,13 +47,31 @@ cap on growing tips. `not_asked` is a gap in the census and should be zero.
 `life`: one plant's biography -- its row, its events, its sampled economy, its
 spells and its offspring. With no BORN, every life that held the id.
 
+`tip` and `check` read `growlog.csv.gz` (`planttrace growlog=1`), every
+visit of a tip's `Grow` rule as production computed it. `tip OUT ID` lists a
+plant's visits by reason and the cells its tips started from; `tip OUT ID X Y`
+follows the tip at that cell visit by visit -- what it could pay for, how each
+direction scored, the draw, where it went -- until it retires or the log ends.
+`check` rebuilds every logged score from its steering terms and every logged
+pick from its draw, in `f32` (rounding after every operation, which is exact
+for the operations the rule uses), and exits 1 on any mismatch. `--drop TERM`
+rebuilds with one term's weight at zero: it must fail, which is the control
+that says the check can see a missing term. Wind is the exception in the lab:
+the sealed box has none (every logged wind direction is zero), so dropping it
+changes nothing and the check passes -- correctly, and only a scene with wind
+can test that term.
+
 Added 2026-10-07 with the ledger (`examples/planttrace.rs`), step 2 of
-tracing plants one individual at a time as the ant line traces ants.
+tracing plants one individual at a time as the ant line traces ants; `tips`
+came with step 3 and `tip`/`check` with the decision log, step 4.
 """
 import collections
+import math
+import struct
 import csv
 import gzip
 import os
+import signal
 import statistics
 import sys
 
@@ -289,13 +310,176 @@ def life(outs, args):
             print(f"    id {k['id']} born {k['born']}: germinated {k['germinated']}, peak {k['peak_cells']} cells, {ending(k)}")
 
 
+F32 = struct.Struct("f")
+
+
+def f32(x):
+    """Round to the nearest `f32`, as the rule's arithmetic does."""
+    return F32.unpack(F32.pack(x))[0]
+
+
+def growlog(out):
+    with gzip.open(os.path.join(out, "growlog.csv.gz"), "rt") as f:
+        yield from csv.DictReader(f)
+
+
+def scored_of(r):
+    found = []
+    for part in filter(None, r["scored"].split("|")):
+        dx, dy, density, score = part.split(":")
+        found.append((int(dx), int(dy), f32(float(density)), f32(float(score))))
+    return found
+
+
+def normalize(x, y):
+    length = f32(math.sqrt(f32(f32(x * x) + f32(y * y))))
+    if length < 1e-6:
+        return (0.0, 0.0)
+    return (f32(x / length), f32(y / length))
+
+
+def dot(a, b):
+    return f32(f32(a[0] * b[0]) + f32(a[1] * b[1]))
+
+
+TERMS = ("cont", "light", "wind", "up", "crowd")
+
+
+def rebuild(r, drop=None):
+    """Every scored direction of one visit, rebuilt the way `Grow` scores
+    it: the four steering terms over their weight sum, divided by the
+    crowding term. `drop` zeroes one term's weight."""
+    v = lambda k: f32(float(r[k]))
+    terms = [(v("hx"), v("hy")), (v("px"), v("py")), (v("wx"), v("wy")), (v("ux"), v("uy"))]
+    weights = [v("w_cont"), v("w_light"), v("w_wind"), v("w_up")]
+    crowd = v("w_crowd")
+    if drop in TERMS[:4]:
+        weights[TERMS.index(drop)] = 0.0
+    elif drop == "crowd":
+        crowd = 0.0
+    total_weight = v("w_sum")
+    built = []
+    for dx, dy, density, logged in scored_of(r):
+        d = normalize(float(dx), float(dy))
+        pref = f32(dot(d, terms[0]) * weights[0])
+        if r["rigid"] != "1":
+            for term, weight in zip(terms[1:], weights[1:]):
+                pref = f32(pref + f32(dot(d, term) * weight))
+        pref = f32(pref / total_weight)
+        built.append((dx, dy, f32(pref / f32(1.0 + f32(density * crowd))), logged))
+    return built
+
+
+def replay(r, built):
+    """The cell the logged draw picks among the rebuilt positive scores."""
+    positive = [(dx, dy, s) for dx, dy, s, _ in built if s > 0]
+    if not positive:
+        return None
+    total = 0.0
+    for _, _, s in positive:
+        total = f32(total + s)
+    pick = f32(f32(int(r["draw"]) / 10000.0) * total)
+    chosen = positive[0]
+    for c in positive:
+        if pick < c[2]:
+            chosen = c
+            break
+        pick = f32(pick - c[2])
+    return (int(r["x"]) + chosen[0], int(r["y"]) + chosen[1])
+
+
+def check(outs, args):
+    drop = flags(args, "--drop")
+    if drop is not None and drop not in TERMS:
+        sys.exit(f"--drop takes one of {', '.join(TERMS)}")
+    bad = 0
+    for out in outs:
+        visits = scores = picks = wrong_scores = wrong_picks = 0
+        worst = 0.0
+        for r in growlog(out):
+            visits += 1
+            built = rebuild(r, drop)
+            for _, _, score, logged in built:
+                scores += 1
+                if F32.pack(score) != F32.pack(logged):
+                    wrong_scores += 1
+                    worst = max(worst, abs(score - logged) / max(abs(logged), 1e-30))
+            if r["draw"]:
+                picks += 1
+                if replay(r, built) != (int(r["chosen_x"]), int(r["chosen_y"])):
+                    wrong_picks += 1
+        print(f"{out}: {visits:,} visits, {scores:,} scores rebuilt, {wrong_scores:,} differ (worst {worst:.2e} relative); "
+              f"{picks:,} picks replayed, {wrong_picks:,} differ" + (f"   [--drop {drop}]" if drop else ""))
+        bad += wrong_scores + wrong_picks
+    print("CHECK " + ("FAILED" if bad else "PASSED") + (" -- as the control expects" if drop and bad else ""))
+    sys.exit(1 if bad else 0)
+
+
+def tip(outs, args):
+    out = outs[0]
+    rest = [a for a in args[1:] if not a.startswith("--")]
+    if not rest:
+        sys.exit("tip needs an organism id: planttrace.py tip OUT ID [X Y]")
+    want = rest[0]
+    rows = [r for r in growlog(out) if r["id"] == want]
+    if not rows:
+        sys.exit(f"no Grow visit of organism {want} in {out}/growlog.csv.gz (was it filtered out?)")
+    if len(rest) < 3:
+        print(f"=== organism {want}: {len(rows):,} Grow visits, frames {rows[0]['frame']}-{rows[-1]['frame']}")
+        for kind in ("shoot", "root"):
+            c = collections.Counter(r["why"] for r in rows if r["kind"] == kind)
+            if c:
+                print(f"  {kind:5} {sum(c.values()):6,}: {top(c, 6)}")
+        grown_into = {(r["step_x"], r["step_y"]) for r in rows if r["step_x"]}
+        starts = []
+        for r in rows:
+            cell = (r["x"], r["y"])
+            if cell not in grown_into and cell not in [s[1] for s in starts]:
+                starts.append((r, cell))
+        print(f"  {len(starts)} tips started from cells no logged step grew into (germination, a branch, a regrown tiller); the first:")
+        for r, (x, y) in starts[:10]:
+            print(f"    {r['kind']:5} at ({x},{y}) from frame {r['frame']} -- follow with: tip {out} {want} {x} {y}")
+        return
+    x, y = rest[1], rest[2]
+    after = -1
+    print(f"=== the tip of organism {want} at ({x},{y}), visit by visit")
+    while True:
+        here = [r for r in rows if r["x"] == x and r["y"] == y and int(r["frame"]) > after]
+        if not here:
+            print("  -- no later visit in the log")
+            return
+        moved = False
+        for r in here:
+            options = sorted(scored_of(r), key=lambda c: -c[3])[:3]
+            opts = ", ".join(f"({dx:+d},{dy:+d}) {score:.3f}" for dx, dy, _, score in options) or "-"
+            margin = f"{float(r['margin']):.3f}" if r["margin"] else "-"
+            print(f"  f{r['frame']:>7} ({x},{y}) {r['kind']:5} path {r['path']:>4} carbon {float(r['carbon']):.3f}/{float(r['cost']):.3f} "
+                  f"headroom {margin:>6} {r['why']:18} open {r['open']}/{r['affordable']} best {opts}"
+                  + (f" -> draw {r['draw']} chose ({r['chosen_x']},{r['chosen_y']}) grew into ({r['step_x']},{r['step_y']})" if r["draw"] else ""))
+            if r["retired"] == "1":
+                print("  -- retired here")
+                return
+            if r["step_x"]:
+                after = int(r["frame"])
+                x, y = r["step_x"], r["step_y"]
+                moved = True
+                break
+        if not moved:
+            print("  -- no step and no retirement in the log after this")
+            return
+
+
 if __name__ == "__main__":
-    cmds = {"funnel": funnel, "deaths": deaths, "spells": spells, "tips": tips, "life": life}
+    # `| head` closes the pipe early; die quietly as other tools do (no
+    # SIGPIPE on Windows, where the owner also runs these).
+    if hasattr(signal, "SIGPIPE"):
+        signal.signal(signal.SIGPIPE, signal.SIG_DFL)
+    cmds = {"funnel": funnel, "deaths": deaths, "spells": spells, "tips": tips, "life": life, "tip": tip, "check": check}
     if len(sys.argv) < 3 or sys.argv[1] not in cmds:
         sys.exit(__doc__)
     args = sys.argv[2:]
-    if sys.argv[1] == "life":
-        cmds["life"]([args[0]], args)
+    if sys.argv[1] in ("life", "tip"):
+        cmds[sys.argv[1]]([args[0]], args)
     else:
-        outs = [x for i, x in enumerate(args) if not x.startswith("--") and (i == 0 or args[i - 1] != "--species")]
+        outs = [x for i, x in enumerate(args) if not x.startswith("--") and (i == 0 or args[i - 1] not in ("--species", "--drop"))]
         cmds[sys.argv[1]](outs, args)

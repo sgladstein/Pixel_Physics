@@ -4459,6 +4459,72 @@ pub struct GrowCensus {
     pub retired: [[u64; GROW_WHYS]; 2],
 }
 
+/// **One visit of a tip's `Grow` rule, as production computed it** --
+/// `World::grow_log`, the plant line's counterpart of the ant's
+/// `World::decision_log` (step 4 of tracing plants one individual at a time).
+///
+/// **Copied, never recomputed.** Every field is a value the rule already
+/// held when it decided; the only edit to the rule itself is that the pick's
+/// draw is bound to a name before it is scaled, which is the same single
+/// draw. So `scripts/planttrace.py check` rebuilding each `score` from the
+/// steering terms, and each `chosen` from `draw`, is a check on the rule and
+/// not on a copy of it. Off unless a harness sets `Some`.
+#[derive(Clone, Debug, Default)]
+pub struct GrowRow {
+    pub frame: u64,
+    pub organism: OrganismId,
+    pub x: i32,
+    pub y: i32,
+    /// A root tip; a shoot tip otherwise.
+    pub root: bool,
+    pub order: u8,
+    /// Hydraulic path length from the collar (`OrganismCell::path_len`).
+    pub path: u16,
+    pub stale: u8,
+    pub plastochron: u8,
+    /// The cell's carbon as the rule began, and the price of one cell.
+    pub carbon: f32,
+    pub cost: f32,
+    /// Turgor headroom at this path length, where the bound was reached.
+    pub margin: Option<f32>,
+    pub why: GrowWhy,
+    /// This visit retired the tip.
+    pub retired: bool,
+    /// Cells it could grow into, and of those, cells it could pay to enter.
+    pub open: u8,
+    pub affordable: u8,
+    /// Inside the straightness budget: continuation alone steers.
+    pub rigid: bool,
+    /// The four steering directions: where it is going, the light, the
+    /// wind, and up (or, for a root, down or toward water).
+    pub heading: (f32, f32),
+    pub photo: (f32, f32),
+    pub wind: (f32, f32),
+    pub up: (f32, f32),
+    /// Their weights as used -- continuation, light, wind, up -- the sum
+    /// they were divided by, and the crowding divisor's weight.
+    pub weights: [f32; 4],
+    pub weight_sum: f32,
+    pub crowding_weight: f32,
+    /// Every direction it could pay for, scored; only `score > 0` is a
+    /// candidate, in this order.
+    pub scored: Vec<GrowScore>,
+    /// The pick: the draw out of 10,000, the cell it chose, and the cell it
+    /// grew into (`render_step` may spell a lean as a different neighbour).
+    pub draw: Option<u32>,
+    pub chosen: Option<(i32, i32)>,
+    pub step: Option<(i32, i32)>,
+}
+
+/// One scored direction of a `GrowRow`.
+#[derive(Clone, Copy, Debug)]
+pub struct GrowScore {
+    pub dx: i8,
+    pub dy: i8,
+    pub density: f32,
+    pub score: f32,
+}
+
 /// The census row for `species`, grown on first use.
 fn grow_census_mut(world: &mut World, species: organism::SpeciesId) -> &mut GrowCensus {
     let i = species.0 as usize;
@@ -4972,6 +5038,9 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: OrganismId, sta
     // below -- see `GrowWhy`.
     let mut grow_why: Option<GrowWhy> = None;
     let mut grow_entered = false;
+    // The visit as production computed it, when a harness asked
+    // (`World::grow_log`). Filled field by field where each value is made.
+    let mut grow_row: Option<GrowRow> = None;
     for behavior in behavior_buf.into_iter().take(behavior_count).flatten() {
         match behavior {
             // Evaluated once per organism in `break_buds`, never from the
@@ -5080,6 +5149,20 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: OrganismId, sta
                 // not a provisional `grow_why`: rustc proves every exit
                 // overwrites the latter today, and warns that it is dead.
                 grow_entered = true;
+                if world.grow_log.is_some() {
+                    grow_row = Some(GrowRow {
+                        frame: world.frame,
+                        organism: organism_id,
+                        x,
+                        y,
+                        root: cell_type == CellType::RootTip,
+                        order,
+                        stale: stale_ticks,
+                        plastochron,
+                        carbon: resource,
+                        ..GrowRow::default()
+                    });
+                }
                 // Per-order parameters resolved once, against *this cell's*
                 // own order. A tip reads only its own tier -- no traversal,
                 // no whole-plant query -- which is what keeps architecture
@@ -5125,6 +5208,9 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: OrganismId, sta
                 };
                 let tissue_cost = cost;
                 let cost = cost * organism::wood_density(&alleles) * nutrient_construction_multiplier_at(world, organism_id, cell_type, x, y);
+                if let Some(r) = grow_row.as_mut() {
+                    r.cost = cost;
+                }
                 // Slot 8: penetration, a root trait by consumption (a
                 // shoot's force is 0.0 and stays 0.0 under any
                 // multiplier). The variance is this behaviour's own
@@ -5167,6 +5253,9 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: OrganismId, sta
                 // the turgor gate below reads it, and every child
                 // created further down is one step further out.
                 let own_path = path_len_at(world, x, y);
+                if let Some(r) = grow_row.as_mut() {
+                    r.path = own_path;
+                }
                 // **The slot map, applied** -- `GENOTYPE_TRAITS`' own doc
                 // is the contract. Branch chance is slot 0 for a shoot and
                 // slot 1 for a root, so the two halves of one plant vary
@@ -5421,6 +5510,9 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: OrganismId, sta
                         // that can.
                         let path = own_path as f32;
                         let margin = turgor_source - turgor_per_cell * path - turgor_yield;
+                        if let Some(r) = grow_row.as_mut() {
+                            r.margin = Some(margin);
+                        }
                         if margin <= 0.0 {
                             grow_why = Some(GrowWhy::HeightLimit);
                             continue;
@@ -5615,6 +5707,15 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: OrganismId, sta
                 // the cell's own age, not of the direction being scored.
                 let internode_here = ((internode.at(order) as f32) * internode_scale).round() as u32;
                 let rigid_step = internode_here > 0 && (plastochron as u32) < internode_here;
+                if let Some(r) = grow_row.as_mut() {
+                    r.rigid = rigid_step;
+                    r.heading = heading;
+                    r.photo = photo;
+                    r.wind = wind;
+                    r.up = gravity_or_water;
+                    r.weights = [continuation_weight, light_weight, wind_weight, upward_weight];
+                    r.crowding_weight = crowding_weight;
+                }
                 let mut candidates: Vec<(i32, i32, f32)> = Vec::new();
                 // How far the empty set got, for `GrowWhy`: cells it could
                 // grow into, and of those, cells it could pay to enter.
@@ -5725,9 +5826,22 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: OrganismId, sta
                             + dot(dir, gravity_or_water) * upward_weight
                     } / weight_sum;
                     let score = preference / (1.0 + density * crowding_weight);
+                    if let Some(r) = grow_row.as_mut() {
+                        r.weight_sum = weight_sum;
+                        r.scored.push(GrowScore {
+                            dx: dx as i8,
+                            dy: dy as i8,
+                            density,
+                            score,
+                        });
+                    }
                     if score > 0.0 {
                         candidates.push((nx, ny, score));
                     }
+                }
+                if let Some(r) = grow_row.as_mut() {
+                    r.open = open_cells;
+                    r.affordable = affordable_cells;
                 }
                 if candidates.is_empty() {
                     grow_why = Some(if open_cells == 0 {
@@ -5889,7 +6003,10 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: OrganismId, sta
                 let lateral_type = fate.and_then(|f| f.lateral).unwrap_or(cell_type);
 
                 let total: f32 = candidates.iter().map(|&(_, _, s)| s).sum();
-                let mut pick = (rng.below(10_000) as f32 / 10_000.0) * total;
+                // Bound to a name so `GrowRow::draw` can carry it: the same
+                // single draw, scaled exactly as before.
+                let draw = rng.below(10_000);
+                let mut pick = (draw as f32 / 10_000.0) * total;
                 let mut chosen = candidates[0];
                 for &c in &candidates {
                     if pick < c.2 {
@@ -5897,6 +6014,10 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: OrganismId, sta
                         break;
                     }
                     pick -= c.2;
+                }
+                if let Some(r) = grow_row.as_mut() {
+                    r.draw = Some(draw);
+                    r.chosen = Some((chosen.0, chosen.1));
                 }
                 // **The sample is a vote on the heading, not the step.**
                 //
@@ -5960,6 +6081,9 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: OrganismId, sta
                     ((chosen.0, chosen.1), (0.0, 0.0))
                 };
                 let (tx, ty) = chosen;
+                if let Some(r) = grow_row.as_mut() {
+                    r.step = Some((tx, ty));
+                }
                 // Priced before `set` overwrites the target -- the
                 // material being entered is what carries the resistance.
                 let step_cost = cost * penetration_cost_mult(world, tx, ty);
@@ -6913,6 +7037,18 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: OrganismId, sta
     let grow_why = grow_why.or(grow_entered.then_some(GrowWhy::NotAsked));
     if let Some(why) = grow_why {
         grow_census_mut(world, species_id).visits[tip_kind][why as usize] += 1;
+    }
+    if let Some(mut r) = grow_row.take() {
+        r.why = grow_why.unwrap_or(GrowWhy::NotAsked);
+        // The retirement branch below, read ahead of it: no candidate, no
+        // work queued, the last stale tick, and still a tip.
+        r.retired = !found_candidate
+            && next.is_empty()
+            && stale_ticks + 1 >= ORGANISM_STALE_LIMIT
+            && matches!(cell_type, CellType::GrowingTip | CellType::RootTip);
+        if let Some(log) = world.grow_log.as_mut() {
+            log.push(r);
+        }
     }
     // An ungerminated seed keeps the fast cadence -- it may still be
     // falling, and germination should follow it down promptly rather than
@@ -22269,6 +22405,95 @@ threshold {MIZ_THRESHOLD}  (+y is DOWN)");
                 );
             }
         }
+    }
+
+    /// **The decision log is the rule, and keeping it changes nothing**
+    /// (`World::grow_log`, `GrowRow`). Every logged score rebuilds bit for
+    /// bit from the logged steering terms with the rule's own `normalize` and
+    /// `dot`, every logged pick replays from its draw, and the same scene run
+    /// with the log off ends cell for cell where the logged one does. The
+    /// rebuild repeats the rule's formula on purpose: change the scoring and
+    /// this, and `scripts/planttrace.py check`, must change with it.
+    #[test]
+    fn the_grow_log_rebuilds_every_score_and_pick_and_changes_nothing() {
+        fn run(log: bool) -> (World, Vec<GrowRow>) {
+            let mut w = common_scene(140);
+            if log {
+                w.grow_log = Some(Vec::new());
+            }
+            let mut rows = Vec::new();
+            for _ in 0..3_000 {
+                super::super::parallel::step(&mut w);
+                w.step_active_sites();
+                field::step(&mut w);
+                if let Some(l) = w.grow_log.as_mut() {
+                    rows.append(l);
+                }
+            }
+            (w, rows)
+        }
+        let (on, rows) = run(true);
+        let (off, none) = run(false);
+        assert!(none.is_empty(), "a log nobody asked for was kept");
+        let b = on.bounds().expect("world has bounds");
+        for y in b.min_y..=b.max_y {
+            for x in b.min_x..=b.max_x {
+                let (a, c) = (on.get(x, y), off.get(x, y));
+                assert!(
+                    a.material == c.material && a.aux() == c.aux() && a.organism_id() == c.organism_id(),
+                    "keeping the log changed the world at ({x},{y})"
+                );
+            }
+        }
+        let (mut scored, mut picks) = (0usize, 0usize);
+        for r in &rows {
+            let [cw, lw, ww, uw] = r.weights;
+            let mut positive = Vec::new();
+            for s in &r.scored {
+                let dir = normalize((s.dx as f32, s.dy as f32));
+                let preference = if r.rigid {
+                    dot(dir, r.heading) * cw
+                } else {
+                    dot(dir, r.heading) * cw + dot(dir, r.photo) * lw + dot(dir, r.wind) * ww + dot(dir, r.up) * uw
+                } / r.weight_sum;
+                let score = preference / (1.0 + s.density * r.crowding_weight);
+                assert_eq!(
+                    score.to_bits(),
+                    s.score.to_bits(),
+                    "a logged score does not rebuild from its terms: {r:?}"
+                );
+                scored += 1;
+                if score > 0.0 {
+                    positive.push((r.x + i32::from(s.dx), r.y + i32::from(s.dy), score));
+                }
+            }
+            if let Some(draw) = r.draw {
+                let total: f32 = positive.iter().map(|&(_, _, s)| s).sum();
+                let mut pick = (draw as f32 / 10_000.0) * total;
+                let mut chosen = positive[0];
+                for &c in &positive {
+                    if pick < c.2 {
+                        chosen = c;
+                        break;
+                    }
+                    pick -= c.2;
+                }
+                assert_eq!(
+                    Some((chosen.0, chosen.1)),
+                    r.chosen,
+                    "a logged pick does not replay from its draw: {r:?}"
+                );
+                picks += 1;
+            }
+        }
+        println!(
+            "{} visits logged, {scored} scores rebuilt, {picks} picks replayed",
+            rows.len()
+        );
+        assert!(
+            scored > 0 && picks > 0,
+            "test setup: nothing was logged, so nothing was checked"
+        );
     }
 
     /// A widening trunk must stop widening, and the *end* of the run is

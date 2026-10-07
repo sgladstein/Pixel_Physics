@@ -4078,6 +4078,12 @@ pub struct World {
     /// `Grow` rule and every tip retired, by `plant::GrowWhy`, indexed by
     /// `SpeciesId`. Counted after the behaviours run and read by no rule.
     pub grow_census: Vec<crate::sim::plant::GrowCensus>,
+    /// **Every visit of a tip's `Grow` rule, as production computed it**
+    /// (`plant::GrowRow`): the steering terms, every scored direction, the
+    /// draw and the pick. Off unless a harness sets `Some` -- the plant
+    /// line's `decision_log`; `examples/planttrace.rs growlog=1` drains it.
+    /// Recording draws nothing and decides nothing.
+    pub grow_log: Option<Vec<crate::sim::plant::GrowRow>>,
     /// Scratch that `step_chain` and `tumble` write while a decision is being
     /// traced; meaningless otherwise.
     pub decision_scratch: crate::sim::creature::DecisionScratch,
@@ -6788,6 +6794,7 @@ impl World {
             loss_context: None,
             tillers_broken: 0,
             grow_census: Vec::new(),
+            grow_log: None,
             decision_scratch: crate::sim::creature::DecisionScratch::default(),
             chooser: None,
             bud_at_nest: None,
