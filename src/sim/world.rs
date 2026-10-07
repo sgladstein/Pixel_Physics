@@ -1304,6 +1304,11 @@ pub struct NestSite {
     /// nest (this label or one it split from, `World::descends_from`) from a
     /// rival's.
     pub colony: u32,
+    /// **The expressed gut (`TRAIT_GUT_BIAS`) of the ant that seeded this
+    /// site**, taken with `colony`; 0 until seeded. Read only by the store's
+    /// `edible` part (`creature::NestStore`), so the store judges food by the
+    /// same test as its colony's mouth. Passive: nothing else reads it.
+    pub gut: f32,
 }
 
 /// **Where a founding cut went**, as two inclusive rectangles: the shaft,
@@ -2198,6 +2203,17 @@ pub struct CreatureStats {
     /// door along the passages. The "it fired" half; the effect half is where
     /// the colony's starved die (`deeptrace`) and the colony's size.
     pub hungry_out_pulls: u64,
+    /// Decisions walked under the nest's store (`PIXEL_PHYSICS_NEST_STORE`,
+    /// `creature::nest_store_of`): a store load carried in, a hungry ant
+    /// going to the store, a fed nest worker going deeper. The "it fired"
+    /// half; the effect half is where the colony stands and eats.
+    pub nest_store_carry_pulls: u64,
+    pub nest_store_eat_pulls: u64,
+    pub nest_store_home_pulls: u64,
+    pub nest_store_fetch_pulls: u64,
+    /// Won bites of a store cell that were not refused: the meals the store
+    /// gave.
+    pub nest_store_bites: u64,
     /// Decisions a pellet carrier inside its nest walked out along the nest's
     /// way (`PIXEL_PHYSICS_SOIL_WAY`, `creature::soil_way_of`). The "it
     /// fired" half; the effect half is where the soil goes down.
@@ -2243,6 +2259,51 @@ pub struct CreatureStats {
     /// (`PIXEL_PHYSICS_MOUND_OUT`'s `dig`): each one a roll `LeanForage`'s
     /// `nodig` would have taken. 0 unless the switch is on.
     pub mound_digs_let: u64,
+    /// Loads put down for a need (`PIXEL_PHYSICS_NEEDS_FIRST`,
+    /// `creature::NeedsFirst`): a hungry, laden or store-job ant setting what is
+    /// in its jaws on the cell beside it. The "it fired" half; the effect half
+    /// is where the colony's hungry go and whether its door stays open. 0
+    /// unless the switch is on.
+    pub needs_down: u64,
+    /// Steps a hungry soil carrier with no open cell beside it cut through
+    /// the soil ahead, packing its pellet into the cell its tail left
+    /// (`NeedsFirst`'s `pack`). 0 unless the switch is on.
+    pub needs_packed: u64,
+    /// Walks back to a dig face or up from the store a hungry ant gave up
+    /// (`NeedsFirst`'s `hungry`). 0 unless the switch is on.
+    pub needs_quit: u64,
+    /// Dig rolls a lean ant with no way to the open air kept
+    /// (`NeedsFirst`'s `weak`): each one a roll `LeanForage`'s `nodig` would
+    /// have taken. 0 unless the part is on.
+    pub needs_weak_digs: u64,
+    /// Cuts by a digger with no way to the open air that the heap cue was
+    /// left aside for (`NeedsFirst`'s `breakthrough`). 0 unless the part is on.
+    pub needs_cue_waived: u64,
+    /// Cuts by a digger with no way to the open air, walking back to its
+    /// face, that `FaceTrip`'s `only` would have refused (`NeedsFirst`'s
+    /// `door`). 0 unless the part is on.
+    pub needs_face_waived: u64,
+    /// Hungry way-out pulls the door's throttle would have withheld, given
+    /// because the ant's own hunger outweighed the colony's want
+    /// (`NeedsFirst`'s `throttle`). 0 unless the part is on.
+    pub needs_throttle_lifted: u64,
+    /// Cuts by a digger with no way to the open air that the roof rule
+    /// refused: counted, not changed, under any of `NeedsFirst`'s escape
+    /// parts, so the one veto they leave in place is still seen.
+    pub needs_roof_refused: u64,
+    /// Decisions on which a need fired and no cell beside the head would take
+    /// the load without closing a way or standing in a doorway
+    /// (`creature::need_drop_site`): the load is kept. 0 unless the switch is
+    /// on.
+    pub needs_no_site: u64,
+    /// Pellet drops whose cell beside the carrier would have taken it but for
+    /// lying in a nest's door column above the ground (`creature::door_column_of`).
+    /// 0 with the switch off.
+    pub column_refused: u64,
+    /// Soil cells taken out of a nest's door column above the ground
+    /// (`creature::clear_door_column`). 0 unless the switch's `clear` part
+    /// is on.
+    pub column_cleared: u64,
     /// **Carry distances drawn** under `PIXEL_PHYSICS_SPOIL_RING`
     /// (`creature::spoil_ring`): when its carrier comes out by the door with
     /// it (`creature::carry_stage`), and again for a carrier that went back
@@ -2839,6 +2900,9 @@ pub struct CreatureStats {
     /// its crop for the brood.
     pub nurse_handoffs: u64,
     pub nurse_holds: u64,
+    /// Drop rolls at the nest held so a hungry ant keeps the meal it took
+    /// at home (`creature::NestStore`'s `meal`).
+    pub meal_holds: u64,
     /// Of `nurse_handoffs`: those a nurse above the founding ground passed
     /// down, and those whose receiver was not a nest worker until then.
     pub nurse_passed_down: u64,
@@ -4117,6 +4181,9 @@ pub struct World {
     /// `creature::door_loose_of` for this world; `None` reads
     /// `PIXEL_PHYSICS_DOOR_LOOSE`.
     pub door_loose: Option<bool>,
+    /// `creature::door_column_of` for this world; `None` reads
+    /// `PIXEL_PHYSICS_DOOR_COLUMN`.
+    pub door_column: Option<crate::sim::creature::DoorColumn>,
     /// `creature::kin_footing_of` for this world; `None` reads the process's
     /// `PIXEL_PHYSICS_KIN_FOOTING`.
     pub kin_footing: Option<bool>,
@@ -4197,6 +4264,11 @@ pub struct World {
     /// `None` follows the environment; a field so a guard can take both arms
     /// in one process.
     pub way_gaps: Option<crate::sim::creature::WayGaps>,
+    /// **The ways leading along the walls rather than over the crowd,
+    /// overriding `PIXEL_PHYSICS_WAY_FOOT` for this world**
+    /// (`creature::way_foot_of`). `None` follows the environment; a field so
+    /// a guard can take both arms in one process.
+    pub way_foot: Option<crate::sim::creature::WayFoot>,
     /// **Soil leaving by the nest's way out, overriding
     /// `PIXEL_PHYSICS_SOIL_WAY` for this world** (`creature::soil_way_of`).
     /// `None` follows the environment; a field so a guard can take both arms
@@ -4220,6 +4292,14 @@ pub struct World {
     /// `None` follows the environment; a field so a guard can take both arms
     /// in one process.
     pub mound_out: Option<crate::sim::creature::MoundOut>,
+    /// **`PIXEL_PHYSICS_NEEDS_FIRST` for this world** (`creature::needs_first_of`).
+    /// `None` follows the environment; a field so a guard can take both arms
+    /// in one process.
+    pub needs_first: Option<crate::sim::creature::NeedsFirst>,
+    /// **`PIXEL_PHYSICS_NEST_STORE` for this world**
+    /// (`creature::nest_store_of`). `None` follows the environment; a field
+    /// so a guard can take both arms in one process.
+    pub nest_store: Option<crate::sim::creature::NestStore>,
     /// **Each nest's way in**, as steps from its door through the cells
     /// inside it an ant can stand in (`creature::NestWay`), rebuilt every
     /// `creature::REST_REFRESH` frames by `creature::step_nest_rest` while
@@ -4231,6 +4311,12 @@ pub struct World {
     /// (`creature::build_mound_way`), rebuilt beside `nest_ways` while
     /// `PIXEL_PHYSICS_MOUND_OUT` is on, and empty otherwise.
     pub mound_ways: Vec<crate::sim::creature::NestWay>,
+    /// **Each nest's way to the open air**, as steps from the open air
+    /// through the covered cells of its mound and its nest alike
+    /// (`creature::build_out_way`), rebuilt beside `nest_ways` while one of
+    /// `PIXEL_PHYSICS_NEEDS_FIRST`'s escape parts is on, and empty otherwise.
+    /// A covered cell in its box that it does not reach is shut in.
+    pub out_ways: Vec<crate::sim::creature::NestWay>,
     /// **`PIXEL_PHYSICS_BUD_STORE` for this world** (`creature::bud_from_store`).
     /// `None` follows the environment, which is off unless set.
     pub bud_store: Option<bool>,
@@ -6804,6 +6890,7 @@ impl World {
             nurse_seek: None,
             crop_nurse: None,
             door_loose: None,
+            door_column: None,
             kin_footing: None,
             water_footing: None,
             mutation: None,
@@ -6820,13 +6907,17 @@ impl World {
             home_search: None,
             carry_home: None,
             way_gaps: None,
+            way_foot: None,
             soil_way: None,
             face_trip: None,
             crop_down: None,
             nurse_stay: None,
             mound_out: None,
+            needs_first: None,
+            nest_store: None,
             nest_ways: Vec::new(),
             mound_ways: Vec::new(),
+            out_ways: Vec::new(),
             bud_store: None,
             births_paused: false,
             dig_widen: None,
@@ -8752,7 +8843,7 @@ impl World {
         // the top of a tailings pile home. The founding row is the fixed
         // datum `step_nest_room` already freezes for the same reason.
         let surface = crate::sim::creature::colony_surface(self, x, y).unwrap_or(y);
-        self.nest_sites.push(NestSite { x, y, surface, scent: [0.0; 3], seeded: false, drift_epoch: epoch, shaft: None, larder: None, colony: 0 });
+        self.nest_sites.push(NestSite { x, y, surface, scent: [0.0; 3], seeded: false, drift_epoch: epoch, shaft: None, larder: None, colony: 0, gut: 0.0 });
     }
 
     /// **Is `colony` the label `ancestor`, or one minted from it** by
@@ -11679,6 +11770,9 @@ impl World {
         // **And each nest's way in, for resting ants**, on its own cadence
         // and only while resting is on (`creature::step_nest_rest`).
         crate::sim::creature::step_nest_rest(self);
+        // **And the door's column kept clear of soil**, only under that
+        // stopgap's `clear` part (`creature::clear_door_column`).
+        crate::sim::creature::clear_door_column(self);
         // No world-time bookkeeping here on purpose. The phase clocks are
         // *derived* from `frame` (`clock::Clock::sky_frame`), not advanced
         // beside it -- an earlier version incremented a counter from this
