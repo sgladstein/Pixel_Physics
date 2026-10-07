@@ -717,6 +717,33 @@ pub struct Grave {
     pub creature: bool,
 }
 
+/// **One death, as [`World::death_log`] records it** -- every death, whether
+/// or not it got a [`Grave`]. Built for `examples/planttrace.rs`, whose first
+/// question (2026-10-06) was what the plant deaths a grave could not hold
+/// were: a dormant seed is counted and not buried.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct DeathRow {
+    pub frame: u64,
+    pub id: OrganismId,
+    pub born_frame: u64,
+    pub species: organism::SpeciesId,
+    pub lineage: u32,
+    /// The cause booked in `deaths_by_cause`.
+    pub cause: organism::DeathCause,
+    /// `true` when a rule declared it dead (`senescent`, cause written
+    /// beside it); `false` when it left owning nothing and the cause is
+    /// whatever took its last cell (`OrganismState::last_loss`).
+    pub declared: bool,
+    /// It was still a seed that had never germinated.
+    pub dormant_seed: bool,
+    pub creature: bool,
+    /// Whether a grave was pushed for it.
+    pub buried: bool,
+    /// Where it was: a creature's head, else any cell it still owned, else
+    /// where it germinated, else `(0, 0)`.
+    pub at: (i32, i32),
+}
+
 /// **How many graves are kept.**
 ///
 /// Deliberately the same bound as the run log and for the same reason: the
@@ -4028,8 +4055,35 @@ pub struct World {
     /// setting `Some(Vec::new())`, and drained by that harness. Recording
     /// draws nothing and changes nothing.
     pub bite_log: Option<Vec<crate::sim::creature::BiteRow>>,
+    /// **Every death, one row each** ([`DeathRow`]), off (`None`) unless a
+    /// harness turns it on by setting `Some(Vec::new())`, and drained by that
+    /// harness. Filled in [`World::free_organism`], so it holds the deaths the
+    /// graveyard does not: a dormant seed gets no grave (see
+    /// `OrganismState::dormant_seed`), and inferring a cause from whichever
+    /// `deaths_by_cause` counter moved this frame is ambiguous in a bed where
+    /// several seeds rot in the same frame. Recording draws nothing and
+    /// changes nothing.
+    pub death_log: Option<Vec<DeathRow>>,
+    /// **What the removal being written right now is**, for
+    /// `OrganismState::last_loss`. A removal that knows what it is (seed rot,
+    /// shade or drought shedding, a bite, a felling, a root growing into a
+    /// seed) sets this around its own write; [`World::reindex_organism_cell`]
+    /// reads it when a living organism's cell list goes empty. `None` the rest
+    /// of the time, so a removal nobody labelled books `Unknown`. Never read
+    /// by a rule: it only labels.
+    pub loss_context: Option<organism::DeathCause>,
     /// Crown cells turned back into a growing tip by `plant::break_tillers`.
     pub tillers_broken: u64,
+    /// **Why growing tips grow or stop, per species** -- every visit of the
+    /// `Grow` rule and every tip retired, by `plant::GrowWhy`, indexed by
+    /// `SpeciesId`. Counted after the behaviours run and read by no rule.
+    pub grow_census: Vec<crate::sim::plant::GrowCensus>,
+    /// **Every visit of a tip's `Grow` rule, as production computed it**
+    /// (`plant::GrowRow`): the steering terms, every scored direction, the
+    /// draw and the pick. Off unless a harness sets `Some` -- the plant
+    /// line's `decision_log`; `examples/planttrace.rs growlog=1` drains it.
+    /// Recording draws nothing and decides nothing.
+    pub grow_log: Option<Vec<crate::sim::plant::GrowRow>>,
     /// Scratch that `step_chain` and `tumble` write while a decision is being
     /// traced; meaningless otherwise.
     pub decision_scratch: crate::sim::creature::DecisionScratch,
@@ -6736,7 +6790,11 @@ impl World {
             decision_log: None,
             feed_log: None,
             bite_log: None,
+            death_log: None,
+            loss_context: None,
             tillers_broken: 0,
+            grow_census: Vec::new(),
+            grow_log: None,
             decision_scratch: crate::sim::creature::DecisionScratch::default(),
             chooser: None,
             bud_at_nest: None,
@@ -7749,6 +7807,12 @@ impl World {
             born_frame: self.frame,
             life: organism::LifeCounters::default(),
             senescence_cause: organism::DeathCause::Unknown,
+            last_loss: organism::DeathCause::Unknown,
+            dormant_seed: false,
+            culled: false,
+            parent: 0,
+            parent_born: 0,
+            tips_retired: [[0; crate::sim::plant::GROW_WHYS]; 2],
             // **Founders carry no overrides**, which is what makes the
             // parameter genome inert until something breeds — see
             // `organism::ParamGenome`. `plant::bear_seed_at` overwrites this
@@ -7990,10 +8054,16 @@ impl World {
     pub fn mark_organism_senescent(&mut self, organism_id: OrganismId) -> bool {
         match self.organism_mut(organism_id) {
             Some(state) => {
-                state.senescent = true;
                 // The caller owns the *choice* to cull; recording that it was
-                // a cull rather than something the box did is this seam's.
-                state.senescence_cause = organism::DeathCause::Culled;
+                // a cull rather than something the box did is this seam's --
+                // unless the box had already decided. A cause is written once
+                // (`OrganismState::senescence_cause`): culling a plant that
+                // was already rotting of starvation does not make it a cull.
+                if !state.senescent {
+                    state.senescence_cause = organism::DeathCause::Culled;
+                }
+                state.senescent = true;
+                state.culled = true;
                 true
             }
             None => false,
@@ -8204,25 +8274,44 @@ impl World {
         // release really happened, so it is the only place a roll-up cannot
         // double-count. `slot.state` is already in hand, so it costs no
         // lookup and no signature change.
-        let (life, cause) = match slot.state.as_ref() {
-            Some(state) => (
-                state.life,
-                // **A plant that never declared itself dead was felled**, and
-                // that classification is the whole of §B2's missing counter.
-                // `plant.rs`'s senescence rule is guarded on
-                // `!cells.is_empty()`, so a whole-plant felling empties the
-                // list, the guard is false, and the organism arrives here
-                // with `senescent == false` and no cause -- until now
-                // indistinguishable from one allocated and never given a
-                // cell. A creature always arrives with a cause set by
-                // `creature_dies`, so this only reclassifies plants.
-                if state.senescence_cause == organism::DeathCause::Unknown && state.cells.is_empty() && state.chain.is_empty() {
-                    organism::DeathCause::FelledOrLost
-                } else {
+        // **A cause a rule declared wins; otherwise, what took the last cell.**
+        // A creature always arrives with a cause set by `creature_dies`. A
+        // plant that never declared itself dead arrives owning nothing, and
+        // until 2026-10-06 every one of those was booked `FelledOrLost` on the
+        // theory that only a felling empties a plant without a cause. A
+        // per-plant trace measured that theory at 93-97% wrong (mostly seeds
+        // rotting on their own clock, plus old age, with the real fellings
+        // lost among them; see `DeathCause::FelledOrLost`), so the fallback is
+        // now `OrganismState::last_loss`: what `reindex_organism_cell`
+        // recorded when the list went empty. A removal nobody labelled leaves
+        // it `Unknown`, which is the point -- an unlabelled path shows.
+        let (life, cause, declared, dormant_seed, culled, origin) = match slot.state.as_ref() {
+            Some(state) => {
+                let declared = state.senescence_cause != organism::DeathCause::Unknown;
+                let cause = if declared {
                     state.senescence_cause
-                },
+                } else if state.cells.is_empty() && state.chain.is_empty() {
+                    state.last_loss
+                } else {
+                    organism::DeathCause::Unknown
+                };
+                (
+                    state.life,
+                    cause,
+                    declared,
+                    state.dormant_seed,
+                    state.culled,
+                    state.origin,
+                )
+            }
+            None => (
+                organism::LifeCounters::default(),
+                organism::DeathCause::Unknown,
+                false,
+                false,
+                false,
+                None,
             ),
-            None => (organism::LifeCounters::default(), organism::DeathCause::Unknown),
         };
         let (species, lineage, colony, born_frame) = match slot.state.as_ref() {
             Some(state) => (state.species, state.lineage, state.colony, state.born_frame),
@@ -8237,8 +8326,9 @@ impl World {
             Some(state) => (
                 state.generation,
                 // A creature's head, else any cell it still owns. A plant
-                // felled whole owns none by the time it reaches here, and
-                // `(0, 0)` is honest for that: there is nowhere to point.
+                // that rotted or was felled owns none by the time it reaches
+                // here; where it germinated is the next best place to point,
+                // and `(0, 0)` is honest for a seed that never did.
                 state
                     .chain
                     .first()
@@ -8247,7 +8337,7 @@ impl World {
             ),
             None => (0, None),
         };
-        let at = head.unwrap_or((0, 0));
+        let at = head.or(origin).unwrap_or((0, 0));
         slot.state = None;
         self.free_organism_slots.push(slot_index);
         // **Which table it belonged in, decided from the species and not from
@@ -8255,19 +8345,56 @@ impl World {
         // read a creature felled to nothing as a plant, which is the same
         // shape of mistake as `FelledOrLost` above.
         let creature = self.species.get(species).creature.is_some();
-        self.graveyard.push(Grave {
-            id: organism_id,
-            born_frame,
-            died_frame: self.frame,
-            species,
-            lineage,
-            colony,
-            generation,
-            cause,
-            life,
-            at,
-            creature,
-        });
+        // **Whether this death ended its founding line**, decided before the
+        // grave rather than after it, because the answer decides the grave.
+        // The walk is O(live organisms) and runs only on a death.
+        let line_ends = lineage != 0
+            && !self
+                .organisms
+                .iter()
+                .any(|slot| slot.state.as_ref().is_some_and(|s| s.lineage == lineage));
+        // **A dormant seed is counted, not buried** (owner's choice,
+        // 2026-10-06). Seeds that rot before they germinate were ~85% of
+        // plant graves on the played bed -- ten thousand a 100k-frame run --
+        // and `GRAVE_CAP` is shared, so they pushed the colony's graves out
+        // and filled the roster's dead plants with seeds. Its death still
+        // counts in `deaths_by_cause` and `dead_life`, and `death_log` still
+        // sees it. Two keep their grave: one the player culled (a death they
+        // acted on gets a record, even if the box had already decided it --
+        // `OrganismState::culled`), and the last of a line, because
+        // `lab::ui::ended_lines` and the camera's jump read the line's end
+        // off its grave.
+        let buried = creature || !dormant_seed || culled || line_ends;
+        if buried {
+            self.graveyard.push(Grave {
+                id: organism_id,
+                born_frame,
+                died_frame: self.frame,
+                species,
+                lineage,
+                colony,
+                generation,
+                cause,
+                life,
+                at,
+                creature,
+            });
+        }
+        if let Some(log) = self.death_log.as_mut() {
+            log.push(DeathRow {
+                frame: self.frame,
+                id: organism_id,
+                born_frame,
+                species,
+                lineage,
+                cause,
+                declared,
+                dormant_seed,
+                creature,
+                buried,
+                at,
+            });
+        }
         self.dead_life.absorb(&life);
         self.deaths_by_cause[cause.index()] += 1;
         if creature {
@@ -8281,20 +8408,23 @@ impl World {
                 group.by_place[p][cause.index()] += 1;
             }
         }
-        self.log_for(
-            LogKind::Died,
-            cause.index() as OrganismId,
-            LogSubject { id: organism_id, born_frame, species, lineage, generation },
-        );
+        // A seed that never germinated never had a `Born` line either, so
+        // leaving its `Died` line out keeps the plant half of the log a story
+        // of plants rather than ten thousand seed obituaries.
+        if buried {
+            self.log_for(
+                LogKind::Died,
+                cause.index() as OrganismId,
+                LogSubject { id: organism_id, born_frame, species, lineage, generation },
+            );
+        }
         // **The lineage's own ending, which is the only line here about
         // something other than an individual.** A founding line going extinct
         // is the thing a selection experiment is watching for and the thing a
         // population count cannot show: the headcount falls by one whether the
-        // last of a line died or one of fifty siblings did.
-        //
-        // The walk is O(live organisms) and runs only on a death -- tens of
-        // organisms, hundreds of deaths in a long run.
-        if lineage != 0 && !self.organisms.iter().any(|slot| slot.state.as_ref().is_some_and(|s| s.lineage == lineage)) {
+        // last of a line died or one of fifty siblings did. `line_ends` was
+        // decided above, before the grave.
+        if line_ends {
             // **The fix for the standing `LINE 0 ENDED` bug.** `other` stayed
             // a `u16` (too narrow for a lineage) and now carries nothing;
             // the real number goes in `LogEvent::lineage`, which is why every
@@ -10480,8 +10610,21 @@ impl World {
             return;
         }
         if was != 0 {
+            // Copied out first: `organism_mut` holds `self` for the block.
+            let context = self.loss_context;
             if let Some(state) = self.organism_mut(was) {
                 state.cells.remove(&(x, y));
+                // **What took a living plant's last cell** -- see
+                // `OrganismState::last_loss`. Only on the write that empties
+                // the list, and only while nothing has declared it dead: what
+                // happens to the remains of a declared death is not its cause.
+                // A seed falling one cell does not land here as a loss worth
+                // keeping: if its old cell is cleared before its new one is
+                // written, the next write that empties the list overwrites
+                // this with whatever really took it.
+                if state.cells.is_empty() && !state.senescent {
+                    state.last_loss = context.unwrap_or(organism::DeathCause::Unknown);
+                }
             }
         }
         if now != 0 {
@@ -13602,61 +13745,248 @@ mod tests {
         assert_eq!(w.organism(id).unwrap().species, species);
     }
 
-    /// **A plant that leaves the world owning nothing, having never declared
-    /// itself dead, is booked as felled.**
+    /// **A plant that leaves owning nothing is booked by what took its last
+    /// cell -- and as `Unknown` when nothing said.**
     ///
-    /// `Reports/open-bugs-handoff.md` §B2: the support check severs a *living*
-    /// plant whole, and `plant.rs`'s senescence rule is guarded on
-    /// `!cells.is_empty()` -- so a whole-plant felling empties the cell list,
-    /// that guard is false, `senescent` is never set, and the organism arrives
-    /// at `free_organism` with no cause at all. §B2 has only ever had
-    /// cell-level numbers; it has never been able to say **how many plants**
-    /// died this way, because nothing counted the organism.
+    /// Until 2026-10-06 every plant that left with no cells and no cause was
+    /// booked `FelledOrLost`, on the theory that only a felling did that. A
+    /// per-plant trace of the played bed with no animals found it booking
+    /// 93-97% of all plant deaths, nearly all seeds that had rotted. The
+    /// fallback is now
+    /// `OrganismState::last_loss`, written by `reindex_organism_cell` from
+    /// `loss_context` on the write that empties a living plant.
     ///
-    /// This guards the classification rather than the bug: §B2 is masked by
-    /// default (`plant_load_failure` covers the detached branch for a living
-    /// organism), so reproducing the felling itself needs the mask off and a
-    /// bed that accumulates litter. What is testable here, and what is new, is
-    /// that the seam turns "no cells, no cause" into a counted death instead
-    /// of dropping it on the floor.
+    /// **The positive control is the third plant**, from the plan's
+    /// adversarial review: it sheds one cell through a labelled path and then
+    /// loses its last to an unlabelled write. Keeping the *latest* label would
+    /// book it `Withered`, and the `Unknown` that is supposed to show an
+    /// unlabelled path would read zero whether or not the labelling was
+    /// complete. It must be `Unknown`.
     #[test]
-    fn an_organism_that_leaves_owning_nothing_is_counted_as_felled() {
+    fn a_plant_that_leaves_owning_nothing_is_booked_by_what_took_its_last_cell() {
+        use organism::DeathCause as D;
         let mut w = test_world();
         let species = SpeciesId(0);
+        let wood = w.materials.id_of("wood").expect("wood is compiled in");
+        fn take(w: &mut World, x: i32, y: i32, cause: Option<organism::DeathCause>) {
+            w.loss_context = cause;
+            w.set(x, y, Cell::EMPTY);
+            w.loss_context = None;
+        }
+        let plant = |w: &mut World, cells: &[(i32, i32)]| {
+            let id = w.push_organism(species).expect("a slot is free");
+            for &(x, y) in cells {
+                w.set(x, y, Cell::new(wood, 0).with_organism_id(id));
+            }
+            id
+        };
 
-        // A plant that was felled: it had cells, they were all taken, and
-        // nothing ever set `senescent`.
-        let felled = w.push_organism(species).expect("a slot is free");
-        w.free_organism(felled);
+        // Eaten: one cell, and a bite took it.
+        let eaten = plant(&mut w, &[(10, 10)]);
+        take(&mut w, 10, 10, Some(D::Eaten));
+        // A felled branch on a plant that lived on, then shade took the rest:
+        // the felling did not take its last cell, so it was not felled.
+        let survivor = plant(&mut w, &[(20, 10), (20, 11)]);
+        take(&mut w, 20, 10, Some(D::FelledOrLost));
         assert_eq!(
-            w.deaths_by_cause[organism::DeathCause::FelledOrLost.index()],
-            1,
-            "an organism that left with no cells and no cause was not booked as felled"
+            w.organism(survivor).expect("still alive").last_loss,
+            D::Unknown,
+            "a label was kept from a cell that was not the last"
         );
-        assert_eq!(
-            w.deaths_by_cause[organism::DeathCause::Unknown.index()],
-            0,
-            "it was booked as an unattributed death instead, which is the state this replaces"
-        );
+        take(&mut w, 20, 11, Some(D::ShadedOut));
+        // The positive control: a labelled shed, then an unlabelled erase.
+        let unlabelled = plant(&mut w, &[(30, 10), (30, 11)]);
+        take(&mut w, 30, 10, Some(D::Withered));
+        take(&mut w, 30, 11, None);
+        // Felled whole.
+        let felled = plant(&mut w, &[(40, 10)]);
+        take(&mut w, 40, 10, Some(D::FelledOrLost));
+        // A declared death keeps its cause whatever takes the remains.
+        let starved = plant(&mut w, &[(50, 10)]);
+        {
+            let st = w.organism_mut(starved).expect("just made");
+            st.senescent = true;
+            st.senescence_cause = D::Starved;
+        }
+        take(&mut w, 50, 10, Some(D::Eaten));
 
-        // ...against one that *did* declare a cause, which must keep it.
-        let starved = w.push_organism(species).expect("a slot is free");
-        w.organism_mut(starved).expect("just made").senescence_cause = organism::DeathCause::Starved;
-        w.free_organism(starved);
+        for id in [eaten, survivor, unlabelled, felled, starved] {
+            w.free_organism(id);
+        }
+        let n = |c: D| w.deaths_by_cause[c.index()];
+        assert_eq!(n(D::Eaten), 1, "the bite that took the last cell was not booked");
         assert_eq!(
-            w.deaths_by_cause[organism::DeathCause::Starved.index()],
+            n(D::ShadedOut),
             1,
-            "a declared cause was overwritten by the felled classification"
+            "the survivor of a felling was not booked by what finally took it"
         );
         assert_eq!(
-            w.deaths_by_cause[organism::DeathCause::FelledOrLost.index()],
+            n(D::Unknown),
             1,
-            "the felled bucket took a death that had already named its cause"
+            "an unlabelled last removal was booked by an earlier label -- a gap hidden"
         );
-
-        // The books still close over the whole histogram.
+        assert_eq!(
+            n(D::FelledOrLost),
+            1,
+            "FELLED counted something other than the one plant a felling emptied"
+        );
+        assert_eq!(
+            n(D::Starved),
+            1,
+            "a declared cause was overwritten by what took the remains"
+        );
+        assert_eq!(n(D::Withered), 0, "the latest label won over the last one");
         let (_, died) = w.organism_turnover();
-        assert_eq!(w.deaths_by_cause.iter().sum::<u64>(), died, "a death was counted without a cause bucket, or twice");
+        assert_eq!(
+            w.deaths_by_cause.iter().sum::<u64>(),
+            died,
+            "a death was counted without a cause bucket, or twice"
+        );
+    }
+
+    /// **A cull does not overwrite a death the box had already declared**,
+    /// and still records `Culled` on a plant that was alive.
+    #[test]
+    fn a_cull_keeps_a_cause_already_decided() {
+        use organism::DeathCause as D;
+        let mut w = test_world();
+        let species = SpeciesId(0);
+        let starving = w.push_organism(species).expect("a slot is free");
+        {
+            let st = w.organism_mut(starving).expect("just made");
+            st.senescent = true;
+            st.senescence_cause = D::Starved;
+        }
+        let alive = w.push_organism(species).expect("a slot is free");
+        assert!(w.mark_organism_senescent(starving));
+        assert!(w.mark_organism_senescent(alive));
+        assert_eq!(
+            w.organism(starving).expect("not freed").senescence_cause,
+            D::Starved,
+            "the cull relabelled a plant already dying of starvation"
+        );
+        assert_eq!(
+            w.organism(alive).expect("not freed").senescence_cause,
+            D::Culled,
+            "a cull of a living plant was not recorded"
+        );
+    }
+
+    /// **A dormant seed is counted but not buried -- unless the player culled
+    /// it or it was the last of its line.** The owner's choice of
+    /// 2026-10-06: seeds that rot before they germinate were ~85% of plant
+    /// graves on the played bed and pushed the colony's out of the shared
+    /// graveyard. The two exceptions are what keep the HISTORY page (it
+    /// reads a line's end off its grave) and a player's own cull on the
+    /// record. `death_log` sees every one of them either way.
+    #[test]
+    fn a_dormant_seed_is_counted_but_not_buried() {
+        use organism::DeathCause as D;
+        let mut w = test_world();
+        w.death_log = Some(Vec::new());
+        let seed_at = |w: &mut World, x: i32, y: i32| -> OrganismId {
+            assert!(
+                w.plant_tree_species(x, y, "tree"),
+                "test setup: the seed could not be planted"
+            );
+            let id = w.get(x, y).organism_id();
+            assert!(
+                w.organism(id).is_some_and(|st| st.dormant_seed),
+                "test setup: a planted seed is not marked dormant"
+            );
+            id
+        };
+        fn rot(w: &mut World, x: i32, y: i32) {
+            w.loss_context = Some(organism::DeathCause::SeedRotted);
+            w.set(x, y, Cell::EMPTY);
+            w.loss_context = None;
+        }
+        // Two seeds of one line, so the first to go does not end it.
+        let first = seed_at(&mut w, 10, 10);
+        let second = seed_at(&mut w, 20, 10);
+        let line = w.organism(first).expect("alive").lineage;
+        w.organism_mut(second).expect("alive").lineage = line;
+        // A seed the player culls, in the same line, so only the cull can bury it.
+        let culled = seed_at(&mut w, 30, 10);
+        w.organism_mut(culled).expect("alive").lineage = line;
+        // A germinated plant: not dormant, so buried as before.
+        let grown = seed_at(&mut w, 40, 10);
+        w.organism_mut(grown).expect("alive").lineage = line;
+        w.organism_mut(grown).expect("alive").dormant_seed = false;
+
+        let graves_before = w.graveyard.len();
+        rot(&mut w, 10, 10);
+        w.free_organism(first);
+        assert_eq!(
+            w.deaths_by_cause[D::SeedRotted.index()],
+            1,
+            "a rotted seed was not counted"
+        );
+        assert_eq!(
+            w.graveyard.len(),
+            graves_before,
+            "a dormant seed that rotted was buried"
+        );
+        assert_eq!(
+            w.run_log.about(first, 0).filter(|e| e.kind == LogKind::Died).count(),
+            0,
+            "a dormant seed got a Died line"
+        );
+
+        assert!(w.mark_organism_senescent(culled));
+        w.set(30, 10, Cell::EMPTY);
+        w.free_organism(culled);
+        assert_eq!(
+            w.graveyard.len(),
+            graves_before + 1,
+            "a seed the player culled got no grave"
+        );
+
+        w.set(40, 10, Cell::EMPTY);
+        w.free_organism(grown);
+        assert_eq!(w.graveyard.len(), graves_before + 2, "a germinated plant got no grave");
+
+        // A seed already starving when the player culls it: the cull keeps
+        // the box's cause and still earns the grave (`OrganismState::culled`)
+        // -- `examples/labui.rs` culls roster rows and waits for their graves.
+        let dying = seed_at(&mut w, 50, 10);
+        {
+            let st = w.organism_mut(dying).expect("alive");
+            st.lineage = line;
+            st.senescent = true;
+            st.senescence_cause = D::Starved;
+        }
+        assert!(w.mark_organism_senescent(dying));
+        w.set(50, 10, Cell::EMPTY);
+        w.free_organism(dying);
+        assert!(
+            w.graveyard.about(dying, 0).is_some_and(|g| g.cause == D::Starved),
+            "a dying seed the player culled got no grave, or the cull overwrote its cause"
+        );
+        let graves_before = graves_before + 1;
+
+        // The last of the line: buried, so the line's end has a record.
+        rot(&mut w, 20, 10);
+        w.free_organism(second);
+        assert_eq!(
+            w.graveyard.len(),
+            graves_before + 3,
+            "the seed that ended its line got no grave"
+        );
+        assert!(
+            w.graveyard.about(second, 0).is_some_and(|g| g.cause == D::SeedRotted),
+            "the line's last grave lost its cause"
+        );
+
+        let rows = w.death_log.take().expect("on");
+        assert_eq!(rows.len(), 5, "death_log missed a death");
+        let buried: Vec<bool> = rows.iter().map(|r| r.buried).collect();
+        assert_eq!(
+            buried,
+            vec![false, true, true, true, true],
+            "death_log's buried column disagrees with the graveyard"
+        );
+        assert!(rows.iter().all(|r| !r.creature), "a plant was logged as an animal");
     }
 
     /// **A dead individual's counters are rolled into the world's dead-side

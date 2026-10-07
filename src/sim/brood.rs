@@ -1567,6 +1567,62 @@ mod tests {
         assert_eq!(w.deaths_by_cause.iter().sum::<u64>(), 0, "a brood organism's release booked a death");
     }
 
+    /// **A dormant seed a larva eats is booked EATEN**, through the bite in
+    /// `creature::eat_toward_birth`. Unlabelled, that bite was the whole of
+    /// the colony's UNKNOWN residue in `examples/planttrace.rs`: 179 stored
+    /// grass seeds in one 100k-frame run on the played bed (seed 3), every
+    /// one of 14 sampled traced to it by a backtrace.
+    #[test]
+    fn a_dormant_seed_a_larva_eats_is_booked_eaten() {
+        use crate::sim::organism::DeathCause;
+        let (mut w, ant, def) = bed(true);
+        let block = def.brood.clone().expect("brood");
+        let site = creature::try_bud(&mut w, ant, &def, 0.0, 0.0).expect("a rich ant lays");
+        let larva = the_egg(&w);
+        let (ex, ey) = (site.x, site.y);
+        w.frame = block.egg_frames;
+        let sites = brood_tick(&mut w, &site);
+        assert_eq!(
+            w.organism(larva).and_then(|s| s.brood).map(|b| b.stage),
+            Some(BroodStage::Larva)
+        );
+
+        // One dormant grass seed beside it and nothing else to eat. Its gut
+        // survival is zeroed so the bite's roll cannot spare it as a pip.
+        let (sx, sy) = [(0, -1), (1, 0), (-1, 0), (1, -1), (-1, -1)]
+            .into_iter()
+            .map(|(dx, dy)| (ex + dx, ey + dy))
+            .find(|&(x, y)| w.is_empty(x, y))
+            .expect("test setup: no empty cell beside the larva");
+        assert!(
+            w.plant_tree_species(sx, sy, "grass"),
+            "test setup: the seed could not be planted"
+        );
+        let seed = w.get(sx, sy).organism_id();
+        assert!(
+            w.organism(seed).is_some_and(|s| s.dormant_seed),
+            "test setup: the seed is not dormant"
+        );
+        let species = w.organism(seed).expect("alive").species;
+        w.species.get_mut(species).seed_gut_survival = 0.0;
+
+        w.frame += LARVA_TICK;
+        brood_tick(&mut w, &sites[0]);
+        assert_ne!(
+            w.get(sx, sy).organism_id(),
+            seed,
+            "test setup: the larva did not eat the seed"
+        );
+        assert_eq!(
+            w.organism(seed).map(|s| s.last_loss),
+            Some(DeathCause::Eaten),
+            "the larva's bite went unlabelled"
+        );
+        w.free_organism(seed);
+        assert_eq!(w.deaths_by_cause[DeathCause::Eaten.index()], 1);
+        assert_eq!(w.deaths_by_cause[DeathCause::Unknown.index()], 0);
+    }
+
     /// **An unfed larva starves without booking a death**: the brood columns
     /// move, the adult books do not, and the identity still closes.
     #[test]
