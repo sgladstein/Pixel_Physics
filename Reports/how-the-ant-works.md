@@ -824,9 +824,11 @@ on dark ground home on its own home vector** (`WayHome`). `turn` is the latch
 (`OrganismState::way_home`, `update_way_home`): an empty ant (no food, or only a
 packed lunch; no pellet) under its grant, with trail B under its head under
 `HUNGRY_ROUTE` (0.5), more than `FORAGE_TRIP_MIN` (8) cells from its anchor,
-that **left home fed**: `OrganismState::way_e0`, its energy at its last nest
-contact (or birth), at or over the grant. Under `turn` alone an ant sent out
-hungry is never latched; `bill` latches it too, once its energy is under 0.1
+that **went hungry out in the open**: `OrganismState::way_open_fed`, set while
+it stands in the open at or over its grant and cleared whenever it is under
+cover (the mound's tunnels count, as the nest resets a desert ant's home
+vector). Under `turn` alone an ant that steps out of cover already hungry is
+never latched; `bill` latches it too, once its energy is under 0.1
 of the grant plus 1.5 times what it has spent since its first step in the open
 more than 8 cells out (`OrganismState::way_bill_e0`, reset at each nest
 contact): it may make its long trip while it can afford one. A founder, born at its grant and landed under it away from the door,

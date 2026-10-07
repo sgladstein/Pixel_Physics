@@ -7947,7 +7947,7 @@ impl World {
             eat_lunch_now: false,
             hungry_home: false,
             way_home: false,
-            way_e0: 0.0,
+            way_open_fed: false,
             way_latched: false,
             way_bill_e0: f32::NAN,
             // Zero is "no memory yet"; the first tick's read sees `live - 0`,

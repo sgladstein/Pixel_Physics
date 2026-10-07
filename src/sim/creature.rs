@@ -2602,8 +2602,6 @@ fn place_creature(
         // `OrganismState::forage_anchor` — measurement only.
         state.forage_anchor = (x, y);
         state.forage_max = 0;
-        // What it "set out with" ([`WayHome`]): born at home, with this.
-        state.way_e0 = state.energy;
         state.way_bill_e0 = f32::NAN;
     }
     // **This lineage's standing facts, seeded once, at the one moment its
@@ -19814,10 +19812,7 @@ fn commit_step(
             // 32-cell nest patch from accumulating a 30-cell "excursion".
             state.forage_anchor = (tx, ty);
             state.forage_max = 0;
-            // What it sets out with from here ([`WayHome`]'s "left home
-            // fed"): written whatever the switch, read only under it.
-            state.way_e0 = state.energy;
-            // ...and its bill ([`WayHome`]'s `bill`) starts again at its
+            // Its bill ([`WayHome`]'s `bill`) starts again at its
             // next step out in the open.
             state.way_bill_e0 = f32::NAN;
             // The profile is booked for *every* excursion, including the
@@ -21939,13 +21934,25 @@ fn update_hungry_home(world: &mut World, organism: OrganismId, def: &CreatureDef
 ///   [`update_way_home`]). An empty animal (no food, or only a packed lunch;
 ///   no pellet) under its grant, off any trail (trail B under the head under
 ///   [`HUNGRY_ROUTE`]), more than [`FORAGE_TRIP_MIN`] cells from its anchor,
-///   that **left home fed** (`OrganismState::way_e0`, its energy at its last
-///   nest contact, at or over the grant). That last test keeps it off an ant
-///   that sets out hungry, so a hungry ant may still make the long trip that
-///   finds far food: the earlier come-home rule (`HUNGRY_HOME`'s tether)
-///   fired on every hungry ant off a road and forbade those trips
-///   (`Reports/dead-ends.md`). **The founders are reached once, on landing**:
-///   each is born at its grant (`way_e0`) and lands spread up to ~100
+///   that **went hungry out in the open** (`OrganismState::way_open_fed`:
+///   it stood in the open at or over its grant and has not been under cover
+///   since). That last test keeps it off an ant that sets out hungry, so a
+///   hungry ant may still make the long trip that finds far food: the
+///   earlier come-home rule (`HUNGRY_HOME`'s tether) fired on every hungry
+///   ant off a road and forbade those trips (`Reports/dead-ends.md`).
+///   **Why "in the open", not "left the nest fed"**: build 3 read its
+///   energy at the last nest contact. Ants fed at 3x the grant there grew
+///   hungry inside the mound's tunnels and latched on their first step out,
+///   heading for food: on the goal box with the heap at 90 (seed 4,
+///   88-98k), 86% of 2,972 walks home began that way, put up to 180 extra
+///   hungry ants at the door, stalled the carriers there (37% of loads
+///   delivered against 55% off) and the colony starved when the door sealed.
+///   The far-west starvers it is for went hungry in the open (65 of 86,
+///   44 of 53, 59 of 96, 45 of 50, seeds 1-4, switch off). A desert ant's
+///   home vector is reset when it gets back inside (Knaden & Wehner 2006,
+///   J Exp Biol 209:26, PMID 16354775); the mound's tunnels count as inside
+///   here. **The founders are reached once, on landing**:
+///   each is born at its grant and lands spread up to ~100
 ///   columns either side of the door under it, so it is walked to the door
 ///   first (measured: 42 of the 59 ants latched before frame 20,000 on the
 ///   goal box's seed 1 were founders). At the door it is re-anchored hungry,
@@ -22072,7 +22079,7 @@ fn update_way_home(world: &mut World, organism: OrganismId, def: &CreatureDef, h
     } else {
         let x = f32::from(world.pheromone_at(Channel::B, head.0, head.1)) / TRAIL_HALF;
         let dark = x / (1.0 + x) < HUNGRY_ROUTE;
-        let left_fed = way.turn && state.way_e0 >= def.start_energy;
+        let left_fed = way.turn && state.way_open_fed;
         let spent = way.bill && !bill_e0.is_nan() && state.energy < HUNGRY_RESERVE * def.start_energy + WAY_BILL_MARGIN * (bill_e0 - state.energy);
         let latch = dark && d > f32::from(FORAGE_TRIP_MIN) && (left_fed || spent) && def.home_bias > 0.0;
         billed = latch && !left_fed;
@@ -22090,6 +22097,9 @@ fn update_way_home(world: &mut World, organism: OrganismId, def: &CreatureDef, h
     if let Some(state) = world.organism_mut(organism) {
         state.way_latched = now;
         state.way_home = now && !covered;
+        // **Fed in the open, and not under cover since** (`turn`'s test):
+        // cover clears it, as the nest resets a desert ant's home vector.
+        state.way_open_fed = !covered && (state.way_open_fed || state.energy >= def.start_energy);
     }
 }
 
@@ -40304,7 +40314,7 @@ mod tests {
     /// ground walks home and is let go there; one that left hungry scouts on**
     /// ([`WayHome`]). The tether's scene: a stone floor, home (the anchor) at
     /// x 20, the ant at x 100 facing east, energy held at 0.8 of its grant.
-    /// Left fed (`way_e0` at the grant) it turns for home once
+    /// Gone hungry in the open (`way_open_fed` set) it turns for home once
     /// (`way_home_turns`, the "it fired" count), walks there (the effect), and
     /// is let go within reach (`way_home_home`). Left hungry, as an ant the
     /// colony sends out hungry does, it scouts east as with the switch off. **Watched red**: with the "left home fed" test removed from
@@ -40333,7 +40343,7 @@ mod tests {
                 let st = w.organism_mut(ant).expect("live");
                 st.heading = 0;
                 st.forage_anchor = (20, 40);
-                st.way_e0 = if left_fed { grant } else { 0.5 * grant };
+                st.way_open_fed = left_fed;
             }
             let (mut west, mut east) = (100, 100);
             for _ in 0..1800 {
@@ -40387,7 +40397,7 @@ mod tests {
                 let st = w.organism_mut(ant).expect("live");
                 st.heading = 0;
                 st.forage_anchor = (20, 40);
-                st.way_e0 = grant;
+                st.way_open_fed = true;
                 st.way_latched = true;
                 st.way_home = true;
             }
@@ -40445,7 +40455,7 @@ mod tests {
                 let st = w.organism_mut(ant).expect("live");
                 st.heading = 0;
                 st.forage_anchor = (20, 40);
-                st.way_e0 = 0.5 * grant;
+                st.way_open_fed = false;
             }
             let (mut west, mut east) = (100, 100);
             for i in 0..3600 {
@@ -40467,6 +40477,60 @@ mod tests {
         assert!(turns >= 1, "the billed ant never turned for home");
         assert!(east >= 110, "it should scout east first, while it could afford to, and got only to x {east}");
         assert!(west <= 22, "it should walk home to x 20, and got only to x {west}");
+    }
+
+    /// **`turn` latches only an ant that went hungry out in the open**
+    /// ([`WayHome`]): one that was under cover since it was last fed steps
+    /// out hungry and scouts on. The first test's scene, the ant fed in the
+    /// open before (`way_open_fed` set) and held at 0.8 of its grant, facing
+    /// east from x 100. With a stone roof ten rows over x 80-112 it starts
+    /// under cover, so the bit is cleared and it walks out east unlatched;
+    /// with no roof it latches as before. **Watched red**: with the bit no
+    /// longer cleared under cover the roofed walk latches.
+    #[test]
+    fn turn_leaves_an_ant_that_went_hungry_under_cover_scouting() {
+        let walk = |roof: bool| -> (u64, i32) {
+            let stone = Cell::new(material::STONE, 0).with_attached(true);
+            let mut w = World::new(Rect::new(0, 0, 159, 63));
+            for x in 0..160 {
+                for y in 41..64 {
+                    w.set(x, y, stone);
+                }
+            }
+            for y in 0..41 {
+                for x in [0, 159] {
+                    w.set(x, y, stone);
+                }
+            }
+            if roof {
+                for x in 80..=112 {
+                    w.set(x, 30, stone);
+                }
+            }
+            w.chooser = Some(Chooser::TrailAway);
+            w.scout = Some(SCOUT_DEFAULT);
+            w.way_home = Some(WayHome { turn: true, bare: true, bill: false });
+            let ant = spawn(&mut w, "ant", 100, 40);
+            let grant = w.species.get(w.organism(ant).expect("live").species).creature.as_ref().expect("a creature").start_energy;
+            {
+                let st = w.organism_mut(ant).expect("live");
+                st.heading = 0;
+                st.forage_anchor = (20, 40);
+                st.way_open_fed = true;
+            }
+            let mut east = 100;
+            for _ in 0..1800 {
+                w.organism_mut(ant).expect("live").energy = 0.8 * grant;
+                run(&mut w, 1);
+                east = east.max(w.organism(ant).expect("live").chain[0].0);
+            }
+            (w.creature_stats.way_home_turns, east)
+        };
+        let (open_turns, _) = walk(false);
+        assert!(open_turns >= 1, "without the roof the ant went hungry in the open and should turn for home: the scene cannot show a difference");
+        let (turns, east) = walk(true);
+        assert_eq!(turns, 0, "an ant that went hungry under cover was turned for home on stepping out");
+        assert!(east >= 120, "it should scout east out from under the roof, and got to x {east}");
     }
 
     /// **A fed, laden ant beside food and facing away from home still walks

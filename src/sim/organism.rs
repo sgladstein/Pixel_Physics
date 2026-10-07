@@ -6379,10 +6379,12 @@ pub struct OrganismState {
     /// **The latch behind `way_home`**: set and cleared as `way_home` is
     /// described, but held under cover, where `way_home` (the pull) is off.
     pub way_latched: bool,
-    /// **The energy this animal had at its last nest contact** (or at birth):
-    /// what it set out with, for [`OrganismState::way_home`]'s "left home fed".
-    /// Written on every contact whatever the switch; read only under it.
-    pub way_e0: f32,
+    /// **Fed in the open, and not under cover since**: set while this animal
+    /// stands in the open at or over its grant, cleared whenever it is under
+    /// cover. `WayHome`'s `turn` latches only an animal that still has it
+    /// when it drops under the grant -- one that went hungry out there.
+    /// Written only under the switch.
+    pub way_open_fed: bool,
     /// **The energy this animal had at its first step in the open more than a
     /// trip's length out since its last nest contact** (NaN until it takes
     /// one): where `WayHome`'s `bill` starts. Written only under that part.
