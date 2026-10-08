@@ -21,9 +21,13 @@ Numbers are seed 1 / seed 4.
 
 ![The mound, seed 1](mound.png)
 
-*The mound over the door at 100k and 180k frames, seed 1, the same switches
-in the lab (ants coloured by job; the right pair with the dig heat map). A lab
-run, not the traced one, so the holes are not the same holes.*
+*The mound over the door, seed 1, the same switches in the lab: 100k frames
+on top, 180k below; the right column adds the dig heat map (teal and white:
+cells cut recently). Ants by job: amber forager, blue nest worker, pink
+layer. The mound has become a lattice of holes, crowded with foragers, and by
+180k the fresh cuts sit inside it. Lab run (`labshot`, 248-261 ants, 864-1,096
+cuts in the map's window), not the traced run, so the holes are not the same
+holes.*
 
 ## The answer in plain words
 
