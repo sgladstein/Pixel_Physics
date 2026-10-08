@@ -756,6 +756,9 @@ impl Handler {
             // colony's own work, and `F8` was the next free F key.
             KeyCode::F8 => self.lab.act(Action::ToggleCutaway),
             KeyCode::F9 => self.lab.act(Action::ToggleBattle),
+            // The dig heat map: the next free F key after the battle view, and
+            // a view of the colony's own work like `F7`/`F8` (`dig_marks`).
+            KeyCode::F10 => self.lab.act(Action::CycleDigOverlay),
             // The parameters page. `P` rather than `F4`: it is the one page
             // you open to *change* something rather than to read something,
             // and it sits with the tools on the bar's top row for the same

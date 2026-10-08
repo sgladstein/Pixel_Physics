@@ -3277,6 +3277,45 @@ fn birth_bar(threshold: f32, cost: f32, def: &CreatureDef, laying: Option<&super
     }
 }
 
+/// **A worker's job, as the lab's `BY JOB` view draws it.** Read only, no
+/// draw: the same tests the tick makes, so the colour on screen is the rule
+/// the ant is under and not a second opinion about it. Added 2026-10-08 for
+/// the owner's playtest note *"the nurse, nest worker, all ant types should
+/// be visibly different"*.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum AntJob {
+    /// Not nest-bound: works outside.
+    Forager,
+    /// Nest-bound ([`is_nest_bound`]): the caste by id, or a young ant
+    /// still in its stay-home spell, or one a nestmate's food turned.
+    NestWorker,
+    /// A nest worker carrying crop food to feed brood ([`is_crop_nurse`]).
+    Nurse,
+    /// Any adult whose bank has reached its own laying bar ([`birth_bar`]).
+    /// There is no queen: these are the ants that lay, so the view draws
+    /// them brightest.
+    Layer,
+}
+
+/// The job [`AntJob`] names for `state`. Layer wins, then nurse, then
+/// nest worker.
+pub fn ant_job(world: &World, def: &CreatureDef, state: &super::organism::OrganismState) -> AntJob {
+    let layer = state.brood.is_none()
+        && reproduce_at_of(def, &state.traits).is_some_and(|threshold| {
+            let cost = birth_cost_of(def, birth_grant(def, &state.traits));
+            state.energy >= birth_bar(threshold, cost, def, super::brood::brood_of(world, def).as_ref())
+        });
+    if layer {
+        AntJob::Layer
+    } else if is_crop_nurse(world, state) {
+        AntJob::Nurse
+    } else if is_nest_bound(world, state) {
+        AntJob::NestWorker
+    } else {
+        AntJob::Forager
+    }
+}
+
 /// **An ant rich enough to lay, held only by being away from the nest**,
 /// walks home to lay the way a laden ant walks home with food
 /// ([`home_pull`], and the laden pace through `HomeAligned`). Built
@@ -19445,6 +19484,10 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
             // The census's record of the act (`World::dug_cells`): read by
             // nothing in the simulation, so it cannot move a run.
             world.dug_cells.insert((tx, ty));
+            let frame = world.frame;
+            if let Some(log) = world.cut_log.as_mut() {
+                log.push((tx, ty, frame, organism));
+            }
             if spoil_kept() {
                 if let Some(state) = world.organism_mut(organism) {
                     state.spoil = Some(Spoil { cell: pellet, store: false });
@@ -39149,14 +39192,23 @@ mod tests {
             assert!(w.found_colony(200, low - 32) > 0, "the bed placed no ants -- the scene is wrong, not the rule");
             if traced {
                 w.decision_log = Some(Vec::new());
+                // The dig heat map's log rides the same guard: it is pushed
+                // in the dig arm, so a run with it on must be the same run.
+                w.cut_log = Some(Vec::new());
             }
             run(&mut w, 9000);
             let rows = w.decision_log.take().unwrap_or_default();
-            (creature_world_state(&w), rows, w.creature_stats)
+            let cuts = w.cut_log.take().map_or(0, |c| c.len() as u64);
+            (creature_world_state(&w), rows, w.creature_stats, cuts)
         };
         for mode in [Chooser::Off, Chooser::TrailAway] {
-            let (off, off_rows, off_stats) = run_bed(false, mode);
-            let (on, on_rows, _) = run_bed(true, mode);
+            let (off, off_rows, off_stats, off_cuts) = run_bed(false, mode);
+            let (on, on_rows, on_stats, on_cuts) = run_bed(true, mode);
+            assert_eq!(off_cuts, 0, "{mode:?}: the unrecorded run kept cuts");
+            // One row per cut the world counted -- and the count must be
+            // non-zero, or the equality below says nothing about the cut log.
+            assert!(on_stats.digs > 0, "{mode:?}: nothing dug, so the cut log is untested here");
+            assert_eq!(on_cuts, on_stats.digs, "{mode:?}: the cut log and the dig counter disagree");
             assert!(off_rows.is_empty(), "{mode:?}: the untraced run recorded {} decisions", off_rows.len());
             let turned = if mode == Chooser::Off { off_stats.tumbles } else { off_stats.moves };
             assert!(off_stats.moves > 100 && turned > 100, "{mode:?}: moves {} tumbles {}: the bed barely moved, so equality proves nothing", off_stats.moves, off_stats.tumbles);
