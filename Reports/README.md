@@ -5530,7 +5530,10 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   face: cut rate x2,000 from flat to hollow. The roof never refuses above the
   ground line and the heap cue stands aside for covered cells; soil sliding
   into each cut pushes the hole upward, so 220-300 covered holes build up.
-  On main 85% of all cuts are mound cuts. Three levers named, none built.
+  On main 85% of all cuts are mound cuts. The three levers, built as
+  `MOUND_DIG` and measured: every one that stops the digging costs the
+  colony a third to a half, because the hollow mound is its way to the food;
+  shipped off, a dead end until a rule can tell a passage from a scrape.
 - [stack-leave-one-out-2026-10-08/README.md](stack-leave-one-out-2026-10-08/README.md) —
   **the playtest stack one switch at a time on steady food: the nest store
   starves the foragers.** Taking `NEST_STORE` out cuts surface starvation on
