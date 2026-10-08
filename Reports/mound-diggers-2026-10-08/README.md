@@ -209,6 +209,13 @@ traced runs on every shared column, row for row.
 | 4 | off | 243 / 275 | 4,333 | 198 (195 / 2 / 1) | 131 |
 | 4 | on | **125 / 175** | 425 | 383 (268 / **107** / 1) | 213 |
 
+![MOUND_DIG off and on, seed 1, 100k](mound-dig-on-off.png)
+
+*The ground over the door at 100k, seed 1, drawn from the run's own map
+(`map_f100000.txt`; amber ants, brown soil, green food, cream brood): off, the
+mound between the door and the food heap is hollow and full of ants; on, it is
+solid soil and the ants are on its surface.*
+
 **It stops the mound digging (cuts down 90-98%) and costs a third to a half
 of the colony on every seed**, with 101-178 adults a run starving inside the
 mound against 2-43. The ground maps say why (seed 1, 100k, rows 140-160 over
