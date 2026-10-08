@@ -147,3 +147,30 @@ the runs without the store stop at 120k because worker restarts kept killing
   on endless food), without it (steadier on renewable food), or with the
   store changed so foragers can reach its food (a design question, see
   above).
+
+## And with the food nearer (heap 30)
+
+The same box with the heap 30 columns from the door, main, the bundle and the
+bundle without the store, seeds 1-4, 120k (scripts [`flip30.sh`](flip30.sh),
+[`flip30q.sh`](flip30q.sh)); ants min / mean over frames 60-120k, adults
+starved 20-120k:
+
+| seed | main | bundle | bundle without the store |
+|---|---|---|---|
+| 1 | 420 / 509, 23 | 653 / 699, 3 | 545 / 644, 0 |
+| 2 | 467 / 532, 2 | 686 / 781, 3 | 487 / 538, 5 |
+| 3 | 439 / 466, 0 | 491 / 591, 40 | 532 / 654, 0 |
+| 4 | 476 / 512, 2 | 430 / 636, 3 | 514 / 559, 0 |
+
+- **Both bundles beat main on every seed** at heap 30 too (mean 591-781 and
+  538-654 against 466-532), though by less than at heap 90, because main
+  already does well with food close (starved 0-23).
+- **The store's advantage is weaker here**: bigger on 3 seeds of 4, smaller
+  on seed 3 (591 against 654), and the bundle's one starvation pulse is there
+  (40).
+- **For the flip, across all three foods:** the bundle without the store
+  beats main on endless food at both distances and is the best arm on
+  renewable food; the bundle with it is bigger on endless food and worse on
+  renewable food. Either is a clear improvement on main. Which one is the
+  owner's call (the review card asks it), or the store gets redesigned so
+  foragers can reach its food and then neither trade is needed.
