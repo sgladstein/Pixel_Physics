@@ -1955,6 +1955,10 @@ pub struct CreatureStats {
     /// within the roof's rows under a nest's founding surface and outside its
     /// door. 0 under `PIXEL_PHYSICS_DIG_ROOF=off`.
     pub digs_refused_roof: u64,
+    /// **`creature::forager_nodig`'s count**: dig rolls whose urge was read
+    /// as 0 because the ant's forage drive was over the line. 0 unless
+    /// `PIXEL_PHYSICS_FORAGER_NODIG` is set.
+    pub forager_digs_skipped: u64,
     /// **`creature::MoundDig`'s `roof` count**: cuts refused because their
     /// cell lay in a nest's spoil mound outside its door, the digger not shut
     /// in. Not in `digs_refused_roof`; the trace's `DigWhy` reads it as the

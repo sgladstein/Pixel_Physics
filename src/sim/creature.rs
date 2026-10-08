@@ -940,6 +940,8 @@ pub const PULL_MISMATCH: u8 = 12;
 pub const PULL_MOUND_OUT: u8 = 13;
 /// [`nest_store_pull`], asked first in `home_pull` ([`NestStore`]).
 pub const PULL_NEST_STORE: u8 = 14;
+/// `home_pull`'s walk in to lay ([`lay_in_of`]), after [`PULL_LAY`].
+pub const PULL_LAY_IN: u8 = 15;
 /// [`DecisionScratch::trip_end`]: the walk back to the face did not end.
 pub const TRIP_END_NONE: u8 = 0;
 /// Within two cells of the face and aimed at it (not under [`FaceTrip`]'s
@@ -1047,7 +1049,7 @@ pub(super) fn note_feed(world: &mut World, larva: OrganismId, at: (i32, i32), ki
 }
 
 /// [`DecisionScratch::pull_why`]'s names, by value.
-pub const PULL_WHY_NAMES: [&str; 15] = [
+pub const PULL_WHY_NAMES: [&str; 16] = [
     "not scored",
     "none",
     "store trip",
@@ -1063,6 +1065,7 @@ pub const PULL_WHY_NAMES: [&str; 15] = [
     "mismatch",
     "mound out",
     "nest store",
+    "walk in to lay",
 ];
 
 impl Default for DecisionScratch {
@@ -4047,7 +4050,7 @@ pub const NEST_BOUND_FRAMES: u32 = 8_000;
 /// read the way out along a route and is pulled home when it strays
 /// ([`home_pull`]); hungry, it scouts for food as any ant does. Only it
 /// carries food into the storeroom.
-fn is_nest_bound(world: &World, state: &crate::sim::organism::OrganismState) -> bool {
+pub(crate) fn is_nest_bound(world: &World, state: &crate::sim::organism::OrganismState) -> bool {
     state.nest_bound_until > world.frame
 }
 
@@ -13012,7 +13015,7 @@ fn foot_field(world: &World, way: &NestWay, seeds: &[(i32, i32)], k: u16) -> Vec
 pub fn step_nest_rest(world: &mut World) {
     let mound = mound_out_of(world) != MoundOut::OFF;
     let escape = needs_first_of(world).ways();
-    let read = nest_rest_of(world).on() || hungry_out_of(world) || soil_way_of(world) != SoilWay::OFF || mound || escape || nest_store_of(world).on();
+    let read = nest_rest_of(world).on() || hungry_out_of(world) || soil_way_of(world) != SoilWay::OFF || mound || escape || nest_store_of(world).on() || lay_in_of(world);
     if !read || world.nest_sites.is_empty() {
         world.nest_ways.clear();
         world.mound_ways.clear();
@@ -13062,10 +13065,18 @@ fn rest_pull(world: &World, organism: OrganismId, def: &CreatureDef, head: (i32,
         return None;
     }
     let gain = def.home_bias * (1.0 - out / REST_BALANCE);
+    Some((deeper_along_way(world, organism, head)?, gain))
+}
+
+/// **Where "further in" is from `head`**: [`REST_LOOKAHEAD`] steps along its
+/// nearest nest's way in ([`NestWay`]) away from the door, or the door for
+/// an ant not on the way. `None` with no nest or no way built. Shared by
+/// the rest pull and the walk in to lay ([`lay_in_of`]).
+fn deeper_along_way(world: &World, organism: OrganismId, head: (i32, i32)) -> Option<(i32, i32)> {
     let site = world.nearest_nest_site(head.0, head.1)?;
     let way = world.nest_ways.iter().find(|w| w.site == site)?;
     let Some(mut d) = way.at(head.0, head.1) else {
-        return Some((way.door, gain));
+        return Some(way.door);
     };
     // The ant's own order to try its neighbours in, so ties at a fork go
     // its own way and the colony spreads over the nest's ends.
@@ -13084,7 +13095,57 @@ fn rest_pull(world: &World, organism: OrganismId, def: &CreatureDef, head: (i32,
         d = v;
         at = p;
     }
-    Some((at, gain))
+    Some(at)
+}
+
+/// **`PIXEL_PHYSICS_LAY_IN=on`: an ant ready to lay that reaches the nest
+/// and finds nowhere to put the egg walks in** (2026-10-08, off). The walk
+/// home to lay ([`ready_to_lay`]) ends where the ant is first beside home
+/// ([`nest_within_reach`]), and that is the door: the egg then needs an
+/// empty home cell within [`super::brood::egg_pile_reach`] steps
+/// ([`super::brood::pile_site`]), and the door is where the colony stands.
+/// Traced: the 2026-10-07 egg-cap trace found 38-44 ants in the 9x9 round a
+/// ready layer at the door and no free home cell on 89-99% of its tries;
+/// on the heap-90 stack (seed 1, 95-110k) 320 of 846 ants seen on the mound
+/// were walking home to lay, and forager 1049310 (3,000-4,300 J) held that
+/// pull at the door for 13,000 frames, so the forage pull was never scored
+/// (`Reports/mound-diggers-2026-10-08/README.md`). With this on, a ready
+/// ant beside home with no egg site in reach is pulled along the nest's
+/// way in, away from the door ([`deeper_along_way`], the rest pull's walk),
+/// at the laden gain, until a site is in reach and it lays; an ant not on
+/// the way is pulled to the door. The egg site is looked for only on these
+/// ticks (a ready ant beside home), the same 9x9 walk the lay itself makes.
+/// Needs the way in built: it is read here, so its builder runs while this
+/// is on ([`step_nest_rest`]).
+pub fn lay_in_of(_world: &World) -> bool {
+    static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *V.get_or_init(|| match std::env::var("PIXEL_PHYSICS_LAY_IN").as_deref().map(str::trim) {
+        Ok("on") => true,
+        Ok("off") | Ok("") | Err(_) => false,
+        Ok(other) => panic!("PIXEL_PHYSICS_LAY_IN={other:?}: use on or off"),
+    })
+}
+
+/// **Where a ready layer beside home is pulled in** ([`lay_in_of`]); `None`
+/// when off, not ready, not beside home, or an egg site is already in reach.
+fn lay_in_target(world: &World, organism: OrganismId, def: &CreatureDef, state: &crate::sim::organism::OrganismState, head: (i32, i32)) -> Option<(i32, i32)> {
+    if !lay_in_of(world) {
+        return None;
+    }
+    lay_in_pull(world, organism, def, state, head)
+}
+
+/// [`lay_in_target`] past its switch, for the test that cannot set it.
+fn lay_in_pull(world: &World, organism: OrganismId, def: &CreatureDef, state: &crate::sim::organism::OrganismState, head: (i32, i32)) -> Option<(i32, i32)> {
+    if def.home_bias <= 0.0 || !ready_to_lay(world, def, state) || !nest_within_reach(world, organism, head.0, head.1, def) {
+        return None;
+    }
+    let reach = super::brood::egg_pile_reach();
+    let brood = super::brood::brood_of(world, def)?;
+    if reach > 0 && super::brood::pile_site(world, head, def, &brood, reach, super::brood::EggBar::of(world, organism)).is_some() {
+        return None;
+    }
+    deeper_along_way(world, organism, head)
 }
 
 /// **A hungry ant inside its nest is drawn out the way it came in**
@@ -17683,6 +17744,19 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
             dig_urge = 0.0;
             lean_took_dig = true;
             world.creature_stats.lean_digs_skipped += 1;
+        }
+    }
+    // **A forager the colony is calling does not dig** ([`forager_nodig`]):
+    // with its forage drive at or over the line, the urge reads 0 as a lean
+    // ant's does, the roll still spends its draw, and an ant shut in keeps
+    // its roll for the same reasons. Off, no read.
+    if dig_urge > 0.0 {
+        if let Some(line) = forager_nodig() {
+            let called = world.organism(organism).is_some_and(|s| forage_drive_level(world, s, def) >= line);
+            if called && !(mound_out_of(world).dig && shut_in_mound(world, x, y)) && !(needs_first_of(world).weak && shut_in(world, x, y)) {
+                dig_urge = 0.0;
+                world.creature_stats.forager_digs_skipped += 1;
+            }
         }
     }
     let dig_urge = dig_urge;
@@ -22702,6 +22776,43 @@ pub fn forage_drive_of(world: &World) -> ForageDrive {
 /// `home_target`). A need sampled at home and held, not a field that fades
 /// on the way out: an ungated `(PheroARise, Move)` that fell along the
 /// outbound leg worked as a leash (`dead-ends.md`, reached food 199 -> 156).
+/// **`PIXEL_PHYSICS_FORAGER_NODIG=on|<line>`: a forager the colony is
+/// calling does not dig** (2026-10-08, off; the owner, after the doorway
+/// trace: foragers that *"do their job once and then just start wandering
+/// aimlessly causing trouble"*). An ant whose forage drive
+/// ([`forage_drive_level`]) is at or over `line` (0.5 for `on`) reads its
+/// `Dig` urge as 0, as a lean ant does. Traced (heap-90 stack, seed 1,
+/// 95-110k): forager 1049310 handed its load over on the mound at 96,451
+/// and cut the mound 5 frames later; for 13,000 frames it cut, carried the
+/// pellet up the mound and cut again, and the forage drive -- which reaches
+/// only an ant with empty jaws -- never sent it out; 91-93% of mound cuts
+/// were foragers' (`Reports/mound-diggers-2026-10-08/README.md`). The drive
+/// is 1 for `RETURN_WINDOW` (1,400) frames, times the ant's memory gene,
+/// after it last met a forager home with food, then fades as
+/// `e^-(age - W)/W`; so while food is coming home a forager near the door
+/// does not dig, and when it stops coming the line is crossed again and it
+/// may. Digging falls to nest workers, whose drive is 0. An ant shut in the
+/// mound or with no way out keeps its roll ([`MoundOut`]'s `dig`,
+/// [`NeedsFirst`]'s `weak`).
+pub fn forager_nodig() -> Option<f32> {
+    static V: std::sync::OnceLock<Option<f32>> = std::sync::OnceLock::new();
+    *V.get_or_init(|| parse_forager_nodig(&std::env::var("PIXEL_PHYSICS_FORAGER_NODIG").unwrap_or_default()))
+}
+
+pub fn parse_forager_nodig(raw: &str) -> Option<f32> {
+    match raw.trim() {
+        "" | "off" => None,
+        "on" => Some(0.5),
+        v => match v.parse::<f32>() {
+            Ok(x) => Some(x.clamp(0.0, 1.0)),
+            Err(_) => {
+                eprintln!("PIXEL_PHYSICS_FORAGER_NODIG={raw:?}: use off, on or a drive line 0..1; read as off");
+                None
+            }
+        },
+    }
+}
+
 fn forage_drive_level(world: &World, state: &crate::sim::organism::OrganismState, def: &CreatureDef) -> f32 {
     let drive = forage_drive_of(world);
     if !drive.on() || !state.foraged || (drive.fed && state.energy < def.start_energy) {
@@ -23528,6 +23639,11 @@ fn home_pull(world: &World, organism: OrganismId, def: &CreatureDef, head: (i32,
     if def.home_bias > 0.0 && ready_to_lay(world, def, state) && !nest_within_reach(world, organism, head.0, head.1, def) {
         return Some((home_target(world, state), def.home_bias));
     }
+    // **...and in, past the door, while there is nowhere to lay**
+    // ([`lay_in_of`]). Off, one branch.
+    if let Some(t) = lay_in_target(world, organism, def, state, head) {
+        return Some((t, def.home_bias));
+    }
     // **A fed nest-bound ant that strays is pulled home** ([`is_nest_bound`]),
     // as a laden ant is, to where it last stood beside the nest.
     if def.home_bias > 0.0
@@ -23613,6 +23729,9 @@ fn home_pull_why(world: &World, organism: OrganismId, def: &CreatureDef, head: (
         }
         if ready_to_lay(world, def, state) && !nest_within_reach(world, organism, head.0, head.1, def) {
             return (PULL_LAY, Some(home_target(world, state)));
+        }
+        if let Some(t) = lay_in_target(world, organism, def, state, head) {
+            return (PULL_LAY_IN, Some(t));
         }
         if is_nest_bound(world, state)
             && state.energy >= def.start_energy
@@ -32716,6 +32835,51 @@ mod tests {
         assert!((41..=47).all(|y| w.nest_ways[0].at(80, y).is_some()), "under `below` the way in does not run up the second way out");
     }
 
+    /// **A ready layer beside home with nowhere to put the egg is pulled in,
+    /// along the passages away from the door** ([`lay_in_of`]). In the
+    /// chamber under its door with every cell round it filled, so no egg
+    /// site is in reach, a rich ant's pull is further in by the way in than
+    /// its head. The controls: the same ant with the chamber open (a site in
+    /// reach) is not pulled, and neither is a poor one (not ready). Watched
+    /// red with the egg-site test inverted (the open chamber pulled).
+    #[test]
+    fn a_ready_layer_with_nowhere_to_lay_walks_in() {
+        let pull = |fill: bool, rich: bool| {
+            let (mut w, a) = rest_world(63, 47, false);
+            w.way_gaps = Some(WayGaps::OFF);
+            w.nest_home = Some(NestHome::Shaft);
+            w.brood = Some(true);
+            w.bud_at_nest = Some(true);
+            w.nest_ways.clear();
+            step_nest_rest(&mut w);
+            let def = w.species.get(w.organism(a).expect("live").species).creature.clone().expect("a creature");
+            if rich {
+                w.organism_mut(a).expect("live").energy = 50.0 * def.reproduce_threshold.max(def.start_energy);
+            }
+            let st = w.organism(a).expect("live").clone();
+            let head = st.chain[0];
+            if fill {
+                let sand = Cell::new(material::SAND, 0);
+                for y in head.1 - 6..=head.1 + 6 {
+                    for x in head.0 - 6..=head.0 + 6 {
+                        if w.is_empty(x, y) {
+                            w.set(x, y, sand);
+                        }
+                    }
+                }
+            }
+            assert!(nest_within_reach(&w, a, head.0, head.1, &def), "test setup: the ant at {head:?} is not beside home");
+            assert_eq!(ready_to_lay(&w, &def, &st), rich, "test setup: ready to lay is not {rich}");
+            let way = w.nest_ways[0].clone();
+            (head, lay_in_pull(&w, a, &def, &st, head), way)
+        };
+        let ((hx, hy), got, way) = pull(true, true);
+        let (tx, ty) = got.expect("a ready layer with no egg site in reach was not pulled in");
+        assert!(way.at(tx, ty) > way.at(hx, hy), "the pull at ({tx}, {ty}) is not further in than the ant at ({hx}, {hy})");
+        assert_eq!(pull(false, true).1, None, "a ready layer with an egg site in reach was pulled");
+        assert_eq!(pull(true, false).1, None, "an ant not ready to lay was pulled");
+    }
+
     /// **[`NestStore`] parses its parts**, and a typo panics rather than
     /// reading as off.
     #[test]
@@ -41236,6 +41400,19 @@ mod tests {
         assert_eq!(parse_trip_reach("0"), Some(0), "a reach of 0");
         assert_eq!(parse_trip_reach("-1"), TRIP_REACH_UNSET, "a negative reach is unreadable");
         assert_eq!(parse_trip_reach("far"), TRIP_REACH_UNSET, "a word it does not know is unset");
+    }
+
+    /// **`PIXEL_PHYSICS_FORAGER_NODIG` reads its spellings**
+    /// ([`parse_forager_nodig`]); a word it does not know is reported and
+    /// read as off. A table over the parser, not watched red.
+    #[test]
+    fn parse_forager_nodig_reads_its_spellings() {
+        assert_eq!(parse_forager_nodig(""), None, "unset is off");
+        assert_eq!(parse_forager_nodig("off"), None, "off");
+        assert_eq!(parse_forager_nodig("on"), Some(0.5), "on is the half line");
+        assert_eq!(parse_forager_nodig(" 0.8 "), Some(0.8), "a line");
+        assert_eq!(parse_forager_nodig("3"), Some(1.0), "a line is clamped to 1");
+        assert_eq!(parse_forager_nodig("far"), None, "a word it does not know is off");
     }
 
     /// A stone floor from row 41 over `w`'s width, and a nest site
