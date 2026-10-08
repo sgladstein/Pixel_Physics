@@ -83,6 +83,10 @@ pub const DEFAULT_PIXEL_BUDGET: i32 = 4;
 /// How much a rack still is shrunk in each axis. Kept beside `Thumb` rather
 /// than in `ui`, because the downscale happens here.
 const THUMB_SHRINK: u32 = 4;
+/// The fastest the box may run with the pinned ant's reasons recorded
+/// (`Lab::read_reasons`). Above it the log would hold every animal's every
+/// decision for hundreds of ticks a frame to find one row.
+const REASONS_MAX_SPEED: u32 = 16;
 
 /// **This instant, as `YYYY-MM-DD-HHMMSS`, UTC.** No date crate in this
 /// workspace (`Cargo.toml` carries nine dependencies and none of them tell
@@ -199,6 +203,9 @@ pub struct Lab {
     /// cell every frame, and the stroke would smear backwards as the view
     /// panned. `None` between strokes.
     stroke: Option<Stroke>,
+    /// Whether `World::decision_log` is on because this lab turned it on for
+    /// the `WHY` group (`read_reasons`), rather than a harness.
+    reasons_own: bool,
     /// **Where the current [`ui::Tool::Scent`] gesture started, in world
     /// cells.** Set once on press and held for the whole drag -- see
     /// `Lab::paint_scent` for why a gradient needs a *fixed* reference point
@@ -544,6 +551,7 @@ impl Lab {
             pixel_budget: DEFAULT_PIXEL_BUDGET,
             pixel_scale_cap: 1,
             stroke: None,
+            reasons_own: false,
             scent_origin: None,
             lamp_grab: None,
             // One chamber, and it is the one on screen — so the rack is a
@@ -1633,6 +1641,11 @@ impl Lab {
         // Free while the overlay is off: `observe` returns on one enum
         // compare before touching the world at all.
         self.renderer.food.observe(&self.world);
+        // The dig heat map, on the same per-tick cadence and for the same
+        // reason (`crate::dig_marks`). Turns the world's cut log on only
+        // while the map is drawn.
+        self.renderer.dig.observe(&mut self.world);
+        self.read_reasons();
         // **The chronicle's own census, on its own cadence.** `CHRONICLE_
         // CENSUS_EVERY` frames -- independent of `stats::SAMPLE_INTERVAL`/
         // `STANDING_INTERVAL` above, which feed the bar's population strip
@@ -2126,6 +2139,44 @@ impl Lab {
         }
         let n = self.paint_span(stroke.last, to, stroke.erase);
         self.stroke = Some(Stroke { last: to, cells: stroke.cells + n, ..stroke });
+    }
+
+    /// **Feed the pinned ant's last decision to the cell page's `WHY` group.**
+    ///
+    /// `World::decision_log` records every walking decision of every animal,
+    /// so it is only turned on while an animal is pinned and the box runs at
+    /// [`REASONS_MAX_SPEED`] or slower, and it is drained every tick so it
+    /// never holds more than one tick's rows. **A harness that turned the log
+    /// on itself (`deeptrace` builds a `Lab`) is never disturbed**: the lab
+    /// only drains or switches off a log it switched on (`reasons_own`), and
+    /// otherwise just reads the newest row for the pin.
+    fn read_reasons(&mut self) {
+        let pinned = self.ui.pinned().map(|p| p.id);
+        let slow = self.time.requested <= REASONS_MAX_SPEED;
+        let want = pinned.is_some() && slow;
+        self.ui.reasons_paused = pinned.is_some() && !slow;
+        if !self.reasons_own && self.world.decision_log.is_none() && want {
+            self.world.decision_log = Some(Vec::new());
+            self.reasons_own = true;
+        }
+        if let (Some(id), Some(log)) = (pinned, self.world.decision_log.as_ref()) {
+            if let Some(row) = log.iter().rev().find(|r| r.id == id) {
+                self.ui.reasons = Some(*row);
+            }
+        }
+        if self.reasons_own {
+            if want {
+                if let Some(log) = self.world.decision_log.as_mut() {
+                    log.clear();
+                }
+            } else {
+                self.world.decision_log = None;
+                self.reasons_own = false;
+            }
+        }
+        if pinned.is_none() {
+            self.ui.reasons = None;
+        }
     }
 
     fn begin_stroke(&mut self, at: (i32, i32), erase: bool) {
@@ -3129,6 +3180,10 @@ impl Lab {
             ui::Action::CycleFoodOverlay => {
                 self.renderer.cycle_food_overlay();
                 self.ui.say(format!("FOOD {}", self.renderer.food.mode.label()));
+            }
+            ui::Action::CycleDigOverlay => {
+                self.renderer.cycle_dig_overlay();
+                self.ui.say(format!("DIG MAP {}", self.renderer.dig.mode.label()));
             }
             // **The renderer's own mode, mirrored into `Ui` in the same
             // action that changes it** -- see `Ui::creature_colour`'s doc for
@@ -4381,6 +4436,53 @@ mod tests {
         }
     }
 
+    /// **The `WHY` group is fed only while something is pinned, and never at
+    /// a harness's expense.** Pinning an ant turns the decision log on and
+    /// fills `Ui::reasons` with that ant's own row; letting go turns it back
+    /// off. A log a harness turned on (`deeptrace` builds a `Lab`) is read
+    /// but never drained or switched off -- clearing it would silently empty
+    /// the harness's own `digrows`.
+    #[test]
+    fn the_why_group_follows_the_pin_and_leaves_a_harness_log_alone() {
+        let first_ant = |lab: &Lab| {
+            lab.world
+                .live_organism_ids()
+                .into_iter()
+                .filter_map(|id| lab.world.organism(id).map(|s| (id, s)))
+                .find(|(_, s)| s.brood.is_none() && lab.world.species.get(s.species).creature.is_some())
+                .map(|(id, s)| roster::Individual { id, born_frame: s.born_frame })
+                .expect("the bed has an ant")
+        };
+        // Lab-owned: on with the pin, filled with the pinned ant's rows, off without it.
+        let mut lab = Lab::new(scene::LabBox { colonies: 1, founders: 0, ..rack_bed(1) });
+        run(&mut lab, 30);
+        assert!(lab.world.decision_log.is_none(), "nothing pinned, so nothing should be recording");
+        let who = first_ant(&lab);
+        lab.ui.pin(who);
+        run(&mut lab, 200);
+        let row = lab.ui.reasons.expect("200 ticks pinned and the pinned ant never decided anything");
+        assert_eq!(row.id, who.id, "the WHY group carries another animal's decision");
+        assert!(lab.world.decision_log.as_ref().is_some_and(|l| l.is_empty()), "the lab's own log must be drained every tick");
+        lab.ui.release_pin();
+        run(&mut lab, 1);
+        assert!(lab.world.decision_log.is_none(), "letting go must switch the log back off");
+        assert!(lab.ui.reasons.is_none());
+
+        // Harness-owned: read, never drained, never switched off.
+        let mut lab = Lab::new(scene::LabBox { colonies: 1, founders: 0, ..rack_bed(1) });
+        run(&mut lab, 30);
+        lab.world.decision_log = Some(Vec::new());
+        let who = first_ant(&lab);
+        lab.ui.pin(who);
+        run(&mut lab, 200);
+        assert!(lab.ui.reasons.is_some_and(|r| r.id == who.id), "the harness's log was not read for the pin");
+        let kept = lab.world.decision_log.as_ref().map_or(0, Vec::len);
+        assert!(kept > 200, "the lab drained a log it did not own: {kept} rows left");
+        lab.ui.release_pin();
+        run(&mut lab, 1);
+        assert!(lab.world.decision_log.is_some(), "the lab switched off a log it did not own");
+    }
+
     // ------------------------------------------------------- the chronicle census
 
     /// Both chronicle-census tests read `Lab::chronicle_census_every()`,
@@ -5077,8 +5179,14 @@ mod tests {
         assert_eq!(lab.ui.creature_colour(), crate::render::CreatureColour::Colony, "the mirror must already agree at construction");
 
         lab.act(ui::Action::CycleCreatureColour);
-        assert_eq!(lab.renderer.creature_colour, crate::render::CreatureColour::Off, "Colony.next() is Off");
-        assert_eq!(lab.ui.creature_colour(), crate::render::CreatureColour::Off, "the mirror did not follow the renderer");
+        assert_eq!(lab.renderer.creature_colour, crate::render::CreatureColour::Job, "Colony.next() is Job");
+        assert_eq!(lab.ui.creature_colour(), crate::render::CreatureColour::Job, "the mirror did not follow the renderer");
+        // Through the three per-animal readouts and back round to Off.
+        for want in [crate::render::CreatureColour::State, crate::render::CreatureColour::Energy, crate::render::CreatureColour::Off] {
+            lab.act(ui::Action::CycleCreatureColour);
+            assert_eq!(lab.renderer.creature_colour, want);
+            assert_eq!(lab.ui.creature_colour(), want, "the mirror drifted from the renderer at {want:?}");
+        }
 
         lab.act(ui::Action::CycleCreatureColour);
         assert_eq!(lab.renderer.creature_colour, crate::render::CreatureColour::Species);
