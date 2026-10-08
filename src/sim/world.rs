@@ -1959,6 +1959,13 @@ pub struct CreatureStats {
     /// as 0 because the ant's forage drive was over the line. 0 unless
     /// `PIXEL_PHYSICS_FORAGER_NODIG` is set.
     pub forager_digs_skipped: u64,
+    /// **`creature::StoreRead`'s counts**: bites at the store read as low
+    /// (under the line), ticks a hungry ant stood at an empty store (turned
+    /// away), and ticks an ant the drive sent out walked the way out. 0
+    /// unless `PIXEL_PHYSICS_STORE_READ` is on.
+    pub store_reads_low: u64,
+    pub store_turned_away: u64,
+    pub store_out_pulls: u64,
     /// **`creature::MoundDig`'s `roof` count**: cuts refused because their
     /// cell lay in a nest's spoil mound outside its door, the digger not shut
     /// in. Not in `digs_refused_roof`; the trace's `DigWhy` reads it as the
@@ -4326,6 +4333,15 @@ pub struct World {
     /// resting or the way out is on, and empty otherwise. Read only by the
     /// rest pull and the way out.
     pub nest_ways: Vec<crate::sim::creature::NestWay>,
+    /// **Where each nest's store last held food** ([`crate::sim::creature::StoreRead`]):
+    /// per nest site, the way cells that touched its food at the last
+    /// rebuild that found any, so a hungry ant still walks to the store when
+    /// it is empty and finds out. Kept only while the switch is on.
+    pub store_last_seeds: Vec<Vec<(i32, i32)>>,
+    /// **Every store reading that changed an ant's memory**, for the trace
+    /// (`examples/deeptrace.rs`'s `storereads.csv`): `None` unless a harness
+    /// asks.
+    pub store_read_log: Option<Vec<crate::sim::creature::StoreReadRow>>,
     /// **Each nest's way out of its mound**, as steps from the open air
     /// through the covered cells at or above its founding ground
     /// (`creature::build_mound_way`), rebuilt beside `nest_ways` while
@@ -6937,6 +6953,8 @@ impl World {
             needs_first: None,
             nest_store: None,
             nest_ways: Vec::new(),
+            store_last_seeds: Vec::new(),
+            store_read_log: None,
             mound_ways: Vec::new(),
             out_ways: Vec::new(),
             bud_store: None,
@@ -8041,6 +8059,8 @@ impl World {
             scout_dark: false,
             scout_e0: 0.0,
             return_met: 0,
+            store_read_at: 0,
+            store_read_low: 0.0,
             sent_want: f32::NAN,
             foraged: false,
             store_return: false,

@@ -942,6 +942,8 @@ pub const PULL_MOUND_OUT: u8 = 13;
 pub const PULL_NEST_STORE: u8 = 14;
 /// `home_pull`'s walk in to lay ([`lay_in_of`]), after [`PULL_LAY`].
 pub const PULL_LAY_IN: u8 = 15;
+/// [`store_out_pull`]: the drive's walk out ([`StoreRead`]).
+pub const PULL_STORE_OUT: u8 = 16;
 /// [`DecisionScratch::trip_end`]: the walk back to the face did not end.
 pub const TRIP_END_NONE: u8 = 0;
 /// Within two cells of the face and aimed at it (not under [`FaceTrip`]'s
@@ -1049,7 +1051,7 @@ pub(super) fn note_feed(world: &mut World, larva: OrganismId, at: (i32, i32), ki
 }
 
 /// [`DecisionScratch::pull_why`]'s names, by value.
-pub const PULL_WHY_NAMES: [&str; 16] = [
+pub const PULL_WHY_NAMES: [&str; 17] = [
     "not scored",
     "none",
     "store trip",
@@ -1066,6 +1068,7 @@ pub const PULL_WHY_NAMES: [&str; 16] = [
     "mound out",
     "nest store",
     "walk in to lay",
+    "store sent out",
 ];
 
 impl Default for DecisionScratch {
@@ -13015,7 +13018,7 @@ fn foot_field(world: &World, way: &NestWay, seeds: &[(i32, i32)], k: u16) -> Vec
 pub fn step_nest_rest(world: &mut World) {
     let mound = mound_out_of(world) != MoundOut::OFF;
     let escape = needs_first_of(world).ways();
-    let read = nest_rest_of(world).on() || hungry_out_of(world) || soil_way_of(world) != SoilWay::OFF || mound || escape || nest_store_of(world).on() || lay_in_of(world);
+    let read = nest_rest_of(world).on() || hungry_out_of(world) || soil_way_of(world) != SoilWay::OFF || mound || escape || nest_store_of(world).on() || lay_in_of(world) || store_read_of(world).on;
     if !read || world.nest_sites.is_empty() {
         world.nest_ways.clear();
         world.mound_ways.clear();
@@ -13026,6 +13029,7 @@ pub fn step_nest_rest(world: &mut World) {
         return;
     }
     world.nest_ways = (0..world.nest_sites.len()).filter_map(|i| build_nest_way(world, i)).collect();
+    keep_store_place(world);
     // The mound's ways ([`MoundOut`]), only while it is on: off, nothing
     // reads them and nothing is built.
     world.mound_ways = if mound {
@@ -14224,6 +14228,32 @@ fn store_pick_reach(world: &World) -> i32 {
 /// The doorstep's reach under `fetch` with no `pick` set: the probe's 20.
 const STORE_FETCH_REACH: i32 = 20;
 
+/// **The breadth-first step count over the way from `seeds`**, into
+/// `way.store` ([`fill_nest_store`], and [`keep_store_place`] for an empty
+/// store's place).
+fn store_field_from(way: &mut NestWay, seeds: &[(i32, i32)]) {
+    way.store = vec![u16::MAX; way.dist.len()];
+    let mut q = std::collections::VecDeque::new();
+    for &(x, y) in seeds {
+        way.store[((y - way.y0) * way.w + (x - way.x0)) as usize] = 0;
+        q.push_back((x, y));
+    }
+    while let Some((x, y)) = q.pop_front() {
+        let s = way.store[((y - way.y0) * way.w + (x - way.x0)) as usize];
+        for &(dx, dy) in NEIGHBOURS_8.iter() {
+            let (nx, ny) = (x + dx, y + dy);
+            if way.at(nx, ny).is_none() {
+                continue;
+            }
+            let i = ((ny - way.y0) * way.w + (nx - way.x0)) as usize;
+            if way.store[i] == u16::MAX {
+                way.store[i] = s.saturating_add(1);
+                q.push_back((nx, ny));
+            }
+        }
+    }
+}
+
 /// **Fill a nest's store** ([`NestStore`]): the loose food cells beside a
 /// way cell at least `depth` steps in (`store_cells`), and the breadth-first
 /// step count over the way from the way cells beside them (`store`), so
@@ -14273,26 +14303,7 @@ fn fill_nest_store(world: &World, way: &mut NestWay, depth: u16) {
     }
     way.store_cells.sort_unstable();
     way.store_cells.dedup();
-    way.store = vec![u16::MAX; way.dist.len()];
-    let mut q = std::collections::VecDeque::new();
-    for &(x, y) in &seeds {
-        way.store[((y - way.y0) * way.w + (x - way.x0)) as usize] = 0;
-        q.push_back((x, y));
-    }
-    while let Some((x, y)) = q.pop_front() {
-        let s = way.store[((y - way.y0) * way.w + (x - way.x0)) as usize];
-        for &(dx, dy) in NEIGHBOURS_8.iter() {
-            let (nx, ny) = (x + dx, y + dy);
-            if way.at(nx, ny).is_none() {
-                continue;
-            }
-            let i = ((ny - way.y0) * way.w + (nx - way.x0)) as usize;
-            if way.store[i] == u16::MAX {
-                way.store[i] = s.saturating_add(1);
-                q.push_back((nx, ny));
-            }
-        }
-    }
+    store_field_from(way, &seeds);
     let wf = way_foot_of(world);
     if wf.store {
         way.store_foot = foot_field(world, way, &seeds, wf.k);
@@ -14452,6 +14463,236 @@ fn fetch_target(world: &World, def: &CreatureDef, state: &crate::sim::organism::
     way.door_food.iter().copied().min_by_key(|&(fx, fy)| (fx - head.0).abs().max((fy - head.1).abs()))
 }
 
+/// **`PIXEL_PHYSICS_STORE_READ`: an ant reads the store itself, and a low
+/// store sends it foraging** (2026-10-08, off; the owner's design, after the
+/// trace of `HUNGRY_OUT=off`). With the walk out off, 98-99% of the adults
+/// that starved on the heap-90 box died inside the dug nest, a median
+/// 5,200-6,900 frames old, half of them never having foraged: the store was
+/// empty from 60k (0 cells, against 8 -> 128 with the walk out on) while as
+/// many trips came home with food, eaten on arrival; in their last 2,000
+/// frames 64% of their decisions had no pull and the store's eat pull fired
+/// on none, their home anchor sat on their own head (0 cells) so hunger's
+/// pull out pointed nowhere, and their forage drive read 0 -- never foraged,
+/// or no forager met for longer than the window. The owner: *"These ants
+/// never meet a forager because they never leave the nest"*, and the signal
+/// must be one the ant can read where it stands, not the colony's total.
+///
+/// **The reading.** An ant that bites the store counts the store's food it
+/// can sense round its head (within `reach` cells, [`local_store_food`]),
+/// the bite taken; one that stands hungry at the store's place with none in
+/// reach is turned away. Its memory ([`OrganismState::store_read_at`],
+/// `store_read_low`) is the newest reading: `1 - seen / line`, so a store
+/// at or over `line` cells in reach reads 0 (stocked) and wipes an older low
+/// reading, and an empty one reads 1. **The drive** ([`forage_drive_level`])
+/// is the larger of the colony's drive and this reading, held for the
+/// `met` drive's window (times the ant's memory gene) and fading after it
+/// as that drive fades. It reaches an ant that has never foraged; a
+/// nest-bound ant is not sent out by it, as by any drive.
+///
+/// **To the store, and out.** A hungry empty ant on the way in is pulled to
+/// the store's place, at any depth and however little it holds, so it finds
+/// out ([`World::store_last_seeds`] keeps the place while the store is
+/// empty) -- unless its own reading already sends it out. An ant the drive
+/// sends out (`>= STORE_OUT_LINE`), empty and not nest-bound, standing on
+/// the way in, walks out along the passages ([`way_out_from`], the walk
+/// `HUNGRY_OUT` takes) to the door, where the throttle and the trail take it
+/// on. The walk out keyed on the drive, not on hunger.
+///
+/// Parts: `on` (`line=12`, `reach=4`); `line=<cells>`, `reach=<cells>`.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct StoreRead {
+    pub on: bool,
+    pub line: u32,
+    pub reach: i32,
+}
+
+impl StoreRead {
+    pub const OFF: StoreRead = StoreRead { on: false, line: 12, reach: 4 };
+}
+
+/// The forage drive at or over which [`StoreRead`]'s walk out takes an ant.
+pub const STORE_OUT_LINE: f32 = 0.5;
+
+pub fn store_read_of(_world: &World) -> StoreRead {
+    static V: std::sync::OnceLock<StoreRead> = std::sync::OnceLock::new();
+    *V.get_or_init(|| parse_store_read(&std::env::var("PIXEL_PHYSICS_STORE_READ").unwrap_or_default()))
+}
+
+pub fn parse_store_read(raw: &str) -> StoreRead {
+    let mut r = StoreRead::OFF;
+    let raw = raw.trim();
+    if raw.is_empty() || raw == "off" {
+        return r;
+    }
+    for part in raw.split(',').map(str::trim) {
+        if part == "on" {
+            r.on = true;
+        } else if let Some(v) = part.strip_prefix("line=").and_then(|v| v.parse::<u32>().ok()).filter(|&v| v > 0) {
+            r.on = true;
+            r.line = v;
+        } else if let Some(v) = part.strip_prefix("reach=").and_then(|v| v.parse::<i32>().ok()).filter(|&v| v > 0) {
+            r.on = true;
+            r.reach = v;
+        } else {
+            panic!("PIXEL_PHYSICS_STORE_READ={raw:?}: unknown part {part:?}; use off, on, line=<cells>, reach=<cells>");
+        }
+    }
+    r
+}
+
+/// **One store reading that changed an ant's memory**, for the trace: what
+/// the ant saw in reach against what the store held at the last rebuild
+/// (its true level; 0 for a store found empty), so a store spread thin can
+/// be seen reading low while it holds plenty.
+#[derive(Clone, Copy, Debug)]
+pub struct StoreReadRow {
+    pub frame: u64,
+    pub id: OrganismId,
+    pub x: i32,
+    pub y: i32,
+    pub seen: u32,
+    pub total: u32,
+    pub turned_away: bool,
+    pub low: f32,
+    pub energy: f32,
+    pub foraged: bool,
+}
+
+/// **The store's food an ant can sense**: store cells ([`store_food`]) within
+/// `reach` cells of its head, Chebyshev.
+fn local_store_food(world: &World, site: usize, head: (i32, i32), reach: i32) -> u32 {
+    let mut n = 0;
+    for y in head.1 - reach..=head.1 + reach {
+        for x in head.0 - reach..=head.0 + reach {
+            if world.in_bounds(x, y) && store_food(world, world.get(x, y), site) {
+                n += 1;
+            }
+        }
+    }
+    n
+}
+
+/// **Take a reading** ([`StoreRead`]): `seen` cells in reach, or turned away.
+/// Logged when it changes the memory by more than a tenth or the last one is
+/// older than [`STORE_READ_LOG_GAP`], so one ant standing at an empty store
+/// is one row, not one a tick.
+fn store_read_stamp(world: &mut World, organism: OrganismId, site: usize, head: (i32, i32), seen: u32, turned_away: bool) {
+    let sr = store_read_of(world);
+    let low = if turned_away { 1.0 } else { (1.0 - seen as f32 / sr.line as f32).clamp(0.0, 1.0) };
+    let now = world.frame.max(1);
+    let total = world.nest_ways.iter().find(|w| w.site == site).map_or(0, |w| w.store_cells.len() as u32);
+    let Some(s) = world.organism_mut(organism) else { return };
+    let changed = (s.store_read_low - low).abs() > 0.1 || now.saturating_sub(s.store_read_at) >= STORE_READ_LOG_GAP;
+    s.store_read_at = now;
+    s.store_read_low = low;
+    let (energy, foraged) = (s.energy, s.foraged);
+    if turned_away {
+        world.creature_stats.store_turned_away += 1;
+    } else if low > 0.0 {
+        world.creature_stats.store_reads_low += 1;
+    }
+    if changed {
+        if let Some(log) = world.store_read_log.as_mut() {
+            log.push(StoreReadRow { frame: now, id: organism, x: head.0, y: head.1, seen, total, turned_away, low, energy, foraged });
+        }
+    }
+}
+
+/// Frames after which a repeated store reading is logged again.
+const STORE_READ_LOG_GAP: u64 = 200;
+
+/// **The drive this ant's own store reading gives** ([`StoreRead`]): its low
+/// reading on the `met` drive's plateau and fade. 0 with the switch off.
+fn store_read_drive(world: &World, state: &crate::sim::organism::OrganismState) -> f32 {
+    if !store_read_of(world).on || state.store_read_at == 0 || state.store_read_low <= 0.0 {
+        return 0.0;
+    }
+    let factor = walk_gain(&expressed_traits(state, world.plasticity, world.trait_reach), organism::TRAIT_RETURN_MEMORY);
+    let age = world.frame.saturating_sub(state.store_read_at) as f32;
+    let w = return_window() * factor;
+    let over = age - w;
+    state.store_read_low * if over <= 0.0 { 1.0 } else { (-over / w).exp() }
+}
+
+/// **A hungry empty ant standing at the store's place with no food in
+/// reach is turned away** ([`StoreRead`]); read every tick it stands there,
+/// before the pulls, so the reading sends it out the same tick.
+fn store_turn_away(world: &mut World, organism: OrganismId, def: &CreatureDef, head: (i32, i32)) {
+    let sr = store_read_of(world);
+    if !sr.on {
+        return;
+    }
+    let Some(state) = world.organism(organism) else { return };
+    if state.energy >= def.start_energy || state.spoil.is_some() || state.crop.is_some_and(|c| c.worth() > 0.0) {
+        return;
+    }
+    let Some(way) = nest_way_near(world, head.0, head.1) else { return };
+    if way.store_at(head.0, head.1) != Some(0) {
+        return;
+    }
+    let site = way.site;
+    let seen = local_store_food(world, site, head, sr.reach);
+    if seen == 0 {
+        store_read_stamp(world, organism, site, head, 0, true);
+    }
+}
+
+/// **An ant the drive sends out walks out along the passages**
+/// ([`StoreRead`]): empty, not nest-bound, on its nest's way in, its forage
+/// drive at or over [`STORE_OUT_LINE`]; at the drive's gain on the laden
+/// ant's. `None` with the switch off.
+fn store_out_pull(world: &World, organism: OrganismId, def: &CreatureDef, head: (i32, i32)) -> Option<((i32, i32), f32)> {
+    if !store_read_of(world).on || def.home_bias <= 0.0 {
+        return None;
+    }
+    let state = world.organism(organism)?;
+    if is_nest_bound(world, state) || state.spoil.is_some() || (state.crop.is_some_and(|c| c.worth() > 0.0) && !carries_lunch(world, state)) {
+        return None;
+    }
+    let drive = forage_drive_level(world, state, def);
+    if drive < STORE_OUT_LINE {
+        return None;
+    }
+    Some((way_out_from(world, organism, head)?, def.home_bias * drive))
+}
+
+/// **The store's place while it is empty** ([`StoreRead`]): a field from the
+/// way cells that last touched its food, so the walk to the store still
+/// leads somewhere. Called from [`step_nest_rest`] after the ways are built.
+fn keep_store_place(world: &mut World) {
+    if !store_read_of(world).on || !nest_store_of(world).on() {
+        return;
+    }
+    let n = world.nest_sites.len();
+    if world.store_last_seeds.len() < n {
+        world.store_last_seeds.resize(n, Vec::new());
+    }
+    let wf = way_foot_of(world);
+    let mut ways = std::mem::take(&mut world.nest_ways);
+    for way in ways.iter_mut() {
+        if !way.store.is_empty() {
+            let mut seeds = Vec::new();
+            for ly in 0..way.h {
+                for lx in 0..way.w {
+                    if way.store[(ly * way.w + lx) as usize] == 0 {
+                        seeds.push((way.x0 + lx, way.y0 + ly));
+                    }
+                }
+            }
+            world.store_last_seeds[way.site] = seeds;
+        } else {
+            let seeds: Vec<(i32, i32)> = world.store_last_seeds[way.site].iter().copied().filter(|&(x, y)| way.at(x, y).is_some()).collect();
+            if !seeds.is_empty() {
+                store_field_from(way, &seeds);
+                if wf.store {
+                    way.store_foot = foot_field(world, way, &seeds, wf.k);
+                }
+            }
+        }
+    }
+    world.nest_ways = ways;
+}
+
 /// **Where [`NestStore`] pulls this animal, and how hard**, asked first in
 /// [`home_pull`]: a store load in to the store, a hungry empty ant to the
 /// store while it holds food, a fed idle nest worker deeper. `None` when no
@@ -14474,7 +14715,18 @@ fn nest_store_pull(world: &World, organism: OrganismId, def: &CreatureDef, head:
     if state.crop.is_some_and(|c| c.worth() > 0.0) {
         return None;
     }
-    if ns.eat && state.energy < def.start_energy && nest_way_near(world, head.0, head.1).is_some_and(|w| store_can_feed(w) && store_smelt(w, ns, head)) {
+    // **Under [`StoreRead`] the hungry go to the store to find out**: at any
+    // depth and however little it holds, while the place is known -- unless
+    // their own reading already sends them out.
+    let read = store_read_of(world);
+    if read.on && ns.eat && state.energy < def.start_energy {
+        if store_read_drive(world, state) >= STORE_OUT_LINE {
+            return None;
+        }
+        if nest_way_near(world, head.0, head.1).is_some_and(|w| w.store_at(head.0, head.1).is_some()) {
+            return store_inward(world, organism, head, STORE_DOOR_REACH, true).map(|t| (t, def.home_bias, StorePull::Eat));
+        }
+    } else if ns.eat && state.energy < def.start_energy && nest_way_near(world, head.0, head.1).is_some_and(|w| store_can_feed(w) && store_smelt(w, ns, head)) {
         return store_inward(world, organism, head, STORE_DOOR_REACH, true).map(|t| (t, def.home_bias, StorePull::Eat));
     }
     if ns.home && state.energy >= def.start_energy && is_nest_bound(world, state) && dig_return_target(world, def, state).is_none() && !ready_to_lay(world, def, state) {
@@ -18342,6 +18594,15 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
                 // never takes a store cell, so these are meals.
                 if nest_store_of(world).on() && is_store_cell(world, (fxx, fyy)) {
                     world.creature_stats.nest_store_bites += 1;
+                    // **The reading** ([`StoreRead`]): what is left in reach
+                    // once this bite is taken.
+                    let sr = store_read_of(world);
+                    if sr.on {
+                        if let Some(site) = nest_way_near(world, x, y).map(|w| w.site) {
+                            let seen = local_store_food(world, site, (x, y), sr.reach).saturating_sub(u32::from(store_food(world, bite, site)));
+                            store_read_stamp(world, organism, site, (x, y), seen, false);
+                        }
+                    }
                 }
                 // **Home is read before the mouthful leaves**, for
                 // `pickups_at_nest` below, on the predicate the drop's
@@ -22814,6 +23075,17 @@ pub fn parse_forager_nodig(raw: &str) -> Option<f32> {
 }
 
 fn forage_drive_level(world: &World, state: &crate::sim::organism::OrganismState, def: &CreatureDef) -> f32 {
+    let base = colony_drive_level(world, state, def);
+    // **...or the ant's own reading of the store** ([`StoreRead`]), which
+    // reaches an ant that has never foraged. Off, no read.
+    if store_read_of(world).on && forage_drive_of(world).on() && !is_nest_bound(world, state) {
+        return base.max(store_read_drive(world, state));
+    }
+    base
+}
+
+/// [`forage_drive_level`] before [`StoreRead`]: the colony's drive alone.
+fn colony_drive_level(world: &World, state: &crate::sim::organism::OrganismState, def: &CreatureDef) -> f32 {
     let drive = forage_drive_of(world);
     if !drive.on() || !state.foraged || (drive.fed && state.energy < def.start_energy) {
         return 0.0;
@@ -23984,6 +24256,7 @@ fn chooser_step(
     }
     // The home memory, started again whenever the target is new, and cleared
     // whenever there is nothing to take home.
+    store_turn_away(world, organism, def, (hx, hy));
     let pull = home_pull(world, organism, def, (hx, hy));
     let pulled_home = pull.is_some();
     // **The nest's store** ([`NestStore`]): which of its pulls fired, and
@@ -24010,12 +24283,20 @@ fn chooser_step(
     // **...and on out of the mound** ([`MoundOut`]'s `way`), where the way
     // out gave nothing: at the door and above it.
     let mut pulled_mound = false;
+    let mut pulled_store_out = false;
     let pull = match pull {
         Some(p) => Some(p),
         None => {
             let out = hungry_out_pull(world, organism, def, (hx, hy));
             world.creature_stats.hungry_out_pulls += u64::from(out.is_some());
             world.creature_stats.needs_throttle_lifted += u64::from(out.is_some() && world.organism(organism).is_some_and(|st| throttle_lifted(world, st, def)));
+            // **...or, sent out by the drive, the same way** ([`StoreRead`]).
+            let out = out.or_else(|| {
+                let sent = store_out_pull(world, organism, def, (hx, hy));
+                pulled_store_out = sent.is_some();
+                world.creature_stats.store_out_pulls += u64::from(pulled_store_out);
+                sent
+            });
             if out.is_some() {
                 out
             } else {
@@ -24346,6 +24627,8 @@ fn chooser_step(
             }
         } else if pulled_mound {
             PULL_MOUND_OUT
+        } else if pulled_store_out {
+            PULL_STORE_OUT
         } else if pulled_out {
             PULL_HUNGRY_OUT
         } else if pull.is_some() {
@@ -41400,6 +41683,40 @@ mod tests {
         assert_eq!(parse_trip_reach("0"), Some(0), "a reach of 0");
         assert_eq!(parse_trip_reach("-1"), TRIP_REACH_UNSET, "a negative reach is unreadable");
         assert_eq!(parse_trip_reach("far"), TRIP_REACH_UNSET, "a word it does not know is unset");
+    }
+
+    /// **`PIXEL_PHYSICS_STORE_READ` reads its parts** ([`parse_store_read`]),
+    /// and a part it does not know panics (a mistyped switch must not fail
+    /// open). A table over the parser, not watched red.
+    #[test]
+    fn parse_store_read_reads_its_parts() {
+        assert_eq!(parse_store_read(""), StoreRead::OFF);
+        assert_eq!(parse_store_read("off"), StoreRead::OFF);
+        assert_eq!(parse_store_read("on"), StoreRead { on: true, ..StoreRead::OFF });
+        assert_eq!(parse_store_read("on,reach=8"), StoreRead { on: true, line: 12, reach: 8 });
+        assert_eq!(parse_store_read("line=20"), StoreRead { on: true, line: 20, reach: 4 });
+        assert!(std::panic::catch_unwind(|| parse_store_read("on,far")).is_err(), "an unknown part was read");
+    }
+
+    /// **The store reading counts the food in reach** ([`local_store_food`],
+    /// [`StoreRead`]'s reading): store cells over a square round the head: a store
+    /// cell 4 away counts at reach 4, 5 away does not. A tight assert on a
+    /// deterministic count, not watched red.
+    #[test]
+    fn a_store_reading_counts_the_food_in_reach() {
+        let (mut w, _) = rest_world(63, 47, false);
+        let fruit = w.materials.id_of("fruit").expect("fruit");
+        let head = (61, 47);
+        for &(x, y) in &[(65, 46), (66, 46), (64, 47), (57, 46)] {
+            w.set(x, y, Cell::new(fruit, 0));
+        }
+        let site = 0;
+        let n4 = local_store_food(&w, site, head, 4);
+        let n5 = local_store_food(&w, site, head, 5);
+        let n0 = local_store_food(&w, site, head, 0);
+        assert!(n5 > n4, "a store cell 5 away was not counted at reach 5 ({n5} against {n4})");
+        assert_eq!(n0, 0, "a reach of 0 sensed food");
+        assert!(n4 >= 2, "food 3-4 cells away was not counted at reach 4: {n4}");
     }
 
     /// **`PIXEL_PHYSICS_FORAGER_NODIG` reads its spellings**
