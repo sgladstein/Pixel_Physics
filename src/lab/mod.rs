@@ -465,6 +465,12 @@ struct Stroke {
     /// Where the brush was last applied, in world cells.
     last: (i32, i32),
     erase: bool,
+    /// Where the gesture began, for the chronicle line `finish_stroke`
+    /// writes.
+    start: (i32, i32),
+    /// Cells the gesture actually changed so far (`paint_span`'s count), so
+    /// the chronicle says how much food went in and not only that some did.
+    cells: u32,
 }
 
 impl Lab {
@@ -939,7 +945,9 @@ impl Lab {
         self.active = i;
         // A stroke belongs to the box it was started on, and a brush that
         // carried across would draw a line from wherever the cursor was in the
-        // old chamber to wherever it is in this one.
+        // old chamber to wherever it is in this one. Finished before the swap
+        // would be better, but `self.world` is already the incoming box here;
+        // `switch_to`'s caller is a rack click, which cannot land mid-drag.
         self.stroke = None;
         self.view_dirty = true;
     }
@@ -2018,7 +2026,7 @@ impl Lab {
     pub fn set_cursor(&mut self, at: Option<(i32, i32)>) {
         self.ui.set_cursor(at);
         if at.is_none() {
-            self.stroke = None;
+            self.finish_stroke();
         }
     }
 
@@ -2074,8 +2082,34 @@ impl Lab {
 
     /// A button came up, or the pointer left. Ends whatever stroke was live.
     pub fn end_stroke(&mut self) {
-        self.stroke = None;
+        self.finish_stroke();
         self.scent_origin = None;
+    }
+
+    /// Close the live stroke and write its one chronicle line.
+    ///
+    /// **Every brush that puts something in the box is a player action**
+    /// (owner, 2026-10-08, after a playtest whose food drops showed in the
+    /// actions log only as three PAUSED/RESUMED pairs: *"make sure you link
+    /// my actions to the log"*). Water keeps its `POURED WATER` line at the
+    /// press (`begin_stroke`); food, soil, scent and the eraser are written
+    /// here, at the release, because only then is the count known -- the
+    /// line says where the gesture began and how many cells it changed, so
+    /// a census jump can be matched to the drop that made it.
+    fn finish_stroke(&mut self) {
+        let Some(stroke) = self.stroke.take() else { return };
+        let (x, y) = stroke.start;
+        let line = if stroke.erase {
+            format!("ERASED AT {x},{y} -- {} CELLS", stroke.cells)
+        } else {
+            match self.ui.tool() {
+                ui::Tool::Food => format!("PAINTED FOOD AT {x},{y} -- {} CELLS", stroke.cells),
+                ui::Tool::Soil => format!("PAINTED SOIL AT {x},{y} -- {} CELLS", stroke.cells),
+                ui::Tool::Scent => format!("LAID SCENT AT {x},{y}"),
+                _ => return,
+            }
+        };
+        self.world.log_player_action(line);
     }
 
     /// The pointer moved to `(x, y)` while a button is held.
@@ -2090,22 +2124,24 @@ impl Lab {
         if to == stroke.last {
             return;
         }
-        self.paint_span(stroke.last, to, stroke.erase);
-        self.stroke = Some(Stroke { last: to, ..stroke });
+        let n = self.paint_span(stroke.last, to, stroke.erase);
+        self.stroke = Some(Stroke { last: to, cells: stroke.cells + n, ..stroke });
     }
 
     fn begin_stroke(&mut self, at: (i32, i32), erase: bool) {
         // **Once per gesture, at the press that starts it** -- a drag calls
         // `paint_span` again on every pointer move, and logging there would
         // fill the chronicle with one line per painted cell rather than one
-        // per pour. Water only: `Soil`/`Food`/`Scent` are not the player
-        // action round 31 asks for, and an erase stroke removes rather than
-        // pours.
+        // per pour. Water's line is written here; every other brush's is
+        // written once at the release by `finish_stroke`, with its count.
+        // A press with a stroke still live (a release the window never saw)
+        // closes the old one first, so its line is not lost.
+        self.finish_stroke();
         if !erase && self.ui.tool() == ui::Tool::Water {
             self.world.log_player_action("POURED WATER".to_string());
         }
-        self.paint_span(at, at, erase);
-        self.stroke = Some(Stroke { last: at, erase });
+        let cells = self.paint_span(at, at, erase);
+        self.stroke = Some(Stroke { last: at, erase, start: at, cells });
     }
 
     /// Lay down (or lift) one span of the brush.
@@ -2119,7 +2155,10 @@ impl Lab {
     /// default of 0 would lay down bone-dry ground nothing can grow in;
     /// painting water at `LIQUID_FULL` would be a cell holding *twice* what it
     /// should, which is how water gets manufactured out of nothing.
-    fn paint_span(&mut self, from: (i32, i32), to: (i32, i32), erase: bool) {
+    ///
+    /// Returns how many cells the span changed (0 for `Scent`, which writes a
+    /// plane rather than cells), for `finish_stroke`'s chronicle line.
+    fn paint_span(&mut self, from: (i32, i32), to: (i32, i32), erase: bool) -> u32 {
         use crate::sim::material;
         // **`Scent` does not paint a material at all** -- it writes into a
         // pheromone plane, not a cell, so it is intercepted before the match
@@ -2135,7 +2174,7 @@ impl Lab {
         // reasonable thing for the eraser to do whatever tool is armed.
         if !erase && self.ui.tool() == ui::Tool::Scent {
             self.paint_scent(from, to);
-            return;
+            return 0;
         }
         let radius = self.ui.brush();
         let (id, aux) = if erase {
@@ -2144,7 +2183,7 @@ impl Lab {
             match self.ui.tool() {
                 ui::Tool::Water => match self.world.materials.id_of("water") {
                     Some(id) => (id, 0),
-                    None => return,
+                    None => return 0,
                 },
                 // **`provisions`, not `windfall`, since 2026-10-03**: the
                 // same food with no `decays_into`, so what a player puts in
@@ -2166,21 +2205,40 @@ impl Lab {
                 // look, on screen, like a tool that simply missed.
                 ui::Tool::Food => match self.world.materials.id_of("provisions") {
                     Some(id) => (id, 0),
-                    None => return,
+                    None => return 0,
                 },
                 _ => match self.world.materials.id_of("soil") {
                     Some(id) => (id, material::SOIL_FIELD_CAPACITY),
-                    None => return,
+                    None => return 0,
                 },
             }
         };
+        // **The count is the material's cells in the span's box before and
+        // after**, read only: no draw, no write, so a counted stroke paints
+        // exactly what an uncounted one did. Nothing moves between the two
+        // reads (no tick runs inside a call), so the difference is this
+        // span's own work -- cells the brush refused (stone, a living plant)
+        // or that already held the material are not counted.
+        let r = radius.max(0);
+        let count = |w: &crate::sim::world::World| {
+            let mut n = 0u32;
+            for y in (from.1.min(to.1) - r)..=(from.1.max(to.1) + r) {
+                for x in (from.0.min(to.0) - r)..=(from.0.max(to.0) + r) {
+                    if w.in_bounds(x, y) && w.get(x, y).material == id {
+                        n += 1;
+                    }
+                }
+            }
+            n
+        };
+        let before = count(&self.world);
         self.world.paint_capsule_as(from, to, radius, id, 1.0);
+        let changed = count(&self.world).saturating_sub(before);
         // `paint_capsule_as` writes the cell with a palette shade and no
         // `aux`, so the moisture is a second pass over the same disc. Only
         // over cells holding the material at `aux == 0`, so a wide stroke
         // cannot re-wet ground it never touched.
         if aux != 0 {
-            let r = radius.max(0);
             for y in (from.1.min(to.1) - r)..=(from.1.max(to.1) + r) {
                 for x in (from.0.min(to.0) - r)..=(from.0.max(to.0) + r) {
                     let cell = self.world.get(x, y);
@@ -2190,6 +2248,7 @@ impl Lab {
                 }
             }
         }
+        changed
     }
 
     /// Lay [`ui::Tool::Scent`]'s armed plane along one span of the brush --
@@ -4413,6 +4472,15 @@ mod tests {
         lab.act(ui::Action::Faster); // "SPEED <N>X"
         lab.act(ui::Action::Tool(ui::Tool::Water));
         lab.begin_stroke((10, 10), false); // "POURED WATER"
+        lab.end_stroke();
+        // Food and the eraser write one line each, at the release, with a
+        // count (owner, 2026-10-08: a playtest's food drops were missing from
+        // this log). Row 5 is sky in the rack bed, so the brush lands.
+        lab.act(ui::Action::Tool(ui::Tool::Food));
+        lab.begin_stroke((60, 5), false);
+        lab.end_stroke(); // "PAINTED FOOD AT 60,5 -- <N> CELLS"
+        lab.begin_stroke((60, 5), true);
+        lab.end_stroke(); // "ERASED AT 60,5 -- <N> CELLS"
         let param = lab
             .ui
             .page_params(&lab.world, &lab.spec)
@@ -4432,6 +4500,22 @@ mod tests {
         assert!(text.contains("WALL AT 40 REMOVED"), "wall_at's removal line is missing:\n{text}");
         assert!(text.contains("SPEED"), "the speed-dial line is missing:\n{text}");
         assert!(text.contains("POURED WATER"), "the water-pour line is missing:\n{text}");
+        // Exactly one line per gesture, and a count that says something went in.
+        let cells_in = |prefix: &str| -> Vec<u32> {
+            text.lines()
+                .filter_map(|l| l.split_once(prefix).map(|(_, rest)| rest))
+                .filter_map(|rest| rest.split(" -- ").nth(1)?.split(' ').next()?.parse().ok())
+                .collect()
+        };
+        let food = cells_in("PAINTED FOOD AT 60,5");
+        assert_eq!(food.len(), 1, "want one food line for one gesture, got {food:?}:\n{text}");
+        assert!(food[0] > 0, "the food line counts no cells:\n{text}");
+        // The eraser clears whatever is in its disc -- the box's lid too,
+        // which the food brush refuses to paint over -- so it lifts at least
+        // the food just laid, not exactly it.
+        let erased = cells_in("ERASED AT 60,5");
+        assert_eq!(erased.len(), 1, "want one erase line for one gesture, got {erased:?}:\n{text}");
+        assert!(erased[0] >= food[0], "the eraser lifted less than the food just painted:\n{text}");
         assert!(text.contains(" = "), "the dial-change line is missing:\n{text}");
         // The header's two new lines (spec A1-A2, and the env switches), and
         // the sidecars written beside the text at the same moment (spec H30).
