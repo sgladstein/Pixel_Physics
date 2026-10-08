@@ -5531,6 +5531,15 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   ground line and the heap cue stands aside for covered cells; soil sliding
   into each cut pushes the hole upward, so 220-300 covered holes build up.
   On main 85% of all cuts are mound cuts. Three levers named, none built.
+- [stack-leave-one-out-2026-10-08/README.md](stack-leave-one-out-2026-10-08/README.md) —
+  **the playtest stack one switch at a time on steady food: the nest store
+  starves the foragers.** Taking `NEST_STORE` out cuts surface starvation on
+  every seed (380/341/171/195 -> 109/173/101/87) and raises the colony's
+  floor; `CARRY_HOME`, `NEEDS_FIRST` and `WAY_FOOT` each protect (surface or
+  nest); `DOOR_COLUMN` and `LAY_BAR` move nothing consistently. Traced: the
+  store's extra starvers go hungry at or past the heap, after the food has
+  gone into the store, and its pull never reaches them (`smell=10`, the heap
+  30 columns out).
 - [handoff/PLAN-2026-10-07.md](handoff/PLAN-2026-10-07.md) — **the account
   handoff and plan for the ant program, 2026-10-07 (main 9c362015); start here.**
   Written for a new account with only the repo: the owner's goals, every working
