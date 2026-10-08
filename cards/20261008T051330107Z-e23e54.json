@@ -1,0 +1,43 @@
+{
+  "id": "20261008T051330107Z-e23e54",
+  "created": "2026-10-08T05:13:30Z",
+  "board": "ants",
+  "origin": {
+    "worktree": "/home/user/wt-mound",
+    "branch": "claude/eloquent-johnson-axjvu1-mound-trace",
+    "commit": "1b68eb1c",
+    "agent": null,
+    "session_id": "60c7ca71-5f76-54b9-9ff4-a4458d134ad6",
+    "user": null,
+    "cwd": "/home/user/wt-mound"
+  },
+  "title": "Who digs the holes in the mound (playtest request, traced)",
+  "question": "Is this the mound-hole problem you saw in the playtest? If so, which fix: (1) the curvature dig urge only counts at the nest, (2) the dig-down turn only below ground, or (3) no cuts in the mound away from the door?",
+  "context_md": "Your playtest note: *Digging in the mound is obviously a problem to solve. Trace the ants that dig those holes.* Traced per ant on steady food with your switches: about 1,100 different ants per seed cut a cell or a few (top ten 4-5% of cuts). They are idle, fed foragers loafing on the mound. The 'dig where the ground curves round you' urge reads every hollow of the porous mound as a dig face, nothing stops a cut above the ground line, and soil sliding into each cut pushes the hole up, so holes pile up. On main's defaults 85% of all digging is in the mound. Report: PR 664, Reports/mound-diggers-2026-10-08/.",
+  "kind": "single",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "seed 1: 100k (top), 180k (bottom); right = with the dig map (teal = fresh cuts)",
+      "files": [
+        "20261008T051330107Z-e23e54/000-mound.png"
+      ],
+      "caption": "Ants by job: amber forager, blue nest worker, pink layer. Lab run with your switches plus edible.",
+      "meta": {
+        "ants (100k / 180k)": "261 / 248",
+        "cuts in the dig map window": "1,096 / 864",
+        "mound cuts traced (seed 1 / 4)": "4,022 / 4,333",
+        "distinct mound diggers": "1,105 / 1,099",
+        "covered holes in the mound at the end": "302 / 221"
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
