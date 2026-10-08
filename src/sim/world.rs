@@ -1955,6 +1955,11 @@ pub struct CreatureStats {
     /// within the roof's rows under a nest's founding surface and outside its
     /// door. 0 under `PIXEL_PHYSICS_DIG_ROOF=off`.
     pub digs_refused_roof: u64,
+    /// **`creature::MoundDig`'s `roof` count**: cuts refused because their
+    /// cell lay in a nest's spoil mound outside its door, the digger not shut
+    /// in. Not in `digs_refused_roof`; the trace's `DigWhy` reads it as the
+    /// roof's verdict. 0 unless `PIXEL_PHYSICS_MOUND_DIG` sets `roof`.
+    pub digs_refused_mound: u64,
     /// **`creature::held_by_kin`'s count**: support checks an animal passed
     /// only because it touched a nestmate on the ground -- each a fall that
     /// did not happen. 0 under `PIXEL_PHYSICS_KIN_FOOTING=off`.

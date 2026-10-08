@@ -16077,7 +16077,9 @@ fn spoil_cue_factor(world: &World, (x, y): (i32, i32), (tx, ty): (i32, i32), rad
     // kept the crust whole away from a heap
     // (`Reports/nest-heap-cue-2026-09-28.md` §17;
     // `the_heap_cue_leaves_a_dig_inside_a_wide_room_alone`).
-    let enclosed = surface_curvature(world, x, y, radius) <= SPOIL_CUE_ENCLOSED;
+    // **[`MoundDig`]'s `cue`**: an enclosed head in the spoil mound is in a
+    // hollow of a heap, not at a tunnel face, so the stand-aside is not its.
+    let enclosed = !(mound_dig().cue && in_mound(world, (x, y))) && surface_curvature(world, x, y, radius) <= SPOIL_CUE_ENCLOSED;
     let floor_cut = ty > y && !open_to_the_sky(world, x, y);
     if (enclosed || floor_cut) && !open_to_the_sky(world, tx, ty) {
         return None;
@@ -16195,6 +16197,84 @@ fn under_roof(world: &World, (x, y): (i32, i32), rows: i32) -> bool {
     let Some(site) = world.nest_sites.iter().min_by_key(|s| (s.x - x).abs()) else { return false };
     let below = y - site.surface;
     (0..rows).contains(&below) && (x - site.x).abs() > door
+}
+
+/// **`PIXEL_PHYSICS_MOUND_DIG`: the spoil mound is not a dig face**
+/// (2026-10-08, off; `Reports/mound-diggers-2026-10-08/README.md`, the
+/// owner's playtest request to trace the ants that dig holes in the mound).
+///
+/// **Why.** Traced per ant on `steady_income` with the playtest switches,
+/// the holes in the mound are cut by about 1,100 different idle, fed
+/// foragers a seed, a cell or a few each, with no sense of being at home
+/// (`AtNest` set at 1-2% of mound cuts against 98% in the nest). The one dig
+/// wire not gated to the nest, `(SurfaceCurvature, Dig, -1.0)`, reads every
+/// hollow of a porous heap as a face (cut rate x2,000 from flat to hollow);
+/// the dig-down turn then aims 73-78% of those cuts at the cell under the
+/// ant; the heap cue stands aside for an enclosed digger whose cell is
+/// covered (94% are); and [`under_roof`] never refuses above the founding
+/// surface. Soil sliding into each cut pushes the hole upward, so holes pile
+/// up (covered open cells in the mound ~0 -> 220-300 by 200k).
+///
+/// **Parts**, each one predicate about the digger's head or the cut cell,
+/// "in the mound" meaning above the nearest site's founding surface and
+/// within [`MOUND_DIG_REACH`] columns of its centre:
+/// - `down`: the dig-down turn's enclosed test is not met by a head in the
+///   mound, so a hollow there no longer turns the jaw into the heap.
+/// - `cue`: the heap cue's stand-aside for an enclosed digger does not apply
+///   to a head in the mound (the floor-cut stand-aside still does).
+/// - `roof`: a cut whose cell is in the mound and outside the door's columns
+///   is refused, as [`under_roof`] refuses one under the surface -- except
+///   for an ant shut in ([`shut_in_mound`], `MOUND_OUT`'s `dig`, or the
+///   needs ladder's escape), which must keep cutting its way out.
+///
+/// `on` is all three. Off is a read of a cached switch: no draw, no scan.
+#[derive(Clone, Copy, PartialEq, Debug, Default)]
+pub struct MoundDig {
+    pub down: bool,
+    pub cue: bool,
+    pub roof: bool,
+}
+
+/// Columns either side of a nest site's centre that count as its mound for
+/// [`MoundDig`]: the 2026-10-08 trace's own definition, wide enough for the
+/// heap a colony of a few hundred throws up on the 512-wide bed.
+pub const MOUND_DIG_REACH: i32 = 40;
+
+/// `off` (unset), `on`, or a comma list of `down`, `cue` and `roof`.
+pub fn parse_mound_dig(raw: &str) -> MoundDig {
+    let mut m = MoundDig::default();
+    for part in raw.split(',').map(str::trim).filter(|p| !p.is_empty()) {
+        match part {
+            "off" => m = MoundDig::default(),
+            "on" => m = MoundDig { down: true, cue: true, roof: true },
+            "down" => m.down = true,
+            "cue" => m.cue = true,
+            "roof" => m.roof = true,
+            other => eprintln!("PIXEL_PHYSICS_MOUND_DIG={raw:?}: unknown part {other:?}, ignored (off, on, down, cue, roof)"),
+        }
+    }
+    m
+}
+
+pub fn mound_dig() -> MoundDig {
+    static V: std::sync::OnceLock<MoundDig> = std::sync::OnceLock::new();
+    *V.get_or_init(|| parse_mound_dig(&std::env::var("PIXEL_PHYSICS_MOUND_DIG").unwrap_or_default()))
+}
+
+/// Whether `(x, y)` is in a nest's spoil mound for [`MoundDig`]: above the
+/// nearest site's founding surface and within [`MOUND_DIG_REACH`] of it.
+fn in_mound(world: &World, (x, y): (i32, i32)) -> bool {
+    world
+        .nest_sites
+        .iter()
+        .min_by_key(|s| (s.x - x).abs())
+        .is_some_and(|s| y < s.surface && (x - s.x).abs() <= MOUND_DIG_REACH)
+}
+
+/// [`MoundDig`]'s `roof`: the cut cell is in the mound and outside the door.
+fn mound_roof_refuses(world: &World, (x, y): (i32, i32)) -> bool {
+    let Some(door) = nest_door_of(world) else { return false };
+    in_mound(world, (x, y)) && world.nest_sites.iter().min_by_key(|s| (s.x - x).abs()).is_some_and(|s| (x - s.x).abs() > door)
 }
 
 /// **A collar round the door**: `PIXEL_PHYSICS_DOOR_COLLAR=on`, off unless
@@ -19257,9 +19337,12 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
         if let Some(dd) = dig_down_of(world).filter(|_| widen_to.is_none()) {
             let h = world.organism(organism).map_or(0, |s| s.heading);
             let turned = turn_toward(h, DOWN_DIR, half_turn_left(world.seed, organism, world.frame));
+            // **[`MoundDig`]'s `down`**: a hollow in the spoil mound is not
+            // a face, so a head there never meets the enclosed test.
             let may_turn = turned != h
                 && (!dd.enclosed_only
-                    || surface_curvature(world, x, y, curvature_radius_of(def, &traits_of(world, organism, def)).max(1)) <= SPOIL_CUE_ENCLOSED);
+                    || (!(mound_dig().down && in_mound(world, (x, y)))
+                        && surface_curvature(world, x, y, curvature_radius_of(def, &traits_of(world, organism, def)).max(1)) <= SPOIL_CUE_ENCLOSED));
             if may_turn {
                 // **Not where there is no way down** ([`way_down`]): a
                 // beetle sealed in a stone pocket turned from the one cell
@@ -19395,6 +19478,13 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
             }
             refused
         };
+        // **[`MoundDig`]'s `roof`**: a cut into the spoil mound away from
+        // the door is refused as a cut under the surface is, except for an
+        // ant shut in, which must cut its way out (`MOUND_OUT`'s `dig`, the
+        // needs ladder's escape). No draw either way.
+        let mound_refused = !cue_vetoed && !face_refused && !roof_refused && mound_dig().roof && mound_roof_refuses(world, (tx, ty)) && !escaping && !shut_in_mound(world, x, y);
+        world.creature_stats.digs_refused_mound += u64::from(mound_refused);
+        let roof_refused = roof_refused || mound_refused;
         let vetoed = cue_vetoed || face_refused || roof_refused;
         // **What the jaw can take is [`jaw_can_cut`]**, one test shared with
         // the dig-down turn above so the two cannot drift apart; the argument
@@ -31286,6 +31376,30 @@ mod tests {
             }
         }
         assert_eq!(harvest_drop(&w, ant, (40, 37), &def), None, "a full room is no target: the food goes to the door");
+    }
+
+    /// **[`MoundDig`]'s parts parse as named, and its mound is above the
+    /// founding surface, within reach and (for `roof`) outside the door**:
+    /// the surface row, the door's columns and ground past the reach are not
+    /// the mound, so a door through the heap stays diggable.
+    #[test]
+    fn the_mound_is_over_the_surface_within_reach_and_outside_the_door() {
+        assert_eq!(parse_mound_dig(""), MoundDig::default());
+        assert_eq!(parse_mound_dig("on"), MoundDig { down: true, cue: true, roof: true });
+        assert_eq!(parse_mound_dig("roof, down"), MoundDig { down: true, cue: false, roof: true });
+        assert_eq!(parse_mound_dig("on,off"), MoundDig::default());
+        let mut w = founding_bed();
+        w.cut_founding_shaft_with((60, 38), 6, 2, false, None, None);
+        let (cx, top) = (w.nest_sites[0].x, w.nest_sites[0].surface);
+        w.nest_door = Some(Some(2));
+        assert!(in_mound(&w, (cx + 5, top - 1)), "a cell one row over the surface is the mound");
+        assert!(!in_mound(&w, (cx + 5, top)), "the surface row is not: the roof owns it");
+        assert!(!in_mound(&w, (cx + MOUND_DIG_REACH + 1, top - 1)), "nor ground past the reach");
+        assert!(mound_roof_refuses(&w, (cx + 5, top - 3)), "a cut into the heap outside the door is refused");
+        assert!(!mound_roof_refuses(&w, (cx + 1, top - 3)), "the door's columns through the heap are not");
+        assert!(!mound_roof_refuses(&w, (cx + 5, top + 2)), "nor a cut under the surface");
+        w.nest_door = Some(None);
+        assert!(!mound_roof_refuses(&w, (cx + 5, top - 3)), "with no door there is no mound rule, as with the roof");
     }
 
     /// **The roof and the collar each touch only what they are for**
