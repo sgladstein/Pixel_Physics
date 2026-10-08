@@ -5541,7 +5541,8 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   gone into the store, and its pull never reaches them (`smell=10`, the heap
   30 columns out). A wider reach (`smell=40`, or none) does not fix it: the
   colony is smaller on every seed either way, and no store is best on every
-  seed. So `NEST_STORE` should not be in the default flip on this evidence.
+  seed. But on endless food (heap 90) the store makes the colony 15-30%
+  larger, so it is a trade for the owner; both bundles beat main by far.
 - [handoff/PLAN-2026-10-07.md](handoff/PLAN-2026-10-07.md) — **the account
   handoff and plan for the ant program, 2026-10-07 (main 9c362015); start here.**
   Written for a new account with only the repo: the owner's goals, every working

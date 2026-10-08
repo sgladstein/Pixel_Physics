@@ -112,15 +112,38 @@ starved):
 
 ## What this means for the stack and the default flip (plan step D)
 
-- **`NEST_STORE` should not be in a default flip on this evidence**, and it
-  is the one part of the stack that hurts on renewable food. The 12-seed
-  heap-90 comparison (the bundle against main, store included) was one-sided
-  for the bundle, so the store's cost there is not known: *a heap-90 run
-  without the store is what decides whether the flip is the bundle minus the
-  store*.
+- **`NEST_STORE` is the one part of the stack that hurts on renewable food.**
+  On endless food it helps (below), so whether it belongs in the flip is a
+  trade for the owner, not a measurement.
 - `CARRY_HOME`, `NEEDS_FIRST` and `WAY_FOOT` each protect on steady food.
   `DOOR_COLUMN` and `LAY_BAR` move nothing consistently here.
 - Feeding the brood is what the store does well. A store that feeds
   foragers too would need its food where foragers are (near the door, or a
   pull that reaches the heap's side), not a wider smell: a design question
   for the owner, not a retune.
+
+## On endless food the store helps (heap 90)
+
+The default-flip comparison's own box (`nest_goal`, heap 90, the comparison's
+binary `f55b33b8`), the bundle with `NEST_STORE` unset, seeds 1-4, against
+the comparison's main and bundle runs over the same window (frames 60-120k;
+the runs without the store stop at 120k because worker restarts kept killing
+300k runs). Scripts: [`nostore90.sh`](nostore90.sh), [`nostore90q.sh`](nostore90q.sh).
+
+| seed | main: ants min / mean, starved 20-120k | bundle | bundle without the store |
+|---|---|---|---|
+| 1 | 325 / 374, 56 | 582 / 644, 4 | 467 / 559, 5 |
+| 2 | 323 / 379, 23 | 598 / 641, 3 | 476 / 517, 20 |
+| 3 | 289 / 384, 61 | 519 / 682, 1 | 425 / 507, 1 |
+| 4 | 319 / 361, 14 | 504 / 605, 12 | 475 / 530, 5 |
+
+- **With endless food the store makes the colony 15-30% larger** (mean
+  605-682 against 507-559, every seed), with starvation small either way.
+- **Both bundles beat main by a wide margin** (main's mean 361-384, starved
+  14-61), so the flip question is which bundle, not whether.
+- So the store is a trade: it feeds the brood and grows the colony where
+  food is plentiful, and starves the foragers far from it where food is
+  short. **For the owner:** flip the bundle with the store (bigger colonies
+  on endless food), without it (steadier on renewable food), or with the
+  store changed so foragers can reach its food (a design question, see
+  above).
