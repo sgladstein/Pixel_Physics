@@ -5521,6 +5521,16 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   nest, 31 cells from the nearest egg laid meanwhile. The larvae starve
   because they fall away from every rich ant, the "ants live in the nest"
   problem rather than a birth brake.
+- [mound-diggers-2026-10-08/README.md](mound-diggers-2026-10-08/README.md) —
+  **who digs the holes in the mound (the owner's playtest request), traced
+  per ant: idle fed foragers in its hollows, not a few rogue diggers.** About
+  1,100 ants a seed cut a cell or a few (top ten 4-5% of cuts), with no
+  sense of being at home (`at_nest` 1-2%). The one dig wire not gated to the
+  nest, `SurfaceCurvature -> Dig`, reads every hollow of a porous mound as a
+  face: cut rate x2,000 from flat to hollow. The roof never refuses above the
+  ground line and the heap cue stands aside for covered cells; soil sliding
+  into each cut pushes the hole upward, so 220-300 covered holes build up.
+  On main 85% of all cuts are mound cuts. Three levers named, none built.
 - [handoff/PLAN-2026-10-07.md](handoff/PLAN-2026-10-07.md) — **the account
   handoff and plan for the ant program, 2026-10-07 (main 9c362015); start here.**
   Written for a new account with only the repo: the owner's goals, every working
