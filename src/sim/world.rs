@@ -2903,6 +2903,11 @@ pub struct CreatureStats {
     /// Drop rolls at the nest held so a hungry ant keeps the meal it took
     /// at home (`creature::NestStore`'s `meal`).
     pub meal_holds: u64,
+    /// **Ticks an egg was held by [`crate::sim::creature::FeedFirst`]**: the
+    /// layer cleared every other bar (the regime, the food brake, the nest
+    /// gate) and a starving larva of its colony was in reach. 0 with the
+    /// switch off.
+    pub feed_first_held: u64,
     /// Of `nurse_handoffs`: those a nurse above the founding ground passed
     /// down, and those whose receiver was not a nest worker until then.
     pub nurse_passed_down: u64,

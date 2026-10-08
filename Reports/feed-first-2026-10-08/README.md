@@ -94,3 +94,36 @@ egg site is sought:
    appetite dial keeps surplus in crops anyway?
 3. Is there an existing rule that already reads larval starvation and would
    double up with this (`FOOD_BRAKE`, `NurseStay`, `CropNurse`)?
+
+## Second review (2026-10-08, a review subagent standing in for Deep trace): build with changes
+
+Its findings, checked against the code it cited:
+
+- **The cue is sound but late and narrow.** A larva starts at exactly
+  `egg_cost` (`lay_egg`), only `larva_upkeep` drains it, and every feed adds,
+  so a fed larva never sits below the line. Unfed, it crosses 50% about 7,450
+  frames after laying. A larva fed once and then abandoned starts from higher
+  and crosses much later. So the cue reads "never fed", not "food is short
+  now". frac must stay well under 100, or every new larva trips on its first
+  tick: clamped under 90.
+- **Placement:** before the egg site it would count ticks the breeding regime,
+  the food brake or the nest gate would have held anyway, and would change
+  those counters between arms. **Moved to after the food brake's return.**
+- **Stranding at reach 6:** a held layer 3-6 cells from the larva does not
+  feed it (`nurse` is the eight neighbours), so every layer near it holds until
+  the larva dies, a local birth stop. At reach 2 the hold mostly resolves
+  itself through `nurse` within one larva tick. **So reach 2 and 6 are both
+  tested**, and `seek` comes forward if reach-6 holds commonly end in a
+  starved larva.
+- No existing rule reads larval starvation; `FOOD_BRAKE` reads income
+  against burn, and `nurse_seek`, `larva_scent`, `NurseStay` and `CropNurse`
+  read shortfall against target and only move ants.
+- Off is byte-identical if the switch is read once and the counter only moves
+  when on: built that way (`OnceLock`, no draw, no scan when off).
+
+**Changes taken:** placement after the food brake; `egg_cost` read from
+`brood_of` (env applied); frac clamped under 0.9; reach as a part (`reach=2`
+and the default 6 both tested). **Not taken yet:** per-hold length and
+fed-or-died counters. The first test reads them from the logs instead
+(`feeds.csv` donors against `feed_first_held` and larvae starved), and they
+are built only if that is ambiguous.
