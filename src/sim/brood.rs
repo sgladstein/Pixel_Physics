@@ -1311,6 +1311,30 @@ pub(super) fn larva_scent(world: &World, (hx, hy): (i32, i32), colony: u32, mate
 /// first ring that holds one; on that ring the hungriest, the first in scan
 /// order on a tie. Hungry as [`larva_scent`] reads it: short of its
 /// pupation target.
+/// **Whether a starving larva of `colony` lies within `reach` cells either
+/// way of `(hx, hy)`** ([`crate::sim::creature::FeedFirst`]): one whose bank
+/// is below `line`. Unlike [`larva_scent`]'s and [`nearest_hungry_larva`]'s
+/// "hungry" (short of the pupation target, which every larva is), a bank
+/// under a fraction of the egg it hatched from means the larva has gone
+/// thousands of frames without being fed: a fed larva only climbs
+/// (`lay_egg` starts it at `egg_cost`; only `larva_upkeep` drains it). The
+/// scan stops at the first one found. Read only.
+pub(super) fn starving_larva_near(world: &World, (hx, hy): (i32, i32), colony: u32, material: super::material::MaterialId, reach: i32, line: f32) -> bool {
+    for dy in -reach..=reach {
+        for dx in -reach..=reach {
+            let c = world.get(hx + dx, hy + dy);
+            if c.material != material {
+                continue;
+            }
+            let Some(st) = world.organism(c.organism_id()) else { continue };
+            if st.colony == colony && st.brood.is_some_and(|b| b.stage == BroodStage::Larva) && st.energy < line {
+                return true;
+            }
+        }
+    }
+    false
+}
+
 pub(super) fn nearest_hungry_larva(world: &World, (hx, hy): (i32, i32), colony: u32, material: super::material::MaterialId, reach: i32) -> Option<(i32, i32)> {
     let need_at = |x: i32, y: i32| -> Option<f32> {
         let c = world.get(x, y);
@@ -2311,6 +2335,37 @@ mod tests {
         w.organism_mut(id).expect("live").colony = colony + 1;
         w.organism_mut(id).expect("live").energy = 0.1 * target;
         assert_eq!(nearest_hungry_larva(&w, from, colony, material, 16), Some(far), "another colony's larva was taken");
+    }
+
+    /// **A starving larva, not a merely hungry one, is what `FeedFirst`
+    /// finds** ([`starving_larva_near`]): a larva at its starting bank
+    /// (`egg_cost`) is short of its target, so `nearest_hungry_larva` finds
+    /// it, but it is not starving at a line of half the egg; below the line it
+    /// is; past `reach` it is not; another colony's is not this ant's.
+    #[test]
+    fn a_starving_larva_is_found_and_a_merely_hungry_one_is_not() {
+        let (mut w, ant, def) = bed(true);
+        let material = brood_material(&w, &def).expect("brood material");
+        let egg_cost = brood_of(&w, &def).expect("brood").egg_cost;
+        let line = 0.5 * egg_cost;
+        let colony = w.organism(ant).expect("live").colony;
+        let head = w.organism(ant).expect("live").chain[0];
+        let from = (head.0 - 12, head.1);
+        assert!(!starving_larva_near(&w, from, colony, material, 6, line), "no brood, yet a starving larva");
+        let at = (from.0 + 3, from.1);
+        let id = lay_at(&mut w, ant, &def, at);
+        {
+            let st = w.organism_mut(id).expect("laid");
+            st.brood.as_mut().expect("brood").stage = BroodStage::Larva;
+            st.energy = egg_cost;
+        }
+        assert_eq!(nearest_hungry_larva(&w, from, colony, material, 6), Some(at), "a new larva should read hungry");
+        assert!(!starving_larva_near(&w, from, colony, material, 6, line), "a new larva at its egg's bank was taken for starving");
+        w.organism_mut(id).expect("live").energy = 0.4 * egg_cost;
+        assert!(starving_larva_near(&w, from, colony, material, 6, line), "a larva under the line three cells off was not found");
+        assert!(!starving_larva_near(&w, from, colony, material, 2, line), "a starving larva past reach was found");
+        w.organism_mut(id).expect("live").colony = colony + 1;
+        assert!(!starving_larva_near(&w, from, colony, material, 6, line), "another colony's larva was taken");
     }
 
     /// **A lone larva is carried to the pile** ([`carry`]): with a nestmate

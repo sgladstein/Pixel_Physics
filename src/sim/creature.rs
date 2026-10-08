@@ -5663,6 +5663,17 @@ pub(super) fn try_bud(
         }
         return None;
     }
+    // **[`FeedFirst`]: no egg while a starving larva is in reach.** After
+    // every other bar, so the count is eggs that would otherwise be laid.
+    let ff = feed_first();
+    if ff.on {
+        if let (Some(brood), Some(larva_mat)) = (super::brood::brood_of(world, def), super::brood::brood_material(world, def)) {
+            if super::brood::starving_larva_near(world, (hx, hy), parent_colony, larva_mat, ff.reach, ff.frac * brood.egg_cost) {
+                world.creature_stats.feed_first_held += 1;
+                return None;
+            }
+        }
+    }
     let material_id = world.materials.id_of(&world.species.get(species_id).name.clone())?;
 
     // **The child's body-growth genome, inherited and mutated here, on the
@@ -20192,6 +20203,71 @@ fn nearest_breeder(world: &World, exclude: OrganismId, colony: u32, x: i32, y: i
 /// to average over a forager's round trip and short enough to see a colony
 /// outgrow its income before the reserve falls.
 pub const FOOD_BRAKE_WINDOW: u64 = 3000;
+
+/// **`PIXEL_PHYSICS_FEED_FIRST`: no egg while a starving larva is in reach**
+/// (2026-10-08, off; the owner's "feed before you lay" brake after the
+/// boom-and-bust playtests, `Reports/feed-first-2026-10-08/README.md`).
+///
+/// An ant that has cleared every other bar to lay -- affordability, its
+/// brain's `Lay`, the nest gate, the breeding regime, the food brake -- does
+/// not lay this tick if a larva of its colony within `reach` cells has a bank
+/// under `frac` of the egg it hatched from (`BroodDef::egg_cost`, read as
+/// applied, env included). Every larva is short of its pupation target, so
+/// "hungry" in [`super::brood::larva_scent`]'s sense would hold most eggs; a
+/// bank that low means the larva has gone thousands of frames unfed (the
+/// cue's lag: about 7,450 frames from laying at 50%), which is the brood not
+/// being fed rather than brood existing. A held layer beside the larva feeds
+/// it through `brood::nurse` on the next larva tick, which lifts the hold.
+///
+/// **Placed after the food brake's return**, not before the egg site (the
+/// second review, 2026-10-08): there it counts only eggs that would
+/// otherwise be laid, and every other birth counter reads the same in both
+/// arms. Off is a read of a cached switch and nothing else: no draw, no scan.
+///
+/// **Measured inert, and why** (2026-10-08, `steady_income` at 40 cells, the
+/// owner's playtest switches plus `edible`, seeds 1-4, 200k): reach 6 held
+/// eggs on one seed of four, reach 2 on none, while 6-142 larvae starved a
+/// seed. Traced per larva: brood is a powder and an egg is laid at the top
+/// of the column under the door, so the larvae that starve have fallen a
+/// median 38-40 rows (85-87% of their moves one-row drops) into the deep
+/// nest, where layers never stand; the nearest egg laid while one starved
+/// was a median 31 cells away. The rule is right and has nothing in reach.
+/// Re-test once layers lay where larvae end up (brood that stays put, or a
+/// resting place deep in the nest), not by widening `reach`.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub struct FeedFirst {
+    pub on: bool,
+    /// Cells either way of the head the scan covers.
+    pub reach: i32,
+    /// The starvation line as a fraction of `egg_cost`, clamped under 0.9:
+    /// at 1.0 every new larva trips on its first tick, which is a birth stop.
+    pub frac: f32,
+}
+
+impl FeedFirst {
+    pub const OFF: FeedFirst = FeedFirst { on: false, reach: super::brood::NURSE_SCENT_REACH, frac: 0.5 };
+}
+
+/// `off` (unset), `on` / `hold`, with optional `reach=<cells>` and
+/// `frac=<percent>` parts, e.g. `hold,reach=2,frac=50`.
+pub fn parse_feed_first(raw: &str) -> FeedFirst {
+    let mut ff = FeedFirst::OFF;
+    for part in raw.split(',').map(str::trim).filter(|p| !p.is_empty()) {
+        match part {
+            "off" => ff.on = false,
+            "on" | "hold" => ff.on = true,
+            p if p.starts_with("reach=") => ff.reach = p[6..].parse().unwrap_or(ff.reach).clamp(1, 32),
+            p if p.starts_with("frac=") => ff.frac = (p[5..].parse::<f32>().unwrap_or(50.0) / 100.0).clamp(0.01, 0.9),
+            other => eprintln!("PIXEL_PHYSICS_FEED_FIRST={raw:?}: unknown part {other:?}, ignored (off, on, hold, reach=<cells>, frac=<percent>)"),
+        }
+    }
+    ff
+}
+
+pub fn feed_first() -> FeedFirst {
+    static V: std::sync::OnceLock<FeedFirst> = std::sync::OnceLock::new();
+    *V.get_or_init(|| parse_feed_first(&std::env::var("PIXEL_PHYSICS_FEED_FIRST").unwrap_or_default()))
+}
 
 /// `PIXEL_PHYSICS_FOOD_BRAKE`: `off` (the default while it is measured),
 /// `on` (ramp from [`FOOD_BRAKE_HI`] down to [`FOOD_BRAKE_LO`]), or
@@ -39178,6 +39254,20 @@ mod tests {
     /// (2026-09-24): the walk the ant actually runs is the one whose trace
     /// matters most, and `Off` is kept because species without a nest still
     /// walk it. The chooser never tumbles, so its vacuity check is on steps.
+    /// `PIXEL_PHYSICS_FEED_FIRST`'s spellings: unset is off; `on` and `hold`
+    /// are the defaults (reach 6, half the egg); parts set reach and frac;
+    /// frac is clamped under 0.9, where every new larva would trip.
+    #[test]
+    fn feed_first_parses_its_parts_and_clamps_the_line() {
+        assert!(!parse_feed_first("").on);
+        assert!(!parse_feed_first("off").on);
+        let on = parse_feed_first("on");
+        assert!(on.on && on.reach == super::super::brood::NURSE_SCENT_REACH && (on.frac - 0.5).abs() < 1e-6);
+        let p = parse_feed_first("hold,reach=2,frac=30");
+        assert!(p.on && p.reach == 2 && (p.frac - 0.3).abs() < 1e-6);
+        assert!((parse_feed_first("on,frac=100").frac - 0.9).abs() < 1e-6, "frac must clamp under 0.9");
+    }
+
     #[test]
     fn the_decision_trace_changes_nothing_it_watches() {
         // The chooser's ants reach the canopy later: in 3,000 frames none had
