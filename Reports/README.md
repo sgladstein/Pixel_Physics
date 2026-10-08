@@ -5539,7 +5539,9 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   nest); `DOOR_COLUMN` and `LAY_BAR` move nothing consistently. Traced: the
   store's extra starvers go hungry at or past the heap, after the food has
   gone into the store, and its pull never reaches them (`smell=10`, the heap
-  30 columns out).
+  30 columns out). A wider reach (`smell=40`, or none) does not fix it: the
+  colony is smaller on every seed either way, and no store is best on every
+  seed. So `NEST_STORE` should not be in the default flip on this evidence.
 - [handoff/PLAN-2026-10-07.md](handoff/PLAN-2026-10-07.md) — **the account
   handoff and plan for the ant program, 2026-10-07 (main 9c362015); start here.**
   Written for a new account with only the repo: the owner's goals, every working

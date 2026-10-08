@@ -5,7 +5,7 @@ the owner's playtest stack holds a steady colony on renewable food, but
 starves about 7x main's adults on the surface
 ([`../appetite-sweep-2026-10-08/README.md`](../appetite-sweep-2026-10-08/README.md) §3).
 This takes each of the six switches out in turn to find which one does it,
-then traces the starvers it adds. Also the first per-switch evidence for the
+then traces the starvers it adds and tests the store's reach. Also the first per-switch evidence for the
 stack's default flip (plan step D), which so far had only the whole bundle
 against main. Measured unless marked *inferred*.
 
@@ -84,7 +84,43 @@ died at the box's edges, 120-260 columns out (seed 1).
   crumb trap itself, so `smell=10` may now only be cutting the store off from
   the foragers it should feed. *Inferred; under test below.*
 
-## Under test: the store without its smell limit
+## Tested: the store with a wider reach, and with none -- not the fix
 
-The same line with `NEST_STORE=on,pick=20,jaws,sky,meal,edible` (no `smell`)
-and with `smell=40`, seeds 1-4. _Running at writing._
+The same line with the store's `smell=40`, and with no `smell` part (the old
+reach: every hungry empty ant on the way in), seeds 1-4, 200k; same columns
+as the first table (colony min/mean; adults starved, surface/nest; larvae
+starved):
+
+| arm | seed 1 | seed 2 | seed 3 | seed 4 |
+|---|---|---|---|---|
+| all (`smell=10`) | 221/269, 424 (380/1), 142 | 225/268, 387 (341/9), 121 | 244/272, 191 (171/3), 6 | 243/275, 198 (195/1), 131 |
+| `smell=40` | 211/254, 243 (172/26), 74 | 238/259, 264 (225/1), 282 | 225/251, 134 (99/1), 68 | 212/245, 313 (210/2), 162 |
+| no `smell` | 173/229, 358 (216/54), 224 | 200/239, 265 (154/42), 277 | 233/249, 218 (131/77), 50 | 227/254, 252 (180/43), 186 |
+| no store | **227/274, 114 (109/0), 261** | **272/303, 186 (173/0), 237** | **256/286, 112 (101/2), 210** | **250/285, 92 (87/0), 255** |
+
+- **A wider reach trades one starvation for another.** At `smell=40` surface
+  starvation falls on 3 of 4 seeds, but the colony's mean is lower on all 4
+  (245-259 against 268-275). With no limit the nest starves again (42-77
+  adults inside a run, the crumb-trap shape even with `edible`) and the
+  colony is smaller on all 4.
+- **No store is the best arm on every seed** for the colony (mean 274-303)
+  and for adults starved (92-186).
+- So on renewable food the store, in the playtest's form, costs the colony
+  whatever its reach: it moves food deep into the nest, which feeds the brood
+  (larvae starved 6-162 with it, 210-261 without) and starves the foragers
+  who are not near it.
+
+## What this means for the stack and the default flip (plan step D)
+
+- **`NEST_STORE` should not be in a default flip on this evidence**, and it
+  is the one part of the stack that hurts on renewable food. The 12-seed
+  heap-90 comparison (the bundle against main, store included) was one-sided
+  for the bundle, so the store's cost there is not known: *a heap-90 run
+  without the store is what decides whether the flip is the bundle minus the
+  store*.
+- `CARRY_HOME`, `NEEDS_FIRST` and `WAY_FOOT` each protect on steady food.
+  `DOOR_COLUMN` and `LAY_BAR` move nothing consistently here.
+- Feeding the brood is what the store does well. A store that feeds
+  foragers too would need its food where foragers are (near the door, or a
+  pull that reaches the heap's side), not a wider smell: a design question
+  for the owner, not a retune.
