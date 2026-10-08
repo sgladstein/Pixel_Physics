@@ -1,0 +1,55 @@
+// Boom and bust -- the owner's two lab playtests of 2026-10-07, as a box.
+//
+// Both playtests ran the same way: a colony landed beside more food than it
+// could eat, grew until it had eaten it (playtest 1: 104 -> 1,432 ants in
+// 80k frames, the larder from 8.0M J to 12k), then crashed -- every adult
+// dead within 20k frames, the brood starving. The owner: *"I feel like we
+// need to slow down birth ... we cannot build up food because our
+// population grows quickly as we get more food"*.
+//
+// So: the nest goal's box and colony (no plants, mister off, 52 ants at
+// column 256 at frame 6,000), and a large store of provisions east of the
+// nest that nothing ever refills: 2,000 cells at provisions' 960 J is
+// 1.92M J, the order of the playtests' larders on the gut-0 price. **Two
+// heaps of 1,000, at columns 330 and 420, not one of 2,000 at 286**: a
+// `Heap` is a pyramid (row r is 2r+1 wide), so 2,000 cells is 89 columns
+// across and centred 30 east of the door it would bury the nest. These
+// two span about 299-361 and 389-451, the nearer edge 43 columns out.
+// Run it in `deeptrace` with `food=0`, or the harness's `top_up` refills
+// the heap and this becomes the nest goal again.
+//
+// **What a fix looks like here is not survival** -- finite food that never
+// comes back ends every colony. It is the shape of the end: births slowing
+// as the store shrinks and a colony that falls gradually, against today's
+// boom to the peak and a crash from it with the larvae starving.
+(
+    name: "boom_bust",
+    title: "BOOM AND BUST",
+    question: "A big store of food that never comes back: does the colony slow its births as the store runs down, or breed to the peak and crash?",
+    bed: (
+        width: 512,
+        height: 320,
+        soil_depth: 80,
+        ground_y: 160,
+        compartments: 1,
+        founders: 0,
+        species: "grass",
+        colonies: 0,
+        colony_ants: 52,
+        colony_species: "ant",
+        predators: 0,
+        lamp_spacing: 33,
+        seed: 1,
+        extra_walls: [],
+    ),
+    settings: [
+        (subject: "the bed", field: "rain", value: 0),
+    ],
+    placements: [],
+    timeline: [
+        (at: 6000, every: 0, until: 0, what: Colony(species: "ant", x: 256, count: 52)),
+        (at: 6000, every: 0, until: 0, what: Heap(material: "provisions", x: 330, cells: 1000)),
+        (at: 6000, every: 0, until: 0, what: Heap(material: "provisions", x: 420, cells: 1000)),
+    ],
+    horizon: 600000,
+)

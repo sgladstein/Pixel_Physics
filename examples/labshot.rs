@@ -476,8 +476,17 @@ fn main() {
     renderer.creature_colour = match arg::<String>("colour").as_deref() {
         Some("off") => pixel_physics::render::CreatureColour::Off,
         Some("species") => pixel_physics::render::CreatureColour::Species,
+        // The per-animal readouts (2026-10-08): job, state, energy.
+        Some("job") => pixel_physics::render::CreatureColour::Job,
+        Some("state") => pixel_physics::render::CreatureColour::State,
+        Some("energy") => pixel_physics::render::CreatureColour::Energy,
         _ => pixel_physics::render::CreatureColour::Colony,
     };
+    // **`dig=1` -- the lab's dig heat map** (`F10`, `dig_marks`), observed
+    // after every step exactly as the lab's tick loop does.
+    if arg::<u8>("dig").unwrap_or(0) != 0 {
+        renderer.dig.mode = pixel_physics::dig_marks::DigOverlay::Cuts;
+    }
     // **`channel=` -- render the sheet through one of `render.rs`'s debug
     // overlays instead of the material colours**, the same door
     // `filmstrip`'s own `channel=` opens for the outdoor scenes. Added for
@@ -706,6 +715,33 @@ fn main() {
                  light at the bench {mean:.3} (dimmest {dimmest:.3})",
                 ids.len()
             );
+            // The count beside the picture for the per-animal views and the
+            // dig map: how many animals hold each job, and how many cuts the
+            // heat map is drawing by how many diggers.
+            {
+                use pixel_physics::sim::creature::{ant_job, AntJob};
+                let mut jobs = [0usize; 4];
+                for id in &ids {
+                    let Some(st) = world.organism(*id) else { continue };
+                    if st.brood.is_some() {
+                        continue;
+                    }
+                    let Some(def) = world.species.get(st.species).creature.as_ref() else {
+                        continue;
+                    };
+                    jobs[match ant_job(&world, def, st) {
+                        AntJob::Forager => 0,
+                        AntJob::NestWorker => 1,
+                        AntJob::Nurse => 2,
+                        AntJob::Layer => 3,
+                    }] += 1;
+                }
+                let (cuts, diggers) = renderer.dig.readout(world.frame);
+                println!(
+                    "            jobs: forager {} nest worker {} nurse {} layer {} | dig map: {cuts} cuts by {diggers} animals",
+                    jobs[0], jobs[1], jobs[2], jobs[3]
+                );
+            }
             // **The creature and standing-organ half**, beside the plant one
             // above rather than instead of it. `orgs` counts plants *and*
             // ants together, so a colony dying while the stand grows moves it
@@ -851,6 +887,7 @@ fn main() {
             if let Some(s) = &scenario {
                 pixel_physics::lab::scenario::tick_timeline(s, &mut world, &spec);
             }
+            renderer.dig.observe(&mut world);
         }
     }
 

@@ -5486,6 +5486,14 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   adjudication. Pick it up from this file — it
   carries what a later session must not re-derive, including the two rubric
   rules that are under-applied by default.
+- [boom-and-bust-2026-10-08/README.md](boom-and-bust-2026-10-08/README.md) —
+  **the owner's 2026-10-07 playtests reproduced headless (`boom_bust.ron`) and
+  traced to every ant's bank.** A colony beside a big food store that never
+  comes back grows to 400-500 ants, eats it all in ~40k frames, then every
+  adult dies within 3k-20k frames of the last bite: the median ant holds
+  107-169 J (about 1,500 frames of living), the store 1-6 cells, and 174-201
+  brood are left to starve. `edible` changes nothing. Basis for the birth
+  brakes (`SATED`, `FEED_FIRST`) and a banking store as a third candidate.
 - [birth-brakes-proposal-2026-10-08.md](birth-brakes-proposal-2026-10-08.md) —
   **proposal: two brakes on births, after the owner's boom-and-bust
   playtests.** The appetite dial (`digest_hunger_weight`, a full ant keeps
