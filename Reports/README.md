@@ -5494,6 +5494,12 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   107-169 J (about 1,500 frames of living), the store 1-6 cells, and 174-201
   brood are left to starve. `edible` changes nothing. Basis for the birth
   brakes (`SATED`, `FEED_FIRST`) and a banking store as a third candidate.
+- [birth-brakes-proposal-2026-10-08.md](birth-brakes-proposal-2026-10-08.md) —
+  **proposal: two brakes on births, after the owner's boom-and-bust
+  playtests.** The appetite dial (`digest_hunger_weight`, a full ant keeps
+  its surplus in the crop) re-tested: 0.5 slows births, stretches food and
+  stops near-collapses on a steady income (4 seeds); 1.0 stops breeding.
+  `FEED_FIRST` (feed hungry larvae before laying) proposed, not built.
 - [handoff/PLAN-2026-10-07.md](handoff/PLAN-2026-10-07.md) — **the account
   handoff and plan for the ant program, 2026-10-07 (main 9c362015); start here.**
   Written for a new account with only the repo: the owner's goals, every working
