@@ -16228,6 +16228,19 @@ fn under_roof(world: &World, (x, y): (i32, i32), rows: i32) -> bool {
 ///   needs ladder's escape), which must keep cutting its way out.
 ///
 /// `on` is all three. Off is a read of a cached switch: no draw, no scan.
+///
+/// **Measured, and shipped off** (2026-10-08, `steady_income`, the playtest
+/// switches plus `edible`, `dig=1`, 200k; `on` seeds 1-4, each part seeds
+/// 1-2): **every part that stops the mound digging costs the colony.** `on`
+/// cut mound cuts 90-98% and the colony's mean 268-275 -> 134-198, with
+/// 101-178 adults a run starving inside the mound against 2-43; `roof` alone
+/// the same (mean 146-175); `cue` alone halves the cuts on one seed and the
+/// mean falls to 185-240; `down` alone stops nothing (the cut is aimed
+/// elsewhere, not refused) and harms nothing. The ground maps say why: the
+/// hollow mound is the colony's way through it to the food heap, and a mound
+/// that cannot be cut is solid to the heap, so trips go over a taller crest
+/// and ants shut in it starve. Re-test only with a rule that tells a passage
+/// from a scrape (`Reports/mound-diggers-2026-10-08/README.md`).
 #[derive(Clone, Copy, PartialEq, Debug, Default)]
 pub struct MoundDig {
     pub down: bool,

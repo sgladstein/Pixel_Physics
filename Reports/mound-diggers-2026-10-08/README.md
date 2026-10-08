@@ -217,5 +217,31 @@ way to the food heap; on, it is solid soil to the heap, and the only way is
 the door column and over a taller crest. **The holes are, in part, the
 colony's own way through its mound to the food**, and the ants shut in it
 when it cannot be cut starve there. So the mound's porosity is not only
-waste; the levers have to leave a way through. Each part alone is being
-measured next.
+waste; the levers have to leave a way through.
+
+**Each part alone** (seeds 1 and 2; colony min / mean after 100k, mound
+cuts, adults starved with surface / in the mound / nest):
+
+| part | seed 1 | seed 2 |
+|---|---|---|
+| off | 221 / 269, 4,022, 424 (380 / 43 / 1) | 225 / 268, 4,349, 387 (341 / 36 / 9) |
+| `on` (all three) | 136 / 185, 246, 493 (298 / 178 / 17) | 132 / 198, 386, 522 (416 / 101 / 1) |
+| `down` | 235 / 272, 5,010, 346 (280 / 7 / 53) | 231 / 263, 4,773, 216 (194 / 0 / 21) |
+| `cue` | 147 / 240, 3,364, 379 (344 / 34 / 0) | 142 / 185, 1,969, 307 (246 / 56 / 2) |
+| `roof` | 77 / 175, 365, 529 (412 / 110 / 5) | 101 / 146, 336, 411 (254 / 148 / 4) |
+
+- **`roof` is the part that stops the digging, and it carries all of `on`'s
+  cost** and more (mean 146-175).
+- **`cue` halves the cuts on one seed and costs the colony on both** (mean
+  185-240).
+- **`down` stops nothing**: with the turn gone, the roll cuts the cell ahead
+  instead (mound cuts 4,773-5,010), and it harms nothing (starved lower on
+  both seeds; not enough seeds to call it a gain).
+
+**Verdict: `MOUND_DIG` ships off and is recorded as a dead end.** Every lever
+that stops the mound digging takes away the colony's way through its mound.
+A rule that could work has to tell a passage from a scrape -- for instance,
+leave a cut alone when it joins open space toward the food or the door, and
+refuse one into a dead-end hollow -- or give the colony another way to the
+food (a trail over the mound, a door on the food's side). That is a design
+question for the owner, not a retune.
