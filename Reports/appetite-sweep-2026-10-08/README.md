@@ -30,7 +30,7 @@ owner's rule, more seeds only where results are unclear.
 | main | 0.5 | 204-255 / 266-280 | 58-94 | 152-180 | 1,734-1,798 |
 | main | 0.75 | 162-197 / 222-247 | **202-267** | 102-117 | 1,505-1,638 |
 
-(main weights 0.25-0.75 are seeds 1-3; seed 4 was still queued.)
+(main weights 0.25-0.75 were seeds 1-3 at writing; seed 4, added after, falls inside every range but one: at 0.25 its minimum is 175 and adults starved 65, at 0.75 adults starved 336.)
 
 - **Consistent:** more weight means fewer eggs and fewer larvae starved, on
   every seed in both environments.
@@ -86,4 +86,22 @@ surface **1,087**, nest 14; `main` surface 150, mound tunnels 109, nest 16.
 
 ## Floor check (nest goal, heap 90, endless food)
 
-_Running at writing; appended when done._
+The dial must not shrink colonies that live on endless food. `nest_goal`,
+heap 90 columns from the door with the harness top-up, weights 0 and 0.5,
+4 seeds, 200k:
+
+| env | weight | colony min / mean / max after 100k | adults starved | eggs |
+|---|---|---|---|---|
+| play | 0 | 629-686 / 673-724 / 717-790 | **21-29** | 3,889-3,940 |
+| play | 0.5 | 626-801 / 754-934 / 867-1,108 | **275-575** | 4,143-4,538 |
+| main | 0 | 121-176 / 252-333 / 376-473 | 57-148 | 1,823-2,045 |
+| main | 0.5 | 68-221 / 259-334 / 362-444 | 97-119 | 1,644-1,937 |
+
+- **On the playtest switches, 0.5 starves 10-20x more adults on every seed**
+  (275-575 against 21-29) while the colony grows larger (mean +10% to +29%).
+  The food is endless, so this is not the income: *inferred*, ants holding
+  their surplus as crop cargo instead of in their bodies run lean between
+  meals. Not traced.
+- On main the dial is mixed: no consistent direction on any column.
+- So the floor check adds a cost on top of section 1's verdict: the dial
+  stays at 0.
