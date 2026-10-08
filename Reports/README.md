@@ -5498,8 +5498,21 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   **proposal: two brakes on births, after the owner's boom-and-bust
   playtests.** The appetite dial (`digest_hunger_weight`, a full ant keeps
   its surplus in the crop) re-tested: 0.5 slows births, stretches food and
-  stops near-collapses on a steady income (4 seeds); 1.0 stops breeding.
-  `FEED_FIRST` (feed hungry larvae before laying) proposed, not built.
+  stopped near-collapses on the small steady income (4 seeds; **did not
+  replicate at 40 cells**, see the appetite sweep below); 1.0 stops breeding.
+  `FEED_FIRST` (feed hungry larvae before laying) proposed here; built and
+  inert, see the feed-first report below.
+- [appetite-sweep-2026-10-08/README.md](appetite-sweep-2026-10-08/README.md) —
+  **steady food at a colony of a few hundred (`steady_income` at 40 cells per
+  1,000 frames): the appetite dial does not steady the colony, `edible` does,
+  and the stack starves ants on the surface.** Weights 0-0.75 in the owner's
+  playtest switches and main's defaults, 4 seeds: fewer eggs and starving
+  larvae on every seed, but the swing and adult starvation move both ways,
+  so the dial stays a lab knob at 0. The playtest colony's dips are the store
+  crumb trap (242 of 243 deaths in the worst pulse inside the nest); with
+  `edible`, deaths in the nest fall to 1-9 a run and no seed dips below 221.
+  What is left is ~7x main's surface starvation, among ants that had reached
+  the heap; a leave-one-out of the stack's switches is next.
 - [feed-first-2026-10-08/README.md](feed-first-2026-10-08/README.md) —
   **`FEED_FIRST` (no egg while a starving larva is in reach): built, shipped
   off, inert.** On `steady_income` with the playtest switches it held eggs on
