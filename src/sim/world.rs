@@ -1966,6 +1966,14 @@ pub struct CreatureStats {
     pub store_reads_low: u64,
     pub store_turned_away: u64,
     pub store_out_pulls: u64,
+    /// **`creature::meet_on_way`'s count**: ants stamped as having met a
+    /// forager carrying a trip's food past them. 0 unless
+    /// `PIXEL_PHYSICS_MEET_WAY` is set.
+    pub meet_way_stamps: u64,
+    /// **`creature::spoil_side_of`'s count**: carriers whose pellet side the
+    /// food trail turned from the side of the door they came out on. 0
+    /// unless `PIXEL_PHYSICS_SPOIL_SIDE` is set.
+    pub spoil_side_turned: u64,
     /// **`creature::MoundDig`'s `roof` count**: cuts refused because their
     /// cell lay in a nest's spoil mound outside its door, the digger not shut
     /// in. Not in `digs_refused_roof`; the trace's `DigWhy` reads it as the

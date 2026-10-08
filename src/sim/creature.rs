@@ -7837,6 +7837,10 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
         }
     };
 
+    // **A carrier of a trip's food meets the ants it passes**
+    // ([`meet_way_reach`], off): before the move, so the ants beside it now
+    // are the ones it touched. No draw.
+    meet_on_way(world, organism, (x, y));
     let mut draw = rng::stream(world.seed, organism as u64, world.frame, RNG_SLOT_MOVE);
     // **The tax is a fraction of the budget, not an absolute.** Written
     // out here rather than folded into `CreatureDef` so the multiplication
@@ -15717,9 +15721,62 @@ fn spoil_ring_column(world: &World, organism: OrganismId, (x, y): (i32, i32), ri
         }
         s => s,
     };
+    // **Away from the food trail** ([`spoil_side_of`], off): the side the
+    // carrier smells less of it on, where it smells any.
+    let side = spoil_trail_side(world, (x, y)).unwrap_or(side);
     let gamma: f32 = (0..ring.shape).map(|_| -ring.scale * (1.0 - draw.unit_f32()).ln()).sum();
     let door = scaled_cells(world, nest_door_of(world).unwrap_or(NEST_DOOR_SHIPPED));
     Some(site.x + side * (door + 1 + gamma.round() as i32))
+}
+
+/// **`PIXEL_PHYSICS_SPOIL_SIDE=trail`: a carrier takes its pellet to the
+/// side of the door it smells less food trail on** (2026-10-08, off). The
+/// spoil ring's side was the side of the door the carrier came out on, so
+/// the mound grew both ways, across the way to the food as much as away from
+/// it. Traced (heap-90 box, seed 1): pellets put down above ground landed
+/// 30-45% at 0 to +19 columns, on the food's side; and with
+/// `FORAGER_NODIG` the mound's flank on that side (+15..+35 columns, the
+/// ground's 14 rows) filled to 65-82% soil by 90k on 4 of 4 seeds, against
+/// 27-39% without it, laden foragers coming home piling at its foot 30-49
+/// columns out with their patience gone (`Reports/dead-ends.md`,
+/// `MOUND_DIG`, the same wall). Ants keep spoil off their trails. Here, as
+/// it draws its column ([`spoil_ring_column`]), the carrier compares trail B
+/// -- laid only by foragers carrying food home -- over the cells
+/// [`SPOIL_SIDE_NEAR`]..=[`SPOIL_SIDE_FAR`] either side of its head on its
+/// row, and takes the side with less; with none either side, the old rule.
+/// Counted in `spoil_side_turned` when it differs from the old rule.
+pub fn spoil_side_of(_world: &World) -> bool {
+    static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *V.get_or_init(|| match std::env::var("PIXEL_PHYSICS_SPOIL_SIDE").as_deref().map(str::trim) {
+        Ok("trail") | Ok("on") => true,
+        Ok("off") | Ok("") | Err(_) => false,
+        Ok(other) => panic!("PIXEL_PHYSICS_SPOIL_SIDE={other:?}: use off or trail"),
+    })
+}
+
+/// The nearest cell either side of the head [`spoil_side_of`] smells.
+pub const SPOIL_SIDE_NEAR: i32 = 2;
+/// The farthest.
+pub const SPOIL_SIDE_FAR: i32 = 8;
+
+/// **The side with less food trail** ([`spoil_side_of`]): `Some(1)` east,
+/// `Some(-1)` west, `None` when off or when neither side smells of any.
+fn spoil_trail_side(world: &World, head: (i32, i32)) -> Option<i32> {
+    if !spoil_side_of(world) {
+        return None;
+    }
+    less_trail_side(world, head)
+}
+
+/// [`spoil_trail_side`] past its switch: the side of `(x, y)` with less trail
+/// B over its two rows, `None` on a tie.
+fn less_trail_side(world: &World, (x, y): (i32, i32)) -> Option<i32> {
+    let sum = |dir: i32| -> u32 { (SPOIL_SIDE_NEAR..=SPOIL_SIDE_FAR).map(|k| u32::from(world.pheromone_at(Channel::B, x + dir * k, y)) + u32::from(world.pheromone_at(Channel::B, x + dir * k, y - 1))).sum() };
+    let (e, w) = (sum(1), sum(-1));
+    if e == w {
+        return None;
+    }
+    Some(if e < w { 1 } else { -1 })
 }
 
 /// **Whether a carrier at `(x, y)` is still short of its drawn column**
@@ -19410,6 +19467,11 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
                 match carry_stage(world, (x, y)) {
                     Some(CarryStage::Out) if !latched => {
                         let col = spoil_ring_column(world, organism, (x, y), ring);
+                        // The trail turned this carrier's side ([`spoil_side_of`]).
+                        if let (Some(c), Some(site)) = (col, world.nearest_nest_site(x, y).and_then(|i| world.nest_sites.get(i))) {
+                            let old_side = (x - site.x).signum();
+                            world.creature_stats.spoil_side_turned += u64::from(spoil_side_of(world) && old_side != 0 && (c - site.x).signum() != old_side);
+                        }
                         if let Some(state) = world.organism_mut(organism) {
                             state.spoil_ring = col;
                         }
@@ -23147,6 +23209,70 @@ fn meet_returning_forager(world: &mut World, deliverer: OrganismId, (dx, dy): (i
             }
         }
     }
+    for id in met {
+        if let Some(s) = world.organism_mut(id) {
+            s.return_met = now;
+        }
+    }
+}
+
+/// **`PIXEL_PHYSICS_MEET_WAY=on|<cells>`: a forager coming home with food
+/// is met by the ants it passes, not only at the drop** (2026-10-08, off).
+/// The `met` drive ([`meet_returning_forager`]) stamped only the ants within
+/// [`RETURN_MEET`] cells of the cell a crop was emptied at the nest. Traced
+/// (heap-90 box, seed 1, 95-110k): of the fed, empty, still ants loafing on
+/// the mound, 18-19% of their decisions came within 3 cells of a delivery in
+/// the window before (`return_window`), because deliveries land at the door
+/// (with the store reading) or 31-48 rows down (the playtest line) while
+/// the loafers stand 0-31 columns out and 5-17 rows up the mound; and a
+/// carrier that never unloads -- 88% of laden walks home were 20+ cells from
+/// the door in the store-reading + `FORAGER_NODIG` burst -- told no one. Yet
+/// the drive, once held, works: fed empty ants on the mound with it step at
+/// a chance of 0.56-0.82, without it ~0. In harvester ants the cue is the
+/// rate of antennal contacts with foragers returning with food as they come
+/// in (Gordon's work on *Pogonomyrmex*). Here every tick a forager carries a
+/// trip's food (`trip_load`, crop food) it stamps every ant of its kind
+/// within `reach` cells of its head (2 for `on`), as a delivery would.
+/// Counted in `meet_way_stamps`.
+pub fn meet_way_reach() -> i32 {
+    static V: std::sync::OnceLock<i32> = std::sync::OnceLock::new();
+    *V.get_or_init(|| parse_meet_way(&std::env::var("PIXEL_PHYSICS_MEET_WAY").unwrap_or_default()))
+}
+
+pub fn parse_meet_way(raw: &str) -> i32 {
+    match raw.trim() {
+        "" | "off" => 0,
+        "on" => MEET_WAY_REACH,
+        v => v.parse::<i32>().ok().filter(|&r| r > 0).unwrap_or_else(|| panic!("PIXEL_PHYSICS_MEET_WAY={v:?}: use off, on or a reach in cells")),
+    }
+}
+
+/// [`meet_way_reach`]'s `on`: a body's length either side of the head.
+pub const MEET_WAY_REACH: i32 = 2;
+
+/// **The meeting on the way** ([`meet_way_reach`]): a carrier of a trip's
+/// food stamps the ants within reach of its head. Off, one read.
+fn meet_on_way(world: &mut World, carrier: OrganismId, (hx, hy): (i32, i32)) {
+    let reach = meet_way_reach();
+    if reach == 0 {
+        return;
+    }
+    let Some(state) = world.organism(carrier) else { return };
+    if !state.trip_load || state.crop.is_none_or(|c| c.worth() <= 0.0) {
+        return;
+    }
+    let species = state.species;
+    let now = world.frame.max(1);
+    let mut met: Vec<OrganismId> = Vec::new();
+    for y in hy - reach..=hy + reach {
+        for x in hx - reach..=hx + reach {
+            let id = world.get(x, y).organism_id();
+            if id != 0 && id != carrier && !met.contains(&id) && world.organism(id).is_some_and(|s| s.species == species) {
+                met.push(id);
+            }
+        }
+    }
+    world.creature_stats.meet_way_stamps += met.len() as u64;
     for id in met {
         if let Some(s) = world.organism_mut(id) {
             s.return_met = now;
@@ -41683,6 +41809,38 @@ mod tests {
         assert_eq!(parse_trip_reach("0"), Some(0), "a reach of 0");
         assert_eq!(parse_trip_reach("-1"), TRIP_REACH_UNSET, "a negative reach is unreadable");
         assert_eq!(parse_trip_reach("far"), TRIP_REACH_UNSET, "a word it does not know is unset");
+    }
+
+    /// **The spoil side reads the food trail** ([`less_trail_side`],
+    /// [`spoil_side_of`]): with trail B laid east of a carrier the east side
+    /// is refused, laid west the west is, and with none at all there is no
+    /// answer (the old rule stands). Trail beyond [`SPOIL_SIDE_FAR`] is not
+    /// smelt. Watched red with the comparison reversed (east chosen).
+    #[test]
+    fn a_carrier_takes_its_pellet_away_from_the_food_trail() {
+        let mut w = World::new(Rect::new(0, 0, 119, 99));
+        let head = (60, 40);
+        assert_eq!(less_trail_side(&w, head), None, "no trail at all gave a side");
+        w.deposit_pheromone(Channel::B, 64, 40, 200);
+        assert_eq!(less_trail_side(&w, head), Some(-1), "trail east of the carrier did not send it west");
+        let mut w = World::new(Rect::new(0, 0, 119, 99));
+        w.deposit_pheromone(Channel::B, 55, 39, 200);
+        assert_eq!(less_trail_side(&w, head), Some(1), "trail west of the carrier did not send it east");
+        let mut w = World::new(Rect::new(0, 0, 119, 99));
+        w.deposit_pheromone(Channel::B, 60 + SPOIL_SIDE_FAR + 1, 40, 200);
+        assert_eq!(less_trail_side(&w, head), None, "trail out of reach was smelt");
+    }
+
+    /// **`PIXEL_PHYSICS_MEET_WAY` reads its spellings** ([`parse_meet_way`]),
+    /// and a word it does not know panics. A table, not watched red.
+    #[test]
+    fn parse_meet_way_reads_its_spellings() {
+        assert_eq!(parse_meet_way(""), 0);
+        assert_eq!(parse_meet_way("off"), 0);
+        assert_eq!(parse_meet_way("on"), MEET_WAY_REACH);
+        assert_eq!(parse_meet_way(" 3 "), 3);
+        assert!(std::panic::catch_unwind(|| parse_meet_way("far")).is_err());
+        assert!(std::panic::catch_unwind(|| parse_meet_way("0")).is_err());
     }
 
     /// **`PIXEL_PHYSICS_STORE_READ` reads its parts** ([`parse_store_read`]),
