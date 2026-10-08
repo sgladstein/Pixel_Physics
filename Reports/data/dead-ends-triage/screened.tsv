@@ -914,3 +914,4 @@ edf6d0777e	creatures:147	DEAD	2	Bit-identical at 0.25 although consulted 31,797 
 ee781c817f	creatures:152	CONFOUNDED	1	Measured only on nests whose brood sat in one column under the door, and the spaced form fired 3-19 times a run, a non-test; 2 seeds.
 1a87666ded	creatures:153	DEAD	1	One domed room round the brood on both seeds, the same shape as without it; 2 seeds to 100k.
 ca34b8f6a9	creatures:154	CONFOUNDED	2	Traced on 878 cuts: the shipped walk back to the face is cancelled for any ant with food in its crop, so no ant carried on its own tunnel whatever the switch allowed.
+a35d967869	creatures:125	CONFOUNDED	3	The rule fired correctly where it could (seed 4: larvae starved 131 -> 37) but had nothing in reach on 3 of 4 seeds: the starving larvae had fallen a median 38-40 rows down the brood column, 31 cells from the nearest egg laid; the null is the brood's position, a neighbouring cause the re-test clause names (layers laying where larvae end up).

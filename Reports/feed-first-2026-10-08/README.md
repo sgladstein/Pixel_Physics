@@ -1,6 +1,8 @@
-# FEED_FIRST: no egg while a starving larva is in reach (proposal, 2026-10-08)
+# FEED_FIRST: no egg while a starving larva is in reach (2026-10-08)
 
-**Status: proposal for review; nothing built.** The owner's second birth brake
+**Status: built, shipped off, and inert: the larvae that starve are 30+ cells
+from where eggs are laid** (the result is [below](#measured-it-almost-never-fires-because-starving-larvae-are-far-below-the-layers)).
+The original proposal follows unchanged. The owner's second birth brake
 (2026-10-08: *"feed before you lay"*), after the boom-and-bust trace
 ([`../boom-and-bust-2026-10-08/README.md`](../boom-and-bust-2026-10-08/README.md))
 and the appetite dial's first results
@@ -127,3 +129,66 @@ and the default 6 both tested). **Not taken yet:** per-hold length and
 fed-or-died counters. The first test reads them from the logs instead
 (`feeds.csv` donors against `feed_first_held` and larvae starved), and they
 are built only if that is ambiguous.
+
+## Measured: it almost never fires, because starving larvae are far below the layers
+
+`steady_income` (40 cells per 1,000 frames), the owner's playtest switches
+plus `edible`, 200k frames, seeds 1-4, built on main `6c4bbabc`
+(`2c7dd4d2`). **Identity:** the off arm's `stats.csv` matches the earlier
+`playedible` runs column for column on all four seeds (the new
+`feed_first_held` column aside), and a `dig=1` rerun of seeds 1 and 4
+matches its no-dig run row for row.
+
+| reach | seed | eggs held (ticks) | colony min / mean / max after 100k | eggs | larvae starved | adults starved (surface) |
+|---|---|---|---|---|---|---|
+| off | 1 | 0 | 221 / 269 / 350 | 2,038 | 142 (7.0%) | 424 (380) |
+| off | 2 | 0 | 225 / 268 / 304 | 1,948 | 121 (6.2%) | 387 (341) |
+| off | 3 | 0 | 244 / 272 / 293 | 1,677 | 6 (0.4%) | 191 (171) |
+| off | 4 | 0 | 243 / 275 / 304 | 1,880 | 131 (7.0%) | 198 (195) |
+| 2 | 1-4 | **0 on every seed** | identical to off | | | |
+| 6 | 1-3 | **0** | identical to off | | | |
+| 6 | 4 | 188 | 222 / 266 / 309 | 1,799 | 37 (2.1%) | 273 (217) |
+
+Three of four seeds never hold an egg at reach 6, and none at reach 2,
+while 6-142 larvae starve per seed. **Why, traced per larva**
+([`starvers.py`](starvers.py) over `broodlog.csv` from `dig=1` reruns of the off arm): a
+larva on upkeep alone spends its last ~7,200 frames below the line (60 J),
+so for each larva that starved, every egg laid in that window and how near
+its layer stood.
+
+| seed | larvae starved | where they starved (y; ground 160) | where eggs are laid (layer's y; zones) | nearest egg in the starving window | eggs within 2 / 6 | rows from laying to starving | moves that were one-row drops |
+|---|---|---|---|---|---|---|---|
+| 1 | 141 (stats 142) | median 199 (179-222) | median 157; 65% mound top, 29% inside the mound, 6% nest | median **31** cells, p10 20 | **0 / 0** | median **38** (p10 29, p90 48) | 3,328 of 3,839 |
+| 4 | 128 (stats 131) | median 202 (159-230) | median 157; 63% / 31% / 6% | median **31**, p10 18 | 1 / 61 (2 larvae) | median **40** (29-56) | 3,237 of 3,794 |
+
+- **The larvae fall.** An egg is laid at the top of the brood column under
+  the door, about the old ground line; brood is a powder, and 85-87% of a
+  starved larva's moves were one-row drops. It starves about 40 rows down,
+  in the deep nest, where layers never stand: eggs are laid 94% on or in the
+  mound. A larva in its last 7,000 frames never had an egg laid within 6
+  cells of it on seed 1, and on seed 4 only two did (both near the surface).
+- **Positive control:** seed 4's two reachable starvers are the 188 held
+  ticks reach 6 recorded there, and the one egg within 2 cells matches reach
+  2's zero (the window is approximate; the hold needs the layer there at the
+  tick). Seeds 1-3, where the reader finds none, are the seeds that never
+  held. The starvers found match `stats.csv`'s `larvae_starved` to within 3.
+  (A starved larva leaves an empty cell, not a corpse, in this log: 145
+  larvae `gone` to empty against stats' 142 on seed 1.)
+- So the census above (a larva a median 4-6 cells from each lay) was true and
+  beside the point: the larvae near a layer are the new ones, being fed; the
+  starving ones have fallen out of anyone's reach.
+
+**Verdict: stays off.** A local cue cannot reach the larvae that starve, and
+a reach of 30+ cells is no longer a local cue (it would read the whole brood
+column, a colony count in disguise). The finding itself is the useful part:
+**on this stack larvae starve because they fall away from every rich ant**,
+the same disconnection the 2026-10-07 egg-cap trace found from the layers'
+side (`handoff/2026-10-07/egg-cap/handoff.md`: 69-90% of eggs at the top of
+the door shaft, larvae at its bottom). What would make a feed-first rule
+able to act is brood that stays where it is laid, or layers (or feeders) that
+go down to it: the "ants live in the nest" problem (plan step 3), not a
+birth brake. *Re-test when* layers lay within a few cells of where larvae end
+up (brood that does not fall, or a resting place deep in the nest).
+
+Not taken further: `seek` (turning a held layer toward the larva) would
+have nothing to turn toward at reach 6 on three seeds of four.

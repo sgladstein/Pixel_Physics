@@ -5500,6 +5500,14 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   its surplus in the crop) re-tested: 0.5 slows births, stretches food and
   stops near-collapses on a steady income (4 seeds); 1.0 stops breeding.
   `FEED_FIRST` (feed hungry larvae before laying) proposed, not built.
+- [feed-first-2026-10-08/README.md](feed-first-2026-10-08/README.md) —
+  **`FEED_FIRST` (no egg while a starving larva is in reach): built, shipped
+  off, inert.** On `steady_income` with the playtest switches it held eggs on
+  1 seed of 4 at reach 6 and none at reach 2. Traced per larva: brood falls
+  a median 38-40 rows down the column under the door and starves in the deep
+  nest, 31 cells from the nearest egg laid meanwhile. The larvae starve
+  because they fall away from every rich ant, the "ants live in the nest"
+  problem rather than a birth brake.
 - [handoff/PLAN-2026-10-07.md](handoff/PLAN-2026-10-07.md) — **the account
   handoff and plan for the ant program, 2026-10-07 (main 9c362015); start here.**
   Written for a new account with only the repo: the owner's goals, every working

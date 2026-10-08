@@ -20223,6 +20223,17 @@ pub const FOOD_BRAKE_WINDOW: u64 = 3000;
 /// second review, 2026-10-08): there it counts only eggs that would
 /// otherwise be laid, and every other birth counter reads the same in both
 /// arms. Off is a read of a cached switch and nothing else: no draw, no scan.
+///
+/// **Measured inert, and why** (2026-10-08, `steady_income` at 40 cells, the
+/// owner's playtest switches plus `edible`, seeds 1-4, 200k): reach 6 held
+/// eggs on one seed of four, reach 2 on none, while 6-142 larvae starved a
+/// seed. Traced per larva: brood is a powder and an egg is laid at the top
+/// of the column under the door, so the larvae that starve have fallen a
+/// median 38-40 rows (85-87% of their moves one-row drops) into the deep
+/// nest, where layers never stand; the nearest egg laid while one starved
+/// was a median 31 cells away. The rule is right and has nothing in reach.
+/// Re-test once layers lay where larvae end up (brood that stays put, or a
+/// resting place deep in the nest), not by widening `reach`.
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub struct FeedFirst {
     pub on: bool,
