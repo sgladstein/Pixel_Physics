@@ -1,0 +1,41 @@
+{
+  "id": "20261008T071522202Z-58d869",
+  "created": "2026-10-08T07:15:22Z",
+  "board": "ants",
+  "origin": {
+    "worktree": "/home/user/wt-mound",
+    "branch": "claude/eloquent-johnson-axjvu1-mound-dig",
+    "commit": "081232f7",
+    "agent": null,
+    "session_id": "60c7ca71-5f76-54b9-9ff4-a4458d134ad6",
+    "user": null,
+    "cwd": "/home/user/wt-mound"
+  },
+  "title": "The mound holes are partly the colony's road to the food",
+  "question": "The fix that stops mound digging (bottom) also seals the hollow mound the ants walk through to reach the food, and the colony shrinks by a third to a half. Is the hollow, ant-filled mound (top) acceptable as their passage? Or do you want a solid mound, with the ants given another way to the food (a trail over it, or a second door on the food's side)?",
+  "context_md": "Follow-up to the mound-diggers trace (PR 664). I built your three levers as one switch (MOUND_DIG) and measured them on steady food with your switches. Every lever that stops the digging costs the colony: mean 268-275 ants -> 134-198 with all three on, and 101-178 ants a run starve trapped inside the mound against 2-43. The part that only stops the dig-down turn changes nothing either way. So the switch ships off, recorded as a dead end until a rule can tell a passage from a pointless scrape.",
+  "kind": "single",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "seed 1, frame 100,000: MOUND_DIG off (top) and on (bottom)",
+      "files": [
+        "20261008T071522202Z-58d869/000-mound-dig-on-off.png"
+      ],
+      "caption": "Drawn from the run's ground map: amber ants, brown soil, green food.",
+      "meta": {
+        "colony mean after 100k (off / on), 4 seeds": "268-275 / 134-198",
+        "mound cuts, seed 1 (off / on)": "4,022 / 246",
+        "adults starved inside the mound (off / on)": "2-43 / 101-178"
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
