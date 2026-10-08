@@ -3,7 +3,7 @@
 //
 // The nest goal's box and colony (no plants, mister off, 52 ants at column
 // 256 at frame 6,000), and food arriving at a fixed rate 30 columns east:
-// 10 cells of provisions (9,600 J) every 1,000 frames from the landing on.
+// 40 cells of provisions (38,400 J) every 1,000 frames from the landing on.
 // An endless heap (the nest goal) cannot show whether births follow food,
 // because food never runs short; a finite one (`boom_bust`) always ends the
 // colony. A fixed income is the case where a colony that matched its births
@@ -11,8 +11,10 @@
 // not swings between boom and famine. Run it in `deeptrace` with `food=0`
 // so the harness's `top_up` does not add a second supply on top.
 //
-// The rate is a first guess, not a calibration: set it from the first run's
-// upkeep (a colony of a few hundred, not thousands) before reading any arm.
+// **40, calibrated 2026-10-08** for a colony of a few hundred (owner's
+// choice): at the first guess of 10 the colony held about 60; at 40 the
+// owner's playtest switches hold 190-280 by 130k (4 seeds) and main's
+// shipped defaults about 300.
 (
     name: "steady_income",
     title: "STEADY INCOME",
@@ -39,7 +41,7 @@
     placements: [],
     timeline: [
         (at: 6000, every: 0, until: 0, what: Colony(species: "ant", x: 256, count: 52)),
-        (at: 6000, every: 1000, until: 0, what: Heap(material: "provisions", x: 286, cells: 10)),
+        (at: 6000, every: 1000, until: 0, what: Heap(material: "provisions", x: 286, cells: 40)),
     ],
     horizon: 600000,
 )
