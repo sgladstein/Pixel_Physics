@@ -6909,7 +6909,7 @@ impl World {
     /// both of which the ledger already sees. Keyed on `worth_in_aux`, the
     /// material's own statement that its cell carries worth, so it is data
     /// rather than a name, and a stamped or an unstamped corpse alike stays.
-    fn is_diggable_ground(&self, x: i32, y: i32) -> bool {
+    pub(crate) fn is_diggable_ground(&self, x: i32, y: i32) -> bool {
         let cell = self.get(x, y);
         cell.material != material::EMPTY
             && matches!(self.materials.kind(cell.material), MaterialKind::Solid | MaterialKind::Powder)
@@ -21078,6 +21078,56 @@ fn pack_neighbours_with(world: &mut World, x: i32, y: i32, keep_spoil: bool) -> 
         packed_here += 1;
     }
     packed_here
+}
+
+/// **A tunnel cut by hand** (the lab's `DIG` brush, owner 2026-10-09: *"a
+/// tool in the lab that lets me dig like ants where I can make a standing
+/// tunnel that doesn't collapse"*). Clears every cell of diggable ground in
+/// `cells` -- [`World::is_diggable_ground`], and only loose ground or what
+/// it packs into (soil, spoil, packed soil; never stone, a wall, a plant, an
+/// animal or a corpse) -- then lines what is left round each cleared cell by
+/// [`pack_neighbours_with`]'s rule, the one that makes an ant's gallery a
+/// *place*: without it a cut in `soil` is gone by frame 5 ([`line_burrow`]).
+/// Clears all first and lines after, so a band wider than one cell does not
+/// pack cells the same stroke is about to clear. Returns how many it cleared.
+///
+/// Not booked in `creature_stats.packed` (wall an *ant* tamped) -- the
+/// founding cut's reason for keeping a player's or a queen's lining out of it.
+/// Every neighbour with a packed form packs, spoil and doorway included: the
+/// player asked for walls that stand, and both exceptions exist to leave
+/// ground loose that ants are meant to move again.
+pub fn hand_dig(world: &mut World, cells: &[(i32, i32)]) -> u32 {
+    hand_dig_with(world, cells, true)
+}
+
+/// [`hand_dig`] with the lining passed in, so a test holds the unlined
+/// control in the same process.
+fn hand_dig_with(world: &mut World, cells: &[(i32, i32)], line: bool) -> u32 {
+    let packed_forms: Vec<_> = (0..world.materials.len()).filter_map(|i| world.materials.get(material::MaterialId(i as u16)).packs_into).collect();
+    let mut cut = Vec::new();
+    for &(x, y) in cells {
+        if !world.in_bounds(x, y) || !world.is_diggable_ground(x, y) {
+            continue;
+        }
+        let m = world.get(x, y).material;
+        if world.materials.kind(m) != MaterialKind::Powder && !packed_forms.contains(&m) {
+            continue;
+        }
+        world.set(x, y, Cell::EMPTY);
+        cut.push((x, y));
+    }
+    for &(x, y) in cut.iter().filter(|_| line) {
+        for (dx, dy) in NEIGHBOURS_8 {
+            let (nx, ny) = (x + dx, y + dy);
+            let cell = world.get(nx, ny);
+            if let Some(packed) = world.materials.get(cell.material).packs_into {
+                let mut lined = cell;
+                lined.material = packed;
+                world.set(nx, ny, lined);
+            }
+        }
+    }
+    cut.len() as u32
 }
 
 /// The ablation switch for the lining, off by default.
@@ -52190,6 +52240,32 @@ mod tests {
             assert_eq!(spoil_site_open(&w, x, y, false), shipped, "shipped rule, {what}");
             assert_eq!(spoil_site_open(&w, x, y, true), footed, "footing rule, {what}");
         }
+    }
+
+    /// **A tunnel dug by hand stands** ([`hand_dig`], the lab's `DIG` brush):
+    /// a 3-row gallery cut through `founding_bed`'s soil is still at least 90%
+    /// open after 120 frames, and the stone in its path is left. The unlined
+    /// arm is the control that says this bed brings an unlined roof down at
+    /// all -- the same pairing as the side room's guard above.
+    #[test]
+    fn a_tunnel_dug_by_hand_stands() {
+        let open_after = |line: bool| -> (usize, usize, bool) {
+            let mut w = founding_bed();
+            w.set(60, 61, Cell::new(material::STONE, 0).with_attached(true));
+            let gallery: Vec<(i32, i32)> = (30..90).flat_map(|x| (60..63).map(move |y| (x, y))).collect();
+            let cut = hand_dig_with(&mut w, &gallery, line) as usize;
+            let stone_kept = w.get(60, 61).material == material::STONE;
+            for _ in 0..120 {
+                crate::sim::parallel::step(&mut w);
+            }
+            (gallery.iter().filter(|&&(x, y)| w.get(x, y).material == material::EMPTY).count(), cut, stone_kept)
+        };
+        let (lined, cut, stone_kept) = open_after(true);
+        assert_eq!(cut, 179, "every soil cell of the 60x3 band but the stone is cut");
+        assert!(stone_kept, "the brush dug stone");
+        assert!(lined * 10 >= cut * 9, "the lined roof fell in: {lined} of {cut} cells still open");
+        let (bare, _, _) = open_after(false);
+        assert!(bare * 2 < cut, "the control: an unlined cut should fall in on this bed, but {bare} of {cut} stayed open");
     }
 
     /// **`PIXEL_PHYSICS_SPOIL_PACKS=off` leaves a pellet a pellet and still
