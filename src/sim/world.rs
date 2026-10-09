@@ -1983,6 +1983,11 @@ pub struct CreatureStats {
     /// unless `PIXEL_PHYSICS_RECRUIT` is on.
     pub recruit_contacts: u64,
     pub recruited: u64,
+    /// **`creature::LayBrake`'s counts**: eggs held because the layer stood
+    /// crowded, and because its last store reading was low. 0 unless
+    /// `PIXEL_PHYSICS_LAY_BRAKE` is on.
+    pub lay_brake_crowded: u64,
+    pub lay_brake_store: u64,
     /// **`creature::MoundDig`'s `roof` count**: cuts refused because their
     /// cell lay in a nest's spoil mound outside its door, the digger not shut
     /// in. Not in `digs_refused_roof`; the trace's `DigWhy` reads it as the

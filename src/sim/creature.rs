@@ -5680,6 +5680,23 @@ pub(super) fn try_bud(
             }
         }
     }
+    // **[`LayBrake`]: no egg while the layer stands crowded, or while its
+    // own last reading of the store was low.** After every other bar, as
+    // `FeedFirst`, so the counts are eggs that would otherwise be laid.
+    let lb = lay_brake();
+    if lb.on {
+        match lay_brake_holds(world, organism, (hx, hy), lb) {
+            Some(LayHold::Crowded) => {
+                world.creature_stats.lay_brake_crowded += 1;
+                return None;
+            }
+            Some(LayHold::StoreLow) => {
+                world.creature_stats.lay_brake_store += 1;
+                return None;
+            }
+            None => {}
+        }
+    }
     let material_id = world.materials.id_of(&world.species.get(species_id).name.clone())?;
 
     // **The child's body-growth genome, inherited and mutated here, on the
@@ -14719,7 +14736,7 @@ fn store_read_drive(world: &World, state: &crate::sim::organism::OrganismState) 
 /// before the pulls, so the reading sends it out the same tick.
 fn store_turn_away(world: &mut World, organism: OrganismId, def: &CreatureDef, head: (i32, i32)) {
     let sr = store_read_of(world);
-    if !sr.on {
+    if !(sr.on || lay_brake().store) {
         return;
     }
     let Some(state) = world.organism(organism) else { return };
@@ -18750,7 +18767,7 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
                     // **The reading** ([`StoreRead`]): what is left in reach
                     // once this bite is taken.
                     let sr = store_read_of(world);
-                    if sr.on {
+                    if sr.on || lay_brake().store {
                         if let Some(site) = nest_way_near(world, x, y).map(|w| w.site) {
                             let seen = local_store_food(world, site, (x, y), sr.reach).saturating_sub(u32::from(store_food(world, bite, site)));
                             store_read_stamp(world, organism, site, (x, y), seen, false);
@@ -23375,6 +23392,121 @@ fn meet_on_way(world: &mut World, carrier: OrganismId, (hx, hy): (i32, i32)) {
             s.return_met = now;
         }
     }
+}
+
+/// **`PIXEL_PHYSICS_LAY_BRAKE`: a layer holds its egg while it stands
+/// crowded, or while its own last reading of the store was low**
+/// (2026-10-09, off; the owner's choice of cues). Two of tonight's arms
+/// boomed and then starved: `MOUND_IN` (seed 1: 747 -> 964 ants in 10k
+/// frames, the store 43 -> 3, 308 starved in the nest in the next 10k with
+/// the door open) and `RECRUIT` (seed 1: the colony grew to 699 against 490
+/// and the nest's one shaft jammed solid from 37.5k -- 211 ants a median 570
+/// decisions each in the door column and shaft, 85% empty and outbound, none
+/// laden, one open direction -- and no food came home for 20k frames).
+/// `FeedFirst`'s cue, a starving larva in reach, never fired, the starving
+/// larvae having fallen out of every layer's reach. These two cues are where
+/// the layer stands, and it lays at the door (94% at or in the mound).
+///
+/// - **Crowded**: of the cells within `reach` of its head (Chebyshev), the
+///   share holding a nestmate's body is at least `crowd`. The brain's own
+///   `Crowding` is one colony-wide number at the nest (`room_gate`), so the
+///   brake counts for itself.
+/// - **Store low**: its last store reading ([`OrganismState::store_read_at`],
+///   `store_read_low`) is no older than `window` frames and read at least
+///   `low`. Readings are taken as [`StoreRead`] takes them (a bite at the
+///   store, turned away at an empty one) while either switch is on; with
+///   `StoreRead` off they steer nothing else (its drive reads its own flag).
+///
+/// Parts: `on` (`crowd=0.5`, `reach=3`, `low=0.5`, `window=1400`); each of
+/// those as `name=<v>`; `nocrowd` and `nostore` for leave-one-out. Counted
+/// in `lay_brake_crowded` and `lay_brake_store`.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct LayBrake {
+    pub on: bool,
+    pub crowd_on: bool,
+    pub store: bool,
+    pub crowd: f32,
+    pub reach: i32,
+    pub low: f32,
+    pub window: u64,
+}
+
+impl LayBrake {
+    pub const OFF: LayBrake = LayBrake { on: false, crowd_on: false, store: false, crowd: 0.5, reach: 3, low: 0.5, window: 1400 };
+}
+
+/// Why [`LayBrake`] held an egg.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LayHold {
+    Crowded,
+    StoreLow,
+}
+
+pub fn lay_brake() -> LayBrake {
+    static V: std::sync::OnceLock<LayBrake> = std::sync::OnceLock::new();
+    *V.get_or_init(|| parse_lay_brake(&std::env::var("PIXEL_PHYSICS_LAY_BRAKE").unwrap_or_default()))
+}
+
+pub fn parse_lay_brake(raw: &str) -> LayBrake {
+    let raw = raw.trim();
+    if raw.is_empty() || raw == "off" {
+        return LayBrake::OFF;
+    }
+    let mut b = LayBrake { on: true, crowd_on: true, store: true, ..LayBrake::OFF };
+    for part in raw.split(',').map(str::trim) {
+        let num = |p: &str| part.strip_prefix(p).and_then(|v| v.parse::<f32>().ok()).filter(|v| *v > 0.0);
+        if part == "on" {
+        } else if part == "nocrowd" {
+            b.crowd_on = false;
+        } else if part == "nostore" {
+            b.store = false;
+        } else if let Some(v) = num("crowd=") {
+            b.crowd = v;
+        } else if let Some(v) = num("reach=") {
+            b.reach = v as i32;
+        } else if let Some(v) = num("low=") {
+            b.low = v;
+        } else if let Some(v) = num("window=") {
+            b.window = v as u64;
+        } else {
+            panic!("PIXEL_PHYSICS_LAY_BRAKE={raw:?}: unknown part {part:?}; use off, on, crowd=, reach=, low=, window=, nocrowd, nostore");
+        }
+    }
+    b
+}
+
+/// **The share of the cells round `head` holding a nestmate's body**
+/// ([`LayBrake`]): animal cells of `organism`'s species, not its own, over
+/// the `(2 reach + 1)^2` box.
+fn nestmate_share(world: &World, organism: OrganismId, head: (i32, i32), reach: i32) -> f32 {
+    let Some(species) = world.organism(organism).map(|s| s.species) else { return 0.0 };
+    let mut n = 0u32;
+    let mut cells = 0u32;
+    for y in head.1 - reach..=head.1 + reach {
+        for x in head.0 - reach..=head.0 + reach {
+            if !world.in_bounds(x, y) {
+                continue;
+            }
+            cells += 1;
+            let id = world.get(x, y).organism_id();
+            if id != 0 && id != organism && world.organism(id).is_some_and(|s| s.species == species) {
+                n += 1;
+            }
+        }
+    }
+    if cells == 0 { 0.0 } else { n as f32 / cells as f32 }
+}
+
+/// **Whether [`LayBrake`] holds this layer's egg, and why.**
+fn lay_brake_holds(world: &World, organism: OrganismId, head: (i32, i32), b: LayBrake) -> Option<LayHold> {
+    if b.crowd_on && nestmate_share(world, organism, head, b.reach) >= b.crowd {
+        return Some(LayHold::Crowded);
+    }
+    let s = world.organism(organism)?;
+    if b.store && s.store_read_at > 0 && world.frame.saturating_sub(s.store_read_at) <= b.window && s.store_read_low >= b.low {
+        return Some(LayHold::StoreLow);
+    }
+    None
 }
 
 /// **`PIXEL_PHYSICS_RECRUIT`: a newcomer is recruited to forage by the rate
@@ -42057,6 +42189,32 @@ mod tests {
         let mut w = World::new(Rect::new(0, 0, 119, 99));
         w.deposit_pheromone(Channel::B, 60 + SPOIL_SIDE_FAR + 1, 40, 200);
         assert_eq!(less_trail_side(&w, head), None, "trail out of reach was smelt");
+    }
+
+    /// **`PIXEL_PHYSICS_LAY_BRAKE` reads its parts** ([`parse_lay_brake`]).
+    /// A table, not watched red.
+    #[test]
+    fn parse_lay_brake_reads_its_parts() {
+        assert_eq!(parse_lay_brake(""), LayBrake::OFF);
+        assert_eq!(parse_lay_brake("on"), LayBrake { on: true, crowd_on: true, store: true, ..LayBrake::OFF });
+        let b = parse_lay_brake("crowd=0.4,reach=2,nostore");
+        assert!(b.on && b.crowd_on && !b.store && (b.crowd - 0.4).abs() < 1e-6 && b.reach == 2);
+        assert!(std::panic::catch_unwind(|| parse_lay_brake("on,soft")).is_err());
+    }
+
+    /// **The brake's crowding counts nestmates' cells, not the layer's own**
+    /// ([`nestmate_share`]): a lone ant reads 0, and with a second ant laid
+    /// beside it the share is that ant's cells over the box. Watched red
+    /// with the own-body exclusion removed (the lone ant read its own cells).
+    #[test]
+    fn a_layer_alone_is_not_crowded() {
+        let (mut w, a) = rest_world(58, 47, false);
+        let alone = nestmate_share(&w, a, (58, 47), 5);
+        assert_eq!(alone, 0.0, "a lone ant read its own body as a crowd");
+        let b = spawn(&mut w, "ant", 62, 47);
+        let share = nestmate_share(&w, a, (58, 47), 5);
+        let cells = w.organism(b).map_or(0, |s| s.chain.len()) as f32;
+        assert!(cells > 0.0 && (share - cells / 121.0).abs() < 1e-6, "a neighbour's {cells} cells read {share}");
     }
 
     /// **`PIXEL_PHYSICS_RECRUIT` reads its parts** ([`parse_recruit`]), and a
