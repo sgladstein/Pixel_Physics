@@ -13022,11 +13022,12 @@ fn foot_field(world: &World, way: &NestWay, seeds: &[(i32, i32)], k: u16) -> Vec
 pub fn step_nest_rest(world: &mut World) {
     let mound = mound_out_of(world) != MoundOut::OFF;
     let escape = needs_first_of(world).ways();
-    let read = nest_rest_of(world).on() || hungry_out_of(world) || soil_way_of(world) != SoilWay::OFF || mound || escape || nest_store_of(world).on() || lay_in_of(world) || store_read_of(world).on;
+    let read = nest_rest_of(world).on() || hungry_out_of(world) || soil_way_of(world) != SoilWay::OFF || mound || escape || nest_store_of(world).on() || lay_in_of(world) || store_read_of(world).on || mound_in_of(world);
     if !read || world.nest_sites.is_empty() {
         world.nest_ways.clear();
         world.mound_ways.clear();
         world.out_ways.clear();
+        world.mound_in_ways.clear();
         return;
     }
     if !world.frame.is_multiple_of(REST_REFRESH) && !world.nest_ways.is_empty() {
@@ -13038,6 +13039,12 @@ pub fn step_nest_rest(world: &mut World) {
     // reads them and nothing is built.
     world.mound_ways = if mound {
         (0..world.nest_sites.len()).filter_map(|i| build_mound_way(world, i)).collect()
+    } else {
+        Vec::new()
+    };
+    // The mound's ways in, for carriers ([`mound_in_of`]), likewise.
+    world.mound_in_ways = if mound_in_of(world) {
+        (0..world.nest_sites.len()).filter_map(|i| build_mound_in_way(world, i)).collect()
     } else {
         Vec::new()
     };
@@ -13826,6 +13833,93 @@ fn pack_behind(world: &mut World, organism: OrganismId, def: &CreatureDef, head:
         s.spoil = Some(Spoil { cell: pellet, store: false });
     }
     true
+}
+
+/// **`PIXEL_PHYSICS_MOUND_IN=on`: a carrier on the mound follows the
+/// mound's way to the door** (2026-10-09, off). Traced on the playtest line
+/// (heap-90 box, seed 1, 95-110k, walk rows up the mound's full height,
+/// `walkrise=40`): 75% of laden spells ended with the crop run dry above
+/// ground and 6% unloaded below it; on the mound a step toward home was open
+/// on 81-88% of laden decisions, yet 27-29% of the steps taken went toward
+/// home and 45-46% away. The pull home's gain was a median 0.05 (patience
+/// gone: it decays while straight-line progress stalls against the mound's
+/// walls), against persistence at its ceiling (1.0) on every step; the
+/// scores of the open steps spread by a median 1.35, of which the pull could
+/// account for at most 0.09, and the top-scoring step was the homeward one
+/// on 35%. A census every 1k frames found 81% of the colony's laden
+/// foragers on the mound, digesting their loads there (a median 873 ->
+/// 1,222 J over a spell). `CARRY_HOME` (on in the line) mended the trail's
+/// hold; this mends the target.
+///
+/// On, a carrier of a trip's food ([`OrganismState::trip_load`], crop food,
+/// not a packed lunch) with its head on the mound's way in
+/// ([`build_mound_in_way`]: breadth first from the door over every cell an
+/// ant can stand in, open or under cover, from [`REST_REACH_Y`] rows over
+/// the founding ground down to it) is pulled [`REST_LOOKAHEAD`] steps down it
+/// in place of the straight line to home, and the pull never loses patience
+/// there, as the store's pulls do not. Counted in `mound_in_pulls`.
+pub fn mound_in_of(_world: &World) -> bool {
+    static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *V.get_or_init(|| match std::env::var("PIXEL_PHYSICS_MOUND_IN").as_deref().map(str::trim) {
+        Ok("on") => true,
+        Ok("off") | Ok("") | Err(_) => false,
+        Ok(other) => panic!("PIXEL_PHYSICS_MOUND_IN={other:?}: use on or off"),
+    })
+}
+
+/// **Build a nest's way in over its mound** ([`mound_in_of`]): breadth
+/// first, 8-connected in `NEIGHBOURS_8`'s fixed order, from the door (the
+/// founding cut's top row, its columns) over every cell an ant can stand in
+/// ([`way_cell`]), open or covered, in the mound way's box.
+pub fn build_mound_in_way(world: &World, site: usize) -> Option<NestWay> {
+    let s = world.nest_sites[site];
+    let gaps = way_gaps_of(world);
+    let cut = s.shaft?;
+    let door = ((cut.x0 + cut.x1) / 2, cut.top - 1);
+    let (x0, y0) = (s.x - REST_REACH_X, s.surface - REST_REACH_Y);
+    let (w, h) = (2 * REST_REACH_X + 1, REST_REACH_Y + 1);
+    let mut dist = vec![u16::MAX; (w * h) as usize];
+    let idx = |x: i32, y: i32| -> Option<usize> {
+        let (lx, ly) = (x - x0, y - y0);
+        (lx >= 0 && ly >= 0 && lx < w && ly < h).then(|| (ly * w + lx) as usize)
+    };
+    let mut q = std::collections::VecDeque::new();
+    for x in cut.x0..=cut.x1 {
+        for y in [cut.top - 1, cut.top] {
+            if let Some(i) = idx(x, y) {
+                if dist[i] == u16::MAX && way_cell(world, x, y, gaps.brood) {
+                    dist[i] = 0;
+                    q.push_back((x, y));
+                }
+            }
+        }
+    }
+    while let Some((x, y)) = q.pop_front() {
+        let d = dist[idx(x, y).expect("queued in the box")];
+        for &(dx, dy) in NEIGHBOURS_8.iter() {
+            let (nx, ny) = (x + dx, y + dy);
+            let Some(i) = idx(nx, ny) else { continue };
+            if dist[i] != u16::MAX || !way_cell(world, nx, ny, gaps.brood) {
+                continue;
+            }
+            dist[i] = d.saturating_add(1);
+            q.push_back((nx, ny));
+        }
+    }
+    Some(NestWay { site, door, x0, y0, w, h, dist, store: Vec::new(), store_cells: Vec::new(), door_food: Vec::new(), foot: Vec::new(), store_foot: Vec::new() })
+}
+
+/// **Where [`mound_in_of`] sends a carrier**: [`REST_LOOKAHEAD`] steps down
+/// its nest's way in from its head, for a carrier of a trip's food on the
+/// way above the door. `None` with the switch off, for anything else, at the
+/// door, or off the way.
+fn mound_in_target(world: &World, state: &crate::sim::organism::OrganismState, head: (i32, i32)) -> Option<(i32, i32)> {
+    if !mound_in_of(world) || !state.trip_load || state.spoil.is_some() || state.crop.is_none_or(|c| c.worth() <= 0.0) || carries_lunch(world, state) {
+        return None;
+    }
+    let site = world.nearest_nest_site(head.0, head.1)?;
+    let way = world.mound_in_ways.iter().find(|w| w.site == site)?;
+    step_out_way(way, head)
 }
 
 /// **Build a nest's way out of its mound** ([`MoundOut`]): breadth first,
@@ -24101,6 +24195,10 @@ fn home_pull(world: &World, organism: OrganismId, def: &CreatureDef, head: (i32,
             if let Some(t) = nurse_in_target(world, state, head) {
                 return Some((t, def.home_bias));
             }
+            // **Down the mound's way in** ([`mound_in_of`], off).
+            if let Some(t) = mound_in_target(world, state, head) {
+                return Some((t, def.home_bias));
+            }
             Some((home_target(world, state), def.home_bias))
         }
     }
@@ -24172,7 +24270,7 @@ fn home_pull_why(world: &World, organism: OrganismId, def: &CreatureDef, head: (
     }
     (
         PULL_LADEN,
-        Some(nurse_in_target(world, state, head).unwrap_or_else(|| home_target(world, state))),
+        Some(nurse_in_target(world, state, head).or_else(|| mound_in_target(world, state, head)).unwrap_or_else(|| home_target(world, state))),
     )
 }
 
@@ -24450,7 +24548,10 @@ fn chooser_step(
     // (seed 1, 10-60k), nurses holding crop food above ground had patience
     // 0.19-0.38, stood 4-20 columns off the door on the mound, and 0.3-2.0
     // of 5-28 were underground.
+    let mound_in = pulled_home && world.organism(organism).is_some_and(|s| nurse_in_target(world, s, (hx, hy)).is_none() && mound_in_target(world, s, (hx, hy)).is_some());
+    world.creature_stats.mound_in_pulls += u64::from(mound_in);
     let leashed = store_pull.is_some()
+        || mound_in
         || (nest_leash_deep() && pull.is_some() && nest_leash_holds(world, organism, def))
         || (pull.is_some()
             && world

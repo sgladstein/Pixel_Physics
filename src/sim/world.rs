@@ -1974,6 +1974,9 @@ pub struct CreatureStats {
     /// food trail turned from the side of the door they came out on. 0
     /// unless `PIXEL_PHYSICS_SPOIL_SIDE` is set.
     pub spoil_side_turned: u64,
+    /// **`creature::mound_in_of`'s count**: decisions a carrier was pulled
+    /// down the mound's way in. 0 unless `PIXEL_PHYSICS_MOUND_IN` is on.
+    pub mound_in_pulls: u64,
     /// **`creature::MoundDig`'s `roof` count**: cuts refused because their
     /// cell lay in a nest's spoil mound outside its door, the digger not shut
     /// in. Not in `digs_refused_roof`; the trace's `DigWhy` reads it as the
@@ -4355,6 +4358,9 @@ pub struct World {
     /// (`creature::build_mound_way`), rebuilt beside `nest_ways` while
     /// `PIXEL_PHYSICS_MOUND_OUT` is on, and empty otherwise.
     pub mound_ways: Vec<crate::sim::creature::NestWay>,
+    /// **The mound's ways in, for carriers** (`creature::build_mound_in_way`),
+    /// rebuilt beside `nest_ways` while `PIXEL_PHYSICS_MOUND_IN` is on.
+    pub mound_in_ways: Vec<crate::sim::creature::NestWay>,
     /// **Each nest's way to the open air**, as steps from the open air
     /// through the covered cells of its mound and its nest alike
     /// (`creature::build_out_way`), rebuilt beside `nest_ways` while one of
@@ -6964,6 +6970,7 @@ impl World {
             store_last_seeds: Vec::new(),
             store_read_log: None,
             mound_ways: Vec::new(),
+            mound_in_ways: Vec::new(),
             out_ways: Vec::new(),
             bud_store: None,
             births_paused: false,
