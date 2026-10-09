@@ -5638,7 +5638,11 @@ pub(super) fn try_bud(
     // still holds.
     let brake = food_brake_factor(world, state.colony);
     let unbraked = bar;
-    let bar = bar * brake;
+    // **[`StoreBrake`]** rides on the same bar, after the food brake: the
+    // store's food per hundred adults of the colony.
+    let sbrake = store_brake_factor(world, state.colony, (hx, hy));
+    let food_braked = bar * brake;
+    let bar = food_braked * sbrake;
     // **Read off the parent here, while `state` is still the parent** (see
     // the `Origin::Bud` arm in `place_creature` for the incident this
     // naming exists to prevent) -- moved ahead of the affordability check
@@ -5666,6 +5670,10 @@ pub(super) fn try_bud(
         // cleared every bar but the brake's.
         if brake > 1.0 && bank + reachable >= unbraked {
             world.creature_stats.food_brake_held += 1;
+        }
+        // ...and the store brake's: every bar cleared but its own.
+        if sbrake > 1.0 && bank + reachable >= food_braked {
+            world.creature_stats.store_brake_held += 1;
         }
         return None;
     }
@@ -20952,6 +20960,91 @@ pub fn food_brake_factor(world: &World, colony: u32) -> f32 {
         return 1.0;
     }
     let full = if r <= lo { f32::INFINITY } else { 1.0 + (FOOD_BRAKE_MAX - 1.0) * ((hi - r) / (hi - lo)) as f32 };
+    if strength >= 1.0 {
+        full
+    } else {
+        1.0 + strength * (full.min(2.0 * FOOD_BRAKE_MAX) - 1.0)
+    }
+}
+
+/// **`PIXEL_PHYSICS_STORE_BRAKE`: lay as the store allows** (2026-10-09,
+/// off; owner's go-ahead after the food brake's sweep). The layer's bar is
+/// raised as its nest's store runs low against the colony: store food cells
+/// ([`NestWay::store_cells`] at the layer's nearest nest) per hundred live
+/// adults ([`World::colony_adults`]). At or above `hi` the bar stands; from
+/// `hi` down to `lo` it rises to [`FOOD_BRAKE_MAX`] times; at or below `lo`
+/// no egg. A colony under [`FOOD_BRAKE_SMALL`] adults breeds free, the brake
+/// reaching full strength at twice that, as the food brake's does: a
+/// founding group has no store yet.
+///
+/// **Why the store and not the food brake's ratio** (seeds 1-4,
+/// recruitment and spoil off the path, 240k): income over burn does not move with colony
+/// size -- fewer ants is fewer foragers *and* fewer mouths -- so at 1.0-1.5
+/// it barely bit (162-1,213 eggs held; the colony plateaued at 1,286-1,647
+/// laying ~15% of its eggs into larvae that starved, store mean 16-75
+/// cells), and at 1.5-2.5, 2.0-3.0 and 2.5-4.0 it held every egg once the
+/// colony was large and never let go: 0-3 ants left at 240k on every seed.
+/// The ratio also counts food eaten from the store as income, so a colony
+/// living off its savings reads as healthy. Store food per adult is not
+/// scale-free: as a colony shrinks the same foragers' food is shared among
+/// fewer, the store fills, and laying resumes.
+///
+/// `on` (`lo=1`, `hi=5`, cells per hundred adults; measured store means of
+/// 16-75 cells under ~1,300 ants are 1.2-5.8), or `<lo>,<hi>`. Counted in
+/// `store_brake_held`.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct StoreBrake {
+    pub on: bool,
+    pub lo: f64,
+    pub hi: f64,
+}
+
+impl StoreBrake {
+    pub const OFF: StoreBrake = StoreBrake { on: false, lo: 1.0, hi: 5.0 };
+}
+
+pub fn parse_store_brake(raw: &str) -> StoreBrake {
+    match raw.trim() {
+        "" | "off" => StoreBrake::OFF,
+        "on" => StoreBrake { on: true, ..StoreBrake::OFF },
+        v => {
+            let mut it = v.split(',').map(|t| t.trim().parse::<f64>());
+            match (it.next(), it.next()) {
+                (Some(Ok(lo)), Some(Ok(hi))) if hi > lo && lo >= 0.0 => StoreBrake { on: true, lo, hi },
+                _ => panic!("PIXEL_PHYSICS_STORE_BRAKE={raw:?}: use off, on or <lo>,<hi> (store cells per hundred adults, hi > lo >= 0)"),
+            }
+        }
+    }
+}
+
+pub fn store_brake() -> StoreBrake {
+    static V: std::sync::OnceLock<StoreBrake> = std::sync::OnceLock::new();
+    *V.get_or_init(|| parse_store_brake(&std::env::var("PIXEL_PHYSICS_STORE_BRAKE").unwrap_or_default()))
+}
+
+/// **[`StoreBrake`]'s multiplier on the bar**, `>= 1.0` (`INFINITY` at or
+/// below `lo` in a colony of full size), as [`food_brake_factor`] shapes its own.
+pub fn store_brake_factor(world: &World, colony: u32, head: (i32, i32)) -> f32 {
+    let b = store_brake();
+    if !b.on {
+        return 1.0;
+    }
+    let adults = world.colony_adults(colony);
+    let strength = ((adults - FOOD_BRAKE_SMALL) / FOOD_BRAKE_SMALL).clamp(0.0, 1.0) as f32;
+    if strength <= 0.0 {
+        return 1.0;
+    }
+    let Some(site) = world.nearest_nest_site(head.0, head.1) else { return 1.0 };
+    let store = world.nest_ways.iter().filter(|w| w.site == site).map(|w| w.store_cells.len()).sum::<usize>() as f64;
+    store_brake_curve(b, store * 100.0 / adults.max(1.0), strength)
+}
+
+/// [`store_brake_factor`]'s shape, a pure function of the reading.
+fn store_brake_curve(b: StoreBrake, per100: f64, strength: f32) -> f32 {
+    if per100 >= b.hi {
+        return 1.0;
+    }
+    let full = if per100 <= b.lo { f32::INFINITY } else { 1.0 + (FOOD_BRAKE_MAX - 1.0) * ((b.hi - per100) / (b.hi - b.lo)) as f32 };
     if strength >= 1.0 {
         full
     } else {
@@ -42239,6 +42332,28 @@ mod tests {
         let mut w = World::new(Rect::new(0, 0, 119, 99));
         w.deposit_pheromone(Channel::B, 60 + SPOIL_SIDE_FAR + 1, 40, 200);
         assert_eq!(less_trail_side(&w, head), None, "trail out of reach was smelt");
+    }
+
+    /// **`PIXEL_PHYSICS_STORE_BRAKE` reads its parts, and its curve has the
+    /// shape its doc gives** ([`parse_store_brake`], [`store_brake_curve`]):
+    /// no effect at or above `hi`, rising to `FOOD_BRAKE_MAX` towards `lo`,
+    /// no egg at or below `lo` at full strength, and only a finite raise in
+    /// a colony still growing into the brake. Tight asserts on pure
+    /// functions, not watched red.
+    #[test]
+    fn the_store_brake_reads_its_parts_and_ramps_to_a_stop() {
+        assert_eq!(parse_store_brake(""), StoreBrake::OFF);
+        assert_eq!(parse_store_brake("on"), StoreBrake { on: true, lo: 1.0, hi: 5.0 });
+        assert_eq!(parse_store_brake("2,8"), StoreBrake { on: true, lo: 2.0, hi: 8.0 });
+        assert!(std::panic::catch_unwind(|| parse_store_brake("8,2")).is_err());
+        let b = parse_store_brake("on");
+        assert_eq!(store_brake_curve(b, 5.0, 1.0), 1.0);
+        assert_eq!(store_brake_curve(b, 9.0, 1.0), 1.0);
+        assert!((store_brake_curve(b, 3.0, 1.0) - (1.0 + (FOOD_BRAKE_MAX - 1.0) * 0.5)).abs() < 1e-5);
+        assert!(store_brake_curve(b, 1.0, 1.0).is_infinite());
+        assert!(store_brake_curve(b, 0.0, 1.0).is_infinite());
+        let half = store_brake_curve(b, 0.0, 0.5);
+        assert!(half.is_finite() && half > 1.0, "a growing colony's stop must be a finite raise, read {half}");
     }
 
     /// **`PIXEL_PHYSICS_LAY_BRAKE` reads its parts** ([`parse_lay_brake`]).

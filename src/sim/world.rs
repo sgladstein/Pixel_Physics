@@ -1988,6 +1988,9 @@ pub struct CreatureStats {
     /// `PIXEL_PHYSICS_LAY_BRAKE` is on.
     pub lay_brake_crowded: u64,
     pub lay_brake_store: u64,
+    /// **`creature::StoreBrake`'s count**: egg checks that cleared every bar
+    /// but the store brake's. 0 unless `PIXEL_PHYSICS_STORE_BRAKE` is on.
+    pub store_brake_held: u64,
     /// **`creature::MoundDig`'s `roof` count**: cuts refused because their
     /// cell lay in a nest's spoil mound outside its door, the digger not shut
     /// in. Not in `digs_refused_roof`; the trace's `DigWhy` reads it as the
@@ -9077,7 +9080,7 @@ impl World {
     /// `Reports/dead-ends.md`'s `BUD_NEED` entry names for a hunger gate that
     /// does not react after the overshoot.
     pub fn step_colony_pace(&mut self) {
-        if !crate::sim::creature::food_brake_on(self) || !self.frame.is_multiple_of(ROOM_INTERVAL) {
+        if !(crate::sim::creature::food_brake_on(self) || crate::sim::creature::store_brake().on) || !self.frame.is_multiple_of(ROOM_INTERVAL) {
             return;
         }
         let a = (ROOM_INTERVAL as f64 / crate::sim::creature::FOOD_BRAKE_WINDOW as f64).min(1.0);
