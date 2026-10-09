@@ -6289,6 +6289,14 @@ pub struct OrganismState {
     /// the switch is on.
     pub store_read_at: u64,
     pub store_read_low: f32,
+    /// **How many returning carriers have touched this ant lately**
+    /// (`creature::Recruit`, `PIXEL_PHYSICS_RECRUIT`): a count that decays
+    /// by `e^-1` every `tau` frames, as of `recruit_at`, and the last carrier
+    /// counted, so one carrier standing beside it counts once. Written only
+    /// while the switch is on, and only for an ant that has never foraged.
+    pub recruit_n: f32,
+    pub recruit_at: u64,
+    pub recruit_last: crate::sim::cell::OrganismId,
     /// **The colony's want when the forage throttle last judged this ant at
     /// its door** (`creature::ForageThrottle`), carried on the excursion it
     /// sent the ant on. NaN until the throttle first judges it.

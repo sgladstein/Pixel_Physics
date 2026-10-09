@@ -649,7 +649,7 @@ fn main() {
     let mut stats_csv = std::io::BufWriter::new(std::fs::File::create(format!("{out}/stats.csv")).unwrap());
     writeln!(
         stats_csv,
-        "frame,ants,brood,{},eggs_laid,pupae,births,larvae_starved,brood_ate_j,brood_crop_fed_j,brood_nursed_j,brood_shared_j,brood_upkeep_j,larva_ticks_hungry,larva_ticks_crop_fed,larva_ticks_nursed,crop_down_holds,nurse_seeks,soil_way_pulls,hungry_out_pulls,spoil_held_below,spoil_kept_inside,spoil_dumped,lean_dropped,digs,eats,pickups,drops,deliveries,trip_deliveries,forage_trips,forage_returns,topup_shares,throttle_held,throttle_sent,at_nest_ticks,nest_visits,buds_held_for_nest,lays_declined,births_denied_no_space,food_brake_held,shares,home_searches,carry_fills,carry_turns,mound_out_pulls,mound_digs_let,needs_down,needs_packed,needs_quit,needs_weak_digs,needs_cue_waived,needs_face_waived,needs_throttle_lifted,needs_roof_refused,needs_no_site,nest_store_food,nest_store_carry_pulls,nest_store_eat_pulls,nest_store_home_pulls,nest_store_bites,store_pickups,store_delivered,store_released,store_held,store_kept,nest_store_fetch_pulls,column_refused,column_cleared,meal_holds,feed_first_held,lean_digs_skipped,forager_digs_skipped,rest_pulls,store_reads_low,store_turned_away,store_out_pulls,meet_way_stamps,spoil_side_turned,spoil_ring_drawn,forage_paced,forage_scouted,mound_in_pulls",
+        "frame,ants,brood,{},eggs_laid,pupae,births,larvae_starved,brood_ate_j,brood_crop_fed_j,brood_nursed_j,brood_shared_j,brood_upkeep_j,larva_ticks_hungry,larva_ticks_crop_fed,larva_ticks_nursed,crop_down_holds,nurse_seeks,soil_way_pulls,hungry_out_pulls,spoil_held_below,spoil_kept_inside,spoil_dumped,lean_dropped,digs,eats,pickups,drops,deliveries,trip_deliveries,forage_trips,forage_returns,topup_shares,throttle_held,throttle_sent,at_nest_ticks,nest_visits,buds_held_for_nest,lays_declined,births_denied_no_space,food_brake_held,shares,home_searches,carry_fills,carry_turns,mound_out_pulls,mound_digs_let,needs_down,needs_packed,needs_quit,needs_weak_digs,needs_cue_waived,needs_face_waived,needs_throttle_lifted,needs_roof_refused,needs_no_site,nest_store_food,nest_store_carry_pulls,nest_store_eat_pulls,nest_store_home_pulls,nest_store_bites,store_pickups,store_delivered,store_released,store_held,store_kept,nest_store_fetch_pulls,column_refused,column_cleared,meal_holds,feed_first_held,lean_digs_skipped,forager_digs_skipped,rest_pulls,store_reads_low,store_turned_away,store_out_pulls,meet_way_stamps,spoil_side_turned,spoil_ring_drawn,forage_paced,forage_scouted,mound_in_pulls,recruit_contacts,recruited",
         organism::DEATH_CAUSE_LIST
             .iter()
             .map(|c| format!("died_{}", c.label().to_lowercase().replace(['?'], "unknown").replace(' ', "_")))
@@ -1085,7 +1085,7 @@ fn main() {
             let st = &w.creature_stats;
             writeln!(
                 stats_csv,
-                "{f},{},{},{},{},{},{},{},{:.0},{:.0},{:.0},{:.0},{:.0},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
+                "{f},{},{},{},{},{},{},{},{:.0},{:.0},{:.0},{:.0},{:.0},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
                 live.len(),
                 w.live_brood_ids().len(),
                 w.deaths_by_cause.iter().map(|d| d.to_string()).collect::<Vec<_>>().join(","),
@@ -1168,6 +1168,8 @@ fn main() {
                 st.forage_paced,
                 st.forage_scouted,
                 st.mound_in_pulls,
+                st.recruit_contacts,
+                st.recruited,
             )
             .unwrap();
             if let Some(bc) = brain_csv.as_mut() {

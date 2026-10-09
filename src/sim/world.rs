@@ -1977,6 +1977,12 @@ pub struct CreatureStats {
     /// **`creature::mound_in_of`'s count**: decisions a carrier was pulled
     /// down the mound's way in. 0 unless `PIXEL_PHYSICS_MOUND_IN` is on.
     pub mound_in_pulls: u64,
+    /// **`creature::Recruit`'s counts**: contacts counted (a returning
+    /// carrier touching an ant that has never foraged, once per carrier in a
+    /// row) and recruitments (an ant's count crossing the threshold). 0
+    /// unless `PIXEL_PHYSICS_RECRUIT` is on.
+    pub recruit_contacts: u64,
+    pub recruited: u64,
     /// **`creature::MoundDig`'s `roof` count**: cuts refused because their
     /// cell lay in a nest's spoil mound outside its door, the digger not shut
     /// in. Not in `digs_refused_roof`; the trace's `DigWhy` reads it as the
@@ -8076,6 +8082,9 @@ impl World {
             return_met: 0,
             store_read_at: 0,
             store_read_low: 0.0,
+            recruit_n: 0.0,
+            recruit_at: 0,
+            recruit_last: 0,
             sent_want: f32::NAN,
             foraged: false,
             store_return: false,

@@ -7841,6 +7841,8 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
     // ([`meet_way_reach`], off): before the move, so the ants beside it now
     // are the ones it touched. No draw.
     meet_on_way(world, organism, (x, y));
+    // **...and recruits the newcomers it touches** ([`Recruit`], off).
+    recruit_contacts(world, organism, (x, y));
     let mut draw = rng::stream(world.seed, organism as u64, world.frame, RNG_SLOT_MOVE);
     // **The tax is a fraction of the budget, not an absolute.** Written
     // out here rather than folded into `CreatureDef` so the multiplication
@@ -23243,7 +23245,8 @@ fn forage_drive_level(world: &World, state: &crate::sim::organism::OrganismState
 /// [`forage_drive_level`] before [`StoreRead`]: the colony's drive alone.
 fn colony_drive_level(world: &World, state: &crate::sim::organism::OrganismState, def: &CreatureDef) -> f32 {
     let drive = forage_drive_of(world);
-    if !drive.on() || !state.foraged || (drive.fed && state.energy < def.start_energy) {
+    // **A newcomer reads the drive once recruited** ([`Recruit`], off).
+    if !drive.on() || !(state.foraged || recruited_now(world, state)) || (drive.fed && state.energy < def.start_energy) {
         return 0.0;
     }
     // **A nest-bound ant is not sent out** ([`is_nest_bound`], the nest
@@ -23371,6 +23374,130 @@ fn meet_on_way(world: &mut World, carrier: OrganismId, (hx, hy): (i32, i32)) {
         if let Some(s) = world.organism_mut(id) {
             s.return_met = now;
         }
+    }
+}
+
+/// **`PIXEL_PHYSICS_RECRUIT`: a newcomer is recruited to forage by the rate
+/// at which returning carriers touch it** (2026-10-09, off; the owner's
+/// design). The forage drive ([`colony_drive_level`]) reads 0 for an ant
+/// that has never foraged, and a brain census of the playtest line (heap-90
+/// box, seed 1; `deeptrace brain=1`, the decomposition rebuilding the
+/// brain's `Move` on every row) found the mound's loafers are exactly those
+/// ants and nest workers: a fed, empty ant with no pull sits at a `Move` sum
+/// of about -0.05 (bias +2, fed -1.75, crowding -0.3), so its step chance is
+/// 0, and only the drive's pacing ([`forage_pace`], +1.75 at a full drive)
+/// lifts it -- to ~0.56 for ants that have foraged; never-foraged ones stood
+/// on 98% of such rows. A census every 1k frames put 70% of them on the
+/// mound, with a laden carrier within 2 cells of 78% (within 5, 95%). In
+/// harvester ants a waiting forager goes out when the *rate* of contacts
+/// with foragers returning with food is high enough (Gordon's work on
+/// *Pogonomyrmex*), not on one contact -- and here one contact would recruit
+/// nearly every newcomer at once, the stuck carriers making the mound smell
+/// busy whether or not food comes in.
+///
+/// On, each tick a carrier of a trip's food that still has its patience
+/// (`home_patience >= RECRUIT_PATIENCE`: on its way in, not lost) touches
+/// every ant of its kind within `reach` cells of its head that has never
+/// foraged and is not nest-bound; a carrier other than the last one counted
+/// adds 1 to the ant's count ([`OrganismState::recruit_n`]), which decays
+/// by `e^-1` every `tau` frames, and stamps its `return_met`. While the
+/// count stands at `k` or more, the ant reads the `met` drive as an ant
+/// that has foraged does. Parts: `on` (`k=5`, `tau=1400`, `reach=2`);
+/// `k=<n>`, `tau=<frames>`, `reach=<cells>`. Counted in `recruit_contacts`
+/// and `recruited`.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Recruit {
+    pub on: bool,
+    pub k: f32,
+    pub tau: f32,
+    pub reach: i32,
+}
+
+impl Recruit {
+    pub const OFF: Recruit = Recruit { on: false, k: 5.0, tau: 1400.0, reach: 2 };
+}
+
+/// A carrier's patience at or over which its touch recruits ([`Recruit`]).
+pub const RECRUIT_PATIENCE: f32 = 0.5;
+
+pub fn recruit_of(_world: &World) -> Recruit {
+    static V: std::sync::OnceLock<Recruit> = std::sync::OnceLock::new();
+    *V.get_or_init(|| parse_recruit(&std::env::var("PIXEL_PHYSICS_RECRUIT").unwrap_or_default()))
+}
+
+pub fn parse_recruit(raw: &str) -> Recruit {
+    let mut r = Recruit::OFF;
+    let raw = raw.trim();
+    if raw.is_empty() || raw == "off" {
+        return r;
+    }
+    for part in raw.split(',').map(str::trim) {
+        if part == "on" {
+            r.on = true;
+        } else if let Some(v) = part.strip_prefix("k=").and_then(|v| v.parse::<f32>().ok()).filter(|&v| v > 0.0) {
+            r.on = true;
+            r.k = v;
+        } else if let Some(v) = part.strip_prefix("tau=").and_then(|v| v.parse::<f32>().ok()).filter(|&v| v > 0.0) {
+            r.on = true;
+            r.tau = v;
+        } else if let Some(v) = part.strip_prefix("reach=").and_then(|v| v.parse::<i32>().ok()).filter(|&v| v > 0) {
+            r.on = true;
+            r.reach = v;
+        } else {
+            panic!("PIXEL_PHYSICS_RECRUIT={raw:?}: unknown part {part:?}; use off, on, k=<n>, tau=<frames>, reach=<cells>");
+        }
+    }
+    r
+}
+
+/// **An ant's contact count now** ([`Recruit`]): its count decayed from
+/// `recruit_at` to `now`.
+fn recruit_level(r: Recruit, n: f32, at: u64, now: u64) -> f32 {
+    n * (-(now.saturating_sub(at) as f32) / r.tau).exp()
+}
+
+/// **Whether a never-foraged ant reads the drive** ([`Recruit`]): the switch
+/// on and its count at `k` or more.
+fn recruited_now(world: &World, state: &crate::sim::organism::OrganismState) -> bool {
+    let r = recruit_of(world);
+    r.on && recruit_level(r, state.recruit_n, state.recruit_at, world.frame) >= r.k
+}
+
+/// **A returning carrier touches the newcomers beside it** ([`Recruit`]).
+/// Off, one read.
+fn recruit_contacts(world: &mut World, carrier: OrganismId, (hx, hy): (i32, i32)) {
+    let r = recruit_of(world);
+    if !r.on {
+        return;
+    }
+    let Some(state) = world.organism(carrier) else { return };
+    if !state.trip_load || state.crop.is_none_or(|c| c.worth() <= 0.0) || state.home_patience < RECRUIT_PATIENCE {
+        return;
+    }
+    let species = state.species;
+    let now = world.frame.max(1);
+    let mut touched: Vec<OrganismId> = Vec::new();
+    for y in hy - r.reach..=hy + r.reach {
+        for x in hx - r.reach..=hx + r.reach {
+            let id = world.get(x, y).organism_id();
+            if id != 0 && id != carrier && !touched.contains(&id) {
+                touched.push(id);
+            }
+        }
+    }
+    for id in touched {
+        let Some(s) = world.organism_mut(id) else { continue };
+        if s.species != species || s.foraged || s.nest_bound_until > now || s.recruit_last == carrier {
+            continue;
+        }
+        let before = recruit_level(r, s.recruit_n, s.recruit_at, now);
+        s.recruit_n = before + 1.0;
+        s.recruit_at = now;
+        s.recruit_last = carrier;
+        s.return_met = now;
+        let crossed = before < r.k && before + 1.0 >= r.k;
+        world.creature_stats.recruit_contacts += 1;
+        world.creature_stats.recruited += u64::from(crossed);
     }
 }
 
@@ -41930,6 +42057,29 @@ mod tests {
         let mut w = World::new(Rect::new(0, 0, 119, 99));
         w.deposit_pheromone(Channel::B, 60 + SPOIL_SIDE_FAR + 1, 40, 200);
         assert_eq!(less_trail_side(&w, head), None, "trail out of reach was smelt");
+    }
+
+    /// **`PIXEL_PHYSICS_RECRUIT` reads its parts** ([`parse_recruit`]), and a
+    /// part it does not know panics. A table, not watched red.
+    #[test]
+    fn parse_recruit_reads_its_parts() {
+        assert_eq!(parse_recruit(""), Recruit::OFF);
+        assert_eq!(parse_recruit("on"), Recruit { on: true, ..Recruit::OFF });
+        assert_eq!(parse_recruit("k=3,tau=700,reach=1"), Recruit { on: true, k: 3.0, tau: 700.0, reach: 1 });
+        assert!(std::panic::catch_unwind(|| parse_recruit("on,fast")).is_err());
+    }
+
+    /// **The contact count decays by `e^-1` a `tau`** ([`recruit_level`]):
+    /// 5 contacts read 5 at once, 5/e one `tau` later, so a newcomer touched
+    /// five times in a burst is recruited and falls out within about one
+    /// window with no more contacts. A tight assert on a deterministic
+    /// function, not watched red.
+    #[test]
+    fn a_contact_count_decays_over_tau() {
+        let r = Recruit { on: true, ..Recruit::OFF };
+        assert!((recruit_level(r, 5.0, 1000, 1000) - 5.0).abs() < 1e-6);
+        assert!((recruit_level(r, 5.0, 1000, 2400) - 5.0 / std::f32::consts::E).abs() < 1e-4);
+        assert!(recruit_level(r, 5.0, 1000, 1000 + 1400 / 4) < r.k, "a burst of exactly k held its recruitment a quarter tau");
     }
 
     /// **`PIXEL_PHYSICS_MEET_WAY` reads its spellings** ([`parse_meet_way`]),
