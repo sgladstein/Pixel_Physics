@@ -4535,6 +4535,20 @@ fn harness() {
             bands[9] as f64 * 100.0 / total as f64
         );
     }
+    // **`PIXEL_PHYSICS_DIG_HOME`'s counters** (`creature::DigHome`): ticks at
+    // home whose group urge was held, ticks kept at a fresh face under
+    // `mark=`, and the marks standing and laid -- so a picture from an arm
+    // carries whether its rule fired at all.
+    if pixel_physics::sim::creature::dig_home_of() != pixel_physics::sim::creature::DigHome::Off {
+        println!(
+            "SUMMARY dig home: held {} | mark: face ticks {}, marks standing {}, laid from the dug home {}, from elsewhere {}",
+            st.dig_home_held,
+            st.dig_mark_face,
+            world.face_marks.len(),
+            st.marks_home,
+            st.marks_away
+        );
+    }
 
     if let Some(path) = out {
         write_sheet(&path, &shots, &b, scale);

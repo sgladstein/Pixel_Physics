@@ -3840,11 +3840,29 @@ pub const DUG_HOME_REACH: (i32, i32) = (60, 60);
 /// it, so a colony can always start its first room. The design and its
 /// review: `/mnt/project-files/late-tunnels/design-idea2-dig-home-core-2026-10-10.md`
 /// and `review-idea2-2026-10-10.md`.
+///
+/// `mark=<frames>[,food]`: **a "dig here" mark at fresh cuts.** A cut into
+/// new ground (soil or packed soil at a cell never dug before) below its nest
+/// site's founding ground marks the soil round it ([`World::face_marks`]),
+/// and an ant at home below the ground keeps the group's dig urge only within
+/// 1 cell of a mark younger than `frames`; everywhere else below the ground
+/// it digs as it would away. Above the ground (the mound, the door) nothing
+/// changes -- refusing digs there is what cost `DIG_MODES` two-thirds of its
+/// colony. With `,food` the food beside it is read as none for every at-home
+/// ant below the ground, **on a fresh face too**, so store crumbs cannot keep
+/// re-marking their own wall (review change 2). A cell-local, decaying cue:
+/// an analogy for fresh-pellet cues steering where leaf-cutters start to dig
+/// (Pielstrom & Roces 2013, doi 10.1371/journal.pone.0057040). `mark=0`
+/// never marks anything and so is `rows=0` bit for bit. The design, its
+/// review and the offline replay that cleared it:
+/// `/mnt/project-files/late-tunnels/design-idea3-dig-mark-2026-10-10.md`,
+/// `review-idea3-dig-mark-2026-10-10.md`, README "Idea 3 replay".
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DigHome {
     Off,
     Rows { rows: i32, food: bool },
     Core { steps: i32, brood: bool, store: bool, cut: bool, food: bool },
+    Mark { ttl: u64, food: bool },
 }
 
 /// [`DigHome`] from `PIXEL_PHYSICS_DIG_HOME`, read once.
@@ -3857,7 +3875,7 @@ pub fn dig_home_of() -> DigHome {
 /// does not understand panics** rather than falling back to off, so a typo
 /// cannot put the control into a sweep wearing an arm's label.
 fn parse_dig_home(raw: &str) -> DigHome {
-    let bad = |v: &str| -> ! { panic!("PIXEL_PHYSICS_DIG_HOME={v:?}: not `off`, `rows=<n>` or `core=<steps>[,brood][,store][,cut]`") };
+    let bad = |v: &str| -> ! { panic!("PIXEL_PHYSICS_DIG_HOME={v:?}: not `off`, `rows=<n>`, `core=<steps>[,brood][,store][,cut]` or `mark=<frames>[,food]`") };
     match raw.trim() {
         "" | "off" => DigHome::Off,
         v if v.starts_with("rows=") => {
@@ -3893,6 +3911,21 @@ fn parse_dig_home(raw: &str) -> DigHome {
             }
             DigHome::Core { steps, brood, store, cut, food }
         }
+        v if v.starts_with("mark=") => {
+            let mut parts = v["mark=".len()..].split(',');
+            let ttl = match parts.next().map(str::parse::<u64>) {
+                Some(Ok(n)) => n,
+                _ => bad(v),
+            };
+            let mut food = false;
+            for part in parts {
+                match part {
+                    "food" => food = true,
+                    _ => bad(v),
+                }
+            }
+            DigHome::Mark { ttl, food }
+        }
         v => bad(v),
     }
 }
@@ -3912,7 +3945,33 @@ fn dig_home_at(world: &World, (x, y): (i32, i32)) -> bool {
             let near = |set: &crate::sim::fxhash::PosSet| (-1..=1).any(|dy| (-1..=1).any(|dx| set.contains(&(x + dx, y + dy))));
             !near(&world.nest_dug) || near(&world.nest_core)
         }
+        DigHome::Mark { ttl, .. } => !mark_below_ground(world, (x, y)) || fresh_face(world, (x, y), ttl),
     }
+}
+
+/// **Below its nest site's founding ground** -- where `mark=` acts. The same
+/// line `rows=0` draws, so `mark=0` is `rows=0`; no nest site, no line.
+pub fn mark_below_ground(world: &World, (x, y): (i32, i32)) -> bool {
+    world.nearest_nest_site(x, y).is_some_and(|i| y > world.nest_sites[i].surface)
+}
+
+/// **The ground a mark is laid on and read from**: soil and packed soil
+/// only, never brood, food, a corpse, a pellet or an ant (review change 3).
+pub fn mark_ground(world: &World, m: crate::sim::material::MaterialId) -> bool {
+    matches!(world.materials.get(m).name.as_str(), "soil" | "packedsoil")
+}
+
+/// **A mark younger than `ttl` on the ground within 1 cell of `(x, y)`**
+/// ([`World::face_marks`]): the "dig here" cue `mark=` reads.
+fn fresh_face(world: &World, (x, y): (i32, i32), ttl: u64) -> bool {
+    if world.face_marks.is_empty() {
+        return false;
+    }
+    (-1..=1).any(|dy| {
+        (-1..=1).any(|dx| {
+            world.face_marks.get(&(x + dx, y + dy)).is_some_and(|&f| world.frame.saturating_sub(f) < ttl && mark_ground(world, world.get(x + dx, y + dy).material))
+        })
+    })
 }
 
 /// **Creature cells within `CROWDING_RADIUS` of `(x, y)`, the animal's own
@@ -3958,7 +4017,24 @@ fn dig_home_override(
     before: [f32; brain::BRAIN_HIDDEN],
     outputs: &mut [f32; brain::BRAIN_OUTPUTS],
 ) {
-    if dig_home_of() == DigHome::Off || inputs[brain::BrainInput::AtNest as usize] < 0.5 || dig_home_at(world, head) {
+    let mode = dig_home_of();
+    if mode == DigHome::Off || inputs[brain::BrainInput::AtNest as usize] < 0.5 {
+        return;
+    }
+    if dig_home_at(world, head) {
+        // **`mark=...,food` on a fresh face**: the group's urge stays, the
+        // food beside it does not count. Zeroed only in the held branch (rev 1
+        // of the design), a store wall once marked kept the full at-home urge
+        // *and* the food term, and the fed ants pausing there -- 57-63% of
+        // at-home cuts are beside food -- could re-mark it for good (review
+        // change 2). No food beside it, nothing to re-evaluate.
+        if matches!(mode, DigHome::Mark { food: true, .. }) && inputs[brain::BrainInput::FoodAdjacent as usize] > 0.0 && mark_below_ground(world, head) {
+            let mut here = brain_inputs(world, def, inputs);
+            here[brain::BrainInput::FoodAdjacent as usize] = 0.0;
+            let mut state = before;
+            let (o, _) = brain::eval_brain(genome, &here, &mut state);
+            outputs[brain::BrainOutput::Dig as usize] = o[brain::BrainOutput::Dig as usize];
+        }
         return;
     }
     let mut away = brain_inputs(world, def, inputs);
@@ -3977,7 +4053,7 @@ fn dig_home_override(
     // below the line beside food) -- enough that the room kept widening
     // under the line at about main's rate. Only `Dig` is taken from this
     // evaluation, so eating and carrying still see the food.
-    if matches!(dig_home_of(), DigHome::Rows { food: true, .. } | DigHome::Core { food: true, .. }) {
+    if matches!(mode, DigHome::Rows { food: true, .. } | DigHome::Core { food: true, .. } | DigHome::Mark { food: true, .. }) {
         away[brain::BrainInput::FoodAdjacent as usize] = 0.0;
     }
     let mut state = before;
@@ -8078,6 +8154,9 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
         // whose `Dig` [`dig_home_override`] replaced. Off, one branch.
         if dig_home_of() != DigHome::Off && !dig_home_at(world, (x, y)) {
             world.creature_stats.dig_home_held += 1;
+        } else if matches!(dig_home_of(), DigHome::Mark { .. }) && mark_below_ground(world, (x, y)) {
+            // At home below the ground and at a fresh face: the group's urge kept.
+            world.creature_stats.dig_mark_face += 1;
         }
         // ...and what it read, bucketed. See `CreatureStats::at_nest_crowding`
         // -- with the gate off this is the old 5x5 density and is the control
@@ -20460,8 +20539,19 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
                 pellet.material = hauled;
             }
             world.set(tx, ty, Cell::EMPTY);
+            // **`mark=`: a cut into new ground below the line marks the soil
+            // round it**, stamped in `World::begin_step` (`step_face_marks`)
+            // so a speculated sense never reads a map written mid-sweep
+            // (review change 9). New ground: soil or packed soil at a cell no
+            // ant has dug before -- not a pellet re-dug, not food (review
+            // change 3). Off, one branch.
+            if matches!(dig_home_of(), DigHome::Mark { .. }) && !world.dug_cells.contains(&(tx, ty)) && mark_ground(world, target.material) && mark_below_ground(world, (tx, ty)) {
+                let home = world.nest_dug.contains(&(x, y));
+                world.face_cuts.push((tx, ty, home));
+            }
             // The census's record of the act (`World::dug_cells`): read by
-            // nothing in the simulation, so it cannot move a run.
+            // nothing in the simulation but `mark=` above, so it cannot move
+            // a run with that switch off.
             world.dug_cells.insert((tx, ty));
             let frame = world.frame;
             if let Some(log) = world.cut_log.as_mut() {
@@ -53435,7 +53525,9 @@ mod tests {
         assert_eq!(parse_dig_home("rows=30,food"), DigHome::Rows { rows: 30, food: true });
         assert_eq!(parse_dig_home("core=12,store"), DigHome::Core { steps: 12, brood: false, store: true, cut: false, food: false });
         assert_eq!(parse_dig_home("core=8,brood,store,cut,food"), DigHome::Core { steps: 8, brood: true, store: true, cut: true, food: true });
-        for bad in ["rows", "rows=-1", "core=x", "core=12,larvae", "on"] {
+        assert_eq!(parse_dig_home("mark=1000"), DigHome::Mark { ttl: 1000, food: false });
+        assert_eq!(parse_dig_home("mark=0,food"), DigHome::Mark { ttl: 0, food: true });
+        for bad in ["rows", "rows=-1", "core=x", "core=12,larvae", "on", "mark", "mark=-1", "mark=500,brood"] {
             assert!(std::panic::catch_unwind(|| parse_dig_home(bad)).is_err(), "{bad:?} must panic, not run as off under an arm's label");
         }
     }

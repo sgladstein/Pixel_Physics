@@ -1360,7 +1360,17 @@ fn main() {
             // group's dig home; printed only with the switch on, so an off
             // run's log is main's.
             if pixel_physics::sim::creature::dig_home_of() != pixel_physics::sim::creature::DigHome::Off {
-                println!("  dig_home_held={} nest_core={} nest_dug={}", lab.world.creature_stats.dig_home_held, lab.world.nest_core.len(), lab.world.nest_dug.len());
+                let st = &lab.world.creature_stats;
+                println!(
+                    "  dig_home_held={} nest_core={} nest_dug={} | mark: face_ticks={} marks_live={} laid_home={} laid_away={}",
+                    st.dig_home_held,
+                    lab.world.nest_core.len(),
+                    lab.world.nest_dug.len(),
+                    st.dig_mark_face,
+                    lab.world.face_marks.len(),
+                    st.marks_home,
+                    st.marks_away
+                );
             }
         }
     }

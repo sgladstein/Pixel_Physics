@@ -1655,6 +1655,15 @@ pub struct CreatureStats {
     /// `PIXEL_PHYSICS_DIG_HOME`). The "it fired" half; 0 unless the switch
     /// is on.
     pub dig_home_held: u64,
+    /// **At home below the ground at a fresh face** under
+    /// `PIXEL_PHYSICS_DIG_HOME=mark=...`: the ticks that kept the group's dig
+    /// urge (the other half of `dig_home_held`). 0 unless that switch is on.
+    pub dig_mark_face: u64,
+    /// **Marks laid** under `mark=` (`World::face_marks`), by where the
+    /// cutter stood: in the dug home, or not (off home, or home by another
+    /// route). Each counts one cut into new ground, not its eight cells.
+    pub marks_home: u64,
+    pub marks_away: u64,
     /// **Creature sites the scheduler actually dispatched to a live
     /// creature** — the "was it asked at all" counter, and the one thing
     /// `moves` cannot say on its own.
@@ -4869,6 +4878,14 @@ pub struct World {
     /// steps of brood, store food or the founding cut. Rebuilt with
     /// `nest_dug`; empty unless that switch is on.
     pub nest_core: crate::sim::fxhash::PosSet,
+    /// **The "dig here" marks under `PIXEL_PHYSICS_DIG_HOME=mark=...`**
+    /// (`creature::DigHome::Mark`): soil cell -> the frame a cut into new
+    /// ground beside it marked it. Stamped and pruned in `begin_step`
+    /// (`step_face_marks`) from `face_cuts`; empty unless that switch is on.
+    pub face_marks: crate::sim::fxhash::PosMap<u64>,
+    /// Cuts into new ground waiting to mark (`(x, y, cutter in the dug
+    /// home)`), pushed where the cut is made and drained next `begin_step`.
+    pub face_cuts: Vec<(i32, i32, bool)>,
     /// **Every cell an ant has ever dug, and every cell a founding cut
     /// opened** -- the record behind the census's `dug_*` columns
     /// (`lab::census::Sample::dug`). Written only by `creature::dig` and
@@ -7154,6 +7171,8 @@ impl World {
             nest_room: Vec::new(),
             nest_dug: Default::default(),
             nest_core: Default::default(),
+            face_marks: Default::default(),
+            face_cuts: Vec::new(),
             dug_cells: Default::default(),
             nest_need: Vec::new(),
             colony_pace: Vec::new(),
@@ -9295,6 +9314,33 @@ impl World {
         }
         self.nest_dug = dug;
         self.step_nest_core();
+    }
+
+    /// Stamp last frame's cuts into new ground on the soil round them, and
+    /// every `ROOM_INTERVAL` frames drop the marks older than the switch's
+    /// lifetime (`face_marks`). Off, one branch.
+    fn step_face_marks(&mut self) {
+        let crate::sim::creature::DigHome::Mark { ttl, .. } = crate::sim::creature::dig_home_of() else {
+            return;
+        };
+        let frame = self.frame;
+        for (x, y, home) in std::mem::take(&mut self.face_cuts) {
+            if home {
+                self.creature_stats.marks_home += 1;
+            } else {
+                self.creature_stats.marks_away += 1;
+            }
+            for dy in -1..=1 {
+                for dx in -1..=1 {
+                    if (dx, dy) != (0, 0) && crate::sim::creature::mark_ground(self, self.get(x + dx, y + dy).material) {
+                        self.face_marks.insert((x + dx, y + dy), frame);
+                    }
+                }
+            }
+        }
+        if frame.is_multiple_of(ROOM_INTERVAL) {
+            self.face_marks.retain(|_, f| frame.saturating_sub(*f) < ttl);
+        }
     }
 
     /// Rebuild `nest_core` (see there) from the dug home just built. Off
@@ -12034,6 +12080,10 @@ impl World {
         // **And the dug nest that is home** under `NEST_HOME=dug`, on the
         // same cadence; every other world returns on its first line.
         self.step_nest_dug();
+        // **And the "dig here" marks** under `DIG_HOME=mark=`, stamped from
+        // last frame's cuts here so no speculated sense reads a map written
+        // mid-sweep; every other world returns on its first line.
+        self.step_face_marks();
         // **And how hungry each nest is**, on the same cadence, for the forage
         // drive only (`step_nest_need`); every other world returns on its
         // first line.
