@@ -127,6 +127,15 @@ frame cost) are in `.claude/rules/measuring-the-world.md`; method traps
   column over and under the door stand on brood (2026-10-06), so a solid column
   of ants reads as ants that will not walk into it. Read `walk=1`'s `nb` column
   (`B`) or `broodstep.py`, not the picture.
+- **`broodlog.csv`'s `laid` rows** (`deeptrace dig=1`) are written for any egg
+  not seen the frame before, and an egg under a standing ant (above) flickers
+  `gone`/`laid`, so there are ~3x as many `laid` rows as `eggs_laid` (steady
+  seed 1, 100-300k: 6,279 against 1,927). A reader that starts a life at the
+  last `laid` row puts the egg where it was **last seen as an egg**, already
+  fallen: deep starvers read "laid 9-14 rows under the old ground" when eggs
+  are laid 0-1 rows under it (2026-10-10). Count an egg only when its id was
+  not seen in the last 500 frames (`/mnt/project-files/deep-larvae/laidwhere.py`,
+  within 0.5% of `eggs_laid`).
 - **`starvewhere.py` "encased" before 2026-10-07** counted depth, not soil.
   Its flood stopped at row 175, so every starver deeper than 15 rows read
   encased whatever was round it: 50 of 51 on LAY_BAR=body seed 1 with the
