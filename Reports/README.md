@@ -5617,7 +5617,8 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   Written for a new account with only the repo: the owner's goals, every working
   rule that lived only in project memory (trace before the next fix, keep failed
   experiments findable, the 12-seed merge bar, reporting rules, numbers that
-  misled), the stack of six switches heading to main and what each did, what
+  misled), the stack of six switches heading to main (on main and on by default
+  since PR 675; stale lines updated in place 2026-10-10) and what each did, what
   failed or is inconclusive and why, every live branch, and the ordered next
   steps (stack on main, food caps births, why ants live in the mound, rooms). The
   key write-ups and readers it cites are copied beside it in `handoff/2026-10-07/`.
