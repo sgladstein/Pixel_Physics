@@ -150,6 +150,16 @@ frame cost) are in `.claude/rules/measuring-the-world.md`; method traps
   across them.
 - **A 12-seed end count** on the played bed can mislead either way (seeds 1–12
   and 13–24 once pointed opposite ways). Use means over a window, paired.
+- **A colony-size difference under about 20%, from one run per seed.** On
+  the steady bed a colony is chaotic: placing the second colony one frame
+  later (annual herbs off, `t2=84890`, 12 seeds) moved mean adults over
+  100-450k from 216 to 181, higher on only 3 of 12 seeds, with 5 zero-adult
+  probes; seed 4 ranged 175-341 across four nudged arms. That one-frame nudge
+  produced the whole "16% smaller colony" first blamed on annual herbs
+  (2026-10-10, `/mnt/project-files/planted-balance/notes-2026-10-10.md`). So a
+  colony-size claim needs a **second baseline arm nudged by one frame**, and
+  the effect must sit outside the spread between the two baselines. Arms on
+  few seeds still also need a no-effect **placebo arm** beside them.
 - **A single-seed result** for a rule that helps some seeds and kills others
   is usually mutation, not the rule — see §1.
 - **labforage `aloft`** is food held off the ground, not ants.
