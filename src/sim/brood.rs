@@ -944,6 +944,8 @@ pub fn brood_tick(world: &mut World, site: &ActiveSite) -> Vec<ActiveSite> {
                 nurse(world, organism, (x, y), colony, &def, b.target);
             }
             if world.organism(organism).is_some_and(|s| s.energy >= b.target) {
+                let bank = world.organism(organism).map_or(0.0, |s| s.energy);
+                creature::note_food(world, organism, (x, y), creature::FOOD_PUPATED, bank, false);
                 set_stage(world, organism, (x, y), material, BroodStage::Pupa, frame, holder);
                 world.creature_stats.pupae += 1;
                 if away_from_door(world, x) {
@@ -1452,6 +1454,7 @@ fn larva_starves(world: &mut World, organism: OrganismId, (x, y): (i32, i32), ba
         }
     }
     world.creature_stats.larvae_starved += 1;
+    creature::note_food(world, organism, (x, y), creature::FOOD_STARVED, bank, false);
     world.free_brood(organism);
 }
 

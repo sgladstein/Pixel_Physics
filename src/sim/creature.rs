@@ -1020,6 +1020,102 @@ pub struct BiteRow {
     pub spared: bool,
 }
 
+/// **One food cell moving between the world and a mouth, crop or jaws**, for
+/// the trace only ([`World::food_log`], off unless a harness sets it to
+/// `Some`; recording draws nothing and changes nothing). `kind` is one of
+/// [`FOOD_KIND_NAMES`]; `worth` the cell's face value (for
+/// [`FOOD_EATEN`], what the eater's gut got); `store` whether the cell is
+/// a [`NestStore`] store cell at that moment ([`is_store_cell`], read
+/// with the food in it); `depth` how far along its nest's way in the cell
+/// lies (the least way distance of its eight neighbours, -1 off the way);
+/// `flag` the kind's own bit (a swallow at home, a put-down of a trip
+/// cell, a jaws load that reached the store); `energy` the mover's bank
+/// over its species' `start_energy`. Added 2026-10-10 for the question of
+/// where food goes once a carrier reaches the door, and why the store
+/// stays near empty while larvae go hungry: `bite_log` sees only
+/// swallows, `feed_log` only larvae, and nothing saw a put-down.
+#[derive(Clone, Copy, Debug)]
+pub struct FoodRow {
+    pub frame: u64,
+    pub who: OrganismId,
+    pub at: (i32, i32),
+    pub kind: u8,
+    pub worth: f32,
+    pub store: bool,
+    pub depth: i32,
+    pub flag: bool,
+    pub energy: f32,
+}
+
+/// [`FoodRow::kind`]: a grown animal swallowed a cell into its crop.
+pub const FOOD_SWALLOW: u8 = 0;
+/// A nest worker took a cell whole into its jaws for the store's carry.
+pub const FOOD_JAWS: u8 = 1;
+/// A crop's cell put down (`flag`: a trip cell).
+pub const FOOD_DROP: u8 = 2;
+/// A jaws load put down (`flag`: at the store, not let go on the way).
+pub const FOOD_JAWS_DOWN: u8 = 3;
+/// Food beside an egg-layer, a budding parent or a larva eaten off the
+/// floor towards a birth ([`eat_toward_birth`]); `worth` is the yield.
+pub const FOOD_EATEN: u8 = 4;
+/// A larva starved where it lay (`brood::larva_starves`); `worth` is what
+/// was left in its bank.
+pub const FOOD_STARVED: u8 = 5;
+/// A larva reached its target and became a pupa; `worth` is its bank.
+pub const FOOD_PUPATED: u8 = 6;
+/// [`FoodRow::kind`]'s names, by value.
+pub const FOOD_KIND_NAMES: [&str; 7] = ["swallow", "jaws", "drop", "jaws_down", "eaten", "starved", "pupated"];
+
+/// Book a food movement in [`World::food_log`] while one is running; a
+/// no-op otherwise. Call with the food still in the cell for a pick-up,
+/// and after it is set down for a put-down, so `store` reads the food.
+pub(super) fn note_food(world: &mut World, who: OrganismId, at: (i32, i32), kind: u8, worth: f32, flag: bool) {
+    if world.food_log.is_none() {
+        return;
+    }
+    let (store, depth) = food_place(world, at);
+    let energy = world
+        .organism(who)
+        .map_or(0.0, |s| world.species.get(s.species).creature.as_ref().map_or(0.0, |d| s.energy / d.start_energy.max(1.0)));
+    let frame = world.frame;
+    if let Some(log) = world.food_log.as_mut() {
+        log.push(FoodRow {
+            frame,
+            who,
+            at,
+            kind,
+            worth,
+            store,
+            depth,
+            flag,
+            energy,
+        });
+    }
+}
+
+/// **Where a food cell lies, for a trace**: whether it is a [`NestStore`]
+/// store cell now ([`is_store_cell`], which reads the food in it), and how
+/// far along its nest's way in it lies (the least way distance of its
+/// eight neighbours, -1 off the way). Reads nothing a rule writes.
+pub fn food_place(world: &World, at: (i32, i32)) -> (bool, i32) {
+    let store = is_store_cell(world, at);
+    let depth = nest_way_near(world, at.0, at.1)
+        .and_then(|way| NEIGHBOURS_8.iter().filter_map(|&(dx, dy)| way.at(at.0 + dx, at.1 + dy)).min())
+        .map_or(-1, i32::from);
+    (store, depth)
+}
+
+/// Book one tick's digestion in [`World::digest_log`] while one is
+/// running: the animal, the face worth its crop gave up this tick, and
+/// whether the crop held a trip's food.
+fn note_digest(world: &mut World, who: OrganismId, worth: f32, trip: bool) {
+    if worth > 0.0 {
+        if let Some(log) = world.digest_log.as_mut() {
+            log.push((who, worth, trip));
+        }
+    }
+}
+
 /// [`FeedRow::kind`]: food in reach that the larva ate (`brood_ate_j`).
 pub const FEED_ATE: u8 = 0;
 /// From a carrier's crop (`brood::crop_feed`, `brood_crop_fed_j`).
@@ -2839,6 +2935,7 @@ pub(super) fn eat_toward_birth(world: &mut World, parent: OrganismId, colony: u3
             plant::SeedBite::SurvivedBare => yielded * plant::seed_provision_fraction(world, px, py),
             _ => yielded,
         };
+        note_food(world, parent, (px, py), FOOD_EATEN, yielded, false);
         if !bite_outcome.survived() {
             // Labelled for `OrganismState::last_loss`, as the sibling bite
             // in `act` is. Unlabelled, this was the whole of the colony's
@@ -4288,6 +4385,7 @@ fn store_drop(world: &mut World, organism: OrganismId, (x, y): (i32, i32), spoil
                     world.creature_stats.store_released += 1;
                 }
                 world.set(px, py, spoil.cell);
+                note_food(world, organism, (px, py), FOOD_JAWS_DOWN, food_value(world, spoil.cell), arrived);
                 if let Some(state) = world.organism_mut(organism) {
                     state.spoil = None;
                 }
@@ -4313,6 +4411,7 @@ fn store_drop(world: &mut World, organism: OrganismId, (x, y): (i32, i32), spoil
                     world.creature_stats.store_released += 1;
                 }
                 world.set(px, py, spoil.cell);
+                note_food(world, organism, (px, py), FOOD_JAWS_DOWN, food_value(world, spoil.cell), by_rule);
                 if let Some(state) = world.organism_mut(organism) {
                     state.spoil = None;
                 }
@@ -4356,6 +4455,7 @@ fn store_drop(world: &mut World, organism: OrganismId, (x, y): (i32, i32), spoil
     let delivered = site.is_some() && (in_room || storeroom_near(world, x, y).is_some_and(|room| room.in_store(x, y)));
     if let Some((px, py)) = site {
         world.set(px, py, spoil.cell);
+        note_food(world, organism, (px, py), FOOD_JAWS_DOWN, food_value(world, spoil.cell), delivered);
         if let Some(state) = world.organism_mut(organism) {
             state.spoil = None;
             state.store_return |= delivered;
@@ -8639,6 +8739,10 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
                 progressed * quality * (1.0 - overhead)
             };
             let left = if finished { c.cells - 1 } else { c.cells };
+            if world.digest_log.is_some() {
+                let trip = world.organism(organism).is_some_and(|s| s.trip_cells > 0);
+                note_digest(world, organism, progressed, trip);
+            }
             if let Some(state) = world.organism_mut(organism) {
                 // **An empty crop is `None`.** Keeping a maturing timer on a
                 // stomach with nothing in it made `crop.is_some()` mean "has
@@ -12975,11 +13079,15 @@ impl WayFoot {
     }
 }
 
+/// What `PIXEL_PHYSICS_WAY_FOOT` unset means: **on since 2026-10-10**, with
+/// the rest of the stack (`Reports/follow-food-home-2026-10-10/` §7).
+pub const WAY_FOOT_UNSET: WayFoot = WayFoot::ON;
+
 /// This world's [`WayFoot`]: `World::way_foot` if set, else the environment's.
 pub fn way_foot_of(world: &World) -> WayFoot {
     world.way_foot.unwrap_or_else(|| {
         static V: std::sync::OnceLock<WayFoot> = std::sync::OnceLock::new();
-        *V.get_or_init(|| std::env::var("PIXEL_PHYSICS_WAY_FOOT").map_or(WayFoot::OFF, |v| WayFoot::parse(&v)))
+        *V.get_or_init(|| std::env::var("PIXEL_PHYSICS_WAY_FOOT").map_or(WAY_FOOT_UNSET, |v| WayFoot::parse(&v)))
     })
 }
 
@@ -13599,9 +13707,16 @@ impl NeedsFirst {
     /// The eight parts. `backfill` is left out, so `on` means what every run
     /// before it measured; it is named alongside (`on,backfill`).
     pub const ON: NeedsFirst = NeedsFirst { hungry: true, laden: true, job: true, pack: true, throttle: true, weak: true, breakthrough: true, door: true, backfill: false };
-    /// Off until scored: built 2026-10-06 and not yet measured against the
-    /// dig-on baseline.
-    pub const SHIPPED: NeedsFirst = NeedsFirst::OFF;
+    /// **On since 2026-10-10, less `job`, with `backfill`** (the stack's
+    /// default flip, `Reports/follow-food-home-2026-10-10/` §7). `job` is
+    /// left off: with the store it made diggers set soil down beside the
+    /// store's crumbs (11-23% of loads carried 10+ cells against 84-93%
+    /// without it, late-tunnels lane, 8 nests at heap 90), and without it
+    /// as many ants live in the nest (steady food, 12 seeds: 21% against
+    /// 24% of adults in the dug nest) and fewer foragers starve (median 51
+    /// against 114). `PIXEL_PHYSICS_NEEDS_FIRST=off` is the old ant;
+    /// `on,backfill` is the stack as measured before.
+    pub const SHIPPED: NeedsFirst = NeedsFirst { job: false, backfill: true, ..NeedsFirst::ON };
 
     pub fn parse(raw: &str) -> NeedsFirst {
         let mut m = NeedsFirst::OFF;
@@ -14078,8 +14193,9 @@ fn shut_in(world: &World, x: i32, y: i32) -> bool {
 }
 
 /// **The colony's food is kept deep in the nest, and hungry ants go in to
-/// eat it** (`PIXEL_PHYSICS_NEST_STORE=on|off|<parts>`, a comma list; **off
-/// by default**, built 2026-10-06; [`World::nest_store`] for one world).
+/// eat it** (`PIXEL_PHYSICS_NEST_STORE=on|off|<parts>`, a comma list; **on
+/// by default since 2026-10-10** as [`NestStore::SHIPPED`], built 2026-10-06;
+/// [`World::nest_store`] for one world).
 /// One switch with named parts, because each part alone has already failed
 /// or starved colonies (`/mnt/project-files/nest-race/inside/
 /// 06-why-ants-are-not-inside-v2.md` §5): moving ants in without food starved
@@ -14247,8 +14363,12 @@ pub const STORE_ROOMY: u32 = 12;
 impl NestStore {
     pub const OFF: NestStore = NestStore { carry: false, eat: false, keep: false, home: false, larder: false, depth: STORE_DEPTH, pick: 0, jaws: false, fetch: false, smell: 0, sated: false, whole: false, meal: false, sky: false, edible: false };
     pub const ON: NestStore = NestStore { carry: true, eat: true, keep: true, home: true, larder: true, depth: STORE_DEPTH, pick: 0, jaws: false, fetch: false, smell: 0, sated: false, whole: false, meal: false, sky: false, edible: false };
-    /// What a world gets with the variable unset: off, see the type's doc.
-    pub const SHIPPED: NestStore = NestStore::OFF;
+    /// What a world gets with the variable unset: **the stack's store,
+    /// `on,pick=20,jaws,sky,meal,smell=10,edible`, since 2026-10-10**
+    /// (`Reports/follow-food-home-2026-10-10/` §4, §7): with it a fifth to
+    /// a third of the colony lives in the dug nest on steady food, against
+    /// 3.5-5.3% without it. `off` is the old ant.
+    pub const SHIPPED: NestStore = NestStore { pick: 20, jaws: true, smell: 10, meal: true, sky: true, edible: true, ..NestStore::ON };
 
     /// Whether any part is on.
     pub fn on(self) -> bool {
@@ -16388,9 +16508,13 @@ pub fn door_loose_of(world: &World) -> bool {
 pub fn door_column_of(world: &World) -> DoorColumn {
     world.door_column.unwrap_or_else(|| {
         static V: std::sync::OnceLock<DoorColumn> = std::sync::OnceLock::new();
-        *V.get_or_init(|| std::env::var("PIXEL_PHYSICS_DOOR_COLUMN").map_or(DoorColumn::OFF, |v| DoorColumn::parse(&v)))
+        *V.get_or_init(|| std::env::var("PIXEL_PHYSICS_DOOR_COLUMN").map_or(DOOR_COLUMN_UNSET, |v| DoorColumn::parse(&v)))
     })
 }
+
+/// What `PIXEL_PHYSICS_DOOR_COLUMN` unset means: **on since 2026-10-10**,
+/// with the rest of the stack (`Reports/follow-food-home-2026-10-10/` §7).
+pub const DOOR_COLUMN_UNSET: DoorColumn = DoorColumn::ON;
 
 /// [`door_column_of`]'s parts.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -18877,6 +19001,7 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
                     return did;
                 }
                 if take {
+                    note_food(world, organism, (fxx, fyy), FOOD_JAWS, food_value(world, bite), true);
                     world.set(fxx, fyy, Cell::EMPTY);
                     if let Some(state) = world.organism_mut(organism) {
                         state.spoil = Some(Spoil { cell: bite, store: true });
@@ -19041,6 +19166,7 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
                         log.push(row);
                     }
                 }
+                note_food(world, organism, (fxx, fyy), FOOD_SWALLOW, worth, picked_at_home);
                 if !seed_saved.survived() {
                     // **The mouth's half of the §Z23 ledger**, booked at the
                     // one line where a cell actually leaves the world and on
@@ -19502,6 +19628,8 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
                     state.trip_cells = state.trip_cells.saturating_sub(1).min(state.crop.map_or(0, |c| c.cells));
                 }
                 world.creature_stats.drops += 1;
+                let put = food_value(world, world.get(dx, dy));
+                note_food(world, organism, (dx, dy), FOOD_DROP, put, trip_cell);
                 if at_nest {
                     // Where this nest keeps its food (`NestSite::larder`).
                     // Written always and read only by `hungry_target`.
@@ -22193,11 +22321,24 @@ fn bud_store_counts_bank() -> bool {
 }
 
 /// **`PIXEL_PHYSICS_LAY_BAR=body`: a laying species clears its egg bar from
-/// its own energy alone**, food in reach not counted (`try_bud`). Off, unset,
-/// is today's reach rule and bit-identical.
+/// its own energy alone**, food in reach not counted (`try_bud`). **The
+/// default since 2026-10-10**, with the rest of the stack
+/// (`Reports/follow-food-home-2026-10-10/` §7); `reach` (or `off`) is the
+/// old rule, food in reach counted. Anything else panics, so a typo is not
+/// a silent rule.
 fn lay_bar_body() -> bool {
     static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *V.get_or_init(|| std::env::var("PIXEL_PHYSICS_LAY_BAR").as_deref() == Ok("body"))
+    *V.get_or_init(|| lay_bar_parse(std::env::var("PIXEL_PHYSICS_LAY_BAR").ok().as_deref()))
+}
+
+/// [`lay_bar_body`]'s reading of `PIXEL_PHYSICS_LAY_BAR`: unset or `body`
+/// is the body rule, `reach` or `off` the old one.
+fn lay_bar_parse(raw: Option<&str>) -> bool {
+    match raw {
+        None | Some("body") | Some("on") => true,
+        Some("reach") | Some("off") => false,
+        Some(other) => panic!("PIXEL_PHYSICS_LAY_BAR={other:?} is not body, on, reach or off"),
+    }
 }
 
 /// **`PIXEL_PHYSICS_BUD_RESERVE=<J>`: what a store must still hold after a
@@ -22484,8 +22625,9 @@ pub fn carry_home_of(world: &World) -> CarryHome {
     })
 }
 
-/// What `PIXEL_PHYSICS_CARRY_HOME` unset means.
-pub const CARRY_HOME_UNSET: CarryHome = CarryHome::OFF;
+/// What `PIXEL_PHYSICS_CARRY_HOME` unset means: **on since 2026-10-10**,
+/// with the rest of the stack (`Reports/follow-food-home-2026-10-10/` §7).
+pub const CARRY_HOME_UNSET: CarryHome = CarryHome::ON;
 
 /// **Whether a trip's carrier stands to take another mouthful**
 /// ([`CarryHome`]'s `fill`): its crop holds a trip's load with room for
@@ -33253,6 +33395,17 @@ mod tests {
         assert_eq!(held(Some(5)), (false, 0), "a hold of five kept a pellet six cells out");
     }
 
+    /// **The stack's switches off, for a test written before they shipped
+    /// on** (2026-10-10): `NEEDS_FIRST`, `CARRY_HOME`, `DOOR_COLUMN` and
+    /// `WAY_FOOT` and `NEST_STORE` as they were when its numbers were set.
+    fn stack_off(w: &mut World) {
+        w.needs_first = Some(NeedsFirst::OFF);
+        w.carry_home = Some(CarryHome::OFF);
+        w.door_column = Some(DoorColumn::OFF);
+        w.way_foot = Some(WayFoot::OFF);
+        w.nest_store = Some(NestStore::OFF);
+    }
+
     /// **A lean carrier puts its pellet down inside; a fed one keeps it**
     /// ([`LeanForage`]'s `drop`). The hold's room under the door, the carrier
     /// on its floor with its haul's patience full, so the walked cycle keeps
@@ -33266,6 +33419,7 @@ mod tests {
         let run = |lean: bool, rule: LeanForage| -> (bool, u64) {
             let (mut w, a) = carry_world(62, 46, None, &room, &[]);
             w.lean_forage = Some(rule);
+            stack_off(&mut w); // written before the stack shipped on
             w.soil_way = Some(SoilWay::OFF); // whose `lean` keeps the pellet down here
             let start = w.species.get(w.organism(a).expect("live").species).creature.as_ref().expect("a creature").start_energy;
             let st = w.organism_mut(a).expect("live");
@@ -33290,7 +33444,7 @@ mod tests {
         assert_eq!(NeedsFirst::parse("laden,job"), NeedsFirst { laden: true, job: true, ..NeedsFirst::OFF });
         assert_eq!(NeedsFirst::parse("throttle,weak,breakthrough,door"), NeedsFirst { throttle: true, weak: true, breakthrough: true, door: true, ..NeedsFirst::OFF });
         assert!(NeedsFirst::parse("door").escape() && !NeedsFirst::parse("door").jaws() && NeedsFirst::parse("pack").jaws() && !NeedsFirst::parse("throttle").escape());
-        assert_eq!(NeedsFirst::SHIPPED, NeedsFirst::OFF, "built off until it is scored against the dig-on baseline");
+        assert_eq!(NeedsFirst::SHIPPED, NeedsFirst::parse("hungry,laden,pack,throttle,weak,breakthrough,door,backfill"), "ships as the flip measured it: the stack less `job`");
         assert!(!NeedsFirst::parse("on").backfill, "`on` must stay the eight parts every run before `backfill` measured");
         assert_eq!(NeedsFirst::parse("on,backfill"), NeedsFirst { backfill: true, ..NeedsFirst::ON });
     }
@@ -33563,6 +33717,7 @@ mod tests {
         let run = |x: i32, y: i32, open: &[(i32, i32)], soil: &[(i32, i32)], sw: SoilWay| -> (bool, u64) {
             let (mut w, a) = carry_world(x, y, None, open, soil);
             w.lean_forage = Some(LeanForage::ON);
+            stack_off(&mut w); // written before the stack shipped on
             w.soil_way = Some(sw);
             w.way_gaps = Some(WayGaps::ON);
             let start = w.species.get(w.organism(a).expect("live").species).creature.as_ref().expect("a creature").start_energy;
@@ -33711,6 +33866,7 @@ mod tests {
             w.dig_widen = Some(false);
             w.dig_down = Some(None);
             w.lean_forage = Some(LeanForage::ON);
+            stack_off(&mut w); // written before the stack shipped on
             let def = w.species.get(w.organism(a).expect("live").species).creature.clone().expect("a creature");
             w.organism_mut(a).expect("live").heading = 0;
             let (hx, hy) = w.organism(a).expect("live").chain[0];
@@ -34051,7 +34207,7 @@ mod tests {
         assert_eq!(NestStore::parse("on"), NestStore::ON);
         assert_eq!(NestStore::parse("eat,keep"), NestStore { eat: true, keep: true, ..NestStore::OFF });
         assert_eq!(NestStore::parse("depth=7,on"), NestStore { depth: 7, ..NestStore::ON });
-        assert!(!NestStore::SHIPPED.on(), "the nest store ships off");
+        assert_eq!(NestStore::SHIPPED, NestStore::parse("on,pick=20,jaws,sky,meal,smell=10,edible"), "the nest store ships as the stack measured it");
         assert_eq!(NestStore::parse("on,edible"), NestStore { edible: true, ..NestStore::ON });
         assert!(std::panic::catch_unwind(|| NestStore::parse("eats")).is_err());
     }
@@ -34397,6 +34553,7 @@ mod tests {
         let aim = |x: i32, y: i32, sw: SoilWay, energy: f32, store: bool| {
             let (mut w, a) = rest_world(x, y, false);
             w.soil_way = Some(sw);
+            stack_off(&mut w); // written before the stack shipped on
             w.hungry_out = Some(false); // the soil's own reader builds the ways
             // ... and not the mound's (`MOUND_OUT`, `dig` on since 2026-10-06):
             // with no reader on, no way is built, which the control below reads
@@ -41505,11 +41662,30 @@ mod tests {
         assert!(on_far >= 40, "searching, it got only {on_far} cells out: the loops do not widen, and a long way round is a trap again");
     }
 
+    /// `WAY_FOOT` and `DOOR_COLUMN` unset are on since the stack's flip
+    /// (`NEEDS_FIRST`, `NEST_STORE` and `CARRY_HOME` are pinned by their
+    /// parse tests).
+    #[test]
+    fn the_stack_ships_on() {
+        assert_eq!(WAY_FOOT_UNSET, WayFoot::ON);
+        assert_eq!(DOOR_COLUMN_UNSET, DoorColumn::ON);
+    }
+
+    /// `PIXEL_PHYSICS_LAY_BAR` unset is the body rule since the stack's
+    /// flip; `reach` and `off` are the old one ([`lay_bar_parse`]).
+    #[test]
+    fn lay_bar_reads_unset_as_body() {
+        assert!(lay_bar_parse(None));
+        assert!(lay_bar_parse(Some("body")) && lay_bar_parse(Some("on")));
+        assert!(!lay_bar_parse(Some("reach")) && !lay_bar_parse(Some("off")));
+        assert!(std::panic::catch_unwind(|| lay_bar_parse(Some("bdy"))).is_err(), "a typo must not be a silent rule");
+    }
+
     /// `PIXEL_PHYSICS_CARRY_HOME` reads `on`, `off` and a comma list of its
     /// two parts ([`CarryHome::parse`]).
     #[test]
     fn carry_home_reads_on_off_and_a_list_of_its_parts() {
-        assert_eq!(CARRY_HOME_UNSET, CarryHome::OFF);
+        assert_eq!(CARRY_HOME_UNSET, CarryHome::ON, "on by default since the stack's flip");
         assert_eq!(CarryHome::parse("on"), CarryHome::ON);
         assert_eq!(CarryHome::parse("off"), CarryHome::OFF);
         assert_eq!(CarryHome::parse("fill"), CarryHome { fill: true, turn: false });
@@ -42417,6 +42593,7 @@ mod tests {
         let def = w.species.get(species).creature.clone().expect("a creature");
         w.forage_drive = Some(ForageDrive { need: ForageNeed::Off, pace: true, keep: false, fed: false });
         w.forage_throttle = Some(ForageThrottle::ON);
+        stack_off(&mut w); // written before the stack shipped on
         w.lean_forage = Some(LeanForage::OFF);
         let want = |w: &World, id| outward_want(w, w.organism(id).expect("live"), &def);
         for id in [near, far] {
@@ -42458,6 +42635,7 @@ mod tests {
     #[test]
     fn the_returns_drive_fades_with_the_time_since_food_last_came_home() {
         let mut w = World::new(Rect::new(0, 0, 159, 63));
+        stack_off(&mut w); // written before the store shipped on
         w.register_nest_site(20, 40, 4);
         let ant = spawn(&mut w, "ant", 100, 40);
         let species = w.organism(ant).expect("live").species;
@@ -43564,6 +43742,7 @@ mod tests {
     #[test]
     fn a_hungry_forager_is_not_driven_under_fed_and_a_fed_one_is() {
         let mut w = World::new(Rect::new(0, 0, 63, 63));
+        stack_off(&mut w); // written before the store shipped on
         let ant = spawn(&mut w, "ant", 20, 40);
         let def = w.species.get(w.organism(ant).expect("live").species).creature.clone().expect("a creature");
         let always = ForageDrive { need: ForageNeed::Always, pace: true, keep: false, fed: false };
@@ -43599,6 +43778,7 @@ mod tests {
     fn a_nest_is_as_hungry_as_the_mean_of_its_animals_and_only_while_the_drive_reads_it() {
         let stone = Cell::new(material::STONE, 0).with_attached(true);
         let mut w = World::new(Rect::new(0, 0, 159, 63));
+        stack_off(&mut w); // written before the store shipped on
         for x in 0..160 {
             for y in 41..64 {
                 w.set(x, y, stone);
@@ -43647,6 +43827,7 @@ mod tests {
         let pickups = |drive: ForageDrive, fed: f32| -> u64 {
             let stone = Cell::new(material::STONE, 0).with_attached(true);
             let mut w = World::new(Rect::new(0, 0, 99, 63));
+            stack_off(&mut w); // written before the store shipped on
             for x in 0..100 {
                 for y in 30..64 {
                     w.set(x, y, stone);
