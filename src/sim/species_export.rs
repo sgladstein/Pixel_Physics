@@ -180,6 +180,7 @@ pub fn individual_as_species(parent: &Species, genome: &[f32], traits: [f32; sup
         seed_half_life: parent.seed_half_life,
         remains_half_life: parent.remains_half_life,
         life_half_life: parent.life_half_life,
+        annual_half_life: parent.annual_half_life,
         cell_types: parent.cell_types().to_vec(),
         fates: parent.fates().to_vec(),
         creature: Some(creature),
