@@ -6043,8 +6043,8 @@ pub struct World {
     /// Defaults **off**, so nothing changes until it is asked for.
     pub plant_size_cadence: bool,
     /// **Whether an annual species dies after setting seed**
-    /// (`SpeciesDef::annual_half_life`). `None` is off; `Some(0.0)`, the
-    /// default since 2026-10-10, uses each annual species' own value; `Some(h)` overrides
+    /// (`SpeciesDef::annual_half_life`). `None` is off and is the default;
+    /// `Some(0.0)` uses each annual species' own value; `Some(h)` overrides
     /// it with `h` plant-time frames for every species that has one, for
     /// sweeps. Seeded from `PIXEL_PHYSICS_ANNUAL` (`plant::annual_from_env`)
     /// and a field rather than a process global so a guard can set it.

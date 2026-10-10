@@ -10823,7 +10823,7 @@ including five fixes that failed the same way:
 
 ## Planted bed status — a bitten herb grows back, and a herb lives one season
 
-**Two switches, both shipped on, 2026-10-10**, from the planted-balance lane
+**Two switches, 2026-10-10: `GRAZE_REGROW` ships on; `ANNUAL` shipped on (PR 677) and is off again** -- on the main that carries PR 675 the colony came out 16% smaller under it (9 of 12 seeds) and one died out, so it waits on a trace. Both come from the planted-balance lane
 that took up the owner's 10-09 herb_ant playtest (herbs stripped bottom-up,
 larvae starving beside edible leaf). Full record, per-seed tables and the
 second-lane reviews: `/mnt/project-files/planted-balance/`.
@@ -10838,7 +10838,7 @@ frames, rain off: mean adults 100-500k **48 -> 132** (higher on 12 of 12),
 probes at zero adults 96 -> 32 of 252, standing herb leaf higher on 11 of 12;
 tree leaf about 4% lower from the bigger colony. Boom and bust remain.
 
-**`PIXEL_PHYSICS_ANNUAL`** (`off` is the ablation). The owner ruled a herb an
+**`PIXEL_PHYSICS_ANNUAL`** (off by default again; `on` turns it on). The owner ruled a herb an
 annual renewed by seed; with `rebloom_after` it had lived as a perennial. An
 annual species now dies on a Weibull hazard counted in plant time from its
 first seed (`SpeciesDef::annual_half_life`, herb 45,000), with a backstop from
