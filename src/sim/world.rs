@@ -620,7 +620,8 @@ pub const KILL_VERB_EAT: u8 = 2;
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct EncounterEvent {
     pub frame: u64,
-    /// [`ENCOUNTER_TOUCH`], [`ENCOUNTER_DISPLAY`] or [`ENCOUNTER_BITE`].
+    /// [`ENCOUNTER_TOUCH`], [`ENCOUNTER_TOUCH_HELD`], [`ENCOUNTER_DISPLAY`]
+    /// or [`ENCOUNTER_BITE`].
     pub kind: u8,
     pub a: OrganismId,
     pub b: OrganismId,
@@ -629,6 +630,11 @@ pub struct EncounterEvent {
 /// [`EncounterEvent::kind`]: `a` touched a stranger, `b` (with
 /// `PIXEL_PHYSICS_STRANGER_ALARM` on; the touch is only sensed then).
 pub const ENCOUNTER_TOUCH: u8 = 1;
+/// [`EncounterEvent::kind`]: as [`ENCOUNTER_TOUCH`], but `a` was lean or
+/// laden (`StrangerAlarm::fed`), so it neither marked nor could answer. A
+/// meeting that only ever had these parted because of hunger, not because a
+/// contest ended peacefully.
+pub const ENCOUNTER_TOUCH_HELD: u8 = 4;
 /// [`EncounterEvent::kind`]: `a` stood before `b`, assessed, and backed off.
 pub const ENCOUNTER_DISPLAY: u8 = 2;
 /// [`EncounterEvent::kind`]: `a` committed and bit `b`.

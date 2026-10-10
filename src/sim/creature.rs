@@ -18158,17 +18158,28 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
     let stranger = stranger_alarm_of(world);
     let mut stranger_hold = false;
     if stranger.touch {
+        // Lean by the forage drive's own line (`LeanForage::line`), so the
+        // two can never disagree about who is hungry when `LEAN_FORAGE`
+        // moves it.
+        let line = lean_forage_of(world).line;
         let lean_or_laden = stranger.fed
             && world.organism(organism).is_some_and(|s| {
-                s.energy < LEAN_LINE * def.start_energy || s.crop.is_some_and(|c| c.cells > 0) || s.spoil.is_some_and(|sp| food_value(world, sp.cell) > 0.0)
+                s.energy < line * def.start_energy || s.crop.is_some_and(|c| c.cells > 0) || s.spoil.is_some_and(|sp| food_value(world, sp.cell) > 0.0)
             });
-        stranger_hold = lean_or_laden;
         let gut = gut_of(world, organism, def);
         let touch = stranger_touch(world, organism, (x, y), gut, stranger.species);
+        // **Held only while a stranger touches.** The first build held every
+        // lean or laden animal of every species off `Attack` whatever raised
+        // its alarm, so a laden ant bitten by a spider no longer fought back
+        // (second-lane results review, 2026-10-10). `nearest_foe` walks the
+        // same ring, so with no stranger in it the only foe it can find is
+        // another kind, and that fight is answered as on main.
+        stranger_hold = lean_or_laden && touch.foreign.is_some();
         world.creature_stats.stranger_rider_touches += u64::from(touch.riders);
         if let Some(foreign) = touch.foreign {
             world.creature_stats.stranger_touches += 1;
-            world.note_encounter(crate::sim::world::ENCOUNTER_TOUCH, organism, touch.who);
+            let kind = if lean_or_laden { crate::sim::world::ENCOUNTER_TOUCH_HELD } else { crate::sim::world::ENCOUNTER_TOUCH };
+            world.note_encounter(kind, organism, touch.who);
             if lean_or_laden {
                 world.creature_stats.stranger_fed_skips += 1;
             } else {
@@ -18270,8 +18281,9 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
     // with another, evolution cannot select for one against the other. Here
     // it shared with `Feed`, so "defend the nest" and "be hungry" were one
     // gene and a colony could only fight by starving.
-    // **A lean or laden ant does not answer** ([`StrangerAlarm::fed`]): its
-    // urge reads 0, so the fight branch is not entered and nothing is drawn.
+    // **A lean or laden ant does not answer a stranger**
+    // ([`StrangerAlarm::fed`]): while one touches it, its urge reads 0, so
+    // the fight branch is not entered and nothing is drawn.
     let attack_urge = if stranger_hold { 0.0 } else { outputs[O::Attack as usize].clamp(0.0, 1.0) };
 
     // --- fight ----------------------------------------------------------
@@ -24157,10 +24169,13 @@ pub fn lean_forage_of(world: &World) -> LeanForage {
 /// - `touch`: the mark (the ignition).
 /// - `level=N`: the top-up at full foreignness, in alarm units 0-255
 ///   (default [`STRANGER_LEVEL`], under a display's 40).
-/// - `fed`: a lean ant (under [`LEAN_LINE`] of its `start_energy`) or one
-///   carrying food in its crop or jaws neither marks nor answers -- its
-///   `Attack` urge reads 0. Hunger lowers aggression in ants (Grover et al.
-///   2007), and the owner's rule is that hunger overrides every rule.
+/// - `fed`: a lean ant (under `LeanForage::line` of its `start_energy`, the
+///   forage drive's own line) or one carrying food in its crop or jaws
+///   neither marks nor answers **while a stranger touches it** -- its
+///   `Attack` urge reads 0 on those decisions only, so it still fights back
+///   against another kind (a spider's bite). Hunger lowers aggression in
+///   ants (Grover et al. 2007), and the owner's rule is that hunger
+///   overrides every rule.
 /// - `species`: also other kinds' animals, at full foreignness. Not in `on`:
 ///   predator and prey stay the diet's question.
 ///
@@ -38067,6 +38082,42 @@ mod tests {
         assert!(st.stranger_fed_skips > 0, "the lean ants never touched a stranger, so this test is not about them: {st:?}");
         assert_eq!(st.stranger_marks, 0, "a lean ant marked the alarm");
         assert_eq!(st.attacks, 0, "a lean ant attacked");
+    }
+
+    /// **A lean ant still answers another kind.** `fed` holds a hungry or
+    /// laden ant off `Attack` only while a stranger of its own kind touches
+    /// it; the first build held it whatever raised the alarm, so a lean ant
+    /// alarmed beside a beetle never squared up to it. One family, lean, a
+    /// beetle among them and the alarm kept live: with the switch on they
+    /// must still stand before the beetle. Put the old unconditional hold
+    /// back and `contests` reads 0.
+    #[test]
+    fn a_lean_ant_still_answers_another_kind() {
+        let mut w = stranger_bed(StrangerAlarm::ON, 0.0);
+        let start = w.species.id_of("ant").and_then(|id| w.species.get(id).creature.as_ref().map(|d| d.start_energy)).expect("ant");
+        let ids: Vec<OrganismId> = w.live_organism_ids();
+        for id in ids {
+            if let Some(st) = w.organism_mut(id) {
+                for &slot in SCENT_SLOTS.iter() {
+                    st.traits[slot] = 0.0;
+                }
+                st.colony = 1;
+                st.energy = 0.3 * start;
+            }
+        }
+        let beetle = spawn(&mut w, "beetle", 122, 119);
+        assert_ne!(beetle, 0, "the beetle was not placed; this scene does not contain the situation the test is about");
+        for _ in 0..300 {
+            for x in 95..130 {
+                for y in 116..120 {
+                    w.deposit_pheromone(Channel::Alarm, x, y, 240);
+                }
+            }
+            run(&mut w, 1);
+        }
+        let st = w.creature_stats;
+        assert_eq!(st.stranger_touches, 0, "one family touched a stranger, so this bed is not about another kind: {st:?}");
+        assert!(st.contests > 0, "lean ants alarmed beside a beetle never stood before it -- `fed` is holding them off another kind: {st:?}");
     }
 
     /// **Nestmates are not strangers**: one scent, the switch on, no touch.
