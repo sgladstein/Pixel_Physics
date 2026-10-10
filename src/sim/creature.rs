@@ -1016,6 +1016,97 @@ pub struct BiteRow {
     pub spared: bool,
 }
 
+/// **One food cell moving between the world and a mouth, crop or jaws**, for
+/// the trace only ([`World::food_log`], off unless a harness sets it to
+/// `Some`; recording draws nothing and changes nothing). `kind` is one of
+/// [`FOOD_KIND_NAMES`]; `worth` the cell's face value (for
+/// [`FOOD_EATEN`], what the eater's gut got); `store` whether the cell is
+/// a [`NestStore`] store cell at that moment ([`is_store_cell`], read
+/// with the food in it); `depth` how far along its nest's way in the cell
+/// lies (the least way distance of its eight neighbours, -1 off the way);
+/// `flag` the kind's own bit (a swallow at home, a put-down of a trip
+/// cell, a jaws load that reached the store); `energy` the mover's bank
+/// over its species' `start_energy`. Added 2026-10-10 for the question of
+/// where food goes once a carrier reaches the door, and why the store
+/// stays near empty while larvae go hungry: `bite_log` sees only
+/// swallows, `feed_log` only larvae, and nothing saw a put-down.
+#[derive(Clone, Copy, Debug)]
+pub struct FoodRow {
+    pub frame: u64,
+    pub who: OrganismId,
+    pub at: (i32, i32),
+    pub kind: u8,
+    pub worth: f32,
+    pub store: bool,
+    pub depth: i32,
+    pub flag: bool,
+    pub energy: f32,
+}
+
+/// [`FoodRow::kind`]: a grown animal swallowed a cell into its crop.
+pub const FOOD_SWALLOW: u8 = 0;
+/// A nest worker took a cell whole into its jaws for the store's carry.
+pub const FOOD_JAWS: u8 = 1;
+/// A crop's cell put down (`flag`: a trip cell).
+pub const FOOD_DROP: u8 = 2;
+/// A jaws load put down (`flag`: at the store, not let go on the way).
+pub const FOOD_JAWS_DOWN: u8 = 3;
+/// Food beside an egg-layer, a budding parent or a larva eaten off the
+/// floor towards a birth ([`eat_toward_birth`]); `worth` is the yield.
+pub const FOOD_EATEN: u8 = 4;
+/// [`FoodRow::kind`]'s names, by value.
+pub const FOOD_KIND_NAMES: [&str; 5] = ["swallow", "jaws", "drop", "jaws_down", "eaten"];
+
+/// Book a food movement in [`World::food_log`] while one is running; a
+/// no-op otherwise. Call with the food still in the cell for a pick-up,
+/// and after it is set down for a put-down, so `store` reads the food.
+pub(super) fn note_food(world: &mut World, who: OrganismId, at: (i32, i32), kind: u8, worth: f32, flag: bool) {
+    if world.food_log.is_none() {
+        return;
+    }
+    let (store, depth) = food_place(world, at);
+    let energy = world
+        .organism(who)
+        .map_or(0.0, |s| world.species.get(s.species).creature.as_ref().map_or(0.0, |d| s.energy / d.start_energy.max(1.0)));
+    let frame = world.frame;
+    if let Some(log) = world.food_log.as_mut() {
+        log.push(FoodRow {
+            frame,
+            who,
+            at,
+            kind,
+            worth,
+            store,
+            depth,
+            flag,
+            energy,
+        });
+    }
+}
+
+/// **Where a food cell lies, for a trace**: whether it is a [`NestStore`]
+/// store cell now ([`is_store_cell`], which reads the food in it), and how
+/// far along its nest's way in it lies (the least way distance of its
+/// eight neighbours, -1 off the way). Reads nothing a rule writes.
+pub fn food_place(world: &World, at: (i32, i32)) -> (bool, i32) {
+    let store = is_store_cell(world, at);
+    let depth = nest_way_near(world, at.0, at.1)
+        .and_then(|way| NEIGHBOURS_8.iter().filter_map(|&(dx, dy)| way.at(at.0 + dx, at.1 + dy)).min())
+        .map_or(-1, i32::from);
+    (store, depth)
+}
+
+/// Book one tick's digestion in [`World::digest_log`] while one is
+/// running: the animal, the face worth its crop gave up this tick, and
+/// whether the crop held a trip's food.
+fn note_digest(world: &mut World, who: OrganismId, worth: f32, trip: bool) {
+    if worth > 0.0 {
+        if let Some(log) = world.digest_log.as_mut() {
+            log.push((who, worth, trip));
+        }
+    }
+}
+
 /// [`FeedRow::kind`]: food in reach that the larva ate (`brood_ate_j`).
 pub const FEED_ATE: u8 = 0;
 /// From a carrier's crop (`brood::crop_feed`, `brood_crop_fed_j`).
@@ -2833,6 +2924,7 @@ pub(super) fn eat_toward_birth(world: &mut World, parent: OrganismId, colony: u3
             plant::SeedBite::SurvivedBare => yielded * plant::seed_provision_fraction(world, px, py),
             _ => yielded,
         };
+        note_food(world, parent, (px, py), FOOD_EATEN, yielded, false);
         if !bite_outcome.survived() {
             // Labelled for `OrganismState::last_loss`, as the sibling bite
             // in `act` is. Unlabelled, this was the whole of the colony's
@@ -4282,6 +4374,7 @@ fn store_drop(world: &mut World, organism: OrganismId, (x, y): (i32, i32), spoil
                     world.creature_stats.store_released += 1;
                 }
                 world.set(px, py, spoil.cell);
+                note_food(world, organism, (px, py), FOOD_JAWS_DOWN, food_value(world, spoil.cell), arrived);
                 if let Some(state) = world.organism_mut(organism) {
                     state.spoil = None;
                 }
@@ -4307,6 +4400,7 @@ fn store_drop(world: &mut World, organism: OrganismId, (x, y): (i32, i32), spoil
                     world.creature_stats.store_released += 1;
                 }
                 world.set(px, py, spoil.cell);
+                note_food(world, organism, (px, py), FOOD_JAWS_DOWN, food_value(world, spoil.cell), by_rule);
                 if let Some(state) = world.organism_mut(organism) {
                     state.spoil = None;
                 }
@@ -4350,6 +4444,7 @@ fn store_drop(world: &mut World, organism: OrganismId, (x, y): (i32, i32), spoil
     let delivered = site.is_some() && (in_room || storeroom_near(world, x, y).is_some_and(|room| room.in_store(x, y)));
     if let Some((px, py)) = site {
         world.set(px, py, spoil.cell);
+        note_food(world, organism, (px, py), FOOD_JAWS_DOWN, food_value(world, spoil.cell), delivered);
         if let Some(state) = world.organism_mut(organism) {
             state.spoil = None;
             state.store_return |= delivered;
@@ -8602,6 +8697,10 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
                 progressed * quality * (1.0 - overhead)
             };
             let left = if finished { c.cells - 1 } else { c.cells };
+            if world.digest_log.is_some() {
+                let trip = world.organism(organism).is_some_and(|s| s.trip_cells > 0);
+                note_digest(world, organism, progressed, trip);
+            }
             if let Some(state) = world.organism_mut(organism) {
                 // **An empty crop is `None`.** Keeping a maturing timer on a
                 // stomach with nothing in it made `crop.is_some()` mean "has
@@ -18316,6 +18415,7 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
                     return did;
                 }
                 if take {
+                    note_food(world, organism, (fxx, fyy), FOOD_JAWS, food_value(world, bite), true);
                     world.set(fxx, fyy, Cell::EMPTY);
                     if let Some(state) = world.organism_mut(organism) {
                         state.spoil = Some(Spoil { cell: bite, store: true });
@@ -18480,6 +18580,7 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
                         log.push(row);
                     }
                 }
+                note_food(world, organism, (fxx, fyy), FOOD_SWALLOW, worth, picked_at_home);
                 if !seed_saved.survived() {
                     // **The mouth's half of the §Z23 ledger**, booked at the
                     // one line where a cell actually leaves the world and on
@@ -18941,6 +19042,8 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
                     state.trip_cells = state.trip_cells.saturating_sub(1).min(state.crop.map_or(0, |c| c.cells));
                 }
                 world.creature_stats.drops += 1;
+                let put = food_value(world, world.get(dx, dy));
+                note_food(world, organism, (dx, dy), FOOD_DROP, put, trip_cell);
                 if at_nest {
                     // Where this nest keeps its food (`NestSite::larder`).
                     // Written always and read only by `hungry_target`.
