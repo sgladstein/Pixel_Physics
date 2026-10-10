@@ -692,6 +692,13 @@ pub enum Tool {
     Cull,
     /// Paint soil, at field capacity.
     Soil,
+    /// **Dig a tunnel that stands** (owner, 2026-10-09: *"a tool in the lab
+    /// that lets me dig like ants where I can make a standing tunnel that
+    /// doesn't collapse"*). Drag through ground: it clears the diggable cells
+    /// under the brush and packs the soil round them, the way an ant's cut
+    /// lines its gallery (`creature::hand_dig`). The eraser clears too, but
+    /// leaves loose soil overhead that falls straight back in.
+    Dig,
     /// Paint water, full.
     Water,
     /// **Put the armed jar back in the box**, as itself or drifted by the
@@ -867,7 +874,7 @@ pub const TOOLS: [Tool; 4] = [Tool::Look, Tool::Plant, Tool::Colony, Tool::Cull]
 /// **Everything a player puts into the box by hand**, in the order the bar's
 /// `ADD` cell steps through them. Material first (soil, water, food), then
 /// the fixtures (wall, lamp), then the trail, then fire. See [`TOOLS`].
-pub const PLACEABLE: [Tool; 7] = [Tool::Soil, Tool::Water, Tool::Food, Tool::Wall, Tool::Lamp, Tool::Scent, Tool::Fire];
+pub const PLACEABLE: [Tool; 8] = [Tool::Soil, Tool::Dig, Tool::Water, Tool::Food, Tool::Wall, Tool::Lamp, Tool::Scent, Tool::Fire];
 
 impl Tool {
     /// Whether this tool is one of [`PLACEABLE`], the `ADD` cell's list.
@@ -884,6 +891,7 @@ impl Tool {
             Tool::Colony => "COLONY",
             Tool::Cull => "CULL",
             Tool::Soil => "SOIL",
+            Tool::Dig => "DIG",
             Tool::Water => "WATER",
             Tool::Wall => "WALL",
             Tool::Food => "FOOD",
@@ -934,6 +942,8 @@ impl Tool {
             Tool::Lamp => "U",
             // Reached only through the `ADD` cell, whose key this is.
             Tool::Fire => "B",
+            // The same, and one press after soil: every letter is taken.
+            Tool::Dig => "B",
         }
     }
     /// **Whether this tool puts animals in the box.** The two that do share a
@@ -957,7 +967,7 @@ impl Tool {
     /// (`Lab::press`), which `is_brush`'s continuous-paint model has no
     /// slot for.
     pub fn is_brush(self) -> bool {
-        matches!(self, Tool::Soil | Tool::Water | Tool::Food | Tool::Scent)
+        matches!(self, Tool::Soil | Tool::Dig | Tool::Water | Tool::Food | Tool::Scent)
     }
     fn note(self) -> &'static str {
         match self {
@@ -966,6 +976,7 @@ impl Tool {
             Tool::Colony => "PUT ANIMALS IN THE BOX. THE CHIP TO THE RIGHT SAYS WHICH ANIMAL -- ANT, BEETLE, WORM -- AND THE STOCK DIAL BESIDE IT SAYS HOW MANY. AT 1 IT IS ONE ANIMAL WHERE YOU CLICK, WITH NO NEST. ABOVE 1 IT IS A COLONY AT THE SURFACE UNDER THE CLICK, ARRIVING WITH A PATCH OF NEST TO WALK HOME TO -- WITHOUT ONE THERE IS NO GRADIENT AND NOBODY FORAGES. A HUNTER THAT EATS ONLY FLESH, LIKE THE BEETLE, NEVER COMES AS A COLONY: ABOVE 1 THEY ARE SCATTERED ALONE OVER THE BED, AWAY FROM EVERY NEST.",
             Tool::Cull => "KILL THE ORGANISM YOU CLICK. IT IS MARKED SENESCENT, NOT DELETED, SO IT ROTS DOWN OVER ITS SPECIES HALF-LIFE AND FEEDS WHATEVER IS STILL ALIVE. THIS IS THE SELECTION LEVER: WHAT YOU CULL DOES NOT BREED.",
             Tool::Soil => "PAINT SOIL, AT FIELD CAPACITY -- DAMP ENOUGH FOR A ROOT, NOT SO WET IT SLUMPS. IT WILL NOT PAINT OVER STONE OR OVER A LIVING PLANT.",
+            Tool::Dig => "DRAG THROUGH GROUND TO DIG A TUNNEL THAT STANDS. IT CLEARS SOIL UNDER THE BRUSH AND PACKS THE SOIL AROUND IT, THE WAY AN ANT TAMPS ITS GALLERY WALLS -- SO THE ROOF HOLDS. IT WILL NOT DIG STONE, A WALL, A PLANT OR AN ANIMAL. THE ERASER (RIGHT-DRAG) CLEARS TOO, BUT ITS ROOF FALLS IN.",
             Tool::Water => "PAINT WATER, FULL. IT RUNS, IT SOAKS INTO SOIL, AND TOO MUCH OF IT DROWNS ROOTS -- WHICH IS AN EXPERIMENT, NOT A MISTAKE.",
             Tool::Wall => "DROP A WALL FLOOR TO CEILING IN THE COLUMN YOU CLICK, OR CLICK ONE YOU PLACED TO TAKE IT OUT. A WALL IS WHAT MAKES TWO POPULATIONS IN ONE BOX INTO TWO POPULATIONS: THEY CANNOT MIX, SO THEY CAN DRIFT APART. IT CUTS WHATEVER IS IN THE WAY, WHICH IS THE POINT -- A WALL THROUGH A STAND IS A STAND SPLIT IN HALF. IT SURVIVES A REBUILD.",
             Tool::Food => "PUT FOOD ON THE GROUND WHERE YOU PAINT. IT IS WORTH AS MUCH AS A FALLEN FRUIT, IT FALLS AND PILES UP LIKE ONE, AND IT NEVER ROTS -- IT STAYS UNTIL SOMETHING EATS IT. A COLONY WITH FOOD BESIDE THE NEST BREEDS HARD; THE SAME COLONY LEFT TO FORAGE THE SEALED BED MOSTLY DOES NOT. THIS IS HOW YOU TELL THOSE TWO APART.",
