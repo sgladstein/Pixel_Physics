@@ -1058,8 +1058,13 @@ pub const FOOD_JAWS_DOWN: u8 = 3;
 /// Food beside an egg-layer, a budding parent or a larva eaten off the
 /// floor towards a birth ([`eat_toward_birth`]); `worth` is the yield.
 pub const FOOD_EATEN: u8 = 4;
+/// A larva starved where it lay (`brood::larva_starves`); `worth` is what
+/// was left in its bank.
+pub const FOOD_STARVED: u8 = 5;
+/// A larva reached its target and became a pupa; `worth` is its bank.
+pub const FOOD_PUPATED: u8 = 6;
 /// [`FoodRow::kind`]'s names, by value.
-pub const FOOD_KIND_NAMES: [&str; 5] = ["swallow", "jaws", "drop", "jaws_down", "eaten"];
+pub const FOOD_KIND_NAMES: [&str; 7] = ["swallow", "jaws", "drop", "jaws_down", "eaten", "starved", "pupated"];
 
 /// Book a food movement in [`World::food_log`] while one is running; a
 /// no-op otherwise. Call with the food still in the cell for a pick-up,
