@@ -6031,6 +6031,16 @@ pub struct World {
     ///
     /// Defaults **off**, so nothing changes until it is asked for.
     pub plant_size_cadence: bool,
+    /// **Whether an annual species dies after setting seed**
+    /// (`SpeciesDef::annual_half_life`). `None` is off and is the default;
+    /// `Some(0.0)` uses each annual species' own value; `Some(h)` overrides
+    /// it with `h` plant-time frames for every species that has one, for
+    /// sweeps. Seeded from `PIXEL_PHYSICS_ANNUAL` (`plant::annual_from_env`)
+    /// and a field rather than a process global so a guard can set it.
+    pub annual: Option<f32>,
+    /// Plants marked dead by the annual rule (`World::annual`), so a run can
+    /// tell them from tree old age, which books the same `OldAge` cause.
+    pub annual_deaths: u64,
     /// **Whether plants inherit and mutate a defence** (`OrganismState::defence`).
     /// A field rather than a process global for the reason `mutation_sigma`
     /// gives: a test can scope it. Initialised from `PIXEL_PHYSICS_PLANT_DEFENCE` (default
@@ -7219,6 +7229,8 @@ impl World {
             plant_bending: true,
             windfall_rots: crate::sim::decay::windfall_rots_default(),
             plant_size_cadence: false,
+            annual: super::plant::annual_from_env(),
+            annual_deaths: 0,
             plant_defence: super::organism::plant_defence_on(),
             held: false,
             quickenings: Vec::new(),
@@ -8051,6 +8063,9 @@ impl World {
             life: organism::LifeCounters::default(),
             senescence_cause: organism::DeathCause::Unknown,
             last_loss: organism::DeathCause::Unknown,
+            grazed_leaf: 0,
+            plant_frames: 0,
+            first_seed_frames: 0,
             dormant_seed: false,
             culled: false,
             parent: 0,
@@ -10819,6 +10834,21 @@ impl World {
         // fresh, zeroed `OrganismCell` when it genuinely changes hands,
         // which is what `a freshly divided cell should start at 0 resource,
         // not inherit any` asserts.
+        // **A leaf taken by a mouth, booked on the plant** --
+        // `OrganismState::grazed_leaf`. Here, at the write, because every
+        // eating path labels its write `Eaten` and comes through `set`: the
+        // forager's bite in `act`, a layer eating round itself to fund an
+        // egg (`eat_toward_birth`), a larva's bite. Counting at one of them
+        // missed the others (second-lane review, 2026-10-10). One branch on
+        // a field already in hand when nothing is being eaten.
+        if self.loss_context == Some(organism::DeathCause::Eaten)
+            && old.organism_id() != 0
+            && organism::cell_type(old.aux()) == Some(organism::CellType::Leaf)
+        {
+            if let Some(st) = self.organism_mut(old.organism_id()) {
+                st.grazed_leaf = st.grazed_leaf.saturating_add(1);
+            }
+        }
         self.reindex_organism_cell(x, y, old.organism_id(), cell.organism_id());
     }
 
