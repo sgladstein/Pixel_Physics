@@ -1,0 +1,863 @@
+diff --git a/examples/deeptrace.rs b/examples/deeptrace.rs
+index 9a92488d0..00122b215 100644
+--- a/examples/deeptrace.rs
++++ b/examples/deeptrace.rs
+@@ -450,6 +450,16 @@ fn main() {
+     let walk = arg::<u8>("walk").unwrap_or(0) == 1;
+     let dig = arg::<u8>("dig").unwrap_or(0) == 1 || walk;
+     let nest_every: u64 = arg("nestevery").unwrap_or(2_500);
++    // PROBE (Deep trace, 2026-10-07): `foodevery=N` writes `storefood.csv`,
++    // every loose food cell in the nest region every N frames with what an
++    // ant's mouth makes of it (`creature::probe_food_cell`). 0, the default,
++    // writes nothing. Measuring only.
++    let food_every: u64 = arg("foodevery").unwrap_or(0);
++    let mut storefood = (food_every > 0).then(|| {
++        let mut f = std::io::BufWriter::new(std::fs::File::create(format!("{out}/storefood.csv")).unwrap());
++        writeln!(f, "frame,x,y,mat,aux,worth,yield,visible,store,ants8,eater").unwrap();
++        f
++    });
+     // `garden=1`: every mouthful taken off the world (`bites.csv.gz`) and
+     // every plant's tissue every `plantevery=` frames (`plants.csv.gz`), with
+     // plant births and deaths in `events.txt`. See `GardenLog`.
+@@ -891,6 +901,35 @@ fn main() {
+             if f % nest_every == 0 {
+                 d.nest_map(&lab.world, &format!("{out}/nest_f{f:06}.txt"));
+             }
++            if let (Some(sf), Some((x0, y0, wd, ht)), Some(&eater)) = (storefood.as_mut(), d.region, live.first()) {
++                if f % food_every == 0 {
++                    let w = &lab.world;
++                    for y in y0..y0 + ht {
++                        for x in x0..x0 + wd {
++                            if let Some((worth, got, visible, store)) = creature::probe_food_cell(w, eater, &def, x, y) {
++                                let c = w.get(x, y);
++                                let ants8 = (-1..=1)
++                                    .flat_map(|dy| (-1..=1).map(move |dx| (dx, dy)))
++                                    .filter(|&(dx, dy)| {
++                                        (dx, dy) != (0, 0)
++                                            && w.in_bounds(x + dx, y + dy)
++                                            && w.materials.kind(w.get(x + dx, y + dy).material) == MaterialKind::Creature
++                                    })
++                                    .count();
++                                writeln!(
++                                    sf,
++                                    "{f},{x},{y},{},{},{worth:.1},{got:.1},{},{},{ants8},{eater}",
++                                    w.materials.get(c.material).name,
++                                    c.aux(),
++                                    u8::from(visible),
++                                    u8::from(store)
++                                )
++                                .unwrap();
++                            }
++                        }
++                    }
++                }
++            }
+         }
+         let mut by_id: HashMap<OrganismId, DecisionRow> = HashMap::new();
+         let wanted: HashSet<OrganismId> = pre.iter().map(|p| p.id).collect();
+@@ -1322,6 +1361,10 @@ struct DigPre {
+     /// against what else changed there, says which of those it was.
+     ret: Option<(i32, i32)>,
+     patience: f32,
++    /// Of the head's eight neighbours, how many are another animal's cells
++    /// (the shut-in probe's v2, [`OutSnap`]): with `ground8`, what an ant in
++    /// a room is standing on.
++    ants8: u8,
+ }
+ 
+ /// Where a brood item was seen (its cell) and its stage (`BroodStage as u8`,
+@@ -1338,7 +1381,45 @@ type BroodSeen = ((i32, i32), u8);
+ ///   how far the dig got (`creature::DigWhy`): not reached, lean, roll lost,
+ ///   refused by the heap cue or the roof, nothing to cut, or cut. Last, the
+ ///   face the ant is walking back to and its home pull's patience
+-///   (`ret_x`, `ret_y`, `patience`; see `DigPre::ret`).
++///   (`ret_x`, `ret_y`, `patience`; see `DigPre::ret`). Then the shut-in
++///   probe ([`OutSnap`]): `shut_in` (the engine's `creature::shut_in` at the
++///   head, blank with no way to the open air built), `cover` (under cover
++///   at the head), `way_then` and `air_then` (whether the head's cell could
++///   be stood in, and whether it was joined to the open air at all, in the
++///   world the engine's way out was last built from), and `shut_now`
++///   (whether a way out built now would read the ant shut in where it
++///   stands after the step; only on rows that read shut in). Then the
++///   probe's v2, for *does the way out run over the crowd?*: `ants8` (other
++///   animals in the 8 cells round the head, before the step), and
++///   `pull_then` and `pull_now` (what the target of the pull the ant was
++///   scored with offered to stand on, in the world the ways were last built
++///   from and after the step: `g` ground or a plant beside it, `a` only an
++///   animal beside it, `o` open with nothing beside it, `x` filled;
++///   [`foot_class`]). After the step the ant may stand in its own target,
++///   and its own body then counts as the animal beside it. v3: `way_d`
++///   (the head's steps from the door on the engine's cached nest way) and
++///   `wall_d` (the same over ground alone, from the best cell within three,
++///   [`WallWay::ground_from`]). v4: `k1_hit,k2_then,k4_then,k8_then`, on
++///   rows whose pull walks the nest's way down (`hungry out`, `soil way
++///   out`): where that walk would aim if a step into a cell held up only by
++///   an animal cost K instead of 1 ([`WallWay::wk`]), and what held that
++///   cell up when the way was built ([`foot_class`]'s letters, `n` for no
++///   aim). `k1_hit` is the control: at K = 1 the probe's walk must aim
++///   where the engine's did.
++/// - `wallway.csv`: one line per nest per rebuild ([`WallWay`]). v4 adds
++///   three checks that must all be 0: `val_diff` (cells whose step count in
++///   the probe's rebuild differs from the engine's cache), `k1_diff` (cells
++///   where the weighted way at K = 1 differs from the probe's rebuild) and
++///   `reach_diff` (cells on the way at K = 8 and not on the rebuild, or the
++///   reverse).
++/// - `outway.csv`: one line per nest per rebuild of its way to the open air
++///   ([`OutSnap`]): `match` (cells where the snapshot and the engine's own
++///   cache disagree, 0 when the snapshot is the world the engine read), and
++///   over the cells under cover, how many could be stood in, how many the
++///   way reached, how many were open, and how many of those were joined to
++///   the open air through open cells; then the same two for the founding
++///   shaft (`shaft_way`, `shaft_reached`). A shaft with standable cells and
++///   none reached is a door the way could not get through.
+ /// - `cuts.csv`: every cut, with the ground round it -- open neighbours,
+ ///   ground in the 5x5, whether it joined two spaces that were apart within
+ ///   six cells (`local_joins`), the nearest brood, the nestmates within
+@@ -1391,6 +1472,315 @@ struct DigLog {
+     packed: Option<material::MaterialId>,
+     spoil: Option<material::MaterialId>,
+     cut_count: u64,
++    /// The shut-in probe ([`OutSnap`]), by nest site: `out_next` is taken
++    /// at the end of the frame before a rebuild, and becomes `out_now`, the
++    /// world the engine's cache was built from, on the rebuild frame.
++    out_next: HashMap<usize, OutSnap>,
++    out_now: HashMap<usize, OutSnap>,
++    outway: std::io::BufWriter<std::fs::File>,
++    /// v3 ([`WallWay`]): one line per nest per rebuild.
++    wallway: std::io::BufWriter<std::fs::File>,
++}
++
++/// **The shut-in probe** (`dig=1`; added 2026-10-07, measuring only, for
++/// Nest race's question *are ants read as shut in with the door open?*).
++/// The engine reads an ant as shut in (`creature::shut_in`, which
++/// `NEEDS_FIRST`'s escape parts and its `hungry` part read) when it is under
++/// cover, in the box of its nest's way to the open air, and not reached by
++/// it. That way (`creature::build_out_way`) is rebuilt every
++/// `creature::REST_REFRESH` frames, over cells an ant could stand in then.
++/// So a cell with nothing to stand on at the rebuild -- the middle of a
++/// room, the air over a crowd -- reads shut in until the next one, whatever
++/// stands there now. This keeps the world the next rebuild reads, per nest,
++/// so a row can say which it was:
++///
++/// - `pred`: `creature::build_out_way` on it, which must equal the engine's
++///   cache on the rebuild frame (`outway.csv`'s `match`: the check that the
++///   snapshot is the world the engine read).
++/// - `way`: each cell's `creature::way_cell`, could an ant stand in it.
++/// - `open`: each cell's `creature::way_open`, could an ant be in it, with
++///   no footing asked.
++/// - `cover`: each cell's `creature::under_cover`.
++/// - `air`: each cell joined to an open cell outside cover through open
++///   cells, footing ignored, 8-connected as the way is. A cell under cover
++///   that is not joined is in a room sealed off from the open air.
++/// - `gfoot`: open, with ground or a plant -- anything but an animal -- in
++///   its 8 neighbours. A `way` cell that is not `gfoot` was standable only
++///   because an animal stood beside it (v2, for *does the way out run over
++///   the crowd?*: every way the pulls walk is built over [`creature::way_cell`],
++///   which counts an animal as footing).
++struct OutSnap {
++    pred: creature::NestWay,
++    way: Vec<bool>,
++    open: Vec<bool>,
++    cover: Vec<bool>,
++    air: Vec<bool>,
++    gfoot: Vec<bool>,
++    /// v3, for *would a way over ground alone still lead out?*: the nest's
++    /// way in ([`WallWay`]) rebuilt from the same world two ways.
++    wall: Option<WallWay>,
++}
++
++/// **The nest's way in, rebuilt by the probe** (v3): `creature::build_nest_way`'s
++/// breadth-first walk from the door over the cells inside the nest, in the
++/// box of the engine's own cached way. `rep` takes the engine's footing
++/// (`creature::way_cell`) and must equal the engine's cache on the rebuild
++/// frame (`wallway.csv`'s `match`); `ground` takes only cells with ground
++/// or a plant beside them, so it is the way the walk-out would have if an
++/// animal did not count as footing. Steps from the door, `u16::MAX` off it.
++struct WallWay {
++    x0: i32,
++    y0: i32,
++    w: i32,
++    h: i32,
++    rep: Vec<u16>,
++    ground: Vec<u16>,
++    /// v4, for the proposal to weight the walk-out's way (`WAY_FOOT`): the
++    /// same cells, a step costing 1 into a cell with ground or a plant
++    /// beside it and K into one held up only by an animal, for each K in
++    /// [`KS`]; the cheapest cost from the door, `u16::MAX` off the way.
++    wk: Vec<Vec<u16>>,
++}
++
++/// The step costs v4 tries ([`WallWay::wk`]); K = 1 is the control.
++const KS: [u16; 4] = [1, 2, 4, 8];
++
++/// `creature::NEIGHBOURS_8`, which is private: the order the engine's
++/// `step_down_way` tries an ant's neighbours in, from the ant's own turn.
++const N8: [(i32, i32); 8] = [(-1, -1), (0, -1), (1, -1), (-1, 0), (1, 0), (-1, 1), (0, 1), (1, 1)];
++
++impl WallWay {
++    fn take(w: &World, site: usize) -> Option<WallWay> {
++        let cached = w.nest_ways.iter().find(|n| n.site == site)?;
++        let s = *w.nest_sites.get(site)?;
++        let cut = s.shaft?;
++        let gaps = creature::way_gaps_of(w);
++        let door = ((cut.x0 + cut.x1) / 2, cut.top - 1);
++        let (x0, y0, ww, hh) = (cached.x0, cached.y0, cached.w, cached.h);
++        let inside = |x: i32, y: i32| {
++            cut.contains(x, y) || (y >= cut.top && (creature::under_cover(w, x, y) || (gaps.below && y > s.surface)))
++        };
++        let walk = |foot: &dyn Fn(i32, i32) -> bool| -> Vec<u16> {
++            let mut dist = vec![u16::MAX; (ww * hh) as usize];
++            let idx = |x: i32, y: i32| {
++                let (lx, ly) = (x - x0, y - y0);
++                (lx >= 0 && ly >= 0 && lx < ww && ly < hh).then(|| (ly * ww + lx) as usize)
++            };
++            let Some(d0) = idx(door.0, door.1) else { return dist };
++            dist[d0] = 0;
++            let mut q = std::collections::VecDeque::from([door]);
++            while let Some((x, y)) = q.pop_front() {
++                let d = dist[idx(x, y).expect("queued in the box")];
++                for (dx, dy) in [(1, 0), (1, -1), (0, -1), (-1, -1), (-1, 0), (-1, 1), (0, 1), (1, 1)] {
++                    let (nx, ny) = (x + dx, y + dy);
++                    let Some(i) = idx(nx, ny) else { continue };
++                    if dist[i] != u16::MAX || !inside(nx, ny) || !foot(nx, ny) {
++                        continue;
++                    }
++                    dist[i] = d.saturating_add(1);
++                    q.push_back((nx, ny));
++                }
++            }
++            dist
++        };
++        let rep = walk(&|x, y| creature::way_cell(w, x, y, gaps.brood));
++        let ground = walk(&|x, y| creature::way_open(w, x, y, gaps.brood) && ground_beside(w, x, y));
++        // v4: the same cells, cheapest cost from the door with a step into
++        // a cell held up only by an animal costing K. Cheapest costs do not
++        // depend on the order the queue pops in.
++        let n = (ww * hh) as usize;
++        let (mut on, mut cheap) = (vec![false; n], vec![false; n]);
++        for ly in 0..hh {
++            for lx in 0..ww {
++                let (x, y) = (x0 + lx, y0 + ly);
++                let i = (ly * ww + lx) as usize;
++                on[i] = inside(x, y) && creature::way_cell(w, x, y, gaps.brood);
++                cheap[i] = ground_beside(w, x, y);
++            }
++        }
++        let (dlx, dly) = (door.0 - x0, door.1 - y0);
++        let wk = KS
++            .iter()
++            .map(|&k| {
++                let mut dist = vec![u16::MAX; n];
++                if dlx < 0 || dly < 0 || dlx >= ww || dly >= hh {
++                    return dist;
++                }
++                dist[(dly * ww + dlx) as usize] = 0;
++                let mut heap = std::collections::BinaryHeap::from([std::cmp::Reverse((0u16, dlx, dly))]);
++                while let Some(std::cmp::Reverse((d, lx, ly))) = heap.pop() {
++                    if d > dist[(ly * ww + lx) as usize] {
++                        continue;
++                    }
++                    for (dx, dy) in N8 {
++                        let (nx, ny) = (lx + dx, ly + dy);
++                        if nx < 0 || ny < 0 || nx >= ww || ny >= hh {
++                            continue;
++                        }
++                        let i = (ny * ww + nx) as usize;
++                        if !on[i] {
++                            continue;
++                        }
++                        let nd = d.saturating_add(if cheap[i] { 1 } else { k });
++                        if nd < dist[i] {
++                            dist[i] = nd;
++                            heap.push(std::cmp::Reverse((nd, nx, ny)));
++                        }
++                    }
++                }
++                dist
++            })
++            .collect();
++        Some(WallWay {
++            x0,
++            y0,
++            w: ww,
++            h: hh,
++            rep,
++            ground,
++            wk,
++        })
++    }
++
++    /// Steps from the door over ground alone, from the best cell within
++    /// three of `(x, y)`, plus the steps to that cell; `None` with no cell
++    /// on the ground-only way within three.
++    fn ground_from(&self, x: i32, y: i32) -> Option<u32> {
++        let mut best: Option<u32> = None;
++        for dy in -3..=3i32 {
++            for dx in -3..=3i32 {
++                let (lx, ly) = (x + dx - self.x0, y + dy - self.y0);
++                if lx < 0 || ly < 0 || lx >= self.w || ly >= self.h {
++                    continue;
++                }
++                let d = self.ground[(ly * self.w + lx) as usize];
++                if d != u16::MAX {
++                    let v = u32::from(d) + dx.unsigned_abs().max(dy.unsigned_abs());
++                    best = Some(best.map_or(v, |b| b.min(v)));
++                }
++            }
++        }
++        best
++    }
++
++    /// v4: `creature::step_down_way` over `dist` (one of [`WallWay::wk`]):
++    /// [`creature::REST_LOOKAHEAD`] steps, each to the smallest lower
++    /// neighbour in the ant's own order. `None` off the way, at the door,
++    /// or with no step down.
++    fn step_down(&self, dist: &[u16], id: OrganismId, head: (i32, i32)) -> Option<(i32, i32)> {
++        let at = |x: i32, y: i32| -> Option<u16> {
++            let (lx, ly) = (x - self.x0, y - self.y0);
++            if lx < 0 || ly < 0 || lx >= self.w || ly >= self.h {
++                return None;
++            }
++            Some(dist[(ly * self.w + lx) as usize]).filter(|&d| d != u16::MAX)
++        };
++        let mut d = at(head.0, head.1).filter(|&d| d > 0)?;
++        let turn = (id as usize).wrapping_mul(0x9E37_79B9) >> 7;
++        let mut p = head;
++        for step in 0..creature::REST_LOOKAHEAD {
++            let mut best: Option<(u16, (i32, i32))> = None;
++            for k in 0..8 {
++                let (dx, dy) = N8[(turn + step + k) % 8];
++                let q = (p.0 + dx, p.1 + dy);
++                if let Some(v) = at(q.0, q.1).filter(|&v| v < d && best.is_none_or(|(b, _)| v < b)) {
++                    best = Some((v, q));
++                }
++            }
++            let Some((v, q)) = best else { break };
++            d = v;
++            p = q;
++        }
++        (p != head).then_some(p)
++    }
++}
++
++/// **What a cell offers to stand on** (the probe's v2): `x` filled, `o` open
++/// with nothing beside it, `a` open with only an animal beside it, `g` open
++/// with ground or a plant beside it -- [`creature::way_cell`]'s rule split by
++/// what gives the footing.
++fn foot_class(w: &World, x: i32, y: i32, brood: bool) -> char {
++    if !creature::way_open(w, x, y, brood) {
++        return 'x';
++    }
++    if ground_beside(w, x, y) {
++        'g'
++    } else if creature::way_cell(w, x, y, brood) {
++        'a'
++    } else {
++        'o'
++    }
++}
++
++/// Ground or a plant -- solid, powder or plant tissue, whoever owns it -- in
++/// the 8 neighbours of `(x, y)`: [`creature::way_cell`]'s footing less its
++/// animals.
++fn ground_beside(w: &World, x: i32, y: i32) -> bool {
++    (-1..=1)
++        .flat_map(|dy| (-1..=1).map(move |dx| (dx, dy)))
++        .any(|(dx, dy)| {
++            (dx, dy) != (0, 0)
++                && w.in_bounds(x + dx, y + dy)
++                && matches!(
++                    w.materials.kind(w.get(x + dx, y + dy).material),
++                    MaterialKind::Solid | MaterialKind::Powder | MaterialKind::Plant
++                )
++        })
++}
++
++impl OutSnap {
++    fn take(w: &World, site: usize) -> Option<OutSnap> {
++        const RING: [(i32, i32); 8] = [(1, 0), (1, -1), (0, -1), (-1, -1), (-1, 0), (-1, 1), (0, 1), (1, 1)];
++        let pred = creature::build_out_way(w, site)?;
++        let brood = creature::way_gaps_of(w).brood;
++        let n = (pred.w * pred.h) as usize;
++        let (mut way, mut open, mut cover, mut air) = (vec![false; n], vec![false; n], vec![false; n], vec![false; n]);
++        let mut gfoot = vec![false; n];
++        let mut q = std::collections::VecDeque::new();
++        for ly in 0..pred.h {
++            for lx in 0..pred.w {
++                let (x, y) = (pred.x0 + lx, pred.y0 + ly);
++                let k = (ly * pred.w + lx) as usize;
++                way[k] = creature::way_cell(w, x, y, brood);
++                open[k] = creature::way_open(w, x, y, brood);
++                cover[k] = creature::under_cover(w, x, y);
++                gfoot[k] = open[k] && ground_beside(w, x, y);
++                if open[k] && !cover[k] {
++                    air[k] = true;
++                    q.push_back((lx, ly));
++                }
++            }
++        }
++        while let Some((lx, ly)) = q.pop_front() {
++            for (dx, dy) in RING {
++                let (nx, ny) = (lx + dx, ly + dy);
++                if nx < 0 || ny < 0 || nx >= pred.w || ny >= pred.h {
++                    continue;
++                }
++                let k = (ny * pred.w + nx) as usize;
++                if !air[k] && open[k] {
++                    air[k] = true;
++                    q.push_back((nx, ny));
++                }
++            }
++        }
++        Some(OutSnap {
++            pred,
++            way,
++            open,
++            cover,
++            air,
++            gfoot,
++            wall: WallWay::take(w, site),
++        })
++    }
++
++    /// The index of `(x, y)` in the snapshot, `None` outside its box.
++    fn idx(&self, x: i32, y: i32) -> Option<usize> {
++        self.pred
++            .covers(x, y)
++            .then(|| ((y - self.pred.y0) * self.pred.w + (x - self.pred.x0)) as usize)
++    }
+ }
+ 
+ /// **The garden record** (`garden=1`), added 2026-10-05 for the question
+@@ -1574,7 +1964,7 @@ impl DigLog {
+         let mut brood = std::io::BufWriter::new(std::fs::File::create(format!("{out}/brood.csv")).unwrap());
+         writeln!(
+             rows,
+-            "frame,id,age,worker,hx,hy,zone,heading,hold,ahead,ground8,at_nest,crowding,curvature,food_adj,moisture_grad,energy,dig,dig_p,dig_flags,dig_x,dig_y,dig_mat,outcome,moved,hx_after,hy_after,ret_x,ret_y,patience,trip_end,spoil_why,spoil_flags,spoil_p,pull_why,pull_x,pull_y"
++            "frame,id,age,worker,hx,hy,zone,heading,hold,ahead,ground8,at_nest,crowding,curvature,food_adj,moisture_grad,energy,dig,dig_p,dig_flags,dig_x,dig_y,dig_mat,outcome,moved,hx_after,hy_after,ret_x,ret_y,patience,trip_end,spoil_why,spoil_flags,spoil_p,pull_why,pull_x,pull_y,shut_in,cover,way_then,air_then,shut_now,ants8,pull_then,pull_now,way_d,wall_d,k1_hit,k2_then,k4_then,k8_then"
+         )
+         .unwrap();
+         writeln!(cells, "frame,x,y,from,to,cause,id").unwrap();
+@@ -1584,6 +1974,18 @@ impl DigLog {
+         )
+         .unwrap();
+         writeln!(brood, "frame,x,y,id,stage").unwrap();
++        let mut outway = std::io::BufWriter::new(std::fs::File::create(format!("{out}/outway.csv")).unwrap());
++        let mut wallway = std::io::BufWriter::new(std::fs::File::create(format!("{out}/wallway.csv")).unwrap());
++        writeln!(
++            wallway,
++            "f,frame,site,match,way_cells,ground_cells,both,way_depth,ground_depth,ratio_p50,ratio_p90,val_diff,k1_diff,reach_diff"
++        )
++        .unwrap();
++        writeln!(
++            outway,
++            "f,frame,site,match,cover_way,cover_reached,cover_open,cover_air,shaft_way,shaft_reached"
++        )
++        .unwrap();
+         let mut broodlog = std::io::BufWriter::new(std::fs::File::create(format!("{out}/broodlog.csv")).unwrap());
+         writeln!(
+             broodlog,
+@@ -1622,6 +2024,10 @@ impl DigLog {
+             packed: w.materials.id_of("packedsoil"),
+             spoil: w.materials.id_of("spoil"),
+             cut_count: 0,
++            out_next: HashMap::new(),
++            out_now: HashMap::new(),
++            outway,
++            wallway,
+         }
+     }
+ 
+@@ -1678,6 +2084,16 @@ impl DigLog {
+                     ground8,
+                     ret: st.dig_return,
+                     patience: st.home_patience,
++                    ants8: (-1..=1)
++                        .flat_map(|dy| (-1..=1).map(move |dx| (dx, dy)))
++                        .filter(|&(dx, dy)| {
++                            let (x, y) = (head.0 + dx, head.1 + dy);
++                            (dx, dy) != (0, 0)
++                                && w.in_bounds(x, y)
++                                && w.get(x, y).organism_id() != id
++                                && w.materials.kind(w.get(x, y).material) == MaterialKind::Creature
++                        })
++                        .count() as u8,
+                 },
+             );
+         }
+@@ -1695,14 +2111,23 @@ impl DigLog {
+         born: &HashMap<OrganismId, u64>,
+         brood_now: bool,
+     ) {
++        // The shut-in probe: on a rebuild frame the engine's way out was
++        // built from the world the snapshot took at the end of the last one.
++        if w.frame.is_multiple_of(creature::REST_REFRESH) {
++            self.out_now = std::mem::take(&mut self.out_next);
++            self.outway_rows(w, f);
++        }
++        let mut fresh: HashMap<usize, Option<creature::NestWay>> = HashMap::new();
+         let mut cut_at: HashMap<(i32, i32), OrganismId> = HashMap::new();
+         for r in rows {
+             let Some(p) = pre.get(&r.id) else { continue };
+             let age = f.saturating_sub(born.get(&r.id).copied().unwrap_or(0));
+             let target = r.dig_at != DIG_NO_TARGET;
++            let shut = self.shut_cols(w, r, &mut fresh);
++            let pull = self.pull_cols(w, r);
+             writeln!(
+                 self.rows,
+-                "{f},{},{age},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
++                "{f},{},{age},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{shut},{},{pull}",
+                 r.id,
+                 u8::from(p.worker),
+                 r.head.0,
+@@ -1742,6 +2167,7 @@ impl DigLog {
+                 PULL_WHY_NAMES[r.pull_why as usize],
+                 if r.pull_at != DIG_NO_TARGET { r.pull_at.0.to_string() } else { String::new() },
+                 if r.pull_at != DIG_NO_TARGET { r.pull_at.1.to_string() } else { String::new() },
++                p.ants8,
+             )
+             .unwrap();
+             if self.walk.is_some() && r.head.1 > g.ground_y - WALK_RISE && (r.head.0 - g.nest_x).abs() <= WALK_REACH {
+@@ -1765,6 +2191,227 @@ impl DigLog {
+             .collect();
+         drops.sort_unstable();
+         self.scan(w, g, f, &cut_at, &drops, brood_now);
++        if (w.frame + 1).is_multiple_of(creature::REST_REFRESH) && !w.out_ways.is_empty() {
++            self.out_next = (0..w.nest_sites.len())
++                .filter_map(|s| OutSnap::take(w, s).map(|o| (s, o)))
++                .collect();
++        }
++    }
++
++    /// The shut-in probe's five columns for one row ([`OutSnap`]):
++    /// `shut_in,cover,way_then,air_then,shut_now`. `shut_in` and `cover` are
++    /// read at the head the ant decided from, after the step: the way out is
++    /// the cache the decision read, rebuilt only at the start of a frame,
++    /// and the roof can have changed by a cell.
++    fn shut_cols(&self, w: &World, r: &DecisionRow, fresh: &mut HashMap<usize, Option<creature::NestWay>>) -> String {
++        let (x, y) = r.head;
++        let cover = u8::from(creature::under_cover(w, x, y));
++        let Some(site) = w.nearest_nest_site(x, y) else {
++            return format!(",{cover},,,");
++        };
++        if !w.out_ways.iter().any(|o| o.site == site) {
++            return format!(",{cover},,,");
++        }
++        let shut = creature::shut_in(w, x, y);
++        let (way_then, air_then) = self
++            .out_now
++            .get(&site)
++            .and_then(|s| {
++                s.idx(x, y)
++                    .map(|k| (u8::from(s.way[k]).to_string(), u8::from(s.air[k]).to_string()))
++            })
++            .unwrap_or_default();
++        let shut_now = if shut {
++            let (ax, ay) = r.head_after;
++            w.nearest_nest_site(ax, ay)
++                .and_then(|s2| {
++                    fresh
++                        .entry(s2)
++                        .or_insert_with(|| creature::build_out_way(w, s2))
++                        .as_ref()
++                })
++                .map_or(String::new(), |o| {
++                    u8::from(o.covers(ax, ay) && o.at(ax, ay).is_none() && creature::under_cover(w, ax, ay)).to_string()
++                })
++        } else {
++            String::new()
++        };
++        format!("{},{cover},{way_then},{air_then},{shut_now}", u8::from(shut))
++    }
++
++    /// The probe's v2 columns for one row: `pull_then,pull_now`, the footing
++    /// at the target of the pull the ant was scored with ([`foot_class`]),
++    /// in the world the ways were last built from and after the step. Blank
++    /// with no target, or with no snapshot of the target's nest.
++    fn pull_cols(&self, w: &World, r: &DecisionRow) -> String {
++        let (hx, hy) = r.head;
++        let site = w.nearest_nest_site(hx, hy);
++        let way_d = site
++            .and_then(|s| w.nest_ways.iter().find(|n| n.site == s))
++            .and_then(|n| n.at(hx, hy))
++            .map_or(String::new(), |d| d.to_string());
++        let wall_d = site
++            .and_then(|s| self.out_now.get(&s))
++            .and_then(|o| o.wall.as_ref())
++            .and_then(|ww| ww.ground_from(hx, hy))
++            .map_or(String::new(), |d| d.to_string());
++        let kc = self.k_cols(w, r);
++        if r.pull_at == DIG_NO_TARGET {
++            return format!(",,{way_d},{wall_d},{kc}");
++        }
++        let (x, y) = r.pull_at;
++        let then = w
++            .nearest_nest_site(x, y)
++            .and_then(|site| self.out_now.get(&site))
++            .and_then(|s| {
++                s.idx(x, y).map(|k| match (s.open[k], s.gfoot[k], s.way[k]) {
++                    (false, _, _) => 'x',
++                    (true, true, _) => 'g',
++                    (true, false, true) => 'a',
++                    (true, false, false) => 'o',
++                })
++            })
++            .map_or(String::new(), String::from);
++        format!(
++            "{then},{},{way_d},{wall_d},{kc}",
++            foot_class(w, x, y, creature::way_gaps_of(w).brood)
++        )
++    }
++
++    /// The probe's v4 columns for one row: `k1_hit,k2_then,k4_then,k8_then`
++    /// ([`WallWay::wk`]). Blank unless the row's pull walks the nest's way
++    /// down (`hungry out`, `soil way out`) and its nest has a snapshot.
++    fn k_cols(&self, w: &World, r: &DecisionRow) -> String {
++        let why = PULL_WHY_NAMES[r.pull_why as usize];
++        if r.pull_at == DIG_NO_TARGET || !(why == "hungry out" || why == "soil way out") {
++            return ",,,".to_string();
++        }
++        let Some(snap) = w
++            .nearest_nest_site(r.head.0, r.head.1)
++            .and_then(|s| self.out_now.get(&s))
++        else {
++            return ",,,".to_string();
++        };
++        let Some(ww) = snap.wall.as_ref() else {
++            return ",,,".to_string();
++        };
++        let class = |p: Option<(i32, i32)>| -> char {
++            let Some((x, y)) = p else { return 'n' };
++            snap.idx(x, y)
++                .map_or('n', |k| match (snap.open[k], snap.gfoot[k], snap.way[k]) {
++                    (false, _, _) => 'x',
++                    (true, true, _) => 'g',
++                    (true, false, true) => 'a',
++                    (true, false, false) => 'o',
++                })
++        };
++        let aims: Vec<Option<(i32, i32)>> = ww.wk.iter().map(|d| ww.step_down(d, r.id, r.head)).collect();
++        format!(
++            "{},{},{},{}",
++            u8::from(aims[0] == Some(r.pull_at)),
++            class(aims[1]),
++            class(aims[2]),
++            class(aims[3])
++        )
++    }
++
++    /// One `outway.csv` line per nest on a rebuild frame ([`OutSnap`]), and
++    /// one `wallway.csv` line ([`WallWay`]): `match` (cells where the
++    /// probe's rebuild with the engine's footing and the engine's own cache
++    /// disagree on being on the way), the cells on the way and on the way
++    /// over ground alone, on both, each one's deepest step, and over the
++    /// cells on both, the median and p90 of ground steps over way steps.
++    fn outway_rows(&mut self, w: &World, f: u64) {
++        for n in &w.nest_ways {
++            let Some(ww) = self.out_now.get(&n.site).and_then(|o| o.wall.as_ref()) else {
++                continue;
++            };
++            let k = |x: i32, y: i32| ((y - ww.y0) * ww.w + (x - ww.x0)) as usize;
++            let (mut mismatch, mut way_cells, mut ground_cells, mut both, mut way_depth, mut ground_depth) =
++                (0u32, 0u32, 0u32, 0u32, 0u16, 0u16);
++            let (mut val_diff, mut k1_diff, mut reach_diff) = (0u32, 0u32, 0u32);
++            let mut ratios: Vec<f32> = Vec::new();
++            for ly in 0..ww.h {
++                for lx in 0..ww.w {
++                    let (x, y) = (ww.x0 + lx, ww.y0 + ly);
++                    let engine = n.at(x, y);
++                    let rep = ww.rep[k(x, y)];
++                    mismatch += u32::from(engine.is_some() != (rep != u16::MAX));
++                    val_diff += u32::from(engine.unwrap_or(u16::MAX) != rep);
++                    k1_diff += u32::from(ww.wk[0][k(x, y)] != rep);
++                    reach_diff += u32::from((ww.wk[3][k(x, y)] != u16::MAX) != (rep != u16::MAX));
++                    let g = ww.ground[k(x, y)];
++                    if let Some(d) = engine {
++                        way_cells += 1;
++                        way_depth = way_depth.max(d);
++                    }
++                    if g != u16::MAX {
++                        ground_cells += 1;
++                        ground_depth = ground_depth.max(g);
++                    }
++                    if let (Some(d), true) = (engine, g != u16::MAX) {
++                        both += 1;
++                        if d > 0 {
++                            ratios.push(f32::from(g) / f32::from(d));
++                        }
++                    }
++                }
++            }
++            ratios.sort_by(f32::total_cmp);
++            let q = |p: f32| {
++                ratios
++                    .get(((ratios.len() as f32 - 1.0) * p).round() as usize)
++                    .map_or(String::new(), |v| format!("{v:.2}"))
++            };
++            writeln!(
++                self.wallway,
++                "{f},{},{},{mismatch},{way_cells},{ground_cells},{both},{way_depth},{ground_depth},{},{},{val_diff},{k1_diff},{reach_diff}",
++                w.frame,
++                n.site,
++                q(0.5),
++                q(0.9)
++            )
++            .unwrap();
++        }
++        for o in &w.out_ways {
++            let snap = self.out_now.get(&o.site);
++            let reached = |x: i32, y: i32| o.at(x, y).is_some();
++            let mismatch = snap.map(|s| {
++                (0..s.pred.h)
++                    .flat_map(|ly| (0..s.pred.w).map(move |lx| (s.pred.x0 + lx, s.pred.y0 + ly)))
++                    .filter(|&(x, y)| s.pred.at(x, y).is_some() != reached(x, y))
++                    .count()
++            });
++            let (mut cover_way, mut cover_reached, mut cover_open, mut cover_air) = (0u32, 0u32, 0u32, 0u32);
++            let (mut shaft_way, mut shaft_reached) = (0u32, 0u32);
++            if let Some(s) = snap {
++                let shaft = w.nest_sites.get(o.site).and_then(|n| n.shaft);
++                for ly in 0..s.pred.h {
++                    for lx in 0..s.pred.w {
++                        let (x, y) = (s.pred.x0 + lx, s.pred.y0 + ly);
++                        let k = (ly * s.pred.w + lx) as usize;
++                        if s.cover[k] {
++                            cover_way += u32::from(s.way[k]);
++                            cover_reached += u32::from(reached(x, y));
++                            cover_open += u32::from(s.open[k]);
++                            cover_air += u32::from(s.open[k] && s.air[k]);
++                        }
++                        if shaft.is_some_and(|c| (c.x0..=c.x1).contains(&x) && (c.top..=c.bottom).contains(&y)) {
++                            shaft_way += u32::from(s.way[k]);
++                            shaft_reached += u32::from(reached(x, y));
++                        }
++                    }
++                }
++            }
++            writeln!(
++                self.outway,
++                "{f},{},{},{},{cover_way},{cover_reached},{cover_open},{cover_air},{shaft_way},{shaft_reached}",
++                w.frame,
++                o.site,
++                mismatch.map_or(String::new(), |m| m.to_string()),
++            )
++            .unwrap();
++        }
+     }
+ 
+     fn cut_row(&mut self, w: &World, g: &Geo, f: u64, r: &DecisionRow, p: &DigPre, age: u64) {
+@@ -2187,7 +2834,7 @@ impl HungryLog {
+         let (zip, mut rows) = gzip_to(&format!("{out}/hungry.csv.gz"));
+         writeln!(
+             rows,
+-            "frame,id,age,nb,foraged,met_age,hx,hy,zone,heading,e,leg,fill,anchor_x,anchor_y,pull,px,py,gain,drive,want,zoned,scout_w,scout_pat,scout_home,door,door_f,route,chosen_cos,b6e,b6w,chose,opts,s0,s1,s2,s3,s4,s5,s6,s7,outcome,p_move,moved,hx_after,hy_after,bite"
++            "frame,id,age,nb,foraged,met_age,hx,hy,zone,heading,e,leg,fill,anchor_x,anchor_y,pull,px,py,gain,drive,want,zoned,scout_w,scout_pat,scout_home,door,door_f,route,chosen_cos,b6e,b6w,chose,opts,s0,s1,s2,s3,s4,s5,s6,s7,outcome,p_move,moved,hx_after,hy_after,bite,shut_in,cover"
+         )
+         .unwrap();
+         let mut ledger = std::io::BufWriter::new(std::fs::File::create(format!("{out}/ledger.csv")).unwrap());
+@@ -2253,9 +2900,17 @@ impl HungryLog {
+             let pull_at = (r.pull_at != DIG_NO_TARGET).then_some(r.pull_at);
+             let chose = (scored && r.chose < 8).then_some(r.chose);
+             let score: Vec<String> = r.score.iter().map(|&v| fl(v)).collect();
++            // The shut-in probe's reading at the head ([`OutSnap`]), blank
++            // with no way to the open air built.
++            let shut = w
++                .nearest_nest_site(r.head.0, r.head.1)
++                .filter(|&site| w.out_ways.iter().any(|o| o.site == site))
++                .map_or(String::new(), |_| {
++                    u8::from(creature::shut_in(w, r.head.0, r.head.1)).to_string()
++                });
+             writeln!(
+                 self.rows,
+-                "{f},{},{},{},{},{},{},{},{z},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
++                "{f},{},{},{},{},{},{},{},{z},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
+                 r.id,
+                 f.saturating_sub(life.born),
+                 u8::from(life.nb),
+@@ -2294,6 +2949,8 @@ impl HungryLog {
+                 r.head_after.0,
+                 r.head_after.1,
+                 r.bite.map_or(String::new(), |(bx, by, _, _)| format!("{bx}:{by}")),
++                shut,
++                u8::from(creature::under_cover(w, r.head.0, r.head.1)),
+             )
+             .unwrap();
+         }
+diff --git a/src/sim/creature.rs b/src/sim/creature.rs
+index 776588109..d07142d69 100644
+--- a/src/sim/creature.rs
++++ b/src/sim/creature.rs
+@@ -8692,6 +8692,27 @@ pub fn probe(world: &World, x: i32, y: i32, organism: OrganismId, def: &Creature
+     (inputs, outputs, active)
+ }
+ 
++/// PROBE (Deep trace, 2026-10-07; measuring only, writes nothing): what an
++/// ant's mouth makes of the loose food cell at `(x, y)` -- its worth
++/// ([`food_value`]), what this eater would get for it through its own gut
++/// ([`diet_yield`]), whether the mouth scan would see it at all (over
++/// [`EAT_YIELD_THRESHOLD`], the line `adjacent_food_counted` draws), and
++/// whether the nest's store counts it ([`is_store_cell`]). `None` for a cell
++/// that is not loose food ([`loose_food`]).
++pub fn probe_food_cell(world: &World, eater: OrganismId, def: &CreatureDef, x: i32, y: i32) -> Option<(f32, f32, bool, bool)> {
++    if !world.in_bounds(x, y) {
++        return None;
++    }
++    let c = world.get(x, y);
++    if !loose_food(world, c) {
++        return None;
++    }
++    let gut = gut_of(world, eater, def);
++    let worth = food_value(world, c);
++    let got = diet_yield(world, c, gut.bias);
++    Some((worth, got, got > EAT_YIELD_THRESHOLD, is_store_cell(world, (x, y))))
++}
++
+ /// `probe`, plus **the hidden activations** — because for several species the
+ /// interesting term of a decision does not appear in `inputs` at all.
+ ///
+@@ -12006,7 +12027,7 @@ fn is_visible_threat(world: &World, cell: Cell, self_organism: OrganismId, self_
+ /// the same answer an unbounded scan gives for everything but a cell buried
+ /// deeper than the reach with nothing in between, and that is not a cell an
+ /// ant is standing in.
+-fn under_cover(world: &World, x: i32, y: i32) -> bool {
++pub fn under_cover(world: &World, x: i32, y: i32) -> bool {
+     (1..=COVER_REACH).any(|dy| {
+         let cell = world.get(x, y - dy);
+         cell.material != material::EMPTY
+@@ -12645,7 +12666,7 @@ impl NestWay {
+ /// With `parted` ([`WayGaps::brood`]), a cell the walk parts as it goes
+ /// ([`is_partable`]: brood and crumbs under [`PushPast`]) is open too, as the
+ /// walk itself counts it ([`cell_is_enterable`]).
+-fn way_cell(world: &World, x: i32, y: i32, parted: bool) -> bool {
++pub fn way_cell(world: &World, x: i32, y: i32, parted: bool) -> bool {
+     if !world.in_bounds(x, y) {
+         return false;
+     }
+@@ -13820,12 +13841,26 @@ pub fn build_out_way(world: &World, site: usize) -> Option<NestWay> {
+ /// wherever that way was not built, so a world without the parts shuts
+ /// nobody in. Behind a sealed door the whole nest reads shut in, the shaft
+ /// included, which `MoundOut`'s `shut_in_mound` never reaches.
+-fn shut_in(world: &World, x: i32, y: i32) -> bool {
++pub fn shut_in(world: &World, x: i32, y: i32) -> bool {
+     let Some(site) = world.nearest_nest_site(x, y) else { return false };
+     let Some(out) = world.out_ways.iter().find(|w| w.site == site) else { return false };
+     out.covers(x, y) && out.at(x, y).is_none() && under_cover(world, x, y)
+ }
+ 
++/// **[`way_cell`]'s open half, with no footing asked** -- open, an animal,
++/// or a cell the walk parts. For a trace only: nothing in the engine calls
++/// it. `examples/deeptrace.rs`'s shut-in probe floods over it from the open
++/// air to tell a room sealed off from the sky from one joined to it only
++/// through cells with nothing to stand on, which [`build_out_way`] cannot
++/// cross. **Keep it the same test as [`way_cell`]'s first clause.**
++pub fn way_open(world: &World, x: i32, y: i32, parted: bool) -> bool {
++    if !world.in_bounds(x, y) {
++        return false;
++    }
++    let c = world.get(x, y);
++    c.material == material::EMPTY || is_animal_cell(world, c) || (parted && parting_enabled() && is_partable(world, c))
++}
++
+ /// **The colony's food is kept deep in the nest, and hungry ants go in to
+ /// eat it** (`PIXEL_PHYSICS_NEST_STORE=on|off|<parts>`, a comma list; **off
+ /// by default**, built 2026-10-06; [`World::nest_store`] for one world).

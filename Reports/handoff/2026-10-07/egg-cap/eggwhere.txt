@@ -1,0 +1,64 @@
+== base-s1 20-50k: 822 eggs (door x=256, ground row 160)
+   egg cell: door col 3-10 49%, door col 0-2 36%, door col mound 6%, west 3-10 5%, east 3-10 3%, west mound 1%, west >10 0%
+   layer zone: mound_top 49%, nest 29%, mound_in 22%
+   layer energy after the egg: median 1446, under 200 J 0.0%
+== base-s1 50-100k: 901 eggs (door x=256, ground row 160)
+   egg cell: door col 3-10 60%, east 3-10 16%, west 3-10 13%, door col 0-2 9%, west mound 1%, east >10 1%, door col mound 0%
+   layer zone: nest 56%, mound_top 25%, mound_in 19%
+   layer energy after the egg: median 1566, under 200 J 0.1%
+== base-s1 100-150k: 981 eggs (door x=256, ground row 160)
+   egg cell: door col 3-10 53%, door col 0-2 23%, east 3-10 12%, west 3-10 10%, door col mound 1%, west mound 0%
+   layer zone: nest 43%, mound_in 37%, mound_top 20%
+   layer energy after the egg: median 1559, under 200 J 0.0%
+== base-s1 150-200k: 984 eggs (door x=256, ground row 160)
+   egg cell: door col 3-10 51%, door col 0-2 29%, east 3-10 10%, west 3-10 9%, door col mound 1%, east >10 0%
+   layer zone: nest 40%, mound_in 39%, mound_top 21%
+   layer energy after the egg: median 1603, under 200 J 0.0%
+== base-s2 20-50k: 648 eggs (door x=256, ground row 160)
+   egg cell: door col 0-2 61%, door col 3-10 23%, door col mound 8%, west mound 2%, east mound 2%, west 3-10 2%, east 3-10 1%, west >10 0%
+   layer zone: mound_top 65%, mound_in 25%, nest 10%
+   layer energy after the egg: median 1438, under 200 J 0.0%
+== base-s2 50-100k: 1004 eggs (door x=256, ground row 160)
+   egg cell: door col 3-10 49%, door col 0-2 24%, east 3-10 15%, west 3-10 10%, west mound 1%, door col mound 1%, east mound 0%, east >10 0%
+   layer zone: nest 42%, mound_in 31%, mound_top 27%
+   layer energy after the egg: median 1580, under 200 J 0.0%
+== base-s2 100-150k: 981 eggs (door x=256, ground row 160)
+   egg cell: door col 3-10 50%, door col 0-2 25%, east 3-10 13%, west 3-10 11%, door col mound 1%, west mound 1%, east mound 0%
+   layer zone: nest 44%, mound_in 38%, mound_top 18%
+   layer energy after the egg: median 1628, under 200 J 0.1%
+== base-s2 150-200k: 1057 eggs (door x=256, ground row 160)
+   egg cell: door col 3-10 48%, door col 0-2 32%, west 3-10 10%, east 3-10 9%, door col mound 1%, west mound 1%, east mound 0%
+   layer zone: mound_in 43%, nest 37%, mound_top 20%
+   layer energy after the egg: median 1672, under 200 J 0.0%
+== base-s3 20-50k: 514 eggs (door x=256, ground row 160)
+   egg cell: door col 0-2 65%, door col 3-10 25%, west 3-10 3%, east mound 2%, door col mound 2%, west mound 2%, east 3-10 2%
+   layer zone: mound_top 58%, mound_in 29%, nest 13%
+   layer energy after the egg: median 1492, under 200 J 0.2%
+== base-s3 50-100k: 962 eggs (door x=256, ground row 160)
+   egg cell: door col 3-10 55%, door col 0-2 31%, east 3-10 8%, west 3-10 4%, west mound 1%, door col mound 1%, east mound 0%, east >10 0%
+   layer zone: mound_in 39%, nest 31%, mound_top 30%
+   layer energy after the egg: median 1506, under 200 J 0.1%
+== base-s3 100-150k: 1034 eggs (door x=256, ground row 160)
+   egg cell: door col 3-10 55%, door col 0-2 19%, west 3-10 14%, east 3-10 10%, door col mound 1%, west mound 1%, west >10 0%, east mound 0%
+   layer zone: nest 48%, mound_in 30%, mound_top 22%
+   layer energy after the egg: median 1581, under 200 J 0.0%
+== base-s3 150-200k: 1119 eggs (door x=256, ground row 160)
+   egg cell: door col 3-10 57%, door col 0-2 18%, west 3-10 12%, east 3-10 11%, west mound 1%, door col mound 1%, west >10 0%
+   layer zone: nest 47%, mound_in 31%, mound_top 22%
+   layer energy after the egg: median 1552, under 200 J 0.0%
+== base-s4 20-50k: 603 eggs (door x=256, ground row 160)
+   egg cell: door col 0-2 64%, door col 3-10 25%, door col mound 6%, west mound 1%, east 3-10 1%, west 3-10 1%, east mound 1%
+   layer zone: mound_top 59%, mound_in 30%, nest 11%
+   layer energy after the egg: median 1526, under 200 J 0.0%
+== base-s4 50-100k: 1037 eggs (door x=256, ground row 160)
+   egg cell: door col 3-10 45%, door col 0-2 24%, west 3-10 14%, east 3-10 13%, west mound 2%, door col mound 1%, west >10 0%, east >10 0%
+   layer zone: nest 47%, mound_in 30%, mound_top 23%
+   layer energy after the egg: median 1571, under 200 J 0.1%
+== base-s4 100-150k: 945 eggs (door x=256, ground row 160)
+   egg cell: door col 3-10 44%, door col 0-2 39%, west 3-10 8%, east 3-10 7%, west mound 2%, door col mound 1%
+   layer zone: mound_in 44%, nest 32%, mound_top 24%
+   layer energy after the egg: median 1536, under 200 J 0.0%
+== base-s4 150-200k: 1121 eggs (door x=256, ground row 160)
+   egg cell: door col 3-10 42%, door col 0-2 33%, west 3-10 14%, east 3-10 7%, west mound 2%, door col mound 1%, west >10 0%, east mound 0%
+   layer zone: mound_in 48%, nest 36%, mound_top 16%,  0%
+   layer energy after the egg: median 1568, under 200 J 0.0%

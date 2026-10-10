@@ -2644,6 +2644,33 @@ drift that two of these documents still reflect.**
   a flame body, a fuel-wetness gate, and `examples/fire_probe.rs`; costs the
   three §X desert levers, two of which have changed since the record.
 
+- [playtest-2026-10-09-herb-ant/README.md](playtest-2026-10-09-herb-ant/README.md) —
+  **the owner's first plants-and-ants lab playtest, replayed with a no-ant twin
+  and taken apart (`examples/replay.rs`; the chronicle and `run.sh` / `tables.py`
+  are beside it).** *The ants strip the stand from the bottom up, and live leaf
+  is only 8% of what they eat:* six paired seeds, plants at tick 250k **11
+  against 36** with no ants, reachable foliage 102 cells against 617 (under the
+  shipped light rain the stand falls 18-57% and the reachable foliage still
+  77%, two seeds); a herb with 1-10 recorded leaf bites is 93% bare, no middle.
+  **Edibility, not energy, is the lever** -- leaf at 20, 40 and 160 J is
+  equally ruinous, an inedible leaf gives 83 plants, starved larvae 184 -> 32
+  and 80 adults at 250k against 12 -- **and a fixed plant defence does not
+  stand in for it** (0.2-0.9 costs the stand its litter, the colony its food).
+  What a colony pays: 54% more eggs per adult-tick for the same food in, 30% of
+  them starving as larvae, adult starvation 2.7x, and **eggs laid tracking the
+  share of adults above the egg bar** (the adults' banks are more unequal).
+  **Plants and nests:** roots closed 2.1% of the playtest's dug cells and wood
+  or root stopped a median 19% of dig attempts at solid ground; **a tree and a
+  conifer planted at the doors take the nest site (82% of digs hit wood, one
+  nest never passed 31 cells) and still give the biggest colonies** (median peak
+  208 against 124 adults, 21% of trips bringing food home against 13%). With no
+  ants and the rain off the stand dies out by itself (5-16 plants at 1.5M
+  ticks). **Measured on the playtest's own build `1bb916c1` (LAY_BRAKE and
+  RECRUIT, not on main).** Says what it does not establish: no ant was traced,
+  so *why* an edible leaf unequalises the banks is open. **The report is on
+  main (brought docs-only 2026-10-10); `examples/replay.rs` is only on
+  `claude/epic-bell-w6za1y`.**
+
 ## Worldgen and world  ·  `outdoor`
 
 **The 2026-08-29 revamp program** — six audits and a plan, written the day
@@ -5486,6 +5513,93 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   adjudication. Pick it up from this file — it
   carries what a later session must not re-derive, including the two rubric
   rules that are under-applied by default.
+- [boom-and-bust-2026-10-08/README.md](boom-and-bust-2026-10-08/README.md) —
+  **the owner's 2026-10-07 playtests reproduced headless (`boom_bust.ron`) and
+  traced to every ant's bank.** A colony beside a big food store that never
+  comes back grows to 400-500 ants, eats it all in ~40k frames, then every
+  adult dies within 3k-20k frames of the last bite: the median ant holds
+  107-169 J (about 1,500 frames of living), the store 1-6 cells, and 174-201
+  brood are left to starve. `edible` changes nothing. Basis for the birth
+  brakes (`SATED`, `FEED_FIRST`) and a banking store as a third candidate.
+- [birth-brakes-proposal-2026-10-08.md](birth-brakes-proposal-2026-10-08.md) —
+  **proposal: two brakes on births, after the owner's boom-and-bust
+  playtests.** The appetite dial (`digest_hunger_weight`, a full ant keeps
+  its surplus in the crop) re-tested: 0.5 slows births, stretches food and
+  stopped near-collapses on the small steady income (4 seeds; **did not
+  replicate at 40 cells**, see the appetite sweep below); 1.0 stops breeding.
+  `FEED_FIRST` (feed hungry larvae before laying) proposed here; built and
+  inert, see the feed-first report below.
+- [appetite-sweep-2026-10-08/README.md](appetite-sweep-2026-10-08/README.md) —
+  **steady food at a colony of a few hundred (`steady_income` at 40 cells per
+  1,000 frames): the appetite dial does not steady the colony, `edible` does,
+  and the stack starves ants on the surface.** Weights 0-0.75 in the owner's
+  playtest switches and main's defaults, 4 seeds: fewer eggs and starving
+  larvae on every seed, but the swing and adult starvation move both ways,
+  so the dial stays a lab knob at 0. The playtest colony's dips are the store
+  crumb trap (242 of 243 deaths in the worst pulse inside the nest); with
+  `edible`, deaths in the nest fall to 1-9 a run and no seed dips below 221.
+  What is left is ~7x main's surface starvation, among ants that had reached
+  the heap; a leave-one-out of the stack's switches is next.
+- [feed-first-2026-10-08/README.md](feed-first-2026-10-08/README.md) —
+  **`FEED_FIRST` (no egg while a starving larva is in reach): built, shipped
+  off, inert.** On `steady_income` with the playtest switches it held eggs on
+  1 seed of 4 at reach 6 and none at reach 2. Traced per larva: brood falls
+  a median 38-40 rows down the column under the door and starves in the deep
+  nest, 31 cells from the nearest egg laid meanwhile. The larvae starve
+  because they fall away from every rich ant, the "ants live in the nest"
+  problem rather than a birth brake.
+- [mound-diggers-2026-10-08/README.md](mound-diggers-2026-10-08/README.md) —
+  **who digs the holes in the mound (the owner's playtest request), traced
+  per ant: idle fed foragers in its hollows, not a few rogue diggers.** About
+  1,100 ants a seed cut a cell or a few (top ten 4-5% of cuts), with no
+  sense of being at home (`at_nest` 1-2%). The one dig wire not gated to the
+  nest, `SurfaceCurvature -> Dig`, reads every hollow of a porous mound as a
+  face: cut rate x2,000 from flat to hollow. The roof never refuses above the
+  ground line and the heap cue stands aside for covered cells; soil sliding
+  into each cut pushes the hole upward, so 220-300 covered holes build up.
+  On main 85% of all cuts are mound cuts. The three levers, built as
+  `MOUND_DIG` and measured: every one that stops the digging costs the
+  colony a third to a half, because the hollow mound is its way to the food;
+  shipped off, a dead end until a rule can tell a passage from a scrape.
+- [brood-and-the-dig-2026-10-09.md](brood-and-the-dig-2026-10-09.md) —
+  **what a larva does to an ant's digging, and whether that is why the nest is
+  one room (the owner's question).** A larva cannot be cut, but the ground
+  under it can, and a nest worker's face turn does cut it; the larva drops into
+  the pit and lives. The dig reads it as ground in two places only: the heap
+  cue's sky test (inert: one dig roll in 6,000) and the curvature sense (a larva
+  in reach on 56-61% of rolls). Hiding both, `BROOD_BLIND` (shipped off),
+  halves the dig-down turn (7.3-8.8% -> 3.8%) and leaves the nest one room
+  (8 of 8 runs at 100k and 200k, 7 of 8 at 300k, four paired seeds), and
+  digging is not drawn to brood (0.31x what the walls offer). What the diggers
+  do: stay put and cut a 9x9 patch, a third of a cell of advance per cut, on the
+  rim, trimming bumps: persistence without advance. Five always-on counters and
+  `scripts/deeptrace_pairs.py` (with a selftest) are the instruments.
+  **The report alone is on main (brought docs-only 2026-10-10); the switch,
+  counters, guards and `deeptrace_pairs.py` are only on
+  `claude/dazzling-bohr-9pa49e`.**
+- [stack-leave-one-out-2026-10-08/README.md](stack-leave-one-out-2026-10-08/README.md) —
+  **the playtest stack one switch at a time on steady food: the nest store
+  starves the foragers.** Taking `NEST_STORE` out cuts surface starvation on
+  every seed (380/341/171/195 -> 109/173/101/87) and raises the colony's
+  floor; `CARRY_HOME`, `NEEDS_FIRST` and `WAY_FOOT` each protect (surface or
+  nest); `DOOR_COLUMN` and `LAY_BAR` move nothing consistently. Traced: the
+  store's extra starvers go hungry at or past the heap, after the food has
+  gone into the store, and its pull never reaches them (`smell=10`, the heap
+  30 columns out). A wider reach (`smell=40`, or none) does not fix it: the
+  colony is smaller on every seed either way, and no store is best on every
+  seed. But on endless food (heap 90) the store makes the colony 15-30%
+  larger, so it is a trade for the owner; both bundles beat main by far,
+  at heap 30 too (every seed), where the store's edge is weaker.
+- [handoff/PLAN-2026-10-07.md](handoff/PLAN-2026-10-07.md) — **the account
+  handoff and plan for the ant program, 2026-10-07 (main 9c362015); start here.**
+  Written for a new account with only the repo: the owner's goals, every working
+  rule that lived only in project memory (trace before the next fix, keep failed
+  experiments findable, the 12-seed merge bar, reporting rules, numbers that
+  misled), the stack of six switches heading to main and what each did, what
+  failed or is inconclusive and why, every live branch, and the ordered next
+  steps (stack on main, food caps births, why ants live in the mound, rooms). The
+  key write-ups and readers it cites are copied beside it in `handoff/2026-10-07/`.
+  Supersedes the 2026-10-02 handoff below for the ant program.
 - [handoff/HANDOFF-2026-10-02.md](handoff/HANDOFF-2026-10-02.md) — **the
   account handoff for the ant program, 2026-10-02 (main e8adc960).** The owner's
   standing rulings, how the coordinator, the nest and breeding lanes and the

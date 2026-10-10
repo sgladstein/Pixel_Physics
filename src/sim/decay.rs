@@ -268,14 +268,32 @@ pub fn tick(world: &mut World, site: &ActiveSite) -> Vec<ActiveSite> {
         world.energy_ledger.meat_lost += worth;
     }
     let yield_fraction = decay_yield_override().unwrap_or(material_yield);
+    // **Labelled for `OrganismState::last_loss`**, in case this cell is an
+    // organism's last: a `pip` or `windfall` is a seed organism's own cell,
+    // and this channel rotting it was the largest unlabelled seed death on
+    // the played bed when the death record was first traced (2026-10-06:
+    // 135-426 herb, scrambler and shrub seeds a 100k-frame run booked
+    // `Unknown`). Read only if the write empties a living organism, so a
+    // label on ash or litter is never read. Decided before the yield roll
+    // and drawing nothing, so the stream is untouched.
+    let owner = cell.organism_id();
+    world.loss_context = (owner != 0).then(|| {
+        if world.organism(owner).is_some_and(|s| s.dormant_seed) {
+            crate::sim::organism::DeathCause::SeedRotted
+        } else {
+            crate::sim::organism::DeathCause::Withered
+        }
+    });
     if yield_fraction < 1.0 && !world.rng.chance(yield_fraction) {
         world.set(x, y, Cell::EMPTY);
+        world.loss_context = None;
         world.rotted_to_nothing += 1;
         // No reseed roll. The cell it would have seeded onto no longer
         // exists, and a seed wants ground under it.
         return Vec::new();
     }
     world.set(x, y, Cell::new(into, shade));
+    world.loss_context = None;
     world.rotted_to_solid += 1;
     // **Did this reach the end of the chain, or only take a step along it?**
     // `deadleaf -> litter` leaves a solid and produces no soil; `litter ->

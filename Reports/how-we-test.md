@@ -8,6 +8,11 @@ tools and traps already written up elsewhere rather than repeating them;
 [`instruments.md`](instruments.md) stays the authority on what each binary
 does, and `.claude/rules/measuring-the-world.md` on world-wide metric traps.*
 
+**Picking up the ant work in a new session?** Read
+[`handoff/PLAN-2026-10-07.md`](handoff/PLAN-2026-10-07.md) first: the owner's
+goals and working rules, what is on main and on branches, and the ordered next
+steps (2026-10-07).
+
 **The short version.** Freeze mutation, land the evolved founder in the dry
 goal box, run four seeds side by side, read 100k–300k means. Judge a fix by
 the number it was built to move, look at a picture, then trace what it cost
@@ -122,6 +127,12 @@ frame cost) are in `.claude/rules/measuring-the-world.md`; method traps
   column over and under the door stand on brood (2026-10-06), so a solid column
   of ants reads as ants that will not walk into it. Read `walk=1`'s `nb` column
   (`B`) or `broodstep.py`, not the picture.
+- **`starvewhere.py` "encased" before 2026-10-07** counted depth, not soil.
+  Its flood stopped at row 175, so every starver deeper than 15 rows read
+  encased whatever was round it: 50 of 51 on LAY_BAR=body seed 1 with the
+  smell store, 0 after the fix (all 50 "door open"). Re-run the tool before
+  quoting an older "encased". And "door open" says a path joins the ant to
+  the door, not that it can climb it: a body with nothing beside it falls.
 - **`digbox` `SCORE`** — read its `n=` first.
 - **Room censuses** on a wet floor (water splits one room into "chambers"),
   or split by a brood pile; brood pockets under 30 cells are not rooms;
@@ -148,6 +159,8 @@ frame cost) are in `.claude/rules/measuring-the-world.md`; method traps
 | Is there a clear way into the nest through the mound? | `scripts/deeptrace_tools/moundway.py`: the shortest way in from outside, its narrowest neck, how full of ants it is, the mound's dead ends, and maps with no way in at all (`--png` draws it with the ants hidden) |
 | Do ants step into the brood, or does something refuse them? | `deeptrace walk=1 digfrom=F` + `scripts/deeptrace_tools/broodstep.py` (steps offered against taken, brood against open ground by direction, beside what the chooser's scores predict; what was refused and why) and `fedboundary.py` (fed and hungry ants by what is straight below them, row band by row band) |
 | Does a dig rule's input reach the ants that dig? | `deeptrace dig=1` + `scripts/deeptrace_tools/digtrace.py`: each dig decision by where the ant stood and by the Crowding it read |
+| How far does each plant get, and what stops it? (seed, germinated, grown to seed size, seeded; what each one died of) | `planttrace life=1` + `scripts/planttrace.py` (`funnel`, `deaths`, `spells`, `tips` for why growing tips stopped, `life ID` for one plant's biography); `cull=F` is the known-answer control |
+| Why did this tip go where it went, or stop where it stopped? | `planttrace growlog=1 only=ID` + `scripts/planttrace.py tip OUT ID [X Y]` (one tip, visit by visit); `check` proves the log is the rule's own arithmetic, `--drop TERM` its positive control; `shots=F,F at=x,y,w,h` photographs the same run |
 | Digging in a simple box | `digbox` |
 | The nest door and its pictures | `nestdoor` (`shots=` renders with the game's renderer) |
 | Foraging and trails | `labforage`, `trailprofile`, `trailfollow` |

@@ -1286,6 +1286,19 @@ pub enum CreatureColour {
     /// One colour per `OrganismState::colony`, in placement order: the
     /// first group you put down wears the first colour.
     Colony,
+    /// **What each worker is doing for the colony** (`creature::ant_job`):
+    /// forager, nest worker, nurse, or layer (an adult rich enough to lay --
+    /// there is no queen, so these are the ants that lay, drawn brightest).
+    /// Owner's playtest note, 2026-10-08: *"the nurse, nest worker, all ant
+    /// types should be visibly different"*.
+    Job,
+    /// **What state it is in**: hungry (under `LEAN_LINE` of its grant),
+    /// carrying food, carrying soil, or fed.
+    State,
+    /// **How much energy it holds**, on a fixed dark-to-bright ramp
+    /// ([`energy_ramp`]): the same bank is the same colour on every ant and
+    /// every frame, so a rich ant on the mound reads as rich.
+    Energy,
 }
 
 impl CreatureColour {
@@ -1293,8 +1306,22 @@ impl CreatureColour {
         match self {
             CreatureColour::Off => CreatureColour::Species,
             CreatureColour::Species => CreatureColour::Colony,
-            CreatureColour::Colony => CreatureColour::Off,
+            CreatureColour::Colony => CreatureColour::Job,
+            CreatureColour::Job => CreatureColour::State,
+            CreatureColour::State => CreatureColour::Energy,
+            CreatureColour::Energy => CreatureColour::Off,
         }
+    }
+
+    /// Whether this mode colours each animal by its own condition rather
+    /// than by its group. These have no per-group hue, so `group_colour`
+    /// returns `None` for them and a group legend falls back to its own
+    /// marker.
+    pub fn per_animal(self) -> bool {
+        matches!(
+            self,
+            CreatureColour::Job | CreatureColour::State | CreatureColour::Energy
+        )
     }
 
     pub fn label(self) -> &'static str {
@@ -1302,6 +1329,9 @@ impl CreatureColour {
             CreatureColour::Off => "OWN COLOUR",
             CreatureColour::Species => "BY SPECIES",
             CreatureColour::Colony => "BY COLONY",
+            CreatureColour::Job => "BY JOB (AMBER FORAGER, BLUE NEST WORKER, GREEN NURSE, PINK LAYER)",
+            CreatureColour::State => "BY STATE (RED HUNGRY, GREEN CARRYING FOOD, ORANGE CARRYING SOIL, GREY FED)",
+            CreatureColour::Energy => "BY ENERGY (DARK BLUE EMPTY, BLUE TO YELLOW FILLING, WHITE RICH ENOUGH TO LAY)",
         }
     }
 }
@@ -1445,7 +1475,90 @@ pub fn group_colour(mode: CreatureColour, species: organism::SpeciesId, colony: 
         CreatureColour::Off => None,
         CreatureColour::Species => Some(group_palette(species.0 as usize)),
         CreatureColour::Colony => Some(if colony == 0 { GROUP_NONE } else { group_palette(colony as usize - 1) }),
+        CreatureColour::Job | CreatureColour::State | CreatureColour::Energy => None,
     }
+}
+
+/// `BY JOB`'s four colours: forager, nest worker, nurse, layer. Hues the bed
+/// does not use (the [`GROUP_COLOURS`] rule), and the layer the brightest,
+/// near white-pink, so the few ants that lay stand out of a crowd.
+pub const JOB_COLOURS: [[f32; 3]; 4] = [
+    [255.0, 196.0, 40.0],  // forager: amber
+    [70.0, 160.0, 255.0],  // nest worker: blue
+    [120.0, 255.0, 90.0],  // nurse: green
+    [255.0, 190.0, 255.0], // layer: bright pink, the brightest of the four
+];
+
+/// `BY STATE`'s four colours: hungry, carrying food, carrying soil, fed.
+pub const STATE_COLOURS: [[f32; 3]; 4] = [
+    [255.0, 50.0, 50.0],   // hungry: red
+    [120.0, 255.0, 90.0],  // carrying food: green
+    [255.0, 140.0, 30.0],  // carrying soil: orange
+    [170.0, 170.0, 180.0], // fed: grey
+];
+
+/// **`BY ENERGY`'s ramp: a fixed scale, never relative to the colony.**
+/// `CLAUDE.md`'s rule for a debug readout -- a full replace on a fixed
+/// dark-to-bright ramp, never a blend into the cell's own colour -- so the
+/// same bank is the same colour on every ant and every frame. **The top of
+/// the scale is the species' laying bar** (`lay_at`, 1,100 J for the ant), so
+/// white means "rich enough to lay" and agrees with `BY JOB`'s layers. Twice
+/// the bar was tried first and drew nearly the whole colony dark blue on the
+/// boom-and-bust box at 40k (most banks are a few hundred J), which is a ramp
+/// spending its range on a band almost nobody reaches. `t` is the bank over
+/// that top, clamped to 0..1.
+pub fn energy_ramp(t: f32) -> [f32; 3] {
+    const STOPS: [[f32; 3]; 4] = [
+        [20.0, 20.0, 90.0],
+        [40.0, 120.0, 230.0],
+        [255.0, 220.0, 60.0],
+        [255.0, 255.0, 255.0],
+    ];
+    let t = t.clamp(0.0, 1.0) * (STOPS.len() - 1) as f32;
+    let i = (t as usize).min(STOPS.len() - 2);
+    let f = t - i as f32;
+    let (a, b) = (STOPS[i], STOPS[i + 1]);
+    [
+        a[0] + (b[0] - a[0]) * f,
+        a[1] + (b[1] - a[1]) * f,
+        a[2] + (b[2] - a[2]) * f,
+    ]
+}
+
+/// The colour a per-animal mode ([`CreatureColour::per_animal`]) gives one
+/// animal, or `None` for a mode that is not one, an animal with no creature
+/// def, or brood. Read only.
+pub fn animal_readout_colour(mode: CreatureColour, world: &World, state: &organism::OrganismState) -> Option<[f32; 3]> {
+    if !mode.per_animal() || state.brood.is_some() {
+        return None;
+    }
+    let def = world.species.get(state.species).creature.as_ref()?;
+    Some(match mode {
+        CreatureColour::Job => {
+            JOB_COLOURS[match crate::sim::creature::ant_job(world, def, state) {
+                crate::sim::creature::AntJob::Forager => 0,
+                crate::sim::creature::AntJob::NestWorker => 1,
+                crate::sim::creature::AntJob::Nurse => 2,
+                crate::sim::creature::AntJob::Layer => 3,
+            }]
+        }
+        CreatureColour::State => {
+            let i = if state.energy < crate::sim::creature::LEAN_LINE * def.start_energy {
+                0
+            } else if state.crop.is_some_and(|c| c.cells > 0) {
+                1
+            } else if state.spoil.is_some() {
+                2
+            } else {
+                3
+            };
+            STATE_COLOURS[i]
+        }
+        _ => {
+            let lay_at = def.brood.as_ref().map_or(def.reproduce_threshold, |b| b.lay_at);
+            energy_ramp(state.energy / lay_at.max(1.0))
+        }
+    })
 }
 
 /// **The founding-line palette: six hues, and six is a decision.**
@@ -3380,6 +3493,9 @@ pub struct Renderer {
     /// `Off` by default and free then, the same shape as `field_overlay`
     /// below.
     pub food: crate::food_road::FoodRoad,
+    /// The dig heat map (`F10` in the lab) -- see [`crate::dig_marks`].
+    /// Observed by the lab's tick loop, drawn here.
+    pub dig: crate::dig_marks::DigMarks,
     /// This frame's harvest-tile colours, resolved once per `draw` rather
     /// than per pixel — a tile is 64 cells and each carries one entry per
     /// colony that has taken from it, so resolving the dominant colony in the
@@ -3859,6 +3975,7 @@ impl Renderer {
             last_player_pose: None,
             idle_anim: idle_anim_mode(),
             food: crate::food_road::FoodRoad::new(),
+            dig: crate::dig_marks::DigMarks::new(),
             food_tiles: std::collections::HashMap::new(),
             idle_tracks: std::collections::HashMap::new(),
             idle_extra: std::collections::HashMap::new(),
@@ -4114,6 +4231,14 @@ impl Renderer {
     /// real running plant answers.
     pub fn cycle_organism_overlay(&mut self) {
         self.organism_overlay = self.organism_overlay.next();
+    }
+
+    /// `F7` in the lab — step through the food-economy channels. See
+    /// [`crate::food_road::FoodOverlay`].
+    pub fn cycle_dig_overlay(&mut self) {
+        // The map is dropped when it goes off (`DigMarks::observe`), so
+        // coming back on starts empty and fills as the colony digs.
+        self.dig.mode = self.dig.mode.next();
     }
 
     /// `F7` in the lab — step through the food-economy channels. See
@@ -7288,7 +7413,16 @@ impl Renderer {
         {
             if let Some(state) = world.organism(cell.organism_id()) {
                 let homeless = world.species.get(state.species).creature.as_ref().is_some_and(|c| c.nest.is_empty());
-                if let Some(group) = group_colour(self.creature_colour, state.species, state.colony, homeless) {
+                let readout = animal_readout_colour(self.creature_colour, world, state);
+                if let Some(rgb) = readout {
+                    // **A full replace, flat over the whole body** -- these
+                    // are readouts, and the luminance-ratio shading the group
+                    // hues keep below would make a readout a function of the
+                    // material it is drawn over.
+                    for (c, g) in base.iter_mut().take(3).zip(rgb) {
+                        *c = g.round().clamp(0.0, 255.0) as u8;
+                    }
+                } else if let Some(group) = group_colour(self.creature_colour, state.species, state.colony, homeless) {
                     // **The group's colour, at this cell's own brightness.**
                     // A material palette is three shades of one brown and
                     // the body's countershading is written in which shade
@@ -7321,7 +7455,7 @@ impl Renderer {
                 // what the owner asked to see, and a dig pellet is put down
                 // almost at once anyway (measured: 646 digs, 646 dumps).
                 let cue = carry_cue();
-                if cue != CarryCue::Off {
+                if cue != CarryCue::Off && readout.is_none() {
                     // The crop's capacity is the species', so this needs the
                     // creature def -- one `Vec` index behind the species id
                     // the state already carries, on the ~150 cells that got
@@ -8770,6 +8904,19 @@ impl Renderer {
     /// see [`crate::food_road::FoodRoad::harvest_on_ground`] for the box it
     /// was drawing before.
     fn apply_field_overlay(&self, world: &World, x: i32, y: i32, ground: bool, base: [u8; 4]) -> [u8; 4] {
+        // **The dig heat map first**: a cut cell is empty, so it never
+        // competes with the harvest wash (ground only), and a fresh hole is
+        // the one thing on screen it has to answer. A full replace, like the
+        // food road below. `describes` is false whenever it is off.
+        if self.dig.describes(world) {
+            if let Some(rgb) = self.dig.mark_at(x, y, world.frame, !ground) {
+                let mut out = base;
+                for (c, r) in out.iter_mut().take(3).zip(rgb) {
+                    *c = r.round().clamp(0.0, 255.0) as u8;
+                }
+                return out;
+            }
+        }
         // **The food channels come first, and they live in this function
         // rather than beside it because this is the one funnel both cell
         // classes already pass through** -- `cell_colour` calls it once for
@@ -11708,6 +11855,58 @@ mod tests {
         assert_eq!(group_colour(CreatureColour::Colony, organism::SpeciesId(0), 0, true), None, "a species with no nest keeps its own colour in BY COLONY");
         assert_eq!(group_colour(CreatureColour::Colony, organism::SpeciesId(0), 1, false), Some(GROUP_COLOURS[0]), "colony 1 wears the first colour");
         assert_eq!(group_colour(CreatureColour::Off, organism::SpeciesId(0), 1, false), None);
+    }
+
+    /// **The per-animal readouts: a fixed ramp that only ever brightens, and
+    /// categorical colours a person can tell apart.** `BY ENERGY` is read as
+    /// "brighter is richer", so a ramp that dipped anywhere would show a
+    /// richer ant as a poorer one; and the four job and four state colours
+    /// are each meant to be told apart at a glance on dark soil.
+    #[test]
+    fn per_animal_readouts_brighten_monotonically_and_stay_apart() {
+        let luma = |c: [f32; 3]| c[0] * 0.299 + c[1] * 0.587 + c[2] * 0.114;
+        let mut last = -1.0;
+        for i in 0..=100 {
+            let l = luma(energy_ramp(i as f32 / 100.0));
+            assert!(
+                l >= last,
+                "the energy ramp darkens at t = {}: {l:.1} after {last:.1}",
+                i as f32 / 100.0
+            );
+            last = l;
+        }
+        assert_eq!(energy_ramp(-1.0), energy_ramp(0.0), "below empty clamps to empty");
+        assert_eq!(energy_ramp(9.0), energy_ramp(1.0), "above the top clamps to the top");
+        for set in [JOB_COLOURS, STATE_COLOURS] {
+            for a in 0..set.len() {
+                for b in a + 1..set.len() {
+                    let d = (0..3).map(|k| (set[a][k] - set[b][k]).powi(2)).sum::<f32>().sqrt();
+                    assert!(
+                        d > 60.0,
+                        "two readout colours are only {d:.1} apart: {:?} {:?}",
+                        set[a],
+                        set[b]
+                    );
+                }
+            }
+        }
+        // The layer is the brightest job, so the few ants that lay stand out.
+        let brightest = JOB_COLOURS.iter().map(|&c| luma(c)).fold(0.0, f32::max);
+        assert_eq!(
+            luma(JOB_COLOURS[3]),
+            brightest,
+            "the layer must be the brightest job colour"
+        );
+        // The readouts carry no group hue: a group legend falls back to its own marker.
+        for mode in [CreatureColour::Job, CreatureColour::State, CreatureColour::Energy] {
+            assert!(mode.per_animal());
+            assert_eq!(
+                group_colour(mode, organism::SpeciesId(0), 1, false),
+                None,
+                "{mode:?} must not hand out a group hue"
+            );
+        }
+        assert!(!CreatureColour::Colony.per_animal());
     }
 
     #[test]

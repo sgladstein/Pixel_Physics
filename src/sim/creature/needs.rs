@@ -1281,7 +1281,7 @@ fn hungry_act(
         Some(load) if !load.store => {
             // Still holding soil: walled in, it packs the pellet behind as it
             // cuts on; otherwise it found nowhere to put it down and waits.
-            if walled_in(world, organism, head) && pack_behind(world, organism, def, head, load) {
+            if walled_in(world, organism, head) && pack_behind(world, organism, def, head, load, false) {
                 world.needs.as_mut().expect("walking").counts.escape_packs += 1;
                 mind.cut = CUT_PACK;
                 return Some(Did {
@@ -1388,7 +1388,7 @@ fn out_target(world: &World, organism: OrganismId, head: (i32, i32), mind: &Mind
 fn mound_way_out(world: &World, organism: OrganismId, head: (i32, i32)) -> Option<(i32, i32)> {
     let site = world.nearest_nest_site(head.0, head.1)?;
     let way = world.mound_ways.iter().find(|w| w.site == site)?;
-    step_down_way(way, organism, head)
+    step_down_way(|x, y| way.at(x, y), organism, head)
 }
 
 /// **How far out this ant is, on the measure `kind` names** -- smaller is

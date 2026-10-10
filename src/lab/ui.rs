@@ -399,6 +399,8 @@ pub enum Action {
     CycleLifeOverlay,
     /// Cycle the food road and harvest map (`F7`) -- `food_road`.
     CycleFoodOverlay,
+    /// The dig heat map (`F10`) on or off -- `dig_marks`.
+    CycleDigOverlay,
     /// The nest cutaway (`F8`) on or off -- `render::Renderer::nest_cutaway`.
     ToggleCutaway,
     /// The battle view (`F9`) on or off -- `battle::BattleView`.
@@ -690,6 +692,13 @@ pub enum Tool {
     Cull,
     /// Paint soil, at field capacity.
     Soil,
+    /// **Dig a tunnel that stands** (owner, 2026-10-09: *"a tool in the lab
+    /// that lets me dig like ants where I can make a standing tunnel that
+    /// doesn't collapse"*). Drag through ground: it clears the diggable cells
+    /// under the brush and packs the soil round them, the way an ant's cut
+    /// lines its gallery (`creature::hand_dig`). The eraser clears too, but
+    /// leaves loose soil overhead that falls straight back in.
+    Dig,
     /// Paint water, full.
     Water,
     /// **Put the armed jar back in the box**, as itself or drifted by the
@@ -865,7 +874,7 @@ pub const TOOLS: [Tool; 4] = [Tool::Look, Tool::Plant, Tool::Colony, Tool::Cull]
 /// **Everything a player puts into the box by hand**, in the order the bar's
 /// `ADD` cell steps through them. Material first (soil, water, food), then
 /// the fixtures (wall, lamp), then the trail, then fire. See [`TOOLS`].
-pub const PLACEABLE: [Tool; 7] = [Tool::Soil, Tool::Water, Tool::Food, Tool::Wall, Tool::Lamp, Tool::Scent, Tool::Fire];
+pub const PLACEABLE: [Tool; 8] = [Tool::Soil, Tool::Dig, Tool::Water, Tool::Food, Tool::Wall, Tool::Lamp, Tool::Scent, Tool::Fire];
 
 impl Tool {
     /// Whether this tool is one of [`PLACEABLE`], the `ADD` cell's list.
@@ -882,6 +891,7 @@ impl Tool {
             Tool::Colony => "COLONY",
             Tool::Cull => "CULL",
             Tool::Soil => "SOIL",
+            Tool::Dig => "DIG",
             Tool::Water => "WATER",
             Tool::Wall => "WALL",
             Tool::Food => "FOOD",
@@ -932,6 +942,8 @@ impl Tool {
             Tool::Lamp => "U",
             // Reached only through the `ADD` cell, whose key this is.
             Tool::Fire => "B",
+            // The same, and one press after soil: every letter is taken.
+            Tool::Dig => "B",
         }
     }
     /// **Whether this tool puts animals in the box.** The two that do share a
@@ -955,7 +967,7 @@ impl Tool {
     /// (`Lab::press`), which `is_brush`'s continuous-paint model has no
     /// slot for.
     pub fn is_brush(self) -> bool {
-        matches!(self, Tool::Soil | Tool::Water | Tool::Food | Tool::Scent)
+        matches!(self, Tool::Soil | Tool::Dig | Tool::Water | Tool::Food | Tool::Scent)
     }
     fn note(self) -> &'static str {
         match self {
@@ -964,6 +976,7 @@ impl Tool {
             Tool::Colony => "PUT ANIMALS IN THE BOX. THE CHIP TO THE RIGHT SAYS WHICH ANIMAL -- ANT, BEETLE, WORM -- AND THE STOCK DIAL BESIDE IT SAYS HOW MANY. AT 1 IT IS ONE ANIMAL WHERE YOU CLICK, WITH NO NEST. ABOVE 1 IT IS A COLONY AT THE SURFACE UNDER THE CLICK, ARRIVING WITH A PATCH OF NEST TO WALK HOME TO -- WITHOUT ONE THERE IS NO GRADIENT AND NOBODY FORAGES. A HUNTER THAT EATS ONLY FLESH, LIKE THE BEETLE, NEVER COMES AS A COLONY: ABOVE 1 THEY ARE SCATTERED ALONE OVER THE BED, AWAY FROM EVERY NEST.",
             Tool::Cull => "KILL THE ORGANISM YOU CLICK. IT IS MARKED SENESCENT, NOT DELETED, SO IT ROTS DOWN OVER ITS SPECIES HALF-LIFE AND FEEDS WHATEVER IS STILL ALIVE. THIS IS THE SELECTION LEVER: WHAT YOU CULL DOES NOT BREED.",
             Tool::Soil => "PAINT SOIL, AT FIELD CAPACITY -- DAMP ENOUGH FOR A ROOT, NOT SO WET IT SLUMPS. IT WILL NOT PAINT OVER STONE OR OVER A LIVING PLANT.",
+            Tool::Dig => "DRAG THROUGH GROUND TO DIG A TUNNEL THAT STANDS. IT CLEARS SOIL UNDER THE BRUSH AND PACKS THE SOIL AROUND IT, THE WAY AN ANT TAMPS ITS GALLERY WALLS -- SO THE ROOF HOLDS. IT WILL NOT DIG STONE, A WALL, A PLANT OR AN ANIMAL. THE ERASER (RIGHT-DRAG) CLEARS TOO, BUT ITS ROOF FALLS IN.",
             Tool::Water => "PAINT WATER, FULL. IT RUNS, IT SOAKS INTO SOIL, AND TOO MUCH OF IT DROWNS ROOTS -- WHICH IS AN EXPERIMENT, NOT A MISTAKE.",
             Tool::Wall => "DROP A WALL FLOOR TO CEILING IN THE COLUMN YOU CLICK, OR CLICK ONE YOU PLACED TO TAKE IT OUT. A WALL IS WHAT MAKES TWO POPULATIONS IN ONE BOX INTO TWO POPULATIONS: THEY CANNOT MIX, SO THEY CAN DRIFT APART. IT CUTS WHATEVER IS IN THE WAY, WHICH IS THE POINT -- A WALL THROUGH A STAND IS A STAND SPLIT IN HALF. IT SURVIVES A REBUILD.",
             Tool::Food => "PUT FOOD ON THE GROUND WHERE YOU PAINT. IT IS WORTH AS MUCH AS A FALLEN FRUIT, IT FALLS AND PILES UP LIKE ONE, AND IT NEVER ROTS -- IT STAYS UNTIL SOMETHING EATS IT. A COLONY WITH FOOD BESIDE THE NEST BREEDS HARD; THE SAME COLONY LEFT TO FORAGE THE SEALED BED MOSTLY DOES NOT. THIS IS HOW YOU TELL THOSE TWO APART.",
@@ -3360,6 +3373,16 @@ pub struct Ui {
     /// every frame, so the cell page follows the animal instead of the ground
     /// and every verb already on that page keeps working unchanged.
     pinned: Option<roster::Individual>,
+    /// **The pinned ant's last walking decision** (`creature::DecisionRow`),
+    /// for the cell page's `WHY` group -- the owner's *"is there a way to view
+    /// the ants' motivation ... can we visualize behavior/decision making?"*
+    /// (2026-10-08). Fed by `Lab::read_reasons` from `World::decision_log`;
+    /// `None` until the pinned ant has decided something since it was pinned,
+    /// and whenever the box runs too fast to record it (`REASONS_MAX_SPEED`).
+    pub reasons: Option<crate::sim::creature::DecisionRow>,
+    /// Set while the box runs faster than the reasons are recorded at, so the
+    /// `WHY` group can say so instead of showing a stale row as current.
+    pub reasons_paused: bool,
     /// Whether the camera is chasing the pin.
     following: bool,
     /// The roster page's own clickable rectangles, for `params_bar`'s reason.
@@ -4719,6 +4742,8 @@ impl Ui {
                 "FALSE-COLOUR WHAT LIVING THINGS CARRY: PLANT HEALTH, CELL TYPE, GUT BIAS, FOUNDING LINES AND MORE. EACH CLICK STEPS TO THE NEXT."),
             Row::choice("FOOD ROAD", "F7", Action::CycleFoodOverlay,
                 "WHERE THE ANIMALS WALK AND HAUL FOOD, AND WHERE EACH COLONY'S FOOD COMES FROM. OFF, ROAD, HARVEST, BOTH."),
+            Row::choice("DIG MAP", "F10", Action::CycleDigOverlay,
+                "WHERE THE COLONY HAS BEEN DIGGING: EVERY CELL CUT IN THE LAST 20,000 FRAMES, WHITE WHEN JUST CUT, FADING THROUGH CYAN TO DARK TEAL. A HOLE FILLED IN AGAIN STOPS SHOWING."),
             Row::choice("BATTLE VIEW", "F9", Action::ToggleBattle,
                 "WHEN TWO COLONIES OR A COLONY AND A PREDATOR SHARE THE BOX: A CROSS WHERE EACH ANT WAS KILLED (A RED RING IF A PREDATOR DID IT), A BAND ALONG THE TOP IN THE COLOUR OF WHOEVER HOLDS THAT GROUND, AND A SCOREBOARD WITH ANTS ALIVE AND FOOD BROUGHT IN OVER TIME."),
             Row::choice("NEST CUTAWAY", "F8", Action::ToggleCutaway,
@@ -5902,6 +5927,69 @@ impl Ui {
         out
     }
 
+    const WHY_NOTE: &str = "WHAT THIS ANT WEIGHED ON ITS LAST STEP AND WHAT IT CHOSE: THE RULE PULLING ITS WALK, WHETHER IT DUG AND WHY NOT, AND FOUR OF THE THINGS ITS BRAIN WAS SHOWN. ONLY WHILE IT IS PINNED, AND ONLY AT 16X OR SLOWER.";
+
+    /// **The `WHY` group: what the pinned ant's last decision weighed and
+    /// chose.** Every number is the engine's own, read off the decision it
+    /// just made (`creature::DecisionRow`), not recomputed here -- so the
+    /// page can never disagree with what the ant did. `None` unless the pin
+    /// is on this organism.
+    fn why_rows(&self, id: OrganismId) -> Option<Vec<params::SpecimenRow>> {
+        use crate::sim::creature as cr;
+        if self.pinned.is_none_or(|p| p.id != id) {
+            return None;
+        }
+        let mut out: Vec<params::SpecimenRow> = Vec::new();
+        let mut row = |l: &str, v: String, n: &str| out.push((l.into(), v, n.into()));
+        let Some(r) = self.reasons.filter(|r| r.id == id) else {
+            row("REASONS", if self.reasons_paused { "SLOW TO 16X TO READ".into() } else { "WAITING FOR ITS NEXT MOVE".into() },
+                "WHAT THIS ANT WEIGHED ON ITS LAST STEP IS RECORDED ONLY WHILE IT IS PINNED AND THE BOX RUNS AT 16X OR SLOWER -- FASTER THAN THAT, EVERY ANT'S EVERY DECISION WOULD HAVE TO BE KEPT TO FIND THIS ONE'S.");
+            return Some(out);
+        };
+        let name = |names: &[&str], i: usize| names.get(i).copied().unwrap_or("?").to_uppercase();
+        row("DID", name(&cr::DECISION_OUTCOME_NAMES, r.outcome as usize),
+            "WHAT ITS LAST STEP ENDED IN: STEPPED, FELL, SWAPPED PLACES WITH A NESTMATE, TURNED BACK, STOOD STILL. FRAME AND ALL OF THE ROWS BELOW ARE FROM THAT SAME DECISION.");
+        row("PULLED BY", name(&cr::PULL_WHY_NAMES, r.pull_why as usize),
+            "THE ONE RULE STEERING ITS WALK, IF ANY: HOME TO LAY, HUNGRY OUT, BACK TO THE FACE IT WAS DIGGING, THE NEST STORE AND SO ON. NONE MEANS IT IS WANDERING ON ITS SENSES ALONE. ONLY ONE PULL CAN ACT AT A TIME, FIRST MATCH WINS.");
+        row(
+            "WANTS TO MOVE",
+            format!("{:.0}%", r.p_move * 100.0),
+            "THE CHANCE ITS BRAIN GAVE OF TAKING A STEP THIS TICK. LOW WHILE IT EATS, DIGS OR RESTS.",
+        );
+        row("DIG", format!("{} ({:.0}%)", name(&cr::DIG_WHY_NAMES, r.dig as usize), r.dig_p * 100.0),
+            "WHETHER IT DUG AND WHY NOT: NOT ASKED, TOO LEAN, LOST THE ROLL, THE HEAP CUE HELD IT, A ROOF OVERHEAD, NO GROUND IN FRONT, CUT (IT DUG), OR FACE (IT WENT BACK TO ITS FACE). THE PERCENT IS THE CHANCE IT WAS GIVEN.");
+        if r.dig_flags != 0 {
+            let mut f = Vec::new();
+            if r.dig_flags & cr::DIG_FLAG_DOWN != 0 {
+                f.push("AIMED DOWN");
+            }
+            if r.dig_flags & cr::DIG_FLAG_FACED != 0 {
+                f.push("TURNED TO A FACE");
+            }
+            if r.dig_flags & cr::DIG_FLAG_WIDENED != 0 {
+                f.push("WIDENED");
+            }
+            row(
+                "DIG TURNED",
+                f.join(", "),
+                "WHAT MOVED ITS DIG TARGET BEFORE IT WAS JUDGED.",
+            );
+        }
+        row(
+            "DROP",
+            format!(
+                "{} ({:.0}%)",
+                name(&cr::DROP_WHY_NAMES, r.drop as usize),
+                r.drop_p * 100.0
+            ),
+            "WHETHER IT SET DOWN WHAT IT WAS CARRYING, AND THE CHANCE IT WAS GIVEN.",
+        );
+        row("SENSES", format!("NEST {:.1} CROWD {:.1} FOOD {:.1} HUNGRY KIN {:.1}", r.at_nest, r.crowding, r.food_adjacent, r.kin_need),
+            "FOUR OF THE THINGS ITS BRAIN WAS SHOWN, EACH 0 TO 1: HOW MUCH IT FEELS AT THE NEST, HOW CROWDED IT IS, FOOD RIGHT BESIDE IT, AND NESTMATES OR BROOD NEARBY THAT NEED FEEDING.");
+        row("ENERGY", format!("{:.0} J", r.energy_j), "ITS BANK AT THAT DECISION.");
+        Some(out)
+    }
+
     fn inspect_rows(&self, world: &World, at: (i32, i32)) -> Vec<Row> {
         let (x, y) = at;
         let cell = world.get(x, y);
@@ -5921,9 +6009,12 @@ impl Ui {
             Row::value("ORGANISM", species, if organism.is_some() { GOOD } else { FAINT }, "THE SPECIES OF THE LIVING THING THIS CELL BELONGS TO, IF ANY. AN ANT IS TWO CELLS AND A TREE IS THOUSANDS; EITHER WAY THE CELL KNOWS WHICH ORGANISM OWNS IT."),
             Row::value("ENERGY", energy, VALUE, "THAT ORGANISM'S WHOLE-BODY ENERGY, NOT THIS CELL'S SHARE. WATCH IT WHILE THE BOX RUNS: A FORAGING ANT CLIMBS AND A STARVING ONE DOES NOT, AND A PLANT IN GOOD LIGHT BANKS CARBON FASTER THAN ITS BODY SPENDS IT."),
         ];
-        let sections = params::specimen_sections(world, cell.organism_id());
+        let mut sections = params::specimen_sections(world, cell.organism_id());
         if sections.is_empty() {
             return rows;
+        }
+        if let Some(why) = self.why_rows(cell.organism_id()) {
+            sections.push(("WHY", Self::WHY_NOTE, why));
         }
         rows.push(Row::gap());
 
@@ -10930,6 +11021,54 @@ mod tests {
                 }
                 assert_eq!(seen, 3, "{kingdom:?}: the header should carry CULL REST, the filter and BACK");
             }
+        }
+    }
+
+    /// **Every cause of death fits the HISTORY page's CAUSE column**, which
+    /// is sized from one sample label rather than from the list. Six plant
+    /// causes were appended on 2026-10-06 and the first wording of one of
+    /// them ("ROTTED AS A SEED") was a character wider than the sample, so a
+    /// new cause is checked against the column here rather than by noticing
+    /// a clipped word on screen.
+    #[test]
+    fn every_cause_of_death_fits_the_history_cause_column() {
+        let (head, sample) = HISTORY_COLS[HISTORY_COLS.len() - 1];
+        assert_eq!(head, "CAUSE", "the CAUSE column moved; point this guard at it");
+        let budget = hud::text_width(sample);
+        for cause in crate::sim::organism::DEATH_CAUSE_LIST {
+            assert!(
+                hud::text_width(cause.label()) <= budget,
+                "`{}` is {} px wide and the CAUSE column budgets {budget} px for `{sample}` -- it would clip",
+                cause.label(),
+                hud::text_width(cause.label())
+            );
+        }
+    }
+
+    /// **And in the roster's STATE column, which is narrower**: a dead row
+    /// draws its cause there, in a column sized to `STARVING`. The guard
+    /// above passed the six plant causes' first wordings, and the first
+    /// render of the graveyard then showed `LOST ITS TISSUE` drawn as `LOST
+    /// ITS` -- four of the six new ones were as wide. Two older labels already
+    /// clipped there and are named rather than exempted silently: a new cause
+    /// one letter too wide fails this, and so does fixing one of the two
+    /// without updating it.
+    #[test]
+    fn every_cause_of_death_fits_the_roster_state_column_but_two_old_ones() {
+        use crate::sim::organism::DeathCause;
+        for cols in [&PLANT_COLS, &ANT_COLS] {
+            let (head, sample, _) = cols[7];
+            assert_eq!(head, "STATE", "the STATE column moved; point this guard at it");
+            let budget = hud::text_width(sample);
+            let clipped: Vec<DeathCause> = crate::sim::organism::DEATH_CAUSE_LIST
+                .into_iter()
+                .filter(|c| hud::text_width(c.label()) > budget)
+                .collect();
+            assert_eq!(
+                clipped,
+                vec![DeathCause::StarvedInFlight, DeathCause::LostVitalTissue],
+                "the STATE column budgets {budget} px for `{sample}`"
+            );
         }
     }
 

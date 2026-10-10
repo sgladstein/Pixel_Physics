@@ -83,6 +83,10 @@ pub const DEFAULT_PIXEL_BUDGET: i32 = 4;
 /// How much a rack still is shrunk in each axis. Kept beside `Thumb` rather
 /// than in `ui`, because the downscale happens here.
 const THUMB_SHRINK: u32 = 4;
+/// The fastest the box may run with the pinned ant's reasons recorded
+/// (`Lab::read_reasons`). Above it the log would hold every animal's every
+/// decision for hundreds of ticks a frame to find one row.
+const REASONS_MAX_SPEED: u32 = 16;
 
 /// **This instant, as `YYYY-MM-DD-HHMMSS`, UTC.** No date crate in this
 /// workspace (`Cargo.toml` carries nine dependencies and none of them tell
@@ -199,6 +203,9 @@ pub struct Lab {
     /// cell every frame, and the stroke would smear backwards as the view
     /// panned. `None` between strokes.
     stroke: Option<Stroke>,
+    /// Whether `World::decision_log` is on because this lab turned it on for
+    /// the `WHY` group (`read_reasons`), rather than a harness.
+    reasons_own: bool,
     /// **Where the current [`ui::Tool::Scent`] gesture started, in world
     /// cells.** Set once on press and held for the whole drag -- see
     /// `Lab::paint_scent` for why a gradient needs a *fixed* reference point
@@ -465,6 +472,12 @@ struct Stroke {
     /// Where the brush was last applied, in world cells.
     last: (i32, i32),
     erase: bool,
+    /// Where the gesture began, for the chronicle line `finish_stroke`
+    /// writes.
+    start: (i32, i32),
+    /// Cells the gesture actually changed so far (`paint_span`'s count), so
+    /// the chronicle says how much food went in and not only that some did.
+    cells: u32,
 }
 
 impl Lab {
@@ -538,6 +551,7 @@ impl Lab {
             pixel_budget: DEFAULT_PIXEL_BUDGET,
             pixel_scale_cap: 1,
             stroke: None,
+            reasons_own: false,
             scent_origin: None,
             lamp_grab: None,
             // One chamber, and it is the one on screen — so the rack is a
@@ -939,7 +953,9 @@ impl Lab {
         self.active = i;
         // A stroke belongs to the box it was started on, and a brush that
         // carried across would draw a line from wherever the cursor was in the
-        // old chamber to wherever it is in this one.
+        // old chamber to wherever it is in this one. Finished before the swap
+        // would be better, but `self.world` is already the incoming box here;
+        // `switch_to`'s caller is a rack click, which cannot land mid-drag.
         self.stroke = None;
         self.view_dirty = true;
     }
@@ -1625,6 +1641,11 @@ impl Lab {
         // Free while the overlay is off: `observe` returns on one enum
         // compare before touching the world at all.
         self.renderer.food.observe(&self.world);
+        // The dig heat map, on the same per-tick cadence and for the same
+        // reason (`crate::dig_marks`). Turns the world's cut log on only
+        // while the map is drawn.
+        self.renderer.dig.observe(&mut self.world);
+        self.read_reasons();
         // **The chronicle's own census, on its own cadence.** `CHRONICLE_
         // CENSUS_EVERY` frames -- independent of `stats::SAMPLE_INTERVAL`/
         // `STANDING_INTERVAL` above, which feed the bar's population strip
@@ -2018,7 +2039,7 @@ impl Lab {
     pub fn set_cursor(&mut self, at: Option<(i32, i32)>) {
         self.ui.set_cursor(at);
         if at.is_none() {
-            self.stroke = None;
+            self.finish_stroke();
         }
     }
 
@@ -2074,8 +2095,35 @@ impl Lab {
 
     /// A button came up, or the pointer left. Ends whatever stroke was live.
     pub fn end_stroke(&mut self) {
-        self.stroke = None;
+        self.finish_stroke();
         self.scent_origin = None;
+    }
+
+    /// Close the live stroke and write its one chronicle line.
+    ///
+    /// **Every brush that puts something in the box is a player action**
+    /// (owner, 2026-10-08, after a playtest whose food drops showed in the
+    /// actions log only as three PAUSED/RESUMED pairs: *"make sure you link
+    /// my actions to the log"*). Water keeps its `POURED WATER` line at the
+    /// press (`begin_stroke`); food, soil, scent and the eraser are written
+    /// here, at the release, because only then is the count known -- the
+    /// line says where the gesture began and how many cells it changed, so
+    /// a census jump can be matched to the drop that made it.
+    fn finish_stroke(&mut self) {
+        let Some(stroke) = self.stroke.take() else { return };
+        let (x, y) = stroke.start;
+        let line = if stroke.erase {
+            format!("ERASED AT {x},{y} -- {} CELLS", stroke.cells)
+        } else {
+            match self.ui.tool() {
+                ui::Tool::Food => format!("PAINTED FOOD AT {x},{y} -- {} CELLS", stroke.cells),
+                ui::Tool::Soil => format!("PAINTED SOIL AT {x},{y} -- {} CELLS", stroke.cells),
+                ui::Tool::Dig => format!("DUG AT {x},{y} -- {} CELLS", stroke.cells),
+                ui::Tool::Scent => format!("LAID SCENT AT {x},{y}"),
+                _ => return,
+            }
+        };
+        self.world.log_player_action(line);
     }
 
     /// The pointer moved to `(x, y)` while a button is held.
@@ -2090,22 +2138,62 @@ impl Lab {
         if to == stroke.last {
             return;
         }
-        self.paint_span(stroke.last, to, stroke.erase);
-        self.stroke = Some(Stroke { last: to, ..stroke });
+        let n = self.paint_span(stroke.last, to, stroke.erase);
+        self.stroke = Some(Stroke { last: to, cells: stroke.cells + n, ..stroke });
+    }
+
+    /// **Feed the pinned ant's last decision to the cell page's `WHY` group.**
+    ///
+    /// `World::decision_log` records every walking decision of every animal,
+    /// so it is only turned on while an animal is pinned and the box runs at
+    /// [`REASONS_MAX_SPEED`] or slower, and it is drained every tick so it
+    /// never holds more than one tick's rows. **A harness that turned the log
+    /// on itself (`deeptrace` builds a `Lab`) is never disturbed**: the lab
+    /// only drains or switches off a log it switched on (`reasons_own`), and
+    /// otherwise just reads the newest row for the pin.
+    fn read_reasons(&mut self) {
+        let pinned = self.ui.pinned().map(|p| p.id);
+        let slow = self.time.requested <= REASONS_MAX_SPEED;
+        let want = pinned.is_some() && slow;
+        self.ui.reasons_paused = pinned.is_some() && !slow;
+        if !self.reasons_own && self.world.decision_log.is_none() && want {
+            self.world.decision_log = Some(Vec::new());
+            self.reasons_own = true;
+        }
+        if let (Some(id), Some(log)) = (pinned, self.world.decision_log.as_ref()) {
+            if let Some(row) = log.iter().rev().find(|r| r.id == id) {
+                self.ui.reasons = Some(*row);
+            }
+        }
+        if self.reasons_own {
+            if want {
+                if let Some(log) = self.world.decision_log.as_mut() {
+                    log.clear();
+                }
+            } else {
+                self.world.decision_log = None;
+                self.reasons_own = false;
+            }
+        }
+        if pinned.is_none() {
+            self.ui.reasons = None;
+        }
     }
 
     fn begin_stroke(&mut self, at: (i32, i32), erase: bool) {
         // **Once per gesture, at the press that starts it** -- a drag calls
         // `paint_span` again on every pointer move, and logging there would
         // fill the chronicle with one line per painted cell rather than one
-        // per pour. Water only: `Soil`/`Food`/`Scent` are not the player
-        // action round 31 asks for, and an erase stroke removes rather than
-        // pours.
+        // per pour. Water's line is written here; every other brush's is
+        // written once at the release by `finish_stroke`, with its count.
+        // A press with a stroke still live (a release the window never saw)
+        // closes the old one first, so its line is not lost.
+        self.finish_stroke();
         if !erase && self.ui.tool() == ui::Tool::Water {
             self.world.log_player_action("POURED WATER".to_string());
         }
-        self.paint_span(at, at, erase);
-        self.stroke = Some(Stroke { last: at, erase });
+        let cells = self.paint_span(at, at, erase);
+        self.stroke = Some(Stroke { last: at, erase, start: at, cells });
     }
 
     /// Lay down (or lift) one span of the brush.
@@ -2119,7 +2207,10 @@ impl Lab {
     /// default of 0 would lay down bone-dry ground nothing can grow in;
     /// painting water at `LIQUID_FULL` would be a cell holding *twice* what it
     /// should, which is how water gets manufactured out of nothing.
-    fn paint_span(&mut self, from: (i32, i32), to: (i32, i32), erase: bool) {
+    ///
+    /// Returns how many cells the span changed (0 for `Scent`, which writes a
+    /// plane rather than cells), for `finish_stroke`'s chronicle line.
+    fn paint_span(&mut self, from: (i32, i32), to: (i32, i32), erase: bool) -> u32 {
         use crate::sim::material;
         // **`Scent` does not paint a material at all** -- it writes into a
         // pheromone plane, not a cell, so it is intercepted before the match
@@ -2135,7 +2226,13 @@ impl Lab {
         // reasonable thing for the eraser to do whatever tool is armed.
         if !erase && self.ui.tool() == ui::Tool::Scent {
             self.paint_scent(from, to);
-            return;
+            return 0;
+        }
+        // **`Dig` takes ground out rather than putting a material in**, so it
+        // is intercepted here for `Scent`'s reason: the `_` arm below would
+        // paint soil.
+        if !erase && self.ui.tool() == ui::Tool::Dig {
+            return self.dig_span(from, to);
         }
         let radius = self.ui.brush();
         let (id, aux) = if erase {
@@ -2144,7 +2241,7 @@ impl Lab {
             match self.ui.tool() {
                 ui::Tool::Water => match self.world.materials.id_of("water") {
                     Some(id) => (id, 0),
-                    None => return,
+                    None => return 0,
                 },
                 // **`provisions`, not `windfall`, since 2026-10-03**: the
                 // same food with no `decays_into`, so what a player puts in
@@ -2166,21 +2263,40 @@ impl Lab {
                 // look, on screen, like a tool that simply missed.
                 ui::Tool::Food => match self.world.materials.id_of("provisions") {
                     Some(id) => (id, 0),
-                    None => return,
+                    None => return 0,
                 },
                 _ => match self.world.materials.id_of("soil") {
                     Some(id) => (id, material::SOIL_FIELD_CAPACITY),
-                    None => return,
+                    None => return 0,
                 },
             }
         };
+        // **The count is the material's cells in the span's box before and
+        // after**, read only: no draw, no write, so a counted stroke paints
+        // exactly what an uncounted one did. Nothing moves between the two
+        // reads (no tick runs inside a call), so the difference is this
+        // span's own work -- cells the brush refused (stone, a living plant)
+        // or that already held the material are not counted.
+        let r = radius.max(0);
+        let count = |w: &crate::sim::world::World| {
+            let mut n = 0u32;
+            for y in (from.1.min(to.1) - r)..=(from.1.max(to.1) + r) {
+                for x in (from.0.min(to.0) - r)..=(from.0.max(to.0) + r) {
+                    if w.in_bounds(x, y) && w.get(x, y).material == id {
+                        n += 1;
+                    }
+                }
+            }
+            n
+        };
+        let before = count(&self.world);
         self.world.paint_capsule_as(from, to, radius, id, 1.0);
+        let changed = count(&self.world).saturating_sub(before);
         // `paint_capsule_as` writes the cell with a palette shade and no
         // `aux`, so the moisture is a second pass over the same disc. Only
         // over cells holding the material at `aux == 0`, so a wide stroke
         // cannot re-wet ground it never touched.
         if aux != 0 {
-            let r = radius.max(0);
             for y in (from.1.min(to.1) - r)..=(from.1.max(to.1) + r) {
                 for x in (from.0.min(to.0) - r)..=(from.0.max(to.0) + r) {
                     let cell = self.world.get(x, y);
@@ -2190,6 +2306,29 @@ impl Lab {
                 }
             }
         }
+        changed
+    }
+
+    /// **[`ui::Tool::Dig`] along one span of the brush**: every cell within
+    /// the brush radius of the segment, handed to `creature::hand_dig`, which
+    /// clears the ground and lines the walls. Returns the cells cleared.
+    fn dig_span(&mut self, from: (i32, i32), to: (i32, i32)) -> u32 {
+        let r = self.ui.brush().max(0);
+        let (ax, ay, bx, by) = (from.0 as f32, from.1 as f32, to.0 as f32, to.1 as f32);
+        let (dx, dy) = (bx - ax, by - ay);
+        let len2 = (dx * dx + dy * dy).max(1e-6);
+        let reach = r as f32 + 0.5;
+        let mut cells = Vec::new();
+        for y in (from.1.min(to.1) - r)..=(from.1.max(to.1) + r) {
+            for x in (from.0.min(to.0) - r)..=(from.0.max(to.0) + r) {
+                let t = (((x as f32 - ax) * dx + (y as f32 - ay) * dy) / len2).clamp(0.0, 1.0);
+                let (px, py) = (ax + t * dx - x as f32, ay + t * dy - y as f32);
+                if px * px + py * py <= reach * reach {
+                    cells.push((x, y));
+                }
+            }
+        }
+        crate::sim::creature::hand_dig(&mut self.world, &cells)
     }
 
     /// Lay [`ui::Tool::Scent`]'s armed plane along one span of the brush --
@@ -2273,7 +2412,7 @@ impl Lab {
             ui::Tool::Fire => self.fire_at(x, y),
             // The brushes never arrive here: they paint from `press`, so a
             // release that also painted would double the last dab.
-            ui::Tool::Soil | ui::Tool::Water | ui::Tool::Food | ui::Tool::Scent => {}
+            ui::Tool::Soil | ui::Tool::Dig | ui::Tool::Water | ui::Tool::Food | ui::Tool::Scent => {}
         }
     }
 
@@ -3070,6 +3209,10 @@ impl Lab {
             ui::Action::CycleFoodOverlay => {
                 self.renderer.cycle_food_overlay();
                 self.ui.say(format!("FOOD {}", self.renderer.food.mode.label()));
+            }
+            ui::Action::CycleDigOverlay => {
+                self.renderer.cycle_dig_overlay();
+                self.ui.say(format!("DIG MAP {}", self.renderer.dig.mode.label()));
             }
             // **The renderer's own mode, mirrored into `Ui` in the same
             // action that changes it** -- see `Ui::creature_colour`'s doc for
@@ -4322,6 +4465,53 @@ mod tests {
         }
     }
 
+    /// **The `WHY` group is fed only while something is pinned, and never at
+    /// a harness's expense.** Pinning an ant turns the decision log on and
+    /// fills `Ui::reasons` with that ant's own row; letting go turns it back
+    /// off. A log a harness turned on (`deeptrace` builds a `Lab`) is read
+    /// but never drained or switched off -- clearing it would silently empty
+    /// the harness's own `digrows`.
+    #[test]
+    fn the_why_group_follows_the_pin_and_leaves_a_harness_log_alone() {
+        let first_ant = |lab: &Lab| {
+            lab.world
+                .live_organism_ids()
+                .into_iter()
+                .filter_map(|id| lab.world.organism(id).map(|s| (id, s)))
+                .find(|(_, s)| s.brood.is_none() && lab.world.species.get(s.species).creature.is_some())
+                .map(|(id, s)| roster::Individual { id, born_frame: s.born_frame })
+                .expect("the bed has an ant")
+        };
+        // Lab-owned: on with the pin, filled with the pinned ant's rows, off without it.
+        let mut lab = Lab::new(scene::LabBox { colonies: 1, founders: 0, ..rack_bed(1) });
+        run(&mut lab, 30);
+        assert!(lab.world.decision_log.is_none(), "nothing pinned, so nothing should be recording");
+        let who = first_ant(&lab);
+        lab.ui.pin(who);
+        run(&mut lab, 200);
+        let row = lab.ui.reasons.expect("200 ticks pinned and the pinned ant never decided anything");
+        assert_eq!(row.id, who.id, "the WHY group carries another animal's decision");
+        assert!(lab.world.decision_log.as_ref().is_some_and(|l| l.is_empty()), "the lab's own log must be drained every tick");
+        lab.ui.release_pin();
+        run(&mut lab, 1);
+        assert!(lab.world.decision_log.is_none(), "letting go must switch the log back off");
+        assert!(lab.ui.reasons.is_none());
+
+        // Harness-owned: read, never drained, never switched off.
+        let mut lab = Lab::new(scene::LabBox { colonies: 1, founders: 0, ..rack_bed(1) });
+        run(&mut lab, 30);
+        lab.world.decision_log = Some(Vec::new());
+        let who = first_ant(&lab);
+        lab.ui.pin(who);
+        run(&mut lab, 200);
+        assert!(lab.ui.reasons.is_some_and(|r| r.id == who.id), "the harness's log was not read for the pin");
+        let kept = lab.world.decision_log.as_ref().map_or(0, Vec::len);
+        assert!(kept > 200, "the lab drained a log it did not own: {kept} rows left");
+        lab.ui.release_pin();
+        run(&mut lab, 1);
+        assert!(lab.world.decision_log.is_some(), "the lab switched off a log it did not own");
+    }
+
     // ------------------------------------------------------- the chronicle census
 
     /// Both chronicle-census tests read `Lab::chronicle_census_every()`,
@@ -4413,6 +4603,15 @@ mod tests {
         lab.act(ui::Action::Faster); // "SPEED <N>X"
         lab.act(ui::Action::Tool(ui::Tool::Water));
         lab.begin_stroke((10, 10), false); // "POURED WATER"
+        lab.end_stroke();
+        // Food and the eraser write one line each, at the release, with a
+        // count (owner, 2026-10-08: a playtest's food drops were missing from
+        // this log). Row 5 is sky in the rack bed, so the brush lands.
+        lab.act(ui::Action::Tool(ui::Tool::Food));
+        lab.begin_stroke((60, 5), false);
+        lab.end_stroke(); // "PAINTED FOOD AT 60,5 -- <N> CELLS"
+        lab.begin_stroke((60, 5), true);
+        lab.end_stroke(); // "ERASED AT 60,5 -- <N> CELLS"
         let param = lab
             .ui
             .page_params(&lab.world, &lab.spec)
@@ -4432,6 +4631,22 @@ mod tests {
         assert!(text.contains("WALL AT 40 REMOVED"), "wall_at's removal line is missing:\n{text}");
         assert!(text.contains("SPEED"), "the speed-dial line is missing:\n{text}");
         assert!(text.contains("POURED WATER"), "the water-pour line is missing:\n{text}");
+        // Exactly one line per gesture, and a count that says something went in.
+        let cells_in = |prefix: &str| -> Vec<u32> {
+            text.lines()
+                .filter_map(|l| l.split_once(prefix).map(|(_, rest)| rest))
+                .filter_map(|rest| rest.split(" -- ").nth(1)?.split(' ').next()?.parse().ok())
+                .collect()
+        };
+        let food = cells_in("PAINTED FOOD AT 60,5");
+        assert_eq!(food.len(), 1, "want one food line for one gesture, got {food:?}:\n{text}");
+        assert!(food[0] > 0, "the food line counts no cells:\n{text}");
+        // The eraser clears whatever is in its disc -- the box's lid too,
+        // which the food brush refuses to paint over -- so it lifts at least
+        // the food just laid, not exactly it.
+        let erased = cells_in("ERASED AT 60,5");
+        assert_eq!(erased.len(), 1, "want one erase line for one gesture, got {erased:?}:\n{text}");
+        assert!(erased[0] >= food[0], "the eraser lifted less than the food just painted:\n{text}");
         assert!(text.contains(" = "), "the dial-change line is missing:\n{text}");
         // The header's two new lines (spec A1-A2, and the env switches), and
         // the sidecars written beside the text at the same moment (spec H30).
@@ -4993,8 +5208,14 @@ mod tests {
         assert_eq!(lab.ui.creature_colour(), crate::render::CreatureColour::Colony, "the mirror must already agree at construction");
 
         lab.act(ui::Action::CycleCreatureColour);
-        assert_eq!(lab.renderer.creature_colour, crate::render::CreatureColour::Off, "Colony.next() is Off");
-        assert_eq!(lab.ui.creature_colour(), crate::render::CreatureColour::Off, "the mirror did not follow the renderer");
+        assert_eq!(lab.renderer.creature_colour, crate::render::CreatureColour::Job, "Colony.next() is Job");
+        assert_eq!(lab.ui.creature_colour(), crate::render::CreatureColour::Job, "the mirror did not follow the renderer");
+        // Through the three per-animal readouts and back round to Off.
+        for want in [crate::render::CreatureColour::State, crate::render::CreatureColour::Energy, crate::render::CreatureColour::Off] {
+            lab.act(ui::Action::CycleCreatureColour);
+            assert_eq!(lab.renderer.creature_colour, want);
+            assert_eq!(lab.ui.creature_colour(), want, "the mirror drifted from the renderer at {want:?}");
+        }
 
         lab.act(ui::Action::CycleCreatureColour);
         assert_eq!(lab.renderer.creature_colour, crate::render::CreatureColour::Species);
