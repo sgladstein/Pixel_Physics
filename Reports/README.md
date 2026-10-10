@@ -2356,7 +2356,7 @@ drift that two of these documents still reflect.**
   implemented.** Deposit → diffuse → decay → follow; the ant colony is
   built on it.
 - [stranger-alarm-design-2026-10-10.md](stranger-alarm-design-2026-10-10.md)
-  — **design, reviewed yes-with-changes by a second lane, built off; first results §9 (2026-10-10).**
+  — **shipped on (owner, 2026-10-10).** Design reviewed yes-with-changes twice by a second lane; results §9-§11, §11 on main with the nest stack on.
   Why lab colonies stopped fighting on 2026-10-05: the only ignition was an
   ant eating a stranger, and the evolved lab ant's gut (-0.8) prices ant flesh
   at 4.8 J, under the 12 J bar, so nothing ever bites first and `Attack` stays

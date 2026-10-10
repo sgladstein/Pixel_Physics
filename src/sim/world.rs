@@ -4563,7 +4563,8 @@ pub struct World {
     pub lean_forage: Option<crate::sim::creature::LeanForage>,
     /// **A stranger's touch raises the alarm, for this world, overriding
     /// `PIXEL_PHYSICS_STRANGER_ALARM`** (`creature::stranger_alarm_of`).
-    /// `None` follows the environment, which is off unless set.
+    /// `None` follows the environment, which is on unless set to `off`
+    /// (since 2026-10-10).
     pub stranger_alarm: Option<crate::sim::creature::StrangerAlarm>,
     /// **The share's top-up for this world, overriding
     /// `PIXEL_PHYSICS_SHARE_TOPUP`** (`creature::share_topup_of`). `None`

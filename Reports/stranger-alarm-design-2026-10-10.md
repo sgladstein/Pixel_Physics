@@ -1,6 +1,6 @@
 # Strangers start the fight: a design for touch-triggered alarm (2026-10-10)
 
-*Proposal, reviewed, built behind an off switch, first results in §9. Owner asked for it
+*Shipped on by the owner's ruling, 2026-10-10 ("Ship on"), on the evidence of §11. Proposal, reviewed, built behind an off switch, results in §9-§11. Owner asked for it
 on 2026-10-10 ("yes" to writing it up for review). Project rule: trace,
 then proposal, then review by another lane, then build behind an off switch,
 then test. The trace is §1; the second lane's review (yes, with changes) is

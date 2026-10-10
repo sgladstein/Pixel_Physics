@@ -24282,8 +24282,11 @@ pub fn lean_forage_of(world: &World) -> LeanForage {
 }
 
 /// **`PIXEL_PHYSICS_STRANGER_ALARM`: touching a stranger of your own kind
-/// raises the alarm** (off by default, built 2026-10-10;
-/// `Reports/stranger-alarm-design-2026-10-10.md`).
+/// raises the alarm** (built 2026-10-10, **on by default** since the
+/// owner's ruling the same day; `Reports/stranger-alarm-design-2026-10-10.md`
+/// §11 is the evidence it shipped on: two colonies on main with the nest
+/// stack on, 12 seeds to 300k, living 512 off / 502 on, 8 borders, 2
+/// conquests at landing, 0 kills inside a line).
 ///
 /// **Why it exists.** `ant.ron` wires one route to `Attack`,
 /// `(Alarm, Attack, 2.0)`, and the alarm is written only when an animal is
@@ -24329,7 +24332,7 @@ pub fn lean_forage_of(world: &World) -> LeanForage {
 /// Riders are counted (`stranger_rider_touches`) and never acted on:
 /// `nearest_foe` folds no riders, so an alarm from one would arouse an ant
 /// with nobody it can reach. Off, nothing is walked, read or drawn, so the
-/// game is the shipped one byte for byte.
+/// game is the one before 2026-10-10 byte for byte.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct StrangerAlarm {
     pub touch: bool,
@@ -24350,13 +24353,14 @@ impl StrangerAlarm {
 /// point for the 10 / 20 / 40 sweep the design asks for, not a measurement.
 pub const STRANGER_LEVEL: f32 = 20.0;
 
-/// `off` (unset), `on` (`touch,fed`), or a comma list of `touch`, `fed`,
-/// `species` and `level=<0-255>`; any list turns `touch` on, since every
-/// other part only shapes it.
+/// `on` (`touch,fed`, and unset since 2026-10-10), `off`, or a comma list of
+/// `touch`, `fed`, `species` and `level=<0-255>`; any list turns `touch` on,
+/// since every other part only shapes it. A value it cannot read is read as
+/// unset (the house pattern), so as `on`.
 fn parse_stranger_alarm(raw: &str) -> StrangerAlarm {
     match raw.trim() {
-        "" | "off" => return StrangerAlarm::OFF,
-        "on" => return StrangerAlarm::ON,
+        "off" => return StrangerAlarm::OFF,
+        "" | "on" => return StrangerAlarm::ON,
         _ => {}
     }
     let mut t = StrangerAlarm { touch: true, ..StrangerAlarm::OFF };
@@ -24377,8 +24381,8 @@ fn parse_stranger_alarm(raw: &str) -> StrangerAlarm {
             },
         };
         if !ok {
-            eprintln!("PIXEL_PHYSICS_STRANGER_ALARM={raw:?}: unknown part {part:?}, read as off (off, on, touch, fed, species, level=<0-255>)");
-            return StrangerAlarm::OFF;
+            eprintln!("PIXEL_PHYSICS_STRANGER_ALARM={raw:?}: unknown part {part:?}, read as unset, which is on (off, on, touch, fed, species, level=<0-255>)");
+            return StrangerAlarm::ON;
         }
     }
     t
@@ -38304,14 +38308,14 @@ mod tests {
 
     #[test]
     fn stranger_alarm_parses_its_parts() {
-        assert_eq!(parse_stranger_alarm(""), StrangerAlarm::OFF);
+        assert_eq!(parse_stranger_alarm(""), StrangerAlarm::ON, "unset is on since 2026-10-10");
         assert_eq!(parse_stranger_alarm("off"), StrangerAlarm::OFF);
         assert_eq!(parse_stranger_alarm("on"), StrangerAlarm::ON);
         assert_eq!(parse_stranger_alarm("touch"), StrangerAlarm { touch: true, ..StrangerAlarm::OFF });
         assert_eq!(parse_stranger_alarm("touch,fed,level=40"), StrangerAlarm { level: 40.0, ..StrangerAlarm::ON });
         assert_eq!(parse_stranger_alarm("species"), StrangerAlarm { touch: true, species: true, ..StrangerAlarm::OFF });
-        assert_eq!(parse_stranger_alarm("level=300"), StrangerAlarm::OFF, "out of range reads as off");
-        assert_eq!(parse_stranger_alarm("bogus"), StrangerAlarm::OFF);
+        assert_eq!(parse_stranger_alarm("level=300"), StrangerAlarm::ON, "out of range reads as unset");
+        assert_eq!(parse_stranger_alarm("bogus"), StrangerAlarm::ON);
     }
 
     /// **The alarm forgets far faster than a trail does**, which is the whole
