@@ -3,7 +3,7 @@
 *What plants do, and what it looks like when they are working. No code, no
 file names — see `Reports/` for why any of it is built the way it is.*
 
-*Current as of: 2026-10-10 (**a herb dies after it has set seed**, and the bed renews itself from seed -- it empties if rain is off; see *A herb lives one season*). Also 2026-10-10 (**a plant grows back leaf that was bitten off**, paid from what it has stored, so a grazed bed keeps a middle between full and bare -- see *A plant that has been bitten*). Also 2026-10-07 (**a plant's page says why its tips stopped growing** -- the height its water reaches, no room, too poor and the rest -- see *What a healthy stand looks like*). Also 2026-10-06 (**the list of the dead says what killed each plant** -- shaded out, dried out, eaten, old age and the rest; *felled* now means felled, and a seed that rots unsprouted is counted but not listed -- see *Fire and death*). Also 2026-10-05 (**grass grows back** -- a tussock that loses its blades sends up new ones from its crown, so a meadow keeps seeding instead of fading -- see *Species*). Also 2026-10-03 (**water runs through a plant along real paths**:
+*Current as of: 2026-10-10 (**herbs that die after seeding are switched back off** for now: on the latest build they left the ants less to eat and one colony died out -- see *A herb lives one season*). Also 2026-10-10 (**a herb dies after it has set seed**, and the bed renews itself from seed -- it empties if rain is off; see *A herb lives one season*). Also 2026-10-10 (**a plant grows back leaf that was bitten off**, paid from what it has stored, so a grazed bed keeps a middle between full and bare -- see *A plant that has been bitten*). Also 2026-10-07 (**a plant's page says why its tips stopped growing** -- the height its water reaches, no room, too poor and the rest -- see *What a healthy stand looks like*). Also 2026-10-06 (**the list of the dead says what killed each plant** -- shaded out, dried out, eaten, old age and the rest; *felled* now means felled, and a seed that rots unsprouted is counted but not listed -- see *Fire and death*). Also 2026-10-05 (**grass grows back** -- a tussock that loses its blades sends up new ones from its crown, so a meadow keeps seeding instead of fading -- see *Species*). Also 2026-10-03 (**water runs through a plant along real paths**:
 up the roots, up the trunk, out along the branches, and a dry spell browns the
 far tips first -- see *How water moves through a plant*). Also 2026-10-03 (**plants can be born harder to eat**, paying for
 it in growth -- see *Plants that are worse to eat*). Also 2026-10-03 (**a seed with ground on top of it is out of the
@@ -473,6 +473,12 @@ What it looks like in the planted lab bed:
   leaf lost to shade or drought is not grown back this way.
 
 ## A herb lives one season
+
+**Switched off for now.** On the latest build, with ants that store food and
+carry it home, a bed of annual herbs carried about a sixth less leaf and the
+colony came out about a sixth smaller; one colony died out. Herbs live as
+perennials again until that is understood. What follows is what the rule does
+when it is on.
 
 **A herb dies after it has set seed, and the bed renews itself from seed.** It
 used to keep flowering for as long as the run lasted, so a herb planted at the

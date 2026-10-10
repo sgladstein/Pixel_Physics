@@ -257,13 +257,25 @@ pub(crate) fn graze_regrow() -> bool {
     *ON.get_or_init(|| !matches!(std::env::var("PIXEL_PHYSICS_GRAZE_REGROW").as_deref(), Ok("off")))
 }
 
-/// **`PIXEL_PHYSICS_ANNUAL`**: seeds `World::annual`. **On by default**
-/// (planted-balance lane, 2026-10-10): each annual species dies on its own
-/// `SpeciesDef::annual_half_life` after it has set seed. `off` turns it off;
-/// a positive number overrides the half-life (plant-time frames) for sweeps;
-/// `on`, unset and anything else are on. Read once.
+/// **`PIXEL_PHYSICS_ANNUAL`**: seeds `World::annual`. **Off by default
+/// again** (planted-balance lane, 2026-10-10, evening): `on` makes each
+/// annual species die on its own `SpeciesDef::annual_half_life` after it
+/// has set seed; a positive number does the same at that half-life
+/// (plant-time frames) for sweeps; `0` is also on; unset and `off` are off.
+/// Read once.
 ///
-/// Why on: the owner ruled a herb an annual (2026-10-10, "Annual") -- with
+/// **Why it went back off.** It shipped on (PR 677) on the 12-seed result
+/// below, measured on a build from before PR 675 (the food-home stack
+/// flip). Re-measured on the main that carries PR 675 -- same bed, same 12
+/// seeds, same binary for both arms -- the colony did not hold: mean adults
+/// 100-450k 216 -> 182 (smaller on 9 of 12 seeds), herb leaf 1,312 ->
+/// 1,096, herbs alive level (90 -> 93), and seed 9's annual colony died out
+/// at 380k where its pair dipped to 19 adults and recovered. The owner's
+/// default bar keeps a change that kills a colony off until the death is
+/// traced. Per-seed table: `/mnt/project-files/planted-balance/annual/
+/// table-newmain-12seed.txt`.
+///
+/// Why it was turned on: the owner ruled a herb an annual (2026-10-10, "Annual") -- with
 /// `rebloom_after` it otherwise fruits forever and lives as a perennial.
 /// Measured on the herb_ant bed under the **shipped light rain** (half pace,
 /// mutation off, `GRAZE_REGROW` on), 12 seeds, 450k frames, against off it
@@ -307,14 +319,13 @@ pub(crate) fn annual_from_env() -> Option<f32> {
 }
 
 /// `annual_from_env`'s reading of the variable, split out so a guard can
-/// assert every value. Note `0` means **on** since the flip: only `off`
-/// disables, and before 2026-10-10 an unset variable was the off arm, so a
-/// sweep script from then compares on against on.
+/// assert every value. Unset is off again; `off` is off; any other value is
+/// on, `0` included (it meant off before PR 677 and on while PR 677 shipped
+/// it on, so read a sweep script's off arm before trusting it).
 pub(crate) fn parse_annual(value: Option<&str>) -> Option<f32> {
     match value {
-        Some("off") => None,
+        None | Some("off") => None,
         Some(v) => Some(v.parse::<f32>().ok().filter(|h| *h > 0.0).unwrap_or(0.0)),
-        None => Some(0.0),
     }
 }
 
@@ -25104,23 +25115,24 @@ mis-wired {miswired_root}, so `slot_1_is_a_root_locus_and_not_a_shoot_one` would
         assert!(alive, "a positive switch value overrides the species' half-life");
     }
 
-    /// **The annual rule ships on, and the herb is the annual it reaches**
-    /// (owner ruling 2026-10-10). Reads the default the way a run does, so
-    /// it is skipped only when the variable is set in the test environment.
+    /// **The annual rule ships off until the colony drop under it is traced,
+    /// and the herb is still the annual it would reach** (2026-10-10). Reads
+    /// the default the way a run does, so it is skipped only when the
+    /// variable is set in the test environment.
     #[test]
-    fn the_annual_rule_ships_on_and_the_herb_is_an_annual() {
+    fn the_annual_rule_ships_off_and_the_herb_is_an_annual() {
         if std::env::var("PIXEL_PHYSICS_ANNUAL").is_ok() {
             return;
         }
         let w = test_world();
-        assert_eq!(w.annual, Some(0.0), "unset, the annual rule must be on with each species' own half-life");
+        assert_eq!(w.annual, None, "unset, the annual rule must be off");
         let herb = w.species.id_of("herb").expect("herb is compiled in");
         assert!(w.species.get(herb).annual_half_life > 0.0, "the herb must carry an annual half-life");
         let tree = w.species.id_of("tree").expect("tree is compiled in");
         assert_eq!(w.species.get(tree).annual_half_life, 0.0, "a tree is not an annual");
-        assert_eq!(parse_annual(None), Some(0.0), "unset is on");
+        assert_eq!(parse_annual(None), None, "unset is off");
         assert_eq!(parse_annual(Some("on")), Some(0.0));
-        assert_eq!(parse_annual(Some("off")), None, "only `off` disables");
+        assert_eq!(parse_annual(Some("off")), None);
         assert_eq!(parse_annual(Some("45000")), Some(45000.0), "a positive number overrides the half-life");
         assert_eq!(parse_annual(Some("0")), Some(0.0), "`0` is on, not off");
     }

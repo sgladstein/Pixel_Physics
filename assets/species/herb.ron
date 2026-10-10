@@ -147,8 +147,9 @@
     seed_half_life: 14000.0,
     remains_half_life: 700.0,
     // **An annual: it dies after it has set seed** -- see
-    // `SpeciesDef::annual_half_life`, on by default (`PIXEL_PHYSICS_ANNUAL`,
-    // `off` to disable). Owner ruling 2026-10-10 ("Annual"), and 2026-08-23
+    // `SpeciesDef::annual_half_life`, read only under `PIXEL_PHYSICS_ANNUAL`
+    // (off by default again after a colony drop on the 2026-10-10 main;
+    // `plant::annual_from_env`). Owner ruling 2026-10-10 ("Annual"), and 2026-08-23
     // before it (`Reports/plant-morphology-reach-2026-08-23.md`). 45,000
     // plant-time frames is 90,000 on the lab's half-pace wall clock. Compared
     // only against 15,000, under the shipped light rain: on seed 1 with no
