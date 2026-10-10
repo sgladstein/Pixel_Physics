@@ -124,7 +124,10 @@
 //! every decision of about one ant in `N`, picked by a hash of its id (with
 //! `only=`, of exactly those ants). `needsparts=` turns on the fix round's
 //! parts (`creature::needs::WalkParts`: `all`, `none` -- the default, which
-//! is slice 1 -- or a comma list), and the walk's files then carry what each
+//! is slice 1 -- or a comma list; `all` is the fix round's eight, and the
+//! parts added since, `reach` and `eat_fade`, are named one by one; their
+//! counters are the last six columns of `walk_counts.csv`, so a file from
+//! before them compares on the columns it has), and the walk's files then carry what each
 //! did: `walk_counts.csv` the cuts `act` made by drive (`cut_<drive>`) and
 //! each part's counter, `walk.csv.gz` whether the step roll was won (`won`)
 //! and what the decision cut (`cut`: 0 nothing, 1 `act`'s dig, 2 escape's cut,
@@ -679,7 +682,7 @@ fn main() {
         let cuts: Vec<String> = creature::needs::Drive::ALL.iter().map(|d| format!("cut_{}", d.label())).collect();
         writeln!(
             f,
-            "frame,minds,{},took_forage,quit_forage,need_over_job,ate_held,pellets_down,escape_cuts,escape_packs,gluts,{},dig_took,dig_quit,dig_tired,clear_cuts,gave_up,lay_walks,meals_kept,stays_not_stalls",
+            "frame,minds,{},took_forage,quit_forage,need_over_job,ate_held,pellets_down,escape_cuts,escape_packs,gluts,{},dig_took,dig_quit,dig_tired,clear_cuts,gave_up,lay_walks,meals_kept,stays_not_stalls,reach_hidden,eat_gave_up,eat_gave_up_again,eat_rest,eat_rest_ate,eat_rest_out",
             drives.join(","),
             cuts.join(",")
         )
@@ -1371,7 +1374,7 @@ fn main() {
                 let cut: Vec<String> = c.cuts.iter().map(u64::to_string).collect();
                 writeln!(
                     wn,
-                    "{f},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
+                    "{f},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
                     walk.minds(),
                     dec.join(","),
                     c.took_forage,
@@ -1390,7 +1393,13 @@ fn main() {
                     c.gave_up,
                     c.lay_walks,
                     c.meals_kept,
-                    c.stays_not_stalls
+                    c.stays_not_stalls,
+                    c.reach_hidden,
+                    c.eat_gave_up,
+                    c.eat_gave_up_again,
+                    c.eat_rest,
+                    c.eat_rest_ate,
+                    c.eat_rest_out
                 )
                 .unwrap();
             }

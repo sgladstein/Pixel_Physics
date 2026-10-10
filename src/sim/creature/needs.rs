@@ -158,6 +158,31 @@
 //!   "a step tried and refused", which never happens here (the step draws
 //!   only from usable headings), so that count would never have risen and
 //!   escape would never have fired.
+//!
+//! **Food sealed in soil** (`reach`, `eat_fade`; 2026-10-10, the project's
+//! `needs-ant/resume-2026-10-10/trace-buried-food-2026-10-10.md`, reviewed
+//! before it was built). On the flip world, steady food, seed 1, 57 of the
+//! walk's 82 nest starvers (the shipped ant's: 1) spent their last 2,000
+//! frames on the eat drive aimed at a crumb sealed in soil: the food sense
+//! read through walls, hunger read it before "out", and the eat drive never
+//! gave up. Its pull did fade, on the shared home patience, but every new
+//! target and every excursion re-armed it, and on the eat drive the way
+//! out's stall is zeroed each decision, so escape never had a turn. Two
+//! crumbs held about 56 ants between them. Neither part is in
+//! [`WalkParts::ALL`], which stays the fix round's, so `needsparts=all`
+//! means what it meant on 10-07.
+//!
+//! - **The food sense stops at soil** (`reach`): a food cell counts only if
+//!   its 8-ring touches a cell joined to the head through open cells inside
+//!   the 13x13 box ([`reachable_from_head`]). The design's own C6 finding is
+//!   that sealed soil passes no air; the sense was written as `larva_scent`
+//!   is, through walls, "tolerable at 6 cells", and the trace measured it
+//!   as not.
+//! - **The eat drive gives up** (`eat_fade`): straight-line distance to the
+//!   nearest food it senses, whatever cell, counting only decisions that won
+//!   the step roll; at [`EAT_STALL`] such decisions with no progress, the
+//!   whole food sense is off for [`EAT_REST`] frames, so hunger falls to
+//!   "out", and escape fires on out's own stall.
 
 use super::*;
 use std::collections::HashMap;
@@ -214,6 +239,16 @@ pub struct WalkParts {
     /// The way out's stall counts only decisions that won the step roll and
     /// got no nearer, never a decision the ant chose to stay.
     pub won_stall: bool,
+    /// **Not the fix round's** (2026-10-10, never in [`WalkParts::ALL`]): the
+    /// food sense counts only food whose 8-ring touches a cell joined to the
+    /// head through open cells inside its box, so a crumb sealed in soil is
+    /// not sensed.
+    pub reach: bool,
+    /// **Not the fix round's** (2026-10-10, never in [`WalkParts::ALL`]): the
+    /// eat drive gives up after [`EAT_STALL`] won decisions that got no
+    /// nearer the food it senses, and the food sense is off for
+    /// [`EAT_REST`] frames.
+    pub eat_fade: bool,
 }
 
 impl WalkParts {
@@ -226,7 +261,12 @@ impl WalkParts {
         lay_home: false,
         meal: false,
         won_stall: false,
+        reach: false,
+        eat_fade: false,
     };
+    /// **The fix round's eight**, which is what `needsparts=all` has meant
+    /// since 10-07; the parts added after it ([`WalkParts::reach`],
+    /// [`WalkParts::eat_fade`]) are named one by one.
     pub const ALL: WalkParts = WalkParts {
         only_diggers: true,
         dig_job: true,
@@ -236,8 +276,10 @@ impl WalkParts {
         lay_home: true,
         meal: true,
         won_stall: true,
+        reach: false,
+        eat_fade: false,
     };
-    const NAMES: [&'static str; 8] = [
+    const NAMES: [&'static str; 10] = [
         "only_diggers",
         "dig_job",
         "clear",
@@ -246,6 +288,8 @@ impl WalkParts {
         "lay_home",
         "meal",
         "won_stall",
+        "reach",
+        "eat_fade",
     ];
 
     /// `all`, `none`, or a comma list of the part names, as a harness names
@@ -265,6 +309,8 @@ impl WalkParts {
                 "lay_home" => p.lay_home = true,
                 "meal" => p.meal = true,
                 "won_stall" => p.won_stall = true,
+                "reach" => p.reach = true,
+                "eat_fade" => p.eat_fade = true,
                 other => panic!(
                     "needsparts={raw:?}: {other:?} is not all, none or one of {}",
                     WalkParts::NAMES.join(", ")
@@ -285,6 +331,8 @@ impl WalkParts {
             self.lay_home,
             self.meal,
             self.won_stall,
+            self.reach,
+            self.eat_fade,
         ];
         let names: Vec<&str> = WalkParts::NAMES
             .iter()
@@ -542,6 +590,19 @@ pub struct WalkCounts {
     pub lay_walks: u64,
     pub meals_kept: u64,
     pub stays_not_stalls: u64,
+    /// **Food sealed in soil**, each zero with its part off: hungry decisions
+    /// on which the food sense found food in its box but none it could reach
+    /// ([`WalkParts::reach`]); eat drives given up, and those given up by an
+    /// ant that had already given up once this hunger bout (the loop the
+    /// review asked to see); hungry decisions the sense was off in the
+    /// window; and windows ended early by a meal or by reaching the open air
+    /// ([`WalkParts::eat_fade`]).
+    pub reach_hidden: u64,
+    pub eat_gave_up: u64,
+    pub eat_gave_up_again: u64,
+    pub eat_rest: u64,
+    pub eat_rest_ate: u64,
+    pub eat_rest_out: u64,
 }
 
 /// What a decision cut, for the trace ([`WalkRow::cut`]).
@@ -628,6 +689,16 @@ struct Mind {
     /// Gave up foraging outside and has not been home since
     /// ([`WalkParts::give_up`]): it takes no forage job until it is.
     gave_up: bool,
+    /// **The eat drive's progress** ([`WalkParts::eat_fade`]): the nearest
+    /// it has come to the food it senses, whatever cell, how many decisions
+    /// that won the step roll have not come nearer, the frame before which
+    /// its food sense is off, give-ups this hunger bout, and its energy plus
+    /// crop at its last decision, whose rise is a meal.
+    eat_best: f32,
+    eat_stall: u16,
+    eat_rest_until: u64,
+    eat_bouts: u16,
+    fuel: f32,
     /// This decision's: the drive, its hunger and hold, the forage
     /// stimulus, food it sensed, the step chance, what it cut.
     drive: Drive,
@@ -693,6 +764,11 @@ impl Mind {
             home_stall: 0,
             dig_rest_until: 0,
             gave_up: false,
+            eat_best: f32::INFINITY,
+            eat_stall: 0,
+            eat_rest_until: 0,
+            eat_bouts: 0,
+            fuel: st.energy + st.crop.map_or(0.0, |c| c.worth().max(0.0)),
             drive: Drive::Rest,
             hunger: 0.0,
             hold: 0.0,
@@ -778,6 +854,19 @@ const P_HOME: f32 = 0.5;
 const FOOD_GAIN: f32 = 2.0;
 /// How far the food sense reaches, in cells (a 13x13 box, as `larva_scent`).
 const FOOD_REACH: i32 = 6;
+/// The food sense's box, a side.
+const FOOD_BOX: usize = (2 * FOOD_REACH + 1) as usize;
+/// **The eat drive gives up** ([`WalkParts::eat_fade`]) after this many
+/// decisions that won the step roll and came no nearer the food it senses:
+/// the way out's own stall, about 180 frames at the ant's six-frame decision.
+const EAT_STALL: u16 = ESCAPE_STALL;
+/// ...and its food sense is then off this many frames, unless a meal or the
+/// open air ends it first: about 100 decisions, long enough for the way out
+/// to stall and escape to fire (30 decisions) more than once, and under half
+/// what an ant at 30% of its budget has to live (about 1,400 frames). As long
+/// as the stall, the review's reading of the proposal's first form, the ant
+/// would turn back to the eat drive just as escape could fire.
+const EAT_REST: u64 = 600;
 /// The pull out never falls below this share of the home pull, however
 /// mildly hungry the ant.
 const OUT_GAIN_MIN: f32 = 0.3;
@@ -943,7 +1032,8 @@ fn walk_act(
     };
     let start = def.start_energy.max(1.0);
     let crop_worth = st.crop.map_or(0.0, |c| c.worth().max(0.0));
-    let hunger = hunger_urge((st.energy + crop_worth) / start);
+    let fuel = st.energy + crop_worth;
+    let hunger = hunger_urge(fuel / start);
     let spoil = st.spoil;
     let laden = crop_worth > 0.0 && !carries_lunch(world, st);
     let trip = st.trip_load;
@@ -979,6 +1069,26 @@ fn walk_act(
     if outside {
         mind.door = Some(head);
     }
+    // **The eat drive's memory** ([`WalkParts::eat_fade`]): a meal (energy
+    // and crop up since its last decision) or the open air starts its
+    // progress again and ends a window its food sense was off in.
+    if parts.eat_fade {
+        let ate = fuel > mind.fuel;
+        if ate || outside {
+            if frame < mind.eat_rest_until {
+                let c = &mut world.needs.as_mut().expect("walking").counts;
+                if ate {
+                    c.eat_rest_ate += 1;
+                } else {
+                    c.eat_rest_out += 1;
+                }
+                mind.eat_rest_until = 0;
+            }
+            mind.eat_best = f32::INFINITY;
+            mind.eat_stall = 0;
+        }
+    }
+    mind.fuel = fuel;
     let dt = frame.saturating_sub(mind.meet_at) as f32;
     mind.meet *= (-dt / MEET_TAU).exp();
     mind.meet_at = frame;
@@ -1094,6 +1204,13 @@ fn walk_act(
         };
     let veto = world.needs.as_ref().is_some_and(|n| n.veto_needs);
     let need = !veto && hunger > 0.0 && hunger > mind.hold;
+    // Out of hunger, the eat drive's progress and its give-ups this bout
+    // start again ([`WalkParts::eat_fade`]); a window still running stays.
+    if parts.eat_fade && !need {
+        mind.eat_best = f32::INFINITY;
+        mind.eat_stall = 0;
+        mind.eat_bouts = 0;
+    }
     if need && job != Job::Idle {
         world.needs.as_mut().expect("walking").counts.need_over_job += 1;
     }
@@ -1252,10 +1369,21 @@ fn hungry_act(
             }
         }
     }
-    if let Some(food) = sense_food(world, organism, def, head) {
-        mind.drive = Drive::Eat;
-        mind.food = Some(food);
-        return None;
+    // **The food sense**, off while a give-up's window runs
+    // ([`WalkParts::eat_fade`]).
+    let parts = world.needs.as_ref().map_or(WalkParts::NONE, |n| n.parts);
+    if parts.eat_fade && world.frame < mind.eat_rest_until {
+        world.needs.as_mut().expect("walking").counts.eat_rest += 1;
+    } else {
+        let (food, hidden) = sense_food(world, organism, def, head, parts.reach);
+        if let Some(food) = food {
+            mind.drive = Drive::Eat;
+            mind.food = Some(food);
+            return None;
+        }
+        if hidden {
+            world.needs.as_mut().expect("walking").counts.reach_hidden += 1;
+        }
     }
     if outside {
         mind.drive = Drive::Seek;
@@ -1323,9 +1451,22 @@ fn food_down_site(world: &World, head: (i32, i32)) -> Option<(i32, i32)> {
 /// **The food sense**: the nearest cell this ant's mouth would take within
 /// [`FOOD_REACH`], by Chebyshev distance and then scan order. Loose food and
 /// plants; never a living animal, and never its own kind.
-fn sense_food(world: &World, organism: OrganismId, def: &CreatureDef, head: (i32, i32)) -> Option<(i32, i32)> {
+///
+/// With `reach` ([`WalkParts::reach`]) a cell counts only if its 8-ring, the
+/// mouth's ring, touches a cell [`reachable_from_head`]; the second value
+/// says food was in the box and none of it could be reached. Without it, food
+/// is sensed through soil, as slice 1 sensed it, and the second is false.
+fn sense_food(
+    world: &World,
+    organism: OrganismId,
+    def: &CreatureDef,
+    head: (i32, i32),
+    reach: bool,
+) -> (Option<(i32, i32)>, bool) {
     let gut = gut_of(world, organism, def);
     let mut best: Option<(i32, (i32, i32))> = None;
+    let mut open: Option<[[bool; FOOD_BOX]; FOOD_BOX]> = None;
+    let mut hidden = false;
     for dy in -FOOD_REACH..=FOOD_REACH {
         for dx in -FOOD_REACH..=FOOD_REACH {
             let (x, y) = (head.0 + dx, head.1 + dy);
@@ -1344,11 +1485,65 @@ fn sense_food(world: &World, organism: OrganismId, def: &CreatureDef, head: (i32
             }
             let d = dx.abs().max(dy.abs());
             if best.is_none_or(|(b, _)| d < b) {
+                if reach && !touches_open(open.get_or_insert_with(|| reachable_from_head(world, head)), dx, dy) {
+                    hidden = true;
+                    continue;
+                }
                 best = Some((d, (x, y)));
             }
         }
     }
-    best.map(|(_, p)| p)
+    (best.map(|(_, p)| p), hidden && best.is_none())
+}
+
+/// **Where the air round the head reaches** ([`WalkParts::reach`]): the cells
+/// of the food sense's box joined to the head, 8-way as the walk steps,
+/// through open cells: empty, or a living animal's (ants and brood; a jam
+/// clears, and the eat drive's give-up covers one that does not). Indexed
+/// `[dy + FOOD_REACH][dx + FOOD_REACH]`.
+///
+/// **A stand-in, named as one**: the walk's own step predicate is body-aware
+/// (`usable_headings`) and cannot be flooded, so this asks what passes air,
+/// not what passes the ant's body; liquid and plant cells do not pass; and
+/// the flood stops at the box's edge, so food reachable only by a way that
+/// leaves the box is not sensed though air along that way would carry it.
+/// Out of the world is never open (`OUT_OF_BOUNDS` reads as bedrock).
+fn reachable_from_head(world: &World, head: (i32, i32)) -> [[bool; FOOD_BOX]; FOOD_BOX] {
+    let r = FOOD_REACH;
+    let passes = |x: i32, y: i32| {
+        world.in_bounds(x, y) && {
+            let c = world.get(x, y);
+            c.material == material::EMPTY || (c.organism_id() != 0 && is_animal_cell(world, c))
+        }
+    };
+    let mut open = [[false; FOOD_BOX]; FOOD_BOX];
+    open[r as usize][r as usize] = true;
+    let mut todo = vec![(0, 0)];
+    while let Some((dx, dy)) = todo.pop() {
+        for &(ex, ey) in NEIGHBOURS_8.iter() {
+            let (nx, ny) = (dx + ex, dy + ey);
+            if nx.abs() > r || ny.abs() > r {
+                continue;
+            }
+            let cell = &mut open[(ny + r) as usize][(nx + r) as usize];
+            if *cell || !passes(head.0 + nx, head.1 + ny) {
+                continue;
+            }
+            *cell = true;
+            todo.push((nx, ny));
+        }
+    }
+    open
+}
+
+/// Whether the cell at `(dx, dy)` from the head has an open cell of `open`
+/// in its 8-ring: the mouth, standing there, could take it.
+fn touches_open(open: &[[bool; FOOD_BOX]; FOOD_BOX], dx: i32, dy: i32) -> bool {
+    let r = FOOD_REACH;
+    NEIGHBOURS_8.iter().any(|&(ex, ey)| {
+        let (nx, ny) = (dx + ex, dy + ey);
+        nx.abs() <= r && ny.abs() <= r && open[(ny + r) as usize][(nx + r) as usize]
+    })
 }
 
 /// Loose food cells within `reach` of `head`: what a forager unloading sees
@@ -2102,6 +2297,37 @@ fn walk_after(world: &mut World, organism: OrganismId, moved: bool, won: bool) {
         mind.out_best = i32::MAX;
         mind.stall = 0;
     }
+    // **The eat drive's progress** ([`WalkParts::eat_fade`]): straight-line
+    // distance to the food it sensed, whatever cell (the sense re-picks the
+    // nearest every decision, so a per-target count would start again on the
+    // next sealed crumb), counting only decisions that won the step roll, as
+    // the way out's and the way home's do: a slow ant in a crowd is not
+    // stalled by staying. An ant beside food that does not eat is: its mouth
+    // had its turn. Kept across the drive's turns to "out", so an ant whose
+    // box the crumb drifts in and out of still gives up; a meal, the open air
+    // and the end of hunger start it again (`decide`).
+    if parts.eat_fade && mind.drive == Drive::Eat {
+        if let Some(food) = mind.food {
+            let d = home_distance(head, food);
+            if d < mind.eat_best - PATIENCE_PROGRESS {
+                mind.eat_best = d;
+                mind.eat_stall = 0;
+            } else if won {
+                mind.eat_stall = mind.eat_stall.saturating_add(1);
+                if mind.eat_stall >= EAT_STALL {
+                    mind.eat_rest_until = world.frame + EAT_REST;
+                    mind.eat_best = f32::INFINITY;
+                    mind.eat_stall = 0;
+                    let c = &mut world.needs.as_mut().expect("walking").counts;
+                    c.eat_gave_up += 1;
+                    if mind.eat_bouts > 0 {
+                        c.eat_gave_up_again += 1;
+                    }
+                    mind.eat_bouts = mind.eat_bouts.saturating_add(1);
+                }
+            }
+        }
+    }
     // **The way home's progress** ([`WalkParts::clear`]): straight-line
     // distance to the pull's own target, counting only decisions that won the
     // step roll, for the same reason. Within a cell of its target it has
@@ -2218,6 +2444,10 @@ mod tests {
         MoundPocket,
         /// A closed pocket in the ground, 30 rows down, that nothing joins.
         Buried,
+        /// On the open ground east of the door, short of the food heap: the
+        /// food sense's check only (`the_food_sense_reaches_round_a_wall_and_not_through_soil`), never
+        /// in [`Place::ALL`], since an ant there is out at its first frame.
+        Surface,
     }
 
     impl Place {
@@ -2239,6 +2469,7 @@ mod tests {
                 Place::MoundTunnel => (40, 37),
                 Place::MoundPocket => (49, 33),
                 Place::Buried => (21, 71),
+                Place::Surface => (70, 39),
             }
         }
 
@@ -2777,6 +3008,12 @@ mod tests {
         assert_eq!(p.label(), "pace,give_up");
         assert_eq!(WalkParts::parse(&WalkParts::ALL.label()), WalkParts::ALL);
         assert_eq!(WalkParts::NONE.label(), "none");
+        // `all` is the fix round's eight; the parts after it are named alone.
+        let all = WalkParts::parse("all");
+        assert!(!all.reach && !all.eat_fade);
+        let p = WalkParts::parse("all,reach,eat_fade");
+        assert!(p.reach && p.eat_fade && p.won_stall);
+        assert_eq!(WalkParts::parse(&p.label()), p);
     }
 
     #[test]
@@ -2962,6 +3199,204 @@ mod tests {
             "control: took {}, cuts {:?}",
             off.dig_took,
             off.cuts
+        );
+    }
+
+    // --- food sealed in soil (`reach`, `eat_fade`, 2026-10-10) -------------
+
+    /// An arm of a row: its name, and the setup it runs under.
+    type Arm = (&'static str, fn(&mut World));
+
+    /// The walk with `parts` on, for a row's setup.
+    fn walk_with(w: &mut World, parts: &str) {
+        let mut n = NeedsWalk::new(NeedsMode::Walk, w.frame);
+        n.parts = WalkParts::parse(parts);
+        w.needs = Some(Box::new(n));
+    }
+
+    /// **A crumb sealed in soil** in the deep shaft's east wall, two columns
+    /// from the shaft and six rows above the deep room's floor, so that the
+    /// room and the shaft below the chamber are all within the food sense's
+    /// box: the trace's crumb at (250, 201), six columns from the flip
+    /// world's shaft, held about 40 ants. **The first place tried, three rows
+    /// under the room's floor, trapped nobody**: the ant on slice 1 paced the
+    /// room on the eat drive, drifted up the shaft out of the box in 210
+    /// frames, went out and ate, so the row could not be red for the fault.
+    /// In the shaft's wall slice 1 presses into the wall beside it on 151
+    /// eat decisions and starves at frame 905.
+    const SEALED_CRUMB: (i32, i32) = (63, 55);
+
+    fn bury_crumb(w: &mut World) {
+        let food = w.materials.id_of("provisions").expect("provisions material");
+        w.set(SEALED_CRUMB.0, SEALED_CRUMB.1, Cell::new(food, 0));
+    }
+
+    /// The deep room's rows, each role, with the crumb buried, under `setup`.
+    fn sealed_crumb_rows(setup: fn(&mut World)) -> Vec<Row> {
+        [Role::Forager, Role::NestWorker]
+            .into_iter()
+            .map(|role| guard_row(Place::Deep, Load::Nothing, role, None, setup))
+            .collect()
+    }
+
+    /// **A hungry ant beside food sealed in soil must eat or reach the air**,
+    /// the row the no-veto guard lacked: none of its scenes put food in sealed
+    /// soil beside a hungry ant. **Watched red on slice 1** (the positive
+    /// control, asserted: the ant aims at the crumb and starves), green with
+    /// either part and both.
+    #[test]
+    fn a_crumb_sealed_in_soil_does_not_hold_a_hungry_ant() {
+        let mut w = guard_bed();
+        bury_crumb(&mut w);
+        let (cx, cy) = SEALED_CRUMB;
+        assert!(
+            NEIGHBOURS_8
+                .iter()
+                .all(|&(dx, dy)| w.get(cx + dx, cy + dy).material != material::EMPTY),
+            "test setup: the crumb is not sealed"
+        );
+        let (ax, ay) = Place::Deep.at();
+        assert!(
+            (cx - ax).abs().max((cy - ay).abs()) <= FOOD_REACH,
+            "test setup: the crumb is out of the food sense's reach"
+        );
+        let arms: [Arm; 4] = [
+            ("slice 1", |w| {
+                bury_crumb(w);
+                walk_with(w, "none");
+            }),
+            ("reach", |w| {
+                bury_crumb(w);
+                walk_with(w, "reach");
+            }),
+            ("eat_fade", |w| {
+                bury_crumb(w);
+                walk_with(w, "eat_fade");
+            }),
+            ("both", |w| {
+                bury_crumb(w);
+                walk_with(w, "reach,eat_fade");
+            }),
+        ];
+        let mut wrong = Vec::new();
+        for (name, setup) in arms {
+            println!("--- {name}");
+            let rows = sealed_crumb_rows(setup);
+            print_guard(&rows);
+
+            for r in &rows {
+                if let Some(c) = r.counts {
+                    println!(
+                        "    reach hidden {} | eat gave up {} again {} | sense off {} ended by a meal {} by the air {}",
+                        c.reach_hidden, c.eat_gave_up, c.eat_gave_up_again, c.eat_rest, c.eat_rest_ate, c.eat_rest_out
+                    );
+                }
+                let want = name != "slice 1";
+                if r.green() != want {
+                    wrong.push(format!("{name}/{:?}: green {}", r.role, r.green()));
+                }
+            }
+        }
+        assert!(wrong.is_empty(), "rows not as expected: {wrong:?}");
+    }
+
+    /// **What `reach` senses** (the review's negative control, and a tight
+    /// check on a deterministic function): on the open ground, food beyond a
+    /// two-cell post of packed soil, where the straight line is soil and the
+    /// way is air over the post, is sensed with `reach` as without it; the
+    /// same crumb sealed in soil is sensed only without it, and `reach` says
+    /// so. A first form of this check, a row that let the ant walk to the
+    /// crumb, could not fail: with the sense blinded entirely, the ant outside
+    /// walked onto the crumb on its search anyway (eaten at frame 41).
+    #[test]
+    fn the_food_sense_reaches_round_a_wall_and_not_through_soil() {
+        let mut w = guard_bed();
+        let packed = w.materials.id_of("packedsoil").expect("packed soil material");
+        let food = w.materials.id_of("provisions").expect("provisions material");
+        let (x, y) = Place::Surface.at();
+        plant_creature_seed(&mut w, x, y, "ant").expect("test setup: the ant does not fit");
+        let a = w.get(x, y).organism_id();
+        let def = w
+            .species
+            .get(w.organism(a).expect("live").species)
+            .creature
+            .clone()
+            .expect("a creature");
+        let head = w.organism(a).expect("live").chain[0];
+        w.set(head.0 + 3, head.1, Cell::new(packed, 0));
+        w.set(head.0 + 3, head.1 - 1, Cell::new(packed, 0));
+        w.set(head.0 + 5, head.1, Cell::new(food, 0));
+        let round = (head.0 + 5, head.1);
+        assert_eq!(sense_food(&w, a, &def, head, false), (Some(round), false));
+        assert_eq!(
+            sense_food(&w, a, &def, head, true),
+            (Some(round), false),
+            "food round a wall hidden"
+        );
+        // Bury it: soil over and round it, the post left standing.
+        for (dx, dy) in NEIGHBOURS_8 {
+            if w.get(round.0 + dx, round.1 + dy).material == material::EMPTY {
+                w.set(round.0 + dx, round.1 + dy, Cell::new(packed, 0));
+            }
+        }
+        assert_eq!(sense_food(&w, a, &def, head, false), (Some(round), false));
+        assert_eq!(
+            sense_food(&w, a, &def, head, true),
+            (None, true),
+            "food sealed in soil sensed"
+        );
+    }
+
+    // **No crowd row for `eat_fade`** (the review asked for a reachable meal
+    // approached slowly through a crowd, which the give-up must not drop).
+    // Built three ways in the deep room and none could fail: with strangers
+    // the ant was killed at frame 59; with fed nestmates it was fed by them
+    // at frame 5 (an adult shares with any poorer nestmate beside it); with
+    // nestmates as hungry as it, it ate at frame 305 under slice 1, under
+    // `eat_fade`, and under `eat_fade` with the stall cut to 1 decision (gave
+    // up twice, ate at the same frame: the mouth takes food it passes on any
+    // drive). So it is judged in the colony instead: give-ups, repeat
+    // give-ups per hunger bout, and windows ended by a meal (`walk_counts`).
+
+    /// **The three walk guards with each new part on** (the review's ask):
+    /// every row green under the walk and under every fix, and the vetoed
+    /// control still red, with `reach` and with `eat_fade`.
+    #[test]
+    fn the_guards_hold_with_the_food_parts() {
+        let arms: [Arm; 4] = [
+            ("reach", |w| walk_with(w, "reach")),
+            ("eat_fade", |w| walk_with(w, "eat_fade")),
+            ("all,reach", |w| walk_with(w, "all,reach")),
+            ("all,eat_fade", |w| walk_with(w, "all,eat_fade")),
+        ];
+        let mut red = Vec::new();
+        for (name, setup) in arms {
+            let rows = guard(None, setup);
+            for r in rows.iter().filter(|r| !r.green()) {
+                red.push(format!("{name}: {:?}/{:?}/{:?}", r.place, r.load, r.role));
+            }
+        }
+        let vetoes: [Arm; 2] = [
+            ("reach", |w| {
+                walk_with(w, "reach");
+                w.needs.as_mut().expect("walking").veto_needs = true;
+            }),
+            ("eat_fade", |w| {
+                walk_with(w, "eat_fade");
+                w.needs.as_mut().expect("walking").veto_needs = true;
+            }),
+        ];
+        let mut blind = Vec::new();
+        for (name, setup) in vetoes {
+            let n = guard(None, setup).iter().filter(|r| !r.green()).count();
+            if n < VETO_RED {
+                blind.push(format!("{name}: {n} red"));
+            }
+        }
+        assert!(red.is_empty(), "{} rows red with a food part: {red:?}", red.len());
+        assert!(
+            blind.is_empty(),
+            "the vetoed control went blind with a food part: {blind:?}"
         );
     }
 
