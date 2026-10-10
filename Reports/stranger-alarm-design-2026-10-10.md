@@ -456,3 +456,44 @@ pre-flip ones.
 - Kept in the shared folder, not `assets/`: `herb_box_fed` (its heap is a
   guess) and `two_nests_own_late` (its 30k landing would lengthen the CI
   arrival test). The four beds in `assets/lab_scenarios/` re-run §9-§10.
+
+## 11. On main with the nest stack on (2026-10-10, branch `63e7c502`)
+
+Review item 2: PR 675 shipped the nest stack on (main `214311ff`), so the
+whole set was rerun on the merged branch. Logs, CSVs and `sum300.py`:
+`rebased-63e7c502/` in the shared folder. Same beds, same seeds, mutation
+off unless stated.
+
+**12 seeds to 300k** (`two_nests_own`):
+
+| | before the stack (§10) | stack on |
+|---|---|---|
+| living 100-300k, median of seeds, off / on | 532 / 463 (-13%) | 512 / 502 (-2%) |
+| paired, on against off, per seed | | -6.5% to +6.7% |
+| kills on the five seeds that were borders before (1, 3, 4, 5, 8) | 2,241-2,800 | 1,402-1,930 (-27% to -46%) |
+| at 300k, on | 5 borders, 3 conquests, 4 one-family | 8 borders, 2 conquests, 2 one-family |
+| starved, on / off | | 64-400 / 99-477 |
+
+- *Borders:* seeds 1, 2, 3, 4, 5, 7, 8, 10. Seed 1 still ends at 88%
+  strangers between (a pocket mixing), as before.
+- *Conquests:* seeds 11 and 12, both **landing clashes**: the second colony
+  is gone by the 30k and 60k samples, 53 and 144 of its ants killed and none
+  starved. No runaway or attrition conquest this time.
+- *One family:* seed 9 from the start (no fighting, on = off), seed 6 merged
+  by scent between 240k and 270k.
+- Off, no colony is squeezed now: the smallest line at 300k is 188 ants
+  (before the stack, 5 of 12 off seeds squeezed one colony to 9-41).
+
+**Mutation on, seeds 1-4, 150k:** living 100-150k 452-576 on against
+501-550 off; bite kills 942-1,276 on against 645-1,090 off, except seed 4,
+where the second colony was wiped out at landing (55 killed, 0 starved,
+63 kills in all) and the winner alone starved 898. Kills inside one line: 0
+with the switch on; 2 with it off (seed 1).
+
+**The owner's 10-10 box** (`herb_box_fed`, heap guessed, seeds 1-2, 60k):
+off, 0 kills and every ant starved by 42k (359 + 376, 359 + 345); on, 264
+and 190 kills from about 36k, everyone dead by 42k too. Meetings, parted /
+held / display / bite / kill: 1,051 / 234 / 111 / 66 / 255 and 718 /
+1,670 / 79 / 62 / 189. Dead per line, starved / killed: 286/93 + 196/189;
+275/93 + 246/104. The stack's storeroom makes more ants laden, so `fed`
+holds 9-61% of meetings here.
