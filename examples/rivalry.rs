@@ -313,7 +313,7 @@ fn main() {
     // 1..120) and reachable from no harness, so the one question nobody
     // could ask of it was what it does to a bed with two colonies in it.
     let colony_ants: i32 = arg("colony_ants").unwrap_or(creature::COLONY_ANTS);
-    let spec = LabBox {
+    let mut spec = LabBox {
         width: arg("width").unwrap_or(512),
         height: arg("height").unwrap_or(320),
         soil_depth: arg("soil").unwrap_or(80),
@@ -324,6 +324,21 @@ fn main() {
         seed,
         ..LabBox::default()
     };
+    // **`herbbox=1`: the owner's planted `herb_ant` box, as `examples/replay.rs`
+    // rebuilds it** -- 1,024 x 512, 176 rows of soil, the playtest's two dials,
+    // its thirteen plants at frame 0, rain off and half pace (the pair that
+    // reproduces that playtest), and two colonies of 52 founded at
+    // `t1=`/`t2=` (83,271 at x 728 and 84,889 at x 284 by default). Added
+    // for the stranger alarm's second review, which asked for the switch in
+    // the box where the owner saw zero kills, and in a planted one.
+    let herbbox = arg::<u32>("herbbox").unwrap_or(0) == 1;
+    let (t1, t2): (u64, u64) = (arg("t1").unwrap_or(83_271), arg("t2").unwrap_or(84_889));
+    if herbbox {
+        spec = LabBox { width: 1024, height: 512, soil_depth: 176, ground_y: 256, founders: 0, colonies: 0, seed, ..LabBox::default() };
+        spec.rain = pixel_physics::lab::rain::Rain::Off;
+        spec.plant_pace = pixel_physics::lab::pace::PlantPace::Half;
+        println!("rivalry: herbbox -- 1024x512, 13 plants, rain off, half pace, colonies at {t1} (x 728) and {t2} (x 284)");
+    }
     println!(
         "rivalry: label={label} frames={frames} seed={seed} colonies={colonies} colony_ants={colony_ants} founders={founders} walls={} spread={} tolerance={} drift={} sight={} wire={}",
         spec.compartments,
@@ -349,6 +364,33 @@ fn main() {
     });
     let dims = scenario.as_ref().map_or((spec.width, spec.height), |sc| (sc.bed.width, sc.bed.height));
     let mut lab = Lab::new(spec);
+    if herbbox {
+        // The two dials the playtest's header names as changed from shipped,
+        // and its plants -- `examples/replay.rs`'s own list.
+        lab.world.plant_load_failure = false;
+        lab.world.developmental_key = pixel_physics::sim::organism::DevelopmentalKey::Plant { coarseness: 0 };
+        lab.world.refold_developmental_seeds();
+        for (name, x, y) in [
+            ("conifer", 60, 206),
+            ("herb", 392, 216),
+            ("herb", 440, 220),
+            ("herb", 464, 216),
+            ("herb", 506, 208),
+            ("herb", 540, 220),
+            ("herb", 542, 220),
+            ("herb", 462, 238),
+            ("herb", 424, 228),
+            ("herb", 556, 186),
+            ("herb", 602, 204),
+            ("herb", 582, 218),
+            ("tree", 944, 202),
+        ] {
+            let ok = lab.world.plant_tree_species(x, y, name);
+            if !ok {
+                println!("rivalry: herbbox plant {name} at {x},{y} refused");
+            }
+        }
+    }
     if let Some(sc) = scenario.clone() {
         println!("rivalry: scenario={} ({}x{}) -- colonies, founders and box size come from it", sc.name, dims.0, dims.1);
         lab.load_scenario(sc);
@@ -628,8 +670,16 @@ fn main() {
             // (the colonies and heaps arrive at frame 6,000); the default bed
             // keeps this harness's bare world step, so its logs stay
             // comparable with every run before `scenario=` existed.
-            if scenario.is_some() {
+            if scenario.is_some() || herbbox {
                 lab.tick_for_harness();
+                if herbbox && lab.world.frame == t1 {
+                    let n = lab.world.found_colony_of(728, 230, "ant", 52);
+                    println!("rivalry: herbbox colony at x 728 placed {n} at frame {t1}");
+                }
+                if herbbox && lab.world.frame == t2 {
+                    let n = lab.world.found_colony_of(284, 230, "ant", 52);
+                    println!("rivalry: herbbox colony at x 284 placed {n} at frame {t2}");
+                }
             } else {
                 tick(&mut lab);
             }

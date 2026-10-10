@@ -118,11 +118,19 @@ graded by how far past its tolerance the stranger smells.**
    once with probability 1 - 0.86^10 = 78% at level 20 (94% at 40), and
    stacked displays raise the next roll. That is the number §5's funnel
    measures, not one this design asserts.
-5. **`fed`: hunger overrides it** (owner's rule; Grover et al. 2007,
-   carbohydrate-starved Argentine ant colonies were less aggressive). An ant
-   that is lean (`LeanForage::lean`) or carrying food in its crop or jaws
-   neither marks nor answers: its `Attack` urge is read as 0 for the tick.
-   A named part, so "fights while starving" can be judged apart.
+5. **`fed`: two holds in one part**, each applying only while a same-kind
+   stranger touches the ant (§10); its `Attack` urge is then read as 0 for
+   the tick, and it neither marks nor answers.
+   - **Lean: hunger overrides it** (owner's rule; Grover et al. 2007,
+     carbohydrate-starved Argentine ant colonies were less aggressive). Lean
+     is energy under `LeanForage::line` x start energy.
+   - **Laden: a forager keeps its load.** A separate rule, not justified by
+     Grover: any ant with crop cells or food in its jaws, *however well
+     fed*, is held, even while the stranger is biting it. It is held too
+     when a beetle bites it while a stranger touches it (rare; the hold
+     reads the touch, not the biter).
+   A named part, so "fights while starving or carrying" can be judged
+   apart.
 6. **Riders: counted, never acted on** (review Q2). `nearest_foe` folds no
    riders (the owner's "one attack must not hit 20 creatures"), so a rider
    alarm would arouse an ant with nobody to reach. A diagnostic counter only;
@@ -140,7 +148,8 @@ one world (the house pattern). `on` is `touch,fed,level=20`. Parts:
 
 - `touch` - the rule above (the ignition).
 - `level=N` - the top-up level at full foreignness, 0-255 (default 20).
-- `fed` - lean or laden ants neither mark nor answer.
+- `fed` - while a stranger touches, lean ants (hunger) and laden ants (crop
+  cells or food in the jaws, however well fed) neither mark nor answer.
 - `species` - also count other kinds' animals (not in `on`; predator and
   prey stay the diet's question).
 
@@ -370,10 +379,13 @@ median 547 off against 475 on (-13%); on the 8 border seeds -5% to -30%,
 mean 538 -> 452 (-16%). Frame cost +1.5-4% (the review's measurement).
 
 **To 300k, 12 seeds** (`long-300k/` in the shared folder): living at
-100-300k, median 534 off against 463 on (-13%); seeds 2, 7 and 12 end in
-conquest again, seed 9 at peace, the rest at a border; starved deaths fall
-on border seeds (e.g. 188 -> 43) and rise on conquest seeds, where the
-winner fills the box.
+100-300k, median 534 off against 463 on (-13%). At 300k: **5 borders**
+(seeds 1, 3, 4, 5, 8), **3 conquests** (2, 7, 12) and **4 one-family**
+(seed 9 from the start; seeds 6, 10 and 11 merge by scent late, cross-colony
+strangers falling to 0-1.6% and the fighting stopping, seed 6 from about
+264k and seed 11 from 288k). Off, seeds 2 and 6 merge the same way by 294k,
+so the late merge is main's. Starved deaths fall on border seeds (e.g. 188
+-> 43) and rise on conquest seeds, where the winner fills the box.
 
 **Mutation on, seeds 1-4, 150k:** main fights already (693-1,106 bite kills,
 219-358 eaten); on, 933-1,237 bite kills, 222-287 eaten, cross-colony
@@ -382,13 +394,65 @@ off. Kills inside one line: 0 on every seed with the switch on (4 on seed 4
 with it off, by the mouth).
 
 **The lineage path is now exercised, and it fires once.** Seed 1 at 300k,
-mutation off: kills inside line 1 begin at 253k and reach 70 by 300k (of
-2,504 kills in that run; victims healthy, median 456 J). By 270k
-`regroup_by_scent` has minted label 4 out of line 1: 23-40 of line 1's ants
-whose heads sit at columns 269-486, **on the other colony's side** of the
-border, while line 1 proper holds 4-393. No other run of the 24 at 300k,
-or of the 8 mutation-on runs, kills inside a line. *Inferred, not traced
-per ant:* line-1 ants living on line 2's ground take up its nest odour
-(`NEST_BLEND`, nest uptake) until their own family no longer accepts them.
-Off, seed 6 also splits at 300k (no fights); so the split itself is main's,
-and the switch is what turns it into a fight.
+mutation off: 70 kills inside a line (of 2,504 in that run; victims healthy,
+median 456 J), **66 in line 1 and 4 in line 2**. No other run of the 24 at
+300k, or of the 8 mutation-on runs, kills inside a line. The second lane
+traced it (`review-default-on-pr673-2026-10-10.md` §2, from
+`long-on-1.csv` and a local scent dump):
+
+- The two nests' odours drift toward each other (mean cross-line distance
+  1.334 at 222k, 1.067 at 240k, 1.11-1.17 over 246-264k, just past the
+  tolerance radius of 1.0); 7-24 line-1 ants sit nearest line 2's nest
+  throughout.
+- By 270k `regroup_by_scent` mints label 4 out of line 1: 23 ants at 270k,
+  55 at 300k, all nearest line 2's nest. They **wear line 2's nest odour**
+  (mean distance to it 0.022 at 270k, 0.008 at 300k; to their own line's
+  nest 1.33 and 1.70). The mirror happens once: label 3 is one line-2 ant at
+  x 146 wearing line 1's odour, and it accounts for the 4 kills in line 2
+  (267-277k).
+- Every one of the 70 pairs is a scent stranger by the shipped test (pair
+  distance 1.065-1.683, median 1.449). The kills go both ways: 13 label 1 ->
+  label 1 before the mint, 30 label 1 -> label 4, 23 label 4 -> label 1.
+  A two-sided fight at a scent line, not a colony eating its own; line 1
+  ends with 294 ants, the largest group, and label 4 grows while fought.
+- **Per-ant path not traced:** which of main's three paths moved those ants
+  onto line 2's odour (`blend_with_nest`, the kin share blend, or
+  `carry_nest_wander`). The exact endpoint points to a blend rather than
+  wander [inferred]. Either way it is main's: off seeds 2 and 6 and on seeds
+  6, 10 and 11 merge by the same machinery with no kill inside a line;
+  seed 1 is a merge that stalled halfway (the gap reopens to 1.71 by 300k),
+  and the switch makes the stranded pocket a fight.
+
+**The owner's box (review item 3).** Logs: `herb-box/` in the shared folder.
+Run on the branch before PR 675 merged, so main's switches here are the
+pre-flip ones.
+
+- *The 10-09 planted box* (`rivalry herbbox=1`: 13 plants, colonies landing
+  at 83k and 85k, x 728 and x 284), seeds 1-2 to 145k: **the colonies never
+  meet.** Each keeps to its own plants (columns 605-908 against 210-407),
+  `touches=0`, and on plays byte-identical to off. Nothing for the switch to
+  do there.
+- *The 10-10 box* (`herb_box_fed`: colonies of 52 at x 296 and x 614,
+  frame 58). Its food was painted with the FOOD brush, which the actions log
+  does not record; one 3,000-cell provisions heap at x 455 is **a guess** at
+  where. Finite food, so every arm starves out by 42-60k, as the playtest
+  did. Seeds 1-2 to 60k:
+
+| switches | arm | kills | meetings: parted / held / display / bite / kill | dead per line, starved / killed |
+|---|---|---|---|---|
+| main's | off | 0, 0 | none logged (259-290 cross contacts sampled) | 188/0 + 207/0; 140/0 + 125/0 |
+| main's | on | 62, 67 | 136/10/18/20/62; 127/4/20/17/66 | 206/32 + 206/31; 136/30 + 146/37 |
+| the playtest's | off | 0, 0 | none logged (1,153-1,306 sampled) | 454/0 + 351/0; 347/0 + 406/0 |
+| the playtest's | on | 456, 356 | 446/61/116/79/446; 415/1,104/66/63/345 | 269/193 + 75/295; 202/167 + 198/211 |
+
+  Off reproduces the complaint: the colonies meet and nobody bites. On, the
+  kills come between the 24k and 30k samples (playtest switches) and the 42k
+  and 54k samples (main's); the colonies' first touches are late too (27-29k;
+  main's 8k on seed 1, one held touch, then 49k on seed 2) [inferred: they
+  meet as the heap runs down and foragers range]. The playtest's set holds 1,104 of
+  1,993 meetings on seed 2 by `fed` (8,058 held touches): its storeroom
+  keeps food in the jaws, so many ants are laden. *Laden* is the part of
+  `fed` this set leans on, which is why §3 now names it.
+- Kept in the shared folder, not `assets/`: `herb_box_fed` (its heap is a
+  guess) and `two_nests_own_late` (its 30k landing would lengthen the CI
+  arrival test). The four beds in `assets/lab_scenarios/` re-run §9-§10.

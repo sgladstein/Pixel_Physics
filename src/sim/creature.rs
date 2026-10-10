@@ -24169,13 +24169,18 @@ pub fn lean_forage_of(world: &World) -> LeanForage {
 /// - `touch`: the mark (the ignition).
 /// - `level=N`: the top-up at full foreignness, in alarm units 0-255
 ///   (default [`STRANGER_LEVEL`], under a display's 40).
-/// - `fed`: a lean ant (under `LeanForage::line` of its `start_energy`, the
-///   forage drive's own line) or one carrying food in its crop or jaws
-///   neither marks nor answers **while a stranger touches it** -- its
-///   `Attack` urge reads 0 on those decisions only, so it still fights back
-///   against another kind (a spider's bite). Hunger lowers aggression in
-///   ants (Grover et al. 2007), and the owner's rule is that hunger
-///   overrides every rule.
+/// - `fed`: two holds, each only **while a same-kind stranger touches the
+///   ant** -- its `Attack` urge reads 0 on those decisions only, so it
+///   still fights back against another kind (a spider's bite) when no
+///   stranger is on it. It neither marks nor answers.
+///   - *Lean* (under `LeanForage::line` of its `start_energy`, the forage
+///     drive's own line): hunger lowers aggression in ants (Grover et al.
+///     2007), and the owner's rule is that hunger overrides every rule.
+///   - *Laden* (any crop cells, or food in its jaws), **however well fed**:
+///     a forager keeps its load. A separate rule that Grover does not
+///     justify. It holds even while the stranger is biting it, and also
+///     when a beetle bites it while a stranger touches it (rare: the hold
+///     reads the touch, not the biter).
 /// - `species`: also other kinds' animals, at full foreignness. Not in `on`:
 ///   predator and prey stay the diet's question.
 ///
@@ -37757,6 +37762,10 @@ mod tests {
                 // Today's walk, pinned: at reach 1 the arm needs the ants to meet at once,
                 // and under the chooser they took a median 528 frames. The question is armour.
                 w.chooser = Some(Chooser::Off);
+                // **Pinned off: this measures the plate, not the alarm.** With
+                // `PIXEL_PHYSICS_STRANGER_ALARM` on, the touch lights fights its
+                // calibration never had (second-lane review, 2026-10-10).
+                w.stranger_alarm = Some(StrangerAlarm::OFF);
                 // And stacking, pinned off for the same reason: at the shipped
                 // cap of 4 (2026-09-30) the reach-1 arm's median first breach
                 // went 966 frames against its bar of 300 (why was not
@@ -38215,6 +38224,10 @@ mod tests {
         // two identical ones that are therefore nestmates.
         let fight_wired = |strangers: bool, wired: bool| -> (u64, u64, f32, bool) {
             let mut w = test_world();
+            // **Pinned off: this measures the jaw, not the alarm.** Its
+            // attacker eats the stranger, so under the stranger alarm's `fed`
+            // it is laden and never swings (second-lane review, 2026-10-10).
+            w.stranger_alarm = Some(StrangerAlarm::OFF);
             let floor = w.materials.id_of("stone").unwrap_or(material::STONE);
             for x in 80..140 {
                 w.set(x, 120, Cell::new(floor, 0).with_attached(true));
