@@ -334,8 +334,25 @@ fn main() {
         wire.as_deref().unwrap_or("-"),
     );
 
-    let dims = (spec.width, spec.height);
+    // **`scenario=<name>` founds a lab scenario instead of the default bed**
+    // (added 2026-10-10 for the stranger alarm, whose review found every bed
+    // this harness had starves the evolved ant whatever it does). The seed
+    // overrides the scenario's; the colonies come from its timeline, so
+    // `colonies=`/`founders=`/`width=` are then ignored -- echoed below.
+    let scenario: Option<pixel_physics::lab::scenario::Scenario> = arg::<String>("scenario").map(|n| {
+        let mut sc = pixel_physics::lab::scenario::Scenario::load(&n).unwrap_or_else(|e| {
+            eprintln!("scenario {n}: {e}");
+            std::process::exit(2);
+        });
+        sc.bed.seed = seed;
+        sc
+    });
+    let dims = scenario.as_ref().map_or((spec.width, spec.height), |sc| (sc.bed.width, sc.bed.height));
     let mut lab = Lab::new(spec);
+    if let Some(sc) = scenario.clone() {
+        println!("rivalry: scenario={} ({}x{}) -- colonies, founders and box size come from it", sc.name, dims.0, dims.1);
+        lab.load_scenario(sc);
+    }
     // **Both overlays off before anything is drawn.** `Lab::new` opens with
     // the key-list help page up and `Stats::new` with the biosphere page
     // showing, and a card taken before both are closed is a picture of the
@@ -599,7 +616,15 @@ fn main() {
             }
         }
         if f < frames {
-            tick(&mut lab);
+            // A scenario needs the lab's own tick, which runs its timeline
+            // (the colonies and heaps arrive at frame 6,000); the default bed
+            // keeps this harness's bare world step, so its logs stay
+            // comparable with every run before `scenario=` existed.
+            if scenario.is_some() {
+                lab.tick_for_harness();
+            } else {
+                tick(&mut lab);
+            }
         }
     }
 
@@ -776,6 +801,52 @@ fn summary(world: &World, label: &str, contact_ticks: u64, cross_ticks: u64, sam
         .map(|(i, c)| format!("{}={}", c.label().to_lowercase().replace(' ', "_"), a_by_cause[i]))
         .collect();
     println!("SUMMARY-causes-animal label={label} {}", a_causes.join(" "));
+    // **The stranger alarm's own counters, and kills split by lineage rather
+    // than by label** (`Reports/stranger-alarm-design-2026-10-10.md` §4).
+    // A separate line so the SUMMARY above stays comparable with logs from
+    // before the switch existed. `regroup_by_scent` mints a new label for a
+    // split cluster, so a colony fighting its own fission daughter books as
+    // `xcol` above; `kin_line` counts kills whose two labels share a founding
+    // root in `World::colony_parents`, which is the lineage, and `bite` /
+    // `eat` split them by verb -- a cross-colony kill by the mouth is
+    // predation, not a fight.
+    let root = |mut c: u32| {
+        for _ in 0..=world.colony_parents.len() {
+            match world.colony_parents.iter().find(|(child, _)| *child == c) {
+                Some(&(_, parent)) => c = parent,
+                None => break,
+            }
+        }
+        c
+    };
+    let (mut kin_line, mut bite, mut eat) = (0u64, 0u64, 0u64);
+    for k in &world.kills_log {
+        if world.species.get(k.victim_species).creature.is_none() || k.victim_species != k.attacker_species {
+            continue;
+        }
+        if root(k.victim_colony) == root(k.attacker_colony) {
+            kin_line += 1;
+        }
+        match k.detail.verb {
+            pixel_physics::sim::world::KILL_VERB_BITE => bite += 1,
+            pixel_physics::sim::world::KILL_VERB_EAT => eat += 1,
+            _ => {}
+        }
+    }
+    let sa = creature::stranger_alarm_of(world);
+    println!(
+        "STRANGER label={label} switch={} level={} fed={} touches={} marks={} fed_skips={} rider_touches={} contests={} displays={} \
+         ant_kills_same_line={kin_line} ant_kills_bite={bite} ant_kills_eat={eat}",
+        if sa.touch { "on" } else { "off" },
+        sa.level,
+        sa.fed,
+        st.stranger_touches,
+        st.stranger_marks,
+        st.stranger_fed_skips,
+        st.stranger_rider_touches,
+        st.contests,
+        st.displays,
+    );
 }
 
 /// **The controls, in one short run — and two of them started life as wrong

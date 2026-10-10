@@ -2755,6 +2755,20 @@ pub struct CreatureStats {
     /// `displays / contests` is the withdrawal rate, which in real ants is
     /// nearly all of inter-colony contact — see `sim::contest`.
     pub displays: u64,
+    /// **Decisions on which an ant's body touched a stranger of its own kind**
+    /// under [`crate::sim::creature::StrangerAlarm`] (off by default). Counts
+    /// decisions, not meetings: a jam at a border inflates it, so read pairs
+    /// and episodes from a harness, never this as a meeting count.
+    pub stranger_touches: u64,
+    /// The far side of `stranger_touches`: alarm marks actually written
+    /// (the cell was below the graded target and was topped up).
+    pub stranger_marks: u64,
+    /// Touches a lean or laden ant ignored under `StrangerAlarm::fed`.
+    pub stranger_fed_skips: u64,
+    /// **Diagnostic only**: a stranger riding (stacked) on a touched cell.
+    /// Never acted on, because `nearest_foe` folds no riders -- an alarm from
+    /// one would arouse an ant with nobody it can reach.
+    pub stranger_rider_touches: u64,
     /// **Where the alarm plane's writes come from**, split three ways at the
     /// three `cry_alarm` call sites: a bite landed by the `Attack` verb, and
     /// the two feeding sites — an animal being eaten, and a plant being
@@ -4478,6 +4492,10 @@ pub struct World {
     /// overriding `PIXEL_PHYSICS_LEAN_FORAGE`** (`creature::lean_forage_of`).
     /// `None` follows the environment.
     pub lean_forage: Option<crate::sim::creature::LeanForage>,
+    /// **A stranger's touch raises the alarm, for this world, overriding
+    /// `PIXEL_PHYSICS_STRANGER_ALARM`** (`creature::stranger_alarm_of`).
+    /// `None` follows the environment, which is off unless set.
+    pub stranger_alarm: Option<crate::sim::creature::StrangerAlarm>,
     /// **The share's top-up for this world, overriding
     /// `PIXEL_PHYSICS_SHARE_TOPUP`** (`creature::share_topup_of`). `None`
     /// follows the environment.
@@ -7006,6 +7024,7 @@ impl World {
             food_trail: None,
             forage_throttle: None,
             lean_forage: None,
+            stranger_alarm: None,
             share_topup: None,
             mute_emit_b: false,
             birth_price: None,

@@ -18151,6 +18151,35 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
     let mut did = Did::default();
     use brain::BrainOutput as O;
     let crop = world.organism(organism).and_then(|s| s.crop);
+    // **A stranger's touch raises the alarm** ([`StrangerAlarm`]). First in
+    // `act`, before any early return, so every decision that touches a
+    // stranger is counted and marks; the mark is read by the brain from the
+    // next decision on. Off, nothing is read.
+    let stranger = stranger_alarm_of(world);
+    let mut stranger_hold = false;
+    if stranger.touch {
+        let lean_or_laden = stranger.fed
+            && world.organism(organism).is_some_and(|s| {
+                s.energy < LEAN_LINE * def.start_energy || s.crop.is_some_and(|c| c.cells > 0) || s.spoil.is_some_and(|sp| food_value(world, sp.cell) > 0.0)
+            });
+        stranger_hold = lean_or_laden;
+        let gut = gut_of(world, organism, def);
+        let touch = stranger_touch(world, organism, (x, y), gut, stranger.species);
+        world.creature_stats.stranger_rider_touches += u64::from(touch.riders);
+        if let Some(foreign) = touch.foreign {
+            world.creature_stats.stranger_touches += 1;
+            if lean_or_laden {
+                world.creature_stats.stranger_fed_skips += 1;
+            } else {
+                let target = (stranger.level * foreign * f32::from(pheromone::SCALE)).round().min(f32::from(pheromone::Scent::MAX)) as pheromone::Scent;
+                let here = world.pheromone_at(Channel::Alarm, x, y);
+                if target > here {
+                    world.deposit_pheromone(Channel::Alarm, x, y, target - here);
+                    world.creature_stats.stranger_marks += 1;
+                }
+            }
+        }
+    }
     let mut dig_urge = outputs[O::Dig as usize].clamp(0.0, 1.0);
     // The trace's `dig_p` is the brain's urge, before the lean gate below
     // takes it away, so a lean animal's row still says how much it wanted to.
@@ -18240,7 +18269,9 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
     // with another, evolution cannot select for one against the other. Here
     // it shared with `Feed`, so "defend the nest" and "be hungry" were one
     // gene and a colony could only fight by starving.
-    let attack_urge = outputs[O::Attack as usize].clamp(0.0, 1.0);
+    // **A lean or laden ant does not answer** ([`StrangerAlarm::fed`]): its
+    // urge reads 0, so the fight branch is not entered and nothing is drawn.
+    let attack_urge = if stranger_hold { 0.0 } else { outputs[O::Attack as usize].clamp(0.0, 1.0) };
 
     // --- fight ----------------------------------------------------------
     //
@@ -24089,6 +24120,172 @@ pub fn lean_forage_from_env() -> LeanForage {
 /// environment's.
 pub fn lean_forage_of(world: &World) -> LeanForage {
     world.lean_forage.unwrap_or_else(lean_forage_from_env)
+}
+
+/// **`PIXEL_PHYSICS_STRANGER_ALARM`: touching a stranger of your own kind
+/// raises the alarm** (off by default, built 2026-10-10;
+/// `Reports/stranger-alarm-design-2026-10-10.md`).
+///
+/// **Why it exists.** `ant.ron` wires one route to `Attack`,
+/// `(Alarm, Attack, 2.0)`, and the alarm is written only when an animal is
+/// bitten. With grazing silent (the owner's 2026-09-14 ruling) the first bite
+/// of every fight between two colonies was an ant *eating* a stranger. The
+/// evolved lab ant (`scene::LAB_ANT_TRAITS`, gut -0.8, every lab box since
+/// 2026-10-05) prices ant flesh at 4.8 J against `EAT_YIELD_THRESHOLD`'s 12,
+/// so a stranger stopped being food, nothing bit first, and two colonies met
+/// hundreds of times without one attack (`examples/rivalry`, two colonies,
+/// 24,000 frames, mutation off, seeds 1-4: 219-660 sampled stranger contacts
+/// and 0 attacks; the same ant with only its gut at 0, 16-23 attacks).
+///
+/// Real ants tell nestmates by colony odour against a threshold, judged on
+/// contact, and a non-nestmate's odour is what starts aggression, not hunger
+/// (Vander Meer & Morel 1998; Ozaki et al. 2005). So under `touch` an ant
+/// whose body touches a living animal of its own kind that fails its kin test
+/// tops the alarm plane at its own cell up to `level × foreign`, where
+/// `foreign = clamp((d - r) / r, 0, 1)` for scent distance `d` and its own
+/// tolerance radius `r` (graded after Reeve 1989: a drifted nestmate just past
+/// the radius writes almost nothing). **A top-up, not a bound**: the plane
+/// adds, so a display stacks 40 on it and a bite 240, and only the alarm's
+/// decay brings it down. Everything after the mark is shipped code -- the
+/// wire, `nearest_foe`, the contest's assess-then-commit.
+///
+/// - `touch`: the mark (the ignition).
+/// - `level=N`: the top-up at full foreignness, in alarm units 0-255
+///   (default [`STRANGER_LEVEL`], under a display's 40).
+/// - `fed`: a lean ant (under [`LEAN_LINE`] of its `start_energy`) or one
+///   carrying food in its crop or jaws neither marks nor answers -- its
+///   `Attack` urge reads 0. Hunger lowers aggression in ants (Grover et al.
+///   2007), and the owner's rule is that hunger overrides every rule.
+/// - `species`: also other kinds' animals, at full foreignness. Not in `on`:
+///   predator and prey stay the diet's question.
+///
+/// Riders are counted (`stranger_rider_touches`) and never acted on:
+/// `nearest_foe` folds no riders, so an alarm from one would arouse an ant
+/// with nobody it can reach. Off, nothing is walked, read or drawn, so the
+/// game is the shipped one byte for byte.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct StrangerAlarm {
+    pub touch: bool,
+    /// The top-up at full foreignness, in alarm units (0-255).
+    pub level: f32,
+    pub fed: bool,
+    pub species: bool,
+}
+
+impl StrangerAlarm {
+    pub const OFF: StrangerAlarm = StrangerAlarm { touch: false, level: STRANGER_LEVEL, fed: false, species: false };
+    pub const ON: StrangerAlarm = StrangerAlarm { touch: true, level: STRANGER_LEVEL, fed: true, species: false };
+}
+
+/// **Half a display.** The ladder is touch < display (`contest::DISPLAY_DEPOSIT`,
+/// 40) < bite (`pheromone::ALARM_DEPOSIT`, 240), so a touch is the lowest rung.
+/// At 20 the wire reads `squash(2 × 20/255) = 0.14` per decision. A start
+/// point for the 10 / 20 / 40 sweep the design asks for, not a measurement.
+pub const STRANGER_LEVEL: f32 = 20.0;
+
+/// `off` (unset), `on` (`touch,fed`), or a comma list of `touch`, `fed`,
+/// `species` and `level=<0-255>`; any list turns `touch` on, since every
+/// other part only shapes it.
+fn parse_stranger_alarm(raw: &str) -> StrangerAlarm {
+    match raw.trim() {
+        "" | "off" => return StrangerAlarm::OFF,
+        "on" => return StrangerAlarm::ON,
+        _ => {}
+    }
+    let mut t = StrangerAlarm { touch: true, ..StrangerAlarm::OFF };
+    for part in raw.split(',').map(str::trim) {
+        let ok = match part {
+            "on" | "touch" => true,
+            "fed" => {
+                t.fed = true;
+                true
+            }
+            "species" => {
+                t.species = true;
+                true
+            }
+            _ => match part.split_once('=') {
+                Some(("level", v)) => v.parse::<f32>().ok().filter(|l| (0.0..=255.0).contains(l)).map(|l| t.level = l).is_some(),
+                _ => false,
+            },
+        };
+        if !ok {
+            eprintln!("PIXEL_PHYSICS_STRANGER_ALARM={raw:?}: unknown part {part:?}, read as off (off, on, touch, fed, species, level=<0-255>)");
+            return StrangerAlarm::OFF;
+        }
+    }
+    t
+}
+
+pub fn stranger_alarm_from_env() -> StrangerAlarm {
+    static V: std::sync::OnceLock<StrangerAlarm> = std::sync::OnceLock::new();
+    *V.get_or_init(|| parse_stranger_alarm(&std::env::var("PIXEL_PHYSICS_STRANGER_ALARM").unwrap_or_default()))
+}
+
+/// This world's stranger alarm: `World::stranger_alarm` if set, else the
+/// environment's.
+pub fn stranger_alarm_of(world: &World) -> StrangerAlarm {
+    world.stranger_alarm.unwrap_or_else(stranger_alarm_from_env)
+}
+
+/// What one body's ring touched, for [`StrangerAlarm`].
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+struct StrangerTouch {
+    /// The most foreign stranger touching, in `0..=1`; `None` when no
+    /// stranger touches at all (a stranger just past the radius is
+    /// `Some(~0)`, a touch that writes nothing).
+    foreign: Option<f32>,
+    /// Strangers riding on a touched cell -- diagnostic only.
+    riders: u32,
+}
+
+/// **Who is touching this body that it does not know**: the same
+/// deduplicated ring `nearest_foe` walks, over attached living animal cells
+/// (`is_animal_cell`, so brood -- a powder -- is never one), asking the kin
+/// test's own question with the kin test's own kind clause
+/// (`gut.crosses_kinds || same species`), so recognition and alarm cannot
+/// disagree about who is a candidate. `any_kind` (the `species` part) adds
+/// every other kind's animals at full foreignness.
+fn stranger_touch(world: &World, organism: OrganismId, head: (i32, i32), gut: Gut, any_kind: bool) -> StrangerTouch {
+    let fallback = [head];
+    let body: &[(i32, i32)] = world.organism(organism).map_or(&fallback[..], |s| &s.chain[..]);
+    let radius = gut.tolerance_sq.max(0.0).sqrt();
+    let foreign_of = |id: OrganismId| -> Option<f32> {
+        let s = world.organism(id)?;
+        let same_kind = gut.crosses_kinds || s.species == gut.species;
+        if !same_kind {
+            return any_kind.then_some(1.0);
+        }
+        let d2 = scent_distance_sq(&scent_of(&expressed_traits(s, world.plasticity, world.trait_reach)), &gut.scent);
+        if d2 <= gut.tolerance_sq {
+            return None;
+        }
+        Some(if radius > 0.0 { ((d2.sqrt() - radius) / radius).clamp(0.0, 1.0) } else { 1.0 })
+    };
+    let mut out = StrangerTouch::default();
+    for (i, &(bx, by)) in body.iter().enumerate() {
+        for &(dx, dy) in NEIGHBOURS_8.iter() {
+            let (nx, ny) = (bx + dx, by + dy);
+            // The same earlier-cells skip `nearest_foe` makes.
+            if body[..i].iter().any(|&(px, py)| (nx - px).abs() <= 1 && (ny - py).abs() <= 1) {
+                continue;
+            }
+            for r in world.riders_at(nx, ny) {
+                if r.organism != organism && foreign_of(r.organism).is_some() {
+                    out.riders += 1;
+                }
+            }
+            let cell = world.get(nx, ny);
+            let owner = cell.organism_id();
+            if owner == 0 || owner == organism || body.contains(&(nx, ny)) || !is_animal_cell(world, cell) {
+                continue;
+            }
+            if let Some(f) = foreign_of(owner) {
+                out.foreign = Some(out.foreign.map_or(f, |g: f32| g.max(f)));
+            }
+        }
+    }
+    out
 }
 
 /// **Where a lean ant can set its pellet down**: empty, with two of the
@@ -37783,6 +37980,111 @@ mod tests {
             fight.pheromones.stats.deposits_alarm
         );
         assert!(fight.pheromones.alarm_is_live(), "the first bite allocates the plane");
+    }
+
+    /// **Two sides that cannot eat each other: the stranger alarm is the only
+    /// thing that starts a fight between them** ([`StrangerAlarm`]).
+    ///
+    /// The evolved lab ant's gut (-0.8) prices ant flesh under the eating bar,
+    /// so a stranger is not food and nothing bites first. Off, the bed must
+    /// stay silent (no alarm written, no attack) -- the defect the switch
+    /// exists for, reproduced. On, the touch must mark and the shipped wire
+    /// and contest must turn it into bites.
+    fn stranger_bed(alarm: StrangerAlarm, energy: f32) -> World {
+        let mut w = test_world();
+        w.stranger_alarm = Some(alarm);
+        let floor = w.materials.id_of("stone").unwrap_or(material::STONE);
+        for x in 80..140 {
+            w.set(x, 120, Cell::new(floor, 0).with_attached(true));
+        }
+        for (i, side) in [(0, 1u32), (1, 2), (2, 1), (3, 2), (4, 1), (5, 2)] {
+            let a = spawn(&mut w, "ant", 100 + i * 3, 119);
+            if let Some(st) = w.organism_mut(a) {
+                st.traits[TRAIT_GUT_BIAS] = -0.8;
+                // Every slot set, not just one: a founder's other slots carry
+                // its own draw, and at a radius of 0 any difference at all is
+                // a stranger.
+                for (k, &slot) in SCENT_SLOTS.iter().enumerate() {
+                    st.traits[slot] = if side == 2 && k == 0 { 1.0 } else { 0.0 };
+                }
+                st.traits[TRAIT_TOLERANCE] = -1.0;
+                st.colony = side;
+                st.energy = energy;
+            }
+        }
+        w
+    }
+
+    #[test]
+    fn a_strangers_touch_starts_the_fight_only_with_the_switch_on() {
+        // **Not the rich 100,000 J the older fight tests use.** At 100,000 J
+        // this off arm ate its strangers anyway (184 alarms from the feeding
+        // path, 80 attacks, measured 2026-10-10) even at gut -0.8 -- predation,
+        // the ignition this bed exists to take away; why energy reaches the
+        // mouth there was not traced. At 1,000 J (five grants: fed) nothing is
+        // eaten and nothing fights, which is the lab's measured state.
+        let mut off = stranger_bed(StrangerAlarm::OFF, 1_000.0);
+        run(&mut off, 600);
+        assert_eq!(off.creature_stats.stranger_touches, 0, "off must not walk the ring at all");
+        assert_eq!(
+            off.creature_stats.attacks, 0,
+            "two sides that cannot eat each other fought with the switch off -- the bed no longer reproduces the defect this switch exists for"
+        );
+        assert!(!off.pheromones.alarm_is_live(), "off, nothing may write the alarm plane in this bed");
+
+        let mut on = stranger_bed(StrangerAlarm::ON, 1_000.0);
+        run(&mut on, 600);
+        let st = on.creature_stats;
+        assert!(st.stranger_touches > 0, "the bed holds touching strangers and the sense saw none: {st:?}");
+        assert!(st.stranger_marks > 0, "touches {} but no mark was written", st.stranger_touches);
+        assert!(st.attacks > 0, "marks {} written and no attack followed -- the ignition does not reach the wire", st.stranger_marks);
+    }
+
+    /// **Hunger overrides it** (`fed`): a lean ant neither marks nor answers.
+    #[test]
+    fn a_lean_ant_neither_marks_nor_answers() {
+        let mut w = stranger_bed(StrangerAlarm::ON, 0.0);
+        let start = w.species.id_of("ant").and_then(|id| w.species.get(id).creature.as_ref().map(|d| d.start_energy)).expect("ant");
+        let ids: Vec<OrganismId> = w.live_organism_ids();
+        for id in ids {
+            if let Some(st) = w.organism_mut(id) {
+                // Lean, but nowhere near starving inside the run.
+                st.energy = 0.3 * start;
+            }
+        }
+        run(&mut w, 200);
+        let st = w.creature_stats;
+        assert!(st.stranger_fed_skips > 0, "the lean ants never touched a stranger, so this test is not about them: {st:?}");
+        assert_eq!(st.stranger_marks, 0, "a lean ant marked the alarm");
+        assert_eq!(st.attacks, 0, "a lean ant attacked");
+    }
+
+    /// **Nestmates are not strangers**: one scent, the switch on, no touch.
+    #[test]
+    fn nestmates_raise_no_stranger_alarm() {
+        let mut w = stranger_bed(StrangerAlarm::ON, 1_000.0);
+        let ids: Vec<OrganismId> = w.live_organism_ids();
+        for id in ids {
+            if let Some(st) = w.organism_mut(id) {
+                st.traits[SCENT_SLOTS[0]] = 0.0;
+                st.colony = 1;
+            }
+        }
+        run(&mut w, 600);
+        assert_eq!(w.creature_stats.stranger_touches, 0, "one family touched a stranger");
+        assert!(!w.pheromones.alarm_is_live(), "one family wrote the alarm plane");
+    }
+
+    #[test]
+    fn stranger_alarm_parses_its_parts() {
+        assert_eq!(parse_stranger_alarm(""), StrangerAlarm::OFF);
+        assert_eq!(parse_stranger_alarm("off"), StrangerAlarm::OFF);
+        assert_eq!(parse_stranger_alarm("on"), StrangerAlarm::ON);
+        assert_eq!(parse_stranger_alarm("touch"), StrangerAlarm { touch: true, ..StrangerAlarm::OFF });
+        assert_eq!(parse_stranger_alarm("touch,fed,level=40"), StrangerAlarm { level: 40.0, ..StrangerAlarm::ON });
+        assert_eq!(parse_stranger_alarm("species"), StrangerAlarm { touch: true, species: true, ..StrangerAlarm::OFF });
+        assert_eq!(parse_stranger_alarm("level=300"), StrangerAlarm::OFF, "out of range reads as off");
+        assert_eq!(parse_stranger_alarm("bogus"), StrangerAlarm::OFF);
     }
 
     /// **The alarm forgets far faster than a trail does**, which is the whole
