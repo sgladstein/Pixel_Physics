@@ -20992,6 +20992,15 @@ pub fn food_brake_factor(world: &World, colony: u32) -> f32 {
 /// `on` (`lo=1`, `hi=5`, cells per hundred adults; measured store means of
 /// 16-75 cells under ~1,300 ants are 1.2-5.8), or `<lo>,<hi>`. Counted in
 /// `store_brake_held`.
+///
+/// **Measured 2026-10-09, and it drains the colony** (same arm, seeds 1-4,
+/// 240k): 0.5-3 left 25-1,548 ants, 1-5 left 0-1,277, 2-8 left 0-9, against
+/// 1,286-1,647 unbraked. **The premise above is false here**: the store
+/// stayed at 0-25 cells all the way down (seed 1 at 1-5: 1,545 ants at 80k,
+/// 16 at 200k, store 2-14 throughout), because food that comes home is eaten
+/// on arrival at any colony size, and adults starving rose as it shrank.
+/// Stays off; `Reports/dead-ends.md` has the entry and the re-test condition
+/// (a store that holds a surplus).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct StoreBrake {
     pub on: bool,
@@ -23373,6 +23382,13 @@ pub fn forage_drive_of(world: &World) -> ForageDrive {
 /// may. Digging falls to nest workers, whose drive is 0. An ant shut in the
 /// mound or with no way out keeps its roll ([`MoundOut`]'s `dig`,
 /// [`NeedsFirst`]'s `weak`).
+///
+/// **Traced 2026-10-09: it halves the food that comes home** (recruitment,
+/// seed 1, 60-100k: 2,068 -> 1,029). Foragers' cuts were the passages
+/// through the mound's food-side flank (open inside 28-50% -> 14-20% with
+/// this on); carriers from the heap strand on that flank (33 -> 88 at a
+/// time) where they can neither hand over nor put down, and the load
+/// digests into them. The same cause as [`MoundDig`]'s null. Stays off.
 pub fn forager_nodig() -> Option<f32> {
     static V: std::sync::OnceLock<Option<f32>> = std::sync::OnceLock::new();
     *V.get_or_init(|| parse_forager_nodig(&std::env::var("PIXEL_PHYSICS_FORAGER_NODIG").unwrap_or_default()))
@@ -23563,6 +23579,14 @@ fn meet_on_way(world: &mut World, carrier: OrganismId, (hx, hy): (i32, i32)) {
 /// Parts: `on` (`crowd=0.5`, `reach=3`, `low=0.5`, `window=1400`); each of
 /// those as `name=<v>`; `nocrowd` and `nostore` for leave-one-out. Counted
 /// in `lay_brake_crowded` and `lay_brake_store`.
+///
+/// **Measured 2026-10-09: steadier to 120k, worse after.** Recruitment, heap
+/// 90, seeds 1-4, 60-120k: biggest fall 18-331 -> 26-78, adults starved
+/// 1-539 -> 2-30, and seed 1's shaft jam gone. 120-240k (seeds 1-2): adults
+/// starved 8-12 -> 488-792, store at 0. The crowding cue did nearly all the
+/// holding (22-32k checks against 13-31 for the store cue, which a layer
+/// rarely reads) and delays eggs rather than cutting them. Stays off; the
+/// long-run starvation is untraced (`Reports/dead-ends.md`).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct LayBrake {
     pub on: bool,
