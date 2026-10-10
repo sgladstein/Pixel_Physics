@@ -73,6 +73,9 @@ def k(v):
 
 def table(title, names, data, keys, fmt=lambda v: f'{v:,.0f}'):
     print(f'\n## {title}')
+    if not keys:
+        print('(nothing)')
+        return
     w = max(len(x) for x in keys) + 2
     print(' ' * w + ''.join(f'{n[-18:]:>20}' for n in names))
     for key in keys:
@@ -82,10 +85,16 @@ def table(title, names, data, keys, fmt=lambda v: f'{v:,.0f}'):
 names = [os.path.basename(r.rstrip('/')) for r in runs]
 Rs = [read(r) for r in runs]
 
-# ---- intake
-out = []
+# ---- intake and who eats it
+def dband(zone, depth):
+    if zone != 'nest':
+        return zone
+    return {-1: 'nest off way', 0: 'door (way 0-9)', 1: 'nest way 10-19', 2: 'deep (way 20+)'}[int(depth)]
+
+out = []; out2 = []
 for R in Rs:
-    d = Counter()
+    d = Counter(); e = Counter()
+    carriers = {r['who'] for r in R['rows'] if r['kind'] == 'swallow' and r['zone'] == 'food'}
     for r in R['rows']:
         w = float(r['worth'])
         if r['kind'] == 'swallow' and r['zone'] == 'food':
@@ -93,19 +102,24 @@ for R in Rs:
         if r['kind'] == 'drop' and r['flag'] == '1':
             d['trip put down: ' + band(int(r['depth']), r['zone'])] += w
             d['trip put down, all'] += w
-    for r in R['digest']:
-        if r['trip'] == '1':
-            d['trip digested: ' + r['zone']] += float(r['worth'])
-            d['trip digested, all'] += float(r['worth'])
-        else:
-            d['home food digested: ' + r['zone']] += float(r['worth'])
-            d['home food digested, all'] += float(r['worth'])
-    for r in R['rows']:
         if r['kind'] == 'feed_crop':
-            d['crop to larvae (gain)'] += float(r['worth'])
-    out.append(d)
+            d['crop to larvae (gain)'] += w
+    tot = 0
+    for r in R['digest']:
+        w = float(r['worth']); tot += w
+        if r['trip'] == '1':
+            d['trip digested on the way: ' + r['zone']] += w
+            d['trip digested, all'] += w
+        cls = 'carrier' if r['id'] in carriers else ('nest worker' if r['worker'] == '1' else 'forager, no trip')
+        e[f'{dband(r["zone"], r["depth"])} | {cls}'] += w
+        e[f'ALL | {cls}'] += w
+        e[f'{dband(r["zone"], r["depth"])} | all'] += w
+    e['ALL | all'] = tot
+    out.append(d); out2.append(e)
 keys = sorted({x for d in out for x in d}, key=lambda s: (s.split(':')[0], s))
 table(f'Food from the heap and what became of it, {F0//1000}-{F1//1000}k (face J)', names, out, keys, k)
+keys = sorted({x for d in out2 for x in d})
+table('Who digested food, and where they stood (face J; carrier = bit at the heap in the window)', names, out2, keys, k)
 
 # ---- home: follow every put-down at home to its next event at that cell
 out = []
