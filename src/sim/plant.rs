@@ -232,9 +232,20 @@ fn render_step(
 /// Why on: 12 seeds of the herb_ant bed (rain off, half pace, mutation off)
 /// against off -- mean adults 100-500k higher on 12 of 12 seeds (132 vs
 /// 48), standing herb leaf 100-300k higher on 11 of 12, colonies at zero
-/// adults on 32 of 252 probes against 96; unchanged with no ants (no leaf
-/// is eaten). The cost: founder tree and conifer leaf 1-3% lower, from a
-/// bigger colony biting more, not from each ant eating more tree.
+/// adults on 32 of 252 probes against 96 (both arms still boom and bust
+/// past 300k); unchanged with no ants (no leaf is eaten). Per-seed table:
+/// `/mnt/project-files/planted-balance/r5-500k/`. The cost: all tree and
+/// conifer leaf about 4% lower over 100-300k (founders 1-3%; young trees
+/// take most of the extra bites, and one sapling was grazed to death on
+/// seed 5), from a bigger colony biting more, not from each ant eating more
+/// tree. Mean frame cost on the lab's default bed about 1.9x, which follows
+/// the colony being 4-80x bigger; the rule's own cost is one branch in
+/// `World::set`.
+///
+/// **It reaches every tipless plant, not only herbs**: a tree or shrub with
+/// no live shoot tip that has been grazed qualifies too. In practice that
+/// is a finished herb, since a growing woody plant nearly always holds a
+/// tip somewhere.
 /// `/mnt/project-files/planted-balance/` holds the runs' notes and the
 /// second-lane reviews (`review-4-default-2026-10-10.md`).
 ///
@@ -24907,6 +24918,73 @@ mis-wired {miswired_root}, so `slot_1_is_a_root_locus_and_not_a_shoot_one` would
         assert!(run_arm(0.0, OLD), "life_half_life 0.0 is the shipped default and must be immortal: nothing survived {OLD} frames");
         assert!(run_arm(LIFE, YOUNG), "the hazard rises with age, so a plant {YOUNG} frames into an {LIFE}-frame life must still be standing");
         assert!(!run_arm(LIFE, OLD), "a plant {OLD} frames into an {LIFE}-frame life must be dead: survival is 1.3% by the model");
+    }
+
+    /// **Leaf lost to a mouth buys a bud flush; the same leaf lost any other
+    /// way does not** -- `graze_regrow` (on by default), end to end: the
+    /// `Eaten` write in `World::set` records it on `grazed_leaf`, and
+    /// `break_buds` lifts its gate for a tipless plant holding that record.
+    ///
+    /// One tree, grown, then its shoot tips turned to dormant buds and every
+    /// leaf taken -- in one copy as a mouth takes it (`loss_context` `Eaten`),
+    /// in the other with no cause. With no leaf the plant earns nothing, so
+    /// the income gate refuses both, and only the eaten copy may flush.
+    ///
+    /// Put the fault back to see it go red: drop the `graze_regrow` block in
+    /// `break_buds`, or the counter in `World::set`, and the eaten copy
+    /// builds no tip either.
+    #[test]
+    fn eaten_leaf_licenses_a_flush_and_shed_leaf_does_not() {
+        let mut w = test_world();
+        plant_tree_on_ground(&mut w, 100, 60);
+        let id = w.get(100, 60).organism_id();
+        assert_ne!(id, 0, "test setup: the planted seed should own its cell");
+        run_with_fields(&mut w, 3_000);
+        let shoot_tips = |w: &World| {
+            w.organism(id).map_or(0, |s| {
+                s.cells.keys().filter(|&&(x, y)| organism::cell_type(w.get(x, y).aux()) == Some(CellType::GrowingTip)).count()
+            })
+        };
+        let cells_of = |w: &World, t: CellType| -> Vec<(i32, i32)> {
+            w.organism(id).map_or(Vec::new(), |s| {
+                s.cells.keys().copied().filter(|&(x, y)| organism::cell_type(w.get(x, y).aux()) == Some(t)).collect()
+            })
+        };
+        // Finished growing: every shoot tip becomes a dormant bud.
+        for (x, y) in cells_of(&w, CellType::GrowingTip) {
+            let c = w.get(x, y);
+            w.set(x, y, c.with_aux(organism::pack_cell_type(CellType::DormantBud)));
+        }
+        let leaves = cells_of(&w, CellType::Leaf);
+        assert!(!leaves.is_empty() && shoot_tips(&w) == 0, "test setup: a tipless tree with leaf ({} leaves)", leaves.len());
+        let take_leaf = |w: &mut World, cause: Option<organism::DeathCause>| {
+            for &(x, y) in &leaves {
+                w.loss_context = cause;
+                w.set(x, y, Cell::EMPTY);
+            }
+            w.loss_context = None;
+        };
+        // A third copy keeps one live shoot tip: the rule is for a plant that
+        // has stopped growing, so this one must not get an extra flush.
+        let mut growing = w.clone();
+        let (bx, by) = cells_of(&growing, CellType::DormantBud)[0];
+        let c = growing.get(bx, by);
+        growing.set(bx, by, c.with_aux(organism::pack_cell_type(CellType::GrowingTip)));
+        take_leaf(&mut growing, Some(organism::DeathCause::Eaten));
+        break_buds(&mut growing, id);
+        assert_eq!(shoot_tips(&growing), 1, "a grazed plant that still has a live tip must not be licensed a second one");
+        let (mut eaten, mut shed) = (w.clone(), w);
+        take_leaf(&mut eaten, Some(organism::DeathCause::Eaten));
+        take_leaf(&mut shed, None);
+        let grazed = eaten.organism(id).map_or(0, |s| s.grazed_leaf);
+        assert_eq!(grazed as usize, leaves.len(), "every eaten leaf must be on the record");
+        assert_eq!(shed.organism(id).map_or(0, |s| s.grazed_leaf), 0, "leaf lost with no mouth must not be");
+        break_buds(&mut eaten, id);
+        break_buds(&mut shed, id);
+        let (e, s) = (shoot_tips(&eaten), shoot_tips(&shed));
+        println!("tips after one break_buds: eaten {e}, shed {s} ({} leaves taken)", leaves.len());
+        assert_eq!(s, 0, "a leafless plant earns nothing, so the income gate alone must refuse a flush");
+        assert!(e >= 1, "a plant that lost leaf to a mouth must flush a bud from its reserves");
     }
 
     /// **The annual hazard counts from first seed, and spares a plant that
