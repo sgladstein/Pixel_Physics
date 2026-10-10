@@ -300,3 +300,71 @@ not start a civil war over 150k.
 **Not yet measured:** the shared-heap bed past 2 seeds (2 seeds: 311-736
 kills, both colonies alive, split at the heap); levels 10 and 40 and `fed`
 off on this bed; the parked recruiting arms (§1); frame cost.
+
+## 10. After the results review (2026-10-10)
+
+The second lane reviewed §9 (`review-results-pr673-2026-10-10.md` in the
+shared folder): **not yet** for default on, three blockers. What each became.
+Logs and per-meeting CSVs: `/mnt/project-files/fight-trace-2026-10-10/review-blockers/`.
+
+**1. `fed` reached past strangers: fixed.** The hold now applies only while
+a same-kind stranger touches (`lean_or_laden && touch.foreign.is_some()`),
+and lean is read off `LeanForage::line`. Guard
+`a_lean_ant_still_answers_another_kind` fails with the old hold put back.
+In a one-colony box with four beetles (`one_nest_beetles`, seeds 1-2,
+150k), the switch on now plays byte-identical to off (alive 295 / 305,
+attacks on beetles 38 / 45); the old hold gave 277 / 237 alive and 31
+attacks on both seeds.
+
+**2. The conquests: all three losers died fighting, by two routes.** The
+§9 on arm changed with the fix, so 12 seeds were rerun: 8 borders, 3
+conquests, 1 peace again, but the conquest seeds moved (2, 7, 12, against 3,
+11, 12 before) -- which colony wins is chaotic, not a property of a seed's
+opening. Per-lineage deaths by cause over time (seeds 2, 7, 12):
+
+| seed | route | loser's dead, starved / killed (any lost head) | what happened |
+|---|---|---|---|
+| 12 | landing clash | 0 / 67 | 58 of the 52 landers and their first young killed in the first 6k frames |
+| 7 | runaway | 7 / 481 | even exchange to 42k (230 vs 257 killed), then the side behind loses 5:3 (42-54k: 97 vs 161) and is gone by 66k |
+| 2 | attrition | 5 / 354 | an exactly even exchange (354 killed each side), but the loser stopped growing from 36k and went 118 -> 0 by 66k |
+
+Starvation killed no loser. Seed 7 fits the contest's `numbers` term: the
+side that falls behind meets more foes per encounter and backs off or loses
+more [inferred from the code; not traced per meeting]. Seed 2's loser had
+no fewer kills but no births to replace them [inferred; births per line are
+not logged].
+
+**The landing is most of the opening massacre.** Two controls, seeds 1, 3,
+11, 12:
+- *Far* (240 columns apart): 4 of 4 hold a border; 40-58 kills by 12k
+  (against 56-78 at 120 apart, 11 fighting seeds); living at 100-150k 471-527 on against
+  534-559 off.
+- *Late* (the second colony lands at 30k): the newcomer is wiped out at
+  landing on 3 of 4 seeds (45-94 kills, no war after), as an incipient
+  colony beside an established one would be; seed 11 holds a border.
+
+**3. Lineage path untested: still so.** `splits=0` in every run (mutation
+off); the 4-seed mutation-on rerun prints it.
+
+**Level and `fed` (seeds 1-4, per meeting, 300-frame gap):**
+
+| arm | living 100-150k | kill / meeting | display only | held (hunger) | parted |
+|---|---|---|---|---|---|
+| level 10 | 417-623 | 11-18% | 4-6% | 13-30% | 42-66% |
+| level 20 (`on`) | 439-610 | 14-22% | 6-9% | 12-22% | 50-59% |
+| level 40 | 387-453 | 21-29% | 8-10% | 14-19% | 37-50% |
+| `fed` off | 431-473 | 20-29% | 7-10% | 0 | 53-67% |
+
+Level moves how often a meeting turns lethal, not how many die: kills per
+run stay 1,200-1,650 at every level on the seeds that hold a border
+(level 10 has more meetings: 9,600-13,100, against 7,300-9,700 at 20 and
+5,100-6,900 at 40 [inferred:
+the sides mix more before they separate]). **No level brings displays near
+"most meetings"**: display share is set by the contest's assessment
+(`contest::boldness`), which the alarm level does not reach. Ten stays the
+gentlest per meeting; 20 is kept for now.
+
+**Pooled meetings, 12 seeds, level 20:** 74,602 meetings: 52% parted, 16%
+held by hunger, 7.4% display only, 5.9% bite, 18% kill. Living at 100-150k,
+median 547 off against 475 on (-13%); on the 8 border seeds -5% to -30%,
+mean 538 -> 452 (-16%). Frame cost +1.5-4% (the review's measurement).

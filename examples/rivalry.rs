@@ -883,14 +883,25 @@ fn line_root(world: &World, mut c: u32) -> u32 {
     c
 }
 
-/// Living animals per lineage as `root:count`, for the sample lines -- when
-/// a colony dies, and how fast.
+/// Living animals per lineage as `root:count`, then that lineage's dead so
+/// far as `/s<starved>k<killed>o<old age>` from `World::group_deaths`, for
+/// the sample lines -- when a colony dies, how fast, and of what. A line
+/// with no one left still prints its dead.
 fn line_census(world: &World) -> String {
-    let mut lines: std::collections::BTreeMap<u32, u64> = Default::default();
+    let mut lines: std::collections::BTreeMap<u32, (u64, u64, u64, u64)> = Default::default();
     for (_, _, _, colony, _) in standing(world) {
-        *lines.entry(line_root(world, colony)).or_default() += 1;
+        lines.entry(line_root(world, colony)).or_default().0 += 1;
     }
-    lines.iter().map(|(r, n)| format!("{r}:{n}")).collect::<Vec<_>>().join(",")
+    for g in &world.group_deaths {
+        if world.species.get(g.species).creature.is_none() {
+            continue;
+        }
+        let e = lines.entry(line_root(world, g.colony)).or_default();
+        e.1 += g.by_cause[organism::DeathCause::Starved.index()];
+        e.2 += g.by_cause[organism::DeathCause::Killed.index()];
+        e.3 += g.by_cause[organism::DeathCause::OldAge.index()];
+    }
+    lines.iter().map(|(r, (n, st, k, o))| format!("{r}:{n}/s{st}k{k}o{o}")).collect::<Vec<_>>().join(",")
 }
 
 /// **What became of each meeting** -- the stranger-alarm review's funnel
