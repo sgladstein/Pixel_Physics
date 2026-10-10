@@ -1,0 +1,464 @@
+# Following food home: where it goes after the door, and why the nest store stays empty (2026-10-10)
+
+*Owner's ask (Scott, 2026-10-10 03:38): trace food from the moment it reaches
+the door, find why the store stays near empty while larvae go hungry, decide
+the store from the trace, then turn the stack on. Every claim is marked
+**measured** (counted in a named run), **traced** (followed ant by ant) or
+**inferred**.*
+
+## 1. How it should work
+
+Written before looking at the runs, from the biology and from the code
+(`Reports/how-the-ant-works.md` §5, §9, §12).
+
+| Step | Real ants | Our ant today (code-read) | What would show it working |
+|---|---|---|---|
+| 1. A forager brings food home | Most of a load reaches the nest; a forager eats little of it on the way | The crop is cargo and stomach at once: digestion runs every tick, so a carrier eats its load as it walks (§9) | Of the food bitten at the heap, the share digested by its carrier before the door, against the share put down or handed on at home |
+| 2. It unloads at the door | Foragers hand food to receivers just inside, and go back out; they rarely go deep (Gordon; Tschinkel 2004 on depth by age -- *not checked here*) | A fed carrier puts cells down at the nest at about 0.25 a tick; the food-door rule keeps the door's own cells clear, so it goes down beside the door, on the mound, or handed through the crowd (§5 step 4) | Where trip cells go down: zone, how far along the way in, by whom |
+| 3. Nest workers take it in | Receivers carry it to the brood or to store chambers | `NEST_STORE`'s `carry`: a fed nest worker with empty crop and jaws takes a cell in its jaws and walks it down to the store, at least 20 way steps in (§6d). `pick=20`: also from the doorstep | How many put-down cells are carried in, against swallowed where they lie, and by whom |
+| 4. Larvae are fed | Nurses that live with the brood feed it from their crops, by the larvae's hunger signals (Cassill & Tschinkel 1995 -- *not checked here*) | Three routes, each by touch: a larva eats food lying beside it; a carrier touching it gives from its crop (`crop_feed`); the richest adult touching it gives from its bank (`nurse`). Nothing brings food or a nurse to a larva that lies away from both | Larva meals by source; hungry larvae's distance to the nearest food cell and to the store |
+| 5. A surplus is banked | When intake beats use, food is stored (granaries, repletes); the store is drawn down when intake falls | The store is food lying beside the deep way. `keep`: a fed ant may not eat store food; `eat`: a hungry ant inside is pulled to it when it holds 8+ cells (within `smell=10` steps) | Store inflow (jaws loads arriving) against outflow (who eats store cells: hungry adults, larvae, nurses); the standing stock over time |
+
+The question has two halves, and the table says where each could break:
+**the store stays empty** if little reaches step 3 (food is swallowed where it
+is put down, or never put down), or if what arrives is eaten at once
+(step 5's outflow). **Larvae go hungry while food comes in** if the food that
+does come in lies where no larva touches it, or the ants that carry it never
+touch a larva (step 4).
+
+## 2. Setup
+
+Main `e594d970` plus the food log (this branch). `deeptrace foodlog=1`
+records every food cell from the moment it moves (`food.csv.gz`), digestion
+by place (`digest.csv`), and the floor's food and every larva every 1,000
+frames (`foodcells.csv`, `larvae.csv`). Recording changes nothing (seed 1,
+heap 90, the stack, 20k frames: `stats.csv` and `colony.csv` byte-identical).
+
+Arms: **main** (no switch set), **stack** (`NEEDS_FIRST=on,backfill
+CARRY_HOME=on DOOR_COLUMN=on LAY_BAR=body
+NEST_STORE=on,pick=20,jaws,sky,meal,smell=10,edible WAY_FOOT=on`),
+**no store** (the stack without `NEST_STORE`), **line** (the stack plus
+`RECRUIT=on SPOIL_SIDE=trail`, the owner's playtest line). Beds: **steady food**
+(`steady_income`, 40 cells every 1,000 frames 30 columns east; the owner's
+main test) and **heap 90** (`nest_goal`, endless food 90 columns east).
+Seeds 1-4, 200k frames, mutation off, evolved founder, one thread a run.
+
+Window for every number below: frames 100-200k. Per-seed rows come from
+`summary.py`, the larva rows from `larvaetrace.py`, the flow rows from
+`foodflow.py` (all in this folder).
+
+## 3. What the trace found
+
+### 3a. The store is not empty in these runs (measured)
+
+| Bed, arm | Store cells standing (mean of 1,000-frame censuses), seeds 1-4 | Loads carried into it |
+|---|---|---|
+| steady, stack | 98, 68, 48, 110 | 555-719 |
+| steady, line | 23, 38, 22, 54 | 273-441 |
+| heap 90, stack | 135, 119, 213, 189 | 863-1,264 |
+| heap 90, line | 18, 95, 18, 77 | 886-1,166 |
+| main, no store (both beds) | 0-3 | 0-4 |
+
+The near-empty store the question started from was the finite-food boom and
+bust (store 1-6 cells while the colony starved, `PLAN-2026-10-07.md`). With
+food coming in, the store fills. Where its food comes from (steady, seeds
+2-4): nest workers take it into their jaws from the mound top (461-663 cells),
+the mound tunnels (153-188) and the door (82-131), all of it food a carrier
+had put down there.
+
+### 3b. Larvae still starve, and the ones that do lie deep, out of touch (traced, every larva)
+
+Each larva's life followed from egg to `starved` or `pupated`
+(`larvaetrace.py`; its count of starved rows matched `stats.csv` within 1-3
+on every run checked).
+
+| Run (seed 1) | Starved | Where they lay | Nearest store cell (median) | Meals in a starved life (median) | Since last meal (median frames) | Pupated deep (way 20+) of all pupated |
+|---|---|---|---|---|---|---|
+| steady, main | 177 | deep 139, way 10-19 27 | no store | 44 | 38,281 | 10 of 735 |
+| steady, no store | 233 | deep 216 | (35) | 31 | 16,707 | 63 of 775 |
+| steady, stack | 80 | **deep 80 of 80** | 14 | **6** | 6,949 | **467 of 808** |
+| heap 90, main | 193 | deep 144 | no store | 26 | 45,721 | 5 of 696 |
+| heap 90, stack | 473 | **deep 463 of 473** | 14 | 42 | 5,216 | 236 of 1,689 |
+
+- Starved larvae lie deep on every arm: 75-100% of them at way 20+.
+  Larvae that pupate lie mostly at the door, where traffic passes, except
+  on the stack, where the store feeds the deep larvae lying beside it
+  (steady stack: 467 of 808 pupated deep, eating 297 J a larva off the floor
+  against 4 J for the starved ones).
+- A larva eats only by touch: food beside it, a carrier's crop, the bank of an
+  adult touching it, or a brain's share (`how-the-ant-works.md` §12).
+  **Nothing brings food or a nurse to a larva.** So a starving deep larva
+  14 cells from a full store starves. On steady stack, the starved larvae
+  had a median 6 meals in their life. They were not fed and then dropped.
+  Almost nothing ever reached them. (Traced, from the meal rows.)
+- On the stack, larvae lie deeper: 77-80% of larva-censuses at way 20+,
+  against 45-53% on main (steady, seeds 2-4). Why they end up deep is
+  **untraced**: laying site, brood carried, or the nest's shape.
+
+### 3c. The store moves the steady-food deaths from larvae to foragers (measured; the link inferred)
+
+| Steady food, seeds 1-4 | Ants (mean) | Adults starved: surface / mound / nest | Larvae starved | per egg | Eggs |
+|---|---|---|---|---|---|
+| main | 296, 285, 278, 268 | 15/14/1, 2/10/4, 26/14/2, 4/25/6 | 172, 155, 138, 193 | 0.15-0.22 | 868-930 |
+| no store | 274, 303, 286, 285 | 24/0/0, 41/5/0, 46/3/2, 15/4/0 | 231, 204, 179, 203 | 0.18-0.21 | 1,002-1,077 |
+| stack | 269, 269, 273, 276 | **113/5/0, 88/31/9, 73/14/1, 62/2/0** | 77, 73, 4, 86 | **0.01-0.10** | 782-870 |
+| line | 268, 253, 276, 256 | 22/5/7, 206/7/0, 26/11/51, 21/40/0 | 63, 39, 0, 120 | 0.00-0.12 | 811-972 |
+
+The bed delivers 40 cells every 1,000 frames and every arm eats all of it
+(3.6-3.8 MJ bitten at the heap), so the food caps the colony. **What the store
+changes is mostly who dies.** Without it, about 200 larvae starve per 100k
+frames and 20-50 adults. With it, under 90 larvae starve but 64-128 adults do.
+Fewer die in total (92-201 against 222-255), but each adult that starves
+has eaten a whole larval life first. The colony is a little smaller with the
+store on every seed (269-276 against 274-303, by 5-34 ants). That agrees
+with the leave-one-out (`stack-leave-one-out-2026-10-08/`), which found no
+store best on every seed of this bed.
+
+The adult deaths, followed (steady stack seed 1, 118 starved, every one):
+117 were foragers, not nest workers. Median age was 23.6k, and 85 had bitten
+the heap. They starved a median 4.0k frames after their last swallow. Their
+last swallow was on the mound top (52), at the heap (30), in the mound
+tunnels (24), or in the nest (11). Only 9 last ate a store cell. They die in
+bursts: 95 of the 113 surface deaths fell in 130-150k. That is just after the
+colony peaked at 349 adults, against 286 at 110k. At 138k, 79 ants stood more
+than 60 columns east of the door, beyond the heap. Their median energy was
+166 J and falling to 65. Of the 118, 67 starved 120-280 columns east of the
+door, past the heap. On the no-store arm, the starvers die west of the door
+instead (all 24 on seed 1). The population swings by 60-130 adults on every
+arm, main included (seeds 1-4, 10k samples), so the store does not obviously
+make the cycle bigger.
+
+Read together (**inferred**): the store's food is the food foragers used to
+graze at home. Nest workers carry it in from the mound top and the door, and
+`keep` stops a fed ant from eating it. Instead it feeds deep larvae that would
+have starved. More of them become adults, the colony overshoots the fixed
+income, and at each peak the extra mouths starve where the crowd is, at and
+beyond the heap. The per-ant numbers fit this. Carriers ate 120-121 J per
+1,000 frames on the stack against 130-138 without the store, and nest workers'
+median energy was 205 J against 244-256 (steady, seeds 1-4). What sends the
+starving crowd east rather than west is **untraced**.
+
+On heap 90, where food never runs short, the trade does not arise. Adults
+starved 0-5 a seed on the stack, larvae starved 0.15-0.20 per egg against
+0.17-0.24 without the store, and the colony was 693-720 against 554-591
+without the store (4 of 4 seeds) and 252-336 on main.
+
+### 3d. A cost the store carries into digging (the late-tunnels lane's finding, not re-measured here)
+
+The store's band of crumbs, together with `NEEDS_FIRST`'s `job` part (which
+works only while the storeroom carries), makes diggers set soil down beside
+stored crumbs. Of a room's cuts, 55-64% are set down within two cells. That
+lane names this as a main reason the nest stays one room
+(`/mnt/project-files/late-tunnels/`). Turning the store on turns that on too.
+
+### 3e. The store is what keeps ants in the nest (measured)
+
+Adult rows of `colony.csv` (one per ant every 1,000 frames) in the dug nest
+(`nest`, below the founding ground; the mound's tunnels are `mound_in`),
+and the share of nest time spent in stays over 5,000 frames:
+
+| Seeds 1-4 | In the dug nest | Mound tunnels | Nest time in stays over 5k frames |
+|---|---|---|---|
+| steady, main | 1.2-1.5% | 30-34% | 0% |
+| steady, no store | 3.5-5.3% | 32-42% | 1.1-2.1% |
+| steady, stack | **21-34%** | 13-23% | **33-49%** |
+| heap 90, main | 0.9-1.5% | 35-40% | 0% |
+| heap 90, no store | 5.1-5.4% | 32-38% | 6.9-8.3% |
+| heap 90, stack | **11-12%** | 35-37% | **22-25%** |
+
+The store is the only food below ground, and with it a quarter to a third of
+the colony lives in the dug nest. Without it, almost none does. The late-tunnels
+lane found the same at heap 90 over 8 nests (store off 3-6% of rows, leaving
+mostly on `hungry out` carrying nothing), and with the store off the nest is a
+narrow room down the door column. It measured 843-1,546 cells against
+3,236-4,272, and nest digging nearly stopped (300-550 cuts over 200-300k
+against 15,000-36,000; `/mnt/project-files/late-tunnels/`).
+
+## 4. What to do with the store
+
+**Turn it on with the stack.** This revises a first reading that said off.
+That reading weighed colony size and deaths, and had not yet counted where
+the ants live (§3e). The owner's first goal is ants living in the nest, and
+the store is the only thing measured that does it: 21-34% of adults in the
+dug nest on steady food against 3.5-5.3% without it. It also makes the
+colony a quarter bigger on endless food (693-720 against 554-591, heap 90)
+and halves larval starvation on steady food.
+
+What it costs, all on steady food, 4 of 4 seeds: the colony is 5-34 ants
+smaller, and 3-4x as many adults starve (64-128 against 19-51). The deaths
+move from larvae to foragers (§3c). Its crumbs also make diggers set soil down
+where they cut (§3d). The late-tunnels lane is testing the store with
+`NEEDS_FIRST`'s `job` part off, to see whether the churn goes and the ants
+stay. They do (§7), so that is the version that ships: **the store on,
+`NEEDS_FIRST`'s `job` part off.**
+
+**What the trace says to build next**, as separate proposals:
+
+1. **Food that reaches deep larvae.** Every starved larva lay deep and was
+   almost never fed. A store only helps larvae lying beside it. The fix is
+   local: a hungry larva's need reaches a passing nurse or carrier, or brood
+   is carried to the food (Cassill & Tschinkel 1995 on larval hunger
+   signals, *not checked here*). Why larvae lie deep is still open.
+2. **A store that does not take the foragers' food.** The store fills from
+   the mound top and the door, which is exactly where foragers eat between
+   trips. A store that banks only a surplus (say, only food left lying for a
+   while, or only while foragers are fed) might keep the nest life without
+   the starved foragers. Untested.
+3. **Feeding priority under shortage.** Real colonies under shortage cut
+   brood first and keep workers (*not checked here*). With the store, ours
+   does the reverse on steady food.
+
+The 12-seed check against main (heap 90, heap 30, steady; main, stack, stack
+without the store, and the store with `job` off) is §7.
+
+## 5. Not traced
+
+- How larvae come to lie deep on the stack (§3b).
+- Why steady-food starvers die east of the heap on the stack and west of the
+  door without the store (§3c).
+- Why the stack lays fewer eggs on steady food (782-870 against 1,002-1,077
+  without the store).
+
+## 6. Reproduce
+
+```
+# a run (steady food, the stack); the switches are in section 2
+RAYON_NUM_THREADS=1 PIXEL_PHYSICS_MUTATION=off <the stack's switches> \
+  cargo run --release --example deeptrace -- scenario=steady_income food=0 founder=evolved \
+  ants=0 census=1 set=ant.digest_hunger_weight=0 seed=1 frames=200000 out=OUT foodlog=1
+python3 Reports/follow-food-home-2026-10-10/summary.py OUT ...
+python3 Reports/follow-food-home-2026-10-10/larvaetrace.py OUT
+python3 Reports/follow-food-home-2026-10-10/foodflow.py OUT_A OUT_B ...
+```
+
+## 7. The flip: 12 seeds against main
+
+Seeds 1-12, frames 100-200k, mutation off, evolved founder, one thread a
+run (`twelve.py`; seeds 1-4 of heap 90 and steady are the §3 runs).
+**Build:** `deeptrace` at `02d95737` (main `e594d970` plus the food log, which
+changes nothing), each arm set by its switches in the environment. The
+second-lane review re-ran steady and heap 90 on the PR head with the
+defaults unset and main `cbcbc1d7`, and matched these numbers exactly
+(`second-lane-review-2026-10-10.md` §2).
+**jobless** is what ships: the stack, the store on, `NEEDS_FIRST` without
+`job` (`hungry,laden,pack,throttle,weak,breakthrough,door,backfill`).
+**stack** is the stack as measured before (`job` on), and **nostore** is the
+stack without the store. Heap 30 and heap 90 are `nest_goal` (`foodgap=`),
+and steady is `steady_income`.
+
+### h30
+
+| arm | seeds | ants (median, range) | adults starved | larvae starved / egg | in dug nest % | nest time in stays >5k % | colonies dead |
+|---|---|---|---|---|---|---|---|
+| main | 12 | 562 (512-618) | 2 (0-5) | 0.20 (0.17-0.27) | 5.6 (3.7-7.3) | 17.7 (7.1-26.4) | 0 |
+| jobless | 12 | 661 (585-762) | 1 (0-3) | 0.23 (0.12-0.31) | 11.6 (9.5-12.6) | 30.7 (21.8-34.2) | 0 |
+| nostore | 12 | 598 (518-1106) | 1 (0-5) | 0.21 (0.03-0.26) | 9.3 (7.4-12.1) | 33.8 (23.7-48.3) | 0 |
+| stack | 12 | 665 (603-893) | 2 (0-133) | 0.21 (0.09-0.32) | 12.0 (10.5-13.8) | 31.0 (20.6-42.7) | 0 |
+- jobless vs main, 12 paired seeds: ants higher on 12, adults starved higher on 1, larvae/egg higher on 6, in-nest higher on 12
+- nostore vs main, 12 paired seeds: ants higher on 8, adults starved higher on 1, larvae/egg higher on 6, in-nest higher on 12
+- stack vs main, 12 paired seeds: ants higher on 11, adults starved higher on 4, larvae/egg higher on 8, in-nest higher on 12
+- main vs stack, 12 paired seeds: ants higher on 1, adults starved higher on 7, larvae/egg higher on 4, in-nest higher on 0
+- jobless vs stack, 12 paired seeds: ants higher on 6, adults starved higher on 2, larvae/egg higher on 5, in-nest higher on 4
+- nostore vs stack, 12 paired seeds: ants higher on 1, adults starved higher on 4, larvae/egg higher on 5, in-nest higher on 1
+
+### h90
+
+| arm | seeds | ants (median, range) | adults starved | larvae starved / egg | in dug nest % | nest time in stays >5k % | colonies dead |
+|---|---|---|---|---|---|---|---|
+| main | 12 | 342 (252-410) | 45 (12-90) | 0.18 (0.15-0.25) | 1.2 (0.9-1.8) | 0.0 (0.0-1.4) | 0 |
+| jobless | 12 | 652 (600-757) | 2 (1-8) | 0.18 (0.09-0.25) | 11.9 (10.6-13.6) | 21.6 (13.5-28.7) | 0 |
+| nostore | 12 | 561 (479-591) | 2 (0-25) | 0.18 (0.16-0.24) | 5.2 (3.7-6.1) | 6.9 (1.7-11.0) | 0 |
+| stack | 12 | 702 (614-763) | 1 (0-8) | 0.16 (0.10-0.20) | 12.3 (10.1-13.2) | 23.6 (18.2-32.5) | 0 |
+- jobless vs main, 12 paired seeds: ants higher on 12, adults starved higher on 0, larvae/egg higher on 5, in-nest higher on 12
+- nostore vs main, 12 paired seeds: ants higher on 12, adults starved higher on 0, larvae/egg higher on 7, in-nest higher on 12
+- stack vs main, 12 paired seeds: ants higher on 12, adults starved higher on 0, larvae/egg higher on 4, in-nest higher on 12
+- main vs stack, 12 paired seeds: ants higher on 0, adults starved higher on 12, larvae/egg higher on 8, in-nest higher on 0
+- jobless vs stack, 12 paired seeds: ants higher on 2, adults starved higher on 6, larvae/egg higher on 8, in-nest higher on 6
+- nostore vs stack, 12 paired seeds: ants higher on 0, adults starved higher on 8, larvae/egg higher on 9, in-nest higher on 0
+
+### steady
+
+| arm | seeds | ants (median, range) | adults starved | larvae starved / egg | in dug nest % | nest time in stays >5k % | colonies dead |
+|---|---|---|---|---|---|---|---|
+| main | 12 | 284 (268-297) | 30 (13-50) | 0.19 (0.15-0.22) | 1.2 (1.2-1.6) | 0.0 (0.0-0.0) | 0 |
+| jobless | 12 | 265 (249-296) | 51 (16-199) | 0.14 (0.06-0.26) | 21.2 (16.6-29.7) | 30.0 (19.9-43.4) | 0 |
+| nostore | 12 | 291 (274-307) | 48 (16-97) | 0.18 (0.06-0.21) | 5.0 (3.5-12.0) | 1.2 (0.0-18.9) | 0 |
+| stack | 12 | 269 (250-280) | 114 (29-192) | 0.09 (0.01-0.17) | 23.8 (17.3-34.5) | 37.6 (23.1-52.8) | 0 |
+- jobless vs main, 12 paired seeds: ants higher on 1, adults starved higher on 8, larvae/egg higher on 2, in-nest higher on 12
+- nostore vs main, 12 paired seeds: ants higher on 9, adults starved higher on 9, larvae/egg higher on 7, in-nest higher on 12
+- stack vs main, 12 paired seeds: ants higher on 2, adults starved higher on 11, larvae/egg higher on 1, in-nest higher on 12
+- main vs stack, 12 paired seeds: ants higher on 10, adults starved higher on 1, larvae/egg higher on 11, in-nest higher on 0
+- jobless vs stack, 12 paired seeds: ants higher on 4, adults starved higher on 4, larvae/egg higher on 10, in-nest higher on 4
+- nostore vs stack, 12 paired seeds: ants higher on 12, adults starved higher on 3, larvae/egg higher on 10, in-nest higher on 0
+
+**Against main** (what ships, `jobless`): no colony died on any bed. Heap
+90: 652 ants against 342, larger on 12 of 12; adults starved 2 against 45.
+Heap 30: 661 against 562, larger on 12 of 12. Steady food: 265 against 284,
+smaller on 11 of 12, and adults starved 51 against 30 (higher on 8 of 12;
+§3c traced them on the stack arm, seed 1, where 117 of 118 were foragers;
+on the arm that ships that they are foragers is inferred). Ants living in the dug nest are higher on 12 of 12 on every
+bed: steady 21% against 1.2%, heap 90 12% against 1.2%, heap 30 12% against
+5.6%.
+
+**Why `job` off** (against `stack`): on steady food, foragers starved
+median 51 against 114 (higher on 4 of 12). As many ants live in the nest
+(21% against 24%) and the colony is the same size (265 against 269). Heap 90
+costs about 7% (652 against 702, smaller on 10 of 12); late tunnels found the
+same, 13-107 smaller on 8 of 8 nests, not traced. The late-tunnels lane's 8
+nests: the churn is gone (84-93% of loads carried 10+ cells, against 11-23%),
+and the nest keeps more tunnel and a smaller room (`/mnt/project-files/late-tunnels/jobtest.md`).
+
+**Why not store off**: ants leave the nest (steady 5.0% in the dug nest,
+heap 90 5.2%), and on heap 90 the colony is a fifth smaller than with the
+store (561 against 652-702).
+
+### Per seed
+
+Every arm, seed by seed, frames 100-200k (`twelve.py --seeds`); each cell
+reads main / jobless (what ships) / nostore / stack.
+
+#### h30, per seed (main / jobless / nostore / stack)
+
+| seed | ants | adults starved | larvae starved / egg | in dug nest % |
+|---|---|---|---|---|
+| 1 | 565 / 585 / 615 / 677 | 2 / 0 / 0 / 2 | 0.22 / 0.31 / 0.23 / 0.25 | 4.7 / 11.9 / 10.0 / 12.0 |
+| 2 | 566 / 651 / 608 / 647 | 1 / 0 / 0 / 2 | 0.25 / 0.24 / 0.18 / 0.27 | 5.4 / 10.8 / 10.2 / 12.5 |
+| 3 | 512 / 621 / 1106 / 644 | 5 / 1 / 2 / 2 | 0.18 / 0.28 / 0.03 / 0.19 | 6.8 / 12.6 / 12.1 / 10.5 |
+| 4 | 550 / 697 / 617 / 659 | 4 / 1 / 5 / 3 | 0.20 / 0.12 / 0.20 / 0.17 | 4.6 / 11.8 / 9.3 / 11.0 |
+| 5 | 588 / 694 / 585 / 652 | 1 / 0 / 1 / 133 | 0.24 / 0.13 / 0.24 / 0.18 | 6.8 / 12.2 / 8.9 / 11.1 |
+| 6 | 535 / 690 / 596 / 771 | 4 / 1 / 2 / 2 | 0.19 / 0.18 / 0.21 / 0.21 | 5.9 / 12.3 / 7.4 / 11.3 |
+| 7 | 595 / 656 / 591 / 623 | 2 / 2 / 1 / 0 | 0.18 / 0.21 / 0.20 / 0.21 | 3.7 / 10.4 / 10.1 / 11.5 |
+| 8 | 566 / 651 / 518 / 693 | 0 / 1 / 0 / 5 | 0.27 / 0.23 / 0.22 / 0.27 | 5.8 / 11.1 / 9.3 / 12.3 |
+| 9 | 538 / 762 / 574 / 700 | 5 / 1 / 0 / 2 | 0.17 / 0.26 / 0.21 / 0.20 | 3.8 / 11.2 / 8.5 / 12.1 |
+| 10 | 558 / 631 / 600 / 672 | 3 / 3 / 1 / 0 | 0.20 / 0.23 / 0.26 / 0.24 | 4.7 / 11.5 / 8.7 / 13.1 |
+| 11 | 618 / 672 / 573 / 603 | 2 / 0 / 2 / 0 | 0.20 / 0.24 / 0.26 / 0.32 | 7.3 / 11.6 / 9.3 / 13.8 |
+| 12 | 525 / 667 / 622 / 893 | 1 / 0 / 1 / 3 | 0.26 / 0.21 / 0.21 / 0.09 | 5.9 / 9.5 / 10.1 / 12.0 |
+
+#### h90, per seed (main / jobless / nostore / stack)
+
+| seed | ants | adults starved | larvae starved / egg | in dug nest % |
+|---|---|---|---|---|
+| 1 | 336 / 631 / 591 / 693 | 78 / 2 / 1 / 0 | 0.21 / 0.13 / 0.24 / 0.20 | 1.5 / 10.6 / 5.4 / 11.2 |
+| 2 | 252 / 600 / 565 / 704 | 41 / 4 / 6 / 5 | 0.25 / 0.25 / 0.17 / 0.16 | 1.1 / 10.9 / 5.1 / 12.3 |
+| 3 | 303 / 637 / 574 / 720 | 84 / 2 / 4 / 1 | 0.25 / 0.18 / 0.20 / 0.15 | 1.2 / 11.9 / 5.3 / 12.3 |
+| 4 | 278 / 685 / 554 / 716 | 33 / 1 / 3 / 3 | 0.18 / 0.11 / 0.18 / 0.18 | 0.9 / 12.0 / 5.4 / 11.1 |
+| 5 | 275 / 757 / 528 / 763 | 90 / 5 / 2 / 1 | 0.18 / 0.17 / 0.18 / 0.15 | 1.1 / 12.7 / 3.7 / 12.5 |
+| 6 | 388 / 689 / 479 / 700 | 70 / 8 / 25 / 0 | 0.15 / 0.23 / 0.18 / 0.20 | 1.1 / 12.5 / 4.7 / 13.2 |
+| 7 | 404 / 695 / 555 / 759 | 47 / 2 / 1 / 1 | 0.18 / 0.09 / 0.17 / 0.14 | 1.3 / 11.9 / 5.0 / 12.3 |
+| 8 | 252 / 695 / 586 / 614 | 62 / 2 / 1 / 0 | 0.24 / 0.12 / 0.18 / 0.19 | 1.2 / 12.8 / 5.1 / 12.4 |
+| 9 | 410 / 657 / 567 / 696 | 12 / 1 / 2 / 8 | 0.16 / 0.18 / 0.20 / 0.17 | 1.3 / 11.0 / 5.6 / 10.1 |
+| 10 | 367 / 646 / 539 / 634 | 37 / 1 / 13 / 2 | 0.17 / 0.19 / 0.23 / 0.19 | 0.9 / 13.5 / 4.1 / 11.3 |
+| 11 | 368 / 608 / 562 / 758 | 43 / 2 / 0 / 2 | 0.18 / 0.20 / 0.18 / 0.10 | 1.8 / 11.7 / 5.5 / 12.9 |
+| 12 | 348 / 629 / 559 / 644 | 28 / 1 / 2 / 1 | 0.16 / 0.23 / 0.16 / 0.12 | 1.2 / 13.6 / 6.1 / 11.4 |
+
+#### steady, per seed (main / jobless / nostore / stack)
+
+| seed | ants | adults starved | larvae starved / egg | in dug nest % |
+|---|---|---|---|---|
+| 1 | 296 / 249 / 274 / 269 | 30 / 39 / 24 / 118 | 0.19 / 0.13 / 0.21 / 0.09 | 1.2 / 22.1 / 5.1 / 26.6 |
+| 2 | 285 / 265 / 303 / 269 | 16 / 16 / 46 / 128 | 0.17 / 0.13 / 0.19 / 0.09 | 1.5 / 19.2 / 3.5 / 25.0 |
+| 3 | 278 / 268 / 286 / 273 | 42 / 40 / 51 / 88 | 0.15 / 0.19 / 0.18 / 0.01 | 1.2 / 18.2 / 5.1 / 34.4 |
+| 4 | 268 / 261 / 285 / 276 | 35 / 76 / 19 / 64 | 0.22 / 0.20 / 0.20 / 0.10 | 1.2 / 21.0 / 5.3 / 21.5 |
+| 5 | 275 / 266 / 304 / 253 | 20 / 33 / 89 / 111 | 0.19 / 0.10 / 0.12 / 0.10 | 1.2 / 21.4 / 9.4 / 17.3 |
+| 6 | 293 / 274 / 292 / 255 | 44 / 44 / 16 / 124 | 0.20 / 0.19 / 0.21 / 0.07 | 1.2 / 20.3 / 3.7 / 23.2 |
+| 7 | 268 / 261 / 288 / 276 | 13 / 145 / 57 / 192 | 0.18 / 0.15 / 0.19 / 0.01 | 1.6 / 23.7 / 4.3 / 34.5 |
+| 8 | 282 / 265 / 307 / 267 | 50 / 40 / 71 / 54 | 0.19 / 0.15 / 0.06 / 0.09 | 1.2 / 20.1 / 12.0 / 24.4 |
+| 9 | 294 / 257 / 302 / 250 | 15 / 199 / 24 / 142 | 0.15 / 0.26 / 0.15 / 0.16 | 1.3 / 16.6 / 3.6 / 18.5 |
+| 10 | 281 / 296 / 293 / 269 | 29 / 58 / 42 / 126 | 0.19 / 0.06 / 0.18 / 0.17 | 1.5 / 29.5 / 4.9 / 21.7 |
+| 11 | 287 / 268 / 291 / 280 | 39 / 63 / 97 / 29 | 0.17 / 0.08 / 0.14 / 0.14 | 1.5 / 26.9 / 4.2 / 23.3 |
+| 12 | 297 / 263 / 290 / 269 | 25 / 116 / 75 / 36 | 0.18 / 0.06 / 0.18 / 0.05 | 1.5 / 29.7 / 5.1 / 25.3 |
+
+### Steady food after 200k: the cost widens
+
+From the second-lane review (`second-lane-review-2026-10-10.md` §3; measured
+on the PR head, defaults unset, against main `cbcbc1d7`, 12 seeds to 300k).
+Over 200-300k, **adults starved a median 85.5 against 31, higher on 12 of
+12 seeds** (over 100-200k it was 51 against 30, 8 of 12). The colony was 268
+against 274 (2.5% smaller, smaller on 9 of 12). It does not decline: its lowest
+count after 200k was 200-252 against main's 185-271. Adults in the dug nest
+held at 15.7-35.9% against 1.0-1.6%. No colony died. **This is the store's known
+cost on steady food**. The fixed income cannot feed the peak the store's fed
+larvae make (§3c, inferred), and the deaths come in bursts: the worst
+5,000-frame burst per seed was 17-104 starved on the PR against 4-17 on main.
+
+| seed | ants 200-300k (PR / main) | adults starved 200-300k | lowest count 100-300k | in dug nest % 200-300k |
+|---|---|---|---|---|
+| 1 | 251 / 274 | 108 / 28 | 200 / 234 | 16.7 / 1.4 |
+| 2 | 272 / 289 | 84 / 26 | 206 / 213 | 21.9 / 1.0 |
+| 3 | 270 / 286 | 87 / 48 | 219 / 231 | 18.7 / 1.3 |
+| 4 | 256 / 234 | 33 / 30 | 223 / 185 | 25.3 / 1.1 |
+| 5 | 265 / 266 | 51 / 19 | 238 / 211 | 20.5 / 1.1 |
+| 6 | 274 / 275 | 81 / 25 | 239 / 192 | 25.2 / 1.6 |
+| 7 | 257 / 274 | 74 / 32 | 215 / 193 | 17.5 / 1.3 |
+| 8 | 271 / 286 | 96 / 44 | 237 / 237 | 22.4 / 1.0 |
+| 9 | 286 / 273 | 60 / 19 | 157 / 233 | 23.2 / 1.2 |
+| 10 | 281 / 272 | 120 / 40 | 242 / 220 | 35.9 / 1.2 |
+| 11 | 260 / 291 | 132 / 35 | 214 / 224 | 24.7 / 1.4 |
+| 12 | 264 / 279 | 114 / 47 | 213 / 246 | 15.7 / 1.2 |
+
+### Mutation on
+
+From the second-lane review (§3; steady food, mutation on, seeds 1-2,
+100-150k), which passes `how-we-test.md`'s check before a winner ships:
+
+| arm | seed 1: mean ants, lowest | seed 2: mean ants, lowest | adults starved, seeds 1 / 2 |
+|---|---|---|---|
+| PR | 280, 262 | 261, 203 | 36 / 164 |
+| main | 285, 258 | 245, 146 | 56 / 65 |
+
+No colony died on either arm; main's seed 2 ended at 155.
+
+
+## 8. Seed 9's crash on steady food, traced
+
+The second lane's outlier: on the shipped defaults, steady food, seed 9, 104
+adults starved in 125-130k and the colony fell 262 -> 159, then was back to
+265 by 150k (main: 15 starved over the whole 100-200k). Re-run on the PR
+head (`c1941367`, defaults unset) with `foodlog=1 hungry=1`, frames to 135k.
+It reproduces exactly (104 starved in 125-130k, 159 ants at 130k).
+
+**Who (traced, all 104):** foragers, not nest workers (0 nest workers among
+them), with a median of 7 heap bites and 6 deliveries home in their lives. 84 of
+the 104 died within one kiloframe, 128-129k. Every one died with an empty crop
+on the open ground east of the door (median x 334, 78 columns east of the
+door, 48 past the heap at 286).
+
+**What happened to them (measured, every 2,000 frames from 100k):**
+- Their median energy fell steadily: 248 J at 100k, 192 J at 120k, 126 J at 124k, 25 J at 128k.
+- They moved off the mound top and tunnels onto the open ground: at 110k, 26 of 71
+  were on the surface; at 126k, 91 of 96.
+- The crowd outside the nest grew from 101 to 161, and its median energy fell
+  from 238 to 128 J. On main, the same seed held about 110 outside at 240-350 J over the same frames.
+- Because their banks ran down together, they reached zero together.
+
+**Why they did not eat (measured):** the heap is eaten as it lands. Bites at
+the heap ran at about 40 a kiloframe, the bed's whole income, so no food
+stood there. The doomed ants took about a third of those bites (65-70 of
+about 200 per 5k frames over 110-125k) and 5 in 125-130k. In their last 8,000
+frames, 56% of their decisions had **no pull at all** (`pull=none`), and the
+door was never read. So they wandered east of the heap rather than waiting at
+it or going home. The store held 27-49 cells (about 30-45 kJ) over 100-130k,
+about one good meal for each of them. It lies 20+ cells down the way, and
+its `eat` pull reaches only ants within 10 steps of it. No forager out on the
+surface feels it.
+
+**Cause (traced, the last link inferred):** the colony's demand outran its
+fixed income. The store and nest feed the inside first, so the shortfall
+landed on the foragers outside. They shared a heap that cannot be stocked, ran
+down as one cohort, and died within a kiloframe of each other. Nothing in the
+store or the hunger rule misfired: each did what it is written to do. The gap
+is that a hungry forager outside has nothing that leads it home to stored
+food (`pull=none`), where real foragers are fed by their nestmates (*not
+checked here*).
+
+**Can it go to zero? Not on steady food (inferred, with the measured runs
+behind it).** The crash removes the outside crowd only. No nest worker
+starved, the store still held 31 cells at 129k, and with 100 fewer mouths
+the income fed the rest: 265 ants again by 150k. Across 12 seeds to 300k the
+lowest count was 157 (this seed), and no colony died
+(`second-lane-review-2026-10-10.md` §3). On food that stops, every arm dies,
+main included.
+
+**What would fix it:** a hungry forager outside that is led home to the
+store, or fed at the door by a nest worker carrying store food out. That is
+§4's item 2 from the other side, a separate proposal, not part of this flip.

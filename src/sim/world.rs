@@ -4165,6 +4165,16 @@ pub struct World {
     /// setting `Some(Vec::new())`, and drained by that harness. Recording
     /// draws nothing and changes nothing.
     pub bite_log: Option<Vec<crate::sim::creature::BiteRow>>,
+    /// **Every food cell moving between the world and a mouth, crop or
+    /// jaws** (`creature::FoodRow`), off (`None`) unless a harness turns it
+    /// on by setting `Some(Vec::new())`, and drained by that harness.
+    /// Recording draws nothing and changes nothing.
+    pub food_log: Option<Vec<crate::sim::creature::FoodRow>>,
+    /// **Every tick's digestion** (the animal, the face worth its crop gave
+    /// up, whether the crop held a trip's food), off (`None`) unless a
+    /// harness turns it on, and drained by that harness. Recording draws
+    /// nothing and changes nothing.
+    pub digest_log: Option<Vec<(OrganismId, f32, bool)>>,
     /// **Every death, one row each** ([`DeathRow`]), off (`None`) unless a
     /// harness turns it on by setting `Some(Vec::new())`, and drained by that
     /// harness. Filled in [`World::free_organism`], so it holds the deaths the
@@ -6950,6 +6960,8 @@ impl World {
             decision_log: None,
             feed_log: None,
             bite_log: None,
+            food_log: None,
+            digest_log: None,
             death_log: None,
             cut_log: None,
             loss_context: None,
