@@ -3008,6 +3008,11 @@ pub struct CreatureStats {
     /// `PIXEL_PHYSICS_CROP_NURSE`).
     pub larva_ticks_crop_fed: u64,
     pub brood_crop_fed_j: f64,
+    /// Larva ticks a carrier touching a begging larva fed it a store load
+    /// from its jaws, and the energy that put into larvae
+    /// (`brood::jaws_feed`, `PIXEL_PHYSICS_LARVA_FOOD`'s `jaws`; 0 off).
+    pub larva_jaws_fed: u64,
+    pub brood_jaws_fed_j: f64,
     /// **Nurses that stay** (`creature::NurseStay`,
     /// `PIXEL_PHYSICS_NURSE_STAY`): crops a forager home from a trip handed
     /// to a nest worker touching it, and drop rolls a nurse skipped to keep

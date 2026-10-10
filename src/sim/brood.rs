@@ -1021,6 +1021,20 @@ fn nurse(world: &mut World, larva: OrganismId, (x, y): (i32, i32), colony: u32, 
             return;
         }
     }
+    // **From a store load in the jaws** ([`jaws_feed`], `LARVA_FOOD`'s
+    // `jaws`), before anyone's savings: like the crop, it is food brought
+    // in, not a nestmate's bank. Off, one branch.
+    if larva_food_of(world).jaws {
+        let bank = world.organism(larva).map_or(target, |s| s.energy);
+        let egg_cost = block_of(def).map_or(0.0, |b| b.egg_cost);
+        let gain = jaws_feed(world, larva, (x, y), colony, gut, bank, egg_cost);
+        need -= gain;
+        fed += gain;
+        if need <= 0.0 {
+            note_fed_away(world, away, fed);
+            return;
+        }
+    }
     let workers_only = nurse_mode() == NurseMode::Workers;
     let mut best: Option<(OrganismId, f32)> = None;
     for (dx, dy) in super::structural::NEIGHBOURS_8 {
@@ -1086,6 +1100,141 @@ fn note_fed_away(world: &mut World, away: bool, fed: f32) {
         world.creature_stats.larva_ticks_fed_away += 1;
         world.creature_stats.brood_fed_away_j += f64::from(fed);
     }
+}
+
+/// **Food that reaches a starving larva deep in the nest**
+/// (`PIXEL_PHYSICS_LARVA_FOOD=off|on|<parts>`, a comma list; **off**, built
+/// 2026-10-10). `on` is `jaws,seek`.
+///
+/// - `jaws`: **a store load feeds the starving larva it touches**
+///   ([`jaws_feed`]). A kin carrier with a store load in its mandibles
+///   (`creature::NestStore`'s `carry`), touching a larva that is begging
+///   ([`begging`]), gives it the load: the larva eats it whole through its
+///   own gut, as it eats a cell lying beside it, and the carrier's jaws are
+///   empty. A third route beside the crop ([`crop_feed`]) and the bank
+///   ([`nurse`]); asked between them.
+/// - `seek`: **a store carrier goes to a starving larva it can smell**
+///   (`creature`'s `larva_seek_target`). Inside its nest, with a begging
+///   larva of its colony within `reach` cells either way, a carrier with a
+///   store load is pulled to the nearest one instead of down the store
+///   field, until `jaws` takes the load.
+/// - `reach=<cells>`: how far `seek` smells; [`NURSE_SCENT_REACH`] unless
+///   set.
+///
+/// **Why** (`/mnt/project-files/deep-larvae/README.md`, main 55fefcc0,
+/// steady food and heap 90, seeds 1-4, 100-200k, every larva traced).
+/// Eggs are laid at the door and brood is a powder, so every egg falls down
+/// the door column and stacks into one pillar from the room floor to the
+/// door; the larvae that starve lie in its lower half (88-96% of their moves
+/// one-row falls). The store forms on the room's walls, a median 15-40 cells
+/// from the nearest deep larva, within 2 cells on 0-4% of censuses, and deep
+/// larvae eat nothing but store cells. The ants that do touch them (a
+/// quarter of censuses) are hungry, median 0.8 of their grant, so neither
+/// [`nurse`] nor [`crop_feed`] gives; the food that reaches the deep nest
+/// travels in the jaws, which no larva could eat from. A load set down
+/// beside a larva in the pillar's face falls to the floor (food is a powder),
+/// hence a feed by touch rather than a drop.
+///
+/// **Biology.** Ants give larvae solid food directly, pieces of prey laid on
+/// or among them, besides liquid from the crop (Hölldobler & Wilson 1990 --
+/// *not checked here*); hungry larvae signal, and workers feed the hungrier
+/// ones (Cassill & Tschinkel 1995, *Anim. Behav.* 50:801-813, as
+/// [`nurse_seek`] cites).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct LarvaFood {
+    pub jaws: bool,
+    pub seek: bool,
+    pub reach: i32,
+}
+
+impl LarvaFood {
+    pub const OFF: LarvaFood = LarvaFood { jaws: false, seek: false, reach: NURSE_SCENT_REACH };
+    pub const ON: LarvaFood = LarvaFood { jaws: true, seek: true, reach: NURSE_SCENT_REACH };
+
+    /// Parse a `PIXEL_PHYSICS_LARVA_FOOD` value. Anything else panics, so a
+    /// typo is not a silent `off`.
+    pub fn parse(raw: &str) -> LarvaFood {
+        let mut lf = LarvaFood::OFF;
+        for part in raw.split(',').map(str::trim).filter(|p| !p.is_empty()) {
+            match part {
+                "on" => lf = LarvaFood { reach: lf.reach, ..LarvaFood::ON },
+                "off" => lf = LarvaFood { reach: lf.reach, ..LarvaFood::OFF },
+                "jaws" => lf.jaws = true,
+                "seek" => lf.seek = true,
+                other => match other.strip_prefix("reach=").and_then(|n| n.parse::<i32>().ok()).filter(|n| *n > 0) {
+                    Some(n) => lf.reach = n,
+                    None => panic!("PIXEL_PHYSICS_LARVA_FOOD={raw:?}: {other:?} is not on, off, jaws, seek or reach=<cells over 0>"),
+                },
+            }
+        }
+        lf
+    }
+}
+
+/// This world's [`LarvaFood`], from the environment ([`LarvaFood::OFF`]
+/// unset). Read once per process, as [`creature::lay_in_of`] is.
+pub fn larva_food_of(_world: &World) -> LarvaFood {
+    static V: std::sync::OnceLock<LarvaFood> = std::sync::OnceLock::new();
+    *V.get_or_init(|| std::env::var("PIXEL_PHYSICS_LARVA_FOOD").map_or(LarvaFood::OFF, |v| LarvaFood::parse(&v)))
+}
+
+/// **A begging larva** ([`LarvaFood`]): its bank under the `egg_cost` it
+/// hatched from. A fed larva only climbs from there (only `larva_upkeep`
+/// drains it), so under that line it has gone thousands of frames without a
+/// meal -- [`starving_larva_near`]'s line, which `FEED_FIRST` reads. Not
+/// "short of its target", which every larva is.
+fn begging(bank: f32, egg_cost: f32) -> bool {
+    bank < egg_cost
+}
+
+/// **Fed from a store load in the jaws** ([`LarvaFood`]'s `jaws`): the kin
+/// carrier touching the larva -- on one of its eight neighbours, or standing
+/// on it, holding it out of the grid -- whose store load the larva's mouth
+/// pays most for gives the load whole. Returns the energy the larva gained.
+///
+/// Booked as the floor bite is ([`creature::eat_toward_birth`]): the meal at
+/// what the larva's gut yields, under the harvest account of what the food
+/// was, and the cell gone (here from the jaws, not the grid). The carrier
+/// counts it delivered and walks back for the next load, as at the store.
+#[allow(clippy::too_many_arguments)]
+fn jaws_feed(world: &mut World, larva: OrganismId, (x, y): (i32, i32), colony: u32, gut: creature::Gut, bank: f32, egg_cost: f32) -> f32 {
+    if !begging(bank, egg_cost) {
+        return 0.0;
+    }
+    let mut best: Option<(OrganismId, Cell, f32)> = None;
+    for (dx, dy) in super::structural::NEIGHBOURS_8.iter().copied().chain(std::iter::once((0, 0))) {
+        let id = world.get(x + dx, y + dy).organism_id();
+        if id == 0 || id == larva || best.is_some_and(|(b, _, _)| b == id) {
+            continue;
+        }
+        let Some(st) = world.organism(id) else { continue };
+        if st.brood.is_some() || !creature::is_living_kin_id(world, id, gut) {
+            continue;
+        }
+        let Some(load) = st.spoil.filter(|s| s.store) else { continue };
+        let Some(pays) = creature::jaws_provision(world, load.cell, gut) else { continue };
+        if best.is_none_or(|(_, _, b)| pays > b) {
+            best = Some((id, load.cell, pays));
+        }
+    }
+    let Some((donor, cell, gain)) = best else { return 0.0 };
+    if let Some(s) = world.organism_mut(donor) {
+        s.spoil = None;
+        s.store_return = true;
+    }
+    if let Some(s) = world.organism_mut(larva) {
+        s.energy += gain;
+    }
+    if world.materials.get(cell.material).worth_in_aux {
+        world.book_meal(colony, Account::HarvestedCorpse, cell.material, gain as f64);
+    } else {
+        world.book_meal(colony, Account::HarvestedPlant, cell.material, gain as f64);
+    }
+    world.creature_stats.larva_jaws_fed += 1;
+    world.creature_stats.brood_jaws_fed_j += gain as f64;
+    creature::note_food(world, larva, (x, y), creature::FOOD_EATEN, gain, false);
+    creature::note_feed(world, larva, (x, y), creature::FEED_JAWS, donor, gain);
+    gain
 }
 
 /// **Fed from a carrier's crop** (`PIXEL_PHYSICS_CROP_NURSE`, [`nurse`]):
@@ -1388,6 +1537,44 @@ pub(super) fn nearest_hungry_larva(world: &World, (hx, hy): (i32, i32), colony: 
             if let Some(need) = need_at(x, y) {
                 if best.is_none_or(|(n, _)| need > n) {
                     best = Some((need, (x, y)));
+                }
+            }
+        };
+        for dx in -r..=r {
+            look(hx + dx, hy - r);
+            look(hx + dx, hy + r);
+        }
+        for dy in 1 - r..r {
+            look(hx - r, hy + dy);
+            look(hx + r, hy + dy);
+        }
+        if let Some((_, at)) = best {
+            return Some(at);
+        }
+    }
+    None
+}
+
+/// **The nearest begging larva of `colony` within `reach` cells either way
+/// of `(hx, hy)`** ([`LarvaFood`]'s `seek`): ring by ring outward, as
+/// [`nearest_hungry_larva`] looks, but only a larva under `egg_cost`
+/// ([`begging`]); on the nearest ring the emptiest, the first in scan order
+/// on a tie. A larva a walker holds is out of the grid and is not found.
+pub(super) fn nearest_begging_larva(world: &World, (hx, hy): (i32, i32), colony: u32, material: super::material::MaterialId, reach: i32, egg_cost: f32) -> Option<(i32, i32)> {
+    let bank_at = |x: i32, y: i32| -> Option<f32> {
+        let c = world.get(x, y);
+        if c.material != material {
+            return None;
+        }
+        let st = world.organism(c.organism_id())?;
+        (st.colony == colony && st.brood.is_some_and(|b| b.stage == BroodStage::Larva) && begging(st.energy, egg_cost)).then_some(st.energy)
+    };
+    for r in 1..=reach {
+        let mut best: Option<(f32, (i32, i32))> = None;
+        let mut look = |x: i32, y: i32| {
+            if let Some(bank) = bank_at(x, y) {
+                if best.is_none_or(|(b, _)| bank < b) {
+                    best = Some((bank, (x, y)));
                 }
             }
         };
@@ -2148,6 +2335,101 @@ mod tests {
             assert!(keep < 1.0 && (w.creature_stats.brood_crop_fed_j - given as f64 * keep).abs() < 1e-2, "the larva was credited {} for {given} face, not the gut's {keep} of it", w.creature_stats.brood_crop_fed_j);
             assert_eq!(held.map(|c| c.cells), Some(if unit < 1_000.0 { 1 } else { 2 }), "unit {unit}: the wrong number of cells left the crop");
         }
+    }
+
+    #[test]
+    fn larva_food_parses_its_parts_and_fails_closed() {
+        assert_eq!(LarvaFood::parse(""), LarvaFood::OFF);
+        assert_eq!(LarvaFood::parse("off"), LarvaFood::OFF);
+        assert_eq!(LarvaFood::parse("on"), LarvaFood::ON);
+        assert_eq!(LarvaFood::parse("jaws"), LarvaFood { jaws: true, ..LarvaFood::OFF });
+        assert_eq!(LarvaFood::parse("seek,reach=9"), LarvaFood { seek: true, reach: 9, ..LarvaFood::OFF });
+        assert_eq!(LarvaFood::parse("reach=9,on"), LarvaFood { reach: 9, ..LarvaFood::ON }, "on kept the reach set before it");
+        assert!(std::panic::catch_unwind(|| LarvaFood::parse("jaw")).is_err(), "a mistyped part must not fail open");
+        assert!(std::panic::catch_unwind(|| LarvaFood::parse("reach=0")).is_err(), "a reach of nothing must not parse");
+    }
+
+    /// **A store load in the jaws feeds the begging larva it touches**
+    /// ([`jaws_feed`], `LARVA_FOOD`'s `jaws`): the larva gains what its mouth
+    /// pays for the cell, the carrier's jaws are empty and it walks back for
+    /// more, the meal is logged as a jaws feed, and the live identity does
+    /// not move. A larva at or over its egg's cost is not begging and is not
+    /// fed; a soil pellet in the jaws is not food; a carrier of another
+    /// colony's scent gives nothing.
+    #[test]
+    fn a_store_load_feeds_a_touching_begging_larva_with_the_books_closed() {
+        for case in ["begging", "fed", "pellet"] {
+            let (mut w, ant, def) = bed(true);
+            let block = def.brood.clone().expect("brood");
+            let site = creature::try_bud(&mut w, ant, &def, 0.0, 0.0).expect("lays");
+            let larva = the_egg(&w);
+            w.frame = block.egg_frames;
+            brood_tick(&mut w, &site);
+            assert_eq!(w.organism(larva).and_then(|s| s.brood).map(|b| b.stage), Some(BroodStage::Larva));
+            let fruit = w.materials.id_of("fruit").expect("fruit");
+            let load = Cell::new(fruit, 0);
+            w.organism_mut(ant).expect("live").spoil = Some(organism::Spoil { cell: load, store: case != "pellet" });
+            let bank = if case == "fed" { block.egg_cost } else { 0.5 * block.egg_cost };
+            w.organism_mut(larva).expect("larva").energy = bank;
+            let colony = w.colony_of(larva);
+            let gut = creature::gut_of(&w, larva, &def);
+            let g0 = gap(&w);
+            w.feed_log = Some(Vec::new());
+            let gain = jaws_feed(&mut w, larva, (site.x, site.y), colony, gut, bank, block.egg_cost);
+            let fed = w.feed_log.take().unwrap_or_default();
+            assert!((gap(&w) - g0).abs() < 1e-2, "{case}: the jaws feed moved the live identity by {}", gap(&w) - g0);
+            let after = w.organism(larva).expect("larva").energy;
+            if case != "begging" {
+                assert_eq!(gain, 0.0, "{case}: fed anyway");
+                assert_eq!(after, bank, "{case}: the larva's bank moved");
+                assert!(w.organism(ant).expect("live").spoil.is_some(), "{case}: the jaws were emptied");
+                assert!(fed.is_empty(), "{case}: a meal was logged");
+                continue;
+            }
+            let pays = creature::jaws_provision(&w, load, gut).expect("fruit is food to a larva");
+            assert!(gain > 0.0 && (gain - pays).abs() < 1e-3, "the larva gained {gain}, its mouth pays {pays}");
+            assert!((after - bank - gain).abs() < 1e-3, "the larva's bank rose {} for a {gain} meal", after - bank);
+            let st = w.organism(ant).expect("live");
+            assert!(st.spoil.is_none() && st.store_return, "the carrier still holds the load, or does not go back for more");
+            assert_eq!(w.creature_stats.larva_jaws_fed, 1);
+            assert!((w.creature_stats.brood_jaws_fed_j - gain as f64).abs() < 1e-3);
+            assert!(fed.iter().any(|r| r.kind == creature::FEED_JAWS && r.donor == ant && r.larva == larva), "no jaws meal logged: {fed:?}");
+        }
+    }
+
+    /// **The nearest begging larva is the one `seek` walks to**
+    /// ([`nearest_begging_larva`]): none laid, none found; a larva under its
+    /// egg's cost ten cells east is found, and not past `reach`; a nearer one
+    /// wins; one at its egg's cost (hungry, not begging) is passed over;
+    /// another colony's is not this ant's.
+    #[test]
+    fn the_nearest_begging_larva_is_found_and_a_merely_hungry_one_is_not() {
+        let (mut w, ant, def) = bed(true);
+        let material = brood_material(&w, &def).expect("brood material");
+        let egg_cost = brood_of(&w, &def).expect("brood").egg_cost;
+        let colony = w.organism(ant).expect("live").colony;
+        let head = w.organism(ant).expect("live").chain[0];
+        let larva_at = |w: &mut World, cell: (i32, i32), bank: f32| {
+            let id = lay_at(w, ant, &def, cell);
+            let st = w.organism_mut(id).expect("laid");
+            st.brood.as_mut().expect("brood").stage = BroodStage::Larva;
+            st.energy = bank;
+            id
+        };
+        let from = (head.0 - 12, head.1);
+        assert_eq!(nearest_begging_larva(&w, from, colony, material, 16, egg_cost), None, "no brood, yet a larva");
+        let far = (from.0 + 10, from.1);
+        larva_at(&mut w, far, 0.5 * egg_cost);
+        assert_eq!(nearest_begging_larva(&w, from, colony, material, 16, egg_cost), Some(far));
+        assert_eq!(nearest_begging_larva(&w, from, colony, material, 9, egg_cost), None, "a larva past reach was found");
+        let near = (from.0 - 3, from.1);
+        let id = larva_at(&mut w, near, 0.5 * egg_cost);
+        assert_eq!(nearest_begging_larva(&w, from, colony, material, 16, egg_cost), Some(near), "the nearer larva did not win");
+        w.organism_mut(id).expect("live").energy = egg_cost;
+        assert_eq!(nearest_begging_larva(&w, from, colony, material, 16, egg_cost), Some(far), "a larva at its egg's cost was taken for a begging one");
+        w.organism_mut(id).expect("live").energy = 0.5 * egg_cost;
+        w.organism_mut(id).expect("live").colony = colony + 1;
+        assert_eq!(nearest_begging_larva(&w, from, colony, material, 16, egg_cost), Some(far), "another colony's larva was taken");
     }
 
     /// **The feed trace changes nothing it logs** (`World::feed_log`): one

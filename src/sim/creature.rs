@@ -1124,8 +1124,11 @@ pub const FEED_CROP: u8 = 1;
 pub const FEED_BANK: u8 = 2;
 /// A brain's `Share` to a larva (`brood_shared_j`).
 pub const FEED_SHARE: u8 = 3;
+/// From a store load in a carrier's jaws (`brood::jaws_feed`,
+/// `brood_jaws_fed_j`; `PIXEL_PHYSICS_LARVA_FOOD`'s `jaws`).
+pub const FEED_JAWS: u8 = 4;
 /// [`FeedRow::kind`]'s names, by value.
-pub const FEED_KIND_NAMES: [&str; 4] = ["ate", "crop", "bank", "share"];
+pub const FEED_KIND_NAMES: [&str; 5] = ["ate", "crop", "bank", "share", "jaws"];
 
 /// Book a larva's meal in [`World::feed_log`] while one is running; a
 /// no-op otherwise, and for a meal that gave nothing.
@@ -4373,7 +4376,10 @@ fn store_drop(world: &mut World, organism: OrganismId, (x, y): (i32, i32), spoil
     // still, never for want of patience.
     if nest_store_of(world).carry {
         let arrived = store_carry_arrived(world, organism, (x, y));
-        let stuck = world.organism(organism).is_some_and(|s| s.still_ticks >= STORE_STUCK_TICKS);
+        // A carrier standing at the begging larva `seek` brought it to is
+        // waiting for the larva's tick (`brood::LARVA_TICK`), not jammed: it
+        // does not let go there, or the load would fall past the pillar.
+        let stuck = world.organism(organism).is_some_and(|s| s.still_ticks >= STORE_STUCK_TICKS) && larva_seek_target(world, organism, (x, y)).is_none();
         let site = (arrived || stuck)
             .then(|| food_drop_site(world, x, y, drop_through_bodies(), clear).map(|(p, _)| p))
             .flatten();
@@ -11487,6 +11493,19 @@ fn provision_at(world: &World, px: i32, py: i32, gut: Gut) -> Option<(f32, i32, 
     }
 }
 
+/// **What a store load in the jaws pays a larva that eats it**
+/// (`brood::jaws_feed`): [`provision_at`]'s mouth rule for a cell held in
+/// the mandibles rather than lying in the grid -- the same diet band and
+/// threshold, nothing for a nectar-only mouth. A store load is loose food,
+/// so the kin rule has nothing to test.
+pub(super) fn jaws_provision(world: &World, cell: Cell, gut: Gut) -> Option<f32> {
+    if gut.nectar_only {
+        return None;
+    }
+    let yielded = diet_yield(world, cell, gut.bias);
+    (yielded > EAT_YIELD_THRESHOLD).then_some(yielded)
+}
+
 /// What `provisions_in_reach` is certain to pay in total, which is what a
 /// birth may count on before a single bite is taken.
 ///
@@ -14938,6 +14957,26 @@ fn keep_store_place(world: &mut World) {
     world.nest_ways = ways;
 }
 
+/// **Where `brood::LarvaFood`'s `seek` sends a store carrier**: the nearest
+/// begging larva of its colony (`brood::nearest_begging_larva`) within the
+/// part's `reach`, for a carrier holding a store load and standing on its
+/// nest's way in. `None` with the part off, which is checked first, so the
+/// off world reads nothing more.
+fn larva_seek_target(world: &World, organism: OrganismId, head: (i32, i32)) -> Option<(i32, i32)> {
+    let lf = super::brood::larva_food_of(world);
+    if !lf.seek {
+        return None;
+    }
+    let state = world.organism(organism)?;
+    if !state.spoil.is_some_and(|s| s.store) || !nest_way_near(world, head.0, head.1).is_some_and(|w| w.at(head.0, head.1).is_some()) {
+        return None;
+    }
+    let def = world.species.get(state.species).creature.as_ref()?;
+    let brood = super::brood::brood_of(world, def)?;
+    let material = world.materials.id_of(&brood.material)?;
+    super::brood::nearest_begging_larva(world, head, state.colony, material, lf.reach, brood.egg_cost)
+}
+
 /// **Where [`NestStore`] pulls this animal, and how hard**, asked first in
 /// [`home_pull`]: a store load in to the store, a hungry empty ant to the
 /// store while it holds food, a fed idle nest worker deeper. `None` when no
@@ -14951,6 +14990,12 @@ fn nest_store_pull(world: &World, organism: OrganismId, def: &CreatureDef, head:
     if let Some(spoil) = state.spoil {
         if !(ns.carry && spoil.store && storeroom_of(world).carries()) {
             return None;
+        }
+        // **A begging larva in smell takes the load first**
+        // (`brood::LarvaFood`'s `seek`, off): the carrier walks to it, and
+        // `jaws` feeds it on touch.
+        if let Some(t) = larva_seek_target(world, organism, head) {
+            return Some((t, def.home_bias, StorePull::Carry));
         }
         return store_inward(world, organism, head, i32::MAX, true).map(|t| (t, def.home_bias, StorePull::Carry));
     }
@@ -15033,7 +15078,7 @@ fn store_carry_arrived(world: &World, organism: OrganismId, head: (i32, i32)) ->
 /// before.
 fn pull_pace_target(world: &World, organism: OrganismId, def: &CreatureDef, state: &crate::sim::organism::OrganismState, head: (i32, i32)) -> Option<(i32, i32)> {
     if nest_store_of(world).carry && state.spoil.is_some_and(|s| s.store) {
-        return store_inward(world, organism, head, i32::MAX, true);
+        return larva_seek_target(world, organism, head).or_else(|| store_inward(world, organism, head, i32::MAX, true));
     }
     // A worker fetching door food ([`fetch_target`]) walks to it at the
     // laden pace, or it is an idle fed ant that steps one decision in five.
