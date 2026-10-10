@@ -707,6 +707,14 @@ pub struct WalkRow {
     /// What this decision cut: [`CUT_NONE`], [`CUT_ACT`], [`CUT_ESCAPE`],
     /// [`CUT_PACK`] or [`CUT_CLEAR`].
     pub cut: u8,
+    /// **The scout's excursion after the step** (`OrganismState::
+    /// scout_patience`, `scout_home`, `scout_dark`, `scout_for`): read for
+    /// the trace of hungry ants piling on the mound face under
+    /// `hunger_holds` (2026-10-10), where Seek's home pull was the suspect.
+    pub scout_patience: f32,
+    pub scout_home: bool,
+    pub scout_dark: bool,
+    pub scout_for: (i32, i32),
 }
 
 /// **One ant's memory under the walk.** Set at its first decision from what
@@ -2547,6 +2555,10 @@ fn walk_after(world: &mut World, organism: OrganismId, moved: bool, won: bool) {
                 target: walk_target(world, organism, head, &mind),
                 won,
                 cut: mind.cut,
+                scout_patience: st.map_or(f32::NAN, |s| s.scout_patience),
+                scout_home: st.is_some_and(|s| s.scout_home),
+                scout_dark: st.is_some_and(|s| s.scout_dark),
+                scout_for: st.map_or((0, 0), |s| s.scout_for),
             };
             world.needs.as_mut().expect("walking").rows.push(row);
         }
