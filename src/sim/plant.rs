@@ -257,17 +257,65 @@ pub(crate) fn graze_regrow() -> bool {
     *ON.get_or_init(|| !matches!(std::env::var("PIXEL_PHYSICS_GRAZE_REGROW").as_deref(), Ok("off")))
 }
 
-/// **`PIXEL_PHYSICS_ANNUAL`**: seeds `World::annual`. `on` uses each annual
-/// species' own `SpeciesDef::annual_half_life`; a positive number overrides
-/// it (plant-time frames) for sweeps; anything else, and the default, is
-/// off. Read once.
+/// **`PIXEL_PHYSICS_ANNUAL`**: seeds `World::annual`. **On by default**
+/// (planted-balance lane, 2026-10-10): each annual species dies on its own
+/// `SpeciesDef::annual_half_life` after it has set seed. `off` turns it off;
+/// a positive number overrides the half-life (plant-time frames) for sweeps;
+/// `on`, unset and anything else are on. Read once.
+///
+/// Why on: the owner ruled a herb an annual (2026-10-10, "Annual") -- with
+/// `rebloom_after` it otherwise fruits forever and lives as a perennial.
+/// Measured on the herb_ant bed under the **shipped light rain** (half pace,
+/// mutation off, `GRAZE_REGROW` on), 12 seeds, 450k frames, against off it
+/// is **neutral**: herbs alive over 300-450k 80 vs 79 (higher on 7 of 12),
+/// herb leaf 996 vs 1,087 (6 of 12), mean adults 100-450k 249 vs 228 (8 of
+/// 12); no difference clears a sign test. Probes at zero adults 0 vs 4 of
+/// 216, all four from one off-arm colony dying out (seed 2). No seed's bed
+/// fell below 20 herbs in either arm. The bed holds by turnover: 300-800
+/// seedlings establish per run, and 1.7x as many reach fruit (1.09-2.29x
+/// per seed). Its herbs sit above off until about 375k and slightly below
+/// after (375-450k: 76 vs 80), with 8 of 12 annual beds still falling at
+/// 450k, so a run much past the playtest's length is unmeasured. Paired
+/// wall time about 1.0x (median of 12 seeds; the slow pairs are the ones
+/// with the bigger colony); the rule's own cost is one keyed roll per
+/// organism tick.
+///
+/// **Only an annual species is touched.** The gate that stops a dead
+/// plant flushing buds and reblooming (`organism_tick`) reads
+/// `annual_half_life > 0`, so trees, shrubs and grass die exactly as they
+/// did. Herbs are annuals wherever they grow -- the held world's included,
+/// which is unmeasured.
+///
+/// **The measured harm, kept because it is real: a bed with rain off loses
+/// its herbs.** The owner's own herb_ant playtest ran with rain off. There
+/// the soil dries below `Germinate`'s water threshold and seeds stop taking
+/// after about 50k frames (seed 1: 42 seedlings in 0-50k, 5 in the next
+/// 400k, from 5,850 seeds). Annual herbs reach zero by 225-430k on 4 of 4
+/// seeds, with or without ants, and the colony is about a fifth smaller
+/// (adults 100-450k 131 vs 165, 3 of 4 seeds down). Herbs that never die
+/// dwindle there too with ants (about 32 -> 12) and mostly hold without
+/// (34 -> 29). The root defect is germination in dry soil, not the rule.
+/// No shipped scenario with plants runs rain off. The half-life was
+/// compared at 15,000 and 45,000 only, not swept: 15,000 emptied one
+/// no-ant bed under rain (seed 1: 10 herbs against 102 at 45,000) though it
+/// held more than 45,000 on seed 2 with ants (51 vs 33). Per-seed tables,
+/// the runs' notes and the reviews: `/mnt/project-files/planted-balance/`
+/// (`annual/`, `notes-2026-10-10.md`, `review-5-annual-default-2026-10-10.md`).
 pub(crate) fn annual_from_env() -> Option<f32> {
     static ON: std::sync::OnceLock<Option<f32>> = std::sync::OnceLock::new();
-    *ON.get_or_init(|| match std::env::var("PIXEL_PHYSICS_ANNUAL").as_deref() {
-        Ok("on") => Some(0.0),
-        Ok(v) => v.parse::<f32>().ok().filter(|h| *h > 0.0),
-        Err(_) => None,
-    })
+    *ON.get_or_init(|| parse_annual(std::env::var("PIXEL_PHYSICS_ANNUAL").ok().as_deref()))
+}
+
+/// `annual_from_env`'s reading of the variable, split out so a guard can
+/// assert every value. Note `0` means **on** since the flip: only `off`
+/// disables, and before 2026-10-10 an unset variable was the off arm, so a
+/// sweep script from then compares on against on.
+pub(crate) fn parse_annual(value: Option<&str>) -> Option<f32> {
+    match value {
+        Some("off") => None,
+        Some(v) => Some(v.parse::<f32>().ok().filter(|h| *h > 0.0).unwrap_or(0.0)),
+        None => Some(0.0),
+    }
 }
 
 /// **The backstop for an annual that never sets seed**, as a multiple of its
@@ -7732,10 +7780,17 @@ pub fn step_organisms(world: &mut World) {
             // **A plant the annual rule has killed builds nothing more**
             // (`World::annual`): nothing in these two passes reads
             // `senescent`, so without this a herb marked dead while still
-            // healthy would flush buds and rebloom while it rots. Behind the
-            // switch only, so the shipped tree old age is unchanged -- it
-            // has the same hole (`review-3-2026-10-10.md` §6).
-            let annual_dead = world.annual.is_some() && world.organism(organism_id).is_some_and(|s| s.senescent);
+            // healthy would flush buds and rebloom while it rots. Only on an
+            // annual species (`annual_half_life > 0`), so with the switch on
+            // by default every other dying plant -- starved, shaded, a
+            // felled piece, a tree's old age -- is unchanged; tree old age
+            // has the same hole (`review-3-2026-10-10.md` §6), and closing
+            // it for every species is an unmeasured change in all three
+            // games (`review-5-annual-default-2026-10-10.md` §1).
+            let annual_dead = world.annual.is_some()
+                && world
+                    .organism(organism_id)
+                    .is_some_and(|s| s.senescent && world.species.get(s.species).annual_half_life > 0.0);
             if !annual_dead {
                 timing.time(4, || break_buds(world, organism_id));
                 // Beside `break_buds`, the same "one whole-plant decision, one
@@ -25047,6 +25102,27 @@ mis-wired {miswired_root}, so `slot_1_is_a_root_locus_and_not_a_shoot_one` would
         assert!(!alive && deaths >= 1, "switch on, annual species: the backstop must carry the founder out and book it (alive {alive}, annual_deaths {deaths})");
         let (alive, _) = run_arm(Some(1.0e9), 500.0);
         assert!(alive, "a positive switch value overrides the species' half-life");
+    }
+
+    /// **The annual rule ships on, and the herb is the annual it reaches**
+    /// (owner ruling 2026-10-10). Reads the default the way a run does, so
+    /// it is skipped only when the variable is set in the test environment.
+    #[test]
+    fn the_annual_rule_ships_on_and_the_herb_is_an_annual() {
+        if std::env::var("PIXEL_PHYSICS_ANNUAL").is_ok() {
+            return;
+        }
+        let w = test_world();
+        assert_eq!(w.annual, Some(0.0), "unset, the annual rule must be on with each species' own half-life");
+        let herb = w.species.id_of("herb").expect("herb is compiled in");
+        assert!(w.species.get(herb).annual_half_life > 0.0, "the herb must carry an annual half-life");
+        let tree = w.species.id_of("tree").expect("tree is compiled in");
+        assert_eq!(w.species.get(tree).annual_half_life, 0.0, "a tree is not an annual");
+        assert_eq!(parse_annual(None), Some(0.0), "unset is on");
+        assert_eq!(parse_annual(Some("on")), Some(0.0));
+        assert_eq!(parse_annual(Some("off")), None, "only `off` disables");
+        assert_eq!(parse_annual(Some("45000")), Some(45000.0), "a positive number overrides the half-life");
+        assert_eq!(parse_annual(Some("0")), Some(0.0), "`0` is on, not off");
     }
 
     #[test]

@@ -1,0 +1,50 @@
+// steady_income with four beetles released at landing -- does a lean or laden ant still fight another kind with the stranger alarm on (results review 2026-10-10).
+// Steady income -- the owner's goal of a stable colony (2026-10-03: "stable,
+// not big"), tested against a fixed food supply rather than an endless heap.
+//
+// The nest goal's box and colony (no plants, mister off, 52 ants at column
+// 256 at frame 6,000), and food arriving at a fixed rate 30 columns east:
+// 40 cells of provisions (38,400 J) every 1,000 frames from the landing on.
+// An endless heap (the nest goal) cannot show whether births follow food,
+// because food never runs short; a finite one (`boom_bust`) always ends the
+// colony. A fixed income is the case where a colony that matched its births
+// to its food would settle at a size the income carries, and one that does
+// not swings between boom and famine. Run it in `deeptrace` with `food=0`
+// so the harness's `top_up` does not add a second supply on top.
+//
+// **40, calibrated 2026-10-08** for a colony of a few hundred (owner's
+// choice): at the first guess of 10 the colony held about 60; at 40 the
+// owner's playtest switches hold 190-280 by 130k (4 seeds) and main's
+// shipped defaults about 300.
+// Measured with `rivalry scenario=one_nest_beetles encounters=<csv>`; results in Reports/stranger-alarm-design-2026-10-10.md §9-§10.
+(
+    name: "one_nest_beetles",
+    title: "ONE NEST, BEETLES",
+    question: "Food arrives at a fixed rate: does the colony settle at the size the income carries, or swing between boom and famine?",
+    bed: (
+        width: 512,
+        height: 320,
+        soil_depth: 80,
+        ground_y: 160,
+        compartments: 1,
+        founders: 0,
+        species: "grass",
+        colonies: 0,
+        colony_ants: 52,
+        colony_species: "ant",
+        predators: 0,
+        lamp_spacing: 33,
+        seed: 1,
+        extra_walls: [],
+    ),
+    settings: [
+        (subject: "the bed", field: "rain", value: 0),
+    ],
+    placements: [],
+    timeline: [
+        (at: 6000, every: 0, until: 0, what: Colony(species: "ant", x: 256, count: 52)),
+        (at: 6000, every: 1000, until: 0, what: Heap(material: "provisions", x: 286, cells: 40)),
+        (at: 6000, every: 0, until: 0, what: Predators(species: "beetle", count: 4)),
+    ],
+    horizon: 600000,
+)

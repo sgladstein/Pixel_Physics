@@ -2355,6 +2355,16 @@ drift that two of these documents still reflect.**
 - [stigmergy-research.md](stigmergy-research.md) — **research,
   implemented.** Deposit → diffuse → decay → follow; the ant colony is
   built on it.
+- [stranger-alarm-design-2026-10-10.md](stranger-alarm-design-2026-10-10.md)
+  — **shipped on (owner, 2026-10-10).** Design reviewed yes-with-changes twice by a second lane; results §9-§11, §11 on main with the nest stack on.
+  Why lab colonies stopped fighting on 2026-10-05: the only ignition was an
+  ant eating a stranger, and the evolved lab ant's gut (-0.8) prices ant flesh
+  at 4.8 J, under the 12 J bar, so nothing ever bites first and `Attack` stays
+  0 (`rivalry`, 4 seeds: 0 attacks evolved, 16-23 with the gut alone at 0).
+  Proposes `PIXEL_PHYSICS_STRANGER_ALARM`: touching a same-species stranger
+  tops the alarm up to a level graded by how foreign it smells (under a
+  display), lean or laden ants ignore it, and the existing wire, `nearest_foe`
+  and contest do the rest. Lists the drift, jam, nest and frame-cost checks.
 - [population-dynamics-research.md](population-dynamics-research.md) —
   **research (Report D of four).** Why the ecology will go extinct and
   what prevents it; §7b answered by ecological-lod-design.
@@ -5617,7 +5627,8 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   Written for a new account with only the repo: the owner's goals, every working
   rule that lived only in project memory (trace before the next fix, keep failed
   experiments findable, the 12-seed merge bar, reporting rules, numbers that
-  misled), the stack of six switches heading to main and what each did, what
+  misled), the stack of six switches heading to main (on main and on by default
+  since PR 675; stale lines updated in place 2026-10-10) and what each did, what
   failed or is inconclusive and why, every live branch, and the ordered next
   steps (stack on main, food caps births, why ants live in the mound, rooms). The
   key write-ups and readers it cites are copied beside it in `handoff/2026-10-07/`.

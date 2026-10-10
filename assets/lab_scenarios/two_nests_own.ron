@@ -1,0 +1,26 @@
+// The dry goal box (nest_goal.ron) with two colonies 120 columns apart, each fed like steady_income: 40 cells of provisions every 1,000 frames, 30 columns outward.
+// Revised 2026-10-10: the first version dropped one finite heap and every arm starved out by 24k.
+// Built 2026-10-10 for the stranger alarm (Reports/stranger-alarm-design-2026-10-10.md §5):
+// the beds the first runs used starve the evolved ant whatever it does.
+// Measured with `rivalry scenario=two_nests_own encounters=<csv>`; results in Reports/stranger-alarm-design-2026-10-10.md §9-§10.
+(
+    name: "two_nests_own",
+    title: "TWO NESTS (own)",
+    question: "Two colonies in the dry goal box, each with its own steady income (40 cells / 1,000 frames) 30 columns outward: do they meet, and what happens when they do?",
+    bed: (
+        width: 512, height: 320, soil_depth: 80, ground_y: 160, compartments: 1,
+        founders: 0, species: "grass", colonies: 0, colony_ants: 52, colony_species: "ant",
+        predators: 0, lamp_spacing: 33, seed: 1, extra_walls: [],
+    ),
+    settings: [
+        (subject: "the bed", field: "rain", value: 0),
+    ],
+    placements: [],
+    timeline: [
+        (at: 6000, every: 0, until: 0, what: Colony(species: "ant", x: 196, count: 52)),
+        (at: 6000, every: 0, until: 0, what: Colony(species: "ant", x: 316, count: 52)),
+        (at: 6000, every: 1000, until: 0, what: Heap(material: "provisions", x: 166, cells: 40)),
+        (at: 6000, every: 1000, until: 0, what: Heap(material: "provisions", x: 346, cells: 40)),
+    ],
+    horizon: 300000,
+)
