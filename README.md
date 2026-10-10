@@ -6805,7 +6805,7 @@ it: a cause could be rewritten while the remains rotted (2–9 a run), and
 dormant seeds were ~85% of plant graves, so they pushed the colony's out of
 the shared graveyard. **And §B2's count, once it could be read, is large:**
 with only the felling path booking `FELLED`, **1,161–1,751 plants a run** are
-felled on that quiet bed, 1,064–1,155 of them grass seedlings that the support
+felled on that quiet bed, 1,064–1,653 of them grass seedlings that the support
 check cuts loose. Before labelling, their cells going empty had read as
 seedlings shaded or dried out. Now:
 

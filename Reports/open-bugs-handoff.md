@@ -9154,7 +9154,7 @@ of all plant deaths, nearly all of them seeds that had rotted. With the death
 record fixed (`FELLED` is now written only when `rigid::fell_severed_tissue`
 takes a living plant's last cell), `examples/planttrace.rs` counts **1,161–1,751
 plants felled per 100k-frame run** on the played bed with the colony removed
-(seeds 1–4, `plant_load_failure` at its shipped default). **1,064–1,155 of them
+(seeds 1–4, `plant_load_failure` at its shipped default). **1,064–1,653 of them
 are grass seedlings** of 2–4 cells. Herb, scrambler, shrub and tree make up the
 rest. Before the label, their cells going empty had been read as seedlings
 shaded or dried out. Read the count per species from `planttrace`'s

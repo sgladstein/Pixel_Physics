@@ -1,5 +1,9 @@
 # Ants and plants in the same box — the 2026-10-09 `herb_ant` playtest, replayed and taken apart
 
+*Brought to main docs-only on 2026-10-10 from `claude/epic-bell-w6za1y` (`b3d2c438`),
+which never opened a PR. **`examples/replay.rs`, which `run.sh` runs, is on that branch, not
+on main.** Summary in [`../handoff/PLAN-2026-10-07.md`](../handoff/PLAN-2026-10-07.md) §8a.*
+
 *2026-10-09. The owner played `herb_ant` (seed 1, 2,150,000 ticks, build
 `1bb916c1`, branch `eloquent-johnson-axjvu1-nest-life`) — **the first lab
 playtest since the ant program went to food-only beds that has plants in the
