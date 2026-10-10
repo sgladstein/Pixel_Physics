@@ -6717,7 +6717,8 @@ pub struct OrganismState {
     /// an unlabelled removal stays `Unknown` -- a gap that shows as a gap.
     pub last_loss: DeathCause,
     /// **Leaf this plant has lost to a mouth and not yet grown back** --
-    /// `PIXEL_PHYSICS_GRAZE_REGROW` (planted-balance lane, 2026-10-10).
+    /// `PIXEL_PHYSICS_GRAZE_REGROW`, on unless set to `off` (planted-balance
+    /// lane, 2026-10-10).
     /// Counted in `World::set` on any write labelled `Eaten` that takes a
     /// living `Leaf` cell (a forager's bite, a layer funding an egg, a
     /// larva); paid off one per `Leaf` cell this plant builds afterwards, so

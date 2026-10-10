@@ -226,15 +226,24 @@ fn render_step(
 /// says *how much frontier the damage buys*.
 /// **`PIXEL_PHYSICS_GRAZE_REGROW`**: a plant with no shoot tip that has
 /// lost leaf to a mouth may flush buds from its reserves to grow it back
-/// (`break_buds`). `on` licenses up to `max_active_tips`, `one` a single
-/// tip; anything else (the default) is off. Read once.
-pub(crate) fn graze_regrow() -> Option<usize> {
-    static ON: std::sync::OnceLock<Option<usize>> = std::sync::OnceLock::new();
-    *ON.get_or_init(|| match std::env::var("PIXEL_PHYSICS_GRAZE_REGROW").as_deref() {
-        Ok("on") => Some(usize::MAX),
-        Ok("one") => Some(1),
-        _ => None,
-    })
+/// (`break_buds`). **On by default** (planted-balance lane, 2026-10-10);
+/// `off` turns it off. Read once.
+///
+/// Why on: 12 seeds of the herb_ant bed (rain off, half pace, mutation off)
+/// against off -- mean adults 100-500k higher on 12 of 12 seeds (132 vs
+/// 48), standing herb leaf 100-300k higher on 11 of 12, colonies at zero
+/// adults on 32 of 252 probes against 96; unchanged with no ants (no leaf
+/// is eaten). The cost: founder tree and conifer leaf 1-3% lower, from a
+/// bigger colony biting more, not from each ant eating more tree.
+/// `/mnt/project-files/planted-balance/` holds the runs' notes and the
+/// second-lane reviews (`review-4-default-2026-10-10.md`).
+///
+/// A capped `one` arm existed while it was measured and was dropped: it was
+/// byte-identical to `on` by construction, since `break_buds` flushes one
+/// bud per call and the rule only applies at zero tips.
+pub(crate) fn graze_regrow() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| !matches!(std::env::var("PIXEL_PHYSICS_GRAZE_REGROW").as_deref(), Ok("off")))
 }
 
 /// **`PIXEL_PHYSICS_ANNUAL`**: seeds `World::annual`. `on` uses each annual
@@ -10785,8 +10794,8 @@ fn break_buds(world: &mut World, organism_id: OrganismId) {
         supportable = supportable.saturating_add(extra).min(max_active_tips as usize);
     }
     // **Leaf lost to a mouth licenses its own replacement** --
-    // `PIXEL_PHYSICS_GRAZE_REGROW`, off unless set (planted-balance lane,
-    // 2026-10-10). Measured on the herb_ant bed (main 43522586, seeds 1-2,
+    // `PIXEL_PHYSICS_GRAZE_REGROW`, on unless set to `off` (planted-balance
+    // lane, 2026-10-10; the measurement that turned it on is on `graze_regrow`). Measured on the herb_ant bed (main 43522586, seeds 1-2,
     // `PIXEL_PHYSICS_BUD_TRACE`): a herb holding dormant buds had
     // `supportable` 0 on 42,314 of 42,373 checks with no ants and 29,755
     // of 29,814 with them -- noon income less upkeep was p50 0.16 and p90
@@ -10813,13 +10822,11 @@ fn break_buds(world: &mut World, organism_id: OrganismId) {
     // herb that has finished growing. The record is paid off one per leaf
     // the plant builds (`OrganismState::grazed_leaf`), not per flush, so a
     // flush that builds several nodes cannot buy back more than was lost.
-    // `PIXEL_PHYSICS_GRAZE_REGROW=one` licenses a single tip, the capped
-    // variant that shows whether the cap or something downstream binds.
-    if let Some(cap) = graze_regrow() {
+    if graze_regrow() {
         let grazed = world.organism(organism_id).map_or(0, |s| s.grazed_leaf);
         if grazed > 0 && tips == 0 {
             let wanted = usize::from(grazed).div_ceil(usize::from(leaf_cluster.max(1)));
-            supportable = supportable.max(wanted.min(max_active_tips as usize).min(cap));
+            supportable = supportable.max(wanted.min(max_active_tips as usize));
         }
     }
     bud_trace(world, organism_id, buds.len(), tips, intercepted, noon_income(world, organism_id, intercepted, leaf_cluster), maintenance, step_cost, supportable, richest.map_or(0.0, |r| r.2), bud_cost);

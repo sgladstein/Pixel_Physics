@@ -3,7 +3,7 @@
 *What plants do, and what it looks like when they are working. No code, no
 file names — see `Reports/` for why any of it is built the way it is.*
 
-*Current as of: 2026-10-07 (**a plant's page says why its tips stopped growing** -- the height its water reaches, no room, too poor and the rest -- see *What a healthy stand looks like*). Also 2026-10-06 (**the list of the dead says what killed each plant** -- shaded out, dried out, eaten, old age and the rest; *felled* now means felled, and a seed that rots unsprouted is counted but not listed -- see *Fire and death*). Also 2026-10-05 (**grass grows back** -- a tussock that loses its blades sends up new ones from its crown, so a meadow keeps seeding instead of fading -- see *Species*). Also 2026-10-03 (**water runs through a plant along real paths**:
+*Current as of: 2026-10-10 (**a herb grows back leaf that was bitten off**, paid from what it has stored, so a grazed bed keeps a middle between full and bare -- see *A plant that has been bitten*). Also 2026-10-07 (**a plant's page says why its tips stopped growing** -- the height its water reaches, no room, too poor and the rest -- see *What a healthy stand looks like*). Also 2026-10-06 (**the list of the dead says what killed each plant** -- shaded out, dried out, eaten, old age and the rest; *felled* now means felled, and a seed that rots unsprouted is counted but not listed -- see *Fire and death*). Also 2026-10-05 (**grass grows back** -- a tussock that loses its blades sends up new ones from its crown, so a meadow keeps seeding instead of fading -- see *Species*). Also 2026-10-03 (**water runs through a plant along real paths**:
 up the roots, up the trunk, out along the branches, and a dry spell browns the
 far tips first -- see *How water moves through a plant*). Also 2026-10-03 (**plants can be born harder to eat**, paying for
 it in growth -- see *Plants that are worse to eat*). Also 2026-10-03 (**a seed with ground on top of it is out of the
@@ -438,6 +438,32 @@ ants are there or not, so the ants are not choosing which plants survive.
 With mutation turned up fourfold the grazed garden does climb far above the
 same garden with no ants, so the pressure is real; it is too slow to show at
 the speed seeds vary today.
+
+## A plant that has been bitten
+
+**A herb that loses leaf to a mouth grows it back.** A herb puts up its leaves
+while it is growing, and once its stalk has finished it used to have no way to
+replace one. It earns too little in a day to start a new shoot, even with plenty
+stored. So a bitten herb stayed bitten, a grazed herb was gradually stripped to
+a bare stem, and most herbs that ants grazed starved while still holding
+reserves. Now a plant remembers how much leaf it has lost to eating. When it has
+no shoot growing, it wakes a dormant bud and pays for it from its stores, and
+keeps doing so until it has grown back about what was eaten and no more. This is
+how real plants tolerate grazing: losing leaf frees buds the plant was holding
+back, and the regrowth comes from reserves.
+
+What it looks like in the planted lab bed:
+
+- **A middle between full and bare.** With ants, a herb bed keeps more of its
+  leaf standing than it did, though still less than a bed with no ants. Herbs
+  are bitten, regrow, and are bitten again.
+- **A bigger colony.** The ants have leaf to eat through the stretch where they
+  used to run dry, so they raise more brood and starve fewer larvae, and far
+  fewer colonies hit zero.
+- **Trees pay a little.** The bigger colony bites everything more, so the trees
+  carry a few percent less leaf. No tree has been seen to die of it.
+- **Nothing changes with no ants.** Only leaf that was actually eaten counts. A
+  leaf lost to shade or drought is not grown back this way.
 
 ## What a healthy stand looks like
 
