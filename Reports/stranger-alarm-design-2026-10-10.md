@@ -1,20 +1,24 @@
 # Strangers start the fight: a design for touch-triggered alarm (2026-10-10)
 
-*Proposal, not built. Owner asked for it on 2026-10-10 ("yes" to writing it
-up for review). Project rule: trace, then proposal, then review by another
-lane, then build behind an off switch, then test. This is the proposal;
-the trace it rests on is §1. Main `e594d970`.*
+*Proposal, reviewed, being built behind an off switch. Owner asked for it
+on 2026-10-10 ("yes" to writing it up for review). Project rule: trace,
+then proposal, then review by another lane, then build behind an off switch,
+then test. The trace is §1; the second lane's review (yes, with changes) is
+`/mnt/project-files/fight-trace-2026-10-10/review-stranger-alarm-2026-10-10.md`
+in the shared project folder, and every change it asked for is folded in
+below (§8 lists them). Main `e594d970`.*
 
 **In one paragraph.** Since 2026-10-05 two ant colonies in a lab box never
 fight, however often they meet. The only thing that ever started a fight was
 an ant trying to *eat* a stranger, and the evolved lab ant's plant gut (-0.8)
 no longer counts ant flesh as food. This proposes that **touching a stranger
-of your own species is itself alarming**: an ant whose body touches a living
-ant that fails its nestmate test marks the alarm plane where it stands, at
-the strength a contest display already writes. Everything after that already
-exists and is tested: the `(Alarm, Attack, 2.0)` wire, `nearest_foe`, the
-contest's assess-then-commit, and the display that lets most meetings end
-without a blow. It goes behind `PIXEL_PHYSICS_STRANGER_ALARM`, off.
+of your own kind is itself alarming**: an ant whose body touches a living
+ant that fails its nestmate test marks the alarm plane where it stands,
+**more strongly the more foreign the stranger smells**, and less than a
+display at most. Everything after that already exists and is tested: the
+`(Alarm, Attack, 2.0)` wire, `nearest_foe`, the contest's assess-then-commit,
+and the display that lets a meeting end without a blow. It goes behind
+`PIXEL_PHYSICS_STRANGER_ALARM`, off.
 
 ## 1. The trace this rests on
 
@@ -52,8 +56,14 @@ apart, 0 kills) and the 2026-10-09 herb_ant playtest (0 kills of 576 deaths)
 both ran this ant.
 
 **What this makes of the parked fight recruiting** (`claude/colony-wars-j7j74f`,
-`PIXEL_PHYSICS_FIGHT_RECRUIT`): its v3 recruits only from a bitten ant, so it
-is inert while nothing bites first. It becomes testable once this lands.
+`PIXEL_PHYSICS_FIGHT_RECRUIT`): it has two halves, and they behave
+differently here (review §4, read on the branch). The v3 call to arms runs
+only from a bitten ant, so it is inert while nothing bites. But the branch
+still carries v1's alarm climb: `chooser_step` adds `recruit × alarm_rise`
+for every empty, unladen ant whenever the alarm plane is live. With this
+switch on, every border contact is a mark that climb would draw idle ants up.
+So it is a separate second step, tested as two arms (climb only; climb plus
+trail), with its `recruit_steps` read against this switch's marks.
 
 ## 2. How it should work, from the biology
 
@@ -70,83 +80,128 @@ the alarm**. Every other link is already built and owner-reviewed.
 
 ## 3. The rule
 
-**When an ant's body touches a living animal of its own species that fails
-its kin test, it marks the alarm plane at its own cell, topping it up to the
-display level and never above it.**
+**When an ant's body touches a living animal of its own kind that fails its
+kin test, it marks the alarm plane at its own cell, topping it up to a level
+graded by how far past its tolerance the stranger smells.**
 
-1. **The sense, for free.** `adjacent_food_counted` already walks the body's
-   ring and asks `is_living_kin` of every attached organism cell, every tick
-   (it is the walk behind `FoodAdjacent` and `KinNeed`). Where that test
-   fails on a cell that `is_animal_cell` and whose species is the walker's
-   own, set `FoodScan::stranger = true`. No new ring walk. `sense` must
-   still book nothing, so the flag is carried to `act` beside the
-   inputs `sense` already hands it, and `act` does the writing.
-2. **The act.** At the top of `act`, before the fight branch: if `stranger`
-   and the alarm at the ant's cell is below `contest::display_deposit()`,
-   deposit the difference. **Topping up, not adding**, so a border of
-   touching ants holds the plane at display strength rather than climbing to
-   a wound's 240 by repetition. Alarm then reads 40/255 = 0.157, and the
-   wire gives `squash(0.31) = 0.24`: about one decision in four rolls
-   `Attack`.
-3. **What follows is all existing code.** A winning roll walks
+1. **The sense.** A walk of the body's ring, the same deduplicated ring
+   `nearest_foe` and `adjacent_food_counted` walk, over attached living
+   cells that `is_animal_cell`. A cell is a stranger when it fails the kin
+   test but **passes `is_living_kin_id`'s own kind clause**
+   (`gut.crosses_kinds || same species`), so recognition and alarm can never
+   disagree about who is a candidate (review Q3). Built as its own walk in
+   `act`, only when the switch is on, rather than a flag threaded out of
+   `sense`: `sense` is called more than once on some paths, and a walk in
+   `act` cannot read a different call's answer (review §1). Off, nothing is
+   walked and nothing is drawn, so the off game is the shipped game byte for
+   byte.
+2. **How foreign** (review Q1, after Reeve 1989's threshold on cue distance
+   and the ignore / avoid / display / bite ladder assays score). With `d` the
+   scent distance and `r` the judge's tolerance radius,
+   `foreign = clamp((d - r) / r, 0, 1)`, the largest over the strangers
+   touching. A drifted nestmate just past the radius reads near 0; a rival
+   colony 1.5-1.8 away (`rivalry`'s gap column) reads 0.5 to 0.8, full at 2.
+3. **The mark.** Target `level × foreign`, in alarm units (0-255). If the
+   alarm at the ant's cell is below the target, deposit the difference;
+   never more. **This tops up one rung, it does not bound the plane**: the
+   plane adds (`saturating_add`), so a display adds 40 on top and a bite
+   writes 240, and only the alarm's fast decay (`ALARM_RHO`, about 190 frames
+   to clear) brings it back down. The ladder is touch < display (40) < bite
+   (240), so `level` defaults to **20**, under a display, and is swept
+   (10 / 20 / 40) rather than borrowed from the display constant.
+4. **What follows is existing code.** Alarm 20/255 reads 0.078 and the wire
+   gives `squash(0.157) = 0.14` per decision. A winning roll walks
    `nearest_foe` (kin skipped), and the contest decides: commit and bite
-   (`cry_alarm` at 240, nearby nestmates arouse) or withdraw and display
-   (another 40 at the displayer's cell). A lopsided meeting mostly ends in a
-   display; an even one or a crowd escalates. That is the graded middle the
-   ethos asks for, and it was built and measured on 2026-09-14.
-4. **Same species only.** Other species are predators or prey, and that
-   question is the diet's (`PreyNear`, `is_visible_prey`). Mixing them in
-   would make every ant that brushes a beetle start a brawl with it. A named
-   part (`species`) lets a later arm include them.
+   (`cry_alarm`, 240) or withdraw and display (+40). **Per contest a
+   lopsided meeting mostly displays; per contact, a held meeting probably
+   escalates**: deciding every 5 frames, a 50-frame contact rolls at least
+   once with probability 1 - 0.86^10 = 78% at level 20 (94% at 40), and
+   stacked displays raise the next roll. That is the number §5's funnel
+   measures, not one this design asserts.
+5. **`fed`: hunger overrides it** (owner's rule; Grover et al. 2007,
+   carbohydrate-starved Argentine ant colonies were less aggressive). An ant
+   that is lean (`LeanForage::lean`) or carrying food in its crop or jaws
+   neither marks nor answers: its `Attack` urge is read as 0 for the tick.
+   A named part, so "fights while starving" can be judged apart.
+6. **Riders: counted, never acted on** (review Q2). `nearest_foe` folds no
+   riders (the owner's "one attack must not hit 20 creatures"), so a rider
+   alarm would arouse an ant with nobody to reach. A diagnostic counter only;
+   if it turns out large, `nearest_foe` learns riders first.
+7. **Brood is safe by construction.** `brood.ron` is `kind: Powder`, so a
+   larva is not an animal cell: it neither raises the touch nor is a target.
+8. **No memory.** The rule is neither dear enemy nor nasty neighbour (both
+   reported in ants: Heinze et al. 1996; Newey et al. 2010); contests per
+   episode are read over the run to see whether anything like either emerges.
 
 ### The switch
 
 `PIXEL_PHYSICS_STRANGER_ALARM`, off by default, `World::stranger_alarm` for
-one world (the house pattern). Parts, so each can be judged alone:
+one world (the house pattern). `on` is `touch,fed,level=20`. Parts:
 
-- `touch` — the rule above (the ignition).
-- `level=N` — the top-up level, default the display deposit (40).
-- `species` — also count other species' animals (off in `touch`).
+- `touch` - the rule above (the ignition).
+- `level=N` - the top-up level at full foreignness, 0-255 (default 20).
+- `fed` - lean or laden ants neither mark nor answer.
+- `species` - also count other kinds' animals (not in `on`; predator and
+  prey stay the diet's question).
 
-`on` = `touch`. Counters: `CreatureStats::stranger_touches` (ticks the sense
-fired), `stranger_marks` (deposits made). Pair them with the existing
-`contests`, `displays`, `attacks`, `attack_kills` and `kills_log`'s
-cross-colony split, per `CLAUDE.md`'s fired-counter / effect-counter rule.
+Counters on `CreatureStats`: `stranger_touches` (decisions that touched a
+stranger), `stranger_marks` (deposits made), `stranger_fed_skips` (touches a
+lean or laden ant ignored), `stranger_rider_touches` (diagnostic). Paired
+with `contests`, `displays`, `attacks`, `attack_kills` and `kills_log`.
+
+**The nest kin gate (PR 569) stays on in every arm.** It protects nest
+odour from blending across colonies; nothing in the attack path reads colony
+or nest, by design, so recognition is all scent and the gate is what keeps a
+colony's scent its own. No arm runs this switch with the gate off.
 
 ## 4. What it could break, and the check for each
 
 | risk | why it is plausible | check |
 |---|---|---|
-| **Own-colony fights from drift** | `scent_drift` 0.15 can make a lineage a stranger to its own colony; own-label kills were 24-30 per two-colony bed on 2026-10-03 (`killtrace`) | One-colony goal box, seeds 1-4, 300k: `stranger_touches` and own-label kills, on against off. Specificity bar: own kills not higher on any seed. If drift strangers are common the rule needs the `NEST_KIN_GATE` reference, not the body |
-| **Border jams** | `Alarm` is `-1.0` on `Move`; ants held at display level step less | Steps per decision of ants within 6 cells of a stranger, on against off; picture of the meeting zone |
-| **Nest disruption** | a stranger reaching a door alarms the doorway | Brood and door census on the two-colony bed, against off |
-| **Colony collapse from war** | the gut-0 arm killed 44-51 a run on a starving bed | Trace who died, of what, where (`how-we-test.md` §2.3). A colony-killing rule stays off until traced |
-| **Frame cost** | first contact allocates the alarm plane (40 MB at the outdoor world size; small in a lab box) | `ascii` worst frame unchanged (no stranger there); lab box tick time on against off |
-| **Runaway** | display marks feed more attack rolls | Bounded by the top-up and the alarm's fast decay; confirm `attacks` per contact settles rather than climbs |
-
-**Single-colony boxes, which are most lab boxes**, should be inert apart
-from the drift case: no strangers, no touches. That is the first specificity
-check (`stranger_touches == 0` on a one-colony bed with drift pinned off).
+| **Own-colony fights from drift** | with mutation off `mutate_newborn` freezes scent and tolerance, but nest odour still drifts (`step_nest_scents`, about 120k frames to the tolerance radius), and long-absent foragers carry stale odour; with mutation on (the game) scent drifts per birth and tolerance at a third of that | (a) one-colony goal box, mutation off: **on must be byte-identical to off**, not just "no touches"; (b) mutation on, 2-4 seeds to 150k-300k: touches and kills where attacker and victim share a lineage by `World::descends_from`, never the label (`regroup_by_scent` mints labels for split clusters, so a colony fighting its own fission daughter books as cross-colony); (c) heritable `TRAIT_TOLERANCE` over the run |
+| **The shared heap becomes a permanent border** | both colonies' foragers meet at shared food every trip; `(Alarm, Move, -1.0)` slows them, fights cost jaw work, and at gut -0.8 a kill pays nothing | `trip_deliveries` per colony and time at the heap, on against off |
+| **Colonies wiping each other** | held contacts likely escalate, and the trace saw 219-660 sampled stranger contacts per seed against about 20 in the fighting arms | per seed: does either colony reach 0, when, and of what |
+| **Border jams** | alarm lowers `Move` | steps per decision near a stranger, on against off; the meeting zone in a picture |
+| **Nest disruption** | a stranger at a door alarms the doorway | brood and door census, against off |
+| **Frame cost** | a ring walk per decision when on; first contact allocates the alarm plane (40 MB at outdoor size, small in a lab box) | lab tick time on against off; `ascii` unchanged (off) |
 
 ## 5. How it would be judged
 
-Per `Reports/how-we-test.md` §2, on the evolved founder, mutation off:
+Per `Reports/how-we-test.md` §2, on the evolved founder, mutation off,
+paired by seed on one build.
 
-1. **Direct metric.** Fraction of stranger contacts that lead to a contest,
-   and of contests that lead to a bite, against the gut-0 arm as the
-   reference for "fights happen". Off must read exactly 0 attacks (the trace's
-   result), on should read attacks on every seed. Beds: `rivalry`'s default,
-   `/mnt/project-files/colony-wars/scenarios/war_two.ron` (12 seeds to settle
-   a default), and a herb_ant box with the owner's two placements (x 296 and
-   614).
-2. **Picture.** The meeting zone over time (`rivalry gif=`), so the owner can
-   see whether a border forms and moves, which is the readout the tournament
-   literature points at.
-3. **Cost.** Colony size, deaths by cause and place, nest census, frame time,
-   each per seed against off.
+**Beds.** All three first proposed starve the evolved ant whether or not it
+fights (`rivalry`: 112 of 113 animal deaths starved; `war_two` is planted;
+the owner's herb_ant box starved by 40k), so deaths by cause would drown in
+starvation and `fed` would read as doing nothing. So the main bed is **a
+two-nest dry goal box**: `nest_goal.ron`'s ground with two colonies, each with
+its own endless heap, plus an arm with one shared heap between them, read over
+100k-300k. `rivalry` stays the fast iteration bed, `war_two` the 12-seed
+settle bed.
 
-Then, as a second step and not part of this switch: the parked fight
-recruiting on top of it.
+**Arms:** off (byte-identical to main); on at level 10 / 20 / 40; on without
+`fed`; gut 0 with the rule off (the predation reference); a mutation-on pair.
+
+**The direct metric is per encounter**, not a ratio of counters: for each
+stranger pair, first touch frame, then the outcome - parted with no roll,
+display only, bite, kill - and the time to first bite. That is the
+literature's escalation rate. Things that would mislead:
+
+- the gut-0 arm's cross-colony kills are mostly *eating* (seed 1: 16 attacks,
+  11 attack kills, 51 cross-colony kills), so compare attacks and attack kills,
+  never `xcol`;
+- `stranger_touches` counts decisions, so a jam inflates it: report pairs and
+  episodes;
+- contacts fall once fighting starts, so any rate per standing contact moves
+  between arms;
+- own-label kills are not own-lineage kills (§4);
+- a zero-attack seed may be one whose colonies founded alike: print the
+  founding gap per seed first.
+
+**Picture.** The meeting zone over time (`rivalry gif=`) with the alarm
+plane overlaid, so a standing border can be told from a moving one.
+
+**Then** the parked recruiting on top, as two arms (§1).
 
 ## 6. Alternatives considered
 
@@ -168,13 +223,21 @@ recruiting on top of it.
   and did not move attacks (`why-colonies-do-not-fight-2026-09-14.md`); the binding link
   was the ignition, which is still the case.
 
-## 7. Open questions for the reviewer
+## 7. Open questions, as the review answered them
 
-1. Is topping up to the display level the right strength, or should the first
-   touch write less than a display (a stranger noticed, not yet a display)?
-2. Should the touch also fire when the stranger is a *rider* (`riders_at`)?
-   `nearest_foe` is deliberately blind to riders (the owner's "one attack
-   must not hit 20 creatures"), so a touch-alarm from a rider would arouse an
-   ant that then has no target.
-3. Is same-species the right boundary, given `kin_crosses_kinds` exists for
-   species that recognise across kinds?
+1. **Strength**: less than a display, graded by foreignness (§3.2-3.3).
+2. **Riders**: a counter only (§3.6).
+3. **Boundary**: `is_living_kin_id`'s own kind clause (§3.1).
+
+## 8. What the review changed
+
+- The mark is graded by scent distance past tolerance, defaults to 20 under
+  a display, and is swept; "bounded by the top-up" was wrong and is gone.
+- Riders are a diagnostic; the kind boundary reuses the kin test's clause.
+- `fed` added: lean or laden ants neither mark nor answer.
+- The drift check is byte-identity with mutation off, a mutation-on pair, and
+  kills split by lineage.
+- Main bed is a two-nest dry goal box; the direct metric is per encounter;
+  gut-0 cross-colony kills are no longer the reference.
+- The parked recruiting's alarm climb fires on any live alarm, so it is
+  tested as two arms.
