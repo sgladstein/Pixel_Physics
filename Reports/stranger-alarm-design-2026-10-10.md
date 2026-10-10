@@ -368,3 +368,27 @@ gentlest per meeting; 20 is kept for now.
 held by hunger, 7.4% display only, 5.9% bite, 18% kill. Living at 100-150k,
 median 547 off against 475 on (-13%); on the 8 border seeds -5% to -30%,
 mean 538 -> 452 (-16%). Frame cost +1.5-4% (the review's measurement).
+
+**To 300k, 12 seeds** (`long-300k/` in the shared folder): living at
+100-300k, median 534 off against 463 on (-13%); seeds 2, 7 and 12 end in
+conquest again, seed 9 at peace, the rest at a border; starved deaths fall
+on border seeds (e.g. 188 -> 43) and rise on conquest seeds, where the
+winner fills the box.
+
+**Mutation on, seeds 1-4, 150k:** main fights already (693-1,106 bite kills,
+219-358 eaten); on, 933-1,237 bite kills, 222-287 eaten, cross-colony
+contact 912-1,288 -> 204-301, living at 100-150k 398-466 on against 404-491
+off. Kills inside one line: 0 on every seed with the switch on (4 on seed 4
+with it off, by the mouth).
+
+**The lineage path is now exercised, and it fires once.** Seed 1 at 300k,
+mutation off: kills inside line 1 begin at 253k and reach 70 by 300k (of
+2,504 kills in that run; victims healthy, median 456 J). By 270k
+`regroup_by_scent` has minted label 4 out of line 1: 23-40 of line 1's ants
+whose heads sit at columns 269-486, **on the other colony's side** of the
+border, while line 1 proper holds 4-393. No other run of the 24 at 300k,
+or of the 8 mutation-on runs, kills inside a line. *Inferred, not traced
+per ant:* line-1 ants living on line 2's ground take up its nest odour
+(`NEST_BLEND`, nest uptake) until their own family no longer accepts them.
+Off, seed 6 also splits at 300k (no fights); so the split itself is main's,
+and the switch is what turns it into a fight.

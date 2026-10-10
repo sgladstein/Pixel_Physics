@@ -901,7 +901,21 @@ fn line_census(world: &World) -> String {
         e.2 += g.by_cause[organism::DeathCause::Killed.index()];
         e.3 += g.by_cause[organism::DeathCause::OldAge.index()];
     }
-    lines.iter().map(|(r, (n, st, k, o))| format!("{r}:{n}/s{st}k{k}o{o}")).collect::<Vec<_>>().join(",")
+    let mut out = lines.iter().map(|(r, (n, st, k, o))| format!("{r}:{n}/s{st}k{k}o{o}")).collect::<Vec<_>>().join(",");
+    // Once a colony has split, the labels inside each lineage too, with the
+    // columns their heads span -- whether the two halves are two nests.
+    if !world.colony_parents.is_empty() {
+        let mut labels: std::collections::BTreeMap<u32, (u64, i32, i32)> = Default::default();
+        for (_, x, _, colony, _) in standing(world) {
+            let e = labels.entry(colony).or_insert((0, i32::MAX, i32::MIN));
+            e.0 += 1;
+            e.1 = e.1.min(x);
+            e.2 = e.2.max(x);
+        }
+        let labels: Vec<String> = labels.iter().map(|(c, (n, lo, hi))| format!("{c}<{}:{n}@{lo}-{hi}", line_root(world, *c))).collect();
+        out.push_str(&format!(" labels {}", labels.join(",")));
+    }
+    out
 }
 
 /// **What became of each meeting** -- the stranger-alarm review's funnel
