@@ -7967,6 +7967,7 @@ impl World {
             life: organism::LifeCounters::default(),
             senescence_cause: organism::DeathCause::Unknown,
             last_loss: organism::DeathCause::Unknown,
+            grazed_leaf: 0,
             dormant_seed: false,
             culled: false,
             parent: 0,

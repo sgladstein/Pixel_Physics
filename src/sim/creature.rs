@@ -19002,6 +19002,13 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
                     // and is deliberately outside the brace.
                     if bite.organism_id() != 0 && world.materials.kind(bite.material) == MaterialKind::Plant {
                         world.creature_stats.eaten_plant_cells += 1;
+                        // The plant's own memory of the loss, for
+                        // `PIXEL_PHYSICS_GRAZE_REGROW` (`OrganismState::grazed_leaf`).
+                        if organism::cell_type(bite.aux()) == Some(CellType::Leaf) {
+                            if let Some(st) = world.organism_mut(victim) {
+                                st.grazed_leaf = st.grazed_leaf.saturating_add(1);
+                            }
+                        }
                     }
                     // Labelled for `OrganismState::last_loss`: if this was a
                     // plant's (or a seed's) last cell, it was `Eaten`.

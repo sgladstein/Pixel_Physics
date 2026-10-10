@@ -224,6 +224,14 @@ fn render_step(
 /// **The floor it measures against is `RESPROUT_DEFICIT_FLOOR`, and the two
 /// numbers do different jobs.** The floor says *is this plant damaged*; this
 /// says *how much frontier the damage buys*.
+/// **`PIXEL_PHYSICS_GRAZE_REGROW`**: a plant that has lost leaf to a mouth
+/// may flush buds from its reserves to grow it back (`break_buds`). Off
+/// unless set to `on`; read once.
+pub(crate) fn graze_regrow_on() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var("PIXEL_PHYSICS_GRAZE_REGROW").as_deref() == Ok("on"))
+}
+
 fn resprout_deficit_per_tip() -> Option<f32> {
     static ON: std::sync::OnceLock<Option<f32>> = std::sync::OnceLock::new();
     *ON.get_or_init(|| {
@@ -10500,6 +10508,51 @@ fn grass_regrow_on() -> bool {
     *ON.get_or_init(|| !matches!(std::env::var("PIXEL_PHYSICS_GRASS_REGROW").as_deref(), Ok("off" | "0")))
 }
 
+/// **Trace-only: why a plant holding dormant buds did or did not flush one**
+/// (`PIXEL_PHYSICS_BUD_TRACE=<path>`, off by default; planted-balance lane,
+/// 2026-10-10). One row per `break_buds` call that reached the economic
+/// gate with at least one bud, written to the named file. Reads only; the
+/// world is unchanged with it on.
+#[allow(clippy::too_many_arguments)]
+fn bud_trace(
+    world: &World,
+    organism_id: OrganismId,
+    buds: usize,
+    tips: usize,
+    intercepted: f32,
+    noon: f32,
+    maintenance: f32,
+    step_cost: f32,
+    supportable: usize,
+    richest: f32,
+    bud_cost: f32,
+) {
+    use std::io::Write;
+    static OUT: std::sync::OnceLock<Option<std::sync::Mutex<std::io::BufWriter<std::fs::File>>>> = std::sync::OnceLock::new();
+    let Some(out) = OUT
+        .get_or_init(|| {
+            let path = std::env::var("PIXEL_PHYSICS_BUD_TRACE").ok()?;
+            let mut f = std::io::BufWriter::new(std::fs::File::create(path).ok()?);
+            let _ = writeln!(f, "frame,id,species,buds,tips,intercepted,noon_income,maintenance,step_cost,supportable,richest,bud_cost");
+            Some(std::sync::Mutex::new(f))
+        })
+        .as_ref()
+    else {
+        return;
+    };
+    let species = world.organism(organism_id).map_or("?", |s| world.species.get(s.species).name.as_str());
+    if let Ok(mut f) = out.lock() {
+        let _ = writeln!(
+            f,
+            "{},{organism_id},{species},{buds},{tips},{intercepted:.3},{noon:.4},{maintenance:.4},{step_cost:.4},{supportable},{richest:.3},{bud_cost:.3}",
+            world.frame
+        );
+        if world.frame.is_multiple_of(5000) {
+            let _ = f.flush();
+        }
+    }
+}
+
 fn break_buds(world: &mut World, organism_id: OrganismId) {
     let Some(state) = world.organism(organism_id) else { return };
     let species_id = state.species;
@@ -10659,6 +10712,34 @@ fn break_buds(world: &mut World, organism_id: OrganismId) {
         let extra = (excess / per_tip).floor() as usize;
         supportable = supportable.saturating_add(extra).min(max_active_tips as usize);
     }
+    // **Leaf lost to a mouth licenses its own replacement** --
+    // `PIXEL_PHYSICS_GRAZE_REGROW`, off unless set (planted-balance lane,
+    // 2026-10-10). Measured on the herb_ant bed (main 43522586, seeds 1-2,
+    // `PIXEL_PHYSICS_BUD_TRACE`): a herb holding dormant buds had
+    // `supportable` 0 on 42,314 of 42,373 checks with no ants and 29,755
+    // of 29,814 with them -- noon income less upkeep was p50 0.16 and p90
+    // 0.6 of one growth step, while the richest cell sat at the 4.0 cap
+    // every time. So the gate refused on income and never on reserves, a
+    // bitten leaf was never replaced, and 65 of 76 bitten herbs died
+    // `STARVED` by 300k, some with 100-320 carbon still in them.
+    //
+    // **Not RESPROUT again.** That keys on the bole deficit, a trunk signal
+    // a herb never reaches, and it raised a cap that was not binding on the
+    // trees it was measured on. This keys on the plant's own record of
+    // leaf bitten off (`OrganismState::grazed_leaf`), so an ungrazed plant
+    // is untouched, and it lifts the gate the trace found binding. **It
+    // licenses; it does not pay**: the flush below is still bought from
+    // the richest cell at `bud_cost`, so no carbon is made. One flush
+    // spends one `leaf_cluster` of the record -- a bud grows back about a
+    // node's worth of leaf. The biology is compensatory regrowth: losing
+    // leaf releases buds the plant was holding back, paid from reserves
+    // (McNaughton 1983; Strauss & Agrawal 1999 -- cited from memory).
+    let grazed = world.organism(organism_id).map_or(0, |s| s.grazed_leaf);
+    if graze_regrow_on() && grazed > 0 {
+        let wanted = usize::from(grazed).div_ceil(usize::from(leaf_cluster.max(1)));
+        supportable = supportable.max(wanted.min(max_active_tips as usize));
+    }
+    bud_trace(world, organism_id, buds.len(), tips, intercepted, noon_income(world, organism_id, intercepted, leaf_cluster), maintenance, step_cost, supportable, richest.map_or(0.0, |r| r.2), bud_cost);
     if tips >= supportable {
         return;
     }
@@ -10691,6 +10772,11 @@ fn break_buds(world: &mut World, organism_id: OrganismId) {
     // defect `plants:124` is about is exactly the case where the first is
     // positive and the second is zero.
     world.buds_flushed = world.buds_flushed.saturating_add(1);
+    if graze_regrow_on() {
+        if let Some(st) = world.organism_mut(organism_id) {
+            st.grazed_leaf = st.grazed_leaf.saturating_sub(u16::from(leaf_cluster.max(1)));
+        }
+    }
     // The richest cell pays the flush price; the bud keeps its own stake.
     //
     // This used to `write_carbon(bx, by, bud_cost)` -- an assignment, which

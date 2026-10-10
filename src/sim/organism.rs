@@ -6690,6 +6690,15 @@ pub struct OrganismState {
     /// labelling was complete or not. Recorded only when the list empties,
     /// an unlabelled removal stays `Unknown` -- a gap that shows as a gap.
     pub last_loss: DeathCause,
+    /// **Leaf this plant has lost to a mouth and not yet grown back** --
+    /// `PIXEL_PHYSICS_GRAZE_REGROW` (planted-balance lane, 2026-10-10).
+    /// Counted at the one line where a bite takes a living `Leaf` cell
+    /// (`creature.rs`, the bite that sets `loss_context = Eaten`); spent by
+    /// `plant::break_buds`, one `leaf_cluster` per bud it flushes. Data on the
+    /// plant rather than a shape guess, because a grazed herb and one that
+    /// shed its leaves in the shade look the same from its cells. Counted
+    /// whether or not the switch is on; only the switch reads it.
+    pub grazed_leaf: u16,
     /// **A seed that has not germinated yet.** Set where a seed organism is
     /// made (`plant::bear_seed_at`, `World::plant_tree_species`,
     /// `plant::sow_specimen_seed`) and cleared in `plant::germinate`; read by
