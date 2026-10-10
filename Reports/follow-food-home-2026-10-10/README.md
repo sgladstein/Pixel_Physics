@@ -151,23 +151,47 @@ stored crumbs. Of a room's cuts, 55-64% are set down within two cells. That
 lane names this as a main reason the nest stays one room
 (`/mnt/project-files/late-tunnels/`). Turning the store on turns that on too.
 
+### 3e. The store is what keeps ants in the nest (measured)
+
+Adult rows of `colony.csv` (one per ant every 1,000 frames) in the dug nest
+(`nest`, below the founding ground; the mound's tunnels are `mound_in`),
+and the share of nest time spent in stays over 5,000 frames:
+
+| Seeds 1-4 | In the dug nest | Mound tunnels | Nest time in stays over 5k frames |
+|---|---|---|---|
+| steady, main | 1.2-1.5% | 30-34% | 0% |
+| steady, no store | 3.5-5.3% | 32-42% | 1.1-2.1% |
+| steady, stack | **21-34%** | 13-23% | **33-49%** |
+| heap 90, main | 0.9-1.5% | 35-40% | 0% |
+| heap 90, no store | 5.1-5.4% | 32-38% | 6.9-8.3% |
+| heap 90, stack | **11-12%** | 35-37% | **22-25%** |
+
+The store is the only food below ground, and with it a quarter to a third of
+the colony lives in the dug nest. Without it, almost none does. The late-tunnels
+lane found the same at heap 90 over 8 nests (store off 3-6% of rows, leaving
+mostly on `hungry out` carrying nothing), and with the store off the nest is a
+narrow room down the door column. It measured 843-1,546 cells against
+3,236-4,272, and nest digging nearly stopped (300-550 cuts over 200-300k
+against 15,000-36,000; `/mnt/project-files/late-tunnels/`).
+
 ## 4. What to do with the store
 
-**Flip the stack without the store, and keep the store off for now.** On
-the owner's main bed (steady food), the store costs more than it gives, on
-every seed. The colony is 5-34 ants smaller, 3-4x as many adults starve
-(64-128 against 19-51), and the nest's room-making suffers through the crumbs
-(§3d). What it buys is larvae that would have starved anyway once the colony
-was at its food cap. It does not fix the larvae's real problem, which is
-being out of touch (§3b).
+**Turn it on with the stack.** This revises a first reading that said off.
+That reading weighed colony size and deaths, and had not yet counted where
+the ants live (§3e). The owner's first goal is ants living in the nest, and
+the store is the only thing measured that does it: 21-34% of adults in the
+dug nest on steady food against 3.5-5.3% without it. It also makes the
+colony a quarter bigger on endless food (693-720 against 554-591, heap 90)
+and halves larval starvation on steady food.
 
-What turning it off gives up: on endless food (heap 90) the colony is a
-quarter bigger with the store (693-720 against 554-591, 4 of 4 seeds), and
-on steady food larvae starve at 0.01-0.10 per egg against 0.18-0.21. Without
-the store the stack still beats main on both beds (heap 90 554-591 against
-252-336; steady about level, with adults starving no more).
+What it costs, all on steady food, 4 of 4 seeds: the colony is 5-34 ants
+smaller, and 3-4x as many adults starve (64-128 against 19-51). The deaths
+move from larvae to foragers (§3c). Its crumbs also make diggers set soil down
+where they cut (§3d). The late-tunnels lane is testing the store with
+`NEEDS_FIRST`'s `job` part off, to see whether the churn goes and the ants
+stay. If they do, that is the version to ship.
 
-**What the trace says to build instead**, as separate proposals:
+**What the trace says to build next**, as separate proposals:
 
 1. **Food that reaches deep larvae.** Every starved larva lay deep and was
    almost never fed. A store only helps larvae lying beside it. The fix is
@@ -176,9 +200,9 @@ the store the stack still beats main on both beds (heap 90 554-591 against
    signals, *not checked here*). Why larvae lie deep is still open.
 2. **A store that does not take the foragers' food.** The store fills from
    the mound top and the door, which is exactly where foragers eat between
-   trips. A store that banks only a surplus (say, only food lying unclaimed
-   for some time, or only while the foragers are fed) would keep the heap-90
-   gain without the steady-food cost. Untested.
+   trips. A store that banks only a surplus (say, only food left lying for a
+   while, or only while foragers are fed) might keep the nest life without
+   the starved foragers. Untested.
 3. **Feeding priority under shortage.** Real colonies under shortage cut
    brood first and keep workers (*not checked here*). With the store, ours
    does the reverse on steady food.

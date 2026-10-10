@@ -5601,8 +5601,9 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   larvae (0.18-0.21 per egg -> 0.01-0.10) to foragers (19-51 -> 64-128 adults
   starved, dying in bursts at population peaks, at and beyond the heap), with
   the colony 5-34 ants smaller on 4 of 4 seeds. On heap 90 it is a quarter
-  bigger. Recommends flipping the stack without the store, and building food
-  that reaches deep larvae instead.
+  bigger. **The store is what keeps ants in the nest**: 21-34% of adults in
+  the dug nest on steady food with it, 3.5-5.3% without. Recommends flipping
+  the stack with the store on, and building food that reaches deep larvae.
 - [handoff/PLAN-2026-10-07.md](handoff/PLAN-2026-10-07.md) — **the account
   handoff and plan for the ant program, 2026-10-07 (main 9c362015); start here.**
   Written for a new account with only the repo: the owner's goals, every working
