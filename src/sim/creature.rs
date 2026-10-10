@@ -4379,7 +4379,10 @@ fn store_drop(world: &mut World, organism: OrganismId, (x, y): (i32, i32), spoil
         // A carrier standing at the begging larva `seek` brought it to is
         // waiting for the larva's tick (`brood::LARVA_TICK`), not jammed: it
         // does not let go there, or the load would fall past the pillar.
-        let stuck = world.organism(organism).is_some_and(|s| s.still_ticks >= STORE_STUCK_TICKS) && larva_seek_target(world, organism, (x, y)).is_none();
+        let stuck = world
+            .organism(organism)
+            .is_some_and(|s| s.still_ticks >= STORE_STUCK_TICKS)
+            && larva_seek_target(world, organism, (x, y)).is_none();
         let site = (arrived || stuck)
             .then(|| food_drop_site(world, x, y, drop_through_bodies(), clear).map(|(p, _)| p))
             .flatten();
@@ -14691,6 +14694,9 @@ fn store_inward(world: &World, organism: OrganismId, head: (i32, i32), reach: i3
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum StorePull {
     Carry,
+    /// A store carrier following the begging scent (`brood::LarvaFood`'s
+    /// `seek`) in place of the store field.
+    Seek,
     Eat,
     Home,
     Fetch,
@@ -14957,24 +14963,39 @@ fn keep_store_place(world: &mut World) {
     world.nest_ways = ways;
 }
 
-/// **Where `brood::LarvaFood`'s `seek` sends a store carrier**: the nearest
-/// begging larva of its colony (`brood::nearest_begging_larva`) within the
-/// part's `reach`, for a carrier holding a store load and standing on its
-/// nest's way in. `None` with the part off, which is checked first, so the
-/// off world reads nothing more.
+/// **Where `brood::LarvaFood`'s `seek` steers a store carrier**: a point
+/// [`super::brood::NURSE_SCENT_REACH`] cells along the begging scent
+/// (`brood::begging_scent`) from its head -- a heading up a local gradient,
+/// not a larva's position. Only for a carrier holding a store load, over
+/// its grant (hunger overrides it), on its nest's way in at least the
+/// store's `depth` steps from the door (the store's own depth rule, not
+/// home or `AtNest`), and with patience left
+/// ([`super::brood::LARVA_SEEK_PATIENCE`]). `None` with the part off, which
+/// is checked first, so the off world reads nothing more.
 fn larva_seek_target(world: &World, organism: OrganismId, head: (i32, i32)) -> Option<(i32, i32)> {
-    let lf = super::brood::larva_food_of(world);
-    if !lf.seek {
+    if !super::brood::larva_food_of(world).seek {
         return None;
     }
     let state = world.organism(organism)?;
-    if !state.spoil.is_some_and(|s| s.store) || !nest_way_near(world, head.0, head.1).is_some_and(|w| w.at(head.0, head.1).is_some()) {
+    if !state.spoil.is_some_and(|s| s.store) || state.larva_seek_spent >= super::brood::LARVA_SEEK_PATIENCE {
         return None;
     }
     let def = world.species.get(state.species).creature.as_ref()?;
+    if state.energy <= def.start_energy {
+        return None;
+    }
+    let depth = nest_store_of(world).depth;
+    if !nest_way_near(world, head.0, head.1)
+        .and_then(|w| w.at(head.0, head.1))
+        .is_some_and(|d| d >= depth)
+    {
+        return None;
+    }
     let brood = super::brood::brood_of(world, def)?;
     let material = world.materials.id_of(&brood.material)?;
-    super::brood::nearest_begging_larva(world, head, state.colony, material, lf.reach, brood.egg_cost)
+    let (ux, uy, _) = super::brood::begging_scent(world, head, state.colony, material, brood.egg_cost)?;
+    let r = super::brood::NURSE_SCENT_REACH as f32;
+    Some((head.0 + (ux * r).round() as i32, head.1 + (uy * r).round() as i32))
 }
 
 /// **Where [`NestStore`] pulls this animal, and how hard**, asked first in
@@ -14995,7 +15016,7 @@ fn nest_store_pull(world: &World, organism: OrganismId, def: &CreatureDef, head:
         // (`brood::LarvaFood`'s `seek`, off): the carrier walks to it, and
         // `jaws` feeds it on touch.
         if let Some(t) = larva_seek_target(world, organism, head) {
-            return Some((t, def.home_bias, StorePull::Carry));
+            return Some((t, def.home_bias, StorePull::Seek));
         }
         return store_inward(world, organism, head, i32::MAX, true).map(|t| (t, def.home_bias, StorePull::Carry));
     }
@@ -15078,7 +15099,8 @@ fn store_carry_arrived(world: &World, organism: OrganismId, head: (i32, i32)) ->
 /// before.
 fn pull_pace_target(world: &World, organism: OrganismId, def: &CreatureDef, state: &crate::sim::organism::OrganismState, head: (i32, i32)) -> Option<(i32, i32)> {
     if nest_store_of(world).carry && state.spoil.is_some_and(|s| s.store) {
-        return larva_seek_target(world, organism, head).or_else(|| store_inward(world, organism, head, i32::MAX, true));
+        return larva_seek_target(world, organism, head)
+            .or_else(|| store_inward(world, organism, head, i32::MAX, true));
     }
     // A worker fetching door food ([`fetch_target`]) walks to it at the
     // laden pace, or it is an idle fed ant that steps one decision in five.
@@ -25333,10 +25355,30 @@ fn chooser_step(
     let store_pull = if pulled_home { nest_store_pull(world, organism, def, (hx, hy)).map(|(_, _, k)| k) } else { None };
     match store_pull {
         Some(StorePull::Carry) => world.creature_stats.nest_store_carry_pulls += 1,
+        // **`LARVA_FOOD`'s `seek`**: one decision of the carrier's patience
+        // with this load spent, and the give-up counted as it runs out.
+        Some(StorePull::Seek) => {
+            world.creature_stats.larva_seek_steps += 1;
+            if let Some(s) = world.organism_mut(organism) {
+                s.larva_seek_spent += 1;
+                if s.larva_seek_spent >= super::brood::LARVA_SEEK_PATIENCE {
+                    world.creature_stats.larva_seek_gave_up += 1;
+                }
+            }
+        }
         Some(StorePull::Eat) => world.creature_stats.nest_store_eat_pulls += 1,
         Some(StorePull::Home) => world.creature_stats.nest_store_home_pulls += 1,
         Some(StorePull::Fetch) => world.creature_stats.nest_store_fetch_pulls += 1,
         None => {}
+    }
+    // `seek`'s patience is per load: back to full once no store load is held.
+    if super::brood::larva_food_of(world).seek {
+        if let Some(st) = world
+            .organism_mut(organism)
+            .filter(|st| st.larva_seek_spent > 0 && !st.spoil.is_some_and(|p| p.store))
+        {
+            st.larva_seek_spent = 0;
+        }
     }
     // The soil's way out fired ([`soil_way_of`]): the "it fired" half; the
     // effect half is where the colony's soil goes down.

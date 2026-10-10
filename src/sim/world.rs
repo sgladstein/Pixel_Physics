@@ -3013,6 +3013,11 @@ pub struct CreatureStats {
     /// (`brood::jaws_feed`, `PIXEL_PHYSICS_LARVA_FOOD`'s `jaws`; 0 off).
     pub larva_jaws_fed: u64,
     pub brood_jaws_fed_j: f64,
+    /// `LARVA_FOOD`'s `seek`: carrier decisions steered up the begging scent
+    /// in place of the store field, and carriers that gave up on it
+    /// (`brood::LARVA_SEEK_PATIENCE`). 0 off.
+    pub larva_seek_steps: u64,
+    pub larva_seek_gave_up: u64,
     /// **Nurses that stay** (`creature::NurseStay`,
     /// `PIXEL_PHYSICS_NURSE_STAY`): crops a forager home from a trip handed
     /// to a nest worker touching it, and drop rolls a nurse skipped to keep
@@ -4315,6 +4320,9 @@ pub struct World {
     /// `brood::nurse_seek_of` for this world: `Some(None)` is off; `None`
     /// reads `PIXEL_PHYSICS_NURSE_SEEK`.
     pub nurse_seek: Option<Option<crate::sim::brood::NurseSeek>>,
+    /// `brood::larva_food_of` for this world; `None` reads
+    /// `PIXEL_PHYSICS_LARVA_FOOD`.
+    pub larva_food: Option<crate::sim::brood::LarvaFood>,
     /// `brood::crop_nurse_of` for this world; `None` reads
     /// `PIXEL_PHYSICS_CROP_NURSE`.
     pub crop_nurse: Option<crate::sim::brood::CropNurse>,
@@ -7063,6 +7071,7 @@ impl World {
             food_door: None,
             door_reopen: None,
             nurse_seek: None,
+            larva_food: None,
             crop_nurse: None,
             door_loose: None,
             door_column: None,
@@ -8213,6 +8222,7 @@ impl World {
             sent_want: f32::NAN,
             foraged: false,
             store_return: false,
+            larva_seek_spent: 0,
             store_carried: false,
             dig_return: None,
             spoil_ring: None,

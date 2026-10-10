@@ -6336,6 +6336,12 @@ pub struct OrganismState {
     /// cleared once its head is above the mouth. While set, and while it
     /// holds nothing, it is pulled to the mouth (`creature::home_pull`).
     pub store_return: bool,
+    /// **Decisions this carrier has spent walking up the begging scent with
+    /// its current store load** (`brood::LarvaFood`'s `seek`): at
+    /// `brood::LARVA_SEEK_PATIENCE` it gives up and the store pull resumes;
+    /// back to 0 once it holds no store load. Never written with the part
+    /// off.
+    pub larva_seek_spent: u16,
     /// **Has carried a load into the storeroom since it last took food away
     /// from home** (`creature::storeroom_of`'s `once`): set by a store
     /// pick-up, cleared by a pick-up away from home.
