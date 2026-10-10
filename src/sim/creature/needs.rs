@@ -183,6 +183,22 @@
 //!   the step roll; at [`EAT_STALL`] such decisions with no progress, the
 //!   whole food sense is off for [`EAT_REST`] frames, so hunger falls to
 //!   "out", and escape fires on out's own stall.
+//!
+//! **A hunger bout ends with food** (`hunger_holds`, with its `placebo`;
+//! 2026-10-10, `needs-ant/resume-2026-10-10/trace-job-hold-2026-10-10.md`,
+//! reviewed before it was built). The job is chosen before need is tested,
+//! and the forage roll does not ask about hunger, so a hungry ant heading out
+//! could roll the forage job and take its hold (up to 0.8, which hunger
+//! reaches only at about 70 J) -- out of need again with no meal. On seed 11
+//! (`reach`, steady food) 58 of 69 nest starvers had done so in their last
+//! 8,000 frames; so had 53% of the living deep ants, so the flip is a
+//! chance, not a sentence, and the reviewer bounded what the part can save
+//! at about 35 of the 69 (11 never flipped, 15-23 died walled in). With the
+//! part on, need that has fired stays until hunger is back to 0: the bout
+//! has no give-up of its own, its drives keep theirs, and the veto still
+//! wins. The `placebo` draws the forage roll from another stream -- the
+//! same rule, another realisation -- so every comparison carries the spread
+//! a do-nothing change makes on the same seeds.
 
 use super::*;
 use std::collections::HashMap;
@@ -249,6 +265,17 @@ pub struct WalkParts {
     /// nearer the food it senses, and the food sense is off for
     /// [`EAT_REST`] frames.
     pub eat_fade: bool,
+    /// **Not the fix round's** (2026-10-10, never in [`WalkParts::ALL`]): a
+    /// hunger bout ends with food, not with a job. Once need has fired, the
+    /// ant stays in need until its hunger is back to 0; a job taken or kept
+    /// in the bout has its hold ignored.
+    pub hunger_holds: bool,
+    /// **The placebo** (2026-10-10, never in [`WalkParts::ALL`]): the forage
+    /// roll is drawn from its own stream ([`RNG_SLOT_NEEDS_PLACEBO`]) -- the
+    /// same rule, another realisation. It changes nothing a rule could be
+    /// credited with, so its move against the same seeds is the spread any
+    /// other part's effect must clear.
+    pub placebo: bool,
 }
 
 impl WalkParts {
@@ -263,10 +290,13 @@ impl WalkParts {
         won_stall: false,
         reach: false,
         eat_fade: false,
+        hunger_holds: false,
+        placebo: false,
     };
     /// **The fix round's eight**, which is what `needsparts=all` has meant
     /// since 10-07; the parts added after it ([`WalkParts::reach`],
-    /// [`WalkParts::eat_fade`]) are named one by one.
+    /// [`WalkParts::eat_fade`], [`WalkParts::hunger_holds`],
+    /// [`WalkParts::placebo`]) are named one by one.
     pub const ALL: WalkParts = WalkParts {
         only_diggers: true,
         dig_job: true,
@@ -278,8 +308,10 @@ impl WalkParts {
         won_stall: true,
         reach: false,
         eat_fade: false,
+        hunger_holds: false,
+        placebo: false,
     };
-    const NAMES: [&'static str; 10] = [
+    const NAMES: [&'static str; 12] = [
         "only_diggers",
         "dig_job",
         "clear",
@@ -290,6 +322,8 @@ impl WalkParts {
         "won_stall",
         "reach",
         "eat_fade",
+        "hunger_holds",
+        "placebo",
     ];
 
     /// `all`, `none`, or a comma list of the part names, as a harness names
@@ -311,6 +345,8 @@ impl WalkParts {
                 "won_stall" => p.won_stall = true,
                 "reach" => p.reach = true,
                 "eat_fade" => p.eat_fade = true,
+                "hunger_holds" => p.hunger_holds = true,
+                "placebo" => p.placebo = true,
                 other => panic!(
                     "needsparts={raw:?}: {other:?} is not all, none or one of {}",
                     WalkParts::NAMES.join(", ")
@@ -333,6 +369,8 @@ impl WalkParts {
             self.won_stall,
             self.reach,
             self.eat_fade,
+            self.hunger_holds,
+            self.placebo,
         ];
         let names: Vec<&str> = WalkParts::NAMES
             .iter()
@@ -380,6 +418,12 @@ pub struct NeedsWalk {
     pub veto_needs: bool,
     /// The fix round's parts that are on ([`WalkParts`]); none by default.
     pub parts: WalkParts,
+    /// **What `reach` hid, ant by ant**, for a harness to drain when it asks
+    /// (`Some`): every hungry decision on which [`WalkParts::reach`] hid all
+    /// the food in the box, its frame, the ant, and whether any of that food
+    /// was joined to the head by air within [`AIR_CHECK`] cells -- food a way
+    /// out of the box would have reached. Reads the world only.
+    pub hidden_log: Option<Vec<(u64, OrganismId, bool)>>,
 }
 
 impl NeedsWalk {
@@ -395,6 +439,7 @@ impl NeedsWalk {
             counts: WalkCounts::default(),
             veto_needs: false,
             parts: WalkParts::NONE,
+            hidden_log: None,
         }
     }
 
@@ -603,6 +648,20 @@ pub struct WalkCounts {
     pub eat_rest: u64,
     pub eat_rest_ate: u64,
     pub eat_rest_out: u64,
+    /// ...and of `reach_hidden`, the decisions on which some of the hidden
+    /// food was joined to the head by air within [`AIR_CHECK`] cells: hidden
+    /// round the box's edge, not sealed.
+    pub reach_hidden_air: u64,
+    /// **The hunger bout** ([`WalkParts::hunger_holds`]), each zero with the
+    /// part off: bouts started; bouts ended fed (hunger back to 0), inside
+    /// and in the open air; bouts ended by death (counted when the dead
+    /// ant's memory is pruned); and decisions in need only because the bout
+    /// held, a job's hold ignored.
+    pub bouts: u64,
+    pub bouts_fed: u64,
+    pub bouts_fed_outside: u64,
+    pub bouts_died: u64,
+    pub hold_ignored: u64,
 }
 
 /// What a decision cut, for the trace ([`WalkRow::cut`]).
@@ -699,6 +758,9 @@ struct Mind {
     eat_rest_until: u64,
     eat_bouts: u16,
     fuel: f32,
+    /// In a hunger bout ([`WalkParts::hunger_holds`]): set when need fires,
+    /// cleared when hunger is back to 0. False at the switch.
+    bout: bool,
     /// This decision's: the drive, its hunger and hold, the forage
     /// stimulus, food it sensed, the step chance, what it cut.
     drive: Drive,
@@ -769,6 +831,7 @@ impl Mind {
             eat_rest_until: 0,
             eat_bouts: 0,
             fuel: st.energy + st.crop.map_or(0.0, |c| c.worth().max(0.0)),
+            bout: false,
             drive: Drive::Rest,
             hunger: 0.0,
             hold: 0.0,
@@ -791,6 +854,9 @@ const RNG_SLOT_NEEDS_JITTER: u64 = 13;
 /// roll's so that turning the part on leaves who takes the forage job as it
 /// was.
 const RNG_SLOT_NEEDS_DIG: u64 = 14;
+/// ...and the forage roll's stand-in under [`WalkParts::placebo`]: the same
+/// roll, another stream.
+const RNG_SLOT_NEEDS_PLACEBO: u64 = 15;
 
 /// **Hunger's ramp**: 0 at and above this share of the budget (200 J), 1 at
 /// and below [`HUNGER_FULL`], smooth between. The design's starting values;
@@ -1172,7 +1238,12 @@ fn walk_act(
                     rng::stream(world.seed, organism as u64, frame, RNG_SLOT_NEEDS_DIG).unit_f32()
                         < r * r / (1.0 + r * r)
                 };
-                if !mind.gave_up && rng::stream(world.seed, organism as u64, frame, RNG_SLOT_NEEDS).unit_f32() < p {
+                let slot = if parts.placebo {
+                    RNG_SLOT_NEEDS_PLACEBO
+                } else {
+                    RNG_SLOT_NEEDS
+                };
+                if !mind.gave_up && rng::stream(world.seed, organism as u64, frame, slot).unit_f32() < p {
                     mind.since = frame;
                     world.needs.as_mut().expect("walking").counts.took_forage += 1;
                     Job::Forage
@@ -1203,7 +1274,27 @@ fn walk_act(
             _ => home_patience,
         };
     let veto = world.needs.as_ref().is_some_and(|n| n.veto_needs);
-    let need = !veto && hunger > 0.0 && hunger > mind.hold;
+    let held_off = !veto && hunger > 0.0 && hunger > mind.hold;
+    // **The hunger bout** ([`WalkParts::hunger_holds`]): need that has fired
+    // stays until hunger is back to 0, whatever hold a job taken since
+    // carries. No give-up of its own -- the drives inside it have theirs --
+    // and the veto still wins.
+    let need = if parts.hunger_holds {
+        let c = &mut world.needs.as_mut().expect("walking").counts;
+        if mind.bout && hunger <= 0.0 {
+            mind.bout = false;
+            c.bouts_fed += 1;
+            c.bouts_fed_outside += u64::from(outside);
+        } else if !mind.bout && held_off {
+            mind.bout = true;
+            c.bouts += 1;
+        }
+        let need = !veto && hunger > 0.0 && mind.bout;
+        c.hold_ignored += u64::from(need && !held_off);
+        need
+    } else {
+        held_off
+    };
     // Out of hunger, the eat drive's progress and its give-ups this bout
     // start again ([`WalkParts::eat_fade`]); a window still running stays.
     if parts.eat_fade && !need {
@@ -1382,7 +1473,17 @@ fn hungry_act(
             return None;
         }
         if hidden {
-            world.needs.as_mut().expect("walking").counts.reach_hidden += 1;
+            // **Sealed, or round the box's edge** (the results review's item
+            // 4): the flood stops at the box, so food joined to the head by
+            // a way that leaves it is hidden too. A wider flood counts which.
+            let air = food_joined_by_air(world, organism, def, head);
+            let frame = world.frame;
+            let n = world.needs.as_mut().expect("walking");
+            n.counts.reach_hidden += 1;
+            n.counts.reach_hidden_air += u64::from(air);
+            if let Some(log) = n.hidden_log.as_mut() {
+                log.push((frame, organism, air));
+            }
         }
     }
     if outside {
@@ -1508,6 +1609,14 @@ fn sense_food(
 /// the flood stops at the box's edge, so food reachable only by a way that
 /// leaves the box is not sensed though air along that way would carry it.
 /// Out of the world is never open (`OUT_OF_BOUNDS` reads as bedrock).
+///
+/// **The edge's share, measured** (the results review, 2026-10-10, steady
+/// food, store on): of the decisions on which `reach` and slice 1 disagreed,
+/// the food was joined to the head by air within a 61x61 box on 12% (seed
+/// 1), 37% (seed 3) and about 51% (seed 11). Starvers it touched were near
+/// zero (0 of 134, 0 of 135, 2 of 325). `reach_hidden_air` counts it per
+/// run. Liquid and plant cells block the flood too: harmless on the dry
+/// beds, to be checked before a misted or played one.
 fn reachable_from_head(world: &World, head: (i32, i32)) -> [[bool; FOOD_BOX]; FOOD_BOX] {
     let r = FOOD_REACH;
     let passes = |x: i32, y: i32| {
@@ -1534,6 +1643,59 @@ fn reachable_from_head(world: &World, head: (i32, i32)) -> [[bool; FOOD_BOX]; FO
         }
     }
     open
+}
+
+/// How far the check of what [`WalkParts::reach`] hid floods: a 61x61 box.
+pub const AIR_CHECK: i32 = 30;
+
+/// **Whether any food in the sense's box is joined to the head by air within
+/// [`AIR_CHECK`] cells**: the same food the sense scans for, and the same
+/// flood as [`reachable_from_head`], wider. For the counters only; it reads
+/// the world and decides nothing.
+fn food_joined_by_air(world: &World, organism: OrganismId, def: &CreatureDef, head: (i32, i32)) -> bool {
+    let gut = gut_of(world, organism, def);
+    let r = AIR_CHECK;
+    let side = (2 * r + 1) as usize;
+    let at = |dx: i32, dy: i32| (dy + r) as usize * side + (dx + r) as usize;
+    let passes = |x: i32, y: i32| {
+        world.in_bounds(x, y) && {
+            let c = world.get(x, y);
+            c.material == material::EMPTY || (c.organism_id() != 0 && is_animal_cell(world, c))
+        }
+    };
+    let mut open = vec![false; side * side];
+    open[at(0, 0)] = true;
+    let mut todo = vec![(0, 0)];
+    while let Some((dx, dy)) = todo.pop() {
+        for &(ex, ey) in NEIGHBOURS_8.iter() {
+            let (nx, ny) = (dx + ex, dy + ey);
+            if nx.abs() > r || ny.abs() > r || open[at(nx, ny)] || !passes(head.0 + nx, head.1 + ny) {
+                continue;
+            }
+            open[at(nx, ny)] = true;
+            todo.push((nx, ny));
+        }
+    }
+    for dy in -FOOD_REACH..=FOOD_REACH {
+        for dx in -FOOD_REACH..=FOOD_REACH {
+            let (x, y) = (head.0 + dx, head.1 + dy);
+            if !world.in_bounds(x, y) {
+                continue;
+            }
+            let c = world.get(x, y);
+            if c.material == material::EMPTY
+                || is_living_kin(world, c, gut)
+                || (c.organism_id() != 0 && is_animal_cell(world, c))
+                || diet_yield(world, c, gut.bias) <= EAT_YIELD_THRESHOLD
+            {
+                continue;
+            }
+            if NEIGHBOURS_8.iter().any(|&(ex, ey)| open[at(dx + ex, dy + ey)]) {
+                return true;
+            }
+        }
+    }
+    false
 }
 
 /// Whether the cell at `(dx, dy)` from the head has an open cell of `open`
@@ -1809,6 +1971,8 @@ fn prune(world: &mut World) {
     }
     let live: std::collections::HashSet<OrganismId> = world.live_organism_ids().into_iter().collect();
     if let Some(n) = world.needs.as_mut() {
+        let died = n.minds.iter().filter(|&(id, m)| m.bout && !live.contains(id)).count() as u64;
+        n.counts.bouts_died += died;
         n.minds.retain(|id, _| live.contains(id));
         n.pruned_at = frame;
     }
@@ -3360,14 +3524,19 @@ mod tests {
 
     /// **The three walk guards with each new part on** (the review's ask):
     /// every row green under the walk and under every fix, and the vetoed
-    /// control still red, with `reach` and with `eat_fade`.
+    /// control still red, with `reach` and with `eat_fade` -- and with the
+    /// hunger bout (`hunger_holds`) and its `placebo` (2026-10-10).
     #[test]
     fn the_guards_hold_with_the_food_parts() {
-        let arms: [Arm; 4] = [
+        let arms: [Arm; 8] = [
             ("reach", |w| walk_with(w, "reach")),
             ("eat_fade", |w| walk_with(w, "eat_fade")),
             ("all,reach", |w| walk_with(w, "all,reach")),
             ("all,eat_fade", |w| walk_with(w, "all,eat_fade")),
+            ("hunger_holds", |w| walk_with(w, "hunger_holds")),
+            ("reach,hunger_holds", |w| walk_with(w, "reach,hunger_holds")),
+            ("all,hunger_holds", |w| walk_with(w, "all,hunger_holds")),
+            ("placebo", |w| walk_with(w, "placebo")),
         ];
         let mut red = Vec::new();
         for (name, setup) in arms {
@@ -3376,13 +3545,17 @@ mod tests {
                 red.push(format!("{name}: {:?}/{:?}/{:?}", r.place, r.load, r.role));
             }
         }
-        let vetoes: [Arm; 2] = [
+        let vetoes: [Arm; 3] = [
             ("reach", |w| {
                 walk_with(w, "reach");
                 w.needs.as_mut().expect("walking").veto_needs = true;
             }),
             ("eat_fade", |w| {
                 walk_with(w, "eat_fade");
+                w.needs.as_mut().expect("walking").veto_needs = true;
+            }),
+            ("hunger_holds", |w| {
+                walk_with(w, "hunger_holds");
                 w.needs.as_mut().expect("walking").veto_needs = true;
             }),
         ];
@@ -3398,6 +3571,93 @@ mod tests {
             blind.is_empty(),
             "the vetoed control went blind with a food part: {blind:?}"
         );
+    }
+
+    /// One ant in the deep room under `parts`, at `share` of its budget, its
+    /// walk made to hold the forage job from its first decision on, run for
+    /// `frames`: decisions it spent on the forage drive while hungry, and
+    /// decisions on a hunger drive.
+    fn forager_held(parts: &str, share: f32, frames: u64) -> (u32, u32) {
+        let mut w = guard_bed();
+        walk_with(&mut w, parts);
+        let (x, y) = Place::Deep.at();
+        let site = plant_creature_seed(&mut w, x, y, "ant").expect("test setup: the ant does not fit");
+        w.schedule_active_site(site);
+        let a = w.get(x, y).organism_id();
+        let start = w
+            .species
+            .get(w.organism(a).expect("live").species)
+            .creature
+            .as_ref()
+            .expect("a creature")
+            .start_energy;
+        let st = w.organism_mut(a).expect("live");
+        st.energy = share * start;
+        st.nest_bound_until = 0;
+        st.scout_patience = 1.0;
+        let (mut on_job, mut on_need) = (0, 0);
+        let mut seen = 0;
+        for _ in 0..frames {
+            crate::sim::update::step(&mut w);
+            w.step_active_sites();
+            if w.organism(a).is_none() {
+                break;
+            }
+            let frame = w.frame;
+            let n = w.needs.as_mut().expect("walking");
+            let Some(m) = n.minds.get_mut(&a) else {
+                continue;
+            };
+            // **The flip, made certain**: the forage job is what the roll
+            // gives a hungry ant on about one decision in 2,500; here it has
+            // it from the start, and keeps it, as a forager does.
+            if m.job != Job::Forage {
+                m.job = Job::Forage;
+                m.since = frame;
+            }
+            let decided = n.counts.decisions.iter().sum::<u64>();
+            if decided == seen {
+                continue;
+            }
+            seen = decided;
+            if m.drive == Drive::Forage && m.hunger > 0.0 {
+                on_job += 1;
+            }
+            if matches!(m.drive, Drive::Eat | Drive::Out | Drive::Seek | Drive::Escape) {
+                on_need += 1;
+            }
+        }
+        (on_job, on_need)
+    }
+
+    /// **A hungry ant that takes the forage job stays hungry** (`hunger_holds`,
+    /// the review's guard rows (a) and (b), 2026-10-10). An ant at half its
+    /// budget (hunger about 0.2) in the deep room, holding the forage job:
+    /// - **(a) watched red without the part, asserted**: the job's hold (up to
+    ///   0.8) is over its hunger, so it forages hungry (97 decisions, 3 on a
+    ///   hunger drive before it held the job); with the part it spends no
+    ///   hungry decision on the forage drive (0, and 91 on hunger drives).
+    /// - **(b) the negative control**: fed (hunger 0), the part changes
+    ///   nothing -- it forages on the job, as it does without the part.
+    #[test]
+    fn a_hungry_forager_stays_hungry() {
+        const FRAMES: u64 = 600;
+        let (job_off, need_off) = forager_held("none", 0.5, FRAMES);
+        let (job_on, need_on) = forager_held("hunger_holds", 0.5, FRAMES);
+        println!("hungry: slice 1 forage {job_off} need {need_off}; hunger_holds forage {job_on} need {need_on}");
+        assert!(
+            job_off > 10 && need_off * 10 < job_off,
+            "the positive control went blind: slice 1 forage {job_off} need {need_off}"
+        );
+        assert!(
+            job_on == 0 && need_on > 10,
+            "hunger_holds let a hungry ant forage: forage {job_on} need {need_on}"
+        );
+        let fed_off = forager_held("none", 1.0, FRAMES);
+        let fed_on = forager_held("hunger_holds", 1.0, FRAMES);
+        println!("fed: slice 1 {fed_off:?}, hunger_holds {fed_on:?}");
+        assert_eq!(fed_off, fed_on, "hunger_holds changed a fed forager");
+        assert_eq!(fed_on.1, 0, "a fed forager took a hunger drive");
     }
 
     /// **One row of the guard under the walk, every decision printed**: the

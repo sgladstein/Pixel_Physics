@@ -143,9 +143,12 @@
 //! `only=`, of exactly those ants). `needsparts=` turns on the fix round's
 //! parts (`creature::needs::WalkParts`: `all`, `none` -- the default, which
 //! is slice 1 -- or a comma list; `all` is the fix round's eight, and the
-//! parts added since, `reach` and `eat_fade`, are named one by one; their
-//! counters are the last six columns of `walk_counts.csv`, so a file from
-//! before them compares on the columns it has), and the walk's files then carry what each
+//! parts added since, `reach`, `eat_fade`, `hunger_holds` and `placebo`,
+//! are named one by one (under `reach`, **`hidden.csv`** logs each decision it
+//! hid the food, and whether the wider air check found some joined); their
+//! counters are the last twelve columns of
+//! `walk_counts.csv`, so a file from before them compares on the columns it
+//! has), and the walk's files then carry what each
 //! did: `walk_counts.csv` the cuts `act` made by drive (`cut_<drive>`) and
 //! each part's counter, `walk.csv.gz` whether the step roll was won (`won`)
 //! and what the decision cut (`cut`: 0 nothing, 1 `act`'s dig, 2 escape's cut,
@@ -699,13 +702,14 @@ fn main() {
         writeln!(f, "frame,id,drive,job,hunger,hold,forage,threshold,pref,p_move,stall,meet,glut,door_x,door_y").unwrap();
         f
     });
+    let mut hidden_csv: Option<std::io::BufWriter<std::fs::File>> = None;
     let mut walk_counts = walking.then(|| {
         let mut f = std::io::BufWriter::new(std::fs::File::create(format!("{out}/walk_counts.csv")).unwrap());
         let drives: Vec<String> = creature::needs::Drive::ALL.iter().map(|d| format!("dec_{}", d.label())).collect();
         let cuts: Vec<String> = creature::needs::Drive::ALL.iter().map(|d| format!("cut_{}", d.label())).collect();
         writeln!(
             f,
-            "frame,minds,{},took_forage,quit_forage,need_over_job,ate_held,pellets_down,escape_cuts,escape_packs,gluts,{},dig_took,dig_quit,dig_tired,clear_cuts,gave_up,lay_walks,meals_kept,stays_not_stalls,reach_hidden,eat_gave_up,eat_gave_up_again,eat_rest,eat_rest_ate,eat_rest_out",
+            "frame,minds,{},took_forage,quit_forage,need_over_job,ate_held,pellets_down,escape_cuts,escape_packs,gluts,{},dig_took,dig_quit,dig_tired,clear_cuts,gave_up,lay_walks,meals_kept,stays_not_stalls,reach_hidden,eat_gave_up,eat_gave_up_again,eat_rest,eat_rest_ate,eat_rest_out,reach_hidden_air,bouts,bouts_fed,bouts_fed_outside,bouts_died,hold_ignored",
             drives.join(","),
             cuts.join(",")
         )
@@ -998,6 +1002,9 @@ fn main() {
             walk.trace_every = walk_trace;
             walk.trace_ids = only.clone();
             walk.parts = needs_parts;
+            if needs_parts.reach {
+                walk.hidden_log = Some(Vec::new());
+            }
             lab.world.needs = Some(Box::new(walk));
             writeln!(
                 events,
@@ -1006,6 +1013,19 @@ fn main() {
                 lab.world.frame
             )
             .unwrap();
+        }
+        // `hidden.csv`: every decision `reach` hid all the food in the box,
+        // and whether some of it was joined to the head by air in the wider
+        // check (`needs::AIR_CHECK`) -- drained each frame.
+        if let Some(log) = lab.world.needs.as_mut().and_then(|n| n.hidden_log.as_mut()) {
+            let hf = hidden_csv.get_or_insert_with(|| {
+                let mut f = std::io::BufWriter::new(std::fs::File::create(format!("{out}/hidden.csv")).unwrap());
+                writeln!(f, "frame,id,air").unwrap();
+                f
+            });
+            for (fr, id, air) in log.drain(..) {
+                writeln!(hf, "{fr},{id},{}", u8::from(air)).unwrap();
+            }
         }
         if let Some(d) = droplog.as_mut() {
             d.pre(&lab.world, g, &live);
@@ -1415,7 +1435,7 @@ fn main() {
                 let cut: Vec<String> = c.cuts.iter().map(u64::to_string).collect();
                 writeln!(
                     wn,
-                    "{f},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
+                    "{f},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
                     walk.minds(),
                     dec.join(","),
                     c.took_forage,
@@ -1440,7 +1460,13 @@ fn main() {
                     c.eat_gave_up_again,
                     c.eat_rest,
                     c.eat_rest_ate,
-                    c.eat_rest_out
+                    c.eat_rest_out,
+                    c.reach_hidden_air,
+                    c.bouts,
+                    c.bouts_fed,
+                    c.bouts_fed_outside,
+                    c.bouts_died,
+                    c.hold_ignored
                 )
                 .unwrap();
             }
@@ -1526,6 +1552,9 @@ fn main() {
         f.flush().unwrap();
     }
     if let Some(mut f) = walk_counts {
+        f.flush().unwrap();
+    }
+    if let Some(mut f) = hidden_csv {
         f.flush().unwrap();
     }
     if let Some((mut zip, rows)) = walk_rows {
