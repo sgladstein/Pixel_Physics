@@ -2829,6 +2829,9 @@ fn charge(world: &World) -> (usize, f32) {
 /// way, and `dead-ends.md`'s own `(Crowding, Dig, 0.6)` entry records four
 /// seeds reading 4 of 4 and twelve reading 16 of 33.
 struct Trickle {
+    /// `room=`: place every ant on the start room's floor (`x0..=x1`, row
+    /// `y`) instead of the surface.
+    room: Option<(i32, i32, i32)>,
     colony: Option<u32>,
     /// **Where each ant is homed**: the door, as the game founds under one
     /// (`World::door_anchor`), or `None` -- the strip -- where each ant keeps
@@ -2857,7 +2860,7 @@ impl Trickle {
                 order.swap(i, draw.below(i as u32 + 1) as usize);
             }
         }
-        Trickle { colony: None, anchor, placed: 0, target, rate, cursor: 0, order }
+        Trickle { room: None, colony: None, anchor, placed: 0, target, rate, cursor: 0, order }
     }
 
     fn done(&self) -> bool {
@@ -2886,8 +2889,10 @@ impl Trickle {
             // `seed=0` keeps the bare walk, so every figure taken from this
             // box before it gained a seed still reproduces to the cell.
             let col = if self.order.is_empty() { self.cursor } else { self.order[self.cursor as usize] };
-            let x = cx - half + col;
-            let y = b.surface - 1;
+            let (x, y) = match self.room {
+                Some((x0, x1, y)) => (x0 + col % (x1 - x0 + 1), y),
+                None => (cx - half + col, b.surface - 1),
+            };
             if let Some(site) = pixel_physics::sim::creature::plant_founder_in(world, x, y, "ant", self.colony, self.anchor) {
                 if self.colony.is_none() {
                     self.colony = pixel_physics::sim::creature::colony_of_site(world, &site);
@@ -3730,6 +3735,60 @@ fn harness() {
     let door_anchor = world.door_anchor(b.w / 2, b.surface - 1, "ant");
     let mut food_pile = FoodPile::from_args(&mut world, &b);
     let mut trickle = Trickle::new(ants as usize, arg("rate").unwrap_or(4), seed, span, door_anchor);
+    // **`room=W:H:D` -- the colony starts underground, in a room someone
+    // shaped** (owner, 2026-10-10: "start underground in purposely shaped
+    // hole to observe digging behavior"). A `W` x `H` room whose roof is `D`
+    // rows under the surface, centred under the door and joined to the
+    // founding shaft by a 2-wide passage, so the dug home's fill reaches it
+    // and every ant in it is at home. Every ant is placed on its floor rather
+    // than on the surface. For questions about what ants dig from a given
+    // room; a result here is a mechanism check, never a verdict on the game
+    // (`/mnt/project-files/late-tunnels/README.md`).
+    if let Some(spec) = arg::<String>("room") {
+        let v: Vec<i32> = spec.split(':').map(|t| t.trim().parse().expect("room=W:H:D")).collect();
+        assert_eq!(v.len(), 3, "room= wants W:H:D, got `{spec}`");
+        let (rw, rh, rd) = (v[0], v[1], v[2]);
+        let cx = b.w / 2;
+        let (x0, x1, y0, y1) = (cx - rw / 2, cx - rw / 2 + rw - 1, b.surface + rd, b.surface + rd + rh - 1);
+        assert!(x0 > 1 && x1 < b.w - 2 && y1 < b.floor - 1, "room= {spec} does not fit in the soil");
+        let mut carved = std::collections::BTreeSet::new();
+        for y in b.surface..=y1 {
+            for x in x0..=x1 {
+                let passage = y < y0 && (x == cx - 1 || x == cx);
+                if passage || y >= y0 {
+                    if !world.is_empty(x, y) {
+                        world.set(x, y, Cell::EMPTY);
+                    }
+                    carved.insert((x, y));
+                }
+            }
+        }
+        // **Lined, as a colony's own rooms are** (the `=` walls on every
+        // `deeptrace` nest map, `burrow_probe`'s `lined` arm): an unlined
+        // carved room's roof fell in within 1,000 frames (roofed 340 -> 18),
+        // which is soil physics, not digging.
+        let mut lining = 0;
+        for &(cx0, cy0) in &carved {
+            for dy in -1..=1 {
+                for dx in -1..=1 {
+                    let (wx, wy) = (cx0 + dx, cy0 + dy);
+                    if carved.contains(&(wx, wy)) || wy < b.surface {
+                        continue;
+                    }
+                    let cell = world.get(wx, wy);
+                    if let Some(packed) = world.materials.get(cell.material).packs_into {
+                        let mut lined = cell;
+                        lined.material = packed;
+                        world.set(wx, wy, lined);
+                        lining += 1;
+                    }
+                }
+            }
+        }
+        let carved = carved.len();
+        trickle.room = Some((x0, x1, y1));
+        println!("  start room: {rw} x {rh} cells, roof {rd} rows under the surface (rows {y0}..={y1}, cols {x0}..={x1}), joined to the door by a 2-wide passage; {carved} cells carved, {lining} wall cells lined; ants placed on its floor");
+    }
 
     // The endowment horizon, printed rather than assumed -- a run past it is
     // measuring starvation, not digging.
