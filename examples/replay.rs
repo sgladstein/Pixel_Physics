@@ -346,6 +346,7 @@ fn count_adults(w: &World) -> usize {
         .count()
 }
 
+#[allow(clippy::too_many_arguments)]
 fn bite_scan(
     w: &World,
     last: &mut HashMap<u32, u32>,
