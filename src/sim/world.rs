@@ -1650,6 +1650,11 @@ impl NestRoom {
 #[derive(Default, Clone, Copy, Debug)]
 pub struct CreatureStats {
     pub spawned: u64,
+    /// At-home ticks whose `Dig` was chosen as away from home, because the
+    /// group does not dig there (`creature::DigHome`,
+    /// `PIXEL_PHYSICS_DIG_HOME`). The "it fired" half; 0 unless the switch
+    /// is on.
+    pub dig_home_held: u64,
     /// **Creature sites the scheduler actually dispatched to a live
     /// creature** — the "was it asked at all" counter, and the one thing
     /// `moves` cannot say on its own.
@@ -4859,6 +4864,11 @@ pub struct World {
     /// door, within `creature::DUG_HOME_REACH`. Rebuilt every
     /// `ROOM_INTERVAL` frames by `step_nest_dug`; empty under any other home.
     pub nest_dug: crate::sim::fxhash::PosSet,
+    /// **Where the group digs under `PIXEL_PHYSICS_DIG_HOME=core=...`**
+    /// (`creature::DigHome`): the cells of `nest_dug` within the switch's
+    /// steps of brood, store food or the founding cut. Rebuilt with
+    /// `nest_dug`; empty unless that switch is on.
+    pub nest_core: crate::sim::fxhash::PosSet,
     /// **Every cell an ant has ever dug, and every cell a founding cut
     /// opened** -- the record behind the census's `dug_*` columns
     /// (`lab::census::Sample::dug`). Written only by `creature::dig` and
@@ -7143,6 +7153,7 @@ impl World {
             nest_sites: Vec::new(),
             nest_room: Vec::new(),
             nest_dug: Default::default(),
+            nest_core: Default::default(),
             dug_cells: Default::default(),
             nest_need: Vec::new(),
             colony_pace: Vec::new(),
@@ -9239,6 +9250,7 @@ impl World {
     pub fn step_nest_dug(&mut self) {
         if crate::sim::creature::nest_home(self) != crate::sim::creature::NestHome::Dug || self.nest_sites.is_empty() {
             self.nest_dug.clear();
+            self.nest_core.clear();
             return;
         }
         if !self.frame.is_multiple_of(ROOM_INTERVAL) && !self.nest_dug.is_empty() {
@@ -9282,6 +9294,68 @@ impl World {
             }
         }
         self.nest_dug = dug;
+        self.step_nest_core();
+    }
+
+    /// Rebuild `nest_core` (see there) from the dug home just built. Off
+    /// unless `PIXEL_PHYSICS_DIG_HOME=core=...`; one branch.
+    fn step_nest_core(&mut self) {
+        let crate::sim::creature::DigHome::Core { steps, brood, store, cut, .. } = crate::sim::creature::dig_home_of() else {
+            return;
+        };
+        if store && !crate::sim::creature::nest_store_of(self).carry {
+            panic!("PIXEL_PHYSICS_DIG_HOME=core=...,store with the nest store off: there is no store to seed from");
+        }
+        let steps = crate::sim::creature::scaled_cells(self, steps);
+        let near = |set: &crate::sim::fxhash::PosSet, (x, y): (i32, i32)| (-1..=1).any(|dy| (-1..=1).any(|dx| set.contains(&(x + dx, y + dy))));
+        // **Store seeds are the store's food cells** ([`creature::NestWay`]'s
+        // `store_cells`, refreshed every `REST_REFRESH` frames), not the way
+        // cells beside them: the way is 8-connected and the dug home
+        // 4-connected, so a way cell can lie outside it (review, 2026-10-10).
+        let mut food = crate::sim::fxhash::PosSet::default();
+        if store {
+            for way in &self.nest_ways {
+                food.extend(way.store_cells.iter().copied());
+            }
+        }
+        let brood_id = if brood { self.materials.id_of("brood") } else { None };
+        let mut seeds: Vec<(i32, i32)> = Vec::new();
+        for &(x, y) in &self.nest_dug {
+            let at_food = store && near(&food, (x, y));
+            let at_brood = brood_id.is_some_and(|b| (-1..=1).any(|dy| (-1..=1).any(|dx| self.get(x + dx, y + dy).material == b)));
+            if at_food || at_brood {
+                seeds.push((x, y));
+            }
+        }
+        let in_cut = |w: &World, x: i32, y: i32| w.nest_sites.iter().filter_map(|s| s.shaft).any(|c| c.contains(x, y));
+        // The founding cut seeds the core when asked for, and whenever
+        // nothing else does: a colony with nothing laid or stored yet must
+        // still be able to dig its first room.
+        if cut || seeds.is_empty() {
+            seeds.extend(self.nest_dug.iter().copied().filter(|&(x, y)| in_cut(self, x, y)));
+        }
+        seeds.sort_unstable();
+        seeds.dedup();
+        let mut core = crate::sim::fxhash::PosSet::default();
+        let mut frontier = seeds;
+        for &c in &frontier {
+            core.insert(c);
+        }
+        for _ in 0..steps {
+            let mut next = Vec::new();
+            for &(x, y) in &frontier {
+                for n in [(x + 1, y), (x - 1, y), (x, y + 1), (x, y - 1)] {
+                    if self.nest_dug.contains(&n) && core.insert(n) {
+                        next.push(n);
+                    }
+                }
+            }
+            if next.is_empty() {
+                break;
+            }
+            frontier = next;
+        }
+        self.nest_core = core;
     }
 
     /// **Each nest's need, for the forage drive** (`World::nest_need`,

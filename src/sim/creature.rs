@@ -3804,6 +3804,187 @@ pub enum NestHome {
 /// measured (the food box's colony digs about 30 x 22).
 pub const DUG_HOME_REACH: (i32, i32) = (60, 60);
 
+/// **Where the group digs, as against where home is** --
+/// `PIXEL_PHYSICS_DIG_HOME`, read by [`dig_home_override`]. **Unset (or
+/// `off`) is the shipped ant, bit for bit**: nothing below is reached.
+///
+/// **Why it is not home itself.** `AtNest` gates the chamber dig (hidden
+/// units 5/6 in `ant.ron`), but it also gates putting food and soil down,
+/// laying, the brood pile and the store. The floor of the shipped nest stops
+/// deepening where home stops, at [`DUG_HOME_REACH`]'s 60 rows: below it
+/// the dig urge falls 0.78 -> 0.01 (4 of 4 nests, late-tunnels lane
+/// 2026-10-10), the group stops cutting the floor, and the fingers that
+/// appear under it are cut by lone ants beside food. Moving all of home to
+/// 100 rows kept the group digging the floor and the fingers went (1 of 4
+/// nests against 4 of 4) -- but it also moved every other at-home rule, the
+/// kind of change that lost colonies on 2026-09-26 (painted door against dug
+/// mouth). This moves the dig gate alone: an ant at home where the group may
+/// not dig chooses `Dig` as it would away from home, and every other output
+/// is what the brain said.
+///
+/// `,food` (with either form below): the held ant's `Dig` is also chosen as
+/// though no food were beside it -- see [`dig_home_override`].
+///
+/// `rows=<n>`: the group digs only within `n` authored rows below its nest
+/// site's founding ground -- a test of the edge from the other side, and a
+/// fixed line, so a global stopgap rather than anything an ant senses.
+/// (`/mnt/project-files/late-tunnels/plan-ideas-1-2-2026-10-10.md`.)
+///
+/// `core=<steps>[,brood][,store][,cut]`: the group digs only within `steps`
+/// authored 4-connected steps, through the dug home, of where the colony
+/// lives -- brood (`brood`), store food (`store`), the founding cut (`cut`)
+/// -- the set [`World::nest_core`] holds, rebuilt with the dug home. A
+/// stand-in for the smell of brood and food: a walk over the nest, not
+/// anything an ant reads cell by cell, so a labelled global. With no seed
+/// at all (a new colony, nothing laid or stored yet) the founding cut seeds
+/// it, so a colony can always start its first room. The design and its
+/// review: `/mnt/project-files/late-tunnels/design-idea2-dig-home-core-2026-10-10.md`
+/// and `review-idea2-2026-10-10.md`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DigHome {
+    Off,
+    Rows { rows: i32, food: bool },
+    Core { steps: i32, brood: bool, store: bool, cut: bool, food: bool },
+}
+
+/// [`DigHome`] from `PIXEL_PHYSICS_DIG_HOME`, read once.
+pub fn dig_home_of() -> DigHome {
+    static V: std::sync::OnceLock<DigHome> = std::sync::OnceLock::new();
+    *V.get_or_init(|| parse_dig_home(&std::env::var("PIXEL_PHYSICS_DIG_HOME").unwrap_or_default()))
+}
+
+/// `PIXEL_PHYSICS_DIG_HOME`'s value read as a [`DigHome`]. **A value it
+/// does not understand panics** rather than falling back to off, so a typo
+/// cannot put the control into a sweep wearing an arm's label.
+fn parse_dig_home(raw: &str) -> DigHome {
+    let bad = |v: &str| -> ! { panic!("PIXEL_PHYSICS_DIG_HOME={v:?}: not `off`, `rows=<n>` or `core=<steps>[,brood][,store][,cut]`") };
+    match raw.trim() {
+        "" | "off" => DigHome::Off,
+        v if v.starts_with("rows=") => {
+            let mut parts = v["rows=".len()..].split(',');
+            let rows = match parts.next().map(str::parse::<i32>) {
+                Some(Ok(n)) if n >= 0 => n,
+                _ => bad(v),
+            };
+            let mut food = false;
+            for part in parts {
+                match part {
+                    "food" => food = true,
+                    _ => bad(v),
+                }
+            }
+            DigHome::Rows { rows, food }
+        }
+        v if v.starts_with("core=") => {
+            let mut parts = v["core=".len()..].split(',');
+            let steps = match parts.next().map(str::parse::<i32>) {
+                Some(Ok(n)) if n >= 0 => n,
+                _ => bad(v),
+            };
+            let (mut brood, mut store, mut cut, mut food) = (false, false, false, false);
+            for part in parts {
+                match part {
+                    "brood" => brood = true,
+                    "store" => store = true,
+                    "cut" => cut = true,
+                    "food" => food = true,
+                    _ => bad(v),
+                }
+            }
+            DigHome::Core { steps, brood, store, cut, food }
+        }
+        v => bad(v),
+    }
+}
+
+/// **Whether the group may dig at `(x, y)`** under [`dig_home_of`]; asked
+/// only of an ant already at home.
+fn dig_home_at(world: &World, (x, y): (i32, i32)) -> bool {
+    match dig_home_of() {
+        DigHome::Off => true,
+        DigHome::Rows { rows, .. } => world.nearest_nest_site(x, y).is_none_or(|i| y <= world.nest_sites[i].surface + scaled_cells(world, rows)),
+        // **The core narrows the dug home only.** An ant at home by another
+        // route -- nest material at the door, the storeroom, the founding cut
+        // under `worker_home` -- digs as on main: with the core the whole dug
+        // home (`core=999`), 1,316 at-home ticks were still held at 20k until
+        // this, every one off the dug home.
+        DigHome::Core { .. } => {
+            let near = |set: &crate::sim::fxhash::PosSet| (-1..=1).any(|dy| (-1..=1).any(|dx| set.contains(&(x + dx, y + dy))));
+            !near(&world.nest_dug) || near(&world.nest_core)
+        }
+    }
+}
+
+/// **Creature cells within `CROWDING_RADIUS` of `(x, y)`, the animal's own
+/// excluded, over `CROWDING_SCALE`** -- `Crowding` away from the nest
+/// ([`sense`]), and the away reading [`dig_home_override`]'s counterfactual
+/// needs. Moved out of `sense` unchanged.
+fn local_density(world: &World, organism: OrganismId, (x, y): (i32, i32)) -> f32 {
+    let crowd_radius = scaled_cells(world, CROWDING_RADIUS);
+    let neighbourhood = |r: i32| ((2 * r + 1) * (2 * r + 1) - 1) as f32;
+    let crowd_scale = CROWDING_SCALE * neighbourhood(crowd_radius) / neighbourhood(CROWDING_RADIUS);
+    let mut crowd = 0;
+    for dy in -crowd_radius..=crowd_radius {
+        for dx in -crowd_radius..=crowd_radius {
+            if dx == 0 && dy == 0 {
+                continue;
+            }
+            let cell = world.get(x + dx, y + dy);
+            if cell.organism_id() == organism {
+                continue;
+            }
+            if world.materials.kind(cell.material) == MaterialKind::Creature {
+                crowd += 1;
+            }
+        }
+    }
+    (crowd as f32 / crowd_scale).min(1.0)
+}
+
+/// **`Dig` as the brain would choose it away from home**, for an ant at
+/// home where [`DigHome`] says the group does not dig: the same genome and
+/// the same senses with `AtNest` read as 0, from the hidden state *before*
+/// this tick's evaluation, and only the `Dig` output kept. Every other
+/// output, and the hidden state carried forward, are the real evaluation's.
+/// Off, one branch.
+#[allow(clippy::too_many_arguments)]
+fn dig_home_override(
+    world: &World,
+    organism: OrganismId,
+    head: (i32, i32),
+    def: &CreatureDef,
+    genome: &[f32],
+    inputs: &[f32; brain::BRAIN_INPUTS],
+    before: [f32; brain::BRAIN_HIDDEN],
+    outputs: &mut [f32; brain::BRAIN_OUTPUTS],
+) {
+    if dig_home_of() == DigHome::Off || inputs[brain::BrainInput::AtNest as usize] < 0.5 || dig_home_at(world, head) {
+        return;
+    }
+    let mut away = brain_inputs(world, def, inputs);
+    away[brain::BrainInput::AtNest as usize] = 0.0;
+    // **Away, `Crowding` is the local density** ([`sense`]), not the nest's
+    // room-per-ant: without this the counterfactual kept the at-home reading,
+    // up to 0.03 on `Dig`'s sum -- the size of the away urge itself (review,
+    // 2026-10-10).
+    if world.room_gate {
+        away[brain::BrainInput::Crowding as usize] = local_density(world, organism, head);
+    }
+    // **`food`: and as though no food were beside it.** Inside the nest the
+    // food beside an ant is the store's crumbs on the room's walls, and
+    // `FoodAdjacent` alone holds the urge near 0.3 (`rows=30`, seed 1:
+    // 0.27-0.32 beside food against 0.02-0.05 without, 14-18% of the ants
+    // below the line beside food) -- enough that the room kept widening
+    // under the line at about main's rate. Only `Dig` is taken from this
+    // evaluation, so eating and carrying still see the food.
+    if matches!(dig_home_of(), DigHome::Rows { food: true, .. } | DigHome::Core { food: true, .. }) {
+        away[brain::BrainInput::FoodAdjacent as usize] = 0.0;
+    }
+    let mut state = before;
+    let (o, _) = brain::eval_brain(genome, &away, &mut state);
+    outputs[brain::BrainOutput::Dig as usize] = o[brain::BrainOutput::Dig as usize];
+}
+
 /// **How much of the founding cut is home** -- `PIXEL_PHYSICS_NEST_HOME=shaft`
 /// or `=mouth`, or [`World::nest_home`] for one world. [`NestHome::Material`]
 /// unless set; then [`adjacent_nest`] asks nothing it did not ask before.
@@ -7893,6 +8074,11 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
         // they are not the same `at_nest_ticks`. Read beside `deliveries`,
         // which says the round trip closes at all.
         world.creature_stats.at_nest_ticks += 1;
+        // **At home where the group does not dig** ([`DigHome`]): the ticks
+        // whose `Dig` [`dig_home_override`] replaced. Off, one branch.
+        if dig_home_of() != DigHome::Off && !dig_home_at(world, (x, y)) {
+            world.creature_stats.dig_home_held += 1;
+        }
         // ...and what it read, bucketed. See `CreatureStats::at_nest_crowding`
         // -- with the gate off this is the old 5x5 density and is the control
         // for the premise; with it on it is the room signal.
@@ -7953,8 +8139,10 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
                 return Vec::new();
             };
             let genome = std::mem::take(&mut state.genome);
-            let mut brain_state = state.brain_state;
-            let result = brain::eval_brain(&genome, &brain_inputs(world, def, &inputs), &mut brain_state);
+            let before = state.brain_state;
+            let mut brain_state = before;
+            let mut result = brain::eval_brain(&genome, &brain_inputs(world, def, &inputs), &mut brain_state);
+            dig_home_override(world, organism, (x, y), def, &genome, &inputs, before, &mut result.0);
             let state = world.organism_mut(organism).expect("still live");
             state.genome = genome;
             state.brain_state = brain_state;
@@ -9522,25 +9710,7 @@ fn sense(
     // `(Crowding, Move, -0.3)` at its floor. `CLAUDE.md`'s "fixing a bug
     // exposes a constant that was compensating for it" in its second shape:
     // changing what a term can express reallocates the whole weighted sum.
-    let crowd_radius = scaled_cells(world, CROWDING_RADIUS);
-    let neighbourhood = |r: i32| ((2 * r + 1) * (2 * r + 1) - 1) as f32;
-    let crowd_scale = CROWDING_SCALE * neighbourhood(crowd_radius) / neighbourhood(CROWDING_RADIUS);
-    let mut crowd = 0;
-    for dy in -crowd_radius..=crowd_radius {
-        for dx in -crowd_radius..=crowd_radius {
-            if dx == 0 && dy == 0 {
-                continue;
-            }
-            let cell = world.get(x + dx, y + dy);
-            if cell.organism_id() == organism {
-                continue;
-            }
-            if world.materials.kind(cell.material) == MaterialKind::Creature {
-                crowd += 1;
-            }
-        }
-    }
-    let density = (crowd as f32 / crowd_scale).min(1.0);
+    let density = local_density(world, organism, (x, y));
 
     // **At the nest, the question is room rather than density**, and that is
     // the whole of this build.
@@ -10322,7 +10492,8 @@ fn sense_ahead(world: &World, site: &ActiveSite) -> Option<SensedAhead> {
     let read = sense_read_rects(world, x, y, organism, def, state);
     let (inputs, seen, sight_reads, curvature_reads) = sense(world, x, y, organism, heading, def, false);
     let mut brain_state = state.brain_state;
-    let (outputs, active_synapses) = brain::eval_brain(&state.genome, &brain_inputs(world, def, &inputs), &mut brain_state);
+    let (mut outputs, active_synapses) = brain::eval_brain(&state.genome, &brain_inputs(world, def, &inputs), &mut brain_state);
+    dig_home_override(world, organism, (x, y), def, &state.genome, &inputs, state.brain_state, &mut outputs);
     Some(SensedAhead { organism, x, y, heading, read, inputs, seen, sight_reads, curvature_reads, outputs, active_synapses, brain_state })
 }
 
@@ -53253,6 +53424,19 @@ mod tests {
         assert_eq!(parse_nest_shaft(" 12 "), Some(12));
         for bad in ["x", "-3", "6.5"] {
             assert_eq!(parse_nest_shaft(bad), Some(NEST_SHAFT_ROWS), "{bad:?} must read as unset, which is the shipped depth");
+        }
+    }
+
+    #[test]
+    fn dig_home_parses_its_arms_and_refuses_a_typo() {
+        assert_eq!(parse_dig_home(""), DigHome::Off, "unset is the shipped ant");
+        assert_eq!(parse_dig_home("off"), DigHome::Off);
+        assert_eq!(parse_dig_home("rows=30"), DigHome::Rows { rows: 30, food: false });
+        assert_eq!(parse_dig_home("rows=30,food"), DigHome::Rows { rows: 30, food: true });
+        assert_eq!(parse_dig_home("core=12,store"), DigHome::Core { steps: 12, brood: false, store: true, cut: false, food: false });
+        assert_eq!(parse_dig_home("core=8,brood,store,cut,food"), DigHome::Core { steps: 8, brood: true, store: true, cut: true, food: true });
+        for bad in ["rows", "rows=-1", "core=x", "core=12,larvae", "on"] {
+            assert!(std::panic::catch_unwind(|| parse_dig_home(bad)).is_err(), "{bad:?} must panic, not run as off under an arm's label");
         }
     }
 }

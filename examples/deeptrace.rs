@@ -1329,6 +1329,12 @@ fn main() {
                 diglog.as_ref().map_or(0, |d| d.cut_count),
                 started.elapsed().as_secs_f32()
             );
+            // `PIXEL_PHYSICS_DIG_HOME`'s "it fired" count and the size of the
+            // group's dig home; printed only with the switch on, so an off
+            // run's log is main's.
+            if pixel_physics::sim::creature::dig_home_of() != pixel_physics::sim::creature::DigHome::Off {
+                println!("  dig_home_held={} nest_core={} nest_dug={}", lab.world.creature_stats.dig_home_held, lab.world.nest_core.len(), lab.world.nest_dug.len());
+            }
         }
     }
     ticks.flush().unwrap();
