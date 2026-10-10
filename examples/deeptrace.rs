@@ -2738,10 +2738,12 @@ fn local_joins(open: &impl Fn(i32, i32) -> bool, (cx, cy): (i32, i32)) -> u8 {
 ///   a store cell (`creature::food_place`), how far along the way in, the
 ///   kind's flag (a swallow at home, a trip cell put down, a jaws load that
 ///   reached the store), the mover's bank over `start_energy`, whether the
-///   mover is brood, and `other` (a feed's donor).
+///   mover is brood, `other` (a feed's donor), and whether the mover (a
+///   feed's donor) is a nest worker.
 /// - `digest.csv`: per 1,000 frames, per ant, per zone it stood in at the
-///   tick and per whether its crop held a trip's food, the face worth its
-///   crop gave up to its own gut (`World::digest_log`).
+///   tick, its way depth in tens (-1 off the way, 2 for 20 and deeper),
+///   whether it is a nest worker and whether its crop held a trip's food,
+///   the face worth its crop gave up to its own gut (`World::digest_log`).
 /// - every `foodevery=` frames, `foodcells.csv` (every loose food cell
 ///   within 60 columns of the door and below 40 rows over the old ground:
 ///   material, worth, store, depth, zone, ants beside it) and `larvae.csv`
@@ -2754,8 +2756,10 @@ struct FoodLog {
     digest: std::io::BufWriter<std::fs::File>,
     cells: std::io::BufWriter<std::fs::File>,
     larvae: std::io::BufWriter<std::fs::File>,
-    /// (window, ant, zone, trip) -> face worth digested.
-    sums: HashMap<(u64, OrganismId, &'static str, bool), f32>,
+    /// (window, ant, zone, way depth band, nest worker, trip) -> face worth
+    /// digested. The band is the head's way distance in tens (-1 off the
+    /// way, 2 for 20 and deeper).
+    sums: HashMap<(u64, OrganismId, &'static str, i32, bool, bool), f32>,
     start_energy: f32,
 }
 
@@ -2768,9 +2772,9 @@ impl FoodLog {
             .spawn()
             .expect("gzip");
         let mut rows = std::io::BufWriter::with_capacity(1 << 20, gz.stdin.take().expect("gzip stdin"));
-        writeln!(rows, "frame,who,kind,x,y,zone,worth,store,depth,flag,energy,brood,other").unwrap();
+        writeln!(rows, "frame,who,kind,x,y,zone,worth,store,depth,flag,energy,brood,other,worker").unwrap();
         let mut digest = std::io::BufWriter::new(std::fs::File::create(format!("{out}/digest.csv")).unwrap());
-        writeln!(digest, "frame,id,zone,trip,worth").unwrap();
+        writeln!(digest, "frame,id,zone,depth,worker,trip,worth").unwrap();
         let mut cells = std::io::BufWriter::new(std::fs::File::create(format!("{out}/foodcells.csv")).unwrap());
         writeln!(cells, "frame,x,y,mat,worth,store,depth,zone,ants8").unwrap();
         let mut larvae = std::io::BufWriter::new(std::fs::File::create(format!("{out}/larvae.csv")).unwrap());
@@ -2798,11 +2802,12 @@ impl FoodLog {
         every: u64,
     ) {
         let is_brood = |id: OrganismId| w.organism(id).is_some_and(|s| s.brood.is_some());
+        let is_worker = |id: OrganismId| w.organism(id).is_some_and(|s| s.nest_bound_until == u64::MAX);
         if let Some(rows) = self.rows.as_mut() {
             for r in moved {
                 writeln!(
                     rows,
-                    "{},{},{},{},{},{},{:.1},{},{},{},{:.3},{},0",
+                    "{},{},{},{},{},{},{:.1},{},{},{},{:.3},{},0,{}",
                     r.frame,
                     r.who,
                     creature::FOOD_KIND_NAMES[r.kind as usize],
@@ -2815,6 +2820,7 @@ impl FoodLog {
                     u8::from(r.flag),
                     r.energy,
                     u8::from(is_brood(r.who)),
+                    u8::from(is_worker(r.who)),
                 )
                 .unwrap();
             }
@@ -2822,7 +2828,7 @@ impl FoodLog {
                 let (store, depth) = creature::food_place(w, r.at);
                 writeln!(
                     rows,
-                    "{f},{},feed_{},{},{},{},{:.1},{},{depth},0,0,1,{}",
+                    "{f},{},feed_{},{},{},{},{:.1},{},{depth},0,0,1,{},{}",
                     r.larva,
                     FEED_KIND_NAMES[r.kind as usize],
                     r.at.0,
@@ -2831,21 +2837,37 @@ impl FoodLog {
                     r.gain,
                     u8::from(store),
                     r.donor,
+                    u8::from(is_worker(r.donor)),
                 )
                 .unwrap();
             }
         }
         let win = f / 1_000;
         for &(id, worth, trip) in digested {
-            let z = w.organism(id).and_then(|s| s.chain.first().copied()).map_or("gone", |h| zone(w, g, h));
-            *self.sums.entry((win, id, z, trip)).or_insert(0.0) += worth;
+            let head = w.organism(id).and_then(|s| s.chain.first().copied());
+            let z = head.map_or("gone", |h| zone(w, g, h));
+            let band = head.map_or(-1, |h| match creature::food_place(w, h).1 {
+                d if d < 0 => -1,
+                d => (d / 10).min(2),
+            });
+            *self.sums.entry((win, id, z, band, is_worker(id), trip)).or_insert(0.0) += worth;
         }
         if f % 1_000 == 999 {
             let mut keys: Vec<_> = self.sums.keys().copied().filter(|k| k.0 <= win).collect();
             keys.sort_unstable();
             for k in keys {
                 let v = self.sums.remove(&k).unwrap_or(0.0);
-                writeln!(self.digest, "{},{},{},{},{v:.1}", k.0 * 1_000, k.1, k.2, u8::from(k.3)).unwrap();
+                writeln!(
+                    self.digest,
+                    "{},{},{},{},{},{},{v:.1}",
+                    k.0 * 1_000,
+                    k.1,
+                    k.2,
+                    k.3,
+                    u8::from(k.4),
+                    u8::from(k.5)
+                )
+                .unwrap();
             }
         }
         if every == 0 || f % every != 0 {
