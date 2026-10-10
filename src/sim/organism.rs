@@ -3051,6 +3051,29 @@ pub struct SpeciesDef {
     /// into standing remains rather than a disappearance.
     #[serde(default)]
     pub life_half_life: f32,
+    /// **How long an annual lives once it has set seed**, in plant-time
+    /// frames (frames at full growth pace, so half pace doubles it on the
+    /// wall clock and a big plant on a slow cadence ages no slower). `0`, the
+    /// default, means not an annual. Read only under `World::annual`
+    /// (`PIXEL_PHYSICS_ANNUAL`), so a value here changes nothing while the
+    /// switch is off.
+    ///
+    /// The same Weibull hazard as `life_half_life` -- the value is the median
+    /// time from first seed to death, a plant that has just seeded is nearly
+    /// safe, and a cohort dies over a spread -- but its clock starts at the
+    /// plant's **first seed by any route** (`plant::bear_seed_at`), because an
+    /// annual's death is triggered by reproduction, not by age (Noodén 1988;
+    /// Thomas 2013, cited from memory). A plant that never sets seed rolls a
+    /// backstop from birth at `plant::ANNUAL_BACKSTOP_FACTOR` times this, so
+    /// a stalled stalk is not immortal either.
+    ///
+    /// Why it exists (2026-10-10, `planted-balance` lane): the herb is
+    /// written as an annual but lived as a perennial -- with no ants, 4 of 77
+    /// founder herbs that fruited were dead by 300k, because `rebloom_after`
+    /// keeps a determinate head fruiting for the whole run -- and the owner
+    /// ruled a herb is an annual renewed by seed.
+    #[serde(default)]
+    pub annual_half_life: f32,
     pub cell_types: Vec<(CellType, Vec<Behavior>)>,
     /// **What a cell becomes** — the production rule, as data.
     ///
@@ -4849,6 +4872,8 @@ pub struct Species {
     pub remains_half_life: f32,
     /// See `SpeciesDef::life_half_life`.
     pub life_half_life: f32,
+    /// See `SpeciesDef::annual_half_life`.
+    pub annual_half_life: f32,
     cell_types: Vec<(CellType, Vec<Behavior>)>,
     /// See `SpeciesDef::fates`. Empty means the built-in rule
     /// (`plant::builtin_fate`) applies, which is every species today.
@@ -5052,6 +5077,7 @@ impl From<SpeciesDef> for Species {
             seed_half_life: def.seed_half_life,
             remains_half_life: def.remains_half_life,
             life_half_life: def.life_half_life,
+            annual_half_life: def.annual_half_life,
             cell_types: def.cell_types,
             fates: def.fates,
             creature: def.creature,
@@ -6701,6 +6727,17 @@ pub struct OrganismState {
     /// shed its leaves in the shade look the same from its cells. Counted
     /// whether or not the switch is on; only the switch reads it.
     pub grazed_leaf: u16,
+    /// **Plant-time age**: frames at full growth pace this organism has
+    /// lived through its own ticks, `ORGANISM_TICK_INTERVAL` times its size
+    /// cadence per tick (`plant::organism_upkeep`). Unlike `age_ticks`, it
+    /// means the same span at every cadence and pace, which is what a
+    /// half-life in frames needs. Counted always; read only under
+    /// `World::annual`.
+    pub plant_frames: u32,
+    /// `plant_frames` at this plant's first seed, plus one so `0` can mean
+    /// "has not set seed". Stamped in `plant::bear_seed_at`. See
+    /// `SpeciesDef::annual_half_life`.
+    pub first_seed_frames: u32,
     /// **A seed that has not germinated yet.** Set where a seed organism is
     /// made (`plant::bear_seed_at`, `World::plant_tree_species`,
     /// `plant::sow_specimen_seed`) and cleared in `plant::germinate`; read by

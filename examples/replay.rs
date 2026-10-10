@@ -217,7 +217,7 @@ box284_roots,box284_plant_above,box284_empty_below,box728_roots,box728_plant_abo
 
     let mut herbs = (herbtrace > 0).then(|| {
         let mut f = BufWriter::new(File::create(format!("{out}/herbs.csv")).unwrap());
-        writeln!(f, "frame,id,species,cells,leaf_mat,leaf_type,buds,tips,body,root,flower,fruit,carbon,income,maintenance,unpaid,starving_ticks,age_ticks,cx,top_h,low_leaf,dist_nest,grazed_leaf").unwrap();
+        writeln!(f, "frame,id,species,cells,leaf_mat,leaf_type,buds,tips,body,root,flower,fruit,carbon,income,maintenance,unpaid,starving_ticks,age_ticks,cx,top_h,low_leaf,dist_nest,grazed_leaf,seeds_set,plant_frames,first_seed_frames,senescent").unwrap();
         f
     });
     let mut leafbites = (herbtrace > 0).then(|| {
@@ -298,7 +298,7 @@ box284_roots,box284_plant_above,box284_empty_below,box728_roots,box728_plant_abo
             snapshot_png(&lab.world, &mats, 150, 345, &format!("{out}/world_{f}.png"));
         }
         if f.is_multiple_of(20_000) {
-            println!("  frame {f}  adults {}  plants-ish ok", count_adults(&lab.world));
+            println!("  frame {f}  adults {}  plants-ish ok  annual_deaths {}", count_adults(&lab.world), lab.world.annual_deaths);
             let _ = std::io::stdout().flush();
         }
     }
@@ -493,7 +493,7 @@ fn herb_rows(w: &World, m: &Mats, ground_y: i32, f: u64, out: &mut BufWriter<Fil
         let top_h = if n > 0 { surface(w, cx, ground_y) - top } else { 0 };
         writeln!(
             out,
-            "{f},{id},{},{},{leaf_m},{leaf_t},{buds},{tips},{body},{root},{flower},{fruit},{carbon:.2},{:.3},{:.3},{:.3},{},{},{cx},{top_h},{low_leaf},{},{}",
+            "{f},{id},{},{},{leaf_m},{leaf_t},{buds},{tips},{body},{root},{flower},{fruit},{carbon:.2},{:.3},{:.3},{:.3},{},{},{cx},{top_h},{low_leaf},{},{},{},{},{},{}",
             w.species.get(s.species).name,
             s.cells.len(),
             s.income,
@@ -502,7 +502,11 @@ fn herb_rows(w: &World, m: &Mats, ground_y: i32, f: u64, out: &mut BufWriter<Fil
             s.starving_ticks,
             s.age_ticks,
             dist_nest(&nest, cx),
-            s.grazed_leaf
+            s.grazed_leaf,
+            s.seeds_set,
+            s.plant_frames,
+            s.first_seed_frames,
+            u8::from(s.senescent)
         )
         .unwrap();
     }

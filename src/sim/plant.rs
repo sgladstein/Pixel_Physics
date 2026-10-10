@@ -237,6 +237,51 @@ pub(crate) fn graze_regrow() -> Option<usize> {
     })
 }
 
+/// **`PIXEL_PHYSICS_ANNUAL`**: seeds `World::annual`. `on` uses each annual
+/// species' own `SpeciesDef::annual_half_life`; a positive number overrides
+/// it (plant-time frames) for sweeps; anything else, and the default, is
+/// off. Read once.
+pub(crate) fn annual_from_env() -> Option<f32> {
+    static ON: std::sync::OnceLock<Option<f32>> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| match std::env::var("PIXEL_PHYSICS_ANNUAL").as_deref() {
+        Ok("on") => Some(0.0),
+        Ok(v) => v.parse::<f32>().ok().filter(|h| *h > 0.0),
+        Err(_) => None,
+    })
+}
+
+/// **The backstop for an annual that never sets seed**, as a multiple of its
+/// `annual_half_life`, rolled from birth rather than from first seed.
+///
+/// Without it the annual rule cannot reach a third of the stand: with no
+/// ants, 84 of the 260 herbs alive at 300k had never shown a fruit, at a
+/// median age of 289k frames, 99 cells and 18 leaf -- stalled stalks
+/// (`review-3-2026-10-10.md` §4, measured on the planted-balance runs). Three
+/// times, so a plant that is still on its way to its first head (first fruit
+/// at a median 12k wall frames) is all but safe -- survival at a third of
+/// the backstop is `exp(-ln2/9)`, 93% -- while one that never gets there is
+/// carried out within the run.
+pub(crate) const ANNUAL_BACKSTOP_FACTOR: f32 = 3.0;
+
+/// Keys the annual hazard's own substream. Its own salt rather than
+/// `LIFE_HAZARD_SALT`, for that salt's reason: turning the rule on must not
+/// reshuffle any other keyed draw, and a species with both an age death and
+/// an annual one would otherwise roll the same number twice.
+const ANNUAL_HAZARD_SALT: u64 = 0x416E_6E75_616C_2121;
+
+/// **The annual rule's per-tick chance**, split out so its shape can be
+/// asserted without a bed. `seed_age` is plant-time frames since first seed,
+/// `None` if the plant has never set seed; `age` is plant-time frames since
+/// birth; `interval` is this tick's span in the same units. A seeded plant
+/// rolls `old_age_chance_over` at `half_life`; an unseeded one rolls the
+/// same hazard from birth at `ANNUAL_BACKSTOP_FACTOR` times it.
+pub(crate) fn annual_chance(seed_age: Option<f32>, age: f32, half_life: f32, interval: u64) -> f32 {
+    match seed_age {
+        Some(a) => old_age_chance_over(a, half_life, interval),
+        None => old_age_chance_over(age, half_life * ANNUAL_BACKSTOP_FACTOR, interval),
+    }
+}
+
 fn resprout_deficit_per_tip() -> Option<f32> {
     static ON: std::sync::OnceLock<Option<f32>> = std::sync::OnceLock::new();
     *ON.get_or_init(|| {
@@ -4155,6 +4200,13 @@ fn bear_seed_at(world: &mut World, sx: i32, sy: i32, parent_id: OrganismId, seed
         parent.seeds_set += 1;
         parent.life.seeds_set += 1;
         first_seed = parent.life.seeds_set == 1;
+        // The annual clock's start (`SpeciesDef::annual_half_life`): the
+        // first seed by any route, fruit drop or mature-cell `Reproduce`,
+        // since both come through here. Stamped always, read only under
+        // `World::annual`.
+        if parent.first_seed_frames == 0 {
+            parent.first_seed_frames = parent.plant_frames.saturating_add(1);
+        }
     }
     // **Only the first, and this is the measurement that set the log's
     // shape.** The shipped bed bears 3,099 seeds against 279 germinations in
@@ -7656,12 +7708,22 @@ pub fn step_organisms(world: &mut World) {
             // Before upkeep, so a bud that flushes this tick is already a
             // `GrowingTip` when `thicken` runs and can be counted as frontier
             // rather than thickened over on the same tick it woke up.
-            timing.time(4, || break_buds(world, organism_id));
-            // Beside `break_buds`, the same "one whole-plant decision, one
-            // pass" shape -- see `process_rebloom`'s own doc. After
-            // `allocate_to_frontier` so it spends this tick's freshest
-            // `reproductive_budget`, not last tick's.
-            process_rebloom(world, organism_id);
+            //
+            // **A plant the annual rule has killed builds nothing more**
+            // (`World::annual`): nothing in these two passes reads
+            // `senescent`, so without this a herb marked dead while still
+            // healthy would flush buds and rebloom while it rots. Behind the
+            // switch only, so the shipped tree old age is unchanged -- it
+            // has the same hole (`review-3-2026-10-10.md` §6).
+            let annual_dead = world.annual.is_some() && world.organism(organism_id).is_some_and(|s| s.senescent);
+            if !annual_dead {
+                timing.time(4, || break_buds(world, organism_id));
+                // Beside `break_buds`, the same "one whole-plant decision, one
+                // pass" shape -- see `process_rebloom`'s own doc. After
+                // `allocate_to_frontier` so it spends this tick's freshest
+                // `reproductive_budget`, not last tick's.
+                process_rebloom(world, organism_id);
+            }
             // After `break_buds`, so a tick's single shoot flush is decided
             // before the roots ask -- and after `organism_upkeep` has set
             // `water_status`, which is what this gates on.
@@ -11765,6 +11827,30 @@ fn organism_upkeep(world: &mut World, organism_id: OrganismId) {
             false
         }
     };
+    // **This tick's span in plant time** -- what `plant_frames` advances by
+    // below, and the interval the annual hazard is rolled over. Plant time
+    // rather than wall frames or ticks: `age_ticks * ORGANISM_TICK_INTERVAL`
+    // undercounts a big herb's age 3-6x (it ticks every `45 * size_cadence`
+    // frames, and the lab runs at half pace), which is the trap
+    // `review-3-2026-10-10.md` §1 measured before this was built.
+    let tick_plant_frames = ORGANISM_TICK_INTERVAL
+        * size_cadence(world, world.organism(organism_id).map_or(0, |s| s.cells.len()));
+    // **An annual dies after it has set seed** -- `SpeciesDef::annual_half_life`,
+    // under `World::annual` only. Keyed on its own salt for the reason
+    // `ANNUAL_HAZARD_SALT` gives.
+    let dies_annual = has_economy
+        && world.annual.is_some_and(|over| {
+            let own = world.species.get(species_id).annual_half_life;
+            if own <= 0.0 {
+                return false;
+            }
+            let half_life = if over > 0.0 { over } else { own };
+            let (age, first) = world.organism(organism_id).map_or((0, 0), |s| (s.plant_frames, s.first_seed_frames));
+            let seed_age = (first > 0).then(|| age.saturating_sub(first - 1) as f32);
+            let chance = annual_chance(seed_age, age as f32, half_life, tick_plant_frames);
+            chance > 0.0 && rng::stream(world.seed ^ ANNUAL_HAZARD_SALT, organism_id as u64, 0, world.frame).chance(chance)
+        });
+    let mut annual_death = false;
 
     // Leaves per row, then a running total downward, so every cell can read
     // "how much foliage do I carry" without a traversal of its own.
@@ -12221,6 +12307,7 @@ fn organism_upkeep(world: &mut World, organism_id: OrganismId) {
         // visits every organism exactly once -- so it costs an add and no
         // traversal of its own.
         state.age_ticks = state.age_ticks.saturating_add(1);
+        state.plant_frames = state.plant_frames.saturating_add(tick_plant_frames as u32);
         // **Old age, rolled above.** Marking is the whole action: `senescent`
         // is what `rot_remains` reads, and it then thins the plant at the
         // species' `remains_half_life`, so what the player sees is a tree
@@ -12235,6 +12322,13 @@ fn organism_upkeep(world: &mut World, organism_id: OrganismId) {
             state.senescent = true;
             state.senescence_cause = organism::DeathCause::OldAge;
         }
+        // The annual death books the same cause -- it is age, counted from
+        // seed -- and is told apart by `World::annual_deaths` below.
+        if dies_annual && !state.senescent {
+            state.senescent = true;
+            state.senescence_cause = organism::DeathCause::OldAge;
+            annual_death = true;
+        }
         if has_economy && has_leaf_stage {
             let alive = (root_cells + shoot_cells) as f32;
             let collected = state.income * MEAN_NIGHT_INCOME_FACTOR;
@@ -12248,6 +12342,9 @@ fn organism_upkeep(world: &mut World, organism_id: OrganismId) {
                 state.starving_ticks = 0;
             }
         }
+    }
+    if annual_death {
+        world.annual_deaths += 1;
     }
     let mut leaves_above: std::collections::HashMap<i32, u32> = std::collections::HashMap::new();
     let mut running = 0u32;
@@ -24803,6 +24900,68 @@ mis-wired {miswired_root}, so `slot_1_is_a_root_locus_and_not_a_shoot_one` would
         assert!(run_arm(0.0, OLD), "life_half_life 0.0 is the shipped default and must be immortal: nothing survived {OLD} frames");
         assert!(run_arm(LIFE, YOUNG), "the hazard rises with age, so a plant {YOUNG} frames into an {LIFE}-frame life must still be standing");
         assert!(!run_arm(LIFE, OLD), "a plant {OLD} frames into an {LIFE}-frame life must be dead: survival is 1.3% by the model");
+    }
+
+    /// **The annual hazard counts from first seed, and spares a plant that
+    /// has not seeded until the backstop** -- `annual_chance`'s shape,
+    /// asserted at three intervals because a herb's tick is 45 frames times
+    /// its size cadence and the half-life must not depend on which.
+    ///
+    /// Put the fault back to see it go red: pass `age` instead of the seed
+    /// age in the `Some` arm and the seeded cohort below, born 50,000 plant
+    /// frames before it seeded, is dead at `H/4`.
+    #[test]
+    fn the_annual_hazard_counts_from_first_seed_and_spares_the_unseeded() {
+        const H: f32 = 15_000.0;
+        let survival = |seeded: bool, until: f32, interval: u64| -> f32 {
+            let (mut s, mut a) = (1.0f32, 0.0f32);
+            while a < until {
+                let c = if seeded { annual_chance(Some(a), a + 50_000.0, H, interval) } else { annual_chance(None, a, H, interval) };
+                s *= 1.0 - c;
+                a += interval as f32;
+            }
+            s
+        };
+        for interval in [45u64, 135, 225] {
+            let (q, half, late) = (survival(true, H / 4.0, interval), survival(true, H, interval), survival(true, H * 2.5, interval));
+            let (u_mid, u_late) = (survival(false, H * 2.5, interval), survival(false, H * 7.5, interval));
+            println!("interval {interval}: seeded {q:.3} at H/4, {half:.3} at H, {late:.4} at 2.5H; unseeded {u_mid:.3} at 2.5H, {u_late:.4} at 7.5H");
+            assert!(q > 0.94, "a plant that has just seeded must be all but safe: {q:.3} at H/4");
+            assert!((half - 0.5).abs() < 0.03, "H must be the median time from first seed: {half:.3}");
+            assert!(late < 0.02, "a plant long past its first seed must be all but gone: {late:.4}");
+            assert!(u_mid > 0.55, "an unseeded plant rolls the backstop, not H: {u_mid:.3} alive at 2.5H");
+            assert!(u_late < 0.02, "the backstop must still carry out a plant that never seeds: {u_late:.4} at 7.5H");
+        }
+    }
+
+    /// **The annual rule fires only under its switch and only on an annual
+    /// species**, in a real bed. The bed is `old_age_kills_a_grown_plant_and_spares_a_seedling`'s,
+    /// whose own probe has the tree standing to 12,000 frames on its economy
+    /// alone, so a founder gone at 5,000 is gone of this rule. The tree here
+    /// never sets seed in 5,000 frames, so the arm that kills it is the
+    /// backstop (`3 x 500` plant frames: survival at 5,000 is about 0.05%).
+    #[test]
+    fn the_annual_rule_needs_its_switch_and_an_annual_species() {
+        fn run_arm(annual: Option<f32>, half_life: f32) -> (bool, u64) {
+            let mut w = test_world();
+            w.annual = annual;
+            let tree = w.species.id_of("tree").expect("tree is compiled in");
+            w.species.get_mut(tree).annual_half_life = half_life;
+            plant_tree_on_ground(&mut w, 100, 60);
+            let founder = w.get(100, 60).organism_id();
+            assert_ne!(founder, 0, "test setup: the planted seed should own its cell");
+            run_with_fields(&mut w, 5_000);
+            let alive = w
+                .organism(founder)
+                .is_some_and(|s| !s.senescent && s.cells.len() > 1 && w.species.get(s.species).creature.is_none());
+            (alive, w.annual_deaths)
+        }
+        assert_eq!(run_arm(None, 500.0), (true, 0), "switch off: an annual species must live as before");
+        assert_eq!(run_arm(Some(0.0), 0.0), (true, 0), "switch on: a species that is not an annual must be untouched");
+        let (alive, deaths) = run_arm(Some(0.0), 500.0);
+        assert!(!alive && deaths >= 1, "switch on, annual species: the backstop must carry the founder out and book it (alive {alive}, annual_deaths {deaths})");
+        let (alive, _) = run_arm(Some(1.0e9), 500.0);
+        assert!(alive, "a positive switch value overrides the species' half-life");
     }
 
     #[test]
