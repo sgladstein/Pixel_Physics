@@ -224,6 +224,84 @@ fn render_step(
 /// **The floor it measures against is `RESPROUT_DEFICIT_FLOOR`, and the two
 /// numbers do different jobs.** The floor says *is this plant damaged*; this
 /// says *how much frontier the damage buys*.
+/// **`PIXEL_PHYSICS_GRAZE_REGROW`**: a plant with no shoot tip that has
+/// lost leaf to a mouth may flush buds from its reserves to grow it back
+/// (`break_buds`). **On by default** (planted-balance lane, 2026-10-10);
+/// `off` turns it off. Read once.
+///
+/// Why on: 12 seeds of the herb_ant bed (rain off, half pace, mutation off)
+/// against off -- mean adults 100-500k higher on 12 of 12 seeds (132 vs
+/// 48), standing herb leaf 100-300k higher on 11 of 12, colonies at zero
+/// adults on 32 of 252 probes against 96 (both arms still boom and bust
+/// past 300k); unchanged with no ants (no leaf is eaten). Per-seed table:
+/// `/mnt/project-files/planted-balance/r5-500k/`. The cost: all tree and
+/// conifer leaf about 4% lower over 100-300k (founders 1-3%; young trees
+/// take most of the extra bites, and one sapling was grazed to death on
+/// seed 5), from a bigger colony biting more, not from each ant eating more
+/// tree. Mean frame cost on the lab's default bed about 1.9x, which follows
+/// the colony being 4-80x bigger; the rule's own cost is one branch in
+/// `World::set`.
+///
+/// **It reaches every tipless plant, not only herbs**: a tree or shrub with
+/// no live shoot tip that has been grazed qualifies too. In practice that
+/// is a finished herb, since a growing woody plant nearly always holds a
+/// tip somewhere.
+/// `/mnt/project-files/planted-balance/` holds the runs' notes and the
+/// second-lane reviews (`review-4-default-2026-10-10.md`).
+///
+/// A capped `one` arm existed while it was measured and was dropped: it was
+/// byte-identical to `on` by construction, since `break_buds` flushes one
+/// bud per call and the rule only applies at zero tips.
+pub(crate) fn graze_regrow() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| !matches!(std::env::var("PIXEL_PHYSICS_GRAZE_REGROW").as_deref(), Ok("off")))
+}
+
+/// **`PIXEL_PHYSICS_ANNUAL`**: seeds `World::annual`. `on` uses each annual
+/// species' own `SpeciesDef::annual_half_life`; a positive number overrides
+/// it (plant-time frames) for sweeps; anything else, and the default, is
+/// off. Read once.
+pub(crate) fn annual_from_env() -> Option<f32> {
+    static ON: std::sync::OnceLock<Option<f32>> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| match std::env::var("PIXEL_PHYSICS_ANNUAL").as_deref() {
+        Ok("on") => Some(0.0),
+        Ok(v) => v.parse::<f32>().ok().filter(|h| *h > 0.0),
+        Err(_) => None,
+    })
+}
+
+/// **The backstop for an annual that never sets seed**, as a multiple of its
+/// `annual_half_life`, rolled from birth rather than from first seed.
+///
+/// Without it the annual rule cannot reach a third of the stand: with no
+/// ants, 84 of the 260 herbs alive at 300k had never shown a fruit, at a
+/// median age of 289k frames, 99 cells and 18 leaf -- stalled stalks
+/// (`review-3-2026-10-10.md` §4, measured on the planted-balance runs). Three
+/// times, so a plant that is still on its way to its first head (first fruit
+/// at a median 12k wall frames) is all but safe -- survival at a third of
+/// the backstop is `exp(-ln2/9)`, 93% -- while one that never gets there is
+/// carried out within the run.
+pub(crate) const ANNUAL_BACKSTOP_FACTOR: f32 = 3.0;
+
+/// Keys the annual hazard's own substream. Its own salt rather than
+/// `LIFE_HAZARD_SALT`, for that salt's reason: turning the rule on must not
+/// reshuffle any other keyed draw, and a species with both an age death and
+/// an annual one would otherwise roll the same number twice.
+const ANNUAL_HAZARD_SALT: u64 = 0x416E_6E75_616C_2121;
+
+/// **The annual rule's per-tick chance**, split out so its shape can be
+/// asserted without a bed. `seed_age` is plant-time frames since first seed,
+/// `None` if the plant has never set seed; `age` is plant-time frames since
+/// birth; `interval` is this tick's span in the same units. A seeded plant
+/// rolls `old_age_chance_over` at `half_life`; an unseeded one rolls the
+/// same hazard from birth at `ANNUAL_BACKSTOP_FACTOR` times it.
+pub(crate) fn annual_chance(seed_age: Option<f32>, age: f32, half_life: f32, interval: u64) -> f32 {
+    match seed_age {
+        Some(a) => old_age_chance_over(a, half_life, interval),
+        None => old_age_chance_over(age, half_life * ANNUAL_BACKSTOP_FACTOR, interval),
+    }
+}
+
 fn resprout_deficit_per_tip() -> Option<f32> {
     static ON: std::sync::OnceLock<Option<f32>> = std::sync::OnceLock::new();
     *ON.get_or_init(|| {
@@ -4142,6 +4220,13 @@ fn bear_seed_at(world: &mut World, sx: i32, sy: i32, parent_id: OrganismId, seed
         parent.seeds_set += 1;
         parent.life.seeds_set += 1;
         first_seed = parent.life.seeds_set == 1;
+        // The annual clock's start (`SpeciesDef::annual_half_life`): the
+        // first seed by any route, fruit drop or mature-cell `Reproduce`,
+        // since both come through here. Stamped always, read only under
+        // `World::annual`.
+        if parent.first_seed_frames == 0 {
+            parent.first_seed_frames = parent.plant_frames.saturating_add(1);
+        }
     }
     // **Only the first, and this is the measurement that set the log's
     // shape.** The shipped bed bears 3,099 seeds against 279 germinations in
@@ -6613,6 +6698,11 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: OrganismId, sta
                         // does not exist.
                         resource -= leaf_construction_cost * cluster.len() as f32;
                         world.leaf_cells_built += cluster.len() as u64;
+                        // Leaf built back pays off the plant's record of leaf
+                        // eaten (`OrganismState::grazed_leaf`), one for one.
+                        if let Some(st) = world.organism_mut(organism_id) {
+                            st.grazed_leaf = st.grazed_leaf.saturating_sub(cluster.len() as u16);
+                        }
                         write_carbon(world, x, y, resource);
                         for &(cx, cy) in &cluster {
                             let shade = banded_shade(world, organism_id, leaf_material, Band::Foliage, &mut rng);
@@ -7638,12 +7728,22 @@ pub fn step_organisms(world: &mut World) {
             // Before upkeep, so a bud that flushes this tick is already a
             // `GrowingTip` when `thicken` runs and can be counted as frontier
             // rather than thickened over on the same tick it woke up.
-            timing.time(4, || break_buds(world, organism_id));
-            // Beside `break_buds`, the same "one whole-plant decision, one
-            // pass" shape -- see `process_rebloom`'s own doc. After
-            // `allocate_to_frontier` so it spends this tick's freshest
-            // `reproductive_budget`, not last tick's.
-            process_rebloom(world, organism_id);
+            //
+            // **A plant the annual rule has killed builds nothing more**
+            // (`World::annual`): nothing in these two passes reads
+            // `senescent`, so without this a herb marked dead while still
+            // healthy would flush buds and rebloom while it rots. Behind the
+            // switch only, so the shipped tree old age is unchanged -- it
+            // has the same hole (`review-3-2026-10-10.md` §6).
+            let annual_dead = world.annual.is_some() && world.organism(organism_id).is_some_and(|s| s.senescent);
+            if !annual_dead {
+                timing.time(4, || break_buds(world, organism_id));
+                // Beside `break_buds`, the same "one whole-plant decision, one
+                // pass" shape -- see `process_rebloom`'s own doc. After
+                // `allocate_to_frontier` so it spends this tick's freshest
+                // `reproductive_budget`, not last tick's.
+                process_rebloom(world, organism_id);
+            }
             // After `break_buds`, so a tick's single shoot flush is decided
             // before the roots ask -- and after `organism_upkeep` has set
             // `water_status`, which is what this gates on.
@@ -10500,6 +10600,51 @@ fn grass_regrow_on() -> bool {
     *ON.get_or_init(|| !matches!(std::env::var("PIXEL_PHYSICS_GRASS_REGROW").as_deref(), Ok("off" | "0")))
 }
 
+/// **Trace-only: why a plant holding dormant buds did or did not flush one**
+/// (`PIXEL_PHYSICS_BUD_TRACE=<path>`, off by default; planted-balance lane,
+/// 2026-10-10). One row per `break_buds` call that reached the economic
+/// gate with at least one bud, written to the named file. Reads only; the
+/// world is unchanged with it on.
+#[allow(clippy::too_many_arguments)]
+fn bud_trace(
+    world: &World,
+    organism_id: OrganismId,
+    buds: usize,
+    tips: usize,
+    intercepted: f32,
+    noon: f32,
+    maintenance: f32,
+    step_cost: f32,
+    supportable: usize,
+    richest: f32,
+    bud_cost: f32,
+) {
+    use std::io::Write;
+    static OUT: std::sync::OnceLock<Option<std::sync::Mutex<std::io::BufWriter<std::fs::File>>>> = std::sync::OnceLock::new();
+    let Some(out) = OUT
+        .get_or_init(|| {
+            let path = std::env::var("PIXEL_PHYSICS_BUD_TRACE").ok()?;
+            let mut f = std::io::BufWriter::new(std::fs::File::create(path).ok()?);
+            let _ = writeln!(f, "frame,id,species,buds,tips,intercepted,noon_income,maintenance,step_cost,supportable,richest,bud_cost");
+            Some(std::sync::Mutex::new(f))
+        })
+        .as_ref()
+    else {
+        return;
+    };
+    let species = world.organism(organism_id).map_or("?", |s| world.species.get(s.species).name.as_str());
+    if let Ok(mut f) = out.lock() {
+        let _ = writeln!(
+            f,
+            "{},{organism_id},{species},{buds},{tips},{intercepted:.3},{noon:.4},{maintenance:.4},{step_cost:.4},{supportable},{richest:.3},{bud_cost:.3}",
+            world.frame
+        );
+        if world.frame.is_multiple_of(5000) {
+            let _ = f.flush();
+        }
+    }
+}
+
 fn break_buds(world: &mut World, organism_id: OrganismId) {
     let Some(state) = world.organism(organism_id) else { return };
     let species_id = state.species;
@@ -10659,6 +10804,43 @@ fn break_buds(world: &mut World, organism_id: OrganismId) {
         let extra = (excess / per_tip).floor() as usize;
         supportable = supportable.saturating_add(extra).min(max_active_tips as usize);
     }
+    // **Leaf lost to a mouth licenses its own replacement** --
+    // `PIXEL_PHYSICS_GRAZE_REGROW`, on unless set to `off` (planted-balance
+    // lane, 2026-10-10; the measurement that turned it on is on `graze_regrow`). Measured on the herb_ant bed (main 43522586, seeds 1-2,
+    // `PIXEL_PHYSICS_BUD_TRACE`): a herb holding dormant buds had
+    // `supportable` 0 on 42,314 of 42,373 checks with no ants and 29,755
+    // of 29,814 with them -- noon income less upkeep was p50 0.16 and p90
+    // 0.6 of one growth step, while the richest cell sat at the 4.0 cap
+    // every time. So the gate refused on income and never on reserves, a
+    // bitten leaf was never replaced, and 65 of 76 bitten herbs died
+    // `STARVED` by 300k, some with 100-320 carbon still in them.
+    //
+    // **Not RESPROUT again.** That keys on the bole deficit, a trunk signal
+    // a herb never reaches, and it raised a cap that was not binding on the
+    // trees it was measured on. This keys on the plant's own record of
+    // leaf bitten off (`OrganismState::grazed_leaf`), so an ungrazed plant
+    // is untouched, and it lifts the gate the trace found binding. **It
+    // licenses; it does not pay**: the flush below is still bought from
+    // the richest cell at `bud_cost`, so no carbon is made. One flush
+    // spends one `leaf_cluster` of the record -- a bud grows back about a
+    // node's worth of leaf. The biology is compensatory regrowth: losing
+    // leaf releases buds the plant was holding back, paid from reserves
+    // (McNaughton 1983; Strauss & Agrawal 1999 -- cited from memory).
+    //
+    // **Only a plant with no shoot tip** (second-lane review): a tree still
+    // growing has live tips, and raising its count is RESPROUT's failure
+    // shape -- more shoots, no more tissue. In practice that scopes it to a
+    // herb that has finished growing. The record is paid off one per leaf
+    // the plant builds (`OrganismState::grazed_leaf`), not per flush, so a
+    // flush that builds several nodes cannot buy back more than was lost.
+    if graze_regrow() {
+        let grazed = world.organism(organism_id).map_or(0, |s| s.grazed_leaf);
+        if grazed > 0 && tips == 0 {
+            let wanted = usize::from(grazed).div_ceil(usize::from(leaf_cluster.max(1)));
+            supportable = supportable.max(wanted.min(max_active_tips as usize));
+        }
+    }
+    bud_trace(world, organism_id, buds.len(), tips, intercepted, noon_income(world, organism_id, intercepted, leaf_cluster), maintenance, step_cost, supportable, richest.map_or(0.0, |r| r.2), bud_cost);
     if tips >= supportable {
         return;
     }
@@ -11663,6 +11845,30 @@ fn organism_upkeep(world: &mut World, organism_id: OrganismId) {
             false
         }
     };
+    // **This tick's span in plant time** -- what `plant_frames` advances by
+    // below, and the interval the annual hazard is rolled over. Plant time
+    // rather than wall frames or ticks: `age_ticks * ORGANISM_TICK_INTERVAL`
+    // undercounts a big herb's age 3-6x (it ticks every `45 * size_cadence`
+    // frames, and the lab runs at half pace), which is the trap
+    // `review-3-2026-10-10.md` §1 measured before this was built.
+    let tick_plant_frames = ORGANISM_TICK_INTERVAL
+        * size_cadence(world, world.organism(organism_id).map_or(0, |s| s.cells.len()));
+    // **An annual dies after it has set seed** -- `SpeciesDef::annual_half_life`,
+    // under `World::annual` only. Keyed on its own salt for the reason
+    // `ANNUAL_HAZARD_SALT` gives.
+    let dies_annual = has_economy
+        && world.annual.is_some_and(|over| {
+            let own = world.species.get(species_id).annual_half_life;
+            if own <= 0.0 {
+                return false;
+            }
+            let half_life = if over > 0.0 { over } else { own };
+            let (age, first) = world.organism(organism_id).map_or((0, 0), |s| (s.plant_frames, s.first_seed_frames));
+            let seed_age = (first > 0).then(|| age.saturating_sub(first - 1) as f32);
+            let chance = annual_chance(seed_age, age as f32, half_life, tick_plant_frames);
+            chance > 0.0 && rng::stream(world.seed ^ ANNUAL_HAZARD_SALT, organism_id as u64, 0, world.frame).chance(chance)
+        });
+    let mut annual_death = false;
 
     // Leaves per row, then a running total downward, so every cell can read
     // "how much foliage do I carry" without a traversal of its own.
@@ -12119,6 +12325,7 @@ fn organism_upkeep(world: &mut World, organism_id: OrganismId) {
         // visits every organism exactly once -- so it costs an add and no
         // traversal of its own.
         state.age_ticks = state.age_ticks.saturating_add(1);
+        state.plant_frames = state.plant_frames.saturating_add(tick_plant_frames as u32);
         // **Old age, rolled above.** Marking is the whole action: `senescent`
         // is what `rot_remains` reads, and it then thins the plant at the
         // species' `remains_half_life`, so what the player sees is a tree
@@ -12133,6 +12340,13 @@ fn organism_upkeep(world: &mut World, organism_id: OrganismId) {
             state.senescent = true;
             state.senescence_cause = organism::DeathCause::OldAge;
         }
+        // The annual death books the same cause -- it is age, counted from
+        // seed -- and is told apart by `World::annual_deaths` below.
+        if dies_annual && !state.senescent {
+            state.senescent = true;
+            state.senescence_cause = organism::DeathCause::OldAge;
+            annual_death = true;
+        }
         if has_economy && has_leaf_stage {
             let alive = (root_cells + shoot_cells) as f32;
             let collected = state.income * MEAN_NIGHT_INCOME_FACTOR;
@@ -12146,6 +12360,9 @@ fn organism_upkeep(world: &mut World, organism_id: OrganismId) {
                 state.starving_ticks = 0;
             }
         }
+    }
+    if annual_death {
+        world.annual_deaths += 1;
     }
     let mut leaves_above: std::collections::HashMap<i32, u32> = std::collections::HashMap::new();
     let mut running = 0u32;
@@ -24701,6 +24918,135 @@ mis-wired {miswired_root}, so `slot_1_is_a_root_locus_and_not_a_shoot_one` would
         assert!(run_arm(0.0, OLD), "life_half_life 0.0 is the shipped default and must be immortal: nothing survived {OLD} frames");
         assert!(run_arm(LIFE, YOUNG), "the hazard rises with age, so a plant {YOUNG} frames into an {LIFE}-frame life must still be standing");
         assert!(!run_arm(LIFE, OLD), "a plant {OLD} frames into an {LIFE}-frame life must be dead: survival is 1.3% by the model");
+    }
+
+    /// **Leaf lost to a mouth buys a bud flush; the same leaf lost any other
+    /// way does not** -- `graze_regrow` (on by default), end to end: the
+    /// `Eaten` write in `World::set` records it on `grazed_leaf`, and
+    /// `break_buds` lifts its gate for a tipless plant holding that record.
+    ///
+    /// One tree, grown, then its shoot tips turned to dormant buds and every
+    /// leaf taken -- in one copy as a mouth takes it (`loss_context` `Eaten`),
+    /// in the other with no cause. With no leaf the plant earns nothing, so
+    /// the income gate refuses both, and only the eaten copy may flush.
+    ///
+    /// Put the fault back to see it go red: drop the `graze_regrow` block in
+    /// `break_buds`, or the counter in `World::set`, and the eaten copy
+    /// builds no tip either.
+    #[test]
+    fn eaten_leaf_licenses_a_flush_and_shed_leaf_does_not() {
+        let mut w = test_world();
+        plant_tree_on_ground(&mut w, 100, 60);
+        let id = w.get(100, 60).organism_id();
+        assert_ne!(id, 0, "test setup: the planted seed should own its cell");
+        run_with_fields(&mut w, 3_000);
+        let shoot_tips = |w: &World| {
+            w.organism(id).map_or(0, |s| {
+                s.cells.keys().filter(|&&(x, y)| organism::cell_type(w.get(x, y).aux()) == Some(CellType::GrowingTip)).count()
+            })
+        };
+        let cells_of = |w: &World, t: CellType| -> Vec<(i32, i32)> {
+            w.organism(id).map_or(Vec::new(), |s| {
+                s.cells.keys().copied().filter(|&(x, y)| organism::cell_type(w.get(x, y).aux()) == Some(t)).collect()
+            })
+        };
+        // Finished growing: every shoot tip becomes a dormant bud.
+        for (x, y) in cells_of(&w, CellType::GrowingTip) {
+            let c = w.get(x, y);
+            w.set(x, y, c.with_aux(organism::pack_cell_type(CellType::DormantBud)));
+        }
+        let leaves = cells_of(&w, CellType::Leaf);
+        assert!(!leaves.is_empty() && shoot_tips(&w) == 0, "test setup: a tipless tree with leaf ({} leaves)", leaves.len());
+        let take_leaf = |w: &mut World, cause: Option<organism::DeathCause>| {
+            for &(x, y) in &leaves {
+                w.loss_context = cause;
+                w.set(x, y, Cell::EMPTY);
+            }
+            w.loss_context = None;
+        };
+        // A third copy keeps one live shoot tip: the rule is for a plant that
+        // has stopped growing, so this one must not get an extra flush.
+        let mut growing = w.clone();
+        let (bx, by) = cells_of(&growing, CellType::DormantBud)[0];
+        let c = growing.get(bx, by);
+        growing.set(bx, by, c.with_aux(organism::pack_cell_type(CellType::GrowingTip)));
+        take_leaf(&mut growing, Some(organism::DeathCause::Eaten));
+        break_buds(&mut growing, id);
+        assert_eq!(shoot_tips(&growing), 1, "a grazed plant that still has a live tip must not be licensed a second one");
+        let (mut eaten, mut shed) = (w.clone(), w);
+        take_leaf(&mut eaten, Some(organism::DeathCause::Eaten));
+        take_leaf(&mut shed, None);
+        let grazed = eaten.organism(id).map_or(0, |s| s.grazed_leaf);
+        assert_eq!(grazed as usize, leaves.len(), "every eaten leaf must be on the record");
+        assert_eq!(shed.organism(id).map_or(0, |s| s.grazed_leaf), 0, "leaf lost with no mouth must not be");
+        break_buds(&mut eaten, id);
+        break_buds(&mut shed, id);
+        let (e, s) = (shoot_tips(&eaten), shoot_tips(&shed));
+        println!("tips after one break_buds: eaten {e}, shed {s} ({} leaves taken)", leaves.len());
+        assert_eq!(s, 0, "a leafless plant earns nothing, so the income gate alone must refuse a flush");
+        assert!(e >= 1, "a plant that lost leaf to a mouth must flush a bud from its reserves");
+    }
+
+    /// **The annual hazard counts from first seed, and spares a plant that
+    /// has not seeded until the backstop** -- `annual_chance`'s shape,
+    /// asserted at three intervals because a herb's tick is 45 frames times
+    /// its size cadence and the half-life must not depend on which.
+    ///
+    /// Put the fault back to see it go red: pass `age` instead of the seed
+    /// age in the `Some` arm and the seeded cohort below, born 50,000 plant
+    /// frames before it seeded, is dead at `H/4`.
+    #[test]
+    fn the_annual_hazard_counts_from_first_seed_and_spares_the_unseeded() {
+        const H: f32 = 15_000.0;
+        let survival = |seeded: bool, until: f32, interval: u64| -> f32 {
+            let (mut s, mut a) = (1.0f32, 0.0f32);
+            while a < until {
+                let c = if seeded { annual_chance(Some(a), a + 50_000.0, H, interval) } else { annual_chance(None, a, H, interval) };
+                s *= 1.0 - c;
+                a += interval as f32;
+            }
+            s
+        };
+        for interval in [45u64, 135, 225] {
+            let (q, half, late) = (survival(true, H / 4.0, interval), survival(true, H, interval), survival(true, H * 2.5, interval));
+            let (u_mid, u_late) = (survival(false, H * 2.5, interval), survival(false, H * 7.5, interval));
+            println!("interval {interval}: seeded {q:.3} at H/4, {half:.3} at H, {late:.4} at 2.5H; unseeded {u_mid:.3} at 2.5H, {u_late:.4} at 7.5H");
+            assert!(q > 0.94, "a plant that has just seeded must be all but safe: {q:.3} at H/4");
+            assert!((half - 0.5).abs() < 0.03, "H must be the median time from first seed: {half:.3}");
+            assert!(late < 0.02, "a plant long past its first seed must be all but gone: {late:.4}");
+            assert!(u_mid > 0.55, "an unseeded plant rolls the backstop, not H: {u_mid:.3} alive at 2.5H");
+            assert!(u_late < 0.02, "the backstop must still carry out a plant that never seeds: {u_late:.4} at 7.5H");
+        }
+    }
+
+    /// **The annual rule fires only under its switch and only on an annual
+    /// species**, in a real bed. The bed is `old_age_kills_a_grown_plant_and_spares_a_seedling`'s,
+    /// whose own probe has the tree standing to 12,000 frames on its economy
+    /// alone, so a founder gone at 5,000 is gone of this rule. The tree here
+    /// never sets seed in 5,000 frames, so the arm that kills it is the
+    /// backstop (`3 x 500` plant frames: survival at 5,000 is about 0.05%).
+    #[test]
+    fn the_annual_rule_needs_its_switch_and_an_annual_species() {
+        fn run_arm(annual: Option<f32>, half_life: f32) -> (bool, u64) {
+            let mut w = test_world();
+            w.annual = annual;
+            let tree = w.species.id_of("tree").expect("tree is compiled in");
+            w.species.get_mut(tree).annual_half_life = half_life;
+            plant_tree_on_ground(&mut w, 100, 60);
+            let founder = w.get(100, 60).organism_id();
+            assert_ne!(founder, 0, "test setup: the planted seed should own its cell");
+            run_with_fields(&mut w, 5_000);
+            let alive = w
+                .organism(founder)
+                .is_some_and(|s| !s.senescent && s.cells.len() > 1 && w.species.get(s.species).creature.is_none());
+            (alive, w.annual_deaths)
+        }
+        assert_eq!(run_arm(None, 500.0), (true, 0), "switch off: an annual species must live as before");
+        assert_eq!(run_arm(Some(0.0), 0.0), (true, 0), "switch on: a species that is not an annual must be untouched");
+        let (alive, deaths) = run_arm(Some(0.0), 500.0);
+        assert!(!alive && deaths >= 1, "switch on, annual species: the backstop must carry the founder out and book it (alive {alive}, annual_deaths {deaths})");
+        let (alive, _) = run_arm(Some(1.0e9), 500.0);
+        assert!(alive, "a positive switch value overrides the species' half-life");
     }
 
     #[test]

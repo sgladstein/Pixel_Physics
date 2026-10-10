@@ -109,6 +109,24 @@
 //!   and `PIXEL_PHYSICS_DEPTH_SLOW`'s `depth_slowed`, `depth_pauses`,
 //!   `depth_unknown`, `depth_rows`, `depth_ground_rows`, `depth_err_rows` and
 //!   `depth_lean_slowed`.
+//! - with `foodlog=1`, **every food cell from the moment it moves** (see
+//!   `FoodLog`; added 2026-10-10 for where food goes once a carrier reaches
+//!   the door, and why the nest store stays near empty while larvae go
+//!   hungry): `food.csv.gz`, every swallow into a crop, every cell taken
+//!   into a nest worker's jaws for the store, every put-down from a crop or
+//!   from the jaws, every cell eaten off the floor toward a birth or by a
+//!   larva (`creature::FOOD_KIND_NAMES`), and every meal a larva was given
+//!   (`feed_<kind>`, the donor in `other`), each with its zone, whether it
+//!   was a store cell and how far along the nest's way in it lay;
+//!   `digest.csv`, the face worth each ant's crop gave up to its own gut per
+//!   1,000 frames, by the zone it stood in and whether the crop held a
+//!   trip's food; and every `foodevery=` frames (1,000) `foodcells.csv`
+//!   (every loose food cell within 60 columns of the door and below 40 rows
+//!   over the ground) and `larvae.csv` (every larva: bank against target,
+//!   food it can reach, grown ants beside it and the richest one's surplus).
+//!   Recording draws nothing and changes nothing (seed 1, heap 90, the
+//!   stack, 20k frames: `stats.csv` and `colony.csv` byte-identical). Not
+//!   `food=`, which is the heap's size.
 //! - with `drops=1`, **every pellet put down and the choice of cell it had**
 //!   (`drops.csv`), and the mound by material at every map frame
 //!   (`mound.csv`); see `DropLog`. Added 2026-10-06 for the redesign's check
@@ -532,6 +550,11 @@ fn main() {
     let needs_parts = arg::<String>("needsparts").map_or(creature::needs::WalkParts::NONE, |p| {
         creature::needs::WalkParts::parse(&p)
     });
+    // `foodlog=1` (not `food=`, which is the heap's size): every food cell
+    // from the moment it moves, digestion by place, and the floor's food and
+    // the larvae every `foodevery=` frames. See `FoodLog`.
+    let food = arg::<u8>("foodlog").unwrap_or(0) == 1;
+    let food_every: u64 = arg("foodevery").unwrap_or(1_000);
     println!(
         "deeptrace: scenario={scenario} seed={seed} frames={frames} ants={n_ants} bornafter={born_after} colonyevery={colony_every} mapevery={map_every} food={target} shots={} dig={} walk={} digfrom={dig_from} garden={} hungry={} nestevery={nest_every} needs={} needsat={needs_at} needsparts={} out={out}",
         u8::from(shots),
@@ -718,6 +741,12 @@ fn main() {
     if garden {
         lab.world.bite_log = Some(Vec::new());
     }
+    if food {
+        lab.world.feed_log = Some(Vec::new());
+        lab.world.food_log = Some(Vec::new());
+        lab.world.digest_log = Some(Vec::new());
+        println!("  foodlog=1: every food movement -> food.csv.gz, digestion by place -> digest.csv, floor food and larvae every {food_every} frames -> foodcells.csv, larvae.csv");
+    }
     // Every `colonyevery=` frames, the world's own running totals that the
     // nest-plan switches move (`stats.csv`): deaths by cause, the brood's
     // food by source, each switch's "it fired" counter, and the foraging and
@@ -741,6 +770,7 @@ fn main() {
     let mut gardenlog = garden.then(|| GardenLog::new(&out));
     let mut hunglog = hungry.then(|| HungryLog::new(&out, def.start_energy));
     let mut droplog = drops.then(|| DropLog::new(&out, &lab.world));
+    let mut foodlog = food.then(|| FoodLog::new(&out, def.start_energy));
     if drops {
         println!("  drops=1: every pellet put down -> drops.csv, the mound by material -> mound.csv");
     }
@@ -827,6 +857,12 @@ fn main() {
                 log.clear();
             }
             if let Some(log) = lab.world.feed_log.as_mut() {
+                log.clear();
+            }
+            if let Some(log) = lab.world.food_log.as_mut() {
+                log.clear();
+            }
+            if let Some(log) = lab.world.digest_log.as_mut() {
                 log.clear();
             }
             if let Some(gl) = gardenlog.as_mut() {
@@ -1017,6 +1053,11 @@ fn main() {
             }
         }
         let feeds: Vec<FeedRow> = lab.world.feed_log.as_mut().map(std::mem::take).unwrap_or_default();
+        if let Some(fl) = foodlog.as_mut() {
+            let moved = lab.world.food_log.as_mut().map(std::mem::take).unwrap_or_default();
+            let digested = lab.world.digest_log.as_mut().map(std::mem::take).unwrap_or_default();
+            fl.after(&lab.world, g, f, &moved, &feeds, &digested, food_every);
+        }
         if let Some(h) = hunglog.as_mut() {
             h.after(&lab.world, g, f, &rows);
         }
@@ -3004,4 +3045,238 @@ fn move_terms_of(w: &World, id: OrganismId, h: (i32, i32), def: &organism::Creat
     let rebuilt = brain::squash(sum);
     let ok = (rebuilt - out[O::Move as usize]).abs() < 1e-4;
     (format!("{:.4},{sum:.3},{},{},{}", out[O::Move as usize], u8::from(ok), cols.join(","), tops.join(" ")), ok)
+}
+
+/// **`foodlog=1`: every food cell from the moment it moves** (2026-10-10,
+/// for where food goes once a carrier reaches the door, and why the nest
+/// store stays near empty while larvae go hungry).
+///
+/// - `food.csv.gz`: one row per `World::food_log` row (`creature::FoodRow`:
+///   swallow, jaws, drop, jaws_down, eaten) and per larva meal
+///   (`feed_ate`, `feed_crop`, `feed_bank`, `feed_share`, from
+///   `World::feed_log`): frame, who, kind, the cell, its zone, worth (face
+///   value; for `eaten` and the feeds, what the eater gained), whether it is
+///   a store cell (`creature::food_place`), how far along the way in, the
+///   kind's flag (a swallow at home, a trip cell put down, a jaws load that
+///   reached the store), the mover's bank over `start_energy`, whether the
+///   mover is brood, `other` (a feed's donor), and whether the mover (a
+///   feed's donor) is a nest worker.
+/// - `digest.csv`: per 1,000 frames, per ant, per zone it stood in at the
+///   tick, its way depth in tens (-1 off the way, 2 for 20 and deeper),
+///   whether it is a nest worker and whether its crop held a trip's food,
+///   the face worth its crop gave up to its own gut (`World::digest_log`).
+/// - every `foodevery=` frames, `foodcells.csv` (every loose food cell
+///   within 60 columns of the door and below 40 rows over the old ground:
+///   material, worth, store, depth, zone, ants beside it) and `larvae.csv`
+///   (every larva: bank, target, its share of the target, food cells it
+///   can reach, grown ants beside it and the richest one's bank over
+///   `start_energy`, its depth along the way).
+struct FoodLog {
+    gz: std::process::Child,
+    rows: Option<std::io::BufWriter<std::process::ChildStdin>>,
+    digest: std::io::BufWriter<std::fs::File>,
+    cells: std::io::BufWriter<std::fs::File>,
+    larvae: std::io::BufWriter<std::fs::File>,
+    /// (window, ant, zone, way depth band, nest worker, trip) -> face worth
+    /// digested. The band is the head's way distance in tens (-1 off the
+    /// way, 2 for 20 and deeper).
+    sums: HashMap<(u64, OrganismId, &'static str, i32, bool, bool), f32>,
+    start_energy: f32,
+}
+
+impl FoodLog {
+    fn new(out: &str, start_energy: f32) -> Self {
+        let mut gz = std::process::Command::new("sh")
+            .arg("-c")
+            .arg(format!("gzip -4 > '{out}/food.csv.gz'"))
+            .stdin(std::process::Stdio::piped())
+            .spawn()
+            .expect("gzip");
+        let mut rows = std::io::BufWriter::with_capacity(1 << 20, gz.stdin.take().expect("gzip stdin"));
+        writeln!(rows, "frame,who,kind,x,y,zone,worth,store,depth,flag,energy,brood,other,worker").unwrap();
+        let mut digest = std::io::BufWriter::new(std::fs::File::create(format!("{out}/digest.csv")).unwrap());
+        writeln!(digest, "frame,id,zone,depth,worker,trip,worth").unwrap();
+        let mut cells = std::io::BufWriter::new(std::fs::File::create(format!("{out}/foodcells.csv")).unwrap());
+        writeln!(cells, "frame,x,y,mat,worth,store,depth,zone,ants8").unwrap();
+        let mut larvae = std::io::BufWriter::new(std::fs::File::create(format!("{out}/larvae.csv")).unwrap());
+        writeln!(larvae, "frame,id,x,y,zone,depth,bank,target,share,food8,adults8,best_adult").unwrap();
+        FoodLog {
+            gz,
+            rows: Some(rows),
+            digest,
+            cells,
+            larvae,
+            sums: HashMap::new(),
+            start_energy,
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn after(
+        &mut self,
+        w: &World,
+        g: &Geo,
+        f: u64,
+        moved: &[creature::FoodRow],
+        feeds: &[FeedRow],
+        digested: &[(OrganismId, f32, bool)],
+        every: u64,
+    ) {
+        let is_brood = |id: OrganismId| w.organism(id).is_some_and(|s| s.brood.is_some());
+        let is_worker = |id: OrganismId| w.organism(id).is_some_and(|s| s.nest_bound_until == u64::MAX);
+        if let Some(rows) = self.rows.as_mut() {
+            for r in moved {
+                writeln!(
+                    rows,
+                    "{},{},{},{},{},{},{:.1},{},{},{},{:.3},{},0,{}",
+                    r.frame,
+                    r.who,
+                    creature::FOOD_KIND_NAMES[r.kind as usize],
+                    r.at.0,
+                    r.at.1,
+                    zone(w, g, r.at),
+                    r.worth,
+                    u8::from(r.store),
+                    r.depth,
+                    u8::from(r.flag),
+                    r.energy,
+                    u8::from(is_brood(r.who)),
+                    u8::from(is_worker(r.who)),
+                )
+                .unwrap();
+            }
+            for r in feeds {
+                let (store, depth) = creature::food_place(w, r.at);
+                writeln!(
+                    rows,
+                    "{f},{},feed_{},{},{},{},{:.1},{},{depth},0,0,1,{},{}",
+                    r.larva,
+                    FEED_KIND_NAMES[r.kind as usize],
+                    r.at.0,
+                    r.at.1,
+                    zone(w, g, r.at),
+                    r.gain,
+                    u8::from(store),
+                    r.donor,
+                    u8::from(is_worker(r.donor)),
+                )
+                .unwrap();
+            }
+        }
+        let win = f / 1_000;
+        for &(id, worth, trip) in digested {
+            let head = w.organism(id).and_then(|s| s.chain.first().copied());
+            let z = head.map_or("gone", |h| zone(w, g, h));
+            let band = head.map_or(-1, |h| match creature::food_place(w, h).1 {
+                d if d < 0 => -1,
+                d => (d / 10).min(2),
+            });
+            *self.sums.entry((win, id, z, band, is_worker(id), trip)).or_insert(0.0) += worth;
+        }
+        if f % 1_000 == 999 {
+            let mut keys: Vec<_> = self.sums.keys().copied().filter(|k| k.0 <= win).collect();
+            keys.sort_unstable();
+            for k in keys {
+                let v = self.sums.remove(&k).unwrap_or(0.0);
+                writeln!(
+                    self.digest,
+                    "{},{},{},{},{},{},{v:.1}",
+                    k.0 * 1_000,
+                    k.1,
+                    k.2,
+                    k.3,
+                    u8::from(k.4),
+                    u8::from(k.5)
+                )
+                .unwrap();
+            }
+        }
+        if every == 0 || !f.is_multiple_of(every) {
+            return;
+        }
+        let is_animal =
+            |x: i32, y: i32| w.in_bounds(x, y) && w.materials.kind(w.get(x, y).material) == MaterialKind::Creature;
+        for y in g.ground_y - 40..HEIGHT as i32 {
+            for x in g.nest_x - 60..=g.nest_x + 60 {
+                if !w.in_bounds(x, y) {
+                    continue;
+                }
+                let c = w.get(x, y);
+                if c.material == material::EMPTY || c.organism_id() != 0 {
+                    continue;
+                }
+                let worth = creature::food_value(w, c);
+                if worth <= 0.0 {
+                    continue;
+                }
+                let (store, depth) = creature::food_place(w, (x, y));
+                let ants8 = DIRS.iter().filter(|&&(dx, dy)| is_animal(x + dx, y + dy)).count();
+                writeln!(
+                    self.cells,
+                    "{f},{x},{y},{},{worth:.1},{},{depth},{},{ants8}",
+                    w.materials.get(c.material).name,
+                    u8::from(store),
+                    zone(w, g, (x, y))
+                )
+                .unwrap();
+            }
+        }
+        for id in w.live_brood_ids() {
+            let Some(s) = w.organism(id) else { continue };
+            let Some(b) = s.brood else { continue };
+            if b.stage != BroodStage::Larva {
+                continue;
+            }
+            // A brood item's cell is in its own list, not a body chain; one
+            // under a walker is still listed there.
+            let Some((x, y)) = s.cells.keys().next().copied().or_else(|| s.chain.first().copied()) else {
+                continue;
+            };
+            let mut food8 = 0;
+            let mut adults = HashSet::new();
+            let mut best = 0.0f32;
+            for &(dx, dy) in DIRS.iter() {
+                let (nx, ny) = (x + dx, y + dy);
+                if !w.in_bounds(nx, ny) {
+                    continue;
+                }
+                let c = w.get(nx, ny);
+                let oid = c.organism_id();
+                if oid == 0 {
+                    if c.material != material::EMPTY && creature::food_value(w, c) > 0.0 {
+                        food8 += 1;
+                    }
+                } else if oid != id {
+                    if let Some(a) = w.organism(oid).filter(|a| a.brood.is_none() && a.species == s.species) {
+                        if adults.insert(oid) {
+                            best = best.max(a.energy / self.start_energy);
+                        }
+                    }
+                }
+            }
+            let (_, depth) = creature::food_place(w, (x, y));
+            writeln!(
+                self.larvae,
+                "{f},{id},{x},{y},{},{depth},{:.1},{:.1},{:.3},{food8},{},{best:.3}",
+                zone(w, g, (x, y)),
+                s.energy,
+                b.target,
+                s.energy / b.target.max(1.0),
+                adults.len()
+            )
+            .unwrap();
+        }
+    }
+}
+
+impl Drop for FoodLog {
+    fn drop(&mut self) {
+        let _ = self.digest.flush();
+        let _ = self.cells.flush();
+        let _ = self.larvae.flush();
+        if let Some(mut rows) = self.rows.take() {
+            let _ = rows.flush();
+        }
+        let _ = self.gz.wait();
+    }
 }
