@@ -6692,9 +6692,11 @@ pub struct OrganismState {
     pub last_loss: DeathCause,
     /// **Leaf this plant has lost to a mouth and not yet grown back** --
     /// `PIXEL_PHYSICS_GRAZE_REGROW` (planted-balance lane, 2026-10-10).
-    /// Counted at the one line where a bite takes a living `Leaf` cell
-    /// (`creature.rs`, the bite that sets `loss_context = Eaten`); spent by
-    /// `plant::break_buds`, one `leaf_cluster` per bud it flushes. Data on the
+    /// Counted in `World::set` on any write labelled `Eaten` that takes a
+    /// living `Leaf` cell (a forager's bite, a layer funding an egg, a
+    /// larva); paid off one per `Leaf` cell this plant builds afterwards, so
+    /// it never licenses more leaf than the plant lost. Read by
+    /// `plant::break_buds` under the switch. Data on the
     /// plant rather than a shape guess, because a grazed herb and one that
     /// shed its leaves in the shade look the same from its cells. Counted
     /// whether or not the switch is on; only the switch reads it.

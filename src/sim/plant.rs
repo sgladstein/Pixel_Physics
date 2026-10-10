@@ -224,12 +224,17 @@ fn render_step(
 /// **The floor it measures against is `RESPROUT_DEFICIT_FLOOR`, and the two
 /// numbers do different jobs.** The floor says *is this plant damaged*; this
 /// says *how much frontier the damage buys*.
-/// **`PIXEL_PHYSICS_GRAZE_REGROW`**: a plant that has lost leaf to a mouth
-/// may flush buds from its reserves to grow it back (`break_buds`). Off
-/// unless set to `on`; read once.
-pub(crate) fn graze_regrow_on() -> bool {
-    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *ON.get_or_init(|| std::env::var("PIXEL_PHYSICS_GRAZE_REGROW").as_deref() == Ok("on"))
+/// **`PIXEL_PHYSICS_GRAZE_REGROW`**: a plant with no shoot tip that has
+/// lost leaf to a mouth may flush buds from its reserves to grow it back
+/// (`break_buds`). `on` licenses up to `max_active_tips`, `one` a single
+/// tip; anything else (the default) is off. Read once.
+pub(crate) fn graze_regrow() -> Option<usize> {
+    static ON: std::sync::OnceLock<Option<usize>> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| match std::env::var("PIXEL_PHYSICS_GRAZE_REGROW").as_deref() {
+        Ok("on") => Some(usize::MAX),
+        Ok("one") => Some(1),
+        _ => None,
+    })
 }
 
 fn resprout_deficit_per_tip() -> Option<f32> {
@@ -6621,6 +6626,11 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: OrganismId, sta
                         // does not exist.
                         resource -= leaf_construction_cost * cluster.len() as f32;
                         world.leaf_cells_built += cluster.len() as u64;
+                        // Leaf built back pays off the plant's record of leaf
+                        // eaten (`OrganismState::grazed_leaf`), one for one.
+                        if let Some(st) = world.organism_mut(organism_id) {
+                            st.grazed_leaf = st.grazed_leaf.saturating_sub(cluster.len() as u16);
+                        }
                         write_carbon(world, x, y, resource);
                         for &(cx, cy) in &cluster {
                             let shade = banded_shade(world, organism_id, leaf_material, Band::Foliage, &mut rng);
@@ -10734,10 +10744,21 @@ fn break_buds(world: &mut World, organism_id: OrganismId) {
     // node's worth of leaf. The biology is compensatory regrowth: losing
     // leaf releases buds the plant was holding back, paid from reserves
     // (McNaughton 1983; Strauss & Agrawal 1999 -- cited from memory).
-    let grazed = world.organism(organism_id).map_or(0, |s| s.grazed_leaf);
-    if graze_regrow_on() && grazed > 0 {
-        let wanted = usize::from(grazed).div_ceil(usize::from(leaf_cluster.max(1)));
-        supportable = supportable.max(wanted.min(max_active_tips as usize));
+    //
+    // **Only a plant with no shoot tip** (second-lane review): a tree still
+    // growing has live tips, and raising its count is RESPROUT's failure
+    // shape -- more shoots, no more tissue. In practice that scopes it to a
+    // herb that has finished growing. The record is paid off one per leaf
+    // the plant builds (`OrganismState::grazed_leaf`), not per flush, so a
+    // flush that builds several nodes cannot buy back more than was lost.
+    // `PIXEL_PHYSICS_GRAZE_REGROW=one` licenses a single tip, the capped
+    // variant that shows whether the cap or something downstream binds.
+    if let Some(cap) = graze_regrow() {
+        let grazed = world.organism(organism_id).map_or(0, |s| s.grazed_leaf);
+        if grazed > 0 && tips == 0 {
+            let wanted = usize::from(grazed).div_ceil(usize::from(leaf_cluster.max(1)));
+            supportable = supportable.max(wanted.min(max_active_tips as usize).min(cap));
+        }
     }
     bud_trace(world, organism_id, buds.len(), tips, intercepted, noon_income(world, organism_id, intercepted, leaf_cluster), maintenance, step_cost, supportable, richest.map_or(0.0, |r| r.2), bud_cost);
     if tips >= supportable {
@@ -10772,11 +10793,6 @@ fn break_buds(world: &mut World, organism_id: OrganismId) {
     // defect `plants:124` is about is exactly the case where the first is
     // positive and the second is zero.
     world.buds_flushed = world.buds_flushed.saturating_add(1);
-    if graze_regrow_on() {
-        if let Some(st) = world.organism_mut(organism_id) {
-            st.grazed_leaf = st.grazed_leaf.saturating_sub(u16::from(leaf_cluster.max(1)));
-        }
-    }
     // The richest cell pays the flush price; the bud keeps its own stake.
     //
     // This used to `write_carbon(bx, by, bud_cost)` -- an assignment, which

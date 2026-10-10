@@ -10736,6 +10736,21 @@ impl World {
         // fresh, zeroed `OrganismCell` when it genuinely changes hands,
         // which is what `a freshly divided cell should start at 0 resource,
         // not inherit any` asserts.
+        // **A leaf taken by a mouth, booked on the plant** --
+        // `OrganismState::grazed_leaf`. Here, at the write, because every
+        // eating path labels its write `Eaten` and comes through `set`: the
+        // forager's bite in `act`, a layer eating round itself to fund an
+        // egg (`eat_toward_birth`), a larva's bite. Counting at one of them
+        // missed the others (second-lane review, 2026-10-10). One branch on
+        // a field already in hand when nothing is being eaten.
+        if self.loss_context == Some(organism::DeathCause::Eaten)
+            && old.organism_id() != 0
+            && organism::cell_type(old.aux()) == Some(organism::CellType::Leaf)
+        {
+            if let Some(st) = self.organism_mut(old.organism_id()) {
+                st.grazed_leaf = st.grazed_leaf.saturating_add(1);
+            }
+        }
         self.reindex_organism_cell(x, y, old.organism_id(), cell.organism_id());
     }
 
