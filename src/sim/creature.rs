@@ -940,6 +940,10 @@ pub const PULL_MISMATCH: u8 = 12;
 pub const PULL_MOUND_OUT: u8 = 13;
 /// [`nest_store_pull`], asked first in `home_pull` ([`NestStore`]).
 pub const PULL_NEST_STORE: u8 = 14;
+/// `home_pull`'s walk in to lay ([`lay_in_of`]), after [`PULL_LAY`].
+pub const PULL_LAY_IN: u8 = 15;
+/// [`store_out_pull`]: the drive's walk out ([`StoreRead`]).
+pub const PULL_STORE_OUT: u8 = 16;
 /// [`DecisionScratch::trip_end`]: the walk back to the face did not end.
 pub const TRIP_END_NONE: u8 = 0;
 /// Within two cells of the face and aimed at it (not under [`FaceTrip`]'s
@@ -1138,7 +1142,7 @@ pub(super) fn note_feed(world: &mut World, larva: OrganismId, at: (i32, i32), ki
 }
 
 /// [`DecisionScratch::pull_why`]'s names, by value.
-pub const PULL_WHY_NAMES: [&str; 15] = [
+pub const PULL_WHY_NAMES: [&str; 17] = [
     "not scored",
     "none",
     "store trip",
@@ -1154,6 +1158,8 @@ pub const PULL_WHY_NAMES: [&str; 15] = [
     "mismatch",
     "mound out",
     "nest store",
+    "walk in to lay",
+    "store sent out",
 ];
 
 impl Default for DecisionScratch {
@@ -4139,7 +4145,7 @@ pub const NEST_BOUND_FRAMES: u32 = 8_000;
 /// read the way out along a route and is pulled home when it strays
 /// ([`home_pull`]); hungry, it scouts for food as any ant does. Only it
 /// carries food into the storeroom.
-fn is_nest_bound(world: &World, state: &crate::sim::organism::OrganismState) -> bool {
+pub(crate) fn is_nest_bound(world: &World, state: &crate::sim::organism::OrganismState) -> bool {
     state.nest_bound_until > world.frame
 }
 
@@ -5727,7 +5733,11 @@ pub(super) fn try_bud(
     // still holds.
     let brake = food_brake_factor(world, state.colony);
     let unbraked = bar;
-    let bar = bar * brake;
+    // **[`StoreBrake`]** rides on the same bar, after the food brake: the
+    // store's food per hundred adults of the colony.
+    let sbrake = store_brake_factor(world, state.colony, (hx, hy));
+    let food_braked = bar * brake;
+    let bar = food_braked * sbrake;
     // **Read off the parent here, while `state` is still the parent** (see
     // the `Origin::Bud` arm in `place_creature` for the incident this
     // naming exists to prevent) -- moved ahead of the affordability check
@@ -5756,6 +5766,10 @@ pub(super) fn try_bud(
         if brake > 1.0 && bank + reachable >= unbraked {
             world.creature_stats.food_brake_held += 1;
         }
+        // ...and the store brake's: every bar cleared but its own.
+        if sbrake > 1.0 && bank + reachable >= food_braked {
+            world.creature_stats.store_brake_held += 1;
+        }
         return None;
     }
     // **[`FeedFirst`]: no egg while a starving larva is in reach.** After
@@ -5767,6 +5781,23 @@ pub(super) fn try_bud(
                 world.creature_stats.feed_first_held += 1;
                 return None;
             }
+        }
+    }
+    // **[`LayBrake`]: no egg while the layer stands crowded, or while its
+    // own last reading of the store was low.** After every other bar, as
+    // `FeedFirst`, so the counts are eggs that would otherwise be laid.
+    let lb = lay_brake();
+    if lb.on {
+        match lay_brake_holds(world, organism, (hx, hy), lb) {
+            Some(LayHold::Crowded) => {
+                world.creature_stats.lay_brake_crowded += 1;
+                return None;
+            }
+            Some(LayHold::StoreLow) => {
+                world.creature_stats.lay_brake_store += 1;
+                return None;
+            }
+            None => {}
         }
     }
     let material_id = world.materials.id_of(&world.species.get(species_id).name.clone())?;
@@ -6981,7 +7012,7 @@ impl World {
     /// both of which the ledger already sees. Keyed on `worth_in_aux`, the
     /// material's own statement that its cell carries worth, so it is data
     /// rather than a name, and a stamped or an unstamped corpse alike stays.
-    fn is_diggable_ground(&self, x: i32, y: i32) -> bool {
+    pub(crate) fn is_diggable_ground(&self, x: i32, y: i32) -> bool {
         let cell = self.get(x, y);
         cell.material != material::EMPTY
             && matches!(self.materials.kind(cell.material), MaterialKind::Solid | MaterialKind::Powder)
@@ -7926,6 +7957,12 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
         }
     };
 
+    // **A carrier of a trip's food meets the ants it passes**
+    // ([`meet_way_reach`], off): before the move, so the ants beside it now
+    // are the ones it touched. No draw.
+    meet_on_way(world, organism, (x, y));
+    // **...and recruits the newcomers it touches** ([`Recruit`], off).
+    recruit_contacts(world, organism, (x, y));
     let mut draw = rng::stream(world.seed, organism as u64, world.frame, RNG_SLOT_MOVE);
     // **The tax is a fraction of the budget, not an absolute.** Written
     // out here rather than folded into `CreatureDef` so the multiplication
@@ -13111,21 +13148,29 @@ fn foot_field(world: &World, way: &NestWay, seeds: &[(i32, i32)], k: u16) -> Vec
 pub fn step_nest_rest(world: &mut World) {
     let mound = mound_out_of(world) != MoundOut::OFF;
     let escape = needs_first_of(world).ways();
-    let read = nest_rest_of(world).on() || hungry_out_of(world) || soil_way_of(world) != SoilWay::OFF || mound || escape || nest_store_of(world).on();
+    let read = nest_rest_of(world).on() || hungry_out_of(world) || soil_way_of(world) != SoilWay::OFF || mound || escape || nest_store_of(world).on() || lay_in_of(world) || store_read_of(world).on || mound_in_of(world);
     if !read || world.nest_sites.is_empty() {
         world.nest_ways.clear();
         world.mound_ways.clear();
         world.out_ways.clear();
+        world.mound_in_ways.clear();
         return;
     }
     if !world.frame.is_multiple_of(REST_REFRESH) && !world.nest_ways.is_empty() {
         return;
     }
     world.nest_ways = (0..world.nest_sites.len()).filter_map(|i| build_nest_way(world, i)).collect();
+    keep_store_place(world);
     // The mound's ways ([`MoundOut`]), only while it is on: off, nothing
     // reads them and nothing is built.
     world.mound_ways = if mound {
         (0..world.nest_sites.len()).filter_map(|i| build_mound_way(world, i)).collect()
+    } else {
+        Vec::new()
+    };
+    // The mound's ways in, for carriers ([`mound_in_of`]), likewise.
+    world.mound_in_ways = if mound_in_of(world) {
+        (0..world.nest_sites.len()).filter_map(|i| build_mound_in_way(world, i)).collect()
     } else {
         Vec::new()
     };
@@ -13161,10 +13206,18 @@ fn rest_pull(world: &World, organism: OrganismId, def: &CreatureDef, head: (i32,
         return None;
     }
     let gain = def.home_bias * (1.0 - out / REST_BALANCE);
+    Some((deeper_along_way(world, organism, head)?, gain))
+}
+
+/// **Where "further in" is from `head`**: [`REST_LOOKAHEAD`] steps along its
+/// nearest nest's way in ([`NestWay`]) away from the door, or the door for
+/// an ant not on the way. `None` with no nest or no way built. Shared by
+/// the rest pull and the walk in to lay ([`lay_in_of`]).
+fn deeper_along_way(world: &World, organism: OrganismId, head: (i32, i32)) -> Option<(i32, i32)> {
     let site = world.nearest_nest_site(head.0, head.1)?;
     let way = world.nest_ways.iter().find(|w| w.site == site)?;
     let Some(mut d) = way.at(head.0, head.1) else {
-        return Some((way.door, gain));
+        return Some(way.door);
     };
     // The ant's own order to try its neighbours in, so ties at a fork go
     // its own way and the colony spreads over the nest's ends.
@@ -13183,7 +13236,57 @@ fn rest_pull(world: &World, organism: OrganismId, def: &CreatureDef, head: (i32,
         d = v;
         at = p;
     }
-    Some((at, gain))
+    Some(at)
+}
+
+/// **`PIXEL_PHYSICS_LAY_IN=on`: an ant ready to lay that reaches the nest
+/// and finds nowhere to put the egg walks in** (2026-10-08, off). The walk
+/// home to lay ([`ready_to_lay`]) ends where the ant is first beside home
+/// ([`nest_within_reach`]), and that is the door: the egg then needs an
+/// empty home cell within [`super::brood::egg_pile_reach`] steps
+/// ([`super::brood::pile_site`]), and the door is where the colony stands.
+/// Traced: the 2026-10-07 egg-cap trace found 38-44 ants in the 9x9 round a
+/// ready layer at the door and no free home cell on 89-99% of its tries;
+/// on the heap-90 stack (seed 1, 95-110k) 320 of 846 ants seen on the mound
+/// were walking home to lay, and forager 1049310 (3,000-4,300 J) held that
+/// pull at the door for 13,000 frames, so the forage pull was never scored
+/// (`Reports/mound-diggers-2026-10-08/README.md`). With this on, a ready
+/// ant beside home with no egg site in reach is pulled along the nest's
+/// way in, away from the door ([`deeper_along_way`], the rest pull's walk),
+/// at the laden gain, until a site is in reach and it lays; an ant not on
+/// the way is pulled to the door. The egg site is looked for only on these
+/// ticks (a ready ant beside home), the same 9x9 walk the lay itself makes.
+/// Needs the way in built: it is read here, so its builder runs while this
+/// is on ([`step_nest_rest`]).
+pub fn lay_in_of(_world: &World) -> bool {
+    static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *V.get_or_init(|| match std::env::var("PIXEL_PHYSICS_LAY_IN").as_deref().map(str::trim) {
+        Ok("on") => true,
+        Ok("off") | Ok("") | Err(_) => false,
+        Ok(other) => panic!("PIXEL_PHYSICS_LAY_IN={other:?}: use on or off"),
+    })
+}
+
+/// **Where a ready layer beside home is pulled in** ([`lay_in_of`]); `None`
+/// when off, not ready, not beside home, or an egg site is already in reach.
+fn lay_in_target(world: &World, organism: OrganismId, def: &CreatureDef, state: &crate::sim::organism::OrganismState, head: (i32, i32)) -> Option<(i32, i32)> {
+    if !lay_in_of(world) {
+        return None;
+    }
+    lay_in_pull(world, organism, def, state, head)
+}
+
+/// [`lay_in_target`] past its switch, for the test that cannot set it.
+fn lay_in_pull(world: &World, organism: OrganismId, def: &CreatureDef, state: &crate::sim::organism::OrganismState, head: (i32, i32)) -> Option<(i32, i32)> {
+    if def.home_bias <= 0.0 || !ready_to_lay(world, def, state) || !nest_within_reach(world, organism, head.0, head.1, def) {
+        return None;
+    }
+    let reach = super::brood::egg_pile_reach();
+    let brood = super::brood::brood_of(world, def)?;
+    if reach > 0 && super::brood::pile_site(world, head, def, &brood, reach, super::brood::EggBar::of(world, organism)).is_some() {
+        return None;
+    }
+    deeper_along_way(world, organism, head)
 }
 
 /// **A hungry ant inside its nest is drawn out the way it came in**
@@ -13858,6 +13961,93 @@ fn pack_behind(world: &mut World, organism: OrganismId, def: &CreatureDef, head:
     true
 }
 
+/// **`PIXEL_PHYSICS_MOUND_IN=on`: a carrier on the mound follows the
+/// mound's way to the door** (2026-10-09, off). Traced on the playtest line
+/// (heap-90 box, seed 1, 95-110k, walk rows up the mound's full height,
+/// `walkrise=40`): 75% of laden spells ended with the crop run dry above
+/// ground and 6% unloaded below it; on the mound a step toward home was open
+/// on 81-88% of laden decisions, yet 27-29% of the steps taken went toward
+/// home and 45-46% away. The pull home's gain was a median 0.05 (patience
+/// gone: it decays while straight-line progress stalls against the mound's
+/// walls), against persistence at its ceiling (1.0) on every step; the
+/// scores of the open steps spread by a median 1.35, of which the pull could
+/// account for at most 0.09, and the top-scoring step was the homeward one
+/// on 35%. A census every 1k frames found 81% of the colony's laden
+/// foragers on the mound, digesting their loads there (a median 873 ->
+/// 1,222 J over a spell). `CARRY_HOME` (on in the line) mended the trail's
+/// hold; this mends the target.
+///
+/// On, a carrier of a trip's food ([`OrganismState::trip_load`], crop food,
+/// not a packed lunch) with its head on the mound's way in
+/// ([`build_mound_in_way`]: breadth first from the door over every cell an
+/// ant can stand in, open or under cover, from [`REST_REACH_Y`] rows over
+/// the founding ground down to it) is pulled [`REST_LOOKAHEAD`] steps down it
+/// in place of the straight line to home, and the pull never loses patience
+/// there, as the store's pulls do not. Counted in `mound_in_pulls`.
+pub fn mound_in_of(_world: &World) -> bool {
+    static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *V.get_or_init(|| match std::env::var("PIXEL_PHYSICS_MOUND_IN").as_deref().map(str::trim) {
+        Ok("on") => true,
+        Ok("off") | Ok("") | Err(_) => false,
+        Ok(other) => panic!("PIXEL_PHYSICS_MOUND_IN={other:?}: use on or off"),
+    })
+}
+
+/// **Build a nest's way in over its mound** ([`mound_in_of`]): breadth
+/// first, 8-connected in `NEIGHBOURS_8`'s fixed order, from the door (the
+/// founding cut's top row, its columns) over every cell an ant can stand in
+/// ([`way_cell`]), open or covered, in the mound way's box.
+pub fn build_mound_in_way(world: &World, site: usize) -> Option<NestWay> {
+    let s = world.nest_sites[site];
+    let gaps = way_gaps_of(world);
+    let cut = s.shaft?;
+    let door = ((cut.x0 + cut.x1) / 2, cut.top - 1);
+    let (x0, y0) = (s.x - REST_REACH_X, s.surface - REST_REACH_Y);
+    let (w, h) = (2 * REST_REACH_X + 1, REST_REACH_Y + 1);
+    let mut dist = vec![u16::MAX; (w * h) as usize];
+    let idx = |x: i32, y: i32| -> Option<usize> {
+        let (lx, ly) = (x - x0, y - y0);
+        (lx >= 0 && ly >= 0 && lx < w && ly < h).then(|| (ly * w + lx) as usize)
+    };
+    let mut q = std::collections::VecDeque::new();
+    for x in cut.x0..=cut.x1 {
+        for y in [cut.top - 1, cut.top] {
+            if let Some(i) = idx(x, y) {
+                if dist[i] == u16::MAX && way_cell(world, x, y, gaps.brood) {
+                    dist[i] = 0;
+                    q.push_back((x, y));
+                }
+            }
+        }
+    }
+    while let Some((x, y)) = q.pop_front() {
+        let d = dist[idx(x, y).expect("queued in the box")];
+        for &(dx, dy) in NEIGHBOURS_8.iter() {
+            let (nx, ny) = (x + dx, y + dy);
+            let Some(i) = idx(nx, ny) else { continue };
+            if dist[i] != u16::MAX || !way_cell(world, nx, ny, gaps.brood) {
+                continue;
+            }
+            dist[i] = d.saturating_add(1);
+            q.push_back((nx, ny));
+        }
+    }
+    Some(NestWay { site, door, x0, y0, w, h, dist, store: Vec::new(), store_cells: Vec::new(), door_food: Vec::new(), foot: Vec::new(), store_foot: Vec::new() })
+}
+
+/// **Where [`mound_in_of`] sends a carrier**: [`REST_LOOKAHEAD`] steps down
+/// its nest's way in from its head, for a carrier of a trip's food on the
+/// way above the door. `None` with the switch off, for anything else, at the
+/// door, or off the way.
+fn mound_in_target(world: &World, state: &crate::sim::organism::OrganismState, head: (i32, i32)) -> Option<(i32, i32)> {
+    if !mound_in_of(world) || !state.trip_load || state.spoil.is_some() || state.crop.is_none_or(|c| c.worth() <= 0.0) || carries_lunch(world, state) {
+        return None;
+    }
+    let site = world.nearest_nest_site(head.0, head.1)?;
+    let way = world.mound_in_ways.iter().find(|w| w.site == site)?;
+    step_out_way(way, head)
+}
+
 /// **Build a nest's way out of its mound** ([`MoundOut`]): breadth first,
 /// 8-connected in `NEIGHBOURS_8`'s fixed order, from every cell in the box
 /// an ant can stand in under open sky ([`way_cell`], not [`under_cover`]),
@@ -14262,6 +14452,32 @@ fn store_pick_reach(world: &World) -> i32 {
 /// The doorstep's reach under `fetch` with no `pick` set: the probe's 20.
 const STORE_FETCH_REACH: i32 = 20;
 
+/// **The breadth-first step count over the way from `seeds`**, into
+/// `way.store` ([`fill_nest_store`], and [`keep_store_place`] for an empty
+/// store's place).
+fn store_field_from(way: &mut NestWay, seeds: &[(i32, i32)]) {
+    way.store = vec![u16::MAX; way.dist.len()];
+    let mut q = std::collections::VecDeque::new();
+    for &(x, y) in seeds {
+        way.store[((y - way.y0) * way.w + (x - way.x0)) as usize] = 0;
+        q.push_back((x, y));
+    }
+    while let Some((x, y)) = q.pop_front() {
+        let s = way.store[((y - way.y0) * way.w + (x - way.x0)) as usize];
+        for &(dx, dy) in NEIGHBOURS_8.iter() {
+            let (nx, ny) = (x + dx, y + dy);
+            if way.at(nx, ny).is_none() {
+                continue;
+            }
+            let i = ((ny - way.y0) * way.w + (nx - way.x0)) as usize;
+            if way.store[i] == u16::MAX {
+                way.store[i] = s.saturating_add(1);
+                q.push_back((nx, ny));
+            }
+        }
+    }
+}
+
 /// **Fill a nest's store** ([`NestStore`]): the loose food cells beside a
 /// way cell at least `depth` steps in (`store_cells`), and the breadth-first
 /// step count over the way from the way cells beside them (`store`), so
@@ -14311,26 +14527,7 @@ fn fill_nest_store(world: &World, way: &mut NestWay, depth: u16) {
     }
     way.store_cells.sort_unstable();
     way.store_cells.dedup();
-    way.store = vec![u16::MAX; way.dist.len()];
-    let mut q = std::collections::VecDeque::new();
-    for &(x, y) in &seeds {
-        way.store[((y - way.y0) * way.w + (x - way.x0)) as usize] = 0;
-        q.push_back((x, y));
-    }
-    while let Some((x, y)) = q.pop_front() {
-        let s = way.store[((y - way.y0) * way.w + (x - way.x0)) as usize];
-        for &(dx, dy) in NEIGHBOURS_8.iter() {
-            let (nx, ny) = (x + dx, y + dy);
-            if way.at(nx, ny).is_none() {
-                continue;
-            }
-            let i = ((ny - way.y0) * way.w + (nx - way.x0)) as usize;
-            if way.store[i] == u16::MAX {
-                way.store[i] = s.saturating_add(1);
-                q.push_back((nx, ny));
-            }
-        }
-    }
+    store_field_from(way, &seeds);
     let wf = way_foot_of(world);
     if wf.store {
         way.store_foot = foot_field(world, way, &seeds, wf.k);
@@ -14490,6 +14687,236 @@ fn fetch_target(world: &World, def: &CreatureDef, state: &crate::sim::organism::
     way.door_food.iter().copied().min_by_key(|&(fx, fy)| (fx - head.0).abs().max((fy - head.1).abs()))
 }
 
+/// **`PIXEL_PHYSICS_STORE_READ`: an ant reads the store itself, and a low
+/// store sends it foraging** (2026-10-08, off; the owner's design, after the
+/// trace of `HUNGRY_OUT=off`). With the walk out off, 98-99% of the adults
+/// that starved on the heap-90 box died inside the dug nest, a median
+/// 5,200-6,900 frames old, half of them never having foraged: the store was
+/// empty from 60k (0 cells, against 8 -> 128 with the walk out on) while as
+/// many trips came home with food, eaten on arrival; in their last 2,000
+/// frames 64% of their decisions had no pull and the store's eat pull fired
+/// on none, their home anchor sat on their own head (0 cells) so hunger's
+/// pull out pointed nowhere, and their forage drive read 0 -- never foraged,
+/// or no forager met for longer than the window. The owner: *"These ants
+/// never meet a forager because they never leave the nest"*, and the signal
+/// must be one the ant can read where it stands, not the colony's total.
+///
+/// **The reading.** An ant that bites the store counts the store's food it
+/// can sense round its head (within `reach` cells, [`local_store_food`]),
+/// the bite taken; one that stands hungry at the store's place with none in
+/// reach is turned away. Its memory ([`OrganismState::store_read_at`],
+/// `store_read_low`) is the newest reading: `1 - seen / line`, so a store
+/// at or over `line` cells in reach reads 0 (stocked) and wipes an older low
+/// reading, and an empty one reads 1. **The drive** ([`forage_drive_level`])
+/// is the larger of the colony's drive and this reading, held for the
+/// `met` drive's window (times the ant's memory gene) and fading after it
+/// as that drive fades. It reaches an ant that has never foraged; a
+/// nest-bound ant is not sent out by it, as by any drive.
+///
+/// **To the store, and out.** A hungry empty ant on the way in is pulled to
+/// the store's place, at any depth and however little it holds, so it finds
+/// out ([`World::store_last_seeds`] keeps the place while the store is
+/// empty) -- unless its own reading already sends it out. An ant the drive
+/// sends out (`>= STORE_OUT_LINE`), empty and not nest-bound, standing on
+/// the way in, walks out along the passages ([`way_out_from`], the walk
+/// `HUNGRY_OUT` takes) to the door, where the throttle and the trail take it
+/// on. The walk out keyed on the drive, not on hunger.
+///
+/// Parts: `on` (`line=12`, `reach=4`); `line=<cells>`, `reach=<cells>`.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct StoreRead {
+    pub on: bool,
+    pub line: u32,
+    pub reach: i32,
+}
+
+impl StoreRead {
+    pub const OFF: StoreRead = StoreRead { on: false, line: 12, reach: 4 };
+}
+
+/// The forage drive at or over which [`StoreRead`]'s walk out takes an ant.
+pub const STORE_OUT_LINE: f32 = 0.5;
+
+pub fn store_read_of(_world: &World) -> StoreRead {
+    static V: std::sync::OnceLock<StoreRead> = std::sync::OnceLock::new();
+    *V.get_or_init(|| parse_store_read(&std::env::var("PIXEL_PHYSICS_STORE_READ").unwrap_or_default()))
+}
+
+pub fn parse_store_read(raw: &str) -> StoreRead {
+    let mut r = StoreRead::OFF;
+    let raw = raw.trim();
+    if raw.is_empty() || raw == "off" {
+        return r;
+    }
+    for part in raw.split(',').map(str::trim) {
+        if part == "on" {
+            r.on = true;
+        } else if let Some(v) = part.strip_prefix("line=").and_then(|v| v.parse::<u32>().ok()).filter(|&v| v > 0) {
+            r.on = true;
+            r.line = v;
+        } else if let Some(v) = part.strip_prefix("reach=").and_then(|v| v.parse::<i32>().ok()).filter(|&v| v > 0) {
+            r.on = true;
+            r.reach = v;
+        } else {
+            panic!("PIXEL_PHYSICS_STORE_READ={raw:?}: unknown part {part:?}; use off, on, line=<cells>, reach=<cells>");
+        }
+    }
+    r
+}
+
+/// **One store reading that changed an ant's memory**, for the trace: what
+/// the ant saw in reach against what the store held at the last rebuild
+/// (its true level; 0 for a store found empty), so a store spread thin can
+/// be seen reading low while it holds plenty.
+#[derive(Clone, Copy, Debug)]
+pub struct StoreReadRow {
+    pub frame: u64,
+    pub id: OrganismId,
+    pub x: i32,
+    pub y: i32,
+    pub seen: u32,
+    pub total: u32,
+    pub turned_away: bool,
+    pub low: f32,
+    pub energy: f32,
+    pub foraged: bool,
+}
+
+/// **The store's food an ant can sense**: store cells ([`store_food`]) within
+/// `reach` cells of its head, Chebyshev.
+fn local_store_food(world: &World, site: usize, head: (i32, i32), reach: i32) -> u32 {
+    let mut n = 0;
+    for y in head.1 - reach..=head.1 + reach {
+        for x in head.0 - reach..=head.0 + reach {
+            if world.in_bounds(x, y) && store_food(world, world.get(x, y), site) {
+                n += 1;
+            }
+        }
+    }
+    n
+}
+
+/// **Take a reading** ([`StoreRead`]): `seen` cells in reach, or turned away.
+/// Logged when it changes the memory by more than a tenth or the last one is
+/// older than [`STORE_READ_LOG_GAP`], so one ant standing at an empty store
+/// is one row, not one a tick.
+fn store_read_stamp(world: &mut World, organism: OrganismId, site: usize, head: (i32, i32), seen: u32, turned_away: bool) {
+    let sr = store_read_of(world);
+    let low = if turned_away { 1.0 } else { (1.0 - seen as f32 / sr.line as f32).clamp(0.0, 1.0) };
+    let now = world.frame.max(1);
+    let total = world.nest_ways.iter().find(|w| w.site == site).map_or(0, |w| w.store_cells.len() as u32);
+    let Some(s) = world.organism_mut(organism) else { return };
+    let changed = (s.store_read_low - low).abs() > 0.1 || now.saturating_sub(s.store_read_at) >= STORE_READ_LOG_GAP;
+    s.store_read_at = now;
+    s.store_read_low = low;
+    let (energy, foraged) = (s.energy, s.foraged);
+    if turned_away {
+        world.creature_stats.store_turned_away += 1;
+    } else if low > 0.0 {
+        world.creature_stats.store_reads_low += 1;
+    }
+    if changed {
+        if let Some(log) = world.store_read_log.as_mut() {
+            log.push(StoreReadRow { frame: now, id: organism, x: head.0, y: head.1, seen, total, turned_away, low, energy, foraged });
+        }
+    }
+}
+
+/// Frames after which a repeated store reading is logged again.
+const STORE_READ_LOG_GAP: u64 = 200;
+
+/// **The drive this ant's own store reading gives** ([`StoreRead`]): its low
+/// reading on the `met` drive's plateau and fade. 0 with the switch off.
+fn store_read_drive(world: &World, state: &crate::sim::organism::OrganismState) -> f32 {
+    if !store_read_of(world).on || state.store_read_at == 0 || state.store_read_low <= 0.0 {
+        return 0.0;
+    }
+    let factor = walk_gain(&expressed_traits(state, world.plasticity, world.trait_reach), organism::TRAIT_RETURN_MEMORY);
+    let age = world.frame.saturating_sub(state.store_read_at) as f32;
+    let w = return_window() * factor;
+    let over = age - w;
+    state.store_read_low * if over <= 0.0 { 1.0 } else { (-over / w).exp() }
+}
+
+/// **A hungry empty ant standing at the store's place with no food in
+/// reach is turned away** ([`StoreRead`]); read every tick it stands there,
+/// before the pulls, so the reading sends it out the same tick.
+fn store_turn_away(world: &mut World, organism: OrganismId, def: &CreatureDef, head: (i32, i32)) {
+    let sr = store_read_of(world);
+    if !(sr.on || lay_brake().store) {
+        return;
+    }
+    let Some(state) = world.organism(organism) else { return };
+    if state.energy >= def.start_energy || state.spoil.is_some() || state.crop.is_some_and(|c| c.worth() > 0.0) {
+        return;
+    }
+    let Some(way) = nest_way_near(world, head.0, head.1) else { return };
+    if way.store_at(head.0, head.1) != Some(0) {
+        return;
+    }
+    let site = way.site;
+    let seen = local_store_food(world, site, head, sr.reach);
+    if seen == 0 {
+        store_read_stamp(world, organism, site, head, 0, true);
+    }
+}
+
+/// **An ant the drive sends out walks out along the passages**
+/// ([`StoreRead`]): empty, not nest-bound, on its nest's way in, its forage
+/// drive at or over [`STORE_OUT_LINE`]; at the drive's gain on the laden
+/// ant's. `None` with the switch off.
+fn store_out_pull(world: &World, organism: OrganismId, def: &CreatureDef, head: (i32, i32)) -> Option<((i32, i32), f32)> {
+    if !store_read_of(world).on || def.home_bias <= 0.0 {
+        return None;
+    }
+    let state = world.organism(organism)?;
+    if is_nest_bound(world, state) || state.spoil.is_some() || (state.crop.is_some_and(|c| c.worth() > 0.0) && !carries_lunch(world, state)) {
+        return None;
+    }
+    let drive = forage_drive_level(world, state, def);
+    if drive < STORE_OUT_LINE {
+        return None;
+    }
+    Some((way_out_from(world, organism, head)?, def.home_bias * drive))
+}
+
+/// **The store's place while it is empty** ([`StoreRead`]): a field from the
+/// way cells that last touched its food, so the walk to the store still
+/// leads somewhere. Called from [`step_nest_rest`] after the ways are built.
+fn keep_store_place(world: &mut World) {
+    if !store_read_of(world).on || !nest_store_of(world).on() {
+        return;
+    }
+    let n = world.nest_sites.len();
+    if world.store_last_seeds.len() < n {
+        world.store_last_seeds.resize(n, Vec::new());
+    }
+    let wf = way_foot_of(world);
+    let mut ways = std::mem::take(&mut world.nest_ways);
+    for way in ways.iter_mut() {
+        if !way.store.is_empty() {
+            let mut seeds = Vec::new();
+            for ly in 0..way.h {
+                for lx in 0..way.w {
+                    if way.store[(ly * way.w + lx) as usize] == 0 {
+                        seeds.push((way.x0 + lx, way.y0 + ly));
+                    }
+                }
+            }
+            world.store_last_seeds[way.site] = seeds;
+        } else {
+            let seeds: Vec<(i32, i32)> = world.store_last_seeds[way.site].iter().copied().filter(|&(x, y)| way.at(x, y).is_some()).collect();
+            if !seeds.is_empty() {
+                store_field_from(way, &seeds);
+                if wf.store {
+                    way.store_foot = foot_field(world, way, &seeds, wf.k);
+                }
+            }
+        }
+    }
+    world.nest_ways = ways;
+}
+
 /// **Where [`NestStore`] pulls this animal, and how hard**, asked first in
 /// [`home_pull`]: a store load in to the store, a hungry empty ant to the
 /// store while it holds food, a fed idle nest worker deeper. `None` when no
@@ -14512,7 +14939,18 @@ fn nest_store_pull(world: &World, organism: OrganismId, def: &CreatureDef, head:
     if state.crop.is_some_and(|c| c.worth() > 0.0) {
         return None;
     }
-    if ns.eat && state.energy < def.start_energy && nest_way_near(world, head.0, head.1).is_some_and(|w| store_can_feed(w) && store_smelt(w, ns, head)) {
+    // **Under [`StoreRead`] the hungry go to the store to find out**: at any
+    // depth and however little it holds, while the place is known -- unless
+    // their own reading already sends them out.
+    let read = store_read_of(world);
+    if read.on && ns.eat && state.energy < def.start_energy {
+        if store_read_drive(world, state) >= STORE_OUT_LINE {
+            return None;
+        }
+        if nest_way_near(world, head.0, head.1).is_some_and(|w| w.store_at(head.0, head.1).is_some()) {
+            return store_inward(world, organism, head, STORE_DOOR_REACH, true).map(|t| (t, def.home_bias, StorePull::Eat));
+        }
+    } else if ns.eat && state.energy < def.start_energy && nest_way_near(world, head.0, head.1).is_some_and(|w| store_can_feed(w) && store_smelt(w, ns, head)) {
         return store_inward(world, organism, head, STORE_DOOR_REACH, true).map(|t| (t, def.home_bias, StorePull::Eat));
     }
     if ns.home && state.energy >= def.start_energy && is_nest_bound(world, state) && dig_return_target(world, def, state).is_none() && !ready_to_lay(world, def, state) {
@@ -15503,9 +15941,62 @@ fn spoil_ring_column(world: &World, organism: OrganismId, (x, y): (i32, i32), ri
         }
         s => s,
     };
+    // **Away from the food trail** ([`spoil_side_of`], off): the side the
+    // carrier smells less of it on, where it smells any.
+    let side = spoil_trail_side(world, (x, y)).unwrap_or(side);
     let gamma: f32 = (0..ring.shape).map(|_| -ring.scale * (1.0 - draw.unit_f32()).ln()).sum();
     let door = scaled_cells(world, nest_door_of(world).unwrap_or(NEST_DOOR_SHIPPED));
     Some(site.x + side * (door + 1 + gamma.round() as i32))
+}
+
+/// **`PIXEL_PHYSICS_SPOIL_SIDE=trail`: a carrier takes its pellet to the
+/// side of the door it smells less food trail on** (2026-10-08, off). The
+/// spoil ring's side was the side of the door the carrier came out on, so
+/// the mound grew both ways, across the way to the food as much as away from
+/// it. Traced (heap-90 box, seed 1): pellets put down above ground landed
+/// 30-45% at 0 to +19 columns, on the food's side; and with
+/// `FORAGER_NODIG` the mound's flank on that side (+15..+35 columns, the
+/// ground's 14 rows) filled to 65-82% soil by 90k on 4 of 4 seeds, against
+/// 27-39% without it, laden foragers coming home piling at its foot 30-49
+/// columns out with their patience gone (`Reports/dead-ends.md`,
+/// `MOUND_DIG`, the same wall). Ants keep spoil off their trails. Here, as
+/// it draws its column ([`spoil_ring_column`]), the carrier compares trail B
+/// -- laid only by foragers carrying food home -- over the cells
+/// [`SPOIL_SIDE_NEAR`]..=[`SPOIL_SIDE_FAR`] either side of its head on its
+/// row, and takes the side with less; with none either side, the old rule.
+/// Counted in `spoil_side_turned` when it differs from the old rule.
+pub fn spoil_side_of(_world: &World) -> bool {
+    static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *V.get_or_init(|| match std::env::var("PIXEL_PHYSICS_SPOIL_SIDE").as_deref().map(str::trim) {
+        Ok("trail") | Ok("on") => true,
+        Ok("off") | Ok("") | Err(_) => false,
+        Ok(other) => panic!("PIXEL_PHYSICS_SPOIL_SIDE={other:?}: use off or trail"),
+    })
+}
+
+/// The nearest cell either side of the head [`spoil_side_of`] smells.
+pub const SPOIL_SIDE_NEAR: i32 = 2;
+/// The farthest.
+pub const SPOIL_SIDE_FAR: i32 = 8;
+
+/// **The side with less food trail** ([`spoil_side_of`]): `Some(1)` east,
+/// `Some(-1)` west, `None` when off or when neither side smells of any.
+fn spoil_trail_side(world: &World, head: (i32, i32)) -> Option<i32> {
+    if !spoil_side_of(world) {
+        return None;
+    }
+    less_trail_side(world, head)
+}
+
+/// [`spoil_trail_side`] past its switch: the side of `(x, y)` with less trail
+/// B over its two rows, `None` on a tie.
+fn less_trail_side(world: &World, (x, y): (i32, i32)) -> Option<i32> {
+    let sum = |dir: i32| -> u32 { (SPOIL_SIDE_NEAR..=SPOIL_SIDE_FAR).map(|k| u32::from(world.pheromone_at(Channel::B, x + dir * k, y)) + u32::from(world.pheromone_at(Channel::B, x + dir * k, y - 1))).sum() };
+    let (e, w) = (sum(1), sum(-1));
+    if e == w {
+        return None;
+    }
+    Some(if e < w { 1 } else { -1 })
 }
 
 /// **Whether a carrier at `(x, y)` is still short of its drawn column**
@@ -17784,6 +18275,19 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
             world.creature_stats.lean_digs_skipped += 1;
         }
     }
+    // **A forager the colony is calling does not dig** ([`forager_nodig`]):
+    // with its forage drive at or over the line, the urge reads 0 as a lean
+    // ant's does, the roll still spends its draw, and an ant shut in keeps
+    // its roll for the same reasons. Off, no read.
+    if dig_urge > 0.0 {
+        if let Some(line) = forager_nodig() {
+            let called = world.organism(organism).is_some_and(|s| forage_drive_level(world, s, def) >= line);
+            if called && !(mound_out_of(world).dig && shut_in_mound(world, x, y)) && !(needs_first_of(world).weak && shut_in(world, x, y)) {
+                dig_urge = 0.0;
+                world.creature_stats.forager_digs_skipped += 1;
+            }
+        }
+    }
     let dig_urge = dig_urge;
     // **Soil is the lowest job** ([`NeedsFirst`]): a need puts the jaws' load
     // down before anything below reads it. Unset, no read and no draw.
@@ -18367,6 +18871,15 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
                 // never takes a store cell, so these are meals.
                 if nest_store_of(world).on() && is_store_cell(world, (fxx, fyy)) {
                     world.creature_stats.nest_store_bites += 1;
+                    // **The reading** ([`StoreRead`]): what is left in reach
+                    // once this bite is taken.
+                    let sr = store_read_of(world);
+                    if sr.on || lay_brake().store {
+                        if let Some(site) = nest_way_near(world, x, y).map(|w| w.site) {
+                            let seen = local_store_food(world, site, (x, y), sr.reach).saturating_sub(u32::from(store_food(world, bite, site)));
+                            store_read_stamp(world, organism, site, (x, y), seen, false);
+                        }
+                    }
                 }
                 // **Home is read before the mouthful leaves**, for
                 // `pickups_at_nest` below, on the predicate the drop's
@@ -19178,6 +19691,11 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
                 match carry_stage(world, (x, y)) {
                     Some(CarryStage::Out) if !latched => {
                         let col = spoil_ring_column(world, organism, (x, y), ring);
+                        // The trail turned this carrier's side ([`spoil_side_of`]).
+                        if let (Some(c), Some(site)) = (col, world.nearest_nest_site(x, y).and_then(|i| world.nest_sites.get(i))) {
+                            let old_side = (x - site.x).signum();
+                            world.creature_stats.spoil_side_turned += u64::from(spoil_side_of(world) && old_side != 0 && (c - site.x).signum() != old_side);
+                        }
                         if let Some(state) = world.organism_mut(organism) {
                             state.spoil_ring = col;
                         }
@@ -20552,6 +21070,100 @@ pub fn food_brake_factor(world: &World, colony: u32) -> f32 {
     }
 }
 
+/// **`PIXEL_PHYSICS_STORE_BRAKE`: lay as the store allows** (2026-10-09,
+/// off; owner's go-ahead after the food brake's sweep). The layer's bar is
+/// raised as its nest's store runs low against the colony: store food cells
+/// ([`NestWay::store_cells`] at the layer's nearest nest) per hundred live
+/// adults ([`World::colony_adults`]). At or above `hi` the bar stands; from
+/// `hi` down to `lo` it rises to [`FOOD_BRAKE_MAX`] times; at or below `lo`
+/// no egg. A colony under [`FOOD_BRAKE_SMALL`] adults breeds free, the brake
+/// reaching full strength at twice that, as the food brake's does: a
+/// founding group has no store yet.
+///
+/// **Why the store and not the food brake's ratio** (seeds 1-4,
+/// recruitment and spoil off the path, 240k): income over burn does not move with colony
+/// size -- fewer ants is fewer foragers *and* fewer mouths -- so at 1.0-1.5
+/// it barely bit (162-1,213 eggs held; the colony plateaued at 1,286-1,647
+/// laying ~15% of its eggs into larvae that starved, store mean 16-75
+/// cells), and at 1.5-2.5, 2.0-3.0 and 2.5-4.0 it held every egg once the
+/// colony was large and never let go: 0-3 ants left at 240k on every seed.
+/// The ratio also counts food eaten from the store as income, so a colony
+/// living off its savings reads as healthy. Store food per adult is not
+/// scale-free: as a colony shrinks the same foragers' food is shared among
+/// fewer, the store fills, and laying resumes.
+///
+/// `on` (`lo=1`, `hi=5`, cells per hundred adults; measured store means of
+/// 16-75 cells under ~1,300 ants are 1.2-5.8), or `<lo>,<hi>`. Counted in
+/// `store_brake_held`.
+///
+/// **Measured 2026-10-09, and it drains the colony** (same arm, seeds 1-4,
+/// 240k): 0.5-3 left 25-1,548 ants, 1-5 left 0-1,277, 2-8 left 0-9, against
+/// 1,286-1,647 unbraked. **The premise above is false here**: the store
+/// stayed at 0-25 cells all the way down (seed 1 at 1-5: 1,545 ants at 80k,
+/// 16 at 200k, store 2-14 throughout), because food that comes home is eaten
+/// on arrival at any colony size, and adults starving rose as it shrank.
+/// Stays off; `Reports/dead-ends.md` has the entry and the re-test condition
+/// (a store that holds a surplus).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct StoreBrake {
+    pub on: bool,
+    pub lo: f64,
+    pub hi: f64,
+}
+
+impl StoreBrake {
+    pub const OFF: StoreBrake = StoreBrake { on: false, lo: 1.0, hi: 5.0 };
+}
+
+pub fn parse_store_brake(raw: &str) -> StoreBrake {
+    match raw.trim() {
+        "" | "off" => StoreBrake::OFF,
+        "on" => StoreBrake { on: true, ..StoreBrake::OFF },
+        v => {
+            let mut it = v.split(',').map(|t| t.trim().parse::<f64>());
+            match (it.next(), it.next()) {
+                (Some(Ok(lo)), Some(Ok(hi))) if hi > lo && lo >= 0.0 => StoreBrake { on: true, lo, hi },
+                _ => panic!("PIXEL_PHYSICS_STORE_BRAKE={raw:?}: use off, on or <lo>,<hi> (store cells per hundred adults, hi > lo >= 0)"),
+            }
+        }
+    }
+}
+
+pub fn store_brake() -> StoreBrake {
+    static V: std::sync::OnceLock<StoreBrake> = std::sync::OnceLock::new();
+    *V.get_or_init(|| parse_store_brake(&std::env::var("PIXEL_PHYSICS_STORE_BRAKE").unwrap_or_default()))
+}
+
+/// **[`StoreBrake`]'s multiplier on the bar**, `>= 1.0` (`INFINITY` at or
+/// below `lo` in a colony of full size), as [`food_brake_factor`] shapes its own.
+pub fn store_brake_factor(world: &World, colony: u32, head: (i32, i32)) -> f32 {
+    let b = store_brake();
+    if !b.on {
+        return 1.0;
+    }
+    let adults = world.colony_adults(colony);
+    let strength = ((adults - FOOD_BRAKE_SMALL) / FOOD_BRAKE_SMALL).clamp(0.0, 1.0) as f32;
+    if strength <= 0.0 {
+        return 1.0;
+    }
+    let Some(site) = world.nearest_nest_site(head.0, head.1) else { return 1.0 };
+    let store = world.nest_ways.iter().filter(|w| w.site == site).map(|w| w.store_cells.len()).sum::<usize>() as f64;
+    store_brake_curve(b, store * 100.0 / adults.max(1.0), strength)
+}
+
+/// [`store_brake_factor`]'s shape, a pure function of the reading.
+fn store_brake_curve(b: StoreBrake, per100: f64, strength: f32) -> f32 {
+    if per100 >= b.hi {
+        return 1.0;
+    }
+    let full = if per100 <= b.lo { f32::INFINITY } else { 1.0 + (FOOD_BRAKE_MAX - 1.0) * ((b.hi - per100) / (b.hi - b.lo)) as f32 };
+    if strength >= 1.0 {
+        full
+    } else {
+        1.0 + strength * (full.min(2.0 * FOOD_BRAKE_MAX) - 1.0)
+    }
+}
+
 /// Live adults below which a colony breeds free of the food brake; the
 /// brake reaches full strength at twice this. A founding group in every bed
 /// here is 20.
@@ -20671,6 +21283,56 @@ fn pack_neighbours_with(world: &mut World, x: i32, y: i32, keep_spoil: bool) -> 
         packed_here += 1;
     }
     packed_here
+}
+
+/// **A tunnel cut by hand** (the lab's `DIG` brush, owner 2026-10-09: *"a
+/// tool in the lab that lets me dig like ants where I can make a standing
+/// tunnel that doesn't collapse"*). Clears every cell of diggable ground in
+/// `cells` -- [`World::is_diggable_ground`], and only loose ground or what
+/// it packs into (soil, spoil, packed soil; never stone, a wall, a plant, an
+/// animal or a corpse) -- then lines what is left round each cleared cell by
+/// [`pack_neighbours_with`]'s rule, the one that makes an ant's gallery a
+/// *place*: without it a cut in `soil` is gone by frame 5 ([`line_burrow`]).
+/// Clears all first and lines after, so a band wider than one cell does not
+/// pack cells the same stroke is about to clear. Returns how many it cleared.
+///
+/// Not booked in `creature_stats.packed` (wall an *ant* tamped) -- the
+/// founding cut's reason for keeping a player's or a queen's lining out of it.
+/// Every neighbour with a packed form packs, spoil and doorway included: the
+/// player asked for walls that stand, and both exceptions exist to leave
+/// ground loose that ants are meant to move again.
+pub fn hand_dig(world: &mut World, cells: &[(i32, i32)]) -> u32 {
+    hand_dig_with(world, cells, true)
+}
+
+/// [`hand_dig`] with the lining passed in, so a test holds the unlined
+/// control in the same process.
+fn hand_dig_with(world: &mut World, cells: &[(i32, i32)], line: bool) -> u32 {
+    let packed_forms: Vec<_> = (0..world.materials.len()).filter_map(|i| world.materials.get(material::MaterialId(i as u16)).packs_into).collect();
+    let mut cut = Vec::new();
+    for &(x, y) in cells {
+        if !world.in_bounds(x, y) || !world.is_diggable_ground(x, y) {
+            continue;
+        }
+        let m = world.get(x, y).material;
+        if world.materials.kind(m) != MaterialKind::Powder && !packed_forms.contains(&m) {
+            continue;
+        }
+        world.set(x, y, Cell::EMPTY);
+        cut.push((x, y));
+    }
+    for &(x, y) in cut.iter().filter(|_| line) {
+        for (dx, dy) in NEIGHBOURS_8 {
+            let (nx, ny) = (x + dx, y + dy);
+            let cell = world.get(nx, ny);
+            if let Some(packed) = world.materials.get(cell.material).packs_into {
+                let mut lined = cell;
+                lined.material = packed;
+                world.set(nx, ny, lined);
+            }
+        }
+    }
+    cut.len() as u32
 }
 
 /// The ablation switch for the lining, off by default.
@@ -22805,9 +23467,65 @@ pub fn forage_drive_of(world: &World) -> ForageDrive {
 /// `home_target`). A need sampled at home and held, not a field that fades
 /// on the way out: an ungated `(PheroARise, Move)` that fell along the
 /// outbound leg worked as a leash (`dead-ends.md`, reached food 199 -> 156).
+/// **`PIXEL_PHYSICS_FORAGER_NODIG=on|<line>`: a forager the colony is
+/// calling does not dig** (2026-10-08, off; the owner, after the doorway
+/// trace: foragers that *"do their job once and then just start wandering
+/// aimlessly causing trouble"*). An ant whose forage drive
+/// ([`forage_drive_level`]) is at or over `line` (0.5 for `on`) reads its
+/// `Dig` urge as 0, as a lean ant does. Traced (heap-90 stack, seed 1,
+/// 95-110k): forager 1049310 handed its load over on the mound at 96,451
+/// and cut the mound 5 frames later; for 13,000 frames it cut, carried the
+/// pellet up the mound and cut again, and the forage drive -- which reaches
+/// only an ant with empty jaws -- never sent it out; 91-93% of mound cuts
+/// were foragers' (`Reports/mound-diggers-2026-10-08/README.md`). The drive
+/// is 1 for `RETURN_WINDOW` (1,400) frames, times the ant's memory gene,
+/// after it last met a forager home with food, then fades as
+/// `e^-(age - W)/W`; so while food is coming home a forager near the door
+/// does not dig, and when it stops coming the line is crossed again and it
+/// may. Digging falls to nest workers, whose drive is 0. An ant shut in the
+/// mound or with no way out keeps its roll ([`MoundOut`]'s `dig`,
+/// [`NeedsFirst`]'s `weak`).
+///
+/// **Traced 2026-10-09: it halves the food that comes home** (recruitment,
+/// seed 1, 60-100k: 2,068 -> 1,029). Foragers' cuts were the passages
+/// through the mound's food-side flank (open inside 28-50% -> 14-20% with
+/// this on); carriers from the heap strand on that flank (33 -> 88 at a
+/// time) where they can neither hand over nor put down, and the load
+/// digests into them. The same cause as [`MoundDig`]'s null. Stays off.
+pub fn forager_nodig() -> Option<f32> {
+    static V: std::sync::OnceLock<Option<f32>> = std::sync::OnceLock::new();
+    *V.get_or_init(|| parse_forager_nodig(&std::env::var("PIXEL_PHYSICS_FORAGER_NODIG").unwrap_or_default()))
+}
+
+pub fn parse_forager_nodig(raw: &str) -> Option<f32> {
+    match raw.trim() {
+        "" | "off" => None,
+        "on" => Some(0.5),
+        v => match v.parse::<f32>() {
+            Ok(x) => Some(x.clamp(0.0, 1.0)),
+            Err(_) => {
+                eprintln!("PIXEL_PHYSICS_FORAGER_NODIG={raw:?}: use off, on or a drive line 0..1; read as off");
+                None
+            }
+        },
+    }
+}
+
 fn forage_drive_level(world: &World, state: &crate::sim::organism::OrganismState, def: &CreatureDef) -> f32 {
+    let base = colony_drive_level(world, state, def);
+    // **...or the ant's own reading of the store** ([`StoreRead`]), which
+    // reaches an ant that has never foraged. Off, no read.
+    if store_read_of(world).on && forage_drive_of(world).on() && !is_nest_bound(world, state) {
+        return base.max(store_read_drive(world, state));
+    }
+    base
+}
+
+/// [`forage_drive_level`] before [`StoreRead`]: the colony's drive alone.
+fn colony_drive_level(world: &World, state: &crate::sim::organism::OrganismState, def: &CreatureDef) -> f32 {
     let drive = forage_drive_of(world);
-    if !drive.on() || !state.foraged || (drive.fed && state.energy < def.start_energy) {
+    // **A newcomer reads the drive once recruited** ([`Recruit`], off).
+    if !drive.on() || !(state.foraged || recruited_now(world, state)) || (drive.fed && state.energy < def.start_energy) {
         return 0.0;
     }
     // **A nest-bound ant is not sent out** ([`is_nest_bound`], the nest
@@ -22871,6 +23589,317 @@ fn meet_returning_forager(world: &mut World, deliverer: OrganismId, (dx, dy): (i
         if let Some(s) = world.organism_mut(id) {
             s.return_met = now;
         }
+    }
+}
+
+/// **`PIXEL_PHYSICS_MEET_WAY=on|<cells>`: a forager coming home with food
+/// is met by the ants it passes, not only at the drop** (2026-10-08, off).
+/// The `met` drive ([`meet_returning_forager`]) stamped only the ants within
+/// [`RETURN_MEET`] cells of the cell a crop was emptied at the nest. Traced
+/// (heap-90 box, seed 1, 95-110k): of the fed, empty, still ants loafing on
+/// the mound, 18-19% of their decisions came within 3 cells of a delivery in
+/// the window before (`return_window`), because deliveries land at the door
+/// (with the store reading) or 31-48 rows down (the playtest line) while
+/// the loafers stand 0-31 columns out and 5-17 rows up the mound; and a
+/// carrier that never unloads -- 88% of laden walks home were 20+ cells from
+/// the door in the store-reading + `FORAGER_NODIG` burst -- told no one. Yet
+/// the drive, once held, works: fed empty ants on the mound with it step at
+/// a chance of 0.56-0.82, without it ~0. In harvester ants the cue is the
+/// rate of antennal contacts with foragers returning with food as they come
+/// in (Gordon's work on *Pogonomyrmex*). Here every tick a forager carries a
+/// trip's food (`trip_load`, crop food) it stamps every ant of its kind
+/// within `reach` cells of its head (2 for `on`), as a delivery would.
+/// Counted in `meet_way_stamps`.
+pub fn meet_way_reach() -> i32 {
+    static V: std::sync::OnceLock<i32> = std::sync::OnceLock::new();
+    *V.get_or_init(|| parse_meet_way(&std::env::var("PIXEL_PHYSICS_MEET_WAY").unwrap_or_default()))
+}
+
+pub fn parse_meet_way(raw: &str) -> i32 {
+    match raw.trim() {
+        "" | "off" => 0,
+        "on" => MEET_WAY_REACH,
+        v => v.parse::<i32>().ok().filter(|&r| r > 0).unwrap_or_else(|| panic!("PIXEL_PHYSICS_MEET_WAY={v:?}: use off, on or a reach in cells")),
+    }
+}
+
+/// [`meet_way_reach`]'s `on`: a body's length either side of the head.
+pub const MEET_WAY_REACH: i32 = 2;
+
+/// **The meeting on the way** ([`meet_way_reach`]): a carrier of a trip's
+/// food stamps the ants within reach of its head. Off, one read.
+fn meet_on_way(world: &mut World, carrier: OrganismId, (hx, hy): (i32, i32)) {
+    let reach = meet_way_reach();
+    if reach == 0 {
+        return;
+    }
+    let Some(state) = world.organism(carrier) else { return };
+    if !state.trip_load || state.crop.is_none_or(|c| c.worth() <= 0.0) {
+        return;
+    }
+    let species = state.species;
+    let now = world.frame.max(1);
+    let mut met: Vec<OrganismId> = Vec::new();
+    for y in hy - reach..=hy + reach {
+        for x in hx - reach..=hx + reach {
+            let id = world.get(x, y).organism_id();
+            if id != 0 && id != carrier && !met.contains(&id) && world.organism(id).is_some_and(|s| s.species == species) {
+                met.push(id);
+            }
+        }
+    }
+    world.creature_stats.meet_way_stamps += met.len() as u64;
+    for id in met {
+        if let Some(s) = world.organism_mut(id) {
+            s.return_met = now;
+        }
+    }
+}
+
+/// **`PIXEL_PHYSICS_LAY_BRAKE`: a layer holds its egg while it stands
+/// crowded, or while its own last reading of the store was low**
+/// (2026-10-09, off; the owner's choice of cues). Two of tonight's arms
+/// boomed and then starved: `MOUND_IN` (seed 1: 747 -> 964 ants in 10k
+/// frames, the store 43 -> 3, 308 starved in the nest in the next 10k with
+/// the door open) and `RECRUIT` (seed 1: the colony grew to 699 against 490
+/// and the nest's one shaft jammed solid from 37.5k -- 211 ants a median 570
+/// decisions each in the door column and shaft, 85% empty and outbound, none
+/// laden, one open direction -- and no food came home for 20k frames).
+/// `FeedFirst`'s cue, a starving larva in reach, never fired, the starving
+/// larvae having fallen out of every layer's reach. These two cues are where
+/// the layer stands, and it lays at the door (94% at or in the mound).
+///
+/// - **Crowded**: of the cells within `reach` of its head (Chebyshev), the
+///   share holding a nestmate's body is at least `crowd`. The brain's own
+///   `Crowding` is one colony-wide number at the nest (`room_gate`), so the
+///   brake counts for itself.
+/// - **Store low**: its last store reading ([`OrganismState::store_read_at`],
+///   `store_read_low`) is no older than `window` frames and read at least
+///   `low`. Readings are taken as [`StoreRead`] takes them (a bite at the
+///   store, turned away at an empty one) while either switch is on; with
+///   `StoreRead` off they steer nothing else (its drive reads its own flag).
+///
+/// Parts: `on` (`crowd=0.5`, `reach=3`, `low=0.5`, `window=1400`); each of
+/// those as `name=<v>`; `nocrowd` and `nostore` for leave-one-out. Counted
+/// in `lay_brake_crowded` and `lay_brake_store`.
+///
+/// **Measured 2026-10-09: steadier to 120k, worse after.** Recruitment, heap
+/// 90, seeds 1-4, 60-120k: biggest fall 18-331 -> 26-78, adults starved
+/// 1-539 -> 2-30, and seed 1's shaft jam gone. 120-240k (seeds 1-2): adults
+/// starved 8-12 -> 488-792, store at 0. The crowding cue did nearly all the
+/// holding (22-32k checks against 13-31 for the store cue, which a layer
+/// rarely reads) and delays eggs rather than cutting them. Stays off; the
+/// long-run starvation is untraced (`Reports/dead-ends.md`).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct LayBrake {
+    pub on: bool,
+    pub crowd_on: bool,
+    pub store: bool,
+    pub crowd: f32,
+    pub reach: i32,
+    pub low: f32,
+    pub window: u64,
+}
+
+impl LayBrake {
+    pub const OFF: LayBrake = LayBrake { on: false, crowd_on: false, store: false, crowd: 0.5, reach: 3, low: 0.5, window: 1400 };
+}
+
+/// Why [`LayBrake`] held an egg.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LayHold {
+    Crowded,
+    StoreLow,
+}
+
+pub fn lay_brake() -> LayBrake {
+    static V: std::sync::OnceLock<LayBrake> = std::sync::OnceLock::new();
+    *V.get_or_init(|| parse_lay_brake(&std::env::var("PIXEL_PHYSICS_LAY_BRAKE").unwrap_or_default()))
+}
+
+pub fn parse_lay_brake(raw: &str) -> LayBrake {
+    let raw = raw.trim();
+    if raw.is_empty() || raw == "off" {
+        return LayBrake::OFF;
+    }
+    let mut b = LayBrake { on: true, crowd_on: true, store: true, ..LayBrake::OFF };
+    for part in raw.split(',').map(str::trim) {
+        let num = |p: &str| part.strip_prefix(p).and_then(|v| v.parse::<f32>().ok()).filter(|v| *v > 0.0);
+        if part == "on" {
+        } else if part == "nocrowd" {
+            b.crowd_on = false;
+        } else if part == "nostore" {
+            b.store = false;
+        } else if let Some(v) = num("crowd=") {
+            b.crowd = v;
+        } else if let Some(v) = num("reach=") {
+            b.reach = v as i32;
+        } else if let Some(v) = num("low=") {
+            b.low = v;
+        } else if let Some(v) = num("window=") {
+            b.window = v as u64;
+        } else {
+            panic!("PIXEL_PHYSICS_LAY_BRAKE={raw:?}: unknown part {part:?}; use off, on, crowd=, reach=, low=, window=, nocrowd, nostore");
+        }
+    }
+    b
+}
+
+/// **The share of the cells round `head` holding a nestmate's body**
+/// ([`LayBrake`]): animal cells of `organism`'s species, not its own, over
+/// the `(2 reach + 1)^2` box.
+fn nestmate_share(world: &World, organism: OrganismId, head: (i32, i32), reach: i32) -> f32 {
+    let Some(species) = world.organism(organism).map(|s| s.species) else { return 0.0 };
+    let mut n = 0u32;
+    let mut cells = 0u32;
+    for y in head.1 - reach..=head.1 + reach {
+        for x in head.0 - reach..=head.0 + reach {
+            if !world.in_bounds(x, y) {
+                continue;
+            }
+            cells += 1;
+            let id = world.get(x, y).organism_id();
+            if id != 0 && id != organism && world.organism(id).is_some_and(|s| s.species == species) {
+                n += 1;
+            }
+        }
+    }
+    if cells == 0 { 0.0 } else { n as f32 / cells as f32 }
+}
+
+/// **Whether [`LayBrake`] holds this layer's egg, and why.**
+fn lay_brake_holds(world: &World, organism: OrganismId, head: (i32, i32), b: LayBrake) -> Option<LayHold> {
+    if b.crowd_on && nestmate_share(world, organism, head, b.reach) >= b.crowd {
+        return Some(LayHold::Crowded);
+    }
+    let s = world.organism(organism)?;
+    if b.store && s.store_read_at > 0 && world.frame.saturating_sub(s.store_read_at) <= b.window && s.store_read_low >= b.low {
+        return Some(LayHold::StoreLow);
+    }
+    None
+}
+
+/// **`PIXEL_PHYSICS_RECRUIT`: a newcomer is recruited to forage by the rate
+/// at which returning carriers touch it** (2026-10-09, off; the owner's
+/// design). The forage drive ([`colony_drive_level`]) reads 0 for an ant
+/// that has never foraged, and a brain census of the playtest line (heap-90
+/// box, seed 1; `deeptrace brain=1`, the decomposition rebuilding the
+/// brain's `Move` on every row) found the mound's loafers are exactly those
+/// ants and nest workers: a fed, empty ant with no pull sits at a `Move` sum
+/// of about -0.05 (bias +2, fed -1.75, crowding -0.3), so its step chance is
+/// 0, and only the drive's pacing ([`forage_pace`], +1.75 at a full drive)
+/// lifts it -- to ~0.56 for ants that have foraged; never-foraged ones stood
+/// on 98% of such rows. A census every 1k frames put 70% of them on the
+/// mound, with a laden carrier within 2 cells of 78% (within 5, 95%). In
+/// harvester ants a waiting forager goes out when the *rate* of contacts
+/// with foragers returning with food is high enough (Gordon's work on
+/// *Pogonomyrmex*), not on one contact -- and here one contact would recruit
+/// nearly every newcomer at once, the stuck carriers making the mound smell
+/// busy whether or not food comes in.
+///
+/// On, each tick a carrier of a trip's food that still has its patience
+/// (`home_patience >= RECRUIT_PATIENCE`: on its way in, not lost) touches
+/// every ant of its kind within `reach` cells of its head that has never
+/// foraged and is not nest-bound; a carrier other than the last one counted
+/// adds 1 to the ant's count ([`OrganismState::recruit_n`]), which decays
+/// by `e^-1` every `tau` frames, and stamps its `return_met`. While the
+/// count stands at `k` or more, the ant reads the `met` drive as an ant
+/// that has foraged does. Parts: `on` (`k=5`, `tau=1400`, `reach=2`);
+/// `k=<n>`, `tau=<frames>`, `reach=<cells>`. Counted in `recruit_contacts`
+/// and `recruited`.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Recruit {
+    pub on: bool,
+    pub k: f32,
+    pub tau: f32,
+    pub reach: i32,
+}
+
+impl Recruit {
+    pub const OFF: Recruit = Recruit { on: false, k: 5.0, tau: 1400.0, reach: 2 };
+}
+
+/// A carrier's patience at or over which its touch recruits ([`Recruit`]).
+pub const RECRUIT_PATIENCE: f32 = 0.5;
+
+pub fn recruit_of(_world: &World) -> Recruit {
+    static V: std::sync::OnceLock<Recruit> = std::sync::OnceLock::new();
+    *V.get_or_init(|| parse_recruit(&std::env::var("PIXEL_PHYSICS_RECRUIT").unwrap_or_default()))
+}
+
+pub fn parse_recruit(raw: &str) -> Recruit {
+    let mut r = Recruit::OFF;
+    let raw = raw.trim();
+    if raw.is_empty() || raw == "off" {
+        return r;
+    }
+    for part in raw.split(',').map(str::trim) {
+        if part == "on" {
+            r.on = true;
+        } else if let Some(v) = part.strip_prefix("k=").and_then(|v| v.parse::<f32>().ok()).filter(|&v| v > 0.0) {
+            r.on = true;
+            r.k = v;
+        } else if let Some(v) = part.strip_prefix("tau=").and_then(|v| v.parse::<f32>().ok()).filter(|&v| v > 0.0) {
+            r.on = true;
+            r.tau = v;
+        } else if let Some(v) = part.strip_prefix("reach=").and_then(|v| v.parse::<i32>().ok()).filter(|&v| v > 0) {
+            r.on = true;
+            r.reach = v;
+        } else {
+            panic!("PIXEL_PHYSICS_RECRUIT={raw:?}: unknown part {part:?}; use off, on, k=<n>, tau=<frames>, reach=<cells>");
+        }
+    }
+    r
+}
+
+/// **An ant's contact count now** ([`Recruit`]): its count decayed from
+/// `recruit_at` to `now`.
+fn recruit_level(r: Recruit, n: f32, at: u64, now: u64) -> f32 {
+    n * (-(now.saturating_sub(at) as f32) / r.tau).exp()
+}
+
+/// **Whether a never-foraged ant reads the drive** ([`Recruit`]): the switch
+/// on and its count at `k` or more.
+fn recruited_now(world: &World, state: &crate::sim::organism::OrganismState) -> bool {
+    let r = recruit_of(world);
+    r.on && recruit_level(r, state.recruit_n, state.recruit_at, world.frame) >= r.k
+}
+
+/// **A returning carrier touches the newcomers beside it** ([`Recruit`]).
+/// Off, one read.
+fn recruit_contacts(world: &mut World, carrier: OrganismId, (hx, hy): (i32, i32)) {
+    let r = recruit_of(world);
+    if !r.on {
+        return;
+    }
+    let Some(state) = world.organism(carrier) else { return };
+    if !state.trip_load || state.crop.is_none_or(|c| c.worth() <= 0.0) || state.home_patience < RECRUIT_PATIENCE {
+        return;
+    }
+    let species = state.species;
+    let now = world.frame.max(1);
+    let mut touched: Vec<OrganismId> = Vec::new();
+    for y in hy - r.reach..=hy + r.reach {
+        for x in hx - r.reach..=hx + r.reach {
+            let id = world.get(x, y).organism_id();
+            if id != 0 && id != carrier && !touched.contains(&id) {
+                touched.push(id);
+            }
+        }
+    }
+    for id in touched {
+        let Some(s) = world.organism_mut(id) else { continue };
+        if s.species != species || s.foraged || s.nest_bound_until > now || s.recruit_last == carrier {
+            continue;
+        }
+        let before = recruit_level(r, s.recruit_n, s.recruit_at, now);
+        s.recruit_n = before + 1.0;
+        s.recruit_at = now;
+        s.recruit_last = carrier;
+        s.return_met = now;
+        let crossed = before < r.k && before + 1.0 >= r.k;
+        world.creature_stats.recruit_contacts += 1;
+        world.creature_stats.recruited += u64::from(crossed);
     }
 }
 
@@ -23631,6 +24660,11 @@ fn home_pull(world: &World, organism: OrganismId, def: &CreatureDef, head: (i32,
     if def.home_bias > 0.0 && ready_to_lay(world, def, state) && !nest_within_reach(world, organism, head.0, head.1, def) {
         return Some((home_target(world, state), def.home_bias));
     }
+    // **...and in, past the door, while there is nowhere to lay**
+    // ([`lay_in_of`]). Off, one branch.
+    if let Some(t) = lay_in_target(world, organism, def, state, head) {
+        return Some((t, def.home_bias));
+    }
     // **A fed nest-bound ant that strays is pulled home** ([`is_nest_bound`]),
     // as a laden ant is, to where it last stood beside the nest.
     if def.home_bias > 0.0
@@ -23690,6 +24724,10 @@ fn home_pull(world: &World, organism: OrganismId, def: &CreatureDef, head: (i32,
             if let Some(t) = nurse_in_target(world, state, head) {
                 return Some((t, def.home_bias));
             }
+            // **Down the mound's way in** ([`mound_in_of`], off).
+            if let Some(t) = mound_in_target(world, state, head) {
+                return Some((t, def.home_bias));
+            }
             Some((home_target(world, state), def.home_bias))
         }
     }
@@ -23716,6 +24754,9 @@ fn home_pull_why(world: &World, organism: OrganismId, def: &CreatureDef, head: (
         }
         if ready_to_lay(world, def, state) && !nest_within_reach(world, organism, head.0, head.1, def) {
             return (PULL_LAY, Some(home_target(world, state)));
+        }
+        if let Some(t) = lay_in_target(world, organism, def, state, head) {
+            return (PULL_LAY_IN, Some(t));
         }
         if is_nest_bound(world, state)
             && state.energy >= def.start_energy
@@ -23758,7 +24799,7 @@ fn home_pull_why(world: &World, organism: OrganismId, def: &CreatureDef, head: (
     }
     (
         PULL_LADEN,
-        Some(nurse_in_target(world, state, head).unwrap_or_else(|| home_target(world, state))),
+        Some(nurse_in_target(world, state, head).or_else(|| mound_in_target(world, state, head)).unwrap_or_else(|| home_target(world, state))),
     )
 }
 
@@ -23968,6 +25009,7 @@ fn chooser_step(
     }
     // The home memory, started again whenever the target is new, and cleared
     // whenever there is nothing to take home.
+    store_turn_away(world, organism, def, (hx, hy));
     let pull = home_pull(world, organism, def, (hx, hy));
     let pulled_home = pull.is_some();
     // **The nest's store** ([`NestStore`]): which of its pulls fired, and
@@ -23994,12 +25036,20 @@ fn chooser_step(
     // **...and on out of the mound** ([`MoundOut`]'s `way`), where the way
     // out gave nothing: at the door and above it.
     let mut pulled_mound = false;
+    let mut pulled_store_out = false;
     let pull = match pull {
         Some(p) => Some(p),
         None => {
             let out = hungry_out_pull(world, organism, def, (hx, hy));
             world.creature_stats.hungry_out_pulls += u64::from(out.is_some());
             world.creature_stats.needs_throttle_lifted += u64::from(out.is_some() && world.organism(organism).is_some_and(|st| throttle_lifted(world, st, def)));
+            // **...or, sent out by the drive, the same way** ([`StoreRead`]).
+            let out = out.or_else(|| {
+                let sent = store_out_pull(world, organism, def, (hx, hy));
+                pulled_store_out = sent.is_some();
+                world.creature_stats.store_out_pulls += u64::from(pulled_store_out);
+                sent
+            });
             if out.is_some() {
                 out
             } else {
@@ -24027,7 +25077,10 @@ fn chooser_step(
     // (seed 1, 10-60k), nurses holding crop food above ground had patience
     // 0.19-0.38, stood 4-20 columns off the door on the mound, and 0.3-2.0
     // of 5-28 were underground.
+    let mound_in = pulled_home && world.organism(organism).is_some_and(|s| nurse_in_target(world, s, (hx, hy)).is_none() && mound_in_target(world, s, (hx, hy)).is_some());
+    world.creature_stats.mound_in_pulls += u64::from(mound_in);
     let leashed = store_pull.is_some()
+        || mound_in
         || (nest_leash_deep() && pull.is_some() && nest_leash_holds(world, organism, def))
         || (pull.is_some()
             && world
@@ -24330,6 +25383,8 @@ fn chooser_step(
             }
         } else if pulled_mound {
             PULL_MOUND_OUT
+        } else if pulled_store_out {
+            PULL_STORE_OUT
         } else if pulled_out {
             PULL_HUNGRY_OUT
         } else if pull.is_some() {
@@ -32817,6 +33872,51 @@ mod tests {
         w.nest_ways.clear();
         step_nest_rest(&mut w);
         assert!((41..=47).all(|y| w.nest_ways[0].at(80, y).is_some()), "under `below` the way in does not run up the second way out");
+    }
+
+    /// **A ready layer beside home with nowhere to put the egg is pulled in,
+    /// along the passages away from the door** ([`lay_in_of`]). In the
+    /// chamber under its door with every cell round it filled, so no egg
+    /// site is in reach, a rich ant's pull is further in by the way in than
+    /// its head. The controls: the same ant with the chamber open (a site in
+    /// reach) is not pulled, and neither is a poor one (not ready). Watched
+    /// red with the egg-site test inverted (the open chamber pulled).
+    #[test]
+    fn a_ready_layer_with_nowhere_to_lay_walks_in() {
+        let pull = |fill: bool, rich: bool| {
+            let (mut w, a) = rest_world(63, 47, false);
+            w.way_gaps = Some(WayGaps::OFF);
+            w.nest_home = Some(NestHome::Shaft);
+            w.brood = Some(true);
+            w.bud_at_nest = Some(true);
+            w.nest_ways.clear();
+            step_nest_rest(&mut w);
+            let def = w.species.get(w.organism(a).expect("live").species).creature.clone().expect("a creature");
+            if rich {
+                w.organism_mut(a).expect("live").energy = 50.0 * def.reproduce_threshold.max(def.start_energy);
+            }
+            let st = w.organism(a).expect("live").clone();
+            let head = st.chain[0];
+            if fill {
+                let sand = Cell::new(material::SAND, 0);
+                for y in head.1 - 6..=head.1 + 6 {
+                    for x in head.0 - 6..=head.0 + 6 {
+                        if w.is_empty(x, y) {
+                            w.set(x, y, sand);
+                        }
+                    }
+                }
+            }
+            assert!(nest_within_reach(&w, a, head.0, head.1, &def), "test setup: the ant at {head:?} is not beside home");
+            assert_eq!(ready_to_lay(&w, &def, &st), rich, "test setup: ready to lay is not {rich}");
+            let way = w.nest_ways[0].clone();
+            (head, lay_in_pull(&w, a, &def, &st, head), way)
+        };
+        let ((hx, hy), got, way) = pull(true, true);
+        let (tx, ty) = got.expect("a ready layer with no egg site in reach was not pulled in");
+        assert!(way.at(tx, ty) > way.at(hx, hy), "the pull at ({tx}, {ty}) is not further in than the ant at ({hx}, {hy})");
+        assert_eq!(pull(false, true).1, None, "a ready layer with an egg site in reach was pulled");
+        assert_eq!(pull(true, false).1, None, "an ant not ready to lay was pulled");
     }
 
     /// **[`NestStore`] parses its parts**, and a typo panics rather than
@@ -41339,6 +42439,156 @@ mod tests {
         assert_eq!(parse_trip_reach("0"), Some(0), "a reach of 0");
         assert_eq!(parse_trip_reach("-1"), TRIP_REACH_UNSET, "a negative reach is unreadable");
         assert_eq!(parse_trip_reach("far"), TRIP_REACH_UNSET, "a word it does not know is unset");
+    }
+
+    /// **The spoil side reads the food trail** ([`less_trail_side`],
+    /// [`spoil_side_of`]): with trail B laid east of a carrier the east side
+    /// is refused, laid west the west is, and with none at all there is no
+    /// answer (the old rule stands). Trail beyond [`SPOIL_SIDE_FAR`] is not
+    /// smelt. Watched red with the comparison reversed (east chosen).
+    #[test]
+    fn a_carrier_takes_its_pellet_away_from_the_food_trail() {
+        let mut w = World::new(Rect::new(0, 0, 119, 99));
+        let head = (60, 40);
+        assert_eq!(less_trail_side(&w, head), None, "no trail at all gave a side");
+        w.deposit_pheromone(Channel::B, 64, 40, 200);
+        assert_eq!(less_trail_side(&w, head), Some(-1), "trail east of the carrier did not send it west");
+        let mut w = World::new(Rect::new(0, 0, 119, 99));
+        w.deposit_pheromone(Channel::B, 55, 39, 200);
+        assert_eq!(less_trail_side(&w, head), Some(1), "trail west of the carrier did not send it east");
+        let mut w = World::new(Rect::new(0, 0, 119, 99));
+        w.deposit_pheromone(Channel::B, 60 + SPOIL_SIDE_FAR + 1, 40, 200);
+        assert_eq!(less_trail_side(&w, head), None, "trail out of reach was smelt");
+    }
+
+    /// **`PIXEL_PHYSICS_STORE_BRAKE` reads its parts, and its curve has the
+    /// shape its doc gives** ([`parse_store_brake`], [`store_brake_curve`]):
+    /// no effect at or above `hi`, rising to `FOOD_BRAKE_MAX` towards `lo`,
+    /// no egg at or below `lo` at full strength, and only a finite raise in
+    /// a colony still growing into the brake. Tight asserts on pure
+    /// functions, not watched red.
+    #[test]
+    fn the_store_brake_reads_its_parts_and_ramps_to_a_stop() {
+        assert_eq!(parse_store_brake(""), StoreBrake::OFF);
+        assert_eq!(parse_store_brake("on"), StoreBrake { on: true, lo: 1.0, hi: 5.0 });
+        assert_eq!(parse_store_brake("2,8"), StoreBrake { on: true, lo: 2.0, hi: 8.0 });
+        assert!(std::panic::catch_unwind(|| parse_store_brake("8,2")).is_err());
+        let b = parse_store_brake("on");
+        assert_eq!(store_brake_curve(b, 5.0, 1.0), 1.0);
+        assert_eq!(store_brake_curve(b, 9.0, 1.0), 1.0);
+        assert!((store_brake_curve(b, 3.0, 1.0) - (1.0 + (FOOD_BRAKE_MAX - 1.0) * 0.5)).abs() < 1e-5);
+        assert!(store_brake_curve(b, 1.0, 1.0).is_infinite());
+        assert!(store_brake_curve(b, 0.0, 1.0).is_infinite());
+        let half = store_brake_curve(b, 0.0, 0.5);
+        assert!(half.is_finite() && half > 1.0, "a growing colony's stop must be a finite raise, read {half}");
+    }
+
+    /// **`PIXEL_PHYSICS_LAY_BRAKE` reads its parts** ([`parse_lay_brake`]).
+    /// A table, not watched red.
+    #[test]
+    fn parse_lay_brake_reads_its_parts() {
+        assert_eq!(parse_lay_brake(""), LayBrake::OFF);
+        assert_eq!(parse_lay_brake("on"), LayBrake { on: true, crowd_on: true, store: true, ..LayBrake::OFF });
+        let b = parse_lay_brake("crowd=0.4,reach=2,nostore");
+        assert!(b.on && b.crowd_on && !b.store && (b.crowd - 0.4).abs() < 1e-6 && b.reach == 2);
+        assert!(std::panic::catch_unwind(|| parse_lay_brake("on,soft")).is_err());
+    }
+
+    /// **The brake's crowding counts nestmates' cells, not the layer's own**
+    /// ([`nestmate_share`]): a lone ant reads 0, and with a second ant laid
+    /// beside it the share is that ant's cells over the box. Watched red
+    /// with the own-body exclusion removed (the lone ant read its own cells).
+    #[test]
+    fn a_layer_alone_is_not_crowded() {
+        let (mut w, a) = rest_world(58, 47, false);
+        let alone = nestmate_share(&w, a, (58, 47), 5);
+        assert_eq!(alone, 0.0, "a lone ant read its own body as a crowd");
+        let b = spawn(&mut w, "ant", 62, 47);
+        let share = nestmate_share(&w, a, (58, 47), 5);
+        let cells = w.organism(b).map_or(0, |s| s.chain.len()) as f32;
+        assert!(cells > 0.0 && (share - cells / 121.0).abs() < 1e-6, "a neighbour's {cells} cells read {share}");
+    }
+
+    /// **`PIXEL_PHYSICS_RECRUIT` reads its parts** ([`parse_recruit`]), and a
+    /// part it does not know panics. A table, not watched red.
+    #[test]
+    fn parse_recruit_reads_its_parts() {
+        assert_eq!(parse_recruit(""), Recruit::OFF);
+        assert_eq!(parse_recruit("on"), Recruit { on: true, ..Recruit::OFF });
+        assert_eq!(parse_recruit("k=3,tau=700,reach=1"), Recruit { on: true, k: 3.0, tau: 700.0, reach: 1 });
+        assert!(std::panic::catch_unwind(|| parse_recruit("on,fast")).is_err());
+    }
+
+    /// **The contact count decays by `e^-1` a `tau`** ([`recruit_level`]):
+    /// 5 contacts read 5 at once, 5/e one `tau` later, so a newcomer touched
+    /// five times in a burst is recruited and falls out within about one
+    /// window with no more contacts. A tight assert on a deterministic
+    /// function, not watched red.
+    #[test]
+    fn a_contact_count_decays_over_tau() {
+        let r = Recruit { on: true, ..Recruit::OFF };
+        assert!((recruit_level(r, 5.0, 1000, 1000) - 5.0).abs() < 1e-6);
+        assert!((recruit_level(r, 5.0, 1000, 2400) - 5.0 / std::f32::consts::E).abs() < 1e-4);
+        assert!(recruit_level(r, 5.0, 1000, 1000 + 1400 / 4) < r.k, "a burst of exactly k held its recruitment a quarter tau");
+    }
+
+    /// **`PIXEL_PHYSICS_MEET_WAY` reads its spellings** ([`parse_meet_way`]),
+    /// and a word it does not know panics. A table, not watched red.
+    #[test]
+    fn parse_meet_way_reads_its_spellings() {
+        assert_eq!(parse_meet_way(""), 0);
+        assert_eq!(parse_meet_way("off"), 0);
+        assert_eq!(parse_meet_way("on"), MEET_WAY_REACH);
+        assert_eq!(parse_meet_way(" 3 "), 3);
+        assert!(std::panic::catch_unwind(|| parse_meet_way("far")).is_err());
+        assert!(std::panic::catch_unwind(|| parse_meet_way("0")).is_err());
+    }
+
+    /// **`PIXEL_PHYSICS_STORE_READ` reads its parts** ([`parse_store_read`]),
+    /// and a part it does not know panics (a mistyped switch must not fail
+    /// open). A table over the parser, not watched red.
+    #[test]
+    fn parse_store_read_reads_its_parts() {
+        assert_eq!(parse_store_read(""), StoreRead::OFF);
+        assert_eq!(parse_store_read("off"), StoreRead::OFF);
+        assert_eq!(parse_store_read("on"), StoreRead { on: true, ..StoreRead::OFF });
+        assert_eq!(parse_store_read("on,reach=8"), StoreRead { on: true, line: 12, reach: 8 });
+        assert_eq!(parse_store_read("line=20"), StoreRead { on: true, line: 20, reach: 4 });
+        assert!(std::panic::catch_unwind(|| parse_store_read("on,far")).is_err(), "an unknown part was read");
+    }
+
+    /// **The store reading counts the food in reach** ([`local_store_food`],
+    /// [`StoreRead`]'s reading): store cells over a square round the head: a store
+    /// cell 4 away counts at reach 4, 5 away does not. A tight assert on a
+    /// deterministic count, not watched red.
+    #[test]
+    fn a_store_reading_counts_the_food_in_reach() {
+        let (mut w, _) = rest_world(63, 47, false);
+        let fruit = w.materials.id_of("fruit").expect("fruit");
+        let head = (61, 47);
+        for &(x, y) in &[(65, 46), (66, 46), (64, 47), (57, 46)] {
+            w.set(x, y, Cell::new(fruit, 0));
+        }
+        let site = 0;
+        let n4 = local_store_food(&w, site, head, 4);
+        let n5 = local_store_food(&w, site, head, 5);
+        let n0 = local_store_food(&w, site, head, 0);
+        assert!(n5 > n4, "a store cell 5 away was not counted at reach 5 ({n5} against {n4})");
+        assert_eq!(n0, 0, "a reach of 0 sensed food");
+        assert!(n4 >= 2, "food 3-4 cells away was not counted at reach 4: {n4}");
+    }
+
+    /// **`PIXEL_PHYSICS_FORAGER_NODIG` reads its spellings**
+    /// ([`parse_forager_nodig`]); a word it does not know is reported and
+    /// read as off. A table over the parser, not watched red.
+    #[test]
+    fn parse_forager_nodig_reads_its_spellings() {
+        assert_eq!(parse_forager_nodig(""), None, "unset is off");
+        assert_eq!(parse_forager_nodig("off"), None, "off");
+        assert_eq!(parse_forager_nodig("on"), Some(0.5), "on is the half line");
+        assert_eq!(parse_forager_nodig(" 0.8 "), Some(0.8), "a line");
+        assert_eq!(parse_forager_nodig("3"), Some(1.0), "a line is clamped to 1");
+        assert_eq!(parse_forager_nodig("far"), None, "a word it does not know is off");
     }
 
     /// A stone floor from row 41 over `w`'s width, and a nest site
@@ -51232,6 +52482,32 @@ mod tests {
             assert_eq!(spoil_site_open(&w, x, y, false), shipped, "shipped rule, {what}");
             assert_eq!(spoil_site_open(&w, x, y, true), footed, "footing rule, {what}");
         }
+    }
+
+    /// **A tunnel dug by hand stands** ([`hand_dig`], the lab's `DIG` brush):
+    /// a 3-row gallery cut through `founding_bed`'s soil is still at least 90%
+    /// open after 120 frames, and the stone in its path is left. The unlined
+    /// arm is the control that says this bed brings an unlined roof down at
+    /// all -- the same pairing as the side room's guard above.
+    #[test]
+    fn a_tunnel_dug_by_hand_stands() {
+        let open_after = |line: bool| -> (usize, usize, bool) {
+            let mut w = founding_bed();
+            w.set(60, 61, Cell::new(material::STONE, 0).with_attached(true));
+            let gallery: Vec<(i32, i32)> = (30..90).flat_map(|x| (60..63).map(move |y| (x, y))).collect();
+            let cut = hand_dig_with(&mut w, &gallery, line) as usize;
+            let stone_kept = w.get(60, 61).material == material::STONE;
+            for _ in 0..120 {
+                crate::sim::parallel::step(&mut w);
+            }
+            (gallery.iter().filter(|&&(x, y)| w.get(x, y).material == material::EMPTY).count(), cut, stone_kept)
+        };
+        let (lined, cut, stone_kept) = open_after(true);
+        assert_eq!(cut, 179, "every soil cell of the 60x3 band but the stone is cut");
+        assert!(stone_kept, "the brush dug stone");
+        assert!(lined * 10 >= cut * 9, "the lined roof fell in: {lined} of {cut} cells still open");
+        let (bare, _, _) = open_after(false);
+        assert!(bare * 2 < cut, "the control: an unlined cut should fall in on this bed, but {bare} of {cut} stayed open");
     }
 
     /// **`PIXEL_PHYSICS_SPOIL_PACKS=off` leaves a pellet a pellet and still

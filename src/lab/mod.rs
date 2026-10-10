@@ -2118,6 +2118,7 @@ impl Lab {
             match self.ui.tool() {
                 ui::Tool::Food => format!("PAINTED FOOD AT {x},{y} -- {} CELLS", stroke.cells),
                 ui::Tool::Soil => format!("PAINTED SOIL AT {x},{y} -- {} CELLS", stroke.cells),
+                ui::Tool::Dig => format!("DUG AT {x},{y} -- {} CELLS", stroke.cells),
                 ui::Tool::Scent => format!("LAID SCENT AT {x},{y}"),
                 _ => return,
             }
@@ -2227,6 +2228,12 @@ impl Lab {
             self.paint_scent(from, to);
             return 0;
         }
+        // **`Dig` takes ground out rather than putting a material in**, so it
+        // is intercepted here for `Scent`'s reason: the `_` arm below would
+        // paint soil.
+        if !erase && self.ui.tool() == ui::Tool::Dig {
+            return self.dig_span(from, to);
+        }
         let radius = self.ui.brush();
         let (id, aux) = if erase {
             (material::EMPTY, 0)
@@ -2300,6 +2307,28 @@ impl Lab {
             }
         }
         changed
+    }
+
+    /// **[`ui::Tool::Dig`] along one span of the brush**: every cell within
+    /// the brush radius of the segment, handed to `creature::hand_dig`, which
+    /// clears the ground and lines the walls. Returns the cells cleared.
+    fn dig_span(&mut self, from: (i32, i32), to: (i32, i32)) -> u32 {
+        let r = self.ui.brush().max(0);
+        let (ax, ay, bx, by) = (from.0 as f32, from.1 as f32, to.0 as f32, to.1 as f32);
+        let (dx, dy) = (bx - ax, by - ay);
+        let len2 = (dx * dx + dy * dy).max(1e-6);
+        let reach = r as f32 + 0.5;
+        let mut cells = Vec::new();
+        for y in (from.1.min(to.1) - r)..=(from.1.max(to.1) + r) {
+            for x in (from.0.min(to.0) - r)..=(from.0.max(to.0) + r) {
+                let t = (((x as f32 - ax) * dx + (y as f32 - ay) * dy) / len2).clamp(0.0, 1.0);
+                let (px, py) = (ax + t * dx - x as f32, ay + t * dy - y as f32);
+                if px * px + py * py <= reach * reach {
+                    cells.push((x, y));
+                }
+            }
+        }
+        crate::sim::creature::hand_dig(&mut self.world, &cells)
     }
 
     /// Lay [`ui::Tool::Scent`]'s armed plane along one span of the brush --
@@ -2383,7 +2412,7 @@ impl Lab {
             ui::Tool::Fire => self.fire_at(x, y),
             // The brushes never arrive here: they paint from `press`, so a
             // release that also painted would double the last dab.
-            ui::Tool::Soil | ui::Tool::Water | ui::Tool::Food | ui::Tool::Scent => {}
+            ui::Tool::Soil | ui::Tool::Dig | ui::Tool::Water | ui::Tool::Food | ui::Tool::Scent => {}
         }
     }
 

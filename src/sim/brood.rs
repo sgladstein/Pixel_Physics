@@ -134,8 +134,37 @@ fn lay_reach() -> i32 {
 /// `PIXEL_PHYSICS_NURSE=off`: no feeding by touch ([`nurse`]), for the
 /// control arm. Unset or anything else, on.
 fn nurse_env() -> bool {
-    static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *V.get_or_init(|| std::env::var("PIXEL_PHYSICS_NURSE").map_or(true, |v| v.trim() != "off"))
+    nurse_mode() != NurseMode::Off
+}
+
+/// Who feeds a larva from their own bank by touch ([`nurse`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum NurseMode {
+    Off,
+    /// Any grown nestmate above its grant (the shipped rule).
+    Any,
+    /// **`PIXEL_PHYSICS_NURSE=workers`: only a nest-bound ant**
+    /// (`creature::is_nest_bound`) gives from its bank (2026-10-08, off;
+    /// the owner's "nurses only feed the brood", after the doorway trace:
+    /// every rich ant that stepped into the nest was stripped to its grant
+    /// within a few hundred frames -- 3,585 -> 211 J, 1,151 -> 210 J,
+    /// 556 -> 187 J, 428 -> 195 J, on four traced ants, heap-90 stack, seed
+    /// 1 -- because the top rows under the door hold ~360 larvae and the
+    /// richest adult touching each pays a quarter of its surplus every larva
+    /// tick; fed ants there gave ~19x their upkeep). Foragers and would-be
+    /// layers then pass the brood with their banks whole; crop food
+    /// ([`crop_feed`]) still goes to any larva a carrier touches, since that
+    /// food is the colony's, not the carrier's next egg.
+    Workers,
+}
+
+pub fn nurse_mode() -> NurseMode {
+    static V: std::sync::OnceLock<NurseMode> = std::sync::OnceLock::new();
+    *V.get_or_init(|| match std::env::var("PIXEL_PHYSICS_NURSE").as_deref().map(str::trim) {
+        Ok("off") => NurseMode::Off,
+        Ok("workers") => NurseMode::Workers,
+        _ => NurseMode::Any,
+    })
 }
 
 /// `PIXEL_PHYSICS_LAY_AT=<J>`: override the brood block's `lay_at`, for a
@@ -990,6 +1019,7 @@ fn nurse(world: &mut World, larva: OrganismId, (x, y): (i32, i32), colony: u32, 
             return;
         }
     }
+    let workers_only = nurse_mode() == NurseMode::Workers;
     let mut best: Option<(OrganismId, f32)> = None;
     for (dx, dy) in super::structural::NEIGHBOURS_8 {
         let c = world.get(x + dx, y + dy);
@@ -1002,6 +1032,11 @@ fn nurse(world: &mut World, larva: OrganismId, (x, y): (i32, i32), colony: u32, 
         }
         let Some(st) = world.organism(id) else { continue };
         if st.brood.is_some() || st.energy <= start_energy || !creature::is_living_kin_id(world, id, gut) {
+            continue;
+        }
+        // **`NURSE=workers`: only nest-bound ants give from their banks**
+        // ([`NurseMode::Workers`]).
+        if workers_only && !creature::is_nest_bound(world, st) {
             continue;
         }
         if best.is_none_or(|(_, e)| st.energy > e) {

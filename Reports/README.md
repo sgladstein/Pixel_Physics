@@ -2644,6 +2644,33 @@ drift that two of these documents still reflect.**
   a flame body, a fuel-wetness gate, and `examples/fire_probe.rs`; costs the
   three §X desert levers, two of which have changed since the record.
 
+- [playtest-2026-10-09-herb-ant/README.md](playtest-2026-10-09-herb-ant/README.md) —
+  **the owner's first plants-and-ants lab playtest, replayed with a no-ant twin
+  and taken apart (`examples/replay.rs`; the chronicle and `run.sh` / `tables.py`
+  are beside it).** *The ants strip the stand from the bottom up, and live leaf
+  is only 8% of what they eat:* six paired seeds, plants at tick 250k **11
+  against 36** with no ants, reachable foliage 102 cells against 617 (under the
+  shipped light rain the stand falls 18-57% and the reachable foliage still
+  77%, two seeds); a herb with 1-10 recorded leaf bites is 93% bare, no middle.
+  **Edibility, not energy, is the lever** -- leaf at 20, 40 and 160 J is
+  equally ruinous, an inedible leaf gives 83 plants, starved larvae 184 -> 32
+  and 80 adults at 250k against 12 -- **and a fixed plant defence does not
+  stand in for it** (0.2-0.9 costs the stand its litter, the colony its food).
+  What a colony pays: 54% more eggs per adult-tick for the same food in, 30% of
+  them starving as larvae, adult starvation 2.7x, and **eggs laid tracking the
+  share of adults above the egg bar** (the adults' banks are more unequal).
+  **Plants and nests:** roots closed 2.1% of the playtest's dug cells and wood
+  or root stopped a median 19% of dig attempts at solid ground; **a tree and a
+  conifer planted at the doors take the nest site (82% of digs hit wood, one
+  nest never passed 31 cells) and still give the biggest colonies** (median peak
+  208 against 124 adults, 21% of trips bringing food home against 13%). With no
+  ants and the rain off the stand dies out by itself (5-16 plants at 1.5M
+  ticks). **Measured on the playtest's own build `1bb916c1` (LAY_BRAKE and
+  RECRUIT, not on main).** Says what it does not establish: no ant was traced,
+  so *why* an edible leaf unequalises the banks is open. **The report is on
+  main (brought docs-only 2026-10-10); `examples/replay.rs` is only on
+  `claude/epic-bell-w6za1y`.**
+
 ## Worldgen and world  ·  `outdoor`
 
 **The 2026-08-29 revamp program** — six audits and a plan, written the day
@@ -5534,6 +5561,22 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   `MOUND_DIG` and measured: every one that stops the digging costs the
   colony a third to a half, because the hollow mound is its way to the food;
   shipped off, a dead end until a rule can tell a passage from a scrape.
+- [brood-and-the-dig-2026-10-09.md](brood-and-the-dig-2026-10-09.md) —
+  **what a larva does to an ant's digging, and whether that is why the nest is
+  one room (the owner's question).** A larva cannot be cut, but the ground
+  under it can, and a nest worker's face turn does cut it; the larva drops into
+  the pit and lives. The dig reads it as ground in two places only: the heap
+  cue's sky test (inert: one dig roll in 6,000) and the curvature sense (a larva
+  in reach on 56-61% of rolls). Hiding both, `BROOD_BLIND` (shipped off),
+  halves the dig-down turn (7.3-8.8% -> 3.8%) and leaves the nest one room
+  (8 of 8 runs at 100k and 200k, 7 of 8 at 300k, four paired seeds), and
+  digging is not drawn to brood (0.31x what the walls offer). What the diggers
+  do: stay put and cut a 9x9 patch, a third of a cell of advance per cut, on the
+  rim, trimming bumps: persistence without advance. Five always-on counters and
+  `scripts/deeptrace_pairs.py` (with a selftest) are the instruments.
+  **The report alone is on main (brought docs-only 2026-10-10); the switch,
+  counters, guards and `deeptrace_pairs.py` are only on
+  `claude/dazzling-bohr-9pa49e`.**
 - [stack-leave-one-out-2026-10-08/README.md](stack-leave-one-out-2026-10-08/README.md) —
   **the playtest stack one switch at a time on steady food: the nest store
   starves the foragers.** Taking `NEST_STORE` out cuts surface starvation on

@@ -6281,6 +6281,22 @@ pub struct OrganismState {
     /// though food had come home the day it was born. Written whatever the
     /// drive; read only under `met`.
     pub return_met: u64,
+    /// **When this ant last read the nest's store, and how low it read**
+    /// (`creature::StoreRead`, `PIXEL_PHYSICS_STORE_READ`): the frame of its
+    /// last reading at the store (0 for none) and `1 - seen / line`, 0 for a
+    /// store it read as stocked and 1 for one it was turned away from. The
+    /// forage drive reads it as it reads `return_met`. Written only while
+    /// the switch is on.
+    pub store_read_at: u64,
+    pub store_read_low: f32,
+    /// **How many returning carriers have touched this ant lately**
+    /// (`creature::Recruit`, `PIXEL_PHYSICS_RECRUIT`): a count that decays
+    /// by `e^-1` every `tau` frames, as of `recruit_at`, and the last carrier
+    /// counted, so one carrier standing beside it counts once. Written only
+    /// while the switch is on, and only for an ant that has never foraged.
+    pub recruit_n: f32,
+    pub recruit_at: u64,
+    pub recruit_last: crate::sim::cell::OrganismId,
     /// **The colony's want when the forage throttle last judged this ant at
     /// its door** (`creature::ForageThrottle`), carried on the excursion it
     /// sent the ant on. NaN until the throttle first judges it.

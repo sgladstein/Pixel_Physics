@@ -1955,6 +1955,42 @@ pub struct CreatureStats {
     /// within the roof's rows under a nest's founding surface and outside its
     /// door. 0 under `PIXEL_PHYSICS_DIG_ROOF=off`.
     pub digs_refused_roof: u64,
+    /// **`creature::forager_nodig`'s count**: dig rolls whose urge was read
+    /// as 0 because the ant's forage drive was over the line. 0 unless
+    /// `PIXEL_PHYSICS_FORAGER_NODIG` is set.
+    pub forager_digs_skipped: u64,
+    /// **`creature::StoreRead`'s counts**: bites at the store read as low
+    /// (under the line), ticks a hungry ant stood at an empty store (turned
+    /// away), and ticks an ant the drive sent out walked the way out. 0
+    /// unless `PIXEL_PHYSICS_STORE_READ` is on.
+    pub store_reads_low: u64,
+    pub store_turned_away: u64,
+    pub store_out_pulls: u64,
+    /// **`creature::meet_on_way`'s count**: ants stamped as having met a
+    /// forager carrying a trip's food past them. 0 unless
+    /// `PIXEL_PHYSICS_MEET_WAY` is set.
+    pub meet_way_stamps: u64,
+    /// **`creature::spoil_side_of`'s count**: carriers whose pellet side the
+    /// food trail turned from the side of the door they came out on. 0
+    /// unless `PIXEL_PHYSICS_SPOIL_SIDE` is set.
+    pub spoil_side_turned: u64,
+    /// **`creature::mound_in_of`'s count**: decisions a carrier was pulled
+    /// down the mound's way in. 0 unless `PIXEL_PHYSICS_MOUND_IN` is on.
+    pub mound_in_pulls: u64,
+    /// **`creature::Recruit`'s counts**: contacts counted (a returning
+    /// carrier touching an ant that has never foraged, once per carrier in a
+    /// row) and recruitments (an ant's count crossing the threshold). 0
+    /// unless `PIXEL_PHYSICS_RECRUIT` is on.
+    pub recruit_contacts: u64,
+    pub recruited: u64,
+    /// **`creature::LayBrake`'s counts**: eggs held because the layer stood
+    /// crowded, and because its last store reading was low. 0 unless
+    /// `PIXEL_PHYSICS_LAY_BRAKE` is on.
+    pub lay_brake_crowded: u64,
+    pub lay_brake_store: u64,
+    /// **`creature::StoreBrake`'s count**: egg checks that cleared every bar
+    /// but the store brake's. 0 unless `PIXEL_PHYSICS_STORE_BRAKE` is on.
+    pub store_brake_held: u64,
     /// **`creature::MoundDig`'s `roof` count**: cuts refused because their
     /// cell lay in a nest's spoil mound outside its door, the digger not shut
     /// in. Not in `digs_refused_roof`; the trace's `DigWhy` reads it as the
@@ -4332,11 +4368,23 @@ pub struct World {
     /// resting or the way out is on, and empty otherwise. Read only by the
     /// rest pull and the way out.
     pub nest_ways: Vec<crate::sim::creature::NestWay>,
+    /// **Where each nest's store last held food** ([`crate::sim::creature::StoreRead`]):
+    /// per nest site, the way cells that touched its food at the last
+    /// rebuild that found any, so a hungry ant still walks to the store when
+    /// it is empty and finds out. Kept only while the switch is on.
+    pub store_last_seeds: Vec<Vec<(i32, i32)>>,
+    /// **Every store reading that changed an ant's memory**, for the trace
+    /// (`examples/deeptrace.rs`'s `storereads.csv`): `None` unless a harness
+    /// asks.
+    pub store_read_log: Option<Vec<crate::sim::creature::StoreReadRow>>,
     /// **Each nest's way out of its mound**, as steps from the open air
     /// through the covered cells at or above its founding ground
     /// (`creature::build_mound_way`), rebuilt beside `nest_ways` while
     /// `PIXEL_PHYSICS_MOUND_OUT` is on, and empty otherwise.
     pub mound_ways: Vec<crate::sim::creature::NestWay>,
+    /// **The mound's ways in, for carriers** (`creature::build_mound_in_way`),
+    /// rebuilt beside `nest_ways` while `PIXEL_PHYSICS_MOUND_IN` is on.
+    pub mound_in_ways: Vec<crate::sim::creature::NestWay>,
     /// **Each nest's way to the open air**, as steps from the open air
     /// through the covered cells of its mound and its nest alike
     /// (`creature::build_out_way`), rebuilt beside `nest_ways` while one of
@@ -6945,7 +6993,10 @@ impl World {
             needs_first: None,
             nest_store: None,
             nest_ways: Vec::new(),
+            store_last_seeds: Vec::new(),
+            store_read_log: None,
             mound_ways: Vec::new(),
+            mound_in_ways: Vec::new(),
             out_ways: Vec::new(),
             bud_store: None,
             births_paused: false,
@@ -8049,6 +8100,11 @@ impl World {
             scout_dark: false,
             scout_e0: 0.0,
             return_met: 0,
+            store_read_at: 0,
+            store_read_low: 0.0,
+            recruit_n: 0.0,
+            recruit_at: 0,
+            recruit_last: 0,
             sent_want: f32::NAN,
             foraged: false,
             store_return: false,
@@ -9036,7 +9092,7 @@ impl World {
     /// `Reports/dead-ends.md`'s `BUD_NEED` entry names for a hunger gate that
     /// does not react after the overshoot.
     pub fn step_colony_pace(&mut self) {
-        if !crate::sim::creature::food_brake_on(self) || !self.frame.is_multiple_of(ROOM_INTERVAL) {
+        if !(crate::sim::creature::food_brake_on(self) || crate::sim::creature::store_brake().on) || !self.frame.is_multiple_of(ROOM_INTERVAL) {
             return;
         }
         let a = (ROOM_INTERVAL as f64 / crate::sim::creature::FOOD_BRAKE_WINDOW as f64).min(1.0);
