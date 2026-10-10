@@ -2644,6 +2644,31 @@ drift that two of these documents still reflect.**
   a flame body, a fuel-wetness gate, and `examples/fire_probe.rs`; costs the
   three §X desert levers, two of which have changed since the record.
 
+- [playtest-2026-10-09-herb-ant/README.md](playtest-2026-10-09-herb-ant/README.md) —
+  **the owner's first plants-and-ants lab playtest, replayed with a no-ant twin
+  and taken apart (`examples/replay.rs`; the chronicle and `run.sh` / `tables.py`
+  are beside it).** *The ants strip the stand from the bottom up, and live leaf
+  is only 8% of what they eat:* six paired seeds, plants at tick 250k **11
+  against 36** with no ants, reachable foliage 102 cells against 617 (under the
+  shipped light rain the stand falls 18-57% and the reachable foliage still
+  77%, two seeds); a herb with 1-10 recorded leaf bites is 93% bare, no middle.
+  **Edibility, not energy, is the lever** -- leaf at 20, 40 and 160 J is
+  equally ruinous, an inedible leaf gives 83 plants, starved larvae 184 -> 32
+  and 80 adults at 250k against 12 -- **and a fixed plant defence does not
+  stand in for it** (0.2-0.9 costs the stand its litter, the colony its food).
+  What a colony pays: 54% more eggs per adult-tick for the same food in, 30% of
+  them starving as larvae, adult starvation 2.7x, and **eggs laid tracking the
+  share of adults above the egg bar** (the adults' banks are more unequal).
+  **Plants and nests:** roots closed 2.1% of the playtest's dug cells and wood
+  or root stopped a median 19% of dig attempts at solid ground; **a tree and a
+  conifer planted at the doors take the nest site (82% of digs hit wood, one
+  nest never passed 31 cells) and still give the biggest colonies** (median peak
+  208 against 124 adults, 21% of trips bringing food home against 13%). With no
+  ants and the rain off the stand dies out by itself (5-16 plants at 1.5M
+  ticks). **Measured on the playtest's own build `1bb916c1` (LAY_BRAKE and
+  RECRUIT, not on main).** Says what it does not establish: no ant was traced,
+  so *why* an edible leaf unequalises the banks is open.
+
 ## Worldgen and world  ·  `outdoor`
 
 **The 2026-08-29 revamp program** — six audits and a plan, written the day
