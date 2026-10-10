@@ -5534,6 +5534,19 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   `MOUND_DIG` and measured: every one that stops the digging costs the
   colony a third to a half, because the hollow mound is its way to the food;
   shipped off, a dead end until a rule can tell a passage from a scrape.
+- [brood-and-the-dig-2026-10-09.md](brood-and-the-dig-2026-10-09.md) —
+  **what a larva does to an ant's digging, and whether that is why the nest is
+  one room (the owner's question).** A larva cannot be cut, but the ground
+  under it can, and a nest worker's face turn does cut it; the larva drops into
+  the pit and lives. The dig reads it as ground in two places only: the heap
+  cue's sky test (inert: one dig roll in 6,000) and the curvature sense (a larva
+  in reach on 56-61% of rolls). Hiding both, `BROOD_BLIND` (shipped off),
+  halves the dig-down turn (7.3-8.8% -> 3.8%) and leaves the nest one room
+  (8 of 8 runs at 100k and 200k, 7 of 8 at 300k, four paired seeds), and
+  digging is not drawn to brood (0.31x what the walls offer). What the diggers
+  do: stay put and cut a 9x9 patch, a third of a cell of advance per cut, on the
+  rim, trimming bumps: persistence without advance. Five always-on counters and
+  `scripts/deeptrace_pairs.py` (with a selftest) are the instruments.
 - [stack-leave-one-out-2026-10-08/README.md](stack-leave-one-out-2026-10-08/README.md) —
   **the playtest stack one switch at a time on steady food: the nest store
   starves the foragers.** Taking `NEST_STORE` out cuts surface starvation on

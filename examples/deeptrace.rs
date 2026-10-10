@@ -105,7 +105,14 @@
 //!   `PIXEL_PHYSICS_NEEDS_FIRST`'s `needs_down`, `needs_packed`,
 //!   `needs_quit`, `needs_weak_digs`, `needs_cue_waived`,
 //!   `needs_face_waived`, `needs_throttle_lifted`, `needs_roof_refused` and
-//!   `needs_no_site`; then `PIXEL_PHYSICS_DOOR_COLUMN`'s `column_refused` and `column_cleared`.
+//!   `needs_no_site`; then `PIXEL_PHYSICS_DOOR_COLUMN`'s `column_refused` and `column_cleared`;
+//!   last, since 2026-10-09, **brood in the dig's senses**, counted whether or not
+//!   `PIXEL_PHYSICS_BROOD_BLIND` is set: `dig_rolls_near_brood`, `dig_enclosed_flips`,
+//!   `dig_sky_flips` (dig rolls the brood touches, and the ones whose enclosed or
+//!   open-to-the-sky answer it moves) and `cuts_under_brood`, `cuts_near_brood`
+//!   (cuts with a larva directly above the cell, and within two cells of it), with the
+//!   denominators they are read against (`dig_rolls`, `digs_aimed_down`, `digs_faced`,
+//!   `digs_down_refused`, `spoil_cue_applied`, `spoil_cue_kept_milli`, `digs_refused_roof`).
 //! - with `drops=1`, **every pellet put down and the choice of cell it had**
 //!   (`drops.csv`), and the mound by material at every map frame
 //!   (`mound.csv`); see `DropLog`. Added 2026-10-06 for the redesign's check
@@ -625,7 +632,7 @@ fn main() {
     let mut stats_csv = std::io::BufWriter::new(std::fs::File::create(format!("{out}/stats.csv")).unwrap());
     writeln!(
         stats_csv,
-        "frame,ants,brood,{},eggs_laid,pupae,births,larvae_starved,brood_ate_j,brood_crop_fed_j,brood_nursed_j,brood_shared_j,brood_upkeep_j,larva_ticks_hungry,larva_ticks_crop_fed,larva_ticks_nursed,crop_down_holds,nurse_seeks,soil_way_pulls,hungry_out_pulls,spoil_held_below,spoil_kept_inside,spoil_dumped,lean_dropped,digs,eats,pickups,drops,deliveries,trip_deliveries,forage_trips,forage_returns,topup_shares,throttle_held,throttle_sent,at_nest_ticks,nest_visits,buds_held_for_nest,lays_declined,births_denied_no_space,food_brake_held,shares,home_searches,carry_fills,carry_turns,mound_out_pulls,mound_digs_let,needs_down,needs_packed,needs_quit,needs_weak_digs,needs_cue_waived,needs_face_waived,needs_throttle_lifted,needs_roof_refused,needs_no_site,nest_store_food,nest_store_carry_pulls,nest_store_eat_pulls,nest_store_home_pulls,nest_store_bites,store_pickups,store_delivered,store_released,store_held,store_kept,nest_store_fetch_pulls,column_refused,column_cleared,meal_holds,feed_first_held",
+        "frame,ants,brood,{},eggs_laid,pupae,births,larvae_starved,brood_ate_j,brood_crop_fed_j,brood_nursed_j,brood_shared_j,brood_upkeep_j,larva_ticks_hungry,larva_ticks_crop_fed,larva_ticks_nursed,crop_down_holds,nurse_seeks,soil_way_pulls,hungry_out_pulls,spoil_held_below,spoil_kept_inside,spoil_dumped,lean_dropped,digs,eats,pickups,drops,deliveries,trip_deliveries,forage_trips,forage_returns,topup_shares,throttle_held,throttle_sent,at_nest_ticks,nest_visits,buds_held_for_nest,lays_declined,births_denied_no_space,food_brake_held,shares,home_searches,carry_fills,carry_turns,mound_out_pulls,mound_digs_let,needs_down,needs_packed,needs_quit,needs_weak_digs,needs_cue_waived,needs_face_waived,needs_throttle_lifted,needs_roof_refused,needs_no_site,nest_store_food,nest_store_carry_pulls,nest_store_eat_pulls,nest_store_home_pulls,nest_store_bites,store_pickups,store_delivered,store_released,store_held,store_kept,nest_store_fetch_pulls,column_refused,column_cleared,meal_holds,feed_first_held,dig_rolls_near_brood,dig_enclosed_flips,dig_sky_flips,cuts_under_brood,cuts_near_brood,dig_rolls,digs_aimed_down,digs_faced,digs_down_refused,spoil_cue_applied,spoil_cue_kept_milli,digs_refused_roof",
         organism::DEATH_CAUSE_LIST
             .iter()
             .map(|c| format!("died_{}", c.label().to_lowercase().replace(['?'], "unknown").replace(' ', "_")))
@@ -1056,7 +1063,7 @@ fn main() {
             let st = &w.creature_stats;
             writeln!(
                 stats_csv,
-                "{f},{},{},{},{},{},{},{},{:.0},{:.0},{:.0},{:.0},{:.0},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
+                "{f},{},{},{},{},{},{},{},{:.0},{:.0},{:.0},{:.0},{:.0},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
                 live.len(),
                 w.live_brood_ids().len(),
                 w.deaths_by_cause.iter().map(|d| d.to_string()).collect::<Vec<_>>().join(","),
@@ -1127,6 +1134,18 @@ fn main() {
                 st.column_cleared,
                 st.meal_holds,
                 st.feed_first_held,
+                st.dig_rolls_near_brood,
+                st.dig_enclosed_flips,
+                st.dig_sky_flips,
+                st.cuts_under_brood,
+                st.cuts_near_brood,
+                st.dig_rolls,
+                st.digs_aimed_down,
+                st.digs_faced,
+                st.digs_down_refused,
+                st.spoil_cue_applied,
+                st.spoil_cue_kept_milli,
+                st.digs_refused_roof,
             )
             .unwrap();
             for &id in &live {

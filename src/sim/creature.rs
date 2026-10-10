@@ -16105,17 +16105,49 @@ const SKY_SCAN_ROWS: i32 = 64;
 /// ground to the sky from one under a roof. Ground is `Powder` or `Solid`,
 /// the kinds a dig takes; the world's edge is not ground here, although a
 /// read past it returns a solid sentinel.
+///
+/// **A brood item counts as ground here, and it is the one roof test that
+/// says so** (`under_cover`, `World::roofed_in_column`, `freeze_room_datum`
+/// and `is_footing` all skip an organism-owned cell). So a larva lying in a
+/// column otherwise open to the sky reads as a roof over everything under
+/// it, and the heap cue stands aside for an enclosed digger cutting there.
+/// Probed 2026-10-09 in an open pit (head -0.75, no heap): the cue's factor
+/// is 0.0 -- the cut is vetoed -- and with one larva lying above the cut it
+/// is `None`, the cut allowed. `PIXEL_PHYSICS_BROOD_BLIND`'s `sky` makes it
+/// skip brood; off, the answer is the one this always gave. How often it
+/// matters is `CreatureStats::dig_sky_flips`.
 fn open_to_the_sky(world: &World, x: i32, y: i32) -> bool {
+    let (sighted, blind) = sky_scan(world, x, y);
+    if brood_blind_of(world).sky {
+        blind
+    } else {
+        sighted
+    }
+}
+
+/// **[`open_to_the_sky`]'s answer both ways in one scan**: `.0` with every
+/// `Powder` or `Solid` cell a roof (what it has always said), `.1` with a
+/// brood item not one. The scan walks on past brood for the second answer, so
+/// the pair costs the one column read and nothing at all above a column with
+/// no brood in it.
+fn sky_scan(world: &World, x: i32, y: i32) -> (bool, bool) {
+    // `Some(false)` once a brood item has been walked past: covered to the
+    // first answer, still open to the second.
+    let mut sighted = None;
     for yy in (y - SKY_SCAN_ROWS..y).rev() {
         if !world.in_bounds(x, yy) {
-            return true;
+            return (sighted.unwrap_or(true), true);
         }
-        let m = world.get(x, yy).material;
-        if m != material::EMPTY && matches!(world.materials.kind(m), MaterialKind::Powder | MaterialKind::Solid) {
-            return false;
+        let cell = world.get(x, yy);
+        if cell.material != material::EMPTY && matches!(world.materials.kind(cell.material), MaterialKind::Powder | MaterialKind::Solid) {
+            if is_brood_cell(world, cell) {
+                sighted.get_or_insert(false);
+                continue;
+            }
+            return (false, false);
         }
     }
-    true
+    (sighted.unwrap_or(true), true)
 }
 
 /// **Every spoil switch this process read, and the dig-down turn, in one
@@ -17566,8 +17598,31 @@ fn curvature_flat_reference(radius: i32) -> f32 {
 /// sees no wall and reads *convex*. Found by `examples/spoil_curvature.rs`'s
 /// control on its first run, and it is a real limit rather than a bug: a
 /// species wanting broad features pays `(2r+1)^2` for them.
+///
+/// **A brood item counts as solid here**, because only `Creature`-kind cells
+/// are skipped and brood is a `Powder`. The reason flesh and nestmates are
+/// excluded -- a crowd is not a hollow -- holds for a pile of larvae as well:
+/// each one in the disc reads -2/24 = -0.083 at radius 2, so four take a flat
+/// reading to the "enclosed" line (`SPOIL_CUE_ENCLOSED`, -0.3) that turns the
+/// dig-down turn on and lets the heap cue stand aside. `PIXEL_PHYSICS_BROOD_
+/// BLIND`'s `curv` skips brood in the count; off, the value is the one this
+/// always gave, bit for bit. How often brood moves a roll across the line is
+/// `CreatureStats::dig_enclosed_flips`.
 pub fn surface_curvature(world: &World, x: i32, y: i32, radius: i32) -> f32 {
+    let (sighted, blind) = curvature_pair(world, x, y, radius);
+    if brood_blind_of(world).curv {
+        blind
+    } else {
+        sighted
+    }
+}
+
+/// **[`surface_curvature`]'s value both ways in one pass over the disc**:
+/// `.0` with brood counted as solid (what the sense has always read), `.1`
+/// without it. Equal exactly when no brood item lies in the disc.
+fn curvature_pair(world: &World, x: i32, y: i32, radius: i32) -> (f32, f32) {
     let mut solid = 0i32;
+    let mut brood = 0i32;
     let mut total = 0i32;
     for dy in -radius..=radius {
         for dx in -radius..=radius {
@@ -17583,9 +17638,12 @@ pub fn surface_curvature(world: &World, x: i32, y: i32, radius: i32) -> f32 {
                 continue;
             }
             solid += 1;
+            brood += i32::from(is_brood_cell(world, cell));
         }
     }
-    1.0 - 2.0 * solid as f32 / total.max(1) as f32 - curvature_flat_reference(radius)
+    let flat = curvature_flat_reference(radius);
+    let value = |counted: i32| 1.0 - 2.0 * counted as f32 / total.max(1) as f32 - flat;
+    (value(solid), value(solid - brood))
 }
 
 pub fn moisture_gradient(world: &World, x: i32, y: i32) -> f32 {
@@ -19335,6 +19393,8 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
         // came out would be `digs` again under another name. See
         // `CreatureStats::dig_rolls`.
         world.creature_stats.dig_rolls += 1;
+        // Brood in this roll's curvature (pure reads; see `BroodBlind`).
+        brood_census_roll(world, def, organism, x, y);
         // **A one-cell passage is widened by the traffic through it**
         // ([`dig_widen_of`]): a digger whose way ahead is open is walking
         // along a passage, not standing at a face, and if the passage is one
@@ -19429,6 +19489,10 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
             world.decision_scratch.dig_at = (tx, ty);
             world.decision_scratch.dig_mat = target.material.0;
         }
+        // Brood in this roll's sky tests, where the jaw could cut (pure reads).
+        if jaw_can_cut(world, def, organism, target) {
+            brood_census_sky(world, (x, y), (tx, ty));
+        }
         // **A heap draws where digging starts** ([`SpoilCue`], on since
         // 2026-09-28, [`spoil_cue_of`]): a cut that would open the ground to the sky goes
         // ahead with probability `f`, the heap factor for the pellets beside
@@ -19522,6 +19586,11 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
             };
         }
         if !vetoed && jaw_can_cut(world, def, organism, target) {
+            // **Brood round the cell, counted before it goes** (pure reads): a
+            // larva directly above drops into the hole this cut makes.
+            let (under_brood, near_brood) = brood_around_cut(world, tx, ty);
+            world.creature_stats.cuts_under_brood += u64::from(under_brood);
+            world.creature_stats.cuts_near_brood += u64::from(near_brood);
             // **The spoil is picked up, not destroyed.** This line read
             // `world.set(tx, ty, Cell::EMPTY)` with a comment calling
             // carrying it out "a stage-4+ refinement -- noted, not built",
@@ -26212,6 +26281,126 @@ pub fn push_past_of(world: &World) -> PushPast {
 pub fn push_past_from_env() -> PushPast {
     static V: std::sync::OnceLock<PushPast> = std::sync::OnceLock::new();
     *V.get_or_init(|| std::env::var("PIXEL_PHYSICS_PUSH_PAST").map_or(PushPast::SHIPPED, |v| PushPast::parse(&v)))
+}
+
+/// **Is this cell a brood item** -- an egg, larva or pupa? An organism-owned
+/// `Powder` whose owner carries a brood record: the test [`is_partable`]'s
+/// brood arm makes. The cheap halves go first, so only the rare owned powder
+/// cell pays the owner lookup.
+fn is_brood_cell(world: &World, cell: Cell) -> bool {
+    let owner = cell.organism_id();
+    owner != 0 && world.materials.kind(cell.material) == MaterialKind::Powder && world.organism(owner).is_some_and(|s| s.brood.is_some())
+}
+
+/// **Brood is not ground to the dig's senses**:
+/// `PIXEL_PHYSICS_BROOD_BLIND=off|curv|sky|on` (`curv,sky` is `on`), **off**
+/// unless set ([`BroodBlind::SHIPPED`]); `World::brood_blind` for one world.
+///
+/// **Why.** Brood is a `Powder`, and two of the dig's senses read every
+/// `Powder` as ground: [`surface_curvature`], which skips only `Creature`-kind
+/// cells, and [`open_to_the_sky`], the one roof test that does not skip an
+/// organism-owned cell. So a larva steers the digging nobody designed it to:
+/// each in an ant's 5x5 reads -0.083 of curvature (four cross the "enclosed"
+/// line, which turns the dig-down turn on and lets the heap cue stand aside),
+/// and one lying in a column open to the sky reads as a roof over everything
+/// under it. The same larva is *not* room to the nest census (`World::
+/// roofed_in_column` counts empty cells), is not cover (`under_cover`), and
+/// cannot be cut (`is_live_seed`), so the dig already treats it as air, as
+/// ground and as an obstacle in three different places.
+///
+/// **What it does.** `curv`: [`surface_curvature`] leaves brood out of the
+/// count, for the brain's `SurfaceCurvature` input and every enclosed test
+/// that reads it. `sky`: [`open_to_the_sky`] walks on past brood, so a larva
+/// is not a roof. Off, both are the senses this always had, bit for bit.
+///
+/// **Why it ships off.** Built to find out whether this accidental pull has
+/// anything to do with the lab's nest coming out as one room round the brood
+/// column (`Reports/brood-and-the-dig-2026-10-09.md`): the biology says
+/// chambers are dug where brood lies and nowhere else (Romer & Roces 2014,
+/// `Reports/nest-biology-digging-signals-2026-09-19.md` s6), and the engine
+/// has only this unplanned way to know where brood is. An ablation, not yet a
+/// fix: `CreatureStats::dig_rolls_near_brood`, `dig_enclosed_flips` and
+/// `dig_sky_flips` count what it touches, with the switch on or off.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct BroodBlind {
+    /// [`surface_curvature`] leaves brood out of the solid count.
+    pub curv: bool,
+    /// [`open_to_the_sky`] does not read brood as a roof.
+    pub sky: bool,
+}
+
+impl BroodBlind {
+    pub const OFF: BroodBlind = BroodBlind { curv: false, sky: false };
+    pub const ON: BroodBlind = BroodBlind { curv: true, sky: true };
+    /// Off: the dig's senses as they were before the switch existed.
+    pub const SHIPPED: BroodBlind = BroodBlind::OFF;
+
+    /// Parse a `PIXEL_PHYSICS_BROOD_BLIND` value: a comma list of `curv` and
+    /// `sky`, or `on` / `both` / `off`. Anything else is reported and read as
+    /// off, so a typo never puts a control arm under another point's label.
+    pub fn parse(raw: &str) -> BroodBlind {
+        let mut blind = BroodBlind::OFF;
+        for word in raw.split(',').map(str::trim).filter(|w| !w.is_empty()) {
+            match word {
+                "curv" => blind.curv = true,
+                "sky" => blind.sky = true,
+                "on" | "both" => blind = BroodBlind::ON,
+                "off" => blind = BroodBlind::OFF,
+                other => {
+                    eprintln!("PIXEL_PHYSICS_BROOD_BLIND={raw:?}: {other:?} is not on, off, curv or sky; read as off");
+                    return BroodBlind::OFF;
+                }
+            }
+        }
+        blind
+    }
+}
+
+/// What this world's dig senses do with brood: `World::brood_blind` when a
+/// guard set it, else `PIXEL_PHYSICS_BROOD_BLIND`. See [`BroodBlind`].
+pub fn brood_blind_of(world: &World) -> BroodBlind {
+    world.brood_blind.unwrap_or_else(brood_blind_from_env)
+}
+
+/// `PIXEL_PHYSICS_BROOD_BLIND` read once per process; see [`BroodBlind`].
+fn brood_blind_from_env() -> BroodBlind {
+    static V: std::sync::OnceLock<BroodBlind> = std::sync::OnceLock::new();
+    *V.get_or_init(|| std::env::var("PIXEL_PHYSICS_BROOD_BLIND").map_or(BroodBlind::SHIPPED, |v| BroodBlind::parse(&v)))
+}
+
+/// **Brood in a dig roll's curvature, counted** (`CreatureStats::
+/// dig_rolls_near_brood`, `dig_enclosed_flips`). Pure reads: no draw, no
+/// write, and the same whichever way [`BroodBlind`] is set -- the counts say
+/// what the switch touches, not what it did.
+fn brood_census_roll(world: &mut World, def: &CreatureDef, organism: OrganismId, x: i32, y: i32) {
+    let radius = curvature_radius_of(def, &traits_of(world, organism, def)).max(1);
+    let (sighted, blind) = curvature_pair(world, x, y, radius);
+    // Equal exactly when no brood item lies in the disc.
+    if sighted != blind {
+        world.creature_stats.dig_rolls_near_brood += 1;
+        if (sighted <= SPOIL_CUE_ENCLOSED) != (blind <= SPOIL_CUE_ENCLOSED) {
+            world.creature_stats.dig_enclosed_flips += 1;
+        }
+    }
+}
+
+/// **Brood in a roll's sky tests, counted** (`CreatureStats::dig_sky_flips`):
+/// a roll whose target the jaw could cut, where [`open_to_the_sky`] says
+/// something else about the target's column or the digger's own once brood
+/// stops being a roof. Pure reads.
+fn brood_census_sky(world: &mut World, (x, y): (i32, i32), (tx, ty): (i32, i32)) {
+    let (target, head) = (sky_scan(world, tx, ty), sky_scan(world, x, y));
+    if target.0 != target.1 || head.0 != head.1 {
+        world.creature_stats.dig_sky_flips += 1;
+    }
+}
+
+/// Brood round a cell about to be cut: `(directly above it, anywhere in the
+/// 5x5 round it)`. A larva directly above drops into the hole the cut makes.
+fn brood_around_cut(world: &World, tx: i32, ty: i32) -> (bool, bool) {
+    let under = is_brood_cell(world, world.get(tx, ty - 1));
+    let near = under || (-2..=2).any(|dy| (-2..=2).any(|dx| (dx != 0 || dy != 0) && is_brood_cell(world, world.get(tx + dx, ty + dy))));
+    (under, near)
 }
 
 /// **The dug home reads past a plant grown into it, as a body does**
@@ -34209,6 +34398,330 @@ mod tests {
             scheduler::step(w);
             w.end_step();
         }
+    }
+
+    // ===== `PIXEL_PHYSICS_BROOD_BLIND`: brood in the dig's senses ================
+    //
+    // Found 2026-10-09 (`Reports/brood-and-the-dig-2026-10-09.md`): brood is a
+    // `Powder`, so `surface_curvature` and `open_to_the_sky` read it as ground
+    // while the room census, `under_cover` and the jaw do not. These guards
+    // hold the switch that hides it and the counters that say how often it
+    // matters; the paired runs are in the report.
+
+    /// A brood item at `(x, y)`: the cell `brood::lay_egg` writes (the brood
+    /// material, its stage as the palette index, `CellType::Seed` in `aux`),
+    /// owned by a fresh organism of the ant species that carries a brood
+    /// record. No parent and nothing scheduled: the senses under test read
+    /// the cell and its owner's record and nothing else.
+    fn brood_item_at(w: &mut World, x: i32, y: i32) -> OrganismId {
+        let species = w.species.id_of("ant").expect("ant species");
+        let id = w.push_organism(species).expect("an organism slot");
+        let brood_mat = w.materials.id_of("brood").expect("brood is compiled in");
+        if let Some(st) = w.organism_mut(id) {
+            st.energy = 120.0;
+            st.brood = Some(organism::Brood { stage: organism::BroodStage::Larva, since: 0, target: 1_040.0, parent: 0, last_tick: 0 });
+        }
+        w.set(x, y, Cell::new(brood_mat, organism::BroodStage::Larva as u8).with_organism_id(id).with_aux(pack_cell_type(CellType::Seed)));
+        id
+    }
+
+    /// Level soil from row 60 down and open air above it. A probe point at
+    /// row 59 has 10 of its 24 neighbours solid at radius 2, which is flat.
+    fn flat_bed() -> World {
+        let mut w = World::new(Rect::new(0, 0, 119, 99));
+        let soil = w.materials.id_of("soil").expect("soil material");
+        for x in 0..120 {
+            for y in 60..92 {
+                w.set(x, y, Cell::new(soil, 0));
+            }
+        }
+        w
+    }
+
+    #[test]
+    fn brood_blind_parses_its_spellings_and_ships_off() {
+        let curv = BroodBlind { curv: true, sky: false };
+        let sky = BroodBlind { curv: false, sky: true };
+        assert_eq!(BroodBlind::parse(""), BroodBlind::OFF);
+        assert_eq!(BroodBlind::parse("off"), BroodBlind::OFF);
+        assert_eq!(BroodBlind::parse("on"), BroodBlind::ON);
+        assert_eq!(BroodBlind::parse("both"), BroodBlind::ON);
+        assert_eq!(BroodBlind::parse("curv"), curv);
+        assert_eq!(BroodBlind::parse(" sky "), sky);
+        assert_eq!(BroodBlind::parse("curv, sky"), BroodBlind::ON);
+        assert_eq!(BroodBlind::parse("curv,bogus"), BroodBlind::OFF, "a typo anywhere in the list reads the whole value as off, so a control arm is never mislabelled");
+        assert_eq!(BroodBlind::SHIPPED, BroodBlind::OFF, "built off until the paired runs are in");
+    }
+
+    /// **Four larvae in an ant's 5x5 read as a hollow, and `curv` stops it.**
+    /// Level ground reads 0; each brood item in the disc is one more solid
+    /// cell of 24, -2/24; four are -0.333, past the enclosed line (-0.3). A
+    /// plant's seed lying in the disc is the control that the switch hides
+    /// brood and not every organism-owned powder: it counts under every
+    /// setting. Watched red with `is_brood_cell` reading false (the larvae
+    /// stay hidden with the switch off), with the blind arm dropped from
+    /// `surface_curvature` (they stay solid with it on) and with `sky`
+    /// wired to the curvature sense (the `sky`-only arm).
+    #[test]
+    fn brood_is_ground_to_the_curvature_sense_until_the_switch_blinds_it() {
+        let mut w = flat_bed();
+        let (px, py) = (60, 59);
+        let (a, b) = curvature_pair(&w, px, py, 2);
+        assert!(a.abs() < 1e-6, "level ground reads flat: {a}");
+        assert_eq!(a.to_bits(), b.to_bits(), "no brood in the disc: the two readings are one number, bit for bit");
+        // A plant's seed (an organism-owned powder that is not brood) first.
+        let herb = w.species.id_of("herb").expect("herb species");
+        let pip = w.materials.id_of("pip").expect("pip material");
+        let seed = w.push_organism(herb).expect("an organism slot");
+        w.set(60, 58, Cell::new(pip, 0).with_organism_id(seed).with_aux(pack_cell_type(CellType::Seed)));
+        let with_seed = -2.0 / 24.0;
+        for blind in [BroodBlind::OFF, BroodBlind::ON] {
+            w.brood_blind = Some(blind);
+            assert!((surface_curvature(&w, px, py, 2) - with_seed).abs() < 1e-5, "{blind:?}: a seed is solid under every setting");
+        }
+        for x in [58, 59, 61, 62] {
+            brood_item_at(&mut w, x, 58);
+        }
+        let (sighted, blind) = curvature_pair(&w, px, py, 2);
+        assert!((sighted - (with_seed - 8.0 / 24.0)).abs() < 1e-5, "four larvae are four more solid cells: {sighted}");
+        assert!((blind - with_seed).abs() < 1e-5, "hidden, they are nothing: {blind}");
+        let read = |w: &mut World, b: BroodBlind| {
+            w.brood_blind = Some(b);
+            surface_curvature(w, px, py, 2)
+        };
+        assert!(read(&mut w, BroodBlind::OFF) <= SPOIL_CUE_ENCLOSED, "off: four larvae take a nearly flat reading past the enclosed line");
+        assert!((read(&mut w, BroodBlind { curv: true, sky: false }) - with_seed).abs() < 1e-5, "curv: larvae are not solid");
+        assert!(read(&mut w, BroodBlind { curv: false, sky: true }) <= SPOIL_CUE_ENCLOSED, "sky alone leaves the curvature sense as it was");
+        assert!((read(&mut w, BroodBlind::ON) - with_seed).abs() < 1e-5, "on: larvae are not solid");
+    }
+
+    /// **A larva lying on the ground is a roof to the sky test, and `sky`
+    /// stops it** -- but only a larva: real ground above it is still a roof,
+    /// and so is a plant's seed. Watched red with `is_brood_cell` reading
+    /// false, with the blind arm dropped from `open_to_the_sky`, and with the
+    /// scan stopping at the larva instead of walking on past it (the
+    /// covered-by-real-ground arm).
+    #[test]
+    fn a_larva_is_a_roof_to_the_sky_test_until_the_switch_blinds_it() {
+        let mut w = flat_bed();
+        let soil = w.materials.id_of("soil").expect("soil material");
+        let herb = w.species.id_of("herb").expect("herb species");
+        let pip = w.materials.id_of("pip").expect("pip material");
+        let sky = |w: &mut World, b: BroodBlind, at: (i32, i32)| {
+            w.brood_blind = Some(b);
+            open_to_the_sky(w, at.0, at.1)
+        };
+        let arms = [
+            ("off", BroodBlind::OFF),
+            ("curv", BroodBlind { curv: true, sky: false }),
+            ("sky", BroodBlind { curv: false, sky: true }),
+            ("on", BroodBlind::ON),
+        ];
+        for (name, b) in arms {
+            assert!(sky(&mut w, b, (90, 60)), "{name}: bare ground with nothing over it is open");
+        }
+        // A larva lying on it.
+        brood_item_at(&mut w, 90, 59);
+        for (name, b) in arms {
+            assert_eq!(sky(&mut w, b, (90, 60)), b.sky, "{name}: a larva over the cell is a roof unless `sky` hides it");
+        }
+        // Real ground over the larva: covered however the switch is set.
+        w.set(91, 40, Cell::new(soil, 0));
+        brood_item_at(&mut w, 91, 59);
+        for (name, b) in arms {
+            assert!(!sky(&mut w, b, (91, 60)), "{name}: the scan walks past a hidden larva and meets the real ground over it");
+        }
+        // A plant's seed is not brood: a roof under every setting.
+        let seed = w.push_organism(herb).expect("an organism slot");
+        w.set(92, 59, Cell::new(pip, 0).with_organism_id(seed).with_aux(pack_cell_type(CellType::Seed)));
+        for (name, b) in arms {
+            assert!(!sky(&mut w, b, (92, 60)), "{name}: a seed over the cell is still a roof");
+        }
+    }
+
+    /// **The heap cue, over a larva in an open pit** (the probe of
+    /// 2026-10-09). An enclosed digger at the bottom of a pit open to the sky,
+    /// cutting its floor, with no heap near: the cue's factor is 0.0 and the
+    /// cut is vetoed. With a larva lying in the pit above the cut the cue
+    /// stands aside -- the larva reads as a roof -- until `sky` hides it.
+    #[test]
+    fn the_heap_cue_stands_aside_over_a_larva_in_an_open_pit_until_the_switch_blinds_it() {
+        let cases = [
+            ("no larva", false, BroodBlind::OFF, Some(0.0)),
+            ("a larva, off", true, BroodBlind::OFF, None),
+            ("a larva, curv only", true, BroodBlind { curv: true, sky: false }, None),
+            ("a larva, sky", true, BroodBlind { curv: false, sky: true }, Some(0.0)),
+            ("a larva, on", true, BroodBlind::ON, Some(0.0)),
+        ];
+        for (name, with_larva, blind, want) in cases {
+            let mut w = World::new(Rect::new(0, 0, 119, 99));
+            founding_ground(&mut w);
+            for y in 40..48 {
+                w.set(59, y, Cell::EMPTY);
+                w.set(60, y, Cell::EMPTY);
+            }
+            let a = spawn(&mut w, "ant", 60, 47);
+            let (hx, hy) = w.organism(a).expect("live").chain[0];
+            let def = w.species.get(w.organism(a).expect("live").species).creature.clone().expect("a creature");
+            if with_larva {
+                brood_item_at(&mut w, hx, hy - 2);
+            }
+            w.brood_blind = Some(blind);
+            let radius = curvature_radius_of(&def, &traits_of(&w, a, &def)).max(1);
+            assert!(surface_curvature(&w, hx, hy, radius) <= SPOIL_CUE_ENCLOSED, "{name}: the pit's bottom must read enclosed or the scene is not the one the cue's stand-aside is about");
+            let cue = spoil_cue_of(&w).expect("the heap cue is on by default");
+            assert_eq!(spoil_cue_factor(&w, (hx, hy), (hx, hy + 1), radius, cue), want, "{name}");
+        }
+    }
+
+    /// The `face_dig` room, cut from `packedsoil` as a lined nest is (loose
+    /// soil would cave the roof in the moment the powder sweep runs), an ant
+    /// at `(ant_x, 62)` frozen where it stands (Move wired hard negative) and
+    /// a larva on the floor at `(larva_x, 62)`.
+    fn brood_room(face: DigFace, nest_bound: bool, heading: u8, ant_x: i32, larva_x: i32) -> (World, OrganismId, OrganismId, (i32, i32), CreatureDef) {
+        let mut w = World::new(Rect::new(0, 0, 119, 99));
+        let packed = w.materials.id_of("packedsoil").expect("packedsoil material");
+        let b = w.bounds().expect("a bounded test world");
+        for x in 0..=b.max_x {
+            for y in 40..=b.max_y {
+                let stone = y >= 92 || x == 0 || x == b.max_x;
+                w.set(x, y, if stone { Cell::new(material::STONE, 0) } else { Cell::new(packed, 0) });
+            }
+        }
+        for yy in 60..63 {
+            for xx in 50..=70 {
+                w.set(xx, yy, Cell::EMPTY);
+            }
+        }
+        w.dig_face = Some(face);
+        w.dig_widen = Some(false);
+        w.dig_down = Some(None);
+        let species = w.species.id_of("ant").expect("ant species");
+        let def0 = w.species.get(species).creature.as_ref().expect("creature").clone();
+        w.species.set_genome(species, brain::genome_from_wiring(&[brain::Instinct(brain::BrainInput::Bias, brain::BrainOutput::Move, -2.0)], &def0.hidden_wiring, &def0.hidden_outputs, &def0.recurrence));
+        let a = spawn(&mut w, "ant", ant_x, 62);
+        let head = w.organism(a).expect("live").chain[0];
+        let larva = brood_item_at(&mut w, larva_x, 62);
+        let def = w.species.get(w.organism(a).expect("live").species).creature.clone().expect("a creature");
+        let st = w.organism_mut(a).expect("live");
+        st.energy = def.start_energy;
+        st.heading = heading;
+        st.nest_bound_until = if nest_bound { u64::MAX } else { 0 };
+        (w, a, larva, head, def)
+    }
+
+    /// One `act` with `Dig` at 1.0 for `a`, standing at `head`.
+    fn dig_once(w: &mut World, a: OrganismId, def: &CreatureDef, (hx, hy): (i32, i32)) {
+        let frame = w.frame;
+        let mut outputs = [0.0f32; brain::BRAIN_OUTPUTS];
+        outputs[brain::BrainOutput::Dig as usize] = 1.0;
+        let mut draw = rng::stream(1, a as u64, frame, RNG_SLOT_MOVE);
+        act(w, hx, hy, a, def, &outputs, &mut draw);
+    }
+
+    /// The frame the app runs: the powder sweep, then the scheduled sites.
+    /// This module's own `run` steps the scheduler only, so nothing in it
+    /// falls -- a larva cannot drop in a test that uses it.
+    fn real_frames(w: &mut World, frames: usize) {
+        for _ in 0..frames {
+            crate::sim::parallel::step(w);
+            w.step_active_sites();
+        }
+    }
+
+    /// **A cut under a larva is counted, and the larva drops into the hole**
+    /// (`cuts_under_brood`, `cuts_near_brood`; probed 2026-10-09). A digger
+    /// facing the floor cell under a larva takes it; the larva, a powder that
+    /// does not roll, falls straight into the pit within a few frames. Beside
+    /// it (a cut diagonal to the larva) the cut is near brood and not under
+    /// it, and the larva stays; eight cells off, neither. Watched red with
+    /// `brood_around_cut` reading `(false, false)` and with the larva's
+    /// `falls_through_organisms`/powder fall broken by marking its cell
+    /// `attached` (it stays: the drop arm).
+    #[test]
+    fn a_cut_under_a_larva_is_counted_and_the_larva_drops_into_the_hole() {
+        // (larva_x, under, near): the digger at x 60 faces SE, so it cuts (61, 63).
+        for (larva_x, under, near) in [(61, true, true), (62, false, true), (69, false, false)] {
+            let (mut w, a, larva, head, def) = brood_room(DigFace::Off, false, 7, 60, larva_x);
+            let target = (head.0 + 1, head.1 + 1);
+            assert_ne!(w.get(target.0, target.1).material, material::EMPTY, "setup: nothing to cut at {target:?}");
+            dig_once(&mut w, a, &def, head);
+            assert_eq!(w.creature_stats.digs, 1, "larva at {larva_x}: the digger cut");
+            assert_eq!(w.get(target.0, target.1).material, material::EMPTY, "larva at {larva_x}: the cut cell is open");
+            assert_eq!((w.creature_stats.cuts_under_brood, w.creature_stats.cuts_near_brood), (u64::from(under), u64::from(near)), "larva at {larva_x}: cuts under / near brood");
+            real_frames(&mut w, 3);
+            let at = |w: &World, p: (i32, i32)| w.get(p.0, p.1).organism_id() == larva;
+            if under {
+                assert!(at(&w, target), "larva at {larva_x}: it dropped into the hole under it");
+            } else {
+                assert!(at(&w, (larva_x, 62)), "larva at {larva_x}: its floor was not cut, so it stayed");
+            }
+        }
+    }
+
+    /// **The worker's way round a larva in its path is to cut under it** (the
+    /// shipped `workers` face turn, `dig_face_turn`): facing a larva on the
+    /// floor ahead, a nest worker inside the nest turns to the nearest cell
+    /// its jaw can take, and in a chamber that is the floor under the larva.
+    /// The same ant outside the turn (a forager) cuts nothing and the roll is
+    /// counted as a dig aimed at a live seed.
+    #[test]
+    fn a_nest_worker_facing_a_larva_cuts_the_floor_under_it_and_a_forager_cuts_nothing() {
+        let (mut w, a, _larva, head, def) = brood_room(DigFace::Workers, true, 0, 60, 61);
+        dig_once(&mut w, a, &def, head);
+        assert_eq!((w.creature_stats.digs, w.creature_stats.digs_faced), (1, 1), "the worker turned and cut");
+        assert_eq!(w.get(61, 63).material, material::EMPTY, "...the floor cell under the larva");
+        assert_eq!(w.creature_stats.cuts_under_brood, 1);
+        let (mut w, a, larva, head, def) = brood_room(DigFace::Workers, false, 0, 60, 61);
+        dig_once(&mut w, a, &def, head);
+        assert_eq!((w.creature_stats.digs, w.creature_stats.digs_faced), (0, 0), "a forager does not turn");
+        assert!(w.dig_diverted_seed > 0, "the roll aimed at the larva is counted as one aimed at a live seed");
+        assert_eq!(w.get(61, 62).organism_id(), larva, "...and the larva is where it was");
+    }
+
+    /// **The census reads the same with the switch on or off.** A dig roll
+    /// with no brood in the head's disc counts nothing; one larva counts a
+    /// roll near brood and moves the curvature by -0.083, well short of the
+    /// enclosed line; four cross it and count a flip. Counted again, the same
+    /// way, with the switch on: it says what the switch touches, not what it
+    /// did. Watched red with the census reading the switch's value instead of
+    /// the sighted one (the on-arm count stops).
+    #[test]
+    fn the_census_counts_brood_in_a_dig_rolls_disc_and_where_it_tips_the_enclosed_test() {
+        let mut w = flat_bed();
+        let a = spawn(&mut w, "ant", 20, 58);
+        let def = w.species.get(w.organism(a).expect("live").species).creature.clone().expect("a creature");
+        let counts = |w: &World| (w.creature_stats.dig_rolls_near_brood, w.creature_stats.dig_enclosed_flips);
+        brood_census_roll(&mut w, &def, a, 60, 59);
+        assert_eq!(counts(&w), (0, 0), "no brood in the disc: nothing counted");
+        brood_item_at(&mut w, 58, 58);
+        brood_census_roll(&mut w, &def, a, 60, 59);
+        assert_eq!(counts(&w), (1, 0), "one larva: near brood, nowhere near the line");
+        for x in [59, 61, 62] {
+            brood_item_at(&mut w, x, 58);
+        }
+        brood_census_roll(&mut w, &def, a, 60, 59);
+        assert_eq!(counts(&w), (2, 1), "four larvae cross the enclosed line, and the roll says so");
+        w.brood_blind = Some(BroodBlind::ON);
+        brood_census_roll(&mut w, &def, a, 60, 59);
+        assert_eq!(counts(&w), (3, 2), "the same count with the switch on");
+    }
+
+    /// The sky half of the census: a roll whose target column a larva roofs
+    /// counts a flip; a larva under real ground moves nothing and counts none.
+    #[test]
+    fn the_census_counts_a_sky_answer_that_brood_moves() {
+        let mut w = flat_bed();
+        let soil = w.materials.id_of("soil").expect("soil material");
+        brood_census_sky(&mut w, (40, 59), (90, 60));
+        assert_eq!(w.creature_stats.dig_sky_flips, 0, "bare ground: nothing to flip");
+        brood_item_at(&mut w, 90, 59);
+        brood_census_sky(&mut w, (40, 59), (90, 60));
+        assert_eq!(w.creature_stats.dig_sky_flips, 1, "a larva over the target flips the answer");
+        w.set(91, 40, Cell::new(soil, 0));
+        brood_item_at(&mut w, 91, 59);
+        brood_census_sky(&mut w, (40, 59), (91, 60));
+        assert_eq!(w.creature_stats.dig_sky_flips, 1, "a larva under real ground flips nothing");
     }
 
     /// The founded nest, plus a dense row of the same colony beside it —

@@ -128,6 +128,7 @@ will be.
   `meet_returning_forager`, `TRAIT_RETURN_MEMORY`, `door_read`).
   Update this line whenever a section is re-checked against the code.
 - **Verified against:** `claude/nest-race-way-foot` at `58afbd26`, 2026-10-07: §12's `WAY_FOOT`, `DOOR_COLUMN` and `LAY_BAR` rows, the `NEST_STORE` row's 2026-10-06/07 parts and the `HUNGRY_OUT` row's `lean` against `WayFoot`, `DoorColumn`, `lay_bar_body`, `NestStore` and `hungry_out_lean`.
+- **Verified against:** `main` at `43522586`, 2026-10-09: §5 step 6's brood sentences and §12's `BROOD_BLIND` row against `jaw_can_cut`, `is_live_seed`, `dig_face_turn`, `surface_curvature`, `curvature_pair`, `open_to_the_sky`, `sky_scan`, `is_brood_cell` and `BroodBlind`.
 - **Edit it in place. Never append history.** When you change a mechanism
   described here, update the section in the same commit. When you find this
   document was wrong, fix the text and say so in the commit message. It
@@ -551,8 +552,21 @@ the tick: the ant still gets its move roll (§6) afterwards.
    (`door_cue_weight`). At `w` 1 the cue holds there as everywhere else. It must not be empty, a creature or
    plant cell, or a live seed, and needs `penetration_resistance ≤
    dig_force` (1.0) (`jaw_can_cut`). Soil, lining and spoil pass, and so do powder foods and
-   litter such as crumbs; sand and the nest's own material do not. The cell
-   becomes the held pellet in its `spoils_into` form (soil, lining and spoil
+   litter such as crumbs; sand and the nest's own material do not. **Brood is
+   a live seed**: `brood::lay_egg` stamps every egg, larva and pupa
+   `CellType::Seed`, so the jaw never takes one. A roll aimed at one is spent
+   and counted in `World::dig_diverted_seed`, except that a nest worker inside
+   the nest turns to the nearest cell it can cut (`dig_face_turn`), which for
+   a worker on a chamber floor facing a larva lying on it is the cell *under*
+   the larva: the cut takes the support away and the larva, a powder that
+   does not roll, drops straight into the pit. Nothing in the cut looks at
+   what rests on its target. **Brood is ground to two of the dig's senses and
+   air to the rest**: `surface_curvature` counts it as solid (-2/24 = -0.083
+   a larva at radius 2) and `open_to_the_sky`, the heap cue's roof test,
+   reads it as a roof, while `under_cover`, the nest room census and
+   `is_footing` skip any organism-owned cell. `PIXEL_PHYSICS_BROOD_BLIND`
+   (off, §12) hides it from the first two. The cell becomes the held pellet
+   in its `spoils_into` form (soil, lining and spoil
    all become `spoil`), else its `packs_into` form, else as itself: a dug
    crumb stays food, carried in the spoil slot. Then it **lines the burrow**
    (`line_burrow`): every one of the 8 neighbours with a `packs_into` form
@@ -1493,6 +1507,7 @@ Read once per process from the environment. The default is what ships.
 | `PIXEL_PHYSICS_NEST_SHAFT` | 6 | `off` (or `0`): founding paints only and digs nothing, the ant before 2026-09-28; `<rows>`: a deeper or shallower founding shaft (§8); `_NEST_SHAFT_WIDTH=<cells>` its width (2); `World::nest_shaft` for one world |
 | `CROSS_TRUNK`, `TISSUE_PARTING` | on | `0` |
 | `PIXEL_PHYSICS_HOME_PAST_TISSUE` | `on` | `off`: a plant grown into the dug nest is a wall to the dug home, as before 2026-10-03. On, a dug cell holding living tissue a body parts or crosses is open to `World::step_nest_dug` (`body_gets_through_tissue`; `World::home_past_tissue` for one world) |
+| `PIXEL_PHYSICS_BROOD_BLIND` | off | brood is not ground to the dig's senses (§5 step 6, `creature::BroodBlind`): `curv` leaves it out of `surface_curvature`'s solid count (the brain's `SurfaceCurvature` input and every enclosed test); `sky` makes `open_to_the_sky` walk on past it, so a larva is no roof for the heap cue; `on` is both. `World::brood_blind` for one world. Its counters are always on: `dig_rolls_near_brood`, `dig_enclosed_flips`, `dig_sky_flips`, `cuts_under_brood`, `cuts_near_brood` |
 | `PIXEL_PHYSICS_PUSH_PAST` | `crumbs,brood` | `off`: neither crumbs nor brood can be walked through, the ant before 2026-10-03; `crumbs` or `brood` alone. On, bodies part loose crumbs and brood as they part foliage, the cell coming back exactly as it was when the body leaves, and the dug home reads past brood (§2; `World::push_past` for one world) |
 | `PIXEL_PHYSICS_DIGEST` | continuous | `lump`: pays out per whole cell |
 | `PIXEL_PHYSICS_LOAD_BY` | joules | `cells`: a load weighs the cells in the crop, not its worth ÷ 480 (§9) |

@@ -1951,6 +1951,30 @@ pub struct CreatureStats {
     /// unless the switch is set.
     pub spoil_cue_applied: u64,
     pub spoil_cue_kept_milli: u64,
+    /// **Brood in the dig's senses, counted whether or not
+    /// `PIXEL_PHYSICS_BROOD_BLIND` is on** (`creature::BroodBlind`; pure reads
+    /// taken at the dig roll and the cut, no draw, no write). The "it fired"
+    /// half: the effect is the nest's shape and the dig counts, paired by seed.
+    /// Dig rolls won with at least one brood item in the digger's head disc
+    /// (the cells `surface_curvature` counts) ...
+    pub dig_rolls_near_brood: u64,
+    /// ... of those, rolls where the brood moved the "enclosed" test
+    /// (`SPOIL_CUE_ENCLOSED`) -- enclosed with the brood counted as ground,
+    /// not without, or the reverse. Under `BROOD_BLIND=curv` these are the
+    /// rolls whose dig-down turn and heap-cue stand-aside the switch changed;
+    /// without it, the ones it would.
+    pub dig_enclosed_flips: u64,
+    /// Rolls that could cut, where the open-to-the-sky answer
+    /// (`creature::open_to_the_sky`) differs with brood counted as a roof or
+    /// not, at the cut cell or at the digger's own. Same reading as above.
+    pub dig_sky_flips: u64,
+    /// **Cuts with a brood item directly above the cut cell**: the ground
+    /// under a larva taken out, so the larva drops into the hole (it is a
+    /// powder). `creature::act`'s cut, counted before the cell is emptied.
+    pub cuts_under_brood: u64,
+    /// Cuts with a brood item anywhere in the 5x5 round the cut cell (those
+    /// under brood included): how much of the digging happens at brood.
+    pub cuts_near_brood: u64,
     /// **`creature::dig_roof_of`'s count**: cuts refused because they lay
     /// within the roof's rows under a nest's founding surface and outside its
     /// door. 0 under `PIXEL_PHYSICS_DIG_ROOF=off`.
@@ -4369,6 +4393,12 @@ pub struct World {
     /// neither. `None` follows the environment. A field so a guard can take
     /// both arms in one process.
     pub push_past: Option<crate::sim::creature::PushPast>,
+    /// **Whether brood counts as ground to the dig's senses, overriding
+    /// `PIXEL_PHYSICS_BROOD_BLIND` for this world** (`creature::brood_blind_of`):
+    /// the curvature sense, the heap cue's open-to-the-sky test, both or
+    /// neither. `None` follows the environment, which is neither. A field so a
+    /// guard can take every arm in one process.
+    pub brood_blind: Option<crate::sim::creature::BroodBlind>,
     /// `creature::home_past_tissue_of`'s per-world override: the dug home's
     /// fill reads past a plant grown into a dug cell.
     pub home_past_tissue: Option<bool>,
@@ -6942,6 +6972,7 @@ impl World {
             bud_stack: None,
             brood: None,
             push_past: None,
+            brood_blind: None,
             home_past_tissue: None,
             storeroom: None,
             nest_door: None,
