@@ -2355,6 +2355,15 @@ drift that two of these documents still reflect.**
 - [stigmergy-research.md](stigmergy-research.md) — **research,
   implemented.** Deposit → diffuse → decay → follow; the ant colony is
   built on it.
+- [stranger-alarm-design-2026-10-10.md](stranger-alarm-design-2026-10-10.md)
+  — **proposal, not built, awaiting a second lane's review (2026-10-10).**
+  Why lab colonies stopped fighting on 2026-10-05: the only ignition was an
+  ant eating a stranger, and the evolved lab ant's gut (-0.8) prices ant flesh
+  at 4.8 J, under the 12 J bar, so nothing ever bites first and `Attack` stays
+  0 (`rivalry`, 4 seeds: 0 attacks evolved, 16-23 with the gut alone at 0).
+  Proposes `PIXEL_PHYSICS_STRANGER_ALARM`: touching a same-species stranger
+  tops the alarm up to display strength, and the existing wire, `nearest_foe`
+  and contest do the rest. Lists the drift, jam, nest and frame-cost checks.
 - [population-dynamics-research.md](population-dynamics-research.md) —
   **research (Report D of four).** Why the ecology will go extinct and
   what prevents it; §7b answered by ecological-lod-design.
