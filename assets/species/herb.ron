@@ -147,15 +147,17 @@
     seed_half_life: 14000.0,
     remains_half_life: 700.0,
     // **An annual: it dies after it has set seed** -- see
-    // `SpeciesDef::annual_half_life`. Read only under `PIXEL_PHYSICS_ANNUAL`
-    // (off), so this changes nothing until the switch is on. Owner ruling
-    // 2026-10-10 ("Annual"), and 2026-08-23 before it
-    // (`Reports/plant-morphology-reach-2026-08-23.md`). 15,000 plant-time
-    // frames is 30,000 on the lab's half-pace wall clock: about five
-    // `rebloom_after` cycles once the first seed is down. A first arm, not a
-    // measurement -- the review that set it warned the bed may empty
-    // (`/mnt/project-files/planted-balance/review-3-2026-10-10.md` §5).
-    annual_half_life: 15000.0,
+    // `SpeciesDef::annual_half_life`, on by default (`PIXEL_PHYSICS_ANNUAL`,
+    // `off` to disable). Owner ruling 2026-10-10 ("Annual"), and 2026-08-23
+    // before it (`Reports/plant-morphology-reach-2026-08-23.md`). 45,000
+    // plant-time frames is 90,000 on the lab's half-pace wall clock. Compared
+    // only against 15,000, under the shipped light rain: on seed 1 with no
+    // ants 15,000 left 10 herbs where 45,000 kept 102 (on seed 2 with ants
+    // 15,000 kept more, 51 against 33); 12 seeds at 45,000 with ants held the
+    // bed level with herbs that never die (`plant::annual_from_env` carries
+    // the numbers). With rain off both empty the bed -- seeds stop taking in
+    // dry soil.
+    annual_half_life: 45000.0,
     fates: [
         (GrowingTip, [
             // **The determinate terminal, and it is listed first because

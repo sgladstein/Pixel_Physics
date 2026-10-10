@@ -3055,8 +3055,8 @@ pub struct SpeciesDef {
     /// frames (frames at full growth pace, so half pace doubles it on the
     /// wall clock and a big plant on a slow cadence ages no slower). `0`, the
     /// default, means not an annual. Read only under `World::annual`
-    /// (`PIXEL_PHYSICS_ANNUAL`), so a value here changes nothing while the
-    /// switch is off.
+    /// (`PIXEL_PHYSICS_ANNUAL`, on by default since 2026-10-10), so a value
+    /// here changes nothing while the switch is off.
     ///
     /// The same Weibull hazard as `life_half_life` -- the value is the median
     /// time from first seed to death, a plant that has just seeded is nearly
