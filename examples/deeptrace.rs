@@ -3001,7 +3001,7 @@ impl FoodLog {
                 .unwrap();
             }
         }
-        if every == 0 || f % every != 0 {
+        if every == 0 || !f.is_multiple_of(every) {
             return;
         }
         let is_animal =

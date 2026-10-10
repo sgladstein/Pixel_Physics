@@ -13079,11 +13079,15 @@ impl WayFoot {
     }
 }
 
+/// What `PIXEL_PHYSICS_WAY_FOOT` unset means: **on since 2026-10-10**, with
+/// the rest of the stack (`Reports/follow-food-home-2026-10-10/` §7).
+pub const WAY_FOOT_UNSET: WayFoot = WayFoot::ON;
+
 /// This world's [`WayFoot`]: `World::way_foot` if set, else the environment's.
 pub fn way_foot_of(world: &World) -> WayFoot {
     world.way_foot.unwrap_or_else(|| {
         static V: std::sync::OnceLock<WayFoot> = std::sync::OnceLock::new();
-        *V.get_or_init(|| std::env::var("PIXEL_PHYSICS_WAY_FOOT").map_or(WayFoot::OFF, |v| WayFoot::parse(&v)))
+        *V.get_or_init(|| std::env::var("PIXEL_PHYSICS_WAY_FOOT").map_or(WAY_FOOT_UNSET, |v| WayFoot::parse(&v)))
     })
 }
 
@@ -13703,9 +13707,11 @@ impl NeedsFirst {
     /// The eight parts. `backfill` is left out, so `on` means what every run
     /// before it measured; it is named alongside (`on,backfill`).
     pub const ON: NeedsFirst = NeedsFirst { hungry: true, laden: true, job: true, pack: true, throttle: true, weak: true, breakthrough: true, door: true, backfill: false };
-    /// Off until scored: built 2026-10-06 and not yet measured against the
-    /// dig-on baseline.
-    pub const SHIPPED: NeedsFirst = NeedsFirst::OFF;
+    /// **On, with `backfill`, since 2026-10-10** (the stack's default flip,
+    /// `Reports/follow-food-home-2026-10-10/` §7): the eight parts and
+    /// `backfill`, as every stack run since 2026-10-07 measured them.
+    /// `PIXEL_PHYSICS_NEEDS_FIRST=off` is the old ant.
+    pub const SHIPPED: NeedsFirst = NeedsFirst { backfill: true, ..NeedsFirst::ON };
 
     pub fn parse(raw: &str) -> NeedsFirst {
         let mut m = NeedsFirst::OFF;
@@ -16492,9 +16498,13 @@ pub fn door_loose_of(world: &World) -> bool {
 pub fn door_column_of(world: &World) -> DoorColumn {
     world.door_column.unwrap_or_else(|| {
         static V: std::sync::OnceLock<DoorColumn> = std::sync::OnceLock::new();
-        *V.get_or_init(|| std::env::var("PIXEL_PHYSICS_DOOR_COLUMN").map_or(DoorColumn::OFF, |v| DoorColumn::parse(&v)))
+        *V.get_or_init(|| std::env::var("PIXEL_PHYSICS_DOOR_COLUMN").map_or(DOOR_COLUMN_UNSET, |v| DoorColumn::parse(&v)))
     })
 }
+
+/// What `PIXEL_PHYSICS_DOOR_COLUMN` unset means: **on since 2026-10-10**,
+/// with the rest of the stack (`Reports/follow-food-home-2026-10-10/` §7).
+pub const DOOR_COLUMN_UNSET: DoorColumn = DoorColumn::ON;
 
 /// [`door_column_of`]'s parts.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -22253,11 +22263,24 @@ fn bud_store_counts_bank() -> bool {
 }
 
 /// **`PIXEL_PHYSICS_LAY_BAR=body`: a laying species clears its egg bar from
-/// its own energy alone**, food in reach not counted (`try_bud`). Off, unset,
-/// is today's reach rule and bit-identical.
+/// its own energy alone**, food in reach not counted (`try_bud`). **The
+/// default since 2026-10-10**, with the rest of the stack
+/// (`Reports/follow-food-home-2026-10-10/` §7); `reach` (or `off`) is the
+/// old rule, food in reach counted. Anything else panics, so a typo is not
+/// a silent rule.
 fn lay_bar_body() -> bool {
     static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *V.get_or_init(|| std::env::var("PIXEL_PHYSICS_LAY_BAR").as_deref() == Ok("body"))
+    *V.get_or_init(|| lay_bar_parse(std::env::var("PIXEL_PHYSICS_LAY_BAR").ok().as_deref()))
+}
+
+/// [`lay_bar_body`]'s reading of `PIXEL_PHYSICS_LAY_BAR`: unset or `body`
+/// is the body rule, `reach` or `off` the old one.
+fn lay_bar_parse(raw: Option<&str>) -> bool {
+    match raw {
+        None | Some("body") | Some("on") => true,
+        Some("reach") | Some("off") => false,
+        Some(other) => panic!("PIXEL_PHYSICS_LAY_BAR={other:?} is not body, on, reach or off"),
+    }
 }
 
 /// **`PIXEL_PHYSICS_BUD_RESERVE=<J>`: what a store must still hold after a
@@ -22544,8 +22567,9 @@ pub fn carry_home_of(world: &World) -> CarryHome {
     })
 }
 
-/// What `PIXEL_PHYSICS_CARRY_HOME` unset means.
-pub const CARRY_HOME_UNSET: CarryHome = CarryHome::OFF;
+/// What `PIXEL_PHYSICS_CARRY_HOME` unset means: **on since 2026-10-10**,
+/// with the rest of the stack (`Reports/follow-food-home-2026-10-10/` §7).
+pub const CARRY_HOME_UNSET: CarryHome = CarryHome::ON;
 
 /// **Whether a trip's carrier stands to take another mouthful**
 /// ([`CarryHome`]'s `fill`): its crop holds a trip's load with room for
@@ -33134,6 +33158,16 @@ mod tests {
         assert_eq!(held(Some(5)), (false, 0), "a hold of five kept a pellet six cells out");
     }
 
+    /// **The stack's switches off, for a test written before they shipped
+    /// on** (2026-10-10): `NEEDS_FIRST`, `CARRY_HOME`, `DOOR_COLUMN` and
+    /// `WAY_FOOT` as they were when its numbers were set.
+    fn stack_off(w: &mut World) {
+        w.needs_first = Some(NeedsFirst::OFF);
+        w.carry_home = Some(CarryHome::OFF);
+        w.door_column = Some(DoorColumn::OFF);
+        w.way_foot = Some(WayFoot::OFF);
+    }
+
     /// **A lean carrier puts its pellet down inside; a fed one keeps it**
     /// ([`LeanForage`]'s `drop`). The hold's room under the door, the carrier
     /// on its floor with its haul's patience full, so the walked cycle keeps
@@ -33147,6 +33181,7 @@ mod tests {
         let run = |lean: bool, rule: LeanForage| -> (bool, u64) {
             let (mut w, a) = carry_world(62, 46, None, &room, &[]);
             w.lean_forage = Some(rule);
+            stack_off(&mut w); // written before the stack shipped on
             w.soil_way = Some(SoilWay::OFF); // whose `lean` keeps the pellet down here
             let start = w.species.get(w.organism(a).expect("live").species).creature.as_ref().expect("a creature").start_energy;
             let st = w.organism_mut(a).expect("live");
@@ -33171,7 +33206,7 @@ mod tests {
         assert_eq!(NeedsFirst::parse("laden,job"), NeedsFirst { laden: true, job: true, ..NeedsFirst::OFF });
         assert_eq!(NeedsFirst::parse("throttle,weak,breakthrough,door"), NeedsFirst { throttle: true, weak: true, breakthrough: true, door: true, ..NeedsFirst::OFF });
         assert!(NeedsFirst::parse("door").escape() && !NeedsFirst::parse("door").jaws() && NeedsFirst::parse("pack").jaws() && !NeedsFirst::parse("throttle").escape());
-        assert_eq!(NeedsFirst::SHIPPED, NeedsFirst::OFF, "built off until it is scored against the dig-on baseline");
+        assert_eq!(NeedsFirst::SHIPPED, NeedsFirst { backfill: true, ..NeedsFirst::ON }, "ships as the stack measured it: `on,backfill`");
         assert!(!NeedsFirst::parse("on").backfill, "`on` must stay the eight parts every run before `backfill` measured");
         assert_eq!(NeedsFirst::parse("on,backfill"), NeedsFirst { backfill: true, ..NeedsFirst::ON });
     }
@@ -33444,6 +33479,7 @@ mod tests {
         let run = |x: i32, y: i32, open: &[(i32, i32)], soil: &[(i32, i32)], sw: SoilWay| -> (bool, u64) {
             let (mut w, a) = carry_world(x, y, None, open, soil);
             w.lean_forage = Some(LeanForage::ON);
+            stack_off(&mut w); // written before the stack shipped on
             w.soil_way = Some(sw);
             w.way_gaps = Some(WayGaps::ON);
             let start = w.species.get(w.organism(a).expect("live").species).creature.as_ref().expect("a creature").start_energy;
@@ -33592,6 +33628,7 @@ mod tests {
             w.dig_widen = Some(false);
             w.dig_down = Some(None);
             w.lean_forage = Some(LeanForage::ON);
+            stack_off(&mut w); // written before the stack shipped on
             let def = w.species.get(w.organism(a).expect("live").species).creature.clone().expect("a creature");
             w.organism_mut(a).expect("live").heading = 0;
             let (hx, hy) = w.organism(a).expect("live").chain[0];
@@ -34278,6 +34315,7 @@ mod tests {
         let aim = |x: i32, y: i32, sw: SoilWay, energy: f32, store: bool| {
             let (mut w, a) = rest_world(x, y, false);
             w.soil_way = Some(sw);
+            stack_off(&mut w); // written before the stack shipped on
             w.hungry_out = Some(false); // the soil's own reader builds the ways
             // ... and not the mound's (`MOUND_OUT`, `dig` on since 2026-10-06):
             // with no reader on, no way is built, which the control below reads
@@ -41237,11 +41275,21 @@ mod tests {
         assert!(on_far >= 40, "searching, it got only {on_far} cells out: the loops do not widen, and a long way round is a trap again");
     }
 
+    /// `PIXEL_PHYSICS_LAY_BAR` unset is the body rule since the stack's
+    /// flip; `reach` and `off` are the old one ([`lay_bar_parse`]).
+    #[test]
+    fn lay_bar_reads_unset_as_body() {
+        assert!(lay_bar_parse(None));
+        assert!(lay_bar_parse(Some("body")) && lay_bar_parse(Some("on")));
+        assert!(!lay_bar_parse(Some("reach")) && !lay_bar_parse(Some("off")));
+        assert!(std::panic::catch_unwind(|| lay_bar_parse(Some("bdy"))).is_err(), "a typo must not be a silent rule");
+    }
+
     /// `PIXEL_PHYSICS_CARRY_HOME` reads `on`, `off` and a comma list of its
     /// two parts ([`CarryHome::parse`]).
     #[test]
     fn carry_home_reads_on_off_and_a_list_of_its_parts() {
-        assert_eq!(CARRY_HOME_UNSET, CarryHome::OFF);
+        assert_eq!(CARRY_HOME_UNSET, CarryHome::ON, "on by default since the stack's flip");
         assert_eq!(CarryHome::parse("on"), CarryHome::ON);
         assert_eq!(CarryHome::parse("off"), CarryHome::OFF);
         assert_eq!(CarryHome::parse("fill"), CarryHome { fill: true, turn: false });
@@ -42149,6 +42197,7 @@ mod tests {
         let def = w.species.get(species).creature.clone().expect("a creature");
         w.forage_drive = Some(ForageDrive { need: ForageNeed::Off, pace: true, keep: false, fed: false });
         w.forage_throttle = Some(ForageThrottle::ON);
+        stack_off(&mut w); // written before the stack shipped on
         w.lean_forage = Some(LeanForage::OFF);
         let want = |w: &World, id| outward_want(w, w.organism(id).expect("live"), &def);
         for id in [near, far] {
