@@ -606,7 +606,8 @@ fn main() {
         for e in &mut sc.timeline {
             if matches!(
                 e.what,
-                pixel_physics::lab::scenario::Placement::Colony { .. } | pixel_physics::lab::scenario::Placement::Colonies { .. }
+                pixel_physics::lab::scenario::Placement::Colony { .. }
+                    | pixel_physics::lab::scenario::Placement::Colonies { .. }
             ) {
                 e.at = at;
                 moved += 1;
