@@ -606,6 +606,65 @@ pub const KILL_VERB_BITE: u8 = 1;
 /// [`KillDetail::verb`] for a kill by the mouth -- the victim was eaten.
 pub const KILL_VERB_EAT: u8 = 2;
 
+/// **One step of a meeting between two animals**, for the per-encounter
+/// funnel the stranger-alarm review asked for
+/// (`Reports/stranger-alarm-design-2026-10-10.md` §5): a pair first touches,
+/// then parts, displays, bites or kills. Counters can say how many of each
+/// happened; only a log keyed by the pair can say what became of *each*
+/// meeting, and whether a bite followed the touch that started it. Kills are
+/// not repeated here -- [`World::kills_log`] carries both ids already.
+///
+/// `a` is the animal acting (the one that felt the touch, or the one that
+/// stood in front of a target); `b` is the other. Organism handles carry a
+/// slot generation, so a pair stays one pair over any run this is used on.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct EncounterEvent {
+    pub frame: u64,
+    /// [`ENCOUNTER_TOUCH`], [`ENCOUNTER_TOUCH_HELD`], [`ENCOUNTER_DISPLAY`]
+    /// or [`ENCOUNTER_BITE`].
+    pub kind: u8,
+    pub a: OrganismId,
+    pub b: OrganismId,
+}
+
+/// [`EncounterEvent::kind`]: `a` touched a stranger, `b` (with
+/// `PIXEL_PHYSICS_STRANGER_ALARM` on; the touch is only sensed then).
+pub const ENCOUNTER_TOUCH: u8 = 1;
+/// [`EncounterEvent::kind`]: as [`ENCOUNTER_TOUCH`], but `a` was lean or
+/// laden (`StrangerAlarm::fed`), so it neither marked nor could answer. A
+/// meeting that only ever had these parted because of hunger, not because a
+/// contest ended peacefully.
+pub const ENCOUNTER_TOUCH_HELD: u8 = 4;
+/// [`EncounterEvent::kind`]: `a` stood before `b`, assessed, and backed off.
+pub const ENCOUNTER_DISPLAY: u8 = 2;
+/// [`EncounterEvent::kind`]: `a` committed and bit `b`.
+pub const ENCOUNTER_BITE: u8 = 3;
+
+/// How many events [`EncounterLog`] keeps -- a bound on memory, never a gate
+/// on anything: `dropped` counts what the bound refused.
+pub const MAX_ENCOUNTER_LOG: usize = 2_000_000;
+
+/// [`World::encounter_log`]'s contents.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct EncounterLog {
+    pub events: Vec<EncounterEvent>,
+    pub dropped: u64,
+}
+
+impl World {
+    /// Record one encounter step, when a harness asked for the log.
+    pub fn note_encounter(&mut self, kind: u8, a: OrganismId, b: OrganismId) {
+        let frame = self.frame;
+        if let Some(log) = self.encounter_log.as_mut() {
+            if log.events.len() < MAX_ENCOUNTER_LOG {
+                log.events.push(EncounterEvent { frame, kind, a, b });
+            } else {
+                log.dropped += 1;
+            }
+        }
+    }
+}
+
 /// How many killings [`World::kills_log`] keeps before it stops recording.
 ///
 /// **A bound on memory, never a gate on the killing** -- `World::tally_kill`
@@ -2755,6 +2814,20 @@ pub struct CreatureStats {
     /// `displays / contests` is the withdrawal rate, which in real ants is
     /// nearly all of inter-colony contact — see `sim::contest`.
     pub displays: u64,
+    /// **Decisions on which an ant's body touched a stranger of its own kind**
+    /// under [`crate::sim::creature::StrangerAlarm`] (off by default). Counts
+    /// decisions, not meetings: a jam at a border inflates it, so read pairs
+    /// and episodes from a harness, never this as a meeting count.
+    pub stranger_touches: u64,
+    /// The far side of `stranger_touches`: alarm marks actually written
+    /// (the cell was below the graded target and was topped up).
+    pub stranger_marks: u64,
+    /// Touches a lean or laden ant ignored under `StrangerAlarm::fed`.
+    pub stranger_fed_skips: u64,
+    /// **Diagnostic only**: a stranger riding (stacked) on a touched cell.
+    /// Never acted on, because `nearest_foe` folds no riders -- an alarm from
+    /// one would arouse an ant with nobody it can reach.
+    pub stranger_rider_touches: u64,
     /// **Where the alarm plane's writes come from**, split three ways at the
     /// three `cry_alarm` call sites: a bite landed by the `Attack` verb, and
     /// the two feeding sites — an animal being eaten, and a plant being
@@ -4488,6 +4561,11 @@ pub struct World {
     /// overriding `PIXEL_PHYSICS_LEAN_FORAGE`** (`creature::lean_forage_of`).
     /// `None` follows the environment.
     pub lean_forage: Option<crate::sim::creature::LeanForage>,
+    /// **A stranger's touch raises the alarm, for this world, overriding
+    /// `PIXEL_PHYSICS_STRANGER_ALARM`** (`creature::stranger_alarm_of`).
+    /// `None` follows the environment, which is on unless set to `off`
+    /// (since 2026-10-10).
+    pub stranger_alarm: Option<crate::sim::creature::StrangerAlarm>,
     /// **The share's top-up for this world, overriding
     /// `PIXEL_PHYSICS_SHARE_TOPUP`** (`creature::share_topup_of`). `None`
     /// follows the environment.
@@ -4641,6 +4719,11 @@ pub struct World {
     /// Non-zero means the log is a prefix and any share computed from it is a
     /// share of that prefix, which a reader has to be told.
     pub kills_unlogged: u64,
+    /// **Every meeting between two animals, step by step** -- see
+    /// [`EncounterLog`]. `None` (the default) records nothing; a harness that
+    /// wants the per-encounter funnel sets it to `Some`. Read-only: nothing in
+    /// the simulation consults it, and recording draws no random numbers.
+    pub encounter_log: Option<EncounterLog>,
     /// **What was standing in the vital cell of every creature that died of
     /// `DeathCause::Killed`**, as `(species, colony, material, count)` — see
     /// [`World::note_vital_loss`]. Read against `kills_log`: the difference
@@ -7028,6 +7111,7 @@ impl World {
             food_trail: None,
             forage_throttle: None,
             lean_forage: None,
+            stranger_alarm: None,
             share_topup: None,
             mute_emit_b: false,
             birth_price: None,
@@ -7054,6 +7138,7 @@ impl World {
             colony_parents: Vec::new(),
             kills_log: Vec::new(),
             kills_unlogged: 0,
+            encounter_log: None,
             vital_losses: Vec::new(),
             nest_sites: Vec::new(),
             nest_room: Vec::new(),
