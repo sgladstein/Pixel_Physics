@@ -313,7 +313,7 @@ fn main() {
     // 1..120) and reachable from no harness, so the one question nobody
     // could ask of it was what it does to a bed with two colonies in it.
     let colony_ants: i32 = arg("colony_ants").unwrap_or(creature::COLONY_ANTS);
-    let spec = LabBox {
+    let mut spec = LabBox {
         width: arg("width").unwrap_or(512),
         height: arg("height").unwrap_or(320),
         soil_depth: arg("soil").unwrap_or(80),
@@ -324,6 +324,21 @@ fn main() {
         seed,
         ..LabBox::default()
     };
+    // **`herbbox=1`: the owner's planted `herb_ant` box, as `examples/replay.rs`
+    // rebuilds it** -- 1,024 x 512, 176 rows of soil, the playtest's two dials,
+    // its thirteen plants at frame 0, rain off and half pace (the pair that
+    // reproduces that playtest), and two colonies of 52 founded at
+    // `t1=`/`t2=` (83,271 at x 728 and 84,889 at x 284 by default). Added
+    // for the stranger alarm's second review, which asked for the switch in
+    // the box where the owner saw zero kills, and in a planted one.
+    let herbbox = arg::<u32>("herbbox").unwrap_or(0) == 1;
+    let (t1, t2): (u64, u64) = (arg("t1").unwrap_or(83_271), arg("t2").unwrap_or(84_889));
+    if herbbox {
+        spec = LabBox { width: 1024, height: 512, soil_depth: 176, ground_y: 256, founders: 0, colonies: 0, seed, ..LabBox::default() };
+        spec.rain = pixel_physics::lab::rain::Rain::Off;
+        spec.plant_pace = pixel_physics::lab::pace::PlantPace::Half;
+        println!("rivalry: herbbox -- 1024x512, 13 plants, rain off, half pace, colonies at {t1} (x 728) and {t2} (x 284)");
+    }
     println!(
         "rivalry: label={label} frames={frames} seed={seed} colonies={colonies} colony_ants={colony_ants} founders={founders} walls={} spread={} tolerance={} drift={} sight={} wire={}",
         spec.compartments,
@@ -334,8 +349,59 @@ fn main() {
         wire.as_deref().unwrap_or("-"),
     );
 
-    let dims = (spec.width, spec.height);
+    // **`scenario=<name>` founds a lab scenario instead of the default bed**
+    // (added 2026-10-10 for the stranger alarm, whose review found every bed
+    // this harness had starves the evolved ant whatever it does). The seed
+    // overrides the scenario's; the colonies come from its timeline, so
+    // `colonies=`/`founders=`/`width=` are then ignored -- echoed below.
+    let scenario: Option<pixel_physics::lab::scenario::Scenario> = arg::<String>("scenario").map(|n| {
+        let mut sc = pixel_physics::lab::scenario::Scenario::load(&n).unwrap_or_else(|e| {
+            eprintln!("scenario {n}: {e}");
+            std::process::exit(2);
+        });
+        sc.bed.seed = seed;
+        sc
+    });
+    let dims = scenario.as_ref().map_or((spec.width, spec.height), |sc| (sc.bed.width, sc.bed.height));
     let mut lab = Lab::new(spec);
+    if herbbox {
+        // The two dials the playtest's header names as changed from shipped,
+        // and its plants -- `examples/replay.rs`'s own list.
+        lab.world.plant_load_failure = false;
+        lab.world.developmental_key = pixel_physics::sim::organism::DevelopmentalKey::Plant { coarseness: 0 };
+        lab.world.refold_developmental_seeds();
+        for (name, x, y) in [
+            ("conifer", 60, 206),
+            ("herb", 392, 216),
+            ("herb", 440, 220),
+            ("herb", 464, 216),
+            ("herb", 506, 208),
+            ("herb", 540, 220),
+            ("herb", 542, 220),
+            ("herb", 462, 238),
+            ("herb", 424, 228),
+            ("herb", 556, 186),
+            ("herb", 602, 204),
+            ("herb", 582, 218),
+            ("tree", 944, 202),
+        ] {
+            let ok = lab.world.plant_tree_species(x, y, name);
+            if !ok {
+                println!("rivalry: herbbox plant {name} at {x},{y} refused");
+            }
+        }
+    }
+    if let Some(sc) = scenario.clone() {
+        println!("rivalry: scenario={} ({}x{}) -- colonies, founders and box size come from it", sc.name, dims.0, dims.1);
+        lab.load_scenario(sc);
+    }
+    // `encounters=<path>`: keep `World::encounter_log` and, at the end, print
+    // the per-encounter funnel and write every event to `<path>` as CSV.
+    // Recording draws nothing, so the run is the same run without it.
+    let encounters_path: Option<String> = arg("encounters");
+    if encounters_path.is_some() {
+        lab.world.encounter_log = Some(Default::default());
+    }
     // **Both overlays off before anything is drawn.** `Lab::new` opens with
     // the key-list help page up and `Stats::new` with the biosphere page
     // showing, and a card taken before both are closed is a picture of the
@@ -554,12 +620,13 @@ fn main() {
             let st = lab.world.creature_stats;
             let (n, between, within, gap) = stranger_share(&lab.world);
             println!(
-                "  f={f:>7} alive {n:>4} strangers between {between:>6.2}% within {within:>6.2}% gap {gap:>5.3} | attacks {} cells {} kills {} | births {} deaths {}",
+                "  f={f:>7} alive {n:>4} strangers between {between:>6.2}% within {within:>6.2}% gap {gap:>5.3} | attacks {} cells {} kills {} | births {} deaths {} | lines {}",
                 st.attacks,
                 st.attack_cells,
                 st.attack_kills,
                 lab.world.creature_stats.births,
                 lab.world.deaths_by_cause.iter().sum::<u64>(),
+                line_census(&lab.world),
             );
         }
         if gif.is_some() || png_dir.is_some() {
@@ -599,7 +666,23 @@ fn main() {
             }
         }
         if f < frames {
-            tick(&mut lab);
+            // A scenario needs the lab's own tick, which runs its timeline
+            // (the colonies and heaps arrive at frame 6,000); the default bed
+            // keeps this harness's bare world step, so its logs stay
+            // comparable with every run before `scenario=` existed.
+            if scenario.is_some() || herbbox {
+                lab.tick_for_harness();
+                if herbbox && lab.world.frame == t1 {
+                    let n = lab.world.found_colony_of(728, 230, "ant", 52);
+                    println!("rivalry: herbbox colony at x 728 placed {n} at frame {t1}");
+                }
+                if herbbox && lab.world.frame == t2 {
+                    let n = lab.world.found_colony_of(284, 230, "ant", 52);
+                    println!("rivalry: herbbox colony at x 284 placed {n} at frame {t2}");
+                }
+            } else {
+                tick(&mut lab);
+            }
         }
     }
 
@@ -776,6 +859,230 @@ fn summary(world: &World, label: &str, contact_ticks: u64, cross_ticks: u64, sam
         .map(|(i, c)| format!("{}={}", c.label().to_lowercase().replace(' ', "_"), a_by_cause[i]))
         .collect();
     println!("SUMMARY-causes-animal label={label} {}", a_causes.join(" "));
+    // **The stranger alarm's own counters, and kills split by lineage rather
+    // than by label** (`Reports/stranger-alarm-design-2026-10-10.md` §4).
+    // A separate line so the SUMMARY above stays comparable with logs from
+    // before the switch existed. `regroup_by_scent` mints a new label for a
+    // split cluster, so a colony fighting its own fission daughter books as
+    // `xcol` above; `kin_line` counts kills whose two labels share a founding
+    // root in `World::colony_parents`, which is the lineage, and `bite` /
+    // `eat` split them by verb -- a cross-colony kill by the mouth is
+    // predation, not a fight.
+    let root = |mut c: u32| {
+        for _ in 0..=world.colony_parents.len() {
+            match world.colony_parents.iter().find(|(child, _)| *child == c) {
+                Some(&(_, parent)) => c = parent,
+                None => break,
+            }
+        }
+        c
+    };
+    let (mut kin_line, mut bite, mut eat) = (0u64, 0u64, 0u64);
+    for k in &world.kills_log {
+        if world.species.get(k.victim_species).creature.is_none() || k.victim_species != k.attacker_species {
+            continue;
+        }
+        if root(k.victim_colony) == root(k.attacker_colony) {
+            kin_line += 1;
+        }
+        match k.detail.verb {
+            pixel_physics::sim::world::KILL_VERB_BITE => bite += 1,
+            pixel_physics::sim::world::KILL_VERB_EAT => eat += 1,
+            _ => {}
+        }
+    }
+    // Living animals per lineage, with the span of columns their heads hold
+    // -- whether both families are still there, and whether they share the
+    // ground or have split it.
+    let mut lines: std::collections::BTreeMap<u32, (u64, i32, i32)> = Default::default();
+    for (_, x, _, colony, _) in standing(world) {
+        let e = lines.entry(root(colony)).or_insert((0, i32::MAX, i32::MIN));
+        e.0 += 1;
+        e.1 = e.1.min(x);
+        e.2 = e.2.max(x);
+    }
+    let lines: Vec<String> = lines.iter().map(|(r, (n, lo, hi))| format!("{r}:{n}@{lo}-{hi}")).collect();
+    // `splits` is how many colony labels were minted from a parent -- the
+    // lineage column above is only exercised when it is above zero.
+    println!("LINES label={label} alive_by_line={} splits={}", lines.join(","), world.colony_parents.len());
+    let sa = creature::stranger_alarm_of(world);
+    println!(
+        "STRANGER label={label} switch={} level={} fed={} touches={} marks={} fed_skips={} rider_touches={} contests={} displays={} \
+         ant_kills_same_line={kin_line} ant_kills_bite={bite} ant_kills_eat={eat}",
+        if sa.touch { "on" } else { "off" },
+        sa.level,
+        sa.fed,
+        st.stranger_touches,
+        st.stranger_marks,
+        st.stranger_fed_skips,
+        st.stranger_rider_touches,
+        st.contests,
+        st.displays,
+    );
+    encounter_funnel(world, label);
+}
+
+/// A colony label's founding root in `World::colony_parents` -- its lineage.
+fn line_root(world: &World, mut c: u32) -> u32 {
+    for _ in 0..=world.colony_parents.len() {
+        match world.colony_parents.iter().find(|(child, _)| *child == c) {
+            Some(&(_, parent)) => c = parent,
+            None => break,
+        }
+    }
+    c
+}
+
+/// Living animals per lineage as `root:count`, then that lineage's dead so
+/// far as `/s<starved>k<killed>o<old age>` from `World::group_deaths`, for
+/// the sample lines -- when a colony dies, how fast, and of what. A line
+/// with no one left still prints its dead.
+fn line_census(world: &World) -> String {
+    let mut lines: std::collections::BTreeMap<u32, (u64, u64, u64, u64)> = Default::default();
+    for (_, _, _, colony, _) in standing(world) {
+        lines.entry(line_root(world, colony)).or_default().0 += 1;
+    }
+    for g in &world.group_deaths {
+        if world.species.get(g.species).creature.is_none() {
+            continue;
+        }
+        let e = lines.entry(line_root(world, g.colony)).or_default();
+        e.1 += g.by_cause[organism::DeathCause::Starved.index()];
+        e.2 += g.by_cause[organism::DeathCause::Killed.index()];
+        e.3 += g.by_cause[organism::DeathCause::OldAge.index()];
+    }
+    let mut out = lines.iter().map(|(r, (n, st, k, o))| format!("{r}:{n}/s{st}k{k}o{o}")).collect::<Vec<_>>().join(",");
+    // Once a colony has split, the labels inside each lineage too, with the
+    // columns their heads span -- whether the two halves are two nests.
+    if !world.colony_parents.is_empty() {
+        let mut labels: std::collections::BTreeMap<u32, (u64, i32, i32)> = Default::default();
+        for (_, x, _, colony, _) in standing(world) {
+            let e = labels.entry(colony).or_insert((0, i32::MAX, i32::MIN));
+            e.0 += 1;
+            e.1 = e.1.min(x);
+            e.2 = e.2.max(x);
+        }
+        let labels: Vec<String> = labels.iter().map(|(c, (n, lo, hi))| format!("{c}<{}:{n}@{lo}-{hi}", line_root(world, *c))).collect();
+        out.push_str(&format!(" labels {}", labels.join(",")));
+    }
+    out
+}
+
+/// **What became of each meeting** -- the stranger-alarm review's funnel
+/// (`Reports/stranger-alarm-design-2026-10-10.md` §5), read off
+/// `World::encounter_log` and `kills_log`.
+///
+/// **Per meeting, not per pair** (second-lane results review, 2026-10-10):
+/// a pair's events are cut into meetings wherever `MEETING_GAP` frames pass
+/// with nothing between them, so two ants that touched in peace at 20k and
+/// fought at 90k are two meetings, not one "kill". A meeting's outcome is
+/// the furthest it went: `kill` (a bite kill between the two inside it),
+/// `bite`, `display`, `held` (touched, but every touch was by a lean or
+/// laden ant, so nobody could answer -- hunger parted them, not a contest),
+/// or `parted`. `untouched_*` are meetings that went to display or bite with
+/// no logged touch. `to_bite` is frames from a meeting's first touch to its
+/// first bite, as quartiles. Prints nothing unless `encounters=` turned the
+/// log on, and writes the events there.
+fn encounter_funnel(world: &World, label: &str) {
+    use pixel_physics::sim::world::{ENCOUNTER_BITE, ENCOUNTER_DISPLAY, ENCOUNTER_TOUCH, ENCOUNTER_TOUCH_HELD, KILL_VERB_BITE};
+    const MEETING_GAP: u64 = 300;
+    const KILL: u8 = 100;
+    let Some(log) = world.encounter_log.as_ref() else { return };
+    let key = |a: OrganismId, b: OrganismId| if a < b { (a, b) } else { (b, a) };
+    let mut by_pair: std::collections::BTreeMap<(OrganismId, OrganismId), Vec<(u64, u8)>> = Default::default();
+    for e in &log.events {
+        by_pair.entry(key(e.a, e.b)).or_default().push((e.frame, e.kind));
+    }
+    for k in &world.kills_log {
+        if k.detail.verb == KILL_VERB_BITE && k.detail.attacker != 0 {
+            by_pair.entry(key(k.detail.attacker, k.detail.victim)).or_default().push((k.frame, KILL));
+        }
+    }
+    let (mut meetings, mut parted, mut held, mut display, mut bite, mut kill) = (0u64, 0u64, 0u64, 0u64, 0u64, 0u64);
+    let (mut untouched_display, mut untouched_bite) = (0u64, 0u64);
+    let mut to_bite: Vec<u64> = Vec::new();
+    let mut close = |m: &[(u64, u8)]| {
+        let touch = m.iter().find(|e| e.1 == ENCOUNTER_TOUCH || e.1 == ENCOUNTER_TOUCH_HELD).map(|e| e.0);
+        let any_free_touch = m.iter().any(|e| e.1 == ENCOUNTER_TOUCH);
+        let has = |k: u8| m.iter().any(|e| e.1 == k);
+        let first_bite = m.iter().find(|e| e.1 == ENCOUNTER_BITE || e.1 == KILL).map(|e| e.0);
+        match touch {
+            Some(t) => {
+                meetings += 1;
+                if has(KILL) {
+                    kill += 1;
+                } else if has(ENCOUNTER_BITE) {
+                    bite += 1;
+                } else if has(ENCOUNTER_DISPLAY) {
+                    display += 1;
+                } else if any_free_touch {
+                    parted += 1;
+                } else {
+                    held += 1;
+                }
+                if let Some(b) = first_bite {
+                    to_bite.push(b.saturating_sub(t));
+                }
+            }
+            None if first_bite.is_some() => untouched_bite += 1,
+            None if has(ENCOUNTER_DISPLAY) => untouched_display += 1,
+            None => {}
+        }
+    };
+    for events in by_pair.values_mut() {
+        events.sort_unstable();
+        let mut from = 0;
+        for i in 1..=events.len() {
+            if i == events.len() || events[i].0 > events[i - 1].0 + MEETING_GAP {
+                close(&events[from..i]);
+                from = i;
+            }
+        }
+    }
+    to_bite.sort_unstable();
+    let q = |f: f64| to_bite.get(((to_bite.len() as f64 - 1.0) * f).round() as usize).copied().unwrap_or(0);
+    println!(
+        "ENCOUNTERS label={label} events={} dropped={} pairs={} meeting_gap={MEETING_GAP} meetings={meetings} parted={parted} held={held} \
+         display_only={display} bite={bite} kill={kill} untouched_display={untouched_display} untouched_bite_or_kill={untouched_bite} \
+         to_bite_n={} to_bite_q1={} to_bite_med={} to_bite_q3={}",
+        log.events.len(),
+        log.dropped,
+        by_pair.len(),
+        to_bite.len(),
+        q(0.25),
+        q(0.5),
+        q(0.75),
+    );
+    if let Some(path) = arg::<String>("encounters") {
+        // Kill rows add both lineages and the victim's energy at the bite,
+        // so a colony's last deaths can be read as fought or starving.
+        let mut out = String::from("frame,kind,a,b,a_line,b_line,victim_energy\n");
+        for e in &log.events {
+            let kind = match e.kind {
+                ENCOUNTER_TOUCH => "touch",
+                ENCOUNTER_TOUCH_HELD => "touch_held",
+                ENCOUNTER_DISPLAY => "display",
+                _ => "bite",
+            };
+            out.push_str(&format!("{},{kind},{},{},,,\n", e.frame, e.a, e.b));
+        }
+        for k in &world.kills_log {
+            if k.detail.verb == KILL_VERB_BITE {
+                out.push_str(&format!(
+                    "{},kill,{},{},{},{},{:.1}\n",
+                    k.frame,
+                    k.detail.attacker,
+                    k.detail.victim,
+                    line_root(world, k.attacker_colony),
+                    line_root(world, k.victim_colony),
+                    k.victim_energy
+                ));
+            }
+        }
+        if let Err(e) = std::fs::write(&path, out) {
+            eprintln!("encounters: cannot write {path}: {e}");
+        }
+    }
 }
 
 /// **The controls, in one short run — and two of them started life as wrong

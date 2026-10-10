@@ -1,6 +1,6 @@
 # Ants
 
-*Current as of: 2026-10-06, when **a hungry ant boxed in by the dug soil over the door started digging its way out** (see *One door, and a granary under it*), when **nest workers stopped going inside to rest again**, a day after they started, because two colonies in four collapsed late under it (see *One door, and a granary under it*), when **the young carrying food down to the larvae was built, and left switched off** (see *New ants, and why you will not see any yet*), when **lab colonies started out as the ant they evolve into** (same section) and when **soil started leaving the nest by its passages and diggers started going back to their own face** (see *One door, and a granary under it*); 2026-10-04, when **a hungry ant deep in the nest started finding its way out** (see *One door, and a granary under it*), when **ants in the lab started out half way to plant-eaters** (see *New ants, and why you will not see any yet*), when **ants started walking across puddles** (see *Coming home*) and when **a colony stopped sealing its own door with packed soil** (see *One door, and a granary under it*); 2026-10-03, when **a hungry ant started putting its digging down to go and eat.** A colony beside endless food used to grow to a few hundred and then starve at home all at once, the food untouched: its hungry foragers were still digging and carrying soil, and an ant holding soil cannot eat or fetch food. Now an ant under half its fill stops digging, sets its soil down where it stands, and goes out on its own hunger, and those colonies live. Also 2026-10-03, when **a colony started keeping its own door open** (see *One door, and a granary under it*), and when **the lab's other animals started ageing like the ant** (see *Ants get old and die of it*); 2026-10-02, when **the whole dug nest became home and
+*Current as of: 2026-10-10, when **ants from two colonies started fighting when they meet** (see *Who is family*): touching a stranger of its own kind now alarms an ant, so two colonies settle into a border, or one wipes the other out as it lands, instead of walking through each other for ever; 2026-10-06, when **a hungry ant boxed in by the dug soil over the door started digging its way out** (see *One door, and a granary under it*), when **nest workers stopped going inside to rest again**, a day after they started, because two colonies in four collapsed late under it (see *One door, and a granary under it*), when **the young carrying food down to the larvae was built, and left switched off** (see *New ants, and why you will not see any yet*), when **lab colonies started out as the ant they evolve into** (same section) and when **soil started leaving the nest by its passages and diggers started going back to their own face** (see *One door, and a granary under it*); 2026-10-04, when **a hungry ant deep in the nest started finding its way out** (see *One door, and a granary under it*), when **ants in the lab started out half way to plant-eaters** (see *New ants, and why you will not see any yet*), when **ants started walking across puddles** (see *Coming home*) and when **a colony stopped sealing its own door with packed soil** (see *One door, and a granary under it*); 2026-10-03, when **a hungry ant started putting its digging down to go and eat.** A colony beside endless food used to grow to a few hundred and then starve at home all at once, the food untouched: its hungry foragers were still digging and carrying soil, and an ant holding soil cannot eat or fetch food. Now an ant under half its fill stops digging, sets its soil down where it stands, and goes out on its own hunger, and those colonies live. Also 2026-10-03, when **a colony started keeping its own door open** (see *One door, and a granary under it*), and when **the lab's other animals started ageing like the ant** (see *Ants get old and die of it*); 2026-10-02, when **the whole dug nest became home and
 food started gathering in piles** (see *One door, and a granary under it*),
 when **new ants started as eggs, laid only at
 home** (see *New ants*), and when **an ant started holding on to a nestmate
@@ -1220,9 +1220,21 @@ so a tolerant lineage next to an intolerant one keeps walking up to animals
 that will bite it — which is what being raided looks like, and what being
 adopted looks like, and nobody wrote a rule for either. The old *colony
 rivalry* switch is gone: what it did (every click a stranger to every other)
-is spread at 1 and tolerance at −1. What scent does *not* do: nobody attacks
-a stranger it is not going to eat, nobody runs from one, and both colonies
-still lay and follow one shared set of trails. A colony that has split
+is spread at 1 and tolerance at −1. **Touching a stranger starts a fight** (since 2026-10-10). The lab's ant
+lives on plants and does not count another ant as food, so for a while two
+colonies met thousands of times and nobody ever bit: the only thing that had
+ever started a fight was a hungry ant trying to eat a stranger. Now an ant
+whose body touches an ant of its own kind that smells foreign is alarmed
+where it stands, more the more foreign the smell, and alarmed ants close in
+and bite or square up. Most meetings still end with the two walking apart;
+about one in seven ends in a death. A hungry ant, or one carrying food, does
+not take it up while a stranger is touching it: hunger comes first, and a
+forager keeps its load. What follows is a border: two colonies with steady
+food hold their own ground and fight where they meet, at a cost of a few
+percent of their numbers. Sometimes one wipes the other out as it lands, and
+two colonies whose nests have come to smell alike stop fighting and become
+one family. Nobody runs from a stranger yet, and both colonies still lay and
+follow one shared set of trails. A colony that has split
 keeps only its name and its line apart; the two halves do not yet merge back
 if they drift together again.
 
