@@ -2884,7 +2884,11 @@ impl FoodLog {
             if b.stage != BroodStage::Larva {
                 continue;
             }
-            let Some(&(x, y)) = s.chain.first() else { continue };
+            // A brood item's cell is in its own list, not a body chain; one
+            // under a walker is still listed there.
+            let Some((x, y)) = s.cells.keys().next().copied().or_else(|| s.chain.first().copied()) else {
+                continue;
+            };
             let mut food8 = 0;
             let mut adults = HashSet::new();
             let mut best = 0.0f32;
