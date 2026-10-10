@@ -8342,6 +8342,22 @@ ant-frames to simulate, the colony being larger. Still unreached: an ant
 encased with a pellet and no cell to set it down in, and the shaft below the
 founding ground.
 
+**The nest stack ships on, with the store** (2026-10-10; each switch's `off`
+is the ant before it). `NEEDS_FIRST` (every part but `job`, with
+`backfill`), `CARRY_HOME`, `DOOR_COLUMN`, `LAY_BAR=body`, `WAY_FOOT` and
+`NEST_STORE` (`on,pick=20,jaws,sky,meal,smell=10,edible`): needs outrank the
+rules that hold an ant to a job, carriers fill up and keep the way home,
+the doorway is kept clear, an egg is paid from the layer's own body, the
+nest's ways follow the walls rather than the backs of the crowd, and food is
+banked deep in the nest. Against main over 12 seeds (frames 100-200k), the
+colony is larger on 12 of 12 at heap 90 (652 against 342) and heap 30 (661
+against 562), and 7% smaller on steady food (265 against 284), where more
+foragers starve (51 against 30). Ants living in the dug nest are up on 12 of
+12 on every bed, on steady food 21% of adults against 1.2%. The store is what
+keeps them there; without it 5% stay. `job` is left off because with the
+store it turned digging into churn beside the store's crumbs.
+`Reports/follow-food-home-2026-10-10/`.
+
 **Soil walked out by the passages, and the way out's two gaps** (both on
 since 2026-10-05, with `FACE_TRIP` below: `PIXEL_PHYSICS_SOIL_WAY`,
 `PIXEL_PHYSICS_WAY_GAPS`; `off` is the ant before them). On

@@ -5604,6 +5604,10 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   bigger. **The store is what keeps ants in the nest**: 21-34% of adults in
   the dug nest on steady food with it, 3.5-5.3% without. Recommends flipping
   the stack with the store on, and building food that reaches deep larvae.
+  **§7 is the default flip's 12-seed table** (heap 30, heap 90, steady; main,
+  the stack, without the store, and with `NEEDS_FIRST`'s `job` off, which is
+  what shipped): larger than main on 12 of 12 at both heaps, 7% smaller on
+  steady food, more ants in the dug nest on 12 of 12 on every bed.
 - [handoff/PLAN-2026-10-07.md](handoff/PLAN-2026-10-07.md) — **the account
   handoff and plan for the ant program, 2026-10-07 (main 9c362015); start here.**
   Written for a new account with only the repo: the owner's goals, every working

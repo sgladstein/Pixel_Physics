@@ -189,7 +189,8 @@ smaller, and 3-4x as many adults starve (64-128 against 19-51). The deaths
 move from larvae to foragers (§3c). Its crumbs also make diggers set soil down
 where they cut (§3d). The late-tunnels lane is testing the store with
 `NEEDS_FIRST`'s `job` part off, to see whether the churn goes and the ants
-stay. If they do, that is the version to ship.
+stay. They do (§7), so that is the version that ships: **the store on,
+`NEEDS_FIRST`'s `job` part off.**
 
 **What the trace says to build next**, as separate proposals:
 
@@ -208,7 +209,7 @@ stay. If they do, that is the version to ship.
    does the reverse on steady food.
 
 The 12-seed check against main (heap 90, heap 30, steady; main, stack, stack
-without the store) is §7.
+without the store, and the store with `job` off) is §7.
 
 ## 5. Not traced
 
@@ -229,3 +230,78 @@ python3 Reports/follow-food-home-2026-10-10/summary.py OUT ...
 python3 Reports/follow-food-home-2026-10-10/larvaetrace.py OUT
 python3 Reports/follow-food-home-2026-10-10/foodflow.py OUT_A OUT_B ...
 ```
+
+## 7. The flip: 12 seeds against main
+
+Seeds 1-12, frames 100-200k, mutation off, evolved founder, one thread a
+run (`twelve.py`; seeds 1-4 of heap 90 and steady are the §3 runs).
+**jobless** is what ships: the stack, the store on, `NEEDS_FIRST` without
+`job` (`hungry,laden,pack,throttle,weak,breakthrough,door,backfill`).
+**stack** is the stack as measured before (`job` on), and **nostore** is the
+stack without the store. Heap 30 and heap 90 are `nest_goal` (`foodgap=`),
+and steady is `steady_income`.
+
+### h30
+
+| arm | seeds | ants (median, range) | adults starved | larvae starved / egg | in dug nest % | nest time in stays >5k % | colonies dead |
+|---|---|---|---|---|---|---|---|
+| main | 12 | 562 (512-618) | 2 (0-5) | 0.20 (0.17-0.27) | 5.6 (3.7-7.3) | 17.7 (7.1-26.4) | 0 |
+| jobless | 12 | 661 (585-762) | 1 (0-3) | 0.23 (0.12-0.31) | 11.6 (9.5-12.6) | 30.7 (21.8-34.2) | 0 |
+| nostore | 12 | 598 (518-1106) | 1 (0-5) | 0.21 (0.03-0.26) | 9.3 (7.4-12.1) | 33.8 (23.7-48.3) | 0 |
+| stack | 12 | 665 (603-893) | 2 (0-133) | 0.21 (0.09-0.32) | 12.0 (10.5-13.8) | 31.0 (20.6-42.7) | 0 |
+- jobless vs main, 12 paired seeds: ants higher on 12, adults starved higher on 1, larvae/egg higher on 6, in-nest higher on 12
+- nostore vs main, 12 paired seeds: ants higher on 8, adults starved higher on 1, larvae/egg higher on 6, in-nest higher on 12
+- stack vs main, 12 paired seeds: ants higher on 11, adults starved higher on 4, larvae/egg higher on 8, in-nest higher on 12
+- main vs stack, 12 paired seeds: ants higher on 1, adults starved higher on 7, larvae/egg higher on 4, in-nest higher on 0
+- jobless vs stack, 12 paired seeds: ants higher on 6, adults starved higher on 2, larvae/egg higher on 5, in-nest higher on 4
+- nostore vs stack, 12 paired seeds: ants higher on 1, adults starved higher on 4, larvae/egg higher on 5, in-nest higher on 1
+
+### h90
+
+| arm | seeds | ants (median, range) | adults starved | larvae starved / egg | in dug nest % | nest time in stays >5k % | colonies dead |
+|---|---|---|---|---|---|---|---|
+| main | 12 | 342 (252-410) | 45 (12-90) | 0.18 (0.15-0.25) | 1.2 (0.9-1.8) | 0.0 (0.0-1.4) | 0 |
+| jobless | 12 | 652 (600-757) | 2 (1-8) | 0.18 (0.09-0.25) | 11.9 (10.6-13.6) | 21.6 (13.5-28.7) | 0 |
+| nostore | 12 | 561 (479-591) | 2 (0-25) | 0.18 (0.16-0.24) | 5.2 (3.7-6.1) | 6.9 (1.7-11.0) | 0 |
+| stack | 12 | 702 (614-763) | 1 (0-8) | 0.16 (0.10-0.20) | 12.3 (10.1-13.2) | 23.6 (18.2-32.5) | 0 |
+- jobless vs main, 12 paired seeds: ants higher on 12, adults starved higher on 0, larvae/egg higher on 5, in-nest higher on 12
+- nostore vs main, 12 paired seeds: ants higher on 12, adults starved higher on 0, larvae/egg higher on 7, in-nest higher on 12
+- stack vs main, 12 paired seeds: ants higher on 12, adults starved higher on 0, larvae/egg higher on 4, in-nest higher on 12
+- main vs stack, 12 paired seeds: ants higher on 0, adults starved higher on 12, larvae/egg higher on 8, in-nest higher on 0
+- jobless vs stack, 12 paired seeds: ants higher on 2, adults starved higher on 6, larvae/egg higher on 8, in-nest higher on 6
+- nostore vs stack, 12 paired seeds: ants higher on 0, adults starved higher on 8, larvae/egg higher on 9, in-nest higher on 0
+
+### steady
+
+| arm | seeds | ants (median, range) | adults starved | larvae starved / egg | in dug nest % | nest time in stays >5k % | colonies dead |
+|---|---|---|---|---|---|---|---|
+| main | 12 | 284 (268-297) | 30 (13-50) | 0.19 (0.15-0.22) | 1.2 (1.2-1.6) | 0.0 (0.0-0.0) | 0 |
+| jobless | 12 | 265 (249-296) | 51 (16-199) | 0.14 (0.06-0.26) | 21.2 (16.6-29.7) | 30.0 (19.9-43.4) | 0 |
+| nostore | 12 | 291 (274-307) | 48 (16-97) | 0.18 (0.06-0.21) | 5.0 (3.5-12.0) | 1.2 (0.0-18.9) | 0 |
+| stack | 12 | 269 (250-280) | 114 (29-192) | 0.09 (0.01-0.17) | 23.8 (17.3-34.5) | 37.6 (23.1-52.8) | 0 |
+- jobless vs main, 12 paired seeds: ants higher on 1, adults starved higher on 8, larvae/egg higher on 2, in-nest higher on 12
+- nostore vs main, 12 paired seeds: ants higher on 9, adults starved higher on 9, larvae/egg higher on 7, in-nest higher on 12
+- stack vs main, 12 paired seeds: ants higher on 2, adults starved higher on 11, larvae/egg higher on 1, in-nest higher on 12
+- main vs stack, 12 paired seeds: ants higher on 10, adults starved higher on 1, larvae/egg higher on 11, in-nest higher on 0
+- jobless vs stack, 12 paired seeds: ants higher on 4, adults starved higher on 4, larvae/egg higher on 10, in-nest higher on 4
+- nostore vs stack, 12 paired seeds: ants higher on 12, adults starved higher on 3, larvae/egg higher on 10, in-nest higher on 0
+
+**Against main** (what ships, `jobless`): no colony died on any bed. Heap
+90: 652 ants against 342, larger on 12 of 12; adults starved 2 against 45.
+Heap 30: 661 against 562, larger on 12 of 12. Steady food: 265 against 284,
+smaller on 11 of 12, and adults starved 51 against 30 (higher on 8 of 12;
+§3c traces why). Ants living in the dug nest are higher on 12 of 12 on every
+bed: steady 21% against 1.2%, heap 90 12% against 1.2%, heap 30 12% against
+5.6%.
+
+**Why `job` off** (against `stack`): on steady food, foragers starved
+median 51 against 114 (higher on 4 of 12). As many ants live in the nest
+(21% against 24%) and the colony is the same size (265 against 269). Heap 90
+costs about 7% (652 against 702, smaller on 10 of 12); late tunnels found the
+same, 13-107 smaller on 8 of 8 nests, not traced. The late-tunnels lane's 8
+nests: the churn is gone (84-93% of loads carried 10+ cells, against 11-23%),
+and the nest keeps more tunnel and a smaller room (`/mnt/project-files/late-tunnels/jobtest.md`).
+
+**Why not store off**: ants leave the nest (steady 5.0% in the dug nest,
+heap 90 5.2%), and on heap 90 the colony is a fifth smaller than with the
+store (561 against 652-702).

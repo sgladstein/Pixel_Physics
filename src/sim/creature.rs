@@ -13707,11 +13707,16 @@ impl NeedsFirst {
     /// The eight parts. `backfill` is left out, so `on` means what every run
     /// before it measured; it is named alongside (`on,backfill`).
     pub const ON: NeedsFirst = NeedsFirst { hungry: true, laden: true, job: true, pack: true, throttle: true, weak: true, breakthrough: true, door: true, backfill: false };
-    /// **On, with `backfill`, since 2026-10-10** (the stack's default flip,
-    /// `Reports/follow-food-home-2026-10-10/` §7): the eight parts and
-    /// `backfill`, as every stack run since 2026-10-07 measured them.
-    /// `PIXEL_PHYSICS_NEEDS_FIRST=off` is the old ant.
-    pub const SHIPPED: NeedsFirst = NeedsFirst { backfill: true, ..NeedsFirst::ON };
+    /// **On since 2026-10-10, less `job`, with `backfill`** (the stack's
+    /// default flip, `Reports/follow-food-home-2026-10-10/` §7). `job` is
+    /// left off: with the store it made diggers set soil down beside the
+    /// store's crumbs (11-23% of loads carried 10+ cells against 84-93%
+    /// without it, late-tunnels lane, 8 nests at heap 90), and without it
+    /// as many ants live in the nest (steady food, 12 seeds: 21% against
+    /// 24% of adults in the dug nest) and fewer foragers starve (median 51
+    /// against 114). `PIXEL_PHYSICS_NEEDS_FIRST=off` is the old ant;
+    /// `on,backfill` is the stack as measured before.
+    pub const SHIPPED: NeedsFirst = NeedsFirst { job: false, backfill: true, ..NeedsFirst::ON };
 
     pub fn parse(raw: &str) -> NeedsFirst {
         let mut m = NeedsFirst::OFF;
@@ -14188,8 +14193,9 @@ fn shut_in(world: &World, x: i32, y: i32) -> bool {
 }
 
 /// **The colony's food is kept deep in the nest, and hungry ants go in to
-/// eat it** (`PIXEL_PHYSICS_NEST_STORE=on|off|<parts>`, a comma list; **off
-/// by default**, built 2026-10-06; [`World::nest_store`] for one world).
+/// eat it** (`PIXEL_PHYSICS_NEST_STORE=on|off|<parts>`, a comma list; **on
+/// by default since 2026-10-10** as [`NestStore::SHIPPED`], built 2026-10-06;
+/// [`World::nest_store`] for one world).
 /// One switch with named parts, because each part alone has already failed
 /// or starved colonies (`/mnt/project-files/nest-race/inside/
 /// 06-why-ants-are-not-inside-v2.md` §5): moving ants in without food starved
@@ -14357,8 +14363,12 @@ pub const STORE_ROOMY: u32 = 12;
 impl NestStore {
     pub const OFF: NestStore = NestStore { carry: false, eat: false, keep: false, home: false, larder: false, depth: STORE_DEPTH, pick: 0, jaws: false, fetch: false, smell: 0, sated: false, whole: false, meal: false, sky: false, edible: false };
     pub const ON: NestStore = NestStore { carry: true, eat: true, keep: true, home: true, larder: true, depth: STORE_DEPTH, pick: 0, jaws: false, fetch: false, smell: 0, sated: false, whole: false, meal: false, sky: false, edible: false };
-    /// What a world gets with the variable unset: off, see the type's doc.
-    pub const SHIPPED: NestStore = NestStore::OFF;
+    /// What a world gets with the variable unset: **the stack's store,
+    /// `on,pick=20,jaws,sky,meal,smell=10,edible`, since 2026-10-10**
+    /// (`Reports/follow-food-home-2026-10-10/` §4, §7): with it a fifth to
+    /// a third of the colony lives in the dug nest on steady food, against
+    /// 3.5-5.3% without it. `off` is the old ant.
+    pub const SHIPPED: NestStore = NestStore { pick: 20, jaws: true, smell: 10, meal: true, sky: true, edible: true, ..NestStore::ON };
 
     /// Whether any part is on.
     pub fn on(self) -> bool {
@@ -33160,12 +33170,13 @@ mod tests {
 
     /// **The stack's switches off, for a test written before they shipped
     /// on** (2026-10-10): `NEEDS_FIRST`, `CARRY_HOME`, `DOOR_COLUMN` and
-    /// `WAY_FOOT` as they were when its numbers were set.
+    /// `WAY_FOOT` and `NEST_STORE` as they were when its numbers were set.
     fn stack_off(w: &mut World) {
         w.needs_first = Some(NeedsFirst::OFF);
         w.carry_home = Some(CarryHome::OFF);
         w.door_column = Some(DoorColumn::OFF);
         w.way_foot = Some(WayFoot::OFF);
+        w.nest_store = Some(NestStore::OFF);
     }
 
     /// **A lean carrier puts its pellet down inside; a fed one keeps it**
@@ -33206,7 +33217,7 @@ mod tests {
         assert_eq!(NeedsFirst::parse("laden,job"), NeedsFirst { laden: true, job: true, ..NeedsFirst::OFF });
         assert_eq!(NeedsFirst::parse("throttle,weak,breakthrough,door"), NeedsFirst { throttle: true, weak: true, breakthrough: true, door: true, ..NeedsFirst::OFF });
         assert!(NeedsFirst::parse("door").escape() && !NeedsFirst::parse("door").jaws() && NeedsFirst::parse("pack").jaws() && !NeedsFirst::parse("throttle").escape());
-        assert_eq!(NeedsFirst::SHIPPED, NeedsFirst { backfill: true, ..NeedsFirst::ON }, "ships as the stack measured it: `on,backfill`");
+        assert_eq!(NeedsFirst::SHIPPED, NeedsFirst::parse("hungry,laden,pack,throttle,weak,breakthrough,door,backfill"), "ships as the flip measured it: the stack less `job`");
         assert!(!NeedsFirst::parse("on").backfill, "`on` must stay the eight parts every run before `backfill` measured");
         assert_eq!(NeedsFirst::parse("on,backfill"), NeedsFirst { backfill: true, ..NeedsFirst::ON });
     }
@@ -33969,7 +33980,7 @@ mod tests {
         assert_eq!(NestStore::parse("on"), NestStore::ON);
         assert_eq!(NestStore::parse("eat,keep"), NestStore { eat: true, keep: true, ..NestStore::OFF });
         assert_eq!(NestStore::parse("depth=7,on"), NestStore { depth: 7, ..NestStore::ON });
-        assert!(!NestStore::SHIPPED.on(), "the nest store ships off");
+        assert_eq!(NestStore::SHIPPED, NestStore::parse("on,pick=20,jaws,sky,meal,smell=10,edible"), "the nest store ships as the stack measured it");
         assert_eq!(NestStore::parse("on,edible"), NestStore { edible: true, ..NestStore::ON });
         assert!(std::panic::catch_unwind(|| NestStore::parse("eats")).is_err());
     }
@@ -42239,6 +42250,7 @@ mod tests {
     #[test]
     fn the_returns_drive_fades_with_the_time_since_food_last_came_home() {
         let mut w = World::new(Rect::new(0, 0, 159, 63));
+        stack_off(&mut w); // written before the store shipped on
         w.register_nest_site(20, 40, 4);
         let ant = spawn(&mut w, "ant", 100, 40);
         let species = w.organism(ant).expect("live").species;
@@ -43345,6 +43357,7 @@ mod tests {
     #[test]
     fn a_hungry_forager_is_not_driven_under_fed_and_a_fed_one_is() {
         let mut w = World::new(Rect::new(0, 0, 63, 63));
+        stack_off(&mut w); // written before the store shipped on
         let ant = spawn(&mut w, "ant", 20, 40);
         let def = w.species.get(w.organism(ant).expect("live").species).creature.clone().expect("a creature");
         let always = ForageDrive { need: ForageNeed::Always, pace: true, keep: false, fed: false };
@@ -43380,6 +43393,7 @@ mod tests {
     fn a_nest_is_as_hungry_as_the_mean_of_its_animals_and_only_while_the_drive_reads_it() {
         let stone = Cell::new(material::STONE, 0).with_attached(true);
         let mut w = World::new(Rect::new(0, 0, 159, 63));
+        stack_off(&mut w); // written before the store shipped on
         for x in 0..160 {
             for y in 41..64 {
                 w.set(x, y, stone);
@@ -43428,6 +43442,7 @@ mod tests {
         let pickups = |drive: ForageDrive, fed: f32| -> u64 {
             let stone = Cell::new(material::STONE, 0).with_attached(true);
             let mut w = World::new(Rect::new(0, 0, 99, 63));
+            stack_off(&mut w); // written before the store shipped on
             for x in 0..100 {
                 for y in 30..64 {
                     w.set(x, y, stone);
