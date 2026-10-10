@@ -353,6 +353,13 @@ fn main() {
         println!("rivalry: scenario={} ({}x{}) -- colonies, founders and box size come from it", sc.name, dims.0, dims.1);
         lab.load_scenario(sc);
     }
+    // `encounters=<path>`: keep `World::encounter_log` and, at the end, print
+    // the per-encounter funnel and write every event to `<path>` as CSV.
+    // Recording draws nothing, so the run is the same run without it.
+    let encounters_path: Option<String> = arg("encounters");
+    if encounters_path.is_some() {
+        lab.world.encounter_log = Some(Default::default());
+    }
     // **Both overlays off before anything is drawn.** `Lab::new` opens with
     // the key-list help page up and `Stats::new` with the biosphere page
     // showing, and a card taken before both are closed is a picture of the
@@ -833,6 +840,18 @@ fn summary(world: &World, label: &str, contact_ticks: u64, cross_ticks: u64, sam
             _ => {}
         }
     }
+    // Living animals per lineage, with the span of columns their heads hold
+    // -- whether both families are still there, and whether they share the
+    // ground or have split it.
+    let mut lines: std::collections::BTreeMap<u32, (u64, i32, i32)> = Default::default();
+    for (_, x, _, colony, _) in standing(world) {
+        let e = lines.entry(root(colony)).or_insert((0, i32::MAX, i32::MIN));
+        e.0 += 1;
+        e.1 = e.1.min(x);
+        e.2 = e.2.max(x);
+    }
+    let lines: Vec<String> = lines.iter().map(|(r, (n, lo, hi))| format!("{r}:{n}@{lo}-{hi}")).collect();
+    println!("LINES label={label} alive_by_line={}", lines.join(","));
     let sa = creature::stranger_alarm_of(world);
     println!(
         "STRANGER label={label} switch={} level={} fed={} touches={} marks={} fed_skips={} rider_touches={} contests={} displays={} \
@@ -847,6 +866,101 @@ fn summary(world: &World, label: &str, contact_ticks: u64, cross_ticks: u64, sam
         st.contests,
         st.displays,
     );
+    encounter_funnel(world, label);
+}
+
+/// **What became of each meeting** -- the stranger-alarm review's funnel
+/// (`Reports/stranger-alarm-design-2026-10-10.md` §5), read off
+/// `World::encounter_log` and `kills_log` by unordered pair. A pair's
+/// outcome is the furthest it went: `kill` (a bite killed one of them),
+/// `bite`, `display` (someone stood before the other and backed off), or
+/// `parted` (touched, nothing more). `untouched_*` are pairs that went to
+/// display or bite without a logged touch -- the fight reached them through
+/// alarm someone else laid. `to_bite` is frames from a pair's first touch to
+/// its first bite, as quartiles over the pairs that had both. Prints nothing
+/// unless `encounters=` turned the log on, and writes the events there.
+fn encounter_funnel(world: &World, label: &str) {
+    use pixel_physics::sim::world::{ENCOUNTER_BITE, ENCOUNTER_DISPLAY, ENCOUNTER_TOUCH, KILL_VERB_BITE};
+    let Some(log) = world.encounter_log.as_ref() else { return };
+    #[derive(Default)]
+    struct Pair {
+        touch: Option<u64>,
+        display: bool,
+        bite: Option<u64>,
+        kill: bool,
+    }
+    let key = |a: OrganismId, b: OrganismId| if a < b { (a, b) } else { (b, a) };
+    let mut pairs: std::collections::BTreeMap<(OrganismId, OrganismId), Pair> = Default::default();
+    for e in &log.events {
+        let p = pairs.entry(key(e.a, e.b)).or_default();
+        match e.kind {
+            ENCOUNTER_TOUCH => p.touch = Some(p.touch.map_or(e.frame, |f| f.min(e.frame))),
+            ENCOUNTER_DISPLAY => p.display = true,
+            ENCOUNTER_BITE => p.bite = Some(p.bite.map_or(e.frame, |f| f.min(e.frame))),
+            _ => {}
+        }
+    }
+    for k in &world.kills_log {
+        if k.detail.verb == KILL_VERB_BITE && k.detail.attacker != 0 {
+            pairs.entry(key(k.detail.attacker, k.detail.victim)).or_default().kill = true;
+        }
+    }
+    let (mut touched, mut parted, mut display, mut bite, mut kill) = (0u64, 0u64, 0u64, 0u64, 0u64);
+    let (mut untouched_display, mut untouched_bite) = (0u64, 0u64);
+    let mut to_bite: Vec<u64> = Vec::new();
+    for p in pairs.values() {
+        match p.touch {
+            Some(t) => {
+                touched += 1;
+                if p.kill {
+                    kill += 1;
+                } else if p.bite.is_some() {
+                    bite += 1;
+                } else if p.display {
+                    display += 1;
+                } else {
+                    parted += 1;
+                }
+                if let Some(b) = p.bite {
+                    to_bite.push(b.saturating_sub(t));
+                }
+            }
+            None if p.bite.is_some() || p.kill => untouched_bite += 1,
+            None if p.display => untouched_display += 1,
+            None => {}
+        }
+    }
+    to_bite.sort_unstable();
+    let q = |f: f64| to_bite.get(((to_bite.len() as f64 - 1.0) * f).round() as usize).copied().unwrap_or(0);
+    println!(
+        "ENCOUNTERS label={label} events={} dropped={} pairs_touched={touched} parted={parted} display_only={display} bite={bite} kill={kill} \
+         untouched_display={untouched_display} untouched_bite_or_kill={untouched_bite} to_bite_n={} to_bite_q1={} to_bite_med={} to_bite_q3={}",
+        log.events.len(),
+        log.dropped,
+        to_bite.len(),
+        q(0.25),
+        q(0.5),
+        q(0.75),
+    );
+    if let Some(path) = arg::<String>("encounters") {
+        let mut out = String::from("frame,kind,a,b\n");
+        for e in &log.events {
+            let kind = match e.kind {
+                ENCOUNTER_TOUCH => "touch",
+                ENCOUNTER_DISPLAY => "display",
+                _ => "bite",
+            };
+            out.push_str(&format!("{},{kind},{},{}\n", e.frame, e.a, e.b));
+        }
+        for k in &world.kills_log {
+            if k.detail.verb == KILL_VERB_BITE {
+                out.push_str(&format!("{},kill,{},{}\n", k.frame, k.detail.attacker, k.detail.victim));
+            }
+        }
+        if let Err(e) = std::fs::write(&path, out) {
+            eprintln!("encounters: cannot write {path}: {e}");
+        }
+    }
 }
 
 /// **The controls, in one short run — and two of them started life as wrong

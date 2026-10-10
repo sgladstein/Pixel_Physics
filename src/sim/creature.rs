@@ -18168,6 +18168,7 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
         world.creature_stats.stranger_rider_touches += u64::from(touch.riders);
         if let Some(foreign) = touch.foreign {
             world.creature_stats.stranger_touches += 1;
+            world.note_encounter(crate::sim::world::ENCOUNTER_TOUCH, organism, touch.who);
             if lean_or_laden {
                 world.creature_stats.stranger_fed_skips += 1;
             } else {
@@ -18401,8 +18402,12 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
                 // victim, a display is a fact about the displayer.
                 world.deposit_pheromone(Channel::Alarm, x, y, contest::display_deposit());
                 world.creature_stats.displays += 1;
+                world.note_encounter(crate::sim::world::ENCOUNTER_DISPLAY, organism, victim);
             }
             if commits && damage > 0.0 && victim != 0 {
+                if is_animal {
+                    world.note_encounter(crate::sim::world::ENCOUNTER_BITE, organism, victim);
+                }
                 // Being bitten is being bitten, whichever verb did it.
                 cry_alarm(world, tx, ty);
                 world.creature_stats.alarm_attack += 1;
@@ -24235,6 +24240,8 @@ struct StrangerTouch {
     /// stranger touches at all (a stranger just past the radius is
     /// `Some(~0)`, a touch that writes nothing).
     foreign: Option<f32>,
+    /// The stranger `foreign` was read off -- for the encounter log only.
+    who: OrganismId,
     /// Strangers riding on a touched cell -- diagnostic only.
     riders: u32,
 }
@@ -24281,6 +24288,9 @@ fn stranger_touch(world: &World, organism: OrganismId, head: (i32, i32), gut: Gu
                 continue;
             }
             if let Some(f) = foreign_of(owner) {
+                if out.foreign.is_none_or(|g| f > g) {
+                    out.who = owner;
+                }
                 out.foreign = Some(out.foreign.map_or(f, |g: f32| g.max(f)));
             }
         }
