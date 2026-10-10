@@ -1,6 +1,6 @@
 # Strangers start the fight: a design for touch-triggered alarm (2026-10-10)
 
-*Proposal, reviewed, being built behind an off switch. Owner asked for it
+*Proposal, reviewed, built behind an off switch, first results in §9. Owner asked for it
 on 2026-10-10 ("yes" to writing it up for review). Project rule: trace,
 then proposal, then review by another lane, then build behind an off switch,
 then test. The trace is §1; the second lane's review (yes, with changes) is
@@ -241,3 +241,62 @@ plane overlaid, so a standing border can be told from a moving one.
   gut-0 cross-colony kills are no longer the reference.
 - The parked recruiting's alarm climb fires on any live alarm, so it is
   tested as two arms.
+
+## 9. First results (2026-10-10, branch head after `687033e7`)
+
+Logs, the bed files and run scripts are in the shared project folder,
+`/mnt/project-files/fight-trace-2026-10-10/` (`two-nests-steady/`,
+`two-nests-12seeds/`, `mutation-on/`). `rivalry scenario=two_nests_own
+encounters=<csv>`, 150k frames, evolved founder, mutation off,
+`RAYON_NUM_THREADS=1`, switch `on` (touch, fed, level 20) against off.
+
+**The bed had to change first.** The two-nest box as first written dropped
+one finite heap per colony, and every arm, off and on, starved out by 24k.
+Both beds now feed like `steady_income`: 40 cells every 1,000 frames per
+colony 30 columns outward (`two_nests_own`), or 80 at the midpoint
+(`two_nests_shared`).
+
+**Off is main.** Every off run is byte-identical to the same run before the
+encounter log existed, and one colony alone (`steady_income`, seed 1) is
+identical on and off, every sample line. *An earlier "identical" for that
+pair compared two empty logs (the scenario override directory hides the
+built-in beds); it was caught and rerun.*
+
+**On, 12 seeds of `two_nests_own`:**
+
+| | off | on |
+|---|---|---|
+| fight kills (bite) | 0 every seed | 126-1,571; 0 on seed 9 |
+| kills inside one founding line | 0 | 0 every seed |
+| cross-colony contact samples | 55,630-110,754 | 69-570 |
+| living at 150k, median (range) | 540 (483-585) | 486 (375-616) |
+| starved, median | 103 | 30 |
+| how it ended | two colonies mixed over the whole box | 8 borders, 3 conquests, 1 peace |
+
+- **Borders (8 seeds):** each colony's heads hold its own side, e.g. seed 7
+  columns 5-251 against 253-507; with the switch off both span 4-500. The
+  fighting never settles into a quiet line: kills per 25k frames stay
+  roughly level through 150k.
+- **Conquests (seeds 3, 11, 12):** one colony is gone by 30k-78k and the
+  winner grows to 527-616, as many as both colonies together with the switch
+  off.
+- **Peace (seed 9):** the two colonies founded smelling alike (founding gap
+  0.57 against 1.4-2.7 elsewhere), accept each other, and the run is
+  byte-identical to off. This is the rule working, not failing.
+
+**Per encounter (pooled, 62,691 stranger pairs that touched):** 67% parted
+with no contest, 7.5% displayed only, 6% bit without killing, 19% ended in
+a kill. First touch to first bite: median 10-15 frames per seed, quartiles
+4-5 and 24-60. Pairs that went to a contest without a logged touch: 0-15
+per run, so the fights come from touches, not from alarm drifting in.
+
+**Mutation on (seeds 1-2, `two_nests_own`):** main already fights here
+(974-1,106 bite kills, 307-358 eaten), because the gut drifts back toward
+meat and predation lights the old wire. With the switch on, kills are about
+the same (785-1,127), cross-colony contact falls 1,121-1,142 -> 171-275,
+and kills inside one founding line stay 0 in all four runs: scent drift does
+not start a civil war over 150k.
+
+**Not yet measured:** the shared-heap bed past 2 seeds (2 seeds: 311-736
+kills, both colonies alive, split at the heap); levels 10 and 40 and `fed`
+off on this bed; the parked recruiting arms (§1); frame cost.
