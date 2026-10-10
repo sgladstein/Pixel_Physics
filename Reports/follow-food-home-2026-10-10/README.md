@@ -235,6 +235,11 @@ python3 Reports/follow-food-home-2026-10-10/foodflow.py OUT_A OUT_B ...
 
 Seeds 1-12, frames 100-200k, mutation off, evolved founder, one thread a
 run (`twelve.py`; seeds 1-4 of heap 90 and steady are the §3 runs).
+**Build:** `deeptrace` at `02d95737` (main `e594d970` plus the food log, which
+changes nothing), each arm set by its switches in the environment. The
+second-lane review re-ran steady and heap 90 on the PR head with the
+defaults unset and main `cbcbc1d7`, and matched these numbers exactly
+(`second-lane-review-2026-10-10.md` §2).
 **jobless** is what ships: the stack, the store on, `NEEDS_FIRST` without
 `job` (`hungry,laden,pack,throttle,weak,breakthrough,door,backfill`).
 **stack** is the stack as measured before (`job` on), and **nostore** is the
@@ -290,7 +295,8 @@ and steady is `steady_income`.
 90: 652 ants against 342, larger on 12 of 12; adults starved 2 against 45.
 Heap 30: 661 against 562, larger on 12 of 12. Steady food: 265 against 284,
 smaller on 11 of 12, and adults starved 51 against 30 (higher on 8 of 12;
-§3c traces why). Ants living in the dug nest are higher on 12 of 12 on every
+§3c traced them on the stack arm, seed 1, where 117 of 118 were foragers;
+on the arm that ships that they are foragers is inferred). Ants living in the dug nest are higher on 12 of 12 on every
 bed: steady 21% against 1.2%, heap 90 12% against 1.2%, heap 30 12% against
 5.6%.
 
@@ -305,3 +311,154 @@ and the nest keeps more tunnel and a smaller room (`/mnt/project-files/late-tunn
 **Why not store off**: ants leave the nest (steady 5.0% in the dug nest,
 heap 90 5.2%), and on heap 90 the colony is a fifth smaller than with the
 store (561 against 652-702).
+
+### Per seed
+
+Every arm, seed by seed, frames 100-200k (`twelve.py --seeds`); each cell
+reads main / jobless (what ships) / nostore / stack.
+
+#### h30, per seed (main / jobless / nostore / stack)
+
+| seed | ants | adults starved | larvae starved / egg | in dug nest % |
+|---|---|---|---|---|
+| 1 | 565 / 585 / 615 / 677 | 2 / 0 / 0 / 2 | 0.22 / 0.31 / 0.23 / 0.25 | 4.7 / 11.9 / 10.0 / 12.0 |
+| 2 | 566 / 651 / 608 / 647 | 1 / 0 / 0 / 2 | 0.25 / 0.24 / 0.18 / 0.27 | 5.4 / 10.8 / 10.2 / 12.5 |
+| 3 | 512 / 621 / 1106 / 644 | 5 / 1 / 2 / 2 | 0.18 / 0.28 / 0.03 / 0.19 | 6.8 / 12.6 / 12.1 / 10.5 |
+| 4 | 550 / 697 / 617 / 659 | 4 / 1 / 5 / 3 | 0.20 / 0.12 / 0.20 / 0.17 | 4.6 / 11.8 / 9.3 / 11.0 |
+| 5 | 588 / 694 / 585 / 652 | 1 / 0 / 1 / 133 | 0.24 / 0.13 / 0.24 / 0.18 | 6.8 / 12.2 / 8.9 / 11.1 |
+| 6 | 535 / 690 / 596 / 771 | 4 / 1 / 2 / 2 | 0.19 / 0.18 / 0.21 / 0.21 | 5.9 / 12.3 / 7.4 / 11.3 |
+| 7 | 595 / 656 / 591 / 623 | 2 / 2 / 1 / 0 | 0.18 / 0.21 / 0.20 / 0.21 | 3.7 / 10.4 / 10.1 / 11.5 |
+| 8 | 566 / 651 / 518 / 693 | 0 / 1 / 0 / 5 | 0.27 / 0.23 / 0.22 / 0.27 | 5.8 / 11.1 / 9.3 / 12.3 |
+| 9 | 538 / 762 / 574 / 700 | 5 / 1 / 0 / 2 | 0.17 / 0.26 / 0.21 / 0.20 | 3.8 / 11.2 / 8.5 / 12.1 |
+| 10 | 558 / 631 / 600 / 672 | 3 / 3 / 1 / 0 | 0.20 / 0.23 / 0.26 / 0.24 | 4.7 / 11.5 / 8.7 / 13.1 |
+| 11 | 618 / 672 / 573 / 603 | 2 / 0 / 2 / 0 | 0.20 / 0.24 / 0.26 / 0.32 | 7.3 / 11.6 / 9.3 / 13.8 |
+| 12 | 525 / 667 / 622 / 893 | 1 / 0 / 1 / 3 | 0.26 / 0.21 / 0.21 / 0.09 | 5.9 / 9.5 / 10.1 / 12.0 |
+
+#### h90, per seed (main / jobless / nostore / stack)
+
+| seed | ants | adults starved | larvae starved / egg | in dug nest % |
+|---|---|---|---|---|
+| 1 | 336 / 631 / 591 / 693 | 78 / 2 / 1 / 0 | 0.21 / 0.13 / 0.24 / 0.20 | 1.5 / 10.6 / 5.4 / 11.2 |
+| 2 | 252 / 600 / 565 / 704 | 41 / 4 / 6 / 5 | 0.25 / 0.25 / 0.17 / 0.16 | 1.1 / 10.9 / 5.1 / 12.3 |
+| 3 | 303 / 637 / 574 / 720 | 84 / 2 / 4 / 1 | 0.25 / 0.18 / 0.20 / 0.15 | 1.2 / 11.9 / 5.3 / 12.3 |
+| 4 | 278 / 685 / 554 / 716 | 33 / 1 / 3 / 3 | 0.18 / 0.11 / 0.18 / 0.18 | 0.9 / 12.0 / 5.4 / 11.1 |
+| 5 | 275 / 757 / 528 / 763 | 90 / 5 / 2 / 1 | 0.18 / 0.17 / 0.18 / 0.15 | 1.1 / 12.7 / 3.7 / 12.5 |
+| 6 | 388 / 689 / 479 / 700 | 70 / 8 / 25 / 0 | 0.15 / 0.23 / 0.18 / 0.20 | 1.1 / 12.5 / 4.7 / 13.2 |
+| 7 | 404 / 695 / 555 / 759 | 47 / 2 / 1 / 1 | 0.18 / 0.09 / 0.17 / 0.14 | 1.3 / 11.9 / 5.0 / 12.3 |
+| 8 | 252 / 695 / 586 / 614 | 62 / 2 / 1 / 0 | 0.24 / 0.12 / 0.18 / 0.19 | 1.2 / 12.8 / 5.1 / 12.4 |
+| 9 | 410 / 657 / 567 / 696 | 12 / 1 / 2 / 8 | 0.16 / 0.18 / 0.20 / 0.17 | 1.3 / 11.0 / 5.6 / 10.1 |
+| 10 | 367 / 646 / 539 / 634 | 37 / 1 / 13 / 2 | 0.17 / 0.19 / 0.23 / 0.19 | 0.9 / 13.5 / 4.1 / 11.3 |
+| 11 | 368 / 608 / 562 / 758 | 43 / 2 / 0 / 2 | 0.18 / 0.20 / 0.18 / 0.10 | 1.8 / 11.7 / 5.5 / 12.9 |
+| 12 | 348 / 629 / 559 / 644 | 28 / 1 / 2 / 1 | 0.16 / 0.23 / 0.16 / 0.12 | 1.2 / 13.6 / 6.1 / 11.4 |
+
+#### steady, per seed (main / jobless / nostore / stack)
+
+| seed | ants | adults starved | larvae starved / egg | in dug nest % |
+|---|---|---|---|---|
+| 1 | 296 / 249 / 274 / 269 | 30 / 39 / 24 / 118 | 0.19 / 0.13 / 0.21 / 0.09 | 1.2 / 22.1 / 5.1 / 26.6 |
+| 2 | 285 / 265 / 303 / 269 | 16 / 16 / 46 / 128 | 0.17 / 0.13 / 0.19 / 0.09 | 1.5 / 19.2 / 3.5 / 25.0 |
+| 3 | 278 / 268 / 286 / 273 | 42 / 40 / 51 / 88 | 0.15 / 0.19 / 0.18 / 0.01 | 1.2 / 18.2 / 5.1 / 34.4 |
+| 4 | 268 / 261 / 285 / 276 | 35 / 76 / 19 / 64 | 0.22 / 0.20 / 0.20 / 0.10 | 1.2 / 21.0 / 5.3 / 21.5 |
+| 5 | 275 / 266 / 304 / 253 | 20 / 33 / 89 / 111 | 0.19 / 0.10 / 0.12 / 0.10 | 1.2 / 21.4 / 9.4 / 17.3 |
+| 6 | 293 / 274 / 292 / 255 | 44 / 44 / 16 / 124 | 0.20 / 0.19 / 0.21 / 0.07 | 1.2 / 20.3 / 3.7 / 23.2 |
+| 7 | 268 / 261 / 288 / 276 | 13 / 145 / 57 / 192 | 0.18 / 0.15 / 0.19 / 0.01 | 1.6 / 23.7 / 4.3 / 34.5 |
+| 8 | 282 / 265 / 307 / 267 | 50 / 40 / 71 / 54 | 0.19 / 0.15 / 0.06 / 0.09 | 1.2 / 20.1 / 12.0 / 24.4 |
+| 9 | 294 / 257 / 302 / 250 | 15 / 199 / 24 / 142 | 0.15 / 0.26 / 0.15 / 0.16 | 1.3 / 16.6 / 3.6 / 18.5 |
+| 10 | 281 / 296 / 293 / 269 | 29 / 58 / 42 / 126 | 0.19 / 0.06 / 0.18 / 0.17 | 1.5 / 29.5 / 4.9 / 21.7 |
+| 11 | 287 / 268 / 291 / 280 | 39 / 63 / 97 / 29 | 0.17 / 0.08 / 0.14 / 0.14 | 1.5 / 26.9 / 4.2 / 23.3 |
+| 12 | 297 / 263 / 290 / 269 | 25 / 116 / 75 / 36 | 0.18 / 0.06 / 0.18 / 0.05 | 1.5 / 29.7 / 5.1 / 25.3 |
+
+### Steady food after 200k: the cost widens
+
+From the second-lane review (`second-lane-review-2026-10-10.md` §3; measured
+on the PR head, defaults unset, against main `cbcbc1d7`, 12 seeds to 300k).
+Over 200-300k, **adults starved a median 85.5 against 31, higher on 12 of
+12 seeds** (over 100-200k it was 51 against 30, 8 of 12). The colony was 268
+against 274 (2.5% smaller, smaller on 9 of 12). It does not decline: its lowest
+count after 200k was 200-252 against main's 185-271. Adults in the dug nest
+held at 15.7-35.9% against 1.0-1.6%. No colony died. **This is the store's known
+cost on steady food**. The fixed income cannot feed the peak the store's fed
+larvae make (§3c, inferred), and the deaths come in bursts: the worst
+5,000-frame burst per seed was 17-104 starved on the PR against 4-17 on main.
+
+| seed | ants 200-300k (PR / main) | adults starved 200-300k | lowest count 100-300k | in dug nest % 200-300k |
+|---|---|---|---|---|
+| 1 | 251 / 274 | 108 / 28 | 200 / 234 | 16.7 / 1.4 |
+| 2 | 272 / 289 | 84 / 26 | 206 / 213 | 21.9 / 1.0 |
+| 3 | 270 / 286 | 87 / 48 | 219 / 231 | 18.7 / 1.3 |
+| 4 | 256 / 234 | 33 / 30 | 223 / 185 | 25.3 / 1.1 |
+| 5 | 265 / 266 | 51 / 19 | 238 / 211 | 20.5 / 1.1 |
+| 6 | 274 / 275 | 81 / 25 | 239 / 192 | 25.2 / 1.6 |
+| 7 | 257 / 274 | 74 / 32 | 215 / 193 | 17.5 / 1.3 |
+| 8 | 271 / 286 | 96 / 44 | 237 / 237 | 22.4 / 1.0 |
+| 9 | 286 / 273 | 60 / 19 | 157 / 233 | 23.2 / 1.2 |
+| 10 | 281 / 272 | 120 / 40 | 242 / 220 | 35.9 / 1.2 |
+| 11 | 260 / 291 | 132 / 35 | 214 / 224 | 24.7 / 1.4 |
+| 12 | 264 / 279 | 114 / 47 | 213 / 246 | 15.7 / 1.2 |
+
+### Mutation on
+
+From the second-lane review (§3; steady food, mutation on, seeds 1-2,
+100-150k), which passes `how-we-test.md`'s check before a winner ships:
+
+| arm | seed 1: mean ants, lowest | seed 2: mean ants, lowest | adults starved, seeds 1 / 2 |
+|---|---|---|---|
+| PR | 280, 262 | 261, 203 | 36 / 164 |
+| main | 285, 258 | 245, 146 | 56 / 65 |
+
+No colony died on either arm; main's seed 2 ended at 155.
+
+
+## 8. Seed 9's crash on steady food, traced
+
+The second lane's outlier: on the shipped defaults, steady food, seed 9, 104
+adults starved in 125-130k and the colony fell 262 -> 159, then was back to
+265 by 150k (main: 15 starved over the whole 100-200k). Re-run on the PR
+head (`c1941367`, defaults unset) with `foodlog=1 hungry=1`, frames to 135k.
+It reproduces exactly (104 starved in 125-130k, 159 ants at 130k).
+
+**Who (traced, all 104):** foragers, not nest workers (0 nest workers among
+them), with a median of 7 heap bites and 6 deliveries home in their lives. 84 of
+the 104 died within one kiloframe, 128-129k. Every one died with an empty crop
+on the open ground east of the door (median x 334, 78 columns east of the
+door, 48 past the heap at 286).
+
+**What happened to them (measured, every 2,000 frames from 100k):**
+- Their median energy fell steadily: 248 J at 100k, 192 J at 120k, 126 J at 124k, 25 J at 128k.
+- They moved off the mound top and tunnels onto the open ground: at 110k, 26 of 71
+  were on the surface; at 126k, 91 of 96.
+- The crowd outside the nest grew from 101 to 161, and its median energy fell
+  from 238 to 128 J. On main, the same seed held about 110 outside at 240-350 J over the same frames.
+- Because their banks ran down together, they reached zero together.
+
+**Why they did not eat (measured):** the heap is eaten as it lands. Bites at
+the heap ran at about 40 a kiloframe, the bed's whole income, so no food
+stood there. The doomed ants took about a third of those bites (65-70 of
+about 200 per 5k frames over 110-125k) and 5 in 125-130k. In their last 8,000
+frames, 56% of their decisions had **no pull at all** (`pull=none`), and the
+door was never read. So they wandered east of the heap rather than waiting at
+it or going home. The store held 27-49 cells (about 30-45 kJ) over 100-130k,
+about one good meal for each of them. It lies 20+ cells down the way, and
+its `eat` pull reaches only ants within 10 steps of it. No forager out on the
+surface feels it.
+
+**Cause (traced, the last link inferred):** the colony's demand outran its
+fixed income. The store and nest feed the inside first, so the shortfall
+landed on the foragers outside. They shared a heap that cannot be stocked, ran
+down as one cohort, and died within a kiloframe of each other. Nothing in the
+store or the hunger rule misfired: each did what it is written to do. The gap
+is that a hungry forager outside has nothing that leads it home to stored
+food (`pull=none`), where real foragers are fed by their nestmates (*not
+checked here*).
+
+**Can it go to zero? Not on steady food (inferred, with the measured runs
+behind it).** The crash removes the outside crowd only. No nest worker
+starved, the store still held 31 cells at 129k, and with 100 fewer mouths
+the income fed the rest: 265 ants again by 150k. Across 12 seeds to 300k the
+lowest count was 157 (this seed), and no colony died
+(`second-lane-review-2026-10-10.md` §3). On food that stops, every arm dies,
+main included.
+
+**What would fix it:** a hungry forager outside that is led home to the
+store, or fed at the door by a nest worker carrying store food out. That is
+§4's item 2 from the other side, a separate proposal, not part of this flip.

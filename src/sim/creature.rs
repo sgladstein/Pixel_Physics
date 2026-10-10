@@ -41286,6 +41286,15 @@ mod tests {
         assert!(on_far >= 40, "searching, it got only {on_far} cells out: the loops do not widen, and a long way round is a trap again");
     }
 
+    /// `WAY_FOOT` and `DOOR_COLUMN` unset are on since the stack's flip
+    /// (`NEEDS_FIRST`, `NEST_STORE` and `CARRY_HOME` are pinned by their
+    /// parse tests).
+    #[test]
+    fn the_stack_ships_on() {
+        assert_eq!(WAY_FOOT_UNSET, WayFoot::ON);
+        assert_eq!(DOOR_COLUMN_UNSET, DoorColumn::ON);
+    }
+
     /// `PIXEL_PHYSICS_LAY_BAR` unset is the body rule since the stack's
     /// flip; `reach` and `off` are the old one ([`lay_bar_parse`]).
     #[test]

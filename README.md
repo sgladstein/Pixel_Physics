@@ -8352,7 +8352,8 @@ nest's ways follow the walls rather than the backs of the crowd, and food is
 banked deep in the nest. Against main over 12 seeds (frames 100-200k), the
 colony is larger on 12 of 12 at heap 90 (652 against 342) and heap 30 (661
 against 562), and 7% smaller on steady food (265 against 284), where more
-foragers starve (51 against 30). Ants living in the dug nest are up on 12 of
+adults starve (51 against 30; over 200-300k 85.5 against 31, the store's
+known cost). Ants living in the dug nest are up on 12 of
 12 on every bed, on steady food 21% of adults against 1.2%. The store is what
 keeps them there; without it 5% stay. `job` is left off because with the
 store it turned digging into churn beside the store's crumbs.

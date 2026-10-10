@@ -5608,6 +5608,10 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   the stack, without the store, and with `NEEDS_FIRST`'s `job` off, which is
   what shipped): larger than main on 12 of 12 at both heaps, 7% smaller on
   steady food, more ants in the dug nest on 12 of 12 on every bed.
+  Per seed, with the second-lane review beside it: on steady food adult
+  starvation widens over 200-300k (85.5 against 31, 12 of 12), the store's
+  known cost; §8 traces seed 9's one-kiloframe crash (104 foragers starved
+  outside as one cohort, self-limiting).
 - [handoff/PLAN-2026-10-07.md](handoff/PLAN-2026-10-07.md) — **the account
   handoff and plan for the ant program, 2026-10-07 (main 9c362015); start here.**
   Written for a new account with only the repo: the owner's goals, every working

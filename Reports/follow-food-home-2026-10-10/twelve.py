@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""twelve.py DIR [--from F] [--to F] -- the default flip's 12-seed table.
+"""twelve.py DIR [--from F] [--to F] [--seeds] -- the default flip's 12-seed table.
 
 DIR holds runs named BED-ARM-sSEED (as `deeptrace ... out=DIR/BED-ARM-sSEED`,
 each with stats.csv, events.txt from census=1, and colony.csv). For each bed
@@ -13,7 +13,7 @@ Runs still writing (no `rc=` line in DIR/NAME.log) are skipped and counted.
 """
 import csv, os, re, sys, collections, statistics
 
-args = [a for a in sys.argv[1:] if not a.startswith('--')]
+args = [a for i, a in enumerate(sys.argv[1:], 1) if not a.startswith('--') and not sys.argv[i - 1] in ('--from', '--to')]
 opt = {sys.argv[i][2:]: sys.argv[i + 1] for i in range(len(sys.argv) - 1) if sys.argv[i].startswith('--')}
 F0 = int(opt.get('from', 100000)); F1 = int(opt.get('to', 200000))
 D = args[0]
@@ -91,3 +91,15 @@ for bed in beds:
             hi = lambda k: sum(a[s][k] > b[s][k] for s in seeds)
             print(f'- {arm} vs {ref}, {len(seeds)} paired seeds: ants higher on {hi("ants")}, adults starved higher on {hi("starved")}, '
                   f'larvae/egg higher on {hi("lpe")}, in-nest higher on {hi("nest")}')
+
+# ---- per seed (`--seeds`): every arm's numbers side by side, seed by seed
+if '--seeds' in sys.argv:
+    for bed in beds:
+        arms = sorted({a for b, a in R if b == bed}, key=lambda a: (a != 'main', a))
+        print(f'\n### {bed}, per seed ({" / ".join(arms)})\n')
+        print('| seed | ants | adults starved | larvae starved / egg | in dug nest % |')
+        print('|---|---|---|---|---|')
+        seeds = sorted(set().union(*(R[(bed, a)].keys() for a in arms)))
+        for s in seeds:
+            cell = lambda k, f: ' / '.join(f.format(R[(bed, a)][s][k]) if s in R[(bed, a)] else '-' for a in arms)
+            print(f"| {s} | {cell('ants', '{:.0f}')} | {cell('starved', '{}')} | {cell('lpe', '{:.2f}')} | {cell('nest', '{:.1f}')} |")
