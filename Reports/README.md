@@ -5590,6 +5590,19 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   seed. But on endless food (heap 90) the store makes the colony 15-30%
   larger, so it is a trade for the owner; both bundles beat main by far,
   at heap 30 too (every seed), where the store's edge is weaker.
+- [follow-food-home-2026-10-10/README.md](follow-food-home-2026-10-10/README.md) —
+  **food followed from the heap through the door to every mouth, and every
+  larva followed to its death or pupation (`deeptrace foodlog=1`; readers
+  `summary.py`, `foodflow.py`, `larvaetrace.py` beside it).** With food coming
+  in the store is not empty (48-213 cells standing). Larvae starve because they
+  lie deep and nothing brings food to a larva: 75-100% of starved larvae lie at
+  way 20+, a median 14 cells from a full store, and on the stack they had a
+  median 6 meals in their life. On steady food the store moves deaths from
+  larvae (0.18-0.21 per egg -> 0.01-0.10) to foragers (19-51 -> 64-128 adults
+  starved, dying in bursts at population peaks, at and beyond the heap), with
+  the colony 5-34 ants smaller on 4 of 4 seeds. On heap 90 it is a quarter
+  bigger. Recommends flipping the stack without the store, and building food
+  that reaches deep larvae instead.
 - [handoff/PLAN-2026-10-07.md](handoff/PLAN-2026-10-07.md) — **the account
   handoff and plan for the ant program, 2026-10-07 (main 9c362015); start here.**
   Written for a new account with only the repo: the owner's goals, every working

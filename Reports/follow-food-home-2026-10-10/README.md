@@ -28,7 +28,7 @@ touch a larva (step 4).
 
 ## 2. Setup
 
-Main `43522586` plus the food log (this branch). `deeptrace foodlog=1`
+Main `e594d970` plus the food log (this branch). `deeptrace foodlog=1`
 records every food cell from the moment it moves (`food.csv.gz`), digestion
 by place (`digest.csv`), and the floor's food and every larva every 1,000
 frames (`foodcells.csv`, `larvae.csv`). Recording changes nothing (seed 1,
@@ -37,7 +37,171 @@ heap 90, the stack, 20k frames: `stats.csv` and `colony.csv` byte-identical).
 Arms: **main** (no switch set), **stack** (`NEEDS_FIRST=on,backfill
 CARRY_HOME=on DOOR_COLUMN=on LAY_BAR=body
 NEST_STORE=on,pick=20,jaws,sky,meal,smell=10,edible WAY_FOOT=on`),
-**no store** (the stack without `NEST_STORE`). Beds: **steady food**
+**no store** (the stack without `NEST_STORE`), **line** (the stack plus
+`RECRUIT=on SPOIL_SIDE=trail`, the owner's playtest line). Beds: **steady food**
 (`steady_income`, 40 cells every 1,000 frames 30 columns east; the owner's
 main test) and **heap 90** (`nest_goal`, endless food 90 columns east).
 Seeds 1-4, 200k frames, mutation off, evolved founder, one thread a run.
+
+Window for every number below: frames 100-200k. Per-seed rows come from
+`summary.py`, the larva rows from `larvaetrace.py`, the flow rows from
+`foodflow.py` (all in this folder).
+
+## 3. What the trace found
+
+### 3a. The store is not empty in these runs (measured)
+
+| Bed, arm | Store cells standing (mean of 1,000-frame censuses), seeds 1-4 | Loads carried into it |
+|---|---|---|
+| steady, stack | 98, 68, 48, 110 | 555-719 |
+| steady, line | 23, 38, 22, 54 | 273-441 |
+| heap 90, stack | 135, 119, 213, 189 | 863-1,264 |
+| heap 90, line | 18, 95, 18, 77 | 886-1,166 |
+| main, no store (both beds) | 0-3 | 0-4 |
+
+The near-empty store the question started from was the finite-food boom and
+bust (store 1-6 cells while the colony starved, `PLAN-2026-10-07.md`). With
+food coming in, the store fills. Where its food comes from (steady, seeds
+2-4): nest workers take it into their jaws from the mound top (461-663 cells),
+the mound tunnels (153-188) and the door (82-131), all of it food a carrier
+had put down there.
+
+### 3b. Larvae still starve, and the ones that do lie deep, out of touch (traced, every larva)
+
+Each larva's life followed from egg to `starved` or `pupated`
+(`larvaetrace.py`; its count of starved rows matched `stats.csv` within 1-3
+on every run checked).
+
+| Run (seed 1) | Starved | Where they lay | Nearest store cell (median) | Meals in a starved life (median) | Since last meal (median frames) | Pupated deep (way 20+) of all pupated |
+|---|---|---|---|---|---|---|
+| steady, main | 177 | deep 139, way 10-19 27 | no store | 44 | 38,281 | 10 of 735 |
+| steady, no store | 233 | deep 216 | (35) | 31 | 16,707 | 63 of 775 |
+| steady, stack | 80 | **deep 80 of 80** | 14 | **6** | 6,949 | **467 of 808** |
+| heap 90, main | 193 | deep 144 | no store | 26 | 45,721 | 5 of 696 |
+| heap 90, stack | 473 | **deep 463 of 473** | 14 | 42 | 5,216 | 236 of 1,689 |
+
+- Starved larvae lie deep on every arm: 75-100% of them at way 20+.
+  Larvae that pupate lie mostly at the door, where traffic passes, except
+  on the stack, where the store feeds the deep larvae lying beside it
+  (steady stack: 467 of 808 pupated deep, eating 297 J a larva off the floor
+  against 4 J for the starved ones).
+- A larva eats only by touch: food beside it, a carrier's crop, the bank of an
+  adult touching it, or a brain's share (`how-the-ant-works.md` §12).
+  **Nothing brings food or a nurse to a larva.** So a starving deep larva
+  14 cells from a full store starves. On steady stack, the starved larvae
+  had a median 6 meals in their life. They were not fed and then dropped.
+  Almost nothing ever reached them. (Traced, from the meal rows.)
+- On the stack, larvae lie deeper: 77-80% of larva-censuses at way 20+,
+  against 45-53% on main (steady, seeds 2-4). Why they end up deep is
+  **untraced**: laying site, brood carried, or the nest's shape.
+
+### 3c. The store moves the steady-food deaths from larvae to foragers (measured; the link inferred)
+
+| Steady food, seeds 1-4 | Ants (mean) | Adults starved: surface / mound / nest | Larvae starved | per egg | Eggs |
+|---|---|---|---|---|---|
+| main | 296, 285, 278, 268 | 15/14/1, 2/10/4, 26/14/2, 4/25/6 | 172, 155, 138, 193 | 0.15-0.22 | 868-930 |
+| no store | 274, 303, 286, 285 | 24/0/0, 41/5/0, 46/3/2, 15/4/0 | 231, 204, 179, 203 | 0.18-0.21 | 1,002-1,077 |
+| stack | 269, 269, 273, 276 | **113/5/0, 88/31/9, 73/14/1, 62/2/0** | 77, 73, 4, 86 | **0.01-0.10** | 782-870 |
+| line | 268, 253, 276, 256 | 22/5/7, 206/7/0, 26/11/51, 21/40/0 | 63, 39, 0, 120 | 0.00-0.12 | 811-972 |
+
+The bed delivers 40 cells every 1,000 frames and every arm eats all of it
+(3.6-3.8 MJ bitten at the heap), so the food caps the colony. **What the store
+changes is mostly who dies.** Without it, about 200 larvae starve per 100k
+frames and 20-50 adults. With it, under 90 larvae starve but 64-128 adults do.
+Fewer die in total (92-201 against 222-255), but each adult that starves
+has eaten a whole larval life first. The colony is a little smaller with the
+store on every seed (269-276 against 274-303, by 5-34 ants). That agrees
+with the leave-one-out (`stack-leave-one-out-2026-10-08/`), which found no
+store best on every seed of this bed.
+
+The adult deaths, followed (steady stack seed 1, 118 starved, every one):
+117 were foragers, not nest workers. Median age was 23.6k, and 85 had bitten
+the heap. They starved a median 4.0k frames after their last swallow. Their
+last swallow was on the mound top (52), at the heap (30), in the mound
+tunnels (24), or in the nest (11). Only 9 last ate a store cell. They die in
+bursts: 95 of the 113 surface deaths fell in 130-150k. That is just after the
+colony peaked at 349 adults, against 286 at 110k. At 138k, 79 ants stood more
+than 60 columns east of the door, beyond the heap. Their median energy was
+166 J and falling to 65. Of the 118, 67 starved 120-280 columns east of the
+door, past the heap. On the no-store arm, the starvers die west of the door
+instead (all 24 on seed 1). The population swings by 60-130 adults on every
+arm, main included (seeds 1-4, 10k samples), so the store does not obviously
+make the cycle bigger.
+
+Read together (**inferred**): the store's food is the food foragers used to
+graze at home. Nest workers carry it in from the mound top and the door, and
+`keep` stops a fed ant from eating it. Instead it feeds deep larvae that would
+have starved. More of them become adults, the colony overshoots the fixed
+income, and at each peak the extra mouths starve where the crowd is, at and
+beyond the heap. The per-ant numbers fit this. Carriers ate 120-121 J per
+1,000 frames on the stack against 130-138 without the store, and nest workers'
+median energy was 205 J against 244-256 (steady, seeds 1-4). What sends the
+starving crowd east rather than west is **untraced**.
+
+On heap 90, where food never runs short, the trade does not arise. Adults
+starved 0-5 a seed on the stack, larvae starved 0.15-0.20 per egg against
+0.17-0.24 without the store, and the colony was 693-720 against 554-591
+without the store (4 of 4 seeds) and 252-336 on main.
+
+### 3d. A cost the store carries into digging (the late-tunnels lane's finding, not re-measured here)
+
+The store's band of crumbs, together with `NEEDS_FIRST`'s `job` part (which
+works only while the storeroom carries), makes diggers set soil down beside
+stored crumbs. Of a room's cuts, 55-64% are set down within two cells. That
+lane names this as a main reason the nest stays one room
+(`/mnt/project-files/late-tunnels/`). Turning the store on turns that on too.
+
+## 4. What to do with the store
+
+**Flip the stack without the store, and keep the store off for now.** On
+the owner's main bed (steady food), the store costs more than it gives, on
+every seed. The colony is 5-34 ants smaller, 3-4x as many adults starve
+(64-128 against 19-51), and the nest's room-making suffers through the crumbs
+(§3d). What it buys is larvae that would have starved anyway once the colony
+was at its food cap. It does not fix the larvae's real problem, which is
+being out of touch (§3b).
+
+What turning it off gives up: on endless food (heap 90) the colony is a
+quarter bigger with the store (693-720 against 554-591, 4 of 4 seeds), and
+on steady food larvae starve at 0.01-0.10 per egg against 0.18-0.21. Without
+the store the stack still beats main on both beds (heap 90 554-591 against
+252-336; steady about level, with adults starving no more).
+
+**What the trace says to build instead**, as separate proposals:
+
+1. **Food that reaches deep larvae.** Every starved larva lay deep and was
+   almost never fed. A store only helps larvae lying beside it. The fix is
+   local: a hungry larva's need reaches a passing nurse or carrier, or brood
+   is carried to the food (Cassill & Tschinkel 1995 on larval hunger
+   signals, *not checked here*). Why larvae lie deep is still open.
+2. **A store that does not take the foragers' food.** The store fills from
+   the mound top and the door, which is exactly where foragers eat between
+   trips. A store that banks only a surplus (say, only food lying unclaimed
+   for some time, or only while the foragers are fed) would keep the heap-90
+   gain without the steady-food cost. Untested.
+3. **Feeding priority under shortage.** Real colonies under shortage cut
+   brood first and keep workers (*not checked here*). With the store, ours
+   does the reverse on steady food.
+
+The 12-seed check against main (heap 90, heap 30, steady; main, stack, stack
+without the store) is §7.
+
+## 5. Not traced
+
+- How larvae come to lie deep on the stack (§3b).
+- Why steady-food starvers die east of the heap on the stack and west of the
+  door without the store (§3c).
+- Why the stack lays fewer eggs on steady food (782-870 against 1,002-1,077
+  without the store).
+
+## 6. Reproduce
+
+```
+# a run (steady food, the stack); the switches are in section 2
+RAYON_NUM_THREADS=1 PIXEL_PHYSICS_MUTATION=off <the stack's switches> \
+  cargo run --release --example deeptrace -- scenario=steady_income food=0 founder=evolved \
+  ants=0 census=1 set=ant.digest_hunger_weight=0 seed=1 frames=200000 out=OUT foodlog=1
+python3 Reports/follow-food-home-2026-10-10/summary.py OUT ...
+python3 Reports/follow-food-home-2026-10-10/larvaetrace.py OUT
+python3 Reports/follow-food-home-2026-10-10/foodflow.py OUT_A OUT_B ...
+```
