@@ -144,9 +144,20 @@ or at F605k, two `LOST ITS TISSUE`, two `OLD AGE` (F1.04M, F1.27M).
 (branch `claude/eloquent-johnson-axjvu1-nest-life`, eight commits ahead of main
 `43522586` when this was written: it adds `LAY_BRAKE` — on in the playtest, and
 the over-laying of §4 happens with it on — `RECRUIT`, `MOUND_IN`, `STORE_READ`
-and the DIG brush). `examples/replay.rs` is committed on main and compiles there,
-**but main lacks those two switches, so a re-run on main will not reproduce these
-numbers**: run it on that branch, or on main once it lands.
+and the DIG brush). **That branch has since merged (PR 670), and the replay on
+main `e594d970` gives the same runs** (2026-10-10, *measured*: seeds 1 and 2, as
+played and as the no-ant twin, 450,000 ticks each). The 79 files each pair of runs
+shares outside the timestamp-named chronicle are byte-identical (the per-adult
+positions and energies every 2,000 ticks among them; the main runs also write a
+`digs.csv` the earlier runs did not), the chronicle's `actions.csv` is identical,
+and its 188-column `census.csv` differs in one column, `wall_clock_secs`. What
+main adds over `1bb916c1` in `src/` is
+`STORE_BRAKE` (off, and not in the playtest's switch bundle) and the lab's DIG
+brush, a player tool; neither reaches this bed, which is what the identical runs
+say. That is two seeds of the two main arms: the other arms and seeds were run on
+`1bb916c1` and not repeated on main. `examples/replay.rs` is on
+`claude/epic-bell-w6za1y`, not yet on main; it builds against main
+(`cargo build --release --example replay`).
 
 `examples/replay.rs` rebuilds the bed from the actions log. It is the same
 `LabBox` (1,024 x 512, soil 176, ground row 256, no founders, no colonies), the
