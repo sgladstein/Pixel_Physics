@@ -85,6 +85,10 @@
 //!   applies any scenario setting, as `labgarden`'s `colony=0` and the lab's
 //!   own parameter page do. Both added 2026-10-05 for the grass trace in
 //!   `Reports/garden-harmony-2026-10-05.md`.
+//! - `land=<frame>` moves the colony's landing to that frame and leaves the
+//!   rest of the timeline alone: `land=6001` on `steady_income` is the
+//!   one-frame nudged baseline `Reports/how-we-test.md` §4 asks for beside
+//!   any colony-size claim. Added 2026-10-10.
 //! - with `hungry=1` (which turns `census=1` on), **every decision of every
 //!   hungry ant, wherever it stands** (`hungry.csv.gz`, see `HungryLog`): the
 //!   pull, what the scout was sent out with (`want`, `zoned`), its weight,
@@ -588,6 +592,30 @@ fn main() {
         println!("  foodgap={gap}: the provisions heap moved to x {}", colony_x + gap);
     }
     let food_gap = food_gap.unwrap_or(30);
+    // **`land=<frame>`: the colony lands on this frame instead of the
+    // scenario's**, every other event (the heap, its income) left where it
+    // is. The nudged baseline `Reports/how-we-test.md` §4 asks for: on the
+    // steady bed a colony is chaotic, and placing it one frame later
+    // (`land=6001`) is the smallest change that gives an independent run of
+    // the same game, so a colony-size claim can be held against the spread
+    // between two baselines. A placebo (`gut=-0.8001`) changes a genome and
+    // is not the same thing. Unset is the scenario's own timeline, untouched.
+    if let Some(at) = arg::<u64>("land") {
+        assert!(at >= 1, "land= must be 1 or later (Scenario::due's timing note)");
+        let mut moved = 0;
+        for e in &mut sc.timeline {
+            if matches!(
+                e.what,
+                pixel_physics::lab::scenario::Placement::Colony { .. }
+                    | pixel_physics::lab::scenario::Placement::Colonies { .. }
+            ) {
+                e.at = at;
+                moved += 1;
+            }
+        }
+        assert!(moved > 0, "land= needs a scenario with a Colony event");
+        println!("  land={at}: {moved} colony event(s) moved to frame {at}; the rest of the timeline unchanged");
+    }
     if arg::<u8>("colony").unwrap_or(1) == 0 {
         sc.timeline.retain(|e| {
             !matches!(
