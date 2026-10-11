@@ -243,6 +243,16 @@
 //! fill, ground dug, the way in) leave the baselines' range no more often
 //! than a baseline leaves the other three's. Known gap: a pocket wider than
 //! the 13x13 box reads open (three ants on seed 3).
+//!
+//! **Twelve steady seeds, and heap 30 seeds 1-4** (same file): walled-in
+//! starvers 31 against 206-278 per baseline arm, fewer than `reach` on 12
+//! of 12; on heap 30, 40 against 121. Mound starvers 33 against 168-336.
+//! The seal floods cost 0.25% of a 1,250-ant frame (`needscost cg=1`). One
+//! named fail line leans: ants holding soil with food in the crop, +6% over
+//! the highest baseline (a fed ant that cut free keeps its pellet, and `act`
+//! cannot set soil down while laden). Two late heap-30 die-offs follow a
+//! colony overshoot the baselines also show; 16 of 932 starvers there had
+//! been sealed in their last 3,000 frames. Both parts stay off.
 
 use super::*;
 use std::collections::HashMap;
