@@ -730,6 +730,8 @@ pub struct WalkRow {
     pub scout_home: bool,
     pub scout_dark: bool,
     pub scout_for: (i32, i32),
+    /// Why an escape did not cut ([`ESC_WHY_NAMES`]).
+    pub esc_why: u8,
 }
 
 /// **One ant's memory under the walk.** Set at its first decision from what
@@ -793,6 +795,9 @@ struct Mind {
     food: Option<(i32, i32)>,
     p_move: f32,
     cut: u8,
+    /// Why an escape that fired did not cut ([`ESC_WHY_NAMES`]), for the
+    /// trace; 0 when it cut or did not escape.
+    esc_why: u8,
     /// Where it stood when it decided, for the trace.
     at: (i32, i32),
 }
@@ -862,6 +867,7 @@ impl Mind {
             food: None,
             p_move: f32::NAN,
             cut: CUT_NONE,
+            esc_why: 0,
             at: head,
         }
     }
@@ -1150,6 +1156,7 @@ fn walk_act(
     mind.food = None;
     mind.hunger = hunger;
     mind.cut = CUT_NONE;
+    mind.esc_why = 0;
     if at_home {
         mind.gave_up = false;
     }
@@ -1523,6 +1530,7 @@ fn hungry_act(
     let (dx, dy) = DIRS[aim as usize];
     let ahead = world.get(head.0 + dx, head.1 + dy);
     if in_a_doorway(world, head) || !jaw_can_cut(world, def, organism, ahead) {
+        mind.esc_why = if in_a_doorway(world, head) { 1 } else { 2 };
         return None;
     }
     mind.drive = Drive::Escape;
@@ -1533,7 +1541,8 @@ fn hungry_act(
         Some(load) if !load.store => {
             // Still holding soil: walled in, it packs the pellet behind as it
             // cuts on; otherwise it found nowhere to put it down and waits.
-            if walled_in(world, organism, head) && pack_behind(world, organism, def, head, load, false) {
+            let walled = walled_in(world, organism, head);
+            if walled && pack_behind(world, organism, def, head, load, false) {
                 world.needs.as_mut().expect("walking").counts.escape_packs += 1;
                 mind.cut = CUT_PACK;
                 return Some(Did {
@@ -1542,9 +1551,13 @@ fn hungry_act(
                     ..Did::default()
                 });
             }
+            mind.esc_why = if walled { 4 } else { 3 };
             None
         }
-        Some(_) => None,
+        Some(_) => {
+            mind.esc_why = 5;
+            None
+        }
         None => {
             if escape_cut(world, organism, def, head, aim) {
                 world.needs.as_mut().expect("walking").counts.escape_cuts += 1;
@@ -1554,11 +1567,25 @@ fn hungry_act(
                     ..Did::default()
                 })
             } else {
+                mind.esc_why = 6;
                 None
             }
         }
     }
 }
+
+/// **Why an escape did not cut**, by [`WalkRow::esc_why`]: the trace of the
+/// walled-in starvers (2026-10-11), who escaped for hundreds of decisions
+/// holding a load and never cut.
+pub const ESC_WHY_NAMES: [&str; 7] = [
+    "",
+    "doorway",
+    "jaw_cannot_cut",
+    "pellet_not_walled_in",
+    "pellet_pack_failed",
+    "store_load",
+    "cut_failed",
+];
 
 /// **Where a hungry ant puts a store load down to eat it**: an empty cell
 /// beside the head, one with ground under it first.
@@ -2574,6 +2601,7 @@ fn walk_after(world: &mut World, organism: OrganismId, moved: bool, won: bool) {
                 scout_home: st.is_some_and(|s| s.scout_home),
                 scout_dark: st.is_some_and(|s| s.scout_dark),
                 scout_for: st.map_or((0, 0), |s| s.scout_for),
+                esc_why: mind.esc_why,
             };
             world.needs.as_mut().expect("walking").rows.push(row);
         }

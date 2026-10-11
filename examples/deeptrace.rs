@@ -746,7 +746,7 @@ fn main() {
     });
     let mut walk_rows = (walking && (walk_trace > 0 || !only.is_empty())).then(|| {
         let (zip, mut rows) = gzip_to(&format!("{out}/walk.csv.gz"));
-        writeln!(rows, "frame,id,ax,ay,tx,ty,drive,job,energy,crop,hunger,hold,forage,threshold,depth,pref,p_move,moved,stall,target_x,target_y,won,cut,scout_patience,scout_home,scout_dark,scout_for_x,scout_for_y").unwrap();
+        writeln!(rows, "frame,id,ax,ay,tx,ty,drive,job,energy,crop,hunger,hold,forage,threshold,depth,pref,p_move,moved,stall,target_x,target_y,won,cut,scout_patience,scout_home,scout_dark,scout_for_x,scout_for_y,esc_why").unwrap();
         (zip, rows)
     });
 
@@ -1074,7 +1074,7 @@ fn main() {
                 let (tx, ty) = r.target.map_or((String::new(), String::new()), |t| (t.0.to_string(), t.1.to_string()));
                 writeln!(
                     out,
-                    "{},{},{},{},{},{},{},{},{:.1},{:.1},{:.3},{:.3},{:.4},{:.3},{},{:.1},{:.3},{},{},{tx},{ty},{},{},{:.3},{},{},{},{}",
+                    "{},{},{},{},{},{},{},{},{:.1},{:.1},{:.3},{:.3},{:.4},{:.3},{},{:.1},{:.3},{},{},{tx},{ty},{},{},{:.3},{},{},{},{},{}",
                     r.frame,
                     r.id,
                     r.at.0,
@@ -1100,7 +1100,8 @@ fn main() {
                     u8::from(r.scout_home),
                     u8::from(r.scout_dark),
                     r.scout_for.0,
-                    r.scout_for.1
+                    r.scout_for.1,
+                    creature::needs::ESC_WHY_NAMES[r.esc_why as usize]
                 )
                 .unwrap();
             }
