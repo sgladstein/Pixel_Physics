@@ -1749,3 +1749,44 @@ are always on.
   log (`feeds.csv`); `scripts/deeptrace_plan.py` reads its `walk=1` runs
   into one table per nest-plan switch.
 
+
+## 16. The player's ant (`sim::steer`)
+
+**One ant can be driven by the player** (`World::steered`, `None` unless the
+play-as-an-ant game or a harness sets it; `steer::mark`). Every other ant is
+untouched, and with `None` every hook below is a branch not taken: a lab run
+is identical to the build without it. Verified 2026-10-11 against
+`creature_tick`, `act`, `steered_outputs`, `steered_step`, `regime_of_colony`
+and `steer.rs`.
+
+- **What a keyboard changes**, when `Steered::input` is `Some` (five hooks):
+  1. the outputs, replaced after the look-ahead merge (`steered_outputs`):
+     `Move` is 1 while a direction is held and 0 otherwise, so she stands
+     unless steered; `Feed`, `Drop` and `DropSpoil`, `Dig`, `Share`,
+     `Attack` and `EmitB` are 1 while their key is held and 0 otherwise;
+     `Lay` is 1 or -1; `Tumble` and `Impulse` are 0. `Turn`, `Persist`,
+     `Caution`, `Provision` and `EmitA` stay the genome's;
+  2. `forage_pace` is skipped (§6a);
+  3. `food_trail_lay` is bypassed, so trail B is laid wherever she walks
+     with T held, not only with a trip's load (§7);
+  4. in `act`: the stranger hold, the lean and called-forager no-dig gates,
+     `needs_first_act`, the forage drive's feed scaling and the crop holds
+     are skipped (§5). Q puts a pellet down beside her with none of the
+     spoil holds and no lift up a column; G cuts the cell she faces with
+     none of the dig-down, widening, shoulder or face turns and none of the
+     heap-cue, face-trip, roof or mound refusals (the jaw test still
+     stands). Sealed in (`walled_in`) with a pellet in her jaws, G turns
+     her to the held direction and runs `pack_behind`: cut, step, and the
+     old pellet packed into the cell her tail left;
+  5. the step: the usable heading nearest the held direction, among those
+     within 90 degrees of it (`steer::pick_heading`), committed by
+     `commit_step` ahead of `chooser_step` and `step_chain`. None such and
+     she stands turned in place to face the held direction, so straight up
+     on flat ground stands, and G then digs the way she is steered. She
+     still falls by the support check (§6d).
+- **What holds with or without a keyboard** (`input` `None` is her genome
+  driving her): no old-age roll; no nest-worker caste (`mark` clears
+  `nest_bound_until`, and `relay_crop` never hands her a crop, which would
+  make her a nurse again); and the `queen` breeding rule for her colony at both
+  laying checks (`regime_of_colony`), the process regime for every other.
+- **A raised reserve** goes in through `steer::grant`, booked as `Granted`.
