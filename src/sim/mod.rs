@@ -64,6 +64,9 @@
 //!   squares, Douglas-Peucker simplification, `earcutr` triangulation and
 //!   the `rapier2d` collider/step/re-rasterize loop are not yet built —
 //!   see the module doc and `PLAN.md`'s M8 section.
+//! * `steer` — the one ant the play-as-an-ant game drives: which of its
+//!   tick's decisions take the keyboard's answer, and the rules that come
+//!   with being that ant (no old age, no caste, the queen rule)
 //! * `player` — M9, the summonable character: off-grid like a rigid body
 //!   but input-driven, never settling, and a ghost to the CA (its own
 //!   module doc has the trade-offs)
@@ -99,6 +102,7 @@ pub mod rigid;
 pub mod rng;
 pub mod scheduler;
 pub mod species_export;
+pub mod steer;
 pub mod specimen;
 pub mod spring;
 pub mod structural;

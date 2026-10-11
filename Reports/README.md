@@ -5469,6 +5469,15 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   code — and says that on §8.3's own numbers **the pheromone planes, not the
   field, are the pass with the right shape** for a device.
 
+- [play-as-ant-slice0-2026-10-11.md](play-as-ant-slice0-2026-10-11.md) — **the
+  play-as-an-ant game's slice 0: the body the player drives, switched off,
+  and three numbers.** `sim::steer` is off-identical to main. A trail laid by
+  hand does not measurably pull workers (beats nudged and placebo baselines
+  on 1 of 12 seeds; bar 9). A scripted player founds 20 workers on 10 of 12
+  seeds from a 900 J start (median 11,400 frames), against 7 of 12 for her
+  genome. Four beetles kill a lone queen 12 of 12 within 800 frames. Design
+  docs are Claude Docs linked from the report.
+
 ## Licensing and distribution
 
 - [dependency-license-audit.md](dependency-license-audit.md) — **settled
