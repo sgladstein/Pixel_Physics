@@ -1455,6 +1455,11 @@ fn hsl_to_rgb(h: f32, s: f32, l: f32) -> (f32, f32, f32) {
 /// **The one definition of a group's colour**, read by the renderer for the
 /// animal and by the lab's ANTS page for the graph line and legend swatch.
 /// `None` under `Off`, where the animal wears its material.
+/// **The player's ant** (`sim::steer`): a magenta no colony, job or state
+/// colour uses (amber, the obvious "queen" colour, is colony 0 and the
+/// forager), drawn at each cell's own brightness like a group colour.
+pub const QUEEN_COLOUR: [f32; 3] = [255.0, 30.0, 230.0];
+
 pub fn group_colour(mode: CreatureColour, species: organism::SpeciesId, colony: u32, homeless: bool) -> Option<[f32; 3]> {
     // **An animal whose species declares no nest wears its own colour, even
     // in BY COLONY.** It has no colony to wear: `found_colony_of` paints no
@@ -7413,7 +7418,13 @@ impl Renderer {
         {
             if let Some(state) = world.organism(cell.organism_id()) {
                 let homeless = world.species.get(state.species).creature.as_ref().is_some_and(|c| c.nest.is_empty());
-                let readout = animal_readout_colour(self.creature_colour, world, state);
+                // **The player's ant wears her own colour in every mode**
+                // (the play-as-an-ant game; owner, 2026-10-11: "same size,
+                // own colour"), so she is the one ant you can always find.
+                // One `Option` read when nobody is steered.
+                let queen = world.steered.is_some() && crate::sim::steer::is_steered(world, cell.organism_id());
+                let readout = if queen { None } else { animal_readout_colour(self.creature_colour, world, state) };
+                let group = if queen { Some(QUEEN_COLOUR) } else { group_colour(self.creature_colour, state.species, state.colony, homeless) };
                 if let Some(rgb) = readout {
                     // **A full replace, flat over the whole body** -- these
                     // are readouts, and the luminance-ratio shading the group
@@ -7422,7 +7433,7 @@ impl Renderer {
                     for (c, g) in base.iter_mut().take(3).zip(rgb) {
                         *c = g.round().clamp(0.0, 255.0) as u8;
                     }
-                } else if let Some(group) = group_colour(self.creature_colour, state.species, state.colony, homeless) {
+                } else if let Some(group) = group {
                     // **The group's colour, at this cell's own brightness.**
                     // A material palette is three shades of one brown and
                     // the body's countershading is written in which shade
@@ -7455,7 +7466,9 @@ impl Renderer {
                 // what the owner asked to see, and a dig pellet is put down
                 // almost at once anyway (measured: 646 digs, 646 dumps).
                 let cue = carry_cue();
-                if cue != CarryCue::Off && readout.is_none() {
+                // Not on the player's ant: the cue brightens toward white, and a
+                // full crop washed her magenta to pale pink (her panel shows the crop).
+                if cue != CarryCue::Off && readout.is_none() && !queen {
                     // The crop's capacity is the species', so this needs the
                     // creature def -- one `Vec` index behind the species id
                     // the state already carries, on the ~150 cells that got

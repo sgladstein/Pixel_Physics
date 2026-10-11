@@ -37,6 +37,11 @@
 //! | `R` | rebuild the box |
 //! | `Esc` | quit |
 //!
+//! **In queen mode** (`scenario=queen_start`, the play-as-an-ant game;
+//! `lab::queen`) `WASD` steer your queen and `E` `Q` `F` `G` `B` `L` `T` are
+//! her eat, drop, share, dig, bite, lay and food trail; every other key is
+//! as above.
+//!
 //! **And none of them is the only way in.** `lab::ui` draws every one of the
 //! above as a button along the bottom of the screen with its key printed
 //! under it, so the lab can be driven with the mouse alone — owner request,
@@ -490,6 +495,35 @@ impl Handler {
     }
 
     fn key(&mut self, event_loop: &ActiveEventLoop, code: KeyCode, pressed: bool) {
+        // **In queen mode her keys are hers** (`lab::queen`): `WASD` steer
+        // her rather than pan, and `E Q F G B L T` are her verbs rather than
+        // the lab's tools and pages. Both edges go to her, because a held
+        // key is a level. Not while a batch number is being typed, which
+        // owns the whole keyboard below.
+        if self.lab.queen_mode() && self.lab.ui.typing().is_none() {
+            use pixel_physics::lab::queen::Key;
+            let key = match code {
+                KeyCode::KeyW => Some(Key::Up),
+                KeyCode::KeyS => Some(Key::Down),
+                KeyCode::KeyA => Some(Key::Left),
+                KeyCode::KeyD => Some(Key::Right),
+                KeyCode::KeyE => Some(Key::Eat),
+                KeyCode::KeyQ => Some(Key::Drop),
+                KeyCode::KeyF => Some(Key::Share),
+                KeyCode::KeyG => Some(Key::Dig),
+                KeyCode::KeyB => Some(Key::Bite),
+                KeyCode::KeyL => Some(Key::Lay),
+                KeyCode::KeyT => Some(Key::Trail),
+                _ => None,
+            };
+            if let Some(key) = key {
+                if pressed && self.lab.show_help {
+                    self.lab.show_help = false;
+                }
+                self.lab.queen_key(key, pressed);
+                return;
+            }
+        }
         // Held state first, and only `WASD` — the arrow keys drive the dial,
         // so a pan reading of them would scroll the view every time the
         // player changed speed.

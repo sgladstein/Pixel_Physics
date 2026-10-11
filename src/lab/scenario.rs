@@ -157,7 +157,33 @@ pub enum Placement {
     /// compartments, the same spread [`LabBox::predator_columns`] gives
     /// `build_counted`'s own beetles.
     Predators { species: String, count: usize },
+    /// **The player's queen** (the play-as-an-ant game,
+    /// `Reports/play-as-ant-slice1-2026-10-11.md`): a colony of one at
+    /// column `x`, founded as [`Placement::Colony`] founds one, and that ant
+    /// made the steered body (`sim::steer::mark`, her genome driving her
+    /// until the lab's queen mode hands her the keys) with `reserve` joules
+    /// granted on top of the species' `start_energy`. Slice 0 measured why
+    /// the grant is there: a lone founder at the shipped 200 J against the
+    /// 1,100 J egg bar reached twenty workers on 8 of 12 seeds under a
+    /// scripted player, and on 10 of 12 at 900 J. **A scenario with one of
+    /// these is a queen-mode scenario** (`Lab::queen_mode`). A second one
+    /// re-marks: there is one steered body per world.
+    Queen { species: String, x: i32, reserve: f32 },
+    /// **A food spot that tops itself up to a cap**: `cells` of a material
+    /// piled at column `x` as [`Placement::Heap`] piles them, but only while
+    /// fewer than `cap` cells of it lie within [`LARDER_REACH`] columns of
+    /// `x`. For a repeating event: a [`Placement::Heap`] on a schedule keeps
+    /// growing whether or not anyone eats, and slice 0 watched the
+    /// steady-income heap bury a lone queen on 6 of 24 founding runs (the
+    /// jaw takes no food, so she could not dig out). Counted, not settled:
+    /// the cap is on cells in the band, wherever they have slumped to.
+    Larder { material: String, x: i32, cells: i32, cap: i32 },
 }
+
+/// How far either side of a [`Placement::Larder`]'s column its cap counts:
+/// the heap's own slump, with room. A 40-cell pyramid is 13 cells wide at
+/// its foot before it slumps.
+pub const LARDER_REACH: i32 = 12;
 
 /// **"Did it fire at all" needs a counter, not a picture** (`CLAUDE.md`).
 /// What [`Scenario::apply`], [`apply_placements`] and [`apply_settings`]
@@ -271,6 +297,12 @@ impl Scenario {
         placed
     }
 
+    /// **Does this scenario place the player's queen** -- at build time or
+    /// on its timeline? What puts a box in queen mode (`lab::queen`).
+    pub fn places_queen(&self) -> bool {
+        self.placements.iter().chain(self.timeline.iter().map(|e| &e.what)).any(|p| matches!(p, Placement::Queen { .. }))
+    }
+
     /// Build the bed and apply this scenario to it in one call -- what
     /// `labshot scenario=` and a batch's `Start::Fresh` arm both want.
     pub fn build(&self) -> (World, scene::Planted, Placed) {
@@ -305,7 +337,7 @@ impl Scenario {
 
 fn check_placement_names(world: &World, p: &Placement) -> Result<(), String> {
     match p {
-        Placement::Fill { material, .. } | Placement::Heap { material, .. } | Placement::Scatter { material, .. } => {
+        Placement::Fill { material, .. } | Placement::Heap { material, .. } | Placement::Scatter { material, .. } | Placement::Larder { material, .. } => {
             if world.materials.id_of(material).is_none() {
                 return Err(format!("unknown material {material:?}"));
             }
@@ -315,7 +347,8 @@ fn check_placement_names(world: &World, p: &Placement) -> Result<(), String> {
         | Placement::Colony { species, .. }
         | Placement::Animal { species, .. }
         | Placement::Colonies { species, .. }
-        | Placement::Predators { species, .. } => {
+        | Placement::Predators { species, .. }
+        | Placement::Queen { species, .. } => {
             if world.species.id_of(species).is_none() {
                 return Err(format!("unknown species {species:?}"));
             }
@@ -392,6 +425,8 @@ pub fn apply_placements(world: &mut World, placements: &[Placement], spec: &LabB
             Placement::Animal { species, x } => placed.animals += apply_animal(world, species, *x),
             Placement::Colonies { species, colonies, ants } => placed.animals += apply_colonies(world, spec, species, *colonies, *ants),
             Placement::Predators { species, count } => placed.animals += apply_predators(world, spec, species, *count),
+            Placement::Queen { species, x, reserve } => placed.animals += apply_queen(world, species, *x, *reserve),
+            Placement::Larder { material, x, cells, cap } => placed.cells += apply_larder(world, material, *x, *cells, *cap),
         }
     }
     placed
@@ -562,6 +597,41 @@ fn apply_colony(world: &mut World, species: &str, x: i32, count: i32) -> usize {
     world.found_colony_of(x, surface - 2, species, count)
 }
 
+/// [`Placement::Queen`]: a colony of one, then the one new ant marked as
+/// the steered body. The new ant is found by difference -- the live ids
+/// before and after the founding -- rather than by a "highest id" guess,
+/// because ids are slots and a freed one is reused.
+fn apply_queen(world: &mut World, species: &str, x: i32, reserve: f32) -> usize {
+    let before: std::collections::BTreeSet<_> = world.live_organism_ids().into_iter().collect();
+    if apply_colony(world, species, x, 1) == 0 {
+        return 0;
+    }
+    let Some(id) = world.live_organism_ids().into_iter().find(|id| !before.contains(id)) else { return 0 };
+    if !crate::sim::steer::mark(world, id, None) {
+        return 0;
+    }
+    crate::sim::steer::grant(world, reserve);
+    1
+}
+
+/// [`Placement::Larder`]: a heap, unless the band already holds `cap`.
+fn apply_larder(world: &mut World, material: &str, x: i32, cells: i32, cap: i32) -> usize {
+    let Some(id) = world.materials.id_of(material) else { return 0 };
+    let Some(b) = world.bounds() else { return 0 };
+    let mut held = 0;
+    for cx in x - LARDER_REACH..=x + LARDER_REACH {
+        for cy in b.min_y..=b.max_y {
+            if world.in_bounds(cx, cy) && world.get(cx, cy).material == id {
+                held += 1;
+            }
+        }
+    }
+    if held >= cap {
+        return 0;
+    }
+    apply_heap(world, material, x, cells.min(cap - held))
+}
+
 fn apply_animal(world: &mut World, species: &str, x: i32) -> usize {
     let top = room_top(world);
     let Some(surface) = colony_surface(world, x, top) else { return 0 };
@@ -639,9 +709,9 @@ mod tests {
                 "{}: cells={} plants={} animals={} settings={}",
                 s.name, placed.cells, placed.plants, placed.animals, placed.settings
             );
-            let wants_cells = s.placements.iter().any(|p| matches!(p, Placement::Fill { .. } | Placement::Heap { .. } | Placement::Scatter { .. }));
+            let wants_cells = s.placements.iter().any(|p| matches!(p, Placement::Fill { .. } | Placement::Heap { .. } | Placement::Scatter { .. } | Placement::Larder { .. }));
             let wants_plants = s.placements.iter().any(|p| matches!(p, Placement::Plant { .. }));
-            let wants_animals = s.placements.iter().any(|p| matches!(p, Placement::Colony { .. } | Placement::Animal { .. }));
+            let wants_animals = s.placements.iter().any(|p| matches!(p, Placement::Colony { .. } | Placement::Animal { .. } | Placement::Queen { .. }));
             if wants_cells {
                 assert!(placed.cells > 0, "{}: a Fill/Heap/Scatter placement set zero cells", s.name);
             }
@@ -695,7 +765,7 @@ mod tests {
             let mut arrivals: Vec<u64> = s
                 .timeline
                 .iter()
-                .filter(|e| matches!(e.what, Placement::Colony { .. } | Placement::Colonies { .. } | Placement::Animal { .. } | Placement::Predators { .. }))
+                .filter(|e| matches!(e.what, Placement::Colony { .. } | Placement::Colonies { .. } | Placement::Animal { .. } | Placement::Predators { .. } | Placement::Queen { .. }))
                 .map(|e| e.at)
                 .collect();
             arrivals.sort_unstable();

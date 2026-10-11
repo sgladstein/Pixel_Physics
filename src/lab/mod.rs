@@ -43,6 +43,7 @@ pub mod nestcensus;
 pub mod pace;
 pub mod params;
 pub mod plainspeak;
+pub mod queen;
 pub mod rain;
 pub mod roster;
 pub mod scenario;
@@ -285,6 +286,12 @@ pub struct Lab {
     /// the box we just left; without this the old chamber is painted under the
     /// new one wherever the new one happens to be settled.
     view_dirty: bool,
+    /// **The play-as-an-ant game's queen mode** (`queen`): the keys, the
+    /// camera and the panel for the one steered body. On only for a box
+    /// opened from a scenario with a `Queen` placement; otherwise every hook
+    /// into it is one `bool` read, and a harness that steers an ant itself
+    /// keeps control of her.
+    pub queen: queen::QueenMode,
 }
 
 /// **A chamber that is not currently on screen.**
@@ -581,6 +588,7 @@ impl Lab {
             },
             thumb: None,
             view_dirty: false,
+            queen: queen::QueenMode::default(),
         }
     }
 
@@ -757,6 +765,9 @@ impl Lab {
             None => scenario::Placed::default(),
         };
         earth_toned_nest(&mut self.world);
+        // A new box is a new game: her landing, goal and death are the new
+        // run's to note.
+        self.queen = queen::QueenMode::for_scenario(self.scenario.as_ref());
         self.particles = ParticleSystem::new();
         self.blasts = Blasts::new();
         self.stats = stats::Stats::new();
@@ -1584,6 +1595,10 @@ impl Lab {
     /// splitting that across two callers is how a speed dial stops being
     /// honest about what it achieved.
     fn tick(&mut self) {
+        // **The keys reach her here, once a tick, before the step** -- so a
+        // harness driving `tick_for_harness` sees exactly what the window
+        // does. One `Option` read with nobody steered.
+        self.queen.feed(&mut self.world, self.time.requested);
         frame::step(
             &mut self.world,
             &mut self.particles,
@@ -1600,6 +1615,7 @@ impl Lab {
         if let Some(scenario) = &self.scenario {
             scenario::tick_timeline(scenario, &mut self.world, &self.spec);
         }
+        self.queen.observe(&mut self.world);
         // **The mister, same timing contract as the timeline above: right
         // after `frame::step`, so a drop this tick sees this tick's own
         // settled state.** `rain::tick` is its own due-gate on `World::
@@ -1701,6 +1717,18 @@ impl Lab {
     /// the machine.
     pub fn tick_for_harness(&mut self) {
         self.tick();
+    }
+
+    /// **Is this box in queen mode** -- does it hold the player's ant? Then
+    /// `bin/lab.rs` sends her keys to [`Lab::queen_key`] instead of the
+    /// lab's own bindings.
+    pub fn queen_mode(&self) -> bool {
+        self.queen.on(&self.world)
+    }
+
+    /// One of the queen's keys went down or up. See `queen`.
+    pub fn queen_key(&mut self, key: queen::Key, down: bool) {
+        self.queen.key(&mut self.world, key, down);
     }
 
     /// Run whatever this displayed frame's share of simulated time is, and
@@ -1910,6 +1938,12 @@ impl Lab {
         // while FOLLOW is on, walks the view after it -- so doing this after
         // `renderer.draw` would draw one frame behind the animal.
         self.follow_pin();
+        // ...and in queen mode the camera is hers, after the pin's, so it
+        // wins: the player follows the ant they are driving.
+        if self.queen.camera(&mut self.renderer, &self.world) && self.stats.showing() {
+            self.stats.toggle();
+        }
+        let (queen_lines, queen_changed) = self.queen.lines(&self.world, self.time.requested);
         // Anything drawn over the terrain has no footprint tracked between
         // frames, so the dirty-rect skip cannot know to erase last frame's.
         // Same rule, and the same reasoning, as `App::draw`'s. The bar is
@@ -1921,6 +1955,7 @@ impl Lab {
             || self.stats.showing()
             || self.time.hud_is_dirty()
             || self.show_help
+            || queen_changed
             // A chamber switch. See `Lab::view_dirty`.
             || std::mem::take(&mut self.view_dirty);
         // **Hold the view inside the box, here rather than at every place the
@@ -1943,6 +1978,7 @@ impl Lab {
             force_full,
         );
         self.time.draw(hc, frame_buf, &self.world);
+        self.queen.draw(hc, frame_buf, &queen_lines);
         // **A request the machine cannot meet has to say so**, which is the
         // same principle `time::PRESETS` already states for the speed dial:
         // *"the dial is a request, and a request the machine cannot meet is
