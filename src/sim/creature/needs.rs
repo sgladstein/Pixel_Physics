@@ -199,6 +199,21 @@
 //! wins. The `placebo` draws the forage roll from another stream -- the
 //! same rule, another realisation -- so every comparison carries the spread
 //! a do-nothing change makes on the same seeds.
+//!
+//! **Measured and left off, 2026-10-11** (`hunger-holds-results-2026-10-10.md`).
+//! Seed 11's nest starvers went 69 -> 2, but the placebo alone took them to
+//! 18. On steady seeds 1-4 the part failed its declared fails: the colony's
+//! low fell beyond the placebo's move on 3 of 4, mound starvers rose beyond
+//! it on 3 of 4, and soil set down rose 2-10x. Starvers free to walk out rose
+//! 3-5 -> 24-55. On seed 3, 46 of 75 died on Seek in a pile on the mound's
+//! face, every one a spent scout (`scout_home`) pulled straight at its
+//! anchor. `reach` has the same pile, and its spent Seek ants go there too
+//! (28 episodes on seed 3), but all 28 were fed within 3,000 frames (median
+//! 670), 24 of them in the pile by a nestmate. Why the bout stops that
+//! feeding is not traced. A restart-the-scout fix (`seek_stall`) was reviewed
+//! NO: it sends pile ants away from the food. *Re-test when:* the pile is
+//! fed under the bout (trace the donors first), or deep starvers come back
+//! as the main fault.
 
 use super::*;
 use std::collections::HashMap;
