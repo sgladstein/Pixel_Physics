@@ -252,8 +252,13 @@
 //! the highest baseline (a fed ant that cut free keeps its pellet, and `act`
 //! cannot set soil down while laden). Two late heap-30 die-offs follow a
 //! colony overshoot the baselines also show; 16 of 932 starvers there had
-//! been sealed in their last 3,000 frames. Both parts are on in the new
-//! ant since PR 684 ([`WalkParts::NEW_ANT`], the switch `walled_in`).
+//! been sealed in their last 3,000 frames. **Re-run after PR 684's code
+//! review** (the jaws' bookkeeping, the tail-on-crumbs refusal in every
+//! walk arm; 12 steady seeds): walled-in starvers 60 against 203-356,
+//! below all four baselines on 9 of 12; adults starved 946 against
+//! 1,272-1,562, mound starvers 41 against 197-458, colony mean inside the
+//! range; the soil-and-crop lean down to +0.7%. Both parts are on in the
+//! new ant since PR 684 ([`WalkParts::NEW_ANT`], the switch `walled_in`).
 
 use super::*;
 use std::collections::HashMap;

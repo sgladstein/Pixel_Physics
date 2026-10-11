@@ -1873,7 +1873,10 @@ a walled-in ant does. Verified 2026-10-11 against `walk_act`, `hungry_act`,
 - **Measured 2026-10-11** (`needs-ant/resume-2026-10-10/results-sealed-4seed-2026-10-11.md`):
   12 steady seeds, walled-in starvers 31 against 206-278 per baseline arm;
   heap 30 seeds 1-4, 40 against 121; frame cost 0.25%; ants holding soil with
-  food in the crop +6%.
+  food in the crop +6%. Re-run on the reviewed code (same file, §8): 60
+  against 203-356, below all four baselines on 9 of 12 seeds; adults starved
+  946 against 1,272-1,562; colony mean inside the baselines' range; the
+  soil-and-crop lean +0.7%.
 - **The player's ant is never walked**: all four of the walk's hooks in
   `creature_tick` (`needs::act`, `kinesis`, `step`, `after`) stand aside
   while she is steered (§16), and the walk forgets her each steered tick
