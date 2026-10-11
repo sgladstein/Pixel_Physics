@@ -71,6 +71,10 @@ use super::rng;
 use super::scheduler::{ActiveKind, ActiveSite};
 use super::world::{Account, KillDetail, World, KILL_VERB_BITE, KILL_VERB_EAT};
 
+/// **The needs-and-jobs walk**, a second way for an ant to decide, off unless a
+/// harness sets `World::needs` (`creature/needs.rs` says where it hooks in).
+pub mod needs;
+
 /// Index 0 = east, then counterclockwise on screen (y grows downward, so
 /// `(1, -1)` is up-and-right). **The one heading table** — see
 /// `OrganismState::heading`: headings are a discrete 0..8 compass index, a
@@ -7973,6 +7977,14 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
     // (fast-forward above the steering cap) resumes a brain that kept time.
     // `None` for every other body and whenever nobody is steered.
     let steer_in = crate::sim::steer::take_input(world, organism);
+    // **Steered, the walk forgets her** (`needs::NeedsWalk::forget`): she is
+    // handed back to it only above the steering cap, and must come back with
+    // no stale stall or seal from before she was steered.
+    if steer_in.is_some() {
+        if let Some(n) = world.needs.as_mut() {
+            n.forget(organism);
+        }
+    }
     let outputs = match steer_in {
         Some(input) => steered_outputs(outputs, input),
         None => outputs,
@@ -8104,7 +8116,17 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
     if door_collar_of(world) {
         world.creature_stats.collar_packed += collar_tamp(world, x, y);
     }
-    let Did { dug, gnaws, shares, packed } = act(world, x, y, organism, def, &outputs, &mut draw);
+    // **The needs walk picks the verb** ([`needs::act`], only while
+    // `World::needs` is set): `act` is handed the urges its drive wants and
+    // does the rest exactly as it does for today's ant. Never for the
+    // player's ant (`steer`): she acts on the keys, and the walk's four hooks
+    // all stand aside for her, as `chooser_step` does.
+    let walked = world.needs.is_some() && steer_in.is_none();
+    let Did { dug, gnaws, shares, packed } = if walked {
+        needs::act(world, x, y, organism, def, &inputs, &outputs, &mut draw)
+    } else {
+        act(world, x, y, organism, def, &outputs, &mut draw)
+    };
     // **Working the jaw costs, and leaving it free was a real defect.**
     // Measured the moment the beetle was armoured for play: an ant beat a
     // beetle that had just been made *tougher* -- two cells off it, none off
@@ -8189,7 +8211,25 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
             }
         }
     }
-    let p_move = p_move;
+    // **Deeper, slower, for an idle nest worker** ([`depth_slow_of`]): the
+    // memory of where it last stood away from home is written here, and the
+    // step chance cut by how far below that it stands. Off, one branch.
+    let p_unslowed = p_move;
+    // Not for the player's ant, as `forage_pace` is not: a held key steps.
+    let p_move = if steer_in.is_none() {
+        depth_slowed(world, organism, def, (x, y), inputs[brain::BrainInput::AtNest as usize] > 0.0, p_move)
+    } else {
+        p_move
+    };
+    // The depth cut's own chance, for `depth_pauses`: the walk's kinesis
+    // below is not a depth pause.
+    let p_depth = p_move;
+    // **...and under the needs walk, its own kinesis** ([`needs::kinesis`]).
+    let p_move = if walked {
+        needs::kinesis(world, organism, def, (x, y), &inputs, p_move)
+    } else {
+        p_move
+    };
     // Set by either arm that actually puts the body somewhere else -- the
     // walk and the launch. `moved` cannot serve: it gates the pheromone
     // deposit and is held false for a creature in the air on purpose.
@@ -8281,6 +8321,8 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
             // (`step_chain`, `fills_before_walking`). No draw is taken.
             moved = if let Some(input) = steer_in {
                 steered_step(world, organism, heading, def, input.dir)
+            } else if walked {
+                needs::step(world, organism, heading, &outputs, def, &mut draw, chooser)
             } else if chooser == Chooser::Off {
                 step_chain(world, organism, heading, &outputs, def, &mut draw)
             } else {
@@ -8311,6 +8353,15 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
         } else {
             note_outcome(world, DecisionOutcome::RollFailedIdle);
         }
+    }
+    // The pauses the depth cut alone made: the roll lost to the slowed chance
+    // and would have won the unslowed one. A NaN roll (a fall, a pack)
+    // compares false both ways.
+    if roll_move >= p_depth && roll_move < p_unslowed {
+        world.creature_stats.depth_pauses += 1;
+    }
+    if walked {
+        needs::after(world, organism, def, moved || left_the_spot, roll_move < p_move);
     }
 
     // --- deposit, only on a successful move (P-11) ----------------------
@@ -13324,6 +13375,189 @@ fn lay_in_pull(world: &World, organism: OrganismId, def: &CreatureDef, state: &c
     deeper_along_way(world, organism, head)
 }
 
+/// **An idle nest worker steps less often the deeper it is, and knows how
+/// deep it is from its own memory** (`PIXEL_PHYSICS_DEPTH_SLOW=workers`, or
+/// `workers:<rows>`; built 2026-10-06, **off** unless set;
+/// [`World::depth_slow`] for one world).
+///
+/// **What it is for.** The colony lives at its door. In the goal box on the
+/// hunger-first build (`NeedsFirst`), about 0.5% of ant-time -- two or three
+/// ants of about 550 -- is spent deeper than 10 rows under the old ground
+/// line, and most of the time in the dug nest is the knot just inside the
+/// door. The rest pull ([`rest_pull`]) is the one rule that sends a fed ant
+/// in, and it climbs [`NestWay`], a step map of the whole nest that no ant
+/// could sense. This asks whether a rule an ant could carry does as well.
+///
+/// **The rule: a slowing, not a pull** (an orthokinesis). It chooses no
+/// direction, so it cannot aim an ant into a dead end, a jam or away from
+/// food: the pull ladder in [`chooser_step`], the scent and the trail are all
+/// untouched, and no draw is added or removed, so every other ant's stream
+/// is what it was. A nest worker ([`is_nest_bound`]) at home with nothing in
+/// its jaws or its crop, no trip in hand (not walking home hungry, up from
+/// the store or back to a dig face) and at or above its grant
+/// (`start_energy`) has its step chance multiplied by `half / (half +
+/// depth)`: half as often `half` rows down ([`DEPTH_SLOW_HALF_ROWS`], the
+/// scorecard's own deep line), a fifth as often four times that. **Hunger
+/// switches it off outright**: under its grant [`hungry_out_pull`] is what
+/// moves a nest worker inside, and a need outranks a job (owner, 2026-10-06),
+/// so the slowing never holds back an ant walking out to eat.
+///
+/// **Depth is a memory, not a map.** [`OrganismState::last_out_row`] is the
+/// row its head stood on at its last decision away from home (`AtNest`
+/// reading 0), which for an ant that came in by the door is about the old
+/// ground line; depth is how many rows below that its head is now. An ant
+/// that has never been away from home has no depth and is not slowed
+/// (`CreatureStats::depth_unknown` counts those decisions). What a real ant
+/// reads is unknown. Harvester ant workers sort themselves by age with
+/// depth, by "active movement and choice" (Tschinkel 2004, J Insect Sci
+/// 4:21, doi 10.1093/jis/4.1.21), and the soil's carbon dioxide gradient is
+/// not the cue: venting it, or turning it upside down, changed neither the
+/// nest nor where the ants stood (Tschinkel 2013, PLoS ONE 8:e59911, doi
+/// 10.1371/journal.pone.0059911). A count of rows climbed and descended is
+/// the cheapest sense of depth an animal that knows which way is down has.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct DepthSlow {
+    /// Rows below the remembered row at which an idle nest worker steps half
+    /// as often. 0 is off.
+    pub half_rows: u16,
+    /// `lean`: **hunger fades the slowing out instead of stopping it at the
+    /// grant.** Under `workers` alone an ant under its grant is not slowed;
+    /// under `lean` it keeps a share that falls from all of it at the grant
+    /// to none at the lean line (`LeanForage`'s `line`, which is where
+    /// `NeedsFirst` calls an ant hungry), and none for an ant `NeedsFirst`
+    /// calls hungry for being shut in. Why it exists: on hunger-first (seeds
+    /// 1-4, 100-300k) 77-87% of the nest workers deeper than 10 rows at a
+    /// census were empty and between 125 and 200 J, under the 200 J grant and
+    /// over the 100 J lean line, and 1-3% were fed -- so `workers` alone
+    /// never meets the ants that are deep.
+    pub lean: bool,
+}
+
+impl DepthSlow {
+    pub const OFF: DepthSlow = DepthSlow { half_rows: 0, lean: false };
+    /// The form an unset `PIXEL_PHYSICS_DEPTH_SLOW` reads as: off.
+    pub const SHIPPED: DepthSlow = DepthSlow::OFF;
+
+    pub fn on(self) -> bool {
+        self.half_rows > 0
+    }
+}
+
+/// **`workers`' half depth, in rows**: the line the scorecard draws its deep
+/// band at (`deep-trace/tools/scorecard.py`'s `KNOT_ROWS`), so an ant there
+/// steps half as often as one at the door. Not tuned; `workers:<rows>` sets
+/// another for a dose arm.
+pub const DEPTH_SLOW_HALF_ROWS: u16 = 10;
+
+/// `PIXEL_PHYSICS_DEPTH_SLOW` for this process, or [`World::depth_slow`].
+pub fn depth_slow_of(world: &World) -> DepthSlow {
+    world.depth_slow.unwrap_or_else(|| {
+        static V: std::sync::OnceLock<DepthSlow> = std::sync::OnceLock::new();
+        *V.get_or_init(|| parse_depth_slow(&std::env::var("PIXEL_PHYSICS_DEPTH_SLOW").unwrap_or_default()))
+    })
+}
+
+/// `PIXEL_PHYSICS_DEPTH_SLOW`'s value: unset and `off` are off, `workers` is
+/// on at [`DEPTH_SLOW_HALF_ROWS`], `workers:<rows>` at that many rows (1 or
+/// more), and `,lean` after either adds [`DepthSlow::lean`]. Anything else,
+/// or `lean` with no `workers`, is reported and read as unset.
+fn parse_depth_slow(raw: &str) -> DepthSlow {
+    match raw.trim() {
+        "" => return DepthSlow::SHIPPED,
+        "off" => return DepthSlow::OFF,
+        _ => {}
+    }
+    let mut rule = DepthSlow::OFF;
+    for word in raw.trim().split(',').map(str::trim) {
+        match word {
+            "workers" => rule.half_rows = DEPTH_SLOW_HALF_ROWS,
+            "lean" => rule.lean = true,
+            other => match other.strip_prefix("workers:").and_then(|n| n.parse::<u16>().ok()).filter(|&n| n > 0) {
+                Some(half_rows) => rule.half_rows = half_rows,
+                None => {
+                    eprintln!("PIXEL_PHYSICS_DEPTH_SLOW={raw:?}: {other:?} is not `workers`, `workers:<rows>` or `lean`; read as unset ({:?})", DepthSlow::SHIPPED);
+                    return DepthSlow::SHIPPED;
+                }
+            },
+        }
+    }
+    if !rule.on() {
+        eprintln!("PIXEL_PHYSICS_DEPTH_SLOW={raw:?}: names no `workers`; read as unset ({:?})", DepthSlow::SHIPPED);
+        return DepthSlow::SHIPPED;
+    }
+    rule
+}
+
+/// **How much of its step chance an idle nest worker keeps `depth` rows
+/// down**: `half / (half + depth)`, 1 at the top and never 0, so a slowed
+/// ant still walks -- and `Stillness` still ends its rests -- only less
+/// often. `depth` is in rows, scaled by what hunger leaves of the slowing
+/// under [`DepthSlow::lean`] (exactly the rows otherwise: a factor of 1.0 is
+/// exact in floating point).
+pub fn depth_slow_factor(depth: f32, half_rows: u16) -> f32 {
+    let half = f32::from(half_rows.max(1));
+    half / (half + depth.max(0.0))
+}
+
+/// **[`DepthSlow`] for one decision**, called just before the step roll with
+/// the head the senses read and what `AtNest` said: the memory written, and
+/// `p_move` as the rule leaves it. Off, it reads the switch and returns.
+fn depth_slowed(world: &mut World, organism: OrganismId, def: &CreatureDef, (hx, hy): (i32, i32), at_home: bool, p_move: f32) -> f32 {
+    let rule = depth_slow_of(world);
+    if !rule.on() {
+        return p_move;
+    }
+    if !at_home {
+        if let Some(st) = world.organism_mut(organism) {
+            st.last_out_row = Some(hy);
+        }
+        return p_move;
+    }
+    let Some(st) = world.organism(organism) else { return p_move };
+    let idle = def.home_bias > 0.0
+        && is_nest_bound(world, st)
+        && st.spoil.is_none()
+        && st.crop.is_none_or(|c| c.worth() <= 0.0)
+        && !st.hungry_home
+        && !st.store_return
+        && st.dig_return.is_none();
+    if !idle {
+        return p_move;
+    }
+    // **What hunger leaves of the slowing**: all of it at or above the
+    // grant; under the grant none, or under `lean` a share fading to none at
+    // the lean line, and none for an ant `NeedsFirst` calls hungry.
+    let fed = if st.energy >= def.start_energy {
+        1.0
+    } else if rule.lean && !needs_hungry(world, st, def, (hx, hy)) {
+        let line = lean_forage_of(world).line * def.start_energy;
+        ((st.energy - line) / (def.start_energy - line).max(f32::EPSILON)).clamp(0.0, 1.0)
+    } else {
+        0.0
+    };
+    if fed <= 0.0 {
+        return p_move;
+    }
+    let Some(top) = st.last_out_row else {
+        world.creature_stats.depth_unknown += 1;
+        return p_move;
+    };
+    let depth = hy - top;
+    if depth <= 0 {
+        return p_move;
+    }
+    // The depth a map would give, for the counters only: rows below the
+    // nearest nest's founding ground.
+    let ground = world.nearest_nest_site(hx, hy).map_or(0, |i| (hy - world.nest_sites[i].surface).max(0));
+    let s = &mut world.creature_stats;
+    s.depth_slowed += 1;
+    s.depth_lean_slowed += u64::from(fed < 1.0);
+    s.depth_rows += depth as u64;
+    s.depth_ground_rows += ground as u64;
+    s.depth_err_rows += u64::from((depth - ground).unsigned_abs());
+    p_move * depth_slow_factor(fed * depth as f32, rule.half_rows)
+}
+
 /// **A hungry ant inside its nest is drawn out the way it came in**
 /// (`PIXEL_PHYSICS_HUNGRY_OUT=on|off`, on since 2026-10-04;
 /// [`World::hungry_out`] for one world). An ant carrying nothing -- no food, no pellet -- that has fallen
@@ -13890,6 +14124,64 @@ fn closes_a_way(world: &World, (x, y): (i32, i32)) -> bool {
     (0..8).filter(|&i| o[i] && !o[(i + 1) % 8]).count() > 1
 }
 
+/// **A cell into the crop at face value**, as `act`'s swallow puts it there,
+/// and nothing booked: the ledger books at digestion (`creature_tick`). One
+/// helper so the walk's `eat_held` ([`needs::WalkParts::eat_held`]) eats a
+/// held store load exactly as the mouth would have eaten it put down -- the
+/// same merge, the same price -- and cannot drift from it (2026-10-11).
+fn crop_take(
+    world: &mut World,
+    organism: OrganismId,
+    food: material::MaterialId,
+    shade: u8,
+    worth: f32,
+    passenger: Option<organism::SeedPassenger>,
+) {
+    // **Crumbs merge at the mean, which keeps the crop's worth
+    // exactly.** Every crumb holds a different remainder, so the
+    // min below would destroy food on every mixed pickup: 400
+    // and 79 would become two at 79, and 321 would be gone.
+    // Measured as a leak on the forage bed's food budget the day
+    // crumbs landed (open bug §Z33's fix). The mean cannot pump:
+    // what the crop holds in total is what went in.
+    let merge_at_mean = world.materials.get(food).carries_worth;
+    if let Some(state) = world.organism_mut(organism) {
+        state.crop = Some(match state.crop {
+            Some(c) if merge_at_mean => Crop {
+                cells: c.cells.saturating_add(1),
+                unit: (c.unit * f32::from(c.cells) + worth) / (f32::from(c.cells) + 1.0),
+                passenger: c.passenger.or(passenger),
+                ..c
+            },
+            // **`unit` takes the min, not the last.** Corpses
+            // carry per-cell worth in `aux`, so a crop filled
+            // from a rich corpse and a poor one could otherwise
+            // put back a cell worth more than the cheapest that
+            // went in -- a small pump, one-directional, and
+            // exactly the kind evolution finds. Taking the min
+            // makes the leak run the safe way.
+            // `c.passenger.or(passenger)`: keeps whatever was
+            // already aboard, and the two can never both be
+            // `Some` given the guard above (`passenger` is only
+            // ever computed when `c.passenger` was `None`).
+            Some(c) => Crop {
+                cells: c.cells.saturating_add(1),
+                unit: c.unit.min(worth),
+                passenger: c.passenger.or(passenger),
+                ..c
+            },
+            None => Crop {
+                material: food,
+                shade,
+                unit: worth,
+                cells: 1,
+                digesting: 0.0,
+                passenger,
+            },
+        });
+    }
+}
+
 /// **Where a need puts the load down** ([`NeedsFirst`]): [`lean_drop_site`]'s
 /// cell -- empty, with ground under it -- that is not in a doorway and does
 /// not close a way ([`closes_a_way`]). `None` with the head itself in a
@@ -13974,7 +14266,20 @@ fn pack_behind(world: &mut World, organism: OrganismId, def: &CreatureDef, head:
     let (landing, _) = body_after_step(world, def, body, ahead, heading, aim, push);
     let vacated = chain.iter().rev().copied().find(|c| !landing.contains(c));
     let own = landing.iter().all(|c| *c == ahead || chain.contains(c));
-    let Some((vx, vy)) = vacated.filter(|&v| own && !in_a_doorway(world, v) && landing_is_placeable_through_tissue(world, &chain, &landing, push, None)) else {
+    // **Nor a tail cell the body is standing in something it parted**
+    // (crumbs, brood, foliage: `OrganismState::parted`): `relocate_chain`
+    // gives that back as the tail leaves, the cell is not empty, and the
+    // pellet had nowhere to go -- in a release build it vanished, a cell of
+    // soil deleted. Found 2026-10-11 by the debug build of `needs`'s sealed
+    // guard rows, an ant whose tail stood on crumbs. **Refused only under the
+    // needs walk for now**: today's ant hits it too (steady seed 1 diverges
+    // by frame 40k with the refusal on for everyone), so fixing it there
+    // changes the shipped game and needs its own measurement. The walk's
+    // mode, not any `World::needs`: pass-through must stay frame for frame
+    // the game without the hooks (PR 684's re-check, R1).
+    let walking = world.needs.as_ref().is_some_and(|n| n.mode == needs::NeedsMode::Walk);
+    let parted_under = |v: (i32, i32)| walking && world.organism(organism).is_some_and(|s| s.parted.iter().any(|p| (p.x, p.y) == v));
+    let Some((vx, vy)) = vacated.filter(|&v| own && !in_a_doorway(world, v) && !parted_under(v) && landing_is_placeable_through_tissue(world, &chain, &landing, push, None)) else {
         world.set(ahead.0, ahead.1, target);
         return false;
     };
@@ -19302,44 +19607,7 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
                 // continuous payout the animal has already been credited every
                 // joule of `digesting`, so a new cell starts from 0 and
                 // `OrganismState::digest_carry` retired with the mechanism.
-                // **Crumbs merge at the mean, which keeps the crop's worth
-                // exactly.** Every crumb holds a different remainder, so the
-                // min below would destroy food on every mixed pickup: 400
-                // and 79 would become two at 79, and 321 would be gone.
-                // Measured as a leak on the forage bed's food budget the day
-                // crumbs landed (open bug §Z33's fix). The mean cannot pump:
-                // what the crop holds in total is what went in.
-                let merge_at_mean = world.materials.get(food).carries_worth;
-                if let Some(state) = world.organism_mut(organism) {
-                    state.crop = Some(match state.crop {
-                        Some(c) if merge_at_mean => Crop {
-                            cells: c.cells.saturating_add(1),
-                            unit: (c.unit * f32::from(c.cells) + worth) / (f32::from(c.cells) + 1.0),
-                            passenger: c.passenger.or(passenger),
-                            ..c
-                        },
-                        // **`unit` takes the min, not the last.** Corpses
-                        // carry per-cell worth in `aux`, so a crop filled
-                        // from a rich corpse and a poor one could otherwise
-                        // put back a cell worth more than the cheapest that
-                        // went in -- a small pump, one-directional, and
-                        // exactly the kind evolution finds. Taking the min
-                        // makes the leak run the safe way.
-                        // `c.passenger.or(passenger)`: keeps whatever was
-                        // already aboard, and the two can never both be
-                        // `Some` given the guard above (`passenger` is only
-                        // ever computed when `c.passenger` was `None`).
-                        Some(c) => Crop { cells: c.cells.saturating_add(1), unit: c.unit.min(worth), passenger: c.passenger.or(passenger), ..c },
-                        None => Crop {
-                            material: food,
-                            shade,
-                            unit: worth,
-                            cells: 1,
-                            digesting: 0.0,
-                            passenger,
-                        },
-                    });
-                }
+                crop_take(world, organism, food, shade, worth, passenger);
                 world.creature_stats.pickups += 1;
                 if picked_at_home {
                     world.creature_stats.pickups_at_nest += 1;
@@ -35696,6 +35964,91 @@ mod tests {
         assert_eq!(parse_nest_rest("on"), NestRest::Foragers);
         assert_eq!(parse_nest_rest("all"), NestRest::All);
         assert_eq!(parse_nest_rest("yes"), NestRest::SHIPPED);
+    }
+
+    /// `PIXEL_PHYSICS_DEPTH_SLOW`'s spellings: unset and `off` are off,
+    /// `workers` the scorecard's deep line, `workers:<rows>` any other half
+    /// depth of a row or more, and anything else unset.
+    #[test]
+    fn the_depth_slow_parses_its_spellings_and_refuses_the_rest() {
+        assert_eq!(parse_depth_slow(""), DepthSlow::OFF, "unset is off");
+        assert_eq!(DepthSlow::SHIPPED, DepthSlow::OFF);
+        assert_eq!(parse_depth_slow("off"), DepthSlow::OFF);
+        assert_eq!(parse_depth_slow(" workers "), DepthSlow { half_rows: DEPTH_SLOW_HALF_ROWS, lean: false });
+        assert_eq!(parse_depth_slow("workers:5"), DepthSlow { half_rows: 5, lean: false });
+        assert_eq!(parse_depth_slow("workers,lean"), DepthSlow { half_rows: DEPTH_SLOW_HALF_ROWS, lean: true });
+        assert_eq!(parse_depth_slow("lean, workers:5"), DepthSlow { half_rows: 5, lean: true });
+        assert_eq!(parse_depth_slow("workers:0"), DepthSlow::SHIPPED);
+        assert_eq!(parse_depth_slow("lean"), DepthSlow::SHIPPED, "lean names no workers");
+        assert_eq!(parse_depth_slow("workers,x"), DepthSlow::SHIPPED);
+        assert_eq!(parse_depth_slow("on"), DepthSlow::SHIPPED);
+        assert!(!DepthSlow::OFF.on() && DepthSlow { half_rows: 1, lean: false }.on());
+    }
+
+    /// **An idle nest worker steps less often the deeper it remembers
+    /// being, and no other ant is touched** ([`depth_slowed`]). In
+    /// [`rest_world`]'s chamber, seven rows under the founding ground (row
+    /// 40), a fed nest worker that last stood away from home on row 38 is
+    /// nine rows down and keeps `10 / 19` of its step chance; one that
+    /// remembers row 30 is deeper, and slower. Hungry, a forager, carrying,
+    /// never yet away, or the switch off: the chance is untouched. Away from
+    /// home the memory is written and nothing is slowed.
+    #[test]
+    fn an_idle_nest_worker_steps_less_often_the_deeper_it_remembers_being() {
+        let on = DepthSlow { half_rows: 10, lean: false };
+        let run = |(x, y): (i32, i32), rule: DepthSlow, worker: bool, fed: bool, top: Option<i32>| {
+            let (mut w, a) = rest_world(x, y, false);
+            w.depth_slow = Some(rule);
+            w.nest_dug.clear();
+            w.step_nest_dug();
+            let def = w.species.get(w.organism(a).expect("live").species).creature.clone().expect("a creature");
+            let st = w.organism_mut(a).expect("live");
+            st.nest_bound_until = if worker { u64::MAX } else { 0 };
+            st.energy = if fed { def.start_energy } else { 0.9 * def.start_energy };
+            st.last_out_row = top;
+            let head = w.organism(a).expect("live").chain[0];
+            let home = nest_within_reach(&w, a, head.0, head.1, &def);
+            let p = depth_slowed(&mut w, a, &def, head, home, 0.5);
+            let row = w.organism(a).expect("live").last_out_row;
+            (p, home, row, w.creature_stats)
+        };
+        let room = (63, 47);
+        let (p, home, row, s) = run(room, on, true, true, Some(38));
+        assert!(home, "test setup: the chamber floor is not home");
+        assert!((p - 0.5 * 10.0 / 19.0).abs() < 1e-6, "nine rows down kept {p}, not 10/19 of 0.5");
+        assert_eq!((s.depth_slowed, s.depth_rows, s.depth_ground_rows, s.depth_err_rows), (1, 9, 7, 2), "the counters");
+        assert_eq!(row, Some(38), "the memory was rewritten at home");
+        let (deeper, ..) = run(room, on, true, true, Some(30));
+        assert!(deeper < p, "seventeen rows down ({deeper}) was not slower than nine ({p})");
+        let (p, _, row, s) = run(room, DepthSlow::OFF, true, true, Some(38));
+        assert_eq!((p, row, s.depth_slowed), (0.5, Some(38), 0), "the switch off touched the chance or the memory");
+        assert_eq!(run(room, on, true, false, Some(38)).0, 0.5, "a hungry nest worker was slowed");
+        assert_eq!(run(room, on, false, true, Some(38)).0, 0.5, "a forager was slowed");
+        let (p, _, _, s) = run(room, on, true, true, None);
+        assert_eq!((p, s.depth_unknown, s.depth_slowed), (0.5, 1, 0), "an ant never away from home was slowed, or not counted");
+        let (mut w, a) = rest_world(63, 47, false);
+        w.depth_slow = Some(on);
+        let def = w.species.get(w.organism(a).expect("live").species).creature.clone().expect("a creature");
+        let spoil = w.materials.id_of("spoil").expect("spoil");
+        let st = w.organism_mut(a).expect("live");
+        st.nest_bound_until = u64::MAX;
+        st.last_out_row = Some(38);
+        st.spoil = Some(Spoil { cell: Cell::new(spoil, 0), store: false });
+        let head = w.organism(a).expect("live").chain[0];
+        assert_eq!(depth_slowed(&mut w, a, &def, head, true, 0.5), 0.5, "a nest worker carrying a pellet was slowed");
+        let (p, home, row, s) = run((90, 39), on, true, true, Some(30));
+        assert!(!home, "test setup: the open surface is home");
+        assert_eq!((p, row, s.depth_slowed), (0.5, Some(39), 0), "away from home the memory was not written, or the ant was slowed");
+        // **`lean`: under the grant the slowing fades rather than stops.** At
+        // 0.9 of the grant, with the lean line at half, the ant keeps four
+        // fifths of it: nine rows count as 7.2. Fed, `lean` changes nothing.
+        let lean = DepthSlow { half_rows: 10, lean: true };
+        let (p, _, _, s) = run(room, lean, true, false, Some(38));
+        let line = lean_forage_of(&rest_world(63, 47, false).0).line;
+        let share = (0.9 - line) / (1.0 - line);
+        assert!((p - 0.5 * 10.0 / (10.0 + share * 9.0)).abs() < 1e-5, "under lean, a nest worker at 0.9 of its grant kept {p}");
+        assert_eq!((s.depth_slowed, s.depth_lean_slowed), (1, 1), "the lean counters");
+        assert_eq!(run(room, lean, true, true, Some(38)).0, run(room, on, true, true, Some(38)).0, "lean changed a fed ant's slowing");
     }
 
     /// `PIXEL_PHYSICS_DIG_WIDEN`'s spellings: `on`, and off for everything

@@ -1,0 +1,191 @@
+[
+ {
+  "seed": 1,
+  "frame": 200000,
+  "nest_cells": 845,
+  "nest_unreachable": 0,
+  "ants_in_nest": 40,
+  "ants_in_mound": 275,
+  "brood": 305,
+  "fields": {
+   "air_sealed": {
+    "flat_1pct_room": 0.8926829268292683,
+    "flat_1pct_tunnel": 0.9130434782608695,
+    "room_share": 0.727810650887574,
+    "flat_1pct": 0.8982248520710059,
+    "flat_0p1pct": 0.2319526627218935,
+    "no_readable_heading": 0.0,
+    "contrast_p50": 0.002200421669951097,
+    "out": 0.9976331360946745,
+    "agree": 0.9572953736654805,
+    "wallward": null,
+    "sealed_cells": 2,
+    "tops": 8,
+    "top3": [
+     {
+      "row": 96,
+      "col": 77,
+      "share": 0.8378698224852071,
+      "brood": 20,
+      "ants": 0,
+      "row_below_ground": 36,
+      "geo": 50
+     },
+     {
+      "row": 66,
+      "col": 105,
+      "share": 0.08520710059171598,
+      "brood": 0,
+      "ants": 0,
+      "row_below_ground": 6,
+      "geo": 42
+     },
+     {
+      "row": 68,
+      "col": 58,
+      "share": 0.04378698224852071,
+      "brood": 0,
+      "ants": 0,
+      "row_below_ground": 8,
+      "geo": 39
+     }
+    ],
+    "range_max_over_min": 1.088167301087813,
+    "step_under_1_65536": 0.04260355029585799,
+    "step_under_1_256": 0.9420118343195266,
+    "settle_frames_10pct": null
+   },
+   "air_p02": {
+    "flat_1pct_room": 0.6715447154471544,
+    "flat_1pct_tunnel": 0.3739130434782609,
+    "room_share": 0.727810650887574,
+    "flat_1pct": 0.5905325443786982,
+    "flat_0p1pct": 0.0,
+    "no_readable_heading": 0.0,
+    "contrast_p50": 0.00858801395857723,
+    "out": 0.0035502958579881655,
+    "agree": 0.6233453670276775,
+    "wallward": 0.21893491124260356,
+    "sealed_cells": 0,
+    "tops": 1,
+    "top3": [
+     {
+      "row": 93,
+      "col": 79,
+      "share": 1.0,
+      "brood": 26,
+      "ants": 0,
+      "row_below_ground": 33,
+      "geo": 47
+     }
+    ],
+    "range_max_over_min": 1.1926721478398707,
+    "step_under_1_65536": 0.0,
+    "step_under_1_256": 0.6082840236686391
+   },
+   "air_plane": {
+    "flat_1pct_room": 0.0,
+    "flat_1pct_tunnel": 0.0,
+    "room_share": 0.727810650887574,
+    "flat_1pct": 0.0,
+    "flat_0p1pct": 0.0,
+    "no_readable_heading": 0.0,
+    "contrast_p50": 0.07697371147472558,
+    "out": 0.002366863905325444,
+    "agree": 0.2430471584038694,
+    "wallward": 0.16568047337278108,
+    "sealed_cells": 0,
+    "tops": 1,
+    "top3": [
+     {
+      "row": 75,
+      "col": 80,
+      "share": 1.0,
+      "brood": 47,
+      "ants": 2,
+      "row_below_ground": 15,
+      "geo": 29
+     }
+    ],
+    "range_max_over_min": 2.7445750796522956,
+    "step_under_1_65536": 0.0,
+    "step_under_1_256": 0.002366863905325444,
+    "settle_frames_10pct": 492000
+   },
+   "larva_L3": {
+    "flat_1pct_room": 0.0,
+    "flat_1pct_tunnel": 0.0,
+    "room_share": 0.727810650887574,
+    "flat_1pct": 0.0,
+    "flat_0p1pct": 0.0,
+    "no_readable_heading": 0.0,
+    "contrast_p50": 0.6322709970957723,
+    "out": 0.0,
+    "agree": 0.5349397590361445,
+    "wallward": null,
+    "sealed_cells": 0,
+    "tops": 6,
+    "top3": [
+     {
+      "row": 90,
+      "col": 81,
+      "share": 0.7798816568047338,
+      "brood": 33,
+      "ants": 0,
+      "row_below_ground": 30,
+      "geo": 44
+     },
+     {
+      "row": 72,
+      "col": 92,
+      "share": 0.08994082840236686,
+      "brood": 1,
+      "ants": 0,
+      "row_below_ground": 12,
+      "geo": 29
+     },
+     {
+      "row": 76,
+      "col": 66,
+      "share": 0.06153846153846154,
+      "brood": 3,
+      "ants": 0,
+      "row_below_ground": 16,
+      "geo": 31
+     }
+    ],
+    "range_max_over_min": 2289.818941087091,
+    "step_under_1_65536": 0.0,
+    "step_under_1_256": 0.09940828402366864
+   },
+   "larva_L10": {
+    "flat_1pct_room": 0.0,
+    "flat_1pct_tunnel": 0.0,
+    "room_share": 0.727810650887574,
+    "flat_1pct": 0.0,
+    "flat_0p1pct": 0.0,
+    "no_readable_heading": 0.0,
+    "contrast_p50": 0.15744893563543833,
+    "out": 0.0,
+    "agree": 0.5832335329341317,
+    "wallward": null,
+    "sealed_cells": 0,
+    "tops": 1,
+    "top3": [
+     {
+      "row": 91,
+      "col": 83,
+      "share": 1.0,
+      "brood": 19,
+      "ants": 0,
+      "row_below_ground": 31,
+      "geo": 45
+     }
+    ],
+    "range_max_over_min": 7.058469537146127,
+    "step_under_1_65536": 0.0,
+    "step_under_1_256": 0.014201183431952662
+   }
+  }
+ }
+]

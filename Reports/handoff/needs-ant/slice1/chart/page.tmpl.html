@@ -1,0 +1,126 @@
+<title>New Ant Fix Round</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600&family=IBM+Plex+Sans:wght@400;600&family=IBM+Plex+Mono:wght@400&display=swap">
+<style>
+/* Layout: the project's chart-page notebook (garden lane template) -- arm tabs on top, one panel per seed, three strips on one time axis, the shipped game dashed under every strip. */
+:root {
+  --bg: #f6f7f2; --panel: #ffffff; --fg: #1d2420; --muted: #5d6a61; --grid: #dfe4dc;
+  --ants: #9a3b12; --food: #2f6b3a; --deep: #2d4f7c; --accent: #2f6b3a; --line: #c9d1c6; --bad: #a3271b;
+  --display: "Fraunces", Georgia, serif; --body: "IBM Plex Sans", system-ui, sans-serif; --mono: "IBM Plex Mono", ui-monospace, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #141815; --panel: #1b201c; --fg: #e4e9e2; --muted: #9aa79d; --grid: #2c332d;
+  --ants: #f08a5d; --food: #7fcf8c; --deep: #8fb4e8; --accent: #7fcf8c; --line: #3a433b; --bad: #f28b7d; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #141815; --panel: #1b201c; --fg: #e4e9e2; --muted: #9aa79d; --grid: #2c332d;
+  --ants: #f08a5d; --food: #7fcf8c; --deep: #8fb4e8; --accent: #7fcf8c; --line: #3a433b; --bad: #f28b7d; color-scheme: dark }
+body { background: var(--bg); color: var(--fg); font-family: var(--body); line-height: 1.5; }
+.wrap { max-width: 1180px; margin: 0 auto; padding-inline: 16px; padding-block: 24px 48px; }
+h1 { font-family: var(--display); font-weight: 600; font-size: 1.9rem; margin: 0 0 4px; text-wrap: balance; }
+.sub { color: var(--muted); max-width: 72ch; margin: 0 0 12px; }
+.verdict { max-width: 72ch; margin: 0 0 20px; padding: 10px 14px; border-left: 3px solid var(--bad); background: var(--panel); }
+.legend { display: flex; flex-wrap: wrap; gap: 16px; font-size: .85rem; color: var(--muted); margin-bottom: 14px; }
+.key { display: inline-flex; align-items: center; gap: 6px; }
+.sw { width: 18px; height: 3px; border-radius: 2px; display: inline-block; }
+.swd { width: 18px; height: 0; border-top: 2px dashed var(--muted); display: inline-block; }
+.tabs { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+.tabs button { font: inherit; font-size: .88rem; padding: 6px 12px; border-radius: 999px; border: 1px solid var(--line); background: var(--panel); color: var(--fg); cursor: pointer; }
+.tabs button[aria-pressed="true"] { background: var(--fg); color: var(--bg); border-color: var(--fg); }
+.tabs button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.armnote { color: var(--muted); font-size: .9rem; margin: 0 0 14px; min-height: 1.4em; max-width: 90ch; }
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr)); gap: 12px; }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px 10px 6px; min-width: 0; }
+.panel h3 { margin: 0 0 2px; font-size: .9rem; font-weight: 600; display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; }
+.panel h3 span { font-weight: 400; color: var(--muted); font-family: var(--mono); font-size: .78rem; }
+svg { width: 100%; height: auto; display: block; }
+svg text { fill: var(--muted); font-family: var(--mono); font-size: 10px; }
+h2 { font-family: var(--display); font-weight: 600; font-size: 1.3rem; margin: 34px 0 8px; }
+.tablewrap { overflow-x: auto; }
+table { border-collapse: collapse; font-size: .86rem; font-variant-numeric: tabular-nums; min-width: 760px; width: 100%; }
+th, td { text-align: right; padding: 6px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+th:first-child, td:first-child { text-align: left; white-space: normal; min-width: 9em; }
+th { color: var(--muted); font-weight: 600; font-size: .76rem; letter-spacing: .03em; text-transform: uppercase; }
+tr.ref td { color: var(--muted); }
+.foot { color: var(--muted); font-size: .82rem; margin-top: 18px; max-width: 80ch; }
+</style>
+<div class="wrap">
+  <h1>The new ant's fix round</h1>
+  <p class="sub">The goal box, mutation off, the evolved founder, seeds 1 to 4 to frame 300,000. Every arm switches the colony to the new ant at frame 50,000 (the faint line); before that it is the shipped game. Each panel is one seed: ants alive, food carried in from outside, and ants living deeper than 10 rows, on one time axis. The dashed line under each strip is the shipped game on the same seed.</p>
+  <p class="verdict" id="verdict"></p>
+  <div class="legend">
+    <span class="key"><span class="sw" style="background:var(--ants)"></span>Ants alive</span>
+    <span class="key"><span class="sw" style="background:var(--food)"></span>Food carried in (trip deliveries, last 5,000 frames)</span>
+    <span class="key"><span class="sw" style="background:var(--deep)"></span>Ants deeper than 10 rows</span>
+    <span class="key"><span class="swd"></span>Shipped, same seed</span>
+  </div>
+  <div class="tabs" id="tabs" role="group" aria-label="Arm"></div>
+  <p class="armnote" id="armnote"></p>
+  <div class="grid" id="grid"></div>
+  <h2>The kill rule's numbers, seed by seed</h2>
+  <p class="sub">Seeds 1 / 2 / 3 / 4. Births are not in the kill rule; they show which colonies died of hunger and which ran out of young.</p>
+  <div class="tablewrap"><table id="summary"></table></div>
+  <p class="foot" id="foot"></p>
+</div>
+<script>
+const DATA = __DATA__;
+const GATE = __GATE__;
+const ARMS = __ARMS__;
+const META = __META__;
+const SEEDS = [1, 2, 3, 4];
+const F0 = 40000, F1 = 300000;
+const W = 440, L = 38, R = 10, T = 10, SH = 66, GAP = 18, B = 18;
+const H = T + 3 * SH + 2 * GAP + B;
+const fmtK = v => v >= 1000 ? (v/1000).toFixed(v >= 10000 ? 0 : 1) + 'k' : String(Math.round(v));
+const fmtN = v => v == null ? '–' : v.toLocaleString('en-US');
+function nice(m) { if (m <= 0) return 1; const p = Math.pow(10, Math.floor(Math.log10(m))); for (const k of [1, 2, 2.5, 5, 10]) if (k*p >= m) return k*p; return 10*p; }
+const x = f => L + (W - L - R) * (f - F0) / (F1 - F0);
+function path(rows, key, y) { return rows.map((r, i) => (i ? 'L' : 'M') + x(r.f).toFixed(1) + ' ' + y(r[key]).toFixed(1)).join(''); }
+function strip(rows, ctrl, key, top, color, max, label) {
+  const y = v => top + SH - SH * Math.min(v, max) / max;
+  let s = '';
+  for (const t of [0, max/2, max]) s += `<line x1="${L}" x2="${W-R}" y1="${y(t)}" y2="${y(t)}" stroke="var(--grid)" stroke-width="1"/><text x="${L-4}" y="${y(t)+3}" text-anchor="end">${fmtK(t)}</text>`;
+  if (ctrl && ctrl.length) s += `<path d="${path(ctrl, key, y)}" fill="none" stroke="var(--muted)" stroke-width="1.2" stroke-dasharray="3 3" opacity=".7"/>`;
+  if (rows.length) s += `<path d="${path(rows, key, y)}" fill="none" stroke="${color}" stroke-width="2"/>`;
+  s += `<text x="${L+4}" y="${top+10}" text-anchor="start" style="fill:${color}">${label}</text>`;
+  return s;
+}
+function seedMax(seed, key) { return nice(Math.max(5, ...ARMS.map(([k]) => DATA[k + '-' + seed]).filter(Boolean).flatMap(r => r.rows.map(q => q[key])))); }
+function panel(arm, seed) {
+  const run = DATA[arm + '-' + seed]; if (!run) return '';
+  const ctrl = arm === 'noants' ? null : (DATA['noants-' + seed] || {}).rows;
+  const rows = run.rows;
+  let s = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Seed ${seed}: ants alive, food carried in and deep ants over time">`;
+  s += `<line x1="${x(50000)}" x2="${x(50000)}" y1="${T}" y2="${H - B}" stroke="var(--line)" stroke-width="1"/>`;
+  s += strip(rows, ctrl, 'ants', T, 'var(--ants)', seedMax(seed, 'ants'), 'ants alive');
+  s += strip(rows, ctrl, 'food', T + SH + GAP, 'var(--food)', seedMax(seed, 'food'), 'food carried in');
+  s += strip(rows, ctrl, 'deep', T + 2 * (SH + GAP), 'var(--deep)', seedMax(seed, 'deep'), 'ants deeper than 10 rows');
+  for (const f of [50000, 100000, 200000, 300000]) s += `<text x="${x(f)}" y="${H-4}" text-anchor="${f === F1 ? 'end' : 'middle'}">${f/1000}k</text>`;
+  s += '</svg>';
+  const g = GATE[arm + '-' + seed];
+  const tag = g ? (g.end === 0 ? `died out · lowest after 100k 0 at ${g.lowf/1000}k` : `lowest ${g.low} at ${g.lowf/1000}k · ${g.end} at ${g.last/1000}k`) : '';
+  return `<div class="panel"><h3>Seed ${seed}<span>${tag}${run.done ? '' : ' · running'}</span></h3>${s}</div>`;
+}
+function show(arm) {
+  document.querySelectorAll('#tabs button').forEach(b => b.setAttribute('aria-pressed', b.dataset.arm === arm));
+  document.getElementById('armnote').textContent = META[arm] || '';
+  document.getElementById('grid').innerHTML = SEEDS.map(s => panel(arm, s)).join('');
+  try { localStorage.setItem('arm', arm); } catch (e) {}
+}
+const tabs = document.getElementById('tabs');
+for (const [k, label] of ARMS) { const b = document.createElement('button'); b.type = 'button'; b.textContent = label; b.dataset.arm = k; b.onclick = () => show(k); tabs.appendChild(b); }
+let start = ARMS[0][0]; try { const s = localStorage.getItem('arm'); if (s && ARMS.some(a => a[0] === s)) start = s; } catch (e) {}
+show(start);
+const list = (k, f) => SEEDS.map(s => GATE[k + '-' + s]).map(g => g ? f(g) : '–').join(' / ');
+let h = '<tr><th>Arm</th><th>Colonies alive at 300k</th><th>Lowest ants after 100k</th><th>Starved, 20k–300k</th><th>Food carried in, 100k–300k</th><th>Births, 100k–300k</th><th>Ants deeper than 10 rows, 100k–300k</th></tr>';
+for (const [k, label] of ARMS) {
+  const gs = SEEDS.map(s => GATE[k + '-' + s]).filter(Boolean);
+  const done = gs.filter(g => g.last >= 300000);
+  if (done.length < gs.length || !gs.length) { h += `<tr><td>${label}</td><td colspan="6">running</td></tr>`; continue; }
+  const alive = done.filter(g => g.end > 0).length;
+  const ref = (k === 'noants' || k === 'stack' || k === 'slice1') ? ' class="ref"' : '';
+  h += `<tr${ref}><td>${label}</td><td>${alive} of ${done.length}</td><td>${list(k, g => fmtN(g.low))}</td><td>${list(k, g => fmtN(g.starved))}</td><td>${list(k, g => fmtN(g.food))}</td><td>${list(k, g => fmtN(g.births))}</td><td>${list(k, g => g.deep.toFixed(1))}</td></tr>`;
+}
+document.getElementById('summary').innerHTML = h;
+document.getElementById('verdict').textContent = __VERDICT__;
+document.getElementById('foot').textContent = __FOOT__;
+</script>

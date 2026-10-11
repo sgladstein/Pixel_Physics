@@ -1,0 +1,5 @@
+window 20-300k; starved by where they died: nest / door / west near / west far / east / food
+/home/claude/runs/depth/leanrest-s1: peak 613 ants at 267k (ants at 300k: 547); starved 6: 2 / 0 / 2 / 0 / 2 / 0; in the 60k after the peak 0: 0 / 0 / 0 / 0 / 0 / 0; ants far west at a time mean 106.6, most 162
+/home/claude/runs/depth/leanrest-s2: peak 599 ants at 83k (ants at 300k: 485); starved 22: 0 / 1 / 9 / 11 / 0 / 1; in the 60k after the peak 3: 0 / 1 / 2 / 0 / 0 / 0; ants far west at a time mean 91.2, most 143
+/home/claude/runs/depth/leanrest-s3: peak 611 ants at 175k (ants at 300k: 519); starved 160: 2 / 2 / 62 / 93 / 1 / 0; in the 60k after the peak 149: 0 / 2 / 54 / 92 / 1 / 0; ants far west at a time mean 81.0, most 144
+/home/claude/runs/depth/leanrest-s4: peak 608 ants at 169k (ants at 300k: 607); starved 6: 1 / 0 / 4 / 1 / 0 / 0; in the 60k after the peak 0: 0 / 0 / 0 / 0 / 0 / 0; ants far west at a time mean 84.9, most 136

@@ -1,0 +1,7 @@
+depth/slow-s4: 117 starved 240-300k; base rate over the same 23 census frames: 20711 ant samples, 10257 of them in the mound's tunnels
+    last sample before death         starvers  all ants  mound tunnels
+    door system, door open          15  13%        94%            99%
+    closed pocket                    0   0%         1%             1%
+    encased                          9   8%         1%             1%
+    off the map                     93  79%         5%             0%
+    trapped at the end: 9; trapped for (frames before death, from the first trapped sample) median 1126, range 866-5904; energy when first found trapped median 73 J (range 40-316), with food still in the crop for 0 of them; holding a pellet then 1
