@@ -14310,6 +14310,19 @@ fn pack_behind(world: &mut World, organism: OrganismId, def: &CreatureDef, head:
         world.set(ahead.0, ahead.1, target);
         return false;
     };
+    // **Nor a tail cell somebody else will be left standing in**: a nestmate
+    // riding it, or a cell this ant only rides in. `relocate_chain` hands the
+    // cell to them as the tail leaves, and the pellet had nowhere to go (PR
+    // 685's review: the needs walk's `sealed_escape`, which packs without
+    // `walled_in`, lost 29 pellets this way on steady seed 1 in 60k). Refused
+    // for every caller; the shipped ones check `walled_in` first, which
+    // already rules out a rider anywhere on the body, so for them it never
+    // fires (`CreatureStats::pack_rider_refused`).
+    if world.get(v.0, v.1).organism_id() != organism || !world.riders_at(v.0, v.1).is_empty() {
+        world.creature_stats.pack_rider_refused += 1;
+        world.set(ahead.0, ahead.1, target);
+        return false;
+    }
     let tail_parted = parted_under(v);
     if refuse && tail_parted {
         world.creature_stats.pack_parted_refused += 1;
@@ -14327,7 +14340,8 @@ fn pack_behind(world: &mut World, organism: OrganismId, def: &CreatureDef, head:
         // **The pellet is lost**: nowhere to put it, and the cut's own pellet
         // replaces it in the jaws below. Counted so the shipped rate can be
         // read (`deeptrace`'s `stats.csv`), by cause: the parted cell this
-        // switch is for, or anything else (a rider set down, under the walk).
+        // switch is for, or anything else (none known since the rider refusal
+        // above; the debug assert says so).
         if tail_parted {
             world.creature_stats.pack_parted_lost += 1;
         } else {
@@ -51227,6 +51241,57 @@ mod tests {
         assert_eq!((lost, refused), ((0, 0), 1), "on: the refusal was not counted");
         assert_eq!(after, before, "on: the refused pack changed the world");
         assert!(same_load, "on: the refused ant's pellet is not still in its jaws");
+    }
+
+    /// **A pack is refused where a nestmate rides the tail cell, and goes
+    /// ahead where one rides the head's cell, which the body keeps.** The tail's rider is
+    /// handed the cell as the tail leaves, so the pellet had nowhere to go:
+    /// the needs walk's `sealed_escape`, which packs without `walled_in`,
+    /// lost 29 pellets this way on steady seed 1 in 60k (PR 685's review).
+    /// Built by hand, as `stacked_in_a_parted_leaf` is. Red with the refusal
+    /// removed: the tail case packs, and a soil cell leaves the box.
+    #[test]
+    fn a_pack_is_refused_where_a_nestmate_rides_the_tail_cell() {
+        let run = |on_tail: bool| {
+            let mut w = test_world();
+            w.set_stack_cap(20);
+            let ant = spawn(&mut w, "ant", 100, 100);
+            let chain = w.organism(ant).expect("live").chain.clone();
+            assert!(chain.len() >= 2, "test setup: the ant is {} cells long", chain.len());
+            let soil = w.materials.id_of("soil").expect("soil material");
+            let ant_material = w.materials.id_of("ant").expect("ant material");
+            for x in 90..=110 {
+                for y in 90..=110 {
+                    if !chain.contains(&(x, y)) {
+                        w.set(x, y, Cell::new(soil, 0));
+                    }
+                }
+            }
+            let species = w.organism(ant).expect("live").species;
+            let rider = w.push_organism(species).expect("a slot for the rider");
+            let at = if on_tail { *chain.last().expect("a tail") } else { chain[0] };
+            w.add_rider(at.0, at.1, rider, Cell::new(ant_material, 0).with_organism_id(rider).with_aux(pack_cell_type(CellType::Head)));
+            let st = w.organism_mut(rider).expect("live");
+            st.chain = vec![at];
+            st.cells.insert(at, organism::OrganismCell::default());
+            let def = w.species.get(species).creature.clone().expect("a creature");
+            let load = Spoil { cell: Cell::new(soil, 0), store: false };
+            w.organism_mut(ant).expect("live").spoil = Some(load);
+            let count = |w: &World| (90..=110).flat_map(|x| (90..=110).map(move |y| (x, y))).filter(|&(x, y)| w.get(x, y).material == soil).count();
+            let before = count(&w);
+            let packed = pack_behind(&mut w, ant, &def, chain[0], load, false, None);
+            let st = &w.creature_stats;
+            (packed, before, count(&w), st.pack_rider_refused, st.pack_lost_other, w.organism(ant).expect("live").spoil == Some(load))
+        };
+        let (packed, before, after, refused, lost, same_load) = run(true);
+        assert!(!packed, "a nestmate rides the tail cell, and the pack went ahead");
+        assert_eq!((refused, lost), (1, 0), "the refusal was not counted, or a pellet was lost");
+        assert_eq!(after, before, "the refused pack changed the soil in the box");
+        assert!(same_load, "the refused ant's pellet is not still in its jaws");
+        let (packed, before, after, refused, lost, _) = run(false);
+        assert!(packed, "a nestmate riding the head's cell refused the pack: only the tail cell matters");
+        assert_eq!((refused, lost), (0, 0), "the head rider's pack was refused or lost its pellet");
+        assert_eq!(after, before, "the pack did not conserve soil (cut one ahead, put one behind)");
     }
 
     /// **Brood under a walker grows in the walker's hands, and neither hatches
