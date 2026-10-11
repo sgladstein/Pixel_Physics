@@ -3056,6 +3056,8 @@ pub struct CreatureStats {
     pub lay_side_wait_frames: u64,
     pub lay_side_waited: u64,
     pub lay_side_kept: u64,
+    /// J a layer on its walk did not give by a share (`creature::lay_hold`).
+    pub lay_side_held_j: f64,
     /// Steps an idle nurse took scoring the pull of hungry larvae
     /// (`brood::larva_scent`, `PIXEL_PHYSICS_NURSE_SEEK`).
     pub nurse_seeks: u64,

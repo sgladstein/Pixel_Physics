@@ -286,8 +286,9 @@ fn parse_egg_door(raw: &str) -> EggDoor {
 /// never rich (0.0-0.1% reach 900 J against a ~1,100 J bar), because under
 /// `NURSE=any` the richest adult touching a hungry larva pays a quarter of
 /// its surplus every larva tick ([`nurse`]). `LAY_IN`, which pulled a layer
-/// inward only when no egg cell at all was in reach, never moved laying:
-/// one always is at the door.
+/// inward only when no egg cell at all was in reach, did not move where
+/// eggs went (0-2% at 15+ rows: one cell always is in reach at the door);
+/// it had no firing counter, and its 18-27% egg drop says it held layers.
 ///
 /// **The rule.**
 /// - **Side floor** ([`EggBar::bars`]): an egg cell must lie `rows`+ rows
@@ -300,14 +301,19 @@ fn parse_egg_door(raw: &str) -> EggDoor {
 ///   (`creature::store_inward`) -- the store lies on the walls, so the egg
 ///   is laid beside the food -- and, off the store field, LAY_IN's
 ///   `deeper_along_way` (a labelled fallback; both counted).
-/// - **Keep** ([`nurse`]): an ant over its laying bar is not a nurse donor,
-///   so walking past larvae does not un-ready it. Part `nokeep` drops it.
+/// - **Hold** (`creature::lay_hold`, rev 3): a layer on its walk to a side
+///   floor gives, by any share (adult, larva, bank nursing), only what it
+///   holds above its laying bar, so the walk past hungry nestmates does not
+///   un-ready it. Part `nokeep` drops it. Gated to the walk (the give-up
+///   clock running), so a forager rich at the food still gives as shipped.
 /// - **Give-up**: `give` frames after a layer was first held for want of a
 ///   side floor, its bar is the shipped rule until it lays
 ///   (`OrganismState::lay_side_since`).
 ///
-/// `on` is `cols=6,rows=15,give=3000` with keep; `nokeep` is `on` without
-/// keep; a comma list of `cols=`, `rows=`, `give=` and `nokeep` sets each.
+/// `on` is `cols=6,rows=15,give=3000` with hold; `nokeep` is `on` without
+/// it; a comma list of `cols=`, `rows=`, `give=`, `nokeep` and `noside` sets
+/// each (`noside` turns off the side floor and walk, which with the hold
+/// gated to the walk leaves nothing: kept for the parse, not as an arm).
 /// **Known answer:** `give=0,nokeep` is the shipped rule byte for byte.
 /// Unknown values panic (a mistyped switch must not fail open).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -315,10 +321,15 @@ pub struct LaySide {
     pub cols: i32,
     pub rows: i32,
     pub give: u64,
+    /// The side-floor rule and its walk (parts A and B). Off with `noside`.
+    pub side: bool,
+    /// **The egg is committed** (`creature::lay_hold`): a layer on its walk
+    /// gives by any share only what it holds above its bar. Off with
+    /// `nokeep`.
     pub keep: bool,
 }
 
-pub const LAY_SIDE_ON: LaySide = LaySide { cols: 6, rows: 15, give: 3000, keep: true };
+pub const LAY_SIDE_ON: LaySide = LaySide { cols: 6, rows: 15, give: 3000, side: true, keep: true };
 
 /// A gap this long between two holds of one layer means it stopped being
 /// ready in between (the lay is tried every tick an ant could lay), so the
@@ -335,12 +346,13 @@ fn parse_lay_side(raw: &str) -> Option<LaySide> {
     if raw.is_empty() || raw == "off" {
         return None;
     }
-    let bad = || -> ! { panic!("PIXEL_PHYSICS_LAY_SIDE={raw:?}: use off, on, nokeep, or a list of cols=N, rows=N, give=N, nokeep") };
+    let bad = || -> ! { panic!("PIXEL_PHYSICS_LAY_SIDE={raw:?}: use off, on, nokeep, noside, or a list of cols=N, rows=N, give=N, nokeep, noside") };
     let mut v = LAY_SIDE_ON;
     for part in raw.split(',').map(str::trim) {
         match part.split_once('=') {
             None if part == "on" => {}
             None if part == "nokeep" => v.keep = false,
+            None if part == "noside" => v.side = false,
             Some(("cols", n)) => v.cols = n.parse().ok().filter(|n: &i32| *n >= 0).unwrap_or_else(|| bad()),
             Some(("rows", n)) => v.rows = n.parse().ok().filter(|n: &i32| *n >= 0).unwrap_or_else(|| bad()),
             Some(("give", n)) => v.give = n.parse().unwrap_or_else(|_| bad()),
@@ -382,7 +394,7 @@ impl EggBar {
     /// The live mode, at `layer`'s own door allele.
     pub(super) fn of(world: &World, layer: OrganismId) -> Self {
         let mut bar = Self::with(world, layer, egg_door());
-        bar.side = lay_side().filter(|&side| !lay_side_gave_up(world, layer, side));
+        bar.side = lay_side().filter(|&side| side.side && !lay_side_gave_up(world, layer, side));
         bar
     }
 
@@ -1249,10 +1261,10 @@ fn nurse(world: &mut World, larva: OrganismId, (x, y): (i32, i32), colony: u32, 
         }
     }
     let workers_only = nurse_mode() == NurseMode::Workers;
-    // **`LAY_SIDE` keep: the egg is committed** ([`LaySide`]): an ant over
-    // its laying bar is passed over as a donor, so the walk to a side floor
-    // past the larvae does not un-ready it (review of idea 6: one touch of a
-    // hungry larva takes a median layer to about its bar).
+    // **`LAY_SIDE` keep: the egg is committed** ([`LaySide`],
+    // [`creature::lay_hold`]): an ant at its laying bar is passed over as a
+    // donor, and one over it gives only its surplus over the bar, so the
+    // walk to a side floor past the larvae does not un-ready it.
     let keep_layers = lay_side().is_some_and(|side| side.keep);
     let mut kept = false;
     let mut best: Option<(OrganismId, f32)> = None;
@@ -1274,7 +1286,7 @@ fn nurse(world: &mut World, larva: OrganismId, (x, y): (i32, i32), colony: u32, 
         if workers_only && !creature::is_nest_bound(world, st) {
             continue;
         }
-        if keep_layers && matches!(creature::ant_job(world, def, st), creature::AntJob::Layer) {
+        if keep_layers && creature::lay_hold(world, def, st, f32::INFINITY) <= 0.0 {
             kept = true;
             continue;
         }
@@ -1291,6 +1303,9 @@ fn nurse(world: &mut World, larva: OrganismId, (x, y): (i32, i32), colony: u32, 
     };
     world.creature_stats.larva_ticks_nursed += 1;
     let amount = (creature::SHARE_FRACTION * (mine - start_energy)).min(need);
+    let held = world.organism(donor).map_or(amount, |st| creature::lay_hold(world, def, st, amount));
+    world.creature_stats.lay_side_held_j += (amount - held).max(0.0) as f64;
+    let amount = held;
     if amount <= 0.0 {
         note_fed_away(world, away, fed);
         return;
@@ -2766,7 +2781,8 @@ mod tests {
         assert_eq!(parse_lay_side("off"), None);
         assert_eq!(parse_lay_side("on"), Some(LAY_SIDE_ON));
         assert_eq!(parse_lay_side("nokeep"), Some(LaySide { keep: false, ..LAY_SIDE_ON }));
-        assert_eq!(parse_lay_side("cols=4,rows=10,give=0,nokeep"), Some(LaySide { cols: 4, rows: 10, give: 0, keep: false }));
+        assert_eq!(parse_lay_side("cols=4,rows=10,give=0,nokeep"), Some(LaySide { cols: 4, rows: 10, give: 0, side: true, keep: false }));
+        assert_eq!(parse_lay_side("noside"), Some(LaySide { side: false, ..LAY_SIDE_ON }));
         for bad in ["yes", "cols=-1", "rows=x", "give=-5", "on,keep", "cols"] {
             assert!(std::panic::catch_unwind(|| parse_lay_side(bad)).is_err(), "{bad:?} must panic, not run under an arm's label");
         }

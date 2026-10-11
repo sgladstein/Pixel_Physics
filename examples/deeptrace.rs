@@ -1634,7 +1634,7 @@ fn main() {
             if pixel_physics::sim::brood::lay_side().is_some() {
                 let st = &lab.world.creature_stats;
                 println!(
-                    "  lay_side: held={} walk_store={} walk_way={} laid_side={} gave_up={} waited={} wait_frames_mean={:.0} kept={} buds_held_for_nest={} eggs_laid={}",
+                    "  lay_side: held={} walk_store={} walk_way={} laid_side={} gave_up={} waited={} wait_frames_mean={:.0} kept={} held_j={:.0} shares={} shared_j={:.0} buds_held_for_nest={} eggs_laid={}",
                     st.lay_side_held,
                     st.lay_side_walk_store,
                     st.lay_side_walk_way,
@@ -1643,6 +1643,9 @@ fn main() {
                     st.lay_side_waited,
                     st.lay_side_wait_frames as f64 / st.lay_side_waited.max(1) as f64,
                     st.lay_side_kept,
+                    st.lay_side_held_j,
+                    st.shares,
+                    st.shared_j,
                     st.buds_held_for_nest,
                     st.eggs_laid
                 );

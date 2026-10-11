@@ -3404,6 +3404,38 @@ pub enum AntJob {
     Layer,
 }
 
+/// **What an ant may give by a share while its egg is committed**
+/// (`PIXEL_PHYSICS_LAY_SIDE`'s keep, [`super::brood::LaySide`]): `amount`,
+/// cut to what it holds above its own laying bar ([`birth_bar`]). Only on
+/// the walk: the side rule on and the ant's give-up clock running (held for
+/// want of a side floor within [`super::brood::LAY_SIDE_GAP`]), so a forager
+/// rich at the food, the colony's main giver, gives as shipped (second
+/// review of idea 6). `amount` unchanged with the part off, off the walk,
+/// or under the bar.
+///
+/// **Why** (traced 2026-10-11, late tunnels idea 6): with eggs laid only on
+/// side floors, ready layers walk into the nest and 12 of 12 traced ones
+/// were shared down there in a geometric run (521, 388, 289, 215 J ...:
+/// `SHARE_FRACTION` of the gap to nestmates near 0 J), 86% of it to adults
+/// and 14% to larvae, so 63-67% of ready spells ended without an egg and
+/// eggs fell to 7-70% of main's. Skipping layers as bank nurses alone (the
+/// first form of `keep`) missed the adult route.
+pub fn lay_hold(world: &World, def: &CreatureDef, state: &super::organism::OrganismState, amount: f32) -> f32 {
+    let walking = state.lay_side_since != 0 && world.frame.saturating_sub(state.lay_side_last) < super::brood::LAY_SIDE_GAP;
+    if !walking || !super::brood::lay_side().is_some_and(|l| l.keep && l.side) || state.brood.is_some() {
+        return amount;
+    }
+    let Some(threshold) = reproduce_at_of(def, &state.traits) else {
+        return amount;
+    };
+    let cost = birth_cost_of(def, birth_grant(def, &state.traits));
+    let bar = birth_bar(threshold, cost, def, super::brood::brood_of(world, def).as_ref());
+    if state.energy < bar {
+        return amount;
+    }
+    amount.min(state.energy - bar).max(0.0)
+}
+
 /// The job [`AntJob`] names for `state`. Layer wins, then nurse, then
 /// nest worker.
 pub fn ant_job(world: &World, def: &CreatureDef, state: &super::organism::OrganismState) -> AntJob {
@@ -13731,7 +13763,7 @@ pub fn lay_in_of(_world: &World) -> bool {
 /// **Where a ready layer beside home is pulled in** ([`lay_in_of`]); `None`
 /// when off, not ready, not beside home, or an egg site is already in reach.
 fn lay_in_target(world: &World, organism: OrganismId, def: &CreatureDef, state: &crate::sim::organism::OrganismState, head: (i32, i32)) -> Option<(i32, i32)> {
-    if !lay_in_of(world) && super::brood::lay_side().is_none() {
+    if !lay_in_of(world) && !super::brood::lay_side().is_some_and(|l| l.side) {
         return None;
     }
     lay_in_pull(world, organism, def, state, head)
@@ -13741,7 +13773,7 @@ fn lay_in_target(world: &World, organism: OrganismId, def: &CreatureDef, state: 
 /// beside home, start or keep its give-up clock and count which walk its
 /// pull will take. Nothing with the switch off or the clock run out.
 fn lay_side_hold(world: &mut World, organism: OrganismId, def: &CreatureDef, head: (i32, i32)) {
-    let Some(side) = super::brood::lay_side() else { return };
+    let Some(side) = super::brood::lay_side().filter(|l| l.side) else { return };
     if super::brood::lay_side_gave_up(world, organism, side) || !nest_within_reach(world, organism, head.0, head.1, def) {
         return;
     }
@@ -19464,6 +19496,9 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
             let target = world.organism(kin.id).and_then(|s| s.brood).map_or(0.0, |b| b.target);
             let theirs = world.organism(kin.id).map_or(0.0, |s| s.energy);
             let amount = (SHARE_FRACTION * (mine - def.start_energy)).min(target - theirs).max(0.0);
+            let held = world.organism(organism).map_or(amount, |st| lay_hold(world, def, st, amount));
+            world.creature_stats.lay_side_held_j += (amount - held).max(0.0) as f64;
+            let amount = held;
             if amount > 0.0 {
                 let frame = world.frame;
                 if let Some(s) = world.organism_mut(organism) {
@@ -19493,8 +19528,16 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
             // is the ground's"). Without it a pair can pump energy back and
             // forth and pay the jaw price both ways, which is an allele
             // evolution finds in an afternoon.
+            // `LAY_SIDE` keep ([`lay_hold`]): a layer over its bar gives only
+            // its surplus, and one at its bar gives nothing and does not
+            // blend or count as a share. `free` is infinite with it off.
+            let free = world.organism(organism).map_or(f32::INFINITY, |st| lay_hold(world, def, st, f32::INFINITY));
             if theirs < mine {
-                let amount = if topped { topup.fraction } else { SHARE_FRACTION } * (mine - theirs);
+                let want = if topped { topup.fraction } else { SHARE_FRACTION } * (mine - theirs);
+                world.creature_stats.lay_side_held_j += (want - free).max(0.0) as f64;
+            }
+            if theirs < mine && free > 0.0 {
+                let amount = (if topped { topup.fraction } else { SHARE_FRACTION } * (mine - theirs)).min(free);
                 if topped {
                     world.creature_stats.topup_shares += 1;
                     world.creature_stats.topup_j += amount as f64;
