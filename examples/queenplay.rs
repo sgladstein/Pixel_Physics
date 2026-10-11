@@ -21,7 +21,15 @@
 //!
 //! Args: `seed=1`, `frames=30000`, `every=120` (frames between GIF frames),
 //! `out=queenplay.gif`, `gif=1`, `speed=1` (the dial, which the cap reads),
-//! `still=F` (also write the screen at frame F as a PNG beside `out`).
+//! `still=F` (also write the screen at frame F as a PNG beside `out`),
+//! `trail=1` (hold T on every walk home, so she lays her food trail),
+//! `delay=N` (idle N frames before the script starts: the one-frame nudged
+//! baseline the nudge rule asks for, `Reports/how-we-test.md` section 4).
+//!
+//! The `RESULT` line also counts `at_food`, the distinct workers of her colony
+//! ever inside the food spot's reach (12 columns, at most 4 rows under the
+//! ground line), and `first_food`, the frame the first one got there: the
+//! trail's own metric, for `trail=1` against `trail=0` paired by seed.
 
 use pixel_physics::lab::queen::{self, Key};
 use pixel_physics::lab::scenario::Scenario;
@@ -72,7 +80,11 @@ fn main() {
     let gif = arg::<u8>("gif").unwrap_or(1) == 1;
     let speed: u32 = arg("speed").unwrap_or(1);
     let still: Option<u64> = arg("still");
-    println!("queenplay: seed={seed} frames={frames} every={every} out={out} gif={gif} speed={speed} still={still:?}");
+    let trail = arg::<u8>("trail").unwrap_or(0) == 1;
+    let delay: u64 = arg("delay").unwrap_or(0);
+    println!(
+        "queenplay: seed={seed} frames={frames} every={every} out={out} gif={gif} speed={speed} still={still:?} trail={trail} delay={delay}"
+    );
 
     let mut sc = Scenario::load("queen_start").unwrap_or_else(|e| {
         eprintln!("queen_start: {e}");
@@ -101,11 +113,29 @@ fn main() {
     let (mut state, mut since, mut stuck, mut trips) = (0u8, 0u64, 0u32, 0u32);
     let mut last_head = (i32::MIN, i32::MIN);
     let mut last_crop = 0.0f32;
-    for _ in 0..frames {
+    let mut at_food: std::collections::HashSet<pixel_physics::sim::cell::OrganismId> = Default::default();
+    let mut first_food: Option<u64> = None;
+    let species = lab.world.organism(qid).map(|s| s.species);
+    for tick in 0..frames {
         lab.tick_for_harness();
         let frame = lab.world.frame;
+        for id in lab.world.live_organism_ids() {
+            let Some(s) = lab.world.organism(id) else { continue };
+            if id == qid || s.colony != colony || Some(s.species) != species {
+                continue;
+            }
+            if let Some(&(x, y)) = s.chain.first() {
+                if (x - FOOD_X).abs() <= FOOD_REACH && y <= ground_y + 4 && at_food.insert(id) && first_food.is_none() {
+                    first_food = Some(frame);
+                }
+            }
+        }
         let mut want = SteerInput::default();
-        if let Some(st) = lab.world.organism(qid).filter(|_| lab.queen.died.is_none()) {
+        if let Some(st) = lab
+            .world
+            .organism(qid)
+            .filter(|_| lab.queen.died.is_none() && tick >= delay)
+        {
             let (hx, hy) = *st.chain.first().expect("a head");
             let crop = st.crop.map_or(0.0, |c| c.worth());
             let door_x = lab.world.nest_sites.first().map_or(colony_x, |n| n.x);
@@ -157,6 +187,7 @@ fn main() {
                 }
                 2 if crop <= 0.0 => state = 0,
                 2 => {
+                    want.trail = trail;
                     if (hx - door_x).abs() <= 1 {
                         want.dir = Some((0, 1));
                         if stuck > 30 {
@@ -223,7 +254,7 @@ fn main() {
     }
     let c = queen::census(&lab.world, colony, qid);
     println!(
-        "RESULT seed={seed} frames={frames} trips={trips} landed={:?} died={:?} goal_met={:?} workers={} eggs={} larvae={} pupae={} bank={:.0}",
+        "RESULT seed={seed} frames={frames} trail={trail} delay={delay} trips={trips} landed={:?} died={:?} goal_met={:?} workers={} eggs={} larvae={} pupae={} bank={:.0} at_food={} first_food={:?}",
         lab.queen.landed.map(|l| l.0),
         lab.queen.died,
         lab.queen.goal_met,
@@ -231,7 +262,9 @@ fn main() {
         c.eggs,
         c.larvae,
         c.pupae,
-        lab.world.organism(qid).map_or(0.0, |s| s.energy)
+        lab.world.organism(qid).map_or(0.0, |s| s.energy),
+        at_food.len(),
+        first_food
     );
     if gif && !shots.is_empty() {
         let delay = image::Delay::from_saturating_duration(std::time::Duration::from_millis(80));
