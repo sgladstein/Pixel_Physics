@@ -14229,6 +14229,33 @@ fn store_job_waits(world: &World, organism: OrganismId, def: &CreatureDef, (x, y
 /// **Straight up**, as an index into [`DIRS`] -- `(0, -1)`.
 const UP_DIR: u8 = 2;
 
+/// **`PIXEL_PHYSICS_PACK_PARTED=on`: a pack is refused when the ant's tail
+/// stands on something it parted** (2026-10-11, off). `pack_behind` drops
+/// the ant's pellet into the cell its tail leaves, and assumed that cell
+/// empty; when the tail stood on a crumb, brood or foliage the body had
+/// parted (`OrganismState::parted`), `relocate_chain` puts that back as the
+/// tail leaves, and the pellet had nowhere to go: one cell of soil left the
+/// world (`CreatureStats::pack_parted_lost`). On, the pack is refused there
+/// and the ant does something else, as the needs walk already does; the
+/// pellet stays in its jaws. The player's G pack (`steer`) is refused the
+/// same way: losing soil is the bug, so she is not exempt.
+/// Unset and `off` are off; `on` is on; anything else (`ON`, `1`) is
+/// reported on stderr and read as off, as `DROP_SIDE` does.
+/// [`World::pack_parted`] overrides it for a test.
+pub fn pack_parted_of(world: &World) -> bool {
+    world.pack_parted.unwrap_or_else(|| {
+        static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        *V.get_or_init(|| match std::env::var("PIXEL_PHYSICS_PACK_PARTED").unwrap_or_default().trim() {
+            "" | "off" => false,
+            "on" => true,
+            other => {
+                eprintln!("PIXEL_PHYSICS_PACK_PARTED={other:?} is not on or off; reading it as off");
+                false
+            }
+        })
+    })
+}
+
 /// **Packs a pellet behind an encased carrier as it cuts its way on**
 /// ([`NeedsFirst`]'s `pack`): the cell ahead -- the heading turned one octant
 /// towards [`UP_DIR`] -- is cut as the dig cuts it, the body steps into it
@@ -14271,21 +14298,42 @@ fn pack_behind(world: &mut World, organism: OrganismId, def: &CreatureDef, head:
     // gives that back as the tail leaves, the cell is not empty, and the
     // pellet had nowhere to go -- in a release build it vanished, a cell of
     // soil deleted. Found 2026-10-11 by the debug build of `needs`'s sealed
-    // guard rows, an ant whose tail stood on crumbs. **Refused only under the
-    // needs walk for now**: today's ant hits it too (steady seed 1 diverges
-    // by frame 40k with the refusal on for everyone), so fixing it there
-    // changes the shipped game and needs its own measurement. The walk's
-    // mode, not any `World::needs`: pass-through must stay frame for frame
-    // the game without the hooks (PR 684's re-check, R1).
-    let walking = world.needs.as_ref().is_some_and(|n| n.mode == needs::NeedsMode::Walk);
-    let parted_under = |v: (i32, i32)| walking && world.organism(organism).is_some_and(|s| s.parted.iter().any(|p| (p.x, p.y) == v));
-    let Some((vx, vy)) = vacated.filter(|&v| own && !in_a_doorway(world, v) && !parted_under(v) && landing_is_placeable_through_tissue(world, &chain, &landing, push, None)) else {
+    // guard rows, an ant whose tail stood on crumbs. Today's ant hits it too
+    // (steady seed 1 diverges by frame 40k with the refusal on for
+    // everyone), so outside the walk it is its own switch,
+    // `PIXEL_PHYSICS_PACK_PARTED` ([`pack_parted_of`]), off until measured.
+    // The walk's mode, not any `World::needs`: pass-through must stay frame
+    // for frame the game without the hooks (PR 684's re-check, R1).
+    let refuse = pack_parted_of(world) || world.needs.as_ref().is_some_and(|n| n.mode == needs::NeedsMode::Walk);
+    let parted_under = |v: (i32, i32)| world.organism(organism).is_some_and(|s| s.parted.iter().any(|p| (p.x, p.y) == v));
+    let Some(v) = vacated.filter(|&v| own && !in_a_doorway(world, v) && landing_is_placeable_through_tissue(world, &chain, &landing, push, None)) else {
         world.set(ahead.0, ahead.1, target);
         return false;
     };
+    let tail_parted = parted_under(v);
+    if refuse && tail_parted {
+        world.creature_stats.pack_parted_refused += 1;
+        world.set(ahead.0, ahead.1, target);
+        return false;
+    }
+    let (vx, vy) = v;
     commit_step(world, organism, def, body, &authored, &widths, heading, aim, push);
-    debug_assert_eq!(world.get(vx, vy).material, material::EMPTY, "the cell the tail left at ({vx}, {vy}) is not empty");
-    if world.get(vx, vy).material == material::EMPTY {
+    // Only the parted case (switch off) may leave the cell full.
+    debug_assert!(
+        tail_parted || world.get(vx, vy).material == material::EMPTY,
+        "the cell the tail left at ({vx}, {vy}) is not empty"
+    );
+    if world.get(vx, vy).material != material::EMPTY {
+        // **The pellet is lost**: nowhere to put it, and the cut's own pellet
+        // replaces it in the jaws below. Counted so the shipped rate can be
+        // read (`deeptrace`'s `stats.csv`), by cause: the parted cell this
+        // switch is for, or anything else (a rider set down, under the walk).
+        if tail_parted {
+            world.creature_stats.pack_parted_lost += 1;
+        } else {
+            world.creature_stats.pack_lost_other += 1;
+        }
+    } else {
         // `backfill`: the pellet's packed form below the founding ground,
         // everything else carried across as the lining carries it
         // ([`pack_neighbours_with`]).
@@ -51128,6 +51176,57 @@ mod tests {
         assert_eq!(found, alive, "a live brood organism has no cell in the grid or in a walker's hands");
         assert_eq!(off_stage, 0, "a brood cell's colour disagrees with its stage: restaged where it was not");
         assert_eq!(ants, 4, "an ant died walking through brood -- a stage written over the walker's own cell kills it");
+    }
+
+    /// **A pack whose tail stood on a parted crumb loses the pellet, and
+    /// `PIXEL_PHYSICS_PACK_PARTED` refuses it instead.** An ant shut in soil,
+    /// holding a soil pellet, with a food crumb parted under every body cell
+    /// but its head: the cell its tail leaves gets its crumb back, so the
+    /// pellet has nowhere to go. Off (today's ant) the pack goes ahead and
+    /// the pellet is dropped from the world, counted in `pack_parted_lost`;
+    /// on, the pack is refused and nothing moves.
+    #[test]
+    fn a_pack_onto_a_parted_crumb_loses_the_pellet_unless_refused() {
+        let run = |refuse: bool| {
+            let mut w = test_world();
+            w.pack_parted = Some(refuse);
+            let ant = spawn(&mut w, "ant", 100, 100);
+            let chain = w.organism(ant).expect("live").chain.clone();
+            let soil = w.materials.id_of("soil").expect("soil material");
+            let food = w.materials.id_of("provisions").expect("provisions material");
+            for x in 90..=110 {
+                for y in 90..=110 {
+                    if !chain.contains(&(x, y)) {
+                        w.set(x, y, Cell::new(soil, 0));
+                    }
+                }
+            }
+            for &(x, y) in &chain[1..] {
+                let crumb = organism::Parted { x, y, cell: Cell::new(food, 0), scalars: Default::default() };
+                w.organism_mut(ant).expect("live").parted.push(crumb);
+            }
+            let def = w.species.get(w.organism(ant).expect("live").species).creature.clone().expect("a creature");
+            let load = Spoil { cell: Cell::new(soil, 0), store: false };
+            w.organism_mut(ant).expect("live").spoil = Some(load);
+            let count = |w: &World, m: material::MaterialId| (90..=110).flat_map(|x| (90..=110).map(move |y| (x, y))).filter(|&(x, y)| w.get(x, y).material == m).count();
+            let before = (count(&w, soil), count(&w, food));
+            let packed = pack_behind(&mut w, ant, &def, chain[0], load, false, None);
+            let st = &w.creature_stats;
+            let jaws = w.organism(ant).expect("live").spoil;
+            (packed, before, (count(&w, soil), count(&w, food)), (st.pack_parted_lost, st.pack_lost_other), st.pack_parted_refused, jaws == Some(load), jaws.is_some())
+        };
+        let (packed, before, after, lost, refused, same_load, holding) = run(false);
+        assert!(packed, "test setup: the pack did not go ahead with the switch off");
+        assert_eq!((lost, refused), ((1, 0), 0), "off: the lost pellet was not counted, or counted as another cause");
+        assert!(holding, "off: the cut's pellet is not in the jaws");
+        assert_eq!(after.1, before.1 + 1, "off: the crumb was not given back where the tail left");
+        assert_eq!(after.0 + 1, before.0, "off: a soil cell should have left the box (cut ahead, pellet nowhere)");
+        let _ = same_load;
+        let (packed, before, after, lost, refused, same_load, _) = run(true);
+        assert!(!packed, "on: the pack went ahead onto a parted crumb");
+        assert_eq!((lost, refused), ((0, 0), 1), "on: the refusal was not counted");
+        assert_eq!(after, before, "on: the refused pack changed the world");
+        assert!(same_load, "on: the refused ant's pellet is not still in its jaws");
     }
 
     /// **Brood under a walker grows in the walker's hands, and neither hatches
