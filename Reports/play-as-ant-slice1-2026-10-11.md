@@ -150,6 +150,20 @@ the baselines on only 2 of 12 there. The trace suggests:
 The trace's fourth suggestion, a rally verb, would cross the owner's
 "trails only, no lead rule" decision.
 
+**The first suggestion, run: the gate on `queen_start` itself** (`queenplay
+trail=1` against `trail=0` and two nudged baselines, `delay=7` and
+`delay=13`, 12 seeds, 24,000 frames). Distinct workers ever at the food
+spot: 398 with her line, against 338, 351 and 370 for the baselines. That
+is ahead of all three on only 4 of 12 seeds, against a bar of 9. She reaches
+20 workers sooner than all three on 5 of 12 (median 10,561 frames against
+11,251-11,371). So there is no effect clear of the spread here either. Her
+first workers find the spot themselves within a few hundred frames of
+emerging and lay their own trail. A one-frame nudge (`delay=1`) was
+byte-identical to no nudge on every seed: she decides every six frames, so
+the nudge has to cross a decision. Record:
+`game-design/queen-trail-gate-2026-10-11/README.md`
+in the shared folder.
+
 ## Reproducing
 
 ```
