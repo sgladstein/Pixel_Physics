@@ -4631,6 +4631,19 @@ fn harness() {
             }
         }
         println!("SUMMARY brood at the end: side tunnel {tunnel}, shaft and passage over the room {door}, elsewhere {other}; carried out of open room {} times", st.brood_room_carried);
+        if pixel_physics::sim::brood::lay_side().is_some() {
+            println!(
+                "SUMMARY lay_side: held {} (walk by the store {}, by the way {}), laid on a side floor {}, gave up {}, mean wait {:.0} frames over {}, layers kept from nursing {}",
+                st.lay_side_held,
+                st.lay_side_walk_store,
+                st.lay_side_walk_way,
+                st.lay_side_laid,
+                st.lay_side_gave_up,
+                st.lay_side_wait_frames as f64 / st.lay_side_waited.max(1) as f64,
+                st.lay_side_waited,
+                st.lay_side_kept
+            );
+        }
     }
     if let Some((_, spots, _, put_back)) = &held_store {
         println!("SUMMARY held store: {} crumbs, put back {put_back} times; spots {:?}", spots.len(), spots);

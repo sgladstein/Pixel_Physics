@@ -1629,6 +1629,24 @@ fn main() {
                     st.brood_room_carried
                 );
             }
+            // `PIXEL_PHYSICS_LAY_SIDE` (idea 6): did the walk fire, where did
+            // the eggs go, and how long did a held layer wait. Only with it on.
+            if pixel_physics::sim::brood::lay_side().is_some() {
+                let st = &lab.world.creature_stats;
+                println!(
+                    "  lay_side: held={} walk_store={} walk_way={} laid_side={} gave_up={} waited={} wait_frames_mean={:.0} kept={} buds_held_for_nest={} eggs_laid={}",
+                    st.lay_side_held,
+                    st.lay_side_walk_store,
+                    st.lay_side_walk_way,
+                    st.lay_side_laid,
+                    st.lay_side_gave_up,
+                    st.lay_side_waited,
+                    st.lay_side_wait_frames as f64 / st.lay_side_waited.max(1) as f64,
+                    st.lay_side_kept,
+                    st.buds_held_for_nest,
+                    st.eggs_laid
+                );
+            }
         }
     }
     ticks.flush().unwrap();

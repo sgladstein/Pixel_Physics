@@ -6074,11 +6074,15 @@ pub(super) fn try_bud(
             Some(cell) => Some(cell),
             None => {
                 world.creature_stats.buds_held_for_nest += 1;
+                lay_side_hold(world, organism, def, (hx, hy));
                 return None;
             }
         },
         None => None,
     };
+    // Which rule placed this egg ([`super::brood::LaySide`]), read before
+    // the lay clears the clock.
+    let side_rule = pile.is_some() && super::brood::EggBar::of(world, organism).side.is_some();
     if nest_gate && pile_reach == 0 && !nest_within_reach(world, organism, hx, hy, def) {
         world.creature_stats.buds_held_for_nest += 1;
         return None;
@@ -6248,6 +6252,9 @@ pub(super) fn try_bud(
             },
             pile,
         );
+        if site.is_some() {
+            lay_side_laid(world, organism, side_rule);
+        }
     } else {
     // **Two passes, and the second is a switch** ([`bud_stack_of`]): free
     // ground first, exactly as it always was, and only when not one
@@ -13602,7 +13609,7 @@ fn foot_field(world: &World, way: &NestWay, seeds: &[(i32, i32)], k: u16) -> Vec
 pub fn step_nest_rest(world: &mut World) {
     let mound = mound_out_of(world) != MoundOut::OFF;
     let escape = needs_first_of(world).ways();
-    let read = nest_rest_of(world).on() || hungry_out_of(world) || soil_way_of(world) != SoilWay::OFF || mound || escape || nest_store_of(world).on() || lay_in_of(world) || store_read_of(world).on || mound_in_of(world);
+    let read = nest_rest_of(world).on() || hungry_out_of(world) || soil_way_of(world) != SoilWay::OFF || mound || escape || nest_store_of(world).on() || lay_in_of(world) || super::brood::lay_side().is_some() || store_read_of(world).on || mound_in_of(world);
     if !read || world.nest_sites.is_empty() {
         world.nest_ways.clear();
         world.mound_ways.clear();
@@ -13724,10 +13731,58 @@ pub fn lay_in_of(_world: &World) -> bool {
 /// **Where a ready layer beside home is pulled in** ([`lay_in_of`]); `None`
 /// when off, not ready, not beside home, or an egg site is already in reach.
 fn lay_in_target(world: &World, organism: OrganismId, def: &CreatureDef, state: &crate::sim::organism::OrganismState, head: (i32, i32)) -> Option<(i32, i32)> {
-    if !lay_in_of(world) {
+    if !lay_in_of(world) && super::brood::lay_side().is_none() {
         return None;
     }
     lay_in_pull(world, organism, def, state, head)
+}
+
+/// **A layer held for want of a side floor** ([`super::brood::LaySide`]):
+/// beside home, start or keep its give-up clock and count which walk its
+/// pull will take. Nothing with the switch off or the clock run out.
+fn lay_side_hold(world: &mut World, organism: OrganismId, def: &CreatureDef, head: (i32, i32)) {
+    let Some(side) = super::brood::lay_side() else { return };
+    if super::brood::lay_side_gave_up(world, organism, side) || !nest_within_reach(world, organism, head.0, head.1, def) {
+        return;
+    }
+    let frame = world.frame;
+    let by_store = store_inward(world, organism, head, i32::MAX, true).is_some();
+    if let Some(st) = world.organism_mut(organism) {
+        if st.lay_side_since == 0 || frame.saturating_sub(st.lay_side_last) >= super::brood::LAY_SIDE_GAP {
+            st.lay_side_since = frame;
+        }
+        st.lay_side_last = frame;
+    }
+    let c = &mut world.creature_stats;
+    c.lay_side_held += 1;
+    if by_store {
+        c.lay_side_walk_store += 1;
+    } else {
+        c.lay_side_walk_way += 1;
+    }
+}
+
+/// **An egg laid with [`super::brood::LaySide`] on**: count it as put on a
+/// side floor (`side`) or under the shipped rule after the give-up, add the
+/// wait since the first hold, and clear the clock.
+fn lay_side_laid(world: &mut World, organism: OrganismId, side: bool) {
+    if super::brood::lay_side().is_none() {
+        return;
+    }
+    let frame = world.frame;
+    let Some(st) = world.organism_mut(organism) else { return };
+    let since = std::mem::take(&mut st.lay_side_since);
+    st.lay_side_last = 0;
+    let c = &mut world.creature_stats;
+    if side {
+        c.lay_side_laid += 1;
+    } else if since != 0 {
+        c.lay_side_gave_up += 1;
+    }
+    if since != 0 {
+        c.lay_side_waited += 1;
+        c.lay_side_wait_frames += frame.saturating_sub(since);
+    }
 }
 
 /// [`lay_in_target`] past its switch, for the test that cannot set it.
@@ -13737,7 +13792,18 @@ fn lay_in_pull(world: &World, organism: OrganismId, def: &CreatureDef, state: &c
     }
     let reach = super::brood::egg_pile_reach();
     let brood = super::brood::brood_of(world, def)?;
-    if reach > 0 && super::brood::pile_site(world, head, def, &brood, reach, super::brood::EggBar::of(world, organism)).is_some() {
+    let bar = super::brood::EggBar::of(world, organism);
+    if reach > 0 && super::brood::pile_site(world, head, def, &brood, reach, bar).is_some() {
+        return None;
+    }
+    // **`LAY_SIDE`: to the store first** ([`super::brood::LaySide`]): the
+    // store lies on the walls, so the egg is laid beside the larvae's food.
+    // Off the store field, LAY_IN's walk is the labelled fallback.
+    if bar.side.is_some() {
+        if let Some(t) = store_inward(world, organism, head, i32::MAX, true) {
+            return Some(t);
+        }
+    } else if !lay_in_of(world) {
         return None;
     }
     deeper_along_way(world, organism, head)

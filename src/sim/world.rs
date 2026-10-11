@@ -3039,6 +3039,23 @@ pub struct CreatureStats {
     /// **Brood carried out of open room** (`brood::room_carry`,
     /// `PIXEL_PHYSICS_BROOD_ROOM`, idea 5). 0 unless that switch is on.
     pub brood_room_carried: u64,
+    /// **Laying on a side floor** (`brood::LaySide`, `PIXEL_PHYSICS_LAY_SIDE`,
+    /// idea 6). All 0 unless that switch is on. `held`: try_bud ticks a
+    /// layer had no side floor in egg reach. `walk_store` / `walk_way`: pull
+    /// decisions toward the store (`store_inward`) and, with no store field,
+    /// LAY_IN's `deeper_along_way`. `laid`: eggs put on a side floor.
+    /// `gave_up`: eggs laid under the shipped rule after the give-up clock
+    /// ran out. `wait_frames`: summed frames from first hold to the lay over
+    /// `laid + gave_up` lays that were held at all. `kept`: larva ticks a
+    /// layer was passed over as a nurse donor (the `keep` part).
+    pub lay_side_held: u64,
+    pub lay_side_walk_store: u64,
+    pub lay_side_walk_way: u64,
+    pub lay_side_laid: u64,
+    pub lay_side_gave_up: u64,
+    pub lay_side_wait_frames: u64,
+    pub lay_side_waited: u64,
+    pub lay_side_kept: u64,
     /// Steps an idle nurse took scoring the pull of hungry larvae
     /// (`brood::larva_scent`, `PIXEL_PHYSICS_NURSE_SEEK`).
     pub nurse_seeks: u64,
@@ -8282,6 +8299,8 @@ impl World {
             return_met: 0,
             store_read_at: 0,
             store_read_low: 0.0,
+            lay_side_since: 0,
+            lay_side_last: 0,
             recruit_n: 0.0,
             recruit_at: 0,
             recruit_last: 0,
