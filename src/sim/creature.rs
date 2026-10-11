@@ -3857,12 +3857,18 @@ pub const DUG_HOME_REACH: (i32, i32) = (60, 60);
 /// review and the offline replay that cleared it:
 /// `/mnt/project-files/late-tunnels/design-idea3-dig-mark-2026-10-10.md`,
 /// `review-idea3-dig-mark-2026-10-10.md`, README "Idea 3 replay".
+///
+/// `mark=<frames>,keep=<cells>,cap=<open>[,win=<r>][,brood]`: **idea 4, rooms round
+/// what lies in them.** As `mark=`, and the group's urge is also kept within
+/// `keep` cells of store food (and with `,brood` brood) while fewer than
+/// `cap` of the cells within `win` (default 8) are room ([`store_room`]): tunnels where
+/// nothing lies, a round room where something does, stopping when roomy.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DigHome {
     Off,
     Rows { rows: i32, food: bool },
     Core { steps: i32, brood: bool, store: bool, cut: bool, food: bool },
-    Mark { ttl: u64, food: bool },
+    Mark { ttl: u64, food: bool, keep: i32, cap: i32, win: i32, brood: bool, any: bool },
 }
 
 /// [`DigHome`] from `PIXEL_PHYSICS_DIG_HOME`, read once.
@@ -3875,7 +3881,7 @@ pub fn dig_home_of() -> DigHome {
 /// does not understand panics** rather than falling back to off, so a typo
 /// cannot put the control into a sweep wearing an arm's label.
 fn parse_dig_home(raw: &str) -> DigHome {
-    let bad = |v: &str| -> ! { panic!("PIXEL_PHYSICS_DIG_HOME={v:?}: not `off`, `rows=<n>`, `core=<steps>[,brood][,store][,cut]` or `mark=<frames>[,food]`") };
+    let bad = |v: &str| -> ! { panic!("PIXEL_PHYSICS_DIG_HOME={v:?}: not `off`, `rows=<n>`, `core=<steps>[,brood][,store][,cut]` or `mark=<frames>[,keep=<cells>,cap=<open>[,win=<r>][,brood]][,food]`") };
     match raw.trim() {
         "" | "off" => DigHome::Off,
         v if v.starts_with("rows=") => {
@@ -3917,14 +3923,24 @@ fn parse_dig_home(raw: &str) -> DigHome {
                 Some(Ok(n)) => n,
                 _ => bad(v),
             };
-            let mut food = false;
+            let (mut food, mut keep, mut cap, mut win, mut brood, mut any) = (false, 0, -1, STORE_ROOM_WINDOW, false, false);
             for part in parts {
                 match part {
                     "food" => food = true,
+                    "brood" => brood = true,
+                    "any" => any = true,
+                    p if p.starts_with("keep=") => keep = p["keep=".len()..].parse().ok().filter(|&k: &i32| k > 0).unwrap_or_else(|| bad(v)),
+                    p if p.starts_with("cap=") => cap = p["cap=".len()..].parse().ok().filter(|&c: &i32| c >= 0).unwrap_or_else(|| bad(v)),
+                    p if p.starts_with("win=") => win = p["win=".len()..].parse().ok().filter(|&r: &i32| r > 0).unwrap_or_else(|| bad(v)),
                     _ => bad(v),
                 }
             }
-            DigHome::Mark { ttl, food }
+            // `keep` and `cap` come together, and `brood` only with them: a
+            // half-set store room must not run as idea 3 under idea 4's label.
+            if (keep > 0) != (cap >= 0) || ((brood || any) && keep == 0) || (brood && any) {
+                bad(v);
+            }
+            DigHome::Mark { ttl, food, keep, cap: cap.max(0), win, brood, any }
         }
         v => bad(v),
     }
@@ -3945,7 +3961,7 @@ fn dig_home_at(world: &World, (x, y): (i32, i32)) -> bool {
             let near = |set: &crate::sim::fxhash::PosSet| (-1..=1).any(|dy| (-1..=1).any(|dx| set.contains(&(x + dx, y + dy))));
             !near(&world.nest_dug) || near(&world.nest_core)
         }
-        DigHome::Mark { ttl, .. } => !mark_below_ground(world, (x, y)) || fresh_face(world, (x, y), ttl),
+        DigHome::Mark { ttl, keep, cap, win, brood, any, .. } => !mark_below_ground(world, (x, y)) || fresh_face(world, (x, y), ttl) || store_room(world, (x, y), keep, cap, win, brood, any),
     }
 }
 
@@ -3959,6 +3975,89 @@ pub fn mark_below_ground(world: &World, (x, y): (i32, i32)) -> bool {
 /// only, never brood, food, a corpse, a pellet or an ant (review change 3).
 pub fn mark_ground(world: &World, m: crate::sim::material::MaterialId) -> bool {
     matches!(world.materials.get(m).name.as_str(), "soil" | "packedsoil")
+}
+
+/// **Where `mark=...,keep=K,cap=N` keeps the group's urge off a fresh face**:
+/// store food (crumbs lying loose, the cells `whereheld.py` counts as the
+/// store) -- and with `,brood` brood -- within `keep` cells, **and** fewer
+/// than `cap` of the cells within `win` of its head are room. Rooms grow
+/// round what lies in them and stop when the spot is roomy. The cue is an
+/// analogy: in *Acromyrmex* chambers emerge round relocated brood (and,
+/// rounder, fungus) where workers crowd and dig more (Romer & Roces 2014,
+/// doi 10.1371/journal.pone.0097872); that paper has no food store and
+/// proposes but does not test a density stop, and its density is workers,
+/// not open cells. The cap is the stop, a reading an ant takes of the space
+/// round it, not a bound on work.
+///
+/// **The window is radius 8 because 5 measures wall shape, not room size**
+/// (review of idea 4, change 1): against a flat wall an 11x11 window holds at
+/// most 66 room cells however big the room, so no cap both stops a
+/// spec-sized room and lets a lobe grow. Idealised rooms
+/// (`/mnt/project-files/late-tunnels/idea4/capgeom.txt`), share of wall-side
+/// heads under `cap=101` at radius 8: a 1-3 wide tunnel or a radius-3
+/// pocket 100%, a disc of radius 6 82%, 7 8%, 8 0%; a 60x50 room 9% (its
+/// corners, which round off and stop); two radius-7 rooms either side of a
+/// 1-2 cell wall 0% at that wall. So a room stops near radius 7, the size a
+/// `chambers.py` spec chamber needs. Design and review:
+/// `/mnt/project-files/late-tunnels/design-idea4-store-chambers-2026-10-11.md`,
+/// `review-idea4-store-chambers-2026-10-11.md`. `keep=0` (unset) is idea 3,
+/// one branch.
+///
+/// `,any` is the control (review change 6): the same stop with nothing
+/// needing to lie there, so a room it makes was made by the extra group urge,
+/// not by the store.
+#[allow(clippy::too_many_arguments)]
+pub fn store_room(world: &World, (x, y): (i32, i32), keep: i32, cap: i32, win: i32, brood: bool, any: bool) -> bool {
+    if keep == 0 {
+        return false;
+    }
+    let crumbs = world.materials.id_of("crumbs");
+    let brood_id = if brood { world.materials.id_of("brood") } else { None };
+    let k = scaled_cells(world, keep);
+    let lies = any || (-k..=k).any(|dy| {
+        (-k..=k).any(|dx| {
+            let c = world.get(x + dx, y + dy);
+            (Some(c.material) == crumbs && c.organism_id() == 0) || Some(c.material) == brood_id
+        })
+    });
+    if !lies {
+        return false;
+    }
+    let r = scaled_cells(world, win);
+    let cap = cap * (2 * r + 1) * (2 * r + 1) / ((2 * win + 1) * (2 * win + 1));
+    let mut open = 0;
+    for dy in -r..=r {
+        for dx in -r..=r {
+            if room_open(world, x + dx, y + dy) {
+                open += 1;
+                if open >= cap {
+                    return false;
+                }
+            }
+        }
+    }
+    true
+}
+
+/// **[`store_room`]'s window radius unless `win=` says otherwise** -- see
+/// there for why 8 and not 5.
+pub const STORE_ROOM_WINDOW: i32 = 8;
+
+/// **Room, not ground**, for [`store_room`]'s roominess: anything but soil,
+/// packed soil, other powder or solid -- what lies in a room (brood, food,
+/// ants, water) is room. The rule `starts.room_of` reads off a nest map.
+fn room_open(world: &World, x: i32, y: i32) -> bool {
+    if !world.in_bounds(x, y) {
+        return false;
+    }
+    let c = world.get(x, y);
+    if c.material == crate::sim::material::EMPTY {
+        return true;
+    }
+    match world.materials.kind(c.material) {
+        MaterialKind::Empty | MaterialKind::Liquid | MaterialKind::Gas | MaterialKind::Creature => true,
+        _ => world.materials.id_of("brood") == Some(c.material) || (c.organism_id() == 0 && food_value(world, c) > 0.0),
+    }
 }
 
 /// **A mark younger than `ttl` on the ground within 1 cell of `(x, y)`**
@@ -8155,8 +8254,14 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
         if dig_home_of() != DigHome::Off && !dig_home_at(world, (x, y)) {
             world.creature_stats.dig_home_held += 1;
         } else if matches!(dig_home_of(), DigHome::Mark { .. }) && mark_below_ground(world, (x, y)) {
-            // At home below the ground and at a fresh face: the group's urge kept.
-            world.creature_stats.dig_mark_face += 1;
+            // At home below the ground and kept: at a fresh face, or (idea 4)
+            // in a store room not yet roomy.
+            let DigHome::Mark { ttl, .. } = dig_home_of() else { unreachable!() };
+            if fresh_face(world, (x, y), ttl) {
+                world.creature_stats.dig_mark_face += 1;
+            } else {
+                world.creature_stats.dig_mark_keep += 1;
+            }
         }
         // ...and what it read, bucketed. See `CreatureStats::at_nest_crowding`
         // -- with the gate off this is the old 5x5 density and is the control
@@ -53525,9 +53630,12 @@ mod tests {
         assert_eq!(parse_dig_home("rows=30,food"), DigHome::Rows { rows: 30, food: true });
         assert_eq!(parse_dig_home("core=12,store"), DigHome::Core { steps: 12, brood: false, store: true, cut: false, food: false });
         assert_eq!(parse_dig_home("core=8,brood,store,cut,food"), DigHome::Core { steps: 8, brood: true, store: true, cut: true, food: true });
-        assert_eq!(parse_dig_home("mark=1000"), DigHome::Mark { ttl: 1000, food: false });
-        assert_eq!(parse_dig_home("mark=0,food"), DigHome::Mark { ttl: 0, food: true });
-        for bad in ["rows", "rows=-1", "core=x", "core=12,larvae", "on", "mark", "mark=-1", "mark=500,brood"] {
+        assert_eq!(parse_dig_home("mark=1000"), DigHome::Mark { ttl: 1000, food: false, keep: 0, cap: 0, win: STORE_ROOM_WINDOW, brood: false, any: false });
+        assert_eq!(parse_dig_home("mark=0,food"), DigHome::Mark { ttl: 0, food: true, keep: 0, cap: 0, win: STORE_ROOM_WINDOW, brood: false, any: false });
+        assert_eq!(parse_dig_home("mark=1000,keep=3,cap=101"), DigHome::Mark { ttl: 1000, food: false, keep: 3, cap: 101, win: 8, brood: false, any: false });
+        assert_eq!(parse_dig_home("mark=1000,keep=3,cap=101,any"), DigHome::Mark { ttl: 1000, food: false, keep: 3, cap: 101, win: 8, brood: false, any: true });
+        assert_eq!(parse_dig_home("mark=1000,keep=3,cap=45,win=5,brood,food"), DigHome::Mark { ttl: 1000, food: true, keep: 3, cap: 45, win: 5, brood: true, any: false });
+        for bad in ["rows", "rows=-1", "core=x", "core=12,larvae", "on", "mark", "mark=-1", "mark=500,brood", "mark=1000,keep=3", "mark=1000,cap=60", "mark=1000,keep=0,cap=60", "mark=1000,keep=3,cap=x", "mark=1000,keep=3,cap=101,win=0", "mark=1000,any", "mark=1000,keep=3,cap=101,any,brood"] {
             assert!(std::panic::catch_unwind(|| parse_dig_home(bad)).is_err(), "{bad:?} must panic, not run as off under an arm's label");
         }
     }

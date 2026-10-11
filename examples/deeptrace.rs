@@ -1362,11 +1362,12 @@ fn main() {
             if pixel_physics::sim::creature::dig_home_of() != pixel_physics::sim::creature::DigHome::Off {
                 let st = &lab.world.creature_stats;
                 println!(
-                    "  dig_home_held={} nest_core={} nest_dug={} | mark: face_ticks={} marks_live={} laid_home={} laid_away={}",
+                    "  dig_home_held={} nest_core={} nest_dug={} | mark: face_ticks={} keep_ticks={} marks_live={} laid_home={} laid_away={}",
                     st.dig_home_held,
                     lab.world.nest_core.len(),
                     lab.world.nest_dug.len(),
                     st.dig_mark_face,
+                    st.dig_mark_keep,
                     lab.world.face_marks.len(),
                     st.marks_home,
                     st.marks_away

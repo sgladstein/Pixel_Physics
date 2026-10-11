@@ -1659,6 +1659,10 @@ pub struct CreatureStats {
     /// `PIXEL_PHYSICS_DIG_HOME=mark=...`: the ticks that kept the group's dig
     /// urge (the other half of `dig_home_held`). 0 unless that switch is on.
     pub dig_mark_face: u64,
+    /// **...and kept in a store room not yet roomy** (idea 4,
+    /// `mark=...,keep=K,cap=N`, `creature::store_room`), off a fresh face.
+    /// 0 unless `keep` is set.
+    pub dig_mark_keep: u64,
     /// **Marks laid** under `mark=` (`World::face_marks`), by where the
     /// cutter stood: in the dug home, or not (off home, or home by another
     /// route). Each counts one cut into new ground, not its eight cells.

@@ -3744,6 +3744,7 @@ fn harness() {
     // than on the surface. For questions about what ants dig from a given
     // room; a result here is a mechanism check, never a verdict on the game
     // (`/mnt/project-files/late-tunnels/README.md`).
+    let mut held_store: Option<HeldStore> = None;
     if let Some(spec) = arg::<String>("room") {
         let v: Vec<i32> = spec.split(':').map(|t| t.trim().parse().expect("room=W:H:D")).collect();
         assert_eq!(v.len(), 3, "room= wants W:H:D, got `{spec}`");
@@ -3787,6 +3788,24 @@ fn harness() {
         }
         let carved = carved.len();
         trickle.room = Some((x0, x1, y1));
+        // **`crumbs=N[:every]` -- a held store on the start room's floor**
+        // (idea 4's calibration, review change 1, 2026-10-11): `N` crumbs
+        // spread evenly along its floor row, each put back every `every`
+        // frames (500) if gone, so the store stays where it was put while the
+        // test asks whether a room grows round it and stops.
+        if let Some(spec) = arg::<String>("crumbs") {
+            let mut it = spec.split(':').map(|t| t.trim().parse::<i32>().expect("crumbs=N[:every]"));
+            let n = it.next().expect("crumbs=N[:every]");
+            let every = it.next().unwrap_or(500);
+            assert!(n > 0 && n <= rw && every > 0, "crumbs={spec}: 1..=W crumbs, every > 0");
+            let id = world.materials.id_of("crumbs").expect("crumbs ships");
+            let spots: Vec<(i32, i32)> = (0..n).map(|i| (x0 + (2 * i + 1) * rw / (2 * n), y1)).collect();
+            for &(x, y) in &spots {
+                world.set(x, y, Cell::new(id, 0));
+            }
+            println!("  held store: {n} crumbs on the start room's floor at cols {:?}, put back every {every} frames", spots.iter().map(|s| s.0).collect::<Vec<_>>());
+            held_store = Some((id, spots, every as u64, 0u64));
+        }
         println!("  start room: {rw} x {rh} cells, roof {rd} rows under the surface (rows {y0}..={y1}, cols {x0}..={x1}), joined to the door by a 2-wide passage; {carved} cells carved, {lining} wall cells lined; ants placed on its floor");
     }
 
@@ -3803,6 +3822,7 @@ fn harness() {
         if seed == 0 { "the shipped walk; the scene itself carries no noise" } else { "founding order shuffled" }
     );
     match &food_pile {
+        None if held_store.is_some() => println!("  no food but the held store's crumbs (`crumbs=`), no plants, no lamps, no weather -- FoodAdjacent reads only those"),
         None => println!(
             "  no food, no plants, no lamps, no weather -- FoodAdjacent is 0 by construction, so the dig you see is the nest mechanism alone"
         ),
@@ -4021,6 +4041,14 @@ fn harness() {
         }
         if let Some(p) = food_pile.as_mut().filter(|p| f > 0 && p.refill > 0 && f.is_multiple_of(p.refill)) {
             p.place(&mut world);
+        }
+        if let Some((id, spots, _, put_back)) = held_store.as_mut().filter(|h| f > 0 && f.is_multiple_of(h.2)) {
+            for &(x, y) in spots.iter() {
+                if world.is_empty(x, y) {
+                    world.set(x, y, Cell::new(*id, 0));
+                    *put_back += 1;
+                }
+            }
         }
         if let Some(w) = ant_life.as_mut().filter(|_| f.is_multiple_of(ant_every)) {
             use std::io::Write;
@@ -4541,13 +4569,18 @@ fn harness() {
     // carries whether its rule fired at all.
     if pixel_physics::sim::creature::dig_home_of() != pixel_physics::sim::creature::DigHome::Off {
         println!(
-            "SUMMARY dig home: held {} | mark: face ticks {}, marks standing {}, laid from the dug home {}, from elsewhere {}",
+            "SUMMARY dig home: held {} | mark: face ticks {}, store-room ticks {}, marks standing {}, laid from the dug home {}, from elsewhere {}",
             st.dig_home_held,
             st.dig_mark_face,
+            st.dig_mark_keep,
             world.face_marks.len(),
             st.marks_home,
             st.marks_away
         );
+    }
+
+    if let Some((_, spots, _, put_back)) = &held_store {
+        println!("SUMMARY held store: {} crumbs, put back {put_back} times; spots {:?}", spots.len(), spots);
     }
 
     if let Some(path) = out {
@@ -4847,6 +4880,10 @@ impl FoodPile {
         (0..self.n).filter(|i| world.get(self.x + (i % 12) - 6, self.top - i / 12).material == self.larder).count() as u64
     }
 }
+
+/// `crumbs=`'s held store: (crumbs material, spots, put back every, times
+/// put back).
+type HeldStore = (MaterialId, Vec<(i32, i32)>, u64, u64);
 
 /// **Every ant topped up to its start energy each frame** -- the box's
 /// default since 2026-09-29 (`hungry` turns it off) -- as though the colony
