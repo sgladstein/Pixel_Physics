@@ -2419,6 +2419,16 @@ pub struct CreatureStats {
     pub depth_rows: u64,
     pub depth_ground_rows: u64,
     pub depth_err_rows: u64,
+    /// **Soil pellets lost by `pack_behind`** (`creature::pack_behind`): the
+    /// ant cut ahead and stepped, and the cell its tail left was not empty --
+    /// something it had parted (a crumb, brood, foliage) came back there --
+    /// so the pellet it held had nowhere to go and was dropped from the
+    /// world. Counted with `PIXEL_PHYSICS_PACK_PARTED` off or on.
+    pub pack_parted_lost: u64,
+    /// Packs refused because the tail stood on something it had parted
+    /// (`PIXEL_PHYSICS_PACK_PARTED=on`, or the needs walk): the "it fired"
+    /// half of `pack_parted_lost`. 0 with the switch off outside the walk.
+    pub pack_parted_refused: u64,
     /// Pellet drops whose cell beside the carrier would have taken it but for
     /// lying in a nest's door column above the ground (`creature::door_column_of`).
     /// 0 with the switch off.
@@ -4463,6 +4473,10 @@ pub struct World {
     /// `None` follows the environment; a field so a guard can take both arms
     /// in one process.
     pub depth_slow: Option<crate::sim::creature::DepthSlow>,
+    /// **`PIXEL_PHYSICS_PACK_PARTED` for this world** (`creature::pack_parted_of`).
+    /// `None` follows the environment; a field so a guard can take both arms
+    /// in one process.
+    pub pack_parted: Option<bool>,
     /// **The needs-and-jobs walk** (`creature::needs`): `None` is today's ant.
     /// Set by a harness at a frame and never from the environment, which is
     /// read once per process and so cannot hand a running colony over; from
@@ -7124,6 +7138,7 @@ impl World {
             mound_out: None,
             needs_first: None,
             depth_slow: None,
+            pack_parted: None,
             needs: None,
             nest_store: None,
             nest_ways: Vec::new(),
