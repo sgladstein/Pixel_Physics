@@ -732,6 +732,8 @@ pub struct WalkRow {
     pub scout_for: (i32, i32),
     /// Why an escape did not cut ([`ESC_WHY_NAMES`]).
     pub esc_why: u8,
+    /// What broke `walled_in` for a pellet holder (bits, [`walled_in_why`]).
+    pub esc_nb: u8,
 }
 
 /// **One ant's memory under the walk.** Set at its first decision from what
@@ -798,6 +800,8 @@ struct Mind {
     /// Why an escape that fired did not cut ([`ESC_WHY_NAMES`]), for the
     /// trace; 0 when it cut or did not escape.
     esc_why: u8,
+    /// What broke `walled_in` for a pellet holder ([`walled_in_why`]).
+    esc_nb: u8,
     /// Where it stood when it decided, for the trace.
     at: (i32, i32),
 }
@@ -868,6 +872,7 @@ impl Mind {
             p_move: f32::NAN,
             cut: CUT_NONE,
             esc_why: 0,
+            esc_nb: 0,
             at: head,
         }
     }
@@ -1157,6 +1162,7 @@ fn walk_act(
     mind.hunger = hunger;
     mind.cut = CUT_NONE;
     mind.esc_why = 0;
+    mind.esc_nb = 0;
     if at_home {
         mind.gave_up = false;
     }
@@ -1552,6 +1558,9 @@ fn hungry_act(
                 });
             }
             mind.esc_why = if walled { 4 } else { 3 };
+            if !walled {
+                mind.esc_nb = walled_in_why(world, organism, head);
+            }
             None
         }
         Some(_) => {
@@ -1572,6 +1581,42 @@ fn hungry_act(
             }
         }
     }
+}
+
+/// **What keeps a pellet holder from counting as walled in**, as bits, for
+/// the trace (2026-10-11, the walled-in starvers' fault B): 1 its own body
+/// carries a rider, 2 an empty cell beside the head, 4 another animal or
+/// brood, 8 food, 16 anything else (liquid, gas). `creature::walled_in`'s
+/// test read again; nothing is changed.
+fn walled_in_why(world: &World, organism: OrganismId, head: (i32, i32)) -> u8 {
+    let Some(st) = world.organism(organism) else { return 0 };
+    let mut why = 0;
+    if !st
+        .chain
+        .iter()
+        .all(|&(x, y)| world.get(x, y).organism_id() == organism && world.riders_at(x, y).is_empty())
+    {
+        why |= 1;
+    }
+    for &(dx, dy) in NEIGHBOURS_8.iter() {
+        let c = world.get(head.0 + dx, head.1 + dy);
+        if c.organism_id() == organism {
+            continue;
+        }
+        if c.organism_id() != 0 {
+            why |= 4;
+        } else if c.material == material::EMPTY {
+            why |= 2;
+        } else if food_value(world, c) > 0.0 {
+            why |= 8;
+        } else if !matches!(
+            world.materials.kind(c.material),
+            MaterialKind::Solid | MaterialKind::Powder
+        ) {
+            why |= 16;
+        }
+    }
+    why
 }
 
 /// **Why an escape did not cut**, by [`WalkRow::esc_why`]: the trace of the
@@ -2602,6 +2647,7 @@ fn walk_after(world: &mut World, organism: OrganismId, moved: bool, won: bool) {
                 scout_dark: st.is_some_and(|s| s.scout_dark),
                 scout_for: st.map_or((0, 0), |s| s.scout_for),
                 esc_why: mind.esc_why,
+                esc_nb: mind.esc_nb,
             };
             world.needs.as_mut().expect("walking").rows.push(row);
         }
