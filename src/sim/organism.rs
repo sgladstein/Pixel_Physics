@@ -5336,6 +5336,11 @@ pub struct PipCheck {
 /// of every leaf it touched.
 #[derive(Clone, Debug)]
 pub struct Parted {
+    /// Where the cell goes back. Where it was lifted, except for an
+    /// ownerless crumb under `PIXEL_PHYSICS_PACK_PARTED=carry`, which
+    /// `creature::pack_behind` moves to a cell the body still covers so the
+    /// tail cell is free for a pellet (`creature::PackParted`): the one
+    /// writer of a held record's position.
     pub x: i32,
     pub y: i32,
     /// The tissue cell exactly as it was lifted, organism id included.
@@ -6129,7 +6134,10 @@ pub struct OrganismState {
     /// `creature::relocate_chain` gives back whatever the new body position
     /// no longer covers, and `creature::creature_dies` gives back all of it.
     /// There is no third — every other path that moves or unmakes a body
-    /// goes through one of those two.
+    /// goes through one of those two. One path moves a record without giving
+    /// it back: `creature::pack_behind` under `PACK_PARTED=carry` moves an
+    /// ownerless crumb's record, in place, to another cell of the body, and
+    /// it then leaves by the first exit like any other.
     pub parted: Vec<Parted>,
     /// **Damage worn into this animal by mouths that cannot open it in one
     /// bite**, 0..1 of the cell currently being gnawed.

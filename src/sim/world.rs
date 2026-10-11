@@ -2427,14 +2427,28 @@ pub struct CreatureStats {
     pub pack_parted_lost: u64,
     /// Pellets `pack_behind` lost to a tail cell full for any other reason
     /// than a parted cell: under the needs walk, a nestmate riding the tail
-    /// cell is set down there (`needs::sealed_escape` packs without
-    /// `walled_in`'s rider check; PR 685's review, 29 on steady seed 1 in
-    /// 60k). The shipped callers check `walled_in`, so 0 outside the walk.
+    /// cell is set down there, or the packer only rode in it
+    /// (`needs::sealed_escape` packs without `walled_in`'s rider check; PR
+    /// 685's review; 61-261 a run on 4 steady seeds of the new ant). Refusing
+    /// it starves ants (`creature::pack_behind`), so it stays. The shipped
+    /// callers check `walled_in`, so 0 outside the walk.
     pub pack_lost_other: u64,
     /// Packs refused because the tail stood on something it had parted
     /// (`PIXEL_PHYSICS_PACK_PARTED=on`, or the needs walk): the "it fired"
     /// half of `pack_parted_lost`. 0 with the switch off outside the walk.
     pub pack_parted_refused: u64,
+    /// The part of `pack_parted_lost` where a record under the tail had an
+    /// owner (brood, foliage), which `PACK_PARTED=carry` never moves: the
+    /// residual `carry` leaves (`creature::PackParted`).
+    pub pack_parted_lost_brood: u64,
+    /// `PACK_PARTED=carry`: crumb records moved to a covered cell of the
+    /// body, the "it fired" count. One crumb ridden through 30 packs counts
+    /// 30, so this is not the number of crumbs or pellets saved. 0 otherwise.
+    pub pack_crumb_carried: u64,
+    /// `PACK_PARTED=carry`: packs onto ownerless crumbs that found too few
+    /// free covered cells, so nothing moved and the pellet was lost (also in
+    /// `pack_parted_lost`). 0 otherwise.
+    pub pack_crumb_no_room: u64,
     /// Pellet drops whose cell beside the carrier would have taken it but for
     /// lying in a nest's door column above the ground (`creature::door_column_of`).
     /// 0 with the switch off.
@@ -4482,7 +4496,7 @@ pub struct World {
     /// **`PIXEL_PHYSICS_PACK_PARTED` for this world** (`creature::pack_parted_of`).
     /// `None` follows the environment; a field so a guard can take both arms
     /// in one process.
-    pub pack_parted: Option<bool>,
+    pub pack_parted: Option<crate::sim::creature::PackParted>,
     /// **The needs-and-jobs walk** (`creature::needs`): `None` is today's ant.
     /// Set by a harness at a frame and never from the environment, which is
     /// read once per process and so cannot hand a running colony over; from
