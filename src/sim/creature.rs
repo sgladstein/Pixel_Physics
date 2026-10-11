@@ -15797,6 +15797,9 @@ fn relay_crop(world: &mut World, organism: OrganismId, (x, y): (i32, i32), def: 
             || r.spoil.is_some()
             || r.crop.is_some_and(|c| c.worth() > 0.0 || c.cells > 0)
             || !is_living_kin_id(world, id, gut)
+            // The player's ant is never handed a crop: it would make her a
+            // nurse for `NURSE_STAY_FRAMES`, undoing `steer::mark`'s caste.
+            || crate::sim::steer::is_steered(world, id)
         {
             continue;
         }
@@ -18411,7 +18414,10 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
             // Facing the steer, as a step that finds no way turns her
             // ([`steered_step`]): the pack spends the step, so it must turn
             // her itself or she tunnels on along her last heading.
-            let dir = crate::sim::steer::input_of(world, organism).and_then(|i| i.dir);
+            // The input this decision used, latch and all: `take_input` has
+            // already cleared the latch, so `input_of` would lose a direction
+            // that was only pressed.
+            let dir = world.steered.as_ref().and_then(|s| s.used.dir);
             let face = dir.and_then(|d| crate::sim::steer::pick_heading(&[0, 1, 2, 3, 4, 5, 6, 7], &DIRS, d)).or_else(|| world.organism(organism).map(|s| s.heading));
             if walled_in(world, organism, (x, y)) && pack_behind(world, organism, def, (x, y), load, needs_first.backfill, face) {
                 note_spoil(world, SpoilWhy::Packed, 0, f32::NAN);
@@ -19509,7 +19515,8 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
             let at_nest = nest_within_reach(world, organism, x, y, def);
             // **A forager home hands its crop to a nest worker touching it**
             // ([`NurseStay`]'s `relay`) instead of putting it down.
-            if at_nest && relay_crop(world, organism, (x, y), def) {
+            // Not the player's crop: Q is how she puts food down (`steer`).
+            if at_nest && !steered && relay_crop(world, organism, (x, y), def) {
                 return did;
             }
             // **A packed lunch is finished where there is a load to take**

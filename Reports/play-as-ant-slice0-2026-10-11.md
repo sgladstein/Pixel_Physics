@@ -113,6 +113,12 @@ breeds by the queen rule):
 | 900 J | 7 / 12 | 54,115 | starved in 12 of 12 (median about 7,600 frames) |
 | 3,000 J | 7 / 12 | 52,090 | starved in 12 of 12, about 3,300 frames in |
 
+**Measured with the queen rule held after her death**: in slice 0
+`World::steered` stays set when she dies, so her colony keeps the queen rule
+for the rest of the run (only one ant lays at a time, the workers who take
+over included). Slice 2's hand-off has to decide what a colony with no
+player body alive runs.
+
 The genome-driven queen does not feed herself. With a big reserve she lays
 18 eggs at once and starves. Where a colony comes up, it is grown by the
 workers who take over laying after she dies. One mutation-on run (seed 1,

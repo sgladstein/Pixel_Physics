@@ -1786,6 +1786,7 @@ and `steer.rs`.
      still falls by the support check (§6d).
 - **What holds with or without a keyboard** (`input` `None` is her genome
   driving her): no old-age roll; no nest-worker caste (`mark` clears
-  `nest_bound_until`); and the `queen` breeding rule for her colony at both
+  `nest_bound_until`, and `relay_crop` never hands her a crop, which would
+  make her a nurse again); and the `queen` breeding rule for her colony at both
   laying checks (`regime_of_colony`), the process regime for every other.
 - **A raised reserve** goes in through `steer::grant`, booked as `Granted`.

@@ -38,6 +38,14 @@
 //!   `BreedingRegime::Queen` for `colony` and the process regime for every
 //!   other colony.
 //!
+//! **When she dies** (slice 0): `World::steered` stays set with her dead
+//! `(id, born_frame)`, so every per-body hook above is false, but her
+//! colony **keeps the queen rule** for the rest of the run
+//! ([`Steered::colony`] is all `regime_of_colony` reads). The slice-0
+//! founding numbers were measured that way. Slice 2's hand-off in
+//! `creature_dies` must decide which rule a colony with no player body
+//! alive runs.
+//!
 //! **Off is off.** With `World::steered` at `None` every hook is one
 //! branch not taken and the build is the build without this module. Checked
 //! by the slice-0 comparison against main in the report: every `deeptrace`
@@ -104,12 +112,16 @@ pub struct Steered {
     pub input: Option<SteerInput>,
     /// Presses waiting for her next decision.
     pub latched: SteerInput,
+    /// The input her last decision used, held levels and latch together
+    /// ([`take_input`]); `act` reads it after the latch is spent.
+    pub used: SteerInput,
     /// **Every input as it was used**, `(frame, input)`, off (`None`) unless
     /// a caller turns it on. Pushed only when the input differs from the
     /// last row, so a held key is one row. The frame is the frame the input
-    /// was *used* on, which is what makes the log a replay: the lab's tick
-    /// loop is capped by wall-clock time, so the frame a key *landed* on
-    /// depends on the machine.
+    /// was *used* on, because the lab's tick loop is capped by wall-clock
+    /// time and the frame a key *landed* on depends on the machine. **Meant
+    /// for replay; no replay has been shown yet** (slice 1 must show one
+    /// exact replay before anything relies on it).
     pub log: Option<Vec<(u64, SteerInput)>>,
 }
 
@@ -136,6 +148,7 @@ pub fn mark(world: &mut World, id: OrganismId, input: Option<SteerInput>) -> boo
         colony,
         input,
         latched: SteerInput::default(),
+        used: SteerInput::default(),
         log: None,
     });
     true
@@ -196,6 +209,7 @@ pub fn take_input(world: &mut World, organism: OrganismId) -> Option<SteerInput>
     let frame = world.frame;
     let s = world.steered.as_mut().expect("input_of read it");
     s.latched = SteerInput::default();
+    s.used = used;
     if let Some(log) = s.log.as_mut() {
         if log.last().is_none_or(|&(_, last)| last != used) {
             log.push((frame, used));
@@ -253,6 +267,77 @@ mod tests {
             "45 degrees off is still within 90"
         );
         assert_eq!(pick_heading(&[4], &DIRS, (1, 0)), None, "straight back is not a pick");
+    }
+
+    /// **Off is off, in CI**: a lab colony with `World::steered` pointing at
+    /// a body that does not exist (a held direction and G, and a colony no
+    /// ant is in) runs cell for cell as the same colony with nobody steered.
+    /// It catches a future hook that reads `steered` without asking whether
+    /// the body is hers. The positive control steers one live ant and must
+    /// differ, or the hash is blind. Watched red with `input_of`'s body
+    /// checks taken out. **Blind to the old-age gate**: 3,000 frames is too
+    /// short for any ant to age out, so `is_steered` answering true for
+    /// everyone passes here; the slice-0 `deeptrace` comparison covers it.
+    #[test]
+    fn a_steer_on_no_living_body_changes_nothing() {
+        use crate::lab::scenario::{Placement, Scenario};
+        fn run(steer: Option<Option<OrganismId>>) -> (u64, usize) {
+            let mut sc = Scenario::load("steady_income").expect("steady_income ships");
+            for e in &mut sc.timeline {
+                if matches!(e.what, Placement::Colony { .. } | Placement::Heap { .. }) {
+                    e.at = 200;
+                }
+            }
+            let mut lab = crate::lab::Lab::new(sc.bed.clone());
+            lab.load_scenario(sc);
+            for _ in 0..400 {
+                lab.tick_for_harness();
+            }
+            let held = SteerInput {
+                dir: Some((1, 0)),
+                dig: true,
+                ..Default::default()
+            };
+            match steer {
+                None => {}
+                Some(None) => {
+                    lab.world.steered = Some(Steered {
+                        id: OrganismId::MAX,
+                        born_frame: 0,
+                        colony: u32::MAX,
+                        input: Some(held),
+                        latched: held,
+                        used: held,
+                        log: None,
+                    })
+                }
+                Some(Some(_)) => {
+                    let mut ids = lab.world.live_organism_ids();
+                    ids.sort();
+                    let ant = lab.world.species.id_of("ant").expect("ant ships");
+                    let id = *ids.iter().find(|&&i| lab.world.organism(i).is_some_and(|s| s.species == ant)).expect("the colony landed");
+                    assert!(mark(&mut lab.world, id, Some(held)));
+                }
+            }
+            for _ in 0..2_600 {
+                lab.tick_for_harness();
+            }
+            let w = &lab.world;
+            let b = w.bounds().expect("the lab sets bounds");
+            let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+            for y in b.min_y..=b.max_y {
+                for x in b.min_x..=b.max_x {
+                    let c = w.get(x, y);
+                    for v in [u64::from(c.material.0), u64::from(c.shade), u64::from(c.aux()), u64::from(c.organism_id())] {
+                        h = (h ^ v).wrapping_mul(0x0000_0100_0000_01b3);
+                    }
+                }
+            }
+            (h, w.live_organism_ids().len())
+        }
+        let off = run(None);
+        assert_eq!(run(Some(None)), off, "a steer on no living body moved the world");
+        assert_ne!(run(Some(Some(0))), off, "steering a live ant changed nothing: the hash cannot see a hook");
     }
 
     #[test]
