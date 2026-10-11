@@ -1,0 +1,10 @@
+O 55-70k food poor decisions   18530 stepped 31.1%
+O 55-70k mound_in poor decisions  175590 stepped 17.4%
+O 55-70k mound_top poor decisions  188232 stepped 39.6%
+O 55-70k nest poor decisions   52276 stepped 35.3%
+O 55-70k surface poor decisions  328185 stepped 37.1%
+O 80-100k food poor decisions   16789 stepped 59.7%
+O 80-100k mound_in poor decisions  313754 stepped 26.9%
+O 80-100k mound_top poor decisions  248031 stepped 50.5%
+O 80-100k nest poor decisions  120086 stepped 28.7%
+O 80-100k surface poor decisions  453541 stepped 40.7%

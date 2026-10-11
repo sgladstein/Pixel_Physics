@@ -2414,6 +2414,29 @@ pub struct CreatureStats {
     /// (`creature::need_drop_site`): the load is kept. 0 unless the switch is
     /// on.
     pub needs_no_site: u64,
+    /// Decisions on which an idle nest worker at home had its step chance
+    /// cut by how deep it remembers being (`PIXEL_PHYSICS_DEPTH_SLOW`,
+    /// `creature::depth_slow_of`). The "it fired" half; `depth_pauses` is the
+    /// effect on the walk, and where the colony stands (`deeptrace`'s
+    /// `colony.csv`) the effect that matters. 0 unless the switch is on.
+    pub depth_slowed: u64,
+    /// Of `depth_slowed`, the decisions the ant stood still only because of
+    /// the cut: its step roll fell between the slowed chance and the
+    /// unslowed one. 0 unless the switch is on.
+    pub depth_pauses: u64,
+    /// Decisions of an idle nest worker at home that remembers no row away
+    /// from home (born inside, never out), and so is not slowed. 0 unless the
+    /// switch is on.
+    pub depth_unknown: u64,
+    /// Of `depth_slowed`, the decisions of an ant under its grant that
+    /// `DepthSlow::lean` slowed by a share of its depth. 0 unless `lean` is on.
+    pub depth_lean_slowed: u64,
+    /// Over `depth_slowed`: rows below its remembered row away from home
+    /// (the depth the ant uses), rows below its nest's founding ground (the
+    /// depth a map would give), and the gap between the two, each summed.
+    pub depth_rows: u64,
+    pub depth_ground_rows: u64,
+    pub depth_err_rows: u64,
     /// Pellet drops whose cell beside the carrier would have taken it but for
     /// lying in a nest's door column above the ground (`creature::door_column_of`).
     /// 0 with the switch off.
@@ -4250,6 +4273,11 @@ pub struct World {
     /// drains it. Recording draws nothing and changes nothing -- see
     /// `creature::DecisionRow`.
     pub decision_log: Option<Vec<crate::sim::creature::DecisionRow>>,
+    /// **The one ant the player drives** (`sim::steer`), `None` unless the
+    /// play-as-an-ant game or a harness sets it. With `None` every steering
+    /// hook in `creature.rs` is a branch not taken. Not [`World::player`],
+    /// which is the gnome.
+    pub steered: Option<crate::sim::steer::Steered>,
     /// **Every meal a larva is given** (`creature::FeedRow`), off (`None`)
     /// unless a harness turns it on by setting `Some(Vec::new())`, and
     /// drained by that harness. Recording draws nothing and changes nothing.
@@ -4452,6 +4480,16 @@ pub struct World {
     /// `None` follows the environment; a field so a guard can take both arms
     /// in one process.
     pub needs_first: Option<crate::sim::creature::NeedsFirst>,
+    /// **`PIXEL_PHYSICS_DEPTH_SLOW` for this world** (`creature::depth_slow_of`).
+    /// `None` follows the environment; a field so a guard can take both arms
+    /// in one process.
+    pub depth_slow: Option<crate::sim::creature::DepthSlow>,
+    /// **The needs-and-jobs walk** (`creature::needs`): `None` is today's ant.
+    /// Set by a harness at a frame and never from the environment, which is
+    /// read once per process and so cannot hand a running colony over; from
+    /// then on every ant decides by it. The walk's memory of each ant lives
+    /// in here, not on `OrganismState`.
+    pub needs: Option<Box<crate::sim::creature::needs::NeedsWalk>>,
     /// **`PIXEL_PHYSICS_NEST_STORE` for this world**
     /// (`creature::nest_store_of`). `None` follows the environment; a field
     /// so a guard can take both arms in one process.
@@ -7075,6 +7113,7 @@ impl World {
             soil_water_stats: SoilWaterStats::default(),
             creature_stats: CreatureStats::default(),
             decision_log: None,
+            steered: None,
             feed_log: None,
             bite_log: None,
             food_log: None,
@@ -7118,6 +7157,8 @@ impl World {
             nurse_stay: None,
             mound_out: None,
             needs_first: None,
+            depth_slow: None,
+            needs: None,
             nest_store: None,
             nest_ways: Vec::new(),
             store_last_seeds: Vec::new(),
@@ -8223,6 +8264,8 @@ impl World {
             traffic_deferred: 0,
             forage_anchor: (0, 0),
             forage_max: 0,
+            // Never away from home yet: no depth (`creature::depth_slow_of`).
+            last_out_row: None,
             home_best: f32::INFINITY,
             home_best_for: (i32::MIN, i32::MIN),
             home_best_at: (0, 0),

@@ -1,0 +1,14 @@
+R1 eps=0.02 diag=0 (n=11): steepest descent into soil 0.0% [0.0-0.0] of nest cells
+R1 eps=0.05 diag=0 (n=11): steepest descent into soil 0.0% [0.0-0.0] of nest cells
+R1 eps=0.1 diag=0 (n=11): steepest descent into soil 0.0% [0.0-0.0] of nest cells
+R1 eps=0.3 diag=0 (n=11): steepest descent into soil 0.0% [0.0-0.0] of nest cells
+R1 eps=0.1 diag=0.5 (n=11): steepest descent into soil 0.0% [0.0-0.0] of nest cells
+R2 eps=0.02 diag=0 (n=11): steepest descent into soil 23.6% [21.4-27.2] of nest cells
+R2 eps=0.05 diag=0 (n=11): steepest descent into soil 22.8% [20.6-27.0] of nest cells
+R2 eps=0.1 diag=0 (n=11): steepest descent into soil 22.0% [19.8-26.3] of nest cells
+R2 eps=0.3 diag=0 (n=11): steepest descent into soil 20.6% [18.1-25.1] of nest cells
+R2all eps=0.02 diag=0 (n=11): steepest descent into soil 21.7% [19.3-26.3] of nest cells
+R2all eps=0.05 diag=0 (n=11): steepest descent into soil 20.2% [18.0-25.7] of nest cells
+R2all eps=0.1 diag=0 (n=11): steepest descent into soil 19.2% [17.3-24.2] of nest cells
+R2all eps=0.3 diag=0 (n=11): steepest descent into soil 17.6% [16.1-21.0] of nest cells
+R0 eps=0 diag=0 (n=7): steepest descent into soil 0.0% [0.0-0.0] of nest cells

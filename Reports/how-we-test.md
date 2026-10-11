@@ -127,6 +127,15 @@ frame cost) are in `.claude/rules/measuring-the-world.md`; method traps
   column over and under the door stand on brood (2026-10-06), so a solid column
   of ants reads as ants that will not walk into it. Read `walk=1`'s `nb` column
   (`B`) or `broodstep.py`, not the picture.
+- **`broodlog.csv`'s `laid` rows** (`deeptrace dig=1`) are written for any egg
+  not seen the frame before, and an egg under a standing ant (above) flickers
+  `gone`/`laid`, so there are ~3x as many `laid` rows as `eggs_laid` (steady
+  seed 1, 100-300k: 6,279 against 1,927). A reader that starts a life at the
+  last `laid` row puts the egg where it was **last seen as an egg**, already
+  fallen: deep starvers read "laid 9-14 rows under the old ground" when eggs
+  are laid 0-1 rows under it (2026-10-10). Count an egg only when its id was
+  not seen in the last 500 frames (`/mnt/project-files/deep-larvae/laidwhere.py`,
+  within 0.5% of `eggs_laid`).
 - **`starvewhere.py` "encased" before 2026-10-07** counted depth, not soil.
   Its flood stopped at row 175, so every starver deeper than 15 rows read
   encased whatever was round it: 50 of 51 on LAY_BAR=body seed 1 with the
@@ -141,6 +150,16 @@ frame cost) are in `.claude/rules/measuring-the-world.md`; method traps
   across them.
 - **A 12-seed end count** on the played bed can mislead either way (seeds 1–12
   and 13–24 once pointed opposite ways). Use means over a window, paired.
+- **A colony-size difference under about 20%, from one run per seed.** On
+  the steady bed a colony is chaotic: placing the second colony one frame
+  later (annual herbs off, `t2=84890`, 12 seeds) moved mean adults over
+  100-450k from 216 to 181, higher on only 3 of 12 seeds, with 5 zero-adult
+  probes; seed 4 ranged 175-341 across four nudged arms. That one-frame nudge
+  produced the whole "16% smaller colony" first blamed on annual herbs
+  (2026-10-10, `/mnt/project-files/planted-balance/notes-2026-10-10.md`). So a
+  colony-size claim needs a **second baseline arm nudged by one frame**, and
+  the effect must sit outside the spread between the two baselines. Arms on
+  few seeds still also need a no-effect **placebo arm** beside them.
 - **A single-seed result** for a rule that helps some seeds and kills others
   is usually mutation, not the rule — see §1.
 - **labforage `aloft`** is food held off the ground, not ants.

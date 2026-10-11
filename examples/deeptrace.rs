@@ -109,7 +109,10 @@
 //!   `PIXEL_PHYSICS_NEEDS_FIRST`'s `needs_down`, `needs_packed`,
 //!   `needs_quit`, `needs_weak_digs`, `needs_cue_waived`,
 //!   `needs_face_waived`, `needs_throttle_lifted`, `needs_roof_refused` and
-//!   `needs_no_site`; then `PIXEL_PHYSICS_DOOR_COLUMN`'s `column_refused` and `column_cleared`.
+//!   `needs_no_site`; then `PIXEL_PHYSICS_DOOR_COLUMN`'s `column_refused` and `column_cleared`;
+//!   and `PIXEL_PHYSICS_DEPTH_SLOW`'s `depth_slowed`, `depth_pauses`,
+//!   `depth_unknown`, `depth_rows`, `depth_ground_rows`, `depth_err_rows` and
+//!   `depth_lean_slowed`.
 //! - with `foodlog=1`, **every food cell from the moment it moves** (see
 //!   `FoodLog`; added 2026-10-10 for where food goes once a carrier reaches
 //!   the door, and why the nest store stays near empty while larvae go
@@ -133,6 +136,33 @@
 //!   (`mound.csv`); see `DropLog`. Added 2026-10-06 for the redesign's check
 //!   C3: how often a soil pellet drop could choose between a cell beside spoil
 //!   and one without.
+//!
+//! `needs=walk needsat=<frame>` hands the colony to the needs walk
+//! (`creature::needs`) at that frame and writes what it decided:
+//! **`walk_colony.csv`**, every live ant's drive, job, hunger, hold, forage
+//! stimulus against its threshold, preferred depth, step chance and stall,
+//! beside `colony.csv` at the same frames; **`walk_counts.csv`**, the walk's
+//! running totals at those frames; and with `walktrace=N`, **`walk.csv.gz`**,
+//! every decision of about one ant in `N`, picked by a hash of its id (with
+//! `only=`, of exactly those ants). `needsparts=` picks the walk's parts
+//! (`creature::needs::WalkParts`: `new_ant` -- the default since 2026-10-11,
+//! `reach` with the `walled_in` switch's `sealed_out` and `eat_held` --,
+//! `none`, which is slice 1 and was the default before, `all`, or a comma
+//! list; `all` is the fix round's eight, and the parts added since, `reach`,
+//! `eat_fade`, `hunger_holds`, `placebo`, `sealed_out` and `eat_held`, are
+//! named one by one, `walled_in` naming the last two together (under `reach`, **`hidden.csv`** logs each decision it
+//! hid the food, and whether the wider air check found some joined; under
+//! `sealed_out`, **`sealed.csv`** logs each sealed event's start and end);
+//! their counters are the last columns of
+//! `walk_counts.csv`, so a file from before them compares on the columns it
+//! has), and the walk's files then carry what each
+//! did: `walk_counts.csv` the cuts `act` made by drive (`cut_<drive>`) and
+//! each part's counter, `walk.csv.gz` whether the step roll was won (`won`)
+//! and what the decision cut (`cut`: 0 nothing, 1 `act`'s dig, 2 escape's cut,
+//! 3 escape's pack, 4 the door cut). The brain's columns (`o_`, `h`) are
+//! what it computed on what it is shown (`creature::probe_full`) only since
+//! 2026-10-07; before then they read the raw senses, trail along the heading
+//! included, which the shipped brain is never shown.
 //!
 //! `founder=evolved` lands the colony with lane 2's evolved founder (the six
 //! scenario rows in `EVOLVED_FOUNDER`), before any `gut=`. It is the lab's
@@ -511,18 +541,41 @@ fn main() {
     // plant births and deaths in `events.txt`. See `GardenLog`.
     let garden = arg::<u8>("garden").unwrap_or(0) == 1;
     let plant_every: u64 = arg("plantevery").unwrap_or(500);
+    // `needs=<mode> needsat=<frame>`: hand every ant to the needs walk
+    // (`creature::needs`) at that frame, the colony having founded and dug
+    // under today's ant. `needs=passthrough` is the control for the hooks
+    // themselves: it must leave every output byte-identical.
+    let needs: Option<creature::needs::NeedsMode> =
+        arg::<String>("needs").map(|m| creature::needs::NeedsMode::parse(&m));
+    let needs_at: u64 = arg("needsat").unwrap_or(0);
+    // `walktrace=N`: under `needs=walk`, every decision of about one ant in
+    // N, picked by a hash of its id (`NeedsWalk::traces`), to `walk.csv.gz`;
+    // with `only=`, exactly those ants whatever N is. 0 (the default) keeps
+    // none unless `only=` names some. Not by the id's remainder: one ant in
+    // four by id is the nest-worker caste.
+    let walk_trace: u32 = arg("walktrace").unwrap_or(0);
+    // `needsparts=`: the walk's parts under `needs=walk`. Unnamed, the new
+    // ant as it stands (`WalkParts::NEW_ANT`: `reach` and the `walled_in`
+    // switch, since 2026-10-11); `none` is slice 1 exactly, as the default
+    // was before. A name it does not know panics rather than running an arm
+    // under another's label.
+    let needs_parts = arg::<String>("needsparts").map_or(creature::needs::WalkParts::NEW_ANT, |p| {
+        creature::needs::WalkParts::parse(&p)
+    });
     // `foodlog=1` (not `food=`, which is the heap's size): every food cell
     // from the moment it moves, digestion by place, and the floor's food and
     // the larvae every `foodevery=` frames. See `FoodLog`.
     let food = arg::<u8>("foodlog").unwrap_or(0) == 1;
     let food_every: u64 = arg("foodevery").unwrap_or(1_000);
     println!(
-        "deeptrace: scenario={scenario} seed={seed} frames={frames} ants={n_ants} bornafter={born_after} colonyevery={colony_every} mapevery={map_every} food={target} shots={} dig={} walk={} digfrom={dig_from} garden={} hungry={} nestevery={nest_every} out={out}",
+        "deeptrace: scenario={scenario} seed={seed} frames={frames} ants={n_ants} bornafter={born_after} colonyevery={colony_every} mapevery={map_every} food={target} shots={} dig={} walk={} digfrom={dig_from} garden={} hungry={} nestevery={nest_every} needs={} needsat={needs_at} needsparts={} out={out}",
         u8::from(shots),
         u8::from(dig),
         u8::from(walk),
         u8::from(garden),
-        u8::from(hungry)
+        u8::from(hungry),
+        needs.map_or("off".to_string(), |m| format!("{m:?}").to_lowercase()),
+        needs_parts.label()
     );
     std::fs::create_dir_all(&out).expect("out dir");
     let mut sc = Scenario::load(&scenario).unwrap_or_else(|e| {
@@ -606,7 +659,8 @@ fn main() {
         for e in &mut sc.timeline {
             if matches!(
                 e.what,
-                pixel_physics::lab::scenario::Placement::Colony { .. } | pixel_physics::lab::scenario::Placement::Colonies { .. }
+                pixel_physics::lab::scenario::Placement::Colony { .. }
+                    | pixel_physics::lab::scenario::Placement::Colonies { .. }
             ) {
                 e.at = at;
                 moved += 1;
@@ -673,6 +727,34 @@ fn main() {
     let mut brain_mismatch = 0u64;
     writeln!(colony_csv, "frame,id,worker,hx,hy,zone,crop_cells,spoil,energy_j,home").unwrap();
     let mut events = std::io::BufWriter::new(std::fs::File::create(format!("{out}/events.txt")).unwrap());
+    // The needs walk's record (`needs=walk` only, so every other run writes
+    // exactly the files it wrote before).
+    let walking = needs == Some(creature::needs::NeedsMode::Walk);
+    let mut walk_colony = walking.then(|| {
+        let mut f = std::io::BufWriter::new(std::fs::File::create(format!("{out}/walk_colony.csv")).unwrap());
+        writeln!(f, "frame,id,drive,job,hunger,hold,forage,threshold,pref,p_move,stall,meet,glut,door_x,door_y").unwrap();
+        f
+    });
+    let mut hidden_csv: Option<std::io::BufWriter<std::fs::File>> = None;
+    let mut sealed_csv: Option<std::io::BufWriter<std::fs::File>> = None;
+    let mut walk_counts = walking.then(|| {
+        let mut f = std::io::BufWriter::new(std::fs::File::create(format!("{out}/walk_counts.csv")).unwrap());
+        let drives: Vec<String> = creature::needs::Drive::ALL.iter().map(|d| format!("dec_{}", d.label())).collect();
+        let cuts: Vec<String> = creature::needs::Drive::ALL.iter().map(|d| format!("cut_{}", d.label())).collect();
+        writeln!(
+            f,
+            "frame,minds,{},took_forage,quit_forage,need_over_job,ate_held,pellets_down,escape_cuts,escape_packs,gluts,{},dig_took,dig_quit,dig_tired,clear_cuts,gave_up,lay_walks,meals_kept,stays_not_stalls,reach_hidden,eat_gave_up,eat_gave_up_again,eat_rest,eat_rest_ate,eat_rest_out,reach_hidden_air,bouts,bouts_fed,bouts_fed_outside,bouts_died,hold_ignored,seal_floods,sealed_found,sealed_freed,sealed_opened,sealed_cuts,sealed_packs,seal_aim_turned,sealed_drops,sealed_load_down,seal_recut,ate_held_jaws,eat_held_refused,laden_soil",
+            drives.join(","),
+            cuts.join(",")
+        )
+        .unwrap();
+        f
+    });
+    let mut walk_rows = (walking && (walk_trace > 0 || !only.is_empty())).then(|| {
+        let (zip, mut rows) = gzip_to(&format!("{out}/walk.csv.gz"));
+        writeln!(rows, "frame,id,ax,ay,tx,ty,drive,job,energy,crop,hunger,hold,forage,threshold,depth,pref,p_move,moved,stall,target_x,target_y,won,cut,scout_patience,scout_home,scout_dark,scout_for_x,scout_for_y,esc_why,esc_nb,sealed").unwrap();
+        (zip, rows)
+    });
 
     let sid = lab.world.species.id_of("ant").expect("ant ships");
     let def = lab
@@ -711,7 +793,7 @@ fn main() {
     let mut stats_csv = std::io::BufWriter::new(std::fs::File::create(format!("{out}/stats.csv")).unwrap());
     writeln!(
         stats_csv,
-        "frame,ants,brood,{},eggs_laid,pupae,births,larvae_starved,brood_ate_j,brood_crop_fed_j,brood_nursed_j,brood_shared_j,brood_upkeep_j,larva_ticks_hungry,larva_ticks_crop_fed,larva_ticks_nursed,crop_down_holds,nurse_seeks,soil_way_pulls,hungry_out_pulls,spoil_held_below,spoil_kept_inside,spoil_dumped,lean_dropped,digs,eats,pickups,drops,deliveries,trip_deliveries,forage_trips,forage_returns,topup_shares,throttle_held,throttle_sent,at_nest_ticks,nest_visits,buds_held_for_nest,lays_declined,births_denied_no_space,food_brake_held,shares,home_searches,carry_fills,carry_turns,mound_out_pulls,mound_digs_let,needs_down,needs_packed,needs_quit,needs_weak_digs,needs_cue_waived,needs_face_waived,needs_throttle_lifted,needs_roof_refused,needs_no_site,nest_store_food,nest_store_carry_pulls,nest_store_eat_pulls,nest_store_home_pulls,nest_store_bites,store_pickups,store_delivered,store_released,store_held,store_kept,nest_store_fetch_pulls,column_refused,column_cleared,meal_holds,feed_first_held,lean_digs_skipped,forager_digs_skipped,rest_pulls,store_reads_low,store_turned_away,store_out_pulls,meet_way_stamps,spoil_side_turned,spoil_ring_drawn,forage_paced,forage_scouted,mound_in_pulls,recruit_contacts,recruited,lay_brake_crowded,lay_brake_store,store_brake_held",
+        "frame,ants,brood,{},eggs_laid,pupae,births,larvae_starved,brood_ate_j,brood_crop_fed_j,brood_nursed_j,brood_shared_j,brood_upkeep_j,larva_ticks_hungry,larva_ticks_crop_fed,larva_ticks_nursed,crop_down_holds,nurse_seeks,soil_way_pulls,hungry_out_pulls,spoil_held_below,spoil_kept_inside,spoil_dumped,lean_dropped,digs,eats,pickups,drops,deliveries,trip_deliveries,forage_trips,forage_returns,topup_shares,throttle_held,throttle_sent,at_nest_ticks,nest_visits,buds_held_for_nest,lays_declined,births_denied_no_space,food_brake_held,shares,home_searches,carry_fills,carry_turns,mound_out_pulls,mound_digs_let,needs_down,needs_packed,needs_quit,needs_weak_digs,needs_cue_waived,needs_face_waived,needs_throttle_lifted,needs_roof_refused,needs_no_site,nest_store_food,nest_store_carry_pulls,nest_store_eat_pulls,nest_store_home_pulls,nest_store_bites,store_pickups,store_delivered,store_released,store_held,store_kept,nest_store_fetch_pulls,column_refused,column_cleared,meal_holds,feed_first_held,lean_digs_skipped,forager_digs_skipped,rest_pulls,store_reads_low,store_turned_away,store_out_pulls,meet_way_stamps,spoil_side_turned,spoil_ring_drawn,forage_paced,forage_scouted,mound_in_pulls,recruit_contacts,recruited,lay_brake_crowded,lay_brake_store,store_brake_held,depth_slowed,depth_pauses,depth_unknown,depth_rows,depth_ground_rows,depth_err_rows,depth_lean_slowed",
         organism::DEATH_CAUSE_LIST
             .iter()
             .map(|c| format!("died_{}", c.label().to_lowercase().replace(['?'], "unknown").replace(' ', "_")))
@@ -949,6 +1031,57 @@ fn main() {
             Vec::new()
         };
 
+        if let Some(mode) = needs.filter(|_| f == needs_at) {
+            let mut walk = creature::needs::NeedsWalk::new(mode, lab.world.frame);
+            walk.trace_every = walk_trace;
+            walk.trace_ids = only.clone();
+            walk.parts = needs_parts;
+            if needs_parts.reach {
+                walk.hidden_log = Some(Vec::new());
+            }
+            if needs_parts.sealed_out {
+                walk.sealed_log = Some(Vec::new());
+            }
+            lab.world.needs = Some(Box::new(walk));
+            writeln!(
+                events,
+                "{f} NEEDS mode={mode:?} parts={} world_frame={}",
+                needs_parts.label(),
+                lab.world.frame
+            )
+            .unwrap();
+        }
+        // `hidden.csv`: every decision `reach` hid all the food in the box,
+        // and whether some of it was joined to the head by air in the wider
+        // check (`needs::AIR_CHECK`) -- drained each frame.
+        if let Some(log) = lab.world.needs.as_mut().and_then(|n| n.hidden_log.as_mut()) {
+            let hf = hidden_csv.get_or_insert_with(|| {
+                let mut f = std::io::BufWriter::new(std::fs::File::create(format!("{out}/hidden.csv")).unwrap());
+                writeln!(f, "frame,id,air").unwrap();
+                f
+            });
+            for (fr, id, air) in log.drain(..) {
+                writeln!(hf, "{fr},{id},{}", u8::from(air)).unwrap();
+            }
+        }
+        // `sealed.csv`: every sealed event's start and end
+        // (`needs::SealRow`) under `sealed_out` -- drained each frame.
+        if let Some(log) = lab.world.needs.as_mut().and_then(|n| n.sealed_log.as_mut()) {
+            let sf = sealed_csv.get_or_insert_with(|| {
+                let mut f = std::io::BufWriter::new(std::fs::File::create(format!("{out}/sealed.csv")).unwrap());
+                writeln!(f, "frame,id,event,x,y,cells,hold,energy,crop,cuts").unwrap();
+                f
+            });
+            for r in log.drain(..) {
+                let ev = ["found", "freed", "opened"][r.event as usize];
+                writeln!(
+                    sf,
+                    "{},{},{ev},{},{},{},{},{:.1},{:.1},{}",
+                    r.frame, r.id, r.at.0, r.at.1, r.cells, r.hold, r.energy, r.crop, r.cuts
+                )
+                .unwrap();
+            }
+        }
         if let Some(d) = droplog.as_mut() {
             d.pre(&lab.world, g, &live);
         }
@@ -963,6 +1096,45 @@ fn main() {
         // lands on its own life before `died` closes it -- booked after, it
         // opened a fresh life born at frame 0, a ghost line in `ledger.csv`.
         let rows: Vec<DecisionRow> = lab.world.decision_log.as_mut().map(std::mem::take).unwrap_or_default();
+        if let (Some((_, out)), Some(walk)) = (walk_rows.as_mut(), lab.world.needs.as_mut()) {
+            for r in walk.rows.drain(..) {
+                let (tx, ty) = r.target.map_or((String::new(), String::new()), |t| (t.0.to_string(), t.1.to_string()));
+                writeln!(
+                    out,
+                    "{},{},{},{},{},{},{},{},{:.1},{:.1},{:.3},{:.3},{:.4},{:.3},{},{:.1},{:.3},{},{},{tx},{ty},{},{},{:.3},{},{},{},{},{},{},{}",
+                    r.frame,
+                    r.id,
+                    r.at.0,
+                    r.at.1,
+                    r.to.0,
+                    r.to.1,
+                    r.drive.label(),
+                    r.job.label(),
+                    r.energy,
+                    r.crop,
+                    r.hunger,
+                    r.hold,
+                    r.forage,
+                    r.threshold,
+                    if r.depth == i32::MIN { String::new() } else { r.depth.to_string() },
+                    r.pref,
+                    r.p_move,
+                    u8::from(r.moved),
+                    r.stall,
+                    u8::from(r.won),
+                    r.cut,
+                    r.scout_patience,
+                    u8::from(r.scout_home),
+                    u8::from(r.scout_dark),
+                    r.scout_for.0,
+                    r.scout_for.1,
+                    creature::needs::ESC_WHY_NAMES[r.esc_why as usize],
+                    r.esc_nb,
+                    u8::from(r.sealed)
+                )
+                .unwrap();
+            }
+        }
         let feeds: Vec<FeedRow> = lab.world.feed_log.as_mut().map(std::mem::take).unwrap_or_default();
         if let Some(fl) = foodlog.as_mut() {
             let moved = lab.world.food_log.as_mut().map(std::mem::take).unwrap_or_default();
@@ -1159,7 +1331,7 @@ fn main() {
             let st = &w.creature_stats;
             writeln!(
                 stats_csv,
-                "{f},{},{},{},{},{},{},{},{:.0},{:.0},{:.0},{:.0},{:.0},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
+                "{f},{},{},{},{},{},{},{},{:.0},{:.0},{:.0},{:.0},{:.0},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
                 live.len(),
                 w.live_brood_ids().len(),
                 w.deaths_by_cause.iter().map(|d| d.to_string()).collect::<Vec<_>>().join(","),
@@ -1247,6 +1419,13 @@ fn main() {
                 st.lay_brake_crowded,
                 st.lay_brake_store,
                 st.store_brake_held,
+                st.depth_slowed,
+                st.depth_pauses,
+                st.depth_unknown,
+                st.depth_rows,
+                st.depth_ground_rows,
+                st.depth_err_rows,
+                st.depth_lean_slowed,
             )
             .unwrap();
             if let Some(bc) = brain_csv.as_mut() {
@@ -1288,6 +1467,82 @@ fn main() {
                     st.spoil.as_ref().map_or(0, |_| 1),
                     st.energy,
                     u8::from(home)
+                )
+                .unwrap();
+            }
+            if let (Some(wc), Some(walk)) = (walk_colony.as_mut(), w.needs.as_ref()) {
+                for &id in &live {
+                    let Some(v) = walk.view(id).filter(|_| w.organism(id).is_some()) else { continue };
+                    let (dx, dy) = v.door.map_or((String::new(), String::new()), |d| (d.0.to_string(), d.1.to_string()));
+                    writeln!(
+                        wc,
+                        "{f},{id},{},{},{:.3},{:.3},{:.4},{:.3},{:.1},{:.3},{},{:.3},{:.3},{dx},{dy}",
+                        v.drive.label(),
+                        v.job.label(),
+                        v.hunger,
+                        v.hold,
+                        v.forage,
+                        v.threshold,
+                        v.pref,
+                        v.p_move,
+                        v.stall,
+                        v.meet,
+                        v.glut
+                    )
+                    .unwrap();
+                }
+            }
+            if let (Some(wn), Some(walk)) = (walk_counts.as_mut(), w.needs.as_ref()) {
+                let c = walk.counts;
+                let dec: Vec<String> = c.decisions.iter().map(u64::to_string).collect();
+                let cut: Vec<String> = c.cuts.iter().map(u64::to_string).collect();
+                writeln!(
+                    wn,
+                    "{f},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
+                    walk.minds(),
+                    dec.join(","),
+                    c.took_forage,
+                    c.quit_forage,
+                    c.need_over_job,
+                    c.ate_held,
+                    c.pellets_down,
+                    c.escape_cuts,
+                    c.escape_packs,
+                    c.gluts,
+                    cut.join(","),
+                    c.dig_took,
+                    c.dig_quit,
+                    c.dig_tired,
+                    c.clear_cuts,
+                    c.gave_up,
+                    c.lay_walks,
+                    c.meals_kept,
+                    c.stays_not_stalls,
+                    c.reach_hidden,
+                    c.eat_gave_up,
+                    c.eat_gave_up_again,
+                    c.eat_rest,
+                    c.eat_rest_ate,
+                    c.eat_rest_out,
+                    c.reach_hidden_air,
+                    c.bouts,
+                    c.bouts_fed,
+                    c.bouts_fed_outside,
+                    c.bouts_died,
+                    c.hold_ignored,
+                    c.seal_floods,
+                    c.sealed_found,
+                    c.sealed_freed,
+                    c.sealed_opened,
+                    c.sealed_cuts,
+                    c.sealed_packs,
+                    c.seal_aim_turned,
+                    c.sealed_drops,
+                    c.sealed_load_down,
+                    c.seal_recut,
+                    c.ate_held_jaws,
+                    c.eat_held_refused,
+                    c.laden_soil
                 )
                 .unwrap();
             }
@@ -1387,6 +1642,22 @@ fn main() {
         eprintln!("deeptrace: brain census rows that did not rebuild the brain's Move: {brain_mismatch}");
     }
     stats_csv.flush().unwrap();
+    if let Some(mut f) = walk_colony {
+        f.flush().unwrap();
+    }
+    if let Some(mut f) = walk_counts {
+        f.flush().unwrap();
+    }
+    if let Some(mut f) = hidden_csv {
+        f.flush().unwrap();
+    }
+    if let Some(mut f) = sealed_csv {
+        f.flush().unwrap();
+    }
+    if let Some((mut zip, rows)) = walk_rows {
+        drop(rows);
+        let _ = zip.wait();
+    }
     storereads.flush().unwrap();
     if let Some(d) = diglog {
         d.finish();

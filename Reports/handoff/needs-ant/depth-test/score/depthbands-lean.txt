@@ -1,0 +1,36 @@
+== /home/claude/runs/depth/lean-s1  (100-300k, 201 samples)
+  live ants (mean): 725  (nest workers 182, others 543)
+  nest workers: mean ants at door knot / rest of top 10 rows / deeper in door column / deeper off it: 13.0 / 6.6 / 1.8 / 2.0   (idle: 2.0 / 2.7 / 0.0 / 0.0)
+  other ants: mean ants at door knot / rest of top 10 rows / deeper in door column / deeper off it: 17.5 / 7.4 / 0.2 / 0.2   (idle: 4.5 / 4.8 / 0.0 / 0.0)
+  DEEPER THAN 10 ROWS: about 4.1 of 725 ants (0.57%): door column 2.0, off it 2.2
+  ants by energy (under the lean line 100 J / lean line to grant / at or over the grant): door knot 1.8 / 21.2 / 7.5; rest of top 0.6 / 4.4 / 9.0; door column deep 0.1 / 1.8 / 0.1; off column deep 0.1 / 2.1 / 0.0
+  nest workers in the dug nest by rows below ground (0-9,10-19,...,60+): 18.7 / 4.1 / 0.6 / 0.0 / 0.0 / 0.0 / 0.0
+  depth rule over the window: slowed 418033 decisions, pauses it made 42457, never-out decisions 364185; mean depth remembered 6.7 rows vs below founding ground 5.1 (mean gap 1.7)
+  rest pulls 0, hungry way-out pulls 484661
+== /home/claude/runs/depth/lean-s2  (100-300k, 201 samples)
+  live ants (mean): 548  (nest workers 140, others 407)
+  nest workers: mean ants at door knot / rest of top 10 rows / deeper in door column / deeper off it: 9.6 / 1.8 / 1.6 / 1.2   (idle: 2.2 / 0.1 / 0.0 / 0.0)
+  other ants: mean ants at door knot / rest of top 10 rows / deeper in door column / deeper off it: 15.2 / 0.2 / 0.1 / 0.1   (idle: 7.0 / 0.1 / 0.0 / 0.0)
+  DEEPER THAN 10 ROWS: about 2.9 of 548 ants (0.54%): door column 1.7, off it 1.2
+  ants by energy (under the lean line 100 J / lean line to grant / at or over the grant): door knot 0.1 / 14.3 / 10.5; rest of top 0.1 / 1.7 / 0.2; door column deep 0.0 / 1.6 / 0.0; off column deep 0.0 / 1.2 / 0.0
+  nest workers in the dug nest by rows below ground (0-9,10-19,...,60+): 10.8 / 2.5 / 0.6 / 0.2 / 0.0 / 0.0 / 0.0
+  depth rule over the window: slowed 271116 decisions, pauses it made 30186, never-out decisions 311249; mean depth remembered 6.9 rows vs below founding ground 5.2 (mean gap 1.7)
+  rest pulls 0, hungry way-out pulls 263063
+== /home/claude/runs/depth/lean-s3  (100-300k, 201 samples)
+  live ants (mean): 525  (nest workers 127, others 398)
+  nest workers: mean ants at door knot / rest of top 10 rows / deeper in door column / deeper off it: 9.0 / 1.8 / 1.4 / 1.1   (idle: 1.9 / 0.1 / 0.0 / 0.0)
+  other ants: mean ants at door knot / rest of top 10 rows / deeper in door column / deeper off it: 18.1 / 0.3 / 0.1 / 0.1   (idle: 8.0 / 0.2 / 0.0 / 0.0)
+  DEEPER THAN 10 ROWS: about 2.6 of 525 ants (0.50%): door column 1.5, off it 1.2
+  ants by energy (under the lean line 100 J / lean line to grant / at or over the grant): door knot 0.1 / 16.0 / 11.0; rest of top 0.0 / 1.7 / 0.3; door column deep 0.0 / 1.4 / 0.1; off column deep 0.0 / 1.1 / 0.0
+  nest workers in the dug nest by rows below ground (0-9,10-19,...,60+): 10.2 / 2.5 / 0.5 / 0.0 / 0.0 / 0.0 / 0.0
+  depth rule over the window: slowed 233736 decisions, pauses it made 29527, never-out decisions 287254; mean depth remembered 7.5 rows vs below founding ground 5.8 (mean gap 1.7)
+  rest pulls 0, hungry way-out pulls 277507
+== /home/claude/runs/depth/lean-s4  (100-300k, 201 samples)
+  live ants (mean): 530  (nest workers 132, others 399)
+  nest workers: mean ants at door knot / rest of top 10 rows / deeper in door column / deeper off it: 10.0 / 1.7 / 1.6 / 1.1   (idle: 2.3 / 0.1 / 0.0 / 0.0)
+  other ants: mean ants at door knot / rest of top 10 rows / deeper in door column / deeper off it: 16.1 / 0.2 / 0.1 / 0.1   (idle: 7.2 / 0.1 / 0.1 / 0.0)
+  DEEPER THAN 10 ROWS: about 2.9 of 530 ants (0.54%): door column 1.7, off it 1.2
+  ants by energy (under the lean line 100 J / lean line to grant / at or over the grant): door knot 0.1 / 15.5 / 10.5; rest of top 0.0 / 1.7 / 0.2; door column deep 0.0 / 1.7 / 0.1; off column deep 0.0 / 1.1 / 0.1
+  nest workers in the dug nest by rows below ground (0-9,10-19,...,60+): 11.1 / 2.6 / 0.6 / 0.1 / 0.0 / 0.0 / 0.0
+  depth rule over the window: slowed 336343 decisions, pauses it made 38987, never-out decisions 283618; mean depth remembered 7.1 rows vs below founding ground 5.3 (mean gap 1.7)
+  rest pulls 0, hungry way-out pulls 281252

@@ -1,0 +1,36 @@
+== /home/claude/runs/depth/slowrest-s1  (100-300k, 201 samples)
+  live ants (mean): 551  (nest workers 142, others 409)
+  nest workers: mean ants at door knot / rest of top 10 rows / deeper in door column / deeper off it: 11.5 / 2.5 / 2.1 / 1.9   (idle: 2.5 / 0.3 / 0.0 / 0.0)
+  other ants: mean ants at door knot / rest of top 10 rows / deeper in door column / deeper off it: 15.3 / 0.2 / 0.1 / 0.1   (idle: 6.7 / 0.0 / 0.0 / 0.0)
+  DEEPER THAN 10 ROWS: about 4.2 of 551 ants (0.76%): door column 2.2, off it 2.0
+  ants by energy (under the lean line 100 J / lean line to grant / at or over the grant): door knot 0.1 / 16.2 / 10.5; rest of top 0.0 / 2.3 / 0.4; door column deep 0.0 / 2.2 / 0.1; off column deep 0.0 / 1.9 / 0.1
+  nest workers in the dug nest by rows below ground (0-9,10-19,...,60+): 13.4 / 3.3 / 0.9 / 0.4 / 0.0 / 0.0 / 0.0
+  depth rule over the window: slowed 99293 decisions, pauses it made 3678, never-out decisions 69669; mean depth remembered 2.8 rows vs below founding ground 1.3 (mean gap 1.5)
+  rest pulls 28445, hungry way-out pulls 349787
+== /home/claude/runs/depth/slowrest-s2  (100-300k, 201 samples)
+  live ants (mean): 876  (nest workers 215, others 661)
+  nest workers: mean ants at door knot / rest of top 10 rows / deeper in door column / deeper off it: 15.9 / 10.0 / 1.9 / 2.3   (idle: 1.4 / 3.7 / 0.0 / 0.0)
+  other ants: mean ants at door knot / rest of top 10 rows / deeper in door column / deeper off it: 21.7 / 11.9 / 0.3 / 0.4   (idle: 4.6 / 6.3 / 0.0 / 0.0)
+  DEEPER THAN 10 ROWS: about 4.9 of 876 ants (0.56%): door column 2.2, off it 2.7
+  ants by energy (under the lean line 100 J / lean line to grant / at or over the grant): door knot 3.4 / 27.0 / 7.2; rest of top 0.9 / 6.3 / 14.7; door column deep 0.2 / 1.9 / 0.1; off column deep 0.1 / 2.5 / 0.1
+  nest workers in the dug nest by rows below ground (0-9,10-19,...,60+): 25.0 / 4.2 / 0.8 / 0.1 / 0.0 / 0.0 / 0.0
+  depth rule over the window: slowed 155375 decisions, pauses it made 3285, never-out decisions 66098; mean depth remembered 2.3 rows vs below founding ground 0.9 (mean gap 1.4)
+  rest pulls 78837, hungry way-out pulls 710229
+== /home/claude/runs/depth/slowrest-s3  (100-300k, 201 samples)
+  live ants (mean): 533  (nest workers 133, others 400)
+  nest workers: mean ants at door knot / rest of top 10 rows / deeper in door column / deeper off it: 8.9 / 1.8 / 1.7 / 1.1   (idle: 1.5 / 0.2 / 0.0 / 0.0)
+  other ants: mean ants at door knot / rest of top 10 rows / deeper in door column / deeper off it: 9.7 / 0.1 / 0.1 / 0.1   (idle: 3.6 / 0.0 / 0.0 / 0.0)
+  DEEPER THAN 10 ROWS: about 3.0 of 533 ants (0.56%): door column 1.8, off it 1.2
+  ants by energy (under the lean line 100 J / lean line to grant / at or over the grant): door knot 0.2 / 12.1 / 6.3; rest of top 0.0 / 1.7 / 0.3; door column deep 0.0 / 1.7 / 0.0; off column deep 0.0 / 1.2 / 0.0
+  nest workers in the dug nest by rows below ground (0-9,10-19,...,60+): 10.2 / 2.3 / 0.7 / 0.3 / 0.0 / 0.0 / 0.0
+  depth rule over the window: slowed 72903 decisions, pauses it made 2840, never-out decisions 38522; mean depth remembered 2.7 rows vs below founding ground 1.2 (mean gap 1.5)
+  rest pulls 24724, hungry way-out pulls 256762
+== /home/claude/runs/depth/slowrest-s4  (100-300k, 201 samples)
+  live ants (mean): 581  (nest workers 148, others 433)
+  nest workers: mean ants at door knot / rest of top 10 rows / deeper in door column / deeper off it: 10.6 / 2.8 / 2.0 / 2.1   (idle: 2.1 / 0.4 / 0.0 / 0.0)
+  other ants: mean ants at door knot / rest of top 10 rows / deeper in door column / deeper off it: 20.6 / 0.3 / 0.2 / 0.1   (idle: 9.5 / 0.1 / 0.0 / 0.0)
+  DEEPER THAN 10 ROWS: about 4.4 of 581 ants (0.76%): door column 2.2, off it 2.2
+  ants by energy (under the lean line 100 J / lean line to grant / at or over the grant): door knot 0.1 / 18.0 / 13.1; rest of top 0.1 / 2.4 / 0.5; door column deep 0.0 / 2.1 / 0.1; off column deep 0.0 / 2.1 / 0.1
+  nest workers in the dug nest by rows below ground (0-9,10-19,...,60+): 12.7 / 3.4 / 1.0 / 0.3 / 0.1 / 0.0 / 0.0
+  depth rule over the window: slowed 79477 decisions, pauses it made 2799, never-out decisions 69945; mean depth remembered 2.8 rows vs below founding ground 1.3 (mean gap 1.5)
+  rest pulls 23962, hungry way-out pulls 353543

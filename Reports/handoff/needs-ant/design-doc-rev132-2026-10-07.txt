@@ -1,0 +1,985 @@
+A needs-and-jobs ant: design for a second walk
+ · 
+Summary
+This is a design for a second way for the lab ant to decide what to do. It is built beside the shipped ant and switched off, so nothing else is risked if it fails (Scott, 2026-10-06). Four independent reviewers attacked the first version; this one takes their findings in, and Adversarial review lists what changed.
+The problem. Today a small brain decides when to act and about 27,000 lines of hand rules decide where. The walk takes the first matching pull, so hunger acts only when nothing else matched, and six vetoes let a job hold a starving ant. The one inward pull that shipped, the rest pull, collapsed two colonies of four and is off, though on top of the hunger-first switch it collapsed none (C1). And today's ~5% of ant-time "in the dug nest" is mostly the top of the door shaft: only about half a percent of ant-time is spent more than 10 rows down.
+
+The design. Two needs, hunger and escape, that outrank every job down to a hard floor. Seven jobs counting idle, taken by response thresholds that are genes, each with a stimulus the job itself lowers. One steering sum over a fixed set of cue terms, weighted by the winning drive. Idle ants are pulled nowhere: they slow down near a depth that suits their job and age, read from their own memory.
+
+Scents, taken seriously. A nest gas would not steer ants inside rooms. Sealed, rooms are flat (9% of nest cells readable). A test of letting the mound's loose soil pass air found it lowers the nest's air level and leaves the slope exactly as flat: readings rise only because the sensor reads a ratio, no ant that steps on a threshold follows it out, and most of the level still counts ants the reader cannot sense. Today's scent layers cannot carry such a smell either. So the design uses no gas and asks for no change to the world's physics: memory, touch, gravity, routes and the shipped larva sense.
+
+What the review changed. It is a bigger job than a hook: the brain reaches about ten places in the tick, so the tick and the 1,900-line act are split first, behaviour-identically. Four steps had been tried here and failed (the rest pull, crowding-driven digging, steering toward brood, dropping soil when lean); each got a named trace or re-test, and all four are back (Checks). Two metrics measured the wrong thing, so time in the nest is now measured by depth, and rooms by shape.
+
+How it is judged. Designed behaviours with traces; counters that the feared colony (sitting on food and laying) fails; a no-veto guard that checks outcomes; paired seeds. Colony size is a floor.
+
+For Scott: six cheap checks come first, using switches and tools that exist. All six are done (Scott chose checks first, 15:59). Holding ants inside and steering toward hungry larvae crashed no colony on today's game, and each raised deep time; the soil-air test and the soil-drop census each removed a part of the design; the new metrics are in the scorecard; the local digging switch had too few ants deep to judge. Building waits on your yes, and I recommend stacking the tested switches on today's ant first (Open questions).
+
+Where the ant is today
+Today's ant is a small brain that decides when to act, wrapped in a large set of hand rules that decide where to go and which job to do. Counted in the code on main 3ba1e7bd (2026-10-06); the rule audit has the detail (rule-audit-2026-10-06.md).
+Part
+Size
+What it decides
+Brain (brain.rs)
+33 inputs, 8 hidden units, 17 outputs; about 57 authored weights of ~940 slots
+the odds of stepping, eating, dropping food, dropping soil, digging, sharing, biting; how much trail to lay
+Hidden units in use
+4 of 8 retired under the chooser walk (trail inputs fed as 0); 3 single-purpose (nest odometer, nest dig gate); 1 free
+almost nothing combinational
+Hand rules (creature.rs before its tests)
+about 27,000 lines; 132 environment switches in creature.rs and brood.rs; 93 switch rows in how-the-ant-works.md §12
+where to walk, which pull wins, who is a nest worker, when to go out, where to drop and lay
+The walk is a ladder. chooser_step fills one pull slot with the first match: store trip, walk home to lay, nest-worker leash, soil out, back to the face, laden carry, then the hungry way out, the mound way out, the rest pull. Scouting, the only hunger-driven search, acts only when nothing above it matched.
+Hunger is what is left over, not a need that competes. That is why a pellet holder can starve beside food (traced, findings 30, 31, 35). The audit found five more vetoes of the same kind: the door throttle, the lean no-dig, the heap cue at zero, FaceTrip's only, and a caste fixed by id.
+Nothing live pulls an idle ant inward, and the one that did is off. Every live pull aims at the door, out, or the ant's last home contact, except a digger's walk back to its face. Three inward pulls were built: the rest pull (NEST_REST, along NestWay to the end of a gallery), the leash's deep form (to the chamber floor, off), and the nest keeper's home (dead-ends 1254). The rest pull shipped on 2026-10-05 and raised decisions below the founding ground from 8.3-10.3% to 9.3-12.3% (4 seeds, 200k); then two colonies of four collapsed after 230k (553 to 57 ants, and 586 to 17), and it went off the next day under the owner's rule until the deaths are understood. Why is only partly traced (creature.rs:12296). On top of the hunger-first switch it collapsed none of four colonies (C1). Today's 4.4-6.0% of ant-time in the dug nest (head below the old ground line) is 81-85% within 4 columns of the door and 10 rows of the surface; only 9-11% of it is deeper than 10 rows (measured, baseline seeds 1-4, 50-300k).
+Patches stack. The heap cue blocked breakouts, so DOOR_REOPEN waived it at the door. Lean ants could not dig, so MOUND_OUT=dig let them in the mound. HUNGRY_OUT's way missed the mound, so MOUND_OUT=way was built. Each was a correct fix of a traced problem; together they are a rule set nobody can predict.
+Why it grew this way. The brain cannot sense where anything is: it has no direction inputs, and the trail readings are zeroed for it under the chooser. Evolution gets about 17 generations in a 300k test run, with mutation off while measuring. So every wanted behaviour had to be written by hand, one symptom at a time.
+Goals and non-goals
+The goal is an ant whose behaviour comes from a few general mechanisms reading local signals, so that the designed colony behaviours appear without a rule per symptom. Survival is a base need inside each ant, never the score.
+Designed behaviours it must produce (the lab goal, Scott 2026-10-03, and the standing ant goals):
+Ants live in the nest: most ant-time underground in the dug nest, not on the mound or at the door.
+
+Separate chambers: brood rooms and worker rooms apart, built by the ants' own digging.
+
+Food organised apart from brood: stores the colony keeps and draws on.
+
+Foraging from the player's food, with recruitment that follows supply.
+
+Brood care: larvae fed where they lie, eggs laid where brood is kept.
+
+Later: defence against rival colonies and predators.
+
+Principles.
+Local signals only. An ant acts on what it touches, smells, carries or remembers. A global count is allowed only as a labelled stopgap with its local replacement named (Scott, 2026-10-06).
+
+Needs are base. In Scott's words, "hunger or other metrics of colony survival should be a more base need in the ant behavior and the ant itself should use that to override other rules" (2026-10-06). Here that is hunger and being trapped; whether rest is one too is open question 3.
+
+One way to steer. Every direction an ant takes comes from the same weighted sum over a fixed set of cue terms, so a new behaviour is new weights, not a new code path. The terms are of several kinds (memory, routes, touch, gravity, one short-range scent), because most scents have no usable slope where the ant needs one (Scents and fields in depth).
+
+Designed, then judged by trace. Each mechanism names the behaviour it serves and the trace that shows it working; colony size is a check, not the target.
+
+Mechanism is code, policy is genome. Weights and thresholds are genes that start at designed values (owner ruling on the breeding plan, §2a).
+
+Frame cost is a hard limit, and the world stays deterministic per build and seed.
+
+Non-goals.
+Not a neural network learned from scratch. In our generation counts it would not get there, and if it did it might find the colony that sits on the food and lays.
+
+Not a change to world physics: soil, footing, sliding, liquids and plants stay as they are.
+
+Not a change to the outdoor or held games, or to the shipped lab ant, until it has earned it (next section).
+
+Not exactness: a field that is nearly right and cheap beats one that is exact and slow.
+
+Kept separate from the shipped ant
+The new ant is a second walk the lab can switch to, built in its own files wherever it can be, off by default, so if it fails nothing else is lost (Scott, 2026-10-06). The shipped ant, the nest lanes and their baselines do not change and never wait on it.
+It is a refactor, not a hook (engineering review). The brain's outputs reach about ten places in the tick, not two: the step-or-stay roll, the forage drive and its pace, the launch, the tumble after a failed roll, act, the chooser's persistence, turn and noise, trail A and B laying, the synapse tax, the trace row, and the speculative pre-computation of every ant's brain (creature.rs:7575-8210, :21925). act is 1,899 lines that mix the mechanics (eat, cut, pick up, put down, share, lay) with the hand rules that gate them, reading six brain outputs, 20 switches and 10 random draws, and the functions the new walk needs are private. So before any new walk exists, slice 0 splits act into mechanics and gating, and creature_tick into the shared body and the decision, as a pure refactor that must pass the identity check on its own.
+Built as a hook after all (slice 0, 2026-10-06). Seven live branches were editing act, so moving its code would have made each of them re-merge. Instead the new walk hands act the urges its drive wants (1 for the verb it means, 0 for the others, the brain's own for share and bite) and takes over the step-or-stay chance, the step and an after-move hook, so act's mechanics and gates run unchanged and the no-veto guard checks by outcome that no gate blocks a need (src/sim/creature/needs.rs).
+Piece
+Where
+Shared-file edits
+Needs, jobs, steering
+new module src/sim/needs/
+none
+The act mechanics
+split out of act as crate-visible primitives
+creature.rs, behaviour-identical
+Targets reused by haul and dig (soil_way_pull, spoil_haul_target, dig_return_target)
+made crate-visible
+creature.rs, behaviour-identical
+The switch
+World::needs (empty for the shipped ant), set by the harness at a frame. Never an environment variable (cached once per process, so it cannot switch at a frame) and never a Chooser variant (69 Chooser:: comparisons, mostly ==, which the compiler would not flag)
+creature_tick branches on it before any chooser_for read, at each of the ten sites
+Per-ant state (job, hold, door vector, depth)
+a side table keyed by organism, cleared at death because slots are reused
+world.rs (a contested file)
+New genes
+their own table, copied at birth in the shared birth tail
+creature.rs:5811
+Trace
+new columns in the engine's decision row
+creature.rs:1159, world.rs:4021
+Lab founder
+a scenario option
+lab/scene.rs
+Off means bit-identical, checked properly. With the switch at Shipped the game must match main frame for frame. Today's identity check compares only summary columns on the frames both runs share. It must also require full frame coverage, diff the maps and the ledger byte for byte (deeptrace already writes them), and run CI's ascii and acceptance plus one outdoor and one held smoke run, all against a fresh off run of main at the merge base rather than a fixed baseline. The new code takes no random draws while off; when on, its draws come from new slots keyed per seed, ant and frame, so they cannot shift any other ant's stream.
+A decision tax. Not running the brain removes its synapse tax, about 0.025 J a decision, close to the species' whole 200 J budget over a median life of about 7,100 decisions (inferred from the species file and the baseline ledger). The new walk pays an equivalent tax, so starvation compares like with like.
+Branch and landing. Work happens on its own branch; each finished slice lands on main switched off, so the branch never drifts far behind (branchcheck.sh BxF under 300). Nest lanes never edit its files; it touches theirs only at the shared edits above, each proven neutral by the identity check.
+Who builds it. A separate thread, on Opus, started only on Scott's yes. No current lane is diverted.
+How to abandon it. Revert the hook commits and delete the module. The split of act can stay if it is worth keeping on its own merits (it makes the shipped ant's acts readable). Because the shipped ant never changed, nothing measured elsewhere is invalidated.
+Architecture
+The new walk keeps the engine's body and replaces the decision. One tick, in order:
+Sense. Only what the ant can know: its own energy, crop and jaws; what it touches (soil, loose spoil, brood, food, nestmates, open air); short-range scents summed from sources in reach, read once per decision and dotted with each heading; trail presence where a step would land; gravity and walls; and its memory: the home vector, the door vector (where it last stood in open air), its depth below that point, patience, and how long it has been still.
+
+Needs. Hunger and escape, each an urge from 0 to 1 that rises smoothly with its deficit. Water and heat come later.
+
+Jobs. Forage, haul soil, dig, nurse, store and lay, with idle as the default. Each job has a stimulus the ant senses, a threshold that is the ant's own gene, and a stimulus that doing the job lowers. One job at a time, with hysteresis so it does not flicker.
+
+Arbitrate. A need whose urge passes the job's hold takes over, whatever the job or the load. A job's hold has a ceiling below hunger's urge at 30% of the species budget (200 J), and the need-curve genes are clamped so mutation cannot move that floor. This is the audit's no-veto rule built into the structure; the guard in Measurement checks outcomes, not weights.
+
+Steer. The winning drive (a need, the job, or idle) sets weights on a fixed set of steering terms. Every usable heading is scored by the weighted sum, and the pick is the existing choose_weighted, whose randomness is intended. A kinesis term decides whether to step at all.
+
+Act. The drive picks the act from what is in reach, calling the mechanics split out of act: eat, put down, dig, pick up, load from a store, feed, lay or fight.
+
+Trace. Every decision of a sample of ants (chosen by id), and every decision near an event (hunger, a death, a job change), records the drive, the job, the strongest terms on each heading and the heading taken, so "why did it do that" is answered per ant (owner's rule, 2026-09-20). Tracing every decision of every ant would be about 30 million rows a seed.
+
+What stays exactly as it is: the body, falling and footing, energy costs, the crop and digestion, sharing, eggs and brood, the dig cut and pellet physics, the trail planes, and every world rule. What is new: needs, jobs, arbitration, the decision tax, the steering terms that do not exist yet (gravity, walls, the door vector, depth), the trace columns, and the split of act into mechanics and gating. What the brain did that the new walk must now do itself: decide step or stay; set persistence, turn and noise; set how much trail A to lay; and pay a decision tax (Kept separate).
+Why this shape. It is the response-threshold model of division of labour (Bonabeau, Theraulaz & Deneubourg 1996) with needs placed above jobs, feeding a steering stage much like the one the shipped walk already has. The real difference from today is arbitration: today the first matching pull wins and silences everything below it; here every term the winning drive cares about is added, and needs outrank jobs by construction. Two cautions from the review. The model's promise that the share of ants on a job follows its stimulus holds only for a stimulus the job itself lowers; dig (space grows) and nurse (fed larvae stop signalling) have that, forage does not, so it gets its own brake (Jobs). And the model needs thresholds that differ between ants; with mutation off every ant is the founder's copy, so each ant gets a small fixed jitter from its id.
+Needs
+A need is an urge inside the ant's own body that rises with a deficit and outranks every job, which is Scott's ruling that survival overrides other rules (2026-10-06). Two to start: hunger and escape.
+Hunger. Its urge is a smooth ramp of the ant's own energy: 0 above hunger_onset (a gene, starting at 0.6 of the species budget of 200 J), 1 at hunger_full (a gene, starting at 0.25), smooth in between. There is no cliff like today's LEAN_LINE at 0.5. Newborns hatch at about half the budget (traced by the inside lane, 2026-10-05), so they start mildly hungry; today the hungry pull out takes them out on 58-68% of their first exits. What hunger does, in order:
+Eats what it holds. Food it took to eat, or a store load in the jaws, is eaten before the ant walks anywhere, and kept until the ant is fed: food picked up to eat is never put back down at home. A forager's cargo is the one exception: at the nest it goes down on purpose, hungry or not, and a forager still hungry then takes food to eat (Scott, 2026-10-07; see the purpose row in Scott's needs and jobs).
+
+Lets go of soil safely. A pellet in the jaws is packed into the tunnel wall where there is one to pack against. It is put down in a tunnel only where the cell left behind keeps the tunnel passable, and never in the mound's tunnels. Dropping where it stands is today's LEAN_FORAGE drop, which the history traced shutting lean ants into pockets: of 127 ants that starved with empty jaws over 200-300k, 105 died in one (dead-ends 1262). Nest building is building a wall-pack rule for the shipped ant; it is not on main yet.
+
+Goes toward food it can sense: food at its head, crumbs, a pile within reach (summed from sources, the way larva_scent is).
+
+Goes out, when inside: back along the door vector, up, and along the walls. Below the door row NestWay can stand in, labelled; in the mound, where most covered ants are, it gives nothing, and no tested "out" cue exists there, so the door vector and the walls carry it. "Up" counts only while it gains rows and fades when it gains none: a pull up with no give-up pinned ants on walls before (deaths up a wall 85 to 180, dead-ends 1200).
+
+Gets onto routes by trail presence, with direction from the home vector: away from home when empty.
+
+Begs from a nestmate it touches, with today's sharing mechanics.
+
+Scouts when nothing else is sensed: today's scout term, scaled by hunger.
+
+Escape. An ant is trapped when a need wants it out and it cannot get there: it is covered, and its progress toward out has stalled for a while. Progress is measured against its own memory: the distance back to its door vector's origin, or for an ant that has never been out, rows gained. All of that is the ant's own state; it never needs to know that a door is shut, only that it has been pushing at soil. Escape rises with the stall, faster when hungry, lets the ant dig at any energy toward the door vector's origin and up, and has its own give-up: when digging gains nothing, it turns along the walls. Its nearest shipped ancestor, MOUND_OUT=dig, is on main and already took shut-in spells ending starved from 1.3% to 0.5% (dead-ends 1264), so that is the bar. DOOR_DIG's heap form also cut door-shut samples from 58 to 39 of 192, at a cost in colony size (dead-ends 1232).
+Rest is not a need here. Idle is what an ant does when no need or job passes its threshold. Real colonies keep many inactive workers, which act as a reserve labour force (Charbonneau, Sasaki & Dornhaus 2017, PLoS ONE 12:e0184074, doi 10.1371/journal.pone.0184074, via PubMed). Where idle ants sit is set by the depth kinesis in The steering law, not by a pull. Scott's ruling names hunger and survival; whether rest should also be a need is open question 3.
+How a need takes over. Each job carries a hold, which rises while the job makes progress and fades when it does not, up to a ceiling below hunger's urge at 30% of the budget. A need wins when its urge passes the hold. The job is suspended, not forgotten: a digger that went out to eat walks back to its face by memory afterwards. The need-curve genes are clamped so that no mutation can move the 30% floor under the ceiling.
+Later needs: water, once the lab has dry spells; heat.
+Jobs and response thresholds
+Each job has a stimulus the ant senses, a threshold that is its own gene, an end, and a way that doing the job lowers its stimulus. A job is taken with probability s² / (s² + θ²) per decision, where s is the stimulus and θ the threshold (Bonabeau, Theraulaz & Deneubourg 1996). Ants with low thresholds take a job first, and the share of ants on a job follows its stimulus only when doing the job lowers it.
+Job
+Stimulus (local), and what lowers it
+Ends when
+Steers by
+What the record says
+Forage
+a leaky count of meetings with laden returners (a rate, where today's met saturates at one meeting), plus the ant's own hunger, plus a small floor so fed ants still scout. Little lowers it, so its brakes are a full crop, the ant's own hunger, and food already lying uneaten where it unloads (Scott's "more than enough food", below)
+crop full, then it carries home; or patience runs out
+out: routes with the away term, the door reader, scouting. Home: home vector and route presence, laying trail B only while closing on home
+Resting every idle ant starved the founding colony (births 22 to 5 a seed): fed ants with no returns to meet never left. Better homing alone shrank the colony twice, because lost carriers lingering at the heap were the colony's meal (dead-ends 1258, 1260). Paired with filling the crop before leaving the food, it carried 11-113% more food home, and its deaths traced to the mound trap (1262). Re-tested on top of the hunger-first switch (Nest building, seeds 1-4 to 300k), the pair did its job on every seed: carries that lost the pull home fell from 87-88% to 57-65%, trip food rose from 6,680-9,203 to 13,061-16,170, and time deeper than 10 rows rose to 0.63-1.59%. So the carry home takes both parts. Its side effect was room: seed 2 doubled to about 1,000 ants, and 51 starved inside the one room under the door while it and the shaft were packed solid (traced). It does not wait for a store, which needs ants that can get home (Scott, 2026-10-06)
+Haul soil
+a pellet in the jaws, or loose spoil at its head inside; lowered as the soil goes
+the pellet is down at a heap; then, with food in reach there, it brings food in (fetch-in; Scott, 2026-10-06)
+out along the door vector, up and the walls; the drop site by the spoil already lying there (the spoil material that spoil_cue_factor reads)
+The limit on soil leaving is traffic in the shaft, not direction (dead-ends 1216). A drop preference for marked soil was declined when one drop in ninety had a choice (dead-ends 1104); the re-census on the lab bed (C3) found about one in 45, since most drops have one cell or none to choose from and only a tenth of the mound is still spoil, so the haul job gets no drop term
+Dig
+soil at its face, plus bodies within 2 cells of its head (counted, not divided by open cells, which would favour tunnel tips); lowered as space grows
+crowding falls below threshold with no fresh cut near; or patience runs out
+back to its face by memory, down, toward fresh cuts; a face-distance limit keeps cuts at the face
+Crowding-driven digging was a coin flip four times on room totals, and with a gathering point it made the nest flatter (dead-ends 1878); it has never been scored on chambers (check C2). Branches bud as density falls (Toffin et al. 2009), so the job stays alive at low density where fresh cuts are near. Removing the leash's veto moved cuts off the face (dead-ends 1256)
+Nurse
+larva hunger by the shipped sense, with food in the crop or food inside to load from; lowered as larvae are fed
+larvae in reach fed, or crop empty
+toward hungry larvae by the shipped sense
+Steering toward brood crashed colonies on an older game, cause untraced (BroodBearing, dead-ends 2029), and nurses seeking larvae moved energy but added none (dead-ends 1231). On today's game it crashed none at weight 1.9 and raised deep time 2-3x on eight seeds, at 4-17% fewer ants (C4), so the nurse steers by the larva sense as a direction, never an amount
+Store
+food in the crop beyond the ant's own need, inside; lowered as food is put down
+food put down
+to its preferred depth, then beside food there
+Inside food is 0-3 cells on every baseline map, so the first drop is placed by depth, not by food
+Lay
+the ant's bank above the lay bar; lowered as eggs are laid
+egg laid
+toward brood by touch and the larva sense; lays less as the summed need of hungry larvae rises
+The larva sense's strength saturates near brood, so the brake reads the summed need
+Idle
+nothing passes its threshold
+a need or a job takes over
+no pull: a kinesis slows the ant near its preferred depth
+The rest pull, an inward pull along NestWay, collapsed two colonies of four (creature.rs:12296). On top of the hunger-first switch it collapsed none and raised time deeper than 10 rows on all four seeds (C1); that gain is the bar the slowing must beat
+Hysteresis. Once on a job, the ant stays while its stimulus is above half its threshold (the half is a gene) and for at least a short dwell, so a stimulus near the line does not make it flicker.
+Scott's needs and jobs, checked against this design (his description, 2026-10-06 20:44, in the Nest race thread). Hungry ants eat at the store and go back to their jobs; foragers go back out unless the colony has more than enough food, then rest; nest workers dig and carry food from the entrance to the store; nurses tend brood. Two parts were missing: the "more than enough" brake, which joins slice 1, and the fetch-in job, which waits for the store in slice 3.
+Scott's description
+Where the design stands
+Slice
+A hungry ant eats, then goes back to its job; ants do not sit in the store eating
+Matches. Hunger suspends the job and the ant walks back to it by memory. Hunger's urge is zero above 60% of the budget, and an idle ant rests at its preferred depth, not at food
+1
+Something sends foragers out without the hunger rule
+Matches. The forage job's own stimulus does: meetings with laden returners, the ant's own hunger, and a small floor so fed ants still scout. Hunger is one input to it, not a rule that walks ants out
+1
+Foragers rest when the colony has more than enough food
+Was missing; added. Food already lying uneaten where a forager unloads, or a load nestmates will not take, brakes its forage stimulus. Real foragers regulate this way: a forager's own crop load sets how often it goes out, so no ant needs the colony's total (Greenwald, Baltiansky & Feinerman 2018, via PubMed)
+1
+A hungry ant inside goes to the storeroom to eat
+Differs. Hunger inside heads for food it can sense, then out. A store out of sensing range needs the ant to remember where it last ate inside
+3, with the store
+Nest workers carry food from the entrance to the store
+Missing. The store job reads only food in the ant's own crop, so this needs a fetch-in job keyed on food lying inside the door. It is open to every ant, with thresholds that differ by ant: under the storeroom test, food piled at the mound because only nest workers could carry it in and nearly all of them held soil (Nest race, 2026-10-06)
+3
+A nest worker that carries soil out puts it down, then picks up food and brings it in (2026-10-06 22:58)
+Was missing; added. The haul job ends by handing over to fetch-in when food lies at the entrance or in reach of where the pellet went down, so a trip out with soil comes back with food. In slice 1, with no store yet, the food goes into the crop and is carried home as a forager's load is, which the forage job's carry home already does; it fires only where food lies near the drop, which on today's goal box (heap 30 cells east of the door) is rare
+1 into the crop; 3 to the store
+Nurses eat at the store, then go back to brood
+The suspend-and-return matches; nursing itself is built in slice 3
+3
+Picking up food has a purpose the ant keeps: to eat it, a forager's drop at the nest, a nest worker's carry to the store, a nurse's carry to brood (2026-10-07 01:26)
+Was missing; added. Each load keeps the purpose it was picked up for, set by the drive that picked it up and read by every rule that puts food down. Food taken to eat stays in the crop and digests until the ant's own energy, not its crop, is past the hunger onset; it is never put back down at home. A forager's cargo goes down at the nest on purpose, hungry or not: hunger changes what an ant picks up next, never where a load picked up for another purpose goes. A nest worker's load goes down only at the store, a nurse's only to a larva. Why: hungry ants 10 or more rows down put back 158 of 161 bites a median 25 frames after taking them, about 10 J gained each time, because the brain's drop fires at home (Deep trace, 2026-10-07). Slice 1 as built likely has the same fault (inferred from its code, to be checked in the gate run's trace): hunger counts crop food and every job keeps the brain's drop, so an ant that bites at home stops counting as hungry and can put the bite back
+1 (eating, and the forager's drop), once the gate run is traced; 3 (store, nurse)
+Thresholds differ between ants. Today one ant in four is a nest worker for life, chosen by its id. Here thresholds are genes and shift with age: young ants start with low nurse and dig thresholds, old ants with a low forage threshold. Tracked colonies show workers moving from one group to the next as they age, with spatial fidelity organising the colony (Mersch, Crespi & Keller 2013, Science 340:1090, doi 10.1126/science.1234316, via PubMed); which jobs go with which age here is our choice. With mutation off every daughter is the founder's exact copy, so each ant also gets a small fixed jitter on its thresholds, drawn once from its id: development, not heredity, and invisible to the shipped walk.
+Each job has a depth. Each ant carries a preferred resting depth, a gene shifted by age and job: stores shallow, brood care deep, foragers shallow, where returning foragers are met. Real nests zone this way, with stores near the top and brood deeper, set by microclimate (the project's nest-biology report, §3.2 and §5.4), and Cox & Blanchard's model puts different groups in different regions of the nest's air (2000). This is the design's only mechanism for designed behaviours 2 and 3, and it is untested.
+Locality. Every input the jobs read, whether it is local, and its replacement:
+Input
+Local?
+Local replacement
+Meetings with returners (meet_returning_forager, a 7x7 box)
+yes
+none needed
+Which returns count as trips (trip_source, from the distance to every nest's door)
+no
+the forager's own trip memory (forage_max)
+The door reader (acts inside a registry box around the door)
+no
+"I just stepped from cover to open air"
+Inside (inside_nest = covered, or in a registry shaft)
+no
+covered and below the door vector's origin
+Crowding at the nest (one census number per nest)
+no
+bodies within 2 cells (the shipped elsewhere branch)
+NestWay (breadth-first from the door)
+no
+the door vector, walls and up; a nest gas later, maybe
+Depth below the founding ground (slice 1's stand-in)
+no
+depth below the door vector's origin; for ants never out, rows of packed ground overhead
+Home and door vectors, patience
+yes
+none needed
+The steering law
+Every heading the ant could take gets a score, and the walk picks one with choose_weighted, as the shipped walk does:
+score(heading) = persistence × route hold + Σ weight(drive, term) × term(heading)
+The shipped walk already has this shape: its persistence is multiplied by 1 + 3 × trail presence, and the home, away and scouting terms are added to it (how-the-ant-works.md §6d). What is new is who sets the weights: the winning drive. Hunger weights the "out" terms, nursing the larva sense, idle almost nothing. Which terms exist is fixed in code; how much each counts for each drive is a gene. Separately, a kinesis decides whether to step at all.
+Term
+What it reads
+Kind
+Status
+Persistence
+the turn: going on 1, turning round 0
+body
+shipped, from the brain's Persist output; here a gene
+Route hold
+multiplies persistence by 1 + 3 × trail presence where the step lands
+route
+shipped (TRAIL_GAIN 3). Its floor, which counts presence above the weakest heading so that fog holds nothing (CARRY_HOME=turn), is off for now. With its partner, filling the crop before leaving food, carriers brought more food home on all four seeds; on top of the hunger-first switch the pair did so again, with 63-121% more trip food (dead-ends 1262; Nest building, 2026-10-06)
+Away on a route
+presence × cos(heading, away from home), empty ants only
+route and memory
+shipped (trailaway, AWAY_GAIN 1)
+Home vector
+patience × cos(heading, home)
+memory
+shipped (HOME_GAIN 1)
+Door reader
+the food trail, read at the door
+route
+shipped (FOOD_TRAIL_GAIN 6); acts inside a registry box, local replacement in Jobs
+Scouting
+level cos(heading, away from home) × hunger × (1 − presence) × patience
+memory
+shipped (gain 2). On the forage job hunger has a floor (a gene), so a fed forager still searches
+Door vector
+cos(heading, toward the last open-air cell it stood on)
+memory
+new: the inside version of the home vector; 0 for an ant that has never been out
+Up
+rows the step gains, counted only while the drive is gaining rows
+gravity
+new
+Down
+rows the step loses
+gravity
+new; dig only
+Walls
+keep a wall on one side when the heading the drive wants is blocked
+touch
+new
+Food sense
+food at the head, crumbs and piles in reach, summed from sources
+short-range sense
+new, built the way larva_scent is
+Larva sense
+the shipped larva_scent: each hungry larva's need, pointing at it, falling as 1/distance, in a 13x13 box, through walls
+short-range sense
+shipped
+Shipped targets
+the haul and dig targets (soil_way_pull, spoil_haul_target, dig_return_target) as a direction
+memory and route
+shipped functions, made crate-visible; the new walk keeps its own patience on them
+Fresh cuts
+cuts made by any ant within 3 cells in the last few thousand frames
+short-range mark
+new, slice 2: a plane holding the frame of each cut at the cell it opened
+Wall following has a basis in real ants: a weak individual tendency to follow walls, amplified by trails (Dussutour, Deneubourg & Fourcassié 2005, Proc Biol Sci 272:705, doi 10.1098/rspb.2004.2990, via PubMed); using it as a way out of a room is our assumption. A cut does not move once made, so its mark avoids the drift that rules out a scent on placed soil, whose grains slide and are carried (engineering review). One term was dropped: crowding at the step. For diggers it steered them apart, which removes the clustering that starts a new bud (biology review; branches bud where digging localises as density falls, Toffin et al. 2009).
+Each sensed vector is worked out once per decision and dotted with each heading, never once per heading. A 13x13 scan is about 170 reads, so three scans at about 100 decisions a frame is about 50,000 reads a frame (inferred). antcost times a stub of the scans against the shipped chooser before any budget is set.
+The kinesis: step or stay. The shipped step roll is already a kinesis: the brain's Move falls with Crowding at −0.3 (how-the-ant-works.md §4). The new walk starts from that and, for an idle ant, adds depth: the chance of stepping falls as the ant nears its preferred resting depth (Jobs), and falls further with resting nestmates it touches. In the first build, depth is a labelled stand-in, rows below the founding ground. Its local replacement is depth below the door vector's origin, or, for an ant that has never been out, rows of packed ground overhead. Two cues that look natural are ruled out by measurement. Cover (under_cover) is true in the spoil mound, where 4 to 17 times more ant cells sit than in the dug nest. And sealed nest-air level is the same within 5% everywhere past the throat and scales with how many ants are inside, so a set point on it is a disguised census (Scents).
+Starting weights. All are genes, set by design and then checked by trace. Each drive uses at most five terms besides persistence:
+Drive
+Terms and starting weights
+Hunger, inside
+door vector 1, up 1, walls 1, food sense 2; below the door row, NestWay 1 as the labelled stand-in
+Hunger, outside
+as forage going out, with food sense 2; scouting is already scaled by hunger
+Escape
+up 1 and door vector 1, digging allowed into the heading's soil cell; walls 1 once digging gains nothing
+Forage, going out
+route hold, away on a route 1, door reader 6, scouting 2
+Forage, carrying home
+as shipped: route hold and home vector 1, plus the route floor and fill-before-leaving, whose re-test passed
+Haul soil
+shipped target 1, door vector 1, up 1, walls 1
+Dig
+shipped target 1 (back to its face), down 0.5; fresh cuts 0.5 from slice 2
+Nurse
+larva sense 1, as a direction only (C4)
+Store
+up or down toward its preferred depth 1, then food sense 1
+Lay
+larva sense 1, brood by touch
+Idle
+persistence only; the kinesis decides where it stops
+The gains already shipped keep their values (HOME_GAIN 1, TRAIL_GAIN 3, AWAY_GAIN 1, scouting 2, the door reader's FOOD_TRAIL_GAIN 6). They are also the evolved founder's real gains: each is multiplied by one of six walk genes (WALK_GAIN_SLOTS) that ship at allele 0, a factor of exactly 1, and the evolved founder sets none of them (code-read, lab/scene.rs LAB_ANT_TRAITS). New terms start at 1, the size of the home pull, and are switched on one at a time.
+Where no cue exists, a term is 0, never a guess. No presence, no scent in reach, no door vector, or a sensor sample landing in soil all give 0. With every cue silent, persistence and the pick's noise make a correlated random walk, which is the scout.
+Why this is harder than it sounds (Scott's point, 2026-10-06). A weighted sum has known failure modes, and each needs its own defence:
+Terms that cancel trap the ant. Up against a door vector that points down, or a larva across a wall, can leave no heading that gains. So each term says what progress means for it (for up, rows gained; for a vector, distance closed) and fades when the drive stops making progress, while walls and noise rise. That is the shipped patience, which already works this way for the laden ant and the scout. Escape, which takes over when hunger stalls, has its own give-up, so the drive that takes over does not push at the same wall. A pull up with no give-up has pinned ants before: deaths up a wall rose from 85 to 180 (dead-ends 1200).
+
+A slope exists only where a field has one. A sealed nest's rooms have none, and today's planes cannot carry an in/out smell (Scents). So room behaviours use depth and touch, and every gradient term says where its slope was measured.
+
+The first ants to stop set the pile. Idle ants slowing beside resting nestmates can pile up wherever the first few stopped, the door included. The depth term exists to prevent that, and the first check of the new walk is where idle ants stop, by picture and by depth.
+
+Saturation silences a term, and the obvious fix needs a partner. Trail presence over the mound is 0.98-0.99 on every heading, so the route hold scales every heading alike there and steers nothing. Counting presence above the weakest heading fixes that. Alone, that floor cost the colony its meal, because carriers lingering at the heap were what fed it (dead-ends 1258, 1260). Paired with filling the crop before leaving food, carriers brought more home, and what still killed colonies was the mound trap (1262). The new ant's carry home takes both parts: on top of the hunger-first switch, the pair did its job on all four seeds (Nest building, 2026-10-06).
+
+A job's hold can outvote a need. A hold with no ceiling lets a digger in a good cut out-score hunger at 30% energy, which is today's veto rebuilt from weights. The ceiling sits below hunger's urge at that floor, and the guard checks that the ant ate or reached air, not that a weight points the right way (Measurement).
+
+Weights can become the new rules. Eleven drives by fourteen terms is the same hand-tuning moved into a table. Each drive uses at most five terms, starting weights come from gains already measured, and the robustness score in Measurement flags any weight a result hangs on.
+
+Every term carries a physics card before it ships, with ten lines: who writes the cue; whether its slope was measured where it is used; its read threshold against the storage step; where the sensor samples; what happens when the ant writes what it reads; and five lines the physics review added because each one moved an answer: where outside is (the sink); the field's time constant against how often it is refreshed; line of sight from the nose to the sample; how a reading becomes a term (sign, ratio or log, and its scale against persistence 1); and its dynamic range against the number of sources. Memory, gravity and touch terms fill in only the lines that apply. A term without a card does not ship.
+Scents and fields in depth
+"Go up or down this scent" is only as good as the scent. This section gives the evidence in three parts: what the trail loop already taught us, a measurement of whether a nest gas would have a gradient in today's nests, and each cue the new ant would use, with what it can and cannot steer. The physics review re-ran the measurement and found the answer hung on whether loose soil passes air; a follow-up test of that (C6) found it does not change the answer. This section gives both.
+The upshot: the first build needs no new field. No nest gas would steer ants inside rooms: letting the mound's loose soil pass air lowers the nest's level but leaves its slope as flat as sealed, and the level mostly counts bodies the ant cannot sense. So the first build steers by memory (the home and door vectors), gravity, touch, routes and the shipped larva sense, and places idle ants by depth rather than smell. Nest air is dropped from the plan, and the world's physics stays as it is.
+What the trail loop taught us
+From the repo's own measurements, surveyed 2026-10-06. The full list with a source on every claim is needs-ant/trail-lessons-2026-10-06.md.
+Who writes a field sets its slope. Only laden ants walking home lay the food trail, so its fresh end is the nest end: it read +0.04 to +0.23 toward home along the whole route. An ant climbing it walks home. The test bed's hand-laid ramp rose toward the food, so a "climb the scent" reader would have passed the bed and failed in the game.
+
+A trail has no direction. Presence reads the same both ways along a route. Direction came from the ant's own sense of home: an away-from-home term took ants across the lattice scene 24 of 24, at a median 297 decisions, against 21 of 24 at 1,189.
+
+An ant's own mark blinds its nose. The mark lands at its head, so "here" is always its freshest deposit: facing home read positive on only 1.2-8.2% of laden ticks. Making the plane four times more readable moved round trips 47 to 48. What worked was a path-integration input: completed returns 6.8% to 28.1%, better on 8 of 8 seeds.
+
+The blend, not evaporation, sets a trail's life. On a one-cell line the 3x3 blend takes 16.7% a pass against decay's 2.9%. An unreinforced trail lived 144 frames against a 2,200-frame round trip: "a live map of where ants are, not a memory" (pheromone.rs).
+
+Storage runs out at the faint end. On 8 bits the reading was exactly 0 at 0.7 and 0.9 of the way out. Sixteen bits took trail life from 144 to 1,476 frames.
+
+Saturation erases information. Over the spoil mound trail A reads 0.98-0.99 on every heading, so the trail hold multiplies every heading about four times and the pull home loses: 84-89% of carries lost the pull home at least once. At the door, presence read 0.99-1.00 whatever the news.
+
+Where the nose samples matters. The 6-cell sensor landed in sky or rock on 6 of 8 headings. The honesty gate and row projection took closed laps from 144 to 376.
+
+Ants reading a field they also write change the field. Wiring "scent rising under me" into stepping tethered empty ants to the nest (reached food 199 to 156). A two-point reader changed the trail the ants then laid (+0.06 to -0.016). The repo's rule: size any change to how ants read a field against the field they will then make.
+
+Lifetime is wrong both ways, and depends on the food patch. Too short and no road forms. Too long and dead side paths stay lit: food 104,340 to 82,820, lower on 8 of 12 seeds. Stale trails recruit to food that is gone, which a 700-frame news window fixed.
+
+Instruments lied three times: a polarity metric that counted one shoulder of a blob, a filmstrip that never steps the planes, and an overlay that drew a 250-to-50 ramp as flat.
+
+The planes ignore terrain. Scent spreads into rock and sky and leaks between tunnels. Nobody had measured how much that matters. The next part does.
+
+Would a nest gas have a gradient? Measured on today's nests
+My first check solved the steady state of a gas breathed out by ants (1 per ant cell) and brood (0.25 per cell), spreading through open cells and escaping only to open sky (an open cell with nothing over it). It ran on 12 real maps from the shared baseline (main 3ba1e7bd5, seeds 1-4 at 100k, 200k and 295k), with sources averaged over 10k frames of ant positions. For every dug-nest cell it asked what a 6-cell sensor reads at a 1% threshold, and where following the slope leads. The physics review rebuilt the solver, reproduced my numbers exactly, then changed the choices I had made one at a time. Scripts, data and a positive control are in needs-ant/gradient-check/; the review's runs are in needs-ant/review/physics.md.
+Case
+Maps where the gas gets out
+A room varies, top to bottom
+A sensor reads 1% or more
+...and its downhill leads out
+Ground and mound sealed; gas escapes only to open sky (my first check)
+7 of 11
+6% [3-9%]
+9% [3-16%]
+8.5%
+The mound's loose spoil passes 2%; ground sealed
+11 of 11
+13% [9-17%]
+17% [9-23%]
+16%
+...passes 10%
+11 of 11
+24% [19-27%]
+28% [16-39%]
+27%
+...passes 30%
+11 of 11
+33% [28-35%]
+46% [28-62%]
+43%
+Everything above the ground line counts as outside
+11 of 11
+63% [53-68%]
+74% [64-86%]
+72% [61-82%]
+All soil leaks 2%, ground included
+11 of 11
+12% [8-26%]
+27% [22-41%]
+slopes into the walls on 22% of cells; 8% of descents reach the sky
+Today's planes: no walls, no sink, fade 0.03 a pass
+n/a
+n/a
+96-100%
+about 50%: a blur of where ants crowd
+Today's planes without the fade (trail A's setting)
+n/a
+58% [47-64%]
+94-100%
+24-26%
+Medians over maps, range in brackets. The first row's slope figures are over the 7 maps where its gas gets out; the others are over the 11 maps where the walk had a way out (seed 4 at 200k had none). The plane rows are from two maps (seeds 1 and 3 at 200k). The pictures below are from my first check. The porous rows are not a steeper slope: the follow-up test (C6) found that inside the nest each equals the sealed field minus a constant, so the room spans and readings rise only because both are ratios over a lower level.
+
+
+What it shows:
+Where outside starts moves the level, not the slope. My first check let gas escape only to open sky, so the spoil mound's covered passages sat between the nest and the outside, and rooms came out flat. The review found that letting the mound's loose spoil pass even 2% opens every map and nearly doubles readability, and that counting the whole mound as outside reads 74% of cells. The follow-up test (C6, 11 maps) found why, and it is not a slope: inside the nest the porous field equals the sealed one minus a constant, whose spread is at most 0.06% of the nest's span. The sensor reads a ratio, so a lower level reads better, and the sealed field read against a lower reference gives the same readings. The shape is unchanged (picture: needs-ant/porosity/porosity_s1_f200000.png). Cox & Blanchard's model nest gives the same plateau under sealed walls, "a plateau of high concentration in the back half of the nest ... and a steep linear gradient in the entrance tunnel" (2000, J Theor Biol 204:223, doi 10.1006/jtbi.2000.2010, via PubMed), but its plateau needs a long entrance tunnel, and here that tunnel is mostly the mound, which changes every few hundred frames.
+
+Porous spoil steadies the level, and a leaking ground misleads. With the mound's spoil passing 10% of the air, no map seals and no refresh jumps more than 25%, against 43 of 101 maps sealed and 19 of 43 jumps with sealed soil. But 82-89% of a room cell's level still comes from more than 6 cells away, so it stays a head-count. Letting the packed ground leak as well, even at 0.1%, sends 59-83% of descents to dead ends inside the nest. And the engine's own words point the wrong way for a literal rule: its natural soil is "loose tilth" and its spoil "tamped ground", so "loose soil passes air" taken literally would make the ground leak. Measured offline on 11 maps (C6, needs-ant/porosity/results.md).
+
+Sealed, the level is flat, census-like and jumpy. 96-99.7% of nest cells sit within 5% of the maximum, and the door reads 92-98% of the deepest room. Sources within the sensor's 6 cells make only 8-17% of a cell's level, and ants in the mound make 32-65% of the nest's top, so the level mostly counts bodies the ant cannot sense. Re-solved every 1,000 frames it jumps a median 16% per refresh and 3.4-fold over 100k frames, far more than the 2-8% between the door and a deep room.
+
+An ant with a threshold barely follows it. An exact follower walks out from 99.5-99.8% of nest cells; one that steps only on a 1% difference, as the sensor does, reaches the sky from 0-0.7%. Tunnels are as flat as rooms (84-92% unreadable); the readable cells are a cross at the top of the shaft. And a quarter to a half of those few readable reads look through soil into another gallery. Porous spoil does not rescue it: a 1% stepper reaches the sky from 0.2-3.4% of nest cells at any conductance, and one stepping on its own 6-cell sensor from none (C6).
+
+Today's planes cannot carry an in/out smell. They have no sink and fade 0.03 a pass, so a plane remembers about 400 frames and reaches about 1.7 cells: a blur of where ants crowd, peaking in the mound and pointing out on about half the cells. Only without the fade does it look like a nest smell, and then it points out on 24-26%. Raising the deposit saturates 16-bit storage on 23% of nest cells.
+
+The gas must connect cells the way the walk does. The walk passes diagonal corner gaps, because it checks only the cells it lands in, so a gas that exchanges only face to face calls a nest sealed while ants walk out. That happened on 43 of 101 seed-1 maps from 150k to 250k, and every such gap was in the mound. On one map (seed 4 at 200k) the door was shut and no exit existed at all, so escape cannot lean on a slope.
+
+Solving is cheap; meaning is the problem. A direct solve is about 0.1 Mflop a refresh (inferred well under 1 ms compiled; the worst frame is unmeasured). But a field solved to steady state answers instantly, where the gas it models, stepped at the trail planes' rate, would take 4.5-5.1 million frames sealed and 1.2-2.2 million with porous spoil to come within 10%: 4-17 times a whole run (C6; the rate is assumed). That is why it behaves as a census. Any use would read it relative to the level just walked through, smoothed over 10k-100k frames, never against a fixed set point.
+
+The shipped larva sense works, but its strength saturates. It is a vector summed at the head: each hungry larva's need, pointing at it, in a 13x13 box. An exact follower ends beside a hungry larva from every cell in reach, with 100%, 20% or 5% of larvae hungry, and points into soil on 0-4% of cells. But its strength near brood is 0.97-0.98 with all larvae hungry and 0.88-0.89 with a fifth hungry, so a five-fold change moves a lay brake by about 0.1. The brake reads the summed need instead.
+
+Four ways to make a field
+Way
+Today
+Good for
+Fails at
+Laid and spread on a plane
+trails A and B
+marks that fade unless traffic renews them: routes
+direction; reach past about 2 cells with a fade; rooms; leaks through walls; blinds the layer; saturates where ants crowd
+A gas solved over open cells
+none
+in versus out near the door only, whether or not the mound passes air
+where outside starts moves its level, not its slope (C6); behaves as a census; jumps between refreshes; corner gaps; shut doors
+Summed from sources in reach, when asked
+larva_scent (13x13 box, need over distance), the alarm's falloff
+short-range cues: hungry larvae, food, alarm
+anything past its reach; ignores walls, tolerable at 6 cells; strength saturates near many sources
+A map built by search
+NestWay, the dug-home and soil-way maps (breadth-first from the door)
+a slope everywhere the walk reaches; no settling, no leak
+knowledge no ant has, so a labelled stand-in; gives nothing in the mound
+The ant's own memory
+the home vector (forage_anchor), patience
+direction home and back out; how deep it is
+grows less exact with distance; blank for an ant never out, and for every ant at the switch frame
+Each cue the new ant would use
+Cue
+Made by
+A slope where the ant needs it?
+What it can steer
+Status
+Food trail (B)
+laden trip-load carriers walking home; plane, lab fade 0.03, blend 0.05
+across its width only; along it, it slopes toward the nest
+staying on a route; the door read (east against west)
+shipped
+Home trail (A)
+ants walking out; plane, no fade but the blend
+no: saturated over the mound
+little in the nest; homing comes from the home vector
+shipped
+Home vector
+the ant's memory of its last nest contact
+defined once it has been home; noisy, reset at the nest
+direction on routes and back to the door
+shipped (forage_anchor)
+Door vector and depth
+the ant's memory of the last open-air cell it stood on
+defined once it has been out
+out when hungry or trapped; how deep it is, for resting and storing
+new
+Gravity
+the world
+always
+up toward the surface while it gains rows; down to dig
+read by footing only
+Walls
+touch
+contact
+following a wall to an exit from a room
+not used
+Larva hunger
+hungry larvae
+yes, within 6 cells; its strength saturates near brood
+nursing; the lay brake reads the summed need instead
+shipped (larva_scent)
+Food in reach
+food and crumbs
+yes, short range
+hunger and storing
+new, built like larva_scent
+Loose spoil
+soil ants have dropped (the spoil material)
+contact
+where hauled soil is put down
+shipped (spoil_cue_factor). A drop preference for it was declined: about one drop in a hundred had a choice, packed or not (dead-ends 1104)
+Fresh cuts
+digging
+short range; a mark that does not move
+digging where others dig, to start a bud
+new, slice 2
+Alarm
+wounded or fighting ants
+yes, short range, an event
+defence
+shipped
+Nestmates by touch
+bodies at the head
+contact
+slowing beside resting ants
+shipped (radius 2)
+Cover
+soil within 20 rows overhead
+a level
+not used for "inside": it is true in the mound, where most covered ants are
+shipped (under_cover)
+Nest air
+bodies and brood
+flat inside rooms, sealed or porous (above)
+in versus out near the door only. It ranks with depth at any one moment, but jumps between refreshes by a large share of its span (sealed, by more than the span), and mostly counts bodies
+dropped (C6)
+What this means for the design
+The first build needs no new field. Routes use presence with direction from the home vector, as shipped. Out uses the door vector, up while it gains rows, and the walls, with NestWay as a labelled stand-in below the door row. Nursing uses the shipped larva sense. Every gradient term says where its slope was measured.
+
+Inside, idle ants are placed by depth, not by smell or dark. Depth below the door vector's origin is the ant's own memory: it differs between rooms where nest air, sealed or porous, barely does, and it counts no bodies. Ants do cluster by mutual attraction, and light's effect depends on caste and species: Lasius niger foragers cluster less under red light while its brood-tenders do not, and Crematogaster scutellaris cluster no less under it (Depickère, Fresneau & Deneubourg 2004, J Insect Physiol 50:629, doi 10.1016/j.jinsphys.2004.04.009; 2008, 54:1349, doi 10.1016/j.jinsphys.2008.07.013, via PubMed). Neither study places the cluster inside a nest. So touching resting nestmates slows an ant, depth decides where, and darkness is not a cue.
+
+Real nests zone by depth without following a gas. In the Florida harvester ant, workers sort by age along the nest's depth, older ones higher, by their own movement and choice, while soil CO2 rises five-fold from the surface down (Tschinkel 2004, J Insect Sci 4:21, doi 10.1093/jis/4.1.21). Venting that CO2 gradient away, or even reversing it, changed neither the sorting nor the nest's shape (Tschinkel 2013, PLoS ONE 8:e59911, doi 10.1371/journal.pone.0059911). Leaf-cutting ants, by contrast, do use CO2 to choose where to keep their fungus (Römer, Bollazzi & Roces 2017, PLoS ONE 12:e0174597, doi 10.1371/journal.pone.0174597); all via PubMed. So zoning by a depth sense the ant carries has a basis, and a nest gas is not needed for it.
+
+Routes stay presence plus direction from memory, as the shipped walk already does. Real ants also get direction from path integration (Müller & Wehner 1988, PNAS 85:5287, doi 10.1073/pnas.85.14.5287) and from the angles where trails branch (Jackson, Holcombe & Ratnieks 2004, Nature 432:907, doi 10.1038/nature03105), both via PubMed. No term here uses branch angles.
+
+Escape never assumes an exit exists. Shut in means dig: up, and toward the last remembered way out.
+
+No nest gas, and no change to the soil's physics. C6 answered open question 1: porous spoil moves the nest's air level, not its slope, and no conductance makes it something an ant can follow out or a local signal. Depth from the ant's own memory does the job a gas would have done. If a gas is ever built for another reason: mound spoil only, at 5-10%; the packed ground never leaks; cells connect as the walk does, corner gaps included; it is solved directly, since a stepped gas would not settle within a run; and it is read relative to the level just walked through.
+
+Acts
+The acts are the engine's own mechanics and do not change: eating, the dig cut and the pellet it makes, picking up and putting down, sharing, laying, biting. What changes is who decides. Today act (1,899 lines) mixes the mechanics with the brain outputs and hand rules that gate them, so the new walk drives it with the urges its drive wants and keeps its gates (Kept separate). In the new walk the winning drive decides, from what is in reach:
+Act
+When
+What the record says
+Eat
+hunger above its onset, with food in the crop, the jaws or at the head
+HAUL_BITE already lets a holder eat from a load in its jaws
+Put down soil
+haul: at the heap, beside loose spoil where there is a choice. Hunger or escape holding a pellet: pack it into the tunnel wall first; put it down only where the cell left behind keeps the tunnel passable; never in the mound's tunnels
+Dropping where it stands is LEAN_FORAGE's drop, which shut 105 of 127 empty-jawed starvers into pockets (dead-ends 1262). A drop preference for spoil decides about one drop in a hundred (dead-ends 1104)
+Put down food
+store: inside, at its preferred depth, beside food if any lies there
+Inside food is 0-3 cells on every baseline map, so the first drop is placed by depth
+Pick up
+dig: the pellet its own cut makes; haul: loose soil at its head inside; forage: food at its head
+as shipped
+Load from a store
+nurse: crop empty, larva sense above its threshold, food inside at its head; rationed by the brake under Share
+new. Without it, stored food reaches larvae only through an adult who got hungry and ate, and a young nurse that never foraged has nothing to give (biology review)
+Dig
+dig job: at its face while its stimulus holds, with cuts kept within a few cells of the face; escape: at any energy, into the soil cell of the chosen heading
+The face-distance limit is what kept cuts at the face: removing the leash that held it open sent next cuts off the face, 39-52% to 7-13% (dead-ends 1256). Escape's dig generalises today's MOUND_OUT=dig
+Share
+nurse: to a hungry larva it touches; any ant: to a begging nestmate when its own crop is above its hunger onset. Brood feeding is rationed by a brake keyed to how much food the ant has come by lately (its crop and its recent meetings with laden returners), not only to its own hunger (audit loop L7)
+Steering toward brood crashed colonies on an older game. Rebuilt on today's, it crashed none, and tracing every larval meal found no over-feeding, so the food-keyed brake is a guard, not a known need (C4; BroodBearing, dead-ends 2029). Nurses seeking larvae moved energy without adding it (dead-ends 1231)
+Lay
+lay job: at the brood, braked by the summed need of hungry larvae in reach
+The larva sense's strength saturates near brood, so the brake reads the summed need
+Lay trail
+trail B only while carrying a trip load and closing on home, in proportion to the carrier's own patience (audit loop L3a); trail A at the shipped mean rate, now a gene
+Today the brain sets trail A's rate (EmitA); with the brain not read, the rate needs a source
+Bite or fight
+later, with defence; today's alarm and bite stay as they are
+The audit's rule holds for every row: an act's gate may delay a need only if it names a floor above death.
+Mapping today's rules
+Every pull and every walk switch either has a place in the new walk or is dropped with a reason.
+Today
+In the new walk
+Kind
+Store trip (rung 1)
+the store job; yields to hunger, which eats the store load
+job
+Walk home to lay (rung 2)
+the lay job, toward brood by touch and the larva sense
+job
+Nest-worker leash (rung 3) and the fixed caste (is_nest_bound)
+thresholds that differ by gene, age and a fixed per-ant jitter; preferred depth keeps young workers deep. The leash also held the face-distance limit open (next rows)
+dropped
+Soil out (rung 4): soil_way_pull, spoil_haul_target, SOIL_WAY, WAY_GAPS
+the haul job: the same targets as a term, plus the door vector, up and the walls
+job
+Back to the face (rung 5): dig_return_target, FACE_TRIP
+the dig job: the same target, with the face-distance limit kept inside the dig job; escape is exempt
+job
+Hungry walk home (rung 6, off)
+hunger: food in reach
+need
+Laden carry (rung 7)
+the forage job's carry home, plus the route floor and fill-before-leaving, whose re-test passed
+job
+Hungry out (rung 8), the door throttle (outward_want), LEAN_FORAGE's way out and no-dig, LEAN_LINE
+hunger, graded, with no zone and no cliff; the colony's want reaches an ant only through its forage stimulus
+need
+LEAN_FORAGE's drop
+replaced by the safe put-down: pack first, never in the mound's tunnels
+need
+Mound out (rung 9): MOUND_OUT=dig (on)
+escape's dig, everywhere
+need
+MOUND_OUT=way (off)
+not ported: it saved no shut-in ant and cost trip food (dead-ends 1264)
+dropped
+Rest pull (rung 10, NEST_REST, off)
+not ported. There is no inward pull; idle ants slow near their preferred depth. The pull climbs NestWay, a step map of the nest that no ant could sense. C1 found it safe once hunger always wins, so its gain is the bar the slowing must beat
+dropped
+Scout, away term, door reader, give-up, noreturn
+kept as terms with their gains and patience logic; the door reader's registry box gets a local replacement
+term
+Heap cue at floor 0 (spoil_cue_factor), DOOR_REOPEN
+the cue stays where it picks drop sites; nothing refuses an escape dig
+term
+The nest census in Crowding (NestRoom::occupancy)
+bodies within 2 cells of the head (the shipped elsewhere branch)
+sense
+NestWay, the dug-home and soil-way maps
+kept as labelled stand-ins below the door row; they give nothing in the mound
+stand-in
+HOME_SEARCH, CARRY_HOME (off)
+Carry home: both parts go into the forage job; on top of the hunger-first switch they did their job on all four seeds (Nest building, 2026-10-06; dead-ends 1262). Home search: not ported for now; it took the colony's meal (1258) and does what the floor does by other means
+carry home ported; home search dropped for now
+CROP_DOWN, EGG_DOOR, BROOD_CARRY, STORE_CHAMBER, NURSE, NEST_STORE, FOOD_BRAKE, DIG_MODES (all off)
+asked again as threshold questions in the nurse, store, lay and dig jobs, not ported as rules
+job
+HAUL_BITE
+hunger eats from a load in the jaws
+need
+WATER_FOOTING, GRASS_REGROW, footing, sliding, pellets
+unchanged
+world
+The brain's outputs
+not read under the new walk, which pays an equal decision tax instead; the brain's genes ride along unused
+dropped for this walk
+The ten rungs and the switches above become two needs, seven jobs counting idle, and fourteen terms. At each landing a grep of src/sim/needs/ counts its place, zone and switch conditionals (*_of(world) readers, below_founding_ground, zone tests) and prints the count, so "special cases creeping back" is a number (Risks).
+Genes
+What is heritable, per ant (about 50 genes):
+Group
+Genes
+Starting values
+Need curves
+hunger onset and full; how fast escape builds
+0.6 and 0.25 of the species budget, clamped so the 30% floor holds under mutation; escape's rate from the traced MOUND_OUT=dig spells
+Job thresholds
+one per job, the hysteresis half, the hold ceiling
+set so that, at today's stimuli, the share of ants on each job matches today's traced shares; the ceiling below hunger's urge at 30%
+Forage floor
+the forage stimulus a fed ant still feels
+small, sized on the founding colony bed so that fed scouts leave
+Preferred depth
+by job and age
+stores and foragers shallow, brood care deep (Jobs)
+Term weights
+per drive, only the terms it uses (about 30)
+the table in The steering law
+Kinesis
+its strength, and how much depth and resting nestmates slow it
+the shipped step roll's crowding weight (−0.3) to start; the rest from the first idle check
+Trail A rate
+trail A laid per step
+the shipped mean rate under the brain
+Shared walk genes
+persistence, the patience leak, the six shipped walk gains
+today's values (WALK_GAIN_SLOTS, allele 0)
+Shared, not kept apart, for six slots. The new genes live in their own table, read only under the new walk, so the shipped ant's random stream and every off-arm run stay bit-identical. But the six walk gains are shipped slots that the new walk also reads, so once mutation is on, selection under one walk moves genes the other reads. That is fine within one run; it means a genome evolved under one walk is not a fair founder for the other.
+Thresholds differ between ants even with mutation off. Mutation stays off while measuring (mutation_off_for_measuring()), so every daughter is the founder's copy. Each ant therefore gets a small fixed jitter on its thresholds and preferred depth, drawn once from its id: development, not heredity, and invisible to the shipped walk. Mutation is turned on only for an evolution round after the walk has passed acceptance; the weights and thresholds are then what evolution tunes (owner ruling on the breeding plan, §2a).
+Age. Thresholds and preferred depth shift with age on a fixed schedule at first: young ants nurse and rest deep, old ants forage. Making the schedule a gene comes later.
+Gene extremes are tested. Every clamp gets a unit test at both ends: an ant with the latest hunger onset and the highest hold ceiling still eats or reaches air in the guard's scenes (Measurement).
+Measurement and acceptance
+Each designed behaviour has its own metric and its own trace. Colony size is a floor, never the target (Scott, 2026-10-06).
+Designed behaviour
+Metric
+Trace
+Ants live in the nest
+time deep in the nest: head more than 10 rows below the ground line and outside the door column, beside today's headline and a depth histogram; ants per shaft cell and how long idle ants stay there; covered ants in the mound against in the dug nest
+where idle ants stop, by depth and picture
+Separate chambers
+chambers by shape: the pieces left after deleting open cells narrower than 6, door column excluded, proven on a positive control (two carved 8x8 rooms joined by a 3-wide tunnel count 2); next cut at the face after a nest cut
+each cut, with the bodies near its face, per chamber
+Food apart from brood
+food cells inside that do not touch brood, by depth; store held over time
+each store drop and its depth
+Foraging follows supply
+food carried in from outside per ant; food eaten at the heap, counted in every forage comparison; departures that follow a meeting; departures that stop when a pile runs out
+per ant, each meeting and the departure after it; per trip, drive, route terms and door read
+Brood care
+larvae starved per egg; eggs per food brought home; crop food to larvae below the shaft's top five rows (CropDown's metric)
+each lay and each feed, with the summed larval need
+Needs work
+shut-in spells ending starved (spells.py); deaths by place (starvewhere.py); deaths up a wall or ceiling (the count in dead-ends 1200)
+the decision before every death: drive, job, load, place
+Not the colony Scott fears (sitting on food and laying)
+the share of ants on a job other than idle in each 10k window; food carried in from outside per ant per 10k; how long idle spells last
+the last decisions of every ant idle longer than a set time, with drive, job stimuli and thresholds
+The no-veto guard (the audit's §5, built in slice 0). For every job, every load and every place (door zone, mound, the shaft below the founding ground, a sealed pocket), an ant at 30% of the budget must, within a bounded number of ticks, have eaten, reached open air, or be digging if sealed. If it let go of a load, it must still be connected to the open air or the door afterwards. The guard asserts outcomes in the scene, never the sign of a weight, runs at the gene clamps' extremes, and each row is proven by putting a veto back and watching it go red. The test kit exists (test_world, ant_at_a_nest, register_nest_site).
+Comparison. Paired seeds against the shipped walk on the same build: 1-4 seeds while iterating, 12 seeds to 300k for any claim that the new walk is better. Switching on at a frame makes the two arms the same world up to the switch, but then about 400 ants re-decide at once with blank memories (no door vector, job or hold) in a nest the shipped walk dug. So every new state item has a row in a switch-time table saying how it is set (from which shipped field, or blank), the transient is measured per 5k after the switch and excluded as burn-in, and slice 2 adds a founding run under the new walk. The shipped arm reuses the shared baseline; no duplicate runs.
+Robustness score. Four seeds, plus each drive's two most important weights at x0.8 and x1.25, to 300k. A result is fragile if any perturbed run collapses or flips the verdict.
+Frame cost. antcost (whole-frame time per tick against the standing ant count, over the real lab tick, with a per-ant slope) and frame_profile (the phase split), paired, at fixed threads, and needscost for the goal box itself. Measured in slice 0 (2026-10-06): needscost builds the goal box as deeptrace does, so its colony is the baseline's (538 and 548 ants at 100k on seeds 1 and 2), and profiles 1,200 frames under callgrind. A frame there is 24.2 million instructions and 2.28 ms on one thread. Today's heading choice (chooser_step) is 4.3% of it and the brain 4.2%, and the brain's senses another 8.4%, so the old "about 9%" holds, for different reasons. The two largest costs are not the walk: the colony-label pass (World::regroup_by_scent, 42%, run every tick over every pair of ants although its doc says census cadence) and the egg-site search (brood::pile_site, 13%). The new walk's budget is set against the 8.5% of chooser and brain. ascii stays as CI's check that the outdoor game did not regress. The budget is Scott's call (open question 5).
+Trace size. Every decision of a sample of ants, chosen by id, and every decision near an event. All decisions of all ants would be about 30 million rows a seed.
+Fields. Every new field passes the gradient check on real maps before any ant reads it, with a thresholded reader, line of sight and a stability gate over consecutive maps, and every term carries its physics card.
+Build order
+Checks first. Six checks need no new walk and use switches and tools that already exist, and most help the current lanes too. Each goes to the lane that owns the switch, on Scott's yes.
+C1. Finish tracing the rest pull's collapse (NEST_REST=workers, seeds 1 and 4, 230-300k). Nest building traced part of it: the pull raised egg-laying on all four seeds while food delivered fell on the two that died (inferred: the colony bred past its food), and on seed 4 food pick-up at the heap fell from 210k for a reason not yet traced. Holding ants inside is the core of this design, so whether holding them inside caused the collapse decides whether to build. The most direct form is the audit's step 4: re-test the rest pull on top of the hunger-first switch. If colonies hold once hunger always wins, the hold was not the cause. Done by Nest race (seeds 1-4 to 300k, against hunger-first alone on the same build): no colony fell (547-629 ants at 300k). Time deeper than 10 rows rose on every seed, from 0.40-0.55% to 0.59-0.85% of ant-time (about 4 ants), and starved ants fell from 37 to 16. The old footprint, more eggs on every seed, did not repeat. So on four seeds, once hunger always wins, holding ants inside did not starve the colony. Still open: what collapsed the old runs, since no arm ran the pull without hunger-first on today's game; the pull's firing is inferred, not counted; and why seed 3 grew to 790 ants (nest-race/inside/c1/c1-rest-pull-on-hunger-first.md).
+
+C2. Re-score CROWDING_LOCAL=near on digbox's chambers and contrast columns, 12 paired seeds, with no inward rest rule. Done by Deep trace on seeds 1-4 to 300k (Scott's yes, 14:47): inconclusive. One chamber stands on every map in both arms, and only 2-4 ants of about 570 are deeper than 10 rows, so the switch has almost no one to act on. Repeat once hunger-first and the stay-in work land; it is not a dead end (deep-trace/crowding-local-2026-10-06.md).
+
+C3. Re-census the spoil drop on the lab bed: how many drops have a real choice between a cell beside spoil and one without. Both censuses so far were in a bare dig box and found about one in a hundred (dead-ends 1104). Done by Deep trace (seeds 1-4, 100-300k; the baseline runs re-made byte-identical with a drop recorder): about 1 drop in 45 had a real choice (2.1-2.5%, rising to 3.0-3.3% by 250-300k). 31-40% go up the column because no cell beside the ant would hold the pellet, and about 60% of the rest have exactly one cell. Only about a tenth of the mound is still spoil at 300k (65-72% is packed soil), so the marker is what limits a drop term. Not measured: a term keyed on any mound material (deep-trace/drop-choice-c3-2026-10-06.md).
+
+C4. Trace BroodBearing's crash to individuals, or build the food-keyed brake its entry names (dead-ends 2029). Nursing toward larvae waits on it. Done by Laying (rebuilt behind its own switch, built off; its off arm is main's game exactly). At weight 1.9, no colony died on eight seeds to 300k, time deeper than 10 rows rose 2-3x on all eight (1.05-1.53% on seeds 1-4), and starved ants fell from 110 to 71. Tracing every larval meal ruled out over-feeding, so no brake was built. The cost is 4-17% fewer ants, from fewer eggs (inferred: nurses crowd the free edge of the brood pile, where eggs go). At the old weight 2.5, seed 2 fell 48% after foraging at the heap collapsed, not yet traced. My check on seed 1: the deep gain (0.51% to 1.35%) is almost all in the door column, where the brood lies, and barely any off it (0.21% to 0.24%). Laying's advice: use the larva bend as a direction, never an amount (laying/c4-brood-bearing/c4-brood-bearing-2026-10-06.md).
+
+C5. Fix the two metrics: time deep in the nest beside today's headline, and chambers by shape. Done by Deep trace: the scorecard reports depth bands and time deeper than 10 rows (0.42-0.55% of ant-time on the baseline, 2-3 ants), and counts chambers by the owner's rule (one chamber, the pit under the door, on all 36 baseline maps).
+
+C6. Test a "loose soil lets air through" rule on the baseline maps (offline, no engine change). Done: three rules at four strengths on 11 maps, with controls. Porous mound spoil lowers the nest's air level and leaves its slope unchanged. No conductance gives a slope that a threshold reader follows out (on its own 6-cell sensor, 0% of nest cells reach the sky) or a local signal (82-89% of a room cell's level comes from beyond 6 cells). A leaking ground misleads, and a stepped gas would take 1.2-5.1 million frames to settle. So no engine change is proposed (needs-ant/porosity/results.md). (this thread)
+
+Then the slices. Each lands on main switched off, is checked bit-identical when off, and has a gate Scott sees before the next starts.
+Hooks and instruments. Built as hooks rather than a split (Kept separate): World::needs, four hooks in creature_tick through which the walk drives act, and a pass-through mode that must leave the game identical. Then the trace columns, the no-veto guard harness and the switch-time table, and a re-measure of the shipped chooser's frame share in the lab box. Gate: identity green over every frame, map and ledger row; the guard's controls go red when a veto is put back. Done 2026-10-06, except two items that move to slice 1. The pass-through is byte-identical in every output file on three runs, and nudging any one hook changes the first map after the switch and none before. The guard is built, and today's ant, which has the vetoes, fails 16 of its 36 rows. The switch frame is 50k. The frame share is in Measurement. The trace columns and the switch-time table describe the walk's own state, so they are written with it.
+
+Needs, idle and foraging, switched on at a frame. The colony founds under the shipped walk and switches at a frame where every seed has a dug nest (on today's game every one of 12 seeds has a dug room by 34k, so the switch is at 50k). This slice has hunger, escape, the depth kinesis, foraging with today's route terms and a carry home that takes the route floor and fill-before-leaving (their re-test passed), and haul and dig as jobs aimed at the shipped targets with their own act gates. Gate: the guard is green; time deep in the nest at least double the shipped walk's (about 0.5% of ant-time today) and above today's walk running the same behaviours as switches; no late collapse to 300k on 4 seeds; food carried in from outside not lower; carries that lose the way home lower; the feared-colony counters; next cut at the face not lower; deaths up a wall not higher; and the founding colony bed (24 seeds) founds from cold under the new walk, because fed scouts must still leave.
+Result, 2026-10-07: the gate failed. Built behind PIXEL_PHYSICS_NEEDS=walk. Deep time passed on all 4 seeds: 2.4-4.8% of ant-time deeper than 10 rows, against about 0.5% shipped and 0.7-1.3% for the stack. But every colony collapsed late (124-324 ants at 300k, against 560-616), 338-799 starved, less food came in from outside, and the door shut on 57-90 of 295 maps (5-23 shipped). Two shortcuts in the build were traced as the cause. First, drives other than the dig job were handed the brain's dig urge, and they made 98% of the extra cuts; that soil filled the mound's tunnels and carriers stopped getting in. Second, a forager's step chance was the brain's, which is near zero for a fed empty ant, and the forage job never ended outside. Results and the one round of fixes the kill rule allows: /mnt/project-files/needs-ant/slice1/ (results.md, fix-proposal-2026-10-07.md), under review by the Nest building lane.
+
+Dig, haul and escape refined. Fresh cuts for the dig job if C2 finds crowding alone null; no drop term, since C3 found a real choice on about one drop in 45; escape's own give-up. Gate: shut-in spells ending starved at or under the shipped walk's, which MOUND_OUT=dig already lowered to 0.5%; door seals; chambers by shape per colony against the shipped walk on paired seeds; a founding run under the new walk.
+
+Nurse, lay and store, after C4, which is done. Nursing by the larva sense as a direction, never an amount; loading from a store; laying braked by summed need; storing by depth. Gate: larvae starved per egg; eggs laid not lower, since C4's cost was room to lay at the pile; crop food to larvae below the shaft's top five rows; store held over time; food eaten at the heap counted.
+
+Nest air: dropped. C6 found no usable slope at any porosity, so there is nothing for this slice to build.
+
+Genes on. An evolution round with mutation, only after slices 1-3 pass.
+
+Kill points come after the checks and after slices 1 and 2 (Risks).
+Risks, failure modes and kill criteria
+Risk
+What it would look like
+Defence
+It is a bigger job than it looks
+slice 0 alone touches act and creature_tick, the busiest code in the engine
+the hooks are behaviour-identical and useful on their own; they land first and alone
+Idle ants heap at the door or on the mound
+time at the door and in the mound rises while deep time does not
+depth, not cover or smell, sets where they slow; shaft occupancy and covered ants in the mound are gated
+Fed ants sit idle and nobody scouts
+no departures without returns; the founding colony starves
+the forage stimulus has a floor; the founding colony bed is in the slice-1 gate
+Better homing takes the colony's meal
+carriers home sooner and leave the heap with a bite or two, as twice before (dead-ends 1258, 1260)
+the floor ships only with its partner, fill before leaving; food taken off the heap counted in every gate
+The feared colony: ants on food, laying, doing nothing else
+deep time up, food carried in down, few ants on jobs
+the feared-colony counters in every gate
+Diggers leave their face
+next cuts off the face, into the heap
+the face-distance limit stays in the dig job (dead-ends 1256); next cut at the face is gated
+The shaft clogs
+carriers wait behind ants in the shaft
+shaft occupancy gated; the record says traffic, not direction, limits soil leaving (dead-ends 1216)
+"Up" pins ants on walls
+deaths up a wall rise
+up counts only while gaining rows; escape's own give-up; deaths up a wall gated
+A job's hold vetoes hunger
+a starving ant stays on its job
+the hold ceiling; clamped need genes; the outcome guard at gene extremes
+The decision tax biases the comparison
+starvation lower only because the brain's tax is gone
+the new walk pays an equal tax; the real tax share is measured from the colony accounts first
+The switch shock is measured as the walk
+a dip or a jump right after the switch
+switch-time table; burn-in excluded; a founding run
+Weights become the new rule list
+a table nobody can predict, tuned per symptom
+at most five terms per drive; starting values from measured gains; the robustness score
+Stand-ins become permanent
+NestWay and depth below the founding ground forever
+each named where used with its local replacement; the locality table is checked at every landing
+It repeats Nest building's hunger-first work
+two teams fixing the same vetoes
+different scope: Nest building fixes the shipped ant now, this walk is judged on designed behaviours and rule count, and ideas pass across through the coordinator
+It breaks off-arm runs
+the identity check fails
+the strengthened identity check at every landing, against a fresh off run at the merge base
+A new walk is enrolled in every rule over walks
+a test that should fail passes
+World::needs, not a Chooser variant (69 Chooser:: comparisons, mostly ==); run cargo test, not --lib
+Kill criteria. Scott decides at each kill point; these are proposals.
+After the checks: stop if C1 shows that holding ants inside is itself what collapsed the colonies, because this design holds ants inside by a gentler means and nothing in it answers that. Not met: on top of hunger-first, the rest pull collapsed none of four colonies to 300k (C1).
+
+After slice 1 (4 seeds to 300k): time deep in the nest less than double the shipped walk's, or below today's walk running the same behaviours as switches (hunger-first, the rest pull and homing together, on the same seeds), or a late collapse, or less food carried in from outside, after one round of fixes.
+
+After slice 2: shut-in deaths above the shipped walk's, or no second chamber by shape on paired seeds.
+
+At any point: more than ten place, zone or switch conditionals in src/sim/needs/ by the landing grep, which would mean it has become the ladder again; or frame cost over budget.
+
+If it is killed, the hook commits are reverted and the module deleted; the act split can stay. Nothing measured elsewhere changes.
+Open questions for Scott
+Should loose soil let air through? Not for the ants. Answered by C6, so nothing is needed from you: porous spoil lowers the nest's air level but not its slope, so no nest smell would guide ants inside rooms whatever the rule. The design asks for no physics change.
+
+Is zoning by depth what you mean by separate rooms? The design's only mechanism for separate chambers and for food apart from brood is a preferred resting depth per job and age, the way real nests zone by microclimate. If you mean rooms the ants dig apart, the dig job needs more than this design has, and C2 shows how much.
+
+Should rest be a need? Your ruling named hunger and survival. Here rest is not a need: idle ants slow near their preferred depth. Making it a need would let resting outrank jobs, which is how the rest pull's all form starved the founding colony.
+
+The decision tax. The new walk pays the brain's tax, about 0.025 J a decision, so starvation compares like with like. Agreed?
+
+Frame budget for the new walk and its fields, once slice 0 has measured today's share in the lab box.
+
+Go-ahead: checks first. Decided (Scott, 2026-10-06 15:59): checks first. All six checks are done. The next choice is between stacking the switches they found safe on today's walk (hunger-first, the rest pull, homing and brood steering) and building this walk. Recommended: stack first. It needs runs, not code, it moves deep time now, and it is the bar slice 1 must beat. Build when the stack stops gaining, or once the lanes are out of creature.rs, which slice 0 now avoids by hooking rather than splitting. Decided (Scott, 2026-10-06 20:23): build the new ant now, with slice 1 gated on beating the stack.
+
+Adversarial review: findings and what changed
+Four independent reviewers attacked the first version on 2026-10-06, each from one side: scent physics, biology and locality, engineering and cost, and the repo's own history of rules tried and reverted. None had a stake in the design. Each had to label every claim measured, code-read or inferred, re-run what it could, and list what it tried and failed to break. Their reports are in needs-ant/review/ (physics.md, biology.md, engineering.md, history.md).
+They raised 67 findings: 10 blocking, 38 major, 19 minor. The core held: needs above jobs removes the vetoes by construction, and nobody broke that. What failed was cost, history and the scent conclusion.
+What broke
+Found by
+What changed
+Plugging the walk in is a refactor, not a hook: the brain reaches about ten places in the tick, and act mixes mechanics with gating
+engineering
+built as a hook instead (2026-10-06): the walk drives act with its own urges and keeps act's gates, so no lane re-merges; the switch is World::needs
+Four steps re-tried dead ends: the rest pull's inward walk, crowding-driven digging, steering toward brood, and dropping soil when lean
+history, biology
+none is ported as it was; each got a check (C1-C4, all back) or is replaced (the safe put-down)
+The route floor called shipped is off, and halved the colony twice
+history, biology
+corrected 2026-10-06: half the size was a scratch version that turned every food holder home. The pair on main (floor plus fill) carried more food home, and the mound trap kept it off. It was re-tested on top of the hunger-first switch, not after a store (Scott), and did its job on all four seeds
+"Rooms are flat" hung on an unstated choice of where outside starts; the solved level is a head-count; tunnels are flat too; an ant with a threshold barely follows it; today's planes cannot carry it
+physics
+the first build uses no new field; C6 then found porous soil moves the level, not the slope, so nest air is dropped
+The kinesis stand-ins (under_cover, the nest census) hold the mound, not the nest
+physics, biology, history
+idle ants slow by depth, not cover or smell
+The headline metric mostly counts the door shaft; the room rule merges rooms and includes the shaft
+engineering
+time deep in the nest; chambers by shape with a positive control (C5)
+The slice-1 gate would pass the colony Scott fears; fed ants with no returns to meet never leave
+biology, history
+feared-colony counters in every gate; a fed-scout floor; founding from cold
+A job's hold could outvote hunger, and the guard checked weights, not outcomes
+engineering, history
+a hold ceiling, clamped need genes, an outcome guard at the gene extremes
+Not running the brain removes its tax, which would flatter the new walk on starvation
+engineering
+an equal decision tax
+No spread of thresholds with mutation off; no mechanism for separate rooms or food apart from brood
+biology
+a per-ant jitter from its id; a preferred resting depth per job and age, untested
+Six "local" stimuli hid global knowledge
+biology
+a locality table with each replacement named
+Several citations overstated what the papers show
+biology
+rewritten; Khuong's title corrected; Robinson removed
+What survived the attack: needs above jobs; the random-stream and gene isolation that keep the off arm bit-identical (code-read); none of the new mechanisms (the depth kinesis, wall following, response thresholds, the door vector, nest air) has been tried and reverted here (dead-ends grep); the walk passes corner gaps; the gradient check's arithmetic reproduces exactly; a direct solve is cheap; the shipped larva sense steers well; all eleven trail lessons.
+What nobody could establish: any real frame cost, since no builds were allowed; why the rest pull and BroodBearing collapsed colonies on an older game (on today's, neither does: C1, C4); whether depth zoning makes separate rooms; how big the switch shock is; the real share of the brain's tax.
+Findings that also bear on today's ant went to the coordinator for the other lanes; they are listed in the next section.
+For today's ant: findings and low-risk ideas to pass on
+Scott asked (13:52) that this redesign stay separate, but that anything low-risk for the current approach, or that another lane should know, be passed on. These are those, most useful first, each with the lane it touches and how sure it is. All four reviews are in and their measurements are folded in. The coordinator routes them. Scripts are in needs-ant/tools/ in the project files.
+Idea or finding
+Lane
+Why low risk
+How sure
+1. Today's headline number mostly counts ants at the top of the door shaft. "Time in the dug nest" means the head is below the old ground line. Of today's 4.4-6.0%, 81-85% is within 4 columns of the door and 10 rows of the surface, 55-61% is within 3 rows of it, and only 9-11% is deeper than 10 rows. Piling ants in the doorway raises the number; clearing the door knot lowers it. Report it by depth (for example, time more than 10 rows down and outside the door column) beside the headline.
+Deep trace (scorecard); Nest building (scoring the hunger-first switch and homing); Nest race (scoring the rest pull re-test); anyone scoring "lives in the nest"
+Scoring only; no game code
+Measured on the baseline, seeds 1-4, 50-300k, and re-run by me (nestwhere.py)
+2. under_cover is true in the spoil mound. It is a roof test (any soil within 20 rows straight up), so 89% of the ant cells it calls covered are above the ground line, in the mound. A rule keyed on it, or on inside_nest, treats the mound as inside the nest; dead-ends 1232 records a rule that never fired for that reason. Worth checking which hunger-first parts key on it.
+Nest building
+A finding; changes no code
+Measured by three reviewers independently on the baseline maps; code at creature.rs:11915 and :12117
+3. The room rule counts the shaft and merges rooms. The scorecard's room cells (7 of 9 neighbours open) find exactly one room on all 12 baseline maps, from 2 rows under the ground down to 28-50 rows, shaft included. Two chambers joined by a tunnel 3 or more wide count as one, and a wide stub can count as a room. "Separate rooms of 30+ cells" needs a chamber defined by shape, checked on a positive control: two carved 8x8 rooms joined by a 3-wide tunnel must count 2.
+Deep trace (the goal's scoreboard)
+Scoring only
+Measured by the engineering reviewer with the scorecard's own rule (roomshape.py)
+4. The rest pull's best case was small. NEST_REST=workers raised decisions below the founding ground from 8.3-10.3% to 9.3-12.3% (4 seeds, 200k), then two of four colonies collapsed after 230k. A re-test (audit step 4) should be scored by depth (entry 1), and under the owner's rule it needs that collapse traced first. The partial trace found the starvers were pellet holders in the mound's tunnels; why food pick-up fell is untraced. Re-tested on top of hunger-first and scored by depth (C1, Nest race): no colony fell, and time deeper than 10 rows rose on all four seeds.
+Nest building; re-tested by Nest race (C1)
+A finding
+Code-read (creature.rs:12296) and the rest pull's trace notes
+5. The local dig-urge test is open and cheap. CROWDING_LOCAL=near came out a coin flip four times when scored on room totals (dead-ends 1878). Its own re-test condition, scoring on digbox's chambers and contrast columns, has not been run. It costs runs, not code, and it is the most direct test of audit step 5 (separate rooms). Given a place where ants gather it made the nest flatter, so run it without an inward rest rule.
+Nest building
+Existing switch, built off
+Code-read (dead-ends 1878)
+6. Today's scent layers cannot carry an in-or-out smell. They fade fast: a smell's memory is about 400 frames and it reaches about 2 cells. So a smell laid on them is a blurred map of where ants are, peaking where they crowd (the mound, on seed 1), and its readings point out about half the time, which is chance. With no fade (trail A's setting) it points at the roof instead. An inside home smell cannot be built on today's layers.
+Any lane proposing a nest or home smell
+A finding; changes no code
+Measured by the physics reviewer on 2 maps at today's constants (blend 0.25, fade 0.03)
+7. A nest gas would not hold ants in rooms, porous soil or not. Sealed, a nest gas is flat inside rooms and its level is nearly the same everywhere below the shaft top. Letting the mound's loose soil pass air lowers that level but leaves the slope unchanged: readings rise only because a ratio sensor reads a lower level better, an ant stepping on its own 6-cell sensor reaches the sky from no nest cell, and most of the level still counts ants beyond its reach. Today's ant has no nest gas, so nothing changes now; a lane proposing a nest-air or CO2 cue should read needs-ant/porosity/results.md first.
+Any lane proposing a nest-air cue
+A finding
+Measured on 11 maps (the gradient check, the physics reviewer's porosity sweep, and the soil-air test, C6)
+8. The shipped larva sense steers well but saturates near brood. Followed exactly, it reaches a hungry larva from every cell within its 6-cell reach. But its strength at laying sites is 0.97-0.98 with every larva hungry and 0.88-0.89 with one in five hungry, so a five-fold change in brood hunger moves it by about 0.1. Laying keyed to larval hunger (audit step 6) needs an unsaturated input, such as the summed need.
+Laying
+A finding
+Measured by the physics reviewer on 3 maps; code at brood.rs:1281
+9. The ant reference is stale on trails. Reports/how-the-ant-works.md (about line 1113) says trails feed only step-or-stay and no other code reads them. The chooser has read trail presence on every heading since 2026-09-24 (trail_presence, creature.rs:21403).
+Whoever next edits the reference
+A doc fix
+Code-read on main 3ba1e7bd
+10. doorseal.py's caveat about corners is unnecessary. The walk passes diagonal corner gaps: nothing checks the two corner cells of a diagonal step (body_after_step then landing_is_placeable_through_tissue). So the tool's 8-way flood matches the walk at corners, and its "open" verdicts are not inflated by them.
+Deep trace
+A docstring fix
+Code-read by the physics reviewer and by me
+11. Hold resting ants by slowing them, not pulling them. A fed nest worker with no job steps less often the deeper it is, and hunger switches the slow-down off. It adds no pull, so it cannot outrank hunger or walk a pellet holder into a pocket. C1 has since found the pull safe too once hunger always wins, so slowing's edge is now that it needs no map of the nest. The depth cue cannot be under_cover (entry 2): use rows below where the ant last saw open air, or below the founding ground as a labelled stand-in. Keep it to nest workers, because fed scouts must still scout: resting every idle ant starved the colony bed (births 22 to 5 per seed).
+Not run yet; C1 tested the pull alone, so C1's numbers are its bar
+Built off; no new rung on the pull ladder; hunger lifts it
+Inferred and untested. Trace shaft occupancy: the shaft under the door was full of ants on the seed 1, 200k map
+References
+Checked via PubMed on 2026-10-06 unless marked.
+Bonabeau, E., Theraulaz, G. & Deneubourg, J.-L. (1996). Quantitative study of the fixed threshold model for the regulation of division of labour in insect societies. Proc R Soc B 263:1565. Not in PubMed; unchecked. Its "share follows stimulus" holds only for a stimulus the job itself lowers.
+
+Charbonneau, D., Sasaki, T. & Dornhaus, A. (2017). Inactive workers as a reserve labour force. PLoS ONE 12:e0184074. doi 10.1371/journal.pone.0184074. Cited only for "a reserve exists".
+
+Cox, M. D. & Blanchard, G. B. (2000). Gaseous templates in ant nests. J Theor Biol 204:223-238. doi 10.1006/jtbi.2000.2010. A diffusion model, not a measurement.
+
+Depickère, S., Fresneau, D. & Deneubourg, J.-L. (2004). The influence of red light on the aggregation of two castes of the ant, Lasius niger. J Insect Physiol 50:629-635. doi 10.1016/j.jinsphys.2004.04.009
+
+Depickère, S., Fresneau, D. & Deneubourg, J.-L. (2008). Effect of social and environmental factors on ant aggregation: a general response? J Insect Physiol 54:1349-1355. doi 10.1016/j.jinsphys.2008.07.013
+
+Dussutour, A., Deneubourg, J.-L. & Fourcassié, V. (2005). Amplification of individual preferences in a social context: the case of wall-following in ants. Proc Biol Sci 272:705-714. doi 10.1098/rspb.2004.2990. Its use as a way out of a room is our assumption.
+
+Gordon, D. M. (2013). The rewards of restraint in the collective regulation of foraging by harvester ant colonies. Nature 498:91-93. doi 10.1038/nature12137. Background for regulating foraging by the rate of returns.
+
+Greenwald, E. E., Baltiansky, L. & Feinerman, O. (2018). Individual crop loads provide local control for collective food intake in ant colonies. eLife 7:e31730. doi 10.7554/eLife.31730. Cited for a forager's own crop load setting how often it goes out, with no forager reading the colony's state.
+
+Jackson, D. E., Holcombe, M. & Ratnieks, F. L. W. (2004). Trail geometry gives polarity to ant foraging networks. Nature 432:907-909. doi 10.1038/nature03105. Background; no term uses branch angles.
+
+Khuong, A. et al. (2016). Stigmergic construction and topochemical information shape ant nest architecture. PNAS 113:1303-1308. doi 10.1073/pnas.1509829113. About where soil is deposited, not digging.
+
+Mersch, D. P., Crespi, A. & Keller, L. (2013). Tracking individuals shows spatial fidelity is a key regulator of ant social organization. Science 340:1090-1093. doi 10.1126/science.1234316. Cited for workers moving between groups with age, and for zoning by place.
+
+Müller, M. & Wehner, R. (1988). Path integration in desert ants, Cataglyphis fortis. PNAS 85:5287-5290. doi 10.1073/pnas.85.14.5287
+
+Römer, D., Bollazzi, M. & Roces, F. (2017). Carbon dioxide sensing in an obligate insect-fungus symbiosis: CO2 preferences of leaf-cutting ants to rear their mutualistic fungus. PLoS ONE 12:e0174597. doi 10.1371/journal.pone.0174597
+
+Toffin, E. et al. (2009). Shape transition during nest digging in ants. PNAS 106:18616-18620. doi 10.1073/pnas.0902685106. Branches bud as digging density falls.
+
+Tschinkel, W. R. (2004). The nest architecture of the Florida harvester ant, Pogonomyrmex badius. J Insect Sci 4:21. doi 10.1093/jis/4.1.21
+
+Tschinkel, W. R. (2013). Florida harvester ant nest architecture, nest relocation and soil carbon dioxide gradients. PLoS ONE 8:e59911. doi 10.1371/journal.pone.0059911. Venting or reversing the CO2 gradient changed neither nest shape nor workers' vertical sorting.
+
+Project and repo sources
+The rule audit: rule-audit/rule-audit-2026-10-06.md
+
+The four reviews: needs-ant/review/physics.md, biology.md, engineering.md, history.md
+
+What the trail loop taught us, with a source per claim: needs-ant/trail-lessons-2026-10-06.md
+
+The gradient check, its scripts, data and positive control: needs-ant/gradient-check/README.md; the porosity test: needs-ant/porosity/
+
+The scripts behind this doc's own numbers (where ants sit in the nest, room shape, cover, the throat, the larva sense's reach): needs-ant/tools/README.md
+
+The shared baseline: deep-trace/baseline/3ba1e7bd5/summary.md
+
+The repo's nest biology survey: Reports/nest-biology-2026-09-19.md (§3.2 and §5.4 on zoning, §4.1 on Toffin)
+
+Reports/dead-ends.md entries 1104, 1200, 1216, 1231, 1232, 1256, 1258, 1260, 1262, 1264, 1878 and 2029 (line numbers on main 3ba1e7bd)
+
+Reports/how-the-ant-works.md; src/sim/pheromone.rs (constants and their docs); src/sim/brood.rs (larva_scent); src/sim/creature.rs (chooser_step, NestWay, under_cover, NEST_REST's doc at line 12296)
+

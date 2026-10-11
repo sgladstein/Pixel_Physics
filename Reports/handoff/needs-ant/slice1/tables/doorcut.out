@@ -1,0 +1,508 @@
+    Finished `release` profile [optimized] target(s) in 5m 49s
+     Running unittests src/lib.rs (target/release/deps/pixel_physics-e192fbb0e773727e)
+
+running 1 test
+6 (64, 39)->(64, 39) home idle won false moved false cut 0 target Some((60, 42)) p 0.50
+12 (64, 39)->(64, 39) home idle won false moved false cut 0 target Some((60, 42)) p 0.50
+18 (64, 39)->(63, 39) home idle won true moved true cut 0 target Some((60, 42)) p 0.50
+24 (63, 39)->(63, 39) home idle won false moved false cut 0 target Some((60, 42)) p 0.50
+30 (63, 39)->(62, 39) home idle won true moved true cut 0 target Some((60, 42)) p 0.50
+36 (62, 39)->(62, 39) home idle won false moved false cut 0 target Some((60, 42)) p 0.50
+42 (62, 39)->(61, 39) home idle won true moved true cut 0 target Some((60, 42)) p 0.50
+48 (61, 39)->(61, 39) home idle won false moved false cut 0 target Some((60, 42)) p 0.50
+54 (61, 39)->(60, 39) home idle won true moved true cut 0 target Some((60, 42)) p 0.50
+60 (60, 39)->(60, 39) home idle won false moved false cut 0 target Some((60, 42)) p 0.50
+66 (60, 39)->(60, 39) home idle won false moved false cut 0 target Some((60, 42)) p 0.50
+72 (60, 39)->(60, 39) home idle won false moved false cut 0 target Some((60, 42)) p 0.50
+78 (60, 39)->(59, 39) home idle won true moved true cut 0 target Some((60, 42)) p 0.50
+84 (59, 39)->(59, 39) home idle won false moved false cut 0 target Some((60, 42)) p 0.50
+90 (59, 39)->(60, 39) home idle won true moved true cut 0 target Some((60, 42)) p 0.50
+96 (60, 39)->(60, 39) home idle won false moved false cut 0 target Some((60, 42)) p 0.50
+102 (60, 39)->(61, 39) home idle won true moved true cut 0 target Some((60, 42)) p 0.50
+108 (61, 39)->(61, 39) home idle won false moved false cut 0 target Some((60, 42)) p 0.50
+114 (61, 39)->(62, 39) home idle won true moved true cut 0 target Some((60, 42)) p 0.50
+120 (62, 39)->(62, 39) home idle won false moved false cut 0 target Some((60, 42)) p 0.50
+126 (62, 39)->(61, 39) home idle won true moved true cut 0 target Some((60, 42)) p 0.50
+132 (61, 39)->(60, 39) home idle won true moved true cut 0 target Some((60, 42)) p 0.50
+138 (60, 39)->(60, 39) home idle won false moved false cut 0 target Some((60, 42)) p 0.50
+144 (60, 39)->(60, 39) home idle won false moved false cut 0 target Some((60, 42)) p 0.50
+150 (60, 39)->(60, 39) home idle won false moved false cut 0 target Some((60, 42)) p 0.50
+156 (60, 39)->(60, 39) home idle won false moved false cut 0 target Some((60, 42)) p 0.50
+162 (60, 39)->(59, 39) home idle won true moved true cut 0 target Some((60, 42)) p 0.50
+168 (59, 39)->(59, 39) home idle won false moved false cut 0 target Some((60, 42)) p 0.50
+174 (59, 39)->(58, 39) home idle won true moved true cut 0 target Some((60, 42)) p 0.50
+180 (58, 39)->(57, 39) home idle won true moved true cut 0 target Some((60, 42)) p 0.50
+186 (57, 39)->(56, 39) home idle won true moved true cut 0 target Some((60, 42)) p 0.50
+192 (56, 39)->(57, 39) home idle won true moved true cut 0 target Some((60, 42)) p 0.50
+198 (57, 39)->(57, 39) home idle won false moved false cut 0 target Some((60, 42)) p 0.50
+204 (57, 39)->(58, 39) home idle won true moved true cut 0 target Some((60, 42)) p 0.50
+210 (58, 39)->(59, 39) home idle won true moved true cut 0 target Some((60, 42)) p 0.50
+216 (59, 39)->(59, 39) home idle won false moved false cut 0 target Some((60, 42)) p 0.50
+222 (59, 39)->(59, 39) home idle won false moved false cut 0 target Some((60, 42)) p 0.50
+228 (59, 39)->(60, 39) home idle won true moved true cut 0 target Some((60, 42)) p 0.50
+234 (60, 39)->(61, 39) home idle won true moved true cut 0 target Some((60, 42)) p 0.50
+240 (61, 39)->(61, 39) home idle won false moved false cut 0 target Some((60, 42)) p 0.50
+246 (61, 39)->(62, 39) home idle won true moved true cut 0 target Some((60, 42)) p 0.50
+252 (62, 39)->(63, 39) home idle won true moved true cut 0 target Some((60, 42)) p 0.50
+258 (63, 39)->(64, 39) home idle won true moved true cut 0 target Some((60, 42)) p 0.50
+264 (64, 39)->(65, 39) home idle won true moved true cut 0 target Some((60, 42)) p 0.50
+270 (65, 39)->(64, 39) home idle won true moved true cut 0 target Some((60, 42)) p 0.50
+276 (64, 39)->(63, 39) home idle won true moved true cut 0 target Some((60, 42)) p 0.50
+282 (63, 39)->(63, 39) home idle won false moved false cut 0 target Some((60, 42)) p 0.50
+288 (63, 39)->(63, 39) home idle won false moved false cut 0 target Some((60, 42)) p 0.50
+294 (63, 39)->(62, 39) home idle won true moved true cut 0 target Some((60, 42)) p 0.50
+300 (62, 39)->(61, 39) home idle won true moved true cut 0 target Some((60, 42)) p 0.50
+306 (61, 39)->(60, 39) home idle won true moved true cut 0 target Some((60, 42)) p 0.50
+312 (60, 39)->(60, 39) home idle won false moved false cut 0 target Some((60, 42)) p 0.50
+318 (60, 39)->(59, 39) home idle won true moved true cut 0 target Some((60, 42)) p 0.50
+324 (59, 39)->(58, 39) home idle won true moved true cut 0 target Some((60, 42)) p 0.50
+330 (58, 39)->(58, 39) home idle won false moved false cut 0 target Some((60, 42)) p 0.50
+336 (58, 39)->(58, 39) home idle won false moved false cut 0 target Some((60, 42)) p 0.50
+342 (58, 39)->(58, 39) home idle won false moved false cut 0 target Some((60, 42)) p 0.50
+348 (58, 39)->(58, 39) home idle won false moved false cut 0 target Some((60, 42)) p 0.50
+354 (58, 39)->(58, 39) home idle won false moved false cut 0 target Some((60, 42)) p 0.50
+360 (58, 39)->(57, 39) home idle won true moved true cut 0 target Some((60, 42)) p 0.50
+366 (57, 39)->(57, 39) home idle won false moved false cut 0 target Some((60, 42)) p 0.50
+372 (57, 39)->(57, 39) home idle won false moved false cut 0 target Some((60, 42)) p 0.50
+378 (57, 39)->(56, 39) home idle won true moved true cut 0 target Some((60, 42)) p 0.50
+384 (56, 39)->(56, 38) home idle won true moved true cut 0 target Some((60, 42)) p 0.50
+390 (56, 38)->(56, 38) home idle won false moved false cut 0 target Some((60, 42)) p 0.50
+396 (56, 38)->(56, 37) home idle won true moved true cut 0 target Some((60, 42)) p 0.50
+402 (56, 37)->(56, 37) home idle won false moved false cut 0 target Some((60, 42)) p 0.50
+408 (56, 37)->(56, 37) home idle won false moved false cut 0 target Some((60, 42)) p 0.50
+414 (56, 37)->(56, 36) home idle won true moved true cut 0 target Some((60, 42)) p 0.50
+420 (56, 36)->(56, 36) home idle won false moved false cut 0 target Some((60, 42)) p 0.50
+426 (56, 36)->(56, 35) home idle won true moved true cut 0 target Some((60, 42)) p 0.50
+432 (56, 35)->(56, 35) home idle won false moved false cut 0 target Some((60, 42)) p 0.50
+438 (56, 35)->(56, 35) home idle won false moved false cut 0 target Some((60, 42)) p 0.50
+444 (56, 35)->(56, 34) home idle won true moved true cut 0 target Some((60, 42)) p 0.50
+450 (56, 34)->(56, 33) home idle won true moved true cut 0 target Some((60, 42)) p 0.50
+456 (56, 33)->(56, 32) home idle won true moved true cut 0 target Some((60, 42)) p 0.50
+462 (56, 32)->(56, 32) home idle won false moved false cut 0 target Some((60, 42)) p 0.50
+468 (56, 32)->(56, 32) home idle won false moved false cut 0 target Some((60, 42)) p 0.50
+474 (56, 32)->(56, 32) home idle won false moved false cut 0 target Some((60, 42)) p 0.50
+480 (56, 32)->(56, 31) home idle won true moved true cut 0 target Some((60, 42)) p 0.50
+486 (56, 31)->(56, 31) home idle won false moved false cut 0 target Some((60, 42)) p 0.50
+492 (56, 31)->(56, 31) home idle won false moved false cut 0 target Some((60, 42)) p 0.50
+498 (56, 31)->(56, 31) home idle won false moved false cut 0 target Some((60, 42)) p 0.50
+504 (56, 31)->(56, 30) home idle won true moved true cut 0 target Some((60, 42)) p 0.50
+510 (56, 30)->(56, 30) home idle won false moved false cut 0 target Some((60, 42)) p 0.50
+516 (56, 30)->(56, 29) home idle won true moved true cut 0 target Some((60, 42)) p 0.50
+522 (56, 29)->(56, 29) home idle won false moved false cut 0 target Some((60, 42)) p 0.50
+528 (56, 29)->(56, 29) home idle won false moved false cut 0 target Some((60, 42)) p 0.50
+534 (56, 29)->(56, 28) home idle won true moved true cut 0 target Some((60, 42)) p 0.50
+540 (56, 28)->(56, 28) home idle won false moved false cut 0 target Some((60, 42)) p 0.50
+546 (56, 28)->(56, 28) home idle won false moved false cut 0 target Some((60, 42)) p 0.50
+552 (56, 28)->(56, 27) home idle won true moved true cut 0 target Some((60, 42)) p 0.50
+558 (56, 27)->(56, 27) home idle won false moved false cut 0 target Some((60, 42)) p 0.50
+564 (56, 27)->(56, 26) home idle won true moved true cut 0 target Some((60, 42)) p 0.50
+570 (56, 26)->(56, 25) home idle won true moved true cut 0 target Some((60, 42)) p 0.50
+576 (56, 25)->(55, 25) home idle won true moved true cut 0 target Some((60, 42)) p 0.50
+582 (55, 25)->(55, 25) home idle won false moved false cut 0 target Some((60, 42)) p 0.50
+588 (55, 25)->(56, 26) home idle won true moved true cut 0 target Some((60, 42)) p 0.50
+594 (56, 26)->(56, 27) home idle won true moved true cut 0 target Some((60, 42)) p 0.50
+600 (56, 27)->(56, 27) home idle won false moved false cut 0 target Some((60, 42)) p 0.50
+606 (56, 27)->(56, 28) home idle won true moved true cut 0 target Some((60, 42)) p 0.50
+612 (56, 28)->(56, 28) home idle won false moved false cut 0 target Some((60, 42)) p 0.50
+618 (56, 28)->(56, 28) home idle won false moved false cut 0 target Some((60, 42)) p 0.50
+624 (56, 28)->(56, 29) home idle won true moved true cut 0 target Some((60, 42)) p 0.50
+630 (56, 29)->(56, 29) home idle won false moved false cut 0 target Some((60, 42)) p 0.50
+636 (56, 29)->(56, 29) home idle won false moved false cut 0 target Some((60, 42)) p 0.50
+642 (56, 29)->(56, 30) home idle won true moved true cut 0 target Some((60, 42)) p 0.50
+648 (56, 30)->(56, 31) home idle won true moved true cut 0 target Some((60, 42)) p 0.50
+654 (56, 31)->(56, 31) home idle won false moved false cut 0 target Some((60, 42)) p 0.50
+660 (56, 31)->(56, 32) home idle won true moved true cut 0 target Some((60, 42)) p 0.50
+666 (56, 32)->(56, 33) home idle won true moved true cut 0 target Some((60, 42)) p 0.50
+672 (56, 33)->(56, 33) home idle won false moved false cut 0 target Some((60, 42)) p 0.50
+678 (56, 33)->(56, 33) home idle won false moved false cut 0 target Some((60, 42)) p 0.50
+684 (56, 33)->(56, 33) home idle won false moved false cut 0 target Some((60, 42)) p 0.50
+690 (56, 33)->(56, 34) home idle won true moved true cut 0 target Some((60, 42)) p 0.50
+696 (56, 34)->(56, 34) home idle won false moved false cut 0 target Some((60, 42)) p 0.50
+702 (56, 34)->(56, 34) home idle won false moved false cut 0 target Some((60, 42)) p 0.50
+708 (56, 34)->(56, 34) home idle won false moved false cut 0 target Some((60, 42)) p 0.50
+714 (56, 34)->(56, 35) home idle won true moved true cut 0 target Some((60, 42)) p 0.50
+720 (56, 35)->(56, 36) home idle won true moved true cut 0 target Some((60, 42)) p 0.50
+726 (56, 36)->(56, 37) home idle won true moved true cut 0 target Some((60, 42)) p 0.50
+732 (56, 37)->(56, 38) home idle won true moved true cut 0 target Some((60, 42)) p 0.50
+738 (56, 38)->(57, 39) home idle won true moved true cut 0 target Some((60, 42)) p 0.50
+744 (57, 39)->(57, 39) home idle won false moved false cut 0 target Some((60, 42)) p 0.50
+750 (57, 39)->(57, 39) home idle won false moved false cut 0 target Some((60, 42)) p 0.50
+756 (57, 39)->(58, 39) home idle won true moved true cut 0 target Some((60, 42)) p 0.50
+762 (58, 39)->(59, 39) home idle won true moved true cut 0 target Some((60, 42)) p 0.50
+768 (59, 39)->(60, 39) home idle won true moved true cut 0 target Some((60, 42)) p 0.50
+774 (60, 39)->(60, 39) home idle won false moved false cut 4 target Some((60, 42)) p 0.50
+780 (60, 39)->(60, 39) haul haul won false moved false cut 0 target Some((42, 37)) p 0.36
+786 (60, 39)->(59, 39) haul haul won true moved true cut 0 target Some((42, 37)) p 0.78
+792 (59, 39)->(58, 39) haul haul won true moved true cut 0 target Some((42, 37)) p 0.78
+798 (58, 39)->(57, 39) haul haul won true moved true cut 0 target Some((42, 37)) p 0.78
+804 (57, 39)->(56, 38) haul haul won true moved true cut 0 target Some((42, 37)) p 0.78
+810 (56, 38)->(56, 37) haul haul won true moved true cut 0 target Some((42, 37)) p 0.78
+816 (56, 37)->(56, 36) haul haul won true moved true cut 0 target Some((42, 37)) p 0.78
+822 (56, 36)->(56, 35) haul haul won true moved true cut 0 target Some((42, 37)) p 0.78
+828 (56, 35)->(56, 34) haul haul won true moved true cut 0 target Some((42, 37)) p 0.78
+834 (56, 34)->(56, 33) haul haul won true moved true cut 0 target Some((42, 37)) p 0.78
+840 (56, 33)->(56, 32) haul haul won true moved true cut 0 target Some((42, 37)) p 0.78
+846 (56, 32)->(56, 33) haul haul won true moved true cut 0 target Some((42, 37)) p 0.78
+852 (56, 33)->(56, 33) haul haul won false moved false cut 0 target Some((42, 37)) p 0.78
+858 (56, 33)->(56, 34) haul haul won true moved true cut 0 target Some((42, 37)) p 0.78
+864 (56, 34)->(56, 34) haul haul won false moved false cut 0 target Some((42, 37)) p 0.78
+870 (56, 34)->(56, 35) haul haul won true moved true cut 0 target Some((42, 37)) p 0.78
+876 (56, 35)->(56, 36) haul haul won true moved true cut 0 target Some((42, 37)) p 0.78
+882 (56, 36)->(56, 36) haul haul won false moved false cut 0 target Some((42, 37)) p 0.78
+888 (56, 36)->(56, 37) haul haul won true moved true cut 0 target Some((42, 37)) p 0.78
+894 (56, 37)->(56, 38) haul haul won true moved true cut 0 target Some((42, 37)) p 0.78
+900 (56, 38)->(56, 39) haul haul won true moved true cut 0 target Some((42, 37)) p 0.78
+906 (56, 39)->(57, 39) haul haul won true moved true cut 0 target Some((42, 37)) p 0.78
+912 (57, 39)->(57, 39) haul haul won false moved false cut 0 target Some((42, 37)) p 0.78
+918 (57, 39)->(56, 38) haul haul won true moved true cut 0 target Some((42, 37)) p 0.78
+924 (56, 38)->(56, 37) haul haul won true moved true cut 0 target Some((42, 37)) p 0.78
+930 (56, 37)->(56, 36) haul haul won true moved true cut 0 target Some((42, 37)) p 0.79
+936 (56, 36)->(56, 35) haul haul won true moved true cut 0 target Some((42, 37)) p 0.79
+942 (56, 35)->(56, 34) haul haul won true moved true cut 0 target Some((42, 37)) p 0.79
+948 (56, 34)->(56, 33) haul haul won true moved true cut 0 target Some((42, 37)) p 0.79
+954 (56, 33)->(56, 32) haul haul won true moved true cut 0 target Some((42, 37)) p 0.79
+960 (56, 32)->(56, 32) haul haul won false moved false cut 0 target Some((42, 37)) p 0.79
+966 (56, 32)->(56, 31) haul haul won true moved true cut 0 target Some((42, 37)) p 0.79
+972 (56, 31)->(56, 30) haul haul won true moved true cut 0 target Some((42, 37)) p 0.79
+978 (56, 30)->(56, 30) haul haul won false moved false cut 0 target Some((42, 37)) p 0.79
+984 (56, 30)->(56, 29) haul haul won true moved true cut 0 target Some((42, 37)) p 0.79
+990 (56, 29)->(56, 28) haul haul won true moved true cut 0 target Some((42, 37)) p 0.79
+996 (56, 28)->(56, 27) haul haul won true moved true cut 0 target Some((42, 37)) p 0.79
+1002 (56, 27)->(56, 26) haul haul won true moved true cut 0 target Some((42, 37)) p 0.79
+1008 (56, 26)->(55, 25) haul haul won true moved true cut 0 target Some((42, 37)) p 0.79
+1014 (55, 25)->(54, 25) haul haul won true moved true cut 0 target Some((42, 37)) p 0.79
+1020 (54, 25)->(53, 25) haul haul won true moved true cut 0 target Some((42, 37)) p 0.79
+1026 (53, 25)->(52, 25) haul haul won true moved true cut 0 target Some((42, 37)) p 0.79
+1032 (52, 25)->(51, 25) haul haul won true moved true cut 0 target Some((42, 37)) p 0.79
+1038 (51, 25)->(50, 25) haul haul won true moved true cut 0 target Some((42, 37)) p 0.79
+1044 (50, 25)->(49, 25) haul haul won true moved true cut 0 target Some((42, 37)) p 0.79
+1050 (49, 25)->(48, 25) haul haul won true moved true cut 0 target Some((42, 37)) p 0.79
+1056 (48, 25)->(47, 25) haul haul won true moved true cut 0 target Some((42, 37)) p 0.79
+1062 (47, 25)->(47, 25) haul haul won false moved false cut 0 target Some((42, 37)) p 0.79
+1068 (47, 25)->(47, 25) haul haul won false moved false cut 0 target Some((42, 37)) p 0.79
+1074 (47, 25)->(47, 25) haul haul won false moved false cut 0 target Some((42, 37)) p 0.79
+1080 (47, 25)->(47, 25) haul haul won false moved false cut 0 target Some((42, 37)) p 0.79
+1086 (47, 25)->(46, 25) haul haul won true moved true cut 0 target Some((42, 37)) p 0.79
+1092 (46, 25)->(46, 25) haul haul won false moved false cut 0 target Some((42, 37)) p 0.79
+1098 (46, 25)->(45, 25) haul haul won true moved true cut 0 target Some((42, 37)) p 0.79
+1104 (45, 25)->(45, 25) haul haul won false moved false cut 0 target Some((42, 37)) p 0.79
+1110 (45, 25)->(45, 25) haul haul won false moved false cut 0 target Some((42, 37)) p 0.79
+1116 (45, 25)->(44, 25) haul haul won true moved true cut 0 target Some((42, 37)) p 0.79
+1122 (44, 25)->(44, 25) haul haul won false moved false cut 0 target Some((42, 37)) p 0.79
+1128 (44, 25)->(43, 25) haul haul won true moved true cut 0 target Some((42, 37)) p 0.79
+1134 (43, 25)->(42, 25) haul haul won true moved true cut 0 target Some((42, 37)) p 0.79
+1140 (42, 25)->(43, 25) haul haul won true moved true cut 0 target Some((60, 39)) p 0.79
+1146 (43, 25)->(44, 25) home idle won true moved true cut 0 target Some((62, 39)) p 0.50
+1152 (44, 25)->(44, 25) home idle won false moved false cut 0 target Some((62, 39)) p 0.50
+1158 (44, 25)->(45, 25) home idle won true moved true cut 0 target Some((62, 39)) p 0.50
+1164 (45, 25)->(46, 25) home idle won true moved true cut 0 target Some((62, 39)) p 0.50
+1170 (46, 25)->(47, 25) home idle won true moved true cut 0 target Some((62, 39)) p 0.50
+1176 (47, 25)->(48, 25) home idle won true moved true cut 0 target Some((62, 39)) p 0.50
+1182 (48, 25)->(49, 25) home idle won true moved true cut 0 target Some((62, 39)) p 0.50
+1188 (49, 25)->(49, 25) home idle won false moved false cut 0 target Some((62, 39)) p 0.50
+1194 (49, 25)->(49, 25) home idle won false moved false cut 0 target Some((62, 39)) p 0.50
+1200 (49, 25)->(49, 25) home idle won false moved false cut 0 target Some((62, 39)) p 0.50
+1206 (49, 25)->(49, 25) home idle won false moved false cut 0 target Some((62, 39)) p 0.50
+1212 (49, 25)->(49, 25) home idle won false moved false cut 0 target Some((62, 39)) p 0.50
+1218 (49, 25)->(50, 25) home idle won true moved true cut 0 target Some((62, 39)) p 0.50
+1224 (50, 25)->(51, 25) home idle won true moved true cut 0 target Some((62, 39)) p 0.50
+1230 (51, 25)->(51, 25) home idle won false moved false cut 0 target Some((62, 39)) p 0.50
+1236 (51, 25)->(51, 25) home idle won false moved false cut 0 target Some((62, 39)) p 0.50
+1242 (51, 25)->(51, 25) home idle won false moved false cut 0 target Some((62, 39)) p 0.50
+1248 (51, 25)->(52, 25) home idle won true moved true cut 0 target Some((62, 39)) p 0.50
+1254 (52, 25)->(52, 25) home idle won false moved false cut 0 target Some((62, 39)) p 0.50
+1260 (52, 25)->(53, 25) home idle won true moved true cut 0 target Some((62, 39)) p 0.50
+1266 (53, 25)->(53, 25) home idle won false moved false cut 0 target Some((62, 39)) p 0.50
+1272 (53, 25)->(54, 25) home idle won true moved true cut 0 target Some((62, 39)) p 0.50
+1278 (54, 25)->(54, 25) home idle won false moved false cut 0 target Some((62, 39)) p 0.50
+1284 (54, 25)->(54, 25) home idle won false moved false cut 0 target Some((62, 39)) p 0.50
+1290 (54, 25)->(55, 25) home idle won true moved true cut 0 target Some((60, 42)) p 0.50
+1296 (55, 25)->(55, 25) home idle won false moved false cut 0 target Some((60, 42)) p 0.50
+1302 (55, 25)->(56, 26) home idle won true moved true cut 0 target Some((60, 42)) p 0.50
+1308 (56, 26)->(56, 27) home idle won true moved true cut 0 target Some((60, 42)) p 0.50
+1314 (56, 27)->(56, 27) home idle won false moved false cut 0 target Some((60, 42)) p 0.50
+1320 (56, 27)->(56, 27) home idle won false moved false cut 0 target Some((60, 42)) p 0.50
+1326 (56, 27)->(56, 28) home idle won true moved true cut 0 target Some((60, 42)) p 0.50
+1332 (56, 28)->(56, 29) home idle won true moved true cut 0 target Some((60, 42)) p 0.50
+1338 (56, 29)->(56, 30) home idle won true moved true cut 0 target Some((60, 42)) p 0.50
+1344 (56, 30)->(56, 30) home idle won false moved false cut 0 target Some((60, 42)) p 0.50
+1350 (56, 30)->(56, 31) home idle won true moved true cut 0 target Some((60, 42)) p 0.50
+1356 (56, 31)->(56, 31) home idle won false moved false cut 0 target Some((60, 42)) p 0.50
+1362 (56, 31)->(56, 31) home idle won false moved false cut 0 target Some((60, 42)) p 0.50
+1368 (56, 31)->(56, 32) home idle won true moved true cut 0 target Some((60, 42)) p 0.50
+1374 (56, 32)->(56, 33) home idle won true moved true cut 0 target Some((60, 42)) p 0.50
+1380 (56, 33)->(56, 34) home idle won true moved true cut 0 target Some((60, 42)) p 0.50
+1386 (56, 34)->(56, 34) home idle won false moved false cut 0 target Some((60, 42)) p 0.50
+1392 (56, 34)->(56, 34) home idle won false moved false cut 0 target Some((60, 42)) p 0.50
+1398 (56, 34)->(56, 34) home idle won false moved false cut 0 target Some((60, 42)) p 0.50
+1404 (56, 34)->(56, 34) home idle won false moved false cut 0 target Some((60, 42)) p 0.50
+1410 (56, 34)->(56, 34) home idle won false moved false cut 0 target Some((60, 42)) p 0.50
+1416 (56, 34)->(56, 34) home idle won false moved false cut 0 target Some((60, 42)) p 0.50
+1422 (56, 34)->(56, 35) home idle won true moved true cut 0 target Some((60, 42)) p 0.50
+1428 (56, 35)->(56, 36) home idle won true moved true cut 0 target Some((60, 42)) p 0.50
+1434 (56, 36)->(56, 36) home idle won false moved false cut 0 target Some((60, 42)) p 0.50
+1440 (56, 36)->(56, 37) home idle won true moved true cut 0 target Some((60, 42)) p 0.50
+1446 (56, 37)->(56, 38) home idle won true moved true cut 0 target Some((60, 42)) p 0.50
+1452 (56, 38)->(56, 39) home idle won true moved true cut 0 target Some((60, 42)) p 0.50
+1458 (56, 39)->(57, 39) home idle won true moved true cut 0 target Some((60, 42)) p 0.50
+1464 (57, 39)->(58, 39) home idle won true moved true cut 0 target Some((60, 42)) p 0.50
+1470 (58, 39)->(58, 39) home idle won false moved false cut 0 target Some((60, 42)) p 0.50
+1476 (58, 39)->(58, 39) home idle won false moved false cut 0 target Some((60, 42)) p 0.50
+1482 (58, 39)->(59, 39) home idle won true moved true cut 0 target Some((60, 42)) p 0.50
+1488 (59, 39)->(60, 40) home idle won true moved true cut 0 target Some((60, 42)) p 0.50
+1494 (60, 40)->(61, 41) home idle won true moved true cut 0 target Some((60, 42)) p 0.50
+1500 (61, 41)->(61, 41) rest idle won false moved false cut 0 target None p 0.50
+1506 (61, 41)->(61, 42) rest idle won true moved true cut 0 target None p 0.50
+1512 (61, 42)->(61, 42) rest idle won false moved false cut 0 target None p 0.50
+1518 (61, 42)->(61, 43) rest idle won true moved true cut 0 target None p 0.50
+1524 (61, 43)->(61, 43) rest idle won false moved false cut 0 target None p 0.50
+1530 (61, 43)->(60, 44) rest idle won true moved true cut 0 target None p 0.50
+1536 (60, 44)->(61, 45) rest idle won true moved true cut 0 target None p 0.50
+1542 (61, 45)->(61, 45) rest idle won false moved false cut 0 target None p 0.50
+1548 (61, 45)->(62, 46) rest idle won true moved true cut 0 target None p 0.50
+1554 (62, 46)->(63, 47) rest idle won true moved true cut 0 target None p 0.50
+1560 (63, 47)->(64, 47) rest idle won true moved true cut 0 target None p 0.50
+1566 (64, 47)->(64, 47) rest idle won false moved false cut 0 target None p 0.50
+1572 (64, 47)->(64, 47) out idle won false moved false cut 0 target Some((61, 45)) p 0.50
+1578 (64, 47)->(65, 46) out idle won true moved true cut 0 target Some((62, 46)) p 0.50
+1584 (65, 46)->(65, 46) out idle won false moved false cut 0 target Some((62, 46)) p 0.50
+1590 (65, 46)->(65, 46) out idle won false moved false cut 0 target Some((62, 46)) p 0.50
+1596 (65, 46)->(65, 46) out idle won false moved false cut 0 target Some((62, 46)) p 0.50
+1602 (65, 46)->(64, 46) out idle won true moved true cut 0 target Some((61, 45)) p 0.50
+1608 (64, 46)->(64, 46) out idle won false moved false cut 0 target Some((61, 45)) p 0.50
+1614 (64, 46)->(64, 47) out idle won true moved true cut 0 target Some((61, 45)) p 0.50
+1620 (64, 47)->(64, 47) out idle won false moved false cut 0 target Some((61, 45)) p 0.50
+1626 (64, 47)->(63, 46) out idle won true moved true cut 0 target Some((60, 44)) p 0.50
+1632 (63, 46)->(63, 46) out idle won false moved false cut 0 target Some((60, 44)) p 0.50
+1638 (63, 46)->(63, 46) out idle won false moved false cut 0 target Some((60, 44)) p 0.50
+1644 (63, 46)->(62, 47) out idle won true moved true cut 0 target Some((60, 44)) p 0.50
+1650 (62, 47)->(61, 48) out idle won true moved true cut 0 target Some((60, 45)) p 0.50
+1656 (61, 48)->(61, 48) out idle won false moved false cut 0 target Some((60, 45)) p 0.46
+1662 (61, 48)->(60, 47) out idle won true moved true cut 0 target Some((60, 44)) p 0.46
+1668 (60, 47)->(60, 47) out idle won false moved false cut 0 target Some((60, 44)) p 0.50
+1674 (60, 47)->(60, 47) out idle won false moved false cut 0 target Some((60, 44)) p 0.51
+1680 (60, 47)->(59, 46) out idle won true moved true cut 0 target Some((60, 43)) p 0.51
+1686 (59, 46)->(60, 46) out idle won true moved true cut 0 target Some((60, 43)) p 0.51
+1692 (60, 46)->(61, 46) out idle won true moved true cut 0 target Some((60, 43)) p 0.51
+1698 (61, 46)->(61, 45) out idle won true moved true cut 0 target Some((60, 42)) p 0.51
+1704 (61, 45)->(61, 45) out idle won false moved false cut 0 target Some((60, 42)) p 0.51
+1710 (61, 45)->(61, 45) out idle won false moved false cut 0 target Some((60, 42)) p 0.51
+1716 (61, 45)->(61, 44) out idle won true moved true cut 0 target Some((60, 41)) p 0.51
+1722 (61, 44)->(61, 44) out idle won false moved false cut 0 target Some((60, 41)) p 0.51
+1728 (61, 44)->(61, 44) out idle won false moved false cut 0 target Some((60, 41)) p 0.51
+1734 (61, 44)->(61, 43) out idle won true moved true cut 0 target Some((60, 40)) p 0.51
+1740 (61, 43)->(61, 42) out idle won true moved true cut 0 target Some((60, 39)) p 0.52
+1746 (61, 42)->(61, 41) out idle won true moved true cut 0 target Some((60, 39)) p 0.52
+1752 (61, 41)->(61, 41) out idle won false moved false cut 0 target Some((60, 39)) p 0.52
+1758 (61, 41)->(60, 41) out idle won true moved true cut 0 target Some((60, 39)) p 0.52
+1764 (60, 41)->(60, 40) out idle won true moved true cut 0 target Some((60, 39)) p 0.52
+1770 (60, 40)->(60, 40) seek idle won false moved false cut 0 target None p 0.52
+1776 (60, 40)->(61, 40) seek idle won true moved true cut 0 target None p 0.52
+1782 (61, 40)->(61, 40) seek idle won false moved false cut 0 target None p 0.53
+1788 (61, 40)->(61, 41) seek idle won true moved true cut 0 target None p 0.53
+1794 (61, 41)->(61, 42) out idle won true moved true cut 0 target Some((60, 39)) p 0.53
+1800 (61, 42)->(60, 42) out idle won true moved true cut 0 target Some((60, 39)) p 0.53
+1806 (60, 42)->(60, 42) out idle won false moved false cut 0 target Some((60, 39)) p 0.53
+1812 (60, 42)->(60, 42) out idle won false moved false cut 0 target Some((60, 39)) p 0.53
+1818 (60, 42)->(60, 41) out idle won true moved true cut 0 target Some((60, 39)) p 0.53
+1824 (60, 41)->(60, 40) out idle won true moved true cut 0 target Some((60, 39)) p 0.54
+1830 (60, 40)->(60, 40) seek idle won false moved false cut 0 target None p 0.54
+1836 (60, 40)->(61, 40) seek idle won true moved true cut 0 target None p 0.54
+1842 (61, 40)->(62, 39) seek idle won true moved true cut 0 target None p 0.54
+1848 (62, 39)->(62, 39) seek idle won false moved false cut 0 target None p 0.54
+1854 (62, 39)->(63, 39) seek idle won true moved true cut 0 target None p 0.55
+1860 (63, 39)->(64, 39) seek idle won true moved true cut 0 target None p 0.55
+1866 (64, 39)->(65, 39) seek idle won true moved true cut 0 target None p 0.55
+1872 (65, 39)->(66, 39) seek idle won true moved true cut 0 target None p 0.55
+1878 (66, 39)->(67, 39) seek idle won true moved true cut 0 target None p 0.56
+1884 (67, 39)->(67, 39) seek idle won false moved false cut 0 target None p 0.56
+1890 (67, 39)->(67, 39) seek idle won false moved false cut 0 target None p 0.56
+1896 (67, 39)->(68, 39) seek idle won true moved true cut 0 target None p 0.56
+1902 (68, 39)->(68, 39) seek idle won false moved false cut 0 target None p 0.56
+1908 (68, 39)->(69, 39) seek idle won true moved true cut 0 target None p 0.56
+1914 (69, 39)->(70, 39) seek idle won true moved true cut 0 target None p 0.57
+1920 (70, 39)->(70, 39) seek idle won false moved false cut 0 target None p 0.57
+1926 (70, 39)->(71, 39) seek idle won true moved true cut 0 target None p 0.57
+1932 (71, 39)->(72, 39) seek idle won true moved true cut 0 target None p 0.57
+1938 (72, 39)->(73, 39) seek idle won true moved true cut 0 target None p 0.58
+1944 (73, 39)->(73, 39) seek idle won false moved false cut 0 target None p 0.58
+1950 (73, 39)->(74, 39) seek idle won true moved true cut 0 target None p 0.58
+1956 (74, 39)->(75, 39) seek idle won true moved true cut 0 target None p 0.59
+1962 (75, 39)->(75, 39) seek idle won false moved false cut 0 target None p 0.59
+1968 (75, 39)->(76, 39) seek idle won true moved true cut 0 target None p 0.59
+1974 (76, 39)->(76, 39) eat idle won false moved false cut 0 target Some((82, 39)) p 0.75
+1980 (76, 39)->(77, 39) eat idle won true moved true cut 0 target Some((82, 39)) p 0.75
+1986 (77, 39)->(78, 39) eat idle won true moved true cut 0 target Some((82, 39)) p 0.75
+1992 (78, 39)->(78, 39) eat idle won false moved false cut 0 target Some((82, 39)) p 0.75
+1998 (78, 39)->(79, 39) eat idle won true moved true cut 0 target Some((82, 39)) p 0.75
+2004 (79, 39)->(80, 39) eat idle won true moved true cut 0 target Some((82, 39)) p 0.75
+2010 (80, 39)->(80, 39) eat idle won false moved false cut 0 target Some((82, 39)) p 0.75
+2016 (80, 39)->(81, 39) eat idle won true moved true cut 0 target Some((82, 39)) p 0.75
+2022 (81, 39)->(82, 39) eat idle won true moved true cut 0 target Some((82, 39)) p 0.75
+2028 (82, 39)->(82, 39) carry forage won true moved false cut 0 target Some((62, 39)) p 0.75
+2034 (82, 39)->(81, 39) carry forage won true moved true cut 0 target Some((62, 39)) p 0.75
+2040 (81, 39)->(81, 39) carry forage won false moved false cut 0 target Some((62, 39)) p 0.81
+2046 (81, 39)->(81, 39) carry forage won false moved false cut 0 target Some((62, 39)) p 0.80
+2052 (81, 39)->(80, 39) carry forage won true moved true cut 0 target Some((62, 39)) p 0.80
+2058 (80, 39)->(79, 39) carry forage won true moved true cut 0 target Some((62, 39)) p 0.80
+2064 (79, 39)->(79, 39) carry forage won false moved false cut 0 target Some((62, 39)) p 0.80
+2070 (79, 39)->(78, 39) carry forage won true moved true cut 0 target Some((62, 39)) p 0.80
+2076 (78, 39)->(77, 39) carry forage won true moved true cut 0 target Some((62, 39)) p 0.80
+2082 (77, 39)->(76, 39) carry forage won true moved true cut 0 target Some((62, 39)) p 0.80
+2088 (76, 39)->(75, 39) carry forage won true moved true cut 0 target Some((62, 39)) p 0.80
+2094 (75, 39)->(75, 39) carry forage won false moved false cut 0 target Some((62, 39)) p 0.80
+2100 (75, 39)->(74, 39) carry forage won true moved true cut 0 target Some((62, 39)) p 0.80
+2106 (74, 39)->(74, 39) carry forage won false moved false cut 0 target Some((62, 39)) p 0.80
+2112 (74, 39)->(73, 39) carry forage won true moved true cut 0 target Some((62, 39)) p 0.80
+2118 (73, 39)->(72, 39) carry forage won true moved true cut 0 target Some((62, 39)) p 0.80
+2124 (72, 39)->(71, 39) carry forage won true moved true cut 0 target Some((62, 39)) p 0.80
+2130 (71, 39)->(70, 39) carry forage won true moved true cut 0 target Some((62, 39)) p 0.80
+2136 (70, 39)->(69, 39) carry forage won true moved true cut 0 target Some((62, 39)) p 0.80
+2142 (69, 39)->(68, 39) carry forage won true moved true cut 0 target Some((62, 39)) p 0.80
+2148 (68, 39)->(67, 39) carry forage won true moved true cut 0 target Some((62, 39)) p 0.80
+2154 (67, 39)->(67, 39) carry forage won false moved false cut 0 target Some((62, 39)) p 0.80
+2160 (67, 39)->(67, 39) carry forage won false moved false cut 0 target Some((62, 39)) p 0.80
+2166 (67, 39)->(66, 39) carry forage won true moved true cut 0 target Some((62, 39)) p 0.80
+2172 (66, 39)->(65, 39) carry forage won true moved true cut 0 target Some((62, 39)) p 0.80
+2178 (65, 39)->(65, 39) carry forage won false moved false cut 0 target Some((62, 39)) p 0.80
+2184 (65, 39)->(64, 39) carry forage won true moved true cut 0 target Some((62, 39)) p 0.80
+2190 (64, 39)->(63, 39) carry forage won true moved true cut 0 target Some((62, 39)) p 0.80
+2196 (63, 39)->(63, 39) carry forage won false moved false cut 0 target Some((62, 39)) p 0.80
+2202 (63, 39)->(62, 39) carry forage won true moved true cut 0 target Some((62, 39)) p 0.80
+2208 (62, 39)->(61, 40) carry forage won true moved true cut 0 target Some((61, 40)) p 0.51
+2214 (61, 40)->(61, 40) carry forage won false moved false cut 0 target Some((61, 40)) p 0.51
+2220 (61, 40)->(61, 40) carry forage won false moved false cut 0 target Some((61, 40)) p 0.51
+2226 (61, 40)->(60, 41) carry forage won true moved true cut 0 target Some((60, 41)) p 0.51
+2232 (60, 41)->(60, 42) carry forage won true moved true cut 0 target Some((60, 42)) p 0.51
+2238 (60, 42)->(60, 43) carry forage won true moved true cut 0 target Some((60, 43)) p 0.51
+2244 (60, 43)->(60, 43) carry forage won false moved false cut 0 target Some((60, 43)) p 0.51
+2250 (60, 43)->(60, 43) carry forage won false moved false cut 0 target Some((60, 43)) p 0.51
+2256 (60, 43)->(60, 43) carry forage won false moved false cut 0 target Some((60, 43)) p 0.51
+2262 (60, 43)->(61, 44) carry forage won true moved true cut 0 target Some((61, 44)) p 0.50
+2268 (61, 44)->(61, 44) carry forage won false moved false cut 0 target Some((61, 44)) p 0.50
+2274 (61, 44)->(61, 45) carry forage won true moved true cut 0 target Some((61, 45)) p 0.50
+2280 (61, 45)->(61, 45) carry forage won false moved false cut 0 target Some((61, 45)) p 0.50
+2286 (61, 45)->(62, 46) carry forage won true moved true cut 0 target Some((62, 46)) p 0.50
+2292 (62, 46)->(62, 46) carry forage won false moved false cut 0 target Some((62, 46)) p 0.50
+2298 (62, 46)->(63, 47) carry forage won true moved true cut 0 target Some((63, 47)) p 0.50
+2304 (63, 47)->(63, 47) carry forage won false moved false cut 0 target Some((63, 47)) p 0.50
+2310 (63, 47)->(64, 47) carry forage won true moved true cut 0 target Some((64, 47)) p 0.50
+2316 (64, 47)->(64, 47) forage forage won false moved false cut 0 target None p 0.46
+2322 (64, 47)->(64, 46) forage forage won true moved true cut 0 target None p 0.67
+2328 (64, 46)->(65, 47) forage forage won true moved true cut 0 target None p 0.67
+2334 (65, 47)->(64, 47) forage forage won true moved true cut 0 target None p 0.67
+2340 (64, 47)->(63, 47) forage forage won true moved true cut 0 target None p 0.50
+2346 (63, 47)->(63, 47) forage forage won false moved false cut 0 target None p 0.46
+2352 (63, 47)->(62, 46) forage forage won true moved true cut 0 target None p 0.67
+2358 (62, 46)->(61, 45) forage forage won true moved true cut 0 target None p 0.67
+2364 (61, 45)->(61, 45) forage forage won false moved false cut 0 target None p 0.67
+2370 (61, 45)->(61, 44) forage forage won true moved true cut 0 target None p 0.67
+2376 (61, 44)->(60, 43) forage forage won true moved true cut 0 target None p 0.67
+2382 (60, 43)->(60, 42) forage forage won true moved true cut 0 target None p 0.67
+2388 (60, 42)->(60, 42) forage forage won false moved false cut 0 target None p 0.67
+2394 (60, 42)->(60, 41) forage forage won true moved true cut 0 target None p 0.67
+2400 (60, 41)->(60, 41) forage forage won false moved false cut 0 target None p 0.67
+2406 (60, 41)->(61, 40) forage forage won true moved true cut 0 target None p 0.67
+2412 (61, 40)->(61, 40) forage forage won false moved false cut 0 target None p 0.67
+2418 (61, 40)->(61, 39) forage forage won true moved true cut 0 target None p 0.67
+2424 (61, 39)->(61, 39) forage forage won false moved false cut 0 target None p 0.67
+2430 (61, 39)->(62, 39) forage forage won true moved true cut 0 target None p 0.67
+2436 (62, 39)->(63, 39) forage forage won true moved true cut 0 target None p 0.67
+2442 (63, 39)->(64, 39) forage forage won true moved true cut 0 target None p 0.83
+2448 (64, 39)->(65, 39) forage forage won true moved true cut 0 target None p 0.83
+2454 (65, 39)->(66, 39) forage forage won true moved true cut 0 target None p 0.83
+2460 (66, 39)->(67, 39) forage forage won true moved true cut 0 target None p 0.83
+2466 (67, 39)->(68, 39) forage forage won true moved true cut 0 target None p 0.83
+2472 (68, 39)->(69, 39) forage forage won true moved true cut 0 target None p 0.83
+2478 (69, 39)->(70, 39) forage forage won true moved true cut 0 target None p 0.83
+2484 (70, 39)->(71, 39) forage forage won true moved true cut 0 target None p 0.83
+2490 (71, 39)->(72, 39) forage forage won true moved true cut 0 target None p 0.83
+2496 (72, 39)->(73, 39) forage forage won true moved true cut 0 target None p 0.83
+2502 (73, 39)->(74, 39) forage forage won true moved true cut 0 target None p 0.83
+2508 (74, 39)->(74, 39) forage forage won false moved false cut 0 target None p 0.83
+2514 (74, 39)->(75, 39) forage forage won true moved true cut 0 target None p 0.83
+2520 (75, 39)->(75, 39) forage forage won false moved false cut 0 target None p 0.83
+2526 (75, 39)->(76, 39) forage forage won true moved true cut 0 target None p 0.83
+2532 (76, 39)->(77, 39) forage forage won true moved true cut 0 target None p 0.83
+2538 (77, 39)->(78, 39) forage forage won true moved true cut 0 target None p 0.83
+2544 (78, 39)->(79, 39) forage forage won true moved true cut 0 target None p 0.83
+2550 (79, 39)->(79, 39) forage forage won false moved false cut 0 target None p 0.83
+2556 (79, 39)->(79, 39) forage forage won false moved false cut 0 target None p 0.83
+2562 (79, 39)->(79, 39) forage forage won false moved false cut 0 target None p 0.83
+2568 (79, 39)->(79, 39) forage forage won false moved false cut 0 target None p 0.83
+2574 (79, 39)->(80, 39) forage forage won true moved true cut 0 target None p 0.83
+2580 (80, 39)->(81, 39) forage forage won true moved true cut 0 target None p 0.83
+2586 (81, 39)->(82, 39) forage forage won true moved true cut 0 target None p 0.83
+2592 (82, 39)->(83, 38) forage forage won true moved true cut 0 target None p 0.79
+2598 (83, 38)->(83, 38) forage forage won false moved false cut 0 target None p 0.00
+2604 (83, 38)->(82, 39) carry forage won true moved true cut 0 target Some((62, 39)) p 0.68
+2610 (82, 39)->(82, 39) carry forage won false moved false cut 0 target Some((62, 39)) p 0.76
+2616 (82, 39)->(81, 39) carry forage won true moved true cut 0 target Some((62, 39)) p 0.76
+2622 (81, 39)->(80, 39) carry forage won true moved true cut 0 target Some((62, 39)) p 0.76
+2628 (80, 39)->(79, 39) carry forage won true moved true cut 0 target Some((62, 39)) p 0.76
+2634 (79, 39)->(79, 39) carry forage won false moved false cut 0 target Some((62, 39)) p 0.76
+2640 (79, 39)->(78, 39) carry forage won true moved true cut 0 target Some((62, 39)) p 0.76
+2646 (78, 39)->(77, 39) carry forage won true moved true cut 0 target Some((62, 39)) p 0.76
+2652 (77, 39)->(77, 39) carry forage won false moved false cut 0 target Some((62, 39)) p 0.76
+2658 (77, 39)->(76, 39) carry forage won true moved true cut 0 target Some((62, 39)) p 0.76
+2664 (76, 39)->(75, 39) carry forage won true moved true cut 0 target Some((62, 39)) p 0.76
+2670 (75, 39)->(74, 39) carry forage won true moved true cut 0 target Some((62, 39)) p 0.76
+2676 (74, 39)->(73, 39) carry forage won true moved true cut 0 target Some((62, 39)) p 0.76
+2682 (73, 39)->(72, 39) carry forage won true moved true cut 0 target Some((62, 39)) p 0.76
+2688 (72, 39)->(71, 39) carry forage won true moved true cut 0 target Some((62, 39)) p 0.76
+2694 (71, 39)->(70, 39) carry forage won true moved true cut 0 target Some((62, 39)) p 0.76
+2700 (70, 39)->(69, 39) carry forage won true moved true cut 0 target Some((62, 39)) p 0.76
+2706 (69, 39)->(68, 39) carry forage won true moved true cut 0 target Some((62, 39)) p 0.76
+2712 (68, 39)->(67, 39) carry forage won true moved true cut 0 target Some((62, 39)) p 0.76
+2718 (67, 39)->(66, 39) carry forage won true moved true cut 0 target Some((62, 39)) p 0.76
+2724 (66, 39)->(66, 39) carry forage won false moved false cut 0 target Some((62, 39)) p 0.76
+2730 (66, 39)->(65, 39) carry forage won true moved true cut 0 target Some((62, 39)) p 0.76
+2736 (65, 39)->(64, 39) carry forage won true moved true cut 0 target Some((62, 39)) p 0.76
+2742 (64, 39)->(64, 39) carry forage won false moved false cut 0 target Some((62, 39)) p 0.76
+2748 (64, 39)->(64, 39) carry forage won false moved false cut 0 target Some((62, 39)) p 0.76
+2754 (64, 39)->(63, 39) carry forage won true moved true cut 0 target Some((62, 39)) p 0.76
+2760 (63, 39)->(62, 39) carry forage won true moved true cut 0 target Some((62, 39)) p 0.76
+2766 (62, 39)->(62, 39) carry forage won false moved false cut 0 target Some((62, 39)) p 0.20
+2772 (62, 39)->(62, 39) carry forage won false moved false cut 0 target Some((62, 39)) p 0.20
+2778 (62, 39)->(62, 39) carry forage won false moved false cut 0 target Some((62, 39)) p 0.20
+2784 (62, 39)->(62, 39) carry forage won false moved false cut 0 target Some((62, 39)) p 0.20
+2790 (62, 39)->(62, 39) carry forage won false moved false cut 0 target Some((62, 39)) p 0.20
+2796 (62, 39)->(62, 39) carry forage won false moved false cut 0 target Some((62, 39)) p 0.20
+2802 (62, 39)->(62, 39) carry forage won false moved false cut 0 target Some((62, 39)) p 0.20
+2808 (62, 39)->(62, 39) carry forage won false moved false cut 0 target Some((62, 39)) p 0.20
+2814 (62, 39)->(62, 39) carry forage won false moved false cut 0 target Some((62, 39)) p 0.20
+2820 (62, 39)->(62, 39) carry forage won false moved false cut 0 target Some((62, 39)) p 0.20
+2826 (62, 39)->(62, 39) carry forage won false moved false cut 0 target Some((62, 39)) p 0.20
+2832 (62, 39)->(62, 39) carry forage won false moved false cut 0 target Some((62, 39)) p 0.20
+2838 (62, 39)->(61, 39) carry forage won true moved true cut 0 target Some((61, 39)) p 0.20
+2844 (61, 39)->(61, 39) carry forage won false moved false cut 0 target Some((61, 39)) p 0.20
+2850 (61, 39)->(61, 39) carry forage won false moved false cut 0 target Some((61, 39)) p 0.20
+2856 (61, 39)->(61, 39) carry forage won false moved false cut 0 target Some((61, 39)) p 0.20
+2862 (61, 39)->(61, 39) carry forage won false moved false cut 0 target Some((61, 39)) p 0.20
+2868 (61, 39)->(61, 39) carry forage won false moved false cut 0 target Some((61, 39)) p 0.20
+2874 (61, 39)->(61, 39) carry forage won false moved false cut 0 target Some((61, 39)) p 0.20
+2880 (61, 39)->(61, 39) carry forage won false moved false cut 0 target Some((61, 39)) p 0.20
+2886 (61, 39)->(61, 39) carry forage won false moved false cut 0 target Some((61, 39)) p 0.20
+2892 (61, 39)->(61, 39) carry forage won false moved false cut 0 target Some((61, 39)) p 0.20
+2898 (61, 39)->(61, 39) carry forage won false moved false cut 0 target Some((61, 39)) p 0.20
+2904 (61, 39)->(61, 39) carry forage won false moved false cut 0 target Some((61, 39)) p 0.20
+2910 (61, 39)->(61, 39) carry forage won false moved false cut 0 target Some((61, 39)) p 0.20
+2916 (61, 39)->(61, 39) carry forage won false moved false cut 0 target Some((61, 39)) p 0.20
+2922 (61, 39)->(60, 39) carry forage won true moved true cut 0 target Some((60, 39)) p 0.20
+2928 (60, 39)->(59, 39) carry forage won true moved true cut 0 target Some((59, 39)) p 0.20
+2934 (59, 39)->(59, 39) carry forage won false moved false cut 0 target Some((59, 39)) p 0.20
+2940 (59, 39)->(59, 39) carry forage won false moved false cut 0 target Some((59, 39)) p 0.20
+2946 (59, 39)->(59, 39) carry forage won false moved false cut 0 target Some((59, 39)) p 0.20
+2952 (59, 39)->(58, 39) carry forage won true moved true cut 0 target Some((59, 39)) p 0.20
+2958 (58, 39)->(59, 39) carry forage won true moved true cut 0 target Some((59, 39)) p 0.76
+2964 (59, 39)->(59, 39) carry forage won false moved false cut 0 target Some((59, 39)) p 0.20
+2970 (59, 39)->(59, 39) carry forage won false moved false cut 0 target Some((59, 39)) p 0.20
+2976 (59, 39)->(60, 39) carry forage won true moved true cut 0 target Some((60, 39)) p 0.20
+2982 (60, 39)->(60, 39) carry forage won false moved false cut 0 target Some((60, 39)) p 0.20
+2988 (60, 39)->(60, 39) carry forage won false moved false cut 0 target Some((60, 39)) p 0.20
+2994 (60, 39)->(60, 39) carry forage won false moved false cut 0 target Some((60, 39)) p 0.20
+3000 (60, 39)->(60, 39) carry forage won false moved false cut 0 target Some((60, 39)) p 0.20
+test sim::creature::needs::tests::the_door_cut_opens_a_shut_door ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 2227 filtered out; finished in 0.11s
+
