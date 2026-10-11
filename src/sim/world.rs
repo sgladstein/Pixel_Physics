@@ -4229,6 +4229,11 @@ pub struct World {
     /// drains it. Recording draws nothing and changes nothing -- see
     /// `creature::DecisionRow`.
     pub decision_log: Option<Vec<crate::sim::creature::DecisionRow>>,
+    /// **The one ant the player drives** (`sim::steer`), `None` unless the
+    /// play-as-an-ant game or a harness sets it. With `None` every steering
+    /// hook in `creature.rs` is a branch not taken. Not [`World::player`],
+    /// which is the gnome.
+    pub steered: Option<crate::sim::steer::Steered>,
     /// **Every meal a larva is given** (`creature::FeedRow`), off (`None`)
     /// unless a harness turns it on by setting `Some(Vec::new())`, and
     /// drained by that harness. Recording draws nothing and changes nothing.
@@ -7041,6 +7046,7 @@ impl World {
             soil_water_stats: SoilWaterStats::default(),
             creature_stats: CreatureStats::default(),
             decision_log: None,
+            steered: None,
             feed_log: None,
             bite_log: None,
             food_log: None,

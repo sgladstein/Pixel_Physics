@@ -5486,7 +5486,7 @@ pub fn home_ring(world: &World, organism: OrganismId, radius: i32) -> Option<Hom
     let threshold = reproduce_at_of(def, &state.traits)?;
     let cost = birth_cost_of(def, birth_grant(def, &state.traits));
     ring.lay_bar = birth_bar(threshold, cost, def, super::brood::brood_of(world, def).as_ref());
-    ring.suppressed_bar = suppress_bar(breeding_regime(), breeding_radius(), world, organism, state.colony, (hx, hy), ring.lay_bar).0;
+    ring.suppressed_bar = suppress_bar(regime_of_colony(world, state.colony), breeding_radius(), world, organism, state.colony, (hx, hy), ring.lay_bar).0;
     let reach = super::brood::egg_pile_reach();
     let bar = super::brood::EggBar::of(world, organism);
     ring.pile = reach > 0 && super::brood::brood_of(world, def).is_some_and(|b| super::brood::pile_site(world, (hx, hy), def, &b, reach, bar).is_some());
@@ -5731,7 +5731,7 @@ pub(super) fn try_bud(
     // the rare tick an animal could otherwise already afford a child, not
     // on every tick for every animal. See `breeding_regime`'s own doc for
     // the regimes themselves.
-    let (bar, breeder_scan_visits) = suppress_bar(breeding_regime(), breeding_radius(), world, organism, state.colony, (hx, hy), bar);
+    let (bar, breeder_scan_visits) = suppress_bar(regime_of_colony(world, state.colony), breeding_radius(), world, organism, state.colony, (hx, hy), bar);
     // **The food brake rides on top of the regime**, raising the bar further
     // when the colony's recent income no longer clears its burn. Same
     // "only ever raises" contract as suppression, so the precheck above
@@ -7782,7 +7782,12 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
     // that takes its turn twice as often rolls twice as often, and dividing
     // the interval back out is what stops `life_half_life` becoming a
     // function of a gene nobody meant to point at it.
-    if def.life_half_life > 0 {
+    //
+    // **The player's ant never dies of old age** (`steer`; owner, 2026-10-11:
+    // *"My player shouldn't die of old age"*). One `Option` read when nobody
+    // is steered, and no draw is skipped for anyone else: the roll is a
+    // stream keyed on this organism alone.
+    if def.life_half_life > 0 && !crate::sim::steer::is_steered(world, organism) {
         let age = world.organism(organism).map_or(0, |st| world.frame.saturating_sub(st.born_frame));
         let interval = organism_tick_interval(world, organism, def);
         let chance = plant::old_age_chance_over(age as f32, def.life_half_life as f32, interval);
@@ -7960,6 +7965,17 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
             state.brain_state = brain_state;
             result
         }
+    };
+    // **The player's ant takes the keyboard's answer** (`steer`, hook 1 of
+    // 5). After the look-ahead merge, so on the serial thread under every
+    // `ParMode`, and before anything below reads an output. The genome has
+    // still run and its hidden state still moved, so handing her back to it
+    // (fast-forward above the steering cap) resumes a brain that kept time.
+    // `None` for every other body and whenever nobody is steered.
+    let steer_in = crate::sim::steer::take_input(world, organism);
+    let outputs = match steer_in {
+        Some(input) => steered_outputs(outputs, input),
+        None => outputs,
     };
 
     // **A carrier of a trip's food meets the ants it passes**
@@ -8157,7 +8173,9 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
     // Under `PIXEL_PHYSICS_PACKED_LUNCH` a crop of food taken at home counts
     // as empty here (`carries_lunch`), on both sides of `act`.
     let lunch = world.organism(organism).is_some_and(|s| carries_lunch(world, s));
-    if drive_now.on() && (sensed_empty || lunch) && chooser_for(world, def) == Chooser::TrailAway {
+    // Not for the player's ant (`steer`, hook 2 of 5): she stands unless
+    // steered, and `forage_pace` would walk a rested, empty forager anyway.
+    if steer_in.is_none() && drive_now.on() && (sensed_empty || lunch) && chooser_for(world, def) == Chooser::TrailAway {
         let felt = world.organism(organism).filter(|s| (s.crop.is_none_or(|c| c.worth() <= 0.0) || lunch) && s.spoil.is_none() && !s.hungry_home).map(|st| {
             let d = forage_drive_level(world, st, def);
             let move_out = outputs[brain::BrainOutput::Move as usize];
@@ -8258,7 +8276,12 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
             // `CreatureStats::moves` meaning exactly one walking step, which
             // is what §7's falls-per-move bar was baselined against.
         } else {
-            moved = if chooser == Chooser::Off {
+            // **The player's ant steps where she is steered** (`steer`, hook 5
+            // of 5), ahead of both walks and so of `chooser_step`'s fallbacks
+            // (`step_chain`, `fills_before_walking`). No draw is taken.
+            moved = if let Some(input) = steer_in {
+                steered_step(world, organism, heading, def, input.dir)
+            } else if chooser == Chooser::Off {
                 step_chain(world, organism, heading, &outputs, def, &mut draw)
             } else {
                 chooser_step(world, organism, heading, &outputs, def, &mut draw, chooser)
@@ -8357,7 +8380,10 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
         // exactly, so off is the ant before it): only a load from a trip lays
         // food scent (`FoodTrail::lay`). The cost below prices what is laid.
         let emit_b_brain = outputs[brain::BrainOutput::EmitB as usize].clamp(0.0, 1.0);
-        let emit_b = emit_b_brain * food_trail_lay(world, organism);
+        // The player's ant lays it wherever she walks while T is held
+        // (`steer`, hook 3 of 5): the lay rule would hold it to a trip's load,
+        // and her first trail is laid walking *out*.
+        let emit_b = emit_b_brain * if steer_in.is_some() { 1.0 } else { food_trail_lay(world, organism) };
         // **Where the mark goes: the head it arrived on, or the cell it just
         // left.** `PIXEL_PHYSICS_DEPOSIT_AT=vacated` is a measurement switch
         // for `open-bugs-handoff.md` §Z29, and it defaults to the shipped
@@ -18275,6 +18301,12 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
     let mut did = Did::default();
     use brain::BrainOutput as O;
     let crop = world.organism(organism).and_then(|s| s.crop);
+    // **The player's ant does what was pressed** (`steer`, hook 4 of 5):
+    // every rewrite below that would change her verb -- the stranger hold,
+    // the lean and called-forager no-dig gates, `needs_first_act`, the forage
+    // drive's feed scaling and the crop holds -- is skipped for her. One
+    // `Option` read when nobody is steered.
+    let steered = crate::sim::steer::input_of(world, organism).is_some();
     // **A stranger's touch raises the alarm** ([`StrangerAlarm`]). First in
     // `act`, before any early return, so every decision that touches a
     // stranger is counted and marks; the mark is read by the brain from the
@@ -18298,7 +18330,7 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
         // (second-lane results review, 2026-10-10). `nearest_foe` walks the
         // same ring, so with no stranger in it the only foe it can find is
         // another kind, and that fight is answered as on main.
-        stranger_hold = lean_or_laden && touch.foreign.is_some();
+        stranger_hold = lean_or_laden && touch.foreign.is_some() && !steered;
         world.creature_stats.stranger_rider_touches += u64::from(touch.riders);
         if let Some(foreign) = touch.foreign {
             world.creature_stats.stranger_touches += 1;
@@ -18327,7 +18359,7 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
         lf.on && world.organism(organism).is_some_and(|s| lf.lean(s.energy, def))
     };
     let mut lean_took_dig = false;
-    if lean && lean_forage_of(world).nodig && dig_urge > 0.0 {
+    if !steered && lean && lean_forage_of(world).nodig && dig_urge > 0.0 {
         // **...unless it is shut in the mound** ([`MoundOut`]'s `dig`),
         // where digging is the only move that leads out.
         if mound_out_of(world).dig && shut_in_mound(world, x, y) {
@@ -18345,7 +18377,7 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
     // with its forage drive at or over the line, the urge reads 0 as a lean
     // ant's does, the roll still spends its draw, and an ant shut in keeps
     // its roll for the same reasons. Off, no read.
-    if dig_urge > 0.0 {
+    if dig_urge > 0.0 && !steered {
         if let Some(line) = forager_nodig() {
             let called = world.organism(organism).is_some_and(|s| forage_drive_level(world, s, def) >= line);
             if called && !(mound_out_of(world).dig && shut_in_mound(world, x, y)) && !(needs_first_of(world).weak && shut_in(world, x, y)) {
@@ -18358,7 +18390,7 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
     // **Soil is the lowest job** ([`NeedsFirst`]): a need puts the jaws' load
     // down before anything below reads it. Unset, no read and no draw.
     let needs_first = needs_first_of(world);
-    if needs_first.jaws() {
+    if needs_first.jaws() && !steered {
         match needs_first_act(world, organism, def, (x, y), needs_first) {
             NeedsDid::Nothing => {}
             NeedsDid::Down => return did,
@@ -18386,7 +18418,7 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
     // starved 13 -> 40, 22 of them on the nest, and the colony's starved
     // rose 156 -> 204 against `always` alone.
     let drive_now = forage_drive_of(world);
-    if drive_now.on() && drive_now.keep {
+    if !steered && drive_now.on() && drive_now.keep {
         let drive = world.organism(organism).filter(|st| st.energy >= def.start_energy).map_or(0.0, |st| forage_drive_level(world, st, def));
         if drive > 0.0 && nest_within_reach(world, organism, x, y, def) {
             feed_urge *= 1.0 - drive;
@@ -19503,6 +19535,7 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
                 world.creature_stats.meal_holds += 1;
             }
             let p = match harvest {
+                _ if steered => drop_urge,
                 Some(HarvestDrop::Hold) => 0.0,
                 Some(HarvestDrop::Store(_)) => HARVEST_DROP_P,
                 None if crop_held || nurse_held || meal_held => 0.0,
@@ -20744,6 +20777,19 @@ fn breeding_regime() -> BreedingRegime {
         // [`GRADED_MAX_SUPPRESSION`] the breeding plan's B2 re-sweep chose.
         _ => BreedingRegime::Graded,
     })
+}
+
+/// **The breeding rule for one colony**: `queen` for the player's colony
+/// (`steer`), so her daughters hold back while she lives wherever she
+/// roams -- under the shipped `graded`, a queen more than
+/// `PIXEL_PHYSICS_BREEDING_RADIUS` cells from them lets them lay at the full
+/// bar -- and [`breeding_regime`] for every other colony, which is the whole
+/// of the off path.
+fn regime_of_colony(world: &World, colony: u32) -> BreedingRegime {
+    match world.steered.as_ref() {
+        Some(s) if s.colony == colony => BreedingRegime::Queen,
+        _ => breeding_regime(),
+    }
 }
 
 /// The reach, in world cells, that `breeding_regime`'s **`graded`** arm
@@ -25199,6 +25245,56 @@ fn note_door(world: &mut World, why: u8) {
     if world.decision_log.is_some() {
         world.decision_scratch.door_why = why;
     }
+}
+
+/// **The brain's outputs with the keyboard's answer written over them**
+/// (`steer`, hook 1 of 5). Each verb is 1 while its key is held and pushed
+/// below its threshold otherwise, so nothing happens on its own: `Move` 0
+/// fails every step roll, `Lay` -1 is under [`brain::LAY_HOLD_BELOW`] (a
+/// plain 0 would let the genome's bar decide), and `Tumble` and `Impulse` 0
+/// keep a standing ant standing. `Turn`, `Persist`, `Caution`, `Provision`
+/// and `EmitA` stay the genome's: the home scent is what her workers find
+/// the door by, and the rest only shape a walk the keyboard has taken over.
+fn steered_outputs(mut outputs: [f32; brain::BRAIN_OUTPUTS], input: crate::sim::steer::SteerInput) -> [f32; brain::BRAIN_OUTPUTS] {
+    use brain::BrainOutput as O;
+    let level = |held: bool| if held { 1.0 } else { 0.0 };
+    outputs[O::Move as usize] = level(input.dir.is_some());
+    outputs[O::Tumble as usize] = 0.0;
+    outputs[O::Impulse as usize] = 0.0;
+    outputs[O::Feed as usize] = level(input.eat);
+    outputs[O::Drop as usize] = level(input.drop);
+    outputs[O::DropSpoil as usize] = level(input.drop);
+    outputs[O::Dig as usize] = level(input.dig);
+    outputs[O::Share as usize] = level(input.share);
+    outputs[O::Attack as usize] = level(input.bite);
+    outputs[O::EmitB as usize] = level(input.trail);
+    outputs[O::Lay as usize] = if input.lay { 1.0 } else { -1.0 };
+    outputs
+}
+
+/// **One step where the player steers** (`steer`, hook 5 of 5): the usable
+/// heading [`steer::pick_heading`](crate::sim::steer::pick_heading) chooses,
+/// committed exactly as [`chooser_step`] commits its own pick, so she climbs,
+/// squeezes and falls by the same body rules as any ant. `false`, standing,
+/// with no steer key held or no usable heading within 90 degrees of it. No
+/// draw.
+fn steered_step(world: &mut World, organism: OrganismId, heading: u8, def: &CreatureDef, dir: Option<(i8, i8)>) -> bool {
+    let Some(dir) = dir else { return false };
+    let Some((chain, groups, fates)) = world.organism(organism).map(|s| (s.chain.clone(), s.segment_groups.clone(), s.fates)) else {
+        note_outcome(world, DecisionOutcome::NoBody);
+        return false;
+    };
+    if chain.is_empty() {
+        note_outcome(world, DecisionOutcome::NoBody);
+        return false;
+    }
+    let usable = usable_headings(world, organism, def);
+    let Some(to) = crate::sim::steer::pick_heading(&usable, &DIRS, dir) else { return false };
+    let authored = segment_authored(def, fates);
+    let authored_widths: Vec<u8> = authored.iter().map(|s| if s.lateral.is_some() { 2 } else { 1 }).collect();
+    let body = BodyShape { chain: &chain, groups: &groups, authored: &authored_widths };
+    commit_step(world, organism, def, body, &authored, &authored_widths, heading, to, parting_enabled());
+    true
 }
 
 fn chooser_step(
@@ -53254,5 +53350,128 @@ mod tests {
         for bad in ["x", "-3", "6.5"] {
             assert_eq!(parse_nest_shaft(bad), Some(NEST_SHAFT_ROWS), "{bad:?} must read as unset, which is the shipped depth");
         }
+    }
+
+    // --- the player's ant (`sim::steer`) ---------------------------------
+
+    /// One ant on bare soil with every charge zeroed, marked as the steered
+    /// body with a keyboard attached and nothing pressed.
+    fn steered_bed(ants: i32, life: u32) -> (World, OrganismId) {
+        let mut w = age_cohort(life, ants);
+        let mut ids = w.live_organism_ids();
+        ids.sort();
+        let id = ids[0];
+        assert!(crate::sim::steer::mark(&mut w, id, Some(crate::sim::steer::SteerInput::default())));
+        (w, id)
+    }
+
+    fn head_of(w: &World, id: OrganismId) -> (i32, i32) {
+        w.organism(id).and_then(|s| s.chain.first().copied()).expect("alive")
+    }
+
+    /// **Owner, 2026-10-11: *"My player shouldn't die of old age."*** The
+    /// cohort's own bed at a half-life of 1,200 frames: by two and a half
+    /// half-lives the rest are gone to old age and she is not. Watched red:
+    /// with the `is_steered` term taken out of the hazard's gate she dies
+    /// with them.
+    #[test]
+    fn the_steered_ant_never_dies_of_old_age() {
+        let (mut w, id) = steered_bed(20, 1_200);
+        w.steered.as_mut().unwrap().input = None; // her genome drives her
+        run(&mut w, 3_000);
+        assert!(w.organism(id).is_some(), "the steered ant died: OLDAGE {} of 20", aged_deaths(&w));
+        assert!(aged_deaths(&w) >= 17, "the rest of the cohort must still age out, or the bed proves nothing: OLDAGE {}", aged_deaths(&w));
+    }
+
+    /// **Nothing pressed, she stands; a direction held, she steps that way.**
+    /// The step is the usable heading the direction picks, so the test asks
+    /// the engine which headings are usable rather than assuming the bed's
+    /// shape. Watched red: with hook 1's `Move` left to the genome she
+    /// wanders while nothing is pressed.
+    #[test]
+    fn the_steered_ant_stands_until_steered_and_steps_where_steered() {
+        let (mut w, id) = steered_bed(1, 0);
+        let still = head_of(&w, id);
+        run(&mut w, 300);
+        assert_eq!(head_of(&w, id), still, "nothing was pressed, and she moved");
+        let sid = w.organism(id).unwrap().species;
+        let def = w.species.get(sid).creature.clone().unwrap();
+        let usable = usable_headings(&w, id, &def);
+        assert!(!usable.is_empty(), "the bed must leave her somewhere to step");
+        let (dx, dy) = DIRS[usable[0] as usize];
+        w.steered.as_mut().unwrap().input = Some(crate::sim::steer::SteerInput { dir: Some((dx as i8, dy as i8)), ..Default::default() });
+        let mut moved_to = None;
+        for _ in 0..30 {
+            run(&mut w, 1);
+            if head_of(&w, id) != still {
+                moved_to = Some(head_of(&w, id));
+                break;
+            }
+        }
+        assert_eq!(moved_to, Some((still.0 + dx, still.1 + dy)), "steered {:?}, she should take that step at her next decision", (dx, dy));
+    }
+
+    /// **T lays the food trail on the way out** (hook 3): the lay rule holds
+    /// trail B to a trip's load, and an empty ant walking out carries none.
+    /// One ant alone, so nothing else in the bed lays B. Watched red: with
+    /// `food_trail_lay` back in her path she lays 0.
+    #[test]
+    fn a_held_trail_key_lays_trail_b_for_an_empty_steered_ant() {
+        let b_laid = |trail: bool| {
+            let (mut w, id) = steered_bed(1, 0);
+            let sid = w.organism(id).unwrap().species;
+            let def = w.species.get(sid).creature.clone().unwrap();
+            let usable = usable_headings(&w, id, &def);
+            let (dx, dy) = DIRS[usable[0] as usize];
+            w.steered.as_mut().unwrap().input = Some(crate::sim::steer::SteerInput { dir: Some((dx as i8, dy as i8)), trail, ..Default::default() });
+            let mut best = 0u32;
+            for _ in 0..120 {
+                run(&mut w, 1);
+                let (hx, hy) = head_of(&w, id);
+                let around: u32 = (-2..=2).flat_map(|ox| (-2..=2).map(move |oy| (ox, oy))).map(|(ox, oy)| u32::from(w.pheromone_at(Channel::B, hx + ox, hy + oy))).sum();
+                best = best.max(around);
+            }
+            best
+        };
+        let (held, up) = (b_laid(true), b_laid(false));
+        assert!(held > 0, "T held and walking, and no trail B round her");
+        assert_eq!(up, 0, "T up: an empty ant lays no trail B, and the bed has nobody else to lay it");
+    }
+
+    /// **The queen rule is her colony's alone**: every other colony keeps the
+    /// process regime, which is what keeps a world with nobody steered the
+    /// world without this module.
+    #[test]
+    fn the_queen_rule_is_the_steered_colonys_only() {
+        let (w, id) = steered_bed(1, 0);
+        let hers = w.organism(id).unwrap().colony;
+        assert_eq!(regime_of_colony(&w, hers), BreedingRegime::Queen);
+        assert_eq!(regime_of_colony(&w, hers + 1), breeding_regime());
+        let mut off = w.clone();
+        off.steered = None;
+        assert_eq!(regime_of_colony(&off, hers), breeding_regime());
+    }
+
+    /// **A raised reserve is booked**, so the colony's energy ledger still
+    /// closes. Watched red: with the `book` call taken out of `steer::grant`
+    /// the gap is the grant to the joule.
+    #[test]
+    fn a_granted_reserve_keeps_the_books_closed() {
+        let (mut w, id) = steered_bed(1, 0);
+        let colony = w.organism(id).unwrap().colony as usize;
+        let gap = |w: &World| w.live_creature_energy_by_colony().get(colony).copied().unwrap_or(0.0) - w.all_colony_books()[colony].expected_live_total();
+        let before = gap(&w);
+        assert_eq!(crate::sim::steer::grant(&mut w, 900.0), 900.0);
+        assert!((gap(&w) - before).abs() < 1e-3, "granting 900 J moved the books' gap by {:.3}", gap(&w) - before);
+    }
+
+    /// **The caste is chosen by id, and she is exempt.** One ant in four
+    /// is nest-bound for life (`Storeroom::caste`); marking her clears it.
+    #[test]
+    fn the_steered_ant_is_never_of_the_nest_caste() {
+        let mut w = age_cohort(0, 8);
+        let id = w.live_organism_ids().into_iter().find(|id| w.organism(*id).is_some_and(|s| is_nest_bound(&w, s))).expect("a nest-bound founder in eight");
+        crate::sim::steer::mark(&mut w, id, None);
+        assert!(!is_nest_bound(&w, w.organism(id).unwrap()), "marked, and still nest-bound");
     }
 }
