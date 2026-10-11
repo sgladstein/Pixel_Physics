@@ -14250,7 +14250,18 @@ fn pack_behind(world: &mut World, organism: OrganismId, def: &CreatureDef, head:
     let (landing, _) = body_after_step(world, def, body, ahead, heading, aim, push);
     let vacated = chain.iter().rev().copied().find(|c| !landing.contains(c));
     let own = landing.iter().all(|c| *c == ahead || chain.contains(c));
-    let Some((vx, vy)) = vacated.filter(|&v| own && !in_a_doorway(world, v) && landing_is_placeable_through_tissue(world, &chain, &landing, push, None)) else {
+    // **Nor a tail cell the body is standing in something it parted**
+    // (crumbs, brood, foliage: `OrganismState::parted`): `relocate_chain`
+    // gives that back as the tail leaves, the cell is not empty, and the
+    // pellet had nowhere to go -- in a release build it vanished, a cell of
+    // soil deleted. Found 2026-10-11 by the debug build of `needs`'s sealed
+    // guard rows, an ant whose tail stood on crumbs. **Refused only under the
+    // needs walk for now**: today's ant hits it too (steady seed 1 diverges
+    // by frame 40k with the refusal on for everyone), so fixing it there
+    // changes the shipped game and needs its own measurement.
+    let parted_under =
+        |v: (i32, i32)| world.needs.is_some() && world.organism(organism).is_some_and(|s| s.parted.iter().any(|p| (p.x, p.y) == v));
+    let Some((vx, vy)) = vacated.filter(|&v| own && !in_a_doorway(world, v) && !parted_under(v) && landing_is_placeable_through_tissue(world, &chain, &landing, push, None)) else {
         world.set(ahead.0, ahead.1, target);
         return false;
     };
