@@ -5477,6 +5477,15 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   seeds from a 900 J start (median 11,400 frames), against 7 of 12 for her
   genome. Four beetles kill a lone queen 12 of 12 within 800 frames. Design
   docs are Claude Docs linked from the report.
+- [play-as-ant-slice1-2026-10-11.md](play-as-ant-slice1-2026-10-11.md) — **the
+  play-as-an-ant game's slice 1, the first playable**: `scenario=queen_start`
+  puts the lab in queen mode (`lab::queen`): WASD and seven verb keys drive
+  one queen at 4x and below, with her own colour, a following camera and a
+  panel, on a planted box with a capped food spot and no beetles. Off is
+  byte-identical to main. A scripted player through the keys reaches 20
+  workers at frame 11,761 (seed 1). Also the trail trace: her trail lands on
+  a route the colony already marked, so it adds almost nothing; with the
+  colony's own trail silenced it doubles workers at food.
 
 ## Licensing and distribution
 

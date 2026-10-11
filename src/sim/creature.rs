@@ -3444,6 +3444,18 @@ pub fn ready_to_lay(world: &World, def: &CreatureDef, state: &super::organism::O
     state.energy >= birth_bar(threshold, cost, def, super::brood::brood_of(world, def).as_ref())
 }
 
+/// **The bank this animal must reach to lay her next egg**, as
+/// [`ready_to_lay`] reads it (no breeding regime or food brake on top). Read
+/// only; `None` for a species that does not lay or an animal with no bar.
+/// The play-as-an-ant HUD prints it beside her bank (`lab::queen`), so the
+/// number on screen is the rule's own and not a copy of it.
+pub fn egg_bar_of(world: &World, def: &CreatureDef, state: &super::organism::OrganismState) -> Option<f32> {
+    let laying = super::brood::brood_of(world, def)?;
+    let threshold = reproduce_at_of(def, &state.traits)?;
+    let cost = birth_cost_of(def, birth_grant(def, &state.traits));
+    Some(birth_bar(threshold, cost, def, Some(&laying)))
+}
+
 /// `PIXEL_PHYSICS_LAY_HOME=laden`: a ready ant with food in its crop walks
 /// home to lay too. On the lab box (seed 1, 30k frames) 90% of the samples
 /// in which an ant could lay were laden ants, which the empty-crop rule

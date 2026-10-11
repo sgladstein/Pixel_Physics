@@ -1786,8 +1786,8 @@ are always on.
 play-as-an-ant game or a harness sets it; `steer::mark`). Every other ant is
 untouched, and with `None` every hook below is a branch not taken: a lab run
 is identical to the build without it. Verified 2026-10-11 against
-`creature_tick`, `act`, `steered_outputs`, `steered_step`, `regime_of_colony`
-and `steer.rs`.
+`creature_tick`, `act`, `steered_outputs`, `steered_step`, `regime_of_colony`,
+`lab::queen::QueenMode::feed` and `steer.rs`.
 
 - **What a keyboard changes**, when `Steered::input` is `Some` (five hooks):
   1. the outputs, replaced after the look-ahead merge (`steered_outputs`):
@@ -1820,6 +1820,11 @@ and `steer.rs`.
   make her a nurse again); and the `queen` breeding rule for her colony at both
   laying checks (`regime_of_colony`), the process regime for every other.
 - **A raised reserve** goes in through `steer::grant`, booked as `Granted`.
+- **In the lab** (`lab::queen`, the `queen_start` scenario's `Queen`
+  placement marks her at build time with `input` `None`): every tick, before
+  the step, the keys held become `input` while the speed dial is at 4x or
+  below; above it `input` is `None` and the latch is cleared, so her genome
+  drives her and nothing pressed at speed fires later.
 
 ## 17. The needs walk's walled-in switch (`creature::needs`; not the game's ant)
 

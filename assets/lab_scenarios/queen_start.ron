@@ -1,0 +1,50 @@
+// **Play as one ant: the queen's start** -- the play-as-an-ant game's first
+// playable box (`Reports/play-as-ant-slice1-2026-10-11.md`). Open it with
+// `cargo run --release --bin lab -- scenario=queen_start`; the lab goes into
+// queen mode (`lab::queen`) and WASD plus E Q F G B L T drive her.
+//
+// - **One queen, a colony of one**, at column 256, steered by the keys at
+//   4x and below. She starts with 900 J granted on top of the ant's 200 J:
+//   slice 0's scripted player reached twenty workers on 10 of 12 seeds at
+//   900 J against 8 of 12 at none (median 11,400 frames).
+// - **A food spot 60 columns east that tops itself up** (`Larder`): 20 cells
+//   of provisions every 1,000 frames while fewer than 60 lie within 12
+//   columns of it. Slice 0's steady-income heap (40 cells every 1,000 frames
+//   with no cap) buried a lone queen on 6 of 24 runs; a capped spot cannot.
+// - **The planted box**: two herbs clear of the nest, the mister at its
+//   shipped default (the planted-balance lane found a rain-off herb bed
+//   empties).
+// - **No beetles** (owner's card, 2026-10-11): four beetles killed a lone
+//   queen on 12 of 12 seeds within 800 frames.
+(
+    name: "queen_start",
+    title: "PLAY AS THE QUEEN",
+    question: "You are one founding queen with a food spot to the east: can you raise twenty workers?",
+    bed: (
+        width: 512,
+        height: 320,
+        soil_depth: 80,
+        ground_y: 160,
+        compartments: 1,
+        founders: 0,
+        species: "herb",
+        colonies: 0,
+        colony_ants: 1,
+        colony_species: "ant",
+        predators: 0,
+        lamp_spacing: 33,
+        seed: 1,
+        extra_walls: [],
+    ),
+    settings: [],
+    placements: [
+        Plant(species: "herb", x: 128),
+        Plant(species: "herb", x: 384),
+        Queen(species: "ant", x: 256, reserve: 900),
+        Larder(material: "provisions", x: 316, cells: 20, cap: 60),
+    ],
+    timeline: [
+        (at: 1000, every: 1000, until: 0, what: Larder(material: "provisions", x: 316, cells: 20, cap: 60)),
+    ],
+    horizon: 432000,
+)
