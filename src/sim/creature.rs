@@ -14079,6 +14079,64 @@ fn closes_a_way(world: &World, (x, y): (i32, i32)) -> bool {
     (0..8).filter(|&i| o[i] && !o[(i + 1) % 8]).count() > 1
 }
 
+/// **A cell into the crop at face value**, as `act`'s swallow puts it there,
+/// and nothing booked: the ledger books at digestion (`creature_tick`). One
+/// helper so the walk's `eat_held` ([`needs::WalkParts::eat_held`]) eats a
+/// held store load exactly as the mouth would have eaten it put down -- the
+/// same merge, the same price -- and cannot drift from it (2026-10-11).
+fn crop_take(
+    world: &mut World,
+    organism: OrganismId,
+    food: material::MaterialId,
+    shade: u8,
+    worth: f32,
+    passenger: Option<organism::SeedPassenger>,
+) {
+    // **Crumbs merge at the mean, which keeps the crop's worth
+    // exactly.** Every crumb holds a different remainder, so the
+    // min below would destroy food on every mixed pickup: 400
+    // and 79 would become two at 79, and 321 would be gone.
+    // Measured as a leak on the forage bed's food budget the day
+    // crumbs landed (open bug §Z33's fix). The mean cannot pump:
+    // what the crop holds in total is what went in.
+    let merge_at_mean = world.materials.get(food).carries_worth;
+    if let Some(state) = world.organism_mut(organism) {
+        state.crop = Some(match state.crop {
+            Some(c) if merge_at_mean => Crop {
+                cells: c.cells.saturating_add(1),
+                unit: (c.unit * f32::from(c.cells) + worth) / (f32::from(c.cells) + 1.0),
+                passenger: c.passenger.or(passenger),
+                ..c
+            },
+            // **`unit` takes the min, not the last.** Corpses
+            // carry per-cell worth in `aux`, so a crop filled
+            // from a rich corpse and a poor one could otherwise
+            // put back a cell worth more than the cheapest that
+            // went in -- a small pump, one-directional, and
+            // exactly the kind evolution finds. Taking the min
+            // makes the leak run the safe way.
+            // `c.passenger.or(passenger)`: keeps whatever was
+            // already aboard, and the two can never both be
+            // `Some` given the guard above (`passenger` is only
+            // ever computed when `c.passenger` was `None`).
+            Some(c) => Crop {
+                cells: c.cells.saturating_add(1),
+                unit: c.unit.min(worth),
+                passenger: c.passenger.or(passenger),
+                ..c
+            },
+            None => Crop {
+                material: food,
+                shade,
+                unit: worth,
+                cells: 1,
+                digesting: 0.0,
+                passenger,
+            },
+        });
+    }
+}
+
 /// **Where a need puts the load down** ([`NeedsFirst`]): [`lean_drop_site`]'s
 /// cell -- empty, with ground under it -- that is not in a doorway and does
 /// not close a way ([`closes_a_way`]). `None` with the head itself in a
@@ -19457,44 +19515,7 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
                 // continuous payout the animal has already been credited every
                 // joule of `digesting`, so a new cell starts from 0 and
                 // `OrganismState::digest_carry` retired with the mechanism.
-                // **Crumbs merge at the mean, which keeps the crop's worth
-                // exactly.** Every crumb holds a different remainder, so the
-                // min below would destroy food on every mixed pickup: 400
-                // and 79 would become two at 79, and 321 would be gone.
-                // Measured as a leak on the forage bed's food budget the day
-                // crumbs landed (open bug §Z33's fix). The mean cannot pump:
-                // what the crop holds in total is what went in.
-                let merge_at_mean = world.materials.get(food).carries_worth;
-                if let Some(state) = world.organism_mut(organism) {
-                    state.crop = Some(match state.crop {
-                        Some(c) if merge_at_mean => Crop {
-                            cells: c.cells.saturating_add(1),
-                            unit: (c.unit * f32::from(c.cells) + worth) / (f32::from(c.cells) + 1.0),
-                            passenger: c.passenger.or(passenger),
-                            ..c
-                        },
-                        // **`unit` takes the min, not the last.** Corpses
-                        // carry per-cell worth in `aux`, so a crop filled
-                        // from a rich corpse and a poor one could otherwise
-                        // put back a cell worth more than the cheapest that
-                        // went in -- a small pump, one-directional, and
-                        // exactly the kind evolution finds. Taking the min
-                        // makes the leak run the safe way.
-                        // `c.passenger.or(passenger)`: keeps whatever was
-                        // already aboard, and the two can never both be
-                        // `Some` given the guard above (`passenger` is only
-                        // ever computed when `c.passenger` was `None`).
-                        Some(c) => Crop { cells: c.cells.saturating_add(1), unit: c.unit.min(worth), passenger: c.passenger.or(passenger), ..c },
-                        None => Crop {
-                            material: food,
-                            shade,
-                            unit: worth,
-                            cells: 1,
-                            digesting: 0.0,
-                            passenger,
-                        },
-                    });
-                }
+                crop_take(world, organism, food, shade, worth, passenger);
                 world.creature_stats.pickups += 1;
                 if picked_at_home {
                     world.creature_stats.pickups_at_nest += 1;

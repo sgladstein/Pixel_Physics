@@ -147,10 +147,11 @@
 //! `only=`, of exactly those ants). `needsparts=` turns on the fix round's
 //! parts (`creature::needs::WalkParts`: `all`, `none` -- the default, which
 //! is slice 1 -- or a comma list; `all` is the fix round's eight, and the
-//! parts added since, `reach`, `eat_fade`, `hunger_holds` and `placebo`,
+//! parts added since, `reach`, `eat_fade`, `hunger_holds`, `placebo`, `sealed_out` and `eat_held`,
 //! are named one by one (under `reach`, **`hidden.csv`** logs each decision it
-//! hid the food, and whether the wider air check found some joined); their
-//! counters are the last twelve columns of
+//! hid the food, and whether the wider air check found some joined; under
+//! `sealed_out`, **`sealed.csv`** logs each sealed event's start and end);
+//! their counters are the last columns of
 //! `walk_counts.csv`, so a file from before them compares on the columns it
 //! has), and the walk's files then carry what each
 //! did: `walk_counts.csv` the cuts `act` made by drive (`cut_<drive>`) and
@@ -731,13 +732,14 @@ fn main() {
         f
     });
     let mut hidden_csv: Option<std::io::BufWriter<std::fs::File>> = None;
+    let mut sealed_csv: Option<std::io::BufWriter<std::fs::File>> = None;
     let mut walk_counts = walking.then(|| {
         let mut f = std::io::BufWriter::new(std::fs::File::create(format!("{out}/walk_counts.csv")).unwrap());
         let drives: Vec<String> = creature::needs::Drive::ALL.iter().map(|d| format!("dec_{}", d.label())).collect();
         let cuts: Vec<String> = creature::needs::Drive::ALL.iter().map(|d| format!("cut_{}", d.label())).collect();
         writeln!(
             f,
-            "frame,minds,{},took_forage,quit_forage,need_over_job,ate_held,pellets_down,escape_cuts,escape_packs,gluts,{},dig_took,dig_quit,dig_tired,clear_cuts,gave_up,lay_walks,meals_kept,stays_not_stalls,reach_hidden,eat_gave_up,eat_gave_up_again,eat_rest,eat_rest_ate,eat_rest_out,reach_hidden_air,bouts,bouts_fed,bouts_fed_outside,bouts_died,hold_ignored",
+            "frame,minds,{},took_forage,quit_forage,need_over_job,ate_held,pellets_down,escape_cuts,escape_packs,gluts,{},dig_took,dig_quit,dig_tired,clear_cuts,gave_up,lay_walks,meals_kept,stays_not_stalls,reach_hidden,eat_gave_up,eat_gave_up_again,eat_rest,eat_rest_ate,eat_rest_out,reach_hidden_air,bouts,bouts_fed,bouts_fed_outside,bouts_died,hold_ignored,seal_floods,sealed_found,sealed_freed,sealed_opened,sealed_cuts,sealed_packs,seal_aim_turned,sealed_drops,sealed_load_down,seal_recut,ate_held_jaws,eat_held_refused,laden_soil",
             drives.join(","),
             cuts.join(",")
         )
@@ -746,7 +748,7 @@ fn main() {
     });
     let mut walk_rows = (walking && (walk_trace > 0 || !only.is_empty())).then(|| {
         let (zip, mut rows) = gzip_to(&format!("{out}/walk.csv.gz"));
-        writeln!(rows, "frame,id,ax,ay,tx,ty,drive,job,energy,crop,hunger,hold,forage,threshold,depth,pref,p_move,moved,stall,target_x,target_y,won,cut,scout_patience,scout_home,scout_dark,scout_for_x,scout_for_y,esc_why,esc_nb").unwrap();
+        writeln!(rows, "frame,id,ax,ay,tx,ty,drive,job,energy,crop,hunger,hold,forage,threshold,depth,pref,p_move,moved,stall,target_x,target_y,won,cut,scout_patience,scout_home,scout_dark,scout_for_x,scout_for_y,esc_why,esc_nb,sealed").unwrap();
         (zip, rows)
     });
 
@@ -1033,6 +1035,9 @@ fn main() {
             if needs_parts.reach {
                 walk.hidden_log = Some(Vec::new());
             }
+            if needs_parts.sealed_out {
+                walk.sealed_log = Some(Vec::new());
+            }
             lab.world.needs = Some(Box::new(walk));
             writeln!(
                 events,
@@ -1055,6 +1060,24 @@ fn main() {
                 writeln!(hf, "{fr},{id},{}", u8::from(air)).unwrap();
             }
         }
+        // `sealed.csv`: every sealed event's start and end
+        // (`needs::SealRow`) under `sealed_out` -- drained each frame.
+        if let Some(log) = lab.world.needs.as_mut().and_then(|n| n.sealed_log.as_mut()) {
+            let sf = sealed_csv.get_or_insert_with(|| {
+                let mut f = std::io::BufWriter::new(std::fs::File::create(format!("{out}/sealed.csv")).unwrap());
+                writeln!(f, "frame,id,event,x,y,cells,hold,energy,crop,cuts").unwrap();
+                f
+            });
+            for r in log.drain(..) {
+                let ev = ["found", "freed", "opened"][r.event as usize];
+                writeln!(
+                    sf,
+                    "{},{},{ev},{},{},{},{},{:.1},{:.1},{}",
+                    r.frame, r.id, r.at.0, r.at.1, r.cells, r.hold, r.energy, r.crop, r.cuts
+                )
+                .unwrap();
+            }
+        }
         if let Some(d) = droplog.as_mut() {
             d.pre(&lab.world, g, &live);
         }
@@ -1074,7 +1097,7 @@ fn main() {
                 let (tx, ty) = r.target.map_or((String::new(), String::new()), |t| (t.0.to_string(), t.1.to_string()));
                 writeln!(
                     out,
-                    "{},{},{},{},{},{},{},{},{:.1},{:.1},{:.3},{:.3},{:.4},{:.3},{},{:.1},{:.3},{},{},{tx},{ty},{},{},{:.3},{},{},{},{},{},{}",
+                    "{},{},{},{},{},{},{},{},{:.1},{:.1},{:.3},{:.3},{:.4},{:.3},{},{:.1},{:.3},{},{},{tx},{ty},{},{},{:.3},{},{},{},{},{},{},{}",
                     r.frame,
                     r.id,
                     r.at.0,
@@ -1102,7 +1125,8 @@ fn main() {
                     r.scout_for.0,
                     r.scout_for.1,
                     creature::needs::ESC_WHY_NAMES[r.esc_why as usize],
-                    r.esc_nb
+                    r.esc_nb,
+                    u8::from(r.sealed)
                 )
                 .unwrap();
             }
@@ -1470,7 +1494,7 @@ fn main() {
                 let cut: Vec<String> = c.cuts.iter().map(u64::to_string).collect();
                 writeln!(
                     wn,
-                    "{f},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
+                    "{f},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
                     walk.minds(),
                     dec.join(","),
                     c.took_forage,
@@ -1501,7 +1525,20 @@ fn main() {
                     c.bouts_fed,
                     c.bouts_fed_outside,
                     c.bouts_died,
-                    c.hold_ignored
+                    c.hold_ignored,
+                    c.seal_floods,
+                    c.sealed_found,
+                    c.sealed_freed,
+                    c.sealed_opened,
+                    c.sealed_cuts,
+                    c.sealed_packs,
+                    c.seal_aim_turned,
+                    c.sealed_drops,
+                    c.sealed_load_down,
+                    c.seal_recut,
+                    c.ate_held_jaws,
+                    c.eat_held_refused,
+                    c.laden_soil
                 )
                 .unwrap();
             }
@@ -1590,6 +1627,9 @@ fn main() {
         f.flush().unwrap();
     }
     if let Some(mut f) = hidden_csv {
+        f.flush().unwrap();
+    }
+    if let Some(mut f) = sealed_csv {
         f.flush().unwrap();
     }
     if let Some((mut zip, rows)) = walk_rows {
