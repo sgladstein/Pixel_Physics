@@ -2425,6 +2425,12 @@ pub struct CreatureStats {
     /// so the pellet it held had nowhere to go and was dropped from the
     /// world. Counted with `PIXEL_PHYSICS_PACK_PARTED` off or on.
     pub pack_parted_lost: u64,
+    /// Pellets `pack_behind` lost to a tail cell full for any other reason
+    /// than a parted cell: under the needs walk, a nestmate riding the tail
+    /// cell is set down there (`needs::sealed_escape` packs without
+    /// `walled_in`'s rider check; PR 685's review, 29 on steady seed 1 in
+    /// 60k). The shipped callers check `walled_in`, so 0 outside the walk.
+    pub pack_lost_other: u64,
     /// Packs refused because the tail stood on something it had parted
     /// (`PIXEL_PHYSICS_PACK_PARTED=on`, or the needs walk): the "it fired"
     /// half of `pack_parted_lost`. 0 with the switch off outside the walk.
