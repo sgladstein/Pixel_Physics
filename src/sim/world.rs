@@ -3013,6 +3013,9 @@ pub struct CreatureStats {
     /// Brood a touching nestmate moved toward other brood or out of the
     /// doorway (`brood::carry`, `PIXEL_PHYSICS_BROOD_CARRY`).
     pub brood_carried: u64,
+    /// **Brood carried out of open room** (`brood::room_carry`,
+    /// `PIXEL_PHYSICS_BROOD_ROOM`, idea 5). 0 unless that switch is on.
+    pub brood_room_carried: u64,
     /// Steps an idle nurse took scoring the pull of hungry larvae
     /// (`brood::larva_scent`, `PIXEL_PHYSICS_NURSE_SEEK`).
     pub nurse_seeks: u64,

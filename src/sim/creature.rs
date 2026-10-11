@@ -3868,7 +3868,7 @@ pub enum DigHome {
     Off,
     Rows { rows: i32, food: bool },
     Core { steps: i32, brood: bool, store: bool, cut: bool, food: bool },
-    Mark { ttl: u64, food: bool, keep: i32, cap: i32, win: i32, brood: bool, any: bool },
+    Mark { ttl: u64, food: bool, keep: i32, cap: i32, win: i32, brood: bool, any: bool, crumbs: bool },
 }
 
 /// [`DigHome`] from `PIXEL_PHYSICS_DIG_HOME`, read once.
@@ -3881,7 +3881,7 @@ pub fn dig_home_of() -> DigHome {
 /// does not understand panics** rather than falling back to off, so a typo
 /// cannot put the control into a sweep wearing an arm's label.
 fn parse_dig_home(raw: &str) -> DigHome {
-    let bad = |v: &str| -> ! { panic!("PIXEL_PHYSICS_DIG_HOME={v:?}: not `off`, `rows=<n>`, `core=<steps>[,brood][,store][,cut]` or `mark=<frames>[,keep=<cells>,cap=<open>[,win=<r>][,brood]][,food]`") };
+    let bad = |v: &str| -> ! { panic!("PIXEL_PHYSICS_DIG_HOME={v:?}: not `off`, `rows=<n>`, `core=<steps>[,brood][,store][,cut]` or `mark=<frames>[,keep=<cells>,cap=<open>[,win=<r>][,brood|,broodonly|,any]][,food]`") };
     match raw.trim() {
         "" | "off" => DigHome::Off,
         v if v.starts_with("rows=") => {
@@ -3923,12 +3923,13 @@ fn parse_dig_home(raw: &str) -> DigHome {
                 Some(Ok(n)) => n,
                 _ => bad(v),
             };
-            let (mut food, mut keep, mut cap, mut win, mut brood, mut any) = (false, 0, -1, STORE_ROOM_WINDOW, false, false);
+            let (mut food, mut keep, mut cap, mut win, mut brood, mut any, mut crumbs) = (false, 0, -1, STORE_ROOM_WINDOW, false, false, true);
             for part in parts {
                 match part {
                     "food" => food = true,
                     "brood" => brood = true,
                     "any" => any = true,
+                    "broodonly" => (brood, crumbs) = (true, false),
                     p if p.starts_with("keep=") => keep = p["keep=".len()..].parse().ok().filter(|&k: &i32| k > 0).unwrap_or_else(|| bad(v)),
                     p if p.starts_with("cap=") => cap = p["cap=".len()..].parse().ok().filter(|&c: &i32| c >= 0).unwrap_or_else(|| bad(v)),
                     p if p.starts_with("win=") => win = p["win=".len()..].parse().ok().filter(|&r: &i32| r > 0).unwrap_or_else(|| bad(v)),
@@ -3940,7 +3941,7 @@ fn parse_dig_home(raw: &str) -> DigHome {
             if (keep > 0) != (cap >= 0) || ((brood || any) && keep == 0) || (brood && any) {
                 bad(v);
             }
-            DigHome::Mark { ttl, food, keep, cap: cap.max(0), win, brood, any }
+            DigHome::Mark { ttl, food, keep, cap: cap.max(0), win, brood, any, crumbs }
         }
         v => bad(v),
     }
@@ -3961,7 +3962,7 @@ fn dig_home_at(world: &World, (x, y): (i32, i32)) -> bool {
             let near = |set: &crate::sim::fxhash::PosSet| (-1..=1).any(|dy| (-1..=1).any(|dx| set.contains(&(x + dx, y + dy))));
             !near(&world.nest_dug) || near(&world.nest_core)
         }
-        DigHome::Mark { ttl, keep, cap, win, brood, any, .. } => !mark_below_ground(world, (x, y)) || fresh_face(world, (x, y), ttl) || store_room(world, (x, y), keep, cap, win, brood, any),
+        DigHome::Mark { ttl, keep, cap, win, brood, any, crumbs, .. } => !mark_below_ground(world, (x, y)) || fresh_face(world, (x, y), ttl) || store_room(world, (x, y), keep, cap, win, (brood, crumbs), any),
     }
 }
 
@@ -4007,11 +4008,11 @@ pub fn mark_ground(world: &World, m: crate::sim::material::MaterialId) -> bool {
 /// needing to lie there, so a room it makes was made by the extra group urge,
 /// not by the store.
 #[allow(clippy::too_many_arguments)]
-pub fn store_room(world: &World, (x, y): (i32, i32), keep: i32, cap: i32, win: i32, brood: bool, any: bool) -> bool {
+pub fn store_room(world: &World, (x, y): (i32, i32), keep: i32, cap: i32, win: i32, (brood, crumbs_count): (bool, bool), any: bool) -> bool {
     if keep == 0 {
         return false;
     }
-    let crumbs = world.materials.id_of("crumbs");
+    let crumbs = if crumbs_count { world.materials.id_of("crumbs") } else { None };
     let brood_id = if brood { world.materials.id_of("brood") } else { None };
     let k = scaled_cells(world, keep);
     let lies = any || (-k..=k).any(|dy| {
@@ -4037,6 +4038,18 @@ pub fn store_room(world: &World, (x, y): (i32, i32), keep: i32, cap: i32, win: i
         }
     }
     true
+}
+
+/// **Room cells within `r` of `(x, y)`** ([`room_open`]): the window idea 4
+/// and idea 5 read (`store_room`, `brood::room_carry`).
+pub fn room_window(world: &World, (x, y): (i32, i32), r: i32) -> i32 {
+    let mut n = 0;
+    for dy in -r..=r {
+        for dx in -r..=r {
+            n += i32::from(room_open(world, x + dx, y + dy));
+        }
+    }
+    n
 }
 
 /// **[`store_room`]'s window radius unless `win=` says otherwise** -- see
@@ -53630,11 +53643,12 @@ mod tests {
         assert_eq!(parse_dig_home("rows=30,food"), DigHome::Rows { rows: 30, food: true });
         assert_eq!(parse_dig_home("core=12,store"), DigHome::Core { steps: 12, brood: false, store: true, cut: false, food: false });
         assert_eq!(parse_dig_home("core=8,brood,store,cut,food"), DigHome::Core { steps: 8, brood: true, store: true, cut: true, food: true });
-        assert_eq!(parse_dig_home("mark=1000"), DigHome::Mark { ttl: 1000, food: false, keep: 0, cap: 0, win: STORE_ROOM_WINDOW, brood: false, any: false });
-        assert_eq!(parse_dig_home("mark=0,food"), DigHome::Mark { ttl: 0, food: true, keep: 0, cap: 0, win: STORE_ROOM_WINDOW, brood: false, any: false });
-        assert_eq!(parse_dig_home("mark=1000,keep=3,cap=101"), DigHome::Mark { ttl: 1000, food: false, keep: 3, cap: 101, win: 8, brood: false, any: false });
-        assert_eq!(parse_dig_home("mark=1000,keep=3,cap=101,any"), DigHome::Mark { ttl: 1000, food: false, keep: 3, cap: 101, win: 8, brood: false, any: true });
-        assert_eq!(parse_dig_home("mark=1000,keep=3,cap=45,win=5,brood,food"), DigHome::Mark { ttl: 1000, food: true, keep: 3, cap: 45, win: 5, brood: true, any: false });
+        assert_eq!(parse_dig_home("mark=1000"), DigHome::Mark { ttl: 1000, food: false, keep: 0, cap: 0, win: STORE_ROOM_WINDOW, brood: false, any: false, crumbs: true });
+        assert_eq!(parse_dig_home("mark=0,food"), DigHome::Mark { ttl: 0, food: true, keep: 0, cap: 0, win: STORE_ROOM_WINDOW, brood: false, any: false, crumbs: true });
+        assert_eq!(parse_dig_home("mark=1000,keep=3,cap=101"), DigHome::Mark { ttl: 1000, food: false, keep: 3, cap: 101, win: 8, brood: false, any: false, crumbs: true });
+        assert_eq!(parse_dig_home("mark=1000,keep=3,cap=101,broodonly"), DigHome::Mark { ttl: 1000, food: false, keep: 3, cap: 101, win: 8, brood: true, any: false, crumbs: false });
+        assert_eq!(parse_dig_home("mark=1000,keep=3,cap=101,any"), DigHome::Mark { ttl: 1000, food: false, keep: 3, cap: 101, win: 8, brood: false, any: true, crumbs: true });
+        assert_eq!(parse_dig_home("mark=1000,keep=3,cap=45,win=5,brood,food"), DigHome::Mark { ttl: 1000, food: true, keep: 3, cap: 45, win: 5, brood: true, any: false, crumbs: true });
         for bad in ["rows", "rows=-1", "core=x", "core=12,larvae", "on", "mark", "mark=-1", "mark=500,brood", "mark=1000,keep=3", "mark=1000,cap=60", "mark=1000,keep=0,cap=60", "mark=1000,keep=3,cap=x", "mark=1000,keep=3,cap=101,win=0", "mark=1000,any", "mark=1000,keep=3,cap=101,any,brood"] {
             assert!(std::panic::catch_unwind(|| parse_dig_home(bad)).is_err(), "{bad:?} must panic, not run as off under an arm's label");
         }

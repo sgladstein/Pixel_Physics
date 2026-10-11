@@ -1359,10 +1359,10 @@ fn main() {
             // `PIXEL_PHYSICS_DIG_HOME`'s "it fired" count and the size of the
             // group's dig home; printed only with the switch on, so an off
             // run's log is main's.
-            if pixel_physics::sim::creature::dig_home_of() != pixel_physics::sim::creature::DigHome::Off {
+            if pixel_physics::sim::creature::dig_home_of() != pixel_physics::sim::creature::DigHome::Off || pixel_physics::sim::brood::brood_room() > 0 {
                 let st = &lab.world.creature_stats;
                 println!(
-                    "  dig_home_held={} nest_core={} nest_dug={} | mark: face_ticks={} keep_ticks={} marks_live={} laid_home={} laid_away={}",
+                    "  dig_home_held={} nest_core={} nest_dug={} | mark: face_ticks={} keep_ticks={} marks_live={} laid_home={} laid_away={} | brood_room_carried={}",
                     st.dig_home_held,
                     lab.world.nest_core.len(),
                     lab.world.nest_dug.len(),
@@ -1370,7 +1370,8 @@ fn main() {
                     st.dig_mark_keep,
                     lab.world.face_marks.len(),
                     st.marks_home,
-                    st.marks_away
+                    st.marks_away,
+                    st.brood_room_carried
                 );
             }
         }

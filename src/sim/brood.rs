@@ -548,6 +548,126 @@ pub(super) fn carry(world: &mut World, organism: OrganismId, (x, y): (i32, i32),
     (tx, ty)
 }
 
+/// **Brood is carried out of open room** ([`room_carry`]):
+/// `PIXEL_PHYSICS_BROOD_ROOM=<T>`, off (0) by default; `on` is
+/// [`BROOD_ROOM_OPEN`]. Unknown values panic (a mistyped switch must not fail
+/// open). Idea 5 of the late-tunnels lane (2026-10-11), an engineering rule,
+/// not a finding: in *Acromyrmex* chambers grow round brood the experimenters
+/// placed in a tunnel (Romer & Roces 2014, doi 10.1371/journal.pone.0097872),
+/// and nothing in this game moves brood off the door column, where eggs fall
+/// into one pillar mid-room. Design, review and the offline gate it was built
+/// on: `/mnt/project-files/late-tunnels/design-idea5-brood-room-2026-10-11.md`,
+/// `review-idea5-brood-room-2026-10-11.md`. The gate's warning stands: on the
+/// game the destinations it found were the pillar's foot, a floor pit 4
+/// columns off the door; this is built to see whether digging round brood
+/// (`DIG_HOME=...,broodonly`) widens that pit into a lower room.
+pub fn brood_room() -> i32 {
+    static V: std::sync::OnceLock<i32> = std::sync::OnceLock::new();
+    *V.get_or_init(|| parse_brood_room(&std::env::var("PIXEL_PHYSICS_BROOD_ROOM").unwrap_or_default()))
+}
+
+fn parse_brood_room(raw: &str) -> i32 {
+    match raw.trim() {
+        "" | "off" => 0,
+        "on" => BROOD_ROOM_OPEN,
+        v => v.parse().ok().filter(|t: &i32| *t > 0).unwrap_or_else(|| panic!("PIXEL_PHYSICS_BROOD_ROOM={v:?}: use on, off or a room count over 0")),
+    }
+}
+
+/// `on`'s threshold: room cells of the 289 within 8 above which a spot is
+/// open room. Brood mid-room reads a median 266-282 on the game, store
+/// crumbs 149-156, floored room 140-143 (`idea5/replay5-300k.txt`).
+pub const BROOD_ROOM_OPEN: i32 = 180;
+/// Steps a carry may take, as [`BROOD_CARRY_REACH`].
+pub const BROOD_ROOM_REACH: i32 = 3;
+/// The founding door's columns either side that are never a destination,
+/// so brood is not packed into the way in (review change 1).
+pub const BROOD_ROOM_DOOR: i32 = 3;
+
+/// **A larva lying in open room is carried to a floored, enclosed spot**
+/// ([`brood_room`]): at a brood item's tick, below its nest site's founding
+/// ground, if more than `open` of the cells within 8 are room
+/// (`creature::room_window`) and a grown nestmate touches it, the nestmate
+/// carries it up to [`BROOD_ROOM_REACH`] steps to an empty floored home cell
+/// below the ground reading under `open`, never in the door's columns or the
+/// founding shaft; most brood touching wins, then the fewest steps. Brood
+/// already under `open` never moves, so a room dug round it does not chase
+/// it out (review change 1). Only items that tick move: larvae every
+/// `LARVA_TICK`, eggs and pupae at their stage's end. Returns where it lies.
+pub(super) fn room_carry(world: &mut World, organism: OrganismId, (x, y): (i32, i32), material: super::material::MaterialId, def: &CreatureDef, open: i32) -> (i32, i32) {
+    use super::material::MaterialKind;
+    if open <= 0 {
+        return (x, y);
+    }
+    let Some(site) = world.nearest_nest_site(x, y) else {
+        return (x, y);
+    };
+    let (door_x, surface) = (world.nest_sites[site].x, world.nest_sites[site].surface);
+    if y <= surface || creature::room_window(world, (x, y), 8) <= open {
+        return (x, y);
+    }
+    let here = world.get(x, y);
+    if here.material != material || here.organism_id() != organism {
+        return (x, y);
+    }
+    let gut = creature::gut_of(world, organism, def);
+    let carrier = creature::DIRS.iter().any(|&(dx, dy)| {
+        let id = world.get(x + dx, y + dy).organism_id();
+        id != 0 && id != organism && world.organism(id).is_some_and(|st| st.brood.is_none() && st.spoil.is_none()) && creature::is_living_kin_id(world, id, gut)
+    });
+    if !carrier {
+        return (x, y);
+    }
+    let in_shaft = |w: &World, px: i32, py: i32| w.nest_sites.iter().filter_map(|s| s.shaft).any(|c| c.contains(px, py));
+    let floored = |w: &World, (px, py): (i32, i32)| {
+        w.in_bounds(px, py + 1) && matches!(w.materials.kind(w.get(px, py + 1).material), MaterialKind::Solid | MaterialKind::Powder | MaterialKind::Plant)
+    };
+    let touching = |w: &World, (px, py): (i32, i32)| creature::DIRS.iter().filter(|&&(dx, dy)| (px + dx, py + dy) != (x, y) && w.get(px + dx, py + dy).material == material).count() as i32;
+    let reach = BROOD_ROOM_REACH;
+    let side = 2 * reach + 1;
+    let index = |px: i32, py: i32| ((py - y + reach) * side + (px - x + reach)) as usize;
+    let mut seen = vec![false; (side * side) as usize];
+    seen[index(x, y)] = true;
+    let mut frontier = vec![(x, y)];
+    let mut best: Option<((i32, i32), (i32, i32))> = None;
+    for depth in 1..=reach {
+        let mut next = Vec::new();
+        for &(fx, fy) in &frontier {
+            for (dx, dy) in creature::DIRS {
+                let (nx, ny) = (fx + dx, fy + dy);
+                if (nx - x).abs() > reach || (ny - y).abs() > reach || !world.in_bounds(nx, ny) || seen[index(nx, ny)] {
+                    continue;
+                }
+                seen[index(nx, ny)] = true;
+                let c = world.get(nx, ny);
+                let empty = world.is_empty(nx, ny);
+                if !empty && c.material != material && world.materials.kind(c.material) != MaterialKind::Creature {
+                    continue;
+                }
+                next.push((nx, ny));
+                if !empty || ny <= surface || (nx - door_x).abs() <= BROOD_ROOM_DOOR || in_shaft(world, nx, ny) || !floored(world, (nx, ny)) || !creature::home_at(world, nx, ny, def) {
+                    continue;
+                }
+                if creature::room_window(world, (nx, ny), 8) >= open {
+                    continue;
+                }
+                let key = (touching(world, (nx, ny)), -depth);
+                if best.is_none_or(|(k, _)| key > k) {
+                    best = Some((key, (nx, ny)));
+                }
+            }
+        }
+        frontier = next;
+    }
+    let Some((_, (tx, ty))) = best else {
+        return (x, y);
+    };
+    world.set(tx, ty, here);
+    world.set(x, y, super::cell::Cell::EMPTY);
+    world.creature_stats.brood_room_carried += 1;
+    (tx, ty)
+}
+
 /// **How crowded a brood pile gets before nestmates spread it**
 /// ([`spread`]): `PIXEL_PHYSICS_BROOD_SPREAD`, **off by default**; `on` is
 /// [`BROOD_SPREAD_CROWD`]; a number of at least 3 is the crowd. Unknown
@@ -881,6 +1001,8 @@ pub fn brood_tick(world: &mut World, site: &ActiveSite) -> Vec<ActiveSite> {
     // **Carried to brood** ([`carry`]) before its stage runs, so the stage
     // runs where it now lies. Off, one branch.
     let (x, y) = carry(world, organism, (x, y), material, &def, brood_carry_reach(), egg_door());
+    // **Carried out of open room** ([`room_carry`], idea 5), likewise.
+    let (x, y) = if holder.is_none() { room_carry(world, organism, (x, y), material, &def, brood_room()) } else { (x, y) };
     // **Spread out of a crowded pile** ([`spread`]), likewise before the
     // stage runs. Brood a walker holds is not lying in its cell, so it stays.
     let (x, y) = if holder.is_none() { spread(world, organism, (x, y), material, &def, brood_spread(), egg_door()) } else { (x, y) };
@@ -2517,6 +2639,18 @@ mod tests {
         assert_eq!(parse_brood_spread("8"), Some(8));
         assert!(std::panic::catch_unwind(|| parse_brood_spread("2")).is_err(), "a crowd under 3 must not pass");
         assert!(std::panic::catch_unwind(|| parse_brood_spread("yes")).is_err(), "a mistyped switch must not fail open");
+    }
+
+    /// `PIXEL_PHYSICS_BROOD_ROOM`'s value (idea 5).
+    #[test]
+    fn brood_room_parses_on_off_and_a_threshold() {
+        assert_eq!(parse_brood_room(""), 0, "unset is the shipped brood");
+        assert_eq!(parse_brood_room("off"), 0);
+        assert_eq!(parse_brood_room("on"), BROOD_ROOM_OPEN);
+        assert_eq!(parse_brood_room("200"), 200);
+        for bad in ["0", "-5", "yes"] {
+            assert!(std::panic::catch_unwind(|| parse_brood_room(bad)).is_err(), "{bad:?} must panic, not run as off");
+        }
     }
 
     /// **A crowded pile is spread** ([`spread`]): an egg in the middle of a

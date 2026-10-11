@@ -3745,6 +3745,7 @@ fn harness() {
     // room; a result here is a mechanism check, never a verdict on the game
     // (`/mnt/project-files/late-tunnels/README.md`).
     let mut held_store: Option<HeldStore> = None;
+    let mut side_tunnel: Option<(i32, i32, i32, i32)> = None;
     if let Some(spec) = arg::<String>("room") {
         let v: Vec<i32> = spec.split(':').map(|t| t.trim().parse().expect("room=W:H:D")).collect();
         assert_eq!(v.len(), 3, "room= wants W:H:D, got `{spec}`");
@@ -3763,6 +3764,24 @@ fn harness() {
                     carved.insert((x, y));
                 }
             }
+        }
+        // **`side=N` -- a 2-tall tunnel off the start room's floor**, `N`
+        // cells long, to the east (`N` > 0) or west (`N` < 0); idea 5's test
+        // box (review change 3, 2026-10-11): does brood carried out of open
+        // room walk into it, and follow it to the other side when mirrored.
+        if let Some(n) = arg::<i32>("side") {
+            let (from, to) = if n > 0 { (x1 + 1, x1 + n) } else { (x0 + n, x0 - 1) };
+            assert!(from > 1 && to < b.w - 2, "side={n} does not fit in the box");
+            for y in (y1 - 1)..=y1 {
+                for x in from..=to {
+                    if !world.is_empty(x, y) {
+                        world.set(x, y, Cell::EMPTY);
+                    }
+                    carved.insert((x, y));
+                }
+            }
+            println!("  side tunnel: cols {from}..={to}, rows {}..={y1}", y1 - 1);
+            side_tunnel = Some((from, to, y0, y1));
         }
         // **Lined, as a colony's own rooms are** (the `=` walls on every
         // `deeptrace` nest map, `burrow_probe`'s `lined` arm): an unlined
@@ -4579,6 +4598,29 @@ fn harness() {
         );
     }
 
+    // **Where the brood lies at the end** (idea 5's test box): brood cells in
+    // the side tunnel's columns (at or below the room's floor row - 6), in
+    // the shaft and passage over the room (door +-3, above its roof), and
+    // elsewhere (the room itself, mostly).
+    if let Some((from, to, ry0, fy)) = side_tunnel {
+        let brood = world.materials.id_of("brood");
+        let (mut tunnel, mut door, mut other) = (0, 0, 0);
+        for y in b.surface..b.floor {
+            for x in 0..b.w {
+                if Some(world.get(x, y).material) != brood {
+                    continue;
+                }
+                if (from..=to).contains(&x) && y >= fy - 6 {
+                    tunnel += 1;
+                } else if (x - b.w / 2).abs() <= 3 && y < ry0 {
+                    door += 1;
+                } else {
+                    other += 1;
+                }
+            }
+        }
+        println!("SUMMARY brood at the end: side tunnel {tunnel}, shaft and passage over the room {door}, elsewhere {other}; carried out of open room {} times", st.brood_room_carried);
+    }
     if let Some((_, spots, _, put_back)) = &held_store {
         println!("SUMMARY held store: {} crumbs, put back {put_back} times; spots {:?}", spots.len(), spots);
     }
