@@ -214,6 +214,35 @@
 //! NO: it sends pile ants away from the food. *Re-test when:* the pile is
 //! fed under the bout (trace the donors first), or deep starvers come back
 //! as the main fault.
+//!
+//! **Walled in** (`sealed_out`, `eat_held`; 2026-10-11,
+//! `needs-ant/resume-2026-10-10/trace-walled-in-2026-10-11.md`, two review
+//! rounds). Under `reach`, 93 adults on steady seeds 1-4 starved in a soil
+//! pocket the map's flood calls closed, against 32 shipped. Two faults: 41
+//! held a store load, and eating needs an empty cell to set it down in a
+//! pocket that is all body; 43 held a soil pellet, and `walled_in` (a perfect
+//! shell) refused them because a nestmate, a crumb or the pellet itself broke
+//! the shell. `sealed_out` asks the local question instead: still for
+//! [`ESCAPE_STALL`] decisions without leaving a [`SEAL_ROAM`] box, the ant
+//! floods the air round its head ([`seal_flood`], the food sense's 13x13
+//! box); no open cell on the box's rim is sealed, and a sealed ant gets out
+//! whatever its hunger or job ([`sealed_escape`]: the nearest cuttable
+//! heading, soil packed behind or dropped in the pocket away from the cut,
+//! a store load set down). `eat_held` lets a hungry sealed ant with nowhere
+//! to set its load down eat it from its jaws ([`eat_from_jaws`], the crop
+//! rule of a swallow, [`crop_take`]). Why "still" is a roam box and not
+//! `moved`: an ant flips end for end every decision, so its head moves while
+//! it goes nowhere, and the flood never fired.
+//!
+//! **Seeds 1-4, steady, 100-300k** (`results-sealed-4seed-2026-10-11.md`):
+//! walled-in starvers 0/1/4/2 with both parts against 65-93 pooled in each of
+//! `reach`, the two nudges and the placebo; colony mean 253 vs 248. Alone,
+//! `sealed_out` leaves 49, 48 of them holding a load: the eat does the work.
+//! About half of all sealed events end with no cut of the ant's own (a
+//! nestmate or a slump opened it). The nest-shape lines (chambers, band
+//! fill, ground dug, the way in) leave the baselines' range no more often
+//! than a baseline leaves the other three's. Known gap: a pocket wider than
+//! the 13x13 box reads open (three ants on seed 3).
 
 use super::*;
 use std::collections::HashMap;

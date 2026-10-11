@@ -45,6 +45,14 @@
 //! most of the tick into `creature_tick`, and only the line tables keep the
 //! inlined code's own lines.
 //!
+//! **Walk parts** (2026-10-11): an arm `walk/reach+sealed_out` hands the walk
+//! with `WalkParts` `reach,sealed_out` (`+` stands for the comma, which splits
+//! arms). `handat=` hands the walk over before the window (default `at`, the
+//! old behaviour: the window's first frame), so a part that only acts after an
+//! ant has been still for a while is grown into before it is timed. With
+//! `handat` < `at` the arms are different worlds by the window; read the part's
+//! own functions' share under `cg=1`, not the difference between arms.
+//!
 //! Echoes its own parameters; an unknown argument is ignored.
 
 use pixel_physics::lab::scenario::Scenario;
@@ -145,6 +153,7 @@ const CG_STOP_INSTRUMENTATION: u64 = 0x4354_0005;
 struct Arm {
     label: String,
     needs: Option<creature::needs::NeedsMode>,
+    parts: creature::needs::WalkParts,
     lab: Lab,
     geo: Option<Geo>,
     f: u64,
@@ -164,13 +173,20 @@ impl Arm {
         if lab.stats.showing() {
             lab.stats.toggle();
         }
-        let needs = match label {
+        let (mode, parts) = label.split_once('/').unwrap_or((label, ""));
+        let needs = match mode {
             "off" => None,
             other => Some(creature::needs::NeedsMode::parse(other)),
+        };
+        let parts = if parts.is_empty() {
+            creature::needs::WalkParts::NONE
+        } else {
+            creature::needs::WalkParts::parse(&parts.replace('+', ","))
         };
         Arm {
             label: label.to_string(),
             needs,
+            parts,
             lab,
             geo: None,
             f: 0,
@@ -195,7 +211,9 @@ impl Arm {
                 top_up(&mut self.lab.world, g, self.target);
             }
             if let Some(mode) = self.needs.filter(|_| self.f == at) {
-                self.lab.world.needs = Some(Box::new(creature::needs::NeedsWalk::new(mode, self.lab.world.frame)));
+                let mut walk = creature::needs::NeedsWalk::new(mode, self.lab.world.frame);
+                walk.parts = self.parts;
+                self.lab.world.needs = Some(Box::new(walk));
             }
         }
         self.lab.tick_for_harness();
@@ -222,6 +240,7 @@ fn main() {
     creature::mutation_off_for_measuring();
     let seed: u64 = arg("seed").unwrap_or(1);
     let at: u64 = arg("at").unwrap_or(100_000);
+    let hand_at: u64 = arg("handat").unwrap_or(at);
     let window: u64 = arg("window").unwrap_or(1_200);
     let reps: usize = arg("reps").unwrap_or(3);
     let target: usize = arg("food").unwrap_or(120);
@@ -229,14 +248,14 @@ fn main() {
     let arms_arg: String = arg("arms").unwrap_or_else(|| "off".to_string());
     let threads = std::env::var("RAYON_NUM_THREADS").unwrap_or_else(|_| "unset".to_string());
     println!(
-        "needscost: scenario=nest_goal seed={seed} at={at} window={window} reps={reps} food={target} arms={arms_arg} cg={} RAYON_NUM_THREADS={threads}",
+        "needscost: scenario=nest_goal seed={seed} at={at} handat={hand_at} window={window} reps={reps} food={target} arms={arms_arg} cg={} RAYON_NUM_THREADS={threads}",
         u8::from(cg)
     );
     let mut arms: Vec<Arm> = arms_arg.split(',').map(|a| Arm::new(a.trim(), seed, target)).collect();
     let started = Instant::now();
     for arm in arms.iter_mut() {
         while arm.f < at {
-            arm.step(at);
+            arm.step(hand_at);
         }
         println!(
             "  {} at frame {}: {} ants, {} organisms, world frame {}, nest {}",
@@ -262,7 +281,7 @@ fn main() {
             }
             let t0 = Instant::now();
             for _ in 0..window {
-                arm.step(at);
+                arm.step(hand_at);
             }
             let dt = t0.elapsed().as_secs_f64();
             if cg {
