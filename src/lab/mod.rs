@@ -287,9 +287,10 @@ pub struct Lab {
     /// new one wherever the new one happens to be settled.
     view_dirty: bool,
     /// **The play-as-an-ant game's queen mode** (`queen`): the keys, the
-    /// camera and the panel for the one steered body. On only when the box
-    /// has one, which only a `Queen` scenario placement makes; otherwise
-    /// every hook into it is one `Option` read.
+    /// camera and the panel for the one steered body. On only for a box
+    /// opened from a scenario with a `Queen` placement; otherwise every hook
+    /// into it is one `bool` read, and a harness that steers an ant itself
+    /// keeps control of her.
     pub queen: queen::QueenMode,
 }
 
@@ -766,7 +767,7 @@ impl Lab {
         earth_toned_nest(&mut self.world);
         // A new box is a new game: her landing, goal and death are the new
         // run's to note.
-        self.queen = queen::QueenMode::default();
+        self.queen = queen::QueenMode::for_scenario(self.scenario.as_ref());
         self.particles = ParticleSystem::new();
         self.blasts = Blasts::new();
         self.stats = stats::Stats::new();
@@ -1722,7 +1723,7 @@ impl Lab {
     /// `bin/lab.rs` sends her keys to [`Lab::queen_key`] instead of the
     /// lab's own bindings.
     pub fn queen_mode(&self) -> bool {
-        queen::on(&self.world)
+        self.queen.on(&self.world)
     }
 
     /// One of the queen's keys went down or up. See `queen`.

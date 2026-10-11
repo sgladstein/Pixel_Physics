@@ -297,6 +297,12 @@ impl Scenario {
         placed
     }
 
+    /// **Does this scenario place the player's queen** -- at build time or
+    /// on its timeline? What puts a box in queen mode (`lab::queen`).
+    pub fn places_queen(&self) -> bool {
+        self.placements.iter().chain(self.timeline.iter().map(|e| &e.what)).any(|p| matches!(p, Placement::Queen { .. }))
+    }
+
     /// Build the bed and apply this scenario to it in one call -- what
     /// `labshot scenario=` and a batch's `Start::Fresh` arm both want.
     pub fn build(&self) -> (World, scene::Planted, Placed) {

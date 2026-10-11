@@ -92,8 +92,14 @@ and her colony keeps the queen rule, as in slice 0.
   output for `deeptrace scenario=steady_income food=0 frames=40000 ants=2
   seed=3`: all seven files, `ticks.csv.gz` included. Every hook is one
   `Option` read when nobody is steered.
-- **Seven tests in `lab::queen`.** Three were watched red with the code
-  broken:
+- **Queen mode comes from the scenario, not from any steered ant.** A
+  harness that marks an ant itself and sets her input (`queenprobe`, the
+  needs walk's steered test) keeps control of her. The first push let the
+  mode's empty keys overwrite that input every tick, and CI's
+  `the_steered_ant_is_not_walked` caught it.
+- **Eight tests in `lab::queen`.** Four were watched red with the code
+  broken (the fourth: the harness test above, with the scenario gate taken
+  out):
   - the keys never reaching her (`feed` always `None`) fails the 4x test and
     the tap test;
   - the larder's cap taken out fails the cap test.

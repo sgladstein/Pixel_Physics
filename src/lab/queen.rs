@@ -3,10 +3,13 @@
 //! `sim::steer`). You are a founding queen; every other ant runs the
 //! shipped rules.
 //!
-//! **On when the box has a steered body**, which only a scenario with a
-//! [`super::scenario::Placement::Queen`] makes (`queen_start.ron`). Every
-//! other box has `World::steered` at `None`, and then everything here is
-//! one `Option` read per tick and per frame, and nothing else.
+//! **On when the box was opened from a scenario with a
+//! [`super::scenario::Placement::Queen`]** (`queen_start.ron`), and only
+//! then: [`QueenMode::owns`] is set by `Lab::reset` from the scenario, not
+//! from `World::steered`. A harness that marks a body itself (`queenprobe`,
+//! the needs walk's tests) and sets her input directly keeps her input: the
+//! mode's keys would otherwise overwrite it every tick with "nothing
+//! pressed". Every other box pays one `bool` read per tick and per frame.
 //!
 //! What it adds to the lab, and nothing more:
 //!
@@ -82,6 +85,9 @@ pub struct Census {
 /// puts it back to that for every new box.
 #[derive(Clone, Debug, Default)]
 pub struct QueenMode {
+    /// **Whether this box is a queen-mode box**: opened from a scenario that
+    /// places a queen. Everything below is inert while it is `false`.
+    pub owns: bool,
     /// The keys down now.
     held: Held,
     /// The frame her body was first seen, and the body.
@@ -155,16 +161,27 @@ fn press_of(key: Key) -> SteerInput {
     held.input()
 }
 
-/// **Is the box in queen mode?** A steered body was marked in it.
-pub fn on(world: &World) -> bool {
-    world.steered.is_some()
-}
-
 impl QueenMode {
+    /// The mode for a box opened from `scenario`: on if it places a queen.
+    pub fn for_scenario(scenario: Option<&super::scenario::Scenario>) -> Self {
+        QueenMode {
+            owns: scenario.is_some_and(|s| s.places_queen()),
+            ..QueenMode::default()
+        }
+    }
+
+    /// **Is the box in queen mode?** A queen scenario, with her body marked.
+    pub fn on(&self, world: &World) -> bool {
+        self.owns && world.steered.is_some()
+    }
+
     /// A key went down or up. Down also latches the press, so a tap between
     /// two of her decisions is used at the next one. Does nothing with
     /// nobody steered.
     pub fn key(&mut self, world: &mut World, key: Key, down: bool) {
+        if !self.owns {
+            return;
+        }
         self.held.set(key, down);
         if down {
             if let Some(s) = world.steered.as_mut() {
@@ -174,9 +191,12 @@ impl QueenMode {
     }
 
     /// **Hand the keys to her for this tick**, or to her genome above the
-    /// cap. Called once a tick before the step. One `Option` read with
-    /// nobody steered.
+    /// cap. Called once a tick before the step. One `bool` read outside
+    /// queen mode.
     pub fn feed(&self, world: &mut World, requested: u32) {
+        if !self.owns {
+            return;
+        }
         let Some(s) = world.steered.as_mut() else { return };
         if requested <= STEER_CAP {
             s.input = Some(self.held.input());
@@ -187,8 +207,11 @@ impl QueenMode {
     }
 
     /// **After each tick**: note her landing, the goal and her death, and
-    /// keep the census fresh. One `Option` read with nobody steered.
+    /// keep the census fresh. One `bool` read outside queen mode.
     pub fn observe(&mut self, world: &mut World) {
+        if !self.owns {
+            return;
+        }
         let Some((id, colony)) = world.steered.as_ref().map(|s| (s.id, s.colony)) else {
             return;
         };
@@ -218,6 +241,9 @@ impl QueenMode {
     /// screen for her (the biosphere page opens on every fresh lab, and it
     /// covers the panel).
     pub fn camera(&mut self, renderer: &mut render::Renderer, world: &World) -> bool {
+        if !self.owns {
+            return false;
+        }
         let Some(head) = head_of(world) else { return false };
         let bounds = world.bounds();
         let first = !self.zoomed;
@@ -237,7 +263,7 @@ impl QueenMode {
     /// The panel's lines, and whether they changed since the last frame
     /// (so the caller can force a full redraw). Empty with nobody steered.
     pub fn lines(&mut self, world: &World, requested: u32) -> (Vec<String>, bool) {
-        let lines = if on(world) {
+        let lines = if self.on(world) {
             panel_lines(self, world, requested)
         } else {
             Vec::new()
@@ -458,6 +484,25 @@ mod tests {
         run(&mut lab, 30);
         assert!(lab.world.steered.is_none());
         assert_eq!(lab.queen.landed, None);
+    }
+
+    /// **A harness that steers an ant itself keeps her.** Outside a queen
+    /// scenario the mode must not hand her "nothing pressed" every tick:
+    /// that broke the needs walk's steered test and would have frozen
+    /// `queenprobe`'s scripted player, which both set `input` directly.
+    #[test]
+    fn a_harness_steered_ant_outside_queen_mode_keeps_its_input() {
+        let mut lab = Lab::new(super::super::scene::LabBox::default());
+        let spec = lab.spec.clone();
+        let colony = [Placement::Colony { species: "ant".into(), x: 256, count: 1 }];
+        crate::lab::scenario::apply_placements(&mut lab.world, &colony, &spec);
+        let ant = lab.world.species.id_of("ant").unwrap();
+        let id = lab.world.live_organism_ids().into_iter().find(|&i| lab.world.organism(i).is_some_and(|s| s.species == ant)).expect("an ant");
+        let held = SteerInput { dir: Some((1, 0)), ..Default::default() };
+        assert!(crate::sim::steer::mark(&mut lab.world, id, Some(held)));
+        assert!(!lab.queen_mode(), "a hand-marked ant is not queen mode");
+        run(&mut lab, 10);
+        assert_eq!(lab.world.steered.as_ref().unwrap().input, Some(held));
     }
 
     /// **The keys drive her at 4x and below, and her genome above.** Held
