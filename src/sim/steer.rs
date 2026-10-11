@@ -120,10 +120,19 @@ impl Steered {
 /// whatever her id), and records her colony for the queen rule. Returns
 /// `false`, changing nothing, if `id` is not a live organism.
 pub fn mark(world: &mut World, id: OrganismId, input: Option<SteerInput>) -> bool {
-    let Some(state) = world.organism_mut(id) else { return false };
+    let Some(state) = world.organism_mut(id) else {
+        return false;
+    };
     state.nest_bound_until = 0;
     let (born_frame, colony) = (state.born_frame, state.colony);
-    world.steered = Some(Steered { id, born_frame, colony, input, latched: SteerInput::default(), log: None });
+    world.steered = Some(Steered {
+        id,
+        born_frame,
+        colony,
+        input,
+        latched: SteerInput::default(),
+        log: None,
+    });
     true
 }
 
@@ -134,11 +143,15 @@ pub fn mark(world: &mut World, id: OrganismId, input: Option<SteerInput>) -> boo
 /// queen of one reaches her first egg without a long blind forage. Returns
 /// the amount granted (0 with nobody steered).
 pub fn grant(world: &mut World, joules: f32) -> f32 {
-    let Some((id, colony)) = world.steered.as_ref().map(|s| (s.id, s.colony)) else { return 0.0 };
+    let Some((id, colony)) = world.steered.as_ref().map(|s| (s.id, s.colony)) else {
+        return 0.0;
+    };
     if joules <= 0.0 || !is_steered(world, id) {
         return 0.0;
     }
-    let Some(state) = world.organism_mut(id) else { return 0.0 };
+    let Some(state) = world.organism_mut(id) else {
+        return 0.0;
+    };
     state.energy += joules;
     world.book(colony, crate::sim::world::Account::Granted, f64::from(joules));
     joules
@@ -229,14 +242,24 @@ mod tests {
     fn a_slope_is_climbed_by_the_nearest_heading_within_ninety_degrees() {
         // Going east into a rise: north-east (1) and east are usable.
         assert_eq!(pick_heading(&[0, 1, 4], &DIRS, (1, -1)), Some(1));
-        assert_eq!(pick_heading(&[1, 4], &DIRS, (1, 0)), Some(1), "45 degrees off is still within 90");
+        assert_eq!(
+            pick_heading(&[1, 4], &DIRS, (1, 0)),
+            Some(1),
+            "45 degrees off is still within 90"
+        );
         assert_eq!(pick_heading(&[4], &DIRS, (1, 0)), None, "straight back is not a pick");
     }
 
     #[test]
     fn a_latched_press_rides_on_the_held_levels_until_it_is_used() {
-        let held = SteerInput { dir: Some((1, 0)), ..Default::default() };
-        let press = SteerInput { lay: true, ..Default::default() };
+        let held = SteerInput {
+            dir: Some((1, 0)),
+            ..Default::default()
+        };
+        let press = SteerInput {
+            lay: true,
+            ..Default::default()
+        };
         let both = held.or(press);
         assert!(both.lay && both.dir == Some((1, 0)));
     }

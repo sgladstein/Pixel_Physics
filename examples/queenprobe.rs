@@ -86,7 +86,11 @@ fn census(w: &World, colony: u32, ant: organism::SpeciesId) -> (usize, usize, us
 }
 
 fn causes_since(w: &World, before: &[u64; organism::DEATH_CAUSES]) -> String {
-    let c: Vec<&str> = organism::DEATH_CAUSE_LIST.iter().filter(|c| w.deaths_by_cause[c.index()] > before[c.index()]).map(|c| c.label()).collect();
+    let c: Vec<&str> = organism::DEATH_CAUSE_LIST
+        .iter()
+        .filter(|c| w.deaths_by_cause[c.index()] > before[c.index()])
+        .map(|c| c.label())
+        .collect();
     if c.is_empty() {
         "?".into()
     } else {
@@ -117,8 +121,14 @@ fn main() {
     };
     let frames: u64 = arg("frames").unwrap_or(default_frames);
     let scenario: String = arg("scenario").unwrap_or_else(|| "steady_income".into());
-    assert!(matches!(mode.as_str(), "trail" | "found" | "beetle"), "mode= is trail, found or beetle");
-    assert!(matches!(arm.as_str(), "line" | "none" | "placebo" | "ramp"), "arm= is line, none, placebo or ramp");
+    assert!(
+        matches!(mode.as_str(), "trail" | "found" | "beetle"),
+        "mode= is trail, found or beetle"
+    );
+    assert!(
+        matches!(arm.as_str(), "line" | "none" | "placebo" | "ramp"),
+        "arm= is line, none, placebo or ramp"
+    );
     println!(
         "queenprobe: mode={mode} seed={seed} frames={frames} scenario={scenario} land={land} gap={gap} reserve={reserve} workers={workers} beetles={beetles} goal={goal} start={start} window={window} arm={arm} mutation={}",
         if mutation { "on" } else { "off" }
@@ -147,7 +157,15 @@ fn main() {
     }
     sc.timeline.retain(|e| !matches!(e.what, Placement::Predators { .. }));
     if mode == "beetle" {
-        sc.timeline.push(pixel_physics::lab::scenario::Event { at: land, every: 0, until: 0, what: Placement::Predators { species: "beetle".into(), count: beetles } });
+        sc.timeline.push(pixel_physics::lab::scenario::Event {
+            at: land,
+            every: 0,
+            until: 0,
+            what: Placement::Predators {
+                species: "beetle".into(),
+                count: beetles,
+            },
+        });
     }
     let food_x = colony_x + gap;
     let mut lab = Lab::new(sc.bed.clone());
@@ -178,7 +196,12 @@ fn main() {
         let frame = lab.world.frame;
         // Mark her the frame the colony lands.
         if queen.is_none() && frame > land {
-            let mut ids: Vec<OrganismId> = lab.world.live_organism_ids().into_iter().filter(|&id| lab.world.organism(id).is_some_and(|s| s.species == ant)).collect();
+            let mut ids: Vec<OrganismId> = lab
+                .world
+                .live_organism_ids()
+                .into_iter()
+                .filter(|&id| lab.world.organism(id).is_some_and(|s| s.species == ant))
+                .collect();
             ids.sort();
             if let Some(&id) = ids.first() {
                 let input = (mode == "trail").then(SteerInput::default);
@@ -204,7 +227,11 @@ fn main() {
                 .world
                 .live_organism_ids()
                 .into_iter()
-                .filter(|&id| lab.world.organism(id).is_some_and(|s| s.colony == colony && s.species == ant))
+                .filter(|&id| {
+                    lab.world
+                        .organism(id)
+                        .is_some_and(|s| s.colony == colony && s.species == ant)
+                })
                 .collect();
             for gone in known.difference(&now) {
                 colony_deaths.push((frame, format!("{gone}:{}", causes_since(&lab.world, &before))));
@@ -223,12 +250,31 @@ fn main() {
                             if phase == 0 {
                                 phase = 1;
                                 home_from = Some(frame);
-                                println!("  frame {frame}: reached x {hx} after {} frames; turning for home, trail {}", frame - land - start, if arm == "line" || arm == "placebo" { "held" } else { "up" });
+                                println!(
+                                    "  frame {frame}: reached x {hx} after {} frames; turning for home, trail {}",
+                                    frame - land - start,
+                                    if arm == "line" || arm == "placebo" {
+                                        "held"
+                                    } else {
+                                        "up"
+                                    }
+                                );
                             } else {
                                 phase = 2;
                                 home_at = Some(frame);
-                                let b = |x: i32| (ground_y - 30..=ground_y + 2).map(|y| lab.world.pheromone_at(pixel_physics::sim::pheromone::Channel::B, x, y)).max().unwrap_or(0);
-                                let (q1, mid, q3) = (colony_x + (out_x - colony_x) / 4, colony_x + (out_x - colony_x) / 2, colony_x + 3 * (out_x - colony_x) / 4);
+                                let b = |x: i32| {
+                                    (ground_y - 30..=ground_y + 2)
+                                        .map(|y| {
+                                            lab.world.pheromone_at(pixel_physics::sim::pheromone::Channel::B, x, y)
+                                        })
+                                        .max()
+                                        .unwrap_or(0)
+                                };
+                                let (q1, mid, q3) = (
+                                    colony_x + (out_x - colony_x) / 4,
+                                    colony_x + (out_x - colony_x) / 2,
+                                    colony_x + 3 * (out_x - colony_x) / 4,
+                                );
                                 println!(
                                     "  frame {frame}: home after {} frames; trail B max over the column at the near quarter {}, middle {}, far quarter {}",
                                     frame - home_from.unwrap(),
@@ -248,7 +294,11 @@ fn main() {
                         // when below it, and straight up when stuck a while.
                         let sx = (tx - hx).signum() as i8;
                         let sy: i8 = if hy > ground_y - 1 || stuck > 60 { -1 } else { 0 };
-                        let input = SteerInput { dir: Some((if stuck > 120 { 0 } else { sx }, sy)), trail: phase == 1 && (arm == "line" || arm == "placebo"), ..Default::default() };
+                        let input = SteerInput {
+                            dir: Some((if stuck > 120 { 0 } else { sx }, sy)),
+                            trail: phase == 1 && (arm == "line" || arm == "placebo"),
+                            ..Default::default()
+                        };
                         if let Some(s) = lab.world.steered.as_mut() {
                             s.input = if phase < 2 { Some(input) } else { None };
                         }
@@ -264,15 +314,21 @@ fn main() {
                     }
                 }
                 if let Some(t0) = home_from {
-                    if arm == "ramp" && frame < t0 + window && frame % 12 == 0 {
+                    if arm == "ramp" && frame < t0 + window && frame.is_multiple_of(12) {
                         let span = (food_x - colony_x).max(1) as f32;
                         for x in colony_x.min(food_x)..=colony_x.max(food_x) {
                             let t = ((x - colony_x) as f32 / span).clamp(0.0, 1.0);
-                            let amount = (t * pixel_physics::sim::pheromone::DEPOSIT as f32) as pixel_physics::sim::pheromone::Scent;
+                            let amount = (t * pixel_physics::sim::pheromone::DEPOSIT as f32)
+                                as pixel_physics::sim::pheromone::Scent;
                             for y in ground_y - 4..=ground_y {
                                 let here = lab.world.pheromone_at(pixel_physics::sim::pheromone::Channel::B, x, y);
                                 if amount > here {
-                                    lab.world.deposit_pheromone(pixel_physics::sim::pheromone::Channel::B, x, y, amount - here);
+                                    lab.world.deposit_pheromone(
+                                        pixel_physics::sim::pheromone::Channel::B,
+                                        x,
+                                        y,
+                                        amount - here,
+                                    );
                                 }
                             }
                         }
@@ -311,17 +367,23 @@ fn main() {
                 peak = peak.max(others);
                 if reached.is_none() && others >= goal {
                     reached = Some(frame);
-                    println!("  frame {frame}: {others} adults besides her ({} frames after landing)", frame - land);
+                    println!(
+                        "  frame {frame}: {others} adults besides her ({} frames after landing)",
+                        frame - land
+                    );
                 }
-                if frame % 1000 == 0 {
+                if frame.is_multiple_of(1000) {
                     let e = lab.world.organism(qid).map_or(0.0, |s| s.energy);
-                    println!("  frame {frame}: adults {adults} eggs {eggs} larvae {larvae} pupae {pupae} queen_j {e:.0}");
+                    println!(
+                        "  frame {frame}: adults {adults} eggs {eggs} larvae {larvae} pupae {pupae} queen_j {e:.0}"
+                    );
                 }
                 let extinct = adults + eggs + larvae + pupae == 0;
                 if extinct || f + 1 == frames || (mode == "beetle" && !alive) {
                     let mut by: std::collections::BTreeMap<String, u32> = Default::default();
                     for (_, c) in &colony_deaths {
-                        *by.entry(c.split_once(':').map_or(c.as_str(), |(_, k)| k).to_string()).or_default() += 1;
+                        *by.entry(c.split_once(':').map_or(c.as_str(), |(_, k)| k).to_string())
+                            .or_default() += 1;
                     }
                     let st = &lab.world.creature_stats;
                     println!(
