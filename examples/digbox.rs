@@ -4019,6 +4019,16 @@ fn harness() {
     if let Some(c) = cap {
         println!("  cap: no births while {c} or more creatures live (cap=; World::births_paused)");
     }
+    // **`broodcap=<n>`: no births while `n` or more brood items live** -- the
+    // same pause counted over brood, which `cap=` does not see. Built
+    // 2026-10-11 for the brood-room box (idea 5): uncapped, the founding
+    // burst laid ~450 brood cells into a 24x14 room, so the pile *was* the
+    // room and a 24-cell side tunnel could never hold most of it -- a gate
+    // that cannot pass, whatever the rule does.
+    let brood_cap: Option<usize> = arg("broodcap");
+    if let Some(c) = brood_cap {
+        println!("  broodcap: no births while {c} or more brood items live (broodcap=; World::births_paused)");
+    }
     // **`antlife=PATH`: one row per adult ant every `antevery=` frames (200)**
     // -- where it is, what it holds, what its brain wants and what is in front
     // of it, and its running dig count. Built 2026-10-03 for the owner's
@@ -4040,8 +4050,9 @@ fn harness() {
                 funnel.before(&world, &b);
                 trips.before(&world);
             }
-            if let Some(c) = cap {
-                world.births_paused = world.live_creature_count() >= c;
+            if cap.is_some() || brood_cap.is_some() {
+                world.births_paused = cap.is_some_and(|c| world.live_creature_count() >= c)
+                    || brood_cap.is_some_and(|c| world.live_brood_ids().len() >= c);
                 paused_frames += u64::from(world.births_paused);
             }
             parallel::step(&mut world);
