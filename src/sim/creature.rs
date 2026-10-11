@@ -14354,7 +14354,8 @@ fn pack_behind(world: &mut World, organism: OrganismId, def: &CreatureDef, head:
     // guard rows, an ant whose tail stood on crumbs. Today's ant hits it too
     // (steady seed 1 diverges by frame 40k with the refusal on for
     // everyone), so outside the walk it is its own switch,
-    // `PIXEL_PHYSICS_PACK_PARTED` ([`pack_parted_of`]), off until measured.
+    // `PIXEL_PHYSICS_PACK_PARTED` ([`pack_parted_of`]), off: `on` starves
+    // refused ants, and `carry` is measured but not turned on.
     // The walk's mode, not any `World::needs`: pass-through must stay frame
     // for frame the game without the hooks (PR 684's re-check, R1). The
     // walk's refusal wins over `carry`, so the walk never carries.
@@ -14410,9 +14411,14 @@ fn pack_behind(world: &mut World, organism: OrganismId, def: &CreatureDef, head:
     let tail_parted = parted_under(world, v);
     let (vx, vy) = v;
     commit_step(world, organism, def, body, &authored, &widths, heading, aim, push);
-    // Only a parted cell, or a nestmate handed the cell, may leave it full.
+    // Only a parted cell, or another animal handed the cell (a nestmate
+    // riding it, or its owner where this ant only rode), may leave it full:
+    // not this ant's own cell left uncleared, and not a plant's.
+    let left = world.get(vx, vy);
     debug_assert!(
-        tail_parted || world.get(vx, vy).organism_id() != 0 || world.get(vx, vy).material == material::EMPTY,
+        tail_parted
+            || left.material == material::EMPTY
+            || (left.organism_id() != 0 && left.organism_id() != organism && world.materials.kind(left.material) == MaterialKind::Creature),
         "the cell the tail left at ({vx}, {vy}) is not empty"
     );
     if world.get(vx, vy).material != material::EMPTY {

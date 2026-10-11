@@ -113,11 +113,12 @@
 //!   and `PIXEL_PHYSICS_DEPTH_SLOW`'s `depth_slowed`, `depth_pauses`,
 //!   `depth_unknown`, `depth_rows`, `depth_ground_rows`, `depth_err_rows` and
 //!   `depth_lean_slowed`; then `pack_parted_lost` (soil pellets `pack_behind`
-//!   dropped onto a parted cell, switch off or on), `PIXEL_PHYSICS_PACK_PARTED`'s
-//!   `pack_parted_refused`, and `pack_lost_other` (pellets lost to a tail cell
-//!   full for another reason: a rider set down, under the needs walk); then `pack_parted_lost_brood` (the part of `pack_parted_lost` onto
-//!   brood or foliage) and `PACK_PARTED=carry`'s `pack_crumb_carried` and
-//!   `pack_crumb_no_room`.
+//!   dropped onto a parted cell, whatever `PIXEL_PHYSICS_PACK_PARTED` says),
+//!   its `pack_parted_refused`, and `pack_lost_other` (pellets lost to a
+//!   tail cell full for another reason: a rider set down, under the needs
+//!   walk); then `pack_parted_lost_brood` (the part of `pack_parted_lost`
+//!   onto brood or foliage) and `PACK_PARTED=carry`'s `pack_crumb_carried`
+//!   and `pack_crumb_no_room`.
 //! - with `foodlog=1`, **every food cell from the moment it moves** (see
 //!   `FoodLog`; added 2026-10-10 for where food goes once a carrier reaches
 //!   the door, and why the nest store stays near empty while larvae go
