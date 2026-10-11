@@ -1845,16 +1845,27 @@ a walled-in ant does. Verified 2026-10-11 against `walk_act`, `hungry_act`,
   still decision (`SEAL_EVERY`), and while sealed after each cut or roam.
   "Still" is the box, not `moved`, because an ant flips end for end every
   decision. A sealed ant gets out whatever its hunger or job
-  (`sealed_escape`): a doorway head stands as before; otherwise it takes the
-  cuttable heading nearest the way out (`escape_aim`); a soil pellet is
-  packed behind it (`pack_behind`) or set down in the pocket
+  (`sealed_escape`): a doorway head stands as before; otherwise it turns to
+  the cuttable heading nearest the way out (`escape_aim`). A soil pellet is
+  packed behind (`pack_behind` with no `face`, which cuts one octant from
+  that heading toward up, so the cell it cuts is not the one `sealed_escape`
+  checked; passing the checked heading is a recorded follow-up, since it
+  changes results) or, when the pack fails, set down in the pocket
   (`pocket_drop_site`: never the cell just cut nor the three ahead, never the
   door column, a doorway or a cell that closes a way); a store load is set
-  down the same way; empty jaws cut. A pocket wider than the box reads open.
+  down the same way; empty jaws cut the checked heading. Under the walk,
+  `pack_behind` never packs into a tail cell the body stands in something it
+  parted (crumbs, brood), which `relocate_chain` gives back as the tail
+  leaves; today's ant still does, and the pellet is lost. A pocket wider than
+  the box reads open.
 - **`eat_held`: a hungry sealed ant with nowhere to set its store load down
   eats it from its jaws** (`eat_from_jaws`, in `hungry_act` after the
   put-down fails): the load goes into the crop by the same rule as a swallow
-  (`crop_take`), and is refused if the crop holds another food.
+  (`crop_take`), and is refused if the crop holds another food. The mouth's
+  bookkeeping follows as for food taken at home: `pickups`, `eats`,
+  `life.bites`, the carry patience's restart, fresh trip marks for an empty
+  crop, and `lunch`. `eat_held` needs `sealed_out` (`WalkParts::parse`
+  refuses it alone).
 - **Counted** in `walk_counts.csv` (`seal_floods`, `sealed_found`,
   `sealed_freed`, `sealed_cuts`, `sealed_packs`, `sealed_drops`,
   `sealed_load_down`, `seal_recut`, `ate_held_jaws`, `eat_held_refused`,
@@ -1865,4 +1876,6 @@ a walled-in ant does. Verified 2026-10-11 against `walk_act`, `hungry_act`,
   food in the crop +6%.
 - **The player's ant is never walked**: all four of the walk's hooks in
   `creature_tick` (`needs::act`, `kinesis`, `step`, `after`) stand aside
-  while she is steered (§16).
+  while she is steered (§16), and the walk forgets her each steered tick
+  (`NeedsWalk::forget`), so she comes back to it without a stale stall or
+  seal. `DEPTH_SLOW` stands aside for her too, as `forage_pace` does.

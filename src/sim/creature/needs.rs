@@ -252,7 +252,8 @@
 //! the highest baseline (a fed ant that cut free keeps its pellet, and `act`
 //! cannot set soil down while laden). Two late heap-30 die-offs follow a
 //! colony overshoot the baselines also show; 16 of 932 starvers there had
-//! been sealed in their last 3,000 frames. Both parts stay off.
+//! been sealed in their last 3,000 frames. Both parts are on in the new
+//! ant since PR 684 ([`WalkParts::NEW_ANT`], the switch `walled_in`).
 
 use super::*;
 use std::collections::HashMap;
@@ -330,16 +331,18 @@ pub struct WalkParts {
     /// credited with, so its move against the same seeds is the spread any
     /// other part's effect must clear.
     pub placebo: bool,
-    /// **Not the fix round's** (2026-10-11, never in [`WalkParts::ALL`]): an
-    /// ant that has not stepped for [`ESCAPE_STALL`] decisions floods the air
-    /// round its head ([`seal_flood`]); sealed -- no way out of the food
-    /// sense's box -- it escapes whatever its hunger or its job
-    /// ([`sealed_escape`]).
+    /// **Not the fix round's** (2026-10-11, never in [`WalkParts::ALL`]; on
+    /// in [`WalkParts::NEW_ANT`]): an ant whose head has not left a
+    /// [`SEAL_ROAM`] box for [`ESCAPE_STALL`] decisions floods the air round
+    /// its head ([`seal_flood`]); sealed -- no way out of the food sense's
+    /// box -- it escapes whatever its hunger or its job ([`sealed_escape`]).
     pub sealed_out: bool,
-    /// **Not the fix round's** (2026-10-11, never in [`WalkParts::ALL`]): a
-    /// hungry ant sealed in ([`WalkParts::sealed_out`]'s flood) with a store
-    /// load and nowhere to put it down eats it from its jaws
-    /// ([`eat_from_jaws`]).
+    /// **Not the fix round's** (2026-10-11, never in [`WalkParts::ALL`]; on
+    /// in [`WalkParts::NEW_ANT`]): a hungry ant sealed in
+    /// ([`WalkParts::sealed_out`]'s flood) with a store load and nowhere to
+    /// put it down eats it from its jaws ([`eat_from_jaws`]). Needs
+    /// `sealed_out`, which alone sets the flag it reads: [`WalkParts::parse`]
+    /// refuses it without.
     pub eat_held: bool,
 }
 
@@ -445,6 +448,12 @@ impl WalkParts {
                     WalkParts::NAMES.join(", ")
                 ),
             }
+        }
+        // `eat_held` eats only once `sealed_out`'s flood has found the ant
+        // sealed in, so alone it would run as the parts without it under a
+        // label that names it: refused, as a typo is (code review of PR 684).
+        if p.eat_held && !p.sealed_out {
+            panic!("needsparts={raw:?}: eat_held needs sealed_out (it eats only where sealed_out has found the ant sealed in)");
         }
         p
     }
@@ -553,6 +562,13 @@ pub struct SealRow {
 }
 
 impl NeedsWalk {
+    /// Drop one ant's memory, so it is walked afresh: the player's ant while
+    /// she is steered (`creature_tick`), so a stall or a seal from before
+    /// does not come back with her (code review of PR 684).
+    pub fn forget(&mut self, organism: OrganismId) {
+        self.minds.remove(&organism);
+    }
+
     pub fn new(mode: NeedsMode, frame: u64) -> NeedsWalk {
         NeedsWalk {
             mode,
@@ -1068,6 +1084,9 @@ const SEAL_EVERY: u16 = 10;
 /// again: a 7x7 box, the size of most of the traced pockets (87 of 93 held 39
 /// cells or fewer).
 const SEAL_ROAM: i32 = 3;
+/// Where [`Mind::seal_stall`] steps back by [`SEAL_EVERY`] rather than
+/// growing: far past any cadence's start, and below `u16::MAX`.
+const SEAL_STALL_TOP: u16 = ESCAPE_STALL + 6_000 * SEAL_EVERY;
 
 /// **The forage stimulus**: a floor a fed ant still feels, so fed scouts
 /// leave a colony that has no returns to meet (the design's founding-bed
@@ -1662,7 +1681,7 @@ fn hungry_act(
         // Sealed only, so a carrier in a crowd at the door, whose air goes
         // somewhere, still waits to put it down.
         if parts.eat_held && mind.sealed {
-            if eat_from_jaws(world, organism, head, load) {
+            if eat_from_jaws(world, organism, def, head, load) {
                 world.needs.as_mut().expect("walking").counts.ate_held_jaws += 1;
                 mind.drive = Drive::Eat;
                 return Some(Did::default());
@@ -2026,22 +2045,74 @@ fn sealed_escape(
 /// crop empty or holding the same food. `false`, and nothing changed,
 /// otherwise. `store_kept` needs no check: it keeps the store from the fed,
 /// and this ant is hungry.
-fn eat_from_jaws(world: &mut World, organism: OrganismId, head: (i32, i32), load: Spoil) -> bool {
+///
+/// **And the mouth's bookkeeping after it**, which the first build skipped
+/// (code review of PR 684): `pickups` (and `pickups_at_nest`), `eats` and
+/// `best_bite`, `life.bites` and the first-feed line, the carry patience's
+/// restart, and an empty crop's fresh trip marks. A store load is the
+/// nest's own food, so it is booked as food taken at home wherever the
+/// pocket is: a packed lunch (`lunch`), never a trip (`trip_load`) and
+/// never foraging (`foraged`). Without it a meal eaten from the jaws kept
+/// whatever `lunch` the last crop left, and `walk_act`'s `laden` and
+/// `crop_to_feed` read the meal as a load to carry.
+fn eat_from_jaws(world: &mut World, organism: OrganismId, def: &CreatureDef, head: (i32, i32), load: Spoil) -> bool {
     let food = load.cell.material;
-    if world
-        .organism(organism)
-        .and_then(|s| s.crop)
-        .is_some_and(|c| c.material != food)
-    {
+    let crop = world.organism(organism).and_then(|s| s.crop);
+    if crop.is_some_and(|c| c.material != food) {
         return false;
     }
     let worth = food_value(world, load.cell);
     note_food(world, organism, head, FOOD_SWALLOW, worth, true);
     crop_take(world, organism, food, load.cell.shade, worth, None);
-    if let Some(s) = world.organism_mut(organism) {
+    let at_home = food_at_home(world, organism, def, head.0, head.1);
+    world.creature_stats.pickups += 1;
+    if at_home {
+        world.creature_stats.pickups_at_nest += 1;
+    }
+    let restart = carry_patience_of(world);
+    let trip_reach = trip_reach_of(world).is_some();
+    let empty = crop.is_none_or(|c| c.worth() <= 0.0);
+    let first = if let Some(s) = world.organism_mut(organism) {
         s.spoil = None;
         s.spoil_ring = None;
+        s.life.bites += 1;
+        if restart {
+            s.home_best = f32::INFINITY;
+            s.home_away = 0;
+            s.home_patience = 1.0;
+        }
+        if trip_reach && empty {
+            s.trip_load = false;
+            s.trip_src = 0;
+        }
+        if empty {
+            s.trip_cells = 0;
+        }
+        s.lunch = s.lunch || empty;
+        s.life.bites == 1
+    } else {
+        false
+    };
+    if first {
+        if let Some((born_frame, species, lineage, generation)) = world
+            .organism(organism)
+            .map(|s| (s.born_frame, s.species, s.lineage, s.generation))
+        {
+            world.run_log.push(crate::sim::world::LogEvent {
+                frame: world.frame,
+                id: organism,
+                born_frame,
+                species,
+                kind: crate::sim::world::LogKind::FirstFeed,
+                other: 0,
+                lineage,
+                generation,
+                detail: String::new(),
+            });
+        }
     }
+    world.creature_stats.eats += 1;
+    world.creature_stats.best_bite = world.creature_stats.best_bite.max(worth);
     true
 }
 
@@ -3000,7 +3071,18 @@ fn walk_after(world: &mut World, organism: OrganismId, moved: bool, won: bool) {
         if roamed {
             mind.seal_from = head;
         }
-        mind.seal_stall = if roamed { 0 } else { mind.seal_stall.saturating_add(1) };
+        // **Wrapped, never saturated** (code review of PR 684): a `u16`
+        // pinned at 65,535 is on neither cadence, so an ant still that long
+        // -- a resting nest worker -- was never flooded again. Stepping
+        // back by [`SEAL_EVERY`] past [`SEAL_STALL_TOP`] keeps both
+        // cadences' phase.
+        mind.seal_stall = if roamed {
+            0
+        } else if mind.seal_stall >= SEAL_STALL_TOP {
+            mind.seal_stall + 1 - SEAL_EVERY
+        } else {
+            mind.seal_stall + 1
+        };
         // Sealed, it floods again after each of its own cuts or steps, to see
         // whether it got out, as well as on the cadence.
         let acted = roamed || mind.cut != CUT_NONE;
@@ -4162,12 +4244,21 @@ mod tests {
     /// reported, not gated: the deep ones get out in 1,223-2,273 frames on
     /// the baseline against 371-407 with the parts, once hungry rather than
     /// while fed, and one of the two deep ants starved at frame 1,847 after
-    /// reaching the air hungry.
+    /// reaching the air hungry. The same rows also prove `sealed_out` off
+    /// floods nothing.
     #[test]
     fn sealed_rows_are_red_on_the_baseline() {
         let rows = sealed_rows(SEAL_BASE);
         for (name, r) in &rows {
             print_seal(name, r);
+        }
+        // With `sealed_out` off the walk never floods and reads no decision as
+        // sealed, in any row: the part's whole cost and effect sit behind its
+        // own flag (PR 684's code review, item 6).
+        for (name, r) in &rows {
+            assert_eq!(r.counts.seal_floods, 0, "{name}: flooded with sealed_out off");
+            assert_eq!(r.counts.sealed_found, 0, "{name}: found sealed with sealed_out off");
+            assert_eq!(r.sealed_decisions, 0, "{name}: a sealed decision with sealed_out off");
         }
         for (name, r) in rows
             .iter()
@@ -4296,6 +4387,125 @@ mod tests {
         WalkParts::parse("pace,giveup");
     }
 
+    /// **`eat_held` alone is refused at the parse** (PR 684's code review,
+    /// item 2): it eats only where `sealed_out` has found the ant sealed in,
+    /// so on its own it would be an arm that measures nothing.
+    #[test]
+    #[should_panic(expected = "eat_held needs sealed_out")]
+    fn walk_parts_refuse_eat_held_alone() {
+        WalkParts::parse("reach,eat_held");
+    }
+
+    /// **A crop holding another food refuses the jaws' load**, and leaves
+    /// both the crop and the load as they were: one crop holds one material
+    /// (`crop_take` would otherwise blend two foods' worth into one unit).
+    #[test]
+    fn eat_from_jaws_refuses_a_crop_of_another_food() {
+        let mut w = guard_bed();
+        let food = w.materials.id_of("provisions").expect("provisions material");
+        let corpse = w.materials.id_of("corpse").expect("corpse material");
+        let at = (49, 33);
+        let site = plant_creature_seed_in(&mut w, at.0, at.1, "ant", None).expect("test setup: the ant does not fit");
+        w.schedule_active_site(site);
+        let id = w.get(at.0, at.1).organism_id();
+        assert_ne!(id, 0, "test setup: no ant at {at:?}");
+        let def = w
+            .species
+            .get(w.organism(id).expect("live").species)
+            .creature
+            .clone()
+            .expect("a creature");
+        let held = crate::sim::organism::Crop {
+            material: corpse,
+            shade: 0,
+            unit: 10.0,
+            cells: 1,
+            digesting: 0.0,
+            passenger: None,
+        };
+        let load = crate::sim::organism::Spoil {
+            cell: Cell::new(food, 0),
+            store: true,
+        };
+        {
+            let st = w.organism_mut(id).expect("live");
+            st.crop = Some(held);
+            st.spoil = Some(load);
+        }
+        let (bites, eats) = (w.organism(id).expect("live").life.bites, w.creature_stats.eats);
+        assert!(
+            !eat_from_jaws(&mut w, id, &def, at, load),
+            "ate provisions into a crop of corpse"
+        );
+        let st = w.organism(id).expect("live");
+        let crop = st.crop.expect("the crop was emptied");
+        assert_eq!((crop.material, crop.cells), (corpse, 1), "the crop changed");
+        assert_eq!(st.spoil.map(|s| s.cell.material), Some(food), "the load was dropped");
+        assert_eq!(st.life.bites, bites, "a bite was counted");
+        assert_eq!(w.creature_stats.eats, eats, "an eat was counted");
+    }
+
+    /// **The steered ant gets none of the walk's hooks** under
+    /// [`World::needs`] (PR 684's code review, item 6): marked after the
+    /// walk has given her a mind, she loses it at her next decision and never
+    /// gets another, while the colony around her keeps walking.
+    #[test]
+    fn the_steered_ant_is_not_walked() {
+        use crate::lab::scenario::{Placement, Scenario};
+        use crate::sim::steer::{mark, SteerInput};
+        let mut sc = Scenario::load("steady_income").expect("steady_income ships");
+        for e in &mut sc.timeline {
+            if matches!(e.what, Placement::Colony { .. } | Placement::Heap { .. }) {
+                e.at = 200;
+            }
+        }
+        let mut lab = crate::lab::Lab::new(sc.bed.clone());
+        lab.load_scenario(sc);
+        for _ in 0..400 {
+            lab.tick_for_harness();
+        }
+        let mut n = NeedsWalk::new(NeedsMode::Walk, lab.world.frame);
+        n.parts = WalkParts::NEW_ANT;
+        lab.world.needs = Some(Box::new(n));
+        for _ in 0..300 {
+            lab.tick_for_harness();
+        }
+        let walked = |w: &World| {
+            w.needs
+                .as_ref()
+                .expect("walking")
+                .minds
+                .keys()
+                .copied()
+                .collect::<Vec<_>>()
+        };
+        let mut minds = walked(&lab.world);
+        minds.sort_unstable();
+        let id = *minds
+            .iter()
+            .find(|&&i| lab.world.organism(i).is_some())
+            .expect("the walk gave nobody a mind");
+        let held = SteerInput {
+            dir: Some((1, 0)),
+            ..Default::default()
+        };
+        assert!(mark(&mut lab.world, id, Some(held)));
+        for _ in 0..600 {
+            lab.tick_for_harness();
+        }
+        assert!(lab.world.organism(id).is_some(), "test setup: the steered ant died");
+        assert_eq!(
+            lab.world.steered.as_ref().map(|s| s.used),
+            Some(held),
+            "test setup: the steered ant never decided"
+        );
+        assert!(
+            !walked(&lab.world).contains(&id),
+            "the walk kept a mind for the steered ant"
+        );
+        assert!(!walked(&lab.world).is_empty(), "the colony stopped walking");
+    }
+
     /// **The door cut's box**: the way through the mound over the door and
     /// the door itself, none of the mound's flanks and none of the nest.
     /// The guard's bed has its founding cut on columns 60-61 under ground
@@ -4391,9 +4601,7 @@ mod tests {
             c.cuts
         );
         assert!(
-            rows.iter()
-                .filter(|r| r.cut == CUT_CLEAR)
-                .all(in_door_scope_of_row),
+            rows.iter().filter(|r| r.cut == CUT_CLEAR).all(in_door_scope_of_row),
             "a door cut outside the door's box"
         );
         let (c, opened, rows) = shut_door_row(only);

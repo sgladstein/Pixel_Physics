@@ -7977,6 +7977,14 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
     // (fast-forward above the steering cap) resumes a brain that kept time.
     // `None` for every other body and whenever nobody is steered.
     let steer_in = crate::sim::steer::take_input(world, organism);
+    // **Steered, the walk forgets her** (`needs::NeedsWalk::forget`): she is
+    // handed back to it only above the steering cap, and must come back with
+    // no stale stall or seal from before she was steered.
+    if steer_in.is_some() {
+        if let Some(n) = world.needs.as_mut() {
+            n.forget(organism);
+        }
+    }
     let outputs = match steer_in {
         Some(input) => steered_outputs(outputs, input),
         None => outputs,
@@ -8207,7 +8215,15 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
     // memory of where it last stood away from home is written here, and the
     // step chance cut by how far below that it stands. Off, one branch.
     let p_unslowed = p_move;
-    let p_move = depth_slowed(world, organism, def, (x, y), inputs[brain::BrainInput::AtNest as usize] > 0.0, p_move);
+    // Not for the player's ant, as `forage_pace` is not: a held key steps.
+    let p_move = if steer_in.is_none() {
+        depth_slowed(world, organism, def, (x, y), inputs[brain::BrainInput::AtNest as usize] > 0.0, p_move)
+    } else {
+        p_move
+    };
+    // The depth cut's own chance, for `depth_pauses`: the walk's kinesis
+    // below is not a depth pause.
+    let p_depth = p_move;
     // **...and under the needs walk, its own kinesis** ([`needs::kinesis`]).
     let p_move = if walked {
         needs::kinesis(world, organism, def, (x, y), &inputs, p_move)
@@ -8341,7 +8357,7 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
     // The pauses the depth cut alone made: the roll lost to the slowed chance
     // and would have won the unslowed one. A NaN roll (a fall, a pack)
     // compares false both ways.
-    if roll_move >= p_move && roll_move < p_unslowed {
+    if roll_move >= p_depth && roll_move < p_unslowed {
         world.creature_stats.depth_pauses += 1;
     }
     if walked {

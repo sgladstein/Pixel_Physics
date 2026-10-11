@@ -5,8 +5,9 @@ gate and met the kill rule (a late collapse, and less food carried in from outsi
 the shipped ant). Nothing here is on `main`.
 
 - **Code:** branch `claude/project-thread-ns0j6p`; the fix round is commit `067dad72`.
-  `src/sim/creature/needs.rs`, hung off `World::needs`, off by default
-  (`PIXEL_PHYSICS_NEEDS=walk` in the game, `needs=walk` in `deeptrace`). No PR.
+  `src/sim/creature/needs.rs`, hung off `World::needs`, which only a harness sets
+  (`needs=walk` in `deeptrace`, `needscost`); no game runs it. No PR then; the branch's
+  successor, `claude/new-ant-resume-yppx3j`, is PR 684.
 - **Design:** the live design doc is
   https://claude.ai/code/artifact/6f9b6730-a887-4697-8689-906afc9afb0a (its *Build order*
   item 1 and *Kill criteria* carry these results). `design-doc-rev132-2026-10-07.txt` is a
@@ -47,7 +48,7 @@ Deterministic: same build, same seed, same game. From the branch, with no
 |---|---|
 | shipped | nothing |
 | the stack | set `PIXEL_PHYSICS_NEEDS_FIRST=on PIXEL_PHYSICS_CARRY_HOME=on PIXEL_PHYSICS_NEST_REST=on` |
-| slice 1 | `needs=walk needsat=50000 walktrace=20` |
+| slice 1 | `needs=walk needsat=50000 walktrace=20 needsparts=none` (since 2026-10-11 an unnamed `needsparts` is the new ant, `reach,sealed_out,eat_held`) |
 | all four fixes | `needs=walk needsat=50000 needsparts=all walktrace=5 dig=1` |
 | one fix alone | `needs=walk needsat=50000 walktrace=20 dig=0 needsparts=` Fix 1 `only_diggers,dig_job,clear`, Fix 2 `pace,give_up,lay_home`, Fix 3 `meal`, Fix 4 `won_stall` |
 

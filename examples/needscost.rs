@@ -47,7 +47,7 @@
 //!
 //! **Walk parts** (2026-10-11): an arm `walk/reach+sealed_out` hands the walk
 //! with `WalkParts` `reach,sealed_out` (`+` stands for the comma, which splits
-//! arms); a bare `walk` is `WalkParts::NEW_ANT`, and `walk/none` slice 1. `handat=` hands the walk over before the window (default `at`, the
+//! arms); a bare `walk` is `WalkParts::NEW_ANT`, and `walk/none` (or `walk/`) slice 1. `handat=` hands the walk over before the window (default `at`, the
 //! old behaviour: the window's first frame), so a part that only acts after an
 //! ant has been still for a while is grown into before it is timed. With
 //! `handat` < `at` the arms are different worlds by the window; read the part's
@@ -173,15 +173,16 @@ impl Arm {
         if lab.stats.showing() {
             lab.stats.toggle();
         }
-        let (mode, parts) = label.split_once('/').unwrap_or((label, ""));
+        let (mode, parts) = label.split_once('/').map_or((label, None), |(m, p)| (m, Some(p)));
         let needs = match mode {
             "off" => None,
             other => Some(creature::needs::NeedsMode::parse(other)),
         };
-        let parts = if parts.is_empty() {
-            creature::needs::WalkParts::NEW_ANT
-        } else {
-            creature::needs::WalkParts::parse(&parts.replace('+', ","))
+        // No `/`: the new ant. `walk/` with nothing after it is
+        // `parse("")`, slice 1, as `deeptrace needsparts=` is.
+        let parts = match parts {
+            None => creature::needs::WalkParts::NEW_ANT,
+            Some(p) => creature::needs::WalkParts::parse(&p.replace('+', ",")),
         };
         Arm {
             label: label.to_string(),
