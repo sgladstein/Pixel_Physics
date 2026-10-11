@@ -14,11 +14,16 @@
 //! 3. **`food_trail_lay`**, which lays trail B only for a trip's load --
 //!    bypassed, so T lays wherever she walks;
 //! 4. **`act`'s rewrites** -- the lean and forager no-dig gates, the
-//!    forage drive's feed scaling, `needs_first_act`, the crop holds and the
-//!    stranger hold -- skipped: the pressed verb is the verb;
+//!    forage drive's feed scaling, `needs_first_act`, the crop holds, the
+//!    stranger hold, the spoil holds and lift (Q puts a pellet down beside
+//!    her or not at all), and the dig's turns, side-cuts and refusals (G
+//!    cuts the cell she faces, if the jaw can take it) -- skipped: the
+//!    pressed verb is the verb. Sealed in with a pellet, G packs it behind
+//!    her as she cuts on (`pack_behind`, the colony's own escape);
 //! 5. **the step**: the usable heading nearest the steer direction, among
 //!    headings within 90 degrees of it, ahead of `chooser_step`'s fallbacks
-//!    (`step_chain`, `fills_before_walking`). None such, and she stands.
+//!    (`step_chain`, `fills_before_walking`). None such, and she stands,
+//!    turned to face the steer -- so G digs where she is steered.
 //!
 //! Plus three things that hold whether or not a keyboard is attached
 //! ([`Steered::input`] `None` is "her genome drives her", the state above 4x
@@ -35,8 +40,8 @@
 //!
 //! **Off is off.** With `World::steered` at `None` every hook is one
 //! branch not taken and the build is the build without this module. Checked
-//! by `a_world_with_nobody_steered_is_the_world_without_steering` and by the
-//! slice-0 hash comparison against main in the report.
+//! by the slice-0 comparison against main in the report: every `deeptrace`
+//! output byte-identical, at one thread and at four.
 //!
 //! **Not `World::player`** -- that is the gnome (`sim::player`).
 

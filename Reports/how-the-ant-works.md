@@ -1771,12 +1771,19 @@ and `steer.rs`.
      with T held, not only with a trip's load (§7);
   4. in `act`: the stranger hold, the lean and called-forager no-dig gates,
      `needs_first_act`, the forage drive's feed scaling and the crop holds
-     are skipped (§5);
+     are skipped (§5). Q puts a pellet down beside her with none of the
+     spoil holds and no lift up a column; G cuts the cell she faces with
+     none of the dig-down, widening, shoulder or face turns and none of the
+     heap-cue, face-trip, roof or mound refusals (the jaw test still
+     stands). Sealed in (`walled_in`) with a pellet in her jaws, G turns
+     her to the held direction and runs `pack_behind`: cut, step, and the
+     old pellet packed into the cell her tail left;
   5. the step: the usable heading nearest the held direction, among those
      within 90 degrees of it (`steer::pick_heading`), committed by
      `commit_step` ahead of `chooser_step` and `step_chain`. None such and
-     she stands, so straight up on flat ground stands. She still falls by
-     the support check (§6d).
+     she stands turned in place to face the held direction, so straight up
+     on flat ground stands, and G then digs the way she is steered. She
+     still falls by the support check (§6d).
 - **What holds with or without a keyboard** (`input` `None` is her genome
   driving her): no old-age roll; no nest-worker caste (`mark` clears
   `nest_bound_until`); and the `queen` breeding rule for her colony at both

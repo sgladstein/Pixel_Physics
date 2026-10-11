@@ -13841,7 +13841,7 @@ fn needs_first_act(world: &mut World, organism: OrganismId, def: &CreatureDef, h
         }
         world.creature_stats.needs_no_site += 1;
     }
-    if rule.pack && hungry && !load.store && walled_in(world, organism, head) && pack_behind(world, organism, def, head, load, rule.backfill) {
+    if rule.pack && hungry && !load.store && walled_in(world, organism, head) && pack_behind(world, organism, def, head, load, rule.backfill, None) {
         world.creature_stats.needs_packed += 1;
         note_spoil(world, SpoilWhy::Packed, 0, f32::NAN);
         return NeedsDid::Packed;
@@ -13946,14 +13946,16 @@ const UP_DIR: u8 = 2;
 /// fit. None of the dig's vetoes (the heap cue, `FaceTrip`, the roof): they
 /// are about where a nest may grow, and this grows nothing -- the pocket the
 /// ant stands in moves, and keeps its size.
-fn pack_behind(world: &mut World, organism: OrganismId, def: &CreatureDef, head: (i32, i32), load: Spoil, backfill: bool) -> bool {
+fn pack_behind(world: &mut World, organism: OrganismId, def: &CreatureDef, head: (i32, i32), load: Spoil, backfill: bool, face: Option<u8>) -> bool {
     let Some((chain, groups, fates, heading)) = world.organism(organism).map(|s| (s.chain.clone(), s.segment_groups.clone(), s.fates, s.heading)) else {
         return false;
     };
     if chain.first() != Some(&head) || in_a_doorway(world, head) {
         return false;
     }
-    let aim = turn_toward(heading, UP_DIR, half_turn_left(world.seed, organism, world.frame));
+    // `face`: the player's ant cuts the cell she faces (`steer`), not one
+    // turned up.
+    let aim = face.unwrap_or_else(|| turn_toward(heading, UP_DIR, half_turn_left(world.seed, organism, world.frame)));
     let (dx, dy) = DIRS[aim as usize];
     let ahead = (head.0 + dx, head.1 + dy);
     let target = world.get(ahead.0, ahead.1);
@@ -18397,6 +18399,26 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
             NeedsDid::Packed => return Did { dug: 1, packed: true, ..did },
         }
     }
+    // **The player sealed in with a pellet in her jaws** (`steer`): G cuts
+    // the cell she faces and packs the pellet into the cell her tail leaves,
+    // [`pack_behind`] as the colony's escape does it, so she tunnels on with
+    // the pocket moving round her. Without it the carry below holds a pellet
+    // with nowhere to set it down and returns before the dig: the slice-0
+    // scripted founder (seed 1) sat sealed in her founding chamber holding
+    // one until she starved.
+    if steered && dig_urge >= 0.5 {
+        if let Some(load) = world.organism(organism).and_then(|s| s.spoil).filter(|l| !l.store) {
+            // Facing the steer, as a step that finds no way turns her
+            // ([`steered_step`]): the pack spends the step, so it must turn
+            // her itself or she tunnels on along her last heading.
+            let dir = crate::sim::steer::input_of(world, organism).and_then(|i| i.dir);
+            let face = dir.and_then(|d| crate::sim::steer::pick_heading(&[0, 1, 2, 3, 4, 5, 6, 7], &DIRS, d)).or_else(|| world.organism(organism).map(|s| s.heading));
+            if walled_in(world, organism, (x, y)) && pack_behind(world, organism, def, (x, y), load, needs_first.backfill, face) {
+                note_spoil(world, SpoilWhy::Packed, 0, f32::NAN);
+                return Did { dug: 1, packed: true, ..did };
+            }
+        }
+    }
     // **Feeding is its own verb, and it was not.** Both branches below used
     // to roll against `dig_urge`, so one weight decided whether an animal
     // excavated *and* whether it ate -- §13d's `(Bias, Dig, 0.4)`, added to
@@ -19847,7 +19869,10 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
         // reach is left to the rules above, which may let it lay the pellet
         // beside itself, rather than held with nowhere to take it.
         let sky_held = nest_store_of(world).sky && spoil_out().keep && !below_founding_ground(world, x, y) && (on_mound_way_covered(world, (x, y)) || (!under_cover(world, x, y) && beside_mound_hole(world, (x, y))));
-        let kept_inside = (keep_inside && (patient || held_near_door || held_below)) || sky_held;
+        // **Q puts the player's pellet down** (`steer`): none of the colony's
+        // holds -- in the nest, the ring, the sky, under cover, the door's
+        // column -- and no lift up a column. Beside her or not at all.
+        let kept_inside = !steered && ((keep_inside && (patient || held_near_door || held_below)) || sky_held);
         // The keep rule's inputs, each read on its own for the trace (the
         // rule above short-circuits). Reads only; no draw.
         let spoil_flags = if world.decision_log.is_some() {
@@ -19863,7 +19888,9 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
         } else {
             0
         };
-        let cover_scale = if kept_inside {
+        let cover_scale = if steered {
+            1.0
+        } else if kept_inside {
             world.creature_stats.spoil_kept_inside += 1;
             0.0
         } else {
@@ -19916,7 +19943,8 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
             let footed = spoil_footing_drop();
             // [`door_column_of`]'s it-fired count: a cell beside the carrier
             // that would have taken the pellet but for the door's column.
-            let column_refused = door_column_of(world).drop
+            let column_refused = !steered
+                && door_column_of(world).drop
                 && NEIGHBOURS_8.iter().any(|&(dx, dy)| {
                     in_door_column(world, (x + dx, y + dy)) && spoil_site_fits(world, x + dx, y + dy, footed)
                 });
@@ -19990,7 +20018,7 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
             // surface and 59-244 from 9-16 rows (seeds 1-4) -- and the heaps
             // over the galleries broke 7 entrances (24 seeds), against 3 for
             // the walk out with no trip back.
-            let no_lift = keep_inside;
+            let no_lift = keep_inside || steered;
             let out = if lifted && !no_lift && mode == SpoilLift::Out { lift_out(world, x, y, footed) } else { None };
             let site = beside.or_else(|| if no_lift { None } else { out.or_else(|| (1..=reach).map(|dy| (x, y - dy)).find(|&(px, py)| open(px, py))) });
             if site.is_none() && no_lift {
@@ -20068,13 +20096,15 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
         // cell wide there it cuts the wall beside it -- instead of turning
         // down, which is the face's business. At a face the dig goes on as
         // before. Off, no read and no draw.
-        let widen_to = if dig_widen_of(world) && ahead_is_open(world, organism, x, y) { dig_widen_site(world, def, organism, (x, y)) } else { None };
+        // **The player's cut is the cell she faces** (`steer`): none of the
+        // four turns and side-cuts below moves it.
+        let widen_to = if !steered && dig_widen_of(world) && ahead_is_open(world, organism, x, y) { dig_widen_site(world, def, organism, (x, y)) } else { None };
         // **The digger turns downward before it cuts, rather than cutting a
         // cell it will never enter.** On for an enclosed digger since
         // 2026-09-28, and `off` is bit-exact with the ant before; see
         // [`dig_down_bias`] for the whole argument and for why the two
         // obvious places to put this are both wrong.
-        if let Some(dd) = dig_down_of(world).filter(|_| widen_to.is_none()) {
+        if let Some(dd) = dig_down_of(world).filter(|_| widen_to.is_none() && !steered) {
             let h = world.organism(organism).map_or(0, |s| s.heading);
             let turned = turn_toward(h, DOWN_DIR, half_turn_left(world.seed, organism, world.frame));
             // **[`MoundDig`]'s `down`**: a hollow in the spoil mound is not
@@ -20124,7 +20154,7 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
         // ahead, along its heading after any dig-down turn, so the gallery
         // advances as a band two cells across rather than a line one cell
         // across ([`dig_shoulder_site`]).
-        let widen_to = widen_to.or_else(|| if dig_widen_of(world) { dig_shoulder_site(world, def, organism, (x, y), (dx, dy)) } else { None });
+        let widen_to = widen_to.or_else(|| if !steered && dig_widen_of(world) { dig_shoulder_site(world, def, organism, (x, y), (dx, dy)) } else { None });
         // The widening cut: everything below judges and takes the wall as it
         // would the cell ahead.
         if let Some(side) = widen_to {
@@ -20138,7 +20168,7 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
         // nearest face** ([`dig_face_of`]): open air or a nestmate ahead, it
         // turns straight to the nearest cell round from its heading that its
         // jaw can take and keep underground, and cuts that. Off, no read.
-        if widen_to.is_none() && !jaw_can_cut(world, def, organism, world.get(tx, ty)) && dig_face_applies(world, organism, x, y) {
+        if !steered && widen_to.is_none() && !jaw_can_cut(world, def, organism, world.get(tx, ty)) && dig_face_applies(world, organism, x, y) {
             if let Some(h) = dig_face_turn(world, def, organism, (x, y), heading) {
                 if let Some(state) = world.organism_mut(organism) {
                     state.heading = h;
@@ -20225,7 +20255,9 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
         let mound_refused = !cue_vetoed && !face_refused && !roof_refused && mound_dig().roof && mound_roof_refuses(world, (tx, ty)) && !escaping && !shut_in_mound(world, x, y);
         world.creature_stats.digs_refused_mound += u64::from(mound_refused);
         let roof_refused = roof_refused || mound_refused;
-        let vetoed = cue_vetoed || face_refused || roof_refused;
+        // The pressed verb is the verb (`steer`): no colony refusal stands
+        // between the player and the cell she faces; the jaw test still does.
+        let vetoed = !steered && (cue_vetoed || face_refused || roof_refused);
         // **What the jaw can take is [`jaw_can_cut`]**, one test shared with
         // the dig-down turn above so the two cannot drift apart; the argument
         // for each of its terms is there. A live seed is still counted here,
@@ -25276,7 +25308,8 @@ fn steered_outputs(mut outputs: [f32; brain::BRAIN_OUTPUTS], input: crate::sim::
 /// heading [`steer::pick_heading`](crate::sim::steer::pick_heading) chooses,
 /// committed exactly as [`chooser_step`] commits its own pick, so she climbs,
 /// squeezes and falls by the same body rules as any ant. `false`, standing,
-/// with no steer key held or no usable heading within 90 degrees of it. No
+/// with no steer key held or no usable heading within 90 degrees of it --
+/// and then turned in place to face the steer, so a dig cuts that way. No
 /// draw.
 fn steered_step(world: &mut World, organism: OrganismId, heading: u8, def: &CreatureDef, dir: Option<(i8, i8)>) -> bool {
     let Some(dir) = dir else { return false };
@@ -25289,7 +25322,18 @@ fn steered_step(world: &mut World, organism: OrganismId, heading: u8, def: &Crea
         return false;
     }
     let usable = usable_headings(world, organism, def);
-    let Some(to) = crate::sim::steer::pick_heading(&usable, &DIRS, dir) else { return false };
+    let Some(to) = crate::sim::steer::pick_heading(&usable, &DIRS, dir) else {
+        // **No way that way: she turns to face it** and stands, so G cuts
+        // the cell the player steered at. Without the turn a founder sealed
+        // in her chamber faced whatever her last step left her facing and
+        // could never dig out (the slice-0 scripted founder, seed 1). A turn
+        // in place is what a tumble already is.
+        let face = crate::sim::steer::pick_heading(&[0, 1, 2, 3, 4, 5, 6, 7], &DIRS, dir);
+        if let (Some(face), Some(state)) = (face, world.organism_mut(organism)) {
+            state.heading = face;
+        }
+        return false;
+    };
     let authored = segment_authored(def, fates);
     let authored_widths: Vec<u8> = authored.iter().map(|s| if s.lateral.is_some() { 2 } else { 1 }).collect();
     let body = BodyShape { chain: &chain, groups: &groups, authored: &authored_widths };
@@ -53409,6 +53453,61 @@ mod tests {
             }
         }
         assert_eq!(moved_to, Some((still.0 + dx, still.1 + dy)), "steered {:?}, she should take that step at her next decision", (dx, dy));
+    }
+
+    /// **Steered into the ground, she turns to face it, and G cuts it.**
+    /// No usable heading points down on level ground, so the step stands and
+    /// turns her in place; the dig then takes the cell she faces, with the
+    /// colony's dig-down and face turns out of the way. Watched red: without
+    /// the turn in place she still faces along the ground and the cell below
+    /// her head is never cut.
+    #[test]
+    fn steered_at_the_ground_she_turns_to_face_it_and_digs_it() {
+        let (mut w, id) = steered_bed(1, 0);
+        let (hx, hy) = head_of(&w, id);
+        let below = w.get(hx, hy + 1).material;
+        assert_ne!(below, material::EMPTY, "the bed must put ground under her head");
+        w.steered.as_mut().unwrap().input = Some(crate::sim::steer::SteerInput { dir: Some((0, 1)), dig: true, ..Default::default() });
+        let mut cut = false;
+        for _ in 0..120 {
+            run(&mut w, 1);
+            cut |= w.get(hx, hy + 1).material != below;
+        }
+        assert_eq!(w.organism(id).unwrap().heading, 6, "steered down, she should face down");
+        assert!(cut, "facing the ground with G held, and the cell below her head was never cut");
+    }
+
+    /// **Sealed in with a pellet in her jaws, G tunnels her on**: the cut
+    /// is the cell she faces, she steps into it, and the old pellet is
+    /// packed into the cell her tail left. Without it the carry holds the
+    /// pellet with nowhere to set it down and returns before the dig, and
+    /// the slice-0 scripted founder starved sealed in her chamber. Watched
+    /// red: with the steered pack taken out she never moves.
+    #[test]
+    fn sealed_in_with_a_pellet_the_steered_ant_packs_it_behind_and_tunnels_on() {
+        let (mut w, id) = steered_bed(1, 0);
+        let soil = w.materials.id_of("soil").expect("soil material");
+        let chain = w.organism(id).unwrap().chain.clone();
+        // Solid ground for six cells round her, so every pocket she tunnels
+        // into is sealed too.
+        for &(cx, cy) in &chain {
+            for dx in -6..=6 {
+                for dy in -6..=6 {
+                    if w.get(cx + dx, cy + dy).material == material::EMPTY {
+                        w.set(cx + dx, cy + dy, Cell::new(soil, 0));
+                    }
+                }
+            }
+        }
+        w.organism_mut(id).unwrap().spoil = Some(organism::Spoil { cell: Cell::new(soil, 0), store: false });
+        let (hx, hy) = head_of(&w, id);
+        w.steered.as_mut().unwrap().input = Some(crate::sim::steer::SteerInput { dir: Some((0, 1)), dig: true, ..Default::default() });
+        run(&mut w, 120);
+        let (_, ny) = head_of(&w, id);
+        assert!(ny > hy, "sealed in, steered down with G held, and her head stayed at ({hx}, {hy})");
+        assert!(w.organism(id).unwrap().spoil.is_some(), "each cut is the next pellet");
+        let open: usize = chain.iter().filter(|&&(cx, cy)| w.get(cx, cy).material == material::EMPTY).count();
+        assert_eq!(open, 0, "the cells she left must be packed, not left open behind her");
     }
 
     /// **T lays the food trail on the way out** (hook 3): the lay rule holds

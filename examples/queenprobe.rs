@@ -28,6 +28,10 @@
 //!   colony's adults, eggs, larvae and pupae; the frame she first has
 //!   `goal=` (20) adults besides herself; and every death in her colony by
 //!   cause.
+//!   With `play=1` a scripted player drives her instead (walk to the heap,
+//!   hold E until the crop stops filling, walk home and down the shaft, hold
+//!   L until the crop is spent, repeat): a floor on what a person at the
+//!   keyboard could do, and the founding the game actually asks for.
 //! - `mode=beetle`: **how often does a beetle kill a lone ant?** As `found`,
 //!   with `beetles=` (4) released at landing (the `one_nest_beetles` bed).
 //!   Reports her death frame and cause.
@@ -114,6 +118,7 @@ fn main() {
     let start: u64 = arg("start").unwrap_or(1000);
     let window: u64 = arg("window").unwrap_or(6000);
     let arm: String = arg("arm").unwrap_or_else(|| "line".into());
+    let play = arg::<u8>("play").unwrap_or(0) == 1;
     let default_frames = match mode.as_str() {
         "trail" => land + start + 40_000,
         "beetle" => land + 100_000,
@@ -189,6 +194,11 @@ fn main() {
     let mut deaths_before = lab.world.deaths_by_cause;
     let mut colony_deaths: Vec<(u64, String)> = Vec::new();
     let mut known: BTreeSet<OrganismId> = BTreeSet::new();
+    // play=1: 0 out to the heap, 1 eating, 2 home and down, 3 laying.
+    let mut play_state = 0u8;
+    let mut play_since = 0u64;
+    let mut last_crop = 0.0f32;
+    let mut trips = 0u32;
 
     for f in 0..frames {
         let before = lab.world.deaths_by_cause;
@@ -204,7 +214,7 @@ fn main() {
                 .collect();
             ids.sort();
             if let Some(&id) = ids.first() {
-                let input = (mode == "trail").then(SteerInput::default);
+                let input = (mode == "trail" || play).then(SteerInput::default);
                 assert!(steer::mark(&mut lab.world, id, input));
                 let granted = steer::grant(&mut lab.world, reserve);
                 let colony = lab.world.organism(id).map_or(0, |s| s.colony);
@@ -362,6 +372,132 @@ fn main() {
                 }
             }
             _ => {
+                // **`play=1`: a scripted player in her body** -- the crudest
+                // forager a person at the keyboard could be: walk to the
+                // heap, hold E beside it until the crop stops filling, walk
+                // home and down the shaft, hold L there until the crop is
+                // spent, and go again. A floor on what a player can do, not a
+                // model of one.
+                if play && alive {
+                    let st = lab.world.organism(qid).expect("alive");
+                    let (hx, hy) = *st.chain.first().expect("a head");
+                    let crop = st.crop.map_or(0.0, |c| c.worth());
+                    let door_x = lab.world.nest_sites.first().map_or(colony_x, |n| n.x);
+                    // Stuck is not having got two cells from where she
+                    // was: a body rocking between two cells is stuck too.
+                    if (hx - last_head.0).abs().max((hy - last_head.1).abs()) < 2 {
+                        stuck += 1;
+                    } else {
+                        stuck = 0;
+                        last_head = (hx, hy);
+                    }
+                    let up = |below: bool| -> i8 {
+                        if below || stuck > 60 {
+                            -1
+                        } else {
+                            0
+                        }
+                    };
+                    let mut input = SteerInput::default();
+                    match play_state {
+                        0 => {
+                            if (hx - food_x).abs() <= FOOD_REACH && hy <= ground_y + 4 {
+                                play_state = 1;
+                                play_since = frame;
+                            } else if hy > ground_y && (hx - door_x).abs() > 1 {
+                                // Underground: the way out is the shaft.
+                                input.dir = Some(((door_x - hx).signum() as i8, up(false)));
+                            } else if hy > ground_y {
+                                input.dir = Some((0, -1));
+                            } else {
+                                input.dir = Some(((food_x - hx).signum() as i8, up(hy > ground_y - 1)));
+                            }
+                        }
+                        1 => {
+                            input.eat = true;
+                            // Eat at the edge, never walk into the middle: the
+                            // income lands on the heap's centre and buries an
+                            // ant standing there (the jaw takes no food).
+                            let provisions = lab.world.materials.id_of("provisions");
+                            let beside_food = (-1..=1).any(|ox| (-1..=1).any(|oy| Some(lab.world.get(hx + ox, hy + oy).material) == provisions));
+                            if !beside_food {
+                                input.dir = Some(((food_x - hx).signum() as i8, up(false)));
+                            }
+                            if crop > last_crop + 1e-3 {
+                                play_since = frame;
+                            }
+                            if (crop > 0.0 && frame - play_since > 240) || frame - play_since > 3000 {
+                                play_state = 2;
+                                trips += 1;
+                            }
+                        }
+                        2 if crop <= 0.0 => play_state = 0,
+                        2 => {
+                            if (hx - door_x).abs() <= 1 {
+                                input.dir = Some((0, 1));
+                                if stuck > 30 {
+                                    play_state = 3;
+                                    play_since = frame;
+                                }
+                            } else {
+                                input.dir = Some(((door_x - hx).signum() as i8, up(hy > ground_y - 1)));
+                            }
+                        }
+                        _ => {
+                            input.lay = true;
+                            if crop <= 0.0 && frame - play_since > 300 {
+                                play_state = 0;
+                            }
+                        }
+                    }
+                    // **Stuck, she tries the ways round it** -- 45 and 90
+                    // degrees off the way she wants, one after another -- as
+                    // a person at the keys would wiggle her free.
+                    if let (true, Some((dx, dy))) = (matches!(play_state, 0 | 2) && stuck > 60, input.dir) {
+                        let dirs = &pixel_physics::sim::creature::DIRS;
+                        if let Some(i) = dirs.iter().position(|&d| d == (i32::from(dx), i32::from(dy))) {
+                            let off = [0i32, 1, -1, 2, -2][((stuck / 60) % 5) as usize];
+                            let (rx, ry) = dirs[(i as i32 + off).rem_euclid(8) as usize];
+                            input.dir = Some((rx as i8, ry as i8));
+                        }
+                    }
+                    // **Stuck walking, she digs the way she is steered**: a
+                    // founder starts sealed in her chamber, and a steered ant
+                    // with no way that way turns to face it, so G cuts it.
+                    if matches!(play_state, 0 | 2) && stuck > 30 {
+                        input.dig = true;
+                    }
+                    // ...and puts down the pellet the cut leaves in her jaws
+                    // (sealed in, G packs it behind her instead).
+                    let holding = lab.world.organism(qid).is_some_and(|s| s.spoil.is_some());
+                    if holding {
+                        input.drop = true;
+                    }
+                    last_crop = crop;
+                    if std::env::var("QP_DEBUG").is_ok() && frame.is_multiple_of(500) {
+                        println!("  play frame {frame}: state {play_state} head ({hx},{hy}) crop {crop:.0} stuck {stuck} input {input:?}");
+                        let st = lab.world.organism(qid).expect("alive");
+                        let around: Vec<String> = (-1..=1)
+                            .map(|oy| {
+                                (-1..=1)
+                                    .map(|ox| {
+                                        lab.world
+                                            .materials
+                                            .get(lab.world.get(hx + ox, hy + oy).material)
+                                            .name
+                                            .clone()
+                                    })
+                                    .collect::<Vec<_>>()
+                                    .join(",")
+                            })
+                            .collect();
+                        let cs = &lab.world.creature_stats;
+                        println!("    heading {} chain {:?} around [{}] held_for_nest {} declined {} pickups {} crop_cells {:?} spoil {:?}", st.heading, st.chain, around.join(" | "), cs.buds_held_for_nest, cs.lays_declined, cs.pickups, st.crop.map(|c| c.cells), st.spoil.map(|s| s.store));
+                    }
+                    if let Some(s) = lab.world.steered.as_mut() {
+                        s.input = Some(input);
+                    }
+                }
                 let (adults, eggs, larvae, pupae) = census(&lab.world, colony, ant);
                 let others = adults.saturating_sub(usize::from(alive));
                 peak = peak.max(others);
@@ -387,7 +523,8 @@ fn main() {
                     }
                     let st = &lab.world.creature_stats;
                     println!(
-                        "RESULT mode={mode} seed={seed} land={land} reserve={reserve} gap={gap} reached_{goal}={} peak_workers={peak} queen_died={} adults_end={adults} brood_end={} eggs_laid={} births={} colony_deaths={:?} end_frame={frame}{}",
+                        "RESULT mode={mode} play={} trips={trips} seed={seed} land={land} reserve={reserve} gap={gap} reached_{goal}={} peak_workers={peak} queen_died={} adults_end={adults} brood_end={} eggs_laid={} births={} colony_deaths={:?} end_frame={frame}{}",
+                        u8::from(play),
                         reached.map_or("never".to_string(), |r| (r - land).to_string()),
                         queen_died.as_ref().map_or("no".to_string(), |(fr, c)| format!("{}:{c}", fr - land)),
                         eggs + larvae + pupae,
