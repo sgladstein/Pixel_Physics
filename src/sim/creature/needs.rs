@@ -380,6 +380,20 @@ impl WalkParts {
         sealed_out: false,
         eat_held: false,
     };
+    /// **The new ant as it stands** (2026-10-11): `reach` (accepted as the
+    /// baseline, owner 2026-10-10) and the `walled_in` switch's two parts,
+    /// [`WalkParts::sealed_out`] and [`WalkParts::eat_held`], on. What a
+    /// harness hands the walk when it names no parts (`deeptrace`'s
+    /// `needsparts=`, `needscost`'s `walk` arm); `none` is slice 1 exactly.
+    /// [`NeedsWalk::new`] still starts from [`WalkParts::NONE`], so the
+    /// tests' scenes stay slice 1 unless they name a part. Measured in
+    /// `needs-ant/resume-2026-10-10/results-sealed-4seed-2026-10-11.md`.
+    pub const NEW_ANT: WalkParts = WalkParts {
+        reach: true,
+        sealed_out: true,
+        eat_held: true,
+        ..WalkParts::NONE
+    };
     const NAMES: [&'static str; 14] = [
         "only_diggers",
         "dig_job",
@@ -397,8 +411,9 @@ impl WalkParts {
         "eat_held",
     ];
 
-    /// `all`, `none`, or a comma list of the part names, as a harness names
-    /// them. Anything else is refused rather than read as a default, so a
+    /// `all`, `none`, `new_ant` ([`WalkParts::NEW_ANT`]), `walled_in` (its
+    /// switch's two parts, `sealed_out` and `eat_held`), or a comma list of
+    /// the part names, as a harness names them. Anything else is refused rather than read as a default, so a
     /// typo cannot run one arm under another's label.
     pub fn parse(raw: &str) -> WalkParts {
         let mut p = WalkParts::NONE;
@@ -406,6 +421,11 @@ impl WalkParts {
             match part {
                 "all" => p = WalkParts::ALL,
                 "none" => p = WalkParts::NONE,
+                "new_ant" => p = WalkParts::NEW_ANT,
+                "walled_in" => {
+                    p.sealed_out = true;
+                    p.eat_held = true;
+                }
                 "only_diggers" => p.only_diggers = true,
                 "dig_job" => p.dig_job = true,
                 "clear" => p.clear = true,
@@ -421,7 +441,7 @@ impl WalkParts {
                 "sealed_out" => p.sealed_out = true,
                 "eat_held" => p.eat_held = true,
                 other => panic!(
-                    "needsparts={raw:?}: {other:?} is not all, none or one of {}",
+                    "needsparts={raw:?}: {other:?} is not all, none, new_ant, walled_in or one of {}",
                     WalkParts::NAMES.join(", ")
                 ),
             }
@@ -1726,7 +1746,7 @@ fn hungry_act(
             // Still holding soil: walled in, it packs the pellet behind as it
             // cuts on; otherwise it found nowhere to put it down and waits.
             let walled = walled_in(world, organism, head);
-            if walled && pack_behind(world, organism, def, head, load, false) {
+            if walled && pack_behind(world, organism, def, head, load, false, None) {
                 world.needs.as_mut().expect("walking").counts.escape_packs += 1;
                 mind.cut = CUT_PACK;
                 return Some(Did {
@@ -1938,7 +1958,7 @@ fn sealed_escape(
             if let Some(s) = world.organism_mut(organism) {
                 s.heading = a;
             }
-            if pack_behind(world, organism, def, head, load, false) {
+            if pack_behind(world, organism, def, head, load, false, None) {
                 let c = &mut world.needs.as_mut().expect("walking").counts;
                 c.escape_packs += 1;
                 c.sealed_packs += 1;
@@ -4260,10 +4280,18 @@ mod tests {
         let p = WalkParts::parse("all,reach,eat_fade");
         assert!(p.reach && p.eat_fade && p.won_stall);
         assert_eq!(WalkParts::parse(&p.label()), p);
+        // The new ant: `reach` and the `walled_in` switch's two parts, and
+        // nothing of the fix round's.
+        assert_eq!(WalkParts::parse("new_ant"), WalkParts::NEW_ANT);
+        assert_eq!(WalkParts::parse("reach,walled_in"), WalkParts::NEW_ANT);
+        assert_eq!(WalkParts::NEW_ANT.label(), "reach,sealed_out,eat_held");
+        assert_eq!(WalkParts::parse(&WalkParts::NEW_ANT.label()), WalkParts::NEW_ANT);
+        let w = WalkParts::parse("walled_in");
+        assert!(w.sealed_out && w.eat_held && !w.reach);
     }
 
     #[test]
-    #[should_panic(expected = "is not all, none or one of")]
+    #[should_panic(expected = "is not all, none, new_ant, walled_in or one of")]
     fn walk_parts_refuse_an_unknown_name() {
         WalkParts::parse("pace,giveup");
     }

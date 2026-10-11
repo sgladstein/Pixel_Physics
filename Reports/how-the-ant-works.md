@@ -1631,6 +1631,8 @@ Read once per process from the environment. The default is what ships.
   `brain_state`, and the chooser's `home_best`, `home_best_for`,
   `home_patience`) and `Crop`.
 - `assets/species/ant.ron`: every weight and constant quoted here.
+- `creature/needs.rs`: the needs walk (§17), a harness-only second way to
+  decide.
 
 ## 14. Source comments that currently contradict the code
 
@@ -1818,3 +1820,49 @@ and `steer.rs`.
   make her a nurse again); and the `queen` breeding rule for her colony at both
   laying checks (`regime_of_colony`), the process regime for every other.
 - **A raised reserve** goes in through `steer::grant`, booked as `Granted`.
+
+## 17. The needs walk's walled-in switch (`creature::needs`; not the game's ant)
+
+**The needs walk is a second way for an ant to decide, and no game runs it
+yet**: it acts only while `World::needs` is set, which a harness does
+(`deeptrace needs=walk`, `needscost`), and every section above describes the
+ant without it. Its design and its parts are in `needs.rs`'s module doc. This
+section covers the one switch built to ship with it, because it changes what
+a walled-in ant does. Verified 2026-10-11 against `walk_act`, `hungry_act`,
+`walk_after`, `seal_flood`, `reachable_from_head`, `sealed_escape`,
+`pocket_drop_site`, `eat_from_jaws`, `creature::crop_take` and
+`WalkParts::NEW_ANT`.
+
+- **`walled_in`, two parts, both on in the new ant** (`WalkParts::NEW_ANT`
+  is `reach` plus these two; what `deeptrace` and `needscost` run when no
+  parts are named; `needsparts=none` is slice 1).
+- **`sealed_out`: sealed is asked of the air round the head, not of a
+  perfect shell.** An ant that has not left a 3-cell box round one spot
+  (`SEAL_ROAM`) for `ESCAPE_STALL` (30) decisions floods the open cells from
+  its head inside the 13x13 food-sense box (`seal_flood`, the flood
+  `reachable_from_head` makes for `reach`; empty cells and living animals
+  pass). No open cell on the box's rim is sealed. It floods again every 10th
+  still decision (`SEAL_EVERY`), and while sealed after each cut or roam.
+  "Still" is the box, not `moved`, because an ant flips end for end every
+  decision. A sealed ant gets out whatever its hunger or job
+  (`sealed_escape`): a doorway head stands as before; otherwise it takes the
+  cuttable heading nearest the way out (`escape_aim`); a soil pellet is
+  packed behind it (`pack_behind`) or set down in the pocket
+  (`pocket_drop_site`: never the cell just cut nor the three ahead, never the
+  door column, a doorway or a cell that closes a way); a store load is set
+  down the same way; empty jaws cut. A pocket wider than the box reads open.
+- **`eat_held`: a hungry sealed ant with nowhere to set its store load down
+  eats it from its jaws** (`eat_from_jaws`, in `hungry_act` after the
+  put-down fails): the load goes into the crop by the same rule as a swallow
+  (`crop_take`), and is refused if the crop holds another food.
+- **Counted** in `walk_counts.csv` (`seal_floods`, `sealed_found`,
+  `sealed_freed`, `sealed_cuts`, `sealed_packs`, `sealed_drops`,
+  `sealed_load_down`, `seal_recut`, `ate_held_jaws`, `eat_held_refused`,
+  `laden_soil`), and each event in `deeptrace`'s `sealed.csv`.
+- **Measured 2026-10-11** (`needs-ant/resume-2026-10-10/results-sealed-4seed-2026-10-11.md`):
+  12 steady seeds, walled-in starvers 31 against 206-278 per baseline arm;
+  heap 30 seeds 1-4, 40 against 121; frame cost 0.25%; ants holding soil with
+  food in the crop +6%.
+- **The player's ant is never walked**: all four of the walk's hooks in
+  `creature_tick` (`needs::act`, `kinesis`, `step`, `after`) stand aside
+  while she is steered (§16).

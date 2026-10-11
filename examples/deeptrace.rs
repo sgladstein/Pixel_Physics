@@ -144,11 +144,13 @@
 //! beside `colony.csv` at the same frames; **`walk_counts.csv`**, the walk's
 //! running totals at those frames; and with `walktrace=N`, **`walk.csv.gz`**,
 //! every decision of about one ant in `N`, picked by a hash of its id (with
-//! `only=`, of exactly those ants). `needsparts=` turns on the fix round's
-//! parts (`creature::needs::WalkParts`: `all`, `none` -- the default, which
-//! is slice 1 -- or a comma list; `all` is the fix round's eight, and the
-//! parts added since, `reach`, `eat_fade`, `hunger_holds`, `placebo`, `sealed_out` and `eat_held`,
-//! are named one by one (under `reach`, **`hidden.csv`** logs each decision it
+//! `only=`, of exactly those ants). `needsparts=` picks the walk's parts
+//! (`creature::needs::WalkParts`: `new_ant` -- the default since 2026-10-11,
+//! `reach` with the `walled_in` switch's `sealed_out` and `eat_held` --,
+//! `none`, which is slice 1 and was the default before, `all`, or a comma
+//! list; `all` is the fix round's eight, and the parts added since, `reach`,
+//! `eat_fade`, `hunger_holds`, `placebo`, `sealed_out` and `eat_held`, are
+//! named one by one, `walled_in` naming the last two together (under `reach`, **`hidden.csv`** logs each decision it
 //! hid the food, and whether the wider air check found some joined; under
 //! `sealed_out`, **`sealed.csv`** logs each sealed event's start and end);
 //! their counters are the last columns of
@@ -552,10 +554,12 @@ fn main() {
     // none unless `only=` names some. Not by the id's remainder: one ant in
     // four by id is the nest-worker caste.
     let walk_trace: u32 = arg("walktrace").unwrap_or(0);
-    // `needsparts=`: the fix round's parts under `needs=walk` (none, slice 1,
-    // by default). A name it does not know panics rather than running an arm
+    // `needsparts=`: the walk's parts under `needs=walk`. Unnamed, the new
+    // ant as it stands (`WalkParts::NEW_ANT`: `reach` and the `walled_in`
+    // switch, since 2026-10-11); `none` is slice 1 exactly, as the default
+    // was before. A name it does not know panics rather than running an arm
     // under another's label.
-    let needs_parts = arg::<String>("needsparts").map_or(creature::needs::WalkParts::NONE, |p| {
+    let needs_parts = arg::<String>("needsparts").map_or(creature::needs::WalkParts::NEW_ANT, |p| {
         creature::needs::WalkParts::parse(&p)
     });
     // `foodlog=1` (not `food=`, which is the heap's size): every food cell

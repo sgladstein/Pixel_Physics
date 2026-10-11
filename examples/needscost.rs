@@ -47,7 +47,7 @@
 //!
 //! **Walk parts** (2026-10-11): an arm `walk/reach+sealed_out` hands the walk
 //! with `WalkParts` `reach,sealed_out` (`+` stands for the comma, which splits
-//! arms). `handat=` hands the walk over before the window (default `at`, the
+//! arms); a bare `walk` is `WalkParts::NEW_ANT`, and `walk/none` slice 1. `handat=` hands the walk over before the window (default `at`, the
 //! old behaviour: the window's first frame), so a part that only acts after an
 //! ant has been still for a while is grown into before it is timed. With
 //! `handat` < `at` the arms are different worlds by the window; read the part's
@@ -179,7 +179,7 @@ impl Arm {
             other => Some(creature::needs::NeedsMode::parse(other)),
         };
         let parts = if parts.is_empty() {
-            creature::needs::WalkParts::NONE
+            creature::needs::WalkParts::NEW_ANT
         } else {
             creature::needs::WalkParts::parse(&parts.replace('+', ","))
         };
