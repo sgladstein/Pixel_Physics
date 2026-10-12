@@ -216,6 +216,10 @@ const RNG_SLOT_SPOIL_RING: u64 = 10;
 /// a digger cuts. A slot of its own so the switch moves no other draw.
 const RNG_SLOT_DIG_WIDEN: u64 = 11;
 
+/// [`ShaftRooms`]'s random control: which cells it refuses, keyed on the
+/// cell (`x`, `y` in the stream's two keys), so a refused cell stays refused.
+const RNG_SLOT_SHAFT_ROOMS: u64 = 12;
+
 /// **The cap `grow_body` walks a `Segmented` body's `FateGenome` to.** With
 /// laterals that is at most 16 cells; both shipped bodies land at 7-8, well
 /// under it, and the cap exists only to bound a mutated genome that never
@@ -645,8 +649,10 @@ pub enum DigWhy {
     /// walking back to its face with the cell too far from it
     /// ([`FaceTrip`]'s `only`).
     Face = 7,
+    /// The roll won and [`ShaftRooms`] refused the cut.
+    ShaftRoom = 8,
 }
-pub const DIG_WHYS: usize = 8;
+pub const DIG_WHYS: usize = 9;
 pub const DIG_WHY_NAMES: [&str; DIG_WHYS] = [
     "not_asked",
     "lean",
@@ -656,6 +662,7 @@ pub const DIG_WHY_NAMES: [&str; DIG_WHYS] = [
     "no_ground",
     "cut",
     "face",
+    "shaft_room",
 ];
 /// `DecisionScratch::dig_flags`: what turned or moved the target before it
 /// was judged.
@@ -17616,6 +17623,193 @@ fn under_roof(world: &World, (x, y): (i32, i32), rows: i32) -> bool {
     (0..rows).contains(&below) && (x - site.x).abs() > door
 }
 
+/// **`PIXEL_PHYSICS_SHAFT_ROOMS`: flat rooms off a shaft** (late tunnels,
+/// 2026-10-12, off). A ground cut that would make a room taller than `rows`,
+/// or bring two rooms within `gap` rows of each other, is refused; a cut
+/// that leaves only a shaft or tunnel one or two cells wide is never refused,
+/// so the nest still goes down, and a shaft widened deep enough under a room
+/// starts a second one ([`shaft_room_refuses`]).
+///
+/// **Why.** The lab nest is one room, and four room rules have failed to
+/// change that (`/mnt/project-files/late-tunnels/README.md`): what makes it
+/// one room is an at-home dig urge of about 0.78 at every wall inside the
+/// 60-row home, so the room widens and sinks its floor as one void (88-90%
+/// of its cuts go down). The dig mark's "second rooms" were that one room
+/// split by soil pillars. Real nests are flat chambers off a descending
+/// shaft, chamber height about 1 cm and constant as area grows (according to
+/// PubMed: Tschinkel 2004, doi 10.1093/jis/4.1.21; Cerquera & Tschinkel
+/// 2010, doi 10.1673/031.010.6401; Tschinkel 2005, doi 10.1093/jis/5.1.9).
+/// This is a hard veto on what the jaw may take, a labelled stand-in for an
+/// ant's reluctance to raise a ceiling, not a sense it reads.
+///
+/// **Prior art.** `FLAT_ROOM=<rows>` (`516a223c`) measured the cap from the
+/// floor under the digger's head, so a sinking floor passed it, and its
+/// floor test (7 of 9 open round the head) cannot fire on a flat floor (both
+/// measured in the review, `/mnt/project-files/late-tunnels/shaft/`). Lane
+/// 3's stricter cap (no column of room over 4, no shaft exemption) gave
+/// "flatter, but brood goes into narrow pits".
+///
+/// Parts: `on` (`rows=4,gap=6,space=8`), or a comma list of `rows=`, `gap=`,
+/// `space=` (how far along its row a shaft or pit cell must be from other
+/// open ground), and `random=<per mille>`, the control: no geometry, a fixed
+/// share of the cells in the same region refused for good (a hash of the
+/// cell), with the same turn and waivers. Unknown values panic.
+///
+/// **A ramp is allowed, and is a shaft.** A band stepping down a row a
+/// column never holds an open block three wide and five tall, so it passes;
+/// its width across the slope is under three cells, an inclined shaft, which
+/// the biology has (P. badius shafts descend at 15-70 degrees). A band
+/// thicker than that is refused as tall. The second review's ramp case is
+/// in the test, read this way.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ShaftRooms {
+    pub rows: i32,
+    pub gap: i32,
+    pub space: i32,
+    /// 0: the geometric rule. Otherwise the random control, refusing this
+    /// many cells in a thousand.
+    pub random: u32,
+}
+
+pub const SHAFT_ROOMS_ON: ShaftRooms = ShaftRooms { rows: 4, gap: 6, space: 8, random: 0 };
+
+pub fn shaft_rooms_of() -> Option<ShaftRooms> {
+    static V: std::sync::OnceLock<Option<ShaftRooms>> = std::sync::OnceLock::new();
+    *V.get_or_init(|| parse_shaft_rooms(&std::env::var("PIXEL_PHYSICS_SHAFT_ROOMS").unwrap_or_default()))
+}
+
+fn parse_shaft_rooms(raw: &str) -> Option<ShaftRooms> {
+    let raw = raw.trim();
+    if raw.is_empty() || raw == "off" {
+        return None;
+    }
+    let bad = || -> ! { panic!("PIXEL_PHYSICS_SHAFT_ROOMS={raw:?}: use off, on, or a list of rows=N, gap=N, space=N, random=N") };
+    let mut v = SHAFT_ROOMS_ON;
+    for part in raw.split(',').map(str::trim) {
+        match part.split_once('=') {
+            None if part == "on" => {}
+            Some(("rows", n)) => v.rows = n.parse().ok().filter(|n: &i32| *n >= 1).unwrap_or_else(|| bad()),
+            Some(("gap", n)) => v.gap = n.parse().ok().filter(|n: &i32| *n >= 0).unwrap_or_else(|| bad()),
+            Some(("space", n)) => v.space = n.parse().ok().filter(|n: &i32| *n >= 1).unwrap_or_else(|| bad()),
+            Some(("random", n)) => v.random = n.parse().ok().filter(|n: &u32| *n <= 1000).unwrap_or_else(|| bad()),
+            _ => bad(),
+        }
+    }
+    Some(v)
+}
+
+/// Why [`shaft_room_refuses`] refused a cut.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ShaftWhy {
+    /// An open block three wide and more than `rows` tall would stand
+    /// through the cut.
+    Tall,
+    /// Another room would lie within `gap` rows above or below.
+    Gap,
+    /// A shaft or pit cell would stand within `space` of other open ground
+    /// in its row (a comb of pits in a floor).
+    Space,
+    /// The random control.
+    Random,
+}
+
+/// **Open, to [`shaft_room_refuses`]**: anything a cut cannot take and that
+/// is not structure -- air, water, animals, brood, food and crumbs. Stone and
+/// bedrock are ground (the second review: read as open they would make a
+/// bedrock row a room). Out of bounds is ground.
+fn shaft_open(world: &World, x: i32, y: i32) -> bool {
+    if !world.in_bounds(x, y) {
+        return false;
+    }
+    let c = world.get(x, y);
+    c.material == material::EMPTY
+        || matches!(world.materials.kind(c.material), MaterialKind::Creature | MaterialKind::Liquid | MaterialKind::Gas)
+        || c.organism_id() != 0
+        || food_value(world, c) > 0.0
+}
+
+/// The nest site whose ground [`ShaftRooms`] judges a cut at `t` by: the
+/// nearest by column, when `t` is below its founding surface and within
+/// [`DUG_HOME_REACH`]'s columns of it.
+fn shaft_region(world: &World, (tx, ty): (i32, i32)) -> Option<&super::world::NestSite> {
+    let site = world.nest_sites.iter().min_by_key(|s| (s.x - tx).abs())?;
+    (ty > site.surface && (tx - site.x).abs() <= DUG_HOME_REACH.0).then_some(site)
+}
+
+/// **Whether a cut at `t` is refused by [`ShaftRooms`]**, and why; `None`
+/// with the switch off or outside the region ([`shaft_region`]).
+///
+/// After the cut, in `t`'s row:
+/// - a run of one or two (a shaft, a pit, a tunnel end) is refused only with
+///   other open ground within `space` cells along the row (`Space`): pits in
+///   a floor cannot stand as a comb, which the toy model of rev 2 dug;
+/// - a run of three or more is refused when an open block three wide and
+///   more than `rows` tall stands through `t` (`Tall`: a raised ceiling or a
+///   sunk floor), or when a cell it makes a room cell (a run of three or
+///   more) has another room within `gap` rows above or below its own
+///   (`Gap`), so two rooms stay apart.
+///
+/// Open is [`shaft_open`]. Every scan is capped (a row at `space`, a column
+/// at `rows + 2`), about 100 reads at most.
+pub fn shaft_room_refuses(world: &World, t: (i32, i32)) -> Option<ShaftWhy> {
+    shaft_room_refuses_with(world, t, shaft_rooms_of()?)
+}
+
+/// [`shaft_room_refuses`] past its switch, for the test that cannot set it.
+fn shaft_room_refuses_with(world: &World, (tx, ty): (i32, i32), rule: ShaftRooms) -> Option<ShaftWhy> {
+    let site = shaft_region(world, (tx, ty))?;
+    if rule.random > 0 {
+        let draw = rng::stream(world.seed, tx as u64, ty as u64, RNG_SLOT_SHAFT_ROOMS).unit_f32();
+        return (draw * 1000.0 < rule.random as f32).then_some(ShaftWhy::Random);
+    }
+    let surface = site.surface;
+    let open = |x: i32, y: i32| (x, y) == (tx, ty) || (y > surface && shaft_open(world, x, y));
+    // Open cells of the run through (x, y) one way, capped at `cap`.
+    let side = |x: i32, y: i32, dx: i32, cap: i32| (1..=cap).take_while(|k| open(x + dx * k, y)).count() as i32;
+    let room = |x: i32, y: i32| open(x, y) && side(x, y, -1, 2) + side(x, y, 1, 2) + 1 >= 3;
+    let (l, r) = (side(tx, ty, -1, 3), side(tx, ty, 1, 3));
+    if l + r + 1 < 3 {
+        // A shaft or tunnel cell: refused only beside other open ground in
+        // its row (`space`), so pits in a floor cannot stand in a comb.
+        let (a, b) = (tx - l, tx + r);
+        let far = |x0: i32, dx: i32| (2..=rule.space).any(|k| open(x0 + dx * k, ty));
+        return (far(a, -1) || far(b, 1)).then_some(ShaftWhy::Space);
+    }
+    // Tall: an open block three wide and `rows + 1` tall through `t`. A
+    // shaft (two wide) never makes one; a ceiling raised or a floor sunk
+    // across three columns does. Per column, the open run above and below
+    // `t`'s row, capped at `rows + 1`.
+    let lim = rule.rows + 1;
+    let run = |x: i32, dy: i32| (1..=lim).take_while(|k| open(x, ty + dy * k)).count() as i32;
+    let cols: Vec<Option<(i32, i32)>> = (tx - 2..=tx + 2).map(|x| open(x, ty).then(|| (run(x, -1), run(x, 1)))).collect();
+    for w in cols.windows(3) {
+        if let [Some(a), Some(b), Some(c)] = w {
+            if a.0.min(b.0).min(c.0) + a.1.min(b.1).min(c.1) + 1 > rule.rows {
+                return Some(ShaftWhy::Tall);
+            }
+        }
+    }
+    // Gap: every cell this cut makes a room cell (`t`, and a side that was a
+    // run of one or two) keeps `gap` rows of non-room between its room and
+    // any other room above or below it.
+    let mut new = vec![tx];
+    if l < 3 {
+        new.extend((1..=l).map(|k| tx - k));
+    }
+    if r < 3 {
+        new.extend((1..=r).map(|k| tx + k));
+    }
+    let reach = rule.rows + 2;
+    for x in new {
+        let top = ty - (1..=reach).take_while(|k| room(x, ty - k)).count() as i32;
+        let bot = ty + (1..=reach).take_while(|k| room(x, ty + k)).count() as i32;
+        if (1..=rule.gap).any(|k| room(x, top - k) || room(x, bot + k)) {
+            return Some(ShaftWhy::Gap);
+        }
+    }
+    None
+}
+
 /// **`PIXEL_PHYSICS_MOUND_DIG`: the spoil mound is not a dig face**
 /// (2026-10-08, off; `Reports/mound-diggers-2026-10-08/README.md`, the
 /// owner's playtest request to trace the ants that dig holes in the mound).
@@ -18095,6 +18289,7 @@ fn dig_face_turn(world: &World, def: &CreatureDef, organism: OrganismId, (x, y):
             jaw_can_cut(world, def, organism, world.get(t.0, t.1))
                 && !roof.is_some_and(|rows| under_roof(world, t, rows))
                 && !cue.is_some_and(|cue| spoil_cue_factor(world, (x, y), t, radius, cue).is_some_and(|f| f < 1.0))
+                && shaft_room_refuses(world, t).is_none()
         })
 }
 
@@ -20920,7 +21115,11 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
         // nearest face** ([`dig_face_of`]): open air or a nestmate ahead, it
         // turns straight to the nearest cell round from its heading that its
         // jaw can take and keep underground, and cuts that. Off, no read.
-        if !steered && widen_to.is_none() && !jaw_can_cut(world, def, organism, world.get(tx, ty)) && dig_face_applies(world, organism, x, y) {
+        // [`ShaftRooms`]: a cut it would refuse is no face either, so the
+        // turn finds one it allows (the roof's lesson: a turn that does not
+        // know a veto spends its rolls on it). Off, no read.
+        let shaft_turn = !steered && widen_to.is_none() && shaft_rooms_of().is_some() && jaw_can_cut(world, def, organism, world.get(tx, ty)) && shaft_room_refuses(world, (tx, ty)).is_some();
+        if !steered && widen_to.is_none() && (shaft_turn || !jaw_can_cut(world, def, organism, world.get(tx, ty))) && dig_face_applies(world, organism, x, y) {
             if let Some(h) = dig_face_turn(world, def, organism, (x, y), heading) {
                 if let Some(state) = world.organism_mut(organism) {
                     state.heading = h;
@@ -21007,9 +21206,28 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
         let mound_refused = !cue_vetoed && !face_refused && !roof_refused && mound_dig().roof && mound_roof_refuses(world, (tx, ty)) && !escaping && !shut_in_mound(world, x, y);
         world.creature_stats.digs_refused_mound += u64::from(mound_refused);
         let roof_refused = roof_refused || mound_refused;
+        // **[`ShaftRooms`]**: a cut that would raise a room past its height
+        // or bring two rooms too close is refused; judged where every veto
+        // above let it through, and only on a cell the jaw can take, so the
+        // counters count real refusals. An ant shut in may cut its way out.
+        let shaft_why = if !steered && !cue_vetoed && !face_refused && !roof_refused && jaw_can_cut(world, def, organism, target) { shaft_room_refuses(world, (tx, ty)) } else { None };
+        let shaft_refused = shaft_why.is_some() && !escaping;
+        if let Some(why) = shaft_why {
+            let c = &mut world.creature_stats;
+            if escaping {
+                c.shaft_escaped += 1;
+            } else {
+                match why {
+                    ShaftWhy::Tall => c.shaft_tall += 1,
+                    ShaftWhy::Gap => c.shaft_gap += 1,
+                    ShaftWhy::Space => c.shaft_space += 1,
+                    ShaftWhy::Random => c.shaft_random += 1,
+                }
+            }
+        }
         // The pressed verb is the verb (`steer`): no colony refusal stands
         // between the player and the cell she faces; the jaw test still does.
-        let vetoed = !steered && (cue_vetoed || face_refused || roof_refused);
+        let vetoed = !steered && (cue_vetoed || face_refused || roof_refused || shaft_refused);
         // **What the jaw can take is [`jaw_can_cut`]**, one test shared with
         // the dig-down turn above so the two cannot drift apart; the argument
         // for each of its terms is there. A live seed is still counted here,
@@ -21028,11 +21246,16 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
                 DigWhy::Face
             } else if roof_refused {
                 DigWhy::Roof
+            } else if shaft_refused {
+                DigWhy::ShaftRoom
             } else {
                 DigWhy::Cut
             };
         }
         if !vetoed && jaw_can_cut(world, def, organism, target) {
+            if shaft_rooms_of().is_some() && shaft_region(world, (tx, ty)).is_some() {
+                world.creature_stats.shaft_cut += 1;
+            }
             // **The spoil is picked up, not destroyed.** This line read
             // `world.set(tx, ty, Cell::EMPTY)` with a comment calling
             // carrying it out "a stage-4+ refinement -- noted, not built",
@@ -33744,6 +33967,74 @@ mod tests {
         assert!(!mound_roof_refuses(&w, (cx + 5, top + 2)), "nor a cut under the surface");
         w.nest_door = Some(None);
         assert!(!mound_roof_refuses(&w, (cx + 5, top - 3)), "with no door there is no mound rule, as with the roof");
+    }
+
+    /// **[`ShaftRooms`] caps a room's height and spacing, never a shaft**:
+    /// a room widens sideways, a third cell over its ceiling is refused, a
+    /// pit goes down but not beside another, a shaft widened within `gap` of
+    /// the room above is refused and one widened below it is not, a band
+    /// stepping down a row a column passes as an inclined shaft, and the
+    /// random control refuses a fixed share of cells for good. The parse
+    /// refuses a typo.
+    #[test]
+    fn shaft_rooms_cap_a_room_and_leave_the_shaft_alone() {
+        assert_eq!(parse_shaft_rooms(""), None);
+        assert_eq!(parse_shaft_rooms("off"), None);
+        assert_eq!(parse_shaft_rooms("on"), Some(SHAFT_ROOMS_ON));
+        assert_eq!(parse_shaft_rooms("rows=5,gap=3,space=2"), Some(ShaftRooms { rows: 5, gap: 3, space: 2, random: 0 }));
+        for bad in ["yes", "rows=0", "gap=x", "space=0", "random=1001", "rows"] {
+            assert!(std::panic::catch_unwind(|| parse_shaft_rooms(bad)).is_err(), "{bad:?} must panic");
+        }
+        let rule = SHAFT_ROOMS_ON;
+        let mut w = founding_bed();
+        let open = |w: &mut World, x: i32, y: i32| w.set(x, y, Cell::EMPTY);
+        // A flat room, rows 50-53, columns 50-70.
+        for x in 50..=70 {
+            for y in 50..=53 {
+                open(&mut w, x, y);
+            }
+        }
+        let f = |w: &World, t| shaft_room_refuses_with(w, t, rule);
+        assert_eq!(f(&w, (71, 51)), None, "widening the room sideways at its own height is allowed");
+        assert_eq!(f(&w, (60, 49)), None, "one cell over the ceiling is a bump, not a room");
+        open(&mut w, 60, 49);
+        open(&mut w, 61, 49);
+        assert_eq!(f(&w, (62, 49)), Some(ShaftWhy::Tall), "a third makes a block five tall");
+        assert_eq!(f(&w, (60, 54)), None, "a pit in the floor is allowed");
+        open(&mut w, 60, 54);
+        assert_eq!(f(&w, (64, 54)), Some(ShaftWhy::Space), "a second pit four cells along is a comb");
+        assert_eq!(f(&w, (69, 54)), None, "nine along it is not");
+        for y in 55..=57 {
+            open(&mut w, 60, y);
+        }
+        open(&mut w, 59, 57);
+        assert_eq!(f(&w, (61, 57)), Some(ShaftWhy::Gap), "a shaft widened 3 rows under the room is too near it");
+        for y in 58..=60 {
+            open(&mut w, 60, y);
+        }
+        open(&mut w, 59, 60);
+        assert_eq!(f(&w, (61, 60)), None, "widened 6 rows under it, it starts a second room");
+        assert_eq!(f(&w, (60, 61)), None, "and the shaft keeps going down");
+        // The second review's ramp: a band four thick stepping down a row a
+        // column. No block three wide stands five tall in it: an inclined
+        // shaft, allowed.
+        let mut w = founding_bed();
+        for k in 0..=5 {
+            for d in 0..4 {
+                open(&mut w, 30 + k, 60 + k + d);
+            }
+        }
+        for y in 67..=69 {
+            open(&mut w, 36, y);
+        }
+        assert_eq!(f(&w, (36, 66)), None, "a ramp is an inclined shaft");
+        let random = ShaftRooms { random: 500, ..rule };
+        let refused: Vec<bool> = (0..200).map(|i| shaft_room_refuses_with(&w, (20 + i % 40, 75 + i / 40), random).is_some()).collect();
+        let n = refused.iter().filter(|&&r| r).count();
+        assert!((60..=140).contains(&n), "the random control refuses about half: {n} of 200");
+        let again: Vec<bool> = (0..200).map(|i| shaft_room_refuses_with(&w, (20 + i % 40, 75 + i / 40), random).is_some()).collect();
+        assert_eq!(refused, again, "and the same cells every time");
+        assert_eq!(f(&w, (60, 20)), None, "nothing above the founding surface");
     }
 
     /// **The roof and the collar each touch only what they are for**

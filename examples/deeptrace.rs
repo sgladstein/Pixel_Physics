@@ -1629,6 +1629,15 @@ fn main() {
                     st.brood_room_carried
                 );
             }
+            // `PIXEL_PHYSICS_SHAFT_ROOMS` (late tunnels, 2026-10-12): cuts made
+            // in its region and cuts refused, by reason. Only with it on.
+            if pixel_physics::sim::creature::shaft_rooms_of().is_some() {
+                let st = &lab.world.creature_stats;
+                println!(
+                    "  shaft_rooms: cut={} tall={} gap={} space={} random={} escaped={} digs={}",
+                    st.shaft_cut, st.shaft_tall, st.shaft_gap, st.shaft_space, st.shaft_random, st.shaft_escaped, st.digs
+                );
+            }
             // `PIXEL_PHYSICS_LAY_SIDE` (idea 6): did the walk fire, where did
             // the eggs go, and how long did a held layer wait. Only with it on.
             if pixel_physics::sim::brood::lay_side().is_some() {
