@@ -1622,20 +1622,28 @@ fn creature_wake_mode() -> WakeSkip {
     use std::sync::OnceLock;
     static ON: OnceLock<WakeSkip> = OnceLock::new();
     *ON.get_or_init(|| match std::env::var("FIELD_CREATURE_WAKE").as_deref() {
-        Ok("blocked") => WakeSkip::MarkOnly,
+        Ok("off") => WakeSkip::Off,
         Ok("0") => WakeSkip::Sound,
         Ok("kind") => WakeSkip::KindOnly,
-        _ => WakeSkip::Off,
+        // Unset, `blocked` or anything else: the write-seam gate, shipped on
+        // 2026-10-12 (switch audit, `/mnt/project-files/switch-audit/`). It
+        // was built 2026-09-19, measured bit-identical, and then left off
+        // for no measured reason. Re-checked on main e6f11eea before the
+        // flip: `antcost ants=200 ... antglow=2` field and world hashes equal
+        // to `off`'s, `kind` diverging (the control still sees); `deeptrace`
+        // steady seeds 1-2 to 60k byte-identical. `off` is the engine before.
+        _ => WakeSkip::MarkOnly,
     })
 }
 
 /// The three settings of [`creature_wake_mode`].
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) enum WakeSkip {
-    /// The shipped engine. Every write is field-relevant and nothing below
-    /// changes.
+    /// **`off`: the engine before 2026-10-12.** Every write is
+    /// field-relevant and nothing below changes.
     Off,
-    /// **`blocked`: the write-seam gate alone.** An inert write stops marking
+    /// **The shipped setting (unset or `blocked`) since 2026-10-12: the
+    /// write-seam gate alone.** An inert write stops marking
     /// `Chunk::stale_blocks`, so `rebuild_blocked` inherits that block instead
     /// of re-reading its 256 CA cells -- but the tile is still woken and all
     /// six channel passes still run over it, exactly as on `main`.
