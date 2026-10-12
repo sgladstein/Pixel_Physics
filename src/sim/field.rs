@@ -1575,8 +1575,10 @@ fn momentum_skip_needs_quiet_ca() -> bool {
 }
 
 /// **Whether a chunk kept awake only by creatures walking through it stops
-/// waking its field tile.** `FIELD_CREATURE_WAKE=0` turns it on; **default
-/// off**, so nothing about the shipped engine changes until the owner asks.
+/// waking its field tile.** `FIELD_CREATURE_WAKE=0` turns it on; **off
+/// unless set**, because it changes the wind (see [`WakeSkip::Sound`]). The
+/// write-seam half alone ([`WakeSkip::MarkOnly`]) is what ships by default
+/// since 2026-10-12; `FIELD_CREATURE_WAKE=off` is the engine before it.
 ///
 /// *Why there is anything to skip.* An ant's step is a cell write, a cell
 /// write marks its chunk dirty (`World::set` -> `Chunk::mark_dirty`), and the
@@ -1615,7 +1617,9 @@ fn momentum_skip_needs_quiet_ca() -> bool {
 /// must leave it bit-identical under a walking colony -- and
 /// `FIELD_CREATURE_WAKE=kind antglow=<v>`, the deliberately unsound variant
 /// keyed on `MaterialKind::Creature` alone against a colony whose material
-/// glows, must make it **diverge**. Without that second arm a matching hash is
+/// glows, must make it **diverge**. Both are read against
+/// `FIELD_CREATURE_WAKE=off`, the untouched engine since the write gate
+/// shipped on (2026-10-12). Without that second arm a matching hash is
 /// evidence about the hash and not about the skip. The numbers are in
 /// `Reports/ant-field-wake-2026-09-19.md` §2.
 fn creature_wake_mode() -> WakeSkip {
@@ -1625,7 +1629,10 @@ fn creature_wake_mode() -> WakeSkip {
         Ok("off") => WakeSkip::Off,
         Ok("0") => WakeSkip::Sound,
         Ok("kind") => WakeSkip::KindOnly,
-        // Unset, `blocked` or anything else: the write-seam gate, shipped on
+        Ok(other) if !other.is_empty() && other != "blocked" => {
+            panic!("FIELD_CREATURE_WAKE={other:?}: use blocked (the default), off, 0 or kind")
+        }
+        // Unset or `blocked`: the write-seam gate, shipped on
         // 2026-10-12 (switch audit, `/mnt/project-files/switch-audit/`). It
         // was built 2026-09-19, measured bit-identical, and then left off
         // for no measured reason. Re-checked on main e6f11eea before the
@@ -1654,6 +1661,14 @@ pub(crate) enum WakeSkip {
     /// `blocked` 0.20-0.38 ms of a 0.29-0.47 ms field), and an ant
     /// contributes nothing to any of the five arrays it derives, so not
     /// re-deriving them cannot change a value. Measured, it does not.
+    ///
+    /// **One latent hole, inferred and not reachable today.** `field_inert`
+    /// is recomputed from the live material, so if a creature's or `Empty`'s
+    /// `glow`, `beam` or `water_capacity` were tuned *down to zero* at
+    /// runtime, blocks derived while it was non-zero would keep the old
+    /// value until something else marked them. No shipped knob or dial
+    /// tunes those fields on those materials (2026-10-12); a tuning path
+    /// that does would need to mark every block stale when it fires.
     MarkOnly,
     /// **`0`: the write-seam gate and the solve-set gate.** As `MarkOnly`,
     /// and additionally a chunk with no stale block does not wake its field
@@ -1685,7 +1700,9 @@ pub(crate) enum WakeSkip {
     /// predicate with the solve-set gate as well would make any divergence
     /// unattributable. `antcost antglow=<v>` supplies the glowing creature it
     /// needs, and the pair to run is `blocked antglow=2` (must match the
-    /// baseline) against `kind antglow=2` (must not).
+    /// baseline, which is `FIELD_CREATURE_WAKE=off antglow=2` since `blocked`
+    /// became the default on 2026-10-12 -- against unset it would match by
+    /// construction) against `kind antglow=2` (must not).
     KindOnly,
 }
 
