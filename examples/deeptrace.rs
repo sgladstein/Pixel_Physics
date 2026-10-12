@@ -152,12 +152,14 @@
 //! every decision of about one ant in `N`, picked by a hash of its id (with
 //! `only=`, of exactly those ants). `needsparts=` picks the walk's parts
 //! (`creature::needs::WalkParts`: `new_ant` -- the default since 2026-10-11,
-//! `reach` with the `walled_in` switch's `sealed_out` and `eat_held` --,
+//! `reach` with the `walled_in` switch's `sealed_out` and `eat_held`, and
+//! `parted_carry` since 2026-10-12 (`reach,walled_in` is the new ant before
+//! it) --,
 //! `none`, which is slice 1 and was the default before, `all`, or a comma
 //! list; `all` is the fix round's eight, and the parts added since, `reach`,
 //! `eat_fade`, `hunger_holds`, `placebo`, `sealed_out`, `eat_held`,
-//! `parted_lose` and `parted_carry` (one of the last two at most), are
-//! named one by one, `walled_in` naming the last two together (under `reach`, **`hidden.csv`** logs each decision it
+//! `parted_lose` and `parted_carry` (naming one clears the other), are
+//! named one by one, `walled_in` naming `sealed_out` and `eat_held` together (under `reach`, **`hidden.csv`** logs each decision it
 //! hid the food, and whether the wider air check found some joined; under
 //! `sealed_out`, **`sealed.csv`** logs each sealed event's start and end);
 //! their counters are the last columns of
