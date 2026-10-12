@@ -5417,7 +5417,8 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   kind** and answer zero only because no creature material sets either — so the
   predicate is keyed on the emission, and a glowing creature drops out of the
   skip instead of silently breaking it. Two settings on
-  `FIELD_CREATURE_WAKE`, both off: **`blocked`** (an inert write stops marking
+  `FIELD_CREATURE_WAKE`, both off when written (**`blocked` on by default since
+  2026-10-12**, the switch audit; `off` restores the engine before): **`blocked`** (an inert write stops marking
   `Chunk::stale_blocks`) is **bit-identical on both hashes**, under a two-sided
   control — `antglow=2` with the sound predicate stays green and with the
   kind-only predicate goes red, so the guard has been watched failing;

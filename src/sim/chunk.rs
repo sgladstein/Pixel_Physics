@@ -775,9 +775,11 @@ impl Chunk {
     /// `field_relevant` says whether the field has anything to re-derive
     /// from this write -- see [`Self::stale_blocks`] and
     /// `field::creature_wake_skip`. **`true` is the only value the engine
-    /// passes with that switch off**, which is what makes the switch
-    /// bit-identical when unset; `World::write_cell` and `ChunkView::set`
-    /// are the two callers that can pass `false`.
+    /// passes with `FIELD_CREATURE_WAKE=off`** (the engine before 2026-10-12,
+    /// when the write gate shipped on); by default an inert write -- an
+    /// ant's step -- passes `false`, which is bit-identical because the field
+    /// derives nothing from it. `World::write_cell` and `ChunkView::set` are
+    /// the two callers that can pass `false`.
     pub fn set_world(&mut self, x: i32, y: i32, cell: Cell, reach: i32, is_liquid: bool, field_relevant: bool) {
         self.cells[local_index(x, y)] = cell;
         self.mark_dirty_inner(x, y, field_relevant);
