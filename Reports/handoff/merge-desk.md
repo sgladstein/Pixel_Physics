@@ -72,7 +72,10 @@ here. Lanes may push branches and open draft PRs without asking.
 
 - **Features default on unless there is a real, measured trade-off.** Scottt said
   this on 2026-09-30 and again on 2026-10-01 19:10: "You can turn anything on by
-  default that you want."
+  default that you want." And on 2026-10-12: "If it fixes something and
+  doesn't [have] big downsides it should be on." A fix PR that lands its switch
+  **off** must say in its body what big measured downside keeps it off, with
+  numbers; without that, send it back to land on.
 - If a lane flags a real trade-off and Scottt has not approved it, the PR waits for
   him. PR 546's lab-box cost is one example. He approved it on a decision card.
 - **Ignore these old PRs**, from before the desk existed: 12, 140, 143, 217, 254,
