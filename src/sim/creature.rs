@@ -14240,7 +14240,9 @@ fn store_job_waits(world: &World, organism: OrganismId, def: &CreatureDef, (x, y
 const UP_DIR: u8 = 2;
 
 /// **`PIXEL_PHYSICS_PACK_PARTED`: what a pack does when the ant's tail
-/// stands on something it parted** (2026-10-11; off). `pack_behind` drops
+/// stands on something it parted** (2026-10-11; `carry` by default since
+/// 2026-10-12, the owner's rule that a fix without a big downside ships on).
+/// `pack_behind` drops
 /// the ant's pellet into the cell its tail leaves, and assumed that cell
 /// empty; when the tail stood on a crumb, brood or foliage the body had
 /// parted (`OrganismState::parted`), `relocate_chain` puts that back as the
@@ -14250,12 +14252,12 @@ const UP_DIR: u8 = 2;
 /// The player's G pack (`steer`) follows the same switch: losing soil is the
 /// bug, so she is not exempt.
 ///
-/// - `off` (or unset): the pack goes ahead and the pellet is lost.
+/// - `off`: the pack goes ahead and the pellet is lost.
 /// - `on`: the pack is refused there and the ant does something else, as
 ///   the needs walk already does; the pellet stays in its jaws. **Measured
 ///   harmful**: a refused ant retries every decision, and 44 ants starved
 ///   while still refused over those 12 seeds.
-/// - `carry`: the crumbs under the tail are moved, in place, to cells of
+/// - `carry` (or unset): the crumbs under the tail are moved, in place, to cells of
 ///   the body that stay covered, so the tail cell is empty and the pellet
 ///   goes in. Ownerless crumbs only, and all of them or none; brood and
 ///   foliage fall back to `off`. The needs walk's refusal wins: it never
@@ -14266,6 +14268,11 @@ const UP_DIR: u8 = 2;
 ///   pack seals it into the backfill. So `carry` moves food as well as
 ///   keeping soil. Crumbs are parted only with `PUSH_PAST`'s `crumbs`
 ///   (shipped on); without it `carry` never fires.
+///
+/// Measured on (12 steady seeds x 300k, two samples, against main and
+/// main nudged one frame): lost pellets 281/331 -> 41/83, no refusals,
+/// colony, nest and food lines inside the spread
+/// (`pack-parted/carry-results-2026-10-11.md`).
 ///
 /// Anything else (`ON`, `1`) is reported on stderr and read as off, as
 /// `DROP_SIDE` does. [`World::pack_parted`] overrides it for a test.
@@ -14281,9 +14288,9 @@ pub fn pack_parted_of(world: &World) -> PackParted {
     world.pack_parted.unwrap_or_else(|| {
         static V: std::sync::OnceLock<PackParted> = std::sync::OnceLock::new();
         *V.get_or_init(|| match std::env::var("PIXEL_PHYSICS_PACK_PARTED").unwrap_or_default().trim() {
-            "" | "off" => PackParted::Off,
+            "off" => PackParted::Off,
             "on" => PackParted::On,
-            "carry" => PackParted::Carry,
+            "" | "carry" => PackParted::Carry,
             other => {
                 eprintln!("PIXEL_PHYSICS_PACK_PARTED={other:?} is not on, off or carry; reading it as off");
                 PackParted::Off
@@ -14367,8 +14374,8 @@ fn pack_behind(world: &mut World, organism: OrganismId, def: &CreatureDef, head:
     // guard rows, an ant whose tail stood on crumbs. Today's ant hits it too
     // (steady seed 1 diverges by frame 40k with the refusal on for
     // everyone), so outside the walk it is its own switch,
-    // `PIXEL_PHYSICS_PACK_PARTED` ([`pack_parted_of`]), off: `on` starves
-    // refused ants, and `carry` is measured but not turned on.
+    // `PIXEL_PHYSICS_PACK_PARTED` ([`pack_parted_of`]), `carry` by default
+    // (2026-10-12): `on` starves refused ants.
     // The walk's mode, not any `World::needs`: pass-through must stay frame
     // for frame the game without the hooks (PR 684's re-check, R1). The
     // walk's refusal wins over `carry`, so the walk never carries -- unless
