@@ -117,8 +117,8 @@
 //!   its `pack_parted_refused`, and `pack_lost_other` (pellets lost to a
 //!   tail cell full for another reason: a rider set down, under the needs
 //!   walk); then `pack_parted_lost_brood` (the part of `pack_parted_lost`
-//!   onto brood or foliage) and `PACK_PARTED=carry`'s `pack_crumb_carried`
-//!   and `pack_crumb_no_room`.
+//!   onto brood or foliage) and `PACK_PARTED=carry`'s (or the walk's
+//!   `parted_carry`'s) `pack_crumb_carried` and `pack_crumb_no_room`.
 //! - with `foodlog=1`, **every food cell from the moment it moves** (see
 //!   `FoodLog`; added 2026-10-10 for where food goes once a carrier reaches
 //!   the door, and why the nest store stays near empty while larvae go
@@ -155,7 +155,8 @@
 //! `reach` with the `walled_in` switch's `sealed_out` and `eat_held` --,
 //! `none`, which is slice 1 and was the default before, `all`, or a comma
 //! list; `all` is the fix round's eight, and the parts added since, `reach`,
-//! `eat_fade`, `hunger_holds`, `placebo`, `sealed_out` and `eat_held`, are
+//! `eat_fade`, `hunger_holds`, `placebo`, `sealed_out`, `eat_held`,
+//! `parted_lose` and `parted_carry` (one of the last two at most), are
 //! named one by one, `walled_in` naming the last two together (under `reach`, **`hidden.csv`** logs each decision it
 //! hid the food, and whether the wider air check found some joined; under
 //! `sealed_out`, **`sealed.csv`** logs each sealed event's start and end);

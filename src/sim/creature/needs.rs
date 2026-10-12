@@ -369,7 +369,8 @@ pub struct WalkParts {
     /// lands; anything else at the cell, no free cell, or a body cell not
     /// its own or ridden, loses the pellet. Not with `parted_lose`, which it
     /// already falls back to: [`WalkParts::parse`] refuses both.
-    /// `PIXEL_PHYSICS_PACK_PARTED=on` refuses under either part.
+    /// It carries whatever `PIXEL_PHYSICS_PACK_PARTED` says, except `on`,
+    /// which refuses under either part.
     pub parted_carry: bool,
 }
 

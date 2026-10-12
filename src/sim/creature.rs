@@ -14214,7 +14214,10 @@ fn walled_in(world: &World, organism: OrganismId, head: (i32, i32)) -> bool {
 /// body half, and what [`crumb_carry_cells`]' free-cell test rests on: with
 /// it, `relocate_chain` rewrites every covered cell as this animal's, so a
 /// crumb moved to one is neither handed to a nestmate nor put on a cell
-/// another animal holds a record for. Reads only.
+/// another animal holds a record for. Without it, an ant riding in a
+/// nestmate's cell that already holds the nestmate's own crumb record would
+/// add a second record there, and when both stepped off the second
+/// give-back would overwrite the first: a crumb deleted. Reads only.
 fn body_all_own(world: &World, organism: OrganismId, chain: &[(i32, i32)]) -> bool {
     chain.iter().all(|&(x, y)| world.get(x, y).organism_id() == organism && world.riders_at(x, y).is_empty())
 }
@@ -14274,8 +14277,8 @@ const UP_DIR: u8 = 2;
 /// colony, nest and food lines inside the spread
 /// (`pack-parted/carry-results-2026-10-11.md`).
 ///
-/// Anything else (`ON`, `1`) is reported on stderr and read as off, as
-/// `DROP_SIDE` does. [`World::pack_parted`] overrides it for a test.
+/// Anything else (`Carry`, `1`) is reported on stderr and read as the
+/// default, `carry`, so a typo cannot quietly turn the fix off. [`World::pack_parted`] overrides it for a test.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PackParted {
     Off,
@@ -14292,8 +14295,8 @@ pub fn pack_parted_of(world: &World) -> PackParted {
             "on" => PackParted::On,
             "" | "carry" => PackParted::Carry,
             other => {
-                eprintln!("PIXEL_PHYSICS_PACK_PARTED={other:?} is not on, off or carry; reading it as off");
-                PackParted::Off
+                eprintln!("PIXEL_PHYSICS_PACK_PARTED={other:?} is not on, off or carry; reading it as carry, the default");
+                PackParted::Carry
             }
         })
     })
@@ -14389,7 +14392,9 @@ fn pack_behind(world: &mut World, organism: OrganismId, def: &CreatureDef, head:
     // `parted_carry` carries only a body all its own with no rider
     // ([`body_all_own`], what the free-cell test needs; PR 687 review F2) and
     // otherwise packs and loses the pellet. Refusing there instead is the
-    // rider refusal below, measured to starve ants.
+    // same kind of refusal as the rider refusal below, measured to starve
+    // ants; `body_all_own` fails only in `sealed_escape` (the other three
+    // check `walled_in`), where a refused pack falls to `pocket_drop_site`.
     let mode = pack_parted_of(world);
     let walk_parts = world.needs.as_ref().filter(|n| n.mode == needs::NeedsMode::Walk).map(|n| n.parts);
     let refuse = mode == PackParted::On || walk_parts.is_some_and(|p| !p.parted_lose && !p.parted_carry);
@@ -51323,7 +51328,8 @@ mod tests {
     /// `PIXEL_PHYSICS_PACK_PARTED` refuses it instead.** An ant shut in soil,
     /// holding a soil pellet, with a food crumb parted under every body cell
     /// but its head: the cell its tail leaves gets its crumb back, so the
-    /// pellet has nowhere to go. Off (today's ant) the pack goes ahead and
+    /// pellet has nowhere to go. Off (the ant before 2026-10-12, when `carry`
+    /// became the default) the pack goes ahead and
     /// the pellet is dropped from the world, counted in `pack_parted_lost`;
     /// on, the pack is refused and nothing moves.
     #[test]
@@ -51530,7 +51536,9 @@ mod tests {
     /// nestmate rides a body cell, where the free-cell test is not safe, and
     /// the pellet is lost instead (the positive control for `body_own`: red
     /// with it dropped). `PACK_PARTED=carry` with neither part still refuses
-    /// (PR 687 review F2).
+    /// (PR 687 review F2). No food-conservation row: the hazard the gate
+    /// prevents (two records on one cell, one crumb lost on give-back) is
+    /// unreachable with it, and the counter rows go red without it.
     #[test]
     fn the_walks_parted_parts_lose_or_carry() {
         #[derive(Clone, Copy, PartialEq)]

@@ -29,7 +29,7 @@ test until the result is understood, and propose no new fix before then.
 | **`RAYON_NUM_THREADS=1`, four runs at once** | A lab run is no faster on four threads than one, so four single-thread runs is ~4x throughput. Pinned threads also keep counters comparable |
 | **Seeds are deterministic per build** | Same build + same seed = same world. So arms compare **paired, seed by seed**, and the baseline is re-run on the same commit, never quoted from memory |
 | **Read 100k–300k means**, not one frame | The colony's first 100k is founding. Adjacent census stops of one run can differ by an order of magnitude |
-| **Stamp the `main` commit** on every number | Lab numbers do not compare across certain merges: before PR 611 (mutation switch), before `6e42f0fa` (HUNGRY_OUT on), before `06202f793` (WATER_FOOTING on, misted beds). A number without its commit cannot be checked against one with |
+| **Stamp the `main` commit** on every number | Lab numbers do not compare across certain merges: before PR 611 (mutation switch), before `6e42f0fa` (HUNGRY_OUT on), before `06202f793` (WATER_FOOTING on, misted beds), before PR 689 (`PACK_PARTED=carry` on; `PIXEL_PHYSICS_PACK_PARTED=off` reproduces the old ant). A number without its commit cannot be checked against one with |
 
 **How many seeds.** 1–4 seeds to iterate, labelled as partial and reported
 early; **12 seeds only to settle a default**. Before a winner ships, run it
