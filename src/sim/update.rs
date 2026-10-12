@@ -846,14 +846,29 @@ pub(crate) fn spoil_footing() -> bool {
 }
 
 
-/// **The ablation switch for the un-packing rule**, off by default.
+/// **The ablation switch for the un-packing rule**, on by default since
+/// 2026-10-12.
 ///
-/// `PIXEL_PHYSICS_UNPACK=on` makes [`unpack_orphans`] run. Unset, it returns
-/// before touching a cell, so every measurement taken before this existed
-/// still stands and an arm and its control run from one binary.
+/// `PIXEL_PHYSICS_UNPACK=off` stops [`unpack_orphans`] before it touches a
+/// cell: the world before, so an arm and its control run from one binary.
+///
+/// **Shipped on** under the owner's on-by-default rule (2026-10-12: a fix
+/// with no big downside ships on). Lab steady bed, 12 seeds, 100-300k,
+/// against main and a one-frame-nudged main: dirt with no path to the
+/// floor at 300k 159 cells against 396 / 392 (lower on 11 of 12), colony
+/// 275 against 260 / 264 (higher on 12 of 12), trip deliveries 8,076
+/// against 7,435 / 7,439. Adults starved 375 against 298 / 323 from 20k,
+/// but deaths overall did not rise: fewer ants were killed at the food
+/// drop (151 against 226 / 235) and more reached old age (1,140 against
+/// 1,080 / 1,096). **Its cost is the flood fill**: `lab_cost colonies=0
+/// frames=20000 phases=1`, five alternating pairs, `RAYON_NUM_THREADS=1`,
+/// active-sites phase 0.064-0.071 -> 0.114-0.123 ms/frame averaged (the
+/// pass runs every [`UNPACK_INTERVAL`] frames, so ~3 ms on the frame it
+/// runs), whole frame 0.655-0.717 -> 0.711-0.767 ms
+/// (`/mnt/project-files/switch-audit/results-2026-10-12.md`).
 pub(crate) fn unpack_rule() -> bool {
     static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *ON.get_or_init(|| std::env::var("PIXEL_PHYSICS_UNPACK").as_deref() == Ok("on"))
+    *ON.get_or_init(|| std::env::var("PIXEL_PHYSICS_UNPACK").as_deref() != Ok("off"))
 }
 
 /// How often the pass runs. A support question is not urgent to the frame --

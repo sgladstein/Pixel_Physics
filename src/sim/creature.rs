@@ -16493,7 +16493,7 @@ fn spoil_ring_column(world: &World, organism: OrganismId, (x, y): (i32, i32), ri
         }
         s => s,
     };
-    // **Away from the food trail** ([`spoil_side_of`], off): the side the
+    // **Away from the food trail** ([`spoil_side_of`], on): the side the
     // carrier smells less of it on, where it smells any.
     let side = spoil_trail_side(world, (x, y)).unwrap_or(side);
     let gamma: f32 = (0..ring.shape).map(|_| -ring.scale * (1.0 - draw.unit_f32()).ln()).sum();
@@ -16502,7 +16502,7 @@ fn spoil_ring_column(world: &World, organism: OrganismId, (x, y): (i32, i32), ri
 }
 
 /// **`PIXEL_PHYSICS_SPOIL_SIDE=trail`: a carrier takes its pellet to the
-/// side of the door it smells less food trail on** (2026-10-08, off). The
+/// side of the door it smells less food trail on** (2026-10-08). The
 /// spoil ring's side was the side of the door the carrier came out on, so
 /// the mound grew both ways, across the way to the food as much as away from
 /// it. Traced (heap-90 box, seed 1): pellets put down above ground landed
@@ -16517,11 +16517,30 @@ fn spoil_ring_column(world: &World, organism: OrganismId, (x, y): (i32, i32), ri
 /// [`SPOIL_SIDE_NEAR`]..=[`SPOIL_SIDE_FAR`] either side of its head on its
 /// row, and takes the side with less; with none either side, the old rule.
 /// Counted in `spoil_side_turned` when it differs from the old rule.
+///
+/// **On by default since 2026-10-12** under the owner's on-by-default rule
+/// (a fix with no big downside ships on); `PIXEL_PHYSICS_SPOIL_SIDE=off` is
+/// the way back. Lab steady bed, 12 seeds, 100-300k, against main and a
+/// one-frame-nudged main: the larva pillar under the door -- the column of
+/// brood that splits the room -- stood 20 rows tall against 45 / 42 (mean
+/// longest brood column over 200-300k, shorter than both on 10 of 12),
+/// larvae starved per egg 0.07 against 0.18 / 0.14 (lower than both on 8
+/// of 12, higher on none), trip deliveries 8,329 against 7,435 / 7,439,
+/// colony 263 against 260 / 264. Eggs fell to 1,569 against 1,941 / 1,867
+/// with births level (1,481 against 1,504 / 1,531): fewer eggs are wasted.
+/// Adults starved 396 against 298 / 323 from 20k, but adult deaths did not
+/// rise -- fewer ants were killed at the food drop (120 against 226 / 235
+/// in the window), so the extra starved are a change of cause. **Measured
+/// alone**: shipped together with `NURSE=workers`, `DIG_WIDEN` and `UNPACK`
+/// the pillar stood 44 rows against 45 / 42 and larvae starved per egg
+/// 0.14, so the pillar and larva gains do not survive the bundle (which
+/// switch cancels them is not traced); the bundle's own gains are in the
+/// results file (`/mnt/project-files/switch-audit/results-2026-10-12.md`).
 pub fn spoil_side_of(_world: &World) -> bool {
     static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *V.get_or_init(|| match std::env::var("PIXEL_PHYSICS_SPOIL_SIDE").as_deref().map(str::trim) {
-        Ok("trail") | Ok("on") => true,
-        Ok("off") | Ok("") | Err(_) => false,
+        Ok("trail") | Ok("on") | Ok("") | Err(_) => true,
+        Ok("off") => false,
         Ok(other) => panic!("PIXEL_PHYSICS_SPOIL_SIDE={other:?}: use off or trail"),
     })
 }
@@ -17653,8 +17672,19 @@ fn way_down(world: &World, def: &CreatureDef, organism: OrganismId, x: i32, y: i
     })
 }
 
-/// **Tunnels one body length wide**: `PIXEL_PHYSICS_DIG_WIDEN=on`, off
-/// unless set; [`World::dig_widen`] for one world.
+/// **Tunnels one body length wide**: on since 2026-10-12,
+/// `PIXEL_PHYSICS_DIG_WIDEN=off` is the way back; [`World::dig_widen`] for
+/// one world.
+///
+/// **Shipped on** under the owner's on-by-default rule (2026-10-12: a fix
+/// with no big downside ships on). Steady bed, 12 seeds, 100-300k, against
+/// main and a one-frame-nudged main: colony 263 against 260 / 264, adults
+/// starved 278 against 298 / 323, trip deliveries 7,638 against 7,435 /
+/// 7,439, room at 300k 3,797 against 3,644 / 3,780 cells -- all inside the
+/// two baselines' spread. Today's nest is one big room whose one-cell-wide
+/// passages are ~2% of its cells, so the rule has little to act on in that
+/// bed; it is on for the galleries it was built for
+/// (`/mnt/project-files/switch-audit/results-2026-10-12.md`).
 ///
 /// **Why.** The dig cuts the one cell ahead of the head, so every passage the
 /// colony digs is one cell wide: a line of pixels, not a tunnel, and a queue
@@ -17685,8 +17715,8 @@ pub fn dig_widen_of(world: &World) -> bool {
     world.dig_widen.unwrap_or_else(dig_widen)
 }
 
-/// `PIXEL_PHYSICS_DIG_WIDEN`: `on` turns [`dig_widen_of`] on; unset and
-/// `off` leave it off; anything else is reported and read as off.
+/// `PIXEL_PHYSICS_DIG_WIDEN`: unset and `on` leave [`dig_widen_of`] on;
+/// `off` turns it off; anything else is reported and read as on.
 fn dig_widen() -> bool {
     static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *V.get_or_init(|| parse_dig_widen(&std::env::var("PIXEL_PHYSICS_DIG_WIDEN").unwrap_or_default()))
@@ -17694,11 +17724,11 @@ fn dig_widen() -> bool {
 
 fn parse_dig_widen(raw: &str) -> bool {
     match raw.trim() {
-        "on" => true,
-        "" | "off" => false,
+        "" | "on" => true,
+        "off" => false,
         v => {
-            eprintln!("PIXEL_PHYSICS_DIG_WIDEN={v:?}: not `on` or `off`; read as off");
-            false
+            eprintln!("PIXEL_PHYSICS_DIG_WIDEN={v:?}: not `on` or `off`; read as on");
+            true
         }
     }
 }
@@ -36246,14 +36276,15 @@ mod tests {
         assert_eq!(run(room, lean, true, true, Some(38)).0, run(room, on, true, true, Some(38)).0, "lean changed a fed ant's slowing");
     }
 
-    /// `PIXEL_PHYSICS_DIG_WIDEN`'s spellings: `on`, and off for everything
-    /// else.
+    /// `PIXEL_PHYSICS_DIG_WIDEN`'s spellings: `off` turns it off, and
+    /// everything else -- unset included -- leaves it on (shipped on
+    /// 2026-10-12).
     #[test]
-    fn dig_widen_parses_on_and_reads_the_rest_as_off() {
-        assert!(parse_dig_widen("on"));
-        assert!(parse_dig_widen(" on "));
-        for off in ["", "off", "yes", "1", "On"] {
-            assert!(!parse_dig_widen(off), "{off:?} turned widening on");
+    fn dig_widen_parses_off_and_reads_the_rest_as_on() {
+        assert!(!parse_dig_widen("off"));
+        assert!(!parse_dig_widen(" off "));
+        for on in ["", "on", "yes", "1", "Off"] {
+            assert!(parse_dig_widen(on), "{on:?} turned widening off");
         }
     }
 

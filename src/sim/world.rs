@@ -1939,8 +1939,8 @@ pub struct CreatureStats {
     /// `PIXEL_PHYSICS_DIG_WIDEN` (`creature::dig_widen_of`): the digger stood
     /// in a passage one cell wide and cut the wall beside it rather than the
     /// cell ahead. Counted when the side is chosen, before the heap cue and
-    /// the jaw judge it; the cut itself is in `digs`. 0 unless the switch is
-    /// on.
+    /// the jaw judge it; the cut itself is in `digs`. 0 when the switch is
+    /// off.
     pub digs_widened: u64,
     /// **Dig rolls turned to the nearest face** under `PIXEL_PHYSICS_DIG_FACE`
     /// (`creature::dig_face_of`): inside the nest, the cell ahead was not
@@ -4376,6 +4376,10 @@ pub struct World {
     /// `brood::crop_nurse_of` for this world; `None` reads
     /// `PIXEL_PHYSICS_CROP_NURSE`.
     pub crop_nurse: Option<crate::sim::brood::CropNurse>,
+    /// `brood::nurse_mode_of` for this world; `None` reads
+    /// `PIXEL_PHYSICS_NURSE` (nest workers only, unless it says `any` or
+    /// `off`).
+    pub nurse: Option<crate::sim::brood::NurseMode>,
     /// `creature::door_loose_of` for this world; `None` reads
     /// `PIXEL_PHYSICS_DOOR_LOOSE`.
     pub door_loose: Option<bool>,
@@ -4555,7 +4559,7 @@ pub struct World {
     pub births_paused: bool,
     /// **Tunnel widening, overriding `PIXEL_PHYSICS_DIG_WIDEN` for this
     /// world** (`creature::dig_widen_of`). `None` follows the environment,
-    /// which is off unless it says `on`. A field so a guard can take both
+    /// which is on unless it says `off` (since 2026-10-12). A field so a guard can take both
     /// arms in one process.
     pub dig_widen: Option<bool>,
     /// **The turn to the nearest face, overriding `PIXEL_PHYSICS_DIG_FACE`
@@ -7137,6 +7141,7 @@ impl World {
             door_reopen: None,
             nurse_seek: None,
             crop_nurse: None,
+            nurse: None,
             door_loose: None,
             door_column: None,
             kin_footing: None,
@@ -7470,8 +7475,8 @@ impl World {
         // **The un-packing pass**, gated and periodic -- see
         // `update::unpack_orphans`. Hooked here rather than given its own
         // per-frame method because `step_active_sites` already has 150 call
-        // sites and every one of them wants this; unset, it costs one
-        // `OnceLock` read.
+        // sites and every one of them wants this; off, or on a frame it does
+        // not run, it costs one `OnceLock` read.
         super::update::unpack_orphans(self);
         // Mature organism cells are no longer on that schedule at all --
         // their upkeep runs here, once per organism. See

@@ -132,19 +132,28 @@ fn lay_reach() -> i32 {
 }
 
 /// `PIXEL_PHYSICS_NURSE=off`: no feeding by touch ([`nurse`]), for the
-/// control arm. Unset or anything else, on.
-fn nurse_env() -> bool {
-    nurse_mode() != NurseMode::Off
+/// control arm. Unset or anything else, on ([`nurse_mode_of`] says who).
+fn nurse_env(world: &World) -> bool {
+    nurse_mode_of(world) != NurseMode::Off
 }
 
 /// Who feeds a larva from their own bank by touch ([`nurse`]).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum NurseMode {
     Off,
-    /// Any grown nestmate above its grant (the shipped rule).
+    /// `PIXEL_PHYSICS_NURSE=any`: any grown nestmate above its grant (the
+    /// shipped rule until 2026-10-12, kept as the way back).
     Any,
-    /// **`PIXEL_PHYSICS_NURSE=workers`: only a nest-bound ant**
-    /// (`creature::is_nest_bound`) gives from its bank (2026-10-08, off;
+    /// **Only a nest-bound ant** (`creature::is_nest_bound`) gives from its
+    /// bank. **Shipped on 2026-10-12** under the owner's on-by-default rule;
+    /// `PIXEL_PHYSICS_NURSE=any` is the way back. Measured on the steady bed,
+    /// 12 seeds, 100-300k, against main and a one-frame-nudged main: larva
+    /// food paid from nurses' own banks 103k J against 287k / 260k, made up
+    /// by shared food, and colony 262 against 260 / 264, adults starved 294
+    /// against 298 / 323, larvae starved per egg 0.13 against 0.18 / 0.14 --
+    /// all inside the two baselines' spread
+    /// (`/mnt/project-files/switch-audit/results-2026-10-12.md`).
+    /// Built 2026-10-08 (off;
     /// the owner's "nurses only feed the brood", after the doorway trace:
     /// every rich ant that stepped into the nest was stripped to its grant
     /// within a few hundred frames -- 3,585 -> 211 J, 1,151 -> 210 J,
@@ -158,12 +167,18 @@ pub enum NurseMode {
     Workers,
 }
 
+/// [`nurse_mode`] for one world: `World::nurse` when set, so a test can
+/// take any arm in one process (the env var is read once per process).
+pub fn nurse_mode_of(world: &World) -> NurseMode {
+    world.nurse.unwrap_or_else(nurse_mode)
+}
+
 pub fn nurse_mode() -> NurseMode {
     static V: std::sync::OnceLock<NurseMode> = std::sync::OnceLock::new();
     *V.get_or_init(|| match std::env::var("PIXEL_PHYSICS_NURSE").as_deref().map(str::trim) {
         Ok("off") => NurseMode::Off,
-        Ok("workers") => NurseMode::Workers,
-        _ => NurseMode::Any,
+        Ok("any") => NurseMode::Any,
+        _ => NurseMode::Workers,
     })
 }
 
@@ -940,7 +955,7 @@ pub fn brood_tick(world: &mut World, site: &ActiveSite) -> Vec<ActiveSite> {
                     creature::note_feed(world, organism, (x, y), creature::FEED_ATE, 0, after - bank);
                 }
             }
-            if nurse_env() {
+            if nurse_env(world) {
                 nurse(world, organism, (x, y), colony, &def, b.target);
             }
             if world.organism(organism).is_some_and(|s| s.energy >= b.target) {
@@ -1021,7 +1036,7 @@ fn nurse(world: &mut World, larva: OrganismId, (x, y): (i32, i32), colony: u32, 
             return;
         }
     }
-    let workers_only = nurse_mode() == NurseMode::Workers;
+    let workers_only = nurse_mode_of(world) == NurseMode::Workers;
     let mut best: Option<(OrganismId, f32)> = None;
     for (dx, dy) in super::structural::NEIGHBOURS_8 {
         let c = world.get(x + dx, y + dy);
@@ -2163,6 +2178,9 @@ mod tests {
         let run = |log: bool| {
             let (mut w, ant, def) = bed(true);
             w.crop_nurse = Some(CropNurse::Touch);
+            // The layer feeds from its bank here and is not nest-bound, so
+            // this needs the rule before `NurseMode::Workers` shipped.
+            w.nurse = Some(NurseMode::Any);
             if log {
                 w.feed_log = Some(Vec::new());
             }
@@ -2244,6 +2262,9 @@ mod tests {
         ] {
             let (mut w, ant, def) = bed(true);
             w.crop_nurse = Some(CropNurse::Touch);
+            // The unbound arms feed from the bank of an ant that is not
+            // nest-bound, which only the rule before `NurseMode::Workers` lets.
+            w.nurse = Some(NurseMode::Any);
             w.nurse_stay = Some(creature::NurseStay {
                 stay,
                 ..creature::NurseStay::OFF
