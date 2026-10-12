@@ -564,9 +564,10 @@ fn main() {
     // four by id is the nest-worker caste.
     let walk_trace: u32 = arg("walktrace").unwrap_or(0);
     // `needsparts=`: the walk's parts under `needs=walk`. Unnamed, the new
-    // ant as it stands (`WalkParts::NEW_ANT`: `reach` and the `walled_in`
-    // switch, since 2026-10-11); `none` is slice 1 exactly, as the default
-    // was before. A name it does not know panics rather than running an arm
+    // ant as it stands (`WalkParts::NEW_ANT`: `reach`, the `walled_in`
+    // switch since 2026-10-11, and `parted_carry` since PR 690;
+    // `reach,walled_in` is the new ant before PR 690); `none` is slice 1
+    // exactly, as the default was before. A name it does not know panics rather than running an arm
     // under another's label.
     let needs_parts = arg::<String>("needsparts").map_or(creature::needs::WalkParts::NEW_ANT, |p| {
         creature::needs::WalkParts::parse(&p)

@@ -1867,7 +1867,10 @@ a walled-in ant does. Verified 2026-10-11 against `walk_act`, `hungry_act`,
   leaves -- unless the walk names `parted_lose` (it packs, and the pellet is
   lost) or `parted_carry` (a body all its own with no rider carries the crumb
   as `carry` does below; otherwise the pellet is lost), `parted_carry` in
-  `NEW_ANT` since 2026-10-12, built because the refusal starved walled-in ants; today's ant
+  `NEW_ANT` since 2026-10-12, built because the refusal starved walled-in ants
+  (12 steady seeds: walled-in starvers 60 and 77 nudged -> 15; measured
+  before PR 689, so frames 0-50k ran the ant with `PACK_PARTED` off on every
+  arm); today's ant
   packs there unless `PACK_PARTED` is `on` (§12): under `carry`, its default,
   a crumb there rides on under the body and the pellet lands, unless brood is
   there or no covered cell is free, when it is lost (`pack_parted_lost`) as

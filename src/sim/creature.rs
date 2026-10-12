@@ -14265,7 +14265,8 @@ const UP_DIR: u8 = 2;
 ///   goes in. Ownerless crumbs only, and all of them or none; brood and
 ///   foliage fall back to `off`. The needs walk's refusal wins: it never
 ///   carries, unless it names `parted_carry` (and `parted_lose` packs and
-///   loses; `WalkParts`, both off). **The crumb rides**: the cell it moves to is the next pack's
+///   loses; `WalkParts::NEW_ANT` names `parted_carry` since PR 690, so the
+///   new ant carries when its body is all its own and loses otherwise). **The crumb rides**: the cell it moves to is the next pack's
 ///   tail, so through a run of packs it travels with the ant, one cell a
 ///   pack, and lands where the body next leaves it, where on `off` the next
 ///   pack seals it into the backfill. So `carry` moves food as well as

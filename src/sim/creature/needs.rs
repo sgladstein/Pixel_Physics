@@ -459,11 +459,24 @@ impl WalkParts {
     /// `all`, `none`, `new_ant` ([`WalkParts::NEW_ANT`]), `walled_in` (its
     /// switch's two parts, `sealed_out` and `eat_held`), or a comma list of
     /// the part names, as a harness names them. Anything else is refused rather than read as a default, so a
-    /// typo cannot run one arm under another's label.
+    /// typo cannot run one arm under another's label. A set (`all`, `none`,
+    /// `new_ant`) comes first: after a part it would silently replace it, so
+    /// `parted_lose,new_ant` would run `parted_carry`, and it is refused
+    /// (review of PR 690).
     pub fn parse(raw: &str) -> WalkParts {
         let mut p = WalkParts::NONE;
         let (mut named_lose, mut named_carry) = (false, false);
+        let mut named_part = false;
         for part in raw.split(',').map(str::trim).filter(|s| !s.is_empty()) {
+            if matches!(part, "all" | "none" | "new_ant") {
+                if named_part {
+                    panic!(
+                        "needsparts={raw:?}: the set {part:?} comes after a part it would replace; name the set first"
+                    );
+                }
+            } else {
+                named_part = true;
+            }
             match part {
                 "all" => p = WalkParts::ALL,
                 "none" => p = WalkParts::NONE,
@@ -4460,6 +4473,15 @@ mod tests {
     #[should_panic(expected = "parted_lose and parted_carry")]
     fn walk_parts_refuse_both_parted_parts() {
         WalkParts::parse("new_ant,parted_lose,parted_carry");
+    }
+
+    /// **A set after a part is refused**: it would replace the part, so
+    /// `parted_lose,new_ant` would run `parted_carry` under a label naming
+    /// `parted_lose` (review of PR 690).
+    #[test]
+    #[should_panic(expected = "comes after a part it would replace")]
+    fn walk_parts_refuse_a_set_after_a_part() {
+        WalkParts::parse("parted_lose,new_ant");
     }
 
     #[test]
