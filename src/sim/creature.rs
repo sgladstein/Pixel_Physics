@@ -14265,7 +14265,8 @@ const UP_DIR: u8 = 2;
 ///   goes in. Ownerless crumbs only, and all of them or none; brood and
 ///   foliage fall back to `off`. The needs walk's refusal wins: it never
 ///   carries, unless it names `parted_carry` (and `parted_lose` packs and
-///   loses; `WalkParts`, both off). **The crumb rides**: the cell it moves to is the next pack's
+///   loses; `WalkParts::NEW_ANT` names `parted_carry` since PR 690, so the
+///   new ant carries when its body is all its own and loses otherwise). **The crumb rides**: the cell it moves to is the next pack's
 ///   tail, so through a run of packs it travels with the ant, one cell a
 ///   pack, and lands where the body next leaves it, where on `off` the next
 ///   pack seals it into the backfill. So `carry` moves food as well as
@@ -14382,7 +14383,7 @@ fn pack_behind(world: &mut World, organism: OrganismId, def: &CreatureDef, head:
     // The walk's mode, not any `World::needs`: pass-through must stay frame
     // for frame the game without the hooks (PR 684's re-check, R1). The
     // walk's refusal wins over `carry`, so the walk never carries -- unless
-    // it names `parted_lose` or `parted_carry` (2026-10-12, both off, not in
+    // it names `parted_lose` or `parted_carry` (2026-10-12; `parted_carry` in
     // `NEW_ANT`), which end the refusal there: it starved walled-in ants, 30
     // of 54 walled-in starvers over 8 steady runs dying still refused
     // (`pack-parted/walk-parted-refusal-2026-10-12.md`). `on` still refuses
@@ -51529,7 +51530,7 @@ mod tests {
     }
 
     /// **The needs walk's `parted_lose` and `parted_carry` end its refusal**
-    /// (2026-10-12, both off). A walled-in soil carrier under the walk, its
+    /// (2026-10-12; `parted_carry` in the new ant). A walled-in soil carrier under the walk, its
     /// tail on a crumb: with neither part it is refused, as before; with
     /// `parted_lose` it packs and the pellet is lost; with `parted_carry` the
     /// crumb rides to the old head's cell and the pellet lands -- unless a
@@ -51590,24 +51591,24 @@ mod tests {
             let s = w.creature_stats;
             (packed, w.get(tail.0, tail.1).material == soil, at, (s.pack_parted_refused, s.pack_parted_lost, s.pack_crumb_carried, s.pack_crumb_no_room), chain[0])
         };
-        let (packed, _, at, n, _) = run("new_ant", None, Ride::No);
+        let (packed, _, at, n, _) = run("reach,walled_in", None, Ride::No);
         assert!(!packed && at.len() == 1, "neither part: the walk should refuse");
         assert_eq!(n, (1, 0, 0, 0), "neither part: counters");
-        let (packed, _, at, n, _) = run("new_ant", Some(PackParted::Carry), Ride::No);
+        let (packed, _, at, n, _) = run("reach,walled_in", Some(PackParted::Carry), Ride::No);
         assert!(!packed && at.len() == 1, "PACK_PARTED=carry alone: the walk should still refuse");
         assert_eq!(n, (1, 0, 0, 0), "PACK_PARTED=carry alone: counters");
-        let (packed, _, at, n, _) = run("new_ant,parted_carry", Some(PackParted::On), Ride::No);
+        let (packed, _, at, n, _) = run("reach,walled_in,parted_carry", Some(PackParted::On), Ride::No);
         assert!(!packed && at.len() == 1, "PACK_PARTED=on: refuses under either part");
         assert_eq!(n, (1, 0, 0, 0), "PACK_PARTED=on with parted_carry: counters");
-        let (packed, pellet, at, n, _) = run("new_ant,parted_lose", None, Ride::No);
+        let (packed, pellet, at, n, _) = run("reach,walled_in,parted_lose", None, Ride::No);
         assert!(packed && !pellet && at.is_empty(), "parted_lose: should pack, give the crumb back and lose the pellet");
         assert_eq!(n, (0, 1, 0, 0), "parted_lose: counters");
-        let (packed, pellet, at, n, head) = run("new_ant,parted_carry", None, Ride::No);
+        let (packed, pellet, at, n, head) = run("reach,walled_in,parted_carry", None, Ride::No);
         assert!(packed && pellet, "parted_carry: the pellet should land in the tail cell");
         assert_eq!(at, vec![head], "parted_carry: the crumb should ride to the old head's cell");
         assert_eq!(n, (0, 0, 1, 0), "parted_carry: counters");
         for ride in [Ride::Nestmate, Ride::OnlyRides] {
-            let (packed, pellet, at, n, _) = run("new_ant,parted_carry", None, ride);
+            let (packed, pellet, at, n, _) = run("reach,walled_in,parted_carry", None, ride);
             assert!(packed && !pellet && at.is_empty(), "parted_carry, a body cell not all its own: should lose the pellet, not carry");
             assert_eq!(n, (0, 1, 0, 0), "parted_carry, a body cell not all its own: counters");
         }
