@@ -2434,18 +2434,23 @@ pub struct CreatureStats {
     /// callers check `walled_in`, so 0 outside the walk.
     pub pack_lost_other: u64,
     /// Packs refused because the tail stood on something it had parted
-    /// (`PIXEL_PHYSICS_PACK_PARTED=on`, or the needs walk): the "it fired"
-    /// half of `pack_parted_lost`. 0 with the switch off outside the walk.
+    /// (`PIXEL_PHYSICS_PACK_PARTED=on`, or the needs walk naming neither
+    /// `parted_lose` nor `parted_carry`): the "it fired" half of
+    /// `pack_parted_lost`. 0 outside the walk unless the switch is `on`.
+    /// Counts calls, not decisions: the walk can try a refused pack up to
+    /// three times in one decision.
     pub pack_parted_refused: u64,
     /// The part of `pack_parted_lost` where a record under the tail had an
     /// owner (brood, foliage), which `PACK_PARTED=carry` never moves: the
     /// residual `carry` leaves (`creature::PackParted`).
     pub pack_parted_lost_brood: u64,
-    /// `PACK_PARTED=carry`: crumb records moved to a covered cell of the
+    /// `PACK_PARTED=carry` (the default), or the needs walk's
+    /// `parted_carry`: crumb records moved to a covered cell of the
     /// body, the "it fired" count. One crumb ridden through 30 packs counts
     /// 30, so this is not the number of crumbs or pellets saved. 0 otherwise.
     pub pack_crumb_carried: u64,
-    /// `PACK_PARTED=carry`: packs onto ownerless crumbs that found too few
+    /// `PACK_PARTED=carry`, or the needs walk's `parted_carry`: packs onto
+    /// ownerless crumbs that found too few
     /// free covered cells, so nothing moved and the pellet was lost (also in
     /// `pack_parted_lost`). 0 otherwise.
     pub pack_crumb_no_room: u64,

@@ -5337,7 +5337,8 @@ pub struct PipCheck {
 #[derive(Clone, Debug)]
 pub struct Parted {
     /// Where the cell goes back. Where it was lifted, except for an
-    /// ownerless crumb under `PIXEL_PHYSICS_PACK_PARTED=carry`, which
+    /// ownerless crumb under `PIXEL_PHYSICS_PACK_PARTED=carry` (the default)
+    /// or the needs walk's `parted_carry`, which
     /// `creature::pack_behind` moves to a cell the body still covers so the
     /// tail cell is free for a pellet (`creature::PackParted`): the one
     /// writer of a held record's position.
@@ -6135,7 +6136,8 @@ pub struct OrganismState {
     /// no longer covers, and `creature::creature_dies` gives back all of it.
     /// There is no third — every other path that moves or unmakes a body
     /// goes through one of those two. One path moves a record without giving
-    /// it back: `creature::pack_behind` under `PACK_PARTED=carry` moves an
+    /// it back: `creature::pack_behind` under `PACK_PARTED=carry` (or the
+    /// needs walk's `parted_carry`) moves an
     /// ownerless crumb's record, in place, to another cell of the body, and
     /// it then leaves by the first exit like any other.
     pub parted: Vec<Parted>,
