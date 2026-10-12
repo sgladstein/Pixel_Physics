@@ -2031,7 +2031,7 @@ pub struct CreatureStats {
     pub meet_way_stamps: u64,
     /// **`creature::spoil_side_of`'s count**: carriers whose pellet side the
     /// food trail turned from the side of the door they came out on. 0
-    /// unless `PIXEL_PHYSICS_SPOIL_SIDE` is set.
+    /// under `PIXEL_PHYSICS_SPOIL_SIDE=off`.
     pub spoil_side_turned: u64,
     /// **`creature::mound_in_of`'s count**: decisions a carrier was pulled
     /// down the mound's way in. 0 unless `PIXEL_PHYSICS_MOUND_IN` is on.
@@ -7475,8 +7475,8 @@ impl World {
         // **The un-packing pass**, gated and periodic -- see
         // `update::unpack_orphans`. Hooked here rather than given its own
         // per-frame method because `step_active_sites` already has 150 call
-        // sites and every one of them wants this; off, or on a frame it does
-        // not run, it costs one `OnceLock` read.
+        // sites and every one of them wants this; unset, it costs one
+        // `OnceLock` read.
         super::update::unpack_orphans(self);
         // Mature organism cells are no longer on that schedule at all --
         // their upkeep runs here, once per organism. See

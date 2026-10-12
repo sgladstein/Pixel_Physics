@@ -178,7 +178,8 @@ pub fn nurse_mode() -> NurseMode {
     *V.get_or_init(|| match std::env::var("PIXEL_PHYSICS_NURSE").as_deref().map(str::trim) {
         Ok("off") => NurseMode::Off,
         Ok("any") => NurseMode::Any,
-        _ => NurseMode::Workers,
+        Ok("workers") | Ok("") | Err(_) => NurseMode::Workers,
+        Ok(other) => panic!("PIXEL_PHYSICS_NURSE={other:?}: use workers, any or off"),
     })
 }
 

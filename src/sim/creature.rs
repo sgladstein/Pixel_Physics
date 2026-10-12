@@ -3670,6 +3670,12 @@ pub const ROOM_TARGET_DEFAULT: f32 = 2.0;
 /// saturated local density everywhere else, and `ant.ron`'s hidden units 5/6
 /// gate digging on `AtNest` too. So this reach is not only "where is home" --
 /// it is the region in which a colony is willing to dig a chamber at all.
+///
+/// **`40` was left off on 2026-10-12 for a measured harm**: lab steady bed, 12 seeds, 100-300k, against main and a one-frame-nudged main, adults
+/// starved from 20k 1,233 against 298 / 323 (more on 12 of 12), almost all
+/// on the surface, and the room at 300k 2,240 cells against 3,644 / 3,780
+/// (smaller on 12 of 12) -- a wide shallow bowl with food crumbs piled on
+/// the mound; births rose 31% and digs 3x, feeding the starvation (`/mnt/project-files/switch-audit/results-2026-10-12.md`).
 pub fn nest_site_rows() -> Option<i32> {
     static ROWS: std::sync::OnceLock<Option<i32>> = std::sync::OnceLock::new();
     *ROWS.get_or_init(|| std::env::var("PIXEL_PHYSICS_NEST_SITE_ROWS").ok().and_then(|v| v.parse::<i32>().ok()).filter(|v| *v >= 0))
@@ -16530,12 +16536,13 @@ fn spoil_ring_column(world: &World, organism: OrganismId, (x, y): (i32, i32), ri
 /// with births level (1,481 against 1,504 / 1,531): fewer eggs are wasted.
 /// Adults starved 396 against 298 / 323 from 20k, but adult deaths did not
 /// rise -- fewer ants were killed at the food drop (120 against 226 / 235
-/// in the window), so the extra starved are a change of cause. **Measured
-/// alone**: shipped together with `NURSE=workers`, `DIG_WIDEN` and `UNPACK`
-/// the pillar stood 44 rows against 45 / 42 and larvae starved per egg
-/// 0.14, so the pillar and larva gains do not survive the bundle (which
-/// switch cancels them is not traced); the bundle's own gains are in the
-/// results file (`/mnt/project-files/switch-audit/results-2026-10-12.md`).
+/// in the window), so the extra starved are a change of cause. **As it
+/// ships**, with `NURSE=workers` and `DIG_WIDEN` also on (same bed, 12
+/// seeds): pillar 33 rows against 45 / 42 (shorter on 7 of 12), larvae
+/// starved per egg 0.08 (lower on 8, higher on none), colony 268 against
+/// 260 / 264. With `UNPACK` on as well the pillar stood 44 rows, so
+/// un-packing undoes most of it (inferred from the two bundles; not traced)
+/// (`/mnt/project-files/switch-audit/results-2026-10-12.md`).
 pub fn spoil_side_of(_world: &World) -> bool {
     static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *V.get_or_init(|| match std::env::var("PIXEL_PHYSICS_SPOIL_SIDE").as_deref().map(str::trim) {
@@ -16868,6 +16875,12 @@ fn spoil_drop_cover() -> Option<f32> {
 /// Still one predicate about the cell, not a policy about where a colony's
 /// tailings belong: which cell is chosen, and when, is untouched. Unset is
 /// bit-exact: the same reads in the same order, and no draw either way.
+///
+/// **Left off on 2026-10-12 for a measured harm**: lab steady bed, 12 seeds, 100-300k, against main and a one-frame-nudged main, the nest room at
+/// 300k 1,174 cells against 3,644 / 3,780 (smaller on 12 of 12), digs 3,955
+/// against 15,188 / 17,273, trip deliveries 5,783 against 7,435 / 7,439
+/// (fewer on 11 of 12), colony 248 against 260 / 264 (smaller on 10 of 12)
+/// (`/mnt/project-files/switch-audit/results-2026-10-12.md`).
 fn spoil_footing_drop() -> bool {
     static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *ON.get_or_init(|| matches!(std::env::var("PIXEL_PHYSICS_SPOIL_FOOTING").as_deref(), Ok("ground")))
@@ -17716,7 +17729,7 @@ pub fn dig_widen_of(world: &World) -> bool {
 }
 
 /// `PIXEL_PHYSICS_DIG_WIDEN`: unset and `on` leave [`dig_widen_of`] on;
-/// `off` turns it off; anything else is reported and read as on.
+/// `off` turns it off; anything else is refused.
 fn dig_widen() -> bool {
     static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *V.get_or_init(|| parse_dig_widen(&std::env::var("PIXEL_PHYSICS_DIG_WIDEN").unwrap_or_default()))
@@ -17726,10 +17739,7 @@ fn parse_dig_widen(raw: &str) -> bool {
     match raw.trim() {
         "" | "on" => true,
         "off" => false,
-        v => {
-            eprintln!("PIXEL_PHYSICS_DIG_WIDEN={v:?}: not `on` or `off`; read as on");
-            true
-        }
+        v => panic!("PIXEL_PHYSICS_DIG_WIDEN={v:?}: use on or off"),
     }
 }
 
@@ -24487,6 +24497,15 @@ impl Recruit {
 /// A carrier's patience at or over which its touch recruits ([`Recruit`]).
 pub const RECRUIT_PATIENCE: f32 = 0.5;
 
+/// [`Recruit`] from `PIXEL_PHYSICS_RECRUIT`, off unless set.
+///
+/// **Left off on 2026-10-12 for a measured harm** (the owner's
+/// on-by-default rule asks for the numbers): lab steady bed, 12 seeds, 100-300k, against main and a one-frame-nudged main, adults starved from
+/// 20k 442 against 298 / 323 (more on 10 of 12), most of the extra on the
+/// surface (314 a seed against 197 / 227) -- recruited idlers go out and
+/// starve -- and colony 257 against 260 / 264 (smaller on 8 of 12), on
+/// ~2,000 recruitments a run. Its one gain was on the heap-90 bed's mound
+/// idlers, not the steady bed (`/mnt/project-files/switch-audit/results-2026-10-12.md`).
 pub fn recruit_of(_world: &World) -> Recruit {
     static V: std::sync::OnceLock<Recruit> = std::sync::OnceLock::new();
     *V.get_or_init(|| parse_recruit(&std::env::var("PIXEL_PHYSICS_RECRUIT").unwrap_or_default()))
@@ -36276,16 +36295,23 @@ mod tests {
         assert_eq!(run(room, lean, true, true, Some(38)).0, run(room, on, true, true, Some(38)).0, "lean changed a fed ant's slowing");
     }
 
-    /// `PIXEL_PHYSICS_DIG_WIDEN`'s spellings: `off` turns it off, and
-    /// everything else -- unset included -- leaves it on (shipped on
-    /// 2026-10-12).
+    /// `PIXEL_PHYSICS_DIG_WIDEN`'s spellings: unset and `on` leave it on
+    /// (shipped on 2026-10-12), `off` turns it off.
     #[test]
-    fn dig_widen_parses_off_and_reads_the_rest_as_on() {
+    fn dig_widen_parses_on_and_off() {
         assert!(!parse_dig_widen("off"));
         assert!(!parse_dig_widen(" off "));
-        for on in ["", "on", "yes", "1", "Off"] {
+        for on in ["", "on", " on "] {
             assert!(parse_dig_widen(on), "{on:?} turned widening off");
         }
+    }
+
+    /// A misspelling is refused rather than read as either arm: `Off` once
+    /// read as on, silently.
+    #[test]
+    #[should_panic(expected = "PIXEL_PHYSICS_DIG_WIDEN")]
+    fn dig_widen_refuses_a_misspelling() {
+        parse_dig_widen("Off");
     }
 
     /// A digger facing east at `(60, 60)` in a tunnel cut through soil
