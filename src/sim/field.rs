@@ -1751,6 +1751,15 @@ fn creature_wake_skip() -> bool {
 /// have made every number measured about that switch a measurement of two
 /// changes. `Reports/open-bugs-handoff.md` §Z31 carries it, with this as the
 /// reproduction.
+///
+/// **Left off again on 2026-10-12, for its cost**: lab steady bed, 12 seeds, 100-300k, against main and a one-frame-nudged main, it moved nothing
+/// outside the spread (colony 263 against 260 / 264, adults starved 337
+/// against 298 / 323, above both on 5 of 12 and below both on 5), while the
+/// rescans it forces nearly double the field phase -- 0.156-0.170 ->
+/// 0.294-0.316 ms a frame, whole frame 0.655-0.717 -> 0.770-0.820 ms
+/// (`lab_cost colonies=0 frames=20000 phases=1`, five alternating rounds,
+/// `RAYON_NUM_THREADS=1`). About a tenth of the frame for an exactness fix
+/// nobody can see (`/mnt/project-files/switch-audit/results-2026-10-12.md`).
 fn carry_stale_rescan() -> bool {
     use std::sync::OnceLock;
     static ON: OnceLock<bool> = OnceLock::new();
