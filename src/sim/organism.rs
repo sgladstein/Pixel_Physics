@@ -6339,13 +6339,6 @@ pub struct OrganismState {
     /// the switch is on.
     pub store_read_at: u64,
     pub store_read_low: f32,
-    /// **When this layer was first held for want of a side floor, and when
-    /// last** (`brood::LaySide`, `PIXEL_PHYSICS_LAY_SIDE`): frames, 0 for
-    /// none. The first starts the give-up clock; a gap of
-    /// `brood::LAY_SIDE_GAP` between holds (readiness lost) restarts it; a
-    /// lay clears both. Written only while the switch is on.
-    pub lay_side_since: u64,
-    pub lay_side_last: u64,
     /// **How many returning carriers have touched this ant lately**
     /// (`creature::Recruit`, `PIXEL_PHYSICS_RECRUIT`): a count that decays
     /// by `e^-1` every `tau` frames, as of `recruit_at`, and the last carrier

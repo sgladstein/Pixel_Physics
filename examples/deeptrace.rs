@@ -1629,24 +1629,6 @@ fn main() {
                 diglog.as_ref().map_or(0, |d| d.cut_count),
                 started.elapsed().as_secs_f32()
             );
-            // `PIXEL_PHYSICS_DIG_HOME`'s "it fired" count and the size of the
-            // group's dig home; printed only with the switch on, so an off
-            // run's log is main's.
-            if pixel_physics::sim::creature::dig_home_of() != pixel_physics::sim::creature::DigHome::Off || pixel_physics::sim::brood::brood_room() > 0 {
-                let st = &lab.world.creature_stats;
-                println!(
-                    "  dig_home_held={} nest_core={} nest_dug={} | mark: face_ticks={} keep_ticks={} marks_live={} laid_home={} laid_away={} | brood_room_carried={}",
-                    st.dig_home_held,
-                    lab.world.nest_core.len(),
-                    lab.world.nest_dug.len(),
-                    st.dig_mark_face,
-                    st.dig_mark_keep,
-                    lab.world.face_marks.len(),
-                    st.marks_home,
-                    st.marks_away,
-                    st.brood_room_carried
-                );
-            }
             // `PIXEL_PHYSICS_SHAFT_ROOMS` (late tunnels, 2026-10-12): cuts made
             // in its region and cuts refused, by reason. Only with it on.
             if pixel_physics::sim::creature::shaft_rooms_of().is_some() {
@@ -1654,27 +1636,6 @@ fn main() {
                 println!(
                     "  shaft_rooms: cut={} tall={} gap={} space={} random={} escaped={} top_let={} floor={} digs={}",
                     st.shaft_cut, st.shaft_tall, st.shaft_gap, st.shaft_space, st.shaft_random, st.shaft_escaped, st.shaft_top_let, st.shaft_floor, st.digs
-                );
-            }
-            // `PIXEL_PHYSICS_LAY_SIDE` (idea 6): did the walk fire, where did
-            // the eggs go, and how long did a held layer wait. Only with it on.
-            if pixel_physics::sim::brood::lay_side().is_some() {
-                let st = &lab.world.creature_stats;
-                println!(
-                    "  lay_side: held={} walk_store={} walk_way={} laid_side={} gave_up={} waited={} wait_frames_mean={:.0} kept={} held_j={:.0} shares={} shared_j={:.0} buds_held_for_nest={} eggs_laid={}",
-                    st.lay_side_held,
-                    st.lay_side_walk_store,
-                    st.lay_side_walk_way,
-                    st.lay_side_laid,
-                    st.lay_side_gave_up,
-                    st.lay_side_waited,
-                    st.lay_side_wait_frames as f64 / st.lay_side_waited.max(1) as f64,
-                    st.lay_side_kept,
-                    st.lay_side_held_j,
-                    st.shares,
-                    st.shared_j,
-                    st.buds_held_for_nest,
-                    st.eggs_laid
                 );
             }
         }

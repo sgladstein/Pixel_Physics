@@ -2829,9 +2829,6 @@ fn charge(world: &World) -> (usize, f32) {
 /// way, and `dead-ends.md`'s own `(Crowding, Dig, 0.6)` entry records four
 /// seeds reading 4 of 4 and twelve reading 16 of 33.
 struct Trickle {
-    /// `room=`: place every ant on the start room's floor (`x0..=x1`, row
-    /// `y`) instead of the surface.
-    room: Option<(i32, i32, i32)>,
     colony: Option<u32>,
     /// **Where each ant is homed**: the door, as the game founds under one
     /// (`World::door_anchor`), or `None` -- the strip -- where each ant keeps
@@ -2860,7 +2857,7 @@ impl Trickle {
                 order.swap(i, draw.below(i as u32 + 1) as usize);
             }
         }
-        Trickle { room: None, colony: None, anchor, placed: 0, target, rate, cursor: 0, order }
+        Trickle { colony: None, anchor, placed: 0, target, rate, cursor: 0, order }
     }
 
     fn done(&self) -> bool {
@@ -2889,10 +2886,8 @@ impl Trickle {
             // `seed=0` keeps the bare walk, so every figure taken from this
             // box before it gained a seed still reproduces to the cell.
             let col = if self.order.is_empty() { self.cursor } else { self.order[self.cursor as usize] };
-            let (x, y) = match self.room {
-                Some((x0, x1, y)) => (x0 + col % (x1 - x0 + 1), y),
-                None => (cx - half + col, b.surface - 1),
-            };
+            let x = cx - half + col;
+            let y = b.surface - 1;
             if let Some(site) = pixel_physics::sim::creature::plant_founder_in(world, x, y, "ant", self.colony, self.anchor) {
                 if self.colony.is_none() {
                     self.colony = pixel_physics::sim::creature::colony_of_site(world, &site);
@@ -3735,98 +3730,6 @@ fn harness() {
     let door_anchor = world.door_anchor(b.w / 2, b.surface - 1, "ant");
     let mut food_pile = FoodPile::from_args(&mut world, &b);
     let mut trickle = Trickle::new(ants as usize, arg("rate").unwrap_or(4), seed, span, door_anchor);
-    // **`room=W:H:D` -- the colony starts underground, in a room someone
-    // shaped** (owner, 2026-10-10: "start underground in purposely shaped
-    // hole to observe digging behavior"). A `W` x `H` room whose roof is `D`
-    // rows under the surface, centred under the door and joined to the
-    // founding shaft by a 2-wide passage, so the dug home's fill reaches it
-    // and every ant in it is at home. Every ant is placed on its floor rather
-    // than on the surface. For questions about what ants dig from a given
-    // room; a result here is a mechanism check, never a verdict on the game
-    // (`/mnt/project-files/late-tunnels/README.md`).
-    let mut held_store: Option<HeldStore> = None;
-    let mut side_tunnel: Option<(i32, i32, i32, i32)> = None;
-    if let Some(spec) = arg::<String>("room") {
-        let v: Vec<i32> = spec.split(':').map(|t| t.trim().parse().expect("room=W:H:D")).collect();
-        assert_eq!(v.len(), 3, "room= wants W:H:D, got `{spec}`");
-        let (rw, rh, rd) = (v[0], v[1], v[2]);
-        let cx = b.w / 2;
-        let (x0, x1, y0, y1) = (cx - rw / 2, cx - rw / 2 + rw - 1, b.surface + rd, b.surface + rd + rh - 1);
-        assert!(x0 > 1 && x1 < b.w - 2 && y1 < b.floor - 1, "room= {spec} does not fit in the soil");
-        let mut carved = std::collections::BTreeSet::new();
-        for y in b.surface..=y1 {
-            for x in x0..=x1 {
-                let passage = y < y0 && (x == cx - 1 || x == cx);
-                if passage || y >= y0 {
-                    if !world.is_empty(x, y) {
-                        world.set(x, y, Cell::EMPTY);
-                    }
-                    carved.insert((x, y));
-                }
-            }
-        }
-        // **`side=N` -- a 2-tall tunnel off the start room's floor**, `N`
-        // cells long, to the east (`N` > 0) or west (`N` < 0); idea 5's test
-        // box (review change 3, 2026-10-11): does brood carried out of open
-        // room walk into it, and follow it to the other side when mirrored.
-        if let Some(n) = arg::<i32>("side") {
-            let (from, to) = if n > 0 { (x1 + 1, x1 + n) } else { (x0 + n, x0 - 1) };
-            assert!(from > 1 && to < b.w - 2, "side={n} does not fit in the box");
-            for y in (y1 - 1)..=y1 {
-                for x in from..=to {
-                    if !world.is_empty(x, y) {
-                        world.set(x, y, Cell::EMPTY);
-                    }
-                    carved.insert((x, y));
-                }
-            }
-            println!("  side tunnel: cols {from}..={to}, rows {}..={y1}", y1 - 1);
-            side_tunnel = Some((from, to, y0, y1));
-        }
-        // **Lined, as a colony's own rooms are** (the `=` walls on every
-        // `deeptrace` nest map, `burrow_probe`'s `lined` arm): an unlined
-        // carved room's roof fell in within 1,000 frames (roofed 340 -> 18),
-        // which is soil physics, not digging.
-        let mut lining = 0;
-        for &(cx0, cy0) in &carved {
-            for dy in -1..=1 {
-                for dx in -1..=1 {
-                    let (wx, wy) = (cx0 + dx, cy0 + dy);
-                    if carved.contains(&(wx, wy)) || wy < b.surface {
-                        continue;
-                    }
-                    let cell = world.get(wx, wy);
-                    if let Some(packed) = world.materials.get(cell.material).packs_into {
-                        let mut lined = cell;
-                        lined.material = packed;
-                        world.set(wx, wy, lined);
-                        lining += 1;
-                    }
-                }
-            }
-        }
-        let carved = carved.len();
-        trickle.room = Some((x0, x1, y1));
-        // **`crumbs=N[:every]` -- a held store on the start room's floor**
-        // (idea 4's calibration, review change 1, 2026-10-11): `N` crumbs
-        // spread evenly along its floor row, each put back every `every`
-        // frames (500) if gone, so the store stays where it was put while the
-        // test asks whether a room grows round it and stops.
-        if let Some(spec) = arg::<String>("crumbs") {
-            let mut it = spec.split(':').map(|t| t.trim().parse::<i32>().expect("crumbs=N[:every]"));
-            let n = it.next().expect("crumbs=N[:every]");
-            let every = it.next().unwrap_or(500);
-            assert!(n > 0 && n <= rw && every > 0, "crumbs={spec}: 1..=W crumbs, every > 0");
-            let id = world.materials.id_of("crumbs").expect("crumbs ships");
-            let spots: Vec<(i32, i32)> = (0..n).map(|i| (x0 + (2 * i + 1) * rw / (2 * n), y1)).collect();
-            for &(x, y) in &spots {
-                world.set(x, y, Cell::new(id, 0));
-            }
-            println!("  held store: {n} crumbs on the start room's floor at cols {:?}, put back every {every} frames", spots.iter().map(|s| s.0).collect::<Vec<_>>());
-            held_store = Some((id, spots, every as u64, 0u64));
-        }
-        println!("  start room: {rw} x {rh} cells, roof {rd} rows under the surface (rows {y0}..={y1}, cols {x0}..={x1}), joined to the door by a 2-wide passage; {carved} cells carved, {lining} wall cells lined; ants placed on its floor");
-    }
 
     // The endowment horizon, printed rather than assumed -- a run past it is
     // measuring starvation, not digging.
@@ -3841,7 +3744,6 @@ fn harness() {
         if seed == 0 { "the shipped walk; the scene itself carries no noise" } else { "founding order shuffled" }
     );
     match &food_pile {
-        None if held_store.is_some() => println!("  no food but the held store's crumbs (`crumbs=`), no plants, no lamps, no weather -- FoodAdjacent reads only those"),
         None => println!(
             "  no food, no plants, no lamps, no weather -- FoodAdjacent is 0 by construction, so the dig you see is the nest mechanism alone"
         ),
@@ -4019,16 +3921,6 @@ fn harness() {
     if let Some(c) = cap {
         println!("  cap: no births while {c} or more creatures live (cap=; World::births_paused)");
     }
-    // **`broodcap=<n>`: no births while `n` or more brood items live** -- the
-    // same pause counted over brood, which `cap=` does not see. Built
-    // 2026-10-11 for the brood-room box (idea 5): uncapped, the founding
-    // burst laid ~450 brood cells into a 24x14 room, so the pile *was* the
-    // room and a 24-cell side tunnel could never hold most of it -- a gate
-    // that cannot pass, whatever the rule does.
-    let brood_cap: Option<usize> = arg("broodcap");
-    if let Some(c) = brood_cap {
-        println!("  broodcap: no births while {c} or more brood items live (broodcap=; World::births_paused)");
-    }
     // **`antlife=PATH`: one row per adult ant every `antevery=` frames (200)**
     // -- where it is, what it holds, what its brain wants and what is in front
     // of it, and its running dig count. Built 2026-10-03 for the owner's
@@ -4050,9 +3942,8 @@ fn harness() {
                 funnel.before(&world, &b);
                 trips.before(&world);
             }
-            if cap.is_some() || brood_cap.is_some() {
-                world.births_paused = cap.is_some_and(|c| world.live_creature_count() >= c)
-                    || brood_cap.is_some_and(|c| world.live_brood_ids().len() >= c);
+            if let Some(c) = cap {
+                world.births_paused = world.live_creature_count() >= c;
                 paused_frames += u64::from(world.births_paused);
             }
             parallel::step(&mut world);
@@ -4071,14 +3962,6 @@ fn harness() {
         }
         if let Some(p) = food_pile.as_mut().filter(|p| f > 0 && p.refill > 0 && f.is_multiple_of(p.refill)) {
             p.place(&mut world);
-        }
-        if let Some((id, spots, _, put_back)) = held_store.as_mut().filter(|h| f > 0 && f.is_multiple_of(h.2)) {
-            for &(x, y) in spots.iter() {
-                if world.is_empty(x, y) {
-                    world.set(x, y, Cell::new(*id, 0));
-                    *put_back += 1;
-                }
-            }
         }
         if let Some(w) = ant_life.as_mut().filter(|_| f.is_multiple_of(ant_every)) {
             use std::io::Write;
@@ -4593,61 +4476,6 @@ fn harness() {
             bands[9] as f64 * 100.0 / total as f64
         );
     }
-    // **`PIXEL_PHYSICS_DIG_HOME`'s counters** (`creature::DigHome`): ticks at
-    // home whose group urge was held, ticks kept at a fresh face under
-    // `mark=`, and the marks standing and laid -- so a picture from an arm
-    // carries whether its rule fired at all.
-    if pixel_physics::sim::creature::dig_home_of() != pixel_physics::sim::creature::DigHome::Off {
-        println!(
-            "SUMMARY dig home: held {} | mark: face ticks {}, store-room ticks {}, marks standing {}, laid from the dug home {}, from elsewhere {}",
-            st.dig_home_held,
-            st.dig_mark_face,
-            st.dig_mark_keep,
-            world.face_marks.len(),
-            st.marks_home,
-            st.marks_away
-        );
-    }
-
-    // **Where the brood lies at the end** (idea 5's test box): brood cells in
-    // the side tunnel's columns (at or below the room's floor row - 6), in
-    // the shaft and passage over the room (door +-3, above its roof), and
-    // elsewhere (the room itself, mostly).
-    if let Some((from, to, ry0, fy)) = side_tunnel {
-        let brood = world.materials.id_of("brood");
-        let (mut tunnel, mut door, mut other) = (0, 0, 0);
-        for y in b.surface..b.floor {
-            for x in 0..b.w {
-                if Some(world.get(x, y).material) != brood {
-                    continue;
-                }
-                if (from..=to).contains(&x) && y >= fy - 6 {
-                    tunnel += 1;
-                } else if (x - b.w / 2).abs() <= 3 && y < ry0 {
-                    door += 1;
-                } else {
-                    other += 1;
-                }
-            }
-        }
-        println!("SUMMARY brood at the end: side tunnel {tunnel}, shaft and passage over the room {door}, elsewhere {other}; carried out of open room {} times", st.brood_room_carried);
-        if pixel_physics::sim::brood::lay_side().is_some() {
-            println!(
-                "SUMMARY lay_side: held {} (walk by the store {}, by the way {}), laid on a side floor {}, gave up {}, mean wait {:.0} frames over {}, layers kept from nursing {}",
-                st.lay_side_held,
-                st.lay_side_walk_store,
-                st.lay_side_walk_way,
-                st.lay_side_laid,
-                st.lay_side_gave_up,
-                st.lay_side_wait_frames as f64 / st.lay_side_waited.max(1) as f64,
-                st.lay_side_waited,
-                st.lay_side_kept
-            );
-        }
-    }
-    if let Some((_, spots, _, put_back)) = &held_store {
-        println!("SUMMARY held store: {} crumbs, put back {put_back} times; spots {:?}", spots.len(), spots);
-    }
 
     if let Some(path) = out {
         write_sheet(&path, &shots, &b, scale);
@@ -4946,10 +4774,6 @@ impl FoodPile {
         (0..self.n).filter(|i| world.get(self.x + (i % 12) - 6, self.top - i / 12).material == self.larder).count() as u64
     }
 }
-
-/// `crumbs=`'s held store: (crumbs material, spots, put back every, times
-/// put back).
-type HeldStore = (MaterialId, Vec<(i32, i32)>, u64, u64);
 
 /// **Every ant topped up to its start energy each frame** -- the box's
 /// default since 2026-09-29 (`hungry` turns it off) -- as though the colony

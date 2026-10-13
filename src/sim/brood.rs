@@ -289,149 +289,35 @@ fn parse_egg_door(raw: &str) -> EggDoor {
 
 /// **The cells an egg laid by one ant may not take** ([`EggDoor`]): the
 /// mode, and how far round the door that ant keeps clear.
-/// **`PIXEL_PHYSICS_LAY_SIDE`: an egg is put down only on a side floor, and
-/// a ready layer with none in reach walks the store field to one** (idea 6,
-/// late tunnels, 2026-10-11; off by default).
-///
-/// **Why.** Traced on steady food, 300-600k, main s1-4 and mark s1-2
-/// (`/mnt/project-files/late-tunnels/lay/`): 96-98% of eggs are laid by an
-/// ant standing on the mound; [`pile_site`] puts the egg on the nearest
-/// empty home cell within 4 steps, the top of the shaft; brood is a powder
-/// that drops straight down, so it stacks into one pillar under the door.
-/// The layers are foragers made rich at the food. Ants 15+ rows down are
-/// never rich (0.0-0.1% reach 900 J against a ~1,100 J bar), because under
-/// `NURSE=any` the richest adult touching a hungry larva pays a quarter of
-/// its surplus every larva tick ([`nurse`]). `LAY_IN`, which pulled a layer
-/// inward only when no egg cell at all was in reach, did not move where
-/// eggs went (0-2% at 15+ rows: one cell always is in reach at the door);
-/// it had no firing counter, and its 18-27% egg drop says it held layers.
-///
-/// **The rule.**
-/// - **Side floor** ([`EggBar::bars`]): an egg cell must lie `rows`+ rows
-///   under the nearest nest's surface, `cols`+ columns off its door x, and be
-///   floored as [`carry`] floors (solid, powder or plant under it, never a
-///   body). Brood never rolls, so an egg put `cols` off the door stays `cols`
-///   off it.
-/// - **Walk** (`creature::lay_in_target`): a ready layer beside home with no
-///   side floor in egg reach walks the store field inward
-///   (`creature::store_inward`) -- the store lies on the walls, so the egg
-///   is laid beside the food -- and, off the store field, LAY_IN's
-///   `deeper_along_way` (a labelled fallback; both counted).
-/// - **Hold** (`creature::lay_hold`, rev 3): a layer on its walk to a side
-///   floor gives, by any share (adult, larva, bank nursing), only what it
-///   holds above its laying bar, so the walk past hungry nestmates does not
-///   un-ready it. Part `nokeep` drops it. Gated to the walk (the give-up
-///   clock running), so a forager rich at the food still gives as shipped.
-/// - **Give-up**: `give` frames after a layer was first held for want of a
-///   side floor, its bar is the shipped rule until it lays
-///   (`OrganismState::lay_side_since`).
-///
-/// `on` is `cols=6,rows=15,give=3000` with hold; `nokeep` is `on` without
-/// it; a comma list of `cols=`, `rows=`, `give=`, `nokeep` and `noside` sets
-/// each (`noside` turns off the side floor and walk, which with the hold
-/// gated to the walk leaves nothing: kept for the parse, not as an arm).
-/// **Known answer:** `give=0,nokeep` is the shipped rule byte for byte.
-/// Unknown values panic (a mistyped switch must not fail open).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct LaySide {
-    pub cols: i32,
-    pub rows: i32,
-    pub give: u64,
-    /// The side-floor rule and its walk (parts A and B). Off with `noside`.
-    pub side: bool,
-    /// **The egg is committed** (`creature::lay_hold`): a layer on its walk
-    /// gives by any share only what it holds above its bar. Off with
-    /// `nokeep`.
-    pub keep: bool,
-}
-
-pub const LAY_SIDE_ON: LaySide = LaySide { cols: 6, rows: 15, give: 3000, side: true, keep: true };
-
-/// A gap this long between two holds of one layer means it stopped being
-/// ready in between (the lay is tried every tick an ant could lay), so the
-/// give-up clock restarts.
-pub const LAY_SIDE_GAP: u64 = 1000;
-
-pub fn lay_side() -> Option<LaySide> {
-    static V: std::sync::OnceLock<Option<LaySide>> = std::sync::OnceLock::new();
-    *V.get_or_init(|| parse_lay_side(&std::env::var("PIXEL_PHYSICS_LAY_SIDE").unwrap_or_default()))
-}
-
-fn parse_lay_side(raw: &str) -> Option<LaySide> {
-    let raw = raw.trim();
-    if raw.is_empty() || raw == "off" {
-        return None;
-    }
-    let bad = || -> ! { panic!("PIXEL_PHYSICS_LAY_SIDE={raw:?}: use off, on, nokeep, noside, or a list of cols=N, rows=N, give=N, nokeep, noside") };
-    let mut v = LAY_SIDE_ON;
-    for part in raw.split(',').map(str::trim) {
-        match part.split_once('=') {
-            None if part == "on" => {}
-            None if part == "nokeep" => v.keep = false,
-            None if part == "noside" => v.side = false,
-            Some(("cols", n)) => v.cols = n.parse().ok().filter(|n: &i32| *n >= 0).unwrap_or_else(|| bad()),
-            Some(("rows", n)) => v.rows = n.parse().ok().filter(|n: &i32| *n >= 0).unwrap_or_else(|| bad()),
-            Some(("give", n)) => v.give = n.parse().unwrap_or_else(|_| bad()),
-            _ => bad(),
-        }
-    }
-    Some(v)
-}
-
-/// **Is `(x, y)` a side floor** ([`LaySide`]): far enough under and off the
-/// door of its nearest nest, with something under it an egg rests on.
-pub(super) fn side_floor(world: &World, (x, y): (i32, i32), side: LaySide) -> bool {
-    use super::material::MaterialKind;
-    let Some(site) = world.nearest_nest_site(x, y) else { return false };
-    let s = &world.nest_sites[site];
-    (x - s.x).abs() >= side.cols
-        && y - s.surface >= side.rows
-        && world.in_bounds(x, y + 1)
-        && matches!(world.materials.kind(world.get(x, y + 1).material), MaterialKind::Solid | MaterialKind::Powder | MaterialKind::Plant)
-}
-
-/// **Has this layer's side-floor clock run out** ([`LaySide`]'s give-up):
-/// held for want of a side floor `give` frames ago, and held again within
-/// [`LAY_SIDE_GAP`] since. `give=0` has always run out (the known answer).
-pub(super) fn lay_side_gave_up(world: &World, layer: OrganismId, side: LaySide) -> bool {
-    side.give == 0 || world.organism(layer).is_some_and(|st| st.lay_side_since != 0 && world.frame.saturating_sub(st.lay_side_last) < LAY_SIDE_GAP && world.frame.saturating_sub(st.lay_side_since) >= side.give)
-}
-
 #[derive(Clone, Copy, Debug)]
 pub(super) struct EggBar {
     pub mode: EggDoor,
     pub clear: i32,
-    /// [`LaySide`] for this layer, `None` with the switch off or its clock
-    /// run out.
-    pub side: Option<LaySide>,
 }
 
 impl EggBar {
     /// The live mode, at `layer`'s own door allele.
     pub(super) fn of(world: &World, layer: OrganismId) -> Self {
-        let mut bar = Self::with(world, layer, egg_door());
-        bar.side = lay_side().filter(|&side| side.side && !lay_side_gave_up(world, layer, side));
-        bar
+        Self::with(world, layer, egg_door())
     }
 
     /// `mode`, at `layer`'s own door allele.
     pub(super) fn with(world: &World, layer: OrganismId, mode: EggDoor) -> Self {
         let clear = if mode == EggDoor::Off { 0 } else { creature::door_clear_cells(world, layer) };
-        Self { mode, clear, side: None }
+        Self { mode, clear }
     }
 
     #[cfg(test)]
-    pub(super) const OFF: Self = Self { mode: EggDoor::Off, clear: 0, side: None };
+    pub(super) const OFF: Self = Self { mode: EggDoor::Off, clear: 0 };
 
     /// Whether an egg may not be put down at `(x, y)`. One scan over the
     /// world's few nest sites; `off` reads nothing.
     pub(super) fn bars(&self, world: &World, (x, y): (i32, i32)) -> bool {
-        let door = match self.mode {
+        match self.mode {
             EggDoor::Off => false,
             EggDoor::Door | EggDoor::Deep => creature::in_doorway(world, (x, y), self.clear),
             EggDoor::Cut => creature::in_doorway(world, (x, y), self.clear) || in_founding_cut(world, (x, y)),
-        };
-        door || self.side.is_some_and(|side| !side_floor(world, (x, y), side))
+        }
     }
 
     /// Whether `(x, y)` is allowed but second best: under `deep`, a cell of
@@ -678,126 +564,6 @@ pub(super) fn carry(world: &mut World, organism: OrganismId, (x, y): (i32, i32),
     (tx, ty)
 }
 
-/// **Brood is carried out of open room** ([`room_carry`]):
-/// `PIXEL_PHYSICS_BROOD_ROOM=<T>`, off (0) by default; `on` is
-/// [`BROOD_ROOM_OPEN`]. Unknown values panic (a mistyped switch must not fail
-/// open). Idea 5 of the late-tunnels lane (2026-10-11), an engineering rule,
-/// not a finding: in *Acromyrmex* chambers grow round brood the experimenters
-/// placed in a tunnel (Romer & Roces 2014, doi 10.1371/journal.pone.0097872),
-/// and nothing in this game moves brood off the door column, where eggs fall
-/// into one pillar mid-room. Design, review and the offline gate it was built
-/// on: `/mnt/project-files/late-tunnels/design-idea5-brood-room-2026-10-11.md`,
-/// `review-idea5-brood-room-2026-10-11.md`. The gate's warning stands: on the
-/// game the destinations it found were the pillar's foot, a floor pit 4
-/// columns off the door; this is built to see whether digging round brood
-/// (`DIG_HOME=...,broodonly`) widens that pit into a lower room.
-pub fn brood_room() -> i32 {
-    static V: std::sync::OnceLock<i32> = std::sync::OnceLock::new();
-    *V.get_or_init(|| parse_brood_room(&std::env::var("PIXEL_PHYSICS_BROOD_ROOM").unwrap_or_default()))
-}
-
-fn parse_brood_room(raw: &str) -> i32 {
-    match raw.trim() {
-        "" | "off" => 0,
-        "on" => BROOD_ROOM_OPEN,
-        v => v.parse().ok().filter(|t: &i32| *t > 0).unwrap_or_else(|| panic!("PIXEL_PHYSICS_BROOD_ROOM={v:?}: use on, off or a room count over 0")),
-    }
-}
-
-/// `on`'s threshold: room cells of the 289 within 8 above which a spot is
-/// open room. Brood mid-room reads a median 266-282 on the game, store
-/// crumbs 149-156, floored room 140-143 (`idea5/replay5-300k.txt`).
-pub const BROOD_ROOM_OPEN: i32 = 180;
-/// Steps a carry may take, as [`BROOD_CARRY_REACH`].
-pub const BROOD_ROOM_REACH: i32 = 3;
-/// The founding door's columns either side that are never a destination,
-/// so brood is not packed into the way in (review change 1).
-pub const BROOD_ROOM_DOOR: i32 = 3;
-
-/// **A larva lying in open room is carried to a floored, enclosed spot**
-/// ([`brood_room`]): at a brood item's tick, below its nest site's founding
-/// ground, if more than `open` of the cells within 8 are room
-/// (`creature::room_window`) and a grown nestmate touches it, the nestmate
-/// carries it up to [`BROOD_ROOM_REACH`] steps to an empty floored home cell
-/// below the ground reading under `open`, never in the door's columns or the
-/// founding shaft; most brood touching wins, then the fewest steps. Brood
-/// already under `open` never moves, so a room dug round it does not chase
-/// it out (review change 1). Only items that tick move: larvae every
-/// `LARVA_TICK`, eggs and pupae at their stage's end. Returns where it lies.
-pub(super) fn room_carry(world: &mut World, organism: OrganismId, (x, y): (i32, i32), material: super::material::MaterialId, def: &CreatureDef, open: i32) -> (i32, i32) {
-    use super::material::MaterialKind;
-    if open <= 0 {
-        return (x, y);
-    }
-    let Some(site) = world.nearest_nest_site(x, y) else {
-        return (x, y);
-    };
-    let (door_x, surface) = (world.nest_sites[site].x, world.nest_sites[site].surface);
-    if y <= surface || creature::room_window(world, (x, y), 8) <= open {
-        return (x, y);
-    }
-    let here = world.get(x, y);
-    if here.material != material || here.organism_id() != organism {
-        return (x, y);
-    }
-    let gut = creature::gut_of(world, organism, def);
-    let carrier = creature::DIRS.iter().any(|&(dx, dy)| {
-        let id = world.get(x + dx, y + dy).organism_id();
-        id != 0 && id != organism && world.organism(id).is_some_and(|st| st.brood.is_none() && st.spoil.is_none()) && creature::is_living_kin_id(world, id, gut)
-    });
-    if !carrier {
-        return (x, y);
-    }
-    let in_shaft = |w: &World, px: i32, py: i32| w.nest_sites.iter().filter_map(|s| s.shaft).any(|c| c.contains(px, py));
-    let floored = |w: &World, (px, py): (i32, i32)| {
-        w.in_bounds(px, py + 1) && matches!(w.materials.kind(w.get(px, py + 1).material), MaterialKind::Solid | MaterialKind::Powder | MaterialKind::Plant)
-    };
-    let touching = |w: &World, (px, py): (i32, i32)| creature::DIRS.iter().filter(|&&(dx, dy)| (px + dx, py + dy) != (x, y) && w.get(px + dx, py + dy).material == material).count() as i32;
-    let reach = BROOD_ROOM_REACH;
-    let side = 2 * reach + 1;
-    let index = |px: i32, py: i32| ((py - y + reach) * side + (px - x + reach)) as usize;
-    let mut seen = vec![false; (side * side) as usize];
-    seen[index(x, y)] = true;
-    let mut frontier = vec![(x, y)];
-    let mut best: Option<((i32, i32), (i32, i32))> = None;
-    for depth in 1..=reach {
-        let mut next = Vec::new();
-        for &(fx, fy) in &frontier {
-            for (dx, dy) in creature::DIRS {
-                let (nx, ny) = (fx + dx, fy + dy);
-                if (nx - x).abs() > reach || (ny - y).abs() > reach || !world.in_bounds(nx, ny) || seen[index(nx, ny)] {
-                    continue;
-                }
-                seen[index(nx, ny)] = true;
-                let c = world.get(nx, ny);
-                let empty = world.is_empty(nx, ny);
-                if !empty && c.material != material && world.materials.kind(c.material) != MaterialKind::Creature {
-                    continue;
-                }
-                next.push((nx, ny));
-                if !empty || ny <= surface || (nx - door_x).abs() <= BROOD_ROOM_DOOR || in_shaft(world, nx, ny) || !floored(world, (nx, ny)) || !creature::home_at(world, nx, ny, def) {
-                    continue;
-                }
-                if creature::room_window(world, (nx, ny), 8) >= open {
-                    continue;
-                }
-                let key = (touching(world, (nx, ny)), -depth);
-                if best.is_none_or(|(k, _)| key > k) {
-                    best = Some((key, (nx, ny)));
-                }
-            }
-        }
-        frontier = next;
-    }
-    let Some((_, (tx, ty))) = best else {
-        return (x, y);
-    };
-    world.set(tx, ty, here);
-    world.set(x, y, super::cell::Cell::EMPTY);
-    world.creature_stats.brood_room_carried += 1;
-    (tx, ty)
-}
-
 /// **How crowded a brood pile gets before nestmates spread it**
 /// ([`spread`]): `PIXEL_PHYSICS_BROOD_SPREAD`, **off by default**; `on` is
 /// [`BROOD_SPREAD_CROWD`]; a number of at least 3 is the crowd. Unknown
@@ -1026,10 +792,7 @@ pub(super) fn lay_egg(world: &mut World, parent: OrganismId, head: (i32, i32), d
     // every neighbour taken does.
     let (ex, ey) = match at {
         Some(cell) => cell,
-        // `LAY_SIDE` binds the pile walk only ([`LaySide`]): an egg laid
-        // where the layer stands (no pile reach, or a store birth) keeps the
-        // shipped bar, so the switch never refuses a birth here.
-        None => beside_head(world, head, EggBar { side: None, ..EggBar::of(world, parent) })?,
+        None => beside_head(world, head, EggBar::of(world, parent))?,
     };
     let child = world.push_organism(egg.species)?;
     // **Fixed at laying**: the adult this egg becomes costs what a bud of
@@ -1134,8 +897,6 @@ pub fn brood_tick(world: &mut World, site: &ActiveSite) -> Vec<ActiveSite> {
     // **Carried to brood** ([`carry`]) before its stage runs, so the stage
     // runs where it now lies. Off, one branch.
     let (x, y) = carry(world, organism, (x, y), material, &def, brood_carry_reach(), egg_door());
-    // **Carried out of open room** ([`room_carry`], idea 5), likewise.
-    let (x, y) = if holder.is_none() { room_carry(world, organism, (x, y), material, &def, brood_room()) } else { (x, y) };
     // **Spread out of a crowded pile** ([`spread`]), likewise before the
     // stage runs. Brood a walker holds is not lying in its cell, so it stays.
     let (x, y) = if holder.is_none() { spread(world, organism, (x, y), material, &def, brood_spread(), egg_door()) } else { (x, y) };
@@ -1277,12 +1038,6 @@ fn nurse(world: &mut World, larva: OrganismId, (x, y): (i32, i32), colony: u32, 
         }
     }
     let workers_only = nurse_mode_of(world) == NurseMode::Workers;
-    // **`LAY_SIDE` keep: the egg is committed** ([`LaySide`],
-    // [`creature::lay_hold`]): an ant at its laying bar is passed over as a
-    // donor, and one over it gives only its surplus over the bar, so the
-    // walk to a side floor past the larvae does not un-ready it.
-    let keep_layers = lay_side().is_some_and(|side| side.keep);
-    let mut kept = false;
     let mut best: Option<(OrganismId, f32)> = None;
     for (dx, dy) in super::structural::NEIGHBOURS_8 {
         let c = world.get(x + dx, y + dy);
@@ -1302,16 +1057,9 @@ fn nurse(world: &mut World, larva: OrganismId, (x, y): (i32, i32), colony: u32, 
         if workers_only && !creature::is_nest_bound(world, st) {
             continue;
         }
-        if keep_layers && creature::lay_hold(world, def, st, f32::INFINITY) <= 0.0 {
-            kept = true;
-            continue;
-        }
         if best.is_none_or(|(_, e)| st.energy > e) {
             best = Some((id, st.energy));
         }
-    }
-    if kept {
-        world.creature_stats.lay_side_kept += 1;
     }
     let Some((donor, mine)) = best else {
         note_fed_away(world, away, fed);
@@ -1319,9 +1067,6 @@ fn nurse(world: &mut World, larva: OrganismId, (x, y): (i32, i32), colony: u32, 
     };
     world.creature_stats.larva_ticks_nursed += 1;
     let amount = (creature::SHARE_FRACTION * (mine - start_energy)).min(need);
-    let held = world.organism(donor).map_or(amount, |st| creature::lay_hold(world, def, st, amount));
-    world.creature_stats.lay_side_held_j += (amount - held).max(0.0) as f64;
-    let amount = held;
     if amount <= 0.0 {
         note_fed_away(world, away, fed);
         return;
@@ -2227,8 +1972,8 @@ mod tests {
         let (w, def, cut) = cut_bed(true);
         let block = def.brood.clone().expect("brood");
         let clear = creature::DOOR_CLEAR_CELLS as i32;
-        let door = EggBar { mode: EggDoor::Door, clear, side: None };
-        let whole = EggBar { mode: EggDoor::Cut, clear, side: None };
+        let door = EggBar { mode: EggDoor::Door, clear };
+        let whole = EggBar { mode: EggDoor::Cut, clear };
         let heads: Vec<(i32, i32)> = (40..=47).flat_map(|y| (56..=65).map(move |x| (x, y))).filter(|&(x, y)| cut.contains(x, y)).collect();
         let (mut in_door_off, mut in_chamber_door, mut to_gallery) = (0, 0, 0);
         for &head in &heads {
@@ -2255,7 +2000,7 @@ mod tests {
     fn with_nothing_dug_beyond_the_cut_the_egg_is_held() {
         let (w, def, cut) = cut_bed(false);
         let block = def.brood.clone().expect("brood");
-        let whole = EggBar { mode: EggDoor::Cut, clear: creature::DOOR_CLEAR_CELLS as i32, side: None };
+        let whole = EggBar { mode: EggDoor::Cut, clear: creature::DOOR_CLEAR_CELLS as i32 };
         let head = (cut.chamber_x1, cut.chamber_bottom);
         assert!(pile_site(&w, head, &def, &block, EGG_PILE_REACH, EggBar::OFF).is_some(), "test setup: the chamber is not home");
         assert_eq!(pile_site(&w, head, &def, &block, EGG_PILE_REACH, whole), None);
@@ -2269,8 +2014,8 @@ mod tests {
     #[test]
     fn deep_lays_in_the_cut_only_while_nothing_dug_is_in_reach() {
         let clear = creature::DOOR_CLEAR_CELLS as i32;
-        let deep = EggBar { mode: EggDoor::Deep, clear, side: None };
-        let whole = EggBar { mode: EggDoor::Cut, clear, side: None };
+        let deep = EggBar { mode: EggDoor::Deep, clear };
+        let whole = EggBar { mode: EggDoor::Cut, clear };
         let (w, def, cut) = cut_bed(false);
         let block = def.brood.clone().expect("brood");
         let head = (cut.chamber_x1, cut.chamber_bottom);
@@ -2794,31 +2539,6 @@ mod tests {
         assert_eq!(parse_brood_spread("8"), Some(8));
         assert!(std::panic::catch_unwind(|| parse_brood_spread("2")).is_err(), "a crowd under 3 must not pass");
         assert!(std::panic::catch_unwind(|| parse_brood_spread("yes")).is_err(), "a mistyped switch must not fail open");
-    }
-
-    /// `PIXEL_PHYSICS_BROOD_ROOM`'s value (idea 5).
-    #[test]
-    fn lay_side_parses_its_parts_and_refuses_a_typo() {
-        assert_eq!(parse_lay_side(""), None, "unset is the shipped rule");
-        assert_eq!(parse_lay_side("off"), None);
-        assert_eq!(parse_lay_side("on"), Some(LAY_SIDE_ON));
-        assert_eq!(parse_lay_side("nokeep"), Some(LaySide { keep: false, ..LAY_SIDE_ON }));
-        assert_eq!(parse_lay_side("cols=4,rows=10,give=0,nokeep"), Some(LaySide { cols: 4, rows: 10, give: 0, side: true, keep: false }));
-        assert_eq!(parse_lay_side("noside"), Some(LaySide { side: false, ..LAY_SIDE_ON }));
-        for bad in ["yes", "cols=-1", "rows=x", "give=-5", "on,keep", "cols"] {
-            assert!(std::panic::catch_unwind(|| parse_lay_side(bad)).is_err(), "{bad:?} must panic, not run under an arm's label");
-        }
-    }
-
-    #[test]
-    fn brood_room_parses_on_off_and_a_threshold() {
-        assert_eq!(parse_brood_room(""), 0, "unset is the shipped brood");
-        assert_eq!(parse_brood_room("off"), 0);
-        assert_eq!(parse_brood_room("on"), BROOD_ROOM_OPEN);
-        assert_eq!(parse_brood_room("200"), 200);
-        for bad in ["0", "-5", "yes"] {
-            assert!(std::panic::catch_unwind(|| parse_brood_room(bad)).is_err(), "{bad:?} must panic, not run as off");
-        }
     }
 
     /// **A crowded pile is spread** ([`spread`]): an egg in the middle of a
