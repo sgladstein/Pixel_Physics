@@ -499,10 +499,13 @@ pub const MUT_REL: f32 = 0.10;
 /// 60 and 80 were byte-identical on all 16 runs: no weight passed 56.8 in
 /// 300k. 80 rather than 60 because the older ant species (`ancestor`,
 /// `ant_long` and the rest) author `Carrying -> h2/h3 = -75`, which 60 would
-/// cut the same way. **Not the whole fix**: the gate opens only at a 98.9%
-/// full crop, so on 2 of the 8 seeds an ordinary step (the bias to -52, or
-/// -47.9 with the gain at 42.3) shut it again and that lineage still swept
-/// the colony. `every_authored_weight_is_inside_the_mutation_clamp` is the
+/// cut the same way. **Not the whole fix**: `CarryingFood` is 0 or 1, so the
+/// pair's laden open state, +0.5, is the difference of two weights of 45,
+/// each moving up to 4.6 per touch; on 2 of the 8 seeds ordinary steps (the
+/// bias to -52, or -47.9 with the gain at 42.3) shut it again and that
+/// lineage still swept the colony. Under the shipped chooser the pair's
+/// trail reading reaches the brain as 0 (`creature.rs` `brain_inputs`), so
+/// the pair steers nothing and this break is its only effect. `every_authored_weight_is_inside_the_mutation_clamp` is the
 /// guard: any species authoring a weight past this fails there.
 pub const MUT_CLAMP: f32 = 80.0;
 
