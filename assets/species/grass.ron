@@ -61,7 +61,11 @@
 //     drought-proof by construction, and `drought_death` below cannot
 //     fire on one however dry the ground is. Measured: the 8-founder
 //     45,000-frame ensemble ends with 252 `MatureBody` cells and **zero**
-//     `GrowingTip`s.
+//     `GrowingTip`s. **Except, since 2026-10-13, a plant with no root
+//     touching soil or water** (`plant::rootless_dries_default`): its
+//     zero demand now reads as dry in proportion to its empty tank, so
+//     `drought_death` takes its blades and the thirst sends its roots
+//     looking for ground. A grass rooted in dry soil is still drought-proof.
 //
 // **`BudBreak` is unreachable, twice over, and the second reason is the
 // real one.** Even with the light gate aside, nothing ever creates a
@@ -301,6 +305,9 @@
             // right and the channel that feeds it is empty. Widening the
             // demand sum to a photosynthetic `MatureBody` is an economy
             // change and belongs to P2's single re-derivation, not here.
+            // The one live exception: a grass with no root touching soil
+            // or water reads dry by its tank (`rootless_dries_default`),
+            // so this does fire on it.
             Photosynthesize(rate: 0.55, shade_death: 0.004, drought_death: 0.002),
         ]),
         (RootTip, [

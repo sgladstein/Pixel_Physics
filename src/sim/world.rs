@@ -6082,6 +6082,12 @@ pub struct World {
     /// `PIXEL_PHYSICS_SAP_FLOW` (`on`/`off`); a field rather than a process
     /// global so a test can run both arms in one process.
     pub sap_flow: bool,
+    /// **Whether a plant with no root touching soil or water dries out even
+    /// when nothing asks it for water** (`plant::rootless_dries_default`,
+    /// which carries the trace). Initialised from
+    /// `PIXEL_PHYSICS_ROOTLESS_DRIES` (`off` restores the old engine); a
+    /// field rather than a process global so a test can run both arms.
+    pub rootless_dries: bool,
     /// **Whether a plant may lean under load and wind.** `plant.rs`'s
     /// `bend_under_load`, and the `stress_field` that feeds it.
     ///
@@ -7324,6 +7330,7 @@ impl World {
             // silently disables a mechanism is a mechanism nobody measures.
             plant_load_failure: true,
             sap_flow: super::plant::sap_flow_default(),
+            rootless_dries: super::plant::rootless_dries_default(),
             soil_capillary_levels: false,
             plant_bending: true,
             windfall_rots: crate::sim::decay::windfall_rots_default(),
