@@ -18,6 +18,7 @@ goal box, run four seeds side by side, read 100k–300k means. Judge a fix by
 the number it was built to move, look at a picture, then trace what it cost
 ant by ant. Colony size is never the verdict on its own. Deep-trace every
 test until the result is understood, and propose no new fix before then.
+A fix with no big measured downside merges **ON** (§2, rule 4).
 
 ## 1. The standard setup
 
@@ -29,7 +30,7 @@ test until the result is understood, and propose no new fix before then.
 | **`RAYON_NUM_THREADS=1`, four runs at once** | A lab run is no faster on four threads than one, so four single-thread runs is ~4x throughput. Pinned threads also keep counters comparable |
 | **Seeds are deterministic per build** | Same build + same seed = same world. So arms compare **paired, seed by seed**, and the baseline is re-run on the same commit, never quoted from memory |
 | **Read 100k–300k means**, not one frame | The colony's first 100k is founding. Adjacent census stops of one run can differ by an order of magnitude |
-| **Stamp the `main` commit** on every number | Lab numbers do not compare across certain merges: before PR 611 (mutation switch), before `6e42f0fa` (HUNGRY_OUT on), before `06202f793` (WATER_FOOTING on, misted beds). A number without its commit cannot be checked against one with |
+| **Stamp the `main` commit** on every number | Lab numbers do not compare across certain merges: before PR 611 (mutation switch), before `6e42f0fa` (HUNGRY_OUT on), before `06202f793` (WATER_FOOTING on, misted beds), before PR 689 (`PACK_PARTED=carry` on; `PIXEL_PHYSICS_PACK_PARTED=off` reproduces the old ant), before PR 690 (the default `needs=walk` new ant adds `parted_carry`; `needsparts=reach,walled_in` reproduces the old new ant). A number without its commit cannot be checked against one with |
 
 **How many seeds.** 1–4 seeds to iterate, labelled as partial and reported
 early; **12 seeds only to settle a default**. Before a winner ships, run it
@@ -59,11 +60,32 @@ Owner rulings, 2026-10-05:
    is a question, not a win.
 3. **Then trace the cost.** If the colony got smaller or died, find out **who
    died, of what, and where** — never revert on the colony number alone.
-4. **The default.** A fix that works on its own metric ships **ON**, even if
-   the colony is smaller; the cost goes to tracing. The one hold: a fix that
-   kills colonies outright stays built but **OFF** until the deaths are
-   understood. Features default on unless there is a measured harm (owner,
-   2026-09-27).
+4. **The default is ON.** Owner, 2026-10-12: *"If it fixes something and
+   doesn't [have] big downsides it should be on. That should be the rules.
+   We are going to have important features forgotten off behind a switch
+   with this workflow."* So:
+   - **A switch is for testing and for a way back**, never for parking. Build
+     the change behind its own switch so the off arm is the baseline, measure
+     it, and then **the PR that lands a fix with no big measured downside
+     merges it ON**. Do not land it off "for now" and ask later: a fix landed
+     off is a fix nobody remembers to turn on.
+   - A fix that works on its own metric ships ON even if the colony is
+     smaller; the cost goes to tracing.
+   - **Leave a change off only for a big measured downside** — colonies
+     killed outright, or a harm clearly outside the nudged-baseline spread
+     (§4). Say so plainly to the owner **with the numbers**, in the PR body
+     and in the switch's doc and its `how-the-ant-works.md` row, so the
+     reason it is off can be re-checked later.
+   - A change that failed its own target is not "off", it is a dead end:
+     a [`dead-ends.md`](dead-ends.md) entry, its branch kept (§7).
+   - **"Lands switched off" was never a project rule** (the owner caught it
+     presented as one, 2026-10-12). It was a habit of the build-and-measure
+     process, and it left fixes forgotten behind switches. The audit of
+     every switch that was off on 2026-10-12 is in the project's shared
+     folder, `switch-audit/audit-2026-10-12.md`.
+
+   Features default on unless there is a measured harm (owner, 2026-09-27;
+   restated 2026-10-12 above).
 
 Worked example: the nest-plan switches (SOIL_WAY, WAY_GAPS, FACE_TRIP,
 CROP_DOWN), judged one by one on their own targets with
@@ -215,4 +237,7 @@ Before building anything new, grep [`instruments.md`](instruments.md).
 - Change an ant mechanism → update [`how-the-ant-works.md`](how-the-ant-works.md)
   in the same commit. A switch that is tried and left off → a
   [`dead-ends.md`](dead-ends.md) entry with the condition it depends on.
+- Shipping a fix → its switch's default is **on** in this PR, unless it has
+  a big measured downside, which the PR body states with numbers (§2,
+  rule 4).
 - Stage explicit paths; never `git add -A`.

@@ -3092,7 +3092,8 @@ impl MaterialRegistry {
     /// fails on one end and wakes the tile as it always did.
     ///
     /// **Ordered so the switch short-circuits first.** With
-    /// `FIELD_CREATURE_WAKE` unset this is one `OnceLock<bool>` load and one
+    /// `FIELD_CREATURE_WAKE=off` (the default until 2026-10-12, when the
+    /// write gate shipped on) this is one `OnceLock<bool>` load and one
     /// perfectly-predicted branch, and no registry fetch and no compare at
     /// all -- the same budget `World::write_cell`'s own `write_watch.mark`
     /// sits on, in the hottest function in the engine. That ordering is what

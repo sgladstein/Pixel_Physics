@@ -377,7 +377,9 @@ fn main() {
     // `MaterialKind::Creature` alone: there the glow is real and the field
     // stops being told about it, so the hash must diverge. The pair is what
     // makes the clean run mean something --
-    // `FIELD_CREATURE_WAKE=0 antglow=2` identical, `=kind antglow=2` different.
+    // `FIELD_CREATURE_WAKE=0 antglow=2` identical, `=kind antglow=2` different,
+    // each read against `FIELD_CREATURE_WAKE=off antglow=2` (since 2026-10-12
+    // unset is `blocked`, so unset is no longer the untouched engine).
     //
     // Set on the live registry rather than in the `.ron`, the same way
     // `lab_cost`'s `gut=` constructs its known-non-zero case, and before the
@@ -400,7 +402,7 @@ fn main() {
     // says so. The harness that produced this round's tables was byte-
     // identical in both arms and the env was the only difference; a log that
     // does not name it is a log nobody can pair.
-    let wake = std::env::var("FIELD_CREATURE_WAKE").unwrap_or_else(|_| "on".to_string());
+    let wake = std::env::var("FIELD_CREATURE_WAKE").unwrap_or_else(|_| "unset (blocked)".to_string());
     println!(
         "antcost: ants={wants:?} frames={frames} reps={reps} seed={seed} widths={widths:?} heights={heights:?} \
          soil={soil} founders={founder_arms:?} species={species} colony_species={colony_species} grow={grow} \
@@ -665,12 +667,14 @@ fn main() {
     // **The field hash, per arm, beside the world hash below.** A field-only
     // change cannot move the grid for many frames, so the world hash alone
     // would call `FIELD_CREATURE_WAKE=0` identical when it is not --
+    // compare against `FIELD_CREATURE_WAKE=off`, the engine before the write
+    // gate shipped on (2026-10-12): unset *is* `blocked` now --
     // `examples/lab_cost.rs` grew the same pair on 2026-09-06 for the same
     // reason, and the bit-identity check for anything touching `field.rs` is
     // both lines matching. Read **down** a column across two processes (one
     // with the switch, one without), not across the arms of one run: the arms
     // are different populations and are supposed to differ.
-    println!("\n  field hash after the run, by arm (compare against the same arm of a run with FIELD_CREATURE_WAKE unset):");
+    println!("\n  field hash after the run, by arm (compare against the same arm of a run with FIELD_CREATURE_WAKE=off):");
     for arm in &arms {
         println!(
             "    want {:>5} bed {:>10} par {:>9} -> {:#018x}",

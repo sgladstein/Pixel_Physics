@@ -3709,6 +3709,12 @@ pub const ROOM_TARGET_DEFAULT: f32 = 2.0;
 /// saturated local density everywhere else, and `ant.ron`'s hidden units 5/6
 /// gate digging on `AtNest` too. So this reach is not only "where is home" --
 /// it is the region in which a colony is willing to dig a chamber at all.
+///
+/// **`40` was left off on 2026-10-12 for a measured harm**: lab steady bed, 12 seeds, 100-300k, against main and a one-frame-nudged main, adults
+/// starved from 20k 1,233 against 298 / 323 (more on 12 of 12), almost all
+/// on the surface, and the room at 300k 2,240 cells against 3,644 / 3,780
+/// (smaller on 12 of 12) -- a wide shallow bowl with food crumbs piled on
+/// the mound; births rose 31% and digs 3x, feeding the starvation (`/mnt/project-files/switch-audit/results-2026-10-12.md`).
 pub fn nest_site_rows() -> Option<i32> {
     static ROWS: std::sync::OnceLock<Option<i32>> = std::sync::OnceLock::new();
     *ROWS.get_or_init(|| std::env::var("PIXEL_PHYSICS_NEST_SITE_ROWS").ok().and_then(|v| v.parse::<i32>().ok()).filter(|v| *v >= 0))
@@ -14673,13 +14679,26 @@ fn need_drop_site(world: &World, head: (i32, i32)) -> Option<(i32, i32)> {
 /// need, that is not soil.
 fn walled_in(world: &World, organism: OrganismId, head: (i32, i32)) -> bool {
     let Some(st) = world.organism(organism) else { return false };
-    if !st.chain.iter().all(|&(x, y)| world.get(x, y).organism_id() == organism && world.riders_at(x, y).is_empty()) {
+    if !body_all_own(world, organism, &st.chain) {
         return false;
     }
     NEIGHBOURS_8.iter().all(|&(dx, dy)| {
         let c = world.get(head.0 + dx, head.1 + dy);
         c.organism_id() == organism || (c.organism_id() == 0 && matches!(world.materials.kind(c.material), MaterialKind::Solid | MaterialKind::Powder) && food_value(world, c) <= 0.0)
     })
+}
+
+/// **Every cell of the body is its own and nobody rides in one**: the grid
+/// cell's owner is this animal and `riders_at` is empty. [`walled_in`]'s
+/// body half, and what [`crumb_carry_cells`]' free-cell test rests on: with
+/// it, `relocate_chain` rewrites every covered cell as this animal's, so a
+/// crumb moved to one is neither handed to a nestmate nor put on a cell
+/// another animal holds a record for. Without it, an ant riding in a
+/// nestmate's cell that already holds the nestmate's own crumb record would
+/// add a second record there, and when both stepped off the second
+/// give-back would overwrite the first: a crumb deleted. Reads only.
+fn body_all_own(world: &World, organism: OrganismId, chain: &[(i32, i32)]) -> bool {
+    chain.iter().all(|&(x, y)| world.get(x, y).organism_id() == organism && world.riders_at(x, y).is_empty())
 }
 
 /// **Whether the storeroom would take loose food beside this ant if its jaws
@@ -14701,6 +14720,97 @@ fn store_job_waits(world: &World, organism: OrganismId, def: &CreatureDef, (x, y
 
 /// **Straight up**, as an index into [`DIRS`] -- `(0, -1)`.
 const UP_DIR: u8 = 2;
+
+/// **`PIXEL_PHYSICS_PACK_PARTED`: what a pack does when the ant's tail
+/// stands on something it parted** (2026-10-11; `carry` by default since
+/// 2026-10-12, the owner's rule that a fix without a big downside ships on).
+/// `pack_behind` drops
+/// the ant's pellet into the cell its tail leaves, and assumed that cell
+/// empty; when the tail stood on a crumb, brood or foliage the body had
+/// parted (`OrganismState::parted`), `relocate_chain` puts that back as the
+/// tail leaves, and the pellet had nowhere to go: one cell of soil left the
+/// world (`CreatureStats::pack_parted_lost`; 281 pellets over 12 steady
+/// seeds x 300k on main, 271 of them onto a loose crumb, 10 onto brood).
+/// The player's G pack (`steer`) follows the same switch: losing soil is the
+/// bug, so she is not exempt.
+///
+/// - `off`: the pack goes ahead and the pellet is lost.
+/// - `on`: the pack is refused there and the ant does something else, as
+///   the needs walk already does; the pellet stays in its jaws. **Measured
+///   harmful**: a refused ant retries every decision, and 44 ants starved
+///   while still refused over those 12 seeds.
+/// - `carry` (or unset): the crumbs under the tail are moved, in place, to cells of
+///   the body that stay covered, so the tail cell is empty and the pellet
+///   goes in. Ownerless crumbs only, and all of them or none; brood and
+///   foliage fall back to `off`. The needs walk's refusal wins: it never
+///   carries, unless it names `parted_carry` (and `parted_lose` packs and
+///   loses; `WalkParts::NEW_ANT` names `parted_carry` since PR 690, so the
+///   new ant carries when its body is all its own and loses otherwise). **The crumb rides**: the cell it moves to is the next pack's
+///   tail, so through a run of packs it travels with the ant, one cell a
+///   pack, and lands where the body next leaves it, where on `off` the next
+///   pack seals it into the backfill. So `carry` moves food as well as
+///   keeping soil. Crumbs are parted only with `PUSH_PAST`'s `crumbs`
+///   (shipped on); without it `carry` never fires.
+///
+/// Measured on (12 steady seeds x 300k, two samples, against main and
+/// main nudged one frame): lost pellets 281/331 -> 41/83, no refusals,
+/// colony, nest and food lines inside the spread
+/// (`pack-parted/carry-results-2026-10-11.md`).
+///
+/// Anything else (`Carry`, `1`) is reported on stderr and read as the
+/// default, `carry`, so a typo cannot quietly turn the fix off. [`World::pack_parted`] overrides it for a test.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PackParted {
+    Off,
+    On,
+    Carry,
+}
+
+/// The [`PackParted`] in force for this world.
+pub fn pack_parted_of(world: &World) -> PackParted {
+    world.pack_parted.unwrap_or_else(|| {
+        static V: std::sync::OnceLock<PackParted> = std::sync::OnceLock::new();
+        *V.get_or_init(|| match std::env::var("PIXEL_PHYSICS_PACK_PARTED").unwrap_or_default().trim() {
+            "off" => PackParted::Off,
+            "on" => PackParted::On,
+            "" | "carry" => PackParted::Carry,
+            other => {
+                eprintln!("PIXEL_PHYSICS_PACK_PARTED={other:?} is not on, off or carry; reading it as carry, the default");
+                PackParted::Carry
+            }
+        })
+    })
+}
+
+/// **Where `carry` puts the crumbs under the tail** ([`PackParted::Carry`]):
+/// one free covered cell for each record at `v`, or `None` and nothing
+/// moves -- when a record there has an owner (brood, foliage), or the body
+/// has too few free covered cells. A covered cell is in today's `chain` and
+/// in `landing` (so never the cut `ahead`, never `v`); a free one holds no
+/// record in this ant's `parted`. That is enough only because both game
+/// callers check `walled_in` first -- every body cell grid-owned by this
+/// ant, nobody riding ([`body_all_own`]) -- so no other organism can hold a
+/// live record for one (one can for a tick, a cell it has just lost); the
+/// needs walk, whose `sealed_escape` does not check, carries only under
+/// `parted_carry` and only after `body_all_own`. Nearest to `v` by Chebyshev
+/// distance, ties to the lowest chain index; no draw.
+fn crumb_carry_cells(st: &organism::OrganismState, chain: &[(i32, i32)], landing: &[(i32, i32)], v: (i32, i32)) -> Option<Vec<(usize, (i32, i32))>> {
+    let at_v: Vec<usize> = st.parted.iter().enumerate().filter(|(_, p)| (p.x, p.y) == v).map(|(i, _)| i).collect();
+    if at_v.is_empty() || at_v.iter().any(|&i| st.parted[i].cell.organism_id() != 0) {
+        return None;
+    }
+    let mut free: Vec<(i32, usize, (i32, i32))> = chain
+        .iter()
+        .enumerate()
+        .filter(|&(_, c)| landing.contains(c) && *c != v && !st.parted.iter().any(|p| (p.x, p.y) == *c))
+        .map(|(k, &c)| ((c.0 - v.0).abs().max((c.1 - v.1).abs()), k, c))
+        .collect();
+    if free.len() < at_v.len() {
+        return None;
+    }
+    free.sort_by_key(|&(d, k, _)| (d, k));
+    Some(at_v.into_iter().zip(free).map(|(i, (_, _, c))| (i, c)).collect())
+}
 
 /// **Packs a pellet behind an encased carrier as it cuts its way on**
 /// ([`NeedsFirst`]'s `pack`): the cell ahead -- the heading turned one octant
@@ -14744,21 +14854,112 @@ fn pack_behind(world: &mut World, organism: OrganismId, def: &CreatureDef, head:
     // gives that back as the tail leaves, the cell is not empty, and the
     // pellet had nowhere to go -- in a release build it vanished, a cell of
     // soil deleted. Found 2026-10-11 by the debug build of `needs`'s sealed
-    // guard rows, an ant whose tail stood on crumbs. **Refused only under the
-    // needs walk for now**: today's ant hits it too (steady seed 1 diverges
-    // by frame 40k with the refusal on for everyone), so fixing it there
-    // changes the shipped game and needs its own measurement. The walk's
-    // mode, not any `World::needs`: pass-through must stay frame for frame
-    // the game without the hooks (PR 684's re-check, R1).
-    let walking = world.needs.as_ref().is_some_and(|n| n.mode == needs::NeedsMode::Walk);
-    let parted_under = |v: (i32, i32)| walking && world.organism(organism).is_some_and(|s| s.parted.iter().any(|p| (p.x, p.y) == v));
-    let Some((vx, vy)) = vacated.filter(|&v| own && !in_a_doorway(world, v) && !parted_under(v) && landing_is_placeable_through_tissue(world, &chain, &landing, push, None)) else {
+    // guard rows, an ant whose tail stood on crumbs. Today's ant hits it too
+    // (steady seed 1 diverges by frame 40k with the refusal on for
+    // everyone), so outside the walk it is its own switch,
+    // `PIXEL_PHYSICS_PACK_PARTED` ([`pack_parted_of`]), `carry` by default
+    // (2026-10-12): `on` starves refused ants.
+    // The walk's mode, not any `World::needs`: pass-through must stay frame
+    // for frame the game without the hooks (PR 684's re-check, R1). The
+    // walk's refusal wins over `carry`, so the walk never carries -- unless
+    // it names `parted_lose` or `parted_carry` (2026-10-12; `parted_carry` in
+    // `NEW_ANT`), which end the refusal there: it starved walled-in ants, 30
+    // of 54 walled-in starvers over 8 steady runs dying still refused
+    // (`pack-parted/walk-parted-refusal-2026-10-12.md`). `on` still refuses
+    // under either part. The walk reaches `pack_behind` from four callers --
+    // its escape (`walled_in` first), `sealed_escape` (no such check),
+    // `NEEDS_FIRST`'s pack through `act`, and the player's G -- so
+    // `parted_carry` carries only a body all its own with no rider
+    // ([`body_all_own`], what the free-cell test needs; PR 687 review F2) and
+    // otherwise packs and loses the pellet. Refusing there instead is the
+    // same kind of refusal as the rider refusal below, measured to starve
+    // ants; `body_all_own` fails only in `sealed_escape` (the other three
+    // check `walled_in`), where a refused pack falls to `pocket_drop_site`.
+    let mode = pack_parted_of(world);
+    let walk_parts = world.needs.as_ref().filter(|n| n.mode == needs::NeedsMode::Walk).map(|n| n.parts);
+    let refuse = mode == PackParted::On || walk_parts.is_some_and(|p| !p.parted_lose && !p.parted_carry);
+    let parted_under = |world: &World, v: (i32, i32)| world.organism(organism).is_some_and(|s| s.parted.iter().any(|p| (p.x, p.y) == v));
+    let Some(v) = vacated.filter(|&v| own && !in_a_doorway(world, v) && landing_is_placeable_through_tissue(world, &chain, &landing, push, None)) else {
         world.set(ahead.0, ahead.1, target);
         return false;
     };
+    // A tail cell somebody else will be left standing in -- a nestmate
+    // riding it, or a cell this ant only rides in -- is handed to them as the
+    // tail leaves, and the pellet is lost too (`pack_lost_other`). Only the
+    // needs walk's `sealed_escape` reaches it: it packs without `walled_in`'s
+    // rider check (PR 685's review). **Refusing it was built and measured
+    // harmful** (2026-10-11, 4 steady seeds of the new ant): the losses went
+    // to 0 but a refused ant retries every decision while its nestmate stays
+    // put -- up to 1,272 refusals in a row -- and 24 ants starved right after
+    // their last refusal (`pack-parted/rider-fix-results-2026-10-11.md`). So
+    // it packs, and the pellet is lost.
+    let tail_parted = parted_under(world, v);
+    if refuse && tail_parted {
+        world.creature_stats.pack_parted_refused += 1;
+        world.set(ahead.0, ahead.1, target);
+        return false;
+    }
+    // **`carry`: the crumbs under the tail move to covered cells of the
+    // body** ([`crumb_carry_cells`]), after every refusal above so a refused
+    // pack still changes nothing. In place, never removed and pushed, so
+    // `parted`'s order -- and with it the order `relocate_chain` writes in --
+    // is kept. `relocate_chain` keeps a record whose cell is in the body it
+    // lands in, so the crumb is not given back, and `commit_step` re-derives
+    // the same `landing` (same inputs, no draw).
+    let brood_under = tail_parted && world.organism(organism).is_some_and(|s| s.parted.iter().any(|p| (p.x, p.y) == v && p.cell.organism_id() != 0));
+    let carry = !refuse
+        && tail_parted
+        && !brood_under
+        && match walk_parts {
+            Some(p) => p.parted_carry && body_all_own(world, organism, &chain),
+            None => mode == PackParted::Carry,
+        };
+    if carry {
+        let moves = world.organism(organism).and_then(|s| crumb_carry_cells(s, &chain, &landing, v));
+        match moves {
+            Some(moves) => {
+                if let Some(st) = world.organism_mut(organism) {
+                    let n = st.parted.len();
+                    for &(i, (x, y)) in &moves {
+                        st.parted[i].x = x;
+                        st.parted[i].y = y;
+                    }
+                    debug_assert_eq!(st.parted.len(), n, "a carry changed how many records the body holds");
+                }
+                world.creature_stats.pack_crumb_carried += moves.len() as u64;
+            }
+            None => world.creature_stats.pack_crumb_no_room += 1,
+        }
+    }
+    // Read again: a carry has emptied it.
+    let tail_parted = parted_under(world, v);
+    let (vx, vy) = v;
     commit_step(world, organism, def, body, &authored, &widths, heading, aim, push);
-    debug_assert_eq!(world.get(vx, vy).material, material::EMPTY, "the cell the tail left at ({vx}, {vy}) is not empty");
-    if world.get(vx, vy).material == material::EMPTY {
+    // Only a parted cell, or another animal handed the cell (a nestmate
+    // riding it, or its owner where this ant only rode), may leave it full:
+    // not this ant's own cell left uncleared, and not a plant's.
+    let left = world.get(vx, vy);
+    debug_assert!(
+        tail_parted
+            || left.material == material::EMPTY
+            || (left.organism_id() != 0 && left.organism_id() != organism && world.materials.kind(left.material) == MaterialKind::Creature),
+        "the cell the tail left at ({vx}, {vy}) is not empty"
+    );
+    if world.get(vx, vy).material != material::EMPTY {
+        // **The pellet is lost**: nowhere to put it, and the cut's own pellet
+        // replaces it in the jaws below. Counted so the shipped rate can be
+        // read (`deeptrace`'s `stats.csv`), by cause: the parted cell this
+        // switch is for, or anything else (a nestmate handed the cell, under
+        // the walk).
+        if tail_parted {
+            world.creature_stats.pack_parted_lost += 1;
+            if brood_under {
+                world.creature_stats.pack_parted_lost_brood += 1;
+            }
+        } else {
+            world.creature_stats.pack_lost_other += 1;
+        }
+    } else {
         // `backfill`: the pellet's packed form below the founding ground,
         // everything else carried across as the lining carries it
         // ([`pack_neighbours_with`]).
@@ -16771,7 +16972,7 @@ fn spoil_ring_column(world: &World, organism: OrganismId, (x, y): (i32, i32), ri
         }
         s => s,
     };
-    // **Away from the food trail** ([`spoil_side_of`], off): the side the
+    // **Away from the food trail** ([`spoil_side_of`], on): the side the
     // carrier smells less of it on, where it smells any.
     let side = spoil_trail_side(world, (x, y)).unwrap_or(side);
     let gamma: f32 = (0..ring.shape).map(|_| -ring.scale * (1.0 - draw.unit_f32()).ln()).sum();
@@ -16780,7 +16981,7 @@ fn spoil_ring_column(world: &World, organism: OrganismId, (x, y): (i32, i32), ri
 }
 
 /// **`PIXEL_PHYSICS_SPOIL_SIDE=trail`: a carrier takes its pellet to the
-/// side of the door it smells less food trail on** (2026-10-08, off). The
+/// side of the door it smells less food trail on** (2026-10-08). The
 /// spoil ring's side was the side of the door the carrier came out on, so
 /// the mound grew both ways, across the way to the food as much as away from
 /// it. Traced (heap-90 box, seed 1): pellets put down above ground landed
@@ -16795,11 +16996,31 @@ fn spoil_ring_column(world: &World, organism: OrganismId, (x, y): (i32, i32), ri
 /// [`SPOIL_SIDE_NEAR`]..=[`SPOIL_SIDE_FAR`] either side of its head on its
 /// row, and takes the side with less; with none either side, the old rule.
 /// Counted in `spoil_side_turned` when it differs from the old rule.
+///
+/// **On by default since 2026-10-12** under the owner's on-by-default rule
+/// (a fix with no big downside ships on); `PIXEL_PHYSICS_SPOIL_SIDE=off` is
+/// the way back. Lab steady bed, 12 seeds, 100-300k, against main and a
+/// one-frame-nudged main: the larva pillar under the door -- the column of
+/// brood that splits the room -- stood 20 rows tall against 45 / 42 (mean
+/// longest brood column over 200-300k, shorter than both on 10 of 12),
+/// larvae starved per egg 0.07 against 0.18 / 0.14 (lower than both on 8
+/// of 12, higher on none), trip deliveries 8,329 against 7,435 / 7,439,
+/// colony 263 against 260 / 264. Eggs fell to 1,569 against 1,941 / 1,867
+/// with births level (1,481 against 1,504 / 1,531): fewer eggs are wasted.
+/// Adults starved 396 against 298 / 323 from 20k, but adult deaths did not
+/// rise -- fewer ants were killed at the food drop (120 against 226 / 235
+/// in the window), so the extra starved are a change of cause. **As it
+/// ships**, with `NURSE=workers` and `DIG_WIDEN` also on (same bed, 12
+/// seeds): pillar 33 rows against 45 / 42 (shorter on 7 of 12), larvae
+/// starved per egg 0.08 (lower on 8, higher on none), colony 268 against
+/// 260 / 264. With `UNPACK` on as well the pillar stood 44 rows, so
+/// un-packing undoes most of it (inferred from the two bundles; not traced)
+/// (`/mnt/project-files/switch-audit/results-2026-10-12.md`).
 pub fn spoil_side_of(_world: &World) -> bool {
     static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *V.get_or_init(|| match std::env::var("PIXEL_PHYSICS_SPOIL_SIDE").as_deref().map(str::trim) {
-        Ok("trail") | Ok("on") => true,
-        Ok("off") | Ok("") | Err(_) => false,
+        Ok("trail") | Ok("on") | Ok("") | Err(_) => true,
+        Ok("off") => false,
         Ok(other) => panic!("PIXEL_PHYSICS_SPOIL_SIDE={other:?}: use off or trail"),
     })
 }
@@ -17127,6 +17348,12 @@ fn spoil_drop_cover() -> Option<f32> {
 /// Still one predicate about the cell, not a policy about where a colony's
 /// tailings belong: which cell is chosen, and when, is untouched. Unset is
 /// bit-exact: the same reads in the same order, and no draw either way.
+///
+/// **Left off on 2026-10-12 for a measured harm**: lab steady bed, 12 seeds, 100-300k, against main and a one-frame-nudged main, the nest room at
+/// 300k 1,174 cells against 3,644 / 3,780 (smaller on 12 of 12), digs 3,955
+/// against 15,188 / 17,273, trip deliveries 5,783 against 7,435 / 7,439
+/// (fewer on 11 of 12), colony 248 against 260 / 264 (smaller on 10 of 12)
+/// (`/mnt/project-files/switch-audit/results-2026-10-12.md`).
 fn spoil_footing_drop() -> bool {
     static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *ON.get_or_init(|| matches!(std::env::var("PIXEL_PHYSICS_SPOIL_FOOTING").as_deref(), Ok("ground")))
@@ -18180,8 +18407,19 @@ fn way_down(world: &World, def: &CreatureDef, organism: OrganismId, x: i32, y: i
     })
 }
 
-/// **Tunnels one body length wide**: `PIXEL_PHYSICS_DIG_WIDEN=on`, off
-/// unless set; [`World::dig_widen`] for one world.
+/// **Tunnels one body length wide**: on since 2026-10-12,
+/// `PIXEL_PHYSICS_DIG_WIDEN=off` is the way back; [`World::dig_widen`] for
+/// one world.
+///
+/// **Shipped on** under the owner's on-by-default rule (2026-10-12: a fix
+/// with no big downside ships on). Steady bed, 12 seeds, 100-300k, against
+/// main and a one-frame-nudged main: colony 263 against 260 / 264, adults
+/// starved 278 against 298 / 323, trip deliveries 7,638 against 7,435 /
+/// 7,439, room at 300k 3,797 against 3,644 / 3,780 cells -- all inside the
+/// two baselines' spread. Today's nest is one big room whose one-cell-wide
+/// passages are ~2% of its cells, so the rule has little to act on in that
+/// bed; it is on for the galleries it was built for
+/// (`/mnt/project-files/switch-audit/results-2026-10-12.md`).
 ///
 /// **Why.** The dig cuts the one cell ahead of the head, so every passage the
 /// colony digs is one cell wide: a line of pixels, not a tunnel, and a queue
@@ -18212,8 +18450,8 @@ pub fn dig_widen_of(world: &World) -> bool {
     world.dig_widen.unwrap_or_else(dig_widen)
 }
 
-/// `PIXEL_PHYSICS_DIG_WIDEN`: `on` turns [`dig_widen_of`] on; unset and
-/// `off` leave it off; anything else is reported and read as off.
+/// `PIXEL_PHYSICS_DIG_WIDEN`: unset and `on` leave [`dig_widen_of`] on;
+/// `off` turns it off; anything else is refused.
 fn dig_widen() -> bool {
     static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *V.get_or_init(|| parse_dig_widen(&std::env::var("PIXEL_PHYSICS_DIG_WIDEN").unwrap_or_default()))
@@ -18221,12 +18459,9 @@ fn dig_widen() -> bool {
 
 fn parse_dig_widen(raw: &str) -> bool {
     match raw.trim() {
-        "on" => true,
-        "" | "off" => false,
-        v => {
-            eprintln!("PIXEL_PHYSICS_DIG_WIDEN={v:?}: not `on` or `off`; read as off");
-            false
-        }
+        "" | "on" => true,
+        "off" => false,
+        v => panic!("PIXEL_PHYSICS_DIG_WIDEN={v:?}: use on or off"),
     }
 }
 
@@ -25038,6 +25273,15 @@ impl Recruit {
 /// A carrier's patience at or over which its touch recruits ([`Recruit`]).
 pub const RECRUIT_PATIENCE: f32 = 0.5;
 
+/// [`Recruit`] from `PIXEL_PHYSICS_RECRUIT`, off unless set.
+///
+/// **Left off on 2026-10-12 for a measured harm** (the owner's
+/// on-by-default rule asks for the numbers): lab steady bed, 12 seeds, 100-300k, against main and a one-frame-nudged main, adults starved from
+/// 20k 442 against 298 / 323 (more on 10 of 12), most of the extra on the
+/// surface (314 a seed against 197 / 227) -- recruited idlers go out and
+/// starve -- and colony 257 against 260 / 264 (smaller on 8 of 12), on
+/// ~2,000 recruitments a run. Its one gain was on the heap-90 bed's mound
+/// idlers, not the steady bed (`/mnt/project-files/switch-audit/results-2026-10-12.md`).
 pub fn recruit_of(_world: &World) -> Recruit {
     static V: std::sync::OnceLock<Recruit> = std::sync::OnceLock::new();
     *V.get_or_init(|| parse_recruit(&std::env::var("PIXEL_PHYSICS_RECRUIT").unwrap_or_default()))
@@ -36919,15 +37163,23 @@ mod tests {
         assert_eq!(run(room, lean, true, true, Some(38)).0, run(room, on, true, true, Some(38)).0, "lean changed a fed ant's slowing");
     }
 
-    /// `PIXEL_PHYSICS_DIG_WIDEN`'s spellings: `on`, and off for everything
-    /// else.
+    /// `PIXEL_PHYSICS_DIG_WIDEN`'s spellings: unset and `on` leave it on
+    /// (shipped on 2026-10-12), `off` turns it off.
     #[test]
-    fn dig_widen_parses_on_and_reads_the_rest_as_off() {
-        assert!(parse_dig_widen("on"));
-        assert!(parse_dig_widen(" on "));
-        for off in ["", "off", "yes", "1", "On"] {
-            assert!(!parse_dig_widen(off), "{off:?} turned widening on");
+    fn dig_widen_parses_on_and_off() {
+        assert!(!parse_dig_widen("off"));
+        assert!(!parse_dig_widen(" off "));
+        for on in ["", "on", " on "] {
+            assert!(parse_dig_widen(on), "{on:?} turned widening off");
         }
+    }
+
+    /// A misspelling is refused rather than read as either arm: `Off` once
+    /// read as on, silently.
+    #[test]
+    #[should_panic(expected = "PIXEL_PHYSICS_DIG_WIDEN")]
+    fn dig_widen_refuses_a_misspelling() {
+        parse_dig_widen("Off");
     }
 
     /// A digger facing east at `(60, 60)` in a tunnel cut through soil
@@ -51996,6 +52248,295 @@ mod tests {
         assert_eq!(found, alive, "a live brood organism has no cell in the grid or in a walker's hands");
         assert_eq!(off_stage, 0, "a brood cell's colour disagrees with its stage: restaged where it was not");
         assert_eq!(ants, 4, "an ant died walking through brood -- a stage written over the walker's own cell kills it");
+    }
+
+    /// **A pack whose tail stood on a parted crumb loses the pellet, and
+    /// `PIXEL_PHYSICS_PACK_PARTED` refuses it instead.** An ant shut in soil,
+    /// holding a soil pellet, with a food crumb parted under every body cell
+    /// but its head: the cell its tail leaves gets its crumb back, so the
+    /// pellet has nowhere to go. Off (the ant before 2026-10-12, when `carry`
+    /// became the default) the pack goes ahead and
+    /// the pellet is dropped from the world, counted in `pack_parted_lost`;
+    /// on, the pack is refused and nothing moves.
+    #[test]
+    fn a_pack_onto_a_parted_crumb_loses_the_pellet_unless_refused() {
+        let run = |refuse: bool| {
+            let mut w = test_world();
+            w.pack_parted = Some(if refuse { PackParted::On } else { PackParted::Off });
+            let ant = spawn(&mut w, "ant", 100, 100);
+            let chain = w.organism(ant).expect("live").chain.clone();
+            let soil = w.materials.id_of("soil").expect("soil material");
+            let food = w.materials.id_of("provisions").expect("provisions material");
+            for x in 90..=110 {
+                for y in 90..=110 {
+                    if !chain.contains(&(x, y)) {
+                        w.set(x, y, Cell::new(soil, 0));
+                    }
+                }
+            }
+            for &(x, y) in &chain[1..] {
+                let crumb = organism::Parted { x, y, cell: Cell::new(food, 0), scalars: Default::default() };
+                w.organism_mut(ant).expect("live").parted.push(crumb);
+            }
+            let def = w.species.get(w.organism(ant).expect("live").species).creature.clone().expect("a creature");
+            let load = Spoil { cell: Cell::new(soil, 0), store: false };
+            w.organism_mut(ant).expect("live").spoil = Some(load);
+            let count = |w: &World, m: material::MaterialId| (90..=110).flat_map(|x| (90..=110).map(move |y| (x, y))).filter(|&(x, y)| w.get(x, y).material == m).count();
+            let before = (count(&w, soil), count(&w, food));
+            let packed = pack_behind(&mut w, ant, &def, chain[0], load, false, None);
+            let st = &w.creature_stats;
+            let jaws = w.organism(ant).expect("live").spoil;
+            (packed, before, (count(&w, soil), count(&w, food)), (st.pack_parted_lost, st.pack_lost_other), st.pack_parted_refused, jaws == Some(load), jaws.is_some())
+        };
+        let (packed, before, after, lost, refused, same_load, holding) = run(false);
+        assert!(packed, "test setup: the pack did not go ahead with the switch off");
+        assert_eq!((lost, refused), ((1, 0), 0), "off: the lost pellet was not counted, or counted as another cause");
+        assert!(holding, "off: the cut's pellet is not in the jaws");
+        assert_eq!(after.1, before.1 + 1, "off: the crumb was not given back where the tail left");
+        assert_eq!(after.0 + 1, before.0, "off: a soil cell should have left the box (cut ahead, pellet nowhere)");
+        let _ = same_load;
+        let (packed, before, after, lost, refused, same_load, _) = run(true);
+        assert!(!packed, "on: the pack went ahead onto a parted crumb");
+        assert_eq!((lost, refused), ((0, 0), 1), "on: the refusal was not counted");
+        assert_eq!(after, before, "on: the refused pack changed the world");
+        assert!(same_load, "on: the refused ant's pellet is not still in its jaws");
+    }
+
+    /// **`carry` puts each crumb on the nearest free covered cell, all or
+    /// none** ([`crumb_carry_cells`]), on a five-cell chain the game's
+    /// two-cell test ant cannot give: the nearest by Chebyshev distance wins,
+    /// a tie goes to the lower chain index, a cell already holding a record is
+    /// passed over, two crumbs take two cells, and too few cells, or an owner
+    /// at `v`, moves nothing.
+    #[test]
+    fn carry_picks_the_nearest_free_covered_cells_or_none() {
+        let mut w = test_world();
+        let ant = spawn(&mut w, "ant", 100, 100);
+        let food = w.materials.id_of("provisions").expect("provisions material");
+        let crumb = |x, y| organism::Parted { x, y, cell: Cell::new(food, 0), scalars: Default::default() };
+        let mut st = w.organism(ant).expect("live").clone();
+        // A bent body: tail at (10, 12), the cells before it at (11, 11) and
+        // (9, 11) -- both one away -- and the head two rows up.
+        let chain = [(10, 9), (10, 10), (11, 11), (9, 11), (10, 12)];
+        let v = (10, 12);
+        let landing = [(10, 8), (10, 9), (10, 10), (11, 11), (9, 11)];
+        st.parted = vec![crumb(10, 12)];
+        assert_eq!(crumb_carry_cells(&st, &chain, &landing, v), Some(vec![(0, (11, 11))]), "the tie between two cells one away goes to the lower chain index");
+        st.parted = vec![crumb(11, 11), crumb(10, 12)];
+        assert_eq!(crumb_carry_cells(&st, &chain, &landing, v), Some(vec![(1, (9, 11))]), "a cell already holding a record is not free");
+        st.parted = vec![crumb(10, 12), crumb(10, 12)];
+        assert_eq!(crumb_carry_cells(&st, &chain, &landing, v), Some(vec![(0, (11, 11)), (1, (9, 11))]), "two crumbs at v take the two nearest free cells");
+        st.parted = vec![crumb(11, 11), crumb(9, 11), crumb(10, 10), crumb(10, 12), crumb(10, 12)];
+        assert_eq!(crumb_carry_cells(&st, &chain, &landing, v), None, "two crumbs, one free cell: neither moves");
+        let mut owned = crumb(10, 12);
+        owned.cell = owned.cell.with_organism_id(ant);
+        st.parted = vec![crumb(10, 12), owned];
+        assert_eq!(crumb_carry_cells(&st, &chain, &landing, v), None, "an owned record at v: nothing moves");
+        st.parted = vec![crumb(9, 11)];
+        assert_eq!(crumb_carry_cells(&st, &chain, &landing, v), None, "nothing at v: nothing to move");
+    }
+
+    /// **`PACK_PARTED=carry` keeps the pellet and the crumb.** A walled-in
+    /// soil carrier whose tail stands on a crumb packs: the crumb's record
+    /// moves to the head's cell, the pellet lands where the tail was, the cut
+    /// is in the jaws, and when the body next steps off the crumb comes back
+    /// on the grid -- soil and food both conserved. Then the fallbacks: no
+    /// free cell (crumbs under the whole body), brood under the tail, and the
+    /// needs walk, which refuses whatever the switch says unless it names a
+    /// part (`the_walks_parted_parts_lose_or_carry`). Red with the move
+    /// removed (the first case loses its pellet).
+    #[test]
+    fn carry_keeps_the_pellet_and_the_crumb() {
+        #[derive(Clone, Copy, PartialEq, Debug)]
+        enum Under {
+            Tail,
+            Everywhere,
+            Brood,
+        }
+        let run = |under: Under, walk: bool| {
+            let mut w = test_world();
+            w.pack_parted = Some(PackParted::Carry);
+            if walk {
+                w.needs = Some(Box::new(needs::NeedsWalk::new(needs::NeedsMode::Walk, w.frame)));
+            }
+            let ant = spawn(&mut w, "ant", 100, 100);
+            let chain = w.organism(ant).expect("live").chain.clone();
+            assert_eq!(chain.len(), 2, "test setup: the ant is {} cells long", chain.len());
+            let soil = w.materials.id_of("soil").expect("soil material");
+            let food = w.materials.id_of("provisions").expect("provisions material");
+            for x in 90..=110 {
+                for y in 90..=110 {
+                    if !chain.contains(&(x, y)) {
+                        w.set(x, y, Cell::new(soil, 0));
+                    }
+                }
+            }
+            let tail = chain[1];
+            let species = w.organism(ant).expect("live").species;
+            let crumb = |(x, y): (i32, i32)| organism::Parted { x, y, cell: Cell::new(food, 0), scalars: Default::default() };
+            match under {
+                Under::Tail => w.organism_mut(ant).expect("live").parted.push(crumb(tail)),
+                Under::Everywhere => w.organism_mut(ant).expect("live").parted.extend(chain.iter().map(|&c| crumb(c))),
+                Under::Brood => {
+                    let brood_mat = w.materials.id_of("brood").expect("brood is compiled in");
+                    let egg = w.push_organism(species).expect("an organism slot");
+                    if let Some(st) = w.organism_mut(egg) {
+                        st.energy = 120.0;
+                        st.brood = Some(organism::Brood { stage: organism::BroodStage::Egg, since: 0, target: 1_060.0, parent: 0, last_tick: 0 });
+                        st.cells.insert(tail, organism::OrganismCell::default());
+                    }
+                    let cell = Cell::new(brood_mat, organism::BroodStage::Egg as u8).with_organism_id(egg).with_aux(pack_cell_type(CellType::Seed));
+                    w.organism_mut(ant).expect("live").parted.push(organism::Parted { x: tail.0, y: tail.1, cell, scalars: Default::default() });
+                }
+            }
+            let def = w.species.get(species).creature.clone().expect("a creature");
+            let load = Spoil { cell: Cell::new(soil, 0), store: false };
+            w.organism_mut(ant).expect("live").spoil = Some(load);
+            let in_box = |w: &World, m: material::MaterialId| (90..=110).flat_map(|x| (90..=110).map(move |y| (x, y))).filter(|&(x, y)| w.get(x, y).material == m).count();
+            // The cut goes into the jaws as a pellet of the ground it was, whatever
+            // material the jaws make of it: count one held pellet as one cell.
+            let held = |w: &World| usize::from(w.organism(ant).expect("live").spoil.is_some());
+            let crumbs_held = |w: &World| w.organism(ant).expect("live").parted.iter().filter(|p| p.cell.material == food).count();
+            let soil_before = in_box(&w, soil) + held(&w);
+            let food_before = in_box(&w, food) + crumbs_held(&w);
+            let parted_before = w.organism(ant).expect("live").parted.len();
+            let packed = pack_behind(&mut w, ant, &def, chain[0], load, false, None);
+            let st = w.organism(ant).expect("live");
+            let at = st.parted.iter().map(|p| (p.x, p.y)).collect::<Vec<_>>();
+            let out = (packed, w.get(tail.0, tail.1).material == soil, st.parted.len() == parted_before, at, w.creature_stats);
+            let conserved = (in_box(&w, soil) + held(&w) == soil_before, in_box(&w, food) + crumbs_held(&w) == food_before);
+            (w, ant, def, out, conserved, soil_before, food_before)
+        };
+
+        // Carry: the crumb moves to the head's cell, the pellet fills the tail.
+        let (mut w, ant, def, (packed, pellet_in_tail, same_len, at, stats), conserved, soil_before, food_before) = run(Under::Tail, false);
+        let head = w.organism(ant).expect("live").chain[1];
+        assert!(packed, "the carry pack did not go ahead");
+        assert!(pellet_in_tail, "the pellet is not in the cell the tail left");
+        assert!(same_len, "the carry changed how many records the body holds");
+        assert_eq!(at, vec![head], "the crumb's record is not on the old head's cell, now the tail");
+        assert_eq!((stats.pack_crumb_carried, stats.pack_parted_lost, stats.pack_crumb_no_room, stats.pack_parted_refused), (1, 0, 0, 0), "carry counters");
+        assert_eq!(conserved, (true, true), "soil or food not conserved through the pack");
+        // An ordinary step off it, into a cell cleared for it (one soil out).
+        let st = w.organism(ant).expect("live");
+        let (chain, groups, fates, heading) = (st.chain.clone(), st.segment_groups.clone(), st.fates, st.heading);
+        let (dx, dy) = DIRS[heading as usize];
+        let soil = w.materials.id_of("soil").expect("soil material");
+        let food = w.materials.id_of("provisions").expect("provisions material");
+        assert_eq!(w.get(chain[0].0 + dx, chain[0].1 + dy).material, soil, "test setup: no soil ahead to clear");
+        w.set(chain[0].0 + dx, chain[0].1 + dy, Cell::EMPTY);
+        let (authored, widths) = (segment_authored(&def, fates), segment_authored_widths(&def, fates));
+        commit_step(&mut w, ant, &def, BodyShape { chain: &chain, groups: &groups, authored: &widths }, &authored, &widths, heading, heading, false);
+        assert!(w.organism(ant).expect("live").parted.is_empty(), "the crumb did not land when the body stepped off it");
+        assert_eq!(w.get(head.0, head.1).material, food, "the crumb did not land where the body left it");
+        let in_box = |m: material::MaterialId| (90..=110).flat_map(|x| (90..=110).map(move |y| (x, y))).filter(|&(x, y)| w.get(x, y).material == m).count();
+        let held = usize::from(w.organism(ant).expect("live").spoil.is_some());
+        assert_eq!(in_box(soil) + held + 1, soil_before, "soil after the step off, the cleared cell aside");
+        assert_eq!(in_box(food), food_before, "food after the step off");
+
+        // No free covered cell: falls back to the loss, counted.
+        let (_, _, _, (packed, pellet_in_tail, same_len, _, stats), conserved, _, _) = run(Under::Everywhere, false);
+        // The tail's crumb is given back on the grid, so the body holds one fewer.
+        assert!(packed && !pellet_in_tail && !same_len, "no room: the pack should go ahead as off, give the tail's crumb back and lose the pellet");
+        assert_eq!((stats.pack_crumb_carried, stats.pack_crumb_no_room, stats.pack_parted_lost, stats.pack_parted_lost_brood), (0, 1, 1, 0), "no-room counters");
+        assert_eq!(conserved, (false, true), "no room: one soil lost, no food made or lost");
+
+        // Brood under the tail: never moved, lost and counted as brood.
+        let (_, _, _, (packed, pellet_in_tail, _, _, stats), _, _, _) = run(Under::Brood, false);
+        assert!(packed && !pellet_in_tail, "brood: the pack should go ahead as off and lose the pellet");
+        assert_eq!((stats.pack_crumb_carried, stats.pack_crumb_no_room, stats.pack_parted_lost, stats.pack_parted_lost_brood), (0, 0, 1, 1), "brood counters");
+
+        // The walk refuses whatever the switch says.
+        let (_, _, _, (packed, _, same_len, at, stats), conserved, _, _) = run(Under::Tail, true);
+        assert!(!packed && same_len, "the walk carried instead of refusing");
+        assert_eq!(at.len(), 1, "test setup");
+        assert_eq!((stats.pack_crumb_carried, stats.pack_parted_refused), (0, 1), "walk counters");
+        assert_eq!(conserved, (true, true), "the refused pack changed the box");
+    }
+
+    /// **The needs walk's `parted_lose` and `parted_carry` end its refusal**
+    /// (2026-10-12; `parted_carry` in the new ant). A walled-in soil carrier under the walk, its
+    /// tail on a crumb: with neither part it is refused, as before; with
+    /// `parted_lose` it packs and the pellet is lost; with `parted_carry` the
+    /// crumb rides to the old head's cell and the pellet lands -- unless a
+    /// nestmate rides a body cell, where the free-cell test is not safe, and
+    /// the pellet is lost instead (the positive control for `body_own`: red
+    /// with it dropped). `PACK_PARTED=carry` with neither part still refuses
+    /// (PR 687 review F2). No food-conservation row: the hazard the gate
+    /// prevents (two records on one cell, one crumb lost on give-back) is
+    /// unreachable with it, and the counter rows go red without it.
+    #[test]
+    fn the_walks_parted_parts_lose_or_carry() {
+        #[derive(Clone, Copy, PartialEq)]
+        enum Ride {
+            No,
+            /// A nestmate rides the head's cell.
+            Nestmate,
+            /// The head's cell is the nestmate's, and this ant only rides in it.
+            OnlyRides,
+        }
+        let run = |parts: &str, env: Option<PackParted>, ride: Ride| {
+            let mut w = test_world();
+            // Stacking as the game can reach it: two to a cell.
+            w.set_stack_cap(2);
+            w.pack_parted = Some(env.unwrap_or(PackParted::Off));
+            let mut walk = needs::NeedsWalk::new(needs::NeedsMode::Walk, w.frame);
+            walk.parts = needs::WalkParts::parse(parts);
+            w.needs = Some(Box::new(walk));
+            let ant = spawn(&mut w, "ant", 100, 100);
+            let other = spawn(&mut w, "ant", 40, 40);
+            let chain = w.organism(ant).expect("live").chain.clone();
+            assert_eq!(chain.len(), 2, "test setup: the ant is {} cells long", chain.len());
+            let soil = w.materials.id_of("soil").expect("soil material");
+            let food = w.materials.id_of("provisions").expect("provisions material");
+            for x in 90..=110 {
+                for y in 90..=110 {
+                    if !chain.contains(&(x, y)) {
+                        w.set(x, y, Cell::new(soil, 0));
+                    }
+                }
+            }
+            let tail = chain[1];
+            w.organism_mut(ant).expect("live").parted.push(organism::Parted { x: tail.0, y: tail.1, cell: Cell::new(food, 0), scalars: Default::default() });
+            let body = w.get(chain[0].0, chain[0].1);
+            match ride {
+                Ride::No => {}
+                Ride::Nestmate => w.add_rider(chain[0].0, chain[0].1, other, body),
+                Ride::OnlyRides => {
+                    w.set(chain[0].0, chain[0].1, body.with_organism_id(other));
+                    w.add_rider(chain[0].0, chain[0].1, ant, body);
+                }
+            }
+            let species = w.organism(ant).expect("live").species;
+            let def = w.species.get(species).creature.clone().expect("a creature");
+            let load = Spoil { cell: Cell::new(soil, 0), store: false };
+            w.organism_mut(ant).expect("live").spoil = Some(load);
+            let packed = pack_behind(&mut w, ant, &def, chain[0], load, false, None);
+            let at = w.organism(ant).expect("live").parted.iter().map(|p| (p.x, p.y)).collect::<Vec<_>>();
+            let s = w.creature_stats;
+            (packed, w.get(tail.0, tail.1).material == soil, at, (s.pack_parted_refused, s.pack_parted_lost, s.pack_crumb_carried, s.pack_crumb_no_room), chain[0])
+        };
+        let (packed, _, at, n, _) = run("reach,walled_in", None, Ride::No);
+        assert!(!packed && at.len() == 1, "neither part: the walk should refuse");
+        assert_eq!(n, (1, 0, 0, 0), "neither part: counters");
+        let (packed, _, at, n, _) = run("reach,walled_in", Some(PackParted::Carry), Ride::No);
+        assert!(!packed && at.len() == 1, "PACK_PARTED=carry alone: the walk should still refuse");
+        assert_eq!(n, (1, 0, 0, 0), "PACK_PARTED=carry alone: counters");
+        let (packed, _, at, n, _) = run("reach,walled_in,parted_carry", Some(PackParted::On), Ride::No);
+        assert!(!packed && at.len() == 1, "PACK_PARTED=on: refuses under either part");
+        assert_eq!(n, (1, 0, 0, 0), "PACK_PARTED=on with parted_carry: counters");
+        let (packed, pellet, at, n, _) = run("reach,walled_in,parted_lose", None, Ride::No);
+        assert!(packed && !pellet && at.is_empty(), "parted_lose: should pack, give the crumb back and lose the pellet");
+        assert_eq!(n, (0, 1, 0, 0), "parted_lose: counters");
+        let (packed, pellet, at, n, head) = run("reach,walled_in,parted_carry", None, Ride::No);
+        assert!(packed && pellet, "parted_carry: the pellet should land in the tail cell");
+        assert_eq!(at, vec![head], "parted_carry: the crumb should ride to the old head's cell");
+        assert_eq!(n, (0, 0, 1, 0), "parted_carry: counters");
+        for ride in [Ride::Nestmate, Ride::OnlyRides] {
+            let (packed, pellet, at, n, _) = run("reach,walled_in,parted_carry", None, ride);
+            assert!(packed && !pellet && at.is_empty(), "parted_carry, a body cell not all its own: should lose the pellet, not carry");
+            assert_eq!(n, (0, 1, 0, 0), "parted_carry, a body cell not all its own: counters");
+        }
     }
 
     /// **Brood under a walker grows in the walker's hands, and neither hatches

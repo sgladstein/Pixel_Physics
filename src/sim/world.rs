@@ -1957,8 +1957,8 @@ pub struct CreatureStats {
     /// `PIXEL_PHYSICS_DIG_WIDEN` (`creature::dig_widen_of`): the digger stood
     /// in a passage one cell wide and cut the wall beside it rather than the
     /// cell ahead. Counted when the side is chosen, before the heap cue and
-    /// the jaw judge it; the cut itself is in `digs`. 0 unless the switch is
-    /// on.
+    /// the jaw judge it; the cut itself is in `digs`. 0 when the switch is
+    /// off.
     pub digs_widened: u64,
     /// **Dig rolls turned to the nearest face** under `PIXEL_PHYSICS_DIG_FACE`
     /// (`creature::dig_face_of`): inside the nest, the cell ahead was not
@@ -2049,7 +2049,7 @@ pub struct CreatureStats {
     pub meet_way_stamps: u64,
     /// **`creature::spoil_side_of`'s count**: carriers whose pellet side the
     /// food trail turned from the side of the door they came out on. 0
-    /// unless `PIXEL_PHYSICS_SPOIL_SIDE` is set.
+    /// under `PIXEL_PHYSICS_SPOIL_SIDE=off`.
     pub spoil_side_turned: u64,
     /// **`creature::mound_in_of`'s count**: decisions a carrier was pulled
     /// down the mound's way in. 0 unless `PIXEL_PHYSICS_MOUND_IN` is on.
@@ -2437,6 +2437,41 @@ pub struct CreatureStats {
     pub depth_rows: u64,
     pub depth_ground_rows: u64,
     pub depth_err_rows: u64,
+    /// **Soil pellets lost by `pack_behind`** (`creature::pack_behind`): the
+    /// ant cut ahead and stepped, and the cell its tail left was not empty --
+    /// something it had parted (a crumb, brood, foliage) came back there --
+    /// so the pellet it held had nowhere to go and was dropped from the
+    /// world. Counted with `PIXEL_PHYSICS_PACK_PARTED` off or on.
+    pub pack_parted_lost: u64,
+    /// Pellets `pack_behind` lost to a tail cell full for any other reason
+    /// than a parted cell: under the needs walk, a nestmate riding the tail
+    /// cell is set down there, or the packer only rode in it
+    /// (`needs::sealed_escape` packs without `walled_in`'s rider check; PR
+    /// 685's review; 61-261 a run on 4 steady seeds of the new ant). Refusing
+    /// it starves ants (`creature::pack_behind`), so it stays. The shipped
+    /// callers check `walled_in`, so 0 outside the walk.
+    pub pack_lost_other: u64,
+    /// Packs refused because the tail stood on something it had parted
+    /// (`PIXEL_PHYSICS_PACK_PARTED=on`, or the needs walk naming neither
+    /// `parted_lose` nor `parted_carry`): the "it fired" half of
+    /// `pack_parted_lost`. 0 outside the walk unless the switch is `on`.
+    /// Counts calls, not decisions: the walk can try a refused pack up to
+    /// three times in one decision.
+    pub pack_parted_refused: u64,
+    /// The part of `pack_parted_lost` where a record under the tail had an
+    /// owner (brood, foliage), which `PACK_PARTED=carry` never moves: the
+    /// residual `carry` leaves (`creature::PackParted`).
+    pub pack_parted_lost_brood: u64,
+    /// `PACK_PARTED=carry` (the default), or the needs walk's
+    /// `parted_carry`: crumb records moved to a covered cell of the
+    /// body, the "it fired" count. One crumb ridden through 30 packs counts
+    /// 30, so this is not the number of crumbs or pellets saved. 0 otherwise.
+    pub pack_crumb_carried: u64,
+    /// `PACK_PARTED=carry`, or the needs walk's `parted_carry`: packs onto
+    /// ownerless crumbs that found too few
+    /// free covered cells, so nothing moved and the pellet was lost (also in
+    /// `pack_parted_lost`). 0 otherwise.
+    pub pack_crumb_no_room: u64,
     /// Pellet drops whose cell beside the carrier would have taken it but for
     /// lying in a nest's door column above the ground (`creature::door_column_of`).
     /// 0 with the switch off.
@@ -4395,6 +4430,10 @@ pub struct World {
     /// `brood::crop_nurse_of` for this world; `None` reads
     /// `PIXEL_PHYSICS_CROP_NURSE`.
     pub crop_nurse: Option<crate::sim::brood::CropNurse>,
+    /// `brood::nurse_mode_of` for this world; `None` reads
+    /// `PIXEL_PHYSICS_NURSE` (nest workers only, unless it says `any` or
+    /// `off`).
+    pub nurse: Option<crate::sim::brood::NurseMode>,
     /// `creature::door_loose_of` for this world; `None` reads
     /// `PIXEL_PHYSICS_DOOR_LOOSE`.
     pub door_loose: Option<bool>,
@@ -4517,6 +4556,10 @@ pub struct World {
     /// `None` follows the environment; a field so a guard can take both arms
     /// in one process.
     pub depth_slow: Option<crate::sim::creature::DepthSlow>,
+    /// **`PIXEL_PHYSICS_PACK_PARTED` for this world** (`creature::pack_parted_of`).
+    /// `None` follows the environment; a field so a guard can take both arms
+    /// in one process.
+    pub pack_parted: Option<crate::sim::creature::PackParted>,
     /// **The needs-and-jobs walk** (`creature::needs`): `None` is today's ant.
     /// Set by a harness at a frame and never from the environment, which is
     /// read once per process and so cannot hand a running colony over; from
@@ -4570,7 +4613,7 @@ pub struct World {
     pub births_paused: bool,
     /// **Tunnel widening, overriding `PIXEL_PHYSICS_DIG_WIDEN` for this
     /// world** (`creature::dig_widen_of`). `None` follows the environment,
-    /// which is off unless it says `on`. A field so a guard can take both
+    /// which is on unless it says `off` (since 2026-10-12). A field so a guard can take both
     /// arms in one process.
     pub dig_widen: Option<bool>,
     /// **The turn to the nearest face, overriding `PIXEL_PHYSICS_DIG_FACE`
@@ -7165,6 +7208,7 @@ impl World {
             door_reopen: None,
             nurse_seek: None,
             crop_nurse: None,
+            nurse: None,
             door_loose: None,
             door_column: None,
             kin_footing: None,
@@ -7191,6 +7235,7 @@ impl World {
             mound_out: None,
             needs_first: None,
             depth_slow: None,
+            pack_parted: None,
             needs: None,
             nest_store: None,
             nest_ways: Vec::new(),

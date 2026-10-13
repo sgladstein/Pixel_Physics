@@ -48,7 +48,7 @@ Deterministic: same build, same seed, same game. From the branch, with no
 |---|---|
 | shipped | nothing |
 | the stack | set `PIXEL_PHYSICS_NEEDS_FIRST=on PIXEL_PHYSICS_CARRY_HOME=on PIXEL_PHYSICS_NEST_REST=on` |
-| slice 1 | `needs=walk needsat=50000 walktrace=20 needsparts=none` (since 2026-10-11 an unnamed `needsparts` is the new ant, `reach,sealed_out,eat_held`) |
+| slice 1 | `needs=walk needsat=50000 walktrace=20 needsparts=none` (since 2026-10-11 an unnamed `needsparts` is the new ant, `reach,sealed_out,eat_held`; since PR 690 it adds `parted_carry`, and `reach,walled_in` is the new ant before it) |
 | all four fixes | `needs=walk needsat=50000 needsparts=all walktrace=5 dig=1` |
 | one fix alone | `needs=walk needsat=50000 walktrace=20 dig=0 needsparts=` Fix 1 `only_diggers,dig_job,clear`, Fix 2 `pace,give_up,lay_home`, Fix 3 `meal`, Fix 4 `won_stall` |
 

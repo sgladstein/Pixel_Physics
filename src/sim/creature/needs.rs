@@ -259,6 +259,13 @@
 //! 1,272-1,562, mound starvers 41 against 197-458, colony mean inside the
 //! range; the soil-and-crop lean down to +0.7%. Both parts are on in the
 //! new ant since PR 684 ([`WalkParts::NEW_ANT`], the switch `walled_in`).
+//! That re-run's refusal of a pack onto a tail cell the body parted a crumb
+//! into was then traced (2026-10-12): 30 of 54 walled-in starvers over 8
+//! steady runs died still refused. [`WalkParts::parted_lose`] and
+//! [`WalkParts::parted_carry`] end it; `parted_carry` is in `NEW_ANT` since
+//! 2026-10-12 (12 steady seeds: walled-in starvers 15 against 60 and 77 for
+//! main and main nudged, `parted_lose` 29; colony, nest and starvation lines
+//! inside the spread; `pack-parted/walkcard/results-2026-10-12.md`).
 
 use super::*;
 use std::collections::HashMap;
@@ -349,6 +356,26 @@ pub struct WalkParts {
     /// `sealed_out`, which alone sets the flag it reads: [`WalkParts::parse`]
     /// refuses it without.
     pub eat_held: bool,
+    /// **Not the fix round's** (2026-10-12, in neither [`WalkParts::ALL`]
+    /// nor [`WalkParts::NEW_ANT`]): a pack whose tail leaves a cell the ant
+    /// parted a crumb or brood into is not refused under the walk; it packs,
+    /// and the pellet is lost, as the shipped ant's is with
+    /// `PIXEL_PHYSICS_PACK_PARTED` off. The refusal starved walled-in ants:
+    /// 30 of 54 walled-in starvers over 8 steady runs died still refused
+    /// (`pack-parted/walk-parted-refusal-2026-10-12.md`).
+    pub parted_lose: bool,
+    /// **Not the fix round's** (2026-10-12, never in [`WalkParts::ALL`]; on
+    /// in [`WalkParts::NEW_ANT`] since 2026-10-12): as
+    /// [`WalkParts::parted_lose`], but an ant whose body is all its own
+    /// cells with no rider carries ownerless crumbs to free covered cells
+    /// (`PACK_PARTED=carry`'s move, `crumb_carry_cells`) and the pellet
+    /// lands; anything else at the cell, no free cell, or a body cell not
+    /// its own or ridden, loses the pellet. Not with `parted_lose`, which it
+    /// already falls back to: naming one clears the other, and
+    /// [`WalkParts::parse`] refuses both named in one list.
+    /// It carries whatever `PIXEL_PHYSICS_PACK_PARTED` says, except `on`,
+    /// which refuses under either part.
+    pub parted_carry: bool,
 }
 
 impl WalkParts {
@@ -367,6 +394,8 @@ impl WalkParts {
         placebo: false,
         sealed_out: false,
         eat_held: false,
+        parted_lose: false,
+        parted_carry: false,
     };
     /// **The fix round's eight**, which is what `needsparts=all` has meant
     /// since 10-07; the parts added after it ([`WalkParts::reach`],
@@ -387,10 +416,15 @@ impl WalkParts {
         placebo: false,
         sealed_out: false,
         eat_held: false,
+        parted_lose: false,
+        parted_carry: false,
     };
     /// **The new ant as it stands** (2026-10-11): `reach` (accepted as the
     /// baseline, owner 2026-10-10) and the `walled_in` switch's two parts,
-    /// [`WalkParts::sealed_out`] and [`WalkParts::eat_held`], on. What a
+    /// [`WalkParts::sealed_out`] and [`WalkParts::eat_held`], on, and since
+    /// 2026-10-12 [`WalkParts::parted_carry`] (the owner's rule that a fix
+    /// without a big downside ships on; `reach,walled_in` is the new ant
+    /// before it). What a
     /// harness hands the walk when it names no parts (`deeptrace`'s
     /// `needsparts=`, `needscost`'s `walk` arm); `none` is slice 1 exactly.
     /// [`NeedsWalk::new`] still starts from [`WalkParts::NONE`], so the
@@ -400,9 +434,10 @@ impl WalkParts {
         reach: true,
         sealed_out: true,
         eat_held: true,
+        parted_carry: true,
         ..WalkParts::NONE
     };
-    const NAMES: [&'static str; 14] = [
+    const NAMES: [&'static str; 16] = [
         "only_diggers",
         "dig_job",
         "clear",
@@ -417,15 +452,31 @@ impl WalkParts {
         "placebo",
         "sealed_out",
         "eat_held",
+        "parted_lose",
+        "parted_carry",
     ];
 
     /// `all`, `none`, `new_ant` ([`WalkParts::NEW_ANT`]), `walled_in` (its
     /// switch's two parts, `sealed_out` and `eat_held`), or a comma list of
     /// the part names, as a harness names them. Anything else is refused rather than read as a default, so a
-    /// typo cannot run one arm under another's label.
+    /// typo cannot run one arm under another's label. A set (`all`, `none`,
+    /// `new_ant`) comes first: after a part it would silently replace it, so
+    /// `parted_lose,new_ant` would run `parted_carry`, and it is refused
+    /// (review of PR 690).
     pub fn parse(raw: &str) -> WalkParts {
         let mut p = WalkParts::NONE;
+        let (mut named_lose, mut named_carry) = (false, false);
+        let mut named_part = false;
         for part in raw.split(',').map(str::trim).filter(|s| !s.is_empty()) {
+            if matches!(part, "all" | "none" | "new_ant") {
+                if named_part {
+                    panic!(
+                        "needsparts={raw:?}: the set {part:?} comes after a part it would replace; name the set first"
+                    );
+                }
+            } else {
+                named_part = true;
+            }
             match part {
                 "all" => p = WalkParts::ALL,
                 "none" => p = WalkParts::NONE,
@@ -448,6 +499,16 @@ impl WalkParts {
                 "placebo" => p.placebo = true,
                 "sealed_out" => p.sealed_out = true,
                 "eat_held" => p.eat_held = true,
+                // One answer to one question: naming either clears the
+                // other, so `new_ant,parted_lose` is the new ant losing.
+                "parted_lose" => {
+                    (p.parted_lose, p.parted_carry) = (true, false);
+                    named_lose = true;
+                }
+                "parted_carry" => {
+                    (p.parted_lose, p.parted_carry) = (false, true);
+                    named_carry = true;
+                }
                 other => panic!(
                     "needsparts={raw:?}: {other:?} is not all, none, new_ant, walled_in or one of {}",
                     WalkParts::NAMES.join(", ")
@@ -459,6 +520,12 @@ impl WalkParts {
         // label that names it: refused, as a typo is (code review of PR 684).
         if p.eat_held && !p.sealed_out {
             panic!("needsparts={raw:?}: eat_held needs sealed_out (it eats only where sealed_out has found the ant sealed in)");
+        }
+        // `parted_carry` already loses the pellet wherever it cannot carry,
+        // so both would run as `parted_carry` under a label naming two
+        // (review of the walk-parted design, 2026-10-12).
+        if named_lose && named_carry {
+            panic!("needsparts={raw:?}: parted_lose and parted_carry are two answers to one question; name one (parted_carry loses where it cannot carry)");
         }
         p
     }
@@ -480,6 +547,8 @@ impl WalkParts {
             self.placebo,
             self.sealed_out,
             self.eat_held,
+            self.parted_lose,
+            self.parted_carry,
         ];
         let names: Vec<&str> = WalkParts::NAMES
             .iter()
@@ -4376,14 +4445,43 @@ mod tests {
         let p = WalkParts::parse("all,reach,eat_fade");
         assert!(p.reach && p.eat_fade && p.won_stall);
         assert_eq!(WalkParts::parse(&p.label()), p);
-        // The new ant: `reach` and the `walled_in` switch's two parts, and
-        // nothing of the fix round's.
+        // The new ant: `reach`, the `walled_in` switch's two parts and
+        // `parted_carry`, and nothing of the fix round's.
         assert_eq!(WalkParts::parse("new_ant"), WalkParts::NEW_ANT);
-        assert_eq!(WalkParts::parse("reach,walled_in"), WalkParts::NEW_ANT);
-        assert_eq!(WalkParts::NEW_ANT.label(), "reach,sealed_out,eat_held");
+        assert_eq!(WalkParts::parse("reach,walled_in,parted_carry"), WalkParts::NEW_ANT);
+        assert_eq!(WalkParts::NEW_ANT.label(), "reach,sealed_out,eat_held,parted_carry");
         assert_eq!(WalkParts::parse(&WalkParts::NEW_ANT.label()), WalkParts::NEW_ANT);
         let w = WalkParts::parse("walled_in");
         assert!(w.sealed_out && w.eat_held && !w.reach);
+        // The parted-tail parts (2026-10-12): never in `all`; `parted_carry`
+        // in the new ant, and naming either clears the other.
+        const { assert!(!WalkParts::ALL.parted_lose && !WalkParts::ALL.parted_carry) };
+        const { assert!(!WalkParts::NEW_ANT.parted_lose && WalkParts::NEW_ANT.parted_carry) };
+        for name in ["parted_lose", "parted_carry"] {
+            let p = WalkParts::parse(&format!("new_ant,{name}"));
+            assert_eq!(p.label(), format!("reach,sealed_out,eat_held,{name}"));
+            assert_eq!(WalkParts::parse(&p.label()), p);
+        }
+        let before = WalkParts::parse("reach,walled_in");
+        assert!(!before.parted_lose && !before.parted_carry, "reach,walled_in is the new ant before parted_carry");
+    }
+
+    /// **`parted_lose` and `parted_carry` together are refused at the
+    /// parse**: `parted_carry` already loses wherever it cannot carry, so
+    /// the pair would run as one under a label naming two.
+    #[test]
+    #[should_panic(expected = "parted_lose and parted_carry")]
+    fn walk_parts_refuse_both_parted_parts() {
+        WalkParts::parse("new_ant,parted_lose,parted_carry");
+    }
+
+    /// **A set after a part is refused**: it would replace the part, so
+    /// `parted_lose,new_ant` would run `parted_carry` under a label naming
+    /// `parted_lose` (review of PR 690).
+    #[test]
+    #[should_panic(expected = "comes after a part it would replace")]
+    fn walk_parts_refuse_a_set_after_a_part() {
+        WalkParts::parse("parted_lose,new_ant");
     }
 
     #[test]
