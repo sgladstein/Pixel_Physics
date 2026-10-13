@@ -2527,6 +2527,12 @@ mod tests {
             for x in w.outputs.iter().filter(|x| past(x.2)) {
                 out.push(format!("{}: h{} -> {:?} = {}", def.name, x.0, x.1, x.2));
             }
+            for x in w.recurrence.iter().filter(|x| past(x.1)) {
+                out.push(format!("{}: h{} recurrence = {}", def.name, x.0, x.1));
+            }
+            for x in w.plastic.iter().filter(|x| past(x.1)) {
+                out.push(format!("{}: plastic trait {} = {}", def.name, x.0, x.1));
+            }
         }
         assert!(out.is_empty(), "authored weights past the mutation clamp ({}), which the first mutation cuts for good:\n  {}", mut_clamp(), out.join("\n  "));
     }
