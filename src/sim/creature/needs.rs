@@ -3476,6 +3476,15 @@ mod tests {
         let mut w = World::new(Rect::new(0, 0, 119, 99));
         w.brood = Some(false);
         w.bud_at_nest = Some(false);
+        // **The ant as authored, not a mutant of it** (2026-10-13). With
+        // mutation on, the one ant each row hatches is a random draw of the
+        // species, so a row's verdict hung on which mutant the mutation
+        // stream happened to produce: appending `brain::EmptyCrop` (25 more
+        // live slots, a re-derived `mutation_rate`) turned two Pellet rows
+        // red with the homing gate folded back to its old form -- the same
+        // brain, a different mutant -- and both builds pass with mutation
+        // off. One seed of a procedural input is not a guard of it.
+        w.mutation = Some(false);
         let soil = w.materials.id_of("soil").expect("soil material");
         let packed = w.materials.id_of("packedsoil").expect("packed soil material");
         let food = w.materials.id_of("provisions").expect("provisions material");

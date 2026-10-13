@@ -9481,6 +9481,9 @@ fn sense(
         // home") lives in `CreatureDef::home_bias`, which reads `crop_fill`
         // directly. One question per sensor.
         inputs[I::CarryingFood as usize] = if crop_fill > 0.0 { 1.0 } else { 0.0 };
+        // Its complement, so the homing gate's laden state is one small
+        // weight rather than two cancelling ones -- `BrainInput::EmptyCrop`.
+        inputs[I::EmptyCrop as usize] = 1.0 - inputs[I::CarryingFood as usize];
         // **Which way home is, for an animal that has a reason to go there** --
         // `brain::BrainInput::HomeAligned`, the return leg's own bearing.
         //

@@ -5053,7 +5053,11 @@ impl Species {
 
 impl From<SpeciesDef> for Species {
     fn from(def: SpeciesDef) -> Self {
-        let genome = def.creature.as_ref().map(|c| super::brain::genome_from_wiring_plastic(&c.instincts, &c.hidden_wiring, &c.hidden_outputs, &c.recurrence, &c.plastic)).unwrap_or_default();
+        let mut genome = def.creature.as_ref().map(|c| super::brain::genome_from_wiring_plastic(&c.instincts, &c.hidden_wiring, &c.hidden_outputs, &c.recurrence, &c.plastic)).unwrap_or_default();
+        // The pre-2026-10-13 homing gate, on request -- `brain::EmptyCrop`.
+        if !genome.is_empty() && super::brain::home_gate_folded() {
+            super::brain::fold_empty_crop(&mut genome);
+        }
         Self {
             name: def.name,
             foliage_bands: def.foliage_bands,
