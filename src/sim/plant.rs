@@ -533,7 +533,14 @@ fn buried_seed_enabled() -> bool {
 /// in the ground is untouched, wet or dry. The death is `drought_death`'s
 /// own blade-by-blade roll at full thirst, so a rootless tussock stops
 /// earning at once and thins over a few hundred thousand frames rather than
-/// vanishing. `a_grass_seed_on_bare_rock_never_germinates_and_does_not_stand_for_ever`
+/// vanishing. **Thirst also sends its roots looking for soil**: a status
+/// under `ROOT_REINITIATION_STATUS` opens `break_root_tips`, so a rootless
+/// plant that *can* reach ground grows a root to it and becomes an ordinary
+/// rooted plant again, paid from its stored carbon. Measured while building
+/// the guard: a root pocket in stone two cells from the end of the ledge,
+/// and then twelve cells in, both grew a root through the air round it into
+/// soil; only a world with no soil in reach withers.
+/// `a_grass_seed_on_bare_rock_never_germinates_and_does_not_stand_for_ever`
 /// predicted this case ("the rootless-plant case is live and grass needs a
 /// drought death") and closed the route it knew, germinating on stone; the
 /// root-mat pocket is a second route to the same plant.
@@ -9954,6 +9961,7 @@ pub(crate) fn sap_flow(world: &mut World, organism_id: OrganismId) {
     let species_id = state.species;
     let plant_desic = state.water_desiccation.clamp(0.0, 1.0);
     let plant_nutrient = state.nutrient_status;
+    let rootless = state.contact_root_cells == 0;
     let mut cells: Vec<(i32, i32)> = state.cells.keys().copied().collect();
     cells.sort_unstable_by_key(|&(x, y)| (y, x));
     let n = cells.len();
@@ -10202,8 +10210,12 @@ pub(crate) fn sap_flow(world: &mut World, organism_id: OrganismId) {
     // 2026-10-12 exactly: no roots to hold it together, blades shedding one
     // at a time as it crept across the bed. `-1` is the "no per-cell value"
     // the readers already fall back on. Under the same switch, so `off` is
-    // the old engine exactly (review of 2026-10-13, finding B1).
-    if world.rootless_dries {
+    // the old engine exactly (review of 2026-10-13, finding B1), and only
+    // on a plant with no root touching soil or water: the stale reading is
+    // older than this switch and would reach any plant with a loose piece,
+    // but changing it for rooted plants is a different change with its own
+    // measurement to make, and the merge review asked for it scoped.
+    if world.rootless_dries && rootless {
         for (i, &(x, y)) in cells.iter().enumerate() {
             if depth[i] == u32::MAX {
                 if let Some(slot) = world.organism_cell_mut(x, y) {
@@ -25307,110 +25319,216 @@ mis-wired {miswired_root}, so `slot_1_is_a_root_locus_and_not_a_shoot_one` would
         assert!(dark < lit, "the dark arm must lose more than the lit one: {dark} against {lit}");
     }
 
+    /// A grass tussock with its roots in a pocket of bare stone, in a world
+    /// with no soil in it at all: the scene shared by the rootless-plant
+    /// guards below. `pocket_water` is what its tank holds at the start.
+    ///
+    /// Stone, not other plants' `grassroot` as in the traced case, and no
+    /// ground anywhere, so its roots cannot reach any and turn the test into
+    /// a rooting race: thirst opens `break_root_tips`, and roots grow through
+    /// air. Measured: a pocket two cells from the end of a stone ledge, and
+    /// then one twelve cells in, both rooted round it into soil.
+    fn rootless_grass_scene(rootless_dries: bool, pocket_water: f32) -> (World, OrganismId) {
+        let mut w = World::new(Rect::new(0, 0, 63, 63));
+        w.rootless_dries = rootless_dries;
+        // The lab's setting, where the case was found: nothing is felled.
+        w.plant_load_failure = false;
+        // A clear sky. Rain on a rootless plant's blades is water it can
+        // drink (grass's `MatureBody` runs `Absorb`, root or not), and with
+        // weather running the first version of this scene filled its tank
+        // from puddles on the stone and grew 8 blades to 44 -- correct, and
+        // not the case under test.
+        w.weather_override = Some(crate::sim::weather::Weather::CLEAR);
+        let blade = w.materials.id_of("grassblade").expect("grassblade");
+        let root = w.materials.id_of("grassroot").expect("grassroot");
+        for x in 0..64 {
+            for y in 32..41 {
+                w.set(x, y, Cell::new(material::STONE, 0));
+            }
+        }
+        let species = w.species.id_of("grass").expect("grass");
+        let pocket = w.push_organism(species).expect("an organism slot is free");
+        for x in 14..22 {
+            w.set(x, 32, Cell::EMPTY);
+            place(&mut w, (x, 32), root, pocket, CellType::MatureBody, (1.0, 0.0));
+            place(&mut w, (x, 31), blade, pocket, CellType::MatureBody, (1.0, 0.0));
+        }
+        w.organism_mut(pocket).expect("the pocket plant").water = pocket_water;
+        (w, pocket)
+    }
+
+    fn blades_of(w: &World, id: OrganismId) -> usize {
+        let blade = w.materials.id_of("grassblade").expect("grassblade");
+        let s = w.organism_state(id).map(|s| s.cells.keys().copied().collect::<Vec<_>>()).unwrap_or_default();
+        s.into_iter().filter(|&(x, y)| w.get(x, y).material == blade).count()
+    }
+
+    fn carbon_of(w: &World, id: OrganismId) -> f32 {
+        let s = w.organism_state(id).map(|s| s.cells.keys().copied().collect::<Vec<_>>()).unwrap_or_default();
+        s.into_iter().map(|(x, y)| w.carbon_at(x, y)).sum()
+    }
+
     /// **A grass whose roots touch no soil dries out; one rooted beside it
     /// does not** (`rootless_dries_default`, the immortal grass of the
-    /// 2026-10-12 rain-off playtest).
+    /// 2026-10-12 rain-off playtest, which sprouted into a pocket of another
+    /// sod's root mat and stood for 49M frames on blades alone).
     ///
-    /// The scene is the traced one: a tussock germinated into a pocket of a
-    /// neighbouring sod's root mat, so every face of its roots is its own
-    /// tissue or the neighbour's `grassroot`, and `contact_root_cells` is 0.
     /// Same bed, same light, same frames in both arms; the only difference
-    /// is `World::rootless_dries`. The neighbour, rooted in wet soil, is the
-    /// control that the rule reaches only the plant that cannot drink.
+    /// is `World::rootless_dries`. Three properties, each with its own
+    /// failure: it stops earning (stored carbon falls rather than rises --
+    /// red if the status line is dropped and only desiccation is set), it
+    /// withers (blades shed), and the rooted neighbour is untouched.
     #[test]
     fn a_grass_with_no_root_in_the_ground_dries_out_and_a_rooted_one_does_not() {
         const FRAMES: usize = 45_000;
-        // (pocket blades, neighbour blades) standing after the run, and
-        // how many of the pocket plant's roots then touch soil.
-        fn build(rootless_dries: bool) -> (usize, usize, u32) {
-            let mut w = World::new(Rect::new(0, 0, 63, 63));
-            w.rootless_dries = rootless_dries;
-            // The lab's setting, where the case was found: nothing is felled.
-            w.plant_load_failure = false;
-            let soil = w.materials.id_of("soil").expect("soil is compiled in");
-            let blade = w.materials.id_of("grassblade").expect("grassblade");
-            let root = w.materials.id_of("grassroot").expect("grassroot");
-            for x in 0..64 {
-                w.set(x, 40, Cell::new(material::STONE, 0));
-                for y in 32..40 {
-                    w.set(x, y, Cell::new(soil, 0).with_aux(material::SOIL_FIELD_CAPACITY));
-                }
-            }
-            // The control: a sod rooted in wet soil, three root rows deep.
-            let neighbour = place_grass(&mut w, 40, 32, 16, 3);
-            // The rootless plant: one root row in a pocket with no soil on
-            // any face -- stone under it and at both ends, its own blades on
-            // top -- which is what the playtest's plant had (other plants'
-            // `grassroot` there; stone here so its roots cannot find a way
-            // out and turn the test into a rooting race).
-            for x in 4..16 {
-                for y in 32..34 {
-                    w.set(x, y, Cell::new(material::STONE, 0));
-                }
-            }
-            let species = w.species.id_of("grass").expect("grass");
-            let pocket = w.push_organism(species).expect("an organism slot is free");
-            for x in 6..14 {
-                w.set(x, 32, Cell::EMPTY);
-                place(&mut w, (x, 32), root, pocket, CellType::MatureBody, (1.0, 0.0));
-                place(&mut w, (x, 31), blade, pocket, CellType::MatureBody, (1.0, 0.0));
-            }
-            // No loose-tuft arm for finding B1 (a piece `sap_flow` never
-            // reaches keeping a stale wet reading): tried at two rows above
-            // the crown, where tillers joined it to the plant, and floating
-            // clear, where it fell in both arms. B1 is checked in the
-            // playtest replay instead, on the plant it was found on.
-            let standing = |w: &World, id: OrganismId, rows: std::ops::Range<i32>| {
-                let mut n = 0;
-                for y in rows {
-                    for x in 0..64 {
-                        let c = w.get(x, y);
-                        if c.material == blade && c.organism_id() == id {
-                            n += 1;
-                        }
-                    }
-                }
-                n
-            };
-            // Two organism ticks: enough for the contact walk to have run,
-            // too few for drought to have taken a blade.
+        // (blades, carbon before, carbon after, roots touching soil, rooted control's blades)
+        fn arm(rootless_dries: bool) -> (usize, f32, f32, u32, usize) {
+            let (mut w, pocket) = rootless_grass_scene(rootless_dries, 0.0);
+            // Two organism ticks: enough for the contact walk to have run.
             run(&mut w, 90);
             let contact = w.organism_state(pocket).map_or(u32::MAX, |s| s.contact_root_cells);
             assert_eq!(contact, 0, "test setup: the pocket plant must have no root touching soil");
-            assert!(
-                w.organism_state(neighbour).is_some_and(|s| s.contact_root_cells > 0),
-                "test setup: the neighbour must be drinking"
-            );
-            // No blade count here: with the switch on the plant is drying
-            // from its first tick, so a blade may already be gone. That the
-            // scene holds together is the switch-off arm's job below, which
-            // must keep every blade.
+            let before = carbon_of(&w, pocket);
             run_with_fields(&mut w, FRAMES);
+            let after = carbon_of(&w, pocket);
             let contact_after = w.organism_state(pocket).map_or(0, |s| s.contact_root_cells);
-            (standing(&w, pocket, 30..32), standing(&w, neighbour, 0..64), contact_after)
+            // The control: a sod rooted in wet soil, same switch, same frames.
+            let mut c = World::new(Rect::new(0, 0, 63, 63));
+            c.rootless_dries = rootless_dries;
+            c.plant_load_failure = false;
+            c.weather_override = Some(crate::sim::weather::Weather::CLEAR);
+            let soil = c.materials.id_of("soil").expect("soil is compiled in");
+            for x in 0..64 {
+                c.set(x, 40, Cell::new(material::STONE, 0));
+                for y in 32..40 {
+                    c.set(x, y, Cell::new(soil, 0).with_aux(material::SOIL_FIELD_CAPACITY));
+                }
+            }
+            let rooted = place_grass(&mut c, 24, 32, 16, 3);
+            run(&mut c, 90);
+            assert!(
+                c.organism_state(rooted).is_some_and(|s| s.contact_root_cells > 0),
+                "test setup: the control must be drinking"
+            );
+            run_with_fields(&mut c, FRAMES);
+            (blades_of(&w, pocket), before, after, contact_after, blades_of(&c, rooted))
         }
 
-        let (on_pocket, on_neighbour, on_contact) = build(true);
-        let (off_pocket, off_neighbour, off_contact) = build(false);
+        let (on_blades, on_c0, on_c1, on_contact, on_neighbour) = arm(true);
+        let (off_blades, off_c0, off_c1, off_contact, off_neighbour) = arm(false);
         println!(
-            "after {FRAMES} frames: rootless grass blades on {on_pocket} / off {off_pocket} (of 8), \
-roots touching soil on {on_contact} / off {off_contact}; rooted neighbour on {on_neighbour} / off {off_neighbour} (of 16)"
+            "after {FRAMES} frames: rootless grass blades on {on_blades} / off {off_blades} (of 8), carbon on \
+{on_c0:.1} -> {on_c1:.1} / off {off_c0:.1} -> {off_c1:.1}, roots touching soil on {on_contact} / off \
+{off_contact}; rooted control on {on_neighbour} / off {off_neighbour} (of 16)"
         );
-        // The old engine: never thirsty, so it neither withers nor looks for
-        // water. This arm is also what says the scene held together.
-        assert!(off_pocket >= 8, "the switch-off arm is the old engine: a rootless tussock stands ({off_pocket} of 8)");
-        assert_eq!(off_contact, 0, "...and never roots");
-        // **Thirst does two things, and either is a pass.** It withers the
-        // blades, and it opens `break_root_tips` (gate `status < 0.95`), so
-        // a root that can find a way round the stone does -- measured: 6 of
-        // 8 blades left when a new root reached the soil past the end of the
-        // ledge on the third sample, after which it is an ordinary rooted
-        // grass. A plant that neither drinks nor withers is the bug.
+        // The old engine: never thirsty, so it earns, stands and never roots.
+        // This arm is also what says the scene held together.
+        assert!(off_blades >= 8, "the switch-off arm is the old engine: a rootless tussock stands ({off_blades} of 8)");
+        assert!(off_c1 > off_c0, "...and earns: carbon {off_c0:.1} -> {off_c1:.1}");
+        assert_eq!(on_contact, 0, "test setup: there is no soil for a root to reach");
+        assert!(on_c1 < on_c0, "a grass with no root in the ground must stop earning: carbon {on_c0:.1} -> {on_c1:.1}");
+        // **Withering is net of regrowth.** `break_tillers` still funds new
+        // blades from stored carbon, so the plant does not shed straight
+        // down: measured, it grew to 19 blades on its seed's carbon and was
+        // back to 8, with 8.2 carbon left and falling, at 45,000 frames,
+        // against 78 blades and 343 carbon with the switch off. So the bar is
+        // "no net growth, and a fraction of the old engine", not a count.
         assert!(
-            on_contact > 0 || on_pocket <= 4,
-            "a grass with no root in the ground must dry out or find water: {on_pocket} of 8 standing, {on_contact} roots in soil"
+            on_blades <= 8 && on_blades * 4 < off_blades,
+            "...and wither: {on_blades} of 8 blades against {off_blades} with the switch off"
         );
-        assert!(on_neighbour >= 16, "a grass rooted in wet soil beside it must not: {on_neighbour} of 16");
+        assert_eq!(
+            on_neighbour, off_neighbour,
+            "a grass rooted in wet soil is untouched: {on_neighbour} against {off_neighbour} blades"
+        );
+    }
+
+    /// **"Dry" is graded on the tank, not set.** A rootless plant still
+    /// holding the water its seed gave it, or drinking through its blades, is
+    /// short of nothing; only the empty tank reads parched. Review finding S1
+    /// of 2026-10-13: a hard 0/1 would have called a full-tanked plant
+    /// desiccated. Two ticks, so no tiller has had time to draw the tank.
+    #[test]
+    fn a_rootless_plant_with_a_full_tank_is_not_parched_and_an_empty_one_is() {
+        let read = |water: f32| {
+            let (mut w, pocket) = rootless_grass_scene(true, water);
+            run(&mut w, 90);
+            let s = w.organism_state(pocket).expect("the pocket plant");
+            (s.water_status, s.water_desiccation, s.water_demand, s.contact_root_cells)
+        };
+        let full = read(organism::WATER_SCALE);
+        let empty = read(0.0);
+        println!("rootless tussock (status, desiccation, demand, contact): full tank {full:?}, empty {empty:?}");
+        assert_eq!(
+            (full.2, full.3, empty.2, empty.3),
+            (0.0, 0, 0.0, 0),
+            "test setup: both arms must be the zero-demand, zero-contact case"
+        );
+        assert!(full.0 > 0.9 && full.1 < 0.1, "a full tank is not parched: {full:?}");
+        assert!(empty.0 < 0.1 && empty.1 > 0.9, "an empty tank with no way to fill it is: {empty:?}");
+    }
+
+    /// **A dormant seed is not a parched plant.** A seed has no root by
+    /// definition, so without the `dormant_seed` exclusion every seed in the
+    /// bank would read status 0 -- on the roster, the health overlay, and
+    /// into its seedling's first tick (review finding S2 of 2026-10-13).
+    /// The seed sits on stone, so it never germinates and stays a seed.
+    #[test]
+    fn a_dormant_seed_with_no_root_is_not_read_as_parched() {
+        let mut w = test_world();
+        w.rootless_dries = true;
+        for x in 40..60 {
+            w.set(x, 60, Cell::new(material::STONE, 0));
+        }
+        assert!(w.plant_tree_species(50, 59, "grass"), "test setup: the seed should have been planted");
+        let id = w.get(50, 59).organism_id();
+        run_with_fields(&mut w, 450);
+        let s = w.organism_state(id).expect("test setup: the seed should still be there");
+        assert!(s.dormant_seed, "test setup: it should still be a dormant seed");
+        assert_eq!(s.contact_root_cells, 0, "test setup: a seed has no root");
+        assert_eq!((s.water_status, s.water_desiccation), (1.0, 0.0), "a dormant seed must not read as parched");
+    }
+
+    /// **A loose piece of a rootless plant reads the plant's own dryness,
+    /// not a stale wet one** (review finding B1 of 2026-10-13). `sap_flow`
+    /// walks from the collar row and writes only the cells it reaches, so a
+    /// tuft not joined to that row kept whatever it was last given -- and
+    /// `water_status` reads `plant status - (cell - plant desiccation)`, so
+    /// a tuft last written wet, on a plant now dry, read as fully watered and
+    /// kept earning. Direct on `sap_flow`, because a free tuft in a running
+    /// world either falls or is joined by regrowth before it can show this.
+    /// Scoped: a rooted plant's loose piece keeps the old behaviour.
+    #[test]
+    fn sap_flow_resets_a_loose_piece_of_a_rootless_plant_and_only_that() {
+        let reading = |rootless_dries: bool, contact: u32| {
+            let mut w = test_world();
+            w.sap_flow = true;
+            w.rootless_dries = rootless_dries;
+            let blade = w.materials.id_of("grassblade").expect("grassblade");
+            let species = w.species.id_of("grass").expect("grass");
+            let id = w.push_organism(species).expect("an organism slot");
+            for x in 48..=52 {
+                place(&mut w, (x, 99), blade, id, CellType::MatureBody, (1.0, 0.0));
+            }
+            // The loose tuft, three rows above and not touching the rest.
+            place(&mut w, (60, 95), blade, id, CellType::MatureBody, (1.0, 0.0));
+            w.organism_cell_mut(60, 95).unwrap().sap_desiccation = 0.0;
+            let s = w.organism_mut(id).unwrap();
+            s.collar_y = Some(99);
+            s.contact_root_cells = contact;
+            s.water_desiccation = 1.0;
+            sap_flow(&mut w, id);
+            w.organism(id).unwrap().cells[&(60, 95)].sap_desiccation
+        };
+        let rootless_on = reading(true, 0);
+        let rootless_off = reading(false, 0);
+        let rooted_on = reading(true, 3);
+        println!(
+            "loose tuft's sap_desiccation: rootless on {rootless_on}, rootless off {rootless_off}, rooted on {rooted_on}"
+        );
+        assert_eq!(rootless_on, -1.0, "a rootless plant's loose piece must fall back to the plant's own numbers");
+        assert_eq!(rootless_off, 0.0, "the switch-off arm is the old engine: the stale value stays");
+        assert_eq!(rooted_on, 0.0, "scoped to rootless plants: a rooted plant's loose piece is unchanged");
     }
 
     /// **A species that prices reproduction must be able to earn the
