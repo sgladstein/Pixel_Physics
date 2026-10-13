@@ -792,14 +792,18 @@ mod tests {
             // matcher that knows only the old name reports "authors no homing
             // gate at all" for a species that authors a correct one, which is
             // a false alarm that looks exactly like a real regression.
-            // **`EmptyCrop` first of all, since 2026-10-13**: the homing pair
-            // is `Bias +0.5, EmptyCrop -45.5`, the same two values as
-            // `Bias -45, CarryingFood +45.5` without the cancellation one
-            // mutation step could break (`brain::BrainInput::EmptyCrop`).
-            // The gain's magnitude is what saturates or does not, so its
-            // sign is dropped and 45.5 is still the repaired number.
+            // **`EmptyCrop` too, since 2026-10-13**: the homing pair is
+            // `Bias +0.5, EmptyCrop -45.5`, the same two values as `Bias -45,
+            // CarryingFood +45.5` without the cancellation one mutation step
+            // could break (`brain::BrainInput::EmptyCrop`). An `EmptyCrop`
+            // gain is the negation of the `CarryingFood` gain it replaces, so
+            // it is negated back and 45.5 is still the repaired number. The
+            // sign is kept, not dropped: `+45.5` there opens the unit when
+            // empty, a broken gate, and must read as -45.5 and fail. Whichever
+            // of the three lines comes first in the file is the one read; a
+            // species authors only one of them on unit 0.
             if let Some(rest) = l.strip_prefix("(EmptyCrop,0,") {
-                return rest.split(')').next()?.parse::<f32>().ok().map(f32::abs);
+                return rest.split(')').next()?.parse::<f32>().ok().map(|w| -w);
             }
             let rest = l.strip_prefix("(CarryingFood,0,").or_else(|| l.strip_prefix("(Carrying,0,"))?;
             rest.split(')').next()?.parse().ok()

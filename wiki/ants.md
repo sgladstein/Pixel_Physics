@@ -910,8 +910,8 @@ The home scent's volume is turned up now, and it shows: draw a trail from a
 patch back to the nest and ants carrying food run it. That is why the scent
 tool starts on the home scent.
 
-**Since 2026-10-13 a colony that evolves keeps carrying its food home.**
-Until then, every colony left to breed was taken over within a day or two of
+**Since 2026-10-13 a colony of the common ant that evolves keeps carrying
+its food home.** Until then, every colony left to breed was taken over within a day or two of
 game time by ants that filled up at the food and then simply stayed there,
 full, until they got hungry again. Food stopped reaching the nest, the larvae
 went short, and almost nobody lived underground. It was not evolution
@@ -921,7 +921,10 @@ the first time a newborn's copy changed at all, and the other let one small,
 ordinary change to it switch going home off entirely. Both are fixed. In a
 colony that evolves, food carried home is now about the same as in one that
 does not (two and a half times what it was), twice as many ants live in the
-nest, half as many larvae starve, and the colony is the same size.
+nest, a larva is about half as likely to starve (about one egg in seven
+rather than one in four, from somewhat fewer eggs), and the colony is the
+same size. The hopper and the long ant still carry the old wiring, so their
+colonies can still go the same way.
 
 ### One door, and a granary under it
 

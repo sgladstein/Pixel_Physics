@@ -490,8 +490,8 @@ pub const MUT_REL: f32 = 0.10;
 /// **80 since 2026-10-13, because 40 did to the 2026-09-09 gate exactly what
 /// 4.0 would have done to the old one.** §Z7 moved the homing pair to `Bias
 /// -45, CarryingFood +45.5` (`ant.ron`, units 0/1), above this clamp, and
-/// nothing re-checked it. The first mutation that touched slot 4126 (the
-/// 45.5) set it to exactly 40, and the clamp kept it from ever coming back:
+/// nothing re-checked it. The first mutation that touched slot 4126 (then
+/// the 45.5; authored 0 since `EmptyCrop`) set it to exactly 40, and the clamp kept it from ever coming back:
 /// at 40 the gate sums `-5 + 6 x along` full, never opens, and the
 /// un-clamped mirror unit pushes `Move` down, so a laden ant sits at the
 /// food. That is the "pile-loafer" every mutation-on colony was taken over
@@ -513,8 +513,15 @@ pub const MUT_REL: f32 = 0.10;
 /// trail reading reaches the brain as 0 (`creature.rs` `brain_inputs`), so
 /// the pair steers nothing and this break is its only effect. **Finished the
 /// same day by [`BrainInput::EmptyCrop`]**, which makes the laden open state
-/// one small weight; with both, 12 of 12 mutation-on seeds carry food home. `every_authored_weight_is_inside_the_mutation_clamp` is the
-/// guard: any species authoring a weight past this fails there.
+/// one small weight; with both, 12 of 12 mutation-on seeds carry food home.
+/// **For `ant` the two overlap** (inferred, not measured): under `EmptyCrop`
+/// its only authored weights past 40 are the 45.5s that decide how *shut* a
+/// gate is, and a cut to 40 leaves them shut, so this lift's remaining job
+/// is the species still on the cancelling pair (`hopper`, `longant`,
+/// `ancestor`) and the general law below. No arm ran `EmptyCrop` at 40, so
+/// which of the two removed the clamp-alone run's smaller colony is open.
+/// `every_authored_weight_is_inside_the_mutation_clamp` is the guard: any
+/// species authoring a weight past this fails there.
 pub const MUT_CLAMP: f32 = 80.0;
 
 /// **The clamp in force**: [`MUT_CLAMP`], or `PIXEL_PHYSICS_MUT_CLAMP=<n>`
@@ -523,7 +530,12 @@ pub const MUT_CLAMP: f32 = 80.0;
 pub fn mut_clamp() -> f32 {
     static C: std::sync::OnceLock<f32> = std::sync::OnceLock::new();
     *C.get_or_init(|| match std::env::var("PIXEL_PHYSICS_MUT_CLAMP") {
-        Ok(v) => v.trim().parse::<f32>().ok().filter(|c| *c > 0.0).unwrap_or_else(|| panic!("PIXEL_PHYSICS_MUT_CLAMP={v:?} is not a positive number")),
+        Ok(v) => v
+            .trim()
+            .parse::<f32>()
+            .ok()
+            .filter(|c| *c > 0.0)
+            .unwrap_or_else(|| panic!("PIXEL_PHYSICS_MUT_CLAMP={v:?} is not a positive number")),
         Err(_) => MUT_CLAMP,
     })
 }
@@ -554,8 +566,20 @@ pub fn home_gate_folded() -> bool {
 pub fn fold_empty_crop(g: &mut [f32]) {
     use BrainInput as I;
     let rows = (0..BRAIN_HIDDEN)
-        .map(|h| (ih_slot(I::EmptyCrop, h), ih_slot(I::Bias, h), ih_slot(I::CarryingFood, h)))
-        .chain(OUTPUTS.iter().map(|&o| (io_slot(I::EmptyCrop, o), io_slot(I::Bias, o), io_slot(I::CarryingFood, o))));
+        .map(|h| {
+            (
+                ih_slot(I::EmptyCrop, h),
+                ih_slot(I::Bias, h),
+                ih_slot(I::CarryingFood, h),
+            )
+        })
+        .chain(OUTPUTS.iter().map(|&o| {
+            (
+                io_slot(I::EmptyCrop, o),
+                io_slot(I::Bias, o),
+                io_slot(I::CarryingFood, o),
+            )
+        }));
     for (e, b, c) in rows {
         let w = g[e];
         if w != 0.0 {
@@ -2611,7 +2635,12 @@ mod tests {
                 out.push(format!("{}: plastic trait {} = {}", def.name, x.0, x.1));
             }
         }
-        assert!(out.is_empty(), "authored weights past the mutation clamp ({}), which the first mutation cuts for good:\n  {}", mut_clamp(), out.join("\n  "));
+        assert!(
+            out.is_empty(),
+            "authored weights past the mutation clamp ({}), which the first mutation cuts for good:\n  {}",
+            mut_clamp(),
+            out.join("\n  ")
+        );
     }
 
     /// **One mutation step cannot shut the ant's homing gate.** Every weight
@@ -2656,15 +2685,26 @@ mod tests {
             }
             worst
         };
-        assert!(push(&shipped).abs() < 1e-6, "the authored pair is not neutral on a laden ant across the trail: {}", push(&shipped));
+        assert!(
+            push(&shipped).abs() < 1e-6,
+            "the authored pair is not neutral on a laden ant across the trail: {}",
+            push(&shipped)
+        );
         let w = worst(&shipped);
-        assert!(w.abs() < 0.5, "one mutation step pushes a laden ant's Move by {w}; the homing gate is on a knife edge again");
+        assert!(
+            w.abs() < 0.5,
+            "one mutation step pushes a laden ant's Move by {w}; the homing gate is on a knife edge again"
+        );
         let mut folded = shipped.clone();
         fold_empty_crop(&mut folded);
-        assert!(worst(&folded).abs() > 2.0, "the positive control went quiet: the folded gate should break on one step ({})", worst(&folded));
+        assert!(
+            worst(&folded).abs() > 2.0,
+            "the positive control went quiet: the folded gate should break on one step ({})",
+            worst(&folded)
+        );
     }
 
-        #[test]
+    #[test]
     fn the_recurrence_block_is_reachable_only_through_the_fourth_list() {
         // The gap this found, made mechanical. `eval_brain` reads `hh[h]`
         // and `is_live_slot` calls those four slots live, so a sampled or
