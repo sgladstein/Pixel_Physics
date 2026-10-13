@@ -5632,6 +5632,17 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   starvation widens over 200-300k (85.5 against 31, 12 of 12), the store's
   known cost; §8 traces seed 9's one-kiloframe crash (104 foragers starved
   outside as one cohort, self-limiting).
+- [brakes-and-nest-life-2026-10-08-13.md](brakes-and-nest-life-2026-10-08-13.md) —
+  **every birth brake and nest-life switch one session tried (2026-10-07 to
+  10-13), what each did, why it worked or failed, and the main it ran on**
+  (`43522586` plus the switch commits, before PR 675's flip). No birth brake
+  built a store or steadied the colony; the colonies were not overbreeding
+  (plateau ~1,200-1,600, 98-99% of deaths old age); `RECRUIT` and
+  `SPOIL_SIDE=trail` were the gains. The lay brake's long-run starvation is
+  traced: it brought the colony into the nest and deep, and the deep nest has
+  no supply line (739 starved against 8). On the playtest line ~11 of ~150
+  cells a 1,000 frames reach the store; the low store belongs to the
+  recruiting colony (fits `follow-food-home-2026-10-10`).
 - [handoff/PLAN-2026-10-07.md](handoff/PLAN-2026-10-07.md) — **the account
   handoff and plan for the ant program, 2026-10-07 (main 9c362015); start here.**
   Written for a new account with only the repo: the owner's goals, every working
