@@ -32,7 +32,12 @@
 
 use serde::{Deserialize, Serialize};
 
-/// **33, not 32, since 2026-09-20.** `HomeAligned` appended -- see that
+/// **34, not 33, since 2026-10-13.** `EmptyCrop` appended -- see that
+/// variant: the homing gate rebuilt so mutation cannot shut it by moving one
+/// weight one step. Lawful under the reserve on the same terms as every
+/// append below; `INPUT_SLOTS` is 64 against 34 live.
+///
+/// Before it, **33, not 32, since 2026-09-20.** `HomeAligned` appended -- see that
 /// variant, and `open-bugs-handoff.md` §Z29 for the measurement that asked
 /// for it: the trail inputs read negative whichever way a laden ant faces,
 /// so the return leg needed an input that actually knows where home is.
@@ -48,7 +53,7 @@ use serde::{Deserialize, Serialize};
 /// `INPUT_SLOTS` is 64 against a live count of 29 before this, so lighting
 /// up one more row moves no existing weight and `GENOME_LEN` does not
 /// change.
-pub const BRAIN_INPUTS: usize = 33;
+pub const BRAIN_INPUTS: usize = 34;
 /// **Eight, not four, since 2026-09-02.**
 ///
 /// Four was the whole of an animal's internal state, and `ant.ron` already
@@ -305,6 +310,7 @@ pub const INPUT_NAMES: [&str; BRAIN_INPUTS] = [
     "CarryingFood",
     "PheroARise",
     "HomeAligned",
+    "EmptyCrop",
 ];
 pub const OUTPUT_NAMES: [&str; BRAIN_OUTPUTS] = [
     "Turn", "Move", "EmitA", "EmitB", "Dig", "Drop", "Persist", "Tumble", "Caution", "Feed", "Impulse", "DropSpoil", "Attack", "Provision", "Share", "Fly", "Lay",
@@ -480,7 +486,109 @@ pub const MUT_REL: f32 = 0.10;
 /// design that specified it predates the gate it would have deleted. 40
 /// leaves the authored gate a third of a decade of headroom without
 /// letting a runaway weight saturate every downstream unit permanently.
-pub const MUT_CLAMP: f32 = 40.0;
+///
+/// **80 since 2026-10-13, because 40 did to the 2026-09-09 gate exactly what
+/// 4.0 would have done to the old one.** §Z7 moved the homing pair to `Bias
+/// -45, CarryingFood +45.5` (`ant.ron`, units 0/1), above this clamp, and
+/// nothing re-checked it. The first mutation that touched slot 4126 (then
+/// the 45.5; authored 0 since `EmptyCrop`) set it to exactly 40, and the clamp kept it from ever coming back:
+/// at 40 the gate sums `-5 + 6 x along` full, never opens, and the
+/// un-clamped mirror unit pushes `Move` down, so a laden ant sits at the
+/// food. That is the "pile-loafer" every mutation-on colony was taken over
+/// by (12 of 12 runs, food home falling 5-25x; the project's
+/// `needs-ant/resume-2026-10-10/mutation-on-drift-2026-10-10.md`).
+/// Measured (8 steady seeds, mutation on, 300k, the project's
+/// `new-vs-old/clamp/results-2026-10-13.md`): lifted, food trips home are
+/// back to about 9,000 a seed on 6 of 8 (40: 849-3,887 on 7 of 8), ants
+/// living deep double; adults starve about 1.7x more and the colony is 4-12%
+/// smaller, inferred to be loafers no longer feeding themselves at the pile.
+/// 60 and 80 were byte-identical on all 16 runs: no weight passed 56.8 in
+/// 300k. 80 rather than 60 because the older ant species (`ancestor`,
+/// `ant_long` and the rest) author `Carrying -> h2/h3 = -75`, which 60 would
+/// cut the same way. **Not the whole fix**: `CarryingFood` is 0 or 1, so the
+/// pair's laden open state, +0.5, is the difference of two weights of 45,
+/// each moving up to 4.6 per touch; on 2 of the 8 seeds ordinary steps (the
+/// bias to -52, or -47.9 with the gain at 42.3) shut it again and that
+/// lineage still swept the colony. Under the shipped chooser the pair's
+/// trail reading reaches the brain as 0 (`creature.rs` `brain_inputs`), so
+/// the pair steers nothing and this break is its only effect. **Finished the
+/// same day by [`BrainInput::EmptyCrop`]**, which makes the laden open state
+/// one small weight; with both, 12 of 12 mutation-on seeds carry food home.
+/// **For `ant` the two overlap** (inferred, not measured): under `EmptyCrop`
+/// its only authored weights past 40 are the 45.5s that decide how *shut* a
+/// gate is, and a cut to 40 leaves them shut, so this lift's remaining job
+/// is the species still on the cancelling pair (`hopper`, `longant`,
+/// `ancestor`) and the general law below. No arm ran `EmptyCrop` at 40, so
+/// which of the two removed the clamp-alone run's smaller colony is open.
+/// `every_authored_weight_is_inside_the_mutation_clamp` is the guard: any
+/// species authoring a weight past this fails there.
+pub const MUT_CLAMP: f32 = 80.0;
+
+/// **The clamp in force**: [`MUT_CLAMP`], or `PIXEL_PHYSICS_MUT_CLAMP=<n>`
+/// for a run that wants another (`40` is the clamp before 2026-10-13). Read
+/// once per process.
+pub fn mut_clamp() -> f32 {
+    static C: std::sync::OnceLock<f32> = std::sync::OnceLock::new();
+    *C.get_or_init(|| match std::env::var("PIXEL_PHYSICS_MUT_CLAMP") {
+        Ok(v) => v
+            .trim()
+            .parse::<f32>()
+            .ok()
+            .filter(|c| *c > 0.0)
+            .unwrap_or_else(|| panic!("PIXEL_PHYSICS_MUT_CLAMP={v:?} is not a positive number")),
+        Err(_) => MUT_CLAMP,
+    })
+}
+
+/// **Is the homing gate folded back to its cancelling form?**
+/// `PIXEL_PHYSICS_HOME_GATE=fold` -- the gate before 2026-10-13, for an A/B
+/// and as the way back; unset or `=empty` is the shipped gate. Read once per
+/// process. See [`BrainInput::EmptyCrop`].
+pub fn home_gate_folded() -> bool {
+    static F: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *F.get_or_init(|| match std::env::var("PIXEL_PHYSICS_HOME_GATE") {
+        Ok(v) => match v.trim() {
+            "fold" => true,
+            "empty" => false,
+            other => panic!("PIXEL_PHYSICS_HOME_GATE={other:?} is not one of fold, empty"),
+        },
+        Err(_) => false,
+    })
+}
+
+/// **Fold the `EmptyCrop` column into `Bias` and `CarryingFood`**, in every
+/// hidden unit and every output: `b + e(1 - c) = (b + e) - e c`, so each
+/// unit computes exactly what it did, through the cancelling pair that
+/// mutation can shut (`BrainInput::EmptyCrop` has the arithmetic). Exact on
+/// the shipped weights (`0.5 - 45.5 = -45`, `0 + 45.5`), so a folded `ant`
+/// is the pre-2026-10-13 ant; a genome with no `EmptyCrop` weight is
+/// returned unchanged.
+pub fn fold_empty_crop(g: &mut [f32]) {
+    use BrainInput as I;
+    let rows = (0..BRAIN_HIDDEN)
+        .map(|h| {
+            (
+                ih_slot(I::EmptyCrop, h),
+                ih_slot(I::Bias, h),
+                ih_slot(I::CarryingFood, h),
+            )
+        })
+        .chain(OUTPUTS.iter().map(|&o| {
+            (
+                io_slot(I::EmptyCrop, o),
+                io_slot(I::Bias, o),
+                io_slot(I::CarryingFood, o),
+            )
+        }));
+    for (e, b, c) in rows {
+        let w = g[e];
+        if w != 0.0 {
+            g[b] += w;
+            g[c] -= w;
+            g[e] = 0.0;
+        }
+    }
+}
 
 /// **Point-mutate a genome in place**, one live slot at a time.
 ///
@@ -529,7 +637,8 @@ pub fn mutate(genome: &mut [f32], rate: f32, rng: &mut crate::sim::rng::Rng) -> 
         let w = genome[i];
         let width = MUT_ABS_FLOOR + MUT_REL * w.abs();
         let step = (rng.unit_f32() * 2.0 - 1.0) * width;
-        let next = (w + step).clamp(-MUT_CLAMP, MUT_CLAMP);
+        let clamp = mut_clamp();
+        let next = (w + step).clamp(-clamp, clamp);
         if next != w {
             moved += 1;
         }
@@ -1144,6 +1253,36 @@ pub enum BrainInput {
     /// from birth 1** -- see
     /// `the_live_slot_count_is_pinned_because_mutation_rate_is_derived_from_it`.
     HomeAligned = 32,
+
+    /// **1.0 when the crop holds no food, 0.0 when it holds any** -- exactly
+    /// `1 - CarryingFood`, filled beside it in `sense`. It carries nothing
+    /// `CarryingFood` does not; it exists so the homing gate can be built
+    /// without a cancellation.
+    ///
+    /// **Why the complement is not redundant (2026-10-13).** `ant.ron`'s
+    /// homing pair was `Bias -45, CarryingFood +45.5`: shut at -45 when
+    /// empty, +0.5 when laden. That +0.5 is the difference of two weights
+    /// of 45, and `mutate` moves a weight by up to `MUT_REL` (10%) of
+    /// itself -- about 4.5 here -- one slot at a time. So one step on either
+    /// weight of *one* unit (the bias to -52, the gain to 40) takes that
+    /// unit's laden state to -6.5 while its mirror stays at +0.5, and the
+    /// pair, neutral only while the two are exact mirrors, then pushes
+    /// `Move` by about -3 on every laden ant: P(move) 0, a full crop parked
+    /// at the food. That is the mutation-on pile-loafer; lifting
+    /// `MUT_CLAMP` (PR 694) stopped the clamp doing it on the first touch
+    /// and left ordinary drift doing it on 2 of 8 seeds
+    /// (`new-vs-old/clamp/results-2026-10-13.md`, the project files).
+    ///
+    /// Written as `Bias +0.5, EmptyCrop -45.5` the same unit computes the
+    /// same two values -- `0.5 - 45.5 = -45` empty, `+0.5` laden -- but the
+    /// laden state is now **one small weight**, which mutation moves by
+    /// about 0.09 a step, and the 45.5 only decides how shut an *empty* ant
+    /// is. That is the shape the outbound pair (units 2/3, `Bias +0.5,
+    /// CarryingFood -45.5`) always had, which is why it never loafed.
+    /// `PIXEL_PHYSICS_HOME_GATE=fold` folds this column back into `Bias`
+    /// and `CarryingFood` at species load (`fold_empty_crop`), the old
+    /// gate exactly, for an A/B on the same mutation draws.
+    EmptyCrop = 33,
 }
 
 /// Which output slot. Positional and append-only, as above.
@@ -1574,6 +1713,7 @@ pub const INPUTS: [BrainInput; BRAIN_INPUTS] = [
     BrainInput::CarryingFood,
     BrainInput::PheroARise,
     BrainInput::HomeAligned,
+    BrainInput::EmptyCrop,
 ];
 /// See [`INPUTS`].
 pub const OUTPUTS: [BrainOutput; BRAIN_OUTPUTS] = [
@@ -2461,7 +2601,110 @@ mod tests {
         assert!(dead.is_empty(), "authored weights below W_EPS ({W_EPS}), which `eval_brain` skips entirely:\n  {}", dead.join("\n  "));
     }
 
-        #[test]
+    /// **Every authored weight sits inside the mutation clamp.** One past it
+    /// is cut to the clamp by the first mutation that touches it and can
+    /// never come back: `ant.ron`'s homing gain 45.5 against a clamp of 40
+    /// was the pile-loafer (`MUT_CLAMP`'s doc). Reads the clamp in force, so
+    /// the fault goes back with no rebuild: `PIXEL_PHYSICS_MUT_CLAMP=40`
+    /// names the ±45 homing gates of every ant species, and `=60` the older
+    /// species' `Carrying -> h2/h3 = -75`.
+    #[test]
+    fn every_authored_weight_is_inside_the_mutation_clamp() {
+        let world = crate::sim::world::World::new(crate::sim::chunk::Rect::new(0, 0, 63, 63));
+        let mut out: Vec<String> = Vec::new();
+        for i in 0..world.species.len() as u16 {
+            let def = world.species.get(crate::sim::organism::SpeciesId(i));
+            if def.creature.is_none() || def.genome.len() != GENOME_LEN {
+                continue;
+            }
+            let w = wiring_from_genome(&def.genome);
+            let past = |x: f32| x.abs() > mut_clamp();
+            for x in w.instincts.iter().filter(|x| past(x.2)) {
+                out.push(format!("{}: {:?} -> {:?} = {}", def.name, x.0, x.1, x.2));
+            }
+            for x in w.hidden.iter().filter(|x| past(x.2)) {
+                out.push(format!("{}: {:?} -> h{} = {}", def.name, x.0, x.1, x.2));
+            }
+            for x in w.outputs.iter().filter(|x| past(x.2)) {
+                out.push(format!("{}: h{} -> {:?} = {}", def.name, x.0, x.1, x.2));
+            }
+            for x in w.recurrence.iter().filter(|x| past(x.1)) {
+                out.push(format!("{}: h{} recurrence = {}", def.name, x.0, x.1));
+            }
+            for x in w.plastic.iter().filter(|x| past(x.1)) {
+                out.push(format!("{}: plastic trait {} = {}", def.name, x.0, x.1));
+            }
+        }
+        assert!(
+            out.is_empty(),
+            "authored weights past the mutation clamp ({}), which the first mutation cuts for good:\n  {}",
+            mut_clamp(),
+            out.join("\n  ")
+        );
+    }
+
+    /// **One mutation step cannot shut the ant's homing gate.** Every weight
+    /// on homing units 0/1 is moved, one at a time, by the widest step
+    /// `mutate` can take (`MUT_ABS_FLOOR + MUT_REL * |w|`) either way, and the
+    /// pair's push on `Move` for a laden ant across the trail (`along = 0`)
+    /// must stay near zero -- the authored pair gives exactly 0 there.
+    /// Put back: folded to the pre-2026-10-13 `Bias -45, CarryingFood +45.5`
+    /// (`fold_empty_crop`) one bias step gives about -2.8 (P(move) 0, the
+    /// pile-loafer) or +2.8 on the mirror unit (a laden ant that runs
+    /// whichever way it faces). Reads the pair's slots straight off the shipped
+    /// genome, so it is the species file under test, not a copy.
+    #[test]
+    fn one_mutation_step_cannot_shut_the_homing_gate() {
+        use BrainInput as I;
+        let world = crate::sim::world::World::new(crate::sim::chunk::Rect::new(0, 0, 63, 63));
+        let id = world.species.id_of("ant").expect("the ant species");
+        let shipped = world.species.get(id).genome.clone();
+        // laden: CarryingFood 1, EmptyCrop 0; along 0
+        let push = |g: &[f32]| -> f32 {
+            (0..2)
+                .map(|h| {
+                    let x = g[ih_slot(I::Bias, h)] + g[ih_slot(I::CarryingFood, h)];
+                    g[ho_slot(h, BrainOutput::Move)] * squash(x)
+                })
+                .sum()
+        };
+        let worst = |g: &[f32]| -> f32 {
+            let mut worst = 0.0f32;
+            for h in 0..2 {
+                let ins = [I::Bias, I::CarryingFood, I::EmptyCrop, I::PheroAAlong].map(|i| ih_slot(i, h));
+                for slot in ins.into_iter().chain([ho_slot(h, BrainOutput::Move)]) {
+                    for sign in [-1.0f32, 1.0] {
+                        let mut m = g.to_vec();
+                        m[slot] += sign * (MUT_ABS_FLOOR + MUT_REL * m[slot].abs());
+                        let p = push(&m);
+                        if p.abs() > worst.abs() {
+                            worst = p;
+                        }
+                    }
+                }
+            }
+            worst
+        };
+        assert!(
+            push(&shipped).abs() < 1e-6,
+            "the authored pair is not neutral on a laden ant across the trail: {}",
+            push(&shipped)
+        );
+        let w = worst(&shipped);
+        assert!(
+            w.abs() < 0.5,
+            "one mutation step pushes a laden ant's Move by {w}; the homing gate is on a knife edge again"
+        );
+        let mut folded = shipped.clone();
+        fold_empty_crop(&mut folded);
+        assert!(
+            worst(&folded).abs() > 2.0,
+            "the positive control went quiet: the folded gate should break on one step ({})",
+            worst(&folded)
+        );
+    }
+
+    #[test]
     fn the_recurrence_block_is_reachable_only_through_the_fourth_list() {
         // The gap this found, made mechanical. `eval_brain` reads `hh[h]`
         // and `is_live_slot` calls those four slots live, so a sampled or
@@ -2611,7 +2854,13 @@ mod tests {
         // for every breeding scene**: `brain::mutate` draws one `unit_f32`
         // per live slot, so births diverge from the first one even though
         // an unwired `Lay` changes no decision.
-        assert_eq!(live, 983, "the mutable surface moved; re-derive every species' mutation_rate against it in the same change");
+        // 983 -> 1008 on 2026-10-13 with `EmptyCrop` (an input column, 25
+        // slots: 17 outputs + 8 hidden) -- the homing gate rebuilt so one
+        // mutation step cannot shut it (the variant has the arithmetic). No
+        // output moved. Every species' `mutation_rate` re-derived to
+        // `3.18 / 1008 = 0.0031548` in the same change, and every breeding
+        // scene's numbers move from birth 1 as before.
+        assert_eq!(live, 1008, "the mutable surface moved; re-derive every species' mutation_rate against it in the same change");
     }
 
     #[test]
@@ -2792,7 +3041,12 @@ mod tests {
         // renumbered, `GENOME_LEN` does not change. A jar stored before it
         // passes `GenomeLayout::accepts` and loads with the row silent, which
         // `Lay` reads as "lay when able" -- the behaviour it was stored with.
-        assert_eq!(genome_manifest(), 925_349_372);
+        // **Moved again 2026-10-13 by `EmptyCrop`**, an append: `BRAIN_INPUTS`
+        // 33 -> 34 lights up a column of the 64-wide reserve, no name is
+        // renumbered, `GENOME_LEN` does not change. A jar stored before it
+        // loads with the column silent, so its homing pair keeps the old
+        // cancelling form -- which is the form it evolved under.
+        assert_eq!(genome_manifest(), 1_582_306_454);
     }
 
     #[test]
@@ -2966,7 +3220,7 @@ mod tests {
             let width_small = MUT_ABS_FLOOR + MUT_REL * 0.3;
             assert!((g[big] - 30.0).abs() <= width_big + 1e-4, "the ±30 gate moved {} on seed {seed}, wider than {width_big}", g[big] - 30.0);
             assert!((g[small] - 0.3).abs() <= width_small + 1e-4, "a 0.3 weight moved {} on seed {seed}, wider than {width_small}", g[small] - 0.3);
-            assert!(g.iter().all(|w| w.abs() <= MUT_CLAMP + 1e-4), "a weight escaped the clamp on seed {seed}");
+            assert!(g.iter().all(|w| w.abs() <= mut_clamp() + 1e-4), "a weight escaped the clamp on seed {seed}");
         }
     }
 

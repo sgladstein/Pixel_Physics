@@ -2668,7 +2668,13 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
     // is owed to spoil the ant happens to be holding as well.
     let mut tr_gate_open_spoil = 0u64;
     let gate_threshold = {
-        let g = &genome;
+        // **Folded first, since 2026-10-13**: the ant's pair is written on
+        // `EmptyCrop` now, which leaves `(CarryingFood, 0)` at zero and this
+        // threshold reading 0.0 -- the same silent answer as below.
+        // `fold_empty_crop` rewrites it as `Bias + CarryingFood`, exactly.
+        let mut g = genome.clone();
+        brain::fold_empty_crop(&mut g);
+        let g = &g;
         let bias = g[brain::ih_slot(I::Bias, 0)];
         // **`CarryingFood`, since 2026-09-18.** The gate was re-authored onto
         // the food-only sensor; reading `Carrying` here would find a zero

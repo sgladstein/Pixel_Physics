@@ -9893,8 +9893,13 @@ fn sense(
         // saturation bug), and to open on a LITTLE food. With
         // `on = Bias + gain`, an on-state of +0.5 at `Bias -45` forces
         // `gain = 45.5` and therefore a threshold of **45/45.5 = 0.989**. The
-        // three are incompatible for a graded sensor, and `MUT_CLAMP` (40)
-        // destroys any large gain on the first birth regardless.
+        // three are incompatible for a graded sensor, and `MUT_CLAMP` (40
+        // until 2026-10-13) destroyed any large gain on the first birth
+        // regardless -- it cut this pair's own 45.5 to 40 and shut the gate
+        // for good, which was the mutation-on pile-loafer. The clamp is 80
+        // since 2026-10-13, and the brain.rs guard
+        // `every_authored_weight_is_inside_the_mutation_clamp` fails if an
+        // authored weight outgrows it again.
         //
         // A graded threshold also cannot be picked to suit: one cell of the
         // shipped foods is 40, 120, 137, 200, 480, 960 or 1440 J against
@@ -9907,6 +9912,9 @@ fn sense(
         // home") lives in `CreatureDef::home_bias`, which reads `crop_fill`
         // directly. One question per sensor.
         inputs[I::CarryingFood as usize] = if crop_fill > 0.0 { 1.0 } else { 0.0 };
+        // Its complement, so the homing gate's laden state is one small
+        // weight rather than two cancelling ones -- `BrainInput::EmptyCrop`.
+        inputs[I::EmptyCrop as usize] = 1.0 - inputs[I::CarryingFood as usize];
         // **Which way home is, for an animal that has a reason to go there** --
         // `brain::BrainInput::HomeAligned`, the return leg's own bearing.
         //
