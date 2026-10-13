@@ -13844,12 +13844,12 @@ fn lay_in_pull(world: &World, organism: OrganismId, def: &CreatureDef, state: &c
     // **`LAY_SIDE`: to the store first** ([`super::brood::LaySide`]): the
     // store lies on the walls, so the egg is laid beside the larvae's food.
     // Off the store field, LAY_IN's walk is the labelled fallback.
+    // The switch is read by [`lay_in_target`], not here: this is the rule
+    // past it, for the test that cannot set it.
     if bar.side.is_some() {
         if let Some(t) = store_inward(world, organism, head, i32::MAX, true) {
             return Some(t);
         }
-    } else if !lay_in_of(world) {
-        return None;
     }
     deeper_along_way(world, organism, head)
 }
@@ -17850,8 +17850,9 @@ fn under_roof(world: &World, (x, y): (i32, i32), rows: i32) -> bool {
     (0..rows).contains(&below) && (x - site.x).abs() > door
 }
 
-/// **`PIXEL_PHYSICS_SHAFT_ROOMS`: flat rooms off a shaft** (late tunnels,
-/// 2026-10-12, off). A ground cut that would make a room taller than `rows`,
+/// **`PIXEL_PHYSICS_SHAFT_ROOMS`: flat rooms off a shaft, and a brood room
+/// at its top** (late tunnels, built 2026-10-12; **on by default since
+/// 2026-10-13** as [`SHAFT_ROOMS_SHIPPED`], `off` is the nest before). A ground cut that would make a room taller than `rows`,
 /// or bring two rooms within `gap` rows of each other, is refused; a cut
 /// that leaves only a shaft or tunnel one or two cells wide is never refused,
 /// so the nest still goes down, and a shaft widened deep enough under a room
@@ -17876,11 +17877,31 @@ fn under_roof(world: &World, (x, y): (i32, i32), rows: i32) -> bool {
 /// 3's stricter cap (no column of room over 4, no shaft exemption) gave
 /// "flatter, but brood goes into narrow pits".
 ///
-/// Parts: `on` (`rows=4,gap=6,space=8`), or a comma list of `rows=`, `gap=`,
+/// **Shipped** (unset, or `on`): `space=25,top=16,floor=all` over
+/// `rows=4,gap=6`. Measured 2026-10-13, `steady_income`, 600k, 12 seeds,
+/// against the game then and the game nudged by a frame
+/// (`/mnt/project-files/late-tunnels/README.md`, "12 seeds toward on"): the
+/// brood lies in a room at the top of the nest, 76-87% of brood cells
+/// against 3-10%; larvae starved over 300-600k 0-1 against 35-718; mean
+/// adults 282 against 228 and 233, higher on 11 of 12 (seed 1 236 against
+/// 248); eggs about 12% fewer; one to four flat galleries below. A 600k run
+/// took about 13% longer, with 24% more ants (the split is not measured).
+/// The floor is load-bearing: the box alone let the brood fall through the
+/// door shaft (seed 1: 76% of brood below the box, 115 larvae starved).
+/// **A labelled stopgap**, against the design rule that structure comes
+/// from local signals: no ant senses anything here, the rule only refuses
+/// cuts, and the brood room is a fixed box at the door that the eggs reach
+/// by falling (nothing carries brood). Kept on because it stops the larvae
+/// starving; the box is the control a local cue that builds the same room
+/// has to beat.
+///
+/// Parts: a comma list of `rows=`, `gap=`,
 /// `space=` (how far along its row a shaft or pit cell must be from other
 /// open ground), and `random=<per mille>`, the control: no geometry, a fixed
 /// share of the cells in the same region refused for good (a hash of the
-/// cell), with the same turn and waivers. Unknown values panic.
+/// cell), with the same turn and waivers; with the `top` parts below. A
+/// list starts from [`SHAFT_ROOMS_PLAIN`] (`rows=4,gap=6,space=8`, no box),
+/// not from the shipped rule. Unknown values panic.
 ///
 /// **A ramp is allowed, and is a shaft.** A band stepping down a row a
 /// column never holds an open block three wide and five tall, so it passes;
@@ -17922,7 +17943,11 @@ pub struct ShaftRooms {
     pub floor: i32,
 }
 
-pub const SHAFT_ROOMS_ON: ShaftRooms = ShaftRooms { rows: 4, gap: 6, space: 8, random: 0, top: 0, topw: 0, floor: 0 };
+/// The rule a part list starts from: the first build's `on` (2026-10-12).
+pub const SHAFT_ROOMS_PLAIN: ShaftRooms = ShaftRooms { rows: 4, gap: 6, space: 8, random: 0, top: 0, topw: 0, floor: 0 };
+
+/// The shipped rule: `space=25,top=16,floor=all`.
+pub const SHAFT_ROOMS_SHIPPED: ShaftRooms = ShaftRooms { space: 25, top: 16, topw: 16, floor: 16, ..SHAFT_ROOMS_PLAIN };
 
 pub fn shaft_rooms_of() -> Option<ShaftRooms> {
     static V: std::sync::OnceLock<Option<ShaftRooms>> = std::sync::OnceLock::new();
@@ -17931,15 +17956,17 @@ pub fn shaft_rooms_of() -> Option<ShaftRooms> {
 
 fn parse_shaft_rooms(raw: &str) -> Option<ShaftRooms> {
     let raw = raw.trim();
-    if raw.is_empty() || raw == "off" {
+    if raw == "off" {
         return None;
     }
+    if raw.is_empty() || raw == "on" {
+        return Some(SHAFT_ROOMS_SHIPPED);
+    }
     let bad = || -> ! { panic!("PIXEL_PHYSICS_SHAFT_ROOMS={raw:?}: use off, on, or a list of rows=N, gap=N, space=N, random=N, top=N, topw=N, floor[=N|all]") };
-    let mut v = SHAFT_ROOMS_ON;
+    let mut v = SHAFT_ROOMS_PLAIN;
     let (mut topw, mut floor_all) = (None, false);
     for part in raw.split(',').map(str::trim) {
         match part.split_once('=') {
-            None if part == "on" => {}
             None if part == "floor" => v.floor = 3,
             Some(("floor", "all")) => floor_all = true,
             Some(("floor", n)) => v.floor = n.parse().ok().filter(|n: &i32| *n >= 0).unwrap_or_else(|| bad()),
@@ -34295,14 +34322,15 @@ mod tests {
     /// refuses a typo.
     #[test]
     fn shaft_rooms_cap_a_room_and_leave_the_shaft_alone() {
-        assert_eq!(parse_shaft_rooms(""), None);
+        assert_eq!(parse_shaft_rooms(""), Some(SHAFT_ROOMS_SHIPPED), "unset is the shipped rule");
+        assert_eq!(parse_shaft_rooms("on"), Some(SHAFT_ROOMS_SHIPPED));
+        assert_eq!(parse_shaft_rooms("space=25,top=16,floor=all"), Some(SHAFT_ROOMS_SHIPPED), "which is its own part list");
         assert_eq!(parse_shaft_rooms("off"), None);
-        assert_eq!(parse_shaft_rooms("on"), Some(SHAFT_ROOMS_ON));
         assert_eq!(parse_shaft_rooms("rows=5,gap=3,space=2"), Some(ShaftRooms { rows: 5, gap: 3, space: 2, random: 0, top: 0, topw: 0, floor: 0 }));
         for bad in ["yes", "rows=0", "gap=x", "space=0", "random=1001", "rows"] {
             assert!(std::panic::catch_unwind(|| parse_shaft_rooms(bad)).is_err(), "{bad:?} must panic");
         }
-        let rule = SHAFT_ROOMS_ON;
+        let rule = SHAFT_ROOMS_PLAIN;
         let mut w = founding_bed();
         let open = |w: &mut World, x: i32, y: i32| w.set(x, y, Cell::EMPTY);
         // A flat room, rows 50-53, columns 50-70.
