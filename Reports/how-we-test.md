@@ -38,9 +38,8 @@ testing and development; it is only on in the game** (owner, 2026-10-13:
 *"All mutation should be frozen during testing and development. It should
 only be on in the game"*). The mutation-on check that used to stand here
 (2 seeds to 150k before a winner ships) is **dropped for now** (owner, the
-same evening: *"Drop check for now"*). What it caught the one time it ran on
-a shipped default: the brood room (PR 696) costs adults with mutation on,
-because the gut trait mutates. That is recorded in README's brood-room
+same evening: *"Drop check for now"*). What it caught on PR 696: the brood
+room costs adults with mutation on, mostly because the gut trait mutates. That is recorded in README's brood-room
 section and `/mnt/project-files/late-tunnels/README.md`.
 
 ## 2. Judging a fix
