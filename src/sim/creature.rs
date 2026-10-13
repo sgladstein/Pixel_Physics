@@ -21508,10 +21508,18 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
         // above let it through, and only on a cell the jaw can take, so the
         // counters count real refusals. An ant shut in may cut its way out.
         let shaft_why = if !steered && !cue_vetoed && !face_refused && !roof_refused && jaw_can_cut(world, def, organism, target) { shaft_room_refuses(world, (tx, ty)) } else { None };
-        let shaft_refused = shaft_why.is_some() && !escaping;
+        // The `top` box's floor is not waived for an ant shut in. Traced
+        // 2026-10-13 (seed 5, 40k frames): every cut that opened the floor
+        // under the door was by an ant on the room floor that `shut_in`
+        // called shut in, six of them, and the brood then fell through. Why
+        // they read shut in is inferred: the way out is rebuilt every
+        // `REST_REFRESH` frames, so floor dug since then is not on it yet. A
+        // shut-in ant in the box can still cut anything else in it.
+        let waived = escaping && shaft_why != Some(ShaftWhy::Floor);
+        let shaft_refused = shaft_why.is_some() && !waived;
         if let Some(why) = shaft_why {
             let c = &mut world.creature_stats;
-            if escaping {
+            if waived {
                 c.shaft_escaped += 1;
             } else {
                 match why {
