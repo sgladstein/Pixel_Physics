@@ -875,7 +875,10 @@
         // to breed became the animal's decision. An output row is 41 live
         // slots (33 inputs + 8 hidden), so `live_slots` 942 -> 983 and
         // `3.18 / 983 = 0.0032350`.
-        mutation_rate: 0.0032350,
+        // **0.0031548, re-derived 2026-10-13** when `EmptyCrop` appended (an
+        // input column, 25 live slots: 17 outputs + 8 hidden), so
+        // `live_slots` 983 -> 1008 and `3.18 / 1008 = 0.0031548`.
+        mutation_rate: 0.0031548,
 
         // **A living nestmate counts as ground.** Footing only, never
         // passability -- two ants still cannot walk through each other --
@@ -2129,6 +2132,9 @@
             // `crop_fill.max(spoil ? 1.0 : 0.0)`.
             // (`Reports/pheromone-trail-direction-2026-09-16.md` §7.22/§7.24.)
             //
+            // (2026-10-13: `CarryingFood` is 0 or 1 -- `crop_fill > 0` -- so the
+            // threshold below is moot, and the bias it argues for was never
+            // authored: the pair shipped at -45 until it moved to `EmptyCrop`.)
             // **The threshold is not a tuning judgement.** §7.23 prices one
             // fruit cell at 5-17 round trips over a 90-cell gap (960 J against
             // a 56 J round trip), so the correct gate is just above zero and
@@ -2142,11 +2148,24 @@
             // should be searching. That was §7.23's stated objection to a
             // shallower gate and it is answered by moving the bias, not the
             // gain.
-            (Bias,            0, -45.0),
-            (CarryingFood,    0,  45.5),
+            //
+            // **Rewritten on `EmptyCrop` 2026-10-13 -- the same two values,
+            // without the cancellation.** `-45 + 45.5 x CarryingFood` made the
+            // laden state (+0.5) the difference of two weights of 45, and one
+            // mutation step (about 4.5) on either weight of one unit broke the
+            // mirror: that unit's laden state fell to -6.5, the pair pushed
+            // `Move` by about -3 on every laden ant, and the lineage parked full
+            // crops at the food -- the mutation-on pile-loafer
+            // (`brain::BrainInput::EmptyCrop` has the arithmetic).
+            // `+0.5 - 45.5 x EmptyCrop` computes -45 empty and +0.5 laden, as
+            // before, but the laden state is the 0.5 alone, which a step moves
+            // by about 0.09 -- units 2/3's shape, which never loafed.
+            // `PIXEL_PHYSICS_HOME_GATE=fold` puts the old form back exactly.
+            (Bias,            0,   0.5),
+            (EmptyCrop,       0, -45.5),
             (PheroAAlong,     0,   6.0),
-            (Bias,            1, -45.0),
-            (CarryingFood,    1,  45.5),
+            (Bias,            1,   0.5),
+            (EmptyCrop,       1, -45.5),
             (PheroAAlong,     1,  -6.0),
             // units 2,3 -- channel B along the heading, gated ON an empty one.
             // **Bias stays at +45**: shutting the food-trail reader once an ant

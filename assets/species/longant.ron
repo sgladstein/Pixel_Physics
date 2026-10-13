@@ -973,7 +973,10 @@
         // to breed became the animal's decision. An output row is 41 live
         // slots (33 inputs + 8 hidden), so `live_slots` 942 -> 983 and
         // `3.18 / 983 = 0.0032350`.
-        mutation_rate: 0.0032350,
+        // **0.0031548, re-derived 2026-10-13** when `EmptyCrop` appended (an
+        // input column, 25 live slots: 17 outputs + 8 hidden), so
+        // `live_slots` 983 -> 1008 and `3.18 / 1008 = 0.0031548`.
+        mutation_rate: 0.0031548,
 
         // **A living nestmate counts as ground.** Footing only, never
         // passability -- two ants still cannot walk through each other --

@@ -502,6 +502,10 @@ fn gate_words(input: BrainInput) -> Option<(&'static str, &'static str)> {
         // what changed is that it now means *carrying food* rather than
         // *carrying anything*, which is the distinction the ant was missing.
         BrainInput::CarryingFood => ("LADEN", "EMPTY"),
+        // Its complement since 2026-10-13 -- the homing pair gates on it so
+        // mutation cannot shut the gate in one step (`brain::EmptyCrop`).
+        // High means empty, so the words swap.
+        BrainInput::EmptyCrop => ("EMPTY", "LADEN"),
         BrainInput::AtNest => ("AT NEST", "AWAY FROM NEST"),
         BrainInput::FoodAdjacent => ("ON FOOD", "OFF FOOD"),
         BrainInput::Energy => ("WELL FED", "HUNGRY"),
