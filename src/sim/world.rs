@@ -3053,6 +3053,20 @@ pub struct CreatureStats {
     /// Brood a touching nestmate moved toward other brood or out of the
     /// doorway (`brood::carry`, `PIXEL_PHYSICS_BROOD_CARRY`).
     pub brood_carried: u64,
+    /// `PIXEL_PHYSICS_SHAFT_ROOMS` (`creature::ShaftRooms`): cuts the jaw
+    /// could take refused as too tall (or a ramp), too near another room,
+    /// by the random control, and refusals waived for an ant shut in; and
+    /// cuts made in the rule's region with it on.
+    pub shaft_tall: u64,
+    pub shaft_gap: u64,
+    pub shaft_space: u64,
+    pub shaft_random: u64,
+    pub shaft_escaped: u64,
+    /// `SHAFT_ROOMS` `top`: cuts in the box the rule would otherwise refuse.
+    pub shaft_top_let: u64,
+    /// `SHAFT_ROOMS` `floor`: cuts refused in the row under the box.
+    pub shaft_floor: u64,
+    pub shaft_cut: u64,
     /// Steps an idle nurse took scoring the pull of hungry larvae
     /// (`brood::larva_scent`, `PIXEL_PHYSICS_NURSE_SEEK`).
     pub nurse_seeks: u64,

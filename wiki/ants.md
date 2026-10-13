@@ -1,6 +1,6 @@
 # Ants
 
-*Current as of: 2026-10-13, when **an evolving colony stopped turning into ants that sit full at the food** (see *Coming home*); 2026-10-10, when **ants from two colonies started fighting when they meet** (see *Who is family*): touching a stranger of its own kind now alarms an ant, so two colonies settle into a border, or one wipes the other out as it lands, instead of walking through each other for ever; 2026-10-06, when **a hungry ant boxed in by the dug soil over the door started digging its way out** (see *One door, and a granary under it*), when **nest workers stopped going inside to rest again**, a day after they started, because two colonies in four collapsed late under it (see *One door, and a granary under it*), when **the young carrying food down to the larvae was built, and left switched off** (see *New ants, and why you will not see any yet*), when **lab colonies started out as the ant they evolve into** (same section) and when **soil started leaving the nest by its passages and diggers started going back to their own face** (see *One door, and a granary under it*); 2026-10-04, when **a hungry ant deep in the nest started finding its way out** (see *One door, and a granary under it*), when **ants in the lab started out half way to plant-eaters** (see *New ants, and why you will not see any yet*), when **ants started walking across puddles** (see *Coming home*) and when **a colony stopped sealing its own door with packed soil** (see *One door, and a granary under it*); 2026-10-03, when **a hungry ant started putting its digging down to go and eat.** A colony beside endless food used to grow to a few hundred and then starve at home all at once, the food untouched: its hungry foragers were still digging and carrying soil, and an ant holding soil cannot eat or fetch food. Now an ant under half its fill stops digging, sets its soil down where it stands, and goes out on its own hunger, and those colonies live. Also 2026-10-03, when **a colony started keeping its own door open** (see *One door, and a granary under it*), and when **the lab's other animals started ageing like the ant** (see *Ants get old and die of it*); 2026-10-02, when **the whole dug nest became home and
+*Current as of: 2026-10-13, when **the colony started keeping its eggs and young in a room at the top of the nest** (see *A nursery under the door*); 2026-10-13, when **an evolving colony stopped turning into ants that sit full at the food** (see *Coming home*); 2026-10-10, when **ants from two colonies started fighting when they meet** (see *Who is family*): touching a stranger of its own kind now alarms an ant, so two colonies settle into a border, or one wipes the other out as it lands, instead of walking through each other for ever; 2026-10-06, when **a hungry ant boxed in by the dug soil over the door started digging its way out** (see *One door, and a granary under it*), when **nest workers stopped going inside to rest again**, a day after they started, because two colonies in four collapsed late under it (see *One door, and a granary under it*), when **the young carrying food down to the larvae was built, and left switched off** (see *New ants, and why you will not see any yet*), when **lab colonies started out as the ant they evolve into** (same section) and when **soil started leaving the nest by its passages and diggers started going back to their own face** (see *One door, and a granary under it*); 2026-10-04, when **a hungry ant deep in the nest started finding its way out** (see *One door, and a granary under it*), when **ants in the lab started out half way to plant-eaters** (see *New ants, and why you will not see any yet*), when **ants started walking across puddles** (see *Coming home*) and when **a colony stopped sealing its own door with packed soil** (see *One door, and a granary under it*); 2026-10-03, when **a hungry ant started putting its digging down to go and eat.** A colony beside endless food used to grow to a few hundred and then starve at home all at once, the food untouched: its hungry foragers were still digging and carrying soil, and an ant holding soil cannot eat or fetch food. Now an ant under half its fill stops digging, sets its soil down where it stands, and goes out on its own hunger, and those colonies live. Also 2026-10-03, when **a colony started keeping its own door open** (see *One door, and a granary under it*), and when **the lab's other animals started ageing like the ant** (see *Ants get old and die of it*); 2026-10-02, when **the whole dug nest became home and
 food started gathering in piles** (see *One door, and a granary under it*),
 when **new ants started as eggs, laid only at
 home** (see *New ants*), and when **an ant started holding on to a nestmate
@@ -1065,6 +1065,30 @@ door as well, sending shut-out ants to dig back in, and keeping soil off
 crumbs did not help further. Wood ants carry away what falls over their
 entrances. What is not right yet: the colony still tunnels into its own heap
 and lives there, so the heap over the nest is a honeycomb, not a cone.
+
+### A nursery under the door
+
+Since 2026-10-13 the top of the nest is one room, and the rest is galleries.
+Eggs are laid up on the mound and roll down the front door; they used to fall
+the whole way down one tall room and pile at its foot, far from the food and
+from the ants, and most of the young starved there. Now the ground just under
+the roof, about sixteen rows deep and thirty wide round the door, is dug out
+freely, and the row under it is left as a solid floor no ant may cut. Eggs
+falling down the door land on that floor, among the ants and the crumbs
+coming in, and stay there. Below the floor the ants dig flat galleries off a
+shaft, a few rows apart, rather than one deep pit.
+
+Over twelve test colonies most of the young lay in that room (three quarters
+or more, against a tenth before), almost none starved (none or one, where
+dozens to hundreds did), and the colony was bigger on eleven of the twelve.
+About an eighth fewer eggs were laid; why is not traced yet.
+
+What is not right yet: the room is a fixed box at the door, not something the
+ants decide; no ant smells or feels anything that tells it where the nursery
+goes. And it does not look like a real nest: the room is square, the
+galleries are straight and evenly spaced, and real chambers are rounded,
+lobed, and larger near the top. A rule the ants read from what is round
+them is the next step, and the box is what it has to beat.
 
 ### They lay two scents, and the two do not keep
 

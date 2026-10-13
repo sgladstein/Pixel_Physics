@@ -1629,6 +1629,15 @@ fn main() {
                 diglog.as_ref().map_or(0, |d| d.cut_count),
                 started.elapsed().as_secs_f32()
             );
+            // `PIXEL_PHYSICS_SHAFT_ROOMS` (late tunnels, 2026-10-12): cuts made
+            // in its region and cuts refused, by reason. Only with it on.
+            if pixel_physics::sim::creature::shaft_rooms_of().is_some() {
+                let st = &lab.world.creature_stats;
+                println!(
+                    "  shaft_rooms: cut={} tall={} gap={} space={} random={} escaped={} top_let={} floor={} digs={}",
+                    st.shaft_cut, st.shaft_tall, st.shaft_gap, st.shaft_space, st.shaft_random, st.shaft_escaped, st.shaft_top_let, st.shaft_floor, st.digs
+                );
+            }
         }
     }
     ticks.flush().unwrap();
