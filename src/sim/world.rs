@@ -3067,6 +3067,10 @@ pub struct CreatureStats {
     pub shaft_space: u64,
     pub shaft_random: u64,
     pub shaft_escaped: u64,
+    /// `SHAFT_ROOMS` `top`: cuts in the box the rule would otherwise refuse.
+    pub shaft_top_let: u64,
+    /// `SHAFT_ROOMS` `floor`: cuts refused in the row under the box.
+    pub shaft_floor: u64,
     pub shaft_cut: u64,
     /// Steps an idle nurse took scoring the pull of hungry larvae
     /// (`brood::larva_scent`, `PIXEL_PHYSICS_NURSE_SEEK`).

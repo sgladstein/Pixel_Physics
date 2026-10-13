@@ -17661,6 +17661,24 @@ fn under_roof(world: &World, (x, y): (i32, i32), rows: i32) -> bool {
 /// the biology has (P. badius shafts descend at 15-70 degrees). A band
 /// thicker than that is refused as tall. The second review's ramp case is
 /// in the test, read this way.
+///
+/// **`top=R` (with `topw=W`, `floor`): a room at the top of the door shaft**
+/// (2026-10-13, off; design and review
+/// `/mnt/project-files/late-tunnels/shaft/design-shaft-top-room-2026-10-13.md`,
+/// `review-shaft-top-room-2026-10-13.md`). Traced per larva under
+/// `space=25`: eggs laid on the mound fall down the door column and stop
+/// 4-6 steps down on loose food crumbs or ants, where 1.0-1.3 grown ants
+/// stand beside each larva (main 0.2-0.4) and 0-36 larvae starve (main
+/// 472-842). That spot is the one place brood stays fed, so the box lets
+/// it become a room: a cut within `R` rows under the site's surface and
+/// `W` columns of its centre is never refused here (the shipped roof,
+/// [`under_roof`], still keeps rows 0-5 solid outside the door). A labelled
+/// template, not a sense: it asks whether a room there holds the brood and
+/// keeps it fed. `floor` (3 columns, the brood's measured spread of -2..+2
+/// plus one) or `floor=N` / `floor=all` also refuses the row under the box
+/// within that many columns of the centre, so the shaft out of the room
+/// leaves from the side and the brood rests on the room's floor instead of
+/// falling on down the shaft.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ShaftRooms {
     pub rows: i32,
@@ -17669,9 +17687,15 @@ pub struct ShaftRooms {
     /// 0: the geometric rule. Otherwise the random control, refusing this
     /// many cells in a thousand.
     pub random: u32,
+    /// Rows of the exempt box under the surface; 0: no box.
+    pub top: i32,
+    /// The box's half width in columns.
+    pub topw: i32,
+    /// Half width of the refused row under the box; 0: none.
+    pub floor: i32,
 }
 
-pub const SHAFT_ROOMS_ON: ShaftRooms = ShaftRooms { rows: 4, gap: 6, space: 8, random: 0 };
+pub const SHAFT_ROOMS_ON: ShaftRooms = ShaftRooms { rows: 4, gap: 6, space: 8, random: 0, top: 0, topw: 0, floor: 0 };
 
 pub fn shaft_rooms_of() -> Option<ShaftRooms> {
     static V: std::sync::OnceLock<Option<ShaftRooms>> = std::sync::OnceLock::new();
@@ -17683,17 +17707,30 @@ fn parse_shaft_rooms(raw: &str) -> Option<ShaftRooms> {
     if raw.is_empty() || raw == "off" {
         return None;
     }
-    let bad = || -> ! { panic!("PIXEL_PHYSICS_SHAFT_ROOMS={raw:?}: use off, on, or a list of rows=N, gap=N, space=N, random=N") };
+    let bad = || -> ! { panic!("PIXEL_PHYSICS_SHAFT_ROOMS={raw:?}: use off, on, or a list of rows=N, gap=N, space=N, random=N, top=N, topw=N, floor[=N|all]") };
     let mut v = SHAFT_ROOMS_ON;
+    let (mut topw, mut floor_all) = (None, false);
     for part in raw.split(',').map(str::trim) {
         match part.split_once('=') {
             None if part == "on" => {}
+            None if part == "floor" => v.floor = 3,
+            Some(("floor", "all")) => floor_all = true,
+            Some(("floor", n)) => v.floor = n.parse().ok().filter(|n: &i32| *n >= 0).unwrap_or_else(|| bad()),
+            Some(("top", n)) => v.top = n.parse().ok().filter(|n: &i32| *n >= 0).unwrap_or_else(|| bad()),
+            Some(("topw", n)) => topw = Some(n.parse().ok().filter(|n: &i32| *n >= 0).unwrap_or_else(|| bad())),
             Some(("rows", n)) => v.rows = n.parse().ok().filter(|n: &i32| *n >= 1).unwrap_or_else(|| bad()),
             Some(("gap", n)) => v.gap = n.parse().ok().filter(|n: &i32| *n >= 0).unwrap_or_else(|| bad()),
             Some(("space", n)) => v.space = n.parse().ok().filter(|n: &i32| *n >= 1).unwrap_or_else(|| bad()),
             Some(("random", n)) => v.random = n.parse().ok().filter(|n: &u32| *n <= 1000).unwrap_or_else(|| bad()),
             _ => bad(),
         }
+    }
+    v.topw = topw.unwrap_or(v.top);
+    if floor_all {
+        v.floor = v.topw;
+    }
+    if v.floor > 0 && v.top == 0 {
+        bad();
     }
     Some(v)
 }
@@ -17711,6 +17748,8 @@ pub enum ShaftWhy {
     Space,
     /// The random control.
     Random,
+    /// The row under the `top` box, within `floor` columns of the centre.
+    Floor,
 }
 
 /// **Open, to [`shaft_room_refuses`]**: anything a cut cannot take and that
@@ -17755,6 +17794,17 @@ pub fn shaft_room_refuses(world: &World, t: (i32, i32)) -> Option<ShaftWhy> {
     shaft_room_refuses_with(world, t, shaft_rooms_of()?)
 }
 
+/// Whether a cut at `t` is in the `top` box and would have been refused
+/// without it: the counter that says whether the box mattered.
+pub fn shaft_top_let(world: &World, t: (i32, i32)) -> bool {
+    match shaft_rooms_of() {
+        Some(rule) if rule.top > 0 => {
+            shaft_room_refuses_with(world, t, rule).is_none() && shaft_room_refuses_with(world, t, ShaftRooms { top: 0, floor: 0, ..rule }).is_some()
+        }
+        _ => false,
+    }
+}
+
 /// [`shaft_room_refuses`] past its switch, for the test that cannot set it.
 fn shaft_room_refuses_with(world: &World, (tx, ty): (i32, i32), rule: ShaftRooms) -> Option<ShaftWhy> {
     let site = shaft_region(world, (tx, ty))?;
@@ -17763,6 +17813,15 @@ fn shaft_room_refuses_with(world: &World, (tx, ty): (i32, i32), rule: ShaftRooms
         return (draw * 1000.0 < rule.random as f32).then_some(ShaftWhy::Random);
     }
     let surface = site.surface;
+    if rule.top > 0 {
+        let dx = (tx - site.x).abs();
+        if ty <= surface + rule.top && dx <= rule.topw {
+            return None;
+        }
+        if ty == surface + rule.top + 1 && dx <= rule.floor {
+            return Some(ShaftWhy::Floor);
+        }
+    }
     let open = |x: i32, y: i32| (x, y) == (tx, ty) || (y > surface && shaft_open(world, x, y));
     // Open cells of the run through (x, y) one way, capped at `cap`.
     let side = |x: i32, y: i32, dx: i32, cap: i32| (1..=cap).take_while(|k| open(x + dx * k, y)).count() as i32;
@@ -21222,8 +21281,11 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
                     ShaftWhy::Gap => c.shaft_gap += 1,
                     ShaftWhy::Space => c.shaft_space += 1,
                     ShaftWhy::Random => c.shaft_random += 1,
+                    ShaftWhy::Floor => c.shaft_floor += 1,
                 }
             }
+        } else if !steered && !cue_vetoed && !face_refused && !roof_refused && shaft_top_let(world, (tx, ty)) && jaw_can_cut(world, def, organism, target) {
+            world.creature_stats.shaft_top_let += 1;
         }
         // The pressed verb is the verb (`steer`): no colony refusal stands
         // between the player and the cell she faces; the jaw test still does.
@@ -33981,7 +34043,7 @@ mod tests {
         assert_eq!(parse_shaft_rooms(""), None);
         assert_eq!(parse_shaft_rooms("off"), None);
         assert_eq!(parse_shaft_rooms("on"), Some(SHAFT_ROOMS_ON));
-        assert_eq!(parse_shaft_rooms("rows=5,gap=3,space=2"), Some(ShaftRooms { rows: 5, gap: 3, space: 2, random: 0 }));
+        assert_eq!(parse_shaft_rooms("rows=5,gap=3,space=2"), Some(ShaftRooms { rows: 5, gap: 3, space: 2, random: 0, top: 0, topw: 0, floor: 0 }));
         for bad in ["yes", "rows=0", "gap=x", "space=0", "random=1001", "rows"] {
             assert!(std::panic::catch_unwind(|| parse_shaft_rooms(bad)).is_err(), "{bad:?} must panic");
         }
@@ -34035,6 +34097,28 @@ mod tests {
         let again: Vec<bool> = (0..200).map(|i| shaft_room_refuses_with(&w, (20 + i % 40, 75 + i / 40), random).is_some()).collect();
         assert_eq!(refused, again, "and the same cells every time");
         assert_eq!(f(&w, (60, 20)), None, "nothing above the founding surface");
+        // `top`: a room in the box under the door is never refused, the
+        // row under it is refused within `floor` columns, and with `top=0`
+        // the rule is the one above.
+        assert_eq!(parse_shaft_rooms("space=25,top=16,floor").map(|r| (r.top, r.topw, r.floor)), Some((16, 16, 3)));
+        assert_eq!(parse_shaft_rooms("top=12,topw=10,floor=all").map(|r| (r.topw, r.floor)), Some((10, 10)));
+        assert!(std::panic::catch_unwind(|| parse_shaft_rooms("floor")).is_err(), "a floor needs a box");
+        let mut w = founding_bed();
+        let (cx, sy) = (w.nest_sites[0].x, w.nest_sites[0].surface);
+        let boxed = ShaftRooms { top: 12, topw: 12, floor: 3, ..rule };
+        for x in cx - 10..=cx + 10 {
+            for y in sy + 6..=sy + 11 {
+                open(&mut w, x, y);
+            }
+        }
+        open(&mut w, cx - 1, sy + 12);
+        open(&mut w, cx + 1, sy + 12);
+        assert_eq!(f(&w, (cx, sy + 12)), Some(ShaftWhy::Tall), "without the box a room six tall is refused");
+        assert_eq!(shaft_room_refuses_with(&w, (cx, sy + 12), boxed), None, "in the box it is not");
+        assert_eq!(shaft_room_refuses_with(&w, (cx + 2, sy + 13), boxed), Some(ShaftWhy::Floor), "the row under it, by the door, is");
+        assert_ne!(shaft_room_refuses_with(&w, (cx + 9, sy + 13), boxed), Some(ShaftWhy::Floor), "but not past `floor` columns");
+        assert_eq!(shaft_room_refuses_with(&w, (cx + 11, sy + 12), boxed), None, "the box reaches `topw` columns");
+        assert_eq!(shaft_room_refuses_with(&w, (cx + 13, sy + 9), boxed), f(&w, (cx + 13, sy + 9)), "the same verdict as without the box");
     }
 
     /// **The roof and the collar each touch only what they are for**

@@ -1634,8 +1634,8 @@ fn main() {
             if pixel_physics::sim::creature::shaft_rooms_of().is_some() {
                 let st = &lab.world.creature_stats;
                 println!(
-                    "  shaft_rooms: cut={} tall={} gap={} space={} random={} escaped={} digs={}",
-                    st.shaft_cut, st.shaft_tall, st.shaft_gap, st.shaft_space, st.shaft_random, st.shaft_escaped, st.digs
+                    "  shaft_rooms: cut={} tall={} gap={} space={} random={} escaped={} top_let={} floor={} digs={}",
+                    st.shaft_cut, st.shaft_tall, st.shaft_gap, st.shaft_space, st.shaft_random, st.shaft_escaped, st.shaft_top_let, st.shaft_floor, st.digs
                 );
             }
             // `PIXEL_PHYSICS_LAY_SIDE` (idea 6): did the walk fire, where did
