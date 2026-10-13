@@ -33,9 +33,14 @@ A fix with no big measured downside merges **ON** (§2, rule 4).
 | **Stamp the `main` commit** on every number | Lab numbers do not compare across certain merges: before PR 611 (mutation switch), before `6e42f0fa` (HUNGRY_OUT on), before `06202f793` (WATER_FOOTING on, misted beds), before PR 689 (`PACK_PARTED=carry` on; `PIXEL_PHYSICS_PACK_PARTED=off` reproduces the old ant), before PR 690 (the default `needs=walk` new ant adds `parted_carry`; `needsparts=reach,walled_in` reproduces the old new ant), and for any **mutation-on** number before the mutation-clamp fix (2026-10-13, `MUT_CLAMP` 40 -> 80: at 40 the first mutation cut the homing gate's 45.5 and made the pile-loafer; `PIXEL_PHYSICS_MUT_CLAMP=40` reproduces it) and the `EmptyCrop` homing gate the same day (an input column, so every birth's mutation draws move; `PIXEL_PHYSICS_HOME_GATE=fold` gives the old gate on the new draws). A number without its commit cannot be checked against one with |
 
 **How many seeds.** 1–4 seeds to iterate, labelled as partial and reported
-early; **12 seeds only to settle a default**. Before a winner ships, run it
-once with mutation **on** (2 seeds to 150k is the usual check) — a fix that
-only holds in a frozen colony is not finished.
+early; **12 seeds only to settle a default**. **Mutation stays frozen in
+testing and development; it is only on in the game** (owner, 2026-10-13:
+*"All mutation should be frozen during testing and development. It should
+only be on in the game"*). The mutation-on check that used to stand here
+(2 seeds to 150k before a winner ships) is **dropped for now** (owner, the
+same evening: *"Drop check for now"*). What it caught on PR 696: the brood
+room costs adults with mutation on, mostly because the gut trait mutates. That is recorded in README's brood-room
+section and `/mnt/project-files/late-tunnels/README.md`.
 
 ## 2. Judging a fix
 
