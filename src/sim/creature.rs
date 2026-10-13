@@ -17565,7 +17565,10 @@ fn shaft_open(world: &World, x: i32, y: i32) -> bool {
 
 /// The nest site whose ground [`ShaftRooms`] judges a cut at `t` by: the
 /// nearest by column, when `t` is below its founding surface and within
-/// [`DUG_HOME_REACH`]'s columns of it.
+/// [`DUG_HOME_REACH`]'s columns of it. **No depth bound**: any cut under the
+/// surface in that band is judged, however deep; and the site is the nearest
+/// by column whoever is digging, as `under_roof` does, so two doors closer
+/// than about 33 columns split each other's box at the midpoint.
 fn shaft_region(world: &World, (tx, ty): (i32, i32)) -> Option<&super::world::NestSite> {
     let site = world.nest_sites.iter().min_by_key(|s| (s.x - tx).abs())?;
     (ty > site.surface && (tx - site.x).abs() <= DUG_HOME_REACH.0).then_some(site)
@@ -17584,21 +17587,36 @@ fn shaft_region(world: &World, (tx, ty): (i32, i32)) -> Option<&super::world::Ne
 ///   more) has another room within `gap` rows above or below its own
 ///   (`Gap`), so two rooms stay apart.
 ///
-/// Open is [`shaft_open`]. Every scan is capped (a row at `space`, a column
-/// at `rows + 2`), about 100 reads at most.
+/// Open is [`shaft_open`]. Every scan is capped (a row at `space` either
+/// way, a column at `rows + 2`): about 1,000 cell reads at the worst, run
+/// only on a dig roll already won in the region, so it scales with digging
+/// ants and not with the world.
 pub fn shaft_room_refuses(world: &World, t: (i32, i32)) -> Option<ShaftWhy> {
     shaft_room_refuses_with(world, t, shaft_rooms_of()?)
 }
 
-/// Whether a cut at `t` is in the `top` box and would have been refused
-/// without it: the counter that says whether the box mattered.
+/// Whether a cut at `t` **that the rule let through** would have been
+/// refused without the `top` box: the counter that says whether the box
+/// mattered. The caller has the verdict already (`shaft_why` is `None`), so
+/// only the box-less rule is run here.
 pub fn shaft_top_let(world: &World, t: (i32, i32)) -> bool {
     match shaft_rooms_of() {
-        Some(rule) if rule.top > 0 => {
-            shaft_room_refuses_with(world, t, rule).is_none() && shaft_room_refuses_with(world, t, ShaftRooms { top: 0, floor: 0, ..rule }).is_some()
-        }
+        Some(rule) if rule.top > 0 => shaft_room_refuses_with(world, t, ShaftRooms { top: 0, floor: 0, ..rule }).is_some(),
         _ => false,
     }
+}
+
+/// **Whether a [`ShaftRooms`] verdict stands for this ant**: `(refused,
+/// waived)`. An ant shut in may cut its way out through every reason but
+/// `Floor`. Traced 2026-10-13 (seed 5, 40k frames): every cut that opened
+/// the floor under the door was by an ant on the room floor that `shut_in`
+/// called shut in, six of them, and the brood then fell through. Why they
+/// read shut in is inferred: the way out is rebuilt every `REST_REFRESH`
+/// frames, so floor dug since then is not on it yet. A shut-in ant in the
+/// box can still cut anything else in it.
+fn shaft_verdict(why: Option<ShaftWhy>, escaping: bool) -> (bool, bool) {
+    let waived = why.is_some() && escaping && why != Some(ShaftWhy::Floor);
+    (why.is_some() && !waived, waived)
 }
 
 /// [`shaft_room_refuses`] past its switch, for the test that cannot set it.
@@ -21066,15 +21084,9 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
         // above let it through, and only on a cell the jaw can take, so the
         // counters count real refusals. An ant shut in may cut its way out.
         let shaft_why = if !steered && !cue_vetoed && !face_refused && !roof_refused && jaw_can_cut(world, def, organism, target) { shaft_room_refuses(world, (tx, ty)) } else { None };
-        // The `top` box's floor is not waived for an ant shut in. Traced
-        // 2026-10-13 (seed 5, 40k frames): every cut that opened the floor
-        // under the door was by an ant on the room floor that `shut_in`
-        // called shut in, six of them, and the brood then fell through. Why
-        // they read shut in is inferred: the way out is rebuilt every
-        // `REST_REFRESH` frames, so floor dug since then is not on it yet. A
-        // shut-in ant in the box can still cut anything else in it.
-        let waived = escaping && shaft_why != Some(ShaftWhy::Floor);
-        let shaft_refused = shaft_why.is_some() && !waived;
+        // The `top` box's floor is not waived for an ant shut in
+        // ([`shaft_verdict`]).
+        let (shaft_refused, waived) = shaft_verdict(shaft_why, escaping);
         if let Some(why) = shaft_why {
             let c = &mut world.creature_stats;
             if waived {
@@ -33924,6 +33936,31 @@ mod tests {
         assert_ne!(shaft_room_refuses_with(&w, (cx, sy + 13), unguarded), Some(ShaftWhy::Floor), "and not at all with no `floor`");
         assert_eq!(shaft_room_refuses_with(&w, (cx + 11, sy + 12), boxed), None, "the box reaches `topw` columns");
         assert_eq!(shaft_room_refuses_with(&w, (cx + 13, sy + 9), boxed), f(&w, (cx + 13, sy + 9)), "the same verdict as without the box");
+        // The shipped geometry (`top=16,topw=16,floor=16`): rows 1-16 under
+        // the founding ground and 16 columns either side are the box, row
+        // 17 under it is the floor, and column 17 is outside both.
+        let shipped = SHAFT_ROOMS_SHIPPED;
+        let mut w = founding_bed();
+        let (cx, sy) = (w.nest_sites[0].x, w.nest_sites[0].surface);
+        for x in cx - 16..=cx + 16 {
+            for y in sy + 6..=sy + 15 {
+                open(&mut w, x, y);
+            }
+        }
+        assert_eq!(shaft_room_refuses_with(&w, (cx - 16, sy + 16), shipped), None, "the box's bottom row at its edge column is cut");
+        assert_eq!(shaft_room_refuses_with(&w, (cx + 16, sy + 16), shipped), None);
+        assert_eq!(shaft_room_refuses_with(&w, (cx, sy + 17), shipped), Some(ShaftWhy::Floor), "the floor under the door");
+        assert_eq!(shaft_room_refuses_with(&w, (cx - 16, sy + 17), shipped), Some(ShaftWhy::Floor), "and under the box's edge");
+        assert_eq!(shaft_room_refuses_with(&w, (cx + 16, sy + 17), shipped), Some(ShaftWhy::Floor));
+        let unboxed = ShaftRooms { top: 0, floor: 0, ..shipped };
+        assert_eq!(shaft_room_refuses_with(&w, (cx + 17, sy + 17), shipped), shaft_room_refuses_with(&w, (cx + 17, sy + 17), unboxed), "past `topw` the floor row is the rule below");
+        assert_eq!(shaft_room_refuses_with(&w, (cx, sy + 18), shipped), shaft_room_refuses_with(&w, (cx, sy + 18), unboxed), "and so is everything under the floor");
+        // Who it stands for: a shut-in ant is waived through every reason
+        // but the floor; anyone else is refused; no verdict refuses no one.
+        assert_eq!(shaft_verdict(Some(ShaftWhy::Floor), true), (true, false), "the floor holds against an ant shut in");
+        assert_eq!(shaft_verdict(Some(ShaftWhy::Tall), true), (false, true), "any other reason is waived for it");
+        assert_eq!(shaft_verdict(Some(ShaftWhy::Gap), false), (true, false), "and stands for an ant that is not");
+        assert_eq!(shaft_verdict(None, true), (false, false));
     }
 
     /// **The roof and the collar each touch only what they are for**
