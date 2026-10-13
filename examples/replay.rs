@@ -27,7 +27,16 @@
 //! steady|heavy pace=full|half|quarter out=DIR probe= snap= antsnap= t1= t2=` (probe/snap/antsnap are tick intervals;
 //! t1/t2 are the two placement frames), `assets=DIR` (`materials.reload` over a directory of `.ron` files, how the
 //! leaf-inedible and leaf-dose arms are made), `doortree=1` (a tree at x=748 and a conifer at x=304 planted at frame
-//! 0, about 20 columns from where the colonies found), `png=F,F,..` (a 2 px/cell raster of rows 150-345).
+//! 0, about 20 columns from where the colonies found), `png=F,F,..` (a 2 px/cell raster of rows 150-345, plus
+//! `wet_F.png`, the same rows as soil water on a fixed ramp with seeds in yellow).
+//!
+//! **Any chronicle, not only 2026-10-09's** (added 2026-10-13 for the owner's 49.7M-frame plant-only `herb_ant`
+//! playtest of 2026-10-12): `plan=<chronicle>.actions.csv` plants every `PLANTED <SPECIES> AT x,y` line at its own
+//! frame instead of the built-in list (pair with `ants=0` for a plant-only bed). With `rain=off pace=half` that
+//! playtest's census was reproduced **exactly**, every column checked, for all 1,200 rows to frame 12,000,000.
+//! `rain_at=F` turns the mister to LIGHT at frame F (the RAIN button's own effect). Every `probe=` also writes
+//! `seedcensus.csv`: per species, the dormant seeds, how many rest on something, how many clear their own light
+//! and soil-water germination bars, and the median soil water under them -- *why is the seed bank not sprouting*.
 //!
 //! Writes into `out=DIR`:
 //!   probe.csv     one row per `probe=` ticks: stand and larder in RAW CELLS, and the roots / standing plant /
@@ -165,9 +174,35 @@ fn main() {
     lab.world.plant_load_failure = false;
     lab.world.developmental_key = DevelopmentalKey::Plant { coarseness: 0 };
     lab.world.refold_developmental_seeds();
-    for (name, x, y) in PLANTS {
-        let ok = lab.world.plant_tree_species(x, y, name);
-        println!("  plant {name} at {x},{y}: {ok}");
+    // `plan=FILE` (2026-10-13, the owner's 2026-10-12 plant-only playtest): plant from a chronicle's own
+    // `.actions.csv`, each `PLANTED <SPECIES> AT x,y` line at its own frame, instead of the 2026-10-09 list above.
+    let mut plan: Vec<(u64, String, i32, i32)> = Vec::new();
+    if let Some(path) = arg::<String>("plan") {
+        for line in std::fs::read_to_string(&path).expect("plan=FILE").lines().skip(1) {
+            let Some((f, text)) = line.split_once(',') else {
+                continue;
+            };
+            let text = text.trim_matches('"');
+            let Some(rest) = text.strip_prefix("PLANTED ") else {
+                continue;
+            };
+            let Some((name, xy)) = rest.split_once(" AT ") else {
+                continue;
+            };
+            let Some((x, y)) = xy.split_once(',') else { continue };
+            plan.push((
+                f.parse().unwrap(),
+                name.to_lowercase(),
+                x.trim().parse().unwrap(),
+                y.trim().parse().unwrap(),
+            ));
+        }
+        println!("  plan: {} plantings from {path}", plan.len());
+    } else {
+        for (name, x, y) in PLANTS {
+            let ok = lab.world.plant_tree_species(x, y, name);
+            println!("  plant {name} at {x},{y}: {ok}");
+        }
     }
     if arg::<u32>("doortree").unwrap_or(0) == 1 {
         // Intervention: a tree and a conifer planted ~20 columns from where the two colonies will found.
@@ -225,7 +260,25 @@ box284_roots,box284_plant_above,box284_empty_below,box728_roots,box728_plant_abo
         writeln!(f, "frame,ant,colony,energy,material,plant,plant_species,plant_leaf,plant_cells,hx,hy,height,dist_nest,litter8,seed8,fruit8,leaf8,trip_src").unwrap();
         f
     });
+    let mut seedcensus = BufWriter::new(File::create(format!("{out}/seedcensus.csv")).unwrap());
+    writeln!(
+        seedcensus,
+        "frame,species,seeds,resting,light_ok,water_ok,both_ok,on_soil,water_med"
+    )
+    .unwrap();
     while lab.world.frame < frames {
+        for (pf, name, x, y) in plan.iter() {
+            if *pf == lab.world.frame {
+                let ok = lab.world.plant_tree_species(*x, *y, name);
+                println!("  frame {pf}: plant {name} at {x},{y}: {ok}");
+            }
+        }
+        // `rain_at=F` (2026-10-13): turn the mister to LIGHT at frame F, the CycleRain button's own effect on the
+        // spec -- does a dry bed's waiting seed bank come back when the soil is wetted?
+        if arg::<u64>("rain_at") == Some(lab.world.frame) {
+            lab.spec.rain = pixel_physics::lab::rain::Rain::Light;
+            println!("  frame {}: rain turned to {}", lab.world.frame, lab.spec.rain.label());
+        }
         lab.tick_for_harness();
         let f = lab.world.frame;
         if ants == 1 {
@@ -242,7 +295,16 @@ box284_roots,box284_plant_above,box284_empty_below,box728_roots,box728_plant_abo
                 drain_digs(&mut lab.world, &mut digs, f);
             }
             if f > t1 {
-                bite_scan(&lab.world, &mut last_bites, &mut bites, &mut grazed, &mats, f, ground_y, leafbites.as_mut());
+                bite_scan(
+                    &lab.world,
+                    &mut last_bites,
+                    &mut bites,
+                    &mut grazed,
+                    &mats,
+                    f,
+                    ground_y,
+                    leafbites.as_mut(),
+                );
             }
         }
         if let Some(h) = herbs.as_mut() {
@@ -258,6 +320,7 @@ box284_roots,box284_plant_above,box284_empty_below,box728_roots,box728_plant_abo
                 b.flush().unwrap();
             }
             probe_row(&lab.world, &mats, ground_y, &mut probe);
+            seed_census(&lab.world, f, &mut seedcensus);
             ledger_rows(&lab.world, f, &mut ledger);
             {
                 let c = &lab.world.creature_stats;
@@ -296,6 +359,7 @@ box284_roots,box284_plant_above,box284_empty_below,box728_roots,box728_plant_abo
         }
         if png_at.contains(&f) {
             snapshot_png(&lab.world, &mats, 150, 345, &format!("{out}/world_{f}.png"));
+            snapshot_png_mode(&lab.world, &mats, 150, 345, &format!("{out}/wet_{f}.png"), true);
         }
         if f.is_multiple_of(20_000) {
             println!("  frame {f}  adults {}  plants-ish ok  annual_deaths {}", count_adults(&lab.world), lab.world.annual_deaths);
@@ -523,6 +587,58 @@ fn grazed_dump(w: &World, grazed: &HashMap<u32, (u64, String, i32)>, path: &str)
             None => (0, 0),
         };
         writeln!(out, "{id},{sp},{n},{x},{alive},{cells}").unwrap();
+    }
+    out.flush().unwrap();
+}
+
+/// Why the dormant seeds are not sprouting (2026-10-13): per species, how many rest on something, how many clear
+/// the species' own light and soil-water bars (the same reads `Behavior::Germinate` makes; genome overrides
+/// ignored, mutation is off), and the median soil-water fraction under them.
+/// Per species: seeds, resting, light ok, water ok, both ok, on soil, and every seed's soil-water fraction.
+type SeedTally = (u32, u32, u32, u32, u32, u32, Vec<f32>);
+
+fn seed_census(w: &World, f: u64, out: &mut BufWriter<File>) {
+    use pixel_physics::sim::organism::{Behavior, CellType};
+    let mut by: BTreeMap<String, SeedTally> = BTreeMap::new();
+    for id in w.live_organism_ids() {
+        let Some(s) = w.organism(id) else { continue };
+        let sp = w.species.get(s.species);
+        if sp.creature.is_some() || s.cells.len() != 1 || w.is_carried_seed(id) {
+            continue;
+        }
+        let Some((lt, wt)) = sp.behaviors(CellType::Seed).iter().find_map(|b| match b {
+            Behavior::Germinate {
+                light_threshold,
+                soil_water_threshold,
+                ..
+            } => Some((*light_threshold, *soil_water_threshold)),
+            _ => None,
+        }) else {
+            continue;
+        };
+        let (x, y) = *s.cells.keys().next().unwrap();
+        let below = w.get(x, y + 1);
+        let resting = below.material != pixel_physics::sim::material::EMPTY;
+        let holds = w.materials.get(below.material).water_capacity > 0;
+        let water = if holds {
+            pixel_physics::sim::update::plant_available_fraction(below)
+        } else {
+            0.0
+        };
+        let light = pixel_physics::sim::plant::ambient_light_above(w, x, y);
+        let e = by.entry(sp.name.clone()).or_default();
+        e.0 += 1;
+        e.1 += resting as u32;
+        e.2 += (light >= lt) as u32;
+        e.3 += (water >= wt) as u32;
+        e.4 += (resting && light >= lt && water >= wt) as u32;
+        e.5 += holds as u32;
+        e.6.push(water);
+    }
+    for (name, (n, r, l, wa, b, soil, mut ws)) in by {
+        ws.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        let med = ws.get(ws.len() / 2).copied().unwrap_or(0.0);
+        writeln!(out, "{f},{name},{n},{r},{l},{wa},{b},{soil},{med:.3}").unwrap();
     }
     out.flush().unwrap();
 }
@@ -796,6 +912,13 @@ fn leaf_map(w: &World, m: &Mats, ground_y: i32, path: &str) {
 /// leaf bright green, roots orange, flowers magenta, fruit red, ants white,
 /// brood cream, everything else its material's first palette colour.
 fn snapshot_png(w: &World, m: &Mats, y0: i32, y1: i32, path: &str) {
+    snapshot_png_mode(w, m, y0, y1, path, false)
+}
+
+/// `wet`: every cell that holds water drawn on a fixed ramp of its plant-available water (black = at or under
+/// the wilting point, bright blue = field capacity -- the quantity a seed's germination bar reads), seeds in
+/// yellow, living plant in grey. A full replace, never a blend into the cell's own colour (CLAUDE.md).
+fn snapshot_png_mode(w: &World, m: &Mats, y0: i32, y1: i32, path: &str, wet: bool) {
     let Some(b) = w.bounds() else { return };
     let width = (b.max_x - b.min_x + 1) as u32;
     let height = (y1 - y0) as u32;
@@ -807,7 +930,19 @@ fn snapshot_png(w: &World, m: &Mats, y0: i32, y1: i32, path: &str) {
             let c = w.get(x, y);
             let mid = c.material.0;
             let kind = w.materials.kind(c.material);
-            let rgb: [u8; 3] = if mid == 0 {
+            let name = &w.materials.get(c.material).name;
+            let rgb: [u8; 3] = if wet && mid != 0 && (name.contains("seed") || name == "pip") {
+                [255, 230, 0]
+            } else if wet && mid != 0 && w.materials.get(c.material).water_capacity > 0 && c.organism_id() == 0 {
+                let f = pixel_physics::sim::update::plant_available_fraction(c).clamp(0.0, 1.0);
+                [
+                    (20.0 + 40.0 * f) as u8,
+                    (20.0 + 140.0 * f) as u8,
+                    (30.0 + 225.0 * f) as u8,
+                ]
+            } else if wet && mid != 0 {
+                [110, 110, 110]
+            } else if mid == 0 {
                 [12, 16, 30]
             } else if m.leafy.contains(&mid) {
                 [70, 210, 80]
