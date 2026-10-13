@@ -552,14 +552,16 @@ pub fn rootless_dries_default() -> bool {
 
 /// **The seed bank through a drought: switch `PIXEL_PHYSICS_SEED_BANK`**,
 /// two named parts, both on by default; `off` restores the old engine
-/// exactly, `dry` or `nostarve` turns on one part alone. The live switches
-/// are `World::seed_dry_keeps` and `World::seed_no_starve`.
+/// exactly, `dry` or `dormant` turns on one part alone. The live switches
+/// are `World::seed_dry_keeps` and `World::seed_dormant_rest`.
 ///
 /// - **`dry`: a seed lying on dry ground ages more slowly** --
 ///   `seed_half_life` is stretched by `1 + SEED_DRY_STRETCH * dry`, where
 ///   `dry` runs from 0 with the ground at the species' own germination
 ///   threshold to 1 at the wilting point (`seed_dryness`).
-/// - **`nostarve`: a dormant seed does not starve.** The whole-plant
+/// - **`dormant`: a dormant seed runs none of a plant's clocks** -- no
+///   starvation, no old age, no annual death, and its age starts at
+///   germination. Found in two steps. First starvation: the whole-plant
 ///   starvation rule (`STARVATION_DEATH_TICKS`) counted a seed cell as live
 ///   shoot tissue with no income, so every dormant seed of a species with a
 ///   leaf stage (herb, shrub, tree, conifer -- not grass) ran a starvation
@@ -569,8 +571,12 @@ pub fn rootless_dries_default() -> bool {
 ///   577 starved against 701 rotted, conifer 284 / 809, tree 203 / 599,
 ///   shrub 172 / 694; grass 0 starved. Worse, the count was **not reset at
 ///   germination**, so a seed that had waited sprouted with most of its
-///   death clock already spent. A seed has no economy until it germinates;
-///   its one clock is `seed_half_life`.
+///   death clock already spent. Then, with starvation lifted, the next
+///   clock showed: a dormant seed ages, so it rolled old age and the annual
+///   backstop from the frame it was set (100k-500k with both parts: herb
+///   439 dormant seeds dead of age, conifer 478, tree 236), and one that
+///   sprouted late started life old. A seed has no economy and no age until
+///   it germinates; its one clock is `seed_half_life`.
 ///
 /// **What it is for: a drought that can come back.** In the owner's
 /// 49.7M-frame rain-off playtest (2026-10-12) a dry layer formed over the
@@ -601,7 +607,7 @@ pub fn seed_bank_default() -> (bool, bool) {
     *ON.get_or_init(|| match std::env::var("PIXEL_PHYSICS_SEED_BANK").as_deref() {
         Ok("off") => (false, false),
         Ok("dry") => (true, false),
-        Ok("nostarve") => (false, true),
+        Ok("dormant") => (false, true),
         _ => (true, true),
     })
 }
@@ -12049,6 +12055,11 @@ fn organism_upkeep(world: &mut World, organism_id: OrganismId) {
     // The species-level gate on the senescence rule below -- see
     // `Species::has_economy`.
     let has_economy = world.species.get(species_id).has_economy();
+    // **A dormant seed runs none of a plant's clocks** -- no starvation, no
+    // old age, no annual death, and no age at all, so its life is counted
+    // from germination (`seed_bank_default`'s `dormant` part, which has the
+    // trace). Its one clock is `seed_half_life`.
+    let resting_seed = world.seed_dormant_rest && world.organism(organism_id).is_some_and(|s| s.dormant_seed);
     // **Death of old age, decided here rather than inside the mutable block
     // below**, because the roll needs the species table and the world's
     // stream and the block holds `&mut` on the organism.
@@ -12068,7 +12079,7 @@ fn organism_upkeep(world: &mut World, organism_id: OrganismId) {
     // Gated on `has_economy` exactly as the two rules below it are, and for
     // the same reason each of them gives: `moss` does not earn, is not
     // modelled by any of this, and a retired moss cell is not a corpse.
-    let dies_of_age = has_economy && {
+    let dies_of_age = has_economy && !resting_seed && {
         let life = world.species.get(species_id).life_half_life;
         // `age_ticks` before the increment below, so a plant's first tick
         // rolls at age zero -- a hazard of exactly nothing, which is right.
@@ -12097,6 +12108,7 @@ fn organism_upkeep(world: &mut World, organism_id: OrganismId) {
     // under `World::annual` only. Keyed on its own salt for the reason
     // `ANNUAL_HAZARD_SALT` gives.
     let dies_annual = has_economy
+        && !resting_seed
         && world.annual.is_some_and(|over| {
             let own = world.species.get(species_id).annual_half_life;
             if own <= 0.0 {
@@ -12440,7 +12452,6 @@ fn organism_upkeep(world: &mut World, organism_id: OrganismId) {
         }
         _ => 0.0,
     };
-    let world_seed_no_starve = world.seed_no_starve;
     if let Some(state) = world.organism_mut(organism_id) {
         state.root_cells = root_cells;
         state.contact_root_cells = contact_root_cells;
@@ -12565,8 +12576,10 @@ fn organism_upkeep(world: &mut World, organism_id: OrganismId) {
         // **Age advances once per organism tick**, in the one pass that
         // visits every organism exactly once -- so it costs an add and no
         // traversal of its own.
-        state.age_ticks = state.age_ticks.saturating_add(1);
-        state.plant_frames = state.plant_frames.saturating_add(tick_plant_frames as u32);
+        if !resting_seed {
+            state.age_ticks = state.age_ticks.saturating_add(1);
+            state.plant_frames = state.plant_frames.saturating_add(tick_plant_frames as u32);
+        }
         // **Old age, rolled above.** Marking is the whole action: `senescent`
         // is what `rot_remains` reads, and it then thins the plant at the
         // species' `remains_half_life`, so what the player sees is a tree
@@ -12588,10 +12601,8 @@ fn organism_upkeep(world: &mut World, organism_id: OrganismId) {
             state.senescence_cause = organism::DeathCause::OldAge;
             annual_death = true;
         }
-        // A dormant seed is not a plant yet: `seed_half_life` is its clock,
-        // and with `seed_no_starve` it runs no starvation clock beside it
-        // (`seed_bank_default` has the trace).
-        if has_economy && has_leaf_stage && !(world_seed_no_starve && state.dormant_seed) {
+        // A dormant seed is not a plant yet (`resting_seed` above).
+        if has_economy && has_leaf_stage && !resting_seed {
             let alive = (root_cells + shoot_cells) as f32;
             let collected = state.income * MEAN_NIGHT_INCOME_FACTOR;
             if alive > 0.0 && collected < MAINTENANCE_PER_CELL * alive {
@@ -26028,18 +26039,19 @@ mis-wired {miswired_root}, so `slot_1_is_a_root_locus_and_not_a_shoot_one` would
         assert!((18..=42).contains(&off), "with the switch off the flat half-life should hold: {off} of {SEEDS}");
     }
 
-    /// **A dormant seed runs no starvation clock** (`seed_bank_default`'s
-    /// `nostarve`). A herb seed on bone-dry soil cannot germinate; with the
-    /// part off its `starving_ticks` climbs every organism tick, which is
-    /// the clock that declared every waiting leafy-species seed starved
-    /// after `STARVATION_DEATH_TICKS`. On, it stays at zero, so a seed that
-    /// sprouts after a long wait starts its life with the whole clock.
+    /// **A dormant seed runs none of a plant's clocks** (`seed_bank_default`'s
+    /// `dormant`). A herb seed on bone-dry soil cannot germinate; with the
+    /// part off its `starving_ticks` and its age climb every organism tick,
+    /// which is what declared waiting leafy-species seeds starved after
+    /// `STARVATION_DEATH_TICKS` and rolled old age and the annual backstop
+    /// on them. On, both stay at zero, so a seed that sprouts after a long
+    /// wait starts its life young and with the whole starvation clock.
     #[test]
-    fn a_dormant_seed_runs_no_starvation_clock() {
-        let run = |no_starve: bool| {
+    fn a_dormant_seed_runs_no_starvation_or_age_clock() {
+        let run = |rest: bool| {
             let mut w = test_world();
             w.seed_dry_keeps = false;
-            w.seed_no_starve = no_starve;
+            w.seed_dormant_rest = rest;
             let soil = w.materials.id_of("soil").expect("soil");
             for x in 0..40 {
                 w.set(x, 60, Cell::new(material::STONE, 0));
@@ -26052,12 +26064,12 @@ mis-wired {miswired_root}, so `slot_1_is_a_root_locus_and_not_a_shoot_one` would
             run_with_fields(&mut w, 3_000);
             let st = w.organism(id).expect("test setup: the seed rotted inside 3,000 frames");
             assert!(st.dormant_seed, "test setup: it should still be a dormant seed on dry soil");
-            st.starving_ticks
+            (st.starving_ticks, st.age_ticks, st.plant_frames)
         };
         let (on, off) = (run(true), run(false));
-        println!("dormant herb seed starving_ticks after 3,000 frames: nostarve {on}, old {off}");
-        assert!(off > 0, "positive control: with the part off a dormant seed should be counting toward starvation");
-        assert_eq!(on, 0, "a dormant seed must not count toward starvation");
+        println!("dormant herb seed after 3,000 frames (starving, age ticks, plant frames): rest {on:?}, old {off:?}");
+        assert!(off.0 > 0 && off.1 > 0 && off.2 > 0, "positive control: with the part off a dormant seed should be counting both clocks: {off:?}");
+        assert_eq!(on, (0, 0, 0), "a dormant seed must count neither toward starvation nor age");
     }
 
     /// **What `seed_dryness` reads, case by case**: the ground under a seed

@@ -6108,10 +6108,10 @@ pub struct World {
     /// numbers). A field rather than a process global so a test can run
     /// both arms.
     pub seed_dry_keeps: bool,
-    /// **Whether a dormant seed is exempt from the whole-plant starvation
-    /// rule** -- the `nostarve` part of `PIXEL_PHYSICS_SEED_BANK`
-    /// (`plant::seed_bank_default`).
-    pub seed_no_starve: bool,
+    /// **Whether a dormant seed runs none of a plant's clocks** (starvation,
+    /// old age, annual death, age itself) -- the `dormant` part of
+    /// `PIXEL_PHYSICS_SEED_BANK` (`plant::seed_bank_default`).
+    pub seed_dormant_rest: bool,
     /// **Whether a plant may lean under load and wind.** `plant.rs`'s
     /// `bend_under_load`, and the `stress_field` that feeds it.
     ///
@@ -7356,7 +7356,7 @@ impl World {
             sap_flow: super::plant::sap_flow_default(),
             rootless_dries: super::plant::rootless_dries_default(),
             seed_dry_keeps: super::plant::seed_bank_default().0,
-            seed_no_starve: super::plant::seed_bank_default().1,
+            seed_dormant_rest: super::plant::seed_bank_default().1,
             soil_capillary_levels: false,
             plant_bending: true,
             windfall_rots: crate::sim::decay::windfall_rots_default(),
