@@ -17818,7 +17818,10 @@ fn shaft_room_refuses_with(world: &World, (tx, ty): (i32, i32), rule: ShaftRooms
         if ty <= surface + rule.top && dx <= rule.topw {
             return None;
         }
-        if ty == surface + rule.top + 1 && dx <= rule.floor {
+        // `floor > 0`: with no guard, `dx <= 0` would still refuse the door's
+        // own column (a bug in the first build, 310bb559, caught by its
+        // counter on the first `top=16` runs).
+        if rule.floor > 0 && ty == surface + rule.top + 1 && dx <= rule.floor {
             return Some(ShaftWhy::Floor);
         }
     }
@@ -34117,6 +34120,8 @@ mod tests {
         assert_eq!(shaft_room_refuses_with(&w, (cx, sy + 12), boxed), None, "in the box it is not");
         assert_eq!(shaft_room_refuses_with(&w, (cx + 2, sy + 13), boxed), Some(ShaftWhy::Floor), "the row under it, by the door, is");
         assert_ne!(shaft_room_refuses_with(&w, (cx + 9, sy + 13), boxed), Some(ShaftWhy::Floor), "but not past `floor` columns");
+        let unguarded = ShaftRooms { floor: 0, ..boxed };
+        assert_ne!(shaft_room_refuses_with(&w, (cx, sy + 13), unguarded), Some(ShaftWhy::Floor), "and not at all with no `floor`");
         assert_eq!(shaft_room_refuses_with(&w, (cx + 11, sy + 12), boxed), None, "the box reaches `topw` columns");
         assert_eq!(shaft_room_refuses_with(&w, (cx + 13, sy + 9), boxed), f(&w, (cx + 13, sy + 9)), "the same verdict as without the box");
     }
