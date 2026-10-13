@@ -780,7 +780,7 @@ mod tests {
         }
     }
 
-    /// The weight on `(Carrying, 0, w)`, parsed out of a species file without
+    /// The weight on `(Carrying, 0, w)` (or its successors), parsed out of a species file without
     /// pulling in a regex crate for one line.
     fn regex_lite_carrying_zero(text: &str) -> Option<f32> {
         text.lines().find_map(|l| {
@@ -792,6 +792,15 @@ mod tests {
             // matcher that knows only the old name reports "authors no homing
             // gate at all" for a species that authors a correct one, which is
             // a false alarm that looks exactly like a real regression.
+            // **`EmptyCrop` first of all, since 2026-10-13**: the homing pair
+            // is `Bias +0.5, EmptyCrop -45.5`, the same two values as
+            // `Bias -45, CarryingFood +45.5` without the cancellation one
+            // mutation step could break (`brain::BrainInput::EmptyCrop`).
+            // The gain's magnitude is what saturates or does not, so its
+            // sign is dropped and 45.5 is still the repaired number.
+            if let Some(rest) = l.strip_prefix("(EmptyCrop,0,") {
+                return rest.split(')').next()?.parse::<f32>().ok().map(f32::abs);
+            }
             let rest = l.strip_prefix("(CarryingFood,0,").or_else(|| l.strip_prefix("(Carrying,0,"))?;
             rest.split(')').next()?.parse().ok()
         })
