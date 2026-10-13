@@ -10570,8 +10570,15 @@ frame: brood resting in the room 76-87% (main 3-10%); larvae starved 0-1
 (main 35-718); adults higher on 11 of 12 (mean 282 against 228/233); eggs
 about 12% fewer; galleries 1-4 below the room. Wall time is about 13% more
 with 24% more ants; how that splits between the rule and the ants is not
-traced. The veto is two comparisons on a cut already being judged, with no
-new scan.
+traced. The veto runs only on a dig roll already won in the nest region:
+about 1,000 cell reads at the worst (a row look and two small column looks),
+so it scales with digging ants, not with the world, and adds no new scan.
+**With mutation on (the played game) it costs adults.** Seeds 1-2 at
+225-300k: larvae starved 0-1 against 175-229 without the room, but adults
+starved 560-652 against 105-348, and the colony is 10-15% smaller. Mutation
+off it reverses. The ones who starve are young ants spread over the whole
+east surface past the food. Neither a brain gene nor a body trait marks them,
+and why mutation flips it is not traced yet.
 
 **Why it is a stopgap.** No ant senses anything: the room is a fixed box at
 the door, which the owner accepted as a labelled stopgap (2026-10-13) against
