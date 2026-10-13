@@ -480,7 +480,42 @@ pub const MUT_REL: f32 = 0.10;
 /// design that specified it predates the gate it would have deleted. 40
 /// leaves the authored gate a third of a decade of headroom without
 /// letting a runaway weight saturate every downstream unit permanently.
-pub const MUT_CLAMP: f32 = 40.0;
+///
+/// **80 since 2026-10-13, because 40 did to the 2026-09-09 gate exactly what
+/// 4.0 would have done to the old one.** §Z7 moved the homing pair to `Bias
+/// -45, CarryingFood +45.5` (`ant.ron`, units 0/1), above this clamp, and
+/// nothing re-checked it. The first mutation that touched slot 4126 (the
+/// 45.5) set it to exactly 40, and the clamp kept it from ever coming back:
+/// at 40 the gate sums `-5 + 6 x along` full, never opens, and the
+/// un-clamped mirror unit pushes `Move` down, so a laden ant sits at the
+/// food. That is the "pile-loafer" every mutation-on colony was taken over
+/// by (12 of 12 runs, food home falling 5-25x; the project's
+/// `needs-ant/resume-2026-10-10/mutation-on-drift-2026-10-10.md`).
+/// Measured (8 steady seeds, mutation on, 300k, the project's
+/// `new-vs-old/clamp/results-2026-10-13.md`): lifted, food trips home are
+/// back to about 9,000 a seed on 6 of 8 (40: 849-3,887 on 7 of 8), ants
+/// living deep double; adults starve about 1.7x more and the colony is 4-12%
+/// smaller, inferred to be loafers no longer feeding themselves at the pile.
+/// 60 and 80 were byte-identical on all 16 runs: no weight passed 56.8 in
+/// 300k. 80 rather than 60 because the older ant species (`ancestor`,
+/// `ant_long` and the rest) author `Carrying -> h2/h3 = -75`, which 60 would
+/// cut the same way. **Not the whole fix**: the gate opens only at a 98.9%
+/// full crop, so on 2 of the 8 seeds an ordinary step (the bias to -52, or
+/// -47.9 with the gain at 42.3) shut it again and that lineage still swept
+/// the colony. `every_authored_weight_is_inside_the_mutation_clamp` is the
+/// guard: any species authoring a weight past this fails there.
+pub const MUT_CLAMP: f32 = 80.0;
+
+/// **The clamp in force**: [`MUT_CLAMP`], or `PIXEL_PHYSICS_MUT_CLAMP=<n>`
+/// for a run that wants another (`40` is the clamp before 2026-10-13). Read
+/// once per process.
+pub fn mut_clamp() -> f32 {
+    static C: std::sync::OnceLock<f32> = std::sync::OnceLock::new();
+    *C.get_or_init(|| match std::env::var("PIXEL_PHYSICS_MUT_CLAMP") {
+        Ok(v) => v.trim().parse::<f32>().ok().filter(|c| *c > 0.0).unwrap_or_else(|| panic!("PIXEL_PHYSICS_MUT_CLAMP={v:?} is not a positive number")),
+        Err(_) => MUT_CLAMP,
+    })
+}
 
 /// **Point-mutate a genome in place**, one live slot at a time.
 ///
@@ -529,7 +564,8 @@ pub fn mutate(genome: &mut [f32], rate: f32, rng: &mut crate::sim::rng::Rng) -> 
         let w = genome[i];
         let width = MUT_ABS_FLOOR + MUT_REL * w.abs();
         let step = (rng.unit_f32() * 2.0 - 1.0) * width;
-        let next = (w + step).clamp(-MUT_CLAMP, MUT_CLAMP);
+        let clamp = mut_clamp();
+        let next = (w + step).clamp(-clamp, clamp);
         if next != w {
             moved += 1;
         }
@@ -2461,6 +2497,37 @@ mod tests {
         assert!(dead.is_empty(), "authored weights below W_EPS ({W_EPS}), which `eval_brain` skips entirely:\n  {}", dead.join("\n  "));
     }
 
+    /// **Every authored weight sits inside the mutation clamp.** One past it
+    /// is cut to the clamp by the first mutation that touches it and can
+    /// never come back: `ant.ron`'s homing gain 45.5 against a clamp of 40
+    /// was the pile-loafer (`MUT_CLAMP`'s doc). Reads the clamp in force, so
+    /// the fault goes back with no rebuild: `PIXEL_PHYSICS_MUT_CLAMP=40`
+    /// names the ±45 homing gates of every ant species, and `=60` the older
+    /// species' `Carrying -> h2/h3 = -75`.
+    #[test]
+    fn every_authored_weight_is_inside_the_mutation_clamp() {
+        let world = crate::sim::world::World::new(crate::sim::chunk::Rect::new(0, 0, 63, 63));
+        let mut out: Vec<String> = Vec::new();
+        for i in 0..world.species.len() as u16 {
+            let def = world.species.get(crate::sim::organism::SpeciesId(i));
+            if def.creature.is_none() || def.genome.len() != GENOME_LEN {
+                continue;
+            }
+            let w = wiring_from_genome(&def.genome);
+            let past = |x: f32| x.abs() > mut_clamp();
+            for x in w.instincts.iter().filter(|x| past(x.2)) {
+                out.push(format!("{}: {:?} -> {:?} = {}", def.name, x.0, x.1, x.2));
+            }
+            for x in w.hidden.iter().filter(|x| past(x.2)) {
+                out.push(format!("{}: {:?} -> h{} = {}", def.name, x.0, x.1, x.2));
+            }
+            for x in w.outputs.iter().filter(|x| past(x.2)) {
+                out.push(format!("{}: h{} -> {:?} = {}", def.name, x.0, x.1, x.2));
+            }
+        }
+        assert!(out.is_empty(), "authored weights past the mutation clamp ({}), which the first mutation cuts for good:\n  {}", mut_clamp(), out.join("\n  "));
+    }
+
         #[test]
     fn the_recurrence_block_is_reachable_only_through_the_fourth_list() {
         // The gap this found, made mechanical. `eval_brain` reads `hh[h]`
@@ -2966,7 +3033,7 @@ mod tests {
             let width_small = MUT_ABS_FLOOR + MUT_REL * 0.3;
             assert!((g[big] - 30.0).abs() <= width_big + 1e-4, "the ±30 gate moved {} on seed {seed}, wider than {width_big}", g[big] - 30.0);
             assert!((g[small] - 0.3).abs() <= width_small + 1e-4, "a 0.3 weight moved {} on seed {seed}, wider than {width_small}", g[small] - 0.3);
-            assert!(g.iter().all(|w| w.abs() <= MUT_CLAMP + 1e-4), "a weight escaped the clamp on seed {seed}");
+            assert!(g.iter().all(|w| w.abs() <= mut_clamp() + 1e-4), "a weight escaped the clamp on seed {seed}");
         }
     }
 
