@@ -6102,6 +6102,12 @@ pub struct World {
     /// `PIXEL_PHYSICS_ROOTLESS_DRIES` (`off` restores the old engine); a
     /// field rather than a process global so a test can run both arms.
     pub rootless_dries: bool,
+    /// **Whether a seed lying on dry ground ages more slowly than one on
+    /// wet ground** (`plant::seed_dry_keeps_default`, which carries the
+    /// reasoning and the numbers). Initialised from
+    /// `PIXEL_PHYSICS_SEED_DRY_KEEPS` (`off` restores the old engine); a
+    /// field rather than a process global so a test can run both arms.
+    pub seed_dry_keeps: bool,
     /// **Whether a plant may lean under load and wind.** `plant.rs`'s
     /// `bend_under_load`, and the `stress_field` that feeds it.
     ///
@@ -7345,6 +7351,7 @@ impl World {
             plant_load_failure: true,
             sap_flow: super::plant::sap_flow_default(),
             rootless_dries: super::plant::rootless_dries_default(),
+            seed_dry_keeps: super::plant::seed_dry_keeps_default(),
             soil_capillary_levels: false,
             plant_bending: true,
             windfall_rots: crate::sim::decay::windfall_rots_default(),

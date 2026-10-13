@@ -550,6 +550,99 @@ pub fn rootless_dries_default() -> bool {
     *ON.get_or_init(|| !matches!(std::env::var("PIXEL_PHYSICS_ROOTLESS_DRIES").as_deref(), Ok("off")))
 }
 
+/// **A seed lying on dry ground ages more slowly** -- `seed_half_life` is
+/// stretched by `1 + SEED_DRY_STRETCH * dry`, where `dry` runs from 0 with
+/// the ground at the species' own germination threshold to 1 at the wilting
+/// point (`seed_dryness`). Switch `PIXEL_PHYSICS_SEED_DRY_KEEPS`, `off`
+/// restores the flat half-life exactly; the live switch is
+/// `World::seed_dry_keeps`.
+///
+/// **What it is for: a drought that can come back.** In the owner's
+/// 49.7M-frame rain-off playtest (2026-10-12) a dry layer formed over the
+/// bed (median 4 rows at 100k, 17 at 700k, 26 at 5M) and no seed sprouted
+/// through it. With the flat half-life every species but grass had rotted
+/// out of the bank by 2M -- herb's last seed fell at 380k against a 14k
+/// half-life -- so rain at 2M brought back a grass-only carpet. The
+/// mister-off drought is the owner's own design (`lab/rain.rs`, "a drought
+/// a player can cause"); what it lacked was a way back. Design and its
+/// adversarial review: the project's
+/// `playtest-2026-10-12-plants/seed-crust-design.md` (option C).
+///
+/// **Biology:** the drier a seed is kept, the longer it stays viable
+/// (Harrington's rule; Ellis & Roberts 1980); seed death in soil is largely
+/// fungal and needs moisture; persistent banks are how annuals ride out a
+/// drought (Thompson & Grime 1979).
+///
+/// Under rain the ground under a seed is wet, `dry` is 0 and nothing
+/// changes -- which is why the read looks *through* other seeds and litter
+/// to the first ground that can hold water (`seed_dryness`): three seeds in
+/// four lie on something that is not soil, and reading only the cell below
+/// would call all of them dry and swell the bank under rain. **Never
+/// infinite**: an immortal bank was a measured slot and cost problem
+/// (`OrganismState`s climbing without bound, `open-bugs-handoff.md` §F4).
+pub fn seed_dry_keeps_default() -> bool {
+    use std::sync::OnceLock;
+    static ON: OnceLock<bool> = OnceLock::new();
+    *ON.get_or_init(|| !matches!(std::env::var("PIXEL_PHYSICS_SEED_DRY_KEEPS").as_deref(), Ok("off")))
+}
+
+/// How much longer a seed on bone-dry ground lasts: its half-life is
+/// multiplied by `1 + SEED_DRY_STRETCH`. Sized from the playtest it exists
+/// for (seed-crust-design.md, option C): herb's last seed fell at 380k and
+/// the rain came back at 2M, so a herb seed (14k) needs a dry half-life of
+/// order 200k to still be in the bank. 15 gives herb 224k, grass 288k, the
+/// 9k-default species 144k. A tuned number, not a derived one.
+pub const SEED_DRY_STRETCH: f32 = 15.0;
+
+/// How many rows below a seed `seed_dryness` looks for ground that can
+/// hold water, through seeds and litter. A seed on a deeper pile than this
+/// reads dry.
+pub const SEED_DRY_READ_ROWS: i32 = 4;
+
+/// **How dry the ground under a seed is**, 0 (at or wetter than the
+/// species' own germination threshold) to 1 (at the wilting point or with
+/// no ground in reach). Reads the first cell within `SEED_DRY_READ_ROWS`
+/// below that can hold water, looking through other seeds and through
+/// litter and the like (loose ground that holds no water). `threshold` is the
+/// species' `Germinate` soil-water threshold; `None` or non-positive reads
+/// the plain available fraction, 1 minus it.
+///
+/// **Reads 0 -- the old flat half-life -- for anything that is not a seed
+/// lying in a pile on the ground**: rock (it can never sprout there), a
+/// liquid on the way (a seed on a pond is not in a drought), air (a seed
+/// still falling, or hanging), or living
+/// tissue (a fruit still on its plant, which shares `CellType::Seed`). Only
+/// a seed on the ground is in the drought this is for, and a hanging
+/// fruit's ripening and windfall clock must not move.
+fn seed_dryness(world: &World, x: i32, y: i32, threshold: Option<f32>) -> f32 {
+    for dy in 1..=SEED_DRY_READ_ROWS {
+        let c = world.get(x, y + dy);
+        if c.material == material::EMPTY || world.materials.kind(c.material) == MaterialKind::Liquid {
+            return 0.0;
+        }
+        if c.organism_id() != 0 && organism::cell_type(c.aux()) != Some(CellType::Seed) {
+            return 0.0;
+        }
+        let holds = world.materials.get(c.material).water_capacity > 0;
+        // Rock, or anything else that never moves, ends the look with the
+        // flat clock: a seed on a stone ledge can never germinate there
+        // (`Germinate` wants ground that holds water under it), so keeping
+        // it longer buys nothing but a held slot --
+        // `a_grass_seed_on_bare_rock_never_germinates_and_does_not_stand_for_ever`.
+        if !holds && world.materials.kind(c.material) == MaterialKind::Solid {
+            return 0.0;
+        }
+        if holds {
+            let avail = update::plant_available_fraction(c);
+            return match threshold {
+                Some(t) if t > 0.0 => (1.0 - avail / t).clamp(0.0, 1.0),
+                _ => (1.0 - avail).clamp(0.0, 1.0),
+            };
+        }
+    }
+    1.0
+}
+
 /// **Bury or unearth a dormant seed, by what is on top of it.** A species'
 /// own `seed_material` cell whose cell above is ground -- solid or powder,
 /// not living tissue and not itself food, so a seed under leaf litter or
@@ -5180,7 +5273,14 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: OrganismId, sta
     // file's ethos section rules out, and the mass belongs back in the
     // ground where `decay` can rot it into soil.
     if cell_type == CellType::Seed {
-        let half_life = world.species.get(species_id).seed_half_life;
+        let mut half_life = world.species.get(species_id).seed_half_life;
+        // **A dry seed ages slowly** -- `seed_dry_keeps_default` has why.
+        // Read only on a seed tick and only for a seed, so the cost is a
+        // few cell reads per seed check and nothing anywhere else.
+        if world.seed_dry_keeps && half_life > 0.0 {
+            let dry = seed_dryness(world, x, y, seed_water_threshold(world, organism_id));
+            half_life *= 1.0 + SEED_DRY_STRETCH * dry;
+        }
         if rng.chance(half_life_chance(half_life, SEED_TICK_INTERVAL)) {
             // **One of `pips_rotted`'s two exits** -- a `pip` that lost
             // this species-wide viability race, same as any other seed
@@ -21069,6 +21169,15 @@ this costs more than the bug"
         /// -> (cells shed as cut off, cells the plant still owns)
         fn run(cut: bool, load_failure: bool, sap_flow: bool) -> (u64, usize) {
             let mut w = test_world();
+            // `plant_cut_off_cells_shed` is world-wide, so it counts every
+            // organism in the scene, not only this tree. With
+            // `seed_dry_keeps` on, a seed the tree drops onto this test's
+            // dry ground lasts long enough to sprout, and that seedling's
+            // own shedding lands in the count: traced 2026-10-13, organism 9
+            // at x 95, a three-cell seedling that lost two cells at frame
+            // 9,081 of the intact arm, while the tree shed nothing. Off keeps
+            // the scene to the one tree this test is about.
+            w.seed_dry_keeps = false;
             // **The lab's configuration, which is where the bug lives.**
             // With `plant_load_failure` on -- the shipped default, and the
             // outdoor game -- a detached crown is felled as pieces within a
@@ -25800,6 +25909,10 @@ mis-wired {miswired_root}, so `slot_1_is_a_root_locus_and_not_a_shoot_one` would
     fn a_dormant_seed_bank_halves_over_a_half_life_and_does_not_empty() {
         const SEEDS: usize = 60;
         let mut w = test_world();
+        // The flat clock, which this test is about: on this bone-dry soil
+        // `seed_dry_keeps` would stretch the half-life sixteenfold (see
+        // `a_seed_bank_on_dry_ground_lasts_far_longer_than_its_half_life`).
+        w.seed_dry_keeps = false;
         let soil = w.materials.id_of("soil").expect("soil is compiled in");
         // Below the wilting point, so `plant_available_fraction` is exactly
         // zero and nothing germinates: this measures decay, not attrition
@@ -25843,6 +25956,112 @@ mis-wired {miswired_root}, so `slot_1_is_a_root_locus_and_not_a_shoot_one` would
         // The slot is the point: a decayed seed must not leave a live
         // organism behind holding one.
         assert_eq!(live, after, "every standing seed and no more should still hold a slot: {live} live against {after} standing");
+    }
+
+    /// **A seed bank on dry ground outlasts its half-life many times over,
+    /// and the flat clock comes back with the switch off.** The scene is
+    /// `a_dormant_seed_bank_halves_over_a_half_life_and_does_not_empty`'s
+    /// (sixty tree seeds on soil at the wilting point), run for one flat
+    /// half-life: with `seed_dry_keeps` the half-life is
+    /// `1 + SEED_DRY_STRETCH` times longer, so ~96% of the bank should still
+    /// stand; off, about half. Both arms in one test so the off arm is the
+    /// positive control on the same draw stream.
+    #[test]
+    fn a_seed_bank_on_dry_ground_lasts_far_longer_than_its_half_life() {
+        const SEEDS: usize = 60;
+        let run = |keeps: bool| {
+            let mut w = test_world();
+            w.seed_dry_keeps = keeps;
+            let soil = w.materials.id_of("soil").expect("soil is compiled in");
+            for x in 0..200 {
+                w.set(x, 60, Cell::new(material::STONE, 0));
+                for y in 52..60 {
+                    w.set(x, y, Cell::new(soil, 0).with_aux(material::SOIL_WILTING_POINT));
+                }
+            }
+            for i in 0..SEEDS {
+                assert!(w.plant_tree_species(2 + i as i32 * 3, 51, "tree"), "test setup: seed {i} should have been planted");
+            }
+            let half_life = w.species.get(w.species.id_of("tree").expect("tree")).seed_half_life;
+            run_with_fields(&mut w, half_life as usize);
+            let b = w.bounds().expect("a non-empty world");
+            let mut n = 0;
+            for y in b.min_y..=b.max_y {
+                for x in b.min_x..=b.max_x {
+                    let c = w.get(x, y);
+                    if c.organism_id() != 0 && organism::cell_type(c.aux()) == Some(CellType::Seed) {
+                        n += 1;
+                    }
+                }
+            }
+            n
+        };
+        let (on, off) = (run(true), run(false));
+        println!("tree seeds standing after one flat half-life on dry soil: keeps {on} of {SEEDS}, flat {off} of {SEEDS}");
+        // On: p(survive) = 0.5^(1/16) = 0.958, so 57.5 expected, sd 1.6; 50
+        // is over four sd below. Off: the sibling test's own band.
+        assert!(on >= 50, "a dry seed's half-life should be stretched {}x: {on} of {SEEDS} left", 1.0 + SEED_DRY_STRETCH);
+        assert!((18..=42).contains(&off), "with the switch off the flat half-life should hold: {off} of {SEEDS}");
+    }
+
+    /// **What `seed_dryness` reads, case by case**: the ground under a seed
+    /// through a pile of other seeds; wet soil 0 and wilting-point soil 1;
+    /// rock, air, a liquid and living tissue 0 (the old flat clock, for a
+    /// seed that can never sprout where it lies, or is falling, floating or
+    /// still on its plant).
+    #[test]
+    fn seed_dryness_reads_the_ground_through_a_seed_pile_and_nothing_else() {
+        let mut w = test_world();
+        let soil = w.materials.id_of("soil").expect("soil");
+        let water = w.materials.id_of("water").expect("water");
+        let field_capacity = material::SOIL_FIELD_CAPACITY;
+        // Column 10: seed at 40 on two seeds on wet soil. Column 20: on dry
+        // soil. Column 30: on stone. Column 40: over air. Column 50: on water.
+        for x in [10, 20, 30, 40, 50] {
+            w.set(x, 60, Cell::new(material::STONE, 0));
+        }
+        w.set(10, 43, Cell::new(soil, 0).with_aux(field_capacity));
+        w.set(20, 41, Cell::new(soil, 0).with_aux(material::SOIL_WILTING_POINT));
+        w.set(30, 41, Cell::new(material::STONE, 0));
+        w.set(50, 41, Cell::new(water, 0));
+        for (x, y) in [(10, 42), (10, 41)] {
+            assert!(w.plant_tree_species(x, y, "grass"), "test setup: pile seed at {x},{y}");
+        }
+        let t = Some(0.10);
+        let wet = seed_dryness(&w, 10, 40, t);
+        let dry = seed_dryness(&w, 20, 40, t);
+        let rock = seed_dryness(&w, 30, 40, t);
+        let air = seed_dryness(&w, 40, 40, t);
+        let pond = seed_dryness(&w, 50, 40, t);
+        println!("seed_dryness: through a pile onto wet soil {wet}, dry soil {dry}, rock {rock}, air {air}, water {pond}");
+        assert!(w.get(10, 41).organism_id() != 0, "test setup: the pile must be seeds");
+        assert_eq!(wet, 0.0, "a seed on a pile over field-capacity soil is not in a drought");
+        assert_eq!(dry, 1.0, "a seed over wilting-point soil is as dry as it gets");
+        assert_eq!(rock, 0.0, "a seed on rock can never sprout there, so it keeps the flat clock");
+        assert_eq!(air, 0.0, "a falling or hanging seed keeps the flat clock");
+        assert_eq!(pond, 0.0, "a seed on water is not in a drought");
+        // Living tissue: a grass blade under the seed.
+        let mut g = test_world();
+        let gsoil = g.materials.id_of("soil").expect("soil");
+        for x in 0..40 {
+            g.set(x, 60, Cell::new(material::STONE, 0));
+            for y in 50..60 {
+                g.set(x, y, Cell::new(gsoil, 0).with_aux(field_capacity));
+            }
+        }
+        place_grass(&mut g, 10, 50, 6, 3);
+        let mut tissue = None;
+        'find: for y in 40..50 {
+            for x in 10..16 {
+                let c = g.get(x, y);
+                if c.organism_id() != 0 && organism::cell_type(c.aux()) != Some(CellType::Seed) && g.get(x, y - 1).material == material::EMPTY {
+                    tissue = Some((x, y - 1));
+                    break 'find;
+                }
+            }
+        }
+        let (tx, ty) = tissue.expect("test setup: a grass blade with air above it");
+        assert_eq!(seed_dryness(&g, tx, ty, t), 0.0, "a seed resting on living tissue (a fruit on its plant) keeps the flat clock");
     }
 
     /// **The 4,095-slot ceiling refuses a birth instead of corrupting an
