@@ -17566,7 +17566,10 @@ fn parse_shaft_rooms(raw: &str) -> Option<ShaftRooms> {
 /// (Chebyshev) of the target. If fewer than `k`, the cut is refused with
 /// chance `q` per mille. A refusal is a roll lost, no turn and no new
 /// behaviour. The company count is local: an ant feels nestmates touching it
-/// at the face.
+/// at the face. In the game, where scent and tolerance mutate, company
+/// follows the tolerance gene: a nestmate whose scent has drifted outside
+/// the digger's tolerance is no company (inferred from the kin test; not run
+/// with mutation on).
 ///
 /// **Exempt**, so a colony can still found, go down and get out: a nest whose
 /// dug home is under `dug` cells (the queen and the first workers dig
