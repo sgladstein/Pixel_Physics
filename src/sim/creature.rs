@@ -26099,6 +26099,13 @@ pub enum RouteHalf {
     /// Relative to the strongest option, times this factor, on the planes
     /// marked (`[A, B]`).
     Rel(f32, [bool; 2]),
+    /// `ratio:<n>[:a|:b]`: no saturation at all on the planes marked; a
+    /// step's presence is `(scent / strongest option)^n`, 1 on the strongest
+    /// heading. With `n = 2` this is Deneubourg's choice exponent (Deneubourg
+    /// et al. 1990 fitted about 2 on Argentine ants), and it is the one form
+    /// here whose elasticity can pass 1 at a fork, which a two-branch choice
+    /// needs (`bridgebox`'s header: the saturating read peaks at 0.64).
+    Ratio(i32, [bool; 2]),
 }
 
 pub fn route_half() -> RouteHalf {
@@ -26106,7 +26113,18 @@ pub fn route_half() -> RouteHalf {
     *V.get_or_init(|| {
         std::env::var("PIXEL_PHYSICS_ROUTE_HALF").ok().map_or(RouteHalf::Fixed(TRAIL_HALF), |s| {
             let t = s.trim();
-            if let Some(rest) = t.strip_prefix("rel:") {
+            if let Some(rest) = t.strip_prefix("ratio:") {
+                let (n, which) = rest.split_once(':').unwrap_or((rest, "ab"));
+                let n: i32 = n.parse().unwrap_or_else(|_| panic!("PIXEL_PHYSICS_ROUTE_HALF={s}: want ratio:<n>[:a|:b], e.g. ratio:2"));
+                assert!(n >= 1, "PIXEL_PHYSICS_ROUTE_HALF={s}: the exponent must be 1 or more");
+                let planes = match which {
+                    "ab" => [true, true],
+                    "a" => [true, false],
+                    "b" => [false, true],
+                    _ => panic!("PIXEL_PHYSICS_ROUTE_HALF={s}: the plane must be a or b"),
+                };
+                RouteHalf::Ratio(n, planes)
+            } else if let Some(rest) = t.strip_prefix("rel:") {
                 let (c, which) = rest.split_once(':').unwrap_or((rest, "ab"));
                 let c: f32 = c.parse().unwrap_or_else(|_| panic!("PIXEL_PHYSICS_ROUTE_HALF={s}: want rel:<factor>[:a|:b], e.g. rel:0.25"));
                 assert!(c > 0.0, "PIXEL_PHYSICS_ROUTE_HALF={s}: the factor must be above 0");
@@ -26151,6 +26169,18 @@ fn route_halves(world: &World, head: (i32, i32), planes: [f32; 2], headings: imp
             }
             out
         }
+        // The half slot carries the strongest option's scent (floored at
+        // `TRAIL_HALF`), which `trail_presence` divides by.
+        RouteHalf::Ratio(_, on) => {
+            let mut out = [TRAIL_HALF; 2];
+            for (i, channel) in [Channel::A, Channel::B].into_iter().enumerate() {
+                if planes[i] == 0.0 || !on[i] {
+                    continue;
+                }
+                out[i] = headings.clone().map(|d| route_scent(world, head, d, channel)).fold(TRAIL_HALF, f32::max);
+            }
+            out
+        }
     }
 }
 
@@ -26166,12 +26196,19 @@ fn trail_presence(world: &World, head: (i32, i32), d: u8, planes: [f32; 2], halv
     // reads nothing, so the ancestral ant (weights 1 and 0) samples exactly
     // the one plane the hard-coded choice did, and `1 * p` is `p` to the bit.
     let mut sum = 0.0;
+    let ratio = match route_half() {
+        RouteHalf::Ratio(n, on) => Some((n, on)),
+        _ => None,
+    };
     for (i, (channel, w)) in [(Channel::A, planes[0]), (Channel::B, planes[1])].into_iter().enumerate() {
         if w == 0.0 {
             continue;
         }
         let x = route_scent(world, head, d, channel) / halves[i];
-        sum += w * (x / (1.0 + x));
+        sum += w * match ratio {
+            Some((n, on)) if on[i] => x.min(1.0).powi(n),
+            _ => x / (1.0 + x),
+        };
     }
     sum.max(0.0)
 }

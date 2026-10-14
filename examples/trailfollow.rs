@@ -1621,13 +1621,68 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
         // upper is climb-then-descend outbound and the lower descend-then-
         // climb. `side` (the default) is the ground tunnel against a climbed
         // one, which gravity decides on its own (upper share 0.07-0.15 muted).
-        let diamond = match arg_str("bridgeshape").as_deref() {
-            None | Some("side") => false,
-            Some("diamond") => true,
-            Some(v) => panic!("bridgeshape={v}: want side or diamond"),
-        };
+        // **The diamond is not a valid test**, kept as the record of why:
+        // see `y` below.
+        let shape = arg_str("bridgeshape").unwrap_or_else(|| "side".into());
+        assert!(matches!(shape.as_str(), "side" | "diamond" | "y"), "bridgeshape={shape}: want side, diamond or y");
         const MOUTH: i32 = 3;
         let ground = spec.ground_y;
+        if shape == "y" {
+            // **`bridgeshape=y`: the branches part at an angle, as on a real
+            // bridge.** A mouth `MOUTH` cells deep on each face, then one
+            // branch climbs at 45 degrees and one descends, each runs flat
+            // `<rows>` from the mouth's line, and they meet the far mouth the
+            // same way: a rhombus, mirror-symmetric top to bottom apart from
+            // gravity. Carved with a 3x3 brush along each centreline. Built
+            // 2026-10-14 after `diamond` failed as a test: its fork was a
+            // shared vertical shaft overlapping the mouth's rows, so both
+            // branches' trails read alike at the decision (food trail 26,795
+            // against 33,201 raw, ~117 of 255, both ways) and the ant's body
+            // and persistence chose (traced on every empty ant at the fork,
+            // seed 1, 15-30k frames).
+            let (x0, x1) = (wall_x0, wall_x0 + bw - 1);
+            assert!(bw >= 2 * (MOUTH + sep) + 6, "bridgew={bw}: a y bridge needs two mouths, two climbs of {sep} and a span");
+            let mut open = std::collections::HashSet::new();
+            // `bridgebrush=<r>` (1): the brush's reach, so tunnels are
+            // `2r + 1` rows. Wider tunnels ask whether an even split is
+            // crowding (Dussutour et al. 2004: a crowded symmetric bridge is
+            // used evenly) rather than the trail.
+            let r: i32 = arg("bridgebrush").unwrap_or(1);
+            assert!(sep >= 2 * r + 3, "bridge={sep}: the branches must clear each other at bridgebrush={r}");
+            // The mouths' floor is the ground's.
+            let gy = ground - 1 - r;
+            let mut brush = |cx: i32, cy: i32| {
+                for dy in -r..=r {
+                    for dx in -r..=r {
+                        open.insert((cx + dx, cy + dy));
+                    }
+                }
+            };
+            for x in x0..=x0 + MOUTH {
+                brush(x, gy);
+            }
+            for x in x1 - MOUTH..=x1 {
+                brush(x, gy);
+            }
+            for side in [-1, 1] {
+                for k in 0..=sep {
+                    brush(x0 + MOUTH + k, gy + side * k);
+                    brush(x1 - MOUTH - k, gy + side * k);
+                }
+                for x in x0 + MOUTH + sep..=x1 - MOUTH - sep {
+                    brush(x, gy + side * sep);
+                }
+            }
+            for x in x0..=x1 {
+                for y in 0..spec.height {
+                    w.set(x, y, if open.contains(&(x, y)) { Cell::EMPTY } else { Cell::new(stone, 0).with_attached(true) });
+                }
+            }
+            // Lane test `y < upper_floor + 2` and the readout row `floor - 1`
+            // (the bottom row of each span).
+            return (wall_x0 + bw / 2, gy + sep + r + 1, gy - sep + r + 1);
+        }
+        let diamond = shape == "diamond";
         let upper_floor = ground - sep;
         let lower_floor = if diamond { ground + sep } else { ground };
         assert!(!diamond || bw >= 2 * (MOUTH + 3) + 4, "bridgew={bw}: a diamond needs room for two mouths, two shafts and a span");
@@ -2802,7 +2857,8 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
     // standing in the middle column counts once.
     let mut bridge_x = [[0u64; 2]; 2];
     let mut bridge_late = [[0u64; 2]; 2];
-    let mut bridge_last: std::collections::HashMap<pixel_physics::sim::cell::OrganismId, i32> = std::collections::HashMap::new();
+    let mut bridge_last: std::collections::HashMap<pixel_physics::sim::cell::OrganismId, (i32, Option<(usize, bool)>)> = std::collections::HashMap::new();
+    let bridge_w: i32 = arg("bridgew").unwrap_or(16);
     let arm_name = match (trail, mute, paint) {
         (true, false, PaintA::None) => "hand",
         (true, true, PaintA::None) => "hmute",
@@ -2968,7 +3024,14 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
             let mut walk = pixel_physics::sim::creature::needs::NeedsWalk::new(mode, w.frame);
             walk.parts = needs_parts;
             w.needs = Some(Box::new(walk));
-            println!("  NEEDS seed {seed}: frame {f} mode={mode:?} parts={}", needs_parts.label());
+            // The walk reads home from the founded site and its shaft
+            // (`nearest_nest_site`, `nest_ways`): say whether there is one.
+            println!(
+                "  NEEDS seed {seed}: frame {f} mode={mode:?} parts={} nest_sites={} shaft={}",
+                needs_parts.label(),
+                w.nest_sites.len(),
+                w.nest_sites.iter().any(|n| n.shaft.is_some())
+            );
         }
         // **`stop` is what turns this from a pull arm into a loop arm.** Up to
         // `stop` the trail is guaranteed, which breaks the circularity -- a
@@ -3865,13 +3928,34 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
             ant_ticks += 1;
             let carrying_larder = s.crop.is_some_and(|c| is_larder_food(c.material));
             if let Some((mid_x, _, upper_floor)) = bridge {
-                let was = bridge_last.insert(id, hx);
-                if hx == mid_x && was.is_some_and(|px| px != mid_x) {
-                    let lane = usize::from(hy < upper_floor + 2);
-                    let laden = usize::from(carrying_larder);
-                    bridge_x[lane][laden] += 1;
-                    if f > frames / 2 {
-                        bridge_late[lane][laden] += 1;
+                // **One count per passage through the wall, by the tunnel used
+                // and the load carried**: the lane is remembered at the middle
+                // column and counted when the ant comes out of the far face
+                // (east empty, west laden). A diamond's two tunnels join at
+                // both ends into a ring, and counting every middle crossing
+                // read an ant circling it as one crossing per tunnel per lap:
+                // an exact half-and-half split on every seed (0.42-0.54, 8 of
+                // 8), measured 2026-10-14.
+                let half_w = bridge_w / 2;
+                let laden = usize::from(carrying_larder);
+                let entry = bridge_last.entry(id).or_insert((hx, None));
+                let was = entry.0;
+                entry.0 = hx;
+                if hx == mid_x && was != mid_x {
+                    entry.1 = Some((usize::from(hy < upper_floor + 2), was < mid_x));
+                }
+                let out_east = hx > mid_x + half_w && was <= mid_x + half_w;
+                let out_west = hx < mid_x - half_w && was >= mid_x - half_w;
+                if out_east || out_west {
+                    if let Some((lane, east)) = entry.1.take() {
+                        // Only a passage that kept its direction, made with
+                        // the load that direction means.
+                        if east == out_east && (laden == 1) == out_west {
+                            bridge_x[lane][laden] += 1;
+                            if f > frames / 2 {
+                                bridge_late[lane][laden] += 1;
+                            }
+                        }
                     }
                 }
             }
