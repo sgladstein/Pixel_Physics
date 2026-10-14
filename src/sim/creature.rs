@@ -955,6 +955,10 @@ pub const PULL_NEST_STORE: u8 = 14;
 pub const PULL_LAY_IN: u8 = 15;
 /// [`store_out_pull`]: the drive's walk out ([`StoreRead`]).
 pub const PULL_STORE_OUT: u8 = 16;
+/// [`FoodIn`]'s `bring`: a trip's carrier down the store field past the door.
+pub const PULL_FOOD_IN: u8 = 17;
+/// [`FoodIn`]'s `bring`: an emptied carrier back out along the way.
+pub const PULL_FOOD_OUT: u8 = 18;
 /// [`DecisionScratch::trip_end`]: the walk back to the face did not end.
 pub const TRIP_END_NONE: u8 = 0;
 /// Within two cells of the face and aimed at it (not under [`FaceTrip`]'s
@@ -1158,7 +1162,7 @@ pub(super) fn note_feed(world: &mut World, larva: OrganismId, at: (i32, i32), ki
 }
 
 /// [`DecisionScratch::pull_why`]'s names, by value.
-pub const PULL_WHY_NAMES: [&str; 17] = [
+pub const PULL_WHY_NAMES: [&str; 19] = [
     "not scored",
     "none",
     "store trip",
@@ -1176,6 +1180,8 @@ pub const PULL_WHY_NAMES: [&str; 17] = [
     "nest store",
     "walk in to lay",
     "store sent out",
+    "food in",
+    "food out",
 ];
 
 impl Default for DecisionScratch {
@@ -13255,7 +13261,7 @@ fn foot_field(world: &World, way: &NestWay, seeds: &[(i32, i32)], k: u16) -> Vec
 pub fn step_nest_rest(world: &mut World) {
     let mound = mound_out_of(world) != MoundOut::OFF;
     let escape = needs_first_of(world).ways();
-    let read = nest_rest_of(world).on() || hungry_out_of(world) || soil_way_of(world) != SoilWay::OFF || mound || escape || nest_store_of(world).on() || lay_in_of(world) || store_read_of(world).on || mound_in_of(world);
+    let read = nest_rest_of(world).on() || hungry_out_of(world) || soil_way_of(world) != SoilWay::OFF || mound || escape || nest_store_of(world).on() || lay_in_of(world) || store_read_of(world).on || mound_in_of(world) || food_in_of(world) != FoodIn::OFF;
     if !read || world.nest_sites.is_empty() {
         world.nest_ways.clear();
         world.mound_ways.clear();
@@ -13275,8 +13281,9 @@ pub fn step_nest_rest(world: &mut World) {
     } else {
         Vec::new()
     };
-    // The mound's ways in, for carriers ([`mound_in_of`]), likewise.
-    world.mound_in_ways = if mound_in_of(world) {
+    // The mound's ways in, for carriers ([`mound_in_of`]) and for hungry
+    // ants sent down by [`FoodIn`]'s `reach`, likewise.
+    world.mound_in_ways = if mound_in_of(world) || food_in_of(world).reach {
         (0..world.nest_sites.len()).filter_map(|i| build_mound_in_way(world, i)).collect()
     } else {
         Vec::new()
@@ -14965,6 +14972,160 @@ pub fn nest_store_of(world: &World) -> NestStore {
     })
 }
 
+/// **Carriers take trip food inside, to the store** (`PIXEL_PHYSICS_FOOD_IN=
+/// off|on|<parts>`, a comma list; [`World::food_in`] for one world; **off
+/// by default while it is measured**, built 2026-10-14).
+///
+/// - `bring`: **a trip's carrier walks past the door down to the store.**
+///   Within [`STORE_DOOR_REACH`] of its nest's way in, or on it, a carrier of
+///   trip food ([`food_in_carrier`]) is pulled down the store field
+///   ([`store_inward`], the nest workers' carry walk) instead of at
+///   [`home_target`]; it holds its crop until it arrives and then puts it
+///   down at [`HARVEST_DROP_P`], or where it stands after
+///   [`STORE_STUCK_TICKS`] still decisions, or as before below
+///   [`HARVEST_HUNGRY`] of its grant. Emptied, it walks back out along the
+///   way (`OrganismState::food_return`, [`food_return_target`]) -- without
+///   that, `harvest`'s first build kept 14 of 25 ants underground. The pull
+///   paces it as laden ([`pull_pace_target`]) and never loses patience
+///   (`leashed`), the two things the 2026-10-05 carry-in probe lacked.
+/// - `reach`: **a hungry ant on the mound walks down to eat at the store.**
+///   An empty ant under its grant on its nest's mound, while the store can
+///   feed ([`STORE_EAT_MIN`]), is marked (`OrganismState::food_seek`) and
+///   pulled down the mound's way in ([`build_mound_in_way`]) to the door,
+///   then down the store field, past `smell`; cleared once fed or once the
+///   store cannot feed it.
+///
+/// **Why** (the New ant lane's mound trace, 2026-10-14,
+/// `/mnt/project-files/new-vs-old/mound-2026-10-14/`; design and review in
+/// `/mnt/project-files/new-vs-old/food-inside-2026-10-14/`). A carrier's home
+/// is the door's top cell at the old ground line, which the spoil mound now
+/// stands 15-25 rows over: on main bb8a2151 (steady bed seed 2, 300-430k) 81%
+/// of trip food was put down on the mound, 3% in the dug nest and none in the
+/// store, and the colony lived where it was eaten. **The risk is on record**:
+/// `MOUND_IN` (2026-10-09) took carriers off the mound and the colony was
+/// smaller and boom-and-bust, and `pick=20` and the nurses' relay starved the
+/// door's eaters; `reach` is the part that is meant to bring them down too.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub struct FoodIn {
+    pub bring: bool,
+    pub reach: bool,
+}
+
+impl FoodIn {
+    pub const OFF: FoodIn = FoodIn { bring: false, reach: false };
+    pub const ON: FoodIn = FoodIn { bring: true, reach: true };
+
+    /// `off`, `on`, or a comma list of `bring` and `reach`. Panics on
+    /// anything else, so a typo is not a silent control arm.
+    pub fn parse(v: &str) -> FoodIn {
+        let mut f = FoodIn::OFF;
+        for part in v.split(',').map(str::trim).filter(|p| !p.is_empty()) {
+            match part {
+                "off" => f = FoodIn::OFF,
+                "on" => f = FoodIn::ON,
+                "bring" => f.bring = true,
+                "reach" => f.reach = true,
+                other => panic!("PIXEL_PHYSICS_FOOD_IN={v:?}: unknown part {other:?}; use off, on, bring, reach"),
+            }
+        }
+        f
+    }
+}
+
+/// This world's [`FoodIn`]: [`World::food_in`] if set, else the environment's.
+pub fn food_in_of(world: &World) -> FoodIn {
+    world.food_in.unwrap_or_else(|| {
+        static V: std::sync::OnceLock<FoodIn> = std::sync::OnceLock::new();
+        *V.get_or_init(|| std::env::var("PIXEL_PHYSICS_FOOD_IN").map_or(FoodIn::OFF, |v| FoodIn::parse(&v)))
+    })
+}
+
+/// **A carrier [`FoodIn`]'s `bring` takes down**: trip food in the crop
+/// (`trip_cells`), not a packed lunch, nothing in the jaws.
+fn food_in_carrier(world: &World, state: &crate::sim::organism::OrganismState) -> bool {
+    food_in_of(world).bring && state.spoil.is_none() && state.trip_cells > 0 && state.crop.is_some_and(|c| c.cells > 0 && c.worth() > 0.0) && !carries_lunch(world, state)
+}
+
+/// **Where `bring` sends a carrier**: `None` when it does not apply (not a
+/// carrier, or off its nest's way beyond [`STORE_DOOR_REACH`] of the door,
+/// where the ordinary walk home still leads); `Some(None)` on arrival, where
+/// it stands and puts down; `Some(Some(t))` on the way down.
+fn food_in_target(world: &World, organism: OrganismId, state: &crate::sim::organism::OrganismState, head: (i32, i32)) -> Option<Option<(i32, i32)>> {
+    if !food_in_carrier(world, state) {
+        return None;
+    }
+    if store_carry_arrived(world, organism, head) {
+        return Some(None);
+    }
+    store_inward(world, organism, head, STORE_DOOR_REACH, true).map(Some)
+}
+
+/// **Where an emptied `bring` carrier walks back out**: along its nest's way
+/// towards the door ([`way_out_from`]) while `food_return` is set and it
+/// holds nothing. `None` otherwise, and once it is off the way or at the door.
+fn food_return_target(world: &World, organism: OrganismId, state: &crate::sim::organism::OrganismState, head: (i32, i32)) -> Option<(i32, i32)> {
+    if !state.food_return || state.spoil.is_some() || state.crop.is_some_and(|c| c.worth() > 0.0) || !food_in_of(world).bring {
+        return None;
+    }
+    way_out_from(world, organism, head)
+}
+
+/// **On its nest's mound**, for `reach`: in the mound ([`in_mound`]: over
+/// the founding surface, within [`MOUND_DIG_REACH`] of the site) and on the
+/// mound's way in ([`build_mound_in_way`]). The way alone is not the mound:
+/// its box runs [`REST_REACH_X`] either side over flat ground too, and the
+/// first test marked a hungry ant 40 columns off on bare ground -- on the
+/// steady bed that is the food spot's own side, where a hungry ant is
+/// meant to eat, not be walked home.
+fn on_own_mound(world: &World, (x, y): (i32, i32)) -> bool {
+    in_mound(world, (x, y)) && world.nearest_nest_site(x, y).and_then(|s| world.mound_in_ways.iter().find(|w| w.site == s)).is_some_and(|w| w.at(x, y).is_some_and(|d| d > 0))
+}
+
+/// **Whether `reach` marks this ant** (`food_seek`): hungry, empty, the
+/// nest's store able to feed it, and -- to be marked -- on its mound. A
+/// marked ant stays marked off the mound until fed or the store runs short.
+fn food_seek_wanted(world: &World, def: &CreatureDef, state: &crate::sim::organism::OrganismState, head: (i32, i32)) -> bool {
+    if !food_in_of(world).reach || !nest_store_of(world).eat || state.spoil.is_some() || state.crop.is_some_and(|c| c.worth() > 0.0) || state.energy >= def.start_energy {
+        return false;
+    }
+    let Some(site) = world.nearest_nest_site(head.0, head.1) else { return false };
+    if !world.nest_ways.iter().find(|w| w.site == site).is_some_and(store_can_feed) {
+        return false;
+    }
+    state.food_seek || on_own_mound(world, head)
+}
+
+/// **Where `reach` pulls a marked ant**: down the mound's way in towards the
+/// door while on the mound, then down the store field on the nest's way,
+/// past `smell`. `None` on arrival, off both ways, or unmarked.
+fn food_seek_target(world: &World, organism: OrganismId, state: &crate::sim::organism::OrganismState, head: (i32, i32)) -> Option<(i32, i32)> {
+    if !state.food_seek || !food_in_of(world).reach {
+        return None;
+    }
+    let site = world.nearest_nest_site(head.0, head.1)?;
+    if world.nest_ways.iter().find(|w| w.site == site).is_some_and(|w| w.at(head.0, head.1).is_some()) {
+        return store_inward(world, organism, head, STORE_DOOR_REACH, true);
+    }
+    let way = world.mound_in_ways.iter().find(|w| w.site == site)?;
+    step_out_way(way, head).or_else(|| store_inward(world, organism, head, STORE_DOOR_REACH, true))
+}
+
+/// **Update `food_return` and `food_seek`** after a decision ([`FoodIn`]):
+/// the walk out ends off the way; the seek starts on the mound and ends fed.
+fn update_food_in(world: &mut World, organism: OrganismId, def: &CreatureDef, head: (i32, i32)) {
+    let f = food_in_of(world);
+    if f == FoodIn::OFF {
+        return;
+    }
+    let Some(state) = world.organism(organism) else { return };
+    let ret = state.food_return && food_return_target(world, organism, state, head).is_some();
+    let seek = food_seek_wanted(world, def, state, head);
+    if let Some(s) = world.organism_mut(organism) {
+        s.food_return = ret;
+        s.food_seek = seek;
+    }
+}
+
 /// **Store food**: loose (owned by no organism), worth eating, and not a
 /// corpse. Corpses are food by value, and the first build counted them:
 /// ants that starved at a small store left corpses there, the corpses kept
@@ -15509,6 +15670,11 @@ fn nest_store_pull(world: &World, organism: OrganismId, def: &CreatureDef, head:
     if state.crop.is_some_and(|c| c.worth() > 0.0) {
         return None;
     }
+    // **A hungry ant sent down from the mound** ([`FoodIn`]'s `reach`), past
+    // `smell`, until it arrives.
+    if let Some(t) = food_seek_target(world, organism, state, head) {
+        return Some((t, def.home_bias, StorePull::Eat));
+    }
     // **Under [`StoreRead`] the hungry go to the store to find out**: at any
     // depth and however little it holds, while the place is known -- unless
     // their own reading already sends them out.
@@ -15581,6 +15747,14 @@ fn store_carry_arrived(world: &World, organism: OrganismId, head: (i32, i32)) ->
 /// the caller falls back to [`spoil_pace_target`] and then `home_target` as
 /// before.
 fn pull_pace_target(world: &World, organism: OrganismId, def: &CreatureDef, state: &crate::sim::organism::OrganismState, head: (i32, i32)) -> Option<(i32, i32)> {
+    // A [`FoodIn`] carrier inside walks at the laden pace to where its pull
+    // aims, or it reads "standing on home" and steps one decision in nine.
+    if let Some(Some(t)) = food_in_target(world, organism, state, head) {
+        return Some(t);
+    }
+    if let Some(t) = food_return_target(world, organism, state, head) {
+        return Some(t);
+    }
     if nest_store_of(world).carry && state.spoil.is_some_and(|s| s.store) {
         return store_inward(world, organism, head, i32::MAX, true);
     }
@@ -20376,12 +20550,32 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
             if meal_held {
                 world.creature_stats.meal_holds += 1;
             }
+            // **A [`FoodIn`] carrier holds its crop from the door down**
+            // (`bring`), as `harvest` holds for the storeroom: `Some((true,
+            // escape))` puts down, on arrival at the store or, `escape`, after
+            // standing still [`STORE_STUCK_TICKS`] decisions; `Some((false, _))`
+            // holds; `None` is the shipped drop -- outside the door's reach,
+            // and below [`HARVEST_HUNGRY`] of its grant.
+            let bring = if steered {
+                None
+            } else {
+                world.organism(organism).filter(|s| s.energy >= def.start_energy * HARVEST_HUNGRY).and_then(|s| match food_in_target(world, organism, s, (x, y)) {
+                    Some(None) => Some((true, false)),
+                    Some(Some(_)) if s.still_ticks >= STORE_STUCK_TICKS => Some((true, true)),
+                    Some(Some(_)) => Some((false, false)),
+                    None => None,
+                })
+            };
             let p = match harvest {
                 _ if steered => drop_urge,
                 Some(HarvestDrop::Hold) => 0.0,
                 Some(HarvestDrop::Store(_)) => HARVEST_DROP_P,
                 None if crop_held || nurse_held || meal_held => 0.0,
-                None => drop_urge,
+                None => match bring {
+                    Some((true, _)) => HARVEST_DROP_P,
+                    Some((false, _)) => 0.0,
+                    None => drop_urge,
+                },
             };
             // The same single draw as before, bound to a name so the trace can
             // report it. **The roll is spent before the search for an empty
@@ -20505,6 +20699,18 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
                 world.creature_stats.drops += 1;
                 let put = food_value(world, world.get(dx, dy));
                 note_food(world, organism, (dx, dy), FOOD_DROP, put, trip_cell);
+                // **Emptied of its trip, the carrier walks back out**
+                // ([`food_return_target`]).
+                if let Some((true, escape)) = bring {
+                    if escape {
+                        world.creature_stats.food_in_escapes += 1;
+                    } else {
+                        world.creature_stats.food_in_puts += 1;
+                    }
+                    if let Some(st) = world.organism_mut(organism) {
+                        st.food_return |= st.trip_cells == 0;
+                    }
+                }
                 if at_nest {
                     // Where this nest keeps its food (`NestSite::larder`).
                     // Written always and read only by `hungry_target`.
@@ -25865,6 +26071,10 @@ fn home_pull(world: &World, organism: OrganismId, def: &CreatureDef, head: (i32,
     if let Some(target) = store_target(world, state).or_else(|| harvest_target(world, state)).or_else(|| store_return_target(world, state)).filter(|_| def.home_bias > 0.0) {
         return Some((target, def.home_bias));
     }
+    // **An emptied carrier walks back out** ([`FoodIn`]'s `bring`).
+    if let Some(target) = food_return_target(world, organism, state, head).filter(|_| def.home_bias > 0.0) {
+        return Some((target, def.home_bias));
+    }
     // **An ant ready to lay walks home to lay** ([`ready_to_lay`]), as a
     // laden ant does, until it is beside the nest.
     if def.home_bias > 0.0 && ready_to_lay(world, def, state) && !nest_within_reach(world, organism, head.0, head.1, def) {
@@ -25938,6 +26148,13 @@ fn home_pull(world: &World, organism: OrganismId, def: &CreatureDef, head: (i32,
             if let Some(t) = mound_in_target(world, state, head) {
                 return Some((t, def.home_bias));
             }
+            // **Past the door, down to the store** ([`FoodIn`]'s `bring`,
+            // off): no pull once arrived, where it puts the crop down.
+            match food_in_target(world, organism, state, head) {
+                Some(Some(t)) => return Some((t, def.home_bias)),
+                Some(None) => return None,
+                None => {}
+            }
             Some((home_target(world, state), def.home_bias))
         }
     }
@@ -25961,6 +26178,9 @@ fn home_pull_why(world: &World, organism: OrganismId, def: &CreatureDef, head: (
             .or_else(|| store_return_target(world, state))
         {
             return (PULL_STORE, Some(t));
+        }
+        if let Some(t) = food_return_target(world, organism, state, head) {
+            return (PULL_FOOD_OUT, Some(t));
         }
         if ready_to_lay(world, def, state) && !nest_within_reach(world, organism, head.0, head.1, def) {
             return (PULL_LAY, Some(home_target(world, state)));
@@ -26006,6 +26226,13 @@ fn home_pull_why(world: &World, organism: OrganismId, def: &CreatureDef, head: (
     }
     if crop_down_unpulled(world, def, state, head) || nurse_unpulled(world, state, head) {
         return (PULL_NONE, None);
+    }
+    if nurse_in_target(world, state, head).is_none() && mound_in_target(world, state, head).is_none() {
+        match food_in_target(world, organism, state, head) {
+            Some(Some(t)) => return (PULL_FOOD_IN, Some(t)),
+            Some(None) => return (PULL_NONE, None),
+            None => {}
+        }
     }
     (
         PULL_LADEN,
@@ -26245,6 +26472,7 @@ fn chooser_step(
     if hungry_mode != HungryHome::Off {
         update_hungry_home(world, organism, def, (hx, hy), hungry_mode);
     }
+    update_food_in(world, organism, def, (hx, hy));
     // **Back up from the storeroom** ([`store_return_target`]): the trip ends
     // with the head above the mouth.
     if world.organism(organism).is_some_and(|s| s.store_return) && store_return_target(world, world.organism(organism).expect("read above")).is_none() {
@@ -26351,8 +26579,24 @@ fn chooser_step(
     // of 5-28 were underground.
     let mound_in = pulled_home && world.organism(organism).is_some_and(|s| nurse_in_target(world, s, (hx, hy)).is_none() && mound_in_target(world, s, (hx, hy)).is_some());
     world.creature_stats.mound_in_pulls += u64::from(mound_in);
+    // A [`FoodIn`] carrier going down, or walking back out, never gives up
+    // either: the 2026-10-05 carry-in probe's carriers let 78% of their loads
+    // go on the mound when patience ran out past the door.
+    let (fi_in, fi_out, fi_seek) = match world.organism(organism).filter(|_| pull.is_some() && food_in_of(world) != FoodIn::OFF) {
+        Some(s) => (
+            matches!(food_in_target(world, organism, s, (hx, hy)), Some(Some(_))),
+            food_return_target(world, organism, s, (hx, hy)).is_some(),
+            food_seek_target(world, organism, s, (hx, hy)).is_some(),
+        ),
+        None => (false, false, false),
+    };
+    world.creature_stats.food_in_pulls += u64::from(fi_in);
+    world.creature_stats.food_out_pulls += u64::from(fi_out);
+    world.creature_stats.food_seek_pulls += u64::from(fi_seek);
+    let food_in = fi_in || fi_out;
     let leashed = store_pull.is_some()
         || mound_in
+        || food_in
         || (nest_leash_deep() && pull.is_some() && nest_leash_holds(world, organism, def))
         || (pull.is_some()
             && world
@@ -35388,6 +35632,159 @@ mod tests {
         let (w, a, def, head) = world(64, 47, NestStore::OFF, true);
         assert_eq!(nest_store_pull(&w, a, &def, head), None, "with the switch off the store pulled");
         assert!(w.nest_ways[0].store.is_empty(), "with the switch off a store field was built");
+    }
+
+    /// **[`FoodIn`] parses its parts**, and a typo panics rather than
+    /// reading as a silent control arm.
+    #[test]
+    fn food_in_parses_its_parts_and_refuses_the_rest() {
+        assert_eq!(FoodIn::parse("off"), FoodIn::OFF);
+        assert_eq!(FoodIn::parse(""), FoodIn::OFF);
+        assert_eq!(FoodIn::parse("on"), FoodIn::ON);
+        assert_eq!(FoodIn::parse("bring"), FoodIn { bring: true, reach: false });
+        assert_eq!(FoodIn::parse("reach"), FoodIn { bring: false, reach: true });
+        assert_eq!(FoodIn::parse(" bring , reach "), FoodIn::ON);
+        assert!(std::panic::catch_unwind(|| FoodIn::parse("brings")).is_err());
+    }
+
+    /// **Under [`FoodIn`]'s `bring` a carrier walks its crop down to the
+    /// store, puts it down there, and walks back out.** The store is eight
+    /// fruit on the gallery floor past `depth=10`, as the store test's. A
+    /// carrier of trip food in the chamber is pulled nearer the store by the
+    /// store field; beside it, it has arrived (`Some(None)`, where `act`
+    /// puts down); a packed lunch, and the switch off, are not pulled. Once
+    /// emptied with `food_return` set it is pulled out along the way, and
+    /// [`update_food_in`] clears the flag once it is off the way. Watched red
+    /// with `to_store` false in [`food_in_target`] (the pull ran past the
+    /// store, deeper) and with [`food_return_target`] returning `None`.
+    #[test]
+    fn under_food_in_bring_a_carrier_takes_its_crop_to_the_store_and_walks_back_out() {
+        let fruit = |w: &World| w.materials.id_of("fruit").expect("fruit");
+        let world = |x: i32, y: i32, fi: FoodIn| {
+            let (mut w, a) = rest_world(x, y, false);
+            w.nest_store = Some(NestStore { depth: 10, ..NestStore::ON });
+            w.food_in = Some(fi);
+            let f = fruit(&w);
+            for x in 72..=79 {
+                w.set(x, 48, Cell::new(f, 0));
+            }
+            w.nest_ways.clear();
+            step_nest_rest(&mut w);
+            let def = w.species.get(w.organism(a).expect("live").species).creature.clone().expect("a creature");
+            let st = w.organism_mut(a).expect("live");
+            st.crop = Some(Crop { material: f, cells: 2, digesting: 0.0, unit: 960.0, shade: 0, passenger: None });
+            st.trip_cells = 2;
+            st.spoil = None;
+            st.lunch = false;
+            let head = w.organism(a).expect("live").chain[0];
+            (w, a, def, head)
+        };
+        let bring = FoodIn { bring: true, reach: false };
+        let (w, a, def, head) = world(64, 47, bring);
+        assert!(store_can_feed(&w.nest_ways[0]), "test setup: the fruit on row 48 is not the store");
+        let st = w.organism(a).expect("live");
+        let Some(Some((tx, ty))) = food_in_target(&w, a, st, head) else { panic!("a carrier in the chamber was not pulled to the store: {:?}", food_in_target(&w, a, st, head)) };
+        let way = &w.nest_ways[0];
+        assert!(way.store_at(tx, ty) < way.store_at(head.0, head.1) && tx > head.0, "the pull at ({tx}, {ty}) is not nearer the store than the carrier at {head:?}");
+        assert_eq!(home_pull_why(&w, a, &def, head).0, PULL_FOOD_IN, "the walk-why does not name the pull");
+
+        let (w, a, _, head) = world(77, 47, bring);
+        assert_eq!(food_in_target(&w, a, w.organism(a).expect("live"), head), Some(None), "a carrier beside the store has not arrived");
+
+        let (mut w, a, _, head) = world(64, 47, bring);
+        w.packed_lunch = Some(true);
+        w.organism_mut(a).expect("live").lunch = true;
+        assert_eq!(food_in_target(&w, a, w.organism(a).expect("live"), head), None, "a packed lunch was taken to the store");
+
+        let (w, a, _, head) = world(64, 47, FoodIn::OFF);
+        assert_eq!(food_in_target(&w, a, w.organism(a).expect("live"), head), None, "with the switch off the carrier was pulled");
+
+        let (mut w, a, def, head) = world(70, 47, bring);
+        let st = w.organism_mut(a).expect("live");
+        st.crop = None;
+        st.trip_cells = 0;
+        st.food_return = true;
+        let st = w.organism(a).expect("live");
+        let (ox, oy) = food_return_target(&w, a, st, head).expect("an emptied carrier was not walked out");
+        let way = &w.nest_ways[0];
+        assert!(way.foot_at(ox, oy) < way.foot_at(head.0, head.1), "the walk out at ({ox}, {oy}) is not nearer the door than {head:?}");
+        update_food_in(&mut w, a, &def, head);
+        assert!(w.organism(a).expect("live").food_return, "the walk out ended on the way");
+        update_food_in(&mut w, a, &def, (30, 38));
+        assert!(!w.organism(a).expect("live").food_return, "the walk out did not end off the way");
+        w.food_in = Some(FoodIn::OFF);
+        w.organism_mut(a).expect("live").food_return = true;
+        assert_eq!(food_return_target(&w, a, w.organism(a).expect("live"), head), None, "with the switch off the ant was walked out");
+    }
+
+    /// **Under [`FoodIn`]'s `reach` a hungry ant on its mound is marked and
+    /// walked down to the store.** A heap of soil west of the door stands
+    /// over the founding ground. A hungry, empty ant on it is marked
+    /// (`food_seek`) and pulled down the mound's way towards the door; marked,
+    /// in the chamber, it is pulled on down the store field (past `smell`,
+    /// which the shipped store's own eat pull keeps to 10 steps); fed, it is
+    /// unmarked. Not marked: fed on the mound, hungry on open ground off the
+    /// mound's way, or with the store empty. Watched red with the mound test
+    /// in [`food_seek_wanted`] removed (the far ant was marked).
+    #[test]
+    fn under_food_in_reach_a_hungry_ant_on_the_mound_is_walked_down_to_the_store() {
+        let world = |x: i32, y: i32, fi: FoodIn, food: bool| {
+            let (mut w, a) = rest_world(x, y, false);
+            w.nest_store = Some(NestStore { depth: 10, smell: 10, ..NestStore::ON });
+            w.food_in = Some(fi);
+            let soil = w.materials.id_of("soil").expect("soil");
+            for x in 48..=57 {
+                for y in (38 - (57 - x).min(4))..=39 {
+                    w.set(x, y, Cell::new(soil, 0));
+                }
+            }
+            if food {
+                let f = w.materials.id_of("fruit").expect("fruit");
+                for x in 72..=79 {
+                    w.set(x, 48, Cell::new(f, 0));
+                }
+            }
+            w.nest_ways.clear();
+            step_nest_rest(&mut w);
+            let def = w.species.get(w.organism(a).expect("live").species).creature.clone().expect("a creature");
+            w.organism_mut(a).expect("live").energy = 0.3 * def.start_energy;
+            let head = w.organism(a).expect("live").chain[0];
+            (w, a, def, head)
+        };
+        let reach = FoodIn::ON;
+        let (mut w, a, def, head) = world(54, 33, reach, true);
+        assert!(on_own_mound(&w, head), "test setup: the ant at {head:?} is not on the mound's way; surface {}", w.nest_sites[0].surface);
+        update_food_in(&mut w, a, &def, head);
+        let st = w.organism(a).expect("live");
+        assert!(st.food_seek, "a hungry ant on the mound was not marked");
+        let (tx, ty) = food_seek_target(&w, a, st, head).expect("a marked ant on the mound was not pulled");
+        let mound = w.mound_in_ways.iter().find(|m| m.site == 0).expect("the mound's way");
+        assert!(mound.at(tx, ty) < mound.at(head.0, head.1), "the pull at ({tx}, {ty}) is not nearer the door than {head:?}");
+
+        let (mut w, a, def, head) = world(57, 47, reach, true);
+        w.organism_mut(a).expect("live").food_seek = true;
+        assert!(w.nest_ways[0].store_at(head.0, head.1).is_some_and(|s| s > 10), "test setup: the ant at {head:?} is inside `smell`");
+        assert_eq!(nest_store_pull(&w, a, &def, head).map(|p| p.2), Some(StorePull::Eat), "a marked ant past `smell` was not pulled to the store");
+        w.organism_mut(a).expect("live").food_seek = false;
+        assert_eq!(nest_store_pull(&w, a, &def, head), None, "test setup: `smell` does not hold the unmarked ant");
+        w.organism_mut(a).expect("live").food_seek = true;
+        w.organism_mut(a).expect("live").energy = def.start_energy;
+        update_food_in(&mut w, a, &def, head);
+        assert!(!w.organism(a).expect("live").food_seek, "a fed ant stayed marked");
+
+        let (mut w, a, def, head) = world(54, 33, reach, true);
+        w.organism_mut(a).expect("live").energy = def.start_energy;
+        update_food_in(&mut w, a, &def, head);
+        assert!(!w.organism(a).expect("live").food_seek, "a fed ant on the mound was marked");
+        let (mut w, a, def, _) = world(10, 39, reach, true);
+        update_food_in(&mut w, a, &def, (10, 39));
+        assert!(!w.organism(a).expect("live").food_seek, "a hungry ant far off the mound was marked");
+        let (mut w, a, def, head) = world(54, 33, reach, false);
+        update_food_in(&mut w, a, &def, head);
+        assert!(!w.organism(a).expect("live").food_seek, "with the store empty a hungry ant was marked");
+        let (mut w, a, def, head) = world(54, 33, FoodIn::OFF, true);
+        update_food_in(&mut w, a, &def, head);
+        assert!(!w.organism(a).expect("live").food_seek, "with the switch off a hungry ant was marked");
     }
 
     /// **Under `edible` the store holds only food the colony's mouth can

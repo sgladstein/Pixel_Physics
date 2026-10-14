@@ -6364,6 +6364,17 @@ pub struct OrganismState {
     /// from home** (`creature::storeroom_of`'s `once`): set by a store
     /// pick-up, cleared by a pick-up away from home.
     pub store_carried: bool,
+    /// **Walking back out after putting trip food down in the store**
+    /// (`creature::FoodIn`'s `bring`): set by the put-down that empties the
+    /// crop's trip cells there, cleared once the head is off the nest's way
+    /// in. While set, and while it holds nothing, it is pulled out along the
+    /// way (`creature::home_pull`).
+    pub food_return: bool,
+    /// **Sent down to the store from the mound** (`creature::FoodIn`'s
+    /// `reach`): set when the reach pull fires for a hungry ant on its
+    /// nest's mound, cleared once it is fed, carries anything, or the store
+    /// cannot feed it. While set, the store's eat pull ignores `smell`.
+    pub food_seek: bool,
     /// **The cell its last pellet was cut from**, under
     /// `PIXEL_PHYSICS_SPOIL_OUT`'s `back` part (`creature::SpoilOut`):
     /// set by every cut inside the nest (`creature::inside_nest`) and cleared
