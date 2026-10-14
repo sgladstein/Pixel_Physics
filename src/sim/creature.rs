@@ -220,6 +220,10 @@ const RNG_SLOT_DIG_WIDEN: u64 = 11;
 /// cell (`x`, `y` in the stream's two keys), so a refused cell stays refused.
 const RNG_SLOT_SHAFT_ROOMS: u64 = 12;
 
+/// [`DigCompany`]'s `q` draw: whether a lone ant's cut is refused this roll.
+/// A slot of its own so the switch moves no other draw.
+const RNG_SLOT_DIG_COMPANY: u64 = 13;
+
 /// **The cap `grow_body` walks a `Segmented` body's `FateGenome` to.** With
 /// laterals that is at most 16 cells; both shipped bodies land at 7-8, well
 /// under it, and the cap exists only to bound a mutated genome that never
@@ -651,8 +655,10 @@ pub enum DigWhy {
     Face = 7,
     /// The roll won and [`ShaftRooms`] refused the cut.
     ShaftRoom = 8,
+    /// The roll won and [`DigCompany`] refused it: a lone ant at a home wall.
+    Company = 9,
 }
-pub const DIG_WHYS: usize = 9;
+pub const DIG_WHYS: usize = 10;
 pub const DIG_WHY_NAMES: [&str; DIG_WHYS] = [
     "not_asked",
     "lean",
@@ -663,6 +669,7 @@ pub const DIG_WHY_NAMES: [&str; DIG_WHYS] = [
     "cut",
     "face",
     "shaft_room",
+    "company",
 ];
 /// `DecisionScratch::dig_flags`: what turned or moved the target before it
 /// was judged.
@@ -17531,6 +17538,173 @@ fn parse_shaft_rooms(raw: &str) -> Option<ShaftRooms> {
     Some(v)
 }
 
+/// **`PIXEL_PHYSICS_DIG_COMPANY`: a home wall is cut only with company**
+/// (late tunnels, 2026-10-14, off; design and trace
+/// `/mnt/project-files/late-tunnels/gallery/design-dig-company-2026-10-14.md`,
+/// the owner's card "Build and test").
+///
+/// **Why.** The brood room's galleries are long straight corridors (median
+/// 24-63 body lengths against a few to ~20 in published casts) because
+/// nothing in the nest tells an ant to stop: at home every wall is cut at a
+/// flat chance of about 0.77 a won roll, alone or in a crowd (0.79 against
+/// 0.76 with three or more ants near), and [`ShaftRooms`] leaves a gallery
+/// only one way to grow, longer. It ends where home ends, at
+/// [`DUG_HOME_REACH`]'s 60 columns, a bound on the fill's work and not a
+/// rule about nests. Traced on `steady_income`, 600k, 4 seeds: home wall
+/// cuts with no other ant within 3 cells are 70-77% outside the brood box
+/// and 9-15% inside it, and open nest per ant rises 1.5 -> 9-10 cells with a
+/// flat colony. In the lab, chambers form where workers gather (according
+/// to PubMed: Römer & Roces 2014, doi 10.1371/journal.pone.0097872) and
+/// digging stops at an area threshold (Toffin et al. 2010, doi
+/// 10.1098/rspb.2010.0176).
+///
+/// **The rule.** A dig roll won, and passed by every veto above, on a wall
+/// below the old ground line while the digger is at home: count the other
+/// animals with a body cell within `r` cells (Chebyshev) of the target. If
+/// fewer than `k`, the cut is refused with chance `q` per mille. A refusal is
+/// a roll lost, no turn and no new behaviour. Local: an ant feels nestmates
+/// touching it at the face; it reads no map.
+///
+/// **Exempt**, so a colony can still found, go down and get out: a nest whose
+/// dug home is under `dug` cells (the queen and the first workers dig
+/// alone); an ant shut in ([`NeedsFirst`]'s escape); and a shaft cell, a cut
+/// that leaves its row's open run one or two wide ([`shaft_room_refuses`]'s
+/// own test), so the nest still descends.
+///
+/// **Prior art, and why this is a re-test, not a repeat.** `(Crowding, Dig)`
+/// (withdrawn 2026-09-02) and `CROWDING_LOCAL` (2026-09-19/20, re-run
+/// 2026-10-13 with the room on) moved a brain weight that reads a wider
+/// density on top of a high floor: under `CROWDING_LOCAL` the chance falls to
+/// about 0.25 but stays 0.24 alone against 0.29 crowded, wall cuts do not
+/// fall and galleries are as long. This rule is a near-zero rate for an ant
+/// alone at the face, where the measured contrast is (`Reports/dead-ends.md`).
+///
+/// Parts: `on` is `r=3,k=1,q=1000,dug=100`; a comma list of `r=`, `k=`,
+/// `q=` (per mille), `dug=`, and `rand=` (per mille, the control) starts
+/// from `on`. Unset or `off`: no read, no
+/// draw, bit-identical.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct DigCompany {
+    pub r: i32,
+    pub k: u32,
+    pub q: u32,
+    pub dug: usize,
+    /// 0: the rule. Otherwise the control: company is not read, and this
+    /// many in a thousand of the same cuts are refused, keyed on the cell
+    /// (a refused cell stays refused, so a re-roll cannot leak through),
+    /// with the same exemptions. Set to the rule's measured refused share,
+    /// it asks whether *who* digs matters or only *how much*.
+    pub rand: u32,
+}
+
+pub const DIG_COMPANY_ON: DigCompany = DigCompany { r: 3, k: 1, q: 1000, dug: 100, rand: 0 };
+
+pub fn dig_company_of() -> Option<DigCompany> {
+    static V: std::sync::OnceLock<Option<DigCompany>> = std::sync::OnceLock::new();
+    *V.get_or_init(|| parse_dig_company(&std::env::var("PIXEL_PHYSICS_DIG_COMPANY").unwrap_or_default()))
+}
+
+fn parse_dig_company(raw: &str) -> Option<DigCompany> {
+    let raw = raw.trim();
+    if raw.is_empty() || raw == "off" {
+        return None;
+    }
+    if raw == "on" {
+        return Some(DIG_COMPANY_ON);
+    }
+    let bad = || -> ! { panic!("PIXEL_PHYSICS_DIG_COMPANY={raw:?}: use off, on, or a list of r=N, k=N, q=<per mille>, dug=N, rand=<per mille>") };
+    let mut v = DIG_COMPANY_ON;
+    for part in raw.split(',').map(str::trim) {
+        match part.split_once('=') {
+            Some(("r", n)) => v.r = n.parse().ok().filter(|n: &i32| (1..=8).contains(n)).unwrap_or_else(|| bad()),
+            Some(("k", n)) => v.k = n.parse().ok().filter(|n: &u32| *n >= 1).unwrap_or_else(|| bad()),
+            Some(("q", n)) => v.q = n.parse().ok().filter(|n: &u32| *n <= 1000).unwrap_or_else(|| bad()),
+            Some(("dug", n)) => v.dug = n.parse().unwrap_or_else(|_| bad()),
+            Some(("rand", n)) => v.rand = n.parse().ok().filter(|n: &u32| (1..=1000).contains(n)).unwrap_or_else(|| bad()),
+            _ => bad(),
+        }
+    }
+    Some(v)
+}
+
+/// **Other animals with a body cell within `r` of `(tx, ty)`**, stopping at
+/// `k` ([`DigCompany`]): at most (2r+1)^2 reads, 49 at the shipped `r`.
+fn company_at(world: &World, me: OrganismId, (tx, ty): (i32, i32), r: i32, k: u32) -> u32 {
+    let mut seen: [OrganismId; 8] = [0; 8];
+    let mut n = 0u32;
+    for dy in -r..=r {
+        for dx in -r..=r {
+            let (x, y) = (tx + dx, ty + dy);
+            if !world.in_bounds(x, y) {
+                continue;
+            }
+            let c = world.get(x, y);
+            let id = c.organism_id();
+            if id == 0 || id == me || world.materials.kind(c.material) != MaterialKind::Creature {
+                continue;
+            }
+            if seen[..(n as usize).min(8)].contains(&id) {
+                continue;
+            }
+            if (n as usize) < 8 {
+                seen[n as usize] = id;
+            }
+            n += 1;
+            if n >= k {
+                return n;
+            }
+        }
+    }
+    n
+}
+
+/// Why [`DigCompany`] let a lone ant's cut through, or refused it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CompanyWhy {
+    Refused,
+    /// Company at the face: the cut goes ahead (counted, so the refused
+    /// share is known).
+    Kept,
+    Founding,
+    Escaping,
+    Shaft,
+}
+
+/// **[`DigCompany`]'s verdict** on a cut every other veto let through, with
+/// the digger at `(x, y)` and the target `t`. `None`: the rule does not
+/// apply (off, not a wall below the ground line at home, or company there).
+fn dig_company_verdict(world: &World, def: &CreatureDef, organism: OrganismId, (x, y): (i32, i32), (tx, ty): (i32, i32), escaping: bool) -> Option<CompanyWhy> {
+    let rule = dig_company_of()?;
+    let site = world.nest_sites.get(world.nearest_nest_site(tx, ty)?)?;
+    if ty <= site.surface || !nest_within_reach(world, organism, x, y, def) {
+        return None;
+    }
+    if rule.rand == 0 && company_at(world, organism, (tx, ty), rule.r, rule.k) >= rule.k {
+        return Some(CompanyWhy::Kept);
+    }
+    if world.nest_dug.len() < rule.dug {
+        return Some(CompanyWhy::Founding);
+    }
+    if escaping {
+        return Some(CompanyWhy::Escaping);
+    }
+    // The room rule's shaft test: the target's row run, the target counted
+    // open, one or two wide.
+    let open = |cx: i32| cx == tx || shaft_open(world, cx, ty);
+    let side = |dx: i32| (1..=2).take_while(|k| open(tx + dx * k)).count() as i32;
+    if side(-1) + side(1) + 1 < 3 {
+        return Some(CompanyWhy::Shaft);
+    }
+    if rule.rand > 0 {
+        let draw = rng::stream(world.seed, tx as u64, ty as u64, RNG_SLOT_DIG_COMPANY).unit_f32();
+        return if draw * 1000.0 < rule.rand as f32 { Some(CompanyWhy::Refused) } else { Some(CompanyWhy::Kept) };
+    }
+    if rule.q < 1000 && rng::stream(world.seed, organism as u64, world.frame, RNG_SLOT_DIG_COMPANY).unit_f32() * 1000.0 >= rule.q as f32 {
+        return None;
+    }
+    Some(CompanyWhy::Refused)
+}
+
 /// Why [`shaft_room_refuses`] refused a cut.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ShaftWhy {
@@ -21103,9 +21277,28 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
         } else if !steered && !cue_vetoed && !face_refused && !roof_refused && shaft_top_let(world, (tx, ty)) && jaw_can_cut(world, def, organism, target) {
             world.creature_stats.shaft_top_let += 1;
         }
+        // **[`DigCompany`]**: a lone ant at a home wall does not cut. Judged
+        // last, where every veto above let the cut through, on a cell the jaw
+        // can take. Off, no read.
+        let company = if !steered && !cue_vetoed && !face_refused && !roof_refused && !shaft_refused && dig_company_of().is_some() && jaw_can_cut(world, def, organism, target) {
+            dig_company_verdict(world, def, organism, (x, y), (tx, ty), escaping)
+        } else {
+            None
+        };
+        if let Some(why) = company {
+            let c = &mut world.creature_stats;
+            match why {
+                CompanyWhy::Refused => c.company_refused += 1,
+                CompanyWhy::Kept => c.company_kept += 1,
+                CompanyWhy::Founding => c.company_founding += 1,
+                CompanyWhy::Escaping => c.company_escaped += 1,
+                CompanyWhy::Shaft => c.company_shaft += 1,
+            }
+        }
+        let company_refused = company == Some(CompanyWhy::Refused);
         // The pressed verb is the verb (`steer`): no colony refusal stands
         // between the player and the cell she faces; the jaw test still does.
-        let vetoed = !steered && (cue_vetoed || face_refused || roof_refused || shaft_refused);
+        let vetoed = !steered && (cue_vetoed || face_refused || roof_refused || shaft_refused || company_refused);
         // **What the jaw can take is [`jaw_can_cut`]**, one test shared with
         // the dig-down turn above so the two cannot drift apart; the argument
         // for each of its terms is there. A live seed is still counted here,
@@ -21126,6 +21319,8 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
                 DigWhy::Roof
             } else if shaft_refused {
                 DigWhy::ShaftRoom
+            } else if company_refused {
+                DigWhy::Company
             } else {
                 DigWhy::Cut
             };
@@ -33852,7 +34047,36 @@ mod tests {
     /// stepping down a row a column passes as an inclined shaft, and the
     /// random control refuses a fixed share of cells for good. The parse
     /// refuses a typo.
+        /// **[`DigCompany`] reads its parts, and counts company at the face.**
+    /// The count is the whole local sense: another animal with a body cell
+    /// within `r` of the target is company, the digger itself is not, and
+    /// one farther than `r` is not. The far ant is the positive control: a
+    /// count that read the whole world would see it.
     #[test]
+    fn dig_company_counts_only_the_others_at_the_face() {
+        assert_eq!(parse_dig_company(""), None, "unset is off");
+        assert_eq!(parse_dig_company("off"), None);
+        assert_eq!(parse_dig_company("on"), Some(DIG_COMPANY_ON));
+        assert_eq!(parse_dig_company("q=900"), Some(DigCompany { q: 900, ..DIG_COMPANY_ON }), "a list starts from on");
+        assert_eq!(parse_dig_company("r=2,k=2,dug=0"), Some(DigCompany { r: 2, k: 2, q: 1000, dug: 0, rand: 0 }));
+        assert_eq!(parse_dig_company("rand=520"), Some(DigCompany { rand: 520, ..DIG_COMPANY_ON }));
+        for bad in ["yes", "r=0", "r=9", "k=0", "q=1001", "dug=x", "r", "rand=0", "rand=1001"] {
+            assert!(std::panic::catch_unwind(|| parse_dig_company(bad)).is_err(), "{bad:?} must panic");
+        }
+        let mut w = founding_bed();
+        let me = spawn(&mut w, "ant", 40, 30);
+        let face = (42, 30);
+        assert_eq!(company_at(&w, me, face, 3, 1), 0, "alone: the digger is not its own company");
+        let far = spawn(&mut w, "ant", 70, 30);
+        assert_eq!(company_at(&w, me, face, 3, 1), 0, "an ant 28 columns away is not at the face");
+        let near = spawn(&mut w, "ant", 45, 30);
+        assert_ne!(near, far);
+        assert_eq!(company_at(&w, me, face, 3, 1), 1, "an ant within 3 of the face is company");
+        assert_eq!(company_at(&w, me, face, 3, 2), 1, "and only one");
+        assert_eq!(company_at(&w, me, face, 1, 1), 0, "but not within 1");
+    }
+
+#[test]
     fn shaft_rooms_cap_a_room_and_leave_the_shaft_alone() {
         assert_eq!(parse_shaft_rooms(""), Some(SHAFT_ROOMS_SHIPPED), "unset is the shipped rule");
         assert_eq!(parse_shaft_rooms("on"), Some(SHAFT_ROOMS_SHIPPED));

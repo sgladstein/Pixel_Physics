@@ -3067,6 +3067,14 @@ pub struct CreatureStats {
     /// `SHAFT_ROOMS` `floor`: cuts refused in the row under the box.
     pub shaft_floor: u64,
     pub shaft_cut: u64,
+    /// `PIXEL_PHYSICS_DIG_COMPANY` (`creature::DigCompany`): lone ants' home
+    /// wall cuts refused, and those let through as founding, shut in, or a
+    /// shaft cell.
+    pub company_refused: u64,
+    pub company_kept: u64,
+    pub company_founding: u64,
+    pub company_escaped: u64,
+    pub company_shaft: u64,
     /// Steps an idle nurse took scoring the pull of hungry larvae
     /// (`brood::larva_scent`, `PIXEL_PHYSICS_NURSE_SEEK`).
     pub nurse_seeks: u64,
