@@ -445,16 +445,18 @@ dead end, the brood room and the store) read the same where an ant stands.
 That is why every concession in §3.3 is a *which-place-is-which* signal.
 
 **This is mostly not about the world being 2D.** A real ant farm is 2D, and
-ants dig good nests in it, because moist sand has cohesion. One part of it is
-about the side view, though. The surface is a single line, and the nest
-meets the world through it, which limits alternative routes and makes one
-door the natural outcome. The record already lists the side view's cost:
-*"foraging is natively top-down, so double-bridge scenarios are harder to
-stage"* (`dead-ends.md`, the `double_bridge` entries). It holds a roof, fails
-gradually and records where the last cut was. A falling-sand cellular
+ants dig good nests in it, because moist sand has cohesion. It holds a roof,
+fails gradually and records where the last cut was. A falling-sand cellular
 automaton is defined by *not* doing that. The engine's chosen substrate is
 excellent for destruction and poor for construction, and nests are
 construction.
+
+**One part of it is about the side view, though.** The surface is a single
+line, and the nest meets the world through it. That limits alternative
+routes and makes one door the natural outcome. The record already lists the
+side view's cost: *"foraging is natively top-down, so double-bridge
+scenarios are harder to stage"* (`dead-ends.md`). Harder is not impossible:
+alternative routes have to be built from terrain (§10, recommendation 1).
 
 **Foraging was hard for related reasons** (inferred from the record, not
 re-measured). The world is a vertical slice with gravity. Ants climb walls and
@@ -962,23 +964,55 @@ supports, and none of them is built here.
 
 1. **Prove the substrate on a textbook result before building on it.** Use a
    minimal scene: a fixed number of ants, no energy, brood, breeding or
-   plants, and short runs judged by eye. Reproduce two classics with
+   plants, and short runs judged by eye. Reproduce three classics with
    *reactive* rules and no destinations:
    - termite chip-piling (pick up a chip when you bump one while empty, drop
      it when you bump one while carrying);
-   - Khuong-style pillars from marked pellets.
+   - Khuong-style pillars from marked pellets;
+   - **the double bridge, redesigned** (below).
 
-   **Not the double bridge.** It was tried, and it *"measured the terrain,
-   not the colony"*, because a side view gives a ground-dweller one route
-   (`dead-ends.md`, the `double_bridge` entries; `creature-direction.md`
-   §13c). The Khuong rule was *"declined before it was built"* because the
-   pellet marker did not survive the lining (`dead-ends.md`). That is the
-   point of running it on a medium that keeps the mark.
+   The Khuong rule was *"declined before it was built"* because the pellet
+   marker did not survive the lining (`dead-ends.md`). That is the point of
+   running it on a medium that keeps the mark.
 
-   If the engine cannot produce these, the fault is in the medium, and no
-   amount of rule-writing upstream will fix it. Each is days of work, not
-   weeks, and it tests cause 1 directly, with the colony's demography taken
-   out. **This sits against PLAN §2.3** (*"spend tokens only on the top
+   **The double bridge was tried, and it failed for fixable reasons.**
+   - **It was confounded.** In a side view the two routes have to be built
+     from terrain. `examples/ascii.rs`'s `double_bridge_scene` uses a wall
+     with a 6-cell tunnel through it against a 40-cell climb over it. An
+     August build "passed" (channel B 21.00 on the short route against 6.22
+     on the long one). But it *"measured the terrain, not the colony"*: the
+     ants' lateral steering was dead, so they used the one route a
+     ground-dweller could take. There was no control to tell the two apart
+     (`creature-direction.md` §13c). The assertion was demoted to a printed
+     note.
+   - **It was nearly empty.** After the one-colony fix of 2026-09-14, the
+     scene's honest count is 13 round trips a run (round 35's record), too
+     few for trails to compete.
+
+   **A version that can answer the question:**
+   - **A control:** the same scene with the food trail muted.
+     `trailfollow`'s `mute` arm already silences `EmitB` across births. If
+     the short route wins only with the trail on, that is path selection by
+     pheromone. If it wins either way, it is the terrain.
+   - **Mirrored layouts,** so the short route is on the left in half the runs
+     and on the right in the other half, and a direction bias cannot pass
+     for a choice.
+   - **Enough traffic first:** more ants or a shorter span, until round trips
+     are in the hundreds.
+   - **Above all, the equal-branch version:** two identical routes, such as
+     two equal tunnels. In Deneubourg's experiment a colony still settles on
+     one branch, by positive feedback on small early differences, and which
+     branch differs from run to run. **That is the purest emergence test
+     available: a collective decision nobody designed, with no right answer
+     built into the scene.** Read it as a census of which branch each seed
+     settles on, against the trail-muted control. If colonies do not break
+     symmetry, the deposit → diffuse → decay → follow loop is not doing the
+     work, which is what §3.1 suspects of the shipped walk.
+
+   If the engine cannot produce these, the fault is in the medium or in the
+   trail loop, and no amount of rule-writing upstream will fix it. Each is
+   days of work, not weeks, and it tests cause 1 directly, with the colony's
+   demography taken out. **This sits against PLAN §2.3** (*"spend tokens only on the top
    priority"*, which is ants living in the nest). Whether it displaces that
    priority is the owner's call.
 2. **Make places differ locally.** This is what the concessions stand in for,
@@ -1031,7 +1065,9 @@ supports, and none of them is built here.
   - **The jam claim:** withdrawn.
   - **Shaft census:** normalised, with its script added.
   - **Literature:** the search scope is stated, and [30][31] are added.
-  - **Recommendations:** the double bridge is dropped, and PLAN §2.1 and
+  - **Recommendations:** the double bridge is kept, but redesigned with a
+    trail-muted control, mirrored layouts and an equal-branch version,
+    because the earlier attempt failed for fixable reasons. PLAN §2.1 and
     §2.3 are acknowledged.
   - **Readers:** `stuckway.py` now uses an exact cause and a window;
     `starvers.py` no longer counts unscored decisions as food-seeking.
