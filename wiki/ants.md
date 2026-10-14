@@ -1093,7 +1093,8 @@ them is the next step, and the box is what it has to beat.
 ### A nest that stops growing
 
 Since 2026-10-14 an ant will not cut into the wall of the nest unless two
-other ants are close beside it at the face. Before that nothing in the nest
+of its nestmates are close beside it at the face (a beetle or an ant from
+another colony does not count). Before that nothing in the nest
 told an ant to stop: alone or in a crowd it dug every wall it reached at the
 same chance, most of the gallery digging was done by ants on their own, and
 the galleries ran on to the edge of the nest's home ground and past it, so a
@@ -1103,10 +1104,11 @@ the dug space fills up with workers, and new rooms are dug where workers
 gather.
 
 Now digging happens where ants are already busy, and a lone ant at the far
-end of a quiet gallery leaves it. Over twelve test colonies the nest stayed
-inside its home ground every time, its longest gallery about two thirds the
-length it was, and it held a little over four empty cells per ant. The
-colonies were a little bigger than before on all twelve, and no hungrier.
+end of a quiet gallery leaves it. Over twelve test colonies the galleries
+stayed within the nest's home ground every time, though a few scrapes still
+go past its edge; the longest gallery was about two thirds the length it was,
+and the nest held a little over four empty cells per ant. The colonies were
+no smaller and no hungrier.
 A founding queen and her first workers still dig alone, and an ant shut in
 still digs itself out.
 

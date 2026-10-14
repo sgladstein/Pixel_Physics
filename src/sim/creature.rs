@@ -17538,8 +17538,8 @@ fn parse_shaft_rooms(raw: &str) -> Option<ShaftRooms> {
     Some(v)
 }
 
-/// **`PIXEL_PHYSICS_DIG_COMPANY`: a home wall is cut only with company**
-/// (late tunnels, 2026-10-14, off; design and trace
+/// **`PIXEL_PHYSICS_DIG_COMPANY`: a nest wall is cut only with company**
+/// (late tunnels, 2026-10-14, on; design and trace
 /// `/mnt/project-files/late-tunnels/gallery/design-dig-company-2026-10-14.md`,
 /// the owner's card "Build and test").
 ///
@@ -17559,17 +17559,28 @@ fn parse_shaft_rooms(raw: &str) -> Option<ShaftRooms> {
 /// 10.1098/rspb.2010.0176).
 ///
 /// **The rule.** A dig roll won, and passed by every veto above, on a wall
-/// below the old ground line while the digger is at home (any such wall with `wide`): count the other
-/// animals with a body cell within `r` cells (Chebyshev) of the target. If
-/// fewer than `k`, the cut is refused with chance `q` per mille. A refusal is
-/// a roll lost, no turn and no new behaviour. Local: an ant feels nestmates
-/// touching it at the face; it reads no map.
+/// below the old ground line while the digger is at home (any such wall with
+/// `wide`): count the digger's nestmates (the kin test, [`is_living_kin_id`]:
+/// same kind and a scent inside its tolerance, so a beetle or a stranger from
+/// another colony is no company) with a body cell within `r` cells
+/// (Chebyshev) of the target. If fewer than `k`, the cut is refused with
+/// chance `q` per mille. A refusal is a roll lost, no turn and no new
+/// behaviour. The company count is local: an ant feels nestmates touching it
+/// at the face.
 ///
 /// **Exempt**, so a colony can still found, go down and get out: a nest whose
 /// dug home is under `dug` cells (the queen and the first workers dig
 /// alone); an ant shut in ([`NeedsFirst`]'s escape); and a shaft cell, a cut
 /// that leaves its row's open run one or two wide ([`shaft_room_refuses`]'s
 /// own test), so the nest still descends.
+///
+/// **Two reads are not local, and are labelled stopgaps** (as
+/// [`ShaftRooms`]'s are): "below the old ground line" is the nearest nest
+/// site's stored `surface` row, not soil the ant feels; and the founding
+/// exemption reads that site's own dug-home size
+/// (`World::nest_dug_sizes`, so one colony's nest cannot end another's
+/// founding). Under any `PIXEL_PHYSICS_NEST_HOME` but the shipped `dug` there
+/// is no dug home, every nest reads as founding, and **the rule is inert**.
 ///
 /// **Prior art, and why this is a re-test, not a repeat.** `(Crowding, Dig)`
 /// (withdrawn 2026-09-02) and `CROWDING_LOCAL` (2026-09-19/20, re-run
@@ -17605,9 +17616,9 @@ pub struct DigCompany {
     /// it asks whether *who* digs matters or only *how much*.
     pub rand: u32,
     /// The rule holds for every wall below the old ground line, not only
-    /// while the digger is at home: an ant feels the soil over it and the
-    /// nestmates beside it, not where the dug home's fill stopped. It also
-    /// stops the rule depending on how home is drawn.
+    /// while the digger is at home, so it no longer depends on where the dug
+    /// home's fill stopped (the ground line it reads is still a stored row,
+    /// see above).
     pub wide: bool,
     /// The shaft exemption is dropped. With `wide`, k=2, a narrow tunnel
     /// still ran on past home's edge on one seed of four: a diagonal or
@@ -17626,8 +17637,8 @@ pub const DIG_COMPANY_PLAIN: DigCompany = DigCompany { r: 3, k: 1, q: 1000, dug:
 /// `steady_income`, mutation off, against today's game and the game nudged
 /// one frame: longest gallery 46-60 body lengths against 72-80 (12 of 12
 /// outside both), open nest per ant 3.5-5.2 against 6.4-22.9, wall cuts
-/// past home's edge 53-120 against 300-970, adults 289-305 against 236-293
-/// (higher than today's on 12 of 12), adults starved 300-600k 9-105 against
+/// past home's edge 53-120 against 300-970, colony no smaller (adults
+/// 289-305 against 236-293), adults starved 300-600k 9-105 against
 /// 4-489, eggs 2,132-2,242 against 1,969-2,400, larvae starved about 0 in
 /// both, brood in the room 83-90% against 76-87%, depth 46-58 against
 /// 47-62, run time no different. Still straight galleries: it bounds the
@@ -17660,7 +17671,9 @@ fn parse_dig_company(raw: &str) -> Option<DigCompany> {
         }
         match part.split_once('=') {
             Some(("r", n)) => v.r = n.parse().ok().filter(|n: &i32| (1..=8).contains(n)).unwrap_or_else(|| bad()),
-            Some(("k", n)) => v.k = n.parse().ok().filter(|n: &u32| *n >= 1).unwrap_or_else(|| bad()),
+            // At most 8: `company_at` remembers 8 ids, and a ninth would let one
+            // ant's several body cells count it more than once.
+            Some(("k", n)) => v.k = n.parse().ok().filter(|n: &u32| (1..=8).contains(n)).unwrap_or_else(|| bad()),
             Some(("q", n)) => v.q = n.parse().ok().filter(|n: &u32| *n <= 1000).unwrap_or_else(|| bad()),
             Some(("dug", n)) => v.dug = n.parse().unwrap_or_else(|_| bad()),
             Some(("rand", n)) => v.rand = n.parse().ok().filter(|n: &u32| (1..=1000).contains(n)).unwrap_or_else(|| bad()),
@@ -17670,9 +17683,11 @@ fn parse_dig_company(raw: &str) -> Option<DigCompany> {
     Some(v)
 }
 
-/// **Other animals with a body cell within `r` of `(tx, ty)`**, stopping at
-/// `k` ([`DigCompany`]): at most (2r+1)^2 reads, 49 at the shipped `r`.
-fn company_at(world: &World, me: OrganismId, (tx, ty): (i32, i32), r: i32, k: u32) -> u32 {
+/// **Nestmates with a body cell within `r` of `(tx, ty)`**, stopping at `k`
+/// ([`DigCompany`]): at most (2r+1)^2 reads, 49 at the shipped `r`. A
+/// nestmate is whoever the kin test calls family for `gut`
+/// ([`is_living_kin_id`]); any other animal at the face is no company.
+fn company_at(world: &World, me: OrganismId, gut: Gut, (tx, ty): (i32, i32), r: i32, k: u32) -> u32 {
     let mut seen: [OrganismId; 8] = [0; 8];
     let mut n = 0u32;
     for dy in -r..=r {
@@ -17686,7 +17701,7 @@ fn company_at(world: &World, me: OrganismId, (tx, ty): (i32, i32), r: i32, k: u3
             if id == 0 || id == me || world.materials.kind(c.material) != MaterialKind::Creature {
                 continue;
             }
-            if seen[..(n as usize).min(8)].contains(&id) {
+            if seen[..(n as usize).min(8)].contains(&id) || !is_living_kin_id(world, id, gut) {
                 continue;
             }
             if (n as usize) < 8 {
@@ -17718,14 +17733,18 @@ pub enum CompanyWhy {
 /// apply (off, not a wall below the ground line at home, or company there).
 fn dig_company_verdict(world: &World, def: &CreatureDef, organism: OrganismId, (x, y): (i32, i32), (tx, ty): (i32, i32), escaping: bool) -> Option<CompanyWhy> {
     let rule = dig_company_of()?;
-    let site = world.nest_sites.get(world.nearest_nest_site(tx, ty)?)?;
+    let si = world.nearest_nest_site(tx, ty)?;
+    let site = world.nest_sites.get(si)?;
     if ty <= site.surface || (!rule.wide && !nest_within_reach(world, organism, x, y, def)) {
         return None;
     }
-    if rule.rand == 0 && company_at(world, organism, (tx, ty), rule.r, rule.k) >= rule.k {
+    if rule.rand == 0 && company_at(world, organism, gut_of(world, organism, def), (tx, ty), rule.r, rule.k) >= rule.k {
         return Some(CompanyWhy::Kept);
     }
-    if world.nest_dug.len() < rule.dug {
+    // This site's own dug home (one colony's nest cannot end another's
+    // founding); a stopgap read, see [`DigCompany`].
+    let site_dug = world.nest_dug_sizes.get(si).copied().unwrap_or(0);
+    if site_dug < rule.dug {
         return Some(CompanyWhy::Founding);
     }
     if escaping {
@@ -34083,18 +34102,12 @@ mod tests {
         assert!(!mound_roof_refuses(&w, (cx + 5, top - 3)), "with no door there is no mound rule, as with the roof");
     }
 
-    /// **[`ShaftRooms`] caps a room's height and spacing, never a shaft**:
-    /// a room widens sideways, a third cell over its ceiling is refused, a
-    /// pit goes down but not beside another, a shaft widened within `gap` of
-    /// the room above is refused and one widened below it is not, a band
-    /// stepping down a row a column passes as an inclined shaft, and the
-    /// random control refuses a fixed share of cells for good. The parse
-    /// refuses a typo.
-        /// **[`DigCompany`] reads its parts, and counts company at the face.**
-    /// The count is the whole local sense: another animal with a body cell
-    /// within `r` of the target is company, the digger itself is not, and
-    /// one farther than `r` is not. The far ant is the positive control: a
-    /// count that read the whole world would see it.
+    /// **[`DigCompany`] reads its parts, and counts company at the face.**
+    /// The count is the whole local sense: a nestmate with a body cell
+    /// within `r` of the target is company, the digger itself is not, one
+    /// farther than `r` is not, and a beetle at the face is not (company is
+    /// nestmates). The far ant is the positive control: a count that read the
+    /// whole world would see it.
     #[test]
     fn dig_company_counts_only_the_others_at_the_face() {
         assert_eq!(parse_dig_company(""), Some(DIG_COMPANY_SHIPPED), "unset is the shipped rule");
@@ -34106,23 +34119,39 @@ mod tests {
         assert_eq!(parse_dig_company("k=2,wide"), Some(DigCompany { k: 2, wide: true, ..DIG_COMPANY_PLAIN }));
         assert_eq!(parse_dig_company("wide,noshaft,k=2"), Some(DigCompany { k: 2, wide: true, noshaft: true, ..DIG_COMPANY_PLAIN }));
         assert_eq!(parse_dig_company("rand=520"), Some(DigCompany { rand: 520, ..DIG_COMPANY_PLAIN }));
-        for bad in ["yes", "r=0", "r=9", "k=0", "q=1001", "dug=x", "r", "rand=0", "rand=1001"] {
+        for bad in ["yes", "r=0", "r=9", "k=0", "q=1001", "dug=x", "r", "rand=0", "rand=1001", "k=9"] {
             assert!(std::panic::catch_unwind(|| parse_dig_company(bad)).is_err(), "{bad:?} must panic");
         }
         let mut w = founding_bed();
         let me = spawn(&mut w, "ant", 40, 30);
+        let def = def_of(&w, "ant");
+        // This bed's spawns carry unrelated genomes, so their scents differ
+        // (measured: [1, -1, 1] against [-1, 0.53, -0.03]). Widen the
+        // tolerance so every ant is family; the real gut is the stranger case
+        // below.
+        let gut = Gut { tolerance_sq: f32::MAX, ..gut_of(&w, me, &def) };
         let face = (42, 30);
-        assert_eq!(company_at(&w, me, face, 3, 1), 0, "alone: the digger is not its own company");
+        assert_eq!(company_at(&w, me, gut, face, 3, 1), 0, "alone: the digger is not its own company");
         let far = spawn(&mut w, "ant", 70, 30);
-        assert_eq!(company_at(&w, me, face, 3, 1), 0, "an ant 28 columns away is not at the face");
+        assert_eq!(company_at(&w, me, gut, face, 3, 1), 0, "an ant 28 columns away is not at the face");
         let near = spawn(&mut w, "ant", 45, 30);
         assert_ne!(near, far);
-        assert_eq!(company_at(&w, me, face, 3, 1), 1, "an ant within 3 of the face is company");
-        assert_eq!(company_at(&w, me, face, 3, 2), 1, "and only one");
-        assert_eq!(company_at(&w, me, face, 1, 1), 0, "but not within 1");
+        assert_eq!(company_at(&w, me, gut, face, 3, 1), 1, "an ant within 3 of the face is company");
+        assert_eq!(company_at(&w, me, gut, face, 3, 2), 1, "and only one");
+        assert_eq!(company_at(&w, me, gut, face, 1, 1), 0, "but not within 1");
+        assert_eq!(company_at(&w, me, gut_of(&w, me, &def), face, 3, 1), 0, "an ant that smells foreign is no company");
+        spawn(&mut w, "beetle", 43, 33);
+        assert_eq!(company_at(&w, me, gut, face, 3, 2), 1, "a beetle at the face is no company");
     }
 
-#[test]
+    /// **[`ShaftRooms`] caps a room's height and spacing, never a shaft**:
+    /// a room widens sideways, a third cell over its ceiling is refused, a
+    /// pit goes down but not beside another, a shaft widened within `gap` of
+    /// the room above is refused and one widened below it is not, a band
+    /// stepping down a row a column passes as an inclined shaft, and the
+    /// random control refuses a fixed share of cells for good. The parse
+    /// refuses a typo.
+    #[test]
     fn shaft_rooms_cap_a_room_and_leave_the_shaft_alone() {
         assert_eq!(parse_shaft_rooms(""), Some(SHAFT_ROOMS_SHIPPED), "unset is the shipped rule");
         assert_eq!(parse_shaft_rooms("on"), Some(SHAFT_ROOMS_SHIPPED));

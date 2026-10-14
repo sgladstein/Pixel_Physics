@@ -4962,6 +4962,11 @@ pub struct World {
     /// door, within `creature::DUG_HOME_REACH`. Rebuilt every
     /// `ROOM_INTERVAL` frames by `step_nest_dug`; empty under any other home.
     pub nest_dug: crate::sim::fxhash::PosSet,
+    /// **How many of `nest_dug`'s cells each nest site's fill reached**,
+    /// indexed as `nest_sites` (a cell two fills reach counts for the first).
+    /// Read by `creature::DigCompany`'s founding exemption, so one colony's
+    /// dug home cannot end another's founding. Empty when `nest_dug` is.
+    pub nest_dug_sizes: Vec<usize>,
     /// **Every cell an ant has ever dug, and every cell a founding cut
     /// opened** -- the record behind the census's `dug_*` columns
     /// (`lab::census::Sample::dug`). Written only by `creature::dig` and
@@ -7257,6 +7262,7 @@ impl World {
             nest_sites: Vec::new(),
             nest_room: Vec::new(),
             nest_dug: Default::default(),
+            nest_dug_sizes: Vec::new(),
             dug_cells: Default::default(),
             nest_need: Vec::new(),
             colony_pace: Vec::new(),
@@ -9356,6 +9362,7 @@ impl World {
     pub fn step_nest_dug(&mut self) {
         if crate::sim::creature::nest_home(self) != crate::sim::creature::NestHome::Dug || self.nest_sites.is_empty() {
             self.nest_dug.clear();
+            self.nest_dug_sizes.clear();
             return;
         }
         if !self.frame.is_multiple_of(ROOM_INTERVAL) && !self.nest_dug.is_empty() {
@@ -9380,7 +9387,9 @@ impl World {
             c.material == material::EMPTY || matches!(w.materials.kind(c.material), MaterialKind::Creature) || loose.contains(&c.material) || (c.organism_id() == 0 && crate::sim::creature::food_value(w, c) > 0.0) || (past_tissue && w.dug_cells.contains(&(x, y)) && crate::sim::creature::body_gets_through_tissue(w, c))
         };
         let mut dug = crate::sim::fxhash::PosSet::default();
+        let mut sizes = Vec::with_capacity(self.nest_sites.len());
         for site in self.nest_sites.clone() {
+            let before = dug.len();
             let inside = |x: i32, y: i32| (x - site.x).abs() <= rx && y >= site.surface && y <= site.surface + ry;
             let mut stack: Vec<(i32, i32)> = (site.x - door..=site.x + door).map(|x| (x, site.surface)).filter(|&(x, y)| open(self, x, y)).collect();
             // The founding cut is home whatever lies on its mouth.
@@ -9397,8 +9406,10 @@ impl World {
                     }
                 }
             }
+            sizes.push(dug.len() - before);
         }
         self.nest_dug = dug;
+        self.nest_dug_sizes = sizes;
     }
 
     /// **Each nest's need, for the forage drive** (`World::nest_need`,
