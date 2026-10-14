@@ -564,14 +564,17 @@ pub fn rootless_dries_default() -> bool {
 ///   germination. Found in two steps. First starvation: the whole-plant
 ///   starvation rule (`STARVATION_DEATH_TICKS`) counted a seed cell as live
 ///   shoot tissue with no income, so every dormant seed of a species with a
-///   leaf stage (herb, shrub, tree, conifer -- not grass) ran a starvation
+///   leaf stage (herb, shrub, tree, conifer, creeper, scrambler -- not
+///   grass) ran a starvation
 ///   clock from the tick it was set and was declared starved after 200
 ///   organism ticks, whatever its `seed_half_life` said. Traced 2026-10-13
 ///   on the owner's rain-off bed replay, 100k-600k, flat clock: herb seeds
 ///   577 starved against 701 rotted, conifer 284 / 809, tree 203 / 599,
 ///   shrub 172 / 694; grass 0 starved. Worse, the count was **not reset at
 ///   germination**, so a seed that had waited sprouted with most of its
-///   death clock already spent. Then, with starvation lifted, the next
+///   death clock already spent. With the part on a dormant seed never
+///   counts, so it sprouts at zero, and `germinate` zeroes the counts as
+///   well, so a seed can never carry one into its life. Then, with starvation lifted, the next
 ///   clock showed: a dormant seed ages, so it rolled old age and the annual
 ///   backstop from the frame it was set (100k-500k with both parts: herb
 ///   439 dormant seeds dead of age, conifer 478, tree 236), and one that
@@ -604,11 +607,15 @@ pub fn rootless_dries_default() -> bool {
 pub fn seed_bank_default() -> (bool, bool) {
     use std::sync::OnceLock;
     static ON: OnceLock<(bool, bool)> = OnceLock::new();
-    *ON.get_or_init(|| match std::env::var("PIXEL_PHYSICS_SEED_BANK").as_deref() {
+    *ON.get_or_init(|| match std::env::var("PIXEL_PHYSICS_SEED_BANK").as_deref().map(str::trim) {
+        Err(_) | Ok("on") => (true, true),
         Ok("off") => (false, false),
         Ok("dry") => (true, false),
         Ok("dormant") => (false, true),
-        _ => (true, true),
+        // The dormant part was first built as `nostarve` (starvation only)
+        // and renamed when the age clocks joined it; an old name or a typo
+        // must not quietly run the whole fix.
+        Ok(other) => panic!("PIXEL_PHYSICS_SEED_BANK={other:?}: use on, off, dry or dormant"),
     })
 }
 
@@ -634,7 +641,8 @@ pub const SEED_DRY_READ_ROWS: i32 = 4;
 /// the plain available fraction, 1 minus it.
 ///
 /// **Reads 0 -- the old flat half-life -- for anything that is not a seed
-/// lying in a pile on the ground**: rock (it can never sprout there), a
+/// lying in a pile on the ground**: rock, or mineral ground that holds no
+/// water -- sand, gravel, ash, rubble, snow (it can never sprout there), a
 /// liquid on the way (a seed on a pond is not in a drought), air (a seed
 /// still falling, or hanging), or living
 /// tissue (a fruit still on its plant, which shares `CellType::Seed`). Only
@@ -649,13 +657,19 @@ fn seed_dryness(world: &World, x: i32, y: i32, threshold: Option<f32>) -> f32 {
         if c.organism_id() != 0 && organism::cell_type(c.aux()) != Some(CellType::Seed) {
             return 0.0;
         }
-        let holds = world.materials.get(c.material).water_capacity > 0;
-        // Rock, or anything else that never moves, ends the look with the
-        // flat clock: a seed on a stone ledge can never germinate there
-        // (`Germinate` wants ground that holds water under it), so keeping
-        // it longer buys nothing but a held slot --
+        let mat = world.materials.get(c.material);
+        let holds = mat.water_capacity > 0;
+        // Rock, or mineral ground that holds no water, ends the look with
+        // the flat clock: a seed on a stone ledge or a sand dune can never
+        // germinate there (`Germinate` wants ground that holds water under
+        // it), so keeping it longer buys nothing but a held slot --
         // `a_grass_seed_on_bare_rock_never_germinates_and_does_not_stand_for_ever`.
-        if !holds && world.materials.kind(c.material) == MaterialKind::Solid {
+        // What the look passes through is the organic pile a seed lies in
+        // -- other seeds, litter, deadwood, crumbs -- told from mineral
+        // ground by whether it burns: sand, gravel, ash, rubble, snow and
+        // shard do not, every organic powder does. A data test rather than
+        // a list of names, so a new litter material is read through too.
+        if !holds && (world.materials.kind(c.material) == MaterialKind::Solid || mat.flammability <= 0.0) {
             return 0.0;
         }
         if holds {
@@ -14028,8 +14042,17 @@ fn germinate(world: &mut World, x: i32, y: i32, organism_id: OrganismId, cell: C
     stamp_origin(world, organism_id, x, y);
     // No longer a seed: from here its death gets a grave
     // (`OrganismState::dormant_seed`).
+    let rest = world.seed_dormant_rest;
     if let Some(state) = world.organism_mut(organism_id) {
         state.dormant_seed = false;
+        // Under `PIXEL_PHYSICS_SEED_BANK` (dormant part) the plant's clocks
+        // start here. A seed never counts them while it waits, so this is
+        // belt and braces: no way a count was carried in can outlive the seed.
+        if rest {
+            state.age_ticks = 0;
+            state.plant_frames = 0;
+            state.starving_ticks = 0;
+        }
     }
     // The seed cell is `seed` material; the shoot it becomes is whatever
     // this species declares -- `wood` for every shipped tree, and the
@@ -25999,7 +26022,8 @@ mis-wired {miswired_root}, so `slot_1_is_a_root_locus_and_not_a_shoot_one` would
     /// (sixty tree seeds on soil at the wilting point), run for one flat
     /// half-life: with `seed_dry_keeps` the half-life is
     /// `1 + SEED_DRY_STRETCH` times longer, so ~96% of the bank should still
-    /// stand; off, about half. Both arms in one test so the off arm is the
+    /// stand; with the dry part off (the dormant part stays at the process
+    /// default), about half. Both arms in one test so the off arm is the
     /// positive control on the same draw stream.
     #[test]
     fn a_seed_bank_on_dry_ground_lasts_far_longer_than_its_half_life() {
@@ -26036,7 +26060,7 @@ mis-wired {miswired_root}, so `slot_1_is_a_root_locus_and_not_a_shoot_one` would
         // On: p(survive) = 0.5^(1/16) = 0.958, so 57.5 expected, sd 1.6; 50
         // is over four sd below. Off: the sibling test's own band.
         assert!(on >= 50, "a dry seed's half-life should be stretched {}x: {on} of {SEEDS} left", 1.0 + SEED_DRY_STRETCH);
-        assert!((18..=42).contains(&off), "with the switch off the flat half-life should hold: {off} of {SEEDS}");
+        assert!((18..=42).contains(&off), "with the dry part off the flat half-life should hold: {off} of {SEEDS}");
     }
 
     /// **A dormant seed runs none of a plant's clocks** (`seed_bank_default`'s
@@ -26059,10 +26083,19 @@ mis-wired {miswired_root}, so `slot_1_is_a_root_locus_and_not_a_shoot_one` would
                     w.set(x, y, Cell::new(soil, 0).with_aux(material::SOIL_WILTING_POINT));
                 }
             }
-            assert!(w.plant_tree_species(20, 51, "herb"), "test setup: herb seed");
-            let id = w.get(20, 51).organism_id();
+            // Ten seeds, read the first survivor: one herb seed lasts the
+            // 3,000 frames with p ~0.86, so a single seed would turn an
+            // unrelated change to the draw streams into a setup failure
+            // about one time in seven.
+            let ids: Vec<_> = (0..10)
+                .map(|i| {
+                    let x = 2 + i * 4;
+                    assert!(w.plant_tree_species(x, 51, "herb"), "test setup: herb seed {i}");
+                    w.get(x, 51).organism_id()
+                })
+                .collect();
             run_with_fields(&mut w, 3_000);
-            let st = w.organism(id).expect("test setup: the seed rotted inside 3,000 frames");
+            let st = ids.iter().find_map(|&id| w.organism(id)).expect("test setup: all ten seeds rotted inside 3,000 frames");
             assert!(st.dormant_seed, "test setup: it should still be a dormant seed on dry soil");
             (st.starving_ticks, st.age_ticks, st.plant_frames)
         };
@@ -26072,11 +26105,61 @@ mis-wired {miswired_root}, so `slot_1_is_a_root_locus_and_not_a_shoot_one` would
         assert_eq!(on, (0, 0, 0), "a dormant seed must count neither toward starvation nor age");
     }
 
+    /// **A seed that sprouts starts its clocks**: the regression the
+    /// `dormant` part could cause is a plant that escapes old age because it
+    /// is still taken for a seed. Herb seeds wait on dry soil with the part
+    /// on (clocks at zero), the soil is wetted, and once one has germinated
+    /// its age must climb.
+    #[test]
+    fn a_seed_that_sprouts_after_a_dry_wait_starts_its_clocks() {
+        let mut w = test_world();
+        w.seed_dry_keeps = false;
+        w.seed_dormant_rest = true;
+        let soil = w.materials.id_of("soil").expect("soil");
+        for x in 0..44 {
+            w.set(x, 60, Cell::new(material::STONE, 0));
+            for y in 52..60 {
+                w.set(x, y, Cell::new(soil, 0).with_aux(material::SOIL_WILTING_POINT));
+            }
+        }
+        let ids: Vec<_> = (0..10)
+            .map(|i| {
+                let x = 2 + i * 4;
+                assert!(w.plant_tree_species(x, 51, "herb"), "test setup: herb seed {i}");
+                w.get(x, 51).organism_id()
+            })
+            .collect();
+        run_with_fields(&mut w, 2_000);
+        for &id in &ids {
+            if let Some(st) = w.organism(id) {
+                assert_eq!((st.age_ticks, st.plant_frames, st.starving_ticks), (0, 0, 0), "test setup: a waiting seed counts nothing");
+            }
+        }
+        for x in 0..44 {
+            for y in 52..60 {
+                w.set(x, y, Cell::new(soil, 0).with_aux(material::SOIL_FIELD_CAPACITY));
+            }
+        }
+        let mut sprouted = None;
+        for _ in 0..40 {
+            run_with_fields(&mut w, 500);
+            sprouted = ids.iter().copied().find(|&id| w.organism(id).is_some_and(|s| !s.dormant_seed));
+            if sprouted.is_some() {
+                break;
+            }
+        }
+        let id = sprouted.expect("test setup: no herb seed sprouted within 20,000 frames of wetting");
+        run_with_fields(&mut w, 2_000);
+        let st = w.organism(id).expect("the seedling should live 2,000 frames on wet soil");
+        println!("seedling after 2,000 frames (age ticks, plant frames): ({}, {})", st.age_ticks, st.plant_frames);
+        assert!(st.age_ticks > 0 && st.plant_frames > 0, "a sprouted seed must run its age clock: ({}, {})", st.age_ticks, st.plant_frames);
+    }
+
     /// **What `seed_dryness` reads, case by case**: the ground under a seed
-    /// through a pile of other seeds; wet soil 0 and wilting-point soil 1;
-    /// rock, air, a liquid and living tissue 0 (the old flat clock, for a
-    /// seed that can never sprout where it lies, or is falling, floating or
-    /// still on its plant).
+    /// through a pile of other seeds or litter; wet soil 0 and wilting-point
+    /// soil 1; rock, sand, air, a liquid and living tissue 0 (the old flat
+    /// clock, for a seed that can never sprout where it lies, or is
+    /// falling, floating or still on its plant).
     #[test]
     fn seed_dryness_reads_the_ground_through_a_seed_pile_and_nothing_else() {
         let mut w = test_world();
@@ -26085,13 +26168,20 @@ mis-wired {miswired_root}, so `slot_1_is_a_root_locus_and_not_a_shoot_one` would
         let field_capacity = material::SOIL_FIELD_CAPACITY;
         // Column 10: seed at 40 on two seeds on wet soil. Column 20: on dry
         // soil. Column 30: on stone. Column 40: over air. Column 50: on water.
-        for x in [10, 20, 30, 40, 50] {
+        // Column 60: on sand over dry soil. Column 70: on litter over dry soil.
+        for x in [10, 20, 30, 40, 50, 60, 70] {
             w.set(x, 60, Cell::new(material::STONE, 0));
         }
         w.set(10, 43, Cell::new(soil, 0).with_aux(field_capacity));
         w.set(20, 41, Cell::new(soil, 0).with_aux(material::SOIL_WILTING_POINT));
         w.set(30, 41, Cell::new(material::STONE, 0));
         w.set(50, 41, Cell::new(water, 0));
+        let sand = w.materials.id_of("sand").expect("sand");
+        let litter = w.materials.id_of("litter").expect("litter");
+        for (x, top) in [(60, sand), (70, litter)] {
+            w.set(x, 41, Cell::new(top, 0));
+            w.set(x, 42, Cell::new(soil, 0).with_aux(material::SOIL_WILTING_POINT));
+        }
         for (x, y) in [(10, 42), (10, 41)] {
             assert!(w.plant_tree_species(x, y, "grass"), "test setup: pile seed at {x},{y}");
         }
@@ -26101,13 +26191,17 @@ mis-wired {miswired_root}, so `slot_1_is_a_root_locus_and_not_a_shoot_one` would
         let rock = seed_dryness(&w, 30, 40, t);
         let air = seed_dryness(&w, 40, 40, t);
         let pond = seed_dryness(&w, 50, 40, t);
-        println!("seed_dryness: through a pile onto wet soil {wet}, dry soil {dry}, rock {rock}, air {air}, water {pond}");
+        let on_sand = seed_dryness(&w, 60, 40, t);
+        let on_litter = seed_dryness(&w, 70, 40, t);
+        println!("seed_dryness: through a pile onto wet soil {wet}, dry soil {dry}, rock {rock}, air {air}, water {pond}, sand {on_sand}, litter {on_litter}");
         assert!(w.get(10, 41).organism_id() != 0, "test setup: the pile must be seeds");
         assert_eq!(wet, 0.0, "a seed on a pile over field-capacity soil is not in a drought");
         assert_eq!(dry, 1.0, "a seed over wilting-point soil is as dry as it gets");
         assert_eq!(rock, 0.0, "a seed on rock can never sprout there, so it keeps the flat clock");
         assert_eq!(air, 0.0, "a falling or hanging seed keeps the flat clock");
         assert_eq!(pond, 0.0, "a seed on water is not in a drought");
+        assert_eq!(on_sand, 0.0, "a seed on sand can never sprout there, so it keeps the flat clock like rock");
+        assert_eq!(on_litter, 1.0, "litter is looked through to the dry soil under it");
         // Living tissue: a grass blade under the seed.
         let mut g = test_world();
         let gsoil = g.materials.id_of("soil").expect("soil");

@@ -1368,10 +1368,10 @@ keeps every kind of plant in it for much longer, so when the rain comes back
 the herbs and shrubs and trees come back with the grass instead of grass
 alone. The longer the drought, the thinner and more grass-heavy what is left:
 after a very long one only a few herb and grass seeds remain. A seed on bare
-rock, which can never sprout there, keeps the ordinary clock.
+rock, sand or gravel, which can never sprout there, keeps the ordinary clock.
 
 **And a waiting seed is not yet a plant.** Before this, every waiting seed of
-a leafy plant (herb, shrub, tree, conifer) was treated as a plant with no
+a leafy plant (herb, shrub, tree, conifer, creeper, scrambler) was treated as a plant with no
 income: it "starved" after a fixed spell and grew old as it lay, so the bank
 of those kinds emptied on a timer whatever the weather, and a seed that
 sprouted after a long wait started its life already old and half-starved. Now
