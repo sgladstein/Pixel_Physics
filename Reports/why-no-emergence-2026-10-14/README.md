@@ -12,6 +12,12 @@ energy reserve about one foraging round trip, and how do ants die when a placeme
   deaths by cause.
 - `starvers.py` — each starved adult's last hunger spell: stuck (moved on under 10% of decisions), held (over half
   of it under a pull that does not lead to food), or free.
-- `stuckway.py` — for starvers that died in the nest: depth, nearest approach to the door, moves.
+- `stuckway.py` — for starvers that died in the nest (exact cause `STARVED`, window `LO`-`HI`): depth, nearest
+  approach to the door, moves.
+- `shaftcensus.py` — the door shaft (7 columns x 16 rows under the door, the ground row included): heads, occupied
+  cells, share at the stacking cap, share of the colony and of below-ground ants, who is carrying food or lean;
+  `BINS=1` adds a 20k-frame timeline of shaft, colony, below-ground ants, starvers, births and food. Adapted from
+  the adversarial review's scripts.
 
-Known limits: four seeds; `nurse` and `rest` at food 30 only; the jam is traced, not intervened on.
+Known limits: four seeds; `nurse` and `rest` at food 30 only; the `NURSE_STAY` die-offs fit a jam, a population
+boom and food diverted to brood alike, and no run here separates them (the report's §5.3 names the run that would).

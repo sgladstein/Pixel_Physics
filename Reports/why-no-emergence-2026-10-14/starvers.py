@@ -12,14 +12,18 @@ over GAP frames. Over that spell:
   heap    whether any decision was in the `food` zone, and whether it bit anything
 Class:
   stuck   moved on under 10% of decisions
-  held    over half the spell's decisions under a pull that does not lead to food
+  held    over half the spell's SCORED decisions under a pull that does not lead to food
+          ("not scored" decisions, where the chooser did not run, count for neither side)
   free    otherwise (moving, mostly unpulled or pulled toward food)
 """
 import csv, gzip, os, sys, collections, statistics
 
 LO, HI = int(os.environ.get("LO", 20_000)), int(os.environ.get("HI", 300_000))
 GAP = 60
-FOOD_PULLS = {"hungry out", "nest store", "store sent out", "hungry home", "none", "not scored", ""}
+# Pulls that lead toward food, or no pull at all. "not scored" (the chooser did not run that decision) is
+# neither, and is left out of the held/free share entirely (review finding 16).
+FOOD_PULLS = {"hungry out", "nest store", "store sent out", "hungry home", "none", ""}
+UNSCORED = "not scored"
 
 
 def deaths(path):
@@ -58,7 +62,7 @@ def classify(path):
             cur[3] += 1
             cur[4] += row[i_mv] in ("1", "true", "True")
             pl = row[i_pull]
-            cur[5] += pl not in FOOD_PULLS
+            cur[5] += pl not in FOOD_PULLS and pl != UNSCORED
             cur[6] = cur[6] or row[i_zone] == "food"
             cur[7][pl] += 1
             cur[8][row[i_zone]] += 1
@@ -71,7 +75,8 @@ def classify(path):
             res.append(dict(id=aid, cls="no rows", len=0, zone=zone))
             continue
         moved = c[4] / c[3]
-        nonfood = c[5] / c[3]
+        scored = c[3] - c[7][UNSCORED]
+        nonfood = c[5] / scored if scored else 0.0
         cls = "stuck" if moved < 0.10 else ("held" if nonfood > 0.5 else "free")
         res.append(dict(id=aid, cls=cls, len=fr - c[0], e0=c[2], moved=moved, top=c[7].most_common(2), heap=c[6],
                         zone=zone, zones=c[8].most_common(2)))

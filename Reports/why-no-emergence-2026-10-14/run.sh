@@ -6,6 +6,7 @@
 # Readers (in this directory):  python3 margin.py OUT...    (reserve, burn, trips, deaths; window LO-HI env, default 100k-300k)
 #           LO=20000 python3 starvers.py OUT...   (each starver: stuck / held / free)
 #           python3 stuckway.py OUT...  (nest starvers: depth, nearest approach to the door)
+#           [BINS=1] python3 shaftcensus.py OUT...  (door-shaft census; BINS=1 adds a 20k-frame timeline)
 #           python3 scripts/deeptrace_tools/starvewhere.py OUT...  (sealed / pocket / encased / open)
 set -e
 arm=$1; seed=$2; out=$3

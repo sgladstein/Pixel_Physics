@@ -6,7 +6,7 @@ it visited; the share of decisions whose outcome was a fall. Ground line and doo
 """
 import csv, gzip, os, sys, collections, statistics, re
 
-LO = int(os.environ.get("LO", 20_000))
+LO, HI = int(os.environ.get("LO", 20_000)), int(os.environ.get("HI", 300_000))
 GAP = 60
 
 
@@ -16,9 +16,10 @@ def main(path):
     ds = {}
     for line in open(f"{path}/events.txt"):
         p = line.split()
-        if len(p) > 1 and p[1] == "DIED" and "cause=STARVED" in line and int(p[0]) >= LO:
+        if len(p) > 1 and p[1] == "DIED" and LO <= int(p[0]) < HI:
             kv = dict(x.split("=", 1) for x in p[2:] if "=" in x)
-            if kv.get("zone") == "nest":
+            # Exact cause: "STARVED+OLD" is old age caught hungry, not a starver (review finding 15).
+            if kv.get("cause") == "STARVED" and kv.get("zone") == "nest":
                 ds[kv["id"]] = int(p[0])
     gy = int(re.search(r"ground_y=(\d+)", founded).group(1))
     door = (int(re.search(r"nest_x=(\d+)", founded).group(1)), gy)

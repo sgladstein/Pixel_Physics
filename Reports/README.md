@@ -57,14 +57,16 @@ by somebody about to try it on creatures.
   - **Locally the nest is featureless.** Soil cannot hold or mark a cut,
     scent leaks through rock, the field is one value per 16×16 cells, and
     brood falls.
-  - **The nest has one narrow exit with the brood in it.** Measured: the
-    energy margin is not thin (a forager at food 90 carries about nine round
-    trips of reserve; starvation is under 1% of deaths). But
-    `NURSE_STAY=on` packs the door shaft to nearly twice its crowd, and
-    1,349–3,482 adults a run starve with an open path out. `NEST_REST` no
-    longer kills.
   - **Rules aimed at outcomes come out as 24 `*_pull`/`*_target`
     destinations, which need a map.**
+
+  Measured (16 runs, adversarially reviewed): the energy margin is not thin
+  (a forager at food 90 carries about nine round trips of reserve;
+  starvation is under 1% of deaths). `NEST_REST` no longer kills.
+  `NURSE_STAY=on` kills 1,349–3,482 adults a run in boom-and-die-off cycles
+  (births double; young nest-born ants starve in waves). A jam, the boom
+  and food diverted to brood are not separated, and the report names the
+  run that would separate them.
 
   The benchmark is past the published models (checked on PubMed and
   SciSpace: no counter-example), and stratified chambers are past the
@@ -78,7 +80,8 @@ by somebody about to try it on creatures.
   **the §5 measurement's scripts**: `run.sh` (four arms of `deeptrace` on the
   dry goal box), `margin.py` (reserve in frames, foraging trips, deaths),
   `starvers.py` (each starver stuck, held or free), `stuckway.py` (nest
-  starvers' nearest approach to the door). Data regenerates; not kept.
+  starvers' nearest approach to the door), `shaftcensus.py` (who is in the
+  door shaft, and the colony's timeline). Data regenerates; not kept.
   `consensus-brief.md` is an optional third literature check (Consensus's
   allowance was spent; §6 was checked on PubMed and SciSpace instead).
 - [two-games-one-repo-2026-08-30.md](two-games-one-repo-2026-08-30.md) —
