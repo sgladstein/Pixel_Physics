@@ -35655,8 +35655,9 @@ mod tests {
     /// puts down); a packed lunch, and the switch off, are not pulled. Once
     /// emptied with `food_return` set it is pulled out along the way, and
     /// [`update_food_in`] clears the flag once it is off the way. Watched red
-    /// with `to_store` false in [`food_in_target`] (the pull ran past the
-    /// store, deeper) and with [`food_return_target`] returning `None`.
+    /// with `to_store` false in [`food_in_target`] (only the fork check saw
+    /// it: in the chamber the walk deeper also leads east) and with
+    /// [`food_return_target`] returning `None`.
     #[test]
     fn under_food_in_bring_a_carrier_takes_its_crop_to_the_store_and_walks_back_out() {
         let fruit = |w: &World| w.materials.id_of("fruit").expect("fruit");
@@ -35687,6 +35688,15 @@ mod tests {
         let way = &w.nest_ways[0];
         assert!(way.store_at(tx, ty) < way.store_at(head.0, head.1) && tx > head.0, "the pull at ({tx}, {ty}) is not nearer the store than the carrier at {head:?}");
         assert_eq!(home_pull_why(&w, a, &def, head).0, PULL_FOOD_IN, "the walk-why does not name the pull");
+        // Where the store field and the walk deeper part, the pull is the
+        // store's: the case that tells taking food to the store from taking
+        // it down the way.
+        let open = (46..=47).flat_map(|y| (56..=80).map(move |x| (x, y)));
+        let fork = open
+            .filter(|&(x, y)| w.nest_ways[0].at(x, y).is_some())
+            .find(|&h| store_inward(&w, a, h, STORE_DOOR_REACH, true) != store_inward(&w, a, h, STORE_DOOR_REACH, false))
+            .expect("test setup: nowhere do the store field and the walk deeper part");
+        assert_eq!(food_in_target(&w, a, st, fork), Some(store_inward(&w, a, fork, STORE_DOOR_REACH, true)), "at {fork:?} the carrier was not pulled by the store field");
 
         let (w, a, _, head) = world(77, 47, bring);
         assert_eq!(food_in_target(&w, a, w.organism(a).expect("live"), head), Some(None), "a carrier beside the store has not arrived");
