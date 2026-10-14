@@ -17587,10 +17587,11 @@ fn parse_shaft_rooms(raw: &str) -> Option<ShaftRooms> {
 /// a gallery ran on past home's edge, where an at-home rule does not reach,
 /// hence `wide`.
 ///
-/// Parts: `on` is `r=3,k=1,q=1000,dug=100`; a comma list of `r=`, `k=`,
-/// `q=` (per mille), `dug=`, `rand=` (per mille, the control), `wide` and
-/// `noshaft` starts from `on`. Unset or `off`: no read, no
-/// draw, bit-identical.
+/// Parts: unset or `on` is [`DIG_COMPANY_SHIPPED`] (`k=2,wide,noshaft`); a
+/// comma list of `r=`, `k=`, `q=` (per mille), `dug=`, `rand=` (per mille,
+/// the control), `wide` and `noshaft` starts from [`DIG_COMPANY_PLAIN`]
+/// (`r=3,k=1,q=1000,dug=100`, at home, shafts exempt). `off`: no read, no
+/// draw, bit-identical to the game before it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct DigCompany {
     pub r: i32,
@@ -17616,7 +17617,22 @@ pub struct DigCompany {
     pub noshaft: bool,
 }
 
-pub const DIG_COMPANY_ON: DigCompany = DigCompany { r: 3, k: 1, q: 1000, dug: 100, rand: 0, wide: false, noshaft: false };
+/// The first build, and what a comma list starts from: one other ant,
+/// at home, shafts exempt.
+pub const DIG_COMPANY_PLAIN: DigCompany = DigCompany { r: 3, k: 1, q: 1000, dug: 100, rand: 0, wide: false, noshaft: false };
+
+/// **Shipped on** (2026-10-14): two other ants within 3 cells, every wall
+/// below the old ground line, no shaft exemption. 12 seeds, 600k,
+/// `steady_income`, mutation off, against today's game and the game nudged
+/// one frame: longest gallery 46-60 body lengths against 72-80 (12 of 12
+/// outside both), open nest per ant 3.5-5.2 against 6.4-22.9, wall cuts
+/// past home's edge 53-120 against 300-970, adults 289-305 against 236-293
+/// (higher than today's on 12 of 12), adults starved 300-600k 9-105 against
+/// 4-489, eggs 2,132-2,242 against 1,969-2,400, larvae starved about 0 in
+/// both, brood in the room 83-90% against 76-87%, depth 46-58 against
+/// 47-62, run time no different. Still straight galleries: it bounds the
+/// nest, it does not make chambers.
+pub const DIG_COMPANY_SHIPPED: DigCompany = DigCompany { k: 2, wide: true, noshaft: true, ..DIG_COMPANY_PLAIN };
 
 pub fn dig_company_of() -> Option<DigCompany> {
     static V: std::sync::OnceLock<Option<DigCompany>> = std::sync::OnceLock::new();
@@ -17625,14 +17641,14 @@ pub fn dig_company_of() -> Option<DigCompany> {
 
 fn parse_dig_company(raw: &str) -> Option<DigCompany> {
     let raw = raw.trim();
-    if raw.is_empty() || raw == "off" {
+    if raw == "off" {
         return None;
     }
-    if raw == "on" {
-        return Some(DIG_COMPANY_ON);
+    if raw.is_empty() || raw == "on" {
+        return Some(DIG_COMPANY_SHIPPED);
     }
     let bad = || -> ! { panic!("PIXEL_PHYSICS_DIG_COMPANY={raw:?}: use off, on, or a list of r=N, k=N, q=<per mille>, dug=N, rand=<per mille>, wide, noshaft") };
-    let mut v = DIG_COMPANY_ON;
+    let mut v = DIG_COMPANY_PLAIN;
     for part in raw.split(',').map(str::trim) {
         if part == "wide" {
             v.wide = true;
@@ -34081,14 +34097,15 @@ mod tests {
     /// count that read the whole world would see it.
     #[test]
     fn dig_company_counts_only_the_others_at_the_face() {
-        assert_eq!(parse_dig_company(""), None, "unset is off");
+        assert_eq!(parse_dig_company(""), Some(DIG_COMPANY_SHIPPED), "unset is the shipped rule");
         assert_eq!(parse_dig_company("off"), None);
-        assert_eq!(parse_dig_company("on"), Some(DIG_COMPANY_ON));
-        assert_eq!(parse_dig_company("q=900"), Some(DigCompany { q: 900, ..DIG_COMPANY_ON }), "a list starts from on");
+        assert_eq!(parse_dig_company("on"), Some(DIG_COMPANY_SHIPPED));
+        assert_eq!(parse_dig_company("k=2,wide,noshaft"), Some(DIG_COMPANY_SHIPPED), "the 12-seed arm is what ships");
+        assert_eq!(parse_dig_company("q=900"), Some(DigCompany { q: 900, ..DIG_COMPANY_PLAIN }), "a list starts from plain");
         assert_eq!(parse_dig_company("r=2,k=2,dug=0"), Some(DigCompany { r: 2, k: 2, q: 1000, dug: 0, rand: 0, wide: false, noshaft: false }));
-        assert_eq!(parse_dig_company("k=2,wide"), Some(DigCompany { k: 2, wide: true, ..DIG_COMPANY_ON }));
-        assert_eq!(parse_dig_company("wide,noshaft,k=2"), Some(DigCompany { k: 2, wide: true, noshaft: true, ..DIG_COMPANY_ON }));
-        assert_eq!(parse_dig_company("rand=520"), Some(DigCompany { rand: 520, ..DIG_COMPANY_ON }));
+        assert_eq!(parse_dig_company("k=2,wide"), Some(DigCompany { k: 2, wide: true, ..DIG_COMPANY_PLAIN }));
+        assert_eq!(parse_dig_company("wide,noshaft,k=2"), Some(DigCompany { k: 2, wide: true, noshaft: true, ..DIG_COMPANY_PLAIN }));
+        assert_eq!(parse_dig_company("rand=520"), Some(DigCompany { rand: 520, ..DIG_COMPANY_PLAIN }));
         for bad in ["yes", "r=0", "r=9", "k=0", "q=1001", "dug=x", "r", "rand=0", "rand=1001"] {
             assert!(std::panic::catch_unwind(|| parse_dig_company(bad)).is_err(), "{bad:?} must panic");
         }

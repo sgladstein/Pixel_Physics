@@ -1,6 +1,6 @@
 # Ants
 
-*Current as of: 2026-10-13, when **the colony started keeping its eggs and young in a room at the top of the nest** (see *A nursery under the door*); 2026-10-13, when **an evolving colony stopped turning into ants that sit full at the food** (see *Coming home*); 2026-10-10, when **ants from two colonies started fighting when they meet** (see *Who is family*): touching a stranger of its own kind now alarms an ant, so two colonies settle into a border, or one wipes the other out as it lands, instead of walking through each other for ever; 2026-10-06, when **a hungry ant boxed in by the dug soil over the door started digging its way out** (see *One door, and a granary under it*), when **nest workers stopped going inside to rest again**, a day after they started, because two colonies in four collapsed late under it (see *One door, and a granary under it*), when **the young carrying food down to the larvae was built, and left switched off** (see *New ants, and why you will not see any yet*), when **lab colonies started out as the ant they evolve into** (same section) and when **soil started leaving the nest by its passages and diggers started going back to their own face** (see *One door, and a granary under it*); 2026-10-04, when **a hungry ant deep in the nest started finding its way out** (see *One door, and a granary under it*), when **ants in the lab started out half way to plant-eaters** (see *New ants, and why you will not see any yet*), when **ants started walking across puddles** (see *Coming home*) and when **a colony stopped sealing its own door with packed soil** (see *One door, and a granary under it*); 2026-10-03, when **a hungry ant started putting its digging down to go and eat.** A colony beside endless food used to grow to a few hundred and then starve at home all at once, the food untouched: its hungry foragers were still digging and carrying soil, and an ant holding soil cannot eat or fetch food. Now an ant under half its fill stops digging, sets its soil down where it stands, and goes out on its own hunger, and those colonies live. Also 2026-10-03, when **a colony started keeping its own door open** (see *One door, and a granary under it*), and when **the lab's other animals started ageing like the ant** (see *Ants get old and die of it*); 2026-10-02, when **the whole dug nest became home and
+*Current as of: 2026-10-14, when **the nest stopped growing past what its colony needs** (see *A nest that stops growing*); 2026-10-13, when **the colony started keeping its eggs and young in a room at the top of the nest** (see *A nursery under the door*); 2026-10-13, when **an evolving colony stopped turning into ants that sit full at the food** (see *Coming home*); 2026-10-10, when **ants from two colonies started fighting when they meet** (see *Who is family*): touching a stranger of its own kind now alarms an ant, so two colonies settle into a border, or one wipes the other out as it lands, instead of walking through each other for ever; 2026-10-06, when **a hungry ant boxed in by the dug soil over the door started digging its way out** (see *One door, and a granary under it*), when **nest workers stopped going inside to rest again**, a day after they started, because two colonies in four collapsed late under it (see *One door, and a granary under it*), when **the young carrying food down to the larvae was built, and left switched off** (see *New ants, and why you will not see any yet*), when **lab colonies started out as the ant they evolve into** (same section) and when **soil started leaving the nest by its passages and diggers started going back to their own face** (see *One door, and a granary under it*); 2026-10-04, when **a hungry ant deep in the nest started finding its way out** (see *One door, and a granary under it*), when **ants in the lab started out half way to plant-eaters** (see *New ants, and why you will not see any yet*), when **ants started walking across puddles** (see *Coming home*) and when **a colony stopped sealing its own door with packed soil** (see *One door, and a granary under it*); 2026-10-03, when **a hungry ant started putting its digging down to go and eat.** A colony beside endless food used to grow to a few hundred and then starve at home all at once, the food untouched: its hungry foragers were still digging and carrying soil, and an ant holding soil cannot eat or fetch food. Now an ant under half its fill stops digging, sets its soil down where it stands, and goes out on its own hunger, and those colonies live. Also 2026-10-03, when **a colony started keeping its own door open** (see *One door, and a granary under it*), and when **the lab's other animals started ageing like the ant** (see *Ants get old and die of it*); 2026-10-02, when **the whole dug nest became home and
 food started gathering in piles** (see *One door, and a granary under it*),
 when **new ants started as eggs, laid only at
 home** (see *New ants*), and when **an ant started holding on to a nestmate
@@ -1089,6 +1089,29 @@ goes. And it does not look like a real nest: the room is square, the
 galleries are straight and evenly spaced, and real chambers are rounded,
 lobed, and larger near the top. A rule the ants read from what is round
 them is the next step, and the box is what it has to beat.
+
+### A nest that stops growing
+
+Since 2026-10-14 an ant will not cut into the wall of the nest unless two
+other ants are close beside it at the face. Before that nothing in the nest
+told an ant to stop: alone or in a crowd it dug every wall it reached at the
+same chance, most of the gallery digging was done by ants on their own, and
+the galleries ran on to the edge of the nest's home ground and past it, so a
+colony of three hundred ended up with eight to ten empty cells each and
+ragged scrapes out at both sides. In real nests digging slows and stops as
+the dug space fills up with workers, and new rooms are dug where workers
+gather.
+
+Now digging happens where ants are already busy, and a lone ant at the far
+end of a quiet gallery leaves it. Over twelve test colonies the nest stayed
+inside its home ground every time, its longest gallery about two thirds the
+length it was, and it held a little over four empty cells per ant. The
+colonies were a little bigger than before on all twelve, and no hungrier.
+A founding queen and her first workers still dig alone, and an ant shut in
+still digs itself out.
+
+What is not right yet: the galleries are still straight. This keeps the
+nest the size of its colony; it does not give it rounded chambers.
 
 ### They lay two scents, and the two do not keep
 
