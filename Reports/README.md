@@ -42,6 +42,25 @@ by somebody about to try it on creatures.
 
 ## Method and architecture — read these first  ·  `engine`
 
+- [why-no-emergence-2026-10-14.md](why-no-emergence-2026-10-14.md) —
+  **diagnosis, 2026-10-14; nothing built and nothing run.** The owner's
+  question: why has the engine produced no unplanned behaviour, and why are
+  ants still not digging a realistic nest? **The goal is sound; the physics
+  layer already emerges. The creature layer failed by two approaches in
+  turn.** Evolution with no designed behaviour had one fitness axis and too
+  few generations. Rules aimed at named behaviours became a controller of
+  ~160 switches, and `creature.rs` grew from 2.7k to 55k lines. **The global
+  nest structures (BFS "way", flood-filled home, founding shaft, a 1-in-4
+  caste) are evidence of where local signals ran out, not the cause** (the
+  owner's correction). The causes, in order: **locally the nest is
+  featureless** (soil cannot hold or mark a cut, scent leaks through rock, the
+  field is one value per 16×16 cells, brood falls); **no energy margin** (the
+  median ant's reserve is about one forage round trip, so every placement
+  rule has failed through starvation); and **rules aimed at outcomes come out
+  as 24 `*_pull`/`*_target` destinations, which need a map**. The benchmark
+  is a specification past the published models, and the process filters out
+  the unplanned. Ends with what the evidence implies; every item there is the
+  owner's call.
 - [two-games-one-repo-2026-08-30.md](two-games-one-repo-2026-08-30.md) —
   **proposal, not yet built; revised after an adversarial review found its
   central recommendation was a no-op.** Answers whether two games on one
