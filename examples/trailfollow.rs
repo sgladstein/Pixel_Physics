@@ -1596,6 +1596,59 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
     let width = (nest_x_bed + gap + 60).max(256);
     let spec = LabBox { width, height: 192, ground_y: 96, soil_depth: 48, founders: 0, colonies: 0, seed, ..LabBox::default() };
     let mut w = spec.build();
+    // **`bridge=<rows>`: the equal-branch double bridge on the shipped ant**
+    // (PR 701 §10 item 1; `bridgebox` is its brainless-walker twin). A stone
+    // wall `bridgew=` (16) wide, the full height of the box, halfway between
+    // the nest and the food, so the only ways through are **two identical
+    // tunnels** 3 rows high: one with its floor on the ground, one `<rows>`
+    // higher, reached by climbing the wall's face. The scene cannot be
+    // symmetric under gravity, so the reading is against `arms=mute`: the
+    // share an arm sends through the upper tunnel, per seed, and whether the
+    // trail drives seeds apart (one tunnel each) where mute leaves them at its
+    // own bias. `BRIDGE` prints crossings of the wall's middle column by lane,
+    // empty and laden, over the whole run and its second half.
+    let bridge: Option<(i32, i32, i32)> = arg::<i32>("bridge").map(|sep| {
+        assert!(sep >= 5, "bridge={sep}: the upper tunnel must clear the lower one (5 rows or more)");
+        let bw: i32 = arg("bridgew").unwrap_or(16);
+        let wall_x0 = nest_x_bed + gap / 2 - bw / 2;
+        let stone = w.materials.id_of("stone").expect("stone");
+        // **`bridgeshape=diamond`: the same two tunnels, but neither is the
+        // easy one under gravity.** Ground-level mouths `MOUTH` cells deep on
+        // each face lead to a 3-wide shaft at each end of the wall, from
+        // `<rows>` above ground to `<rows>` below it; one tunnel runs across
+        // the top, one across the bottom. Each branch is one climb and one
+        // descent of the same height and the same length, mirrored, so the
+        // upper is climb-then-descend outbound and the lower descend-then-
+        // climb. `side` (the default) is the ground tunnel against a climbed
+        // one, which gravity decides on its own (upper share 0.07-0.15 muted).
+        let diamond = match arg_str("bridgeshape").as_deref() {
+            None | Some("side") => false,
+            Some("diamond") => true,
+            Some(v) => panic!("bridgeshape={v}: want side or diamond"),
+        };
+        const MOUTH: i32 = 3;
+        let ground = spec.ground_y;
+        let upper_floor = ground - sep;
+        let lower_floor = if diamond { ground + sep } else { ground };
+        assert!(!diamond || bw >= 2 * (MOUTH + 3) + 4, "bridgew={bw}: a diamond needs room for two mouths, two shafts and a span");
+        for x in wall_x0..wall_x0 + bw {
+            let (dx0, dx1) = (x - wall_x0, wall_x0 + bw - 1 - x);
+            for y in 0..spec.height {
+                let in_lower = (lower_floor - 3..lower_floor).contains(&y);
+                let in_upper = (upper_floor - 3..upper_floor).contains(&y);
+                let open = if diamond {
+                    let mouth = (dx0 < MOUTH || dx1 < MOUTH) && (ground - 3..ground).contains(&y);
+                    let shaft = ((MOUTH..MOUTH + 3).contains(&dx0) || (MOUTH..MOUTH + 3).contains(&dx1)) && (upper_floor - 3..lower_floor).contains(&y);
+                    let span = dx0 >= MOUTH && dx1 >= MOUTH && (in_lower || in_upper);
+                    mouth || shaft || span
+                } else {
+                    in_lower || in_upper
+                };
+                w.set(x, y, if open { Cell::EMPTY } else { Cell::new(stone, 0).with_attached(true) });
+            }
+        }
+        (wall_x0 + bw / 2, lower_floor, upper_floor)
+    });
     // **Channel A's persistence, before any ant walks.** See the rider docs.
     if let Some(r) = arg::<f32>("arho") {
         w.pheromones.set_channel_rho(Channel::A, r);
@@ -1992,6 +2045,27 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
     let mut active_x = if pile2 && !start_east { west_x } else { target_x };
     // The species' own sensor reach, not a literal -- see the along readout.
     let sensor_offset = w.species.get(species_id).creature.as_ref().expect("ant is a creature").sensor_offset;
+    // **`traits=<slot>:<value>[,...]`: set ant.ron's ancestral traits for this
+    // run**, the write `lab::scene`'s parameter rows make, before founding so
+    // every founder and every birth carries it. Built for `bridge=`: slot 21
+    // (`organism::TRAIT_LADEN_B`) at 1 has a laden ant read the food trail as
+    // a route as well as the nest scent, which closes the double bridge's
+    // loop (`bridgebox homeb=1`). Refused when it matches the file.
+    if let Some(spec_traits) = arg_str("traits") {
+        let mut cdef = w.species.get(species_id).creature.clone().expect("ant is a creature");
+        for item in spec_traits.split(',') {
+            let (slot, value) = item.split_once(':').expect("traits= takes slot:value[,slot:value]");
+            let slot: usize = slot.trim().parse().expect("a trait slot number");
+            let value: f32 = value.trim().parse().expect("a trait value");
+            assert!(slot < cdef.traits.len(), "traits={item}: slot {slot} is past the last trait");
+            assert!(
+                (cdef.traits[slot] - value).abs() > f32::EPSILON,
+                "traits={item} is already what the ant holds, so this arm is the shipped one wearing a different name"
+            );
+            cdef.traits[slot] = value;
+        }
+        w.species.set_creature(species_id, cdef);
+    }
     let placed = w.found_colony_of(nest_x, surface, "ant", ants);
     assert!(placed > 0, "no ants placed at the nest end; there is nothing to measure");
     // **A SHORT COLONY IS NOT A SMALLER EXPERIMENT, IT IS A DIFFERENT ONE**, and
@@ -2723,6 +2797,12 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
     if decision_csv || shadow || !cf_rules.is_empty() {
         w.decision_log = Some(Vec::new());
     }
+    // `bridge=` crossings: [lane 0 lower / 1 upper][0 empty / 1 laden], whole
+    // run and second half, and each ant's head column last frame so an ant
+    // standing in the middle column counts once.
+    let mut bridge_x = [[0u64; 2]; 2];
+    let mut bridge_late = [[0u64; 2]; 2];
+    let mut bridge_last: std::collections::HashMap<pixel_physics::sim::cell::OrganismId, i32> = std::collections::HashMap::new();
     let arm_name = match (trail, mute, paint) {
         (true, false, PaintA::None) => "hand",
         (true, true, PaintA::None) => "hmute",
@@ -2872,7 +2952,24 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
     let mut phase_now = SwapPhase::default();
     let (mut phase_start, mut phase_placed0, mut withdrawn, mut swaps) = (0u64, 0u64, 0u64, 0u32);
     let mut stale_x: Option<i32> = None;
+    // **`needs=walk needsat=<frame>`: the new ant** (the needs-and-jobs walk,
+    // `creature::needs`, parts `WalkParts::NEW_ANT` unless `needsparts=`),
+    // handed every ant at that frame as `deeptrace` does. Unset is today's
+    // game ant. Built 2026-10-14 so each textbook test runs both ants in the
+    // same scene (Scott's "Both ants", 22:43).
+    let needs_mode: Option<pixel_physics::sim::creature::needs::NeedsMode> =
+        arg_str("needs").map(|m| pixel_physics::sim::creature::needs::NeedsMode::parse(&m));
+    let needs_at: u64 = arg("needsat").unwrap_or(1);
+    let needs_parts = arg_str("needsparts").map_or(pixel_physics::sim::creature::needs::WalkParts::NEW_ANT, |p| {
+        pixel_physics::sim::creature::needs::WalkParts::parse(&p)
+    });
     for f in 1..=frames {
+        if let Some(mode) = needs_mode.filter(|_| f == needs_at) {
+            let mut walk = pixel_physics::sim::creature::needs::NeedsWalk::new(mode, w.frame);
+            walk.parts = needs_parts;
+            w.needs = Some(Box::new(walk));
+            println!("  NEEDS seed {seed}: frame {f} mode={mode:?} parts={}", needs_parts.label());
+        }
         // **`stop` is what turns this from a pull arm into a loop arm.** Up to
         // `stop` the trail is guaranteed, which breaks the circularity -- a
         // naturally laid trail needs commuters, and commuters need a trail
@@ -3767,6 +3864,17 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
             let Some(&(hx, hy)) = s.chain.first() else { continue };
             ant_ticks += 1;
             let carrying_larder = s.crop.is_some_and(|c| is_larder_food(c.material));
+            if let Some((mid_x, _, upper_floor)) = bridge {
+                let was = bridge_last.insert(id, hx);
+                if hx == mid_x && was.is_some_and(|px| px != mid_x) {
+                    let lane = usize::from(hy < upper_floor + 2);
+                    let laden = usize::from(carrying_larder);
+                    bridge_x[lane][laden] += 1;
+                    if f > frames / 2 {
+                        bridge_late[lane][laden] += 1;
+                    }
+                }
+            }
             // **`focalany` traces an ant that never finds food, and without it
             // the failing case is invisible.** The focal ant was chosen from
             // larder-carriers only, so in a seed where nobody reaches the food
@@ -5409,6 +5517,37 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
         }
     }
 
+    if let Some((mid_x, lower_floor, upper_floor)) = bridge {
+        // What each tunnel smells of at the end, along its floor-adjacent row
+        // through the wall: mean raw scent / 256, and the share of cells whose
+        // chooser presence (`x / (1 + x)` over a tenth of a deposit, as
+        // `creature::trail_presence`) is already above 0.9 -- i.e. reads as a
+        // full route whatever more traffic adds.
+        let bw: i32 = arg("bridgew").unwrap_or(16);
+        let half = pheromone::DEPOSIT as f32 / 10.0;
+        for (name, ch) in [("A", Channel::A), ("B", Channel::B)] {
+            let mut line = format!("  BRIDGE seed {seed} arm {arm_name} trail {name}:");
+            for (lane, floor) in [("lower", lower_floor), ("upper", upper_floor)] {
+                let (mut sum, mut sat, mut n) = (0.0f32, 0u32, 0u32);
+                for x in mid_x - bw / 2..mid_x + bw / 2 {
+                    let v = f32::from(w.pheromone_at(ch, x, floor - 1));
+                    sum += v / pheromone::SCALE as f32;
+                    let p = (v / half) / (1.0 + v / half);
+                    sat += u32::from(p > 0.9);
+                    n += 1;
+                }
+                line.push_str(&format!(" {lane} mean {:.1} presence>0.9 {}/{}", sum / n as f32, sat, n));
+            }
+            println!("{line}");
+        }
+        let share = |c: &[[u64; 2]; 2], k: usize| c[1][k] as f64 / (c[0][k] + c[1][k]).max(1) as f64;
+        println!(
+            "  BRIDGE seed {seed} arm {arm_name}: crossings lower/upper empty {}/{} laden {}/{} | second half empty {}/{} laden {}/{} | upper share, second half: empty {:.2} laden {:.2}",
+            bridge_x[0][0], bridge_x[1][0], bridge_x[0][1], bridge_x[1][1],
+            bridge_late[0][0], bridge_late[1][0], bridge_late[0][1], bridge_late[1][1],
+            share(&bridge_late, 0), share(&bridge_late, 1)
+        );
+    }
     Arm {
         near_ticks,
         ant_ticks,

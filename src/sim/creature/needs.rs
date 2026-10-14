@@ -2891,11 +2891,15 @@ fn walk_step(
         }
     };
     let planes = trail_planes(&walk, laden);
-    let route = |d: u8| trail_presence(world, (hx, hy), d, planes);
     let spent = scout_home && scout_dark && scout_w > 0.0 && food_trail_of(world).giveup;
     // **The carry home is held by a route's contrast, not its level**
     // (`CarryHome`'s `turn`, part of the carry here).
     let options: Vec<u8> = usable.iter().copied().chain(crossing.map(|_| heading)).collect();
+    // `PIXEL_PHYSICS_ROUTE_HALF` reaches this walk as it reaches the game's
+    // chooser (2026-10-14, so the textbook tests can run both ants under one
+    // switch); unset is `TRAIL_HALF` on both planes, as before.
+    let halves = route_halves(world, (hx, hy), planes, options.iter().copied());
+    let route = |d: u8| trail_presence(world, (hx, hy), d, planes, halves);
     let route_floor = if drive == Drive::Carry && trip {
         let f = options.iter().map(|&d| route(d)).fold(f32::INFINITY, f32::min);
         if f.is_finite() {

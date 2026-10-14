@@ -8465,8 +8465,9 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
         // the physical reading of laying a trail as you go. It does not touch
         // P-11 -- the deposit still happens only on a successful move.
         let (dx_, dy_) = if deposit_at_vacated() { (x, y) } else { (hx, hy) };
-        let amount_a = (emit_a * pheromone::DEPOSIT as f32) as pheromone::Scent;
-        let amount_b = (emit_b * pheromone::DEPOSIT as f32) as pheromone::Scent;
+        let topup = lay_topup();
+        let amount_a = (emit_a * pheromone::DEPOSIT as f32 * topup_scale(world, Channel::A, dx_, dy_, topup[0])) as pheromone::Scent;
+        let amount_b = (emit_b * pheromone::DEPOSIT as f32 * topup_scale(world, Channel::B, dx_, dy_, topup[1])) as pheromone::Scent;
         world.deposit_pheromone(Channel::A, dx_, dy_, amount_a);
         world.deposit_pheromone(Channel::B, dx_, dy_, amount_b);
         laid = (amount_a, amount_b, emit_b_brain, (dx_, dy_));
@@ -18782,6 +18783,46 @@ fn drop_through_bodies() -> bool {
     *V.get_or_init(|| std::env::var("PIXEL_PHYSICS_DROP_REACH").as_deref() != Ok("adjacent"))
 }
 
+/// **Lay less where the trail is already strong** --
+/// `PIXEL_PHYSICS_LAY_TOPUP=a:<units>,b:<units>` (either part may be left
+/// out; unset is the ant before it, bit-identical). A plane named here has
+/// each deposit scaled by `max(0, 1 - here / target)`, `here` the cell's
+/// scent and `target` in units of 255, so traffic tops a trail up toward the
+/// target instead of piling it to the ceiling. After *Lasius niger*:
+/// "high levels of trail pheromone suppress further pheromone deposition"
+/// (Czaczkes et al. 2012, J Exp Biol 216:188, doi 10.1242/jeb.076570), and
+/// crowding cuts the number of ants laying 5.6-fold (Czaczkes, Grüter &
+/// Ratnieks 2013, J R Soc Interface 10:20121009). Built 2026-10-14 for the nest scent's pile-up at 255 round the
+/// lab door and for a slower food trail that must not flood busy routes
+/// (`/mnt/project-files/emergence-sandbox/scale-grid-2026-10-14.md`).
+/// Charged on what is laid, as every deposit is.
+fn lay_topup() -> [Option<f32>; 2] {
+    static V: std::sync::OnceLock<[Option<f32>; 2]> = std::sync::OnceLock::new();
+    *V.get_or_init(|| {
+        let mut out = [None, None];
+        if let Ok(s) = std::env::var("PIXEL_PHYSICS_LAY_TOPUP") {
+            for part in s.split(',') {
+                let (k, v) = part.split_once(':').unwrap_or_else(|| panic!("PIXEL_PHYSICS_LAY_TOPUP: `{part}` is not a:<units> or b:<units>"));
+                let v: f32 = v.parse().ok().filter(|v: &f32| *v > 0.0).unwrap_or_else(|| panic!("PIXEL_PHYSICS_LAY_TOPUP: `{part}` needs a positive target"));
+                match k {
+                    "a" => out[0] = Some(v),
+                    "b" => out[1] = Some(v),
+                    _ => panic!("PIXEL_PHYSICS_LAY_TOPUP: `{part}`: plane must be a or b"),
+                }
+            }
+        }
+        out
+    })
+}
+
+/// The deposit's scale under [`lay_topup`]: 1 when the plane is not named.
+fn topup_scale(world: &World, channel: Channel, x: i32, y: i32, target: Option<f32>) -> f32 {
+    match target {
+        None => 1.0,
+        Some(t) => (1.0 - f32::from(world.pheromone_at(channel, x, y)) / (t * pheromone::SCALE as f32)).max(0.0),
+    }
+}
+
 fn deposit_at_vacated() -> bool {
     static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *V.get_or_init(|| std::env::var("PIXEL_PHYSICS_DEPOSIT_AT").as_deref() == Ok("vacated"))
@@ -25757,26 +25798,119 @@ fn update_hungry_home(world: &mut World, organism: OrganismId, def: &CreatureDef
     }
 }
 
+/// **`PIXEL_PHYSICS_ROUTE_HALF=<deposits>`: the scent at which a step reads
+/// as half a route**, in full deposits, for `trail_presence` alone (the door
+/// reader and the carrier's load read keep `TRAIL_HALF`). Unset is
+/// `TRAIL_HALF`, a tenth of a deposit, bit for bit.
+///
+/// **Why it is a question** (PR 701 follow-up, 2026-10-14): at a tenth of a
+/// deposit, presence saturates at about 4 of 255, so two routes that differ
+/// twelvefold in food trail read nearly alike. Measured on `trailfollow
+/// bridge=6` (two equal tunnels through a wall, gap 90, 3 seeds, 24k frames):
+/// trail B along the busy tunnel 72-98 of 255, along the other 2-8, which is
+/// presence 0.99 against 0.66 and a turn score of 3.97 against 2.98 -- a
+/// 1.3x preference where the scent differs 12x. Positive feedback on a
+/// route needs the preference to grow with traffic, and here it stops
+/// growing at a few units.
+///
+/// **`rel:<c>` is the relative form**: a heading's half is `c` times the
+/// strongest scent among the headings this ant can take (per plane), never
+/// below `TRAIL_HALF`. A route with nothing stronger beside it reads
+/// `1 / (1 + c)` however thin it is, so a lone faint trail is still followed
+/// as today; at a fork the weaker branch reads weak in proportion to the
+/// stronger one, which is the comparison a double bridge needs.
+/// **Off by default, for a measured harm.** On the two-tunnel bench
+/// `rel:1` concentrates traffic (upper share 0.03-0.07 against 0.16-0.24)
+/// with larger colonies (24k frames, 8 seeds, mean 236 against 190, 7 of 8
+/// higher), and on the size x distance grid it is neutral (`/mnt/project-
+/// files/emergence-sandbox/scale-grid-2026-10-14.md`). But on the lab's
+/// `nest_goal` bed (`deeptrace ants=0 founder=evolved food=120`, 300k,
+/// seeds 1-4, mutation off; not the `steady_income` main test)
+/// adults over 100k-300k fall **570 -> 461** (440-502 per seed, against main
+/// 542-603 and the nudged `land=6001` baseline 559-584), with brood up 229 ->
+/// 280. Untraced; both planes were relative in that run.
+/// `rel:<c>:b` (or `:a`) applies it to that plane only, the other keeping
+/// `TRAIL_HALF`: the laden ant reads the nest scent, which sits at its
+/// ceiling round the door, so the two planes are separate questions.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum RouteHalf {
+    /// A fixed half, in raw scent units (`TRAIL_HALF` when unset).
+    Fixed(f32),
+    /// Relative to the strongest option, times this factor, on the planes
+    /// marked (`[A, B]`).
+    Rel(f32, [bool; 2]),
+}
+
+pub fn route_half() -> RouteHalf {
+    static V: std::sync::OnceLock<RouteHalf> = std::sync::OnceLock::new();
+    *V.get_or_init(|| {
+        std::env::var("PIXEL_PHYSICS_ROUTE_HALF").ok().map_or(RouteHalf::Fixed(TRAIL_HALF), |s| {
+            let t = s.trim();
+            if let Some(rest) = t.strip_prefix("rel:") {
+                let (c, which) = rest.split_once(':').unwrap_or((rest, "ab"));
+                let c: f32 = c.parse().unwrap_or_else(|_| panic!("PIXEL_PHYSICS_ROUTE_HALF={s}: want rel:<factor>[:a|:b], e.g. rel:0.25"));
+                assert!(c > 0.0, "PIXEL_PHYSICS_ROUTE_HALF={s}: the factor must be above 0");
+                let planes = match which {
+                    "ab" => [true, true],
+                    "a" => [true, false],
+                    "b" => [false, true],
+                    _ => panic!("PIXEL_PHYSICS_ROUTE_HALF={s}: the plane must be a or b"),
+                };
+                RouteHalf::Rel(c, planes)
+            } else {
+                let d: f32 = t.parse().unwrap_or_else(|_| panic!("PIXEL_PHYSICS_ROUTE_HALF={s}: want a number of deposits (e.g. 1) or rel:<factor>"));
+                assert!(d > 0.0, "PIXEL_PHYSICS_ROUTE_HALF={s}: must be above 0");
+                RouteHalf::Fixed(d * pheromone::DEPOSIT as f32)
+            }
+        })
+    })
+}
+
+/// The raw scent a step along `d` reads on `channel`: the larger of the cell
+/// the head would enter and the one beyond it.
+fn route_scent(world: &World, head: (i32, i32), d: u8, channel: Channel) -> f32 {
+    let (dx, dy) = DIRS[d as usize];
+    let near = world.pheromone_at(channel, head.0 + dx, head.1 + dy);
+    let far = world.pheromone_at(channel, head.0 + 2 * dx, head.1 + 2 * dy);
+    f32::from(near.max(far))
+}
+
+/// The half each plane is read against for this decision ([`route_half`]),
+/// given the headings on offer.
+fn route_halves(world: &World, head: (i32, i32), planes: [f32; 2], headings: impl Iterator<Item = u8> + Clone) -> [f32; 2] {
+    match route_half() {
+        RouteHalf::Fixed(h) => [h; 2],
+        RouteHalf::Rel(c, on) => {
+            let mut out = [TRAIL_HALF; 2];
+            for (i, channel) in [Channel::A, Channel::B].into_iter().enumerate() {
+                if planes[i] == 0.0 || !on[i] {
+                    continue;
+                }
+                let top = headings.clone().map(|d| route_scent(world, head, d, channel)).fold(0.0, f32::max);
+                out[i] = (c * top).max(TRAIL_HALF);
+            }
+            out
+        }
+    }
+}
+
 /// **Is the step along `d` onto a route?** The scent where the head would go
 /// and one cell beyond, the larger of the two (plan §4b: about an antenna's
 /// reach for a two-cell ant), saturated as `x / (1 + x)` over `TRAIL_HALF`.
 /// Trail B for an ant carrying no food, trail A for one that is (plan §4d:
 /// the laden ant reads the nest's trail, never its own).
-fn trail_presence(world: &World, head: (i32, i32), d: u8, planes: [f32; 2]) -> f32 {
+fn trail_presence(world: &World, head: (i32, i32), d: u8, planes: [f32; 2], halves: [f32; 2]) -> f32 {
     // **Which plane is a route is the ant's own** (`organism::TRAIL_PLANE_
     // SLOTS`): each plane's saturated presence, weighted by the inherited
     // weight for this ant's state, summed and floored at 0. A zero weight
     // reads nothing, so the ancestral ant (weights 1 and 0) samples exactly
     // the one plane the hard-coded choice did, and `1 * p` is `p` to the bit.
     let mut sum = 0.0;
-    for (channel, w) in [(Channel::A, planes[0]), (Channel::B, planes[1])] {
+    for (i, (channel, w)) in [(Channel::A, planes[0]), (Channel::B, planes[1])].into_iter().enumerate() {
         if w == 0.0 {
             continue;
         }
-        let (dx, dy) = DIRS[d as usize];
-        let near = world.pheromone_at(channel, head.0 + dx, head.1 + dy);
-        let far = world.pheromone_at(channel, head.0 + 2 * dx, head.1 + 2 * dy);
-        let x = f32::from(near.max(far)) / TRAIL_HALF;
+        let x = route_scent(world, head, d, channel) / halves[i];
         sum += w * (x / (1.0 + x));
     }
     sum.max(0.0)
@@ -26553,7 +26687,8 @@ fn chooser_step(
         }
     };
     let planes = trail_planes(&walk, laden);
-    let route = |d: u8| if reads_trail { trail_presence(world, (hx, hy), d, planes) } else { 0.0 };
+    let halves = if reads_trail { route_halves(world, (hx, hy), planes, usable.iter().copied().chain(crossing.map(|_| heading))) } else { [TRAIL_HALF; 2] };
+    let route = |d: u8| if reads_trail { trail_presence(world, (hx, hy), d, planes, halves) } else { 0.0 };
     // **Stage 3, the give-up lets go** (`FoodTrail::giveup`,
     // `Reports/ant-scenes-2026-09-23.md` §23d): a scout that has given up is
     // no longer held by the trail it gave up on. The away term is 0, the pull
