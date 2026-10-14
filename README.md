@@ -10913,6 +10913,7 @@ declared every waiting herb, shrub, tree, conifer, creeper and scrambler seed
 starved after 200 ticks, and its age ran from the frame it was set. On the
 owner's rain-off bed the bank now keeps herb, shrub, tree, conifer and grass
 to 1M (creeper never had more than 3 seeds there), and rain back at 2M
-brings herbs up with the grass (off: nothing comes back). Planted bed, 12 seeds: colony and
-plants inside the one-frame spread, waiting bank 198 -> 303. Record:
+brings herbs up with the grass (off: nothing comes back). Planted bed, 12
+seeds: colony and plants inside the one-frame spread, waiting bank 170 -> 264,
+larger on all 12 seeds. Record:
 `/mnt/project-files/playtest-2026-10-12-plants/seed-bank-results.md`.
