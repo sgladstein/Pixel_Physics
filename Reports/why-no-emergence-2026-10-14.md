@@ -1,10 +1,13 @@
 # Why this engine has not produced emergent behaviour: a diagnosis (2026-10-14)
 
-**Status: diagnosis, nothing built and nothing run.** Read from the source at
-`bb8a2151` and from the record (`Reports/`, `wiki/`, git history). The new
-numbers here are counts taken from git and grep, and each one says what it
-counts. Every other figure is quoted from the report that measured it, which
-is named beside it. Section 11 says what this report did not do.
+**Status: diagnosis; nothing built.** Read from the source at `bb8a2151` and
+from the record (`Reports/`, `wiki/`, git history). **§5 is measured**: 16
+runs of the shipped game, scripts in
+[`why-no-emergence-2026-10-14/`](why-no-emergence-2026-10-14/). **§6 is checked
+against the literature**, from search results and abstracts. Other new numbers
+are counts from git and grep, and each one says what it counts. Every other
+figure is quoted from the report that measured it, which is named beside it.
+Section 11 says what this report did not do.
 
 **The question** (owner's brief, 2026-10-14): the goal is *"a world that feels
 alive on its own with unplanned emergent behavior that I can explore and
@@ -30,6 +33,13 @@ after continued failure using local signals."* That is right, and this
 report now treats each concession as a marker of where a local signal ran
 out. The question becomes **why local signals keep failing here**, and §3.2,
 §4 and §5 answer it.
+
+**A third correction, from measurement, later the same day.** The first draft
+gave the second cause as *"no energy margin"*. That was arithmetic on a
+figure taken at famine, and measuring it refuted it. A forager leaves with a
+median of 8–10 round trips of reserve. The placement rule that still kills
+does so by jamming the nest's one narrow exit (§5). §0, §5, §9 and §10 are
+rewritten to match.
 
 ---
 
@@ -77,14 +87,19 @@ Three causes, in order of weight:
    that needs "the brood place" or "the way out" has nothing local to read.
    **Every global concession is the engine supplying a difference the world
    failed to carry** (§4).
-2. **The ants have no energy margin, so every rule about where to be is a
-   rule about who starves.** A colony at the end of its food holds a median
-   of about 1,000–1,500 frames of living per ant (measured). By arithmetic, a
-   round trip to food 90 columns away takes about the same, 1,700 frames or
-   more. Rules that keep an ant somewhere other than food (resting inside,
-   nursing, staying deep, carrying brood) have failed through starvation
-   again and again, not on their own terms. That forced the hunger-first
-   architecture: one pull slot, vetoes, a floor on every rule (§5).
+2. **The nest has one narrow way out, and a rule that gathers ants by the
+   brood jams it** (measured, §5).
+   - **The energy reserve is not the problem.** With food 90 columns away,
+     a forager leaves with a median of 8–10 round trips of reserve, and
+     starvation is under 1% of deaths in a settled colony.
+   - **The jam is.** Turn on the rule that keeps nurses with the brood, and
+     the door shaft holds nearly twice its usual crowd, because the brood
+     lies in the shaft under the door. 1,349–3,482 adults per run then
+     starve, mostly inside an open nest. They are pulled toward the door
+     and keep moving, and 97–99% never get within 5 cells of it.
+   - **Real ants keep narrow tunnels flowing by staying out of them when
+     idle** (Aguilar et al. 2018). Here, the place a placement rule
+     gathers ants is the only way out.
 3. **A rule aimed at a named behaviour comes out as "go to X", and "go to X"
    needs a map.** The ant's code has 24 destination functions (`*_pull`,
    `*_target`): to the store, the door, the brood, the way out, the ring, the
@@ -97,22 +112,25 @@ Three causes, in order of weight:
 
 Two things make all three worse:
 
-- **The benchmark is a specification past the research frontier** (§6). The
-  current goals are a stable population, a colony living in its nest,
-  separate brood, rest and food chambers, and foraging from far off, all
-  from local rules. Each published nest model produces one feature, in
-  isolation, with no economy.
+- **The benchmark is a specification past the research frontier** (§6,
+  checked). The current goals are a stable population, a colony living in
+  its nest, separate brood, rest and food chambers, and foraging from far
+  off, all from local rules. Each published nest model produces one feature,
+  in isolation, mostly with no economy. Biology does not know the local cue
+  that stacks chambers by depth: the one proposed (a CO₂ gradient) was
+  vented away in the field and nothing changed. An independent 2026 attempt
+  at the same goal hit the same failures and made the same concessions.
 - **The process filters out the unplanned and makes exploration expensive**
   (§7). Unplanned outcomes become switches that suppress them, mutation is
   frozen in testing, and every experiment is 12 seeds × 300,000 frames with
   the whole economy on. So no local rule has ever been seen on its own, on a
-  substrate that could carry it, with nothing starving.
+  substrate that could carry it, in a nest that does not jam.
 
 **Verdict:** the *goal* is right, and the *benchmark* chosen to prove it is
 wrong. On *design*, the physics layer is right. The creature layer runs on a
 medium that suits destruction and cannot carry the local differences that
-construction and placement need, inside an economy too tight for any
-behaviour but foraging. The *process* is well tuned for verification and
+construction and placement need. And its nest has one narrow exit, with the
+brood inside it. The *process* is well tuned for verification and
 badly tuned for exploration (§9). Section 10 sets out what that implies. Every
 item in it is the owner's decision.
 
@@ -420,81 +438,214 @@ inside the noise"*).
 
 ---
 
-## 5. Cause 2: no energy margin, so every placement rule is a starvation rule
+## 5. Cause 2: one narrow way out, and rules that gather ants by the brood jam it (measured)
 
-**Measured:** in `boom-and-bust-2026-10-08/README.md`, when the food ran out
-*"the median ant holds 107-169 J, about 1,000-1,500 frames of living"*, and
-*"there is no reserve anywhere"*. The same report finds the richest tenth
-holding 1,100–4,700 J, and spending it on eggs rather than on surviving the
-famine. `ant.ron` sets `start_energy` at 200 J, about the median figure
-above.
+The first draft of this section said the ants had no energy margin. It took
+the median ant's reserve from the boom-and-bust trace, which was measured at
+famine, and estimated the trip by arithmetic. The owner asked for both to be
+measured. **Measured, the claim was wrong**, and what the measurement found
+in its place is below.
 
-**Inferred, by arithmetic from `how-the-ant-works.md` §1 and §4.** An ant
-decides once every 6 frames. A laden ant steps on 0.76 of decisions, so about
-8 frames a cell. An empty ant steps on 0.20 of decisions when fed and 0.53
-when hungry, so 11–30 frames a cell. Food 90 columns away is then about 700
-frames home and 1,000 or more out, on a straight path, so 1,700 frames or
-more for the round trip. **The median ant's reserve is about one foraging
-round trip.** Real workers commonly survive for days without food on trips of
-minutes (general knowledge, not checked against a source here).
+**Setup.** `deeptrace` on the shipped game, built from `bb8a2151`. The dry
+goal box (`nest_goal`), the evolved founder, mutation off, seeds 1–4, 300,000
+frames, `ants=60 hungry=1 mapevery=1000`. That records:
+- every decision of 60 focal ants, refilled as they die;
+- every decision of every hungry ant;
+- every death, with its cause and place.
 
-With a margin that thin, any rule that keeps an ant away from food for a
-trip's length kills it. The record of failed placement rules reads exactly
-like that (PLAN §5):
+There were four arms:
+- food 30 columns from the nest (the box's own);
+- food 90 (`foodgap=90`);
+- food 30 with `PIXEL_PHYSICS_NURSE_STAY=on`;
+- food 30 with `PIXEL_PHYSICS_NEST_REST=workers`.
 
-| rule | meant to | what killed it |
+The last two are rules the record lists as failing through starvation (PLAN
+§5). The run line and the three readers (`margin.py`, `starvers.py`,
+`stuckway.py`) are in
+[`why-no-emergence-2026-10-14/`](why-no-emergence-2026-10-14/). The run data
+regenerates deterministically and is not in the repo. The reserve is read over
+frames 100k–300k (the settled colony) and deaths over 20k–300k.
+
+### 5.1 The reserve is several round trips deep
+
+The cross-check on the burn rate: hungry ants starting near 200 J lasted
+2,300–3,400 frames, as 0.077 J a frame predicts. Ranges are over the four
+seeds:
+
+| | food 30 | food 90 |
 |---|---|---|
-| `NURSE_STAY`, `pace` | keep nurses with the brood | *"Nurses moved the colony's food from adults to larvae; hungry adults died in the traps; `pace` killed 4 of 4"* |
-| `NEST_REST=workers` | give workers a resting place inside | *"Shrank colonies late on 9 of 12 seeds; deaths ran through the pellet trap"* |
-| `BROOD_CARRY` + `BROOD_DEEP` | separate brood | colony 736–796 → 478–598, *"larvae starved 0.8-1.1k to 4.5-7.2k"* |
-| "Two crowds" | separate chambers (*"the only rule that ever made separate brood chambers"*) | *"brood floods the floor, deep ants stop being fed"* |
-| Two digging modes below ground | chambers | *"99% of its 16,448 nest starvers died in the store crumb trap"*; inconclusive |
-| `LOST_HOME`, `HOME_SEARCH`, `HUNGRY_HOME` | bring lost carriers home | *"cost trip food"* |
-| The new ant | needs, then jobs, then rest | *"colonies collapsed (starved 338-799)"* |
+| burn, J a frame (empty crop, nothing digesting) | 0.077 | 0.077 |
+| reserve over all focal decisions, median (frames of living) | 16,900–20,400 | 5,200–9,200 |
+| round trip, median (p90), frames | 80–110 (265–420) | 885–940 (1,290–1,610) |
+| reserve at departure ÷ that trip, median | 450–810 | 8.3–10.2 |
+| … 10th percentile | 46–95 | 3.4–3.8 |
+| trips begun with under one round trip of reserve | 0% | 0.2–2.0% |
+| adults starved after frame 20,000 (of all deaths) | 0–6 (of 3,074–3,496) | 2–28 (of 3,276–3,613) |
 
-**None of these failed on its own terms.** Each failed because moving ants
-around moved who ate. That is also why the owner's principles now say
-*"Hunger is a base need that overrides every rule"* and *"no veto without a
-floor"* (PLAN §2.4). Those are the right responses to this margin. But they
-make every placement rule conditional on hunger, so the colony's spatial
-behaviour is set by its food flow first and its rules second.
+At food 30 the heap's zone touches the mound, so those trips are short. Food
+90 is the real test. There the median forager leaves with about **nine round
+trips** of reserve. The earlier arithmetic was wrong twice: it put the trip at
+1,700+ frames against a measured median of about 930, and it took the reserve
+from a colony at famine.
 
-Real colonies separate the two by buffering: stored food in the crops of
-replete workers, fat bodies, and a long starvation tolerance. A larder rule
-cannot stand in for a margin, because the store is itself a place the ant has
-to walk to.
+**The reserve is thin in only two places.** One is founding: 14–35 of the 52
+founders starve before frame 20,000, starting on 200 J. The other is famine:
+the boom-and-bust figure.
+
+### 5.2 Who starves in a settled colony
+
+Few ants starve, and not for want of reserve. Each starver's last hunger spell
+began near its full grant (median 0.99–1.00 of `start_energy`) and lasted
+2,300–3,300 frames, two to three round trips at food 90, without reaching the
+heap. There are two kinds:
+
+- **Lost.** On food-90 seed 2, 25 ants died within 3,000 frames (frames
+  239,374–242,194). All were at the far west of the box (x 4–123), on the
+  opposite side of the nest from the heap (x 346). Others died on the box's
+  east wall or its ceiling (y 4), both of which ants can walk. They had the
+  time but not a way back. That is cause 1 again, out on the open ground.
+- **Held.** The rest spent most of their last spell under a pull that does
+  not lead to food: `spoil haul`, `soil way out`, `laden home`. That is
+  §3.2's destination rules.
+
+### 5.3 The two placement rules
+
+**`NEST_REST=workers` no longer kills.** Adults starved 20–24 a run against
+26–36 on the baseline, and colonies ended at 584–925 ants against 558–612. Its
+recorded failure (*"deaths ran through the pellet trap"*) belonged to a `main`
+from before the hunger-first rules, as PLAN §5 already notes.
+
+**`NURSE_STAY=on` kills, through a jam.** It fired: crop food to brood rose
+about 100-fold, with 248k–317k nurse seeks a run, and larvae starved 0–20
+against 39–44. Adults starved **1,403–3,563 a run against 26–36**. Of the
+1,349–3,482 starvers a run after frame 20,000:
+
+- **99–100% had an open path to the door** when last seen (`starvewhere.py`:
+  0–3 a run sealed in, pocketed or encased);
+- they died in the nest (all of them on three seeds; 73% on seed 2), mostly
+  under the `hungry out` pull toward the door, and moved on 52–56% of their
+  decisions;
+- each nest starver began its last hunger spell about 14 rows down, climbed
+  to about 6, and died 8–9 down. **Only 1–3% came within 5 cells of the
+  door** (median closest 10–12), after a median 4,200–4,500 frames hungry,
+  about 40 round trips at this food distance;
+- on three seeds the door shaft (7 columns × 16 rows under the door) held
+  129–138 ants, 115–123% of its cells because ants stack, against 68–71 on
+  the baseline. The fourth seed had no jam (69) and the fewest starvers.
+
+So these ants had reserve and an open way out, and could not get through the
+crowd standing in the shaft. Nurses gather at the brood, and the brood lies
+in the shaft under the door. `SHAFT_ROOMS`' brood box sits at the door, and
+*"most deep ants sit on the brood pile in the shaft under the door"*
+(`how-we-test.md` §4).
+
+### 5.4 What this changes
+
+**Cause 2 is not the energy economy. It is the nest's geometry**: one narrow
+way out, with the brood in it, and with it every rule that gathers ants by the
+brood. The record had found the same jam from other directions:
+- *"a direct way that is narrow and packed with ants"* (`moundway.py`);
+- *"the solid column of ants in the door standing on brood"*
+  (`fedboundary.py`);
+- layers *"blocked by a crowd at the door"* (PLAN §5).
+
+Real ants face exactly this problem in narrow tunnels. They solve it by
+staying out of the tunnel when idle and backing out of clogs (Aguilar et al.
+2018, §6). Here, the place an idle nurse is drawn to is inside the tunnel.
+
+It also ties back to cause 1. A nest that carried local differences, such as
+a brood place off the shaft, would not put its gathering point in its exit.
+The brood is in the shaft because the ground carries no other place for it
+(§4: brood is a powder that falls, and the box exists to catch it).
+
+The hunger-first principles in PLAN §2.4 stand, because held starvers are
+real. But they are guards against rule vetoes, not against a thin margin.
 
 ---
 
-## 6. The target is past the research frontier
+## 6. The target is past the research frontier (checked against the literature)
 
-The owner's goals, held since 2026-10-03 (PLAN §1): **a stable population**,
-**the colony lives in its nest**, **separate chambers** (*"brood in one place,
-resting workers in another, food stored apart from the brood"*), **foraging
-from a far food spot**, and **"All of it emerges from the ants' own rules.
-No drawn rooms, no scripted building, no fixed castes where a rule could do
-it."** Each rule must cite the biology.
+The owner's goals, held since 2026-10-03 (PLAN §1):
+- **a stable population**;
+- **the colony lives in its nest**;
+- **separate chambers**: *"brood in one place, resting workers in another,
+  food stored apart from the brood"*;
+- **foraging from a far food spot**;
+- **"All of it emerges from the ants' own rules. No drawn rooms, no scripted
+  building, no fixed castes where a rule could do it."**
 
-The literature this repo collected
-(`ant-sim-literature-review-external-2026-09-19.md`) is clear about what the
-construction models do. Each reproduces **one** architectural feature, in a
-controlled arena, at a fixed population, with **no energy economy**:
+Each rule must cite the biology.
 
-- Toffin 2009: the round-to-branching shape transition.
-- Buhl 2004 and 2006: self-organised digging, and tunnel networks.
-- Khuong 2016: pillars and roofs from a decaying cement pheromone.
+**Checked on 2026-10-14 by literature search.** This container's network
+policy refused the papers themselves, so what follows rests on abstracts and
+search summaries. One exception is the hobby model in item 4, which was read
+from its repository. Sources are listed at the end of this report.
 
-None of them produces brood rooms, resting rooms and food stores together, in
-a colony that has to feed and breed itself to stay alive while it builds. As
-far as this report can tell, **that combination is an open research
-problem**, and it has been set as a game milestone.
+1. **No model found does what the goals ask.** Nothing, peer-reviewed or not,
+   grows functionally different chambers (brood, food, rest) from local rules
+   in a colony that must also feed and breed itself.
+2. **Each published construction model produces one feature,** in a
+   controlled arena and mostly at a fixed population:
+   - **Bonabeau et al. 1998.** Pillars, walls and a *royal chamber*, from a
+     cement pheromone plus a template the queen emits; air flow and traffic
+     change which forms appear. This is the one published route to a
+     *functional* chamber, and it is a template: a diffusing signal from the
+     thing the chamber is for.
+   - **Khuong et al. 2016.** Pillars and roofs from a cement pheromone, whose
+     lifetime is the most influential parameter, plus the ant's own body as a
+     ruler for roof height.
+   - **Pitonakova & Bullock 2013.** Nest walls from a pheromone template and
+     the ants' bodies.
+   - **Toffin et al. 2009.** The round-to-branching shape, from digger
+     density.
+   - **Buhl et al. 2004 and 2005.** Excavation that stops on its own, with
+     nest volume proportional to colony size.
+   - ***Camponotus fellah*, eLife 2024/2025.** Each ant digs toward its own
+     age-dependent space target, so colony demography shapes the nest. This
+     is the nearest any model comes to coupling building to colony life.
+   - **Ganga Prasath et al. 2022.** How diggers shift from random to
+     coordinated digging.
+3. **Biology does not know the local cue for stacking chambers by depth.**
+   Tschinkel proposed the soil CO₂ gradient as the template. Venting the
+   gradient away left nest architecture and ant distribution unchanged
+   (Tschinkel 2013, *PLOS ONE*; the abstract says so). A whole-colony model's
+   own sources page puts it plainly: *"The hypothesis is dead and no
+   replacement exists."* That model hands each ant its depth as *"the largest
+   invented element in the model."*
+4. **The closest whole-colony effort hit this repo's failures.** ANThill-Sim
+   (2026) is an open, cited hobby model of *Pogonomyrmex badius*, not
+   peer-reviewed. It digs, forages, stores seed and feeds brood. Its README
+   reports caverns where stacked chambers should be, and colonies that grow,
+   then starve their larvae. It also made the concessions this repo made:
+   - the founding nest is supplied;
+   - founding spoil is *"counted onto the surface without her walking it
+     up"*;
+   - the share of diggers who go to the face is *"invented and fitted"*;
+   - each ant is handed its own depth.
+5. **Tunnels stand because of the medium.** Tunnel stability in granular soil
+   depends on grain size, tunnel diameter and water content (*Granular
+   Matter*, 2018). The soil around ant tunnels forms load-bearing arches
+   (Buarque de Macedo et al. 2021, *PNAS*). Laboratory excavation is run in
+   *wetted* glass beads (Aguilar et al. 2018). That is §4's falling-sand
+   point, from the physics side.
+6. **Narrow tunnels jam, and ants manage it.** Fire ants keep excavation
+   flowing in narrow tunnels by individual idleness and by retreating from
+   clogs (Aguilar et al. 2018, *Science*). That is §5's jam, solved by ants
+   staying out of the way.
+
+**So the claim stands, with a sharper edge.** The combination the goals ask
+for is beyond published models. One piece of it, chambers stratified by
+depth, is beyond published biology, so "cite the biology" cannot be met for
+it. An independent attempt with the same aim made the same concessions this
+repo did, which suggests the concessions are the problem's shape, not this
+team's lapses.
 
 **There is also a tension inside the brief.** *Realistic* means matching what
 real ants do. *Unplanned* means matching nothing anyone wrote down. With the
 goal stated as fidelity to a known biology (*"cite the biology"*), every
-departure from real ants is a defect by definition. So the most likely
-source of something unplanned, an ant colony that behaves like no real one,
-is filtered out by the definition of success.
+departure from real ants is a defect by definition. So the most likely source
+of something unplanned, a colony that behaves like no real one, is filtered
+out by the definition of success.
 
 ---
 
@@ -609,10 +760,10 @@ doctrine promised for free.
 | | verdict | why |
 |---|---|---|
 | **The goal** (a living world, unplanned behaviour, simple rules) | **Sound** | The physics layer already delivers it. Precedent outside this repo is broad: termite chip-piling in three rules, trail networks, slime-mould networks, falling-sand chemistry |
-| **The benchmark** (a realistic nest with separate chambers in a self-financing colony, all emergent) | **Wrong as a first proof** | It is a specification, past the published models, and its "realistic" half defines departures as defects (§6) |
+| **The benchmark** (a realistic nest with separate chambers in a self-financing colony, all emergent) | **Wrong as a first proof** | It is a specification past the published models, and one piece of it (stratified chambers) past the published biology. Its "realistic" half defines departures as defects (§6) |
 | **Engine design: physics layer** | **Right** | It follows the doctrine and it emerges (§1) |
 | **Engine design: creature layer** | **Cannot support local rules for construction or placement** | Locally, the nest is featureless: soil that cannot hold or mark a cut, scent through rock, a field flat at ant scale, brood that falls (§4). The engine-held nest structure is the evidence of that, not its cause (§3.3) |
-| **Engine design: the colony economy** | **Too tight for any behaviour but foraging** | Reserve ≈ one round trip, so every placement rule fails through starvation (§5) |
+| **Engine design: the nest's way out** | **One narrow exit with the brood in it** | Not the economy: a forager carries about nine round trips of reserve. A rule that gathers ants by the brood packs the shaft, and the ants behind the jam starve with an open path (§5) |
 | **Approach 1** | **Failed on search economics** | One fitness axis, unpaid verbs, slow generations, a designed starting point (§2) |
 | **Approach 2** | **Succeeded as a controller, so it cannot give the unplanned** | Rules aimed at outcomes come out as destinations that need maps; one rule per failure, accepted on its target; about 160 switches; interference grows with the count (§3) |
 | **Process** | **Built for verification, not exploration** | Unplanned outcomes become defects; mutation is frozen; every test runs the full economy; reading costs dominate (§7) |
@@ -635,7 +786,7 @@ supports, and none of them is built here.
 
    If the engine cannot produce these, the fault is in the medium, and no
    amount of rule-writing upstream will fix it. Each is days of work, not
-   weeks. This also tests cause 1 directly, with cause 2 removed.
+   weeks. This also tests cause 1 directly, with no exit to jam.
 2. **Make places differ locally.** This is what the concessions stand in for,
    so it is what lets them go.
    - Soil that holds a cut by its own physics, with graded,
@@ -647,11 +798,17 @@ supports, and none of them is built here.
 
    Then retire each concession in §3.3 one at a time against the local signal
    that replaces it, the BFS "way" first.
-3. **Give the colony a margin, then test placement rules with it.** A
-   reserve several round trips deep, in bodies or in replete crops that
-   travel with the ant, so that resting, nursing and staying deep stop being
-   lethal by default. Until then, test any placement rule with starvation off
-   as well as on. Otherwise every result is a reading of the food flow.
+3. **Keep the gathering points out of the exit, and score placement rules
+   on the way out.** The brood sits in the door shaft because nothing else
+   holds it (§4, `SHAFT_ROOMS`). Any rule that draws ants to the brood
+   therefore draws them into the only way out.
+   - Score every placement rule on the door shaft's occupancy as well as its
+     own target. This report's `stuckway.py` and the repo's `moundway.py`
+     and `fedboundary.py` already measure it.
+   - Treat the brood's place as the thing to fix: a place the world itself
+     marks (item 2), off the shaft, as real nests have.
+   - The margin does not need raising. The measured reserve is about nine
+     round trips (§5.1).
 4. **Prefer reactive rules to destinations.** Write a rule as "act on what is
    here" rather than "go to X". A rule that needs a `*_target` is a sign that
    the world does not carry the difference it depends on (item 2).
@@ -670,18 +827,48 @@ supports, and none of them is built here.
 
 ## 11. What this report did not do
 
-- **No new runs.** Every behavioural number is quoted from the report named
-  beside it. The new numbers (switch dates, line counts, commit counts, word
-  counts) are counts from git and grep at `bb8a2151`. Their method is stated
-  where they appear.
+- **Runs: §5 only.** Sixteen 300,000-frame runs of the dry goal box, four
+  arms × seeds 1–4, on one machine. Four seeds is enough to refute "the
+  median reserve is about one trip": the refuting margin is ninefold on every
+  seed. It is enough for a picture of the jam, not to settle its size.
+  `NURSE_STAY` was run at food 30 only, and the food-90 arm without the
+  placement rules. Every other behavioural number is quoted from the report
+  named beside it. Switch dates, line counts, commit counts and word counts
+  are counts from git and grep at `bb8a2151`; their method is stated where
+  they appear.
+- **The jam is traced, not intervened on.** The door shaft's crowd and the
+  starvers' failure to reach the door go together on 3 of 4 seeds, and the
+  unjammed seed had the fewest starvers. No run cleared the shaft to show the
+  deaths stop.
 - **The approach boundary (about 2026-09-19) is inferred** from the switch
   dates and the owner's correction. Switches dated before 09-19 are mostly
   probes, parallelism and breeding. After it they are behavioural
   (`DIG_DOWN`, `NEST_SHAFT`, `SPOIL_HAUL`, `HOME_TARGET`, …).
-- **The individual-selection point in §2, the trip arithmetic in §5 and the
-  research-frontier claim in §6 are inferences**, the second from the repo's own literature review rather
-  than a fresh survey.
+- **The individual-selection point in §2 is an inference**, not measured.
+- **The literature in §6 rests on search results and abstracts.** This
+  container's network policy refused the papers, so nothing in §6 was read in
+  full except the ANThill-Sim repository. The reversed-CO₂ arm of Tschinkel
+  2013 could not be read; only the vented arm is cited.
 - **Plants (§8) were read, not traced.**
 - **Not read whole:** `README.md`, `PLAN.md`, `dead-ends.md`,
   `open-bugs-handoff.md` and most dated ant reports. They were read by
   section and grep, per `CLAUDE.md`.
+
+---
+
+## Sources (§6)
+
+- Bonabeau, Théraulaz, Deneubourg, Franks, Rafelsberger, Joly & Blanco (1998). *A model for the emergence of pillars, walls and royal chambers in termite nests.* Phil. Trans. R. Soc. B 353:1561–1576. [Bristol record](https://research-information.bris.ac.uk/en/publications/a-model-for-the-emergence-of-pillars-walls-and-royal-chambers-in-/); [SFI working paper abstract](https://ideas.repec.org/p/wop/safiwp/97-04-033.html)
+- Ladley & Bullock (2005), the 3D extension. [Southampton eprint](https://eprints.soton.ac.uk/261442/1/ladley_bullock_jtb.pdf)
+- Khuong et al. (2016). *Stigmergic construction and topochemical information shape ant nest architecture.* PNAS 113(5):1303–1308. [HAL](https://hal-univ-tlse3.archives-ouvertes.fr/hal-02324165); [PMC](https://pmc.ncbi.nlm.nih.gov/articles/PMC4747701)
+- Pitonakova & Bullock (2013). *Controlling ant-based construction.* ECAL 2013. [Southampton eprint](https://eprints.soton.ac.uk/361147/1/controllingAntBasedConstruction.pdf)
+- Buhl et al. (2005), excavation dynamics and nest volume against colony size. [HAL](https://hal-univ-tlse3.archives-ouvertes.fr/hal-00093178v1)
+- *Colony demographics shape nest construction in* Camponotus fellah *ants*, eLife (2024 reviewed preprint; 2025 article). [eLife](https://elifesciences.org/articles/100706); [PMC](https://pmc.ncbi.nlm.nih.gov/articles/PMC13102390/); [bioRxiv](https://www.biorxiv.org/content/10.1101/2024.07.09.602713.full.pdf)
+- Ganga Prasath et al. (2022), cooperative excavation, eLife. [eLife PDF](https://elifesciences.org/articles/79638.pdf)
+- Tschinkel (2013). *Florida harvester ant nest architecture, nest relocation and soil carbon dioxide gradients.* PLOS ONE 8:e59911. [PMC](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC3610692/)
+- Tschinkel (2015). *The architecture of subterranean ant nests: beauty and mystery underfoot.* [AntWiki PDF](https://www.antwiki.org/w/images/8/83/Tschinkel,_W.R._2015._The_architecture_of_suberranean_ant_nests_-_buauty_and_mystery_underfoot.pdf)
+- Aguilar et al. (2018). *Collective clog control: optimizing traffic flow in confined biological and robophysical excavation.* Science 361:672. [PDF](https://crablab.gatech.edu/pages/publications/pdf/science-2018.pdf)
+- Espinoza & Santamarina (2010). *Ant tunneling — a granular media perspective.* Granular Matter 12:607–616 (abstract only). [mirror](https://community.altair.com/discussion/40523/ant-tunneling-a-granular-media-perspective)
+- *Stability of granular tunnel* (Granular Matter, 2018). [arXiv](https://arxiv.org/pdf/1802.07906)
+- Buarque de Macedo et al. (2021). *Unearthing real-time 3D ant tunneling mechanics.* PNAS. [Caltech](https://resolver.caltech.edu/CaltechAUTHORS:20210824-153629422)
+- ANThill-Sim (2026), an open hobby model of *Pogonomyrmex badius*, not peer-reviewed; read from its repository (README and `docs/SCIENCE.md`, commit of 2026-09-25). [GitHub](https://github.com/Adiezc/ANThill-Sim)
