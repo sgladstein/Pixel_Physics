@@ -10899,3 +10899,19 @@ none significant, held by turnover (1.7x as many seedlings reach fruit).
 **Known harm: with rain off the herbs are gone by 225-430k** on 4 of 4 seeds
 and the colony is about a fifth smaller, because dry soil stops seeds taking
 after about 50k frames. That germination defect is the open item.
+
+**`PIXEL_PHYSICS_ROOTLESS_DRIES`** (`off` is the ablation; PR 695, 2026-10-13).
+A plant with no root touching soil or water dries out even when nothing asks
+it for water. The owner's 49.7M-frame rain-off playtest had one grass, sprouted
+in a soil pocket inside another grass's root mat, live for ever on its blades
+and set 292k seeds; now it is dead by 250k and the rain-off bed ends empty.
+
+**`PIXEL_PHYSICS_SEED_BANK`** (`off` is the ablation; parts `dry`, `dormant`;
+2026-10-14). A seed on dry ground ages up to 16x more slowly, and a waiting
+seed runs none of a plant's clocks: the whole-plant starvation rule had
+declared every waiting herb, shrub, tree and conifer seed starved after 200
+ticks, and its age ran from the frame it was set. On the owner's rain-off bed
+the bank now keeps every species to 1M, and rain back at 2M brings herbs up
+with the grass (off: nothing comes back). Planted bed, 12 seeds: colony and
+plants inside the one-frame spread, waiting bank 198 -> 303. Record:
+`/mnt/project-files/playtest-2026-10-12-plants/seed-bank-results.md`.
