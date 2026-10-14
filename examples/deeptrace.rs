@@ -576,9 +576,18 @@ fn main() {
     // from the moment it moves, digestion by place, and the floor's food and
     // the larvae every `foodevery=` frames. See `FoodLog`.
     let food = arg::<u8>("foodlog").unwrap_or(0) == 1;
+    // `trails=1`: **the two scent planes, censused** every `trailevery=`
+    // frames (1,000) to `trails.csv` (see `TrailCensus`); `trails=2` also
+    // writes both planes whole at every map stop (`trail_a_f*.pgm`,
+    // `trail_b_f*.pgm`, one byte a cell in units of 255). Reads only; takes
+    // no draw. Added 2026-10-14 for the full-game check of the textbook
+    // tests' trail candidates (nest scent pinned at its ceiling, food trail
+    // left lit on dead side branches).
+    let trails: u8 = arg("trails").unwrap_or(0);
+    let trail_every: u64 = arg("trailevery").unwrap_or(1_000);
     let food_every: u64 = arg("foodevery").unwrap_or(1_000);
     println!(
-        "deeptrace: scenario={scenario} seed={seed} frames={frames} ants={n_ants} bornafter={born_after} colonyevery={colony_every} mapevery={map_every} food={target} shots={} dig={} walk={} digfrom={dig_from} garden={} hungry={} nestevery={nest_every} needs={} needsat={needs_at} needsparts={} out={out}",
+        "deeptrace: scenario={scenario} seed={seed} frames={frames} ants={n_ants} bornafter={born_after} colonyevery={colony_every} mapevery={map_every} food={target} shots={} dig={} walk={} digfrom={dig_from} garden={} hungry={} nestevery={nest_every} needs={} needsat={needs_at} needsparts={} trails={trails} out={out}",
         u8::from(shots),
         u8::from(dig),
         u8::from(walk),
@@ -864,6 +873,7 @@ fn main() {
     // only the slots where it differs. Brains drift by mutation, so the
     // weights in `ant.ron` are not the weights a 200k-frame colony runs.
     let mut consensus: Option<Vec<f32>> = None;
+    let mut trail_census: Option<TrailCensus> = None;
     let mut genome_out = std::io::BufWriter::new(std::fs::File::create(format!("{out}/genomes.txt")).unwrap());
     let mut dropped = 0usize;
     let mut rows_written = 0u64;
@@ -1596,6 +1606,12 @@ fn main() {
             .unwrap();
             consensus = Some(c);
         }
+        if trails > 0 && f % trail_every == 0 && f > 0 {
+            trail_census.get_or_insert_with(|| TrailCensus::open(&out)).row(w, g, f);
+        }
+        if trails > 1 && f % map_every == 0 && f > 0 {
+            write_trail_planes(w, &out, f);
+        }
         if f % map_every == 0 && f > 0 {
             if let Some(c) = consensus.as_ref() {
                 for &id in &live {
@@ -1826,6 +1842,88 @@ impl DropLog {
 /// project), counting every food cell as wall, read seed 4's door under
 /// `CARRY_HOME` shut on 22 of 25 maps where the walk's own rule finds 20.
 /// First line: `x0 y0 width height`.
+/// **The two scent planes, censused** (`trails=1`): one row per stop.
+/// Units are the plane's own (255 a full cell; a deposit is 40).
+/// - `a_lit`, `a_ceiling`: cells of nest scent (A) at 1 or more, and at 250
+///   or more -- the pile-up at the ceiling round the door.
+/// - `b_lit`, `b_strong`: cells of food trail (B) at 1 or more, and at a
+///   full deposit (40) or more.
+/// - `b_route`, `b_off`: B cells at 1 or more inside the corridor between
+///   nest and heap (`x` from the nearer to the further, 8 cells of margin,
+///   from 40 rows above the old ground to 20 below it) and outside it. The
+///   heap is the only food in `steady_income`, so `b_off` is trail laid
+///   where no food is: dead side branches, and food carried in the nest.
+/// - `b_route_sum`, `b_off_sum`: the same, summed scent.
+struct TrailCensus {
+    out: std::io::BufWriter<std::fs::File>,
+}
+
+impl TrailCensus {
+    fn open(out: &str) -> Self {
+        let path = format!("{out}/trails.csv");
+        let mut f = std::io::BufWriter::new(std::fs::File::create(path).expect("trails.csv"));
+        writeln!(f, "frame,a_lit,a_ceiling,a_sum,b_lit,b_strong,b_route,b_off,b_route_sum,b_off_sum").unwrap();
+        TrailCensus { out: f }
+    }
+
+    fn row(&mut self, w: &World, g: &Geo, f: u64) {
+        use pixel_physics::sim::pheromone::{Channel, SCALE};
+        let unit = u32::from(SCALE);
+        let (cx0, cx1) = (g.nest_x.min(g.food_x) - 8, g.nest_x.max(g.food_x) + 8);
+        let (cy0, cy1) = (g.ground_y - 40, g.ground_y + 20);
+        let (mut a_lit, mut a_ceil, mut a_sum) = (0u64, 0u64, 0u64);
+        let (mut b_lit, mut b_strong) = (0u64, 0u64);
+        let (mut b_route, mut b_off, mut b_route_sum, mut b_off_sum) = (0u64, 0u64, 0u64, 0u64);
+        for y in 0..HEIGHT as i32 {
+            for x in 0..WIDTH as i32 {
+                let a = u32::from(w.pheromone_at(Channel::A, x, y)) / unit;
+                let b = u32::from(w.pheromone_at(Channel::B, x, y)) / unit;
+                if a >= 1 {
+                    a_lit += 1;
+                    a_sum += u64::from(a);
+                }
+                if a >= 250 {
+                    a_ceil += 1;
+                }
+                if b >= 1 {
+                    b_lit += 1;
+                    if b >= 40 {
+                        b_strong += 1;
+                    }
+                    if (cx0..=cx1).contains(&x) && (cy0..=cy1).contains(&y) {
+                        b_route += 1;
+                        b_route_sum += u64::from(b);
+                    } else {
+                        b_off += 1;
+                        b_off_sum += u64::from(b);
+                    }
+                }
+            }
+        }
+        writeln!(
+            self.out,
+            "{f},{a_lit},{a_ceil},{a_sum},{b_lit},{b_strong},{b_route},{b_off},{b_route_sum},{b_off_sum}"
+        )
+        .unwrap();
+        self.out.flush().unwrap();
+    }
+}
+
+/// Both scent planes whole (`trails=2`), as binary greyscale PGM, one byte a
+/// cell in units of 255.
+fn write_trail_planes(w: &World, out: &str, f: u64) {
+    use pixel_physics::sim::pheromone::{Channel, SCALE};
+    for (name, ch) in [("a", Channel::A), ("b", Channel::B)] {
+        let mut bytes = format!("P5\n{WIDTH} {HEIGHT}\n255\n").into_bytes();
+        for y in 0..HEIGHT as i32 {
+            for x in 0..WIDTH as i32 {
+                bytes.push((w.pheromone_at(ch, x, y) / SCALE).min(255) as u8);
+            }
+        }
+        std::fs::write(format!("{out}/trail_{name}_f{f:06}.pgm"), bytes).expect("trail plane");
+    }
+}
+
 fn write_map(w: &World, g: &Geo, path: &str) {
     let (x0, x1) = (g.nest_x - 80, g.food_x + 40);
     let (y0, y1) = (g.ground_y - 60, g.ground_y + 70);
