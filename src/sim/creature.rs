@@ -17559,7 +17559,7 @@ fn parse_shaft_rooms(raw: &str) -> Option<ShaftRooms> {
 /// 10.1098/rspb.2010.0176).
 ///
 /// **The rule.** A dig roll won, and passed by every veto above, on a wall
-/// below the old ground line while the digger is at home: count the other
+/// below the old ground line while the digger is at home (any such wall with `wide`): count the other
 /// animals with a body cell within `r` cells (Chebyshev) of the target. If
 /// fewer than `k`, the cut is refused with chance `q` per mille. A refusal is
 /// a roll lost, no turn and no new behaviour. Local: an ant feels nestmates
@@ -17579,9 +17579,17 @@ fn parse_shaft_rooms(raw: &str) -> Option<ShaftRooms> {
 /// fall and galleries are as long. This rule is a near-zero rate for an ant
 /// alone at the face, where the measured contrast is (`Reports/dead-ends.md`).
 ///
+/// **Measured** (4 seeds, 600k, mutation off, 2026-10-14): `k=1` cuts the
+/// lone share 71% -> 18% but galleries still reach home's edge, now dug by
+/// pairs (far cuts with exactly one other ant: 9% -> 77%). `k=2` stops them:
+/// longest gallery 48-51 body lengths against 72-80, open nest per ant 5.3
+/// against 9.7, adults 296-300 against 236-288; still straight. On one seed
+/// a gallery ran on past home's edge, where an at-home rule does not reach,
+/// hence `wide`.
+///
 /// Parts: `on` is `r=3,k=1,q=1000,dug=100`; a comma list of `r=`, `k=`,
-/// `q=` (per mille), `dug=`, and `rand=` (per mille, the control) starts
-/// from `on`. Unset or `off`: no read, no
+/// `q=` (per mille), `dug=`, `rand=` (per mille, the control) and `wide`
+/// starts from `on`. Unset or `off`: no read, no
 /// draw, bit-identical.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct DigCompany {
@@ -17595,9 +17603,14 @@ pub struct DigCompany {
     /// with the same exemptions. Set to the rule's measured refused share,
     /// it asks whether *who* digs matters or only *how much*.
     pub rand: u32,
+    /// The rule holds for every wall below the old ground line, not only
+    /// while the digger is at home: an ant feels the soil over it and the
+    /// nestmates beside it, not where the dug home's fill stopped. It also
+    /// stops the rule depending on how home is drawn.
+    pub wide: bool,
 }
 
-pub const DIG_COMPANY_ON: DigCompany = DigCompany { r: 3, k: 1, q: 1000, dug: 100, rand: 0 };
+pub const DIG_COMPANY_ON: DigCompany = DigCompany { r: 3, k: 1, q: 1000, dug: 100, rand: 0, wide: false };
 
 pub fn dig_company_of() -> Option<DigCompany> {
     static V: std::sync::OnceLock<Option<DigCompany>> = std::sync::OnceLock::new();
@@ -17612,9 +17625,13 @@ fn parse_dig_company(raw: &str) -> Option<DigCompany> {
     if raw == "on" {
         return Some(DIG_COMPANY_ON);
     }
-    let bad = || -> ! { panic!("PIXEL_PHYSICS_DIG_COMPANY={raw:?}: use off, on, or a list of r=N, k=N, q=<per mille>, dug=N, rand=<per mille>") };
+    let bad = || -> ! { panic!("PIXEL_PHYSICS_DIG_COMPANY={raw:?}: use off, on, or a list of r=N, k=N, q=<per mille>, dug=N, rand=<per mille>, wide") };
     let mut v = DIG_COMPANY_ON;
     for part in raw.split(',').map(str::trim) {
+        if part == "wide" {
+            v.wide = true;
+            continue;
+        }
         match part.split_once('=') {
             Some(("r", n)) => v.r = n.parse().ok().filter(|n: &i32| (1..=8).contains(n)).unwrap_or_else(|| bad()),
             Some(("k", n)) => v.k = n.parse().ok().filter(|n: &u32| *n >= 1).unwrap_or_else(|| bad()),
@@ -17676,7 +17693,7 @@ pub enum CompanyWhy {
 fn dig_company_verdict(world: &World, def: &CreatureDef, organism: OrganismId, (x, y): (i32, i32), (tx, ty): (i32, i32), escaping: bool) -> Option<CompanyWhy> {
     let rule = dig_company_of()?;
     let site = world.nest_sites.get(world.nearest_nest_site(tx, ty)?)?;
-    if ty <= site.surface || !nest_within_reach(world, organism, x, y, def) {
+    if ty <= site.surface || (!rule.wide && !nest_within_reach(world, organism, x, y, def)) {
         return None;
     }
     if rule.rand == 0 && company_at(world, organism, (tx, ty), rule.r, rule.k) >= rule.k {
@@ -34058,7 +34075,8 @@ mod tests {
         assert_eq!(parse_dig_company("off"), None);
         assert_eq!(parse_dig_company("on"), Some(DIG_COMPANY_ON));
         assert_eq!(parse_dig_company("q=900"), Some(DigCompany { q: 900, ..DIG_COMPANY_ON }), "a list starts from on");
-        assert_eq!(parse_dig_company("r=2,k=2,dug=0"), Some(DigCompany { r: 2, k: 2, q: 1000, dug: 0, rand: 0 }));
+        assert_eq!(parse_dig_company("r=2,k=2,dug=0"), Some(DigCompany { r: 2, k: 2, q: 1000, dug: 0, rand: 0, wide: false }));
+        assert_eq!(parse_dig_company("k=2,wide"), Some(DigCompany { k: 2, wide: true, ..DIG_COMPANY_ON }));
         assert_eq!(parse_dig_company("rand=520"), Some(DigCompany { rand: 520, ..DIG_COMPANY_ON }));
         for bad in ["yes", "r=0", "r=9", "k=0", "q=1001", "dug=x", "r", "rand=0", "rand=1001"] {
             assert!(std::panic::catch_unwind(|| parse_dig_company(bad)).is_err(), "{bad:?} must panic");
