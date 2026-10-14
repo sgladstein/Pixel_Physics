@@ -17588,8 +17588,8 @@ fn parse_shaft_rooms(raw: &str) -> Option<ShaftRooms> {
 /// hence `wide`.
 ///
 /// Parts: `on` is `r=3,k=1,q=1000,dug=100`; a comma list of `r=`, `k=`,
-/// `q=` (per mille), `dug=`, `rand=` (per mille, the control) and `wide`
-/// starts from `on`. Unset or `off`: no read, no
+/// `q=` (per mille), `dug=`, `rand=` (per mille, the control), `wide` and
+/// `noshaft` starts from `on`. Unset or `off`: no read, no
 /// draw, bit-identical.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct DigCompany {
@@ -17608,9 +17608,15 @@ pub struct DigCompany {
     /// nestmates beside it, not where the dug home's fill stopped. It also
     /// stops the rule depending on how home is drawn.
     pub wide: bool,
+    /// The shaft exemption is dropped. With `wide`, k=2, a narrow tunnel
+    /// still ran on past home's edge on one seed of four: a diagonal or
+    /// zigzag tunnel's row run is one or two wide at every cut, so it passes
+    /// the shaft test as it goes sideways (inferred from the cut map,
+    /// 2026-10-14; under test).
+    pub noshaft: bool,
 }
 
-pub const DIG_COMPANY_ON: DigCompany = DigCompany { r: 3, k: 1, q: 1000, dug: 100, rand: 0, wide: false };
+pub const DIG_COMPANY_ON: DigCompany = DigCompany { r: 3, k: 1, q: 1000, dug: 100, rand: 0, wide: false, noshaft: false };
 
 pub fn dig_company_of() -> Option<DigCompany> {
     static V: std::sync::OnceLock<Option<DigCompany>> = std::sync::OnceLock::new();
@@ -17625,11 +17631,15 @@ fn parse_dig_company(raw: &str) -> Option<DigCompany> {
     if raw == "on" {
         return Some(DIG_COMPANY_ON);
     }
-    let bad = || -> ! { panic!("PIXEL_PHYSICS_DIG_COMPANY={raw:?}: use off, on, or a list of r=N, k=N, q=<per mille>, dug=N, rand=<per mille>, wide") };
+    let bad = || -> ! { panic!("PIXEL_PHYSICS_DIG_COMPANY={raw:?}: use off, on, or a list of r=N, k=N, q=<per mille>, dug=N, rand=<per mille>, wide, noshaft") };
     let mut v = DIG_COMPANY_ON;
     for part in raw.split(',').map(str::trim) {
         if part == "wide" {
             v.wide = true;
+            continue;
+        }
+        if part == "noshaft" {
+            v.noshaft = true;
             continue;
         }
         match part.split_once('=') {
@@ -17709,7 +17719,7 @@ fn dig_company_verdict(world: &World, def: &CreatureDef, organism: OrganismId, (
     // open, one or two wide.
     let open = |cx: i32| cx == tx || shaft_open(world, cx, ty);
     let side = |dx: i32| (1..=2).take_while(|k| open(tx + dx * k)).count() as i32;
-    if side(-1) + side(1) + 1 < 3 {
+    if !rule.noshaft && side(-1) + side(1) + 1 < 3 {
         return Some(CompanyWhy::Shaft);
     }
     if rule.rand > 0 {
@@ -34075,8 +34085,9 @@ mod tests {
         assert_eq!(parse_dig_company("off"), None);
         assert_eq!(parse_dig_company("on"), Some(DIG_COMPANY_ON));
         assert_eq!(parse_dig_company("q=900"), Some(DigCompany { q: 900, ..DIG_COMPANY_ON }), "a list starts from on");
-        assert_eq!(parse_dig_company("r=2,k=2,dug=0"), Some(DigCompany { r: 2, k: 2, q: 1000, dug: 0, rand: 0, wide: false }));
+        assert_eq!(parse_dig_company("r=2,k=2,dug=0"), Some(DigCompany { r: 2, k: 2, q: 1000, dug: 0, rand: 0, wide: false, noshaft: false }));
         assert_eq!(parse_dig_company("k=2,wide"), Some(DigCompany { k: 2, wide: true, ..DIG_COMPANY_ON }));
+        assert_eq!(parse_dig_company("wide,noshaft,k=2"), Some(DigCompany { k: 2, wide: true, noshaft: true, ..DIG_COMPANY_ON }));
         assert_eq!(parse_dig_company("rand=520"), Some(DigCompany { rand: 520, ..DIG_COMPANY_ON }));
         for bad in ["yes", "r=0", "r=9", "k=0", "q=1001", "dug=x", "r", "rand=0", "rand=1001"] {
             assert!(std::panic::catch_unwind(|| parse_dig_company(bad)).is_err(), "{bad:?} must panic");
