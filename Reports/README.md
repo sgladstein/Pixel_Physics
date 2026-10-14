@@ -42,6 +42,48 @@ by somebody about to try it on creatures.
 
 ## Method and architecture — read these first  ·  `engine`
 
+- [why-no-emergence-2026-10-14.md](why-no-emergence-2026-10-14.md) —
+  **diagnosis, 2026-10-14; nothing built; §5 measured (16 runs), §6 checked
+  against the literature.** The owner's question: why has the engine
+  produced no unplanned behaviour, and why are ants still not digging a
+  realistic nest? **The goal is sound; the physics layer already emerges.
+  The creature layer failed by two approaches in turn.** Evolution with no
+  designed behaviour had one fitness axis and too few generations. Rules
+  aimed at named behaviours became a controller of ~160 switches, and
+  `creature.rs` grew from 2.7k to 55k lines. **The global nest structures
+  (BFS "way", flood-filled home, founding shaft, a 1-in-4 caste) are
+  evidence of where local signals ran out, not the cause** (the owner's
+  correction). The causes, in order:
+  - **Locally the nest is featureless.** Soil cannot hold or mark a cut,
+    scent leaks through rock, the field is one value per 16×16 cells, and
+    brood falls.
+  - **Rules aimed at outcomes come out as 24 `*_pull`/`*_target`
+    destinations, which need a map.**
+
+  Measured (16 runs, adversarially reviewed): the energy margin is not thin
+  (a forager at food 90 carries about nine round trips of reserve;
+  starvation is under 1% of deaths). `NEST_REST` no longer kills.
+  `NURSE_STAY=on` kills 1,349–3,482 adults a run in boom-and-die-off cycles
+  (births double; young nest-born ants starve in waves). A jam, the boom
+  and food diverted to brood are not separated, and the report names the
+  run that would separate them.
+
+  The benchmark is past the published models (checked on PubMed and
+  SciSpace: no counter-example), and stratified chambers are past the
+  published biology: the CO₂ template was vented away and reversed with no
+  change. The one chamber the literature explains forms around brood that
+  workers moved to suitable temperature and humidity, which needs the local
+  differences this world lacks. An independent 2026 whole-colony model hit the same failures and
+  made the same concessions. The process filters out the unplanned. Ends
+  with what the evidence implies; every item there is the owner's call.
+- [why-no-emergence-2026-10-14/README.md](why-no-emergence-2026-10-14/README.md) —
+  **the §5 measurement's scripts**: `run.sh` (four arms of `deeptrace` on the
+  dry goal box), `margin.py` (reserve in frames, foraging trips, deaths),
+  `starvers.py` (each starver stuck, held or free), `stuckway.py` (nest
+  starvers' nearest approach to the door), `shaftcensus.py` (who is in the
+  door shaft, and the colony's timeline). Data regenerates; not kept.
+  `consensus-brief.md` is an optional third literature check (Consensus's
+  allowance was spent; §6 was checked on PubMed and SciSpace instead).
 - [two-games-one-repo-2026-08-30.md](two-games-one-repo-2026-08-30.md) —
   **proposal, not yet built; revised after an adversarial review found its
   central recommendation was a no-op.** Answers whether two games on one
