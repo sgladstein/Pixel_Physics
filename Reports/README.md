@@ -66,9 +66,12 @@ by somebody about to try it on creatures.
   - **Rules aimed at outcomes come out as 24 `*_pull`/`*_target`
     destinations, which need a map.**
 
-  The benchmark is past the published models, and stratified chambers are
-  past the published biology: the CO₂ template was vented away with no
-  change. An independent 2026 whole-colony model hit the same failures and
+  The benchmark is past the published models (checked on PubMed and
+  SciSpace: no counter-example), and stratified chambers are past the
+  published biology: the CO₂ template was vented away and reversed with no
+  change. The one chamber the literature explains forms around brood that
+  workers moved to suitable temperature and humidity, which needs the local
+  differences this world lacks. An independent 2026 whole-colony model hit the same failures and
   made the same concessions. The process filters out the unplanned. Ends
   with what the evidence implies; every item there is the owner's call.
 - [why-no-emergence-2026-10-14/README.md](why-no-emergence-2026-10-14/README.md) —
@@ -76,8 +79,8 @@ by somebody about to try it on creatures.
   dry goal box), `margin.py` (reserve in frames, foraging trips, deaths),
   `starvers.py` (each starver stuck, held or free), `stuckway.py` (nest
   starvers' nearest approach to the door). Data regenerates; not kept.
-  `consensus-brief.md` is the §6 literature check still to run against
-  Consensus's paper index (the allowance was spent on 2026-10-14).
+  `consensus-brief.md` is an optional third literature check (Consensus's
+  allowance was spent; §6 was checked on PubMed and SciSpace instead).
 - [two-games-one-repo-2026-08-30.md](two-games-one-repo-2026-08-30.md) —
   **proposal, not yet built; revised after an adversarial review found its
   central recommendation was a no-op.** Answers whether two games on one

@@ -4,7 +4,7 @@
 from the record (`Reports/`, `wiki/`, git history). **§5 is measured**: 16
 runs of the shipped game, scripts in
 [`why-no-emergence-2026-10-14/`](why-no-emergence-2026-10-14/). **§6 is checked
-against the literature**, from search results and abstracts. Other new numbers
+against the literature** on PubMed and SciSpace, mostly from abstracts. Other new numbers
 are counts from git and grep, and each one says what it counts. Every other
 figure is quoted from the report that measured it, which is named beside it.
 Section 11 says what this report did not do.
@@ -118,8 +118,13 @@ Two things make all three worse:
   off, all from local rules. Each published nest model produces one feature,
   in isolation, mostly with no economy. Biology does not know the local cue
   that stacks chambers by depth: the one proposed (a CO₂ gradient) was
-  vented away in the field and nothing changed. An independent 2026 attempt
-  at the same goal hit the same failures and made the same concessions.
+  vented away, and reversed, in the field, and nothing changed. An
+  independent 2026 attempt at the same goal hit the same failures and made
+  the same concessions. **The one functional chamber the literature does
+  explain** forms around brood that workers have moved to suitable
+  temperature and humidity: the chamber is dug around the brood, not in
+  advance. That needs exactly the local differences cause 1 says this world
+  lacks.
 - **The process filters out the unplanned and makes exploration expensive**
   (§7). Unplanned outcomes become switches that suppress them, mutation is
   frozen in testing, and every experiment is 12 seeds × 300,000 frames with
@@ -563,7 +568,7 @@ real. But they are guards against rule vetoes, not against a thin margin.
 
 ---
 
-## 6. The target is past the research frontier (checked against the literature)
+## 6. The target is past the research frontier (checked against PubMed and SciSpace)
 
 The owner's goals, held since 2026-10-03 (PLAN §1):
 - **a stable population**;
@@ -576,69 +581,134 @@ The owner's goals, held since 2026-10-03 (PLAN §1):
 
 Each rule must cite the biology.
 
-**Checked on 2026-10-14 by literature search.** This container's network
-policy refused the papers themselves, so what follows rests on abstracts and
-search summaries. One exception is the hobby model in item 4, which was read
-from its repository. Sources are listed at the end of this report.
+**How this was checked (2026-10-14).**
+- **PubMed:** a structured search for ant or termite, nest, model or
+  simulation, and excavation, construction or architecture, in title or
+  abstract. It returned 23 papers, all screened from their abstracts.
+- **SciSpace:** semantic searches, one per claim below.
+- **Full text:** Tschinkel 2013, read from PubMed Central.
+- **Not read in full:** the other papers. Each item says which source it
+  rests on.
 
-1. **No model found does what the goals ask.** Nothing, peer-reviewed or not,
-   grows functionally different chambers (brood, food, rest) from local rules
-   in a colony that must also feed and breed itself.
+An earlier pass from web search, and the Consensus connector (its allowance
+was spent), are superseded by this one. References are numbered in the
+Sources list at the end.
+
+1. **No counter-example found.** None of the 23 PubMed papers and none of the
+   SciSpace results models functionally different chambers (brood, food,
+   rest) emerging from local rules in a colony that must also feed and breed
+   itself. The nearest are:
+   - a whole-life-cycle colony that forages, recruits, stores and
+     distributes energy, breeds and defends territory, with no nest
+     construction at all [1];
+   - a quantitative model in which colony demography sets *how much* is dug
+     and the tunnels' angle [2];
+   - a wall-and-entrance model that predicts the nest lags behind the
+     colony's growth [3].
 2. **Each published construction model produces one feature,** in a
    controlled arena and mostly at a fixed population:
-   - **Bonabeau et al. 1998.** Pillars, walls and a *royal chamber*, from a
-     cement pheromone plus a template the queen emits; air flow and traffic
-     change which forms appear. This is the one published route to a
-     *functional* chamber, and it is a template: a diffusing signal from the
-     thing the chamber is for.
-   - **Khuong et al. 2016.** Pillars and roofs from a cement pheromone, whose
-     lifetime is the most influential parameter, plus the ant's own body as a
-     ruler for roof height.
-   - **Pitonakova & Bullock 2013.** Nest walls from a pheromone template and
-     the ants' bodies.
-   - **Toffin et al. 2009.** The round-to-branching shape, from digger
-     density.
-   - **Buhl et al. 2004 and 2005.** Excavation that stops on its own, with
-     nest volume proportional to colony size.
-   - ***Camponotus fellah*, eLife 2024/2025.** Each ant digs toward its own
-     age-dependent space target, so colony demography shapes the nest. This
-     is the nearest any model comes to coupling building to colony life.
-   - **Ganga Prasath et al. 2022.** How diggers shift from random to
-     coordinated digging.
-3. **Biology does not know the local cue for stacking chambers by depth.**
-   Tschinkel proposed the soil CO₂ gradient as the template. Venting the
-   gradient away left nest architecture and ant distribution unchanged
-   (Tschinkel 2013, *PLOS ONE*; the abstract says so). A whole-colony model's
-   own sources page puts it plainly: *"The hypothesis is dead and no
-   replacement exists."* That model hands each ant its depth as *"the largest
-   invented element in the model."*
-4. **The closest whole-colony effort hit this repo's failures.** ANThill-Sim
-   (2026) is an open, cited hobby model of *Pogonomyrmex badius*, not
-   peer-reviewed. It digs, forages, stores seed and feeds brood. Its README
+   - pillars, walls and a royal chamber from a cement pheromone plus a queen
+     template [4];
+   - pillars, caps and roofs from a building pheromone whose lifetime *"is a
+     highly influential parameter"*, plus the body as a ruler [5][6];
+   - the round-to-branching transition, from density [7];
+   - tunnel-network topology from probabilistic laws of initiation,
+     propagation and termination [8];
+   - termite pillars, which stay ordered only if builders retreat from
+     crowding [9];
+   - termite floors and ramps from fields of mud, termites and pheromone
+     [10];
+   - arboreal termite walls from surface curvature [11];
+   - excavation rates regulated by collisions [12].
+
+   One termite tunnelling model does give the diggers an energy budget, but
+   its output is tunnel shape, not chambers [13].
+3. **In experiments, chambers form around their contents.** In leaf-cutting
+   ants:
+   - workers *"preferentially relocate brood to suitable locations along a
+     tunnel"*;
+   - when brood and fungus are *"exposed to unfavorable environmental
+     conditions, either low temperatures or low humidity, both were
+     relocated, … ants clearly preferred to relocate the brood first"*;
+   - so *"nest chambers are not excavated in advance, but emerge through a
+     self-organized process resulting from the aggregation of workers and
+     their density-dependent digging behavior around the relocated brood and
+     fungus"* [14];
+   - in-nest stores change what is dug: larger chambers, fewer tunnels [15];
+   - with no fungus, colonies dug only tunnels and no chambers [16].
+
+   One study of a related species found no such effect [17]. A queen-scent
+   template makes the royal chamber in [4].
+
+   **The literature's route to a brood chamber therefore needs three
+   things**: brood that stays where it is put, a local gradient (temperature,
+   humidity) to choose where to put it, and digging that rises with crowding.
+   This engine lacks the first two (§4: brood is a powder that falls, and the
+   field is one value per 16 × 16 cells).
+4. **Biology does not know the cue for stacking chambers by depth**
+   (confirmed in full text [18]):
+   - venting the soil CO₂ gradient and *reversing* it both left nest
+     architecture and the vertical sorting of ants unchanged: *"Sadly, a fine
+     and appealing hypothesis has gone west."*
+   - *"The nature of the depth information is thus still unknown … will
+     undoubtedly remain a challenge for years to come."*
+   - The same paper notes that the gas-template model of Cox & Blanchard [19]
+     *"applies only to ants nesting above ground between stones. In soil, any
+     ant-generated CO₂ would be swamped by that generated by microbes and
+     roots."*
+
+   That is the model `hungry_out_pull` cites for the "nest air" its BFS
+   stands in for (§3.3). The real version of that gradient may not be
+   available to real ants in soil.
+5. **Tunnels stand because of the medium.**
+   - Fire ants built nests in every substrate tested *"other than completely
+     dry or fully saturated"*. Tunnels were deepest at intermediate moisture,
+     and maximum depth tracked cohesive strength [20].
+   - Tunnel stability depends on grain size, tunnel diameter and water
+     content [21].
+   - Arches form in the soil around ant tunnels and shield them [22].
+   - Tunnelling patterns follow grain size, moisture and packing [23].
+
+   This is §4's falling-sand point, measured on real ants: in a dry,
+   cohesionless medium they do not build at all.
+6. **Narrow passages jam, and ants act to prevent it.**
+   - Fire ants mitigate clogs in narrow tunnels with unequal workloads,
+     direction reversals and short interactions [24][25].
+   - Confined fire-ant traffic shows obstruction *"arising from the
+     inability of individual ants to interpenetrate"* [26].
+   - Argentine ants keep traffic flowing at up to 80% occupancy partly by
+     avoiding *"entering overcrowded trails"* [27].
+   - Termites retreat from overcrowded building sites, and without that
+     response the modelled nest is *"disordered, unrealistic"* [9].
+
+   *Inferred, untested:* this engine lets nestmates stack up to four deep
+   (`STACK_DEPTH`), so a shaft can hold more than one ant per cell where real
+   ants would be refused entry. Whether that feeds §5.3's jam is open.
+7. **Brood and workers are stratified, and age drives the movement.** In
+   *Pogonomyrmex badius*, brood and young workers are deepest, older workers
+   higher, and seeds sit at a preferred absolute depth of 40–100 cm. Workers
+   born deep move upward as they age, from brood care to excavation to
+   foraging [28].
+8. **The closest whole-colony effort hit this repo's failures.** ANThill-Sim
+   [29] (2026, an open hobby model of *P. badius*, not peer-reviewed; read
+   from its repository) digs, forages, stores seed and feeds brood. It
    reports caverns where stacked chambers should be, and colonies that grow,
-   then starve their larvae. It also made the concessions this repo made:
+   then starve their larvae. It made the concessions this repo made:
    - the founding nest is supplied;
    - founding spoil is *"counted onto the surface without her walking it
      up"*;
    - the share of diggers who go to the face is *"invented and fitted"*;
-   - each ant is handed its own depth.
-5. **Tunnels stand because of the medium.** Tunnel stability in granular soil
-   depends on grain size, tunnel diameter and water content (*Granular
-   Matter*, 2018). The soil around ant tunnels forms load-bearing arches
-   (Buarque de Macedo et al. 2021, *PNAS*). Laboratory excavation is run in
-   *wetted* glass beads (Aguilar et al. 2018). That is §4's falling-sand
-   point, from the physics side.
-6. **Narrow tunnels jam, and ants manage it.** Fire ants keep excavation
-   flowing in narrow tunnels by individual idleness and by retreating from
-   clogs (Aguilar et al. 2018, *Science*). That is §5's jam, solved by ants
-   staying out of the way.
+   - each ant is handed its own depth, because, as item 4 says, nobody knows
+     the real cue.
 
-**So the claim stands, with a sharper edge.** The combination the goals ask
-for is beyond published models. One piece of it, chambers stratified by
-depth, is beyond published biology, so "cite the biology" cannot be met for
-it. An independent attempt with the same aim made the same concessions this
-repo did, which suggests the concessions are the problem's shape, not this
-team's lapses.
+**So the claim stands, with a sharper edge and one constructive turn.**
+- **Beyond published models:** the combination the goals ask for.
+- **Beyond published biology:** one piece of it, chambers stratified by depth.
+- **Same concessions elsewhere:** an independent attempt made them too, which
+  suggests they belong to the problem, not to this team.
+- **The constructive turn:** the one functional chamber the literature *does*
+  explain, a brood or fungus chamber, emerges from a reactive mechanism (item
+  3) that needs exactly the local differences §4 says this world lacks.
 
 **There is also a tension inside the brief.** *Realistic* means matching what
 real ants do. *Unplanned* means matching nothing anyone wrote down. With the
@@ -797,7 +867,10 @@ supports, and none of them is built here.
      which are the "air" `hungry_out_pull` says its BFS stands in for.
 
    Then retire each concession in §3.3 one at a time against the local signal
-   that replaces it, the BFS "way" first.
+   that replaces it, the BFS "way" first. The first target with a known
+   mechanism is the brood chamber (§6 item 3). Brood that stays where it is
+   put, moved by workers toward the warmest or dampest spot within reach,
+   with digging that rises with crowding around it.
 3. **Keep the gathering points out of the exit, and score placement rules
    on the way out.** The brood sits in the door shaft because nothing else
    holds it (§4, `SHAFT_ROOMS`). Any rule that draws ants to the brood
@@ -845,14 +918,16 @@ supports, and none of them is built here.
   probes, parallelism and breeding. After it they are behavioural
   (`DIG_DOWN`, `NEST_SHAFT`, `SPOIL_HAUL`, `HOME_TARGET`, …).
 - **The individual-selection point in §2 is an inference**, not measured.
-- **The literature in §6 rests on search results and abstracts.** This
-  container's network policy refused the papers, so nothing in §6 was read in
-  full except the ANThill-Sim repository. The reversed-CO₂ arm of Tschinkel
-  2013 could not be read; only the vented arm is cited.
-- **§6 has not been checked against a paper index.** The Consensus connector
-  was attached afterwards, but its monthly allowance was already spent. The
-  brief to run when it resets is
-  [`why-no-emergence-2026-10-14/consensus-brief.md`](why-no-emergence-2026-10-14/consensus-brief.md).
+- **The literature in §6 rests mostly on abstracts.** It was read through the
+  PubMed and SciSpace connectors (the container's own network policy refuses
+  the publishers). Read in full: Tschinkel 2013 (from PubMed Central) and the
+  ANThill-Sim repository. The PubMed screen is one structured query, 23
+  papers; a model described only in a book or a conference paper outside both
+  indexes could be missed.
+- **Consensus, a third index, was not used.** Its monthly allowance was
+  spent. The brief is kept in
+  [`why-no-emergence-2026-10-14/consensus-brief.md`](why-no-emergence-2026-10-14/consensus-brief.md)
+  if a third check is wanted.
 - **Plants (§8) were read, not traced.**
 - **Not read whole:** `README.md`, `PLAN.md`, `dead-ends.md`,
   `open-bugs-handoff.md` and most dated ant reports. They were read by
@@ -862,17 +937,34 @@ supports, and none of them is built here.
 
 ## Sources (§6)
 
-- Bonabeau, Théraulaz, Deneubourg, Franks, Rafelsberger, Joly & Blanco (1998). *A model for the emergence of pillars, walls and royal chambers in termite nests.* Phil. Trans. R. Soc. B 353:1561–1576. [Bristol record](https://research-information.bris.ac.uk/en/publications/a-model-for-the-emergence-of-pillars-walls-and-royal-chambers-in-/); [SFI working paper abstract](https://ideas.repec.org/p/wop/safiwp/97-04-033.html)
-- Ladley & Bullock (2005), the 3D extension. [Southampton eprint](https://eprints.soton.ac.uk/261442/1/ladley_bullock_jtb.pdf)
-- Khuong et al. (2016). *Stigmergic construction and topochemical information shape ant nest architecture.* PNAS 113(5):1303–1308. [HAL](https://hal-univ-tlse3.archives-ouvertes.fr/hal-02324165); [PMC](https://pmc.ncbi.nlm.nih.gov/articles/PMC4747701)
-- Pitonakova & Bullock (2013). *Controlling ant-based construction.* ECAL 2013. [Southampton eprint](https://eprints.soton.ac.uk/361147/1/controllingAntBasedConstruction.pdf)
-- Buhl et al. (2005), excavation dynamics and nest volume against colony size. [HAL](https://hal-univ-tlse3.archives-ouvertes.fr/hal-00093178v1)
-- *Colony demographics shape nest construction in* Camponotus fellah *ants*, eLife (2024 reviewed preprint; 2025 article). [eLife](https://elifesciences.org/articles/100706); [PMC](https://pmc.ncbi.nlm.nih.gov/articles/PMC13102390/); [bioRxiv](https://www.biorxiv.org/content/10.1101/2024.07.09.602713.full.pdf)
-- Ganga Prasath et al. (2022), cooperative excavation, eLife. [eLife PDF](https://elifesciences.org/articles/79638.pdf)
-- Tschinkel (2013). *Florida harvester ant nest architecture, nest relocation and soil carbon dioxide gradients.* PLOS ONE 8:e59911. [PMC](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC3610692/)
-- Tschinkel (2015). *The architecture of subterranean ant nests: beauty and mystery underfoot.* [AntWiki PDF](https://www.antwiki.org/w/images/8/83/Tschinkel,_W.R._2015._The_architecture_of_suberranean_ant_nests_-_buauty_and_mystery_underfoot.pdf)
-- Aguilar et al. (2018). *Collective clog control: optimizing traffic flow in confined biological and robophysical excavation.* Science 361:672. [PDF](https://crablab.gatech.edu/pages/publications/pdf/science-2018.pdf)
-- Espinoza & Santamarina (2010). *Ant tunneling — a granular media perspective.* Granular Matter 12:607–616 (abstract only). [mirror](https://community.altair.com/discussion/40523/ant-tunneling-a-granular-media-perspective)
-- *Stability of granular tunnel* (Granular Matter, 2018). [arXiv](https://arxiv.org/pdf/1802.07906)
-- Buarque de Macedo et al. (2021). *Unearthing real-time 3D ant tunneling mechanics.* PNAS. [Caltech](https://resolver.caltech.edu/CaltechAUTHORS:20210824-153629422)
-- ANThill-Sim (2026), an open hobby model of *Pogonomyrmex badius*, not peer-reviewed; read from its repository (README and `docs/SCIENCE.md`, commit of 2026-09-25). [GitHub](https://github.com/Adiezc/ANThill-Sim)
+Retrieved through PubMed and SciSpace on 2026-10-14; [18] read in full from PubMed Central.
+
+1. Klügl, Puppe, Raub & Tautz (1998). *Simulating multiple emergent phenomena — exemplified in an ant colony.* Artificial Life VI (poster). [ACM](https://dl.acm.org/citation.cfm?id=286197)
+2. Rajendran, Weinberger, Fonio & Feinerman (2026). *Colony demographics shape nest construction in ants.* eLife 13. [DOI](https://doi.org/10.7554/eLife.100706)
+3. Franks & Deneubourg (1997). *Self-organizing nest construction in ants: individual worker behaviour and the nest's dynamics.* Animal Behaviour 54:779–796. [DOI](https://doi.org/10.1006/anbe.1996.0496)
+4. Bonabeau, Théraulaz, Deneubourg, Franks, Rafelsberger, Joly & Blanco (1998). *A model for the emergence of pillars, walls and royal chambers in termite nests.* Phil. Trans. R. Soc. B 353:1561–1576. [Bristol record](https://research-information.bris.ac.uk/en/publications/a-model-for-the-emergence-of-pillars-walls-and-royal-chambers-in-/)
+5. Khuong et al. (2016). *Stigmergic construction and topochemical information shape ant nest architecture.* PNAS 113:1303–1308. [DOI](https://doi.org/10.1073/pnas.1509829113)
+6. Khuong, Theraulaz, Jost, Perna & Gautrais (2011). *A computational model of ant nest morphogenesis.* ECAL 2011. [DOI](https://doi.org/10.7551/978-0-262-29714-1-ch061)
+7. Toffin et al. (2009). *Shape transition during nest digging in ants.* PNAS 106:18616–18620. [DOI](https://doi.org/10.1073/pnas.0902685106)
+8. Buhl, Gautrais, Deneubourg, Kuntz & Theraulaz (2006). *The growth and form of tunnelling networks in ants.* J. Theor. Biol. 243:287–298. [DOI](https://doi.org/10.1016/j.jtbi.2006.06.018)
+9. O'Toole, Robinson & Myerscough (1999). *Self-organized criticality in termite architecture: a role for crowding in ensuring ordered nest expansion.* J. Theor. Biol. 198:305–327. [DOI](https://doi.org/10.1006/jtbi.1999.0917); extended in J. Theor. Biol. 221:15–27 (2003). [DOI](https://doi.org/10.1006/jtbi.2003.3047)
+10. Heyde, Guo, Jost, Theraulaz & Mahadevan (2021). *Self-organized biotectonics of termite nests.* PNAS 118:e2006985118. [DOI](https://doi.org/10.1073/pnas.2006985118)
+11. Facchini, Lazarescu, Perna & Douady (2020). *A growth model driven by curvature reproduces geometric features of arboreal termite nests.* J. R. Soc. Interface 17:20200093. [DOI](https://doi.org/10.1098/rsif.2020.0093)
+12. Avinery et al. (2023). *Agitated ants: regulation and self-organization of incipient nest excavation via collisional cues.* J. R. Soc. Interface 20:20220597. [DOI](https://doi.org/10.1098/rsif.2022.0597)
+13. Lee & Park (2024). *Ecological drivers for the absence of task shifting in termite-tunneling activity: a simulation study.* BioSystems 247:105380. [DOI](https://doi.org/10.1016/j.biosystems.2024.105380)
+14. Römer & Roces (2014). *Nest enlargement in leaf-cutting ants: relocated brood and fungus trigger the excavation of new chambers.* PLOS ONE 9:e97872. [DOI](https://doi.org/10.1371/journal.pone.0097872)
+15. Römer & Roces (2015). *Available space, symbiotic fungus and colony brood influence excavation and lead to the adjustment of nest enlargement in leaf-cutting ants.* Insectes Sociaux. [DOI](https://doi.org/10.1007/s00040-015-0419-1)
+16. Camargo, Lopes & Forti (2013). *O jardim de fungo atua como um molde para a construção das câmaras em formigas cortadeiras.* Ciência Rural. [DOI](https://doi.org/10.1590/S0103-84782013005000017)
+17. dos Santos et al. (2017). *Effect of the presence of brood and fungus on the nest architecture and digging activity of* Acromyrmex subterraneus. Rev. Bras. Entomol. [DOI](https://doi.org/10.1016/j.rbe.2016.12.002)
+18. Tschinkel (2013). *Florida harvester ant nest architecture, nest relocation and soil carbon dioxide gradients.* PLOS ONE 8:e59911. [DOI](https://doi.org/10.1371/journal.pone.0059911)
+19. Cox & Blanchard (2000). *Gaseous templates in ant nests.* J. Theor. Biol. 204:223–238. [DOI](https://doi.org/10.1006/jtbi.2000.2010)
+20. Monaenkova et al. (2015). *Behavioral and mechanical determinants of collective subsurface nest excavation.* J. Exp. Biol. 218:1295–1305. [DOI](https://doi.org/10.1242/jeb.113795)
+21. Yuliza et al. (2018). *Stability of granular tunnel.* Granular Matter. [DOI](https://doi.org/10.1007/s10035-018-0847-5)
+22. Buarque de Macedo et al. (2021). *Unearthing real-time 3D ant tunneling mechanics.* PNAS 118:e2102267118. [DOI](https://doi.org/10.1073/pnas.2102267118)
+23. Espinoza & Santamarina (2010). *Ant tunneling — a granular media perspective.* Granular Matter 12:607–616. [DOI](https://doi.org/10.1007/s10035-010-0202-y)
+24. Aguilar et al. (2018). *Collective clog control: optimizing traffic flow in confined biological and robophysical excavation.* Science 361:672. [DOI](https://doi.org/10.1126/science.aan3891)
+25. Aina et al. (2022). *Toward task capable active matter: learning to avoid clogging in confined collectives via collisions.* Frontiers in Physics. [DOI](https://doi.org/10.3389/fphy.2022.735667)
+26. Gravish et al. (2015). *Glass-like dynamics in confined and congested ant traffic.* Soft Matter. [DOI](https://doi.org/10.1039/C5SM00693G)
+27. Poissonnier, Motsch, Gautrais, Buhl & Dussutour (2019). *Experimental investigation of ant traffic under crowded conditions.* eLife 8:e48945. [DOI](https://doi.org/10.7554/eLife.48945)
+28. Tschinkel (1999). *Sociometry and sociogenesis of colonies of the harvester ant,* Pogonomyrmex badius. Ecological Entomology. [DOI](https://doi.org/10.1046/j.1365-2311.1999.00184.x)
+29. ANThill-Sim (2026), an open hobby model of *Pogonomyrmex badius*; not peer-reviewed; read from its repository (README and `docs/SCIENCE.md`, commit of 2026-09-25). [GitHub](https://github.com/Adiezc/ANThill-Sim)

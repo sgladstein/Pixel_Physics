@@ -1,4 +1,7 @@
-# Consensus brief for §6 — not yet run
+# Consensus brief for §6 — optional third check
+
+**Superseded in the main:** §6 was checked the same day on PubMed (a structured search, 23 papers screened) and
+SciSpace, with Tschinkel 2013 read in full. Run this only if a third index is wanted.
 
 *Written 2026-10-14. The Consensus connector was attached, but the account's 30 monthly searches were already
 used (resets 1 November), and `create_thread` draws on the same allowance. This is the brief to send as **one**
