@@ -32,8 +32,20 @@
 //! largest piles (the box is 160 wide). `items` and `held` must sum to the starting count (printed as `lost`).
 //! `png=DIR` writes a frame per stop and `gif=PATH` an animation.
 //!
+//! **What it found, 2026-10-14** (`layout=nest`; the code review
+//! `/mnt/project-files/emergence-sandbox/review-pr702-code.md` F4): **the
+//! game arm separates on some seeds, then may merge again**. With 150 items
+//! a kind, the two kinds' largest piles end in different rooms on 3 of 4
+//! seeds at 40k frames and 1 of 4 at 80k (seed 4 ends fully mixed); the
+//! flat control holds 4 of 4 at both. With `items=60` at 80k it is 3 of 4
+//! against 3 of 4. So quote the item and frame counts with any number from
+//! here, and read a separation as a state the run passed through, not one
+//! it settles in. **Every argument is checked**: an unknown or repeated key
+//! panics.
+//!
 //! ```text
 //! cargo run --release --example sortbox -- arm=flat seeds=4
+//! cargo run --release --example sortbox -- layout=nest arm=game items=60 seeds=4 frames=80000
 //! cargo run --release --example sortbox -- arm=game seed=1 gif=out.gif
 //! ```
 
@@ -41,10 +53,33 @@ use pixel_physics::sim::parallel;
 use pixel_physics::sim::rng::Rng;
 use pixel_physics::sim::{Cell, MaterialId, Rect, World};
 
+/// Every key this binary reads. An unknown or repeated key panics rather
+/// than silently running another arm (a typo once ran the wrong one).
+const KEYS: &[&str] = &[
+    "seed", "seeds", "frames", "every", "walkers", "width", "height", "arm", "layout", "items", "kinds", "k1", "k2",
+    "png", "gif", "gifevery",
+];
+
+fn check_args() {
+    let mut seen = std::collections::HashSet::new();
+    for a in std::env::args().skip(1) {
+        let key = a.split_once('=').map_or(a.as_str(), |(k, _)| k).to_string();
+        assert!(
+            KEYS.contains(&key.as_str()),
+            "sortbox: unknown argument `{a}` (known: {})",
+            KEYS.join(", ")
+        );
+        assert!(seen.insert(key.clone()), "sortbox: `{key}` given twice");
+    }
+}
+
 fn arg<T: std::str::FromStr>(key: &str) -> Option<T> {
     std::env::args().skip(1).find_map(|a| {
-        a.strip_prefix(&format!("{key}="))
-            .map(|v| v.parse().ok().expect("parses"))
+        a.strip_prefix(&format!("{key}=")).map(|v| {
+            v.parse()
+                .ok()
+                .unwrap_or_else(|| panic!("sortbox: `{a}` does not parse"))
+        })
     })
 }
 
@@ -73,6 +108,7 @@ struct Box_ {
 }
 
 fn main() {
+    check_args();
     let arm = match arg::<String>("arm").as_deref().unwrap_or("flat") {
         "flat" => Arm::Flat,
         "fall" => Arm::Fall,

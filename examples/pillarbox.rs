@@ -33,24 +33,59 @@
 //!   the control for "the mark does the work"), `inf` a mark that never fades.
 //! - `physics=off` holds every dropped cell where it was put, the
 //!   textbook setting and the positive control.
+//! - `sites=game` drops only where the shipped ant would put spoil (two of
+//!   the three cells below filled, three open above). The default, `any`,
+//!   is the sandbox's own looser rule: any open cell touching something,
+//!   walls and ceilings included. **The two give different counts**
+//!   (4 seeds, 60k frames, `build=spoil tau=300`: 264-283 cells standing
+//!   under `any`, 357-407 under `game`), so a number from this binary
+//!   measures its drop rule as well as the medium.
 //!
 //! Read per stop: built cells standing (dropped and still the built
 //! material), structures (8-connected groups of built cells), **pillars**
-//! (structures at least 5 tall and taller than they are wide), the tallest,
+//! (structures at least 5 tall and taller than they are wide, not touching
+//! the box's side walls or ceiling -- a wall lining is not a pillar), the
+//! tallest structure of any kind,
 //! and the share of built cells in pillars. `png=`/`gif=` as `sortbox`.
 
 use pixel_physics::sim::parallel;
 use pixel_physics::sim::rng::Rng;
 use pixel_physics::sim::{Cell, MaterialId, Rect, World};
 
+/// Every key this binary reads. An unknown or repeated key panics rather
+/// than silently running another arm (a typo once ran the wrong one).
+const KEYS: &[&str] = &[
+    "seed", "seeds", "frames", "every", "walkers", "width", "height", "build", "source", "tau", "physics", "rework",
+    "pick", "p0", "K", "sites", "png", "gif", "gifevery",
+];
+
+fn check_args() {
+    let mut seen = std::collections::HashSet::new();
+    for a in std::env::args().skip(1) {
+        let key = a.split_once('=').map_or(a.as_str(), |(k, _)| k).to_string();
+        assert!(
+            KEYS.contains(&key.as_str()),
+            "pillarbox: unknown argument `{a}` (known: {})",
+            KEYS.join(", ")
+        );
+        assert!(seen.insert(key.clone()), "pillarbox: `{key}` given twice");
+    }
+}
+
 fn arg<T: std::str::FromStr>(key: &str) -> Option<T> {
     std::env::args().skip(1).find_map(|a| {
-        a.strip_prefix(&format!("{key}="))
-            .map(|v| v.parse().ok().expect("parses"))
+        a.strip_prefix(&format!("{key}=")).map(|v| {
+            v.parse()
+                .ok()
+                .unwrap_or_else(|| panic!("pillarbox: `{a}` does not parse"))
+        })
     })
 }
 
 const DIRS: [(i32, i32); 8] = [(1, 0), (1, 1), (0, 1), (-1, 1), (-1, 0), (-1, -1), (0, -1), (1, -1)];
+
+/// Thickness of the stone box, in cells.
+const WALL: i32 = 3;
 
 struct Walker {
     x: i32,
@@ -60,6 +95,7 @@ struct Walker {
 }
 
 fn main() {
+    check_args();
     let seeds: Vec<u64> = match arg::<u64>("seed") {
         Some(s) => vec![s],
         None => (1..=arg::<u64>("seeds").unwrap_or(4)).collect(),
@@ -137,7 +173,24 @@ fn run(
         .materials
         .id_of(build)
         .unwrap_or_else(|| panic!("no material {build}"));
-    let wall = 3;
+    // The census counts every cell of the built material, so building out
+    // of the floor's own material would count the floor (1,940 "built" at
+    // frame 0) and let fresh building be picked straight back up.
+    assert!(
+        built != soil,
+        "pillarbox: build={build} is the source floor too; pass source= another material"
+    );
+    // `sites=game` drops only where the shipped ant would put spoil
+    // (`creature::spoil_site_fits`, unfooted form): two of the three cells
+    // below filled and three open cells above. The default, `any`, drops
+    // into any open cell touching something, walls and ceilings included,
+    // where `spoil` mostly slumps straight back to soil.
+    let game_sites = match arg::<String>("sites").as_deref() {
+        None | Some("any") => false,
+        Some("game") => true,
+        Some(v) => panic!("pillarbox: sites={v}: want any or game"),
+    };
+    let wall = WALL;
     let floor_top = h - wall - 10;
     for y in 0..h {
         for x in 0..w {
@@ -266,6 +319,7 @@ fn run(
                         .filter(|&(px, py)| {
                             open(&world, px, py)
                                 && touching(&world, px, py)
+                                && (!game_sites || game_site(&world, px, py))
                                 && !walkers.iter().any(|o| (o.x, o.y) == (px, py))
                         })
                         .collect();
@@ -348,6 +402,17 @@ struct Census {
     tallest: i32,
 }
 
+/// `creature::spoil_site_fits` without the footing test (`SPOIL_HEADROOM`
+/// is 3): two of the three cells below filled, three open cells above.
+fn game_site(wd: &World, x: i32, y: i32) -> bool {
+    [(-1, 1), (0, 1), (1, 1)]
+        .iter()
+        .filter(|(dx, dy)| !wd.is_empty(x + dx, y + dy))
+        .count()
+        >= 2
+        && (1..=3).all(|dy| wd.is_empty(x, y - dy))
+}
+
 fn census(wd: &World, built: MaterialId, w: i32, h: i32) -> Census {
     let mut seen = std::collections::HashSet::new();
     let mut c = Census {
@@ -381,7 +446,10 @@ fn census(wd: &World, built: MaterialId, w: i32, h: i32) -> Census {
             c.structures += 1;
             let (bw, bh) = (x1 - x0 + 1, y1 - y0 + 1);
             c.tallest = c.tallest.max(bh);
-            if bh >= 5 && bh > bw {
+            // A lining up the box's side wall or a growth hanging from its
+            // ceiling is not a pillar, however tall and narrow it is.
+            let on_box = x0 <= WALL || x1 >= w - WALL - 1 || y0 <= WALL;
+            if bh >= 5 && bh > bw && !on_box {
                 c.pillars += 1;
                 c.pillar_cells += n;
             }

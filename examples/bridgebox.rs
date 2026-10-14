@@ -29,24 +29,42 @@
 //! Read per window: crossings of each tunnel (a walker passing the tunnels'
 //! midpoint), the upper tunnel's share and the plane's peak, then the
 //! per-seed verdict over the last half of the run (`chose` = one tunnel
-//! carried at least 80% of at least 100 crossings) and a graded
-//! decisiveness, mean |share - 0.5| over seeds.
+//! carried more than 80% of at least 100 crossings) and a graded
+//! decisiveness, mean |share - 0.5| over the seeds with 100 or more.
 //!
-//! **What it found, 2026-10-14** (8 seeds, 30k frames, `goal=5`;
-//! `/mnt/project-files/emergence-sandbox/review-pr701.md` §3 E3):
-//! - **`wiring=game` (the shipped two trails) never chooses**: 0 of 8 at
-//!   gap 10 and 40, at the shipped food-trail deposit and at a seventh and
-//!   a fiftieth of it, decisiveness 0.008-0.017 -- the same as the food
-//!   trail muted. The ants that lay the food trail are steered home by the
-//!   nest scent, which is equal in both tunnels, so the trail never builds
-//!   on the outbound choice.
-//! - **Close the loop (`homeb=1`, home-goers follow the food trail too)
-//!   and it chooses**: 6 of 8 at gap 10 (0.351), 3 of 8 at gap 40, at
-//!   `depb=0.1`. At the shipped 0.714 both tunnels pin at the 255 ceiling
-//!   and it does not (0 of 8).
-//! - One trail both ways (Deneubourg's own bridge) chooses on the engine
-//!   plane only while it is below the ceiling: 6 of 8 with fade 0.1 at
-//!   `dep=0.2`, 0 of 8 at channel A's shipped no-fade (pinned).
+//! **Every argument is checked**: an unknown or repeated key panics rather
+//! than silently running another arm.
+//!
+//! **What it found, 2026-10-14** (`goal=5`, 30k frames;
+//! `/mnt/project-files/emergence-sandbox/review-pr701.md` §3 E3, corrected
+//! by the code review `review-pr702-code.md` F1-F2):
+//! - **At the shipped levels both planes sit at the 255 ceiling** in both
+//!   tunnels and the rock between, so no arm can choose (0 of 8,
+//!   decisiveness 0.008-0.019). The nest scent has no fade
+//!   (`TRAIL_A_RHO` 0), so traffic piles it to the ceiling.
+//! - **`wiring=game` is a closed loop**: outbound walkers lay nest scent in
+//!   the tunnel they chose and homebound walkers follow it, then lay the
+//!   food trail there. Kept under the ceiling (`depa=0.05 erho=0.03
+//!   depb=0.1`) it chooses on 8 of 16 seeds at gap 10 (muted: 0 of 16) and
+//!   6 of 8 at gap 40 -- as well as `homeb=1`, so the wiring is not the
+//!   cause. (An earlier version of this header said it was.)
+//! - **`reader=presence`, the shipped chooser's read** (`x / (1 + x)` over a
+//!   tenth of a deposit, step score `1 + 3 x presence`), chooses on no
+//!   wiring, because any used tunnel reads as a full route.
+//! - **No reshaping of that read chose either** (8 seeds, gap 10, game
+//!   wiring; each 0 of 8, decisiveness 0.004-0.010): a half scaled to the
+//!   strongest scent in view (`reader=rel:<c>`, the game's
+//!   `PIXEL_PHYSICS_ROUTE_HALF=rel:<c>`), a Hill exponent of 2 or 3
+//!   (`rel:<c>:<n>`, `fixed:<deposits>:<n>`), `gain=30` in place of 3, at
+//!   the shipped levels and under the ceiling alike. The one exception is
+//!   `fixed:1:2 gain=30` under the ceiling, 1 of 8 (0.210). Two reasons,
+//!   the first computed and the second inferred: the shipped score's
+//!   elasticity, `d ln(weight) / d ln(scent)`, never exceeds 0.64 at any
+//!   half, and a two-branch choice needs it above 1 to break symmetry
+//!   (Deneubourg's `(k + s)^2` passes 1 once `s > k`); and a walker at
+//!   the chamber wall senses two cells, so it never has both tunnel mouths
+//!   in view -- a half scaled to the local top cancels the level of the one
+//!   mouth it can see.
 //!
 //! **The first engine-plane runs were the harness, not the plane**:
 //! `World::step_pheromones` gates on `world.frame`, which nothing here
@@ -57,14 +75,61 @@ use pixel_physics::sim::pheromone::{Channel, DEPOSIT, PHEROMONE_INTERVAL, SCALE}
 use pixel_physics::sim::rng::Rng;
 use pixel_physics::sim::{Cell, Rect, World};
 
+const KEYS: &[&str] = &[
+    "seed", "seeds", "frames", "walkers", "gap", "len", "k", "n", "dep", "goal", "mute", "plane", "evap", "diffuse",
+    "walls", "erho", "ediff", "wiring", "homeb", "gain", "depa", "depb", "brho", "bdiff", "reader", "png",
+];
+
+/// Refuse an argument this binary does not read, or one given twice: either
+/// would silently run a different arm under the asked-for label.
+fn check_args() {
+    let mut seen = std::collections::HashSet::new();
+    for a in std::env::args().skip(1) {
+        let key = a.split_once('=').map_or(a.as_str(), |(k, _)| k).to_string();
+        assert!(
+            KEYS.contains(&key.as_str()),
+            "bridgebox: unknown argument `{a}` (known: {})",
+            KEYS.join(", ")
+        );
+        assert!(seen.insert(key.clone()), "bridgebox: `{key}` given twice");
+    }
+}
+
 fn arg<T: std::str::FromStr>(key: &str) -> Option<T> {
     std::env::args().skip(1).find_map(|a| {
-        a.strip_prefix(&format!("{key}="))
-            .map(|v| v.parse().ok().expect("parses"))
+        a.strip_prefix(&format!("{key}=")).map(|v| {
+            v.parse()
+                .ok()
+                .unwrap_or_else(|| panic!("bridgebox: `{a}` does not parse"))
+        })
     })
 }
 
+/// How a walker reads the plane it follows (`reader=`).
+#[derive(Clone, Copy, Debug)]
+enum Reader {
+    /// Deneubourg's `(k + s)^n` on the level (the default).
+    Level,
+    /// The shipped chooser's `trail_presence`: the larger of the next cell
+    /// and the one beyond, `x / (1 + x)` over a tenth of a deposit, the step
+    /// scored `1 + 3 x presence` (`TRAIL_HALF`, `TRAIL_GAIN`) and picked in
+    /// proportion to `(0.1 + score)^2` as `creature::choose_weighted` does.
+    Presence,
+    /// The same, with the half at `c` times the strongest scent among the
+    /// walker's options (never below a tenth of a deposit):
+    /// `PIXEL_PHYSICS_ROUTE_HALF=rel:<c>` in the game. `rel:<c>:<n>` raises
+    /// the ratio to the `n`th power inside the saturation (a Hill curve,
+    /// `x^n / (1 + x^n)`); `n = 1` is the shipped shape.
+    Rel(f32, i32),
+    /// A fixed half of `d` deposits with Hill exponent `n`:
+    /// `fixed:<d>[:<n>]`. The level stays visible when only one branch is
+    /// in view, which a half scaled to the local top cannot do.
+    Fixed(f32, i32),
+}
+
 /// Draw the food trail rather than the nest scent (set under `wiring=game`).
+/// `gain=`: the presence readers' `TRAIL_GAIN` (the game's is 3), as f32 bits.
+static GAIN: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0x4040_0000);
 static HOME_B_DRAW: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 static HOME_B: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
@@ -83,6 +148,7 @@ struct Walker {
 }
 
 fn main() {
+    check_args();
     let seeds: Vec<u64> = match arg::<u64>("seed") {
         Some(s) => vec![s],
         None => (1..=arg::<u64>("seeds").unwrap_or(8)).collect(),
@@ -137,14 +203,40 @@ fn main() {
     let home_b = arg::<u8>("homeb").unwrap_or(0) == 1;
     HOME_B.store(home_b, std::sync::atomic::Ordering::Relaxed);
     HOME_B_DRAW.store(game, std::sync::atomic::Ordering::Relaxed);
-    let depa: f32 = arg("depa").unwrap_or(1.0);
+    // The shipped EmitA starts at 0.819 (`creature.rs`, "0.819 -> 0.010").
+    let depa: f32 = arg("depa").unwrap_or(0.819);
     let depb: f32 = arg("depb").unwrap_or(0.714);
+    // Set on the world whatever `PIXEL_PHYSICS_B_RHO` / `_B_DIFFUSE` say.
     let brho: f32 = arg("brho").unwrap_or(pixel_physics::sim::pheromone::LAB_B_RHO);
     let bdiff: f32 = arg("bdiff").unwrap_or(pixel_physics::sim::pheromone::LAB_B_DIFFUSE);
+    let reader = match arg::<String>("reader").as_deref() {
+        None | Some("level") => Reader::Level,
+        Some("presence") => Reader::Presence,
+        Some(r) => {
+            let fixed = r.starts_with("fixed:");
+            let body = r
+                .strip_prefix("rel:")
+                .or_else(|| r.strip_prefix("fixed:"))
+                .unwrap_or("");
+            let mut it = body.split(':');
+            let c = it.next().and_then(|c| c.parse::<f32>().ok());
+            let n = it.next().map_or(Some(1), |n| n.parse::<i32>().ok());
+            match (c, n) {
+                (Some(c), Some(n)) if c > 0.0 && n >= 1 && fixed => Reader::Fixed(c, n),
+                (Some(c), Some(n)) if c > 0.0 && n >= 1 => Reader::Rel(c, n),
+                _ => panic!("reader={r}: want level, presence, rel:<factor>[:<hill>] or fixed:<deposits>[:<hill>]"),
+            }
+        }
+    };
+    if let Some(g) = arg::<f32>("gain") {
+        GAIN.store(g.to_bits(), std::sync::atomic::Ordering::Relaxed);
+    }
     let png: Option<String> = arg("png");
+    println!("bridgebox: reader={reader:?}");
     println!("bridgebox: homeb={home_b} wiring={} depa={depa} depb={depb} brho={brho} bdiff={bdiff} gap={gap} len={len} walkers={n_walkers} k={k} n={n} goal={goal_w} dep={dep}xDEPOSIT mute={mute} plane={} erho={erho:?} ediff={ediff:?} evap={evap} diffuse={diffuse} walls={walls} frames={frames}", if game { "game" } else { "one-trail" }, if own { "own" } else { "engine" });
     let mut chose = 0;
     let mut decisive = 0.0;
+    let mut counted = 0;
     let mut tally = Vec::new();
     for seed in &seeds {
         let (share, crossed) = run(
@@ -165,6 +257,7 @@ fn main() {
             erho,
             ediff,
             game.then_some((depa, depb, brho, bdiff)),
+            reader,
             png.as_deref(),
         );
         // A seed only chooses if it is still crossing: a jammed run's 0/0
@@ -172,10 +265,13 @@ fn main() {
         if crossed >= 100 && !(0.2..=0.8).contains(&share) {
             chose += 1;
         }
-        decisive += (share - 0.5).abs();
+        if crossed >= 100 {
+            decisive += (share - 0.5).abs();
+            counted += 1;
+        }
         tally.push(format!("{share:.2}/{crossed}"));
     }
-    println!("SUMMARY gap={gap} mute={mute}: upper share, last half, (share/crossings) per seed [{}]; chose one tunnel (>=80%) on {chose} of {}; decisiveness mean|share-0.5| {:.3}", tally.join(" "), seeds.len(), decisive / seeds.len() as f32);
+    println!("SUMMARY gap={gap} mute={mute}: upper share, last half, (share/crossings) per seed [{}]; chose one tunnel (>80%) on {chose} of {}; decisiveness mean|share-0.5| {:.3} over {counted} seeds with 100+ crossings", tally.join(" "), seeds.len(), decisive / counted.max(1) as f32);
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -197,6 +293,7 @@ fn run(
     erho: Option<f32>,
     ediff: Option<f32>,
     game: Option<(f32, f32, f32, f32)>,
+    reader: Reader,
     png: Option<&str>,
 ) -> (f32, u64) {
     // Geometry: chamber | tunnels | chamber, all inside rock.
@@ -309,6 +406,35 @@ fn run(
             } else {
                 wk.since_nest = wk.since_nest.saturating_add(1);
             }
+            let read = if game.is_some() && (wk.to_food || home_b) {
+                Channel::B
+            } else {
+                Channel::A
+            };
+            let level_at = |wd: &World, d: usize| -> f32 {
+                let (dx, dy) = DIRS[d];
+                if own {
+                    grid[gi(x + dx, y + dy)] * SCALE as f32
+                } else {
+                    let near = wd.pheromone_at(read, x + dx, y + dy);
+                    match reader {
+                        Reader::Level => f32::from(near),
+                        _ => f32::from(near.max(wd.pheromone_at(read, x + 2 * dx, y + 2 * dy))),
+                    }
+                }
+            };
+            let tenth = DEPOSIT as f32 / 10.0;
+            let half = match reader {
+                Reader::Rel(c, _) => {
+                    let top = (0..8)
+                        .filter(|&d| open(&world, x + DIRS[d].0, y + DIRS[d].1))
+                        .map(|d| level_at(&world, d))
+                        .fold(0.0, f32::max);
+                    (c * top).max(tenth)
+                }
+                Reader::Fixed(d, _) => d * DEPOSIT as f32,
+                _ => tenth,
+            };
             let mut weights = [0f32; 8];
             let mut total = 0.0;
             for (d, &(dx, dy)) in DIRS.iter().enumerate() {
@@ -319,20 +445,25 @@ fn run(
                 let turn = (d + 8 - wk.dir) % 8;
                 let persist = [1.0, 0.5, 0.15, 0.03, 0.01, 0.03, 0.15, 0.5][turn];
                 let goal = if (dx > 0) == wk.to_food && dx != 0 { goal_w } else { 1.0 };
-                let read = if game.is_some() && (wk.to_food || home_b) {
-                    Channel::B
-                } else {
-                    Channel::A
+                let raw = level_at(&world, d);
+                let wgt = match reader {
+                    Reader::Level => persist * goal * (k + raw / SCALE as f32).powi(n),
+                    // The game's `choose_weighted` picks in proportion to
+                    // `(0.1 + score)^2`, so the shipped reader is squared too.
+                    Reader::Presence | Reader::Rel(..) | Reader::Fixed(..) => {
+                        let hill = match reader {
+                            Reader::Rel(_, n) | Reader::Fixed(_, n) => n,
+                            _ => 1,
+                        };
+                        let xh = (raw / half).powi(hill);
+                        let gain = f32::from_bits(GAIN.load(std::sync::atomic::Ordering::Relaxed));
+                        (0.1 + persist * goal * (1.0 + gain * xh / (1.0 + xh))).powi(2)
+                    }
                 };
-                let s = if own {
-                    grid[gi(nx, ny)]
-                } else {
-                    world.pheromone_at(read, nx, ny) as f32 / SCALE as f32
-                };
-                let wgt = persist * goal * (k + s).powi(n);
                 weights[d] = wgt;
                 total += wgt;
             }
+            let mut moved = false;
             if total > 0.0 {
                 let mut r = rng.unit_f32() * total;
                 for (d, &wgt) in weights.iter().enumerate() {
@@ -343,6 +474,7 @@ fn run(
                         wk.x += DIRS[d].0;
                         wk.y += DIRS[d].1;
                         wk.dir = d;
+                        moved = true;
                         break;
                     }
                     r -= wgt;
@@ -350,7 +482,10 @@ fn run(
             } else {
                 wk.dir = rng.below(8) as usize;
             }
-            if let Some((depa, depb, _, _)) = game {
+            // The game lays only on a successful move.
+            if !moved {
+                // nothing laid
+            } else if let Some((depa, depb, _, _)) = game {
                 let odo = 40.0 / (40.0 + wk.since_nest as f32);
                 world.deposit_pheromone(Channel::A, wk.x, wk.y, (depa * odo * DEPOSIT as f32) as u16);
                 if !mute && !wk.to_food {
@@ -399,7 +534,14 @@ fn run(
     if let Some(dir) = png {
         let _ = std::fs::create_dir_all(dir);
         draw(&world, &walkers, w, h, stone)
-            .save(format!("{dir}/gap{gap}_mute{}_s{seed}.png", u8::from(mute)))
+            .save(format!(
+                "{dir}/{}_homeb{}_depa{}_depb{}_dep{dep}_gap{gap}_mute{}_s{seed}.png",
+                if game.is_some() { "game" } else { "onetrail" },
+                u8::from(home_b),
+                game.map_or(0.0, |g| g.0),
+                game.map_or(0.0, |g| g.1),
+                u8::from(mute)
+            ))
             .expect("png");
     }
     (late[0] as f32 / (late[0] + late[1]).max(1) as f32, late[0] + late[1])
