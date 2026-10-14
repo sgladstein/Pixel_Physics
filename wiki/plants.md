@@ -3,7 +3,7 @@
 *What plants do, and what it looks like when they are working. No code, no
 file names — see `Reports/` for why any of it is built the way it is.*
 
-*Current as of: 2026-10-13 (**a grass with no root in the ground dries out** instead of living for ever -- see *Drought*, under what kills a plant). Also 2026-10-10 (**a herb dies after it has set seed**, and the bed renews itself from seed -- it empties if rain is off; see *A herb lives one season*). Also 2026-10-10 (**a plant grows back leaf that was bitten off**, paid from what it has stored, so a grazed bed keeps a middle between full and bare -- see *A plant that has been bitten*). Also 2026-10-07 (**a plant's page says why its tips stopped growing** -- the height its water reaches, no room, too poor and the rest -- see *What a healthy stand looks like*). Also 2026-10-06 (**the list of the dead says what killed each plant** -- shaded out, dried out, eaten, old age and the rest; *felled* now means felled, and a seed that rots unsprouted is counted but not listed -- see *Fire and death*). Also 2026-10-05 (**grass grows back** -- a tussock that loses its blades sends up new ones from its crown, so a meadow keeps seeding instead of fading -- see *Species*). Also 2026-10-03 (**water runs through a plant along real paths**:
+*Current as of: 2026-10-14 (**a seed waiting on dry ground keeps much longer, and a waiting seed is not yet a plant**, so a bed that dries out can come back with more than grass when the rain returns -- see *The seed bank*). Also 2026-10-13 (**a grass with no root in the ground dries out** instead of living for ever -- see *Drought*, under what kills a plant). Also 2026-10-10 (**a herb dies after it has set seed**, and the bed renews itself from seed -- it empties if rain is off; see *A herb lives one season*). Also 2026-10-10 (**a plant grows back leaf that was bitten off**, paid from what it has stored, so a grazed bed keeps a middle between full and bare -- see *A plant that has been bitten*). Also 2026-10-07 (**a plant's page says why its tips stopped growing** -- the height its water reaches, no room, too poor and the rest -- see *What a healthy stand looks like*). Also 2026-10-06 (**the list of the dead says what killed each plant** -- shaded out, dried out, eaten, old age and the rest; *felled* now means felled, and a seed that rots unsprouted is counted but not listed -- see *Fire and death*). Also 2026-10-05 (**grass grows back** -- a tussock that loses its blades sends up new ones from its crown, so a meadow keeps seeding instead of fading -- see *Species*). Also 2026-10-03 (**water runs through a plant along real paths**:
 up the roots, up the trunk, out along the branches, and a dry spell browns the
 far tips first -- see *How water moves through a plant*). Also 2026-10-03 (**plants can be born harder to eat**, paying for
 it in growth -- see *Plants that are worse to eat*). Also 2026-10-03 (**a seed with ground on top of it is out of the
@@ -1358,3 +1358,23 @@ difference between species: **grass seed outlasts tree seed by about
 double**, which is a large part of why grass is the thing that comes back
 first on ground where nothing is currently growing. A seed whose time runs
 out rots where it lies, like anything else.
+
+**Since 2026-10-14, a seed waiting on dry ground keeps much longer.** Dry
+seed is how a real bank rides out a drought, so a seed lying over ground too
+dry to sprout in now ages up to sixteen times more slowly than one on wet
+ground. Under rain nothing changes, because the ground under a seed is wet.
+Turn the rain off and the bed still dries out and thins, but the waiting bank
+keeps every kind of plant in it for much longer, so when the rain comes back
+the herbs and shrubs and trees come back with the grass instead of grass
+alone. The longer the drought, the thinner and more grass-heavy what is left:
+after a very long one only a few herb and grass seeds remain. A seed on bare
+rock, which can never sprout there, keeps the ordinary clock.
+
+**And a waiting seed is not yet a plant.** Before this, every waiting seed of
+a leafy plant (herb, shrub, tree, conifer) was treated as a plant with no
+income: it "starved" after a fixed spell and grew old as it lay, so the bank
+of those kinds emptied on a timer whatever the weather, and a seed that
+sprouted after a long wait started its life already old and half-starved. Now
+a seed's only clock is its own, and its life starts when it sprouts. On a bed
+with a colony under light rain the waiting bank is about half as big again
+as it was, with the standing plants and the colony unchanged.
