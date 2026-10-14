@@ -96,10 +96,10 @@ whole, then run `python3 scripts/readmetoc.py`.
 | [Food road status — the trail the colony actually walks, and the box that was not there](#food-road-status--the-trail-the-colony-actually-walks-and-the-box-that-was-not-there) | 10313 |
 | [Field wake status — the field solves for the ants, and only one half of the fix is free](#field-wake-status--the-field-solves-for-the-ants-and-only-one-half-of-the-fix-is-free) | 10368 |
 | [Nest status — one door, a dug entrance, and a granary kept for the hungry](#nest-status--one-door-a-dug-entrance-and-a-granary-kept-for-the-hungry) | 10449 |
-| [Laying status — whether to breed is the ant's decision, and an egg goes onto the brood pile](#laying-status--whether-to-breed-is-the-ants-decision-and-an-egg-goes-onto-the-brood-pile) | 10604 |
-| [Sap flow status — water travels through the plant, and a drought lands on the far tips first](#sap-flow-status--water-travels-through-the-plant-and-a-drought-lands-on-the-far-tips-first) | 10774 |
-| [Grass regrowth status — a tussock grows back from its crown, and the garden keeps seeding](#grass-regrowth-status--a-tussock-grows-back-from-its-crown-and-the-garden-keeps-seeding) | 10851 |
-| [Planted bed status — a bitten herb grows back, and a herb lives one season](#planted-bed-status--a-bitten-herb-grows-back-and-a-herb-lives-one-season) | 10874 |
+| [Laying status — whether to breed is the ant's decision, and an egg goes onto the brood pile](#laying-status--whether-to-breed-is-the-ants-decision-and-an-egg-goes-onto-the-brood-pile) | 10658 |
+| [Sap flow status — water travels through the plant, and a drought lands on the far tips first](#sap-flow-status--water-travels-through-the-plant-and-a-drought-lands-on-the-far-tips-first) | 10828 |
+| [Grass regrowth status — a tussock grows back from its crown, and the garden keeps seeding](#grass-regrowth-status--a-tussock-grows-back-from-its-crown-and-the-garden-keeps-seeding) | 10905 |
+| [Planted bed status — a bitten herb grows back, and a herb lives one season](#planted-bed-status--a-bitten-herb-grows-back-and-a-herb-lives-one-season) | 10928 |
 
 ### Milestones, in numeric order
 
@@ -144,8 +144,8 @@ your time goes, not a rule about what you may read.
 
 | Topic | Game | Sections, primary first |
 |---|---|---|
-| **plants, trees and moss** | engine | [M16 status](#m16-status) 1958, [Soil nutrient status](#soil-nutrient-status--ground-is-worth-something-water-is-not) 7899, [Sap flow status](#sap-flow-status--water-travels-through-the-plant-and-a-drought-lands-on-the-far-tips-first) 10774, [Grass regrowth status](#grass-regrowth-status--a-tussock-grows-back-from-its-crown-and-the-garden-keeps-seeding) 10851, [Planted bed status](#planted-bed-status--a-bitten-herb-grows-back-and-a-herb-lives-one-season) 10874, [Plant lines merged](#plant-lines-merged-the-genome-and-the-ecology) 1449, [Inheritance status](#inheritance-status--the-growth-program-has-no-fallback-under-it) 4764, [Parameter-genome status](#parameter-genome-status--a-species-file-is-a-starting-point-and-it-ships-inert) 4867, [The economy re-derived](#the-economy-re-derived-standing-tissue-costs-something) 1600, [Plants that stop](#plants-that-stop-organs-determinacy-and-a-price-on-both) 1890, [The generation loop](#the-generation-loop-plants-die-seeds-expire-slots-come-back) 1519, [Stems draw a line](#stems-draw-a-line-the-growth-walk-renders-its-heading) 1808, [Felling status](#felling-status--the-verb-works-and-what-it-produces-is-pieces) 5047, [Bending status](#bending-status--soft-tissue-lies-over-and-the-wind-is-what-pushes-it) 5284, [Breaking status](#breaking-status--a-badly-grown-tree-comes-down-on-its-own) 5361, [Specimen shelf status](#specimen-shelf-status--an-individuals-genetics-outlive-the-box) 6885, [Cell page status](#cell-page-status--the-specimen-readout-is-in-three-groups-and-folds) 5681, [Roster status](#roster-status--every-plant-and-every-animal-as-a-list-you-click-through) 5745, [Plain-speech status](#plain-speech-status--the-genome-read-back-as-sentences) 5976, [Life record status](#life-record-status--what-an-individual-has-done-and-what-killed-it) 6730 |
-| **creatures — worms and the ant colony** | engine | [M18 status](#m18-status) 2371, [The ant colony](#the-ant-colony--status) 3945, [Specimen shelf status](#specimen-shelf-status--an-individuals-genetics-outlive-the-box) 6885, [Roster status](#roster-status--every-plant-and-every-animal-as-a-list-you-click-through) 5745, [Plain-speech status](#plain-speech-status--the-genome-read-back-as-sentences) 5976, [Lab hand-verbs status](#lab-hand-verbs-status--what-a-click-puts-in-the-box-and-what-the-view-shows) 6947, [Life record status](#life-record-status--what-an-individual-has-done-and-what-killed-it) 6730, [Lab soil status](#lab-soil-status--a-hole-that-stays-a-hole-anywhere-in-the-bed-and-a-bed-that-stops-running-out) 7942, [Hunger status](#hunger-status--a-fed-ant-rests-a-hungry-one-walks-and-the-founding-cliff-is-walking-cost) 8294, [Rest status](#rest-status--a-rest-that-ends-so-a-resting-animal-is-not-a-stopped-one) 8617, [Hopper status](#hopper-status--the-jump-has-a-species-and-it-hops-itself-to-death) 8586, [Trophallaxis status](#trophallaxis-status--the-colonys-stomach-shipped-on-and-a-first-measurement-that-says-wait) 8748, [Stacking status](#stacking-status--many-ants-of-one-colony-in-one-cell-off-by-default) 8806, [Trail status](#trail-status--the-ant-reads-its-way-home-and-the-food-trail-is-the-larders-problem) 8860, [Trail lifetime status](#trail-lifetime-status--the-way-home-keeps-the-food-trail-still-fades) 8897, [Walk status](#walk-status--the-ant-chooses-where-to-step-and-a-colony-builds-its-own-road) 8972, [Forage status](#forage-status--a-forager-keeps-going-out-and-heads-home-from-the-last-mouthful) 8998, [Lifespan status](#lifespan-status--an-ant-gets-old-and-the-colonys-fall-becomes-a-slope) 9126, [Colony books status](#colony-books-status--what-each-colony-is-living-on-in-joules) 10182, [Food road status](#food-road-status--the-trail-the-colony-actually-walks-and-the-box-that-was-not-there) 10313, [Nest status](#nest-status--one-door-a-dug-entrance-and-a-granary-kept-for-the-hungry) 10449, [Laying status](#laying-status--whether-to-breed-is-the-ants-decision-and-an-egg-goes-onto-the-brood-pile) 10604 |
+| **plants, trees and moss** | engine | [M16 status](#m16-status) 1958, [Soil nutrient status](#soil-nutrient-status--ground-is-worth-something-water-is-not) 7899, [Sap flow status](#sap-flow-status--water-travels-through-the-plant-and-a-drought-lands-on-the-far-tips-first) 10828, [Grass regrowth status](#grass-regrowth-status--a-tussock-grows-back-from-its-crown-and-the-garden-keeps-seeding) 10905, [Planted bed status](#planted-bed-status--a-bitten-herb-grows-back-and-a-herb-lives-one-season) 10928, [Plant lines merged](#plant-lines-merged-the-genome-and-the-ecology) 1449, [Inheritance status](#inheritance-status--the-growth-program-has-no-fallback-under-it) 4764, [Parameter-genome status](#parameter-genome-status--a-species-file-is-a-starting-point-and-it-ships-inert) 4867, [The economy re-derived](#the-economy-re-derived-standing-tissue-costs-something) 1600, [Plants that stop](#plants-that-stop-organs-determinacy-and-a-price-on-both) 1890, [The generation loop](#the-generation-loop-plants-die-seeds-expire-slots-come-back) 1519, [Stems draw a line](#stems-draw-a-line-the-growth-walk-renders-its-heading) 1808, [Felling status](#felling-status--the-verb-works-and-what-it-produces-is-pieces) 5047, [Bending status](#bending-status--soft-tissue-lies-over-and-the-wind-is-what-pushes-it) 5284, [Breaking status](#breaking-status--a-badly-grown-tree-comes-down-on-its-own) 5361, [Specimen shelf status](#specimen-shelf-status--an-individuals-genetics-outlive-the-box) 6885, [Cell page status](#cell-page-status--the-specimen-readout-is-in-three-groups-and-folds) 5681, [Roster status](#roster-status--every-plant-and-every-animal-as-a-list-you-click-through) 5745, [Plain-speech status](#plain-speech-status--the-genome-read-back-as-sentences) 5976, [Life record status](#life-record-status--what-an-individual-has-done-and-what-killed-it) 6730 |
+| **creatures — worms and the ant colony** | engine | [M18 status](#m18-status) 2371, [The ant colony](#the-ant-colony--status) 3945, [Specimen shelf status](#specimen-shelf-status--an-individuals-genetics-outlive-the-box) 6885, [Roster status](#roster-status--every-plant-and-every-animal-as-a-list-you-click-through) 5745, [Plain-speech status](#plain-speech-status--the-genome-read-back-as-sentences) 5976, [Lab hand-verbs status](#lab-hand-verbs-status--what-a-click-puts-in-the-box-and-what-the-view-shows) 6947, [Life record status](#life-record-status--what-an-individual-has-done-and-what-killed-it) 6730, [Lab soil status](#lab-soil-status--a-hole-that-stays-a-hole-anywhere-in-the-bed-and-a-bed-that-stops-running-out) 7942, [Hunger status](#hunger-status--a-fed-ant-rests-a-hungry-one-walks-and-the-founding-cliff-is-walking-cost) 8294, [Rest status](#rest-status--a-rest-that-ends-so-a-resting-animal-is-not-a-stopped-one) 8617, [Hopper status](#hopper-status--the-jump-has-a-species-and-it-hops-itself-to-death) 8586, [Trophallaxis status](#trophallaxis-status--the-colonys-stomach-shipped-on-and-a-first-measurement-that-says-wait) 8748, [Stacking status](#stacking-status--many-ants-of-one-colony-in-one-cell-off-by-default) 8806, [Trail status](#trail-status--the-ant-reads-its-way-home-and-the-food-trail-is-the-larders-problem) 8860, [Trail lifetime status](#trail-lifetime-status--the-way-home-keeps-the-food-trail-still-fades) 8897, [Walk status](#walk-status--the-ant-chooses-where-to-step-and-a-colony-builds-its-own-road) 8972, [Forage status](#forage-status--a-forager-keeps-going-out-and-heads-home-from-the-last-mouthful) 8998, [Lifespan status](#lifespan-status--an-ant-gets-old-and-the-colonys-fall-becomes-a-slope) 9126, [Colony books status](#colony-books-status--what-each-colony-is-living-on-in-joules) 10182, [Food road status](#food-road-status--the-trail-the-colony-actually-walks-and-the-box-that-was-not-there) 10313, [Nest status](#nest-status--one-door-a-dug-entrance-and-a-granary-kept-for-the-hungry) 10449, [Laying status](#laying-status--whether-to-breed-is-the-ants-decision-and-an-egg-goes-onto-the-brood-pile) 10658 |
 | **structural collapse, felling and rigid bodies** | outdoor | [M17 status](#m17-status) 2144, [Felling status](#felling-status--the-verb-works-and-what-it-produces-is-pieces) 5047, [Bending status](#bending-status--soft-tissue-lies-over-and-the-wind-is-what-pushes-it) 5284, [Breaking status](#breaking-status--a-badly-grown-tree-comes-down-on-its-own) 5361, [M8 status](#m8-status--started-not-complete) 3139 |
 | **fire, heat and phase change** | engine | [M14 status](#m14-status) 1036, [Materials](#materials) 306 |
 | **explosions, particles and debris** | outdoor | [M15 status](#m15-status) 1213, [M7 status](#m7-status) 1184 |
@@ -10600,6 +10600,60 @@ files, summarised in `Reports/dead-ends.md`; how the rule works is
 Full account: `Reports/nest-granary-2026-09-28.md` §8-§9; the lane note is
 `Reports/lanes/nest-mouth.md`; how each rule works is
 `Reports/how-the-ant-works.md` §5, §6d and §8.
+
+### A nest that stops growing — digging needs two nestmates (2026-10-14)
+
+**`PIXEL_PHYSICS_DIG_COMPANY`, on since 2026-10-14** (`creature::DIG_COMPANY_SHIPPED`:
+`k=2,wide,noshaft` over `r=3,q=1000,dug=100`; `off` is the ant before). A won
+dig on any wall below the old ground line is refused unless at least two
+nestmates (the kin test's family; a beetle or a stranger is no company) have
+a body cell within 3 cells of the cell being cut. Exempt: a nest whose dug
+home is under 100 cells (the queen and first workers dig alone) and a shut-in
+ant. The company count is local: an ant feels nestmates at the face. **Two
+reads are labelled stopgaps**, as the brood room's are: "below the old ground
+line" is the nest site's stored ground row, not soil the ant feels, and the
+founding exemption reads the dug-home size of the nest site nearest the cut.
+In the game, where scent and tolerance mutate, company follows the tolerance
+gene: a nestmate the digger would treat as a stranger is no company (inferred
+from the kin test; not run with mutation on). Under any
+`PIXEL_PHYSICS_NEST_HOME` but the shipped `dug` there is no dug home, every
+nest reads as founding, and the rule does nothing.
+
+**Why.** Galleries ran on to the edge of "home" (`DUG_HOME_REACH`, 60 columns
+from the door, a bound on the fill's work) and past it, because nothing in the
+nest told an ant to stop: at home every wall was cut at a flat chance of about
+0.77 a won roll, alone or in a crowd, and 70-77% of the cuts outside the brood
+room were by an ant with no other ant within 3 cells. Open nest per ant rose
+from 1.5 to 8-10 cells with a flat colony. In real nests digging stops at an
+area threshold and chambers form where workers gather (according to PubMed:
+Toffin et al. 2010, doi 10.1098/rspb.2010.0176; Römer & Roces 2014, doi
+10.1371/journal.pone.0097872).
+
+**Measured**, 12 steady seeds at 600k, mutation off, against main and main
+nudged one frame: longest gallery 46-60 body lengths against 72-80 (outside
+both on 12 of 12); open nest per ant 3.5-5.2 against 6.4-22.9; wall cuts past
+home's edge 53-120 against 300-970; colony no smaller (adults 289-305 against
+236-293, about 3% more); adults starved 300-600k 9-105 against 4-489; eggs and
+larvae starved unchanged; brood in the room 83-90% against 76-87%; depth 46-58
+against 47-62; run time no different. The rule runs only on a dig roll already
+won: one 7x7 look for nestmates, stopping at the second. A few scrapes still
+land past home's edge (53-120 wall cuts a seed), and on seeds 4 and 5 the
+longest gallery spans 118 and 120 of home's 121 columns, so there it is not
+shown whether company or home's edge stopped it. Measured on the one-colony
+`steady_income` bed only. Smoke, one seed to 150k against off: on
+`two_nests_own` both nests found and the run is sound (ants 543 against 579,
+mean 100-150k 498 against 560, starved 28 against 70); on `one_nest_beetles`
+mean ants 312 against 311 (starved 83 against 30). One seed each, no nudged
+baseline: a check that nothing breaks, not a measurement.
+
+**What it does not do.** Galleries are still straight: it bounds the nest, it
+does not make chambers. What failed on the way: one nestmate (`k=1`; pairs then
+carry galleries to home's edge, far cuts with exactly one other ant 9% -> 77%),
+the rule at home only (a gallery ran on past home's edge), the shaft exemption
+(thin zigzag tunnels passed it as shafts and ran past the edge and down), a
+home reach of 30 columns alone (galleries leak past it), and the brood room
+allowed 8 rows tall, with and without the rule (no chambers). Record:
+`Reports/dead-ends.md`; how the rule works: `Reports/how-the-ant-works.md` §12.
 
 ## Laying status — whether to breed is the ant's decision, and an egg goes onto the brood pile
 
