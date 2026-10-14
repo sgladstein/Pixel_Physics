@@ -76,6 +76,8 @@ by somebody about to try it on creatures.
   dry goal box), `margin.py` (reserve in frames, foraging trips, deaths),
   `starvers.py` (each starver stuck, held or free), `stuckway.py` (nest
   starvers' nearest approach to the door). Data regenerates; not kept.
+  `consensus-brief.md` is the §6 literature check still to run against
+  Consensus's paper index (the allowance was spent on 2026-10-14).
 - [two-games-one-repo-2026-08-30.md](two-games-one-repo-2026-08-30.md) —
   **proposal, not yet built; revised after an adversarial review found its
   central recommendation was a no-op.** Answers whether two games on one

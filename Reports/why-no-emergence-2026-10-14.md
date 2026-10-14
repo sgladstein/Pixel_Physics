@@ -849,6 +849,10 @@ supports, and none of them is built here.
   container's network policy refused the papers, so nothing in §6 was read in
   full except the ANThill-Sim repository. The reversed-CO₂ arm of Tschinkel
   2013 could not be read; only the vented arm is cited.
+- **§6 has not been checked against a paper index.** The Consensus connector
+  was attached afterwards, but its monthly allowance was already spent. The
+  brief to run when it resets is
+  [`why-no-emergence-2026-10-14/consensus-brief.md`](why-no-emergence-2026-10-14/consensus-brief.md).
 - **Plants (§8) were read, not traced.**
 - **Not read whole:** `README.md`, `PLAN.md`, `dead-ends.md`,
   `open-bugs-handoff.md` and most dated ant reports. They were read by
