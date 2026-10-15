@@ -47,6 +47,14 @@
 //!   the seeds without order; `penm` 0.6 or 0.8: no cluster. The old
 //!   `room=` x (width - 1) form at reach 6: 5/16, small items packed
 //!   solid and rings further out still.
+//! - `body=1,2,3 medium=game along=floor` (side view; bodies fall whole,
+//!   nothing slides): 80 wide, **0/16, no better than random** (`off`
+//!   0/16, ratios ~1). 240 wide, 8 seeds at 300k: one heap against an end
+//!   wall, small deepest in the corner and large on top and outside, so
+//!   large is further out on 5/8 (1.53-2.32) but medium is mixed through
+//!   (1.0-1.49); 1/8 in the band, random 0/8 and no cluster. Gravity turns
+//!   the rings into a layered corner heap. `layer=1` (put down only on the
+//!   floor, one layer) never clusters: 22-27 of 30 walkers left holding.
 //!
 //! **The bar is the paper's** (2026-10-15, after the owner read a "13/16"
 //! picture with medium mixed into small and large strung along the floor):
@@ -98,7 +106,7 @@ use pixel_physics::sim::rng::Rng;
 use pixel_physics::sim::{Cell, MaterialId, Rect, World};
 
 const KEYS: &[&str] = &[
-    "seed", "seeds", "frames", "every", "walkers", "width", "height", "rule", "medium", "items", "k1", "k2", "png", "scale", "join", "bonusm", "scatter", "along",
+    "seed", "seeds", "frames", "every", "walkers", "width", "height", "rule", "medium", "items", "k1", "k2", "png", "scale", "join", "bonusm", "scatter", "along", "layer",
     "pull", "pick", "body", "room", "penm",
 ];
 
@@ -271,17 +279,19 @@ fn run(seed: u64, rule: Rule, medium: &str, frames: u64, every: u64, n_walkers: 
     // "Bigger brood"). Each size is a square `a`/`b`/`c` cells on a side
     // (`1,2,3`: area 1, 4, 9). Franks's whole reading of the rings is space
     // per item; with every item one cell the room a size needs rounds to
-    // whole cells, and the room rule managed 3/16 at best. Top-down only
-    // (`medium=flat`): a body in the game's physics would fall apart.
+    // whole cells, and the room rule managed 3/16 at best. Top-down
+    // (`medium=flat`), or a side view (`medium=game`) where a body falls
+    // whole: the game's powder step would tear it into cells.
     let body: [i32; 3] = arg::<String>("body").map_or([1, 1, 1], |v| {
         let p: Vec<i32> = v.split(',').map(|x| x.parse().expect("body=a,b,c")).collect();
         [p[0], p[1], p[2]]
     });
     let bodies = body != [1, 1, 1];
+    let layer = arg::<u32>("layer") == Some(1);
     let mut owner = vec![usize::MAX; (w * h) as usize];
     let mut things: Vec<Option<(i32, i32, u8)>> = Vec::new();
     if bodies {
-        assert!(flat && arg::<u64>("scatter").is_none(), "body= is top-down (medium=flat) and has no scatter");
+        assert!(medium != "rest" && arg::<u64>("scatter").is_none(), "body= runs flat or game, with no scatter");
         assert!(matches!(rule, Rule::Room | Rule::Off), "body= runs room or off");
         for size in 0..3u8 {
             let mut placed = 0;
@@ -351,7 +361,33 @@ fn run(seed: u64, rule: Rule, medium: &str, frames: u64, every: u64, n_walkers: 
             println!("seed {seed} f {f:>6}: SCATTERED");
         }
         if f > 0 {
-            if medium == "game" {
+            if bodies && medium == "game" {
+                // **A body falls whole**: an item with nothing under any of
+                // its bottom cells drops a row, lowest items first. Nothing
+                // slides off a heap (the powder's slide would tear a 3x3
+                // larva into nine cells); a body rests on whatever is under
+                // any one of its cells.
+                let mut order: Vec<usize> = (0..things.len()).filter(|&j| things[j].is_some()).collect();
+                order.sort_by_key(|&j| std::cmp::Reverse(things[j].map_or(0, |t| t.1)));
+                for j in order {
+                    let (ax, ay, sz) = things[j].expect("filtered");
+                    let b = body[usize::from(sz)];
+                    if (0..b).all(|dx| open(&world, ax + dx, ay + b)) {
+                        for dx in 0..b {
+                            world.set(ax + dx, ay, Cell::EMPTY);
+                            owner[(ay * w + ax + dx) as usize] = usize::MAX;
+                            world.set(ax + dx, ay + b, Cell::new(brood, sz));
+                            owner[((ay + b) * w + ax + dx) as usize] = j;
+                        }
+                        for dy in 1..b {
+                            for dx in 0..b {
+                                owner[((ay + dy) * w + ax + dx) as usize] = j;
+                            }
+                        }
+                        things[j] = Some((ax, ay + 1, sz));
+                    }
+                }
+            } else if medium == "game" {
                 parallel::step(&mut world);
             } else if medium == "rest" {
                 // An item with nothing under it drops straight down; nothing
@@ -436,7 +472,11 @@ fn run(seed: u64, rule: Rule, medium: &str, frames: u64, every: u64, n_walkers: 
                                     for ox in 0..b {
                                         let (ax, ay) = (x + dx - ox, y + dy - oy);
                                         let fp = footprint(body, ax, ay, sz);
-                                        if fp.iter().all(|&(a, c)| open(&world, a, c) && !walkers.iter().any(|o| (o.x, o.y) == (a, c))) {
+                                        // `layer=1`: one layer on the chamber floor, as a
+                                        // Leptothorax nest's brood lies; nothing goes on top
+                                        // of other brood.
+                                        let floor_only = layer && medium == "game" && ay + b != h - 2;
+                                        if !floor_only && fp.iter().all(|&(a, c)| open(&world, a, c) && !walkers.iter().any(|o| (o.x, o.y) == (a, c))) {
                                             anchors.push((ax, ay));
                                         }
                                     }
