@@ -1665,7 +1665,11 @@ Read once per process from the environment. The default is what ships.
   bit-exact for both. Its rules are Khuong et al. 2016's (deposit near a
   fresh deposit, pick-up falling with the pellets round, a body-length cap
   template); it picks any loose pellet round the head and counts only
-  building material as its `n`. Caps need `PIXEL_PHYSICS_SPOIL_CORBEL=on`
+  building material as its `n`. It drops at the base rate even where no
+  deposit is fresh (`base_always`: the scent scales only the pile term,
+  so with no scent at all the soil is reworked rather than carried for
+  ever), and it never lays a pellet with stone beside or above it
+  (`build_on_box` off; the paper's ants turn away from walls). Caps need `PIXEL_PHYSICS_SPOIL_CORBEL=on`
   (`update.rs`, off): one cell of overhang for a `needs_footing` cell held
   from the side.
 

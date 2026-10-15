@@ -114,6 +114,25 @@ pub struct TextbookCfg {
     /// heaps 2.4-3 bodies wide and 4-5 apart, and freezes by 48 h with every
     /// carrier laden and no fresh mark left to drop by.
     pub pick_around: bool,
+    /// Whether the base deposition rate applies without scent (ours, on by
+    /// default). Eq. 1 read literally, `(eta_d,0 + b_d n) exp(-tau_m eta_m)`,
+    /// has no drops at all where no deposit is fresh. With no scent at all
+    /// every ant then picks one pellet and carries it to the end (pillar box,
+    /// tau 0: 80 picks, 0 drops), and a carrier far from any fresh deposit is
+    /// stuck the same way. The paper's own no-scent result is that "the
+    /// material ... is just remodeled", which needs drops. On, the scent
+    /// scales the pile term only: `eta_d,0 + b_d n exp(-tau_m eta_m)`.
+    pub base_always: bool,
+    /// Whether a pellet may be laid against the box (ours, on by default):
+    /// off, a site with stone (ground that is not building material) beside
+    /// or above it is no site -- stone beneath, the floor, still is. The
+    /// paper's lattice ants "are randomly reoriented in a direction facing
+    /// away from" its boundaries, and its arena is a Petri dish whose walls
+    /// nobody reports being built on, so nothing there is laid against a
+    /// wall. Ours walk the box's walls and lid, and under `base_always` and
+    /// `SPOIL_CORBEL` they lined them: pillar box, 80 ants, tau 0, 520k
+    /// frames, the floor's soil ended as a ramp 76 cells up the left wall.
+    pub build_on_box: bool,
 }
 
 /// What the rules did, for a harness's census. Nothing reads these back.
@@ -250,8 +269,15 @@ fn open_below(world: &World, x: i32, y: i32) -> u32 {
 /// ground straight beneath, or, under `SPOIL_CORBEL`, a side neighbour that
 /// is ground with ground beneath it -- and that shuts no way
 /// ([`closes_a_way`]). Returns the site and whether it is a side deposit.
-fn sites(world: &World, (x, y): (i32, i32)) -> Vec<((i32, i32), bool)> {
+fn sites(world: &World, cfg: &TextbookCfg, (x, y): (i32, i32)) -> Vec<((i32, i32), bool)> {
     let corbel = crate::sim::update::spoil_corbel();
+    let spoil = world.materials.id_of("spoil");
+    let stone = |px: i32, py: i32| {
+        ground(world, px, py) && {
+            let m = world.get(px, py).material;
+            m != cfg.source && Some(m) != spoil
+        }
+    };
     DIRS.iter()
         .map(|&(dx, dy)| (x + dx, y + dy))
         .filter(|&(px, py)| world.in_bounds(px, py) && world.is_empty(px, py))
@@ -263,6 +289,7 @@ fn sites(world: &World, (x, y): (i32, i32)) -> Vec<((i32, i32), bool)> {
                     .any(|&sx| ground(world, px + sx, py) && ground(world, px + sx, py + 1));
             (footed || held).then_some(((px, py), !footed))
         })
+        .filter(|&((px, py), _)| cfg.build_on_box || !(stone(px - 1, py) || stone(px + 1, py) || stone(px, py - 1)))
         .filter(|&(p, _)| !closes_a_way(world, p))
         .collect()
 }
@@ -319,7 +346,7 @@ pub(super) fn act(world: &mut World, organism: OrganismId, def: &CreatureDef, dr
             }
         }
         Some(load) => {
-            let options = sites(world, (x, y));
+            let options = sites(world, &cfg, (x, y));
             if options.is_empty() {
                 count(world, |c| c.no_site += 1);
                 return Did::default();
@@ -331,7 +358,14 @@ pub(super) fn act(world: &mut World, organism: OrganismId, def: &CreatureDef, dr
             } else {
                 1.0
             };
-            let chance = template * (1.0 - (-(cfg.drop_base + cfg.drop_per * n as f32) * cfg.dt * fresh).exp());
+            // **`base_always`**: the scent scales the pile term only, so a
+            // carrier still drops at `drop_base` where nothing is fresh.
+            let rate = if cfg.base_always {
+                cfg.drop_base + cfg.drop_per * n as f32 * fresh
+            } else {
+                (cfg.drop_base + cfg.drop_per * n as f32) * fresh
+            };
+            let chance = template * (1.0 - (-rate * cfg.dt).exp());
             let won = draw.unit_f32() < chance;
             count(world, |c| {
                 c.rolls += 1;
@@ -461,6 +495,8 @@ mod tests {
             source: soil,
             n_rock: false,
             pick_around: true,
+            base_always: true,
+            build_on_box: false,
         };
         // The layer is laid fresh at the start (the harness's bootstrap:
         // with no deposit anywhere, Eq. 1 never puts a pellet down).

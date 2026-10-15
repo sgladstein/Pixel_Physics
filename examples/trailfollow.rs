@@ -76,6 +76,28 @@ use pixel_physics::sim::{frame, player};
 fn arg<T: std::str::FromStr>(name: &str) -> Option<T> {
     std::env::args().skip(1).find_map(|a| a.strip_prefix(&format!("{name}=")).map(|v| v.parse().ok().expect("parses")))
 }
+/// `bridgelong=<upper|lower>:<rows>` parsed: the long branch's side (-1
+/// upper, 1 lower) and its extra rows each way (see the y bridge).
+fn bridge_long() -> Option<(i32, i32)> {
+    arg_str("bridgelong").map(|spec| {
+        let (lane, rows) = spec.split_once(':').expect("bridgelong=<upper|lower>:<rows>");
+        let side = match lane {
+            "upper" => -1,
+            "lower" => 1,
+            _ => panic!("bridgelong={spec}: the lane is upper or lower"),
+        };
+        (
+            side,
+            rows.parse().expect("bridgelong=<lane>:<rows>: rows is a whole number"),
+        )
+    })
+}
+
+/// The extra rows `side`'s branch goes out under `bridgelong=`.
+fn bridge_ext(long: Option<(i32, i32)>, side: i32) -> i32 {
+    long.filter(|&(s, _)| s == side).map_or(0, |(_, rows)| rows)
+}
+
 fn arg_str(name: &str) -> Option<String> {
     std::env::args().skip(1).find_map(|a| a.strip_prefix(&format!("{name}=")).map(|v| v.to_string()))
 }
@@ -1676,15 +1698,45 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
             for x in x1 - MOUTH..=x1 {
                 brush(x, gy, reach(-1));
             }
+            // **`bridgelong=<upper|lower>:<rows>`: one branch the long way
+            // round** (Goss et al. 1989's unequal bridge, r = 1.4 and 2 in the
+            // paper; 2026-10-15). After its 45-degree climb (or descent) the
+            // named branch goes straight on `<rows>` further from the axis
+            // before its span, and back the same way at the far end, so it is
+            // `2 * rows` cells longer and nothing else changes. Both lengths
+            // and their ratio are printed. A side view cannot make the two
+            // equal under gravity, so run it mirrored -- the long branch
+            // upper on half the paired seeds, lower on the other half.
+            let long = bridge_long();
+            let ext = |side: i32| bridge_ext(long, side);
             for side in [-1, 1] {
                 for k in 0..=sep {
                     brush(x0 + MOUTH + k, gy + side * k, reach(k));
                     brush(x1 - MOUTH - k, gy + side * k, reach(k));
                 }
+                for k in sep..=sep + ext(side) {
+                    brush(x0 + MOUTH + sep, gy + side * k, r);
+                    brush(x1 - MOUTH - sep, gy + side * k, r);
+                }
                 for x in x0 + MOUTH + sep..=x1 - MOUTH - sep {
-                    brush(x, gy + side * sep, r);
+                    brush(x, gy + side * (sep + ext(side)), r);
                 }
             }
+            // Each branch's centreline, mouth to mouth, in cells walked: the
+            // two mouths, the diagonal both ways (one cell a step), the
+            // straight-on legs and the span.
+            let len =
+                |side: i32| 2 * (MOUTH + 1) + 2 * sep + 2 * ext(side) + (x1 - MOUTH - sep) - (x0 + MOUTH + sep) - 1;
+            println!(
+                "  BRIDGE shape y: branch lengths upper {} lower {} (ratio long/short {:.2}){}",
+                len(-1),
+                len(1),
+                len(-1).max(len(1)) as f32 / len(-1).min(len(1)) as f32,
+                long.map_or(String::new(), |(s, rows)| format!(
+                    ", bridgelong {} +{rows} rows each way",
+                    if s < 0 { "upper" } else { "lower" }
+                ))
+            );
             for x in x0..=x1 {
                 for y in 0..spec.height {
                     w.set(x, y, if open.contains(&(x, y)) { Cell::EMPTY } else { Cell::new(stone, 0).with_attached(true) });
@@ -1692,7 +1744,7 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
             }
             // Lane test `y < upper_floor + 2` and the readout row `floor - 1`
             // (the bottom row of each span).
-            return (wall_x0 + bw / 2, gy + sep + r + 1, gy - sep + r + 1);
+            return (wall_x0 + bw / 2, gy + sep + ext(1) + r + 1, gy - sep - ext(-1) + r + 1);
         }
         let diamond = shape == "diamond";
         let upper_floor = ground - sep;
@@ -1741,18 +1793,24 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
         };
         // The y bridge's own geometry, rebuilt from what it returned.
         let (r, sep, bw): (i32, i32, i32) = (arg("bridgebrush").unwrap_or(1), arg("bridge").unwrap(), arg("bridgew").unwrap_or(16));
-        let gy = upper - r - 1 + sep;
+        let long = bridge_long();
+        let gy = upper - r - 1 + sep + bridge_ext(long, -1);
         let (x0, x1) = (mid_x - bw / 2, mid_x - bw / 2 + bw - 1);
         const MOUTH: i32 = 3;
         let lane_cells = |side: i32| {
             let mut c = std::collections::HashSet::new();
             let mut centres = Vec::new();
+            let ext = bridge_ext(long, side);
             for k in 0..=sep {
                 centres.push((x0 + MOUTH + k, gy + side * k));
                 centres.push((x1 - MOUTH - k, gy + side * k));
             }
+            for k in sep..=sep + ext {
+                centres.push((x0 + MOUTH + sep, gy + side * k));
+                centres.push((x1 - MOUTH - sep, gy + side * k));
+            }
             for x in x0 + MOUTH + sep..=x1 - MOUTH - sep {
-                centres.push((x, gy + side * sep));
+                centres.push((x, gy + side * (sep + ext)));
             }
             for (cx, cy) in centres {
                 for dy in -r..=r {
@@ -2936,7 +2994,14 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
     // Empty crossings by quarter of the run, [quarter][lane]: whether a
     // share drifts, holds or locks in, which one second-half number hides.
     let mut bridge_q = [[0u64; 2]; 4];
-    let mut bridge_last: std::collections::HashMap<pixel_physics::sim::cell::OrganismId, (i32, Option<(usize, bool)>)> = std::collections::HashMap::new();
+    // Per ant: last column, and `(lane, laden, frame at the middle column)` once it is in a branch.
+    type BridgeLast = std::collections::HashMap<pixel_physics::sim::cell::OrganismId, (i32, Option<(usize, bool, u64)>)>;
+    let mut bridge_last: BridgeLast = std::collections::HashMap::new();
+    // Every counted passage in order, `(frame, lane, laden, frames from the
+    // middle column to the far face)`: for the trip-count window and the
+    // flow below (Goss et al. 1989 counted both directions, by traffic, not
+    // by a fraction of the run).
+    let mut bridge_log: Vec<(u64, usize, usize, u64)> = Vec::new();
     let bridge_w: i32 = arg("bridgew").unwrap_or(16);
     let arm_name = match (trail, mute, paint) {
         (true, false, PaintA::None) => "hand",
@@ -3098,7 +3163,42 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
     let needs_parts = arg_str("needsparts").map_or(pixel_physics::sim::creature::needs::WalkParts::NEW_ANT, |p| {
         pixel_physics::sim::creature::needs::WalkParts::parse(&p)
     });
+    // **`fixed=<floor>`: a colony of fixed size that cannot starve** (the
+    // textbook tests' fixed demography, 2026-10-15). Births paused, a life
+    // too long to end in the run, and every 500 frames any ant under
+    // `<floor>` of its start energy is topped up to the floor, so hunger
+    // still sends ants out but a colony is never lost to a long branch.
+    // Goss et al. 1989's colonies were fed laboratory colonies; ours starved
+    // on the r = 2 bridge (alive 0-283 of 20 founders, the long-only arm 0-32).
+    let fixed_floor: Option<f32> = arg("fixed");
+    if let Some(floor) = fixed_floor {
+        w.births_paused = true;
+        if let Some(id) = w.species.id_of("ant") {
+            if let Some(c) = w.species.get_mut(id).creature.as_mut() {
+                c.life_half_life = 10_000_000;
+            }
+        }
+        println!(
+            "  fixed demography: births paused, long life, fed to {:.2} of start energy every 500 frames",
+            floor
+        );
+    }
     for f in 1..=frames {
+        if let Some(floor) = fixed_floor.filter(|_| f % 500 == 0) {
+            use pixel_physics::sim::world::Account;
+            for id in w.live_organism_ids() {
+                let Some(st) = w.organism(id) else { continue };
+                let Some(start) = w.species.get(st.species).creature.as_ref().map(|c| c.start_energy) else {
+                    continue;
+                };
+                let short = floor * start - st.energy;
+                if short > 0.0 {
+                    let colony = w.colony_of(id);
+                    w.set_organism_energy(id, floor * start);
+                    w.book(colony, Account::Granted, f64::from(short));
+                }
+            }
+        }
         if let Some((cells, _)) = bridge_plug.as_ref().filter(|(_, at)| f == *at) {
             for &(x, y) in cells {
                 w.set(x, y, Cell::EMPTY);
@@ -3111,11 +3211,12 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
         // whether something is in the way.
         if let (Some((mid_x, _, upper)), true) = (bridge, f % (frames / 8).max(1) == 0 && arg_str("bridgeshape").as_deref() == Some("y")) {
             let (r, sep, bw): (i32, i32, i32) = (arg("bridgebrush").unwrap_or(1), arg("bridge").unwrap(), arg("bridgew").unwrap_or(16));
-            let gy = upper - r - 1 + sep;
+            let long = bridge_long();
+            let gy = upper - r - 1 + sep + bridge_ext(long, -1);
             let stone = w.materials.id_of("stone").expect("stone");
             let mut seen: std::collections::BTreeMap<(char, String), u32> = std::collections::BTreeMap::new();
             for x in mid_x - bw / 2..mid_x - bw / 2 + bw {
-                for y in gy - sep - r - 1..=gy + sep + r + 1 {
+                for y in gy - sep - bridge_ext(long, -1) - r - 1..=gy + sep + bridge_ext(long, 1) + r + 1 {
                     let c = w.get(x, y);
                     if c.is_empty() || c.material == stone || y == gy {
                         continue;
@@ -4048,15 +4149,16 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
                 let was = entry.0;
                 entry.0 = hx;
                 if hx == mid_x && was != mid_x {
-                    entry.1 = Some((usize::from(hy < upper_floor + 2), was < mid_x));
+                    entry.1 = Some((usize::from(hy < upper_floor + 2), was < mid_x, f));
                 }
                 let out_east = hx > mid_x + half_w && was <= mid_x + half_w;
                 let out_west = hx < mid_x - half_w && was >= mid_x - half_w;
                 if out_east || out_west {
-                    if let Some((lane, east)) = entry.1.take() {
+                    if let Some((lane, east, at_mid)) = entry.1.take() {
                         // Only a passage that kept its direction, made with
                         // the load that direction means.
                         if east == out_east && (laden == 1) == out_west {
+                            bridge_log.push((f, lane, laden, f - at_mid));
                             bridge_x[lane][laden] += 1;
                             if f > frames / 2 {
                                 bridge_late[lane][laden] += 1;
@@ -5739,6 +5841,43 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
             bridge_x[0][0], bridge_x[1][0], bridge_x[0][1], bridge_x[1][1],
             bridge_late[0][0], bridge_late[1][0], bridge_late[0][1], bridge_late[1][1],
             share(&bridge_late, 0), share(&bridge_late, 1)
+        );
+        // **The paper's window: by traffic, both ways.** Crossings `a` to `b`
+        // counted from the first (`bridgewin=a:b`, 500:1000 -- Goss's trials
+        // held 317-1,043 crossings, his model 501-1000 ants), all directions
+        // together, then empty and laden apart. Flow is crossings per branch
+        // transit time over the window (Goss: 0.5 ants/s x 20 s = about 10),
+        // a transit being twice the median middle-to-face time.
+        let (wa, wb): (usize, usize) = arg_str("bridgewin")
+            .map(|s| {
+                let (a, b) = s.split_once(':').expect("bridgewin=<from>:<to>");
+                (a.parse().expect("bridgewin from"), b.parse().expect("bridgewin to"))
+            })
+            .unwrap_or((500, 1000));
+        let win = &bridge_log[wa.min(bridge_log.len())..wb.min(bridge_log.len())];
+        let up = |pred: &dyn Fn(usize) -> bool| {
+            let (u, n) = win
+                .iter()
+                .filter(|e| pred(e.2))
+                .fold((0usize, 0usize), |(u, n), e| (u + e.1, n + 1));
+            (u as f64 / n.max(1) as f64, n)
+        };
+        let (all, n_all) = up(&|_| true);
+        let (emp, n_emp) = up(&|l| l == 0);
+        let (lad, n_lad) = up(&|l| l == 1);
+        let mut halves: Vec<u64> = bridge_log.iter().map(|e| e.3).collect();
+        halves.sort_unstable();
+        let transit = 2 * halves.get(halves.len() / 2).copied().unwrap_or(0);
+        let span = win.last().zip(win.first()).map_or(0, |(l, f)| l.0 - f.0).max(1);
+        println!(
+            "  BRIDGE seed {seed} arm {arm_name}: window crossings {wa}-{wb} (have {}): upper share all {:.2} (n {n_all}) empty {:.2} (n {n_emp}) laden {:.2} (n {n_lad}) | frames {}-{} | transit {transit} frames | flow {:.1} crossings per transit",
+            bridge_log.len(),
+            all,
+            emp,
+            lad,
+            win.first().map_or(0, |e| e.0),
+            win.last().map_or(0, |e| e.0),
+            n_all as f64 * transit as f64 / span as f64
         );
         println!(
             "  BRIDGE seed {seed} arm {arm_name}: upper share of empty crossings by quarter: {}",
