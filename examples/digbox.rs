@@ -3724,6 +3724,17 @@ fn harness() {
         println!("  PATCHED genome by name: {}", set.join("; "));
     }
     world.paint_nest_patch(b.w / 2, b.surface - 1);
+    // **`rooms`: the sorting test's nest** (textbook tests, 2026-10-15). Three
+    // rooms in stone off one shaft, so where brood and food end up is the
+    // colony's placing and carrying, not its digging. See [`SortNest`].
+    let sort_nest = flag("rooms").then(|| SortNest::carve(&mut world, b.w / 2, b.surface));
+    // `sortfood=N`: N cells of food scattered over the three rooms at the
+    // start, so the store's carriers have food at home to move without the
+    // colony having to forage (a fed box does not forage).
+    if let (Some(n), Some(nest)) = (arg::<u32>("sortfood"), sort_nest.as_ref()) {
+        nest.scatter(&mut world, n, arg("seed").unwrap_or(0));
+    }
+    let sort_every: u64 = arg("sortevery").unwrap_or(4_000);
     let seed: u64 = arg("seed").unwrap_or(0);
     let span = 26.min(b.w / 2 - 2) * 2 + 1;
     // Read after the paint, which cuts the founding shaft the anchor sits on.
@@ -3959,6 +3970,9 @@ fn harness() {
         trickle.step(&mut world, &b);
         if fed {
             feed(&mut world, surplus);
+        }
+        if let Some(n) = sort_nest.as_ref().filter(|_| f > 0 && f.is_multiple_of(sort_every.max(1))) {
+            println!("{}", n.census(&world, f, &b));
         }
         if let Some(p) = food_pile.as_mut().filter(|p| f > 0 && p.refill > 0 && f.is_multiple_of(p.refill)) {
             p.place(&mut world);
@@ -5408,4 +5422,135 @@ fn selftest_run(b: &Box2) {
     assert!(st.dig_rolls > 0, "not one dig was even attempted -- the colony is not thinking, so any null from this box is the harness");
     assert!(st.digs > 0, "digs attempted but none landed -- every roll hit air, rock or another ant, and this box cannot answer a digging question");
     println!("digbox selftest: PASS -- the box is empty when nobody digs, finds a known chamber, calls a shaft open, and its ants dig");
+}
+
+
+/// **The sorting test's nest** (`rooms`): a stone block under the door with
+/// one shaft down it and three rooms off the shaft -- upper left, middle
+/// right, and one at the shaft's foot -- joined by two-high tunnels.
+/// Stone, so a colony cannot dig a fourth room or widen these: the
+/// question is only where brood and food are put. The founding cut is kept
+/// and the shaft extends it. Like `sortbox layout=nest`, but for the real
+/// ant. A dropped item is a powder and falls down the open shaft into the
+/// bottom room, so read the bottom room's share against that.
+struct SortNest {
+    rooms: [(i32, i32, i32, i32); 3],
+    block: (i32, i32, i32, i32),
+}
+
+impl SortNest {
+    fn carve(world: &mut World, cx: i32, surface: i32) -> Self {
+        let stone = world.materials.id_of("stone").expect("stone");
+        let block = (cx - 45, surface + 1, cx + 45, surface + 46);
+        let a = (cx - 34, surface + 8, cx - 10, surface + 13);
+        let m = (cx + 11, surface + 20, cx + 35, surface + 25);
+        let c = (cx - 12, surface + 31, cx + 13, surface + 36);
+        let open = |x: i32, y: i32| {
+            let inr = |r: (i32, i32, i32, i32)| x >= r.0 && x <= r.2 && y >= r.1 && y <= r.3;
+            inr(a) || inr(m) || inr(c)
+                || (x >= cx && x <= cx + 1 && y <= c.1)
+                || (y >= a.3 - 1 && y <= a.3 && x > a.2 && x < cx)
+                || (y >= m.3 - 1 && y <= m.3 && x > cx + 1 && x < m.0)
+        };
+        for y in block.1..=block.3 {
+            for x in block.0..=block.2 {
+                if open(x, y) {
+                    world.set(x, y, Cell::EMPTY);
+                } else if !world.is_empty(x, y) || y > surface + 8 {
+                    world.set(x, y, Cell::new(stone, 0).with_attached(true));
+                }
+            }
+        }
+        println!(
+            "  SORT NEST: stone block x {}..{} rows {}..{}; rooms A (upper left) {:?}, B (middle right) {:?}, C (shaft foot) {:?}; shaft columns {}..{}",
+            block.0, block.2, block.1, block.3, a, m, c, cx, cx + 1
+        );
+        SortNest { rooms: [a, m, c], block }
+    }
+
+    /// `n` cells of food (`larder=`, default fruit) at random open cells of
+    /// the three rooms; they fall to the floors.
+    fn scatter(&self, world: &mut World, n: u32, seed: u64) {
+        let name: String = arg("larder").unwrap_or_else(|| "fruit".to_string());
+        let food = world.materials.id_of(&name).unwrap_or_else(|| panic!("larder={name}: no such material"));
+        let mut rng = pixel_physics::sim::rng::Rng::new(seed.wrapping_mul(0x9E37_79B9_7F4A_7C15) ^ 0x50f7);
+        let mut placed = 0;
+        while placed < n {
+            let r = self.rooms[rng.below(3) as usize];
+            let x = r.0 + rng.below((r.2 - r.0 + 1) as u32) as i32;
+            let y = r.1 + rng.below((r.3 - r.1 + 1) as u32) as i32;
+            if world.is_empty(x, y) {
+                world.set(x, y, Cell::new(food, 0));
+                placed += 1;
+            }
+        }
+        println!("  SORT FOOD: {n} cells of {name} scattered over the three rooms (seed {seed})");
+    }
+
+    /// Which room a cell is in: 0-2, 3 for the shaft and tunnels, 4 outside the block.
+    fn where_is(&self, x: i32, y: i32) -> usize {
+        for (i, r) in self.rooms.iter().enumerate() {
+            if x >= r.0 && x <= r.2 && y >= r.1 && y <= r.3 {
+                return i;
+            }
+        }
+        let b = self.block;
+        if x >= b.0 && x <= b.2 && y >= b.1 && y <= b.3 {
+            3
+        } else {
+            4
+        }
+    }
+
+    /// One `SORT` line: brood and loose food by room, each kind's largest
+    /// room, and **mixing** -- of every item's item neighbours inside the
+    /// block, the share of the other kind (0 sorted, about 0.5 random).
+    fn census(&self, world: &World, f: u64, bx: &Box2) -> String {
+        let brood = world.materials.id_of("brood");
+        let kind = |x: i32, y: i32| -> Option<usize> {
+            let c = world.get(x, y);
+            if Some(c.material) == brood {
+                Some(0)
+            } else if c.organism_id() == 0 && pixel_physics::sim::creature::food_value(world, c) > 0.0 {
+                Some(1)
+            } else {
+                None
+            }
+        };
+        let mut by = [[0u32; 5]; 2];
+        let (mut same, mut other) = (0u64, 0u64);
+        let b = self.block;
+        for y in 0..bx.h {
+            for x in 0..bx.w {
+                let Some(k) = kind(x, y) else { continue };
+                by[k][self.where_is(x, y)] += 1;
+                if x < b.0 || x > b.2 || y < b.1 || y > b.3 {
+                    continue;
+                }
+                for (dx, dy) in [(1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (1, -1), (-1, 1), (-1, -1)] {
+                    match kind(x + dx, y + dy) {
+                        Some(j) if j == k => same += 1,
+                        Some(_) => other += 1,
+                        None => {}
+                    }
+                }
+            }
+        }
+        let top = |v: &[u32; 5]| {
+            let (i, n) = v[..3].iter().enumerate().max_by_key(|&(_, n)| *n).map(|(i, n)| (i, *n)).unwrap_or((0, 0));
+            if n == 0 { "-".to_string() } else { ["A", "B", "C"][i].to_string() }
+        };
+        let share = |v: &[u32; 5]| {
+            let inside: u32 = v[..3].iter().sum();
+            let max = v[..3].iter().copied().max().unwrap_or(0);
+            if inside == 0 { 0.0 } else { max as f32 / inside as f32 }
+        };
+        format!(
+            "SORT frame={f} brood A/B/C/way/out {}/{}/{}/{}/{} top {} ({:.2}) | food A/B/C/way/out {}/{}/{}/{}/{} top {} ({:.2}) | apart {} | mixing {:.3}",
+            by[0][0], by[0][1], by[0][2], by[0][3], by[0][4], top(&by[0]), share(&by[0]),
+            by[1][0], by[1][1], by[1][2], by[1][3], by[1][4], top(&by[1]), share(&by[1]),
+            if top(&by[0]) != "-" && top(&by[1]) != "-" && top(&by[0]) != top(&by[1]) { "yes" } else { "no" },
+            other as f32 / (same + other).max(1) as f32
+        )
+    }
 }
