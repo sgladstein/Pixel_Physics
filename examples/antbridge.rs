@@ -15,6 +15,18 @@
 //! it home on its home vector, puts it down in the nest chamber, and walks by
 //! Deneubourg's `(k + C)^n` on the food trail it lays. `mute=1` lays the
 //! trail and never reads it. `ant=game` is the shipped ant in the same box.
+//! `ant=walk` is the new ant (`creature::needs`, `WalkParts::NEW_ANT`) from
+//! frame `needsat=` (1). Both colony ants need `room=18` and a fed floor
+//! below 1 (`fed=0.5`): see `chamber_h` and `crumb` for why.
+//!
+//! **The new walk, 2026-10-15** (`ant=walk room=18 fed=0.5`, the textbook
+//! grid otherwise, 4 seeds a mirror, game plane `brho=0.03 bdiff=0.05`):
+//! 0.95-1.00 of crossings on the short branch in both mirrors, **and the
+//! same with the trail wiped every pass (`brho=1`)**. Opened late, the short
+//! branch takes over at once (stayed on long 0/8). Hungry ants walk out on
+//! the way-out pull and eat at the feeder; none brings a crumb home
+//! (delivered 0). So it passes Goss's majority bar by its pull, not by its
+//! trail, and fails the lock-in bar.
 //!
 //! **Demography is fixed** in every arm: births paused, `halflife` long, and
 //! every `500` frames each ant is topped up to `fed=` of its start energy
@@ -54,6 +66,7 @@ use pixel_physics::sim::{Cell, Rect, World};
 const KEYS: &[&str] = &[
     "seed", "seeds", "frames", "ants", "ant", "gap", "len", "neck", "tunnel", "long", "longside", "opens", "release",
     "k", "n", "lay", "layout", "vector", "mute", "brho", "bdiff", "fed", "halflife", "food", "png", "every", "trace",
+    "needsat", "room", "worth",
 ];
 
 const FEED_EVERY: u64 = 500;
@@ -89,9 +102,31 @@ struct Scene {
 const CH_W: i32 = 16;
 const MARGIN: i32 = 4;
 
+/// **A chamber's height**: `room=`, or room for both branches' mouths and
+/// ten rows. `room=18` (at `gap=10 tunnel=2`) keeps every cell of a chamber
+/// within `under_cover`'s 20 rows of its ceiling: the default 24-row chamber
+/// has a floor the game ant and the new walk read as open ground ("outside"),
+/// so a hungry new-walk ant on it searched (`Seek`, 254,817 decisions in
+/// 30k frames) instead of taking the way out, and delivered nothing.
+fn chamber_h(gap: i32, th: i32) -> i32 {
+    let room = arg("room").unwrap_or(gap + 2 * th + 10);
+    assert!(room >= gap + 2 * th + 4, "room={room}: a chamber must reach down to the lower branch's floor");
+    room
+}
+
+/// **A feeder crumb, worth `worth=`** (100 by default) in `aux`, as a crumb
+/// cut from a meal carries its worth (`Carried::into_cell`). A bare crumb
+/// (`aux` 0) is priced at `food_energy` 40, and through the ant's gut that
+/// is under `EAT_YIELD_THRESHOLD`: the new walk's food sense skipped every
+/// one (0 eat decisions in 30k frames, 2026-10-15) while the game ant took
+/// them. The textbook ant does not eat, so its rows are unchanged.
+fn crumb(crumbs: pixel_physics::sim::material::MaterialId) -> Cell {
+    Cell::new(crumbs, 0).with_aux(arg("worth").unwrap_or(100))
+}
+
 /// The box's width and height for these arguments.
 fn size(gap: i32, len: i32, th: i32, long: i32) -> (i32, i32) {
-    (MARGIN + CH_W + len + CH_W + MARGIN, MARGIN + long + gap + 2 * th + 10 + MARGIN)
+    (MARGIN + CH_W + len + CH_W + MARGIN, MARGIN + long + chamber_h(gap, th) + MARGIN)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -99,7 +134,7 @@ fn build(world: &mut World, gap: i32, len: i32, neck: i32, th: i32, long: i32, l
     let stone = world.materials.id_of("stone").expect("stone");
     let crumbs = world.materials.id_of("crumbs").expect("crumbs");
     let (ch_w, margin) = (CH_W, MARGIN);
-    let ch_h = gap + 2 * th + 10;
+    let ch_h = chamber_h(gap, th);
     let up_room = if long_lower { 0 } else { long };
     let (w, h) = size(gap, len, th, long);
     for y in 0..h {
@@ -148,7 +183,7 @@ fn build(world: &mut World, gap: i32, len: i32, neck: i32, th: i32, long: i32, l
     // Food: rows of crumbs on the food chamber's floor.
     for y in food.3 - food_rows + 1..=food.3 {
         for x in food.0..=food.2 {
-            world.set(x, y, Cell::new(crumbs, 0));
+            world.set(x, y, crumb(crumbs));
         }
     }
     let short_y = if long_lower { up_y } else { lo_y };
@@ -178,7 +213,10 @@ fn main() {
     let frames: u64 = arg("frames").unwrap_or(60_000);
     let n_ants: usize = arg("ants").unwrap_or(60);
     let kind: String = arg("ant").unwrap_or_else(|| "textbook".into());
-    assert!(kind == "textbook" || kind == "game", "antbridge: ant={kind}: textbook or game");
+    assert!(
+        kind == "textbook" || kind == "game" || kind == "walk",
+        "antbridge: ant={kind}: textbook, game or walk"
+    );
     let gap: i32 = arg("gap").unwrap_or(10);
     let len: i32 = arg("len").unwrap_or(80);
     let neck: i32 = arg("neck").unwrap_or(10);
@@ -257,6 +295,13 @@ fn run(
     let home = ((sc.nest.0 + sc.nest.2) / 2, sc.nest.3);
     let aim_home = ((sc.nest.0 + sc.nest.2) / 2, sc.neck_y);
     let feeder = ((sc.food.0 + sc.food.2) / 2, sc.neck_y);
+    if kind != "textbook" {
+        // The game ant's home is its birth cell (`forage_anchor`), but the
+        // new walk reads home from a founded site (`nearest_nest_site`), and
+        // a built nest has none: without this its ants wander (smoke run
+        // 2026-10-15: nest_sites=0, 226 crossings, none laden).
+        world.register_nest_site((sc.nest.0 + sc.nest.2) / 2, sc.nest.3, (sc.nest.2 - sc.nest.0) / 2);
+    }
     if kind == "textbook" {
         let mute = arg::<u8>("mute").unwrap_or(0) == 1;
         let cfg = textbook::TextbookCfg {
@@ -314,6 +359,11 @@ fn run(
             }
         }
     }
+    // `ant=walk`: the new ant (`creature::needs`, parts `WalkParts::NEW_ANT`),
+    // handed every ant at frame `needsat=` (1 by default: the nest here is
+    // built, not dug, so there is no founding to wait out) as trailfollow's
+    // `needs=walk` does. Coordinator's "Both ants" row, 2026-10-15.
+    let needs_at: u64 = arg("needsat").unwrap_or(1);
     let mut last_x: std::collections::HashMap<u32, i32> = std::collections::HashMap::new();
     // `trace=1`: for every empty ant leaving the nest-side neck into the
     // shaft, the row it walked the neck on (ceiling, middle, floor), the
@@ -328,6 +378,9 @@ fn run(
     // [short, long] crossings: whole run, last half, this window.
     let (mut whole, mut late, mut win) = ([0u64; 2], [0u64; 2], [[0u64; 2]; 2]);
     let mut delivered = 0u64;
+    // Crumbs taken out of the nest chamber: delivery for the ants that are
+    // not the textbook ant (which counts its own).
+    let mut eaten = 0u64;
     let short_lane = |y: i32| -> usize {
         let upper = y < sc.split_y;
         usize::from(upper != sc.short_upper)
@@ -341,6 +394,17 @@ fn run(
                 world.set(x, y, Cell::EMPTY);
             }
         }
+        if kind == "walk" && f == needs_at {
+            let mut walk = creature::needs::NeedsWalk::new(creature::needs::NeedsMode::Walk, world.frame);
+            walk.parts = creature::needs::WalkParts::NEW_ANT;
+            world.needs = Some(Box::new(walk));
+            println!(
+                "  NEEDS seed {seed}: frame {f} parts={} nest_sites={} shaft={}",
+                creature::needs::WalkParts::NEW_ANT.label(),
+                world.nest_sites.len(),
+                world.nest_sites.iter().any(|n| n.shaft.is_some())
+            );
+        }
         parallel::step(&mut world);
         world.step_active_sites();
         world.step_fields();
@@ -351,6 +415,7 @@ fn run(
             for y in sc.nest.1..=sc.nest.3 {
                 for x in sc.nest.0..=sc.nest.2 {
                     if world.get(x, y).material == crumbs && world.get(x, y).organism_id() == 0 {
+                        eaten += 1;
                         world.set(x, y, Cell::EMPTY);
                     }
                 }
@@ -358,7 +423,7 @@ fn run(
             for y in sc.food.3 - food_rows + 1..=sc.food.3 {
                 for x in sc.food.0..=sc.food.2 {
                     if world.is_empty(x, y) {
-                        world.set(x, y, Cell::new(crumbs, 0));
+                        world.set(x, y, crumb(crumbs));
                     }
                 }
             }
@@ -369,7 +434,10 @@ fn run(
                 continue;
             }
             let Some(&(hx, hy)) = st.chain.first() else { continue };
-            let laden = usize::from(st.spoil.is_some());
+            // The textbook ant carries its crumb as a pellet; the game ant
+            // and the new walk carry food in the crop (trailfollow's
+            // `carrying_larder`).
+            let laden = usize::from(st.spoil.is_some() || st.crop.is_some_and(|c| c.material == crumbs));
             if trace && laden == 0 {
                 if let Some(&px) = last_x.get(&oid) {
                     // Stepping from the neck into the shaft, heading out.
@@ -401,7 +469,7 @@ fn run(
         }
         if f % every == 0 {
             let counts = world.textbook.as_ref().map(|t| t.counts);
-            let d = counts.map_or(0, |c| c.delivered);
+            let d = counts.map_or(eaten, |c| c.delivered);
             println!(
                 "seed {seed} f {f:>7}: crossings short/long empty {}/{} laden {}/{} | alive {} | picked {} delivered {}",
                 win[0][0],
@@ -413,6 +481,13 @@ fn run(
                 d
             );
             delivered = d;
+            if let Some(walk) = world.needs.as_ref() {
+                let c = walk.counts;
+                println!(
+                    "  walk: decisions {:?} took_forage {} quit_forage {} gave_up {} lay_walks {}",
+                    c.decisions, c.took_forage, c.quit_forage, c.gave_up, c.lay_walks
+                );
+            }
             win = [[0; 2]; 2];
         }
     }
