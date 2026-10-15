@@ -366,11 +366,12 @@ fn run(
         if f % every == 0 {
             let c = census(&world, built, w, h);
             println!(
-                "seed {seed} f {f:>6}: built {} | structures {} | pillars {} (cells in pillars {:.0}%) | tallest {} | laden {} | picks {picks} drops {drops}",
+                "seed {seed} f {f:>6}: built {} | structures {} | pillars {} (cells in pillars {:.0}%, {} at least 30 tall) | tallest {} | laden {} | picks {picks} drops {drops}",
                 c.cells,
                 c.structures,
                 c.pillars,
                 100.0 * c.pillar_cells as f32 / c.cells.max(1) as f32,
+                c.tall,
                 c.tallest,
                 walkers.iter().filter(|w| w.laden).count()
             );
@@ -400,7 +401,14 @@ struct Census {
     pillars: usize,
     pillar_cells: usize,
     tallest: i32,
+    /// Pillars at least [`TALL_PILLAR`] high: the no-mark control (`tau=0`)
+    /// makes 5-27-tall lumps that the 5-tall bar counts as pillars (7 on
+    /// each of seeds 1-2, `sites=game rework=0`), so the bar is read here.
+    tall: usize,
 }
+
+/// The height a pillar counts as tall at, for [`Census::tall`].
+const TALL_PILLAR: i32 = 30;
 
 /// `creature::spoil_site_fits` without the footing test (`SPOIL_HEADROOM`
 /// is 3): two of the three cells below filled, three open cells above.
@@ -421,6 +429,7 @@ fn census(wd: &World, built: MaterialId, w: i32, h: i32) -> Census {
         pillars: 0,
         pillar_cells: 0,
         tallest: 0,
+        tall: 0,
     };
     for y in 0..h {
         for x in 0..w {
@@ -452,6 +461,7 @@ fn census(wd: &World, built: MaterialId, w: i32, h: i32) -> Census {
             if bh >= 5 && bh > bw && !on_box {
                 c.pillars += 1;
                 c.pillar_cells += n;
+                c.tall += usize::from(bh >= TALL_PILLAR);
             }
         }
     }
