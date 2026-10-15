@@ -26292,11 +26292,22 @@ pub(crate) fn trail_hold_gain(walk: &[f32; CREATURE_TRAITS], laden: bool) -> f32
 /// trail alone: the shipped hold's gain times the food trail's own presence
 /// along `d` (its weighted term of [`trail_presence`]). 0 otherwise, without
 /// reading the plane.
+///
+/// `PIXEL_PHYSICS_FOOD_HOLD=<x>` (1) scales it. **At 1 it fails the double
+/// bridge** (1 of 8 choose, against 7 of 8 for `on`): the food trail alone,
+/// at the shipped hold, cannot outweigh the walk's other pulls, and `on`
+/// passed by doubling the laden ant's hold on the nest scent as well -- the
+/// part that emptied the dug nest. At 3: 4 of 8 choose (two more at
+/// 0.23/0.25), a taught branch kept on 6 of 8, colonies at the game ant's
+/// size; at 6: every live colony chooses (0.02/0.98) but colonies are
+/// smaller and 3 of 8 too small to read (`trailfollow bridgeneck=3`).
 pub(crate) fn food_hold_extra(world: &World, head: (i32, i32), d: u8, walk: &[f32; CREATURE_TRAITS], planes: [f32; 2], halves: [f32; 2]) -> f32 {
     if trail_loop_mode() != TrailLoop::Food || planes[1] == 0.0 {
         return 0.0;
     }
-    TRAIL_GAIN * walk_gain(walk, organism::TRAIT_TRAIL_HOLD) * trail_presence(world, head, d, [0.0, planes[1]], halves)
+    static X: std::sync::OnceLock<f32> = std::sync::OnceLock::new();
+    let x = *X.get_or_init(|| std::env::var("PIXEL_PHYSICS_FOOD_HOLD").map_or(1.0, |v| v.parse().unwrap_or_else(|_| panic!("PIXEL_PHYSICS_FOOD_HOLD={v}: want a number"))));
+    x * TRAIL_GAIN * walk_gain(walk, organism::TRAIT_TRAIL_HOLD) * trail_presence(world, head, d, [0.0, planes[1]], halves)
 }
 
 /// **The weights this ant reads trail A and trail B with**, for its state:
