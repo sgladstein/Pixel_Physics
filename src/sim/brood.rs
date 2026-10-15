@@ -964,6 +964,47 @@ pub(super) fn lay_egg(world: &mut World, parent: OrganismId, head: (i32, i32), d
     Some(ActiveSite { x: ex, y: ey, kind: ActiveKind::Creature { organism: child }, next_frame: world.creature_due(brood.egg_frames) })
 }
 
+/// **A brood item put down by a harness**, not laid: `parent`'s species,
+/// colony and genome, at `stage` with `bank` in it (booked as `Granted`), at
+/// an empty `at`. For `examples/antsort`'s rows for the game ant and the new
+/// walk, which carry only live brood (`carry`, `carry_pile` read the
+/// organism), so their sorting test needs real eggs, larvae and pupae of
+/// chosen stages. The stage's clock starts now; hold it with
+/// `PIXEL_PHYSICS_BROOD_FRAMES`. `None` when the cell is taken, the parent
+/// is gone, or its species has no brood block.
+pub fn place_for_harness(world: &mut World, parent: OrganismId, at: (i32, i32), stage: BroodStage, bank: f32) -> Option<ActiveSite> {
+    if !world.is_empty(at.0, at.1) {
+        return None;
+    }
+    let (species, genome, traits, made, lineage) = world.organism(parent).map(|s| (s.species, s.genome.clone(), s.traits, s.made, s.lineage))?;
+    let def = world.species.get(species).creature.clone()?;
+    let block = block_of(&def)?;
+    let material = world.materials.id_of(&block.material)?;
+    let colony = world.colony_of(parent);
+    let child = world.push_organism(species)?;
+    let target = creature::birth_cost_of(&def, creature::birth_grant(&def, &traits));
+    let frame = world.frame;
+    if let Some(st) = world.organism_mut(child) {
+        st.energy = bank;
+        st.genome = genome;
+        st.traits = traits;
+        st.made = made;
+        st.lineage = lineage;
+        st.colony = colony;
+        st.inherited = true;
+        st.brood = Some(organism::Brood { stage, since: frame, target, parent, last_tick: frame });
+    }
+    world.book(colony, Account::Granted, f64::from(bank));
+    world.set(at.0, at.1, Cell::new(material, stage as u8).with_organism_id(child).with_aux(pack_cell_type(CellType::Seed)));
+    Some(ActiveSite { x: at.0, y: at.1, kind: ActiveKind::Creature { organism: child }, next_frame: match stage {
+        // As `lay_egg` and `brood_tick` schedule them: an egg and a pupa tick
+        // only when their stage ends, a larva every `LARVA_TICK`.
+        BroodStage::Egg => frame + block.egg_frames,
+        BroodStage::Larva => world.creature_due(LARVA_TICK),
+        BroodStage::Pupa => frame + block.pupa_frames,
+    } })
+}
+
 /// Where this brood organism's cell is now: its scheduled site, or wherever
 /// it fell since (it is a powder, so it can drop through air and bodies).
 fn brood_cell(world: &World, organism: OrganismId, material: super::material::MaterialId, at: (i32, i32)) -> Option<(i32, i32)> {
