@@ -26111,7 +26111,9 @@ pub enum RouteHalf {
 pub fn route_half() -> RouteHalf {
     static V: std::sync::OnceLock<RouteHalf> = std::sync::OnceLock::new();
     *V.get_or_init(|| {
-        std::env::var("PIXEL_PHYSICS_ROUTE_HALF").ok().map_or(RouteHalf::Fixed(TRAIL_HALF), |s| {
+        // `PIXEL_PHYSICS_TRAIL_LOOP=on` brings `ratio:2` with it when this is unset.
+        let unset = if trail_loop() { RouteHalf::Ratio(2, [true, true]) } else { RouteHalf::Fixed(TRAIL_HALF) };
+        std::env::var("PIXEL_PHYSICS_ROUTE_HALF").ok().map_or(unset, |s| {
             let t = s.trim();
             if let Some(rest) = t.strip_prefix("ratio:") {
                 let (n, which) = rest.split_once(':').unwrap_or((rest, "ab"));
@@ -26213,12 +26215,51 @@ fn trail_presence(world: &World, head: (i32, i32), d: u8, planes: [f32; 2], halv
     sum.max(0.0)
 }
 
+/// **`PIXEL_PHYSICS_TRAIL_LOOP=on`: the food trail closes its loop**, three
+/// changes that pass the double bridge together and fail it apart (each
+/// alone or any pair: 0 of 8 seeds choosing; all three: 7 of 8, either
+/// branch, against 0 of 8 for the shipped ant and for a muted colony;
+/// `trailfollow bridge=6 bridgeshape=y bridgebrush=1 bridgeneck=3`, gap
+/// 120, 20 founders, 48k, 2026-10-15, `double-bridge-2026-10-15.md`):
+///
+/// - **A laden ant reads the food trail as well as the nest scent** (base
+///   weight 1 on B, as `TRAIT_LADEN_B` = 1). Traced: a laden ant's way home
+///   was independent of its way out (0.45 against 0.45), because the nest
+///   scent sits at its ceiling on both branches, and laden ants are the
+///   only ones that lay the food trail, so it was laid on both evenly and
+///   no branch could win. Returning foragers follow the trail they lay in
+///   the classic experiments (Deneubourg's model; the nestbound trip is
+///   what sets the preference, Bles et al. 2018, Biol Lett, doi
+///   10.1098/rsbl.2018.0070).
+/// - **The ratio reader** (`PIXEL_PHYSICS_ROUTE_HALF=ratio:2`, unless that
+///   variable says otherwise): each heading's scent over the strongest's,
+///   squared, Deneubourg's choice function, where the shipped read saturates
+///   near 4 units and cannot tell two lit branches apart.
+/// - **The trail's hold twice as strong** (as `TRAIT_TRAIL_HOLD` = 1; the
+///   harness's `traits=15:2` is clamped to 1 by `ratio_factor`'s reach):
+///   traced at the fork, a full trail moved a branch's score about 30%
+///   against the walk's other pulls (NE 2.22 -> 3.19 across B share 0 -> 1,
+///   with level E at about 3).
+///
+/// **Off**: the full-game cost is not measured, and `rel:1`, a cousin of the
+/// ratio reader, cost the lab bed a fifth of its adults.
+pub fn trail_loop() -> bool {
+    static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *V.get_or_init(|| std::env::var("PIXEL_PHYSICS_TRAIL_LOOP").as_deref() == Ok("on"))
+}
+
+/// The trail's hold factor: `TRAIL_GAIN` times this ant's own
+/// `TRAIT_TRAIL_HOLD`, times 2 under [`trail_loop`].
+pub(crate) fn trail_hold_gain(walk: &[f32; CREATURE_TRAITS]) -> f32 {
+    TRAIL_GAIN * walk_gain(walk, organism::TRAIT_TRAIL_HOLD) * if trail_loop() { 2.0 } else { 1.0 }
+}
+
 /// **The weights this ant reads trail A and trail B with**, for its state:
 /// laden or empty, base plus its own allele (`organism::TRAIT_LADEN_A`). The
 /// bases are the old hard-coded choice -- laden follows A, empty follows B.
 fn trail_planes(traits: &[f32; CREATURE_TRAITS], laden: bool) -> [f32; 2] {
     if laden {
-        [1.0 + traits[organism::TRAIT_LADEN_A], traits[organism::TRAIT_LADEN_B]]
+        [1.0 + traits[organism::TRAIT_LADEN_A], traits[organism::TRAIT_LADEN_B] + if trail_loop() { 1.0 } else { 0.0 }]
     } else {
         [traits[organism::TRAIT_EMPTY_A], 1.0 + traits[organism::TRAIT_EMPTY_B]]
     }
@@ -26829,7 +26870,7 @@ fn chooser_step(
     // WALK_GAIN_SLOTS`): each a factor of exactly 1.0 at the ancestral allele.
     let walk = traits_of(world, organism, def);
     let home_gain = HOME_GAIN * walk_gain(&walk, organism::TRAIT_HOME_PULL);
-    let trail_gain = TRAIL_GAIN * walk_gain(&walk, organism::TRAIT_TRAIL_HOLD);
+    let trail_gain = trail_hold_gain(&walk);
     let away_gain = AWAY_GAIN * walk_gain(&walk, organism::TRAIT_ROUTE_AWAY);
     let decay = patience_decay_of(&walk);
     let gain = pull.map_or(0.0, |(_, g)| home_gain * g * patience);

@@ -2817,7 +2817,7 @@ fn walk_step(
     let turn = outputs[brain::BrainOutput::Turn as usize];
     let k = CHOICE_EXPLORATION_K * brain::unit_scale(outputs[brain::BrainOutput::Tumble as usize], 2.0);
     let walk = traits_of(world, organism, def);
-    let trail_gain = TRAIL_GAIN * walk_gain(&walk, organism::TRAIT_TRAIL_HOLD);
+    let trail_gain = trail_hold_gain(&walk);
     let away_gain = AWAY_GAIN * walk_gain(&walk, organism::TRAIT_ROUTE_AWAY);
     let decay = patience_decay_of(&walk);
     let gain = pull.map_or(0.0, |(_, g)| g * walk_gain(&walk, organism::TRAIT_HOME_PULL) * patience);
