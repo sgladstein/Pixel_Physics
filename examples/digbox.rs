@@ -3151,7 +3151,7 @@ impl TripLog {
     /// Drains the frame's decision rows, keeping those of animals that held a
     /// pellet before the frame. Call between the step and [`Self::after`].
     fn log_decisions(&mut self, world: &mut World) {
-        use pixel_physics::sim::creature::{DECISION_OUTCOME_NAMES, DROP_WHY_NAMES};
+        use pixel_physics::sim::creature::{DECISION_OUTCOME_NAMES, DROP_WHY_NAMES, SPOIL_WHY_NAMES};
         use std::io::Write;
         let Some(log) = world.decision_log.as_mut() else { return };
         let rows = std::mem::take(log);
@@ -3168,7 +3168,7 @@ impl TripLog {
             }
             let _ = writeln!(
                 w,
-                "{},{},{},{},{},{},{},{},{:08b},{},{},{:.3},{:.3},{:.3},{:.3},{},{:.3},{:.3},{},{:.3},{:.3},{:.3},{:.3},{:.3},{:.1}",
+                "{},{},{},{},{},{},{},{},{:08b},{},{},{:.3},{:.3},{:.3},{:.3},{},{:.3},{:.3},{},{:.3},{:.3},{:.3},{:.3},{:.3},{:.1},{},{:08b},{:.3}",
                 r.frame,
                 r.id,
                 r.head.0,
@@ -3193,7 +3193,10 @@ impl TripLog {
                 r.at_nest,
                 r.crowding,
                 r.energy,
-                r.energy_j
+                r.energy_j,
+                SPOIL_WHY_NAMES[r.spoil_why as usize],
+                r.spoil_flags,
+                r.spoil_p
             );
         }
     }
@@ -3943,7 +3946,7 @@ fn harness() {
     if let Some(path) = arg::<String>("decisions") {
         use std::io::Write;
         let mut w = std::io::BufWriter::new(std::fs::File::create(&path).expect("decisions: cannot create the file"));
-        let _ = writeln!(w, "frame,id,hx,hy,hx_after,hy_after,heading,heading_after,usable,anchor_x,anchor_y,home_aligned,p_move,roll_move,roll_tumble,outcome,patience,chosen_cos,drop,drop_roll,drop_p,at_nest,crowding,energy,energy_j");
+        let _ = writeln!(w, "frame,id,hx,hy,hx_after,hy_after,heading,heading_after,usable,anchor_x,anchor_y,home_aligned,p_move,roll_move,roll_tumble,outcome,patience,chosen_cos,drop,drop_roll,drop_p,at_nest,crowding,energy,energy_j,spoil_why,spoil_flags,spoil_p");
         trips.decisions = Some(w);
         trips.decisions_nest = flag("decisions_nest");
         world.decision_log = Some(Vec::new());
@@ -4046,6 +4049,10 @@ fn harness() {
                     st.build_mark_held_marked,
                     st.build_mark_fresh_refused,
                     spoil_above(&world, &b)
+                );
+                println!(
+                    "PILLARHOLD frame={f} carrier decisions held: by the ring {}, kept as inside {} (near the door {}, below ground {}), under cover {}, kept with no lift {} | put down {}",
+                    st.spoil_ring_held, st.spoil_kept_inside, st.spoil_held_near_door, st.spoil_held_below, st.spoil_holds_under_cover, st.spoil_kept_no_lift, st.spoil_dumped
                 );
             }
             if let Some(d) = map_dir.as_deref() {
