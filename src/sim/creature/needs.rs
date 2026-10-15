@@ -2817,7 +2817,6 @@ fn walk_step(
     let turn = outputs[brain::BrainOutput::Turn as usize];
     let k = CHOICE_EXPLORATION_K * brain::unit_scale(outputs[brain::BrainOutput::Tumble as usize], 2.0);
     let walk = traits_of(world, organism, def);
-    let trail_gain = trail_hold_gain(&walk);
     let away_gain = AWAY_GAIN * walk_gain(&walk, organism::TRAIT_ROUTE_AWAY);
     let decay = patience_decay_of(&walk);
     let gain = pull.map_or(0.0, |(_, g)| g * walk_gain(&walk, organism::TRAIT_HOME_PULL) * patience);
@@ -2891,6 +2890,7 @@ fn walk_step(
         }
     };
     let planes = trail_planes(&walk, laden);
+    let trail_gain = trail_hold_gain(&walk, laden);
     let spent = scout_home && scout_dark && scout_w > 0.0 && food_trail_of(world).giveup;
     // **The carry home is held by a route's contrast, not its level**
     // (`CarryHome`'s `turn`, part of the carry here).
@@ -2914,7 +2914,7 @@ fn walk_step(
         if spent {
             1.0
         } else {
-            1.0 + trail_gain * (route(d) - route_floor).max(0.0)
+            1.0 + trail_gain * (route(d) - route_floor).max(0.0) + food_hold_extra(world, (hx, hy), d, &walk, planes, halves)
         }
     };
     let scout_cos = |d: u8| -> Option<f32> {

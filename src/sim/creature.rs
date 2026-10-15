@@ -26241,17 +26241,62 @@ fn trail_presence(world: &World, head: (i32, i32), d: u8, planes: [f32; 2], halv
 ///   against the walk's other pulls (NE 2.22 -> 3.19 across B share 0 -> 1,
 ///   with level E at about 3).
 ///
-/// **Off**: the full-game cost is not measured, and `rel:1`, a cousin of the
-/// ratio reader, cost the lab bed a fifth of its adults.
+/// **Off**: in the full game (partner thread, 2026-10-15, 2 seeds, both
+/// ants) `on` emptied the dug nest onto the mound -- game ant at ~300 ants,
+/// 25-27 in the nest against 57-77 -- and the part that did it is the
+/// doubled hold (hold alone 39-44; laden-on-B alone no change). So two
+/// narrower holds are offered beside it:
+///
+/// - `food`: the doubling lands on the food trail's share of a route only,
+///   so the nest scent holds an ant exactly as hard as it did;
+/// - `empty`: the doubling holds empty ants only, the ones choosing a branch
+///   on the way out; a laden ant's hold is the shipped one.
 pub fn trail_loop() -> bool {
-    static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *V.get_or_init(|| std::env::var("PIXEL_PHYSICS_TRAIL_LOOP").as_deref() == Ok("on"))
+    trail_loop_mode() != TrailLoop::Off
+}
+
+/// Which hold [`trail_loop`] doubles: `PIXEL_PHYSICS_TRAIL_LOOP=on|food|empty`.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum TrailLoop {
+    Off,
+    On,
+    Food,
+    Empty,
+}
+
+/// `PIXEL_PHYSICS_TRAIL_LOOP`, read once.
+pub fn trail_loop_mode() -> TrailLoop {
+    static V: std::sync::OnceLock<TrailLoop> = std::sync::OnceLock::new();
+    *V.get_or_init(|| match std::env::var("PIXEL_PHYSICS_TRAIL_LOOP").as_deref() {
+        Ok("on") => TrailLoop::On,
+        Ok("food") => TrailLoop::Food,
+        Ok("empty") => TrailLoop::Empty,
+        Ok("off") | Err(_) => TrailLoop::Off,
+        Ok(v) => panic!("PIXEL_PHYSICS_TRAIL_LOOP={v}: want on, food, empty or off"),
+    })
 }
 
 /// The trail's hold factor: `TRAIL_GAIN` times this ant's own
-/// `TRAIT_TRAIL_HOLD`, times 2 under [`trail_loop`].
-pub(crate) fn trail_hold_gain(walk: &[f32; CREATURE_TRAITS]) -> f32 {
-    TRAIL_GAIN * walk_gain(walk, organism::TRAIT_TRAIL_HOLD) * if trail_loop() { 2.0 } else { 1.0 }
+/// `TRAIT_TRAIL_HOLD`, doubled under `TRAIL_LOOP=on`, or `=empty` for an
+/// empty ant. (`=food` adds its doubling in [`food_hold_extra`] instead.)
+pub(crate) fn trail_hold_gain(walk: &[f32; CREATURE_TRAITS], laden: bool) -> f32 {
+    let double = match trail_loop_mode() {
+        TrailLoop::On => true,
+        TrailLoop::Empty => !laden,
+        TrailLoop::Off | TrailLoop::Food => false,
+    };
+    TRAIL_GAIN * walk_gain(walk, organism::TRAIT_TRAIL_HOLD) * if double { 2.0 } else { 1.0 }
+}
+
+/// Under `TRAIL_LOOP=food`, the extra hold a heading earns from the food
+/// trail alone: the shipped hold's gain times the food trail's own presence
+/// along `d` (its weighted term of [`trail_presence`]). 0 otherwise, without
+/// reading the plane.
+pub(crate) fn food_hold_extra(world: &World, head: (i32, i32), d: u8, walk: &[f32; CREATURE_TRAITS], planes: [f32; 2], halves: [f32; 2]) -> f32 {
+    if trail_loop_mode() != TrailLoop::Food || planes[1] == 0.0 {
+        return 0.0;
+    }
+    TRAIL_GAIN * walk_gain(walk, organism::TRAIT_TRAIL_HOLD) * trail_presence(world, head, d, [0.0, planes[1]], halves)
 }
 
 /// **The weights this ant reads trail A and trail B with**, for its state:
@@ -26870,13 +26915,13 @@ fn chooser_step(
     // WALK_GAIN_SLOTS`): each a factor of exactly 1.0 at the ancestral allele.
     let walk = traits_of(world, organism, def);
     let home_gain = HOME_GAIN * walk_gain(&walk, organism::TRAIT_HOME_PULL);
-    let trail_gain = trail_hold_gain(&walk);
     let away_gain = AWAY_GAIN * walk_gain(&walk, organism::TRAIT_ROUTE_AWAY);
     let decay = patience_decay_of(&walk);
     let gain = pull.map_or(0.0, |(_, g)| home_gain * g * patience);
     // A packed lunch is not a load (`carries_lunch`): its carrier scouts
     // outward and reads the outbound trail, as an empty ant does.
     let laden = world.organism(organism).is_some_and(|s| s.crop.is_some_and(|c| c.worth() > 0.0) && !carries_lunch(world, s));
+    let trail_gain = trail_hold_gain(&walk, laden);
     // **Nurses find hungry larvae by scent** ([`brood::nurse_seek_of`]): an
     // ant with something to give -- a bank over its stamp, which is what
     // `brood::nurse` takes from -- carrying no load and no pellet, inside the
@@ -27048,7 +27093,14 @@ fn chooser_step(
     // and its level held every heading about four times over, so the pull
     // home could not turn a carrier facing away.
     let route_floor = carry_route_floor(world, organism, laden, reads_trail, usable.iter().copied().chain(crossing.map(|_| heading)), route);
-    let hold = |d: u8| if spent { 1.0 } else { 1.0 + trail_gain * (route(d) - route_floor).max(0.0) };
+    let hold = |d: u8| {
+        if spent {
+            1.0
+        } else {
+            1.0 + trail_gain * (route(d) - route_floor).max(0.0)
+                + if reads_trail { food_hold_extra(world, (hx, hy), d, &walk, planes, halves) } else { 0.0 }
+        }
+    };
     // **Level, not radial**: the home cosine of the heading's sideways part
     // alone, so a heading straight up or down scores 0. Radial, an ant above
     // home level is drawn upward, and on the colony bed that drove scouts 91
