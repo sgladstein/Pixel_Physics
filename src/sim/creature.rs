@@ -16642,6 +16642,10 @@ pub struct BuildMark {
     pub k: f32,
     pub cap: i32,
     pub stop: bool,
+    /// `fresh:<m>`: a cut (not an escape) is refused at a cell whose own
+    /// mark and the marks of the three cells above it sum to `m` or more;
+    /// 0 (off) unless set.
+    pub fresh: f32,
 }
 
 /// `PIXEL_PHYSICS_BUILD_MARK`'s value; `None` (off) unless set.
@@ -16654,9 +16658,9 @@ fn parse_build_mark(raw: &str) -> Option<BuildMark> {
     if raw.is_empty() || raw == "off" {
         return None;
     }
-    let mut b = BuildMark { tau: 1000.0, q0: 0.25, k: 1.0, cap: 24, stop: true };
+    let mut b = BuildMark { tau: 1000.0, q0: 0.25, k: 1.0, cap: 24, stop: true, fresh: 0.0 };
     fn bad<T>(raw: &str, part: &str) -> T {
-        panic!("PIXEL_PHYSICS_BUILD_MARK={raw}: `{part}` is not on, tau:<frames|inf>, q0:<p>, k:<x>, cap:<cols> or stop:off")
+        panic!("PIXEL_PHYSICS_BUILD_MARK={raw}: `{part}` is not on, tau:<frames|inf>, q0:<p>, k:<x>, cap:<cols>, stop:off or fresh:<m>")
     }
     for part in raw.split(',').map(str::trim).filter(|p| !p.is_empty() && *p != "on") {
         let (key, v) = part.split_once(':').unwrap_or_else(|| bad(raw, part));
@@ -16667,6 +16671,7 @@ fn parse_build_mark(raw: &str) -> Option<BuildMark> {
             "k" => b.k = v.parse().ok().filter(|k: &f32| *k > 0.0).unwrap_or_else(|| bad(raw, part)),
             "cap" => b.cap = v.parse().ok().filter(|c: &i32| *c >= 0).unwrap_or_else(|| bad(raw, part)),
             "stop" if v == "off" => b.stop = false,
+            "fresh" => b.fresh = v.parse().ok().filter(|m: &f32| *m > 0.0).unwrap_or_else(|| bad(raw, part)),
             _ => bad::<()>(raw, part),
         }
     }
@@ -16712,6 +16717,31 @@ fn build_mark_at(world: &World, bm: BuildMark, (x, top): (i32, i32)) -> f32 {
         }
     }
     m
+}
+
+/// **Whether a cut at `(x, y)` would take fresh building** ([`BuildMark`]'s
+/// `fresh`): the marks on the cell and the three above it, still spoil,
+/// sum to `fresh` or more. Khuong et al. 2016's ants take fresh deposits
+/// away less (not checked against the full text), and level 1 of the test
+/// showed why it matters here: walkers that took pellets back off pillars
+/// (`pillarbox rework=1`) undermined every one-wide column, which then lost
+/// its footing (tallest 11 against 72-81). In the full game the colony cuts
+/// about as many cells as it puts down (seed 1, 100-149k: 1,599 digs, 1,614
+/// pellets), and only ~6 spoil cells stand on the mound at a time.
+fn fresh_build_at(world: &World, (x, y): (i32, i32)) -> bool {
+    let Some(bm) = build_mark().filter(|b| b.fresh > 0.0 && b.tau > 0.0) else { return false };
+    if world.build_marks.is_empty() {
+        return false;
+    }
+    let spoil = world.materials.id_of("spoil");
+    let m: f32 = (0..=3)
+        .filter_map(|dy| {
+            let c = (x, y - dy);
+            let f = *world.build_marks.get(&c)?;
+            (Some(world.get(c.0, c.1).material) == spoil).then(|| (-(world.frame.saturating_sub(f) as f32) / bm.tau).exp())
+        })
+        .sum();
+    m >= bm.fresh
 }
 
 /// **Where a latched carrier that has reached its column stops**
@@ -21510,7 +21540,11 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
         // needs ladder's escape). No draw either way.
         let mound_refused = !cue_vetoed && !face_refused && !roof_refused && mound_dig().roof && mound_roof_refuses(world, (tx, ty)) && !escaping && !shut_in_mound(world, x, y);
         world.creature_stats.digs_refused_mound += u64::from(mound_refused);
-        let roof_refused = roof_refused || mound_refused;
+        // **[`BuildMark`]'s `fresh`**: fresh building is not cut, except by
+        // an ant shut in, which must cut its way out.
+        let fresh_refused = !cue_vetoed && !face_refused && !roof_refused && !mound_refused && !escaping && !shut_in(world, x, y) && fresh_build_at(world, (tx, ty));
+        world.creature_stats.build_mark_fresh_refused += u64::from(fresh_refused);
+        let roof_refused = roof_refused || mound_refused || fresh_refused;
         // **[`ShaftRooms`]**: a cut that would raise a room past its height
         // or bring two rooms too close is refused; judged where every veto
         // above let it through, and only on a cell the jaw can take, so the
@@ -35896,7 +35930,8 @@ mod tests {
     fn build_mark_parses_its_parts_and_refuses_a_typo() {
         assert_eq!(parse_build_mark(""), None);
         assert_eq!(parse_build_mark("off"), None);
-        assert_eq!(parse_build_mark("on"), Some(BuildMark { tau: 1000.0, q0: 0.25, k: 1.0, cap: 24, stop: true }));
+        assert_eq!(parse_build_mark("on"), Some(BuildMark { tau: 1000.0, q0: 0.25, k: 1.0, cap: 24, stop: true, fresh: 0.0 }));
+        assert_eq!(parse_build_mark("fresh:0.5").map(|b| b.fresh), Some(0.5));
         let b = parse_build_mark("tau:inf,q0:0.1,k:2,cap:8,stop:off").unwrap();
         assert!(b.tau.is_infinite() && b.q0 == 0.1 && b.k == 2.0 && b.cap == 8 && !b.stop);
         assert_eq!(parse_build_mark("tau:0").map(|b| b.tau), Some(0.0));

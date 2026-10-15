@@ -3058,6 +3058,8 @@ pub struct CreatureStats {
     /// more round its top.
     pub build_mark_moves: u64,
     pub build_mark_held_marked: u64,
+    /// Cuts refused under `BuildMark`'s `fresh`.
+    pub build_mark_fresh_refused: u64,
     /// `PIXEL_PHYSICS_SHAFT_ROOMS` (`creature::ShaftRooms`): cuts the jaw
     /// could take refused as too tall (or a ramp), too near another room,
     /// by the random control, and refusals waived for an ant shut in; and
