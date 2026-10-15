@@ -4054,6 +4054,7 @@ fn harness() {
                     "PILLARHOLD frame={f} carrier decisions held: by the ring {}, kept as inside {} (near the door {}, below ground {}), under cover {}, kept with no lift {} | put down {}",
                     st.spoil_ring_held, st.spoil_kept_inside, st.spoil_held_near_door, st.spoil_held_below, st.spoil_holds_under_cover, st.spoil_kept_no_lift, st.spoil_dumped
                 );
+                println!("{}", carrier_cover(&world, &b, f));
             }
             if let Some(d) = map_dir.as_deref() {
                 write_map(&world, &b, &format!("{d}/nest_f{f:06}.txt"));
@@ -4905,6 +4906,36 @@ impl Source {
             }
         }
     }
+}
+
+/// **What roofs the carriers standing above the old ground line**: for each
+/// ant holding a pellet there, the first ground cell over its head within 20
+/// rows (`creature::under_cover`'s reach and test), and whether that cell
+/// rests on an animal (the cell under it is one) or not.
+fn carrier_cover(world: &World, b: &Box2, f: u64) -> String {
+    let ground = |x: i32, y: i32| {
+        let c = world.get(x, y);
+        c.material != material::EMPTY && c.organism_id() == 0 && matches!(world.materials.kind(c.material), MaterialKind::Powder | MaterialKind::Solid)
+    };
+    let animal = |x: i32, y: i32| world.get(x, y).organism_id() != 0;
+    let (mut above, mut open, mut on_animal, mut on_ground) = (0, 0, 0, 0);
+    for id in world.live_organism_ids() {
+        let Some(st) = world.organism(id) else { continue };
+        if st.spoil.is_none() {
+            continue;
+        }
+        let Some(&(x, y)) = st.chain.first() else { continue };
+        if y >= b.surface {
+            continue;
+        }
+        above += 1;
+        match (1..=20).map(|dy| y - dy).find(|&cy| ground(x, cy)) {
+            None => open += 1,
+            Some(cy) if animal(x, cy + 1) => on_animal += 1,
+            Some(_) => on_ground += 1,
+        }
+    }
+    format!("COVER frame={f} carriers above the old surface {above}: open sky {open}, roofed by ground resting on an animal {on_animal}, by ground resting on ground or air {on_ground}")
 }
 
 /// Spoil cells above the old ground line.
