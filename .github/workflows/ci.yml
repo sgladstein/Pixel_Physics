@@ -439,6 +439,20 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: bash scripts/worldgencheck.sh
 
+  textbook:
+    # The textbook tests the textbook ant has passed, kept passing: the
+    # double bridge (Goss et al. 1989) -- the short branch wins, and a
+    # short branch opened late is ignored for the long one already marked.
+    # `scripts/textbookcheck.sh`; its `--selftest` (trail laid, never read)
+    # must go red, and does. ~20 s on four cores.
+    name: textbook tests (double bridge)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.98
+      - uses: Swatinem/rust-cache@v2
+      - run: bash scripts/textbookcheck.sh
+
   fmt:
     # Informational only, not gating: the codebase predates rustfmt.toml
     # (added alongside this workflow) and has not yet had a full `cargo
