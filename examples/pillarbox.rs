@@ -56,7 +56,7 @@ use pixel_physics::sim::{Cell, MaterialId, Rect, World};
 /// than silently running another arm (a typo once ran the wrong one).
 const KEYS: &[&str] = &[
     "seed", "seeds", "frames", "every", "walkers", "width", "height", "build", "source", "tau", "physics", "rework",
-    "pick", "p0", "K", "sites", "png", "gif", "gifevery",
+    "pick", "p0", "K", "sites", "png", "gif", "gifevery", "ants", "pmove", "turn", "halflife",
 ];
 
 fn check_args() {
@@ -96,13 +96,20 @@ struct Walker {
 
 fn main() {
     check_args();
+    // Births are paused for the ants (`plant_ants`); mutation off as every
+    // measuring harness has it (`creature::mutation_of`).
+    pixel_physics::sim::creature::mutation_off_for_measuring();
     let seeds: Vec<u64> = match arg::<u64>("seed") {
         Some(s) => vec![s],
         None => (1..=arg::<u64>("seeds").unwrap_or(4)).collect(),
     };
     let frames: u64 = arg("frames").unwrap_or(60_000);
     let every: u64 = arg("every").unwrap_or(15_000);
-    let n_walkers: usize = arg("walkers").unwrap_or(80);
+    // **`ants=` puts real ants in the same box** (level 2: the textbook ant,
+    // `creature::textbook`, on the game's body and engine), with no walkers
+    // unless `walkers=` is also given.
+    let n_ants: usize = arg("ants").unwrap_or(0);
+    let n_walkers: usize = arg("walkers").unwrap_or(if n_ants > 0 { 0 } else { 80 });
     let build: String = arg("build").unwrap_or_else(|| "spoil".to_string());
     let tau: f32 = match arg::<String>("tau").as_deref() {
         Some("inf") => f32::INFINITY,
@@ -119,7 +126,11 @@ fn main() {
     let png: Option<String> = arg("png");
     let gif: Option<String> = arg("gif");
     let gif_every: u64 = arg("gifevery").unwrap_or(1_000);
-    println!("pillarbox: build={build} tau={tau} rework={rework} physics={} frames={frames} walkers={n_walkers} pick={pick} p0={p0} K={k} box={w}x{h}", if physics { "on" } else { "off" });
+    println!("pillarbox: build={build} tau={tau} rework={rework} physics={} frames={frames} walkers={n_walkers} ants={n_ants} pick={pick} p0={p0} K={k} box={w}x{h}", if physics { "on" } else { "off" });
+    assert!(
+        n_ants == 0 || physics,
+        "pillarbox: ants= needs physics on (the ants are stepped by the engine)"
+    );
     for seed in seeds {
         run(
             seed,
@@ -229,12 +240,23 @@ fn run(
             });
         }
     }
+    let ants = plant_ants(&mut world, floor_top, w, soil, tau, pick, p0, k, seed);
     let mut shots = Vec::new();
     let (mut picks, mut drops) = (0u64, 0u64);
     for f in 0..=frames {
         if f > 0 {
             if physics {
                 parallel::step(&mut world);
+            }
+            // The engine's living half, as `digbox` steps it: the sweep
+            // above moves cells, and these tick the ants and their fields.
+            if ants > 0 {
+                world.step_active_sites();
+                world.step_fields();
+                world.step_pheromones();
+                if f % FEED_EVERY == 0 {
+                    feed(&mut world);
+                }
             }
             // A mark goes with its cell: a cell that is no longer the built
             // material (it fell away or was taken) has no mark.
@@ -375,6 +397,9 @@ fn run(
                 c.tallest,
                 walkers.iter().filter(|w| w.laden).count()
             );
+            if ants > 0 {
+                println!("  {}", ant_line(&world));
+            }
             if let Some(dir) = png {
                 let _ = std::fs::create_dir_all(dir);
                 let _ = draw(&world, &walkers, stone, soil, built, w, h).save(format!("{dir}/s{seed}_f{f:06}.png"));
@@ -496,6 +521,9 @@ fn draw(
             } else if m == built {
                 put(x, y, [220, 170, 90, 255]);
             }
+            if wd.get(x, y).organism_id() != 0 {
+                put(x, y, [255, 230, 60, 255]);
+            }
         }
     }
     for wk in walkers {
@@ -510,4 +538,113 @@ fn draw(
         );
     }
     img
+}
+
+/// How often the ants are topped up to their start energy, in frames: the
+/// box has no food, and the test is building, not foraging (the design's
+/// fixed demography, review F2). Half the ant's idle endowment is ~6,000.
+const FEED_EVERY: u64 = 500;
+
+/// **Real ants on the floor, deciding by the textbook rules.** Spread along
+/// the floor's top as one colony; births paused and the age half-life set
+/// by `halflife=` (default 10,000,000 frames: nobody ages out of the run),
+/// fed every [`FEED_EVERY`]. The textbook ant takes the walkers' own
+/// parameters (`pick`, `p0`, `K`, `tau`) per decision, and `pmove=` (1.0)
+/// and `turn=` (0.125, the walkers' one in eight). Returns the number
+/// placed.
+#[allow(clippy::too_many_arguments)]
+fn plant_ants(
+    world: &mut World,
+    floor_top: i32,
+    w: i32,
+    soil: MaterialId,
+    tau: f32,
+    pick: f32,
+    p0: f32,
+    k: f32,
+    seed: u64,
+) -> usize {
+    use pixel_physics::sim::creature::{self, textbook};
+    let n: usize = arg("ants").unwrap_or(0);
+    if n == 0 {
+        return 0;
+    }
+    let id = world.species.id_of("ant").expect("ant ships");
+    if let Some(c) = world.species.get_mut(id).creature.as_mut() {
+        c.life_half_life = arg("halflife").unwrap_or(10_000_000);
+    }
+    world.births_paused = true;
+    let mut rng = Rng::new(seed.wrapping_mul(0x9E37_79B9_7F4A_7C15) ^ 0x7e47);
+    let (lo, span) = (WALL + 2, (w - 2 * WALL - 4) as u32);
+    let mut colony = None;
+    let mut placed = 0;
+    for _ in 0..n * 20 {
+        if placed == n {
+            break;
+        }
+        let x = lo + rng.below(span) as i32;
+        if let Some(site) = creature::plant_founder_in(world, x, floor_top - 1, "ant", colony, None) {
+            if colony.is_none() {
+                colony = creature::colony_of_site(world, &site);
+            }
+            world.schedule_active_site(site);
+            placed += 1;
+        }
+    }
+    let cfg = textbook::TextbookCfg {
+        p_move: arg("pmove").unwrap_or(1.0),
+        turn: arg("turn").unwrap_or(0.125),
+        pick,
+        p0,
+        k,
+        tau,
+        source: soil,
+    };
+    println!("  ants: {placed} of {n} placed, textbook {cfg:?}, births paused, fed every {FEED_EVERY}");
+    world.textbook = Some(Box::new(textbook::Textbook::new(id, cfg)));
+    placed
+}
+
+/// Every ant topped up to its start energy, the grant booked so the ledger
+/// closes (as `digbox`'s `feed`).
+fn feed(world: &mut World) {
+    use pixel_physics::sim::world::Account;
+    for id in world.live_organism_ids() {
+        let Some(st) = world.organism(id) else { continue };
+        let Some(start) = world.species.get(st.species).creature.as_ref().map(|c| c.start_energy) else {
+            continue;
+        };
+        let short = start - st.energy;
+        if short <= 0.0 {
+            continue;
+        }
+        let colony = world.colony_of(id);
+        world.set_organism_energy(id, start);
+        world.book(colony, Account::Granted, f64::from(short));
+    }
+}
+
+/// The ants' census line: alive, laden, and what the rules did.
+fn ant_line(world: &World) -> String {
+    let (mut alive, mut laden) = (0, 0);
+    for id in world.live_organism_ids() {
+        let Some(st) = world.organism(id) else { continue };
+        if world.species.get(st.species).creature.is_none() {
+            continue;
+        }
+        alive += 1;
+        laden += usize::from(st.spoil.is_some());
+    }
+    let c = world.textbook.as_ref().map(|t| t.counts).unwrap_or_default();
+    format!(
+        "ANTS alive {alive} laden {laden} | decisions {} steps {} stuck {} | picks {} | put-down rolls {} won {} (mean mark {:.2}) no site {}",
+        c.decisions,
+        c.steps,
+        c.stuck,
+        c.picks,
+        c.rolls,
+        c.drops,
+        if c.rolls > 0 { c.mark_sum / c.rolls as f64 } else { 0.0 },
+        c.no_site
+    )
 }

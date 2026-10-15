@@ -75,6 +75,10 @@ use super::world::{Account, KillDetail, World, KILL_VERB_BITE, KILL_VERB_EAT};
 /// harness sets `World::needs` (`creature/needs.rs` says where it hooks in).
 pub mod needs;
 
+/// **The textbook ant**, a third way for an ant to decide, from cited rules
+/// only; off unless a harness sets `World::textbook` (`creature/textbook.rs`).
+pub mod textbook;
+
 /// Index 0 = east, then counterclockwise on screen (y grows downward, so
 /// `(1, -1)` is up-and-right). **The one heading table** — see
 /// `OrganismState::heading`: headings are a discrete 0..8 compass index, a
@@ -8013,6 +8017,13 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
         Some(input) => steered_outputs(outputs, input),
         None => outputs,
     };
+    // **One decider per ant** (the textbook ant's design, §4): the player's
+    // keys, else the textbook ant, else the needs walk, else today's ant.
+    // The two harness-set walks are exclusive: a world with both is refused
+    // rather than given an order nobody chose.
+    assert!(world.textbook.is_none() || world.needs.is_none(), "World::textbook and World::needs are both set; a harness sets one");
+    let textbook = steer_in.is_none() && textbook::decides(world, organism);
+    let outputs = if textbook { textbook::outputs_for(outputs) } else { outputs };
 
     // **A carrier of a trip's food meets the ants it passes**
     // ([`meet_way_reach`], off): before the move, so the ants beside it now
@@ -8146,7 +8157,12 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
     // player's ant (`steer`): she acts on the keys, and the walk's four hooks
     // all stand aside for her, as `chooser_step` does.
     let walked = world.needs.is_some() && steer_in.is_none();
-    let Did { dug, gnaws, shares, packed } = if walked {
+    // The textbook ant's draws are its own stream (`textbook::draw_for`);
+    // the tick's `draw` is untouched by it.
+    let mut tdraw = if textbook { Some(textbook::draw_for(world, organism)) } else { None };
+    let Did { dug, gnaws, shares, packed } = if let Some(td) = tdraw.as_mut() {
+        textbook::act(world, organism, def, td)
+    } else if walked {
         needs::act(world, x, y, organism, def, &inputs, &outputs, &mut draw)
     } else {
         act(world, x, y, organism, def, &outputs, &mut draw)
@@ -8251,6 +8267,8 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
     // **...and under the needs walk, its own kinesis** ([`needs::kinesis`]).
     let p_move = if walked {
         needs::kinesis(world, organism, def, (x, y), &inputs, p_move)
+    } else if textbook {
+        textbook::p_move(world)
     } else {
         p_move
     };
@@ -8294,12 +8312,18 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
     // below checks support only inside `step_chain`, after the step roll won,
     // so an animal whose `P(move)` is 0 hangs wherever it stopped.
     let chooser = chooser_for(world, def);
-    let fell = !packed && chooser != Chooser::Off && fall_now_if_unsupported(world, organism, def);
+    let fell = !packed && (chooser != Chooser::Off || textbook) && fall_now_if_unsupported(world, organism, def);
     if fell || packed {
         left_the_spot = true;
     }
     // No roll on a fall, so the trace reads NaN for it; nor after a pack.
-    let roll_move = if fell || packed { f32::NAN } else { draw.unit_f32() };
+    let roll_move = if fell || packed {
+        f32::NAN
+    } else if let Some(td) = tdraw.as_mut() {
+        td.unit_f32()
+    } else {
+        draw.unit_f32()
+    };
     if fell || packed {
         // The fall was this decision; `fall_if_unsupported` noted it. A pack
         // stepped already, in `act` (`NeedsFirst`'s `pack`).
@@ -8345,6 +8369,8 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
             // (`step_chain`, `fills_before_walking`). No draw is taken.
             moved = if let Some(input) = steer_in {
                 steered_step(world, organism, heading, def, input.dir)
+            } else if let Some(td) = tdraw.as_mut() {
+                textbook::step(world, organism, heading, def, td)
             } else if walked {
                 needs::step(world, organism, heading, &outputs, def, &mut draw, chooser)
             } else if chooser == Chooser::Off {
@@ -8360,7 +8386,7 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
                 world.book(colony, Account::Moved, step as f64);
             }
         }
-    } else if chooser != Chooser::Off {
+    } else if chooser != Chooser::Off || textbook {
         // **`Move` is an activity level only** under the chooser (plan §4e):
         // a lost roll is a pause, and where to go next is decided when it
         // next steps. The tumble's re-roll is gone; `Tumble` sets how loosely
@@ -14094,12 +14120,7 @@ fn needs_first_act(world: &mut World, organism: OrganismId, def: &CreatureDef, h
     let need = (rule.hungry && hungry) || (rule.laden && donor && !load.store && hungry_larva_beside(world, organism, def, head)) || (rule.job && !load.store && store_job_waits(world, organism, def, head));
     if need {
         if let Some((px, py)) = need_drop_site(world, head) {
-            world.set(px, py, load.cell);
-            mark_built(world, (px, py));
-            if let Some(s) = world.organism_mut(organism) {
-                s.spoil = None;
-                s.spoil_ring = None;
-            }
+            place_pellet(world, organism, (px, py), load.cell);
             if !load.store {
                 world.creature_stats.spoil_dumped += 1;
             }
@@ -16683,13 +16704,71 @@ fn parse_build_mark(raw: &str) -> Option<BuildMark> {
 /// pellet into the world except `pack_behind`, the in-nest backfill the
 /// ring never reads. Pruned as it grows: a mark older than eight lifetimes,
 /// or on a cell that is no longer spoil, is gone.
+/// **The cut itself, mechanics only**: the cell at `(tx, ty)` becomes the
+/// pellet in `organism`'s jaws (as `spoils_into`, else `packs_into`, under
+/// `update::spoil_footing`; as `packs_into` alone without it), the ground is
+/// left open, and the census (`dug_cells`, and `cut_log` when `log`) and the
+/// dig counts move. **No gate**: whether the cut may be made is the caller's
+/// ([`jaw_can_cut`] at least), and so are `dig_return` and `line_burrow`.
+///
+/// Split out of `act`'s dig branch on 2026-10-15 for the textbook ant
+/// (`/mnt/project-files/emergence-sandbox/textbook-ant/design-textbook-ant-2026-10-15.md`
+/// rev 2, slice 0), which cuts without `act`'s gates; the needs walk's
+/// escape cut was a hand copy of the same lines. `act` is bit-exact through
+/// it: the same writes in the same order, no draw. The needs walk passes
+/// `log = false`, as its copy never logged.
+pub(crate) fn cut_cell(world: &mut World, organism: OrganismId, (tx, ty): (i32, i32), log: bool) {
+    let target = world.get(tx, ty);
+    let mut pellet = target;
+    let ground_def = world.materials.get(target.material);
+    let hauled = if crate::sim::update::spoil_footing() { ground_def.spoils_into.or(ground_def.packs_into) } else { ground_def.packs_into };
+    if let Some(hauled) = hauled {
+        pellet.material = hauled;
+    }
+    world.set(tx, ty, Cell::EMPTY);
+    // The census's record of the act (`World::dug_cells`): read by
+    // nothing in the simulation, so it cannot move a run.
+    world.dug_cells.insert((tx, ty));
+    let frame = world.frame;
+    if let Some(cut_log) = world.cut_log.as_mut().filter(|_| log) {
+        cut_log.push((tx, ty, frame, organism));
+    }
+    if spoil_kept() {
+        if let Some(state) = world.organism_mut(organism) {
+            state.spoil = Some(Spoil { cell: pellet, store: false });
+        }
+    }
+    world.creature_stats.digs += 1;
+    if let Some(state) = world.organism_mut(organism) {
+        state.life.digs += 1;
+    }
+}
+
+/// **A carried pellet put down**, mechanics only: `cell` is set at `p`, its
+/// build mark is written ([`mark_built`]), and the carrier's load and ring
+/// latch are cleared. No gate and no counter: the site is the caller's
+/// choice, and so is what it counts. Shared by `act`'s drops, the needs
+/// walk's drops and the textbook ant (slice 0, 2026-10-15); bit-exact for
+/// each, as each wrote these three things in this order.
+pub(crate) fn place_pellet(world: &mut World, organism: OrganismId, p: (i32, i32), cell: Cell) {
+    world.set(p.0, p.1, cell);
+    mark_built(world, p);
+    if let Some(state) = world.organism_mut(organism) {
+        state.spoil = None;
+        state.spoil_ring = None;
+    }
+}
+
 pub(crate) fn mark_built(world: &mut World, (x, y): (i32, i32)) {
-    let Some(bm) = build_mark() else { return };
+    // **The textbook ant keeps the mark too** (`World::textbook`, its `tau`),
+    // so a harness can set the lifetime per world; the environment's switch
+    // wins where both are set. Neither set, nothing is written, as before.
+    let Some(tau) = build_mark().map(|bm| bm.tau).or_else(|| world.textbook.as_ref().map(|t| t.cfg.tau)) else { return };
     let frame = world.frame;
     world.build_marks.insert((x, y), frame);
     if world.build_marks.len().is_multiple_of(1024) {
         let spoil = world.materials.id_of("spoil");
-        let old = if bm.tau.is_finite() { (8.0 * bm.tau) as u64 } else { u64::MAX };
+        let old = if tau.is_finite() { (8.0 * tau) as u64 } else { u64::MAX };
         let marks = std::mem::take(&mut world.build_marks);
         world.build_marks = marks.into_iter().filter(|&((cx, cy), f)| frame.saturating_sub(f) <= old && Some(world.get(cx, cy).material) == spoil).collect();
     }
@@ -21052,12 +21131,7 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
         // never takes it to food -- see [`SoilWay`]'s `lean`.
         if lean && lean_forage_of(world).drop && !(soil_way_of(world).lean && below_founding_ground(world, x, y)) {
             if let Some((px, py)) = lean_drop_site(world, (x, y)) {
-                world.set(px, py, spoil.cell);
-                mark_built(world, (px, py));
-                if let Some(state) = world.organism_mut(organism) {
-                    state.spoil = None;
-                    state.spoil_ring = None;
-                }
+                place_pellet(world, organism, (px, py), spoil.cell);
                 world.creature_stats.spoil_dumped += 1;
                 world.creature_stats.lean_dropped += 1;
                 note_spoil(world, SpoilWhy::Lean, 0, f32::NAN);
@@ -21322,12 +21396,7 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
                 spoil_p,
             );
             if let Some((px, py)) = site {
-                world.set(px, py, spoil.cell);
-                mark_built(world, (px, py));
-                if let Some(state) = world.organism_mut(organism) {
-                    state.spoil = None;
-                    state.spoil_ring = None;
-                }
+                place_pellet(world, organism, (px, py), spoil.cell);
                 world.creature_stats.spoil_dumped += 1;
                 if lifted {
                     let rows = (y - py).max(0) as u32;
@@ -21680,7 +21749,6 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
             // that names no spoil material behaves exactly as it did before
             // the field existed -- and so a pellet re-dug stays a pellet
             // rather than being laundered into lining-grade ground.
-            let mut pellet = target;
             //
             // **Gated on `update::spoil_footing` so the ablation arm is
             // genuinely `main`.** Leaving the pellet as `spoil` with the rule
@@ -21688,25 +21756,12 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
             // carries `packs_into`, so `line_burrow` went on relabelling
             // worked tailings as wall and the "off" arm read 19 hanging cells
             // where the pre-change baseline on the same seed read 24.
-            let ground_def = world.materials.get(target.material);
-            let hauled = if crate::sim::update::spoil_footing() { ground_def.spoils_into.or(ground_def.packs_into) } else { ground_def.packs_into };
-            if let Some(hauled) = hauled {
-                pellet.material = hauled;
-            }
-            world.set(tx, ty, Cell::EMPTY);
-            // The census's record of the act (`World::dug_cells`): read by
-            // nothing in the simulation, so it cannot move a run.
-            world.dug_cells.insert((tx, ty));
-            let frame = world.frame;
-            if let Some(log) = world.cut_log.as_mut() {
-                log.push((tx, ty, frame, organism));
-            }
-            if spoil_kept() {
-                if let Some(state) = world.organism_mut(organism) {
-                    state.spoil = Some(Spoil { cell: pellet, store: false });
-                }
-            }
-            world.creature_stats.digs += 1;
+            //
+            // **The mechanics live in [`cut_cell`]**, shared with the needs
+            // walk's escape cut and the textbook ant, so the three cannot
+            // drift apart. This comment and the one below stay here, where
+            // the gates are.
+            cut_cell(world, organism, (tx, ty), true);
             // **Outside the `spoil_kept()` block above, deliberately, and
             // no test can hold this line.** That block holds the only nearby
             // `organism_mut`, so folding into it looks free -- and it would
@@ -21728,11 +21783,8 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
             // the nest is remembered, and one made in the open forgets it, so
             // a digger that worked a heap is pulled nowhere.
             let back_to = spoil_back().then(|| face_for_cut(world, (x, y), (tx, ty)).then_some((tx, ty)));
-            if let Some(state) = world.organism_mut(organism) {
-                state.life.digs += 1;
-                if let Some(back_to) = back_to {
-                    state.dig_return = back_to;
-                }
+            if let (Some(state), Some(back_to)) = (world.organism_mut(organism), back_to) {
+                state.dig_return = back_to;
             }
             line_burrow(world, tx, ty);
             return Did { dug: 1, ..did };

@@ -1656,6 +1656,13 @@ Read once per process from the environment. The default is what ships.
 - `assets/species/ant.ron`: every weight and constant quoted here.
 - `creature/needs.rs`: the needs walk (§17), a harness-only second way to
   decide.
+- `creature/textbook.rs`: the textbook ant, a harness-only third way to
+  decide, from cited rules only (`World::textbook`, exclusive with
+  `World::needs`; slice A, soil, since 2026-10-15). It replaces `act`, the
+  move roll and the walk for its species; the brain still runs and is
+  paid for. Its cut and put-down are `act`'s own mechanics, split out as
+  `cut_cell` and `place_pellet` and shared by `act` and the needs walk,
+  bit-exact for both.
 
 ## 14. Source comments that currently contradict the code
 

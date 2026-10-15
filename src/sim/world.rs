@@ -4541,6 +4541,11 @@ pub struct World {
     /// then on every ant decides by it. The walk's memory of each ant lives
     /// in here, not on `OrganismState`.
     pub needs: Option<Box<crate::sim::creature::needs::NeedsWalk>>,
+    /// **The textbook ant** (`creature::textbook`): `None` is today's ant.
+    /// Set by a harness at a frame, never from the environment, as `needs`
+    /// is; from then on every ant of its species decides by its cited rules.
+    /// Exclusive with `needs` (`creature_tick` refuses both).
+    pub textbook: Option<Box<crate::sim::creature::textbook::Textbook>>,
     /// **`PIXEL_PHYSICS_NEST_STORE` for this world**
     /// (`creature::nest_store_of`). `None` follows the environment; a field
     /// so a guard can take both arms in one process.
@@ -7225,6 +7230,7 @@ impl World {
             depth_slow: None,
             pack_parted: None,
             needs: None,
+            textbook: None,
             nest_store: None,
             nest_ways: Vec::new(),
             store_last_seeds: Vec::new(),

@@ -1770,12 +1770,7 @@ fn hungry_act(
     if let Some(load) = spoil.filter(|s| !s.store) {
         if !outside && (!in_mound || escaping) {
             if let Some((px, py)) = need_drop_site(world, head) {
-                world.set(px, py, load.cell);
-                mark_built(world, (px, py));
-                if let Some(s) = world.organism_mut(organism) {
-                    s.spoil = None;
-                    s.spoil_ring = None;
-                }
+                place_pellet(world, organism, (px, py), load.cell);
                 world.creature_stats.spoil_dumped += 1;
                 world.needs.as_mut().expect("walking").counts.pellets_down += 1;
             }
@@ -2067,12 +2062,7 @@ fn sealed_escape(
             }
         }
         if let Some(p) = pocket_drop_site(world, head, mind.last_cut, aim.unwrap_or(want)) {
-            world.set(p.0, p.1, load.cell);
-            mark_built(world, p);
-            if let Some(s) = world.organism_mut(organism) {
-                s.spoil = None;
-                s.spoil_ring = None;
-            }
+            place_pellet(world, organism, p, load.cell);
             let c = &mut world.needs.as_mut().expect("walking").counts;
             if load.store {
                 c.sealed_load_down += 1;
@@ -2470,30 +2460,7 @@ fn escape_cut(world: &mut World, organism: OrganismId, def: &CreatureDef, head: 
     if !jaw_can_cut(world, def, organism, target) {
         return false;
     }
-    let mut pellet = target;
-    let ground = world.materials.get(target.material);
-    let hauled = if crate::sim::update::spoil_footing() {
-        ground.spoils_into.or(ground.packs_into)
-    } else {
-        ground.packs_into
-    };
-    if let Some(hauled) = hauled {
-        pellet.material = hauled;
-    }
-    world.set(tx, ty, Cell::EMPTY);
-    world.dug_cells.insert((tx, ty));
-    if spoil_kept() {
-        if let Some(s) = world.organism_mut(organism) {
-            s.spoil = Some(Spoil {
-                cell: pellet,
-                store: false,
-            });
-        }
-    }
-    world.creature_stats.digs += 1;
-    if let Some(s) = world.organism_mut(organism) {
-        s.life.digs += 1;
-    }
+    cut_cell(world, organism, (tx, ty), false);
     line_burrow(world, tx, ty);
     true
 }
