@@ -2966,18 +2966,6 @@ pub struct CreatureStats {
     /// silently never runs and a rule that runs and finds nothing produce the
     /// same clean sky, and only this number tells them apart.
     pub unpacked: u64,
-    /// **`creature::FoodIn`'s counts.** `food_in_pulls`: decisions a trip's
-    /// carrier was pulled down the store field past the door (`bring`);
-    /// `food_in_puts`: crop cells it put down having arrived;
-    /// `food_in_escapes`: cells put down by the stuck escape instead;
-    /// `food_out_pulls`: decisions an emptied carrier was walked back out;
-    /// `food_seek_pulls`: decisions a hungry ant sent from the mound was
-    /// pulled towards the store (`reach`). All 0 with the switch off.
-    pub food_in_pulls: u64,
-    pub food_in_puts: u64,
-    pub food_in_escapes: u64,
-    pub food_out_pulls: u64,
-    pub food_seek_pulls: u64,
     /// How many *distinct animals* have ever had a birth refused for want of
     /// room — the denominator [`Self::births_denied_no_space`] does not have.
     ///
@@ -4550,8 +4538,6 @@ pub struct World {
     /// (`creature::nest_store_of`). `None` follows the environment; a field
     /// so a guard can take both arms in one process.
     pub nest_store: Option<crate::sim::creature::NestStore>,
-    /// `PIXEL_PHYSICS_FOOD_IN` for one world (`creature::food_in_of`).
-    pub food_in: Option<crate::sim::creature::FoodIn>,
     /// **Each nest's way in**, as steps from its door through the cells
     /// inside it an ant can stand in (`creature::NestWay`), rebuilt every
     /// `creature::REST_REFRESH` frames by `creature::step_nest_rest` while
@@ -7228,7 +7214,6 @@ impl World {
             pack_parted: None,
             needs: None,
             nest_store: None,
-            food_in: None,
             nest_ways: Vec::new(),
             store_last_seeds: Vec::new(),
             store_read_log: None,
@@ -8359,8 +8344,6 @@ impl World {
             foraged: false,
             store_return: false,
             store_carried: false,
-            food_return: false,
-            food_seek: false,
             dig_return: None,
             spoil_ring: None,
             nest_bound_until: 0,
