@@ -376,8 +376,8 @@ pub struct WalkParts {
     /// It carries whatever `PIXEL_PHYSICS_PACK_PARTED` says, except `on`,
     /// which refuses under either part.
     pub parted_carry: bool,
-    /// **A forager inside walks out** (2026-10-15, off; not in
-    /// [`WalkParts::ALL`] or [`WalkParts::NEW_ANT`]): an empty ant on the
+    /// **A forager inside walks out** (2026-10-15; never in
+    /// [`WalkParts::ALL`], in [`WalkParts::NEW_ANT`] since the same day): an empty ant on the
     /// forage drive that is not in the open air takes the way-out pull the
     /// hungry ant's `Out` drive uses ([`out_target`]), at the walk-home gain,
     /// but only where the nest's or the mound's way map answers; in the open
@@ -444,7 +444,10 @@ impl WalkParts {
     /// [`WalkParts::sealed_out`] and [`WalkParts::eat_held`], on, and since
     /// 2026-10-12 [`WalkParts::parted_carry`] (the owner's rule that a fix
     /// without a big downside ships on; `reach,walled_in` is the new ant
-    /// before it). What a
+    /// before it), and since 2026-10-15 [`WalkParts::forage_out`] (the
+    /// owner's tap, "On, then fix big nest": it ends the small colony's
+    /// die-off at far food, and costs big colonies their nest residents;
+    /// `reach,walled_in,parted_carry` is the new ant before it). What a
     /// harness hands the walk when it names no parts (`deeptrace`'s
     /// `needsparts=`, `needscost`'s `walk` arm); `none` is slice 1 exactly.
     /// [`NeedsWalk::new`] still starts from [`WalkParts::NONE`], so the
@@ -455,6 +458,7 @@ impl WalkParts {
         sealed_out: true,
         eat_held: true,
         parted_carry: true,
+        forage_out: true,
         ..WalkParts::NONE
     };
     const NAMES: [&'static str; 17] = [
@@ -4501,14 +4505,13 @@ mod tests {
         // The new ant: `reach`, the `walled_in` switch's two parts and
         // `parted_carry`, and nothing of the fix round's.
         assert_eq!(WalkParts::parse("new_ant"), WalkParts::NEW_ANT);
-        assert_eq!(WalkParts::parse("reach,walled_in,parted_carry"), WalkParts::NEW_ANT);
-        // `forage_out` (2026-10-15): off in every set, named alone.
-        const { assert!(!WalkParts::ALL.forage_out && !WalkParts::NEW_ANT.forage_out) };
-        let p = WalkParts::parse("new_ant,forage_out");
-        assert!(p.forage_out && p.parted_carry && p.reach);
-        assert_eq!(p.label(), "reach,sealed_out,eat_held,parted_carry,forage_out");
-        assert_eq!(WalkParts::parse(&p.label()), p);
-        assert_eq!(WalkParts::NEW_ANT.label(), "reach,sealed_out,eat_held,parted_carry");
+        assert_eq!(WalkParts::parse("reach,walled_in,parted_carry,forage_out"), WalkParts::NEW_ANT);
+        // `forage_out` (2026-10-15): in the new ant since 2026-10-15 (the
+        // owner's tap), never in `all`.
+        const { assert!(!WalkParts::ALL.forage_out && WalkParts::NEW_ANT.forage_out) };
+        let p = WalkParts::parse("reach,walled_in,parted_carry");
+        assert!(!p.forage_out, "reach,walled_in,parted_carry is the new ant before forage_out");
+        assert_eq!(WalkParts::NEW_ANT.label(), "reach,sealed_out,eat_held,parted_carry,forage_out");
         assert_eq!(WalkParts::parse(&WalkParts::NEW_ANT.label()), WalkParts::NEW_ANT);
         let w = WalkParts::parse("walled_in");
         assert!(w.sealed_out && w.eat_held && !w.reach);
@@ -4518,7 +4521,7 @@ mod tests {
         const { assert!(!WalkParts::NEW_ANT.parted_lose && WalkParts::NEW_ANT.parted_carry) };
         for name in ["parted_lose", "parted_carry"] {
             let p = WalkParts::parse(&format!("new_ant,{name}"));
-            assert_eq!(p.label(), format!("reach,sealed_out,eat_held,{name}"));
+            assert_eq!(p.label(), format!("reach,sealed_out,eat_held,{name},forage_out"));
             assert_eq!(WalkParts::parse(&p.label()), p);
         }
         let before = WalkParts::parse("reach,walled_in");
@@ -5186,6 +5189,9 @@ mod tests {
         (out, quit, path, w.needs.as_ref().expect("walking").counts)
     }
 
+    /// The new ant before [`WalkParts::forage_out`], with `only_diggers`.
+    const BEFORE_OUT: &str = "reach,walled_in,parted_carry,only_diggers";
+
     /// **A forager deep in the nest walks out** ([`WalkParts::forage_out`]),
     /// before the at-home quit ends its job; without the part the same ant
     /// in the same scene does not get out at all -- the leak traced in
@@ -5200,8 +5206,8 @@ mod tests {
         // hauler and leaves by the soil's way (frame 84 here, as 131 of the
         // 363 traced deep take-ups did), which hides whether the forage
         // drive itself can get out.
-        let (out_off, quit_off, _, c_off) = forager_walks("new_ant,only_diggers", Place::Deep, FRAMES);
-        let (out_on, quit_on, _, c_on) = forager_walks("new_ant,only_diggers,forage_out", Place::Deep, FRAMES);
+        let (out_off, quit_off, _, c_off) = forager_walks(BEFORE_OUT, Place::Deep, FRAMES);
+        let (out_on, quit_on, _, c_on) = forager_walks("new_ant,only_diggers", Place::Deep, FRAMES);
         println!(
             "deep forager: off out {out_off:?} quit {quit_off:?} pulls {}; on out {out_on:?} quit {quit_on:?} pulls {}",
             c_off.forage_out_pulls, c_on.forage_out_pulls
@@ -5221,8 +5227,8 @@ mod tests {
     /// [`WalkParts::forage_out`] on and off.
     #[test]
     fn under_forage_out_a_forager_outside_walks_as_before() {
-        let (_, _, off, c_off) = forager_walks("new_ant", Place::Surface, 800);
-        let (_, _, on, c_on) = forager_walks("new_ant,forage_out", Place::Surface, 800);
+        let (_, _, off, c_off) = forager_walks("reach,walled_in,parted_carry", Place::Surface, 800);
+        let (_, _, on, c_on) = forager_walks("new_ant", Place::Surface, 800);
         assert!(off.len() > 100, "test setup: the ant died early");
         let first_inside = off.iter().zip(&on).position(|(a, b)| a.1 || b.1);
         println!("outside forager: pulls {} / {}, first inside {first_inside:?}", c_off.forage_out_pulls, c_on.forage_out_pulls);

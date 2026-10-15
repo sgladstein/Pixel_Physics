@@ -158,7 +158,7 @@
 //! `none`, which is slice 1 and was the default before, `all`, or a comma
 //! list; `all` is the fix round's eight, and the parts added since, `reach`,
 //! `eat_fade`, `hunger_holds`, `placebo`, `sealed_out`, `eat_held`,
-//! `parted_lose` and `parted_carry` (naming one clears the other), and `forage_out` (2026-10-15, a forager inside walks out), are
+//! `parted_lose` and `parted_carry` (naming one clears the other), and `forage_out` (2026-10-15, a forager inside walks out; in `new_ant` since 2026-10-15, so `reach,walled_in,parted_carry` is the new ant before it), are
 //! named one by one, `walled_in` naming `sealed_out` and `eat_held` together (under `reach`, **`hidden.csv`** logs each decision it
 //! hid the food, and whether the wider air check found some joined; under
 //! `sealed_out`, **`sealed.csv`** logs each sealed event's start and end);
