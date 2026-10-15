@@ -1704,6 +1704,67 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
         }
         (wall_x0 + bw / 2, lower_floor, upper_floor)
     });
+    // **`bridgeclose=<upper|lower>:<frame>`: one branch of a y bridge does
+    // not exist until `<frame>`, then is opened** -- the classic version of
+    // the experiment, where the second branch is added after the colony has
+    // a trail on the first (Goss et al. 1989; Beckers et al. 1990, not
+    // checked here). It tests commitment rather than geometry: a y bridge
+    // cannot be symmetric under gravity (a muted colony takes the descending
+    // branch first, as real ants weigh slopes, Bles et al. 2017, Sci Rep,
+    // doi 10.1038/s41598-017-08592-9), so whether the trail *chooses* is read
+    // from whether a colony that learned one branch stays on it once the
+    // other opens. **The whole branch is filled, not plugged**: a plug at the
+    // middle column left a dead-end pocket, and 13 of 32 colonies across
+    // four arms died with 2-11 crossings in the first quarter (2026-10-15).
+    // The fill is attached stone, so it neither falls nor carries scent.
+    let bridge_plug: Option<(Vec<(i32, i32)>, u64)> = arg_str("bridgeclose").map(|spec| {
+        let (lane, at) = spec.split_once(':').expect("bridgeclose=<upper|lower>:<frame>");
+        let at: u64 = at.parse().expect("bridgeclose=<lane>:<frame>: the frame is a whole number");
+        let (mid_x, _, upper) = bridge.expect("bridgeclose needs bridge=");
+        assert_eq!(arg_str("bridgeshape").as_deref(), Some("y"), "bridgeclose is built for bridgeshape=y");
+        let shut = match lane {
+            "upper" => -1,
+            "lower" => 1,
+            _ => panic!("bridgeclose={spec}: the lane is upper or lower"),
+        };
+        // The y bridge's own geometry, rebuilt from what it returned.
+        let (r, sep, bw): (i32, i32, i32) = (arg("bridgebrush").unwrap_or(1), arg("bridge").unwrap(), arg("bridgew").unwrap_or(16));
+        let gy = upper - r - 1 + sep;
+        let (x0, x1) = (mid_x - bw / 2, mid_x - bw / 2 + bw - 1);
+        const MOUTH: i32 = 3;
+        let lane_cells = |side: i32| {
+            let mut c = std::collections::HashSet::new();
+            let mut centres = Vec::new();
+            for k in 0..=sep {
+                centres.push((x0 + MOUTH + k, gy + side * k));
+                centres.push((x1 - MOUTH - k, gy + side * k));
+            }
+            for x in x0 + MOUTH + sep..=x1 - MOUTH - sep {
+                centres.push((x, gy + side * sep));
+            }
+            for (cx, cy) in centres {
+                for dy in -r..=r {
+                    for dx in -r..=r {
+                        c.insert((cx + dx, cy + dy));
+                    }
+                }
+            }
+            c
+        };
+        let keep = lane_cells(-shut);
+        let mouth_rows = gy - r..=gy + r;
+        let stone = w.materials.id_of("stone").expect("stone");
+        let mut cells: Vec<(i32, i32)> = lane_cells(shut)
+            .into_iter()
+            .filter(|c| !keep.contains(c) && !(mouth_rows.contains(&c.1) && (c.0 <= x0 + MOUTH + r || c.0 >= x1 - MOUTH - r)))
+            .collect();
+        cells.sort_unstable();
+        for &(x, y) in &cells {
+            assert!(w.get(x, y).is_empty(), "bridgeclose: ({x}, {y}) is not inside the {lane} branch");
+            w.set(x, y, Cell::new(stone, 0).with_attached(true));
+        }
+        (cells, at)
+    });
     // **Channel A's persistence, before any ant walks.** See the rider docs.
     if let Some(r) = arg::<f32>("arho") {
         w.pheromones.set_channel_rho(Channel::A, r);
@@ -2857,6 +2918,9 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
     // standing in the middle column counts once.
     let mut bridge_x = [[0u64; 2]; 2];
     let mut bridge_late = [[0u64; 2]; 2];
+    // Empty crossings by quarter of the run, [quarter][lane]: whether a
+    // share drifts, holds or locks in, which one second-half number hides.
+    let mut bridge_q = [[0u64; 2]; 4];
     let mut bridge_last: std::collections::HashMap<pixel_physics::sim::cell::OrganismId, (i32, Option<(usize, bool)>)> = std::collections::HashMap::new();
     let bridge_w: i32 = arg("bridgew").unwrap_or(16);
     let arm_name = match (trail, mute, paint) {
@@ -3020,6 +3084,11 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
         pixel_physics::sim::creature::needs::WalkParts::parse(&p)
     });
     for f in 1..=frames {
+        if let Some((cells, _)) = bridge_plug.as_ref().filter(|(_, at)| f == *at) {
+            for &(x, y) in cells {
+                w.set(x, y, Cell::EMPTY);
+            }
+        }
         if let Some(mode) = needs_mode.filter(|_| f == needs_at) {
             let mut walk = pixel_physics::sim::creature::needs::NeedsWalk::new(mode, w.frame);
             walk.parts = needs_parts;
@@ -3954,6 +4023,9 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
                             bridge_x[lane][laden] += 1;
                             if f > frames / 2 {
                                 bridge_late[lane][laden] += 1;
+                            }
+                            if laden == 0 {
+                                bridge_q[((f - 1) * 4 / frames).min(3) as usize][lane] += 1;
                             }
                         }
                     }
@@ -5630,6 +5702,10 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
             bridge_x[0][0], bridge_x[1][0], bridge_x[0][1], bridge_x[1][1],
             bridge_late[0][0], bridge_late[1][0], bridge_late[0][1], bridge_late[1][1],
             share(&bridge_late, 0), share(&bridge_late, 1)
+        );
+        println!(
+            "  BRIDGE seed {seed} arm {arm_name}: upper share of empty crossings by quarter: {}",
+            bridge_q.iter().map(|q| format!("{:.2} ({})", q[1] as f64 / (q[0] + q[1]).max(1) as f64, q[0] + q[1])).collect::<Vec<_>>().join("  ")
         );
     }
     Arm {
