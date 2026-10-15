@@ -3628,6 +3628,12 @@ fn harness() {
             // to end.
             let fed_by_pile = arg::<i32>("food").unwrap_or(0) > 0;
             c.start_energy = arg("energy").unwrap_or(if fed_by_pile { c.start_energy } else { 20_000.0 });
+            // `halflife=`: the ant's age half-life (`life_half_life`, 40,000
+            // frames), so the pillar box's colony is not measuring its
+            // founding cohort ageing out (80 ants -> 24 by 60k).
+            if let Some(h) = arg::<u32>("halflife") {
+                c.life_half_life = h;
+            }
         }
     }
     // **`gate=` re-centres the chamber gate on the band `Crowding` actually
@@ -3889,6 +3895,24 @@ fn harness() {
     // before that date was taken on; `fed` is still accepted and does
     // nothing more.
     let fed = !flag("hungry");
+    // **The pillar box** (`source=`, `mapdir=`, `needs=walk needsat=`;
+    // Khuong pillars level 2, textbook tests 2026-10-15): see [`Source`].
+    let mut source = arg::<u64>("source").map(|n| Source::new(&world, n));
+    let map_dir: Option<String> = arg("mapdir");
+    if let Some(d) = map_dir.as_deref() {
+        std::fs::create_dir_all(d).expect("mapdir: cannot create it");
+    }
+    let needs_at: Option<u64> = (arg::<String>("needs").as_deref() == Some("walk")).then(|| arg("needsat").unwrap_or(0));
+    if source.is_some() || map_dir.is_some() || needs_at.is_some() {
+        println!(
+            "pillar box: source {} pellets per 1k frames, maps {}, needs walk from {} | BUILD_MARK={} MOUND_OUT={}",
+            arg::<u64>("source").unwrap_or(0),
+            map_dir.as_deref().unwrap_or("off"),
+            needs_at.map_or("never".to_string(), |f| f.to_string()),
+            std::env::var("PIXEL_PHYSICS_BUILD_MARK").unwrap_or_default(),
+            std::env::var("PIXEL_PHYSICS_MOUND_OUT").unwrap_or_default()
+        );
+    }
     // **`surplus=J`: top every adult up to start_energy + J**, so a nurse has
     // something above its own grant to hand a larva (`brood::nurse` gives only
     // from above `start_energy`). See [`feed`].
@@ -3971,6 +3995,12 @@ fn harness() {
         if fed {
             feed(&mut world, surplus);
         }
+        if needs_at == Some(f) {
+            world.needs = Some(Box::new(pixel_physics::sim::creature::needs::NeedsWalk::new(pixel_physics::sim::creature::needs::NeedsMode::Walk, world.frame)));
+        }
+        if let Some(src) = source.as_mut() {
+            src.step(&mut world, &b, f);
+        }
         if let Some(n) = sort_nest.as_ref().filter(|_| f > 0 && f.is_multiple_of(sort_every.max(1))) {
             println!("{}", n.census(&world, f, &b));
         }
@@ -4006,6 +4036,20 @@ fn harness() {
             );
             if let Some(line) = cut_census(&world) {
                 println!("{line}");
+            }
+            if source.is_some() || map_dir.is_some() {
+                let st = world.creature_stats;
+                println!(
+                    "PILLAR frame={f} pellets handed out {} | build mark: carriers moved on {}, stopped on a mark {}, fresh cuts refused {} | spoil standing above the old surface {}",
+                    source.as_ref().map_or(0, |s| s.given),
+                    st.build_mark_moves,
+                    st.build_mark_held_marked,
+                    st.build_mark_fresh_refused,
+                    spoil_above(&world, &b)
+                );
+            }
+            if let Some(d) = map_dir.as_deref() {
+                write_map(&world, &b, &format!("{d}/nest_f{f:06}.txt"));
             }
             println!("{}", crater(&world, &b, f));
             println!("{}", widths(&world, &b, f));
@@ -4805,6 +4849,94 @@ impl FoodPile {
 /// ground, so `FoodAdjacent` stays 0 and the dig is still the nest
 /// mechanism alone; held at `start_energy` (1,000 on the lane's runs), an
 /// ant sits under the ~1,040 J budding floor, so the count stays fixed.
+/// **A soil source for the pillar box** (`source=<pellets per 1k frames>`):
+/// the harness puts a pellet of spoil in the jaws of an ant standing in the
+/// nest below the old ground line, empty-jawed, cropless and not brood, as if
+/// it had just dug one, so the real carrier walks it out, the ring and
+/// `PIXEL_PHYSICS_BUILD_MARK` decide where it stops, and the shipped drop
+/// sites and footing decide whether it stands. Khuong et al. 2016 gave their
+/// ants a pile of pellets; a fed colony in a bare box digs a few hundred cells
+/// and stops, far too few to build with (60k frames, 40 ants: 257 digs).
+/// Deterministic: ants are taken in id order, round-robin from the last one
+/// given.
+struct Source {
+    every: u64,
+    next: u64,
+    given: u64,
+    spoil: MaterialId,
+}
+
+impl Source {
+    fn new(world: &World, per_1k: u64) -> Self {
+        assert!(per_1k > 0, "source= wants pellets per 1k frames, above 0");
+        Source { every: (1000 / per_1k).max(1), next: 0, given: 0, spoil: world.materials.id_of("spoil").expect("spoil is a material") }
+    }
+
+    fn step(&mut self, world: &mut World, b: &Box2, f: u64) {
+        if f == 0 || !f.is_multiple_of(self.every) {
+            return;
+        }
+        let ids = world.live_organism_ids();
+        let pick = ids
+            .iter()
+            .copied()
+            .filter(|&id| u64::from(id) > self.next)
+            .chain(ids.iter().copied())
+            .find(|&id| {
+                world.organism(id).is_some_and(|st| {
+                    world.species.get(st.species).creature.is_some()
+                        && st.brood.is_none()
+                        && st.spoil.is_none()
+                        && st.crop.is_none_or(|c| c.cells == 0)
+                        && st.chain.first().is_some_and(|&(x, y)| y > b.surface || ((x - b.w / 2).abs() <= 4 && y >= b.surface - 3))
+                })
+            });
+        if let Some(id) = pick {
+            if world.set_organism_spoil(id, Some(pixel_physics::sim::organism::Spoil { cell: Cell::new(self.spoil, 0), store: false })) {
+                self.given += 1;
+                self.next = u64::from(id);
+            }
+        }
+    }
+}
+
+/// Spoil cells above the old ground line.
+fn spoil_above(world: &World, b: &Box2) -> usize {
+    let Some(spoil) = world.materials.id_of("spoil") else { return 0 };
+    (0..b.surface).flat_map(|y| (0..b.w).map(move |x| (x, y))).filter(|&(x, y)| world.get(x, y).material == spoil).count()
+}
+
+/// `mapdir=`: the box as one character a cell, in `deeptrace`'s nest-map
+/// form (`x0 y0 w h` then rows) so the pillar census
+/// (`emergence-sandbox/pillars/census/turrets.py`) reads both: `.` open and
+/// never dug, `o` open and dug, `s` spoil, `=` packed soil, `#` other
+/// ground, `r` stone, `a` an animal.
+fn write_map(world: &World, b: &Box2, path: &str) {
+    let (spoil, packed, stone) = (world.materials.id_of("spoil"), world.materials.id_of("packedsoil"), world.materials.id_of("stone"));
+    let mut s = format!("0 0 {} {}\n", b.w, b.h);
+    for y in 0..b.h {
+        for x in 0..b.w {
+            let c = world.get(x, y);
+            let kind = world.materials.kind(c.material);
+            s.push(if c.material == material::EMPTY {
+                if world.dug_cells.contains(&(x, y)) { 'o' } else { '.' }
+            } else if kind == MaterialKind::Creature || c.organism_id() != 0 {
+                'a'
+            } else if Some(c.material) == spoil {
+                's'
+            } else if Some(c.material) == packed {
+                '='
+            } else if Some(c.material) == stone {
+                'r'
+            } else {
+                '#'
+            });
+        }
+        s.push('\n');
+    }
+    let _ = std::fs::write(path, s);
+}
+
 fn feed(world: &mut World, surplus: f32) {
     use pixel_physics::sim::world::Account;
     for id in world.live_organism_ids() {

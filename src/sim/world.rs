@@ -8580,6 +8580,20 @@ impl World {
         }
     }
 
+    /// **Put a load in an animal's jaws** (`OrganismState::spoil`), for a
+    /// harness that supplies pellets as if they had been dug (`digbox`'s
+    /// `source=`). A harness tool like `set_organism_crop`: the material it
+    /// conjures is booked nowhere. Returns `false` if the organism is gone.
+    pub fn set_organism_spoil(&mut self, organism_id: OrganismId, spoil: Option<crate::sim::organism::Spoil>) -> bool {
+        match self.organism_mut(organism_id) {
+            Some(state) => {
+                state.spoil = spoil;
+                true
+            }
+            None => false,
+        }
+    }
+
     /// **Pin where an animal thinks home is** (`OrganismState::
     /// forage_anchor`), for a scene with no nest material to re-anchor it.
     /// Returns `false` if the organism is gone.
