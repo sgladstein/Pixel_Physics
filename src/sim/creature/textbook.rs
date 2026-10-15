@@ -166,13 +166,16 @@ pub struct TextbookCfg {
 /// `lay=0.1 k=2` with almost no fade (the papers ignore evaporation), which
 /// keeps a busy branch under it.
 ///
-/// **Measured on Goss's bridge** (`antbridge`, 2026-10-15, 8 seeds, 60
-/// and 150 ants, mirrored): with the short branch below, the short branch
-/// carries 100% on 8/8 seeds (Goss: over 80% on 11/14); with the short
-/// branch added later, the colony stays on the long one 8/8 in both mirrors
-/// (Goss: 16/18). With the short branch above, 0/8: a side view's lower
-/// branch pulls a trail-following colony (scent off is fair, 0.50-0.54 on
-/// equal branches; scent on picks the lower on 4/4).
+/// **Measured on Goss's bridge** (`antbridge`, 2026-10-15, 2-cell
+/// tunnels, 8 seeds a cell, both mirrors): equal branches, scent off,
+/// 0.48-0.53; scent on, one branch over 80% on 5/8 (60 ants) and 6/8 (150),
+/// either branch winning. r = 2: the short branch is the majority on 13/16
+/// and 14/16, over 80% on 9/16 and 11/16 (Goss: 14/14 and 11/14). Short
+/// branch added later: the colony stays on the long one 16/16 at both
+/// sizes (Goss: 16/18). In 3-cell tunnels a colony settles on whichever
+/// surface of the neck carries the trail -- the floor, approached first
+/// from the chamber below -- and the floor leads to the lower branch: 0/8
+/// with the short branch above.
 #[derive(Clone, Copy, Debug)]
 pub struct ForageCfg {
     pub food: material::MaterialId,

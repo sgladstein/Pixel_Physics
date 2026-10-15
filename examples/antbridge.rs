@@ -28,16 +28,20 @@
 //! over the whole run and the last half, and whether it is the majority or
 //! over 80% (Goss's two bars).
 //!
-//! **What it found, 2026-10-15** (`release=50 brho=0.0002 bdiff=0 lay=0.1
-//! k=2 long=40`, 30k frames, 8 seeds, numbers in `textbook::ForageCfg`):
-//! the textbook ant passes both of Goss's bars when the short branch is
-//! the lower one, and holds the long branch when a short one is added in
-//! either mirror; with the short branch above it fails, because a
-//! trail-following colony in a side view settles on the lower branch.
-//! Three harness biases came first: the vectors aimed at the chamber
-//! floors (below the fork) pulled every choice down; a trail at the
-//! engine plane's 255 cap reads the same on both branches; and the
-//! plane's blend carried the neck's trail into both arms of the fork.
+//! **What it found, 2026-10-15** (`tunnel=2 release=50 brho=0.0002 bdiff=0
+//! lay=0.1 k=2 long=40`, 30k frames, 8 seeds, numbers in
+//! `textbook::ForageCfg`): the textbook ant passes Goss's bars in both
+//! mirrors at 150 ants (short majority 14/16, over 80% 11/16; stays on
+//! the long branch 16/16 when the short one opens late), and breaks
+//! symmetry on equal branches with either side winning. `trace=1` found
+//! why 3-cell tunnels failed: every empty ant walked the neck's floor row
+//! (the row reached first, climbing from the chamber below) and the floor
+//! leads down the shaft, so the lower branch won whatever its length.
+//! Four harness biases came first: vectors aimed at the chamber floors
+//! (below the fork) pulled every choice down; a trail at the engine
+//! plane's 255 cap reads the same on both branches; the plane's blend
+//! carried the neck's trail into both arms of the fork; and the 3-cell
+//! tunnel above.
 //! `ant=game` does not forage in this box (0-3 crossings a run); its
 //! bridge is `trailfollow`'s.
 
@@ -49,7 +53,7 @@ use pixel_physics::sim::{Cell, Rect, World};
 
 const KEYS: &[&str] = &[
     "seed", "seeds", "frames", "ants", "ant", "gap", "len", "neck", "tunnel", "long", "longside", "opens", "release",
-    "k", "n", "lay", "layout", "vector", "mute", "brho", "bdiff", "fed", "halflife", "food", "png", "every",
+    "k", "n", "lay", "layout", "vector", "mute", "brho", "bdiff", "fed", "halflife", "food", "png", "every", "trace",
 ];
 
 const FEED_EVERY: u64 = 500;
@@ -311,6 +315,16 @@ fn run(
         }
     }
     let mut last_x: std::collections::HashMap<u32, i32> = std::collections::HashMap::new();
+    // `trace=1`: for every empty ant leaving the nest-side neck into the
+    // shaft, the row it walked the neck on (ceiling, middle, floor), the
+    // trail one cell above and below the junction, and the branch it next
+    // crossed the middle on. Printed as a table at the end.
+    let trace = arg::<u8>("trace").unwrap_or(0) == 1;
+    let shaft_x = sc.nest.2 + 1 + neck;
+    let mut pending: std::collections::HashMap<u32, (i32, u16, u16)> = std::collections::HashMap::new();
+    // [neck row 0..th][branch short/long] counts, empty ants, last half.
+    let mut fork = vec![[0u64; 2]; th as usize];
+    let mut fork_trail = vec![[0f64; 2]; th as usize];
     // [short, long] crossings: whole run, last half, this window.
     let (mut whole, mut late, mut win) = ([0u64; 2], [0u64; 2], [[0u64; 2]; 2]);
     let mut delivered = 0u64;
@@ -356,9 +370,26 @@ fn run(
             }
             let Some(&(hx, hy)) = st.chain.first() else { continue };
             let laden = usize::from(st.spoil.is_some());
+            if trace && laden == 0 {
+                if let Some(&px) = last_x.get(&oid) {
+                    // Stepping from the neck into the shaft, heading out.
+                    if px < shaft_x && hx >= shaft_x && hx < shaft_x + th && (sc.neck_y..sc.neck_y + th).contains(&hy) {
+                        let up = world.pheromone_at(Channel::B, hx, sc.neck_y - 1);
+                        let down = world.pheromone_at(Channel::B, hx, sc.neck_y + th);
+                        pending.insert(oid, (hy - sc.neck_y, up, down));
+                    }
+                }
+            }
             if let Some(&px) = last_x.get(&oid) {
                 if (px < sc.mid) != (hx < sc.mid) && hx > sc.nest.2 && hx < sc.food.0 {
                     let lane = short_lane(hy);
+                    if let Some((row, up, down)) = pending.remove(&oid) {
+                        if f > frames / 2 && laden == 0 && px < sc.mid {
+                            fork[row as usize][lane] += 1;
+                            fork_trail[row as usize][0] += f64::from(up);
+                            fork_trail[row as usize][1] += f64::from(down);
+                        }
+                    }
                     whole[lane] += 1;
                     win[laden][lane] += 1;
                     if f > frames / 2 {
@@ -383,6 +414,19 @@ fn run(
             );
             delivered = d;
             win = [[0; 2]; 2];
+        }
+    }
+    if trace {
+        let upper_is = if sc.short_upper { 0 } else { 1 };
+        for (row, counts) in fork.iter().enumerate() {
+            let n = counts[0] + counts[1];
+            println!(
+                "TRACE seed {seed} neck row {row} ({}): {n} empty ants out of the neck, upper branch {} | trail above the junction {:.0} below {:.0} (mean raw)",
+                ["ceiling", "middle", "floor"].get(row).unwrap_or(&"?"),
+                counts[upper_is],
+                fork_trail[row][0] / n.max(1) as f64,
+                fork_trail[row][1] / n.max(1) as f64
+            );
         }
     }
     if let Some(dir) = arg::<String>("png") {
