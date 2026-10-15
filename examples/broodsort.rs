@@ -30,8 +30,10 @@
 //!   centre-to-centre distance (theirs is edge to edge).
 //!
 //! `medium=` `flat` (items stay put, walkers go anywhere: the paper's flat
-//! nest between glass, the positive control) or `game` (the game's physics
-//! moves items, walkers need footing).
+//! nest between glass, the positive control), `game` (the game's physics
+//! moves items, walkers need footing) or `rest` (walkers need footing; an
+//! item falls straight down onto whatever is under it but never slides off
+//! a heap, so it stays where it was put -- brood placed, not poured).
 //!
 //! Read per seed at the end, in the largest cluster (items joined within
 //! `join=` cells, 4): its share of all items, the count per size, `d_small`,
@@ -41,21 +43,23 @@
 //! of the items with at least 10 of each size, and `d_large/d_small` above
 //! the shuffles' 95th percentile.
 //!
-//! **What it found, 2026-10-15** (200k frames, 25 a size, 30 walkers; full
-//! table `/mnt/project-files/emergence-sandbox/sorting/broodsort-results-2026-10-15.md`):
-//! on the flat medium `off`, `deneubourg` and `brood` pass 0 of 8 (no
-//! cluster; a cluster per size; one cluster with sizes mixed), and `room`
-//! at the paper's constants 2 of 8: one cell per item cannot pack small
-//! items as densely as their 0.5 size, so they never reach their bonus and
-//! keep being picked up. **`room scale=1.5 bonusm=3` passes 7 of 8 on seeds
-//! 1-8 and 8 of 8 on fresh seeds 9-16**, with ratios 1.33-2.24 (medium) and
-//! 3.46-4.84 (large) against Franks's 1.43-1.67 and 2.05-2.68: the order is
-//! the paper's, the large ring twice as loose. On `medium=game` the same
-//! setting passes 3 of 8: gravity packs the large items into the heap.
-//! `scatter=150000` (Franks's emigration) re-forms the order on 7 of 8
-//! seeds in 10k-35k frames, about the first formation's 15k-50k; the eighth
-//! splits into two clusters. `scale=2` scatters everything. `join=2` cut the spaced outer ring off the
-//! cluster and scored it missing (large 0-2 of 25 in the cluster), hence 4.
+//! **What it found, 2026-10-15** (200k frames, 25 a size, 30 walkers, 16
+//! seeds, after the turn-order fix below; full table
+//! `/mnt/project-files/emergence-sandbox/sorting/broodsort-results-2026-10-15.md`):
+//! - Flat: `off`, `deneubourg` and `brood` pass 0/16. `room` passes 7/16 at
+//!   the paper's constants and **13/16 at `scale=1.5 bonusm=3`** (large
+//!   ratio 2.3-4.8, about twice as loose as Franks's 2.05-2.68). One cell
+//!   per item cannot pack small items as densely as their 0.5 size.
+//! - `scatter=150000`: re-forms 8/8, 15k-60k frames after the scatter.
+//! - **Side view (`medium=game along=floor`): `room` tuned 11/16**, with
+//!   medians 1.74 and 1.97 against Franks's 1.43-1.67 and 2.05-2.68;
+//!   `brood` 3/16, `off` 0/16.
+//! - `medium=rest` sorts worse (tuned 4/16): stopping brood sliding does
+//!   not help.
+//!
+//! Two harness traps were found here. `join=2` cut the spaced outer ring
+//! off the cluster, which is why the default is 4. And a fixed turn order
+//! put every cluster in one corner, which inflated `rest` to 6/8.
 //!
 //! ```text
 //! cargo run --release --example broodsort -- rule=room scale=1.5 bonusm=3 seeds=8 frames=200000 every=200000
@@ -67,7 +71,7 @@ use pixel_physics::sim::rng::Rng;
 use pixel_physics::sim::{Cell, MaterialId, Rect, World};
 
 const KEYS: &[&str] = &[
-    "seed", "seeds", "frames", "every", "walkers", "width", "height", "rule", "medium", "items", "k1", "k2", "png", "scale", "join", "bonusm", "scatter",
+    "seed", "seeds", "frames", "every", "walkers", "width", "height", "rule", "medium", "items", "k1", "k2", "png", "scale", "join", "bonusm", "scatter", "along",
 ];
 
 fn check_args() {
@@ -125,11 +129,8 @@ fn main() {
         "room" => Rule::Room,
         r => panic!("rule={r}: off, deneubourg, brood or room"),
     };
-    let flat = match arg::<String>("medium").as_deref().unwrap_or("flat") {
-        "flat" => true,
-        "game" => false,
-        m => panic!("medium={m}: flat or game"),
-    };
+    let medium: String = arg("medium").unwrap_or_else(|| "flat".into());
+    assert!(matches!(medium.as_str(), "flat" | "game" | "rest"), "medium={medium}: flat, game or rest");
     let seeds: Vec<u64> = match arg::<u64>("seed") {
         Some(s) => vec![s],
         None => (1..=arg::<u64>("seeds").unwrap_or(4)).collect(),
@@ -141,18 +142,18 @@ fn main() {
     let (w, h): (i32, i32) = (arg("width").unwrap_or(80), arg("height").unwrap_or(60));
     println!(
         "broodsort: rule={rule:?} medium={} frames={frames} walkers={n_walkers} items={n_items} per size box={w}x{h}",
-        if flat { "flat" } else { "game" }
+        medium
     );
     let mut passes = 0;
     let mut ratios = Vec::new();
     for &seed in &seeds {
-        let r = run(seed, rule, flat, frames, every, n_walkers, n_items, w, h);
+        let r = run(seed, rule, &medium, frames, every, n_walkers, n_items, w, h);
         passes += usize::from(r.0);
         ratios.push(r.1);
     }
     println!(
         "SUMMARY rule={rule:?} medium={}: d_medium/d_small, d_large/d_small per seed [{}]; pass {passes} of {} (Franks colony A: 1.43-1.67, 2.05-2.68)",
-        if flat { "flat" } else { "game" },
+        medium,
         ratios.iter().map(|(m, l)| format!("{m:.2},{l:.2}")).collect::<Vec<_>>().join(" "),
         seeds.len()
     );
@@ -217,7 +218,8 @@ fn chance(world: &World, brood: MaterialId, rule: Rule, size: u8, (x, y): (i32, 
 }
 
 #[allow(clippy::too_many_arguments)]
-fn run(seed: u64, rule: Rule, flat: bool, frames: u64, every: u64, n_walkers: usize, n_items: usize, w: i32, h: i32) -> (bool, (f32, f32)) {
+fn run(seed: u64, rule: Rule, medium: &str, frames: u64, every: u64, n_walkers: usize, n_items: usize, w: i32, h: i32) -> (bool, (f32, f32)) {
+    let flat = medium == "flat";
     let mut world = World::new(Rect::new(0, 0, w - 1, h - 1));
     let stone = world.materials.id_of("stone").expect("stone");
     let brood = world.materials.id_of("brood").expect("brood");
@@ -283,8 +285,20 @@ fn run(seed: u64, rule: Rule, flat: bool, frames: u64, every: u64, n_walkers: us
             println!("seed {seed} f {f:>6}: SCATTERED");
         }
         if f > 0 {
-            if !flat {
+            if medium == "game" {
                 parallel::step(&mut world);
+            } else if medium == "rest" {
+                // An item with nothing under it drops straight down; nothing
+                // slides off a heap, so an item stays where it was put.
+                for y in (2..h - 3).rev() {
+                    for x in 2..w - 2 {
+                        if world.get(x, y).material == brood && world.is_empty(x, y + 1) {
+                            let c = world.get(x, y);
+                            world.set(x, y, Cell::EMPTY);
+                            world.set(x, y + 1, c);
+                        }
+                    }
+                }
             }
             for i in 0..walkers.len() {
                 if !flat && !footing(&world, walkers[i].x, walkers[i].y) {
@@ -334,9 +348,16 @@ fn run(seed: u64, rule: Rule, flat: bool, frames: u64, every: u64, n_walkers: us
                 if rng.below(8) == 0 {
                     walkers[i].dir = (walkers[i].dir + if rng.flip() { 1 } else { 7 }) % 8;
                 }
+                // **Which way a blocked walker tries first is drawn each step.**
+                // A fixed order (clockwise first, as sortbox has) gives every
+                // walker the same handedness along a wall: they circulate one
+                // way and carry brood into one corner. On `medium=rest` the
+                // room rule's cluster ended in the bottom-left corner on 8 of
+                // 8 seeds, the brood rule's in the bottom-right on 7 of 8.
+                let order = if rng.flip() { [0, 1, 7, 2, 6, 3, 5, 4] } else { [0, 7, 1, 6, 2, 5, 3, 4] };
                 let mut moved = false;
-                for attempt in 0..8 {
-                    let d = (walkers[i].dir + [0, 1, 7, 2, 6, 3, 5, 4][attempt]) % 8;
+                for turn in order {
+                    let d = (walkers[i].dir + turn) % 8;
                     let (nx, ny) = (x + DIRS[d].0, y + DIRS[d].1);
                     if open(&world, nx, ny) && (flat || footing(&world, nx, ny)) {
                         (walkers[i].x, walkers[i].y, walkers[i].dir) = (nx, ny, d);
@@ -422,7 +443,16 @@ fn score(world: &World, brood: MaterialId, n_items: usize, seed: u64, f: u64, he
     let cl: Vec<(i32, i32, u8)> = best.iter().map(|&i| items[i]).collect();
     let n = cl.len().max(1) as f32;
     let (cx, cy) = (cl.iter().map(|c| c.0 as f32).sum::<f32>() / n, cl.iter().map(|c| c.1 as f32).sum::<f32>() / n);
-    let dist: Vec<f32> = cl.iter().map(|c| ((c.0 as f32 - cx).powi(2) + (c.1 as f32 - cy).powi(2)).sqrt()).collect();
+    // **`along=floor`: the paper's rings, cut by a vertical slice.** A flat
+    // brood floor seen edge-on is one row, so "further from the centre"
+    // becomes "further along the floor from the pile's middle": the
+    // distance counts columns only. The default (`along=plane`) is the
+    // paper's own, for the top-down medium.
+    let floor = arg::<String>("along").as_deref() == Some("floor");
+    let dist: Vec<f32> = cl
+        .iter()
+        .map(|c| if floor { (c.0 as f32 - cx).abs() } else { ((c.0 as f32 - cx).powi(2) + (c.1 as f32 - cy).powi(2)).sqrt() })
+        .collect();
     let mean_by = |labels: &[u8], s: u8| -> f32 {
         let (sum, cnt) = labels.iter().zip(&dist).filter(|(l, _)| **l == s).fold((0.0, 0), |(a, c), (_, d)| (a + d, c + 1));
         if cnt == 0 {
@@ -452,7 +482,7 @@ fn score(world: &World, brood: MaterialId, n_items: usize, seed: u64, f: u64, he
     let share = cl.len() as f32 / (3 * n_items) as f32;
     let pass = share >= 0.8 && counts.iter().all(|&c| c >= 10) && rl > p95;
     println!(
-        "seed {seed} f {f:>6}: cluster {:.2} of items {:?} | d small {:.1} medium {:.1} large {:.1} | ratios {rm:.2} {rl:.2} (shuffle p95 {p95:.2}) | {} | held {held} picks {picks} drops {drops}",
+        "seed {seed} f {f:>6}: cluster {:.2} at ({cx:.0},{cy:.0}) of items {:?} | d small {:.1} medium {:.1} large {:.1} | ratios {rm:.2} {rl:.2} (shuffle p95 {p95:.2}) | {} | held {held} picks {picks} drops {drops}",
         share,
         counts,
         d[0],

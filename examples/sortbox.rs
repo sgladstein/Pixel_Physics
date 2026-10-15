@@ -322,6 +322,13 @@ fn run(
                     let turn = if rng.flip() { 1 } else { 7 };
                     walkers[i].dir = (walkers[i].dir + turn) % 8;
                 }
+                // **Known bias, kept so the numbers above reproduce**: a
+                // blocked walker always tries clockwise first, so walkers
+                // that cling to surfaces share one handedness and circulate
+                // one way along walls. In broodsort (which copied this) it
+                // put every seed's cluster in the same corner, 8 of 8;
+                // broodsort now draws the order each step. Re-measure the
+                // game arm with that fix before trusting a room split here.
                 let mut moved = false;
                 for attempt in 0..8 {
                     let d = (walkers[i].dir + [0, 1, 7, 2, 6, 3, 5, 4][attempt]) % 8;
