@@ -433,6 +433,7 @@ fn parse_brood_carry(raw: &str) -> i32 {
     match raw.trim() {
         "" | "off" => 0,
         "on" => BROOD_CARRY_REACH,
+        v if v == "pile" || v.starts_with("pile:") => 0,
         v => v.parse().ok().filter(|r: &i32| *r >= 0).unwrap_or_else(|| panic!("PIXEL_PHYSICS_BROOD_CARRY={v:?}: use off, on or a reach")),
     }
 }
@@ -440,6 +441,135 @@ fn parse_brood_carry(raw: &str) -> i32 {
 /// The reach `on` means: three steps, the span of an ant and a half, so one
 /// move is a short carry rather than a jump across the nest.
 pub const BROOD_CARRY_REACH: i32 = 3;
+
+/// **`PIXEL_PHYSICS_BROOD_CARRY=pile[:<reach>]`: brood carried by the
+/// textbook pick-up/put-down rule** (Deneubourg et al. 1991; for brood,
+/// Franks & Sendova-Franks 1992), off by default; `pile` is a walk of
+/// [`BROOD_PILE_REACH`] steps. `Some(reach)` when on. It replaces neither
+/// [`carry`] nor the egg pile; it is a separate way for brood to move, for
+/// the textbook sorting test.
+///
+/// **Why a probabilistic rule beside the deterministic one.** [`carry`]
+/// moves an item only to a cell touching strictly more brood within three
+/// steps, so two piles more than three steps apart never merge, and brood
+/// scattered wider than that never gathers. Deneubourg's rule picks a lone
+/// item up readily and an item in a pile rarely, and puts it down readily
+/// beside many and rarely beside few, so piles grow and the small ones are
+/// drained into the large -- the rule real ants are described sorting brood
+/// with. Its constants are the food pile's (`creature::PILE_K1`/`_K2`, 0.1
+/// and 0.3), so brood and food piling share one rule.
+///
+/// **What it is not**: the item does not ride in a walker's jaws. As in
+/// [`carry`], a touching nestmate with free jaws is the carrier, and the
+/// item moves along a random walk of up to `reach` steps through cells a
+/// carrier could pass, at once, within its tick.
+pub fn brood_carry_pile() -> Option<i32> {
+    static V: std::sync::OnceLock<Option<i32>> = std::sync::OnceLock::new();
+    *V.get_or_init(|| parse_brood_carry_pile(&std::env::var("PIXEL_PHYSICS_BROOD_CARRY").unwrap_or_default()))
+}
+
+fn parse_brood_carry_pile(raw: &str) -> Option<i32> {
+    match raw.trim() {
+        "pile" => Some(BROOD_PILE_REACH),
+        v => v.strip_prefix("pile:").map(|r| r.parse().ok().filter(|r: &i32| *r >= 1).unwrap_or_else(|| panic!("PIXEL_PHYSICS_BROOD_CARRY={v:?}: pile:<reach of 1 or more>"))),
+    }
+}
+
+/// The walk `pile` means: twelve steps, far enough that two piles a room
+/// apart can trade items.
+pub const BROOD_PILE_REACH: i32 = 12;
+/// Deneubourg's pick-up constant, the food pile's (`creature`'s `PILE_K1`).
+const BROOD_PILE_K1: f32 = 0.1;
+/// Deneubourg's put-down constant, the food pile's (`creature`'s `PILE_K2`).
+const BROOD_PILE_K2: f32 = 0.3;
+
+/// The share of the 24 cells round `(x, y)` (not the cell, and not `skip`)
+/// holding `material`.
+fn brood_share(world: &World, (x, y): (i32, i32), material: super::material::MaterialId, skip: (i32, i32)) -> f32 {
+    let mut n = 0u32;
+    for dy in -2..=2 {
+        for dx in -2..=2 {
+            if (dx, dy) == (0, 0) || (x + dx, y + dy) == skip {
+                continue;
+            }
+            n += u32::from(world.get(x + dx, y + dy).material == material);
+        }
+    }
+    n as f32 / 24.0
+}
+
+/// A deterministic unit draw for one brood item's carry at one frame:
+/// splitmix64 of the organism, the frame and the step, so a run repeats.
+fn pile_draw(organism: OrganismId, frame: u64, step: u64) -> f32 {
+    let mut z = (u64::from(organism) << 32) ^ frame.wrapping_mul(0x9E37_79B9_7F4A_7C15) ^ step.wrapping_mul(0xD1B5_4A32_D192_ED03);
+    z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+    z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+    z ^= z >> 31;
+    (z >> 40) as f32 / (1u64 << 24) as f32
+}
+
+/// **One brood item's chance to be carried by the pile rule**
+/// ([`brood_carry_pile`]). With a touching kin nestmate holding nothing, the
+/// item is picked up with `(k1/(k1+f))^2`, `f` the brood share round it;
+/// picked, it is walked up to `reach` random steps through cells a carrier
+/// could pass (empty, an animal, or brood), and at each empty, floored cell
+/// the egg bar allows (and at home, when it was at home) it is put down
+/// with `(f/(k2+f))^2`, `f` the brood share round that cell. Not put down
+/// by the walk's end, it goes back where it was. Returns where it lies now.
+pub(super) fn carry_pile(world: &mut World, organism: OrganismId, (x, y): (i32, i32), material: super::material::MaterialId, def: &CreatureDef, reach: i32, door: EggDoor) -> (i32, i32) {
+    use super::material::MaterialKind;
+    let gut = creature::gut_of(world, organism, def);
+    let carrier = creature::DIRS.iter().find_map(|&(dx, dy)| {
+        let id = world.get(x + dx, y + dy).organism_id();
+        if id == 0 || id == organism {
+            return None;
+        }
+        let st = world.organism(id)?;
+        (st.brood.is_none() && st.spoil.is_none() && creature::is_living_kin_id(world, id, gut)).then_some(id)
+    });
+    let Some(carrier) = carrier else {
+        return (x, y);
+    };
+    let here = world.get(x, y);
+    if here.material != material || here.organism_id() != organism {
+        return (x, y);
+    }
+    let frame = world.frame;
+    if pile_draw(organism, frame, 0) >= (BROOD_PILE_K1 / (BROOD_PILE_K1 + brood_share(world, (x, y), material, (x, y)))).powi(2) {
+        return (x, y);
+    }
+    let bar = EggBar::with(world, carrier, door);
+    let here_home = creature::home_at(world, x, y, def);
+    let floored = |w: &World, (px, py): (i32, i32)| {
+        w.in_bounds(px, py + 1) && matches!(w.materials.kind(w.get(px, py + 1).material), MaterialKind::Solid | MaterialKind::Powder | MaterialKind::Plant)
+    };
+    let passable = |w: &World, (px, py): (i32, i32)| {
+        let c = w.get(px, py);
+        w.in_bounds(px, py) && (w.is_empty(px, py) || c.material == material || w.materials.kind(c.material) == MaterialKind::Creature)
+    };
+    let (mut cx, mut cy) = (x, y);
+    let mut came = (x, y);
+    for step in 1..=reach as u64 {
+        let options: Vec<(i32, i32)> = creature::DIRS.iter().map(|&(dx, dy)| (cx + dx, cy + dy)).filter(|&p| p != came && p != (x, y) && passable(world, p)).collect();
+        if options.is_empty() {
+            break;
+        }
+        let pick = ((pile_draw(organism, frame, 2 * step) * options.len() as f32) as usize).min(options.len() - 1);
+        came = (cx, cy);
+        (cx, cy) = options[pick];
+        if !world.is_empty(cx, cy) || !floored(world, (cx, cy)) || bar.bars(world, (cx, cy)) || (here_home && !creature::home_at(world, cx, cy, def)) {
+            continue;
+        }
+        let f = brood_share(world, (cx, cy), material, (x, y));
+        if pile_draw(organism, frame, 2 * step + 1) < (f / (BROOD_PILE_K2 + f)).powi(2) {
+            world.set(cx, cy, here);
+            world.set(x, y, super::cell::Cell::EMPTY);
+            world.creature_stats.brood_carried += 1;
+            return (cx, cy);
+        }
+    }
+    (x, y)
+}
 
 /// **Brood carried to brood** ([`brood_carry_reach`]): at a brood item's
 /// tick, a grown nestmate touching it with free jaws moves it, if there is
@@ -897,6 +1027,11 @@ pub fn brood_tick(world: &mut World, site: &ActiveSite) -> Vec<ActiveSite> {
     // **Carried to brood** ([`carry`]) before its stage runs, so the stage
     // runs where it now lies. Off, one branch.
     let (x, y) = carry(world, organism, (x, y), material, &def, brood_carry_reach(), egg_door());
+    // **Or by the textbook pile rule** ([`carry_pile`], `BROOD_CARRY=pile`).
+    let (x, y) = match brood_carry_pile() {
+        Some(reach) if holder.is_none() => carry_pile(world, organism, (x, y), material, &def, reach, egg_door()),
+        _ => (x, y),
+    };
     // **Spread out of a crowded pile** ([`spread`]), likewise before the
     // stage runs. Brood a walker holds is not lying in its cell, so it stays.
     let (x, y) = if holder.is_none() { spread(world, organism, (x, y), material, &def, brood_spread(), egg_door()) } else { (x, y) };
@@ -2034,6 +2169,17 @@ mod tests {
         }
     }
 
+    /// The pile rule's draw repeats, stays in [0, 1) and is not lumpy:
+    /// the mean of 10,000 draws sits near a half.
+    #[test]
+    fn pile_draw_repeats_and_is_uniform_enough() {
+        assert_eq!(pile_draw(7, 100, 3), pile_draw(7, 100, 3));
+        let draws: Vec<f32> = (0..10_000u64).map(|i| pile_draw(1 + (i % 97) as OrganismId, i, i % 7)).collect();
+        assert!(draws.iter().all(|d| (0.0..1.0).contains(d)));
+        let mean = draws.iter().sum::<f32>() / draws.len() as f32;
+        assert!((mean - 0.5).abs() < 0.02, "mean {mean}");
+    }
+
     /// `PIXEL_PHYSICS_BROOD_CARRY`'s value.
     #[test]
     fn brood_carry_parses_off_on_and_a_reach() {
@@ -2041,6 +2187,12 @@ mod tests {
         assert_eq!(parse_brood_carry("off"), 0);
         assert_eq!(parse_brood_carry("on"), BROOD_CARRY_REACH);
         assert_eq!(parse_brood_carry("5"), 5);
+        assert_eq!(parse_brood_carry("pile"), 0, "pile is its own rule, not a reach for carry");
+        assert_eq!(parse_brood_carry_pile("pile"), Some(BROOD_PILE_REACH));
+        assert_eq!(parse_brood_carry_pile("pile:5"), Some(5));
+        assert_eq!(parse_brood_carry_pile("on"), None);
+        assert_eq!(parse_brood_carry_pile(""), None);
+        assert!(std::panic::catch_unwind(|| parse_brood_carry_pile("pile:x")).is_err());
         assert!(std::panic::catch_unwind(|| parse_brood_carry("yes")).is_err(), "a mistyped switch must not fail open");
     }
 

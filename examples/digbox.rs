@@ -5545,8 +5545,29 @@ impl SortNest {
             let max = v[..3].iter().copied().max().unwrap_or(0);
             if inside == 0 { 0.0 } else { max as f32 / inside as f32 }
         };
+        // Brood piles: 8-connected groups of brood cells, and the largest.
+        let (mut piles, mut biggest) = (0u32, 0u32);
+        let mut seen = std::collections::HashSet::new();
+        for y in 0..bx.h {
+            for x in 0..bx.w {
+                if kind(x, y) != Some(0) || !seen.insert((x, y)) {
+                    continue;
+                }
+                piles += 1;
+                let (mut stack, mut size) = (vec![(x, y)], 0u32);
+                while let Some((px, py)) = stack.pop() {
+                    size += 1;
+                    for (dx, dy) in [(1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (1, -1), (-1, 1), (-1, -1)] {
+                        if kind(px + dx, py + dy) == Some(0) && seen.insert((px + dx, py + dy)) {
+                            stack.push((px + dx, py + dy));
+                        }
+                    }
+                }
+                biggest = biggest.max(size);
+            }
+        }
         format!(
-            "SORT frame={f} brood A/B/C/way/out {}/{}/{}/{}/{} top {} ({:.2}) | food A/B/C/way/out {}/{}/{}/{}/{} top {} ({:.2}) | apart {} | mixing {:.3}",
+            "SORT frame={f} brood piles {piles} largest {biggest} | brood A/B/C/way/out {}/{}/{}/{}/{} top {} ({:.2}) | food A/B/C/way/out {}/{}/{}/{}/{} top {} ({:.2}) | apart {} | mixing {:.3}",
             by[0][0], by[0][1], by[0][2], by[0][3], by[0][4], top(&by[0]), share(&by[0]),
             by[1][0], by[1][1], by[1][2], by[1][3], by[1][4], top(&by[1]), share(&by[1]),
             if top(&by[0]) != "-" && top(&by[1]) != "-" && top(&by[0]) != top(&by[1]) { "yes" } else { "no" },
