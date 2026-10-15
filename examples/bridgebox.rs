@@ -66,6 +66,24 @@
 //!   in view -- a half scaled to the local top cancels the level of the one
 //!   mouth it can see.
 //!
+//! **Goss et al. 1989's unequal bridge, 2026-10-15** (`neck=10 long=40
+//! release=13 plane=own k=800 evap=0.0001 goal=5`, 40k frames, 8 seeds;
+//! `k=800` is Deneubourg's k = 20 passages at one deposit a step):
+//! - **Deneubourg's reader matches Goss.** Short branch over 80% on 4/8,
+//!   6/8, 6/8 and 7/8 seeds at 10, 30, 100 and 300 walkers (Goss: 11/14,
+//!   rising with colony size as Beekman et al. 2001 found). Short branch
+//!   added later (`opens=15000`): the walkers stay on the long one 8/8 at
+//!   every size (Goss: 16/18). Muted: 0.56-0.58 short, never chooses.
+//! - **The shipped reader (`reader=presence`) reads exactly as muted** on
+//!   both tests at 100 walkers (0.57-0.58), as does `fixed:20:2`. The
+//!   reader is the block, not traffic or the scene.
+//! - Three scene fixes came first, each found by a run that looked like a
+//!   result: walkers released all at once make every first choice blind
+//!   (`release=`); turning round at a mouth sends a walker back down its
+//!   own branch, so two locked groups read as a split (`neck=` puts both
+//!   branches beside one fork); a plug mid-branch made a dead end that
+//!   trapped walkers in its own scent (the plug is now at the branch ends).
+//!
 //! **The first engine-plane runs were the harness, not the plane**:
 //! `World::step_pheromones` gates on `world.frame`, which nothing here
 //! advances, so the planes took a pass every frame. The loop now steps them
@@ -77,7 +95,7 @@ use pixel_physics::sim::{Cell, Rect, World};
 
 const KEYS: &[&str] = &[
     "seed", "seeds", "frames", "walkers", "gap", "len", "k", "n", "dep", "goal", "mute", "plane", "evap", "diffuse",
-    "walls", "erho", "ediff", "wiring", "homeb", "gain", "depa", "depb", "brho", "bdiff", "reader", "png",
+    "walls", "erho", "ediff", "wiring", "homeb", "gain", "depa", "depb", "brho", "bdiff", "reader", "png", "long", "opens", "release", "turn", "neck",
 ];
 
 /// Refuse an argument this binary does not read, or one given twice: either
@@ -232,14 +250,43 @@ fn main() {
         GAIN.store(g.to_bits(), std::sync::atomic::Ordering::Relaxed);
     }
     let png: Option<String> = arg("png");
-    println!("bridgebox: reader={reader:?}");
+    // **Goss et al. 1989's unequal bridge.** `long=<rows>`: the lower tunnel
+    // dips `rows` rows down and back between a quarter and three quarters
+    // of the span, so it is `2 x rows` cells longer than the upper one
+    // (`long=40` at `len=80` is their r = 2). `opens=<frame>`: the upper
+    // (short) tunnel is shut with rock until that frame -- their "short
+    // branch added later", whose colonies stayed on the long one (16/18).
+    let long: i32 = arg("long").unwrap_or(0);
+    let opens: u64 = arg("opens").unwrap_or(0);
+    // `release=<frames>`: walkers leave the nest one every that many frames
+    // instead of all at once. Goss et al. 1989's model fed the bridge at
+    // 0.5 ant/s against a ~20 s crossing (about ten ants per crossing
+    // time), so the first returners' trail is there before most ants
+    // choose; a box that releases every walker at frame 0 makes all the
+    // first choices blind at once.
+    let release: u64 = arg("release").unwrap_or(0);
+    // `turn=<cells>`: how far into a chamber a walker goes before turning
+    // round (default 2, the mouth). Turning at the mouth sends a walker
+    // straight back into the tunnel it came out of, so walkers keep their
+    // own branch and two locked groups read as a "split" -- the forks never
+    // mix the colony as a nest and a food source do.
+    let turn: i32 = arg("turn").unwrap_or(2);
+    // `neck=<cells>`: each chamber reaches the tunnels through one tunnel
+    // of that length ending in a short shaft joining both, so a walker
+    // chooses at a fork with both branches beside it (Goss's and
+    // Deneubourg's bridges), not across a chamber where it sees one mouth.
+    let neck: i32 = arg("neck").unwrap_or(0);
+    let shape = Shape { long, opens, release, turn, neck };
+    println!("bridgebox: reader={reader:?} long={long} opens={opens} release={release} turn={turn} neck={neck}");
     println!("bridgebox: homeb={home_b} wiring={} depa={depa} depb={depb} brho={brho} bdiff={bdiff} gap={gap} len={len} walkers={n_walkers} k={k} n={n} goal={goal_w} dep={dep}xDEPOSIT mute={mute} plane={} erho={erho:?} ediff={ediff:?} evap={evap} diffuse={diffuse} walls={walls} frames={frames}", if game { "game" } else { "one-trail" }, if own { "own" } else { "engine" });
     let mut chose = 0;
     let mut decisive = 0.0;
     let mut counted = 0;
     let mut tally = Vec::new();
+    let mut whole_tally = Vec::new();
+    let mut majority = 0;
     for seed in &seeds {
-        let (share, crossed) = run(
+        let ((share, crossed), (whole, all)) = run(
             *seed,
             frames,
             n_walkers,
@@ -259,7 +306,12 @@ fn main() {
             game.then_some((depa, depb, brho, bdiff)),
             reader,
             png.as_deref(),
+            shape,
         );
+        if crossed > 0 && share > 0.5 {
+            majority += 1;
+        }
+        whole_tally.push(format!("{whole:.2}/{all}"));
         // A seed only chooses if it is still crossing: a jammed run's 0/0
         // read as a share of 0 and once passed for a choice.
         if crossed >= 100 && !(0.2..=0.8).contains(&share) {
@@ -272,6 +324,9 @@ fn main() {
         tally.push(format!("{share:.2}/{crossed}"));
     }
     println!("SUMMARY gap={gap} mute={mute}: upper share, last half, (share/crossings) per seed [{}]; chose one tunnel (>80%) on {chose} of {}; decisiveness mean|share-0.5| {:.3} over {counted} seeds with 100+ crossings", tally.join(" "), seeds.len(), decisive / counted.max(1) as f32);
+    if long > 0 || opens > 0 {
+        println!("SUMMARY long={long} opens={opens}: the upper tunnel is the short one; upper share over the whole run [{}]; upper (short) majority in the last half on {majority} of {}", whole_tally.join(" "), seeds.len());
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -295,13 +350,14 @@ fn run(
     game: Option<(f32, f32, f32, f32)>,
     reader: Reader,
     png: Option<&str>,
-) -> (f32, u64) {
+    shape: Shape,
+) -> ((f32, u64), (f32, u64)) {
     // Geometry: chamber | tunnels | chamber, all inside rock.
     let ch_w = 16;
     let tunnel_h = 2;
     let w = 4 + ch_w + len + ch_w + 4;
     let ch_h = gap + 2 * tunnel_h + 8;
-    let h = ch_h + 8;
+    let h = ch_h + 8 + shape.long;
     let mut world = World::new(Rect::new(0, 0, w - 1, h - 1));
     let stone = world.materials.id_of("stone").expect("stone");
     if let Some(r) = erho {
@@ -334,9 +390,44 @@ fn run(
     };
     carve(nest_x0, ch_y0, nest_x1, ch_y1);
     carve(food_x0, ch_y0, food_x1, ch_y1);
-    carve(nest_x1 + 1, up_y0, food_x0 - 1, up_y0 + tunnel_h - 1);
-    carve(nest_x1 + 1, lo_y0, food_x0 - 1, lo_y0 + tunnel_h - 1);
     let mid = (nest_x1 + food_x0) / 2;
+    // With a neck, the branches start at the fork shafts.
+    let (x_a, x_b) = (nest_x1 + 1 + shape.neck, food_x0 - 1 - shape.neck);
+    carve(x_a, up_y0, x_b, up_y0 + tunnel_h - 1);
+    if shape.neck > 0 {
+        let neck_y = (up_y0 + lo_y0) / 2;
+        for (x0, x1, shaft) in [(nest_x1 + 1, x_a, x_a), (x_b, food_x0 - 1, x_b - tunnel_h + 1)] {
+            carve(x0, neck_y, x1, neck_y + tunnel_h - 1);
+            carve(shaft, up_y0, shaft + tunnel_h - 1, lo_y0 + tunnel_h - 1);
+        }
+    }
+    if shape.long > 0 {
+        // Out along the lower row to a quarter of the span, down, along the
+        // bottom past the midpoint, and back up at three quarters.
+        let (a, b) = (nest_x1 + 1 + len / 4, nest_x1 + 1 + 3 * len / 4);
+        let bot = lo_y0 + shape.long;
+        carve(x_a, lo_y0, a + tunnel_h - 1, lo_y0 + tunnel_h - 1);
+        carve(a, lo_y0, a + tunnel_h - 1, bot + tunnel_h - 1);
+        carve(a, bot, b + tunnel_h - 1, bot + tunnel_h - 1);
+        carve(b, lo_y0, b + tunnel_h - 1, bot + tunnel_h - 1);
+        carve(b, lo_y0, x_b, lo_y0 + tunnel_h - 1);
+    } else {
+        carve(x_a, lo_y0, x_b, lo_y0 + tunnel_h - 1);
+    }
+    // The plug for `opens=`: rock across both ends of the short tunnel,
+    // so until it opens the branch is absent, as in Goss's design. A plug
+    // in the middle made it a dead end that held its own scent and
+    // trapped the walkers in it (second-half crossings 0-3 on most seeds).
+    let (p_a, p_b) = (x_a + tunnel_h, x_b - tunnel_h - 1);
+    let plug: Vec<(i32, i32)> = [p_a, p_a + 1, p_b, p_b + 1]
+        .into_iter()
+        .flat_map(|x| (up_y0..up_y0 + tunnel_h).map(move |y| (x, y)))
+        .collect();
+    if shape.opens > 0 {
+        for &(x, y) in &plug {
+            world.set(x, y, Cell::new(stone, 0).with_attached(true));
+        }
+    }
     let mut rng = Rng::new(seed.wrapping_mul(0x9E37_79B9_7F4A_7C15) ^ 0xb21d6e);
     let mut walkers: Vec<Walker> = (0..n_walkers)
         .map(|_| Walker {
@@ -355,7 +446,13 @@ fn run(
     let gi = |x: i32, y: i32| (y * w + x) as usize;
     let mut win = [0u64; 2];
     let mut late = [0u64; 2];
+    let mut whole = [0u64; 2];
     for f in 1..=frames {
+        if shape.opens > 0 && f == shape.opens {
+            for &(x, y) in &plug {
+                world.set(x, y, Cell::EMPTY);
+            }
+        }
         if own {
             let keep = 1.0 - evap;
             for v in grid.iter_mut() {
@@ -391,13 +488,16 @@ fn run(
             // was the first engine-plane result, and it was the harness.
             world.pheromones.step(f, PHEROMONE_INTERVAL);
         }
-        for wk in walkers.iter_mut() {
+        for (i, wk) in walkers.iter_mut().enumerate() {
+            if (i as u64) * shape.release >= f {
+                continue;
+            }
             let (x, y) = (wk.x, wk.y);
             // Turn round at either end.
-            if wk.to_food && x >= food_x0 + 2 {
+            if wk.to_food && x >= food_x0 + shape.turn {
                 wk.to_food = false;
                 wk.lane = None;
-            } else if !wk.to_food && x <= nest_x1 - 2 {
+            } else if !wk.to_food && x <= nest_x1 - shape.turn {
                 wk.to_food = true;
                 wk.lane = None;
             }
@@ -504,6 +604,7 @@ fn run(
                 let l = lane_of(wk.y);
                 wk.lane = Some(l);
                 win[l] += 1;
+                whole[l] += 1;
                 if f > frames / 2 {
                     late[l] += 1;
                 }
@@ -544,7 +645,20 @@ fn run(
             ))
             .expect("png");
     }
-    (late[0] as f32 / (late[0] + late[1]).max(1) as f32, late[0] + late[1])
+    (
+        (late[0] as f32 / (late[0] + late[1]).max(1) as f32, late[0] + late[1]),
+        (whole[0] as f32 / (whole[0] + whole[1]).max(1) as f32, whole[0] + whole[1]),
+    )
+}
+
+/// The bridge's shape beyond the equal pair: `long=` and `opens=`.
+#[derive(Clone, Copy)]
+struct Shape {
+    long: i32,
+    opens: u64,
+    release: u64,
+    turn: i32,
+    neck: i32,
 }
 
 fn draw(wd: &World, walkers: &[Walker], w: i32, h: i32, stone: pixel_physics::sim::MaterialId) -> image::RgbaImage {
