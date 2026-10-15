@@ -1643,6 +1643,15 @@ fn main() {
                     st.shaft_cut, st.shaft_tall, st.shaft_gap, st.shaft_space, st.shaft_random, st.shaft_escaped, st.shaft_top_let, st.shaft_floor, st.digs
                 );
             }
+            // `PIXEL_PHYSICS_DIG_COMPANY` (late tunnels, 2026-10-14): lone
+            // ants' home wall cuts refused, and let through by exemption.
+            if pixel_physics::sim::creature::dig_company_of().is_some() {
+                let st = &lab.world.creature_stats;
+                println!(
+                    "  dig_company: refused={} kept={} founding={} escaped={} shaft={}",
+                    st.company_refused, st.company_kept, st.company_founding, st.company_escaped, st.company_shaft
+                );
+            }
         }
     }
     ticks.flush().unwrap();
