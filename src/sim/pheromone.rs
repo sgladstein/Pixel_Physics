@@ -662,7 +662,7 @@ impl PheromonePlane {
     ///
     /// Skipped tiles are never copied between buffers. That *is* the sleep:
     /// a settled plane touches no memory at all beyond the tile scan.
-    fn step(&mut self) -> usize {
+    fn step(&mut self, walls: Option<&[bool]>) -> usize {
         let mut processed = 0;
         // Phase 1: compute into `back`, from `front` only.
         let mut new_max = self.tile_max.clone();
@@ -755,6 +755,36 @@ impl PheromonePlane {
                             let raised = neighbourhood.saturating_sub(fall).max(here);
                             let out = decayed(raised, self.decay_factor);
                             self.back[base + lx] = out;
+                            tile_peak = tile_peak.max(out);
+                        }
+                        continue;
+                    }
+                    // **Walls on** ([`scent_walls`]): a wall cell holds
+                    // nothing, and an open cell blends toward the mean of
+                    // its open neighbours only. A row of its own, like the
+                    // active-space path, so the shipped blend below runs
+                    // exactly the code it ran before.
+                    if let Some(walls) = walls {
+                        for lx in x0..x1 {
+                            let at = base + lx;
+                            if walls[at] {
+                                self.back[at] = 0;
+                                continue;
+                            }
+                            let (mut sum, mut n) = (0u32, 0u32);
+                            for row in [up, Some(base), down].into_iter().flatten() {
+                                for nx in lx.saturating_sub(1)..=(lx + 1).min(self.w - 1) {
+                                    if !walls[row + nx] {
+                                        sum += u32::from(self.front[row + nx]);
+                                        n += 1;
+                                    }
+                                }
+                            }
+                            let here = f32::from(self.front[at]);
+                            let mean = sum as f32 / n.max(1) as f32;
+                            let blended = (here + (mean - here) * self.diffuse).round().clamp(0.0, Scent::MAX as f32) as Scent;
+                            let out = decayed(blended, self.decay_factor);
+                            self.back[at] = out;
                             tile_peak = tile_peak.max(out);
                         }
                         continue;
@@ -879,6 +909,11 @@ pub struct Pheromones {
     /// plane for the reason `alarm_rho` is: the plane may not exist when the
     /// dial moves.
     alarm_spread: Spread,
+    /// **Which cells scent cannot enter** (`PIXEL_PHYSICS_SCENT_WALLS`), one
+    /// bool per plane cell, set by the world before each pass. `None` (the
+    /// shipped plane) blurs straight through rock and soil. See
+    /// [`scent_walls`].
+    walls: Option<Vec<bool>>,
     pub stats: PheromoneStats,
 }
 
@@ -993,6 +1028,7 @@ impl Pheromones {
             alarm_rho: ALARM_RHO,
             alarm_diffuse: DIFFUSE,
             alarm_spread: Spread::ActiveSpace { fall: ALARM_FALL },
+            walls: None,
             stats: PheromoneStats::default(),
         }
     }
@@ -1136,6 +1172,7 @@ impl Pheromones {
             alarm_rho: ALARM_RHO,
             alarm_diffuse: DIFFUSE,
             alarm_spread: Spread::ActiveSpace { fall: ALARM_FALL },
+            walls: None,
             stats: PheromoneStats::default(),
         }
     }
@@ -1239,16 +1276,56 @@ impl Pheromones {
             return;
         }
         self.stats.passes += 1;
+        let walls = self.walls.as_deref();
         for plane in &mut self.planes {
-            self.stats.tiles_processed += plane.step() as u64;
+            self.stats.tiles_processed += plane.step(walls) as u64;
         }
         // The alarm plane pays its pass only once it exists, and it sleeps by
         // tile exactly as the other two do -- so a world that had one fight
         // an hour ago is back to two planes' worth of work, not three.
         if let Some(alarm) = &mut self.alarm {
-            self.stats.tiles_processed += alarm.step() as u64;
+            self.stats.tiles_processed += alarm.step(walls) as u64;
         }
     }
+
+    /// The plane's bounds, for a caller building a [`set_walls`](Self::set_walls) mask.
+    pub fn bounds(&self) -> Rect {
+        self.bounds
+    }
+
+    /// Set (or clear) the cells scent cannot enter, row-major over
+    /// [`bounds`](Self::bounds). A cell marked is emptied and neither gives
+    /// nor takes in the blend.
+    pub fn set_walls(&mut self, walls: Option<Vec<bool>>) {
+        if let Some(m) = &walls {
+            assert_eq!(m.len(), self.planes[0].w * self.planes[0].h, "a walls mask covers the whole plane");
+        }
+        self.walls = walls;
+    }
+}
+
+/// **`PIXEL_PHYSICS_SCENT_WALLS=on`: scent does not diffuse through rock or
+/// soil.** Off (unset) the blend is a 3x3 mean over the plane with no notion
+/// of what the cells are, so a trail laid in a tunnel leaks into the stone
+/// around it and out the other side.
+///
+/// **Why** (2026-10-15, the double bridge, `trailfollow bridge=6
+/// bridgeshape=y bridgebrush=0`, seed 1, `gifoverlay=b`): with two one-cell
+/// tunnels twelve rows apart, the food trail filled the stone between them
+/// and reached each branch from the other through the rock, so the two
+/// branches' scents were not independent at the fork. A trail pheromone is
+/// a volatile laid on a surface and carried by the air in the passage
+/// (Bossert & Wilson 1963's active-space model, not checked here); it does
+/// not pass through stone. On, a marked cell is emptied and the blend at an
+/// open cell averages only its open neighbours (no flux into a wall).
+///
+/// **Cost, not yet priced**: the world rebuilds the whole mask every pass
+/// ([`crate::sim::world::World::step_pheromones`]), which is fine for a
+/// test box and not for 8192x2560; a shipped form would update it from the
+/// chunks that changed.
+pub fn scent_walls() -> bool {
+    static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *V.get_or_init(|| std::env::var("PIXEL_PHYSICS_SCENT_WALLS").as_deref() == Ok("on"))
 }
 
 #[cfg(test)]
@@ -1773,6 +1850,33 @@ mod tests {
         // above was comparing two columns of zeroes.
         assert!(l.sample(Channel::A, 65, 100) > 0, "the line at x=63 never spread past the seam at x=64 -- the symmetry check above was vacuous");
         assert!(r.sample(Channel::A, 62, 100) > 0, "the line at x=64 never spread back past the seam");
+    }
+
+    /// **`set_walls`: scent laid on one side of a wall never reaches the
+    /// other, and without the mask it does** -- the positive control, so the
+    /// first half cannot pass on a plane that simply never spreads. A wall
+    /// column at x = 8 through a 16x8 plane, a deposit at (4, 4) re-laid every
+    /// pass for 60 passes.
+    #[test]
+    fn scent_walls_stop_the_blend_at_a_wall_and_only_there() {
+        let bounds = Rect::new(0, 0, 15, 7);
+        let run = |walls: bool| {
+            let mut p = Pheromones::new(bounds);
+            if walls {
+                p.set_walls(Some((0..16 * 8).map(|i| i % 16 == 8).collect()));
+            }
+            for f in 0..60 {
+                p.deposit(Channel::A, 4, 4, Scent::MAX / 4);
+                p.step(f, 1);
+            }
+            ((9..16).map(|x| (0..8).map(|y| u32::from(p.sample(Channel::A, x, y))).sum::<u32>()).sum::<u32>(), p.sample(Channel::A, 7, 4), p.sample(Channel::A, 8, 4))
+        };
+        let (beyond_open, near_open, _) = run(false);
+        let (beyond_walled, near_walled, in_wall) = run(true);
+        assert!(beyond_open > 0, "the control: with no walls the scent must cross x = 8 (got {beyond_open})");
+        assert_eq!(beyond_walled, 0, "scent crossed the wall");
+        assert_eq!(in_wall, 0, "a wall cell held scent");
+        assert!(near_walled > 0 && near_open > 0, "scent must still spread up to the wall ({near_walled}, {near_open})");
     }
 
     #[test]

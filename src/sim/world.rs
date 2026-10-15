@@ -7449,7 +7449,29 @@ impl World {
     /// the interval exists.
     pub fn step_pheromones(&mut self) {
         let interval = self.clock.creature_interval(crate::sim::pheromone::PHEROMONE_INTERVAL);
+        // `PIXEL_PHYSICS_SCENT_WALLS=on`: rock and soil stop the blend
+        // (`pheromone::scent_walls`). Rebuilt whole, and only on a pass frame;
+        // the cost is the switch's open question.
+        if crate::sim::pheromone::scent_walls() && self.frame.is_multiple_of(interval.max(1)) {
+            self.rebuild_scent_walls();
+        }
         self.pheromones.step(self.frame, interval);
+    }
+
+    /// The cells scent cannot pass, for `PIXEL_PHYSICS_SCENT_WALLS`: solids
+    /// and powders (soil, sand), the same kinds a trail cannot lie in
+    /// (`creature::trail_could_be_here`). Public so a harness that steps the
+    /// planes itself can apply the same rule.
+    pub fn rebuild_scent_walls(&mut self) {
+        let b = self.pheromones.bounds();
+        let mut mask = Vec::with_capacity((b.width() * b.height()) as usize);
+        for y in b.min_y..=b.max_y {
+            for x in b.min_x..=b.max_x {
+                let kind = self.materials.kind(self.get(x, y).material);
+                mask.push(matches!(kind, MaterialKind::Solid | MaterialKind::Powder));
+            }
+        }
+        self.pheromones.set_walls(Some(mask));
     }
 
     /// Add to a pheromone channel at `(x, y)`. Out-of-world deposits are

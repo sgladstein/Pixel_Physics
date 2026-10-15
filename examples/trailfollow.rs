@@ -1649,9 +1649,21 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
             // used evenly) rather than the trail.
             let r: i32 = arg("bridgebrush").unwrap_or(1);
             assert!(sep >= 2 * r + 3, "bridge={sep}: the branches must clear each other at bridgebrush={r}");
-            // The mouths' floor is the ground's.
-            let gy = ground - 1 - r;
-            let mut brush = |cx: i32, cy: i32| {
+            // **`bridgeneck=<k>`: one-cell mouths and the first `k` cells of
+            // each branch, then the full brush.** A wide mouth's floor runs
+            // straight on into the descending branch, so an ant walking the
+            // floor takes it without choosing (muted upper share 0.04-0.41
+            // at `bridgebrush=1`); a one-cell fork is fair (0.46-0.59), but
+            // a one-cell branch is shut by a single corpse, which settles in
+            // the lower branch's valley and not on the upper's crest (seed
+            // 1: a corpse in the lower branch at 25k and 30k, its traffic
+            // 102 -> 10 crossings, 2026-10-15). Narrow at the forks, wide
+            // where things settle. The mouths' floor is the ground's either
+            // way.
+            let neck: Option<i32> = arg("bridgeneck");
+            let gy = if neck.is_some() { ground - 1 } else { ground - 1 - r };
+            let reach = |k: i32| if neck.is_some_and(|n| k < n) { 0 } else { r };
+            let mut brush = |cx: i32, cy: i32, r: i32| {
                 for dy in -r..=r {
                     for dx in -r..=r {
                         open.insert((cx + dx, cy + dy));
@@ -1659,18 +1671,18 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
                 }
             };
             for x in x0..=x0 + MOUTH {
-                brush(x, gy);
+                brush(x, gy, reach(-1));
             }
             for x in x1 - MOUTH..=x1 {
-                brush(x, gy);
+                brush(x, gy, reach(-1));
             }
             for side in [-1, 1] {
                 for k in 0..=sep {
-                    brush(x0 + MOUTH + k, gy + side * k);
-                    brush(x1 - MOUTH - k, gy + side * k);
+                    brush(x0 + MOUTH + k, gy + side * k, reach(k));
+                    brush(x1 - MOUTH - k, gy + side * k, reach(k));
                 }
                 for x in x0 + MOUTH + sep..=x1 - MOUTH - sep {
-                    brush(x, gy + side * sep);
+                    brush(x, gy + side * sep, r);
                 }
             }
             for x in x0..=x1 {
@@ -1758,9 +1770,12 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
             .into_iter()
             .filter(|c| !keep.contains(c) && !(mouth_rows.contains(&c.1) && (c.0 <= x0 + MOUTH + r || c.0 >= x1 - MOUTH - r)))
             .collect();
+        // The brush at full reach everywhere, so under `bridgeneck=` some of
+        // these cells were never cut; only the open ones are filled.
+        cells.retain(|&(x, y)| w.get(x, y).is_empty());
         cells.sort_unstable();
+        assert!(cells.len() as i32 >= 2 * sep, "bridgeclose: only {} open cells in the {lane} branch", cells.len());
         for &(x, y) in &cells {
-            assert!(w.get(x, y).is_empty(), "bridgeclose: ({x}, {y}) is not inside the {lane} branch");
             w.set(x, y, Cell::new(stone, 0).with_attached(true));
         }
         (cells, at)
@@ -3088,6 +3103,28 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
             for &(x, y) in cells {
                 w.set(x, y, Cell::EMPTY);
             }
+        }
+        // **What lies in each branch of a y bridge**, eight times a run: every
+        // non-stone, non-empty cell inside the wall, by branch, material and
+        // whether it is part of an animal. A one-cell tunnel is closed by one
+        // crumb or one body, so a branch losing its traffic is first asked
+        // whether something is in the way.
+        if let (Some((mid_x, _, upper)), true) = (bridge, f % (frames / 8).max(1) == 0 && arg_str("bridgeshape").as_deref() == Some("y")) {
+            let (r, sep, bw): (i32, i32, i32) = (arg("bridgebrush").unwrap_or(1), arg("bridge").unwrap(), arg("bridgew").unwrap_or(16));
+            let gy = upper - r - 1 + sep;
+            let stone = w.materials.id_of("stone").expect("stone");
+            let mut seen: std::collections::BTreeMap<(char, String), u32> = std::collections::BTreeMap::new();
+            for x in mid_x - bw / 2..mid_x - bw / 2 + bw {
+                for y in gy - sep - r - 1..=gy + sep + r + 1 {
+                    let c = w.get(x, y);
+                    if c.is_empty() || c.material == stone || y == gy {
+                        continue;
+                    }
+                    let what = format!("{}{}", w.materials.get(c.material).name, if c.organism_id() != 0 { "(animal)" } else { "" });
+                    *seen.entry((if y < gy { 'U' } else { 'L' }, what)).or_default() += 1;
+                }
+            }
+            println!("  BRIDGE seed {seed} frame {f}: in the branches {:?}", seen);
         }
         if let Some(mode) = needs_mode.filter(|_| f == needs_at) {
             let mut walk = pixel_physics::sim::creature::needs::NeedsWalk::new(mode, w.frame);
