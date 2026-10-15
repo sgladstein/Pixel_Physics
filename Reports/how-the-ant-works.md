@@ -1662,7 +1662,12 @@ Read once per process from the environment. The default is what ships.
   move roll and the walk for its species; the brain still runs and is
   paid for. Its cut and put-down are `act`'s own mechanics, split out as
   `cut_cell` and `place_pellet` and shared by `act` and the needs walk,
-  bit-exact for both.
+  bit-exact for both. Its rules are Khuong et al. 2016's (deposit near a
+  fresh deposit, pick-up falling with the pellets round, a body-length cap
+  template); it picks any loose pellet round the head and counts only
+  building material as its `n`. Caps need `PIXEL_PHYSICS_SPOIL_CORBEL=on`
+  (`update.rs`, off): one cell of overhang for a `needs_footing` cell held
+  from the side.
 
 ## 14. Source comments that currently contradict the code
 

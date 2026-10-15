@@ -55,8 +55,34 @@ use pixel_physics::sim::{Cell, MaterialId, Rect, World};
 /// Every key this binary reads. An unknown or repeated key panics rather
 /// than silently running another arm (a typo once ran the wrong one).
 const KEYS: &[&str] = &[
-    "seed", "seeds", "frames", "every", "walkers", "width", "height", "build", "source", "tau", "physics", "rework",
-    "pick", "p0", "K", "sites", "png", "gif", "gifevery", "ants", "pmove", "turn", "halflife",
+    "seed",
+    "seeds",
+    "frames",
+    "every",
+    "walkers",
+    "width",
+    "height",
+    "build",
+    "source",
+    "tau",
+    "physics",
+    "rework",
+    "pick",
+    "p0",
+    "K",
+    "sites",
+    "png",
+    "gif",
+    "gifevery",
+    "ants",
+    "pmove",
+    "turn",
+    "halflife",
+    "dt",
+    "layer",
+    "lid",
+    "nrock",
+    "pickbelow",
 ];
 
 fn check_args() {
@@ -202,10 +228,20 @@ fn run(
         Some(v) => panic!("pillarbox: sites={v}: want any or game"),
     };
     let wall = WALL;
+    // **`layer=` rows of source over a stone base** (default 10, the level-1
+    // floor). Khuong's layer was 2-3 mm of sand-clay over plaster, "not high
+    // enough for allowing the ants to dig tunnels": about one cell here, so
+    // the ants build from a fixed stock rather than an endless bed.
+    let layer: i32 = arg("layer").unwrap_or(10);
+    // **`lid=0` leaves the box open above** (default 1, the stone lid). The
+    // game ant walks ceilings; a laden ant on the lid has no footed site and
+    // no pellet to pick, so it is a carrier out of play for as long as it
+    // stays there -- the bare model (scratchpad k2d) stalled the same way.
+    let lid = arg::<u32>("lid").unwrap_or(1) != 0;
     let floor_top = h - wall - 10;
     for y in 0..h {
         for x in 0..w {
-            if x < wall || y < wall || x >= w - wall || y >= h - wall {
+            if x < wall || (y < wall && lid) || x >= w - wall || y >= h - wall || (y >= floor_top + layer) {
                 world.set(x, y, Cell::new(stone, 0));
             } else if y >= floor_top {
                 world.set(x, y, Cell::new(soil, 0));
@@ -240,7 +276,7 @@ fn run(
             });
         }
     }
-    let ants = plant_ants(&mut world, floor_top, w, soil, tau, pick, p0, k, seed);
+    let ants = plant_ants(&mut world, floor_top, w, soil, tau, seed);
     let mut shots = Vec::new();
     let (mut picks, mut drops) = (0u64, 0u64);
     for f in 0..=frames {
@@ -397,8 +433,9 @@ fn run(
                 c.tallest,
                 walkers.iter().filter(|w| w.laden).count()
             );
+            println!("  {}", khuong_line(&world, built, floor_top, layer, w));
             if ants > 0 {
-                println!("  {}", ant_line(&world));
+                println!("  {}", ant_line(&world, w));
             }
             if let Some(dir) = png {
                 let _ = std::fs::create_dir_all(dir);
@@ -545,25 +582,17 @@ fn draw(
 /// fixed demography, review F2). Half the ant's idle endowment is ~6,000.
 const FEED_EVERY: u64 = 500;
 
-/// **Real ants on the floor, deciding by the textbook rules.** Spread along
-/// the floor's top as one colony; births paused and the age half-life set
-/// by `halflife=` (default 10,000,000 frames: nobody ages out of the run),
-/// fed every [`FEED_EVERY`]. The textbook ant takes the walkers' own
-/// parameters (`pick`, `p0`, `K`, `tau`) per decision, and `pmove=` (1.0)
-/// and `turn=` (0.125, the walkers' one in eight). Returns the number
+/// **Real ants on the floor, deciding by the textbook rules** (Khuong et
+/// al. 2016's fitted model, `creature::textbook`). Spread along the floor's
+/// top as one colony; births paused and the age half-life set by
+/// `halflife=` (default 10,000,000 frames: nobody ages out of the run), fed
+/// every [`FEED_EVERY`]. `tau=` is the pheromone lifetime in frames (the
+/// paper's 20 min is 1,800 at `dt=` 4 s a decision); the walkers' `pick`,
+/// `p0` and `K` are not read by the ants. **The floor's top row is marked
+/// fresh at frame 0**, the harness's bootstrap (ours, not the paper's): with
+/// no deposit anywhere Eq. 1 never puts a pellet down. Returns the number
 /// placed.
-#[allow(clippy::too_many_arguments)]
-fn plant_ants(
-    world: &mut World,
-    floor_top: i32,
-    w: i32,
-    soil: MaterialId,
-    tau: f32,
-    pick: f32,
-    p0: f32,
-    k: f32,
-    seed: u64,
-) -> usize {
+fn plant_ants(world: &mut World, floor_top: i32, w: i32, soil: MaterialId, tau: f32, seed: u64) -> usize {
     use pixel_physics::sim::creature::{self, textbook};
     let n: usize = arg("ants").unwrap_or(0);
     if n == 0 {
@@ -591,18 +620,127 @@ fn plant_ants(
             placed += 1;
         }
     }
+    for x in WALL..w - WALL {
+        world.build_marks.insert((x, floor_top), world.frame);
+    }
     let cfg = textbook::TextbookCfg {
         p_move: arg("pmove").unwrap_or(1.0),
         turn: arg("turn").unwrap_or(0.125),
-        pick,
-        p0,
-        k,
+        dt: arg("dt").unwrap_or(4.0),
+        drop_base: 0.025,
+        drop_per: 0.11,
+        pick: 0.029,
         tau,
+        template: 2.0,
         source: soil,
+        n_rock: arg::<u32>("nrock").unwrap_or(0) != 0,
+        pick_around: arg::<u32>("pickbelow").unwrap_or(0) == 0,
     };
-    println!("  ants: {placed} of {n} placed, textbook {cfg:?}, births paused, fed every {FEED_EVERY}");
+    println!(
+        "  ants: {placed} of {n} placed, textbook {cfg:?}, SPOIL_CORBEL {}, births paused, fed every {FEED_EVERY}",
+        std::env::var("PIXEL_PHYSICS_SPOIL_CORBEL").unwrap_or_else(|_| "off".into())
+    );
     world.textbook = Some(Box::new(textbook::Textbook::new(id, cfg)));
     placed
+}
+
+/// **What Khuong et al. 2016 measured, on our side view.** A pillar is a
+/// run of columns whose ground stands at least `PILLAR_H` cells (one body
+/// length) above the original floor in one piece from the stone base, at least
+/// two columns (a body) wide -- the paper's 3 mm and 14 mm² thresholds at
+/// two cells a body. Printed: pillars, their mean width and height in body
+/// lengths, the nearest-neighbour spacing between pillar centres (mean,
+/// sd and CV; the paper's is 9.9 +- 0.7 mm, 2.4 body lengths, CV 0.07),
+/// overhang cells (built soil with open space or an animal beneath: caps
+/// and arches), and roofed cells (open cells above the floor with built
+/// soil somewhere above them before the sky: rooms).
+fn khuong_line(wd: &World, built: MaterialId, floor_top: i32, layer: i32, w: i32) -> String {
+    const PILLAR_H: i32 = 2;
+    let solid = |x: i32, y: i32| {
+        let c = wd.get(x, y);
+        c.material != pixel_physics::sim::material::EMPTY && c.organism_id() == 0
+    };
+    let height: Vec<i32> = (0..w)
+        .map(|x| {
+            if x <= WALL || x >= w - WALL - 1 {
+                return 0;
+            }
+            // Solid ground stacked on the stone base, less the layer's own
+            // depth: how far this column stands above the original floor.
+            let base = floor_top + layer - 1;
+            (0..base).take_while(|&d| solid(x, base - d)).count() as i32 - layer
+        })
+        .collect();
+    let mut pillars: Vec<(f32, i32, i32)> = Vec::new();
+    let mut x = 0;
+    while x < w {
+        if height[x as usize] >= PILLAR_H {
+            let x0 = x;
+            let mut top = 0;
+            while x < w && height[x as usize] >= PILLAR_H {
+                top = top.max(height[x as usize]);
+                x += 1;
+            }
+            let width = x - x0;
+            if width >= 2 {
+                pillars.push(((x0 + x - 1) as f32 / 2.0, width, top));
+            }
+        } else {
+            x += 1;
+        }
+    }
+    let nn: Vec<f32> = pillars
+        .iter()
+        .enumerate()
+        .map(|(i, p)| {
+            pillars
+                .iter()
+                .enumerate()
+                .filter(|&(j, _)| j != i)
+                .map(|(_, q)| (q.0 - p.0).abs())
+                .fold(f32::INFINITY, f32::min)
+        })
+        .filter(|d| d.is_finite())
+        .collect();
+    let mean = |v: &[f32]| {
+        if v.is_empty() {
+            0.0
+        } else {
+            v.iter().sum::<f32>() / v.len() as f32
+        }
+    };
+    let m = mean(&nn);
+    let sd = if nn.len() > 1 {
+        (nn.iter().map(|d| (d - m).powi(2)).sum::<f32>() / (nn.len() - 1) as f32).sqrt()
+    } else {
+        0.0
+    };
+    let (mut overhang, mut roofed) = (0, 0);
+    for x in WALL + 1..w - WALL - 1 {
+        let mut covered = false;
+        for y in WALL + 1..floor_top {
+            let c = wd.get(x, y);
+            if c.material == built && !solid(x, y + 1) {
+                overhang += 1;
+            }
+            if c.material == built {
+                covered = true;
+            } else if covered && !solid(x, y) {
+                roofed += 1;
+            }
+        }
+    }
+    let body = 2.0;
+    format!(
+        "KHUONG pillars {} | width {:.1} body | height {:.1} body (tallest {:.1}) | spacing {:.1} body sd {:.1} CV {:.2} | overhang cells {overhang} | roofed open cells {roofed}",
+        pillars.len(),
+        mean(&pillars.iter().map(|p| p.1 as f32).collect::<Vec<_>>()) / body,
+        mean(&pillars.iter().map(|p| p.2 as f32).collect::<Vec<_>>()) / body,
+        pillars.iter().map(|p| p.2).max().unwrap_or(0) as f32 / body,
+        m / body,
+        sd / body,
+        if m > 0.0 { sd / m } else { 0.0 },
+    )
 }
 
 /// Every ant topped up to its start energy, the grant booked so the ledger
@@ -625,8 +763,9 @@ fn feed(world: &mut World) {
 }
 
 /// The ants' census line: alive, laden, and what the rules did.
-fn ant_line(world: &World) -> String {
+fn ant_line(world: &World, w: i32) -> String {
     let (mut alive, mut laden) = (0, 0);
+    let (mut place, mut place_laden) = ([0usize; 3], [0usize; 3]);
     for id in world.live_organism_ids() {
         let Some(st) = world.organism(id) else { continue };
         if world.species.get(st.species).creature.is_none() {
@@ -634,10 +773,28 @@ fn ant_line(world: &World) -> String {
         }
         alive += 1;
         laden += usize::from(st.spoil.is_some());
+        // where the head is: up on the lid, on a side wall, or down among the work
+        if let Some(&(x, y)) = st.chain.first() {
+            let k = if y <= WALL + 1 {
+                0
+            } else if x <= WALL + 1 || x >= w - WALL - 2 {
+                1
+            } else {
+                2
+            };
+            place[k] += 1;
+            if st.spoil.is_some() {
+                place_laden[k] += 1;
+            }
+        }
     }
+    let where_ = format!(
+        "lid {} ({} laden), walls {} ({}), floor+work {} ({})",
+        place[0], place_laden[0], place[1], place_laden[1], place[2], place_laden[2]
+    );
     let c = world.textbook.as_ref().map(|t| t.counts).unwrap_or_default();
     format!(
-        "ANTS alive {alive} laden {laden} | decisions {} steps {} stuck {} | picks {} | put-down rolls {} won {} (mean mark {:.2}) no site {}",
+        "ANTS alive {alive} laden {laden} (where: {where_}) | decisions {} steps {} stuck {} | picks {} | put-down rolls {} won {} (mean pheromone {:.2}) no site {} | side rolls {} won {}",
         c.decisions,
         c.steps,
         c.stuck,
@@ -645,6 +802,9 @@ fn ant_line(world: &World) -> String {
         c.rolls,
         c.drops,
         if c.rolls > 0 { c.mark_sum / c.rolls as f64 } else { 0.0 },
-        c.no_site
+        c.no_site,
+        c.side_rolls,
+        c.side_drops,
+        where_ = where_
     )
 }
