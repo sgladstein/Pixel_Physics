@@ -36,6 +36,18 @@
 //!   1,3,6 / 0,4,8: 0 in the paper's band, ratios ~1); with a flat `pick=`
 //!   nothing clusters at all.
 //!
+//! - `body=1,2,3` (owner's card "Bigger brood", 2026-10-15): small,
+//!   medium and large are 1x1, 2x2 and 3x3 cells, top-down only, scored
+//!   per item. With Don & Amos's own penalty form (`penm=0.4`: room 0.4 x
+//!   width, edge to edge) and reach `bonusm=5` x width, 16 seeds at 200k:
+//!   **one cluster of rings on nearly every seed (largest 0.67-1.00) and
+//!   the order right on 16 of 16**, but spread ~1.3x the paper's (medium
+//!   1.28-3.27, large 2.05-4.92), so 5/16 in the band; random carrying
+//!   0/16 (largest cluster 0.11-0.25). Reach 4 (the paper's): 1/16, half
+//!   the seeds without order; `penm` 0.6 or 0.8: no cluster. The old
+//!   `room=` x (width - 1) form at reach 6: 5/16, small items packed
+//!   solid and rings further out still.
+//!
 //! **The bar is the paper's** (2026-10-15, after the owner read a "13/16"
 //! picture with medium mixed into small and large strung along the floor):
 //! the ratios inside the published span with headroom, medium 1.2-2.0 and
@@ -87,7 +99,7 @@ use pixel_physics::sim::{Cell, MaterialId, Rect, World};
 
 const KEYS: &[&str] = &[
     "seed", "seeds", "frames", "every", "walkers", "width", "height", "rule", "medium", "items", "k1", "k2", "png", "scale", "join", "bonusm", "scatter", "along",
-    "pull", "pick",
+    "pull", "pick", "body", "room", "penm",
 ];
 
 fn check_args() {
@@ -255,9 +267,41 @@ fn run(seed: u64, rule: Rule, medium: &str, frames: u64, every: u64, n_walkers: 
     }
     let mut rng = Rng::new(seed.wrapping_mul(0x9E37_79B9_7F4A_7C15) ^ 0xb00d);
     let open = |wd: &World, x: i32, y: i32| wd.in_bounds(x, y) && wd.is_empty(x, y);
+    // **`body=a,b,c`: brood that takes up room** (owner, 2026-10-15, card
+    // "Bigger brood"). Each size is a square `a`/`b`/`c` cells on a side
+    // (`1,2,3`: area 1, 4, 9). Franks's whole reading of the rings is space
+    // per item; with every item one cell the room a size needs rounds to
+    // whole cells, and the room rule managed 3/16 at best. Top-down only
+    // (`medium=flat`): a body in the game's physics would fall apart.
+    let body: [i32; 3] = arg::<String>("body").map_or([1, 1, 1], |v| {
+        let p: Vec<i32> = v.split(',').map(|x| x.parse().expect("body=a,b,c")).collect();
+        [p[0], p[1], p[2]]
+    });
+    let bodies = body != [1, 1, 1];
+    let mut owner = vec![usize::MAX; (w * h) as usize];
+    let mut things: Vec<Option<(i32, i32, u8)>> = Vec::new();
+    if bodies {
+        assert!(flat && arg::<u64>("scatter").is_none(), "body= is top-down (medium=flat) and has no scatter");
+        assert!(matches!(rule, Rule::Room | Rule::Off), "body= runs room or off");
+        for size in 0..3u8 {
+            let mut placed = 0;
+            while placed < n_items {
+                let (x, y) = (2 + rng.below((w - 4) as u32) as i32, 2 + rng.below((h - 4) as u32) as i32);
+                let fp = footprint(body, x, y, size);
+                if fp.iter().all(|&(a, b)| open(&world, a, b)) {
+                    for &(a, b) in &fp {
+                        world.set(a, b, Cell::new(brood, size));
+                        owner[(b * w + a) as usize] = things.len();
+                    }
+                    things.push(Some((x, y, size)));
+                    placed += 1;
+                }
+            }
+        }
+    }
     for size in 0..3u8 {
         let mut placed = 0;
-        while placed < n_items {
+        while placed < n_items && !bodies {
             let (x, y) = (2 + rng.below((w - 4) as u32) as i32, 2 + rng.below((h - 4) as u32) as i32);
             if open(&world, x, y) {
                 world.set(x, y, Cell::new(brood, size));
@@ -344,7 +388,85 @@ fn run(seed: u64, rule: Rule, medium: &str, frames: u64, every: u64, n_walkers: 
                     .split(',')
                     .map(|v| v.parse().expect("pull=a,b,c"))
                     .collect();
-                if rule == Rule::Pullback && walkers[i].wait == 0 {
+                if bodies && walkers[i].wait == 0 {
+                    let chance_of = |owner: &[usize], things: &[Option<(i32, i32, u8)>], fp: &[(i32, i32)], s: u8, skip: usize, drop: bool| -> f32 {
+                        if rule == Rule::Off {
+                            return 0.1;
+                        }
+                        let sc = body_score(owner, things, w, h, body, fp, s, skip);
+                        if drop {
+                            sc
+                        } else {
+                            1.0 - sc
+                        }
+                    };
+                    match walkers[i].held {
+                        None => {
+                            let mut cands: Vec<usize> = DIRS
+                                .iter()
+                                .filter(|&&(dx, dy)| world.in_bounds(x + dx, y + dy))
+                                .map(|&(dx, dy)| owner[((y + dy) * w + x + dx) as usize])
+                                .filter(|&j| j != usize::MAX)
+                                .collect();
+                            cands.sort_unstable();
+                            cands.dedup();
+                            if !cands.is_empty() {
+                                let j = cands[rng.below(cands.len() as u32) as usize];
+                                let (ax, ay, sz) = things[j].expect("an owned cell's item is on the board");
+                                let fp = footprint(body, ax, ay, sz);
+                                if rng.unit_f32() < chance_of(&owner, &things, &fp, sz, j, false) {
+                                    for &(a, b) in &fp {
+                                        world.set(a, b, Cell::EMPTY);
+                                        owner[(b * w + a) as usize] = usize::MAX;
+                                    }
+                                    things[j] = None;
+                                    walkers[i].held = Some(sz);
+                                    walkers[i].wait = DELAY;
+                                    picks += 1;
+                                }
+                            }
+                        }
+                        Some(sz) => {
+                            // Any placement of the body that covers a cell
+                            // beside the walker, every cell of it open.
+                            let b = body[usize::from(sz)];
+                            let mut anchors: Vec<(i32, i32)> = Vec::new();
+                            for &(dx, dy) in &DIRS {
+                                for oy in 0..b {
+                                    for ox in 0..b {
+                                        let (ax, ay) = (x + dx - ox, y + dy - oy);
+                                        let fp = footprint(body, ax, ay, sz);
+                                        if fp.iter().all(|&(a, c)| open(&world, a, c) && !walkers.iter().any(|o| (o.x, o.y) == (a, c))) {
+                                            anchors.push((ax, ay));
+                                        }
+                                    }
+                                }
+                            }
+                            anchors.sort_unstable();
+                            anchors.dedup();
+                            if !anchors.is_empty() {
+                                let (ax, ay) = anchors[rng.below(anchors.len() as u32) as usize];
+                                let fp = footprint(body, ax, ay, sz);
+                                if rng.unit_f32() < chance_of(&owner, &things, &fp, sz, usize::MAX, true) {
+                                    let id = things.iter().position(Option::is_none).unwrap_or(things.len());
+                                    if id == things.len() {
+                                        things.push(None);
+                                    }
+                                    for &(a, c) in &fp {
+                                        world.set(a, c, Cell::new(brood, sz));
+                                        owner[(c * w + a) as usize] = id;
+                                    }
+                                    things[id] = Some((ax, ay, sz));
+                                    walkers[i].held = None;
+                                    walkers[i].wait = DELAY;
+                                    drops += 1;
+                                }
+                            }
+                        }
+                    }
+                } else if bodies {
+                    walkers[i].wait -= 1;
+                } else if rule == Rule::Pullback && walkers[i].wait == 0 {
                     let touching = DIRS.iter().any(|&(dx, dy)| size_at(&world, brood, x + dx, y + dy).is_some());
                     let spots: Vec<(i32, i32)> = DIRS
                         .iter()
@@ -474,7 +596,15 @@ fn run(seed: u64, rule: Rule, medium: &str, frames: u64, every: u64, n_walkers: 
         }
         if f % every == 0 {
             let held = walkers.iter().filter(|w| w.held.is_some()).count();
-            result = score(&world, brood, n_items, seed, f, held, picks, drops);
+            let pts: Vec<(f32, f32, u8, i32)> = things
+                .iter()
+                .flatten()
+                .map(|&(ax, ay, sz)| {
+                    let b = body[usize::from(sz)];
+                    (ax as f32 + (b - 1) as f32 / 2.0, ay as f32 + (b - 1) as f32 / 2.0, sz, b)
+                })
+                .collect();
+            result = score(&world, brood, bodies.then_some(&pts[..]), n_items, seed, f, held, picks, drops);
             if result.0 {
                 match scatter {
                     Some(sc) if f > sc => reformed = reformed.or(Some(f - sc)),
@@ -496,20 +626,78 @@ fn run(seed: u64, rule: Rule, medium: &str, frames: u64, every: u64, n_walkers: 
     result
 }
 
+/// The cells of a `body=` item of `size` anchored at its top-left `(x, y)`.
+fn footprint(body: [i32; 3], x: i32, y: i32, size: u8) -> Vec<(i32, i32)> {
+    let b = body[usize::from(size)];
+    (0..b).flat_map(|dy| (0..b).map(move |dx| (x + dx, y + dy))).collect()
+}
+
+/// **The room rule for items with bodies**: Don & Amos's score, counted
+/// per item and measured **edge to edge** as theirs is -- the gap from the
+/// nearest cell of the placement `fp` to the nearest cell of each other
+/// item (0 touching, 0.41 at a corner). An item of width `b` needs a gap of
+/// `room= x (b - 1)` (default 1: none for a one-cell item, one clear cell
+/// for a 2x2, two for a 3x3) and counts its neighbours within `bonusm= x
+/// b` (default 4); `penalty -50`, `bonus 0.1`, clamped to 0..1.
+#[allow(clippy::too_many_arguments)]
+fn body_score(owner: &[usize], things: &[Option<(i32, i32, u8)>], w: i32, h: i32, body: [i32; 3], fp: &[(i32, i32)], s: u8, skip: usize) -> f32 {
+    let b = body[usize::from(s)] as f32;
+    // `penm=`: Don & Amos's own form instead, `penalty_m x size` with the
+    // body's width as its size (theirs is 0.4), so a one-cell item needs
+    // room too.
+    let room = match arg::<f32>("penm") {
+        Some(m) => m * b,
+        None => arg::<f32>("room").unwrap_or(1.0) * (b - 1.0),
+    };
+    let reach = arg::<f32>("bonusm").unwrap_or(BONUS_M) * b;
+    let r = reach.ceil() as i32 + 1;
+    let (x0, x1) = fp.iter().fold((i32::MAX, i32::MIN), |(a, c), p| (a.min(p.0), c.max(p.0)));
+    let (y0, y1) = fp.iter().fold((i32::MAX, i32::MIN), |(a, c), p| (a.min(p.1), c.max(p.1)));
+    let mut gap: std::collections::HashMap<usize, f32> = std::collections::HashMap::new();
+    for y in (y0 - r).max(0)..=(y1 + r).min(h - 1) {
+        for x in (x0 - r).max(0)..=(x1 + r).min(w - 1) {
+            let j = owner[(y * w + x) as usize];
+            if j == usize::MAX || j == skip || things[j].is_none() {
+                continue;
+            }
+            let g = fp
+                .iter()
+                .map(|&(a, c)| ((((a - x).pow(2) + (c - y).pow(2)) as f32).sqrt() - 1.0).max(0.0))
+                .fold(f32::MAX, f32::min);
+            let e = gap.entry(j).or_insert(f32::MAX);
+            *e = e.min(g);
+        }
+    }
+    let score: f32 = gap.values().map(|&g| if g < room { PENALTY } else if g <= reach { BONUS } else { 0.0 }).sum();
+    score.clamp(0.0, 1.0)
+}
+
 /// The largest cluster's sorting, printed; returns (pass, ratios).
 #[allow(clippy::too_many_arguments)]
-fn score(world: &World, brood: MaterialId, n_items: usize, seed: u64, f: u64, held: usize, picks: u64, drops: u64) -> (bool, (f32, f32)) {
-    let b = world.bounds().expect("bounds");
-    let items: Vec<(i32, i32, u8)> = (b.min_y..=b.max_y)
-        .flat_map(|y| (b.min_x..=b.max_x).map(move |x| (x, y)))
-        .filter_map(|(x, y)| size_at(world, brood, x, y).map(|s| (x, y, s)))
-        .collect();
-    let index: std::collections::HashMap<(i32, i32), usize> = items.iter().enumerate().map(|(i, &(x, y, _))| ((x, y), i)).collect();
-    // **Joined within `join=` cells (4)**: the paper's rings space out
-    // toward the edge (Franks's tile area grows with distance), so a cluster
-    // of touching items cuts the spaced outer ring off and scores it as
-    // missing -- which the first runs here did (2 cells: large 0-2 of 25).
-    let join: i32 = arg("join").unwrap_or(4);
+fn score(world: &World, brood: MaterialId, bodies: Option<&[(f32, f32, u8, i32)]>, n_items: usize, seed: u64, f: u64, held: usize, picks: u64, drops: u64) -> (bool, (f32, f32)) {
+    // One point per item: its centre and body width. A one-cell item is its
+    // cell; `body=` items are passed in (their cells would weight a 3x3 item
+    // nine times).
+    let items: Vec<(f32, f32, u8, i32)> = match bodies {
+        Some(b) => b.to_vec(),
+        None => {
+            let b = world.bounds().expect("bounds");
+            (b.min_y..=b.max_y)
+                .flat_map(|y| (b.min_x..=b.max_x).map(move |x| (x, y)))
+                .filter_map(|(x, y)| size_at(world, brood, x, y).map(|s| (x as f32, y as f32, s, 1)))
+                .collect()
+        }
+    };
+    // **Joined within `join=` cells (4)**, edge to edge: the paper's rings
+    // space out toward the edge (Franks's tile area grows with distance), so
+    // a cluster of touching items cuts the spaced outer ring off and scores
+    // it as missing -- which the first runs here did (2 cells: large 0-2 of
+    // 25). Chebyshev between centres less half of each body beyond its own
+    // cell, so for one-cell items it is the old `join`-cell window exactly.
+    let join = arg::<i32>("join").unwrap_or(4) as f32;
+    let near = |a: &(f32, f32, u8, i32), b: &(f32, f32, u8, i32)| {
+        (a.0 - b.0).abs().max((a.1 - b.1).abs()) <= join + (a.3 + b.3) as f32 / 2.0 - 1.0
+    };
     let mut label = vec![usize::MAX; items.len()];
     let mut best: Vec<usize> = Vec::new();
     for start in 0..items.len() {
@@ -520,15 +708,11 @@ fn score(world: &World, brood: MaterialId, n_items: usize, seed: u64, f: u64, he
         label[start] = start;
         let mut k = 0;
         while k < group.len() {
-            let (x, y, _) = items[group[k]];
-            for dy in -join..=join {
-                for dx in -join..=join {
-                    if let Some(&j) = index.get(&(x + dx, y + dy)) {
-                        if label[j] == usize::MAX {
-                            label[j] = start;
-                            group.push(j);
-                        }
-                    }
+            let a = items[group[k]];
+            for j in 0..items.len() {
+                if label[j] == usize::MAX && near(&a, &items[j]) {
+                    label[j] = start;
+                    group.push(j);
                 }
             }
             k += 1;
@@ -537,9 +721,9 @@ fn score(world: &World, brood: MaterialId, n_items: usize, seed: u64, f: u64, he
             best = group;
         }
     }
-    let cl: Vec<(i32, i32, u8)> = best.iter().map(|&i| items[i]).collect();
+    let cl: Vec<(f32, f32, u8)> = best.iter().map(|&i| (items[i].0, items[i].1, items[i].2)).collect();
     let n = cl.len().max(1) as f32;
-    let (cx, cy) = (cl.iter().map(|c| c.0 as f32).sum::<f32>() / n, cl.iter().map(|c| c.1 as f32).sum::<f32>() / n);
+    let (cx, cy) = (cl.iter().map(|c| c.0).sum::<f32>() / n, cl.iter().map(|c| c.1).sum::<f32>() / n);
     // **`along=floor`: the paper's rings, cut by a vertical slice.** A flat
     // brood floor seen edge-on is one row, so "further from the centre"
     // becomes "further along the floor from the pile's middle": the
@@ -548,7 +732,7 @@ fn score(world: &World, brood: MaterialId, n_items: usize, seed: u64, f: u64, he
     let floor = arg::<String>("along").as_deref() == Some("floor");
     let dist: Vec<f32> = cl
         .iter()
-        .map(|c| if floor { (c.0 as f32 - cx).abs() } else { ((c.0 as f32 - cx).powi(2) + (c.1 as f32 - cy).powi(2)).sqrt() })
+        .map(|c| if floor { (c.0 - cx).abs() } else { ((c.0 - cx).powi(2) + (c.1 - cy).powi(2)).sqrt() })
         .collect();
     let mean_by = |labels: &[u8], s: u8| -> f32 {
         let (sum, cnt) = labels.iter().zip(&dist).filter(|(l, _)| **l == s).fold((0.0, 0), |(a, c), (_, d)| (a + d, c + 1));
