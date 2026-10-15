@@ -3053,6 +3053,11 @@ pub struct CreatureStats {
     /// Brood a touching nestmate moved toward other brood or out of the
     /// doorway (`brood::carry`, `PIXEL_PHYSICS_BROOD_CARRY`).
     pub brood_carried: u64,
+    /// `creature::BuildMark`: latches moved one column out (the stop draw
+    /// lost), and ticks a carrier was held at a column with a mark of 0.5 or
+    /// more round its top.
+    pub build_mark_moves: u64,
+    pub build_mark_held_marked: u64,
     /// `PIXEL_PHYSICS_SHAFT_ROOMS` (`creature::ShaftRooms`): cuts the jaw
     /// could take refused as too tall (or a ramp), too near another room,
     /// by the random control, and refusals waived for an ant shut in; and
@@ -4962,6 +4967,11 @@ pub struct World {
     /// door, within `creature::DUG_HOME_REACH`. Rebuilt every
     /// `ROOM_INTERVAL` frames by `step_nest_dug`; empty under any other home.
     pub nest_dug: crate::sim::fxhash::PosSet,
+    /// **The building mark** (`PIXEL_PHYSICS_BUILD_MARK`, off; Khuong et
+    /// al. 2016): the frame each carried pellet was put down at, by cell.
+    /// Written by `creature::mark_built` and read by the spoil ring's stop
+    /// rule; empty with the switch off.
+    pub build_marks: crate::sim::fxhash::PosMap<u64>,
     /// **How many of `nest_dug`'s cells each nest site's fill reached**,
     /// indexed as `nest_sites` (a cell two fills reach counts for the first).
     /// Read by `creature::DigCompany`'s founding exemption, so one colony's
@@ -7272,6 +7282,7 @@ impl World {
             nest_sites: Vec::new(),
             nest_room: Vec::new(),
             nest_dug: Default::default(),
+            build_marks: Default::default(),
             nest_dug_sizes: Vec::new(),
             dug_cells: Default::default(),
             nest_need: Vec::new(),

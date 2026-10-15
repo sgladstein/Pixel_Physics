@@ -1771,6 +1771,7 @@ fn hungry_act(
         if !outside && (!in_mound || escaping) {
             if let Some((px, py)) = need_drop_site(world, head) {
                 world.set(px, py, load.cell);
+                mark_built(world, (px, py));
                 if let Some(s) = world.organism_mut(organism) {
                     s.spoil = None;
                     s.spoil_ring = None;
@@ -2067,6 +2068,7 @@ fn sealed_escape(
         }
         if let Some(p) = pocket_drop_site(world, head, mind.last_cut, aim.unwrap_or(want)) {
             world.set(p.0, p.1, load.cell);
+            mark_built(world, p);
             if let Some(s) = world.organism_mut(organism) {
                 s.spoil = None;
                 s.spoil_ring = None;

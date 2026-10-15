@@ -224,6 +224,10 @@ const RNG_SLOT_SHAFT_ROOMS: u64 = 12;
 /// A slot of its own so the switch moves no other draw.
 const RNG_SLOT_DIG_COMPANY: u64 = 13;
 
+/// [`BuildMark`]'s stop draw: whether a carrier stops at a column. A slot
+/// of its own (16: needs.rs holds 12-15) so the switch moves no other draw.
+const RNG_SLOT_BUILD_MARK: u64 = 16;
+
 /// **The cap `grow_body` walks a `Segmented` body's `FateGenome` to.** With
 /// laterals that is at most 16 cells; both shipped bodies land at 7-8, well
 /// under it, and the cap exists only to bound a mutated genome that never
@@ -14091,6 +14095,7 @@ fn needs_first_act(world: &mut World, organism: OrganismId, def: &CreatureDef, h
     if need {
         if let Some((px, py)) = need_drop_site(world, head) {
             world.set(px, py, load.cell);
+            mark_built(world, (px, py));
             if let Some(s) = world.organism_mut(organism) {
                 s.spoil = None;
                 s.spoil_ring = None;
@@ -16598,6 +16603,145 @@ fn less_trail_side(world: &World, (x, y): (i32, i32)) -> Option<i32> {
         return None;
     }
     Some(if e < w { 1 } else { -1 })
+}
+
+/// **The building mark** (`PIXEL_PHYSICS_BUILD_MARK`, off): Khuong et al.
+/// 2016's rule for where a builder puts its pellet, on the spoil ring.
+///
+/// In *Lasius niger* the pellets carry a building pheromone that fades, and
+/// deposition rises with the fresh pellets round a spot (Khuong et al. 2016,
+/// PNAS 113:1303, PMID 26787857). Fresh building attracts more building, so
+/// columns rise; a mark that never fades attracts everywhere it ever was, and
+/// the building spreads into a blanket. Level 1 of the textbook test
+/// (`examples/pillarbox`, game physics, `sites=game rework=0`, 8 seeds,
+/// 60k): free pillars at least 30 tall, 2.5 a seed on 8 of 8 seeds at
+/// `tau=300`, 1 in all with no mark, 0 with a mark that never fades.
+///
+/// **Where it acts: where a carrier stops, not when it drops** (review of
+/// the design, `/mnt/project-files/emergence-sandbox/pillars/`): a carrier
+/// latched on its drawn column ([`spoil_ring_column`]) is held until it is
+/// that far out and then mills on that column's top ([`ring_target`]), so a
+/// drop roll that waits longer changes nothing about where the pellet lands.
+/// Here, on reaching its column, a carrier **stops** there with
+/// `q0 + (1 - q0) * m / (m + k)`, `m` the fresh marks round the column's top
+/// ([`build_mark_at`]); otherwise its latch moves one column further out and
+/// the test is made again, up to `cap` columns past the door's edge. The drawn
+/// column stays the nearest it may stop, so the door is kept clear as
+/// before. The same for both ants: it is not the `DropSpoil` roll (the needs
+/// walk forces that to 1, the brain ant's is about 0.2).
+///
+/// Parts, comma-separated `key:value`: `tau` (frames; `0` no mark, `inf`
+/// never fades; 1,000), `q0` (0.25: bare ground stops one carrier in four a
+/// column, about today's spread), `k` (1), `cap` (24: the shipped draw
+/// reaches past 12 about one carrier in 50), and `stop:off` to
+/// write the marks and stop nothing (the placebo). `on` takes the defaults.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct BuildMark {
+    pub tau: f32,
+    pub q0: f32,
+    pub k: f32,
+    pub cap: i32,
+    pub stop: bool,
+}
+
+/// `PIXEL_PHYSICS_BUILD_MARK`'s value; `None` (off) unless set.
+pub fn build_mark() -> Option<BuildMark> {
+    static V: std::sync::OnceLock<Option<BuildMark>> = std::sync::OnceLock::new();
+    *V.get_or_init(|| parse_build_mark(&std::env::var("PIXEL_PHYSICS_BUILD_MARK").unwrap_or_default()))
+}
+
+fn parse_build_mark(raw: &str) -> Option<BuildMark> {
+    if raw.is_empty() || raw == "off" {
+        return None;
+    }
+    let mut b = BuildMark { tau: 1000.0, q0: 0.25, k: 1.0, cap: 24, stop: true };
+    fn bad<T>(raw: &str, part: &str) -> T {
+        panic!("PIXEL_PHYSICS_BUILD_MARK={raw}: `{part}` is not on, tau:<frames|inf>, q0:<p>, k:<x>, cap:<cols> or stop:off")
+    }
+    for part in raw.split(',').map(str::trim).filter(|p| !p.is_empty() && *p != "on") {
+        let (key, v) = part.split_once(':').unwrap_or_else(|| bad(raw, part));
+        match key {
+            "tau" if v == "inf" => b.tau = f32::INFINITY,
+            "tau" => b.tau = v.parse().ok().filter(|t: &f32| *t >= 0.0).unwrap_or_else(|| bad(raw, part)),
+            "q0" => b.q0 = v.parse().ok().filter(|q: &f32| (0.0..=1.0).contains(q)).unwrap_or_else(|| bad(raw, part)),
+            "k" => b.k = v.parse().ok().filter(|k: &f32| *k > 0.0).unwrap_or_else(|| bad(raw, part)),
+            "cap" => b.cap = v.parse().ok().filter(|c: &i32| *c >= 0).unwrap_or_else(|| bad(raw, part)),
+            "stop" if v == "off" => b.stop = false,
+            _ => bad::<()>(raw, part),
+        }
+    }
+    Some(b)
+}
+
+/// **A carried pellet was put down at `(x, y)`**: under [`build_mark`],
+/// marks the cell with this frame. Called at every site that puts a carried
+/// pellet into the world except `pack_behind`, the in-nest backfill the
+/// ring never reads. Pruned as it grows: a mark older than eight lifetimes,
+/// or on a cell that is no longer spoil, is gone.
+pub(crate) fn mark_built(world: &mut World, (x, y): (i32, i32)) {
+    let Some(bm) = build_mark() else { return };
+    let frame = world.frame;
+    world.build_marks.insert((x, y), frame);
+    if world.build_marks.len().is_multiple_of(1024) {
+        let spoil = world.materials.id_of("spoil");
+        let old = if bm.tau.is_finite() { (8.0 * bm.tau) as u64 } else { u64::MAX };
+        let marks = std::mem::take(&mut world.build_marks);
+        world.build_marks = marks.into_iter().filter(|&((cx, cy), f)| frame.saturating_sub(f) <= old && Some(world.get(cx, cy).material) == spoil).collect();
+    }
+}
+
+/// **The fresh building round a column's top**, for [`BuildMark`]: the sum
+/// of `exp(-age / tau)` over the marks on the three columns round `x`, from
+/// `top` (the open cell the carrier stands in) down two rows, counting only
+/// cells still spoil -- a pellet that slumped or was cut took its mark with
+/// it. 0 at `tau` 0.
+fn build_mark_at(world: &World, bm: BuildMark, (x, top): (i32, i32)) -> f32 {
+    if bm.tau <= 0.0 || world.build_marks.is_empty() {
+        return 0.0;
+    }
+    let spoil = world.materials.id_of("spoil");
+    let mut m = 0.0;
+    for dx in -1..=1 {
+        for dy in 0..=2 {
+            let c = (x + dx, top + dy);
+            if let Some(&f) = world.build_marks.get(&c) {
+                if Some(world.get(c.0, c.1).material) == spoil {
+                    m += (-(world.frame.saturating_sub(f) as f32) / bm.tau).exp();
+                }
+            }
+        }
+    }
+    m
+}
+
+/// **Where a latched carrier that has reached its column stops**
+/// ([`BuildMark`]): its column if the stop draw wins there, otherwise one
+/// column further out, unless it is `cap` columns past the door's edge.
+/// `None` where nothing changes.
+fn build_mark_step(world: &mut World, organism: OrganismId, (x, y): (i32, i32)) -> Option<i32> {
+    let bm = build_mark().filter(|b| b.stop)?;
+    let col = world.organism(organism)?.spoil_ring?;
+    let site = world.nearest_nest_site(x, y).and_then(|i| world.nest_sites.get(i))?;
+    let (sx, out) = (site.x, (col - site.x).signum());
+    if out == 0 || (x - sx).abs() < (col - sx).abs() {
+        return None;
+    }
+    let top = ring_target(world, site, col);
+    let m = build_mark_at(world, bm, top);
+    let p = bm.q0 + (1.0 - bm.q0) * m / (m + bm.k);
+    let u = rng::stream(world.seed, u64::from(organism), (world.frame >> 12) ^ ((col as u64) << 32), RNG_SLOT_BUILD_MARK).unit_f32();
+    // The same draw while it waits there (keyed on the column and a 4,096
+    // frame epoch), so a carrier that stopped stays stopped.
+    if u < p {
+        world.creature_stats.build_mark_held_marked += u64::from(m >= 0.5);
+        return None;
+    }
+    let door = scaled_cells(world, nest_door_of(world).unwrap_or(NEST_DOOR_SHIPPED));
+    if (col - sx).abs() >= door + 1 + bm.cap {
+        return None;
+    }
+    world.creature_stats.build_mark_moves += 1;
+    Some(col + out)
 }
 
 /// **Whether a carrier at `(x, y)` is still short of its drawn column**
@@ -20879,6 +21023,7 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
         if lean && lean_forage_of(world).drop && !(soil_way_of(world).lean && below_founding_ground(world, x, y)) {
             if let Some((px, py)) = lean_drop_site(world, (x, y)) {
                 world.set(px, py, spoil.cell);
+                mark_built(world, (px, py));
                 if let Some(state) = world.organism_mut(organism) {
                     state.spoil = None;
                     state.spoil_ring = None;
@@ -20936,6 +21081,12 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
                         world.creature_stats.spoil_ring_let_go += 1;
                     }
                     _ => {}
+                }
+                // **The building mark moves the latch** ([`BuildMark`], off).
+                if let Some(next) = build_mark_step(world, organism, (x, y)) {
+                    if let Some(state) = world.organism_mut(organism) {
+                        state.spoil_ring = Some(next);
+                    }
                 }
                 let holds = world.organism(organism).is_some_and(|s| spoil_ring_holds(world, s, (x, y)));
                 world.creature_stats.spoil_ring_held += u64::from(holds);
@@ -21142,6 +21293,7 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
             );
             if let Some((px, py)) = site {
                 world.set(px, py, spoil.cell);
+                mark_built(world, (px, py));
                 if let Some(state) = world.organism_mut(organism) {
                     state.spoil = None;
                     state.spoil_ring = None;
@@ -32078,6 +32230,7 @@ fn creature_dies(world: &mut World, organism: OrganismId, cause: organism::Death
         match site {
             Some((px, py)) => {
                 world.set(px, py, spoil.cell);
+                mark_built(world, (px, py));
                 world.creature_stats.spoil_dumped += 1;
             }
             // **Counted rather than silent.** A cell with nowhere to go is
@@ -35736,6 +35889,19 @@ mod tests {
         assert_eq!(run(49, 33, NeedsFirst::OFF), (true, 0), "control: with the part off a carrier shut in the pocket put its pellet down");
         assert_eq!(run(40, 37, hungry), (true, 0), "under `hungry` a carrier over the lean line in the tunnel the air reaches put its pellet down");
         assert_eq!(run(49, 33, hungry), (false, 1), "under `hungry` a carrier shut in the pocket kept its pellet");
+    }
+
+    /// `PIXEL_PHYSICS_BUILD_MARK`'s parts, and a typo panics.
+    #[test]
+    fn build_mark_parses_its_parts_and_refuses_a_typo() {
+        assert_eq!(parse_build_mark(""), None);
+        assert_eq!(parse_build_mark("off"), None);
+        assert_eq!(parse_build_mark("on"), Some(BuildMark { tau: 1000.0, q0: 0.25, k: 1.0, cap: 24, stop: true }));
+        let b = parse_build_mark("tau:inf,q0:0.1,k:2,cap:8,stop:off").unwrap();
+        assert!(b.tau.is_infinite() && b.q0 == 0.1 && b.k == 2.0 && b.cap == 8 && !b.stop);
+        assert_eq!(parse_build_mark("tau:0").map(|b| b.tau), Some(0.0));
+        assert!(std::panic::catch_unwind(|| parse_build_mark("tua:300")).is_err());
+        assert!(std::panic::catch_unwind(|| parse_build_mark("q0:2")).is_err());
     }
 
     /// `PIXEL_PHYSICS_MOUND_OUT`'s spellings: `on` both parts, `off` none, a
