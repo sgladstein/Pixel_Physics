@@ -52,7 +52,9 @@
 //! 3.46-4.84 (large) against Franks's 1.43-1.67 and 2.05-2.68: the order is
 //! the paper's, the large ring twice as loose. On `medium=game` the same
 //! setting passes 3 of 8: gravity packs the large items into the heap.
-//! `scale=2` scatters everything. `join=2` cut the spaced outer ring off the
+//! `scatter=150000` (Franks's emigration) re-forms the order on 7 of 8
+//! seeds in 10k-35k frames, about the first formation's 15k-50k; the eighth
+//! splits into two clusters. `scale=2` scatters everything. `join=2` cut the spaced outer ring off the
 //! cluster and scored it missing (large 0-2 of 25 in the cluster), hence 4.
 //!
 //! ```text
@@ -65,7 +67,7 @@ use pixel_physics::sim::rng::Rng;
 use pixel_physics::sim::{Cell, MaterialId, Rect, World};
 
 const KEYS: &[&str] = &[
-    "seed", "seeds", "frames", "every", "walkers", "width", "height", "rule", "medium", "items", "k1", "k2", "png", "scale", "join", "bonusm",
+    "seed", "seeds", "frames", "every", "walkers", "width", "height", "rule", "medium", "items", "k1", "k2", "png", "scale", "join", "bonusm", "scatter",
 ];
 
 fn check_args() {
@@ -250,7 +252,36 @@ fn run(seed: u64, rule: Rule, flat: bool, frames: u64, every: u64, n_walkers: us
         |wd: &World, x: i32, y: i32| DIRS.iter().any(|&(dx, dy)| wd.in_bounds(x + dx, y + dy) && !wd.is_empty(x + dx, y + dy));
     let (mut picks, mut drops) = (0u64, 0u64);
     let mut result = (false, (0.0, 0.0));
+    // **`scatter=<frame>`: Franks's emigration, as a scatter.** Every item,
+    // held ones included, is put back at random open cells, so the order
+    // has to re-form from nothing. `formed` is the first scored frame that
+    // passes, from the start and again after the scatter.
+    let scatter: Option<u64> = arg("scatter");
+    let (mut formed, mut reformed): (Option<u64>, Option<u64>) = (None, None);
     for f in 0..=frames {
+        if Some(f) == scatter {
+            for y in 0..h {
+                for x in 0..w {
+                    if world.get(x, y).material == brood {
+                        world.set(x, y, Cell::EMPTY);
+                    }
+                }
+            }
+            for wk in walkers.iter_mut() {
+                wk.held = None;
+            }
+            for size in 0..3u8 {
+                let mut placed = 0;
+                while placed < n_items {
+                    let (x, y) = (2 + rng.below((w - 4) as u32) as i32, 2 + rng.below((h - 4) as u32) as i32);
+                    if open(&world, x, y) && !walkers.iter().any(|o| (o.x, o.y) == (x, y)) {
+                        world.set(x, y, Cell::new(brood, size));
+                        placed += 1;
+                    }
+                }
+            }
+            println!("seed {seed} f {f:>6}: SCATTERED");
+        }
         if f > 0 {
             if !flat {
                 parallel::step(&mut world);
@@ -326,12 +357,24 @@ fn run(seed: u64, rule: Rule, flat: bool, frames: u64, every: u64, n_walkers: us
         if f % every == 0 {
             let held = walkers.iter().filter(|w| w.held.is_some()).count();
             result = score(&world, brood, n_items, seed, f, held, picks, drops);
+            if result.0 {
+                match scatter {
+                    Some(sc) if f > sc => reformed = reformed.or(Some(f - sc)),
+                    _ => formed = formed.or(Some(f)),
+                }
+            }
             if let Some(dir) = arg::<String>("png") {
                 let _ = std::fs::create_dir_all(&dir);
                 let _ = draw(&world, brood, stone, &walkers, w, h).save(format!("{dir}/s{seed}_f{f:06}.png"));
             }
         }
     }
+    let show = |v: Option<u64>| v.map_or("never".to_string(), |f| f.to_string());
+    println!(
+        "seed {seed}: first pass at frame {}{}",
+        show(formed),
+        scatter.map_or(String::new(), |_| format!("; after the scatter, again {} frames later", show(reformed)))
+    );
     result
 }
 
