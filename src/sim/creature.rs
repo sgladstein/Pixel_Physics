@@ -26264,16 +26264,68 @@ pub enum TrailLoop {
     Empty,
 }
 
-/// `PIXEL_PHYSICS_TRAIL_LOOP`, read once.
-pub fn trail_loop_mode() -> TrailLoop {
-    static V: std::sync::OnceLock<TrailLoop> = std::sync::OnceLock::new();
-    *V.get_or_init(|| match std::env::var("PIXEL_PHYSICS_TRAIL_LOOP").as_deref() {
-        Ok("on") => TrailLoop::On,
-        Ok("food") => TrailLoop::Food,
-        Ok("empty") => TrailLoop::Empty,
-        Ok("off") | Err(_) => TrailLoop::Off,
-        Ok(v) => panic!("PIXEL_PHYSICS_TRAIL_LOOP={v}: want on, food, empty or off"),
+/// `PIXEL_PHYSICS_TRAIL_LOOP=<mode>[,outdoors]`, read once: the mode (`on`,
+/// `food`, `empty` or `off`; absent is `off`) and whether [`trail_outdoors`]
+/// is on. `outdoors` alone is the shipped trail with the gate.
+fn trail_loop_cfg() -> (TrailLoop, bool) {
+    static V: std::sync::OnceLock<(TrailLoop, bool)> = std::sync::OnceLock::new();
+    *V.get_or_init(|| {
+        let raw = std::env::var("PIXEL_PHYSICS_TRAIL_LOOP").unwrap_or_default();
+        let (mut mode, mut outdoors) = (TrailLoop::Off, false);
+        for part in raw.split(',').map(str::trim).filter(|p| !p.is_empty()) {
+            match part {
+                "on" => mode = TrailLoop::On,
+                "food" => mode = TrailLoop::Food,
+                "empty" => mode = TrailLoop::Empty,
+                "off" => mode = TrailLoop::Off,
+                "outdoors" => outdoors = true,
+                _ => panic!("PIXEL_PHYSICS_TRAIL_LOOP={raw}: `{part}` is not on, food, empty, off or outdoors"),
+            }
+        }
+        (mode, outdoors)
     })
+}
+
+/// `PIXEL_PHYSICS_TRAIL_LOOP`'s mode.
+pub fn trail_loop_mode() -> TrailLoop {
+    trail_loop_cfg().0
+}
+
+/// **The food trail is read outdoors only** (`PIXEL_PHYSICS_TRAIL_LOOP=...,outdoors`,
+/// off): an ant whose head is at home ([`home_at`], the `AtNest` sense's own
+/// test, which under the dug home covers the dug nest and the door rows just
+/// over it) reads the food trail at weight 0. The nest scent is read as before.
+///
+/// **Why** (door trace, full-game partner thread, 2026-10-15, game ant ~300,
+/// food 90, seed 1, 150-160k, `food` x1 against off;
+/// `full-game-trails/door-trace-2026-10-15.md`): every version of the loop
+/// that passes the double bridge empties the dug nest (60 residents to
+/// 6-26), and the trace says how. On an ant's step up out of the door the
+/// trail's hold factor was 6.50 against 1.24 for the other headings (off
+/// 3.51 against 2.16), a winning margin of +4.00 (off +1.38), with home pull
+/// and the door term no different. Going back in, an ant with no inward pull
+/// took the step down 11% of the time (off 25%), because the food trail lies
+/// on the mound and not in the shaft, so the step down held 1.0-1.2 against
+/// 3.3 for every other heading. Ants pulled inward came back down as before
+/// (71% against 72%). So it is the trail pulling ants out at the door, not
+/// homeward ants failing to come back.
+///
+/// Real ants recruit nestmates out by contact inside the nest (Hölldobler &
+/// Wilson 1990, not checked here); a trail is laid and followed on the
+/// foraging ground. The double bridge lies outside any nest, so this gate
+/// cannot change a bridge result (checked on the necked bridge, below).
+pub fn trail_outdoors() -> bool {
+    trail_loop_cfg().1
+}
+
+/// [`trail_planes`] with [`trail_outdoors`] applied at `head`.
+pub(crate) fn trail_planes_at(world: &World, head: (i32, i32), def: &CreatureDef, traits: &[f32; CREATURE_TRAITS], laden: bool) -> [f32; 2] {
+    let planes = trail_planes(traits, laden);
+    if trail_outdoors() && home_at(world, head.0, head.1, def) {
+        [planes[0], 0.0]
+    } else {
+        planes
+    }
 }
 
 /// The trail's hold factor: `TRAIL_GAIN` times this ant's own
@@ -27080,7 +27132,7 @@ fn chooser_step(
             0.0
         }
     };
-    let planes = trail_planes(&walk, laden);
+    let planes = trail_planes_at(world, (hx, hy), def, &walk, laden);
     let halves = if reads_trail { route_halves(world, (hx, hy), planes, usable.iter().copied().chain(crossing.map(|_| heading))) } else { [TRAIL_HALF; 2] };
     let route = |d: u8| if reads_trail { trail_presence(world, (hx, hy), d, planes, halves) } else { 0.0 };
     // **Stage 3, the give-up lets go** (`FoodTrail::giveup`,
