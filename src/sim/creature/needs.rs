@@ -376,6 +376,24 @@ pub struct WalkParts {
     /// It carries whatever `PIXEL_PHYSICS_PACK_PARTED` says, except `on`,
     /// which refuses under either part.
     pub parted_carry: bool,
+    /// **A forager inside walks out** (2026-10-15; never in
+    /// [`WalkParts::ALL`], in [`WalkParts::NEW_ANT`] since the same day): an empty ant on the
+    /// forage drive that is not in the open air takes the way-out pull the
+    /// hungry ant's `Out` drive uses ([`out_target`]), at the walk-home gain,
+    /// but only where the nest's or the mound's way map answers; in the open
+    /// air today's scouting and door terms are unchanged. Traced (seed 2,
+    /// income 10, food 90, 50-100k, every second ant): of 363 forage
+    /// take-ups 8+ rows deep, 11 (3%) ever reached the surface -- the forage
+    /// drive had no pull inside, so a recruit wandered (8,690 moves up,
+    /// 9,773 down) until the at-home quit ended the job at the 600-frame
+    /// dwell, or it picked up soil and turned hauler; 98 of 121 taken
+    /// shallower got out. So the walk recruited its resting ants and lost
+    /// nearly all of them in the nest, and at far food the few recruited
+    /// near the surface could not carry the colony
+    /// (`new-vs-old/walk-recruit-2026-10-15/proposal.md`; its v1, a reserve
+    /// waiting by the door, was NO-GO in review). An activated harvester
+    /// forager leaves through the entrance (Pless et al. 2015).
+    pub forage_out: bool,
 }
 
 impl WalkParts {
@@ -396,6 +414,7 @@ impl WalkParts {
         eat_held: false,
         parted_lose: false,
         parted_carry: false,
+        forage_out: false,
     };
     /// **The fix round's eight**, which is what `needsparts=all` has meant
     /// since 10-07; the parts added after it ([`WalkParts::reach`],
@@ -418,13 +437,17 @@ impl WalkParts {
         eat_held: false,
         parted_lose: false,
         parted_carry: false,
+        forage_out: false,
     };
     /// **The new ant as it stands** (2026-10-11): `reach` (accepted as the
     /// baseline, owner 2026-10-10) and the `walled_in` switch's two parts,
     /// [`WalkParts::sealed_out`] and [`WalkParts::eat_held`], on, and since
     /// 2026-10-12 [`WalkParts::parted_carry`] (the owner's rule that a fix
     /// without a big downside ships on; `reach,walled_in` is the new ant
-    /// before it). What a
+    /// before it), and since 2026-10-15 [`WalkParts::forage_out`] (the
+    /// owner's tap, "On, then fix big nest": it ends the small colony's
+    /// die-off at far food, and costs big colonies their nest residents;
+    /// `reach,walled_in,parted_carry` is the new ant before it). What a
     /// harness hands the walk when it names no parts (`deeptrace`'s
     /// `needsparts=`, `needscost`'s `walk` arm); `none` is slice 1 exactly.
     /// [`NeedsWalk::new`] still starts from [`WalkParts::NONE`], so the
@@ -435,9 +458,10 @@ impl WalkParts {
         sealed_out: true,
         eat_held: true,
         parted_carry: true,
+        forage_out: true,
         ..WalkParts::NONE
     };
-    const NAMES: [&'static str; 16] = [
+    const NAMES: [&'static str; 17] = [
         "only_diggers",
         "dig_job",
         "clear",
@@ -454,6 +478,7 @@ impl WalkParts {
         "eat_held",
         "parted_lose",
         "parted_carry",
+        "forage_out",
     ];
 
     /// `all`, `none`, `new_ant` ([`WalkParts::NEW_ANT`]), `walled_in` (its
@@ -509,6 +534,7 @@ impl WalkParts {
                     (p.parted_lose, p.parted_carry) = (false, true);
                     named_carry = true;
                 }
+                "forage_out" => p.forage_out = true,
                 other => panic!(
                     "needsparts={raw:?}: {other:?} is not all, none, new_ant, walled_in or one of {}",
                     WalkParts::NAMES.join(", ")
@@ -549,6 +575,7 @@ impl WalkParts {
             self.eat_held,
             self.parted_lose,
             self.parted_carry,
+            self.forage_out,
         ];
         let names: Vec<&str> = WalkParts::NAMES
             .iter()
@@ -903,6 +930,9 @@ pub struct WalkCounts {
     /// soil branch), so the ant hauls it until the crop drains -- the state
     /// an eat then a cut out leaves (the rev 2 review, §3).
     pub laden_soil: u64,
+    /// Forage-drive steps given the way-out pull inside
+    /// ([`WalkParts::forage_out`]); zero with the part off.
+    pub forage_out_pulls: u64,
 }
 
 /// What a decision cut, for the trace ([`WalkRow::cut`]).
@@ -2779,6 +2809,24 @@ fn walk_step(
             .or_else(|| spoil_haul_target(world, st, (hx, hy)))
             .map(|t| (t, spoil_haul().unwrap_or(1.0))),
         Drive::Dig => dig_return_target(world, def, st).map(|t| (t, spoil_haul().unwrap_or(1.0))),
+        // **A forager inside walks out** ([`WalkParts::forage_out`], off):
+        // below the ground or in the mound, the way out `Out` takes, at the
+        // walk home's gain -- only where a way map answers, never the door
+        // vector or straight up, whose target can be the far end of an old
+        // trip or the ceiling (the v2 review). In the open air, none, and
+        // the scouting and door terms below are today's. Inside, those terms
+        // are near inert anyway: the home anchor re-anchors at every nest
+        // contact, so `away_from` sits on the ant (the same review).
+        Drive::Forage if world.needs.as_ref().is_some_and(|n| n.parts.forage_out) => {
+            let inside = depth_of(world, (hx, hy)).is_some_and(|d| d > 0) || under_cover(world, hx, hy);
+            match out_target(world, organism, (hx, hy), &mind) {
+                (OUT_NEST_WAY | OUT_MOUND_WAY, Some(target)) if inside => {
+                    world.needs.as_mut().expect("walking").counts.forage_out_pulls += 1;
+                    Some((target, def.home_bias.max(1.0)))
+                }
+                _ => None,
+            }
+        }
         Drive::Seek | Drive::Forage | Drive::Rest => None,
     };
     // The pull's memory, kept exactly as `chooser_step` keeps it: started
@@ -4457,8 +4505,13 @@ mod tests {
         // The new ant: `reach`, the `walled_in` switch's two parts and
         // `parted_carry`, and nothing of the fix round's.
         assert_eq!(WalkParts::parse("new_ant"), WalkParts::NEW_ANT);
-        assert_eq!(WalkParts::parse("reach,walled_in,parted_carry"), WalkParts::NEW_ANT);
-        assert_eq!(WalkParts::NEW_ANT.label(), "reach,sealed_out,eat_held,parted_carry");
+        assert_eq!(WalkParts::parse("reach,walled_in,parted_carry,forage_out"), WalkParts::NEW_ANT);
+        // `forage_out` (2026-10-15): in the new ant since 2026-10-15 (the
+        // owner's tap), never in `all`.
+        const { assert!(!WalkParts::ALL.forage_out && WalkParts::NEW_ANT.forage_out) };
+        let p = WalkParts::parse("reach,walled_in,parted_carry");
+        assert!(!p.forage_out, "reach,walled_in,parted_carry is the new ant before forage_out");
+        assert_eq!(WalkParts::NEW_ANT.label(), "reach,sealed_out,eat_held,parted_carry,forage_out");
         assert_eq!(WalkParts::parse(&WalkParts::NEW_ANT.label()), WalkParts::NEW_ANT);
         let w = WalkParts::parse("walled_in");
         assert!(w.sealed_out && w.eat_held && !w.reach);
@@ -4468,7 +4521,7 @@ mod tests {
         const { assert!(!WalkParts::NEW_ANT.parted_lose && WalkParts::NEW_ANT.parted_carry) };
         for name in ["parted_lose", "parted_carry"] {
             let p = WalkParts::parse(&format!("new_ant,{name}"));
-            assert_eq!(p.label(), format!("reach,sealed_out,eat_held,{name}"));
+            assert_eq!(p.label(), format!("reach,sealed_out,eat_held,{name},forage_out"));
             assert_eq!(WalkParts::parse(&p.label()), p);
         }
         let before = WalkParts::parse("reach,walled_in");
@@ -5088,6 +5141,101 @@ mod tests {
         println!("fed: slice 1 {fed_off:?}, hunger_holds {fed_on:?}");
         assert_eq!(fed_off, fed_on, "hunger_holds changed a fed forager");
         assert_eq!(fed_on.1, 0, "a fed forager took a hunger drive");
+    }
+
+    /// The head every frame, and whether it was inside.
+    type Path = Vec<((i32, i32), bool)>;
+
+    /// **A fed forager put down at `place` holding the forage job once**
+    /// (the job is given on its first decision and then left to the walk, so
+    /// the 600-frame at-home quit is live), run for `frames`: the frame its
+    /// head first stood in the open air, the frame the job first ended, the
+    /// head's position every frame with whether it was inside, and the
+    /// walk's counts.
+    fn forager_walks(parts: &str, place: Place, frames: u64) -> (Option<u64>, Option<u64>, Path, WalkCounts) {
+        let mut w = guard_bed();
+        walk_with(&mut w, parts);
+        let (x, y) = place.at();
+        let site = plant_creature_seed(&mut w, x, y, "ant").expect("test setup: the ant does not fit");
+        w.schedule_active_site(site);
+        let a = w.get(x, y).organism_id();
+        let st = w.organism_mut(a).expect("live");
+        st.nest_bound_until = 0;
+        st.scout_patience = 1.0;
+        st.foraged = true;
+        let surface = w.nest_sites[0].surface;
+        let (mut out, mut quit, mut given) = (None, None, false);
+        let mut path = Vec::new();
+        for f in 0..frames {
+            crate::sim::update::step(&mut w);
+            w.step_active_sites();
+            let Some(st) = w.organism(a) else { break };
+            let (hx, hy) = st.chain[0];
+            path.push(((hx, hy), hy > surface || under_cover(&w, hx, hy)));
+            if out.is_none() && hy < surface && !under_cover(&w, hx, hy) {
+                out = Some(f);
+            }
+            let frame = w.frame;
+            let n = w.needs.as_mut().expect("walking");
+            let Some(m) = n.minds.get_mut(&a) else { continue };
+            if !given {
+                m.job = Job::Forage;
+                m.since = frame;
+                given = true;
+            } else if quit.is_none() && m.job != Job::Forage {
+                quit = Some(f);
+            }
+        }
+        (out, quit, path, w.needs.as_ref().expect("walking").counts)
+    }
+
+    /// The new ant before [`WalkParts::forage_out`], with `only_diggers`.
+    const BEFORE_OUT: &str = "reach,walled_in,parted_carry,only_diggers";
+
+    /// **A forager deep in the nest walks out** ([`WalkParts::forage_out`]),
+    /// before the at-home quit ends its job; without the part the same ant
+    /// in the same scene does not get out at all -- the leak traced in
+    /// `new-vs-old/walk-recruit-2026-10-15/proposal.md`, where 11 of 363
+    /// take-ups 8+ rows deep reached the surface. The red check is the off
+    /// arm, run in the same test, which must stay in.
+    #[test]
+    fn under_forage_out_a_deep_forager_walks_out_before_its_job_ends() {
+        const FRAMES: u64 = 1_500;
+        // `only_diggers` in both arms: in this bed the deep room's lining is
+        // soil within reach, and a forager that picks a pellet up turns
+        // hauler and leaves by the soil's way (frame 84 here, as 131 of the
+        // 363 traced deep take-ups did), which hides whether the forage
+        // drive itself can get out.
+        let (out_off, quit_off, _, c_off) = forager_walks(BEFORE_OUT, Place::Deep, FRAMES);
+        let (out_on, quit_on, _, c_on) = forager_walks("new_ant,only_diggers", Place::Deep, FRAMES);
+        println!(
+            "deep forager: off out {out_off:?} quit {quit_off:?} pulls {}; on out {out_on:?} quit {quit_on:?} pulls {}",
+            c_off.forage_out_pulls, c_on.forage_out_pulls
+        );
+        assert_eq!(c_off.forage_out_pulls, 0, "the part is off and pulled");
+        assert!(out_off.is_none(), "the leak is gone without the part: the scene no longer shows it (out at {out_off:?})");
+        assert!(c_on.forage_out_pulls > 0, "the part never pulled");
+        let out = out_on.expect("with forage_out the deep forager never reached the open air");
+        assert!(
+            quit_on.is_none_or(|q| out < q),
+            "the job ended (frame {quit_on:?}) before the forager got out (frame {out})"
+        );
+    }
+
+    /// **In the open air the part changes nothing**: a forager put down on
+    /// the surface walks the same path, frame for frame, with
+    /// [`WalkParts::forage_out`] on and off.
+    #[test]
+    fn under_forage_out_a_forager_outside_walks_as_before() {
+        let (_, _, off, c_off) = forager_walks("reach,walled_in,parted_carry", Place::Surface, 800);
+        let (_, _, on, c_on) = forager_walks("new_ant", Place::Surface, 800);
+        assert!(off.len() > 100, "test setup: the ant died early");
+        let first_inside = off.iter().zip(&on).position(|(a, b)| a.1 || b.1);
+        println!("outside forager: pulls {} / {}, first inside {first_inside:?}", c_off.forage_out_pulls, c_on.forage_out_pulls);
+        // Up to the frame either first walks in, the paths are one path.
+        let n = first_inside.unwrap_or(on.len().min(off.len()));
+        assert!(n > 100, "test setup: the forager went inside at once ({n}), so nothing was compared");
+        assert_eq!(off[..n], on[..n], "forage_out changed a forager's walk in the open air");
     }
 
     /// **One row of the guard under the walk, every decision printed**: the
