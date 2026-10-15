@@ -24858,8 +24858,16 @@ fn meet_returning_forager(world: &mut World, deliverer: OrganismId, (dx, dy): (i
     let now = world.frame.max(1);
     let Some(species) = world.organism(deliverer).map(|s| s.species) else { return };
     let mut met: Vec<OrganismId> = vec![deliverer];
-    for y in dy - RETURN_MEET..=dy + RETURN_MEET {
-        for x in dx - RETURN_MEET..=dx + RETURN_MEET {
+    // **The deliverer alone** (the walk's `meet_self`, a diagnostic): no ant
+    // round the drop is stamped. Off, one read.
+    let reach = if world.needs.as_ref().is_some_and(|n| n.parts.meet_self) {
+        world.needs.as_mut().expect("walking").counts.meet_self_drops += 1;
+        -1
+    } else {
+        RETURN_MEET
+    };
+    for y in dy - reach..=dy + reach {
+        for x in dx - reach..=dx + reach {
             let id = world.get(x, y).organism_id();
             if id != 0 && !met.contains(&id) && world.organism(id).is_some_and(|s| s.species == species) {
                 met.push(id);

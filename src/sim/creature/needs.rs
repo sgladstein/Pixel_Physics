@@ -394,6 +394,25 @@ pub struct WalkParts {
     /// waiting by the door, was NO-GO in review). An activated harvester
     /// forager leaves through the entrance (Pless et al. 2015).
     pub forage_out: bool,
+    /// **Diagnostic, 2026-10-15, never in [`WalkParts::ALL`] or
+    /// [`WalkParts::NEW_ANT`]**: an empty forager in the open air whose
+    /// scout's patience has run out for the home it is out from walks home
+    /// on the walk home's pull, *keeping the job*, and the at-home check
+    /// decides whether it goes out again (its scout memory is started again
+    /// there). `give_up` ended the job outside instead and stranded the ant
+    /// past the heap (dead-ends `creatures:175`). Built to test the review
+    /// of proposal v3 (`walk-recruit-2026-10-15/review-v3.md` finding 7):
+    /// under [`WalkParts::forage_out`] a big colony's foragers stay out for
+    /// good, 94% of empty forage time more than 10 columns out, because the
+    /// job's only end is at home.
+    pub trip_home: bool,
+    /// **Diagnostic, 2026-10-15, never in [`WalkParts::ALL`] or
+    /// [`WalkParts::NEW_ANT`]**: a delivery stamps `return_met` on the
+    /// deliverer only, none of the ants round it -- the review of proposal
+    /// v3's falsifying arm (`review-v3.md` finding 7): if the nest still
+    /// empties with no ant recruited by another's return, the stamp is not
+    /// what empties it.
+    pub meet_self: bool,
 }
 
 impl WalkParts {
@@ -415,6 +434,8 @@ impl WalkParts {
         parted_lose: false,
         parted_carry: false,
         forage_out: false,
+        trip_home: false,
+        meet_self: false,
     };
     /// **The fix round's eight**, which is what `needsparts=all` has meant
     /// since 10-07; the parts added after it ([`WalkParts::reach`],
@@ -438,6 +459,8 @@ impl WalkParts {
         parted_lose: false,
         parted_carry: false,
         forage_out: false,
+        trip_home: false,
+        meet_self: false,
     };
     /// **The new ant as it stands** (2026-10-11): `reach` (accepted as the
     /// baseline, owner 2026-10-10) and the `walled_in` switch's two parts,
@@ -461,7 +484,7 @@ impl WalkParts {
         forage_out: true,
         ..WalkParts::NONE
     };
-    const NAMES: [&'static str; 17] = [
+    const NAMES: [&'static str; 19] = [
         "only_diggers",
         "dig_job",
         "clear",
@@ -479,6 +502,8 @@ impl WalkParts {
         "parted_lose",
         "parted_carry",
         "forage_out",
+        "trip_home",
+        "meet_self",
     ];
 
     /// `all`, `none`, `new_ant` ([`WalkParts::NEW_ANT`]), `walled_in` (its
@@ -535,6 +560,8 @@ impl WalkParts {
                     named_carry = true;
                 }
                 "forage_out" => p.forage_out = true,
+                "trip_home" => p.trip_home = true,
+                "meet_self" => p.meet_self = true,
                 other => panic!(
                     "needsparts={raw:?}: {other:?} is not all, none, new_ant, walled_in or one of {}",
                     WalkParts::NAMES.join(", ")
@@ -576,6 +603,8 @@ impl WalkParts {
             self.parted_lose,
             self.parted_carry,
             self.forage_out,
+            self.trip_home,
+            self.meet_self,
         ];
         let names: Vec<&str> = WalkParts::NAMES
             .iter()
@@ -933,6 +962,11 @@ pub struct WalkCounts {
     /// Forage-drive steps given the way-out pull inside
     /// ([`WalkParts::forage_out`]); zero with the part off.
     pub forage_out_pulls: u64,
+    /// Forage-drive steps of a spent scout given the walk home's pull in the
+    /// open air ([`WalkParts::trip_home`]), and deliveries that stamped the
+    /// deliverer alone ([`WalkParts::meet_self`]); zero with the parts off.
+    pub trip_home_pulls: u64,
+    pub meet_self_drops: u64,
 }
 
 /// What a decision cut, for the trace ([`WalkRow::cut`]).
@@ -1583,6 +1617,14 @@ fn walk_act(
         mind.since = frame;
     }
     mind.job = job;
+    // **A spent scout home on the job scouts again** ([`WalkParts::trip_home`],
+    // diagnostic): its excursion memory is cleared, so the next step out
+    // starts it fresh, whatever cell the nest contact anchored it to.
+    if parts.trip_home && at_home && job == Job::Forage && !laden {
+        if let Some(s) = world.organism_mut(organism).filter(|s| s.scout_home) {
+            s.scout_for = (i32::MIN, i32::MIN);
+        }
+    }
     // **The job's hold**: its own patience under the ceiling. Idle holds
     // nothing. A dig job on its stimulus has no pull to lose patience on, so
     // its patience is the time left before it runs out with no cut.
@@ -2817,14 +2859,28 @@ fn walk_step(
         // the scouting and door terms below are today's. Inside, those terms
         // are near inert anyway: the home anchor re-anchors at every nest
         // contact, so `away_from` sits on the ant (the same review).
-        Drive::Forage if world.needs.as_ref().is_some_and(|n| n.parts.forage_out) => {
+        // **A spent scout walks home on the job** ([`WalkParts::trip_home`],
+        // diagnostic): in the open air, empty, its scout's patience run out
+        // for the home it is out from, the walk home's pull at its gain.
+        Drive::Forage if world.needs.as_ref().is_some_and(|n| n.parts.forage_out || n.parts.trip_home) => {
+            let parts = world.needs.as_ref().expect("matched").parts;
             let inside = depth_of(world, (hx, hy)).is_some_and(|d| d > 0) || under_cover(world, hx, hy);
-            match out_target(world, organism, (hx, hy), &mind) {
-                (OUT_NEST_WAY | OUT_MOUND_WAY, Some(target)) if inside => {
-                    world.needs.as_mut().expect("walking").counts.forage_out_pulls += 1;
-                    Some((target, def.home_bias.max(1.0)))
+            let empty = !st.crop.is_some_and(|c| c.worth() > 0.0) || carries_lunch(world, st);
+            let spent = (parts.trip_home && !inside && empty && st.scout_home && st.scout_for == home_target(world, st))
+                .then(|| (home_pull_target(world, st, (hx, hy)), def.home_bias.max(1.0)));
+            if spent.is_some() {
+                world.needs.as_mut().expect("walking").counts.trip_home_pulls += 1;
+                spent
+            } else if parts.forage_out {
+                match out_target(world, organism, (hx, hy), &mind) {
+                    (OUT_NEST_WAY | OUT_MOUND_WAY, Some(target)) if inside => {
+                        world.needs.as_mut().expect("walking").counts.forage_out_pulls += 1;
+                        Some((target, def.home_bias.max(1.0)))
+                    }
+                    _ => None,
                 }
-                _ => None,
+            } else {
+                None
             }
         }
         Drive::Seek | Drive::Forage | Drive::Rest => None,
