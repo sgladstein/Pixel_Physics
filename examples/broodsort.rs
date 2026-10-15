@@ -28,6 +28,21 @@
 //!   Experiment 1. A big item needs more clear room, so it lies further
 //!   out. **On the grid** every item is one cell and "within" is the
 //!   centre-to-centre distance (theirs is edge to edge).
+//! - `pullback` -- Wilson et al. 2004's extended differential pullback: a
+//!   laden walker that touches brood puts a small item down there and
+//!   backs `pull=` cells (0,3,5) away with a bigger one first; picked up by
+//!   the all-brood share (`brood`'s pick). **It clusters and does not
+//!   order** (2026-10-15, 8 seeds top-down, `pull` 0,2,4 / 0,3,5 / 0,3,6 /
+//!   1,3,6 / 0,4,8: 0 in the paper's band, ratios ~1); with a flat `pick=`
+//!   nothing clusters at all.
+//!
+//! **The bar is the paper's** (2026-10-15, after the owner read a "13/16"
+//! picture with medium mixed into small and large strung along the floor):
+//! the ratios inside the published span with headroom, medium 1.2-2.0 and
+//! large 1.7-3.2. Beating label shuffles is printed as "beaten" and is not
+//! a pass. Under it the tuned room rule is 3/16 top-down (large 2.3-4.8)
+//! and 6/16 side view; every item is one cell, so the room a size needs
+//! rounds to whole cells.
 //!
 //! `medium=` `flat` (items stay put, walkers go anywhere: the paper's flat
 //! nest between glass, the positive control), `game` (the game's physics
@@ -72,6 +87,7 @@ use pixel_physics::sim::{Cell, MaterialId, Rect, World};
 
 const KEYS: &[&str] = &[
     "seed", "seeds", "frames", "every", "walkers", "width", "height", "rule", "medium", "items", "k1", "k2", "png", "scale", "join", "bonusm", "scatter", "along",
+    "pull", "pick",
 ];
 
 fn check_args() {
@@ -100,6 +116,7 @@ enum Rule {
     Deneubourg,
     Brood,
     Room,
+    Pullback,
 }
 
 const DIRS: [(i32, i32); 8] = [(1, 0), (1, 1), (0, 1), (-1, 1), (-1, 0), (-1, -1), (0, -1), (1, -1)];
@@ -118,6 +135,8 @@ struct Walker {
     dir: usize,
     held: Option<u8>,
     wait: u32,
+    /// `pullback`: steps still to back away before putting the item down.
+    back: u32,
 }
 
 fn main() {
@@ -127,7 +146,8 @@ fn main() {
         "deneubourg" => Rule::Deneubourg,
         "brood" => Rule::Brood,
         "room" => Rule::Room,
-        r => panic!("rule={r}: off, deneubourg, brood or room"),
+        "pullback" => Rule::Pullback,
+        r => panic!("rule={r}: off, deneubourg, brood, room or pullback"),
     };
     let medium: String = arg("medium").unwrap_or_else(|| "flat".into());
     assert!(matches!(medium.as_str(), "flat" | "game" | "rest"), "medium={medium}: flat, game or rest");
@@ -170,6 +190,8 @@ fn size_at(world: &World, brood: MaterialId, x: i32, y: i32) -> Option<u8> {
 fn chance(world: &World, brood: MaterialId, rule: Rule, size: u8, (x, y): (i32, i32), skip: (i32, i32), drop: bool, k: (f32, f32)) -> f32 {
     match rule {
         Rule::Off => 0.1,
+        // Not read: `pullback` decides in the walker loop.
+        Rule::Pullback => 0.0,
         Rule::Deneubourg | Rule::Brood => {
             let mut n = 0;
             for dy in -2..=2 {
@@ -247,7 +269,7 @@ fn run(seed: u64, rule: Rule, medium: &str, frames: u64, every: u64, n_walkers: 
     while walkers.len() < n_walkers {
         let (x, y) = (2 + rng.below((w - 4) as u32) as i32, 2 + rng.below((h - 4) as u32) as i32);
         if open(&world, x, y) {
-            walkers.push(Walker { x, y, dir: rng.below(8) as usize, held: None, wait: 0 });
+            walkers.push(Walker { x, y, dir: rng.below(8) as usize, held: None, wait: 0, back: 0 });
         }
     }
     let footing =
@@ -308,7 +330,81 @@ fn run(seed: u64, rule: Rule, medium: &str, frames: u64, every: u64, n_walkers: 
                     continue;
                 }
                 let (x, y) = (walkers[i].x, walkers[i].y);
-                if walkers[i].wait > 0 {
+                // **`pullback`** (Wilson, Melhuish, Sendova-Franks et al.
+                // 2004, *Autonomous Robots* 17:115-136, "extended differential
+                // pullback"): an empty walker picks up an item it touches
+                // by the all-brood share round it (below); a laden one that touches another item
+                // puts a small one down there, and otherwise backs away
+                // `pull=` cells for its size (0,3,5: their 0, 2.5 and 5 puck
+                // diameters for three types) and puts it down where it
+                // stops. It counts nothing and measures no distance to any
+                // item: the size sets how far back it goes.
+                let pull: Vec<u32> = arg::<String>("pull")
+                    .unwrap_or_else(|| "0,3,5".into())
+                    .split(',')
+                    .map(|v| v.parse().expect("pull=a,b,c"))
+                    .collect();
+                if rule == Rule::Pullback && walkers[i].wait == 0 {
+                    let touching = DIRS.iter().any(|&(dx, dy)| size_at(&world, brood, x + dx, y + dy).is_some());
+                    let spots: Vec<(i32, i32)> = DIRS
+                        .iter()
+                        .map(|&(dx, dy)| (x + dx, y + dy))
+                        .filter(|&(px, py)| open(&world, px, py) && !walkers.iter().any(|o| (o.x, o.y) == (px, py)))
+                        .collect();
+                    match walkers[i].held {
+                        Some(s) if walkers[i].back > 0 => {
+                            walkers[i].back -= 1;
+                            if walkers[i].back == 0 && !spots.is_empty() {
+                                let (px, py) = spots[rng.below(spots.len() as u32) as usize];
+                                world.set(px, py, Cell::new(brood, s));
+                                walkers[i].held = None;
+                                walkers[i].wait = DELAY;
+                                drops += 1;
+                            } else if walkers[i].back == 0 {
+                                walkers[i].back = 1;
+                            }
+                        }
+                        Some(s) if touching => {
+                            if pull[usize::from(s)] == 0 {
+                                if !spots.is_empty() {
+                                    let (px, py) = spots[rng.below(spots.len() as u32) as usize];
+                                    world.set(px, py, Cell::new(brood, s));
+                                    walkers[i].held = None;
+                                    walkers[i].wait = DELAY;
+                                    drops += 1;
+                                }
+                            } else {
+                                walkers[i].back = pull[usize::from(s)];
+                                walkers[i].dir = (walkers[i].dir + 4) % 8;
+                            }
+                        }
+                        None => {
+                            let cands: Vec<(i32, i32, u8)> = DIRS
+                                .iter()
+                                .filter_map(|&(dx, dy)| size_at(&world, brood, x + dx, y + dy).map(|s| (x + dx, y + dy, s)))
+                                .collect();
+                            if !cands.is_empty() {
+                                let (ix, iy, s) = cands[rng.below(cands.len() as u32) as usize];
+                                // Picked up by the all-brood share round the
+                                // item (`brood`'s pick, Deneubourg's
+                                // `(k1/(k1+f))^2`), so a loose item goes and a
+                                // packed one stays -- what makes Beckers's and
+                                // Wilson's pucks cluster at all. A flat
+                                // `pick=` instead: no cluster formed (8/8
+                                // seeds, largest 13-41% of items).
+                                let p = arg::<f32>("pick")
+                                    .unwrap_or_else(|| chance(&world, brood, Rule::Brood, s, (ix, iy), (ix, iy), false, k));
+                                if rng.unit_f32() < p {
+                                    world.set(ix, iy, Cell::EMPTY);
+                                    walkers[i].held = Some(s);
+                                    walkers[i].wait = DELAY;
+                                    picks += 1;
+                                }
+                            }
+                        }
+                        _ => {}
+                    }
+                } else if rule == Rule::Pullback || walkers[i].wait > 0 {
                     walkers[i].wait -= 1;
                 } else {
                     match walkers[i].held {
@@ -345,7 +441,8 @@ fn run(seed: u64, rule: Rule, medium: &str, frames: u64, every: u64, n_walkers: 
                         }
                     }
                 }
-                if rng.below(8) == 0 {
+                // Backing away goes straight.
+                if walkers[i].back == 0 && rng.below(8) == 0 {
                     walkers[i].dir = (walkers[i].dir + if rng.flip() { 1 } else { 7 }) % 8;
                 }
                 // **Which way a blocked walker tries first is drawn each step.**
@@ -480,14 +577,21 @@ fn score(world: &World, brood: MaterialId, n_items: usize, seed: u64, f: u64, he
     null.sort_by(|a, b| a.total_cmp(b));
     let p95 = null[189];
     let share = cl.len() as f32 / (3 * n_items) as f32;
-    let pass = share >= 0.8 && counts.iter().all(|&c| c >= 10) && rl > p95;
+    // **The paper's bar** (2026-10-15; `antsort` has the reasoning): one
+    // cluster and the order ratios inside the published span with headroom
+    // -- medium 1.2-2.0, large 1.7-3.2. Beating label shuffles (printed as
+    // "beaten") only says large lies further out than chance: it passed 13
+    // of 16 top-down seeds whose large ring sat at 2.3-4.8.
+    let beaten = share >= 0.8 && counts.iter().all(|&c| c >= 10) && rl > p95;
+    let pass = share >= 0.8 && counts.iter().all(|&c| c >= 10) && (1.2..=2.0).contains(&rm) && (1.7..=3.2).contains(&rl) && rm < rl;
     println!(
-        "seed {seed} f {f:>6}: cluster {:.2} at ({cx:.0},{cy:.0}) of items {:?} | d small {:.1} medium {:.1} large {:.1} | ratios {rm:.2} {rl:.2} (shuffle p95 {p95:.2}) | {} | held {held} picks {picks} drops {drops}",
+        "seed {seed} f {f:>6}: cluster {:.2} at ({cx:.0},{cy:.0}) of items {:?} | d small {:.1} medium {:.1} large {:.1} | ratios {rm:.2} {rl:.2} (shuffle p95 {p95:.2}{}) | {} | held {held} picks {picks} drops {drops}",
         share,
         counts,
         d[0],
         d[1],
         d[2],
+        if beaten { ", beaten" } else { "" },
         if pass { "PASS" } else { "fail" }
     );
     (pass, (rm, rl))

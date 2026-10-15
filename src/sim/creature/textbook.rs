@@ -156,11 +156,17 @@ pub struct TextbookCfg {
 /// "Within" is centre-to-centre on the grid (theirs is edge to edge).
 ///
 /// Chosen on the walker box (`examples/broodsort`, 16 seeds, `scale` 1.5,
-/// `bonus_m` 3; the paper's own constants are `scale` 1, `bonus_m` 4): 13/16
-/// top-down, and 11/16 in side view scored along the floor, with medians
-/// 1.74 and 1.97 against Franks's 1.43-1.67 and 2.05-2.68. Deneubourg's
-/// same-kind rule and today's all-brood pile rule (`BROOD_CARRY=pile`)
-/// pass 0/16 top-down.
+/// `bonus_m` 3; the paper's own constants are `scale` 1, `bonus_m` 4).
+/// **It does not yet pass the paper's bar** (2026-10-15): with the order
+/// ratios required inside the published span (medium 1.2-2.0, large
+/// 1.7-3.2) it is 3/16 top-down, 6/16 in side view, and 3/16 on this ant
+/// (`examples/antsort`). It had been called 13/16 on a bar that only asked
+/// whether large items lie further out than chance; the owner's read of
+/// the picture -- medium mixed into the small heap, large strung out as
+/// singles to the walls -- is what the stricter bar measures. Every item is
+/// one cell, so a medium item's room (0.9 cell) rounds to none and a large
+/// one's to a single empty cell; at `scale` 2 or more the large items find
+/// no site and stay in the jaws.
 #[derive(Clone, Copy, Debug)]
 pub struct SortCfg {
     pub item: material::MaterialId,
