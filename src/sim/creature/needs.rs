@@ -413,6 +413,23 @@ pub struct WalkParts {
     /// empties with no ant recruited by another's return, the stamp is not
     /// what empties it.
     pub meet_self: bool,
+    /// **Diagnostic, 2026-10-15, never in [`WalkParts::ALL`] or
+    /// [`WalkParts::NEW_ANT`]**: a delivery stamps the deliverer, and each
+    /// other ant within reach with chance `PIXEL_PHYSICS_MEET_P` (0.25 when
+    /// unset), a hash of the ant and the frame, so no stream moves. The
+    /// graded middle between every ant within reach (today) and none
+    /// ([`WalkParts::meet_self`]): with none, big colonies kept their nest
+    /// (dug nest 108-136 against 27-51) and the small colony at food 200
+    /// died 2 of 4.
+    pub meet_some: bool,
+    /// **Diagnostic, 2026-10-15, never in [`WalkParts::ALL`] or
+    /// [`WalkParts::NEW_ANT`]**: a delivery stamps the deliverer and at most
+    /// `PIXEL_PHYSICS_MEET_K` (3 when unset) of the ants within reach, the
+    /// ones with the lowest hash of ant and frame (so a random few, no stream
+    /// moves) -- the v4 review's comparison arm: a cap bites a big crowd
+    /// harder than a small one, where [`WalkParts::meet_some`]'s chance
+    /// scales both alike. Wins over `meet_some` when both are named.
+    pub meet_k: bool,
 }
 
 impl WalkParts {
@@ -436,6 +453,8 @@ impl WalkParts {
         forage_out: false,
         trip_home: false,
         meet_self: false,
+        meet_some: false,
+        meet_k: false,
     };
     /// **The fix round's eight**, which is what `needsparts=all` has meant
     /// since 10-07; the parts added after it ([`WalkParts::reach`],
@@ -461,6 +480,8 @@ impl WalkParts {
         forage_out: false,
         trip_home: false,
         meet_self: false,
+        meet_some: false,
+        meet_k: false,
     };
     /// **The new ant as it stands** (2026-10-11): `reach` (accepted as the
     /// baseline, owner 2026-10-10) and the `walled_in` switch's two parts,
@@ -484,7 +505,7 @@ impl WalkParts {
         forage_out: true,
         ..WalkParts::NONE
     };
-    const NAMES: [&'static str; 19] = [
+    const NAMES: [&'static str; 21] = [
         "only_diggers",
         "dig_job",
         "clear",
@@ -504,6 +525,8 @@ impl WalkParts {
         "forage_out",
         "trip_home",
         "meet_self",
+        "meet_some",
+        "meet_k",
     ];
 
     /// `all`, `none`, `new_ant` ([`WalkParts::NEW_ANT`]), `walled_in` (its
@@ -562,6 +585,8 @@ impl WalkParts {
                 "forage_out" => p.forage_out = true,
                 "trip_home" => p.trip_home = true,
                 "meet_self" => p.meet_self = true,
+                "meet_some" => p.meet_some = true,
+                "meet_k" => p.meet_k = true,
                 other => panic!(
                     "needsparts={raw:?}: {other:?} is not all, none, new_ant, walled_in or one of {}",
                     WalkParts::NAMES.join(", ")
@@ -605,6 +630,8 @@ impl WalkParts {
             self.forage_out,
             self.trip_home,
             self.meet_self,
+            self.meet_some,
+            self.meet_k,
         ];
         let names: Vec<&str> = WalkParts::NAMES
             .iter()
@@ -967,6 +994,10 @@ pub struct WalkCounts {
     /// deliverer alone ([`WalkParts::meet_self`]); zero with the parts off.
     pub trip_home_pulls: u64,
     pub meet_self_drops: u64,
+    /// Ants round a delivery stamped and passed over under
+    /// [`WalkParts::meet_some`] or [`WalkParts::meet_k`]; zero with both off.
+    pub meet_some_met: u64,
+    pub meet_some_missed: u64,
 }
 
 /// What a decision cut, for the trace ([`WalkRow::cut`]).

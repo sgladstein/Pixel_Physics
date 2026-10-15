@@ -224,6 +224,34 @@ const RNG_SLOT_SHAFT_ROOMS: u64 = 12;
 /// A slot of its own so the switch moves no other draw.
 const RNG_SLOT_DIG_COMPANY: u64 = 13;
 
+/// The walk's `meet_some` draw: whether an ant round a delivery is met. A
+/// hash of the ant and the frame, so the part moves no other draw.
+const RNG_SLOT_MEET_SOME: u64 = 16;
+
+/// `PIXEL_PHYSICS_MEET_K`: how many ants round a delivery are met at most
+/// under the walk's `meet_k` (diagnostic, 2026-10-15); 3 when unset.
+fn meet_k() -> usize {
+    static V: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
+    *V.get_or_init(|| {
+        std::env::var("PIXEL_PHYSICS_MEET_K")
+            .ok()
+            .map(|v| v.trim().parse::<usize>().unwrap_or_else(|_| panic!("PIXEL_PHYSICS_MEET_K={v:?}: use a count")))
+            .unwrap_or(3)
+    })
+}
+
+/// `PIXEL_PHYSICS_MEET_P`: the chance an ant round a delivery is met under
+/// the walk's `meet_some` (diagnostic, 2026-10-15); 0.25 when unset.
+fn meet_some_p() -> f32 {
+    static V: std::sync::OnceLock<f32> = std::sync::OnceLock::new();
+    *V.get_or_init(|| {
+        std::env::var("PIXEL_PHYSICS_MEET_P")
+            .ok()
+            .map(|v| v.trim().parse::<f32>().unwrap_or_else(|_| panic!("PIXEL_PHYSICS_MEET_P={v:?}: use a chance in 0..=1")))
+            .unwrap_or(0.25)
+    })
+}
+
 /// **The cap `grow_body` walks a `Segmented` body's `FateGenome` to.** With
 /// laterals that is at most 16 cells; both shipped bodies land at 7-8, well
 /// under it, and the cap exists only to bound a mutated genome that never
@@ -24873,6 +24901,29 @@ fn meet_returning_forager(world: &mut World, deliverer: OrganismId, (dx, dy): (i
                 met.push(id);
             }
         }
+    }
+    // **Some of them** (the walk's `meet_some`, a diagnostic): each ant
+    // round the drop is met with chance `meet_some_p`; the deliverer always.
+    // **A random few** (the walk's `meet_k`, a diagnostic): at most
+    // `meet_k` of them, the lowest hashes, on the same slot.
+    let parts = world.needs.as_ref().map(|n| n.parts);
+    if parts.is_some_and(|p| p.meet_k || p.meet_some) {
+        let seed = world.seed;
+        let before = met.len() - 1;
+        let draw = |id: OrganismId| rng::stream(seed, id as u64, now, RNG_SLOT_MEET_SOME).unit_f32();
+        if parts.is_some_and(|p| p.meet_k) {
+            let mut others: Vec<(f32, OrganismId)> = met[1..].iter().map(|&id| (draw(id), id)).collect();
+            others.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)));
+            others.truncate(meet_k());
+            met.truncate(1);
+            met.extend(others.into_iter().map(|(_, id)| id));
+        } else {
+            let p = meet_some_p();
+            met.retain(|&id| id == deliverer || draw(id) < p);
+        }
+        let c = &mut world.needs.as_mut().expect("walking").counts;
+        c.meet_some_met += (met.len() - 1) as u64;
+        c.meet_some_missed += (before - (met.len() - 1)) as u64;
     }
     for id in met {
         if let Some(s) = world.organism_mut(id) {

@@ -753,7 +753,7 @@ fn main() {
         let cuts: Vec<String> = creature::needs::Drive::ALL.iter().map(|d| format!("cut_{}", d.label())).collect();
         writeln!(
             f,
-            "frame,minds,{},took_forage,quit_forage,need_over_job,ate_held,pellets_down,escape_cuts,escape_packs,gluts,{},dig_took,dig_quit,dig_tired,clear_cuts,gave_up,lay_walks,meals_kept,stays_not_stalls,reach_hidden,eat_gave_up,eat_gave_up_again,eat_rest,eat_rest_ate,eat_rest_out,reach_hidden_air,bouts,bouts_fed,bouts_fed_outside,bouts_died,hold_ignored,seal_floods,sealed_found,sealed_freed,sealed_opened,sealed_cuts,sealed_packs,seal_aim_turned,sealed_drops,sealed_load_down,seal_recut,ate_held_jaws,eat_held_refused,laden_soil,forage_out_pulls,trip_home_pulls,meet_self_drops",
+            "frame,minds,{},took_forage,quit_forage,need_over_job,ate_held,pellets_down,escape_cuts,escape_packs,gluts,{},dig_took,dig_quit,dig_tired,clear_cuts,gave_up,lay_walks,meals_kept,stays_not_stalls,reach_hidden,eat_gave_up,eat_gave_up_again,eat_rest,eat_rest_ate,eat_rest_out,reach_hidden_air,bouts,bouts_fed,bouts_fed_outside,bouts_died,hold_ignored,seal_floods,sealed_found,sealed_freed,sealed_opened,sealed_cuts,sealed_packs,seal_aim_turned,sealed_drops,sealed_load_down,seal_recut,ate_held_jaws,eat_held_refused,laden_soil,forage_out_pulls,trip_home_pulls,meet_self_drops,meet_some_met,meet_some_missed",
             drives.join(","),
             cuts.join(",")
         )
@@ -1516,7 +1516,7 @@ fn main() {
                 let cut: Vec<String> = c.cuts.iter().map(u64::to_string).collect();
                 writeln!(
                     wn,
-                    "{f},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
+                    "{f},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
                     walk.minds(),
                     dec.join(","),
                     c.took_forage,
@@ -1563,7 +1563,9 @@ fn main() {
                     c.laden_soil,
                     c.forage_out_pulls,
                     c.trip_home_pulls,
-                    c.meet_self_drops
+                    c.meet_self_drops,
+                    c.meet_some_met,
+                    c.meet_some_missed
                 )
                 .unwrap();
             }
