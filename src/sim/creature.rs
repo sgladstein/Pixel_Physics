@@ -26267,11 +26267,11 @@ pub enum TrailLoop {
 /// `PIXEL_PHYSICS_TRAIL_LOOP=<mode>[,outdoors]`, read once: the mode (`on`,
 /// `food`, `empty` or `off`; absent is `off`) and whether [`trail_outdoors`]
 /// is on. `outdoors` alone is the shipped trail with the gate.
-fn trail_loop_cfg() -> (TrailLoop, bool) {
-    static V: std::sync::OnceLock<(TrailLoop, bool)> = std::sync::OnceLock::new();
+fn trail_loop_cfg() -> (TrailLoop, bool, bool) {
+    static V: std::sync::OnceLock<(TrailLoop, bool, bool)> = std::sync::OnceLock::new();
     *V.get_or_init(|| {
         let raw = std::env::var("PIXEL_PHYSICS_TRAIL_LOOP").unwrap_or_default();
-        let (mut mode, mut outdoors) = (TrailLoop::Off, false);
+        let (mut mode, mut outdoors, mut hungry) = (TrailLoop::Off, false, false);
         for part in raw.split(',').map(str::trim).filter(|p| !p.is_empty()) {
             match part {
                 "on" => mode = TrailLoop::On,
@@ -26279,10 +26279,11 @@ fn trail_loop_cfg() -> (TrailLoop, bool) {
                 "empty" => mode = TrailLoop::Empty,
                 "off" => mode = TrailLoop::Off,
                 "outdoors" => outdoors = true,
-                _ => panic!("PIXEL_PHYSICS_TRAIL_LOOP={raw}: `{part}` is not on, food, empty, off or outdoors"),
+                "hungry" => hungry = true,
+                _ => panic!("PIXEL_PHYSICS_TRAIL_LOOP={raw}: `{part}` is not on, food, empty, off, outdoors or hungry"),
             }
         }
-        (mode, outdoors)
+        (mode, outdoors, hungry)
     })
 }
 
@@ -26318,10 +26319,35 @@ pub fn trail_outdoors() -> bool {
     trail_loop_cfg().1
 }
 
-/// [`trail_planes`] with [`trail_outdoors`] applied at `head`.
-pub(crate) fn trail_planes_at(world: &World, head: (i32, i32), def: &CreatureDef, traits: &[f32; CREATURE_TRAITS], laden: bool) -> [f32; 2] {
+/// **The hungry ant is let read the food trail at home**
+/// (`PIXEL_PHYSICS_TRAIL_LOOP=...,outdoors,hungry`, off): under
+/// [`trail_outdoors`], an ant under a quarter of its starting energy
+/// ([`TRAIL_HUNGRY_LINE`]) still reads it in the nest.
+///
+/// **Why** (full-game partner thread, gated grid, 2026-10-15, bb997a44,
+/// seeds 1-2): the gate gave the game ant its nest back under `on` (~300
+/// colony, food 30: 70 residents against main 72, starved 6 against 106),
+/// but the gate alone, on the shipped trail, lost one small game-ant colony
+/// (main and nudged lost none), and every gated walk arm but x4 lost the
+/// small walk colony that ungated `on` had kept 4 of 4. Inferred, not
+/// traced: the trail reaching into the nest was what got the hungry out.
+/// The partner's walk trace warns the stuck walk resters were mostly not
+/// hungry (forage stimulus 0.02, most died of age), so this may come too
+/// late for the walk.
+pub fn trail_hungry() -> bool {
+    trail_loop_cfg().2
+}
+
+/// The share of its starting energy under which [`trail_hungry`] lets an
+/// ant read the food trail at home.
+pub const TRAIL_HUNGRY_LINE: f32 = 0.25;
+
+/// [`trail_planes`] with [`trail_outdoors`] applied at `head`, waived by
+/// [`trail_hungry`] for an ant under its line.
+pub(crate) fn trail_planes_at(world: &World, organism: OrganismId, head: (i32, i32), def: &CreatureDef, traits: &[f32; CREATURE_TRAITS], laden: bool) -> [f32; 2] {
     let planes = trail_planes(traits, laden);
-    if trail_outdoors() && home_at(world, head.0, head.1, def) {
+    let waived = || trail_hungry() && world.organism(organism).is_some_and(|s| s.energy < TRAIL_HUNGRY_LINE * def.start_energy);
+    if trail_outdoors() && home_at(world, head.0, head.1, def) && !waived() {
         [planes[0], 0.0]
     } else {
         planes
@@ -27132,7 +27158,7 @@ fn chooser_step(
             0.0
         }
     };
-    let planes = trail_planes_at(world, (hx, hy), def, &walk, laden);
+    let planes = trail_planes_at(world, organism, (hx, hy), def, &walk, laden);
     let halves = if reads_trail { route_halves(world, (hx, hy), planes, usable.iter().copied().chain(crossing.map(|_| heading))) } else { [TRAIL_HALF; 2] };
     let route = |d: u8| if reads_trail { trail_presence(world, (hx, hy), d, planes, halves) } else { 0.0 };
     // **Stage 3, the give-up lets go** (`FoodTrail::giveup`,

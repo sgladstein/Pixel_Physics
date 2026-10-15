@@ -2889,7 +2889,7 @@ fn walk_step(
             0.0
         }
     };
-    let planes = trail_planes_at(world, (hx, hy), def, &walk, laden);
+    let planes = trail_planes_at(world, organism, (hx, hy), def, &walk, laden);
     let trail_gain = trail_hold_gain(&walk, laden);
     let spent = scout_home && scout_dark && scout_w > 0.0 && food_trail_of(world).giveup;
     // **The carry home is held by a route's contrast, not its level**
