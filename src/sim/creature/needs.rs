@@ -394,10 +394,11 @@ pub struct WalkParts {
     /// waiting by the door, was NO-GO in review). An activated harvester
     /// forager leaves through the entrance (Pless et al. 2015).
     pub forage_out: bool,
-    /// **A return meets a few, not the crowd** (2026-10-15, off, never in
-    /// [`WalkParts::ALL`]): a delivery stamps the deliverer and at most
-    /// [`MEET_FEW`] of the ants within reach of the drop, a random few by a
-    /// hash of ant and frame, instead of every one. With
+    /// **A return meets a few, not the crowd** (2026-10-15, never in
+    /// [`WalkParts::ALL`], in [`WalkParts::NEW_ANT`] since the same day): a
+    /// delivery stamps the deliverer and at most [`MEET_FEW`] of the ants
+    /// within reach of the drop, a random few by a hash of ant and frame,
+    /// instead of every one. With
     /// [`WalkParts::forage_out`] on, a big colony's dug nest emptied (24-51
     /// ants against 76-98 at ~280 ants) and its food-200 deliveries fell a
     /// quarter: each return stamped the 10-15 ants round the drop, and a
@@ -465,7 +466,11 @@ impl WalkParts {
     /// before it), and since 2026-10-15 [`WalkParts::forage_out`] (the
     /// owner's tap, "On, then fix big nest": it ends the small colony's
     /// die-off at far food, and costs big colonies their nest residents;
-    /// `reach,walled_in,parted_carry` is the new ant before it). What a
+    /// `reach,walled_in,parted_carry` is the new ant before it), and since
+    /// the same evening [`WalkParts::meet_few`] (the owner's rule that a fix
+    /// without a big downside ships on: it gives big colonies their nest
+    /// back; `reach,walled_in,parted_carry,forage_out` is the new ant before
+    /// it). What a
     /// harness hands the walk when it names no parts (`deeptrace`'s
     /// `needsparts=`, `needscost`'s `walk` arm); `none` is slice 1 exactly.
     /// [`NeedsWalk::new`] still starts from [`WalkParts::NONE`], so the
@@ -477,6 +482,7 @@ impl WalkParts {
         eat_held: true,
         parted_carry: true,
         forage_out: true,
+        meet_few: true,
         ..WalkParts::NONE
     };
     const NAMES: [&'static str; 18] = [
@@ -4532,15 +4538,19 @@ mod tests {
         // `parted_carry`, and nothing of the fix round's.
         assert_eq!(WalkParts::parse("new_ant"), WalkParts::NEW_ANT);
         assert_eq!(
-            WalkParts::parse("reach,walled_in,parted_carry,forage_out"),
+            WalkParts::parse("reach,walled_in,parted_carry,forage_out,meet_few"),
             WalkParts::NEW_ANT
         );
         // `forage_out` (2026-10-15): in the new ant since 2026-10-15 (the
         // owner's tap), never in `all`.
         const { assert!(!WalkParts::ALL.forage_out && WalkParts::NEW_ANT.forage_out) };
-        // `meet_few` (2026-10-15): off, in neither `all` nor `new_ant`.
-        const { assert!(!WalkParts::ALL.meet_few && !WalkParts::NEW_ANT.meet_few) };
-        assert!(WalkParts::parse("new_ant,meet_few").meet_few);
+        // `meet_few` (2026-10-15): in the new ant since the same evening,
+        // never in `all`.
+        const { assert!(!WalkParts::ALL.meet_few && WalkParts::NEW_ANT.meet_few) };
+        assert!(
+            !WalkParts::parse("reach,walled_in,parted_carry,forage_out").meet_few,
+            "reach,walled_in,parted_carry,forage_out is the new ant before meet_few"
+        );
         let p = WalkParts::parse("reach,walled_in,parted_carry");
         assert!(
             !p.forage_out,
@@ -4548,7 +4558,7 @@ mod tests {
         );
         assert_eq!(
             WalkParts::NEW_ANT.label(),
-            "reach,sealed_out,eat_held,parted_carry,forage_out"
+            "reach,sealed_out,eat_held,parted_carry,forage_out,meet_few"
         );
         assert_eq!(WalkParts::parse(&WalkParts::NEW_ANT.label()), WalkParts::NEW_ANT);
         let w = WalkParts::parse("walled_in");
@@ -4559,7 +4569,10 @@ mod tests {
         const { assert!(!WalkParts::NEW_ANT.parted_lose && WalkParts::NEW_ANT.parted_carry) };
         for name in ["parted_lose", "parted_carry"] {
             let p = WalkParts::parse(&format!("new_ant,{name}"));
-            assert_eq!(p.label(), format!("reach,sealed_out,eat_held,{name},forage_out"));
+            assert_eq!(
+                p.label(),
+                format!("reach,sealed_out,eat_held,{name},forage_out,meet_few")
+            );
             assert_eq!(WalkParts::parse(&p.label()), p);
         }
         let before = WalkParts::parse("reach,walled_in");
