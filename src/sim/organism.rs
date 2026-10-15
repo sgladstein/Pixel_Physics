@@ -6309,6 +6309,19 @@ pub struct OrganismState {
     /// **Given up and heading home.** Set when `scout_patience` runs out;
     /// cleared by the next nest contact, which starts the next excursion.
     pub scout_home: bool,
+    /// **The given-up scout's memory of getting nearer home**
+    /// (`creature::scout_search_of`), the carrier's `home_best`,
+    /// `home_best_at`, `home_away`, `home_patience` and `home_search_loops`
+    /// kept for the walk home after a give-up: the closest it has come to
+    /// `scout_for` since it gave up, where it stood then, the furthest it
+    /// has strayed from there, how much it still trusts the straight line,
+    /// and how many search loops it has made. Started again at every
+    /// give-up; written and read only under the switch.
+    pub scout_home_best: f32,
+    pub scout_home_at: (i32, i32),
+    pub scout_home_away: u16,
+    pub scout_home_patience: f32,
+    pub scout_home_loops: u8,
     /// **This excursion has stepped onto a trail** (`creature::FoodTrail::
     /// giveup`'s bound): set on a scout's step whose heading carried trail B,
     /// cleared with the excursion. Once set, a step onto dark ground is not

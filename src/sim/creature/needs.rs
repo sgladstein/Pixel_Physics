@@ -2893,6 +2893,9 @@ fn walk_step(
     let planes = trail_planes(&walk, laden);
     let route = |d: u8| trail_presence(world, (hx, hy), d, planes);
     let spent = scout_home && scout_dark && scout_w > 0.0 && food_trail_of(world).giveup;
+    // **A given-up scout's pull home tires** ([`scout_search_of`]): exactly
+    // 1 off the switch.
+    let trust = scout_home_trust(world, organism, scout_home);
     // **The carry home is held by a route's contrast, not its level**
     // (`CarryHome`'s `turn`, part of the carry here).
     let options: Vec<u8> = usable.iter().copied().chain(crossing.map(|_| heading)).collect();
@@ -2940,9 +2943,9 @@ fn walk_step(
             + if scout_w <= 0.0 {
                 0.0
             } else if spent {
-                away_home_cos(d).map_or(0.0, |c| scout_w * c)
+                away_home_cos(d).map_or(0.0, |c| scout_w * trust * c)
             } else if scout_home {
-                away_home_cos(d).map_or(0.0, |c| scout_w * (1.0 - route(d)) * c)
+                away_home_cos(d).map_or(0.0, |c| scout_w * trust * (1.0 - route(d)) * c)
             } else {
                 scout_cos(d).map_or(0.0, |c| -scout_w * scout_patience * (1.0 - route(d)) * c)
             }
@@ -3005,8 +3008,13 @@ fn walk_step(
             if state.scout_patience < SCOUT_GIVE_UP {
                 state.scout_home = true;
                 state.scout_dark = bound && !on_trail;
+                scout_home_start(state);
             }
         }
+    }
+    // Did a given-up scout's step close on home? ([`scout_search_of`])
+    if let (Some(home), true) = (away_from, scout_w > 0.0 && scout_home && scout_search_of(world)) {
+        scout_home_progress(world, organism, home, decay, (hx, hy));
     }
     // Did that step close on the pull's target? `chooser_step`'s memory.
     if let Some(((ax, ay), _)) = pull {

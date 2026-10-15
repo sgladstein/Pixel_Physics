@@ -23681,6 +23681,106 @@ pub fn home_search_of(world: &World) -> bool {
     })
 }
 
+/// **A scout that has given up searches for home as a lost carrier does**
+/// (`PIXEL_PHYSICS_SCOUT_SEARCH=on|off`, off; [`World::scout_search`] for one
+/// world). [`home_search_of`]'s patience and widening loops, kept for the
+/// walk home after a give-up (`OrganismState::scout_home`): the pull home
+/// is multiplied by a patience that decays on every step that gets the ant
+/// no nearer home and recovers on every step that does, a way round of
+/// [`EXCURSION_CELLS`] that comes back to its best spot refills it, and once
+/// it has run out (under [`SCOUT_GIVE_UP`]) a scout that strays more than
+/// [`home_search_reach`] from that spot starts the walk home over from
+/// where it stands. Off, the pull is exactly as before: a full-strength
+/// straight line home that never tires.
+///
+/// **Why** (the full-game trails lane, 2026-10-15, `steady_income_10`,
+/// food 90 cells out, seed 1, with `SPOIL_CORBEL=on`; `/mnt/project-files/
+/// full-game-trails/building-candidates-2026-10-15.md`, "Step choices of
+/// the 17 confined ants"). The overhang lets the mound grow latticed
+/// spires, and 17-18 ants were shut in one pocket of one at x 237-241,
+/// y 143-149, whose only way out ran west, away from the door: 122 starved
+/// over 60-140k against 50 with the corbel off, 42 of them on the mound
+/// against none. Every decision taken in the pocket was a given-up scout's,
+/// with the pull home (`scout_w`, about 2) pointing east and down into the
+/// wall; the west way out was taken on 117 of 10,805. Footing was not it:
+/// steps down were offered 4,508 times and taken 2,610, onto a solid floor.
+/// A homing ant that meets a wall across its vector and never detours is a
+/// sink with or without the corbel -- only `laden` ants had the carrier's
+/// patience, so the empty scout walking home had none.
+///
+/// **This is what a homing ant does.** One whose vector has run out without
+/// finding the nest searches round where it expected it, in loops of ever
+/// increasing size (Schwarz, Wystrach & Cheng 2017, Sci Rep 7:14161, the
+/// same citation as [`home_search_of`]); nothing there is particular to a
+/// carrier. Detouring round a barrier across the vector is reported too,
+/// but no paper for it was checked here, so it is not cited.
+pub fn scout_search_of(world: &World) -> bool {
+    world.scout_search.unwrap_or_else(|| {
+        static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        *V.get_or_init(|| match std::env::var("PIXEL_PHYSICS_SCOUT_SEARCH").as_deref() {
+            Ok("on") => true,
+            Ok("off") | Err(_) => false,
+            Ok(other) => panic!("PIXEL_PHYSICS_SCOUT_SEARCH={other:?}: use on or off"),
+        })
+    })
+}
+
+/// How much a given-up scout still trusts the straight line home
+/// ([`scout_search_of`]): its own patience under the switch, and exactly 1
+/// for every other ant and with the switch off.
+pub(crate) fn scout_home_trust(world: &World, organism: OrganismId, scout_home: bool) -> f32 {
+    if !scout_home || !scout_search_of(world) {
+        return 1.0;
+    }
+    world.organism(organism).map_or(1.0, |s| s.scout_home_patience)
+}
+
+/// A scout has just given up: its walk home starts with a full pull and no
+/// memory ([`scout_search_of`]).
+pub(crate) fn scout_home_start(state: &mut crate::sim::organism::OrganismState) {
+    state.scout_home_best = f32::INFINITY;
+    state.scout_home_at = (0, 0);
+    state.scout_home_away = 0;
+    state.scout_home_patience = 1.0;
+    state.scout_home_loops = 0;
+}
+
+/// **Did a given-up scout's step close on home?** ([`scout_search_of`]) The
+/// carrier's memory in `chooser_step`, on the scout's own fields; `home` is
+/// the point its pull aims at, `decay` its patience decay.
+pub(crate) fn scout_home_progress(world: &mut World, organism: OrganismId, (ax, ay): (i32, i32), decay: f32, (hx, hy): (i32, i32)) {
+    let Some(state) = world.organism_mut(organism) else { return };
+    let (nx, ny) = state.chain.first().copied().unwrap_or((hx, hy));
+    let (vx, vy) = ((ax - nx) as f32, (ay - ny) as f32);
+    let dist = (vx * vx + vy * vy).sqrt();
+    let mut searched = false;
+    if dist < state.scout_home_best - PATIENCE_PROGRESS {
+        state.scout_home_best = dist;
+        state.scout_home_at = (nx, ny);
+        state.scout_home_away = 0;
+        state.scout_home_patience = (state.scout_home_patience + PATIENCE_RECOVER).min(1.0);
+    } else {
+        state.scout_home_patience *= decay;
+        let (bx, by) = state.scout_home_at;
+        let away = (nx - bx).abs().max((ny - by).abs()).clamp(0, u16::MAX as i32) as u16;
+        state.scout_home_away = state.scout_home_away.max(away);
+        if state.scout_home_away >= EXCURSION_CELLS && away <= 1 {
+            state.scout_home_patience = 1.0;
+            state.scout_home_away = 0;
+        } else if state.scout_home_patience < SCOUT_GIVE_UP && away > home_search_reach(state.scout_home_loops) {
+            // Lost and strayed past the search's reach: home again, from here.
+            state.scout_home_best = f32::INFINITY;
+            state.scout_home_away = 0;
+            state.scout_home_patience = 1.0;
+            state.scout_home_loops = state.scout_home_loops.saturating_add(1);
+            searched = true;
+        }
+    }
+    let lost = state.scout_home_patience < SCOUT_GIVE_UP;
+    world.creature_stats.scout_searches += u64::from(searched);
+    world.creature_stats.scout_home_lost += u64::from(lost);
+}
+
 /// **A trip's carrier fills its crop at the food, then turns for home on
 /// nest scent that lies even** (`PIXEL_PHYSICS_CARRY_HOME=on|off|fill|turn`,
 /// a comma list; [`World::carry_home`] for one world). Both parts act only
@@ -26830,6 +26930,9 @@ fn chooser_step(
     // the pile under `lay` and 12 of 30 when every give-up was spent, and on
     // the two-pile bed 41 founders starved by frame 6,000 against 19.
     let spent = scout_home && scout_dark && scout_w > 0.0 && food_trail_of(world).giveup;
+    // **A given-up scout's pull home tires** ([`scout_search_of`]): exactly
+    // 1 off the switch.
+    let trust = scout_home_trust(world, organism, scout_home);
     // **A trip's carrier is held by a route's contrast, not its level**
     // ([`CarryHome`]'s `turn`): nest scent lies even over the whole mound,
     // and its level held every heading about four times over, so the pull
@@ -26863,9 +26966,9 @@ fn chooser_step(
             + if scout_w <= 0.0 {
                 0.0
             } else if spent {
-                away_home_cos(d).map_or(0.0, |c| scout_w * c)
+                away_home_cos(d).map_or(0.0, |c| scout_w * trust * c)
             } else if scout_home {
-                away_home_cos(d).map_or(0.0, |c| scout_w * (1.0 - route(d)) * c)
+                away_home_cos(d).map_or(0.0, |c| scout_w * trust * (1.0 - route(d)) * c)
             } else {
                 scout_cos(d).map_or(0.0, |c| -scout_w * scout_patience * (1.0 - route(d)) * c)
             }
@@ -27010,8 +27113,13 @@ fn chooser_step(
             if state.scout_patience < SCOUT_GIVE_UP {
                 state.scout_home = true;
                 state.scout_dark = bound && !on_trail;
+                scout_home_start(state);
             }
         }
+    }
+    // Did a given-up scout's step close on home? ([`scout_search_of`])
+    if let (Some(home), true) = (away_from, scout_w > 0.0 && scout_home && scout_search_of(world)) {
+        scout_home_progress(world, organism, home, decay, (hx, hy));
     }
 
     // Did that step close on home?
