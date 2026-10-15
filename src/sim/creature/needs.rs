@@ -394,42 +394,22 @@ pub struct WalkParts {
     /// waiting by the door, was NO-GO in review). An activated harvester
     /// forager leaves through the entrance (Pless et al. 2015).
     pub forage_out: bool,
-    /// **Diagnostic, 2026-10-15, never in [`WalkParts::ALL`] or
-    /// [`WalkParts::NEW_ANT`]**: an empty forager in the open air whose
-    /// scout's patience has run out for the home it is out from walks home
-    /// on the walk home's pull, *keeping the job*, and the at-home check
-    /// decides whether it goes out again (its scout memory is started again
-    /// there). `give_up` ended the job outside instead and stranded the ant
-    /// past the heap (dead-ends `creatures:175`). Built to test the review
-    /// of proposal v3 (`walk-recruit-2026-10-15/review-v3.md` finding 7):
-    /// under [`WalkParts::forage_out`] a big colony's foragers stay out for
-    /// good, 94% of empty forage time more than 10 columns out, because the
-    /// job's only end is at home.
-    pub trip_home: bool,
-    /// **Diagnostic, 2026-10-15, never in [`WalkParts::ALL`] or
-    /// [`WalkParts::NEW_ANT`]**: a delivery stamps `return_met` on the
-    /// deliverer only, none of the ants round it -- the review of proposal
-    /// v3's falsifying arm (`review-v3.md` finding 7): if the nest still
-    /// empties with no ant recruited by another's return, the stamp is not
-    /// what empties it.
-    pub meet_self: bool,
-    /// **Diagnostic, 2026-10-15, never in [`WalkParts::ALL`] or
-    /// [`WalkParts::NEW_ANT`]**: a delivery stamps the deliverer, and each
-    /// other ant within reach with chance `PIXEL_PHYSICS_MEET_P` (0.25 when
-    /// unset), a hash of the ant and the frame, so no stream moves. The
-    /// graded middle between every ant within reach (today) and none
-    /// ([`WalkParts::meet_self`]): with none, big colonies kept their nest
-    /// (dug nest 108-136 against 27-51) and the small colony at food 200
-    /// died 2 of 4.
-    pub meet_some: bool,
-    /// **Diagnostic, 2026-10-15, never in [`WalkParts::ALL`] or
-    /// [`WalkParts::NEW_ANT`]**: a delivery stamps the deliverer and at most
-    /// `PIXEL_PHYSICS_MEET_K` (3 when unset) of the ants within reach, the
-    /// ones with the lowest hash of ant and frame (so a random few, no stream
-    /// moves) -- the v4 review's comparison arm: a cap bites a big crowd
-    /// harder than a small one, where [`WalkParts::meet_some`]'s chance
-    /// scales both alike. Wins over `meet_some` when both are named.
-    pub meet_k: bool,
+    /// **A return meets a few, not the crowd** (2026-10-15, off, never in
+    /// [`WalkParts::ALL`]): a delivery stamps the deliverer and at most
+    /// [`MEET_FEW`] of the ants within reach of the drop, a random few by a
+    /// hash of ant and frame, instead of every one. With
+    /// [`WalkParts::forage_out`] on, a big colony's dug nest emptied (24-51
+    /// ants against 76-98 at ~280 ants) and its food-200 deliveries fell a
+    /// quarter: each return stamped the 10-15 ants round the drop, and a
+    /// stamp keeps a forager on the job at home, so foragers stayed out.
+    /// Stamping no one but the deliverer kept the nest (108-136) but killed
+    /// 2 of 4 small colonies at food 200; a chance of 1 in 4 per ant cost
+    /// the small colony a tenth of its far-food deliveries; the cap bites
+    /// only the big crowd (`walk-recruit-2026-10-15/results.md` §6-8). A
+    /// returning harvester forager contacts the ants it meets, not every
+    /// ant within three body lengths (Gordon; Pless et al. 2015) -- the
+    /// number 3 is a modelling choice.
+    pub meet_few: bool,
 }
 
 impl WalkParts {
@@ -451,10 +431,7 @@ impl WalkParts {
         parted_lose: false,
         parted_carry: false,
         forage_out: false,
-        trip_home: false,
-        meet_self: false,
-        meet_some: false,
-        meet_k: false,
+        meet_few: false,
     };
     /// **The fix round's eight**, which is what `needsparts=all` has meant
     /// since 10-07; the parts added after it ([`WalkParts::reach`],
@@ -478,10 +455,7 @@ impl WalkParts {
         parted_lose: false,
         parted_carry: false,
         forage_out: false,
-        trip_home: false,
-        meet_self: false,
-        meet_some: false,
-        meet_k: false,
+        meet_few: false,
     };
     /// **The new ant as it stands** (2026-10-11): `reach` (accepted as the
     /// baseline, owner 2026-10-10) and the `walled_in` switch's two parts,
@@ -505,7 +479,7 @@ impl WalkParts {
         forage_out: true,
         ..WalkParts::NONE
     };
-    const NAMES: [&'static str; 21] = [
+    const NAMES: [&'static str; 18] = [
         "only_diggers",
         "dig_job",
         "clear",
@@ -523,10 +497,7 @@ impl WalkParts {
         "parted_lose",
         "parted_carry",
         "forage_out",
-        "trip_home",
-        "meet_self",
-        "meet_some",
-        "meet_k",
+        "meet_few",
     ];
 
     /// `all`, `none`, `new_ant` ([`WalkParts::NEW_ANT`]), `walled_in` (its
@@ -583,10 +554,7 @@ impl WalkParts {
                     named_carry = true;
                 }
                 "forage_out" => p.forage_out = true,
-                "trip_home" => p.trip_home = true,
-                "meet_self" => p.meet_self = true,
-                "meet_some" => p.meet_some = true,
-                "meet_k" => p.meet_k = true,
+                "meet_few" => p.meet_few = true,
                 other => panic!(
                     "needsparts={raw:?}: {other:?} is not all, none, new_ant, walled_in or one of {}",
                     WalkParts::NAMES.join(", ")
@@ -628,10 +596,7 @@ impl WalkParts {
             self.parted_lose,
             self.parted_carry,
             self.forage_out,
-            self.trip_home,
-            self.meet_self,
-            self.meet_some,
-            self.meet_k,
+            self.meet_few,
         ];
         let names: Vec<&str> = WalkParts::NAMES
             .iter()
@@ -989,15 +954,10 @@ pub struct WalkCounts {
     /// Forage-drive steps given the way-out pull inside
     /// ([`WalkParts::forage_out`]); zero with the part off.
     pub forage_out_pulls: u64,
-    /// Forage-drive steps of a spent scout given the walk home's pull in the
-    /// open air ([`WalkParts::trip_home`]), and deliveries that stamped the
-    /// deliverer alone ([`WalkParts::meet_self`]); zero with the parts off.
-    pub trip_home_pulls: u64,
-    pub meet_self_drops: u64,
-    /// Ants round a delivery stamped and passed over under
-    /// [`WalkParts::meet_some`] or [`WalkParts::meet_k`]; zero with both off.
-    pub meet_some_met: u64,
-    pub meet_some_missed: u64,
+    /// Ants round a delivery stamped, and passed over, under
+    /// [`WalkParts::meet_few`]; zero with the part off.
+    pub meet_few_met: u64,
+    pub meet_few_missed: u64,
 }
 
 /// What a decision cut, for the trace ([`WalkRow::cut`]).
@@ -1648,14 +1608,6 @@ fn walk_act(
         mind.since = frame;
     }
     mind.job = job;
-    // **A spent scout home on the job scouts again** ([`WalkParts::trip_home`],
-    // diagnostic): its excursion memory is cleared, so the next step out
-    // starts it fresh, whatever cell the nest contact anchored it to.
-    if parts.trip_home && at_home && job == Job::Forage && !laden {
-        if let Some(s) = world.organism_mut(organism).filter(|s| s.scout_home) {
-            s.scout_for = (i32::MIN, i32::MIN);
-        }
-    }
     // **The job's hold**: its own patience under the ceiling. Idle holds
     // nothing. A dig job on its stimulus has no pull to lose patience on, so
     // its patience is the time left before it runs out with no cut.
@@ -2882,7 +2834,8 @@ fn walk_step(
             .or_else(|| spoil_haul_target(world, st, (hx, hy)))
             .map(|t| (t, spoil_haul().unwrap_or(1.0))),
         Drive::Dig => dig_return_target(world, def, st).map(|t| (t, spoil_haul().unwrap_or(1.0))),
-        // **A forager inside walks out** ([`WalkParts::forage_out`], off):
+        // **A forager inside walks out** ([`WalkParts::forage_out`], on in
+        // the new ant):
         // below the ground or in the mound, the way out `Out` takes, at the
         // walk home's gain -- only where a way map answers, never the door
         // vector or straight up, whose target can be the far end of an old
@@ -2890,28 +2843,14 @@ fn walk_step(
         // the scouting and door terms below are today's. Inside, those terms
         // are near inert anyway: the home anchor re-anchors at every nest
         // contact, so `away_from` sits on the ant (the same review).
-        // **A spent scout walks home on the job** ([`WalkParts::trip_home`],
-        // diagnostic): in the open air, empty, its scout's patience run out
-        // for the home it is out from, the walk home's pull at its gain.
-        Drive::Forage if world.needs.as_ref().is_some_and(|n| n.parts.forage_out || n.parts.trip_home) => {
-            let parts = world.needs.as_ref().expect("matched").parts;
+        Drive::Forage if world.needs.as_ref().is_some_and(|n| n.parts.forage_out) => {
             let inside = depth_of(world, (hx, hy)).is_some_and(|d| d > 0) || under_cover(world, hx, hy);
-            let empty = !st.crop.is_some_and(|c| c.worth() > 0.0) || carries_lunch(world, st);
-            let spent = (parts.trip_home && !inside && empty && st.scout_home && st.scout_for == home_target(world, st))
-                .then(|| (home_pull_target(world, st, (hx, hy)), def.home_bias.max(1.0)));
-            if spent.is_some() {
-                world.needs.as_mut().expect("walking").counts.trip_home_pulls += 1;
-                spent
-            } else if parts.forage_out {
-                match out_target(world, organism, (hx, hy), &mind) {
-                    (OUT_NEST_WAY | OUT_MOUND_WAY, Some(target)) if inside => {
-                        world.needs.as_mut().expect("walking").counts.forage_out_pulls += 1;
-                        Some((target, def.home_bias.max(1.0)))
-                    }
-                    _ => None,
+            match inside.then(|| out_target(world, organism, (hx, hy), &mind)) {
+                Some((OUT_NEST_WAY | OUT_MOUND_WAY, Some(target))) => {
+                    world.needs.as_mut().expect("walking").counts.forage_out_pulls += 1;
+                    Some((target, def.home_bias.max(1.0)))
                 }
-            } else {
-                None
+                _ => None,
             }
         }
         Drive::Seek | Drive::Forage | Drive::Rest => None,
@@ -4592,13 +4531,25 @@ mod tests {
         // The new ant: `reach`, the `walled_in` switch's two parts and
         // `parted_carry`, and nothing of the fix round's.
         assert_eq!(WalkParts::parse("new_ant"), WalkParts::NEW_ANT);
-        assert_eq!(WalkParts::parse("reach,walled_in,parted_carry,forage_out"), WalkParts::NEW_ANT);
+        assert_eq!(
+            WalkParts::parse("reach,walled_in,parted_carry,forage_out"),
+            WalkParts::NEW_ANT
+        );
         // `forage_out` (2026-10-15): in the new ant since 2026-10-15 (the
         // owner's tap), never in `all`.
         const { assert!(!WalkParts::ALL.forage_out && WalkParts::NEW_ANT.forage_out) };
+        // `meet_few` (2026-10-15): off, in neither `all` nor `new_ant`.
+        const { assert!(!WalkParts::ALL.meet_few && !WalkParts::NEW_ANT.meet_few) };
+        assert!(WalkParts::parse("new_ant,meet_few").meet_few);
         let p = WalkParts::parse("reach,walled_in,parted_carry");
-        assert!(!p.forage_out, "reach,walled_in,parted_carry is the new ant before forage_out");
-        assert_eq!(WalkParts::NEW_ANT.label(), "reach,sealed_out,eat_held,parted_carry,forage_out");
+        assert!(
+            !p.forage_out,
+            "reach,walled_in,parted_carry is the new ant before forage_out"
+        );
+        assert_eq!(
+            WalkParts::NEW_ANT.label(),
+            "reach,sealed_out,eat_held,parted_carry,forage_out"
+        );
         assert_eq!(WalkParts::parse(&WalkParts::NEW_ANT.label()), WalkParts::NEW_ANT);
         let w = WalkParts::parse("walled_in");
         assert!(w.sealed_out && w.eat_held && !w.reach);
@@ -4612,7 +4563,10 @@ mod tests {
             assert_eq!(WalkParts::parse(&p.label()), p);
         }
         let before = WalkParts::parse("reach,walled_in");
-        assert!(!before.parted_lose && !before.parted_carry, "reach,walled_in is the new ant before parted_carry");
+        assert!(
+            !before.parted_lose && !before.parted_carry,
+            "reach,walled_in is the new ant before parted_carry"
+        );
     }
 
     /// **`parted_lose` and `parted_carry` together are refused at the
@@ -5300,7 +5254,10 @@ mod tests {
             c_off.forage_out_pulls, c_on.forage_out_pulls
         );
         assert_eq!(c_off.forage_out_pulls, 0, "the part is off and pulled");
-        assert!(out_off.is_none(), "the leak is gone without the part: the scene no longer shows it (out at {out_off:?})");
+        assert!(
+            out_off.is_none(),
+            "the leak is gone without the part: the scene no longer shows it (out at {out_off:?})"
+        );
         assert!(c_on.forage_out_pulls > 0, "the part never pulled");
         let out = out_on.expect("with forage_out the deep forager never reached the open air");
         assert!(
@@ -5318,10 +5275,16 @@ mod tests {
         let (_, _, on, c_on) = forager_walks("new_ant", Place::Surface, 800);
         assert!(off.len() > 100, "test setup: the ant died early");
         let first_inside = off.iter().zip(&on).position(|(a, b)| a.1 || b.1);
-        println!("outside forager: pulls {} / {}, first inside {first_inside:?}", c_off.forage_out_pulls, c_on.forage_out_pulls);
+        println!(
+            "outside forager: pulls {} / {}, first inside {first_inside:?}",
+            c_off.forage_out_pulls, c_on.forage_out_pulls
+        );
         // Up to the frame either first walks in, the paths are one path.
         let n = first_inside.unwrap_or(on.len().min(off.len()));
-        assert!(n > 100, "test setup: the forager went inside at once ({n}), so nothing was compared");
+        assert!(
+            n > 100,
+            "test setup: the forager went inside at once ({n}), so nothing was compared"
+        );
         assert_eq!(off[..n], on[..n], "forage_out changed a forager's walk in the open air");
     }
 

@@ -224,33 +224,17 @@ const RNG_SLOT_SHAFT_ROOMS: u64 = 12;
 /// A slot of its own so the switch moves no other draw.
 const RNG_SLOT_DIG_COMPANY: u64 = 13;
 
-/// The walk's `meet_some` draw: whether an ant round a delivery is met. A
-/// hash of the ant and the frame, so the part moves no other draw.
-const RNG_SLOT_MEET_SOME: u64 = 16;
+/// The walk's `meet_few` draw: which few ants round a delivery are met, the
+/// lowest hashes of ant and frame. A slot of its own so the part moves no
+/// other draw.
+const RNG_SLOT_MEET_FEW: u64 = 16;
 
-/// `PIXEL_PHYSICS_MEET_K`: how many ants round a delivery are met at most
-/// under the walk's `meet_k` (diagnostic, 2026-10-15); 3 when unset.
-fn meet_k() -> usize {
-    static V: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
-    *V.get_or_init(|| {
-        std::env::var("PIXEL_PHYSICS_MEET_K")
-            .ok()
-            .map(|v| v.trim().parse::<usize>().unwrap_or_else(|_| panic!("PIXEL_PHYSICS_MEET_K={v:?}: use a count")))
-            .unwrap_or(3)
-    })
-}
-
-/// `PIXEL_PHYSICS_MEET_P`: the chance an ant round a delivery is met under
-/// the walk's `meet_some` (diagnostic, 2026-10-15); 0.25 when unset.
-fn meet_some_p() -> f32 {
-    static V: std::sync::OnceLock<f32> = std::sync::OnceLock::new();
-    *V.get_or_init(|| {
-        std::env::var("PIXEL_PHYSICS_MEET_P")
-            .ok()
-            .map(|v| v.trim().parse::<f32>().unwrap_or_else(|_| panic!("PIXEL_PHYSICS_MEET_P={v:?}: use a chance in 0..=1")))
-            .unwrap_or(0.25)
-    })
-}
+/// How many ants round a delivery are met at most under the walk's
+/// `meet_few`, besides the deliverer. A modelling choice: at income 40 the
+/// drop has 10-15 ants within reach, at income 10 about 4-6, so 3 bites the
+/// big crowd and barely the small one (`walk-recruit-2026-10-15/results.md`
+/// §8).
+pub const MEET_FEW: usize = 3;
 
 /// **The cap `grow_body` walks a `Segmented` body's `FateGenome` to.** With
 /// laterals that is at most 16 cells; both shipped bodies land at 7-8, well
@@ -24886,44 +24870,30 @@ fn meet_returning_forager(world: &mut World, deliverer: OrganismId, (dx, dy): (i
     let now = world.frame.max(1);
     let Some(species) = world.organism(deliverer).map(|s| s.species) else { return };
     let mut met: Vec<OrganismId> = vec![deliverer];
-    // **The deliverer alone** (the walk's `meet_self`, a diagnostic): no ant
-    // round the drop is stamped. Off, one read.
-    let reach = if world.needs.as_ref().is_some_and(|n| n.parts.meet_self) {
-        world.needs.as_mut().expect("walking").counts.meet_self_drops += 1;
-        -1
-    } else {
-        RETURN_MEET
-    };
-    for y in dy - reach..=dy + reach {
-        for x in dx - reach..=dx + reach {
+    for y in dy - RETURN_MEET..=dy + RETURN_MEET {
+        for x in dx - RETURN_MEET..=dx + RETURN_MEET {
             let id = world.get(x, y).organism_id();
             if id != 0 && !met.contains(&id) && world.organism(id).is_some_and(|s| s.species == species) {
                 met.push(id);
             }
         }
     }
-    // **Some of them** (the walk's `meet_some`, a diagnostic): each ant
-    // round the drop is met with chance `meet_some_p`; the deliverer always.
-    // **A random few** (the walk's `meet_k`, a diagnostic): at most
-    // `meet_k` of them, the lowest hashes, on the same slot.
-    let parts = world.needs.as_ref().map(|n| n.parts);
-    if parts.is_some_and(|p| p.meet_k || p.meet_some) {
+    // **A few of them** (the walk's `meet_few`): at most `MEET_FEW`, the
+    // lowest hashes of ant and frame, so a random few; the deliverer always.
+    if world.needs.as_ref().is_some_and(|n| n.parts.meet_few) {
         let seed = world.seed;
-        let before = met.len() - 1;
-        let draw = |id: OrganismId| rng::stream(seed, id as u64, now, RNG_SLOT_MEET_SOME).unit_f32();
-        if parts.is_some_and(|p| p.meet_k) {
-            let mut others: Vec<(f32, OrganismId)> = met[1..].iter().map(|&id| (draw(id), id)).collect();
-            others.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)));
-            others.truncate(meet_k());
-            met.truncate(1);
-            met.extend(others.into_iter().map(|(_, id)| id));
-        } else {
-            let p = meet_some_p();
-            met.retain(|&id| id == deliverer || draw(id) < p);
-        }
+        let mut others: Vec<(f32, OrganismId)> = met[1..]
+            .iter()
+            .map(|&id| (rng::stream(seed, id as u64, now, RNG_SLOT_MEET_FEW).unit_f32(), id))
+            .collect();
+        others.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)));
+        let missed = others.len().saturating_sub(MEET_FEW);
+        others.truncate(MEET_FEW);
+        met.truncate(1);
+        met.extend(others.into_iter().map(|(_, id)| id));
         let c = &mut world.needs.as_mut().expect("walking").counts;
-        c.meet_some_met += (met.len() - 1) as u64;
-        c.meet_some_missed += (before - (met.len() - 1)) as u64;
+        c.meet_few_met += (met.len() - 1) as u64;
+        c.meet_few_missed += missed as u64;
     }
     for id in met {
         if let Some(s) = world.organism_mut(id) {
@@ -33977,6 +33947,49 @@ mod tests {
     /// a hungry one** ([`store_kept`]). A cell outside the store is never
     /// refused, and with the part off nothing is: the rule reads the switch
     /// first, which is what keeps every arm without it bit-exact.
+    /// **Under the walk's `meet_few` a return meets a few, not the crowd**:
+    /// a delivery among more than [`MEET_FEW`] ants within reach stamps the
+    /// deliverer and exactly `MEET_FEW` of them, the same few every time for
+    /// the same frame; with the part off it stamps every one. Watched red with
+    /// the truncate removed (every ant stamped with the part on).
+    #[test]
+    fn under_meet_few_a_return_meets_a_few_not_the_crowd() {
+        let stamped = |few: bool| -> (usize, usize, Vec<OrganismId>) {
+            let mut w = founding_bed();
+            w.plant_ant(30, 38);
+            for y in [35, 36, 37, 39, 40, 41] {
+                for x in [27, 30, 33] {
+                    w.plant_ant(x, y);
+                }
+            }
+            let deliverer = w.get(30, 38).organism_id();
+            let mut n = needs::NeedsWalk::new(needs::NeedsMode::Walk, w.frame);
+            n.parts.meet_few = few;
+            w.needs = Some(Box::new(n));
+            w.frame = 10_000;
+            let mut near: Vec<OrganismId> = Vec::new();
+            for y in 38 - RETURN_MEET..=38 + RETURN_MEET {
+                for x in 30 - RETURN_MEET..=30 + RETURN_MEET {
+                    let id = w.get(x, y).organism_id();
+                    if id != 0 && id != deliverer && !near.contains(&id) {
+                        near.push(id);
+                    }
+                }
+            }
+            meet_returning_forager(&mut w, deliverer, (30, 38));
+            assert_eq!(w.organism(deliverer).unwrap().return_met, 10_000, "the deliverer notes its own return");
+            let met: Vec<OrganismId> = near.iter().copied().filter(|&id| w.organism(id).unwrap().return_met == 10_000).collect();
+            (near.len(), met.len(), met)
+        };
+        let (near, all, _) = stamped(false);
+        assert!(near > MEET_FEW, "test setup: only {near} ants within reach, so a cap of {MEET_FEW} has nothing to cut");
+        assert_eq!(all, near, "with the part off every ant within reach is met");
+        let (_, few, first) = stamped(true);
+        assert_eq!(few, MEET_FEW, "with the part on exactly {MEET_FEW} of {near} are met");
+        let (_, _, again) = stamped(true);
+        assert_eq!(first, again, "the same few for the same frame");
+    }
+
     /// **The `met` drive is the ant's own memory** (`ForageNeed::Met`): a
     /// delivery stamps the deliverer and an ant beside it, not one standing
     /// further off; the drive is full inside the window from the stamp and
