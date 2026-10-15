@@ -331,6 +331,7 @@ fn run(
                 lay_out: arg::<u8>("layout").unwrap_or(1) == 1,
                 read: !mute,
             }),
+            sort: None,
         };
         world.textbook = Some(Box::new(textbook::Textbook::new(id, cfg)));
     }

@@ -136,6 +136,90 @@ pub struct TextbookCfg {
     /// **Slice B, the bridge: foraging on a trail** (`None` is slice A's
     /// soil verbs). See [`ForageCfg`].
     pub forage: Option<ForageCfg>,
+    /// **Slice C, brood sorting** (`None` is slice A's or B's verbs). See
+    /// [`SortCfg`]. Takes precedence over `forage`.
+    pub sort: Option<SortCfg>,
+}
+
+/// **Slice C's parameters: brood sorting by size** (Franks & Sendova-Franks
+/// 1992, *Leptothorax unifasciatus*: one cluster, the smallest brood in the
+/// centre, larger brood further out). An empty ant picks up an `item` cell
+/// it touches with `1 - score`, and a laden one puts it down on an open cell
+/// beside its head, with ground beneath, with `score`. Here `score` is Don &
+/// Amos's annular placement score (arXiv nlin/0507045, after Wilson et al.
+/// 2004's robots): the sum of `penalty` per item within `penalty_m * size`
+/// and `bonus` per item within `bonus_m * size`, clamped to 0..1. A bigger
+/// item needs more clear room, so it lies further out.
+///
+/// An item's size is its cell's shade (0, 1, 2) looked up in `sizes`, times
+/// `scale`. That is an inert stand-in: the game's brood has no size yet.
+/// "Within" is centre-to-centre on the grid (theirs is edge to edge).
+///
+/// Chosen on the walker box (`examples/broodsort`, 16 seeds, `scale` 1.5,
+/// `bonus_m` 3; the paper's own constants are `scale` 1, `bonus_m` 4): 13/16
+/// top-down, and 11/16 in side view scored along the floor, with medians
+/// 1.74 and 1.97 against Franks's 1.43-1.67 and 2.05-2.68. Deneubourg's
+/// same-kind rule and today's all-brood pile rule (`BROOD_CARRY=pile`)
+/// pass 0/16 top-down.
+#[derive(Clone, Copy, Debug)]
+pub struct SortCfg {
+    pub item: material::MaterialId,
+    pub sizes: [f32; 3],
+    pub scale: f32,
+    pub penalty: f32,
+    pub bonus: f32,
+    pub penalty_m: f32,
+    pub bonus_m: f32,
+    /// The control: every score is this constant (`broodsort`'s `off` is
+    /// 0.1), so ants carry brood at random with the same verbs.
+    pub flat: Option<f32>,
+}
+
+impl SortCfg {
+    /// Don & Amos's Experiment 1 at the walker box's grid scale.
+    pub fn room(item: material::MaterialId) -> SortCfg {
+        SortCfg {
+            item,
+            sizes: [0.5, 1.5, 3.0],
+            scale: 1.5,
+            penalty: -50.0,
+            bonus: 0.1,
+            penalty_m: 0.4,
+            bonus_m: 3.0,
+            flat: None,
+        }
+    }
+
+    /// The placement score for an item of `shade` at `(x, y)`, not counting
+    /// `skip` (the item itself, when it is being picked up).
+    pub fn score(&self, world: &World, shade: u8, (x, y): (i32, i32), skip: (i32, i32)) -> f32 {
+        if let Some(f) = self.flat {
+            return f;
+        }
+        let s = self.sizes[usize::from(shade.min(2))] * self.scale;
+        let (near, far) = (self.penalty_m * s, self.bonus_m * s);
+        let r = far.ceil() as i32;
+        let mut score = 0.0f32;
+        for dy in -r..=r {
+            for dx in -r..=r {
+                let c = (x + dx, y + dy);
+                if (dx, dy) == (0, 0) || c == skip || !world.in_bounds(c.0, c.1) {
+                    continue;
+                }
+                let cell = world.get(c.0, c.1);
+                if cell.material != self.item || cell.organism_id() != 0 {
+                    continue;
+                }
+                let d = ((dx * dx + dy * dy) as f32).sqrt();
+                if d <= near {
+                    score += self.penalty;
+                } else if d <= far {
+                    score += self.bonus;
+                }
+            }
+        }
+        score.clamp(0.0, 1.0)
+    }
 }
 
 /// **Slice B's parameters: a forager on a food trail** (design rev 2,
@@ -375,6 +459,10 @@ pub(super) fn act(world: &mut World, organism: OrganismId, def: &CreatureDef, dr
     };
     let Some((x, y)) = head else { return Did::default() };
     count(world, |c| c.decisions += 1);
+    if let Some(sc) = cfg.sort {
+        sort_act(world, organism, &sc, (x, y), laden.map(|l| l.cell), draw);
+        return Did::default();
+    }
     if let Some(fc) = cfg.forage {
         forage_act(world, organism, &fc, (x, y), laden.map(|l| l.cell), draw);
         return Did::default();
@@ -493,11 +581,19 @@ pub(super) fn step(
     } else {
         heading
     };
-    let Some(to) = [0u8, 1, 7, 2, 6, 3, 5, 4]
-        .iter()
-        .map(|&o| (want + o) % 8)
-        .find(|d| usable.contains(d))
-    else {
+    // **Under slice C a blocked ant's turn order is drawn each step.** A
+    // fixed order (clockwise first) gives every ant on a wall the same
+    // handedness, and in the sorting walker box it carried every seed's
+    // brood into one corner (`examples/broodsort`, 8/8). Slices A and B keep
+    // the fixed order so their recorded numbers reproduce; the bridge runs
+    // every condition mirrored, which cancels it there.
+    let sorting = world.textbook.as_ref().is_some_and(|t| t.cfg.sort.is_some());
+    let order: [u8; 8] = if sorting && draw.flip() {
+        [0, 7, 1, 6, 2, 5, 3, 4]
+    } else {
+        [0, 1, 7, 2, 6, 3, 5, 4]
+    };
+    let Some(to) = order.iter().map(|&o| (want + o) % 8).find(|d| usable.contains(d)) else {
         count(world, |c| c.stuck += 1);
         note_outcome(world, DecisionOutcome::RollFailedIdle);
         return false;
@@ -526,7 +622,12 @@ pub(super) fn step(
     count(world, |c| c.steps += 1);
     if let Some(fc) = forage.filter(|fc| laden || fc.lay_out) {
         if let Some(&(hx, hy)) = world.organism(organism).and_then(|s| s.chain.first()) {
-            world.deposit_pheromone(Channel::B, hx, hy, (fc.lay * f32::from(pheromone::SCALE)) as pheromone::Scent);
+            world.deposit_pheromone(
+                Channel::B,
+                hx,
+                hy,
+                (fc.lay * f32::from(pheromone::SCALE)) as pheromone::Scent,
+            );
         }
     }
     true
@@ -535,6 +636,62 @@ pub(super) fn step(
 /// **Slice B's verbs**: an empty ant takes a cell of food it touches; a
 /// laden one near home puts its load on an open cell beside the head with
 /// ground beneath it.
+/// **Slice C's verbs** ([`SortCfg`]): an empty ant picks up an item it
+/// touches with `1 - score` there; a laden one puts its item on an open cell
+/// beside its head, with ground beneath, with `score` there.
+fn sort_act(
+    world: &mut World,
+    organism: OrganismId,
+    sc: &SortCfg,
+    (x, y): (i32, i32),
+    load: Option<Cell>,
+    draw: &mut rng::Rng,
+) {
+    match load {
+        None => {
+            let items: Vec<(i32, i32)> = DIRS
+                .iter()
+                .map(|&(dx, dy)| (x + dx, y + dy))
+                .filter(|&(px, py)| {
+                    world.in_bounds(px, py) && {
+                        let c = world.get(px, py);
+                        c.material == sc.item && c.organism_id() == 0
+                    }
+                })
+                .collect();
+            if items.is_empty() {
+                return;
+            }
+            let at = items[draw.below(items.len() as u32) as usize];
+            let shade = world.get(at.0, at.1).shade;
+            if draw.unit_f32() < 1.0 - sc.score(world, shade, at, at) {
+                cut_cell(world, organism, at, false);
+                count(world, |c| c.picks += 1);
+            }
+        }
+        Some(cell) => {
+            let open: Vec<(i32, i32)> = DIRS
+                .iter()
+                .map(|&(dx, dy)| (x + dx, y + dy))
+                .filter(|&(px, py)| world.in_bounds(px, py) && world.is_empty(px, py) && ground(world, px, py + 1))
+                .collect();
+            if open.is_empty() {
+                count(world, |c| c.no_site += 1);
+                return;
+            }
+            let at = open[draw.below(open.len() as u32) as usize];
+            let won = draw.unit_f32() < sc.score(world, cell.shade, at, at);
+            count(world, |c| {
+                c.rolls += 1;
+                c.drops += u64::from(won);
+            });
+            if won {
+                place_pellet(world, organism, at, cell);
+            }
+        }
+    }
+}
+
 fn forage_act(
     world: &mut World,
     organism: OrganismId,
@@ -684,6 +841,7 @@ mod tests {
             base_always: true,
             build_on_box: false,
             forage: None,
+            sort: None,
         };
         // The layer is laid fresh at the start (the harness's bootstrap:
         // with no deposit anywhere, Eq. 1 never puts a pellet down).

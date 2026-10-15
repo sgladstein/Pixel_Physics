@@ -640,6 +640,7 @@ fn plant_ants(world: &mut World, floor_top: i32, w: i32, soil: MaterialId, tau: 
         base_always: arg::<u32>("literal").unwrap_or(0) == 0,
         build_on_box: arg::<u32>("onbox").unwrap_or(0) == 1,
         forage: None,
+        sort: None,
     };
     println!(
         "  ants: {placed} of {n} placed, textbook {cfg:?}, SPOIL_CORBEL {}, births paused, fed every {FEED_EVERY}",

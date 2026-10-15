@@ -1672,7 +1672,13 @@ Read once per process from the environment. The default is what ships.
   (`build_on_box` off; the paper's ants turn away from walls). Slice B
   (`ForageCfg`, harness `antbridge`) forages: it picks up food it touches,
   puts it down at home, and steps by persistence x a home or feeder vector
-  x Deneubourg's `(k + C)^n` on the food trail it lays. Caps need `PIXEL_PHYSICS_SPOIL_CORBEL=on`
+  x Deneubourg's `(k + C)^n` on the food trail it lays. Slice C
+  (`SortCfg`, harness `antsort`, takes precedence over B) sorts brood: it
+  picks up a loose item it touches with `1 - score` and puts it down on an
+  open cell with ground beneath beside its head with `score`, Don & Amos's
+  annular score (a bigger item needs more clear room; size is the cell's
+  shade, an inert stand-in). While sorting, its blocked-turn order is drawn
+  each step, since a fixed order gives every ant one handedness. Caps need `PIXEL_PHYSICS_SPOIL_CORBEL=on`
   (`update.rs`, off): one cell of overhang for a `needs_footing` cell held
   from the side.
 
