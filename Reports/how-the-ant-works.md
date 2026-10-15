@@ -1669,7 +1669,10 @@ Read once per process from the environment. The default is what ships.
   deposit is fresh (`base_always`: the scent scales only the pile term,
   so with no scent at all the soil is reworked rather than carried for
   ever), and it never lays a pellet with stone beside or above it
-  (`build_on_box` off; the paper's ants turn away from walls). Caps need `PIXEL_PHYSICS_SPOIL_CORBEL=on`
+  (`build_on_box` off; the paper's ants turn away from walls). Slice B
+  (`ForageCfg`, harness `antbridge`) forages: it picks up food it touches,
+  puts it down at home, and steps by persistence x a home or feeder vector
+  x Deneubourg's `(k + C)^n` on the food trail it lays. Caps need `PIXEL_PHYSICS_SPOIL_CORBEL=on`
   (`update.rs`, off): one cell of overhang for a `needs_footing` cell held
   from the side.
 

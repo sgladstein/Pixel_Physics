@@ -133,6 +133,65 @@ pub struct TextbookCfg {
     /// `SPOIL_CORBEL` they lined them: pillar box, 80 ants, tau 0, 520k
     /// frames, the floor's soil ended as a ramp 76 cells up the left wall.
     pub build_on_box: bool,
+    /// **Slice B, the bridge: foraging on a trail** (`None` is slice A's
+    /// soil verbs). See [`ForageCfg`].
+    pub forage: Option<ForageCfg>,
+}
+
+/// **Slice B's parameters: a forager on a food trail** (design rev 2,
+/// slice B; the double bridge of Goss et al. 1989 and Deneubourg et al.
+/// 1990, *Linepithema humile*). An empty ant picks up a cell of `food` it
+/// touches; a laden one puts it down within `home_r` of `home`. Each step
+/// is a heading drawn in proportion to
+/// `persistence x exp(vector x cos(heading, target)) x (k + C)^n`:
+/// - **persistence** by how far the heading turns from the body's facing
+///   (ours, the walkers' table in `examples/bridgebox.rs`);
+/// - **the vector**: the home vector for a laden ant (Mueller & Wehner
+///   1988, error 0, a free positive control) and the feeder vector for an
+///   empty one (path integration's memory of the food site, Collett et
+///   al.). Both point at a harness-given site: a labelled stand-in for a
+///   remembered route, not a sensed one;
+/// - **the trail**: Deneubourg's choice `(k + C)^n` on the food trail
+///   (channel B) one cell ahead, `C` and `k` in units of `SCALE`: Fitted
+///   on these bridges at k = 20 passages and n = 2, so `k = 20 x lay`.
+///   Applying a fork rule to every heading at every step is a modelling
+///   choice.
+///
+/// A step lays `lay` units of B where it lands: always for the Argentine
+/// ant of the bridge papers (`lay_out`), only when laden otherwise (Beckers
+/// et al. 1992, *L. niger*). The engine plane holds 255 units a cell, so a
+/// unit is one `SCALE`: at the shipped `DEPOSIT` (40 units) a cell is full
+/// after six passages and `(k + C)^2` can never exceed 1.7x. A trail that
+/// hits the cap reads the same on both branches: `examples/antbridge` runs
+/// `lay=0.1 k=2` with almost no fade (the papers ignore evaporation), which
+/// keeps a busy branch under it.
+///
+/// **Measured on Goss's bridge** (`antbridge`, 2026-10-15, 8 seeds, 60
+/// and 150 ants, mirrored): with the short branch below, the short branch
+/// carries 100% on 8/8 seeds (Goss: over 80% on 11/14); with the short
+/// branch added later, the colony stays on the long one 8/8 in both mirrors
+/// (Goss: 16/18). With the short branch above, 0/8: a side view's lower
+/// branch pulls a trail-following colony (scent off is fair, 0.50-0.54 on
+/// equal branches; scent on picks the lower on 4/4).
+#[derive(Clone, Copy, Debug)]
+pub struct ForageCfg {
+    pub food: material::MaterialId,
+    pub home: (i32, i32),
+    pub home_r: i32,
+    /// Where the home vector points (a laden ant), and the feeder vector
+    /// (an empty one). Separate from `home`, the drop zone, so a harness can
+    /// aim both at the bridge's own level: aimed at a chamber floor below
+    /// the branches, both vectors favoured the lower branch at every fork.
+    pub aim_home: (i32, i32),
+    pub feeder: (i32, i32),
+    pub vector: f32,
+    pub k: f32,
+    pub n: i32,
+    pub lay: f32,
+    pub lay_out: bool,
+    /// Whether the trail is read at all (`false` is the muted arm: laid,
+    /// never followed).
+    pub read: bool,
 }
 
 /// What the rules did, for a harness's census. Nothing reads these back.
@@ -156,6 +215,9 @@ pub struct TextbookCounts {
     /// Steps taken, and decisions with no usable heading.
     pub steps: u64,
     pub stuck: u64,
+    /// Slice B: food picked up at the feeder, and put down at home.
+    pub food_picks: u64,
+    pub delivered: u64,
 }
 
 /// **`World::textbook`**: which species decides by it, its parameters and
@@ -310,6 +372,10 @@ pub(super) fn act(world: &mut World, organism: OrganismId, def: &CreatureDef, dr
     };
     let Some((x, y)) = head else { return Did::default() };
     count(world, |c| c.decisions += 1);
+    if let Some(fc) = cfg.forage {
+        forage_act(world, organism, &fc, (x, y), laden.map(|l| l.cell), draw);
+        return Did::default();
+    }
     let n = pellets_round(world, &cfg, (x, y));
     match laden {
         None => {
@@ -406,7 +472,20 @@ pub(super) fn step(
         return false;
     }
     let usable = usable_headings(world, organism, def);
-    let want = if draw.unit_f32() < turn {
+    let forage = world.textbook.as_ref().and_then(|t| t.cfg.forage);
+    let laden = world.organism(organism).is_some_and(|s| s.spoil.is_some());
+    let heading = match forage {
+        Some(fc) => match forage_heading(world, &fc, &chain, &usable, laden, draw) {
+            Some(d) => d,
+            None => {
+                count(world, |c| c.stuck += 1);
+                note_outcome(world, DecisionOutcome::RollFailedIdle);
+                return false;
+            }
+        },
+        None => heading,
+    };
+    let want = if forage.is_none() && draw.unit_f32() < turn {
         (heading + if draw.flip() { 1 } else { 7 }) % 8
     } else {
         heading
@@ -442,7 +521,111 @@ pub(super) fn step(
         parting_enabled(),
     );
     count(world, |c| c.steps += 1);
+    if let Some(fc) = forage.filter(|fc| laden || fc.lay_out) {
+        if let Some(&(hx, hy)) = world.organism(organism).and_then(|s| s.chain.first()) {
+            world.deposit_pheromone(Channel::B, hx, hy, (fc.lay * f32::from(pheromone::SCALE)) as pheromone::Scent);
+        }
+    }
     true
+}
+
+/// **Slice B's verbs**: an empty ant takes a cell of food it touches; a
+/// laden one near home puts its load on an open cell beside the head with
+/// ground beneath it.
+fn forage_act(
+    world: &mut World,
+    organism: OrganismId,
+    fc: &ForageCfg,
+    (x, y): (i32, i32),
+    load: Option<Cell>,
+    draw: &mut rng::Rng,
+) {
+    let home = (x - fc.home.0).pow(2) + (y - fc.home.1).pow(2) <= fc.home_r.pow(2);
+    match load {
+        None if !home => {
+            let food: Vec<(i32, i32)> = DIRS
+                .iter()
+                .map(|&(dx, dy)| (x + dx, y + dy))
+                .filter(|&(px, py)| {
+                    world.in_bounds(px, py) && {
+                        let c = world.get(px, py);
+                        c.material == fc.food && c.organism_id() == 0
+                    }
+                })
+                .collect();
+            if !food.is_empty() {
+                let at = food[draw.below(food.len() as u32) as usize];
+                cut_cell(world, organism, at, false);
+                count(world, |c| c.food_picks += 1);
+            }
+        }
+        Some(cell) if home => {
+            let open: Vec<(i32, i32)> = DIRS
+                .iter()
+                .map(|&(dx, dy)| (x + dx, y + dy))
+                .filter(|&(px, py)| world.in_bounds(px, py) && world.is_empty(px, py) && ground(world, px, py + 1))
+                .collect();
+            if !open.is_empty() {
+                let at = open[draw.below(open.len() as u32) as usize];
+                place_pellet(world, organism, at, cell);
+                count(world, |c| c.delivered += 1);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// **Slice B's step**: a usable heading drawn in proportion to
+/// persistence x vector x trail ([`ForageCfg`]). `None` with no usable
+/// heading.
+fn forage_heading(
+    world: &World,
+    fc: &ForageCfg,
+    chain: &[(i32, i32)],
+    usable: &[u8],
+    laden: bool,
+    draw: &mut rng::Rng,
+) -> Option<u8> {
+    let &(hx, hy) = chain.first()?;
+    let facing = chain
+        .get(1)
+        .and_then(|&(bx, by)| {
+            let d = ((hx - bx).signum(), (hy - by).signum());
+            DIRS.iter().position(|&v| v == d)
+        })
+        .unwrap_or(0);
+    let (tx, ty) = if laden { fc.aim_home } else { fc.feeder };
+    let (vx, vy) = ((tx - hx) as f32, (ty - hy) as f32);
+    let vlen = (vx * vx + vy * vy).sqrt().max(1e-6);
+    let mut weights = [0f32; 8];
+    let mut total = 0.0;
+    for &d in usable {
+        let (dx, dy) = DIRS[d as usize];
+        let turn = (d as usize + 8 - facing) % 8;
+        let persist = [1.0, 0.5, 0.15, 0.03, 0.01, 0.03, 0.15, 0.5][turn];
+        let dl = ((dx * dx + dy * dy) as f32).sqrt();
+        let cos = (dx as f32 * vx + dy as f32 * vy) / (dl * vlen);
+        let c = if fc.read {
+            f32::from(world.pheromone_at(Channel::B, hx + dx, hy + dy)) / f32::from(pheromone::SCALE)
+        } else {
+            0.0
+        };
+        let w = persist * (fc.vector * cos).exp() * (fc.k + c).powi(fc.n);
+        weights[d as usize] = w;
+        total += w;
+    }
+    if total <= 0.0 {
+        return None;
+    }
+    let mut r = draw.unit_f32() * total;
+    for &d in usable {
+        let w = weights[d as usize];
+        if r < w {
+            return Some(d);
+        }
+        r -= w;
+    }
+    usable.last().copied()
 }
 
 fn count(world: &mut World, f: impl FnOnce(&mut TextbookCounts)) {
@@ -497,6 +680,7 @@ mod tests {
             pick_around: true,
             base_always: true,
             build_on_box: false,
+            forage: None,
         };
         // The layer is laid fresh at the start (the harness's bootstrap:
         // with no deposit anywhere, Eq. 1 never puts a pellet down).
