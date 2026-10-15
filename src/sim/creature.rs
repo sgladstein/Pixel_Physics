@@ -26300,7 +26300,7 @@ pub fn route_half() -> RouteHalf {
 }
 
 /// The reader an ant uses where [`trail_loop`] is not acting on it
-/// ([`trail_loop_here`]): `PIXEL_PHYSICS_ROUTE_HALF` if set, else the shipped
+/// ([`TrailRead`]): `PIXEL_PHYSICS_ROUTE_HALF` if set, else the shipped
 /// fixed half -- the reader the game ant would have with the loop off.
 fn route_half_shipped() -> RouteHalf {
     route_half_set().unwrap_or(RouteHalf::Fixed(TRAIL_HALF))
@@ -26362,8 +26362,8 @@ fn route_scent(world: &World, head: (i32, i32), d: u8, channel: Channel) -> f32 
 }
 
 /// The half each plane is read against for this decision (`rh`, which is
-/// [`route_half_for`] the ant's [`trail_loop_here`]), given the headings on
-/// offer.
+/// [`route_half_for`] whether the loop acts, [`TrailRead`]), given the
+/// headings on offer.
 pub(crate) fn route_halves(world: &World, head: (i32, i32), planes: [f32; 2], headings: impl Iterator<Item = u8> + Clone, rh: RouteHalf) -> [f32; 2] {
     match rh {
         RouteHalf::Fixed(h) => [h; 2],
@@ -26471,15 +26471,15 @@ pub enum TrailLoop {
     Empty,
 }
 
-/// `PIXEL_PHYSICS_TRAIL_LOOP=<mode>[,outdoors][,home]`, read once: the mode
+/// `PIXEL_PHYSICS_TRAIL_LOOP=<mode>[,outdoors][,keen]`, read once: the mode
 /// (`on`, `food`, `empty` or `off`; absent is `off`), whether
-/// [`trail_outdoors`] is on, and whether [`trail_loop_home`] is. `outdoors`
-/// alone is the shipped trail with the gate; `home` alone is the shipped ant.
+/// [`trail_outdoors`] is on, and whether [`trail_loop_keen`] is. `outdoors`
+/// alone is the shipped trail with the gate; `keen` alone is the shipped ant.
 fn trail_loop_cfg() -> (TrailLoop, bool, bool) {
     static V: std::sync::OnceLock<(TrailLoop, bool, bool)> = std::sync::OnceLock::new();
     *V.get_or_init(|| {
         let raw = std::env::var("PIXEL_PHYSICS_TRAIL_LOOP").unwrap_or_default();
-        let (mut mode, mut outdoors, mut home) = (TrailLoop::Off, false, false);
+        let (mut mode, mut outdoors, mut keen) = (TrailLoop::Off, false, false);
         for part in raw.split(',').map(str::trim).filter(|p| !p.is_empty()) {
             match part {
                 "on" => mode = TrailLoop::On,
@@ -26487,11 +26487,11 @@ fn trail_loop_cfg() -> (TrailLoop, bool, bool) {
                 "empty" => mode = TrailLoop::Empty,
                 "off" => mode = TrailLoop::Off,
                 "outdoors" => outdoors = true,
-                "home" => home = true,
-                _ => panic!("PIXEL_PHYSICS_TRAIL_LOOP={raw}: `{part}` is not on, food, empty, off, outdoors or home"),
+                "keen" => keen = true,
+                _ => panic!("PIXEL_PHYSICS_TRAIL_LOOP={raw}: `{part}` is not on, food, empty, off, outdoors or keen"),
             }
         }
-        (mode, outdoors, home)
+        (mode, outdoors, keen)
     })
 }
 
@@ -26527,37 +26527,110 @@ pub fn trail_outdoors() -> bool {
     trail_loop_cfg().1
 }
 
-/// **The whole loop acts outdoors only** (`PIXEL_PHYSICS_TRAIL_LOOP=...,home`,
-/// off): an ant whose head is at home ([`home_at`], as [`trail_outdoors`])
-/// reads the trail exactly as the shipped ant does -- no read of the food
-/// trail while laden, the shipped reader rather than `ratio:2`, the shipped
-/// hold rather than the doubled one. Outside, every part of the mode acts.
+/// **The loop holds the ants that are going somewhere**
+/// (`PIXEL_PHYSICS_TRAIL_LOOP=...,keen`, off): the loop's parts act on an
+/// ant in proportion to how keen it is to forage ([`trail_loop_weight`]) --
+/// fully on a laden ant, by its outward want (hunger, or what the colony
+/// sent it out with, as the scouting pull reads it) on an empty ant going
+/// out, and not at all on an ant with nowhere to go. That idle ant reads the
+/// trail exactly as the shipped ant does. In between, the hold is graded
+/// from the shipped one to the doubled one, and the presence is the same
+/// blend of the shipped reader and the ratio reader.
 ///
-/// **Why** (full-game partner thread, 12 seeds plus nudged, game ant,
-/// 2026-10-15, `full-game-trails/ongate-12seeds-game-2026-10-15.txt`):
-/// `on,outdoors` took the food trail off home ground but left the doubled
-/// hold and the ratio reader acting on the nest scent there, and the ~300
-/// colony's dug nest held 52 / 40 / 32 ants at food 30 / 90 / 200 against
-/// main's 72 / 56 / 44 (nudged 71 / 58 / 47), with more small colonies dying
-/// at far food (4 of 12 at food 200 against 2 of 12). The parts read on two
-/// seeds put most of the ungated nest cost on the doubled hold
-/// (`trail-loop-2026-10-15.md`). Inside the nest the nest scent lies at its
-/// ceiling on every heading, so neither the hold nor the ratio has a route to
-/// pick there; whatever they do at home is a cost with no bridge to pay for.
-/// The double bridge lies outside any nest, so this gate cannot change a
-/// bridge result.
-pub fn trail_loop_home() -> bool {
+/// **Why** (2026-10-15, game ant ~290, food 90, seeds 1-2, 100-150k,
+/// `emergence-sandbox/double-bridge-2026-10-15.md`): with the loop on, the
+/// dug nest lost 30-40 residents, and they were in the mound's tunnels
+/// (`mound_in` 70-73 per census against 29-46 off) and staying there (44%
+/// still there 1k frames later against 14-23%), fed (373 J against a 200 J
+/// start) and empty (14% with a crop, 5% hauling soil against 15-21%). The
+/// full-game partner's door trace had already found the mound's wanderers
+/// held on every heading but the step down, because the food trail lies on
+/// the mound and not in the shaft. Taking the loop off at home only
+/// (`home`, ebaef7d6d, reverted) left 28 in the nest against `outdoors`' 40:
+/// the ants were held where the trail lies, not at home.
+///
+/// Response to a recruitment trail rises with an ant's motivation to forage
+/// -- hunger and the colony's need -- in the response-threshold accounts of
+/// foraging (Bonabeau, Theraulaz & Deneubourg 1996; for trail recruitment,
+/// Mailleux, Detrain & Deneubourg 2006 -- not checked here); an idle nest
+/// worker is not recruited by a trail it walks over.
+pub fn trail_loop_keen() -> bool {
     trail_loop_cfg().2
 }
 
-/// **Does [`trail_loop`] act on an ant whose head is at `head`?** Everywhere
-/// when it is on, except at home under [`trail_loop_home`].
-pub(crate) fn trail_loop_here(world: &World, head: (i32, i32), def: &CreatureDef) -> bool {
-    trail_loop() && !(trail_loop_home() && home_at(world, head.0, head.1, def))
+/// **How much of the loop acts on this ant this decision**, 0 to 1: 0 with
+/// the loop off; under [`trail_loop_keen`], 1 for a laden ant and its
+/// outward want (`want`, `None` for an ant not going out) for an empty one;
+/// otherwise 1.
+pub(crate) fn trail_loop_weight(laden: bool, want: Option<f32>) -> f32 {
+    if !trail_loop() {
+        0.0
+    } else if !trail_loop_keen() || laden {
+        1.0
+    } else {
+        want.unwrap_or(0.0).clamp(0.0, 1.0)
+    }
+}
+
+/// **The trail as one ant reads it for one decision**: the loop's reading
+/// and the shipped one, blended by [`trail_loop_weight`] (`k`). At `k` 0 or 1
+/// only one side is read, so with `keen` off this is the reader it replaced.
+pub(crate) struct TrailRead {
+    k: f32,
+    /// planes, halves and reader for the loop side (`k > 0`) and the shipped side (`k < 1`).
+    sides: [([f32; 2], [f32; 2], RouteHalf); 2],
+}
+
+impl TrailRead {
+    pub(crate) fn new(world: &World, head: (i32, i32), def: &CreatureDef, traits: &[f32; CREATURE_TRAITS], laden: bool, k: f32, headings: impl Iterator<Item = u8> + Clone) -> Self {
+        let side = |on: bool| {
+            let planes = trail_planes_at(world, head, def, traits, laden, on);
+            let rh = route_half_for(on);
+            (planes, route_halves(world, head, planes, headings.clone(), rh), rh)
+        };
+        let off = ([0.0; 2], [TRAIL_HALF; 2], RouteHalf::Fixed(TRAIL_HALF));
+        TrailRead { k, sides: [if k > 0.0 { side(true) } else { off }, if k < 1.0 { side(false) } else { off }] }
+    }
+
+    /// The presence of a step along `d` ([`trail_presence`]), blended.
+    pub(crate) fn presence(&self, world: &World, head: (i32, i32), d: u8) -> f32 {
+        let one = |i: usize| {
+            let (planes, halves, rh) = self.sides[i];
+            trail_presence(world, head, d, planes, halves, rh)
+        };
+        if self.k >= 1.0 {
+            one(0)
+        } else if self.k <= 0.0 {
+            one(1)
+        } else {
+            self.k * one(0) + (1.0 - self.k) * one(1)
+        }
+    }
+
+    /// The hold's gain ([`trail_hold_gain`]), blended.
+    pub(crate) fn hold_gain(&self, walk: &[f32; CREATURE_TRAITS], laden: bool) -> f32 {
+        if self.k >= 1.0 {
+            trail_hold_gain(walk, laden, true)
+        } else if self.k <= 0.0 {
+            trail_hold_gain(walk, laden, false)
+        } else {
+            self.k * trail_hold_gain(walk, laden, true) + (1.0 - self.k) * trail_hold_gain(walk, laden, false)
+        }
+    }
+
+    /// [`food_hold_extra`] on the loop side, times `k`.
+    pub(crate) fn food_extra(&self, world: &World, head: (i32, i32), d: u8, walk: &[f32; CREATURE_TRAITS]) -> f32 {
+        if self.k <= 0.0 {
+            return 0.0;
+        }
+        let (planes, halves, _) = self.sides[0];
+        let x = food_hold_extra(world, head, d, walk, planes, halves, true);
+        if self.k >= 1.0 { x } else { self.k * x }
+    }
 }
 
 /// [`trail_planes`] with [`trail_outdoors`] applied at `head`, for an ant the
-/// loop acts on (`loop_here`, [`trail_loop_here`]) or not.
+/// loop acts on (`loop_here`) or not.
 pub(crate) fn trail_planes_at(world: &World, head: (i32, i32), def: &CreatureDef, traits: &[f32; CREATURE_TRAITS], laden: bool, loop_here: bool) -> [f32; 2] {
     let planes = trail_planes(traits, laden, loop_here);
     if trail_outdoors() && home_at(world, head.0, head.1, def) {
@@ -27226,8 +27299,6 @@ fn chooser_step(
     // A packed lunch is not a load (`carries_lunch`): its carrier scouts
     // outward and reads the outbound trail, as an empty ant does.
     let laden = world.organism(organism).is_some_and(|s| s.crop.is_some_and(|c| c.worth() > 0.0) && !carries_lunch(world, s));
-    let loop_here = trail_loop_here(world, (hx, hy), def);
-    let trail_gain = trail_hold_gain(&walk, laden, loop_here);
     // **Nurses find hungry larvae by scent** ([`brood::nurse_seek_of`]): an
     // ant with something to give -- a bank over its stamp, which is what
     // `brood::nurse` takes from -- carrying no load and no pellet, inside the
@@ -27375,10 +27446,12 @@ fn chooser_step(
             0.0
         }
     };
-    let planes = trail_planes_at(world, (hx, hy), def, &walk, laden, loop_here);
-    let rh = route_half_for(loop_here);
-    let halves = if reads_trail { route_halves(world, (hx, hy), planes, usable.iter().copied().chain(crossing.map(|_| heading)), rh) } else { [TRAIL_HALF; 2] };
-    let route = |d: u8| if reads_trail { trail_presence(world, (hx, hy), d, planes, halves, rh) } else { 0.0 };
+    // How much of `TRAIL_LOOP` this ant reads with ([`trail_loop_weight`]):
+    // an empty ant going out by the want its scouting pull read.
+    let want = away_from.map(|_| sent.map_or_else(|| world.organism(organism).map_or(0.0, |s| outward_want(world, s, def).0), |(w, _)| w));
+    let read = TrailRead::new(world, (hx, hy), def, &walk, laden, if reads_trail { trail_loop_weight(laden, want) } else { 0.0 }, usable.iter().copied().chain(crossing.map(|_| heading)));
+    let trail_gain = read.hold_gain(&walk, laden);
+    let route = |d: u8| if reads_trail { read.presence(world, (hx, hy), d) } else { 0.0 };
     // **Stage 3, the give-up lets go** (`FoodTrail::giveup`,
     // `Reports/ant-scenes-2026-09-23.md` §23d): a scout that has given up is
     // no longer held by the trail it gave up on. The away term is 0, the pull
@@ -27405,7 +27478,7 @@ fn chooser_step(
             1.0
         } else {
             1.0 + trail_gain * (route(d) - route_floor).max(0.0)
-                + if reads_trail { food_hold_extra(world, (hx, hy), d, &walk, planes, halves, loop_here) } else { 0.0 }
+                + if reads_trail { read.food_extra(world, (hx, hy), d, &walk) } else { 0.0 }
         }
     };
     // **Level, not radial**: the home cosine of the heading's sideways part

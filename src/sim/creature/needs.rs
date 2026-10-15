@@ -2891,9 +2891,7 @@ fn walk_step(
             0.0
         }
     };
-    let loop_here = trail_loop_here(world, (hx, hy), def);
-    let planes = trail_planes_at(world, (hx, hy), def, &walk, laden, loop_here);
-    let trail_gain = trail_hold_gain(&walk, laden, loop_here);
+
     let spent = scout_home && scout_dark && scout_w > 0.0 && food_trail_of(world).giveup;
     // **The carry home is held by a route's contrast, not its level**
     // (`CarryHome`'s `turn`, part of the carry here).
@@ -2901,9 +2899,17 @@ fn walk_step(
     // `PIXEL_PHYSICS_ROUTE_HALF` reaches this walk as it reaches the game's
     // chooser (2026-10-14, so the textbook tests can run both ants under one
     // switch); unset is `TRAIL_HALF` on both planes, as before.
-    let rh = route_half_for(loop_here);
-    let halves = route_halves(world, (hx, hy), planes, options.iter().copied(), rh);
-    let route = |d: u8| trail_presence(world, (hx, hy), d, planes, halves, rh);
+    let read = TrailRead::new(
+        world,
+        (hx, hy),
+        def,
+        &walk,
+        laden,
+        trail_loop_weight(laden, going_out.then_some(want)),
+        options.iter().copied(),
+    );
+    let trail_gain = read.hold_gain(&walk, laden);
+    let route = |d: u8| read.presence(world, (hx, hy), d);
     let route_floor = if drive == Drive::Carry && trip {
         let f = options.iter().map(|&d| route(d)).fold(f32::INFINITY, f32::min);
         if f.is_finite() {
@@ -2918,8 +2924,7 @@ fn walk_step(
         if spent {
             1.0
         } else {
-            1.0 + trail_gain * (route(d) - route_floor).max(0.0)
-                + food_hold_extra(world, (hx, hy), d, &walk, planes, halves, loop_here)
+            1.0 + trail_gain * (route(d) - route_floor).max(0.0) + read.food_extra(world, (hx, hy), d, &walk)
         }
     };
     let scout_cos = |d: u8| -> Option<f32> {
