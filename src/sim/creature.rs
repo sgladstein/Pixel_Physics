@@ -26295,11 +26295,31 @@ pub enum RouteHalf {
 }
 
 pub fn route_half() -> RouteHalf {
-    static V: std::sync::OnceLock<RouteHalf> = std::sync::OnceLock::new();
+    // `PIXEL_PHYSICS_TRAIL_LOOP=on` brings `ratio:2` with it when this is unset.
+    route_half_set().unwrap_or(if trail_loop() { RouteHalf::Ratio(2, [true, true]) } else { RouteHalf::Fixed(TRAIL_HALF) })
+}
+
+/// The reader an ant uses where [`trail_loop`] is not acting on it
+/// ([`trail_loop_here`]): `PIXEL_PHYSICS_ROUTE_HALF` if set, else the shipped
+/// fixed half -- the reader the game ant would have with the loop off.
+fn route_half_shipped() -> RouteHalf {
+    route_half_set().unwrap_or(RouteHalf::Fixed(TRAIL_HALF))
+}
+
+/// [`route_half`] or [`route_half_shipped`], by whether the loop acts here.
+fn route_half_for(loop_here: bool) -> RouteHalf {
+    if loop_here {
+        route_half()
+    } else {
+        route_half_shipped()
+    }
+}
+
+/// `PIXEL_PHYSICS_ROUTE_HALF` as parsed, read once; `None` when unset.
+fn route_half_set() -> Option<RouteHalf> {
+    static V: std::sync::OnceLock<Option<RouteHalf>> = std::sync::OnceLock::new();
     *V.get_or_init(|| {
-        // `PIXEL_PHYSICS_TRAIL_LOOP=on` brings `ratio:2` with it when this is unset.
-        let unset = if trail_loop() { RouteHalf::Ratio(2, [true, true]) } else { RouteHalf::Fixed(TRAIL_HALF) };
-        std::env::var("PIXEL_PHYSICS_ROUTE_HALF").ok().map_or(unset, |s| {
+        std::env::var("PIXEL_PHYSICS_ROUTE_HALF").ok().map(|s| {
             let t = s.trim();
             if let Some(rest) = t.strip_prefix("ratio:") {
                 let (n, which) = rest.split_once(':').unwrap_or((rest, "ab"));
@@ -26341,10 +26361,11 @@ fn route_scent(world: &World, head: (i32, i32), d: u8, channel: Channel) -> f32 
     f32::from(near.max(far))
 }
 
-/// The half each plane is read against for this decision ([`route_half`]),
-/// given the headings on offer.
-fn route_halves(world: &World, head: (i32, i32), planes: [f32; 2], headings: impl Iterator<Item = u8> + Clone) -> [f32; 2] {
-    match route_half() {
+/// The half each plane is read against for this decision (`rh`, which is
+/// [`route_half_for`] the ant's [`trail_loop_here`]), given the headings on
+/// offer.
+pub(crate) fn route_halves(world: &World, head: (i32, i32), planes: [f32; 2], headings: impl Iterator<Item = u8> + Clone, rh: RouteHalf) -> [f32; 2] {
+    match rh {
         RouteHalf::Fixed(h) => [h; 2],
         RouteHalf::Rel(c, on) => {
             let mut out = [TRAIL_HALF; 2];
@@ -26377,14 +26398,14 @@ fn route_halves(world: &World, head: (i32, i32), planes: [f32; 2], headings: imp
 /// reach for a two-cell ant), saturated as `x / (1 + x)` over `TRAIL_HALF`.
 /// Trail B for an ant carrying no food, trail A for one that is (plan §4d:
 /// the laden ant reads the nest's trail, never its own).
-fn trail_presence(world: &World, head: (i32, i32), d: u8, planes: [f32; 2], halves: [f32; 2]) -> f32 {
+pub(crate) fn trail_presence(world: &World, head: (i32, i32), d: u8, planes: [f32; 2], halves: [f32; 2], rh: RouteHalf) -> f32 {
     // **Which plane is a route is the ant's own** (`organism::TRAIL_PLANE_
     // SLOTS`): each plane's saturated presence, weighted by the inherited
     // weight for this ant's state, summed and floored at 0. A zero weight
     // reads nothing, so the ancestral ant (weights 1 and 0) samples exactly
     // the one plane the hard-coded choice did, and `1 * p` is `p` to the bit.
     let mut sum = 0.0;
-    let ratio = match route_half() {
+    let ratio = match rh {
         RouteHalf::Ratio(n, on) => Some((n, on)),
         _ => None,
     };
@@ -26450,14 +26471,15 @@ pub enum TrailLoop {
     Empty,
 }
 
-/// `PIXEL_PHYSICS_TRAIL_LOOP=<mode>[,outdoors]`, read once: the mode (`on`,
-/// `food`, `empty` or `off`; absent is `off`) and whether [`trail_outdoors`]
-/// is on. `outdoors` alone is the shipped trail with the gate.
-fn trail_loop_cfg() -> (TrailLoop, bool) {
-    static V: std::sync::OnceLock<(TrailLoop, bool)> = std::sync::OnceLock::new();
+/// `PIXEL_PHYSICS_TRAIL_LOOP=<mode>[,outdoors][,home]`, read once: the mode
+/// (`on`, `food`, `empty` or `off`; absent is `off`), whether
+/// [`trail_outdoors`] is on, and whether [`trail_loop_home`] is. `outdoors`
+/// alone is the shipped trail with the gate; `home` alone is the shipped ant.
+fn trail_loop_cfg() -> (TrailLoop, bool, bool) {
+    static V: std::sync::OnceLock<(TrailLoop, bool, bool)> = std::sync::OnceLock::new();
     *V.get_or_init(|| {
         let raw = std::env::var("PIXEL_PHYSICS_TRAIL_LOOP").unwrap_or_default();
-        let (mut mode, mut outdoors) = (TrailLoop::Off, false);
+        let (mut mode, mut outdoors, mut home) = (TrailLoop::Off, false, false);
         for part in raw.split(',').map(str::trim).filter(|p| !p.is_empty()) {
             match part {
                 "on" => mode = TrailLoop::On,
@@ -26465,10 +26487,11 @@ fn trail_loop_cfg() -> (TrailLoop, bool) {
                 "empty" => mode = TrailLoop::Empty,
                 "off" => mode = TrailLoop::Off,
                 "outdoors" => outdoors = true,
-                _ => panic!("PIXEL_PHYSICS_TRAIL_LOOP={raw}: `{part}` is not on, food, empty, off or outdoors"),
+                "home" => home = true,
+                _ => panic!("PIXEL_PHYSICS_TRAIL_LOOP={raw}: `{part}` is not on, food, empty, off, outdoors or home"),
             }
         }
-        (mode, outdoors)
+        (mode, outdoors, home)
     })
 }
 
@@ -26504,9 +26527,39 @@ pub fn trail_outdoors() -> bool {
     trail_loop_cfg().1
 }
 
-/// [`trail_planes`] with [`trail_outdoors`] applied at `head`.
-pub(crate) fn trail_planes_at(world: &World, head: (i32, i32), def: &CreatureDef, traits: &[f32; CREATURE_TRAITS], laden: bool) -> [f32; 2] {
-    let planes = trail_planes(traits, laden);
+/// **The whole loop acts outdoors only** (`PIXEL_PHYSICS_TRAIL_LOOP=...,home`,
+/// off): an ant whose head is at home ([`home_at`], as [`trail_outdoors`])
+/// reads the trail exactly as the shipped ant does -- no read of the food
+/// trail while laden, the shipped reader rather than `ratio:2`, the shipped
+/// hold rather than the doubled one. Outside, every part of the mode acts.
+///
+/// **Why** (full-game partner thread, 12 seeds plus nudged, game ant,
+/// 2026-10-15, `full-game-trails/ongate-12seeds-game-2026-10-15.txt`):
+/// `on,outdoors` took the food trail off home ground but left the doubled
+/// hold and the ratio reader acting on the nest scent there, and the ~300
+/// colony's dug nest held 52 / 40 / 32 ants at food 30 / 90 / 200 against
+/// main's 72 / 56 / 44 (nudged 71 / 58 / 47), with more small colonies dying
+/// at far food (4 of 12 at food 200 against 2 of 12). The parts read on two
+/// seeds put most of the ungated nest cost on the doubled hold
+/// (`trail-loop-2026-10-15.md`). Inside the nest the nest scent lies at its
+/// ceiling on every heading, so neither the hold nor the ratio has a route to
+/// pick there; whatever they do at home is a cost with no bridge to pay for.
+/// The double bridge lies outside any nest, so this gate cannot change a
+/// bridge result.
+pub fn trail_loop_home() -> bool {
+    trail_loop_cfg().2
+}
+
+/// **Does [`trail_loop`] act on an ant whose head is at `head`?** Everywhere
+/// when it is on, except at home under [`trail_loop_home`].
+pub(crate) fn trail_loop_here(world: &World, head: (i32, i32), def: &CreatureDef) -> bool {
+    trail_loop() && !(trail_loop_home() && home_at(world, head.0, head.1, def))
+}
+
+/// [`trail_planes`] with [`trail_outdoors`] applied at `head`, for an ant the
+/// loop acts on (`loop_here`, [`trail_loop_here`]) or not.
+pub(crate) fn trail_planes_at(world: &World, head: (i32, i32), def: &CreatureDef, traits: &[f32; CREATURE_TRAITS], laden: bool, loop_here: bool) -> [f32; 2] {
+    let planes = trail_planes(traits, laden, loop_here);
     if trail_outdoors() && home_at(world, head.0, head.1, def) {
         [planes[0], 0.0]
     } else {
@@ -26516,13 +26569,15 @@ pub(crate) fn trail_planes_at(world: &World, head: (i32, i32), def: &CreatureDef
 
 /// The trail's hold factor: `TRAIL_GAIN` times this ant's own
 /// `TRAIT_TRAIL_HOLD`, doubled under `TRAIL_LOOP=on`, or `=empty` for an
-/// empty ant. (`=food` adds its doubling in [`food_hold_extra`] instead.)
-pub(crate) fn trail_hold_gain(walk: &[f32; CREATURE_TRAITS], laden: bool) -> f32 {
-    let double = match trail_loop_mode() {
-        TrailLoop::On => true,
-        TrailLoop::Empty => !laden,
-        TrailLoop::Off | TrailLoop::Food => false,
-    };
+/// empty ant, where the loop acts (`loop_here`). (`=food` adds its doubling
+/// in [`food_hold_extra`] instead.)
+pub(crate) fn trail_hold_gain(walk: &[f32; CREATURE_TRAITS], laden: bool, loop_here: bool) -> f32 {
+    let double = loop_here
+        && match trail_loop_mode() {
+            TrailLoop::On => true,
+            TrailLoop::Empty => !laden,
+            TrailLoop::Off | TrailLoop::Food => false,
+        };
     TRAIL_GAIN * walk_gain(walk, organism::TRAIT_TRAIL_HOLD) * if double { 2.0 } else { 1.0 }
 }
 
@@ -26539,21 +26594,22 @@ pub(crate) fn trail_hold_gain(walk: &[f32; CREATURE_TRAITS], laden: bool) -> f32
 /// 0.23/0.25), a taught branch kept on 6 of 8, colonies at the game ant's
 /// size; at 6: every live colony chooses (0.02/0.98) but colonies are
 /// smaller and 3 of 8 too small to read (`trailfollow bridgeneck=3`).
-pub(crate) fn food_hold_extra(world: &World, head: (i32, i32), d: u8, walk: &[f32; CREATURE_TRAITS], planes: [f32; 2], halves: [f32; 2]) -> f32 {
-    if trail_loop_mode() != TrailLoop::Food || planes[1] == 0.0 {
+pub(crate) fn food_hold_extra(world: &World, head: (i32, i32), d: u8, walk: &[f32; CREATURE_TRAITS], planes: [f32; 2], halves: [f32; 2], loop_here: bool) -> f32 {
+    if !loop_here || trail_loop_mode() != TrailLoop::Food || planes[1] == 0.0 {
         return 0.0;
     }
     static X: std::sync::OnceLock<f32> = std::sync::OnceLock::new();
     let x = *X.get_or_init(|| std::env::var("PIXEL_PHYSICS_FOOD_HOLD").map_or(1.0, |v| v.parse().unwrap_or_else(|_| panic!("PIXEL_PHYSICS_FOOD_HOLD={v}: want a number"))));
-    x * TRAIL_GAIN * walk_gain(walk, organism::TRAIT_TRAIL_HOLD) * trail_presence(world, head, d, [0.0, planes[1]], halves)
+    x * TRAIL_GAIN * walk_gain(walk, organism::TRAIT_TRAIL_HOLD) * trail_presence(world, head, d, [0.0, planes[1]], halves, route_half())
 }
 
 /// **The weights this ant reads trail A and trail B with**, for its state:
 /// laden or empty, base plus its own allele (`organism::TRAIT_LADEN_A`). The
 /// bases are the old hard-coded choice -- laden follows A, empty follows B.
-fn trail_planes(traits: &[f32; CREATURE_TRAITS], laden: bool) -> [f32; 2] {
+/// Where [`trail_loop`] acts (`loop_here`) a laden ant reads B at base 1.
+fn trail_planes(traits: &[f32; CREATURE_TRAITS], laden: bool, loop_here: bool) -> [f32; 2] {
     if laden {
-        [1.0 + traits[organism::TRAIT_LADEN_A], traits[organism::TRAIT_LADEN_B] + if trail_loop() { 1.0 } else { 0.0 }]
+        [1.0 + traits[organism::TRAIT_LADEN_A], traits[organism::TRAIT_LADEN_B] + if loop_here { 1.0 } else { 0.0 }]
     } else {
         [traits[organism::TRAIT_EMPTY_A], 1.0 + traits[organism::TRAIT_EMPTY_B]]
     }
@@ -27170,7 +27226,8 @@ fn chooser_step(
     // A packed lunch is not a load (`carries_lunch`): its carrier scouts
     // outward and reads the outbound trail, as an empty ant does.
     let laden = world.organism(organism).is_some_and(|s| s.crop.is_some_and(|c| c.worth() > 0.0) && !carries_lunch(world, s));
-    let trail_gain = trail_hold_gain(&walk, laden);
+    let loop_here = trail_loop_here(world, (hx, hy), def);
+    let trail_gain = trail_hold_gain(&walk, laden, loop_here);
     // **Nurses find hungry larvae by scent** ([`brood::nurse_seek_of`]): an
     // ant with something to give -- a bank over its stamp, which is what
     // `brood::nurse` takes from -- carrying no load and no pellet, inside the
@@ -27318,9 +27375,10 @@ fn chooser_step(
             0.0
         }
     };
-    let planes = trail_planes_at(world, (hx, hy), def, &walk, laden);
-    let halves = if reads_trail { route_halves(world, (hx, hy), planes, usable.iter().copied().chain(crossing.map(|_| heading))) } else { [TRAIL_HALF; 2] };
-    let route = |d: u8| if reads_trail { trail_presence(world, (hx, hy), d, planes, halves) } else { 0.0 };
+    let planes = trail_planes_at(world, (hx, hy), def, &walk, laden, loop_here);
+    let rh = route_half_for(loop_here);
+    let halves = if reads_trail { route_halves(world, (hx, hy), planes, usable.iter().copied().chain(crossing.map(|_| heading)), rh) } else { [TRAIL_HALF; 2] };
+    let route = |d: u8| if reads_trail { trail_presence(world, (hx, hy), d, planes, halves, rh) } else { 0.0 };
     // **Stage 3, the give-up lets go** (`FoodTrail::giveup`,
     // `Reports/ant-scenes-2026-09-23.md` §23d): a scout that has given up is
     // no longer held by the trail it gave up on. The away term is 0, the pull
@@ -27347,7 +27405,7 @@ fn chooser_step(
             1.0
         } else {
             1.0 + trail_gain * (route(d) - route_floor).max(0.0)
-                + if reads_trail { food_hold_extra(world, (hx, hy), d, &walk, planes, halves) } else { 0.0 }
+                + if reads_trail { food_hold_extra(world, (hx, hy), d, &walk, planes, halves, loop_here) } else { 0.0 }
         }
     };
     // **Level, not radial**: the home cosine of the heading's sideways part
@@ -32398,14 +32456,14 @@ mod tests {
     #[test]
     fn trail_plane_genes_at_zero_are_the_old_choice() {
         let zero = [0.0f32; CREATURE_TRAITS];
-        assert_eq!(trail_planes(&zero, true), [1.0, 0.0]);
-        assert_eq!(trail_planes(&zero, false), [0.0, 1.0]);
+        assert_eq!(trail_planes(&zero, true, false), [1.0, 0.0]);
+        assert_eq!(trail_planes(&zero, false, false), [0.0, 1.0]);
         let mut t = zero;
         t[organism::TRAIT_EMPTY_A] = 0.5;
-        assert_eq!(trail_planes(&t, false), [0.5, 1.0], "an empty ant can come to read trail A");
-        assert_eq!(trail_planes(&t, true), [1.0, 0.0], "and the laden weights do not move with it");
+        assert_eq!(trail_planes(&t, false, false), [0.5, 1.0], "an empty ant can come to read trail A");
+        assert_eq!(trail_planes(&t, true, false), [1.0, 0.0], "and the laden weights do not move with it");
         t[organism::TRAIT_LADEN_A] = -1.0;
-        assert_eq!(trail_planes(&t, true), [0.0, 0.0], "a laden ant can stop reading A altogether");
+        assert_eq!(trail_planes(&t, true, false), [0.0, 0.0], "a laden ant can stop reading A altogether");
     }
 
     #[test]
