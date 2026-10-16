@@ -23685,7 +23685,8 @@ pub fn home_search_of(world: &World) -> bool {
 }
 
 /// **A scout that has given up searches for home as a lost carrier does**
-/// (`PIXEL_PHYSICS_SCOUT_SEARCH=on|off`, off; [`World::scout_search`] for one
+/// (`PIXEL_PHYSICS_SCOUT_SEARCH=on|off`, **on with `floor:0.3` since
+/// 2026-10-16**, see [`scout_search_cfg`]; [`World::scout_search`] for one
 /// world). [`home_search_of`]'s patience and widening loops, kept for the
 /// walk home after a give-up (`OrganismState::scout_home`): the pull home
 /// is multiplied by a patience that decays on every step that gets the ant
@@ -23727,7 +23728,27 @@ pub fn scout_search_of(world: &World) -> bool {
 /// `PIXEL_PHYSICS_SCOUT_SEARCH=on[,cap:<loops>][,floor:<trust>]` as parsed,
 /// read once: `None` off, else the most loops the search reach doubles for
 /// (`cap`, 6 by default as for [`home_search_of`]) and the least the pull
-/// home is ever multiplied by (`floor`, 0 by default).
+/// home is ever multiplied by (`floor`, **0.3 by default**). Unset is `on`
+/// at those defaults; `off` is the ant before the switch, and
+/// `on,floor:0` the first, fading form.
+///
+/// **Why on, and why 0.3** (the full-game trails lane, 2026-10-16,
+/// `steady_income` 10/40/120 x food 30/90/200, 12 seeds each against main
+/// and `land=6001`, mutation off; the table is in
+/// `/mnt/project-files/full-game-trails/scout-search-2026-10-15.md`). On the
+/// game ant no colony died in any cell, against 2 of 12 for main and for
+/// the nudged control in the small colony with food 200 cells out; adults
+/// starved in that colony 98/93 -> 57 and in the small colony at food 30 and
+/// 90 110/82 -> 50 and 110/110 -> 69. Colony size, dug-nest ants and
+/// deliveries sat inside the main/nudged spread in all eight cells (~300
+/// ants at food 90: nest 56/58 -> 56; ~500 at food 30: deliveries 80/77
+/// -> 73, per-seed 41-91 against 29-100). `cap:1` and `cap:1,floor:0.3`
+/// did no better at 4 seeds. On the new walk it sat inside the walk's own
+/// spread (its big-colony starvation bursts appear with and without it).
+/// A search that keeps returning toward its centre is what the desert ant
+/// does (Wehner & Srinivasan 1981, J Comp Physiol 142:315; Merkle & Wehner
+/// 2009, Anim Behav 77:1051 -- cross-species, cited second-hand through the
+/// latter by the textbook lane); a pull that fades to zero is not.
 ///
 /// **Why the two parts** (the full-game trails lane, 2026-10-16, 4 seeds,
 /// `/mnt/project-files/full-game-trails/scout-search-2026-10-15.md`): with
@@ -23741,8 +23762,8 @@ pub fn scout_search_of(world: &World) -> bool {
 pub fn scout_search_cfg() -> Option<(u8, f32)> {
     static V: std::sync::OnceLock<Option<(u8, f32)>> = std::sync::OnceLock::new();
     *V.get_or_init(|| {
-        let raw = std::env::var("PIXEL_PHYSICS_SCOUT_SEARCH").ok()?;
-        let (mut on, mut cap, mut floor) = (false, 6u8, 0.0f32);
+        let raw = std::env::var("PIXEL_PHYSICS_SCOUT_SEARCH").unwrap_or_else(|_| "on".to_string());
+        let (mut on, mut cap, mut floor) = (false, 6u8, 0.3f32);
         for part in raw.split(',').map(str::trim) {
             match part {
                 "off" | "" => return None,
@@ -23763,7 +23784,7 @@ pub(crate) fn scout_home_trust(world: &World, organism: OrganismId, scout_home: 
     if !scout_home || !scout_search_of(world) {
         return 1.0;
     }
-    let floor = scout_search_cfg().map_or(0.0, |c| c.1);
+    let floor = scout_search_cfg().map_or(0.3, |c| c.1);
     world.organism(organism).map_or(1.0, |s| s.scout_home_patience.max(floor))
 }
 
