@@ -100,7 +100,8 @@ use pixel_physics::sim::{Cell, Rect, World};
 const KEYS: &[&str] = &[
     "seed", "seeds", "frames", "ants", "ant", "gap", "len", "neck", "tunnel", "long", "longside", "opens", "release",
     "k", "n", "lay", "layout", "vector", "mute", "brho", "bdiff", "fed", "halflife", "food", "png", "every", "trace",
-    "needsat", "room", "worth", "feeders", "moves", "start", "vout", "giveup", "search", "sense", "outfrac", "crowd", "noentry", "repel", "arho",
+    "needsat", "room", "worth", "feeders", "moves", "start", "vout", "giveup", "search", "sense", "outfrac", "crowd",
+    "noentry", "repel", "markfork", "arho",
 ];
 
 const FEED_EVERY: u64 = 500;
@@ -109,15 +110,22 @@ fn check_args() {
     let mut seen = std::collections::HashSet::new();
     for a in std::env::args().skip(1) {
         let key = a.split_once('=').map_or(a.as_str(), |(k, _)| k).to_string();
-        assert!(KEYS.contains(&key.as_str()), "antbridge: unknown argument `{a}` (known: {})", KEYS.join(", "));
+        assert!(
+            KEYS.contains(&key.as_str()),
+            "antbridge: unknown argument `{a}` (known: {})",
+            KEYS.join(", ")
+        );
         assert!(seen.insert(key.clone()), "antbridge: `{key}` given twice");
     }
 }
 
 fn arg<T: std::str::FromStr>(key: &str) -> Option<T> {
     std::env::args().skip(1).find_map(|a| {
-        a.strip_prefix(&format!("{key}="))
-            .map(|v| v.parse().ok().unwrap_or_else(|| panic!("antbridge: `{a}` does not parse")))
+        a.strip_prefix(&format!("{key}=")).map(|v| {
+            v.parse()
+                .ok()
+                .unwrap_or_else(|| panic!("antbridge: `{a}` does not parse"))
+        })
     })
 }
 
@@ -149,7 +157,10 @@ const MARGIN: i32 = 4;
 /// 30k frames) instead of taking the way out, and delivered nothing.
 fn chamber_h(gap: i32, th: i32) -> i32 {
     let room = arg("room").unwrap_or(gap + 2 * th + 10);
-    assert!(room >= gap + 2 * th + 4, "room={room}: a chamber must reach down to the lower branch's floor");
+    assert!(
+        room >= gap + 2 * th + 4,
+        "room={room}: a chamber must reach down to the lower branch's floor"
+    );
     room
 }
 
@@ -165,11 +176,24 @@ fn crumb(crumbs: pixel_physics::sim::material::MaterialId) -> Cell {
 
 /// The box's width and height for these arguments.
 fn size(gap: i32, len: i32, th: i32, long: i32) -> (i32, i32) {
-    (MARGIN + CH_W + len + CH_W + MARGIN, MARGIN + long + chamber_h(gap, th) + MARGIN)
+    (
+        MARGIN + CH_W + len + CH_W + MARGIN,
+        MARGIN + long + chamber_h(gap, th) + MARGIN,
+    )
 }
 
 #[allow(clippy::too_many_arguments)]
-fn build(world: &mut World, gap: i32, len: i32, neck: i32, th: i32, long: i32, long_lower: bool, food_rows: i32, feeders: bool) -> Scene {
+fn build(
+    world: &mut World,
+    gap: i32,
+    len: i32,
+    neck: i32,
+    th: i32,
+    long: i32,
+    long_lower: bool,
+    food_rows: i32,
+    feeders: bool,
+) -> Scene {
     let stone = world.materials.id_of("stone").expect("stone");
     let crumbs = world.materials.id_of("crumbs").expect("crumbs");
     let (ch_w, margin) = (CH_W, MARGIN);
@@ -183,7 +207,12 @@ fn build(world: &mut World, gap: i32, len: i32, neck: i32, th: i32, long: i32, l
     }
     let ch_y0 = margin + up_room;
     let nest = (margin, ch_y0, margin + ch_w - 1, ch_y0 + ch_h - 1);
-    let food = (margin + ch_w + len, ch_y0, margin + ch_w + len + ch_w - 1, ch_y0 + ch_h - 1);
+    let food = (
+        margin + ch_w + len,
+        ch_y0,
+        margin + ch_w + len + ch_w - 1,
+        ch_y0 + ch_h - 1,
+    );
     let carve = |world: &mut World, x0: i32, y0: i32, x1: i32, y1: i32| {
         for y in y0..=y1 {
             for x in x0..=x1 {
@@ -207,7 +236,10 @@ fn build(world: &mut World, gap: i32, len: i32, neck: i32, th: i32, long: i32, l
     let necks: &[(i32, i32, i32)] = if feeders {
         &[(nest.2 + 1, x_a + th - 1, x_a)]
     } else {
-        &[(nest.2 + 1, x_a + th - 1, x_a), (x_b - th + 1, food.0 - 1, x_b - th + 1)]
+        &[
+            (nest.2 + 1, x_a + th - 1, x_a),
+            (x_b - th + 1, food.0 - 1, x_b - th + 1),
+        ]
     };
     for &(x0, x1, shaft) in necks {
         carve(world, x0, neck_y, x1, neck_y + th - 1);
@@ -237,8 +269,16 @@ fn build(world: &mut World, gap: i32, len: i32, neck: i32, th: i32, long: i32, l
     // branch's trail held a third of the lower's (2026-10-16, crowding on:
     // 1.0 against 3.3 deposits), which read as a lower-branch bias.
     let rooms = feeders.then(|| {
-        assert!(lo_y - 3 > up_y + FEEDER_DROP + 1, "feeders=2 needs gap >= {}", FEEDER_DROP + 3);
-        assert!(lo_y + FEEDER_DROP <= food.3, "feeders=2 needs room >= {}", lo_y + FEEDER_DROP - ch_y0 + 1);
+        assert!(
+            lo_y - 3 > up_y + FEEDER_DROP + 1,
+            "feeders=2 needs gap >= {}",
+            FEEDER_DROP + 3
+        );
+        assert!(
+            lo_y + FEEDER_DROP <= food.3,
+            "feeders=2 needs room >= {}",
+            lo_y + FEEDER_DROP - ch_y0 + 1
+        );
         for y in food.1..=food.3 {
             for x in food.0..=food.2 {
                 world.set(x, y, Cell::new(stone, 0).with_attached(true));
@@ -247,11 +287,16 @@ fn build(world: &mut World, gap: i32, len: i32, neck: i32, th: i32, long: i32, l
         for y in [up_y, lo_y] {
             carve(world, food.0, y - 3, food.2, y + FEEDER_DROP);
         }
-        [(food.0, food.2, up_y + FEEDER_DROP), (food.0, food.2, lo_y + FEEDER_DROP)]
+        [
+            (food.0, food.2, up_y + FEEDER_DROP),
+            (food.0, food.2, lo_y + FEEDER_DROP),
+        ]
     });
     // Food: rows of crumbs on the food chamber's floor (or the starting
     // room's).
-    let stock = rooms.map_or((food.0, food.2, food.3), |r| r[usize::from(arg::<String>("start").as_deref() == Some("lower"))]);
+    let stock = rooms.map_or((food.0, food.2, food.3), |r| {
+        r[usize::from(arg::<String>("start").as_deref() == Some("lower"))]
+    });
     for y in stock.2 - food_rows + 1..=stock.2 {
         for x in stock.0..=stock.1 {
             world.set(x, y, crumb(crumbs));
@@ -310,7 +355,10 @@ fn main() {
     );
     let mut rows = Vec::new();
     for &seed in &seeds {
-        rows.push(run(seed, frames, n_ants, &kind, gap, len, neck, th, long, long_lower, opens, release, fed, food_rows, every, feeders, moves));
+        rows.push(run(
+            seed, frames, n_ants, &kind, gap, len, neck, th, long, long_lower, opens, release, fed, food_rows, every,
+            feeders, moves,
+        ));
     }
     if feeders {
         // **Dussutour et al. 2009's moved food**: per seed, the frames from
@@ -332,13 +380,19 @@ fn main() {
     let over = rows.iter().filter(|r| r.0 >= 0.8).count();
     println!(
         "SUMMARY {what}-branch share, last half (share/crossings): [{}]; majority {maj} of {}, over 80% {over} of {}",
-        rows.iter().map(|r| format!("{:.2}/{}", r.0, r.1)).collect::<Vec<_>>().join(" "),
+        rows.iter()
+            .map(|r| format!("{:.2}/{}", r.0, r.1))
+            .collect::<Vec<_>>()
+            .join(" "),
         rows.len(),
         rows.len()
     );
     println!(
         "SUMMARY whole run: [{}]; delivered per seed [{}]",
-        rows.iter().map(|r| format!("{:.2}/{}", r.2, r.3)).collect::<Vec<_>>().join(" "),
+        rows.iter()
+            .map(|r| format!("{:.2}/{}", r.2, r.3))
+            .collect::<Vec<_>>()
+            .join(" "),
         rows.iter().map(|r| r.4.to_string()).collect::<Vec<_>>().join(" ")
     );
 }
@@ -379,14 +433,19 @@ fn run(
             world.set(x, y, Cell::new(stone, 0).with_attached(true));
         }
     }
-    world.pheromones.set_channel_rho(Channel::B, arg("brho").unwrap_or(0.001));
-    world.pheromones.set_channel_diffuse(Channel::B, arg("bdiff").unwrap_or(0.05));
+    world
+        .pheromones
+        .set_channel_rho(Channel::B, arg("brho").unwrap_or(0.001));
+    world
+        .pheromones
+        .set_channel_diffuse(Channel::B, arg("bdiff").unwrap_or(0.05));
     // Channel A carries the textbook ant's no-entry mark (`noentry=`): it
     // fades `arho=` a pass (by default 2.4 times slower than the trail,
     // Robinson et al. 2009) and does not spread.
-    world
-        .pheromones
-        .set_channel_rho(Channel::A, arg("arho").unwrap_or_else(|| arg::<f32>("brho").unwrap_or(0.001) / 2.4));
+    world.pheromones.set_channel_rho(
+        Channel::A,
+        arg("arho").unwrap_or_else(|| arg::<f32>("brho").unwrap_or(0.001) / 2.4),
+    );
     world.pheromones.set_channel_diffuse(Channel::A, 0.0);
     for _ in 0..100 {
         parallel::step(&mut world);
@@ -445,6 +504,7 @@ fn run(
                 crowd: arg("crowd").unwrap_or(0.0),
                 no_entry: arg("noentry").unwrap_or(0.0),
                 repel: arg("repel").unwrap_or(1.0),
+                mark_fork: arg::<u8>("markfork").unwrap_or(0) == 1,
             }),
             sort: None,
         };
@@ -517,7 +577,10 @@ fn run(
                     }
                 }
                 fed_room = 1 - fed_room;
-                println!("seed {seed} f {f:>7}: FOOD MOVED to the {} room", ["upper", "lower"][fed_room]);
+                println!(
+                    "seed {seed} f {f:>7}: FOOD MOVED to the {} room",
+                    ["upper", "lower"][fed_room]
+                );
             }
         }
         if opens > 0 && f == opens {
@@ -583,7 +646,11 @@ fn run(
             if let Some(&px) = last_x.get(&oid) {
                 if (px < sc.mid) != (hx < sc.mid) && hx > sc.nest.2 && hx < sc.food.0 {
                     // `feeders=2`: lane 0 is the branch to the fed room.
-                    let lane = if sc.rooms.is_some() { usize::from((hy < sc.split_y) != (fed_room == 0)) } else { short_lane(hy) };
+                    let lane = if sc.rooms.is_some() {
+                        usize::from((hy < sc.split_y) != (fed_room == 0))
+                    } else {
+                        short_lane(hy)
+                    };
                     if let Some((row, up, down)) = pending.remove(&oid) {
                         if f > frames / 2 && laden == 0 && px < sc.mid {
                             fork[row as usize][lane] += 1;
@@ -641,7 +708,13 @@ fn run(
                 let mean = |y: i32| {
                     let xs = sc.nest.2 + 1 + len / 4..sc.food.0 - len / 4;
                     let n = xs.len().max(1) as f32;
-                    xs.map(|x| (0..th).map(|dy| f32::from(world.pheromone_at(Channel::B, x, y + dy))).sum::<f32>() / th as f32).sum::<f32>()
+                    xs.map(|x| {
+                        (0..th)
+                            .map(|dy| f32::from(world.pheromone_at(Channel::B, x, y + dy)))
+                            .sum::<f32>()
+                            / th as f32
+                    })
+                    .sum::<f32>()
                         / n
                         / f32::from(pixel_physics::sim::pheromone::SCALE)
                 };
@@ -654,6 +727,48 @@ fn run(
                         .fold(0.0f32, f32::max)
                         / f32::from(pixel_physics::sim::pheromone::SCALE)
                 };
+                // Where the ants are: nest chamber, the nest-side neck and
+                // shaft, a branch, a feeder room.
+                let mut at = [0u32; 5];
+                let mut room_trip = [(0u64, 0u32, 0u32); 2];
+                for oid in world.live_organism_ids() {
+                    let Some(&(hx, hy)) = world.organism(oid).and_then(|s| s.chain.first()) else {
+                        continue;
+                    };
+                    let i = if hx <= sc.nest.2 {
+                        0
+                    } else if hx >= sc.food.0 {
+                        if hy < sc.split_y {
+                            3
+                        } else {
+                            4
+                        }
+                    } else if hx <= sc.nest.2 + 1 + neck + th {
+                        1
+                    } else {
+                        2
+                    };
+                    at[i] += 1;
+                    if i >= 3 {
+                        let trip = world.textbook.as_ref().and_then(|t| t.trips.get(&oid).copied());
+                        room_trip[i - 3].0 += trip.map_or(0, |t| u64::from(t.0));
+                        room_trip[i - 3].1 += u32::from(trip.is_some_and(|t| t.1));
+                        room_trip[i - 3].2 += u32::from(world.organism(oid).is_some_and(|s| s.spoil.is_some()));
+                    }
+                }
+                println!(
+                    "  rooms upper/lower: mean give-up count {:.0}/{:.0}, given up {}/{}, laden {}/{}",
+                    room_trip[0].0 as f64 / f64::from(at[3].max(1)),
+                    room_trip[1].0 as f64 / f64::from(at[4].max(1)),
+                    room_trip[0].1,
+                    room_trip[1].1,
+                    room_trip[0].2,
+                    room_trip[1].2
+                );
+                println!(
+                    "  ants nest {} neck {} branches {} upper room {} lower room {}",
+                    at[0], at[1], at[2], at[3], at[4]
+                );
                 let (mu, ml) = (marks(sc.split_y - th - gap / 2), marks(sc.split_y + gap / 2));
                 let (mark_f, mark_o) = if fed_room == 0 { (mu, ml) } else { (ml, mu) };
                 println!(
@@ -690,7 +805,14 @@ fn run(
         img.save(format!("{dir}/s{seed}.png")).expect("png");
     }
     let share = |a: [u64; 2]| a[0] as f32 / (a[0] + a[1]).max(1) as f32;
-    (share(late), late[0] + late[1], share(whole), whole[0] + whole[1], delivered, switched)
+    (
+        share(late),
+        late[0] + late[1],
+        share(whole),
+        whole[0] + whole[1],
+        delivered,
+        switched,
+    )
 }
 
 fn feed(world: &mut World, floor: f32) {

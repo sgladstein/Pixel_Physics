@@ -284,12 +284,14 @@ pub struct ForageCfg {
     /// `antbridge feeders=2`).
     pub vector: f32,
     pub vector_out: f32,
-    /// The feeder vector pulls along the row only (towards `feeder`'s
-    /// column, never up or down). With two feeder rooms one above the other
-    /// any aimed height sits nearer one room's food: aimed between them it
-    /// pulled ants onto the upper room's crumbs and off the lower's, and
-    /// the colony settled on the lower room's branch on 0 of 4 runs
-    /// (`antbridge feeders=2`, 2026-10-16).
+    /// Both vectors pull along the row only (towards the target's column,
+    /// never up or down). With two feeder rooms one above the other any
+    /// aimed height sits nearer one room's food: aimed between them the
+    /// feeder vector pulled ants onto the upper room's crumbs and off the
+    /// lower's, and the colony settled on the lower room's branch on 0 of 4
+    /// runs; and the home vector, aimed above the lower room's door, pinned
+    /// laden ants in the corner over it (38 laden ants in the room at once,
+    /// trail laid both ways) (`antbridge feeders=2`, 2026-10-16).
     pub out_flat: bool,
     pub k: f32,
     pub n: i32,
@@ -350,6 +352,14 @@ pub struct ForageCfg {
     /// game version would need a plane of its own. 0: off.
     pub no_entry: f32,
     pub repel: f32,
+    /// Lay the mark only at a junction, on the cells the body has just come
+    /// through (Robinson et al. 2005 found it concentrated just past the
+    /// bifurcation, on the unrewarding branch). Laid on every step home, a
+    /// mark strong enough to turn ants also lay on the stem both branches
+    /// share and shut the nest in: traffic fell to 250-500 crossings
+    /// (`repel=10`, 2026-10-16). A junction is a head with three or more
+    /// separate runs of open cells on the ring two cells out.
+    pub mark_fork: bool,
 }
 
 /// Steps over which [`ForageCfg::crowd`] counts encounters: about the
@@ -395,11 +405,12 @@ pub struct Textbook {
     pub species: crate::sim::organism::SpeciesId,
     pub cfg: TextbookCfg,
     pub counts: TextbookCounts,
-    /// Slice B's per-ant trip: decisions since home while empty, and
-    /// whether the ant has given up ([`ForageCfg::give_up`]). Read and
+    /// Slice B's per-ant trip: decisions since home while empty, whether
+    /// the ant has given up ([`ForageCfg::give_up`]), and whether it has
+    /// marked a junction on the way home ([`ForageCfg::mark_fork`]). Read and
     /// written by key only, never iterated, so its order cannot reach a
     /// result.
-    pub trips: std::collections::HashMap<OrganismId, (u32, bool)>,
+    pub trips: std::collections::HashMap<OrganismId, (u32, bool, bool)>,
     /// [`ForageCfg::crowd`]'s running encounter sum per ant, and the ants
     /// beside its head last step (an encounter is an ant newly beside it, so
     /// a file of ants walking nose to tail is not one encounter a step), by
@@ -719,9 +730,35 @@ pub(super) fn step(
     );
     count(world, |c| c.steps += 1);
     if let Some(fc) = forage.filter(|fc| gave_up && !laden && fc.no_entry > 0.0) {
-        if let Some(&(hx, hy)) = world.organism(organism).and_then(|s| s.chain.first()) {
-            world.deposit_pheromone(Channel::A, hx, hy, (fc.no_entry * f32::from(pheromone::SCALE)) as pheromone::Scent);
-            count(world, |c| c.no_entry_steps += 1);
+        let body = world.organism(organism).map(|s| s.chain.clone()).unwrap_or_default();
+        let amount = (fc.no_entry * f32::from(pheromone::SCALE)) as pheromone::Scent;
+        match body.first() {
+            Some(&(hx, hy)) if fc.mark_fork => {
+                // Once a trip, at the first junction reached: the body is
+                // then still on the branch. Marking at every step near the
+                // junction put the mark in the neck the nest shares, and
+                // the colony stayed in the nest (2026-10-16, seed 1: the
+                // nest walls lined with ants, 472 crossings).
+                let first = world
+                    .textbook
+                    .as_ref()
+                    .and_then(|t| t.trips.get(&organism))
+                    .is_some_and(|t| !t.2);
+                if first && junction(world, hx, hy) {
+                    for &(bx, by) in &body[1..] {
+                        world.deposit_pheromone(Channel::A, bx, by, amount);
+                    }
+                    if let Some(t) = world.textbook.as_mut().and_then(|t| t.trips.get_mut(&organism)) {
+                        t.2 = true;
+                    }
+                    count(world, |c| c.no_entry_steps += 1);
+                }
+            }
+            Some(&(hx, hy)) => {
+                world.deposit_pheromone(Channel::A, hx, hy, amount);
+                count(world, |c| c.no_entry_steps += 1);
+            }
+            None => {}
         }
     }
     if let Some(fc) = forage.filter(|fc| laden || fc.lay_out) {
@@ -844,9 +881,9 @@ fn forage_act(
             if home || load.is_some() {
                 t.trips.remove(&organism);
             } else {
-                let near = fc.search_r == 0
-                    || (x - fc.feeder.0).pow(2) + (y - fc.feeder.1).pow(2) <= fc.search_r.pow(2);
-                let trip = t.trips.entry(organism).or_insert((0, false));
+                let near =
+                    fc.search_r == 0 || (x - fc.feeder.0).pow(2) + (y - fc.feeder.1).pow(2) <= fc.search_r.pow(2);
+                let trip = t.trips.entry(organism).or_insert((0, false, false));
                 trip.0 += u32::from(near && !food_near);
                 trip.1 |= trip.0 >= fc.give_up;
             }
@@ -907,7 +944,7 @@ fn forage_heading(
         .unwrap_or(0);
     let (tx, ty) = if laden { fc.aim_home } else { fc.feeder };
     let pull = if laden { fc.vector } else { fc.vector_out };
-    let ty = if !laden && fc.out_flat { hy } else { ty };
+    let ty = if fc.out_flat { hy } else { ty };
     let (vx, vy) = ((tx - hx) as f32, (ty - hy) as f32);
     let vlen = (vx * vx + vy * vy).sqrt().max(1e-6);
     let mut weights = [0f32; 8];
@@ -924,7 +961,8 @@ fn forage_heading(
             0.0
         };
         let mark = if fc.read && fc.no_entry > 0.0 {
-            (-fc.repel * f32::from(world.pheromone_at(Channel::A, hx + dx, hy + dy)) / f32::from(pheromone::SCALE)).exp()
+            (-fc.repel * f32::from(world.pheromone_at(Channel::A, hx + dx, hy + dy)) / f32::from(pheromone::SCALE))
+                .exp()
         } else {
             1.0
         };
@@ -944,6 +982,39 @@ fn forage_heading(
         r -= w;
     }
     usable.last().copied()
+}
+
+/// Whether `(x, y)` is a junction: three or more separate runs of open
+/// cells on the ring of 16 cells two out ([`ForageCfg::mark_fork`]). A
+/// straight tunnel shows two runs, a corner two, a T or a Y three.
+fn junction(world: &World, x: i32, y: i32) -> bool {
+    let mut ring = Vec::with_capacity(16);
+    for dx in -2..=2 {
+        ring.push((dx, -2));
+    }
+    for dy in -1..=2 {
+        ring.push((2, dy));
+    }
+    for dx in (-2..=1).rev() {
+        ring.push((dx, 2));
+    }
+    for dy in (-1..=1).rev() {
+        ring.push((-2, dy));
+    }
+    let open: Vec<bool> = ring
+        .iter()
+        .map(|&(dx, dy)| world.in_bounds(x + dx, y + dy) && !solid_for_ring(world, x + dx, y + dy))
+        .collect();
+    let runs = (0..open.len())
+        .filter(|&i| open[i] && !open[(i + open.len() - 1) % open.len()])
+        .count();
+    runs >= 3
+}
+
+/// A ring cell blocks a junction run when it is terrain: anything but air
+/// or an ant.
+fn solid_for_ring(world: &World, x: i32, y: i32) -> bool {
+    !world.is_empty(x, y) && world.get(x, y).organism_id() == 0
 }
 
 fn count(world: &mut World, f: impl FnOnce(&mut TextbookCounts)) {
