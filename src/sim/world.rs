@@ -2337,6 +2337,13 @@ pub struct CreatureStats {
     /// `creature::home_search_of`). The "it fired" half; the effect half is
     /// `trip_deliveries` and where the food trail is laid.
     pub home_searches: u64,
+    /// Search loops begun by a given-up scout that had lost its pull home
+    /// and strayed past its search reach (`PIXEL_PHYSICS_SCOUT_SEARCH`,
+    /// `creature::scout_search_of`), and its decisions taken with that pull
+    /// faded under `creature::SCOUT_GIVE_UP`. The "it fired" half; the
+    /// effect half is ants starved on the mound.
+    pub scout_searches: u64,
+    pub scout_home_lost: u64,
     /// Decisions a trip's carrier stood beside far food to take another
     /// mouthful instead of walking (`PIXEL_PHYSICS_CARRY_HOME`'s `fill`,
     /// `creature::CarryHome`). The "it fired" half; the effect half is how
@@ -4478,6 +4485,10 @@ pub struct World {
     /// for this world** (`creature::home_search_of`). `None` follows the
     /// environment; a field so a guard can take both arms in one process.
     pub home_search: Option<bool>,
+    /// **The given-up scout's search, overriding `PIXEL_PHYSICS_SCOUT_SEARCH`
+    /// for this world** (`creature::scout_search_of`). `None` follows the
+    /// environment; a field so a guard can take both arms in one process.
+    pub scout_search: Option<bool>,
     /// **A trip's carrier filling up and turning for home, overriding
     /// `PIXEL_PHYSICS_CARRY_HOME` for this world** (`creature::carry_home_of`).
     /// `None` follows the environment; a field so a guard can take both arms
@@ -7201,6 +7212,7 @@ impl World {
             nest_rest: None,
             hungry_out: None,
             home_search: None,
+            scout_search: None,
             carry_home: None,
             way_gaps: None,
             way_foot: None,
@@ -8331,6 +8343,11 @@ impl World {
             scout_for: (i32::MIN, i32::MIN),
             scout_patience: 1.0,
             scout_home: false,
+            scout_home_best: f32::INFINITY,
+            scout_home_at: (0, 0),
+            scout_home_away: 0,
+            scout_home_patience: 1.0,
+            scout_home_loops: 0,
             scout_lit: false,
             scout_dark: false,
             scout_e0: 0.0,

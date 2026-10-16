@@ -576,9 +576,18 @@ fn main() {
     // from the moment it moves, digestion by place, and the floor's food and
     // the larvae every `foodevery=` frames. See `FoodLog`.
     let food = arg::<u8>("foodlog").unwrap_or(0) == 1;
+    // `trails=1`: **the two scent planes, censused** every `trailevery=`
+    // frames (1,000) to `trails.csv` (see `TrailCensus`); `trails=2` also
+    // writes both planes whole at every map stop (`trail_a_f*.pgm`,
+    // `trail_b_f*.pgm`, one byte a cell in units of 255). Reads only; takes
+    // no draw. Added 2026-10-14 for the full-game check of the textbook
+    // tests' trail candidates (nest scent pinned at its ceiling, food trail
+    // left lit on dead side branches).
+    let trails: u8 = arg("trails").unwrap_or(0);
+    let trail_every: u64 = arg("trailevery").unwrap_or(1_000);
     let food_every: u64 = arg("foodevery").unwrap_or(1_000);
     println!(
-        "deeptrace: scenario={scenario} seed={seed} frames={frames} ants={n_ants} bornafter={born_after} colonyevery={colony_every} mapevery={map_every} food={target} shots={} dig={} walk={} digfrom={dig_from} garden={} hungry={} nestevery={nest_every} needs={} needsat={needs_at} needsparts={} out={out}",
+        "deeptrace: scenario={scenario} seed={seed} frames={frames} ants={n_ants} bornafter={born_after} colonyevery={colony_every} mapevery={map_every} food={target} shots={} dig={} walk={} digfrom={dig_from} garden={} hungry={} nestevery={nest_every} needs={} needsat={needs_at} needsparts={} trails={trails} out={out}",
         u8::from(shots),
         u8::from(dig),
         u8::from(walk),
@@ -803,7 +812,7 @@ fn main() {
     let mut stats_csv = std::io::BufWriter::new(std::fs::File::create(format!("{out}/stats.csv")).unwrap());
     writeln!(
         stats_csv,
-        "frame,ants,brood,{},eggs_laid,pupae,births,larvae_starved,brood_ate_j,brood_crop_fed_j,brood_nursed_j,brood_shared_j,brood_upkeep_j,larva_ticks_hungry,larva_ticks_crop_fed,larva_ticks_nursed,crop_down_holds,nurse_seeks,soil_way_pulls,hungry_out_pulls,spoil_held_below,spoil_kept_inside,spoil_dumped,lean_dropped,digs,eats,pickups,drops,deliveries,trip_deliveries,forage_trips,forage_returns,topup_shares,throttle_held,throttle_sent,at_nest_ticks,nest_visits,buds_held_for_nest,lays_declined,births_denied_no_space,food_brake_held,shares,home_searches,carry_fills,carry_turns,mound_out_pulls,mound_digs_let,needs_down,needs_packed,needs_quit,needs_weak_digs,needs_cue_waived,needs_face_waived,needs_throttle_lifted,needs_roof_refused,needs_no_site,nest_store_food,nest_store_carry_pulls,nest_store_eat_pulls,nest_store_home_pulls,nest_store_bites,store_pickups,store_delivered,store_released,store_held,store_kept,nest_store_fetch_pulls,column_refused,column_cleared,meal_holds,feed_first_held,lean_digs_skipped,forager_digs_skipped,rest_pulls,store_reads_low,store_turned_away,store_out_pulls,meet_way_stamps,spoil_side_turned,spoil_ring_drawn,forage_paced,forage_scouted,mound_in_pulls,recruit_contacts,recruited,lay_brake_crowded,lay_brake_store,store_brake_held,depth_slowed,depth_pauses,depth_unknown,depth_rows,depth_ground_rows,depth_err_rows,depth_lean_slowed,pack_parted_lost,pack_parted_refused,pack_lost_other,pack_parted_lost_brood,pack_crumb_carried,pack_crumb_no_room,digs_widened,unpacked",
+        "frame,ants,brood,{},eggs_laid,pupae,births,larvae_starved,brood_ate_j,brood_crop_fed_j,brood_nursed_j,brood_shared_j,brood_upkeep_j,larva_ticks_hungry,larva_ticks_crop_fed,larva_ticks_nursed,crop_down_holds,nurse_seeks,soil_way_pulls,hungry_out_pulls,spoil_held_below,spoil_kept_inside,spoil_dumped,lean_dropped,digs,eats,pickups,drops,deliveries,trip_deliveries,forage_trips,forage_returns,topup_shares,throttle_held,throttle_sent,at_nest_ticks,nest_visits,buds_held_for_nest,lays_declined,births_denied_no_space,food_brake_held,shares,home_searches,carry_fills,carry_turns,mound_out_pulls,mound_digs_let,needs_down,needs_packed,needs_quit,needs_weak_digs,needs_cue_waived,needs_face_waived,needs_throttle_lifted,needs_roof_refused,needs_no_site,nest_store_food,nest_store_carry_pulls,nest_store_eat_pulls,nest_store_home_pulls,nest_store_bites,store_pickups,store_delivered,store_released,store_held,store_kept,nest_store_fetch_pulls,column_refused,column_cleared,meal_holds,feed_first_held,lean_digs_skipped,forager_digs_skipped,rest_pulls,store_reads_low,store_turned_away,store_out_pulls,meet_way_stamps,spoil_side_turned,spoil_ring_drawn,forage_paced,forage_scouted,mound_in_pulls,recruit_contacts,recruited,lay_brake_crowded,lay_brake_store,store_brake_held,depth_slowed,depth_pauses,depth_unknown,depth_rows,depth_ground_rows,depth_err_rows,depth_lean_slowed,pack_parted_lost,pack_parted_refused,pack_lost_other,pack_parted_lost_brood,pack_crumb_carried,pack_crumb_no_room,digs_widened,unpacked,scout_searches,scout_home_lost",
         organism::DEATH_CAUSE_LIST
             .iter()
             .map(|c| format!("died_{}", c.label().to_lowercase().replace(['?'], "unknown").replace(' ', "_")))
@@ -864,6 +873,7 @@ fn main() {
     // only the slots where it differs. Brains drift by mutation, so the
     // weights in `ant.ron` are not the weights a 200k-frame colony runs.
     let mut consensus: Option<Vec<f32>> = None;
+    let mut trail_census: Option<TrailCensus> = None;
     let mut genome_out = std::io::BufWriter::new(std::fs::File::create(format!("{out}/genomes.txt")).unwrap());
     let mut dropped = 0usize;
     let mut rows_written = 0u64;
@@ -1341,7 +1351,7 @@ fn main() {
             let st = &w.creature_stats;
             writeln!(
                 stats_csv,
-                "{f},{},{},{},{},{},{},{},{:.0},{:.0},{:.0},{:.0},{:.0},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
+                "{f},{},{},{},{},{},{},{},{:.0},{:.0},{:.0},{:.0},{:.0},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
                 live.len(),
                 w.live_brood_ids().len(),
                 w.deaths_by_cause.iter().map(|d| d.to_string()).collect::<Vec<_>>().join(","),
@@ -1444,6 +1454,8 @@ fn main() {
                 st.pack_crumb_no_room,
                 st.digs_widened,
                 st.unpacked,
+                st.scout_searches,
+                st.scout_home_lost,
             )
             .unwrap();
             if let Some(bc) = brain_csv.as_mut() {
@@ -1596,6 +1608,12 @@ fn main() {
             )
             .unwrap();
             consensus = Some(c);
+        }
+        if trails > 0 && f % trail_every == 0 && f > 0 {
+            trail_census.get_or_insert_with(|| TrailCensus::open(&out)).row(w, g, f);
+        }
+        if trails > 1 && f % map_every == 0 && f > 0 {
+            write_trail_planes(w, &out, f);
         }
         if f % map_every == 0 && f > 0 {
             if let Some(c) = consensus.as_ref() {
@@ -1824,6 +1842,88 @@ impl DropLog {
     fn finish(mut self) {
         self.csv.flush().unwrap();
         self.mound.flush().unwrap();
+    }
+}
+
+/// **The two scent planes, censused** (`trails=1`): one row per stop.
+/// Units are the plane's own (255 a full cell; a deposit is 40).
+/// - `a_lit`, `a_ceiling`: cells of nest scent (A) at 1 or more, and at 250
+///   or more -- the pile-up at the ceiling round the door.
+/// - `b_lit`, `b_strong`: cells of food trail (B) at 1 or more, and at a
+///   full deposit (40) or more.
+/// - `b_route`, `b_off`: B cells at 1 or more inside the corridor between
+///   nest and heap (`x` from the nearer to the further, 8 cells of margin,
+///   from 40 rows above the old ground to 20 below it) and outside it. The
+///   heap is the only food in `steady_income`, so `b_off` is trail laid
+///   where no food is: dead side branches, and food carried in the nest.
+/// - `b_route_sum`, `b_off_sum`: the same, summed scent.
+struct TrailCensus {
+    out: std::io::BufWriter<std::fs::File>,
+}
+
+impl TrailCensus {
+    fn open(out: &str) -> Self {
+        let path = format!("{out}/trails.csv");
+        let mut f = std::io::BufWriter::new(std::fs::File::create(path).expect("trails.csv"));
+        writeln!(f, "frame,a_lit,a_ceiling,a_sum,b_lit,b_strong,b_route,b_off,b_route_sum,b_off_sum").unwrap();
+        TrailCensus { out: f }
+    }
+
+    fn row(&mut self, w: &World, g: &Geo, f: u64) {
+        use pixel_physics::sim::pheromone::{Channel, SCALE};
+        let unit = u32::from(SCALE);
+        let (cx0, cx1) = (g.nest_x.min(g.food_x) - 8, g.nest_x.max(g.food_x) + 8);
+        let (cy0, cy1) = (g.ground_y - 40, g.ground_y + 20);
+        let (mut a_lit, mut a_ceil, mut a_sum) = (0u64, 0u64, 0u64);
+        let (mut b_lit, mut b_strong) = (0u64, 0u64);
+        let (mut b_route, mut b_off, mut b_route_sum, mut b_off_sum) = (0u64, 0u64, 0u64, 0u64);
+        for y in 0..HEIGHT as i32 {
+            for x in 0..WIDTH as i32 {
+                let a = u32::from(w.pheromone_at(Channel::A, x, y)) / unit;
+                let b = u32::from(w.pheromone_at(Channel::B, x, y)) / unit;
+                if a >= 1 {
+                    a_lit += 1;
+                    a_sum += u64::from(a);
+                }
+                if a >= 250 {
+                    a_ceil += 1;
+                }
+                if b >= 1 {
+                    b_lit += 1;
+                    if b >= 40 {
+                        b_strong += 1;
+                    }
+                    if (cx0..=cx1).contains(&x) && (cy0..=cy1).contains(&y) {
+                        b_route += 1;
+                        b_route_sum += u64::from(b);
+                    } else {
+                        b_off += 1;
+                        b_off_sum += u64::from(b);
+                    }
+                }
+            }
+        }
+        writeln!(
+            self.out,
+            "{f},{a_lit},{a_ceil},{a_sum},{b_lit},{b_strong},{b_route},{b_off},{b_route_sum},{b_off_sum}"
+        )
+        .unwrap();
+        self.out.flush().unwrap();
+    }
+}
+
+/// Both scent planes whole (`trails=2`), as binary greyscale PGM, one byte a
+/// cell in units of 255.
+fn write_trail_planes(w: &World, out: &str, f: u64) {
+    use pixel_physics::sim::pheromone::{Channel, SCALE};
+    for (name, ch) in [("a", Channel::A), ("b", Channel::B)] {
+        let mut bytes = format!("P5\n{WIDTH} {HEIGHT}\n255\n").into_bytes();
+        for y in 0..HEIGHT as i32 {
+            for x in 0..WIDTH as i32 {
+                bytes.push((w.pheromone_at(ch, x, y) / SCALE).min(255) as u8);
+            }
+        }
+        std::fs::write(format!("{out}/trail_{name}_f{f:06}.pgm"), bytes).expect("trail plane");
     }
 }
 
