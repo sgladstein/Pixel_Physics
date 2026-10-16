@@ -664,6 +664,11 @@ fn run(
     let mut fork_trail = vec![[0f64; 2]; th as usize];
     // [short, long] crossings: whole run, last half, this window.
     let (mut whole, mut late, mut win) = ([0u64; 2], [0u64; 2], [[0u64; 2]; 2]);
+    // Empty ants crossing the middle *away from the nest* only, this
+    // window: Dussutour's count (outbound ants, 1 cm past the choice
+    // point). `win[0]` also holds empty ants walking home, and after a move
+    // those are the ants giving up on the emptied branch.
+    let mut outbound = [0u64; 2];
     let mut delivered = 0u64;
     // Crumbs taken out of the nest chamber: delivery for the ants that are
     // not the textbook ant (which counts its own).
@@ -771,6 +776,9 @@ fn run(
                     }
                     whole[lane] += 1;
                     win[laden][lane] += 1;
+                    if laden == 0 && px < sc.mid && hx >= sc.mid {
+                        outbound[lane] += 1;
+                    }
                     if f > frames / 2 {
                         late[lane] += 1;
                     }
@@ -909,7 +917,11 @@ fn run(
                     c.decisions, c.took_forage, c.quit_forage, c.gave_up, c.lay_walks
                 );
             }
+            if sc.rooms.is_some() {
+                println!("  outbound fed/other {}/{}", outbound[0], outbound[1]);
+            }
             win = [[0; 2]; 2];
+            outbound = [0; 2];
         }
     }
     if trace {
