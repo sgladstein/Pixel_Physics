@@ -1855,7 +1855,8 @@ a walled-in ant does. Verified 2026-10-11 against `walk_act`, `hungry_act`,
 `pack_behind`, `body_all_own` and `WalkParts::parse`.
 
 - **`walled_in`, two parts, both on in the new ant** (`WalkParts::NEW_ANT`
-  is `reach` plus these two and, since 2026-10-12, `parted_carry`; what
+  is `reach` plus these two and, since 2026-10-12, `parted_carry`, and
+  since 2026-10-15 `forage_out`, below; what
   `deeptrace` and `needscost` run when no parts are named;
   `needsparts=none` is slice 1, `reach,walled_in` the new ant before
   `parted_carry`).
@@ -1910,6 +1911,23 @@ a walled-in ant does. Verified 2026-10-11 against `walk_act`, `hungry_act`,
   against 203-356, below all four baselines on 9 of 12 seeds; adults starved
   946 against 1,272-1,562; colony mean inside the baselines' range; the
   soil-and-crop lean +0.7%.
+- **`forage_out`, on in the new ant since 2026-10-15 (the owner's tap): a forager inside walks out.** With the
+  part, an empty ant on the forage drive below the founding ground or under
+  cover takes the way-out pull `Out` uses (`out_target`) at the walk home's
+  gain (`home_bias`, at least 1), only where the nest's or the mound's way
+  map answers (`OUT_NEST_WAY`, `OUT_MOUND_WAY`); never the door vector or
+  straight up. In the open air there is no pull and the scouting and door
+  terms are unchanged. The part makes `step_nest_rest` build the nest's way.
+  Without it the forage drive has no pull inside, and the walk's recruits
+  taken 8+ rows deep reached the surface 11 times in 363 (seed 2, income 10,
+  food 90), wandering until the 600-frame at-home quit. Counted in
+  `walk_counts.csv`'s `forage_out_pulls`. Proposal and review in
+  `new-vs-old/walk-recruit-2026-10-15/` (shared folder).
+  Measured (income 10/40 x food 30/90/200, 4 seeds plus nudged): the small
+  colony's far-food die-outs 14 of 24 -> 0; at ~280 ants the dug nest holds
+  24-51 ants against 76-98, and food-200 deliveries are a quarter lower,
+  because a forager that gets out keeps the job until it is home
+  (`give_up` off). `reach,walled_in,parted_carry` is the new ant before it.
 - **The player's ant is never walked**: all four of the walk's hooks in
   `creature_tick` (`needs::act`, `kinesis`, `step`, `after`) stand aside
   while she is steered (§16), and the walk forgets her each steered tick

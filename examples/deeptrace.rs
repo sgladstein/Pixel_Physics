@@ -158,7 +158,7 @@
 //! `none`, which is slice 1 and was the default before, `all`, or a comma
 //! list; `all` is the fix round's eight, and the parts added since, `reach`,
 //! `eat_fade`, `hunger_holds`, `placebo`, `sealed_out`, `eat_held`,
-//! `parted_lose` and `parted_carry` (naming one clears the other), are
+//! `parted_lose` and `parted_carry` (naming one clears the other), and `forage_out` (2026-10-15, a forager inside walks out; in `new_ant` since 2026-10-15, so `reach,walled_in,parted_carry` is the new ant before it), are
 //! named one by one, `walled_in` naming `sealed_out` and `eat_held` together (under `reach`, **`hidden.csv`** logs each decision it
 //! hid the food, and whether the wider air check found some joined; under
 //! `sealed_out`, **`sealed.csv`** logs each sealed event's start and end);
@@ -762,7 +762,7 @@ fn main() {
         let cuts: Vec<String> = creature::needs::Drive::ALL.iter().map(|d| format!("cut_{}", d.label())).collect();
         writeln!(
             f,
-            "frame,minds,{},took_forage,quit_forage,need_over_job,ate_held,pellets_down,escape_cuts,escape_packs,gluts,{},dig_took,dig_quit,dig_tired,clear_cuts,gave_up,lay_walks,meals_kept,stays_not_stalls,reach_hidden,eat_gave_up,eat_gave_up_again,eat_rest,eat_rest_ate,eat_rest_out,reach_hidden_air,bouts,bouts_fed,bouts_fed_outside,bouts_died,hold_ignored,seal_floods,sealed_found,sealed_freed,sealed_opened,sealed_cuts,sealed_packs,seal_aim_turned,sealed_drops,sealed_load_down,seal_recut,ate_held_jaws,eat_held_refused,laden_soil",
+            "frame,minds,{},took_forage,quit_forage,need_over_job,ate_held,pellets_down,escape_cuts,escape_packs,gluts,{},dig_took,dig_quit,dig_tired,clear_cuts,gave_up,lay_walks,meals_kept,stays_not_stalls,reach_hidden,eat_gave_up,eat_gave_up_again,eat_rest,eat_rest_ate,eat_rest_out,reach_hidden_air,bouts,bouts_fed,bouts_fed_outside,bouts_died,hold_ignored,seal_floods,sealed_found,sealed_freed,sealed_opened,sealed_cuts,sealed_packs,seal_aim_turned,sealed_drops,sealed_load_down,seal_recut,ate_held_jaws,eat_held_refused,laden_soil,forage_out_pulls",
             drives.join(","),
             cuts.join(",")
         )
@@ -1528,7 +1528,7 @@ fn main() {
                 let cut: Vec<String> = c.cuts.iter().map(u64::to_string).collect();
                 writeln!(
                     wn,
-                    "{f},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
+                    "{f},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
                     walk.minds(),
                     dec.join(","),
                     c.took_forage,
@@ -1572,7 +1572,8 @@ fn main() {
                     c.seal_recut,
                     c.ate_held_jaws,
                     c.eat_held_refused,
-                    c.laden_soil
+                    c.laden_soil,
+                    c.forage_out_pulls
                 )
                 .unwrap();
             }
