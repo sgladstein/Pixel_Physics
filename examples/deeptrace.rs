@@ -1845,15 +1845,6 @@ impl DropLog {
     }
 }
 
-/// The box round the nest and food as one character a cell: `.` air, `#`
-/// ground, `s` loose spoil (powder), `~` water, `a` ant, `b` brood, `f` food,
-/// with two foods drawn apart since 2026-10-06: `c` crumbs and `x` corpses.
-/// The walk parts brood and crumbs (`creature::PushPast`) and is walled by
-/// corpses and the player's provisions, so a map that drew them all `f` could
-/// not say whether a door was shut: `deep-trace/tools/doorseal.py` (in the
-/// project), counting every food cell as wall, read seed 4's door under
-/// `CARRY_HOME` shut on 22 of 25 maps where the walk's own rule finds 20.
-/// First line: `x0 y0 width height`.
 /// **The two scent planes, censused** (`trails=1`): one row per stop.
 /// Units are the plane's own (255 a full cell; a deposit is 40).
 /// - `a_lit`, `a_ceiling`: cells of nest scent (A) at 1 or more, and at 250
@@ -1936,6 +1927,15 @@ fn write_trail_planes(w: &World, out: &str, f: u64) {
     }
 }
 
+/// The box round the nest and food as one character a cell: `.` air, `#`
+/// ground, `s` loose spoil (powder), `~` water, `a` ant, `b` brood, `f` food,
+/// with two foods drawn apart since 2026-10-06: `c` crumbs and `x` corpses.
+/// The walk parts brood and crumbs (`creature::PushPast`) and is walled by
+/// corpses and the player's provisions, so a map that drew them all `f` could
+/// not say whether a door was shut: `deep-trace/tools/doorseal.py` (in the
+/// project), counting every food cell as wall, read seed 4's door under
+/// `CARRY_HOME` shut on 22 of 25 maps where the walk's own rule finds 20.
+/// First line: `x0 y0 width height`.
 fn write_map(w: &World, g: &Geo, path: &str) {
     let (x0, x1) = (g.nest_x - 80, g.food_x + 40);
     let (y0, y1) = (g.ground_y - 60, g.ground_y + 70);

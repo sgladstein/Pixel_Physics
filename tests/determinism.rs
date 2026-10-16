@@ -389,8 +389,9 @@ fn the_lab_bed_is_deterministic_across_identical_runs() {
     assert!(
         census.plant_generation > 0,
         "deepest plant generation is 0 — every plant is a founder, so this run \
-         never reached a birth and the heritable path is untested (measured: \
-         generation 1 arrives at frame 1,800 on this bed)"
+         never reached a birth and the heritable path is untested (measured \
+         2026-10-16: generation 1 arrives between frames 5,400 and 6,000 on \
+         this bed, 4,200-4,800 with PIXEL_PHYSICS_SCOUT_SEARCH=off)"
     );
 }
 

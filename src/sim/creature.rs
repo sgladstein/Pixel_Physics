@@ -23710,7 +23710,13 @@ pub fn home_search_of(world: &World) -> bool {
 /// steps down were offered 4,508 times and taken 2,610, onto a solid floor.
 /// A homing ant that meets a wall across its vector and never detours is a
 /// sink with or without the corbel -- only `laden` ants had the carrier's
-/// patience, so the empty scout walking home had none.
+/// patience, so the empty scout walking home had none. **The shipped form
+/// does not clear that trap** (corbel cell, 4 seeds, same notes): the
+/// fading `floor:0` search took seed 1's corbel colony from 20 ants to 72 and
+/// lost none of 4, but with `floor:0.3` one of 4 still collapsed (seed 2,
+/// of old age after laying stopped near frame 95,000, not traced), as with
+/// the corbel alone. `SPOIL_CORBEL` is off and branch-only, so the trap is
+/// not in the game; it needs its own trace before the corbel ships.
 ///
 /// **A stand-in for a detour round a barrier, with loops borrowed from the
 /// search at the end of the vector.** The case here is a wall across the
@@ -23739,7 +23745,9 @@ pub fn scout_search_of(world: &World) -> bool {
 /// (`cap`, 6 by default as for [`home_search_of`]) and the least the pull
 /// home is ever multiplied by (`floor`, **0.3 by default**). Unset is `on`
 /// at those defaults; `off` is the ant before the switch, and
-/// `on,floor:0` the first, fading form.
+/// `on,floor:0` the first, fading form. A `cap:` or `floor:` part given
+/// alone implies `on` (`floor:0` is the fading form, not off). A `cap` over
+/// 6 acts as 6: [`home_search_reach`] holds the doubling there.
 ///
 /// **Why on, and why 0.3** (the full-game trails lane, 2026-10-16,
 /// `steady_income` 10/40/120 x food 30/90/200, 12 seeds each against main
@@ -23770,20 +23778,30 @@ pub fn scout_search_of(world: &World) -> bool {
 /// reach short enough to restart, `floor` keeps some pull home throughout.
 pub fn scout_search_cfg() -> Option<(u8, f32)> {
     static V: std::sync::OnceLock<Option<(u8, f32)>> = std::sync::OnceLock::new();
-    *V.get_or_init(|| {
-        let raw = std::env::var("PIXEL_PHYSICS_SCOUT_SEARCH").unwrap_or_else(|_| "on".to_string());
-        let (mut on, mut cap, mut floor) = (false, 6u8, 0.3f32);
-        for part in raw.split(',').map(str::trim) {
-            match part {
-                "off" | "" => return None,
-                "on" => on = true,
-                p if p.starts_with("cap:") => cap = p[4..].parse().unwrap_or_else(|_| panic!("PIXEL_PHYSICS_SCOUT_SEARCH: bad {p:?}")),
-                p if p.starts_with("floor:") => floor = p[6..].parse().unwrap_or_else(|_| panic!("PIXEL_PHYSICS_SCOUT_SEARCH: bad {p:?}")),
-                other => panic!("PIXEL_PHYSICS_SCOUT_SEARCH={raw:?}: unknown part {other:?}; use on|off[,cap:<loops>][,floor:<trust>]"),
+    *V.get_or_init(|| scout_search_parse(std::env::var("PIXEL_PHYSICS_SCOUT_SEARCH").ok().as_deref()))
+}
+
+/// [`scout_search_cfg`]'s parse, apart from the environment so a test can
+/// read every form; `None` is the variable unset.
+fn scout_search_parse(raw: Option<&str>) -> Option<(u8, f32)> {
+    let raw = raw.unwrap_or("on");
+    let (mut on, mut cap, mut floor) = (false, 6u8, 0.3f32);
+    for part in raw.split(',').map(str::trim) {
+        match part {
+            "off" | "" => return None,
+            "on" => on = true,
+            p if p.starts_with("cap:") => {
+                on = true;
+                cap = p[4..].parse().unwrap_or_else(|_| panic!("PIXEL_PHYSICS_SCOUT_SEARCH: bad {p:?}"));
             }
+            p if p.starts_with("floor:") => {
+                on = true;
+                floor = p[6..].parse().unwrap_or_else(|_| panic!("PIXEL_PHYSICS_SCOUT_SEARCH: bad {p:?}"));
+            }
+            other => panic!("PIXEL_PHYSICS_SCOUT_SEARCH={raw:?}: unknown part {other:?}; use on|off[,cap:<loops>][,floor:<trust>]"),
         }
-        on.then_some((cap, floor))
-    })
+    }
+    on.then_some((cap, floor))
 }
 
 /// How much a given-up scout still trusts the straight line home
@@ -44050,6 +44068,91 @@ mod tests {
         assert!(let_go <= 0.05, "under lay,giveup a scout that gave up on dark ground stepped outward on {let_go} of 300 decisions");
         // A give-up made on a lit route is not spent: it walks as under `lay`.
         assert_eq!(outward(lay_giveup, false), held, "under lay,giveup a scout that gave up on a lit route should keep the trail's pull, as under lay");
+    }
+
+    /// `PIXEL_PHYSICS_SCOUT_SEARCH` reads unset as `on,cap:6,floor:0.3`;
+    /// `off` is off, and a `cap:` or `floor:` part alone implies `on`
+    /// ([`scout_search_parse`]).
+    #[test]
+    fn scout_search_reads_unset_as_on_and_a_part_as_on() {
+        assert_eq!(scout_search_parse(None), Some((6, 0.3)), "on with floor 0.3 by default since 2026-10-16");
+        assert_eq!(scout_search_parse(Some("on")), Some((6, 0.3)));
+        assert_eq!(scout_search_parse(Some("off")), None);
+        assert_eq!(scout_search_parse(Some("floor:0")), Some((6, 0.0)), "floor:0 is the fading search, not off");
+        assert_eq!(scout_search_parse(Some("on, cap:1")), Some((1, 0.3)));
+        assert!(std::panic::catch_unwind(|| scout_search_parse(Some("on,flor:0.3"))).is_err(), "a typo must not be a silent rule");
+    }
+
+    /// **A given-up scout with a wall across its way home searches off the
+    /// wall** ([`scout_search_of`]). A one-cell tunnel in stone, x 20-100 on
+    /// row 30, with the ant's home point at x 130, past the tunnel's blind
+    /// east end, and a hungry empty scout (energy held at a quarter) at the
+    /// blind end facing west. It scouts west to the far end, gives up there,
+    /// and walks home east into the blind end, where the straight line home
+    /// runs into the wall: the spire pocket of the switch's "Why", reduced.
+    /// Off, it stays pressed against the wall; on, its pull tires, it walks
+    /// back down the tunnel, and its search restarts (`scout_searches`, the
+    /// "it fired" count). The effect is the time spent at the wall after
+    /// first reaching it, and how far west it gets back from there. Measured
+    /// 2026-10-16 over 6,000 frames: off, 4,279 of 4,279 frames at the wall
+    /// and 3 cells back at most, no search; on, 3,702 of 4,279, 9 cells
+    /// back, 1 search (12,000 frames: 8,707 of 10,279, 11 cells, still 1).
+    /// The floor keeps the pull home at 0.3 or more, so even on, the scout
+    /// stays near the wall; this guards that the pull tires at all. The off
+    /// arm is the watched red: every `on` assertion fails on its numbers.
+    #[test]
+    fn a_given_up_scout_with_a_wall_across_its_way_home_searches_off_it() {
+        let run_arm = |search: bool| -> (bool, usize, usize, i32, u64) {
+            let stone = Cell::new(material::STONE, 0).with_attached(true);
+            let mut w = World::new(Rect::new(0, 0, 159, 63));
+            for x in 0..160 {
+                for y in 0..64 {
+                    w.set(x, y, stone);
+                }
+            }
+            for x in 20..=100 {
+                w.set(x, 30, Cell::EMPTY);
+            }
+            w.chooser = Some(Chooser::TrailAway);
+            w.scout = Some(SCOUT_DEFAULT);
+            w.forage_drive = Some(ForageDrive::OFF);
+            w.scout_search = Some(search);
+            let ant = spawn(&mut w, "ant", 100, 30);
+            let energy = w.species.get(w.organism(ant).expect("live").species).creature.as_ref().expect("a creature").start_energy * 0.25;
+            {
+                let st = w.organism_mut(ant).expect("live");
+                st.heading = 4;
+                st.forage_anchor = (130, 30);
+            }
+            let before = w.creature_stats.scout_searches;
+            let (mut gave_up, mut at_wall, mut after, mut far_back) = (false, 0usize, 0usize, 0i32);
+            let mut reached = false;
+            for _ in 0..6000 {
+                w.organism_mut(ant).expect("live").energy = energy;
+                run(&mut w, 1);
+                let st = w.organism(ant).expect("live");
+                assert!(st.crop.is_none(), "the ant must stay empty");
+                assert_eq!(st.forage_anchor, (130, 30), "the ant touched a nest: the scene has lost its home point");
+                gave_up |= st.scout_home;
+                let x = st.chain[0].0;
+                reached |= gave_up && x >= 97;
+                if reached {
+                    after += 1;
+                    at_wall += usize::from(x >= 97);
+                    far_back = far_back.max(100 - x);
+                }
+            }
+            (gave_up, at_wall, after, far_back, w.creature_stats.scout_searches - before)
+        };
+        let (off_gave_up, off_at_wall, off_after, off_back, off_searches) = run_arm(false);
+        let (on_gave_up, on_at_wall, on_after, on_back, on_searches) = run_arm(true);
+        assert!(off_gave_up && on_gave_up, "the scout never gave up at the tunnel's far end: the scene has no walk home");
+        assert!(off_after >= 2000 && on_after >= 2000, "the walk home reached the blind end too late ({off_after}, {on_after} frames left)");
+        assert_eq!(off_searches, 0, "searches with the switch off");
+        assert!(off_at_wall == off_after && off_back <= 4, "off, the scout left the wall ({off_at_wall} of {off_after} frames there, {off_back} cells back): the scene no longer pins it");
+        assert!(on_searches >= 1, "on, the search never restarted");
+        assert!(on_at_wall * 10 <= on_after * 9, "on, the scout spent {on_at_wall} of {on_after} frames at the wall: its pull home is not tiring");
+        assert!(on_back >= 7, "on, the scout got only {on_back} cells back from the wall");
     }
 
     /// **Stage 2's reader turns a west-facing ant at the door toward the
