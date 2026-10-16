@@ -367,6 +367,49 @@ pub struct ForageCfg {
     /// laid all the way home, a colony of 150 ended the run with every ant
     /// in the nest (2026-10-16, laid both ways, seed 1 at 60,000 frames).
     pub mark_to_fork: bool,
+    /// **The exploration scent** (Dussutour, Nicolis, Shephard, Beekman &
+    /// Sumpter 2009, *J. Exp. Biol.* 212:2337, *Pheidole megacephala*): a
+    /// second, longer-lived trail laid by **every** ant (λE = 0.04/min,
+    /// against the food trail's λF = 0.07), weakly attractive (f(E) = 1 +
+    /// E), and laid less where the food trail is strong ("exploitation
+    /// locally suppresses exploration", their Eqn 10: E is made at
+    /// `a(1 - cF)`). It leaves the unfed branch marked and the fed one
+    /// bare, which is what the paper says makes a colony let go of moved
+    /// food quickly and come back faster still (20.8 then 12.2 min).
+    /// Their Discussion: this species "might not need to use a negative
+    /// pheromone to mark an empty branch". A step lays `explore` deposits
+    /// on channel A with chance `max(0, 1 - explore_c x F / k)`, `F` the
+    /// food trail underfoot; a step's weight is multiplied by `1 + E /
+    /// explore_k`, `E` the scent ahead. **It rides channel A**, so it
+    /// cannot run with [`ForageCfg::no_entry`]. 0: off.
+    pub explore: f32,
+    pub explore_c: f32,
+    /// 0: the exploration scent is not read at all, only laid.
+    pub explore_k: f32,
+    /// **A marked branch is not marked again**: the lay chance is also
+    /// multiplied by `max(0, 1 - E / explore_max)`, `E` the exploration
+    /// scent underfoot in deposits. In the paper's Eqn 10 a branch makes
+    /// exploration scent at a fixed rate `a(1 - cF)`, however many ants
+    /// walk it; laid per step it is a second trail, with its own feedback.
+    /// Uncapped, it locked a colony onto a branch the food had left: after
+    /// the food went back to the first branch, the second's exploration
+    /// scent grew to 10-15 deposits from the traffic still on it and held
+    /// the colony near half and half for 40 min (`antbridge`, 2026-10-16).
+    /// A modelling choice that stands in for the paper's fixed rate, not a
+    /// measured behaviour. 0: no cap.
+    pub explore_max: f32,
+    /// **Exploration speeds recruitment** (the paper's other coupling, Eqn
+    /// 10: food trail is made at `phi_F E_i`, in proportion to the
+    /// exploration scent on that branch; they cite the faster recruitment
+    /// to a feeder at the end of an explored branch, their Fig. 4). A fed
+    /// ant's deposit is multiplied by `1 + explore_lay x E`, `E` the
+    /// exploration scent underfoot in deposits. 0: off.
+    pub explore_lay: f32,
+    /// Read the food trail as `k^n + C^n` (Dussutour 2009's choice, their
+    /// Eqns 10-11, after Beckers et al. 1992) instead of Deneubourg's `(k +
+    /// C)^n`. The two agree where `C` is far above `k`; below it the first
+    /// is flat (a faint trail reads as none), the second is not.
+    pub kn: bool,
 }
 
 /// Steps over which [`ForageCfg::crowd`] counts encounters: about the
@@ -403,6 +446,8 @@ pub struct TextbookCounts {
     pub met_sum: f64,
     /// [`ForageCfg::no_entry`]: steps that laid the mark.
     pub no_entry_steps: u64,
+    /// [`ForageCfg::explore`]: steps that laid the exploration scent.
+    pub explore_steps: u64,
 }
 
 /// **`World::textbook`**: which species decides by it, its parameters and
@@ -809,12 +854,43 @@ pub(super) fn step(
         };
         if let Some((hx, hy)) = head.filter(|_| lays) {
             let amount = if laden { fc.lay } else { fc.lay * fc.out_frac };
+            let amount = if laden && fc.explore_lay > 0.0 {
+                amount
+                    * (1.0
+                        + fc.explore_lay * f32::from(world.pheromone_at(Channel::A, hx, hy))
+                            / f32::from(pheromone::SCALE))
+            } else {
+                amount
+            };
             world.deposit_pheromone(
                 Channel::B,
                 hx,
                 hy,
                 (amount * f32::from(pheromone::SCALE)) as pheromone::Scent,
             );
+        }
+    }
+    if let Some(fc) = forage.filter(|fc| fc.explore > 0.0) {
+        // Every ant, either way, laden or not: the paper's E is laid by
+        // all ants, and held back only by the food trail underfoot.
+        if let Some((hx, hy)) = world.organism(organism).and_then(|s| s.chain.first().copied()) {
+            let f = f32::from(world.pheromone_at(Channel::B, hx, hy)) / f32::from(pheromone::SCALE);
+            let e = f32::from(world.pheromone_at(Channel::A, hx, hy)) / f32::from(pheromone::SCALE);
+            let room = if fc.explore_max > 0.0 {
+                (1.0 - e / fc.explore_max).max(0.0)
+            } else {
+                1.0
+            };
+            let chance = (1.0 - fc.explore_c * f / fc.k.max(1e-6)) * room;
+            if chance > 0.0 && draw.unit_f32() < chance {
+                world.deposit_pheromone(
+                    Channel::A,
+                    hx,
+                    hy,
+                    (fc.explore * f32::from(pheromone::SCALE)) as pheromone::Scent,
+                );
+                count(world, |c| c.explore_steps += 1);
+            }
         }
     }
     true
@@ -984,10 +1060,19 @@ fn forage_heading(
         let mark = if fc.read && fc.no_entry > 0.0 {
             (-fc.repel * f32::from(world.pheromone_at(Channel::A, hx + dx, hy + dy)) / f32::from(pheromone::SCALE))
                 .exp()
+        } else if fc.read && fc.explore > 0.0 && fc.explore_k > 0.0 {
+            1.0 + f32::from(world.pheromone_at(Channel::A, hx + dx, hy + dy))
+                / f32::from(pheromone::SCALE)
+                / fc.explore_k
         } else {
             1.0
         };
-        let w = persist * (pull * cos).exp() * (fc.k + c).powi(fc.n) * mark;
+        let trail = if fc.kn {
+            fc.k.powi(fc.n) + c.powi(fc.n)
+        } else {
+            (fc.k + c).powi(fc.n)
+        };
+        let w = persist * (pull * cos).exp() * trail * mark;
         weights[d as usize] = w;
         total += w;
     }

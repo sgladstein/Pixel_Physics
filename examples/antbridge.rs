@@ -83,6 +83,17 @@
 //!   Goss passes and the switch drops to 3/8: the trail on the dead branch
 //!   is renewed by every ant that walks it.
 //!
+//! **Two scents, the paper's own rule (2026-10-16 afternoon;
+//! `explore=0.1 explorec=1 k=6 kn=1 explorek=10 explorelay=0.3
+//! exploremax=10 layout=0 giveup=300`, food moved at 31,500 and back at
+//! 63,000, Dussutour's Fig. 10 timeline at 700 frames a minute):** first
+//! switch 8/8 at 1.12-1.54 lifetimes, with the figure's gradual shape and
+//! 80/20 floor, about 7 min late; the switch back is no faster (1.26-1.68,
+//! 7/8; paper 0.85). The same setting loses Goss's late-opened short branch
+//! (0/16 stay on the long one) and his 80% (about 3/16). Results and the
+//! curve in `emergence-sandbox/dead-branch/lessons-dead-branch-2026-10-16.md`
+//! section 4c.
+//!
 //! Four harness traps came first. A remembered feeder that is now empty
 //! pinned every ant that reached it (the empty room filled), so the ant
 //! gives up (`giveup=`); counted over the whole trip, ants gave up on a
@@ -98,10 +109,59 @@ use pixel_physics::sim::rng::Rng;
 use pixel_physics::sim::{Cell, Rect, World};
 
 const KEYS: &[&str] = &[
-    "seed", "seeds", "frames", "ants", "ant", "gap", "len", "neck", "tunnel", "long", "longside", "opens", "release",
-    "k", "n", "lay", "layout", "vector", "mute", "brho", "bdiff", "fed", "halflife", "food", "png", "every", "trace",
-    "needsat", "room", "worth", "feeders", "moves", "start", "vout", "giveup", "search", "sense", "outfrac", "crowd",
-    "noentry", "repel", "markfork", "arho", "drop", "roomh",
+    "seed",
+    "seeds",
+    "frames",
+    "ants",
+    "ant",
+    "gap",
+    "len",
+    "neck",
+    "tunnel",
+    "long",
+    "longside",
+    "opens",
+    "release",
+    "k",
+    "n",
+    "lay",
+    "layout",
+    "vector",
+    "mute",
+    "brho",
+    "bdiff",
+    "fed",
+    "halflife",
+    "food",
+    "png",
+    "every",
+    "trace",
+    "needsat",
+    "room",
+    "worth",
+    "feeders",
+    "moves",
+    "start",
+    "vout",
+    "giveup",
+    "search",
+    "sense",
+    "outfrac",
+    "crowd",
+    "noentry",
+    "repel",
+    "markfork",
+    "arho",
+    "drop",
+    "roomh",
+    "explore",
+    "explorec",
+    "explorek",
+    "kn",
+    "back",
+    "restock",
+    "explorelay",
+    "exploremax",
 ];
 
 const FEED_EVERY: u64 = 500;
@@ -366,6 +426,14 @@ fn main() {
     let feeders = arg::<u8>("feeders").unwrap_or(1) == 2;
     let moves: u64 = arg("moves").unwrap_or(0);
     assert!(moves == 0 || feeders, "moves= needs feeders=2");
+    // `back=<frame>`: the food goes back to the first room (Dussutour's
+    // third phase, at 120 min against the first move's 45).
+    let back: u64 = arg("back").unwrap_or(0);
+    assert!(back == 0 || back > moves && moves > 0, "back= needs moves= before it");
+    assert!(
+        arg::<f32>("explore").unwrap_or(0.0) == 0.0 || arg::<f32>("noentry").unwrap_or(0.0) == 0.0,
+        "explore= and noentry= both ride channel A"
+    );
     assert!(!feeders || long == 0, "feeders=2 runs equal branches");
     println!(
         "antbridge: ant={kind} ants={n_ants} gap={gap} len={len} neck={neck} tunnel={th} long={long} longside={} opens={opens} release={release} fed={fed} frames={frames}",
@@ -385,6 +453,16 @@ fn main() {
         // lifetimes (`12 / brho` frames, the engine plane's fade).
         let life = 12.0 / arg::<f32>("brho").unwrap_or(0.001);
         let switched: Vec<Option<u64>> = rows.iter().map(|r| r.5).collect();
+        if arg::<u64>("back").unwrap_or(0) > 0 {
+            let b: Vec<Option<u64>> = rows.iter().map(|r| r.6).collect();
+            println!(
+                "SUMMARY moved back: switch after [{}] frames = [{}] trail lifetimes; switched {} of {} (Dussutour 2009: 15/15, 12.2 +- 7.7 min = 0.85 lifetimes, against 20.8 the first time)",
+                b.iter().map(|s| s.map_or("never".into(), |v| v.to_string())).collect::<Vec<_>>().join(" "),
+                b.iter().map(|s| s.map_or("-".into(), |v| format!("{:.2}", v as f32 / life))).collect::<Vec<_>>().join(" "),
+                b.iter().filter(|s| s.is_some()).count(),
+                rows.len()
+            );
+        }
         let n = switched.iter().filter(|s| s.is_some()).count();
         println!(
             "SUMMARY moved food at {moves}: switch after [{}] frames = [{}] trail lifetimes ({life:.0} frames); switched {n} of {} (Dussutour 2009: 15/15, 1.0-1.9 lifetimes)",
@@ -434,7 +512,13 @@ fn run(
     every: u64,
     feeders: bool,
     moves: u64,
-) -> (f32, u64, f32, u64, u64, Option<u64>) {
+) -> (f32, u64, f32, u64, u64, Option<u64>, Option<u64>) {
+    let back: u64 = arg("back").unwrap_or(0);
+    // `restock=<frames>`: how often the nest's crumbs are eaten and the
+    // feeder refilled. Dussutour's feeder is 3 ml of sucrose, never short;
+    // at `FEED_EVERY` a crowd of empty ants waits at the bare floor between
+    // refills, and an ant with food in reach never gives up.
+    let restock: u64 = arg("restock").unwrap_or(FEED_EVERY);
     let (w, h) = size(gap, len, th, long);
     let mut world = World::new(Rect::new(0, 0, w - 1, h - 1));
     world.seed = seed;
@@ -442,7 +526,9 @@ fn run(
     // Which room is fed: 0 upper, 1 lower.
     let mut fed_room = usize::from(arg::<String>("start").as_deref() == Some("lower"));
     let mut switched: Option<u64> = None;
+    let mut switched_back: Option<u64> = None;
     let mut chose_before = false;
+    let mut chose_back = false;
     let mut streak = 0u32;
     let stone = world.materials.id_of("stone").expect("stone");
     let crumbs = world.materials.id_of("crumbs").expect("crumbs");
@@ -524,6 +610,12 @@ fn run(
                 repel: arg("repel").unwrap_or(1.0),
                 mark_fork: arg::<u8>("markfork").unwrap_or(0) == 1,
                 mark_to_fork: arg::<u8>("markfork").unwrap_or(0) == 2,
+                explore: arg("explore").unwrap_or(0.0),
+                explore_c: arg("explorec").unwrap_or(0.1),
+                explore_k: arg("explorek").unwrap_or(1.0),
+                explore_lay: arg("explorelay").unwrap_or(0.0),
+                explore_max: arg("exploremax").unwrap_or(0.0),
+                kn: arg::<u8>("kn").unwrap_or(0) == 1,
             }),
             sort: None,
         };
@@ -584,7 +676,7 @@ fn run(
         if release > 0 && placed < n_ants && f % release == 0 {
             plant(&mut world, &mut placed, &mut rng);
         }
-        if moves > 0 && f == moves {
+        if moves > 0 && (f == moves || f == back) {
             // Take the food away from one room and put it in the other.
             if let Some(rooms) = sc.rooms {
                 let (x0, x1, floor) = rooms[fed_room];
@@ -622,7 +714,7 @@ fn run(
         world.step_active_sites();
         world.step_fields();
         world.step_pheromones();
-        if f % FEED_EVERY == 0 {
+        if f % restock == 0 {
             feed(&mut world, fed);
             // Eat what came home; restock the feeder.
             for y in sc.nest.1..=sc.nest.3 {
@@ -695,12 +787,20 @@ fn run(
             if moves > 0 && f == moves {
                 chose_before = fed_share > 0.8;
             }
+            if back > 0 && f == back {
+                chose_back = fed_share > 0.8;
+                streak = 0;
+            }
             // ...and the switch is the end of the first three windows in a row
             // that each give the new branch the majority, so one window's
             // flicker past half is not a switch.
             if moves > 0 && f > moves {
                 streak = if all >= 20 && fed_share > 0.5 { streak + 1 } else { 0 };
-                if chose_before && switched.is_none() && streak >= 3 {
+                if back > 0 && f > back {
+                    if chose_back && switched_back.is_none() && streak >= 3 {
+                        switched_back = Some(f - back);
+                    }
+                } else if chose_before && switched.is_none() && streak >= 3 {
                     switched = Some(f - moves);
                 }
             }
@@ -724,12 +824,12 @@ fn run(
             if sc.rooms.is_some() {
                 // The food trail along each branch's middle half, in deposits
                 // (`SCALE`): what the fork's `(k + C)^n` reads.
-                let mean = |y: i32| {
+                let mean_on = |ch: Channel, y: i32| {
                     let xs = sc.nest.2 + 1 + len / 4..sc.food.0 - len / 4;
                     let n = xs.len().max(1) as f32;
                     xs.map(|x| {
                         (0..th)
-                            .map(|dy| f32::from(world.pheromone_at(Channel::B, x, y + dy)))
+                            .map(|dy| f32::from(world.pheromone_at(ch, x, y + dy)))
                             .sum::<f32>()
                             / th as f32
                     })
@@ -737,7 +837,14 @@ fn run(
                         / n
                         / f32::from(pixel_physics::sim::pheromone::SCALE)
                 };
+                let mean = |y: i32| mean_on(Channel::B, y);
                 let (up, lo) = (mean(sc.split_y - th - gap / 2), mean(sc.split_y + gap / 2));
+                // The exploration scent (`explore=`) on the same stretch.
+                let (eu, el) = (
+                    mean_on(Channel::A, sc.split_y - th - gap / 2),
+                    mean_on(Channel::A, sc.split_y + gap / 2),
+                );
+                let (e_fed, e_other) = if fed_room == 0 { (eu, el) } else { (el, eu) };
                 let (fed_c, other_c) = if fed_room == 0 { (up, lo) } else { (lo, up) };
                 let met = counts.map_or(0.0, |c| c.met_sum / c.crowd_rolls.max(1) as f64);
                 let marks = |y: i32| {
@@ -791,7 +898,7 @@ fn run(
                 let (mu, ml) = (marks(sc.split_y - th - gap / 2), marks(sc.split_y + gap / 2));
                 let (mark_f, mark_o) = if fed_room == 0 { (mu, ml) } else { (ml, mu) };
                 println!(
-                    "  trail fed/other {fed_c:.1}/{other_c:.1} deposits, no-entry peak fed/other {mark_f:.1}/{mark_o:.1}, fed share {fed_share:.2}, mean encounters at a laying step {met:.1}, no-entry steps {}",
+                    "  trail fed/other {fed_c:.1}/{other_c:.1} deposits, exploration fed/other {e_fed:.1}/{e_other:.1}, no-entry peak fed/other {mark_f:.1}/{mark_o:.1}, fed share {fed_share:.2}, mean encounters at a laying step {met:.1}, no-entry steps {}",
                     counts.map_or(0, |c| c.no_entry_steps)
                 );
             }
@@ -831,6 +938,7 @@ fn run(
         whole[0] + whole[1],
         delivered,
         switched,
+        switched_back,
     )
 }
 
