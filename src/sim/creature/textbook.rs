@@ -319,6 +319,14 @@ pub struct ForageCfg {
     /// taken 8/8, 2026-10-16); an ant searches where it remembers the food
     /// and turns back from there (Wehner's desert ants; Robinson's dead end).
     pub search_r: i32,
+    /// ...and only while no loose `food` lies within `sense` cells of the
+    /// head (0: food is not looked for). An ant held back from food by the
+    /// crowd round it has not found the site empty: on Goss's bridge, with
+    /// the feeder always stocked, 1,959 marking steps were laid in one run
+    /// by ants that gave up in the crowd, and the short branch's win fell
+    /// from 80% of traffic on 5/8 runs to 1/8 (2026-10-16). A modelling
+    /// choice (a forager smells food it cannot yet reach).
+    pub sense: i32,
     /// **Crowding lays less** (Czaczkes, Grueter & Ratnieks 2013, *J. R.
     /// Soc. Interface* 10:20121009, *Lasius niger*): after 10 encounters over
     /// 20 cm a forager was 45% less likely to deposit, and from the least to
@@ -823,6 +831,15 @@ fn forage_act(
 ) {
     let home = (x - fc.home.0).pow(2) + (y - fc.home.1).pow(2) <= fc.home_r.pow(2);
     if fc.give_up > 0 {
+        let food_near = fc.sense > 0
+            && (-fc.sense..=fc.sense).any(|dy| {
+                (-fc.sense..=fc.sense).any(|dx| {
+                    world.in_bounds(x + dx, y + dy) && {
+                        let c = world.get(x + dx, y + dy);
+                        c.material == fc.food && c.organism_id() == 0
+                    }
+                })
+            });
         if let Some(t) = world.textbook.as_mut() {
             if home || load.is_some() {
                 t.trips.remove(&organism);
@@ -830,7 +847,7 @@ fn forage_act(
                 let near = fc.search_r == 0
                     || (x - fc.feeder.0).pow(2) + (y - fc.feeder.1).pow(2) <= fc.search_r.pow(2);
                 let trip = t.trips.entry(organism).or_insert((0, false));
-                trip.0 += u32::from(near);
+                trip.0 += u32::from(near && !food_near);
                 trip.1 |= trip.0 >= fc.give_up;
             }
         }

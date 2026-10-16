@@ -100,7 +100,7 @@ use pixel_physics::sim::{Cell, Rect, World};
 const KEYS: &[&str] = &[
     "seed", "seeds", "frames", "ants", "ant", "gap", "len", "neck", "tunnel", "long", "longside", "opens", "release",
     "k", "n", "lay", "layout", "vector", "mute", "brho", "bdiff", "fed", "halflife", "food", "png", "every", "trace",
-    "needsat", "room", "worth", "feeders", "moves", "start", "vout", "giveup", "search", "outfrac", "crowd", "noentry", "repel", "arho",
+    "needsat", "room", "worth", "feeders", "moves", "start", "vout", "giveup", "search", "sense", "outfrac", "crowd", "noentry", "repel", "arho",
 ];
 
 const FEED_EVERY: u64 = 500;
@@ -440,6 +440,7 @@ fn run(
                 read: !mute,
                 give_up: arg("giveup").unwrap_or(0),
                 search_r: arg("search").unwrap_or(0),
+                sense: arg("sense").unwrap_or(0),
                 out_flat: sc.rooms.is_some(),
                 crowd: arg("crowd").unwrap_or(0.0),
                 no_entry: arg("noentry").unwrap_or(0.0),
