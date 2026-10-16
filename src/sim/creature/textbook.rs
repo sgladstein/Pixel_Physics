@@ -277,7 +277,20 @@ pub struct ForageCfg {
     /// the branches, both vectors favoured the lower branch at every fork.
     pub aim_home: (i32, i32),
     pub feeder: (i32, i32),
+    /// The home vector's weight (a laden ant), and the feeder vector's (an
+    /// empty one). Separate because food can move: a remembered feeder
+    /// that is now empty pins an empty ant in front of it, where the home
+    /// vector is never wrong (Dussutour et al. 2009's moved food,
+    /// `antbridge feeders=2`).
     pub vector: f32,
+    pub vector_out: f32,
+    /// The feeder vector pulls along the row only (towards `feeder`'s
+    /// column, never up or down). With two feeder rooms one above the other
+    /// any aimed height sits nearer one room's food: aimed between them it
+    /// pulled ants onto the upper room's crumbs and off the lower's, and
+    /// the colony settled on the lower room's branch on 0 of 4 runs
+    /// (`antbridge feeders=2`, 2026-10-16).
+    pub out_flat: bool,
     pub k: f32,
     pub n: i32,
     pub lay: f32,
@@ -285,7 +298,50 @@ pub struct ForageCfg {
     /// Whether the trail is read at all (`false` is the muted arm: laid,
     /// never followed).
     pub read: bool,
+    /// **Giving up**: an empty ant that has taken this many decisions since
+    /// it left home without finding food turns for home on the home vector,
+    /// empty, and starts again from there (0: never). The dead-end rule of
+    /// Robinson et al. 2008's trail model (*J. Theor. Biol.* 255:250, an
+    /// ant at an unrewarded branch's end turns back); a remembered feeder
+    /// that is now empty otherwise pins an ant in front of it for good
+    /// (`antbridge feeders=2`, 2026-10-16: the empty room filled with ants).
+    pub give_up: u32,
+    /// Where giving up counts: only decisions within `search_r` of `feeder`
+    /// (0: everywhere since home). Counting the whole trip made ants on a
+    /// long, busy branch give up on food that was there, and their no-entry
+    /// mark then drove the colony off it (Goss's late-opened short branch
+    /// taken 8/8, 2026-10-16); an ant searches where it remembers the food
+    /// and turns back from there (Wehner's desert ants; Robinson's dead end).
+    pub search_r: i32,
+    /// **Crowding lays less** (Czaczkes, Grueter & Ratnieks 2013, *J. R.
+    /// Soc. Interface* 10:20121009, *Lasius niger*): after 10 encounters over
+    /// 20 cm a forager was 45% less likely to deposit, and from the least to
+    /// the most crowded trail 5.6 times fewer ants deposited. Czaczkes 2014
+    /// (*J. Theor. Biol.* 360:172) found this is what lets a colony refocus
+    /// when food quality switches (97% of simulated colonies, against none
+    /// without it). A step lays with chance `max(1 / 5.6, exp(-crowd x
+    /// met))`, `met` the other ants beside the head summed over recent steps
+    /// (a running sum fading by `1 / CROWD_WINDOW` a step). `crowd = 0.06`
+    /// gives the paper's 45% at 10. 0: off, every step lays.
+    pub crowd: f32,
+    /// **The no-entry mark** (Robinson, Jackson, Holcombe & Ratnieks 2005,
+    /// *Nature* 438:442, *Monomorium pharaonis*): a repellent laid on an
+    /// unrewarding branch, read by others as "not this way". An ant that has
+    /// given up ([`ForageCfg::give_up`]) lays `no_entry` deposits of it on
+    /// each step home; a step's weight is multiplied by `exp(-repel x R)`,
+    /// `R` the mark ahead in deposits. Robinson et al. 2009 (*Insectes Soc.*
+    /// 56:256) found its effect starts about twice the trail's and lasts
+    /// about 2.4 times as long (78 min against 33). **It rides channel A**,
+    /// which nothing else lays in `antbridge`'s box: a labelled stand-in. A
+    /// game version would need a plane of its own. 0: off.
+    pub no_entry: f32,
+    pub repel: f32,
 }
+
+/// Steps over which [`ForageCfg::crowd`] counts encounters: about the
+/// paper's 20 cm for a 3-4 mm ant at one cell a body length, a labelled
+/// guess at our grain.
+pub const CROWD_WINDOW: f32 = 60.0;
 
 /// What the rules did, for a harness's census. Nothing reads these back.
 #[derive(Clone, Copy, Debug, Default)]
@@ -311,6 +367,11 @@ pub struct TextbookCounts {
     /// Slice B: food picked up at the feeder, and put down at home.
     pub food_picks: u64,
     pub delivered: u64,
+    /// [`ForageCfg::crowd`]: laying steps rolled, and their encounter sums.
+    pub crowd_rolls: u64,
+    pub met_sum: f64,
+    /// [`ForageCfg::no_entry`]: steps that laid the mark.
+    pub no_entry_steps: u64,
 }
 
 /// **`World::textbook`**: which species decides by it, its parameters and
@@ -320,6 +381,16 @@ pub struct Textbook {
     pub species: crate::sim::organism::SpeciesId,
     pub cfg: TextbookCfg,
     pub counts: TextbookCounts,
+    /// Slice B's per-ant trip: decisions since home while empty, and
+    /// whether the ant has given up ([`ForageCfg::give_up`]). Read and
+    /// written by key only, never iterated, so its order cannot reach a
+    /// result.
+    pub trips: std::collections::HashMap<OrganismId, (u32, bool)>,
+    /// [`ForageCfg::crowd`]'s running encounter sum per ant, and the ants
+    /// beside its head last step (an encounter is an ant newly beside it, so
+    /// a file of ants walking nose to tail is not one encounter a step), by
+    /// key only.
+    pub met: std::collections::HashMap<OrganismId, (f32, Vec<OrganismId>)>,
 }
 
 impl Textbook {
@@ -328,6 +399,8 @@ impl Textbook {
             species,
             cfg,
             counts: TextbookCounts::default(),
+            trips: std::collections::HashMap::new(),
+            met: std::collections::HashMap::new(),
         }
     }
 }
@@ -571,8 +644,13 @@ pub(super) fn step(
     let usable = usable_headings(world, organism, def);
     let forage = world.textbook.as_ref().and_then(|t| t.cfg.forage);
     let laden = world.organism(organism).is_some_and(|s| s.spoil.is_some());
+    let gave_up = world
+        .textbook
+        .as_ref()
+        .and_then(|t| t.trips.get(&organism))
+        .is_some_and(|t| t.1);
     let heading = match forage {
-        Some(fc) => match forage_heading(world, &fc, &chain, &usable, laden, draw) {
+        Some(fc) => match forage_heading(world, &fc, &chain, &usable, laden || gave_up, draw) {
             Some(d) => d,
             None => {
                 count(world, |c| c.stuck += 1);
@@ -626,8 +704,38 @@ pub(super) fn step(
         parting_enabled(),
     );
     count(world, |c| c.steps += 1);
-    if let Some(fc) = forage.filter(|fc| laden || fc.lay_out) {
+    if let Some(fc) = forage.filter(|fc| gave_up && !laden && fc.no_entry > 0.0) {
         if let Some(&(hx, hy)) = world.organism(organism).and_then(|s| s.chain.first()) {
+            world.deposit_pheromone(Channel::A, hx, hy, (fc.no_entry * f32::from(pheromone::SCALE)) as pheromone::Scent);
+            count(world, |c| c.no_entry_steps += 1);
+        }
+    }
+    if let Some(fc) = forage.filter(|fc| laden || fc.lay_out) {
+        let head = world.organism(organism).and_then(|s| s.chain.first().copied());
+        let lays = match head {
+            Some((hx, hy)) if fc.crowd > 0.0 => {
+                let mut others: Vec<OrganismId> = DIRS
+                    .iter()
+                    .filter(|&&(dx, dy)| world.in_bounds(hx + dx, hy + dy))
+                    .map(|&(dx, dy)| world.get(hx + dx, hy + dy).organism_id())
+                    .filter(|&o| o != 0 && o != organism)
+                    .collect();
+                others.sort_unstable();
+                others.dedup();
+                let met = world.textbook.as_mut().map_or(0.0, |t| {
+                    let m = t.met.entry(organism).or_insert((0.0, Vec::new()));
+                    let new = others.iter().filter(|o| m.1.binary_search(o).is_err()).count();
+                    m.0 = m.0 * (1.0 - 1.0 / CROWD_WINDOW) + new as f32;
+                    m.1 = others;
+                    t.counts.crowd_rolls += 1;
+                    t.counts.met_sum += f64::from(m.0);
+                    m.0
+                });
+                draw.unit_f32() < (-fc.crowd * met).exp().max(1.0 / 5.6)
+            }
+            _ => true,
+        };
+        if let Some((hx, hy)) = head.filter(|_| lays) {
             world.deposit_pheromone(
                 Channel::B,
                 hx,
@@ -707,6 +815,19 @@ fn forage_act(
     draw: &mut rng::Rng,
 ) {
     let home = (x - fc.home.0).pow(2) + (y - fc.home.1).pow(2) <= fc.home_r.pow(2);
+    if fc.give_up > 0 {
+        if let Some(t) = world.textbook.as_mut() {
+            if home || load.is_some() {
+                t.trips.remove(&organism);
+            } else {
+                let near = fc.search_r == 0
+                    || (x - fc.feeder.0).pow(2) + (y - fc.feeder.1).pow(2) <= fc.search_r.pow(2);
+                let trip = t.trips.entry(organism).or_insert((0, false));
+                trip.0 += u32::from(near);
+                trip.1 |= trip.0 >= fc.give_up;
+            }
+        }
+    }
     match load {
         None if !home => {
             let food: Vec<(i32, i32)> = DIRS
@@ -761,6 +882,8 @@ fn forage_heading(
         })
         .unwrap_or(0);
     let (tx, ty) = if laden { fc.aim_home } else { fc.feeder };
+    let pull = if laden { fc.vector } else { fc.vector_out };
+    let ty = if !laden && fc.out_flat { hy } else { ty };
     let (vx, vy) = ((tx - hx) as f32, (ty - hy) as f32);
     let vlen = (vx * vx + vy * vy).sqrt().max(1e-6);
     let mut weights = [0f32; 8];
@@ -776,7 +899,12 @@ fn forage_heading(
         } else {
             0.0
         };
-        let w = persist * (fc.vector * cos).exp() * (fc.k + c).powi(fc.n);
+        let mark = if fc.read && fc.no_entry > 0.0 {
+            (-fc.repel * f32::from(world.pheromone_at(Channel::A, hx + dx, hy + dy)) / f32::from(pheromone::SCALE)).exp()
+        } else {
+            1.0
+        };
+        let w = persist * (pull * cos).exp() * (fc.k + c).powi(fc.n) * mark;
         weights[d as usize] = w;
         total += w;
     }
