@@ -23712,12 +23712,21 @@ pub fn home_search_of(world: &World) -> bool {
 /// sink with or without the corbel -- only `laden` ants had the carrier's
 /// patience, so the empty scout walking home had none.
 ///
-/// **This is what a homing ant does.** One whose vector has run out without
-/// finding the nest searches round where it expected it, in loops of ever
-/// increasing size (Schwarz, Wystrach & Cheng 2017, Sci Rep 7:14161, the
-/// same citation as [`home_search_of`]); nothing there is particular to a
-/// carrier. Detouring round a barrier across the vector is reported too,
-/// but no paper for it was checked here, so it is not cited.
+/// **A stand-in for a detour round a barrier, with loops borrowed from the
+/// search at the end of the vector.** The case here is a wall across the
+/// way home mid-route, where a real homing ant goes round the barrier and
+/// takes up its vector again (no paper for that was checked here, so it is
+/// not cited); fading the pull until the ant can go round does that job.
+/// The widening loops that come back to their centre are the desert ant's
+/// systematic search once its vector has run out without finding the nest
+/// (Wehner & Srinivasan 1981, J Comp Physiol 142:315, via Merkle & Wehner
+/// 2009; [`home_search_of`] cites Schwarz, Wystrach & Cheng 2017 for the
+/// same loops, not re-checked for that claim). **A known difference:** the
+/// real search's spread scales with the run before it (median 2.2-3.4 m
+/// after 20-50 m runs, about 10-15%, Merkle & Wehner 2009), while this
+/// reach doubles from [`home_search_reach`]'s start up to `cap` loops
+/// whatever the scout's run was; a reach tied to the outbound distance is
+/// the biology-shaped version if wall-pinned scouts come back.
 pub fn scout_search_of(world: &World) -> bool {
     world.scout_search.unwrap_or_else(|| {
         static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
