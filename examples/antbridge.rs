@@ -101,7 +101,7 @@ const KEYS: &[&str] = &[
     "seed", "seeds", "frames", "ants", "ant", "gap", "len", "neck", "tunnel", "long", "longside", "opens", "release",
     "k", "n", "lay", "layout", "vector", "mute", "brho", "bdiff", "fed", "halflife", "food", "png", "every", "trace",
     "needsat", "room", "worth", "feeders", "moves", "start", "vout", "giveup", "search", "sense", "outfrac", "crowd",
-    "noentry", "repel", "markfork", "arho", "drop",
+    "noentry", "repel", "markfork", "arho", "drop", "roomh",
 ];
 
 const FEED_EVERY: u64 = 500;
@@ -272,7 +272,7 @@ fn build(
     let drop: i32 = arg("drop").unwrap_or(FEEDER_DROP);
     let rooms = feeders.then(|| {
         assert!(
-            lo_y - (FEEDER_DROP + 3 - drop) > up_y + drop + 1,
+            lo_y - (arg::<i32>("roomh").unwrap_or(FEEDER_DROP + 3) - drop) > up_y + drop + 1,
             "feeders=2 needs gap >= {}",
             FEEDER_DROP + 3
         );
@@ -300,7 +300,9 @@ fn build(
         // a window), 75 of 150 sat searching the unfed room, and the colony
         // never met the 0.8 the switch is scored from (1/8). Kept as an
         // option; the default room is the one the results stand on.
-        let head = FEEDER_DROP + 3 - drop;
+        // `roomh=`: the room's height above its floor, for the colony ants,
+        // which read a room over about ten rows as open ground (`room=18`).
+        let head = arg::<i32>("roomh").unwrap_or(FEEDER_DROP + 3) - drop;
         assert!(up_y - head > ch_y0, "feeders=2 drop={drop} needs a taller room=");
         for y in [up_y, lo_y] {
             carve(world, food.0, y - head, food.2, y + drop);
