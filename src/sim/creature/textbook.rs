@@ -295,6 +295,12 @@ pub struct ForageCfg {
     pub n: i32,
     pub lay: f32,
     pub lay_out: bool,
+    /// With `lay_out`, an empty ant lays `out_frac` of `lay`. Dussutour et
+    /// al. 2009 (*Pheidole megacephala*) found two trails: a weak, long-lived
+    /// one laid by every ant and a strong, short-lived one laid by fed ants.
+    /// One plane holds both here, as a weaker outbound deposit. 1: the
+    /// Argentine ant's equal deposits both ways.
+    pub out_frac: f32,
     /// Whether the trail is read at all (`false` is the muted arm: laid,
     /// never followed).
     pub read: bool,
@@ -736,11 +742,12 @@ pub(super) fn step(
             _ => true,
         };
         if let Some((hx, hy)) = head.filter(|_| lays) {
+            let amount = if laden { fc.lay } else { fc.lay * fc.out_frac };
             world.deposit_pheromone(
                 Channel::B,
                 hx,
                 hy,
-                (fc.lay * f32::from(pheromone::SCALE)) as pheromone::Scent,
+                (amount * f32::from(pheromone::SCALE)) as pheromone::Scent,
             );
         }
     }
