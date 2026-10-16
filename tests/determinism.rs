@@ -267,6 +267,15 @@ fn the_serial_driver_is_deterministic_across_identical_runs() {
 // speed (`scene.rs`, owner's card): the same first birth now arrives near
 // frame 3,600 of world time, so 2,400 frames left `plant_generation` at 0 and
 // this guard red for the right reason. Same plant time, same margin.
+//
+// **Raised to 7,200 on 2026-10-16**, with `SCOUT_SEARCH` on (PR 706). The
+// margin had already gone: on `main` the first seed is borne between
+// frames 4,200 and 4,800 (census every 600 frames, `borne 0 -> 4`, `gen 0
+// -> 1`), so 4,800 passed with nothing to spare. With lost scouts searching
+// near home the colony lives better (52 -> 34 animals at 9,600 against 52
+// -> 17 off) and eats more (280 eats by 4,800 against 210), and the
+// first seed comes between 5,400 and 6,000. 7,200 clears that with a fifth
+// to spare.
 
 use pixel_physics::lab::scene::LabBox;
 use pixel_physics::lab::stats::Stats;
@@ -275,7 +284,7 @@ use pixel_physics::sim::frame;
 use pixel_physics::sim::particle::ParticleSystem as LabParticles;
 use pixel_physics::sim::player;
 
-const LAB_FRAMES: u64 = 4_800;
+const LAB_FRAMES: u64 = 7_200;
 const LAB_CHECKPOINT_EVERY: u64 = 600;
 
 /// The shipped bed, with its colony. **Both halves deliberately**: the ants
@@ -367,7 +376,7 @@ fn the_lab_bed_is_deterministic_across_identical_runs() {
         a.windows(2).any(|w| w[0] != w[1]),
         "the bed never changed between checkpoints — it has stopped exercising anything"
     );
-    let census = stats.census().expect("a census after 4,800 frames");
+    let census = stats.census().expect("a census after 7,200 frames");
     assert!(census.plants > 0, "nothing is alive in the bed");
     assert!(
         world.live_creature_count() > 0,
