@@ -23756,12 +23756,21 @@ pub fn scout_search_of(world: &World) -> bool {
 /// game ant no colony died in any cell, against 2 of 12 for main and for
 /// the nudged control in the small colony with food 200 cells out; adults
 /// starved in that colony 98/93 -> 57 and in the small colony at food 30 and
-/// 90 110/82 -> 50 and 110/110 -> 69. Colony size, dug-nest ants and
-/// deliveries sat inside the main/nudged spread in all eight cells (~300
-/// ants at food 90: nest 56/58 -> 56; ~500 at food 30: deliveries 80/77
-/// -> 73, per-seed 41-91 against 29-100). `cap:1` and `cap:1,floor:0.3`
-/// did no better at 4 seeds. On the new walk it sat inside the walk's own
-/// spread (its big-colony starvation bursts appear with and without it).
+/// 90 110/82 -> 50 and 110/110 -> 69 (the far-food rescue, 0 of 12 against
+/// 2 and 2, is suggestive only: p 0.18 one-sided). Colony size and dug-nest
+/// ants sat inside the main/nudged spread in all eight cells (~300 ants at
+/// food 90: nest 56/58 -> 56). **The cost is deliveries at far food**: ~300
+/// ants with food 200 cells out delivered 19.3/20.0 -> 18.5 per 1k frames,
+/// below main on 11 of 12 paired seeds, with colony size unchanged; ~500
+/// at food 30 delivered 80/77 -> 73, but below main on only 6 of 12 seeds
+/// (per-seed 41-91 against 29-100), so that one is not separable from
+/// noise. `cap:1` and `cap:1,floor:0.3` did no better at 4 seeds. On the
+/// new walk after `forage_out` (PR 704; arms re-run on the merged code, 12
+/// seeds, 10 and 40 per 1k) no colony died in any arm, starvation sat
+/// inside the walk's bursty spread, and the same far-food cost showed:
+/// ~300 ants at food 200 delivered 15.7/15.6 -> 14.5 (below main 12 of
+/// 12), and the small colony there 5.9/5.8 -> 5.5 with dug-nest ants
+/// 36/36 -> 31.
 /// A search that keeps returning toward its centre is what the desert ant
 /// does (Wehner & Srinivasan 1981, J Comp Physiol 142:315; Merkle & Wehner
 /// 2009, Anim Behav 77:1051 -- cross-species, cited second-hand through the
