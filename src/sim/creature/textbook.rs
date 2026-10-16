@@ -360,6 +360,13 @@ pub struct ForageCfg {
     /// (`repel=10`, 2026-10-16). A junction is a head with three or more
     /// separate runs of open cells on the ring two cells out.
     pub mark_fork: bool,
+    /// Lay the mark on every step home **until** the first junction, then
+    /// stop for the trip: the whole unrewarding branch is marked, the stem
+    /// is not. At the junction alone ([`ForageCfg::mark_fork`]) the colony
+    /// locked onto the dead branch at low traffic (switch 3/8 and 1/8);
+    /// laid all the way home, a colony of 150 ended the run with every ant
+    /// in the nest (2026-10-16, laid both ways, seed 1 at 60,000 frames).
+    pub mark_to_fork: bool,
 }
 
 /// Steps over which [`ForageCfg::crowd`] counts encounters: about the
@@ -755,8 +762,22 @@ pub(super) fn step(
                 }
             }
             Some(&(hx, hy)) => {
-                world.deposit_pheromone(Channel::A, hx, hy, amount);
-                count(world, |c| c.no_entry_steps += 1);
+                let done = fc.mark_to_fork
+                    && world
+                        .textbook
+                        .as_ref()
+                        .and_then(|t| t.trips.get(&organism))
+                        .is_some_and(|t| t.2);
+                if !done {
+                    if fc.mark_to_fork && junction(world, hx, hy) {
+                        if let Some(t) = world.textbook.as_mut().and_then(|t| t.trips.get_mut(&organism)) {
+                            t.2 = true;
+                        }
+                    } else {
+                        world.deposit_pheromone(Channel::A, hx, hy, amount);
+                        count(world, |c| c.no_entry_steps += 1);
+                    }
+                }
             }
             None => {}
         }

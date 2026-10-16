@@ -101,7 +101,7 @@ const KEYS: &[&str] = &[
     "seed", "seeds", "frames", "ants", "ant", "gap", "len", "neck", "tunnel", "long", "longside", "opens", "release",
     "k", "n", "lay", "layout", "vector", "mute", "brho", "bdiff", "fed", "halflife", "food", "png", "every", "trace",
     "needsat", "room", "worth", "feeders", "moves", "start", "vout", "giveup", "search", "sense", "outfrac", "crowd",
-    "noentry", "repel", "markfork", "arho",
+    "noentry", "repel", "markfork", "arho", "drop",
 ];
 
 const FEED_EVERY: u64 = 500;
@@ -139,8 +139,9 @@ struct Scene {
     neck_y: i32,
     plug: Vec<(i32, i32)>,
     short_upper: bool,
-    /// `feeders=2`: the upper and lower feeder rooms, each `(x0, x1, floor)`
-    /// with `floor` its lowest open row.
+    /// `feeders=2`: the upper and lower feeder rooms, each `(x0, x1, floor)`:
+    /// the span the crumbs are laid over, and `floor` the room's lowest open
+    /// row.
     rooms: Option<[(i32, i32, i32); 2]>,
 }
 
@@ -268,29 +269,44 @@ fn build(
     // its mouth, the crowd at the food blocked the way in, and the upper
     // branch's trail held a third of the lower's (2026-10-16, crowding on:
     // 1.0 against 3.3 deposits), which read as a lower-branch bias.
+    let drop: i32 = arg("drop").unwrap_or(FEEDER_DROP);
     let rooms = feeders.then(|| {
         assert!(
-            lo_y - 3 > up_y + FEEDER_DROP + 1,
+            lo_y - (FEEDER_DROP + 3 - drop) > up_y + drop + 1,
             "feeders=2 needs gap >= {}",
             FEEDER_DROP + 3
         );
         assert!(
-            lo_y + FEEDER_DROP <= food.3,
+            lo_y + drop <= food.3,
             "feeders=2 needs room >= {}",
-            lo_y + FEEDER_DROP - ch_y0 + 1
+            lo_y + drop - ch_y0 + 1
         );
         for y in food.1..=food.3 {
             for x in food.0..=food.2 {
                 world.set(x, y, Cell::new(stone, 0).with_attached(true));
             }
         }
+        // `drop=1` (with `tunnel=2`): the room's floor is the branch's
+        // floor, a flat arena as in Dussutour's, so a laden ant never has
+        // to climb to its door. With the door 12 rows up, 15-35 laden ants
+        // sat on the new room's floor under its door for the first trail
+        // lifetime after the food moved (census, 2026-10-16), on every
+        // setting. The room keeps its height (headroom above the door
+        // instead of a drop below it): a 5-row flat room jammed with 76
+        // ants. The crumbs go in the room's far half only, off the doorway
+        // (the shelf version's lesson above). **Measured worse** (`room=52`,
+        // fed-only laying with the mark, 2026-10-16): before the food moved
+        // empty ants split about evenly between the rooms (16/12 crossings
+        // a window), 75 of 150 sat searching the unfed room, and the colony
+        // never met the 0.8 the switch is scored from (1/8). Kept as an
+        // option; the default room is the one the results stand on.
+        let head = FEEDER_DROP + 3 - drop;
+        assert!(up_y - head > ch_y0, "feeders=2 drop={drop} needs a taller room=");
         for y in [up_y, lo_y] {
-            carve(world, food.0, y - 3, food.2, y + FEEDER_DROP);
+            carve(world, food.0, y - head, food.2, y + drop);
         }
-        [
-            (food.0, food.2, up_y + FEEDER_DROP),
-            (food.0, food.2, lo_y + FEEDER_DROP),
-        ]
+        let x0 = if drop < FEEDER_DROP { food.0 + CH_W / 2 } else { food.0 };
+        [(x0, food.2, up_y + drop), (x0, food.2, lo_y + drop)]
     });
     // Food: rows of crumbs on the food chamber's floor (or the starting
     // room's).
@@ -505,6 +521,7 @@ fn run(
                 no_entry: arg("noentry").unwrap_or(0.0),
                 repel: arg("repel").unwrap_or(1.0),
                 mark_fork: arg::<u8>("markfork").unwrap_or(0) == 1,
+                mark_to_fork: arg::<u8>("markfork").unwrap_or(0) == 2,
             }),
             sort: None,
         };
