@@ -23717,11 +23717,39 @@ pub fn home_search_of(world: &World) -> bool {
 pub fn scout_search_of(world: &World) -> bool {
     world.scout_search.unwrap_or_else(|| {
         static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-        *V.get_or_init(|| match std::env::var("PIXEL_PHYSICS_SCOUT_SEARCH").as_deref() {
-            Ok("on") => true,
-            Ok("off") | Err(_) => false,
-            Ok(other) => panic!("PIXEL_PHYSICS_SCOUT_SEARCH={other:?}: use on or off"),
-        })
+        *V.get_or_init(|| scout_search_cfg().is_some())
+    })
+}
+
+/// `PIXEL_PHYSICS_SCOUT_SEARCH=on[,cap:<loops>][,floor:<trust>]` as parsed,
+/// read once: `None` off, else the most loops the search reach doubles for
+/// (`cap`, 6 by default as for [`home_search_of`]) and the least the pull
+/// home is ever multiplied by (`floor`, 0 by default).
+///
+/// **Why the two parts** (the full-game trails lane, 2026-10-16, 4 seeds,
+/// `/mnt/project-files/full-game-trails/scout-search-2026-10-15.md`): with
+/// neither, colonies of ~300 starved 3-5 times as many ants, and 371 of 389
+/// starved east of the food, 176 of them against the world's east wall
+/// (x 500-511). Inferred: a lost scout's pull fades to nothing, its walk
+/// drifts, and once the reach has doubled past the room it has, a scout
+/// pressed against a wall can never stray far enough from its best spot to
+/// start home again. A real search returns to its centre; `cap` keeps the
+/// reach short enough to restart, `floor` keeps some pull home throughout.
+pub fn scout_search_cfg() -> Option<(u8, f32)> {
+    static V: std::sync::OnceLock<Option<(u8, f32)>> = std::sync::OnceLock::new();
+    *V.get_or_init(|| {
+        let raw = std::env::var("PIXEL_PHYSICS_SCOUT_SEARCH").ok()?;
+        let (mut on, mut cap, mut floor) = (false, 6u8, 0.0f32);
+        for part in raw.split(',').map(str::trim) {
+            match part {
+                "off" | "" => return None,
+                "on" => on = true,
+                p if p.starts_with("cap:") => cap = p[4..].parse().unwrap_or_else(|_| panic!("PIXEL_PHYSICS_SCOUT_SEARCH: bad {p:?}")),
+                p if p.starts_with("floor:") => floor = p[6..].parse().unwrap_or_else(|_| panic!("PIXEL_PHYSICS_SCOUT_SEARCH: bad {p:?}")),
+                other => panic!("PIXEL_PHYSICS_SCOUT_SEARCH={raw:?}: unknown part {other:?}; use on|off[,cap:<loops>][,floor:<trust>]"),
+            }
+        }
+        on.then_some((cap, floor))
     })
 }
 
@@ -23732,7 +23760,8 @@ pub(crate) fn scout_home_trust(world: &World, organism: OrganismId, scout_home: 
     if !scout_home || !scout_search_of(world) {
         return 1.0;
     }
-    world.organism(organism).map_or(1.0, |s| s.scout_home_patience)
+    let floor = scout_search_cfg().map_or(0.0, |c| c.1);
+    world.organism(organism).map_or(1.0, |s| s.scout_home_patience.max(floor))
 }
 
 /// A scout has just given up: its walk home starts with a full pull and no
@@ -23749,6 +23778,7 @@ pub(crate) fn scout_home_start(state: &mut crate::sim::organism::OrganismState) 
 /// carrier's memory in `chooser_step`, on the scout's own fields; `home` is
 /// the point its pull aims at, `decay` its patience decay.
 pub(crate) fn scout_home_progress(world: &mut World, organism: OrganismId, (ax, ay): (i32, i32), decay: f32, (hx, hy): (i32, i32)) {
+    let cap = scout_search_cfg().map_or(6, |c| c.0);
     let Some(state) = world.organism_mut(organism) else { return };
     let (nx, ny) = state.chain.first().copied().unwrap_or((hx, hy));
     let (vx, vy) = ((ax - nx) as f32, (ay - ny) as f32);
@@ -23767,7 +23797,7 @@ pub(crate) fn scout_home_progress(world: &mut World, organism: OrganismId, (ax, 
         if state.scout_home_away >= EXCURSION_CELLS && away <= 1 {
             state.scout_home_patience = 1.0;
             state.scout_home_away = 0;
-        } else if state.scout_home_patience < SCOUT_GIVE_UP && away > home_search_reach(state.scout_home_loops) {
+        } else if state.scout_home_patience < SCOUT_GIVE_UP && away > home_search_reach(state.scout_home_loops.min(cap)) {
             // Lost and strayed past the search's reach: home again, from here.
             state.scout_home_best = f32::INFINITY;
             state.scout_home_away = 0;
