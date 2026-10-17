@@ -32,9 +32,10 @@
 
 use super::options::{self, Opt, Verb, FEATURES, VERBS};
 use super::{
-    adjacent_nest, blend_with_nest, carried_cells, choose_weighted, commit_step, fall_now_if_unsupported, flipped_body,
-    live_body_cells, organism_crop_capacity, parting_enabled, relocate_chain, segment_authored, settle, under_cover,
-    BodyShape, BodySide, CreatureDef, DIRS,
+    adjacent_nest, armour_of, bite_force_of, blend_with_nest, carried_cells, choose_weighted, commit_step,
+    dig_force_of, fall_now_if_unsupported, flipped_body, is_sheltered, live_body_cells, organism_crop_capacity,
+    parting_enabled, relocate_chain, segment_authored, settle, traits_of, under_cover, BodyShape, BodySide,
+    CreatureDef, DIRS,
 };
 use crate::sim::cell::OrganismId;
 use crate::sim::pheromone::{self, Channel};
@@ -741,8 +742,44 @@ pub(super) fn tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def:
     let colony = world.colony_of(organism);
     let body_cells = live_body_cells(world, organism, def);
     let idle = def.idle_cost_per_cell * body_cells;
-    let mut spent = idle;
-    world.book(colony, Account::Metabolized, idle as f64);
+    // **Every standing bill, every tick, as `creature_tick` charges it** --
+    // a fall tick included. The game bills its brain before its fall check;
+    // billing a mind only when it decided left a trail champion stepping
+    // into the air on 36% of its ticks, where thinking was free (review of
+    // PR 713, F2). The jaw and the plate are carried whether used or not,
+    // and today's ant paid for them while a mind did not. The same lines
+    // as `creature_tick`'s, in the same order; seeing and feeling the
+    // ground are not here because a mind casts no rays (its options read
+    // the cells near it, unpriced).
+    let live = world
+        .minds
+        .as_ref()
+        .and_then(|m| m.ants.get(&organism))
+        .map_or(0, |m| m.genome.live);
+    let brain_tax = def.synapse_fraction * def.start_energy * live as f32;
+    let jaw_traits = traits_of(world, organism, def);
+    let force_tax = def.force_fraction
+        * def.start_energy
+        * dig_force_of(def, &jaw_traits, world.trait_reach).max(bite_force_of(def, &jaw_traits, world.trait_reach));
+    let armour_tax = def.armour_fraction
+        * def.start_energy
+        * world.materials.get(world.get(x, y).material).penetration_resistance
+        * armour_of(&jaw_traits, world.trait_reach);
+    let exposure = if def.exposure_cost_per_cell > 0.0 && !is_sheltered(world, x, y) {
+        def.exposure_cost_per_cell * body_cells
+    } else {
+        0.0
+    };
+    let mut spent = idle + brain_tax + force_tax + armour_tax + exposure;
+    world.book(
+        colony,
+        Account::Metabolized,
+        (idle + force_tax + armour_tax + exposure) as f64,
+    );
+    world.book(colony, Account::SynapseTax, brain_tax as f64);
+    world.creature_stats.armour_energy += armour_tax as f64;
+    world.creature_stats.force_energy += force_tax as f64;
+    world.creature_stats.exposure_energy += exposure as f64;
     let at_nest = adjacent_nest(world, x, y, def);
     if at_nest {
         // Colony odour is the body's: without the blend a colony's odours
@@ -770,9 +807,6 @@ pub(super) fn tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def:
             mind.state.last = Some(now);
             d.map(|d| (opts[d.pick], d.emits, opts.len()))
         });
-        let brain_tax = def.synapse_fraction * def.start_energy * mind.genome.live as f32;
-        spent += brain_tax;
-        world.book(colony, Account::SynapseTax, brain_tax as f64);
         if let Some(m) = world.minds.as_mut() {
             m.counts.decisions += 1;
             if let Some(slot) = m.ants.get_mut(&organism) {
@@ -862,7 +896,9 @@ fn walk(world: &mut World, organism: OrganismId, def: &CreatureDef, target: (i32
         to as u8,
         parting_enabled(),
     );
-    true
+    // Whether the head actually moved: `true` here unconditionally left
+    // `MindCounts::failed` blind to walks (review of PR 713, F8).
+    world.organism(organism).and_then(|s| s.chain.first().copied()) != Some(head)
 }
 
 /// The body flipped end for end (`flipped_body`), facing the other way.

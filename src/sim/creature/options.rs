@@ -14,7 +14,7 @@
 //! game is unchanged with it on. It exists to be timed at lab scale before
 //! any brain uses it -- the design estimated that building the options would
 //! cost more than the network itself, and the whole new ant has to fit in
-//! 1.3x the game ant's frame (`needscost shadow=1`). Off unless
+//! 1.3x the game ant's frame (`needscost arms=off,shadow`). Off unless
 //! [`World::option_shadow`] is set.
 //!
 //! **Features that need something the engine does not have yet read 0**:
@@ -28,7 +28,10 @@
 //!
 //! [`World::option_shadow`]: crate::sim::World::option_shadow
 
-use super::{body_after_step, body_has_foothold, jaw_can_cut, kin_footing, parting_enabled, segment_authored_widths, spoil_site_open, stacker_of, under_cover, BodyShape, CreatureDef, DIRS};
+use super::{
+    body_after_step, body_has_foothold, jaw_can_cut, kin_footing, parting_enabled, segment_authored_widths,
+    spoil_site_open, stacker_of, under_cover, BodyShape, CreatureDef, DIRS,
+};
 use super::{flipped_body, landing_is_placeable_through_tissue, spoil_footing_drop};
 use crate::sim::cell::OrganismId;
 use crate::sim::material::{self, MaterialId, MaterialKind};
@@ -60,10 +63,30 @@ pub enum Verb {
 pub const VERBS: usize = 9;
 
 impl Verb {
-    pub const ALL: [Verb; VERBS] = [Verb::Walk, Verb::TurnAround, Verb::Rest, Verb::Dig, Verb::PickUp, Verb::Drop, Verb::Eat, Verb::Feed, Verb::Attack];
+    pub const ALL: [Verb; VERBS] = [
+        Verb::Walk,
+        Verb::TurnAround,
+        Verb::Rest,
+        Verb::Dig,
+        Verb::PickUp,
+        Verb::Drop,
+        Verb::Eat,
+        Verb::Feed,
+        Verb::Attack,
+    ];
 
     pub fn name(self) -> &'static str {
-        ["walk", "turn_around", "rest", "dig", "pick_up", "drop", "eat", "feed", "attack"][self as usize]
+        [
+            "walk",
+            "turn_around",
+            "rest",
+            "dig",
+            "pick_up",
+            "drop",
+            "eat",
+            "feed",
+            "attack",
+        ][self as usize]
     }
 }
 
@@ -131,7 +154,49 @@ pub const FEATURES: usize = 43;
 /// The names of the features, for readouts.
 pub fn feature_names() -> [&'static str; FEATURES] {
     [
-        "air", "soil", "spoil", "food", "brood", "corpse", "stone", "water", "ant", "a", "a_diff", "a_ahead", "b", "b_diff", "b_ahead", "alarm", "alarm_diff", "alarm_ahead", "building", "stand", "fall", "climb", "cut", "hard", "wet", "up", "depth", "drop_below", "headroom", "roofed", "nestmate", "stranger", "laden", "hungry", "larva", "larva_hunger", "dead", "crowd", "room", "home", "last_food", "warmth", "back",
+        "air",
+        "soil",
+        "spoil",
+        "food",
+        "brood",
+        "corpse",
+        "stone",
+        "water",
+        "ant",
+        "a",
+        "a_diff",
+        "a_ahead",
+        "b",
+        "b_diff",
+        "b_ahead",
+        "alarm",
+        "alarm_diff",
+        "alarm_ahead",
+        "building",
+        "stand",
+        "fall",
+        "climb",
+        "cut",
+        "hard",
+        "wet",
+        "up",
+        "depth",
+        "drop_below",
+        "headroom",
+        "roofed",
+        "nestmate",
+        "stranger",
+        "laden",
+        "hungry",
+        "larva",
+        "larva_hunger",
+        "dead",
+        "crowd",
+        "room",
+        "home",
+        "last_food",
+        "warmth",
+        "back",
     ]
 }
 
@@ -201,7 +266,11 @@ pub fn build(world: &World, organism: OrganismId, def: &CreatureDef, out: &mut V
         warmth: world.field_at_bilinear(head.0 as f32, head.1 as f32).temperature,
         home: (!world.home_blind).then_some(st.forage_anchor),
         surface: st.last_out_row,
-        mats: Mats { spoil: world.materials.id_of("spoil"), packed: world.materials.id_of("packedsoil"), corpse: world.materials.id_of("corpse") },
+        mats: Mats {
+            spoil: world.materials.id_of("spoil"),
+            packed: world.materials.id_of("packedsoil"),
+            corpse: world.materials.id_of("corpse"),
+        },
     };
     let mut push = |verb: Verb, target: (i32, i32), extra: &dyn Fn(&mut [f32; FEATURES])| {
         let mut feats = describe(world, &here, target);
@@ -222,7 +291,19 @@ pub fn build(world: &World, organism: OrganismId, def: &CreatureDef, out: &mut V
         let t = (head.0 + dx, head.1 + dy);
         // `from` and `to` both `d`, as `usable_headings` asks it: the same
         // predicate the walk and the tumble use.
-        let (landing, _) = body_after_step(world, def, BodyShape { chain: &st.chain, groups, authored: &authored }, t, d, d, parting);
+        let (landing, _) = body_after_step(
+            world,
+            def,
+            BodyShape {
+                chain: &st.chain,
+                groups,
+                authored: &authored,
+            },
+            t,
+            d,
+            d,
+            parting,
+        );
         if !landing_is_placeable_through_tissue(world, &st.chain, &landing, parting, stacker) {
             continue;
         }
@@ -281,7 +362,10 @@ pub fn build(world: &World, organism: OrganismId, def: &CreatureDef, out: &mut V
 
 /// The animal standing in a cell, if any: a plant is an organism too.
 fn animal(world: &World, id: OrganismId) -> Option<&crate::sim::organism::OrganismState> {
-    (id != 0).then(|| world.organism(id)).flatten().filter(|o| world.species.get(o.species).creature.is_some())
+    (id != 0)
+        .then(|| world.organism(id))
+        .flatten()
+        .filter(|o| world.species.get(o.species).creature.is_some())
 }
 
 /// The features every option reads at its target, verb-specific ones (the
@@ -302,7 +386,9 @@ fn describe(world: &World, here: &Here, (x, y): (i32, i32)) -> [f32; FEATURES] {
         f::CORPSE
     } else if m.food_energy > 0.0 {
         f::FOOD
-    } else if here.mats.spoil.is_some_and(|s| cell.material == s) || here.mats.packed.is_some_and(|p| cell.material == p) {
+    } else if here.mats.spoil.is_some_and(|s| cell.material == s)
+        || here.mats.packed.is_some_and(|p| cell.material == p)
+    {
         f::SPOIL
     } else if kind == MaterialKind::Liquid {
         f::WATER
@@ -328,13 +414,25 @@ fn describe(world: &World, here: &Here, (x, y): (i32, i32)) -> [f32; FEATURES] {
         v[f::HARD] = squash(m.penetration_resistance);
     }
     // Wetness by level: a powder's own water, else what it stands on.
-    let wet_of = |c: crate::sim::Cell| (world.materials.kind(c.material) == MaterialKind::Powder).then(|| f32::from(c.aux()) / f32::from(material::SOIL_SATURATED));
-    v[f::WET] = wet_of(cell).or_else(|| wet_of(world.get(x, y + 1))).unwrap_or(0.0).min(1.0);
+    let wet_of = |c: crate::sim::Cell| {
+        (world.materials.kind(c.material) == MaterialKind::Powder)
+            .then(|| f32::from(c.aux()) / f32::from(material::SOIL_SATURATED))
+    };
+    v[f::WET] = wet_of(cell)
+        .or_else(|| wet_of(world.get(x, y + 1)))
+        .unwrap_or(0.0)
+        .min(1.0);
 
     v[f::UP] = (here.head.1 - y).signum() as f32;
     v[f::DEPTH] = here.surface.map_or(0.0, |s| squash((y - s) as f32 / 16.0));
-    v[f::DROP_BELOW] = (1..=REACH).take_while(|&d| world.get(x, y + d).material == material::EMPTY).count() as f32 / REACH as f32;
-    v[f::HEADROOM] = (1..=REACH).take_while(|&d| world.get(x, y - d).material == material::EMPTY).count() as f32 / REACH as f32;
+    v[f::DROP_BELOW] = (1..=REACH)
+        .take_while(|&d| world.get(x, y + d).material == material::EMPTY)
+        .count() as f32
+        / REACH as f32;
+    v[f::HEADROOM] = (1..=REACH)
+        .take_while(|&d| world.get(x, y - d).material == material::EMPTY)
+        .count() as f32
+        / REACH as f32;
     v[f::ROOFED] = f32::from(u8::from(under_cover(world, x, y)));
 
     if let Some(o) = who {
@@ -342,7 +440,13 @@ fn describe(world: &World, here: &Here, (x, y): (i32, i32)) -> [f32; FEATURES] {
         v[f::NESTMATE] = f32::from(u8::from(mine));
         v[f::STRANGER] = f32::from(u8::from(!mine));
         v[f::LADEN] = f32::from(u8::from(o.crop.is_some() || o.spoil.is_some()));
-        let start = world.species.get(o.species).creature.as_ref().map_or(1.0, |d| d.start_energy).max(1.0);
+        let start = world
+            .species
+            .get(o.species)
+            .creature
+            .as_ref()
+            .map_or(1.0, |d| d.start_energy)
+            .max(1.0);
         let hunger = (1.0 - o.energy / start).clamp(0.0, 1.0);
         if o.brood.is_some() {
             v[f::LARVA] = 1.0;
@@ -466,14 +570,33 @@ mod tests {
         assert_eq!(ids_off, ids_on, "different organisms alive");
         for id in ids_off {
             let (a, b) = (off.organism(id).expect("live"), on.organism(id).expect("live"));
-            assert_eq!((&a.chain, a.heading, a.energy.to_bits()), (&b.chain, b.heading, b.energy.to_bits()), "organism {id} differs");
+            assert_eq!(
+                (&a.chain, a.heading, a.energy.to_bits()),
+                (&b.chain, b.heading, b.energy.to_bits()),
+                "organism {id} differs"
+            );
         }
         let st = on.creature_stats;
-        assert_eq!(off.creature_stats.option_decisions, 0, "the shadow ran with the switch off");
-        assert!(st.option_decisions > 1000, "only {} decisions built", st.option_decisions);
-        assert_eq!(st.options_by_verb[Verb::Rest as usize], st.option_decisions, "rest is offered at every decision");
+        assert_eq!(
+            off.creature_stats.option_decisions, 0,
+            "the shadow ran with the switch off"
+        );
+        assert!(
+            st.option_decisions > 1000,
+            "only {} decisions built",
+            st.option_decisions
+        );
+        assert_eq!(
+            st.options_by_verb[Verb::Rest as usize],
+            st.option_decisions,
+            "rest is offered at every decision"
+        );
         for v in [Verb::Walk, Verb::TurnAround, Verb::Dig, Verb::Drop] {
-            assert!(st.options_by_verb[v as usize] > 0, "a digging colony never had a {} option", v.name());
+            assert!(
+                st.options_by_verb[v as usize] > 0,
+                "a digging colony never had a {} option",
+                v.name()
+            );
         }
         let per = st.options_built as f64 / st.option_decisions as f64;
         assert!((3.0..40.0).contains(&per), "{per:.1} options a decision");
@@ -509,43 +632,90 @@ mod tests {
                 build(&w, id, &def, &mut opts);
                 decisions += 1;
                 carrying += usize::from(jaws || crop);
-                let of = |v: Verb| -> Vec<(i32, i32)> { opts.iter().filter(|o| o.verb == v).map(|o| o.target).collect() };
+                let of =
+                    |v: Verb| -> Vec<(i32, i32)> { opts.iter().filter(|o| o.verb == v).map(|o| o.target).collect() };
                 assert_eq!(of(Verb::Rest), vec![head], "frame {f} ant {id}");
-                let footed: Vec<(i32, i32)> = opts.iter().filter(|o| o.verb == Verb::Walk && o.feats[f::STAND] == 1.0).map(|o| o.target).collect();
-                let usable: Vec<(i32, i32)> = usable_headings(&w, id, &def).iter().map(|&d| (head.0 + DIRS[d as usize].0, head.1 + DIRS[d as usize].1)).collect();
-                assert_eq!(footed, usable, "frame {f} ant {id}: footed steps against the walk's own");
-                let digs = if jaws || crop { Vec::new() } else { targets::dig_candidates(&w, &def, id, head) };
+                let footed: Vec<(i32, i32)> = opts
+                    .iter()
+                    .filter(|o| o.verb == Verb::Walk && o.feats[f::STAND] == 1.0)
+                    .map(|o| o.target)
+                    .collect();
+                let usable: Vec<(i32, i32)> = usable_headings(&w, id, &def)
+                    .iter()
+                    .map(|&d| (head.0 + DIRS[d as usize].0, head.1 + DIRS[d as usize].1))
+                    .collect();
+                assert_eq!(
+                    footed, usable,
+                    "frame {f} ant {id}: footed steps against the walk's own"
+                );
+                let digs = if jaws || crop {
+                    Vec::new()
+                } else {
+                    targets::dig_candidates(&w, &def, id, head)
+                };
                 assert_eq!(of(Verb::Dig), digs, "frame {f} ant {id}: digs");
                 for t in of(Verb::Drop) {
                     assert!(jaws || crop, "frame {f} ant {id}: a drop with nothing to drop");
-                    assert!(spoil_site_open(&w, t.0, t.1, spoil_footing_drop()), "frame {f} ant {id}: drop at {t:?}");
+                    assert!(
+                        spoil_site_open(&w, t.0, t.1, spoil_footing_drop()),
+                        "frame {f} ant {id}: drop at {t:?}"
+                    );
                 }
-                assert!(of(Verb::Attack).is_empty(), "frame {f} ant {id}: a stranger in a one-colony box");
+                assert!(
+                    of(Verb::Attack).is_empty(),
+                    "frame {f} ant {id}: a stranger in a one-colony box"
+                );
                 for o in &opts {
-                    assert_eq!(o.feats[..f::SCENT].iter().filter(|&&v| v == 1.0).count(), 1, "frame {f} ant {id}: {:?} at {:?} is not one kind of thing", o.verb, o.target);
+                    assert_eq!(
+                        o.feats[..f::SCENT].iter().filter(|&&v| v == 1.0).count(),
+                        1,
+                        "frame {f} ant {id}: {:?} at {:?} is not one kind of thing",
+                        o.verb,
+                        o.target
+                    );
                     for (k, &v) in o.feats.iter().enumerate() {
-                        assert!(v.is_finite() && (-1.0..=1.0).contains(&v), "frame {f} ant {id}: {} = {v} on {:?}", feature_names()[k], o.verb);
+                        assert!(
+                            v.is_finite() && (-1.0..=1.0).contains(&v),
+                            "frame {f} ant {id}: {} = {v} on {:?}",
+                            feature_names()[k],
+                            o.verb
+                        );
                     }
                 }
             }
         }
-        assert!(decisions > 1000 && carrying > 0, "{decisions} decisions, {carrying} carrying");
+        assert!(
+            decisions > 1000 && carrying > 0,
+            "{decisions} decisions, {carrying} carrying"
+        );
 
         // The control: food beside a free-jawed head.
         let food = w.materials.id_of("provisions").expect("provisions");
         let (id, head) = w
             .live_organism_ids()
             .into_iter()
-            .filter_map(|id| w.organism(id).filter(|s| s.species == sp && s.brood.is_none() && s.spoil.is_none()).and_then(|s| s.chain.first().map(|&h| (id, h))))
-            .find(|&(_, (x, y))| w.get(x + 1, y).material == material::EMPTY && w.get(x - 1, y).material == material::EMPTY)
+            .filter_map(|id| {
+                w.organism(id)
+                    .filter(|s| s.species == sp && s.brood.is_none() && s.spoil.is_none())
+                    .and_then(|s| s.chain.first().map(|&h| (id, h)))
+            })
+            .find(|&(_, (x, y))| {
+                w.get(x + 1, y).material == material::EMPTY && w.get(x - 1, y).material == material::EMPTY
+            })
             .expect("a free-jawed ant with open ground either side");
         let t = (head.0 + 1, head.1);
         build(&w, id, &def, &mut opts);
-        assert!(!opts.iter().any(|o| o.target == t && o.verb == Verb::PickUp), "food offered before it was put down");
+        assert!(
+            !opts.iter().any(|o| o.target == t && o.verb == Verb::PickUp),
+            "food offered before it was put down"
+        );
         w.set(t.0, t.1, Cell::new(food, 0));
         build(&w, id, &def, &mut opts);
         for v in [Verb::PickUp, Verb::Eat] {
-            let o = opts.iter().find(|o| o.target == t && o.verb == v).unwrap_or_else(|| panic!("no {} on the food", v.name()));
+            let o = opts
+                .iter()
+                .find(|o| o.target == t && o.verb == v)
+                .unwrap_or_else(|| panic!("no {} on the food", v.name()));
             assert_eq!(o.feats[f::FOOD], 1.0, "the food reads as food");
         }
     }

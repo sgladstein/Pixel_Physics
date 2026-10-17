@@ -24,7 +24,7 @@
 //!
 //! * **the start genome as a control**, scored on the same layouts every
 //!   generation, so a rising best can be told from easier layouts;
-//! * **a hold-out** on layouts training never sees, every few generations:
+//! * **a hold-out** on layouts training never sees, every generation (`every=`):
 //!   the champion, the start genome, and **the champion with its senses cut**
 //!   (every weight from an input but `Bias` zeroed). If the blind champion
 //!   scores as well as the sighted one, what was learned is a motor habit,
@@ -542,6 +542,12 @@ pub struct Settings {
     /// Hold-out layouts (different seeds from every training layout).
     pub holdout: usize,
     /// Hold-out every this many generations, and always after the last.
+    /// Every generation by default: the owner reads the hold-out curve
+    /// generation by generation from the start (2026-10-17), and a curve
+    /// checked every fifth generation hid how the champion moves between.
+    /// It costs about a tenth more a run (three genomes on the hold-out
+    /// beside a population on the training layouts) and draws nothing from
+    /// the training stream, so a run is the same run at any cadence.
     pub every: usize,
     pub seed: u64,
     pub threads: usize,
@@ -571,7 +577,7 @@ impl Default for Settings {
             sigma: 1.0,
             cross: 0.3,
             holdout: 8,
-            every: 5,
+            every: 1,
             seed: 1,
             threads: 4,
             pictures: true,
@@ -1042,7 +1048,7 @@ pub fn train(ch: &dyn Challenge, start: Vec<f32>, set: &Settings, out: &Path) ->
                 }
             }
             println!("    {}", describe(&champion));
-            if set.pictures {
+            if set.pictures && ((gen + 1) % PICTURE_EVERY == 0 || gen + 1 == set.gens) {
                 picture(ch, &champion, hold[0], &out.join(format!("pic-gen-{gen:03}.png")));
             }
             curves(out);
@@ -1072,6 +1078,11 @@ pub fn train(ch: &dyn Challenge, start: Vec<f32>, set: &Settings, out: &Path) ->
     println!("{summary}");
     Ok(champion)
 }
+
+/// A picture of the champion every this many generations, and after the
+/// last: kept at the old hold-out cadence when the hold-out went to every
+/// generation, so a run does not write forty pictures.
+const PICTURE_EVERY: usize = 5;
 
 /// Redraw `curves.svg` (the learning curves, `scripts/traincurves.py`) in
 /// the run directory after every hold-out, so a run in progress can be

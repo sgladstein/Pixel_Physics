@@ -4405,7 +4405,7 @@ pub struct World {
     pub targets: Option<crate::sim::creature::targets::Targets>,
     /// **Build the new brain's option list every decision and throw it
     /// away** (`creature::options::shadow`): stage 2's frame-cost shadow,
-    /// timed by `needscost shadow=1`. Nothing reads the list, so the game is
+    /// timed by `needscost arms=off,shadow`. Nothing reads the list, so the game is
     /// unchanged either way; `false` everywhere unless a harness sets it.
     pub option_shadow: bool,
     /// **The minds of ants that decide by the general brain**

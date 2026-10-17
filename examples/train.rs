@@ -38,10 +38,11 @@
 //! the far ones. `forget=2` is how many standard errors under its
 //! reference a suite's kept arena may fall before it counts as forgotten.
 //! `brain=mind` trains stage 2's general brain (`creature::mind`) instead
-//! of today's: `start=` is then `blank` (or `zero`), `rest`, `follower`,
-//! `persist` (`mind::preset`, the rung's controls) or a mind genome file,
-//! and so is `score=`; `score=game` still scores today's brain, in the same
-//! arena. Only arenas built for minds take it (`Challenge::minds`).
+//! of today's (`brain=today`, the default): `start=` is then `blank` (or
+//! `zero`), `rest`, `follower`, `persist` (`mind::preset`, the rung's
+//! controls) or a mind genome file, and so is `score=`; `score=game` still
+//! scores today's brain, in the same arena. Only arenas built for minds
+//! take it (`Challenge::minds`).
 //! Every argument is echoed; an unknown one stops the run.
 
 use pixel_physics::sim::creature;
