@@ -26,7 +26,7 @@ use std::time::Instant;
 
 fn arena(name: &str, frames: Option<u64>, ants: Option<usize>, game_walk: bool, clones: bool) -> Box<dyn Challenge> {
     match name {
-        "forage" => Box::new(Forage { ants: ants.unwrap_or(12), frames: frames.unwrap_or(6000), heap: 60, game_walk }),
+        "forage" => Box::new(Forage { ants: ants.unwrap_or(12), frames: frames.unwrap_or(6000), heap: 300, game_walk }),
         "trail" => {
             if game_walk {
                 println!("note: trail always walks by the brain (Chooser::Off); walk=game does not apply to it");

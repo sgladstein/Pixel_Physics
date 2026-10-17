@@ -1654,7 +1654,8 @@ Read once per process from the environment. The default is what ships.
   with births and in-world mutation off. A trained genome replaces §4's
   weight table, but the body's reflexes in §5-§6 (the homeward re-roll at
   `home_bias`) stay as described here, except in the rig's senses-cut
-  control, which sets `home_bias` to 0.
+  control, which sets `home_bias` to 0 and sets `World::home_blind`, which
+  cuts the spoil haul's pull to the door too.
 
 ## 14. Source comments that currently contradict the code
 
