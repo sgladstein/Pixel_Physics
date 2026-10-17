@@ -74,6 +74,8 @@ use super::world::{Account, KillDetail, World, KILL_VERB_BITE, KILL_VERB_EAT};
 /// **The needs-and-jobs walk**, a second way for an ant to decide, off unless a
 /// harness sets `World::needs` (`creature/needs.rs` says where it hooks in).
 pub mod needs;
+pub mod mind;
+pub mod options;
 pub mod targets;
 
 /// Index 0 = east, then counterclockwise on screen (y grows downward, so
@@ -6012,6 +6014,11 @@ pub(super) fn try_bud(
     // reused — see `RNG_SLOT_BIRTH`.
     let ActiveKind::Creature { organism: child } = site.kind else { return Some(site) };
     let (child_traits, child_generation, child_born_frame) = mutate_newborn(world, child, def, parent_traits, parent_generation);
+    // A child of an ant with a mind decides by the same mind
+    // (`mind::inherit`); nothing in the game has one, so this returns at once.
+    if world.minds.is_some() {
+        mind::inherit(world, organism, child);
+    }
     // **The line's own history, checked after the mutation that could have
     // moved it** -- see `World::note_line_generation`/`note_line_record`'s
     // own docs. Both are no-ops for `parent_lineage == 0` (a test fixture
@@ -7858,6 +7865,14 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
     if world.organism(organism).is_some_and(|s| s.flight.is_some()) {
         return step_flight(world, organism, def);
     }
+    // **An ant with a mind decides by it** (`mind`, stage 2 of the brain
+    // plan): no sense, no `brain.rs`, no `act`, no walk. What the body does
+    // regardless -- old age, wounds, crossings, flight above, and the fall,
+    // the bill, digestion and birth inside -- stays the same. Nobody has a
+    // mind in the game, so this is one `Option` read per tick there.
+    if world.minds.is_some() && mind::has(world, organism) {
+        return mind::tick(world, x, y, organism, def);
+    }
 
     let heading = world.organism(organism).map_or(0, |s| s.heading);
     // **The read phase, taken from this window's speculation when it is still
@@ -7929,6 +7944,12 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
         let bucket = ((inputs[brain::BrainInput::Crowding as usize] * 10.0) as usize).min(9);
         world.creature_stats.at_nest_crowding[bucket] += 1;
         blend_with_nest(world, organism, x, y);
+    }
+    // **The new brain's option list, built and thrown away**
+    // (`options::shadow`): stage 2's frame-cost measurement, off unless the
+    // world asks, and a pure read when on, so the game is unchanged.
+    if world.option_shadow {
+        options::shadow(world, organism, def);
     }
     let sighting = seen.prey;
     // **The individual's reach, not the species'** -- an ant whose lineage
@@ -8673,6 +8694,37 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
         }
     }
 
+    settle(
+        world,
+        organism,
+        def,
+        (hx, hy),
+        colony,
+        inputs[brain::BrainInput::AtNest as usize] > 0.0,
+        spent,
+        outputs[brain::BrainOutput::Provision as usize],
+        outputs[brain::BrainOutput::Lay as usize],
+    )
+}
+
+/// **What the body does with a decision's bill**: digests, pays (and
+/// starves, `apply_creature_energy`), and buds if the tick was survived.
+/// `creature_tick`'s tail, shared with a mind's tick (`mind::tick`): the
+/// two decide differently, and a body digests, pays and gives birth the
+/// same way whoever decided. `provision` and `lay` are the brain's birth
+/// outputs (`try_bud`); `at_nest` only feeds a counter.
+#[allow(clippy::too_many_arguments)]
+fn settle(
+    world: &mut World,
+    organism: OrganismId,
+    def: &CreatureDef,
+    (hx, hy): (i32, i32),
+    colony: u32,
+    at_nest: bool,
+    spent: f32,
+    provision: f32,
+    lay: f32,
+) -> Vec<ActiveSite> {
     // --- digest ---------------------------------------------------------
     //
     // **A rate, and deliberately not a roll.** A probabilistic digestion step
@@ -8930,7 +8982,7 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
             // divided by the ticks it takes to chew one. `progressed` is the
             // tick's own share and sums to `c.unit` across the cell.
             world.creature_stats.digested_face += progressed as f64;
-            if inputs[brain::BrainInput::AtNest as usize] > 0.0 {
+            if at_nest {
                 world.creature_stats.digested_at_nest_face += progressed as f64;
             }
             // **What the overhead ate, counted rather than inferred.** A loss
@@ -8967,8 +9019,8 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
             world,
             organism,
             def,
-            outputs[brain::BrainOutput::Provision as usize],
-            outputs[brain::BrainOutput::Lay as usize],
+            provision,
+            lay,
         ) {
             sites.push(child);
         }
@@ -22427,9 +22479,61 @@ pub const FOOD_BRAKE_LO: f64 = 1.0;
 /// The bar's multiplier at the bottom of the ramp, just above `FOOD_BRAKE_LO`.
 const FOOD_BRAKE_MAX: f32 = 3.0;
 
+/// **A food brake set on one world** ([`World::food_brake`]), for the
+/// training rig: the ramp, the small-colony gate and whether brood counts
+/// in the burn. A world without one reads `PIXEL_PHYSICS_FOOD_BRAKE` as
+/// before, with the shipped gate and the shipped burn, so the game is
+/// unchanged.
+///
+/// **Why the rig needs its own** (ladder lane, `ladder/scarce-forage-arena.md`
+/// section 6, 2026-10-17; 8 layouts, 24,000 frames, 80 columns): on the
+/// stage 2 forage bed the shipped brake never bites. Its gate of 30 adults
+/// is never reached by the arms that over-breed, and income over the shipped
+/// burn reads 1.3-3.0 while the colony starves, because what a colony spends
+/// on brood (the egg and every joule fed to larvae) is not in that burn.
+/// Burn plus brood with the gate at 6 held eggs on all 8 layouts (34,719
+/// held ticks against 763) and cut starvation from 29 to 6 a layout for the
+/// cheap-brain champion and 33 to 13 for the champion, at a cost to the game
+/// ant of a third of its births. A fixed need per adult instead braked the
+/// frugal colony hardest and left the over-breeders alone.
+///
+/// **Not a re-test of the `Reports/dead-ends.md` entry on this ramp** (a
+/// steeper `lo,hi` stopped a colony of a thousand laying for good): the ramp
+/// is the shipped 1.0-1.5, the rig's colonies stay under about thirty for a
+/// 24,000-frame run, and the brood term falls back to nothing once the brood
+/// is gone, so the ratio is never lower than the shipped one's for longer
+/// than the colony's own brood lasts.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct FoodBrake {
+    /// Income over burn at and below which no egg is laid.
+    pub lo: f64,
+    /// Income over burn at and above which the bar stands.
+    pub hi: f64,
+    /// Live adults under which the colony breeds free; full strength at
+    /// twice this.
+    pub small: f64,
+    /// Whether the burn also counts brood: what every egg cost its layer
+    /// (`eggs_laid_j`) and every joule fed to larvae. **Read off world-wide
+    /// counters** (`creature_stats`), so only right for a world with one
+    /// colony, as every rig arena is.
+    pub brood: bool,
+}
+
+impl FoodBrake {
+    /// The ladder lane's rule for the forage rung: burn plus brood, ramp
+    /// 1.0-1.5, gate 6.
+    pub const FORAGE: FoodBrake = FoodBrake { lo: FOOD_BRAKE_LO, hi: FOOD_BRAKE_HI, small: 6.0, brood: true };
+}
+
+/// The food brake this world runs: its own ([`World::food_brake`]) or the
+/// env's, at the shipped gate and burn.
+pub fn food_brake_of(world: &World) -> Option<FoodBrake> {
+    world.food_brake.or_else(|| food_brake_env().map(|(lo, hi)| FoodBrake { lo, hi, small: FOOD_BRAKE_SMALL, brood: false }))
+}
+
 /// Whether the food brake is on for this world.
-pub fn food_brake_on(_world: &World) -> bool {
-    food_brake_env().is_some()
+pub fn food_brake_on(world: &World) -> bool {
+    food_brake_of(world).is_some()
 }
 
 /// **The food brake: breed freely while the colony's income clears its
@@ -22458,13 +22562,13 @@ pub fn food_brake_on(_world: &World) -> bool {
 /// more than they bring back long before any trail forms, which reads to
 /// an income-over-burn rule exactly like a colony that has outgrown its food.
 pub fn food_brake_factor(world: &World, colony: u32) -> f32 {
-    let Some((lo, hi)) = food_brake_env() else {
+    let Some(FoodBrake { lo, hi, small, .. }) = food_brake_of(world) else {
         return 1.0;
     };
     let Some(r) = world.colony_food_ratio(colony) else {
         return 1.0;
     };
-    let strength = ((world.colony_adults(colony) - FOOD_BRAKE_SMALL) / FOOD_BRAKE_SMALL).clamp(0.0, 1.0) as f32;
+    let strength = ((world.colony_adults(colony) - small) / small).clamp(0.0, 1.0) as f32;
     if strength <= 0.0 || r >= hi {
         return 1.0;
     }
@@ -24645,11 +24749,48 @@ pub struct FoodTrail {
     /// 167 -> 156 (0/6, p 0.031); at 90 and 140 cells it changes 1 run of 48;
     /// pulsed 90 starved 237 -> 258 (13/6, p 0.17) and pulsed 140 251 -> 244.
     pub noreturn: bool,
+    /// **The scout's reserve**: the share of the energy it set out with
+    /// (`OrganismState::scout_e0`) that a scout keeps for the walk home.
+    /// Once its energy falls to `reserve` times that, it gives up as if out
+    /// of patience. 0, the default, is none: a scout that never meets a
+    /// trail walks on until a wall stops it. Not shipped; the training rig
+    /// evolves it as a gene (`train::WALK`).
+    ///
+    /// **Why a reserve and not the walk genes**: a trained forager's
+    /// founders on the side away from the food walked 124 columns to the
+    /// box wall and starved a median 42 columns from home on the way back
+    /// (16 of 144). A weaker scout pull (`TRAIT_SCOUT` -1) lost more of
+    /// them (16 -> 22), and a leakier patience (`TRAIT_PATIENCE` -1) saved
+    /// 5 and cost 15% of the food, because the same leak drops a laden
+    /// ant's walk home. A reserve of 0.6 (turn home with 40% spent) saved
+    /// 12 and brought 6% more food home; 0.5 saved 4. Ladder lane probe,
+    /// 2026-10-17, 12 hold-out layouts (`brain-training/ladder/forage-walk-genes.md`).
+    ///
+    /// **Not the larder leash** (`PIXEL_PHYSICS_HUNGRY_HOME`, not adopted
+    /// 2026-09-27, `Reports/dead-ends.md`): that pulled a hungry ant to the
+    /// larder and held it there, and at 140 cells no forager reached the
+    /// food. This only ends the excursion; the door sends the ant out
+    /// again toward the food side. It is still a leash on how far a scout
+    /// goes before it has met a trail, so a reserve tuned at one distance
+    /// is a reserve too large at a longer one -- **measured**: a fixed 0.6
+    /// helps with food 45-95 columns out and costs from 120; at 170 the
+    /// forage champion kept 0.34 of its founders against 0.70, at 200 it
+    /// lost 95 of 96, and in the lab box with food 200 out the colony died
+    /// on 3 of 4 seeds (`ladder/reserve-leash-check.md`). Hence the rig's
+    /// far forage arena (`train::challenges::Forage::far`).
+    ///
+    /// **The rule as tested**: a scout turned by its reserve walks home as
+    /// one out of patience does, dark (`scout_dark`) if the trail bound is on
+    /// and it is off a trail. The ladder lane's probe set it never dark,
+    /// which reads 3.6 lower on the forage champion (87.92 against 91.48,
+    /// 12 hold-outs; review of PR 711, N3). Read on the game walk only
+    /// (`chooser_step`); the needs walk does not read it.
+    pub reserve: f32,
 }
 
 impl FoodTrail {
     /// Nothing: the ant before it, bit for bit.
-    pub const OFF: FoodTrail = FoodTrail { lay: false, read: false, giveup: false, t: 0.0, gain: FOOD_TRAIL_GAIN, reach: 6, follow_all: false, window: 0.0, noreturn: false };
+    pub const OFF: FoodTrail = FoodTrail { lay: false, read: false, giveup: false, t: 0.0, gain: FOOD_TRAIL_GAIN, reach: 6, follow_all: false, window: 0.0, noreturn: false, reserve: 0.0 };
     /// `on`: all three parts at their defaults.
     pub const ON: FoodTrail = FOOD_TRAIL_UNSET;
 }
@@ -24686,7 +24827,8 @@ const FOOD_TRAIL_UNSET: FoodTrail = FoodTrail { lay: true, read: true, giveup: t
 /// `PIXEL_PHYSICS_FOOD_TRAIL`'s value read as a recipe; an unset variable
 /// reads as `""`. `off`, `on`, or a comma list of parts: `lay`, `read`,
 /// `giveup`, `noreturn`, `on` (all four), `t=<ticks>`, `gain=<g>`, `reach=2|6`,
-/// `follow=all`. A value it cannot read is reported and read as unset.
+/// `follow=all`, `reserve=<0..1>`. A value it cannot read is reported and
+/// read as unset.
 fn parse_food_trail(raw: &str) -> FoodTrail {
     let raw = raw.trim();
     match raw {
@@ -24729,11 +24871,12 @@ fn parse_food_trail(raw: &str) -> FoodTrail {
                 Some(("t", v)) => v.parse::<f32>().ok().filter(|t| *t >= 0.0).map(|t| ft.t = t).is_some(),
                 Some(("gain", v)) => v.parse::<f32>().ok().filter(|g| g.is_finite()).map(|g| ft.gain = g).is_some(),
                 Some(("window", v)) => v.parse::<f32>().ok().filter(|w| *w > 0.0).map(|w| ft.window = w).is_some(),
+                Some(("reserve", v)) => v.parse::<f32>().ok().filter(|r| (0.0..=1.0).contains(r)).map(|r| ft.reserve = r).is_some(),
                 _ => false,
             },
         };
         if !ok {
-            eprintln!("PIXEL_PHYSICS_FOOD_TRAIL={raw:?}: unknown part {part:?}, read as unset (off, on, or lay, read, giveup, noreturn, t=, gain=, window=, reach=2|6, follow=all)");
+            eprintln!("PIXEL_PHYSICS_FOOD_TRAIL={raw:?}: unknown part {part:?}, read as unset (off, on, or lay, read, giveup, noreturn, t=, gain=, window=, reach=2|6, follow=all, reserve=)");
             return FOOD_TRAIL_UNSET;
         }
     }
@@ -27119,6 +27262,7 @@ fn chooser_step(
     // that never met one scouts as before, which is how new food is found.
     let bound = food_trail_of(world).giveup;
     let noreturn = food_trail_of(world).noreturn;
+    let reserve = food_trail_of(world).reserve;
     if let (Some((ax, _)), true) = (away_from, scout_w > 0.0 && !scout_home) {
         let state = world.organism_mut(organism).expect("live: it just stepped");
         let nx = state.chain.first().map_or(hx, |c| c.0);
@@ -27156,6 +27300,15 @@ fn chooser_step(
                 state.scout_dark = bound && !on_trail;
             }
         }
+        // **Down to its reserve** (`FoodTrail::reserve`): a give-up on the
+        // bank, not the ground. Every step out is progress on open ground,
+        // so patience alone never turns a scout that has met no trail.
+        let turned = reserve > 0.0 && !state.scout_home && state.energy <= reserve * state.scout_e0;
+        if turned {
+            state.scout_home = true;
+            state.scout_dark = bound && !on_trail;
+        }
+        world.creature_stats.scout_reserve_turned += u64::from(turned);
     }
 
     // Did that step close on home?
@@ -34289,6 +34442,66 @@ mod tests {
         assert_eq!(company_at(&w, me, gut_of(&w, me, &def), face, 3, 1), 0, "an ant that smells foreign is no company");
         spawn(&mut w, "beetle", 43, 33);
         assert_eq!(company_at(&w, me, gut, face, 3, 2), 1, "a beetle at the face is no company");
+    }
+
+    /// **Each part of [`targets::Free`] lifts its own veto and no other**
+    /// ([`dig_veto`]), which is what keeps a stage 1 rung one rule: a cut the
+    /// heap cue refuses goes through under `cue` alone, one the face trip
+    /// refuses under `face` alone, and a lone ant's cut at a home wall under
+    /// `company` alone. `holds` frees no cut. Each scene's no-part arm is its
+    /// positive control: the veto fires there, so the scene holds the rule.
+    #[test]
+    fn each_freed_part_lifts_only_its_own_veto() {
+        let parts = [
+            targets::Free::default(),
+            targets::Free { holds: true, ..Default::default() },
+            targets::Free { cue: true, ..Default::default() },
+            targets::Free { face: true, ..Default::default() },
+            targets::Free { company: true, ..Default::default() },
+        ];
+        let veto = |w: &mut World, me: OrganismId, cut: (i32, i32), free: targets::Free| {
+            let def = def_of(w, "ant");
+            let head = w.organism(me).expect("the ant").chain[0];
+            let target = w.get(cut.0, cut.1);
+            dig_veto(w, &def, me, head, cut, target, false, &mut rng::Rng::new(1), false, free)
+        };
+        let bed = |cue: Option<SpoilCue>, face: FaceTrip| {
+            let mut w = founding_bed();
+            w.spoil_cue = Some(cue);
+            w.face_trip = Some(face);
+            w.way_gaps = Some(WayGaps::ON);
+            w.dig_roof = Some(None);
+            w
+        };
+        // The heap cue at floor 0: an ant on bare ground cutting the cell
+        // under it opens the ground to the sky with no pellet in reach.
+        let mut w = bed(Some(SPOIL_CUE_SHIPPED), FaceTrip::OFF);
+        let me = spawn(&mut w, "ant", 30, 39);
+        let (hx, hy) = w.organism(me).expect("the ant").chain[0];
+        for free in parts {
+            assert_eq!(veto(&mut w, me, (hx, hy + 1), free).cue, !free.cue, "heap cue under {free:?}");
+        }
+        // The face trip: walking back to a face far from the cut.
+        let mut w = bed(None, FaceTrip::ON);
+        let me = spawn(&mut w, "ant", 30, 39);
+        let (hx, hy) = w.organism(me).expect("the ant").chain[0];
+        w.organism_mut(me).expect("the ant").dig_return = Some((90, 80));
+        for free in parts {
+            assert_eq!(veto(&mut w, me, (hx, hy + 1), free).face, !free.face, "face trip under {free:?}");
+        }
+        // The company rule: a lone ant widening a room 20 rows under the
+        // founding ground, the nest dug past the rule's founding size.
+        let mut w = bed(None, FaceTrip::OFF);
+        w.nest_dug_sizes = vec![10_000];
+        for x in 24..=36 {
+            for y in 60..=62 {
+                w.set(x, y, Cell::EMPTY);
+            }
+        }
+        let me = spawn(&mut w, "ant", 30, 62);
+        for free in parts {
+            assert_eq!(veto(&mut w, me, (37, 61), free).company, !free.company, "company under {free:?}");
+        }
     }
 
     /// **[`ShaftRooms`] caps a room's height and spacing, never a shaft**:
@@ -43961,6 +44174,63 @@ mod tests {
         assert_eq!(walk(lay, false), walk(lay_giveup, false), "with no trail anywhere the give-up changed a scout's walk");
     }
 
+    /// **A scout down to its reserve turns for home** (`FoodTrail::reserve`).
+    /// A bare floor 560 cells wide with no east wall and no trail, the ant
+    /// at x 100 facing east with home 80 cells west and half its grant, its
+    /// energy left to drain. On open ground every step out is progress, so
+    /// with no reserve it does not give up. With a reserve of 0.6 it must
+    /// give up once, at 60% of the energy it set out with, and walk the
+    /// no-reserve path exactly until then. **Watched red** with the reserve
+    /// check removed: the 0.6 arm never gave up.
+    #[test]
+    fn a_scout_down_to_its_reserve_turns_for_home() {
+        // The path, the give-up (frame, energy, energy at the start), and
+        // the reserve counter.
+        type Walked = (Vec<(i32, i32)>, Option<(usize, f32, f32)>, u64);
+        let walk = |reserve: f32, frames: usize| -> Walked {
+            let stone = Cell::new(material::STONE, 0).with_attached(true);
+            let mut w = World::new(Rect::new(0, 0, 559, 63));
+            for x in 0..560 {
+                for y in 41..64 {
+                    w.set(x, y, stone);
+                }
+            }
+            for y in 0..41 {
+                w.set(0, y, stone);
+            }
+            w.chooser = Some(Chooser::TrailAway);
+            w.scout = Some(SCOUT_DEFAULT);
+            w.food_trail = Some(FoodTrail { reserve, ..FoodTrail::ON });
+            let ant = spawn(&mut w, "ant", 100, 40);
+            let energy = w.species.get(w.organism(ant).expect("live").species).creature.as_ref().expect("a creature").start_energy * 0.5;
+            {
+                let st = w.organism_mut(ant).expect("live");
+                st.heading = 0;
+                st.forage_anchor = (20, 40);
+                st.energy = energy;
+            }
+            let (mut path, mut gave) = (Vec::new(), None);
+            for f in 0..frames {
+                run(&mut w, 1);
+                let Some(st) = w.organism(ant) else { break };
+                if gave.is_none() && st.scout_home {
+                    gave = Some((f, st.energy, st.scout_e0));
+                }
+                path.push(st.chain[0]);
+            }
+            (path, gave, w.creature_stats.scout_reserve_turned)
+        };
+        let (with, gave, turned) = walk(0.6, 3000);
+        let (f, e, e0) = gave.expect("a scout with a reserve of 0.6 never turned for home");
+        assert_eq!(turned, 1, "one excursion, one turn");
+        assert!(e <= 0.6 * e0 && e > 0.5 * e0, "it turned at {e:.1} J of the {e0:.1} it set out with, not near 60%");
+        let (without, never, none) = walk(0.0, f + 300);
+        assert!(never.is_none() && none == 0, "with no reserve the scout gave up on open ground: {never:?}");
+        assert_eq!(with[..f], without[..f], "a reserve changed the walk before it turned");
+        let out = |p: &[(i32, i32)]| p.iter().map(|c| c.0).max().expect("walked");
+        assert!(out(&without) > out(&with[..(f + 300).min(with.len())]), "with no reserve it should be further out 300 frames later");
+    }
+
     /// **Under `FOOD_TRAIL=giveup` a scout that has given up is not held out
     /// by the trail** (§23d's PG1, the reader design's test 16 as M3 amended
     /// it). One decision at a time, put back each time: the ant stands on a
@@ -44575,6 +44845,28 @@ mod tests {
         assert_eq!(less_trail_side(&w, head), None, "trail out of reach was smelt");
     }
 
+    /// **A world's own food brake** ([`World::food_brake`], the rig's) uses
+    /// its own gate and ramp, not the shipped ones. Put the fault back
+    /// (`food_brake_of` reading only the env) and the first raise reads 1.0.
+    /// Tight asserts on a pure read, not watched red.
+    #[test]
+    fn a_worlds_own_food_brake_uses_its_own_gate_and_ramp() {
+        let mut w = World::new(Rect::new(0, 0, 31, 31));
+        // Income 125 against burn 100: halfway down a 1.0-1.5 ramp.
+        w.colony_pace = vec![[0.0, 0.0, 125.0, 100.0, 12.0]];
+        if food_brake_env().is_none() {
+            assert_eq!(food_brake_factor(&w, 0), 1.0, "no brake anywhere");
+        }
+        w.food_brake = Some(FoodBrake { brood: false, ..FoodBrake::FORAGE });
+        assert!((food_brake_factor(&w, 0) - 2.0).abs() < 1e-5, "full strength at twice the gate of 6");
+        w.colony_pace[0][4] = 9.0;
+        assert!((food_brake_factor(&w, 0) - 1.5).abs() < 1e-5, "half strength halfway up");
+        w.colony_pace[0][4] = 6.0;
+        assert_eq!(food_brake_factor(&w, 0), 1.0, "at the gate a colony breeds free");
+        w.colony_pace[0] = [0.0, 0.0, 95.0, 100.0, 12.0];
+        assert_eq!(food_brake_factor(&w, 0), f32::INFINITY, "burning more than it earns: no egg");
+    }
+
     /// **`PIXEL_PHYSICS_STORE_BRAKE` reads its parts, and its curve has the
     /// shape its doc gives** ([`parse_store_brake`], [`store_brake_curve`]):
     /// no effect at or above `hi`, rising to `FOOD_BRAKE_MAX` towards `lo`,
@@ -44816,6 +45108,8 @@ mod tests {
         assert_eq!(parse_food_trail("lay, giveup"), FoodTrail { lay: true, giveup: true, ..FoodTrail::OFF });
         assert_eq!(parse_food_trail("lay,read,giveup,window=700"), FoodTrail { noreturn: false, ..unset }, "the shipped recipe before noreturn, for an A/B");
         assert_eq!(parse_food_trail("lay,t=32"), FoodTrail { lay: true, t: 32.0, ..FoodTrail::OFF });
+        assert_eq!(parse_food_trail("on,reserve=0.6"), FoodTrail { reserve: 0.6, ..FoodTrail::ON });
+        assert_eq!(parse_food_trail("on,reserve=1.5"), FOOD_TRAIL_UNSET, "a reserve past 1 is not read");
         assert_eq!(parse_food_trail("on,gain=1.5,reach=2,follow=all"), FoodTrail { gain: 1.5, reach: 2, follow_all: true, ..FoodTrail::ON });
         assert_eq!(parse_food_trail("read"), FoodTrail { read: true, ..FoodTrail::OFF }, "read without lay parses: the plan's diagnostic arm");
         assert_eq!(parse_food_trail("lay,t=-1"), unset, "a negative odometer is unreadable");

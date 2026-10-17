@@ -2577,6 +2577,19 @@ pub struct CreatureStats {
     /// how hard it scouted** (`creature::forage_drive_from_env`): the forage
     /// drive's "it fired" count on the walk. 0 unless the switch is on.
     pub forage_scouted: u64,
+    /// **Times a scout turned for home down to its reserve**
+    /// (`creature::FoodTrail::reserve`), once per excursion. 0 unless the
+    /// reserve is set.
+    pub scout_reserve_turned: u64,
+    /// **The option shadow's "it fired" counters** (`creature::options`):
+    /// decisions it built a list for, options built, options per verb in
+    /// `options::Verb` order, and the sum of every feature built (the work
+    /// is read, so it cannot be optimised away). 0 unless
+    /// `World::option_shadow` is set.
+    pub option_decisions: u64,
+    pub options_built: u64,
+    pub options_by_verb: [u64; crate::sim::creature::options::VERBS],
+    pub option_feature_sum: f64,
     /// **Decisions where the forage drive lifted the step chance**
     /// (`creature::forage_pace`). 0 unless the switch is on, and under
     /// `,nopace`.
@@ -3037,6 +3050,10 @@ pub struct CreatureStats {
     /// that appeared, so with brood on it counts hatchings, and `eggs_laid`
     /// is the laying the parent paid for.
     pub eggs_laid: u64,
+    /// What those eggs cost their layers, in joules (`BroodDef::egg_cost`
+    /// each): the egg's part of the brood burn a [`creature::FoodBrake`]
+    /// with `brood` counts.
+    pub eggs_laid_j: f64,
     /// Eggs that became larvae.
     pub larvae: u64,
     /// Larvae fed to their target that became pupae.
@@ -4390,6 +4407,15 @@ pub struct World {
     /// of the hand rules that pick those. Set only by the training rig;
     /// `None` everywhere else, so the game is unchanged.
     pub targets: Option<crate::sim::creature::targets::Targets>,
+    /// **Build the new brain's option list every decision and throw it
+    /// away** (`creature::options::shadow`): stage 2's frame-cost shadow,
+    /// timed by `needscost arms=off,shadow`. Nothing reads the list, so the game is
+    /// unchanged either way; `false` everywhere unless a harness sets it.
+    pub option_shadow: bool,
+    /// **The minds of ants that decide by the general brain**
+    /// (`creature::mind`, stage 2 of the brain plan), by ant. `None` in the
+    /// game: no ant has one, and the tick reads this once to know.
+    pub minds: Option<Box<crate::sim::creature::mind::Minds>>,
     /// **Whether a nesting species may bud only at its nest, overriding
     /// `PIXEL_PHYSICS_BUD_SITE` for this world** (`creature::bud_at_nest`).
     /// `None` follows the environment, which is on unless set to `anywhere`; a field for
@@ -5016,6 +5042,10 @@ pub struct World {
     /// same tick. Empty unless the brake is on, so a world without it pays
     /// one branch a frame.
     pub colony_pace: Vec<[f64; 5]>,
+    /// **This world's own food brake** (`creature::FoodBrake`), set by the
+    /// training rig; `None` (every world the game builds) reads
+    /// `PIXEL_PHYSICS_FOOD_BRAKE` at the shipped gate and burn.
+    pub food_brake: Option<creature::FoodBrake>,
     /// **The frame each nest last saw a forager come home with food from a
     /// trip** (`OrganismState::trip_load`), indexed like `nest_sites`, grown
     /// on write; 0 is never. Read by the forage drive's `returns` need
@@ -7202,6 +7232,8 @@ impl World {
             chooser: None,
             home_blind: false,
             targets: None,
+            option_shadow: false,
+            minds: None,
             bud_at_nest: None,
             dig_roof: None,
             food_door: None,
@@ -7300,6 +7332,7 @@ impl World {
             dug_cells: Default::default(),
             nest_need: Vec::new(),
             colony_pace: Vec::new(),
+            food_brake: None,
             nest_last_return: Vec::new(),
             room_gate: creature::room_gate_default(),
             room_target: creature::room_target_default(),
@@ -9366,10 +9399,19 @@ impl World {
                 adults[c] += 1;
             }
         }
+        // **Brood in the burn** (`creature::FoodBrake::brood`): eggs at what
+        // they cost and every joule fed to larvae, off world-wide counters,
+        // so one colony per world.
+        let brood = if self.food_brake.is_some_and(|b| b.brood) {
+            let s = &self.creature_stats;
+            s.eggs_laid_j + s.brood_nursed_j + s.brood_crop_fed_j + s.brood_shared_j + s.brood_ate_j
+        } else {
+            0.0
+        };
         for (c, &alive) in adults.iter().enumerate() {
             let b = &self.colony_books[c];
             let income = b.get(Account::HarvestedPlant) + b.get(Account::HarvestedCorpse);
-            let burn = b.get(Account::Metabolized) + b.get(Account::Moved) + b.get(Account::SynapseTax);
+            let burn = b.get(Account::Metabolized) + b.get(Account::Moved) + b.get(Account::SynapseTax) + brood;
             let p = &mut self.colony_pace[c];
             let (di, db) = (income - p[0], burn - p[1]);
             p[0] = income;
@@ -14790,5 +14832,32 @@ mod tests {
         assert!(w.get(3, 3).is_empty());
         // Off-world writes were dropped rather than panicking.
         assert_eq!(w.get(-1, 0), Cell::OUT_OF_BOUNDS);
+    }
+
+    /// **Brood joins the brake's burn only when the world's brake asks**
+    /// (`creature::FoodBrake::brood`): an egg at what it cost and every
+    /// joule fed to larvae, on top of the colony's own living and moving.
+    /// Put the fault back (the `brood` term dropped from
+    /// `step_colony_pace`) and the second assert reads 100. Not watched red.
+    #[test]
+    fn brood_joins_a_worlds_brake_burn_only_when_asked() {
+        let pace = |brood: bool| {
+            let mut w = World::new(Rect::new(0, 0, 31, 31));
+            w.colony_books_mut(0).accounts[Account::Metabolized as usize] = 100.0;
+            let s = &mut w.creature_stats;
+            s.eggs_laid_j = 120.0;
+            s.brood_nursed_j = 10.0;
+            s.brood_crop_fed_j = 20.0;
+            s.brood_shared_j = 30.0;
+            s.brood_ate_j = 40.0;
+            w.food_brake = Some(creature::FoodBrake {
+                brood,
+                ..creature::FoodBrake::FORAGE
+            });
+            w.step_colony_pace();
+            w.colony_pace[0][1]
+        };
+        assert_eq!(pace(false), 100.0);
+        assert_eq!(pace(true), 320.0);
     }
 }

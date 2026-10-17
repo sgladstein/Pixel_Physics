@@ -7,7 +7,7 @@ use crate::lab::scenario::Scenario;
 use crate::sim::brain::BrainOutput as O;
 use crate::sim::chunk::Rect;
 use crate::sim::cell::OrganismId;
-use crate::sim::organism::SpeciesId;
+use crate::sim::organism::{self, SpeciesId};
 use crate::sim::pheromone::{self, Channel};
 use crate::sim::{creature, material, update, Cell, World};
 
@@ -29,6 +29,20 @@ fn frame(w: &mut World, pheromones: bool) {
     w.step_fields();
     if pheromones {
         w.step_pheromones();
+    }
+}
+
+/// [`frame`], then whatever the bed's timeline has due, as the lab's
+/// `tick_timeline` lands it after the step. A bed with no timeline (trail,
+/// dig and forage's heap) returns before reading it, so this is [`frame`]
+/// exactly; one with a drip of food ([`Scarce`], and the lab's
+/// `steady_income`) needs it, since a timeline nothing ticks is a supply
+/// that never arrives. Trail and dig call [`frame`], so a timeline given to
+/// their beds would be dropped.
+fn frame_timed(w: &mut World, sc: &Scenario, pheromones: bool) {
+    frame(w, pheromones);
+    if !sc.timeline.is_empty() {
+        crate::lab::scenario::tick_timeline(sc, w, &sc.bed);
     }
 }
 
@@ -57,29 +71,47 @@ const BED_W: i32 = 256;
 const NEST_X: i32 = 128;
 const GROUND_Y: i32 = 64;
 
-/// The lab bed every colony arena uses: 256 x 128, 40 rows of soil, no rain,
-/// one colony at the centre, and whatever `extra` placements the arena adds,
-/// placed before the colony so a buried lens or a raised step is already
-/// there when it digs its founding shaft.
+/// The plain lab bed, for tests: 256 x 128, 40 rows of soil, no rain, one
+/// colony at the centre, and whatever `extra` placements are added, placed
+/// before the colony so a buried lens or a raised step is already there
+/// when it digs its founding shaft. The arenas build theirs by
+/// [`bed_shaped`] or [`bed_at`].
+#[cfg(test)]
 fn bed(seed: u64, ants: usize, extra: &str) -> Scenario {
     bed_shaped(seed, ants, extra, 40, 33)
 }
 
-/// [`bed`] with its soil depth and lamp spacing given, for the dig arena's
-/// varied beds ([`DigBed`]).
+/// The lab bed the colony arenas use: 256 x 128, no rain, one colony at
+/// the centre, with its soil depth and lamp spacing given (the dig arena
+/// varies them, [`DigBed`]) and whatever `extra` placements the arena adds,
+/// placed before the colony.
 fn bed_shaped(seed: u64, ants: usize, extra: &str, soil_depth: i32, lamp_spacing: i32) -> Scenario {
+    bed_at(seed, ants, extra, soil_depth, lamp_spacing, BED_W, NEST_X)
+}
+
+/// [`bed_shaped`] at any width, the colony at `nest_x`: the far forage bed
+/// ([`Forage::far`]) is wider than [`BED_W`], with the nest
+/// [`FAR_BEHIND`] columns from the wall behind it.
+fn bed_at(seed: u64, ants: usize, extra: &str, soil_depth: i32, lamp_spacing: i32, width: i32, nest_x: i32) -> Scenario {
+    bed_timed(seed, ants, extra, soil_depth, lamp_spacing, width, nest_x, "")
+}
+
+/// [`bed_at`] with a scenario `timeline`, the lab's own entries: the scarce
+/// arena's drip of food ([`Scarce`]) is one, ticked by [`frame_timed`].
+#[allow(clippy::too_many_arguments)]
+fn bed_timed(seed: u64, ants: usize, extra: &str, soil_depth: i32, lamp_spacing: i32, width: i32, nest_x: i32, timeline: &str) -> Scenario {
     let text = format!(
         r#"(
     name: "train", title: "TRAIN", question: "training arena",
-    bed: (width: {BED_W}, height: 128, soil_depth: {soil_depth}, ground_y: {GROUND_Y}, compartments: 1, founders: 0,
+    bed: (width: {width}, height: 128, soil_depth: {soil_depth}, ground_y: {GROUND_Y}, compartments: 1, founders: 0,
           species: "grass", colonies: 0, colony_ants: {ants}, colony_species: "ant", predators: 0,
           lamp_spacing: {lamp_spacing}, seed: {seed}, extra_walls: []),
     settings: [(subject: "the bed", field: "rain", value: 0)],
     placements: [
         {extra}
-        Colony(species: "ant", x: {NEST_X}, count: {ants}),
+        Colony(species: "ant", x: {nest_x}, count: {ants}),
     ],
-    timeline: [],
+    timeline: [{timeline}],
     horizon: 100000,
 )"#
     );
@@ -91,7 +123,8 @@ fn bed_shaped(seed: u64, ants: usize, extra: &str, soil_depth: i32, lamp_spacing
 /// [`NOT_ANT_VERBS`]), and the brain steers (`Chooser::Off`) unless `game_walk`. A `blind` layout
 /// also cuts the body's homeward re-roll and forces the brain walk, so the
 /// senses-cut control is blind outside the brain too ([`Layout::blind`]); a
-/// `legal` one draws the scorer's targets evenly ([`Layout::legal`]).
+/// `legal` one draws the scorer's targets evenly ([`Layout::legal`]); walk
+/// genes, if the genome carries them, go in as [`give_walk`] puts them.
 fn clone_colony(w: &mut World, genome: &[f32], game_walk: bool, layout: Layout) -> SpeciesId {
     let blind = layout.blind;
     let sp = w.species.id_of("ant").expect("ant");
@@ -101,21 +134,82 @@ fn clone_colony(w: &mut World, genome: &[f32], game_walk: bool, layout: Layout) 
         def.home_bias = 0.0;
     }
     w.species.set_creature(sp, def);
-    let (brain, scorer) = genome.split_at(genome.len().min(super::SCORER));
+    let at = super::blocks(genome.len());
+    let brain = &genome[..super::SCORER];
     w.species.set_genome(sp, brain.to_vec());
     if !game_walk || blind {
         w.chooser = Some(creature::Chooser::Off);
     }
     w.home_blind = blind;
-    if !scorer.is_empty() {
-        let mut t = creature::targets::Targets::new(sp, scorer);
+    if let Some(s) = at.scorer {
+        let mut t = creature::targets::Targets::new(sp, &genome[s..s + creature::targets::WEIGHTS]);
         t.even = layout.legal;
         w.targets = Some(t);
     }
-    for id in ants_of(w, sp) {
+    let ids = ants_of(w, sp);
+    for &id in &ids {
         w.set_organism_genome(id, brain.to_vec());
     }
+    if let Some(k) = at.walk {
+        give_walk(w, sp, &ids, &genome[k..k + super::WALK]);
+    }
     sp
+}
+
+/// **A mind as an arena runs it**: the verbs and scents the arena does not
+/// offer switched off (`mind::apply_bans`). One brain climbs the ladder
+/// and every rung keeps the earlier arenas (design rev3, *No forgetting*),
+/// so a forager is tested on the trail rung with the trail's verbs alone:
+/// it neither feeds a nestmate there nor lays a trail of its own over the
+/// stamped one.
+fn arena_mind(genome: &[f32], verbs: &[creature::options::Verb], emits: [bool; creature::mind::EMITS]) -> std::sync::Arc<creature::mind::MindGenome> {
+    let mut g = genome.to_vec();
+    creature::mind::apply_bans(&mut g, verbs, emits);
+    std::sync::Arc::new(creature::mind::MindGenome::new(g))
+}
+
+/// **Every ant in a fresh bed takes `genome` as its mind** (`creature::mind`,
+/// stage 2), as [`arena_mind`] cuts it to the arena's verbs and scents,
+/// brood included, so a founding larva hatches with it and every egg laid
+/// inherits it. The larva still feeds itself from a touching adult
+/// (`brood`'s `NURSE`, the game's rule): moving that into the adult's turn
+/// is the brood rung's own step (design rev3, *Risks*), and with it off a
+/// forage colony had to learn to feed its larvae before it could breed.
+/// The mind's `Feed` verb is there beside it. A `blind` layout cuts the
+/// home vector here; the rig cuts the scent (`train::blinded`).
+fn clone_minds(w: &mut World, genome: &[f32], layout: Layout, verbs: &[creature::options::Verb], emits: [bool; creature::mind::EMITS]) -> SpeciesId {
+    let sp = w.species.id_of("ant").expect("ant");
+    let mut def = w.species.get(sp).creature.clone().expect("creature");
+    def.reproduce_threshold = 1.0e30;
+    w.species.set_creature(sp, def);
+    w.home_blind = layout.blind;
+    let g = arena_mind(genome, verbs, emits);
+    for id in ants_of(w, sp) {
+        creature::mind::give(w, id, g.clone());
+    }
+    sp
+}
+
+/// **Walk genes into a colony** ([`super::WALK`]): each allele into every
+/// ant's own traits and the species', where the walk reads them and births
+/// and eggs copy them from, and the reserve into the world's food trail.
+/// A colony with no brood when it is cloned (every bed founds none) has
+/// nothing else to reach.
+fn give_walk(w: &mut World, sp: SpeciesId, ids: &[OrganismId], genes: &[f32]) {
+    let slots = organism::WALK_SLOTS;
+    let mut def = w.species.get(sp).creature.clone().expect("creature");
+    for (k, &slot) in slots.iter().enumerate() {
+        def.traits[slot] = genes[k];
+    }
+    w.species.set_creature(sp, def);
+    for &id in ids {
+        let st = w.organism_mut(id).expect("live ant");
+        for (k, &slot) in slots.iter().enumerate() {
+            st.traits[slot] = genes[k];
+        }
+    }
+    let reserve = genes[slots.len()];
+    w.food_trail = Some(creature::FoodTrail { reserve, ..creature::food_trail_of(w) });
 }
 
 /// **Bring food home, and stay alive doing it** (colony).
@@ -167,6 +261,16 @@ pub struct Forage {
     pub frames: u64,
     pub heap: i32,
     pub game_walk: bool,
+    /// **Far food** (`forage-far`): the heap [`FAR_DIST`] columns out, on a
+    /// bed widened to hold it. The near distances only ever show a scout's
+    /// reserve (`FoodTrail::reserve`) as a gain, so selection there settles
+    /// on a leash: a fixed reserve of 0.6 lifted the forage champion's worse
+    /// side 43.5 -> 66.1 with the food at 95 and cut it 14.8 -> 2.8 at 170,
+    /// and at 200 lost 95 of its 96 founders (8 layouts, 12k frames,
+    /// `ladder/reserve-leash-check.md`). Scored as the near arena is; a
+    /// suite of both (`arenas=forage,forage-far`) prices a leash by the
+    /// product.
+    pub far: bool,
 }
 
 /// The heap's distance from the nest, in columns. **Set by the heap's own
@@ -183,11 +287,50 @@ const FORAGE_DIST: (i32, i32) = (45, 95);
 /// heap of 300 at rest spans about 25.
 const HEAP_REACH: i32 = 40;
 
+/// The far heap's distance ([`Forage::far`]): from just past the near
+/// arena's [`FORAGE_DIST`] to where the leash check found the 0.6 reserve
+/// wiping the champion's colony out.
+const FAR_DIST: (i32, i32) = (120, 200);
+
+/// The far bed's ends, the ladder lane's far-food bed: the nest
+/// `FAR_BEHIND` columns from the wall behind it and `FAR_BEYOND` columns of
+/// ground past the heap, so the bed is `FAR_BEHIND + dist + FAR_BEYOND`
+/// wide. **At 70 columns that is the near bed exactly** (256 wide, the nest
+/// at 128), and replayed there it scored the rig's own hold-out to the digit
+/// (`ladder/probes/leash/rigcheck-champ-2.log`). A wider bed costs no frame
+/// time of its own: a 6k-frame layout took 1.4-1.8 s at 256, 326 and 386
+/// wide, one thread.
+const FAR_BEHIND: i32 = 128;
+const FAR_BEYOND: i32 = 58;
+const _: () = assert!(FAR_BEHIND == NEST_X && FAR_BEHIND + 70 + FAR_BEYOND == BED_W);
+
 impl Forage {
-    fn dist(layout: Layout) -> i32 {
-        let (lo, hi) = FORAGE_DIST;
+    fn dist(&self, layout: Layout) -> i32 {
+        let (lo, hi) = if self.far { FAR_DIST } else { FORAGE_DIST };
         lo + ((layout.seed.wrapping_mul(0x9E37_79B9_7F4A_7C15) >> 32) % (hi - lo + 1) as u64) as i32
     }
+
+    /// The bed's width, the nest's column and the heap's, for one layout:
+    /// the food east on even layouts and west on odd ones. Near, the nest
+    /// is the centre of [`BED_W`]; far, it keeps [`FAR_BEHIND`] to the wall
+    /// behind it on either side, so the two sides of a pair mirror.
+    fn geometry(&self, layout: Layout) -> (i32, i32, i32) {
+        let side = if layout.k.is_multiple_of(2) { 1 } else { -1 };
+        let dist = self.dist(layout);
+        if self.far {
+            far_bed(dist, side)
+        } else {
+            (BED_W, NEST_X, NEST_X + side * dist)
+        }
+    }
+}
+
+/// The far bed for a heap `dist` columns out on `side` (1 east, -1 west):
+/// its width, the nest's column and the heap's ([`FAR_BEHIND`]).
+fn far_bed(dist: i32, side: i32) -> (i32, i32, i32) {
+    let width = FAR_BEHIND + dist + FAR_BEYOND;
+    let nest_x = if side > 0 { FAR_BEHIND } else { width - FAR_BEHIND };
+    (width, nest_x, nest_x + side * dist)
 }
 
 fn cells_of(w: &World, x0: i32, x1: i32, mat: material::MaterialId) -> i64 {
@@ -204,7 +347,11 @@ fn cells_of(w: &World, x0: i32, x1: i32, mat: material::MaterialId) -> i64 {
 
 impl Challenge for Forage {
     fn name(&self) -> &'static str {
-        "forage"
+        if self.far {
+            "forage-far"
+        } else {
+            "forage"
+        }
     }
     fn unit(&self) -> Unit {
         Unit::Colony
@@ -225,21 +372,32 @@ impl Challenge for Forage {
         true
     }
     fn run(&self, layout: Layout, genomes: &[&[f32]], look: &mut dyn FnMut(u64, &World)) -> Vec<Score> {
+        // **No bigger than 300**: [`FORAGE_DIST`] is set by a 300-cell
+        // heap's slump, and a bigger one reaches home at the near end (food
+        // scored that was never carried) and the wall at the far end.
+        assert!(self.heap <= 300, "a heap of {} slumps past FORAGE_DIST's bounds (the_heap_lies_clear_of_home_and_the_wall)", self.heap);
         let side = if layout.k.is_multiple_of(2) { 1 } else { -1 };
-        let dist = Self::dist(layout);
-        let heap_x = NEST_X + side * dist;
+        let dist = self.dist(layout);
+        let (width, nest_x, heap_x) = self.geometry(layout);
         let extra = format!(r#"Heap(material: "provisions", x: {heap_x}, cells: {}),"#, self.heap);
-        let (mut w, _, _) = bed(layout.seed, self.ants, &extra).build();
+        let sc = bed_at(layout.seed, self.ants, &extra, 40, 33, width, nest_x);
+        let (mut w, _, _) = sc.build();
         let sp = clone_colony(&mut w, genomes[0], self.game_walk, layout);
         let food = w.materials.id_of("provisions").expect("provisions");
-        let before = cells_of(&w, heap_x - HEAP_REACH, heap_x + HEAP_REACH, food);
+        // **`taken` stops short of home**: at 45 columns a window of
+        // `HEAP_REACH` either side reached home columns +5 to +12, and food
+        // carried home into that strip read as never taken (review of PR
+        // 708, nit 7). A printed part only, never `fit`.
+        let (lo, hi) = (heap_x - HEAP_REACH, heap_x + HEAP_REACH);
+        let (lo, hi) = if side > 0 { (lo.max(nest_x + 13), hi) } else { (lo, hi.min(nest_x - 13)) };
+        let before = cells_of(&w, lo, hi, food);
         let founders = ants_of(&w, sp);
         // The colony's number now, while its founders live: a dead id's
         // colony reads 0, whose books are empty, and the first run of this
         // score read no meals at all on the layouts where founder 0 died.
         let colony = founders.first().map_or(0, |&id| w.colony_of(id));
         for f in 0..self.frames {
-            frame(&mut w, true);
+            frame_timed(&mut w, &sc, true);
             look(f + 1, &w);
         }
         let st = &w.creature_stats;
@@ -248,7 +406,7 @@ impl Challenge for Forage {
         let larvae_j = st.brood_crop_fed_j + st.brood_ate_j;
         // Joules kept per joule of face value, from the adults' own meals.
         let keep = if st.digested_face > 0.0 { ((books.intake() - larvae_j) / st.digested_face).clamp(0.05, 1.0) } else { 1.0 };
-        let floor = cells_of(&w, NEST_X - 12, NEST_X + 12, food) as f64;
+        let floor = cells_of(&w, nest_x - 12, nest_x + 12, food) as f64;
         let adult = st.digested_at_nest_face / 960.0;
         let larvae = larvae_j / keep / 960.0;
         let corpse = corpse_j / keep / 960.0;
@@ -262,7 +420,7 @@ impl Challenge for Forage {
             parts: vec![
                 home,
                 alive as f64,
-                (before - cells_of(&w, heap_x - HEAP_REACH, heap_x + HEAP_REACH, food)) as f64,
+                (before - cells_of(&w, lo, hi, food)) as f64,
                 w.creature_stats.pickups as f64,
                 dist as f64,
                 kept,
@@ -275,6 +433,240 @@ impl Challenge for Forage {
     }
 }
 
+/// **Live on a trickle of food** (colony): stage 2's forage rung.
+///
+/// The forage bed with no heap: [`Scarce::drip`] cells of provisions land at
+/// one spot every [`Scarce::every`] frames, 80 columns from the nest
+/// ([`SCARCE_DIST`]), east on even layouts and west on odd ones, so a pair
+/// differs only by the side and the score is the worse side. Births are on,
+/// and food caps them ([`Scarce::brake`]).
+///
+/// **Score: adults alive times the share of founders kept** (a founder's
+/// old age counts as kept), read four times over the run's last quarter and
+/// averaged, the ladder lane's recommendation
+/// (`ladder/scarce-forage-arena.md`). **Before food capped births** it ranked
+/// the game ant above the
+/// cheap-brain forage champion and that above the champion, on every paired
+/// layout at both distances, at 24,000 frames: the lab's order. **Food
+/// brought home never ranks them right** -- all three bring nearly all of it
+/// -- and neither does energy with births off: the champion lays half as
+/// many again and its colony starves on the same food, which only a head
+/// count read late enough sees. A colony that never feeds its larvae keeps
+/// at most its founders, so refusing brood is no cheat; corpse meals earn
+/// nothing, since the score counts heads. A colony gone before the last
+/// quarter reads [`scarce_floor`]: how long it lasted, under any live one.
+///
+/// **The horizon is a setting**: 12,000 frames trains in half the time and
+/// still separates the champion (3.2) from the game ant (21.8); only by
+/// 24,000 does a colony that over-breeds lose to the game ant on heads, so
+/// a hold-out check runs there (`frames=24000`).
+///
+/// **With food capping births** (the ladder lane, section 6, 8 layouts at
+/// 80 columns, read at the last frame) the champion stays last on every
+/// pair, but the cheap-brain champion draws level with the game ant (12,000
+/// frames: 16.4 against 14.9, game ahead on 2 of 4 pairs; 24,000: 21.9
+/// against 16.4, 4 of 4): the old order between those two was the cheap
+/// arm's over-breeding, which a mind cannot choose, since it lays only
+/// through `settle`.
+///
+/// Runs minds (`creature::mind`) as well as today's brain: walking, turning
+/// round, resting, eating, putting food down and feeding, beside the
+/// larvae's own feeding from a touching adult ([`clone_minds`]).
+pub struct Scarce {
+    pub ants: usize,
+    pub frames: u64,
+    pub drip: u32,
+    pub every: u64,
+    /// Today's brain under the shipped walk (`walk=game`); minds always
+    /// walk by their own choice.
+    pub game_walk: bool,
+    /// **Food caps births** (`creature::FoodBrake`): the colony lays less as
+    /// its income closes on what it burns, brood included, and not at all
+    /// once it burns what it earns. [`creature::FoodBrake::FORAGE`] unless
+    /// `brake=off`.
+    pub brake: Option<creature::FoodBrake>,
+}
+
+/// The food spot's distance from the nest, in columns: the ladder's far
+/// bed. At 40 columns and 12,000 frames a colony that over-breeds ties the
+/// game ant on the worse side (19.2 against 19.3); at 80 the game ant beats
+/// the cheap-brain champion on 4 of 4 pairs (17.7 against 8.3), so the rung
+/// trains there (ladder review of the stage 2 notes, finding 5). Inside the
+/// 256-wide bed either side.
+const SCARCE_DIST: (i32, i32) = (80, 80);
+
+impl Scarce {
+    /// The nest's column, the food spot's and its distance, for one layout.
+    fn geometry(&self, layout: Layout) -> (i32, i32, i32) {
+        let side = if layout.k.is_multiple_of(2) { 1 } else { -1 };
+        let (lo, hi) = SCARCE_DIST;
+        let dist = lo + ((layout.seed.wrapping_mul(0x9E37_79B9_7F4A_7C15) >> 32) % (hi - lo + 1) as u64) as i32;
+        (NEST_X, NEST_X + side * dist, dist)
+    }
+
+    /// The bed for one layout, the drip on its timeline.
+    fn bed(&self, layout: Layout) -> Scenario {
+        let (nest_x, food_x, _) = self.geometry(layout);
+        let timeline = format!(r#"(at: 1, every: {}, until: 0, what: Heap(material: "provisions", x: {food_x}, cells: {})),"#, self.every, self.drip);
+        bed_timed(layout.seed, self.ants, "", 40, 33, BED_W, nest_x, &timeline)
+    }
+}
+
+/// The verbs a forager uses: the trail rung's walk, turn and rest, and the
+/// food verbs.
+const SCARCE_VERBS: &[creature::options::Verb] = {
+    use creature::options::Verb as V;
+    &[V::Walk, V::TurnAround, V::Rest, V::Eat, V::Drop, V::Feed]
+};
+
+impl Challenge for Scarce {
+    fn name(&self) -> &'static str {
+        "scarce"
+    }
+    fn unit(&self) -> Unit {
+        Unit::Colony
+    }
+    fn ants(&self) -> usize {
+        self.ants
+    }
+    fn frames(&self) -> u64 {
+        self.frames
+    }
+    fn parts(&self) -> &'static [&'static str] {
+        &["score", "adults", "kept", "starved", "births", "brood", "eaten", "delivered", "larvae_j", "held", "dist", "lived"]
+    }
+    fn banned(&self) -> &'static [O] {
+        NOT_ANT_VERBS
+    }
+    fn minds(&self) -> bool {
+        true
+    }
+    fn verbs(&self) -> &'static [creature::options::Verb] {
+        SCARCE_VERBS
+    }
+    fn mirrored(&self) -> bool {
+        true
+    }
+    fn run(&self, layout: Layout, genomes: &[&[f32]], look: &mut dyn FnMut(u64, &World)) -> Vec<Score> {
+        let (_, _, dist) = self.geometry(layout);
+        let sc = self.bed(layout);
+        let (mut w, _, _) = sc.build();
+        w.food_brake = self.brake;
+        // Every death, by ant, so `kept` can count founders' old age only.
+        w.death_log = Some(Vec::new());
+        let sp = if super::is_mind(genomes[0].len()) {
+            clone_minds(&mut w, genomes[0], layout, self.verbs(), self.mind_emits())
+        } else {
+            clone_colony(&mut w, genomes[0], self.game_walk, layout)
+        };
+        let adults_of = |w: &World| -> Vec<OrganismId> { ants_of(w, sp).into_iter().filter(|&id| w.organism(id).is_some_and(|s| s.brood.is_none())).collect() };
+        let founders = adults_of(&w);
+        let colony = founders.first().map_or(0, |&id| w.colony_of(id));
+        // Adults now, and the share of founders kept so far.
+        let census = |w: &World| -> (Vec<OrganismId>, f64) {
+            let now = adults_of(w);
+            // **Founders' old age only.** The colony's old-age count
+            // (`old_age`) took hatchlings' too, and the hazard is a Rayleigh
+            // draw, so a hatchling can go before a founder: a colony that
+            // bred and lost young ants to age counted them as founders kept
+            // (ladder review of the stage 2 notes, finding 5). Counted this
+            // way the ladder's ranking still holds on every pair: 25.1 /
+            // 10.3 / 0.0 at 40 columns.
+            let aged = w.death_log.as_ref().map_or(0, |log| {
+                log.iter()
+                    .filter(|r| {
+                        matches!(r.cause, organism::DeathCause::OldAge) && founders.binary_search(&r.id).is_ok()
+                    })
+                    .count()
+            });
+            let lived = founders.iter().filter(|id| now.binary_search(id).is_ok()).count() + aged;
+            let kept = (lived as f64 / founders.len().max(1) as f64).min(1.0);
+            (now, kept)
+        };
+        // **Scored over the run's last quarter, not its last frame**: with
+        // food capping births a colony's head count rises and falls as it
+        // lays to its income, and the ladder's 24,000-frame order rested on
+        // one frame (game ant ahead of the cheap arm on 4 of 4 pairs at
+        // 24,000, on 1-2 of 4 at every snapshot from 10,000 to 22,000;
+        // `ladder/scarce-forage-arena.md` section 6). Four reads, the last
+        // at the end.
+        let snaps: Vec<u64> = (13..=16).map(|k| self.frames * k / 16).filter(|&f| f > 0).collect();
+        let mut scores = Vec::new();
+        // The same read over the whole run, for the floor ([`scarce_floor`]).
+        let lived_every = (self.frames / 64).max(1);
+        let mut lived = (0.0, 0u32);
+        for f in 0..self.frames {
+            frame_timed(&mut w, &sc, true);
+            look(f + 1, &w);
+            let at_snap = snaps.contains(&(f + 1));
+            if at_snap || (f + 1).is_multiple_of(lived_every) {
+                let (now, kept) = census(&w);
+                if at_snap {
+                    scores.push(now.len() as f64 * kept);
+                }
+                if (f + 1).is_multiple_of(lived_every) {
+                    lived.0 += now.len() as f64 * kept;
+                    lived.1 += 1;
+                }
+            }
+        }
+        let (now, kept) = census(&w);
+        if scores.is_empty() {
+            scores.push(now.len() as f64 * kept);
+        }
+        let deaths = |c: organism::DeathCause| w.group_deaths_of(sp, colony).map_or(0, |g| g.by_cause[c.index()]);
+        let starved = deaths(organism::DeathCause::Starved) + deaths(organism::DeathCause::StarvedInFlight);
+        let st = &w.creature_stats;
+        let brood = ants_of(&w, sp).len() - now.len();
+        let larvae_j = st.brood_crop_fed_j + st.brood_ate_j + st.brood_shared_j + st.brood_nursed_j;
+        let lived = lived.0 / lived.1.max(1) as f64 / founders.len().max(1) as f64;
+        let score = scarce_floor(scores.iter().sum::<f64>() / scores.len() as f64, lived, founders.len());
+        vec![Score {
+            fit: score,
+            parts: vec![
+                score,
+                now.len() as f64,
+                kept,
+                starved as f64,
+                st.births as f64,
+                brood as f64,
+                st.pickups as f64,
+                st.deliveries as f64,
+                larvae_j,
+                st.food_brake_held as f64,
+                dist as f64,
+                lived,
+            ],
+        }]
+    }
+}
+
+/// **A colony gone before the last quarter still ranks by how long it
+/// lasted**: `score` (the last quarter's reads) when it is above 0,
+/// otherwise `lived` (the same adults-times-founders-kept read every 64th
+/// of the run, over the founders) scaled under the least score a live
+/// colony can read, a single founder at one of the four reads, so a dead
+/// colony never outranks a live one and no live score moves.
+///
+/// **Why**: today's brain started the forage rung from its trail champion,
+/// which never picks food up; its colonies starved by frame 6,000 of
+/// 12,000 on every layout, every child of 48 for 20 generations read
+/// exactly 0 at both step sizes (`brain-training/stage2/forage-lean`,
+/// today-plan-s1, today-old-s1), and selection had nothing to choose by. The
+/// mind's trail champion read 0 too but picks food up, so its first
+/// children already lived into the last quarter. A child that eats a little
+/// or walks a little less dies later and now ranks higher. Resting is not
+/// newly paid: a colony that does nothing already outlives the last quarter
+/// at 12,000 frames and scores on the reads (`ladder/scarce-forage-arena.md`).
+pub fn scarce_floor(score: f64, lived: f64, founders: usize) -> f64 {
+    if score > 0.0 {
+        return score;
+    }
+    // One ant at one read, with one founder of `founders` kept.
+    let least = 1.0 / (4.0 * founders.max(1) as f64);
+    lived.clamp(0.0, 1.0) * least / 2.0
+}
+
 /// **Take the trail, not the bare ground** (per ant).
 ///
 /// A bare stone floor 256 wide, the ants standing three cells apart around
@@ -284,13 +676,31 @@ impl Challenge for Forage {
 /// and ends, its peak and its slope vary with the layout's seed.
 /// The other side is bare ground. That is the choice a side-view ant meets at
 /// its door: left or right, and the trail says which. Nothing decays, nothing
-/// is eaten, nobody starves, and every ant's `EmitA`/`EmitB` rows are banned,
-/// so the only trail is the stamped one.
+/// is eaten, nobody starves (the budget is raised to 1e9 and every tax is
+/// booked at the authored one's size, which an f32 at 1e9 never takes off
+/// the body, so a brain's size is free here unless `Settings::wire` charges
+/// it: review of PR 713 at `d8a55651`, N1), and every ant's `EmitA`/`EmitB`
+/// rows are banned, so the only trail is the stamped one.
 ///
 /// Score per ant: the mean over the run of how far along the trail it stood
-/// (0 at its start or on the bare side, 1 at the far end). An ant that
-/// always walks one way scores well on half the layouts and nothing on the
-/// other half; only reading the trail scores on both.
+/// (0 at its start, 1 at the far end), **signed**: as far out on the bare
+/// side counts as far below 0. An ant that always walks one way scores well
+/// on half the layouts and below nothing on the other half; only reading
+/// the trail scores on both. Unsigned, a walker that never read the trail
+/// scored 0.17-0.26 as six (the walls turn it round, and in a group some
+/// go each way); signed, every blind walker reads 0.000 +- 0.004 and the
+/// hand-built follower is unchanged layout by layout (ladder lane,
+/// `trail-rung-controls.md`).
+///
+/// **`right`**, a part: whether the ant ended at least a tenth of the way
+/// along. A clone arena's mean is the share that went the right way: a
+/// follower sends nearly all of them, and a walker that keeps whatever
+/// heading it has about half, on both sides, which the worse-side fold
+/// alone does not catch (ladder lane, `trail-rung-controls.md`).
+///
+/// **The first rung of stage 2's ladder**: it runs minds
+/// (`creature::mind`) as well as today's brain, walking, turning round and
+/// resting, and laying nothing.
 ///
 /// **The first version started the trail twenty cells off centre**, so most
 /// ants could not sense it from where they stood and the choice was a coin:
@@ -328,10 +738,13 @@ impl Challenge for Trail {
         self.frames
     }
     fn parts(&self) -> &'static [&'static str] {
-        &["along", "reach", "end", "walked"]
+        &["along", "reach", "end", "walked", "right"]
     }
     fn banned(&self) -> &'static [O] {
         TRAIL_BANNED
+    }
+    fn minds(&self) -> bool {
+        true
     }
     fn mirrored(&self) -> bool {
         true
@@ -360,7 +773,21 @@ impl Trail {
         let sp = w.species.id_of("ant").expect("ant");
         let mut def = w.species.get(sp).creature.clone().expect("creature");
         def.reproduce_threshold = 1.0e30;
+        // **Nobody starves: the budget rises and the bills do not.** Every
+        // standing tax is a fraction of `start_energy` (§13j), so raising
+        // the budget alone raised them with it: a mind with ~700 live
+        // weights spent its whole 1e9 inside the 6,000 frames, and a fully
+        // live one lost all six ants by frame ~1,300 (review of PR 713,
+        // F1). Each fraction is rescaled so it bills what it bills at the
+        // species' authored budget, for both brains alike.
+        let authored = def.start_energy;
         def.start_energy = 1.0e9;
+        let k = authored / def.start_energy;
+        def.synapse_fraction *= k;
+        def.sight_fraction *= k;
+        def.curvature_fraction *= k;
+        def.force_fraction *= k;
+        def.armour_fraction *= k;
         if layout.blind {
             def.home_bias = 0.0;
         }
@@ -409,11 +836,18 @@ impl Trail {
         let ids = ants_of(&w, sp);
         assert_eq!(ids.len(), n, "every planted ant became an animal");
         let mut start = vec![0i32; n];
+        // No walk genes: this arena always walks by the brain, which reads
+        // none of them (`super::WALK`), so a suite's walk block rides
+        // through here unread.
         for (k, &id) in ids.iter().enumerate() {
-            w.set_organism_genome(id, genomes[k].to_vec());
+            if super::is_mind(genomes[k].len()) {
+                creature::mind::give(&mut w, id, arena_mind(genomes[k], self.verbs(), self.mind_emits()));
+            } else {
+                w.set_organism_genome(id, genomes[k][..super::SCORER].to_vec());
+            }
             start[k] = w.organism(id).and_then(|s| s.chain.first().copied()).map_or(mid, |p| p.0);
         }
-        let progress = |x: i32, k: usize| -> f64 { (((x - start[k]) * dir) as f64 / (far - start[k]).abs().max(1) as f64).clamp(0.0, 1.0) };
+        let progress = |x: i32, k: usize| -> f64 { (((x - start[k]) * dir) as f64 / (far - start[k]).abs().max(1) as f64).clamp(-1.0, 1.0) };
         let mut sum = vec![0.0f64; n];
         let mut reach = vec![0.0f64; n];
         let mut last = start.clone();
@@ -433,7 +867,8 @@ impl Trail {
         (0..n)
             .map(|k| {
                 let along = sum[k] / (self.frames - 1) as f64;
-                Score { fit: along, parts: vec![along, reach[k], progress(last[k], k), walked[k] as f64] }
+                let end = progress(last[k], k);
+                Score { fit: along, parts: vec![along, reach[k], end, walked[k] as f64, f64::from(u8::from(end >= 0.1))] }
             })
             .collect()
     }
@@ -482,9 +917,9 @@ pub struct Dig {
     pub free: creature::targets::Free,
 }
 
-const DIG_PARTS: &[&str] = &["room", "pit", "mound", "alive", "roofed", "spoil_below", "placed", "holding"];
+const DIG_PARTS: &[&str] = &["room", "pit", "mound", "alive", "roofed", "spoil_below", "placed", "holding", "under_fill", "depth"];
 const DIG_TARGET_PARTS: &[&str] = &[
-    "room", "pit", "mound", "alive", "roofed", "spoil_below", "placed", "holding", "dig_choices", "dig_margin", "dig_none", "drop_choices", "drop_margin", "drop_none", "dropped_inside", "dropped_outside",
+    "room", "pit", "mound", "alive", "roofed", "spoil_below", "placed", "holding", "under_fill", "depth", "dig_choices", "dig_margin", "dig_none", "drop_choices", "drop_margin", "drop_none", "dropped_inside", "dropped_outside",
 ];
 
 impl Challenge for Dig {
@@ -516,14 +951,17 @@ impl Challenge for Dig {
     fn mirrored(&self) -> bool {
         true
     }
-    /// Room cyan, pit red, refused amber ([`dug_cells`]): what the score
-    /// counted, what is open to the sky, and what the census would count
-    /// and the score does not.
+    /// Room cyan, room under packed fill violet, pit red, refused amber
+    /// ([`dug_cells`]): what the score counted, what is open to the sky, and
+    /// what the census would count and the score does not. Cyan includes
+    /// the founding cut the bed starts with (about 10 cells), which the
+    /// score subtracts.
     fn marks(&self, layout: Layout, w: &World) -> Vec<((i32, i32), [u8; 3])> {
         let shape = DigBed::of(layout);
         let spec = bed_shaped(layout.seed, self.ants, &shape.placements(), shape.depth, shape.lamp).bed;
         let colour = |kind| match kind {
             Dug::Room => [0, 190, 255],
+            Dug::Filled => [170, 90, 255],
             Dug::Pit => [255, 50, 30],
             Dug::Refused => [255, 190, 0],
         };
@@ -592,7 +1030,21 @@ impl Challenge for Dig {
         let room = joined_room(&w, &sc.bed) as f64 - base_joined as f64;
         let roofed = end.roofed_room() as f64 - base.roofed_room() as f64;
         let kept = (lived as f64 / placed.len().max(1) as f64).min(1.0);
-        let mut parts = vec![room, end.pit as f64 - base.pit as f64, end.mound as f64, alive as f64, roofed, spoil_below(&w, &sc.bed) as f64, placed.len() as f64, holding as f64];
+        // **Two checks on what the room is**, beside the count: room whose
+        // only roof is packed fill ([`Dug::Filled`], which has a floor of
+        // about 9 on the hand rules), and how deep the room lies below the
+        // old ground on average, so a scorer that backfills and digs under
+        // its fill, or cuts shallow, shows in the numbers and not only in a
+        // picture (coordinator review of PR 709). `depth` averages **every**
+        // counted cell, the founding cut's included, unlike `room`, which is
+        // the difference from the start: a colony that dug nothing reads
+        // about 6.5, the founding cut's own depth, and one with no room at
+        // all reads 0, the same as room at the datum (review of PR 710).
+        let cells = dug_cells(&w, &sc.bed);
+        let under_fill = cells.iter().filter(|c| c.1 == Dug::Filled).count() as f64;
+        let depths: Vec<f64> = cells.iter().filter(|c| matches!(c.1, Dug::Room | Dug::Filled)).map(|&((x, y), _)| (y - census::surface_of(&w, &sc.bed, x)) as f64).collect();
+        let depth = if depths.is_empty() { 0.0 } else { depths.iter().sum::<f64>() / depths.len() as f64 };
+        let mut parts = vec![room, end.pit as f64 - base.pit as f64, end.mound as f64, alive as f64, roofed, spoil_below(&w, &sc.bed) as f64, placed.len() as f64, holding as f64, under_fill, depth];
         if self.targets {
             let (d, p) = (creature::targets::VERB_DIG, creature::targets::VERB_DROP);
             let margin = |v: usize| if t.choices[v] > 0 { t.margin_sum[v] / t.choices[v] as f64 } else { 0.0 };
@@ -721,7 +1173,7 @@ impl DigBed {
 /// s2). On the varied beds, `dug_cells`' amber (refused) count beside the
 /// room says the same thing per run: 0 on the game ant's first hold-out bed.
 pub fn joined_room(w: &World, spec: &crate::lab::scene::LabBox) -> usize {
-    dug_cells(w, spec).iter().filter(|c| c.1 == Dug::Room).count()
+    dug_cells(w, spec).iter().filter(|c| matches!(c.1, Dug::Room | Dug::Filled)).count()
 }
 
 /// What [`joined_room`] made of an open cell at or below the datum.
@@ -729,6 +1181,24 @@ pub fn joined_room(w: &World, spec: &crate::lab::scene::LabBox) -> usize {
 pub enum Dug {
     /// Counted: roofed by the old ground and joined to the sky.
     Room,
+    /// Counted too, but the only roof over it is packed soil: no undisturbed
+    /// soil or stone above it below the datum. Packed soil below the datum
+    /// is a wall lined in place, so it roofs; it is also what a pellet laid
+    /// in a gallery below the ground line packs into, so a colony that
+    /// backfills and digs under its own fill counts it as room. Painted and
+    /// counted apart (`under_fill`) so that can be seen (coordinator review
+    /// of PR 709: free=holds lets the scorer lay pellets below the line).
+    ///
+    /// **Not a backfill detector on its own: it has a floor.** The hand
+    /// rules read 5-12 a bed (mean 8.7 on the 12 hold-outs) with
+    /// `spoil_below` at 0 or 1: cells in the two columns beside the founding
+    /// shaft, roofed by soil packed during the run, most likely the ants'
+    /// lining of the widened shaft (`line_burrow` packs every neighbour of
+    /// a cut; inferred from where it sits, not traced, coordinator review of
+    /// PR 710). The material cannot tell lining from a packed pellet, so
+    /// read `under_fill` against the hand rules' row, never against 0;
+    /// `dropped_inside` counts the scorer's pellets below the datum.
+    Filled,
     /// Open to the sky in its own column (no ground within
     /// [`census::MOUND_REACH`] rows above it): the census's `pit` and
     /// `pit_bodies`, and never room.
@@ -776,20 +1246,28 @@ pub fn dug_cells(w: &World, spec: &crate::lab::scene::LabBox) -> Vec<((i32, i32)
         }
     }
     let spoil = w.materials.id_of("spoil");
+    let packed = w.materials.id_of("packedsoil");
     let mut cells = Vec::new();
     for x in xs.clone() {
         let surf = surface[(x - x0) as usize];
         let mut roofed = false;
+        let mut natural = false;
         let mut covered = false;
         for y in ys.clone() {
             if ground(x, y) {
                 // The census's cover: any ground near the surface, mound and
                 // lids included ([`census::census`]'s `covered`).
                 covered |= y >= surf - census::MOUND_REACH;
-                roofed |= y >= surf && Some(w.get(x, y).material) != spoil;
+                let m = Some(w.get(x, y).material);
+                roofed |= y >= surf && m != spoil;
+                natural |= y >= surf && m != spoil && m != packed;
             } else if y >= surf && open(x, y) {
                 let kind = if roofed && seen[at(x, y)] {
-                    Dug::Room
+                    if natural {
+                        Dug::Room
+                    } else {
+                        Dug::Filled
+                    }
                 } else if covered {
                     Dug::Refused
                 } else {
@@ -811,23 +1289,88 @@ pub fn dug_cells(w: &World, spec: &crate::lab::scene::LabBox) -> Vec<((i32, i32)
 /// and the suite keeps the earlier arenas in every generation.
 ///
 /// Score: the geometric mean over arenas of `fit / reference`, where each
-/// reference is the start genome's own hold-out score there
-/// ([`Suite::calibrate`]). A product rather than a sum, so a brain that is
-/// excellent at one job and useless at another scores near zero; and an
-/// arena marked `keep` (an old skill) whose ratio falls under `floor`
-/// multiplies the whole score by a tenth, so forgetting is never worth it.
-/// Per-ant arenas are run with every ant a clone.
+/// reference is the start genome's own score there on the calibration
+/// layouts ([`Suite::calibrate`]). A product rather than a sum, so a brain
+/// that is excellent at one job and useless at another scores near zero;
+/// and an arena marked `keep` (an old skill) that falls below `forget` of
+/// its reference (0.8, design rev3's "below 80% of where it was")
+/// multiplies the whole score by a tenth, so forgetting is never worth it. Per-ant arenas are run with
+/// every ant a clone.
+///
+/// **Each arena is folded on its own, then multiplied** ([`Challenge::
+/// combine`]): the worse side of each mirrored pair, arena by arena. The
+/// first suite folded the product, so a brain that foraged only east and
+/// dug only on the west bed scored `sqrt(hi x lo)` on both sides and passed
+/// as having learned both (ladder lane, `next-rung-forage-dig.md`). The
+/// forget floor is read on the folded score for the same reason: per
+/// layout, one bad bed of a noisy arena tripped it.
+///
+/// **The floor is a share of the reference, not standard errors.** Read
+/// as two standard errors of the start's calibration spread, it sat at 95%
+/// of the trail rung's reference (spread 0.035 on 0.898): the forage
+/// rung's first pilot cut every forager whose trail fell to 0.76-0.85, so
+/// selection read the cut, not the foraging (15 gens, scarce 0.04 -> 1.71
+/// with trail 0.92 -> 0.76, scored 0.16 against the start's 0.28). On a
+/// noisy arena the same rule was too loose -- forage at `layouts=2` could
+/// lose 57% (review of PR 712, N2). A share is the design's rule and
+/// neither. It is still unpaired, the start's calibration mean against
+/// this generation's layouts, so keep a noisy arena only once it is
+/// paired. **A ratio counts up to
+/// [`RATIO_CAP`]**, so one arena's runaway cannot pay for another's loss --
+/// **except the one arena a rung is learning** (every other arena kept):
+/// a kept arena's loss is the forget floor's to catch, and capped, the
+/// rung's arena stopped paying at three times a start that could barely do
+/// it. The forage rung's pilot from the trail champion hit the cap on
+/// scarce (reference 0.21) by its second generation, at fits of 0.6-1.4
+/// against the game ant's 19.5, and selection had nothing left to climb.
 pub struct Suite {
     pub arenas: Vec<(Box<dyn Challenge>, bool)>,
     pub refs: Vec<f64>,
-    pub floor: f64,
+    /// Each arena's spread at calibration: the standard deviation of its
+    /// folded units (a mirrored pair's worse side, or one layout).
+    pub sds: Vec<f64>,
+    /// The share of its reference under which a `keep` arena counts as
+    /// forgotten.
+    pub forget: f64,
     names: &'static [&'static str],
     banned: &'static [O],
+    /// Every verb any arena offers: a mind's genome carries them all, and
+    /// each arena cuts it to its own ([`arena_mind`]).
+    verbs: &'static [creature::options::Verb],
 }
+
+/// The most one arena's ratio to its reference counts for in a suite, when
+/// it is kept or is one of several being learned ([`Suite`]).
+/// **Relative to the start**: an arena the start cannot do has the floor
+/// [`REF_FLOOR`] for its reference, so it stops paying at a fit of 0.15 --
+/// by design (a weak start must not chase one arena), but it means a suite
+/// cannot *learn* an arena from a start near 0 (review of PR 712, N3).
+pub const RATIO_CAP: f64 = 3.0;
+
+/// The least an arena's reference can be, so a start that cannot do it at
+/// all pays for any progress rather than dividing by zero.
+const REF_FLOOR: f64 = 0.05;
 
 impl Suite {
     /// `arenas`: each challenge, and whether it is an old skill to keep.
-    pub fn new(arenas: Vec<(Box<dyn Challenge>, bool)>, floor: f64) -> Self {
+    /// **No target scorer**: the genome's scorer would go into every arena's
+    /// world, and `free=` reaches only dig's (coordinator review of PR 709,
+    /// N8; refused here, not only on the command line, since PR 710's).
+    /// Arena `i`'s fit against its reference, capped at [`RATIO_CAP`] unless
+    /// it is the one arena this suite is learning.
+    fn ratio(&self, i: usize, fit: f64) -> f64 {
+        let r = fit.max(0.0) / self.refs[i];
+        let learning = self.arenas.iter().filter(|(_, keep)| !keep).count();
+        if self.arenas[i].1 || learning > 1 {
+            r.min(RATIO_CAP)
+        } else {
+            r
+        }
+    }
+
+    pub fn new(arenas: Vec<(Box<dyn Challenge>, bool)>, forget: f64) -> Self {
+        assert!(forget > 0.0 && forget <= 1.0, "forget={forget}: a share of the reference, 0 to 1 (0.8 is the design's)");
+        assert!(arenas.iter().all(|(a, _)| !a.scorer()), "a suite would put the target scorer in every arena's world");
         let mut names: Vec<&'static str> = vec![];
         for (a, _) in &arenas {
             names.push(Box::leak(format!("{}_ratio", a.name()).into_boxed_str()));
@@ -844,8 +1387,21 @@ impl Suite {
                 }
             }
         }
+        let verbs: Vec<creature::options::Verb> = creature::options::Verb::ALL
+            .into_iter()
+            .filter(|v| arenas.iter().any(|(a, _)| a.verbs().contains(v)))
+            .collect();
         let refs = vec![1.0; arenas.len()];
-        Suite { arenas, refs, floor, names: Box::leak(names.into_boxed_slice()), banned: Box::leak(banned.into_boxed_slice()) }
+        let sds = vec![0.0; arenas.len()];
+        Suite {
+            arenas,
+            refs,
+            sds,
+            forget,
+            names: Box::leak(names.into_boxed_slice()),
+            banned: Box::leak(banned.into_boxed_slice()),
+            verbs: Box::leak(verbs.into_boxed_slice()),
+        }
     }
 }
 
@@ -869,49 +1425,101 @@ impl Challenge for Suite {
     fn banned(&self) -> &'static [O] {
         self.banned
     }
+    /// Minds when every arena runs them. Unlike today's brain, whose bans
+    /// are the union, a mind's verbs and scents are what *any* arena offers,
+    /// and each arena runs it cut to its own ([`arena_mind`]): the forage
+    /// rung's scent trail is no ban on the trail rung's stamped one.
+    fn minds(&self) -> bool {
+        self.arenas.iter().all(|(a, _)| a.minds())
+    }
+    fn verbs(&self) -> &'static [creature::options::Verb] {
+        self.verbs
+    }
+    fn mind_emits(&self) -> [bool; creature::mind::EMITS] {
+        let mut on = [false; creature::mind::EMITS];
+        for (a, _) in &self.arenas {
+            for (o, e) in on.iter_mut().zip(a.mind_emits()) {
+                *o |= e;
+            }
+        }
+        on
+    }
     /// Worse side of a pair if any arena has sides: one brain that does one
     /// arena's job on one side only has not learned the job.
     fn mirrored(&self) -> bool {
         self.arenas.iter().any(|(a, _)| a.mirrored())
     }
-    fn scorer(&self) -> bool {
-        self.arenas.iter().any(|(a, _)| a.scorer())
-    }
+    /// One layout: every arena run on it, and its fit the product of this
+    /// layout's capped ratios, for a per-layout readout only. What training
+    /// and the hold-out read is [`Suite::combine`]'s, from the raw fits in
+    /// the second half of `parts`.
     fn run(&self, layout: Layout, genomes: &[&[f32]], look: &mut dyn FnMut(u64, &World)) -> Vec<Score> {
         let g = genomes[0];
         let mut ratios = vec![];
         let mut fits = vec![];
-        let mut log_sum = 0.0;
-        let mut forgot = false;
-        for (i, (a, keep)) in self.arenas.iter().enumerate() {
+        for (i, (a, _)) in self.arenas.iter().enumerate() {
             let gs: Vec<&[f32]> = vec![g; if a.unit() == Unit::Ant { a.ants() } else { 1 }];
             let mut quiet = |_: u64, _: &World| {};
             let watcher: &mut dyn FnMut(u64, &World) = if i == 0 { &mut *look } else { &mut quiet };
             let s = super::mean_score(&a.run(layout, &gs, watcher));
-            let r = s.fit.max(0.0) / self.refs[i];
-            if *keep && r < self.floor {
-                forgot = true;
-            }
-            log_sum += r.max(1e-3).ln();
-            ratios.push(r);
+            ratios.push(self.ratio(i, s.fit));
             fits.push(s.fit);
         }
-        let mut fit = (log_sum / self.arenas.len() as f64).exp();
-        if forgot {
-            fit *= 0.1;
-        }
+        let fit = (ratios.iter().map(|r| r.max(1e-3).ln()).sum::<f64>() / ratios.len() as f64).exp();
         ratios.extend(fits);
         vec![Score { fit, parts: ratios }]
     }
 
-    /// Set every arena's reference to `g`'s hold-out score there (floored
-    /// at a small positive number, so an arena the start cannot do at all
-    /// pays for any progress rather than dividing by zero).
+    /// Each arena folded on its own ([`super::worse_side`] on its raw fits),
+    /// then the geometric mean of the capped ratios, with the forget floor
+    /// read on each `keep` arena's folded score: under `forget` of its
+    /// reference.
+    /// `parts` are each arena's folded ratio, then its folded fit.
+    fn combine(&self, v: &[Score], layouts: &[Layout]) -> Score {
+        let n = self.arenas.len();
+        let mut ratios = vec![];
+        let mut fits = vec![];
+        let mut forgot = false;
+        for (i, (a, keep)) in self.arenas.iter().enumerate() {
+            let own: Vec<Score> = v.iter().map(|s| Score { fit: s.parts[n + i], parts: vec![] }).collect();
+            let f = super::worse_side(a.mirrored(), &own, layouts).fit;
+            if *keep && f < self.forget * self.refs[i] {
+                forgot = true;
+            }
+            ratios.push(self.ratio(i, f));
+            fits.push(f);
+        }
+        let mut fit = (ratios.iter().map(|r| r.max(1e-3).ln()).sum::<f64>() / n as f64).exp();
+        if forgot {
+            fit *= 0.1;
+        }
+        ratios.extend(fits);
+        Score { fit, parts: ratios }
+    }
+
+    /// Set every arena's reference to `g`'s folded score there (floored at
+    /// a small positive number, so an arena the start cannot do at all pays
+    /// for any progress rather than dividing by zero), and its spread over
+    /// the folded units, printed beside it.
     fn calibrate(&mut self, g: &[f32], layouts: &[Layout], threads: usize) {
         for (i, (a, _)) in self.arenas.iter().enumerate() {
-            let s = super::score_clones(a.as_ref(), g, layouts, threads);
-            self.refs[i] = s.fit.max(0.05);
-            println!("suite reference {}: {:.3}", a.name(), self.refs[i]);
+            let each = super::score_each(a.as_ref(), g, layouts, threads);
+            let units: Vec<f64> = super::sides(a.mirrored(), layouts)
+                .into_iter()
+                .map(|(x, y)| y.map_or(each[x].fit, |y| each[x].fit.min(each[y].fit)))
+                .collect();
+            let m = units.len().max(1) as f64;
+            let mean = units.iter().sum::<f64>() / m;
+            self.refs[i] = mean.max(REF_FLOOR);
+            self.sds[i] = (units.iter().map(|u| (u - mean).powi(2)).sum::<f64>() / (m - 1.0).max(1.0)).sqrt();
+            println!("suite reference {}: {:.3}, spread {:.3} over {} units", a.name(), self.refs[i], self.sds[i], units.len());
+            if mean < REF_FLOOR && self.ratio(i, f64::MAX) <= RATIO_CAP {
+                println!(
+                    "suite reference {}: the start cannot do it, so its reference is the floor {REF_FLOOR} and the arena stops paying at fit {:.2} (RATIO_CAP x the floor)",
+                    a.name(),
+                    RATIO_CAP * REF_FLOOR
+                );
+            }
         }
     }
 }
@@ -926,6 +1534,87 @@ mod tests {
         let mut world = spec.build();
         world.freeze_room_datum();
         (world, spec)
+    }
+
+    /// **A suite runs a mind with every verb any arena offers, and each
+    /// arena cuts it to its own** ([`arena_mind`]): the forage rung's suite
+    /// offers eating, putting down, feeding and scent, and its trail arena
+    /// runs that forager with walk, turn and rest alone and laying nothing.
+    #[test]
+    fn a_suite_mind_carries_every_verb_and_each_arena_cuts_it() {
+        use creature::options::Verb;
+        let scarce = Scarce { ants: 12, frames: 10, drip: 5, every: 1000, game_walk: false, brake: Some(creature::FoodBrake::FORAGE) };
+        let trail = Trail { ants: 2, frames: 10, clones: true };
+        let (trail_verbs, trail_emits) = (trail.verbs(), trail.mind_emits());
+        let s = Suite::new(vec![(Box::new(scarce), false), (Box::new(trail), true)], 0.8);
+        assert!(s.minds());
+        assert!(s.verbs().len() == SCARCE_VERBS.len() && SCARCE_VERBS.iter().all(|v| s.verbs().contains(v)), "{:?}", s.verbs());
+        assert_eq!(s.mind_emits(), [true, true, false]);
+        let mut g = creature::mind::blank(s.verbs());
+        creature::mind::enter_rung(&mut g, s.verbs(), s.mind_emits());
+        let whole = creature::mind::MindGenome::new(g.clone());
+        let cut = arena_mind(&g, trail_verbs, trail_emits);
+        assert!(whole.live > 0 && cut.live == 0, "the scent layer is {} live weights whole, {} cut", whole.live, cut.live);
+        // The verb switches lead the genome.
+        for v in [Verb::Eat, Verb::Drop, Verb::Feed] {
+            assert!(cut.w[v as usize] < 0.0 && whole.w[v as usize] > 0.0, "{} on the trail arena", v.name());
+        }
+    }
+
+    /// **The scarce arena's food arrives on the timeline**: five cells of
+    /// provisions at the spot on the first frame and five more by frame
+    /// 1,001, ticked by `frame_timed` -- and none at all under plain
+    /// `frame`, the positive control that the cells come from the drip and
+    /// not the bed (review of PR 712, N5: no test ran a bed with a
+    /// timeline).
+    #[test]
+    fn the_scarce_drip_lands_on_the_timeline() {
+        let ch = Scarce { ants: 2, frames: 0, drip: 5, every: 1000, game_walk: true, brake: None };
+        let layout = Layout { seed: 1, k: 0, blind: false, legal: false };
+        let (_, food_x, _) = ch.geometry(layout);
+        let food_near = |w: &World| -> usize {
+            let food = w.materials.id_of("provisions").expect("provisions");
+            let mut n = 0;
+            for x in food_x - 12..=food_x + 12 {
+                for y in 0..128 {
+                    n += usize::from(w.get(x, y).material == food);
+                }
+            }
+            n
+        };
+        let sc = ch.bed(layout);
+        let (mut timed, _, _) = sc.build();
+        let (mut plain, _, _) = sc.build();
+        assert_eq!(food_near(&timed), 0, "the bed starts with food at the spot");
+        let mut at = Vec::new();
+        for f in 1..=1002u64 {
+            frame_timed(&mut timed, &sc, true);
+            frame(&mut plain, true);
+            if f == 2 || f == 1002 {
+                at.push(food_near(&timed));
+            }
+        }
+        assert_eq!(at, vec![5, 10], "the drip at frames 1 and 1,001");
+        assert_eq!(food_near(&plain), 0, "food landed without the timeline tick");
+    }
+
+    /// **A dead colony ranks by how long it lasted, always under a live
+    /// one, and a live score is untouched** ([`scarce_floor`]). Put the
+    /// fault back (the floor returning `score`) and the first assert reads
+    /// 0 against 0. Tight asserts on a pure function, not watched red.
+    #[test]
+    fn a_dead_colony_ranks_by_how_long_it_lasted_and_never_above_a_live_one() {
+        let early = scarce_floor(0.0, 0.2, 12);
+        let late = scarce_floor(0.0, 0.6, 12);
+        assert!(0.0 < early && early < late, "dying later ranks higher: {early} {late}");
+        // The least a live colony reads: one founder at one of four reads.
+        let least_live = 1.0 / 12.0 / 4.0;
+        assert!(scarce_floor(0.0, 1.0, 12) < least_live);
+        assert!(scarce_floor(0.0, 9.0, 12) < least_live, "a colony grown past its founders still clamps");
+        assert_eq!(scarce_floor(least_live, 0.0, 12), least_live);
+        assert_eq!(scarce_floor(14.5, 0.7, 12), 14.5);
+        assert_eq!(scarce_floor(0.0, 0.0, 12), 0.0);
+        assert_eq!(scarce_floor(0.0, 0.5, 0), 0.5 / 4.0 / 2.0, "no founders: no division by zero");
     }
 
     /// **A sealed pocket is roofed room and not a nest; open a way to it and
@@ -1105,7 +1794,7 @@ mod tests {
             shape(&mut w, x, s, &clear, &lay);
             let c = census::census(&w, &spec, 0.0, &[x], &ids);
             let cells = dug_cells(&w, &spec);
-            let (room, pit, refused) = (count(&cells, Dug::Room), count(&cells, Dug::Pit), count(&cells, Dug::Refused));
+            let (room, pit, refused) = (count(&cells, Dug::Room) + count(&cells, Dug::Filled), count(&cells, Dug::Pit), count(&cells, Dug::Refused));
             assert_eq!(room, joined_room(&w, &spec), "{name}");
             assert_eq!(pit, c.pit + c.pit_bodies - before.pit - before.pit_bodies, "{name}: pit is not the census's");
             assert_eq!(room + refused, c.roofed_room() - before.roofed_room(), "{name}: room and refused are not the census's roofed room");
@@ -1113,6 +1802,18 @@ mod tests {
                 assert_eq!((room, pit, refused), (0, 8, 72), "{name}: the gap column is open, the rest is under the lid");
             }
         }
+        // **Room under fill** is room, painted apart: a 10x2 gallery three
+        // rows down, its first five columns roofed only by packed soil laid
+        // below the datum (a backfill), the other five by the old ground.
+        let (mut w, spec) = bare_bed();
+        let x = spec.width / 2 + 22;
+        let s = census::surface_of(&w, &spec, x);
+        clear(&mut w, x, s, 1, 5);
+        clear(&mut w, x + 1, s + 3, 10, 2);
+        lay(&mut w, x + 1, s, 5, 3);
+        let cells = dug_cells(&w, &spec);
+        assert_eq!((count(&cells, Dug::Room), count(&cells, Dug::Filled)), (10, 10), "backfilled columns are room under fill, the rest room");
+        assert_eq!(joined_room(&w, &spec), 20, "room under fill still counts");
     }
 
     /// **The dig beds vary, mirror and are never symmetric.** Over 200
@@ -1171,6 +1872,157 @@ mod tests {
         assert!(cells_of(&w, NEST_X - 12, NEST_X + 12, food) > 0, "a heap 30 columns out should reach home; if not, this test cannot see it");
     }
 
+    /// **The far heap lies clear of home and of the wall too**, at both ends
+    /// of [`FAR_DIST`] and on both sides, on the far bed ([`far_bed`]), and
+    /// the two sides mirror. The positive control: on a bed with only 10
+    /// columns past the peak, the same heap does run into the wall.
+    #[test]
+    fn the_trail_rungs_controls_rank_on_the_minds_own_walk() {
+        // **Stage 2's first rung, its controls on the mind's act path**
+        // (`creature::mind`; ladder lane, `trail-rung-controls.md`). On the
+        // full hold-out (8 layouts, 6,000 frames, six clones) they read:
+        // rest 0.000, blank -0.025, persist -0.016, follower 0.860 with
+        // every ant the right way, and the follower blind -0.015. Here on
+        // two layouts and half the frames, with room for that.
+        let t = Trail { ants: 6, frames: 3000, clones: true };
+        let lay = super::super::holdout_layouts(2);
+        let score = |g: &[f32]| -> (Score, crate::sim::creature::mind::MindCounts) {
+            let mut counts = None;
+            let s: Vec<Score> = lay
+                .iter()
+                .map(|&l| {
+                    let mut look = |_: u64, w: &World| counts = w.minds.as_ref().map(|m| m.counts);
+                    t.run(l, &[g], &mut look).remove(0)
+                })
+                .collect();
+            (super::super::worse_side(true, &s, &lay), counts.expect("the ants had minds"))
+        };
+        let preset = |name: &str| super::super::start_mind(&t, name);
+        let (rest, rc) = score(&preset("rest"));
+        let (blank, bc) = score(&preset("blank"));
+        let (persist, _) = score(&preset("persist"));
+        let follower_g = preset("follower");
+        let (follower, fc) = score(&follower_g);
+        let (blind, _) = score(&super::super::blinded(&follower_g));
+        assert_eq!(rest.fit, 0.0, "an ant that never moves goes nowhere: {rest:?}");
+        assert!(rc.decisions > 0 && rc.chose[crate::sim::creature::options::Verb::Walk as usize] == 0, "it decided, and never walked: {rc:?}");
+        assert!(blank.fit.abs() < 0.15, "the random null stays near 0 on the signed score: {blank:?}");
+        assert!(follower.fit > 0.5 && follower.parts[4] >= 0.8, "the hand-built follower goes the right way: {follower:?}");
+        assert!(persist.fit < follower.fit - 0.3, "a heading-keeper must not score like a follower: {persist:?}");
+        assert!(blind.fit < 0.15, "the follower blind to scent is no follower: {blind:?}");
+        for c in [rc, bc, fc] {
+            assert_eq!(c.failed, 0, "every pick came from the body's own checks, so none can fail: {c:?}");
+        }
+    }
+
+    /// A blank mind with every zero trainable weight at 1e-4: it behaves as
+    /// blank and every connection it can hold is live, the dearest brain
+    /// the arena can be handed.
+    fn fully_live_mind(ch: &dyn Challenge) -> Vec<f32> {
+        let mut g = super::super::start_mind(ch, "blank");
+        for i in crate::sim::creature::mind::trainable(ch.verbs(), ch.mind_emits()) {
+            if g[i] == 0.0 {
+                g[i] = 1.0e-4;
+            }
+        }
+        g
+    }
+
+    #[test]
+    fn a_fully_live_mind_lives_out_the_trail_arena() {
+        // **Nobody starves, however big the brain** (review of PR 713, F1).
+        // With the taxes billed against the raised 1e9 budget, this mind's
+        // six ants were all dead by frame ~1,300, and a 700-weight champion
+        // ended with 3-5 of six alive at 0.3-1.5% energy. The dearest mind
+        // keeping all six to the bell covers every cheaper one; the bill
+        // still lands, so the tax is priced and not switched off.
+        let t = Trail { ants: 6, frames: 6000, clones: true };
+        let g = fully_live_mind(&t);
+        let live = crate::sim::creature::mind::MindGenome::new(g.clone()).live;
+        assert!(live > 2000, "the mind is fully live: {live}");
+        let (mut alive, mut low, mut taxed) = (0, f32::MAX, 0.0);
+        let mut look = |_: u64, w: &World| {
+            let sp = w.species.id_of("ant").expect("ant");
+            let ids = ants_of(w, sp);
+            alive = ids.len();
+            low = ids.iter().filter_map(|&id| w.organism(id)).map(|s| s.energy).fold(f32::MAX, f32::min);
+            taxed = w.energy_ledger.synapse_tax;
+        };
+        t.run(super::super::holdout_layouts(1)[0], &[&g], &mut look);
+        assert_eq!(alive, 6, "every clone lives to the bell");
+        assert!(low > 0.99e9, "and none spent more than a sliver of its budget: lowest {low}");
+        assert!(taxed > 0.0, "the brain's bill is still booked");
+    }
+
+    #[test]
+    fn a_minds_fall_ticks_pay_the_brain_tax() {
+        // **Every tick bills the brain, falling or not, as the game's ant's
+        // does** (review of PR 713, F2: billed only on decisions, a trail
+        // champion fell on 36% of its ticks and thought for free there). An
+        // ant on a ledge has the ledge taken away and falls a long way: the
+        // brain's bill is exactly one tax per tick, falls and decisions
+        // alike.
+        let mut w = World::new(Rect::new(0, 0, 63, 159));
+        for x in 0..64 {
+            for y in (20..24).chain(150..160) {
+                w.set(x, y, Cell::new(material::STONE, 0).with_attached(true));
+            }
+        }
+        w.plant_ant(32, 19);
+        frame(&mut w, false);
+        let sp = w.species.id_of("ant").expect("ant");
+        let ids = ants_of(&w, sp);
+        assert_eq!(ids.len(), 1, "the ant hatched");
+        let t = Trail { ants: 1, frames: 1, clones: true };
+        let genome = std::sync::Arc::new(crate::sim::creature::mind::MindGenome::new(fully_live_mind(&t)));
+        let def = w.species.get(sp).creature.clone().expect("creature");
+        let per_tick = (def.synapse_fraction * def.start_energy * genome.live as f32) as f64;
+        crate::sim::creature::mind::give(&mut w, ids[0], genome);
+        for x in 0..64 {
+            for y in 20..24 {
+                w.set(x, y, Cell::EMPTY);
+            }
+        }
+        let before = w.energy_ledger.synapse_tax;
+        for _ in 0..1200 {
+            frame(&mut w, false);
+        }
+        let c = w.minds.as_ref().expect("minds").counts;
+        assert!(c.falls >= 10 && c.decisions > 0, "it fell, and then it decided: {c:?}");
+        let paid = w.energy_ledger.synapse_tax - before;
+        let ticks = (c.falls + c.decisions) as f64;
+        assert!((paid - ticks * per_tick).abs() <= 1e-9 * paid, "paid {paid} for {ticks} ticks at {per_tick}: {c:?}");
+    }
+
+    #[test]
+    fn the_far_heap_lies_clear_of_home_and_the_wall() {
+        let slumped = |width: i32, nest_x: i32, heap_x: i32| {
+            let extra = format!(r#"Heap(material: "provisions", x: {heap_x}, cells: 300),"#);
+            let (mut w, _, _) = bed_at(3, 0, &extra, 40, 33, width, nest_x).build();
+            for _ in 0..2000 {
+                frame(&mut w, false);
+            }
+            w
+        };
+        for dist in [FAR_DIST.0, FAR_DIST.1] {
+            let (we, ne, he) = far_bed(dist, 1);
+            let (ww, nw, hw) = far_bed(dist, -1);
+            assert_eq!((we, ne, he), (ww, we - nw, we - hw), "dist {dist}: the two sides do not mirror");
+            for (nest_x, heap_x) in [(ne, he), (nw, hw)] {
+                let w = slumped(we, nest_x, heap_x);
+                let food = w.materials.id_of("provisions").expect("provisions");
+                let inside = cells_of(&w, 6, we - 6, food);
+                assert_eq!(inside, 300, "dist {dist} heap {heap_x}: {inside} of 300 cells inside the box");
+                assert_eq!(cells_of(&w, nest_x - 12, nest_x + 12, food), 0, "dist {dist} heap {heap_x}: heap reaches home");
+                assert_eq!(cells_of(&w, heap_x - HEAP_REACH, heap_x + HEAP_REACH, food), 300, "dist {dist} heap {heap_x}: heap wider than HEAP_REACH");
+            }
+        }
+        let (width, nest_x, heap_x) = (FAR_BEHIND + FAR_DIST.1 + 10, FAR_BEHIND, FAR_BEHIND + FAR_DIST.1);
+        let w = slumped(width, nest_x, heap_x);
+        let food = w.materials.id_of("provisions").expect("provisions");
+        assert!(cells_of(&w, 6, width - 6, food) < 300, "a heap 10 columns from the wall should run into it; if not, this test cannot see it");
+    }
+
     /// **A blind colony gets no pull to the door from the spoil haul.**
     /// `home_bias` 0 cuts every homeward pull that reads it, and the haul
     /// (`SPOIL_OUT`'s `haul`, on by default) did not read it, so pellets in
@@ -1193,5 +2045,94 @@ mod tests {
         };
         assert!(fired(false) > 0, "the control's haul never fired, so this cannot see the leak");
         assert_eq!(fired(true), 0, "a homeward pick fired in a blind world");
+    }
+
+    /// **Walk genes reach every ant, the species and the world**, and a
+    /// genome without them leaves all three as the bed made them. The
+    /// brain-only arm is the control: without it a bed that already set the
+    /// reserve would pass.
+    #[test]
+    fn walk_genes_reach_every_ant_and_the_world() {
+        use crate::train::{SCORER, WALK};
+        let lay = Layout { seed: 7, k: 0, blind: false, legal: false };
+        let scout = organism::WALK_SLOTS.iter().position(|&s| s == organism::TRAIT_SCOUT).expect("scout is a walk gene");
+        let (mut w, _, _) = bed(7, 12, "").build();
+        let sp = w.species.id_of("ant").expect("ant");
+        let before = creature::food_trail_of(&w);
+        let mut g = w.species.get(sp).genome.clone();
+        clone_colony(&mut w, &g, true, lay);
+        assert_eq!(creature::food_trail_of(&w), before, "a brain-only genome set the reserve");
+        assert!(ants_of(&w, sp).iter().all(|&id| w.organism(id).expect("live").traits[organism::TRAIT_SCOUT] == 0.0));
+        g.extend_from_slice(&[0.0; WALK]);
+        g[SCORER + scout] = -1.0;
+        g[SCORER + WALK - 1] = 0.6;
+        let (mut w, _, _) = bed(7, 12, "").build();
+        clone_colony(&mut w, &g, true, lay);
+        let ids = ants_of(&w, sp);
+        assert_eq!(ids.len(), 12);
+        for id in ids {
+            let st = w.organism(id).expect("live");
+            assert_eq!(st.traits[organism::TRAIT_SCOUT], -1.0, "ant {id} kept the shipped scout pull");
+            assert_eq!(st.genome[..], g[..SCORER], "ant {id} has the wrong brain");
+        }
+        assert_eq!(w.species.get(sp).creature.as_ref().expect("creature").traits[organism::TRAIT_SCOUT], -1.0);
+        assert_eq!(creature::food_trail_of(&w), creature::FoodTrail { reserve: 0.6, ..before });
+    }
+
+    /// An arena that scores `east` on even layouts and `west` on odd ones.
+    struct Sided {
+        east: f64,
+        west: f64,
+    }
+    impl Challenge for Sided {
+        fn name(&self) -> &'static str {
+            "sided"
+        }
+        fn unit(&self) -> Unit {
+            Unit::Colony
+        }
+        fn ants(&self) -> usize {
+            1
+        }
+        fn parts(&self) -> &'static [&'static str] {
+            &[]
+        }
+        fn banned(&self) -> &'static [O] {
+            &[]
+        }
+        fn frames(&self) -> u64 {
+            1
+        }
+        fn mirrored(&self) -> bool {
+            true
+        }
+        fn run(&self, l: Layout, _: &[&[f32]], _: &mut dyn FnMut(u64, &World)) -> Vec<Score> {
+            vec![Score { fit: if l.k.is_multiple_of(2) { self.east } else { self.west }, parts: vec![] }]
+        }
+    }
+
+    /// **A suite folds each arena on its own before the product**: one
+    /// arena done only east and another only west is worse side 1 on both,
+    /// not the `sqrt(4 x 1) = 2` the first suite read on each side; a
+    /// runaway ratio counts up to `RATIO_CAP`, except on the one arena a
+    /// rung is learning; and a kept arena under `forget` of its reference
+    /// costs nine tenths.
+    #[test]
+    fn a_suite_folds_each_arena_before_the_product() {
+        let lay = [Layout { seed: 1, k: 0, blind: false, legal: false }, Layout { seed: 1, k: 1, blind: false, legal: false }];
+        let g = vec![0.0f32; 1];
+        let score = |s: &Suite| crate::train::score_clones(s, &g, &lay, 1).fit;
+        let split = Suite::new(vec![(Box::new(Sided { east: 4.0, west: 1.0 }), false), (Box::new(Sided { east: 1.0, west: 4.0 }), false)], 0.8);
+        assert!((score(&split) - 1.0).abs() < 1e-9, "one-sided arenas scored {}", score(&split));
+        let runaway = Suite::new(vec![(Box::new(Sided { east: 10.0, west: 10.0 }), false), (Box::new(Sided { east: 1.0, west: 1.0 }), false)], 0.8);
+        assert!((score(&runaway) - RATIO_CAP.sqrt()).abs() < 1e-9, "a ratio of 10 was not capped: {}", score(&runaway));
+        let rung = Suite::new(vec![(Box::new(Sided { east: 10.0, west: 10.0 }), false), (Box::new(Sided { east: 1.0, west: 1.0 }), true)], 0.8);
+        assert!((score(&rung) - 10f64.sqrt()).abs() < 1e-9, "the one arena being learned is not capped: {}", score(&rung));
+        let mut kept = Suite::new(vec![(Box::new(Sided { east: 1.0, west: 1.0 }), true)], 0.8);
+        assert!((score(&kept) - 1.0).abs() < 1e-9);
+        kept.refs[0] = 1.5;
+        assert!((score(&kept) - 0.1 / 1.5).abs() < 1e-9, "a kept arena at two thirds of its reference was not forgotten: {}", score(&kept));
+        kept.refs[0] = 1.2;
+        assert!((score(&kept) - 1.0 / 1.2).abs() < 1e-9, "at 83% of its reference it is kept, not forgotten: {}", score(&kept));
     }
 }

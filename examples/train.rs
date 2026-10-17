@@ -8,6 +8,7 @@
 //! cargo run --release --example train -- challenge=suite arenas=forage,trail keep=forage start=runs/forage-1/best.txt
 //! cargo run --release --example train -- challenge=forage cost=1        # time one arena and stop
 //! cargo run --release --example train -- challenge=dig score=runs/x/best.txt   # hold-out score one genome
+//! cargo run --release --example train -- challenge=scarce score=game walk=game trace=1000 holdout=2   # its numbers every 1000 frames
 //! ```
 //!
 //! `start=zero|random|game|<file>`: `zero` is from scratch (every brain
@@ -23,26 +24,137 @@
 //! the scorer evolves. `free=holds,cue,face,company` hands the scorer those
 //! hand filters too, one rung of the ladder at a time. `sealed=1` puts
 //! `score=` and `noise=1` on the sealed hold-out (`train::sealed_layouts`)
-//! instead of the one training reports. Every argument is echoed; an unknown
-//! one stops the run.
+//! instead of the one training reports. `genes=walk` gives every genome the
+//! walk genes (`train::WALK`: the walk's gains and trail planes, and the
+//! scout's reserve), started at the shipped walk or the start file's own,
+//! and evolved beside the brain; `walkset=reserve:0.6,scout:-1` sets some
+//! of them in the start (or score) genome, by `train::WALK_NAMES`.
+//! `prune=` is the chance a mutation sets a live brain or scorer weight to
+//! 0 (`Settings::prune`, 0.3 unless set); `wire=` charges selection for each
+//! connection a genome holds (`Settings::wire`, 1e-3 unless set); `grow=` is
+//! the chance a mutation on an empty slot makes a connection
+//! (`Settings::grow`, 1 unless set). `prune=0 wire=0` is the rig before the
+//! cost, draw for draw.
+//! `challenge=forage-far` puts the heap 120-200 columns out on a wider bed,
+//! 12,000 frames unless set: the near distances never show a scout's
+//! reserve as a leash, so `arenas=forage,forage-far` is how a reserve is
+//! trained (`challenges::Forage::far`).
+//! `heap=` (forage) is the heap's size, 300 unless set and never more: a
+//! bigger heap slumps into home at the near distances and into the wall at
+//! the far ones. `forget=0.8` is the share of its reference under which a
+//! suite's kept arena counts as forgotten (design rev3's 80%).
+//! `brain=mind` trains stage 2's general brain (`creature::mind`) instead
+//! of today's (`brain=today`, the default): `start=` is then `blank` (or
+//! `zero`), `rest`, `follower`, `persist` (`mind::preset`, the rung's
+//! controls) or a mind genome file, and so is `score=`; `score=game` still
+//! scores today's brain, in the same arena. Only arenas built for minds
+//! take it (`Challenge::minds`).
+//! `challenge=scarce` is stage 2's forage rung: a drip of food 80
+//! columns out, births on and capped by food, scored adults times founders
+//! kept over the last quarter, 12,000 frames unless set
+//! (`challenges::Scarce`); `start=forager` is its hand-built mind.
+//! `brake=on` (the default) is the food cap `creature::FoodBrake::FORAGE`;
+//! `brake=off` lets the colony lay whatever its food, and
+//! `brake=<lo>,<hi>,<small>[,plain]` sets the ramp, the small-colony gate
+//! and, with `plain`, leaves brood out of the burn.
+//! Every argument is echoed; an unknown one stops the run.
 
 use pixel_physics::sim::creature;
-use pixel_physics::train::challenges::{Dig, Forage, Suite, Trail};
+use pixel_physics::train::challenges::{Dig, Forage, Scarce, Suite, Trail};
 use pixel_physics::train::{self, Challenge, Settings, Start};
 use std::path::PathBuf;
 use std::time::Instant;
 
-fn arena(name: &str, frames: Option<u64>, ants: Option<usize>, game_walk: bool, clones: bool, targets: bool, free: creature::targets::Free) -> Box<dyn Challenge> {
+#[derive(Clone, Copy)]
+struct Arena {
+    frames: Option<u64>,
+    ants: Option<usize>,
+    heap: i32,
+    game_walk: bool,
+    clones: bool,
+    targets: bool,
+    free: creature::targets::Free,
+    brake: Option<creature::FoodBrake>,
+}
+
+fn arena(name: &str, a: &Arena) -> Box<dyn Challenge> {
+    let Arena {
+        frames,
+        ants,
+        heap,
+        game_walk,
+        clones,
+        targets,
+        free,
+        brake,
+    } = *a;
     match name {
-        "forage" => Box::new(Forage { ants: ants.unwrap_or(12), frames: frames.unwrap_or(6000), heap: 300, game_walk }),
+        "forage" | "forage-far" => Box::new(Forage {
+            ants: ants.unwrap_or(12),
+            // Far food first comes home at 2,600-6,200 frames, against
+            // 1,000-1,250 at 70 columns (`ladder/reserve-leash-check.md`).
+            frames: frames.unwrap_or(if name == "forage" { 6000 } else { 12_000 }),
+            heap,
+            game_walk,
+            far: name == "forage-far",
+        }),
         "trail" => {
             if game_walk {
                 println!("note: trail always walks by the brain (Chooser::Off); walk=game does not apply to it");
             }
-            Box::new(Trail { ants: ants.unwrap_or(6), frames: frames.unwrap_or(6000), clones })
+            Box::new(Trail {
+                ants: ants.unwrap_or(6),
+                frames: frames.unwrap_or(6000),
+                clones,
+            })
         }
-        "dig" => Box::new(Dig { ants: ants.unwrap_or(12), frames: frames.unwrap_or(20_000), game_walk, targets, free }),
-        _ => panic!("challenge={name}: forage|trail|dig|suite"),
+        "dig" => Box::new(Dig {
+            ants: ants.unwrap_or(12),
+            frames: frames.unwrap_or(20_000),
+            game_walk,
+            targets,
+            free,
+        }),
+        // The ladder's drip: 5 cells every 1,000 frames
+        // (`ladder/scarce-forage-arena.md`).
+        "scarce" => Box::new(Scarce {
+            ants: ants.unwrap_or(12),
+            frames: frames.unwrap_or(12_000),
+            drip: 5,
+            every: 1000,
+            game_walk,
+            brake,
+        }),
+        _ => panic!("challenge={name}: forage|forage-far|trail|dig|scarce|suite"),
+    }
+}
+
+/// `brake=`: `off`, `on` ([`creature::FoodBrake::FORAGE`]), or
+/// `<lo>,<hi>,<small>` with an optional `,plain` for the shipped burn
+/// (brood left out of it).
+fn parse_brake(v: &str) -> Option<creature::FoodBrake> {
+    match v {
+        "off" => None,
+        "on" => Some(creature::FoodBrake::FORAGE),
+        _ => {
+            let p: Vec<&str> = v.split(',').collect();
+            let num = |i: usize| -> f64 {
+                p.get(i)
+                    .and_then(|t| t.parse().ok())
+                    .unwrap_or_else(|| panic!("brake={v}: off|on|<lo>,<hi>,<small>[,plain]"))
+            };
+            let b = creature::FoodBrake {
+                lo: num(0),
+                hi: num(1),
+                small: num(2),
+                brood: p.get(3) != Some(&"plain"),
+            };
+            assert!(
+                b.hi > b.lo && b.lo > 0.0 && b.small > 0.0,
+                "brake={v}: want hi > lo > 0 and small > 0 (it divides the colony's size)"
+            );
+            Some(b)
+        }
     }
 }
 
@@ -52,7 +164,7 @@ fn main() {
     let mut challenge = "forage".to_string();
     let mut arenas = String::new();
     let mut keep = String::new();
-    let mut floor = 0.8;
+    let mut forget = 0.8;
     let mut start = "zero".to_string();
     let mut out: Option<PathBuf> = None;
     let mut frames = None;
@@ -64,15 +176,28 @@ fn main() {
     let mut noise = false;
     let mut targets = String::new();
     let mut pic: Option<PathBuf> = None;
+    let mut trace: Option<u64> = None;
     let mut free = String::new();
     let mut sealed = false;
+    let mut genes = String::new();
+    let mut heap = 300;
+    let mut walkset = String::new();
+    let mut mind = false;
+    let mut brake = Some(creature::FoodBrake::FORAGE);
     for a in std::env::args().skip(1) {
         let (k, v) = a.split_once('=').unwrap_or((a.as_str(), "1"));
         match k {
             "challenge" => challenge = v.into(),
             "arenas" => arenas = v.into(),
             "keep" => keep = v.into(),
-            "floor" => floor = v.parse().unwrap(),
+            "forget" => forget = v.parse().unwrap(),
+            // The suite's forget floor was a ratio read per layout, then
+            // standard errors under the folded reference, and is now a share
+            // of the folded reference (`challenges::Suite`), so an old
+            // `floor=` would mean nothing.
+            "floor" => {
+                panic!("floor= is gone: a kept arena is forgotten under forget= (default 0.8) of its folded reference")
+            }
             "start" => start = v.into(),
             "out" => out = Some(v.into()),
             "gens" => set.gens = v.parse().unwrap(),
@@ -95,8 +220,20 @@ fn main() {
             "noise" => noise = v == "1",
             "targets" => targets = v.into(),
             "pic" => pic = Some(v.into()),
+            "trace" => trace = Some(v.parse().unwrap()),
             "free" => free = v.into(),
             "sealed" => sealed = v == "1",
+            "genes" => genes = v.into(),
+            "walkset" => walkset = v.into(),
+            "prune" => set.prune = v.parse().unwrap(),
+            "wire" => set.wire = v.parse().unwrap(),
+            "grow" => set.grow = v.parse().unwrap(),
+            "heap" => heap = v.parse().unwrap(),
+            "brake" => brake = parse_brake(v),
+            "brain" => {
+                assert!(v == "mind" || v == "today", "brain={v}: mind|today");
+                mind = v == "mind";
+            }
             _ => panic!("unknown argument {a}"),
         }
     }
@@ -104,8 +241,12 @@ fn main() {
     // without it once left two "game" rows in one file with nothing to say
     // which walk made which (`design/review-rev2.md` N10).
     println!(
-        "train challenge={challenge} arenas={arenas} keep={keep} floor={floor} start={start} walk={} clones={clones} frames={frames:?} ants={ants:?} score={score:?} noise={noise} targets={targets} free={free} pic={pic:?} sealed={sealed} seed={} pop={} gens={} layouts={} pm={} sigma={} cross={} holdout={} threads={}",
+        "train brain={} challenge={challenge} arenas={arenas} keep={keep} forget={forget} start={start} walk={} clones={clones} frames={frames:?} ants={ants:?} score={score:?} noise={noise} targets={targets} free={free} brake={brake:?} pic={pic:?} trace={trace:?} sealed={sealed} heap={heap} genes={genes} walkset={walkset} prune={} wire={} grow={} seed={} pop={} gens={} layouts={} pm={} sigma={} cross={} holdout={} threads={}",
+        if mind { "mind" } else { "today" },
         if game_walk { "game" } else { "brain" },
+        set.prune,
+        set.wire,
+        set.grow,
         set.seed,
         set.pop,
         set.gens,
@@ -117,16 +258,38 @@ fn main() {
         set.threads
     );
 
+    // The genome's scorer goes into every world it is cloned into, so a
+    // suite would carry it into the forage and trail worlds too (coordinator
+    // review of PR 709). Stage 1 is a dig question; refuse rather than mix.
+    assert!(
+        challenge != "suite" || targets.is_empty(),
+        "targets= is for challenge=dig; a suite would put the scorer in every arena's world"
+    );
+    let spec = Arena {
+        frames,
+        ants,
+        heap,
+        game_walk,
+        clones,
+        targets: !targets.is_empty(),
+        free: creature::targets::Free::parse(&free),
+        brake,
+    };
     let mut ch: Box<dyn Challenge> = if challenge == "suite" {
         let list: Vec<(Box<dyn Challenge>, bool)> = arenas
             .split(',')
             .filter(|s| !s.is_empty())
-            .map(|n| (arena(n, None, ants, game_walk, clones, !targets.is_empty(), creature::targets::Free::parse(&free)), keep.split(',').any(|k| k == n)))
+            .map(|n| {
+                (
+                    arena(n, &Arena { frames: None, ..spec }),
+                    keep.split(',').any(|k| k == n),
+                )
+            })
             .collect();
         assert!(!list.is_empty(), "challenge=suite needs arenas=a,b,...");
-        Box::new(Suite::new(list, floor))
+        Box::new(Suite::new(list, forget))
     } else {
-        arena(&challenge, frames, ants, game_walk, clones, !targets.is_empty(), creature::targets::Free::parse(&free))
+        arena(&challenge, &spec)
     };
     let scorer: Option<Vec<f32>> = match targets.as_str() {
         "" => None,
@@ -138,16 +301,60 @@ fn main() {
         // of them, in its slot order.
         f => {
             let text = std::fs::read_to_string(f).unwrap_or_else(|e| panic!("targets={f}: zero|hand|<file> ({e})"));
-            let w: Vec<f32> = text.lines().filter(|l| !l.trim().is_empty() && !l.starts_with('#')).map(|l| l.trim().parse().expect("one weight per line")).collect();
+            let w: Vec<f32> = text
+                .lines()
+                .filter(|l| !l.trim().is_empty() && !l.starts_with('#'))
+                .map(|l| l.trim().parse().expect("one weight per line"))
+                .collect();
             assert_eq!(w.len(), creature::targets::WEIGHTS, "targets={f}: wrong weight count");
             Some(w)
         }
     };
-    assert_eq!(scorer.is_some(), ch.scorer(), "targets= is for the dig arena (or a suite holding it)");
+    assert_eq!(scorer.is_some(), ch.scorer(), "targets= is for the dig arena");
     assert!(free.is_empty() || scorer.is_some(), "free= needs targets=");
+    assert!(genes.is_empty() || genes == "walk", "genes={genes}: walk");
+    let walk = genes == "walk";
+    assert!(walkset.is_empty() || walk, "walkset= needs genes=walk");
+    // Only the game walk reads the walk genes and the reserve
+    // (`creature::chooser_step`); the brain's own walk steps by `step_chain`,
+    // so they would evolve inert (review of PR 711, N2).
+    assert!(
+        !walk || game_walk,
+        "genes=walk needs walk=game: the walk genes are read only on the game walk"
+    );
+    assert!(
+        !mind || (!walk && scorer.is_none()),
+        "brain=mind has its own targets and walk: genes= and targets= are today's brain's"
+    );
+    // `walkset=` written into a genome's walk block: every genome this run
+    // starts from or scores, so `score=` with it measures that setting.
+    let set_walk = |mut g: Vec<f32>| -> Vec<f32> {
+        if let Some(at) = train::blocks(g.len()).walk {
+            for part in walkset.split(',').filter(|p| !p.is_empty()) {
+                let (name, v) = part
+                    .split_once(':')
+                    .unwrap_or_else(|| panic!("walkset={walkset}: name:value"));
+                let k = train::WALK_NAMES
+                    .iter()
+                    .position(|n| *n == name)
+                    .unwrap_or_else(|| panic!("walkset: {name} is not one of {:?}", train::WALK_NAMES));
+                g[at + k] = v.parse().unwrap();
+            }
+        }
+        g
+    };
 
-    let probe = pixel_physics::lab::scene::LabBox { colonies: 0, founders: 0, ..Default::default() }.build();
-    let species_genome = probe.species.get(probe.species.id_of("ant").expect("ant")).genome.clone();
+    let probe = pixel_physics::lab::scene::LabBox {
+        colonies: 0,
+        founders: 0,
+        ..Default::default()
+    }
+    .build();
+    let species_genome = probe
+        .species
+        .get(probe.species.id_of("ant").expect("ant"))
+        .genome
+        .clone();
     let st = match start.as_str() {
         "zero" => Start::Zero,
         "random" => Start::Random(0.5),
@@ -161,26 +368,88 @@ fn main() {
         Some(s) if s.is_empty() && !matches!(st, Start::File(_)) => Some(blank.as_slice()),
         s => s.as_deref(),
     };
-    let g0 = train::start_genome(&st, &species_genome, ch.banned(), set.seed, start_scorer);
+    let g0 = if mind {
+        train::start_mind(ch.as_ref(), &start)
+    } else {
+        set_walk(train::start_genome(
+            &st,
+            &species_genome,
+            ch.banned(),
+            set.seed,
+            start_scorer,
+            walk,
+        ))
+    };
+    // The suite's references are its start genome's own scores, so it is
+    // calibrated after the start genome exists and before training -- on its
+    // own layouts, never the hold-out ones (`train::calibration_layouts`) --
+    // and before `noise=` and `score=` too, which read the same ratios: a
+    // suite's score is relative to its `start=`. Uncalibrated, every ratio
+    // was the raw fit pinned at the cap, so both printed 3.000 (review of
+    // PR 712, N1). A single arena's calibration does nothing.
+    ch.calibrate(&g0, &train::calibration_layouts(set.holdout), set.threads);
+    // A genome named by `score=` (or `pic=`'s and `noise=`'s): today's
+    // brain as `ant.ron` ships it for `game`, else a file -- or, under
+    // `brain=mind`, a mind preset or file.
+    let genome_of = |f: &str| -> Vec<f32> {
+        if mind && f != "game" {
+            return train::start_mind(ch.as_ref(), f);
+        }
+        let st = if f == "game" {
+            Start::Species
+        } else {
+            Start::File(f.into())
+        };
+        set_walk(train::start_genome(
+            &st,
+            &species_genome,
+            ch.banned(),
+            0,
+            scorer.as_deref(),
+            walk,
+        ))
+    };
 
     // **A picture of one genome on the first hold-out layout**, without
     // training: start= (or score=) picks the genome. For looking before
     // measuring.
     if let Some(p) = &pic {
         let g = match &score {
-            Some(f) if f == "game" => train::start_genome(&Start::Species, &species_genome, ch.banned(), 0, scorer.as_deref()),
-            Some(f) => train::start_genome(&Start::File(f.into()), &species_genome, ch.banned(), 0, scorer.as_deref()),
+            Some(f) => genome_of(f),
             None => g0.clone(),
         };
         train::picture(ch.as_ref(), &g, train::holdout_layouts(1)[0], p);
         println!("picture in {}", p.display());
         return;
     }
+    // ...and its numbers, a line every `trace=` frames, on each hold-out
+    // layout in turn (`holdout=2` is the first mirrored pair).
+    if let Some(every) = trace {
+        let g = match &score {
+            Some(f) => genome_of(f),
+            None => g0.clone(),
+        };
+        train::trace(ch.as_ref(), &g, &train::holdout_layouts(set.holdout), every);
+        return;
+    }
     if cost {
         let t = Instant::now();
         let gs: Vec<&[f32]> = vec![&g0; if ch.unit() == train::Unit::Ant { ch.ants() } else { 1 }];
-        let s = ch.run(train::Layout { seed: 1, k: 0, blind: false, legal: false }, &gs, &mut |_, _| {});
-        println!("one arena: {:.2} s; {:?}", t.elapsed().as_secs_f64(), train::mean_score(&s));
+        let s = ch.run(
+            train::Layout {
+                seed: 1,
+                k: 0,
+                blind: false,
+                legal: false,
+            },
+            &gs,
+            &mut |_, _| {},
+        );
+        println!(
+            "one arena: {:.2} s; {:?}",
+            t.elapsed().as_secs_f64(),
+            train::mean_score(&s)
+        );
         return;
     }
     if noise {
@@ -188,11 +457,14 @@ fn main() {
         // hold-out layout, one row each, then the spread. A difference
         // between two brains smaller than this spread is not a difference.
         let g = match &score {
-            Some(f) if f == "game" => train::start_genome(&Start::Species, &species_genome, ch.banned(), 0, scorer.as_deref()),
-            Some(f) => train::start_genome(&Start::File(f.into()), &species_genome, ch.banned(), 0, scorer.as_deref()),
+            Some(f) => genome_of(f),
             None => g0.clone(),
         };
-        let hold = if sealed { train::sealed_layouts(set.holdout) } else { train::holdout_layouts(set.holdout) };
+        let hold = if sealed {
+            train::sealed_layouts(set.holdout)
+        } else {
+            train::holdout_layouts(set.holdout)
+        };
         let each = train::score_each(ch.as_ref(), &g, &hold, set.threads);
         for (l, s) in hold.iter().zip(&each) {
             println!("NOISE seed={} k={} {:.3}  {:?}", l.seed, l.k, s.fit, s.parts);
@@ -202,34 +474,49 @@ fn main() {
         let sd = (each.iter().map(|s| (s.fit - mean).powi(2)).sum::<f64>() / (n - 1.0).max(1.0)).sqrt();
         let lo = each.iter().map(|s| s.fit).fold(f64::INFINITY, f64::min);
         let hi = each.iter().map(|s| s.fit).fold(f64::NEG_INFINITY, f64::max);
-        println!("NOISE mean {mean:.3} sd {sd:.3} min {lo:.3} max {hi:.3} over {} layouts; standard error of the mean {:.3}", each.len(), sd / n.sqrt());
+        println!(
+            "NOISE mean {mean:.3} sd {sd:.3} min {lo:.3} max {hi:.3} over {} layouts; standard error of the mean {:.3}",
+            each.len(),
+            sd / n.sqrt()
+        );
         // **The number training and the hold-out report** for a mirrored
         // arena is the worse side of each pair, not the mean of single
-        // layouts above (coordinator review of PR 708), so print it too.
+        // layouts above (coordinator review of PR 708), so print it too: the
+        // challenge's own fold of each pair, which for a suite folds each
+        // arena on its own before the product.
         if ch.mirrored() {
-            let worse: Vec<f64> = each.chunks(2).map(|p| p.iter().map(|s| s.fit).fold(f64::INFINITY, f64::min)).collect();
+            let worse: Vec<f64> = train::sides(true, &hold)
+                .into_iter()
+                .map(|(a, b)| match b {
+                    Some(b) => ch.combine(&[each[a].clone(), each[b].clone()], &[hold[a], hold[b]]).fit,
+                    None => ch.combine(&[each[a].clone()], &[hold[a]]).fit,
+                })
+                .collect();
             let m = worse.len().max(1) as f64;
             let wmean = worse.iter().sum::<f64>() / m;
             let wsd = (worse.iter().map(|f| (f - wmean).powi(2)).sum::<f64>() / (m - 1.0).max(1.0)).sqrt();
-            println!("NOISE worse side {wmean:.3} sd {wsd:.3} over {} pairs; standard error {:.3}", worse.len(), wsd / m.sqrt());
+            println!(
+                "NOISE worse side {wmean:.3} sd {wsd:.3} over {} pairs; standard error {:.3}",
+                worse.len(),
+                wsd / m.sqrt()
+            );
         }
         return;
     }
     if let Some(f) = score {
-        let st = if f == "game" { Start::Species } else { Start::File(f.into()) };
-        let g = train::start_genome(&st, &species_genome, ch.banned(), 0, scorer.as_deref());
+        let g = genome_of(&f);
         println!("(scored with this challenge's bans applied: {:?})", ch.banned());
-        let hold = if sealed { train::sealed_layouts(set.holdout) } else { train::holdout_layouts(set.holdout) };
+        let hold = if sealed {
+            train::sealed_layouts(set.holdout)
+        } else {
+            train::holdout_layouts(set.holdout)
+        };
         for (who, g, lay) in train::controls(ch.as_ref(), &g, &g0, &hold) {
             let s = train::score_clones(ch.as_ref(), &g, &lay, set.threads);
             println!("HOLDOUT {who:12} {:.3}  {:?}  {:?}", s.fit, ch.parts(), s.parts);
         }
         return;
     }
-    // The suite's references are its start genome's own scores, so it is
-    // calibrated after the start genome exists and before training -- on its
-    // own layouts, never the hold-out ones (`train::calibration_layouts`).
-    ch.calibrate(&g0, &train::calibration_layouts(set.holdout), set.threads);
     let out = out.unwrap_or_else(|| PathBuf::from(format!("train-{challenge}-s{}", set.seed)));
     train::train(ch.as_ref(), g0, &set, &out).expect("write run files");
     println!("run files in {}", out.display());
