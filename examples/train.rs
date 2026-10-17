@@ -30,7 +30,9 @@
 //! and evolved beside the brain; `walkset=reserve:0.6,scout:-1` sets some
 //! of them in the start (or score) genome, by `train::WALK_NAMES`.
 //! `prune=0.3` lets a mutation set a live brain or scorer weight to 0
-//! (`Settings::prune`).
+//! (`Settings::prune`); `wire=5e-5` charges selection for each connection
+//! a genome holds (`Settings::wire`); `grow=0.1` lets a mutation on an
+//! empty slot make a connection only a tenth of the time (`Settings::grow`).
 //! `challenge=forage-far` puts the heap 120-200 columns out on a wider bed,
 //! 12,000 frames unless set: the near distances never show a scout's
 //! reserve as a leash, so `arenas=forage,forage-far` is how a reserve is
@@ -185,6 +187,8 @@ fn main() {
             "genes" => genes = v.into(),
             "walkset" => walkset = v.into(),
             "prune" => set.prune = v.parse().unwrap(),
+            "wire" => set.wire = v.parse().unwrap(),
+            "grow" => set.grow = v.parse().unwrap(),
             "heap" => heap = v.parse().unwrap(),
             "brain" => {
                 assert!(v == "mind" || v == "today", "brain={v}: mind|today");
@@ -197,10 +201,12 @@ fn main() {
     // without it once left two "game" rows in one file with nothing to say
     // which walk made which (`design/review-rev2.md` N10).
     println!(
-        "train brain={} challenge={challenge} arenas={arenas} keep={keep} forget={forget} start={start} walk={} clones={clones} frames={frames:?} ants={ants:?} score={score:?} noise={noise} targets={targets} free={free} pic={pic:?} trace={trace:?} sealed={sealed} heap={heap} genes={genes} walkset={walkset} prune={} seed={} pop={} gens={} layouts={} pm={} sigma={} cross={} holdout={} threads={}",
+        "train brain={} challenge={challenge} arenas={arenas} keep={keep} forget={forget} start={start} walk={} clones={clones} frames={frames:?} ants={ants:?} score={score:?} noise={noise} targets={targets} free={free} pic={pic:?} trace={trace:?} sealed={sealed} heap={heap} genes={genes} walkset={walkset} prune={} wire={} grow={} seed={} pop={} gens={} layouts={} pm={} sigma={} cross={} holdout={} threads={}",
         if mind { "mind" } else { "today" },
         if game_walk { "game" } else { "brain" },
         set.prune,
+        set.wire,
+        set.grow,
         set.seed,
         set.pop,
         set.gens,

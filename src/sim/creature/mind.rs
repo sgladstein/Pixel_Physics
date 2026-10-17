@@ -352,11 +352,30 @@ pub fn preset(name: &str, verbs: &[Verb]) -> Option<Vec<f32>> {
         }
         // **The forage rung's hand-built forager** (`challenges::Scarce`):
         // home while the crop holds food or the bank could pay for an egg,
-        // otherwise on the way it faces (the body walks forward, so only a
-        // turn round reverses it) and off walls; eat food in reach, put food
-        // down at the nest, feed a larva before a nestmate. The pass arm the
-        // rung needs before anything trains. Every weight inside the rig's
-        // bound of 40, so a trained mind could reach it.
+        // otherwise on the way it faces, wall to wall, and up out of the
+        // nest; eat food in reach, put food down at the nest, feed a larva
+        // before a nestmate. The pass arm the rung needs before anything
+        // trains. Every weight inside the rig's bound of 40 but the score's
+        // bias, so a trained mind could reach it.
+        //
+        // **What it scores, and the three ways it starved before.** On the
+        // 80-column bed, 8 hold-out layouts, worse side: 2.75 (6.25 adults,
+        // 0.40 of founders kept), against the game ant's 16.3 and 0 for a
+        // blank mind. Traced ant by ant (2026-10-17):
+        // * **"The way it faces" was not in the weights.** A two-cell body
+        //   has eight steps, and back into its own neck is one of them
+        //   (`f::BACK`); scored like the forward step it made a random walk
+        //   that never left 50 columns of the nest, 0 eaten. Unit 2 now
+        //   forbids it, and a turn round, which also lands there, is let
+        //   off. The rest of the reversals come in through the draw floor.
+        // * **A sweep that ends at 96 columns and turns home** bounced
+        //   between the wall and the nest on the side it started, and half
+        //   the colony starts on the empty side; now it sweeps wall to wall.
+        // * **Down the shaft, home is everywhere**: an ant that walked in
+        //   spent 2,600 frames there. Unit 5 pulls it up at the nest, where
+        //   unit 4 stops charging for the climb.
+        // Laying scent B on the way home and following it out scored 0.38:
+        // tried and dropped.
         //
         // **Why the memory chain.** A unit is `squash` of a sum, so a gate
         // is a sum pushed far from 0 for one state and near 0 for the other;
@@ -371,9 +390,11 @@ pub fn preset(name: &str, verbs: &[Verb]) -> Option<Vec<f32>> {
             let unit = |u: usize| (S_CTX + u * S_IN, S_FEAT + u * FEATURES);
             let mem = |m: usize| MEM + m * M_IN;
             let mem_in = CONTEXT + 2 + VERBS;
-            for m in 0..7 {
+            for m in 0..5 {
                 g[RATE + m] = -0.5; // no forgetting: each is this decision's
             }
+            // The top sharpness, 4.
+            g[SHARP] = 3.0;
             // 0 -> 1: carrying anything (-0.75 / +0.79), squared to +-0.97.
             g[mem(0) + c::CROP] = 40.0;
             g[mem(0) + M_IN - 1] = -3.0;
@@ -383,16 +404,10 @@ pub fn preset(name: &str, verbs: &[Verb]) -> Option<Vec<f32>> {
             g[mem(2) + M_IN - 1] = -34.0;
             g[mem(3) + mem_in + 2] = 40.0;
             g[mem(3) + M_IN - 1] = -10.0;
-            // 5 -> 6: home is past 96 columns (0.75), so a search sweeps
-            // back through the nest rather than ending on the far wall.
-            g[mem(5) + c::HOME_DIST] = 40.0;
-            g[mem(5) + M_IN - 1] = -30.0;
-            g[mem(6) + mem_in + 5] = 40.0;
-            // 4: any of the three.
+            // 4: either.
             g[mem(4) + mem_in + 1] = 40.0;
             g[mem(4) + mem_in + 3] = 40.0;
-            g[mem(4) + mem_in + 6] = 40.0;
-            g[mem(4) + M_IN - 1] = 80.0;
+            g[mem(4) + M_IN - 1] = 38.0;
             // 0: food in reach scores above anything beside it.
             g[unit(0).1 + f::FOOD] = 6.0;
             g[S_OUT] = 3.0;
@@ -401,22 +416,36 @@ pub fn preset(name: &str, verbs: &[Verb]) -> Option<Vec<f32>> {
             g[unit(1).0 + CONTEXT + 4] = 20.0;
             g[unit(1).0 + CONTEXT + MEMORY] = -20.0;
             g[S_OUT + 1] = 4.0;
-            // An off unit reads -1, not 0: the score's bias puts back the 4
-            // it takes from every option, or every step scores below a rest.
-            g[S_OUT + UNITS] = 6.0;
+            // 2: never step back into its own neck; a turn round, which
+            // also lands there, is the verb for reversing.
+            g[unit(2).1 + f::BACK] = -40.0;
+            g[S_VERB + 2 * VERBS + Verb::TurnAround as usize] = 40.0;
+            g[S_OUT + 2] = 20.0;
             // 3: a larva, not a grown nestmate.
             g[unit(3).1 + f::LARVA] = 8.0;
             g[unit(3).1 + f::NESTMATE] = -4.0;
             g[S_OUT + 3] = 3.0;
-            // 4: not off a ledge, not up a wall.
+            // 4: not off a ledge, not up a wall -- except at the nest, where
+            // the way out is up the shaft.
             g[unit(4).1 + f::FALL] = -6.0;
             g[unit(4).1 + f::CLIMB] = -4.0;
-            g[S_OUT + 4] = 3.0;
+            g[unit(4).0 + c::AT_NEST] = 10.0;
+            g[S_OUT + 4] = 6.0;
+            // 5: up and out at the nest, only without the flag.
+            g[unit(5).1 + f::UP] = 8.0;
+            g[unit(5).0 + c::AT_NEST] = 20.0;
+            g[unit(5).0 + CONTEXT + 4] = -20.0;
+            g[unit(5).0 + CONTEXT + MEMORY] = -39.0;
+            g[S_OUT + 5] = 4.0;
+            // An off unit reads -1, not 0: the score's bias puts back the 4
+            // each of units 1 and 5 takes from every option, or every step
+            // scores below a rest.
+            g[S_OUT + UNITS] = 10.0;
             // Walk while a step scores; turn round when none does.
             g[job(Verb::Walk, best)] = 6.0;
             g[job(Verb::Walk, offset)] = 2.0;
             g[job(Verb::TurnAround, best)] = 3.0;
-            g[job(Verb::TurnAround, offset)] = -3.0;
+            g[job(Verb::TurnAround, offset)] = -6.0;
             g[job(Verb::Rest, offset)] = -3.0;
             g[job(Verb::Eat, best)] = 4.0;
             g[job(Verb::Eat, offset)] = -1.0;
