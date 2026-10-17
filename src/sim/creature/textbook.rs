@@ -492,6 +492,17 @@ pub struct NestCfg {
     /// for good: 6 cuts in 40k frames (2026-10-17). 0: off.
     pub wait: u32,
     pub wait_p: f32,
+    /// **Digging feeds on itself** (Toffin et al. 2009, *PNAS* 106:18616,
+    /// *Messor sancta*: excavation concentrates at the tips of growing
+    /// tunnels, where workers are; Buhl et al. 2004): a cut made within
+    /// `dig_fresh` frames is a fresh cut. A digger's chance to cut a face
+    /// with no fresh cut within two cells is multiplied by `dig_new` (1:
+    /// off), rising to the full chance with two or more, and an empty
+    /// digger inside pulls with `dig_pull` towards the fresh cuts within
+    /// eight cells.
+    pub dig_new: f32,
+    pub dig_fresh: u64,
+    pub dig_pull: f32,
 }
 
 /// Whether a textbook ant is a forager under [`NestCfg::forager_frac`]: a
@@ -514,6 +525,28 @@ fn roofed(world: &World, roof: i32, x: i32, y: i32) -> bool {
 /// 2026-10-16).
 fn inside(world: &World, roof: i32, x: i32, y: i32) -> bool {
     roofed(world, roof, x, y) || walled(world, 2, x, y)
+}
+
+/// Fresh cuts ([`NestCfg::dig_fresh`]) within `r` cells of `(x, y)`, and
+/// their summed offset from it.
+fn fresh_cuts(world: &World, nc: &NestCfg, (x, y): (i32, i32), r: i32) -> (u32, (i32, i32)) {
+    let Some(t) = world.textbook.as_ref() else {
+        return (0, (0, 0));
+    };
+    let mut n = 0;
+    let mut sum = (0, 0);
+    for dy in -r..=r {
+        for dx in -r..=r {
+            if t.cuts
+                .get(&(x + dx, y + dy))
+                .is_some_and(|&at| world.frame.saturating_sub(at) < nc.dig_fresh)
+            {
+                n += 1;
+                sum = (sum.0 + dx, sum.1 + dy);
+            }
+        }
+    }
+    (n, sum)
 }
 
 /// Other ants in the six cells ahead of a head facing `facing` (one and two
@@ -628,6 +661,8 @@ pub struct Textbook {
     /// simulation.
     pub trace_ids: Vec<OrganismId>,
     pub trace: Vec<String>,
+    /// [`NestCfg::dig_new`]: the frame of each cell's latest cut, by key.
+    pub cuts: crate::sim::fxhash::PosMap<u64>,
 }
 
 impl Textbook {
@@ -642,6 +677,7 @@ impl Textbook {
             nest_log: None,
             trace_ids: Vec::new(),
             trace: Vec::new(),
+            cuts: Default::default(),
         }
     }
 }
@@ -1058,15 +1094,24 @@ fn nest_act(
                 1.0
             };
             count(world, |c| c.dig_rolls += 1);
-            if draw.unit_f32() >= nc.dig * company {
+            let at = face[draw.below(face.len() as u32) as usize];
+            let fed = if nc.dig_new < 1.0 {
+                let (n, _) = fresh_cuts(world, nc, at, 2);
+                nc.dig_new + (1.0 - nc.dig_new) * (n as f32 / 2.0).min(1.0)
+            } else {
+                1.0
+            };
+            if draw.unit_f32() >= nc.dig * company * fed {
                 return Did::default();
             }
-            let at = face[draw.below(face.len() as u32) as usize];
             let (frame, cut) = (world.frame, world.get(at.0, at.1).material);
             if let Some(log) = world.textbook.as_mut().and_then(|t| t.nest_log.as_mut()) {
                 log.push((frame, organism, at.0, at.1, cut, false));
             }
             cut_cell(world, organism, at, true);
+            if let Some(t) = world.textbook.as_mut() {
+                t.cuts.insert(at, frame);
+            }
             // **The cut lines its walls**, as the game ant's and the needs
             // walk's do (`line_burrow`): a tunnel cut without it falls in
             // behind the digger, unlined soil being measured to come down
@@ -1507,6 +1552,9 @@ fn nest_heading(
             // 12 rows (2026-10-16).
             if nc.jam > 0 && under && ants_ahead(world, organism, (hx, hy), facing) >= nc.jam {
                 ((0.0, -1.0), nc.up)
+            } else if under && nc.dig_pull > 0.0 && fresh_cuts(world, nc, (hx, hy), 8).0 > 0 {
+                let (_, (sx, sy)) = fresh_cuts(world, nc, (hx, hy), 8);
+                ((sx as f32, sy as f32), nc.dig_pull)
             } else if under || (hx - fc.home.0).pow(2) + (hy - fc.home.1).pow(2) <= (2 * fc.home_r).pow(2) {
                 // At the door it goes down too: with `inside_only` it cannot
                 // cut the surface there, and without the pull, diggers that

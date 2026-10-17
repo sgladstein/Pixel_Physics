@@ -85,6 +85,9 @@ const KEYS: &[&str] = &[
     "wait",
     "waitp",
     "trace",
+    "dignew",
+    "digfresh",
+    "digpull",
 ];
 
 fn arg<T: std::str::FromStr>(key: &str) -> Option<T> {
@@ -336,6 +339,9 @@ fn cfg(
         inside_only: arg::<u8>("insideonly").unwrap_or(1) == 1,
         wait: arg("wait").unwrap_or(0),
         wait_p: arg("waitp").unwrap_or(0.8),
+        dig_new: arg("dignew").unwrap_or(1.0),
+        dig_fresh: arg("digfresh").unwrap_or(600),
+        dig_pull: arg("digpull").unwrap_or(0.0),
         store_r: arg("store").unwrap_or(12),
     };
     textbook::TextbookCfg {
