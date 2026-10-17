@@ -403,9 +403,24 @@ impl Challenge for Forage {
 /// so the only trail is the stamped one.
 ///
 /// Score per ant: the mean over the run of how far along the trail it stood
-/// (0 at its start or on the bare side, 1 at the far end). An ant that
-/// always walks one way scores well on half the layouts and nothing on the
-/// other half; only reading the trail scores on both.
+/// (0 at its start, 1 at the far end), **signed**: as far out on the bare
+/// side counts as far below 0. An ant that always walks one way scores well
+/// on half the layouts and below nothing on the other half; only reading
+/// the trail scores on both. Unsigned, a walker that never read the trail
+/// scored 0.17-0.26 as six (the walls turn it round, and in a group some
+/// go each way); signed, every blind walker reads 0.000 +- 0.004 and the
+/// hand-built follower is unchanged layout by layout (ladder lane,
+/// `trail-rung-controls.md`).
+///
+/// **`right`**, a part: whether the ant ended at least a tenth of the way
+/// along. A clone arena's mean is the share that went the right way: a
+/// follower sends nearly all of them, and a walker that keeps whatever
+/// heading it has about half, on both sides, which the worse-side fold
+/// alone does not catch (ladder lane, `trail-rung-controls.md`).
+///
+/// **The first rung of stage 2's ladder**: it runs minds
+/// (`creature::mind`) as well as today's brain, walking, turning round and
+/// resting, and laying nothing.
 ///
 /// **The first version started the trail twenty cells off centre**, so most
 /// ants could not sense it from where they stood and the choice was a coin:
@@ -443,10 +458,13 @@ impl Challenge for Trail {
         self.frames
     }
     fn parts(&self) -> &'static [&'static str] {
-        &["along", "reach", "end", "walked"]
+        &["along", "reach", "end", "walked", "right"]
     }
     fn banned(&self) -> &'static [O] {
         TRAIL_BANNED
+    }
+    fn minds(&self) -> bool {
+        true
     }
     fn mirrored(&self) -> bool {
         true
@@ -528,10 +546,14 @@ impl Trail {
         // none of them (`super::WALK`), so a suite's walk block rides
         // through here unread.
         for (k, &id) in ids.iter().enumerate() {
-            w.set_organism_genome(id, genomes[k][..super::SCORER].to_vec());
+            if super::is_mind(genomes[k].len()) {
+                creature::mind::give(&mut w, id, std::sync::Arc::new(creature::mind::MindGenome::new(genomes[k].to_vec())));
+            } else {
+                w.set_organism_genome(id, genomes[k][..super::SCORER].to_vec());
+            }
             start[k] = w.organism(id).and_then(|s| s.chain.first().copied()).map_or(mid, |p| p.0);
         }
-        let progress = |x: i32, k: usize| -> f64 { (((x - start[k]) * dir) as f64 / (far - start[k]).abs().max(1) as f64).clamp(0.0, 1.0) };
+        let progress = |x: i32, k: usize| -> f64 { (((x - start[k]) * dir) as f64 / (far - start[k]).abs().max(1) as f64).clamp(-1.0, 1.0) };
         let mut sum = vec![0.0f64; n];
         let mut reach = vec![0.0f64; n];
         let mut last = start.clone();
@@ -551,7 +573,8 @@ impl Trail {
         (0..n)
             .map(|k| {
                 let along = sum[k] / (self.frames - 1) as f64;
-                Score { fit: along, parts: vec![along, reach[k], progress(last[k], k), walked[k] as f64] }
+                let end = progress(last[k], k);
+                Score { fit: along, parts: vec![along, reach[k], end, walked[k] as f64, f64::from(u8::from(end >= 0.1))] }
             })
             .collect()
     }
@@ -1398,6 +1421,45 @@ mod tests {
     /// of [`FAR_DIST`] and on both sides, on the far bed ([`far_bed`]), and
     /// the two sides mirror. The positive control: on a bed with only 10
     /// columns past the peak, the same heap does run into the wall.
+    #[test]
+    fn the_trail_rungs_controls_rank_on_the_minds_own_walk() {
+        // **Stage 2's first rung, its controls on the mind's act path**
+        // (`creature::mind`; ladder lane, `trail-rung-controls.md`). On the
+        // full hold-out (8 layouts, 6,000 frames, six clones) they read:
+        // rest 0.000, blank -0.025, persist -0.016, follower 0.860 with
+        // every ant the right way, and the follower blind -0.015. Here on
+        // two layouts and half the frames, with room for that.
+        let t = Trail { ants: 6, frames: 3000, clones: true };
+        let lay = super::super::holdout_layouts(2);
+        let score = |g: &[f32]| -> (Score, crate::sim::creature::mind::MindCounts) {
+            let mut counts = None;
+            let s: Vec<Score> = lay
+                .iter()
+                .map(|&l| {
+                    let mut look = |_: u64, w: &World| counts = w.minds.as_ref().map(|m| m.counts);
+                    t.run(l, &[g], &mut look).remove(0)
+                })
+                .collect();
+            (super::super::worse_side(true, &s, &lay), counts.expect("the ants had minds"))
+        };
+        let preset = |name: &str| super::super::start_mind(&t, name);
+        let (rest, rc) = score(&preset("rest"));
+        let (blank, bc) = score(&preset("blank"));
+        let (persist, _) = score(&preset("persist"));
+        let follower_g = preset("follower");
+        let (follower, fc) = score(&follower_g);
+        let (blind, _) = score(&super::super::blinded(&follower_g));
+        assert_eq!(rest.fit, 0.0, "an ant that never moves goes nowhere: {rest:?}");
+        assert!(rc.decisions > 0 && rc.chose[crate::sim::creature::options::Verb::Walk as usize] == 0, "it decided, and never walked: {rc:?}");
+        assert!(blank.fit.abs() < 0.15, "the random null stays near 0 on the signed score: {blank:?}");
+        assert!(follower.fit > 0.5 && follower.parts[4] >= 0.8, "the hand-built follower goes the right way: {follower:?}");
+        assert!(persist.fit < follower.fit - 0.3, "a heading-keeper must not score like a follower: {persist:?}");
+        assert!(blind.fit < 0.15, "the follower blind to scent is no follower: {blind:?}");
+        for c in [rc, bc, fc] {
+            assert_eq!(c.failed, 0, "every pick came from the body's own checks, so none can fail: {c:?}");
+        }
+    }
+
     #[test]
     fn the_far_heap_lies_clear_of_home_and_the_wall() {
         let slumped = |width: i32, nest_x: i32, heap_x: i32| {

@@ -74,6 +74,7 @@ use super::world::{Account, KillDetail, World, KILL_VERB_BITE, KILL_VERB_EAT};
 /// **The needs-and-jobs walk**, a second way for an ant to decide, off unless a
 /// harness sets `World::needs` (`creature/needs.rs` says where it hooks in).
 pub mod needs;
+pub mod mind;
 pub mod options;
 pub mod targets;
 
@@ -6013,6 +6014,11 @@ pub(super) fn try_bud(
     // reused — see `RNG_SLOT_BIRTH`.
     let ActiveKind::Creature { organism: child } = site.kind else { return Some(site) };
     let (child_traits, child_generation, child_born_frame) = mutate_newborn(world, child, def, parent_traits, parent_generation);
+    // A child of an ant with a mind decides by the same mind
+    // (`mind::inherit`); nothing in the game has one, so this returns at once.
+    if world.minds.is_some() {
+        mind::inherit(world, organism, child);
+    }
     // **The line's own history, checked after the mutation that could have
     // moved it** -- see `World::note_line_generation`/`note_line_record`'s
     // own docs. Both are no-ops for `parent_lineage == 0` (a test fixture
@@ -7859,6 +7865,14 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
     if world.organism(organism).is_some_and(|s| s.flight.is_some()) {
         return step_flight(world, organism, def);
     }
+    // **An ant with a mind decides by it** (`mind`, stage 2 of the brain
+    // plan): no sense, no `brain.rs`, no `act`, no walk. What the body does
+    // regardless -- old age, wounds, crossings, flight above, and the fall,
+    // the bill, digestion and birth inside -- stays the same. Nobody has a
+    // mind in the game, so this is one `Option` read per tick there.
+    if world.minds.is_some() && mind::has(world, organism) {
+        return mind::tick(world, x, y, organism, def);
+    }
 
     let heading = world.organism(organism).map_or(0, |s| s.heading);
     // **The read phase, taken from this window's speculation when it is still
@@ -8680,6 +8694,37 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
         }
     }
 
+    settle(
+        world,
+        organism,
+        def,
+        (hx, hy),
+        colony,
+        inputs[brain::BrainInput::AtNest as usize] > 0.0,
+        spent,
+        outputs[brain::BrainOutput::Provision as usize],
+        outputs[brain::BrainOutput::Lay as usize],
+    )
+}
+
+/// **What the body does with a decision's bill**: digests, pays (and
+/// starves, `apply_creature_energy`), and buds if the tick was survived.
+/// `creature_tick`'s tail, shared with a mind's tick (`mind::tick`): the
+/// two decide differently, and a body digests, pays and gives birth the
+/// same way whoever decided. `provision` and `lay` are the brain's birth
+/// outputs (`try_bud`); `at_nest` only feeds a counter.
+#[allow(clippy::too_many_arguments)]
+fn settle(
+    world: &mut World,
+    organism: OrganismId,
+    def: &CreatureDef,
+    (hx, hy): (i32, i32),
+    colony: u32,
+    at_nest: bool,
+    spent: f32,
+    provision: f32,
+    lay: f32,
+) -> Vec<ActiveSite> {
     // --- digest ---------------------------------------------------------
     //
     // **A rate, and deliberately not a roll.** A probabilistic digestion step
@@ -8937,7 +8982,7 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
             // divided by the ticks it takes to chew one. `progressed` is the
             // tick's own share and sums to `c.unit` across the cell.
             world.creature_stats.digested_face += progressed as f64;
-            if inputs[brain::BrainInput::AtNest as usize] > 0.0 {
+            if at_nest {
                 world.creature_stats.digested_at_nest_face += progressed as f64;
             }
             // **What the overhead ate, counted rather than inferred.** A loss
@@ -8974,8 +9019,8 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
             world,
             organism,
             def,
-            outputs[brain::BrainOutput::Provision as usize],
-            outputs[brain::BrainOutput::Lay as usize],
+            provision,
+            lay,
         ) {
             sites.push(child);
         }

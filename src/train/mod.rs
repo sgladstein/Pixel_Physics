@@ -37,10 +37,20 @@
 //! Mutation inside the world stays off (`creature::mutation_off_for_measuring`):
 //! the only variation is the one this loop makes between runs, which is the
 //! owner's ruling (2026-10-17) on how the rig and the frozen-mutation rule fit.
+//!
+//! **Two brains, told apart by genome length.** Today's brain (`brain.rs`,
+//! [`SCORER`] slots and the blocks after it) and stage 2's general brain
+//! (`creature::mind`, `mind::GENOME_LEN`): every function here that reads a
+//! genome's layout asks [`is_mind`] first, and an arena puts a mind genome
+//! into its ants as a mind ([`Challenge::minds`]). One run can score both
+//! side by side, which is how a rung's champion is held against today's
+//! brain trained the same way.
 
 pub mod challenges;
 
 use crate::sim::brain::{self, BrainInput, BrainOutput};
+use crate::sim::creature::mind;
+use crate::sim::creature::options::Verb;
 use crate::sim::creature::targets;
 use crate::sim::organism;
 use crate::sim::World;
@@ -149,6 +159,47 @@ pub trait Challenge: Sync {
     fn marks(&self, _layout: Layout, _w: &World) -> Vec<((i32, i32), [u8; 3])> {
         Vec::new()
     }
+    /// Whether this arena can run stage 2 minds (`creature::mind`): it puts
+    /// a mind genome into its ants as a mind. Each arena opts in as its
+    /// rung is built.
+    fn minds(&self) -> bool {
+        false
+    }
+    /// The verbs a mind may use here; the rest stay switched off and are
+    /// never trained.
+    fn verbs(&self) -> &'static [Verb] {
+        &[Verb::Walk, Verb::TurnAround, Verb::Rest]
+    }
+    /// The scents a mind may lay here (A, B, alarm): A and B as the brain's
+    /// `EmitA`/`EmitB` bans say, alarm off.
+    fn mind_emits(&self) -> [bool; mind::EMITS] {
+        let b = self.banned();
+        [!b.contains(&BrainOutput::EmitA), !b.contains(&BrainOutput::EmitB), false]
+    }
+}
+
+/// **Whether a genome is a stage 2 mind** (`creature::mind`), by its length.
+pub fn is_mind(len: usize) -> bool {
+    len == mind::GENOME_LEN
+}
+
+/// **A mind's start genome**: a preset by name (`mind::preset`: `blank` or
+/// `zero`, `rest`, `follower`, `persist`) over the arena's verbs, or a
+/// genome file this rig wrote; the arena's bans applied.
+pub fn start_mind(ch: &dyn Challenge, start: &str) -> Vec<f32> {
+    assert!(ch.minds(), "{} cannot run minds yet", ch.name());
+    let name = if start == "zero" { "blank" } else { start };
+    let mut g = match mind::preset(name, ch.verbs()) {
+        Some(g) => g,
+        None => {
+            let p = Path::new(start);
+            let len = genome_file_len(p);
+            assert!(is_mind(len), "{start}: a genome of {len} slots is not a mind ({}); start= blank|rest|follower|persist|<mind file>", mind::GENOME_LEN);
+            load_genome(p, len)
+        }
+    };
+    mind::apply_bans(&mut g, ch.verbs(), ch.mind_emits());
+    g
 }
 
 /// Where a genome's target scorer starts, when its arena has one: right after
@@ -195,6 +246,9 @@ pub struct Blocks {
 }
 
 pub fn blocks(len: usize) -> Blocks {
+    if is_mind(len) {
+        return Blocks { scorer: None, walk: None };
+    }
     let (sc, wk) = (targets::WEIGHTS, WALK);
     match len.checked_sub(SCORER) {
         Some(0) => Blocks { scorer: None, walk: None },
@@ -225,6 +279,10 @@ pub fn genome_len(ch: &dyn Challenge, walk: bool) -> usize {
 /// asks for both gets both: the `walk-shipped` hold-out row says how much
 /// of the score is theirs.
 pub fn trainable_for(ch: &dyn Challenge, len: usize) -> Vec<usize> {
+    if is_mind(len) {
+        assert!(ch.minds(), "{} cannot run minds yet", ch.name());
+        return mind::trainable(ch.verbs(), ch.mind_emits());
+    }
     let b = blocks(len);
     let mut v: Vec<usize> = if ch.scorer() {
         let s = b.scorer.expect("a scorer arena's genome carries a scorer");
@@ -385,6 +443,9 @@ pub fn apply_bans(g: &mut [f32], banned: &[BrainOutput]) {
 ///
 /// A target scorer, if the genome has one, is cut too ([`scorer_blinded`]).
 pub fn blinded(g: &[f32]) -> Vec<f32> {
+    if is_mind(g.len()) {
+        return mind::blinded(g);
+    }
     let mut b = scorer_blinded(g);
     for (i, w) in b.iter_mut().enumerate().take(BRAIN_END) {
         if input_of(i).is_some_and(|inp| inp != BrainInput::Bias as usize) {
@@ -765,6 +826,9 @@ pub const WALK_SIGMA: f32 = 0.2;
 /// the others feeding the same output; a slot-by-slot cross breaks working
 /// circuits far more often than it joins two.
 pub fn cross(a: &[f32], b: &[f32], rng: &mut Rng) -> Vec<f32> {
+    if is_mind(a.len()) {
+        return cross_mind(a, b, rng);
+    }
     let take_b: Vec<bool> = (0..64).map(|_| rng.unit() < 0.5).collect();
     let hidden_b: Vec<bool> = (0..64).map(|_| rng.unit() < 0.5).collect();
     let mut c = a.to_vec();
@@ -781,10 +845,28 @@ pub fn cross(a: &[f32], b: &[f32], rng: &mut Rng) -> Vec<f32> {
     c
 }
 
+/// A mind's crossover: each of `mind::crossover_group`'s groups (a scorer
+/// unit's whole fan-in, a job row, a memory row with its rate) whole from
+/// one parent, drawn in slot order so a run is a function of its seed.
+fn cross_mind(a: &[f32], b: &[f32], rng: &mut Rng) -> Vec<f32> {
+    let mut take_b: std::collections::BTreeMap<usize, bool> = std::collections::BTreeMap::new();
+    let mut c = a.to_vec();
+    for i in 0..a.len() {
+        let g = mind::crossover_group(i);
+        if *take_b.entry(g).or_insert_with(|| rng.unit() < 0.5) {
+            c[i] = b[i];
+        }
+    }
+    c
+}
+
 /// A short readout of what a genome attends to: its non-zero weight count,
 /// the five inputs with the most total weight, and its walk genes off the
 /// shipped walk.
 pub fn describe(g: &[f32]) -> String {
+    if is_mind(g.len()) {
+        return mind::describe(g);
+    }
     let mut by_input = [0.0f32; 64];
     let mut live = 0;
     for (i, &w) in g.iter().enumerate().take(BRAIN_END) {

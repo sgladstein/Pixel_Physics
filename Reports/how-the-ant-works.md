@@ -1684,6 +1684,24 @@ Read once per process from the environment. The default is what ships.
   the scorer one at a time (`Free`: the spoil holds, the spoil cue, the
   face rules, the company veto). With `World::targets` unset, as in the
   game, §5 runs unchanged.
+- `creature/options.rs` and `creature/mind.rs`: **the general brain**
+  (stage 2; harness only, like the needs walk). An ant the rig has given a
+  mind (`World::minds`) skips §3-§6 entirely. `creature_tick` hands it to
+  `mind::tick` once old age, wounds, crossings and flight are done. Each
+  decision runs in this order:
+  1. The body lists every legal (verb, target) pair, described by 43
+     features (`options::build`).
+  2. The mind scores each pair with one shared scorer.
+  3. It picks a verb, then that verb's target, with `choose_weighted` at
+     a floor of 0.05 on scores shifted to 0..1.
+  4. The body does the pick by the world's rules alone (`commit_step` for
+     a step, `flipped_body` for turning round).
+
+  Falls come first, and the energy bill, digestion, starvation and birth
+  are §9's (`settle`). Only walk, turn around and rest act so far. A
+  newborn inherits its parent's mind. With `World::minds` unset, as in the
+  game, nothing here runs. `World::option_shadow` builds the option list
+  for the game ant and throws it away, for timing only.
 
 ## 14. Source comments that currently contradict the code
 
