@@ -504,6 +504,129 @@ fn excluded_column(x: i32) -> bool {
 /// stock itself is small -- tens of seeds at any time -- so what it buys is a
 /// garden that is never eaten to the last seed, not a larger colony (median
 /// peak 327 against 338).
+/// **`PIXEL_PHYSICS_SEED_SETTLE` -- a waiting seed works down to the soil, and
+/// reads the soil it would root into.** Off unless set; `on` is both halves,
+/// `settle` or `read` one alone. The planted-bed report of 2026-10-17
+/// (`/mnt/project-files/planted-balance/report-2026-10-17/`) measured the two
+/// gates this is aimed at, and the slice ruling it extends is the one
+/// `falls_through_organisms` already made for branches:
+///
+/// - **Settle.** A seed lying on another waiting seed, or on loose litter,
+///   changes places with it now and then (`SEED_SETTLE_CHANCE` a seed tick),
+///   so a pile is a lottery for the soil spot under it rather than a lid
+///   that keeps everything above its bottom seed off the ground. In 3D a
+///   seed falling on a pile mostly rolls into a gap beside it; in the slice
+///   there is no beside, so it takes turns instead. Measured on the mixed
+///   seven-species bed, 4 seeds at 150k (`seedbelow.csv`): of 17,385 waiting
+///   grass seeds 11,561 lay on other seed, and of 416 herb seeds 180 did.
+///   Seed lying on living tissue is not touched -- the tissue is exclusive
+///   and a seedling on a blade has nowhere to root.
+/// - **Read.** The water check takes the wettest of the soil cell under the
+///   seed and up to `SEED_READ_DEPTH - 1` water-holding cells straight below
+///   it, not only the top one. Roots drain the top cell first
+///   (`Reports/plant-soil-nutrient-plan-2026-09-05.md` measured 0.016 against
+///   1.0 away from roots), so a seed on soil read dry while the soil its
+///   first root would grow into was wet: herb seed on soil passed its bar 3
+///   of 70 times reading the top cell and 17 of 70 reading four.
+fn seed_settle_mode() -> (bool, bool) {
+    let (settle, read, _) = seed_settle_parts();
+    (settle, read)
+}
+
+/// The three halves of `PIXEL_PHYSICS_SEED_SETTLE`: settle, read, heave. `on`
+/// is all three; `settle`, `read` and `heave` one alone. See
+/// [`seed_settle_mode`] and [`heave_loose_column`].
+fn seed_settle_parts() -> (bool, bool, bool) {
+    use std::sync::OnceLock;
+    static MODE: OnceLock<(bool, bool, bool)> = OnceLock::new();
+    *MODE.get_or_init(|| match std::env::var("PIXEL_PHYSICS_SEED_SETTLE").as_deref() {
+        Ok("on") => (true, true, true),
+        Ok("settle") => (true, false, false),
+        Ok("read") => (false, true, false),
+        Ok("heave") => (false, false, true),
+        _ => (false, false, false),
+    })
+}
+
+/// How far up a shoot tip looks for the gap a heaved pile rises into.
+const HEAVE_REACH: i32 = 8;
+
+/// **A shoot tip lifts the seed or litter lying on it** -- the third half of
+/// `PIXEL_PHYSICS_SEED_SETTLE`, found by the seedling trace that followed the
+/// planted-bed report (2026-10-17, mixed bed, 4 seeds, 60k): a seedling
+/// germinates, and its one shoot tip finds the cell above it held by another
+/// waiting seed or by litter, cannot enter it (a shoot takes empty cells
+/// only), goes stale and stops; with no tip and no leaf it is declared dead
+/// (`LostVitalTissue`). 7,485 germinations in 4 runs to 100k, and 90%+ of the
+/// seedling deaths were that. In 3D a sprout pushes past a seed or a leaf;
+/// in the slice the nearest thing is that it heaves the loose column above
+/// it up by one cell. Only seeds that are still waiting and loose litter move
+/// (`settles_through`'s set); a column with no air within `HEAVE_REACH` stays
+/// put, and so does anything resting on living tissue. Returns whether the
+/// cell above is now empty.
+fn heave_loose_column(world: &mut World, x: i32, y: i32) -> bool {
+    let mut top = y;
+    loop {
+        let c = world.get(x, top);
+        if c.material == material::EMPTY {
+            break;
+        }
+        if !settles_through(world, c) || y - top >= HEAVE_REACH {
+            return false;
+        }
+        top -= 1;
+    }
+    // `top` is the empty cell; shift each loose cell up one, highest first.
+    for yy in (top + 1)..=y {
+        world.move_cell(x, yy, x, yy - 1, true);
+    }
+    world.seeds_heaved += 1;
+    true
+}
+
+/// Chance a seed tick that a waiting seed on a pile or on litter trades
+/// places with what it lies on. Low on purpose: a seed tick is every
+/// `SEED_TICK_INTERVAL` frames, a seed waits thousands, and every swap is two
+/// cell writes that keep a settled chunk awake.
+const SEED_SETTLE_CHANCE: f32 = 1.0 / 32.0;
+
+/// How many water-holding cells, the first included, the `read` half of
+/// [`seed_settle_mode`] looks down through.
+const SEED_READ_DEPTH: i32 = 4;
+
+/// **Is `below` something a waiting seed settles through?** Another waiting
+/// seed (a one-cell organism whose one cell is a `Seed`), or loose litter.
+fn settles_through(world: &World, below: Cell) -> bool {
+    let id = below.organism_id();
+    if id != 0 {
+        return organism::cell_type(below.aux()) == Some(CellType::Seed)
+            && world.organism(id).is_some_and(|s| s.cells.len() == 1 && s.dormant_seed);
+    }
+    world.materials.id_of("litter") == Some(below.material) || world.materials.id_of("deadleaf") == Some(below.material)
+}
+
+/// The soil water a waiting seed at `(x, y)` reads: the cell under it, and
+/// under `read`, the wettest of that and the water-holding cells straight
+/// below it, `SEED_READ_DEPTH` in all. Zero when the cell under the seed
+/// holds no water -- see the `water_capacity` guard in `Germinate`.
+fn seed_soil_water(world: &World, x: i32, y: i32, read_deeper: bool) -> f32 {
+    let below = world.get(x, y + 1);
+    if world.materials.get(below.material).water_capacity == 0 {
+        return 0.0;
+    }
+    let mut best = update::plant_available_fraction(below);
+    if read_deeper {
+        for d in 2..=SEED_READ_DEPTH {
+            let c = world.get(x, y + d);
+            if c.organism_id() != 0 || world.materials.get(c.material).water_capacity == 0 {
+                break;
+            }
+            best = best.max(update::plant_available_fraction(c));
+        }
+    }
+    best
+}
+
 fn buried_seed_enabled() -> bool {
     use std::sync::OnceLock;
     static ON: OnceLock<bool> = OnceLock::new();
@@ -6029,6 +6152,12 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: OrganismId, sta
                     r.weights = [continuation_weight, light_weight, wind_weight, upward_weight];
                     r.crowding_weight = crowding_weight;
                 }
+                // **Heave** (`heave_loose_column`): a shoot tip with a seed
+                // or litter straight above lifts it before scoring, so the
+                // cell above is open like any other.
+                if penetration_force <= 0.0 && seed_settle_parts().2 && settles_through(world, world.get(x, y - 1)) {
+                    heave_loose_column(world, x, y - 1);
+                }
                 let mut candidates: Vec<(i32, i32, f32)> = Vec::new();
                 // How far the empty set got, for `GrowWhy`: cells it could
                 // grow into, and of those, cells it could pay to enter.
@@ -7170,12 +7299,20 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: OrganismId, sta
                     // cell, so without this a seed bobbing on a full pond
                     // would read bone dry -- and one on half-drained water
                     // would read well watered.
-                    let holds_water = world.materials.get(below.material).water_capacity > 0;
-                    let soil_water = if holds_water { update::plant_available_fraction(below) } else { 0.0 };
+                    let soil_water = seed_soil_water(world, x, y, seed_settle_mode().1);
                     light >= light_threshold && soil_water >= soil_water_threshold
                 });
                 if ready && !excluded_column(x) {
                     return germinate(world, x, y, organism_id, cell, &mut rng);
+                }
+                // **Settle** (`seed_settle_mode`): trade places with the seed
+                // or litter underneath. The seed below picks its own schedule
+                // back up at its new cell through `relocated_seed`, as this
+                // one does.
+                if !ready && seed_settle_mode().0 && settles_through(world, below) && rng.chance(SEED_SETTLE_CHANCE) {
+                    world.move_cell(x, y, x, y + 1, false);
+                    world.seeds_settled += 1;
+                    return vec![reschedule_organism(x, y + 1, organism_id, 0, 0, world.frame + SEED_TICK_INTERVAL)];
                 }
                 // **Remember that it waited**, so `germinate` can tell a
                 // seed that sat out a dry spell from one that sprouted the
