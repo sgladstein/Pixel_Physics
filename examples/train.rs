@@ -105,7 +105,8 @@ fn main() {
         return;
     }
     if let Some(f) = score {
-        let g = train::start_genome(&Start::File(f.into()), &species_genome, ch.banned(), 0);
+        let st = if f == "game" { Start::Species } else { Start::File(f.into()) };
+        let g = train::start_genome(&st, &species_genome, ch.banned(), 0);
         let hold = train::holdout_layouts(set.holdout);
         for (who, g) in [("genome", g.clone()), ("blinded", train::blinded(&g)), ("start", g0.clone())] {
             let s = train::score_clones(ch.as_ref(), &g, &hold, set.threads);
