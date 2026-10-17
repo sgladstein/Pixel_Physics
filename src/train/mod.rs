@@ -129,6 +129,12 @@ pub trait Challenge: Sync {
     fn mirrored(&self) -> bool {
         false
     }
+    /// **How a genome's per-layout scores become its score**: by default
+    /// the mean, or the worse side of each mirrored pair ([`worse_side`]).
+    /// A suite folds each of its arenas on its own first ([`fold`]).
+    fn combine(&self, v: &[Score], layouts: &[Layout]) -> Score {
+        worse_side(self.mirrored(), v, layouts)
+    }
     /// Whether this arena's genomes carry an evolved target scorer after the
     /// brain ([`SCORER`]): which cell is dug and where a pellet goes down,
     /// in place of the hand rules (`creature::targets`).
@@ -644,22 +650,42 @@ pub fn mean_score(v: &[Score]) -> Score {
 /// mirrors pays a specialist for the side it happens to face; the worse side
 /// pays only for reading the world. A layout without its partner (an odd
 /// count) counts alone.
+///
+/// The challenge decides how ([`Challenge::combine`]): a suite folds each
+/// arena on its own before it multiplies them (`challenges::Suite`).
 pub fn fold(ch: &dyn Challenge, v: &[Score], layouts: &[Layout]) -> Score {
-    if !ch.mirrored() {
-        return mean_score(v);
-    }
-    let mut worse: Vec<Score> = Vec::new();
+    ch.combine(v, layouts)
+}
+
+/// The units a fold averages over, in order: each mirrored pair (`k` even
+/// and `k + 1`) as two indices, and a layout without its partner alone;
+/// every layout alone when nothing is mirrored.
+pub fn sides(mirrored: bool, layouts: &[Layout]) -> Vec<(usize, Option<usize>)> {
+    let mut out = Vec::new();
     let mut i = 0;
-    while i < v.len() {
-        let pair = i + 1 < v.len() && layouts[i].k.is_multiple_of(2) && layouts[i + 1].k == layouts[i].k + 1;
+    while i < layouts.len() {
+        let pair = mirrored && i + 1 < layouts.len() && layouts[i].k.is_multiple_of(2) && layouts[i + 1].k == layouts[i].k + 1;
         if pair {
-            worse.push(if v[i + 1].fit < v[i].fit { v[i + 1].clone() } else { v[i].clone() });
+            out.push((i, Some(i + 1)));
             i += 2;
         } else {
-            worse.push(v[i].clone());
+            out.push((i, None));
             i += 1;
         }
     }
+    out
+}
+
+/// [`fold`]'s default: the mean of `v`, or of the worse side of each
+/// mirrored pair, parts and all ([`sides`]).
+pub fn worse_side(mirrored: bool, v: &[Score], layouts: &[Layout]) -> Score {
+    let worse: Vec<Score> = sides(mirrored, layouts)
+        .into_iter()
+        .map(|(a, b)| match b {
+            Some(b) if v[b].fit < v[a].fit => v[b].clone(),
+            _ => v[a].clone(),
+        })
+        .collect();
     mean_score(&worse)
 }
 

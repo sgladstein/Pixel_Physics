@@ -29,9 +29,10 @@
 //! and evolved beside the brain; `walkset=reserve:0.6,scout:-1` sets some
 //! of them in the start (or score) genome, by `train::WALK_NAMES`.
 //! `prune=0.3` lets a mutation set a live weight to 0 (`Settings::prune`).
-//! `heap=600` (forage) is the heap's size, 300 unless set: a trained forager
-//! empties 300 on some near-heap layouts, and a score at its ceiling cannot
-//! rise.
+//! `heap=` (forage) is the heap's size, 300 unless set and never more: a
+//! bigger heap slumps into home at the near distances and into the wall at
+//! the far ones. `forget=2` is how many standard errors under its
+//! reference a suite's kept arena may fall before it counts as forgotten.
 //! Every argument is echoed; an unknown one stops the run.
 
 use pixel_physics::sim::creature;
@@ -95,7 +96,7 @@ fn main() {
     let mut challenge = "forage".to_string();
     let mut arenas = String::new();
     let mut keep = String::new();
-    let mut floor = 0.8;
+    let mut forget = 2.0;
     let mut start = "zero".to_string();
     let mut out: Option<PathBuf> = None;
     let mut frames = None;
@@ -118,7 +119,13 @@ fn main() {
             "challenge" => challenge = v.into(),
             "arenas" => arenas = v.into(),
             "keep" => keep = v.into(),
-            "floor" => floor = v.parse().unwrap(),
+            "forget" => forget = v.parse().unwrap(),
+            // The suite's forget floor was a ratio read per layout; it is
+            // now `forget` standard errors under the folded reference
+            // (`challenges::Suite`), so an old `floor=` would mean nothing.
+            "floor" => panic!(
+                "floor= is gone: a kept arena is forgotten at forget= standard errors (default 2) under its reference"
+            ),
             "start" => start = v.into(),
             "out" => out = Some(v.into()),
             "gens" => set.gens = v.parse().unwrap(),
@@ -154,7 +161,7 @@ fn main() {
     // without it once left two "game" rows in one file with nothing to say
     // which walk made which (`design/review-rev2.md` N10).
     println!(
-        "train challenge={challenge} arenas={arenas} keep={keep} floor={floor} start={start} walk={} clones={clones} frames={frames:?} ants={ants:?} score={score:?} noise={noise} targets={targets} free={free} pic={pic:?} sealed={sealed} heap={heap} genes={genes} walkset={walkset} prune={} seed={} pop={} gens={} layouts={} pm={} sigma={} cross={} holdout={} threads={}",
+        "train challenge={challenge} arenas={arenas} keep={keep} forget={forget} start={start} walk={} clones={clones} frames={frames:?} ants={ants:?} score={score:?} noise={noise} targets={targets} free={free} pic={pic:?} sealed={sealed} heap={heap} genes={genes} walkset={walkset} prune={} seed={} pop={} gens={} layouts={} pm={} sigma={} cross={} holdout={} threads={}",
         if game_walk { "game" } else { "brain" },
         set.prune,
         set.seed,
@@ -196,7 +203,7 @@ fn main() {
             })
             .collect();
         assert!(!list.is_empty(), "challenge=suite needs arenas=a,b,...");
-        Box::new(Suite::new(list, floor))
+        Box::new(Suite::new(list, forget))
     } else {
         arena(&challenge, &spec)
     };
@@ -366,11 +373,16 @@ fn main() {
         );
         // **The number training and the hold-out report** for a mirrored
         // arena is the worse side of each pair, not the mean of single
-        // layouts above (coordinator review of PR 708), so print it too.
+        // layouts above (coordinator review of PR 708), so print it too: the
+        // challenge's own fold of each pair, which for a suite folds each
+        // arena on its own before the product.
         if ch.mirrored() {
-            let worse: Vec<f64> = each
-                .chunks(2)
-                .map(|p| p.iter().map(|s| s.fit).fold(f64::INFINITY, f64::min))
+            let worse: Vec<f64> = train::sides(true, &hold)
+                .into_iter()
+                .map(|(a, b)| match b {
+                    Some(b) => ch.combine(&[each[a].clone(), each[b].clone()], &[hold[a], hold[b]]).fit,
+                    None => ch.combine(&[each[a].clone()], &[hold[a]]).fit,
+                })
                 .collect();
             let m = worse.len().max(1) as f64;
             let wmean = worse.iter().sum::<f64>() / m;

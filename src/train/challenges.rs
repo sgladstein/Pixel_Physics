@@ -253,6 +253,10 @@ impl Challenge for Forage {
         true
     }
     fn run(&self, layout: Layout, genomes: &[&[f32]], look: &mut dyn FnMut(u64, &World)) -> Vec<Score> {
+        // **No bigger than 300**: [`FORAGE_DIST`] is set by a 300-cell
+        // heap's slump, and a bigger one reaches home at the near end (food
+        // scored that was never carried) and the wall at the far end.
+        assert!(self.heap <= 300, "a heap of {} slumps past FORAGE_DIST's bounds (the_heap_lies_clear_of_home_and_the_wall)", self.heap);
         let side = if layout.k.is_multiple_of(2) { 1 } else { -1 };
         let dist = Self::dist(layout);
         let heap_x = NEST_X + side * dist;
@@ -260,7 +264,13 @@ impl Challenge for Forage {
         let (mut w, _, _) = bed(layout.seed, self.ants, &extra).build();
         let sp = clone_colony(&mut w, genomes[0], self.game_walk, layout);
         let food = w.materials.id_of("provisions").expect("provisions");
-        let before = cells_of(&w, heap_x - HEAP_REACH, heap_x + HEAP_REACH, food);
+        // **`taken` stops short of home**: at 45 columns a window of
+        // `HEAP_REACH` either side reached home columns +5 to +12, and food
+        // carried home into that strip read as never taken (review of PR
+        // 708, nit 7). A printed part only, never `fit`.
+        let (lo, hi) = (heap_x - HEAP_REACH, heap_x + HEAP_REACH);
+        let (lo, hi) = if side > 0 { (lo.max(NEST_X + 13), hi) } else { (lo, hi.min(NEST_X - 13)) };
+        let before = cells_of(&w, lo, hi, food);
         let founders = ants_of(&w, sp);
         // The colony's number now, while its founders live: a dead id's
         // colony reads 0, whose books are empty, and the first run of this
@@ -290,7 +300,7 @@ impl Challenge for Forage {
             parts: vec![
                 home,
                 alive as f64,
-                (before - cells_of(&w, heap_x - HEAP_REACH, heap_x + HEAP_REACH, food)) as f64,
+                (before - cells_of(&w, lo, hi, food)) as f64,
                 w.creature_stats.pickups as f64,
                 dist as f64,
                 kept,
@@ -887,23 +897,45 @@ pub fn dug_cells(w: &World, spec: &crate::lab::scene::LabBox) -> Vec<((i32, i32)
 /// and the suite keeps the earlier arenas in every generation.
 ///
 /// Score: the geometric mean over arenas of `fit / reference`, where each
-/// reference is the start genome's own hold-out score there
-/// ([`Suite::calibrate`]). A product rather than a sum, so a brain that is
-/// excellent at one job and useless at another scores near zero; and an
-/// arena marked `keep` (an old skill) whose ratio falls under `floor`
-/// multiplies the whole score by a tenth, so forgetting is never worth it.
-/// Per-ant arenas are run with every ant a clone.
+/// reference is the start genome's own score there on the calibration
+/// layouts ([`Suite::calibrate`]). A product rather than a sum, so a brain
+/// that is excellent at one job and useless at another scores near zero;
+/// and an arena marked `keep` (an old skill) that falls more than `forget`
+/// standard errors under its reference multiplies the whole score by a
+/// tenth, so forgetting is never worth it. Per-ant arenas are run with
+/// every ant a clone.
+///
+/// **Each arena is folded on its own, then multiplied** ([`Challenge::
+/// combine`]): the worse side of each mirrored pair, arena by arena. The
+/// first suite folded the product, so a brain that foraged only east and
+/// dug only on the west bed scored `sqrt(hi x lo)` on both sides and passed
+/// as having learned both (ladder lane, `next-rung-forage-dig.md`). The
+/// forget floor is read on the folded score for the same reason: per
+/// layout, one bad bed of a noisy arena tripped it. **A ratio counts up to
+/// [`RATIO_CAP`]**, so one arena's runaway cannot pay for another's loss.
 pub struct Suite {
     pub arenas: Vec<(Box<dyn Challenge>, bool)>,
     pub refs: Vec<f64>,
-    pub floor: f64,
+    /// Each arena's spread at calibration: the standard deviation of its
+    /// folded units (a mirrored pair's worse side, or one layout).
+    pub sds: Vec<f64>,
+    /// Standard errors under its reference at which a `keep` arena counts
+    /// as forgotten.
+    pub forget: f64,
     names: &'static [&'static str],
     banned: &'static [O],
 }
 
+/// The most one arena's ratio to its reference counts for in a suite.
+pub const RATIO_CAP: f64 = 3.0;
+
 impl Suite {
     /// `arenas`: each challenge, and whether it is an old skill to keep.
-    pub fn new(arenas: Vec<(Box<dyn Challenge>, bool)>, floor: f64) -> Self {
+    /// **No target scorer**: the genome's scorer would go into every arena's
+    /// world, and `free=` reaches only dig's (coordinator review of PR 709,
+    /// N8; refused here, not only on the command line, since PR 710's).
+    pub fn new(arenas: Vec<(Box<dyn Challenge>, bool)>, forget: f64) -> Self {
+        assert!(arenas.iter().all(|(a, _)| !a.scorer()), "a suite would put the target scorer in every arena's world");
         let mut names: Vec<&'static str> = vec![];
         for (a, _) in &arenas {
             names.push(Box::leak(format!("{}_ratio", a.name()).into_boxed_str()));
@@ -921,7 +953,8 @@ impl Suite {
             }
         }
         let refs = vec![1.0; arenas.len()];
-        Suite { arenas, refs, floor, names: Box::leak(names.into_boxed_slice()), banned: Box::leak(banned.into_boxed_slice()) }
+        let sds = vec![0.0; arenas.len()];
+        Suite { arenas, refs, sds, forget, names: Box::leak(names.into_boxed_slice()), banned: Box::leak(banned.into_boxed_slice()) }
     }
 }
 
@@ -950,44 +983,71 @@ impl Challenge for Suite {
     fn mirrored(&self) -> bool {
         self.arenas.iter().any(|(a, _)| a.mirrored())
     }
-    fn scorer(&self) -> bool {
-        self.arenas.iter().any(|(a, _)| a.scorer())
-    }
+    /// One layout: every arena run on it, and its fit the product of this
+    /// layout's capped ratios, for a per-layout readout only. What training
+    /// and the hold-out read is [`Suite::combine`]'s, from the raw fits in
+    /// the second half of `parts`.
     fn run(&self, layout: Layout, genomes: &[&[f32]], look: &mut dyn FnMut(u64, &World)) -> Vec<Score> {
         let g = genomes[0];
         let mut ratios = vec![];
         let mut fits = vec![];
-        let mut log_sum = 0.0;
-        let mut forgot = false;
-        for (i, (a, keep)) in self.arenas.iter().enumerate() {
+        for (i, (a, _)) in self.arenas.iter().enumerate() {
             let gs: Vec<&[f32]> = vec![g; if a.unit() == Unit::Ant { a.ants() } else { 1 }];
             let mut quiet = |_: u64, _: &World| {};
             let watcher: &mut dyn FnMut(u64, &World) = if i == 0 { &mut *look } else { &mut quiet };
             let s = super::mean_score(&a.run(layout, &gs, watcher));
-            let r = s.fit.max(0.0) / self.refs[i];
-            if *keep && r < self.floor {
-                forgot = true;
-            }
-            log_sum += r.max(1e-3).ln();
-            ratios.push(r);
+            ratios.push((s.fit.max(0.0) / self.refs[i]).min(RATIO_CAP));
             fits.push(s.fit);
         }
-        let mut fit = (log_sum / self.arenas.len() as f64).exp();
-        if forgot {
-            fit *= 0.1;
-        }
+        let fit = (ratios.iter().map(|r| r.max(1e-3).ln()).sum::<f64>() / ratios.len() as f64).exp();
         ratios.extend(fits);
         vec![Score { fit, parts: ratios }]
     }
 
-    /// Set every arena's reference to `g`'s hold-out score there (floored
-    /// at a small positive number, so an arena the start cannot do at all
-    /// pays for any progress rather than dividing by zero).
+    /// Each arena folded on its own ([`super::worse_side`] on its raw fits),
+    /// then the geometric mean of the capped ratios, with the forget floor
+    /// read on each `keep` arena's folded score: under its reference by
+    /// more than `forget` standard errors of a fold over this many units.
+    /// `parts` are each arena's folded ratio, then its folded fit.
+    fn combine(&self, v: &[Score], layouts: &[Layout]) -> Score {
+        let n = self.arenas.len();
+        let mut ratios = vec![];
+        let mut fits = vec![];
+        let mut forgot = false;
+        for (i, (a, keep)) in self.arenas.iter().enumerate() {
+            let own: Vec<Score> = v.iter().map(|s| Score { fit: s.parts[n + i], parts: vec![] }).collect();
+            let f = super::worse_side(a.mirrored(), &own, layouts).fit;
+            let units = super::sides(a.mirrored(), layouts).len().max(1) as f64;
+            if *keep && f < self.refs[i] - self.forget * self.sds[i] / units.sqrt() {
+                forgot = true;
+            }
+            ratios.push((f.max(0.0) / self.refs[i]).min(RATIO_CAP));
+            fits.push(f);
+        }
+        let mut fit = (ratios.iter().map(|r| r.max(1e-3).ln()).sum::<f64>() / n as f64).exp();
+        if forgot {
+            fit *= 0.1;
+        }
+        ratios.extend(fits);
+        Score { fit, parts: ratios }
+    }
+
+    /// Set every arena's reference to `g`'s folded score there (floored at
+    /// a small positive number, so an arena the start cannot do at all pays
+    /// for any progress rather than dividing by zero), and its spread over
+    /// the folded units, for the forget floor.
     fn calibrate(&mut self, g: &[f32], layouts: &[Layout], threads: usize) {
         for (i, (a, _)) in self.arenas.iter().enumerate() {
-            let s = super::score_clones(a.as_ref(), g, layouts, threads);
-            self.refs[i] = s.fit.max(0.05);
-            println!("suite reference {}: {:.3}", a.name(), self.refs[i]);
+            let each = super::score_each(a.as_ref(), g, layouts, threads);
+            let units: Vec<f64> = super::sides(a.mirrored(), layouts)
+                .into_iter()
+                .map(|(x, y)| y.map_or(each[x].fit, |y| each[x].fit.min(each[y].fit)))
+                .collect();
+            let m = units.len().max(1) as f64;
+            let mean = units.iter().sum::<f64>() / m;
+            self.refs[i] = mean.max(0.05);
+            self.sds[i] = (units.iter().map(|u| (u - mean).powi(2)).sum::<f64>() / (m - 1.0).max(1.0)).sqrt();
+            println!("suite reference {}: {:.3}, spread {:.3} over {} units", a.name(), self.refs[i], self.sds[i], units.len());
         }
     }
 }
@@ -1313,5 +1373,60 @@ mod tests {
         }
         assert_eq!(w.species.get(sp).creature.as_ref().expect("creature").traits[organism::TRAIT_SCOUT], -1.0);
         assert_eq!(creature::food_trail_of(&w), creature::FoodTrail { reserve: 0.6, ..before });
+    }
+
+    /// An arena that scores `east` on even layouts and `west` on odd ones.
+    struct Sided {
+        east: f64,
+        west: f64,
+    }
+    impl Challenge for Sided {
+        fn name(&self) -> &'static str {
+            "sided"
+        }
+        fn unit(&self) -> Unit {
+            Unit::Colony
+        }
+        fn ants(&self) -> usize {
+            1
+        }
+        fn parts(&self) -> &'static [&'static str] {
+            &[]
+        }
+        fn banned(&self) -> &'static [O] {
+            &[]
+        }
+        fn frames(&self) -> u64 {
+            1
+        }
+        fn mirrored(&self) -> bool {
+            true
+        }
+        fn run(&self, l: Layout, _: &[&[f32]], _: &mut dyn FnMut(u64, &World)) -> Vec<Score> {
+            vec![Score { fit: if l.k.is_multiple_of(2) { self.east } else { self.west }, parts: vec![] }]
+        }
+    }
+
+    /// **A suite folds each arena on its own before the product**: one
+    /// arena done only east and another only west is worse side 1 on both,
+    /// not the `sqrt(4 x 1) = 2` the first suite read on each side; a
+    /// runaway ratio counts up to `RATIO_CAP`; and a kept arena under its
+    /// reference by more than `forget` standard errors costs nine tenths.
+    #[test]
+    fn a_suite_folds_each_arena_before_the_product() {
+        let lay = [Layout { seed: 1, k: 0, blind: false, legal: false }, Layout { seed: 1, k: 1, blind: false, legal: false }];
+        let g = vec![0.0f32; 1];
+        let score = |s: &Suite| crate::train::score_clones(s, &g, &lay, 1).fit;
+        let split = Suite::new(vec![(Box::new(Sided { east: 4.0, west: 1.0 }), false), (Box::new(Sided { east: 1.0, west: 4.0 }), false)], 2.0);
+        assert!((score(&split) - 1.0).abs() < 1e-9, "one-sided arenas scored {}", score(&split));
+        let runaway = Suite::new(vec![(Box::new(Sided { east: 10.0, west: 10.0 }), false), (Box::new(Sided { east: 1.0, west: 1.0 }), false)], 2.0);
+        assert!((score(&runaway) - RATIO_CAP.sqrt()).abs() < 1e-9, "a ratio of 10 was not capped: {}", score(&runaway));
+        let mut kept = Suite::new(vec![(Box::new(Sided { east: 1.0, west: 1.0 }), true)], 2.0);
+        assert!((score(&kept) - 1.0).abs() < 1e-9);
+        kept.refs[0] = 1.5;
+        kept.sds[0] = 0.1;
+        assert!((score(&kept) - 0.1 / 1.5).abs() < 1e-9, "a kept arena 0.5 under its reference with a spread of 0.1 was not forgotten: {}", score(&kept));
+        kept.sds[0] = 1.0;
+        assert!((score(&kept) - 1.0 / 1.5).abs() < 1e-9, "inside two standard errors (2.0) it is noise, not forgetting: {}", score(&kept));
     }
 }
