@@ -715,9 +715,11 @@ impl DigBed {
 /// one gap, counted the pit below it (72); now the roof must be the old
 /// ground. **Where, not what**: digging under a heap packs its bottom row
 /// into packed soil, the material a wall lined in place is made of, so
-/// packed soil above the datum is a lid and below it a roof. On the rig's own arena it costs an honest nest nothing: 946 cells
-/// either way over the game ant's 12 hold-out layouts
-/// (`ladder/review-ladder-docs.md` s2).
+/// packed soil above the datum is a lid and below it a roof. It cost an
+/// honest nest nothing on the flat beds before [`DigBed`]: 946 cells either
+/// way over the game ant's 12 hold-out layouts (`ladder/review-ladder-docs.md`
+/// s2). On the varied beds, `dug_cells`' amber (refused) count beside the
+/// room says the same thing per run: 0 on the game ant's first hold-out bed.
 pub fn joined_room(w: &World, spec: &crate::lab::scene::LabBox) -> usize {
     dug_cells(w, spec).iter().filter(|c| c.1 == Dug::Room).count()
 }
@@ -1023,6 +1025,19 @@ mod tests {
         clear(&mut w, x, s, 2, 8);
         clear(&mut w, x + 2, s + 6, 12, 2);
         assert_eq!(joined_room(&w, &spec), 24, "a shaft down to a 12x2 gallery is 24 cells of nest");
+        // **Spoil below the datum is not old ground** (the `!= spoil`
+        // clause, untested until the PR 708 review): the same gallery with
+        // its first six columns roofed by backfilled spoil instead keeps
+        // only the other six. The census still counts all 24.
+        let spoil = w.materials.id_of("spoil").expect("spoil");
+        for xx in x + 2..x + 8 {
+            for yy in s..s + 6 {
+                w.set(xx, yy, Cell::new(spoil, 0));
+            }
+        }
+        let ids = Ids::resolve(&w);
+        assert_eq!(census::census(&w, &spec, 0.0, &[x], &ids).roofed_room(), 24, "the census does not roof it either, so this case tests nothing");
+        assert_eq!(joined_room(&w, &spec), 12, "a gallery under backfilled spoil counted as room");
         let (mut w, spec) = bare_bed();
         clear(&mut w, x, s + 3, 10, 8);
         clear(&mut w, x + 5, s, 1, 3);

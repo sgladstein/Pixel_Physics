@@ -408,9 +408,16 @@ impl Default for Settings {
 ///
 /// **Layouts come in mirrored pairs on one seed** (`k` and `k + 1`, `k`
 /// even), training as well as hold-out, so a mirrored challenge's two sides
-/// differ only by the side and [`fold`] can take the worse of them. An arena
-/// that has no sides derives two beds from the pair itself ([`Dig`]'s
-/// `bed_seed`), or every pair would be one run twice.
+/// differ only by the side and [`fold`] can take the worse of them. Dig's
+/// beds have sides too: one bed per pair, drawn from the seed, with its
+/// one-sided features (the stone lens, the step) mirrored on odd `k`
+/// ([`challenges::DigBed`]), so a pair is one bed met from both sides.
+///
+/// **The dig hold-out draws few beds.** 8 hold-out layouts are 4 beds,
+/// with soil depth 29-39 and never the 41 lamp spacing; 12 are 6 beds.
+/// Training draws a new bed per pair per generation, so it sees the whole
+/// range; a champion's hold-out score is on the narrower set (coordinator
+/// review of PR 708 cf9b4350). [`sealed_layouts`] is a further 6.
 ///
 /// [`Dig`]: challenges::Dig
 pub fn training_layouts(run_seed: u64, gen: usize, n: usize) -> Vec<Layout> {
