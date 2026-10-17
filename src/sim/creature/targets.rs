@@ -81,7 +81,23 @@ pub const VERB_DROP: usize = 1;
 
 /// The names of the features, for readouts.
 pub fn feature_names() -> [&'static str; FEATURES] {
-    ["up", "forward", "roof", "footing", "open", "depth", "spoil", "crowd", "homeward", "nest_scent", "inside", "packed", "ahead", "door", "is_spoil"]
+    [
+        "up",
+        "forward",
+        "roof",
+        "footing",
+        "open",
+        "depth",
+        "spoil",
+        "crowd",
+        "homeward",
+        "nest_scent",
+        "inside",
+        "packed",
+        "ahead",
+        "door",
+        "is_spoil",
+    ]
 }
 
 /// Index of the input->hidden weight from input `i` to hidden unit `h`.
@@ -191,7 +207,13 @@ pub struct Targets {
 impl Targets {
     pub fn new(species: SpeciesId, weights: &[f32]) -> Self {
         assert_eq!(weights.len(), WEIGHTS, "a target scorer has {WEIGHTS} weights");
-        Targets { species, weights: weights.to_vec(), stats: TargetStats::default(), even: false, free: Free::default() }
+        Targets {
+            species,
+            weights: weights.to_vec(),
+            stats: TargetStats::default(),
+            even: false,
+            free: Free::default(),
+        }
     }
 }
 
@@ -212,12 +234,20 @@ fn squash(x: f32) -> f32 {
 
 /// Whether `organism` picks its targets with an evolved scorer.
 pub fn active(world: &World, organism: OrganismId) -> bool {
-    world.targets.as_ref().is_some_and(|t| world.organism(organism).is_some_and(|s| s.species == t.species))
+    world
+        .targets
+        .as_ref()
+        .is_some_and(|t| world.organism(organism).is_some_and(|s| s.species == t.species))
 }
 
 fn is_ground(world: &World, x: i32, y: i32) -> bool {
     let c = world.get(x, y);
-    c.material != material::EMPTY && matches!(world.materials.kind(c.material), MaterialKind::Powder | MaterialKind::Solid) && c.organism_id() == 0
+    c.material != material::EMPTY
+        && matches!(
+            world.materials.kind(c.material),
+            MaterialKind::Powder | MaterialKind::Solid
+        )
+        && c.organism_id() == 0
 }
 
 fn is_filled(world: &World, x: i32, y: i32) -> bool {
@@ -232,17 +262,29 @@ fn is_animal(world: &World, x: i32, y: i32) -> bool {
 /// ant's heading along x (0 when it faces straight up or down), so "forward"
 /// means the same thing facing either way and a rule learned facing east
 /// works facing west; `ahead` is the cell its heading points at.
-pub fn features(world: &World, (x, y): (i32, i32), (px, py): (i32, i32), facing: i32, ahead: (i32, i32)) -> [f32; FEATURES] {
+pub fn features(
+    world: &World,
+    (x, y): (i32, i32),
+    (px, py): (i32, i32),
+    facing: i32,
+    ahead: (i32, i32),
+) -> [f32; FEATURES] {
     let mut f = [0.0f32; FEATURES];
     f[0] = (y - py) as f32;
     f[1] = ((px - x) * facing) as f32;
     f[2] = (1..=3).filter(|&d| is_ground(world, px, py - d)).count() as f32 / 3.0;
     f[3] = (-1..=1).filter(|&d| is_filled(world, px + d, py + 1)).count() as f32 / 3.0;
-    f[4] = DIRS.iter().filter(|&&(dx, dy)| world.get(px + dx, py + dy).material == material::EMPTY).count() as f32 / 8.0;
+    f[4] = DIRS
+        .iter()
+        .filter(|&&(dx, dy)| world.get(px + dx, py + dy).material == material::EMPTY)
+        .count() as f32
+        / 8.0;
     // Below the frozen ground the colony started on: positive deeper,
     // negative above (the mound), in fives of rows: a founding bowl is two
     // or three deep, and tens read it as level ground.
-    f[5] = world.room_surface_at(px).map_or(0.0, |s| ((py - s) as f32 / 5.0).clamp(-1.0, 1.0));
+    f[5] = world
+        .room_surface_at(px)
+        .map_or(0.0, |s| ((py - s) as f32 / 5.0).clamp(-1.0, 1.0));
     let spoil = world.materials.id_of("spoil");
     let mut near = 0;
     for dy in -2..=2 {
@@ -253,7 +295,11 @@ pub fn features(world: &World, (x, y): (i32, i32), (px, py): (i32, i32), facing:
         }
     }
     f[6] = (near as f32 / 8.0).min(1.0);
-    f[7] = DIRS.iter().filter(|&&(dx, dy)| is_animal(world, px + dx, py + dy)).count() as f32 / 8.0;
+    f[7] = DIRS
+        .iter()
+        .filter(|&&(dx, dy)| is_animal(world, px + dx, py + dy))
+        .count() as f32
+        / 8.0;
     // Which way home is from there: closer to the nearest door than where
     // the ant stands (+1 per cell). Cut in a home-blind world, the training
     // rig's senses-cut control.
@@ -264,9 +310,20 @@ pub fn features(world: &World, (x, y): (i32, i32), (px, py): (i32, i32), facing:
         }
     }
     f[9] = world.pheromone_at(Channel::A, px, py) as f32 / pheromone::Scent::MAX as f32;
-    f[10] = if inside_nest(world, px, py) { 1.0 } else { 0.0 };
+    // Inside the nest's recorded footprint: the game's own idea of where
+    // the nest is, so cut in a home-blind world like the two door senses
+    // (coordinator review of PR 709).
+    f[10] = if !world.home_blind && inside_nest(world, px, py) {
+        1.0
+    } else {
+        0.0
+    };
     let packed = world.materials.id_of("packedsoil");
-    f[11] = if packed.is_some_and(|p| world.get(px, py).material == p) { 1.0 } else { 0.0 };
+    f[11] = if packed.is_some_and(|p| world.get(px, py).material == p) {
+        1.0
+    } else {
+        0.0
+    };
     // The cell the ant faces: the hand rules' own first choice, and a
     // sense of the body's, not of the rules.
     f[12] = if (px, py) == ahead { 1.0 } else { 0.0 };
@@ -281,7 +338,11 @@ pub fn features(world: &World, (x, y): (i32, i32), (px, py): (i32, i32), facing:
     }
     // A pellet: loose spoil is the cheapest cut there is, and cutting it is
     // moving a pellet, not digging.
-    f[14] = if spoil.is_some_and(|s| world.get(px, py).material == s) { 1.0 } else { 0.0 };
+    f[14] = if spoil.is_some_and(|s| world.get(px, py).material == s) {
+        1.0
+    } else {
+        0.0
+    };
     f
 }
 
@@ -305,14 +366,23 @@ pub fn score(w: &[f32], feats: &[f32; FEATURES], verb: usize) -> f32 {
 /// **Pick a target for `verb`**, or `None` for the "none" option or when the
 /// list is empty and "none" is all there is. `candidates` are the legal
 /// targets; `draw` is one uniform from the caller's stream.
-pub fn pick(world: &mut World, organism: OrganismId, verb: usize, candidates: &[(i32, i32)], draw: f32) -> Option<(i32, i32)> {
+pub fn pick(
+    world: &mut World,
+    organism: OrganismId,
+    verb: usize,
+    candidates: &[(i32, i32)],
+    draw: f32,
+) -> Option<(i32, i32)> {
     let st = world.organism(organism)?;
     let &(x, y) = st.chain.first()?;
     let (hx, hy) = DIRS[st.heading as usize];
     let (facing, ahead) = (hx.signum(), (x + hx, y + hy));
     let t = world.targets.as_ref()?;
     let w = &t.weights;
-    let mut scores: Vec<f32> = candidates.iter().map(|&c| (score(w, &features(world, (x, y), c, facing, ahead), verb) + 1.0) * 0.5).collect();
+    let mut scores: Vec<f32> = candidates
+        .iter()
+        .map(|&c| (score(w, &features(world, (x, y), c, facing, ahead), verb) + 1.0) * 0.5)
+        .collect();
     if t.even && !candidates.is_empty() {
         // `choose_weighted` weights a score s by (FLOOR + s)^2 and walks the
         // list in order with "none" last, so giving every target the mean
@@ -348,7 +418,10 @@ pub fn pick(world: &mut World, organism: OrganismId, verb: usize, candidates: &[
 /// only those its vetoes allow (`dig_veto`); the drop's candidates are the
 /// spoil branch's own open sites (`spoil_site_open`).
 pub fn dig_candidates(world: &World, def: &CreatureDef, organism: OrganismId, (x, y): (i32, i32)) -> Vec<(i32, i32)> {
-    DIRS.iter().map(|&(dx, dy)| (x + dx, y + dy)).filter(|&(px, py)| jaw_can_cut(world, def, organism, world.get(px, py))).collect()
+    DIRS.iter()
+        .map(|&(dx, dy)| (x + dx, y + dy))
+        .filter(|&(px, py)| jaw_can_cut(world, def, organism, world.get(px, py)))
+        .collect()
 }
 
 /// **A scorer that should pass**, built by hand before any evolution, so a
@@ -443,9 +516,18 @@ mod tests {
             picked_raw[a] += 1;
             picked_even[b] += 1;
         }
-        assert!(picked_raw[0] > 3 * picked_raw[3], "the scorer's own draw should favour its best target: {picked_raw:?}");
-        let (lo, hi) = (picked_even[..4].iter().min().unwrap(), picked_even[..4].iter().max().unwrap());
-        assert!(hi - lo <= 1, "the even draw should split its picks evenly: {picked_even:?}");
+        assert!(
+            picked_raw[0] > 3 * picked_raw[3],
+            "the scorer's own draw should favour its best target: {picked_raw:?}"
+        );
+        let (lo, hi) = (
+            picked_even[..4].iter().min().unwrap(),
+            picked_even[..4].iter().max().unwrap(),
+        );
+        assert!(
+            hi - lo <= 1,
+            "the even draw should split its picks evenly: {picked_even:?}"
+        );
     }
 
     /// **The jaws never get a living thing to cut.** Every head in a working
@@ -457,7 +539,16 @@ mod tests {
     /// each other, so creature cells are in reach of a head on many frames.
     #[test]
     fn no_dig_candidate_is_alive() {
-        let spec = crate::lab::scene::LabBox { founders: 4, colonies: 1, colony_ants: 12, width: 256, height: 128, ground_y: 64, soil_depth: 40, ..crate::lab::scene::LabBox::default() };
+        let spec = crate::lab::scene::LabBox {
+            founders: 4,
+            colonies: 1,
+            colony_ants: 12,
+            width: 256,
+            height: 128,
+            ground_y: 64,
+            soil_depth: 40,
+            ..crate::lab::scene::LabBox::default()
+        };
         let mut w = spec.build();
         let sp = w.species.id_of("ant").expect("ant");
         let def = w.species.get(sp).creature.clone().expect("creature");
@@ -474,18 +565,29 @@ mod tests {
                 if w.organism(id).map(|s| s.species) != Some(sp) {
                     continue;
                 }
-                let Some(&head) = w.organism(id).and_then(|s| s.chain.first()) else { continue };
-                beside_animal += DIRS.iter().filter(|&&(dx, dy)| is_animal(&w, head.0 + dx, head.1 + dy)).count();
+                let Some(&head) = w.organism(id).and_then(|s| s.chain.first()) else {
+                    continue;
+                };
+                beside_animal += DIRS
+                    .iter()
+                    .filter(|&&(dx, dy)| is_animal(&w, head.0 + dx, head.1 + dy))
+                    .count();
                 for (px, py) in dig_candidates(&w, &def, id, head) {
                     let c = w.get(px, py);
                     let kind = w.materials.kind(c.material);
-                    assert!(kind != MaterialKind::Creature && kind != MaterialKind::Plant && c.organism_id() == 0, "frame {f}: ant {id:?} could cut a living cell at ({px},{py})");
+                    assert!(
+                        kind != MaterialKind::Creature && kind != MaterialKind::Plant && c.organism_id() == 0,
+                        "frame {f}: ant {id:?} could cut a living cell at ({px},{py})"
+                    );
                     checked += 1;
                 }
             }
         }
         assert!(checked > 100, "only {checked} candidates checked");
-        assert!(beside_animal > 0, "no head ever stood beside another animal, so this saw nothing to refuse");
+        assert!(
+            beside_animal > 0,
+            "no head ever stood beside another animal, so this saw nothing to refuse"
+        );
     }
 
     /// The hand-built scorer says what its doc works through: the cell
@@ -510,7 +612,11 @@ mod tests {
             out[12] = a;
             inside[12] = a;
             assert!(score(&w, &out, VERB_DROP) > 0.8, "{}", score(&w, &out, VERB_DROP));
-            assert!(score(&w, &inside, VERB_DROP) < -0.8, "{}", score(&w, &inside, VERB_DROP));
+            assert!(
+                score(&w, &inside, VERB_DROP) < -0.8,
+                "{}",
+                score(&w, &inside, VERB_DROP)
+            );
         }
     }
 }
