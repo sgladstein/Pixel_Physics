@@ -90,9 +90,20 @@ fn clone_colony(w: &mut World, genome: &[f32], game_walk: bool, blind: bool) -> 
 /// 12 columns of the nest, plus crop food digested at the nest in cells --
 /// which counts every meal eaten at the nest, a dead nestmate's body too;
 /// the survival factor already charges for the death)
-/// times the fraction of the colony still alive. The survival factor is there
-/// because the probe's walking-only winner brought food home while the colony
-/// shrank from 12 to 8; the hop ban because its unbanned winner flew it home.
+/// times the fraction of the **founders** still alive. The survival factor is
+/// there because the probe's walking-only winner brought food home while the
+/// colony shrank from 12 to 8; the hop ban because its unbanned winner flew
+/// it home.
+///
+/// **Founders, not heads.** The founding colony carries brood, and brood
+/// that hatches during the run lifted a plain head count past the starting
+/// 12: the game walk ended at 16.75 alive, so four deaths could have hidden
+/// under four hatchings (`design/review-rev2.md` N10). Counting the ants
+/// that were there at the first frame charges every death. What the score
+/// still does not count is food spent raising that brood -- the game walk
+/// takes as much from the heap as the first trained colony (30.1 cells each)
+/// and scores far less `home` -- so a comparison against the game walk is
+/// not a forage comparison until it does.
 pub struct Forage {
     pub ants: usize,
     pub frames: u64,
@@ -132,7 +143,7 @@ impl Challenge for Forage {
         self.frames
     }
     fn parts(&self) -> &'static [&'static str] {
-        &["home", "alive", "taken", "pickups", "dist"]
+        &["home", "alive", "taken", "pickups", "dist", "founders_kept"]
     }
     fn banned(&self) -> &'static [O] {
         NOT_ANT_VERBS
@@ -146,14 +157,15 @@ impl Challenge for Forage {
         let sp = clone_colony(&mut w, genomes[0], self.game_walk, layout.blind);
         let food = w.materials.id_of("provisions").expect("provisions");
         let before = cells_of(&w, heap_x - 20, heap_x + 20, food);
-        let started = ants_of(&w, sp).len().max(1);
+        let founders = ants_of(&w, sp);
         for f in 0..self.frames {
             frame(&mut w, true);
             look(f + 1, &w);
         }
         let home = cells_of(&w, NEST_X - 12, NEST_X + 12, food) as f64 + w.creature_stats.digested_at_nest_face / 960.0;
-        let alive = ants_of(&w, sp).len();
-        let kept = (alive as f64 / started as f64).min(1.0);
+        let now = ants_of(&w, sp);
+        let alive = now.len();
+        let kept = founders.iter().filter(|id| now.binary_search(id).is_ok()).count() as f64 / founders.len().max(1) as f64;
         vec![Score {
             fit: home * kept,
             parts: vec![
@@ -162,6 +174,7 @@ impl Challenge for Forage {
                 (before - cells_of(&w, heap_x - 20, heap_x + 20, food)) as f64,
                 w.creature_stats.pickups as f64,
                 dist as f64,
+                kept,
             ],
         }]
     }

@@ -123,9 +123,14 @@ impl Rng {
     pub fn unit(&mut self) -> f32 {
         (self.next_u64() >> 40) as f32 / (1u64 << 24) as f32
     }
-    pub fn gauss(&mut self) -> f32 {
-        let (u1, u2) = (self.unit().max(1e-7), self.unit());
-        (-2.0 * u1.ln()).sqrt() * (std::f32::consts::TAU * u2).cos()
+    /// A step with mean 0 and standard deviation 1, uniform on
+    /// `[-sqrt 3, sqrt 3]`. **Not a Gaussian, on purpose**: Box-Muller needs
+    /// `ln` and `cos`, whose last bit is the platform libm's, so a run in the
+    /// cloud could pick different children from a local one with the same
+    /// seed. `brain::mutate` steps uniformly for the same reason. `sqrt` is
+    /// correctly rounded everywhere, and this one is a constant anyway.
+    pub fn step(&mut self) -> f32 {
+        (self.unit() * 2.0 - 1.0) * 3f32.sqrt()
     }
     pub fn below(&mut self, n: usize) -> usize {
         (self.next_u64() % n as u64) as usize
@@ -400,6 +405,14 @@ pub fn mean_score(v: &[Score]) -> Score {
 /// challenge's unit -- how the hold-out reads a champion, so a per-ant skill
 /// is judged on what a colony of it does.
 pub fn score_clones(ch: &dyn Challenge, g: &[f32], layouts: &[Layout], threads: usize) -> Score {
+    mean_score(&score_each(ch, g, layouts, threads))
+}
+
+/// [`score_clones`] layout by layout, in `layouts` order: what the noise bar
+/// is read from (`examples/train.rs`'s `noise=1`). A mean hides how far one
+/// fixed brain's score swings between layouts, and that swing is the bar a
+/// difference between two brains has to clear.
+pub fn score_each(ch: &dyn Challenge, g: &[f32], layouts: &[Layout], threads: usize) -> Vec<Score> {
     let next = std::sync::atomic::AtomicUsize::new(0);
     let out = std::sync::Mutex::new(vec![Score::default(); layouts.len()]);
     std::thread::scope(|s| {
@@ -413,16 +426,17 @@ pub fn score_clones(ch: &dyn Challenge, g: &[f32], layouts: &[Layout], threads: 
             });
         }
     });
-    mean_score(&out.into_inner().unwrap())
+    out.into_inner().unwrap()
 }
 
 /// The mutation operator: each trainable slot moves with probability `pm`
-/// by N(0, sigma), clamped to the range the hand-written genomes use.
+/// by a uniform step of standard deviation `sigma` ([`Rng::step`]), clamped
+/// to the range the hand-written genomes use.
 pub fn mutate(g: &[f32], slots: &[usize], pm: f32, sigma: f32, rng: &mut Rng) -> Vec<f32> {
     let mut c = g.to_vec();
     for &i in slots {
         if rng.unit() < pm {
-            c[i] = (c[i] + sigma * rng.gauss()).clamp(-40.0, 40.0);
+            c[i] = (c[i] + sigma * rng.step()).clamp(-40.0, 40.0);
         }
     }
     c
@@ -489,7 +503,7 @@ pub fn start_genome(start: &Start, species_genome: &[f32], banned: &[BrainOutput
             if let Start::Random(sd) = start {
                 let mut rng = Rng(seed ^ 0x5EED_5EED);
                 for i in trainable(banned) {
-                    g[i] = sd * rng.gauss();
+                    g[i] = sd * rng.step();
                 }
             }
             g
