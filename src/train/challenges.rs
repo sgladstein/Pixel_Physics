@@ -13,7 +13,12 @@ use crate::sim::{creature, material, update, Cell, World};
 
 /// Verbs that belong to other species or to a game this rig is not playing
 /// yet: hopping and flying (found by the probe as the cheap way to be
-/// "home"), fighting, and births (the population is fixed in every arena).
+/// "home"), fighting, and laying. **Banning `Lay` does not stop births**: the
+/// egg bar is the brood block's own `lay_at` (`creature::birth_bar`), and a
+/// banned output reads 0, which is above `LAY_HOLD_BELOW`, so an ant that can
+/// afford an egg lays one. Births happen where there is food (forage), never
+/// in dig, which has none; forage's `founders_kept` counts founders for that
+/// reason (ladder lane, 2026-10-17: 9 eggs, 6 births in 3k frames).
 pub const NOT_ANT_VERBS: &[O] = &[O::Impulse, O::Fly, O::Attack, O::Provision, O::Lay];
 
 /// One frame of the world, the serial driver: one world per thread, so the
@@ -82,8 +87,8 @@ fn bed_shaped(seed: u64, ants: usize, extra: &str, soil_depth: i32, lamp_spacing
 }
 
 /// Every ant in a fresh bed takes `genome`'s brain, and the world its target
-/// scorer if it has one ([`super::SCORER`]); births are put out of reach, and
-/// the brain steers (`Chooser::Off`) unless `game_walk`. A `blind` layout
+/// scorer if it has one ([`super::SCORER`]); births follow food (see
+/// [`NOT_ANT_VERBS`]), and the brain steers (`Chooser::Off`) unless `game_walk`. A `blind` layout
 /// also cuts the body's homeward re-roll and forces the brain walk, so the
 /// senses-cut control is blind outside the brain too ([`Layout::blind`]); a
 /// `legal` one draws the scorer's targets evenly ([`Layout::legal`]).
