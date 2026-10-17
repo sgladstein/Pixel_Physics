@@ -74,6 +74,7 @@ use super::world::{Account, KillDetail, World, KILL_VERB_BITE, KILL_VERB_EAT};
 /// **The needs-and-jobs walk**, a second way for an ant to decide, off unless a
 /// harness sets `World::needs` (`creature/needs.rs` says where it hooks in).
 pub mod needs;
+pub mod targets;
 
 /// Index 0 = east, then counterclockwise on screen (y grows downward, so
 /// `(1, -1)` is up-and-right). **The one heading table** — see
@@ -19394,6 +19395,35 @@ struct Did {
     packed: bool,
 }
 
+/// **A pellet put down where the evolved scorer says** ([`targets`]): the
+/// hand rules have already decided that it goes down now -- the holds, the
+/// cover scale and the brain's `DropSpoil` roll -- and that `sites`, the
+/// free cells beside the head a pellet can lie in, are not empty. The
+/// scorer picks one of them, or "not yet", in place of the first in
+/// neighbour order.
+fn drop_by_scorer(world: &mut World, organism: OrganismId, spoil: Spoil, sites: &[(i32, i32)], flags: u8, p: f32, draw: &mut rng::Rng) {
+    let r = draw.unit_f32();
+    let Some((px, py)) = targets::pick(world, organism, targets::VERB_DROP, sites, r) else {
+        note_spoil(world, SpoilWhy::Kept, flags, p);
+        return;
+    };
+    let inside = inside_nest(world, px, py);
+    world.set(px, py, spoil.cell);
+    if let Some(state) = world.organism_mut(organism) {
+        state.spoil = None;
+        state.spoil_ring = None;
+    }
+    world.creature_stats.spoil_dumped += 1;
+    if let Some(t) = world.targets.as_mut() {
+        if inside {
+            t.stats.dropped_inside += 1;
+        } else {
+            t.stats.dropped_outside += 1;
+        }
+    }
+    note_spoil(world, SpoilWhy::Placed, flags, p);
+}
+
 fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDef, outputs: &[f32; brain::BRAIN_OUTPUTS], draw: &mut rng::Rng) -> Did {
     let mut did = Did::default();
     use brain::BrainOutput as O;
@@ -20830,6 +20860,7 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
             store_drop(world, organism, (x, y), spoil, dump_urge, draw);
             return did;
         }
+        let scored = !steered && targets::active(world, organism);
         // **A lean ant puts its pellet down where it stands**
         // (`LeanForage::drop`), before any of the rules about where tailings
         // may lie; with no cell beside it that will hold one, it carries on.
@@ -20935,6 +20966,10 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
         // holds -- in the nest, the ring, the sky, under cover, the door's
         // column -- and no lift up a column. Beside her or not at all.
         let kept_inside = !steered && ((keep_inside && (patient || held_near_door || held_below)) || sky_held);
+        // A scorer that has taken the holds over ([`targets::Free`]) decides
+        // for itself, through "keep carrying", whether a pellet stays in
+        // the jaws.
+        let kept_inside = kept_inside && !(scored && targets::free_of(world, organism).holds);
         // The keep rule's inputs, each read on its own for the trace (the
         // rule above short-circuits). Reads only; no draw.
         let spoil_flags = if world.decision_log.is_some() {
@@ -21012,6 +21047,30 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
                 });
             world.creature_stats.column_refused += u64::from(column_refused);
             let open = |px: i32, py: i32| spoil_site_open(world, px, py, footed);
+            // **An evolved scorer picks which of the cells beside the carrier
+            // the pellet goes in, or that it keeps carrying** ([`targets`]),
+            // in place of the first in neighbour order. Everything else here
+            // stays the hand rules': the holds, the cover scale and the roll
+            // above, which say whether it goes down now, and the lift below
+            // when no cell beside it will hold one (the design replaces the
+            // rules that pick *where* one at a time). Only the training rig
+            // sets one.
+            if scored {
+                let sites: Vec<(i32, i32)> = NEIGHBOURS_8.iter().map(|&(dx, dy)| (x + dx, y + dy)).filter(|&(px, py)| open(px, py)).collect();
+                if !sites.is_empty() {
+                    drop_by_scorer(world, organism, spoil, &sites, spoil_flags, spoil_p, draw);
+                    return did;
+                }
+                // With the holds its own, it has the lift's place in them
+                // too: no cell beside it, it keeps the pellet, as the hand
+                // rules do inside the nest, rather than posting it up a
+                // column from anywhere (81% of pellets went up the column
+                // when the lift was let go inside, `no_lift` below).
+                if targets::free_of(world, organism).holds {
+                    note_spoil(world, SpoilWhy::NoSite, spoil_flags, spoil_p);
+                    return did;
+                }
+            }
             // **...and if there is no such cell beside it, up the shaft.**
             // An animal at the face has nowhere to lie a pellet down -- every
             // neighbour is either the gallery or the bank -- and the two
@@ -21152,6 +21211,32 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
         // came out would be `digs` again under another name. See
         // `CreatureStats::dig_rolls`.
         world.creature_stats.dig_rolls += 1;
+        // **An evolved scorer picks the cell** ([`targets`]), in place of the
+        // cell ahead and the four rules that move it, among the cells the
+        // jaws can take that the vetoes below allow ([`dig_veto`], each
+        // candidate judged as the cell ahead would be). "None" is one of its
+        // options, so it can still decline to cut.
+        if !steered && targets::active(world, organism) {
+            let free = targets::free_of(world, organism);
+            let mut candidates = targets::dig_candidates(world, def, organism, (x, y));
+            candidates.retain(|&(cx, cy)| {
+                let cell = world.get(cx, cy);
+                !dig_veto(world, def, organism, (x, y), (cx, cy), cell, false, draw, false, free).any()
+            });
+            let r = draw.unit_f32();
+            let Some((tx, ty)) = targets::pick(world, organism, targets::VERB_DIG, &candidates, r) else {
+                return Did { dug: 0, ..did };
+            };
+            // It turns to face what it cuts, as the face turn does.
+            if let Some(h) = DIRS.iter().position(|&(dx, dy)| (x + dx, y + dy) == (tx, ty)) {
+                if let Some(state) = world.organism_mut(organism) {
+                    state.heading = h as u8;
+                }
+            }
+            let target = world.get(tx, ty);
+            cut_cell(world, organism, (x, y), (tx, ty), target);
+            return Did { dug: 1, ..did };
+        }
         // **A one-cell passage is widened by the traffic through it**
         // ([`dig_widen_of`]): a digger whose way ahead is open is walking
         // along a passage, not standing at a face, and if the passage is one
@@ -21268,105 +21353,11 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
         // founding cut is the mouth being re-opened, not a new one started,
         // and there the cue counts for only [`door_cue_weight`] of itself --
         // nothing, at the shipped allele, and then no draw is taken.
-        let door_w = door_cue_weight(world, organism, (tx, ty));
-        // **A digger with no way out is not starting a mouth**
-        // ([`NeedsFirst`]'s escape parts): the heap cue (`breakthrough`) and
-        // the walk back's reach (`door`) stand aside for it. One read of the
-        // ways, only while a part is on.
-        let needs = needs_first_of(world);
-        let escaping = needs.escape() && shut_in(world, x, y);
-        let cue_waived = escaping && needs.breakthrough && spoil_cue_of(world).is_some() && door_w != Some(0.0);
-        world.creature_stats.needs_cue_waived += u64::from(cue_waived);
-        let cue_vetoed = match spoil_cue_of(world).filter(|_| door_w != Some(0.0) && !cue_waived) {
-            Some(cue) => {
-                let radius = curvature_radius_of(def, &traits_of(world, organism, def)).max(1);
-                match spoil_cue_factor(world, (x, y), (tx, ty), radius, cue) {
-                    Some(f) => {
-                        let f = door_w.map_or(f, |w| 1.0 - w * (1.0 - f));
-                        world.creature_stats.spoil_cue_applied += 1;
-                        world.creature_stats.spoil_cue_kept_milli += (f * 1000.0).round() as u64;
-                        f < 1.0 && draw.unit_f32() >= f
-                    }
-                    None => false,
-                }
-            }
-            None => false,
-        };
-        // **A roof over the nest** ([`dig_roof_of`], off): a cut into the
-        // ground just under a nest's surface, outside its door, is refused,
-        // so the crust over the nest stays whole and the chambers go below it.
-        // No draw either way. Judged only where the heap cue let the cut
-        // through, as it always was; the two are named apart for the trace.
-        // **Walking back to its face, a digger cuts only at it**
-        // ([`FaceTrip`]'s `only`): a cell more than [`FACE_TRIP_REACH`] from
-        // the face it is going back to is refused. No draw either way; judged
-        // where the heap cue let the cut through.
-        let face_trip = !cue_vetoed && face_trip_refuses(world, organism, (tx, ty));
-        let face_waived = face_trip && escaping && needs.door;
-        world.creature_stats.needs_face_waived += u64::from(face_waived);
-        let face_refused = face_trip && !face_waived;
-        world.creature_stats.digs_refused_face += u64::from(face_refused);
-        let roof_refused = !cue_vetoed && !face_refused && {
-            let refused = dig_roof_of(world).is_some_and(|rows| under_roof(world, (tx, ty), rows));
-            if refused {
-                world.creature_stats.digs_refused_roof += 1;
-                world.creature_stats.needs_roof_refused += u64::from(escaping);
-            }
-            refused
-        };
-        // **[`MoundDig`]'s `roof`**: a cut into the spoil mound away from
-        // the door is refused as a cut under the surface is, except for an
-        // ant shut in, which must cut its way out (`MOUND_OUT`'s `dig`, the
-        // needs ladder's escape). No draw either way.
-        let mound_refused = !cue_vetoed && !face_refused && !roof_refused && mound_dig().roof && mound_roof_refuses(world, (tx, ty)) && !escaping && !shut_in_mound(world, x, y);
-        world.creature_stats.digs_refused_mound += u64::from(mound_refused);
-        let roof_refused = roof_refused || mound_refused;
-        // **[`ShaftRooms`]**: a cut that would raise a room past its height
-        // or bring two rooms too close is refused; judged where every veto
-        // above let it through, and only on a cell the jaw can take, so the
-        // counters count real refusals. An ant shut in may cut its way out.
-        let shaft_why = if !steered && !cue_vetoed && !face_refused && !roof_refused && jaw_can_cut(world, def, organism, target) { shaft_room_refuses(world, (tx, ty)) } else { None };
-        // The `top` box's floor is not waived for an ant shut in
-        // ([`shaft_verdict`]).
-        let (shaft_refused, waived) = shaft_verdict(shaft_why, escaping);
-        if let Some(why) = shaft_why {
-            let c = &mut world.creature_stats;
-            if waived {
-                c.shaft_escaped += 1;
-            } else {
-                match why {
-                    ShaftWhy::Tall => c.shaft_tall += 1,
-                    ShaftWhy::Gap => c.shaft_gap += 1,
-                    ShaftWhy::Space => c.shaft_space += 1,
-                    ShaftWhy::Random => c.shaft_random += 1,
-                    ShaftWhy::Floor => c.shaft_floor += 1,
-                }
-            }
-        } else if !steered && !cue_vetoed && !face_refused && !roof_refused && shaft_top_let(world, (tx, ty)) && jaw_can_cut(world, def, organism, target) {
-            world.creature_stats.shaft_top_let += 1;
-        }
-        // **[`DigCompany`]**: a lone ant at a home wall does not cut. Judged
-        // last, where every veto above let the cut through, on a cell the jaw
-        // can take. Off, no read.
-        let company = if !steered && !cue_vetoed && !face_refused && !roof_refused && !shaft_refused && dig_company_of().is_some() && jaw_can_cut(world, def, organism, target) {
-            dig_company_verdict(world, def, organism, (x, y), (tx, ty), escaping)
-        } else {
-            None
-        };
-        if let Some(why) = company {
-            let c = &mut world.creature_stats;
-            match why {
-                CompanyWhy::Refused => c.company_refused += 1,
-                CompanyWhy::Kept => c.company_kept += 1,
-                CompanyWhy::Founding => c.company_founding += 1,
-                CompanyWhy::Escaping => c.company_escaped += 1,
-                CompanyWhy::Shaft => c.company_shaft += 1,
-            }
-        }
-        let company_refused = company == Some(CompanyWhy::Refused);
+        let v = dig_veto(world, def, organism, (x, y), (tx, ty), target, steered, draw, true, targets::Free::default());
+        let (cue_vetoed, face_refused, roof_refused, shaft_refused, company_refused) = (v.cue, v.face, v.roof, v.shaft, v.company);
         // The pressed verb is the verb (`steer`): no colony refusal stands
         // between the player and the cell she faces; the jaw test still does.
-        let vetoed = !steered && (cue_vetoed || face_refused || roof_refused || shaft_refused || company_refused);
+        let vetoed = !steered && v.any();
         // **What the jaw can take is [`jaw_can_cut`]**, one test shared with
         // the dig-down turn above so the two cannot drift apart; the argument
         // for each of its terms is there. A live seed is still counted here,
@@ -21394,127 +21385,275 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
             };
         }
         if !vetoed && jaw_can_cut(world, def, organism, target) {
-            if shaft_rooms_of().is_some() && shaft_region(world, (tx, ty)).is_some() {
-                world.creature_stats.shaft_cut += 1;
-            }
-            // **The spoil is picked up, not destroyed.** This line read
-            // `world.set(tx, ty, Cell::EMPTY)` with a comment calling
-            // carrying it out "a stage-4+ refinement -- noted, not built",
-            // and the owner found what that costs from play: *"when ants dig,
-            // they consume the soil... over time they just consume all the
-            // soil and there is nothing left."* A bed with a colony in it was
-            // a bed running down, and nothing in the box could put material
-            // back.
-            //
-            // It also made a *measurement* backwards, which is the part that
-            // took a day to find and is written up in `dead-ends.md`:
-            // `burrow_probe`'s void census scored the arm with no lining at
-            // 788 standing void against 472 for the arm that actually built
-            // galleries, because every destroyed cell lowered the bank and
-            // erosion counted as excavation.
-            //
-            // The whole `Cell` rides into the pellet -- see `Spoil`, and
-            // `line_burrow` below for the same rule -- so the water the soil
-            // was holding, its palette entry and its heat all come back out
-            // with it.
-            // **A pellet is tamped, the same act `line_burrow` performs on a
-            // wall** -- an ant cements what it works, and a deposited pellet
-            // is worked ground.
-            //
-            // **Loose was tried and it is the difference between a nest and
-            // no nest.** Loose tilth put down anywhere near a gallery runs
-            // along it and closes it -- `update_powder`'s straight-down rule,
-            // which is the whole reason `line_burrow` exists. Four
-            // combinations measured on `labnest`, roofed void at frame 9,000
-            // over two seeds, against **197/179** for the old
-            // destroy-the-spoil behaviour:
-            //
-            // | pellet | placed | roofed | digs |
-            // |---|---|---|---|
-            // | loose | anywhere empty | 2/1 | 495/611 |
-            // | loose | on a floor | 2/3 | 488/540 |
-            // | tamped | anywhere empty | 54/58 | 767/887 |
-            // | **tamped** | **on a floor** | **54/58** | **767/887** |
-            //
-            // The cost is paid at the drop rather than here: tamped ground is
-            // `self_supporting`, so a pellet placed with nothing under it
-            // hangs in the air. The drop needs a floor -- see `act`. That
-            // does not stop a colony stacking spoil on its own spoil into a
-            // lattice, which a rendered bank shows and which is a standing
-            // known limitation rather than a solved problem.
-            // **...and since 2026-09-13 it is `spoil` and not `packedsoil`,
-            // which is §Z18's repair.** A wall cut in place and a pellet set
-            // down in the open air are both tamped and are not the same
-            // ground: `self_supporting` is the rule that says a cell may not
-            // fall, which is correct for a gallery roof held by the bank at
-            // both ends and a promise a pellet has not earned. Dig out from
-            // under a heap of tailings and the overhang used to stand there
-            // for ever. `assets/materials/spoil.ron` carries the reasoning and
-            // the three owner reports.
-            //
-            // `spoils_into` first, `packs_into` as the fallback, so any ground
-            // that names no spoil material behaves exactly as it did before
-            // the field existed -- and so a pellet re-dug stays a pellet
-            // rather than being laundered into lining-grade ground.
-            let mut pellet = target;
-            //
-            // **Gated on `update::spoil_footing` so the ablation arm is
-            // genuinely `main`.** Leaving the pellet as `spoil` with the rule
-            // off looked like a tidier switch and was not a control: `spoil`
-            // carries `packs_into`, so `line_burrow` went on relabelling
-            // worked tailings as wall and the "off" arm read 19 hanging cells
-            // where the pre-change baseline on the same seed read 24.
-            let ground_def = world.materials.get(target.material);
-            let hauled = if crate::sim::update::spoil_footing() { ground_def.spoils_into.or(ground_def.packs_into) } else { ground_def.packs_into };
-            if let Some(hauled) = hauled {
-                pellet.material = hauled;
-            }
-            world.set(tx, ty, Cell::EMPTY);
-            // The census's record of the act (`World::dug_cells`): read by
-            // nothing in the simulation, so it cannot move a run.
-            world.dug_cells.insert((tx, ty));
-            let frame = world.frame;
-            if let Some(log) = world.cut_log.as_mut() {
-                log.push((tx, ty, frame, organism));
-            }
-            if spoil_kept() {
-                if let Some(state) = world.organism_mut(organism) {
-                    state.spoil = Some(Spoil { cell: pellet, store: false });
-                }
-            }
-            world.creature_stats.digs += 1;
-            // **Outside the `spoil_kept()` block above, deliberately, and
-            // no test can hold this line.** That block holds the only nearby
-            // `organism_mut`, so folding into it looks free -- and it would
-            // gate the per-individual dig count on a knob that has nothing to
-            // do with digging: with `PIXEL_PHYSICS_DIG_SPOIL=destroy` the
-            // column would read 0 while `creature_stats.digs` climbed, and
-            // `every_lifetime_counter_closes_against_its_world_total` would
-            // fail with no hint as to why.
-            //
-            // **A guard over it was written and then deleted rather than
-            // shipped**, because it could not go red: `spoil_kept` caches in
-            // a `OnceLock` and defaults to *true*, so under `cargo test` the
-            // gated mirror fires anyway and both placements pass. A test that
-            // cannot fail for the fault it is named after is blind, not weak
-            // (`CLAUDE.md`), and this comment is what is left instead. A
-            // separate lookup is the price of the count meaning what it says.
-            //
-            // **The face to come back to** ([`spoil_back`]): a cut made inside
-            // the nest is remembered, and one made in the open forgets it, so
-            // a digger that worked a heap is pulled nowhere.
-            let back_to = spoil_back().then(|| face_for_cut(world, (x, y), (tx, ty)).then_some((tx, ty)));
-            if let Some(state) = world.organism_mut(organism) {
-                state.life.digs += 1;
-                if let Some(back_to) = back_to {
-                    state.dig_return = back_to;
-                }
-            }
-            line_burrow(world, tx, ty);
+            cut_cell(world, organism, (x, y), (tx, ty), target);
             return Did { dug: 1, ..did };
         }
     }
     Did { dug: 0, ..did }
+}
+
+/// Which of the dig branch's vetoes refused a cut ([`dig_veto`]).
+#[derive(Clone, Copy, Debug, Default)]
+struct DigVeto {
+    cue: bool,
+    face: bool,
+    roof: bool,
+    shaft: bool,
+    company: bool,
+}
+
+impl DigVeto {
+    fn any(self) -> bool {
+        self.cue || self.face || self.roof || self.shaft || self.company
+    }
+}
+
+/// **The hand rules' verdict on one cut**: the vetoes a cell the jaws can
+/// take must pass, judged in the order the dig branch has always judged
+/// them -- the heap cue (its one draw, taken only while its factor is below
+/// 1), the face trip, the roof and the mound's roof, the shaft room, the
+/// company. Shared by the dig branch, which asks it of the one cell it
+/// chose, and the evolved target scorer ([`targets`]), which asks it of
+/// every candidate, so the scorer picks only among the cuts the hand rules
+/// allow: the design replaces the rules that pick *where* one at a time,
+/// and these say *whether* (ladder lane, `stage1-code-review.md`: the
+/// scorer with every veto gone cut at 20-30% of its rolls against the hand
+/// rules' 2%, and churned an open bowl). `book` keeps the counters for the
+/// dig branch's own cell; a scorer's candidates are not cuts, and are not
+/// counted as refusals.
+#[allow(clippy::too_many_arguments)]
+fn dig_veto(world: &mut World, def: &CreatureDef, organism: OrganismId, (x, y): (i32, i32), (tx, ty): (i32, i32), target: Cell, steered: bool, draw: &mut rng::Rng, book: bool, free: targets::Free) -> DigVeto {
+    let door_w = door_cue_weight(world, organism, (tx, ty));
+    // **A digger with no way out is not starting a mouth**
+    // ([`NeedsFirst`]'s escape parts): the heap cue (`breakthrough`) and
+    // the walk back's reach (`door`) stand aside for it. One read of the
+    // ways, only while a part is on.
+    let needs = needs_first_of(world);
+    let escaping = needs.escape() && shut_in(world, x, y);
+    let cue_waived = escaping && needs.breakthrough && spoil_cue_of(world).is_some() && door_w != Some(0.0);
+    if book {
+        world.creature_stats.needs_cue_waived += u64::from(cue_waived);
+    }
+    let cue_vetoed = match spoil_cue_of(world).filter(|_| !free.cue && door_w != Some(0.0) && !cue_waived) {
+        Some(cue) => {
+            let radius = curvature_radius_of(def, &traits_of(world, organism, def)).max(1);
+            match spoil_cue_factor(world, (x, y), (tx, ty), radius, cue) {
+                Some(f) => {
+                    let f = door_w.map_or(f, |w| 1.0 - w * (1.0 - f));
+                    if book {
+                        world.creature_stats.spoil_cue_applied += 1;
+                        world.creature_stats.spoil_cue_kept_milli += (f * 1000.0).round() as u64;
+                    }
+                    f < 1.0 && draw.unit_f32() >= f
+                }
+                None => false,
+            }
+        }
+        None => false,
+    };
+    // **A roof over the nest** ([`dig_roof_of`], off): a cut into the
+    // ground just under a nest's surface, outside its door, is refused,
+    // so the crust over the nest stays whole and the chambers go below it.
+    // No draw either way. Judged only where the heap cue let the cut
+    // through, as it always was; the two are named apart for the trace.
+    // **Walking back to its face, a digger cuts only at it**
+    // ([`FaceTrip`]'s `only`): a cell more than [`FACE_TRIP_REACH`] from
+    // the face it is going back to is refused. No draw either way; judged
+    // where the heap cue let the cut through.
+    let face_trip = !free.face && !cue_vetoed && face_trip_refuses(world, organism, (tx, ty));
+    let face_waived = face_trip && escaping && needs.door;
+    let face_refused = face_trip && !face_waived;
+    if book {
+        world.creature_stats.needs_face_waived += u64::from(face_waived);
+        world.creature_stats.digs_refused_face += u64::from(face_refused);
+    }
+    let roof_refused = !cue_vetoed && !face_refused && {
+        let refused = dig_roof_of(world).is_some_and(|rows| under_roof(world, (tx, ty), rows));
+        if refused && book {
+            world.creature_stats.digs_refused_roof += 1;
+            world.creature_stats.needs_roof_refused += u64::from(escaping);
+        }
+        refused
+    };
+    // **[`MoundDig`]'s `roof`**: a cut into the spoil mound away from
+    // the door is refused as a cut under the surface is, except for an
+    // ant shut in, which must cut its way out (`MOUND_OUT`'s `dig`, the
+    // needs ladder's escape). No draw either way.
+    let mound_refused = !cue_vetoed && !face_refused && !roof_refused && mound_dig().roof && mound_roof_refuses(world, (tx, ty)) && !escaping && !shut_in_mound(world, x, y);
+    if book {
+        world.creature_stats.digs_refused_mound += u64::from(mound_refused);
+    }
+    let roof_refused = roof_refused || mound_refused;
+    // **[`ShaftRooms`]**: a cut that would raise a room past its height
+    // or bring two rooms too close is refused; judged where every veto
+    // above let it through, and only on a cell the jaw can take, so the
+    // counters count real refusals. An ant shut in may cut its way out.
+    let shaft_why = if !steered && !cue_vetoed && !face_refused && !roof_refused && jaw_can_cut(world, def, organism, target) { shaft_room_refuses(world, (tx, ty)) } else { None };
+    // The `top` box's floor is not waived for an ant shut in
+    // ([`shaft_verdict`]).
+    let (shaft_refused, waived) = shaft_verdict(shaft_why, escaping);
+    if book {
+        if let Some(why) = shaft_why {
+            let c = &mut world.creature_stats;
+            if waived {
+                c.shaft_escaped += 1;
+            } else {
+                match why {
+                    ShaftWhy::Tall => c.shaft_tall += 1,
+                    ShaftWhy::Gap => c.shaft_gap += 1,
+                    ShaftWhy::Space => c.shaft_space += 1,
+                    ShaftWhy::Random => c.shaft_random += 1,
+                    ShaftWhy::Floor => c.shaft_floor += 1,
+                }
+            }
+        } else if !steered && !cue_vetoed && !face_refused && !roof_refused && shaft_top_let(world, (tx, ty)) && jaw_can_cut(world, def, organism, target) {
+            world.creature_stats.shaft_top_let += 1;
+        }
+    }
+    // **[`DigCompany`]**: a lone ant at a home wall does not cut. Judged
+    // last, where every veto above let the cut through, on a cell the jaw
+    // can take. Off, no read.
+    let company = if !free.company && !steered && !cue_vetoed && !face_refused && !roof_refused && !shaft_refused && dig_company_of().is_some() && jaw_can_cut(world, def, organism, target) {
+        dig_company_verdict(world, def, organism, (x, y), (tx, ty), escaping)
+    } else {
+        None
+    };
+    if let Some(why) = company.filter(|_| book) {
+        let c = &mut world.creature_stats;
+        match why {
+            CompanyWhy::Refused => c.company_refused += 1,
+            CompanyWhy::Kept => c.company_kept += 1,
+            CompanyWhy::Founding => c.company_founding += 1,
+            CompanyWhy::Escaping => c.company_escaped += 1,
+            CompanyWhy::Shaft => c.company_shaft += 1,
+        }
+    }
+    let company_refused = company == Some(CompanyWhy::Refused);
+    DigVeto { cue: cue_vetoed, face: face_refused, roof: roof_refused, shaft: shaft_refused, company: company_refused }
+}
+
+/// **The cut itself**, once a cell has been chosen and allowed: the pellet
+/// into the jaws, the cell empty, the burrow lined. Shared by the hand rules
+/// above and the evolved scorer ([`targets`]), so the two differ only in
+/// which cell.
+fn cut_cell(world: &mut World, organism: OrganismId, (x, y): (i32, i32), (tx, ty): (i32, i32), target: Cell) {
+    if shaft_rooms_of().is_some() && shaft_region(world, (tx, ty)).is_some() {
+        world.creature_stats.shaft_cut += 1;
+    }
+    // **The spoil is picked up, not destroyed.** This line read
+    // `world.set(tx, ty, Cell::EMPTY)` with a comment calling
+    // carrying it out "a stage-4+ refinement -- noted, not built",
+    // and the owner found what that costs from play: *"when ants dig,
+    // they consume the soil... over time they just consume all the
+    // soil and there is nothing left."* A bed with a colony in it was
+    // a bed running down, and nothing in the box could put material
+    // back.
+    //
+    // It also made a *measurement* backwards, which is the part that
+    // took a day to find and is written up in `dead-ends.md`:
+    // `burrow_probe`'s void census scored the arm with no lining at
+    // 788 standing void against 472 for the arm that actually built
+    // galleries, because every destroyed cell lowered the bank and
+    // erosion counted as excavation.
+    //
+    // The whole `Cell` rides into the pellet -- see `Spoil`, and
+    // `line_burrow` below for the same rule -- so the water the soil
+    // was holding, its palette entry and its heat all come back out
+    // with it.
+    // **A pellet is tamped, the same act `line_burrow` performs on a
+    // wall** -- an ant cements what it works, and a deposited pellet
+    // is worked ground.
+    //
+    // **Loose was tried and it is the difference between a nest and
+    // no nest.** Loose tilth put down anywhere near a gallery runs
+    // along it and closes it -- `update_powder`'s straight-down rule,
+    // which is the whole reason `line_burrow` exists. Four
+    // combinations measured on `labnest`, roofed void at frame 9,000
+    // over two seeds, against **197/179** for the old
+    // destroy-the-spoil behaviour:
+    //
+    // | pellet | placed | roofed | digs |
+    // |---|---|---|---|
+    // | loose | anywhere empty | 2/1 | 495/611 |
+    // | loose | on a floor | 2/3 | 488/540 |
+    // | tamped | anywhere empty | 54/58 | 767/887 |
+    // | **tamped** | **on a floor** | **54/58** | **767/887** |
+    //
+    // The cost is paid at the drop rather than here: tamped ground is
+    // `self_supporting`, so a pellet placed with nothing under it
+    // hangs in the air. The drop needs a floor -- see `act`. That
+    // does not stop a colony stacking spoil on its own spoil into a
+    // lattice, which a rendered bank shows and which is a standing
+    // known limitation rather than a solved problem.
+    // **...and since 2026-09-13 it is `spoil` and not `packedsoil`,
+    // which is §Z18's repair.** A wall cut in place and a pellet set
+    // down in the open air are both tamped and are not the same
+    // ground: `self_supporting` is the rule that says a cell may not
+    // fall, which is correct for a gallery roof held by the bank at
+    // both ends and a promise a pellet has not earned. Dig out from
+    // under a heap of tailings and the overhang used to stand there
+    // for ever. `assets/materials/spoil.ron` carries the reasoning and
+    // the three owner reports.
+    //
+    // `spoils_into` first, `packs_into` as the fallback, so any ground
+    // that names no spoil material behaves exactly as it did before
+    // the field existed -- and so a pellet re-dug stays a pellet
+    // rather than being laundered into lining-grade ground.
+    let mut pellet = target;
+    //
+    // **Gated on `update::spoil_footing` so the ablation arm is
+    // genuinely `main`.** Leaving the pellet as `spoil` with the rule
+    // off looked like a tidier switch and was not a control: `spoil`
+    // carries `packs_into`, so `line_burrow` went on relabelling
+    // worked tailings as wall and the "off" arm read 19 hanging cells
+    // where the pre-change baseline on the same seed read 24.
+    let ground_def = world.materials.get(target.material);
+    let hauled = if crate::sim::update::spoil_footing() { ground_def.spoils_into.or(ground_def.packs_into) } else { ground_def.packs_into };
+    if let Some(hauled) = hauled {
+        pellet.material = hauled;
+    }
+    world.set(tx, ty, Cell::EMPTY);
+    // The census's record of the act (`World::dug_cells`): read by
+    // nothing in the simulation, so it cannot move a run.
+    world.dug_cells.insert((tx, ty));
+    let frame = world.frame;
+    if let Some(log) = world.cut_log.as_mut() {
+        log.push((tx, ty, frame, organism));
+    }
+    if spoil_kept() {
+        if let Some(state) = world.organism_mut(organism) {
+            state.spoil = Some(Spoil { cell: pellet, store: false });
+        }
+    }
+    world.creature_stats.digs += 1;
+    // **Outside the `spoil_kept()` block above, deliberately, and
+    // no test can hold this line.** That block holds the only nearby
+    // `organism_mut`, so folding into it looks free -- and it would
+    // gate the per-individual dig count on a knob that has nothing to
+    // do with digging: with `PIXEL_PHYSICS_DIG_SPOIL=destroy` the
+    // column would read 0 while `creature_stats.digs` climbed, and
+    // `every_lifetime_counter_closes_against_its_world_total` would
+    // fail with no hint as to why.
+    //
+    // **A guard over it was written and then deleted rather than
+    // shipped**, because it could not go red: `spoil_kept` caches in
+    // a `OnceLock` and defaults to *true*, so under `cargo test` the
+    // gated mirror fires anyway and both placements pass. A test that
+    // cannot fail for the fault it is named after is blind, not weak
+    // (`CLAUDE.md`), and this comment is what is left instead. A
+    // separate lookup is the price of the count meaning what it says.
+    //
+    // **The face to come back to** ([`spoil_back`]): a cut made inside
+    // the nest is remembered, and one made in the open forgets it, so
+    // a digger that worked a heap is pulled nowhere.
+    let back_to = spoil_back().then(|| face_for_cut(world, (x, y), (tx, ty)).then_some((tx, ty)));
+    if let Some(state) = world.organism_mut(organism) {
+        state.life.digs += 1;
+        if let Some(back_to) = back_to {
+            state.dig_return = back_to;
+        }
+    }
+    line_burrow(world, tx, ty);
 }
 
 /// How far up `act`'s spoil lift may look — the first row holding something

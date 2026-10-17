@@ -81,11 +81,14 @@ fn bed_shaped(seed: u64, ants: usize, extra: &str, soil_depth: i32, lamp_spacing
     ron::from_str(&text).expect("training bed parses")
 }
 
-/// Every ant in a fresh bed takes `genome`, births are put out of reach, and
+/// Every ant in a fresh bed takes `genome`'s brain, and the world its target
+/// scorer if it has one ([`super::SCORER`]); births are put out of reach, and
 /// the brain steers (`Chooser::Off`) unless `game_walk`. A `blind` layout
 /// also cuts the body's homeward re-roll and forces the brain walk, so the
-/// senses-cut control is blind outside the brain too ([`Layout::blind`]).
-fn clone_colony(w: &mut World, genome: &[f32], game_walk: bool, blind: bool) -> SpeciesId {
+/// senses-cut control is blind outside the brain too ([`Layout::blind`]); a
+/// `legal` one draws the scorer's targets evenly ([`Layout::legal`]).
+fn clone_colony(w: &mut World, genome: &[f32], game_walk: bool, layout: Layout) -> SpeciesId {
+    let blind = layout.blind;
     let sp = w.species.id_of("ant").expect("ant");
     let mut def = w.species.get(sp).creature.clone().expect("creature");
     def.reproduce_threshold = 1.0e30;
@@ -93,13 +96,19 @@ fn clone_colony(w: &mut World, genome: &[f32], game_walk: bool, blind: bool) -> 
         def.home_bias = 0.0;
     }
     w.species.set_creature(sp, def);
-    w.species.set_genome(sp, genome.to_vec());
+    let (brain, scorer) = genome.split_at(genome.len().min(super::SCORER));
+    w.species.set_genome(sp, brain.to_vec());
     if !game_walk || blind {
         w.chooser = Some(creature::Chooser::Off);
     }
     w.home_blind = blind;
+    if !scorer.is_empty() {
+        let mut t = creature::targets::Targets::new(sp, scorer);
+        t.even = layout.legal;
+        w.targets = Some(t);
+    }
     for id in ants_of(w, sp) {
-        w.set_organism_genome(id, genome.to_vec());
+        w.set_organism_genome(id, brain.to_vec());
     }
     sp
 }
@@ -216,7 +225,7 @@ impl Challenge for Forage {
         let heap_x = NEST_X + side * dist;
         let extra = format!(r#"Heap(material: "provisions", x: {heap_x}, cells: {}),"#, self.heap);
         let (mut w, _, _) = bed(layout.seed, self.ants, &extra).build();
-        let sp = clone_colony(&mut w, genomes[0], self.game_walk, layout.blind);
+        let sp = clone_colony(&mut w, genomes[0], self.game_walk, layout);
         let food = w.materials.id_of("provisions").expect("provisions");
         let before = cells_of(&w, heap_x - HEAP_REACH, heap_x + HEAP_REACH, food);
         let founders = ants_of(&w, sp);
@@ -456,7 +465,22 @@ pub struct Dig {
     pub ants: usize,
     pub frames: u64,
     pub game_walk: bool,
+    /// **The target-choice arena** (stage 1 of the brain plan): genomes carry
+    /// an evolved target scorer, which picks the cell dug and where each
+    /// pellet goes down in place of the hand rules (`creature::targets`).
+    /// Its counters are printed beside the score: decisions that were a
+    /// choice at all, the margin between the two best, pellets left
+    /// inside.
+    pub targets: bool,
+    /// The hand filters the scorer replaces as well, the rung of the
+    /// one-rule-at-a-time ladder ([`creature::targets::Free`]).
+    pub free: creature::targets::Free,
 }
+
+const DIG_PARTS: &[&str] = &["room", "pit", "mound", "alive", "roofed", "spoil_below", "placed", "holding"];
+const DIG_TARGET_PARTS: &[&str] = &[
+    "room", "pit", "mound", "alive", "roofed", "spoil_below", "placed", "holding", "dig_choices", "dig_margin", "dig_none", "drop_choices", "drop_margin", "drop_none", "dropped_inside", "dropped_outside",
+];
 
 impl Challenge for Dig {
     fn name(&self) -> &'static str {
@@ -472,7 +496,14 @@ impl Challenge for Dig {
         self.frames
     }
     fn parts(&self) -> &'static [&'static str] {
-        &["room", "pit", "mound", "alive", "roofed", "spoil_below", "placed"]
+        if self.targets {
+            DIG_TARGET_PARTS
+        } else {
+            DIG_PARTS
+        }
+    }
+    fn scorer(&self) -> bool {
+        self.targets
     }
     fn banned(&self) -> &'static [O] {
         NOT_ANT_VERBS
@@ -484,7 +515,10 @@ impl Challenge for Dig {
         let shape = DigBed::of(layout);
         let sc = bed_shaped(layout.seed, self.ants, &shape.placements(), shape.depth, shape.lamp);
         let (mut w, _, _) = sc.build();
-        let sp = clone_colony(&mut w, genomes[0], self.game_walk, layout.blind);
+        let sp = clone_colony(&mut w, genomes[0], self.game_walk, layout);
+        if let Some(t) = w.targets.as_mut() {
+            t.free = self.free;
+        }
         // **Fed by topping up, not by raising `start_energy`.** The ants are
         // already placed when the arena gets them, so a raised
         // `start_energy` leaves their energy where it was and moves the
@@ -513,12 +547,17 @@ impl Challenge for Dig {
         }
         let alive = ants_of(&w, sp).len();
         let lived = alive + old_age(&w, sp, colony);
+        // Read at the bell, before the settle: a carrier still laden then
+        // could not dig, and a scorer that keeps saying "not yet" leaves its
+        // carriers laden (ladder lane's stage 1 review, finding 7).
+        let holding = ants_of(&w, sp).into_iter().filter(|&id| w.organism(id).is_some_and(|s| s.spoil.is_some())).count();
+        let t = w.targets.as_ref().map(|t| t.stats.clone()).unwrap_or_default();
         // **Settle before the count**: every ant takes the zero genome,
         // which digs nothing, and the bed runs on, so what is counted is
         // what stands once the work stops rather than what is standing at
         // the bell. On the game ant it changed nothing on 4 of 4 beds
         // (`ladder/dropin-nest-room.md`).
-        let zero = vec![0.0; genomes[0].len()];
+        let zero = vec![0.0; genomes[0].len().min(super::SCORER)];
         w.chooser = Some(creature::Chooser::Off);
         for id in ants_of(&w, sp) {
             w.set_organism_genome(id, zero.clone());
@@ -533,10 +572,22 @@ impl Challenge for Dig {
         let room = joined_room(&w, &sc.bed) as f64 - base_joined as f64;
         let roofed = end.roofed_room() as f64 - base.roofed_room() as f64;
         let kept = (lived as f64 / placed.len().max(1) as f64).min(1.0);
-        vec![Score {
-            fit: room.max(0.0) * kept,
-            parts: vec![room, end.pit as f64 - base.pit as f64, end.mound as f64, alive as f64, roofed, spoil_below(&w, &sc.bed) as f64, placed.len() as f64],
-        }]
+        let mut parts = vec![room, end.pit as f64 - base.pit as f64, end.mound as f64, alive as f64, roofed, spoil_below(&w, &sc.bed) as f64, placed.len() as f64, holding as f64];
+        if self.targets {
+            let (d, p) = (creature::targets::VERB_DIG, creature::targets::VERB_DROP);
+            let margin = |v: usize| if t.choices[v] > 0 { t.margin_sum[v] / t.choices[v] as f64 } else { 0.0 };
+            parts.extend([
+                t.choices[d] as f64,
+                margin(d),
+                t.none[d] as f64,
+                t.choices[p] as f64,
+                margin(p),
+                t.none[p] as f64,
+                t.dropped_inside as f64,
+                t.dropped_outside as f64,
+            ]);
+        }
+        vec![Score { fit: room.max(0.0) * kept, parts }]
     }
 }
 
@@ -769,6 +820,9 @@ impl Challenge for Suite {
     fn mirrored(&self) -> bool {
         self.arenas.iter().any(|(a, _)| a.mirrored())
     }
+    fn scorer(&self) -> bool {
+        self.arenas.iter().any(|(a, _)| a.scorer())
+    }
     fn run(&self, layout: Layout, genomes: &[&[f32]], look: &mut dyn FnMut(u64, &World)) -> Vec<Score> {
         let g = genomes[0];
         let mut ratios = vec![];
@@ -932,8 +986,8 @@ mod tests {
     fn dig_beds_mirror_and_always_have_a_side() {
         let (mut lens, mut step, mut depths) = (0, 0, std::collections::BTreeSet::new());
         for seed in 0..200 {
-            let east = DigBed::of(Layout { seed, k: 0, blind: false });
-            let west = DigBed::of(Layout { seed, k: 1, blind: false });
+            let east = DigBed::of(Layout { seed, k: 0, blind: false, legal: false });
+            let west = DigBed::of(Layout { seed, k: 1, blind: false, legal: false });
             assert!(east.lens.is_some() || east.step.is_some(), "seed {seed}: a bed with nothing one-sided");
             assert_eq!((east.depth, east.lamp), (west.depth, west.lamp));
             assert_eq!(east.lens.map(|(x, y, w, h)| (2 * NEST_X - x - w, y, w, h)), west.lens, "seed {seed}: lens not mirrored");
@@ -992,7 +1046,7 @@ mod tests {
             let (mut w, _, _) = bed(7, 12, "").build();
             let sp = w.species.id_of("ant").expect("ant");
             let g = w.species.get(sp).genome.clone();
-            clone_colony(&mut w, &g, false, true);
+            clone_colony(&mut w, &g, false, Layout { seed: 7, k: 0, blind: true, legal: false });
             w.home_blind = home_blind;
             for _ in 0..4000 {
                 frame(&mut w, true);
