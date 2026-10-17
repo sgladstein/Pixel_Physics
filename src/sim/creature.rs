@@ -74,6 +74,7 @@ use super::world::{Account, KillDetail, World, KILL_VERB_BITE, KILL_VERB_EAT};
 /// **The needs-and-jobs walk**, a second way for an ant to decide, off unless a
 /// harness sets `World::needs` (`creature/needs.rs` says where it hooks in).
 pub mod needs;
+pub mod options;
 pub mod targets;
 
 /// Index 0 = east, then counterclockwise on screen (y grows downward, so
@@ -7929,6 +7930,12 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
         let bucket = ((inputs[brain::BrainInput::Crowding as usize] * 10.0) as usize).min(9);
         world.creature_stats.at_nest_crowding[bucket] += 1;
         blend_with_nest(world, organism, x, y);
+    }
+    // **The new brain's option list, built and thrown away**
+    // (`options::shadow`): stage 2's frame-cost measurement, off unless the
+    // world asks, and a pure read when on, so the game is unchanged.
+    if world.option_shadow {
+        options::shadow(world, organism, def);
     }
     let sighting = seen.prey;
     // **The individual's reach, not the species'** -- an ant whose lineage
