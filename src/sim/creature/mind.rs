@@ -37,8 +37,15 @@ use super::{
     parting_enabled, relocate_chain, segment_authored, settle, traits_of, under_cover, BodyShape, BodySide,
     CreatureDef, DIRS,
 };
+use super::{
+    blend_with_kin, crop_take, crop_to_feed, food_at_home, food_value, nest_within_reach, note_drop, note_feed,
+    quantise_worth, DropWhy, FEED_SHARE, SHARE_FRACTION,
+};
+use crate::sim::cell::Cell;
 use crate::sim::cell::OrganismId;
+use crate::sim::organism::{self, BroodStage, Crop, DeathCause};
 use crate::sim::pheromone::{self, Channel};
+use crate::sim::plant;
 use crate::sim::rng;
 use crate::sim::scheduler::ActiveSite;
 use crate::sim::world::Account;
@@ -177,6 +184,8 @@ pub const PICK_FLOOR: f32 = 0.05;
 const RNG_SLOT_MIND: u64 = 40;
 /// ...and of each ant's own number.
 const RNG_SLOT_SELF: u64 = 41;
+/// ...and of what the act draws (whether a bitten seed survives the mouth).
+const RNG_SLOT_ACT: u64 = 42;
 
 /// A genome, with what it costs to run: the connections it holds.
 #[derive(Clone, Debug)]
@@ -237,6 +246,33 @@ pub fn apply_bans(g: &mut [f32], verbs: &[Verb], emits: [bool; EMITS]) {
             g[EMIT + e * E_IN..EMIT + (e + 1) * E_IN].fill(0.0);
         }
     }
+}
+
+/// **A rung's entry into a genome an earlier rung trained**: each verb
+/// this rung offers that the earlier one banned is switched on (a banned
+/// switch is held at exactly -1, [`trainable`]), at no weight, so it enters
+/// as a blank verb does; and where this rung lets the ant lay scent B and
+/// the genome has never laid it, B gets the hand-built layer: laid while
+/// the crop holds food (design rev3, *Scents need senders and receivers
+/// together*: today's brain has that rule by hand, so the new one starts
+/// with it and mutation may change it). Returns what it changed, for the
+/// run's log.
+pub fn enter_rung(g: &mut [f32], verbs: &[Verb], emits: [bool; EMITS]) -> Vec<&'static str> {
+    let mut did = vec![];
+    for v in Verb::ALL {
+        if verbs.contains(&v) && g[SWITCH + v as usize] == -1.0 {
+            g[SWITCH + v as usize] = 1.0;
+            did.push(v.name());
+        }
+    }
+    let b = EMIT + E_IN..EMIT + 2 * E_IN;
+    if emits[1] && g[b.clone()].iter().all(|w| *w == 0.0) {
+        // One cell (a sixth of the crop) lays at 0.79; nothing lays 0.
+        g[b.start + c::CROP] = 40.0;
+        g[b.end - 1] = -3.0;
+        did.push("scent B while carrying");
+    }
+    did
 }
 
 /// The scent reads among the context inputs.
@@ -314,6 +350,112 @@ pub fn preset(name: &str, verbs: &[Verb]) -> Option<Vec<f32>> {
             g[job(Verb::TurnAround, offset)] = -3.0;
             g[job(Verb::Rest, offset)] = -3.0;
         }
+        // **The forage rung's hand-built forager** (`challenges::Scarce`):
+        // home while the crop holds food or the bank could pay for an egg,
+        // otherwise on the way it faces, wall to wall, and up out of the
+        // nest; eat food in reach, put food down at the nest, feed a larva
+        // before a nestmate. The pass arm the rung needs before anything
+        // trains. Every weight inside the rig's bound of 40 but the score's
+        // bias, so a trained mind could reach it.
+        //
+        // **What it scores, and the three ways it starved before.** On the
+        // 80-column bed, 8 hold-out layouts, worse side: 2.75 (6.25 adults,
+        // 0.40 of founders kept), against the game ant's 16.3 and 0 for a
+        // blank mind. Traced ant by ant (2026-10-17):
+        // * **"The way it faces" was not in the weights.** A two-cell body
+        //   has eight steps, and back into its own neck is one of them
+        //   (`f::BACK`); scored like the forward step it made a random walk
+        //   that never left 50 columns of the nest, 0 eaten. Unit 2 now
+        //   forbids it, and a turn round, which also lands there, is let
+        //   off. The rest of the reversals come in through the draw floor.
+        // * **A sweep that ends at 96 columns and turns home** bounced
+        //   between the wall and the nest on the side it started, and half
+        //   the colony starts on the empty side; now it sweeps wall to wall.
+        // * **Down the shaft, home is everywhere**: an ant that walked in
+        //   spent 2,600 frames there. Unit 5 pulls it up at the nest, where
+        //   unit 4 stops charging for the climb.
+        // Laying scent B on the way home and following it out scored 0.38:
+        // tried and dropped.
+        //
+        // **Why the memory chain.** A unit is `squash` of a sum, so a gate
+        // is a sum pushed far from 0 for one state and near 0 for the other;
+        // a graded input (one crop cell is 1/6, the egg bar is 0.846 on the
+        // energy scale) cannot do that inside the bound. So the first
+        // version, gated on the crop directly, pulled home by about 0.3 of a
+        // score when carrying and away by 1.1 when not: a random walk that
+        // carried the food it found into its own bank and climbed the far
+        // wall (3.0 a side). Here memory squares each into a flag of +-1 a
+        // decision or two late, and one flag gates the home unit.
+        "forager" => {
+            let unit = |u: usize| (S_CTX + u * S_IN, S_FEAT + u * FEATURES);
+            let mem = |m: usize| MEM + m * M_IN;
+            let mem_in = CONTEXT + 2 + VERBS;
+            for m in 0..5 {
+                g[RATE + m] = -0.5; // no forgetting: each is this decision's
+            }
+            // The top sharpness, 4.
+            g[SHARP] = 3.0;
+            // 0 -> 1: carrying anything (-0.75 / +0.79), squared to +-0.97.
+            g[mem(0) + c::CROP] = 40.0;
+            g[mem(0) + M_IN - 1] = -3.0;
+            g[mem(1) + mem_in] = 40.0;
+            // 2 -> 3: the bank past the egg bar (1,100 J reads 0.846).
+            g[mem(2) + c::ENERGY] = 40.0;
+            g[mem(2) + M_IN - 1] = -34.0;
+            g[mem(3) + mem_in + 2] = 40.0;
+            g[mem(3) + M_IN - 1] = -10.0;
+            // 4: either.
+            g[mem(4) + mem_in + 1] = 40.0;
+            g[mem(4) + mem_in + 3] = 40.0;
+            g[mem(4) + M_IN - 1] = 38.0;
+            // 0: food in reach scores above anything beside it.
+            g[unit(0).1 + f::FOOD] = 6.0;
+            g[S_OUT] = 3.0;
+            // 1: home, only under the flag (off at -39 without it).
+            g[unit(1).1 + f::HOME] = 6.0;
+            g[unit(1).0 + CONTEXT + 4] = 20.0;
+            g[unit(1).0 + CONTEXT + MEMORY] = -20.0;
+            g[S_OUT + 1] = 4.0;
+            // 2: never step back into its own neck; a turn round, which
+            // also lands there, is the verb for reversing.
+            g[unit(2).1 + f::BACK] = -40.0;
+            g[S_VERB + 2 * VERBS + Verb::TurnAround as usize] = 40.0;
+            g[S_OUT + 2] = 20.0;
+            // 3: a larva, not a grown nestmate.
+            g[unit(3).1 + f::LARVA] = 8.0;
+            g[unit(3).1 + f::NESTMATE] = -4.0;
+            g[S_OUT + 3] = 3.0;
+            // 4: not off a ledge, not up a wall -- except at the nest, where
+            // the way out is up the shaft.
+            g[unit(4).1 + f::FALL] = -6.0;
+            g[unit(4).1 + f::CLIMB] = -4.0;
+            g[unit(4).0 + c::AT_NEST] = 10.0;
+            g[S_OUT + 4] = 6.0;
+            // 5: up and out at the nest, only without the flag.
+            g[unit(5).1 + f::UP] = 8.0;
+            g[unit(5).0 + c::AT_NEST] = 20.0;
+            g[unit(5).0 + CONTEXT + 4] = -20.0;
+            g[unit(5).0 + CONTEXT + MEMORY] = -39.0;
+            g[S_OUT + 5] = 4.0;
+            // An off unit reads -1, not 0: the score's bias puts back the 4
+            // each of units 1 and 5 takes from every option, or every step
+            // scores below a rest.
+            g[S_OUT + UNITS] = 10.0;
+            // Walk while a step scores; turn round when none does.
+            g[job(Verb::Walk, best)] = 6.0;
+            g[job(Verb::Walk, offset)] = 2.0;
+            g[job(Verb::TurnAround, best)] = 3.0;
+            g[job(Verb::TurnAround, offset)] = -6.0;
+            g[job(Verb::Rest, offset)] = -3.0;
+            g[job(Verb::Eat, best)] = 4.0;
+            g[job(Verb::Eat, offset)] = -1.0;
+            g[job(Verb::Drop, c::AT_NEST)] = 6.0;
+            g[job(Verb::Drop, offset)] = -4.0;
+            // Feed while the bank is past the egg bar.
+            g[job(Verb::Feed, best)] = 4.0;
+            g[job(Verb::Feed, CONTEXT + 3)] = 4.0;
+            g[job(Verb::Feed, offset)] = -2.0;
+        }
         _ => return None,
     }
     Some(g)
@@ -382,7 +524,10 @@ fn squash(x: f32) -> f32 {
 /// The verbs whose act has landed ([`act`]); the rest are never picked.
 impl Verb {
     pub fn acts(self) -> bool {
-        matches!(self, Verb::Walk | Verb::TurnAround | Verb::Rest)
+        matches!(
+            self,
+            Verb::Walk | Verb::TurnAround | Verb::Rest | Verb::Eat | Verb::Drop | Verb::Feed
+        )
     }
 }
 
@@ -430,6 +575,15 @@ pub struct MindCounts {
     pub failed: u64,
     /// Scent laid, in [`pheromone::DEPOSIT`] units.
     pub laid: [f64; EMITS],
+    /// Food: cells swallowed, crop cells put down (and of those, at the
+    /// nest), and feeds -- to a nestmate's bank, to a larva from the crop,
+    /// to a larva from the bank.
+    pub swallowed: u64,
+    pub put_down: u64,
+    pub delivered: u64,
+    pub fed_adult: u64,
+    pub fed_larva_crop: u64,
+    pub fed_larva_bank: u64,
 }
 
 /// **Every mind in the world**, by ant: a side table on the world, as the
@@ -814,7 +968,17 @@ pub(super) fn tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def:
             }
         }
         if let Some((opt, emits, n)) = decided {
-            let did = act(world, organism, def, opt);
+            let mut draw = rng::stream(world.seed, organism as u64, world.frame, RNG_SLOT_ACT);
+            let did = act(world, organism, def, opt, &mut draw);
+            // **Feeding is mandible to mandible, priced as the game prices
+            // a share** (`creature_tick`'s jaw bill): the same work whoever
+            // decided it, from the bank or the crop.
+            if did && opt.verb == Verb::Feed && def.dig_cost_in_moves > 0.0 {
+                let work = def.move_cost_per_cell * body_cells * def.dig_cost_in_moves;
+                spent += work;
+                world.book(colony, Account::Metabolized, work as f64);
+                world.creature_stats.share_energy += work as f64;
+            }
             if did {
                 moved = matches!(opt.verb, Verb::Walk | Verb::TurnAround);
                 if opt.verb == Verb::Walk {
@@ -852,13 +1016,254 @@ pub(super) fn tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def:
 /// **Do the chosen option by the world's rules.** `false` when the body
 /// could not after all; the list is built from the same checks, so that is
 /// a bug to count ([`MindCounts::failed`]), not a choice.
-fn act(world: &mut World, organism: OrganismId, def: &CreatureDef, opt: Opt) -> bool {
+fn act(world: &mut World, organism: OrganismId, def: &CreatureDef, opt: Opt, draw: &mut rng::Rng) -> bool {
+    let head = world.organism(organism).and_then(|s| s.chain.first().copied());
     match opt.verb {
         Verb::Rest => true,
         Verb::Walk => walk(world, organism, def, opt.target),
         Verb::TurnAround => turn_around(world, organism, def),
+        Verb::Eat if head == Some(opt.target) => eat_now(world, organism),
+        Verb::Eat => swallow(world, organism, def, opt.target, draw),
+        Verb::Drop => put_down(world, organism, def, opt.target),
+        Verb::Feed => feed(world, organism, def, opt.target),
         _ => false,
     }
+}
+
+/// **Eat from the crop**: finish the cell being digested this tick
+/// (`eat_lunch_now`). Digestion runs whatever the ant chose, so this only
+/// hurries it; the crop is not a choice to keep food from the body.
+fn eat_now(world: &mut World, organism: OrganismId) -> bool {
+    match world.organism_mut(organism) {
+        Some(s) if s.crop.is_some() => {
+            s.eat_lunch_now = true;
+            true
+        }
+        _ => false,
+    }
+}
+
+/// **Swallow a loose cell of food into the crop**, by the game's own
+/// physics (`act`'s ingest): a windfall's seed asks whether it survives the
+/// mouth, the cell leaves the world as `Eaten`, and the crop takes it at face
+/// value (`crop_take`), to be paid out by digestion. The list offered only
+/// what the swallow allows (`options::build`), so the checks here are the
+/// ones the world could have changed since.
+///
+/// **None of the game's food rules**: no store keep, no pile, no sated
+/// leave, no pellet block. Its counters, so a harness reads a mind's
+/// foraging as it reads the game's: `pickups` (and at the nest), `eats`,
+/// `best_bite`, the life's `bites`, and the trip marks a delivery books
+/// (`trip_load`, `trip_cells`) -- written here for any food taken away from
+/// home, the game's trip reach and minimum being walk rules.
+fn swallow(
+    world: &mut World,
+    organism: OrganismId,
+    def: &CreatureDef,
+    (fx, fy): (i32, i32),
+    draw: &mut rng::Rng,
+) -> bool {
+    let Some((crop, (hx, hy))) = world
+        .organism(organism)
+        .and_then(|s| s.chain.first().map(|&h| (s.crop, h)))
+    else {
+        return false;
+    };
+    let bite = world.get(fx, fy);
+    let food = bite.material;
+    if world.materials.get(food).food_energy <= 0.0
+        || bite.organism_id() != 0
+        || crop.is_some_and(|c| c.material != food || c.worth() + c.unit > organism_crop_capacity(world, organism, def))
+    {
+        return false;
+    }
+    let at_home = food_at_home(world, organism, def, hx, hy);
+    let seed = plant::seed_survives_bite(world, fx, fy, draw);
+    let worth = match seed {
+        plant::SeedBite::SurvivedBare => food_value(world, bite) * plant::seed_provision_fraction(world, fx, fy),
+        _ => food_value(world, bite),
+    };
+    if !seed.survived() {
+        world.loss_context = Some(DeathCause::Eaten);
+        world.set(fx, fy, Cell::EMPTY);
+        world.loss_context = None;
+    }
+    let passenger = (seed.survived() && crop.is_none_or(|c| c.passenger.is_none()))
+        .then(|| plant::take_seed_passenger(world, fx, fy))
+        .flatten();
+    if passenger.is_some() && seed == plant::SeedBite::SurvivedBare {
+        world.bare_seeds_carried += 1;
+    }
+    crop_take(world, organism, food, bite.shade, worth, passenger);
+    let fresh = crop.is_none_or(|c| c.worth() <= 0.0);
+    if let Some(state) = world.organism_mut(organism) {
+        state.life.bites += 1;
+        if fresh {
+            state.trip_load = false;
+            state.trip_src = 0;
+            state.trip_cells = 0;
+        }
+        if !at_home {
+            state.foraged = true;
+            state.trip_load = true;
+            state.since_trip = 0;
+            state.trip_cells = state.trip_cells.saturating_add(1);
+        }
+        // A packed lunch is the game's rule; a mind's crop never is one,
+        // so a larva can always be fed from it (`crop_to_feed`).
+        state.lunch = false;
+    }
+    let st = &mut world.creature_stats;
+    st.pickups += 1;
+    st.pickups_at_nest += u64::from(at_home);
+    st.eats += 1;
+    st.best_bite = st.best_bite.max(worth);
+    if let Some(m) = world.minds.as_mut() {
+        m.counts.swallowed += 1;
+    }
+    true
+}
+
+/// **Put one crop cell down in a free cell**, by the game's food drop
+/// (`act`'s drop branch): the cell leaves at `unit - digesting`, a seed
+/// riding in the crop goes down whole with its fruit, and the chewing goes
+/// with the cell. At the nest (`nest_within_reach`, the head) it is a
+/// delivery, counted as the game counts one. None of the game's holds,
+/// relays, store or door rules: where the food goes is the mind's.
+fn put_down(world: &mut World, organism: OrganismId, def: &CreatureDef, (dx, dy): (i32, i32)) -> bool {
+    let Some((held, (hx, hy))) = world
+        .organism(organism)
+        .and_then(|s| s.chain.first().map(|&h| (s.crop.filter(|c| c.cells > 0), h)))
+    else {
+        return false;
+    };
+    let Some(held) = held else { return false };
+    if world.organism(organism).is_some_and(|s| s.spoil.is_some()) || !world.is_empty(dx, dy) {
+        return false;
+    }
+    let at_nest = nest_within_reach(world, organism, hx, hy, def);
+    match held.passenger {
+        Some(passenger) => plant::deliver_seed_passenger_uneaten(world, dx, dy, passenger),
+        None => {
+            let cell = held.unit_cell(quantise_worth).into_cell(world);
+            world.set(dx, dy, cell);
+        }
+    }
+    let lumpy = organism::digest_is_lumpy();
+    let mut trip_cell = false;
+    let mut returned = false;
+    if let Some(state) = world.organism_mut(organism) {
+        state.crop = state.crop.and_then(|c| {
+            let left = c.cells.saturating_sub(1);
+            let digesting = if lumpy { c.digesting } else { 0.0 };
+            (left > 0).then_some(Crop {
+                cells: left,
+                digesting,
+                passenger: None,
+                ..c
+            })
+        });
+        trip_cell = state.trip_cells > 0;
+        state.trip_cells = state
+            .trip_cells
+            .saturating_sub(1)
+            .min(state.crop.map_or(0, |c| c.cells));
+        if at_nest {
+            state.life.deliveries += 1;
+            state.life.trip_deliveries += u32::from(trip_cell);
+            returned = std::mem::take(&mut state.trip_load);
+            state.trip_src = 0;
+        }
+    }
+    let st = &mut world.creature_stats;
+    st.drops += 1;
+    if at_nest {
+        st.deliveries += 1;
+        st.trip_deliveries += u64::from(trip_cell);
+        st.forage_returns += u64::from(returned);
+    }
+    note_drop(world, if at_nest { DropWhy::Delivered } else { DropWhy::Placed });
+    if let Some(m) = world.minds.as_mut() {
+        m.counts.put_down += 1;
+        m.counts.delivered += u64::from(at_nest);
+    }
+    true
+}
+
+/// **Feed the nestmate or larva at `target`.** A nestmate poorer than the
+/// ant gets a share of the bank, by the game's share (`SHARE_FRACTION` of
+/// the gap, downhill only, the odour blended along with it). A larva short
+/// of its target gets crop food if the crop holds any it can take
+/// (`brood::crop_feed_from`, the nurse's own transfer), else a share of the
+/// bank, downhill and no more than it needs. Who, and whether, is the
+/// mind's; the amount is fixed, like a mouthful (design rev3, *Physics vs
+/// policy*). The caller bills the jaw work.
+fn feed(world: &mut World, organism: OrganismId, def: &CreatureDef, (tx, ty): (i32, i32)) -> bool {
+    let other = world.get(tx, ty).organism_id();
+    let colony = world.colony_of(organism);
+    let Some((mine, me_crop)) = world.organism(organism).map(|s| (s.energy, crop_to_feed(world, s))) else {
+        return false;
+    };
+    let Some((theirs, brood, their_colony)) = (other != 0 && other != organism)
+        .then(|| world.organism(other))
+        .flatten()
+        .filter(|o| world.species.get(o.species).creature.is_some())
+        .map(|o| (o.energy, o.brood, o.colony))
+    else {
+        return false;
+    };
+    if their_colony != world.organism(organism).map_or(0, |s| s.colony) {
+        return false;
+    }
+    let need = match brood {
+        None => None,
+        Some(b) if b.stage == BroodStage::Larva && theirs < b.target => Some(b.target - theirs),
+        Some(_) => return false,
+    };
+    if let (Some(need), Some(c)) = (need, me_crop) {
+        let gain = crate::sim::brood::crop_feed_from(world, other, (tx, ty), colony, def, organism, c, need);
+        if gain > 0.0 {
+            if let Some(m) = world.minds.as_mut() {
+                m.counts.fed_larva_crop += 1;
+            }
+            return true;
+        }
+    }
+    if theirs >= mine {
+        return false;
+    }
+    let amount = need.map_or(SHARE_FRACTION * (mine - theirs), |n| {
+        (SHARE_FRACTION * (mine - theirs)).min(n)
+    });
+    let frame = world.frame;
+    if let Some(s) = world.organism_mut(organism) {
+        s.energy -= amount;
+        s.last_share_frame = frame;
+    }
+    if let Some(s) = world.organism_mut(other) {
+        s.energy += amount;
+        s.last_share_frame = frame;
+    }
+    let st = &mut world.creature_stats;
+    st.shares += 1;
+    st.shared_j += amount as f64;
+    let taker = world.colony_of(other);
+    world.book(colony, Account::SharedOut, amount as f64);
+    world.book(taker, Account::SharedIn, amount as f64);
+    if need.is_some() {
+        world.creature_stats.brood_shared_j += amount as f64;
+        note_feed(world, other, (tx, ty), FEED_SHARE, organism, amount);
+        if let Some(m) = world.minds.as_mut() {
+            m.counts.fed_larva_bank += 1;
+        }
+    } else {
+        blend_with_kin(world, organism, other, world.nest_blend);
+        world.creature_stats.share_blends += 1;
+        if let Some(m) = world.minds.as_mut() {
+            m.counts.fed_adult += 1;
+        }
+    }
+    true
 }
 
 /// A step onto `target`, committed exactly as the game's walks commit
@@ -1049,8 +1454,8 @@ mod tests {
         }
         let ctx: [f32; CONTEXT] = std::array::from_fn(|i| i as f32 / CONTEXT as f32);
         let base: Vec<Opt> = walks().into_iter().filter(|o| o.verb != Verb::TurnAround).collect();
-        // The same list with an off verb that acts (turning around) and two
-        // that do not act yet (dig, drop) threaded through it.
+        // The same list with two off verbs that act (turning around, putting
+        // down) and one that does not act yet (dig) threaded through it.
         let more = vec![
             base[0],
             opt(Verb::Dig, (1, 1), 0.3),
@@ -1085,6 +1490,182 @@ mod tests {
             moved > 500,
             "an on, acting verb must move the picks: {moved} of 2000 runs moved"
         );
+    }
+
+    /// A lab box's colony after 300 frames of the game, every adult then
+    /// given a blank mind with the forage rung's verbs.
+    fn mind_box() -> (World, CreatureDef, Vec<OrganismId>) {
+        let mut w = crate::lab::scene::LabBox {
+            founders: 4,
+            colonies: 1,
+            colony_ants: 12,
+            width: 256,
+            height: 128,
+            ground_y: 64,
+            soil_depth: 40,
+            ..crate::lab::scene::LabBox::default()
+        }
+        .build();
+        for _ in 0..300 {
+            crate::sim::update::step(&mut w);
+            w.step_active_sites();
+            w.step_fields();
+            w.step_pheromones();
+        }
+        let sp = w.species.id_of("ant").expect("ant");
+        let def = w.species.get(sp).creature.clone().expect("creature");
+        let g = Arc::new(MindGenome::new(blank(&[
+            Verb::Walk,
+            Verb::TurnAround,
+            Verb::Rest,
+            Verb::Eat,
+            Verb::Drop,
+            Verb::Feed,
+        ])));
+        let ids: Vec<OrganismId> = w
+            .live_organism_ids()
+            .into_iter()
+            .filter(|&id| w.organism(id).is_some_and(|s| s.species == sp && s.brood.is_none()))
+            .collect();
+        assert!(ids.len() >= 6, "{} adults", ids.len());
+        for &id in &ids {
+            give(&mut w, id, g.clone());
+        }
+        (w, def, ids)
+    }
+
+    fn head_of(w: &World, id: OrganismId) -> (i32, i32) {
+        w.organism(id)
+            .and_then(|s| s.chain.first().copied())
+            .expect("a live ant")
+    }
+
+    fn on(verb: Verb, target: (i32, i32)) -> Opt {
+        Opt {
+            verb,
+            target,
+            feats: [0.0; FEATURES],
+        }
+    }
+
+    /// **The food verbs move food by the world's rules**: a swallow takes
+    /// the cell into the crop and counts a pick-up; a put-down puts it back
+    /// as a cell and counts a delivery exactly when the head is at the nest
+    /// (`nest_within_reach`); an empty crop has nothing to put down, and
+    /// soil is not swallowed. A richer ant feeds a poorer one a quarter of
+    /// the gap (`SHARE_FRACTION`), and the poorer cannot feed back uphill.
+    #[test]
+    fn the_food_verbs_move_food_by_the_worlds_rules() {
+        let (mut w, def, ids) = mind_box();
+        let food = w.materials.id_of("provisions").expect("provisions");
+        let (id, head) = ids
+            .iter()
+            .map(|&id| (id, head_of(&w, id)))
+            .find(|&(_, (x, y))| w.get(x + 1, y).material == crate::sim::material::EMPTY)
+            .expect("an ant with open ground ahead");
+        let t = (head.0 + 1, head.1);
+        let mut draw = rng::stream(1, id as u64, 0, RNG_SLOT_ACT);
+        let pickups = w.creature_stats.pickups;
+        w.set(t.0, t.1, Cell::new(food, 0));
+        assert!(act(&mut w, id, &def, on(Verb::Eat, t), &mut draw), "the swallow");
+        assert_ne!(w.get(t.0, t.1).material, food, "the cell is still there");
+        assert!(w
+            .organism(id)
+            .and_then(|s| s.crop)
+            .is_some_and(|c| c.worth() > 0.0 && c.cells == 1));
+        assert_eq!(w.creature_stats.pickups, pickups + 1);
+        let at_nest = nest_within_reach(&w, id, head.0, head.1, &def);
+        let deliveries = w.creature_stats.deliveries;
+        assert!(act(&mut w, id, &def, on(Verb::Drop, t), &mut draw), "the put-down");
+        assert_eq!(w.get(t.0, t.1).material, food, "the cell did not go back down");
+        assert!(w.organism(id).is_some_and(|s| s.crop.is_none()));
+        assert_eq!(w.creature_stats.deliveries, deliveries + u64::from(at_nest));
+        let k = w.minds.as_ref().expect("minds").counts;
+        assert_eq!((k.swallowed, k.put_down, k.delivered), (1, 1, u64::from(at_nest)));
+        // Nothing left to put down; soil is not food.
+        w.set(t.0, t.1, Cell::EMPTY);
+        assert!(
+            !act(&mut w, id, &def, on(Verb::Drop, t), &mut draw),
+            "an empty crop put something down"
+        );
+        let soil = w.materials.id_of("soil").expect("soil");
+        w.set(t.0, t.1, Cell::new(soil, 0));
+        assert!(
+            !act(&mut w, id, &def, on(Verb::Eat, t), &mut draw),
+            "soil was swallowed"
+        );
+
+        // Two ants touching: a's head beside a cell of b's body.
+        let (a, b, at) = ids
+            .iter()
+            .flat_map(|&a| ids.iter().map(move |&b| (a, b)))
+            .filter(|(a, b)| a != b)
+            .find_map(|(a, b)| {
+                let h = head_of(&w, a);
+                let body = w.organism(b)?.chain.clone();
+                body.into_iter()
+                    .find(|&(x, y)| (x - h.0).abs() <= 1 && (y - h.1).abs() <= 1)
+                    .map(|c| (a, b, c))
+            })
+            .expect("two ants touching in the nest");
+        w.organism_mut(a).expect("a").energy = 300.0;
+        w.organism_mut(b).expect("b").energy = 100.0;
+        assert!(act(&mut w, a, &def, on(Verb::Feed, at), &mut draw), "the feed");
+        let (ea, eb) = (w.organism(a).expect("a").energy, w.organism(b).expect("b").energy);
+        assert!(
+            (ea - (300.0 - SHARE_FRACTION * 200.0)).abs() < 1e-3
+                && (eb - (100.0 + SHARE_FRACTION * 200.0)).abs() < 1e-3,
+            "{ea} {eb}"
+        );
+        let a_at = w.organism(a).expect("a").chain.iter().copied().find(|&(x, y)| {
+            let h = head_of(&w, b);
+            (x - h.0).abs() <= 1 && (y - h.1).abs() <= 1
+        });
+        if let Some(cell) = a_at {
+            assert!(!act(&mut w, b, &def, on(Verb::Feed, cell), &mut draw), "fed uphill");
+        }
+        assert_eq!(w.minds.as_ref().expect("minds").counts.fed_adult, 1);
+    }
+
+    /// **A rung's entry**: the verbs the earlier rung banned come on, an
+    /// evolved-off switch stays off, and scent B gets the carrying layer
+    /// only where the arena allows it and the genome never laid it.
+    #[test]
+    fn a_rung_switches_on_its_new_verbs_and_the_carrying_scent() {
+        let trail = [Verb::Walk, Verb::TurnAround, Verb::Rest];
+        let forage = [
+            Verb::Walk,
+            Verb::TurnAround,
+            Verb::Rest,
+            Verb::Eat,
+            Verb::Drop,
+            Verb::Feed,
+        ];
+        let mut g = blank(&trail);
+        g[SWITCH + Verb::TurnAround as usize] = -0.4; // evolved off
+        let did = enter_rung(&mut g, &forage, [true, true, false]);
+        assert_eq!(did, vec!["drop", "eat", "feed", "scent B while carrying"]);
+        assert!(g[SWITCH + Verb::Eat as usize] > 0.0 && g[SWITCH + Verb::TurnAround as usize] == -0.4);
+        assert_eq!(
+            g[SWITCH + Verb::Dig as usize],
+            -1.0,
+            "a verb this rung does not offer came on"
+        );
+        // Lays B with food in the crop, nothing without.
+        let lay = |crop: f32| {
+            let row = &g[EMIT + E_IN..EMIT + 2 * E_IN];
+            squash(row[c::CROP] * crop + row[E_IN - 1]).clamp(0.0, 1.0)
+        };
+        assert!(
+            lay(0.0) == 0.0 && lay(1.0 / 6.0) > 0.7,
+            "{} {}",
+            lay(0.0),
+            lay(1.0 / 6.0)
+        );
+        // Entered once, nothing more to do; and no layer where B is banned.
+        assert!(enter_rung(&mut g, &forage, [true, true, false]).is_empty());
+        let mut h = blank(&trail);
+        assert_eq!(enter_rung(&mut h, &trail, [false, false, false]), Vec::<&str>::new());
     }
 
     #[test]

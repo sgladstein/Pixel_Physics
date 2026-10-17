@@ -22479,9 +22479,61 @@ pub const FOOD_BRAKE_LO: f64 = 1.0;
 /// The bar's multiplier at the bottom of the ramp, just above `FOOD_BRAKE_LO`.
 const FOOD_BRAKE_MAX: f32 = 3.0;
 
+/// **A food brake set on one world** ([`World::food_brake`]), for the
+/// training rig: the ramp, the small-colony gate and whether brood counts
+/// in the burn. A world without one reads `PIXEL_PHYSICS_FOOD_BRAKE` as
+/// before, with the shipped gate and the shipped burn, so the game is
+/// unchanged.
+///
+/// **Why the rig needs its own** (ladder lane, `ladder/scarce-forage-arena.md`
+/// section 6, 2026-10-17; 8 layouts, 24,000 frames, 80 columns): on the
+/// stage 2 forage bed the shipped brake never bites. Its gate of 30 adults
+/// is never reached by the arms that over-breed, and income over the shipped
+/// burn reads 1.3-3.0 while the colony starves, because what a colony spends
+/// on brood (the egg and every joule fed to larvae) is not in that burn.
+/// Burn plus brood with the gate at 6 held eggs on all 8 layouts (34,719
+/// held ticks against 763) and cut starvation from 29 to 6 a layout for the
+/// cheap-brain champion and 33 to 13 for the champion, at a cost to the game
+/// ant of a third of its births. A fixed need per adult instead braked the
+/// frugal colony hardest and left the over-breeders alone.
+///
+/// **Not a re-test of the `Reports/dead-ends.md` entry on this ramp** (a
+/// steeper `lo,hi` stopped a colony of a thousand laying for good): the ramp
+/// is the shipped 1.0-1.5, the rig's colonies stay under about thirty for a
+/// 24,000-frame run, and the brood term falls back to nothing once the brood
+/// is gone, so the ratio is never lower than the shipped one's for longer
+/// than the colony's own brood lasts.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct FoodBrake {
+    /// Income over burn at and below which no egg is laid.
+    pub lo: f64,
+    /// Income over burn at and above which the bar stands.
+    pub hi: f64,
+    /// Live adults under which the colony breeds free; full strength at
+    /// twice this.
+    pub small: f64,
+    /// Whether the burn also counts brood: what every egg cost its layer
+    /// (`eggs_laid_j`) and every joule fed to larvae. **Read off world-wide
+    /// counters** (`creature_stats`), so only right for a world with one
+    /// colony, as every rig arena is.
+    pub brood: bool,
+}
+
+impl FoodBrake {
+    /// The ladder lane's rule for the forage rung: burn plus brood, ramp
+    /// 1.0-1.5, gate 6.
+    pub const FORAGE: FoodBrake = FoodBrake { lo: FOOD_BRAKE_LO, hi: FOOD_BRAKE_HI, small: 6.0, brood: true };
+}
+
+/// The food brake this world runs: its own ([`World::food_brake`]) or the
+/// env's, at the shipped gate and burn.
+pub fn food_brake_of(world: &World) -> Option<FoodBrake> {
+    world.food_brake.or_else(|| food_brake_env().map(|(lo, hi)| FoodBrake { lo, hi, small: FOOD_BRAKE_SMALL, brood: false }))
+}
+
 /// Whether the food brake is on for this world.
-pub fn food_brake_on(_world: &World) -> bool {
-    food_brake_env().is_some()
+pub fn food_brake_on(world: &World) -> bool {
+    food_brake_of(world).is_some()
 }
 
 /// **The food brake: breed freely while the colony's income clears its
@@ -22510,13 +22562,13 @@ pub fn food_brake_on(_world: &World) -> bool {
 /// more than they bring back long before any trail forms, which reads to
 /// an income-over-burn rule exactly like a colony that has outgrown its food.
 pub fn food_brake_factor(world: &World, colony: u32) -> f32 {
-    let Some((lo, hi)) = food_brake_env() else {
+    let Some(FoodBrake { lo, hi, small, .. }) = food_brake_of(world) else {
         return 1.0;
     };
     let Some(r) = world.colony_food_ratio(colony) else {
         return 1.0;
     };
-    let strength = ((world.colony_adults(colony) - FOOD_BRAKE_SMALL) / FOOD_BRAKE_SMALL).clamp(0.0, 1.0) as f32;
+    let strength = ((world.colony_adults(colony) - small) / small).clamp(0.0, 1.0) as f32;
     if strength <= 0.0 || r >= hi {
         return 1.0;
     }
@@ -44799,6 +44851,28 @@ mod tests {
     /// no egg at or below `lo` at full strength, and only a finite raise in
     /// a colony still growing into the brake. Tight asserts on pure
     /// functions, not watched red.
+    /// **A world's own food brake** ([`World::food_brake`], the rig's) uses
+    /// its own gate and ramp, not the shipped ones. Put the fault back
+    /// (`food_brake_of` reading only the env) and the first raise reads 1.0.
+    /// Tight asserts on a pure read, not watched red.
+    #[test]
+    fn a_worlds_own_food_brake_uses_its_own_gate_and_ramp() {
+        let mut w = World::new(Rect::new(0, 0, 31, 31));
+        // Income 125 against burn 100: halfway down a 1.0-1.5 ramp.
+        w.colony_pace = vec![[0.0, 0.0, 125.0, 100.0, 12.0]];
+        if food_brake_env().is_none() {
+            assert_eq!(food_brake_factor(&w, 0), 1.0, "no brake anywhere");
+        }
+        w.food_brake = Some(FoodBrake { brood: false, ..FoodBrake::FORAGE });
+        assert!((food_brake_factor(&w, 0) - 2.0).abs() < 1e-5, "full strength at twice the gate of 6");
+        w.colony_pace[0][4] = 9.0;
+        assert!((food_brake_factor(&w, 0) - 1.5).abs() < 1e-5, "half strength halfway up");
+        w.colony_pace[0][4] = 6.0;
+        assert_eq!(food_brake_factor(&w, 0), 1.0, "at the gate a colony breeds free");
+        w.colony_pace[0] = [0.0, 0.0, 95.0, 100.0, 12.0];
+        assert_eq!(food_brake_factor(&w, 0), f32::INFINITY, "burning more than it earns: no egg");
+    }
+
     #[test]
     fn the_store_brake_reads_its_parts_and_ramps_to_a_stop() {
         assert_eq!(parse_store_brake(""), StoreBrake::OFF);

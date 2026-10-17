@@ -184,8 +184,10 @@ pub fn is_mind(len: usize) -> bool {
 }
 
 /// **A mind's start genome**: a preset by name (`mind::preset`: `blank` or
-/// `zero`, `rest`, `follower`, `persist`) over the arena's verbs, or a
-/// genome file this rig wrote; the arena's bans applied.
+/// `zero`, `rest`, `follower`, `persist`, `forager`) over the arena's
+/// verbs, or a genome file this rig wrote -- an earlier rung's champion,
+/// which enters this rung by [`mind::enter_rung`] -- the arena's bans
+/// applied.
 pub fn start_mind(ch: &dyn Challenge, start: &str) -> Vec<f32> {
     assert!(ch.minds(), "{} cannot run minds yet", ch.name());
     let name = if start == "zero" { "blank" } else { start };
@@ -194,8 +196,13 @@ pub fn start_mind(ch: &dyn Challenge, start: &str) -> Vec<f32> {
         None => {
             let p = Path::new(start);
             let len = genome_file_len(p);
-            assert!(is_mind(len), "{start}: a genome of {len} slots is not a mind ({}); start= blank|rest|follower|persist|<mind file>", mind::GENOME_LEN);
-            load_genome(p, len)
+            assert!(is_mind(len), "{start}: a genome of {len} slots is not a mind ({}); start= blank|rest|follower|persist|forager|<mind file>", mind::GENOME_LEN);
+            let mut g = load_genome(p, len);
+            let did = mind::enter_rung(&mut g, ch.verbs(), ch.mind_emits());
+            if !did.is_empty() {
+                println!("{start} enters {}: {}", ch.name(), did.join(", "));
+            }
+            g
         }
     };
     mind::apply_bans(&mut g, ch.verbs(), ch.mind_emits());
@@ -565,6 +572,50 @@ pub struct Settings {
     /// `forage-walk-genes.md`). Selection already pays for a dense brain in
     /// deaths; this gives it a move that makes one sparser.
     pub prune: f32,
+    /// **The design's cost per connection** (rev3, *Size, cost and
+    /// growth*): selection ranks each genome by its fit less `|fit|` times
+    /// `1 - exp(-wire * connections)`, its share lost to [`connections`].
+    /// A share rather than a sum so one setting means the same on the
+    /// trail's 0-1 score and a colony's head count; at 5e-5 a thousand
+    /// connections cost about 5% of the score and a hundred 0.5%. Selection
+    /// only: the printed and saved scores are the arena's own.
+    ///
+    /// **Why**: an arena that cannot starve its ants never charges for a
+    /// brain. The trail arena raises the budget to 1e9 and bills each tax
+    /// at the authored budget's size, about 1 a tick for a full mind, which
+    /// an f32 at 1e9 (one step is 64) never takes off (review of PR 713 at
+    /// `d8a55651`, N1). Its champions grew to about 1,000 connections, and
+    /// started the forage rung paying four times an idle ant's bill in
+    /// brain tax. 0, the default, is the rig as before, draw for draw.
+    pub wire: f64,
+    /// Probability that a mutation landing on an empty slot makes it a
+    /// connection; otherwise the slot stays empty. 1, the default, is the
+    /// operator as before, draw for draw.
+    ///
+    /// **Why**: a step on an empty slot always made a connection, and two
+    /// thirds of a mind's slots start empty, so each child carried about
+    /// 45 new connections a generation and a mind grew by 25-30 a
+    /// generation whatever it scored: 63-82 at generation 0 of the trail
+    /// rung, 1,095-1,160 at 39 (`brain-training/stage2/trail-fixed`).
+    /// Mutation alone drifts a brain towards `grow / prune` live per empty
+    /// slot; at 1 with no pruning that is every slot. A cost per connection
+    /// ([`Settings::wire`]) pushes against the drift; this sets how hard
+    /// the drift pushes.
+    ///
+    /// **Under 1 from a blank start, the trail rung can stall standing
+    /// still** (trail, seed 1, 40 generations, 2026-10-17,
+    /// `brain-training/stage2/trail-wire`): a mind that never moves scores
+    /// exactly 0, and one that moves at random scores just below 0 on the
+    /// worse side of a mirrored pair, so while children are near-blank the
+    /// one that stands still wins. At `grow` 0.1 (wire 2e-4) and 0.3 (wire
+    /// 1e-3) every champion stood still for all 40 generations; at 0.3
+    /// with wire 2e-4 it left at generation 16 and reached 0.93 at 466
+    /// connections. At 1 with `prune` 0.3 every cost tried left by
+    /// generation 1: wire 2e-4 0.89 at 710 connections, 5e-4 0.92 at 594,
+    /// 1e-3 0.89 at 383, 2e-3 0.75 at 383, against 0.94 at 1,160 with no
+    /// cost. A rung that starts from a champion that already moves is not
+    /// exposed to this.
+    pub grow: f32,
 }
 
 impl Default for Settings {
@@ -582,6 +633,8 @@ impl Default for Settings {
             threads: 4,
             pictures: true,
             prune: 0.0,
+            wire: 0.0,
+            grow: 1.0,
         }
     }
 }
@@ -794,14 +847,15 @@ pub fn score_each(ch: &dyn Challenge, g: &[f32], layouts: &[Layout], threads: us
 /// The mutation operator: each trainable slot moves with probability `pm`
 /// by a uniform step of standard deviation `sigma` ([`Rng::step`]), clamped
 /// to the range the hand-written genomes use; a live weight is set to 0
-/// instead with probability `prune` ([`Settings::prune`]).
+/// instead with probability `prune` ([`Settings::prune`]), and an empty one
+/// made live only with probability `grow` ([`Settings::grow`]).
 ///
 /// **A walk gene moves on its own terms** ([`WALK_PM`], [`WALK_SIGMA`]):
 /// its axis is ±1 where a weight's is ±40, so a weight's step would cross
 /// it in one go, and at a weight's `pm` a twelve-gene block would see one
 /// move every third child. The reserve is held to `0..=1`, the rest to
 /// `±1`, where the walk itself clamps a gain (`creature::walk_gain`).
-pub fn mutate(g: &[f32], slots: &[usize], pm: f32, sigma: f32, prune: f32, rng: &mut Rng) -> Vec<f32> {
+pub fn mutate(g: &[f32], slots: &[usize], pm: f32, sigma: f32, prune: f32, grow: f32, rng: &mut Rng) -> Vec<f32> {
     let mut c = g.to_vec();
     let walk = blocks(g.len()).walk;
     for &i in slots {
@@ -813,6 +867,8 @@ pub fn mutate(g: &[f32], slots: &[usize], pm: f32, sigma: f32, prune: f32, rng: 
         } else if rng.unit() < pm {
             if prune > 0.0 && c[i] != 0.0 && rng.unit() < prune {
                 c[i] = 0.0;
+            } else if grow < 1.0 && c[i] == 0.0 && rng.unit() >= grow {
+                // A connection not made: the slot stays empty.
             } else {
                 c[i] = (c[i] + sigma * rng.step()).clamp(-40.0, 40.0);
             }
@@ -864,6 +920,22 @@ fn cross_mind(a: &[f32], b: &[f32], rng: &mut Rng) -> Vec<f32> {
         }
     }
     c
+}
+
+/// **What a genome's ants pay brain tax on**: a mind's live weights
+/// (`mind::MindGenome::live`), today's brain's non-zero weights (as
+/// [`describe`] counts them). What [`Settings::wire`] charges for.
+pub fn connections(g: &[f32]) -> usize {
+    if is_mind(g.len()) {
+        mind::MindGenome::new(g.to_vec()).live as usize
+    } else {
+        g.iter().take(BRAIN_END).filter(|&&w| w != 0.0).count()
+    }
+}
+
+/// A fit less its [`Settings::wire`] share, as selection ranks it.
+pub fn wired(fit: f64, links: usize, wire: f64) -> f64 {
+    fit - fit.abs() * (1.0 - (-wire * links as f64).exp())
 }
 
 /// A short readout of what a genome attends to: its non-zero weight count,
@@ -974,8 +1046,9 @@ fn start_brain(start: &Start, species_genome: &[f32], banned: &[BrainOutput], se
 
 /// **Run a whole training session.** Writes into `out`:
 ///
-/// * `progress.csv` -- one row per generation: best, median and control fit,
-///   then the best genome's parts;
+/// * `progress.csv` -- one row per generation: best, median and control fit
+///   (the arena's own, before [`Settings::wire`]), the best genome's parts,
+///   and its [`connections`];
 /// * `holdout.csv` -- champion, start and blinded champion on the hold-out
 ///   layouts, every `every` generations;
 /// * `champions/gen-NNN.txt` -- each generation's top genome;
@@ -989,7 +1062,7 @@ pub fn train(ch: &dyn Challenge, start: Vec<f32>, set: &Settings, out: &Path) ->
     let mut rng = Rng(set.seed.wrapping_mul(0xA24B_AED4_963E_E407) ^ 0x7EA1);
     let parts = ch.parts();
     let mut progress = std::fs::File::create(out.join("progress.csv"))?;
-    writeln!(progress, "gen,best,median,control,secs,{}", parts.join(","))?;
+    writeln!(progress, "gen,best,median,control,secs,{},links", parts.join(","))?;
     let mut holdout = std::fs::File::create(out.join("holdout.csv"))?;
     writeln!(holdout, "gen,who,fit,{}", parts.join(","))?;
     let head = format!(
@@ -1006,7 +1079,7 @@ pub fn train(ch: &dyn Challenge, start: Vec<f32>, set: &Settings, out: &Path) ->
     let hold = holdout_layouts(set.holdout);
 
     let mut popn: Vec<Vec<f32>> = (0..set.pop)
-        .map(|k| if k == 0 { start.clone() } else { mutate(&start, &slots, set.pm, set.sigma, set.prune, &mut rng) })
+        .map(|k| if k == 0 { start.clone() } else { mutate(&start, &slots, set.pm, set.sigma, set.prune, set.grow, &mut rng) })
         .collect();
     let elites = (set.pop / 4).max(1);
     let t0 = Instant::now();
@@ -1024,14 +1097,16 @@ pub fn train(ch: &dyn Challenge, start: Vec<f32>, set: &Settings, out: &Path) ->
         let scores = score_all(ch, &all, &layouts, set.threads, &mut rng);
         let means: Vec<Score> = scores.iter().map(|s| fold(ch, s, &layouts)).collect();
         let control = means[set.pop].fit;
-        let mut ranked: Vec<(f64, usize)> = (0..set.pop).map(|g| (means[g].fit, g)).collect();
+        let links: Vec<usize> = popn.iter().map(|g| connections(g)).collect();
+        let mut ranked: Vec<(f64, usize)> = (0..set.pop).map(|g| (wired(means[g].fit, links[g], set.wire), g)).collect();
         ranked.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap().then(a.1.cmp(&b.1)));
         let b = ranked[0].1;
         champion = popn[b].clone();
         let secs = tg.elapsed().as_secs_f64();
         let bp: Vec<String> = means[b].parts.iter().map(|p| format!("{p:.2}")).collect();
-        writeln!(progress, "{gen},{:.3},{:.3},{:.3},{secs:.1},{}", ranked[0].0, ranked[set.pop / 2].0, control, bp.join(","))?;
-        println!("{gen:3} {:7.2} {:7.2} {:7.2}  [{}]  {secs:.0}", ranked[0].0, ranked[set.pop / 2].0, control, bp.join(" "));
+        let (best, median) = (means[b].fit, means[ranked[set.pop / 2].1].fit);
+        writeln!(progress, "{gen},{best:.3},{median:.3},{control:.3},{secs:.1},{},{}", bp.join(","), links[b])?;
+        println!("{gen:3} {best:7.2} {median:7.2} {control:7.2}  [{}]  {secs:.0}  links {}", bp.join(" "), links[b]);
         save_genome(&out.join(format!("champions/gen-{gen:03}.txt")), &champion)?;
 
         if (gen + 1) % set.every.max(1) == 0 || gen + 1 == set.gens {
@@ -1064,7 +1139,7 @@ pub fn train(ch: &dyn Challenge, start: Vec<f32>, set: &Settings, out: &Path) ->
             } else {
                 a.clone()
             };
-            popn.push(mutate(&child, &slots, set.pm, set.sigma, set.prune, &mut rng));
+            popn.push(mutate(&child, &slots, set.pm, set.sigma, set.prune, set.grow, &mut rng));
         }
     }
     save_genome(&out.join("best.txt"), &champion)?;
@@ -1160,6 +1235,67 @@ pub fn picture(ch: &dyn Challenge, g: &[f32], layout: Layout, path: &Path) {
             eprintln!("picture {}: {e}", path.display());
         }
     }
+}
+
+/// **The numbers beside [`picture`]**: one genome on each layout, a line
+/// every `every` frames -- the colony's heads, energy and food, and what the
+/// minds chose if it has them. A picture says where the ants went; this says
+/// whether they ate, and when they started to starve.
+pub fn trace(ch: &dyn Challenge, g: &[f32], layouts: &[Layout], every: u64) {
+    for &layout in layouts {
+        println!("layout seed={} k={}", layout.seed, layout.k);
+        trace_one(ch, g, layout, every);
+    }
+}
+
+fn trace_one(ch: &dyn Challenge, g: &[f32], layout: Layout, every: u64) {
+    let gs: Vec<&[f32]> = vec![g; if ch.unit() == Unit::Ant { ch.ants() } else { 1 }];
+    let s = ch.run(layout, &gs, &mut |f, w| {
+        if !f.is_multiple_of(every) {
+            return;
+        }
+        let food = w.materials.id_of("provisions");
+        let mut lying = 0usize;
+        if let (Some(food), Some(b)) = (food, w.bounds()) {
+            for y in 0..=b.max_y {
+                for x in 0..=b.max_x {
+                    lying += usize::from(w.get(x, y).material == food);
+                }
+            }
+        }
+        let ant = w.species.id_of("ant");
+        let (mut adults, mut brood, mut energy, mut low, mut crop) = (0usize, 0usize, 0.0f64, f64::MAX, 0.0f64);
+        for id in w.live_organism_ids() {
+            let Some(st) = w.organism(id) else { continue };
+            if Some(st.species) != ant {
+                continue;
+            }
+            if st.brood.is_some() {
+                brood += 1;
+                continue;
+            }
+            adults += 1;
+            energy += st.energy as f64;
+            low = low.min(st.energy as f64);
+            crop += st.crop.map_or(0.0, |c| c.worth() as f64);
+        }
+        let c = &w.creature_stats;
+        let mean = if adults > 0 { energy / adults as f64 } else { 0.0 };
+        let low = if adults > 0 { low } else { 0.0 };
+        print!(
+            "f={f} adults={adults} brood={brood} energy={mean:.0} low={low:.0} crop={crop:.0} lying={lying} pickups={} eats={} deliveries={} births={} eggs={} held={}",
+            c.pickups, c.eats, c.deliveries, c.births, c.eggs_laid, c.food_brake_held
+        );
+        if let Some(m) = &w.minds {
+            let k = &m.counts;
+            print!(
+                " | mind chose {:?} swallowed={} put_down={} delivered={} fed_adult={} fed_larva_crop={} fed_larva_bank={} failed={}",
+                k.chose, k.swallowed, k.put_down, k.delivered, k.fed_adult, k.fed_larva_crop, k.fed_larva_bank, k.failed
+            );
+        }
+        println!();
+    });
+    println!("score {:?}", mean_score(&s));
 }
 
 #[cfg(test)]
@@ -1346,8 +1482,8 @@ mod tests {
     fn mutation_touches_only_trainable_slots_and_is_seeded() {
         let slots = trainable(&[BrainOutput::Fly]);
         let g = vec![0.0; brain::GENOME_LEN];
-        let a = mutate(&g, &slots, 0.5, 1.0, 0.0, &mut Rng(3));
-        let b = mutate(&g, &slots, 0.5, 1.0, 0.0, &mut Rng(3));
+        let a = mutate(&g, &slots, 0.5, 1.0, 0.0, 1.0, &mut Rng(3));
+        let b = mutate(&g, &slots, 0.5, 1.0, 0.0, 1.0, &mut Rng(3));
         assert_eq!(a, b, "same seed, same child");
         for (i, &w) in a.iter().enumerate() {
             if w != 0.0 {
@@ -1386,7 +1522,7 @@ mod tests {
         let mut moved = [false; WALK];
         let mut rng = Rng(5);
         for _ in 0..400 {
-            g = mutate(&g, &slots, 0.0, 1.0, 0.0, &mut rng);
+            g = mutate(&g, &slots, 0.0, 1.0, 0.0, 1.0, &mut rng);
             for (k, m) in moved.iter_mut().enumerate() {
                 let v = g[w + k];
                 let lo = if k == WALK - 1 { 0.0 } else { -1.0 };
@@ -1401,13 +1537,54 @@ mod tests {
     /// **Prune zeroes live weights, and at 0 is the operator before it**,
     /// draw for draw, so every run without it is the run it was.
     #[test]
+    fn the_connection_cost_charges_a_share_and_nothing_off() {
+        // Off: the arena's fit, exactly, whatever the brain's size.
+        assert_eq!(wired(0.87, 1_000, 0.0), 0.87);
+        assert_eq!(wired(-0.2, 1_000, 0.0), -0.2);
+        // On: a share, the same on a 0-1 score and a head count, and always
+        // down -- a signed score below 0 must not climb by growing.
+        let (a, b) = (wired(0.9, 1_000, 5e-5), wired(18.0, 1_000, 5e-5));
+        assert!((a / 0.9 - b / 18.0).abs() < 1e-12 && (0.94..0.96).contains(&(a / 0.9)), "{a} {b}");
+        assert!(wired(-0.2, 1_000, 5e-5) < -0.2);
+        // Equal fit, the sparser brain ranks first: the point of the cost.
+        assert!(wired(0.9, 100, 5e-5) > wired(0.9, 1_000, 5e-5));
+        // What it counts: a mind's live weights, today's non-zero ones.
+        let mut m = mind::blank(&[Verb::Walk]);
+        assert_eq!(connections(&m), 0);
+        let last = m.len() - 1;
+        m[last] = 0.5;
+        assert_eq!(connections(&m), 1);
+        let mut t = vec![0.0; brain::GENOME_LEN];
+        t[0] = 1.0;
+        t[3] = -2.0;
+        assert_eq!(connections(&t), 2);
+    }
+
+    #[test]
+    fn grow_leaves_empty_slots_empty_and_costs_nothing_at_one() {
+        let slots = trainable(&[]);
+        let g = vec![0.0; brain::GENOME_LEN];
+        let made = |grow: f32| mutate(&g, &slots, 1.0, 1.0, 0.0, grow, &mut Rng(9)).iter().filter(|&&w| w != 0.0).count();
+        // Every slot hit: all made at 1, about a tenth at 0.1, none at 0.
+        let n = slots.len();
+        assert!(made(1.0) > n * 9 / 10, "{} of {n}", made(1.0));
+        let tenth = made(0.1);
+        assert!((n / 20..n / 6).contains(&tenth), "{tenth} of {n}");
+        assert_eq!(made(0.0), 0);
+        // A live weight still steps whatever `grow` says.
+        let mut l = g.clone();
+        l[slots[0]] = 2.0;
+        assert_ne!(mutate(&l, &slots, 1.0, 1.0, 0.0, 0.0, &mut Rng(9))[slots[0]], 2.0);
+    }
+
+    #[test]
     fn prune_zeroes_live_weights_and_costs_nothing_off() {
         let slots = trainable(&[]);
         let mut g = vec![0.0; brain::GENOME_LEN];
         for &i in slots.iter().step_by(2) {
             g[i] = 3.0;
         }
-        let c = mutate(&g, &slots, 1.0, 1.0, 1.0, &mut Rng(4));
+        let c = mutate(&g, &slots, 1.0, 1.0, 1.0, 1.0, &mut Rng(4));
         for &i in slots.iter().step_by(2) {
             assert_eq!(c[i], 0.0, "live slot {i} was not pruned");
         }
@@ -1420,7 +1597,7 @@ mod tests {
             }
             c
         };
-        assert_eq!(mutate(&g, &slots, 0.3, 1.0, 0.0, &mut Rng(4)), before(&g, &mut Rng(4)));
+        assert_eq!(mutate(&g, &slots, 0.3, 1.0, 0.0, 1.0, &mut Rng(4)), before(&g, &mut Rng(4)));
     }
 
     /// **A start file keeps its walk genes, and a run that did not ask for

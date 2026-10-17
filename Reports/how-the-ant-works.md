@@ -814,7 +814,8 @@ give-up on the bank rather than the ground**: once a scout's energy falls to
 `scout_dark` off a trail), once per excursion (`scout_reserve_turned`). The
 game ant never sets it; the training rig evolves it as a walk gene
 (`train::WALK`), together with the walk's gains and trail planes, which it
-writes into each ant's traits.
+writes into each ant's traits. The needs walk (`needs.rs`) never reads it:
+it is a give-up inside `chooser_step`, which only the old walk runs.
 
 **Under `PIXEL_PHYSICS_FOOD_TRAIL=...,read` (on by default since 2026-10-01) an empty ant at
 the door turns toward the food side** (`door_read`, Stage 2,
@@ -1581,7 +1582,7 @@ Read once per process from the environment. The default is what ships.
 | `PIXEL_PHYSICS_FORAGE_THROTTLE` | `on` (since 2026-10-02) | near its door a forager's outward want is the colony's, not its hunger, and is carried on the excursion (§6d); `off` is the ant before it; parts `patrol=<p>` (default 1), `reach=<cells>` (default 16), `noscent`, `hold`; `World::forage_throttle` for one world |
 | `PIXEL_PHYSICS_STRANGER_ALARM` | `on` (built and shipped on 2026-10-10; `off` is the game before) | `on` (`touch,fed`, `level=20`) or a list of `touch`, `fed`, `species`, `level=<0-255>`: an ant touching a same-kind stranger tops the alarm at its cell up to `level` times how far past its tolerance the stranger smells; `fed`, a lean (under `LeanForage::line` of its grant) or laden ant neither marks nor answers while a stranger touches it; `species`, other kinds count too, at full (§5 step 0, `StrangerAlarm`, `stranger_touch`; counted in `stranger_touches`, `stranger_marks`, `stranger_fed_skips`, `stranger_rider_touches`); `World::stranger_alarm` for one world. `Reports/stranger-alarm-design-2026-10-10.md` |
 | `PIXEL_PHYSICS_SHARE_TOPUP` | off | `on`: a share goes first to the neediest leaver beside the donor, at `frac=<f>` of the difference (default 0.5) (§5); `World::share_topup` for one world |
-| `PIXEL_PHYSICS_FOOD_TRAIL` | `lay,read,giveup,window=700,noreturn` (since 2026-10-01; `lay` alone 09-30) | the food trail's recipe (`FoodTrail`): `lay` lays trail B only on a trip load (§7), `off` is the ant before 2026-09-30 (every ant with food in its crop lays), `t=<ticks>` adds an odometer; `giveup` lets a given-up scout go and bounds a scout at a walked trail's end (§6d), and `noreturn` lifts that bound past a scout's point of no return; `read` turns an empty ant at the door toward the food side (§6d), with `gain=` its gain (default 6) and `window=<frames>` its stale-pile window; `reserve=<0..1>` turns a scout home once its energy falls to that share of what it set out with (§6d; 0, none, unless set; the training rig's walk genes evolve it) (700 when unset, `READ_WINDOW_SHIPPED`; 0 is `return_window()`); `reach=2\|6` and `follow=all` parse and do nothing yet; `on` is all four parts (`window=700` included); `World::food_trail` for one world |
+| `PIXEL_PHYSICS_FOOD_TRAIL` | `lay,read,giveup,window=700,noreturn` (since 2026-10-01; `lay` alone 09-30) | the food trail's recipe (`FoodTrail`): `lay` lays trail B only on a trip load (§7), `off` is the ant before 2026-09-30 (every ant with food in its crop lays), `t=<ticks>` adds an odometer; `giveup` lets a given-up scout go and bounds a scout at a walked trail's end (§6d), and `noreturn` lifts that bound past a scout's point of no return; `read` turns an empty ant at the door toward the food side (§6d), with `gain=` its gain (default 6) and `window=<frames>` its stale-pile window (700 when unset, `READ_WINDOW_SHIPPED`; 0 is `return_window()`); `reserve=<0..1>` turns a scout home once its energy falls to that share of what it set out with (§6d; 0, none, unless set; the training rig's walk genes evolve it); `reach=2\|6` and `follow=all` parse and do nothing yet; `on` is all four parts (`window=700` included); `World::food_trail` for one world |
 | `PIXEL_PHYSICS_DROP_SIDE` | `even` | `west`: every food drop scans its neighbours north-west first, the ant before 2026-09-30 (`food_drop_order`, §5); `east`: always north-east first, its mirror |
 | `PIXEL_PHYSICS_BROOD` | on (since 2026-10-02) | births are eggs that grow through larva and pupa (§9); `off` is budding, the ant before; `World::brood` for one world. `PIXEL_PHYSICS_NURSE` says who feeds larvae by touch: nest workers only by default (since 2026-10-12), `any` for any grown nestmate (the rule before), `off` for nobody; `PIXEL_PHYSICS_LAY_AT`, `PIXEL_PHYSICS_EGG_COST`, `PIXEL_PHYSICS_BROOD_FRAMES=<egg>,<pupa>` and `PIXEL_PHYSICS_LAY_REACH` override the brood block for a sweep |
 | `PIXEL_PHYSICS_BIRTH_HEADING` | `outward` | `east`: every founder and every bud is born facing east, the ant before 2026-09-30. `outward`: a founder faces away from its colony's cursor, and a bud faces the way its body was laid (`birth_heading_outward`) |
@@ -1665,7 +1666,8 @@ Read once per process from the environment. The default is what ships.
   homeward re-roll at `home_bias`) stay as described here, except in the
   rig's senses-cut control, which sets `home_bias` to 0 and sets
   `World::home_blind`, which cuts the spoil haul's pull to the door too.
-  A genome may carry **walk genes** (`train::WALK`, `genes=walk`): an
+  A genome may carry **walk genes** (`train::WALK`, `genes=walk`, which
+  needs `walk=game`: only the game walk reads them): an
   allele for each of the walk's gains and trail planes, written into every
   ant's traits and the species', and the scout's reserve, written into the
   world's food trail (§6d's scouting paragraph). At zeros they are the game
@@ -1698,14 +1700,28 @@ Read once per process from the environment. The default is what ships.
      a step, `flipped_body` for turning round).
 
   Falls come first, and digestion, starvation and birth are §9's
-  (`settle`). Every tick, fall ticks included, the body pays what the game
-  ant's pays every tick: the brain's tax on its live weights, the jaw and
-  the plate, and exposure where authored. It casts no sight rays and reads
-  no curvature disc, so it pays no sight or curvature tax. Only walk, turn
-  around and rest act so far. A
-  newborn inherits its parent's mind. With `World::minds` unset, as in the
-  game, nothing here runs. `World::option_shadow` builds the option list
-  for the game ant and throws it away, for timing only.
+  (`settle`, laying included: an ant whose bank reaches its egg
+  bar lays as the game ant does, with no brain output asked). Every tick, fall ticks
+  included, the body pays what the game ant's pays every tick: the
+  brain's tax on its live weights, the jaw and the plate, and exposure
+  where authored; it casts no sight rays and reads no curvature disc, so
+  it pays no sight or curvature tax. Walk, turn
+  around, rest, eat, put down and feed act; dig, pick up and attack are
+  listed but do nothing yet. **Eat** at a food cell is §7's swallow into
+  the crop with none of its hold, store or pile rules (counted as a
+  pick-up, with the trip marks a delivery reads); eat at the head only
+  hurries the cell being digested, since digestion runs whatever the ant
+  chose. **Put down** lays one crop cell in a free cell, a delivery when
+  the head is at the nest (`nest_within_reach`). **Feed** gives a poorer
+  nestmate a quarter of the gap in bank and blends odour (§8's share), or
+  a hungry larva crop food by the nurse's own transfer
+  (`brood::crop_feed_from`), else bank up to its need; the jaw work is
+  billed like a dig. The larva's own feeding from a touching adult (§9's
+  `NURSE`) still runs beside it. A newborn inherits its parent's mind, an
+  egg at laying and a hatchling from the adult that tended it. With
+  `World::minds` unset, as in the game, nothing here runs.
+  `World::option_shadow` builds the option list for the game ant and
+  throws it away, for timing only.
 
 ## 14. Source comments that currently contradict the code
 
