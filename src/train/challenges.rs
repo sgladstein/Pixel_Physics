@@ -453,7 +453,8 @@ impl Challenge for Forage {
 /// many again and its colony starves on the same food, which only a head
 /// count read late enough sees. A colony that never feeds its larvae keeps
 /// at most its founders, so refusing brood is no cheat; corpse meals earn
-/// nothing, since the score counts heads.
+/// nothing, since the score counts heads. A colony gone before the last
+/// quarter reads [`scarce_floor`]: how long it lasted, under any live one.
 ///
 /// **The horizon is a setting**: 12,000 frames trains in half the time and
 /// still separates the champion (3.2) from the game ant (21.8); only by
@@ -532,7 +533,7 @@ impl Challenge for Scarce {
         self.frames
     }
     fn parts(&self) -> &'static [&'static str] {
-        &["score", "adults", "kept", "starved", "births", "brood", "eaten", "delivered", "larvae_j", "held", "dist"]
+        &["score", "adults", "kept", "starved", "births", "brood", "eaten", "delivered", "larvae_j", "held", "dist", "lived"]
     }
     fn banned(&self) -> &'static [O] {
         NOT_ANT_VERBS
@@ -591,12 +592,22 @@ impl Challenge for Scarce {
         // at the end.
         let snaps: Vec<u64> = (13..=16).map(|k| self.frames * k / 16).filter(|&f| f > 0).collect();
         let mut scores = Vec::new();
+        // The same read over the whole run, for the floor ([`scarce_floor`]).
+        let lived_every = (self.frames / 64).max(1);
+        let mut lived = (0.0, 0u32);
         for f in 0..self.frames {
             frame_timed(&mut w, &sc, true);
             look(f + 1, &w);
-            if snaps.contains(&(f + 1)) {
+            let at_snap = snaps.contains(&(f + 1));
+            if at_snap || (f + 1).is_multiple_of(lived_every) {
                 let (now, kept) = census(&w);
-                scores.push(now.len() as f64 * kept);
+                if at_snap {
+                    scores.push(now.len() as f64 * kept);
+                }
+                if (f + 1).is_multiple_of(lived_every) {
+                    lived.0 += now.len() as f64 * kept;
+                    lived.1 += 1;
+                }
             }
         }
         let (now, kept) = census(&w);
@@ -608,7 +619,8 @@ impl Challenge for Scarce {
         let st = &w.creature_stats;
         let brood = ants_of(&w, sp).len() - now.len();
         let larvae_j = st.brood_crop_fed_j + st.brood_ate_j + st.brood_shared_j + st.brood_nursed_j;
-        let score = scores.iter().sum::<f64>() / scores.len() as f64;
+        let lived = lived.0 / lived.1.max(1) as f64 / founders.len().max(1) as f64;
+        let score = scarce_floor(scores.iter().sum::<f64>() / scores.len() as f64, lived, founders.len());
         vec![Score {
             fit: score,
             parts: vec![
@@ -623,9 +635,36 @@ impl Challenge for Scarce {
                 larvae_j,
                 st.food_brake_held as f64,
                 dist as f64,
+                lived,
             ],
         }]
     }
+}
+
+/// **A colony gone before the last quarter still ranks by how long it
+/// lasted**: `score` (the last quarter's reads) when it is above 0,
+/// otherwise `lived` (the same adults-times-founders-kept read every 64th
+/// of the run, over the founders) scaled under the least score a live
+/// colony can read, a single founder at one of the four reads, so a dead
+/// colony never outranks a live one and no live score moves.
+///
+/// **Why**: today's brain started the forage rung from its trail champion,
+/// which never picks food up; its colonies starved by frame 6,000 of
+/// 12,000 on every layout, every child of 48 for 20 generations read
+/// exactly 0 at both step sizes (`brain-training/stage2/forage-lean`,
+/// today-plan-s1, today-old-s1), and selection had nothing to choose by. The
+/// mind's trail champion read 0 too but picks food up, so its first
+/// children already lived into the last quarter. A child that eats a little
+/// or walks a little less dies later and now ranks higher. Resting is not
+/// newly paid: a colony that does nothing already outlives the last quarter
+/// at 12,000 frames and scores on the reads (`ladder/scarce-forage-arena.md`).
+pub fn scarce_floor(score: f64, lived: f64, founders: usize) -> f64 {
+    if score > 0.0 {
+        return score;
+    }
+    // One ant at one read, with one founder of `founders` kept.
+    let least = 1.0 / (4.0 * founders.max(1) as f64);
+    lived.clamp(0.0, 1.0) * least / 2.0
 }
 
 /// **Take the trail, not the bare ground** (per ant).
@@ -1557,6 +1596,25 @@ mod tests {
         }
         assert_eq!(at, vec![5, 10], "the drip at frames 1 and 1,001");
         assert_eq!(food_near(&plain), 0, "food landed without the timeline tick");
+    }
+
+    /// **A dead colony ranks by how long it lasted, always under a live
+    /// one, and a live score is untouched** ([`scarce_floor`]). Put the
+    /// fault back (the floor returning `score`) and the first assert reads
+    /// 0 against 0. Tight asserts on a pure function, not watched red.
+    #[test]
+    fn a_dead_colony_ranks_by_how_long_it_lasted_and_never_above_a_live_one() {
+        let early = scarce_floor(0.0, 0.2, 12);
+        let late = scarce_floor(0.0, 0.6, 12);
+        assert!(0.0 < early && early < late, "dying later ranks higher: {early} {late}");
+        // The least a live colony reads: one founder at one of four reads.
+        let least_live = 1.0 / 12.0 / 4.0;
+        assert!(scarce_floor(0.0, 1.0, 12) < least_live);
+        assert!(scarce_floor(0.0, 9.0, 12) < least_live, "a colony grown past its founders still clamps");
+        assert_eq!(scarce_floor(least_live, 0.0, 12), least_live);
+        assert_eq!(scarce_floor(14.5, 0.7, 12), 14.5);
+        assert_eq!(scarce_floor(0.0, 0.0, 12), 0.0);
+        assert_eq!(scarce_floor(0.0, 0.5, 0), 0.5 / 4.0 / 2.0, "no founders: no division by zero");
     }
 
     /// **A sealed pocket is roofed room and not a nest; open a way to it and
