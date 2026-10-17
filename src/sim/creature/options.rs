@@ -32,6 +32,7 @@ use super::{
     body_after_step, body_has_foothold, jaw_can_cut, kin_footing, parting_enabled, segment_authored_widths,
     spoil_site_open, stacker_of, under_cover, BodyShape, CreatureDef, DIRS,
 };
+use super::{crop_to_feed, diet_yield, gut_of, organism_crop_capacity, EAT_YIELD_THRESHOLD};
 use super::{flipped_body, landing_is_placeable_through_tissue, spoil_footing_drop};
 use crate::sim::cell::OrganismId;
 use crate::sim::material::{self, MaterialId, MaterialKind};
@@ -50,11 +51,15 @@ pub enum Verb {
     Dig,
     /// Food or a corpse in reach (brood carrying is a hand rule, off).
     PickUp,
-    /// A load put down in a free cell beside the head.
+    /// A load put down beside the head: a pellet where the spoil rule would
+    /// leave it, a crop cell in any free cell.
     Drop,
-    /// Food in reach, or the crop's own (target: the head).
+    /// Food in reach that the crop can take (room, its one material, worth
+    /// the bite to this gut), or the crop's own (target: the head).
     Eat,
-    /// A nestmate or larva in reach, from a crop with food in it.
+    /// A nestmate poorer than the ant, from its bank; or a hungry larva,
+    /// from the crop if the crop holds food a larva can take, else from the
+    /// bank, poorer than the ant (energy runs downhill, as a share does).
     Feed,
     /// A stranger in reach.
     Attack,
@@ -323,7 +328,15 @@ pub fn build(world: &World, organism: OrganismId, def: &CreatureDef, out: &mut V
     push(Verb::Rest, head, &|_| {});
 
     let jaws_free = st.spoil.is_none();
-    let crop_food = st.crop.is_some();
+    let crop = st.crop;
+    let crop_food = crop.is_some();
+    // **What the swallow allows** (`act`'s ingest): room for one more cell
+    // at the crop's own unit, the crop's one material, and a bite worth
+    // taking to this gut. Only legal options are listed, so a mind never
+    // picks a swallow the body would refuse.
+    let gut = gut_of(world, organism, def);
+    let room = crop.is_none_or(|c| c.worth() + c.unit <= organism_crop_capacity(world, organism, def));
+    let feedable = crop_to_feed(world, st).is_some();
     for &(dx, dy) in DIRS.iter() {
         let t = (head.0 + dx, head.1 + dy);
         let cell = world.get(t.0, t.1);
@@ -336,17 +349,40 @@ pub fn build(world: &World, organism: OrganismId, def: &CreatureDef, out: &mut V
         if jaws_free && (food || corpse) {
             push(Verb::PickUp, t, &|_| {});
         }
-        if food {
+        if food
+            && room
+            && crop.is_none_or(|c| c.material == cell.material)
+            && diet_yield(world, cell, gut.bias) > EAT_YIELD_THRESHOLD
+        {
             push(Verb::Eat, t, &|_| {});
         }
-        if (st.spoil.is_some() || crop_food) && spoil_site_open(world, t.0, t.1, spoil_footing_drop()) {
+        // A pellet goes down where it will stay (the spoil rule); a crop
+        // cell in any free cell, as the food drop's first rule puts one.
+        let drop = if st.spoil.is_some() {
+            spoil_site_open(world, t.0, t.1, spoil_footing_drop())
+        } else {
+            crop.is_some_and(|c| c.cells > 0) && world.is_empty(t.0, t.1)
+        };
+        if drop {
             push(Verb::Drop, t, &|_| {});
         }
         let other = cell.organism_id();
         if other != organism {
             if let Some(o) = animal(world, other) {
                 if o.colony == here.colony {
-                    if crop_food {
+                    // Downhill for a bank, and a larva only while it is a
+                    // larva and short of its target: an egg or a pupa is not
+                    // fed (`kin_deficit`).
+                    let poorer = o.energy < st.energy;
+                    let fed = match o.brood {
+                        None => poorer,
+                        Some(b) => {
+                            b.stage == crate::sim::organism::BroodStage::Larva
+                                && o.energy < b.target
+                                && (feedable || poorer)
+                        }
+                    };
+                    if fed {
                         push(Verb::Feed, t, &|_| {});
                     }
                 } else {
@@ -656,10 +692,14 @@ mod tests {
                 assert_eq!(of(Verb::Dig), digs, "frame {f} ant {id}: digs");
                 for t in of(Verb::Drop) {
                     assert!(jaws || crop, "frame {f} ant {id}: a drop with nothing to drop");
-                    assert!(
-                        spoil_site_open(&w, t.0, t.1, spoil_footing_drop()),
-                        "frame {f} ant {id}: drop at {t:?}"
-                    );
+                    if jaws {
+                        assert!(
+                            spoil_site_open(&w, t.0, t.1, spoil_footing_drop()),
+                            "frame {f} ant {id}: pellet down at {t:?}"
+                        );
+                    } else {
+                        assert!(w.is_empty(t.0, t.1), "frame {f} ant {id}: crop cell down at {t:?}");
+                    }
                 }
                 assert!(
                     of(Verb::Attack).is_empty(),
@@ -696,13 +736,13 @@ mod tests {
             .into_iter()
             .filter_map(|id| {
                 w.organism(id)
-                    .filter(|s| s.species == sp && s.brood.is_none() && s.spoil.is_none())
+                    .filter(|s| s.species == sp && s.brood.is_none() && s.spoil.is_none() && s.crop.is_none())
                     .and_then(|s| s.chain.first().map(|&h| (id, h)))
             })
             .find(|&(_, (x, y))| {
                 w.get(x + 1, y).material == material::EMPTY && w.get(x - 1, y).material == material::EMPTY
             })
-            .expect("a free-jawed ant with open ground either side");
+            .expect("a free-jawed, empty-cropped ant with open ground either side");
         let t = (head.0 + 1, head.1);
         build(&w, id, &def, &mut opts);
         assert!(

@@ -1143,6 +1143,15 @@ fn crop_feed(world: &mut World, larva: OrganismId, (x, y): (i32, i32), colony: u
         }
     }
     let Some((donor, c)) = best else { return 0.0 };
+    crop_feed_from(world, larva, (x, y), colony, def, donor, c, need)
+}
+
+/// **The transfer itself**: `donor`'s crop `c` into `larva` at `(x, y)`, up
+/// to `need` joules kept. [`crop_feed`] once it has found the donor, and a
+/// mind's feed verb (`creature::mind`), whose donor is the ant that chose
+/// to feed. Returns the joules the larva kept.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn crop_feed_from(world: &mut World, larva: OrganismId, (x, y): (i32, i32), colony: u32, def: &CreatureDef, donor: OrganismId, c: super::organism::Crop, need: f32) -> f32 {
     let (quality, overhead) = creature::yield_of(world, larva, def, c.material);
     let keep = quality * (1.0 - overhead);
     let left_in_cell = (c.unit - c.digesting).max(0.0);
@@ -1529,6 +1538,14 @@ fn hatch(world: &mut World, organism: OrganismId, (x, y): (i32, i32), species: S
         return None;
     };
     world.free_brood(organism);
+    // **An adult hatched from brood with a mind keeps the mind**
+    // (`creature::mind`, stage 2 of the brain plan): the hatchling is a new
+    // organism. Nothing in the game has a mind, so this is one field read.
+    if world.minds.is_some() {
+        if let ActiveKind::Creature { organism: adult } = site.kind {
+            creature::mind::inherit(world, organism, adult);
+        }
+    }
     // **The line's own history**, at the moment the adult exists -- see
     // `try_bud`'s call of the same two notes.
     if lineage != 0 {

@@ -8,6 +8,7 @@
 //! cargo run --release --example train -- challenge=suite arenas=forage,trail keep=forage start=runs/forage-1/best.txt
 //! cargo run --release --example train -- challenge=forage cost=1        # time one arena and stop
 //! cargo run --release --example train -- challenge=dig score=runs/x/best.txt   # hold-out score one genome
+//! cargo run --release --example train -- challenge=scarce score=game walk=game trace=1000 holdout=2   # its numbers every 1000 frames
 //! ```
 //!
 //! `start=zero|random|game|<file>`: `zero` is from scratch (every brain
@@ -28,25 +29,30 @@
 //! scout's reserve), started at the shipped walk or the start file's own,
 //! and evolved beside the brain; `walkset=reserve:0.6,scout:-1` sets some
 //! of them in the start (or score) genome, by `train::WALK_NAMES`.
-//! `prune=0.3` lets a mutation set a live weight to 0 (`Settings::prune`).
+//! `prune=0.3` lets a mutation set a live brain or scorer weight to 0
+//! (`Settings::prune`).
 //! `challenge=forage-far` puts the heap 120-200 columns out on a wider bed,
 //! 12,000 frames unless set: the near distances never show a scout's
 //! reserve as a leash, so `arenas=forage,forage-far` is how a reserve is
 //! trained (`challenges::Forage::far`).
 //! `heap=` (forage) is the heap's size, 300 unless set and never more: a
 //! bigger heap slumps into home at the near distances and into the wall at
-//! the far ones. `forget=2` is how many standard errors under its
-//! reference a suite's kept arena may fall before it counts as forgotten.
+//! the far ones. `forget=0.8` is the share of its reference under which a
+//! suite's kept arena counts as forgotten (design rev3's 80%).
 //! `brain=mind` trains stage 2's general brain (`creature::mind`) instead
 //! of today's (`brain=today`, the default): `start=` is then `blank` (or
 //! `zero`), `rest`, `follower`, `persist` (`mind::preset`, the rung's
 //! controls) or a mind genome file, and so is `score=`; `score=game` still
 //! scores today's brain, in the same arena. Only arenas built for minds
 //! take it (`Challenge::minds`).
+//! `challenge=scarce` is stage 2's forage rung: a drip of food 40-80
+//! columns out, births on, scored adults times founders kept, 12,000
+//! frames unless set (`challenges::Scarce`); `start=forager` is its
+//! hand-built mind.
 //! Every argument is echoed; an unknown one stops the run.
 
 use pixel_physics::sim::creature;
-use pixel_physics::train::challenges::{Dig, Forage, Suite, Trail};
+use pixel_physics::train::challenges::{Dig, Forage, Scarce, Suite, Trail};
 use pixel_physics::train::{self, Challenge, Settings, Start};
 use std::path::PathBuf;
 use std::time::Instant;
@@ -99,7 +105,16 @@ fn arena(name: &str, a: &Arena) -> Box<dyn Challenge> {
             targets,
             free,
         }),
-        _ => panic!("challenge={name}: forage|forage-far|trail|dig|suite"),
+        // The ladder's drip: 5 cells every 1,000 frames
+        // (`ladder/scarce-forage-arena.md`).
+        "scarce" => Box::new(Scarce {
+            ants: ants.unwrap_or(12),
+            frames: frames.unwrap_or(12_000),
+            drip: 5,
+            every: 1000,
+            game_walk,
+        }),
+        _ => panic!("challenge={name}: forage|forage-far|trail|dig|scarce|suite"),
     }
 }
 
@@ -109,7 +124,7 @@ fn main() {
     let mut challenge = "forage".to_string();
     let mut arenas = String::new();
     let mut keep = String::new();
-    let mut forget = 2.0;
+    let mut forget = 0.8;
     let mut start = "zero".to_string();
     let mut out: Option<PathBuf> = None;
     let mut frames = None;
@@ -121,6 +136,7 @@ fn main() {
     let mut noise = false;
     let mut targets = String::new();
     let mut pic: Option<PathBuf> = None;
+    let mut trace: Option<u64> = None;
     let mut free = String::new();
     let mut sealed = false;
     let mut genes = String::new();
@@ -134,11 +150,12 @@ fn main() {
             "arenas" => arenas = v.into(),
             "keep" => keep = v.into(),
             "forget" => forget = v.parse().unwrap(),
-            // The suite's forget floor was a ratio read per layout; it is
-            // now `forget` standard errors under the folded reference
-            // (`challenges::Suite`), so an old `floor=` would mean nothing.
+            // The suite's forget floor was a ratio read per layout, then
+            // standard errors under the folded reference, and is now a share
+            // of the folded reference (`challenges::Suite`), so an old
+            // `floor=` would mean nothing.
             "floor" => panic!(
-                "floor= is gone: a kept arena is forgotten at forget= standard errors (default 2) under its reference"
+                "floor= is gone: a kept arena is forgotten under forget= (default 0.8) of its folded reference"
             ),
             "start" => start = v.into(),
             "out" => out = Some(v.into()),
@@ -162,6 +179,7 @@ fn main() {
             "noise" => noise = v == "1",
             "targets" => targets = v.into(),
             "pic" => pic = Some(v.into()),
+            "trace" => trace = Some(v.parse().unwrap()),
             "free" => free = v.into(),
             "sealed" => sealed = v == "1",
             "genes" => genes = v.into(),
@@ -179,7 +197,7 @@ fn main() {
     // without it once left two "game" rows in one file with nothing to say
     // which walk made which (`design/review-rev2.md` N10).
     println!(
-        "train brain={} challenge={challenge} arenas={arenas} keep={keep} forget={forget} start={start} walk={} clones={clones} frames={frames:?} ants={ants:?} score={score:?} noise={noise} targets={targets} free={free} pic={pic:?} sealed={sealed} heap={heap} genes={genes} walkset={walkset} prune={} seed={} pop={} gens={} layouts={} pm={} sigma={} cross={} holdout={} threads={}",
+        "train brain={} challenge={challenge} arenas={arenas} keep={keep} forget={forget} start={start} walk={} clones={clones} frames={frames:?} ants={ants:?} score={score:?} noise={noise} targets={targets} free={free} pic={pic:?} trace={trace:?} sealed={sealed} heap={heap} genes={genes} walkset={walkset} prune={} seed={} pop={} gens={} layouts={} pm={} sigma={} cross={} holdout={} threads={}",
         if mind { "mind" } else { "today" },
         if game_walk { "game" } else { "brain" },
         set.prune,
@@ -315,6 +333,14 @@ fn main() {
             walk,
         ))
     };
+    // The suite's references are its start genome's own scores, so it is
+    // calibrated after the start genome exists and before training -- on its
+    // own layouts, never the hold-out ones (`train::calibration_layouts`) --
+    // and before `noise=` and `score=` too, which read the same ratios: a
+    // suite's score is relative to its `start=`. Uncalibrated, every ratio
+    // was the raw fit pinned at the cap, so both printed 3.000 (review of
+    // PR 712, N1). A single arena's calibration does nothing.
+    ch.calibrate(&g0, &train::calibration_layouts(set.holdout), set.threads);
     // A genome named by `score=` (or `pic=`'s and `noise=`'s): today's
     // brain as `ant.ron` ships it for `game`, else a file -- or, under
     // `brain=mind`, a mind preset or file.
@@ -347,6 +373,16 @@ fn main() {
         };
         train::picture(ch.as_ref(), &g, train::holdout_layouts(1)[0], p);
         println!("picture in {}", p.display());
+        return;
+    }
+    // ...and its numbers, a line every `trace=` frames, on each hold-out
+    // layout in turn (`holdout=2` is the first mirrored pair).
+    if let Some(every) = trace {
+        let g = match &score {
+            Some(f) => genome_of(f),
+            None => g0.clone(),
+        };
+        train::trace(ch.as_ref(), &g, &train::holdout_layouts(set.holdout), every);
         return;
     }
     if cost {
@@ -434,10 +470,6 @@ fn main() {
         }
         return;
     }
-    // The suite's references are its start genome's own scores, so it is
-    // calibrated after the start genome exists and before training -- on its
-    // own layouts, never the hold-out ones (`train::calibration_layouts`).
-    ch.calibrate(&g0, &train::calibration_layouts(set.holdout), set.threads);
     let out = out.unwrap_or_else(|| PathBuf::from(format!("train-{challenge}-s{}", set.seed)));
     train::train(ch.as_ref(), g0, &set, &out).expect("write run files");
     println!("run files in {}", out.display());

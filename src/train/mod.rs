@@ -184,8 +184,10 @@ pub fn is_mind(len: usize) -> bool {
 }
 
 /// **A mind's start genome**: a preset by name (`mind::preset`: `blank` or
-/// `zero`, `rest`, `follower`, `persist`) over the arena's verbs, or a
-/// genome file this rig wrote; the arena's bans applied.
+/// `zero`, `rest`, `follower`, `persist`, `forager`) over the arena's
+/// verbs, or a genome file this rig wrote -- an earlier rung's champion,
+/// which enters this rung by [`mind::enter_rung`] -- the arena's bans
+/// applied.
 pub fn start_mind(ch: &dyn Challenge, start: &str) -> Vec<f32> {
     assert!(ch.minds(), "{} cannot run minds yet", ch.name());
     let name = if start == "zero" { "blank" } else { start };
@@ -194,8 +196,13 @@ pub fn start_mind(ch: &dyn Challenge, start: &str) -> Vec<f32> {
         None => {
             let p = Path::new(start);
             let len = genome_file_len(p);
-            assert!(is_mind(len), "{start}: a genome of {len} slots is not a mind ({}); start= blank|rest|follower|persist|<mind file>", mind::GENOME_LEN);
-            load_genome(p, len)
+            assert!(is_mind(len), "{start}: a genome of {len} slots is not a mind ({}); start= blank|rest|follower|persist|forager|<mind file>", mind::GENOME_LEN);
+            let mut g = load_genome(p, len);
+            let did = mind::enter_rung(&mut g, ch.verbs(), ch.mind_emits());
+            if !did.is_empty() {
+                println!("{start} enters {}: {}", ch.name(), did.join(", "));
+            }
+            g
         }
     };
     mind::apply_bans(&mut g, ch.verbs(), ch.mind_emits());
@@ -1160,6 +1167,67 @@ pub fn picture(ch: &dyn Challenge, g: &[f32], layout: Layout, path: &Path) {
             eprintln!("picture {}: {e}", path.display());
         }
     }
+}
+
+/// **The numbers beside [`picture`]**: one genome on each layout, a line
+/// every `every` frames -- the colony's heads, energy and food, and what the
+/// minds chose if it has them. A picture says where the ants went; this says
+/// whether they ate, and when they started to starve.
+pub fn trace(ch: &dyn Challenge, g: &[f32], layouts: &[Layout], every: u64) {
+    for &layout in layouts {
+        println!("layout seed={} k={}", layout.seed, layout.k);
+        trace_one(ch, g, layout, every);
+    }
+}
+
+fn trace_one(ch: &dyn Challenge, g: &[f32], layout: Layout, every: u64) {
+    let gs: Vec<&[f32]> = vec![g; if ch.unit() == Unit::Ant { ch.ants() } else { 1 }];
+    let s = ch.run(layout, &gs, &mut |f, w| {
+        if !f.is_multiple_of(every) {
+            return;
+        }
+        let food = w.materials.id_of("provisions");
+        let mut lying = 0usize;
+        if let (Some(food), Some(b)) = (food, w.bounds()) {
+            for y in 0..=b.max_y {
+                for x in 0..=b.max_x {
+                    lying += usize::from(w.get(x, y).material == food);
+                }
+            }
+        }
+        let ant = w.species.id_of("ant");
+        let (mut adults, mut brood, mut energy, mut low, mut crop) = (0usize, 0usize, 0.0f64, f64::MAX, 0.0f64);
+        for id in w.live_organism_ids() {
+            let Some(st) = w.organism(id) else { continue };
+            if Some(st.species) != ant {
+                continue;
+            }
+            if st.brood.is_some() {
+                brood += 1;
+                continue;
+            }
+            adults += 1;
+            energy += st.energy as f64;
+            low = low.min(st.energy as f64);
+            crop += st.crop.map_or(0.0, |c| c.worth() as f64);
+        }
+        let c = &w.creature_stats;
+        let mean = if adults > 0 { energy / adults as f64 } else { 0.0 };
+        let low = if adults > 0 { low } else { 0.0 };
+        print!(
+            "f={f} adults={adults} brood={brood} energy={mean:.0} low={low:.0} crop={crop:.0} lying={lying} pickups={} eats={} deliveries={} births={}",
+            c.pickups, c.eats, c.deliveries, c.births
+        );
+        if let Some(m) = &w.minds {
+            let k = &m.counts;
+            print!(
+                " | mind chose {:?} swallowed={} put_down={} delivered={} fed_adult={} fed_larva_crop={} fed_larva_bank={} failed={}",
+                k.chose, k.swallowed, k.put_down, k.delivered, k.fed_adult, k.fed_larva_crop, k.fed_larva_bank, k.failed
+            );
+        }
+        println!();
+    });
+    println!("score {:?}", mean_score(&s));
 }
 
 #[cfg(test)]
