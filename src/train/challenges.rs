@@ -436,12 +436,12 @@ impl Challenge for Forage {
 /// **Live on a trickle of food** (colony): stage 2's forage rung.
 ///
 /// The forage bed with no heap: [`Scarce::drip`] cells of provisions land at
-/// one spot every [`Scarce::every`] frames, 40-80 columns from the nest
+/// one spot every [`Scarce::every`] frames, 80 columns from the nest
 /// ([`SCARCE_DIST`]), east on even layouts and west on odd ones, so a pair
 /// differs only by the side and the score is the worse side. Births are on.
 ///
-/// **Score: adults alive at the end times the share of founders kept** (old
-/// age counts as kept), the ladder lane's recommendation
+/// **Score: adults alive at the end times the share of founders kept** (a
+/// founder's old age counts as kept), the ladder lane's recommendation
 /// (`ladder/scarce-forage-arena.md`). It ranks the game ant above the
 /// cheap-brain forage champion and that above the champion, on every paired
 /// layout at both distances, at 24,000 frames: the lab's order. **Food
@@ -458,8 +458,8 @@ impl Challenge for Forage {
 /// a hold-out check runs there (`frames=24000`).
 ///
 /// Runs minds (`creature::mind`) as well as today's brain: walking, turning
-/// round, resting, eating, putting food down and feeding, in a world whose
-/// larvae do not feed themselves ([`clone_minds`]).
+/// round, resting, eating, putting food down and feeding, beside the
+/// larvae's own feeding from a touching adult ([`clone_minds`]).
 pub struct Scarce {
     pub ants: usize,
     pub frames: u64,
@@ -470,9 +470,13 @@ pub struct Scarce {
     pub game_walk: bool,
 }
 
-/// The food spot's distance from the nest, in columns: the ladder's two
-/// measured distances and between. Inside the 256-wide bed either side.
-const SCARCE_DIST: (i32, i32) = (40, 80);
+/// The food spot's distance from the nest, in columns: the ladder's far
+/// bed. At 40 columns and 12,000 frames a colony that over-breeds ties the
+/// game ant on the worse side (19.2 against 19.3); at 80 the game ant beats
+/// the cheap-brain champion on 4 of 4 pairs (17.7 against 8.3), so the rung
+/// trains there (ladder review of the stage 2 notes, finding 5). Inside the
+/// 256-wide bed either side.
+const SCARCE_DIST: (i32, i32) = (80, 80);
 
 impl Scarce {
     /// The nest's column, the food spot's and its distance, for one layout.
@@ -530,6 +534,8 @@ impl Challenge for Scarce {
         let (_, _, dist) = self.geometry(layout);
         let sc = self.bed(layout);
         let (mut w, _, _) = sc.build();
+        // Every death, by ant, so `kept` can count founders' old age only.
+        w.death_log = Some(Vec::new());
         let sp = if super::is_mind(genomes[0].len()) {
             clone_minds(&mut w, genomes[0], layout, self.verbs(), self.mind_emits())
         } else {
@@ -543,7 +549,18 @@ impl Challenge for Scarce {
             look(f + 1, &w);
         }
         let now = adults_of(&w);
-        let lived = founders.iter().filter(|id| now.binary_search(id).is_ok()).count() + old_age(&w, sp, colony);
+        // **Founders' old age only.** The colony's old-age count (`old_age`)
+        // took hatchlings' too, and the hazard is a Rayleigh draw, so a
+        // hatchling can go before a founder: a colony that bred and lost
+        // young ants to age counted them as founders kept (ladder review of
+        // the stage 2 notes, finding 5). Counted this way the ladder's
+        // ranking still holds on every pair: 25.1 / 10.3 / 0.0 at 40 columns.
+        let aged = w.death_log.as_ref().map_or(0, |log| {
+            log.iter()
+                .filter(|r| matches!(r.cause, organism::DeathCause::OldAge) && founders.binary_search(&r.id).is_ok())
+                .count()
+        });
+        let lived = founders.iter().filter(|id| now.binary_search(id).is_ok()).count() + aged;
         let kept = (lived as f64 / founders.len().max(1) as f64).min(1.0);
         let deaths = |c: organism::DeathCause| w.group_deaths_of(sp, colony).map_or(0, |g| g.by_cause[c.index()]);
         let starved = deaths(organism::DeathCause::Starved) + deaths(organism::DeathCause::StarvedInFlight);
@@ -1216,7 +1233,13 @@ pub fn dug_cells(w: &World, spec: &crate::lab::scene::LabBox) -> Vec<((i32, i32)
 /// neither. It is still unpaired, the start's calibration mean against
 /// this generation's layouts, so keep a noisy arena only once it is
 /// paired. **A ratio counts up to
-/// [`RATIO_CAP`]**, so one arena's runaway cannot pay for another's loss.
+/// [`RATIO_CAP`]**, so one arena's runaway cannot pay for another's loss --
+/// **except the one arena a rung is learning** (every other arena kept):
+/// a kept arena's loss is the forget floor's to catch, and capped, the
+/// rung's arena stopped paying at three times a start that could barely do
+/// it. The forage rung's pilot from the trail champion hit the cap on
+/// scarce (reference 0.21) by its second generation, at fits of 0.6-1.4
+/// against the game ant's 19.5, and selection had nothing left to climb.
 pub struct Suite {
     pub arenas: Vec<(Box<dyn Challenge>, bool)>,
     pub refs: Vec<f64>,
@@ -1233,7 +1256,8 @@ pub struct Suite {
     verbs: &'static [creature::options::Verb],
 }
 
-/// The most one arena's ratio to its reference counts for in a suite.
+/// The most one arena's ratio to its reference counts for in a suite, when
+/// it is kept or is one of several being learned ([`Suite`]).
 /// **Relative to the start**: an arena the start cannot do has the floor
 /// [`REF_FLOOR`] for its reference, so it stops paying at a fit of 0.15 --
 /// by design (a weak start must not chase one arena), but it means a suite
@@ -1249,6 +1273,18 @@ impl Suite {
     /// **No target scorer**: the genome's scorer would go into every arena's
     /// world, and `free=` reaches only dig's (coordinator review of PR 709,
     /// N8; refused here, not only on the command line, since PR 710's).
+    /// Arena `i`'s fit against its reference, capped at [`RATIO_CAP`] unless
+    /// it is the one arena this suite is learning.
+    fn ratio(&self, i: usize, fit: f64) -> f64 {
+        let r = fit.max(0.0) / self.refs[i];
+        let learning = self.arenas.iter().filter(|(_, keep)| !keep).count();
+        if self.arenas[i].1 || learning > 1 {
+            r.min(RATIO_CAP)
+        } else {
+            r
+        }
+    }
+
     pub fn new(arenas: Vec<(Box<dyn Challenge>, bool)>, forget: f64) -> Self {
         assert!(forget > 0.0 && forget <= 1.0, "forget={forget}: a share of the reference, 0 to 1 (0.8 is the design's)");
         assert!(arenas.iter().all(|(a, _)| !a.scorer()), "a suite would put the target scorer in every arena's world");
@@ -1343,7 +1379,7 @@ impl Challenge for Suite {
             let mut quiet = |_: u64, _: &World| {};
             let watcher: &mut dyn FnMut(u64, &World) = if i == 0 { &mut *look } else { &mut quiet };
             let s = super::mean_score(&a.run(layout, &gs, watcher));
-            ratios.push((s.fit.max(0.0) / self.refs[i]).min(RATIO_CAP));
+            ratios.push(self.ratio(i, s.fit));
             fits.push(s.fit);
         }
         let fit = (ratios.iter().map(|r| r.max(1e-3).ln()).sum::<f64>() / ratios.len() as f64).exp();
@@ -1367,7 +1403,7 @@ impl Challenge for Suite {
             if *keep && f < self.forget * self.refs[i] {
                 forgot = true;
             }
-            ratios.push((f.max(0.0) / self.refs[i]).min(RATIO_CAP));
+            ratios.push(self.ratio(i, f));
             fits.push(f);
         }
         let mut fit = (ratios.iter().map(|r| r.max(1e-3).ln()).sum::<f64>() / n as f64).exp();
@@ -1394,7 +1430,7 @@ impl Challenge for Suite {
             self.refs[i] = mean.max(REF_FLOOR);
             self.sds[i] = (units.iter().map(|u| (u - mean).powi(2)).sum::<f64>() / (m - 1.0).max(1.0)).sqrt();
             println!("suite reference {}: {:.3}, spread {:.3} over {} units", a.name(), self.refs[i], self.sds[i], units.len());
-            if mean < REF_FLOOR {
+            if mean < REF_FLOOR && self.ratio(i, f64::MAX) <= RATIO_CAP {
                 println!(
                     "suite reference {}: the start cannot do it, so its reference is the floor {REF_FLOOR} and the arena stops paying at fit {:.2} (RATIO_CAP x the floor)",
                     a.name(),
@@ -1976,8 +2012,9 @@ mod tests {
     /// **A suite folds each arena on its own before the product**: one
     /// arena done only east and another only west is worse side 1 on both,
     /// not the `sqrt(4 x 1) = 2` the first suite read on each side; a
-    /// runaway ratio counts up to `RATIO_CAP`; and a kept arena under
-    /// `forget` of its reference costs nine tenths.
+    /// runaway ratio counts up to `RATIO_CAP`, except on the one arena a
+    /// rung is learning; and a kept arena under `forget` of its reference
+    /// costs nine tenths.
     #[test]
     fn a_suite_folds_each_arena_before_the_product() {
         let lay = [Layout { seed: 1, k: 0, blind: false, legal: false }, Layout { seed: 1, k: 1, blind: false, legal: false }];
@@ -1987,6 +2024,8 @@ mod tests {
         assert!((score(&split) - 1.0).abs() < 1e-9, "one-sided arenas scored {}", score(&split));
         let runaway = Suite::new(vec![(Box::new(Sided { east: 10.0, west: 10.0 }), false), (Box::new(Sided { east: 1.0, west: 1.0 }), false)], 0.8);
         assert!((score(&runaway) - RATIO_CAP.sqrt()).abs() < 1e-9, "a ratio of 10 was not capped: {}", score(&runaway));
+        let rung = Suite::new(vec![(Box::new(Sided { east: 10.0, west: 10.0 }), false), (Box::new(Sided { east: 1.0, west: 1.0 }), true)], 0.8);
+        assert!((score(&rung) - 10f64.sqrt()).abs() < 1e-9, "the one arena being learned is not capped: {}", score(&rung));
         let mut kept = Suite::new(vec![(Box::new(Sided { east: 1.0, west: 1.0 }), true)], 0.8);
         assert!((score(&kept) - 1.0).abs() < 1e-9);
         kept.refs[0] = 1.5;
