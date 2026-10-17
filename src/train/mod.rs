@@ -134,6 +134,14 @@ pub trait Challenge: Sync {
     fn scorer(&self) -> bool {
         false
     }
+    /// Cells to paint over a picture of this arena in fixed colours, so the
+    /// picture shows what the score counted rather than only what the
+    /// renderer draws: a full replace, never a blend into the cell's own
+    /// colour (`CLAUDE.md`, *A debug readout must not be a function of the
+    /// thing it debugs*). Dig paints its room, its pit and what it refused.
+    fn marks(&self, _layout: Layout, _w: &World) -> Vec<((i32, i32), [u8; 3])> {
+        Vec::new()
+    }
 }
 
 /// Where a genome's target scorer starts, when its arena has one: right after
@@ -800,7 +808,10 @@ fn curves(out: &Path) {
 }
 
 /// Five snapshots of one arena, stacked top to bottom, every ant painted
-/// magenta so a colony of one-cell animals is visible at all.
+/// magenta so a colony of one-cell animals is visible at all, and the
+/// arena's [`Challenge::marks`] painted under the ants. An arena that looks
+/// again after its bell (dig, after the settle it is scored on) gets a sixth
+/// snapshot of what was scored.
 pub fn picture(ch: &dyn Challenge, g: &[f32], layout: Layout, path: &Path) {
     let frames = ch.frames();
     let shots: Vec<u64> = (1..=5).map(|i| i * frames / 5).collect();
@@ -810,7 +821,7 @@ pub fn picture(ch: &dyn Challenge, g: &[f32], layout: Layout, path: &Path) {
     let particles = crate::sim::particle::ParticleSystem::new();
     let gs: Vec<&[f32]> = vec![g; if ch.unit() == Unit::Ant { ch.ants() } else { 1 }];
     ch.run(layout, &gs, &mut |f, w| {
-        if !shots.contains(&f) {
+        if !shots.contains(&f) && f <= frames {
             return;
         }
         let Some(b) = w.bounds() else { return };
@@ -831,6 +842,12 @@ pub fn picture(ch: &dyn Challenge, g: &[f32], layout: Layout, path: &Path) {
                     buf[i + 1] = buf[i + 1] / 2 + 100;
                     buf[i + 2] /= 2;
                 }
+            }
+        }
+        for ((x, y), [r, g, b]) in ch.marks(layout, w) {
+            if x >= 0 && y >= 0 && (x as u32) < vw && (y as u32) < vh {
+                let i = ((y as u32 * vw + x as u32) * 4) as usize;
+                buf[i..i + 4].copy_from_slice(&[r, g, b, 255]);
             }
         }
         for id in w.live_organism_ids() {
