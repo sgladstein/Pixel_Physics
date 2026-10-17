@@ -424,6 +424,13 @@ pub fn training_layouts(run_seed: u64, gen: usize, n: usize) -> Vec<Layout> {
 pub fn holdout_layouts(n: usize) -> Vec<Layout> {
     (0..n as u64).map(|k| Layout { seed: 50_000 + k / 2, k, blind: false, legal: false }).collect()
 }
+/// **A second hold-out nobody has looked at**, for the final rows once a
+/// champion has been chosen by its hold-out score (picking among seeds or
+/// checkpoints by the hold-out is selection on it). `sealed=1` in the
+/// example scores on these instead (ladder lane's stage 1 review, s3).
+pub fn sealed_layouts(n: usize) -> Vec<Layout> {
+    (0..n as u64).map(|k| Layout { seed: 70_000 + k / 2, k, blind: false, legal: false }).collect()
+}
 pub fn calibration_layouts(n: usize) -> Vec<Layout> {
     (0..n as u64).map(|k| Layout { seed: 90_000 + k / 2, k, blind: false, legal: false }).collect()
 }

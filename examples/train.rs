@@ -21,8 +21,10 @@
 //! from the start (or score) file's own, or from a file of weights; the
 //! hand rules that pick the dig cell and the spoil site are off, and only
 //! the scorer evolves. `free=holds,cue,face,company` hands the scorer those
-//! hand filters too, one rung of the ladder at a time. Every argument is
-//! echoed; an unknown one stops the run.
+//! hand filters too, one rung of the ladder at a time. `sealed=1` puts
+//! `score=` and `noise=1` on the sealed hold-out (`train::sealed_layouts`)
+//! instead of the one training reports. Every argument is echoed; an unknown
+//! one stops the run.
 
 use pixel_physics::sim::creature;
 use pixel_physics::train::challenges::{Dig, Forage, Suite, Trail};
@@ -63,6 +65,7 @@ fn main() {
     let mut targets = String::new();
     let mut pic: Option<PathBuf> = None;
     let mut free = String::new();
+    let mut sealed = false;
     for a in std::env::args().skip(1) {
         let (k, v) = a.split_once('=').unwrap_or((a.as_str(), "1"));
         match k {
@@ -93,6 +96,7 @@ fn main() {
             "targets" => targets = v.into(),
             "pic" => pic = Some(v.into()),
             "free" => free = v.into(),
+            "sealed" => sealed = v == "1",
             _ => panic!("unknown argument {a}"),
         }
     }
@@ -100,7 +104,7 @@ fn main() {
     // without it once left two "game" rows in one file with nothing to say
     // which walk made which (`design/review-rev2.md` N10).
     println!(
-        "train challenge={challenge} arenas={arenas} keep={keep} floor={floor} start={start} walk={} clones={clones} frames={frames:?} ants={ants:?} score={score:?} noise={noise} targets={targets} free={free} pic={pic:?} seed={} pop={} gens={} layouts={} pm={} sigma={} cross={} holdout={} threads={}",
+        "train challenge={challenge} arenas={arenas} keep={keep} floor={floor} start={start} walk={} clones={clones} frames={frames:?} ants={ants:?} score={score:?} noise={noise} targets={targets} free={free} pic={pic:?} sealed={sealed} seed={} pop={} gens={} layouts={} pm={} sigma={} cross={} holdout={} threads={}",
         if game_walk { "game" } else { "brain" },
         set.seed,
         set.pop,
@@ -188,7 +192,7 @@ fn main() {
             Some(f) => train::start_genome(&Start::File(f.into()), &species_genome, ch.banned(), 0, scorer.as_deref()),
             None => g0.clone(),
         };
-        let hold = train::holdout_layouts(set.holdout);
+        let hold = if sealed { train::sealed_layouts(set.holdout) } else { train::holdout_layouts(set.holdout) };
         let each = train::score_each(ch.as_ref(), &g, &hold, set.threads);
         for (l, s) in hold.iter().zip(&each) {
             println!("NOISE seed={} k={} {:.3}  {:?}", l.seed, l.k, s.fit, s.parts);
@@ -199,13 +203,23 @@ fn main() {
         let lo = each.iter().map(|s| s.fit).fold(f64::INFINITY, f64::min);
         let hi = each.iter().map(|s| s.fit).fold(f64::NEG_INFINITY, f64::max);
         println!("NOISE mean {mean:.3} sd {sd:.3} min {lo:.3} max {hi:.3} over {} layouts; standard error of the mean {:.3}", each.len(), sd / n.sqrt());
+        // **The number training and the hold-out report** for a mirrored
+        // arena is the worse side of each pair, not the mean of single
+        // layouts above (coordinator review of PR 708), so print it too.
+        if ch.mirrored() {
+            let worse: Vec<f64> = each.chunks(2).map(|p| p.iter().map(|s| s.fit).fold(f64::INFINITY, f64::min)).collect();
+            let m = worse.len().max(1) as f64;
+            let wmean = worse.iter().sum::<f64>() / m;
+            let wsd = (worse.iter().map(|f| (f - wmean).powi(2)).sum::<f64>() / (m - 1.0).max(1.0)).sqrt();
+            println!("NOISE worse side {wmean:.3} sd {wsd:.3} over {} pairs; standard error {:.3}", worse.len(), wsd / m.sqrt());
+        }
         return;
     }
     if let Some(f) = score {
         let st = if f == "game" { Start::Species } else { Start::File(f.into()) };
         let g = train::start_genome(&st, &species_genome, ch.banned(), 0, scorer.as_deref());
         println!("(scored with this challenge's bans applied: {:?})", ch.banned());
-        let hold = train::holdout_layouts(set.holdout);
+        let hold = if sealed { train::sealed_layouts(set.holdout) } else { train::holdout_layouts(set.holdout) };
         for (who, g, lay) in train::controls(ch.as_ref(), &g, &g0, &hold) {
             let s = train::score_clones(ch.as_ref(), &g, &lay, set.threads);
             println!("HOLDOUT {who:12} {:.3}  {:?}  {:?}", s.fit, ch.parts(), s.parts);
