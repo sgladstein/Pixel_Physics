@@ -799,6 +799,34 @@ pub fn moisture_phase_enabled() -> bool {
     *ON.get_or_init(|| std::env::var("PIXEL_PHYSICS_MOISTURE").as_deref() != Ok("sweep"))
 }
 
+/// **`PIXEL_PHYSICS_SPOIL_CORBEL=on`: a pellet may stand one cell out from a
+/// supported one, as wet soil does.** Off by default, and then no line below
+/// reads anything new.
+///
+/// What it is for: Khuong et al. 2016 (PNAS 113:1303, *Lasius niger*) build
+/// with moist sand-clay that holds wherever a pellet "can share a common
+/// face with another particle", and the ants' pillars grow caps that join
+/// into arches and a roof. Under `needs_footing` a pellet needs ground
+/// straight beneath, so no cap can stand: the textbook ant built one-wide
+/// needles instead (`/mnt/project-files/emergence-sandbox/pillars/README.md`,
+/// "Checked against the paper"). With this on, a `needs_footing` cell with
+/// nothing beneath still stands when a side neighbour (left or right) is
+/// ground (non-animal `Powder`/`Solid`) with ground beneath *it*: one step of
+/// overhang per row, so a cap widens a cell a row and two caps close an arch
+/// over a gap of twice the rows it took. A flat ledge two cells out still
+/// falls. Local and graded: only the cells with no such neighbour go.
+pub(crate) fn spoil_corbel() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var("PIXEL_PHYSICS_SPOIL_CORBEL").as_deref() == Ok("on"))
+}
+
+/// Whether the cell at `(x, y)` is held by [`spoil_corbel`]: a side
+/// neighbour that is ground with ground beneath it.
+fn corbelled<S: CellSurface>(surface: &S, x: i32, y: i32) -> bool {
+    let ground = |c: Cell| c.material != material::EMPTY && c.organism_id() == 0 && matches!(surface.materials().get(c.material).kind, MaterialKind::Powder | MaterialKind::Solid);
+    [-1, 1].iter().any(|&dx| ground(surface.get(x + dx, y)) && ground(surface.get(x + dx, y + 1)))
+}
+
 /// The ablation switch for the crumb rule above, on by default.
 ///
 /// `PIXEL_PHYSICS_CRUMB=off` makes a worked cell keep standing however little
@@ -1216,7 +1244,11 @@ fn update_powder<S: CellSurface>(surface: &mut S, x: i32, y: i32, cell: Cell, ri
                     || under.organism_id() != 0
                     || !matches!(surface.materials().get(under.material).kind, MaterialKind::Powder | MaterialKind::Solid)
             };
-        let unsupported = !no_footing && crumb_rule() && surface.get(x, y + 1).material == material::EMPTY;
+        // **[`spoil_corbel`]**: a pellet held from the side is neither
+        // footless nor unsupported. Off, the `&&` reads nothing.
+        let held = needs_footing && spoil_corbel() && corbelled(surface, x, y);
+        let no_footing = no_footing && !held;
+        let unsupported = !no_footing && !held && crumb_rule() && surface.get(x, y + 1).material == material::EMPTY;
         let contacts = if unsupported {
             crate::sim::structural::NEIGHBOURS_8
                 .iter()

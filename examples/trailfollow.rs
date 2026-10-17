@@ -76,6 +76,28 @@ use pixel_physics::sim::{frame, player};
 fn arg<T: std::str::FromStr>(name: &str) -> Option<T> {
     std::env::args().skip(1).find_map(|a| a.strip_prefix(&format!("{name}=")).map(|v| v.parse().ok().expect("parses")))
 }
+/// `bridgelong=<upper|lower>:<rows>` parsed: the long branch's side (-1
+/// upper, 1 lower) and its extra rows each way (see the y bridge).
+fn bridge_long() -> Option<(i32, i32)> {
+    arg_str("bridgelong").map(|spec| {
+        let (lane, rows) = spec.split_once(':').expect("bridgelong=<upper|lower>:<rows>");
+        let side = match lane {
+            "upper" => -1,
+            "lower" => 1,
+            _ => panic!("bridgelong={spec}: the lane is upper or lower"),
+        };
+        (
+            side,
+            rows.parse().expect("bridgelong=<lane>:<rows>: rows is a whole number"),
+        )
+    })
+}
+
+/// The extra rows `side`'s branch goes out under `bridgelong=`.
+fn bridge_ext(long: Option<(i32, i32)>, side: i32) -> i32 {
+    long.filter(|&(s, _)| s == side).map_or(0, |(_, rows)| rows)
+}
+
 fn arg_str(name: &str) -> Option<String> {
     std::env::args().skip(1).find_map(|a| a.strip_prefix(&format!("{name}=")).map(|v| v.to_string()))
 }
@@ -1596,6 +1618,226 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
     let width = (nest_x_bed + gap + 60).max(256);
     let spec = LabBox { width, height: 192, ground_y: 96, soil_depth: 48, founders: 0, colonies: 0, seed, ..LabBox::default() };
     let mut w = spec.build();
+    // **`bridge=<rows>`: the equal-branch double bridge on the shipped ant**
+    // (PR 701 §10 item 1; `bridgebox` is its brainless-walker twin). A stone
+    // wall `bridgew=` (16) wide, the full height of the box, halfway between
+    // the nest and the food, so the only ways through are **two identical
+    // tunnels** 3 rows high: one with its floor on the ground, one `<rows>`
+    // higher, reached by climbing the wall's face. The scene cannot be
+    // symmetric under gravity, so the reading is against `arms=mute`: the
+    // share an arm sends through the upper tunnel, per seed, and whether the
+    // trail drives seeds apart (one tunnel each) where mute leaves them at its
+    // own bias. `BRIDGE` prints crossings of the wall's middle column by lane,
+    // empty and laden, over the whole run and its second half.
+    let bridge: Option<(i32, i32, i32)> = arg::<i32>("bridge").map(|sep| {
+        assert!(sep >= 5, "bridge={sep}: the upper tunnel must clear the lower one (5 rows or more)");
+        let bw: i32 = arg("bridgew").unwrap_or(16);
+        let wall_x0 = nest_x_bed + gap / 2 - bw / 2;
+        let stone = w.materials.id_of("stone").expect("stone");
+        // **`bridgeshape=diamond`: the same two tunnels, but neither is the
+        // easy one under gravity.** Ground-level mouths `MOUTH` cells deep on
+        // each face lead to a 3-wide shaft at each end of the wall, from
+        // `<rows>` above ground to `<rows>` below it; one tunnel runs across
+        // the top, one across the bottom. Each branch is one climb and one
+        // descent of the same height and the same length, mirrored, so the
+        // upper is climb-then-descend outbound and the lower descend-then-
+        // climb. `side` (the default) is the ground tunnel against a climbed
+        // one, which gravity decides on its own (upper share 0.07-0.15 muted).
+        // **The diamond is not a valid test**, kept as the record of why:
+        // see `y` below.
+        let shape = arg_str("bridgeshape").unwrap_or_else(|| "side".into());
+        assert!(matches!(shape.as_str(), "side" | "diamond" | "y"), "bridgeshape={shape}: want side, diamond or y");
+        const MOUTH: i32 = 3;
+        let ground = spec.ground_y;
+        if shape == "y" {
+            // **`bridgeshape=y`: the branches part at an angle, as on a real
+            // bridge.** A mouth `MOUTH` cells deep on each face, then one
+            // branch climbs at 45 degrees and one descends, each runs flat
+            // `<rows>` from the mouth's line, and they meet the far mouth the
+            // same way: a rhombus, mirror-symmetric top to bottom apart from
+            // gravity. Carved with a 3x3 brush along each centreline. Built
+            // 2026-10-14 after `diamond` failed as a test: its fork was a
+            // shared vertical shaft overlapping the mouth's rows, so both
+            // branches' trails read alike at the decision (food trail 26,795
+            // against 33,201 raw, ~117 of 255, both ways) and the ant's body
+            // and persistence chose (traced on every empty ant at the fork,
+            // seed 1, 15-30k frames).
+            let (x0, x1) = (wall_x0, wall_x0 + bw - 1);
+            assert!(bw >= 2 * (MOUTH + sep) + 6, "bridgew={bw}: a y bridge needs two mouths, two climbs of {sep} and a span");
+            let mut open = std::collections::HashSet::new();
+            // `bridgebrush=<r>` (1): the brush's reach, so tunnels are
+            // `2r + 1` rows. Wider tunnels ask whether an even split is
+            // crowding (Dussutour et al. 2004: a crowded symmetric bridge is
+            // used evenly) rather than the trail.
+            let r: i32 = arg("bridgebrush").unwrap_or(1);
+            assert!(sep >= 2 * r + 3, "bridge={sep}: the branches must clear each other at bridgebrush={r}");
+            // **`bridgeneck=<k>`: one-cell mouths and the first `k` cells of
+            // each branch, then the full brush.** A wide mouth's floor runs
+            // straight on into the descending branch, so an ant walking the
+            // floor takes it without choosing (muted upper share 0.04-0.41
+            // at `bridgebrush=1`); a one-cell fork is fair (0.46-0.59), but
+            // a one-cell branch is shut by a single corpse, which settles in
+            // the lower branch's valley and not on the upper's crest (seed
+            // 1: a corpse in the lower branch at 25k and 30k, its traffic
+            // 102 -> 10 crossings, 2026-10-15). Narrow at the forks, wide
+            // where things settle. The mouths' floor is the ground's either
+            // way.
+            let neck: Option<i32> = arg("bridgeneck");
+            let gy = if neck.is_some() { ground - 1 } else { ground - 1 - r };
+            let reach = |k: i32| if neck.is_some_and(|n| k < n) { 0 } else { r };
+            let mut brush = |cx: i32, cy: i32, r: i32| {
+                for dy in -r..=r {
+                    for dx in -r..=r {
+                        open.insert((cx + dx, cy + dy));
+                    }
+                }
+            };
+            for x in x0..=x0 + MOUTH {
+                brush(x, gy, reach(-1));
+            }
+            for x in x1 - MOUTH..=x1 {
+                brush(x, gy, reach(-1));
+            }
+            // **`bridgelong=<upper|lower>:<rows>`: one branch the long way
+            // round** (Goss et al. 1989's unequal bridge, r = 1.4 and 2 in the
+            // paper; 2026-10-15). After its 45-degree climb (or descent) the
+            // named branch goes straight on `<rows>` further from the axis
+            // before its span, and back the same way at the far end, so it is
+            // `2 * rows` cells longer and nothing else changes. Both lengths
+            // and their ratio are printed. A side view cannot make the two
+            // equal under gravity, so run it mirrored -- the long branch
+            // upper on half the paired seeds, lower on the other half.
+            let long = bridge_long();
+            let ext = |side: i32| bridge_ext(long, side);
+            for side in [-1, 1] {
+                for k in 0..=sep {
+                    brush(x0 + MOUTH + k, gy + side * k, reach(k));
+                    brush(x1 - MOUTH - k, gy + side * k, reach(k));
+                }
+                for k in sep..=sep + ext(side) {
+                    brush(x0 + MOUTH + sep, gy + side * k, r);
+                    brush(x1 - MOUTH - sep, gy + side * k, r);
+                }
+                for x in x0 + MOUTH + sep..=x1 - MOUTH - sep {
+                    brush(x, gy + side * (sep + ext(side)), r);
+                }
+            }
+            // Each branch's centreline, mouth to mouth, in cells walked: the
+            // two mouths, the diagonal both ways (one cell a step), the
+            // straight-on legs and the span.
+            let len =
+                |side: i32| 2 * (MOUTH + 1) + 2 * sep + 2 * ext(side) + (x1 - MOUTH - sep) - (x0 + MOUTH + sep) - 1;
+            println!(
+                "  BRIDGE shape y: branch lengths upper {} lower {} (ratio long/short {:.2}){}",
+                len(-1),
+                len(1),
+                len(-1).max(len(1)) as f32 / len(-1).min(len(1)) as f32,
+                long.map_or(String::new(), |(s, rows)| format!(
+                    ", bridgelong {} +{rows} rows each way",
+                    if s < 0 { "upper" } else { "lower" }
+                ))
+            );
+            for x in x0..=x1 {
+                for y in 0..spec.height {
+                    w.set(x, y, if open.contains(&(x, y)) { Cell::EMPTY } else { Cell::new(stone, 0).with_attached(true) });
+                }
+            }
+            // Lane test `y < upper_floor + 2` and the readout row `floor - 1`
+            // (the bottom row of each span).
+            return (wall_x0 + bw / 2, gy + sep + ext(1) + r + 1, gy - sep - ext(-1) + r + 1);
+        }
+        let diamond = shape == "diamond";
+        let upper_floor = ground - sep;
+        let lower_floor = if diamond { ground + sep } else { ground };
+        assert!(!diamond || bw >= 2 * (MOUTH + 3) + 4, "bridgew={bw}: a diamond needs room for two mouths, two shafts and a span");
+        for x in wall_x0..wall_x0 + bw {
+            let (dx0, dx1) = (x - wall_x0, wall_x0 + bw - 1 - x);
+            for y in 0..spec.height {
+                let in_lower = (lower_floor - 3..lower_floor).contains(&y);
+                let in_upper = (upper_floor - 3..upper_floor).contains(&y);
+                let open = if diamond {
+                    let mouth = (dx0 < MOUTH || dx1 < MOUTH) && (ground - 3..ground).contains(&y);
+                    let shaft = ((MOUTH..MOUTH + 3).contains(&dx0) || (MOUTH..MOUTH + 3).contains(&dx1)) && (upper_floor - 3..lower_floor).contains(&y);
+                    let span = dx0 >= MOUTH && dx1 >= MOUTH && (in_lower || in_upper);
+                    mouth || shaft || span
+                } else {
+                    in_lower || in_upper
+                };
+                w.set(x, y, if open { Cell::EMPTY } else { Cell::new(stone, 0).with_attached(true) });
+            }
+        }
+        (wall_x0 + bw / 2, lower_floor, upper_floor)
+    });
+    // **`bridgeclose=<upper|lower>:<frame>`: one branch of a y bridge does
+    // not exist until `<frame>`, then is opened** -- the classic version of
+    // the experiment, where the second branch is added after the colony has
+    // a trail on the first (Goss et al. 1989; Beckers et al. 1990, not
+    // checked here). It tests commitment rather than geometry: a y bridge
+    // cannot be symmetric under gravity (a muted colony takes the descending
+    // branch first, as real ants weigh slopes, Bles et al. 2017, Sci Rep,
+    // doi 10.1038/s41598-017-08592-9), so whether the trail *chooses* is read
+    // from whether a colony that learned one branch stays on it once the
+    // other opens. **The whole branch is filled, not plugged**: a plug at the
+    // middle column left a dead-end pocket, and 13 of 32 colonies across
+    // four arms died with 2-11 crossings in the first quarter (2026-10-15).
+    // The fill is attached stone, so it neither falls nor carries scent.
+    let bridge_plug: Option<(Vec<(i32, i32)>, u64)> = arg_str("bridgeclose").map(|spec| {
+        let (lane, at) = spec.split_once(':').expect("bridgeclose=<upper|lower>:<frame>");
+        let at: u64 = at.parse().expect("bridgeclose=<lane>:<frame>: the frame is a whole number");
+        let (mid_x, _, upper) = bridge.expect("bridgeclose needs bridge=");
+        assert_eq!(arg_str("bridgeshape").as_deref(), Some("y"), "bridgeclose is built for bridgeshape=y");
+        let shut = match lane {
+            "upper" => -1,
+            "lower" => 1,
+            _ => panic!("bridgeclose={spec}: the lane is upper or lower"),
+        };
+        // The y bridge's own geometry, rebuilt from what it returned.
+        let (r, sep, bw): (i32, i32, i32) = (arg("bridgebrush").unwrap_or(1), arg("bridge").unwrap(), arg("bridgew").unwrap_or(16));
+        let long = bridge_long();
+        let gy = upper - r - 1 + sep + bridge_ext(long, -1);
+        let (x0, x1) = (mid_x - bw / 2, mid_x - bw / 2 + bw - 1);
+        const MOUTH: i32 = 3;
+        let lane_cells = |side: i32| {
+            let mut c = std::collections::HashSet::new();
+            let mut centres = Vec::new();
+            let ext = bridge_ext(long, side);
+            for k in 0..=sep {
+                centres.push((x0 + MOUTH + k, gy + side * k));
+                centres.push((x1 - MOUTH - k, gy + side * k));
+            }
+            for k in sep..=sep + ext {
+                centres.push((x0 + MOUTH + sep, gy + side * k));
+                centres.push((x1 - MOUTH - sep, gy + side * k));
+            }
+            for x in x0 + MOUTH + sep..=x1 - MOUTH - sep {
+                centres.push((x, gy + side * (sep + ext)));
+            }
+            for (cx, cy) in centres {
+                for dy in -r..=r {
+                    for dx in -r..=r {
+                        c.insert((cx + dx, cy + dy));
+                    }
+                }
+            }
+            c
+        };
+        let keep = lane_cells(-shut);
+        let mouth_rows = gy - r..=gy + r;
+        let stone = w.materials.id_of("stone").expect("stone");
+        let mut cells: Vec<(i32, i32)> = lane_cells(shut)
+            .into_iter()
+            .filter(|c| !keep.contains(c) && !(mouth_rows.contains(&c.1) && (c.0 <= x0 + MOUTH + r || c.0 >= x1 - MOUTH - r)))
+            .collect();
+        // The brush at full reach everywhere, so under `bridgeneck=` some of
+        // these cells were never cut; only the open ones are filled.
+        cells.retain(|&(x, y)| w.get(x, y).is_empty());
+        cells.sort_unstable();
+        assert!(cells.len() as i32 >= 2 * sep, "bridgeclose: only {} open cells in the {lane} branch", cells.len());
+        for &(x, y) in &cells {
+            w.set(x, y, Cell::new(stone, 0).with_attached(true));
+        }
+        (cells, at)
+    });
     // **Channel A's persistence, before any ant walks.** See the rider docs.
     if let Some(r) = arg::<f32>("arho") {
         w.pheromones.set_channel_rho(Channel::A, r);
@@ -1992,6 +2234,27 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
     let mut active_x = if pile2 && !start_east { west_x } else { target_x };
     // The species' own sensor reach, not a literal -- see the along readout.
     let sensor_offset = w.species.get(species_id).creature.as_ref().expect("ant is a creature").sensor_offset;
+    // **`traits=<slot>:<value>[,...]`: set ant.ron's ancestral traits for this
+    // run**, the write `lab::scene`'s parameter rows make, before founding so
+    // every founder and every birth carries it. Built for `bridge=`: slot 21
+    // (`organism::TRAIT_LADEN_B`) at 1 has a laden ant read the food trail as
+    // a route as well as the nest scent, which closes the double bridge's
+    // loop (`bridgebox homeb=1`). Refused when it matches the file.
+    if let Some(spec_traits) = arg_str("traits") {
+        let mut cdef = w.species.get(species_id).creature.clone().expect("ant is a creature");
+        for item in spec_traits.split(',') {
+            let (slot, value) = item.split_once(':').expect("traits= takes slot:value[,slot:value]");
+            let slot: usize = slot.trim().parse().expect("a trait slot number");
+            let value: f32 = value.trim().parse().expect("a trait value");
+            assert!(slot < cdef.traits.len(), "traits={item}: slot {slot} is past the last trait");
+            assert!(
+                (cdef.traits[slot] - value).abs() > f32::EPSILON,
+                "traits={item} is already what the ant holds, so this arm is the shipped one wearing a different name"
+            );
+            cdef.traits[slot] = value;
+        }
+        w.species.set_creature(species_id, cdef);
+    }
     let placed = w.found_colony_of(nest_x, surface, "ant", ants);
     assert!(placed > 0, "no ants placed at the nest end; there is nothing to measure");
     // **A SHORT COLONY IS NOT A SMALLER EXPERIMENT, IT IS A DIFFERENT ONE**, and
@@ -2723,6 +2986,23 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
     if decision_csv || shadow || !cf_rules.is_empty() {
         w.decision_log = Some(Vec::new());
     }
+    // `bridge=` crossings: [lane 0 lower / 1 upper][0 empty / 1 laden], whole
+    // run and second half, and each ant's head column last frame so an ant
+    // standing in the middle column counts once.
+    let mut bridge_x = [[0u64; 2]; 2];
+    let mut bridge_late = [[0u64; 2]; 2];
+    // Empty crossings by quarter of the run, [quarter][lane]: whether a
+    // share drifts, holds or locks in, which one second-half number hides.
+    let mut bridge_q = [[0u64; 2]; 4];
+    // Per ant: last column, and `(lane, laden, frame at the middle column)` once it is in a branch.
+    type BridgeLast = std::collections::HashMap<pixel_physics::sim::cell::OrganismId, (i32, Option<(usize, bool, u64)>)>;
+    let mut bridge_last: BridgeLast = std::collections::HashMap::new();
+    // Every counted passage in order, `(frame, lane, laden, frames from the
+    // middle column to the far face)`: for the trip-count window and the
+    // flow below (Goss et al. 1989 counted both directions, by traffic, not
+    // by a fraction of the run).
+    let mut bridge_log: Vec<(u64, usize, usize, u64)> = Vec::new();
+    let bridge_w: i32 = arg("bridgew").unwrap_or(16);
     let arm_name = match (trail, mute, paint) {
         (true, false, PaintA::None) => "hand",
         (true, true, PaintA::None) => "hmute",
@@ -2872,7 +3152,94 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
     let mut phase_now = SwapPhase::default();
     let (mut phase_start, mut phase_placed0, mut withdrawn, mut swaps) = (0u64, 0u64, 0u64, 0u32);
     let mut stale_x: Option<i32> = None;
+    // **`needs=walk needsat=<frame>`: the new ant** (the needs-and-jobs walk,
+    // `creature::needs`, parts `WalkParts::NEW_ANT` unless `needsparts=`),
+    // handed every ant at that frame as `deeptrace` does. Unset is today's
+    // game ant. Built 2026-10-14 so each textbook test runs both ants in the
+    // same scene (Scott's "Both ants", 22:43).
+    let needs_mode: Option<pixel_physics::sim::creature::needs::NeedsMode> =
+        arg_str("needs").map(|m| pixel_physics::sim::creature::needs::NeedsMode::parse(&m));
+    let needs_at: u64 = arg("needsat").unwrap_or(1);
+    let needs_parts = arg_str("needsparts").map_or(pixel_physics::sim::creature::needs::WalkParts::NEW_ANT, |p| {
+        pixel_physics::sim::creature::needs::WalkParts::parse(&p)
+    });
+    // **`fixed=<floor>`: a colony of fixed size that cannot starve** (the
+    // textbook tests' fixed demography, 2026-10-15). Births paused, a life
+    // too long to end in the run, and every 500 frames any ant under
+    // `<floor>` of its start energy is topped up to the floor, so hunger
+    // still sends ants out but a colony is never lost to a long branch.
+    // Goss et al. 1989's colonies were fed laboratory colonies; ours starved
+    // on the r = 2 bridge (alive 0-283 of 20 founders, the long-only arm 0-32).
+    let fixed_floor: Option<f32> = arg("fixed");
+    if let Some(floor) = fixed_floor {
+        w.births_paused = true;
+        if let Some(id) = w.species.id_of("ant") {
+            if let Some(c) = w.species.get_mut(id).creature.as_mut() {
+                c.life_half_life = 10_000_000;
+            }
+        }
+        println!(
+            "  fixed demography: births paused, long life, fed to {:.2} of start energy every 500 frames",
+            floor
+        );
+    }
     for f in 1..=frames {
+        if let Some(floor) = fixed_floor.filter(|_| f % 500 == 0) {
+            use pixel_physics::sim::world::Account;
+            for id in w.live_organism_ids() {
+                let Some(st) = w.organism(id) else { continue };
+                let Some(start) = w.species.get(st.species).creature.as_ref().map(|c| c.start_energy) else {
+                    continue;
+                };
+                let short = floor * start - st.energy;
+                if short > 0.0 {
+                    let colony = w.colony_of(id);
+                    w.set_organism_energy(id, floor * start);
+                    w.book(colony, Account::Granted, f64::from(short));
+                }
+            }
+        }
+        if let Some((cells, _)) = bridge_plug.as_ref().filter(|(_, at)| f == *at) {
+            for &(x, y) in cells {
+                w.set(x, y, Cell::EMPTY);
+            }
+        }
+        // **What lies in each branch of a y bridge**, eight times a run: every
+        // non-stone, non-empty cell inside the wall, by branch, material and
+        // whether it is part of an animal. A one-cell tunnel is closed by one
+        // crumb or one body, so a branch losing its traffic is first asked
+        // whether something is in the way.
+        if let (Some((mid_x, _, upper)), true) = (bridge, f % (frames / 8).max(1) == 0 && arg_str("bridgeshape").as_deref() == Some("y")) {
+            let (r, sep, bw): (i32, i32, i32) = (arg("bridgebrush").unwrap_or(1), arg("bridge").unwrap(), arg("bridgew").unwrap_or(16));
+            let long = bridge_long();
+            let gy = upper - r - 1 + sep + bridge_ext(long, -1);
+            let stone = w.materials.id_of("stone").expect("stone");
+            let mut seen: std::collections::BTreeMap<(char, String), u32> = std::collections::BTreeMap::new();
+            for x in mid_x - bw / 2..mid_x - bw / 2 + bw {
+                for y in gy - sep - bridge_ext(long, -1) - r - 1..=gy + sep + bridge_ext(long, 1) + r + 1 {
+                    let c = w.get(x, y);
+                    if c.is_empty() || c.material == stone || y == gy {
+                        continue;
+                    }
+                    let what = format!("{}{}", w.materials.get(c.material).name, if c.organism_id() != 0 { "(animal)" } else { "" });
+                    *seen.entry((if y < gy { 'U' } else { 'L' }, what)).or_default() += 1;
+                }
+            }
+            println!("  BRIDGE seed {seed} frame {f}: in the branches {:?}", seen);
+        }
+        if let Some(mode) = needs_mode.filter(|_| f == needs_at) {
+            let mut walk = pixel_physics::sim::creature::needs::NeedsWalk::new(mode, w.frame);
+            walk.parts = needs_parts;
+            w.needs = Some(Box::new(walk));
+            // The walk reads home from the founded site and its shaft
+            // (`nearest_nest_site`, `nest_ways`): say whether there is one.
+            println!(
+                "  NEEDS seed {seed}: frame {f} mode={mode:?} parts={} nest_sites={} shaft={}",
+                needs_parts.label(),
+                w.nest_sites.len(),
+                w.nest_sites.iter().any(|n| n.shaft.is_some())
+            );
+        }
         // **`stop` is what turns this from a pull arm into a loop arm.** Up to
         // `stop` the trail is guaranteed, which breaks the circularity -- a
         // naturally laid trail needs commuters, and commuters need a trail
@@ -3767,6 +4134,42 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
             let Some(&(hx, hy)) = s.chain.first() else { continue };
             ant_ticks += 1;
             let carrying_larder = s.crop.is_some_and(|c| is_larder_food(c.material));
+            if let Some((mid_x, _, upper_floor)) = bridge {
+                // **One count per passage through the wall, by the tunnel used
+                // and the load carried**: the lane is remembered at the middle
+                // column and counted when the ant comes out of the far face
+                // (east empty, west laden). A diamond's two tunnels join at
+                // both ends into a ring, and counting every middle crossing
+                // read an ant circling it as one crossing per tunnel per lap:
+                // an exact half-and-half split on every seed (0.42-0.54, 8 of
+                // 8), measured 2026-10-14.
+                let half_w = bridge_w / 2;
+                let laden = usize::from(carrying_larder);
+                let entry = bridge_last.entry(id).or_insert((hx, None));
+                let was = entry.0;
+                entry.0 = hx;
+                if hx == mid_x && was != mid_x {
+                    entry.1 = Some((usize::from(hy < upper_floor + 2), was < mid_x, f));
+                }
+                let out_east = hx > mid_x + half_w && was <= mid_x + half_w;
+                let out_west = hx < mid_x - half_w && was >= mid_x - half_w;
+                if out_east || out_west {
+                    if let Some((lane, east, at_mid)) = entry.1.take() {
+                        // Only a passage that kept its direction, made with
+                        // the load that direction means.
+                        if east == out_east && (laden == 1) == out_west {
+                            bridge_log.push((f, lane, laden, f - at_mid));
+                            bridge_x[lane][laden] += 1;
+                            if f > frames / 2 {
+                                bridge_late[lane][laden] += 1;
+                            }
+                            if laden == 0 {
+                                bridge_q[((f - 1) * 4 / frames).min(3) as usize][lane] += 1;
+                            }
+                        }
+                    }
+                }
+            }
             // **`focalany` traces an ant that never finds food, and without it
             // the failing case is invisible.** The focal ant was chosen from
             // larder-carriers only, so in a seed where nobody reaches the food
@@ -5409,6 +5812,78 @@ fn run(seed: u64, trail: bool, gate: Gate, frames: u64, ants: i32, relay: u64, n
         }
     }
 
+    if let Some((mid_x, lower_floor, upper_floor)) = bridge {
+        // What each tunnel smells of at the end, along its floor-adjacent row
+        // through the wall: mean raw scent / 256, and the share of cells whose
+        // chooser presence (`x / (1 + x)` over a tenth of a deposit, as
+        // `creature::trail_presence`) is already above 0.9 -- i.e. reads as a
+        // full route whatever more traffic adds.
+        let bw: i32 = arg("bridgew").unwrap_or(16);
+        let half = pheromone::DEPOSIT as f32 / 10.0;
+        for (name, ch) in [("A", Channel::A), ("B", Channel::B)] {
+            let mut line = format!("  BRIDGE seed {seed} arm {arm_name} trail {name}:");
+            for (lane, floor) in [("lower", lower_floor), ("upper", upper_floor)] {
+                let (mut sum, mut sat, mut n) = (0.0f32, 0u32, 0u32);
+                for x in mid_x - bw / 2..mid_x + bw / 2 {
+                    let v = f32::from(w.pheromone_at(ch, x, floor - 1));
+                    sum += v / pheromone::SCALE as f32;
+                    let p = (v / half) / (1.0 + v / half);
+                    sat += u32::from(p > 0.9);
+                    n += 1;
+                }
+                line.push_str(&format!(" {lane} mean {:.1} presence>0.9 {}/{}", sum / n as f32, sat, n));
+            }
+            println!("{line}");
+        }
+        let share = |c: &[[u64; 2]; 2], k: usize| c[1][k] as f64 / (c[0][k] + c[1][k]).max(1) as f64;
+        println!(
+            "  BRIDGE seed {seed} arm {arm_name}: crossings lower/upper empty {}/{} laden {}/{} | second half empty {}/{} laden {}/{} | upper share, second half: empty {:.2} laden {:.2}",
+            bridge_x[0][0], bridge_x[1][0], bridge_x[0][1], bridge_x[1][1],
+            bridge_late[0][0], bridge_late[1][0], bridge_late[0][1], bridge_late[1][1],
+            share(&bridge_late, 0), share(&bridge_late, 1)
+        );
+        // **The paper's window: by traffic, both ways.** Crossings `a` to `b`
+        // counted from the first (`bridgewin=a:b`, 500:1000 -- Goss's trials
+        // held 317-1,043 crossings, his model 501-1000 ants), all directions
+        // together, then empty and laden apart. Flow is crossings per branch
+        // transit time over the window (Goss: 0.5 ants/s x 20 s = about 10),
+        // a transit being twice the median middle-to-face time.
+        let (wa, wb): (usize, usize) = arg_str("bridgewin")
+            .map(|s| {
+                let (a, b) = s.split_once(':').expect("bridgewin=<from>:<to>");
+                (a.parse().expect("bridgewin from"), b.parse().expect("bridgewin to"))
+            })
+            .unwrap_or((500, 1000));
+        let win = &bridge_log[wa.min(bridge_log.len())..wb.min(bridge_log.len())];
+        let up = |pred: &dyn Fn(usize) -> bool| {
+            let (u, n) = win
+                .iter()
+                .filter(|e| pred(e.2))
+                .fold((0usize, 0usize), |(u, n), e| (u + e.1, n + 1));
+            (u as f64 / n.max(1) as f64, n)
+        };
+        let (all, n_all) = up(&|_| true);
+        let (emp, n_emp) = up(&|l| l == 0);
+        let (lad, n_lad) = up(&|l| l == 1);
+        let mut halves: Vec<u64> = bridge_log.iter().map(|e| e.3).collect();
+        halves.sort_unstable();
+        let transit = 2 * halves.get(halves.len() / 2).copied().unwrap_or(0);
+        let span = win.last().zip(win.first()).map_or(0, |(l, f)| l.0 - f.0).max(1);
+        println!(
+            "  BRIDGE seed {seed} arm {arm_name}: window crossings {wa}-{wb} (have {}): upper share all {:.2} (n {n_all}) empty {:.2} (n {n_emp}) laden {:.2} (n {n_lad}) | frames {}-{} | transit {transit} frames | flow {:.1} crossings per transit",
+            bridge_log.len(),
+            all,
+            emp,
+            lad,
+            win.first().map_or(0, |e| e.0),
+            win.last().map_or(0, |e| e.0),
+            n_all as f64 * transit as f64 / span as f64
+        );
+        println!(
+            "  BRIDGE seed {seed} arm {arm_name}: upper share of empty crossings by quarter: {}",
+            bridge_q.iter().map(|q| format!("{:.2} ({})", q[1] as f64 / (q[0] + q[1]).max(1) as f64, q[0] + q[1])).collect::<Vec<_>>().join("  ")
+        );
+    }
     Arm {
         near_ticks,
         ant_ticks,

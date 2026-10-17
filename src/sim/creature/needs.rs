@@ -1800,11 +1800,7 @@ fn hungry_act(
     if let Some(load) = spoil.filter(|s| !s.store) {
         if !outside && (!in_mound || escaping) {
             if let Some((px, py)) = need_drop_site(world, head) {
-                world.set(px, py, load.cell);
-                if let Some(s) = world.organism_mut(organism) {
-                    s.spoil = None;
-                    s.spoil_ring = None;
-                }
+                place_pellet(world, organism, (px, py), load.cell);
                 world.creature_stats.spoil_dumped += 1;
                 world.needs.as_mut().expect("walking").counts.pellets_down += 1;
             }
@@ -2096,11 +2092,7 @@ fn sealed_escape(
             }
         }
         if let Some(p) = pocket_drop_site(world, head, mind.last_cut, aim.unwrap_or(want)) {
-            world.set(p.0, p.1, load.cell);
-            if let Some(s) = world.organism_mut(organism) {
-                s.spoil = None;
-                s.spoil_ring = None;
-            }
+            place_pellet(world, organism, p, load.cell);
             let c = &mut world.needs.as_mut().expect("walking").counts;
             if load.store {
                 c.sealed_load_down += 1;
@@ -2498,30 +2490,7 @@ fn escape_cut(world: &mut World, organism: OrganismId, def: &CreatureDef, head: 
     if !jaw_can_cut(world, def, organism, target) {
         return false;
     }
-    let mut pellet = target;
-    let ground = world.materials.get(target.material);
-    let hauled = if crate::sim::update::spoil_footing() {
-        ground.spoils_into.or(ground.packs_into)
-    } else {
-        ground.packs_into
-    };
-    if let Some(hauled) = hauled {
-        pellet.material = hauled;
-    }
-    world.set(tx, ty, Cell::EMPTY);
-    world.dug_cells.insert((tx, ty));
-    if spoil_kept() {
-        if let Some(s) = world.organism_mut(organism) {
-            s.spoil = Some(Spoil {
-                cell: pellet,
-                store: false,
-            });
-        }
-    }
-    world.creature_stats.digs += 1;
-    if let Some(s) = world.organism_mut(organism) {
-        s.life.digs += 1;
-    }
+    cut_cell(world, organism, (tx, ty), false);
     line_burrow(world, tx, ty);
     true
 }
@@ -2865,7 +2834,6 @@ fn walk_step(
     let turn = outputs[brain::BrainOutput::Turn as usize];
     let k = CHOICE_EXPLORATION_K * brain::unit_scale(outputs[brain::BrainOutput::Tumble as usize], 2.0);
     let walk = traits_of(world, organism, def);
-    let trail_gain = TRAIL_GAIN * walk_gain(&walk, organism::TRAIT_TRAIL_HOLD);
     let away_gain = AWAY_GAIN * walk_gain(&walk, organism::TRAIT_ROUTE_AWAY);
     let decay = patience_decay_of(&walk);
     let gain = pull.map_or(0.0, |(_, g)| g * walk_gain(&walk, organism::TRAIT_HOME_PULL) * patience);
@@ -2938,12 +2906,25 @@ fn walk_step(
             0.0
         }
     };
-    let planes = trail_planes(&walk, laden);
-    let route = |d: u8| trail_presence(world, (hx, hy), d, planes);
+
     let spent = scout_home && scout_dark && scout_w > 0.0 && food_trail_of(world).giveup;
     // **The carry home is held by a route's contrast, not its level**
     // (`CarryHome`'s `turn`, part of the carry here).
     let options: Vec<u8> = usable.iter().copied().chain(crossing.map(|_| heading)).collect();
+    // `PIXEL_PHYSICS_ROUTE_HALF` reaches this walk as it reaches the game's
+    // chooser (2026-10-14, so the textbook tests can run both ants under one
+    // switch); unset is `TRAIL_HALF` on both planes, as before.
+    let read = TrailRead::new(
+        world,
+        (hx, hy),
+        def,
+        &walk,
+        laden,
+        trail_loop_weight(laden, going_out.then_some(want)),
+        options.iter().copied(),
+    );
+    let trail_gain = read.hold_gain(&walk, laden);
+    let route = |d: u8| read.presence(world, (hx, hy), d);
     let route_floor = if drive == Drive::Carry && trip {
         let f = options.iter().map(|&d| route(d)).fold(f32::INFINITY, f32::min);
         if f.is_finite() {
@@ -2958,7 +2939,7 @@ fn walk_step(
         if spent {
             1.0
         } else {
-            1.0 + trail_gain * (route(d) - route_floor).max(0.0)
+            1.0 + trail_gain * (route(d) - route_floor).max(0.0) + read.food_extra(world, (hx, hy), d, &walk)
         }
     };
     let scout_cos = |d: u8| -> Option<f32> {

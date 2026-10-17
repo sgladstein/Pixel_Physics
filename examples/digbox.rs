@@ -3151,7 +3151,7 @@ impl TripLog {
     /// Drains the frame's decision rows, keeping those of animals that held a
     /// pellet before the frame. Call between the step and [`Self::after`].
     fn log_decisions(&mut self, world: &mut World) {
-        use pixel_physics::sim::creature::{DECISION_OUTCOME_NAMES, DROP_WHY_NAMES};
+        use pixel_physics::sim::creature::{DECISION_OUTCOME_NAMES, DROP_WHY_NAMES, SPOIL_WHY_NAMES};
         use std::io::Write;
         let Some(log) = world.decision_log.as_mut() else { return };
         let rows = std::mem::take(log);
@@ -3168,7 +3168,7 @@ impl TripLog {
             }
             let _ = writeln!(
                 w,
-                "{},{},{},{},{},{},{},{},{:08b},{},{},{:.3},{:.3},{:.3},{:.3},{},{:.3},{:.3},{},{:.3},{:.3},{:.3},{:.3},{:.3},{:.1}",
+                "{},{},{},{},{},{},{},{},{:08b},{},{},{:.3},{:.3},{:.3},{:.3},{},{:.3},{:.3},{},{:.3},{:.3},{:.3},{:.3},{:.3},{:.1},{},{:08b},{:.3}",
                 r.frame,
                 r.id,
                 r.head.0,
@@ -3193,7 +3193,10 @@ impl TripLog {
                 r.at_nest,
                 r.crowding,
                 r.energy,
-                r.energy_j
+                r.energy_j,
+                SPOIL_WHY_NAMES[r.spoil_why as usize],
+                r.spoil_flags,
+                r.spoil_p
             );
         }
     }
@@ -3628,6 +3631,12 @@ fn harness() {
             // to end.
             let fed_by_pile = arg::<i32>("food").unwrap_or(0) > 0;
             c.start_energy = arg("energy").unwrap_or(if fed_by_pile { c.start_energy } else { 20_000.0 });
+            // `halflife=`: the ant's age half-life (`life_half_life`, 40,000
+            // frames), so the pillar box's colony is not measuring its
+            // founding cohort ageing out (80 ants -> 24 by 60k).
+            if let Some(h) = arg::<u32>("halflife") {
+                c.life_half_life = h;
+            }
         }
     }
     // **`gate=` re-centres the chamber gate on the band `Crowding` actually
@@ -3724,6 +3733,17 @@ fn harness() {
         println!("  PATCHED genome by name: {}", set.join("; "));
     }
     world.paint_nest_patch(b.w / 2, b.surface - 1);
+    // **`rooms`: the sorting test's nest** (textbook tests, 2026-10-15). Three
+    // rooms in stone off one shaft, so where brood and food end up is the
+    // colony's placing and carrying, not its digging. See [`SortNest`].
+    let sort_nest = flag("rooms").then(|| SortNest::carve(&mut world, b.w / 2, b.surface));
+    // `sortfood=N`: N cells of food scattered over the three rooms at the
+    // start, so the store's carriers have food at home to move without the
+    // colony having to forage (a fed box does not forage).
+    if let (Some(n), Some(nest)) = (arg::<u32>("sortfood"), sort_nest.as_ref()) {
+        nest.scatter(&mut world, n, arg("seed").unwrap_or(0));
+    }
+    let sort_every: u64 = arg("sortevery").unwrap_or(4_000);
     let seed: u64 = arg("seed").unwrap_or(0);
     let span = 26.min(b.w / 2 - 2) * 2 + 1;
     // Read after the paint, which cuts the founding shaft the anchor sits on.
@@ -3878,6 +3898,24 @@ fn harness() {
     // before that date was taken on; `fed` is still accepted and does
     // nothing more.
     let fed = !flag("hungry");
+    // **The pillar box** (`source=`, `mapdir=`, `needs=walk needsat=`;
+    // Khuong pillars level 2, textbook tests 2026-10-15): see [`Source`].
+    let mut source = arg::<u64>("source").map(|n| Source::new(&world, n));
+    let map_dir: Option<String> = arg("mapdir");
+    if let Some(d) = map_dir.as_deref() {
+        std::fs::create_dir_all(d).expect("mapdir: cannot create it");
+    }
+    let needs_at: Option<u64> = (arg::<String>("needs").as_deref() == Some("walk")).then(|| arg("needsat").unwrap_or(0));
+    if source.is_some() || map_dir.is_some() || needs_at.is_some() {
+        println!(
+            "pillar box: source {} pellets per 1k frames, maps {}, needs walk from {} | BUILD_MARK={} MOUND_OUT={}",
+            arg::<u64>("source").unwrap_or(0),
+            map_dir.as_deref().unwrap_or("off"),
+            needs_at.map_or("never".to_string(), |f| f.to_string()),
+            std::env::var("PIXEL_PHYSICS_BUILD_MARK").unwrap_or_default(),
+            std::env::var("PIXEL_PHYSICS_MOUND_OUT").unwrap_or_default()
+        );
+    }
     // **`surplus=J`: top every adult up to start_energy + J**, so a nurse has
     // something above its own grant to hand a larva (`brood::nurse` gives only
     // from above `start_energy`). See [`feed`].
@@ -3908,7 +3946,7 @@ fn harness() {
     if let Some(path) = arg::<String>("decisions") {
         use std::io::Write;
         let mut w = std::io::BufWriter::new(std::fs::File::create(&path).expect("decisions: cannot create the file"));
-        let _ = writeln!(w, "frame,id,hx,hy,hx_after,hy_after,heading,heading_after,usable,anchor_x,anchor_y,home_aligned,p_move,roll_move,roll_tumble,outcome,patience,chosen_cos,drop,drop_roll,drop_p,at_nest,crowding,energy,energy_j");
+        let _ = writeln!(w, "frame,id,hx,hy,hx_after,hy_after,heading,heading_after,usable,anchor_x,anchor_y,home_aligned,p_move,roll_move,roll_tumble,outcome,patience,chosen_cos,drop,drop_roll,drop_p,at_nest,crowding,energy,energy_j,spoil_why,spoil_flags,spoil_p");
         trips.decisions = Some(w);
         trips.decisions_nest = flag("decisions_nest");
         world.decision_log = Some(Vec::new());
@@ -3960,6 +3998,15 @@ fn harness() {
         if fed {
             feed(&mut world, surplus);
         }
+        if needs_at == Some(f) {
+            world.needs = Some(Box::new(pixel_physics::sim::creature::needs::NeedsWalk::new(pixel_physics::sim::creature::needs::NeedsMode::Walk, world.frame)));
+        }
+        if let Some(src) = source.as_mut() {
+            src.step(&mut world, &b, f);
+        }
+        if let Some(n) = sort_nest.as_ref().filter(|_| f > 0 && f.is_multiple_of(sort_every.max(1))) {
+            println!("{}", n.census(&world, f, &b));
+        }
         if let Some(p) = food_pile.as_mut().filter(|p| f > 0 && p.refill > 0 && f.is_multiple_of(p.refill)) {
             p.place(&mut world);
         }
@@ -3992,6 +4039,25 @@ fn harness() {
             );
             if let Some(line) = cut_census(&world) {
                 println!("{line}");
+            }
+            if source.is_some() || map_dir.is_some() {
+                let st = world.creature_stats;
+                println!(
+                    "PILLAR frame={f} pellets handed out {} | build mark: carriers moved on {}, stopped on a mark {}, fresh cuts refused {} | spoil standing above the old surface {}",
+                    source.as_ref().map_or(0, |s| s.given),
+                    st.build_mark_moves,
+                    st.build_mark_held_marked,
+                    st.build_mark_fresh_refused,
+                    spoil_above(&world, &b)
+                );
+                println!(
+                    "PILLARHOLD frame={f} carrier decisions held: by the ring {}, kept as inside {} (near the door {}, below ground {}), under cover {}, kept with no lift {} | put down {}",
+                    st.spoil_ring_held, st.spoil_kept_inside, st.spoil_held_near_door, st.spoil_held_below, st.spoil_holds_under_cover, st.spoil_kept_no_lift, st.spoil_dumped
+                );
+                println!("{}", carrier_cover(&world, &b, f));
+            }
+            if let Some(d) = map_dir.as_deref() {
+                write_map(&world, &b, &format!("{d}/nest_f{f:06}.txt"));
             }
             println!("{}", crater(&world, &b, f));
             println!("{}", widths(&world, &b, f));
@@ -4791,6 +4857,124 @@ impl FoodPile {
 /// ground, so `FoodAdjacent` stays 0 and the dig is still the nest
 /// mechanism alone; held at `start_energy` (1,000 on the lane's runs), an
 /// ant sits under the ~1,040 J budding floor, so the count stays fixed.
+/// **A soil source for the pillar box** (`source=<pellets per 1k frames>`):
+/// the harness puts a pellet of spoil in the jaws of an ant standing in the
+/// nest below the old ground line, empty-jawed, cropless and not brood, as if
+/// it had just dug one, so the real carrier walks it out, the ring and
+/// `PIXEL_PHYSICS_BUILD_MARK` decide where it stops, and the shipped drop
+/// sites and footing decide whether it stands. Khuong et al. 2016 gave their
+/// ants a pile of pellets; a fed colony in a bare box digs a few hundred cells
+/// and stops, far too few to build with (60k frames, 40 ants: 257 digs).
+/// Deterministic: ants are taken in id order, round-robin from the last one
+/// given.
+struct Source {
+    every: u64,
+    next: u64,
+    given: u64,
+    spoil: MaterialId,
+}
+
+impl Source {
+    fn new(world: &World, per_1k: u64) -> Self {
+        assert!(per_1k > 0, "source= wants pellets per 1k frames, above 0");
+        Source { every: (1000 / per_1k).max(1), next: 0, given: 0, spoil: world.materials.id_of("spoil").expect("spoil is a material") }
+    }
+
+    fn step(&mut self, world: &mut World, b: &Box2, f: u64) {
+        if f == 0 || !f.is_multiple_of(self.every) {
+            return;
+        }
+        let ids = world.live_organism_ids();
+        let pick = ids
+            .iter()
+            .copied()
+            .filter(|&id| u64::from(id) > self.next)
+            .chain(ids.iter().copied())
+            .find(|&id| {
+                world.organism(id).is_some_and(|st| {
+                    world.species.get(st.species).creature.is_some()
+                        && st.brood.is_none()
+                        && st.spoil.is_none()
+                        && st.crop.is_none_or(|c| c.cells == 0)
+                        && st.chain.first().is_some_and(|&(x, y)| y > b.surface || ((x - b.w / 2).abs() <= 4 && y >= b.surface - 3))
+                })
+            });
+        if let Some(id) = pick {
+            if world.set_organism_spoil(id, Some(pixel_physics::sim::organism::Spoil { cell: Cell::new(self.spoil, 0), store: false })) {
+                self.given += 1;
+                self.next = u64::from(id);
+            }
+        }
+    }
+}
+
+/// **What roofs the carriers standing above the old ground line**: for each
+/// ant holding a pellet there, the first ground cell over its head within 20
+/// rows (`creature::under_cover`'s reach and test), and whether that cell
+/// rests on an animal (the cell under it is one) or not.
+fn carrier_cover(world: &World, b: &Box2, f: u64) -> String {
+    let ground = |x: i32, y: i32| {
+        let c = world.get(x, y);
+        c.material != material::EMPTY && c.organism_id() == 0 && matches!(world.materials.kind(c.material), MaterialKind::Powder | MaterialKind::Solid)
+    };
+    let animal = |x: i32, y: i32| world.get(x, y).organism_id() != 0;
+    let (mut above, mut open, mut on_animal, mut on_ground) = (0, 0, 0, 0);
+    for id in world.live_organism_ids() {
+        let Some(st) = world.organism(id) else { continue };
+        if st.spoil.is_none() {
+            continue;
+        }
+        let Some(&(x, y)) = st.chain.first() else { continue };
+        if y >= b.surface {
+            continue;
+        }
+        above += 1;
+        match (1..=20).map(|dy| y - dy).find(|&cy| ground(x, cy)) {
+            None => open += 1,
+            Some(cy) if animal(x, cy + 1) => on_animal += 1,
+            Some(_) => on_ground += 1,
+        }
+    }
+    format!("COVER frame={f} carriers above the old surface {above}: open sky {open}, roofed by ground resting on an animal {on_animal}, by ground resting on ground or air {on_ground}")
+}
+
+/// Spoil cells above the old ground line.
+fn spoil_above(world: &World, b: &Box2) -> usize {
+    let Some(spoil) = world.materials.id_of("spoil") else { return 0 };
+    (0..b.surface).flat_map(|y| (0..b.w).map(move |x| (x, y))).filter(|&(x, y)| world.get(x, y).material == spoil).count()
+}
+
+/// `mapdir=`: the box as one character a cell, in `deeptrace`'s nest-map
+/// form (`x0 y0 w h` then rows) so the pillar census
+/// (`emergence-sandbox/pillars/census/turrets.py`) reads both: `.` open and
+/// never dug, `o` open and dug, `s` spoil, `=` packed soil, `#` other
+/// ground, `r` stone, `a` an animal.
+fn write_map(world: &World, b: &Box2, path: &str) {
+    let (spoil, packed, stone) = (world.materials.id_of("spoil"), world.materials.id_of("packedsoil"), world.materials.id_of("stone"));
+    let mut s = format!("0 0 {} {}\n", b.w, b.h);
+    for y in 0..b.h {
+        for x in 0..b.w {
+            let c = world.get(x, y);
+            let kind = world.materials.kind(c.material);
+            s.push(if c.material == material::EMPTY {
+                if world.dug_cells.contains(&(x, y)) { 'o' } else { '.' }
+            } else if kind == MaterialKind::Creature || c.organism_id() != 0 {
+                'a'
+            } else if Some(c.material) == spoil {
+                's'
+            } else if Some(c.material) == packed {
+                '='
+            } else if Some(c.material) == stone {
+                'r'
+            } else {
+                '#'
+            });
+        }
+        s.push('\n');
+    }
+    let _ = std::fs::write(path, s);
+}
+
 fn feed(world: &mut World, surplus: f32) {
     use pixel_physics::sim::world::Account;
     for id in world.live_organism_ids() {
@@ -5408,4 +5592,156 @@ fn selftest_run(b: &Box2) {
     assert!(st.dig_rolls > 0, "not one dig was even attempted -- the colony is not thinking, so any null from this box is the harness");
     assert!(st.digs > 0, "digs attempted but none landed -- every roll hit air, rock or another ant, and this box cannot answer a digging question");
     println!("digbox selftest: PASS -- the box is empty when nobody digs, finds a known chamber, calls a shaft open, and its ants dig");
+}
+
+
+/// **The sorting test's nest** (`rooms`): a stone block under the door with
+/// one shaft down it and three rooms off the shaft -- upper left, middle
+/// right, and one at the shaft's foot -- joined by two-high tunnels.
+/// Stone, so a colony cannot dig a fourth room or widen these: the
+/// question is only where brood and food are put. The founding cut is kept
+/// and the shaft extends it. Like `sortbox layout=nest`, but for the real
+/// ant. A dropped item is a powder and falls down the open shaft into the
+/// bottom room, so read the bottom room's share against that.
+struct SortNest {
+    rooms: [(i32, i32, i32, i32); 3],
+    block: (i32, i32, i32, i32),
+}
+
+impl SortNest {
+    fn carve(world: &mut World, cx: i32, surface: i32) -> Self {
+        let stone = world.materials.id_of("stone").expect("stone");
+        let block = (cx - 45, surface + 1, cx + 45, surface + 46);
+        let a = (cx - 34, surface + 8, cx - 10, surface + 13);
+        let m = (cx + 11, surface + 20, cx + 35, surface + 25);
+        let c = (cx - 12, surface + 31, cx + 13, surface + 36);
+        let open = |x: i32, y: i32| {
+            let inr = |r: (i32, i32, i32, i32)| x >= r.0 && x <= r.2 && y >= r.1 && y <= r.3;
+            inr(a) || inr(m) || inr(c)
+                || (x >= cx && x <= cx + 1 && y <= c.1)
+                || (y >= a.3 - 1 && y <= a.3 && x > a.2 && x < cx)
+                || (y >= m.3 - 1 && y <= m.3 && x > cx + 1 && x < m.0)
+        };
+        for y in block.1..=block.3 {
+            for x in block.0..=block.2 {
+                if open(x, y) {
+                    world.set(x, y, Cell::EMPTY);
+                } else if !world.is_empty(x, y) || y > surface + 8 {
+                    world.set(x, y, Cell::new(stone, 0).with_attached(true));
+                }
+            }
+        }
+        println!(
+            "  SORT NEST: stone block x {}..{} rows {}..{}; rooms A (upper left) {:?}, B (middle right) {:?}, C (shaft foot) {:?}; shaft columns {}..{}",
+            block.0, block.2, block.1, block.3, a, m, c, cx, cx + 1
+        );
+        SortNest { rooms: [a, m, c], block }
+    }
+
+    /// `n` cells of food (`larder=`, default fruit) at random open cells of
+    /// the three rooms; they fall to the floors.
+    fn scatter(&self, world: &mut World, n: u32, seed: u64) {
+        let name: String = arg("larder").unwrap_or_else(|| "fruit".to_string());
+        let food = world.materials.id_of(&name).unwrap_or_else(|| panic!("larder={name}: no such material"));
+        let mut rng = pixel_physics::sim::rng::Rng::new(seed.wrapping_mul(0x9E37_79B9_7F4A_7C15) ^ 0x50f7);
+        let mut placed = 0;
+        while placed < n {
+            let r = self.rooms[rng.below(3) as usize];
+            let x = r.0 + rng.below((r.2 - r.0 + 1) as u32) as i32;
+            let y = r.1 + rng.below((r.3 - r.1 + 1) as u32) as i32;
+            if world.is_empty(x, y) {
+                world.set(x, y, Cell::new(food, 0));
+                placed += 1;
+            }
+        }
+        println!("  SORT FOOD: {n} cells of {name} scattered over the three rooms (seed {seed})");
+    }
+
+    /// Which room a cell is in: 0-2, 3 for the shaft and tunnels, 4 outside the block.
+    fn where_is(&self, x: i32, y: i32) -> usize {
+        for (i, r) in self.rooms.iter().enumerate() {
+            if x >= r.0 && x <= r.2 && y >= r.1 && y <= r.3 {
+                return i;
+            }
+        }
+        let b = self.block;
+        if x >= b.0 && x <= b.2 && y >= b.1 && y <= b.3 {
+            3
+        } else {
+            4
+        }
+    }
+
+    /// One `SORT` line: brood and loose food by room, each kind's largest
+    /// room, and **mixing** -- of every item's item neighbours inside the
+    /// block, the share of the other kind (0 sorted, about 0.5 random).
+    fn census(&self, world: &World, f: u64, bx: &Box2) -> String {
+        let brood = world.materials.id_of("brood");
+        let kind = |x: i32, y: i32| -> Option<usize> {
+            let c = world.get(x, y);
+            if Some(c.material) == brood {
+                Some(0)
+            } else if c.organism_id() == 0 && pixel_physics::sim::creature::food_value(world, c) > 0.0 {
+                Some(1)
+            } else {
+                None
+            }
+        };
+        let mut by = [[0u32; 5]; 2];
+        let (mut same, mut other) = (0u64, 0u64);
+        let b = self.block;
+        for y in 0..bx.h {
+            for x in 0..bx.w {
+                let Some(k) = kind(x, y) else { continue };
+                by[k][self.where_is(x, y)] += 1;
+                if x < b.0 || x > b.2 || y < b.1 || y > b.3 {
+                    continue;
+                }
+                for (dx, dy) in [(1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (1, -1), (-1, 1), (-1, -1)] {
+                    match kind(x + dx, y + dy) {
+                        Some(j) if j == k => same += 1,
+                        Some(_) => other += 1,
+                        None => {}
+                    }
+                }
+            }
+        }
+        let top = |v: &[u32; 5]| {
+            let (i, n) = v[..3].iter().enumerate().max_by_key(|&(_, n)| *n).map(|(i, n)| (i, *n)).unwrap_or((0, 0));
+            if n == 0 { "-".to_string() } else { ["A", "B", "C"][i].to_string() }
+        };
+        let share = |v: &[u32; 5]| {
+            let inside: u32 = v[..3].iter().sum();
+            let max = v[..3].iter().copied().max().unwrap_or(0);
+            if inside == 0 { 0.0 } else { max as f32 / inside as f32 }
+        };
+        // Brood piles: 8-connected groups of brood cells, and the largest.
+        let (mut piles, mut biggest) = (0u32, 0u32);
+        let mut seen = std::collections::HashSet::new();
+        for y in 0..bx.h {
+            for x in 0..bx.w {
+                if kind(x, y) != Some(0) || !seen.insert((x, y)) {
+                    continue;
+                }
+                piles += 1;
+                let (mut stack, mut size) = (vec![(x, y)], 0u32);
+                while let Some((px, py)) = stack.pop() {
+                    size += 1;
+                    for (dx, dy) in [(1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (1, -1), (-1, 1), (-1, -1)] {
+                        if kind(px + dx, py + dy) == Some(0) && seen.insert((px + dx, py + dy)) {
+                            stack.push((px + dx, py + dy));
+                        }
+                    }
+                }
+                biggest = biggest.max(size);
+            }
+        }
+        format!(
+            "SORT frame={f} brood piles {piles} largest {biggest} | brood A/B/C/way/out {}/{}/{}/{}/{} top {} ({:.2}) | food A/B/C/way/out {}/{}/{}/{}/{} top {} ({:.2}) | apart {} | mixing {:.3}",
+            by[0][0], by[0][1], by[0][2], by[0][3], by[0][4], top(&by[0]), share(&by[0]),
+            by[1][0], by[1][1], by[1][2], by[1][3], by[1][4], top(&by[1]), share(&by[1]),
+            if top(&by[0]) != "-" && top(&by[1]) != "-" && top(&by[0]) != top(&by[1]) { "yes" } else { "no" },
+            other as f32 / (same + other).max(1) as f32
+        )
+    }
 }

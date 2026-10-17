@@ -3053,6 +3053,13 @@ pub struct CreatureStats {
     /// Brood a touching nestmate moved toward other brood or out of the
     /// doorway (`brood::carry`, `PIXEL_PHYSICS_BROOD_CARRY`).
     pub brood_carried: u64,
+    /// `creature::BuildMark`: latches moved one column out (the stop draw
+    /// lost), and ticks a carrier was held at a column with a mark of 0.5 or
+    /// more round its top.
+    pub build_mark_moves: u64,
+    pub build_mark_held_marked: u64,
+    /// Cuts refused under `BuildMark`'s `fresh`.
+    pub build_mark_fresh_refused: u64,
     /// `PIXEL_PHYSICS_SHAFT_ROOMS` (`creature::ShaftRooms`): cuts the jaw
     /// could take refused as too tall (or a ramp), too near another room,
     /// by the random control, and refusals waived for an ant shut in; and
@@ -4534,6 +4541,11 @@ pub struct World {
     /// then on every ant decides by it. The walk's memory of each ant lives
     /// in here, not on `OrganismState`.
     pub needs: Option<Box<crate::sim::creature::needs::NeedsWalk>>,
+    /// **The textbook ant** (`creature::textbook`): `None` is today's ant.
+    /// Set by a harness at a frame, never from the environment, as `needs`
+    /// is; from then on every ant of its species decides by its cited rules.
+    /// Exclusive with `needs` (`creature_tick` refuses both).
+    pub textbook: Option<Box<crate::sim::creature::textbook::Textbook>>,
     /// **`PIXEL_PHYSICS_NEST_STORE` for this world**
     /// (`creature::nest_store_of`). `None` follows the environment; a field
     /// so a guard can take both arms in one process.
@@ -4962,6 +4974,11 @@ pub struct World {
     /// door, within `creature::DUG_HOME_REACH`. Rebuilt every
     /// `ROOM_INTERVAL` frames by `step_nest_dug`; empty under any other home.
     pub nest_dug: crate::sim::fxhash::PosSet,
+    /// **The building mark** (`PIXEL_PHYSICS_BUILD_MARK`, off; Khuong et
+    /// al. 2016): the frame each carried pellet was put down at, by cell.
+    /// Written by `creature::mark_built` and read by the spoil ring's stop
+    /// rule; empty with the switch off.
+    pub build_marks: crate::sim::fxhash::PosMap<u64>,
     /// **How many of `nest_dug`'s cells each nest site's fill reached**,
     /// indexed as `nest_sites` (a cell two fills reach counts for the first).
     /// Read by `creature::DigCompany`'s founding exemption, so one colony's
@@ -7213,6 +7230,7 @@ impl World {
             depth_slow: None,
             pack_parted: None,
             needs: None,
+            textbook: None,
             nest_store: None,
             nest_ways: Vec::new(),
             store_last_seeds: Vec::new(),
@@ -7272,6 +7290,7 @@ impl World {
             nest_sites: Vec::new(),
             nest_room: Vec::new(),
             nest_dug: Default::default(),
+            build_marks: Default::default(),
             nest_dug_sizes: Vec::new(),
             dug_cells: Default::default(),
             nest_need: Vec::new(),
@@ -7449,7 +7468,29 @@ impl World {
     /// the interval exists.
     pub fn step_pheromones(&mut self) {
         let interval = self.clock.creature_interval(crate::sim::pheromone::PHEROMONE_INTERVAL);
+        // `PIXEL_PHYSICS_SCENT_WALLS=on`: rock and soil stop the blend
+        // (`pheromone::scent_walls`). Rebuilt whole, and only on a pass frame;
+        // the cost is the switch's open question.
+        if crate::sim::pheromone::scent_walls() && self.frame.is_multiple_of(interval.max(1)) {
+            self.rebuild_scent_walls();
+        }
         self.pheromones.step(self.frame, interval);
+    }
+
+    /// The cells scent cannot pass, for `PIXEL_PHYSICS_SCENT_WALLS`: solids
+    /// and powders (soil, sand), the same kinds a trail cannot lie in
+    /// (`creature::trail_could_be_here`). Public so a harness that steps the
+    /// planes itself can apply the same rule.
+    pub fn rebuild_scent_walls(&mut self) {
+        let b = self.pheromones.bounds();
+        let mut mask = Vec::with_capacity((b.width() * b.height()) as usize);
+        for y in b.min_y..=b.max_y {
+            for x in b.min_x..=b.max_x {
+                let kind = self.materials.kind(self.get(x, y).material);
+                mask.push(matches!(kind, MaterialKind::Solid | MaterialKind::Powder));
+            }
+        }
+        self.pheromones.set_walls(Some(mask));
     }
 
     /// Add to a pheromone channel at `(x, y)`. Out-of-world deposits are
@@ -8539,6 +8580,20 @@ impl World {
         match self.organism_mut(organism_id) {
             Some(state) => {
                 state.crop = crop;
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// **Put a load in an animal's jaws** (`OrganismState::spoil`), for a
+    /// harness that supplies pellets as if they had been dug (`digbox`'s
+    /// `source=`). A harness tool like `set_organism_crop`: the material it
+    /// conjures is booked nowhere. Returns `false` if the organism is gone.
+    pub fn set_organism_spoil(&mut self, organism_id: OrganismId, spoil: Option<crate::sim::organism::Spoil>) -> bool {
+        match self.organism_mut(organism_id) {
+            Some(state) => {
+                state.spoil = spoil;
                 true
             }
             None => false,

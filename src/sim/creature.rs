@@ -75,6 +75,10 @@ use super::world::{Account, KillDetail, World, KILL_VERB_BITE, KILL_VERB_EAT};
 /// harness sets `World::needs` (`creature/needs.rs` says where it hooks in).
 pub mod needs;
 
+/// **The textbook ant**, a third way for an ant to decide, from cited rules
+/// only; off unless a harness sets `World::textbook` (`creature/textbook.rs`).
+pub mod textbook;
+
 /// Index 0 = east, then counterclockwise on screen (y grows downward, so
 /// `(1, -1)` is up-and-right). **The one heading table** — see
 /// `OrganismState::heading`: headings are a discrete 0..8 compass index, a
@@ -223,6 +227,10 @@ const RNG_SLOT_SHAFT_ROOMS: u64 = 12;
 /// [`DigCompany`]'s `q` draw: whether a lone ant's cut is refused this roll.
 /// A slot of its own so the switch moves no other draw.
 const RNG_SLOT_DIG_COMPANY: u64 = 13;
+
+/// [`BuildMark`]'s stop draw: whether a carrier stops at a column. A slot
+/// of its own (16: needs.rs holds 12-15) so the switch moves no other draw.
+const RNG_SLOT_BUILD_MARK: u64 = 16;
 
 /// **The cap `grow_body` walks a `Segmented` body's `FateGenome` to.** With
 /// laterals that is at most 16 cells; both shipped bodies land at 7-8, well
@@ -8009,6 +8017,13 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
         Some(input) => steered_outputs(outputs, input),
         None => outputs,
     };
+    // **One decider per ant** (the textbook ant's design, §4): the player's
+    // keys, else the textbook ant, else the needs walk, else today's ant.
+    // The two harness-set walks are exclusive: a world with both is refused
+    // rather than given an order nobody chose.
+    assert!(world.textbook.is_none() || world.needs.is_none(), "World::textbook and World::needs are both set; a harness sets one");
+    let textbook = steer_in.is_none() && textbook::decides(world, organism);
+    let outputs = if textbook { textbook::outputs_for(outputs) } else { outputs };
 
     // **A carrier of a trip's food meets the ants it passes**
     // ([`meet_way_reach`], off): before the move, so the ants beside it now
@@ -8142,7 +8157,12 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
     // player's ant (`steer`): she acts on the keys, and the walk's four hooks
     // all stand aside for her, as `chooser_step` does.
     let walked = world.needs.is_some() && steer_in.is_none();
-    let Did { dug, gnaws, shares, packed } = if walked {
+    // The textbook ant's draws are its own stream (`textbook::draw_for`);
+    // the tick's `draw` is untouched by it.
+    let mut tdraw = if textbook { Some(textbook::draw_for(world, organism)) } else { None };
+    let Did { dug, gnaws, shares, packed } = if let Some(td) = tdraw.as_mut() {
+        textbook::act(world, organism, def, td)
+    } else if walked {
         needs::act(world, x, y, organism, def, &inputs, &outputs, &mut draw)
     } else {
         act(world, x, y, organism, def, &outputs, &mut draw)
@@ -8247,6 +8267,8 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
     // **...and under the needs walk, its own kinesis** ([`needs::kinesis`]).
     let p_move = if walked {
         needs::kinesis(world, organism, def, (x, y), &inputs, p_move)
+    } else if textbook {
+        textbook::p_move(world)
     } else {
         p_move
     };
@@ -8290,12 +8312,18 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
     // below checks support only inside `step_chain`, after the step roll won,
     // so an animal whose `P(move)` is 0 hangs wherever it stopped.
     let chooser = chooser_for(world, def);
-    let fell = !packed && chooser != Chooser::Off && fall_now_if_unsupported(world, organism, def);
+    let fell = !packed && (chooser != Chooser::Off || textbook) && fall_now_if_unsupported(world, organism, def);
     if fell || packed {
         left_the_spot = true;
     }
     // No roll on a fall, so the trace reads NaN for it; nor after a pack.
-    let roll_move = if fell || packed { f32::NAN } else { draw.unit_f32() };
+    let roll_move = if fell || packed {
+        f32::NAN
+    } else if let Some(td) = tdraw.as_mut() {
+        td.unit_f32()
+    } else {
+        draw.unit_f32()
+    };
     if fell || packed {
         // The fall was this decision; `fall_if_unsupported` noted it. A pack
         // stepped already, in `act` (`NeedsFirst`'s `pack`).
@@ -8341,6 +8369,8 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
             // (`step_chain`, `fills_before_walking`). No draw is taken.
             moved = if let Some(input) = steer_in {
                 steered_step(world, organism, heading, def, input.dir)
+            } else if let Some(td) = tdraw.as_mut() {
+                textbook::step(world, organism, heading, def, td)
             } else if walked {
                 needs::step(world, organism, heading, &outputs, def, &mut draw, chooser)
             } else if chooser == Chooser::Off {
@@ -8356,7 +8386,7 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
                 world.book(colony, Account::Moved, step as f64);
             }
         }
-    } else if chooser != Chooser::Off {
+    } else if chooser != Chooser::Off || textbook {
         // **`Move` is an activity level only** under the chooser (plan §4e):
         // a lost roll is a pause, and where to go next is decided when it
         // next steps. The tumble's re-roll is gone; `Tumble` sets how loosely
@@ -8472,8 +8502,9 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &
         // the physical reading of laying a trail as you go. It does not touch
         // P-11 -- the deposit still happens only on a successful move.
         let (dx_, dy_) = if deposit_at_vacated() { (x, y) } else { (hx, hy) };
-        let amount_a = (emit_a * pheromone::DEPOSIT as f32) as pheromone::Scent;
-        let amount_b = (emit_b * pheromone::DEPOSIT as f32) as pheromone::Scent;
+        let topup = lay_topup();
+        let amount_a = (emit_a * pheromone::DEPOSIT as f32 * topup_scale(world, Channel::A, dx_, dy_, topup[0])) as pheromone::Scent;
+        let amount_b = (emit_b * pheromone::DEPOSIT as f32 * topup_scale(world, Channel::B, dx_, dy_, topup[1])) as pheromone::Scent;
         world.deposit_pheromone(Channel::A, dx_, dy_, amount_a);
         world.deposit_pheromone(Channel::B, dx_, dy_, amount_b);
         laid = (amount_a, amount_b, emit_b_brain, (dx_, dy_));
@@ -14092,11 +14123,7 @@ fn needs_first_act(world: &mut World, organism: OrganismId, def: &CreatureDef, h
     let need = (rule.hungry && hungry) || (rule.laden && donor && !load.store && hungry_larva_beside(world, organism, def, head)) || (rule.job && !load.store && store_job_waits(world, organism, def, head));
     if need {
         if let Some((px, py)) = need_drop_site(world, head) {
-            world.set(px, py, load.cell);
-            if let Some(s) = world.organism_mut(organism) {
-                s.spoil = None;
-                s.spoil_ring = None;
-            }
+            place_pellet(world, organism, (px, py), load.cell);
             if !load.store {
                 world.creature_stats.spoil_dumped += 1;
             }
@@ -16602,6 +16629,233 @@ fn less_trail_side(world: &World, (x, y): (i32, i32)) -> Option<i32> {
     Some(if e < w { 1 } else { -1 })
 }
 
+/// **The building mark** (`PIXEL_PHYSICS_BUILD_MARK`, off): Khuong et al.
+/// 2016's rule for where a builder puts its pellet, on the spoil ring.
+///
+/// In *Lasius niger* the pellets carry a building pheromone that fades, and
+/// deposition rises with the fresh pellets round a spot (Khuong et al. 2016,
+/// PNAS 113:1303, PMID 26787857). Fresh building attracts more building, so
+/// columns rise; a mark that never fades attracts everywhere it ever was, and
+/// the building spreads into a blanket. Level 1 of the textbook test
+/// (`examples/pillarbox`, game physics, `sites=game rework=0`, 8 seeds,
+/// 60k): free pillars at least 30 tall, 2.5 a seed on 8 of 8 seeds at
+/// `tau=300`, 1 in all with no mark, 0 with a mark that never fades.
+///
+/// **Where it acts: where a carrier stops, not when it drops** (review of
+/// the design, `/mnt/project-files/emergence-sandbox/pillars/`): a carrier
+/// latched on its drawn column ([`spoil_ring_column`]) is held until it is
+/// that far out and then mills on that column's top ([`ring_target`]), so a
+/// drop roll that waits longer changes nothing about where the pellet lands.
+/// Here, on reaching its column, a carrier **stops** there with
+/// `q0 + (1 - q0) * m / (m + k)`, `m` the fresh marks round the column's top
+/// ([`build_mark_at`]); otherwise its latch moves one column further out and
+/// the test is made again, up to `cap` columns past the door's edge. The drawn
+/// column stays the nearest it may stop, so the door is kept clear as
+/// before. The same for both ants: it is not the `DropSpoil` roll (the needs
+/// walk forces that to 1, the brain ant's is about 0.2).
+///
+/// Parts, comma-separated `key:value`: `tau` (frames; `0` no mark, `inf`
+/// never fades; 1,000), `q0` (0.25: bare ground stops one carrier in four a
+/// column, about today's spread), `k` (1), `cap` (24: the shipped draw
+/// reaches past 12 about one carrier in 50), and `stop:off` to
+/// write the marks and stop nothing (the placebo). `on` takes the defaults.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct BuildMark {
+    pub tau: f32,
+    pub q0: f32,
+    pub k: f32,
+    pub cap: i32,
+    pub stop: bool,
+    /// `fresh:<m>`: a cut (not an escape) is refused at a cell whose own
+    /// mark and the marks of the three cells above it sum to `m` or more;
+    /// 0 (off) unless set.
+    pub fresh: f32,
+}
+
+/// `PIXEL_PHYSICS_BUILD_MARK`'s value; `None` (off) unless set.
+pub fn build_mark() -> Option<BuildMark> {
+    static V: std::sync::OnceLock<Option<BuildMark>> = std::sync::OnceLock::new();
+    *V.get_or_init(|| parse_build_mark(&std::env::var("PIXEL_PHYSICS_BUILD_MARK").unwrap_or_default()))
+}
+
+fn parse_build_mark(raw: &str) -> Option<BuildMark> {
+    if raw.is_empty() || raw == "off" {
+        return None;
+    }
+    let mut b = BuildMark { tau: 1000.0, q0: 0.25, k: 1.0, cap: 24, stop: true, fresh: 0.0 };
+    fn bad<T>(raw: &str, part: &str) -> T {
+        panic!("PIXEL_PHYSICS_BUILD_MARK={raw}: `{part}` is not on, tau:<frames|inf>, q0:<p>, k:<x>, cap:<cols>, stop:off or fresh:<m>")
+    }
+    for part in raw.split(',').map(str::trim).filter(|p| !p.is_empty() && *p != "on") {
+        let (key, v) = part.split_once(':').unwrap_or_else(|| bad(raw, part));
+        match key {
+            "tau" if v == "inf" => b.tau = f32::INFINITY,
+            "tau" => b.tau = v.parse().ok().filter(|t: &f32| *t >= 0.0).unwrap_or_else(|| bad(raw, part)),
+            "q0" => b.q0 = v.parse().ok().filter(|q: &f32| (0.0..=1.0).contains(q)).unwrap_or_else(|| bad(raw, part)),
+            "k" => b.k = v.parse().ok().filter(|k: &f32| *k > 0.0).unwrap_or_else(|| bad(raw, part)),
+            "cap" => b.cap = v.parse().ok().filter(|c: &i32| *c >= 0).unwrap_or_else(|| bad(raw, part)),
+            "stop" if v == "off" => b.stop = false,
+            "fresh" => b.fresh = v.parse().ok().filter(|m: &f32| *m > 0.0).unwrap_or_else(|| bad(raw, part)),
+            _ => bad::<()>(raw, part),
+        }
+    }
+    Some(b)
+}
+
+/// **A carried pellet was put down at `(x, y)`**: under [`build_mark`],
+/// marks the cell with this frame. Called at every site that puts a carried
+/// pellet into the world except `pack_behind`, the in-nest backfill the
+/// ring never reads. Pruned as it grows: a mark older than eight lifetimes,
+/// or on a cell that is no longer spoil, is gone.
+/// **The cut itself, mechanics only**: the cell at `(tx, ty)` becomes the
+/// pellet in `organism`'s jaws (as `spoils_into`, else `packs_into`, under
+/// `update::spoil_footing`; as `packs_into` alone without it), the ground is
+/// left open, and the census (`dug_cells`, and `cut_log` when `log`) and the
+/// dig counts move. **No gate**: whether the cut may be made is the caller's
+/// ([`jaw_can_cut`] at least), and so are `dig_return` and `line_burrow`.
+///
+/// Split out of `act`'s dig branch on 2026-10-15 for the textbook ant
+/// (`/mnt/project-files/emergence-sandbox/textbook-ant/design-textbook-ant-2026-10-15.md`
+/// rev 2, slice 0), which cuts without `act`'s gates; the needs walk's
+/// escape cut was a hand copy of the same lines. `act` is bit-exact through
+/// it: the same writes in the same order, no draw. The needs walk passes
+/// `log = false`, as its copy never logged.
+pub(crate) fn cut_cell(world: &mut World, organism: OrganismId, (tx, ty): (i32, i32), log: bool) {
+    let target = world.get(tx, ty);
+    let mut pellet = target;
+    let ground_def = world.materials.get(target.material);
+    let hauled = if crate::sim::update::spoil_footing() { ground_def.spoils_into.or(ground_def.packs_into) } else { ground_def.packs_into };
+    if let Some(hauled) = hauled {
+        pellet.material = hauled;
+    }
+    world.set(tx, ty, Cell::EMPTY);
+    // The census's record of the act (`World::dug_cells`): read by
+    // nothing in the simulation, so it cannot move a run.
+    world.dug_cells.insert((tx, ty));
+    let frame = world.frame;
+    if let Some(cut_log) = world.cut_log.as_mut().filter(|_| log) {
+        cut_log.push((tx, ty, frame, organism));
+    }
+    if spoil_kept() {
+        if let Some(state) = world.organism_mut(organism) {
+            state.spoil = Some(Spoil { cell: pellet, store: false });
+        }
+    }
+    world.creature_stats.digs += 1;
+    if let Some(state) = world.organism_mut(organism) {
+        state.life.digs += 1;
+    }
+}
+
+/// **A carried pellet put down**, mechanics only: `cell` is set at `p`, its
+/// build mark is written ([`mark_built`]), and the carrier's load and ring
+/// latch are cleared. No gate and no counter: the site is the caller's
+/// choice, and so is what it counts. Shared by `act`'s drops, the needs
+/// walk's drops and the textbook ant (slice 0, 2026-10-15); bit-exact for
+/// each, as each wrote these three things in this order.
+pub(crate) fn place_pellet(world: &mut World, organism: OrganismId, p: (i32, i32), cell: Cell) {
+    world.set(p.0, p.1, cell);
+    mark_built(world, p);
+    if let Some(state) = world.organism_mut(organism) {
+        state.spoil = None;
+        state.spoil_ring = None;
+    }
+}
+
+pub(crate) fn mark_built(world: &mut World, (x, y): (i32, i32)) {
+    // **The textbook ant keeps the mark too** (`World::textbook`, its `tau`),
+    // so a harness can set the lifetime per world; the environment's switch
+    // wins where both are set. Neither set, nothing is written, as before.
+    let Some(tau) = build_mark().map(|bm| bm.tau).or_else(|| world.textbook.as_ref().map(|t| t.cfg.tau)) else { return };
+    let frame = world.frame;
+    world.build_marks.insert((x, y), frame);
+    if world.build_marks.len().is_multiple_of(1024) {
+        let spoil = world.materials.id_of("spoil");
+        let old = if tau.is_finite() { (8.0 * tau) as u64 } else { u64::MAX };
+        let marks = std::mem::take(&mut world.build_marks);
+        world.build_marks = marks.into_iter().filter(|&((cx, cy), f)| frame.saturating_sub(f) <= old && Some(world.get(cx, cy).material) == spoil).collect();
+    }
+}
+
+/// **The fresh building round a column's top**, for [`BuildMark`]: the sum
+/// of `exp(-age / tau)` over the marks on the three columns round `x`, from
+/// `top` (the open cell the carrier stands in) down two rows, counting only
+/// cells still spoil -- a pellet that slumped or was cut took its mark with
+/// it. 0 at `tau` 0.
+fn build_mark_at(world: &World, bm: BuildMark, (x, top): (i32, i32)) -> f32 {
+    if bm.tau <= 0.0 || world.build_marks.is_empty() {
+        return 0.0;
+    }
+    let spoil = world.materials.id_of("spoil");
+    let mut m = 0.0;
+    for dx in -1..=1 {
+        for dy in 0..=2 {
+            let c = (x + dx, top + dy);
+            if let Some(&f) = world.build_marks.get(&c) {
+                if Some(world.get(c.0, c.1).material) == spoil {
+                    m += (-(world.frame.saturating_sub(f) as f32) / bm.tau).exp();
+                }
+            }
+        }
+    }
+    m
+}
+
+/// **Whether a cut at `(x, y)` would take fresh building** ([`BuildMark`]'s
+/// `fresh`): the marks on the cell and the three above it, still spoil,
+/// sum to `fresh` or more. Khuong et al. 2016's ants take fresh deposits
+/// away less (not checked against the full text), and level 1 of the test
+/// showed why it matters here: walkers that took pellets back off pillars
+/// (`pillarbox rework=1`) undermined every one-wide column, which then lost
+/// its footing (tallest 11 against 72-81). In the full game the colony cuts
+/// about as many cells as it puts down (seed 1, 100-149k: 1,599 digs, 1,614
+/// pellets), and only ~6 spoil cells stand on the mound at a time.
+fn fresh_build_at(world: &World, (x, y): (i32, i32)) -> bool {
+    let Some(bm) = build_mark().filter(|b| b.fresh > 0.0 && b.tau > 0.0) else { return false };
+    if world.build_marks.is_empty() {
+        return false;
+    }
+    let spoil = world.materials.id_of("spoil");
+    let m: f32 = (0..=3)
+        .filter_map(|dy| {
+            let c = (x, y - dy);
+            let f = *world.build_marks.get(&c)?;
+            (Some(world.get(c.0, c.1).material) == spoil).then(|| (-(world.frame.saturating_sub(f) as f32) / bm.tau).exp())
+        })
+        .sum();
+    m >= bm.fresh
+}
+
+/// **Where a latched carrier that has reached its column stops**
+/// ([`BuildMark`]): its column if the stop draw wins there, otherwise one
+/// column further out, unless it is `cap` columns past the door's edge.
+/// `None` where nothing changes.
+fn build_mark_step(world: &mut World, organism: OrganismId, (x, y): (i32, i32)) -> Option<i32> {
+    let bm = build_mark().filter(|b| b.stop)?;
+    let col = world.organism(organism)?.spoil_ring?;
+    let site = world.nearest_nest_site(x, y).and_then(|i| world.nest_sites.get(i))?;
+    let (sx, out) = (site.x, (col - site.x).signum());
+    if out == 0 || (x - sx).abs() < (col - sx).abs() {
+        return None;
+    }
+    let top = ring_target(world, site, col);
+    let m = build_mark_at(world, bm, top);
+    let p = bm.q0 + (1.0 - bm.q0) * m / (m + bm.k);
+    let u = rng::stream(world.seed, u64::from(organism), (world.frame >> 12) ^ ((col as u64) << 32), RNG_SLOT_BUILD_MARK).unit_f32();
+    // The same draw while it waits there (keyed on the column and a 4,096
+    // frame epoch), so a carrier that stopped stays stopped.
+    if u < p {
+        world.creature_stats.build_mark_held_marked += u64::from(m >= 0.5);
+        return None;
+    }
+    let door = scaled_cells(world, nest_door_of(world).unwrap_or(NEST_DOOR_SHIPPED));
+    if (col - sx).abs() >= door + 1 + bm.cap {
+        return None;
+    }
+    world.creature_stats.build_mark_moves += 1;
+    Some(col + out)
+}
+
 /// **Whether a carrier at `(x, y)` is still short of its drawn column**
 /// ([`spoil_ring`]): the pellet is held until the head is as far from the
 /// nest site's centre as the column is.
@@ -19024,6 +19278,46 @@ fn drop_through_bodies() -> bool {
     *V.get_or_init(|| std::env::var("PIXEL_PHYSICS_DROP_REACH").as_deref() != Ok("adjacent"))
 }
 
+/// **Lay less where the trail is already strong** --
+/// `PIXEL_PHYSICS_LAY_TOPUP=a:<units>,b:<units>` (either part may be left
+/// out; unset is the ant before it, bit-identical). A plane named here has
+/// each deposit scaled by `max(0, 1 - here / target)`, `here` the cell's
+/// scent and `target` in units of 255, so traffic tops a trail up toward the
+/// target instead of piling it to the ceiling. After *Lasius niger*:
+/// "high levels of trail pheromone suppress further pheromone deposition"
+/// (Czaczkes et al. 2012, J Exp Biol 216:188, doi 10.1242/jeb.076570), and
+/// crowding cuts the number of ants laying 5.6-fold (Czaczkes, Grüter &
+/// Ratnieks 2013, J R Soc Interface 10:20121009). Built 2026-10-14 for the nest scent's pile-up at 255 round the
+/// lab door and for a slower food trail that must not flood busy routes
+/// (`/mnt/project-files/emergence-sandbox/scale-grid-2026-10-14.md`).
+/// Charged on what is laid, as every deposit is.
+fn lay_topup() -> [Option<f32>; 2] {
+    static V: std::sync::OnceLock<[Option<f32>; 2]> = std::sync::OnceLock::new();
+    *V.get_or_init(|| {
+        let mut out = [None, None];
+        if let Ok(s) = std::env::var("PIXEL_PHYSICS_LAY_TOPUP") {
+            for part in s.split(',') {
+                let (k, v) = part.split_once(':').unwrap_or_else(|| panic!("PIXEL_PHYSICS_LAY_TOPUP: `{part}` is not a:<units> or b:<units>"));
+                let v: f32 = v.parse().ok().filter(|v: &f32| *v > 0.0).unwrap_or_else(|| panic!("PIXEL_PHYSICS_LAY_TOPUP: `{part}` needs a positive target"));
+                match k {
+                    "a" => out[0] = Some(v),
+                    "b" => out[1] = Some(v),
+                    _ => panic!("PIXEL_PHYSICS_LAY_TOPUP: `{part}`: plane must be a or b"),
+                }
+            }
+        }
+        out
+    })
+}
+
+/// The deposit's scale under [`lay_topup`]: 1 when the plane is not named.
+fn topup_scale(world: &World, channel: Channel, x: i32, y: i32, target: Option<f32>) -> f32 {
+    match target {
+        None => 1.0,
+        Some(t) => (1.0 - f32::from(world.pheromone_at(channel, x, y)) / (t * pheromone::SCALE as f32)).max(0.0),
+    }
+}
+
 fn deposit_at_vacated() -> bool {
     static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *V.get_or_init(|| std::env::var("PIXEL_PHYSICS_DEPOSIT_AT").as_deref() == Ok("vacated"))
@@ -20840,11 +21134,7 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
         // never takes it to food -- see [`SoilWay`]'s `lean`.
         if lean && lean_forage_of(world).drop && !(soil_way_of(world).lean && below_founding_ground(world, x, y)) {
             if let Some((px, py)) = lean_drop_site(world, (x, y)) {
-                world.set(px, py, spoil.cell);
-                if let Some(state) = world.organism_mut(organism) {
-                    state.spoil = None;
-                    state.spoil_ring = None;
-                }
+                place_pellet(world, organism, (px, py), spoil.cell);
                 world.creature_stats.spoil_dumped += 1;
                 world.creature_stats.lean_dropped += 1;
                 note_spoil(world, SpoilWhy::Lean, 0, f32::NAN);
@@ -20898,6 +21188,12 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
                         world.creature_stats.spoil_ring_let_go += 1;
                     }
                     _ => {}
+                }
+                // **The building mark moves the latch** ([`BuildMark`], off).
+                if let Some(next) = build_mark_step(world, organism, (x, y)) {
+                    if let Some(state) = world.organism_mut(organism) {
+                        state.spoil_ring = Some(next);
+                    }
                 }
                 let holds = world.organism(organism).is_some_and(|s| spoil_ring_holds(world, s, (x, y)));
                 world.creature_stats.spoil_ring_held += u64::from(holds);
@@ -21103,11 +21399,7 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
                 spoil_p,
             );
             if let Some((px, py)) = site {
-                world.set(px, py, spoil.cell);
-                if let Some(state) = world.organism_mut(organism) {
-                    state.spoil = None;
-                    state.spoil_ring = None;
-                }
+                place_pellet(world, organism, (px, py), spoil.cell);
                 world.creature_stats.spoil_dumped += 1;
                 if lifted {
                     let rows = (y - py).max(0) as u32;
@@ -21320,7 +21612,11 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
         // needs ladder's escape). No draw either way.
         let mound_refused = !cue_vetoed && !face_refused && !roof_refused && mound_dig().roof && mound_roof_refuses(world, (tx, ty)) && !escaping && !shut_in_mound(world, x, y);
         world.creature_stats.digs_refused_mound += u64::from(mound_refused);
-        let roof_refused = roof_refused || mound_refused;
+        // **[`BuildMark`]'s `fresh`**: fresh building is not cut, except by
+        // an ant shut in, which must cut its way out.
+        let fresh_refused = !cue_vetoed && !face_refused && !roof_refused && !mound_refused && !escaping && !shut_in(world, x, y) && fresh_build_at(world, (tx, ty));
+        world.creature_stats.build_mark_fresh_refused += u64::from(fresh_refused);
+        let roof_refused = roof_refused || mound_refused || fresh_refused;
         // **[`ShaftRooms`]**: a cut that would raise a room past its height
         // or bring two rooms too close is refused; judged where every veto
         // above let it through, and only on a cell the jaw can take, so the
@@ -21456,7 +21752,6 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
             // that names no spoil material behaves exactly as it did before
             // the field existed -- and so a pellet re-dug stays a pellet
             // rather than being laundered into lining-grade ground.
-            let mut pellet = target;
             //
             // **Gated on `update::spoil_footing` so the ablation arm is
             // genuinely `main`.** Leaving the pellet as `spoil` with the rule
@@ -21464,25 +21759,12 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
             // carries `packs_into`, so `line_burrow` went on relabelling
             // worked tailings as wall and the "off" arm read 19 hanging cells
             // where the pre-change baseline on the same seed read 24.
-            let ground_def = world.materials.get(target.material);
-            let hauled = if crate::sim::update::spoil_footing() { ground_def.spoils_into.or(ground_def.packs_into) } else { ground_def.packs_into };
-            if let Some(hauled) = hauled {
-                pellet.material = hauled;
-            }
-            world.set(tx, ty, Cell::EMPTY);
-            // The census's record of the act (`World::dug_cells`): read by
-            // nothing in the simulation, so it cannot move a run.
-            world.dug_cells.insert((tx, ty));
-            let frame = world.frame;
-            if let Some(log) = world.cut_log.as_mut() {
-                log.push((tx, ty, frame, organism));
-            }
-            if spoil_kept() {
-                if let Some(state) = world.organism_mut(organism) {
-                    state.spoil = Some(Spoil { cell: pellet, store: false });
-                }
-            }
-            world.creature_stats.digs += 1;
+            //
+            // **The mechanics live in [`cut_cell`]**, shared with the needs
+            // walk's escape cut and the textbook ant, so the three cannot
+            // drift apart. This comment and the one below stay here, where
+            // the gates are.
+            cut_cell(world, organism, (tx, ty), true);
             // **Outside the `spoil_kept()` block above, deliberately, and
             // no test can hold this line.** That block holds the only nearby
             // `organism_mut`, so folding into it looks free -- and it would
@@ -21504,11 +21786,8 @@ fn act(world: &mut World, x: i32, y: i32, organism: OrganismId, def: &CreatureDe
             // the nest is remembered, and one made in the open forgets it, so
             // a digger that worked a heap is pulled nowhere.
             let back_to = spoil_back().then(|| face_for_cut(world, (x, y), (tx, ty)).then_some((tx, ty)));
-            if let Some(state) = world.organism_mut(organism) {
-                state.life.digs += 1;
-                if let Some(back_to) = back_to {
-                    state.dig_return = back_to;
-                }
+            if let (Some(state), Some(back_to)) = (world.organism_mut(organism), back_to) {
+                state.dig_return = back_to;
             }
             line_burrow(world, tx, ty);
             return Did { dug: 1, ..did };
@@ -26020,37 +26299,445 @@ fn update_hungry_home(world: &mut World, organism: OrganismId, def: &CreatureDef
     }
 }
 
+/// **`PIXEL_PHYSICS_ROUTE_HALF=<deposits>`: the scent at which a step reads
+/// as half a route**, in full deposits, for `trail_presence` alone (the door
+/// reader and the carrier's load read keep `TRAIL_HALF`). Unset is
+/// `TRAIL_HALF`, a tenth of a deposit, bit for bit.
+///
+/// **Why it is a question** (PR 701 follow-up, 2026-10-14): at a tenth of a
+/// deposit, presence saturates at about 4 of 255, so two routes that differ
+/// twelvefold in food trail read nearly alike. Measured on `trailfollow
+/// bridge=6` (two equal tunnels through a wall, gap 90, 3 seeds, 24k frames):
+/// trail B along the busy tunnel 72-98 of 255, along the other 2-8, which is
+/// presence 0.99 against 0.66 and a turn score of 3.97 against 2.98 -- a
+/// 1.3x preference where the scent differs 12x. Positive feedback on a
+/// route needs the preference to grow with traffic, and here it stops
+/// growing at a few units.
+///
+/// **`rel:<c>` is the relative form**: a heading's half is `c` times the
+/// strongest scent among the headings this ant can take (per plane), never
+/// below `TRAIL_HALF`. A route with nothing stronger beside it reads
+/// `1 / (1 + c)` however thin it is, so a lone faint trail is still followed
+/// as today; at a fork the weaker branch reads weak in proportion to the
+/// stronger one, which is the comparison a double bridge needs.
+/// **Off by default, for a measured harm.** On the two-tunnel bench
+/// `rel:1` concentrates traffic (upper share 0.03-0.07 against 0.16-0.24)
+/// with larger colonies (24k frames, 8 seeds, mean 236 against 190, 7 of 8
+/// higher), and on the size x distance grid it is neutral (`/mnt/project-
+/// files/emergence-sandbox/scale-grid-2026-10-14.md`). But on the lab's
+/// `nest_goal` bed (`deeptrace ants=0 founder=evolved food=120`, 300k,
+/// seeds 1-4, mutation off; not the `steady_income` main test)
+/// adults over 100k-300k fall **570 -> 461** (440-502 per seed, against main
+/// 542-603 and the nudged `land=6001` baseline 559-584), with brood up 229 ->
+/// 280. Untraced; both planes were relative in that run.
+/// `rel:<c>:b` (or `:a`) applies it to that plane only, the other keeping
+/// `TRAIL_HALF`: the laden ant reads the nest scent, which sits at its
+/// ceiling round the door, so the two planes are separate questions.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum RouteHalf {
+    /// A fixed half, in raw scent units (`TRAIL_HALF` when unset).
+    Fixed(f32),
+    /// Relative to the strongest option, times this factor, on the planes
+    /// marked (`[A, B]`).
+    Rel(f32, [bool; 2]),
+    /// `ratio:<n>[:a|:b]`: no saturation at all on the planes marked; a
+    /// step's presence is `(scent / strongest option)^n`, 1 on the strongest
+    /// heading. With `n = 2` this is Deneubourg's choice exponent (Deneubourg
+    /// et al. 1990 fitted about 2 on Argentine ants), and it is the one form
+    /// here whose elasticity can pass 1 at a fork, which a two-branch choice
+    /// needs (`bridgebox`'s header: the saturating read peaks at 0.64).
+    Ratio(i32, [bool; 2]),
+}
+
+pub fn route_half() -> RouteHalf {
+    // `PIXEL_PHYSICS_TRAIL_LOOP=on` brings `ratio:2` with it when this is unset.
+    route_half_set().unwrap_or(if trail_loop() { RouteHalf::Ratio(2, [true, true]) } else { RouteHalf::Fixed(TRAIL_HALF) })
+}
+
+/// The reader an ant uses where [`trail_loop`] is not acting on it
+/// ([`TrailRead`]): `PIXEL_PHYSICS_ROUTE_HALF` if set, else the shipped
+/// fixed half -- the reader the game ant would have with the loop off.
+fn route_half_shipped() -> RouteHalf {
+    route_half_set().unwrap_or(RouteHalf::Fixed(TRAIL_HALF))
+}
+
+/// [`route_half`] or [`route_half_shipped`], by whether the loop acts here.
+fn route_half_for(loop_here: bool) -> RouteHalf {
+    if loop_here {
+        route_half()
+    } else {
+        route_half_shipped()
+    }
+}
+
+/// `PIXEL_PHYSICS_ROUTE_HALF` as parsed, read once; `None` when unset.
+fn route_half_set() -> Option<RouteHalf> {
+    static V: std::sync::OnceLock<Option<RouteHalf>> = std::sync::OnceLock::new();
+    *V.get_or_init(|| {
+        std::env::var("PIXEL_PHYSICS_ROUTE_HALF").ok().map(|s| {
+            let t = s.trim();
+            if let Some(rest) = t.strip_prefix("ratio:") {
+                let (n, which) = rest.split_once(':').unwrap_or((rest, "ab"));
+                let n: i32 = n.parse().unwrap_or_else(|_| panic!("PIXEL_PHYSICS_ROUTE_HALF={s}: want ratio:<n>[:a|:b], e.g. ratio:2"));
+                assert!(n >= 1, "PIXEL_PHYSICS_ROUTE_HALF={s}: the exponent must be 1 or more");
+                let planes = match which {
+                    "ab" => [true, true],
+                    "a" => [true, false],
+                    "b" => [false, true],
+                    _ => panic!("PIXEL_PHYSICS_ROUTE_HALF={s}: the plane must be a or b"),
+                };
+                RouteHalf::Ratio(n, planes)
+            } else if let Some(rest) = t.strip_prefix("rel:") {
+                let (c, which) = rest.split_once(':').unwrap_or((rest, "ab"));
+                let c: f32 = c.parse().unwrap_or_else(|_| panic!("PIXEL_PHYSICS_ROUTE_HALF={s}: want rel:<factor>[:a|:b], e.g. rel:0.25"));
+                assert!(c > 0.0, "PIXEL_PHYSICS_ROUTE_HALF={s}: the factor must be above 0");
+                let planes = match which {
+                    "ab" => [true, true],
+                    "a" => [true, false],
+                    "b" => [false, true],
+                    _ => panic!("PIXEL_PHYSICS_ROUTE_HALF={s}: the plane must be a or b"),
+                };
+                RouteHalf::Rel(c, planes)
+            } else {
+                let d: f32 = t.parse().unwrap_or_else(|_| panic!("PIXEL_PHYSICS_ROUTE_HALF={s}: want a number of deposits (e.g. 1) or rel:<factor>"));
+                assert!(d > 0.0, "PIXEL_PHYSICS_ROUTE_HALF={s}: must be above 0");
+                RouteHalf::Fixed(d * pheromone::DEPOSIT as f32)
+            }
+        })
+    })
+}
+
+/// The raw scent a step along `d` reads on `channel`: the larger of the cell
+/// the head would enter and the one beyond it.
+fn route_scent(world: &World, head: (i32, i32), d: u8, channel: Channel) -> f32 {
+    let (dx, dy) = DIRS[d as usize];
+    let near = world.pheromone_at(channel, head.0 + dx, head.1 + dy);
+    let far = world.pheromone_at(channel, head.0 + 2 * dx, head.1 + 2 * dy);
+    f32::from(near.max(far))
+}
+
+/// The half each plane is read against for this decision (`rh`, which is
+/// [`route_half_for`] whether the loop acts, [`TrailRead`]), given the
+/// headings on offer.
+pub(crate) fn route_halves(world: &World, head: (i32, i32), planes: [f32; 2], headings: impl Iterator<Item = u8> + Clone, rh: RouteHalf) -> [f32; 2] {
+    match rh {
+        RouteHalf::Fixed(h) => [h; 2],
+        RouteHalf::Rel(c, on) => {
+            let mut out = [TRAIL_HALF; 2];
+            for (i, channel) in [Channel::A, Channel::B].into_iter().enumerate() {
+                if planes[i] == 0.0 || !on[i] {
+                    continue;
+                }
+                let top = headings.clone().map(|d| route_scent(world, head, d, channel)).fold(0.0, f32::max);
+                out[i] = (c * top).max(TRAIL_HALF);
+            }
+            out
+        }
+        // The half slot carries the strongest option's scent (floored at
+        // `TRAIL_HALF`), which `trail_presence` divides by.
+        RouteHalf::Ratio(_, on) => {
+            let mut out = [TRAIL_HALF; 2];
+            for (i, channel) in [Channel::A, Channel::B].into_iter().enumerate() {
+                if planes[i] == 0.0 || !on[i] {
+                    continue;
+                }
+                out[i] = headings.clone().map(|d| route_scent(world, head, d, channel)).fold(TRAIL_HALF, f32::max);
+            }
+            out
+        }
+    }
+}
+
 /// **Is the step along `d` onto a route?** The scent where the head would go
 /// and one cell beyond, the larger of the two (plan §4b: about an antenna's
 /// reach for a two-cell ant), saturated as `x / (1 + x)` over `TRAIL_HALF`.
 /// Trail B for an ant carrying no food, trail A for one that is (plan §4d:
 /// the laden ant reads the nest's trail, never its own).
-fn trail_presence(world: &World, head: (i32, i32), d: u8, planes: [f32; 2]) -> f32 {
+pub(crate) fn trail_presence(world: &World, head: (i32, i32), d: u8, planes: [f32; 2], halves: [f32; 2], rh: RouteHalf) -> f32 {
     // **Which plane is a route is the ant's own** (`organism::TRAIL_PLANE_
     // SLOTS`): each plane's saturated presence, weighted by the inherited
     // weight for this ant's state, summed and floored at 0. A zero weight
     // reads nothing, so the ancestral ant (weights 1 and 0) samples exactly
     // the one plane the hard-coded choice did, and `1 * p` is `p` to the bit.
     let mut sum = 0.0;
-    for (channel, w) in [(Channel::A, planes[0]), (Channel::B, planes[1])] {
+    let ratio = match rh {
+        RouteHalf::Ratio(n, on) => Some((n, on)),
+        _ => None,
+    };
+    for (i, (channel, w)) in [(Channel::A, planes[0]), (Channel::B, planes[1])].into_iter().enumerate() {
         if w == 0.0 {
             continue;
         }
-        let (dx, dy) = DIRS[d as usize];
-        let near = world.pheromone_at(channel, head.0 + dx, head.1 + dy);
-        let far = world.pheromone_at(channel, head.0 + 2 * dx, head.1 + 2 * dy);
-        let x = f32::from(near.max(far)) / TRAIL_HALF;
-        sum += w * (x / (1.0 + x));
+        let x = route_scent(world, head, d, channel) / halves[i];
+        sum += w * match ratio {
+            Some((n, on)) if on[i] => x.min(1.0).powi(n),
+            _ => x / (1.0 + x),
+        };
     }
     sum.max(0.0)
+}
+
+/// **`PIXEL_PHYSICS_TRAIL_LOOP=on`: the food trail closes its loop**, three
+/// changes that pass the double bridge together and fail it apart (each
+/// alone or any pair: 0 of 8 seeds choosing; all three: 7 of 8, either
+/// branch, against 0 of 8 for the shipped ant and for a muted colony;
+/// `trailfollow bridge=6 bridgeshape=y bridgebrush=1 bridgeneck=3`, gap
+/// 120, 20 founders, 48k, 2026-10-15, `double-bridge-2026-10-15.md`):
+///
+/// - **A laden ant reads the food trail as well as the nest scent** (base
+///   weight 1 on B, as `TRAIT_LADEN_B` = 1). Traced: a laden ant's way home
+///   was independent of its way out (0.45 against 0.45), because the nest
+///   scent sits at its ceiling on both branches, and laden ants are the
+///   only ones that lay the food trail, so it was laid on both evenly and
+///   no branch could win. Returning foragers follow the trail they lay in
+///   the classic experiments (Deneubourg's model; the nestbound trip is
+///   what sets the preference, Bles et al. 2018, Biol Lett, doi
+///   10.1098/rsbl.2018.0070).
+/// - **The ratio reader** (`PIXEL_PHYSICS_ROUTE_HALF=ratio:2`, unless that
+///   variable says otherwise): each heading's scent over the strongest's,
+///   squared, Deneubourg's choice function, where the shipped read saturates
+///   near 4 units and cannot tell two lit branches apart.
+/// - **The trail's hold twice as strong** (as `TRAIT_TRAIL_HOLD` = 1; the
+///   harness's `traits=15:2` is clamped to 1 by `ratio_factor`'s reach):
+///   traced at the fork, a full trail moved a branch's score about 30%
+///   against the walk's other pulls (NE 2.22 -> 3.19 across B share 0 -> 1,
+///   with level E at about 3).
+///
+/// **Off**: in the full game (partner thread, 2026-10-15, 2 seeds, both
+/// ants) `on` emptied the dug nest onto the mound -- game ant at ~300 ants,
+/// 25-27 in the nest against 57-77 -- and the part that did it is the
+/// doubled hold (hold alone 39-44; laden-on-B alone no change). So two
+/// narrower holds are offered beside it:
+///
+/// - `food`: the doubling lands on the food trail's share of a route only,
+///   so the nest scent holds an ant exactly as hard as it did;
+/// - `empty`: the doubling holds empty ants only, the ones choosing a branch
+///   on the way out; a laden ant's hold is the shipped one.
+pub fn trail_loop() -> bool {
+    trail_loop_mode() != TrailLoop::Off
+}
+
+/// Which hold [`trail_loop`] doubles: `PIXEL_PHYSICS_TRAIL_LOOP=on|food|empty`.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum TrailLoop {
+    Off,
+    On,
+    Food,
+    Empty,
+}
+
+/// `PIXEL_PHYSICS_TRAIL_LOOP=<mode>[,outdoors][,keen]`, read once: the mode
+/// (`on`, `food`, `empty` or `off`; absent is `off`), whether
+/// [`trail_outdoors`] is on, and whether [`trail_loop_keen`] is. `outdoors`
+/// alone is the shipped trail with the gate; `keen` alone is the shipped ant.
+fn trail_loop_cfg() -> (TrailLoop, bool, bool) {
+    static V: std::sync::OnceLock<(TrailLoop, bool, bool)> = std::sync::OnceLock::new();
+    *V.get_or_init(|| {
+        let raw = std::env::var("PIXEL_PHYSICS_TRAIL_LOOP").unwrap_or_default();
+        let (mut mode, mut outdoors, mut keen) = (TrailLoop::Off, false, false);
+        for part in raw.split(',').map(str::trim).filter(|p| !p.is_empty()) {
+            match part {
+                "on" => mode = TrailLoop::On,
+                "food" => mode = TrailLoop::Food,
+                "empty" => mode = TrailLoop::Empty,
+                "off" => mode = TrailLoop::Off,
+                "outdoors" => outdoors = true,
+                "keen" => keen = true,
+                _ => panic!("PIXEL_PHYSICS_TRAIL_LOOP={raw}: `{part}` is not on, food, empty, off, outdoors or keen"),
+            }
+        }
+        (mode, outdoors, keen)
+    })
+}
+
+/// `PIXEL_PHYSICS_TRAIL_LOOP`'s mode.
+pub fn trail_loop_mode() -> TrailLoop {
+    trail_loop_cfg().0
+}
+
+/// **The food trail is read outdoors only** (`PIXEL_PHYSICS_TRAIL_LOOP=...,outdoors`,
+/// off): an ant whose head is at home ([`home_at`], the `AtNest` sense's own
+/// test, which under the dug home covers the dug nest and the door rows just
+/// over it) reads the food trail at weight 0. The nest scent is read as before.
+///
+/// **Why** (door trace, full-game partner thread, 2026-10-15, game ant ~300,
+/// food 90, seed 1, 150-160k, `food` x1 against off;
+/// `full-game-trails/door-trace-2026-10-15.md`): every version of the loop
+/// that passes the double bridge empties the dug nest (60 residents to
+/// 6-26), and the trace says how. On an ant's step up out of the door the
+/// trail's hold factor was 6.50 against 1.24 for the other headings (off
+/// 3.51 against 2.16), a winning margin of +4.00 (off +1.38), with home pull
+/// and the door term no different. Going back in, an ant with no inward pull
+/// took the step down 11% of the time (off 25%), because the food trail lies
+/// on the mound and not in the shaft, so the step down held 1.0-1.2 against
+/// 3.3 for every other heading. Ants pulled inward came back down as before
+/// (71% against 72%). So it is the trail pulling ants out at the door, not
+/// homeward ants failing to come back.
+///
+/// Real ants recruit nestmates out by contact inside the nest (Hölldobler &
+/// Wilson 1990, not checked here); a trail is laid and followed on the
+/// foraging ground. The double bridge lies outside any nest, so this gate
+/// cannot change a bridge result (checked on the necked bridge, below).
+pub fn trail_outdoors() -> bool {
+    trail_loop_cfg().1
+}
+
+/// **The loop holds the ants that are going somewhere**
+/// (`PIXEL_PHYSICS_TRAIL_LOOP=...,keen`, off): the loop's parts act on an
+/// ant in proportion to how keen it is to forage ([`trail_loop_weight`]) --
+/// fully on a laden ant, by its outward want (hunger, or what the colony
+/// sent it out with, as the scouting pull reads it) on an empty ant going
+/// out, and not at all on an ant with nowhere to go. That idle ant reads the
+/// trail exactly as the shipped ant does. In between, the hold is graded
+/// from the shipped one to the doubled one, and the presence is the same
+/// blend of the shipped reader and the ratio reader.
+///
+/// **Why** (2026-10-15, game ant ~290, food 90, seeds 1-2, 100-150k,
+/// `emergence-sandbox/double-bridge-2026-10-15.md`): with the loop on, the
+/// dug nest lost 30-40 residents, and they were in the mound's tunnels
+/// (`mound_in` 70-73 per census against 29-46 off) and staying there (44%
+/// still there 1k frames later against 14-23%), fed (373 J against a 200 J
+/// start) and empty (14% with a crop, 5% hauling soil against 15-21%). The
+/// full-game partner's door trace had already found the mound's wanderers
+/// held on every heading but the step down, because the food trail lies on
+/// the mound and not in the shaft. Taking the loop off at home only
+/// (`home`, ebaef7d6d, reverted) left 28 in the nest against `outdoors`' 40:
+/// the ants were held where the trail lies, not at home.
+///
+/// Response to a recruitment trail rises with an ant's motivation to forage
+/// -- hunger and the colony's need -- in the response-threshold accounts of
+/// foraging (Bonabeau, Theraulaz & Deneubourg 1996; for trail recruitment,
+/// Mailleux, Detrain & Deneubourg 2006 -- not checked here); an idle nest
+/// worker is not recruited by a trail it walks over.
+pub fn trail_loop_keen() -> bool {
+    trail_loop_cfg().2
+}
+
+/// **How much of the loop acts on this ant this decision**, 0 to 1: 0 with
+/// the loop off; under [`trail_loop_keen`], 1 for a laden ant and its
+/// outward want (`want`, `None` for an ant not going out) for an empty one;
+/// otherwise 1.
+pub(crate) fn trail_loop_weight(laden: bool, want: Option<f32>) -> f32 {
+    if !trail_loop() {
+        0.0
+    } else if !trail_loop_keen() || laden {
+        1.0
+    } else {
+        want.unwrap_or(0.0).clamp(0.0, 1.0)
+    }
+}
+
+/// **The trail as one ant reads it for one decision**: the loop's reading
+/// and the shipped one, blended by [`trail_loop_weight`] (`k`). At `k` 0 or 1
+/// only one side is read, so with `keen` off this is the reader it replaced.
+pub(crate) struct TrailRead {
+    k: f32,
+    /// planes, halves and reader for the loop side (`k > 0`) and the shipped side (`k < 1`).
+    sides: [([f32; 2], [f32; 2], RouteHalf); 2],
+}
+
+impl TrailRead {
+    pub(crate) fn new(world: &World, head: (i32, i32), def: &CreatureDef, traits: &[f32; CREATURE_TRAITS], laden: bool, k: f32, headings: impl Iterator<Item = u8> + Clone) -> Self {
+        let side = |on: bool| {
+            let planes = trail_planes_at(world, head, def, traits, laden, on);
+            let rh = route_half_for(on);
+            (planes, route_halves(world, head, planes, headings.clone(), rh), rh)
+        };
+        let off = ([0.0; 2], [TRAIL_HALF; 2], RouteHalf::Fixed(TRAIL_HALF));
+        TrailRead { k, sides: [if k > 0.0 { side(true) } else { off }, if k < 1.0 { side(false) } else { off }] }
+    }
+
+    /// The presence of a step along `d` ([`trail_presence`]), blended.
+    pub(crate) fn presence(&self, world: &World, head: (i32, i32), d: u8) -> f32 {
+        let one = |i: usize| {
+            let (planes, halves, rh) = self.sides[i];
+            trail_presence(world, head, d, planes, halves, rh)
+        };
+        if self.k >= 1.0 {
+            one(0)
+        } else if self.k <= 0.0 {
+            one(1)
+        } else {
+            self.k * one(0) + (1.0 - self.k) * one(1)
+        }
+    }
+
+    /// The hold's gain ([`trail_hold_gain`]), blended.
+    pub(crate) fn hold_gain(&self, walk: &[f32; CREATURE_TRAITS], laden: bool) -> f32 {
+        if self.k >= 1.0 {
+            trail_hold_gain(walk, laden, true)
+        } else if self.k <= 0.0 {
+            trail_hold_gain(walk, laden, false)
+        } else {
+            self.k * trail_hold_gain(walk, laden, true) + (1.0 - self.k) * trail_hold_gain(walk, laden, false)
+        }
+    }
+
+    /// [`food_hold_extra`] on the loop side, times `k`.
+    pub(crate) fn food_extra(&self, world: &World, head: (i32, i32), d: u8, walk: &[f32; CREATURE_TRAITS]) -> f32 {
+        if self.k <= 0.0 {
+            return 0.0;
+        }
+        let (planes, halves, _) = self.sides[0];
+        let x = food_hold_extra(world, head, d, walk, planes, halves, true);
+        if self.k >= 1.0 { x } else { self.k * x }
+    }
+}
+
+/// [`trail_planes`] with [`trail_outdoors`] applied at `head`, for an ant the
+/// loop acts on (`loop_here`) or not.
+pub(crate) fn trail_planes_at(world: &World, head: (i32, i32), def: &CreatureDef, traits: &[f32; CREATURE_TRAITS], laden: bool, loop_here: bool) -> [f32; 2] {
+    let planes = trail_planes(traits, laden, loop_here);
+    if trail_outdoors() && home_at(world, head.0, head.1, def) {
+        [planes[0], 0.0]
+    } else {
+        planes
+    }
+}
+
+/// The trail's hold factor: `TRAIL_GAIN` times this ant's own
+/// `TRAIT_TRAIL_HOLD`, doubled under `TRAIL_LOOP=on`, or `=empty` for an
+/// empty ant, where the loop acts (`loop_here`). (`=food` adds its doubling
+/// in [`food_hold_extra`] instead.)
+pub(crate) fn trail_hold_gain(walk: &[f32; CREATURE_TRAITS], laden: bool, loop_here: bool) -> f32 {
+    let double = loop_here
+        && match trail_loop_mode() {
+            TrailLoop::On => true,
+            TrailLoop::Empty => !laden,
+            TrailLoop::Off | TrailLoop::Food => false,
+        };
+    TRAIL_GAIN * walk_gain(walk, organism::TRAIT_TRAIL_HOLD) * if double { 2.0 } else { 1.0 }
+}
+
+/// Under `TRAIL_LOOP=food`, the extra hold a heading earns from the food
+/// trail alone: the shipped hold's gain times the food trail's own presence
+/// along `d` (its weighted term of [`trail_presence`]). 0 otherwise, without
+/// reading the plane.
+///
+/// `PIXEL_PHYSICS_FOOD_HOLD=<x>` (1) scales it. **At 1 it fails the double
+/// bridge** (1 of 8 choose, against 7 of 8 for `on`): the food trail alone,
+/// at the shipped hold, cannot outweigh the walk's other pulls, and `on`
+/// passed by doubling the laden ant's hold on the nest scent as well -- the
+/// part that emptied the dug nest. At 3: 4 of 8 choose (two more at
+/// 0.23/0.25), a taught branch kept on 6 of 8, colonies at the game ant's
+/// size; at 6: every live colony chooses (0.02/0.98) but colonies are
+/// smaller and 3 of 8 too small to read (`trailfollow bridgeneck=3`).
+pub(crate) fn food_hold_extra(world: &World, head: (i32, i32), d: u8, walk: &[f32; CREATURE_TRAITS], planes: [f32; 2], halves: [f32; 2], loop_here: bool) -> f32 {
+    if !loop_here || trail_loop_mode() != TrailLoop::Food || planes[1] == 0.0 {
+        return 0.0;
+    }
+    static X: std::sync::OnceLock<f32> = std::sync::OnceLock::new();
+    let x = *X.get_or_init(|| std::env::var("PIXEL_PHYSICS_FOOD_HOLD").map_or(1.0, |v| v.parse().unwrap_or_else(|_| panic!("PIXEL_PHYSICS_FOOD_HOLD={v}: want a number"))));
+    x * TRAIL_GAIN * walk_gain(walk, organism::TRAIT_TRAIL_HOLD) * trail_presence(world, head, d, [0.0, planes[1]], halves, route_half())
 }
 
 /// **The weights this ant reads trail A and trail B with**, for its state:
 /// laden or empty, base plus its own allele (`organism::TRAIT_LADEN_A`). The
 /// bases are the old hard-coded choice -- laden follows A, empty follows B.
-fn trail_planes(traits: &[f32; CREATURE_TRAITS], laden: bool) -> [f32; 2] {
+/// Where [`trail_loop`] acts (`loop_here`) a laden ant reads B at base 1.
+fn trail_planes(traits: &[f32; CREATURE_TRAITS], laden: bool, loop_here: bool) -> [f32; 2] {
     if laden {
-        [1.0 + traits[organism::TRAIT_LADEN_A], traits[organism::TRAIT_LADEN_B]]
+        [1.0 + traits[organism::TRAIT_LADEN_A], traits[organism::TRAIT_LADEN_B] + if loop_here { 1.0 } else { 0.0 }]
     } else {
         [traits[organism::TRAIT_EMPTY_A], 1.0 + traits[organism::TRAIT_EMPTY_B]]
     }
@@ -26661,7 +27348,6 @@ fn chooser_step(
     // WALK_GAIN_SLOTS`): each a factor of exactly 1.0 at the ancestral allele.
     let walk = traits_of(world, organism, def);
     let home_gain = HOME_GAIN * walk_gain(&walk, organism::TRAIT_HOME_PULL);
-    let trail_gain = TRAIL_GAIN * walk_gain(&walk, organism::TRAIT_TRAIL_HOLD);
     let away_gain = AWAY_GAIN * walk_gain(&walk, organism::TRAIT_ROUTE_AWAY);
     let decay = patience_decay_of(&walk);
     let gain = pull.map_or(0.0, |(_, g)| home_gain * g * patience);
@@ -26815,8 +27501,12 @@ fn chooser_step(
             0.0
         }
     };
-    let planes = trail_planes(&walk, laden);
-    let route = |d: u8| if reads_trail { trail_presence(world, (hx, hy), d, planes) } else { 0.0 };
+    // How much of `TRAIL_LOOP` this ant reads with ([`trail_loop_weight`]):
+    // an empty ant going out by the want its scouting pull read.
+    let want = away_from.map(|_| sent.map_or_else(|| world.organism(organism).map_or(0.0, |s| outward_want(world, s, def).0), |(w, _)| w));
+    let read = TrailRead::new(world, (hx, hy), def, &walk, laden, if reads_trail { trail_loop_weight(laden, want) } else { 0.0 }, usable.iter().copied().chain(crossing.map(|_| heading)));
+    let trail_gain = read.hold_gain(&walk, laden);
+    let route = |d: u8| if reads_trail { read.presence(world, (hx, hy), d) } else { 0.0 };
     // **Stage 3, the give-up lets go** (`FoodTrail::giveup`,
     // `Reports/ant-scenes-2026-09-23.md` §23d): a scout that has given up is
     // no longer held by the trail it gave up on. The away term is 0, the pull
@@ -26838,7 +27528,14 @@ fn chooser_step(
     // and its level held every heading about four times over, so the pull
     // home could not turn a carrier facing away.
     let route_floor = carry_route_floor(world, organism, laden, reads_trail, usable.iter().copied().chain(crossing.map(|_| heading)), route);
-    let hold = |d: u8| if spent { 1.0 } else { 1.0 + trail_gain * (route(d) - route_floor).max(0.0) };
+    let hold = |d: u8| {
+        if spent {
+            1.0
+        } else {
+            1.0 + trail_gain * (route(d) - route_floor).max(0.0)
+                + if reads_trail { read.food_extra(world, (hx, hy), d, &walk) } else { 0.0 }
+        }
+    };
     // **Level, not radial**: the home cosine of the heading's sideways part
     // alone, so a heading straight up or down scores 0. Radial, an ant above
     // home level is drawn upward, and on the colony bed that drove scouts 91
@@ -31753,6 +32450,7 @@ fn creature_dies(world: &mut World, organism: OrganismId, cause: organism::Death
         match site {
             Some((px, py)) => {
                 world.set(px, py, spoil.cell);
+                mark_built(world, (px, py));
                 world.creature_stats.spoil_dumped += 1;
             }
             // **Counted rather than silent.** A cell with nowhere to go is
@@ -31886,14 +32584,14 @@ mod tests {
     #[test]
     fn trail_plane_genes_at_zero_are_the_old_choice() {
         let zero = [0.0f32; CREATURE_TRAITS];
-        assert_eq!(trail_planes(&zero, true), [1.0, 0.0]);
-        assert_eq!(trail_planes(&zero, false), [0.0, 1.0]);
+        assert_eq!(trail_planes(&zero, true, false), [1.0, 0.0]);
+        assert_eq!(trail_planes(&zero, false, false), [0.0, 1.0]);
         let mut t = zero;
         t[organism::TRAIT_EMPTY_A] = 0.5;
-        assert_eq!(trail_planes(&t, false), [0.5, 1.0], "an empty ant can come to read trail A");
-        assert_eq!(trail_planes(&t, true), [1.0, 0.0], "and the laden weights do not move with it");
+        assert_eq!(trail_planes(&t, false, false), [0.5, 1.0], "an empty ant can come to read trail A");
+        assert_eq!(trail_planes(&t, true, false), [1.0, 0.0], "and the laden weights do not move with it");
         t[organism::TRAIT_LADEN_A] = -1.0;
-        assert_eq!(trail_planes(&t, true), [0.0, 0.0], "a laden ant can stop reading A altogether");
+        assert_eq!(trail_planes(&t, true, false), [0.0, 0.0], "a laden ant can stop reading A altogether");
     }
 
     #[test]
@@ -35411,6 +36109,20 @@ mod tests {
         assert_eq!(run(49, 33, NeedsFirst::OFF), (true, 0), "control: with the part off a carrier shut in the pocket put its pellet down");
         assert_eq!(run(40, 37, hungry), (true, 0), "under `hungry` a carrier over the lean line in the tunnel the air reaches put its pellet down");
         assert_eq!(run(49, 33, hungry), (false, 1), "under `hungry` a carrier shut in the pocket kept its pellet");
+    }
+
+    /// `PIXEL_PHYSICS_BUILD_MARK`'s parts, and a typo panics.
+    #[test]
+    fn build_mark_parses_its_parts_and_refuses_a_typo() {
+        assert_eq!(parse_build_mark(""), None);
+        assert_eq!(parse_build_mark("off"), None);
+        assert_eq!(parse_build_mark("on"), Some(BuildMark { tau: 1000.0, q0: 0.25, k: 1.0, cap: 24, stop: true, fresh: 0.0 }));
+        assert_eq!(parse_build_mark("fresh:0.5").map(|b| b.fresh), Some(0.5));
+        let b = parse_build_mark("tau:inf,q0:0.1,k:2,cap:8,stop:off").unwrap();
+        assert!(b.tau.is_infinite() && b.q0 == 0.1 && b.k == 2.0 && b.cap == 8 && !b.stop);
+        assert_eq!(parse_build_mark("tau:0").map(|b| b.tau), Some(0.0));
+        assert!(std::panic::catch_unwind(|| parse_build_mark("tua:300")).is_err());
+        assert!(std::panic::catch_unwind(|| parse_build_mark("q0:2")).is_err());
     }
 
     /// `PIXEL_PHYSICS_MOUND_OUT`'s spellings: `on` both parts, `off` none, a
