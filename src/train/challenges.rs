@@ -7,7 +7,7 @@ use crate::lab::scenario::Scenario;
 use crate::sim::brain::BrainOutput as O;
 use crate::sim::chunk::Rect;
 use crate::sim::cell::OrganismId;
-use crate::sim::organism::SpeciesId;
+use crate::sim::organism::{self, SpeciesId};
 use crate::sim::pheromone::{self, Channel};
 use crate::sim::{creature, material, update, Cell, World};
 
@@ -91,7 +91,8 @@ fn bed_shaped(seed: u64, ants: usize, extra: &str, soil_depth: i32, lamp_spacing
 /// [`NOT_ANT_VERBS`]), and the brain steers (`Chooser::Off`) unless `game_walk`. A `blind` layout
 /// also cuts the body's homeward re-roll and forces the brain walk, so the
 /// senses-cut control is blind outside the brain too ([`Layout::blind`]); a
-/// `legal` one draws the scorer's targets evenly ([`Layout::legal`]).
+/// `legal` one draws the scorer's targets evenly ([`Layout::legal`]); walk
+/// genes, if the genome carries them, go in as [`give_walk`] puts them.
 fn clone_colony(w: &mut World, genome: &[f32], game_walk: bool, layout: Layout) -> SpeciesId {
     let blind = layout.blind;
     let sp = w.species.id_of("ant").expect("ant");
@@ -101,21 +102,48 @@ fn clone_colony(w: &mut World, genome: &[f32], game_walk: bool, layout: Layout) 
         def.home_bias = 0.0;
     }
     w.species.set_creature(sp, def);
-    let (brain, scorer) = genome.split_at(genome.len().min(super::SCORER));
+    let at = super::blocks(genome.len());
+    let brain = &genome[..super::SCORER];
     w.species.set_genome(sp, brain.to_vec());
     if !game_walk || blind {
         w.chooser = Some(creature::Chooser::Off);
     }
     w.home_blind = blind;
-    if !scorer.is_empty() {
-        let mut t = creature::targets::Targets::new(sp, scorer);
+    if let Some(s) = at.scorer {
+        let mut t = creature::targets::Targets::new(sp, &genome[s..s + creature::targets::WEIGHTS]);
         t.even = layout.legal;
         w.targets = Some(t);
     }
-    for id in ants_of(w, sp) {
+    let ids = ants_of(w, sp);
+    for &id in &ids {
         w.set_organism_genome(id, brain.to_vec());
     }
+    if let Some(k) = at.walk {
+        give_walk(w, sp, &ids, &genome[k..k + super::WALK]);
+    }
     sp
+}
+
+/// **Walk genes into a colony** ([`super::WALK`]): each allele into every
+/// ant's own traits and the species', where the walk reads them and births
+/// and eggs copy them from, and the reserve into the world's food trail.
+/// A colony with no brood when it is cloned (every bed founds none) has
+/// nothing else to reach.
+fn give_walk(w: &mut World, sp: SpeciesId, ids: &[OrganismId], genes: &[f32]) {
+    let slots = organism::WALK_SLOTS;
+    let mut def = w.species.get(sp).creature.clone().expect("creature");
+    for (k, &slot) in slots.iter().enumerate() {
+        def.traits[slot] = genes[k];
+    }
+    w.species.set_creature(sp, def);
+    for &id in ids {
+        let st = w.organism_mut(id).expect("live ant");
+        for (k, &slot) in slots.iter().enumerate() {
+            st.traits[slot] = genes[k];
+        }
+    }
+    let reserve = genes[slots.len()];
+    w.food_trail = Some(creature::FoodTrail { reserve, ..creature::food_trail_of(w) });
 }
 
 /// **Bring food home, and stay alive doing it** (colony).
@@ -409,8 +437,13 @@ impl Trail {
         let ids = ants_of(&w, sp);
         assert_eq!(ids.len(), n, "every planted ant became an animal");
         let mut start = vec![0i32; n];
+        if let Some(at) = super::blocks(genomes[0].len()).walk {
+            let genes = &genomes[0][at..at + super::WALK];
+            assert!(genomes.iter().all(|g| &g[at..at + super::WALK] == genes), "walk genes are one per world (the reserve is the world's)");
+            give_walk(&mut w, sp, &ids, genes);
+        }
         for (k, &id) in ids.iter().enumerate() {
-            w.set_organism_genome(id, genomes[k].to_vec());
+            w.set_organism_genome(id, genomes[k][..super::SCORER].to_vec());
             start[k] = w.organism(id).and_then(|s| s.chain.first().copied()).map_or(mid, |p| p.0);
         }
         let progress = |x: i32, k: usize| -> f64 { (((x - start[k]) * dir) as f64 / (far - start[k]).abs().max(1) as f64).clamp(0.0, 1.0) };
@@ -596,10 +629,15 @@ impl Challenge for Dig {
         let roofed = end.roofed_room() as f64 - base.roofed_room() as f64;
         let kept = (lived as f64 / placed.len().max(1) as f64).min(1.0);
         // **Two checks on what the room is**, beside the count: room whose
-        // only roof is packed fill ([`Dug::Filled`]), and how deep the room
-        // lies below the old ground on average, so a scorer that backfills
-        // and digs under its fill, or cuts shallow, shows in the numbers and
-        // not only in a picture (coordinator review of PR 709).
+        // only roof is packed fill ([`Dug::Filled`], which has a floor of
+        // about 9 on the hand rules), and how deep the room lies below the
+        // old ground on average, so a scorer that backfills and digs under
+        // its fill, or cuts shallow, shows in the numbers and not only in a
+        // picture (coordinator review of PR 709). `depth` averages **every**
+        // counted cell, the founding cut's included, unlike `room`, which is
+        // the difference from the start: a colony that dug nothing reads
+        // about 6.5, the founding cut's own depth, and one with no room at
+        // all reads 0, the same as room at the datum (review of PR 710).
         let cells = dug_cells(&w, &sc.bed);
         let under_fill = cells.iter().filter(|c| c.1 == Dug::Filled).count() as f64;
         let depths: Vec<f64> = cells.iter().filter(|c| matches!(c.1, Dug::Room | Dug::Filled)).map(|&((x, y), _)| (y - census::surface_of(&w, &sc.bed, x)) as f64).collect();
@@ -748,6 +786,16 @@ pub enum Dug {
     /// backfills and digs under its own fill counts it as room. Painted and
     /// counted apart (`under_fill`) so that can be seen (coordinator review
     /// of PR 709: free=holds lets the scorer lay pellets below the line).
+    ///
+    /// **Not a backfill detector on its own: it has a floor.** The hand
+    /// rules read 5-12 a bed (mean 8.7 on the 12 hold-outs) with
+    /// `spoil_below` at 0 or 1: cells in the two columns beside the founding
+    /// shaft, roofed by soil packed during the run, most likely the ants'
+    /// lining of the widened shaft (`line_burrow` packs every neighbour of
+    /// a cut; inferred from where it sits, not traced, coordinator review of
+    /// PR 710). The material cannot tell lining from a packed pellet, so
+    /// read `under_fill` against the hand rules' row, never against 0;
+    /// `dropped_inside` counts the scorer's pellets below the datum.
     Filled,
     /// Open to the sky in its own column (no ground within
     /// [`census::MOUND_REACH`] rows above it): the census's `pit` and
@@ -1233,5 +1281,37 @@ mod tests {
         };
         assert!(fired(false) > 0, "the control's haul never fired, so this cannot see the leak");
         assert_eq!(fired(true), 0, "a homeward pick fired in a blind world");
+    }
+
+    /// **Walk genes reach every ant, the species and the world**, and a
+    /// genome without them leaves all three as the bed made them. The
+    /// brain-only arm is the control: without it a bed that already set the
+    /// reserve would pass.
+    #[test]
+    fn walk_genes_reach_every_ant_and_the_world() {
+        use crate::train::{SCORER, WALK};
+        let lay = Layout { seed: 7, k: 0, blind: false, legal: false };
+        let scout = organism::WALK_SLOTS.iter().position(|&s| s == organism::TRAIT_SCOUT).expect("scout is a walk gene");
+        let (mut w, _, _) = bed(7, 12, "").build();
+        let sp = w.species.id_of("ant").expect("ant");
+        let before = creature::food_trail_of(&w);
+        let mut g = w.species.get(sp).genome.clone();
+        clone_colony(&mut w, &g, true, lay);
+        assert_eq!(creature::food_trail_of(&w), before, "a brain-only genome set the reserve");
+        assert!(ants_of(&w, sp).iter().all(|&id| w.organism(id).expect("live").traits[organism::TRAIT_SCOUT] == 0.0));
+        g.extend_from_slice(&[0.0; WALK]);
+        g[SCORER + scout] = -1.0;
+        g[SCORER + WALK - 1] = 0.6;
+        let (mut w, _, _) = bed(7, 12, "").build();
+        clone_colony(&mut w, &g, true, lay);
+        let ids = ants_of(&w, sp);
+        assert_eq!(ids.len(), 12);
+        for id in ids {
+            let st = w.organism(id).expect("live");
+            assert_eq!(st.traits[organism::TRAIT_SCOUT], -1.0, "ant {id} kept the shipped scout pull");
+            assert_eq!(st.genome[..], g[..SCORER], "ant {id} has the wrong brain");
+        }
+        assert_eq!(w.species.get(sp).creature.as_ref().expect("creature").traits[organism::TRAIT_SCOUT], -1.0);
+        assert_eq!(creature::food_trail_of(&w), creature::FoodTrail { reserve: 0.6, ..before });
     }
 }

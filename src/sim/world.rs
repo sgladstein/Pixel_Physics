@@ -2577,6 +2577,10 @@ pub struct CreatureStats {
     /// how hard it scouted** (`creature::forage_drive_from_env`): the forage
     /// drive's "it fired" count on the walk. 0 unless the switch is on.
     pub forage_scouted: u64,
+    /// **Times a scout turned for home down to its reserve**
+    /// (`creature::FoodTrail::reserve`), once per excursion. 0 unless the
+    /// reserve is set.
+    pub scout_reserve_turned: u64,
     /// **Decisions where the forage drive lifted the step chance**
     /// (`creature::forage_pace`). 0 unless the switch is on, and under
     /// `,nopace`.

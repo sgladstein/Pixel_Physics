@@ -39,6 +39,14 @@
 //! counted at the drop, about one in a hundred (`Reports/dead-ends.md`, the
 //! Khuong deposition entry, re-counted 2026-09-27).
 //!
+//! **One feature is not a sense: `depth`** (feature 5) is measured from
+//! `World::room_surface_at`, the frozen datum the dig arena's room count is
+//! itself measured from, so it hands the scorer the grader's own line,
+//! which nothing in the game could sense once the ground has moved. A
+//! champion that leans on it has learned the ruler as well as the ground;
+//! read its `depth` weights with that in mind (coordinator review of PR
+//! 709, N2, and the ladder lane's code review, finding 9).
+//!
 //! **What has been tried before, and what differs.** Two hand-written
 //! dig-target preferences (burial, then cover overhead) were swept across
 //! their range in 2026-08 and moved nothing, the colony already tunnelling
@@ -312,7 +320,11 @@ pub fn features(
     f[9] = world.pheromone_at(Channel::A, px, py) as f32 / pheromone::Scent::MAX as f32;
     // Inside the nest's recorded footprint: the game's own idea of where
     // the nest is, so cut in a home-blind world like the two door senses
-    // (coordinator review of PR 709).
+    // (coordinator review of PR 709). `inside_nest` also counts any cell
+    // with ground within `COVER_REACH` rows overhead, a local sense
+    // (`under_cover`), so the cut takes
+    // that half too: the control is blinder for it, never leakier (review
+    // of PR 710).
     f[10] = if !world.home_blind && inside_nest(world, px, py) {
         1.0
     } else {
