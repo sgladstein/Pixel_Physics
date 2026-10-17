@@ -481,6 +481,8 @@ pub struct NestCfg {
     pub loose: bool,
     /// Dig only the cell straight ahead (ours), not one point either side.
     pub straight: bool,
+    /// Dig only from inside ([`inside`]): never cut the open surface.
+    pub inside_only: bool,
 }
 
 /// Whether a textbook ant is a forager under [`NestCfg::forager_frac`]: a
@@ -942,7 +944,9 @@ fn nest_act(
             // put-down pellet keeps the cut cell's material, soil or lining,
             // and diggers dug the mound back as fast as it was built (10k
             // frames: 609 cuts, 624 put-downs, ground in the nest region
-            // +15 cells).
+            // +15 cells). Only while the mark is fresh (`tau`): marks are
+            // never cleared, so a cell where a pellet once lay stayed
+            // uncuttable for good, whatever filled it later.
             // **It digs ahead** (the cell it faces, or one point either
             // side), never round it: a crowd at the door that cut every cell
             // it touched dug one wide crater, and the whole colony stood
@@ -968,12 +972,21 @@ fn nest_act(
                         c.organism_id() == 0
                             && c.material != fc.food
                             && Some(c.material) != spoil
-                            && !world.build_marks.contains_key(&(px, py))
+                            && !world
+                                .build_marks
+                                .get(&(px, py))
+                                .is_some_and(|&at| ((world.frame - at) as f32) < cfg.tau)
                             && jaw_can_cut(world, def, organism, c)
                     }
                 })
                 .collect();
-            if face.is_empty() {
+            // **Digging is done inside.** Cutting from the open surface
+            // by the door, the colony dug an open pit rather than a nest:
+            // 24% of the spoil was put back down in it (open to the sky, so
+            // "outside"), 218 of 563 cut cells were cut again, and the pit
+            // held at ~160 cells (pellet funnel, seed 1, 40k frames,
+            // 2026-10-17). The founding shaft is the first inside.
+            if face.is_empty() || (nc.inside_only && !inside(world, nc.roof, x, y)) {
                 return Did::default();
             }
             let company = if nc.dig_crowd > 0.0 {

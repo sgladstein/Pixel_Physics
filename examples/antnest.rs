@@ -69,7 +69,6 @@ const KEYS: &[&str] = &[
     "k",
     "n",
     "lay",
-    "brho",
     "giveup",
     "search",
     "sense",
@@ -82,6 +81,7 @@ const KEYS: &[&str] = &[
     "jam",
     "loose",
     "straight",
+    "insideonly",
 ];
 
 fn arg<T: std::str::FromStr>(key: &str) -> Option<T> {
@@ -223,6 +223,34 @@ fn main() {
         }
         lab.tick_for_harness();
     }
+    // The final ground as one character a cell, for tracing where the
+    // put-down pellets ended (`nestlog.csv` holds where they went).
+    if let Some(nx) = nest_x {
+        use std::io::Write;
+        let w = &lab.world;
+        let mut fh = std::fs::File::create(std::path::Path::new(&out).join("final.txt")).expect("final");
+        writeln!(
+            fh,
+            "# rows {}..{} cols {}..{} relative to the ground line and nest",
+            -60, 85, -NEST_HALF, NEST_HALF
+        )
+        .unwrap();
+        for y in ground_y - 60..ground_y + 85 {
+            let row: String = (nx - NEST_HALF..=nx + NEST_HALF)
+                .map(|x| {
+                    let c = w.get(x, y);
+                    if c.organism_id() != 0 {
+                        'a'
+                    } else if c.material == material::EMPTY {
+                        '.'
+                    } else {
+                        w.materials.get(c.material).name.chars().next().unwrap_or('?')
+                    }
+                })
+                .collect();
+            writeln!(fh, "{row}").unwrap();
+        }
+    }
 }
 
 /// Layer 1's parameters, each from the command line with its default.
@@ -274,6 +302,7 @@ fn cfg(
         jam: arg("jam").unwrap_or(3),
         loose: arg::<u8>("loose").unwrap_or(0) == 1,
         straight: arg::<u8>("straight").unwrap_or(0) == 1,
+        inside_only: arg::<u8>("insideonly").unwrap_or(1) == 1,
         store_r: arg("store").unwrap_or(12),
     };
     textbook::TextbookCfg {
