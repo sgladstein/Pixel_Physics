@@ -13,7 +13,12 @@ use crate::sim::{creature, material, update, Cell, World};
 
 /// Verbs that belong to other species or to a game this rig is not playing
 /// yet: hopping and flying (found by the probe as the cheap way to be
-/// "home"), fighting, and births (the population is fixed in every arena).
+/// "home"), fighting, and laying. **Banning `Lay` does not stop births**: the
+/// egg bar is the brood block's own `lay_at` (`creature::birth_bar`), and a
+/// banned output reads 0, which is above `LAY_HOLD_BELOW`, so an ant that can
+/// afford an egg lays one. Births happen where there is food (forage), never
+/// in dig, which has none; forage's `founders_kept` counts founders for that
+/// reason (ladder lane, 2026-10-17: 9 eggs, 6 births in 3k frames).
 pub const NOT_ANT_VERBS: &[O] = &[O::Impulse, O::Fly, O::Attack, O::Provision, O::Lay];
 
 /// One frame of the world, the serial driver: one world per thread, so the
@@ -81,11 +86,14 @@ fn bed_shaped(seed: u64, ants: usize, extra: &str, soil_depth: i32, lamp_spacing
     ron::from_str(&text).expect("training bed parses")
 }
 
-/// Every ant in a fresh bed takes `genome`, births are put out of reach, and
-/// the brain steers (`Chooser::Off`) unless `game_walk`. A `blind` layout
+/// Every ant in a fresh bed takes `genome`'s brain, and the world its target
+/// scorer if it has one ([`super::SCORER`]); births follow food (see
+/// [`NOT_ANT_VERBS`]), and the brain steers (`Chooser::Off`) unless `game_walk`. A `blind` layout
 /// also cuts the body's homeward re-roll and forces the brain walk, so the
-/// senses-cut control is blind outside the brain too ([`Layout::blind`]).
-fn clone_colony(w: &mut World, genome: &[f32], game_walk: bool, blind: bool) -> SpeciesId {
+/// senses-cut control is blind outside the brain too ([`Layout::blind`]); a
+/// `legal` one draws the scorer's targets evenly ([`Layout::legal`]).
+fn clone_colony(w: &mut World, genome: &[f32], game_walk: bool, layout: Layout) -> SpeciesId {
+    let blind = layout.blind;
     let sp = w.species.id_of("ant").expect("ant");
     let mut def = w.species.get(sp).creature.clone().expect("creature");
     def.reproduce_threshold = 1.0e30;
@@ -93,13 +101,19 @@ fn clone_colony(w: &mut World, genome: &[f32], game_walk: bool, blind: bool) -> 
         def.home_bias = 0.0;
     }
     w.species.set_creature(sp, def);
-    w.species.set_genome(sp, genome.to_vec());
+    let (brain, scorer) = genome.split_at(genome.len().min(super::SCORER));
+    w.species.set_genome(sp, brain.to_vec());
     if !game_walk || blind {
         w.chooser = Some(creature::Chooser::Off);
     }
     w.home_blind = blind;
+    if !scorer.is_empty() {
+        let mut t = creature::targets::Targets::new(sp, scorer);
+        t.even = layout.legal;
+        w.targets = Some(t);
+    }
     for id in ants_of(w, sp) {
-        w.set_organism_genome(id, genome.to_vec());
+        w.set_organism_genome(id, brain.to_vec());
     }
     sp
 }
@@ -216,7 +230,7 @@ impl Challenge for Forage {
         let heap_x = NEST_X + side * dist;
         let extra = format!(r#"Heap(material: "provisions", x: {heap_x}, cells: {}),"#, self.heap);
         let (mut w, _, _) = bed(layout.seed, self.ants, &extra).build();
-        let sp = clone_colony(&mut w, genomes[0], self.game_walk, layout.blind);
+        let sp = clone_colony(&mut w, genomes[0], self.game_walk, layout);
         let food = w.materials.id_of("provisions").expect("provisions");
         let before = cells_of(&w, heap_x - HEAP_REACH, heap_x + HEAP_REACH, food);
         let founders = ants_of(&w, sp);
@@ -456,7 +470,22 @@ pub struct Dig {
     pub ants: usize,
     pub frames: u64,
     pub game_walk: bool,
+    /// **The target-choice arena** (stage 1 of the brain plan): genomes carry
+    /// an evolved target scorer, which picks the cell dug and where each
+    /// pellet goes down in place of the hand rules (`creature::targets`).
+    /// Its counters are printed beside the score: decisions that were a
+    /// choice at all, the margin between the two best, pellets left
+    /// inside.
+    pub targets: bool,
+    /// The hand filters the scorer replaces as well, the rung of the
+    /// one-rule-at-a-time ladder ([`creature::targets::Free`]).
+    pub free: creature::targets::Free,
 }
+
+const DIG_PARTS: &[&str] = &["room", "pit", "mound", "alive", "roofed", "spoil_below", "placed", "holding"];
+const DIG_TARGET_PARTS: &[&str] = &[
+    "room", "pit", "mound", "alive", "roofed", "spoil_below", "placed", "holding", "dig_choices", "dig_margin", "dig_none", "drop_choices", "drop_margin", "drop_none", "dropped_inside", "dropped_outside",
+];
 
 impl Challenge for Dig {
     fn name(&self) -> &'static str {
@@ -472,7 +501,14 @@ impl Challenge for Dig {
         self.frames
     }
     fn parts(&self) -> &'static [&'static str] {
-        &["room", "pit", "mound", "alive", "roofed", "spoil_below", "placed"]
+        if self.targets {
+            DIG_TARGET_PARTS
+        } else {
+            DIG_PARTS
+        }
+    }
+    fn scorer(&self) -> bool {
+        self.targets
     }
     fn banned(&self) -> &'static [O] {
         NOT_ANT_VERBS
@@ -480,11 +516,27 @@ impl Challenge for Dig {
     fn mirrored(&self) -> bool {
         true
     }
+    /// Room cyan, pit red, refused amber ([`dug_cells`]): what the score
+    /// counted, what is open to the sky, and what the census would count
+    /// and the score does not.
+    fn marks(&self, layout: Layout, w: &World) -> Vec<((i32, i32), [u8; 3])> {
+        let shape = DigBed::of(layout);
+        let spec = bed_shaped(layout.seed, self.ants, &shape.placements(), shape.depth, shape.lamp).bed;
+        let colour = |kind| match kind {
+            Dug::Room => [0, 190, 255],
+            Dug::Pit => [255, 50, 30],
+            Dug::Refused => [255, 190, 0],
+        };
+        dug_cells(w, &spec).into_iter().map(|(at, kind)| (at, colour(kind))).collect()
+    }
     fn run(&self, layout: Layout, genomes: &[&[f32]], look: &mut dyn FnMut(u64, &World)) -> Vec<Score> {
         let shape = DigBed::of(layout);
         let sc = bed_shaped(layout.seed, self.ants, &shape.placements(), shape.depth, shape.lamp);
         let (mut w, _, _) = sc.build();
-        let sp = clone_colony(&mut w, genomes[0], self.game_walk, layout.blind);
+        let sp = clone_colony(&mut w, genomes[0], self.game_walk, layout);
+        if let Some(t) = w.targets.as_mut() {
+            t.free = self.free;
+        }
         // **Fed by topping up, not by raising `start_energy`.** The ants are
         // already placed when the arena gets them, so a raised
         // `start_energy` leaves their energy where it was and moves the
@@ -513,12 +565,17 @@ impl Challenge for Dig {
         }
         let alive = ants_of(&w, sp).len();
         let lived = alive + old_age(&w, sp, colony);
+        // Read at the bell, before the settle: a carrier still laden then
+        // could not dig, and a scorer that keeps saying "not yet" leaves its
+        // carriers laden (ladder lane's stage 1 review, finding 7).
+        let holding = ants_of(&w, sp).into_iter().filter(|&id| w.organism(id).is_some_and(|s| s.spoil.is_some())).count();
+        let t = w.targets.as_ref().map(|t| t.stats.clone()).unwrap_or_default();
         // **Settle before the count**: every ant takes the zero genome,
         // which digs nothing, and the bed runs on, so what is counted is
         // what stands once the work stops rather than what is standing at
         // the bell. On the game ant it changed nothing on 4 of 4 beds
         // (`ladder/dropin-nest-room.md`).
-        let zero = vec![0.0; genomes[0].len()];
+        let zero = vec![0.0; genomes[0].len().min(super::SCORER)];
         w.chooser = Some(creature::Chooser::Off);
         for id in ants_of(&w, sp) {
             w.set_organism_genome(id, zero.clone());
@@ -529,14 +586,28 @@ impl Challenge for Dig {
                 feed(&mut w);
             }
         }
+        // What is scored, for a picture's sixth snapshot (`train::picture`).
+        look(self.frames + DIG_SETTLE, &w);
         let end = census::census(&w, &sc.bed, 0.0, &cols, &ids);
         let room = joined_room(&w, &sc.bed) as f64 - base_joined as f64;
         let roofed = end.roofed_room() as f64 - base.roofed_room() as f64;
         let kept = (lived as f64 / placed.len().max(1) as f64).min(1.0);
-        vec![Score {
-            fit: room.max(0.0) * kept,
-            parts: vec![room, end.pit as f64 - base.pit as f64, end.mound as f64, alive as f64, roofed, spoil_below(&w, &sc.bed) as f64, placed.len() as f64],
-        }]
+        let mut parts = vec![room, end.pit as f64 - base.pit as f64, end.mound as f64, alive as f64, roofed, spoil_below(&w, &sc.bed) as f64, placed.len() as f64, holding as f64];
+        if self.targets {
+            let (d, p) = (creature::targets::VERB_DIG, creature::targets::VERB_DROP);
+            let margin = |v: usize| if t.choices[v] > 0 { t.margin_sum[v] / t.choices[v] as f64 } else { 0.0 };
+            parts.extend([
+                t.choices[d] as f64,
+                margin(d),
+                t.none[d] as f64,
+                t.choices[p] as f64,
+                margin(p),
+                t.none[p] as f64,
+                t.dropped_inside as f64,
+                t.dropped_outside as f64,
+            ]);
+        }
+        vec![Score { fit: room.max(0.0) * kept, parts }]
     }
 }
 
@@ -644,10 +715,33 @@ impl DigBed {
 /// one gap, counted the pit below it (72); now the roof must be the old
 /// ground. **Where, not what**: digging under a heap packs its bottom row
 /// into packed soil, the material a wall lined in place is made of, so
-/// packed soil above the datum is a lid and below it a roof. On the rig's own arena it costs an honest nest nothing: 946 cells
-/// either way over the game ant's 12 hold-out layouts
-/// (`ladder/review-ladder-docs.md` s2).
+/// packed soil above the datum is a lid and below it a roof. It cost an
+/// honest nest nothing on the flat beds before [`DigBed`]: 946 cells either
+/// way over the game ant's 12 hold-out layouts (`ladder/review-ladder-docs.md`
+/// s2). On the varied beds, `dug_cells`' amber (refused) count beside the
+/// room says the same thing per run: 0 on the game ant's first hold-out bed.
 pub fn joined_room(w: &World, spec: &crate::lab::scene::LabBox) -> usize {
+    dug_cells(w, spec).iter().filter(|c| c.1 == Dug::Room).count()
+}
+
+/// What [`joined_room`] made of an open cell at or below the datum.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Dug {
+    /// Counted: roofed by the old ground and joined to the sky.
+    Room,
+    /// Open to the sky in its own column (no ground within
+    /// [`census::MOUND_REACH`] rows above it): the census's `pit` and
+    /// `pit_bodies`, and never room.
+    Pit,
+    /// Neither: under a roof that is not the old ground (a spoil lid, a
+    /// mound), or roofed but cut off from the sky. The census calls these
+    /// roofed; the score does not.
+    Refused,
+}
+
+/// Every open cell at or below the frozen datum, with what the score made
+/// of it, so a picture can show what was counted (`Challenge::marks`).
+pub fn dug_cells(w: &World, spec: &crate::lab::scene::LabBox) -> Vec<((i32, i32), Dug)> {
     let (xs, ys) = census::extents(w, spec);
     let (x0, y0) = (*xs.start(), *ys.start());
     let (nw, nh) = ((xs.end() - x0 + 1) as usize, (ys.end() - y0 + 1) as usize);
@@ -682,19 +776,30 @@ pub fn joined_room(w: &World, spec: &crate::lab::scene::LabBox) -> usize {
         }
     }
     let spoil = w.materials.id_of("spoil");
-    let mut n = 0;
+    let mut cells = Vec::new();
     for x in xs.clone() {
         let surf = surface[(x - x0) as usize];
         let mut roofed = false;
+        let mut covered = false;
         for y in ys.clone() {
-            if y >= surf && ground(x, y) && Some(w.get(x, y).material) != spoil {
-                roofed = true;
-            } else if y >= surf && roofed && seen[at(x, y)] {
-                n += 1;
+            if ground(x, y) {
+                // The census's cover: any ground near the surface, mound and
+                // lids included ([`census::census`]'s `covered`).
+                covered |= y >= surf - census::MOUND_REACH;
+                roofed |= y >= surf && Some(w.get(x, y).material) != spoil;
+            } else if y >= surf && open(x, y) {
+                let kind = if roofed && seen[at(x, y)] {
+                    Dug::Room
+                } else if covered {
+                    Dug::Refused
+                } else {
+                    Dug::Pit
+                };
+                cells.push(((x, y), kind));
             }
         }
     }
-    n
+    cells
 }
 
 /// **One brain, several jobs** (colony): every arena in the suite, scored
@@ -768,6 +873,9 @@ impl Challenge for Suite {
     /// arena's job on one side only has not learned the job.
     fn mirrored(&self) -> bool {
         self.arenas.iter().any(|(a, _)| a.mirrored())
+    }
+    fn scorer(&self) -> bool {
+        self.arenas.iter().any(|(a, _)| a.scorer())
     }
     fn run(&self, layout: Layout, genomes: &[&[f32]], look: &mut dyn FnMut(u64, &World)) -> Vec<Score> {
         let g = genomes[0];
@@ -917,10 +1025,94 @@ mod tests {
         clear(&mut w, x, s, 2, 8);
         clear(&mut w, x + 2, s + 6, 12, 2);
         assert_eq!(joined_room(&w, &spec), 24, "a shaft down to a 12x2 gallery is 24 cells of nest");
+        // **Spoil below the datum is not old ground** (the `!= spoil`
+        // clause, untested until the PR 708 review): the same gallery with
+        // its first six columns roofed by backfilled spoil instead keeps
+        // only the other six. The census still counts all 24.
+        let spoil = w.materials.id_of("spoil").expect("spoil");
+        for xx in x + 2..x + 8 {
+            for yy in s..s + 6 {
+                w.set(xx, yy, Cell::new(spoil, 0));
+            }
+        }
+        let ids = Ids::resolve(&w);
+        assert_eq!(census::census(&w, &spec, 0.0, &[x], &ids).roofed_room(), 24, "the census does not roof it either, so this case tests nothing");
+        assert_eq!(joined_room(&w, &spec), 12, "a gallery under backfilled spoil counted as room");
         let (mut w, spec) = bare_bed();
         clear(&mut w, x, s + 3, 10, 8);
         clear(&mut w, x + 5, s, 1, 3);
         assert_eq!(joined_room(&w, &spec), 72, "a 10x8 chamber under three rows of old ground, less the 8 under its way in");
+    }
+
+    /// **The picture's colours are the score's and the census's own
+    /// split** (`dug_cells`, painted by `Challenge::marks`). On every shape
+    /// of the lid test: room is `joined_room`, pit is the census's pit, and
+    /// room plus refused is the census's roofed room. So a cell painted as
+    /// pit is one the census calls open to the sky, and one painted refused
+    /// is one the census would count and the score does not. The lid with a
+    /// gap is pinned as numbers too (its gap column is pit, the rest
+    /// refused), so the split cannot pass by being empty.
+    #[test]
+    fn dug_cells_split_like_the_census() {
+        let clear = |w: &mut World, x: i32, y: i32, wd: i32, h: i32| {
+            for xx in x..x + wd {
+                for yy in y..y + h {
+                    w.set(xx, yy, Cell::EMPTY);
+                }
+            }
+        };
+        let lay = |w: &mut World, x: i32, y: i32, wd: i32, h: i32| {
+            let m = w.materials.id_of("packedsoil").expect("packedsoil");
+            for xx in x..x + wd {
+                for yy in y..y + h {
+                    w.set(xx, yy, Cell::new(m, 0));
+                }
+            }
+        };
+        let count = |cells: &[((i32, i32), Dug)], k: Dug| cells.iter().filter(|c| c.1 == k).count();
+        type Shape = fn(&mut World, i32, i32, &dyn Fn(&mut World, i32, i32, i32, i32), &dyn Fn(&mut World, i32, i32, i32, i32));
+        let shapes: [(&str, Shape); 4] = [
+            ("two-row packed lid one row up, one gap", |w, x, s, clear, lay| {
+                clear(w, x, s, 10, 8);
+                lay(w, x - 2, s - 3, 14, 2);
+                lay(w, x - 2, s - 1, 1, 1);
+                lay(w, x + 11, s - 1, 1, 1);
+                clear(w, x + 5, s - 3, 1, 2);
+            }),
+            ("nest capped at the mouth", |w, x, s, clear, lay| {
+                clear(w, x, s, 2, 8);
+                clear(w, x + 2, s + 6, 12, 2);
+                lay(w, x - 2, s - 3, 6, 2);
+                lay(w, x - 2, s - 1, 1, 1);
+                lay(w, x + 3, s - 1, 1, 1);
+            }),
+            ("shaft and gallery", |w, x, s, clear, _| {
+                clear(w, x, s, 2, 8);
+                clear(w, x + 2, s + 6, 12, 2);
+            }),
+            ("chamber under old ground", |w, x, s, clear, _| {
+                clear(w, x, s + 3, 10, 8);
+                clear(w, x + 5, s, 1, 3);
+            }),
+        ];
+        for (i, (name, shape)) in shapes.into_iter().enumerate() {
+            let (mut w, spec) = bare_bed();
+            let ids = Ids::resolve(&w);
+            let x = spec.width / 2 + 22;
+            let s = census::surface_of(&w, &spec, x);
+            let before = census::census(&w, &spec, 0.0, &[x], &ids);
+            assert!(dug_cells(&w, &spec).is_empty(), "the bare bed has open cells below the datum");
+            shape(&mut w, x, s, &clear, &lay);
+            let c = census::census(&w, &spec, 0.0, &[x], &ids);
+            let cells = dug_cells(&w, &spec);
+            let (room, pit, refused) = (count(&cells, Dug::Room), count(&cells, Dug::Pit), count(&cells, Dug::Refused));
+            assert_eq!(room, joined_room(&w, &spec), "{name}");
+            assert_eq!(pit, c.pit + c.pit_bodies - before.pit - before.pit_bodies, "{name}: pit is not the census's");
+            assert_eq!(room + refused, c.roofed_room() - before.roofed_room(), "{name}: room and refused are not the census's roofed room");
+            if i == 0 {
+                assert_eq!((room, pit, refused), (0, 8, 72), "{name}: the gap column is open, the rest is under the lid");
+            }
+        }
     }
 
     /// **The dig beds vary, mirror and are never symmetric.** Over 200
@@ -932,8 +1124,8 @@ mod tests {
     fn dig_beds_mirror_and_always_have_a_side() {
         let (mut lens, mut step, mut depths) = (0, 0, std::collections::BTreeSet::new());
         for seed in 0..200 {
-            let east = DigBed::of(Layout { seed, k: 0, blind: false });
-            let west = DigBed::of(Layout { seed, k: 1, blind: false });
+            let east = DigBed::of(Layout { seed, k: 0, blind: false, legal: false });
+            let west = DigBed::of(Layout { seed, k: 1, blind: false, legal: false });
             assert!(east.lens.is_some() || east.step.is_some(), "seed {seed}: a bed with nothing one-sided");
             assert_eq!((east.depth, east.lamp), (west.depth, west.lamp));
             assert_eq!(east.lens.map(|(x, y, w, h)| (2 * NEST_X - x - w, y, w, h)), west.lens, "seed {seed}: lens not mirrored");
@@ -992,7 +1184,7 @@ mod tests {
             let (mut w, _, _) = bed(7, 12, "").build();
             let sp = w.species.id_of("ant").expect("ant");
             let g = w.species.get(sp).genome.clone();
-            clone_colony(&mut w, &g, false, true);
+            clone_colony(&mut w, &g, false, Layout { seed: 7, k: 0, blind: true, legal: false });
             w.home_blind = home_blind;
             for _ in 0..4000 {
                 frame(&mut w, true);

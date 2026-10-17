@@ -41,6 +41,7 @@
 pub mod challenges;
 
 use crate::sim::brain::{self, BrainInput, BrainOutput};
+use crate::sim::creature::targets;
 use crate::sim::World;
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
@@ -66,16 +67,30 @@ pub enum Unit {
 /// the shipped walk (`walk=game`) reads trails and home directly. A blinded
 /// genome alone left both on, so a "blind" forage colony could still find
 /// home (coordinator review of PR 707).
+///
+/// `legal` is the target scorer's **matched-rate legality control**: the
+/// scorer still decides whether to act or to answer "none", and the cell is
+/// then drawn evenly from the legal ones (`creature::targets::Targets::even`).
+/// Zeroing the scorer's weights instead (the first version) changed how often
+/// it declined as well as what it picked, so a champion could beat that row
+/// by declining more or less often (ladder lane, `stage1-code-review.md` 4).
 #[derive(Clone, Copy, Debug)]
 pub struct Layout {
     pub seed: u64,
     pub k: u64,
     pub blind: bool,
+    pub legal: bool,
 }
 
 /// The same layouts with the body's senses cut too; see [`Layout::blind`].
 pub fn blind(layouts: &[Layout]) -> Vec<Layout> {
     layouts.iter().map(|&l| Layout { blind: true, ..l }).collect()
+}
+
+/// The same layouts with every target drawn evenly from the legal ones; see
+/// [`Layout::legal`].
+pub fn legal(layouts: &[Layout]) -> Vec<Layout> {
+    layouts.iter().map(|&l| Layout { legal: true, ..l }).collect()
 }
 
 /// A score and the numbers beside it. `parts` lines up with
@@ -113,6 +128,68 @@ pub trait Challenge: Sync {
     fn mirrored(&self) -> bool {
         false
     }
+    /// Whether this arena's genomes carry an evolved target scorer after the
+    /// brain ([`SCORER`]): which cell is dug and where a pellet goes down,
+    /// in place of the hand rules (`creature::targets`).
+    fn scorer(&self) -> bool {
+        false
+    }
+    /// Cells to paint over a picture of this arena in fixed colours, so the
+    /// picture shows what the score counted rather than only what the
+    /// renderer draws: a full replace, never a blend into the cell's own
+    /// colour (`CLAUDE.md`, *A debug readout must not be a function of the
+    /// thing it debugs*). Dig paints its room, its pit and what it refused.
+    fn marks(&self, _layout: Layout, _w: &World) -> Vec<((i32, i32), [u8; 3])> {
+        Vec::new()
+    }
+}
+
+/// Where a genome's target scorer starts, when its arena has one: right after
+/// the brain's own `brain::GENOME_LEN` slots, [`targets::WEIGHTS`] long.
+pub const SCORER: usize = brain::GENOME_LEN;
+
+/// A challenge's whole genome length: the brain, and the scorer if it has one.
+pub fn genome_len(ch: &dyn Challenge) -> usize {
+    SCORER + if ch.scorer() { targets::WEIGHTS } else { 0 }
+}
+
+/// The slots the rig may move for `ch`: [`trainable`], or, in an arena with a
+/// target scorer, **the scorer's slots and nothing else**.
+///
+/// The brain is frozen there because stage 1 asks whether choosing the
+/// *cell* beats the hand rules. Evolving the brain beside it let a champion
+/// win by retuning how often it digs and drops without choosing any better
+/// (ladder lane, `stage1-code-review.md` 3); what retuning the brain alone
+/// buys is its own arm, today's brain trained under the hand rules.
+pub fn trainable_for(ch: &dyn Challenge) -> Vec<usize> {
+    if ch.scorer() {
+        (SCORER..SCORER + targets::WEIGHTS).collect()
+    } else {
+        trainable(ch.banned())
+    }
+}
+
+/// **The hold-out rows**, every one on the same layouts: the genome, the
+/// start, and the senses-cut control ([`blinded`] on [`blind`] layouts);
+/// and, in an arena with a target scorer (stage 1's decision rows,
+/// `ladder/stage1-code-review.md`):
+/// * `legal` -- the genome on [`legal`] layouts: what the list of legal
+///   targets gives for free, the floor a trained scorer must clear;
+/// * `scorer-blind` -- the brain untouched, the scorer's features cut
+///   ([`scorer_blinded`]), on the ordinary layouts. `blinded` also forces
+///   the brain walk and cuts the home pull, which alone takes the game ant's
+///   dig from about 77 to about 7, so a low `blinded` row cannot show the
+///   scorer reads the world; this row can;
+/// * `hand` -- the genome's brain on the hand rules, its scorer dropped,
+///   which says how much of a score is the brain's.
+pub fn controls(ch: &dyn Challenge, g: &[f32], start: &[f32], hold: &[Layout]) -> Vec<(&'static str, Vec<f32>, Vec<Layout>)> {
+    let mut rows = vec![("genome", g.to_vec(), hold.to_vec()), ("start", start.to_vec(), hold.to_vec()), ("blinded", blinded(g), blind(hold))];
+    if ch.scorer() {
+        rows.push(("legal", g.to_vec(), legal(hold)));
+        rows.push(("scorer-blind", scorer_blinded(g), hold.to_vec()));
+        rows.push(("hand", g[..SCORER.min(g.len())].to_vec(), hold.to_vec()));
+    }
+    rows
 }
 
 /// SplitMix64. The rig's only randomness, so a run is a function of its seed.
@@ -208,11 +285,29 @@ pub fn apply_bans(g: &mut [f32], banned: &[BrainOutput]) {
 /// **The senses-cut control**: every weight from an input other than `Bias`
 /// zeroed, so the brain sees nothing of the world and runs on its bias and
 /// its own recurrence alone.
+///
+/// A target scorer, if the genome has one, is cut too ([`scorer_blinded`]).
 pub fn blinded(g: &[f32]) -> Vec<f32> {
-    let mut b = g.to_vec();
+    let mut b = scorer_blinded(g);
     for (i, w) in b.iter_mut().enumerate().take(BRAIN_END) {
         if input_of(i).is_some_and(|inp| inp != BrainInput::Bias as usize) {
             *w = 0.0;
+        }
+    }
+    b
+}
+
+/// **The scorer's senses cut, and nothing else**: every weight from a
+/// feature zeroed, keeping the verb's own row, its bias and its "none"
+/// constants, so it scores every target of a verb alike. The brain is left
+/// as it is.
+pub fn scorer_blinded(g: &[f32]) -> Vec<f32> {
+    let mut b = g.to_vec();
+    if b.len() >= SCORER + targets::WEIGHTS {
+        for f in 0..targets::FEATURES {
+            for h in 0..targets::HIDDEN {
+                b[SCORER + targets::w_in(targets::in_feature(f), h)] = 0.0;
+            }
         }
     }
     b
@@ -313,24 +408,38 @@ impl Default for Settings {
 ///
 /// **Layouts come in mirrored pairs on one seed** (`k` and `k + 1`, `k`
 /// even), training as well as hold-out, so a mirrored challenge's two sides
-/// differ only by the side and [`fold`] can take the worse of them. An arena
-/// that has no sides derives two beds from the pair itself ([`Dig`]'s
-/// `bed_seed`), or every pair would be one run twice.
+/// differ only by the side and [`fold`] can take the worse of them. Dig's
+/// beds have sides too: one bed per pair, drawn from the seed, with its
+/// one-sided features (the stone lens, the step) mirrored on odd `k`
+/// ([`challenges::DigBed`]), so a pair is one bed met from both sides.
+///
+/// **The dig hold-out draws few beds.** 8 hold-out layouts are 4 beds,
+/// with soil depth 29-39 and never the 41 lamp spacing; 12 are 6 beds.
+/// Training draws a new bed per pair per generation, so it sees the whole
+/// range; a champion's hold-out score is on the narrower set (coordinator
+/// review of PR 708 cf9b4350). [`sealed_layouts`] is a further 6.
 ///
 /// [`Dig`]: challenges::Dig
 pub fn training_layouts(run_seed: u64, gen: usize, n: usize) -> Vec<Layout> {
     (0..n as u64)
         .map(|k| {
             let i = gen as u64 * n as u64 + k;
-            Layout { seed: 1000 + run_seed * 100_000 + i / 2, k: i, blind: false }
+            Layout { seed: 1000 + run_seed * 100_000 + i / 2, k: i, blind: false, legal: false }
         })
         .collect()
 }
 pub fn holdout_layouts(n: usize) -> Vec<Layout> {
-    (0..n as u64).map(|k| Layout { seed: 50_000 + k / 2, k, blind: false }).collect()
+    (0..n as u64).map(|k| Layout { seed: 50_000 + k / 2, k, blind: false, legal: false }).collect()
+}
+/// **A second hold-out nobody has looked at**, for the final rows once a
+/// champion has been chosen by its hold-out score (picking among seeds or
+/// checkpoints by the hold-out is selection on it). `sealed=1` in the
+/// example scores on these instead (ladder lane's stage 1 review, s3).
+pub fn sealed_layouts(n: usize) -> Vec<Layout> {
+    (0..n as u64).map(|k| Layout { seed: 70_000 + k / 2, k, blind: false, legal: false }).collect()
 }
 pub fn calibration_layouts(n: usize) -> Vec<Layout> {
-    (0..n as u64).map(|k| Layout { seed: 90_000 + k / 2, k, blind: false }).collect()
+    (0..n as u64).map(|k| Layout { seed: 90_000 + k / 2, k, blind: false, legal: false }).collect()
 }
 
 /// One arena's worth of work: which genomes go into it (indices into the
@@ -536,7 +645,39 @@ pub fn describe(g: &[f32]) -> String {
 }
 
 /// Build the start genome for a challenge.
-pub fn start_genome(start: &Start, species_genome: &[f32], banned: &[BrainOutput], seed: u64) -> Vec<f32> {
+///
+/// `scorer`, for an arena with a target scorer, is the scorer the brain
+/// starts beside; it is appended to the brain, and a genome file written
+/// for the brain alone takes it too. An empty `scorer` means **the start
+/// file's own** (`targets=own`), and a start file that carries a scorer
+/// takes nothing else: the first version kept the file's scorer whatever
+/// `targets=` said, while the settings line printed what was asked for
+/// (ladder lane, `stage1-code-review.md` 8, the trap of review-rev2 N10).
+pub fn start_genome(start: &Start, species_genome: &[f32], banned: &[BrainOutput], seed: u64, scorer: Option<&[f32]>) -> Vec<f32> {
+    let whole = SCORER + targets::WEIGHTS;
+    let own = match start {
+        Start::File(p) if std::fs::read_to_string(p).is_ok_and(|t| t.starts_with(&format!("genome {whole}"))) => Some(p),
+        _ => None,
+    };
+    match (scorer, own) {
+        (None, _) => start_brain(start, species_genome, banned, seed),
+        (Some(sc), Some(p)) => {
+            assert!(sc.is_empty(), "{} carries its own target scorer, which targets= would not replace: pass targets=own", p.display());
+            let mut g = load_genome(p, whole);
+            apply_bans(&mut g, banned);
+            g
+        }
+        (Some(sc), None) => {
+            assert!(!sc.is_empty(), "targets=own needs a start file that carries a target scorer");
+            let mut g = start_brain(start, species_genome, banned, seed);
+            g.truncate(SCORER);
+            g.extend_from_slice(sc);
+            g
+        }
+    }
+}
+
+fn start_brain(start: &Start, species_genome: &[f32], banned: &[BrainOutput], seed: u64) -> Vec<f32> {
     let mut g = match start {
         Start::Species => species_genome.to_vec(),
         Start::File(p) => load_genome(p, species_genome.len()),
@@ -570,7 +711,7 @@ pub fn start_genome(start: &Start, species_genome: &[f32], banned: &[BrainOutput
 /// * `summary.txt` -- what the run was and how it ended.
 pub fn train(ch: &dyn Challenge, start: Vec<f32>, set: &Settings, out: &Path) -> std::io::Result<Vec<f32>> {
     std::fs::create_dir_all(out.join("champions"))?;
-    let slots = trainable(ch.banned());
+    let slots = trainable_for(ch);
     let mut rng = Rng(set.seed.wrapping_mul(0xA24B_AED4_963E_E407) ^ 0x7EA1);
     let parts = ch.parts();
     let mut progress = std::fs::File::create(out.join("progress.csv"))?;
@@ -620,9 +761,9 @@ pub fn train(ch: &dyn Challenge, start: Vec<f32>, set: &Settings, out: &Path) ->
         save_genome(&out.join(format!("champions/gen-{gen:03}.txt")), &champion)?;
 
         if (gen + 1) % set.every.max(1) == 0 || gen + 1 == set.gens {
-            let hold_blind = blind(&hold);
-            for (who, g, lay) in [("champion", champion.clone(), &hold), ("start", start.clone(), &hold), ("blinded", blinded(&champion), &hold_blind)] {
-                let s = score_clones(ch, &g, lay, set.threads);
+            for (who, g, lay) in controls(ch, &champion, &start, &hold) {
+                let who = if who == "genome" { "champion" } else { who };
+                let s = score_clones(ch, &g, &lay, set.threads);
                 let p: Vec<String> = s.parts.iter().map(|p| format!("{p:.2}")).collect();
                 writeln!(holdout, "{gen},{who},{:.3},{}", s.fit, p.join(","))?;
                 println!("    HOLDOUT {who:8} {:7.2}  [{}]", s.fit, p.join(" "));
@@ -681,7 +822,10 @@ fn curves(out: &Path) {
 }
 
 /// Five snapshots of one arena, stacked top to bottom, every ant painted
-/// magenta so a colony of one-cell animals is visible at all.
+/// magenta so a colony of one-cell animals is visible at all, and the
+/// arena's [`Challenge::marks`] painted under the ants. An arena that looks
+/// again after its bell (dig, after the settle it is scored on) gets a sixth
+/// snapshot of what was scored.
 pub fn picture(ch: &dyn Challenge, g: &[f32], layout: Layout, path: &Path) {
     let frames = ch.frames();
     let shots: Vec<u64> = (1..=5).map(|i| i * frames / 5).collect();
@@ -691,7 +835,7 @@ pub fn picture(ch: &dyn Challenge, g: &[f32], layout: Layout, path: &Path) {
     let particles = crate::sim::particle::ParticleSystem::new();
     let gs: Vec<&[f32]> = vec![g; if ch.unit() == Unit::Ant { ch.ants() } else { 1 }];
     ch.run(layout, &gs, &mut |f, w| {
-        if !shots.contains(&f) {
+        if !shots.contains(&f) && f <= frames {
             return;
         }
         let Some(b) = w.bounds() else { return };
@@ -712,6 +856,12 @@ pub fn picture(ch: &dyn Challenge, g: &[f32], layout: Layout, path: &Path) {
                     buf[i + 1] = buf[i + 1] / 2 + 100;
                     buf[i + 2] /= 2;
                 }
+            }
+        }
+        for ((x, y), [r, g, b]) in ch.marks(layout, w) {
+            if x >= 0 && y >= 0 && (x as u32) < vw && (y as u32) < vh {
+                let i = ((y as u32 * vw + x as u32) * 4) as usize;
+                buf[i..i + 4].copy_from_slice(&[r, g, b, 255]);
             }
         }
         for id in w.live_organism_ids() {
