@@ -55,12 +55,27 @@ pub enum Unit {
     Ant,
 }
 
-/// One arena. `k` is the layout's index within its batch, so a challenge can
-/// alternate a side or a mirror with it and "always walk east" scores half.
+/// One arena. `k` is the layout's index within its batch (counted across
+/// generations in training, so an odd `layouts` still alternates), so a
+/// challenge can alternate a side or a mirror with it and "always walk east"
+/// scores half.
+///
+/// `blind` asks the arena to cut the **body's** senses as well as the
+/// brain's, for the senses-cut control: the homeward re-roll
+/// (`CreatureDef::home_bias`) reads the home direction outside the brain, and
+/// the shipped walk (`walk=game`) reads trails and home directly. A blinded
+/// genome alone left both on, so a "blind" forage colony could still find
+/// home (coordinator review of PR 707).
 #[derive(Clone, Copy, Debug)]
 pub struct Layout {
     pub seed: u64,
     pub k: u64,
+    pub blind: bool,
+}
+
+/// The same layouts with the body's senses cut too; see [`Layout::blind`].
+pub fn blind(layouts: &[Layout]) -> Vec<Layout> {
+    layouts.iter().map(|&l| Layout { blind: true, ..l }).collect()
 }
 
 /// A score and the numbers beside it. `parts` lines up with
@@ -277,15 +292,26 @@ impl Default for Settings {
     }
 }
 
-/// Training layouts are numbered from 1,000, hold-out ones from 50,000, so
-/// the two sets never share a seed however long a run is.
+/// Training layouts are numbered from 1,000 + 100,000 x the run seed,
+/// hold-out ones from 50,000 and calibration ones from 90,000. For run seed
+/// 1 and up the training seeds start at 101,000, clear of both; run seed 0
+/// stays clear for its first 49,000 training layouts. A suite's references are
+/// set on the calibration set, never on the hold-out it is later judged
+/// on: its keep floor is a threshold, so references taken from hold-out
+/// scores let hold-out data steer training.
 pub fn training_layouts(run_seed: u64, gen: usize, n: usize) -> Vec<Layout> {
     (0..n as u64)
-        .map(|k| Layout { seed: 1000 + run_seed * 100_000 + gen as u64 * n as u64 + k, k })
+        .map(|k| {
+            let i = gen as u64 * n as u64 + k;
+            Layout { seed: 1000 + run_seed * 100_000 + i, k: i, blind: false }
+        })
         .collect()
 }
 pub fn holdout_layouts(n: usize) -> Vec<Layout> {
-    (0..n as u64).map(|k| Layout { seed: 50_000 + k / 2, k }).collect()
+    (0..n as u64).map(|k| Layout { seed: 50_000 + k / 2, k, blind: false }).collect()
+}
+pub fn calibration_layouts(n: usize) -> Vec<Layout> {
+    (0..n as u64).map(|k| Layout { seed: 90_000 + k / 2, k, blind: false }).collect()
 }
 
 /// One arena's worth of work: which genomes go into it (indices into the
@@ -293,6 +319,13 @@ pub fn holdout_layouts(n: usize) -> Vec<Layout> {
 struct Job {
     layout: usize,
     members: Vec<usize>,
+    /// How many of `members` are this arena's own; the rest are repeats
+    /// topping up an uneven last arena, and their scores are dropped. A
+    /// first-come guard here instead let a repeat's score (from another
+    /// arena, beside other neighbours) win a race against the genome's own,
+    /// so a run was not a function of its seed: `pop=8 threads=4` gave six
+    /// different progress files in six runs (coordinator review of PR 707).
+    scored: usize,
 }
 
 /// **Score every genome on every layout.** Returns `[genome][layout]`.
@@ -301,13 +334,13 @@ struct Job {
 /// Under [`Unit::Ant`] the genomes are shuffled into arenas of
 /// [`Challenge::ants`] for each layout (a fresh shuffle per layout, so no
 /// genome is always beside the same neighbours); a population that does not
-/// divide evenly has its last arena topped up with repeats, whose second
-/// scores are discarded.
+/// divide evenly has its last arena topped up with repeats, whose scores
+/// are discarded (only each arena's own members are recorded).
 pub fn score_all(ch: &dyn Challenge, genomes: &[Vec<f32>], layouts: &[Layout], threads: usize, rng: &mut Rng) -> Vec<Vec<Score>> {
     let mut jobs = Vec::new();
     for l in 0..layouts.len() {
         match ch.unit() {
-            Unit::Colony => jobs.extend((0..genomes.len()).map(|g| Job { layout: l, members: vec![g] })),
+            Unit::Colony => jobs.extend((0..genomes.len()).map(|g| Job { layout: l, members: vec![g], scored: 1 })),
             Unit::Ant => {
                 let mut order: Vec<usize> = (0..genomes.len()).collect();
                 for i in (1..order.len()).rev() {
@@ -316,12 +349,13 @@ pub fn score_all(ch: &dyn Challenge, genomes: &[Vec<f32>], layouts: &[Layout], t
                 let n = ch.ants();
                 for chunk in order.chunks(n) {
                     let mut members = chunk.to_vec();
+                    let scored = members.len();
                     let mut fill = 0;
                     while members.len() < n {
                         members.push(order[fill % order.len()]);
                         fill += 1;
                     }
-                    jobs.push(Job { layout: l, members });
+                    jobs.push(Job { layout: l, members, scored });
                 }
             }
         }
@@ -336,11 +370,10 @@ pub fn score_all(ch: &dyn Challenge, genomes: &[Vec<f32>], layouts: &[Layout], t
                 let gs: Vec<&[f32]> = job.members.iter().map(|&m| genomes[m].as_slice()).collect();
                 let scores = ch.run(layouts[job.layout], &gs, &mut |_, _| {});
                 let mut o = out.lock().unwrap();
-                for (&m, sc) in job.members.iter().zip(scores) {
+                for (&m, sc) in job.members[..job.scored].iter().zip(scores) {
                     let slot = &mut o[m][job.layout];
-                    if slot.is_none() {
-                        *slot = Some(sc);
-                    }
+                    assert!(slot.is_none(), "genome {m} scored twice on layout {}", job.layout);
+                    *slot = Some(sc);
                 }
             });
         }
@@ -528,8 +561,9 @@ pub fn train(ch: &dyn Challenge, start: Vec<f32>, set: &Settings, out: &Path) ->
         save_genome(&out.join(format!("champions/gen-{gen:03}.txt")), &champion)?;
 
         if (gen + 1) % set.every.max(1) == 0 || gen + 1 == set.gens {
-            for (who, g) in [("champion", champion.clone()), ("start", start.clone()), ("blinded", blinded(&champion))] {
-                let s = score_clones(ch, &g, &hold, set.threads);
+            let hold_blind = blind(&hold);
+            for (who, g, lay) in [("champion", champion.clone(), &hold), ("start", start.clone(), &hold), ("blinded", blinded(&champion), &hold_blind)] {
+                let s = score_clones(ch, &g, lay, set.threads);
                 let p: Vec<String> = s.parts.iter().map(|p| format!("{p:.2}")).collect();
                 writeln!(holdout, "{gen},{who},{:.3},{}", s.fit, p.join(","))?;
                 println!("    HOLDOUT {who:8} {:7.2}  [{}]", s.fit, p.join(" "));
@@ -643,6 +677,82 @@ pub fn picture(ch: &dyn Challenge, g: &[f32], layout: Layout, path: &Path) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A per-ant arena whose every score depends on the neighbours, so a
+    /// filler's score (from another arena) differs from the genome's own.
+    /// Arenas whose genome total is in `slow` take a while, so the test can
+    /// make each layout's first arena finish after the last one -- the one
+    /// topped up with repeats of the first arena's members -- which is the
+    /// order in which the old first-come guard recorded the wrong score.
+    struct Neighbours {
+        slow: Vec<f64>,
+    }
+    impl Challenge for Neighbours {
+        fn name(&self) -> &'static str {
+            "neighbours"
+        }
+        fn unit(&self) -> Unit {
+            Unit::Ant
+        }
+        fn ants(&self) -> usize {
+            3
+        }
+        fn parts(&self) -> &'static [&'static str] {
+            &[]
+        }
+        fn banned(&self) -> &'static [BrainOutput] {
+            &[]
+        }
+        fn run(&self, _: Layout, genomes: &[&[f32]], _: &mut dyn FnMut(u64, &World)) -> Vec<Score> {
+            let arena: f64 = genomes.iter().map(|g| g[0] as f64).sum();
+            if self.slow.contains(&arena) {
+                std::thread::sleep(std::time::Duration::from_millis(40));
+            }
+            genomes.iter().map(|g| Score { fit: g[0] as f64 + 1000.0 * arena, parts: vec![] }).collect()
+        }
+        fn frames(&self) -> u64 {
+            1
+        }
+    }
+
+    /// **Each genome keeps its own arena's score, whatever the threads do.**
+    /// Seven genomes in arenas of three leave the last arena two short; the
+    /// repeats topping it up must not record. Before the fix a first-come
+    /// guard let a repeat's score win a race (`pop=8 threads=4` gave six
+    /// different runs in six); with each layout's first arena held back here
+    /// that guard fails every time, and the fix must not.
+    #[test]
+    fn uneven_arenas_score_each_genome_in_its_own_arena() {
+        let genomes: Vec<Vec<f32>> = (0..7).map(|i| vec![i as f32 + 1.0]).collect();
+        let layouts = training_layouts(1, 0, 2);
+        // Replay `score_all`'s shuffle to know each layout's arenas.
+        let mut rng = Rng(9);
+        let mut arenas: Vec<Vec<(Vec<usize>, f64)>> = vec![];
+        for _ in 0..layouts.len() {
+            let mut order: Vec<usize> = (0..genomes.len()).collect();
+            for i in (1..order.len()).rev() {
+                order.swap(i, rng.below(i + 1));
+            }
+            let mut these = vec![];
+            for chunk in order.chunks(3) {
+                let mut arena: f64 = chunk.iter().map(|&m| genomes[m][0] as f64).sum();
+                for fill in 0..3 - chunk.len() {
+                    arena += genomes[order[fill % order.len()]][0] as f64;
+                }
+                these.push((chunk.to_vec(), arena));
+            }
+            arenas.push(these);
+        }
+        let ch = Neighbours { slow: arenas.iter().map(|a| a[0].1).collect() };
+        let got = score_all(&ch, &genomes, &layouts, 4, &mut Rng(9));
+        for (l, these) in arenas.iter().enumerate() {
+            for (members, arena) in these {
+                for &m in members {
+                    assert_eq!(got[m][l].fit, genomes[m][0] as f64 + 1000.0 * arena, "genome {m} on layout {l} has a score from another arena");
+                }
+            }
+        }
+    }
 
     #[test]
     fn slot_maps_agree_with_brain_layout() {

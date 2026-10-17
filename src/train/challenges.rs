@@ -62,14 +62,19 @@ fn bed(seed: u64, ants: usize, extra: &str) -> Scenario {
 }
 
 /// Every ant in a fresh bed takes `genome`, births are put out of reach, and
-/// the brain steers (`Chooser::Off`) unless `game_walk`.
-fn clone_colony(w: &mut World, genome: &[f32], game_walk: bool) -> SpeciesId {
+/// the brain steers (`Chooser::Off`) unless `game_walk`. A `blind` layout
+/// also cuts the body's homeward re-roll and forces the brain walk, so the
+/// senses-cut control is blind outside the brain too ([`Layout::blind`]).
+fn clone_colony(w: &mut World, genome: &[f32], game_walk: bool, blind: bool) -> SpeciesId {
     let sp = w.species.id_of("ant").expect("ant");
     let mut def = w.species.get(sp).creature.clone().expect("creature");
     def.reproduce_threshold = 1.0e30;
+    if blind {
+        def.home_bias = 0.0;
+    }
     w.species.set_creature(sp, def);
     w.species.set_genome(sp, genome.to_vec());
-    if !game_walk {
+    if !game_walk || blind {
         w.chooser = Some(creature::Chooser::Off);
     }
     for id in ants_of(w, sp) {
@@ -82,7 +87,9 @@ fn clone_colony(w: &mut World, genome: &[f32], game_walk: bool) -> SpeciesId {
 ///
 /// A heap of 60 provisions cells 35-100 columns from the nest, east on even
 /// layouts and west on odd ones. Score: food at home at the end (cells within
-/// 12 columns of the nest, plus crop food digested at the nest in cells)
+/// 12 columns of the nest, plus crop food digested at the nest in cells --
+/// which counts every meal eaten at the nest, a dead nestmate's body too;
+/// the survival factor already charges for the death)
 /// times the fraction of the colony still alive. The survival factor is there
 /// because the probe's walking-only winner brought food home while the colony
 /// shrank from 12 to 8; the hop ban because its unbanned winner flew it home.
@@ -136,7 +143,7 @@ impl Challenge for Forage {
         let heap_x = NEST_X + side * dist;
         let extra = format!(r#"Heap(material: "provisions", x: {heap_x}, cells: {}),"#, self.heap);
         let (mut w, _, _) = bed(layout.seed, self.ants, &extra).build();
-        let sp = clone_colony(&mut w, genomes[0], self.game_walk);
+        let sp = clone_colony(&mut w, genomes[0], self.game_walk, layout.blind);
         let food = w.materials.id_of("provisions").expect("provisions");
         let before = cells_of(&w, heap_x - 20, heap_x + 20, food);
         let started = ants_of(&w, sp).len().max(1);
@@ -164,8 +171,9 @@ impl Challenge for Forage {
 ///
 /// A bare stone floor 256 wide, the ants standing three cells apart around
 /// the centre. A channel-B trail runs from a few cells behind the group, so
-/// every ant starts on it, out to the world's edge on one side only (east on
-/// even layouts, west on odd), rising from a fifth of its peak to the peak.
+/// every ant starts on it, out towards the world's edge on one side only
+/// (east on even layouts, west on odd), rising to its peak. Where it starts
+/// and ends, its peak and its slope vary with the layout's seed.
 /// The other side is bare ground. That is the choice a side-view ant meets at
 /// its door: left or right, and the trail says which. Nothing decays, nothing
 /// is eaten, nobody starves, and every ant's `EmitA`/`EmitB` rows are banned,
@@ -183,6 +191,13 @@ impl Challenge for Forage {
 pub struct Trail {
     pub ants: usize,
     pub frames: u64,
+    /// Select whole arenas of clones (`Unit::Colony`) instead of single ants
+    /// in mixed arenas. The hold-out always scores clones, so with this set
+    /// training and hold-out measure the same thing; without it a champion
+    /// trained among strangers is judged among copies of itself, which on a
+    /// one-lane floor block each other where they all hesitate (design
+    /// review of 2026-10-17, finding 1).
+    pub clones: bool,
 }
 
 const TRAIL_BANNED: &[O] = &[O::Impulse, O::Fly, O::Attack, O::Provision, O::Lay, O::EmitA, O::EmitB];
@@ -192,7 +207,11 @@ impl Challenge for Trail {
         "trail"
     }
     fn unit(&self) -> Unit {
-        Unit::Ant
+        if self.clones {
+            Unit::Colony
+        } else {
+            Unit::Ant
+        }
     }
     fn ants(&self) -> usize {
         self.ants
@@ -207,6 +226,16 @@ impl Challenge for Trail {
         TRAIL_BANNED
     }
     fn run(&self, layout: Layout, genomes: &[&[f32]], look: &mut dyn FnMut(u64, &World)) -> Vec<Score> {
+        if self.clones {
+            let gs = vec![genomes[0]; self.ants];
+            return vec![super::mean_score(&self.run_ants(layout, &gs, look))];
+        }
+        self.run_ants(layout, genomes, look)
+    }
+}
+
+impl Trail {
+    fn run_ants(&self, layout: Layout, genomes: &[&[f32]], look: &mut dyn FnMut(u64, &World)) -> Vec<Score> {
         let (ww, h) = (BED_W, 64);
         let mut w = World::new(Rect::new(0, 0, ww - 1, h - 1));
         w.seed = layout.seed;
@@ -221,22 +250,35 @@ impl Challenge for Trail {
         let mut def = w.species.get(sp).creature.clone().expect("creature");
         def.reproduce_threshold = 1.0e30;
         def.start_energy = 1.0e9;
+        if layout.blind {
+            def.home_bias = 0.0;
+        }
         w.species.set_creature(sp, def);
         w.chooser = Some(creature::Chooser::Off);
 
         let mid = ww / 2;
         let dir = if layout.k.is_multiple_of(2) { 1 } else { -1 };
-        let (near, far) = (mid - dir * (3 * genomes.len() as i32 / 2 + 3), if dir > 0 { ww - 4 } else { 3 });
+        // **The geometry varies with the seed**, so a hold-out layout is a
+        // trail training has not seen and not only new dice on the same two
+        // arenas (coordinator review of PR 707): how far behind the group the
+        // trail starts (always under it, so every ant can sense it), how far
+        // short of the edge it ends, its strength and its slope.
+        let mut geo = super::Rng(layout.seed ^ 0x7EA1_1A70);
+        let behind = 1 + geo.below(8) as i32;
+        let short = 3 + geo.below(40) as i32;
+        // Half the plane's range at the peak, give or take 30%, so the
+        // brain's `PheroBFront` (raw / `Scent::MAX`) reads about 0.05-0.65 on
+        // the trail. The first version stamped 40 x `SCALE`, which reads
+        // 0.03-0.16: a hand-wired follower whose `Move` was gated on it never
+        // took a step.
+        let peak = pheromone::Scent::MAX as f32 * (0.35 + 0.3 * geo.unit());
+        let base = 0.1 + 0.3 * geo.unit();
+        let (near, far) = (mid - dir * (3 * genomes.len() as i32 / 2 + behind), if dir > 0 { ww - 1 - short } else { short });
         let span = (far - near).abs() as f32;
-        // Half the plane's range at the peak, so the brain's `PheroBFront`
-        // (raw / `Scent::MAX`) reads 0.1-0.5 on the trail. The first version
-        // stamped 40 x `SCALE`, which reads 0.03-0.16: a hand-wired follower
-        // whose `Move` was gated on it never took a step.
-        let peak = pheromone::Scent::MAX as f32 / 2.0;
         for i in 0..=(far - near).abs() {
             let x = near + dir * i;
             let t = i as f32 / span;
-            let amount = (0.2 + 0.8 * t) * peak;
+            let amount = (base + (1.0 - base) * t) * peak;
             for y in (head_y - 3)..=(head_y + 1) {
                 w.deposit_pheromone(Channel::B, x, y, amount as pheromone::Scent);
             }
@@ -322,7 +364,7 @@ impl Challenge for Dig {
     fn run(&self, layout: Layout, genomes: &[&[f32]], look: &mut dyn FnMut(u64, &World)) -> Vec<Score> {
         let sc = bed(layout.seed, self.ants, "");
         let (mut w, _, _) = sc.build();
-        let sp = clone_colony(&mut w, genomes[0], self.game_walk);
+        let sp = clone_colony(&mut w, genomes[0], self.game_walk, layout.blind);
         // **Fed by topping up, not by raising `start_energy`.** The ants are
         // already placed when the arena gets them, so a raised
         // `start_energy` leaves their energy where it was and moves the

@@ -1648,6 +1648,12 @@ Read once per process from the environment. The default is what ships.
 - `assets/species/ant.ron`: every weight and constant quoted here.
 - `creature/needs.rs`: the needs walk (§17), a harness-only second way to
   decide.
+- `src/train/`: the training rig (harness only; never runs in the game).
+  It finds brain genomes by challenge and selection under `Chooser::Off`,
+  with births and in-world mutation off. A trained genome replaces §4's
+  weight table, but the body's reflexes in §5-§6 (the homeward re-roll at
+  `home_bias`) stay as described here, except in the rig's senses-cut
+  control, which sets `home_bias` to 0.
 
 ## 14. Source comments that currently contradict the code
 
