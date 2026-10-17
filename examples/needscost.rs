@@ -53,6 +53,14 @@
 //! `handat` < `at` the arms are different worlds by the window; read the part's
 //! own functions' share under `cg=1`, not the difference between arms.
 //!
+//! **The target scorer** (2026-10-17): an arm `scorer` with
+//! `scorer=<champion file> free=<parts>` installs a trained brain's stage 1
+//! scorer (`examples/train.rs targets=own`) on the frame `handat=` names, and
+//! prints how many dig and drop decisions it made, so `arms=off,scorer` is
+//! what the scorer costs a grown colony's frame. Today's brain keeps deciding
+//! whether to dig; the scorer only picks where, so it runs when a dig or a
+//! drop is already chosen.
+//!
 //! Echoes its own parameters; an unknown argument is ignored.
 
 use pixel_physics::lab::scenario::Scenario;
@@ -158,10 +166,15 @@ struct Arm {
     geo: Option<Geo>,
     f: u64,
     target: usize,
+    /// The `scorer` arm's evolved target scorer (stage 1 of the trained
+    /// brain, `examples/train.rs`), installed on the frame `at` names, as the
+    /// needs walk is. Today's brain keeps deciding whether to dig or drop;
+    /// the scorer picks where.
+    scorer: Option<creature::targets::Targets>,
 }
 
 impl Arm {
-    fn new(label: &str, seed: u64, target: usize) -> Arm {
+    fn new(label: &str, seed: u64, target: usize, scorer: Option<&(Vec<f32>, creature::targets::Free)>) -> Arm {
         let mut sc = Scenario::load("nest_goal").unwrap_or_else(|e| {
             eprintln!("scenario nest_goal: {e}");
             std::process::exit(1);
@@ -175,9 +188,19 @@ impl Arm {
         }
         let (mode, parts) = label.split_once('/').map_or((label, None), |(m, p)| (m, Some(p)));
         let needs = match mode {
-            "off" => None,
+            "off" | "scorer" => None,
             other => Some(creature::needs::NeedsMode::parse(other)),
         };
+        let scorer = (mode == "scorer").then(|| {
+            let (weights, free) = scorer.unwrap_or_else(|| {
+                eprintln!("arm scorer needs scorer=<genome file>");
+                std::process::exit(1);
+            });
+            let sp = lab.world.species.id_of("ant").expect("ant ships");
+            let mut t = creature::targets::Targets::new(sp, weights);
+            t.free = *free;
+            t
+        });
         // No `/`: the new ant. `walk/` with nothing after it is
         // `parse("")`, slice 1, as `deeptrace needsparts=` is.
         let parts = match parts {
@@ -192,6 +215,7 @@ impl Arm {
             geo: None,
             f: 0,
             target,
+            scorer,
         }
     }
 
@@ -215,6 +239,11 @@ impl Arm {
                 let mut walk = creature::needs::NeedsWalk::new(mode, self.lab.world.frame);
                 walk.parts = self.parts;
                 self.lab.world.needs = Some(Box::new(walk));
+            }
+            if self.f == at {
+                if let Some(t) = self.scorer.take() {
+                    self.lab.world.targets = Some(t);
+                }
             }
         }
         self.lab.tick_for_harness();
@@ -247,12 +276,21 @@ fn main() {
     let target: usize = arg("food").unwrap_or(120);
     let cg = arg::<u8>("cg").unwrap_or(0) == 1;
     let arms_arg: String = arg("arms").unwrap_or_else(|| "off".to_string());
+    let scorer_path: Option<String> = arg("scorer");
+    let free: String = arg("free").unwrap_or_default();
+    // The champion file holds today's brain and then the scorer; the brain
+    // part is frozen in a scorer arena, so only the scorer is installed.
+    let scorer = scorer_path.as_ref().map(|p| {
+        let g = pixel_physics::train::load_genome(std::path::Path::new(p), pixel_physics::train::SCORER + creature::targets::WEIGHTS);
+        (g[pixel_physics::train::SCORER..].to_vec(), creature::targets::Free::parse(&free))
+    });
     let threads = std::env::var("RAYON_NUM_THREADS").unwrap_or_else(|_| "unset".to_string());
     println!(
-        "needscost: scenario=nest_goal seed={seed} at={at} handat={hand_at} window={window} reps={reps} food={target} arms={arms_arg} cg={} RAYON_NUM_THREADS={threads}",
+        "needscost: scenario=nest_goal seed={seed} at={at} handat={hand_at} window={window} reps={reps} food={target} arms={arms_arg} scorer={} free={free:?} cg={} RAYON_NUM_THREADS={threads}",
+        scorer_path.as_deref().unwrap_or("-"),
         u8::from(cg)
     );
-    let mut arms: Vec<Arm> = arms_arg.split(',').map(|a| Arm::new(a.trim(), seed, target)).collect();
+    let mut arms: Vec<Arm> = arms_arg.split(',').map(|a| Arm::new(a.trim(), seed, target, scorer.as_ref())).collect();
     let started = Instant::now();
     for arm in arms.iter_mut() {
         while arm.f < at {
@@ -299,6 +337,16 @@ fn main() {
                 arm.f - window,
                 arm.f,
                 dt * 1000.0 / window as f64
+            );
+        }
+    }
+    // The scorer arm's "it fired" count: decisions it made, and how many of
+    // them had a choice of cell at all.
+    for arm in &arms {
+        if let Some(t) = arm.lab.world.targets.as_ref() {
+            println!(
+                "  {} scorer: decisions dig {} drop {}, with a choice dig {} drop {}, none dig {} drop {}",
+                arm.label, t.stats.decisions[0], t.stats.decisions[1], t.stats.choices[0], t.stats.choices[1], t.stats.none[0], t.stats.none[1]
             );
         }
     }
