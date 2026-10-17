@@ -508,6 +508,30 @@ pub struct NestCfg {
     /// It asks whether the spoil coming back into the hole is what keeps the
     /// nest a pit (2026-10-17). False: off.
     pub vanish: bool,
+    /// **Spoil goes to a dump away from the hole** (2026-10-17, the owner's
+    /// "Add both"; why: `why-digging-fails-2026-10-17.md`, the textbook pit
+    /// was refilled by its own rim spoil, 636 of 726 cut cells, while the
+    /// game ant, which carries spoil to a ring, kept 406 of 436). A soil
+    /// carrier that has come out draws a column on its own side of the door,
+    /// `clear_r + 1 +` a Gamma(2, `ring` / 2) draw from it (mean `ring`), as
+    /// the game ant's `SPOIL_RING` does; it walks there and puts the pellet
+    /// down on the first cell beside it with all three cells below ground and
+    /// three open above ([`dump_site`]), so the dump grows as a mound rather
+    /// than as spires. Khuong's pile roll is not used for it. Field ants
+    /// carry spoil away from the entrance and drop it on a dump (Pielström &
+    /// Roces 2013; Tschinkel 2004). 0: off, Khuong's put-down as before.
+    pub ring: f32,
+    /// **A pull toward cover for an empty digger** (same day and reason:
+    /// with spoil removed the hole tripled, then ~50 diggers stood outside
+    /// by the door touching no soil). Near the door or inside, an empty
+    /// digger is steered up the gradient of [`cover`] (ground in the three
+    /// columns round it, five rows up), weight `shelter`, added to the
+    /// `down` pull. Digging ants avoid light and open ground; the
+    /// experiments used light to keep them working in the soil (Buhl et al.
+    /// 2004; Gravish et al. 2013). `LightHere` was not used: as a spoil gate
+    /// it could not tell a shallow gallery from open ground
+    /// (`Reports/dead-ends.md`, 2026-08-31). 0: off.
+    pub shelter: f32,
 }
 
 /// Whether a textbook ant is a forager under [`NestCfg::forager_frac`]: a
@@ -668,6 +692,9 @@ pub struct Textbook {
     pub trace: Vec<String>,
     /// [`NestCfg::dig_new`]: the frame of each cell's latest cut, by key.
     pub cuts: crate::sim::fxhash::PosMap<u64>,
+    /// [`NestCfg::ring`]: each soil carrier's dump column for the pellet it
+    /// holds, by key only.
+    pub ring_at: std::collections::HashMap<OrganismId, i32>,
 }
 
 impl Textbook {
@@ -683,8 +710,34 @@ impl Textbook {
             trace_ids: Vec::new(),
             trace: Vec::new(),
             cuts: Default::default(),
+            ring_at: std::collections::HashMap::new(),
         }
     }
+}
+
+/// **How covered a cell is** ([`NestCfg::shelter`]): ground cells in the
+/// three columns round `x`, in the five rows above `y` (0 in the open, 15
+/// under a solid roof).
+fn cover(world: &World, x: i32, y: i32) -> i32 {
+    (-1..=1)
+        .map(|dx| (1..=5).filter(|&dy| ground(world, x + dx, y - dy)).count() as i32)
+        .sum()
+}
+
+/// [`NestCfg::ring`]'s dump site beside `(x, y)`: empty, all three cells
+/// below it ground, three open cells above. Two of three (the game's
+/// `spoil_site_open`) let a two-wide spire grow on the crater's rim, which
+/// crumbled back into the hole: 483 spoil cells lost from the surface and
+/// 659 of loose soil into the hole in 40k frames (seed 1, `ring=6
+/// shelter=2`, 2026-10-17).
+fn dump_site(world: &World, (x, y): (i32, i32)) -> Option<(i32, i32)> {
+    DIRS.iter().map(|&(dx, dy)| (x + dx, y + dy)).find(|&(sx, sy)| {
+        world.in_bounds(sx, sy)
+            && world.is_empty(sx, sy)
+            && ground(world, sx, sy + 1)
+            && (-1..=1).all(|dx| ground(world, sx + dx, sy + 1))
+            && (1..=3).all(|dy| world.in_bounds(sx, sy - dy) && world.is_empty(sx, sy - dy))
+    })
 }
 
 /// Whether `organism` decides by the textbook rules this tick.
@@ -965,7 +1018,49 @@ fn nest_act(
             }
             // Spoil goes out: nothing is put down under a roof, nor by
             // the door.
-            if !roofed(world, nc.roof, x, y) && !in_hole(world, nc.roof, x, y) && (x - fc.home.0).abs() > nc.clear_r {
+            let out = !roofed(world, nc.roof, x, y) && !in_hole(world, nc.roof, x, y);
+            if nc.ring > 0.0 {
+                // The column is drawn on first coming out with this pellet.
+                let drawn = world
+                    .textbook
+                    .as_ref()
+                    .is_some_and(|t| t.ring_at.contains_key(&organism));
+                if out && !drawn {
+                    let side = match (x - fc.home.0).signum() {
+                        0 => {
+                            if draw.flip() {
+                                1
+                            } else {
+                                -1
+                            }
+                        }
+                        s => s,
+                    };
+                    let gamma = -(nc.ring / 2.0) * (draw.unit_f32().max(1e-6).ln() + draw.unit_f32().max(1e-6).ln());
+                    let col = fc.home.0 + side * (nc.clear_r + 1 + gamma.round() as i32);
+                    if let Some(t) = world.textbook.as_mut() {
+                        t.ring_at.insert(organism, col);
+                    }
+                }
+                // The dump: put down once at (or past) the drawn column.
+                let col = world.textbook.as_ref().and_then(|t| t.ring_at.get(&organism).copied());
+                if let Some(col) = col.filter(|_| out) {
+                    if (x - fc.home.0).abs() >= (col - fc.home.0).abs() {
+                        if let Some(at) = dump_site(world, (x, y)) {
+                            place_pellet(world, organism, at, cell);
+                            world.creature_stats.spoil_dumped += 1;
+                            let frame = world.frame;
+                            if let Some(t) = world.textbook.as_mut() {
+                                t.ring_at.remove(&organism);
+                                if let Some(log) = t.nest_log.as_mut() {
+                                    log.push((frame, organism, at.0, at.1, cell.material, true));
+                                }
+                            }
+                            count(world, |c| c.drops += 1);
+                        }
+                    }
+                }
+            } else if out && (x - fc.home.0).abs() > nc.clear_r {
                 if nc.vanish {
                     if let Some(state) = world.organism_mut(organism) {
                         state.spoil = None;
@@ -1550,6 +1645,14 @@ fn nest_heading(
     let ((vx, vy), pull) = match load {
         Some(_) if food => (toward(fc.aim_home), fc.vector),
         Some(_) if under || in_hole(world, nc.roof, hx, hy) => ((0.0, -1.0), nc.up),
+        Some(_) if nc.ring > 0.0 => match world.textbook.as_ref().and_then(|t| t.ring_at.get(&organism)) {
+            // Outward, past the column too: a carrier past it with no flat
+            // site walks on rather than back. Pulled back at weight 1, 77 of
+            // ~87 diggers held a pellet at once, 5-15 columns out (seed 1,
+            // 20-40k, 2026-10-17).
+            Some(&col) => (((col - fc.home.0).signum() as f32, 0.0), nc.home.max(2.0)),
+            None => ((0.0, 0.0), 0.0),
+        },
         Some(_) => ((0.0, 0.0), 0.0),
         None if forages && gave_up => (toward(fc.aim_home), fc.vector),
         None if forages && under => ((0.0, -1.0), nc.up),
@@ -1568,6 +1671,25 @@ fn nest_heading(
             } else if under && nc.dig_pull > 0.0 && fresh_cuts(world, nc, (hx, hy), 8).0 > 0 {
                 let (_, (sx, sy)) = fresh_cuts(world, nc, (hx, hy), 8);
                 ((sx as f32, sy as f32), nc.dig_pull)
+            } else if nc.shelter > 0.0
+                && (under || (hx - fc.home.0).pow(2) + (hy - fc.home.1).pow(2) <= (3 * fc.home_r).pow(2))
+            {
+                // Up the cover gradient, plus the `down` pull.
+                let here = cover(world, hx, hy);
+                let (mut sx, mut sy) = (0.0f32, 0.0f32);
+                for &d in usable {
+                    let (dx, dy) = DIRS[d as usize];
+                    let gain = (cover(world, hx + dx, hy + dy) - here) as f32;
+                    sx += gain * dx as f32;
+                    sy += gain * dy as f32;
+                }
+                let len = (sx * sx + sy * sy).sqrt();
+                let (vx, vy) = if len > 0.0 {
+                    (nc.shelter * sx / len, nc.shelter * sy / len + nc.down)
+                } else {
+                    (0.0, nc.down)
+                };
+                ((vx, vy), (vx * vx + vy * vy).sqrt())
             } else if under || (hx - fc.home.0).pow(2) + (hy - fc.home.1).pow(2) <= (2 * fc.home_r).pow(2) {
                 // At the door it goes down too: with `inside_only` it cannot
                 // cut the surface there, and without the pull, diggers that

@@ -90,6 +90,8 @@ const KEYS: &[&str] = &[
     "digpull",
     "probe",
     "vanish",
+    "ring",
+    "shelter",
 ];
 
 fn arg<T: std::str::FromStr>(key: &str) -> Option<T> {
@@ -454,6 +456,8 @@ fn cfg(
         dig_fresh: arg("digfresh").unwrap_or(600),
         dig_pull: arg("digpull").unwrap_or(0.0),
         vanish: arg::<u8>("vanish").unwrap_or(0) == 1,
+        ring: arg("ring").unwrap_or(0.0),
+        shelter: arg("shelter").unwrap_or(0.0),
         store_r: arg("store").unwrap_or(12),
     };
     textbook::TextbookCfg {

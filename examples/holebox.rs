@@ -226,6 +226,8 @@ fn cfg(ground: material::MaterialId, home: (i32, i32)) -> textbook::TextbookCfg 
         dig_fresh: 600,
         dig_pull: 0.0,
         vanish: arg::<u8>("vanish").unwrap_or(1) == 1,
+        ring: 0.0,
+        shelter: 0.0,
         store_r: 0,
     };
     textbook::TextbookCfg {
