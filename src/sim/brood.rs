@@ -1152,7 +1152,16 @@ fn crop_feed(world: &mut World, larva: OrganismId, (x, y): (i32, i32), colony: u
 /// mind's feed verb (`creature::mind`), whose donor is the ant that chose
 /// to feed. Returns the joules the larva kept.
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn crop_feed_from(world: &mut World, larva: OrganismId, (x, y): (i32, i32), colony: u32, def: &CreatureDef, donor: OrganismId, c: super::organism::Crop, need: f32) -> f32 {
+pub(crate) fn crop_feed_from(
+    world: &mut World,
+    larva: OrganismId,
+    (x, y): (i32, i32),
+    colony: u32,
+    def: &CreatureDef,
+    donor: OrganismId,
+    c: super::organism::Crop,
+    need: f32,
+) -> f32 {
     let (quality, overhead) = creature::yield_of(world, larva, def, c.material);
     let keep = quality * (1.0 - overhead);
     let left_in_cell = (c.unit - c.digesting).max(0.0);

@@ -562,7 +562,9 @@ pub struct Settings {
     /// Probability that a mutation landing on a live weight sets it to 0
     /// instead of stepping it: a brain weight, or a target scorer's where
     /// the genome carries one; never a walk gene, which has its own axis.
-    /// 0, the default, is the operator the first runs used, draw for draw.
+    /// 0 is the operator the first runs used, draw for draw; 0.3, the
+    /// default since 2026-10-17, is the trail rung's chosen setting beside
+    /// [`Settings::wire`].
     ///
     /// **Why**: a step never lands on exactly 0, so a brain could only grow.
     /// The forage champion grew to 419 live weights, and at
@@ -586,7 +588,14 @@ pub struct Settings {
     /// an f32 at 1e9 (one step is 64) never takes off (review of PR 713 at
     /// `d8a55651`, N1). Its champions grew to about 1,000 connections, and
     /// started the forage rung paying four times an idle ant's bill in
-    /// brain tax. 0, the default, is the rig as before, draw for draw.
+    /// brain tax. 0 is the rig as before, draw for draw.
+    ///
+    /// **1e-3, the default since 2026-10-17** (with `prune` 0.3 and `grow`
+    /// 1): on the trail rung from blank it held a mind to 383 connections
+    /// at 0.89 against 1,160 at 0.94 with no cost, and the lean champions
+    /// it made are the ones the forage rung starts from
+    /// (`brain-training/stage2/trail-wire`, `trail-lean`). Owner, 2026-10-17:
+    /// keep the brain's cost because it helps, not because it was there.
     pub wire: f64,
     /// Probability that a mutation landing on an empty slot makes it a
     /// connection; otherwise the slot stays empty. 1, the default, is the
@@ -613,8 +622,13 @@ pub struct Settings {
     /// connections. At 1 with `prune` 0.3 every cost tried left by
     /// generation 1: wire 2e-4 0.89 at 710 connections, 5e-4 0.92 at 594,
     /// 1e-3 0.89 at 383, 2e-3 0.75 at 383, against 0.94 at 1,160 with no
-    /// cost. A rung that starts from a champion that already moves is not
-    /// exposed to this.
+    /// cost. Those all ran at `pm` 0.03, population 48 and crossover 0.3;
+    /// the design's smaller steps (`pm` 0.007, population 100, layouts 8,
+    /// no crossover) at `grow` 1, `prune` 0.3 and wire 2e-4 stood still
+    /// for all 40 generations at 63 connections (`trail-wire/P1`), so the
+    /// trap is about how near-blank the children stay, not `grow` alone. A
+    /// rung that starts from a champion that already moves is not exposed
+    /// to this.
     pub grow: f32,
 }
 
@@ -632,8 +646,8 @@ impl Default for Settings {
             seed: 1,
             threads: 4,
             pictures: true,
-            prune: 0.0,
-            wire: 0.0,
+            prune: 0.3,
+            wire: 1e-3,
             grow: 1.0,
         }
     }
@@ -1283,7 +1297,7 @@ fn trace_one(ch: &dyn Challenge, g: &[f32], layout: Layout, every: u64) {
         let mean = if adults > 0 { energy / adults as f64 } else { 0.0 };
         let low = if adults > 0 { low } else { 0.0 };
         print!(
-            "f={f} adults={adults} brood={brood} energy={mean:.0} low={low:.0} crop={crop:.0} lying={lying} pickups={} eats={} deliveries={} births={} eggs={} held={}",
+            "f={f} adults={adults} brood={brood} energy={mean:.0} low={low:.0} crop={crop:.0} lying={lying} pickups={} eats={} deliveries={} births={} eggs={} held_ticks={}",
             c.pickups, c.eats, c.deliveries, c.births, c.eggs_laid, c.food_brake_held
         );
         if let Some(m) = &w.minds {
@@ -1534,8 +1548,10 @@ mod tests {
         assert!(g[..SCORER].iter().all(|&x| x == 0.0), "a brain pm of 0 moved a brain weight");
     }
 
-    /// **Prune zeroes live weights, and at 0 is the operator before it**,
-    /// draw for draw, so every run without it is the run it was.
+    /// **The connection cost takes a share of the fit and nothing when off**
+    /// ([`wired`], [`connections`]): the same share on a 0-1 score and a head
+    /// count, always downward, and a sparser brain ranks first at equal fit.
+    /// Tight asserts on pure functions, not watched red.
     #[test]
     fn the_connection_cost_charges_a_share_and_nothing_off() {
         // Off: the arena's fit, exactly, whatever the brain's size.
@@ -1577,6 +1593,8 @@ mod tests {
         assert_ne!(mutate(&l, &slots, 1.0, 1.0, 0.0, 0.0, &mut Rng(9))[slots[0]], 2.0);
     }
 
+    /// **Prune zeroes live weights, and at 0 is the operator before it**,
+    /// draw for draw, so every run without it is the run it was.
     #[test]
     fn prune_zeroes_live_weights_and_costs_nothing_off() {
         let slots = trainable(&[]);

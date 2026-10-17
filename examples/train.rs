@@ -29,10 +29,12 @@
 //! scout's reserve), started at the shipped walk or the start file's own,
 //! and evolved beside the brain; `walkset=reserve:0.6,scout:-1` sets some
 //! of them in the start (or score) genome, by `train::WALK_NAMES`.
-//! `prune=0.3` lets a mutation set a live brain or scorer weight to 0
-//! (`Settings::prune`); `wire=5e-5` charges selection for each connection
-//! a genome holds (`Settings::wire`); `grow=0.1` lets a mutation on an
-//! empty slot make a connection only a tenth of the time (`Settings::grow`).
+//! `prune=` is the chance a mutation sets a live brain or scorer weight to
+//! 0 (`Settings::prune`, 0.3 unless set); `wire=` charges selection for each
+//! connection a genome holds (`Settings::wire`, 1e-3 unless set); `grow=` is
+//! the chance a mutation on an empty slot makes a connection
+//! (`Settings::grow`, 1 unless set). `prune=0 wire=0` is the rig before the
+//! cost, draw for draw.
 //! `challenge=forage-far` puts the heap 120-200 columns out on a wider bed,
 //! 12,000 frames unless set: the near distances never show a scout's
 //! reserve as a leash, so `arenas=forage,forage-far` is how a reserve is
@@ -148,8 +150,8 @@ fn parse_brake(v: &str) -> Option<creature::FoodBrake> {
                 brood: p.get(3) != Some(&"plain"),
             };
             assert!(
-                b.hi > b.lo && b.lo > 0.0 && b.small >= 0.0,
-                "brake={v}: want hi > lo > 0 and small >= 0"
+                b.hi > b.lo && b.lo > 0.0 && b.small > 0.0,
+                "brake={v}: want hi > lo > 0 and small > 0 (it divides the colony's size)"
             );
             Some(b)
         }
@@ -193,9 +195,9 @@ fn main() {
             // standard errors under the folded reference, and is now a share
             // of the folded reference (`challenges::Suite`), so an old
             // `floor=` would mean nothing.
-            "floor" => panic!(
-                "floor= is gone: a kept arena is forgotten under forget= (default 0.8) of its folded reference"
-            ),
+            "floor" => {
+                panic!("floor= is gone: a kept arena is forgotten under forget= (default 0.8) of its folded reference")
+            }
             "start" => start = v.into(),
             "out" => out = Some(v.into()),
             "gens" => set.gens = v.parse().unwrap(),

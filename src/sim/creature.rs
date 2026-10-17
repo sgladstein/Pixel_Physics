@@ -44845,12 +44845,6 @@ mod tests {
         assert_eq!(less_trail_side(&w, head), None, "trail out of reach was smelt");
     }
 
-    /// **`PIXEL_PHYSICS_STORE_BRAKE` reads its parts, and its curve has the
-    /// shape its doc gives** ([`parse_store_brake`], [`store_brake_curve`]):
-    /// no effect at or above `hi`, rising to `FOOD_BRAKE_MAX` towards `lo`,
-    /// no egg at or below `lo` at full strength, and only a finite raise in
-    /// a colony still growing into the brake. Tight asserts on pure
-    /// functions, not watched red.
     /// **A world's own food brake** ([`World::food_brake`], the rig's) uses
     /// its own gate and ramp, not the shipped ones. Put the fault back
     /// (`food_brake_of` reading only the env) and the first raise reads 1.0.
@@ -44873,6 +44867,12 @@ mod tests {
         assert_eq!(food_brake_factor(&w, 0), f32::INFINITY, "burning more than it earns: no egg");
     }
 
+    /// **`PIXEL_PHYSICS_STORE_BRAKE` reads its parts, and its curve has the
+    /// shape its doc gives** ([`parse_store_brake`], [`store_brake_curve`]):
+    /// no effect at or above `hi`, rising to `FOOD_BRAKE_MAX` towards `lo`,
+    /// no egg at or below `lo` at full strength, and only a finite raise in
+    /// a colony still growing into the brake. Tight asserts on pure
+    /// functions, not watched red.
     #[test]
     fn the_store_brake_reads_its_parts_and_ramps_to_a_stop() {
         assert_eq!(parse_store_brake(""), StoreBrake::OFF);
