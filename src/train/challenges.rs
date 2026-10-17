@@ -176,12 +176,15 @@ impl Challenge for Forage {
         let food = w.materials.id_of("provisions").expect("provisions");
         let before = cells_of(&w, heap_x - 20, heap_x + 20, food);
         let founders = ants_of(&w, sp);
+        // The colony's number now, while its founders live: a dead id's
+        // colony reads 0, whose books are empty, and the first run of this
+        // score read no meals at all on the layouts where founder 0 died.
+        let colony = founders.first().map_or(0, |&id| w.colony_of(id));
         for f in 0..self.frames {
             frame(&mut w, true);
             look(f + 1, &w);
         }
         let st = &w.creature_stats;
-        let colony = founders.first().map_or(0, |&id| w.colony_of(id));
         let books = w.colony_books(colony);
         let corpse_j: f64 = w.materials.id_of("corpse").map_or(0.0, |c| books.diet().iter().filter(|(m, _)| *m == c).map(|(_, j)| j).sum());
         let larvae_j = st.brood_crop_fed_j + st.brood_ate_j;
