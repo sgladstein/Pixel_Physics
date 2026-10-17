@@ -24645,11 +24645,36 @@ pub struct FoodTrail {
     /// 167 -> 156 (0/6, p 0.031); at 90 and 140 cells it changes 1 run of 48;
     /// pulsed 90 starved 237 -> 258 (13/6, p 0.17) and pulsed 140 251 -> 244.
     pub noreturn: bool,
+    /// **The scout's reserve**: the share of the energy it set out with
+    /// (`OrganismState::scout_e0`) that a scout keeps for the walk home.
+    /// Once its energy falls to `reserve` times that, it gives up as if out
+    /// of patience. 0, the default, is none: a scout that never meets a
+    /// trail walks on until a wall stops it. Not shipped; the training rig
+    /// evolves it as a gene (`train::WALK`).
+    ///
+    /// **Why a reserve and not the walk genes**: a trained forager's
+    /// founders on the side away from the food walked 124 columns to the
+    /// box wall and starved a median 42 columns from home on the way back
+    /// (16 of 144). A weaker scout pull (`TRAIT_SCOUT` -1) lost more of
+    /// them (16 -> 22), and a leakier patience (`TRAIT_PATIENCE` -1) saved
+    /// 5 and cost 15% of the food, because the same leak drops a laden
+    /// ant's walk home. A reserve of 0.6 (turn home with 40% spent) saved
+    /// 12 and brought 6% more food home; 0.5 saved 4. Ladder lane probe,
+    /// 2026-10-17, 12 hold-out layouts (`brain-training/ladder/forage-walk-genes.md`).
+    ///
+    /// **Not the larder leash** (`PIXEL_PHYSICS_HUNGRY_HOME`, not adopted
+    /// 2026-09-27, `Reports/dead-ends.md`): that pulled a hungry ant to the
+    /// larder and held it there, and at 140 cells no forager reached the
+    /// food. This only ends the excursion; the door sends the ant out
+    /// again toward the food side. It is still a leash on how far a scout
+    /// goes before it has met a trail, so a reserve tuned at one distance
+    /// is a reserve too large at a longer one.
+    pub reserve: f32,
 }
 
 impl FoodTrail {
     /// Nothing: the ant before it, bit for bit.
-    pub const OFF: FoodTrail = FoodTrail { lay: false, read: false, giveup: false, t: 0.0, gain: FOOD_TRAIL_GAIN, reach: 6, follow_all: false, window: 0.0, noreturn: false };
+    pub const OFF: FoodTrail = FoodTrail { lay: false, read: false, giveup: false, t: 0.0, gain: FOOD_TRAIL_GAIN, reach: 6, follow_all: false, window: 0.0, noreturn: false, reserve: 0.0 };
     /// `on`: all three parts at their defaults.
     pub const ON: FoodTrail = FOOD_TRAIL_UNSET;
 }
@@ -24686,7 +24711,8 @@ const FOOD_TRAIL_UNSET: FoodTrail = FoodTrail { lay: true, read: true, giveup: t
 /// `PIXEL_PHYSICS_FOOD_TRAIL`'s value read as a recipe; an unset variable
 /// reads as `""`. `off`, `on`, or a comma list of parts: `lay`, `read`,
 /// `giveup`, `noreturn`, `on` (all four), `t=<ticks>`, `gain=<g>`, `reach=2|6`,
-/// `follow=all`. A value it cannot read is reported and read as unset.
+/// `follow=all`, `reserve=<0..1>`. A value it cannot read is reported and
+/// read as unset.
 fn parse_food_trail(raw: &str) -> FoodTrail {
     let raw = raw.trim();
     match raw {
@@ -24729,11 +24755,12 @@ fn parse_food_trail(raw: &str) -> FoodTrail {
                 Some(("t", v)) => v.parse::<f32>().ok().filter(|t| *t >= 0.0).map(|t| ft.t = t).is_some(),
                 Some(("gain", v)) => v.parse::<f32>().ok().filter(|g| g.is_finite()).map(|g| ft.gain = g).is_some(),
                 Some(("window", v)) => v.parse::<f32>().ok().filter(|w| *w > 0.0).map(|w| ft.window = w).is_some(),
+                Some(("reserve", v)) => v.parse::<f32>().ok().filter(|r| (0.0..=1.0).contains(r)).map(|r| ft.reserve = r).is_some(),
                 _ => false,
             },
         };
         if !ok {
-            eprintln!("PIXEL_PHYSICS_FOOD_TRAIL={raw:?}: unknown part {part:?}, read as unset (off, on, or lay, read, giveup, noreturn, t=, gain=, window=, reach=2|6, follow=all)");
+            eprintln!("PIXEL_PHYSICS_FOOD_TRAIL={raw:?}: unknown part {part:?}, read as unset (off, on, or lay, read, giveup, noreturn, t=, gain=, window=, reach=2|6, follow=all, reserve=)");
             return FOOD_TRAIL_UNSET;
         }
     }
@@ -27119,6 +27146,7 @@ fn chooser_step(
     // that never met one scouts as before, which is how new food is found.
     let bound = food_trail_of(world).giveup;
     let noreturn = food_trail_of(world).noreturn;
+    let reserve = food_trail_of(world).reserve;
     if let (Some((ax, _)), true) = (away_from, scout_w > 0.0 && !scout_home) {
         let state = world.organism_mut(organism).expect("live: it just stepped");
         let nx = state.chain.first().map_or(hx, |c| c.0);
@@ -27156,6 +27184,15 @@ fn chooser_step(
                 state.scout_dark = bound && !on_trail;
             }
         }
+        // **Down to its reserve** (`FoodTrail::reserve`): a give-up on the
+        // bank, not the ground. Every step out is progress on open ground,
+        // so patience alone never turns a scout that has met no trail.
+        let turned = reserve > 0.0 && !state.scout_home && state.energy <= reserve * state.scout_e0;
+        if turned {
+            state.scout_home = true;
+            state.scout_dark = bound && !on_trail;
+        }
+        world.creature_stats.scout_reserve_turned += u64::from(turned);
     }
 
     // Did that step close on home?
@@ -44021,6 +44058,63 @@ mod tests {
         assert_eq!(walk(lay, false), walk(lay_giveup, false), "with no trail anywhere the give-up changed a scout's walk");
     }
 
+    /// **A scout down to its reserve turns for home** (`FoodTrail::reserve`).
+    /// A bare floor 560 cells wide with no east wall and no trail, the ant
+    /// at x 100 facing east with home 80 cells west and half its grant, its
+    /// energy left to drain. On open ground every step out is progress, so
+    /// with no reserve it does not give up. With a reserve of 0.6 it must
+    /// give up once, at 60% of the energy it set out with, and walk the
+    /// no-reserve path exactly until then. **Watched red** with the reserve
+    /// check removed: the 0.6 arm never gave up.
+    #[test]
+    fn a_scout_down_to_its_reserve_turns_for_home() {
+        // The path, the give-up (frame, energy, energy at the start), and
+        // the reserve counter.
+        type Walked = (Vec<(i32, i32)>, Option<(usize, f32, f32)>, u64);
+        let walk = |reserve: f32, frames: usize| -> Walked {
+            let stone = Cell::new(material::STONE, 0).with_attached(true);
+            let mut w = World::new(Rect::new(0, 0, 559, 63));
+            for x in 0..560 {
+                for y in 41..64 {
+                    w.set(x, y, stone);
+                }
+            }
+            for y in 0..41 {
+                w.set(0, y, stone);
+            }
+            w.chooser = Some(Chooser::TrailAway);
+            w.scout = Some(SCOUT_DEFAULT);
+            w.food_trail = Some(FoodTrail { reserve, ..FoodTrail::ON });
+            let ant = spawn(&mut w, "ant", 100, 40);
+            let energy = w.species.get(w.organism(ant).expect("live").species).creature.as_ref().expect("a creature").start_energy * 0.5;
+            {
+                let st = w.organism_mut(ant).expect("live");
+                st.heading = 0;
+                st.forage_anchor = (20, 40);
+                st.energy = energy;
+            }
+            let (mut path, mut gave) = (Vec::new(), None);
+            for f in 0..frames {
+                run(&mut w, 1);
+                let Some(st) = w.organism(ant) else { break };
+                if gave.is_none() && st.scout_home {
+                    gave = Some((f, st.energy, st.scout_e0));
+                }
+                path.push(st.chain[0]);
+            }
+            (path, gave, w.creature_stats.scout_reserve_turned)
+        };
+        let (with, gave, turned) = walk(0.6, 3000);
+        let (f, e, e0) = gave.expect("a scout with a reserve of 0.6 never turned for home");
+        assert_eq!(turned, 1, "one excursion, one turn");
+        assert!(e <= 0.6 * e0 && e > 0.5 * e0, "it turned at {e:.1} J of the {e0:.1} it set out with, not near 60%");
+        let (without, never, none) = walk(0.0, f + 300);
+        assert!(never.is_none() && none == 0, "with no reserve the scout gave up on open ground: {never:?}");
+        assert_eq!(with[..f], without[..f], "a reserve changed the walk before it turned");
+        let out = |p: &[(i32, i32)]| p.iter().map(|c| c.0).max().expect("walked");
+        assert!(out(&without) > out(&with[..(f + 300).min(with.len())]), "with no reserve it should be further out 300 frames later");
+    }
+
     /// **Under `FOOD_TRAIL=giveup` a scout that has given up is not held out
     /// by the trail** (§23d's PG1, the reader design's test 16 as M3 amended
     /// it). One decision at a time, put back each time: the ant stands on a
@@ -44876,6 +44970,8 @@ mod tests {
         assert_eq!(parse_food_trail("lay, giveup"), FoodTrail { lay: true, giveup: true, ..FoodTrail::OFF });
         assert_eq!(parse_food_trail("lay,read,giveup,window=700"), FoodTrail { noreturn: false, ..unset }, "the shipped recipe before noreturn, for an A/B");
         assert_eq!(parse_food_trail("lay,t=32"), FoodTrail { lay: true, t: 32.0, ..FoodTrail::OFF });
+        assert_eq!(parse_food_trail("on,reserve=0.6"), FoodTrail { reserve: 0.6, ..FoodTrail::ON });
+        assert_eq!(parse_food_trail("on,reserve=1.5"), FOOD_TRAIL_UNSET, "a reserve past 1 is not read");
         assert_eq!(parse_food_trail("on,gain=1.5,reach=2,follow=all"), FoodTrail { gain: 1.5, reach: 2, follow_all: true, ..FoodTrail::ON });
         assert_eq!(parse_food_trail("read"), FoodTrail { read: true, ..FoodTrail::OFF }, "read without lay parses: the plan's diagnostic arm");
         assert_eq!(parse_food_trail("lay,t=-1"), unset, "a negative odometer is unreadable");

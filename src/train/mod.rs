@@ -42,6 +42,7 @@ pub mod challenges;
 
 use crate::sim::brain::{self, BrainInput, BrainOutput};
 use crate::sim::creature::targets;
+use crate::sim::organism;
 use crate::sim::World;
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
@@ -148,25 +149,102 @@ pub trait Challenge: Sync {
 /// the brain's own `brain::GENOME_LEN` slots, [`targets::WEIGHTS`] long.
 pub const SCORER: usize = brain::GENOME_LEN;
 
-/// A challenge's whole genome length: the brain, and the scorer if it has one.
-pub fn genome_len(ch: &dyn Challenge) -> usize {
-    SCORER + if ch.scorer() { targets::WEIGHTS } else { 0 }
+/// **The walk genes**, a block after the brain (and after the scorer, where
+/// there is one): one allele for each of `organism::WALK_SLOTS`, in its
+/// order, then the scout's reserve (`creature::FoodTrail::reserve`). At all
+/// zeros it is the shipped walk exactly. Opt in with `genes=walk`.
+///
+/// **Why the rig moves them.** A forager trained on today's brain brought
+/// home 8x the game ant's food and kept 0.83 of its founders against 0.96:
+/// its scouts on the side away from the food walked to the box wall and
+/// starved coming back, and what decides when a scout gives up was code no
+/// genome reached (ladder lane, `forage-founder-deaths.md`). Of the walk
+/// genes, neither the scout pull nor patience was the lever there
+/// (`forage-walk-genes.md`); the reserve was. The others ride along because
+/// a lineage that can retune its brain should be able to retune its walk.
+///
+/// The alleles go into each ant's own traits, where the walk reads them
+/// (`creature::traits_of`), so births and eggs inherit them; the reserve
+/// is the world's (`World::food_trail`), so one genome per world: walk genes
+/// need a colony arena ([`Unit::Colony`]).
+pub const WALK: usize = organism::WALK_SLOTS.len() + 1;
+
+/// The walk block's names, in order, for `walkset=` and [`describe`].
+pub const WALK_NAMES: [&str; WALK] = ["home", "trail", "away", "scout", "patience", "door", "ladenA", "ladenB", "emptyA", "emptyB", "memory", "reserve"];
+
+/// Where a genome's blocks start, read off its length: the brain alone, the
+/// brain and a scorer, the brain and walk genes, or all three. The four
+/// lengths cannot collide (`targets::WEIGHTS` is not [`WALK`]), and any
+/// other length is a file from somewhere else and stops the run.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Blocks {
+    pub scorer: Option<usize>,
+    pub walk: Option<usize>,
 }
 
-/// The slots the rig may move for `ch`: [`trainable`], or, in an arena with a
-/// target scorer, **the scorer's slots and nothing else**.
-///
-/// The brain is frozen there because stage 1 asks whether choosing the
-/// *cell* beats the hand rules. Evolving the brain beside it let a champion
-/// win by retuning how often it digs and drops without choosing any better
-/// (ladder lane, `stage1-code-review.md` 3); what retuning the brain alone
-/// buys is its own arm, today's brain trained under the hand rules.
-pub fn trainable_for(ch: &dyn Challenge) -> Vec<usize> {
-    if ch.scorer() {
-        (SCORER..SCORER + targets::WEIGHTS).collect()
-    } else {
-        trainable(ch.banned())
+pub fn blocks(len: usize) -> Blocks {
+    let (sc, wk) = (targets::WEIGHTS, WALK);
+    match len.checked_sub(SCORER) {
+        Some(0) => Blocks { scorer: None, walk: None },
+        Some(n) if n == sc => Blocks { scorer: Some(SCORER), walk: None },
+        Some(n) if n == wk => Blocks { scorer: None, walk: Some(SCORER) },
+        Some(n) if n == sc + wk => Blocks { scorer: Some(SCORER), walk: Some(SCORER + sc) },
+        _ => panic!("a genome of {len} slots: the brain is {SCORER}, a target scorer {sc} more, walk genes {wk} more"),
     }
+}
+
+/// A challenge's whole genome length: the brain, the scorer if it has one,
+/// and the walk genes if the run carries them.
+pub fn genome_len(ch: &dyn Challenge, walk: bool) -> usize {
+    SCORER + if ch.scorer() { targets::WEIGHTS } else { 0 } + if walk { WALK } else { 0 }
+}
+
+/// The slots the rig may move for `ch`, in a genome `len` long:
+/// [`trainable`], or, in an arena with a target scorer, **the scorer's
+/// slots and not the brain's**; and the walk genes, where the genome
+/// carries them.
+///
+/// The brain is frozen beside a scorer because stage 1 asks whether choosing
+/// the *cell* beats the hand rules. Evolving the brain beside it let a
+/// champion win by retuning how often it digs and drops without choosing any
+/// better (ladder lane, `stage1-code-review.md` 3); what retuning the brain
+/// alone buys is its own arm, today's brain trained under the hand rules.
+/// Walk genes beside a scorer would confound it the same way, and a run that
+/// asks for both gets both: the `walk-shipped` hold-out row says how much
+/// of the score is theirs.
+pub fn trainable_for(ch: &dyn Challenge, len: usize) -> Vec<usize> {
+    let b = blocks(len);
+    let mut v: Vec<usize> = if ch.scorer() {
+        let s = b.scorer.expect("a scorer arena's genome carries a scorer");
+        (s..s + targets::WEIGHTS).collect()
+    } else {
+        assert!(b.scorer.is_none(), "a genome with a target scorer in an arena that has none");
+        trainable(ch.banned())
+    };
+    if let Some(w) = b.walk {
+        v.extend(w..w + WALK);
+    }
+    v
+}
+
+/// The genome with its walk genes at the shipped walk (all zeros), or as it
+/// is if it carries none.
+pub fn walk_shipped(g: &[f32]) -> Vec<f32> {
+    let mut v = g.to_vec();
+    if let Some(w) = blocks(g.len()).walk {
+        v[w..w + WALK].fill(0.0);
+    }
+    v
+}
+
+/// The genome without its target scorer, for the `hand` row.
+fn without_scorer(g: &[f32]) -> Vec<f32> {
+    let b = blocks(g.len());
+    let mut v = g[..SCORER].to_vec();
+    if let Some(w) = b.walk {
+        v.extend_from_slice(&g[w..w + WALK]);
+    }
+    v
 }
 
 /// **The hold-out rows**, every one on the same layouts: the genome, the
@@ -182,12 +260,19 @@ pub fn trainable_for(ch: &dyn Challenge) -> Vec<usize> {
 ///   scorer reads the world; this row can;
 /// * `hand` -- the genome's brain on the hand rules, its scorer dropped,
 ///   which says how much of a score is the brain's.
+///
+/// And, in a genome with walk genes ([`WALK`]):
+/// * `walk-shipped` -- the genome with its walk genes back at the shipped
+///   walk, which says how much of a score is theirs.
 pub fn controls(ch: &dyn Challenge, g: &[f32], start: &[f32], hold: &[Layout]) -> Vec<(&'static str, Vec<f32>, Vec<Layout>)> {
     let mut rows = vec![("genome", g.to_vec(), hold.to_vec()), ("start", start.to_vec(), hold.to_vec()), ("blinded", blinded(g), blind(hold))];
     if ch.scorer() {
         rows.push(("legal", g.to_vec(), legal(hold)));
         rows.push(("scorer-blind", scorer_blinded(g), hold.to_vec()));
-        rows.push(("hand", g[..SCORER.min(g.len())].to_vec(), hold.to_vec()));
+        rows.push(("hand", without_scorer(g), hold.to_vec()));
+    }
+    if blocks(g.len()).walk.is_some() {
+        rows.push(("walk-shipped", walk_shipped(g), hold.to_vec()));
     }
     rows
 }
@@ -303,10 +388,10 @@ pub fn blinded(g: &[f32]) -> Vec<f32> {
 /// as it is.
 pub fn scorer_blinded(g: &[f32]) -> Vec<f32> {
     let mut b = g.to_vec();
-    if b.len() >= SCORER + targets::WEIGHTS {
+    if let Some(s) = blocks(b.len()).scorer {
         for f in 0..targets::FEATURES {
             for h in 0..targets::HIDDEN {
-                b[SCORER + targets::w_in(targets::in_feature(f), h)] = 0.0;
+                b[s + targets::w_in(targets::in_feature(f), h)] = 0.0;
             }
         }
     }
@@ -336,6 +421,16 @@ pub fn save_genome(path: &Path, g: &[f32]) -> std::io::Result<()> {
         }
     }
     std::fs::write(path, s)
+}
+
+/// How long the genome in a file is: the sparse form's header, or its line
+/// count.
+pub fn genome_file_len(path: &Path) -> usize {
+    let text = std::fs::read_to_string(path).unwrap_or_else(|e| panic!("genome file {}: {e}", path.display()));
+    match text.lines().next().and_then(|l| l.strip_prefix("genome ")) {
+        Some(n) => n.trim().parse().unwrap_or_else(|_| panic!("genome file {}: bad header", path.display())),
+        None => text.lines().count(),
+    }
 }
 
 /// Read either form: the sparse one [`save_genome`] writes, or one value per
@@ -378,6 +473,18 @@ pub struct Settings {
     pub seed: u64,
     pub threads: usize,
     pub pictures: bool,
+    /// Probability that a mutation landing on a live weight sets it to 0
+    /// instead of stepping it. 0, the default, is the operator the first
+    /// runs used, draw for draw.
+    ///
+    /// **Why**: a step never lands on exactly 0, so a brain could only grow.
+    /// The forage champion grew to 419 live weights, and at
+    /// `brain::SYNAPSE_TAX`'s price that was 31% of each ant's burn; priced
+    /// like the game ant's 8x sparser brain, the same champion kept 0.97 of
+    /// its founders against 0.81 and scored 13% more (ladder lane,
+    /// `forage-walk-genes.md`). Selection already pays for a dense brain in
+    /// deaths; this gives it a move that makes one sparser.
+    pub prune: f32,
 }
 
 impl Default for Settings {
@@ -394,6 +501,7 @@ impl Default for Settings {
             seed: 1,
             threads: 4,
             pictures: true,
+            prune: 0.0,
         }
     }
 }
@@ -585,16 +693,38 @@ pub fn score_each(ch: &dyn Challenge, g: &[f32], layouts: &[Layout], threads: us
 
 /// The mutation operator: each trainable slot moves with probability `pm`
 /// by a uniform step of standard deviation `sigma` ([`Rng::step`]), clamped
-/// to the range the hand-written genomes use.
-pub fn mutate(g: &[f32], slots: &[usize], pm: f32, sigma: f32, rng: &mut Rng) -> Vec<f32> {
+/// to the range the hand-written genomes use; a live weight is set to 0
+/// instead with probability `prune` ([`Settings::prune`]).
+///
+/// **A walk gene moves on its own terms** ([`WALK_PM`], [`WALK_SIGMA`]):
+/// its axis is ±1 where a weight's is ±40, so a weight's step would cross
+/// it in one go, and at a weight's `pm` a twelve-gene block would see one
+/// move every third child. The reserve is held to `0..=1`, the rest to
+/// `±1`, where the walk itself clamps a gain (`creature::walk_gain`).
+pub fn mutate(g: &[f32], slots: &[usize], pm: f32, sigma: f32, prune: f32, rng: &mut Rng) -> Vec<f32> {
     let mut c = g.to_vec();
+    let walk = blocks(g.len()).walk;
     for &i in slots {
-        if rng.unit() < pm {
-            c[i] = (c[i] + sigma * rng.step()).clamp(-40.0, 40.0);
+        if let Some(w) = walk.filter(|&w| i >= w) {
+            if rng.unit() < WALK_PM {
+                let lo = if i - w == WALK - 1 { 0.0 } else { -1.0 };
+                c[i] = (c[i] + WALK_SIGMA * rng.step()).clamp(lo, 1.0);
+            }
+        } else if rng.unit() < pm {
+            if prune > 0.0 && c[i] != 0.0 && rng.unit() < prune {
+                c[i] = 0.0;
+            } else {
+                c[i] = (c[i] + sigma * rng.step()).clamp(-40.0, 40.0);
+            }
         }
     }
     c
 }
+
+/// How often each walk gene mutates in a child: about one of the twelve.
+pub const WALK_PM: f32 = 0.08;
+/// A walk gene's mutation step, standard deviation, on its ±1 axis.
+pub const WALK_SIGMA: f32 = 0.2;
 
 /// Uniform crossover **by output row**: a child takes each output's whole
 /// incoming row (its input weights and its hidden weights) from one parent
@@ -618,8 +748,9 @@ pub fn cross(a: &[f32], b: &[f32], rng: &mut Rng) -> Vec<f32> {
     c
 }
 
-/// A short readout of what a genome attends to: its non-zero weight count
-/// and the five inputs with the most total weight.
+/// A short readout of what a genome attends to: its non-zero weight count,
+/// the five inputs with the most total weight, and its walk genes off the
+/// shipped walk.
 pub fn describe(g: &[f32]) -> String {
     let mut by_input = [0.0f32; 64];
     let mut live = 0;
@@ -641,7 +772,12 @@ pub fn describe(g: &[f32]) -> String {
             None => format!("input{i} {v:.1}"),
         })
         .collect();
-    format!("{live} weights; strongest inputs: {}", names.join(", "))
+    let mut s = format!("{live} weights; strongest inputs: {}", names.join(", "));
+    if let Some(w) = blocks(g.len()).walk {
+        let off: Vec<String> = (0..WALK).filter(|&k| g[w + k] != 0.0).map(|k| format!("{} {:+.2}", WALK_NAMES[k], g[w + k])).collect();
+        s.push_str(&format!("; walk genes: {}", if off.is_empty() { "shipped".to_string() } else { off.join(", ") }));
+    }
+    s
 }
 
 /// Build the start genome for a challenge.
@@ -653,34 +789,50 @@ pub fn describe(g: &[f32]) -> String {
 /// takes nothing else: the first version kept the file's scorer whatever
 /// `targets=` said, while the settings line printed what was asked for
 /// (ladder lane, `stage1-code-review.md` 8, the trap of review-rev2 N10).
-pub fn start_genome(start: &Start, species_genome: &[f32], banned: &[BrainOutput], seed: u64, scorer: Option<&[f32]>) -> Vec<f32> {
-    let whole = SCORER + targets::WEIGHTS;
-    let own = match start {
-        Start::File(p) if std::fs::read_to_string(p).is_ok_and(|t| t.starts_with(&format!("genome {whole}"))) => Some(p),
+///
+/// `walk` gives the genome walk genes ([`WALK`]): the start file's own if it
+/// carries them, else the shipped walk. A start file that carries walk genes
+/// a run did not ask for stops it, for the same reason.
+pub fn start_genome(start: &Start, species_genome: &[f32], banned: &[BrainOutput], seed: u64, scorer: Option<&[f32]>, walk: bool) -> Vec<f32> {
+    let file = match start {
+        Start::File(p) => {
+            let g = load_genome(p, genome_file_len(p));
+            let b = blocks(g.len());
+            Some((p, g, b))
+        }
         _ => None,
     };
-    match (scorer, own) {
-        (None, _) => start_brain(start, species_genome, banned, seed),
-        (Some(sc), Some(p)) => {
+    let mut g = start_brain(start, species_genome, banned, seed);
+    match (scorer, &file) {
+        (None, Some((p, _, b))) => assert!(b.scorer.is_none(), "{} carries a target scorer, and this arena has none", p.display()),
+        (None, None) => {}
+        (Some(sc), Some((p, f, Blocks { scorer: Some(at), .. }))) => {
             assert!(sc.is_empty(), "{} carries its own target scorer, which targets= would not replace: pass targets=own", p.display());
-            let mut g = load_genome(p, whole);
-            apply_bans(&mut g, banned);
-            g
+            g.extend_from_slice(&f[*at..*at + targets::WEIGHTS]);
         }
-        (Some(sc), None) => {
+        (Some(sc), _) => {
             assert!(!sc.is_empty(), "targets=own needs a start file that carries a target scorer");
-            let mut g = start_brain(start, species_genome, banned, seed);
-            g.truncate(SCORER);
             g.extend_from_slice(sc);
-            g
         }
     }
+    match &file {
+        Some((_, f, Blocks { walk: Some(at), .. })) if walk => g.extend_from_slice(&f[*at..*at + WALK]),
+        Some((p, _, Blocks { walk: Some(_), .. })) => panic!("{} carries walk genes, which this run would drop: pass genes=walk", p.display()),
+        _ if walk => g.extend_from_slice(&[0.0; WALK]),
+        _ => {}
+    }
+    g
 }
 
+/// The brain alone, [`SCORER`] slots, bans applied.
 fn start_brain(start: &Start, species_genome: &[f32], banned: &[BrainOutput], seed: u64) -> Vec<f32> {
     let mut g = match start {
         Start::Species => species_genome.to_vec(),
-        Start::File(p) => load_genome(p, species_genome.len()),
+        Start::File(p) => {
+            let mut g = load_genome(p, genome_file_len(p));
+            g.truncate(SCORER);
+            g
+        }
         Start::Zero | Start::Random(_) => {
             let mut g = species_genome.to_vec();
             for w in g.iter_mut().take(BRAIN_END) {
@@ -711,7 +863,8 @@ fn start_brain(start: &Start, species_genome: &[f32], banned: &[BrainOutput], se
 /// * `summary.txt` -- what the run was and how it ended.
 pub fn train(ch: &dyn Challenge, start: Vec<f32>, set: &Settings, out: &Path) -> std::io::Result<Vec<f32>> {
     std::fs::create_dir_all(out.join("champions"))?;
-    let slots = trainable_for(ch);
+    let slots = trainable_for(ch, start.len());
+    assert!(blocks(start.len()).walk.is_none() || ch.unit() == Unit::Colony, "walk genes need a colony arena: the scout's reserve is the world's");
     let mut rng = Rng(set.seed.wrapping_mul(0xA24B_AED4_963E_E407) ^ 0x7EA1);
     let parts = ch.parts();
     let mut progress = std::fs::File::create(out.join("progress.csv"))?;
@@ -732,7 +885,7 @@ pub fn train(ch: &dyn Challenge, start: Vec<f32>, set: &Settings, out: &Path) ->
     let hold = holdout_layouts(set.holdout);
 
     let mut popn: Vec<Vec<f32>> = (0..set.pop)
-        .map(|k| if k == 0 { start.clone() } else { mutate(&start, &slots, set.pm, set.sigma, &mut rng) })
+        .map(|k| if k == 0 { start.clone() } else { mutate(&start, &slots, set.pm, set.sigma, set.prune, &mut rng) })
         .collect();
     let elites = (set.pop / 4).max(1);
     let t0 = Instant::now();
@@ -790,7 +943,7 @@ pub fn train(ch: &dyn Challenge, start: Vec<f32>, set: &Settings, out: &Path) ->
             } else {
                 a.clone()
             };
-            popn.push(mutate(&child, &slots, set.pm, set.sigma, &mut rng));
+            popn.push(mutate(&child, &slots, set.pm, set.sigma, set.prune, &mut rng));
         }
     }
     save_genome(&out.join("best.txt"), &champion)?;
@@ -1067,8 +1220,8 @@ mod tests {
     fn mutation_touches_only_trainable_slots_and_is_seeded() {
         let slots = trainable(&[BrainOutput::Fly]);
         let g = vec![0.0; brain::GENOME_LEN];
-        let a = mutate(&g, &slots, 0.5, 1.0, &mut Rng(3));
-        let b = mutate(&g, &slots, 0.5, 1.0, &mut Rng(3));
+        let a = mutate(&g, &slots, 0.5, 1.0, 0.0, &mut Rng(3));
+        let b = mutate(&g, &slots, 0.5, 1.0, 0.0, &mut Rng(3));
         assert_eq!(a, b, "same seed, same child");
         for (i, &w) in a.iter().enumerate() {
             if w != 0.0 {
@@ -1076,6 +1229,101 @@ mod tests {
             }
         }
         assert!(a.iter().filter(|&&w| w != 0.0).count() > slots.len() / 4);
+    }
+
+    /// **A genome's blocks are read off its length**, the walk genes after
+    /// the scorer where there is one, and any other length stops the run.
+    #[test]
+    fn genome_blocks_read_off_length() {
+        let (b, s, w) = (brain::GENOME_LEN, targets::WEIGHTS, WALK);
+        assert_eq!(blocks(b), Blocks { scorer: None, walk: None });
+        assert_eq!(blocks(b + s), Blocks { scorer: Some(b), walk: None });
+        assert_eq!(blocks(b + w), Blocks { scorer: None, walk: Some(b) });
+        assert_eq!(blocks(b + s + w), Blocks { scorer: Some(b), walk: Some(b + s) });
+        assert!(std::panic::catch_unwind(|| blocks(b + 1)).is_err(), "an unknown length must stop the run");
+        assert_eq!(WALK_NAMES.len(), organism::WALK_SLOTS.len() + 1);
+    }
+
+    /// **Walk genes move on their own axis, and only where the genome
+    /// carries them**: the reserve in `0..=1`, the rest in ±1, every one of
+    /// them moved within a few hundred children, and no brain weight moved
+    /// at a brain `pm` of 0.
+    #[test]
+    fn walk_genes_mutate_on_their_own_axis() {
+        let ch = challenges::Forage { ants: 12, frames: 10, heap: 300, game_walk: true };
+        let len = genome_len(&ch, true);
+        let slots = trainable_for(&ch, len);
+        let w = blocks(len).walk.expect("walk genes");
+        assert!(slots.ends_with(&(w..w + WALK).collect::<Vec<_>>()));
+        assert_eq!(trainable_for(&ch, SCORER), trainable(ch.banned()), "no walk genes, no walk slots");
+        let mut g = vec![0.0; len];
+        let mut moved = [false; WALK];
+        let mut rng = Rng(5);
+        for _ in 0..400 {
+            g = mutate(&g, &slots, 0.0, 1.0, 0.0, &mut rng);
+            for (k, m) in moved.iter_mut().enumerate() {
+                let v = g[w + k];
+                let lo = if k == WALK - 1 { 0.0 } else { -1.0 };
+                assert!((lo..=1.0).contains(&v), "{} at {v}", WALK_NAMES[k]);
+                *m |= v != 0.0;
+            }
+        }
+        assert!(moved.iter().all(|&m| m), "a walk gene never moved: {moved:?}");
+        assert!(g[..SCORER].iter().all(|&x| x == 0.0), "a brain pm of 0 moved a brain weight");
+    }
+
+    /// **Prune zeroes live weights, and at 0 is the operator before it**,
+    /// draw for draw, so every run without it is the run it was.
+    #[test]
+    fn prune_zeroes_live_weights_and_costs_nothing_off() {
+        let slots = trainable(&[]);
+        let mut g = vec![0.0; brain::GENOME_LEN];
+        for &i in slots.iter().step_by(2) {
+            g[i] = 3.0;
+        }
+        let c = mutate(&g, &slots, 1.0, 1.0, 1.0, &mut Rng(4));
+        for &i in slots.iter().step_by(2) {
+            assert_eq!(c[i], 0.0, "live slot {i} was not pruned");
+        }
+        let before = |g: &[f32], rng: &mut Rng| -> Vec<f32> {
+            let mut c = g.to_vec();
+            for &i in &slots {
+                if rng.unit() < 0.3 {
+                    c[i] = (c[i] + rng.step()).clamp(-40.0, 40.0);
+                }
+            }
+            c
+        };
+        assert_eq!(mutate(&g, &slots, 0.3, 1.0, 0.0, &mut Rng(4)), before(&g, &mut Rng(4)));
+    }
+
+    /// **A start file keeps its walk genes, and a run that did not ask for
+    /// them stops rather than drop them**; a scorer goes between the brain
+    /// and the walk genes, and the two controls take out what they say.
+    #[test]
+    fn a_start_file_keeps_its_walk_genes() {
+        let species = vec![0.0; brain::GENOME_LEN];
+        let mut g = vec![0.0; SCORER + WALK];
+        g[7] = 1.5;
+        g[SCORER + 3] = -0.5;
+        g[SCORER + WALK - 1] = 0.6;
+        let p = std::env::temp_dir().join(format!("train-walk-genome-{}.txt", std::process::id()));
+        save_genome(&p, &g).unwrap();
+        let file = Start::File(p.clone());
+        assert_eq!(start_genome(&file, &species, &[], 0, None, true), g);
+        assert!(std::panic::catch_unwind(|| start_genome(&file, &species, &[], 0, None, false)).is_err(), "walk genes were dropped without a word");
+        let fresh = start_genome(&Start::Species, &species, &[], 0, None, true);
+        assert_eq!(fresh.len(), SCORER + WALK);
+        assert!(fresh[SCORER..].iter().all(|&x| x == 0.0), "a fresh walk block is the shipped walk");
+        let sc = vec![0.25; targets::WEIGHTS];
+        let both = start_genome(&file, &species, &[], 0, Some(&sc), true);
+        assert_eq!(blocks(both.len()), Blocks { scorer: Some(SCORER), walk: Some(SCORER + targets::WEIGHTS) });
+        assert_eq!(both[SCORER..SCORER + targets::WEIGHTS], sc[..]);
+        assert_eq!(both[SCORER + targets::WEIGHTS..], g[SCORER..]);
+        assert_eq!(without_scorer(&both), g);
+        assert!(walk_shipped(&both)[SCORER + targets::WEIGHTS..].iter().all(|&x| x == 0.0));
+        assert_eq!(walk_shipped(&both)[..SCORER + targets::WEIGHTS], both[..SCORER + targets::WEIGHTS]);
+        std::fs::remove_file(&p).ok();
     }
 
     #[test]

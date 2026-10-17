@@ -246,6 +246,15 @@ impl Arm {
                 }
             }
         }
+        // **Say so when the scorer never went in**: it is installed only
+        // once the nest is found, and a run whose `at` comes before that ran
+        // the arm as `off` with nothing printed (review of PR 710, G).
+        if self.f == at && self.geo.is_none() && self.scorer.is_some() {
+            println!(
+                "WARNING {}: no nest by frame {at}, so the scorer was never installed and this arm runs as off",
+                self.label
+            );
+        }
         self.lab.tick_for_harness();
         self.f += 1;
     }
@@ -281,8 +290,15 @@ fn main() {
     // The champion file holds today's brain and then the scorer; the brain
     // part is frozen in a scorer arena, so only the scorer is installed.
     let scorer = scorer_path.as_ref().map(|p| {
-        let g = pixel_physics::train::load_genome(std::path::Path::new(p), pixel_physics::train::SCORER + creature::targets::WEIGHTS);
-        (g[pixel_physics::train::SCORER..].to_vec(), creature::targets::Free::parse(&free))
+        let path = std::path::Path::new(p);
+        let g = pixel_physics::train::load_genome(path, pixel_physics::train::genome_file_len(path));
+        let at = pixel_physics::train::blocks(g.len())
+            .scorer
+            .unwrap_or_else(|| panic!("scorer={p} carries no target scorer"));
+        (
+            g[at..at + creature::targets::WEIGHTS].to_vec(),
+            creature::targets::Free::parse(&free),
+        )
     });
     let threads = std::env::var("RAYON_NUM_THREADS").unwrap_or_else(|_| "unset".to_string());
     println!(
@@ -290,7 +306,10 @@ fn main() {
         scorer_path.as_deref().unwrap_or("-"),
         u8::from(cg)
     );
-    let mut arms: Vec<Arm> = arms_arg.split(',').map(|a| Arm::new(a.trim(), seed, target, scorer.as_ref())).collect();
+    let mut arms: Vec<Arm> = arms_arg
+        .split(',')
+        .map(|a| Arm::new(a.trim(), seed, target, scorer.as_ref()))
+        .collect();
     let started = Instant::now();
     for arm in arms.iter_mut() {
         while arm.f < at {
@@ -346,7 +365,13 @@ fn main() {
         if let Some(t) = arm.lab.world.targets.as_ref() {
             println!(
                 "  {} scorer: decisions dig {} drop {}, with a choice dig {} drop {}, none dig {} drop {}",
-                arm.label, t.stats.decisions[0], t.stats.decisions[1], t.stats.choices[0], t.stats.choices[1], t.stats.none[0], t.stats.none[1]
+                arm.label,
+                t.stats.decisions[0],
+                t.stats.decisions[1],
+                t.stats.choices[0],
+                t.stats.choices[1],
+                t.stats.none[0],
+                t.stats.none[1]
             );
         }
     }
