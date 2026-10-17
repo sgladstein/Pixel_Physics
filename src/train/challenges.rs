@@ -633,19 +633,20 @@ impl DigBed {
 /// directions (`src/sim/`'s rule: a traversal uses the writer's
 /// neighbourhood).
 ///
-/// **Two lids the first version paid for** (ladder lane,
-/// `ladder/dropin-nest-room.md`, measured on a 10x8 pit). It seeded the
-/// path from every open cell above the datum, so the pocket under a sealed
-/// lid one row up read as open air (80 cells); now the seed is the sky,
-/// the rows above [`census::MOUND_REACH`] that no roof can reach. And it
-/// took the census's roof, any ground within `MOUND_REACH` rows, so a spoil
-/// lid laid flush with the ground and left with one gap counted the pit
-/// below it (72); now the roof must be the old ground. **Where, not what**:
-/// the game ant's pellets set as packed soil, the same material as a wall
-/// lined in place, so packed soil above the datum is a lid and below it a
-/// roof. On the game ant's real digging this costs about 5% of room (80-95
-/// against the census's 84-100, measured on an earlier version seeded three
-/// rows above the ground).
+/// **Two lids the first version paid for**, both shapes that stand (ladder
+/// lane, `ladder/dropin-nest-room.md` and `review-ladder-docs.md` s1; a
+/// one-row lid over a ten-wide pit falls in by itself). It seeded the path
+/// from every open cell above the datum, so a nest capped at its mouth by a
+/// lid one row up read as joined through the air pocket under the lid (40
+/// cells); now the seed is the sky, the rows above [`census::MOUND_REACH`]
+/// that no roof can reach. And it took the census's roof, any ground within
+/// `MOUND_REACH` rows, so a packed lid two rows thick over a pit, left with
+/// one gap, counted the pit below it (72); now the roof must be the old
+/// ground. **Where, not what**: digging under a heap packs its bottom row
+/// into packed soil, the material a wall lined in place is made of, so
+/// packed soil above the datum is a lid and below it a roof. On the rig's own arena it costs an honest nest nothing: 946 cells
+/// either way over the game ant's 12 hold-out layouts
+/// (`ladder/review-ladder-docs.md` s2).
 pub fn joined_room(w: &World, spec: &crate::lab::scene::LabBox) -> usize {
     let (xs, ys) = census::extents(w, spec);
     let (x0, y0) = (*xs.start(), *ys.start());
@@ -848,12 +849,23 @@ mod tests {
         assert_eq!(joined_room(&w, &spec), 9, "the shaft itself is open to the sky, so a pit, not room");
     }
 
-    /// **A lid is not a roof.** Three lids over a 10x8 pit that the first
-    /// version of [`joined_room`] counted as room (ladder lane,
-    /// `ladder/dropin-nest-room.md`: 80, 72 and 72 cells), each read 0 now,
-    /// while the census's own roof test still counts every one -- the
-    /// positive control, without which a zero here could be a blind count.
-    /// And an honest nest, a shaft down to a gallery, keeps its gallery.
+    /// **A lid is not a roof, and a sealed nest is not room.** The shapes
+    /// that stand: a one-row lid over a ten-wide pit falls in by itself
+    /// within 50 frames, lined or not, so the cases here are the ones the
+    /// review found still standing after 3,000 (ladder lane,
+    /// `ladder/review-ladder-docs.md` s1). Each has its first-version count,
+    /// and each can fail for one of [`joined_room`]'s two rules alone:
+    /// * a packed lid two rows thick, one row up, with a one-cell gap: the
+    ///   pit is joined to the air, so only the roof rule closes it (72 -> 0);
+    /// * a shaft-and-gallery nest capped at the mouth by a two-row packed
+    ///   lid one row up: the roof rule alone still counts the gallery, joined
+    ///   through the air pocket under the lid, so only the sky seed closes it
+    ///   (40, roof rule alone 24, -> 0).
+    ///
+    /// The census's own roof test counts both, the positive control that
+    /// the shapes are there to refuse. Beside them, an honest shaft and
+    /// gallery keeps its 24 cells, and a 10x8 chamber under three rows of
+    /// the old ground keeps its 72 (the 8 under its way in are not roofed).
     #[test]
     fn a_lid_is_not_a_roof() {
         let clear = |w: &mut World, x: i32, y: i32, wd: i32, h: i32| {
@@ -863,34 +875,32 @@ mod tests {
                 }
             }
         };
-        let lay = |w: &mut World, x: i32, y: i32, wd: i32, mat: &str| {
-            let m = w.materials.id_of(mat).expect("material");
+        let lay = |w: &mut World, x: i32, y: i32, wd: i32, h: i32| {
+            let m = w.materials.id_of("packedsoil").expect("packedsoil");
             for xx in x..x + wd {
-                w.set(xx, y, Cell::new(m, 0));
+                for yy in y..y + h {
+                    w.set(xx, yy, Cell::new(m, 0));
+                }
             }
         };
-        type Shape = fn(&mut World, i32, i32, &dyn Fn(&mut World, i32, i32, i32, i32), &dyn Fn(&mut World, i32, i32, i32, &str));
-        let lids: [(&str, Shape); 3] = [
-            ("spoil lid one row up, sealed", |w, x, s, clear, lay| {
+        type Shape = fn(&mut World, i32, i32, &dyn Fn(&mut World, i32, i32, i32, i32), &dyn Fn(&mut World, i32, i32, i32, i32));
+        let refused: [(&str, Shape); 2] = [
+            ("two-row packed lid one row up, one gap", |w, x, s, clear, lay| {
                 clear(w, x, s, 10, 8);
-                lay(w, x - 2, s - 2, 14, "spoil");
-                lay(w, x - 2, s - 1, 1, "spoil");
-                lay(w, x + 11, s - 1, 1, "spoil");
+                lay(w, x - 2, s - 3, 14, 2);
+                lay(w, x - 2, s - 1, 1, 1);
+                lay(w, x + 11, s - 1, 1, 1);
+                clear(w, x + 5, s - 3, 1, 2);
             }),
-            ("flush spoil lid, one gap", |w, x, s, clear, lay| {
-                clear(w, x, s, 10, 8);
-                lay(w, x - 1, s - 1, 12, "spoil");
-                w.set(x + 5, s - 1, Cell::EMPTY);
-            }),
-            ("packed-soil lid one row up, one gap", |w, x, s, clear, lay| {
-                clear(w, x, s, 10, 8);
-                lay(w, x - 2, s - 2, 14, "packedsoil");
-                lay(w, x - 2, s - 1, 1, "packedsoil");
-                lay(w, x + 11, s - 1, 1, "packedsoil");
-                w.set(x + 5, s - 2, Cell::EMPTY);
+            ("nest capped at the mouth", |w, x, s, clear, lay| {
+                clear(w, x, s, 2, 8);
+                clear(w, x + 2, s + 6, 12, 2);
+                lay(w, x - 2, s - 3, 6, 2);
+                lay(w, x - 2, s - 1, 1, 1);
+                lay(w, x + 3, s - 1, 1, 1);
             }),
         ];
-        for (name, shape) in lids {
+        for (name, shape) in refused {
             let (mut w, spec) = bare_bed();
             let ids = Ids::resolve(&w);
             let x = spec.width / 2 + 22;
@@ -899,7 +909,7 @@ mod tests {
             let before = census(&w);
             shape(&mut w, x, s, &clear, &lay);
             assert!(census(&w) > before, "{name}: the census does not count it either, so this case tests nothing");
-            assert_eq!(joined_room(&w, &spec), 0, "{name}: a lid counted as a roof");
+            assert_eq!(joined_room(&w, &spec), 0, "{name}: counted as room");
         }
         let (mut w, spec) = bare_bed();
         let x = spec.width / 2 + 22;
@@ -907,6 +917,10 @@ mod tests {
         clear(&mut w, x, s, 2, 8);
         clear(&mut w, x + 2, s + 6, 12, 2);
         assert_eq!(joined_room(&w, &spec), 24, "a shaft down to a 12x2 gallery is 24 cells of nest");
+        let (mut w, spec) = bare_bed();
+        clear(&mut w, x, s + 3, 10, 8);
+        clear(&mut w, x + 5, s, 1, 3);
+        assert_eq!(joined_room(&w, &spec), 72, "a 10x8 chamber under three rows of old ground, less the 8 under its way in");
     }
 
     /// **The dig beds vary, mirror and are never symmetric.** Over 200
