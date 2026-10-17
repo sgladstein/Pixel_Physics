@@ -161,7 +161,7 @@ pub const SCORER: usize = brain::GENOME_LEN;
 /// zeros it is the shipped walk exactly. Opt in with `genes=walk`.
 ///
 /// **Why the rig moves them.** A forager trained on today's brain brought
-/// home 8x the game ant's food and kept 0.83 of its founders against 0.96:
+/// home 8x the game ant's food and kept 0.81 of its founders against 0.96:
 /// its scouts on the side away from the food walked to the box wall and
 /// starved coming back, and what decides when a scout gives up was code no
 /// genome reached (ladder lane, `forage-founder-deaths.md`). Of the walk
@@ -173,6 +173,12 @@ pub const SCORER: usize = brain::GENOME_LEN;
 /// (`creature::traits_of`), so births and eggs inherit them; the reserve
 /// is the world's (`World::food_trail`), so one genome per world: walk genes
 /// need a colony arena ([`Unit::Colony`]).
+///
+/// **Only the game walk reads them** (`creature::chooser_step`): under the
+/// brain's own walk, the blinded control and the trail arena an ant steps
+/// by `step_chain`, which reads none of them, so `examples/train.rs` refuses
+/// `genes=walk` without `walk=game` (review of PR 711, N2). The needs walk
+/// (`creature::needs`) does not read the reserve either.
 pub const WALK: usize = organism::WALK_SLOTS.len() + 1;
 
 /// The walk block's names, in order, for `walkset=` and [`describe`].
@@ -480,8 +486,9 @@ pub struct Settings {
     pub threads: usize,
     pub pictures: bool,
     /// Probability that a mutation landing on a live weight sets it to 0
-    /// instead of stepping it. 0, the default, is the operator the first
-    /// runs used, draw for draw.
+    /// instead of stepping it: a brain weight, or a target scorer's where
+    /// the genome carries one; never a walk gene, which has its own axis.
+    /// 0, the default, is the operator the first runs used, draw for draw.
     ///
     /// **Why**: a step never lands on exactly 0, so a brain could only grow.
     /// The forage champion grew to 419 live weights, and at
@@ -1276,7 +1283,7 @@ mod tests {
     /// at a brain `pm` of 0.
     #[test]
     fn walk_genes_mutate_on_their_own_axis() {
-        let ch = challenges::Forage { ants: 12, frames: 10, heap: 300, game_walk: true };
+        let ch = challenges::Forage { ants: 12, frames: 10, heap: 300, game_walk: true, far: false };
         let len = genome_len(&ch, true);
         let slots = trainable_for(&ch, len);
         let w = blocks(len).walk.expect("walk genes");

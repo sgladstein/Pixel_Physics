@@ -29,6 +29,10 @@
 //! and evolved beside the brain; `walkset=reserve:0.6,scout:-1` sets some
 //! of them in the start (or score) genome, by `train::WALK_NAMES`.
 //! `prune=0.3` lets a mutation set a live weight to 0 (`Settings::prune`).
+//! `challenge=forage-far` puts the heap 120-200 columns out on a wider bed,
+//! 12,000 frames unless set: the near distances never show a scout's
+//! reserve as a leash, so `arenas=forage,forage-far` is how a reserve is
+//! trained (`challenges::Forage::far`).
 //! `heap=` (forage) is the heap's size, 300 unless set and never more: a
 //! bigger heap slumps into home at the near distances and into the wall at
 //! the far ones. `forget=2` is how many standard errors under its
@@ -63,11 +67,14 @@ fn arena(name: &str, a: &Arena) -> Box<dyn Challenge> {
         free,
     } = *a;
     match name {
-        "forage" => Box::new(Forage {
+        "forage" | "forage-far" => Box::new(Forage {
             ants: ants.unwrap_or(12),
-            frames: frames.unwrap_or(6000),
+            // Far food first comes home at 2,600-6,200 frames, against
+            // 1,000-1,250 at 70 columns (`ladder/reserve-leash-check.md`).
+            frames: frames.unwrap_or(if name == "forage" { 6000 } else { 12_000 }),
             heap,
             game_walk,
+            far: name == "forage-far",
         }),
         "trail" => {
             if game_walk {
@@ -86,7 +93,7 @@ fn arena(name: &str, a: &Arena) -> Box<dyn Challenge> {
             targets,
             free,
         }),
-        _ => panic!("challenge={name}: forage|trail|dig|suite"),
+        _ => panic!("challenge={name}: forage|forage-far|trail|dig|suite"),
     }
 }
 
@@ -231,6 +238,13 @@ fn main() {
     assert!(genes.is_empty() || genes == "walk", "genes={genes}: walk");
     let walk = genes == "walk";
     assert!(walkset.is_empty() || walk, "walkset= needs genes=walk");
+    // Only the game walk reads the walk genes and the reserve
+    // (`creature::chooser_step`); the brain's own walk steps by `step_chain`,
+    // so they would evolve inert (review of PR 711, N2).
+    assert!(
+        !walk || game_walk,
+        "genes=walk needs walk=game: the walk genes are read only on the game walk"
+    );
     // `walkset=` written into a genome's walk block: every genome this run
     // starts from or scores, so `score=` with it measures that setting.
     let set_walk = |mut g: Vec<f32>| -> Vec<f32> {

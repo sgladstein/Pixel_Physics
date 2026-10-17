@@ -32,6 +32,18 @@ fn frame(w: &mut World, pheromones: bool) {
     }
 }
 
+/// [`frame`], then whatever the bed's timeline has due, as the lab's
+/// `tick_timeline` lands it after the step. A bed with no timeline (every
+/// arena today) returns before reading it, so this is [`frame`] exactly;
+/// one with a drip of food (the lab's `steady_income`) needs it, since a
+/// timeline nothing ticks is a supply that never arrives.
+fn frame_timed(w: &mut World, sc: &Scenario, pheromones: bool) {
+    frame(w, pheromones);
+    if !sc.timeline.is_empty() {
+        crate::lab::scenario::tick_timeline(sc, w, &sc.bed);
+    }
+}
+
 fn ants_of(w: &World, species: SpeciesId) -> Vec<OrganismId> {
     let mut v: Vec<OrganismId> = w
         .live_organism_ids()
@@ -57,27 +69,38 @@ const BED_W: i32 = 256;
 const NEST_X: i32 = 128;
 const GROUND_Y: i32 = 64;
 
-/// The lab bed every colony arena uses: 256 x 128, 40 rows of soil, no rain,
-/// one colony at the centre, and whatever `extra` placements the arena adds,
-/// placed before the colony so a buried lens or a raised step is already
-/// there when it digs its founding shaft.
+/// The plain lab bed, for tests: 256 x 128, 40 rows of soil, no rain, one
+/// colony at the centre, and whatever `extra` placements are added, placed
+/// before the colony so a buried lens or a raised step is already there
+/// when it digs its founding shaft. The arenas build theirs by
+/// [`bed_shaped`] or [`bed_at`].
+#[cfg(test)]
 fn bed(seed: u64, ants: usize, extra: &str) -> Scenario {
     bed_shaped(seed, ants, extra, 40, 33)
 }
 
-/// [`bed`] with its soil depth and lamp spacing given, for the dig arena's
-/// varied beds ([`DigBed`]).
+/// The lab bed the colony arenas use: 256 x 128, no rain, one colony at
+/// the centre, with its soil depth and lamp spacing given (the dig arena
+/// varies them, [`DigBed`]) and whatever `extra` placements the arena adds,
+/// placed before the colony.
 fn bed_shaped(seed: u64, ants: usize, extra: &str, soil_depth: i32, lamp_spacing: i32) -> Scenario {
+    bed_at(seed, ants, extra, soil_depth, lamp_spacing, BED_W, NEST_X)
+}
+
+/// [`bed_shaped`] at any width, the colony at `nest_x`: the far forage bed
+/// ([`Forage::far`]) is wider than [`BED_W`], with the nest
+/// [`FAR_BEHIND`] columns from the wall behind it.
+fn bed_at(seed: u64, ants: usize, extra: &str, soil_depth: i32, lamp_spacing: i32, width: i32, nest_x: i32) -> Scenario {
     let text = format!(
         r#"(
     name: "train", title: "TRAIN", question: "training arena",
-    bed: (width: {BED_W}, height: 128, soil_depth: {soil_depth}, ground_y: {GROUND_Y}, compartments: 1, founders: 0,
+    bed: (width: {width}, height: 128, soil_depth: {soil_depth}, ground_y: {GROUND_Y}, compartments: 1, founders: 0,
           species: "grass", colonies: 0, colony_ants: {ants}, colony_species: "ant", predators: 0,
           lamp_spacing: {lamp_spacing}, seed: {seed}, extra_walls: []),
     settings: [(subject: "the bed", field: "rain", value: 0)],
     placements: [
         {extra}
-        Colony(species: "ant", x: {NEST_X}, count: {ants}),
+        Colony(species: "ant", x: {nest_x}, count: {ants}),
     ],
     timeline: [],
     horizon: 100000,
@@ -195,6 +218,16 @@ pub struct Forage {
     pub frames: u64,
     pub heap: i32,
     pub game_walk: bool,
+    /// **Far food** (`forage-far`): the heap [`FAR_DIST`] columns out, on a
+    /// bed widened to hold it. The near distances only ever show a scout's
+    /// reserve (`FoodTrail::reserve`) as a gain, so selection there settles
+    /// on a leash: a fixed reserve of 0.6 lifted the forage champion's worse
+    /// side 43.5 -> 66.1 with the food at 95 and cut it 14.8 -> 2.8 at 170,
+    /// and at 200 lost 95 of its 96 founders (8 layouts, 12k frames,
+    /// `ladder/reserve-leash-check.md`). Scored as the near arena is; a
+    /// suite of both (`arenas=forage,forage-far`) prices a leash by the
+    /// product.
+    pub far: bool,
 }
 
 /// The heap's distance from the nest, in columns. **Set by the heap's own
@@ -211,11 +244,50 @@ const FORAGE_DIST: (i32, i32) = (45, 95);
 /// heap of 300 at rest spans about 25.
 const HEAP_REACH: i32 = 40;
 
+/// The far heap's distance ([`Forage::far`]): from just past the near
+/// arena's [`FORAGE_DIST`] to where the leash check found the 0.6 reserve
+/// wiping the champion's colony out.
+const FAR_DIST: (i32, i32) = (120, 200);
+
+/// The far bed's ends, the ladder lane's far-food bed: the nest
+/// `FAR_BEHIND` columns from the wall behind it and `FAR_BEYOND` columns of
+/// ground past the heap, so the bed is `FAR_BEHIND + dist + FAR_BEYOND`
+/// wide. **At 70 columns that is the near bed exactly** (256 wide, the nest
+/// at 128), and replayed there it scored the rig's own hold-out to the digit
+/// (`ladder/probes/leash/rigcheck-champ-2.log`). A wider bed costs no frame
+/// time of its own: a 6k-frame layout took 1.4-1.8 s at 256, 326 and 386
+/// wide, one thread.
+const FAR_BEHIND: i32 = 128;
+const FAR_BEYOND: i32 = 58;
+const _: () = assert!(FAR_BEHIND == NEST_X && FAR_BEHIND + 70 + FAR_BEYOND == BED_W);
+
 impl Forage {
-    fn dist(layout: Layout) -> i32 {
-        let (lo, hi) = FORAGE_DIST;
+    fn dist(&self, layout: Layout) -> i32 {
+        let (lo, hi) = if self.far { FAR_DIST } else { FORAGE_DIST };
         lo + ((layout.seed.wrapping_mul(0x9E37_79B9_7F4A_7C15) >> 32) % (hi - lo + 1) as u64) as i32
     }
+
+    /// The bed's width, the nest's column and the heap's, for one layout:
+    /// the food east on even layouts and west on odd ones. Near, the nest
+    /// is the centre of [`BED_W`]; far, it keeps [`FAR_BEHIND`] to the wall
+    /// behind it on either side, so the two sides of a pair mirror.
+    fn geometry(&self, layout: Layout) -> (i32, i32, i32) {
+        let side = if layout.k.is_multiple_of(2) { 1 } else { -1 };
+        let dist = self.dist(layout);
+        if self.far {
+            far_bed(dist, side)
+        } else {
+            (BED_W, NEST_X, NEST_X + side * dist)
+        }
+    }
+}
+
+/// The far bed for a heap `dist` columns out on `side` (1 east, -1 west):
+/// its width, the nest's column and the heap's ([`FAR_BEHIND`]).
+fn far_bed(dist: i32, side: i32) -> (i32, i32, i32) {
+    let width = FAR_BEHIND + dist + FAR_BEYOND;
+    let nest_x = if side > 0 { FAR_BEHIND } else { width - FAR_BEHIND };
+    (width, nest_x, nest_x + side * dist)
 }
 
 fn cells_of(w: &World, x0: i32, x1: i32, mat: material::MaterialId) -> i64 {
@@ -232,7 +304,11 @@ fn cells_of(w: &World, x0: i32, x1: i32, mat: material::MaterialId) -> i64 {
 
 impl Challenge for Forage {
     fn name(&self) -> &'static str {
-        "forage"
+        if self.far {
+            "forage-far"
+        } else {
+            "forage"
+        }
     }
     fn unit(&self) -> Unit {
         Unit::Colony
@@ -258,10 +334,11 @@ impl Challenge for Forage {
         // scored that was never carried) and the wall at the far end.
         assert!(self.heap <= 300, "a heap of {} slumps past FORAGE_DIST's bounds (the_heap_lies_clear_of_home_and_the_wall)", self.heap);
         let side = if layout.k.is_multiple_of(2) { 1 } else { -1 };
-        let dist = Self::dist(layout);
-        let heap_x = NEST_X + side * dist;
+        let dist = self.dist(layout);
+        let (width, nest_x, heap_x) = self.geometry(layout);
         let extra = format!(r#"Heap(material: "provisions", x: {heap_x}, cells: {}),"#, self.heap);
-        let (mut w, _, _) = bed(layout.seed, self.ants, &extra).build();
+        let sc = bed_at(layout.seed, self.ants, &extra, 40, 33, width, nest_x);
+        let (mut w, _, _) = sc.build();
         let sp = clone_colony(&mut w, genomes[0], self.game_walk, layout);
         let food = w.materials.id_of("provisions").expect("provisions");
         // **`taken` stops short of home**: at 45 columns a window of
@@ -269,7 +346,7 @@ impl Challenge for Forage {
         // carried home into that strip read as never taken (review of PR
         // 708, nit 7). A printed part only, never `fit`.
         let (lo, hi) = (heap_x - HEAP_REACH, heap_x + HEAP_REACH);
-        let (lo, hi) = if side > 0 { (lo.max(NEST_X + 13), hi) } else { (lo, hi.min(NEST_X - 13)) };
+        let (lo, hi) = if side > 0 { (lo.max(nest_x + 13), hi) } else { (lo, hi.min(nest_x - 13)) };
         let before = cells_of(&w, lo, hi, food);
         let founders = ants_of(&w, sp);
         // The colony's number now, while its founders live: a dead id's
@@ -277,7 +354,7 @@ impl Challenge for Forage {
         // score read no meals at all on the layouts where founder 0 died.
         let colony = founders.first().map_or(0, |&id| w.colony_of(id));
         for f in 0..self.frames {
-            frame(&mut w, true);
+            frame_timed(&mut w, &sc, true);
             look(f + 1, &w);
         }
         let st = &w.creature_stats;
@@ -286,7 +363,7 @@ impl Challenge for Forage {
         let larvae_j = st.brood_crop_fed_j + st.brood_ate_j;
         // Joules kept per joule of face value, from the adults' own meals.
         let keep = if st.digested_face > 0.0 { ((books.intake() - larvae_j) / st.digested_face).clamp(0.05, 1.0) } else { 1.0 };
-        let floor = cells_of(&w, NEST_X - 12, NEST_X + 12, food) as f64;
+        let floor = cells_of(&w, nest_x - 12, nest_x + 12, food) as f64;
         let adult = st.digested_at_nest_face / 960.0;
         let larvae = larvae_j / keep / 960.0;
         let corpse = corpse_j / keep / 960.0;
@@ -447,11 +524,9 @@ impl Trail {
         let ids = ants_of(&w, sp);
         assert_eq!(ids.len(), n, "every planted ant became an animal");
         let mut start = vec![0i32; n];
-        if let Some(at) = super::blocks(genomes[0].len()).walk {
-            let genes = &genomes[0][at..at + super::WALK];
-            assert!(genomes.iter().all(|g| &g[at..at + super::WALK] == genes), "walk genes are one per world (the reserve is the world's)");
-            give_walk(&mut w, sp, &ids, genes);
-        }
+        // No walk genes: this arena always walks by the brain, which reads
+        // none of them (`super::WALK`), so a suite's walk block rides
+        // through here unread.
         for (k, &id) in ids.iter().enumerate() {
             w.set_organism_genome(id, genomes[k][..super::SCORER].to_vec());
             start[k] = w.organism(id).and_then(|s| s.chain.first().copied()).map_or(mid, |p| p.0);
@@ -1317,6 +1392,39 @@ mod tests {
         let (w, _) = slumped(30, 1);
         let food = w.materials.id_of("provisions").expect("provisions");
         assert!(cells_of(&w, NEST_X - 12, NEST_X + 12, food) > 0, "a heap 30 columns out should reach home; if not, this test cannot see it");
+    }
+
+    /// **The far heap lies clear of home and of the wall too**, at both ends
+    /// of [`FAR_DIST`] and on both sides, on the far bed ([`far_bed`]), and
+    /// the two sides mirror. The positive control: on a bed with only 10
+    /// columns past the peak, the same heap does run into the wall.
+    #[test]
+    fn the_far_heap_lies_clear_of_home_and_the_wall() {
+        let slumped = |width: i32, nest_x: i32, heap_x: i32| {
+            let extra = format!(r#"Heap(material: "provisions", x: {heap_x}, cells: 300),"#);
+            let (mut w, _, _) = bed_at(3, 0, &extra, 40, 33, width, nest_x).build();
+            for _ in 0..2000 {
+                frame(&mut w, false);
+            }
+            w
+        };
+        for dist in [FAR_DIST.0, FAR_DIST.1] {
+            let (we, ne, he) = far_bed(dist, 1);
+            let (ww, nw, hw) = far_bed(dist, -1);
+            assert_eq!((we, ne, he), (ww, we - nw, we - hw), "dist {dist}: the two sides do not mirror");
+            for (nest_x, heap_x) in [(ne, he), (nw, hw)] {
+                let w = slumped(we, nest_x, heap_x);
+                let food = w.materials.id_of("provisions").expect("provisions");
+                let inside = cells_of(&w, 6, we - 6, food);
+                assert_eq!(inside, 300, "dist {dist} heap {heap_x}: {inside} of 300 cells inside the box");
+                assert_eq!(cells_of(&w, nest_x - 12, nest_x + 12, food), 0, "dist {dist} heap {heap_x}: heap reaches home");
+                assert_eq!(cells_of(&w, heap_x - HEAP_REACH, heap_x + HEAP_REACH, food), 300, "dist {dist} heap {heap_x}: heap wider than HEAP_REACH");
+            }
+        }
+        let (width, nest_x, heap_x) = (FAR_BEHIND + FAR_DIST.1 + 10, FAR_BEHIND, FAR_BEHIND + FAR_DIST.1);
+        let w = slumped(width, nest_x, heap_x);
+        let food = w.materials.id_of("provisions").expect("provisions");
+        assert!(cells_of(&w, 6, width - 6, food) < 300, "a heap 10 columns from the wall should run into it; if not, this test cannot see it");
     }
 
     /// **A blind colony gets no pull to the door from the spoil haul.**
