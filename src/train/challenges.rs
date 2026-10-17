@@ -595,9 +595,11 @@ impl Challenge for Scarce {
 /// and ends, its peak and its slope vary with the layout's seed.
 /// The other side is bare ground. That is the choice a side-view ant meets at
 /// its door: left or right, and the trail says which. Nothing decays, nothing
-/// is eaten, nobody starves (the budget is raised and every tax still bills
-/// what it bills at the authored one), and every ant's `EmitA`/`EmitB` rows
-/// are banned, so the only trail is the stamped one.
+/// is eaten, nobody starves (the budget is raised to 1e9 and every tax is
+/// booked at the authored one's size, which an f32 at 1e9 never takes off
+/// the body, so a brain's size is free here unless `Settings::wire` charges
+/// it: review of PR 713 at `d8a55651`, N1), and every ant's `EmitA`/`EmitB`
+/// rows are banned, so the only trail is the stamped one.
 ///
 /// Score per ant: the mean over the run of how far along the trail it stood
 /// (0 at its start, 1 at the far end), **signed**: as far out on the bare
@@ -1849,7 +1851,7 @@ mod tests {
         t.run(super::super::holdout_layouts(1)[0], &[&g], &mut look);
         assert_eq!(alive, 6, "every clone lives to the bell");
         assert!(low > 0.99e9, "and none spent more than a sliver of its budget: lowest {low}");
-        assert!(taxed > 0.0, "the brain still pays for itself");
+        assert!(taxed > 0.0, "the brain's bill is still booked");
     }
 
     #[test]
