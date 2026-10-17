@@ -2581,6 +2581,15 @@ pub struct CreatureStats {
     /// (`creature::FoodTrail::reserve`), once per excursion. 0 unless the
     /// reserve is set.
     pub scout_reserve_turned: u64,
+    /// **The option shadow's "it fired" counters** (`creature::options`):
+    /// decisions it built a list for, options built, options per verb in
+    /// `options::Verb` order, and the sum of every feature built (the work
+    /// is read, so it cannot be optimised away). 0 unless
+    /// `World::option_shadow` is set.
+    pub option_decisions: u64,
+    pub options_built: u64,
+    pub options_by_verb: [u64; crate::sim::creature::options::VERBS],
+    pub option_feature_sum: f64,
     /// **Decisions where the forage drive lifted the step chance**
     /// (`creature::forage_pace`). 0 unless the switch is on, and under
     /// `,nopace`.
@@ -4394,6 +4403,15 @@ pub struct World {
     /// of the hand rules that pick those. Set only by the training rig;
     /// `None` everywhere else, so the game is unchanged.
     pub targets: Option<crate::sim::creature::targets::Targets>,
+    /// **Build the new brain's option list every decision and throw it
+    /// away** (`creature::options::shadow`): stage 2's frame-cost shadow,
+    /// timed by `needscost arms=off,shadow`. Nothing reads the list, so the game is
+    /// unchanged either way; `false` everywhere unless a harness sets it.
+    pub option_shadow: bool,
+    /// **The minds of ants that decide by the general brain**
+    /// (`creature::mind`, stage 2 of the brain plan), by ant. `None` in the
+    /// game: no ant has one, and the tick reads this once to know.
+    pub minds: Option<Box<crate::sim::creature::mind::Minds>>,
     /// **Whether a nesting species may bud only at its nest, overriding
     /// `PIXEL_PHYSICS_BUD_SITE` for this world** (`creature::bud_at_nest`).
     /// `None` follows the environment, which is on unless set to `anywhere`; a field for
@@ -7197,6 +7215,8 @@ impl World {
             chooser: None,
             home_blind: false,
             targets: None,
+            option_shadow: false,
+            minds: None,
             bud_at_nest: None,
             dig_roof: None,
             food_door: None,

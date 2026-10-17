@@ -399,13 +399,29 @@ impl Challenge for Forage {
 /// and ends, its peak and its slope vary with the layout's seed.
 /// The other side is bare ground. That is the choice a side-view ant meets at
 /// its door: left or right, and the trail says which. Nothing decays, nothing
-/// is eaten, nobody starves, and every ant's `EmitA`/`EmitB` rows are banned,
-/// so the only trail is the stamped one.
+/// is eaten, nobody starves (the budget is raised and every tax still bills
+/// what it bills at the authored one), and every ant's `EmitA`/`EmitB` rows
+/// are banned, so the only trail is the stamped one.
 ///
 /// Score per ant: the mean over the run of how far along the trail it stood
-/// (0 at its start or on the bare side, 1 at the far end). An ant that
-/// always walks one way scores well on half the layouts and nothing on the
-/// other half; only reading the trail scores on both.
+/// (0 at its start, 1 at the far end), **signed**: as far out on the bare
+/// side counts as far below 0. An ant that always walks one way scores well
+/// on half the layouts and below nothing on the other half; only reading
+/// the trail scores on both. Unsigned, a walker that never read the trail
+/// scored 0.17-0.26 as six (the walls turn it round, and in a group some
+/// go each way); signed, every blind walker reads 0.000 +- 0.004 and the
+/// hand-built follower is unchanged layout by layout (ladder lane,
+/// `trail-rung-controls.md`).
+///
+/// **`right`**, a part: whether the ant ended at least a tenth of the way
+/// along. A clone arena's mean is the share that went the right way: a
+/// follower sends nearly all of them, and a walker that keeps whatever
+/// heading it has about half, on both sides, which the worse-side fold
+/// alone does not catch (ladder lane, `trail-rung-controls.md`).
+///
+/// **The first rung of stage 2's ladder**: it runs minds
+/// (`creature::mind`) as well as today's brain, walking, turning round and
+/// resting, and laying nothing.
 ///
 /// **The first version started the trail twenty cells off centre**, so most
 /// ants could not sense it from where they stood and the choice was a coin:
@@ -443,10 +459,13 @@ impl Challenge for Trail {
         self.frames
     }
     fn parts(&self) -> &'static [&'static str] {
-        &["along", "reach", "end", "walked"]
+        &["along", "reach", "end", "walked", "right"]
     }
     fn banned(&self) -> &'static [O] {
         TRAIL_BANNED
+    }
+    fn minds(&self) -> bool {
+        true
     }
     fn mirrored(&self) -> bool {
         true
@@ -475,7 +494,21 @@ impl Trail {
         let sp = w.species.id_of("ant").expect("ant");
         let mut def = w.species.get(sp).creature.clone().expect("creature");
         def.reproduce_threshold = 1.0e30;
+        // **Nobody starves: the budget rises and the bills do not.** Every
+        // standing tax is a fraction of `start_energy` (§13j), so raising
+        // the budget alone raised them with it: a mind with ~700 live
+        // weights spent its whole 1e9 inside the 6,000 frames, and a fully
+        // live one lost all six ants by frame ~1,300 (review of PR 713,
+        // F1). Each fraction is rescaled so it bills what it bills at the
+        // species' authored budget, for both brains alike.
+        let authored = def.start_energy;
         def.start_energy = 1.0e9;
+        let k = authored / def.start_energy;
+        def.synapse_fraction *= k;
+        def.sight_fraction *= k;
+        def.curvature_fraction *= k;
+        def.force_fraction *= k;
+        def.armour_fraction *= k;
         if layout.blind {
             def.home_bias = 0.0;
         }
@@ -528,10 +561,14 @@ impl Trail {
         // none of them (`super::WALK`), so a suite's walk block rides
         // through here unread.
         for (k, &id) in ids.iter().enumerate() {
-            w.set_organism_genome(id, genomes[k][..super::SCORER].to_vec());
+            if super::is_mind(genomes[k].len()) {
+                creature::mind::give(&mut w, id, std::sync::Arc::new(creature::mind::MindGenome::new(genomes[k].to_vec())));
+            } else {
+                w.set_organism_genome(id, genomes[k][..super::SCORER].to_vec());
+            }
             start[k] = w.organism(id).and_then(|s| s.chain.first().copied()).map_or(mid, |p| p.0);
         }
-        let progress = |x: i32, k: usize| -> f64 { (((x - start[k]) * dir) as f64 / (far - start[k]).abs().max(1) as f64).clamp(0.0, 1.0) };
+        let progress = |x: i32, k: usize| -> f64 { (((x - start[k]) * dir) as f64 / (far - start[k]).abs().max(1) as f64).clamp(-1.0, 1.0) };
         let mut sum = vec![0.0f64; n];
         let mut reach = vec![0.0f64; n];
         let mut last = start.clone();
@@ -551,7 +588,8 @@ impl Trail {
         (0..n)
             .map(|k| {
                 let along = sum[k] / (self.frames - 1) as f64;
-                Score { fit: along, parts: vec![along, reach[k], progress(last[k], k), walked[k] as f64] }
+                let end = progress(last[k], k);
+                Score { fit: along, parts: vec![along, reach[k], end, walked[k] as f64, f64::from(u8::from(end >= 0.1))] }
             })
             .collect()
     }
@@ -1398,6 +1436,124 @@ mod tests {
     /// of [`FAR_DIST`] and on both sides, on the far bed ([`far_bed`]), and
     /// the two sides mirror. The positive control: on a bed with only 10
     /// columns past the peak, the same heap does run into the wall.
+    #[test]
+    fn the_trail_rungs_controls_rank_on_the_minds_own_walk() {
+        // **Stage 2's first rung, its controls on the mind's act path**
+        // (`creature::mind`; ladder lane, `trail-rung-controls.md`). On the
+        // full hold-out (8 layouts, 6,000 frames, six clones) they read:
+        // rest 0.000, blank -0.025, persist -0.016, follower 0.860 with
+        // every ant the right way, and the follower blind -0.015. Here on
+        // two layouts and half the frames, with room for that.
+        let t = Trail { ants: 6, frames: 3000, clones: true };
+        let lay = super::super::holdout_layouts(2);
+        let score = |g: &[f32]| -> (Score, crate::sim::creature::mind::MindCounts) {
+            let mut counts = None;
+            let s: Vec<Score> = lay
+                .iter()
+                .map(|&l| {
+                    let mut look = |_: u64, w: &World| counts = w.minds.as_ref().map(|m| m.counts);
+                    t.run(l, &[g], &mut look).remove(0)
+                })
+                .collect();
+            (super::super::worse_side(true, &s, &lay), counts.expect("the ants had minds"))
+        };
+        let preset = |name: &str| super::super::start_mind(&t, name);
+        let (rest, rc) = score(&preset("rest"));
+        let (blank, bc) = score(&preset("blank"));
+        let (persist, _) = score(&preset("persist"));
+        let follower_g = preset("follower");
+        let (follower, fc) = score(&follower_g);
+        let (blind, _) = score(&super::super::blinded(&follower_g));
+        assert_eq!(rest.fit, 0.0, "an ant that never moves goes nowhere: {rest:?}");
+        assert!(rc.decisions > 0 && rc.chose[crate::sim::creature::options::Verb::Walk as usize] == 0, "it decided, and never walked: {rc:?}");
+        assert!(blank.fit.abs() < 0.15, "the random null stays near 0 on the signed score: {blank:?}");
+        assert!(follower.fit > 0.5 && follower.parts[4] >= 0.8, "the hand-built follower goes the right way: {follower:?}");
+        assert!(persist.fit < follower.fit - 0.3, "a heading-keeper must not score like a follower: {persist:?}");
+        assert!(blind.fit < 0.15, "the follower blind to scent is no follower: {blind:?}");
+        for c in [rc, bc, fc] {
+            assert_eq!(c.failed, 0, "every pick came from the body's own checks, so none can fail: {c:?}");
+        }
+    }
+
+    /// A blank mind with every zero trainable weight at 1e-4: it behaves as
+    /// blank and every connection it can hold is live, the dearest brain
+    /// the arena can be handed.
+    fn fully_live_mind(ch: &dyn Challenge) -> Vec<f32> {
+        let mut g = super::super::start_mind(ch, "blank");
+        for i in crate::sim::creature::mind::trainable(ch.verbs(), ch.mind_emits()) {
+            if g[i] == 0.0 {
+                g[i] = 1.0e-4;
+            }
+        }
+        g
+    }
+
+    #[test]
+    fn a_fully_live_mind_lives_out_the_trail_arena() {
+        // **Nobody starves, however big the brain** (review of PR 713, F1).
+        // With the taxes billed against the raised 1e9 budget, this mind's
+        // six ants were all dead by frame ~1,300, and a 700-weight champion
+        // ended with 3-5 of six alive at 0.3-1.5% energy. The dearest mind
+        // keeping all six to the bell covers every cheaper one; the bill
+        // still lands, so the tax is priced and not switched off.
+        let t = Trail { ants: 6, frames: 6000, clones: true };
+        let g = fully_live_mind(&t);
+        let live = crate::sim::creature::mind::MindGenome::new(g.clone()).live;
+        assert!(live > 2000, "the mind is fully live: {live}");
+        let (mut alive, mut low, mut taxed) = (0, f32::MAX, 0.0);
+        let mut look = |_: u64, w: &World| {
+            let sp = w.species.id_of("ant").expect("ant");
+            let ids = ants_of(w, sp);
+            alive = ids.len();
+            low = ids.iter().filter_map(|&id| w.organism(id)).map(|s| s.energy).fold(f32::MAX, f32::min);
+            taxed = w.energy_ledger.synapse_tax;
+        };
+        t.run(super::super::holdout_layouts(1)[0], &[&g], &mut look);
+        assert_eq!(alive, 6, "every clone lives to the bell");
+        assert!(low > 0.99e9, "and none spent more than a sliver of its budget: lowest {low}");
+        assert!(taxed > 0.0, "the brain still pays for itself");
+    }
+
+    #[test]
+    fn a_minds_fall_ticks_pay_the_brain_tax() {
+        // **Every tick bills the brain, falling or not, as the game's ant's
+        // does** (review of PR 713, F2: billed only on decisions, a trail
+        // champion fell on 36% of its ticks and thought for free there). An
+        // ant on a ledge has the ledge taken away and falls a long way: the
+        // brain's bill is exactly one tax per tick, falls and decisions
+        // alike.
+        let mut w = World::new(Rect::new(0, 0, 63, 159));
+        for x in 0..64 {
+            for y in (20..24).chain(150..160) {
+                w.set(x, y, Cell::new(material::STONE, 0).with_attached(true));
+            }
+        }
+        w.plant_ant(32, 19);
+        frame(&mut w, false);
+        let sp = w.species.id_of("ant").expect("ant");
+        let ids = ants_of(&w, sp);
+        assert_eq!(ids.len(), 1, "the ant hatched");
+        let t = Trail { ants: 1, frames: 1, clones: true };
+        let genome = std::sync::Arc::new(crate::sim::creature::mind::MindGenome::new(fully_live_mind(&t)));
+        let def = w.species.get(sp).creature.clone().expect("creature");
+        let per_tick = (def.synapse_fraction * def.start_energy * genome.live as f32) as f64;
+        crate::sim::creature::mind::give(&mut w, ids[0], genome);
+        for x in 0..64 {
+            for y in 20..24 {
+                w.set(x, y, Cell::EMPTY);
+            }
+        }
+        let before = w.energy_ledger.synapse_tax;
+        for _ in 0..1200 {
+            frame(&mut w, false);
+        }
+        let c = w.minds.as_ref().expect("minds").counts;
+        assert!(c.falls >= 10 && c.decisions > 0, "it fell, and then it decided: {c:?}");
+        let paid = w.energy_ledger.synapse_tax - before;
+        let ticks = (c.falls + c.decisions) as f64;
+        assert!((paid - ticks * per_tick).abs() <= 1e-9 * paid, "paid {paid} for {ticks} ticks at {per_tick}: {c:?}");
+    }
+
     #[test]
     fn the_far_heap_lies_clear_of_home_and_the_wall() {
         let slumped = |width: i32, nest_x: i32, heap_x: i32| {

@@ -37,6 +37,12 @@
 //! bigger heap slumps into home at the near distances and into the wall at
 //! the far ones. `forget=2` is how many standard errors under its
 //! reference a suite's kept arena may fall before it counts as forgotten.
+//! `brain=mind` trains stage 2's general brain (`creature::mind`) instead
+//! of today's (`brain=today`, the default): `start=` is then `blank` (or
+//! `zero`), `rest`, `follower`, `persist` (`mind::preset`, the rung's
+//! controls) or a mind genome file, and so is `score=`; `score=game` still
+//! scores today's brain, in the same arena. Only arenas built for minds
+//! take it (`Challenge::minds`).
 //! Every argument is echoed; an unknown one stops the run.
 
 use pixel_physics::sim::creature;
@@ -120,6 +126,7 @@ fn main() {
     let mut genes = String::new();
     let mut heap = 300;
     let mut walkset = String::new();
+    let mut mind = false;
     for a in std::env::args().skip(1) {
         let (k, v) = a.split_once('=').unwrap_or((a.as_str(), "1"));
         match k {
@@ -161,6 +168,10 @@ fn main() {
             "walkset" => walkset = v.into(),
             "prune" => set.prune = v.parse().unwrap(),
             "heap" => heap = v.parse().unwrap(),
+            "brain" => {
+                assert!(v == "mind" || v == "today", "brain={v}: mind|today");
+                mind = v == "mind";
+            }
             _ => panic!("unknown argument {a}"),
         }
     }
@@ -168,7 +179,8 @@ fn main() {
     // without it once left two "game" rows in one file with nothing to say
     // which walk made which (`design/review-rev2.md` N10).
     println!(
-        "train challenge={challenge} arenas={arenas} keep={keep} forget={forget} start={start} walk={} clones={clones} frames={frames:?} ants={ants:?} score={score:?} noise={noise} targets={targets} free={free} pic={pic:?} sealed={sealed} heap={heap} genes={genes} walkset={walkset} prune={} seed={} pop={} gens={} layouts={} pm={} sigma={} cross={} holdout={} threads={}",
+        "train brain={} challenge={challenge} arenas={arenas} keep={keep} forget={forget} start={start} walk={} clones={clones} frames={frames:?} ants={ants:?} score={score:?} noise={noise} targets={targets} free={free} pic={pic:?} sealed={sealed} heap={heap} genes={genes} walkset={walkset} prune={} seed={} pop={} gens={} layouts={} pm={} sigma={} cross={} holdout={} threads={}",
+        if mind { "mind" } else { "today" },
         if game_walk { "game" } else { "brain" },
         set.prune,
         set.seed,
@@ -245,6 +257,10 @@ fn main() {
         !walk || game_walk,
         "genes=walk needs walk=game: the walk genes are read only on the game walk"
     );
+    assert!(
+        !mind || (!walk && scorer.is_none()),
+        "brain=mind has its own targets and walk: genes= and targets= are today's brain's"
+    );
     // `walkset=` written into a genome's walk block: every genome this run
     // starts from or scores, so `score=` with it measures that setting.
     let set_walk = |mut g: Vec<f32>| -> Vec<f32> {
@@ -287,36 +303,46 @@ fn main() {
         Some(s) if s.is_empty() && !matches!(st, Start::File(_)) => Some(blank.as_slice()),
         s => s.as_deref(),
     };
-    let g0 = set_walk(train::start_genome(
-        &st,
-        &species_genome,
-        ch.banned(),
-        set.seed,
-        start_scorer,
-        walk,
-    ));
+    let g0 = if mind {
+        train::start_mind(ch.as_ref(), &start)
+    } else {
+        set_walk(train::start_genome(
+            &st,
+            &species_genome,
+            ch.banned(),
+            set.seed,
+            start_scorer,
+            walk,
+        ))
+    };
+    // A genome named by `score=` (or `pic=`'s and `noise=`'s): today's
+    // brain as `ant.ron` ships it for `game`, else a file -- or, under
+    // `brain=mind`, a mind preset or file.
+    let genome_of = |f: &str| -> Vec<f32> {
+        if mind && f != "game" {
+            return train::start_mind(ch.as_ref(), f);
+        }
+        let st = if f == "game" {
+            Start::Species
+        } else {
+            Start::File(f.into())
+        };
+        set_walk(train::start_genome(
+            &st,
+            &species_genome,
+            ch.banned(),
+            0,
+            scorer.as_deref(),
+            walk,
+        ))
+    };
 
     // **A picture of one genome on the first hold-out layout**, without
     // training: start= (or score=) picks the genome. For looking before
     // measuring.
     if let Some(p) = &pic {
         let g = match &score {
-            Some(f) if f == "game" => set_walk(train::start_genome(
-                &Start::Species,
-                &species_genome,
-                ch.banned(),
-                0,
-                scorer.as_deref(),
-                walk,
-            )),
-            Some(f) => set_walk(train::start_genome(
-                &Start::File(f.into()),
-                &species_genome,
-                ch.banned(),
-                0,
-                scorer.as_deref(),
-                walk,
-            )),
+            Some(f) => genome_of(f),
             None => g0.clone(),
         };
         train::picture(ch.as_ref(), &g, train::holdout_layouts(1)[0], p);
@@ -348,22 +374,7 @@ fn main() {
         // hold-out layout, one row each, then the spread. A difference
         // between two brains smaller than this spread is not a difference.
         let g = match &score {
-            Some(f) if f == "game" => set_walk(train::start_genome(
-                &Start::Species,
-                &species_genome,
-                ch.banned(),
-                0,
-                scorer.as_deref(),
-                walk,
-            )),
-            Some(f) => set_walk(train::start_genome(
-                &Start::File(f.into()),
-                &species_genome,
-                ch.banned(),
-                0,
-                scorer.as_deref(),
-                walk,
-            )),
+            Some(f) => genome_of(f),
             None => g0.clone(),
         };
         let hold = if sealed {
@@ -410,19 +421,7 @@ fn main() {
         return;
     }
     if let Some(f) = score {
-        let st = if f == "game" {
-            Start::Species
-        } else {
-            Start::File(f.into())
-        };
-        let g = set_walk(train::start_genome(
-            &st,
-            &species_genome,
-            ch.banned(),
-            0,
-            scorer.as_deref(),
-            walk,
-        ));
+        let g = genome_of(&f);
         println!("(scored with this challenge's bans applied: {:?})", ch.banned());
         let hold = if sealed {
             train::sealed_layouts(set.holdout)

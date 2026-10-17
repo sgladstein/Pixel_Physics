@@ -61,6 +61,15 @@
 //! whether to dig; the scorer only picks where, so it runs when a dig or a
 //! drop is already chosen.
 //!
+//! **The option shadow** (2026-10-17): an arm `shadow` is `off` with
+//! `World::option_shadow` set on the frame `handat=` names, so the new
+//! brain's option list (`creature::options`, stage 2 step 5) is built at
+//! every decision and thrown away. `arms=off,shadow` is what building the
+//! options costs a grown colony's frame, against the design's 1.3x gate. It
+//! prints decisions, options per decision and options per verb, and since
+//! the shadow is a pure read the two arms stay the same world: their ant
+//! counts must match window for window.
+//!
 //! Echoes its own parameters; an unknown argument is ignored.
 
 use pixel_physics::lab::scenario::Scenario;
@@ -171,6 +180,8 @@ struct Arm {
     /// needs walk is. Today's brain keeps deciding whether to dig or drop;
     /// the scorer picks where.
     scorer: Option<creature::targets::Targets>,
+    /// The `shadow` arm: build the option list from frame `at` on.
+    shadow: bool,
 }
 
 impl Arm {
@@ -188,7 +199,7 @@ impl Arm {
         }
         let (mode, parts) = label.split_once('/').map_or((label, None), |(m, p)| (m, Some(p)));
         let needs = match mode {
-            "off" | "scorer" => None,
+            "off" | "scorer" | "shadow" => None,
             other => Some(creature::needs::NeedsMode::parse(other)),
         };
         let scorer = (mode == "scorer").then(|| {
@@ -216,6 +227,7 @@ impl Arm {
             f: 0,
             target,
             scorer,
+            shadow: mode == "shadow",
         }
     }
 
@@ -244,6 +256,7 @@ impl Arm {
                 if let Some(t) = self.scorer.take() {
                     self.lab.world.targets = Some(t);
                 }
+                self.lab.world.option_shadow = self.shadow;
             }
         }
         // **Say so when the scorer never went in**: it is installed only
@@ -372,6 +385,26 @@ fn main() {
                 t.stats.choices[1],
                 t.stats.none[0],
                 t.stats.none[1]
+            );
+        }
+    }
+    // The shadow's "it fired" count: decisions it built a list for, and
+    // how many options each verb had.
+    for arm in &arms {
+        let st = &arm.lab.world.creature_stats;
+        if st.option_decisions > 0 {
+            let verbs: Vec<String> = creature::options::Verb::ALL
+                .iter()
+                .map(|v| format!("{} {}", v.name(), st.options_by_verb[*v as usize]))
+                .collect();
+            println!(
+                "  {} shadow: decisions {}, options {} ({:.1} a decision), feature sum {:.0}; {}",
+                arm.label,
+                st.option_decisions,
+                st.options_built,
+                st.options_built as f64 / st.option_decisions as f64,
+                st.option_feature_sum,
+                verbs.join(", ")
             );
         }
     }
