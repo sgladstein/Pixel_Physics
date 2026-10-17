@@ -34291,6 +34291,66 @@ mod tests {
         assert_eq!(company_at(&w, me, gut, face, 3, 2), 1, "a beetle at the face is no company");
     }
 
+    /// **Each part of [`targets::Free`] lifts its own veto and no other**
+    /// ([`dig_veto`]), which is what keeps a stage 1 rung one rule: a cut the
+    /// heap cue refuses goes through under `cue` alone, one the face trip
+    /// refuses under `face` alone, and a lone ant's cut at a home wall under
+    /// `company` alone. `holds` frees no cut. Each scene's no-part arm is its
+    /// positive control: the veto fires there, so the scene holds the rule.
+    #[test]
+    fn each_freed_part_lifts_only_its_own_veto() {
+        let parts = [
+            targets::Free::default(),
+            targets::Free { holds: true, ..Default::default() },
+            targets::Free { cue: true, ..Default::default() },
+            targets::Free { face: true, ..Default::default() },
+            targets::Free { company: true, ..Default::default() },
+        ];
+        let veto = |w: &mut World, me: OrganismId, cut: (i32, i32), free: targets::Free| {
+            let def = def_of(w, "ant");
+            let head = w.organism(me).expect("the ant").chain[0];
+            let target = w.get(cut.0, cut.1);
+            dig_veto(w, &def, me, head, cut, target, false, &mut rng::Rng::new(1), false, free)
+        };
+        let bed = |cue: Option<SpoilCue>, face: FaceTrip| {
+            let mut w = founding_bed();
+            w.spoil_cue = Some(cue);
+            w.face_trip = Some(face);
+            w.way_gaps = Some(WayGaps::ON);
+            w.dig_roof = Some(None);
+            w
+        };
+        // The heap cue at floor 0: an ant on bare ground cutting the cell
+        // under it opens the ground to the sky with no pellet in reach.
+        let mut w = bed(Some(SPOIL_CUE_SHIPPED), FaceTrip::OFF);
+        let me = spawn(&mut w, "ant", 30, 39);
+        let (hx, hy) = w.organism(me).expect("the ant").chain[0];
+        for free in parts {
+            assert_eq!(veto(&mut w, me, (hx, hy + 1), free).cue, !free.cue, "heap cue under {free:?}");
+        }
+        // The face trip: walking back to a face far from the cut.
+        let mut w = bed(None, FaceTrip::ON);
+        let me = spawn(&mut w, "ant", 30, 39);
+        let (hx, hy) = w.organism(me).expect("the ant").chain[0];
+        w.organism_mut(me).expect("the ant").dig_return = Some((90, 80));
+        for free in parts {
+            assert_eq!(veto(&mut w, me, (hx, hy + 1), free).face, !free.face, "face trip under {free:?}");
+        }
+        // The company rule: a lone ant widening a room 20 rows under the
+        // founding ground, the nest dug past the rule's founding size.
+        let mut w = bed(None, FaceTrip::OFF);
+        w.nest_dug_sizes = vec![10_000];
+        for x in 24..=36 {
+            for y in 60..=62 {
+                w.set(x, y, Cell::EMPTY);
+            }
+        }
+        let me = spawn(&mut w, "ant", 30, 62);
+        for free in parts {
+            assert_eq!(veto(&mut w, me, (37, 61), free).company, !free.company, "company under {free:?}");
+        }
+    }
+
     /// **[`ShaftRooms`] caps a room's height and spacing, never a shaft**:
     /// a room widens sideways, a third cell over its ceiling is refused, a
     /// pit goes down but not beside another, a shaft widened within `gap` of

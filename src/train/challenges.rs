@@ -482,9 +482,9 @@ pub struct Dig {
     pub free: creature::targets::Free,
 }
 
-const DIG_PARTS: &[&str] = &["room", "pit", "mound", "alive", "roofed", "spoil_below", "placed", "holding"];
+const DIG_PARTS: &[&str] = &["room", "pit", "mound", "alive", "roofed", "spoil_below", "placed", "holding", "under_fill", "depth"];
 const DIG_TARGET_PARTS: &[&str] = &[
-    "room", "pit", "mound", "alive", "roofed", "spoil_below", "placed", "holding", "dig_choices", "dig_margin", "dig_none", "drop_choices", "drop_margin", "drop_none", "dropped_inside", "dropped_outside",
+    "room", "pit", "mound", "alive", "roofed", "spoil_below", "placed", "holding", "under_fill", "depth", "dig_choices", "dig_margin", "dig_none", "drop_choices", "drop_margin", "drop_none", "dropped_inside", "dropped_outside",
 ];
 
 impl Challenge for Dig {
@@ -516,14 +516,17 @@ impl Challenge for Dig {
     fn mirrored(&self) -> bool {
         true
     }
-    /// Room cyan, pit red, refused amber ([`dug_cells`]): what the score
-    /// counted, what is open to the sky, and what the census would count
-    /// and the score does not.
+    /// Room cyan, room under packed fill violet, pit red, refused amber
+    /// ([`dug_cells`]): what the score counted, what is open to the sky, and
+    /// what the census would count and the score does not. Cyan includes
+    /// the founding cut the bed starts with (about 10 cells), which the
+    /// score subtracts.
     fn marks(&self, layout: Layout, w: &World) -> Vec<((i32, i32), [u8; 3])> {
         let shape = DigBed::of(layout);
         let spec = bed_shaped(layout.seed, self.ants, &shape.placements(), shape.depth, shape.lamp).bed;
         let colour = |kind| match kind {
             Dug::Room => [0, 190, 255],
+            Dug::Filled => [170, 90, 255],
             Dug::Pit => [255, 50, 30],
             Dug::Refused => [255, 190, 0],
         };
@@ -592,7 +595,16 @@ impl Challenge for Dig {
         let room = joined_room(&w, &sc.bed) as f64 - base_joined as f64;
         let roofed = end.roofed_room() as f64 - base.roofed_room() as f64;
         let kept = (lived as f64 / placed.len().max(1) as f64).min(1.0);
-        let mut parts = vec![room, end.pit as f64 - base.pit as f64, end.mound as f64, alive as f64, roofed, spoil_below(&w, &sc.bed) as f64, placed.len() as f64, holding as f64];
+        // **Two checks on what the room is**, beside the count: room whose
+        // only roof is packed fill ([`Dug::Filled`]), and how deep the room
+        // lies below the old ground on average, so a scorer that backfills
+        // and digs under its fill, or cuts shallow, shows in the numbers and
+        // not only in a picture (coordinator review of PR 709).
+        let cells = dug_cells(&w, &sc.bed);
+        let under_fill = cells.iter().filter(|c| c.1 == Dug::Filled).count() as f64;
+        let depths: Vec<f64> = cells.iter().filter(|c| matches!(c.1, Dug::Room | Dug::Filled)).map(|&((x, y), _)| (y - census::surface_of(&w, &sc.bed, x)) as f64).collect();
+        let depth = if depths.is_empty() { 0.0 } else { depths.iter().sum::<f64>() / depths.len() as f64 };
+        let mut parts = vec![room, end.pit as f64 - base.pit as f64, end.mound as f64, alive as f64, roofed, spoil_below(&w, &sc.bed) as f64, placed.len() as f64, holding as f64, under_fill, depth];
         if self.targets {
             let (d, p) = (creature::targets::VERB_DIG, creature::targets::VERB_DROP);
             let margin = |v: usize| if t.choices[v] > 0 { t.margin_sum[v] / t.choices[v] as f64 } else { 0.0 };
@@ -721,7 +733,7 @@ impl DigBed {
 /// s2). On the varied beds, `dug_cells`' amber (refused) count beside the
 /// room says the same thing per run: 0 on the game ant's first hold-out bed.
 pub fn joined_room(w: &World, spec: &crate::lab::scene::LabBox) -> usize {
-    dug_cells(w, spec).iter().filter(|c| c.1 == Dug::Room).count()
+    dug_cells(w, spec).iter().filter(|c| matches!(c.1, Dug::Room | Dug::Filled)).count()
 }
 
 /// What [`joined_room`] made of an open cell at or below the datum.
@@ -729,6 +741,14 @@ pub fn joined_room(w: &World, spec: &crate::lab::scene::LabBox) -> usize {
 pub enum Dug {
     /// Counted: roofed by the old ground and joined to the sky.
     Room,
+    /// Counted too, but the only roof over it is packed soil: no undisturbed
+    /// soil or stone above it below the datum. Packed soil below the datum
+    /// is a wall lined in place, so it roofs; it is also what a pellet laid
+    /// in a gallery below the ground line packs into, so a colony that
+    /// backfills and digs under its own fill counts it as room. Painted and
+    /// counted apart (`under_fill`) so that can be seen (coordinator review
+    /// of PR 709: free=holds lets the scorer lay pellets below the line).
+    Filled,
     /// Open to the sky in its own column (no ground within
     /// [`census::MOUND_REACH`] rows above it): the census's `pit` and
     /// `pit_bodies`, and never room.
@@ -776,20 +796,28 @@ pub fn dug_cells(w: &World, spec: &crate::lab::scene::LabBox) -> Vec<((i32, i32)
         }
     }
     let spoil = w.materials.id_of("spoil");
+    let packed = w.materials.id_of("packedsoil");
     let mut cells = Vec::new();
     for x in xs.clone() {
         let surf = surface[(x - x0) as usize];
         let mut roofed = false;
+        let mut natural = false;
         let mut covered = false;
         for y in ys.clone() {
             if ground(x, y) {
                 // The census's cover: any ground near the surface, mound and
                 // lids included ([`census::census`]'s `covered`).
                 covered |= y >= surf - census::MOUND_REACH;
-                roofed |= y >= surf && Some(w.get(x, y).material) != spoil;
+                let m = Some(w.get(x, y).material);
+                roofed |= y >= surf && m != spoil;
+                natural |= y >= surf && m != spoil && m != packed;
             } else if y >= surf && open(x, y) {
                 let kind = if roofed && seen[at(x, y)] {
-                    Dug::Room
+                    if natural {
+                        Dug::Room
+                    } else {
+                        Dug::Filled
+                    }
                 } else if covered {
                     Dug::Refused
                 } else {
@@ -1105,7 +1133,7 @@ mod tests {
             shape(&mut w, x, s, &clear, &lay);
             let c = census::census(&w, &spec, 0.0, &[x], &ids);
             let cells = dug_cells(&w, &spec);
-            let (room, pit, refused) = (count(&cells, Dug::Room), count(&cells, Dug::Pit), count(&cells, Dug::Refused));
+            let (room, pit, refused) = (count(&cells, Dug::Room) + count(&cells, Dug::Filled), count(&cells, Dug::Pit), count(&cells, Dug::Refused));
             assert_eq!(room, joined_room(&w, &spec), "{name}");
             assert_eq!(pit, c.pit + c.pit_bodies - before.pit - before.pit_bodies, "{name}: pit is not the census's");
             assert_eq!(room + refused, c.roofed_room() - before.roofed_room(), "{name}: room and refused are not the census's roofed room");
@@ -1113,6 +1141,18 @@ mod tests {
                 assert_eq!((room, pit, refused), (0, 8, 72), "{name}: the gap column is open, the rest is under the lid");
             }
         }
+        // **Room under fill** is room, painted apart: a 10x2 gallery three
+        // rows down, its first five columns roofed only by packed soil laid
+        // below the datum (a backfill), the other five by the old ground.
+        let (mut w, spec) = bare_bed();
+        let x = spec.width / 2 + 22;
+        let s = census::surface_of(&w, &spec, x);
+        clear(&mut w, x, s, 1, 5);
+        clear(&mut w, x + 1, s + 3, 10, 2);
+        lay(&mut w, x + 1, s, 5, 3);
+        let cells = dug_cells(&w, &spec);
+        assert_eq!((count(&cells, Dug::Room), count(&cells, Dug::Filled)), (10, 10), "backfilled columns are room under fill, the rest room");
+        assert_eq!(joined_room(&w, &spec), 20, "room under fill still counts");
     }
 
     /// **The dig beds vary, mirror and are never symmetric.** Over 200

@@ -117,6 +117,10 @@ fn main() {
         set.threads
     );
 
+    // The genome's scorer goes into every world it is cloned into, so a
+    // suite would carry it into the forage and trail worlds too (coordinator
+    // review of PR 709). Stage 1 is a dig question; refuse rather than mix.
+    assert!(challenge != "suite" || targets.is_empty(), "targets= is for challenge=dig; a suite would put the scorer in every arena's world");
     let mut ch: Box<dyn Challenge> = if challenge == "suite" {
         let list: Vec<(Box<dyn Challenge>, bool)> = arenas
             .split(',')
