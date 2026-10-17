@@ -56,11 +56,13 @@
 //! `brake=on` (the default) is the food cap `creature::FoodBrake::FORAGE`;
 //! `brake=off` lets the colony lay whatever its food, and
 //! `brake=<lo>,<hi>,<small>[,plain]` sets the ramp, the small-colony gate
-//! and, with `plain`, leaves brood out of the burn.
+//! and, with `plain`, leaves brood out of the burn. `dist=<lo>,<hi>` (or
+//! `dist=<n>`) sets how many columns out the food lands, 80 unless set:
+//! nearer food is the forage rung's stepping stone (`Scarce::dist`).
 //! Every argument is echoed; an unknown one stops the run.
 
 use pixel_physics::sim::creature;
-use pixel_physics::train::challenges::{Dig, Forage, Scarce, Suite, Trail};
+use pixel_physics::train::challenges::{self, Dig, Forage, Scarce, Suite, Trail};
 use pixel_physics::train::{self, Challenge, Settings, Start};
 use std::path::PathBuf;
 use std::time::Instant;
@@ -75,6 +77,7 @@ struct Arena {
     targets: bool,
     free: creature::targets::Free,
     brake: Option<creature::FoodBrake>,
+    dist: (i32, i32),
 }
 
 fn arena(name: &str, a: &Arena) -> Box<dyn Challenge> {
@@ -87,6 +90,7 @@ fn arena(name: &str, a: &Arena) -> Box<dyn Challenge> {
         targets,
         free,
         brake,
+        dist,
     } = *a;
     match name {
         "forage" | "forage-far" => Box::new(Forage {
@@ -124,6 +128,7 @@ fn arena(name: &str, a: &Arena) -> Box<dyn Challenge> {
             every: 1000,
             game_walk,
             brake,
+            dist,
         }),
         _ => panic!("challenge={name}: forage|forage-far|trail|dig|scarce|suite"),
     }
@@ -184,6 +189,7 @@ fn main() {
     let mut walkset = String::new();
     let mut mind = false;
     let mut brake = Some(creature::FoodBrake::FORAGE);
+    let mut dist = challenges::SCARCE_DIST;
     for a in std::env::args().skip(1) {
         let (k, v) = a.split_once('=').unwrap_or((a.as_str(), "1"));
         match k {
@@ -230,6 +236,18 @@ fn main() {
             "grow" => set.grow = v.parse().unwrap(),
             "heap" => heap = v.parse().unwrap(),
             "brake" => brake = parse_brake(v),
+            "dist" => {
+                let p: Vec<i32> = v
+                    .split(',')
+                    .map(|t| t.parse().unwrap_or_else(|_| panic!("dist={v}: <n> or <lo>,<hi>")))
+                    .collect();
+                dist = (p[0], *p.get(1).unwrap_or(&p[0]));
+                // The bed is 256 wide with the nest in the middle.
+                assert!(
+                    dist.0 >= 8 && dist.1 >= dist.0 && dist.1 <= 110,
+                    "dist={v}: want 8 <= lo <= hi <= 110"
+                );
+            }
             "brain" => {
                 assert!(v == "mind" || v == "today", "brain={v}: mind|today");
                 mind = v == "mind";
@@ -241,7 +259,7 @@ fn main() {
     // without it once left two "game" rows in one file with nothing to say
     // which walk made which (`design/review-rev2.md` N10).
     println!(
-        "train brain={} challenge={challenge} arenas={arenas} keep={keep} forget={forget} start={start} walk={} clones={clones} frames={frames:?} ants={ants:?} score={score:?} noise={noise} targets={targets} free={free} brake={brake:?} pic={pic:?} trace={trace:?} sealed={sealed} heap={heap} genes={genes} walkset={walkset} prune={} wire={} grow={} seed={} pop={} gens={} layouts={} pm={} sigma={} cross={} holdout={} threads={}",
+        "train brain={} challenge={challenge} arenas={arenas} keep={keep} forget={forget} start={start} walk={} clones={clones} frames={frames:?} ants={ants:?} score={score:?} noise={noise} targets={targets} free={free} brake={brake:?} dist={dist:?} pic={pic:?} trace={trace:?} sealed={sealed} heap={heap} genes={genes} walkset={walkset} prune={} wire={} grow={} seed={} pop={} gens={} layouts={} pm={} sigma={} cross={} holdout={} threads={}",
         if mind { "mind" } else { "today" },
         if game_walk { "game" } else { "brain" },
         set.prune,
@@ -274,6 +292,7 @@ fn main() {
         targets: !targets.is_empty(),
         free: creature::targets::Free::parse(&free),
         brake,
+        dist,
     };
     let mut ch: Box<dyn Challenge> = if challenge == "suite" {
         let list: Vec<(Box<dyn Challenge>, bool)> = arenas

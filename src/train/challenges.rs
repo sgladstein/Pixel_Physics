@@ -485,6 +485,14 @@ pub struct Scarce {
     /// once it burns what it earns. [`creature::FoodBrake::FORAGE`] unless
     /// `brake=off`.
     pub brake: Option<creature::FoodBrake>,
+    /// **How far out the food lands, in columns**: drawn per layout from
+    /// `lo..=hi` ([`SCARCE_DIST`] unless `dist=` sets it). Nearer food is
+    /// the forage rung's stepping stone: trained as planned, at 80 columns
+    /// for 40 generations, the mind's colonies walked one way past the food
+    /// to the far wall and never carried any home (scarce alone 1.0-1.9,
+    /// against 0.90 for a colony that never moves and 4.57 for the hand-built
+    /// forager; `brain-training/stage2/forage-lean/census`).
+    pub dist: (i32, i32),
 }
 
 /// The food spot's distance from the nest, in columns: the ladder's far
@@ -493,13 +501,13 @@ pub struct Scarce {
 /// the cheap-brain champion on 4 of 4 pairs (17.7 against 8.3), so the rung
 /// trains there (ladder review of the stage 2 notes, finding 5). Inside the
 /// 256-wide bed either side.
-const SCARCE_DIST: (i32, i32) = (80, 80);
+pub const SCARCE_DIST: (i32, i32) = (80, 80);
 
 impl Scarce {
     /// The nest's column, the food spot's and its distance, for one layout.
     fn geometry(&self, layout: Layout) -> (i32, i32, i32) {
         let side = if layout.k.is_multiple_of(2) { 1 } else { -1 };
-        let (lo, hi) = SCARCE_DIST;
+        let (lo, hi) = self.dist;
         let dist = lo + ((layout.seed.wrapping_mul(0x9E37_79B9_7F4A_7C15) >> 32) % (hi - lo + 1) as u64) as i32;
         (NEST_X, NEST_X + side * dist, dist)
     }
@@ -1543,7 +1551,15 @@ mod tests {
     #[test]
     fn a_suite_mind_carries_every_verb_and_each_arena_cuts_it() {
         use creature::options::Verb;
-        let scarce = Scarce { ants: 12, frames: 10, drip: 5, every: 1000, game_walk: false, brake: Some(creature::FoodBrake::FORAGE) };
+        let scarce = Scarce {
+            ants: 12,
+            frames: 10,
+            drip: 5,
+            every: 1000,
+            game_walk: false,
+            brake: Some(creature::FoodBrake::FORAGE),
+            dist: SCARCE_DIST,
+        };
         let trail = Trail { ants: 2, frames: 10, clones: true };
         let (trail_verbs, trail_emits) = (trail.verbs(), trail.mind_emits());
         let s = Suite::new(vec![(Box::new(scarce), false), (Box::new(trail), true)], 0.8);
@@ -1569,7 +1585,7 @@ mod tests {
     /// timeline).
     #[test]
     fn the_scarce_drip_lands_on_the_timeline() {
-        let ch = Scarce { ants: 2, frames: 0, drip: 5, every: 1000, game_walk: true, brake: None };
+        let ch = Scarce { ants: 2, frames: 0, drip: 5, every: 1000, game_walk: true, brake: None, dist: SCARCE_DIST };
         let layout = Layout { seed: 1, k: 0, blind: false, legal: false };
         let (_, food_x, _) = ch.geometry(layout);
         let food_near = |w: &World| -> usize {
