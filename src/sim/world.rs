@@ -4377,6 +4377,14 @@ pub struct World {
     /// the variable is read once per process, and a guard has to run both
     /// arms in one.
     pub chooser: Option<crate::sim::creature::Chooser>,
+    /// **No home direction from the body, for the training rig's senses-cut
+    /// control** (`src/train`'s `Layout::blind`). `CreatureDef::home_bias` 0
+    /// already cuts every homeward pull that reads it, but the spoil haul's
+    /// pull to the door ([`crate::sim::creature::spoil_out`]'s `haul`, on by
+    /// default) does not read it, so a "blind" digging colony still walked
+    /// its pellets to the door (coordinator review of PR 707). Set, the haul
+    /// pulls nothing here. `false` everywhere else, so the game is unchanged.
+    pub home_blind: bool,
     /// **Whether a nesting species may bud only at its nest, overriding
     /// `PIXEL_PHYSICS_BUD_SITE` for this world** (`creature::bud_at_nest`).
     /// `None` follows the environment, which is on unless set to `anywhere`; a field for
@@ -7178,6 +7186,7 @@ impl World {
             grow_log: None,
             decision_scratch: crate::sim::creature::DecisionScratch::default(),
             chooser: None,
+            home_blind: false,
             bud_at_nest: None,
             dig_roof: None,
             food_door: None,

@@ -77,6 +77,7 @@ fn clone_colony(w: &mut World, genome: &[f32], game_walk: bool, blind: bool) -> 
     if !game_walk || blind {
         w.chooser = Some(creature::Chooser::Off);
     }
+    w.home_blind = blind;
     for id in ants_of(w, sp) {
         w.set_organism_genome(id, genome.to_vec());
     }
@@ -86,11 +87,12 @@ fn clone_colony(w: &mut World, genome: &[f32], game_walk: bool, blind: bool) -> 
 /// **Bring food home, and stay alive doing it** (colony).
 ///
 /// A heap of 60 provisions cells 35-100 columns from the nest, east on even
-/// layouts and west on odd ones. Score: food at home at the end (cells within
-/// 12 columns of the nest, plus crop food digested at the nest in cells --
-/// which counts every meal eaten at the nest, a dead nestmate's body too;
-/// the survival factor already charges for the death)
-/// times the fraction of the **founders** still alive. The survival factor is
+/// layouts and west on odd ones, on one seed per pair, so a pair differs only
+/// by the side and the score is the worse side ([`super::fold`]). Score: food
+/// brought home, in provisions cells -- cells lying within 12 columns of the
+/// nest at the end, crop food digested at the nest, and food that went into
+/// larvae -- less every corpse meal the colony ate, times the fraction of the
+/// **founders** still alive. The survival factor is
 /// there because the probe's walking-only winner brought food home while the
 /// colony shrank from 12 to 8; the hop ban because its unbanned winner flew
 /// it home.
@@ -99,11 +101,24 @@ fn clone_colony(w: &mut World, genome: &[f32], game_walk: bool, blind: bool) -> 
 /// that hatches during the run lifted a plain head count past the starting
 /// 12: the game walk ended at 16.75 alive, so four deaths could have hidden
 /// under four hatchings (`design/review-rev2.md` N10). Counting the ants
-/// that were there at the first frame charges every death. What the score
-/// still does not count is food spent raising that brood -- the game walk
-/// takes as much from the heap as the first trained colony (30.1 cells each)
-/// and scores far less `home` -- so a comparison against the game walk is
-/// not a forage comparison until it does.
+/// that were there at the first frame charges every death.
+///
+/// **Food into larvae counts as food home.** The game walk took as much from
+/// the heap as the first trained colony (30.1 cells each) and scored far
+/// less `home`, because it fed brood and the score read only adults' meals
+/// and the floor. A larva is fed from a carrier's crop (`brood_crop_fed_j`)
+/// or eats food lying beside it (`brood_ate_j`); neither passes through an
+/// adult's digestion, so neither is already in `digested_at_nest_face`. A
+/// nurse's or a `Share` from its own bank (`brood_nursed_j`,
+/// `brood_shared_j`) is left out: that food was counted when the nurse
+/// digested it. Both larval counters are joules **kept**, so they are put
+/// back into face value by the colony's own keep for the run (adult joules
+/// kept over adult face digested), then into cells at provisions' 960 J.
+///
+/// **Corpse meals are taken off**, wherever they were eaten: a colony that
+/// eats its dead, or its starved larvae, has not foraged. The adult face
+/// count carries corpse meals at the nest, and taking every corpse joule off
+/// errs against the colony, never for it.
 pub struct Forage {
     pub ants: usize,
     pub frames: u64,
@@ -143,10 +158,13 @@ impl Challenge for Forage {
         self.frames
     }
     fn parts(&self) -> &'static [&'static str] {
-        &["home", "alive", "taken", "pickups", "dist", "founders_kept"]
+        &["home", "alive", "taken", "pickups", "dist", "founders_kept", "floor", "adult", "larvae", "corpse"]
     }
     fn banned(&self) -> &'static [O] {
         NOT_ANT_VERBS
+    }
+    fn mirrored(&self) -> bool {
+        true
     }
     fn run(&self, layout: Layout, genomes: &[&[f32]], look: &mut dyn FnMut(u64, &World)) -> Vec<Score> {
         let side = if layout.k.is_multiple_of(2) { 1 } else { -1 };
@@ -162,7 +180,18 @@ impl Challenge for Forage {
             frame(&mut w, true);
             look(f + 1, &w);
         }
-        let home = cells_of(&w, NEST_X - 12, NEST_X + 12, food) as f64 + w.creature_stats.digested_at_nest_face / 960.0;
+        let st = &w.creature_stats;
+        let colony = founders.first().map_or(0, |&id| w.colony_of(id));
+        let books = w.colony_books(colony);
+        let corpse_j: f64 = w.materials.id_of("corpse").map_or(0.0, |c| books.diet().iter().filter(|(m, _)| *m == c).map(|(_, j)| j).sum());
+        let larvae_j = st.brood_crop_fed_j + st.brood_ate_j;
+        // Joules kept per joule of face value, from the adults' own meals.
+        let keep = if st.digested_face > 0.0 { ((books.intake() - larvae_j) / st.digested_face).clamp(0.05, 1.0) } else { 1.0 };
+        let floor = cells_of(&w, NEST_X - 12, NEST_X + 12, food) as f64;
+        let adult = st.digested_at_nest_face / 960.0;
+        let larvae = larvae_j / keep / 960.0;
+        let corpse = corpse_j / keep / 960.0;
+        let home = (floor + adult + larvae - corpse).max(0.0);
         let now = ants_of(&w, sp);
         let alive = now.len();
         let kept = founders.iter().filter(|id| now.binary_search(id).is_ok()).count() as f64 / founders.len().max(1) as f64;
@@ -175,6 +204,10 @@ impl Challenge for Forage {
                 w.creature_stats.pickups as f64,
                 dist as f64,
                 kept,
+                floor,
+                adult,
+                larvae,
+                corpse,
             ],
         }]
     }
@@ -238,6 +271,9 @@ impl Challenge for Trail {
     fn banned(&self) -> &'static [O] {
         TRAIL_BANNED
     }
+    fn mirrored(&self) -> bool {
+        true
+    }
     fn run(&self, layout: Layout, genomes: &[&[f32]], look: &mut dyn FnMut(u64, &World)) -> Vec<Score> {
         if self.clones {
             let gs = vec![genomes[0]; self.ants];
@@ -268,6 +304,7 @@ impl Trail {
         }
         w.species.set_creature(sp, def);
         w.chooser = Some(creature::Chooser::Off);
+        w.home_blind = layout.blind;
 
         let mid = ww / 2;
         let dir = if layout.k.is_multiple_of(2) { 1 } else { -1 };
@@ -344,11 +381,25 @@ impl Trail {
 ///
 /// The lab bed with the colony fed for ever (every ant's energy topped back
 /// to full every 50 frames, so nobody starves), so the arena asks only about
-/// digging. Score: roofed room -- empty cells with ground over
-/// them, standing or occupied -- gained since the first frame, times the
-/// fraction of the colony alive. A pit open to the sky is not a nest and
-/// does not count (`CLAUDE.md`'s excavation trap); the mound and the pit are
-/// printed beside it so a colony that only quarries shows as one.
+/// digging. Score: **joined room** -- cells below the ground as it stood at
+/// the first frame, with ground over them, empty or with an ant in them, and
+/// joined to the open air by a path an ant could walk ([`joined_room`]) --
+/// gained since the first frame, times the fraction of the colony alive. A
+/// pit open to the sky is not a nest and does not count (`CLAUDE.md`'s
+/// excavation trap); the mound and the pit are printed beside it so a colony
+/// that only quarries shows as one.
+///
+/// **Why joined.** The census's roofed room asks only for ground overhead,
+/// so a colony could score "room" by heaping spoil over a pit or sealing a
+/// pocket it can no longer reach -- the shapes the design review named as
+/// the way to fake this arena once policy rules come out
+/// (`design/general-brain-design-rev3.md`, *How we will know*). The census's
+/// own roofed room is printed beside it as `roofed`, so the gap between the
+/// two is the sealed-off part; `spoil_below` is the spoil left in the
+/// ground ([`spoil_below`]).
+///
+/// Dig has no sides, so the two layouts of a pair get two beds
+/// ([`bed_seed`]) rather than one bed run twice.
 pub struct Dig {
     pub ants: usize,
     pub frames: u64,
@@ -369,13 +420,13 @@ impl Challenge for Dig {
         self.frames
     }
     fn parts(&self) -> &'static [&'static str] {
-        &["room", "pit", "mound", "alive"]
+        &["room", "pit", "mound", "alive", "roofed", "spoil_below"]
     }
     fn banned(&self) -> &'static [O] {
         NOT_ANT_VERBS
     }
     fn run(&self, layout: Layout, genomes: &[&[f32]], look: &mut dyn FnMut(u64, &World)) -> Vec<Score> {
-        let sc = bed(layout.seed, self.ants, "");
+        let sc = bed(bed_seed(layout), self.ants, "");
         let (mut w, _, _) = sc.build();
         let sp = clone_colony(&mut w, genomes[0], self.game_walk, layout.blind);
         // **Fed by topping up, not by raising `start_energy`.** The ants are
@@ -389,6 +440,7 @@ impl Challenge for Dig {
         let cols = [NEST_X];
         frame(&mut w, true);
         let base = census::census(&w, &sc.bed, 0.0, &cols, &ids);
+        let base_joined = joined_room(&w, &sc.bed);
         look(1, &w);
         for f in 1..self.frames {
             frame(&mut w, true);
@@ -400,14 +452,94 @@ impl Challenge for Dig {
             look(f + 1, &w);
         }
         let end = census::census(&w, &sc.bed, 0.0, &cols, &ids);
-        let room = end.roofed_room() as f64 - base.roofed_room() as f64;
+        let room = joined_room(&w, &sc.bed) as f64 - base_joined as f64;
+        let roofed = end.roofed_room() as f64 - base.roofed_room() as f64;
         let alive = ants_of(&w, sp).len();
         let kept = (alive as f64 / started as f64).min(1.0);
         vec![Score {
             fit: room.max(0.0) * kept,
-            parts: vec![room, end.pit as f64 - base.pit as f64, end.mound as f64, alive as f64],
+            parts: vec![room, end.pit as f64 - base.pit as f64, end.mound as f64, alive as f64, roofed, spoil_below(&w, &sc.bed) as f64],
         }]
     }
+}
+
+/// **Spoil left in the ground**: loose `spoil` cells at or below the frozen
+/// ground datum -- a pellet put down inside the workings rather than carried
+/// out. Dig's second number: room is net void, so backfill already costs
+/// room, but a colony that shuffles spoil about below ground shows here and
+/// not in the room count.
+fn spoil_below(w: &World, spec: &crate::lab::scene::LabBox) -> usize {
+    let Some(spoil) = w.materials.id_of("spoil") else { return 0 };
+    let (xs, ys) = census::extents(w, spec);
+    let mut n = 0;
+    for x in xs {
+        let surf = census::surface_of(w, spec, x);
+        n += ys.clone().filter(|&y| y >= surf && w.get(x, y).material == spoil).count();
+    }
+    n
+}
+
+/// The bed seed of a sideless arena: the two layouts of a mirrored pair
+/// share a seed ([`super::training_layouts`]), so an arena that ignores the
+/// side would run one bed twice.
+fn bed_seed(layout: Layout) -> u64 {
+    layout.seed * 2 + (layout.k & 1)
+}
+
+/// **Room an ant can walk into**: cells at or below the frozen ground datum
+/// ([`census::surface_of`]) with ground over them within
+/// [`census::MOUND_REACH`] rows -- the census's own roof test -- that are
+/// empty or hold an animal, and are joined to the open air above the ground
+/// by a path of such cells. Eight neighbours, because an ant steps in eight
+/// directions (`src/sim/`'s rule: a traversal uses the writer's
+/// neighbourhood).
+pub fn joined_room(w: &World, spec: &crate::lab::scene::LabBox) -> usize {
+    let (xs, ys) = census::extents(w, spec);
+    let (x0, y0) = (*xs.start(), *ys.start());
+    let (nw, nh) = ((xs.end() - x0 + 1) as usize, (ys.end() - y0 + 1) as usize);
+    let at = |x: i32, y: i32| (y - y0) as usize * nw + (x - x0) as usize;
+    let open = |x: i32, y: i32| {
+        let m = w.get(x, y).material;
+        m == material::EMPTY || w.materials.kind(m) == material::MaterialKind::Creature
+    };
+    let ground = |x: i32, y: i32| {
+        let c = w.get(x, y);
+        c.material != material::EMPTY && matches!(w.materials.kind(c.material), material::MaterialKind::Powder | material::MaterialKind::Solid) && c.organism_id() == 0
+    };
+    let mut seen = vec![false; nw * nh];
+    let mut stack = Vec::new();
+    let surface: Vec<i32> = xs.clone().map(|x| census::surface_of(w, spec, x)).collect();
+    for x in xs.clone() {
+        for y in ys.clone() {
+            if y < surface[(x - x0) as usize] && open(x, y) {
+                seen[at(x, y)] = true;
+                stack.push((x, y));
+            }
+        }
+    }
+    while let Some((x, y)) = stack.pop() {
+        for (dx, dy) in [(-1, -1), (0, -1), (1, -1), (-1, 0), (1, 0), (-1, 1), (0, 1), (1, 1)] {
+            let (nx, ny) = (x + dx, y + dy);
+            if !xs.contains(&nx) || !ys.contains(&ny) || seen[at(nx, ny)] || !open(nx, ny) {
+                continue;
+            }
+            seen[at(nx, ny)] = true;
+            stack.push((nx, ny));
+        }
+    }
+    let mut n = 0;
+    for x in xs.clone() {
+        let surf = surface[(x - x0) as usize];
+        let mut covered = false;
+        for y in ys.clone() {
+            if ground(x, y) && y >= surf - census::MOUND_REACH {
+                covered = true;
+            } else if y >= surf && covered && seen[at(x, y)] {
+                n += 1;
+            }
+        }
+    }
+    n
 }
 
 /// **One brain, several jobs** (colony): every arena in the suite, scored
@@ -477,6 +609,11 @@ impl Challenge for Suite {
     fn banned(&self) -> &'static [O] {
         self.banned
     }
+    /// Worse side of a pair if any arena has sides: one brain that does one
+    /// arena's job on one side only has not learned the job.
+    fn mirrored(&self) -> bool {
+        self.arenas.iter().any(|(a, _)| a.mirrored())
+    }
     fn run(&self, layout: Layout, genomes: &[&[f32]], look: &mut dyn FnMut(u64, &World)) -> Vec<Score> {
         let g = genomes[0];
         let mut ratios = vec![];
@@ -513,5 +650,71 @@ impl Challenge for Suite {
             self.refs[i] = s.fit.max(0.05);
             println!("suite reference {}: {:.3}", a.name(), self.refs[i]);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::lab::scene::LabBox;
+
+    fn bare_bed() -> (World, LabBox) {
+        let spec = LabBox { founders: 0, colonies: 0, width: 256, height: 320, ..LabBox::default() };
+        let mut world = spec.build();
+        world.freeze_room_datum();
+        (world, spec)
+    }
+
+    /// **A sealed pocket is roofed room and not a nest; open a way to it and
+    /// it is.** The census counts the 3x3 pocket either way, which is the
+    /// gap `joined_room` closes: before the shaft, census 9 and joined 0;
+    /// after it, joined equals the census's roofed room. The shaft meets
+    /// the pocket at a corner only, so the join is also the eight-neighbour
+    /// step an ant takes.
+    #[test]
+    fn room_counts_only_once_it_is_joined_to_the_air() {
+        let (mut w, spec) = bare_bed();
+        let ids = Ids::resolve(&w);
+        let (cx, cy) = (spec.width / 2, spec.ground_y + 10);
+        for dy in 0..3 {
+            for dx in 0..3 {
+                w.set(cx + dx, cy + dy, Cell::EMPTY);
+            }
+        }
+        let census = |w: &World| census::census(w, &spec, 0.0, &[cx], &ids).roofed_room();
+        assert_eq!(census(&w), 9);
+        assert_eq!(joined_room(&w, &spec), 0, "a pocket nothing can walk into is not room");
+        // A shaft from the open air down to the cell diagonal from the
+        // pocket's top-left corner.
+        let surface = census::surface_of(&w, &spec, cx - 1);
+        for y in surface..cy {
+            w.set(cx - 1, y, Cell::EMPTY);
+        }
+        assert_eq!(joined_room(&w, &spec), census(&w), "joined through a corner, every roofed cell is room");
+        assert_eq!(joined_room(&w, &spec), 9, "the shaft itself is open to the sky, so a pit, not room");
+    }
+
+    /// **A blind colony gets no pull to the door from the spoil haul.**
+    /// `home_bias` 0 cuts every homeward pull that reads it, and the haul
+    /// (`SPOIL_OUT`'s `haul`, on by default) did not read it, so pellets in
+    /// a "blind" dig run still walked to the door (coordinator review of
+    /// PR 707). Both arms here have `home_bias` 0 and the shipped genome;
+    /// the control arm leaves `World::home_blind` off, and must see the
+    /// haul fire, or the test proves nothing.
+    #[test]
+    fn a_blind_dig_has_no_spoil_haul() {
+        let fired = |home_blind: bool| {
+            let (mut w, _, _) = bed(7, 12, "").build();
+            let sp = w.species.id_of("ant").expect("ant");
+            let g = w.species.get(sp).genome.clone();
+            clone_colony(&mut w, &g, false, true);
+            w.home_blind = home_blind;
+            for _ in 0..4000 {
+                frame(&mut w, true);
+            }
+            w.creature_stats.homeward_aim.iter().sum::<u64>()
+        };
+        assert!(fired(false) > 0, "the control's haul never fired, so this cannot see the leak");
+        assert_eq!(fired(true), 0, "a homeward pick fired in a blind world");
     }
 }

@@ -479,7 +479,8 @@ the tick: the ant still gets its move roll (§6) afterwards.
    §12's `SPOIL_OUT`; `off` restores what this step describes above):
    inside the nest (`inside_nest`) the drop is held and nothing is lifted
    while the haul's patience lasts; the carrier is pulled at the laden pace
-   to the door, draws its column when it comes out by it (`carry_stage`,
+   to the door (not in a world with `World::home_blind` set, the training
+   rig's blind control; the haul does not read `home_bias`), draws its column when it comes out by it (`carry_stage`,
    `SPOIL_RING`'s row), is held until it is that far out, and puts the
    pellet down there by the rule above; then, if not hungry, it walks back
    to the cell it cut (`dig_return_target`). **A lean carrier puts its
