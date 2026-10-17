@@ -88,6 +88,8 @@ const KEYS: &[&str] = &[
     "dignew",
     "digfresh",
     "digpull",
+    "probe",
+    "vanish",
 ];
 
 fn arg<T: std::str::FromStr>(key: &str) -> Option<T> {
@@ -161,6 +163,11 @@ fn main() {
     let mut ground_at_land: Vec<bool> = Vec::new();
     let mut taken = 0usize;
     let mut eaten = 0usize;
+    // `probe=P`: every P frames, an ant-agnostic record of both arms the same
+    // way (`probe.csv`, `cuts.csv`), so the game ant and the textbook ant are
+    // read by one instrument. See `probe`.
+    let probe_every: u64 = arg("probe").unwrap_or(0);
+    let mut probe_prev: Vec<material::MaterialId> = Vec::new();
     for f in 0..=frames {
         if nest_x.is_none() && f > land {
             if let Some(s) = lab.world.nest_sites.first() {
@@ -209,6 +216,9 @@ fn main() {
                 if textbook_ant {
                     eaten += eat_home(&mut lab.world, provisions, nx, ground_y);
                 }
+            }
+            if probe_every > 0 && f % probe_every == 0 {
+                probe(&lab.world, &out, f, nx, ground_y, provisions, &mut probe_prev);
             }
             if f % every == 0 {
                 let w = &lab.world;
@@ -287,6 +297,107 @@ fn main() {
     }
 }
 
+/// **One instrument for both ants** (`probe=P`). Every P frames:
+///
+/// - `probe.csv`, one row an ant: where its head is (relative to the door
+///   column and the old ground line), what it carries (`food`, `soil` or
+///   `none`), whether any of the 8 cells round its head is diggable ground
+///   (`touch`: solid, not an animal, not food, not stone), whether it is
+///   underground (`under`: ground within 6 straight above), and how many other
+///   ants have a head within 2 cells (`crowd`);
+/// - `cuts.csv`, one row a cell of the window that changed between ground and
+///   not-ground since the last probe (`cut` 1 when ground went, 0 when it
+///   came), with the material that went or came. A falling grain shows as one of each; it reads the same for both
+///   ants, which is what the comparison needs.
+#[allow(clippy::too_many_arguments)]
+fn probe(
+    w: &World,
+    out: &str,
+    f: u64,
+    nx: i32,
+    gy: i32,
+    provisions: material::MaterialId,
+    prev: &mut Vec<material::MaterialId>,
+) {
+    use std::io::Write;
+    let (x0, y0) = (nx - NEST_HALF, gy - 60);
+    let (cols, rows) = (2 * NEST_HALF + 1, 145);
+    let diggable = |x: i32, y: i32| {
+        ground(w, x, y) && w.get(x, y).material != provisions && {
+            let n = &w.materials.get(w.get(x, y).material).name;
+            !(n.contains("stone") || n.contains("rock") || n.contains("glass"))
+        }
+    };
+    let open = |name: &str, head: &str| {
+        let path = std::path::Path::new(out).join(name);
+        let new = !path.exists();
+        let mut fh = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(path)
+            .expect("probe");
+        if new {
+            writeln!(fh, "{head}").unwrap();
+        }
+        fh
+    };
+    let all = ants(w);
+    let heads: Vec<(pixel_physics::sim::cell::OrganismId, i32, i32)> = all
+        .iter()
+        .filter_map(|&id| w.organism(id).and_then(|s| s.chain.first().map(|&(x, y)| (id, x, y))))
+        .collect();
+    let mut fh = open("probe.csv", "frame,ant,dx,dy,load,touch,under,crowd");
+    for &(id, x, y) in &heads {
+        if (x - nx).abs() > NEST_HALF {
+            continue;
+        }
+        let load = match w.organism(id).and_then(|s| s.spoil.map(|l| l.cell.material)) {
+            Some(m) if m == provisions => "food",
+            Some(_) => "soil",
+            None => "none",
+        };
+        let touch = (-1..=1).any(|dy| (-1..=1).any(|dx| (dx, dy) != (0, 0) && diggable(x + dx, y + dy)));
+        let under = (1..=6).any(|d| ground(w, x, y - d));
+        let crowd = heads
+            .iter()
+            .filter(|&&(o, ox, oy)| o != id && (ox - x).abs() <= 2 && (oy - y).abs() <= 2)
+            .count();
+        writeln!(
+            fh,
+            "{f},{id},{},{},{load},{},{},{crowd}",
+            x - nx,
+            y - gy,
+            u8::from(touch),
+            u8::from(under)
+        )
+        .unwrap();
+    }
+    // Ground as its material, `EMPTY` for anything that is not ground.
+    let now: Vec<material::MaterialId> = (0..rows)
+        .flat_map(|r| (0..cols).map(move |c| (c, r)))
+        .map(|(c, r)| {
+            let (x, y) = (x0 + c, y0 + r);
+            if ground(w, x, y) && w.get(x, y).organism_id() == 0 {
+                w.get(x, y).material
+            } else {
+                material::EMPTY
+            }
+        })
+        .collect();
+    if prev.len() == now.len() {
+        let mut fh = open("cuts.csv", "frame,dx,dy,cut,material");
+        for (i, (&a, &b)) in prev.iter().zip(&now).enumerate() {
+            if (a == material::EMPTY) != (b == material::EMPTY) {
+                let (c, r) = (i as i32 % cols, i as i32 / cols);
+                let cut = b == material::EMPTY;
+                let name = &w.materials.get(if cut { a } else { b }).name;
+                writeln!(fh, "{f},{},{},{},{name}", x0 + c - nx, y0 + r - gy, u8::from(cut)).unwrap();
+            }
+        }
+    }
+    *prev = now;
+}
+
 /// Layer 1's parameters, each from the command line with its default.
 fn cfg(
     soil: material::MaterialId,
@@ -342,6 +453,7 @@ fn cfg(
         dig_new: arg("dignew").unwrap_or(1.0),
         dig_fresh: arg("digfresh").unwrap_or(600),
         dig_pull: arg("digpull").unwrap_or(0.0),
+        vanish: arg::<u8>("vanish").unwrap_or(0) == 1,
         store_r: arg("store").unwrap_or(12),
     };
     textbook::TextbookCfg {

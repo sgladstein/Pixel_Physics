@@ -503,6 +503,11 @@ pub struct NestCfg {
     pub dig_new: f32,
     pub dig_fresh: u64,
     pub dig_pull: f32,
+    /// **Diagnostic, not a rule: the pellet vanishes where it would have been
+    /// put down**, as the dug soil does in most published excavation models.
+    /// It asks whether the spoil coming back into the hole is what keeps the
+    /// nest a pit (2026-10-17). False: off.
+    pub vanish: bool,
 }
 
 /// Whether a textbook ant is a forager under [`NestCfg::forager_frac`]: a
@@ -961,8 +966,16 @@ fn nest_act(
             // Spoil goes out: nothing is put down under a roof, nor by
             // the door.
             if !roofed(world, nc.roof, x, y) && !in_hole(world, nc.roof, x, y) && (x - fc.home.0).abs() > nc.clear_r {
-                let n = pellets_round(world, cfg, (x, y));
-                put_down(world, organism, cfg, (x, y), cell, n, draw);
+                if nc.vanish {
+                    if let Some(state) = world.organism_mut(organism) {
+                        state.spoil = None;
+                        state.spoil_ring = None;
+                    }
+                    count(world, |c| c.drops += 1);
+                } else {
+                    let n = pellets_round(world, cfg, (x, y));
+                    put_down(world, organism, cfg, (x, y), cell, n, draw);
+                }
             }
             Did::default()
         }
