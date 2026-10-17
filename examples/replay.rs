@@ -385,6 +385,7 @@ box284_roots,box284_plant_above,box284_empty_below,box728_roots,box728_plant_abo
             ant_rows(&lab.world, f, &mut antlog);
         }
         if f.is_multiple_of(snap_every) || f == frames {
+            above_ground(&lab.world, ground_y, &format!("{out}/above_{f}.csv"));
             plant_table(&lab.world, &mats, ground_y, &format!("{out}/plants_{f}.csv"));
             leaf_map(&lab.world, &mats, ground_y, &format!("{out}/leaf_{f}.csv"));
             seed_map(&lab.world, &format!("{out}/seeds_{f}.csv"));
@@ -810,6 +811,43 @@ fn seedling_rows(w: &World, m: &Mats, f: u64, out: &mut BufWriter<File>) {
         writeln!(out, "{f},{name},{tip},{above},{free},{n}").unwrap();
     }
     out.flush().unwrap();
+}
+
+/// What the ground above the original soil line is made of (2026-10-17, the owner's question: is the rise
+/// under the grass soil from rotted seed and leaves, or seed?). Every non-air cell above `ground_y`, by
+/// class: `seed` (a waiting seed), `tissue` (a living plant cell), else the material name.
+fn above_ground(w: &World, ground_y: i32, path: &str) {
+    let mut by: BTreeMap<String, u64> = BTreeMap::new();
+    let mut rows = 0i64;
+    let Some(b) = w.bounds() else { return };
+    for x in b.min_x..b.max_x {
+        let mut top = ground_y;
+        for y in 0..ground_y {
+            let c = w.get(x, y);
+            if c.material == pixel_physics::sim::material::EMPTY {
+                continue;
+            }
+            top = top.min(y);
+            let oid = c.organism_id();
+            let class = if oid != 0 {
+                match w.organism(oid) {
+                    Some(o) if o.cells.len() == 1 && w.species.get(o.species).creature.is_none() => "seed".to_string(),
+                    Some(o) if w.species.get(o.species).creature.is_some() => "creature".to_string(),
+                    _ => "tissue".to_string(),
+                }
+            } else {
+                w.materials.get(c.material).name.clone()
+            };
+            *by.entry(class).or_default() += 1;
+        }
+        rows += i64::from(ground_y - top);
+    }
+    let mut out = BufWriter::new(File::create(path).unwrap());
+    writeln!(out, "class,cells").unwrap();
+    for (k, v) in by {
+        writeln!(out, "{k},{v}").unwrap();
+    }
+    writeln!(out, "_mean_rise_rows,{}", rows / i64::from((b.max_x - b.min_x).max(1))).unwrap();
 }
 
 fn seed_map(w: &World, path: &str) {
