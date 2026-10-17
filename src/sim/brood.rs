@@ -831,6 +831,7 @@ pub(super) fn lay_egg(world: &mut World, parent: OrganismId, head: (i32, i32), d
         world.creature_stats.births_overdrawn += 1;
     }
     world.creature_stats.eggs_laid += 1;
+    world.creature_stats.eggs_laid_j += brood.egg_cost as f64;
     Some(ActiveSite { x: ex, y: ey, kind: ActiveKind::Creature { organism: child }, next_frame: world.creature_due(brood.egg_frames) })
 }
 

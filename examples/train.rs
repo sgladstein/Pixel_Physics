@@ -47,10 +47,14 @@
 //! controls) or a mind genome file, and so is `score=`; `score=game` still
 //! scores today's brain, in the same arena. Only arenas built for minds
 //! take it (`Challenge::minds`).
-//! `challenge=scarce` is stage 2's forage rung: a drip of food 40-80
-//! columns out, births on, scored adults times founders kept, 12,000
-//! frames unless set (`challenges::Scarce`); `start=forager` is its
-//! hand-built mind.
+//! `challenge=scarce` is stage 2's forage rung: a drip of food 80
+//! columns out, births on and capped by food, scored adults times founders
+//! kept over the last quarter, 12,000 frames unless set
+//! (`challenges::Scarce`); `start=forager` is its hand-built mind.
+//! `brake=on` (the default) is the food cap `creature::FoodBrake::FORAGE`;
+//! `brake=off` lets the colony lay whatever its food, and
+//! `brake=<lo>,<hi>,<small>[,plain]` sets the ramp, the small-colony gate
+//! and, with `plain`, leaves brood out of the burn.
 //! Every argument is echoed; an unknown one stops the run.
 
 use pixel_physics::sim::creature;
@@ -68,6 +72,7 @@ struct Arena {
     clones: bool,
     targets: bool,
     free: creature::targets::Free,
+    brake: Option<creature::FoodBrake>,
 }
 
 fn arena(name: &str, a: &Arena) -> Box<dyn Challenge> {
@@ -79,6 +84,7 @@ fn arena(name: &str, a: &Arena) -> Box<dyn Challenge> {
         clones,
         targets,
         free,
+        brake,
     } = *a;
     match name {
         "forage" | "forage-far" => Box::new(Forage {
@@ -115,8 +121,38 @@ fn arena(name: &str, a: &Arena) -> Box<dyn Challenge> {
             drip: 5,
             every: 1000,
             game_walk,
+            brake,
         }),
         _ => panic!("challenge={name}: forage|forage-far|trail|dig|scarce|suite"),
+    }
+}
+
+/// `brake=`: `off`, `on` ([`creature::FoodBrake::FORAGE`]), or
+/// `<lo>,<hi>,<small>` with an optional `,plain` for the shipped burn
+/// (brood left out of it).
+fn parse_brake(v: &str) -> Option<creature::FoodBrake> {
+    match v {
+        "off" => None,
+        "on" => Some(creature::FoodBrake::FORAGE),
+        _ => {
+            let p: Vec<&str> = v.split(',').collect();
+            let num = |i: usize| -> f64 {
+                p.get(i)
+                    .and_then(|t| t.parse().ok())
+                    .unwrap_or_else(|| panic!("brake={v}: off|on|<lo>,<hi>,<small>[,plain]"))
+            };
+            let b = creature::FoodBrake {
+                lo: num(0),
+                hi: num(1),
+                small: num(2),
+                brood: p.get(3) != Some(&"plain"),
+            };
+            assert!(
+                b.hi > b.lo && b.lo > 0.0 && b.small >= 0.0,
+                "brake={v}: want hi > lo > 0 and small >= 0"
+            );
+            Some(b)
+        }
     }
 }
 
@@ -145,6 +181,7 @@ fn main() {
     let mut heap = 300;
     let mut walkset = String::new();
     let mut mind = false;
+    let mut brake = Some(creature::FoodBrake::FORAGE);
     for a in std::env::args().skip(1) {
         let (k, v) = a.split_once('=').unwrap_or((a.as_str(), "1"));
         match k {
@@ -190,6 +227,7 @@ fn main() {
             "wire" => set.wire = v.parse().unwrap(),
             "grow" => set.grow = v.parse().unwrap(),
             "heap" => heap = v.parse().unwrap(),
+            "brake" => brake = parse_brake(v),
             "brain" => {
                 assert!(v == "mind" || v == "today", "brain={v}: mind|today");
                 mind = v == "mind";
@@ -201,7 +239,7 @@ fn main() {
     // without it once left two "game" rows in one file with nothing to say
     // which walk made which (`design/review-rev2.md` N10).
     println!(
-        "train brain={} challenge={challenge} arenas={arenas} keep={keep} forget={forget} start={start} walk={} clones={clones} frames={frames:?} ants={ants:?} score={score:?} noise={noise} targets={targets} free={free} pic={pic:?} trace={trace:?} sealed={sealed} heap={heap} genes={genes} walkset={walkset} prune={} wire={} grow={} seed={} pop={} gens={} layouts={} pm={} sigma={} cross={} holdout={} threads={}",
+        "train brain={} challenge={challenge} arenas={arenas} keep={keep} forget={forget} start={start} walk={} clones={clones} frames={frames:?} ants={ants:?} score={score:?} noise={noise} targets={targets} free={free} brake={brake:?} pic={pic:?} trace={trace:?} sealed={sealed} heap={heap} genes={genes} walkset={walkset} prune={} wire={} grow={} seed={} pop={} gens={} layouts={} pm={} sigma={} cross={} holdout={} threads={}",
         if mind { "mind" } else { "today" },
         if game_walk { "game" } else { "brain" },
         set.prune,
@@ -233,6 +271,7 @@ fn main() {
         clones,
         targets: !targets.is_empty(),
         free: creature::targets::Free::parse(&free),
+        brake,
     };
     let mut ch: Box<dyn Challenge> = if challenge == "suite" {
         let list: Vec<(Box<dyn Challenge>, bool)> = arenas

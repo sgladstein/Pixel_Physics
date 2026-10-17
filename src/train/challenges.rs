@@ -438,11 +438,14 @@ impl Challenge for Forage {
 /// The forage bed with no heap: [`Scarce::drip`] cells of provisions land at
 /// one spot every [`Scarce::every`] frames, 80 columns from the nest
 /// ([`SCARCE_DIST`]), east on even layouts and west on odd ones, so a pair
-/// differs only by the side and the score is the worse side. Births are on.
+/// differs only by the side and the score is the worse side. Births are on,
+/// and food caps them ([`Scarce::brake`]).
 ///
-/// **Score: adults alive at the end times the share of founders kept** (a
-/// founder's old age counts as kept), the ladder lane's recommendation
-/// (`ladder/scarce-forage-arena.md`). It ranks the game ant above the
+/// **Score: adults alive times the share of founders kept** (a founder's
+/// old age counts as kept), read four times over the run's last quarter and
+/// averaged, the ladder lane's recommendation
+/// (`ladder/scarce-forage-arena.md`). **Before food capped births** it ranked
+/// the game ant above the
 /// cheap-brain forage champion and that above the champion, on every paired
 /// layout at both distances, at 24,000 frames: the lab's order. **Food
 /// brought home never ranks them right** -- all three bring nearly all of it
@@ -457,6 +460,14 @@ impl Challenge for Forage {
 /// 24,000 does a colony that over-breeds lose to the game ant on heads, so
 /// a hold-out check runs there (`frames=24000`).
 ///
+/// **With food capping births** (the ladder lane, section 6, 8 layouts at
+/// 80 columns, read at the last frame) the champion stays last on every
+/// pair, but the cheap-brain champion draws level with the game ant (12,000
+/// frames: 16.4 against 14.9, game ahead on 2 of 4 pairs; 24,000: 21.9
+/// against 16.4, 4 of 4): the old order between those two was the cheap
+/// arm's over-breeding, which a mind cannot choose, since it lays only
+/// through `settle`.
+///
 /// Runs minds (`creature::mind`) as well as today's brain: walking, turning
 /// round, resting, eating, putting food down and feeding, beside the
 /// larvae's own feeding from a touching adult ([`clone_minds`]).
@@ -468,6 +479,11 @@ pub struct Scarce {
     /// Today's brain under the shipped walk (`walk=game`); minds always
     /// walk by their own choice.
     pub game_walk: bool,
+    /// **Food caps births** (`creature::FoodBrake`): the colony lays less as
+    /// its income closes on what it burns, brood included, and not at all
+    /// once it burns what it earns. [`creature::FoodBrake::FORAGE`] unless
+    /// `brake=off`.
+    pub brake: Option<creature::FoodBrake>,
 }
 
 /// The food spot's distance from the nest, in columns: the ladder's far
@@ -516,7 +532,7 @@ impl Challenge for Scarce {
         self.frames
     }
     fn parts(&self) -> &'static [&'static str] {
-        &["score", "adults", "kept", "starved", "births", "brood", "eaten", "delivered", "larvae_j", "dist"]
+        &["score", "adults", "kept", "starved", "births", "brood", "eaten", "delivered", "larvae_j", "held", "dist"]
     }
     fn banned(&self) -> &'static [O] {
         NOT_ANT_VERBS
@@ -534,6 +550,7 @@ impl Challenge for Scarce {
         let (_, _, dist) = self.geometry(layout);
         let sc = self.bed(layout);
         let (mut w, _, _) = sc.build();
+        w.food_brake = self.brake;
         // Every death, by ant, so `kept` can count founders' old age only.
         w.death_log = Some(Vec::new());
         let sp = if super::is_mind(genomes[0].len()) {
@@ -544,30 +561,54 @@ impl Challenge for Scarce {
         let adults_of = |w: &World| -> Vec<OrganismId> { ants_of(w, sp).into_iter().filter(|&id| w.organism(id).is_some_and(|s| s.brood.is_none())).collect() };
         let founders = adults_of(&w);
         let colony = founders.first().map_or(0, |&id| w.colony_of(id));
+        // Adults now, and the share of founders kept so far.
+        let census = |w: &World| -> (Vec<OrganismId>, f64) {
+            let now = adults_of(w);
+            // **Founders' old age only.** The colony's old-age count
+            // (`old_age`) took hatchlings' too, and the hazard is a Rayleigh
+            // draw, so a hatchling can go before a founder: a colony that
+            // bred and lost young ants to age counted them as founders kept
+            // (ladder review of the stage 2 notes, finding 5). Counted this
+            // way the ladder's ranking still holds on every pair: 25.1 /
+            // 10.3 / 0.0 at 40 columns.
+            let aged = w.death_log.as_ref().map_or(0, |log| {
+                log.iter()
+                    .filter(|r| {
+                        matches!(r.cause, organism::DeathCause::OldAge) && founders.binary_search(&r.id).is_ok()
+                    })
+                    .count()
+            });
+            let lived = founders.iter().filter(|id| now.binary_search(id).is_ok()).count() + aged;
+            let kept = (lived as f64 / founders.len().max(1) as f64).min(1.0);
+            (now, kept)
+        };
+        // **Scored over the run's last quarter, not its last frame**: with
+        // food capping births a colony's head count rises and falls as it
+        // lays to its income, and the ladder's 24,000-frame order rested on
+        // one frame (game ant ahead of the cheap arm on 4 of 4 pairs at
+        // 24,000, on 1-2 of 4 at every snapshot from 10,000 to 22,000;
+        // `ladder/scarce-forage-arena.md` section 6). Four reads, the last
+        // at the end.
+        let snaps: Vec<u64> = (13..=16).map(|k| self.frames * k / 16).filter(|&f| f > 0).collect();
+        let mut scores = Vec::new();
         for f in 0..self.frames {
             frame_timed(&mut w, &sc, true);
             look(f + 1, &w);
+            if snaps.contains(&(f + 1)) {
+                let (now, kept) = census(&w);
+                scores.push(now.len() as f64 * kept);
+            }
         }
-        let now = adults_of(&w);
-        // **Founders' old age only.** The colony's old-age count (`old_age`)
-        // took hatchlings' too, and the hazard is a Rayleigh draw, so a
-        // hatchling can go before a founder: a colony that bred and lost
-        // young ants to age counted them as founders kept (ladder review of
-        // the stage 2 notes, finding 5). Counted this way the ladder's
-        // ranking still holds on every pair: 25.1 / 10.3 / 0.0 at 40 columns.
-        let aged = w.death_log.as_ref().map_or(0, |log| {
-            log.iter()
-                .filter(|r| matches!(r.cause, organism::DeathCause::OldAge) && founders.binary_search(&r.id).is_ok())
-                .count()
-        });
-        let lived = founders.iter().filter(|id| now.binary_search(id).is_ok()).count() + aged;
-        let kept = (lived as f64 / founders.len().max(1) as f64).min(1.0);
+        let (now, kept) = census(&w);
+        if scores.is_empty() {
+            scores.push(now.len() as f64 * kept);
+        }
         let deaths = |c: organism::DeathCause| w.group_deaths_of(sp, colony).map_or(0, |g| g.by_cause[c.index()]);
         let starved = deaths(organism::DeathCause::Starved) + deaths(organism::DeathCause::StarvedInFlight);
         let st = &w.creature_stats;
         let brood = ants_of(&w, sp).len() - now.len();
         let larvae_j = st.brood_crop_fed_j + st.brood_ate_j + st.brood_shared_j + st.brood_nursed_j;
-        let score = now.len() as f64 * kept;
+        let score = scores.iter().sum::<f64>() / scores.len() as f64;
         vec![Score {
             fit: score,
             parts: vec![
@@ -580,6 +621,7 @@ impl Challenge for Scarce {
                 st.pickups as f64,
                 st.deliveries as f64,
                 larvae_j,
+                st.food_brake_held as f64,
                 dist as f64,
             ],
         }]
@@ -1462,7 +1504,7 @@ mod tests {
     #[test]
     fn a_suite_mind_carries_every_verb_and_each_arena_cuts_it() {
         use creature::options::Verb;
-        let scarce = Scarce { ants: 12, frames: 10, drip: 5, every: 1000, game_walk: false };
+        let scarce = Scarce { ants: 12, frames: 10, drip: 5, every: 1000, game_walk: false, brake: Some(creature::FoodBrake::FORAGE) };
         let trail = Trail { ants: 2, frames: 10, clones: true };
         let (trail_verbs, trail_emits) = (trail.verbs(), trail.mind_emits());
         let s = Suite::new(vec![(Box::new(scarce), false), (Box::new(trail), true)], 0.8);
@@ -1488,7 +1530,7 @@ mod tests {
     /// timeline).
     #[test]
     fn the_scarce_drip_lands_on_the_timeline() {
-        let ch = Scarce { ants: 2, frames: 0, drip: 5, every: 1000, game_walk: true };
+        let ch = Scarce { ants: 2, frames: 0, drip: 5, every: 1000, game_walk: true, brake: None };
         let layout = Layout { seed: 1, k: 0, blind: false, legal: false };
         let (_, food_x, _) = ch.geometry(layout);
         let food_near = |w: &World| -> usize {
