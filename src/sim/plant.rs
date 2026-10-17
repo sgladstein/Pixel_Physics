@@ -755,6 +755,34 @@ pub const SEED_DRY_STRETCH: f32 = 15.0;
 /// reads dry.
 pub const SEED_DRY_READ_ROWS: i32 = 4;
 
+/// **`PIXEL_PHYSICS_SEED_HEAP_ROT=on` -- a seed lying on another seed rots
+/// fast.** Off by default; off is byte-identical.
+///
+/// Found on the mixed bed (2026-10-17, mix7, light rain, half pace): grass
+/// seed piles up 45-59 cells deep per column by 450k, and by 300k every
+/// low plant's remaining leaf on seeds 2 and 4 lies under seed. The pile is
+/// a standing stock -- production times lifetime -- and a seed inside it can
+/// never sprout (`Germinate` wants ground that holds water directly under
+/// it) while `seed_dryness` reads it as in a drought and stretches its
+/// half-life up to 16x. `SEED_BANK=off` alone only took the piles to 37-52,
+/// so the stretch is part of it and not the whole.
+///
+/// With the switch on, a seed whose cell below is another seed ages at
+/// `seed_half_life / SEED_HEAP_ROT_FACTOR` with no dry stretch. The seed at
+/// the bottom of a pile, touching the ground, keeps the full clock and the
+/// drought bank keeps its one layer, so the outcome is graded: a thin bank
+/// stays, a deep heap melts. Rotted seed goes to litter as any other seed
+/// does. Counted in `World::seeds_heap_rotted`.
+pub fn seed_heap_rot_enabled() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| matches!(std::env::var("PIXEL_PHYSICS_SEED_HEAP_ROT").as_deref(), Ok("on")))
+}
+
+/// How much faster a seed lying on a seed ages under
+/// `PIXEL_PHYSICS_SEED_HEAP_ROT`. 8 puts grass at 2,250 frames against its
+/// 18,000. A first guess, not a tuned number.
+pub const SEED_HEAP_ROT_FACTOR: f32 = 8.0;
+
 /// **How dry the ground under a seed is**, 0 (at or wetter than the
 /// species' own germination threshold) to 1 (at the wilting point or with
 /// no ground in reach). Reads the first cell within `SEED_DRY_READ_ROWS`
@@ -5437,14 +5465,28 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: OrganismId, sta
     // ground where `decay` can rot it into soil.
     if cell_type == CellType::Seed {
         let mut half_life = world.species.get(species_id).seed_half_life;
+        // **A seed on a seed rots fast** -- `seed_heap_rot_enabled` has why.
+        let below = world.get(x, y + 1);
+        let on_heap = seed_heap_rot_enabled()
+            && half_life > 0.0
+            && below.organism_id() != 0
+            && below.organism_id() != organism_id
+            && organism::cell_type(below.aux()) == Some(CellType::Seed)
+            && world.organism(below.organism_id()).is_some_and(|s| s.dormant_seed);
+        if on_heap {
+            half_life /= SEED_HEAP_ROT_FACTOR;
+        }
         // **A dry seed ages slowly** -- `seed_bank_default` has why.
         // Read only on a seed tick and only for a seed, so the cost is a
         // few cell reads per seed check and nothing anywhere else.
-        if world.seed_dry_keeps && half_life > 0.0 {
+        if world.seed_dry_keeps && half_life > 0.0 && !on_heap {
             let dry = seed_dryness(world, x, y, seed_water_threshold(world, organism_id));
             half_life *= 1.0 + SEED_DRY_STRETCH * dry;
         }
         if rng.chance(half_life_chance(half_life, SEED_TICK_INTERVAL)) {
+            if on_heap {
+                world.seeds_heap_rotted += 1;
+            }
             // **One of `pips_rotted`'s two exits** -- a `pip` that lost
             // this species-wide viability race, same as any other seed
             // would, before `shed_to_litter` below converts it away. The
@@ -13751,6 +13793,12 @@ fn shed_to_litter(world: &mut World, x: i32, y: i32, cause: organism::DeathCause
     // right one now means this does not silently break if that changes.
     let shades = world.materials.get(litter).base_shades.max(1) as u32;
     let shade = world.rng.below(shades) as u8;
+    // Root tissue is told apart by material (`reinforces_powder`) or by a
+    // live `RootTip`, the same test `step_organisms` counts `root_cells` by.
+    let was_root = {
+        let c = world.get(x, y);
+        world.materials.get(c.material).reinforces_powder || organism::cell_type(c.aux()) == Some(CellType::RootTip)
+    };
     // Cleared before the walk, so the leaf's own cell reads as air and is a
     // valid landing spot for the boxed-in case below.
     world.loss_context = Some(cause);
@@ -13836,7 +13884,10 @@ fn shed_to_litter(world: &mut World, x: i32, y: i32, cause: organism::DeathCause
     // difference. The debt is decremented here and nowhere else, so a stand
     // can never hand the bed back more ground than it took out of it.
     let repayable = world.bed_cells_on_loan > 0;
-    let sheds_into = if landing == y && repayable && buried_remains_enabled() {
+    // **`roots`: only a cell that could have displaced ground repays it.**
+    // `was_root` is read off the cell as it was before the clear above.
+    let root_ok = !buried_remains_roots_only() || was_root;
+    let sheds_into = if landing == y && repayable && root_ok && buried_remains_enabled() {
         buried_ground(world, x, y).then_some("soil")
     } else {
         None
@@ -13937,6 +13988,32 @@ fn shed_to_litter(world: &mut World, x: i32, y: i32, cause: organism::DeathCause
 fn buried_remains_enabled() -> bool {
     static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *ON.get_or_init(|| std::env::var("PIXEL_PHYSICS_BURIED_REMAINS").as_deref() != Ok("litter"))
+}
+
+/// **`PIXEL_PHYSICS_BURIED_REMAINS=roots` -- only buried *root* tissue turns
+/// back into ground; buried shoot tissue becomes litter.** Off by default.
+///
+/// Found 2026-10-17 on the mixed bed (mix7, light rain, half pace, seed 2),
+/// by counting every cell above the sown ground line: soil there went 121 ->
+/// 8,661 between 25k and 300k, and it is what lifts the floor over the low
+/// plants. Ablated one source at a time, 300k: `DECAY_YIELD=0` (litter makes
+/// no soil) 4,465 on seed 2 and 6,067 -> 4,021 on seed 4; `BURIED_REMAINS=
+/// litter` 1,332. So most of the raised ground is this rule, not rotted
+/// leaves. The mechanism (inferred from the rule, not traced cell by cell):
+/// the loan is one world-wide count, and `buried_ground` accepts any tissue
+/// with a mineral face and no air face. A grass sward's lower blades, buried
+/// by seed and by the first raised soil, pass that test, so roots that
+/// borrowed ground below the line repay it above the line, and each repaid
+/// layer buries the next layer of blades. Soil migrates upward through the
+/// sward.
+///
+/// A shoot never displaced ground -- it grew into air -- so it has nothing to
+/// repay. The loan stays world-wide (the root that borrowed and the root that
+/// repays may differ), but now only a root repays, so ground goes back below
+/// the line, where it came from.
+fn buried_remains_roots_only() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var("PIXEL_PHYSICS_BURIED_REMAINS").as_deref() == Ok("roots"))
 }
 
 /// **Is this cell inside the mineral bank?** — the test that separates tissue

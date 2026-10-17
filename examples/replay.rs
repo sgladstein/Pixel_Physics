@@ -270,7 +270,7 @@ box284_roots,box284_plant_above,box284_empty_below,box728_roots,box728_plant_abo
     writeln!(seedbelow, "frame,species,below,seeds,water_ok,soil_within6,first_soil_ok,deep_ok,depth_med").unwrap();
     // `germinations` and `seeds_settled` are the world's running totals: did the seed switches fire at all.
     let mut seedcounts = BufWriter::new(File::create(format!("{out}/seedcounts.csv")).unwrap());
-    writeln!(seedcounts, "frame,germinations,seeds_settled,seeds_heaved").unwrap();
+    writeln!(seedcounts, "frame,germinations,seeds_settled,seeds_heaved,seeds_heap_rotted").unwrap();
     // Every plant death after germination, with its cause (`World::death_log`; drained each probe). Seeds that
     // rot unsprouted are left out: the question is what kills a seedling.
     let mut plantdeaths = BufWriter::new(File::create(format!("{out}/plantdeaths.csv")).unwrap());
@@ -334,7 +334,7 @@ box284_roots,box284_plant_above,box284_empty_below,box728_roots,box728_plant_abo
             probe_row(&lab.world, &mats, ground_y, &mut probe);
             seed_census(&lab.world, f, &mut seedcensus);
             seed_below(&lab.world, f, &mut seedbelow);
-            writeln!(seedcounts, "{f},{},{},{}", lab.world.germinations, lab.world.seeds_settled, lab.world.seeds_heaved).unwrap();
+            writeln!(seedcounts, "{f},{},{},{},{}", lab.world.germinations, lab.world.seeds_settled, lab.world.seeds_heaved, lab.world.seeds_heap_rotted).unwrap();
             seedcounts.flush().unwrap();
             seedling_rows(&lab.world, &mats, f, &mut seedlings);
             if let Some(rows) = lab.world.death_log.as_mut().map(std::mem::take) {

@@ -5117,6 +5117,9 @@ pub struct World {
     /// Columns lifted by the same switch's heave half (`plant::heave_loose_column`): a shoot tip lifting the seed
     /// or litter lying on it. 0 with it off.
     pub seeds_heaved: u64,
+    /// Seeds rotted by `PIXEL_PHYSICS_SEED_HEAP_ROT` (`plant::seed_heap_rot_enabled`): a waiting seed lying on
+    /// another seed losing its shortened viability race. 0 with it off.
+    pub seeds_heap_rotted: u64,
 
     /// **Every germination, deferred or not** — the total count of `Seed`
     /// cells that became a growing shoot.
@@ -7309,6 +7312,7 @@ impl World {
             seeds_germinated_after_waiting: 0,
             seeds_settled: 0,
             seeds_heaved: 0,
+            seeds_heap_rotted: 0,
             germinations: 0,
             fate_mutation_rolls: 0,
             fate_mutations_fired: 0,
