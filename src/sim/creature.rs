@@ -24668,7 +24668,19 @@ pub struct FoodTrail {
     /// food. This only ends the excursion; the door sends the ant out
     /// again toward the food side. It is still a leash on how far a scout
     /// goes before it has met a trail, so a reserve tuned at one distance
-    /// is a reserve too large at a longer one.
+    /// is a reserve too large at a longer one -- **measured**: a fixed 0.6
+    /// helps with food 45-95 columns out and costs from 120; at 170 the
+    /// forage champion kept 0.34 of its founders against 0.70, at 200 it
+    /// lost 95 of 96, and in the lab box with food 200 out the colony died
+    /// on 3 of 4 seeds (`ladder/reserve-leash-check.md`). Hence the rig's
+    /// far forage arena (`train::challenges::Forage::far`).
+    ///
+    /// **The rule as tested**: a scout turned by its reserve walks home as
+    /// one out of patience does, dark (`scout_dark`) if the trail bound is on
+    /// and it is off a trail. The ladder lane's probe set it never dark,
+    /// which reads 3.6 lower on the forage champion (87.92 against 91.48,
+    /// 12 hold-outs; review of PR 711, N3). Read on the game walk only
+    /// (`chooser_step`); the needs walk does not read it.
     pub reserve: f32,
 }
 

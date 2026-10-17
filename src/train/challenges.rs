@@ -32,6 +32,18 @@ fn frame(w: &mut World, pheromones: bool) {
     }
 }
 
+/// [`frame`], then whatever the bed's timeline has due, as the lab's
+/// `tick_timeline` lands it after the step. A bed with no timeline (every
+/// arena today) returns before reading it, so this is [`frame`] exactly;
+/// one with a drip of food (the lab's `steady_income`) needs it, since a
+/// timeline nothing ticks is a supply that never arrives.
+fn frame_timed(w: &mut World, sc: &Scenario, pheromones: bool) {
+    frame(w, pheromones);
+    if !sc.timeline.is_empty() {
+        crate::lab::scenario::tick_timeline(sc, w, &sc.bed);
+    }
+}
+
 fn ants_of(w: &World, species: SpeciesId) -> Vec<OrganismId> {
     let mut v: Vec<OrganismId> = w
         .live_organism_ids()
@@ -57,27 +69,38 @@ const BED_W: i32 = 256;
 const NEST_X: i32 = 128;
 const GROUND_Y: i32 = 64;
 
-/// The lab bed every colony arena uses: 256 x 128, 40 rows of soil, no rain,
-/// one colony at the centre, and whatever `extra` placements the arena adds,
-/// placed before the colony so a buried lens or a raised step is already
-/// there when it digs its founding shaft.
+/// The plain lab bed, for tests: 256 x 128, 40 rows of soil, no rain, one
+/// colony at the centre, and whatever `extra` placements are added, placed
+/// before the colony so a buried lens or a raised step is already there
+/// when it digs its founding shaft. The arenas build theirs by
+/// [`bed_shaped`] or [`bed_at`].
+#[cfg(test)]
 fn bed(seed: u64, ants: usize, extra: &str) -> Scenario {
     bed_shaped(seed, ants, extra, 40, 33)
 }
 
-/// [`bed`] with its soil depth and lamp spacing given, for the dig arena's
-/// varied beds ([`DigBed`]).
+/// The lab bed the colony arenas use: 256 x 128, no rain, one colony at
+/// the centre, with its soil depth and lamp spacing given (the dig arena
+/// varies them, [`DigBed`]) and whatever `extra` placements the arena adds,
+/// placed before the colony.
 fn bed_shaped(seed: u64, ants: usize, extra: &str, soil_depth: i32, lamp_spacing: i32) -> Scenario {
+    bed_at(seed, ants, extra, soil_depth, lamp_spacing, BED_W, NEST_X)
+}
+
+/// [`bed_shaped`] at any width, the colony at `nest_x`: the far forage bed
+/// ([`Forage::far`]) is wider than [`BED_W`], with the nest
+/// [`FAR_BEHIND`] columns from the wall behind it.
+fn bed_at(seed: u64, ants: usize, extra: &str, soil_depth: i32, lamp_spacing: i32, width: i32, nest_x: i32) -> Scenario {
     let text = format!(
         r#"(
     name: "train", title: "TRAIN", question: "training arena",
-    bed: (width: {BED_W}, height: 128, soil_depth: {soil_depth}, ground_y: {GROUND_Y}, compartments: 1, founders: 0,
+    bed: (width: {width}, height: 128, soil_depth: {soil_depth}, ground_y: {GROUND_Y}, compartments: 1, founders: 0,
           species: "grass", colonies: 0, colony_ants: {ants}, colony_species: "ant", predators: 0,
           lamp_spacing: {lamp_spacing}, seed: {seed}, extra_walls: []),
     settings: [(subject: "the bed", field: "rain", value: 0)],
     placements: [
         {extra}
-        Colony(species: "ant", x: {NEST_X}, count: {ants}),
+        Colony(species: "ant", x: {nest_x}, count: {ants}),
     ],
     timeline: [],
     horizon: 100000,
@@ -195,6 +218,16 @@ pub struct Forage {
     pub frames: u64,
     pub heap: i32,
     pub game_walk: bool,
+    /// **Far food** (`forage-far`): the heap [`FAR_DIST`] columns out, on a
+    /// bed widened to hold it. The near distances only ever show a scout's
+    /// reserve (`FoodTrail::reserve`) as a gain, so selection there settles
+    /// on a leash: a fixed reserve of 0.6 lifted the forage champion's worse
+    /// side 43.5 -> 66.1 with the food at 95 and cut it 14.8 -> 2.8 at 170,
+    /// and at 200 lost 95 of its 96 founders (8 layouts, 12k frames,
+    /// `ladder/reserve-leash-check.md`). Scored as the near arena is; a
+    /// suite of both (`arenas=forage,forage-far`) prices a leash by the
+    /// product.
+    pub far: bool,
 }
 
 /// The heap's distance from the nest, in columns. **Set by the heap's own
@@ -211,11 +244,50 @@ const FORAGE_DIST: (i32, i32) = (45, 95);
 /// heap of 300 at rest spans about 25.
 const HEAP_REACH: i32 = 40;
 
+/// The far heap's distance ([`Forage::far`]): from just past the near
+/// arena's [`FORAGE_DIST`] to where the leash check found the 0.6 reserve
+/// wiping the champion's colony out.
+const FAR_DIST: (i32, i32) = (120, 200);
+
+/// The far bed's ends, the ladder lane's far-food bed: the nest
+/// `FAR_BEHIND` columns from the wall behind it and `FAR_BEYOND` columns of
+/// ground past the heap, so the bed is `FAR_BEHIND + dist + FAR_BEYOND`
+/// wide. **At 70 columns that is the near bed exactly** (256 wide, the nest
+/// at 128), and replayed there it scored the rig's own hold-out to the digit
+/// (`ladder/probes/leash/rigcheck-champ-2.log`). A wider bed costs no frame
+/// time of its own: a 6k-frame layout took 1.4-1.8 s at 256, 326 and 386
+/// wide, one thread.
+const FAR_BEHIND: i32 = 128;
+const FAR_BEYOND: i32 = 58;
+const _: () = assert!(FAR_BEHIND == NEST_X && FAR_BEHIND + 70 + FAR_BEYOND == BED_W);
+
 impl Forage {
-    fn dist(layout: Layout) -> i32 {
-        let (lo, hi) = FORAGE_DIST;
+    fn dist(&self, layout: Layout) -> i32 {
+        let (lo, hi) = if self.far { FAR_DIST } else { FORAGE_DIST };
         lo + ((layout.seed.wrapping_mul(0x9E37_79B9_7F4A_7C15) >> 32) % (hi - lo + 1) as u64) as i32
     }
+
+    /// The bed's width, the nest's column and the heap's, for one layout:
+    /// the food east on even layouts and west on odd ones. Near, the nest
+    /// is the centre of [`BED_W`]; far, it keeps [`FAR_BEHIND`] to the wall
+    /// behind it on either side, so the two sides of a pair mirror.
+    fn geometry(&self, layout: Layout) -> (i32, i32, i32) {
+        let side = if layout.k.is_multiple_of(2) { 1 } else { -1 };
+        let dist = self.dist(layout);
+        if self.far {
+            far_bed(dist, side)
+        } else {
+            (BED_W, NEST_X, NEST_X + side * dist)
+        }
+    }
+}
+
+/// The far bed for a heap `dist` columns out on `side` (1 east, -1 west):
+/// its width, the nest's column and the heap's ([`FAR_BEHIND`]).
+fn far_bed(dist: i32, side: i32) -> (i32, i32, i32) {
+    let width = FAR_BEHIND + dist + FAR_BEYOND;
+    let nest_x = if side > 0 { FAR_BEHIND } else { width - FAR_BEHIND };
+    (width, nest_x, nest_x + side * dist)
 }
 
 fn cells_of(w: &World, x0: i32, x1: i32, mat: material::MaterialId) -> i64 {
@@ -232,7 +304,11 @@ fn cells_of(w: &World, x0: i32, x1: i32, mat: material::MaterialId) -> i64 {
 
 impl Challenge for Forage {
     fn name(&self) -> &'static str {
-        "forage"
+        if self.far {
+            "forage-far"
+        } else {
+            "forage"
+        }
     }
     fn unit(&self) -> Unit {
         Unit::Colony
@@ -253,21 +329,32 @@ impl Challenge for Forage {
         true
     }
     fn run(&self, layout: Layout, genomes: &[&[f32]], look: &mut dyn FnMut(u64, &World)) -> Vec<Score> {
+        // **No bigger than 300**: [`FORAGE_DIST`] is set by a 300-cell
+        // heap's slump, and a bigger one reaches home at the near end (food
+        // scored that was never carried) and the wall at the far end.
+        assert!(self.heap <= 300, "a heap of {} slumps past FORAGE_DIST's bounds (the_heap_lies_clear_of_home_and_the_wall)", self.heap);
         let side = if layout.k.is_multiple_of(2) { 1 } else { -1 };
-        let dist = Self::dist(layout);
-        let heap_x = NEST_X + side * dist;
+        let dist = self.dist(layout);
+        let (width, nest_x, heap_x) = self.geometry(layout);
         let extra = format!(r#"Heap(material: "provisions", x: {heap_x}, cells: {}),"#, self.heap);
-        let (mut w, _, _) = bed(layout.seed, self.ants, &extra).build();
+        let sc = bed_at(layout.seed, self.ants, &extra, 40, 33, width, nest_x);
+        let (mut w, _, _) = sc.build();
         let sp = clone_colony(&mut w, genomes[0], self.game_walk, layout);
         let food = w.materials.id_of("provisions").expect("provisions");
-        let before = cells_of(&w, heap_x - HEAP_REACH, heap_x + HEAP_REACH, food);
+        // **`taken` stops short of home**: at 45 columns a window of
+        // `HEAP_REACH` either side reached home columns +5 to +12, and food
+        // carried home into that strip read as never taken (review of PR
+        // 708, nit 7). A printed part only, never `fit`.
+        let (lo, hi) = (heap_x - HEAP_REACH, heap_x + HEAP_REACH);
+        let (lo, hi) = if side > 0 { (lo.max(nest_x + 13), hi) } else { (lo, hi.min(nest_x - 13)) };
+        let before = cells_of(&w, lo, hi, food);
         let founders = ants_of(&w, sp);
         // The colony's number now, while its founders live: a dead id's
         // colony reads 0, whose books are empty, and the first run of this
         // score read no meals at all on the layouts where founder 0 died.
         let colony = founders.first().map_or(0, |&id| w.colony_of(id));
         for f in 0..self.frames {
-            frame(&mut w, true);
+            frame_timed(&mut w, &sc, true);
             look(f + 1, &w);
         }
         let st = &w.creature_stats;
@@ -276,7 +363,7 @@ impl Challenge for Forage {
         let larvae_j = st.brood_crop_fed_j + st.brood_ate_j;
         // Joules kept per joule of face value, from the adults' own meals.
         let keep = if st.digested_face > 0.0 { ((books.intake() - larvae_j) / st.digested_face).clamp(0.05, 1.0) } else { 1.0 };
-        let floor = cells_of(&w, NEST_X - 12, NEST_X + 12, food) as f64;
+        let floor = cells_of(&w, nest_x - 12, nest_x + 12, food) as f64;
         let adult = st.digested_at_nest_face / 960.0;
         let larvae = larvae_j / keep / 960.0;
         let corpse = corpse_j / keep / 960.0;
@@ -290,7 +377,7 @@ impl Challenge for Forage {
             parts: vec![
                 home,
                 alive as f64,
-                (before - cells_of(&w, heap_x - HEAP_REACH, heap_x + HEAP_REACH, food)) as f64,
+                (before - cells_of(&w, lo, hi, food)) as f64,
                 w.creature_stats.pickups as f64,
                 dist as f64,
                 kept,
@@ -437,11 +524,9 @@ impl Trail {
         let ids = ants_of(&w, sp);
         assert_eq!(ids.len(), n, "every planted ant became an animal");
         let mut start = vec![0i32; n];
-        if let Some(at) = super::blocks(genomes[0].len()).walk {
-            let genes = &genomes[0][at..at + super::WALK];
-            assert!(genomes.iter().all(|g| &g[at..at + super::WALK] == genes), "walk genes are one per world (the reserve is the world's)");
-            give_walk(&mut w, sp, &ids, genes);
-        }
+        // No walk genes: this arena always walks by the brain, which reads
+        // none of them (`super::WALK`), so a suite's walk block rides
+        // through here unread.
         for (k, &id) in ids.iter().enumerate() {
             w.set_organism_genome(id, genomes[k][..super::SCORER].to_vec());
             start[k] = w.organism(id).and_then(|s| s.chain.first().copied()).map_or(mid, |p| p.0);
@@ -887,23 +972,45 @@ pub fn dug_cells(w: &World, spec: &crate::lab::scene::LabBox) -> Vec<((i32, i32)
 /// and the suite keeps the earlier arenas in every generation.
 ///
 /// Score: the geometric mean over arenas of `fit / reference`, where each
-/// reference is the start genome's own hold-out score there
-/// ([`Suite::calibrate`]). A product rather than a sum, so a brain that is
-/// excellent at one job and useless at another scores near zero; and an
-/// arena marked `keep` (an old skill) whose ratio falls under `floor`
-/// multiplies the whole score by a tenth, so forgetting is never worth it.
-/// Per-ant arenas are run with every ant a clone.
+/// reference is the start genome's own score there on the calibration
+/// layouts ([`Suite::calibrate`]). A product rather than a sum, so a brain
+/// that is excellent at one job and useless at another scores near zero;
+/// and an arena marked `keep` (an old skill) that falls more than `forget`
+/// standard errors under its reference multiplies the whole score by a
+/// tenth, so forgetting is never worth it. Per-ant arenas are run with
+/// every ant a clone.
+///
+/// **Each arena is folded on its own, then multiplied** ([`Challenge::
+/// combine`]): the worse side of each mirrored pair, arena by arena. The
+/// first suite folded the product, so a brain that foraged only east and
+/// dug only on the west bed scored `sqrt(hi x lo)` on both sides and passed
+/// as having learned both (ladder lane, `next-rung-forage-dig.md`). The
+/// forget floor is read on the folded score for the same reason: per
+/// layout, one bad bed of a noisy arena tripped it. **A ratio counts up to
+/// [`RATIO_CAP`]**, so one arena's runaway cannot pay for another's loss.
 pub struct Suite {
     pub arenas: Vec<(Box<dyn Challenge>, bool)>,
     pub refs: Vec<f64>,
-    pub floor: f64,
+    /// Each arena's spread at calibration: the standard deviation of its
+    /// folded units (a mirrored pair's worse side, or one layout).
+    pub sds: Vec<f64>,
+    /// Standard errors under its reference at which a `keep` arena counts
+    /// as forgotten.
+    pub forget: f64,
     names: &'static [&'static str],
     banned: &'static [O],
 }
 
+/// The most one arena's ratio to its reference counts for in a suite.
+pub const RATIO_CAP: f64 = 3.0;
+
 impl Suite {
     /// `arenas`: each challenge, and whether it is an old skill to keep.
-    pub fn new(arenas: Vec<(Box<dyn Challenge>, bool)>, floor: f64) -> Self {
+    /// **No target scorer**: the genome's scorer would go into every arena's
+    /// world, and `free=` reaches only dig's (coordinator review of PR 709,
+    /// N8; refused here, not only on the command line, since PR 710's).
+    pub fn new(arenas: Vec<(Box<dyn Challenge>, bool)>, forget: f64) -> Self {
+        assert!(arenas.iter().all(|(a, _)| !a.scorer()), "a suite would put the target scorer in every arena's world");
         let mut names: Vec<&'static str> = vec![];
         for (a, _) in &arenas {
             names.push(Box::leak(format!("{}_ratio", a.name()).into_boxed_str()));
@@ -921,7 +1028,8 @@ impl Suite {
             }
         }
         let refs = vec![1.0; arenas.len()];
-        Suite { arenas, refs, floor, names: Box::leak(names.into_boxed_slice()), banned: Box::leak(banned.into_boxed_slice()) }
+        let sds = vec![0.0; arenas.len()];
+        Suite { arenas, refs, sds, forget, names: Box::leak(names.into_boxed_slice()), banned: Box::leak(banned.into_boxed_slice()) }
     }
 }
 
@@ -950,44 +1058,71 @@ impl Challenge for Suite {
     fn mirrored(&self) -> bool {
         self.arenas.iter().any(|(a, _)| a.mirrored())
     }
-    fn scorer(&self) -> bool {
-        self.arenas.iter().any(|(a, _)| a.scorer())
-    }
+    /// One layout: every arena run on it, and its fit the product of this
+    /// layout's capped ratios, for a per-layout readout only. What training
+    /// and the hold-out read is [`Suite::combine`]'s, from the raw fits in
+    /// the second half of `parts`.
     fn run(&self, layout: Layout, genomes: &[&[f32]], look: &mut dyn FnMut(u64, &World)) -> Vec<Score> {
         let g = genomes[0];
         let mut ratios = vec![];
         let mut fits = vec![];
-        let mut log_sum = 0.0;
-        let mut forgot = false;
-        for (i, (a, keep)) in self.arenas.iter().enumerate() {
+        for (i, (a, _)) in self.arenas.iter().enumerate() {
             let gs: Vec<&[f32]> = vec![g; if a.unit() == Unit::Ant { a.ants() } else { 1 }];
             let mut quiet = |_: u64, _: &World| {};
             let watcher: &mut dyn FnMut(u64, &World) = if i == 0 { &mut *look } else { &mut quiet };
             let s = super::mean_score(&a.run(layout, &gs, watcher));
-            let r = s.fit.max(0.0) / self.refs[i];
-            if *keep && r < self.floor {
-                forgot = true;
-            }
-            log_sum += r.max(1e-3).ln();
-            ratios.push(r);
+            ratios.push((s.fit.max(0.0) / self.refs[i]).min(RATIO_CAP));
             fits.push(s.fit);
         }
-        let mut fit = (log_sum / self.arenas.len() as f64).exp();
-        if forgot {
-            fit *= 0.1;
-        }
+        let fit = (ratios.iter().map(|r| r.max(1e-3).ln()).sum::<f64>() / ratios.len() as f64).exp();
         ratios.extend(fits);
         vec![Score { fit, parts: ratios }]
     }
 
-    /// Set every arena's reference to `g`'s hold-out score there (floored
-    /// at a small positive number, so an arena the start cannot do at all
-    /// pays for any progress rather than dividing by zero).
+    /// Each arena folded on its own ([`super::worse_side`] on its raw fits),
+    /// then the geometric mean of the capped ratios, with the forget floor
+    /// read on each `keep` arena's folded score: under its reference by
+    /// more than `forget` standard errors of a fold over this many units.
+    /// `parts` are each arena's folded ratio, then its folded fit.
+    fn combine(&self, v: &[Score], layouts: &[Layout]) -> Score {
+        let n = self.arenas.len();
+        let mut ratios = vec![];
+        let mut fits = vec![];
+        let mut forgot = false;
+        for (i, (a, keep)) in self.arenas.iter().enumerate() {
+            let own: Vec<Score> = v.iter().map(|s| Score { fit: s.parts[n + i], parts: vec![] }).collect();
+            let f = super::worse_side(a.mirrored(), &own, layouts).fit;
+            let units = super::sides(a.mirrored(), layouts).len().max(1) as f64;
+            if *keep && f < self.refs[i] - self.forget * self.sds[i] / units.sqrt() {
+                forgot = true;
+            }
+            ratios.push((f.max(0.0) / self.refs[i]).min(RATIO_CAP));
+            fits.push(f);
+        }
+        let mut fit = (ratios.iter().map(|r| r.max(1e-3).ln()).sum::<f64>() / n as f64).exp();
+        if forgot {
+            fit *= 0.1;
+        }
+        ratios.extend(fits);
+        Score { fit, parts: ratios }
+    }
+
+    /// Set every arena's reference to `g`'s folded score there (floored at
+    /// a small positive number, so an arena the start cannot do at all pays
+    /// for any progress rather than dividing by zero), and its spread over
+    /// the folded units, for the forget floor.
     fn calibrate(&mut self, g: &[f32], layouts: &[Layout], threads: usize) {
         for (i, (a, _)) in self.arenas.iter().enumerate() {
-            let s = super::score_clones(a.as_ref(), g, layouts, threads);
-            self.refs[i] = s.fit.max(0.05);
-            println!("suite reference {}: {:.3}", a.name(), self.refs[i]);
+            let each = super::score_each(a.as_ref(), g, layouts, threads);
+            let units: Vec<f64> = super::sides(a.mirrored(), layouts)
+                .into_iter()
+                .map(|(x, y)| y.map_or(each[x].fit, |y| each[x].fit.min(each[y].fit)))
+                .collect();
+            let m = units.len().max(1) as f64;
+            let mean = units.iter().sum::<f64>() / m;
+            self.refs[i] = mean.max(0.05);
+            self.sds[i] = (units.iter().map(|u| (u - mean).powi(2)).sum::<f64>() / (m - 1.0).max(1.0)).sqrt();
+            println!("suite reference {}: {:.3}, spread {:.3} over {} units", a.name(), self.refs[i], self.sds[i], units.len());
         }
     }
 }
@@ -1259,6 +1394,39 @@ mod tests {
         assert!(cells_of(&w, NEST_X - 12, NEST_X + 12, food) > 0, "a heap 30 columns out should reach home; if not, this test cannot see it");
     }
 
+    /// **The far heap lies clear of home and of the wall too**, at both ends
+    /// of [`FAR_DIST`] and on both sides, on the far bed ([`far_bed`]), and
+    /// the two sides mirror. The positive control: on a bed with only 10
+    /// columns past the peak, the same heap does run into the wall.
+    #[test]
+    fn the_far_heap_lies_clear_of_home_and_the_wall() {
+        let slumped = |width: i32, nest_x: i32, heap_x: i32| {
+            let extra = format!(r#"Heap(material: "provisions", x: {heap_x}, cells: 300),"#);
+            let (mut w, _, _) = bed_at(3, 0, &extra, 40, 33, width, nest_x).build();
+            for _ in 0..2000 {
+                frame(&mut w, false);
+            }
+            w
+        };
+        for dist in [FAR_DIST.0, FAR_DIST.1] {
+            let (we, ne, he) = far_bed(dist, 1);
+            let (ww, nw, hw) = far_bed(dist, -1);
+            assert_eq!((we, ne, he), (ww, we - nw, we - hw), "dist {dist}: the two sides do not mirror");
+            for (nest_x, heap_x) in [(ne, he), (nw, hw)] {
+                let w = slumped(we, nest_x, heap_x);
+                let food = w.materials.id_of("provisions").expect("provisions");
+                let inside = cells_of(&w, 6, we - 6, food);
+                assert_eq!(inside, 300, "dist {dist} heap {heap_x}: {inside} of 300 cells inside the box");
+                assert_eq!(cells_of(&w, nest_x - 12, nest_x + 12, food), 0, "dist {dist} heap {heap_x}: heap reaches home");
+                assert_eq!(cells_of(&w, heap_x - HEAP_REACH, heap_x + HEAP_REACH, food), 300, "dist {dist} heap {heap_x}: heap wider than HEAP_REACH");
+            }
+        }
+        let (width, nest_x, heap_x) = (FAR_BEHIND + FAR_DIST.1 + 10, FAR_BEHIND, FAR_BEHIND + FAR_DIST.1);
+        let w = slumped(width, nest_x, heap_x);
+        let food = w.materials.id_of("provisions").expect("provisions");
+        assert!(cells_of(&w, 6, width - 6, food) < 300, "a heap 10 columns from the wall should run into it; if not, this test cannot see it");
+    }
+
     /// **A blind colony gets no pull to the door from the spoil haul.**
     /// `home_bias` 0 cuts every homeward pull that reads it, and the haul
     /// (`SPOIL_OUT`'s `haul`, on by default) did not read it, so pellets in
@@ -1313,5 +1481,60 @@ mod tests {
         }
         assert_eq!(w.species.get(sp).creature.as_ref().expect("creature").traits[organism::TRAIT_SCOUT], -1.0);
         assert_eq!(creature::food_trail_of(&w), creature::FoodTrail { reserve: 0.6, ..before });
+    }
+
+    /// An arena that scores `east` on even layouts and `west` on odd ones.
+    struct Sided {
+        east: f64,
+        west: f64,
+    }
+    impl Challenge for Sided {
+        fn name(&self) -> &'static str {
+            "sided"
+        }
+        fn unit(&self) -> Unit {
+            Unit::Colony
+        }
+        fn ants(&self) -> usize {
+            1
+        }
+        fn parts(&self) -> &'static [&'static str] {
+            &[]
+        }
+        fn banned(&self) -> &'static [O] {
+            &[]
+        }
+        fn frames(&self) -> u64 {
+            1
+        }
+        fn mirrored(&self) -> bool {
+            true
+        }
+        fn run(&self, l: Layout, _: &[&[f32]], _: &mut dyn FnMut(u64, &World)) -> Vec<Score> {
+            vec![Score { fit: if l.k.is_multiple_of(2) { self.east } else { self.west }, parts: vec![] }]
+        }
+    }
+
+    /// **A suite folds each arena on its own before the product**: one
+    /// arena done only east and another only west is worse side 1 on both,
+    /// not the `sqrt(4 x 1) = 2` the first suite read on each side; a
+    /// runaway ratio counts up to `RATIO_CAP`; and a kept arena under its
+    /// reference by more than `forget` standard errors costs nine tenths.
+    #[test]
+    fn a_suite_folds_each_arena_before_the_product() {
+        let lay = [Layout { seed: 1, k: 0, blind: false, legal: false }, Layout { seed: 1, k: 1, blind: false, legal: false }];
+        let g = vec![0.0f32; 1];
+        let score = |s: &Suite| crate::train::score_clones(s, &g, &lay, 1).fit;
+        let split = Suite::new(vec![(Box::new(Sided { east: 4.0, west: 1.0 }), false), (Box::new(Sided { east: 1.0, west: 4.0 }), false)], 2.0);
+        assert!((score(&split) - 1.0).abs() < 1e-9, "one-sided arenas scored {}", score(&split));
+        let runaway = Suite::new(vec![(Box::new(Sided { east: 10.0, west: 10.0 }), false), (Box::new(Sided { east: 1.0, west: 1.0 }), false)], 2.0);
+        assert!((score(&runaway) - RATIO_CAP.sqrt()).abs() < 1e-9, "a ratio of 10 was not capped: {}", score(&runaway));
+        let mut kept = Suite::new(vec![(Box::new(Sided { east: 1.0, west: 1.0 }), true)], 2.0);
+        assert!((score(&kept) - 1.0).abs() < 1e-9);
+        kept.refs[0] = 1.5;
+        kept.sds[0] = 0.1;
+        assert!((score(&kept) - 0.1 / 1.5).abs() < 1e-9, "a kept arena 0.5 under its reference with a spread of 0.1 was not forgotten: {}", score(&kept));
+        kept.sds[0] = 1.0;
+        assert!((score(&kept) - 1.0 / 1.5).abs() < 1e-9, "inside two standard errors (2.0) it is noise, not forgetting: {}", score(&kept));
     }
 }
