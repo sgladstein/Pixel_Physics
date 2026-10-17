@@ -139,6 +139,9 @@ pub struct TextbookCfg {
     /// **Slice C, brood sorting** (`None` is slice A's or B's verbs). See
     /// [`SortCfg`]. Takes precedence over `forage`.
     pub sort: Option<SortCfg>,
+    /// **Layer 1 of the rebuild: dig and forage in one run** (`None` keeps
+    /// the slices apart). Read only together with `forage`. See [`NestCfg`].
+    pub nest: Option<NestCfg>,
 }
 
 /// **Slice C's parameters: brood sorting by size** (Franks & Sendova-Franks
@@ -412,6 +415,131 @@ pub struct ForageCfg {
     pub kn: bool,
 }
 
+/// **Layer 1 of the rebuild: one colony that digs and forages** (owner,
+/// 2026-10-16: "rebuild ant", in layers, in today's world; the design is
+/// `/mnt/project-files/emergence-sandbox/textbook-ant/layer1-dig-and-forage-2026-10-16.md`).
+/// With `nest` and `forage` both set, [`act`] routes each decision by what
+/// the ant carries and its role:
+/// - **carrying food**: home on the home vector, laying the food trail, and
+///   put it down at home (slice B's verbs);
+/// - **carrying soil**: under a roof, walk up and keep it; out from under,
+///   put it down by Khuong's Eq. 1 (slice A's verb), so spoil heaps outside;
+/// - **an empty forager**: walk to the food it last found (its own memory,
+///   not a feeder the harness names), or explore on the trail, and take
+///   food it touches;
+/// - **an empty digger**: cut soil touching its head, with a chance that
+///   rises with the nestmates round it ([`NestCfg::dig_crowd`]).
+///
+/// Roles are fixed by ant id ([`NestCfg::forager_frac`]): a labelled stand-in
+/// for layer 2's hunger.
+#[derive(Clone, Copy, Debug)]
+pub struct NestCfg {
+    /// The share of ants that forage; the rest dig. Chosen by ant id, so a
+    /// role never changes (ours: a stand-in until hunger decides it).
+    pub forager_frac: f32,
+    /// A digger's chance to cut a soil cell touching its head, per decision.
+    pub dig: f32,
+    /// **Digging needs company** (Rasse & Deneubourg 2001, *Insectes Soc.*
+    /// 48:9, *Lasius niger*: excavation rate rises with the ants at work and
+    /// nest volume settles in proportion to the colony; Buhl et al. 2004,
+    /// *Naturwissenschaften* 91:602, *Messor sancta*): the dig chance is
+    /// multiplied by `min(1, m / dig_crowd)`, `m` the other ants within two
+    /// cells of the head. Digging then concentrates where ants are and stops
+    /// where a grown nest spreads them thin. 0: off, company is not read
+    /// (the control).
+    pub dig_crowd: f32,
+    /// **Under a roof**: ground within this many cells straight above the
+    /// head (ours: a stand-in for the dark of the nest).
+    pub roof: i32,
+    /// How hard an ant that must leave the nest (a soil carrier, an empty
+    /// forager) pulls upward while under a roof, as `ForageCfg::vector` does.
+    pub up: f32,
+    /// How hard an empty digger under a roof pulls downward (ours: the nest
+    /// is dug down).
+    pub down: f32,
+    /// How hard a digger out on the surface pulls towards home.
+    pub home: f32,
+    /// **The door stays clear**: no spoil is put down within this many
+    /// columns of home (ours: real spoil is carried a little way from the
+    /// entrance, which is what rings a door with a crater; put down at the
+    /// rim, diggers took it straight back, 2026-10-16 first run).
+    pub clear_r: i32,
+    /// **Backing out of a jam** (Aguilar et al. 2018, *Science* 361:672,
+    /// fire ants: diggers that meet a clog at the face reverse rather than
+    /// push in, and most of the digging is done by a few). An empty digger
+    /// with at least `jam` other ants in the six cells ahead of it pulls up
+    /// and out instead of down. 0: off.
+    pub jam: u32,
+    /// **The store is not forage**: a forager takes no food within this
+    /// many cells of home (ours: in the first run foragers took food back
+    /// off the pile they had just delivered, 2,024 picks against 169 cells
+    /// taken from the heap).
+    pub store_r: i32,
+    /// Put spoil down as loose soil, which pours into a cone, instead of
+    /// spoil, which stands wherever it has ground beneath (ours). As spoil,
+    /// carriers stacked it into needles up to 68 cells tall (2026-10-16).
+    pub loose: bool,
+    /// Dig only the cell straight ahead (ours), not one point either side.
+    pub straight: bool,
+}
+
+/// Whether a textbook ant is a forager under [`NestCfg::forager_frac`]: a
+/// hash of its id, so the split holds for the run and is the same across
+/// arms that plant the same ants.
+fn forager(organism: OrganismId, nc: &NestCfg) -> bool {
+    let h = (organism as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15) >> 40;
+    (h as f32 / (1u64 << 24) as f32) < nc.forager_frac
+}
+
+/// Whether `(x, y)` is under a roof: ground within `roof` cells straight
+/// above ([`NestCfg::roof`]).
+fn roofed(world: &World, roof: i32, x: i32, y: i32) -> bool {
+    (1..=roof).any(|d| world.in_bounds(x, y - d) && ground(world, x, y - d))
+}
+
+/// **Inside**: under a roof, or with walls close on both sides (within two
+/// cells). Looking only straight up, an open shaft read as outside and the
+/// colony's spoil was put down in it (world review's prosecution,
+/// 2026-10-16).
+fn inside(world: &World, roof: i32, x: i32, y: i32) -> bool {
+    roofed(world, roof, x, y) || walled(world, 2, x, y)
+}
+
+/// Other ants in the six cells ahead of a head facing `facing` (one and two
+/// cells out, straight and one point either way), by distinct id.
+fn ants_ahead(world: &World, organism: OrganismId, (x, y): (i32, i32), facing: usize) -> u32 {
+    let mut seen: Vec<OrganismId> = [facing, (facing + 1) % 8, (facing + 7) % 8]
+        .iter()
+        .flat_map(|&d| (1..=2).map(move |k| (x + DIRS[d].0 * k, y + DIRS[d].1 * k)))
+        .filter(|&(px, py)| world.in_bounds(px, py))
+        .map(|(px, py)| world.get(px, py).organism_id())
+        .filter(|&o| o != 0 && o != organism)
+        .collect();
+    seen.sort_unstable();
+    seen.dedup();
+    seen.len() as u32
+}
+
+/// Whether `(x, y)` has walls on both sides: ground within `reach` cells
+/// on the head's row, left and right.
+fn walled(world: &World, reach: i32, x: i32, y: i32) -> bool {
+    let side = |s: i32| (1..=reach).any(|d| world.in_bounds(x + s * d, y) && ground(world, x + s * d, y));
+    side(-1) && side(1)
+}
+
+/// Whether `(x, y)` is down a hole: on both sides, ground at or above the
+/// head's row within `reach` cells across and up. A carrier there keeps its
+/// pellet and climbs. Put down at a crater's sides, the spoil fell back
+/// into the pit it came from (first runs, 2026-10-16: 4,600 cuts, ~130
+/// cells dug, the crater's size steady from 20k frames on).
+fn in_hole(world: &World, reach: i32, x: i32, y: i32) -> bool {
+    let side = |s: i32| {
+        (1..=reach)
+            .any(|d| (0..=reach).any(|up| world.in_bounds(x + s * d, y - up) && ground(world, x + s * d, y - up)))
+    };
+    side(-1) && side(1)
+}
+
 /// Steps over which [`ForageCfg::crowd`] counts encounters: about the
 /// paper's 20 cm for a 3-4 mm ant at one cell a body length, a labelled
 /// guess at our grain.
@@ -448,7 +576,13 @@ pub struct TextbookCounts {
     pub no_entry_steps: u64,
     /// [`ForageCfg::explore`]: steps that laid the exploration scent.
     pub explore_steps: u64,
+    /// [`NestCfg`]: soil cells cut by diggers, and dig rolls taken.
+    pub digs: u64,
+    pub dig_rolls: u64,
 }
+
+/// One row of [`Textbook::nest_log`]: `(frame, ant, x, y, material, put)`.
+pub type NestLogRow = (u64, OrganismId, i32, i32, material::MaterialId, bool);
 
 /// **`World::textbook`**: which species decides by it, its parameters and
 /// its counts. Set by a harness at a frame, never from the environment.
@@ -468,6 +602,14 @@ pub struct Textbook {
     /// a file of ants walking nose to tail is not one encounter a step), by
     /// key only.
     pub met: std::collections::HashMap<OrganismId, (f32, Vec<OrganismId>)>,
+    /// [`NestCfg`]: where each forager last took food, its own memory (the
+    /// feeder vector Wehner's desert ants carry), forgotten when it gives
+    /// up there. By key only.
+    pub food_at: std::collections::HashMap<OrganismId, (i32, i32)>,
+    /// [`NestCfg`]'s cuts and put-downs, for a harness's trace: `(frame,
+    /// ant, x, y, material, put)`, `put` false for a cut. `None` records
+    /// nothing; read by nothing in the simulation.
+    pub nest_log: Option<Vec<NestLogRow>>,
 }
 
 impl Textbook {
@@ -478,6 +620,8 @@ impl Textbook {
             counts: TextbookCounts::default(),
             trips: std::collections::HashMap::new(),
             met: std::collections::HashMap::new(),
+            food_at: std::collections::HashMap::new(),
+            nest_log: None,
         }
     }
 }
@@ -619,6 +763,19 @@ pub(super) fn act(world: &mut World, organism: OrganismId, def: &CreatureDef, dr
         sort_act(world, organism, &sc, (x, y), laden.map(|l| l.cell), draw);
         return Did::default();
     }
+    if let (Some(nc), Some(fc)) = (cfg.nest, cfg.forage) {
+        return nest_act(
+            world,
+            organism,
+            def,
+            &cfg,
+            &nc,
+            &fc,
+            (x, y),
+            laden.map(|l| l.cell),
+            draw,
+        );
+    }
     if let Some(fc) = cfg.forage {
         forage_act(world, organism, &fc, (x, y), laden.map(|l| l.cell), draw);
         return Did::default();
@@ -659,39 +816,199 @@ pub(super) fn act(world: &mut World, organism: OrganismId, def: &CreatureDef, dr
             }
         }
         Some(load) => {
-            let options = sites(world, &cfg, (x, y));
-            if options.is_empty() {
-                count(world, |c| c.no_site += 1);
+            put_down(world, organism, &cfg, (x, y), load.cell, n, draw);
+            Did::default()
+        }
+    }
+}
+
+/// **Khuong's Eq. 1, the put-down**: a laden ant takes a site at random
+/// ([`sites`]) and puts its pellet there with `F(h) (1 - exp(-(eta_d,0 +
+/// b_d n) dt exp(-tau_m / tau)))`. `n` is [`pellets_round`] the head.
+fn put_down(
+    world: &mut World,
+    organism: OrganismId,
+    cfg: &TextbookCfg,
+    (x, y): (i32, i32),
+    cell: Cell,
+    n: u32,
+    draw: &mut rng::Rng,
+) {
+    let options = sites(world, cfg, (x, y));
+    if options.is_empty() {
+        count(world, |c| c.no_site += 1);
+        return;
+    }
+    let (at, side) = options[draw.below(options.len() as u32) as usize];
+    let fresh = mark_round(world, cfg.tau, (x, y));
+    let template = if side {
+        (open_below(world, at.0, at.1) as f32 - cfg.template + 0.5).clamp(0.0, 1.0)
+    } else {
+        1.0
+    };
+    // **`base_always`**: the scent scales the pile term only, so a
+    // carrier still drops at `drop_base` where nothing is fresh.
+    let rate = if cfg.base_always {
+        cfg.drop_base + cfg.drop_per * n as f32 * fresh
+    } else {
+        (cfg.drop_base + cfg.drop_per * n as f32) * fresh
+    };
+    let chance = template * (1.0 - (-rate * cfg.dt).exp());
+    let won = draw.unit_f32() < chance;
+    count(world, |c| {
+        c.rolls += 1;
+        c.mark_sum += f64::from(fresh);
+        c.drops += u64::from(won);
+        c.side_rolls += u64::from(side);
+        c.side_drops += u64::from(side && won);
+    });
+    if won {
+        place_pellet(world, organism, at, cell);
+        world.creature_stats.spoil_dumped += 1;
+        let frame = world.frame;
+        if let Some(log) = world.textbook.as_mut().and_then(|t| t.nest_log.as_mut()) {
+            log.push((frame, organism, at.0, at.1, cell.material, true));
+        }
+    }
+}
+
+/// **Layer 1's verbs** ([`NestCfg`]): routed by what the ant carries and
+/// its role. Returns what the tick charges for (a cut is a dig).
+#[allow(clippy::too_many_arguments)]
+fn nest_act(
+    world: &mut World,
+    organism: OrganismId,
+    def: &CreatureDef,
+    cfg: &TextbookCfg,
+    nc: &NestCfg,
+    fc: &ForageCfg,
+    (x, y): (i32, i32),
+    load: Option<Cell>,
+    draw: &mut rng::Rng,
+) -> Did {
+    match load {
+        Some(cell) if cell.material == fc.food => {
+            forage_act(world, organism, fc, (x, y), Some(cell), draw);
+            Did::default()
+        }
+        Some(mut cell) => {
+            // **Put down as spoil**, which stands wherever it has ground
+            // beneath (`needs_footing`). The cut's own pellet is packed
+            // soil, which crumbles to loose soil with fewer than three
+            // ground neighbours: a lone pellet on the rim poured back into
+            // the crater, and the nest region's ground stayed level while
+            // 1,883 cells were cut (2026-10-16). The game ant gets the same
+            // under `SPOIL_FOOTING`.
+            if let Some(m) = world.materials.id_of(if nc.loose { "soil" } else { "spoil" }) {
+                cell.material = m;
+            }
+            // Spoil goes out: nothing is put down under a roof, nor by
+            // the door.
+            if !roofed(world, nc.roof, x, y) && !in_hole(world, nc.roof, x, y) && (x - fc.home.0).abs() > nc.clear_r {
+                let n = pellets_round(world, cfg, (x, y));
+                put_down(world, organism, cfg, (x, y), cell, n, draw);
+            }
+            Did::default()
+        }
+        None if forager(organism, nc) => {
+            // The feeder vector is the ant's own memory; with none, it
+            // explores and never gives up.
+            let memory = world.textbook.as_ref().and_then(|t| t.food_at.get(&organism).copied());
+            let mut f = *fc;
+            match memory {
+                Some(m) => f.feeder = m,
+                None => f.give_up = 0,
+            }
+            f.home_r = f.home_r.max(nc.store_r);
+            let before = world.organism(organism).is_some_and(|s| s.spoil.is_some());
+            forage_act(world, organism, &f, (x, y), None, draw);
+            let took = !before && world.organism(organism).is_some_and(|s| s.spoil.is_some());
+            if let Some(t) = world.textbook.as_mut() {
+                if took {
+                    t.food_at.insert(organism, (x, y));
+                } else if t.trips.get(&organism).is_some_and(|t| t.1) {
+                    t.food_at.remove(&organism);
+                }
+            }
+            Did::default()
+        }
+        None => {
+            // Any ground the jaw can cut, lining included (the cut below
+            // lines the walls round it, and a digger held to the bed's own
+            // soil could never widen a lined tunnel), but not spoil: put
+            // down outside, it is the mound, and diggers working the door
+            // took it straight back (first run, 2026-10-16). Nor any cell
+            // an ant put down (`build_marks`, Khuong's marked pellets): a
+            // put-down pellet keeps the cut cell's material, soil or lining,
+            // and diggers dug the mound back as fast as it was built (10k
+            // frames: 609 cuts, 624 put-downs, ground in the nest region
+            // +15 cells).
+            // **It digs ahead** (the cell it faces, or one point either
+            // side), never round it: a crowd at the door that cut every cell
+            // it touched dug one wide crater, and the whole colony stood
+            // in it (first run, 2026-10-16). Ants in a tunnel face along
+            // it, so the face is the tunnel's end.
+            let spoil = world.materials.id_of("spoil");
+            let ahead = world
+                .organism(organism)
+                .and_then(|s| facing_of(&s.chain))
+                .map_or(0, |(_, _, f)| f);
+            let dirs: &[usize] = if nc.straight {
+                &[ahead]
+            } else {
+                &[ahead, (ahead + 1) % 8, (ahead + 7) % 8]
+            };
+            let face: Vec<(i32, i32)> = dirs
+                .iter()
+                .map(|&d| DIRS[d])
+                .map(|(dx, dy)| (x + dx, y + dy))
+                .filter(|&(px, py)| {
+                    world.in_bounds(px, py) && {
+                        let c = world.get(px, py);
+                        c.organism_id() == 0
+                            && c.material != fc.food
+                            && Some(c.material) != spoil
+                            && !world.build_marks.contains_key(&(px, py))
+                            && jaw_can_cut(world, def, organism, c)
+                    }
+                })
+                .collect();
+            if face.is_empty() {
                 return Did::default();
             }
-            let (at, side) = options[draw.below(options.len() as u32) as usize];
-            let fresh = mark_round(world, cfg.tau, (x, y));
-            let template = if side {
-                (open_below(world, at.0, at.1) as f32 - cfg.template + 0.5).clamp(0.0, 1.0)
+            let company = if nc.dig_crowd > 0.0 {
+                let mut near: Vec<OrganismId> = (-2..=2)
+                    .flat_map(|dy| (-2..=2).map(move |dx| (x + dx, y + dy)))
+                    .filter(|&(px, py)| world.in_bounds(px, py))
+                    .map(|(px, py)| world.get(px, py).organism_id())
+                    .filter(|&o| o != 0 && o != organism)
+                    .collect();
+                near.sort_unstable();
+                near.dedup();
+                (near.len() as f32 / nc.dig_crowd).min(1.0)
             } else {
                 1.0
             };
-            // **`base_always`**: the scent scales the pile term only, so a
-            // carrier still drops at `drop_base` where nothing is fresh.
-            let rate = if cfg.base_always {
-                cfg.drop_base + cfg.drop_per * n as f32 * fresh
-            } else {
-                (cfg.drop_base + cfg.drop_per * n as f32) * fresh
-            };
-            let chance = template * (1.0 - (-rate * cfg.dt).exp());
-            let won = draw.unit_f32() < chance;
-            count(world, |c| {
-                c.rolls += 1;
-                c.mark_sum += f64::from(fresh);
-                c.drops += u64::from(won);
-                c.side_rolls += u64::from(side);
-                c.side_drops += u64::from(side && won);
-            });
-            if won {
-                place_pellet(world, organism, at, load.cell);
-                world.creature_stats.spoil_dumped += 1;
+            count(world, |c| c.dig_rolls += 1);
+            if draw.unit_f32() >= nc.dig * company {
+                return Did::default();
             }
-            Did::default()
+            let at = face[draw.below(face.len() as u32) as usize];
+            let (frame, cut) = (world.frame, world.get(at.0, at.1).material);
+            if let Some(log) = world.textbook.as_mut().and_then(|t| t.nest_log.as_mut()) {
+                log.push((frame, organism, at.0, at.1, cut, false));
+            }
+            cut_cell(world, organism, at, true);
+            // **The cut lines its walls**, as the game ant's and the needs
+            // walk's do (`line_burrow`): a tunnel cut without it falls in
+            // behind the digger, unlined soil being measured to come down
+            // by frame 5 (world review, `world-review/medium.md`, 2026-10-16).
+            line_burrow(world, at.0, at.1);
+            count(world, |c| c.digs += 1);
+            Did {
+                dug: 1,
+                ..Did::default()
+            }
         }
     }
 }
@@ -726,8 +1043,22 @@ pub(super) fn step(
         .as_ref()
         .and_then(|t| t.trips.get(&organism))
         .is_some_and(|t| t.1);
-    let heading = match forage {
-        Some(fc) => match forage_heading(world, &fc, &chain, &usable, laden || gave_up, draw) {
+    let nest = world.textbook.as_ref().and_then(|t| t.cfg.nest);
+    let load = world.organism(organism).and_then(|s| s.spoil.map(|l| l.cell));
+    // Under layer 1 only food is a laden trip: a soil carrier lays no trail.
+    let laden = match (nest, forage) {
+        (Some(_), Some(fc)) => load.is_some_and(|c| c.material == fc.food),
+        _ => laden,
+    };
+    let chosen = match (nest, forage) {
+        (Some(nc), Some(fc)) => Some(nest_heading(
+            world, organism, &nc, &fc, &chain, &usable, load, gave_up, draw,
+        )),
+        (_, Some(fc)) => Some(forage_heading(world, &fc, &chain, &usable, laden || gave_up, draw)),
+        _ => None,
+    };
+    let heading = match chosen {
+        Some(choice) => match choice {
             Some(d) => d,
             None => {
                 count(world, |c| c.stuck += 1);
@@ -1031,6 +1362,17 @@ fn forage_heading(
     laden: bool,
     draw: &mut rng::Rng,
 ) -> Option<u8> {
+    let (hx, hy, facing) = facing_of(chain)?;
+    let (tx, ty) = if laden { fc.aim_home } else { fc.feeder };
+    let pull = if laden { fc.vector } else { fc.vector_out };
+    let ty = if fc.out_flat { hy } else { ty };
+    let (vx, vy) = ((tx - hx) as f32, (ty - hy) as f32);
+    heading_by(world, fc, (hx, hy), facing, usable, (vx, vy), pull, fc.read, draw)
+}
+
+/// The facing of a body: from its second cell to its head, as an index
+/// into `DIRS` (0 for a one-cell body).
+fn facing_of(chain: &[(i32, i32)]) -> Option<(i32, i32, usize)> {
     let &(hx, hy) = chain.first()?;
     let facing = chain
         .get(1)
@@ -1039,10 +1381,76 @@ fn forage_heading(
             DIRS.iter().position(|&v| v == d)
         })
         .unwrap_or(0);
-    let (tx, ty) = if laden { fc.aim_home } else { fc.feeder };
-    let pull = if laden { fc.vector } else { fc.vector_out };
-    let ty = if fc.out_flat { hy } else { ty };
-    let (vx, vy) = ((tx - hx) as f32, (ty - hy) as f32);
+    Some((hx, hy, facing))
+}
+
+/// **Layer 1's step** ([`NestCfg`]): slice B's weighting, aimed by what the
+/// ant carries and its role. Out of the nest (a soil carrier, a forager
+/// under a roof) it pulls up; a digger under a roof pulls down, and out on
+/// the surface pulls home; a food carrier and a forager that gave up pull
+/// home; a forager pulls to the food it remembers. Only foragers and food
+/// carriers read the food trail.
+#[allow(clippy::too_many_arguments)]
+fn nest_heading(
+    world: &World,
+    organism: OrganismId,
+    nc: &NestCfg,
+    fc: &ForageCfg,
+    chain: &[(i32, i32)],
+    usable: &[u8],
+    load: Option<Cell>,
+    gave_up: bool,
+    draw: &mut rng::Rng,
+) -> Option<u8> {
+    let (hx, hy, facing) = facing_of(chain)?;
+    let under = inside(world, nc.roof, hx, hy);
+    let toward = |(tx, ty): (i32, i32)| ((tx - hx) as f32, (ty - hy) as f32);
+    let food = load.is_some_and(|c| c.material == fc.food);
+    let forages = forager(organism, nc);
+    let ((vx, vy), pull) = match load {
+        Some(_) if food => (toward(fc.aim_home), fc.vector),
+        Some(_) if under || in_hole(world, nc.roof, hx, hy) => ((0.0, -1.0), nc.up),
+        Some(_) => ((0.0, 0.0), 0.0),
+        None if forages && gave_up => (toward(fc.aim_home), fc.vector),
+        None if forages && under => ((0.0, -1.0), nc.up),
+        None if forages => match world.textbook.as_ref().and_then(|t| t.food_at.get(&organism)) {
+            Some(&m) => (toward(m), fc.vector_out),
+            None => ((0.0, 0.0), 0.0),
+        },
+        None => {
+            // A digger inside works down; outside it walks to the door
+            // itself. Pulled down anywhere near the door, diggers stood on
+            // the mound over it pressing into spoil they may not cut: at
+            // 30k frames 19 of 37 were above the old ground line, 3 below
+            // 12 rows (2026-10-16).
+            if nc.jam > 0 && under && ants_ahead(world, organism, (hx, hy), facing) >= nc.jam {
+                ((0.0, -1.0), nc.up)
+            } else if under {
+                ((0.0, 1.0), nc.down)
+            } else {
+                (toward(fc.aim_home), nc.home)
+            }
+        }
+    };
+    let read = fc.read && (food || forages);
+    heading_by(world, fc, (hx, hy), facing, usable, (vx, vy), pull, read, draw)
+}
+
+/// **The weighted step**: a usable heading drawn in proportion to
+/// persistence x `exp(pull cos)` x trail x mark, `cos` against `(vx, vy)`
+/// (a zero vector with zero pull is no pull). `None` with no usable heading.
+#[allow(clippy::too_many_arguments)]
+fn heading_by(
+    world: &World,
+    fc: &ForageCfg,
+    (hx, hy): (i32, i32),
+    facing: usize,
+    usable: &[u8],
+    (vx, vy): (f32, f32),
+    pull: f32,
+    read: bool,
+    draw: &mut rng::Rng,
+) -> Option<u8> {
     let vlen = (vx * vx + vy * vy).sqrt().max(1e-6);
     let mut weights = [0f32; 8];
     let mut total = 0.0;
@@ -1052,15 +1460,15 @@ fn forage_heading(
         let persist = [1.0, 0.5, 0.15, 0.03, 0.01, 0.03, 0.15, 0.5][turn];
         let dl = ((dx * dx + dy * dy) as f32).sqrt();
         let cos = (dx as f32 * vx + dy as f32 * vy) / (dl * vlen);
-        let c = if fc.read {
+        let c = if read {
             f32::from(world.pheromone_at(Channel::B, hx + dx, hy + dy)) / f32::from(pheromone::SCALE)
         } else {
             0.0
         };
-        let mark = if fc.read && fc.no_entry > 0.0 {
+        let mark = if read && fc.no_entry > 0.0 {
             (-fc.repel * f32::from(world.pheromone_at(Channel::A, hx + dx, hy + dy)) / f32::from(pheromone::SCALE))
                 .exp()
-        } else if fc.read && fc.explore > 0.0 && fc.explore_k > 0.0 {
+        } else if read && fc.explore > 0.0 && fc.explore_k > 0.0 {
             1.0 + f32::from(world.pheromone_at(Channel::A, hx + dx, hy + dy))
                 / f32::from(pheromone::SCALE)
                 / fc.explore_k
@@ -1177,6 +1585,7 @@ mod tests {
             build_on_box: false,
             forage: None,
             sort: None,
+            nest: None,
         };
         // The layer is laid fresh at the start (the harness's bootstrap:
         // with no deposit anywhere, Eq. 1 never puts a pellet down).

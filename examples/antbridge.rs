@@ -618,6 +618,7 @@ fn run(
                 kn: arg::<u8>("kn").unwrap_or(0) == 1,
             }),
             sort: None,
+            nest: None,
         };
         world.textbook = Some(Box::new(textbook::Textbook::new(id, cfg)));
     }

@@ -172,6 +172,7 @@ fn run(seed: u64, rule: &str, kind: &str, frames: u64, every: u64) -> (bool, (f3
         build_on_box: false,
         forage: None,
         sort: Some(sort),
+        nest: None,
     };
     if kind == "textbook" {
         world.textbook = Some(Box::new(textbook::Textbook::new(id, cfg)));
