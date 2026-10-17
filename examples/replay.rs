@@ -706,7 +706,8 @@ fn seed_below(w: &World, f: u64, out: &mut BufWriter<File>) {
     use pixel_physics::sim::organism::{Behavior, CellType};
     use pixel_physics::sim::update::plant_available_fraction;
     // (seeds, water_ok, soil_within6, first_soil_ok, deep_ok, depths)
-    let mut by: BTreeMap<(String, String), (u32, u32, u32, u32, u32, Vec<u32>)> = BTreeMap::new();
+    type Row = (u32, u32, u32, u32, u32, Vec<u32>);
+    let mut by: BTreeMap<(String, String), Row> = BTreeMap::new();
     for id in w.live_organism_ids() {
         let Some(s) = w.organism(id) else { continue };
         let sp = w.species.get(s.species);

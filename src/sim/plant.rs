@@ -773,6 +773,11 @@ pub const SEED_DRY_READ_ROWS: i32 = 4;
 /// drought bank keeps its one layer, so the outcome is graded: a thin bank
 /// stays, a deep heap melts. Rotted seed goes to litter as any other seed
 /// does. Counted in `World::seeds_heap_rotted`.
+///
+/// **Measured and left off (2026-10-17):** it halves the heaps (max 56 -> 31
+/// on seed 2) but adds no species alone or on top of the roots-only buried
+/// rule, and it raises the soil above the line. `Reports/dead-ends.md` has
+/// the numbers.
 pub fn seed_heap_rot_enabled() -> bool {
     static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *ON.get_or_init(|| matches!(std::env::var("PIXEL_PHYSICS_SEED_HEAP_ROT").as_deref(), Ok("on")))
@@ -13884,8 +13889,9 @@ fn shed_to_litter(world: &mut World, x: i32, y: i32, cause: organism::DeathCause
     // difference. The debt is decremented here and nowhere else, so a stand
     // can never hand the bed back more ground than it took out of it.
     let repayable = world.bed_cells_on_loan > 0;
-    // **`roots`: only a cell that could have displaced ground repays it.**
-    // `was_root` is read off the cell as it was before the clear above.
+    // **Only a cell that could have displaced ground repays it** -- see
+    // `buried_remains_roots_only`. `was_root` is read off the cell as it was
+    // before the clear above.
     let root_ok = !buried_remains_roots_only() || was_root;
     let sheds_into = if landing == y && repayable && root_ok && buried_remains_enabled() {
         buried_ground(world, x, y).then_some("soil")
@@ -13990,30 +13996,37 @@ fn buried_remains_enabled() -> bool {
     *ON.get_or_init(|| std::env::var("PIXEL_PHYSICS_BURIED_REMAINS").as_deref() != Ok("litter"))
 }
 
-/// **`PIXEL_PHYSICS_BURIED_REMAINS=roots` -- only buried *root* tissue turns
-/// back into ground; buried shoot tissue becomes litter.** Off by default.
+/// **Only buried *root* tissue turns back into ground; buried shoot tissue
+/// becomes litter** -- on by default since 2026-10-17.
+/// `PIXEL_PHYSICS_BURIED_REMAINS=any` puts back the 2026-09-06 rule, where
+/// any buried tissue repaid the loan; `litter` still puts back the rule
+/// before that.
 ///
-/// Found 2026-10-17 on the mixed bed (mix7, light rain, half pace, seed 2),
-/// by counting every cell above the sown ground line: soil there went 121 ->
-/// 8,661 between 25k and 300k, and it is what lifts the floor over the low
-/// plants. Ablated one source at a time, 300k: `DECAY_YIELD=0` (litter makes
-/// no soil) 4,465 on seed 2 and 6,067 -> 4,021 on seed 4; `BURIED_REMAINS=
-/// litter` 1,332. So most of the raised ground is this rule, not rotted
-/// leaves. The mechanism (inferred from the rule, not traced cell by cell):
-/// the loan is one world-wide count, and `buried_ground` accepts any tissue
-/// with a mineral face and no air face. A grass sward's lower blades, buried
-/// by seed and by the first raised soil, pass that test, so roots that
-/// borrowed ground below the line repay it above the line, and each repaid
-/// layer buries the next layer of blades. Soil migrates upward through the
-/// sward.
+/// Found on the mixed bed (mix7, light rain, half pace) by counting every
+/// cell above the sown ground line: on seed 2 soil there went 121 -> 8,661
+/// between 25k and 300k, and it is what lifted the floor over the low
+/// plants. Ablated one source at a time at 300k: `DECAY_YIELD=0` (litter
+/// makes no soil) left 4,465 on seed 2 (seed 4: 6,067 -> 4,021);
+/// `BURIED_REMAINS=litter` left 1,332. So most of the raised ground was this
+/// rule, not rotted leaves. The mechanism is inferred from the rule, not
+/// traced cell by cell. The loan is one world-wide count, and
+/// `buried_ground` accepts any tissue with a mineral face and no air face. A
+/// grass sward's lower blades, once buried by seed and by the first raised
+/// soil, pass that test. So roots that borrowed ground below the line were
+/// repaid above it, each repaid layer buried the next layer of blades, and
+/// soil climbed up through the sward.
 ///
 /// A shoot never displaced ground -- it grew into air -- so it has nothing to
 /// repay. The loan stays world-wide (the root that borrowed and the root that
-/// repays may differ), but now only a root repays, so ground goes back below
-/// the line, where it came from.
+/// repays may differ), but only a root repays, so ground goes back below the
+/// line where it came from.
+///
+/// Mixed bed at 450k, today against this: species with 100+ leaf cells were
+/// 3,3,3,4 against 4,6,4,4 on seeds 1-4, and soil above the sown line was
+/// 9,121-11,887 against 3,171-4,398.
 fn buried_remains_roots_only() -> bool {
     static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *ON.get_or_init(|| std::env::var("PIXEL_PHYSICS_BURIED_REMAINS").as_deref() == Ok("roots"))
+    *ON.get_or_init(|| std::env::var("PIXEL_PHYSICS_BURIED_REMAINS").as_deref() != Ok("any"))
 }
 
 /// **Is this cell inside the mineral bank?** — the test that separates tissue
@@ -16343,6 +16356,48 @@ mortality -- see the doc on this test"
             "a leaf over a trunk finds no air below it and is still not buried -- \
              without the mineral-neighbour test a crown turns to soil in mid-air"
         );
+    }
+
+    /// **A buried shoot is not a root: it falls to litter and leaves the loan
+    /// for a root to repay.** The guard over `buried_remains_roots_only`. A
+    /// grass blade buried in the mixed bed's seed heaps used to pass
+    /// `buried_ground` and repay the bed's loan above the sown line, which
+    /// raised the floor by up to 12k cells by 450k. The root arm is the
+    /// positive control: the same scene with a root in the blade's place must
+    /// still turn to soil, or this test would pass on a rule that repays
+    /// nothing at all.
+    #[test]
+    fn a_buried_shoot_falls_to_litter_and_leaves_the_loan_for_a_root() {
+        let mut w = test_world();
+        let organism: OrganismId = 9;
+        let soil = w.materials.id_of("soil").expect("soil");
+        let litter = w.materials.id_of("litter").expect("litter");
+        let blade = w.materials.id_of("grassblade").expect("grassblade");
+        let root = w.materials.id_of("grassroot").expect("grassroot");
+        for x in 40..70 {
+            for y in 50..60 {
+                w.set(x, y, Cell::new(soil, 0));
+            }
+        }
+        // One loan, booked the way `Grow` books it.
+        displace_soil_water(&mut w, 45, 55);
+        // A blade and a root, each walled in by soil on every side.
+        place(&mut w, (45, 55), blade, organism, CellType::MatureBody, (0.0, 0.0));
+        place(&mut w, (55, 55), root, organism, CellType::MatureBody, (0.0, 0.0));
+        assert_eq!(w.bed_cells_on_loan, 1, "test setup: one cell lent");
+
+        shed_to_litter(&mut w, 45, 55, organism::DeathCause::Withered);
+        assert_eq!(
+            w.get(45, 55).material,
+            litter,
+            "a buried shoot never displaced ground and must not become soil -- \
+             that is the rule that raised the mixed bed's floor over its low plants"
+        );
+        assert_eq!(w.bed_cells_on_loan, 1, "the shoot must leave the loan for a root");
+
+        shed_to_litter(&mut w, 55, 55, organism::DeathCause::Withered);
+        assert_eq!(w.get(55, 55).material, soil, "a buried root must still repay the bed");
+        assert_eq!(w.bed_cells_on_loan, 0, "...and the loan is repaid exactly once");
     }
 
     /// **Starvation die-back must not schedule a structural check** — the

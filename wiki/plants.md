@@ -3,7 +3,7 @@
 *What plants do, and what it looks like when they are working. No code, no
 file names — see `Reports/` for why any of it is built the way it is.*
 
-*Current as of: 2026-10-14 (**a seed waiting on dry ground keeps much longer, and a waiting seed is not yet a plant**, so a bed that dries out can come back with more than grass when the rain returns -- see *The seed bank*). Also 2026-10-13 (**a grass with no root in the ground dries out** instead of living for ever -- see *Drought*, under what kills a plant). Also 2026-10-10 (**a herb dies after it has set seed**, and the bed renews itself from seed -- it empties if rain is off; see *A herb lives one season*). Also 2026-10-10 (**a plant grows back leaf that was bitten off**, paid from what it has stored, so a grazed bed keeps a middle between full and bare -- see *A plant that has been bitten*). Also 2026-10-07 (**a plant's page says why its tips stopped growing** -- the height its water reaches, no room, too poor and the rest -- see *What a healthy stand looks like*). Also 2026-10-06 (**the list of the dead says what killed each plant** -- shaded out, dried out, eaten, old age and the rest; *felled* now means felled, and a seed that rots unsprouted is counted but not listed -- see *Fire and death*). Also 2026-10-05 (**grass grows back** -- a tussock that loses its blades sends up new ones from its crown, so a meadow keeps seeding instead of fading -- see *Species*). Also 2026-10-03 (**water runs through a plant along real paths**:
+*Current as of: 2026-10-17 (**a buried grass blade rots as litter, not as soil**, so a meadow no longer builds hills over its low plants -- see *The forest floor*). Also 2026-10-14 (**a seed waiting on dry ground keeps much longer, and a waiting seed is not yet a plant**, so a bed that dries out can come back with more than grass when the rain returns -- see *The seed bank*). Also 2026-10-13 (**a grass with no root in the ground dries out** instead of living for ever -- see *Drought*, under what kills a plant). Also 2026-10-10 (**a herb dies after it has set seed**, and the bed renews itself from seed -- it empties if rain is off; see *A herb lives one season*). Also 2026-10-10 (**a plant grows back leaf that was bitten off**, paid from what it has stored, so a grazed bed keeps a middle between full and bare -- see *A plant that has been bitten*). Also 2026-10-07 (**a plant's page says why its tips stopped growing** -- the height its water reaches, no room, too poor and the rest -- see *What a healthy stand looks like*). Also 2026-10-06 (**the list of the dead says what killed each plant** -- shaded out, dried out, eaten, old age and the rest; *felled* now means felled, and a seed that rots unsprouted is counted but not listed -- see *Fire and death*). Also 2026-10-05 (**grass grows back** -- a tussock that loses its blades sends up new ones from its crown, so a meadow keeps seeding instead of fading -- see *Species*). Also 2026-10-03 (**water runs through a plant along real paths**:
 up the roots, up the trunk, out along the branches, and a dry spell browns the
 far tips first -- see *How water moves through a plant*). Also 2026-10-03 (**plants can be born harder to eat**, paying for
 it in growth -- see *Plants that are worse to eat*). Also 2026-10-03 (**a seed with ground on top of it is out of the
@@ -1039,6 +1039,18 @@ shade or drying out before it goes), which together with the one-in-twenty
 yield keeps the rise to a slow creep rather than the burial it once was; a
 wood should read as standing *on* its floor, not sinking into it. Leave one
 running long enough and the ground will still climb.
+
+**A meadow does not raise its own floor any more.** When a plant dies,
+the part of it buried in the ground turns back into ground, because its
+roots pushed that ground aside when they grew. Only roots do that now. A
+grass blade buried under its own fallen seed used to count as "buried" too,
+so soil the roots had taken from below the surface came back above it, a
+layer at a time, and a grass bed slowly built hills 40 rows high that
+smothered the low plants growing in it. Now a buried blade rots as litter
+like any other leaf, and the ground under a meadow stays about where it was
+sown. In the mixed bed at 450k frames the soil heaped above the sown line
+fell from 9,000-14,000 cells to 3,000-5,500, and the low plants kept about
+three times as much leaf.
 
 That is currently true of **the tree and not yet of its neighbours**. Worlds
 arrive with four woody species in them, and only the tree has had its leaf
