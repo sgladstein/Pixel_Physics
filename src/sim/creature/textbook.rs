@@ -483,6 +483,15 @@ pub struct NestCfg {
     pub straight: bool,
     /// Dig only from inside ([`inside`]): never cut the open surface.
     pub inside_only: bool,
+    /// **Most diggers wait** (Aguilar et al. 2018, *Science* 361:672: in
+    /// fire-ant excavation a few workers do most of the digging and the
+    /// rest hold back, which keeps the tunnels from clogging): an empty
+    /// digger outside the nest with at least `wait` other ants in the six
+    /// cells ahead of it does not step, with chance `wait_p` a decision.
+    /// Always (`wait_p` 1), a colony planted in a clump waited on itself
+    /// for good: 6 cuts in 40k frames (2026-10-17). 0: off.
+    pub wait: u32,
+    pub wait_p: f32,
 }
 
 /// Whether a textbook ant is a forager under [`NestCfg::forager_frac`]: a
@@ -581,6 +590,8 @@ pub struct TextbookCounts {
     /// [`NestCfg`]: soil cells cut by diggers, and dig rolls taken.
     pub digs: u64,
     pub dig_rolls: u64,
+    /// [`NestCfg::wait`]: decisions a digger held back from a crowd.
+    pub waits: u64,
 }
 
 /// One row of [`Textbook::nest_log`]: `(frame, ant, x, y, material, put)`.
@@ -612,6 +623,11 @@ pub struct Textbook {
     /// ant, x, y, material, put)`, `put` false for a cut. `None` records
     /// nothing; read by nothing in the simulation.
     pub nest_log: Option<Vec<NestLogRow>>,
+    /// [`NestCfg`]'s per-decision trace of the ants in `trace_ids`: one
+    /// line each, what the digger saw and did. Read by nothing in the
+    /// simulation.
+    pub trace_ids: Vec<OrganismId>,
+    pub trace: Vec<String>,
 }
 
 impl Textbook {
@@ -624,6 +640,8 @@ impl Textbook {
             met: std::collections::HashMap::new(),
             food_at: std::collections::HashMap::new(),
             nest_log: None,
+            trace_ids: Vec::new(),
+            trace: Vec::new(),
         }
     }
 }
@@ -953,6 +971,10 @@ fn nest_act(
             // in it (first run, 2026-10-16). Ants in a tunnel face along
             // it, so the face is the tunnel's end.
             let spoil = world.materials.id_of("spoil");
+            // Spoil inside is in the way, and is cleared: kept off-limits
+            // everywhere, the spoil that fell into the shaft floored it
+            // with a layer no digger could cut (2026-10-17).
+            let here_inside = inside(world, nc.roof, x, y);
             let ahead = world
                 .organism(organism)
                 .and_then(|s| facing_of(&s.chain))
@@ -971,7 +993,7 @@ fn nest_act(
                         let c = world.get(px, py);
                         c.organism_id() == 0
                             && c.material != fc.food
-                            && Some(c.material) != spoil
+                            && (here_inside || Some(c.material) != spoil)
                             && !world
                                 .build_marks
                                 .get(&(px, py))
@@ -986,7 +1008,40 @@ fn nest_act(
             // "outside"), 218 of 563 cut cells were cut again, and the pit
             // held at ~160 cells (pellet funnel, seed 1, 40k frames,
             // 2026-10-17). The founding shaft is the first inside.
-            if face.is_empty() || (nc.inside_only && !inside(world, nc.roof, x, y)) {
+            let traced = world.textbook.as_ref().is_some_and(|t| t.trace_ids.contains(&organism));
+            if traced {
+                let ahead_ants = ants_ahead(world, organism, (x, y), ahead);
+                let what: String = [ahead, (ahead + 1) % 8, (ahead + 7) % 8]
+                    .iter()
+                    .map(|&d| {
+                        let (px, py) = (x + DIRS[d].0, y + DIRS[d].1);
+                        let c = world.get(px, py);
+                        if c.organism_id() != 0 {
+                            'a'
+                        } else if c.material == material::EMPTY {
+                            '.'
+                        } else {
+                            world.materials.get(c.material).name.chars().next().unwrap_or('?')
+                        }
+                    })
+                    .collect();
+                let line = format!(
+                    "{},{organism},{x},{y},{},{ahead},{what},{},{ahead_ants},{}",
+                    world.frame,
+                    u8::from(here_inside),
+                    face.len(),
+                    u8::from(roofed(world, nc.roof, x, y))
+                );
+                if let Some(t) = world.textbook.as_mut() {
+                    t.trace.push(line);
+                }
+            }
+            // **Walled in, it cuts its way out**, inside or not (the game
+            // ant's escape cut): spoil put down round ants on the surface
+            // lined into a shell, and 6 of 14 traced diggers stood in it
+            // for the whole run, outside and so forbidden to cut (2026-10-17).
+            let sealed = usable_headings(world, organism, def).is_empty();
+            if face.is_empty() || (nc.inside_only && !here_inside && !sealed) {
                 return Did::default();
             }
             let company = if nc.dig_crowd > 0.0 {
@@ -1063,6 +1118,20 @@ pub(super) fn step(
         (Some(_), Some(fc)) => load.is_some_and(|c| c.material == fc.food),
         _ => laden,
     };
+    if let (Some(nc), Some(_)) = (nest, forage) {
+        if nc.wait > 0 && load.is_none() && !forager(organism, &nc) {
+            if let Some((hx, hy, facing)) = facing_of(&chain) {
+                if !inside(world, nc.roof, hx, hy)
+                    && ants_ahead(world, organism, (hx, hy), facing) >= nc.wait
+                    && draw.unit_f32() < nc.wait_p
+                {
+                    count(world, |c| c.waits += 1);
+                    note_outcome(world, DecisionOutcome::RollFailedIdle);
+                    return false;
+                }
+            }
+        }
+    }
     let chosen = match (nest, forage) {
         (Some(nc), Some(fc)) => Some(nest_heading(
             world, organism, &nc, &fc, &chain, &usable, load, gave_up, draw,
@@ -1438,7 +1507,13 @@ fn nest_heading(
             // 12 rows (2026-10-16).
             if nc.jam > 0 && under && ants_ahead(world, organism, (hx, hy), facing) >= nc.jam {
                 ((0.0, -1.0), nc.up)
-            } else if under {
+            } else if under || (hx - fc.home.0).pow(2) + (hy - fc.home.1).pow(2) <= (2 * fc.home_r).pow(2) {
+                // At the door it goes down too: with `inside_only` it cannot
+                // cut the surface there, and without the pull, diggers that
+                // reached the door point milled on the surface (a 20-ant
+                // colony had 0-3 underground; 85% of a 125-ant colony's
+                // digger decisions were outside, within 4 columns of the
+                // door, facing other ants: decision trace, 2026-10-17).
                 ((0.0, 1.0), nc.down)
             } else {
                 (toward(fc.aim_home), nc.home)

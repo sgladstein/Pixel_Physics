@@ -82,6 +82,9 @@ const KEYS: &[&str] = &[
     "loose",
     "straight",
     "insideonly",
+    "wait",
+    "waitp",
+    "trace",
 ];
 
 fn arg<T: std::str::FromStr>(key: &str) -> Option<T> {
@@ -174,6 +177,19 @@ fn main() {
                     println!("  textbook {cfg:?}");
                     let mut tb = textbook::Textbook::new(id, cfg);
                     tb.nest_log = Some(Vec::new());
+                    // `trace=N`: the first N diggers (by the role hash),
+                    // every decision, to trace.csv.
+                    let n_trace: usize = arg("trace").unwrap_or(0);
+                    if let Some(nc) = cfg.nest {
+                        tb.trace_ids = ants(w)
+                            .into_iter()
+                            .filter(|&a| {
+                                let h = (a as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15) >> 40;
+                                (h as f32 / (1u64 << 24) as f32) >= nc.forager_frac
+                            })
+                            .take(n_trace)
+                            .collect();
+                    }
                     w.textbook = Some(Box::new(tb));
                 }
                 println!(
@@ -217,6 +233,21 @@ fn main() {
                     }
                     if let Some(t) = lab.world.textbook.as_mut() {
                         t.nest_log = Some(Vec::new());
+                        if !t.trace.is_empty() {
+                            let path = std::path::Path::new(&out).join("trace.csv");
+                            let new = !path.exists();
+                            let mut fh = std::fs::OpenOptions::new()
+                                .create(true)
+                                .append(true)
+                                .open(path)
+                                .expect("trace");
+                            if new {
+                                writeln!(fh, "frame,ant,x,y,inside,facing,ahead3,faces,ants_ahead,roofed").unwrap();
+                            }
+                            for l in t.trace.drain(..) {
+                                writeln!(fh, "{l}").unwrap();
+                            }
+                        }
                     }
                 }
             }
@@ -303,6 +334,8 @@ fn cfg(
         loose: arg::<u8>("loose").unwrap_or(0) == 1,
         straight: arg::<u8>("straight").unwrap_or(0) == 1,
         inside_only: arg::<u8>("insideonly").unwrap_or(1) == 1,
+        wait: arg("wait").unwrap_or(0),
+        wait_p: arg("waitp").unwrap_or(0.8),
         store_r: arg("store").unwrap_or(12),
     };
     textbook::TextbookCfg {
@@ -399,8 +432,8 @@ fn census(
         .map(|t| {
             let c = t.counts;
             format!(
-                " | textbook digs {} drops {} food_picks {} delivered {} stuck {}",
-                c.digs, c.drops, c.food_picks, c.delivered, c.stuck
+                " | textbook digs {} drops {} food_picks {} delivered {} stuck {} waits {}",
+                c.digs, c.drops, c.food_picks, c.delivered, c.stuck, c.waits
             )
         })
         .unwrap_or_default();
