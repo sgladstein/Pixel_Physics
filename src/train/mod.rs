@@ -601,6 +601,20 @@ pub struct Settings {
     /// slot; at 1 with no pruning that is every slot. A cost per connection
     /// ([`Settings::wire`]) pushes against the drift; this sets how hard
     /// the drift pushes.
+    ///
+    /// **Under 1 from a blank start, the trail rung can stall standing
+    /// still** (trail, seed 1, 40 generations, 2026-10-17,
+    /// `brain-training/stage2/trail-wire`): a mind that never moves scores
+    /// exactly 0, and one that moves at random scores just below 0 on the
+    /// worse side of a mirrored pair, so while children are near-blank the
+    /// one that stands still wins. At `grow` 0.1 (wire 2e-4) and 0.3 (wire
+    /// 1e-3) every champion stood still for all 40 generations; at 0.3
+    /// with wire 2e-4 it left at generation 16 and reached 0.93 at 466
+    /// connections. At 1 with `prune` 0.3 every cost tried left by
+    /// generation 1: wire 2e-4 0.89 at 710 connections, 5e-4 0.92 at 594,
+    /// 1e-3 0.89 at 383, 2e-3 0.75 at 383, against 0.94 at 1,160 with no
+    /// cost. A rung that starts from a champion that already moves is not
+    /// exposed to this.
     pub grow: f32,
 }
 
@@ -1269,8 +1283,8 @@ fn trace_one(ch: &dyn Challenge, g: &[f32], layout: Layout, every: u64) {
         let mean = if adults > 0 { energy / adults as f64 } else { 0.0 };
         let low = if adults > 0 { low } else { 0.0 };
         print!(
-            "f={f} adults={adults} brood={brood} energy={mean:.0} low={low:.0} crop={crop:.0} lying={lying} pickups={} eats={} deliveries={} births={}",
-            c.pickups, c.eats, c.deliveries, c.births
+            "f={f} adults={adults} brood={brood} energy={mean:.0} low={low:.0} crop={crop:.0} lying={lying} pickups={} eats={} deliveries={} births={} eggs={} held={}",
+            c.pickups, c.eats, c.deliveries, c.births, c.eggs_laid, c.food_brake_held
         );
         if let Some(m) = &w.minds {
             let k = &m.counts;
