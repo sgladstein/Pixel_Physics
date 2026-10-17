@@ -266,6 +266,18 @@ box284_roots,box284_plant_above,box284_empty_below,box728_roots,box728_plant_abo
         "frame,species,seeds,resting,light_ok,water_ok,both_ok,on_soil,water_med"
     )
     .unwrap();
+    let mut seedbelow = BufWriter::new(File::create(format!("{out}/seedbelow.csv")).unwrap());
+    writeln!(seedbelow, "frame,species,below,seeds,water_ok,soil_within6,first_soil_ok,deep_ok,depth_med").unwrap();
+    // `germinations` and `seeds_settled` are the world's running totals: did the seed switches fire at all.
+    let mut seedcounts = BufWriter::new(File::create(format!("{out}/seedcounts.csv")).unwrap());
+    writeln!(seedcounts, "frame,germinations,seeds_settled,seeds_heaved,seeds_heap_rotted").unwrap();
+    // Every plant death after germination, with its cause (`World::death_log`; drained each probe). Seeds that
+    // rot unsprouted are left out: the question is what kills a seedling.
+    let mut plantdeaths = BufWriter::new(File::create(format!("{out}/plantdeaths.csv")).unwrap());
+    writeln!(plantdeaths, "frame,id,species,cause,declared,x,y").unwrap();
+    lab.world.death_log = Some(Vec::new());
+    let mut seedlings = BufWriter::new(File::create(format!("{out}/seedlings.csv")).unwrap());
+    writeln!(seedlings, "frame,species,tip,above,free_up,n").unwrap();
     while lab.world.frame < frames {
         for (pf, name, x, y) in plan.iter() {
             if *pf == lab.world.frame {
@@ -321,6 +333,27 @@ box284_roots,box284_plant_above,box284_empty_below,box728_roots,box728_plant_abo
             }
             probe_row(&lab.world, &mats, ground_y, &mut probe);
             seed_census(&lab.world, f, &mut seedcensus);
+            seed_below(&lab.world, f, &mut seedbelow);
+            writeln!(seedcounts, "{f},{},{},{},{}", lab.world.germinations, lab.world.seeds_settled, lab.world.seeds_heaved, lab.world.seeds_heap_rotted).unwrap();
+            seedcounts.flush().unwrap();
+            seedling_rows(&lab.world, &mats, f, &mut seedlings);
+            if let Some(rows) = lab.world.death_log.as_mut().map(std::mem::take) {
+                for r in rows.iter().filter(|r| !r.creature && !r.dormant_seed) {
+                    writeln!(
+                        plantdeaths,
+                        "{},{},{},{:?},{},{},{}",
+                        r.frame,
+                        r.id,
+                        lab.world.species.get(r.species).name,
+                        r.cause,
+                        r.declared as u8,
+                        r.at.0,
+                        r.at.1
+                    )
+                    .unwrap();
+                }
+                plantdeaths.flush().unwrap();
+            }
             ledger_rows(&lab.world, f, &mut ledger);
             {
                 let c = &lab.world.creature_stats;
@@ -352,6 +385,7 @@ box284_roots,box284_plant_above,box284_empty_below,box728_roots,box728_plant_abo
             ant_rows(&lab.world, f, &mut antlog);
         }
         if f.is_multiple_of(snap_every) || f == frames {
+            above_ground(&lab.world, ground_y, &format!("{out}/above_{f}.csv"));
             plant_table(&lab.world, &mats, ground_y, &format!("{out}/plants_{f}.csv"));
             leaf_map(&lab.world, &mats, ground_y, &format!("{out}/leaf_{f}.csv"));
             seed_map(&lab.world, &format!("{out}/seeds_{f}.csv"));
@@ -399,6 +433,24 @@ box284_roots,box284_plant_above,box284_empty_below,box728_roots,box728_plant_abo
     }
     ev.flush().unwrap();
     lab.write_chronicle();
+    // Why tips stopped, over the whole run (`World::grow_census`): per species, shoot (0) or root (1) tip, the
+    // reason its last stale visit gave, how many visits and how many retirements.
+    {
+        let whys = ["NotAsked", "OrganUnaffordable", "TooPoor", "HeightLimit", "TaperRoll", "RootShare", "TipCap", "Boxed", "GroundTooHard", "NoGoodDirection", "Grew", "Flowered"];
+        let mut g = BufWriter::new(File::create(format!("{out}/growcensus.csv")).unwrap());
+        writeln!(g, "species,kind,why,visits,retired").unwrap();
+        for (i, c) in lab.world.grow_census.iter().enumerate() {
+            let name = &lab.world.species.get(pixel_physics::sim::organism::SpeciesId(i as u16)).name;
+            for k in 0..2 {
+                for (w, why) in whys.iter().enumerate() {
+                    if c.visits[k][w] > 0 || c.retired[k][w] > 0 {
+                        writeln!(g, "{name},{k},{why},{},{}", c.visits[k][w], c.retired[k][w]).unwrap();
+                    }
+                }
+            }
+        }
+        g.flush().unwrap();
+    }
     println!("replay done at frame {}", lab.world.frame);
 }
 
@@ -641,6 +693,162 @@ fn seed_census(w: &World, f: u64, out: &mut BufWriter<File>) {
         writeln!(out, "{f},{name},{n},{r},{l},{wa},{b},{soil},{med:.3}").unwrap();
     }
     out.flush().unwrap();
+}
+
+/// What a waiting seed is lying on, and what it would read if it could reach the soil (2026-10-17, the planted
+/// bed report's two seed gates). Per species and per class of the cell directly below (`tissue:<species>` for a
+/// living cell, a seed's own species for another seed, else the material name): seeds, how many pass their water
+/// bar where they lie, how many have a water-holding cell within 6 rows straight down, how many would pass on
+/// the first such cell (`first_soil_ok`: the seed settled to the soil), how many would pass reading the wettest of
+/// that cell and the 3 below it (`deep_ok`: settled and reading the soil it would root into), and the median rows
+/// down to that soil. Read-only.
+fn seed_below(w: &World, f: u64, out: &mut BufWriter<File>) {
+    use pixel_physics::sim::organism::{Behavior, CellType};
+    use pixel_physics::sim::update::plant_available_fraction;
+    // (seeds, water_ok, soil_within6, first_soil_ok, deep_ok, depths)
+    type Row = (u32, u32, u32, u32, u32, Vec<u32>);
+    let mut by: BTreeMap<(String, String), Row> = BTreeMap::new();
+    for id in w.live_organism_ids() {
+        let Some(s) = w.organism(id) else { continue };
+        let sp = w.species.get(s.species);
+        if sp.creature.is_some() || s.cells.len() != 1 || w.is_carried_seed(id) {
+            continue;
+        }
+        let Some(wt) = sp.behaviors(CellType::Seed).iter().find_map(|b| match b {
+            Behavior::Germinate { soil_water_threshold, .. } => Some(*soil_water_threshold),
+            _ => None,
+        }) else {
+            continue;
+        };
+        let (x, y) = *s.cells.keys().next().unwrap();
+        let below = w.get(x, y + 1);
+        let class = if below.organism_id() != 0 {
+            match w.organism(below.organism_id()) {
+                Some(o) if o.cells.len() == 1 => format!("seed:{}", w.species.get(o.species).name),
+                Some(o) => format!("tissue:{}", w.species.get(o.species).name),
+                None => "tissue:?".to_string(),
+            }
+        } else {
+            w.materials.get(below.material).name.clone()
+        };
+        let holds = |c: pixel_physics::sim::cell::Cell| w.materials.get(c.material).water_capacity > 0 && c.organism_id() == 0;
+        let here = if holds(below) { plant_available_fraction(below) } else { 0.0 };
+        let mut first = None;
+        for d in 1..=6 {
+            if holds(w.get(x, y + d)) {
+                first = Some(d);
+                break;
+            }
+        }
+        let e = by.entry((sp.name.clone(), class)).or_default();
+        e.0 += 1;
+        e.1 += (here >= wt) as u32;
+        if let Some(d) = first {
+            e.2 += 1;
+            let top = plant_available_fraction(w.get(x, y + d));
+            e.3 += (top >= wt) as u32;
+            let deep = (d..d + 4)
+                .map(|dd| w.get(x, y + dd))
+                .filter(|c| holds(*c))
+                .map(plant_available_fraction)
+                .fold(0.0f32, f32::max);
+            e.4 += (deep >= wt) as u32;
+            e.5.push(d as u32);
+        }
+    }
+    for ((name, class), (n, ok, soil, first_ok, deep_ok, mut ds)) in by {
+        ds.sort_unstable();
+        let med = ds.get(ds.len() / 2).copied().unwrap_or(0);
+        writeln!(out, "{f},{name},{class},{n},{ok},{soil},{first_ok},{deep_ok},{med}").unwrap();
+    }
+    out.flush().unwrap();
+}
+
+/// Where a seedling's shoot can go (2026-10-17): every plant of 2-4 cells, by species, whether it still has a
+/// growing tip, what is directly above its top shoot cell (`tissue:<species>`, `seed`, or the material), and how
+/// many of the three cells above that cell are empty. A tip that finds no free neighbour stops for good, and a
+/// seedling with no tip and no leaf is declared dead (`LostVitalTissue`).
+fn seedling_rows(w: &World, m: &Mats, f: u64, out: &mut BufWriter<File>) {
+    use pixel_physics::sim::organism::{cell_type, CellType};
+    let mut by: BTreeMap<(String, u8, String, u8), u32> = BTreeMap::new();
+    for id in w.live_organism_ids() {
+        let Some(s) = w.organism(id) else { continue };
+        let sp = w.species.get(s.species);
+        if sp.creature.is_some() || w.is_carried_seed(id) || s.cells.len() < 2 || s.cells.len() > 4 {
+            continue;
+        }
+        let mut tip = 0u8;
+        let mut top: Option<(i32, i32)> = None;
+        for &(x, y) in s.cells.keys() {
+            let c = w.get(x, y);
+            if cell_type(c.aux()) == Some(CellType::GrowingTip) {
+                tip = 1;
+            }
+            if !m.roots.contains(&c.material.0) && top.is_none_or(|(tx, ty)| (y, x) < (ty, tx)) {
+                top = Some((x, y));
+            }
+        }
+        let Some((x, y)) = top else { continue };
+        let class = |c: pixel_physics::sim::cell::Cell| -> String {
+            let oid = c.organism_id();
+            if oid != 0 && oid != id {
+                return match w.organism(oid) {
+                    Some(o) if o.cells.len() == 1 => "seed".to_string(),
+                    Some(o) => format!("tissue:{}", w.species.get(o.species).name),
+                    None => "tissue:?".to_string(),
+                };
+            }
+            if c.material == pixel_physics::sim::material::EMPTY {
+                "empty".to_string()
+            } else {
+                w.materials.get(c.material).name.clone()
+            }
+        };
+        let above = class(w.get(x, y - 1));
+        let free = (-1..=1).filter(|dx| w.get(x + dx, y - 1).material == pixel_physics::sim::material::EMPTY).count() as u8;
+        *by.entry((sp.name.clone(), tip, above, free)).or_default() += 1;
+    }
+    for ((name, tip, above, free), n) in by {
+        writeln!(out, "{f},{name},{tip},{above},{free},{n}").unwrap();
+    }
+    out.flush().unwrap();
+}
+
+/// What the ground above the original soil line is made of (2026-10-17, the owner's question: is the rise
+/// under the grass soil from rotted seed and leaves, or seed?). Every non-air cell above `ground_y`, by
+/// class: `seed` (a waiting seed), `tissue` (a living plant cell), else the material name.
+fn above_ground(w: &World, ground_y: i32, path: &str) {
+    let mut by: BTreeMap<String, u64> = BTreeMap::new();
+    let mut rows = 0i64;
+    let Some(b) = w.bounds() else { return };
+    for x in b.min_x..b.max_x {
+        let mut top = ground_y;
+        for y in 0..ground_y {
+            let c = w.get(x, y);
+            if c.material == pixel_physics::sim::material::EMPTY {
+                continue;
+            }
+            top = top.min(y);
+            let oid = c.organism_id();
+            let class = if oid != 0 {
+                match w.organism(oid) {
+                    Some(o) if o.cells.len() == 1 && w.species.get(o.species).creature.is_none() => "seed".to_string(),
+                    Some(o) if w.species.get(o.species).creature.is_some() => "creature".to_string(),
+                    _ => "tissue".to_string(),
+                }
+            } else {
+                w.materials.get(c.material).name.clone()
+            };
+            *by.entry(class).or_default() += 1;
+        }
+        rows += i64::from(ground_y - top);
+    }
+    let mut out = BufWriter::new(File::create(path).unwrap());
+    writeln!(out, "class,cells").unwrap();
+    for (k, v) in by {
+        writeln!(out, "{k},{v}").unwrap();
+    }
+    writeln!(out, "_mean_rise_rows,{}", rows / i64::from((b.max_x - b.min_x).max(1))).unwrap();
 }
 
 fn seed_map(w: &World, path: &str) {

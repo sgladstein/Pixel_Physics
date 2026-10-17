@@ -504,6 +504,129 @@ fn excluded_column(x: i32) -> bool {
 /// stock itself is small -- tens of seeds at any time -- so what it buys is a
 /// garden that is never eaten to the last seed, not a larger colony (median
 /// peak 327 against 338).
+/// **`PIXEL_PHYSICS_SEED_SETTLE` -- a waiting seed works down to the soil, and
+/// reads the soil it would root into.** Off unless set; `on` is both halves,
+/// `settle` or `read` one alone. The planted-bed report of 2026-10-17
+/// (`/mnt/project-files/planted-balance/report-2026-10-17/`) measured the two
+/// gates this is aimed at, and the slice ruling it extends is the one
+/// `falls_through_organisms` already made for branches:
+///
+/// - **Settle.** A seed lying on another waiting seed, or on loose litter,
+///   changes places with it now and then (`SEED_SETTLE_CHANCE` a seed tick),
+///   so a pile is a lottery for the soil spot under it rather than a lid
+///   that keeps everything above its bottom seed off the ground. In 3D a
+///   seed falling on a pile mostly rolls into a gap beside it; in the slice
+///   there is no beside, so it takes turns instead. Measured on the mixed
+///   seven-species bed, 4 seeds at 150k (`seedbelow.csv`): of 17,385 waiting
+///   grass seeds 11,561 lay on other seed, and of 416 herb seeds 180 did.
+///   Seed lying on living tissue is not touched -- the tissue is exclusive
+///   and a seedling on a blade has nowhere to root.
+/// - **Read.** The water check takes the wettest of the soil cell under the
+///   seed and up to `SEED_READ_DEPTH - 1` water-holding cells straight below
+///   it, not only the top one. Roots drain the top cell first
+///   (`Reports/plant-soil-nutrient-plan-2026-09-05.md` measured 0.016 against
+///   1.0 away from roots), so a seed on soil read dry while the soil its
+///   first root would grow into was wet: herb seed on soil passed its bar 3
+///   of 70 times reading the top cell and 17 of 70 reading four.
+fn seed_settle_mode() -> (bool, bool) {
+    let (settle, read, _) = seed_settle_parts();
+    (settle, read)
+}
+
+/// The three halves of `PIXEL_PHYSICS_SEED_SETTLE`: settle, read, heave. `on`
+/// is all three; `settle`, `read` and `heave` one alone. See
+/// [`seed_settle_mode`] and [`heave_loose_column`].
+fn seed_settle_parts() -> (bool, bool, bool) {
+    use std::sync::OnceLock;
+    static MODE: OnceLock<(bool, bool, bool)> = OnceLock::new();
+    *MODE.get_or_init(|| match std::env::var("PIXEL_PHYSICS_SEED_SETTLE").as_deref() {
+        Ok("on") => (true, true, true),
+        Ok("settle") => (true, false, false),
+        Ok("read") => (false, true, false),
+        Ok("heave") => (false, false, true),
+        _ => (false, false, false),
+    })
+}
+
+/// How far up a shoot tip looks for the gap a heaved pile rises into.
+const HEAVE_REACH: i32 = 8;
+
+/// **A shoot tip lifts the seed or litter lying on it** -- the third half of
+/// `PIXEL_PHYSICS_SEED_SETTLE`, found by the seedling trace that followed the
+/// planted-bed report (2026-10-17, mixed bed, 4 seeds, 60k): a seedling
+/// germinates, and its one shoot tip finds the cell above it held by another
+/// waiting seed or by litter, cannot enter it (a shoot takes empty cells
+/// only), goes stale and stops; with no tip and no leaf it is declared dead
+/// (`LostVitalTissue`). 7,485 germinations in 4 runs to 100k, and 90%+ of the
+/// seedling deaths were that. In 3D a sprout pushes past a seed or a leaf;
+/// in the slice the nearest thing is that it heaves the loose column above
+/// it up by one cell. Only seeds that are still waiting and loose litter move
+/// (`settles_through`'s set); a column with no air within `HEAVE_REACH` stays
+/// put, and so does anything resting on living tissue. Returns whether the
+/// cell above is now empty.
+fn heave_loose_column(world: &mut World, x: i32, y: i32) -> bool {
+    let mut top = y;
+    loop {
+        let c = world.get(x, top);
+        if c.material == material::EMPTY {
+            break;
+        }
+        if !settles_through(world, c) || y - top >= HEAVE_REACH {
+            return false;
+        }
+        top -= 1;
+    }
+    // `top` is the empty cell; shift each loose cell up one, highest first.
+    for yy in (top + 1)..=y {
+        world.move_cell(x, yy, x, yy - 1, true);
+    }
+    world.seeds_heaved += 1;
+    true
+}
+
+/// Chance a seed tick that a waiting seed on a pile or on litter trades
+/// places with what it lies on. Low on purpose: a seed tick is every
+/// `SEED_TICK_INTERVAL` frames, a seed waits thousands, and every swap is two
+/// cell writes that keep a settled chunk awake.
+const SEED_SETTLE_CHANCE: f32 = 1.0 / 32.0;
+
+/// How many water-holding cells, the first included, the `read` half of
+/// [`seed_settle_mode`] looks down through.
+const SEED_READ_DEPTH: i32 = 4;
+
+/// **Is `below` something a waiting seed settles through?** Another waiting
+/// seed (a one-cell organism whose one cell is a `Seed`), or loose litter.
+fn settles_through(world: &World, below: Cell) -> bool {
+    let id = below.organism_id();
+    if id != 0 {
+        return organism::cell_type(below.aux()) == Some(CellType::Seed)
+            && world.organism(id).is_some_and(|s| s.cells.len() == 1 && s.dormant_seed);
+    }
+    world.materials.id_of("litter") == Some(below.material) || world.materials.id_of("deadleaf") == Some(below.material)
+}
+
+/// The soil water a waiting seed at `(x, y)` reads: the cell under it, and
+/// under `read`, the wettest of that and the water-holding cells straight
+/// below it, `SEED_READ_DEPTH` in all. Zero when the cell under the seed
+/// holds no water -- see the `water_capacity` guard in `Germinate`.
+fn seed_soil_water(world: &World, x: i32, y: i32, read_deeper: bool) -> f32 {
+    let below = world.get(x, y + 1);
+    if world.materials.get(below.material).water_capacity == 0 {
+        return 0.0;
+    }
+    let mut best = update::plant_available_fraction(below);
+    if read_deeper {
+        for d in 2..=SEED_READ_DEPTH {
+            let c = world.get(x, y + d);
+            if c.organism_id() != 0 || world.materials.get(c.material).water_capacity == 0 {
+                break;
+            }
+            best = best.max(update::plant_available_fraction(c));
+        }
+    }
+    best
+}
+
 fn buried_seed_enabled() -> bool {
     use std::sync::OnceLock;
     static ON: OnceLock<bool> = OnceLock::new();
@@ -631,6 +754,39 @@ pub const SEED_DRY_STRETCH: f32 = 15.0;
 /// hold water, through seeds and litter. A seed on a deeper pile than this
 /// reads dry.
 pub const SEED_DRY_READ_ROWS: i32 = 4;
+
+/// **`PIXEL_PHYSICS_SEED_HEAP_ROT=on` -- a seed lying on another seed rots
+/// fast.** Off by default; off is byte-identical.
+///
+/// Found on the mixed bed (2026-10-17, mix7, light rain, half pace): grass
+/// seed piles up 45-59 cells deep per column by 450k, and by 300k every
+/// low plant's remaining leaf on seeds 2 and 4 lies under seed. The pile is
+/// a standing stock -- production times lifetime -- and a seed inside it can
+/// never sprout (`Germinate` wants ground that holds water directly under
+/// it) while `seed_dryness` reads it as in a drought and stretches its
+/// half-life up to 16x. `SEED_BANK=off` alone only took the piles to 37-52,
+/// so the stretch is part of it and not the whole.
+///
+/// With the switch on, a seed whose cell below is another seed ages at
+/// `seed_half_life / SEED_HEAP_ROT_FACTOR` with no dry stretch. The seed at
+/// the bottom of a pile, touching the ground, keeps the full clock and the
+/// drought bank keeps its one layer, so the outcome is graded: a thin bank
+/// stays, a deep heap melts. Rotted seed goes to litter as any other seed
+/// does. Counted in `World::seeds_heap_rotted`.
+///
+/// **Measured and left off (2026-10-17):** it halves the heaps (max 56 -> 31
+/// on seed 2) but adds no species alone or on top of the roots-only buried
+/// rule, and it raises the soil above the line. `Reports/dead-ends.md` has
+/// the numbers.
+pub fn seed_heap_rot_enabled() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| matches!(std::env::var("PIXEL_PHYSICS_SEED_HEAP_ROT").as_deref(), Ok("on")))
+}
+
+/// How much faster a seed lying on a seed ages under
+/// `PIXEL_PHYSICS_SEED_HEAP_ROT`. 8 puts grass at 2,250 frames against its
+/// 18,000. A first guess, not a tuned number.
+pub const SEED_HEAP_ROT_FACTOR: f32 = 8.0;
 
 /// **How dry the ground under a seed is**, 0 (at or wetter than the
 /// species' own germination threshold) to 1 (at the wilting point or with
@@ -5314,14 +5470,28 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: OrganismId, sta
     // ground where `decay` can rot it into soil.
     if cell_type == CellType::Seed {
         let mut half_life = world.species.get(species_id).seed_half_life;
+        // **A seed on a seed rots fast** -- `seed_heap_rot_enabled` has why.
+        let below = world.get(x, y + 1);
+        let on_heap = seed_heap_rot_enabled()
+            && half_life > 0.0
+            && below.organism_id() != 0
+            && below.organism_id() != organism_id
+            && organism::cell_type(below.aux()) == Some(CellType::Seed)
+            && world.organism(below.organism_id()).is_some_and(|s| s.dormant_seed);
+        if on_heap {
+            half_life /= SEED_HEAP_ROT_FACTOR;
+        }
         // **A dry seed ages slowly** -- `seed_bank_default` has why.
         // Read only on a seed tick and only for a seed, so the cost is a
         // few cell reads per seed check and nothing anywhere else.
-        if world.seed_dry_keeps && half_life > 0.0 {
+        if world.seed_dry_keeps && half_life > 0.0 && !on_heap {
             let dry = seed_dryness(world, x, y, seed_water_threshold(world, organism_id));
             half_life *= 1.0 + SEED_DRY_STRETCH * dry;
         }
         if rng.chance(half_life_chance(half_life, SEED_TICK_INTERVAL)) {
+            if on_heap {
+                world.seeds_heap_rotted += 1;
+            }
             // **One of `pips_rotted`'s two exits** -- a `pip` that lost
             // this species-wide viability race, same as any other seed
             // would, before `shed_to_litter` below converts it away. The
@@ -6028,6 +6198,12 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: OrganismId, sta
                     r.up = gravity_or_water;
                     r.weights = [continuation_weight, light_weight, wind_weight, upward_weight];
                     r.crowding_weight = crowding_weight;
+                }
+                // **Heave** (`heave_loose_column`): a shoot tip with a seed
+                // or litter straight above lifts it before scoring, so the
+                // cell above is open like any other.
+                if penetration_force <= 0.0 && seed_settle_parts().2 && settles_through(world, world.get(x, y - 1)) {
+                    heave_loose_column(world, x, y - 1);
                 }
                 let mut candidates: Vec<(i32, i32, f32)> = Vec::new();
                 // How far the empty set got, for `GrowWhy`: cells it could
@@ -7170,12 +7346,20 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: OrganismId, sta
                     // cell, so without this a seed bobbing on a full pond
                     // would read bone dry -- and one on half-drained water
                     // would read well watered.
-                    let holds_water = world.materials.get(below.material).water_capacity > 0;
-                    let soil_water = if holds_water { update::plant_available_fraction(below) } else { 0.0 };
+                    let soil_water = seed_soil_water(world, x, y, seed_settle_mode().1);
                     light >= light_threshold && soil_water >= soil_water_threshold
                 });
                 if ready && !excluded_column(x) {
                     return germinate(world, x, y, organism_id, cell, &mut rng);
+                }
+                // **Settle** (`seed_settle_mode`): trade places with the seed
+                // or litter underneath. The seed below picks its own schedule
+                // back up at its new cell through `relocated_seed`, as this
+                // one does.
+                if !ready && seed_settle_mode().0 && settles_through(world, below) && rng.chance(SEED_SETTLE_CHANCE) {
+                    world.move_cell(x, y, x, y + 1, false);
+                    world.seeds_settled += 1;
+                    return vec![reschedule_organism(x, y + 1, organism_id, 0, 0, world.frame + SEED_TICK_INTERVAL)];
                 }
                 // **Remember that it waited**, so `germinate` can tell a
                 // seed that sat out a dry spell from one that sprouted the
@@ -13614,6 +13798,12 @@ fn shed_to_litter(world: &mut World, x: i32, y: i32, cause: organism::DeathCause
     // right one now means this does not silently break if that changes.
     let shades = world.materials.get(litter).base_shades.max(1) as u32;
     let shade = world.rng.below(shades) as u8;
+    // Root tissue is told apart by material (`reinforces_powder`) or by a
+    // live `RootTip`, the same test `step_organisms` counts `root_cells` by.
+    let was_root = {
+        let c = world.get(x, y);
+        world.materials.get(c.material).reinforces_powder || organism::cell_type(c.aux()) == Some(CellType::RootTip)
+    };
     // Cleared before the walk, so the leaf's own cell reads as air and is a
     // valid landing spot for the boxed-in case below.
     world.loss_context = Some(cause);
@@ -13699,7 +13889,11 @@ fn shed_to_litter(world: &mut World, x: i32, y: i32, cause: organism::DeathCause
     // difference. The debt is decremented here and nowhere else, so a stand
     // can never hand the bed back more ground than it took out of it.
     let repayable = world.bed_cells_on_loan > 0;
-    let sheds_into = if landing == y && repayable && buried_remains_enabled() {
+    // **Only a cell that could have displaced ground repays it** -- see
+    // `buried_remains_roots_only`. `was_root` is read off the cell as it was
+    // before the clear above.
+    let root_ok = !buried_remains_roots_only() || was_root;
+    let sheds_into = if landing == y && repayable && root_ok && buried_remains_enabled() {
         buried_ground(world, x, y).then_some("soil")
     } else {
         None
@@ -13800,6 +13994,39 @@ fn shed_to_litter(world: &mut World, x: i32, y: i32, cause: organism::DeathCause
 fn buried_remains_enabled() -> bool {
     static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *ON.get_or_init(|| std::env::var("PIXEL_PHYSICS_BURIED_REMAINS").as_deref() != Ok("litter"))
+}
+
+/// **Only buried *root* tissue turns back into ground; buried shoot tissue
+/// becomes litter** -- on by default since 2026-10-17.
+/// `PIXEL_PHYSICS_BURIED_REMAINS=any` puts back the 2026-09-06 rule, where
+/// any buried tissue repaid the loan; `litter` still puts back the rule
+/// before that.
+///
+/// Found on the mixed bed (mix7, light rain, half pace) by counting every
+/// cell above the sown ground line: on seed 2 soil there went 121 -> 8,661
+/// between 25k and 300k, and it is what lifted the floor over the low
+/// plants. Ablated one source at a time at 300k: `DECAY_YIELD=0` (litter
+/// makes no soil) left 4,465 on seed 2 (seed 4: 6,067 -> 4,021);
+/// `BURIED_REMAINS=litter` left 1,332. So most of the raised ground was this
+/// rule, not rotted leaves. The mechanism is inferred from the rule, not
+/// traced cell by cell. The loan is one world-wide count, and
+/// `buried_ground` accepts any tissue with a mineral face and no air face. A
+/// grass sward's lower blades, once buried by seed and by the first raised
+/// soil, pass that test. So roots that borrowed ground below the line were
+/// repaid above it, each repaid layer buried the next layer of blades, and
+/// soil climbed up through the sward.
+///
+/// A shoot never displaced ground -- it grew into air -- so it has nothing to
+/// repay. The loan stays world-wide (the root that borrowed and the root that
+/// repays may differ), but only a root repays, so ground goes back below the
+/// line where it came from.
+///
+/// Mixed bed at 450k, today against this: species with 100+ leaf cells were
+/// 3,3,3,4 against 4,6,4,4 on seeds 1-4, and soil above the sown line was
+/// 9,121-11,887 against 3,171-4,398.
+fn buried_remains_roots_only() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var("PIXEL_PHYSICS_BURIED_REMAINS").as_deref() != Ok("any"))
 }
 
 /// **Is this cell inside the mineral bank?** — the test that separates tissue
@@ -16129,6 +16356,48 @@ mortality -- see the doc on this test"
             "a leaf over a trunk finds no air below it and is still not buried -- \
              without the mineral-neighbour test a crown turns to soil in mid-air"
         );
+    }
+
+    /// **A buried shoot is not a root: it falls to litter and leaves the loan
+    /// for a root to repay.** The guard over `buried_remains_roots_only`. A
+    /// grass blade buried in the mixed bed's seed heaps used to pass
+    /// `buried_ground` and repay the bed's loan above the sown line, which
+    /// raised the floor by up to 12k cells by 450k. The root arm is the
+    /// positive control: the same scene with a root in the blade's place must
+    /// still turn to soil, or this test would pass on a rule that repays
+    /// nothing at all.
+    #[test]
+    fn a_buried_shoot_falls_to_litter_and_leaves_the_loan_for_a_root() {
+        let mut w = test_world();
+        let organism: OrganismId = 9;
+        let soil = w.materials.id_of("soil").expect("soil");
+        let litter = w.materials.id_of("litter").expect("litter");
+        let blade = w.materials.id_of("grassblade").expect("grassblade");
+        let root = w.materials.id_of("grassroot").expect("grassroot");
+        for x in 40..70 {
+            for y in 50..60 {
+                w.set(x, y, Cell::new(soil, 0));
+            }
+        }
+        // One loan, booked the way `Grow` books it.
+        displace_soil_water(&mut w, 45, 55);
+        // A blade and a root, each walled in by soil on every side.
+        place(&mut w, (45, 55), blade, organism, CellType::MatureBody, (0.0, 0.0));
+        place(&mut w, (55, 55), root, organism, CellType::MatureBody, (0.0, 0.0));
+        assert_eq!(w.bed_cells_on_loan, 1, "test setup: one cell lent");
+
+        shed_to_litter(&mut w, 45, 55, organism::DeathCause::Withered);
+        assert_eq!(
+            w.get(45, 55).material,
+            litter,
+            "a buried shoot never displaced ground and must not become soil -- \
+             that is the rule that raised the mixed bed's floor over its low plants"
+        );
+        assert_eq!(w.bed_cells_on_loan, 1, "the shoot must leave the loan for a root");
+
+        shed_to_litter(&mut w, 55, 55, organism::DeathCause::Withered);
+        assert_eq!(w.get(55, 55).material, soil, "a buried root must still repay the bed");
+        assert_eq!(w.bed_cells_on_loan, 0, "...and the loan is repaid exactly once");
     }
 
     /// **Starvation die-back must not schedule a structural check** — the
