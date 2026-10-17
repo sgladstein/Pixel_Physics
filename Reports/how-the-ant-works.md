@@ -1861,7 +1861,7 @@ a walled-in ant does. Verified 2026-10-11 against `walk_act`, `hungry_act`,
 
 - **`walled_in`, two parts, both on in the new ant** (`WalkParts::NEW_ANT`
   is `reach` plus these two and, since 2026-10-12, `parted_carry`, and
-  since 2026-10-15 `forage_out`, below; what
+  since 2026-10-15 `forage_out` and `meet_few`, below; what
   `deeptrace` and `needscost` run when no parts are named;
   `needsparts=none` is slice 1, `reach,walled_in` the new ant before
   `parted_carry`).
@@ -1933,6 +1933,26 @@ a walled-in ant does. Verified 2026-10-11 against `walk_act`, `hungry_act`,
   24-51 ants against 76-98, and food-200 deliveries are a quarter lower,
   because a forager that gets out keeps the job until it is home
   (`give_up` off). `reach,walled_in,parted_carry` is the new ant before it.
+- **`meet_few`, on in the new ant since 2026-10-15: a return meets a few, not the crowd.** With
+  the part, a delivery stamps `return_met` on the deliverer and at most
+  `MEET_FEW` (3) of the ants within `RETURN_MEET` of the drop, a random few
+  (the lowest hashes of ant and frame, RNG slot 16), instead of every one.
+  Off, every ant within reach is stamped, as the shipped ant does. Why: under
+  `forage_out` each return stamped the 10-15 ants round the drop in a ~280-ant
+  colony, and a stamp keeps a forager on the job at home, so foragers stayed
+  out and the dug nest emptied. Measured (income 10/40 x food 30/90/200, 4-8
+  seeds): big colony dug nest 51/31/27 -> 69/61/57, food-200 deliveries
+  16.3 -> 19.7; small colony unchanged (food 200: 5.8 -> 5.9 deliveries,
+  0 die-outs); starvation bursts in big colonies at near food alike at the
+  median, heavier in the worst runs (651 against 326). Stamping only the
+  deliverer killed 2 of 4 small colonies at food 200. Counted in
+  `walk_counts.csv`'s `meet_few_met` and `meet_few_missed`. Results in
+  `new-vs-old/walk-recruit-2026-10-15/results.md` §6-10 (shared folder).
+  At 12 seeds (income 40, food 30 and 90): dug nest 49/26 -> 70/63,
+  colony 1-4% smaller (lower on 19 of 24 paired runs), starvation median
+  57/10 -> 35/4 with one burst of 651; at income 10, food 90, 4 -> 11
+  starved per 200k frames (10 of 12 seeds); no die-outs anywhere.
+  `reach,walled_in,parted_carry,forage_out` is the new ant before it.
 - **The player's ant is never walked**: all four of the walk's hooks in
   `creature_tick` (`needs::act`, `kinesis`, `step`, `after`) stand aside
   while she is steered (§16), and the walk forgets her each steered tick

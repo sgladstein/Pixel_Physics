@@ -565,8 +565,9 @@ fn main() {
     let walk_trace: u32 = arg("walktrace").unwrap_or(0);
     // `needsparts=`: the walk's parts under `needs=walk`. Unnamed, the new
     // ant as it stands (`WalkParts::NEW_ANT`: `reach`, the `walled_in`
-    // switch since 2026-10-11, and `parted_carry` since PR 690;
-    // `reach,walled_in` is the new ant before PR 690); `none` is slice 1
+    // switch since 2026-10-11, `parted_carry` since PR 690, `forage_out`
+    // since PR 704 and `meet_few` since PR 705; `reach,walled_in` is the new
+    // ant before PR 690); `none` is slice 1
     // exactly, as the default was before. A name it does not know panics rather than running an arm
     // under another's label.
     let needs_parts = arg::<String>("needsparts").map_or(creature::needs::WalkParts::NEW_ANT, |p| {
@@ -753,7 +754,7 @@ fn main() {
         let cuts: Vec<String> = creature::needs::Drive::ALL.iter().map(|d| format!("cut_{}", d.label())).collect();
         writeln!(
             f,
-            "frame,minds,{},took_forage,quit_forage,need_over_job,ate_held,pellets_down,escape_cuts,escape_packs,gluts,{},dig_took,dig_quit,dig_tired,clear_cuts,gave_up,lay_walks,meals_kept,stays_not_stalls,reach_hidden,eat_gave_up,eat_gave_up_again,eat_rest,eat_rest_ate,eat_rest_out,reach_hidden_air,bouts,bouts_fed,bouts_fed_outside,bouts_died,hold_ignored,seal_floods,sealed_found,sealed_freed,sealed_opened,sealed_cuts,sealed_packs,seal_aim_turned,sealed_drops,sealed_load_down,seal_recut,ate_held_jaws,eat_held_refused,laden_soil,forage_out_pulls",
+            "frame,minds,{},took_forage,quit_forage,need_over_job,ate_held,pellets_down,escape_cuts,escape_packs,gluts,{},dig_took,dig_quit,dig_tired,clear_cuts,gave_up,lay_walks,meals_kept,stays_not_stalls,reach_hidden,eat_gave_up,eat_gave_up_again,eat_rest,eat_rest_ate,eat_rest_out,reach_hidden_air,bouts,bouts_fed,bouts_fed_outside,bouts_died,hold_ignored,seal_floods,sealed_found,sealed_freed,sealed_opened,sealed_cuts,sealed_packs,seal_aim_turned,sealed_drops,sealed_load_down,seal_recut,ate_held_jaws,eat_held_refused,laden_soil,forage_out_pulls,meet_few_met,meet_few_missed",
             drives.join(","),
             cuts.join(",")
         )
@@ -1516,7 +1517,7 @@ fn main() {
                 let cut: Vec<String> = c.cuts.iter().map(u64::to_string).collect();
                 writeln!(
                     wn,
-                    "{f},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
+                    "{f},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
                     walk.minds(),
                     dec.join(","),
                     c.took_forage,
@@ -1561,7 +1562,9 @@ fn main() {
                     c.ate_held_jaws,
                     c.eat_held_refused,
                     c.laden_soil,
-                    c.forage_out_pulls
+                    c.forage_out_pulls,
+                    c.meet_few_met,
+                    c.meet_few_missed
                 )
                 .unwrap();
             }
