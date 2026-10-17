@@ -523,6 +523,9 @@ src/lab/       the evolution lab: a sealed box of soil under a grow light,
                run at speed. The main game, on the same engine as the others, not a fork --
                scene.rs the bed, time.rs the speed dial, stats.rs the census
 src/bin/lab.rs the lab's window and input, the way main.rs is the sandbox's
+src/train/     the training rig: ant brains found by challenge and selection
+               rather than written by hand -- arenas with scores, a GA,
+               hold-outs and a senses-cut control. examples/train.rs runs it
 src/lib.rs     the crate root that wires the above together
 ```
 
