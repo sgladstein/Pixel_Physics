@@ -26162,7 +26162,9 @@ fn home_pull(world: &World, organism: OrganismId, def: &CreatureDef, head: (i32,
         }
         return Some((home_target(world, state), def.home_bias));
     }
-    match spoil_haul().filter(|_| state.spoil.is_some()) {
+    // `World::home_blind` (the training rig's blind control) cuts the haul
+    // too, which `home_bias` does not reach.
+    match spoil_haul().filter(|_| state.spoil.is_some() && !world.home_blind) {
         Some(w) => {
             // **Out along the passages** ([`soil_way_of`]), where the way
             // reaches; the straight haul everywhere else.
@@ -26248,7 +26250,7 @@ fn home_pull_why(world: &World, organism: OrganismId, def: &CreatureDef, head: (
             return (PULL_LEASH, Some(deep.unwrap_or_else(|| home_target(world, state))));
         }
     }
-    if spoil_haul().is_some() && state.spoil.is_some() {
+    if spoil_haul().is_some() && state.spoil.is_some() && !world.home_blind {
         if let Some(p) = soil_way_pull(world, organism, def, state, head) {
             return (PULL_SOIL_WAY, Some(p));
         }
@@ -28536,7 +28538,7 @@ fn tumble(world: &mut World, organism: OrganismId, def: &CreatureDef, draw: &mut
     // ant authors 1.0.
     // See `home_weighted_pick`: at 0 it takes **no RNG draw at all**, which is
     // what makes the default arm a true control rather than a re-seeding.
-    let (homeward, why, home_cos) = home_weighted_pick_why(world, organism, def, (hx, hy), &viable, draw, spoil_haul());
+    let (homeward, why, home_cos) = home_weighted_pick_why(world, organism, def, (hx, hy), &viable, draw, spoil_haul().filter(|_| !world.home_blind));
     // C1: every call by the gate that decided it, and every firing by where
     // it pointed. Always on; the trace below carries the same per tumble.
     world.creature_stats.homeward_why[why as usize] += 1;

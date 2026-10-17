@@ -107,6 +107,12 @@ pub trait Challenge: Sync {
     /// Set any reference scores from the start genome before training.
     /// Only a suite has any.
     fn calibrate(&mut self, _start: &[f32], _layouts: &[Layout], _threads: usize) {}
+    /// Whether odd layouts mirror even ones (the food or the trail on the
+    /// other side). A mirrored challenge is scored by the worse side of each
+    /// pair ([`fold`]), not the mean.
+    fn mirrored(&self) -> bool {
+        false
+    }
 }
 
 /// SplitMix64. The rig's only randomness, so a run is a function of its seed.
@@ -123,9 +129,14 @@ impl Rng {
     pub fn unit(&mut self) -> f32 {
         (self.next_u64() >> 40) as f32 / (1u64 << 24) as f32
     }
-    pub fn gauss(&mut self) -> f32 {
-        let (u1, u2) = (self.unit().max(1e-7), self.unit());
-        (-2.0 * u1.ln()).sqrt() * (std::f32::consts::TAU * u2).cos()
+    /// A step with mean 0 and standard deviation 1, uniform on
+    /// `[-sqrt 3, sqrt 3]`. **Not a Gaussian, on purpose**: Box-Muller needs
+    /// `ln` and `cos`, whose last bit is the platform libm's, so a run in the
+    /// cloud could pick different children from a local one with the same
+    /// seed. `brain::mutate` steps uniformly for the same reason. `sqrt` is
+    /// correctly rounded everywhere, and this one is a constant anyway.
+    pub fn step(&mut self) -> f32 {
+        (self.unit() * 2.0 - 1.0) * 3f32.sqrt()
     }
     pub fn below(&mut self, n: usize) -> usize {
         (self.next_u64() % n as u64) as usize
@@ -299,11 +310,19 @@ impl Default for Settings {
 /// set on the calibration set, never on the hold-out it is later judged
 /// on: its keep floor is a threshold, so references taken from hold-out
 /// scores let hold-out data steer training.
+///
+/// **Layouts come in mirrored pairs on one seed** (`k` and `k + 1`, `k`
+/// even), training as well as hold-out, so a mirrored challenge's two sides
+/// differ only by the side and [`fold`] can take the worse of them. An arena
+/// that has no sides derives two beds from the pair itself ([`Dig`]'s
+/// `bed_seed`), or every pair would be one run twice.
+///
+/// [`Dig`]: challenges::Dig
 pub fn training_layouts(run_seed: u64, gen: usize, n: usize) -> Vec<Layout> {
     (0..n as u64)
         .map(|k| {
             let i = gen as u64 * n as u64 + k;
-            Layout { seed: 1000 + run_seed * 100_000 + i, k: i, blind: false }
+            Layout { seed: 1000 + run_seed * 100_000 + i / 2, k: i, blind: false }
         })
         .collect()
 }
@@ -396,10 +415,49 @@ pub fn mean_score(v: &[Score]) -> Score {
     }
 }
 
+/// **One genome's score over `layouts`**: the mean, or for a mirrored
+/// challenge the mean over pairs of the **worse side** -- the whole [`Score`]
+/// of whichever side fitted worse, parts and all, so the numbers beside it
+/// describe the run that set it.
+///
+/// Why: the noise bar of 2026-10-17 (`rig-2026-10-17c/`) found a forage
+/// champion scoring 21-38 on every east layout and 0 on every west one,
+/// founders all dead there -- a one-way habit with a mean of 14.0, ahead of
+/// the game walk's 8.3, which kept its founders on both sides. A mean over
+/// mirrors pays a specialist for the side it happens to face; the worse side
+/// pays only for reading the world. A layout without its partner (an odd
+/// count) counts alone.
+pub fn fold(ch: &dyn Challenge, v: &[Score], layouts: &[Layout]) -> Score {
+    if !ch.mirrored() {
+        return mean_score(v);
+    }
+    let mut worse: Vec<Score> = Vec::new();
+    let mut i = 0;
+    while i < v.len() {
+        let pair = i + 1 < v.len() && layouts[i].k.is_multiple_of(2) && layouts[i + 1].k == layouts[i].k + 1;
+        if pair {
+            worse.push(if v[i + 1].fit < v[i].fit { v[i + 1].clone() } else { v[i].clone() });
+            i += 2;
+        } else {
+            worse.push(v[i].clone());
+            i += 1;
+        }
+    }
+    mean_score(&worse)
+}
+
 /// Score a genome as a whole colony of clones on `layouts`, whatever the
 /// challenge's unit -- how the hold-out reads a champion, so a per-ant skill
-/// is judged on what a colony of it does.
+/// is judged on what a colony of it does. Folded by [`fold`].
 pub fn score_clones(ch: &dyn Challenge, g: &[f32], layouts: &[Layout], threads: usize) -> Score {
+    fold(ch, &score_each(ch, g, layouts, threads), layouts)
+}
+
+/// [`score_clones`] layout by layout, in `layouts` order: what the noise bar
+/// is read from (`examples/train.rs`'s `noise=1`). A mean hides how far one
+/// fixed brain's score swings between layouts, and that swing is the bar a
+/// difference between two brains has to clear.
+pub fn score_each(ch: &dyn Challenge, g: &[f32], layouts: &[Layout], threads: usize) -> Vec<Score> {
     let next = std::sync::atomic::AtomicUsize::new(0);
     let out = std::sync::Mutex::new(vec![Score::default(); layouts.len()]);
     std::thread::scope(|s| {
@@ -413,16 +471,17 @@ pub fn score_clones(ch: &dyn Challenge, g: &[f32], layouts: &[Layout], threads: 
             });
         }
     });
-    mean_score(&out.into_inner().unwrap())
+    out.into_inner().unwrap()
 }
 
 /// The mutation operator: each trainable slot moves with probability `pm`
-/// by N(0, sigma), clamped to the range the hand-written genomes use.
+/// by a uniform step of standard deviation `sigma` ([`Rng::step`]), clamped
+/// to the range the hand-written genomes use.
 pub fn mutate(g: &[f32], slots: &[usize], pm: f32, sigma: f32, rng: &mut Rng) -> Vec<f32> {
     let mut c = g.to_vec();
     for &i in slots {
         if rng.unit() < pm {
-            c[i] = (c[i] + sigma * rng.gauss()).clamp(-40.0, 40.0);
+            c[i] = (c[i] + sigma * rng.step()).clamp(-40.0, 40.0);
         }
     }
     c
@@ -489,7 +548,7 @@ pub fn start_genome(start: &Start, species_genome: &[f32], banned: &[BrainOutput
             if let Start::Random(sd) = start {
                 let mut rng = Rng(seed ^ 0x5EED_5EED);
                 for i in trainable(banned) {
-                    g[i] = sd * rng.gauss();
+                    g[i] = sd * rng.step();
                 }
             }
             g
@@ -548,7 +607,7 @@ pub fn train(ch: &dyn Challenge, start: Vec<f32>, set: &Settings, out: &Path) ->
         // same neighbours the population does.
         all.push(start.clone());
         let scores = score_all(ch, &all, &layouts, set.threads, &mut rng);
-        let means: Vec<Score> = scores.iter().map(|s| mean_score(s)).collect();
+        let means: Vec<Score> = scores.iter().map(|s| fold(ch, s, &layouts)).collect();
         let control = means[set.pop].fit;
         let mut ranked: Vec<(f64, usize)> = (0..set.pop).map(|g| (means[g].fit, g)).collect();
         ranked.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap().then(a.1.cmp(&b.1)));
@@ -713,6 +772,59 @@ mod tests {
         fn frames(&self) -> u64 {
             1
         }
+    }
+
+    /// A sided arena that returns a fixed score per side.
+    struct Sided {
+        east: f64,
+        west: f64,
+    }
+    impl Challenge for Sided {
+        fn name(&self) -> &'static str {
+            "sided"
+        }
+        fn unit(&self) -> Unit {
+            Unit::Colony
+        }
+        fn ants(&self) -> usize {
+            1
+        }
+        fn parts(&self) -> &'static [&'static str] {
+            &["side"]
+        }
+        fn banned(&self) -> &'static [BrainOutput] {
+            &[]
+        }
+        fn mirrored(&self) -> bool {
+            true
+        }
+        fn run(&self, l: Layout, _: &[&[f32]], _: &mut dyn FnMut(u64, &World)) -> Vec<Score> {
+            let east = l.k.is_multiple_of(2);
+            vec![Score { fit: if east { self.east } else { self.west }, parts: vec![if east { 1.0 } else { -1.0 }] }]
+        }
+        fn frames(&self) -> u64 {
+            1
+        }
+    }
+
+    /// **A one-way habit scores its worse side, not the mean of both**: the
+    /// forage champion of 2026-10-17 scored 21-38 east and 0 west, and a
+    /// mean put it ahead of a colony that worked both ways. The parts come
+    /// from the side that set the score. Training layouts pair on one seed,
+    /// so the two sides of a pair are the same arena mirrored.
+    #[test]
+    fn a_mirrored_arena_scores_the_worse_side() {
+        let layouts = training_layouts(3, 2, 4);
+        assert_eq!(layouts[0].seed, layouts[1].seed, "a pair shares its seed");
+        assert_ne!(layouts[1].seed, layouts[2].seed, "pairs do not");
+        let habit = Sided { east: 30.0, west: 0.0 };
+        let s = score_clones(&habit, &[], &layouts, 2);
+        assert_eq!(s.fit, 0.0, "the west side is the score");
+        assert_eq!(s.parts, vec![-1.0], "...and its parts are the west side's");
+        let both = Sided { east: 8.0, west: 7.0 };
+        assert_eq!(score_clones(&both, &[], &layouts, 2).fit, 7.0);
+        // An odd count leaves the last layout to count alone.
+        assert_eq!(score_clones(&habit, &[], &layouts[..3], 2).fit, 15.0);
     }
 
     /// **Each genome keeps its own arena's score, whatever the threads do.**

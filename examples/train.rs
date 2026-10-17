@@ -26,7 +26,7 @@ use std::time::Instant;
 
 fn arena(name: &str, frames: Option<u64>, ants: Option<usize>, game_walk: bool, clones: bool) -> Box<dyn Challenge> {
     match name {
-        "forage" => Box::new(Forage { ants: ants.unwrap_or(12), frames: frames.unwrap_or(6000), heap: 60, game_walk }),
+        "forage" => Box::new(Forage { ants: ants.unwrap_or(12), frames: frames.unwrap_or(6000), heap: 300, game_walk }),
         "trail" => {
             if game_walk {
                 println!("note: trail always walks by the brain (Chooser::Off); walk=game does not apply to it");
@@ -53,6 +53,7 @@ fn main() {
     let mut clones = false;
     let mut cost = false;
     let mut score: Option<String> = None;
+    let mut noise = false;
     for a in std::env::args().skip(1) {
         let (k, v) = a.split_once('=').unwrap_or((a.as_str(), "1"));
         match k {
@@ -79,10 +80,26 @@ fn main() {
             "clones" => clones = v == "1",
             "cost" => cost = v == "1",
             "score" => score = Some(v.into()),
+            "noise" => noise = v == "1",
             _ => panic!("unknown argument {a}"),
         }
     }
-    println!("train challenge={challenge} arenas={arenas} keep={keep} floor={floor} start={start} walk={} clones={clones} frames={frames:?} ants={ants:?}", if game_walk { "game" } else { "brain" });
+    // **Every setting, every time**, score and noise runs included: a log
+    // without it once left two "game" rows in one file with nothing to say
+    // which walk made which (`design/review-rev2.md` N10).
+    println!(
+        "train challenge={challenge} arenas={arenas} keep={keep} floor={floor} start={start} walk={} clones={clones} frames={frames:?} ants={ants:?} score={score:?} noise={noise} seed={} pop={} gens={} layouts={} pm={} sigma={} cross={} holdout={} threads={}",
+        if game_walk { "game" } else { "brain" },
+        set.seed,
+        set.pop,
+        set.gens,
+        set.layouts,
+        set.pm,
+        set.sigma,
+        set.cross,
+        set.holdout,
+        set.threads
+    );
 
     let mut ch: Box<dyn Challenge> = if challenge == "suite" {
         let list: Vec<(Box<dyn Challenge>, bool)> = arenas
@@ -111,6 +128,28 @@ fn main() {
         let gs: Vec<&[f32]> = vec![&g0; if ch.unit() == train::Unit::Ant { ch.ants() } else { 1 }];
         let s = ch.run(train::Layout { seed: 1, k: 0, blind: false }, &gs, &mut |_, _| {});
         println!("one arena: {:.2} s; {:?}", t.elapsed().as_secs_f64(), train::mean_score(&s));
+        return;
+    }
+    if noise {
+        // **The noise bar**: one fixed genome (score=, else start=) on every
+        // hold-out layout, one row each, then the spread. A difference
+        // between two brains smaller than this spread is not a difference.
+        let g = match &score {
+            Some(f) if f == "game" => train::start_genome(&Start::Species, &species_genome, ch.banned(), 0),
+            Some(f) => train::start_genome(&Start::File(f.into()), &species_genome, ch.banned(), 0),
+            None => g0.clone(),
+        };
+        let hold = train::holdout_layouts(set.holdout);
+        let each = train::score_each(ch.as_ref(), &g, &hold, set.threads);
+        for (l, s) in hold.iter().zip(&each) {
+            println!("NOISE seed={} k={} {:.3}  {:?}", l.seed, l.k, s.fit, s.parts);
+        }
+        let n = each.len().max(1) as f64;
+        let mean = each.iter().map(|s| s.fit).sum::<f64>() / n;
+        let sd = (each.iter().map(|s| (s.fit - mean).powi(2)).sum::<f64>() / (n - 1.0).max(1.0)).sqrt();
+        let lo = each.iter().map(|s| s.fit).fold(f64::INFINITY, f64::min);
+        let hi = each.iter().map(|s| s.fit).fold(f64::NEG_INFINITY, f64::max);
+        println!("NOISE mean {mean:.3} sd {sd:.3} min {lo:.3} max {hi:.3} over {} layouts; standard error of the mean {:.3}", each.len(), sd / n.sqrt());
         return;
     }
     if let Some(f) = score {
