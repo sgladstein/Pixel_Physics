@@ -1,0 +1,2 @@
+# Timing probe: does one training job speed up with threads? Same work (6 gens, pop 100, 8 layouts), threads=2, on a 4-vCPU hosted runner.
+brain=mind challenge=trail clones=1 start=blank gens=6 pop=100 layouts=8 sigma=1.0 holdout=12 every=1 seed=1 threads=2

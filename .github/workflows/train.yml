@@ -1,0 +1,110 @@
+name: Train
+
+# **Brain-training runs on GitHub's free runners, started by pushing a file.**
+# Owner asked (2026-10-18) for more training machines than the four Haiku
+# runner sessions; this repository is public, so a standard Linux runner costs
+# nothing (4 vCPU, 20 at once, 6 h per job). Research and prices:
+# `brain-training/cloud-compute/cost-research-2026-10-18.md` in the project
+# files. Nothing here needs a secret or an account beyond the default token.
+#
+# **How to start a run.** Commit one file, `.github/train-jobs/<name>.job`,
+# holding the `train` arguments on a single line (`#` lines are comments), and
+# push the branch. Every `.job` added or changed in the pushed head commit
+# becomes one run. Or use "Run workflow" with a name and the same line.
+# See `.github/train-jobs/README.md` for what is refused and where results go.
+#
+# **Why a file push and not only `workflow_dispatch`.** A dispatch trigger
+# only appears once the workflow is on `main`, so a lane could not test its
+# own change to this file. A push to `claude/**` or `train/**` works from any
+# branch, and the job file travels with the commit it was run on, which is
+# the record of exactly what was run.
+#
+# **Cost to everyone else.** PR CI queues on the same 20-job pool
+# (`Reports/` ci-wall-time note, 2026-10-03: runner start lag was already the
+# long pole). `max-parallel: 10` leaves half the pool for CI. Do not raise it
+# without checking the CI queue.
+on:
+  workflow_dispatch:
+    inputs:
+      name:
+        description: Job name (letters, digits, . _ -)
+        required: true
+      args:
+        description: "train arguments, one line, e.g. brain=mind challenge=trail gens=20 pop=100 layouts=8"
+        required: true
+  push:
+    branches: ['claude/**', 'train/**']
+    paths: ['.github/train-jobs/*.job']
+
+permissions:
+  contents: write
+
+jobs:
+  # Turn the pushed job files (or the dispatch inputs) into a matrix. The job
+  # text is data: it is validated here and later passed through `env`, never
+  # spliced into a shell line.
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - id: plan
+        env:
+          EVENT: ${{ github.event_name }}
+          IN_NAME: ${{ inputs.name }}
+          IN_ARGS: ${{ inputs.args }}
+        run: python3 scripts/train_plan.py
+
+  train:
+    needs: plan
+    if: ${{ needs.plan.outputs.matrix != '[]' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    strategy:
+      fail-fast: false
+      max-parallel: 10
+      matrix:
+        include: ${{ fromJson(needs.plan.outputs.matrix) }}
+    name: train ${{ matrix.name }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.98
+      - uses: Swatinem/rust-cache@v2
+      - name: build train
+        run: cargo build --release --locked --example train
+      - name: run
+        env:
+          NAME: ${{ matrix.name }}
+          ARGS: ${{ matrix.args }}
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -o pipefail
+          OUT="$RUNNER_TEMP/out"; mkdir -p "$OUT"
+          read -r -a ARR <<< "$ARGS"
+          case " ${ARR[*]} " in *" threads="*) ;; *) ARR+=("threads=$(nproc)");; esac
+          {
+            echo "name: $NAME"; echo "commit: $GITHUB_SHA"; echo "run: $RUN_URL"
+            echo "args: ${ARR[*]}"; echo "started: $(date -u +%FT%TZ)"
+            lscpu | grep -E 'Model name|^CPU\(s\)|Thread|Core'
+          } > "$OUT/STATUS.txt"
+          # Publish a snapshot every 15 min so a lane can look at the curves
+          # while the run is going, not only at the end.
+          ( while sleep 900; do bash scripts/train_publish.sh "$OUT" "$NAME" || true; done ) &
+          ./target/release/examples/train "${ARR[@]}" out="$OUT" 2>&1 | tee "$OUT/train.log"
+          echo "finished: $(date -u +%FT%TZ)" >> "$OUT/STATUS.txt"
+      - name: publish results
+        if: always()
+        env:
+          NAME: ${{ matrix.name }}
+          GH_TOKEN: ${{ github.token }}
+        run: bash scripts/train_publish.sh "$RUNNER_TEMP/out" "$NAME"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: train-${{ matrix.name }}
+          path: ${{ runner.temp }}/out
+          retention-days: 14
