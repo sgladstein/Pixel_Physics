@@ -20,6 +20,13 @@ cp -r "$out"/. .
 # failed under pipefail, and the script exited silently -- the snapshot at
 # 03:50 of the 2026-10-18 threads=1 probe never happened.
 find . -maxdepth 1 -name 'pic-gen-*.png' | sort | head -n -2 | xargs -r rm -f
+# curves.png beside the svg the trainer redraws every generation (owner,
+# 2026-10-17: curves for every generation from gen 0). Redrawn here with the
+# job name as title (the trainer's title is the folder name, "out"). Best
+# effort: needs `pip install cairosvg`, which the workflow does.
+here=$(cd "$(dirname "$0")" && pwd)
+python3 "$here/traincurves.py" . --out curves.svg --title "$name" >/dev/null 2>&1 || true
+python3 -c "import cairosvg; cairosvg.svg2png(url='curves.svg', write_to='curves.png', scale=1.5)" 2>/dev/null || true
 git add -A && git commit -q -m "train snapshot $name $(date -u +%FT%TZ)"
 git push -q -f "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "$branch"
 echo "published $branch"

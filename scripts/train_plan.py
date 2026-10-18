@@ -25,6 +25,8 @@ def parse_job(name, text):
         if "=" not in tok:
             raise ValueError(f"{name}: argument {tok!r} is not key=value")
         k, v = tok.split("=", 1)
+        if k == "every" and v != "1":
+            raise ValueError(f"{name}: every={v} -- curves and hold-out are wanted every generation (every=1, the default); remove it")
         if k == "out":
             raise ValueError(f"{name}: out= is set by the workflow, remove it")
         if v.startswith("/") or ".." in v:
@@ -60,13 +62,13 @@ def selftest():
     ok = parse_job("a-1", "# c\nbrain=mind gens=2 start=training/x.txt\n")
     assert ok == {"name": "a-1", "args": "brain=mind gens=2 start=training/x.txt"}, ok
     for bad_name, bad in [("a b", "x=1"), ("a", "x=1\ny=2"), ("a", "out=foo"),
-                          ("a", "start=/mnt/project-files/x"), ("a", "start=../x"), ("a", "gens"), ("a", "# only comment")]:
+                          ("a", "start=/mnt/project-files/x"), ("a", "start=../x"), ("a", "gens"), ("a", "# only comment"), ("a", "every=5")]:
         try:
             parse_job(bad_name, bad)
         except ValueError:
             continue
         sys.exit(f"selftest: {bad_name!r} {bad!r} was accepted")
-    print("selftest ok: 1 accepted, 7 refused")
+    print("selftest ok: 1 accepted, 8 refused")
 
 
 if __name__ == "__main__":
