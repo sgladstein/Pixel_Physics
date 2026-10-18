@@ -1,3 +1,0 @@
-# Publisher check: tiny run, only to see curves.png and the snapshot land on train-results/png-check.
-ref=401adf59d15c857154ac9ba2c59d709bd867600c brain=mind challenge=trail clones=1 start=blank gens=2 pop=20 layouts=2 sigma=1.0 holdout=2 every=1 seed=1 threads=4
-# rerun after fixing the relative-path bug in train_publish.sh (run 39095928701 died at the publish step)
