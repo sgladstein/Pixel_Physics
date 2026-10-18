@@ -467,8 +467,11 @@ impl Challenge for Forage {
 /// that merely could turn never did (`brain-training/stage2/forage-big`).
 /// Heads stay in the score and are the rung's check (design rev3, *a second
 /// number it cannot trade away*), so a colony that buys steps with its ants
-/// shows it there, but the steps can lift a dead colony over a live one
-/// that never left home.
+/// shows it there. **But heads are a readout beside the steps, not a gate**:
+/// a colony that dies with every founder reaching, picking up, carrying and
+/// arriving, and one cell home, scores 15.5, above the live hand-built
+/// forager (12.6) and the game ant's heads alone (14.5) (review of PR 717,
+/// N1). Gating the steps on survival (times `kept`) is the owner's call.
 ///
 /// **The horizon is a setting**: 12,000 frames trains in half the time and
 /// still separates the champion (3.2) from the game ant (21.8); only by
@@ -721,7 +724,11 @@ impl Challenge for Scarce {
 /// the food, reaching it, picking some up, carrying it towards the nest,
 /// arriving with it, putting it down there. Each step outweighs every step
 /// below it together (0.5 + 1 + 2 + 4 + 8 = 15.5 < 16), so stacking the
-/// easy ones never beats one cell home.
+/// easy ones never beats one cell home. **At full shares**: in a colony,
+/// reaching, picking up and arriving are shares of the founders, so twelve
+/// ants that reach and pick up with a load carried half way (5) outrank one
+/// that carries all the way and arrives (4.92; review of PR 717, N2). With
+/// one ant (`fetch`) the order holds.
 ///
 /// **Heading out is a step because reaching the food was all or nothing.**
 /// Scored from reaching up, one ant at 80 columns, judged on the worse of

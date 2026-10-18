@@ -418,7 +418,10 @@ fn main() {
     let g0 = if mind {
         let mut g = train::start_mind(ch.as_ref(), &start);
         // A training start only: a champion scored by `score=` runs as it
-        // was trained.
+        // was trained. `start=` with `trace=`, `noise=` or `pic=` (and the
+        // suite's calibration and the hold-out's "start" row) runs this
+        // reopened genome, so a champion is traced as trained by `score=`
+        // (review of PR 717, N4).
         let did = creature::mind::reopen(&mut g, ch.verbs());
         if !did.is_empty() {
             println!("{start} reopens, quietly: {}", did.join(", "));
