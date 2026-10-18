@@ -1242,6 +1242,10 @@ pub fn train(ch: &dyn Challenge, start: Vec<f32>, set: &Settings, out: &Path) ->
     let mut vetoed_pop = vec![0usize; gates.len()];
     let mut vetoed_hold = vec![0usize; gates.len()];
     let (mut scored_pop, mut scored_hold) = (0usize, 0usize);
+    // A veto is x0.1, not exclusion, so hold-best.txt can be a vetoed
+    // genome; the summary says which floors it was under (review of PR 723,
+    // N3).
+    let mut top_under: Vec<&str> = Vec::new();
     println!("gen   best  median  control  [{}]  secs", parts.join(" "));
     for gen in 0..set.gens {
         let tg = Instant::now();
@@ -1297,6 +1301,11 @@ pub fn train(ch: &dyn Challenge, start: Vec<f32>, set: &Settings, out: &Path) ->
                     }
                     if s.fit > top {
                         (top, top_gen, top_genome) = (s.fit, gen, champion.clone());
+                        top_under = gates
+                            .iter()
+                            .filter(|&&(i, _)| s.parts[i] > 0.0)
+                            .map(|&(_, n)| n)
+                            .collect();
                     }
                 } else {
                     last_hold.push_str(&format!(", {who} {:.2}", s.fit));
@@ -1344,7 +1353,12 @@ pub fn train(ch: &dyn Challenge, start: Vec<f32>, set: &Settings, out: &Path) ->
                 )
             })
             .collect();
-        format!("vetoed by a floor: {}\n", each.join("; "))
+        let hb = if top_under.is_empty() {
+            "under no floor".to_string()
+        } else {
+            format!("under {}", top_under.join(", "))
+        };
+        format!("vetoed by a floor: {}\nhold-best.txt: {hb}\n", each.join("; "))
     };
     let summary = format!(
         "{head}\n{ran} of {} generations in {:.0} s (hold-out best {top:.3} at generation {top_gen}, hold-best.txt; last gain over {STOP_GAIN} at generation {best_gen})\n{last_hold}\n{vetoes}{}\n",

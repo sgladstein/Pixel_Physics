@@ -2254,6 +2254,14 @@ impl Suite {
         }
     }
 
+    /// **Whether a suite is [`gated`](Suite::gated)**: from the dig rung's
+    /// step 4, when soil is in it and is learned rather than kept
+    /// (`dig-rung-design.md` rev 2.4). `examples/train.rs` asks this; the
+    /// review of PR 723 (N4) found the switch had no test of its own.
+    pub fn gated_at(step: u8, arenas: &str, keep: &str) -> bool {
+        step >= 4 && arenas.split(',').any(|n| n == "soil") && !keep.split(',').any(|k| k == "soil")
+    }
+
     /// The same suite with its kept arenas as pass/fail gates (see
     /// [`Suite`]).
     pub fn gated(mut self) -> Self {
@@ -3391,6 +3399,20 @@ mod tests {
     /// under a floor it is a tenth of that, and the kept arena's `_under`
     /// part reads 1. The control: ungated, the same kept ratio enters the
     /// product.
+    /// The step-4 switch: on from step 4 with soil learned, off before it,
+    /// off without soil, and off with soil only kept.
+    #[test]
+    fn a_suite_is_gated_from_step_four_when_it_learns_soil() {
+        let all = "soil,fetch,trail,scarce-dig";
+        let kept = "fetch,trail,scarce-dig";
+        assert!(Suite::gated_at(4, all, kept));
+        assert!(Suite::gated_at(5, "soil,trail", "trail"));
+        assert!(!Suite::gated_at(3, all, kept));
+        assert!(!Suite::gated_at(4, "fetch,trail", "trail"));
+        assert!(!Suite::gated_at(4, "soilish,trail", "trail"));
+        assert!(!Suite::gated_at(4, all, "soil,fetch"));
+    }
+
     #[test]
     fn a_gated_suite_scores_the_learned_arena_alone() {
         let lay = [Layout { seed: 1, k: 0, blind: false, legal: false }, Layout { seed: 1, k: 1, blind: false, legal: false }];

@@ -417,8 +417,10 @@ fn main() {
         // From the dig rung's step 4 the kept arenas are gates
         // (`dig-rung-design.md` rev 2.4): the colony's luck carried
         // selection in the first step-4 runs.
-        if step >= 4 && arenas.split(',').any(|n| n == "soil") {
-            println!("suite gated: from step 4 each kept arena is a pass/fail floor, its ratio left out of the product");
+        if Suite::gated_at(step, &arenas, &keep) {
+            println!(
+                "suite gated: from step 4 each kept arena is a pass/fail floor, its ratio left out of the product"
+            );
             Box::new(suite.gated())
         } else {
             Box::new(suite)
