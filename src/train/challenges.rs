@@ -1549,7 +1549,10 @@ fn is_ground(w: &World, x: i32, y: i32) -> bool {
 /// **Rescale a species to a finite budget**, every standing bill kept at
 /// what it is at the authored budget ([`never_starve`] is this at 1e9).
 fn budget_to(def: &mut organism::CreatureDef, joules: f32) {
-    assert!(joules > 0.0, "a budget of {joules} J: every bill priced as a fraction of it would be infinite");
+    assert!(
+        joules.is_finite() && joules > 0.0,
+        "a budget of {joules} J: every bill priced as a fraction of it would be infinite, or free"
+    );
     let authored = def.start_energy;
     def.start_energy = joules;
     let k = authored / def.start_energy;
@@ -3197,6 +3200,27 @@ mod tests {
         late.nest_shaft = Some(2);
         let default = deepest(&late, &sc).expect("the default shaft");
         assert!(two < default, "a 2-row shaft read {two} rows deep, the default {default}");
+    }
+
+    /// **The soil picture's colours are the score's** ([`Soil::marks`]): a
+    /// pellet put down inside the founding chamber is near the hole (amber),
+    /// never away (green), and one put down far along the bare surface is
+    /// away (review of PR 721, N2: painting without the founding cut left
+    /// every test green).
+    #[test]
+    fn the_soil_picture_paints_near_and_away_as_the_score_does() {
+        let lay = Layout { seed: 3, k: 0, blind: false, legal: false };
+        let soil = Soil { ants: 1, frames: 1, step: 3, shaft: 2, budget: None };
+        let (mut w, sc, _, _) = soil.world(lay, &creature::mind::blank(SOIL_VERBS));
+        let chamber = *founding_cut(&w, &sc.bed).last().expect("a founding cut");
+        let x = chamber.0 + 20;
+        let far = (x, census::surface_of(&w, &sc.bed, x) - 1);
+        let id = w.live_organism_ids().into_iter().next().expect("an ant");
+        w.minds.as_mut().expect("minds").dump_log = Some(vec![(chamber.0, chamber.1, 1, id), (far.0, far.1, 2, id)]);
+        let marks = soil.marks(lay, &w);
+        let colour = |at: (i32, i32)| marks.iter().find(|(p, _)| *p == at).map(|(_, c)| *c);
+        assert_eq!(colour(chamber), Some([255, 190, 0]), "a pellet in the founding chamber is near the hole");
+        assert_eq!(colour(far), Some([40, 220, 60]), "a pellet 20 columns along the surface is away");
     }
 
     /// **The soil ledger closes** (dig design, section 9's guards): every

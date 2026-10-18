@@ -329,7 +329,7 @@ fn main() {
                 budget = if v == "fed" {
                     None
                 } else {
-                    Some(v.parse().ok().filter(|&j: &f32| j > 0.0).unwrap_or_else(|| panic!("budget={v}: fed, or joules above 0")))
+                    Some(v.parse().ok().filter(|&j: &f32| j.is_finite() && j > 0.0).unwrap_or_else(|| panic!("budget={v}: fed, or a finite number of joules above 0")))
                 }
             }
             "brain" => {
