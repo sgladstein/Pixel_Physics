@@ -1,0 +1,11 @@
+name: trail-on-forager-s2
+commit: d99255a2c3ded43e755e91e2bf694ade3e26f2f3
+built from: ea1a1b7bbcf552e14f049254102ff871a7da041c
+run: https://github.com/sgladstein/Pixel_Physics/actions/runs/39101135599
+args: brain=mind challenge=suite arenas=fetch,trail keep=fetch forget=0.8 clones=1 start=/home/runner/work/Pixel_Physics/Pixel_Physics/training/starts/near-forager-s3-gen080.txt dist=10 pop=48 layouts=6 pm=0.03 sigma=1 cross=0.3 gens=100 patience=30 holdout=12 every=1 seed=2 threads=4
+started: 2026-10-18T05:38:50Z
+CPU(s):                                  4
+Model name:                              AMD EPYC 7763 64-Core Processor
+Thread(s) per core:                      2
+Core(s) per socket:                      2
+finished: 2026-10-18T08:12:34Z
