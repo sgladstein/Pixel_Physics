@@ -456,6 +456,23 @@ impl Challenge for Forage {
 /// nothing, since the score counts heads. A colony gone before the last
 /// quarter reads [`scarce_floor`]: how long it lasted, under any live one.
 ///
+/// **Plus a step on the way home for each part of the trip it has learned**
+/// ([`forage_steps`], `steps=off` takes it away): heading out towards the
+/// food, reaching it,
+/// picking some up, carrying it towards the nest, arriving with it, putting
+/// it down there (owner, 2026-10-18). Trained on heads alone, at 80 columns
+/// for 16 generations of 100 brains, no champion ever carried a cell home:
+/// its ants picked up 11-35 cells a run and ate them, and turning round
+/// with a load was worth nothing until it reached the nest, which a child
+/// that merely could turn never did (`brain-training/stage2/forage-big`).
+/// Heads stay in the score and are the rung's check (design rev3, *a second
+/// number it cannot trade away*), so a colony that buys steps with its ants
+/// shows it there. **But heads are a readout beside the steps, not a gate**:
+/// a colony that dies with every founder reaching, picking up, carrying and
+/// arriving, and one cell home, scores 15.75, above the live hand-built
+/// forager (12.6) and the game ant's heads alone (14.5) (review of PR 717,
+/// N1). Gating the steps on survival (times `kept`) is the owner's call.
+///
 /// **The horizon is a setting**: 12,000 frames trains in half the time and
 /// still separates the champion (3.2) from the game ant (21.8); only by
 /// 24,000 does a colony that over-breeds lose to the game ant on heads, so
@@ -485,6 +502,34 @@ pub struct Scarce {
     /// once it burns what it earns. [`creature::FoodBrake::FORAGE`] unless
     /// `brake=off`.
     pub brake: Option<creature::FoodBrake>,
+    /// **How far out the food lands, in columns**: `lo`, `hi` and two
+    /// between, one per mirrored pair in turn ([`SCARCE_DIST`] unless
+    /// `dist=` sets it), so a generation of 8 layouts, or any multiple of
+    /// 8, meets the whole range; fewer meet it over successive generations
+    /// (review of PR 717, N10). Drawn
+    /// per layout from the seed, a generation could draw only far food: a
+    /// fetch run at 10-80 columns found an ant that reached and picked up
+    /// in generations 0-1 (fetch 1.53 on its layouts, 1.27 on the
+    /// hold-outs) and lost it by generation 2, when every brain read about
+    /// 1.0 and the trail alone chose (`stage2/fetch2/mind-s3`, the run
+    /// before this). Nearer food is
+    /// the forage rung's stepping stone: trained as planned, at 80 columns
+    /// for 40 generations, the mind's colonies walked one way past the food
+    /// to the far wall and never carried any home (scarce alone 1.0-1.9,
+    /// against 0.90 for a colony that never moves and 4.57 for the hand-built
+    /// forager; `brain-training/stage2/forage-lean/census`).
+    pub dist: (i32, i32),
+    /// **Score the way home step by step** ([`forage_steps`]) on top of the
+    /// heads; on unless `steps=off`.
+    pub steps: bool,
+    /// **The fetch arena** (`challenge=fetch`, one ant unless `ants=`): no
+    /// one starves ([`never_starve`]) and no one is born, so the steps are
+    /// the whole score and an ant has the run to find the food. Asked for by
+    /// the owner (2026-10-18) so a brain learns the trip without paying
+    /// eleven nestmates per score; the colony arena stays its check. A lone
+    /// ant as the colony runs it starved by frame ~2,900 and never reached
+    /// food 80 columns out, the hand-built forager and the game ant alike.
+    pub fed: bool,
 }
 
 /// The food spot's distance from the nest, in columns: the ladder's far
@@ -493,14 +538,21 @@ pub struct Scarce {
 /// the cheap-brain champion on 4 of 4 pairs (17.7 against 8.3), so the rung
 /// trains there (ladder review of the stage 2 notes, finding 5). Inside the
 /// 256-wide bed either side.
-const SCARCE_DIST: (i32, i32) = (80, 80);
+pub const SCARCE_DIST: (i32, i32) = (80, 80);
 
 impl Scarce {
+    /// **The nearest the food may land, in columns.** Below it the far half
+    /// of the way no longer keeps the nest's doorstep out of [`Trip::HEAP`]:
+    /// at 8 columns a cell shuffled across the nest's edge reads as taken at
+    /// the heap, and 50 laps book 50 cells home (review of PR 717, N9).
+    /// `a_cell_shuffled_across_the_nest_edge_pays_nothing` holds from here.
+    pub const DIST_MIN: i32 = 10;
+
     /// The nest's column, the food spot's and its distance, for one layout.
     fn geometry(&self, layout: Layout) -> (i32, i32, i32) {
         let side = if layout.k.is_multiple_of(2) { 1 } else { -1 };
-        let (lo, hi) = SCARCE_DIST;
-        let dist = lo + ((layout.seed.wrapping_mul(0x9E37_79B9_7F4A_7C15) >> 32) % (hi - lo + 1) as u64) as i32;
+        let (lo, hi) = self.dist;
+        let dist = lo + (hi - lo) * (layout.k / 2 % 4) as i32 / 3;
         (NEST_X, NEST_X + side * dist, dist)
     }
 
@@ -521,7 +573,11 @@ const SCARCE_VERBS: &[creature::options::Verb] = {
 
 impl Challenge for Scarce {
     fn name(&self) -> &'static str {
-        "scarce"
+        if self.fed {
+            "fetch"
+        } else {
+            "scarce"
+        }
     }
     fn unit(&self) -> Unit {
         Unit::Colony
@@ -533,7 +589,7 @@ impl Challenge for Scarce {
         self.frames
     }
     fn parts(&self) -> &'static [&'static str] {
-        &["score", "adults", "kept", "starved", "births", "brood", "eaten", "delivered", "larvae_j", "held", "dist", "lived"]
+        &["score", "adults", "kept", "starved", "births", "brood", "eaten", "delivered", "larvae_j", "held_ticks", "dist", "lived", "heads", "steps", "reach", "picked", "carried", "arrived", "home", "out"]
     }
     fn banned(&self) -> &'static [O] {
         NOT_ANT_VERBS
@@ -548,7 +604,7 @@ impl Challenge for Scarce {
         true
     }
     fn run(&self, layout: Layout, genomes: &[&[f32]], look: &mut dyn FnMut(u64, &World)) -> Vec<Score> {
-        let (_, _, dist) = self.geometry(layout);
+        let (nest_x, food_x, dist) = self.geometry(layout);
         let sc = self.bed(layout);
         let (mut w, _, _) = sc.build();
         w.food_brake = self.brake;
@@ -559,6 +615,17 @@ impl Challenge for Scarce {
         } else {
             clone_colony(&mut w, genomes[0], self.game_walk, layout)
         };
+        if self.fed {
+            let mut def = w.species.get(sp).creature.clone().expect("creature");
+            never_starve(&mut def);
+            w.species.set_creature(sp, def);
+            for id in ants_of(&w, sp) {
+                if let Some(s) = w.organism_mut(id) {
+                    s.energy = 1.0e9;
+                }
+            }
+            w.births_paused = true;
+        }
         let adults_of = |w: &World| -> Vec<OrganismId> { ants_of(w, sp).into_iter().filter(|&id| w.organism(id).is_some_and(|s| s.brood.is_none())).collect() };
         let founders = adults_of(&w);
         let colony = founders.first().map_or(0, |&id| w.colony_of(id));
@@ -594,10 +661,14 @@ impl Challenge for Scarce {
         let mut scores = Vec::new();
         // The same read over the whole run, for the floor ([`scarce_floor`]).
         let lived_every = (self.frames / 64).max(1);
-        let mut lived = (0.0, 0u32);
+        let mut lived_sum = (0.0, 0u32);
+        let mut trip = Trip::default();
         for f in 0..self.frames {
             frame_timed(&mut w, &sc, true);
             look(f + 1, &w);
+            if (f + 1).is_multiple_of(STEP_EVERY) {
+                trip.look(&w, &adults_of(&w), nest_x, food_x, dist);
+            }
             let at_snap = snaps.contains(&(f + 1));
             if at_snap || (f + 1).is_multiple_of(lived_every) {
                 let (now, kept) = census(&w);
@@ -605,8 +676,8 @@ impl Challenge for Scarce {
                     scores.push(now.len() as f64 * kept);
                 }
                 if (f + 1).is_multiple_of(lived_every) {
-                    lived.0 += now.len() as f64 * kept;
-                    lived.1 += 1;
+                    lived_sum.0 += now.len() as f64 * kept;
+                    lived_sum.1 += 1;
                 }
             }
         }
@@ -619,8 +690,17 @@ impl Challenge for Scarce {
         let st = &w.creature_stats;
         let brood = ants_of(&w, sp).len() - now.len();
         let larvae_j = st.brood_crop_fed_j + st.brood_ate_j + st.brood_shared_j + st.brood_nursed_j;
-        let lived = lived.0 / lived.1.max(1) as f64 / founders.len().max(1) as f64;
-        let score = scarce_floor(scores.iter().sum::<f64>() / scores.len() as f64, lived, founders.len());
+        let lived = lived_sum.0 / lived_sum.1.max(1) as f64 / founders.len().max(1) as f64;
+        let heads = scarce_floor(scores.iter().sum::<f64>() / scores.len() as f64, lived, founders.len());
+        let n = founders.len().max(1) as f64;
+        let home = trip.home as f64;
+        let (reach, picked, arrived) = (
+            trip.reached.len() as f64 / n,
+            trip.picked.len() as f64 / n,
+            trip.arrived.len() as f64 / n,
+        );
+        let steps = forage_steps(trip.out, reach, picked, trip.carried, arrived, home);
+        let score = heads + if self.steps { STEP_SCALE * steps } else { 0.0 };
         vec![Score {
             fit: score,
             parts: vec![
@@ -636,9 +716,181 @@ impl Challenge for Scarce {
                 st.food_brake_held as f64,
                 dist as f64,
                 lived,
+                heads,
+                steps,
+                reach,
+                picked,
+                trip.carried,
+                arrived,
+                home,
+                trip.out,
             ],
         }]
     }
+}
+
+/// **The way home, step by step** (owner, 2026-10-18): heading out towards
+/// the food, reaching it, picking some up, carrying it towards the nest,
+/// arriving with it, putting it down there. Each step outweighs every step
+/// below it together (0.5 + 1 + 2 + 4 + 8 = 15.5 < 16), so stacking the
+/// easy ones never beats one cell home. **At full shares**: in a colony,
+/// reaching, picking up and arriving are shares of the founders, so twelve
+/// ants that reach and pick up with a load carried half way (5) outrank one
+/// that carries all the way and arrives (4.92; review of PR 717, N2). With
+/// one ant (`fetch`) the order holds.
+///
+/// **Heading out is a step because reaching the food was all or nothing.**
+/// Scored from reaching up, one ant at 80 columns, judged on the worse of
+/// two mirrored layouts, read 1.00 for every brain of four 100-brain runs:
+/// no start ant reached the food on both sides of the nest, so the fetch
+/// score was flat and the runs were selected on the trail alone (gens 0-11,
+/// `brain-training/stage2/fetch`, 2026-10-18). Graded like `carried`, the
+/// furthest an ant got out pays a searcher that goes both ways and not one
+/// that walks off in one direction, which the worse side reads as 0.
+pub const STEP_WEIGHTS: [f64; 6] = [0.5, 1.0, 2.0, 4.0, 8.0, 16.0];
+
+/// What one step point adds to a scarce colony's score, in heads: the whole
+/// way short of the nest (15.5 points) is worth under eight ants kept, a
+/// first cell home eight.
+pub const STEP_SCALE: f64 = 0.5;
+
+/// How often the trip is read, in frames: an ant walks well under a cell a
+/// frame, so it cannot cross the food spot's reach between two reads.
+const STEP_EVERY: u64 = 4;
+
+/// **How far the colony got on the way home, in step points**
+/// ([`STEP_WEIGHTS`]). `out` is the furthest any ant got from the nest
+/// towards the food, as a share of the way there; `reach`, `picked` and
+/// `arrived` are the share of the founders that ever reached the heap,
+/// picked food up there and stood at the nest still carrying it (or put it
+/// down there); `carried` is the most way home any load from the heap
+/// closed, as a share of the way; `home` the cells from the heap put down
+/// at the nest, each doubling worth a quarter of the first (all read by
+/// `Trip`). Shares past 1 (a colony that bred) count as 1.
+pub fn forage_steps(out: f64, reach: f64, picked: f64, carried: f64, arrived: f64, home: f64) -> f64 {
+    let w = STEP_WEIGHTS;
+    let delivered = if home >= 1.0 { 1.0 + home.log2() / 4.0 } else { 0.0 };
+    w[0] * out.clamp(0.0, 1.0)
+        + w[1] * reach.clamp(0.0, 1.0)
+        + w[2] * picked.clamp(0.0, 1.0)
+        + w[3] * carried.clamp(0.0, 1.0)
+        + w[4] * arrived.clamp(0.0, 1.0)
+        + w[5] * delivered
+}
+
+/// **What the scarce colony did on the way home**, read every
+/// [`STEP_EVERY`] frames. **A load counts only from food taken at the
+/// heap** ([`Trip::HEAP`]). The trip mark (`trip_cells`, which the game's
+/// pickup and a mind's swallow both set) is any food taken away from home,
+/// and the mind's swallow has no trip minimum, so one cell swallowed a
+/// column outside the nest and put down inside booked a trip delivery on
+/// every lap -- 50 laps, 50 deliveries (review of PR 717 at `edb9137e`,
+/// B1). So each ant's cells taken at the heap are kept apart (`held`), and
+/// a delivery pays only out of them: a cell shuffled across the nest's edge
+/// pays nothing, and a cell carried home pays once.
+#[derive(Default)]
+struct Trip {
+    out: f64,
+    reached: Vec<OrganismId>,
+    picked: Vec<OrganismId>,
+    arrived: Vec<OrganismId>,
+    carried: f64,
+    loads: std::collections::BTreeMap<OrganismId, Load>,
+    /// Cells taken at the heap and put down at the nest.
+    home: u64,
+}
+
+/// One ant's crop as the trip saw it at the last read.
+#[derive(Default)]
+struct Load {
+    /// Its trip cells.
+    cells: u16,
+    /// Its trip deliveries so far (`LifeCounters::trip_deliveries`).
+    put: u32,
+    /// How many of its trip cells it took at the heap.
+    held: u16,
+    /// How far from the nest it was when it took them.
+    taken: i32,
+}
+
+impl Trip {
+    /// **At the food is within this many columns of the food spot, on the
+    /// far half of the way.** The heap is a pyramid that spreads past four
+    /// columns of where it drips, so the old ±4 read an ant picking up at
+    /// its foot as picking up without reaching (review of PR 717, N3); the
+    /// far half keeps the nest's doorstep out at 10 columns.
+    const HEAP: i32 = 10;
+
+    fn look(&mut self, w: &World, adults: &[OrganismId], nest_x: i32, food_x: i32, dist: i32) {
+        let mark = |v: &mut Vec<OrganismId>, id: OrganismId| {
+            if let Err(i) = v.binary_search(&id) {
+                v.insert(i, id);
+            }
+        };
+        let way = dist.max(1) as f64;
+        for &id in adults {
+            let Some(st) = w.organism(id) else { continue };
+            let Some(&(hx, _)) = st.chain.first() else { continue };
+            let from_nest = (hx - nest_x).abs();
+            let out = 1.0 - (hx - food_x).abs() as f64 / way;
+            self.out = self.out.max(out.clamp(0.0, 1.0));
+            let at_heap = (hx - food_x).abs() <= Self::HEAP && 2 * from_nest >= dist;
+            if at_heap {
+                mark(&mut self.reached, id);
+            }
+            let cells = if st.crop.is_none_or(|c| c.cells == 0) {
+                0
+            } else {
+                st.trip_cells
+            };
+            let put = st.life.trip_deliveries;
+            let l = self.loads.entry(id).or_insert(Load { put, ..Load::default() });
+            // Deliveries since the last read pay out of the heap's cells.
+            let paid = put.saturating_sub(l.put).min(u32::from(l.held)) as u16;
+            if paid > 0 {
+                self.home += u64::from(paid);
+                mark(&mut self.arrived, id);
+            }
+            l.held = (l.held - paid).min(cells);
+            if cells > l.cells && at_heap {
+                if l.held == 0 {
+                    l.taken = from_nest;
+                }
+                l.held += cells - l.cells;
+                mark(&mut self.picked, id);
+            }
+            (l.cells, l.put) = (cells, put);
+            if l.held == 0 {
+                continue;
+            }
+            // **Distance closed**, not nearness: a load taken at the heap's
+            // near foot starts part of the way home (N3). One taken past the
+            // food spot reads full about `HEAP` columns short of the nest,
+            // where arriving takes over (N12).
+            self.carried = self.carried.max((f64::from(l.taken - from_nest) / way).clamp(0.0, 1.0));
+            if creature::at_nest(w, id) {
+                mark(&mut self.arrived, id);
+            }
+        }
+    }
+}
+
+/// **Nobody starves: the budget rises and the bills do not.** Every
+/// standing tax is a fraction of `start_energy` (§13j), so raising the
+/// budget alone raised them with it: a mind with ~700 live weights spent its
+/// whole 1e9 inside the 6,000 frames, and a fully live one lost all six ants
+/// by frame ~1,300 (review of PR 713, F1). Each fraction is rescaled so it
+/// bills what it bills at the species' authored budget, for both brains
+/// alike.
+fn never_starve(def: &mut organism::CreatureDef) {
+    let authored = def.start_energy;
+    def.start_energy = 1.0e9;
+    let k = authored / def.start_energy;
+    def.synapse_fraction *= k;
+    def.sight_fraction *= k;
+    def.curvature_fraction *= k;
+    def.force_fraction *= k;
+    def.armour_fraction *= k;
 }
 
 /// **A colony gone before the last quarter still ranks by how long it
@@ -646,7 +898,10 @@ impl Challenge for Scarce {
 /// otherwise `lived` (the same adults-times-founders-kept read every 64th
 /// of the run, over the founders) scaled under the least score a live
 /// colony can read, a single founder at one of the four reads, so a dead
-/// colony never outranks a live one and no live score moves.
+/// colony never outranks a live one on heads and no live score moves. On
+/// heads only: the scarce arena's own steps ([`forage_steps`]) can lift a
+/// dead colony over a live one, and so, in a suite, can another arena's
+/// ratio (review of PR 715, N2).
 ///
 /// **Why**: today's brain started the forage rung from its trail champion,
 /// which never picks food up; its colonies starved by frame 6,000 of
@@ -773,21 +1028,8 @@ impl Trail {
         let sp = w.species.id_of("ant").expect("ant");
         let mut def = w.species.get(sp).creature.clone().expect("creature");
         def.reproduce_threshold = 1.0e30;
-        // **Nobody starves: the budget rises and the bills do not.** Every
-        // standing tax is a fraction of `start_energy` (§13j), so raising
-        // the budget alone raised them with it: a mind with ~700 live
-        // weights spent its whole 1e9 inside the 6,000 frames, and a fully
-        // live one lost all six ants by frame ~1,300 (review of PR 713,
-        // F1). Each fraction is rescaled so it bills what it bills at the
-        // species' authored budget, for both brains alike.
-        let authored = def.start_energy;
-        def.start_energy = 1.0e9;
-        let k = authored / def.start_energy;
-        def.synapse_fraction *= k;
-        def.sight_fraction *= k;
-        def.curvature_fraction *= k;
-        def.force_fraction *= k;
-        def.armour_fraction *= k;
+        // Nobody starves ([`never_starve`]).
+        never_starve(&mut def);
         if layout.blind {
             def.home_bias = 0.0;
         }
@@ -1543,7 +1785,17 @@ mod tests {
     #[test]
     fn a_suite_mind_carries_every_verb_and_each_arena_cuts_it() {
         use creature::options::Verb;
-        let scarce = Scarce { ants: 12, frames: 10, drip: 5, every: 1000, game_walk: false, brake: Some(creature::FoodBrake::FORAGE) };
+        let scarce = Scarce {
+            ants: 12,
+            frames: 10,
+            drip: 5,
+            every: 1000,
+            game_walk: false,
+            brake: Some(creature::FoodBrake::FORAGE),
+            dist: SCARCE_DIST,
+            steps: true,
+            fed: false,
+        };
         let trail = Trail { ants: 2, frames: 10, clones: true };
         let (trail_verbs, trail_emits) = (trail.verbs(), trail.mind_emits());
         let s = Suite::new(vec![(Box::new(scarce), false), (Box::new(trail), true)], 0.8);
@@ -1569,7 +1821,7 @@ mod tests {
     /// timeline).
     #[test]
     fn the_scarce_drip_lands_on_the_timeline() {
-        let ch = Scarce { ants: 2, frames: 0, drip: 5, every: 1000, game_walk: true, brake: None };
+        let ch = Scarce { ants: 2, frames: 0, drip: 5, every: 1000, game_walk: true, brake: None, dist: SCARCE_DIST, steps: true, fed: false };
         let layout = Layout { seed: 1, k: 0, blind: false, legal: false };
         let (_, food_x, _) = ch.geometry(layout);
         let food_near = |w: &World| -> usize {
@@ -1615,6 +1867,278 @@ mod tests {
         assert_eq!(scarce_floor(14.5, 0.7, 12), 14.5);
         assert_eq!(scarce_floor(0.0, 0.0, 12), 0.0);
         assert_eq!(scarce_floor(0.0, 0.5, 0), 0.5 / 4.0 / 2.0, "no founders: no division by zero");
+    }
+
+    /// **Each step on the way home outweighs every step below it together**
+    /// ([`forage_steps`]): the whole way short of the nest scores under one
+    /// cell home, each step pays on its own, more cells home keep paying,
+    /// and a colony that never left home scores nothing.
+    #[test]
+    fn each_step_home_outweighs_every_step_below_it() {
+        assert_eq!(forage_steps(0.0, 0.0, 0.0, 0.0, 0.0, 0.0), 0.0);
+        let below = |k: usize| {
+            let s: Vec<f64> = (0..5).map(|j| f64::from(u8::from(j < k))).collect();
+            forage_steps(s[0], s[1], s[2], s[3], s[4], 0.0)
+        };
+        let one = |k: usize| {
+            let mut s = [0.0; 6];
+            s[k] = 1.0;
+            forage_steps(s[0], s[1], s[2], s[3], s[4], s[5])
+        };
+        for k in 1..6 {
+            assert!(one(k) > below(k), "step {k}: {} against {} below it", one(k), below(k));
+        }
+        assert!(forage_steps(1.0, 1.0, 1.0, 1.0, 1.0, 8.0) > forage_steps(1.0, 1.0, 1.0, 1.0, 1.0, 1.0));
+        assert!(
+            forage_steps(0.0, 0.0, 0.0, 0.4, 0.0, 0.0) > forage_steps(0.0, 0.0, 0.0, 0.2, 0.0, 0.0),
+            "carrying further pays"
+        );
+        assert!(
+            forage_steps(0.4, 0.0, 0.0, 0.0, 0.0, 0.0) > forage_steps(0.2, 0.0, 0.0, 0.0, 0.0, 0.0),
+            "heading further out pays"
+        );
+        assert_eq!(
+            forage_steps(3.0, 3.0, 3.0, 3.0, 3.0, 0.0),
+            15.5,
+            "a share past 1 counts as 1"
+        );
+        assert_eq!(
+            forage_steps(0.0, 0.0, 0.0, 0.0, 0.0, 0.5),
+            0.0,
+            "no cell home is no cell home"
+        );
+    }
+
+    /// **A world of minds builds no way out, and plays exactly as if it
+    /// had** (`creature::mind::every_ant_has_one`), run with the mound's and
+    /// the open air's ways skipped and again built (`Minds::build_ways`):
+    /// every ant ends on the same cells and every count is the same. Two
+    /// beds, so both the drop sites and the hatchlings are read: a scarce
+    /// colony of hand-built foragers that breeds, and one fed forager at 12
+    /// columns that puts food down at the nest. The skip fired on every
+    /// refresh, hatchlings included: only the built runs have a way out.
+    #[test]
+    fn a_world_of_minds_skips_the_ways_out_and_plays_the_same() {
+        let colony = Scarce {
+            ants: 12,
+            frames: 6000,
+            drip: 5,
+            every: 1000,
+            game_walk: false,
+            brake: None,
+            dist: (30, 30),
+            steps: true,
+            fed: false,
+        };
+        let fetch = Scarce {
+            ants: 1,
+            dist: (12, 12),
+            fed: true,
+            ..colony
+        };
+        let forager = creature::mind::preset("forager", colony.verbs()).expect("forager");
+        let play = |ch: &Scarce, k: u64, build: bool| {
+            let layout = Layout {
+                seed: 50_000 + k / 2,
+                k,
+                blind: false,
+                legal: false,
+            };
+            let sc = ch.bed(layout);
+            let (mut w, _, _) = sc.build();
+            w.food_brake = ch.brake;
+            let sp = clone_minds(&mut w, &forager, layout, ch.verbs(), ch.mind_emits());
+            if ch.fed {
+                let mut def = w.species.get(sp).creature.clone().expect("creature");
+                never_starve(&mut def);
+                w.species.set_creature(sp, def);
+                for id in ants_of(&w, sp) {
+                    w.organism_mut(id).expect("ant").energy = 1.0e9;
+                }
+                w.births_paused = true;
+            }
+            w.minds.as_mut().expect("minds").build_ways = build;
+            let mut ways = 0;
+            for _ in 0..ch.frames {
+                frame_timed(&mut w, &sc, true);
+                ways = ways.max(w.mound_ways.len() + w.mound_in_ways.len() + w.out_ways.len());
+            }
+            let ants: Vec<_> = ants_of(&w, sp)
+                .iter()
+                .map(|&id| w.organism(id).map(|s| s.chain.clone()))
+                .collect();
+            let st = w.creature_stats;
+            (format!("{ants:?} {st:?}"), ways, (st.deliveries, st.births))
+        };
+        let (skipped, none, (_, born)) = play(&colony, 0, false);
+        let (built, some, _) = play(&colony, 0, true);
+        assert!(born > 0, "the colony bred");
+        assert_eq!((none, some > 0), (0, true), "the colony's skip fired on every refresh");
+        assert_eq!(skipped, built, "the colony");
+        let k = (0..12)
+            .find(|&k| play(&fetch, k, false).2.0 > 0)
+            .expect("the forager puts food down at the nest");
+        let (skipped, none, _) = play(&fetch, k, false);
+        let (built, some, _) = play(&fetch, k, true);
+        assert_eq!((none, some > 0), (0, true), "the fetch skip fired on layout {k}");
+        assert_eq!(skipped, built, "fetch, layout {k}");
+    }
+
+    /// **A cell shuffled across the nest's edge pays nothing, and one
+    /// carried home from the heap pays once** (`Trip`, review of PR 717,
+    /// B1). The mind's swallow marks any food taken off the nest as from a
+    /// trip, so before the heap's own count these 50 laps booked 50 cells
+    /// home, worth more than a real delivery. The ant is moved and its crop
+    /// written as the swallow and the put-down write them, with the food from
+    /// [`Scarce::DIST_MIN`] out to the bed's edge.
+    #[test]
+    fn a_cell_shuffled_across_the_nest_edge_pays_nothing() {
+        for d in [Scarce::DIST_MIN, 40, 110] {
+            let (laps, home, want) = shuffle(d);
+            assert_eq!(laps, (0, 0, 0, 0.0), "50 laps across the edge at {d}");
+            assert_eq!(home, want, "one cell home from the heap, then 50 more laps, at {d}");
+        }
+        // The floor is load-bearing: below it the doorstep is the heap.
+        assert!(shuffle(Scarce::DIST_MIN - 2).0.0 > 0, "laps pay below the floor");
+    }
+
+    /// A trip as (home, picked, arrived, carried).
+    type TripRead = (u64, usize, usize, f64);
+
+    /// The 50 laps alone, then one cell from the heap and 50 more laps, and
+    /// what the second should read.
+    fn shuffle(d: i32) -> (TripRead, TripRead, TripRead) {
+        let ch = Scarce {
+            ants: 1,
+            frames: 3000,
+            drip: 5,
+            every: 1000,
+            game_walk: false,
+            brake: None,
+            dist: (d, d),
+            steps: true,
+            fed: true,
+        };
+        let layout = Layout {
+            seed: 50_000,
+            k: 0,
+            blind: false,
+            legal: false,
+        };
+        let (nest_x, food_x, dist) = ch.geometry(layout);
+        let (mut w, _, _) = ch.bed(layout).build();
+        let rest = creature::mind::preset("rest", ch.verbs()).expect("rest");
+        let sp = clone_minds(&mut w, &rest, layout, ch.verbs(), ch.mind_emits());
+        let id = ants_of(&w, sp)[0];
+        // The whole body on one cell, so the nest's reach reads that cell.
+        let set = |w: &mut World, (x, y): (i32, i32), cells: u16, put: u32| {
+            let s = w.organism_mut(id).expect("ant");
+            s.chain.iter_mut().for_each(|c| *c = (x, y));
+            s.trip_cells = cells;
+            s.crop = (cells > 0).then_some(organism::Crop {
+                material: material::EMPTY,
+                shade: 0,
+                unit: 1.0,
+                cells,
+                digesting: 0.0,
+                passenger: None,
+            });
+            s.life.trip_deliveries = put;
+        };
+        // The nest's edge: the last cell at the nest towards the food on the
+        // first row the nest reaches, and the next one out.
+        let side = (food_x - nest_x).signum();
+        let at = |w: &mut World, p: (i32, i32)| {
+            set(w, p, 0, 0);
+            creature::at_nest(w, id)
+        };
+        let y = (0..128).find(|&y| at(&mut w, (nest_x, y))).expect("a nest at nest_x");
+        let inside = (0..dist)
+            .map(|d| (nest_x + side * d, y))
+            .take_while(|&p| at(&mut w, p))
+            .last()
+            .expect("nest");
+        let outside = (inside.0 + side, y);
+        let mut trip = Trip::default();
+        let mut put = 0;
+        let look = |w: &mut World, p: (i32, i32), cells: u16, put: u32, trip: &mut Trip| {
+            set(w, p, cells, put);
+            trip.look(w, &[id], nest_x, food_x, dist);
+        };
+        let laps = |w: &mut World, trip: &mut Trip, put: &mut u32| {
+            for _ in 0..50 {
+                look(w, outside, 1, *put, trip);
+                *put += 1;
+                look(w, inside, 0, *put, trip);
+            }
+        };
+        laps(&mut w, &mut trip, &mut put);
+        assert_eq!(put, 50, "the world booked every lap");
+        let first = (trip.home, trip.picked.len(), trip.arrived.len(), trip.carried);
+        let mut x = food_x;
+        while x != inside.0 {
+            look(&mut w, (x, y), 1, put, &mut trip);
+            x -= side;
+        }
+        put += 1;
+        look(&mut w, inside, 0, put, &mut trip);
+        laps(&mut w, &mut trip, &mut put);
+        // Last read loaded one column out, before the put-down at the nest.
+        let walked = f64::from(dist - (outside.0 - nest_x).abs()) / f64::from(dist);
+        let second = (trip.home, trip.picked.len(), trip.arrived.len(), trip.carried);
+        (first, second, (1, 1, 1, walked))
+    }
+
+    /// **The fetch arena reads the trip** (`Scarce::fed`): one ant that
+    /// cannot starve, the steps its whole score. An ant that never moves
+    /// scores the head alone, 1, on every layout; the hand-built forager
+    /// reaches the food and picks some up on at least one -- the positive
+    /// control that the trip is read at all. `steps=off` is the head alone.
+    #[test]
+    fn the_fetch_arena_scores_the_trip_and_a_still_ant_scores_none() {
+        let ch = Scarce {
+            ants: 1,
+            frames: 3000,
+            drip: 5,
+            every: 1000,
+            game_walk: false,
+            brake: None,
+            dist: SCARCE_DIST,
+            steps: true,
+            fed: true,
+        };
+        let layouts: Vec<Layout> = (0..4u64)
+            .map(|k| Layout {
+                seed: 50_000 + k / 2,
+                k,
+                blind: false,
+                legal: false,
+            })
+            .collect();
+        let part = |s: &Score, name: &str| s.parts[ch.parts().iter().position(|p| *p == name).expect(name)];
+        let rest = creature::mind::preset("rest", ch.verbs()).expect("rest");
+        for &l in &layouts {
+            let s = &ch.run(l, &[&rest], &mut |_, _| {})[0];
+            assert_eq!(
+                (s.fit, part(s, "steps"), part(s, "heads")),
+                (1.0, 0.0, 1.0),
+                "a still ant on {l:?}"
+            );
+        }
+        let forager = creature::mind::preset("forager", ch.verbs()).expect("forager");
+        let runs: Vec<Score> = layouts
+            .iter()
+            .map(|&l| ch.run(l, &[&forager], &mut |_, _| {})[0].clone())
+            .collect();
+        let best = runs.iter().max_by(|a, b| a.fit.total_cmp(&b.fit)).expect("runs");
+        assert!(
+            part(best, "reach") == 1.0 && part(best, "picked") == 1.0 && best.fit > 1.0,
+            "the forager's best trip: {:?}",
+            best.parts
+        );
+        let off = Scarce { steps: false, ..ch };
+        let s = &off.run(layouts[0], &[&forager], &mut |_, _| {})[0];
+        assert_eq!(s.fit, part(s, "heads"), "steps=off scores the head alone");
     }
 
     /// **A sealed pocket is roofed room and not a nest; open a way to it and
