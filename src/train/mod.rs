@@ -130,9 +130,16 @@ pub trait Challenge: Sync {
     fn run(&self, layout: Layout, genomes: &[&[f32]], look: &mut dyn FnMut(u64, &World)) -> Vec<Score>;
     /// Frames one arena runs, for the picture's snapshot times.
     fn frames(&self) -> u64;
-    /// Set any reference scores from the start genome before training.
-    /// Only a suite has any.
-    fn calibrate(&mut self, _start: &[f32], _layouts: &[Layout], _threads: usize) {}
+    /// Set any reference scores from the start genome before training;
+    /// `saved` is the start before the rung's entry ([`start_mind_saved`]),
+    /// which a kept arena is measured on. Only a suite has any.
+    fn calibrate(&mut self, _start: &[f32], _saved: &[f32], _layouts: &[Layout], _threads: usize) {}
+    /// Whether a suite's forget floor for this arena, kept, is two standard
+    /// errors under its reference rather than a share of it
+    /// (`challenges::Suite`'s floor; R12).
+    fn floor_in_se(&self) -> bool {
+        false
+    }
     /// Whether odd layouts mirror even ones (the food or the trail on the
     /// other side). A mirrored challenge is scored by the worse side of each
     /// pair ([`fold`]), not the mean.
@@ -187,9 +194,29 @@ pub fn is_mind(len: usize) -> bool {
 /// `zero`, `rest`, `follower`, `persist`, `forager`) over the arena's
 /// verbs, or a genome file this rig wrote -- an earlier rung's champion,
 /// which enters this rung by [`mind::enter_rung`] -- the arena's bans
-/// applied. A file saved before the job head had hidden units is read with
-/// them at zero ([`mind::pad`]).
+/// applied. A file saved in an older layout is read into today's
+/// ([`mind::pad`]), picking as it did.
 pub fn start_mind(ch: &dyn Challenge, start: &str) -> Vec<f32> {
+    load_mind(ch, start, true)
+}
+
+/// **The start as saved**: [`start_mind`] without the rung's entry
+/// ([`mind::enter_rung`]), the arena's bans applied. A suite measures its
+/// kept arenas on it (R12), so what the entry itself costs them shows as a
+/// loss rather than becoming the baseline.
+pub fn start_mind_saved(ch: &dyn Challenge, start: &str) -> Vec<f32> {
+    load_mind(ch, start, false)
+}
+
+/// What one live link bills a tick at the ant's authored budget
+/// (`synapse_fraction` x `start_energy`); a budget rescales the fraction so
+/// that the bill stays this (`challenges::budget_to`).
+fn link_price() -> f32 {
+    let reg = organism::SpeciesRegistry::builtin();
+    reg.id_of("ant").and_then(|id| reg.get(id).creature.as_ref()).map_or(0.0, |d| d.synapse_fraction * d.start_energy)
+}
+
+fn load_mind(ch: &dyn Challenge, start: &str, enter: bool) -> Vec<f32> {
     assert!(ch.minds(), "{} cannot run minds yet", ch.name());
     let name = if start == "zero" { "blank" } else { start };
     let mut g = match mind::preset(name, ch.verbs()) {
@@ -199,14 +226,25 @@ pub fn start_mind(ch: &dyn Challenge, start: &str) -> Vec<f32> {
             let len = genome_file_len(p);
             let mut g = mind::pad(load_genome(p, len)).unwrap_or_else(|| {
                 panic!(
-                    "{start}: a genome of {len} slots is not a mind ({}, or {} saved before the job's hidden units); start= blank|rest|follower|persist|forager|<mind file>",
+                    "{start}: a genome of {len} slots is not a mind ({}; {} saved before the job's hidden units, {} before PR 2's features); start= blank|rest|follower|persist|forager|<mind file>",
                     mind::GENOME_LEN,
-                    mind::GENOME_LEN_V1
+                    mind::GENOME_LEN_V1,
+                    mind::GENOME_LEN_V2
                 )
             });
-            let did = mind::enter_rung(&mut g, ch.verbs(), ch.mind_emits());
-            if !did.is_empty() {
-                println!("{start} enters {}: {}", ch.name(), did.join(", "));
+            if enter {
+                let live = |g: &[f32]| mind::MindGenome::new(g.to_vec()).live;
+                let before = live(&g);
+                let did = mind::enter_rung(&mut g, ch.verbs(), ch.mind_emits());
+                if !did.is_empty() {
+                    let after = live(&g);
+                    println!(
+                        "{start} enters {}: {}; live links {before} -> {after}, {:+.4} J a tick",
+                        ch.name(),
+                        did.join(", "),
+                        (after as f32 - before as f32) * link_price()
+                    );
+                }
             }
             g
         }

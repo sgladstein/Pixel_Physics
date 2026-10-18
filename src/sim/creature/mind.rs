@@ -96,14 +96,32 @@ pub mod c {
     pub const SELF: usize = 16;
     /// Animals touching the head.
     pub const CROWD: usize = 17;
-    /// Rows below the ant's last surface row.
+    /// **Rows below the ground as it was built**, at the head's column
+    /// ([`depth_at`]). Read 0 for every mind until PR 2.
     pub const DEPTH: usize = 18;
     /// Ground overhead.
     pub const ROOFED: usize = 19;
+    /// **Every cut in reach drops a roof cell** ([`super::roof_cut`]): 1
+    /// when the ant has a Dig option and each one carries
+    /// [`super::options::f::ROOF_DROP`]. **Why a context input and not
+    /// only the target feature** (PR 2): a scorer unit can re-pick among a
+    /// verb's targets but not stop the verb, since no trained job row
+    /// reads its `best`, and at the nest every Dig target already scores
+    /// at the floor (median -0.94 on round 5's four champions); the rim cut
+    /// that drops the founding shaft's shoulder was the only Dig option in
+    /// about half the roof cuts. The job has to see it.
+    pub const ROOF_CUT: usize = 20;
+    /// **Every put-down spot in reach is in the hole** ([`super::hole_drop`]):
+    /// 1 when the ant has a Drop option and each carries
+    /// [`super::options::f::CUT`]. Round 5's pellets back in the hole were
+    /// every one a put-down just after a cut in the open, the ant standing
+    /// in its own scrape with nowhere else to put the pellet; the target
+    /// feature cannot re-pick when there is no other target.
+    pub const HOLE_DROP: usize = 21;
 }
 
 /// Context inputs.
-pub const CONTEXT: usize = 20;
+pub const CONTEXT: usize = 22;
 
 /// The names of the context inputs, in order, for readouts and for mapping
 /// a genome onto a later layout by name.
@@ -129,6 +147,8 @@ pub fn context_names() -> [&'static str; CONTEXT] {
         "crowd",
         "depth",
         "roofed",
+        "roof_cut",
+        "hole_drop",
     ]
 }
 
@@ -197,10 +217,22 @@ const H_IN: usize = CONTEXT + MEMORY + 1;
 const HID_OUT: usize = HID + HIDDEN * H_IN;
 /// The whole genome.
 pub const GENOME_LEN: usize = HID_OUT + VERBS * HIDDEN;
-/// **A genome saved before the job head had hidden units** (2026-10-18):
-/// [`pad`] reads it as one whose hidden units are all zero, which run
-/// exactly as it did.
-pub const GENOME_LEN_V1: usize = HID;
+/// **Features per option before `f::LINED` and `f::ROOF_DROP`** (PR 2).
+const FEATURES_V2: usize = 43;
+/// **Context inputs before `c::ROOF_CUT` and `c::HOLE_DROP`** (PR 2).
+const CONTEXT_V2: usize = 20;
+/// What PR 2 added: two feature weights in every scorer unit, and one
+/// context weight in every row of the five blocks that read context.
+const GREW: usize =
+    UNITS * (FEATURES - FEATURES_V2) + (CONTEXT - CONTEXT_V2) * (UNITS + VERBS + MEMORY + EMITS + HIDDEN);
+/// **A genome saved with the job head's hidden units, before PR 2**
+/// (2,669 slots).
+pub const GENOME_LEN_V2: usize = GENOME_LEN - GREW;
+/// **...and one saved before them** (2026-10-18; 2,333 slots): the hidden
+/// units were appended last, so it is a V2 genome cut short. [`pad`]
+/// reads it as one whose hidden units are all zero, which run exactly as
+/// it did.
+pub const GENOME_LEN_V1: usize = GENOME_LEN_V2 - HIDDEN * (CONTEXT_V2 + MEMORY + 1) - VERBS * HIDDEN;
 
 /// A weight below this is not a connection: it costs nothing and is not
 /// counted ([`MindGenome::live`]), as `brain::W_EPS` is for today's brain.
@@ -244,19 +276,99 @@ impl MindGenome {
     }
 }
 
-/// **A saved genome in today's layout**: one written before the job head
-/// had hidden units ([`GENOME_LEN_V1`]) gains them, all zero -- which
-/// [`decide`] skips, so it picks exactly as it did -- and one already
-/// [`GENOME_LEN`] long is returned as it is. `None` for any other length.
-pub fn pad(mut g: Vec<f32>) -> Option<Vec<f32>> {
+/// **A saved genome in today's layout**, its length naming its layout. One
+/// already [`GENOME_LEN`] long is returned as it is; `None` for a length
+/// no layout had. **The length is the version only while no two layouts
+/// share one**; a named-block file is the real fix when that stops holding
+/// (review-brain-architecture.md F9). An older one picks exactly as it did:
+///
+/// - **Before the job head had hidden units** ([`GENOME_LEN_V1`]) it gains
+///   them, all zero, which [`decide`] skips.
+/// - **Before PR 2** ([`GENOME_LEN_V1`] and [`GENOME_LEN_V2`]) each scorer
+///   unit gains `f::LINED` and `f::ROOF_DROP`, and every row that reads
+///   context gains `c::ROOF_CUT` and `c::HOLE_DROP` at zero, so this is a
+///   relayout, not a resize ([`v2_slots`]). Packed
+///   soil read as `f::SPOIL` until then and reads as `f::LINED` now, so
+///   each unit's `f::LINED` weight starts as its `f::SPOIL` weight: the wall
+///   scores as it did, and only evolution can now tell it from a heap.
+///   `f::ROOF_DROP` starts at zero.
+/// - **Inputs that were constant until PR 2 wrote them are zeroed
+///   wherever a weight reads them**: `c::DEPTH` and `f::DEPTH` (a mind's
+///   depth read 0, `last_out_row` having no writer on its path) and
+///   `f::CUT` (declared, never written). A weight on an input that never
+///   moves drifts freely and costs nothing, and would act the moment the
+///   input goes live (ladder lane, `dig-rung-design.md` 9, PR 2 item 1:
+///   25 and 10 such live links in `col30-s11-seed33`). It is
+///   [`enter_dig`]'s `c::SPOIL` reasoning, done once, for every start.
+pub fn pad(g: Vec<f32>) -> Option<Vec<f32>> {
     match g.len() {
         GENOME_LEN => Some(g),
-        GENOME_LEN_V1 => {
-            g.resize(GENOME_LEN, 0.0);
-            Some(g)
+        GENOME_LEN_V1 | GENOME_LEN_V2 => {
+            let mut v = vec![0.0; GENOME_LEN];
+            for (w, to) in g.iter().zip(v2_slots()) {
+                v[to] = *w;
+            }
+            for u in 0..UNITS {
+                v[S_FEAT + u * FEATURES + options::f::LINED] = v[S_FEAT + u * FEATURES + options::f::SPOIL];
+            }
+            for k in newly_live() {
+                v[k] = 0.0;
+            }
+            Some(v)
         }
         _ => None,
     }
+}
+
+/// **Where each slot of a genome saved before PR 2 lands today**, in the
+/// order it was saved ([`GENOME_LEN_V2`] of them; a V1 genome is the first
+/// [`GENOME_LEN_V1`]). Each block is read row by row; a row keeps its
+/// leading slots where they were and moves the rest along by what the row
+/// grew: a context-reading row grew `c::ROOF_CUT` and `c::HOLE_DROP` after
+/// its 20 context inputs, a scorer unit's feature row two features at its
+/// end.
+fn v2_slots() -> Vec<usize> {
+    let other = UNITS * VERBS + UNITS + 1;
+    // (rows, the old width, slots that stay put, the new start, the new width)
+    let blocks = [
+        (1, S_CTX, S_CTX, 0, S_CTX),
+        (UNITS, CONTEXT_V2 + MEMORY + 1, CONTEXT_V2, S_CTX, S_IN),
+        (UNITS, FEATURES_V2, FEATURES_V2, S_FEAT, FEATURES),
+        (1, other, other, S_VERB, other),
+        (VERBS, CONTEXT_V2 + MEMORY + 2, CONTEXT_V2, JOB, J_IN),
+        (MEMORY, CONTEXT_V2 + 2 + VERBS + MEMORY + 1, CONTEXT_V2, MEM, M_IN),
+        (EMITS, CONTEXT_V2 + MEMORY + 1, CONTEXT_V2, EMIT, E_IN),
+        (HIDDEN, CONTEXT_V2 + MEMORY + 1, CONTEXT_V2, HID, H_IN),
+        (1, VERBS * HIDDEN, VERBS * HIDDEN, HID_OUT, VERBS * HIDDEN),
+    ];
+    let mut to = Vec::with_capacity(GENOME_LEN_V2);
+    for (rows, old, kept, start, width) in blocks {
+        for r in 0..rows {
+            to.extend((0..old).map(|i| start + r * width + if i < kept { i } else { i + width - old }));
+        }
+    }
+    debug_assert_eq!(to.len(), GENOME_LEN_V2);
+    to
+}
+
+/// **Every slot that reads an input PR 2 brought to life** ([`pad`]):
+/// `c::DEPTH` in each block that reads context, `f::DEPTH` and `f::CUT` in
+/// each scorer unit.
+fn newly_live() -> Vec<usize> {
+    let mut out = Vec::new();
+    for (base, rows, width) in [
+        (S_CTX, UNITS, S_IN),
+        (JOB, VERBS, J_IN),
+        (MEM, MEMORY, M_IN),
+        (EMIT, EMITS, E_IN),
+        (HID, HIDDEN, H_IN),
+    ] {
+        out.extend((0..rows).map(|r| base + r * width + c::DEPTH));
+    }
+    for u in 0..UNITS {
+        out.extend([options::f::DEPTH, options::f::CUT].map(|k| S_FEAT + u * FEATURES + k));
+    }
+    out
 }
 
 /// **A blank genome**: every weight 0, so every option scores the same, with
@@ -339,16 +451,22 @@ pub fn reopen(g: &mut [f32], verbs: &[Verb]) -> Vec<&'static str> {
 /// the genome has never laid it, B gets the hand-built layer: laid while
 /// the crop holds food (design rev3, *Scents need senders and receivers
 /// together*: today's brain has that rule by hand, so the new one starts
-/// with it and mutation may change it); and where Dig comes on, the dig
-/// start ([`enter_dig`]). Returns what it changed, for the run's log.
+/// with it and mutation may change it); where Dig comes on, the dig
+/// start ([`enter_dig`]); where Dig is on and the genome has never had
+/// them, the soil vetoes ([`lay_vetoes`]); and on that same entry -- the one
+/// that opens Dig or lays the vetoes -- the links that can never move a
+/// decision zeroed ([`zero_dead`], R11). Returns what it changed, for the
+/// run's log.
 pub fn enter_rung(g: &mut [f32], verbs: &[Verb], emits: [bool; EMITS]) -> Vec<String> {
     let mut did = vec![];
+    let mut opened = false;
     for v in Verb::ALL {
         if verbs.contains(&v) && g[SWITCH + v as usize] == -1.0 {
             g[SWITCH + v as usize] = 1.0;
             did.push(v.name().to_string());
             if v == Verb::Dig {
                 did.extend(enter_dig(g));
+                opened = true;
             }
         }
     }
@@ -359,6 +477,44 @@ pub fn enter_rung(g: &mut [f32], verbs: &[Verb], emits: [bool; EMITS]) -> Vec<St
         g[b.end - 1] = -3.0;
         did.push("scent B while carrying".to_string());
     }
+    // Keyed on the vetoes' own marks rather than on the ban, so a start that
+    // entered the dig rung before the vetoes existed gets them too (step 4
+    // starts from a step-3 champion). A genome saved before PR 2 has both
+    // at zero ([`pad`]: `c::ROOF_CUT` is new), and [`enter_dig`] zeroes
+    // what drifted onto either while Dig was banned. **Both, not the roof
+    // column alone** (review of PR 722, N2): `prune=` can zero the roof
+    // veto's one weight, and keyed on that alone the next entry (shaft 4 ->
+    // 8) would take two more units and lay a second Dig read and a second
+    // Drop gate over the first.
+    let dig = verbs.contains(&Verb::Dig) && g[SWITCH + Verb::Dig as usize] > 0.0;
+    let marked = (0..UNITS).any(|u| g[S_FEAT + u * FEATURES + options::f::ROOF_DROP] != 0.0)
+        || g[JOB + Verb::Dig as usize * J_IN + c::ROOF_CUT] != 0.0;
+    let laid = dig && !marked;
+    if laid {
+        did.extend(lay_vetoes(g));
+    }
+    // After the vetoes, which write every verb's column on their two units:
+    // a banned verb's goes here. **Only on the entry that opens Dig or lays
+    // the vetoes** (review of PR 722, S1): every `score=`, `start=`,
+    // `noise=`, `trace=` and `pic=` load enters the rung, and training
+    // regrows dead links (`grow=` makes a link on an empty slot, a dead
+    // unit's included) that its hold-out paid for, so cutting them on every
+    // entry scored a genome other than the one selection picked: a step-3
+    // digger's hold-best read 71.25 in training and 67.00 through `score=`,
+    // 24 links cut (519 -> 495).
+    if opened || laid {
+        let cut = zero_dead(g, verbs, emits);
+        if cut.iter().any(|&n| n > 0) {
+            did.push(format!(
+                "dead links zeroed: {} ({} on scorer units nothing reads, {} on inputs nothing writes, {} on verbs never offered, {} on hidden and memory units nothing reads)",
+                cut.iter().sum::<usize>(),
+                cut[0],
+                cut[1],
+                cut[2],
+                cut[3]
+            ));
+        }
+    }
     did
 }
 
@@ -367,8 +523,9 @@ pub fn enter_rung(g: &mut [f32], verbs: &[Verb], emits: [bool; EMITS]) -> Vec<St
 ///
 /// * **what drifted, zeroed**: every weight that only ever met a zero while
 ///   Dig was banned -- Dig's job row and its weights on the hidden units,
-///   the scorer's Dig column, memory's read of "Dig was chosen", and every
-///   read of `c::SPOIL` (nothing held soil). Mutation moved them and
+///   the scorer's Dig column and its read of [`options::f::ROOF_DROP`]
+///   (only a Dig option carries it), memory's read of "Dig was chosen",
+///   and every read of `c::SPOIL` (nothing held soil). Mutation moved them and
 ///   selection never saw them; a drifted Dig weight on hidden unit 0 or 1
 ///   left in place would also read as "in use" and stop the gate below
 ///   being laid (review of PR 721, S1);
@@ -390,6 +547,10 @@ pub fn enter_rung(g: &mut [f32], verbs: &[Verb], emits: [bool; EMITS]) -> Vec<St
 fn enter_dig(g: &mut [f32]) -> Vec<String> {
     let dig = Verb::Dig as usize;
     let mut drifted: Vec<std::ops::Range<usize>> = (0..UNITS).map(|u| S_VERB + u * VERBS + dig..S_VERB + u * VERBS + dig + 1).collect();
+    drifted.extend((0..UNITS).map(|u| {
+        let k = S_FEAT + u * FEATURES + options::f::ROOF_DROP;
+        k..k + 1
+    }));
     drifted.push(JOB + dig * J_IN..JOB + (dig + 1) * J_IN);
     drifted.push(HID_OUT + dig * HIDDEN..HID_OUT + (dig + 1) * HIDDEN);
     drifted.extend((0..MEMORY).map(|m| {
@@ -439,6 +600,231 @@ fn enter_dig(g: &mut [f32]) -> Vec<String> {
         did.push("soil gate not laid: hidden 0 or 1 already in use".to_string());
     }
     did
+}
+
+/// **How hard each soil veto pushes** ([`lay_vetoes`]): the unit's output
+/// weight, negated.
+const DROP_VETO: f32 = 15.0;
+const DIG_VETO: f32 = 40.0;
+/// **How the two jobs see them** ([`lay_vetoes`]): the Drop job's weight on
+/// its hidden unit for "soil, and only the hole", and the Dig job's weight
+/// on [`c::ROOF_CUT`].
+const DROP_HOLE: f32 = -10.0;
+const DIG_ROOF_CUT: f32 = -20.0;
+
+/// **The soil vetoes, on the two highest scorer units nothing reads**
+/// (ladder lane, `dig-rung-design.md` 9.5; step 3's two misses,
+/// `stage2/dig/README.md` round 5):
+///
+/// * **no soil put down in the hole**: a Drop target in the hole
+///   ([`options::f::CUT`]) while the ant carries soil scores low. Round 5's
+///   gated ants put 0.17-0.83 pellets a world back, every one into the
+///   one-row surface scrape beside them, where their own depth reads 0
+///   (`probes/round5/refills/`);
+/// * **no cut that drops a roof cell** ([`options::f::ROOF_DROP`]): 65 of
+///   the 83 grains that fell into the founding chamber came from one rim
+///   cell, whose cut drops the shaft's shoulder (`probes/round5/falls/`).
+///
+/// A scorer unit can only re-pick among one verb's targets: a vetoed
+/// target is drawn about as often as the pick floor allows. **Stopping the
+/// verb takes the job**, and no trained job row read `best` for either
+/// verb (both at exactly 0 on round 5's four champions), so laid on the
+/// unit alone the two vetoes moved neither number: over seeds 71-74, 12
+/// hold-out and 12 sealed worlds each, pellets back 4.0 -> 4.5 a seed
+/// summed, falls 0.96 -> 0.78 a world, every pellet into the hole a
+/// decision just after a cut in the open with every Drop target in the
+/// hole (`probes/round5/vetoes/`). So each job is wired to see it:
+///
+/// * **Drop reads a job-head hidden unit** at -10: "soil, and every
+///   put-down spot is in the hole" (`c::SPOIL` +40, [`c::HOLE_DROP`] +40,
+///   bias -60, past the rig's bound as h0's and h1's are; a mutation there
+///   clamps it and selection has kept theirs). Off, the unit still adds
+///   9.5-9.8 to Drop, by state; the job's offset and its own reads of the
+///   two inputs take that back exactly in all three off states, since a
+///   leak centred on food at the nest alone put 1.4x the food down away
+///   in the fetch arena. **Not `best`**: read at +6 it cut the colony's food
+///   by 9% on the same four starts, since with food at the nest under
+///   cover the best Drop target already scores near the floor half the
+///   time (P(Drop) there 0.32 -> 0.07 on seed 72);
+/// * **Dig reads [`c::ROOF_CUT`]** at -20. Its `best` cannot carry the
+///   veto: at the nest every Dig target already scores at the floor.
+///
+/// **The Drop veto is a three-way AND in one sum**, which is why it
+/// leaks: soil +30 and the hole +30, against -45 for a Drop and -80 for
+/// any other verb (a bias of -40 plus the verb's own weight; the rig holds
+/// every weight to 40). So it reads +15 only for soil, Drop and the hole,
+/// -15 for a Drop with one of the two, and for every other verb -80 with
+/// neither, -50 with one and -20 with both, so walking in the shaft with a
+/// pellet is not vetoed. It is not untouched either (review of PR 722, N1):
+/// such a target scores 0.53 below the leak level (`-15 * squash(-20)`
+/// against `-15 * squash(-80)`) and an out-of-hole one with soil 0.11
+/// below, so a carrier's targets in the hole sit 0.42 under its targets
+/// out of it, all alike: none in the hole is re-ranked against another, and
+/// at the rim it leans a carrier out, the way the veto wants. Off, it
+/// still adds 0.94-0.99 of its weight to every option; the score's bias
+/// takes back the level of the commonest option (no soil, out of the
+/// hole, not a Drop, -80), which leaves a Drop with food into the hole
+/// 0.75 below where it was (out of a raw score in the tens, where the
+/// food put-down at the nest saturates).
+///
+/// **The Dig veto does not leak**: [`options::f::ROOF_DROP`] is only ever
+/// set on a Dig option, so the unit reads 40 on a roof-dropping cut and
+/// exactly 0 on everything else.
+///
+/// A unit whose output weight is 0 has fan-in that buys nothing but its
+/// links' cost; the two taken are cleared first. Returns what it did.
+fn lay_vetoes(g: &mut [f32]) -> Vec<String> {
+    use options::f;
+    let free: Vec<usize> = (0..UNITS).rev().filter(|&u| g[S_OUT + u] == 0.0).take(2).collect();
+    let &[drop, dig] = free.as_slice() else {
+        return vec!["soil vetoes not laid: fewer than two scorer units unread".to_string()];
+    };
+    let mut cleared = 0;
+    for u in [drop, dig] {
+        for r in [
+            S_CTX + u * S_IN..S_CTX + (u + 1) * S_IN,
+            S_FEAT + u * FEATURES..S_FEAT + (u + 1) * FEATURES,
+            S_VERB + u * VERBS..S_VERB + (u + 1) * VERBS,
+        ] {
+            cleared += g[r.clone()].iter().filter(|w| **w != 0.0).count();
+            g[r].fill(0.0);
+        }
+    }
+    let (wd, wg) = (DROP_VETO, DIG_VETO);
+    // Soil, a Drop, into the hole.
+    g[S_CTX + drop * S_IN + c::SPOIL] = 30.0;
+    g[S_CTX + drop * S_IN + S_IN - 1] = -40.0;
+    g[S_FEAT + drop * FEATURES + f::CUT] = 30.0;
+    for v in Verb::ALL {
+        g[S_VERB + drop * VERBS + v as usize] = if v == Verb::Drop { -5.0 } else { -40.0 };
+    }
+    g[S_OUT + drop] = -wd;
+    // A cut that drops a roof cell.
+    g[S_FEAT + dig * FEATURES + f::ROOF_DROP] = 40.0;
+    g[S_OUT + dig] = -wg;
+    let leak = -wd * squash(-80.0);
+    g[S_OUT + UNITS] -= leak;
+    // The jobs, added to what the start has.
+    let job = |v: Verb, k: usize| JOB + v as usize * J_IN + k;
+    g[job(Verb::Dig, c::ROOF_CUT)] += DIG_ROOF_CUT;
+    let unit = |h: usize| HID + h * H_IN..HID + (h + 1) * H_IN;
+    let read = |g: &[f32], h: usize| (0..VERBS).any(|v| g[HID_OUT + v * HIDDEN + h] != 0.0);
+    let gate = match (0..HIDDEN).find(|&h| g[unit(h)].iter().all(|w| *w == 0.0) && !read(g, h)) {
+        Some(h) => {
+            g[unit(h).start + c::SPOIL] = 40.0;
+            g[unit(h).start + c::HOLE_DROP] = 40.0;
+            g[unit(h).end - 1] = -60.0;
+            g[HID_OUT + Verb::Drop as usize * HIDDEN + h] += DROP_HOLE;
+            // What the unit adds to Drop in each of its three off states,
+            // taken back by the offset and the job's own reads of the two
+            // inputs, so food anywhere and soil with somewhere else to go
+            // sum exactly as they did.
+            let none = DROP_HOLE * squash(-60.0);
+            let one = DROP_HOLE * squash(-20.0);
+            g[job(Verb::Drop, CONTEXT + MEMORY + 1)] -= none;
+            g[job(Verb::Drop, c::SPOIL)] += none - one;
+            g[job(Verb::Drop, c::HOLE_DROP)] += none - one;
+            format!(
+                "Drop off with soil and only the hole (hidden {h}; Drop offset {:+.2})",
+                -none
+            )
+        }
+        None => "Drop's hole gate not laid: no hidden unit free".to_string(),
+    };
+    vec![format!(
+        "soil vetoes: Drop into the hole on unit {drop}, roof-dropping cuts on unit {dig} ({cleared} unread links cleared; score bias {:+.2}); Dig off when every cut drops the roof; {gate}",
+        -leak
+    )]
+}
+
+/// **Inputs nothing writes yet**, 0 on every option: the building scent
+/// (it comes with a building emit) and the way back to the last food (a
+/// body memory not kept yet). A weight on one moves nothing and is billed
+/// every tick.
+const UNWRITTEN: [usize; 2] = [options::f::BUILDING, options::f::LAST_FOOD];
+
+/// **Links that can never move a decision, zeroed** (R11,
+/// `dig-rung-design.md` 9 item 3), from [`enter_rung`] on the entry that
+/// opens Dig or lays the soil vetoes, never on a later one.
+/// Every live link is billed every tick (`synapse_fraction`) and the dig
+/// rung runs on a budget (R13), so a link that only costs is a bill to
+/// cut: about a third of the links in the colony starts, 0.18-0.20 J a
+/// tick, twice what an idle ant burns (`stage2/colony`, where
+/// `probes/prune_dead.py` cut them by hand and fetch and trail stayed
+/// byte-identical). Cut:
+///
+/// * a scorer unit whose output weight is 0: its whole fan-in;
+/// * an input nothing writes ([`UNWRITTEN`]), on every scorer unit;
+/// * a verb the rung never offers: the scorer's weight on it, its job's
+///   reads (not its offset: a ban lifted later brings the verb back at the
+///   offset it has, and at 0 it would be drawn about half the time,
+///   [`QUIET`]'s reason), its weights on the hidden units, and memory's
+///   read of "it was chosen";
+/// * a hidden unit no job reads, and a memory unit nothing but itself
+///   reads, until none is left: clearing one can leave another unread.
+///
+/// **Left alone**: inputs constant only in today's arenas (`c::SPOIL` out
+/// of soil, the larva senses where nothing hatches), since which arenas a
+/// rung runs is the trainer's to say and the soil gate reads `c::SPOIL` by
+/// hand; and the emits, which [`apply_bans`] clears when banned.
+///
+/// Every pick, score, job, emit and memory still read stays bit-identical
+/// (`zeroing_dead_links_leaves_every_choice_bit_identical`); only the bill
+/// moves. Returns the links cut of each kind, in the order above.
+fn zero_dead(g: &mut [f32], verbs: &[Verb], emits: [bool; EMITS]) -> [usize; 4] {
+    // Zeroes `ks`, counting the live ones in `n`; whether any was not 0.
+    fn kill(g: &mut [f32], ks: impl IntoIterator<Item = usize>, n: &mut usize) -> bool {
+        let mut any = false;
+        for k in ks {
+            any |= g[k] != 0.0;
+            *n += usize::from(g[k].abs() >= W_EPS);
+            g[k] = 0.0;
+        }
+        any
+    }
+    let mut cut = [0; 4];
+    let unread: Vec<usize> = (0..UNITS).filter(|&u| g[S_OUT + u] == 0.0).collect();
+    for u in unread {
+        let fan_in = (S_CTX + u * S_IN..S_CTX + (u + 1) * S_IN)
+            .chain(S_FEAT + u * FEATURES..S_FEAT + (u + 1) * FEATURES)
+            .chain(S_VERB + u * VERBS..S_VERB + (u + 1) * VERBS);
+        kill(g, fan_in, &mut cut[0]);
+    }
+    for u in 0..UNITS {
+        kill(g, UNWRITTEN.map(|k| S_FEAT + u * FEATURES + k), &mut cut[1]);
+    }
+    for v in Verb::ALL.into_iter().filter(|v| !verbs.contains(v)).map(|v| v as usize) {
+        let job = JOB + v * J_IN;
+        let reads = (0..UNITS)
+            .map(|u| S_VERB + u * VERBS + v)
+            .chain(job..job + CONTEXT + MEMORY + 1)
+            .chain((0..HIDDEN).map(|h| HID_OUT + v * HIDDEN + h))
+            .chain((0..MEMORY).map(|m| MEM + m * M_IN + CONTEXT + 2 + v));
+        kill(g, reads, &mut cut[2]);
+    }
+    loop {
+        let mut again = false;
+        for h in 0..HIDDEN {
+            if (0..VERBS).all(|v| g[HID_OUT + v * HIDDEN + h] == 0.0) {
+                again |= kill(g, HID + h * H_IN..HID + (h + 1) * H_IN, &mut cut[3]);
+            }
+        }
+        for m in 0..MEMORY {
+            let at = CONTEXT + m;
+            let read = (0..UNITS).any(|u| g[S_CTX + u * S_IN + at] != 0.0)
+                || (0..VERBS).any(|v| g[JOB + v * J_IN + at] != 0.0)
+                || (0..HIDDEN).any(|h| g[HID + h * H_IN + at] != 0.0)
+                || (0..EMITS).any(|e| emits[e] && g[EMIT + e * E_IN + at] != 0.0)
+                || (0..MEMORY).any(|r| r != m && g[MEM + r * M_IN + CONTEXT + 2 + VERBS + m] != 0.0);
+            if !read {
+                again |= kill(g, MEM + m * M_IN..MEM + (m + 1) * M_IN, &mut cut[3]);
+            }
+        }
+        if !again {
+            break;
+        }
+    }
+    cut
 }
 
 /// The scent reads among the context inputs.
@@ -691,6 +1077,48 @@ fn squash(x: f32) -> f32 {
     x / (1.0 + x.abs())
 }
 
+/// **How deep `(x, y)` is**: rows below the top of the ground in its column
+/// as the bed was built (`World::room_surface_at`), negative above it,
+/// squashed at 16 rows; 0 where no datum is frozen (no box, or a column
+/// with no ground).
+///
+/// **Why this datum**: it is frozen on the first frame and again, earlier,
+/// just before the founding cut (`cut_founding_shaft_with` freezes it
+/// first), so the founding shaft's own column reads the surface it was cut
+/// from, and nothing an ant digs later moves it. It is the datum the nest
+/// census reads, so "deep" means here what "under the original ground"
+/// means there. It is right on bare ground too: there is no founding cut
+/// for it to need (ladder lane, `dig-rung-design.md` R3).
+///
+/// **What it replaces**: both depth reads took `last_out_row`, whose one
+/// writer (`depth_slowed`) is on the game ant's path behind `DEPTH_SLOW`
+/// (off), so a mind's depth read 0 everywhere -- a sense with no writer
+/// (`.claude/rules/src-sim-cells.md`, the channel rule).
+pub(crate) fn depth_at(world: &World, x: i32, y: i32) -> f32 {
+    world.room_surface_at(x).map_or(0.0, |s| squash((y - s) as f32 / 16.0))
+}
+
+/// **Whether every cut in reach drops a roof cell** ([`c::ROOF_CUT`]): 1
+/// when `opts` holds a Dig option and each carries
+/// [`options::f::ROOF_DROP`], else 0. Read off the options, so it is 0
+/// wherever the roof sense is not read (`options::build_with`).
+pub(crate) fn roof_cut(opts: &[Opt]) -> f32 {
+    every(opts, Verb::Dig, options::f::ROOF_DROP)
+}
+
+/// **Whether every put-down spot in reach is in the hole**
+/// ([`c::HOLE_DROP`]): [`roof_cut`]'s reading of Drop and
+/// [`options::f::CUT`].
+pub(crate) fn hole_drop(opts: &[Opt]) -> f32 {
+    every(opts, Verb::Drop, options::f::CUT)
+}
+
+fn every(opts: &[Opt], verb: Verb, feature: usize) -> f32 {
+    let mut of = opts.iter().filter(|o| o.verb == verb).peekable();
+    let all = of.peek().is_some() && of.all(|o| o.feats[feature] == 1.0);
+    f32::from(u8::from(all))
+}
+
 /// The verbs whose act has landed ([`act`]); the rest are never picked.
 impl Verb {
     pub fn acts(self) -> bool {
@@ -879,15 +1307,19 @@ fn prune(world: &mut World) {
 // --- reading the ant --------------------------------------------------------
 
 /// **What the ant feels**, once a decision: a pure read, with the change
-/// senses taken against `state.last`. Returns the context and this
-/// decision's values for the next one's change senses.
+/// senses taken against `state.last` and [`c::ROOF_CUT`] off this
+/// decision's options. Returns the context and this decision's values for
+/// the next one's change senses.
 pub fn context(
     world: &World,
     organism: OrganismId,
     def: &CreatureDef,
     state: &MindState,
+    opts: &[Opt],
 ) -> ([f32; CONTEXT], [f32; 5]) {
     let mut v = [0.0f32; CONTEXT];
+    v[c::ROOF_CUT] = roof_cut(opts);
+    v[c::HOLE_DROP] = hole_drop(opts);
     let Some(st) = world.organism(organism) else {
         return (v, [0.0; 5]);
     };
@@ -939,7 +1371,7 @@ pub fn context(
         }
     }
     v[c::CROWD] = touching as f32 / 8.0;
-    v[c::DEPTH] = st.last_out_row.map_or(0.0, |s| squash((hy - s) as f32 / 16.0));
+    v[c::DEPTH] = depth_at(world, hx, hy);
     v[c::ROOFED] = f32::from(u8::from(under_cover(world, hx, hy)));
     (v, now)
 }
@@ -1198,8 +1630,14 @@ pub(super) fn tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def:
     } else if let Some(mut mind) = world.minds.as_mut().and_then(|m| m.ants.get(&organism).cloned()) {
         let decided = SCRATCH.with(|s| {
             let mut opts = s.borrow_mut();
-            options::build(world, organism, def, &mut opts);
-            let (ctx, now) = context(world, organism, def, &mind.state);
+            options::build_with(
+                world,
+                organism,
+                def,
+                mind.genome.w[SWITCH + Verb::Dig as usize] > 0.0,
+                &mut opts,
+            );
+            let (ctx, now) = context(world, organism, def, &mind.state, &opts);
             let mut draw = rng::stream(world.seed, organism as u64, world.frame, RNG_SLOT_MIND);
             let d = decide(&mind.genome.w, &ctx, &opts, &mut mind.state, &mut draw);
             mind.state.last = Some(now);
@@ -1808,6 +2246,97 @@ mod tests {
         );
     }
 
+    /// `g` in the layout before PR 2 ([`GENOME_LEN_V2`]): each unit's
+    /// `f::LINED` and `f::ROOF_DROP` weights and every `c::ROOF_CUT` and
+    /// `c::HOLE_DROP` read dropped.
+    fn older(g: &[f32]) -> Vec<f32> {
+        v2_slots().into_iter().map(|k| g[k]).collect()
+    }
+
+    /// Every slot PR 2 added: no slot of an older genome lands there.
+    fn grown() -> Vec<usize> {
+        let old: std::collections::HashSet<usize> = v2_slots().into_iter().collect();
+        (0..GENOME_LEN).filter(|k| !old.contains(k)).collect()
+    }
+
+    /// `g` as [`pad`] would leave it: what it zeroes zeroed, each unit's
+    /// `f::LINED` weight its `f::SPOIL` one, and every other slot PR 2
+    /// added at zero.
+    fn as_padded(g: &mut [f32]) {
+        for k in newly_live().into_iter().chain(grown()) {
+            g[k] = 0.0;
+        }
+        for u in 0..UNITS {
+            g[S_FEAT + u * FEATURES + options::f::LINED] = g[S_FEAT + u * FEATURES + options::f::SPOIL];
+        }
+    }
+
+    /// **A genome saved before PR 2 reads into today's layout slot by
+    /// slot** ([`pad`]): every older weight lands on the input it read, the
+    /// wall's weight is the heap's, the roof feature and the roof-cut
+    /// sense start at zero, and the inputs PR 2 brought to life are zeroed
+    /// -- `c::DEPTH` in all five blocks that read context, `f::DEPTH` and
+    /// `f::CUT` in all 16 units. The input each slot reads is checked by
+    /// name, so a relayout that kept the count and moved a slot fails.
+    #[test]
+    fn a_genome_saved_before_pr2_reads_slot_by_slot() {
+        let old: Vec<f32> = (0..GENOME_LEN_V2).map(|i| (i % 997) as f32 + 1.0).collect();
+        let g = pad(old.clone()).expect("a V2 genome pads");
+        let live = newly_live();
+        assert_eq!(live.len(), UNITS + VERBS + MEMORY + EMITS + HIDDEN + 2 * UNITS);
+        for &k in &live {
+            assert_eq!(g[k], 0.0, "slot {k} reads an input PR 2 brought to life");
+        }
+        let to = v2_slots();
+        assert_eq!(to.len(), GENOME_LEN_V2);
+        for (k, &n) in to.iter().enumerate().filter(|(_, n)| !live.contains(n)) {
+            assert_eq!(g[n], old[k], "old slot {k} -> {n}");
+        }
+        // What each moved slot reads, by name, in the layout it was saved
+        // in and in today's: a context read stays on its input.
+        let ctx_old = context_names();
+        for (base_old, width_old, base, width, rows) in [
+            (S_CTX, CONTEXT_V2 + MEMORY + 1, S_CTX, S_IN, UNITS),
+            (
+                S_CTX + UNITS * (CONTEXT_V2 + MEMORY + 1) + UNITS * FEATURES_V2 + UNITS * VERBS + UNITS + 1,
+                CONTEXT_V2 + MEMORY + 2,
+                JOB,
+                J_IN,
+                VERBS,
+            ),
+        ] {
+            for r in 0..rows {
+                for i in 0..CONTEXT_V2 {
+                    assert_eq!(
+                        to[base_old + r * width_old + i],
+                        base + r * width + i,
+                        "{} in row {r}",
+                        ctx_old[i]
+                    );
+                }
+                // The first memory read follows the new input.
+                assert_eq!(to[base_old + r * width_old + CONTEXT_V2], base + r * width + CONTEXT);
+            }
+        }
+        for k in grown() {
+            let feat = k
+                .checked_sub(S_FEAT)
+                .filter(|&d| d < UNITS * FEATURES)
+                .map(|d| d % FEATURES);
+            if feat == Some(options::f::LINED) {
+                let spoil = k - options::f::LINED + options::f::SPOIL;
+                assert_eq!(g[k], g[spoil], "slot {k}: the wall scores as the heap did");
+            } else {
+                assert_eq!(g[k], 0.0, "slot {k} is new in PR 2");
+            }
+        }
+        assert_eq!(grown().len(), GREW);
+        // A V1 genome is a V2 one without the hidden units.
+        let v1 = pad(old[..GENOME_LEN_V1].to_vec()).expect("a V1 genome pads");
+        assert_eq!(&v1[..HID], &g[..HID]);
+        assert!(v1[HID..].iter().all(|w| *w == 0.0));
+    }
+
     /// **The job head's hidden units cost a genome saved before them
     /// nothing**: it pads with them at zero ([`pad`]); a unit with a fan-in
     /// that no job reads is skipped, so every pick, memory and emit is
@@ -1819,7 +2348,8 @@ mod tests {
         for (i, w) in g.iter_mut().enumerate().take(HID).skip(S_CTX) {
             *w = ((i * 7919 % 1000) as f32 / 500.0 - 1.0) * 0.5;
         }
-        assert_eq!(pad(g[..GENOME_LEN_V1].to_vec()).as_deref(), Some(&g[..]));
+        as_padded(&mut g);
+        assert_eq!(pad(older(&g)[..GENOME_LEN_V1].to_vec()).as_deref(), Some(&g[..]));
         assert_eq!(pad(g.clone()).as_deref(), Some(&g[..]));
         assert!(pad(vec![0.0; GENOME_LEN_V1 - 1]).is_none());
         let mut h = g.clone();
@@ -1936,6 +2466,331 @@ mod tests {
         assert!(near < -0.9 && far > 0.9, "soil near home {near}, far out {far}");
     }
 
+
+    /// **Zeroing the dead links moves no decision** ([`zero_dead`]): a
+    /// genome wired everywhere, with three scorer units nothing reads, two
+    /// hidden units no job reads, a memory unit read only by those, and the
+    /// verbs the rung does not offer, picks, scores, weighs its jobs, lays
+    /// and remembers (what is still read) bit for bit as before over 2,000
+    /// five-step runs; every kind is cut, the count is the bill's, a second
+    /// pass finds nothing, and a banned verb keeps its job's offset.
+    /// Positive control: one live link zeroed moves decisions.
+    #[test]
+    fn zeroing_dead_links_leaves_every_choice_bit_identical() {
+        use options::f;
+        let offered = [
+            Verb::Walk,
+            Verb::TurnAround,
+            Verb::Rest,
+            Verb::Eat,
+            Verb::Drop,
+            Verb::Dig,
+        ];
+        let emits = [true, false, false];
+        let mut g = blank(&offered);
+        for (i, w) in g.iter_mut().enumerate().skip(S_CTX) {
+            *w = ((i * 7919 % 1000) as f32 / 500.0 - 1.0) * 0.5;
+        }
+        apply_bans(&mut g, &offered, emits);
+        for u in [2, 5, 11] {
+            g[S_OUT + u] = 0.0;
+        }
+        for h in [6, 7] {
+            for v in 0..VERBS {
+                g[HID_OUT + v * HIDDEN + h] = 0.0;
+            }
+        }
+        // Memory 9 is read only by unit 5 and hidden 7, so it goes once they have.
+        let m = 9;
+        for u in (0..UNITS).filter(|&u| u != 5) {
+            g[S_CTX + u * S_IN + CONTEXT + m] = 0.0;
+        }
+        for v in 0..VERBS {
+            g[JOB + v * J_IN + CONTEXT + m] = 0.0;
+        }
+        for h in (0..HIDDEN).filter(|&h| h != 7) {
+            g[HID + h * H_IN + CONTEXT + m] = 0.0;
+        }
+        for e in 0..EMITS {
+            g[EMIT + e * E_IN + CONTEXT + m] = 0.0;
+        }
+        for r in (0..MEMORY).filter(|&r| r != m) {
+            g[MEM + r * M_IN + CONTEXT + 2 + VERBS + m] = 0.0;
+        }
+        let mut z = g.clone();
+        let cut = zero_dead(&mut z, &offered, emits);
+        assert!(cut.iter().all(|&n| n > 0), "every kind cut: {cut:?}");
+        assert!(
+            z[MEM + m * M_IN..MEM + (m + 1) * M_IN].iter().all(|w| *w == 0.0),
+            "memory {m}, read only by the dead, goes too"
+        );
+        let attack = JOB + Verb::Attack as usize * J_IN + CONTEXT + MEMORY + 1;
+        assert!(
+            z[attack] == g[attack] && g[attack] != 0.0,
+            "a banned verb keeps its job's offset"
+        );
+        let live = |g: &[f32]| MindGenome::new(g.to_vec()).live as usize;
+        assert_eq!(
+            live(&g) - live(&z),
+            cut.iter().sum::<usize>(),
+            "the count is the bill's"
+        );
+        assert_eq!(
+            zero_dead(&mut z.clone(), &offered, emits),
+            [0; 4],
+            "a second pass finds nothing"
+        );
+        let kept: Vec<usize> = (0..MEMORY)
+            .filter(|&r| z[MEM + r * M_IN..MEM + (r + 1) * M_IN].iter().any(|w| *w != 0.0))
+            .collect();
+        let verbs = [
+            Verb::Walk,
+            Verb::Walk,
+            Verb::TurnAround,
+            Verb::Rest,
+            Verb::Eat,
+            Verb::Drop,
+            Verb::Dig,
+            Verb::Attack,
+            Verb::Feed,
+        ];
+        let opts: Vec<Opt> = verbs
+            .iter()
+            .enumerate()
+            .map(|(o, &verb)| {
+                let mut feats: [f32; FEATURES] = std::array::from_fn(|k| ((o * 31 + k * 17) % 11) as f32 / 10.0);
+                for k in UNWRITTEN {
+                    feats[k] = 0.0;
+                }
+                Opt {
+                    verb,
+                    target: (o as i32, 0),
+                    feats,
+                }
+            })
+            .collect();
+        let run = |h: &[f32], i: u64| {
+            let (mut s1, mut s2) = (MindState::default(), MindState::default());
+            (0..5u64).all(|step| {
+                let ctx: [f32; CONTEXT] =
+                    std::array::from_fn(|k| ((i * 7 + step * 13) as usize + k * 5) as f32 % 9.0 / 8.0);
+                let mut d1 = rng::stream(3, 9, i * 10 + step, RNG_SLOT_MIND);
+                let mut d2 = rng::stream(3, 9, i * 10 + step, RNG_SLOT_MIND);
+                let a = decide(&g, &ctx, &opts, &mut s1, &mut d1).expect("pick");
+                let b = decide(h, &ctx, &opts, &mut s2, &mut d2).expect("pick");
+                a.pick == b.pick
+                    && a.scores
+                        .iter()
+                        .map(|x| x.to_bits())
+                        .eq(b.scores.iter().map(|x| x.to_bits()))
+                    && a.jobs.map(|j| j.map(f32::to_bits)) == b.jobs.map(|j| j.map(f32::to_bits))
+                    && a.emits.map(f32::to_bits) == b.emits.map(f32::to_bits)
+                    && kept.iter().all(|&r| s1.mem[r].to_bits() == s2.mem[r].to_bits())
+            })
+        };
+        let moved = (0..2_000).filter(|&i| !run(&z, i)).count();
+        assert_eq!(moved, 0, "dead links zeroed moved a decision in {moved} of 2000 runs");
+        let mut one = z.clone();
+        assert!(
+            z[S_OUT] != 0.0 && z[S_FEAT + f::FOOD] != 0.0,
+            "unit 0 is read and reads food"
+        );
+        one[S_FEAT + f::FOOD] = 0.0;
+        let moved = (0..2_000).filter(|&i| !run(&one, i)).count();
+        assert!(
+            moved > 100,
+            "a live link zeroed must move decisions: {moved} of 2000 runs moved"
+        );
+    }
+    /// **The soil vetoes** ([`lay_vetoes`]), on the forager entering the
+    /// dig rung: they take the two highest scorer units it leaves unread;
+    /// with soil, a Drop target in the hole scores below one out of it,
+    /// and the Drop job goes off when every target is in the hole
+    /// ([`c::HOLE_DROP`]); a
+    /// roof-dropping cut scores below a safe one, and the Dig job goes off
+    /// when every cut drops the roof ([`c::ROOF_CUT`]); with food, the hole
+    /// is no worse a place to put it down. A start already digging gets
+    /// them once.
+    #[test]
+    fn the_soil_vetoes_stop_soil_into_the_hole_and_roof_dropping_cuts() {
+        use options::f;
+        let forage = [
+            Verb::Walk,
+            Verb::TurnAround,
+            Verb::Rest,
+            Verb::Eat,
+            Verb::Drop,
+            Verb::Feed,
+        ];
+        let soil = [
+            Verb::Walk,
+            Verb::TurnAround,
+            Verb::Rest,
+            Verb::Eat,
+            Verb::Drop,
+            Verb::Feed,
+            Verb::Dig,
+        ];
+        let start = preset("forager", &forage).expect("forager");
+        let mut g = start.clone();
+        let did = enter_rung(&mut g, &soil, [true, true, false]);
+        let laid = did
+            .iter()
+            .find(|l| l.starts_with("soil vetoes"))
+            .expect("the vetoes logged");
+        assert!(
+            laid.starts_with("soil vetoes: Drop into the hole on unit 15, roof-dropping cuts on unit 14"),
+            "{did:?}"
+        );
+        let run = |g: &[f32], set: &[(usize, f32)], opts: &[Opt]| {
+            let mut ctx = [0.0; CONTEXT];
+            for &(k, v) in set {
+                ctx[k] = v;
+            }
+            let mut draw = rng::stream(1, 1, 1, RNG_SLOT_MIND);
+            decide(g, &ctx, opts, &mut MindState::default(), &mut draw).expect("pick")
+        };
+        let with = |verb: Verb, k: usize, on: bool| {
+            let mut o = opt(verb, (1, 1), 0.0);
+            o.feats[k] = f32::from(u8::from(on));
+            o
+        };
+        let walk = opt(Verb::Walk, (1, 0), 0.0);
+        let (drop, dig) = (Verb::Drop as usize, Verb::Dig as usize);
+        let hole = |on: bool| with(Verb::Drop, f::CUT, on);
+        let roof = |on: bool| with(Verb::Dig, f::ROOF_DROP, on);
+
+        // Soil far out, where h1 says put it down.
+        let far = [(c::SPOIL, 1.0), (c::HOME_DIST, 0.4)];
+        let d = run(&g, &far, &[walk, hole(true), hole(false)]);
+        assert!(
+            d.scores[1] < -0.9 && d.scores[2] > 0.5,
+            "soil: into the hole {}, beside it {}",
+            d.scores[1],
+            d.scores[2]
+        );
+        let only_hole = [(c::SPOIL, 1.0), (c::HOME_DIST, 0.4), (c::HOLE_DROP, 1.0)];
+        let (only, open) = (
+            run(&g, &only_hole, &[walk, hole(true)]).jobs[drop],
+            run(&g, &far, &[walk, hole(false)]).jobs[drop],
+        );
+        assert!(
+            only.expect("drop") < -0.9 && open.expect("drop") > 0.9,
+            "soil far out: Drop's job {only:?} with only the hole, {open:?} beside it"
+        );
+        // Food: the founding chamber is the hole, and food still goes down
+        // there, and away, as the start put it down.
+        let nest = [(c::CROP, 1.0 / 6.0), (c::AT_NEST, 1.0), (c::HOLE_DROP, 1.0)];
+        let d = run(&g, &nest, &[walk, hole(true), hole(false)]);
+        assert!(
+            (d.scores[1] - d.scores[2]).abs() < 0.05,
+            "food: into the hole {}, beside it {}",
+            d.scores[1],
+            d.scores[2]
+        );
+        for (row, set, o) in [
+            ("at the nest", &nest[..], hole(true)),
+            ("away", &[(c::CROP, 1.0 / 6.0), (c::HOME_DIST, 0.3)][..], hole(false)),
+        ] {
+            let (was, now) = (
+                run(&start, set, &[walk, o]).jobs[drop],
+                run(&g, set, &[walk, o]).jobs[drop],
+            );
+            assert!(
+                (was.expect("drop") - now.expect("drop")).abs() < 0.02,
+                "food {row}: Drop's job {was:?} at the start, {now:?} entered"
+            );
+        }
+
+        // A cut at the nest, where Dig's job is on.
+        let at = [(c::AT_NEST, 1.0)];
+        let d = run(&g, &at, &[walk, roof(true), roof(false)]);
+        assert!(
+            d.scores[1] < d.scores[2] - 1.0,
+            "a roof-dropping cut {}, a safe one {}",
+            d.scores[1],
+            d.scores[2]
+        );
+        assert_eq!(
+            (
+                roof_cut(&[walk, roof(true)]),
+                roof_cut(&[walk, roof(true), roof(false)]),
+                roof_cut(&[walk])
+            ),
+            (1.0, 0.0, 0.0)
+        );
+        let (safe, only) = (
+            run(&g, &at, &[walk, roof(false)]).jobs[dig].expect("dig"),
+            run(&g, &[(c::AT_NEST, 1.0), (c::ROOF_CUT, 1.0)], &[walk, roof(true)]).jobs[dig].expect("dig"),
+        );
+        assert!(
+            safe > 0.5 && only < -0.9,
+            "Dig's job at the nest: {safe} with a safe cut, {only} when every cut drops the roof"
+        );
+
+        // Entered twice, nothing more; a start already digging gets them.
+        assert!(enter_rung(&mut g, &soil, [true, true, false]).is_empty());
+        // A dead link training regrew survives a later entry (a `score=`
+        // load, review of PR 722, S1): only the entry that opens Dig or lays
+        // the vetoes cuts. The control: the link is dead, `zero_dead` cuts it.
+        let unread = (0..UNITS)
+            .find(|&u| g[S_OUT + u] == 0.0)
+            .expect("an unread scorer unit");
+        let link = S_FEAT + unread * FEATURES + f::FOOD;
+        let mut regrown = g.clone();
+        regrown[link] = 0.5;
+        assert_eq!(
+            zero_dead(&mut regrown.clone(), &soil, [true, true, false]),
+            [1, 0, 0, 0],
+            "the control: the regrown link is dead"
+        );
+        assert!(
+            enter_rung(&mut regrown, &soil, [true, true, false]).is_empty(),
+            "a re-entry cut a link training paid for"
+        );
+        assert_eq!(regrown[link], 0.5);
+        // The roof veto's one weight pruned away: the Dig job's read still
+        // marks the vetoes laid, so no second set goes over the first (N2).
+        let mut pruned = g.clone();
+        for u in 0..UNITS {
+            pruned[S_FEAT + u * FEATURES + f::ROOF_DROP] = 0.0;
+        }
+        assert!(
+            enter_rung(&mut pruned, &soil, [true, true, false]).is_empty(),
+            "the vetoes laid twice"
+        );
+        let mut digging = start.clone();
+        digging[SWITCH + dig] = 1.0;
+        let before = digging.clone();
+        let did = enter_rung(&mut digging, &soil, [true, false, false]);
+        assert_eq!(
+            did.iter().filter(|l| l.starts_with("soil vetoes")).count(),
+            1,
+            "{did:?}"
+        );
+        assert!(
+            did.iter()
+                .all(|l| l.starts_with("soil vetoes") || l.starts_with("dead links zeroed")),
+            "{did:?}"
+        );
+        // ...and wherever the hole gate is off, Drop's job is what it was:
+        // its off level is taken back exactly, state by state.
+        for set in [
+            &[(c::CROP, 1.0 / 6.0), (c::AT_NEST, 1.0), (c::HOLE_DROP, 1.0)][..],
+            &[(c::CROP, 1.0 / 6.0), (c::HOME_DIST, 0.3)],
+            &[(c::SPOIL, 1.0), (c::HOME_DIST, 0.4)],
+        ] {
+            let (was, now) = (
+                run(&before, set, &[walk, hole(false)]).jobs[drop],
+                run(&digging, set, &[walk, hole(false)]).jobs[drop],
+            );
+            assert!(
+                (was.expect("drop") - now.expect("drop")).abs() < 1e-4,
+                "{set:?}: Drop's job {was:?} before the vetoes, {now:?} after"
+            );
+        }
+    }
+
     /// A lab box's colony after 300 frames of the game, every adult then
     /// given a blank mind with the forage rung's verbs.
     fn mind_box() -> (World, CreatureDef, Vec<OrganismId>) {
@@ -1976,6 +2831,45 @@ mod tests {
             give(&mut w, id, g.clone());
         }
         (w, def, ids)
+    }
+
+    /// **A mind knows how deep it is** ([`depth_at`]): rows below the ground
+    /// as the bed was built, in its own column, the founding shaft's column
+    /// included -- the datum is frozen before the cut, so the chamber reads
+    /// deep and the rim reads 0. Until PR 2 both reads took `last_out_row`,
+    /// which nothing on a mind's path writes, and read 0 everywhere.
+    #[test]
+    fn a_mind_reads_its_depth_below_the_ground_as_built() {
+        let (w, def, ids) = mind_box();
+        let site = w
+            .nest_sites
+            .iter()
+            .find_map(|s| s.shaft)
+            .expect("the box has a founding cut");
+        let x = site.x0;
+        let top = w.room_surface_at(x).expect("a datum at the shaft");
+        assert!(
+            top < site.bottom,
+            "the shaft's datum {top} is its surface, not its floor {}",
+            site.bottom
+        );
+        assert_eq!(depth_at(&w, x, top), 0.0, "the rim");
+        assert_eq!(depth_at(&w, x, top + 16), 0.5, "16 rows down");
+        assert_eq!(depth_at(&w, x, top - 16), -0.5, "16 rows up");
+        assert!(
+            depth_at(&w, site.chamber_x0, site.chamber_bottom) > 0.1,
+            "the chamber floor reads deep"
+        );
+        // Every ant's context reads it at its head, and some ant is off
+        // the datum's row (standing on the ground is a row above it).
+        let mut off_row = 0;
+        for &id in &ids {
+            let (hx, hy) = head_of(&w, id);
+            let (ctx, _) = context(&w, id, &def, &MindState::default(), &[]);
+            assert_eq!(ctx[c::DEPTH], depth_at(&w, hx, hy), "ant {id} at ({hx},{hy})");
+            off_row += usize::from(ctx[c::DEPTH] != 0.0);
+        }
+        assert!(off_row > 0, "every ant read depth 0");
     }
 
     fn head_of(w: &World, id: OrganismId) -> (i32, i32) {
@@ -2207,7 +3101,11 @@ mod tests {
     #[test]
     fn the_layout_adds_up_and_crosses_in_whole_rows() {
         assert_eq!(GENOME_LEN, EMIT + EMITS * E_IN + HIDDEN * H_IN + VERBS * HIDDEN);
-        assert_eq!((GENOME_LEN_V1, GENOME_LEN), (2333, 2669), "saved genomes are 2,333 slots");
+        assert_eq!(
+            (GENOME_LEN_V1, GENOME_LEN_V2, GENOME_LEN),
+            (2333, 2669, 2797),
+            "saved genomes are 2,333 slots before the hidden units, 2,669 before PR 2's features"
+        );
         let mut groups: Vec<usize> = (0..GENOME_LEN).map(crossover_group).collect();
         groups.dedup();
         let n = groups.iter().collect::<std::collections::BTreeSet<_>>().len();

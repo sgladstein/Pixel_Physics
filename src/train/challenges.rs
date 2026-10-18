@@ -530,6 +530,14 @@ pub struct Scarce {
     /// ant as the colony runs it starved by frame ~2,900 and never reached
     /// food 80 columns out, the hand-built forager and the game ant alike.
     pub fed: bool,
+    /// **The kept colony with Dig switched on** (`challenge=scarce-dig`;
+    /// the dig rung's from step 4, R12 in `dig-rung-design.md`): the same
+    /// colony on the same trickle, offered the cut ([`SOIL_VERBS`]) and
+    /// scored on heads alone. Digging when it should forage costs founders
+    /// here, which is where the forage-or-dig choice gets trained; the soil
+    /// arena, where nobody starves, cannot teach it. Its forget floor is
+    /// two standard errors rather than a share ([`Challenge::floor_in_se`]).
+    pub dig: bool,
 }
 
 /// The food spot's distance from the nest, in columns: the ladder's far
@@ -575,6 +583,8 @@ impl Challenge for Scarce {
     fn name(&self) -> &'static str {
         if self.fed {
             "fetch"
+        } else if self.dig {
+            "scarce-dig"
         } else {
             "scarce"
         }
@@ -598,7 +608,17 @@ impl Challenge for Scarce {
         true
     }
     fn verbs(&self) -> &'static [creature::options::Verb] {
-        SCARCE_VERBS
+        if self.dig {
+            SOIL_VERBS
+        } else {
+            SCARCE_VERBS
+        }
+    }
+    /// The colony with Dig only ([`Scarce::dig`]): its heads swing far
+    /// more than fetch's or trail's, so a share of its reference cuts on
+    /// noise.
+    fn floor_in_se(&self) -> bool {
+        self.dig
     }
     fn mirrored(&self) -> bool {
         true
@@ -1315,18 +1335,24 @@ fn spoil_below(w: &World, spec: &crate::lab::scene::LabBox) -> usize {
 }
 
 /// **The dig rung's soil trip, for minds** (`challenge=soil`): the first
-/// three steps of the ladder lane's dig rung (`brain-training/ladder/
+/// four steps of the ladder lane's dig rung (`brain-training/ladder/
 /// dig-rung-design.md` rev 2), built with the changes of its adversarial
 /// review (`review-dig-rung-design.md`). Today's [`Dig`] stays as it was.
 ///
-/// One ant (unless `ants=`) on a flat bed: [`DigBed`]'s soil depth and lamps
-/// for the layout, no lens and no step, founded with a shaft of `shaft`
-/// rows, so the ant starts at a hole it can deepen. Its mind runs the
-/// forager's verbs and `Dig` ([`SOIL_VERBS`]). Each pellet is scored by how
-/// far along the soil trip it got ([`soil_trip`]): cut out of the original
-/// ground, put down, put down away from the hole. `step` (1-3) is the stage
-/// being learned: it pays for every pellet, the stages under it for at most
-/// [`SOIL_CAP`] an ant, and the stages above it nothing yet.
+/// One ant (unless `ants=`) on a bed founded with a shaft of `shaft` rows,
+/// so the ant starts at a hole it can deepen. Steps 1-3 use a flat bed,
+/// [`DigBed`]'s soil depth and lamps for the layout with no lens and no
+/// step; **from step 4 the whole [`DigBed`]**, buried stone and raised step
+/// included, in mirrored pairs scored by the worse side (design section
+/// 3: "mirrored pairs come back with the generator beds from step 4").
+/// Its mind runs the forager's verbs and `Dig` ([`SOIL_VERBS`]). Each
+/// pellet is scored by how far along the soil trip it got ([`soil_trip`]):
+/// cut out of the original ground, put down, put down away from the hole,
+/// carried up from below the ground. `step` (1-4) is the stage being
+/// learned: it pays for every pellet, the stages under it for at most
+/// [`SOIL_CAP`] an ant, and the stages above it nothing yet. Step 4 is
+/// trained at shafts of 4, 8 and 12 rows in turn (the design's "up and
+/// out", 2 -> 12 rows), each from the last one's hold-best.
 ///
 /// **Settings are the world's, set by the arena** (design section 3): the
 /// shaft's depth and the loose door between `build_counted` and `apply`,
@@ -1364,9 +1390,16 @@ const SOIL_VERBS: &[creature::options::Verb] = {
 };
 
 /// What a pellet earns at each stage of the soil trip: cut, put down, put
-/// down away from the hole. Each is worth more than the ones below it
-/// together, as the forage steps are ([`STEP_WEIGHTS`]).
-pub const SOIL_POINTS: [f64; 3] = [1.0, 2.0, 4.0];
+/// down away from the hole, and -- the most it can earn there -- carried
+/// up and out ([`SOIL_UP_ROWS`]). Each is worth more than the ones below
+/// it together, as the forage steps are ([`STEP_WEIGHTS`]).
+pub const SOIL_POINTS: [f64; 4] = [1.0, 2.0, 4.0, 8.0];
+
+/// **Rows of climb that earn S4 in full** (design section 4): a pellet
+/// carried up `r` rows earns `SOIL_POINTS[3] * min(1, r / SOIL_UP_ROWS)`,
+/// paid per row (review R8), so a pellet carried up one row is worth
+/// something and the eighth row as much as the first.
+pub const SOIL_UP_ROWS: i32 = 8;
 
 /// **Pellets an ant is paid for at a stage under the one being learned.**
 /// A farmer that cuts and drops at the face for the whole run earns the
@@ -1402,6 +1435,15 @@ pub struct SoilTrip {
     pub score: f64,
     pub cuts: usize,
     pub stages: [usize; 3],
+    /// Of `stages[2]`, pellets carried up at least a row from below the
+    /// original ground (S4), and the rows they climbed, each pellet's
+    /// capped at [`SOIL_UP_ROWS`]. Counted at every step, paid from step 4.
+    pub up: usize,
+    pub up_rows: usize,
+    /// **S1 cuts from below the original ground** (depth above 0): the
+    /// pellets that could earn S4, so `up / deep` is step 4's share (at
+    /// least 0.75, pooled; ladder lane, `dig-rung-design.md` step 4).
+    pub deep: usize,
     /// Pellets cut from the original ground and never put down: still in
     /// the jaws at the bell, or lost with their ant.
     pub held: usize,
@@ -1410,6 +1452,18 @@ pub struct SoilTrip {
     /// down and where none was (a fall).
     pub refill_pellet: usize,
     pub refill_fall: usize,
+    /// Founding-cut cells ground again after the settle, a pellet's or a
+    /// fall's: the nest filling, which step 4 gates (mean <= 0.5 a run;
+    /// ladder lane, `dig-rung-design.md` 4). 62 of round 5's 70 falls landed
+    /// there or in the cell cut under its floor.
+    pub chamber_fill: usize,
+    /// Of `refill_fall`, those within 2 cells of a pellet that left where it
+    /// was put down without being cut back up: a put-down that rolled in.
+    /// The rest were set off by a cut (round 5: every one of 83 grains,
+    /// `stage2/dig/README.md`, "What drops soil into the founding chamber").
+    /// Read from the end state, not traced frame by frame, so a pellet that
+    /// rolled somewhere else beside a fall is counted as its source.
+    pub fall_putdown: usize,
 }
 
 /// **Each pellet's trip, from the two logs** (`World::cut_log` and
@@ -1422,6 +1476,15 @@ pub struct SoilTrip {
 ///   again ("the tailings shuffler") earns nothing at any stage.
 /// * **S2 let go**: the pellet was put down (on ground: the put-down
 ///   checks that, `mind::put_down_pellet`).
+/// * **S4 up and out** (from step 4): a pellet that reached S3 earns
+///   `SOIL_POINTS[3]` per [`SOIL_UP_ROWS`] rows it climbed from its cut to
+///   its put-down, up to the full points. **Only climbing out of the
+///   ground pays**: the rows counted are at most the cut's `depth`, the
+///   rows under the lowest original surface within 3 columns of it (review
+///   R8), so a cut into a raised step's face is not a pit and a shallow
+///   pellet carried up a heap earns no more than its depth. Needs S3, as
+///   each forage step needs the one before: a pellet carried up from the
+///   deep and put down beside the hole is the shaft dumper's trip.
 /// * **S3 away**: at least [`SOIL_AWAY`] cells, Chebyshev, from every hole
 ///   cell. **The hole** ([`soil_hole`]) is every cell of the original
 ///   ground cut this run and every open cell at or below the original
@@ -1444,6 +1507,7 @@ pub fn soil_trip(
     step: u8,
     was_ground: impl Fn(i32, i32) -> bool,
     ground_now: impl Fn(i32, i32) -> bool,
+    depth: impl Fn(i32, i32) -> i32,
     founding: &[(i32, i32)],
     cuts: &[(i32, i32, u64, OrganismId)],
     dumps: &[(i32, i32, u64, OrganismId)],
@@ -1454,63 +1518,86 @@ pub fn soil_trip(
     // S1, in the order the cuts happened: a cell counts once.
     let mut cut_before = HashSet::new();
     let hole = soil_hole(&was_ground, founding, &cuts);
-    // One ant's acts by frame: a cut, with whether it earned S1, or a
-    // put-down (`None`), and where.
-    type Acts = Vec<(u64, Option<bool>, (i32, i32))>;
+    // One ant's acts by frame: a cut, with whether it earned S1 and how
+    // deep it was, or a put-down (`None`), and where.
+    type Acts = Vec<(u64, Option<(bool, i32)>, (i32, i32))>;
     let mut per_ant: BTreeMap<OrganismId, Acts> = BTreeMap::new();
     for &(x, y, f, id) in &cuts {
         let s1 = was_ground(x, y) && cut_before.insert((x, y));
-        per_ant.entry(id).or_default().push((f, Some(s1), (x, y)));
+        per_ant.entry(id).or_default().push((f, Some((s1, depth(x, y))), (x, y)));
     }
     for &(x, y, f, id) in dumps {
         per_ant.entry(id).or_default().push((f, None, (x, y)));
     }
     let away = |at: (i32, i32)| soil_away(&hole, at);
     let mut trip = SoilTrip { cuts: cuts.len(), dumped: dumps.len(), ..SoilTrip::default() };
-    let step = step.clamp(1, 3) as usize;
+    let step = step.clamp(1, 4) as usize;
     for events in per_ant.values_mut() {
         // A cut and a put-down never share an ant's frame: one act a
         // decision.
         events.sort_by_key(|e| (e.0, e.1.is_none()));
         let mut n = [0usize; 3];
-        let mut jaws: Option<bool> = None;
-        for &(_, s1, at) in events.iter() {
-            match s1 {
-                Some(s1) => {
-                    if jaws == Some(true) {
+        // Each S4 pellet's rows, in the order they were put down.
+        let mut ups: Vec<i32> = Vec::new();
+        // What the jaws hold: whether its cut earned S1, the cut's depth
+        // and row.
+        let mut jaws: Option<(bool, i32, i32)> = None;
+        for &(_, cut, at) in events.iter() {
+            match cut {
+                Some((s1, deep)) => {
+                    if jaws.is_some_and(|j| j.0) {
                         trip.held += 1;
                     }
-                    jaws = Some(s1);
+                    jaws = Some((s1, deep, at.1));
                     n[0] += usize::from(s1);
+                    trip.deep += usize::from(s1 && deep > 0);
                 }
                 None => {
-                    if jaws == Some(true) {
+                    if let Some((true, deep, cut_y)) = jaws {
                         n[1] += 1;
-                        n[2] += usize::from(away(at));
+                        if away(at) {
+                            n[2] += 1;
+                            let rows = (cut_y - at.1).min(deep).min(SOIL_UP_ROWS);
+                            if rows > 0 {
+                                ups.push(rows);
+                            }
+                        }
                     }
                     jaws = None;
                 }
             }
         }
-        trip.held += usize::from(jaws == Some(true));
+        trip.held += usize::from(jaws.is_some_and(|j| j.0));
+        let paid = |k: usize, n: usize| match (k + 1).cmp(&step) {
+            std::cmp::Ordering::Less => n.min(SOIL_CAP),
+            std::cmp::Ordering::Equal => n,
+            std::cmp::Ordering::Greater => 0,
+        };
         for k in 0..3 {
             trip.stages[k] += n[k];
-            let paid = match (k + 1).cmp(&step) {
-                std::cmp::Ordering::Less => n[k].min(SOIL_CAP),
-                std::cmp::Ordering::Equal => n[k],
-                std::cmp::Ordering::Greater => 0,
-            };
-            trip.score += SOIL_POINTS[k] * paid as f64;
+            trip.score += SOIL_POINTS[k] * paid(k, n[k]) as f64;
         }
+        trip.up += ups.len();
+        trip.up_rows += ups.iter().sum::<i32>() as usize;
+        let climbed = ups.iter().take(paid(3, ups.len())).sum::<i32>();
+        trip.score += SOIL_POINTS[3] * f64::from(climbed) / f64::from(SOIL_UP_ROWS);
     }
     let dumped: HashSet<(i32, i32)> = dumps.iter().map(|d| (d.0, d.1)).collect();
+    let chamber: HashSet<(i32, i32)> = founding.iter().copied().collect();
+    let rolled: Vec<(i32, i32)> = dumps
+        .iter()
+        .filter(|d| !ground_now(d.0, d.1) && !cuts.iter().any(|c| (c.0, c.1) == (d.0, d.1) && c.2 > d.2))
+        .map(|d| (d.0, d.1))
+        .collect();
     for &(x, y) in &hole {
         if ground_now(x, y) {
             if dumped.contains(&(x, y)) {
                 trip.refill_pellet += 1;
             } else {
                 trip.refill_fall += 1;
+                trip.fall_putdown += usize::from(rolled.iter().any(|r| (r.0 - x).abs().max((r.1 - y).abs()) <= 2));
             }
+            trip.chamber_fill += usize::from(chamber.contains(&(x, y)));
         }
     }
     if step >= 3 {
@@ -1564,12 +1651,23 @@ fn budget_to(def: &mut organism::CreatureDef, joules: f32) {
 }
 
 impl Soil {
-    /// The bed for one layout: [`DigBed`]'s depth and lamps, flat. A
-    /// mirrored pair would be the same flat bed twice, so each layout takes
-    /// its own dice instead (`k`'s parity into the seed).
+    /// The bed for one layout: [`DigBed`]'s depth and lamps, flat, to step
+    /// 3 -- a mirrored pair would be the same flat bed twice, so each layout
+    /// takes its own dice instead (`k`'s parity into the seed). **From step
+    /// 4 the whole bed**, its stone and its step on the side `k` picks, so
+    /// a pair differs by the side alone, as [`Dig`]'s do.
     fn bed(&self, layout: Layout) -> Scenario {
         let shape = DigBed::of(layout);
-        bed_shaped(layout.seed * 2 + (layout.k & 1), self.ants, "", shape.depth, shape.lamp)
+        if self.generated() {
+            bed_shaped(layout.seed, self.ants, &shape.placements(), shape.depth, shape.lamp)
+        } else {
+            bed_shaped(layout.seed * 2 + (layout.k & 1), self.ants, "", shape.depth, shape.lamp)
+        }
+    }
+
+    /// Whether the bed is [`DigBed`]'s whole draw, mirrored: from step 4.
+    fn generated(&self) -> bool {
+        self.step >= 4
     }
 
     /// **The world at frame 0**: the bed built, the shaft cut to `shaft`
@@ -1601,6 +1699,19 @@ impl Soil {
         w.minds.as_mut().expect("minds").dump_log = Some(Vec::new());
         (w, sc, sp, full)
     }
+}
+
+/// **Rows under the original ground at `(x, y)`**, for S4 (design section
+/// 4, review R8): under the lowest frozen datum ([`World::room_surface_at`],
+/// one per column from `x0`, in `datum`) within 3 columns either side. So a
+/// cut into a raised step's face, which stands over the ground beside it,
+/// is not a pit, and the founding shaft, cut after the datum froze, is no
+/// surface. 0 or less above the ground, and 0 with no datum near.
+fn depth_below_ground(datum: &[Option<i32>], x0: i32, x: i32, y: i32) -> i32 {
+    (x - 3..=x + 3)
+        .filter_map(|c| usize::try_from(c - x0).ok().and_then(|i| datum.get(i).copied().flatten()))
+        .max()
+        .map_or(0, |low| y - low)
 }
 
 /// **The hole at frame 0**: every open cell (empty, or an animal) at or
@@ -1635,7 +1746,7 @@ impl Challenge for Soil {
         self.frames
     }
     fn parts(&self) -> &'static [&'static str] {
-        &["score", "cuts", "s1", "s2", "s3", "held", "dumped", "refill_pellet", "refill_fall", "away_share", "alive", "energy_left", "dig_j", "holding", "spent"]
+        &["score", "cuts", "s1", "s2", "s3", "held", "dumped", "refill_pellet", "refill_fall", "away_share", "alive", "energy_left", "dig_j", "holding", "spent", "chamber_fill", "fall_putdown", "s4", "up_rows", "deep_cuts"]
     }
     fn banned(&self) -> &'static [O] {
         NOT_ANT_VERBS
@@ -1645,6 +1756,9 @@ impl Challenge for Soil {
     }
     fn verbs(&self) -> &'static [creature::options::Verb] {
         SOIL_VERBS
+    }
+    fn mirrored(&self) -> bool {
+        self.generated()
     }
     /// Cut cells cyan, pellets put down near the hole amber and away from
     /// it green, read from the run's own logs: where the trip went, not
@@ -1676,6 +1790,8 @@ impl Challenge for Soil {
             }
         }
         let founding = founding_cut(&w, &sc.bed);
+        let datum: Vec<Option<i32>> = xs.clone().map(|x| w.room_surface_at(x)).collect();
+        let deep = |x: i32, y: i32| depth_below_ground(&datum, x0, x, y);
         let dig_j0 = w.creature_stats.dig_energy;
         for f in 0..self.frames {
             frame(&mut w, true);
@@ -1703,7 +1819,7 @@ impl Challenge for Soil {
         look(self.frames + DIG_SETTLE, &w);
         let cuts = w.cut_log.clone().unwrap_or_default();
         let dumps = w.minds.as_ref().and_then(|m| m.dump_log.clone()).unwrap_or_default();
-        let trip = soil_trip(self.step, |x, y| at(x, y).is_some_and(|i| ground0[i]), |x, y| is_ground(&w, x, y), &founding, &cuts, &dumps);
+        let trip = soil_trip(self.step, |x, y| at(x, y).is_some_and(|i| ground0[i]), |x, y| is_ground(&w, x, y), deep, &founding, &cuts, &dumps);
         let away_share = if trip.stages[1] > 0 { trip.stages[2] as f64 / trip.stages[1] as f64 } else { 0.0 };
         vec![Score {
             fit: trip.score,
@@ -1723,6 +1839,11 @@ impl Challenge for Soil {
                 dig_j,
                 holding as f64,
                 spent as f64,
+                trip.chamber_fill as f64,
+                trip.fall_putdown as f64,
+                trip.up as f64,
+                trip.up_rows as f64,
+                trip.deep as f64,
             ],
         }]
     }
@@ -1737,6 +1858,14 @@ impl Challenge for Soil {
 /// draw a hash of the seed and the feature. The lens and the step lie on
 /// one side of the nest, and an odd `k` mirrors them across it, so a pair
 /// differs only by the side and is scored by its worse side.
+///
+/// **Not an exact mirror** (review of PR 722, N4): the shaft is the two
+/// columns `NEST_X` and `NEST_X + 1`, an east feature starts at `NEST_X + d`
+/// and its west twin ends at `NEST_X - d - 1`, so the east one sits two
+/// columns nearer the shaft. The worse-side fold leans slightly east for
+/// it. Dig's colony arena has drawn its beds this way since it took them;
+/// left as it is, since moving the west side would change every bed it
+/// has scored.
 ///
 /// **Every bed has at least one one-sided feature**: the step is forced on
 /// a bed that drew no lens. The probe's one bed with neither gave two
@@ -2017,6 +2146,22 @@ impl Suite {
         }
     }
 
+    /// **Where kept arena `i` counts as forgotten**, its folded score read
+    /// over `units` folded units: `forget` of its reference, or for an
+    /// arena that asks for it ([`Challenge::floor_in_se`]) the reference
+    /// less two standard errors of a mean over `units`, from the start's
+    /// calibration spread (R12). The share is the rule everywhere else for
+    /// the reason above: as standard errors it sat at 95% of trail's
+    /// reference and cut every forager whose trail dipped. The colony with
+    /// Dig is the other case, a noisy arena, where a share cuts on noise.
+    fn floor(&self, i: usize, units: usize) -> f64 {
+        if self.arenas[i].0.floor_in_se() {
+            self.refs[i] - 2.0 * self.sds[i] / (units.max(1) as f64).sqrt()
+        } else {
+            self.forget * self.refs[i]
+        }
+    }
+
     pub fn new(arenas: Vec<(Box<dyn Challenge>, bool)>, forget: f64) -> Self {
         assert!(forget > 0.0 && forget <= 1.0, "forget={forget}: a share of the reference, 0 to 1 (0.8 is the design's)");
         assert!(arenas.iter().all(|(a, _)| !a.scorer()), "a suite would put the target scorer in every arena's world");
@@ -2132,7 +2277,7 @@ impl Challenge for Suite {
         for (i, (a, keep)) in self.arenas.iter().enumerate() {
             let own: Vec<Score> = v.iter().map(|s| Score { fit: s.parts[n + i], parts: vec![] }).collect();
             let f = super::worse_side(a.mirrored(), &own, layouts).fit;
-            if *keep && f < self.forget * self.refs[i] {
+            if *keep && f < self.floor(i, super::sides(a.mirrored(), layouts).len()) {
                 forgot = true;
             }
             ratios.push(self.ratio(i, f));
@@ -2146,22 +2291,40 @@ impl Challenge for Suite {
         Score { fit, parts: ratios }
     }
 
-    /// Set every arena's reference to `g`'s folded score there (floored at
-    /// a small positive number, so an arena the start cannot do at all pays
-    /// for any progress rather than dividing by zero), and its spread over
-    /// the folded units, printed beside it.
-    fn calibrate(&mut self, g: &[f32], layouts: &[Layout], threads: usize) {
-        for (i, (a, _)) in self.arenas.iter().enumerate() {
-            let each = super::score_each(a.as_ref(), g, layouts, threads);
-            let units: Vec<f64> = super::sides(a.mirrored(), layouts)
-                .into_iter()
-                .map(|(x, y)| y.map_or(each[x].fit, |y| each[x].fit.min(each[y].fit)))
-                .collect();
+    /// Set every arena's reference to the start's folded score there
+    /// (floored at a small positive number, so an arena the start cannot do
+    /// at all pays for any progress rather than dividing by zero), and its
+    /// spread over the folded units, printed beside it. **A kept arena's
+    /// reference is the start as saved** (`saved`), before the rung's entry
+    /// (`mind::enter_rung`), so harm the entry does is never taken as the
+    /// baseline (R12); where the two differ, the entered start is scored on
+    /// each kept arena too and printed against its floor, a pre-flight.
+    fn calibrate(&mut self, g: &[f32], saved: &[f32], layouts: &[Layout], threads: usize) {
+        for i in 0..self.arenas.len() {
+            let (a, keep) = (&self.arenas[i].0, self.arenas[i].1);
+            let folded = |g: &[f32]| -> Vec<f64> {
+                let each = super::score_each(a.as_ref(), g, layouts, threads);
+                super::sides(a.mirrored(), layouts)
+                    .into_iter()
+                    .map(|(x, y)| y.map_or(each[x].fit, |y| each[x].fit.min(each[y].fit)))
+                    .collect()
+            };
+            let units = folded(if keep { saved } else { g });
             let m = units.len().max(1) as f64;
             let mean = units.iter().sum::<f64>() / m;
+            let name = a.name();
             self.refs[i] = mean.max(REF_FLOOR);
             self.sds[i] = (units.iter().map(|u| (u - mean).powi(2)).sum::<f64>() / (m - 1.0).max(1.0)).sqrt();
-            println!("suite reference {}: {:.3}, spread {:.3} over {} units", a.name(), self.refs[i], self.sds[i], units.len());
+            let whose = if keep && saved != g { " (the start as saved)" } else { "" };
+            println!("suite reference {name}: {:.3}{whose}, spread {:.3} over {} units", self.refs[i], self.sds[i], units.len());
+            if keep && saved != g {
+                let now = folded(g);
+                let f = now.iter().sum::<f64>() / now.len().max(1) as f64;
+                let floor = self.floor(i, now.len());
+                let under = if f < floor { " -- UNDER THE FLOOR: the entry itself costs this arena" } else { "" };
+                println!("suite pre-flight {name}: the entered start scores {f:.3} against {:.3}, floor {floor:.3}{under}", self.refs[i]);
+            }
+            let a = &self.arenas[i].0;
             if mean < REF_FLOOR && self.ratio(i, f64::MAX) <= RATIO_CAP {
                 println!(
                     "suite reference {}: the start cannot do it, so its reference is the floor {REF_FLOOR} and the arena stops paying at fit {:.2} (RATIO_CAP x the floor)",
@@ -2202,6 +2365,7 @@ mod tests {
             dist: SCARCE_DIST,
             steps: true,
             fed: false,
+            dig: false,
         };
         let trail = Trail { ants: 2, frames: 10, clones: true };
         let (trail_verbs, trail_emits) = (trail.verbs(), trail.mind_emits());
@@ -2228,7 +2392,7 @@ mod tests {
     /// timeline).
     #[test]
     fn the_scarce_drip_lands_on_the_timeline() {
-        let ch = Scarce { ants: 2, frames: 0, drip: 5, every: 1000, game_walk: true, brake: None, dist: SCARCE_DIST, steps: true, fed: false };
+        let ch = Scarce { ants: 2, frames: 0, drip: 5, every: 1000, game_walk: true, brake: None, dist: SCARCE_DIST, steps: true, fed: false, dig: false };
         let layout = Layout { seed: 1, k: 0, blind: false, legal: false };
         let (_, food_x, _) = ch.geometry(layout);
         let food_near = |w: &World| -> usize {
@@ -2337,11 +2501,13 @@ mod tests {
             dist: (30, 30),
             steps: true,
             fed: false,
+            dig: false,
         };
         let fetch = Scarce {
             ants: 1,
             dist: (12, 12),
             fed: true,
+            dig: false,
             ..colony
         };
         let forager = creature::mind::preset("forager", colony.verbs()).expect("forager");
@@ -2447,6 +2613,7 @@ mod tests {
             dist: (d, d),
             steps: true,
             fed: true,
+            dig: false,
         };
         let layout = Layout {
             seed: 50_000,
@@ -2535,6 +2702,7 @@ mod tests {
             dist: SCARCE_DIST,
             steps: true,
             fed: true,
+            dig: false,
         };
         let layouts: Vec<Layout> = (0..4u64)
             .map(|k| Layout {
@@ -3036,6 +3204,7 @@ mod tests {
     struct Sided {
         east: f64,
         west: f64,
+        se: bool,
     }
     impl Challenge for Sided {
         fn name(&self) -> &'static str {
@@ -3062,31 +3231,44 @@ mod tests {
         fn run(&self, l: Layout, _: &[&[f32]], _: &mut dyn FnMut(u64, &World)) -> Vec<Score> {
             vec![Score { fit: if l.k.is_multiple_of(2) { self.east } else { self.west }, parts: vec![] }]
         }
+        fn floor_in_se(&self) -> bool {
+            self.se
+        }
     }
 
     /// **A suite folds each arena on its own before the product**: one
     /// arena done only east and another only west is worse side 1 on both,
     /// not the `sqrt(4 x 1) = 2` the first suite read on each side; a
     /// runaway ratio counts up to `RATIO_CAP`, except on the one arena a
-    /// rung is learning; and a kept arena under `forget` of its reference
-    /// costs nine tenths.
+    /// rung is learning; a kept arena under `forget` of its reference
+    /// costs nine tenths; and one that asks for it (the colony with Dig,
+    /// R12) is floored two standard errors under its reference instead.
     #[test]
     fn a_suite_folds_each_arena_before_the_product() {
         let lay = [Layout { seed: 1, k: 0, blind: false, legal: false }, Layout { seed: 1, k: 1, blind: false, legal: false }];
         let g = vec![0.0f32; 1];
         let score = |s: &Suite| crate::train::score_clones(s, &g, &lay, 1).fit;
-        let split = Suite::new(vec![(Box::new(Sided { east: 4.0, west: 1.0 }), false), (Box::new(Sided { east: 1.0, west: 4.0 }), false)], 0.8);
+        let split = Suite::new(vec![(Box::new(Sided { east: 4.0, west: 1.0, se: false }), false), (Box::new(Sided { east: 1.0, west: 4.0, se: false }), false)], 0.8);
         assert!((score(&split) - 1.0).abs() < 1e-9, "one-sided arenas scored {}", score(&split));
-        let runaway = Suite::new(vec![(Box::new(Sided { east: 10.0, west: 10.0 }), false), (Box::new(Sided { east: 1.0, west: 1.0 }), false)], 0.8);
+        let runaway = Suite::new(vec![(Box::new(Sided { east: 10.0, west: 10.0, se: false }), false), (Box::new(Sided { east: 1.0, west: 1.0, se: false }), false)], 0.8);
         assert!((score(&runaway) - RATIO_CAP.sqrt()).abs() < 1e-9, "a ratio of 10 was not capped: {}", score(&runaway));
-        let rung = Suite::new(vec![(Box::new(Sided { east: 10.0, west: 10.0 }), false), (Box::new(Sided { east: 1.0, west: 1.0 }), true)], 0.8);
+        let rung = Suite::new(vec![(Box::new(Sided { east: 10.0, west: 10.0, se: false }), false), (Box::new(Sided { east: 1.0, west: 1.0, se: false }), true)], 0.8);
         assert!((score(&rung) - 10f64.sqrt()).abs() < 1e-9, "the one arena being learned is not capped: {}", score(&rung));
-        let mut kept = Suite::new(vec![(Box::new(Sided { east: 1.0, west: 1.0 }), true)], 0.8);
+        let mut kept = Suite::new(vec![(Box::new(Sided { east: 1.0, west: 1.0, se: false }), true)], 0.8);
         assert!((score(&kept) - 1.0).abs() < 1e-9);
         kept.refs[0] = 1.5;
         assert!((score(&kept) - 0.1 / 1.5).abs() < 1e-9, "a kept arena at two thirds of its reference was not forgotten: {}", score(&kept));
         kept.refs[0] = 1.2;
         assert!((score(&kept) - 1.0 / 1.2).abs() < 1e-9, "at 83% of its reference it is kept, not forgotten: {}", score(&kept));
+        // One folded unit: the floor is the reference less twice the spread.
+        // At spread 0.6 it is 0.3, so 1.0 is kept where the share (1.2)
+        // would forget it; at spread 0.2 it is 1.1 and 1.0 is forgotten.
+        let mut noisy = Suite::new(vec![(Box::new(Sided { east: 1.0, west: 1.0, se: true }), true)], 0.8);
+        noisy.refs[0] = 1.5;
+        noisy.sds[0] = 0.6;
+        assert!((score(&noisy) - 1.0 / 1.5).abs() < 1e-9, "within two standard errors, kept: {}", score(&noisy));
+        noisy.sds[0] = 0.2;
+        assert!((score(&noisy) - 0.1 / 1.5).abs() < 1e-9, "past two standard errors, forgotten: {}", score(&noisy));
     }
 
     /// The soil trip's ground for the guards below: every cell from row 10
@@ -3106,16 +3288,16 @@ mod tests {
         let cuts: Vec<_> = (0..20).map(|i| (50 + i, 5, 10 * i as u64, 7)).collect();
         let dumps: Vec<_> = (0..20).map(|i| (100 + i, 5, 10 * i as u64 + 5, 7)).collect();
         for step in 1..=3 {
-            let t = soil_trip(step, below_10, |_, _| false, &[], &cuts, &dumps);
+            let t = soil_trip(step, below_10, |_, _| false, |_, _| 0, &[], &cuts, &dumps);
             assert_eq!((t.score, t.stages), (0.0, [0, 0, 0]), "step {step}: {t:?}");
         }
         let honest: Vec<_> = cuts.iter().map(|&(x, _, f, id)| (x, 12, f, id)).collect();
-        let t = soil_trip(3, below_10, |_, _| false, &[], &honest, &dumps);
+        let t = soil_trip(3, below_10, |_, _| false, |_, _| 0, &[], &honest, &dumps);
         assert_eq!(t.stages, [20, 20, 20]);
         assert_eq!(t.score, 4.0 * 20.0 + 2.0 * SOIL_CAP as f64 + SOIL_CAP as f64);
         // A cell counts once: the same cell cut twice is one S1.
         let twice = [(60, 12, 0, 7), (60, 12, 20, 7)];
-        let t = soil_trip(1, below_10, |_, _| false, &[], &twice, &[(100, 5, 10, 7)]);
+        let t = soil_trip(1, below_10, |_, _| false, |_, _| 0, &[], &twice, &[(100, 5, 10, 7)]);
         assert_eq!((t.cuts, t.stages[0]), (2, 1));
     }
 
@@ -3127,7 +3309,7 @@ mod tests {
     fn the_cut_and_drop_farmer_hits_the_cap() {
         let cuts: Vec<_> = (0..40).map(|i| (60, 10 + i, 10 * i as u64, 7)).collect();
         let dumps: Vec<_> = (0..40).map(|i| (61, 10 + i, 10 * i as u64 + 5, 7)).collect();
-        let at = |step| soil_trip(step, below_10, |_, _| false, &[], &cuts, &dumps);
+        let at = |step| soil_trip(step, below_10, |_, _| false, |_, _| 0, &[], &cuts, &dumps);
         assert_eq!(at(1).stages, [40, 40, 0]);
         assert_eq!(at(1).score, 40.0);
         assert_eq!(at(2).score, SOIL_CAP as f64 + 2.0 * 40.0);
@@ -3138,7 +3320,7 @@ mod tests {
         more.push((60, 50, 1000, 7));
         let mut away = dumps.clone();
         away.push((80, 5, 1005, 7));
-        assert_eq!(soil_trip(3, below_10, |_, _| false, &[], &more, &away).score, farmer + SOIL_POINTS[2]);
+        assert_eq!(soil_trip(3, below_10, |_, _| false, |_, _| 0, &[], &more, &away).score, farmer + SOIL_POINTS[2]);
     }
 
     /// **Down the shaft is not away, and costs its refill** (review R9): the
@@ -3153,13 +3335,35 @@ mod tests {
         let cuts: Vec<_> = (0..8).map(|i| (60 + i % 2, 14 + i / 2, 10 * i as u64, 7)).collect();
         let dumps: Vec<_> = (0..8).map(|i| (60 + i % 2, 10, 10 * i as u64 + 5, 7)).collect();
         let top_filled = |x: i32, y: i32| (x == 60 || x == 61) && y == 10;
-        let t = soil_trip(3, below_10, top_filled, &founding, &cuts, &dumps);
+        let t = soil_trip(3, below_10, top_filled, |_, _| 0, &founding, &cuts, &dumps);
         assert_eq!(t.stages, [8, 8, 0]);
         assert_eq!((t.refill_pellet, t.refill_fall), (2, 0));
         assert_eq!(t.score, 8.0 + 2.0 * 8.0 - 2.0 * SOIL_REFILL);
-        assert_eq!(soil_trip(3, below_10, top_filled, &[], &cuts, &dumps).stages, [8, 8, 8]);
+        assert_eq!(soil_trip(3, below_10, top_filled, |_, _| 0, &[], &cuts, &dumps).stages, [8, 8, 8]);
         // Refill is step 3's: at step 2 putting the pellet down anywhere is the lesson.
-        assert_eq!(soil_trip(2, below_10, top_filled, &founding, &cuts, &dumps).score, 8.0 + 2.0 * 8.0);
+        assert_eq!(soil_trip(2, below_10, top_filled, |_, _| 0, &founding, &cuts, &dumps).score, 8.0 + 2.0 * 8.0);
+    }
+
+    /// **The nest filling, and what set each fall off** (step 4's prints,
+    /// [`SoilTrip::chamber_fill`] and [`SoilTrip::fall_putdown`]): a
+    /// founding-cut cell ground again counts in the fill and a cut cell
+    /// outside it does not; a fall is a put-down's when a pellet left its
+    /// site within 2 cells of it, and not when the ant cut that pellet back
+    /// up.
+    #[test]
+    fn the_chamber_fill_and_each_falls_source_are_counted() {
+        let founding: Vec<_> = (10..14).flat_map(|y| [(60, y), (61, y)]).collect();
+        let cuts = [(60, 14, 0, 7)];
+        let filled = |x: i32, y: i32| (x, y) == (60, 11) || (x, y) == (60, 14);
+        let t = soil_trip(3, below_10, filled, |_, _| 0, &founding, &cuts, &[]);
+        assert_eq!((t.refill_fall, t.chamber_fill, t.fall_putdown), (2, 1, 0));
+        // A pellet put down at the mouth and gone by the end rolled in.
+        let rolled = [(61, 9, 5, 7)];
+        let t = soil_trip(3, below_10, filled, |_, _| 0, &founding, &cuts, &rolled);
+        assert_eq!((t.refill_fall, t.chamber_fill, t.fall_putdown), (2, 1, 1));
+        // ...unless the ant cut it back up.
+        let recut = [(60, 14, 0, 7), (61, 9, 9, 7)];
+        assert_eq!(soil_trip(3, below_10, filled, |_, _| 0, &founding, &recut, &rolled).fall_putdown, 0);
     }
 
     /// **A pellet is paired with its own ant's next put-down**, and one cut
@@ -3171,8 +3375,120 @@ mod tests {
         // down; ant 8's put-down is its own.
         let cuts = [(60, 12, 0, 7), (70, 12, 5, 8), (61, 12, 20, 7)];
         let dumps = [(90, 5, 10, 8), (100, 5, 30, 7)];
-        let t = soil_trip(3, below_10, |_, _| false, &[], &cuts, &dumps);
+        let t = soil_trip(3, below_10, |_, _| false, |_, _| 0, &[], &cuts, &dumps);
         assert_eq!((t.stages, t.held), ([3, 2, 2], 1));
+    }
+
+    /// **Up and out pays per row climbed, out of the ground only** (step 4's
+    /// S4; design section 4, review R8). The ground's surface is row 10: a
+    /// pellet cut 8 rows down and put down away, 9 rows up, earns S4 in
+    /// full (its depth caps the climb); one cut 3 rows down and carried 9
+    /// rows up onto a heap earns 3 rows; one cut at the surface earns none;
+    /// a deep one put down beside its own cut is not away and earns none.
+    /// Counted at step 3, paid from step 4.
+    #[test]
+    fn up_and_out_pays_per_row_climbed_out_of_the_ground() {
+        let depth = |_x: i32, y: i32| y - 10;
+        let cuts = [(60, 18, 0, 7), (70, 13, 0, 8), (80, 10, 0, 9), (90, 18, 0, 10)];
+        let dumps = [(120, 9, 5, 7), (130, 4, 5, 8), (140, 9, 5, 9), (91, 17, 5, 10)];
+        let t = soil_trip(4, below_10, |_, _| false, depth, &[], &cuts, &dumps);
+        assert_eq!((t.stages, t.up, t.up_rows), ([4, 4, 3], 2, 8 + 3));
+        // Three of the four cuts were below the surface: the share's base.
+        assert_eq!(t.deep, 3);
+        let below = 4.0 * SOIL_POINTS[0] + 4.0 * SOIL_POINTS[1] + 3.0 * SOIL_POINTS[2];
+        assert_eq!(t.score, below + SOIL_POINTS[3] * 11.0 / f64::from(SOIL_UP_ROWS));
+        let t3 = soil_trip(3, below_10, |_, _| false, depth, &[], &cuts, &dumps);
+        assert_eq!((t3.up, t3.up_rows, t3.score), (2, 11, below));
+        // A full climb outweighs every stage under it together.
+        assert!(SOIL_POINTS[3] > SOIL_POINTS[..3].iter().sum::<f64>());
+        // Under step 4 the stages below are capped: 12 deep pellets, each
+        // carried 8 rows up and away, pay S1-S3 for 10 and S4 for all 12.
+        let cuts: Vec<_> = (0..12).map(|i| (60 + i, 18, 10 * i as u64, 7)).collect();
+        let dumps: Vec<_> = (0..12).map(|i| (100 + 4 * i, 9, 10 * i as u64 + 5, 7)).collect();
+        let t = soil_trip(4, below_10, |_, _| false, depth, &[], &cuts, &dumps);
+        assert_eq!((t.stages, t.up, t.deep), ([12, 12, 12], 12, 12));
+        let capped = SOIL_CAP as f64 * SOIL_POINTS[..3].iter().sum::<f64>();
+        assert_eq!(t.score, capped + 12.0 * SOIL_POINTS[3]);
+    }
+
+    /// **From step 4 the soil bed is the generator's, mirrored** (design
+    /// section 3), and depth is read from the ground the step raised: on a
+    /// layout whose [`DigBed`] drew a raised step, step 4's bed has it on
+    /// `k`'s side and step 3's is flat there; the shaft is the one asked
+    /// for on both sides; a cell under the flat ground beside the shaft is
+    /// as deep as its rows, a cell in the step's face (above the ground 3
+    /// columns off) is not below the ground, and a cell well inside the
+    /// step is measured from the step's top.
+    #[test]
+    fn step_four_beds_are_the_generators_and_mirror() {
+        let g = creature::mind::blank(SOIL_VERBS);
+        let lay = |seed: u64, k: u64| Layout { seed, k, blind: false, legal: false };
+        let seed = (0..64).find(|&s| DigBed::of(lay(s, 0)).step.is_some_and(|(x, _)| (x - NEST_X).abs() >= 12)).expect("a bed with a step");
+        for k in [0, 1] {
+            let world = |step: u8| {
+                let soil = Soil { ants: 1, frames: 1, step, shaft: 8, budget: None };
+                assert_eq!(soil.mirrored(), step >= 4);
+                soil.world(lay(seed, k), &g)
+            };
+            let bed = DigBed::of(lay(seed, k));
+            let (at, up) = bed.step.expect("the step");
+            let (w, sc, _, _) = world(4);
+            let inside = at + bed.side * 6;
+            assert_eq!(census::surface_of(&w, &sc.bed, inside), GROUND_Y - up, "k={k}: the raised step");
+            let rows = founding_cut(&w, &sc.bed).iter().map(|&(x, y)| y - census::surface_of(&w, &sc.bed, x) + 1).max();
+            assert_eq!(rows, Some(8 + 2), "k={k}: an 8-row shaft and its chamber");
+            let (xs, _) = census::extents(&w, &sc.bed);
+            let datum: Vec<Option<i32>> = xs.clone().map(|x| w.room_surface_at(x)).collect();
+            let deep = |x, y| depth_below_ground(&datum, *xs.start(), x, y);
+            assert_eq!(deep(NEST_X - bed.side * 5, GROUND_Y + 5), 5, "k={k}: beside the shaft");
+            assert!(deep(at + bed.side, GROUND_Y - 1) <= 0, "k={k}: the step's face is no pit");
+            assert_eq!(deep(inside, GROUND_Y - up + 2), 2, "k={k}: under the step's top");
+            let (w3, sc3, _, _) = world(3);
+            assert_eq!(census::surface_of(&w3, &sc3.bed, inside), GROUND_Y, "k={k}: step 3's bed is flat");
+        }
+    }
+
+    /// **No stone in the founding cut** (ladder lane, `dig-rung-design.md`
+    /// step 4's guard): on 64 generated beds, both sides, step 4's deepest
+    /// shaft is cut to its full 12 rows below the ground at the shaft and
+    /// its 2-row chamber is as wide as on the flat bed, so a short shaft
+    /// never reads as the ant's failure to climb. Measured at the shaft's
+    /// own column: the chamber can run under a raised step's foot (seed 20
+    /// has its step 6 columns out), where the ground is 6 rows higher and
+    /// the same cut reads 20 rows deep. The positive control: a 20-row
+    /// shaft meets a stone lens on 6 of the same beds (seeds 4 and 43 both
+    /// sides among them) and its chamber narrows there, so the count can
+    /// see one. Measured margin: 14 rows clean on all 128, the first bed
+    /// bites at 16 (seed 23), and from 24 rows a bed can found no ant.
+    #[test]
+    fn a_twelve_row_shaft_is_cut_in_full_on_every_generated_bed() {
+        let g = creature::mind::blank(SOIL_VERBS);
+        let lay = |seed: u64, k: u64| Layout { seed, k, blind: false, legal: false };
+        // (deepest row below the ground at the shaft, cells in the chamber's two rows)
+        let cut = |soil: &Soil, l: Layout| -> (i32, usize) {
+            let (w, sc, _, _) = soil.world(l, &g);
+            let cells = founding_cut(&w, &sc.bed);
+            let bottom = cells.iter().map(|c| c.1).max().unwrap_or(0);
+            let top = w.room_surface_at(NEST_X).expect("a datum at the shaft");
+            (bottom - top + 1, cells.iter().filter(|c| c.1 >= bottom - 1).count())
+        };
+        let short = |shaft: i32| -> Vec<(u64, u64, (i32, usize))> {
+            let soil = Soil { ants: 1, frames: 1, step: 4, shaft, budget: None };
+            let flat = cut(&Soil { step: 3, ..soil }, lay(0, 0));
+            assert_eq!(flat.0, shaft + 2, "the flat bed's shaft");
+            let mut out = vec![];
+            for seed in 0..64 {
+                for k in [0, 1] {
+                    let got = cut(&soil, lay(seed, k));
+                    if got != flat {
+                        out.push((seed, k, got));
+                    }
+                }
+            }
+            out
+        };
+        assert_eq!(short(12), vec![], "a 12-row shaft cut short, or its chamber narrowed");
+        assert!(!short(20).is_empty(), "the control: a 20-row shaft must meet stone somewhere");
     }
 
     /// **The soil arena cuts the shaft it asks for** (review R4): the
@@ -3270,7 +3586,7 @@ mod tests {
         // Ant 1 cuts (0,5) and puts it 3 off; ant 2 cuts (0,6) and puts it 2 off.
         let cuts = [(0, 5, 1, 1), (0, 6, 3, 2)];
         let dumps = [(3, 2, 2, 1), (2, 3, 4, 2)];
-        let t = soil_trip(3, ground, |_, _| false, &[], &cuts, &dumps);
+        let t = soil_trip(3, ground, |_, _| false, |_, _| 0, &[], &cuts, &dumps);
         assert_eq!(t.stages, [2, 2, 1]);
     }
 }

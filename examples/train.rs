@@ -68,12 +68,13 @@
 //! `challenge=fetch` is the same bed with one ant that cannot starve and
 //! no births, scored on those steps alone, 6,000 frames unless set
 //! (`Scarce::fed`).
-//! `challenge=soil` is stage 2's dig rung, steps 1-3: one mind ant beside a
+//! `challenge=soil` is stage 2's dig rung, steps 1-4: one mind ant beside a
 //! two-row shaft (`shaft=`) on a flat bed, on a budget of energy
 //! (`budget=<J>`, or `fed`), each pellet scored by how far along the soil
-//! trip it got -- cut, put down, put down away from the hole -- with
-//! `step=1|2|3` the stage being learned (`challenges::Soil`), 6,000 frames
-//! unless set.
+//! trip it got -- cut, put down, put down away from the hole, carried up
+//! out of the ground -- with `step=1|2|3|4` the stage being learned
+//! (`challenges::Soil`), 6,000 frames unless set. Step 4 runs on the dig
+//! generator's mirrored beds, at `shaft=4`, then 8, then 12.
 //! Every argument is echoed; an unknown one stops the run.
 
 use pixel_physics::sim::creature;
@@ -154,6 +155,20 @@ fn arena(name: &str, a: &Arena) -> Box<dyn Challenge> {
             dist,
             steps,
             fed: false,
+            dig: false,
+        }),
+        // The dig rung's kept colony from step 4 (R12): heads only.
+        "scarce-dig" => Box::new(Scarce {
+            ants: ants.unwrap_or(12),
+            frames: frames.unwrap_or(12_000),
+            drip: 5,
+            every: 1000,
+            game_walk,
+            brake,
+            dist,
+            steps: false,
+            fed: false,
+            dig: true,
         }),
         // The scarce bed with one fed ant: the way home alone.
         "fetch" => Box::new(Scarce {
@@ -166,6 +181,7 @@ fn arena(name: &str, a: &Arena) -> Box<dyn Challenge> {
             dist,
             steps: true,
             fed: true,
+            dig: false,
         }),
         // The dig rung's soil trip, steps 1-3 (`challenges::Soil`).
         "soil" => Box::new(Soil {
@@ -175,7 +191,7 @@ fn arena(name: &str, a: &Arena) -> Box<dyn Challenge> {
             shaft,
             budget,
         }),
-        _ => panic!("challenge={name}: forage|forage-far|trail|dig|scarce|fetch|soil|suite"),
+        _ => panic!("challenge={name}: forage|forage-far|trail|dig|scarce|scarce-dig|fetch|soil|suite"),
     }
 }
 
@@ -320,7 +336,7 @@ fn main() {
                 steps = v == "on";
             }
             "step" => {
-                step = v.parse().ok().filter(|s| (1..=3).contains(s)).unwrap_or_else(|| panic!("step={v}: the soil trip's stage being learned, 1-3"));
+                step = v.parse().ok().filter(|s| (1..=4).contains(s)).unwrap_or_else(|| panic!("step={v}: the soil trip's stage being learned, 1-4"));
             }
             "shaft" => {
                 shaft = v.parse().ok().filter(|&r: &i32| r >= 0).unwrap_or_else(|| panic!("shaft={v}: rows of founding shaft, 0 or more"));
@@ -505,7 +521,16 @@ fn main() {
     // suite's score is relative to its `start=`. Uncalibrated, every ratio
     // was the raw fit pinned at the cap, so both printed 3.000 (review of
     // PR 712, N1). A single arena's calibration does nothing.
-    ch.calibrate(&g0, &train::calibration_layouts(set.holdout), set.threads);
+    // A kept arena is measured on the start as saved, before the rung's
+    // entry (R12): `start_mind_saved`, reopened as `g0` was.
+    let saved = if mind {
+        let mut g = train::start_mind_saved(ch.as_ref(), &start);
+        creature::mind::reopen(&mut g, ch.verbs());
+        g
+    } else {
+        g0.clone()
+    };
+    ch.calibrate(&g0, &saved, &train::calibration_layouts(set.holdout), set.threads);
     // A genome named by `score=` (or `pic=`'s and `noise=`'s): today's
     // brain as `ant.ron` ships it for `game`, else a file -- or, under
     // `brain=mind`, a mind preset or file.
