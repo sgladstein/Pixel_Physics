@@ -1,0 +1,4 @@
+challenge=trail unit=Colony ants=6 frames=6000 Settings { gens: 2, pop: 20, layouts: 2, pm: 0.03, sigma: 1.0, cross: 0.3, holdout: 2, every: 1, seed: 1, threads: 4, pictures: true, prune: 0.3, wire: 0.001, grow: 1.0 } banned=[Impulse, Fly, Attack, Provision, Lay, EmitA, EmitB] trainable_slots=2228
+2 generations in 13 s
+hold-out champion -0.00, start -0.02, blinded -0.00
+verbs [walk,turn_around,rest] sharp 1.00 pull 0.00 | live: scorer ctx 38 feat 39 verb 13 out 0, job 18, memory 27, emit 0 (of 2310)

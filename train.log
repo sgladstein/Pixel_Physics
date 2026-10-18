@@ -1,0 +1,20 @@
+mutation off: births inherit exactly (measuring default is off; PIXEL_PHYSICS_MUTATION=on|off)
+train brain=mind challenge=trail arenas= keep= forget=0.8 start=blank walk=brain clones=true frames=None ants=None score=None noise=false targets= free= brake=Some(FoodBrake { lo: 1.0, hi: 1.5, small: 6.0, brood: true }) pic=None trace=None sealed=false heap=300 genes= walkset= prune=0.3 wire=0.001 grow=1 seed=1 pop=20 gens=2 layouts=2 pm=0.03 sigma=1 cross=0.3 holdout=2 threads=4
+challenge=trail unit=Colony ants=6 frames=6000 Settings { gens: 2, pop: 20, layouts: 2, pm: 0.03, sigma: 1.0, cross: 0.3, holdout: 2, every: 1, seed: 1, threads: 4, pictures: true, prune: 0.3, wire: 0.001, grow: 1.0 } banned=[Impulse, Fly, Attack, Provision, Lay, EmitA, EmitB] trainable_slots=2228
+gen   best  median  control  [along reach end walked right]  secs
+  0   -0.00   -0.01   -0.01  [-0.00 0.05 -0.00 411.67 0.00]  8  links 57
+    HOLDOUT champion   -0.02  [-0.02 0.03 -0.05 431.33 0.00]
+    HOLDOUT start      -0.02  [-0.02 0.06 -0.06 492.67 0.00]
+    HOLDOUT blinded    -0.02  [-0.02 0.06 -0.06 492.67 0.00]
+    verbs [walk,turn_around,rest] sharp 1.00 pull 0.00 | live: scorer ctx 16 feat 15 verb 1 out 2, job 7, memory 16, emit 0 (of 2310)
+  1    0.00   -0.00   -0.02  [0.00 0.07 0.01 467.83 0.33]  3  links 135
+    HOLDOUT champion   -0.00  [-0.00 0.10 0.03 486.33 0.17]
+    HOLDOUT start      -0.02  [-0.02 0.06 -0.06 492.67 0.00]
+    HOLDOUT blinded    -0.00  [-0.00 0.10 0.03 486.33 0.17]
+    verbs [walk,turn_around,rest] sharp 1.00 pull 0.00 | live: scorer ctx 38 feat 39 verb 13 out 0, job 18, memory 27, emit 0 (of 2310)
+challenge=trail unit=Colony ants=6 frames=6000 Settings { gens: 2, pop: 20, layouts: 2, pm: 0.03, sigma: 1.0, cross: 0.3, holdout: 2, every: 1, seed: 1, threads: 4, pictures: true, prune: 0.3, wire: 0.001, grow: 1.0 } banned=[Impulse, Fly, Attack, Provision, Lay, EmitA, EmitB] trainable_slots=2228
+2 generations in 13 s
+hold-out champion -0.00, start -0.02, blinded -0.00
+verbs [walk,turn_around,rest] sharp 1.00 pull 0.00 | live: scorer ctx 38 feat 39 verb 13 out 0, job 18, memory 27, emit 0 (of 2310)
+
+run files in /home/runner/work/_temp/out
