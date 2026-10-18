@@ -59,6 +59,11 @@
 //! and, with `plain`, leaves brood out of the burn. `dist=<lo>,<hi>` (or
 //! `dist=<n>`) sets how many columns out the food lands, 80 unless set:
 //! nearer food is the forage rung's stepping stone (`Scarce::dist`).
+//! `steps=off` scores the scarce colony on its heads alone, without the
+//! step points for each part of the way home (`challenges::forage_steps`).
+//! `challenge=fetch` is the same bed with one ant that cannot starve and
+//! no births, scored on those steps alone, 6,000 frames unless set
+//! (`Scarce::fed`).
 //! Every argument is echoed; an unknown one stops the run.
 
 use pixel_physics::sim::creature;
@@ -78,6 +83,7 @@ struct Arena {
     free: creature::targets::Free,
     brake: Option<creature::FoodBrake>,
     dist: (i32, i32),
+    steps: bool,
 }
 
 fn arena(name: &str, a: &Arena) -> Box<dyn Challenge> {
@@ -91,6 +97,7 @@ fn arena(name: &str, a: &Arena) -> Box<dyn Challenge> {
         free,
         brake,
         dist,
+        steps,
     } = *a;
     match name {
         "forage" | "forage-far" => Box::new(Forage {
@@ -129,8 +136,22 @@ fn arena(name: &str, a: &Arena) -> Box<dyn Challenge> {
             game_walk,
             brake,
             dist,
+            steps,
+            fed: false,
         }),
-        _ => panic!("challenge={name}: forage|forage-far|trail|dig|scarce|suite"),
+        // The scarce bed with one fed ant: the way home alone.
+        "fetch" => Box::new(Scarce {
+            ants: ants.unwrap_or(1),
+            frames: frames.unwrap_or(6000),
+            drip: 5,
+            every: 1000,
+            game_walk,
+            brake,
+            dist,
+            steps: true,
+            fed: true,
+        }),
+        _ => panic!("challenge={name}: forage|forage-far|trail|dig|scarce|fetch|suite"),
     }
 }
 
@@ -190,6 +211,7 @@ fn main() {
     let mut mind = false;
     let mut brake = Some(creature::FoodBrake::FORAGE);
     let mut dist = challenges::SCARCE_DIST;
+    let mut steps = true;
     for a in std::env::args().skip(1) {
         let (k, v) = a.split_once('=').unwrap_or((a.as_str(), "1"));
         match k {
@@ -248,6 +270,10 @@ fn main() {
                     "dist={v}: want 8 <= lo <= hi <= 110"
                 );
             }
+            "steps" => {
+                assert!(v == "on" || v == "off", "steps={v}: on|off");
+                steps = v == "on";
+            }
             "brain" => {
                 assert!(v == "mind" || v == "today", "brain={v}: mind|today");
                 mind = v == "mind";
@@ -259,7 +285,7 @@ fn main() {
     // without it once left two "game" rows in one file with nothing to say
     // which walk made which (`design/review-rev2.md` N10).
     println!(
-        "train brain={} challenge={challenge} arenas={arenas} keep={keep} forget={forget} start={start} walk={} clones={clones} frames={frames:?} ants={ants:?} score={score:?} noise={noise} targets={targets} free={free} brake={brake:?} dist={dist:?} pic={pic:?} trace={trace:?} sealed={sealed} heap={heap} genes={genes} walkset={walkset} prune={} wire={} grow={} seed={} pop={} gens={} layouts={} pm={} sigma={} cross={} holdout={} threads={}",
+        "train brain={} challenge={challenge} arenas={arenas} keep={keep} forget={forget} start={start} walk={} clones={clones} frames={frames:?} ants={ants:?} score={score:?} noise={noise} targets={targets} free={free} brake={brake:?} dist={dist:?} steps={steps} pic={pic:?} trace={trace:?} sealed={sealed} heap={heap} genes={genes} walkset={walkset} prune={} wire={} grow={} seed={} pop={} gens={} layouts={} pm={} sigma={} cross={} holdout={} threads={}",
         if mind { "mind" } else { "today" },
         if game_walk { "game" } else { "brain" },
         set.prune,
@@ -293,6 +319,7 @@ fn main() {
         free: creature::targets::Free::parse(&free),
         brake,
         dist,
+        steps,
     };
     let mut ch: Box<dyn Challenge> = if challenge == "suite" {
         let list: Vec<(Box<dyn Challenge>, bool)> = arenas
@@ -388,7 +415,14 @@ fn main() {
         s => s.as_deref(),
     };
     let g0 = if mind {
-        train::start_mind(ch.as_ref(), &start)
+        let mut g = train::start_mind(ch.as_ref(), &start);
+        // A training start only: a champion scored by `score=` runs as it
+        // was trained.
+        let did = creature::mind::reopen(&mut g, ch.verbs());
+        if !did.is_empty() {
+            println!("{start} reopens, quietly: {}", did.join(", "));
+        }
+        g
     } else {
         set_walk(train::start_genome(
             &st,

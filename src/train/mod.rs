@@ -879,7 +879,11 @@ pub fn mutate(g: &[f32], slots: &[usize], pm: f32, sigma: f32, prune: f32, grow:
                 c[i] = (c[i] + WALK_SIGMA * rng.step()).clamp(lo, 1.0);
             }
         } else if rng.unit() < pm {
-            if prune > 0.0 && c[i] != 0.0 && rng.unit() < prune {
+            // A mind's settings are not connections: trimmed, a verb's
+            // switch goes to 0, which is off. The lean trail champion's
+            // resting switch reads exactly 0, which only this writes
+            // (`mind::FIRST_LINK`). They mutate as any slot does.
+            if prune > 0.0 && c[i] != 0.0 && rng.unit() < prune && (!is_mind(g.len()) || i >= mind::FIRST_LINK) {
                 c[i] = 0.0;
             } else if grow < 1.0 && c[i] == 0.0 && rng.unit() >= grow {
                 // A connection not made: the slot stays empty.
@@ -1616,6 +1620,32 @@ mod tests {
             c
         };
         assert_eq!(mutate(&g, &slots, 0.3, 1.0, 0.0, 1.0, &mut Rng(4)), before(&g, &mut Rng(4)));
+    }
+
+    /// **The trim never switches a mind's verb off** (`mind::FIRST_LINK`):
+    /// at prune 1 every live connection goes to 0 and every switch, rate and
+    /// bound only moves. Put the fault back (prune any live slot) and every
+    /// switch reads 0, which is off.
+    #[test]
+    fn the_trim_never_switches_a_minds_verb_off() {
+        use crate::sim::creature::options::Verb;
+        let verbs = [Verb::Walk, Verb::TurnAround, Verb::Rest];
+        let mut g = mind::blank(&verbs);
+        let slots = mind::trainable(&verbs, [false, true, false]);
+        for &i in slots.iter().filter(|&&i| i >= mind::FIRST_LINK).step_by(3) {
+            g[i] = 3.0;
+        }
+        let c = mutate(&g, &slots, 1.0, 0.0, 1.0, 1.0, &mut Rng(4));
+        for &i in &slots {
+            if i >= mind::FIRST_LINK {
+                assert_eq!(c[i], 0.0, "live connection {i} was not trimmed");
+            } else {
+                assert_eq!(c[i], g[i], "setting {i} was trimmed");
+            }
+        }
+        for v in verbs {
+            assert_eq!(c[v as usize], 1.0, "{} switched off", v.name());
+        }
     }
 
     /// **A start file keeps its walk genes, and a run that did not ask for

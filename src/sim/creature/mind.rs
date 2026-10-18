@@ -145,6 +145,11 @@ const PULL: usize = SHARP + 1;
 const RATE: usize = PULL + 1;
 /// The scorer's per-decision part: context, memory and a bias into each unit.
 const S_CTX: usize = RATE + MEMORY;
+/// **The first slot that is a connection**: everything before it (the verb
+/// switches, the sharpness, the pull and the memory rates) is a setting,
+/// costs nothing and is never counted ([`MindGenome::live`]), so trimming
+/// connections must not touch it (`train::mutate`).
+pub const FIRST_LINK: usize = S_CTX;
 const S_IN: usize = CONTEXT + MEMORY + 1;
 /// The scorer's per-option part: the option's features into each unit...
 const S_FEAT: usize = S_CTX + UNITS * S_IN;
@@ -246,6 +251,40 @@ pub fn apply_bans(g: &mut [f32], verbs: &[Verb], emits: [bool; EMITS]) {
             g[EMIT + e * E_IN..EMIT + (e + 1) * E_IN].fill(0.0);
         }
     }
+}
+
+/// **How quiet a reopened verb comes back** ([`reopen`]): its job's
+/// constant, so it is drawn about one decision in a hundred until mutation
+/// wires it. A forage champion with turning round switched back on at its
+/// own job constant (0) turned on a fifth of its decisions and its colony
+/// fell from 2.0 to 0.8 on four hold-outs; at -10 it turned on 1.3% and
+/// read 1.5 (`brain-training/stage2/forage-big/quiet`).
+pub const QUIET: f32 = -10.0;
+
+/// **Verbs an earlier rung switched off, back on, quietly**, for a
+/// training run's start (not for scoring a champion, which must run as it
+/// was trained): each verb `verbs` offers whose switch evolved to 0 or
+/// below -- not the exact -1 a ban holds, which [`enter_rung`] owns -- comes
+/// on with its job's constant at [`QUIET`] or lower. **Why**: the trail rung
+/// switched turning round off, since it never paid there, and every forage
+/// champion inherited it: an ant that cannot turn cannot carry food home.
+/// A child whose switch mutates back on turns at random and scores worse,
+/// so selection never kept one in 16 generations of 100 brains (owner,
+/// 2026-10-18; the connection trim had also been zeroing switches,
+/// `train::mutate`). Quiet, the verb costs little until it is wired to
+/// something. Returns what it reopened, for the run's log.
+pub fn reopen(g: &mut [f32], verbs: &[Verb]) -> Vec<&'static str> {
+    let mut did = vec![];
+    for &v in verbs {
+        let s = SWITCH + v as usize;
+        if v.acts() && g[s] <= 0.0 && g[s] != -1.0 {
+            g[s] = 1.0;
+            let k = JOB + v as usize * J_IN + CONTEXT + MEMORY + 1;
+            g[k] = g[k].min(QUIET);
+            did.push(v.name());
+        }
+    }
+    did
 }
 
 /// **A rung's entry into a genome an earlier rung trained**: each verb
@@ -1666,6 +1705,37 @@ mod tests {
         assert!(enter_rung(&mut g, &forage, [true, true, false]).is_empty());
         let mut h = blank(&trail);
         assert_eq!(enter_rung(&mut h, &trail, [false, false, false]), Vec::<&str>::new());
+    }
+
+    /// **A training start reopens what an earlier rung switched off,
+    /// quietly** ([`reopen`]): an evolved-off switch and a trimmed one come
+    /// on with the job's constant at [`QUIET`], a lower constant stays, a
+    /// banned verb and one the rung does not offer are left alone, and a
+    /// second call has nothing to do.
+    #[test]
+    fn a_training_start_reopens_switched_off_verbs_quietly() {
+        let forage = [
+            Verb::Walk,
+            Verb::TurnAround,
+            Verb::Rest,
+            Verb::Eat,
+            Verb::Drop,
+            Verb::Feed,
+        ];
+        let mut g = blank(&forage);
+        let k = |v: Verb| JOB + v as usize * J_IN + CONTEXT + MEMORY + 1;
+        g[SWITCH + Verb::TurnAround as usize] = -0.4; // evolved off
+        g[SWITCH + Verb::Rest as usize] = 0.0; // trimmed
+        g[k(Verb::Rest)] = -20.0;
+        g[SWITCH + Verb::Drop as usize] = -1.0; // banned: enter_rung's
+        g[SWITCH + Verb::Dig as usize] = -0.3; // not offered here
+        assert_eq!(reopen(&mut g, &forage), vec!["turn_around", "rest"]);
+        assert_eq!(g[SWITCH + Verb::TurnAround as usize], 1.0);
+        assert_eq!(g[k(Verb::TurnAround)], QUIET);
+        assert_eq!((g[SWITCH + Verb::Rest as usize], g[k(Verb::Rest)]), (1.0, -20.0));
+        assert_eq!(g[SWITCH + Verb::Drop as usize], -1.0);
+        assert_eq!(g[SWITCH + Verb::Dig as usize], -0.3);
+        assert!(reopen(&mut g, &forage).is_empty());
     }
 
     #[test]

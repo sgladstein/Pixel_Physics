@@ -18737,6 +18737,17 @@ fn nest_within_reach(world: &World, organism: OrganismId, x: i32, y: i32, def: &
     state.chain.iter().skip(1).any(|&(cx, cy)| adjacent_nest(world, cx, cy, def))
 }
 
+/// **Whether an animal stands where a put-down would be a delivery**
+/// ([`nest_within_reach`] at its head, its species' own def), for a harness
+/// that scores the way home without the game's own rules: the training
+/// rig's forage steps (`train::challenges::forage_steps`).
+pub fn at_nest(world: &World, organism: OrganismId) -> bool {
+    let Some(st) = world.organism(organism) else { return false };
+    let Some(&(x, y)) = st.chain.first() else { return false };
+    let Some(def) = world.species.get(st.species).creature.as_ref() else { return false };
+    nest_within_reach(world, organism, x, y, def)
+}
+
 /// **Whether "at the nest" reaches from the whole body** —
 /// `PIXEL_PHYSICS_NEST_REACH=body`. Unset keeps the head-only read and is
 /// bit-identical. See [`nest_within_reach`].
