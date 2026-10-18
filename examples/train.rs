@@ -68,10 +68,16 @@
 //! `challenge=fetch` is the same bed with one ant that cannot starve and
 //! no births, scored on those steps alone, 6,000 frames unless set
 //! (`Scarce::fed`).
+//! `challenge=soil` is stage 2's dig rung, steps 1-3: one mind ant beside a
+//! two-row shaft (`shaft=`) on a flat bed, on a budget of energy
+//! (`budget=<J>`, or `fed`), each pellet scored by how far along the soil
+//! trip it got -- cut, put down, put down away from the hole -- with
+//! `step=1|2|3` the stage being learned (`challenges::Soil`), 6,000 frames
+//! unless set.
 //! Every argument is echoed; an unknown one stops the run.
 
 use pixel_physics::sim::creature;
-use pixel_physics::train::challenges::{self, Dig, Forage, Scarce, Suite, Trail};
+use pixel_physics::train::challenges::{self, Dig, Forage, Scarce, Soil, Suite, Trail};
 use pixel_physics::train::{self, Challenge, Settings, Start};
 use std::path::PathBuf;
 use std::time::Instant;
@@ -88,6 +94,9 @@ struct Arena {
     brake: Option<creature::FoodBrake>,
     dist: (i32, i32),
     steps: bool,
+    step: u8,
+    shaft: i32,
+    budget: Option<f32>,
 }
 
 fn arena(name: &str, a: &Arena) -> Box<dyn Challenge> {
@@ -102,6 +111,9 @@ fn arena(name: &str, a: &Arena) -> Box<dyn Challenge> {
         brake,
         dist,
         steps,
+        step,
+        shaft,
+        budget,
     } = *a;
     match name {
         "forage" | "forage-far" => Box::new(Forage {
@@ -155,7 +167,15 @@ fn arena(name: &str, a: &Arena) -> Box<dyn Challenge> {
             steps: true,
             fed: true,
         }),
-        _ => panic!("challenge={name}: forage|forage-far|trail|dig|scarce|fetch|suite"),
+        // The dig rung's soil trip, steps 1-3 (`challenges::Soil`).
+        "soil" => Box::new(Soil {
+            ants: ants.unwrap_or(1),
+            frames: frames.unwrap_or(6000),
+            step,
+            shaft,
+            budget,
+        }),
+        _ => panic!("challenge={name}: forage|forage-far|trail|dig|scarce|fetch|soil|suite"),
     }
 }
 
@@ -228,6 +248,9 @@ fn main() {
     let mut brake = Some(creature::FoodBrake::FORAGE);
     let mut dist = challenges::SCARCE_DIST;
     let mut steps = true;
+    let mut step = 1;
+    let mut shaft = 2;
+    let mut budget = Some(challenges::SOIL_BUDGET);
     for a in std::env::args().skip(1) {
         let (k, v) = a.split_once('=').unwrap_or((a.as_str(), "1"));
         match k {
@@ -296,6 +319,12 @@ fn main() {
                 assert!(v == "on" || v == "off", "steps={v}: on|off");
                 steps = v == "on";
             }
+            "step" => {
+                step = v.parse().unwrap();
+                assert!((1..=3).contains(&step), "step={v}: the soil trip's stage being learned, 1-3");
+            }
+            "shaft" => shaft = v.parse().unwrap(),
+            "budget" => budget = if v == "fed" { None } else { Some(v.parse().unwrap()) },
             "brain" => {
                 assert!(v == "mind" || v == "today", "brain={v}: mind|today");
                 mind = v == "mind";
@@ -307,7 +336,7 @@ fn main() {
     // without it once left two "game" rows in one file with nothing to say
     // which walk made which (`design/review-rev2.md` N10).
     println!(
-        "train brain={} challenge={challenge} arenas={arenas} keep={keep} forget={forget} start={start} walk={} clones={clones} frames={frames:?} ants={ants:?} score={score:?} noise={noise} targets={targets} free={free} brake={brake:?} dist={dist:?} steps={steps} pic={pic:?} trace={trace:?} sealed={sealed} heap={heap} genes={genes} walkset={walkset} prune={} wire={} grow={} patience={} seed={} pop={} gens={} layouts={} pm={} sigma={} cross={} holdout={} threads={}",
+        "train brain={} challenge={challenge} arenas={arenas} keep={keep} forget={forget} start={start} walk={} clones={clones} frames={frames:?} ants={ants:?} score={score:?} noise={noise} targets={targets} free={free} brake={brake:?} dist={dist:?} steps={steps} step={step} shaft={shaft} budget={budget:?} pic={pic:?} trace={trace:?} sealed={sealed} heap={heap} genes={genes} walkset={walkset} prune={} wire={} grow={} patience={} seed={} pop={} gens={} layouts={} pm={} sigma={} cross={} holdout={} threads={}",
         if mind { "mind" } else { "today" },
         if game_walk { "game" } else { "brain" },
         set.prune,
@@ -343,6 +372,9 @@ fn main() {
         brake,
         dist,
         steps,
+        step,
+        shaft,
+        budget,
     };
     let mut ch: Box<dyn Challenge> = if challenge == "suite" {
         let list: Vec<(Box<dyn Challenge>, bool)> = arenas
