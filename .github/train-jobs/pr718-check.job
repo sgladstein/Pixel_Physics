@@ -1,0 +1,2 @@
+# Check of the PR 718 review fixes (token split, publisher step, exit code). 2 gens, quick.
+brain=mind challenge=trail clones=1 start=blank gens=2 pop=24 layouts=2 sigma=1.0 holdout=12 every=1 seed=1 threads=4
