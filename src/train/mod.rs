@@ -630,6 +630,43 @@ pub struct Settings {
     /// rung that starts from a champion that already moves is not exposed
     /// to this.
     pub grow: f32,
+    /// **Stop a run once its hold-out has gone flat** ([`flat`]): after
+    /// this many generations with no new hold-out best, and never before
+    /// [`STOP_MIN`] or before the flat stretch is as long as the climb to
+    /// the best. 0 runs every generation; 30 unless `patience=` sets it.
+    pub patience: usize,
+}
+
+/// No run stops before this many generations, however flat ([`flat`]).
+pub const STOP_MIN: usize = 40;
+
+/// A hold-out best counts only above the last one by this share of it
+/// ([`flat`]).
+pub const STOP_GAIN: f64 = 0.02;
+
+/// **Whether a run has gone flat**: `patience` generations since the last
+/// hold-out best (`best_gen`, a best being [`STOP_GAIN`] above the last),
+/// at least [`STOP_MIN`] run, and the flat stretch as long as the climb, so
+/// a best at generation 25 runs to 50 at least (owner, 2026-10-18: "make
+/// sure we have a smart measure ... take into account variability").
+///
+/// **Why these numbers.** Curves here are staircases, not power laws: a
+/// climb in the first 5-20 generations, then long flats with a step now
+/// and then. Over the 23 past runs that went 40 generations
+/// (`brain-training/stage2`), today's brain on trail sat flat for 29
+/// generations and then gained 4%, two mind forage runs 19-20 and then
+/// 3-5%, and a forage seed started at 0.17 and reached 5.3 by generation
+/// 22. A plain 20-generation stop would have ended 9 of the 23, one before
+/// its last 4% step; this one stops none of them before they ended. Steps
+/// under 2% are inside a champion's own spread there (0-20% between
+/// successive champions on a flat stretch).
+pub fn flat(gen: usize, best_gen: usize, patience: usize) -> bool {
+    patience > 0 && gen + 1 >= STOP_MIN && gen - best_gen >= patience && gen >= 2 * best_gen
+}
+
+/// Whether `fit` is a new hold-out best over `best` ([`STOP_GAIN`]).
+pub fn new_best(fit: f64, best: f64) -> bool {
+    !best.is_finite() || fit > best + STOP_GAIN * best.abs()
 }
 
 impl Default for Settings {
@@ -649,6 +686,7 @@ impl Default for Settings {
             prune: 0.3,
             wire: 1e-3,
             grow: 1.0,
+            patience: 30,
         }
     }
 }
@@ -1103,6 +1141,9 @@ pub fn train(ch: &dyn Challenge, start: Vec<f32>, set: &Settings, out: &Path) ->
     let t0 = Instant::now();
     let mut champion = start.clone();
     let mut last_hold = String::new();
+    // The hold-out best so far and its generation, for [`flat`].
+    let (mut best_hold, mut best_gen) = (f64::NEG_INFINITY, 0);
+    let mut ran = set.gens;
     println!("gen   best  median  control  [{}]  secs", parts.join(" "));
     for gen in 0..set.gens {
         let tg = Instant::now();
@@ -1136,15 +1177,24 @@ pub fn train(ch: &dyn Challenge, start: Vec<f32>, set: &Settings, out: &Path) ->
                 println!("    HOLDOUT {who:8} {:7.2}  [{}]", s.fit, p.join(" "));
                 if who == "champion" {
                     last_hold = format!("hold-out champion {:.2}", s.fit);
+                    if new_best(s.fit, best_hold) {
+                        (best_hold, best_gen) = (s.fit, gen);
+                    }
                 } else {
                     last_hold.push_str(&format!(", {who} {:.2}", s.fit));
                 }
             }
             println!("    {}", describe(&champion));
-            if set.pictures && ((gen + 1) % PICTURE_EVERY == 0 || gen + 1 == set.gens) {
+            let stop = flat(gen, best_gen, set.patience);
+            if set.pictures && ((gen + 1) % PICTURE_EVERY == 0 || gen + 1 == set.gens || stop) {
                 picture(ch, &champion, hold[0], &out.join(format!("pic-gen-{gen:03}.png")));
             }
             curves(out);
+            if stop {
+                println!("STOPPED flat: no hold-out best {STOP_GAIN} above the last since generation {best_gen} ({best_hold:.3}), {} generations, patience {}", gen + 1, set.patience);
+                ran = gen + 1;
+                break;
+            }
         }
 
         let parents: Vec<Vec<f32>> = ranked[..elites].iter().map(|&(_, g)| popn[g].clone()).collect();
@@ -1162,7 +1212,7 @@ pub fn train(ch: &dyn Challenge, start: Vec<f32>, set: &Settings, out: &Path) ->
     }
     save_genome(&out.join("best.txt"), &champion)?;
     let summary = format!(
-        "{head}\n{} generations in {:.0} s\n{last_hold}\n{}\n",
+        "{head}\n{ran} of {} generations in {:.0} s (hold-out best {best_hold:.3} at generation {best_gen})\n{last_hold}\n{}\n",
         set.gens,
         t0.elapsed().as_secs_f64(),
         describe(&champion)
@@ -1319,6 +1369,38 @@ fn trace_one(ch: &dyn Challenge, g: &[f32], layout: Layout, every: u64) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// **A run stops flat only well past its last real gain** ([`flat`]):
+    /// never before [`STOP_MIN`], never while the flat stretch is shorter
+    /// than the climb, never under 2% gains, and `patience=0` never. The
+    /// staircase is today's brain on trail, seed 2 (`stage2/trail-lean`):
+    /// flat 29 generations, then 4% up at generation 38.
+    #[test]
+    fn a_run_stops_flat_only_well_past_its_last_gain() {
+        let stops = |curve: &[f64], patience: usize| {
+            let (mut best, mut at) = (f64::NEG_INFINITY, 0);
+            curve.iter().enumerate().find_map(|(g, &f)| {
+                if new_best(f, best) {
+                    (best, at) = (f, g);
+                }
+                flat(g, at, patience).then_some(g)
+            })
+        };
+        let mut stair: Vec<f64> = (0..60).map(|g| if g < 9 { 0.1 * g as f64 } else { 0.836 }).collect();
+        stair[38..].iter_mut().for_each(|f| *f = 0.873);
+        assert_eq!(stops(&stair, 30), None, "flat from 38 to 59 is 21 generations: still running");
+        let mut long = stair.clone();
+        long.resize(100, 0.873);
+        assert_eq!(stops(&long, 30), Some(76), "a best at 38 runs to 76 (twice the climb)");
+        let early: Vec<f64> = (0..100).map(|g| if g < 3 { g as f64 } else { 2.0 }).collect();
+        assert_eq!(stops(&early, 30), Some(39), "never before generation 40");
+        let creep: Vec<f64> = (0..100).map(|g| 1.0 + 0.0002 * g as f64).collect();
+        assert_eq!(stops(&creep, 30), Some(39), "steps under 2% are not gains");
+        let slow: Vec<f64> = (0..100).map(|g| 1.0 + 0.001 * g as f64).collect();
+        assert_eq!(stops(&slow, 30), None, "2% every 21 generations is still climbing");
+        assert_eq!(stops(&long, 0), None, "patience 0 runs every generation");
+        assert!(new_best(-0.01, -0.019) && !new_best(1.01, 1.0) && new_best(0.0, f64::NEG_INFINITY));
+    }
 
     /// A per-ant arena whose every score depends on the neighbours, so a
     /// filler's score (from another arena) differs from the genome's own.

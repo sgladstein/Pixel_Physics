@@ -633,6 +633,26 @@ pub struct Minds {
     ants: HashMap<OrganismId, Mind>,
     pruned_at: u64,
     pub counts: MindCounts,
+    /// **Build the game ant's ways out even in a world of minds**
+    /// ([`every_ant_has_one`]): the control for the skip, off unless a
+    /// paired check sets it.
+    pub build_ways: bool,
+}
+
+/// **Whether every adult creature in the world decides by a mind**, so the
+/// game ant's hand rules have no reader left in it. A world with no minds
+/// (the game) reads false; so does one with a single creature that walks by
+/// the game's rules, today's brain included.
+pub fn every_ant_has_one(world: &World) -> bool {
+    let Some(m) = world.minds.as_ref().filter(|m| !m.is_empty() && !m.build_ways) else {
+        return false;
+    };
+    world.live_organism_ids().into_iter().all(|id| {
+        m.ants.contains_key(&id)
+            || world
+                .organism(id)
+                .is_none_or(|s| world.species.get(s.species).creature.is_none())
+    })
 }
 
 impl Minds {
@@ -692,7 +712,18 @@ fn prune(world: &mut World) {
     if !world.minds.as_ref().is_some_and(|m| frame >= m.pruned_at + PRUNE_EVERY) {
         return;
     }
-    let live: std::collections::HashSet<OrganismId> = world.live_organism_ids().into_iter().collect();
+    // **Brood keeps its mind too.** An egg inherits its layer's mind at
+    // laying (`creature::try_bud`) and hands it on at hatching
+    // (`brood::hatch`), but the list of the living is adults only, so this
+    // let every egg's mind go at the next prune and the ant it hatched into
+    // decided by the game's own rules: in a scarce colony of foragers, a
+    // hatchling with no mind 2,069 frames in, found because the ways skip
+    // ([`every_ant_has_one`]) stopped firing (2026-10-18).
+    let live: std::collections::HashSet<OrganismId> = world
+        .live_organism_ids()
+        .into_iter()
+        .chain(world.live_brood_ids())
+        .collect();
     if let Some(m) = world.minds.as_mut() {
         m.ants.retain(|id, _| live.contains(id));
         m.pruned_at = frame;

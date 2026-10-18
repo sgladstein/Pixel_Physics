@@ -34,7 +34,10 @@
 //! connection a genome holds (`Settings::wire`, 1e-3 unless set); `grow=` is
 //! the chance a mutation on an empty slot makes a connection
 //! (`Settings::grow`, 1 unless set). `prune=0 wire=0` is the rig before the
-//! cost, draw for draw.
+//! cost, draw for draw. `patience=` stops a run once its hold-out has had
+//! no new best for that many generations (`train::flat`: never before 40,
+//! nor before the flat stretch is as long as the climb), 30 unless set;
+//! `patience=0` runs every generation.
 //! `challenge=forage-far` puts the heap 120-200 columns out on a wider bed,
 //! 12,000 frames unless set: the near distances never show a scout's
 //! reserve as a leash, so `arenas=forage,forage-far` is how a reserve is
@@ -257,6 +260,7 @@ fn main() {
             "prune" => set.prune = v.parse().unwrap(),
             "wire" => set.wire = v.parse().unwrap(),
             "grow" => set.grow = v.parse().unwrap(),
+            "patience" => set.patience = v.parse().unwrap(),
             "heap" => heap = v.parse().unwrap(),
             "brake" => brake = parse_brake(v),
             "dist" => {
@@ -286,12 +290,13 @@ fn main() {
     // without it once left two "game" rows in one file with nothing to say
     // which walk made which (`design/review-rev2.md` N10).
     println!(
-        "train brain={} challenge={challenge} arenas={arenas} keep={keep} forget={forget} start={start} walk={} clones={clones} frames={frames:?} ants={ants:?} score={score:?} noise={noise} targets={targets} free={free} brake={brake:?} dist={dist:?} steps={steps} pic={pic:?} trace={trace:?} sealed={sealed} heap={heap} genes={genes} walkset={walkset} prune={} wire={} grow={} seed={} pop={} gens={} layouts={} pm={} sigma={} cross={} holdout={} threads={}",
+        "train brain={} challenge={challenge} arenas={arenas} keep={keep} forget={forget} start={start} walk={} clones={clones} frames={frames:?} ants={ants:?} score={score:?} noise={noise} targets={targets} free={free} brake={brake:?} dist={dist:?} steps={steps} pic={pic:?} trace={trace:?} sealed={sealed} heap={heap} genes={genes} walkset={walkset} prune={} wire={} grow={} patience={} seed={} pop={} gens={} layouts={} pm={} sigma={} cross={} holdout={} threads={}",
         if mind { "mind" } else { "today" },
         if game_walk { "game" } else { "brain" },
         set.prune,
         set.wire,
         set.grow,
+        set.patience,
         set.seed,
         set.pop,
         set.gens,

@@ -1898,6 +1898,81 @@ mod tests {
         );
     }
 
+    /// **A world of minds builds no way out, and plays exactly as if it
+    /// had** (`creature::mind::every_ant_has_one`), run with the mound's and
+    /// the open air's ways skipped and again built (`Minds::build_ways`):
+    /// every ant ends on the same cells and every count is the same. Two
+    /// beds, so both the drop sites and the hatchlings are read: a scarce
+    /// colony of hand-built foragers that breeds, and one fed forager at 12
+    /// columns that puts food down at the nest. The skip fired on every
+    /// refresh, hatchlings included: only the built runs have a way out.
+    #[test]
+    fn a_world_of_minds_skips_the_ways_out_and_plays_the_same() {
+        let colony = Scarce {
+            ants: 12,
+            frames: 6000,
+            drip: 5,
+            every: 1000,
+            game_walk: false,
+            brake: None,
+            dist: (30, 30),
+            steps: true,
+            fed: false,
+        };
+        let fetch = Scarce {
+            ants: 1,
+            dist: (12, 12),
+            fed: true,
+            ..colony
+        };
+        let forager = creature::mind::preset("forager", colony.verbs()).expect("forager");
+        let play = |ch: &Scarce, k: u64, build: bool| {
+            let layout = Layout {
+                seed: 50_000 + k / 2,
+                k,
+                blind: false,
+                legal: false,
+            };
+            let sc = ch.bed(layout);
+            let (mut w, _, _) = sc.build();
+            w.food_brake = ch.brake;
+            let sp = clone_minds(&mut w, &forager, layout, ch.verbs(), ch.mind_emits());
+            if ch.fed {
+                let mut def = w.species.get(sp).creature.clone().expect("creature");
+                never_starve(&mut def);
+                w.species.set_creature(sp, def);
+                for id in ants_of(&w, sp) {
+                    w.organism_mut(id).expect("ant").energy = 1.0e9;
+                }
+                w.births_paused = true;
+            }
+            w.minds.as_mut().expect("minds").build_ways = build;
+            let mut ways = 0;
+            for _ in 0..ch.frames {
+                frame_timed(&mut w, &sc, true);
+                ways = ways.max(w.mound_ways.len() + w.mound_in_ways.len() + w.out_ways.len());
+            }
+            let ants: Vec<_> = ants_of(&w, sp)
+                .iter()
+                .map(|&id| w.organism(id).map(|s| s.chain.clone()))
+                .collect();
+            let st = w.creature_stats;
+            (format!("{ants:?} {st:?}"), ways, (st.deliveries, st.births))
+        };
+        let (skipped, none, (_, born)) = play(&colony, 0, false);
+        let (built, some, _) = play(&colony, 0, true);
+        assert!(born > 0, "the colony bred");
+        assert_eq!((none, some > 0), (0, true), "the colony's skip fired on every refresh");
+        assert_eq!(skipped, built, "the colony");
+        let k = (0..12)
+            .find(|&k| play(&fetch, k, false).2.0 > 0)
+            .expect("the forager puts food down at the nest");
+        let (skipped, none, _) = play(&fetch, k, false);
+        let (built, some, _) = play(&fetch, k, true);
+        assert_eq!((none, some > 0), (0, true), "the fetch skip fired on layout {k}");
+        assert_eq!(skipped, built, "fetch, layout {k}");
+    }
+
     /// **A cell shuffled across the nest's edge pays nothing, and one
     /// carried home from the heap pays once** (`Trip`, review of PR 717,
     /// B1). The mind's swallow marks any food taken off the nest as from a

@@ -13331,6 +13331,17 @@ pub fn step_nest_rest(world: &mut World) {
     }
     world.nest_ways = (0..world.nest_sites.len()).filter_map(|i| build_nest_way(world, i)).collect();
     keep_store_place(world);
+    // **A world of minds builds no way out** ([`mind::every_ant_has_one`]):
+    // the mound's ways and the open air's serve the game ant's hand rules
+    // alone, and building them was a third of a scarce training arena's time
+    // (mound 15%, open air 18%; ladder lane's profile, 2026-10-18). Skipped,
+    // every mind score came out identical to the digit and the fetch arena
+    // ran 1.65x faster; today's brain, which walks by them, moved (lived 0.29
+    // against 0.28), so a world with one such ant in it builds them still.
+    // The way in (`nest_ways`) is built for everyone.
+    let minds_only = mind::every_ant_has_one(world);
+    let mound = mound && !minds_only;
+    let escape = escape && !minds_only;
     // The mound's ways ([`MoundOut`]), only while it is on: off, nothing
     // reads them and nothing is built.
     world.mound_ways = if mound {
@@ -13339,7 +13350,7 @@ pub fn step_nest_rest(world: &mut World) {
         Vec::new()
     };
     // The mound's ways in, for carriers ([`mound_in_of`]), likewise.
-    world.mound_in_ways = if mound_in_of(world) {
+    world.mound_in_ways = if mound_in_of(world) && !minds_only {
         (0..world.nest_sites.len()).filter_map(|i| build_mound_in_way(world, i)).collect()
     } else {
         Vec::new()
