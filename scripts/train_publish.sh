@@ -8,6 +8,9 @@
 # Actions provides. Usage: scripts/train_publish.sh <out dir> <name>
 set -euo pipefail
 out=$1 name=$2
+# absolute, taken before the cd below ($0 may be a relative path)
+here=$(cd "$(dirname "$0")" && pwd)
+remote=${TRAIN_PUBLISH_REMOTE:-https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git}
 [ -d "$out" ] || { echo "no out dir $out, nothing to publish"; exit 0; }
 branch="train-results/$name"
 work=$(mktemp -d)
@@ -24,9 +27,8 @@ find . -maxdepth 1 -name 'pic-gen-*.png' | sort | head -n -2 | xargs -r rm -f
 # 2026-10-17: curves for every generation from gen 0). Redrawn here with the
 # job name as title (the trainer's title is the folder name, "out"). Best
 # effort: needs `pip install cairosvg`, which the workflow does.
-here=$(cd "$(dirname "$0")" && pwd)
 python3 "$here/traincurves.py" . --out curves.svg --title "$name" >/dev/null 2>&1 || true
 python3 -c "import cairosvg; cairosvg.svg2png(url='curves.svg', write_to='curves.png', scale=1.5)" 2>/dev/null || true
 git add -A && git commit -q -m "train snapshot $name $(date -u +%FT%TZ)"
-git push -q -f "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "$branch"
+git push -q -f "$remote" "$branch"
 echo "published $branch"
