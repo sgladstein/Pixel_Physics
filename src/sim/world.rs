@@ -5141,15 +5141,6 @@ pub struct World {
     /// that lands on damp ground and sprouts immediately is the old
     /// behaviour and is not evidence of anything.
     pub seeds_germinated_after_waiting: u32,
-    /// Swaps made by `PIXEL_PHYSICS_SEED_SETTLE`'s settle half (`plant::seed_settle_mode`): a waiting seed
-    /// trading places with the seed or litter under it. The did-it-fire count for that switch; 0 with it off.
-    pub seeds_settled: u64,
-    /// Columns lifted by the same switch's heave half (`plant::heave_loose_column`): a shoot tip lifting the seed
-    /// or litter lying on it. 0 with it off.
-    pub seeds_heaved: u64,
-    /// Seeds rotted by `PIXEL_PHYSICS_SEED_HEAP_ROT` (`plant::seed_heap_rot_enabled`): a waiting seed lying on
-    /// another seed losing its shortened viability race. 0 with it off.
-    pub seeds_heap_rotted: u64,
 
     /// **Every germination, deferred or not** — the total count of `Seed`
     /// cells that became a growing shoot.
@@ -7343,9 +7334,6 @@ impl World {
             trait_reach: creature::TRAIT_REACH_DEFAULT,
             plasticity: creature::PLASTICITY_DEFAULT,
             seeds_germinated_after_waiting: 0,
-            seeds_settled: 0,
-            seeds_heaved: 0,
-            seeds_heap_rotted: 0,
             germinations: 0,
             fate_mutation_rolls: 0,
             fate_mutations_fired: 0,
