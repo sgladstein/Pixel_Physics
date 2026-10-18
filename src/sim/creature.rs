@@ -22796,17 +22796,9 @@ fn pack_neighbours_with(world: &mut World, x: i32, y: i32, keep_spoil: bool) -> 
     for (dx, dy) in NEIGHBOURS_8 {
         let (nx, ny) = (x + dx, y + dy);
         let cell = world.get(nx, ny);
-        let Some(packed) = world.materials.get(cell.material).packs_into else {
+        let Some(packed) = packed_form(world, cell, (nx, ny), keep_spoil) else {
             continue;
         };
-        // Placed ground stays placed ground: see [`spoil_packs`].
-        if keep_spoil && world.materials.get(cell.material).needs_footing {
-            continue;
-        }
-        // The doorway is not wall: see [`door_loose_of`].
-        if door_loose_of(world) && in_a_passage(world, (nx, ny)) {
-            continue;
-        }
         // Everything but the material rides across: the held water
         // (`aux`), the palette index, the attached flag, the temperature.
         // Writing a fresh `Cell` here would read as *dry* ground on a
@@ -22818,6 +22810,83 @@ fn pack_neighbours_with(world: &mut World, x: i32, y: i32, keep_spoil: bool) -> 
         packed_here += 1;
     }
     packed_here
+}
+
+/// **What `cell` at `(x, y)` becomes when a cut beside it is lined**: its
+/// packed form, or `None` where [`pack_neighbours_with`] leaves it be. Split
+/// out so [`cut_drops_roof`] lines the world one cut ahead by the same rule.
+fn packed_form(world: &World, cell: Cell, (x, y): (i32, i32), keep_spoil: bool) -> Option<material::MaterialId> {
+    let packed = world.materials.get(cell.material).packs_into?;
+    // Placed ground stays placed ground: see [`spoil_packs`].
+    if keep_spoil && world.materials.get(cell.material).needs_footing {
+        return None;
+    }
+    // The doorway is not wall: see [`door_loose_of`].
+    if door_loose_of(world) && in_a_passage(world, (x, y)) {
+        return None;
+    }
+    Some(packed)
+}
+
+/// **Whether cutting `t` drops a roof cell** -- a mind's `f::ROOF_DROP`
+/// (PR 2; ladder lane, `dig-rung-design.md` 9). The world one cut ahead is
+/// built as [`cut_cell`] leaves it: `t` open, its neighbours lined by
+/// [`packed_form`]. Then a neighbour of `t` drops when it gives way there by
+/// `update.rs`'s own rule ([`crate::sim::update::worked_cell_gives_way`],
+/// the footing rule and the crumb rule with its "nothing beneath" gate) and
+/// stood before the cut -- a cell already failing was not this cut's doing.
+///
+/// **Why it exists**: step 3's trained diggers dropped about 0.9 cells a
+/// world into the founding chamber, 65 of 66 rim falls from one cut, the
+/// surface cell beside the door's shoulder. The shoulder has air on two
+/// sides and sits at exactly the crumb rule's three contacts, so one cut
+/// next to it drops it. The score charged -4 a fall and they kept doing it,
+/// because nothing they sensed told that cell from any other rim cell
+/// (`brain-training/stage2/dig/README.md`, what drops soil into the
+/// founding chamber).
+///
+/// **An animal is not a roof's support**: both worlds read every creature
+/// cell as open. `update.rs` counts a body as a contact, so a roof an ant is
+/// leaning on stands until it steps away, and the cut that undermined it is
+/// still the cause; the rule's own footing test already refuses a body as
+/// footing (`under.organism_id() != 0`).
+///
+/// **Cost**: on Dig options only, a cell read per neighbour and per side of
+/// the cut, and the contact ring only for a neighbour with air beneath.
+pub(crate) fn cut_drops_roof(world: &World, t: (i32, i32)) -> bool {
+    let bare = |x: i32, y: i32| {
+        let c = world.get(x, y);
+        if world.materials.kind(c.material) == MaterialKind::Creature {
+            Cell::EMPTY
+        } else {
+            c
+        }
+    };
+    let (lined, keep_spoil) = (lining_enabled(), !spoil_packs());
+    let after = |x: i32, y: i32| {
+        if (x, y) == t {
+            return Cell::EMPTY;
+        }
+        let mut c = bare(x, y);
+        if lined && (x - t.0).abs() <= 1 && (y - t.1).abs() <= 1 {
+            if let Some(p) = packed_form(world, c, (x, y), keep_spoil) {
+                c.material = p;
+            }
+        }
+        c
+    };
+    let gives = |get: &dyn Fn(i32, i32) -> Cell, (x, y): (i32, i32)| {
+        let c = get(x, y);
+        let m = world.materials.get(c.material);
+        m.kind == MaterialKind::Powder
+            && m.self_supporting
+            && m.slumps_into.is_some()
+            && crate::sim::update::worked_cell_gives_way(get, &world.materials, m.needs_footing, x, y)
+    };
+    NEIGHBOURS_8.iter().any(|&(dx, dy)| {
+        let n = (t.0 + dx, t.1 + dy);
+        gives(&after, n) && !gives(&bare, n)
+    })
 }
 
 /// **A tunnel cut by hand** (the lab's `DIG` brush, owner 2026-10-09: *"a
@@ -33926,6 +33995,93 @@ mod tests {
             let (lined, n) = open_after(true, parallel);
             assert!(lined * 10 >= n * 9, "a lined founding cut must stand (parallel={parallel}): only {lined} of {n} cells are open after 120 frames");
         }
+    }
+
+    /// **A mind's roof-drop sense calls every roof cell a cut drops, and no
+    /// other** ([`cut_drops_roof`], `f::ROOF_DROP`). The soil arena's
+    /// founding cut -- a 2-row shaft into a 7x2 chamber, lined -- and every
+    /// diggable cell from a row above the rim to three rows under the
+    /// chamber, six columns either side of it: each is cut as [`cut_cell`] cuts (open,
+    /// then [`line_burrow`]) on a copy of the world, which then runs. A cut
+    /// "drops a roof cell" when a worked neighbour with nothing under it
+    /// after the cut goes open within four frames. The prediction, made on
+    /// the world before the cut, must match on every target, and must fire
+    /// on the cut that dropped the door's shoulder in step 3: the rim cell
+    /// two columns out from the shaft (`brain-training/stage2/dig/
+    /// README.md`, 65 of 66 rim falls).
+    ///
+    /// Watched red with the rule's "nothing beneath" gate left out of the
+    /// prediction only (the world keeps it), the fault the ladder lane named:
+    /// it calls standing cells falling -- here the two pellets on the
+    /// surface, which keep only the ground under them once a cut beside
+    /// them is made. Without the pellets that fault passed: around a bare
+    /// founding cut no cell with ground under it ever comes down to two
+    /// contacts.
+    #[test]
+    fn the_roof_drop_sense_calls_the_cuts_that_drop_a_roof() {
+        let mut w = World::new(Rect::new(0, 0, 119, 99));
+        let soil = w.materials.id_of("soil").expect("soil material");
+        for x in 0..=119 {
+            for y in 40..=99 {
+                let stone = y >= 92 || x == 0 || x == 119;
+                let cell = if stone { Cell::new(material::STONE, 0) } else { Cell::new(soil, 0) };
+                w.set(x, y, cell.with_attached(true));
+            }
+        }
+        w.door_loose = Some(true);
+        w.register_nest_site(60, 38, 2);
+        assert!(w.cut_founding_shaft(60, 38, 2, 2, true) > 0, "the cut removed nothing");
+        let fp = w.nest_sites[0].shaft.expect("a footprint");
+        assert_eq!((fp.x0, fp.x1, fp.chamber_x0, fp.chamber_x1), (60, 61, 57, 63), "the soil arena's founding cut");
+        // Pellets put down on the surface: three contacts, all of them the
+        // ground beneath. A cut beside one leaves it two, and the "nothing
+        // beneath" gate is all that keeps it standing.
+        let spoil = w.materials.id_of("spoil").expect("spoil");
+        let pellets = [(53, fp.top - 1), (67, fp.top - 1)];
+        for &(x, y) in &pellets {
+            w.set(x, y, Cell::new(spoil, 0));
+        }
+        for _ in 0..30 {
+            crate::sim::update::step(&mut w);
+        }
+        for &(x, y) in &pellets {
+            assert_eq!(w.get(x, y).material, spoil, "the pellet at ({x},{y}) stands on the ground");
+        }
+        let top = fp.top;
+        let (mut fired, mut targets) = (Vec::new(), 0);
+        for y in top - 1..=fp.chamber_bottom + 3 {
+            for x in fp.chamber_x0 - 6..=fp.chamber_x1 + 6 {
+                if !w.is_diggable_ground(x, y) {
+                    continue;
+                }
+                targets += 1;
+                let predicted = cut_drops_roof(&w, (x, y));
+                let mut cut = w.clone();
+                cut.set(x, y, Cell::EMPTY);
+                line_burrow(&mut cut, x, y);
+                let roofs: Vec<(i32, i32)> = NEIGHBOURS_8
+                    .iter()
+                    .map(|&(dx, dy)| (x + dx, y + dy))
+                    .filter(|&(nx, ny)| {
+                        let c = cut.get(nx, ny);
+                        c.material != material::EMPTY
+                            && cut.materials.get(c.material).self_supporting
+                            && cut.get(nx, ny + 1).material == material::EMPTY
+                    })
+                    .collect();
+                let mut dropped = false;
+                for _ in 0..4 {
+                    crate::sim::update::step(&mut cut);
+                    dropped |= roofs.iter().any(|&(nx, ny)| cut.get(nx, ny).material == material::EMPTY);
+                }
+                assert_eq!(predicted, dropped, "the cut at ({x},{y}): predicted {predicted}, the world dropped a roof cell: {dropped}");
+                if dropped {
+                    fired.push((x, y));
+                }
+            }
+        }
+        assert!(fired.contains(&(fp.x1 + 2, top)), "the rim cut beside the door's shoulder, ({},{top}): fired at {fired:?}", fp.x1 + 2);
+        assert!(targets > 100 && fired.len() >= 2, "{} of {targets} cuts drop a roof cell: {fired:?}", fired.len());
     }
 
     /// **No pellet is set down over the door** under [`door_column_of`]: a

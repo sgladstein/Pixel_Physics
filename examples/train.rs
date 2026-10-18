@@ -154,6 +154,20 @@ fn arena(name: &str, a: &Arena) -> Box<dyn Challenge> {
             dist,
             steps,
             fed: false,
+            dig: false,
+        }),
+        // The dig rung's kept colony from step 4 (R12): heads only.
+        "scarce-dig" => Box::new(Scarce {
+            ants: ants.unwrap_or(12),
+            frames: frames.unwrap_or(12_000),
+            drip: 5,
+            every: 1000,
+            game_walk,
+            brake,
+            dist,
+            steps: false,
+            fed: false,
+            dig: true,
         }),
         // The scarce bed with one fed ant: the way home alone.
         "fetch" => Box::new(Scarce {
@@ -166,6 +180,7 @@ fn arena(name: &str, a: &Arena) -> Box<dyn Challenge> {
             dist,
             steps: true,
             fed: true,
+            dig: false,
         }),
         // The dig rung's soil trip, steps 1-3 (`challenges::Soil`).
         "soil" => Box::new(Soil {
@@ -175,7 +190,7 @@ fn arena(name: &str, a: &Arena) -> Box<dyn Challenge> {
             shaft,
             budget,
         }),
-        _ => panic!("challenge={name}: forage|forage-far|trail|dig|scarce|fetch|soil|suite"),
+        _ => panic!("challenge={name}: forage|forage-far|trail|dig|scarce|scarce-dig|fetch|soil|suite"),
     }
 }
 
@@ -505,7 +520,16 @@ fn main() {
     // suite's score is relative to its `start=`. Uncalibrated, every ratio
     // was the raw fit pinned at the cap, so both printed 3.000 (review of
     // PR 712, N1). A single arena's calibration does nothing.
-    ch.calibrate(&g0, &train::calibration_layouts(set.holdout), set.threads);
+    // A kept arena is measured on the start as saved, before the rung's
+    // entry (R12): `start_mind_saved`, reopened as `g0` was.
+    let saved = if mind {
+        let mut g = train::start_mind_saved(ch.as_ref(), &start);
+        creature::mind::reopen(&mut g, ch.verbs());
+        g
+    } else {
+        g0.clone()
+    };
+    ch.calibrate(&g0, &saved, &train::calibration_layouts(set.holdout), set.threads);
     // A genome named by `score=` (or `pic=`'s and `noise=`'s): today's
     // brain as `ant.ron` ships it for `game`, else a file -- or, under
     // `brain=mind`, a mind preset or file.

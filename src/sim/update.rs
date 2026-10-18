@@ -47,7 +47,7 @@ use super::chunk::{SweepPlan, MAX_REACH};
 #[cfg(test)]
 use super::chunk::Rect;
 use super::fire;
-use super::material::{self, MaterialKind, HORIZONTAL_TRANSFER_REACH};
+use super::material::{self, MaterialKind, MaterialRegistry, HORIZONTAL_TRANSFER_REACH};
 use super::scheduler::{ActiveKind, ActiveSite};
 use super::surface::CellSurface;
 use super::world::World;
@@ -816,6 +816,36 @@ fn crumb_rule() -> bool {
     *ON.get_or_init(|| std::env::var("PIXEL_PHYSICS_CRUMB").as_deref() != Ok("off"))
 }
 
+/// **Whether a `self_supporting` powder at `(x, y)` gives way** --
+/// `update_powder`'s footing rule and crumb rule, with every cell read
+/// through `get`. Its reasons are written where it is called; it is
+/// separate so `creature::cut_drops_roof` asks the rule itself of a world
+/// one cut ahead (a mind's `f::ROOF_DROP`, PR 2), **"nothing beneath" gate
+/// included** -- without that gate the rule takes the nest with it
+/// (`dead-ends.md`, the crumb rule without its gate), so a feature that
+/// left it out would call standing roofs falling.
+pub(crate) fn worked_cell_gives_way(get: impl Fn(i32, i32) -> Cell, materials: &MaterialRegistry, needs_footing: bool, x: i32, y: i32) -> bool {
+    let no_footing = needs_footing
+        && spoil_footing()
+        && {
+            let under = get(x, y + 1);
+            under.material == material::EMPTY
+                || under.organism_id() != 0
+                || !matches!(materials.get(under.material).kind, MaterialKind::Powder | MaterialKind::Solid)
+        };
+    let unsupported = !no_footing && crumb_rule() && get(x, y + 1).material == material::EMPTY;
+    let contacts = if unsupported {
+        crate::sim::structural::NEIGHBOURS_8
+            .iter()
+            .filter(|(dx, dy)| get(x + dx, y + dy).material != material::EMPTY)
+            .take(3)
+            .count()
+    } else {
+        usize::MAX
+    };
+    no_footing || contacts < 3
+}
+
 /// **The ablation switch for the footing rule** -- `Material::needs_footing`,
 /// on by default.
 ///
@@ -1208,25 +1238,12 @@ fn update_powder<S: CellSurface>(surface: &mut S, x: i32, y: i32, cell: Cell, ri
         // becomes loose dirt that falls and piles at the foot of the heap -- so
         // undermining your own tailings has a visible consequence, which is the
         // second law.
-        let no_footing = needs_footing
-            && spoil_footing()
-            && {
-                let under = surface.get(x, y + 1);
-                under.material == material::EMPTY
-                    || under.organism_id() != 0
-                    || !matches!(surface.materials().get(under.material).kind, MaterialKind::Powder | MaterialKind::Solid)
-            };
-        let unsupported = !no_footing && crumb_rule() && surface.get(x, y + 1).material == material::EMPTY;
-        let contacts = if unsupported {
-            crate::sim::structural::NEIGHBOURS_8
-                .iter()
-                .filter(|(dx, dy)| surface.get(x + dx, y + dy).material != material::EMPTY)
-                .take(3)
-                .count()
-        } else {
-            usize::MAX
-        };
-        if no_footing || contacts < 3 {
+        //
+        // **Read through [`worked_cell_gives_way`]**, the same reads in the
+        // same order, so a mind's `f::ROOF_DROP` can ask this rule of the
+        // world one cut ahead (`creature::cut_drops_roof`) rather than keep
+        // a copy of it that drifts.
+        if worked_cell_gives_way(|a, b| surface.get(a, b), surface.materials(), needs_footing, x, y) {
             let loose = surface.materials().get(here.material).slumps_into;
             if let Some(loose) = loose {
                 // Everything but the material rides across, for the reason

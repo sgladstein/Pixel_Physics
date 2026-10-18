@@ -97,9 +97,14 @@ impl Verb {
 
 /// Feature indices, in [`feature_names`] order.
 pub mod f {
-    /// What is in the target cell, one of nine (one-hot).
+    /// What is in the target cell, one of ten (one-hot): these nine and
+    /// [`LINED`], which came later and so sits at the end.
     pub const AIR: usize = 0;
     pub const SOIL: usize = 1;
+    /// **Placed spoil only**: a pellet some ant put down. Until PR 2 it was
+    /// spoil *or* packed soil, so the ant's own gallery wall (every
+    /// neighbour of a cut is packed, `line_burrow`) read as a heap
+    /// (`dig-rung-design.md` R5); the wall is [`LINED`] now.
     pub const SPOIL: usize = 2;
     pub const FOOD: usize = 3;
     pub const BROOD: usize = 4;
@@ -118,13 +123,18 @@ pub mod f {
     pub const STAND: usize = 19;
     pub const FALL: usize = 20;
     pub const CLIMB: usize = 21;
-    /// The jaws can cut it, and how firm it is.
+    /// **The hole**: a cell some ant cut (`World::dug_cells`) or inside a
+    /// founding cut, whatever is in it now -- so a pellet put down there,
+    /// or ground fallen in, sits in the hole (PR 2; the step-3 misses,
+    /// `dig-rung-design.md` 9). Declared as "the jaws can cut it" and never
+    /// written until then. And how firm the cell is.
     pub const CUT: usize = 22;
     pub const HARD: usize = 23;
     /// Soil wetness there, by level.
     pub const WET: usize = 24;
-    /// Up (+) or down (-) from the head; rows below the ant's last surface
-    /// row; open cells beneath it, a cliff's height.
+    /// Up (+) or down (-) from the head; rows below the ground as built
+    /// (`mind::depth_at`, the context's own depth); open cells beneath it,
+    /// a cliff's height.
     pub const UP: usize = 25;
     pub const DEPTH: usize = 26;
     pub const DROP_BELOW: usize = 27;
@@ -151,10 +161,18 @@ pub mod f {
     pub const WARMTH: usize = 41;
     /// The option undoes the last step.
     pub const BACK: usize = 42;
+    /// **Worked wall**: packed soil, the lining a cut leaves round itself.
+    /// The tenth kind of thing in the cell, split out of [`SPOIL`] (PR 2).
+    pub const LINED: usize = 43;
+    /// **Cutting it drops a roof cell** (Dig targets only): the crumb rule
+    /// read one cut ahead (PR 2; ladder lane, `dig-rung-design.md` 9).
+    pub const ROOF_DROP: usize = 44;
+    /// The one-hot kinds of thing, in order.
+    pub const KINDS: [usize; 10] = [AIR, SOIL, SPOIL, FOOD, BROOD, CORPSE, STONE, WATER, ANT, LINED];
 }
 
 /// Features per option.
-pub const FEATURES: usize = 43;
+pub const FEATURES: usize = 45;
 
 /// The names of the features, for readouts.
 pub fn feature_names() -> [&'static str; FEATURES] {
@@ -202,6 +220,8 @@ pub fn feature_names() -> [&'static str; FEATURES] {
         "last_food",
         "warmth",
         "back",
+        "lined",
+        "roof_drop",
     ]
 }
 
@@ -230,7 +250,6 @@ struct Here {
     scent: [f32; 3],
     warmth: f32,
     home: Option<(i32, i32)>,
-    surface: Option<i32>,
     mats: Mats,
 }
 
@@ -260,6 +279,16 @@ const REACH: i32 = 6;
 /// **Every option `organism` has right now**, appended to `out` (cleared
 /// first). A pure read of the world: no draw, no write.
 pub fn build(world: &World, organism: OrganismId, def: &CreatureDef, out: &mut Vec<Opt>) {
+    build_with(world, organism, def, true, out);
+}
+
+/// [`build`], reading [`f::ROOF_DROP`] only when `roof` is set. **Why**:
+/// it is the dearest feature on the list (`creature::cut_drops_roof`,
+/// about 1-3% of a soil hold-out run and 4-6% of a scarce one, paired
+/// timings with it on and off, PR 2), it sits only on Dig options, and a
+/// mind whose Dig is switched off never scores one (`mind::decide`). So
+/// the mind passes its Dig switch, and its picks are the same either way.
+pub fn build_with(world: &World, organism: OrganismId, def: &CreatureDef, roof: bool, out: &mut Vec<Opt>) {
     out.clear();
     let Some(st) = world.organism(organism) else { return };
     let Some(&head) = st.chain.first() else { return };
@@ -270,7 +299,6 @@ pub fn build(world: &World, organism: OrganismId, def: &CreatureDef, out: &mut V
         scent: CHANNELS.map(|ch| scent(world, ch, head.0, head.1)),
         warmth: world.field_at_bilinear(head.0 as f32, head.1 as f32).temperature,
         home: (!world.home_blind).then_some(st.forage_anchor),
-        surface: st.last_out_row,
         mats: Mats {
             spoil: world.materials.id_of("spoil"),
             packed: world.materials.id_of("packedsoil"),
@@ -344,7 +372,11 @@ pub fn build(world: &World, organism: OrganismId, def: &CreatureDef, out: &mut V
         let food = m.food_energy > 0.0 && cell.organism_id() == 0;
         let corpse = here.mats.corpse.is_some_and(|c| cell.material == c);
         if jaws_free && !crop_food && jaw_can_cut(world, def, organism, cell) {
-            push(Verb::Dig, t, &|_| {});
+            push(Verb::Dig, t, &|feats| {
+                if roof {
+                    feats[f::ROOF_DROP] = f32::from(u8::from(super::cut_drops_roof(world, t)));
+                }
+            });
         }
         if jaws_free && (food || corpse) {
             push(Verb::PickUp, t, &|_| {});
@@ -404,6 +436,20 @@ pub fn build(world: &World, organism: OrganismId, def: &CreatureDef, out: &mut V
     }
 }
 
+/// **Whether `(x, y)` is part of a hole**: dug at or below the ground as
+/// built ([`World::dug_cells`], which holds every cut `cut_cell` makes and
+/// the founding cut, and `World::room_surface_at`).
+///
+/// **The datum is what keeps a heap out.** `dug_cells` also holds every
+/// pellet an ant cut back out of a spoil heap, and a heap stands on the
+/// surface, above the ground as built; the soil score's hole
+/// (`train::challenges::soil_hole`) counts only cuts of ground that was
+/// there at the start, which is the same set by this test. With no datum
+/// (no box) every cut counts.
+pub(crate) fn in_the_hole(world: &World, x: i32, y: i32) -> bool {
+    world.dug_cells.contains(&(x, y)) && world.room_surface_at(x).is_none_or(|top| y >= top)
+}
+
 /// The animal standing in a cell, if any: a plant is an organism too.
 fn animal(world: &World, id: OrganismId) -> Option<&crate::sim::organism::OrganismState> {
     (id != 0)
@@ -430,10 +476,10 @@ fn describe(world: &World, here: &Here, (x, y): (i32, i32)) -> [f32; FEATURES] {
         f::CORPSE
     } else if m.food_energy > 0.0 {
         f::FOOD
-    } else if here.mats.spoil.is_some_and(|s| cell.material == s)
-        || here.mats.packed.is_some_and(|p| cell.material == p)
-    {
+    } else if here.mats.spoil.is_some_and(|s| cell.material == s) {
         f::SPOIL
+    } else if here.mats.packed.is_some_and(|p| cell.material == p) {
+        f::LINED
     } else if kind == MaterialKind::Liquid {
         f::WATER
     } else if kind == MaterialKind::Powder {
@@ -442,6 +488,7 @@ fn describe(world: &World, here: &Here, (x, y): (i32, i32)) -> [f32; FEATURES] {
         f::STONE
     };
     v[class] = 1.0;
+    v[f::CUT] = f32::from(u8::from(in_the_hole(world, x, y)));
 
     let (dx, dy) = ((x - here.head.0).signum(), (y - here.head.1).signum());
     for (c, ch) in CHANNELS.into_iter().enumerate() {
@@ -468,7 +515,7 @@ fn describe(world: &World, here: &Here, (x, y): (i32, i32)) -> [f32; FEATURES] {
         .min(1.0);
 
     v[f::UP] = (here.head.1 - y).signum() as f32;
-    v[f::DEPTH] = here.surface.map_or(0.0, |s| squash((y - s) as f32 / 16.0));
+    v[f::DEPTH] = super::mind::depth_at(world, x, y);
     v[f::DROP_BELOW] = (1..=REACH)
         .take_while(|&d| world.get(x, y + d).material == material::EMPTY)
         .count() as f32
@@ -657,6 +704,74 @@ mod tests {
     /// each target is one kind of thing; every feature is in -1..1. Then food
     /// is put beside a head, and a pick-up and a meal appear on it: the
     /// positive control for the reach scan.
+    /// **An option's hole is the soil score's hole** (`f::CUT`,
+    /// [`in_the_hole`]): over 3,000 frames of a digging colony, every option
+    /// at every 25th frame reads `f::CUT` exactly when its cell was open in
+    /// the founding cut at frame 0, or was ground at frame 0 and has been cut
+    /// since -- `train::challenges::soil_hole`'s definition, rebuilt here from
+    /// the cut log and a frame-0 snapshot rather than from the code under
+    /// test. And the colony's own wall reads as wall, not as a heap.
+    #[test]
+    fn the_hole_and_the_wall_read_as_the_soil_score_reads_them() {
+        let mut w = colony_box();
+        w.cut_log = Some(Vec::new());
+        let sp = w.species.id_of("ant").expect("ant");
+        let def = w.species.get(sp).creature.clone().expect("creature");
+        let packed = w.materials.id_of("packedsoil").expect("packedsoil");
+        let b = w.bounds().expect("a box");
+        let mut ground0 = std::collections::HashSet::new();
+        let mut founding0 = std::collections::HashSet::new();
+        for x in b.min_x..=b.max_x {
+            let Some(top) = w.room_surface_at(x) else { continue };
+            for y in top..=b.max_y {
+                let c = w.get(x, y);
+                if c.material == material::EMPTY || w.materials.kind(c.material) == MaterialKind::Creature {
+                    founding0.insert((x, y));
+                } else {
+                    ground0.insert((x, y));
+                }
+            }
+        }
+        assert!(founding0.len() > 10, "a founding cut of {} cells", founding0.len());
+        let mut opts = Vec::new();
+        let (mut hole, mut wall, mut n) = (0, 0, 0);
+        for f in 0..3000 {
+            step(&mut w);
+            if f % 25 != 0 {
+                continue;
+            }
+            let cut: std::collections::HashSet<(i32, i32)> =
+                w.cut_log.iter().flatten().map(|c| (c.0, c.1)).filter(|c| ground0.contains(c)).collect();
+            for id in w.live_organism_ids() {
+                if !w.organism(id).is_some_and(|s| s.species == sp && s.brood.is_none()) {
+                    continue;
+                }
+                build(&w, id, &def, &mut opts);
+                for o in &opts {
+                    let want = founding0.contains(&o.target) || cut.contains(&o.target);
+                    assert_eq!(o.feats[f::CUT] == 1.0, want, "frame {f} ant {id}: {:?} at {:?}", o.verb, o.target);
+                    hole += usize::from(want);
+                    let lined = w.get(o.target.0, o.target.1).material == packed;
+                    assert_eq!(o.feats[f::LINED] == 1.0, lined, "frame {f}: wall at {:?}", o.target);
+                    assert!(!(lined && o.feats[f::SPOIL] == 1.0), "frame {f}: wall read as spoil at {:?}", o.target);
+                    wall += usize::from(lined);
+                    n += 1;
+                }
+            }
+        }
+        assert!(hole > 100 && wall > 100, "{hole} hole options and {wall} wall options of {n}");
+        assert!(w.cut_log.as_ref().is_some_and(|l| l.len() > 20), "the colony dug {:?}", w.cut_log.as_ref().map(Vec::len));
+        // A pellet cut back out of a heap is not the hole: the colony above
+        // never did that, so put the case in by hand -- a cut a row above
+        // the ground as built, and one a row below it.
+        let x = b.min_x + 20;
+        let top = w.room_surface_at(x).expect("a datum");
+        w.dug_cells.insert((x, top - 1));
+        w.dug_cells.insert((x, top + 1));
+        assert!(!in_the_hole(&w, x, top - 1), "a cut out of a heap above the ground");
+        assert!(in_the_hole(&w, x, top + 1), "a cut into the ground");
+    }
+
     #[test]
     fn the_options_are_the_bodys_own() {
         let mut w = colony_box();
@@ -717,7 +832,7 @@ mod tests {
                 );
                 for o in &opts {
                     assert_eq!(
-                        o.feats[..f::SCENT].iter().filter(|&&v| v == 1.0).count(),
+                        f::KINDS.iter().filter(|&&k| o.feats[k] == 1.0).count(),
                         1,
                         "frame {f} ant {id}: {:?} at {:?} is not one kind of thing",
                         o.verb,
