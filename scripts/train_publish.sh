@@ -15,8 +15,11 @@ cd "$work"
 git init -q . && git checkout -q -b "$branch"
 git config user.name "train-run" && git config user.email "train-run@users.noreply.github.com"
 cp -r "$out"/. .
-# every picture but the last two
-ls pic-gen-*.png 2>/dev/null | sort | head -n -2 | xargs -r rm -f
+# every picture but the last two. `find`, not `ls`: pictures are written every
+# 5th generation, so the first 15-minute snapshot of a slow run has none, `ls`
+# failed under pipefail, and the script exited silently -- the snapshot at
+# 03:50 of the 2026-10-18 threads=1 probe never happened.
+find . -maxdepth 1 -name 'pic-gen-*.png' | sort | head -n -2 | xargs -r rm -f
 git add -A && git commit -q -m "train snapshot $name $(date -u +%FT%TZ)"
 git push -q -f "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "$branch"
 echo "published $branch"
