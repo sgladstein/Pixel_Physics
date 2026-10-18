@@ -1,0 +1,239 @@
+mutation off: births inherit exactly (measuring default is off; PIXEL_PHYSICS_MUTATION=on|off)
+train brain=mind challenge=suite arenas=fetch,trail keep=trail forget=0.8 start=/home/runner/work/Pixel_Physics/Pixel_Physics/training/starts/mind-s2.txt walk=brain clones=true frames=None ants=None score=None noise=false targets= free= brake=Some(FoodBrake { lo: 1.0, hi: 1.5, small: 6.0, brood: true }) dist=(10, 10) steps=true pic=None trace=None sealed=false heap=300 genes= walkset= prune=0.3 wire=0.001 grow=1 patience=30 seed=2 pop=96 gens=60 layouts=2 pm=0.03 sigma=1 cross=0.3 holdout=12 threads=4
+/home/runner/work/Pixel_Physics/Pixel_Physics/training/starts/mind-s2.txt reopens, quietly: turn_around, rest
+suite reference fetch: 1.029, spread 0.025 over 6 units
+suite reference trail: 0.883, spread 0.019 over 6 units
+challenge=suite unit=Colony ants=6 frames=6000 Settings { gens: 60, pop: 96, layouts: 2, pm: 0.03, sigma: 1.0, cross: 0.3, holdout: 12, every: 1, seed: 2, threads: 4, pictures: true, prune: 0.3, wire: 0.001, grow: 1.0, patience: 30 } banned=[Impulse, Fly, Attack, Provision, Lay, EmitA, EmitB] trainable_slots=2297
+gen   best  median  control  [fetch_ratio trail_ratio fetch_fit trail_fit]  secs
+  0    1.74    1.00    1.02  [3.06 0.99 3.15 0.87]  15  links 608
+    HOLDOUT champion    1.30  [1.71 1.00 1.76 0.88]
+    HOLDOUT start       1.17  [1.36 1.00 1.40 0.88]
+    HOLDOUT blinded     0.01  [4.74 0.00 4.88 -0.03]
+    verbs [walk,turn_around,rest,drop,eat,feed] sharp 1.00 pull 0.00 | live: scorer ctx 142 feat 204 verb 37 out 5, job 75, memory 135, emit 10 (of 2310)
+  1    1.83    0.98    0.99  [3.45 0.97 3.55 0.85]  17  links 659
+    HOLDOUT champion    0.99  [1.02 0.97 1.05 0.86]
+    HOLDOUT start       1.17  [1.36 1.00 1.40 0.88]
+    HOLDOUT blinded     0.00  [1.40 0.00 1.44 -0.06]
+    verbs [walk,turn_around,rest,drop,eat,feed] sharp 1.00 pull 0.00 | live: scorer ctx 155 feat 213 verb 48 out 6, job 78, memory 145, emit 14 (of 2310)
+  2    1.87    1.01    1.00  [3.64 0.96 3.75 0.85]  13  links 629
+    HOLDOUT champion    0.96  [1.00 0.92 1.03 0.82]
+    HOLDOUT start       1.17  [1.36 1.00 1.40 0.88]
+    HOLDOUT blinded     0.01  [2.79 0.00 2.87 -0.04]
+    verbs [walk,turn_around,rest,drop,eat,feed] sharp 1.00 pull 0.00 | live: scorer ctx 153 feat 205 verb 38 out 8, job 77, memory 136, emit 12 (of 2310)
+  3    1.72    0.95    1.01  [3.23 0.92 3.33 0.81]  13  links 629
+    HOLDOUT champion    0.96  [1.00 0.92 1.03 0.82]
+    HOLDOUT start       1.17  [1.36 1.00 1.40 0.88]
+    HOLDOUT blinded     0.01  [2.79 0.00 2.87 -0.04]
+    verbs [walk,turn_around,rest,drop,eat,feed] sharp 1.00 pull 0.00 | live: scorer ctx 153 feat 205 verb 38 out 8, job 77, memory 136, emit 12 (of 2310)
+  4    1.73    0.98    1.00  [3.06 0.98 3.15 0.87]  17  links 632
+    HOLDOUT champion    1.43  [2.04 1.00 2.10 0.89]
+    HOLDOUT start       1.17  [1.36 1.00 1.40 0.88]
+    HOLDOUT blinded     0.01  [3.62 0.00 3.73 -0.10]
+    verbs [walk,turn_around,rest,drop,eat,feed] sharp 1.00 pull 0.00 | live: scorer ctx 149 feat 207 verb 44 out 7, job 78, memory 132, emit 15 (of 2310)
+  5    2.07    1.02    1.70  [4.42 0.97 4.55 0.86]  13  links 684
+    HOLDOUT champion    0.98  [1.02 0.95 1.05 0.84]
+    HOLDOUT start       1.17  [1.36 1.00 1.40 0.88]
+    HOLDOUT blinded     0.01  [2.74 0.00 2.82 -0.05]
+    verbs [walk,turn_around,rest,drop,eat,feed] sharp 1.00 pull 0.00 | live: scorer ctx 166 feat 225 verb 42 out 6, job 79, memory 151, emit 15 (of 2310)
+  6    2.50    0.98    1.60  [7.29 0.86 7.50 0.76]  15  links 700
+    HOLDOUT champion    1.28  [1.87 0.87 1.93 0.77]
+    HOLDOUT start       1.17  [1.36 1.00 1.40 0.88]
+    HOLDOUT blinded     0.00  [2.43 0.00 2.50 -0.06]
+    verbs [walk,turn_around,rest,drop,eat,feed] sharp 1.00 pull 0.00 | live: scorer ctx 164 feat 225 verb 50 out 8, job 89, memory 146, emit 18 (of 2310)
+  7    2.50    0.99    1.01  [7.02 0.89 7.22 0.79]  18  links 700
+    HOLDOUT champion    1.28  [1.87 0.87 1.93 0.77]
+    HOLDOUT start       1.17  [1.36 1.00 1.40 0.88]
+    HOLDOUT blinded     0.00  [2.43 0.00 2.50 -0.06]
+    verbs [walk,turn_around,rest,drop,eat,feed] sharp 1.00 pull 0.00 | live: scorer ctx 164 feat 225 verb 50 out 8, job 89, memory 146, emit 18 (of 2310)
+  8    3.86    1.00    0.99  [15.30 0.97 15.75 0.86]  18  links 831
+    HOLDOUT champion    1.74  [3.10 0.97 3.19 0.86]
+    HOLDOUT start       1.17  [1.36 1.00 1.40 0.88]
+    HOLDOUT blinded     0.01  [4.48 0.00 4.61 -0.02]
+    verbs [walk,turn_around,rest,drop,eat,feed] sharp 1.00 pull 0.00 | live: scorer ctx 203 feat 245 verb 55 out 7, job 107, memory 192, emit 22 (of 2310)
+  9    2.57    0.99    1.00  [6.81 0.97 7.01 0.86]  17  links 831
+    HOLDOUT champion    1.74  [3.10 0.97 3.19 0.86]
+    HOLDOUT start       1.17  [1.36 1.00 1.40 0.88]
+    HOLDOUT blinded     0.01  [4.48 0.00 4.61 -0.02]
+    verbs [walk,turn_around,rest,drop,eat,feed] sharp 1.00 pull 0.00 | live: scorer ctx 203 feat 245 verb 55 out 7, job 107, memory 192, emit 22 (of 2310)
+ 10    1.96    1.02    1.02  [4.03 0.95 4.15 0.84]  16  links 831
+    HOLDOUT champion    1.74  [3.10 0.97 3.19 0.86]
+    HOLDOUT start       1.17  [1.36 1.00 1.40 0.88]
+    HOLDOUT blinded     0.01  [4.48 0.00 4.61 -0.02]
+    verbs [walk,turn_around,rest,drop,eat,feed] sharp 1.00 pull 0.00 | live: scorer ctx 203 feat 245 verb 55 out 7, job 107, memory 192, emit 22 (of 2310)
+ 11    2.80    1.02    1.00  [7.92 0.99 8.15 0.88]  18  links 831
+    HOLDOUT champion    1.74  [3.10 0.97 3.19 0.86]
+    HOLDOUT start       1.17  [1.36 1.00 1.40 0.88]
+    HOLDOUT blinded     0.01  [4.48 0.00 4.61 -0.02]
+    verbs [walk,turn_around,rest,drop,eat,feed] sharp 1.00 pull 0.00 | live: scorer ctx 203 feat 245 verb 55 out 7, job 107, memory 192, emit 22 (of 2310)
+ 12    2.62    1.28    1.01  [7.34 0.94 7.55 0.83]  16  links 805
+    HOLDOUT champion    2.00  [4.40 0.91 4.53 0.81]
+    HOLDOUT start       1.17  [1.36 1.00 1.40 0.88]
+    HOLDOUT blinded     0.00  [2.21 0.00 2.28 -0.10]
+    verbs [walk,turn_around,rest,drop,eat,feed] sharp 1.00 pull 0.00 | live: scorer ctx 179 feat 250 verb 57 out 7, job 100, memory 191, emit 21 (of 2310)
+ 13    2.67    1.01    1.00  [7.09 1.00 7.30 0.89]  21  links 889
+    HOLDOUT champion    1.77  [3.18 0.98 3.27 0.87]
+    HOLDOUT start       1.17  [1.36 1.00 1.40 0.88]
+    HOLDOUT blinded     0.01  [4.24 0.00 4.37 -0.07]
+    verbs [walk,turn_around,rest,drop,eat,feed] sharp 1.00 pull 0.00 | live: scorer ctx 215 feat 272 verb 58 out 9, job 114, memory 193, emit 28 (of 2310)
+ 14    2.45    1.01    1.02  [6.87 0.87 7.08 0.77]  20  links 890
+    HOLDOUT champion    2.57  [7.52 0.88 7.74 0.78]
+    HOLDOUT start       1.17  [1.36 1.00 1.40 0.88]
+    HOLDOUT blinded     0.01  [2.97 0.00 3.05 -0.06]
+    verbs [walk,turn_around,rest,drop,eat,feed] sharp 1.00 pull 0.00 | live: scorer ctx 212 feat 264 verb 67 out 8, job 114, memory 202, emit 23 (of 2310)
+ 15    2.60    0.95    1.01  [7.53 0.89 7.75 0.79]  16  links 895
+    HOLDOUT champion    1.56  [2.54 0.96 2.61 0.85]
+    HOLDOUT start       1.17  [1.36 1.00 1.40 0.88]
+    HOLDOUT blinded     0.00  [2.21 0.00 2.28 -0.05]
+    verbs [walk,turn_around,rest,eat,feed] sharp 1.00 pull 0.00 | live: scorer ctx 217 feat 274 verb 59 out 11, job 107, memory 202, emit 25 (of 2310)
+ 16    2.61    1.24    1.64  [7.26 0.94 7.47 0.83]  17  links 880
+    HOLDOUT champion    1.45  [2.39 0.88 2.46 0.78]
+    HOLDOUT start       1.17  [1.36 1.00 1.40 0.88]
+    HOLDOUT blinded     0.01  [3.74 0.00 3.85 -0.06]
+    verbs [walk,turn_around,rest,drop,eat,feed] sharp 1.00 pull 0.00 | live: scorer ctx 200 feat 280 verb 54 out 9, job 104, memory 212, emit 21 (of 2310)
+ 17    2.71    1.01    1.03  [7.53 0.97 7.75 0.86]  17  links 866
+    HOLDOUT champion    1.90  [3.84 0.94 3.95 0.83]
+    HOLDOUT start       1.17  [1.36 1.00 1.40 0.88]
+    HOLDOUT blinded     0.01  [2.79 0.00 2.87 -0.10]
+    verbs [walk,turn_around,rest,drop,eat,feed] sharp 1.00 pull 0.00 | live: scorer ctx 205 feat 259 verb 53 out 7, job 111, memory 208, emit 23 (of 2310)
+ 18    1.79    1.02    1.69  [3.45 0.93 3.55 0.82]  16  links 866
+    HOLDOUT champion    1.90  [3.84 0.94 3.95 0.83]
+    HOLDOUT start       1.17  [1.36 1.00 1.40 0.88]
+    HOLDOUT blinded     0.01  [2.79 0.00 2.87 -0.10]
+    verbs [walk,turn_around,rest,drop,eat,feed] sharp 1.00 pull 0.00 | live: scorer ctx 205 feat 259 verb 53 out 7, job 111, memory 208, emit 23 (of 2310)
+ 19    1.79    0.94    1.00  [3.64 0.88 3.75 0.78]  19  links 891
+    HOLDOUT champion    1.69  [3.07 0.93 3.16 0.82]
+    HOLDOUT start       1.17  [1.36 1.00 1.40 0.88]
+    HOLDOUT blinded     0.01  [3.53 0.00 3.63 -0.10]
+    verbs [walk,turn_around,rest,drop,eat,feed] sharp 1.00 pull 0.00 | live: scorer ctx 209 feat 269 verb 56 out 7, job 114, memory 215, emit 21 (of 2310)
+ 20    1.68    0.98    1.02  [3.06 0.93 3.15 0.82]  17  links 796
+    HOLDOUT champion    1.58  [2.66 0.94 2.74 0.83]
+    HOLDOUT start       1.17  [1.36 1.00 1.40 0.88]
+    HOLDOUT blinded     0.00  [2.12 0.00 2.18 -0.05]
+    verbs [walk,turn_around,rest,drop,eat,feed] sharp 1.00 pull 0.00 | live: scorer ctx 180 feat 250 verb 50 out 7, job 94, memory 194, emit 21 (of 2310)
+ 21    2.68    1.57    1.01  [8.50 0.84 8.75 0.74]  16  links 892
+    HOLDOUT champion    1.63  [3.03 0.88 3.12 0.78]
+    HOLDOUT start       1.17  [1.36 1.00 1.40 0.88]
+    HOLDOUT blinded     0.01  [3.91 0.00 4.03 -0.06]
+    verbs [walk,turn_around,rest,drop,eat,feed] sharp 1.00 pull 0.63 | live: scorer ctx 202 feat 277 verb 63 out 7, job 108, memory 207, emit 28 (of 2310)
+ 22    2.60    0.96    1.00  [7.53 0.90 7.75 0.79]  19  links 923
+    HOLDOUT champion    1.70  [3.19 0.91 3.28 0.80]
+    HOLDOUT start       1.17  [1.36 1.00 1.40 0.88]
+    HOLDOUT blinded     0.01  [3.02 0.00 3.10 -0.07]
+    verbs [walk,turn_around,rest,drop,eat,feed] sharp 1.00 pull 0.00 | live: scorer ctx 212 feat 284 verb 59 out 7, job 114, memory 226, emit 21 (of 2310)
+ 23    1.89    1.21    0.99  [3.84 0.93 3.95 0.82]  16  links 891
+    HOLDOUT champion    1.69  [3.07 0.93 3.16 0.82]
+    HOLDOUT start       1.17  [1.36 1.00 1.40 0.88]
+    HOLDOUT blinded     0.01  [3.53 0.00 3.63 -0.10]
+    verbs [walk,turn_around,rest,drop,eat,feed] sharp 1.00 pull 0.00 | live: scorer ctx 209 feat 269 verb 56 out 7, job 114, memory 215, emit 21 (of 2310)
+ 24    1.83    1.23    1.65  [4.03 0.83 4.15 0.73]  19  links 922
+    HOLDOUT champion    1.67  [3.13 0.89 3.22 0.78]
+    HOLDOUT start       1.17  [1.36 1.00 1.40 0.88]
+    HOLDOUT blinded     0.01  [2.73 0.00 2.81 -0.05]
+    verbs [walk,turn_around,rest,drop,eat,feed] sharp 1.00 pull 0.00 | live: scorer ctx 212 feat 283 verb 62 out 8, job 118, memory 218, emit 21 (of 2310)
+ 25    1.94    1.73    1.01  [3.84 0.99 3.95 0.87]  21  links 916
+    HOLDOUT champion    1.73  [3.16 0.94 3.26 0.83]
+    HOLDOUT start       1.17  [1.36 1.00 1.40 0.88]
+    HOLDOUT blinded     0.01  [3.17 0.00 3.26 -0.07]
+    verbs [walk,turn_around,rest,drop,eat,feed] sharp 1.00 pull 0.00 | live: scorer ctx 216 feat 279 verb 59 out 8, job 112, memory 217, emit 25 (of 2310)
+ 26    2.52    0.97    0.97  [7.07 0.90 7.28 0.79]  19  links 917
+    HOLDOUT champion    1.55  [2.46 0.98 2.53 0.86]
+    HOLDOUT start       1.17  [1.36 1.00 1.40 0.88]
+    HOLDOUT blinded     0.01  [6.15 0.00 6.33 -0.06]
+    verbs [walk,turn_around,rest,drop,eat,feed] sharp 1.00 pull 0.00 | live: scorer ctx 215 feat 277 verb 57 out 7, job 120, memory 220, emit 21 (of 2310)
+ 27    1.79    0.95    1.25  [3.45 0.93 3.55 0.82]  19  links 947
+    HOLDOUT champion    1.74  [3.06 0.99 3.15 0.88]
+    HOLDOUT start       1.17  [1.36 1.00 1.40 0.88]
+    HOLDOUT blinded     0.01  [2.82 0.00 2.90 -0.08]
+    verbs [walk,turn_around,rest,drop,eat,feed] sharp 1.00 pull 0.00 | live: scorer ctx 227 feat 288 verb 56 out 7, job 125, memory 223, emit 21 (of 2310)
+ 28    2.50    0.15    0.95  [7.34 0.85 7.55 0.75]  16  links 947
+    HOLDOUT champion    1.67  [2.93 0.95 3.02 0.84]
+    HOLDOUT start       1.17  [1.36 1.00 1.40 0.88]
+    HOLDOUT blinded     0.01  [3.55 0.00 3.65 -0.15]
+    verbs [walk,turn_around,rest,drop,eat,feed] sharp 1.00 pull 0.00 | live: scorer ctx 223 feat 285 verb 57 out 7, job 128, memory 225, emit 22 (of 2310)
+ 29    2.54    0.95    0.97  [7.72 0.83 7.95 0.74]  18  links 977
+    HOLDOUT champion    1.55  [2.95 0.81 3.04 0.72]
+    HOLDOUT start       1.17  [1.36 1.00 1.40 0.88]
+    HOLDOUT blinded     0.00  [2.34 0.00 2.40 -0.06]
+    verbs [walk,turn_around,rest,drop,eat,feed] sharp 1.00 pull 0.00 | live: scorer ctx 223 feat 306 verb 65 out 9, job 121, memory 224, emit 29 (of 2310)
+ 30    2.72    1.21    1.00  [7.72 0.95 7.95 0.84]  21  links 969
+    HOLDOUT champion    1.67  [2.87 0.97 2.96 0.86]
+    HOLDOUT start       1.17  [1.36 1.00 1.40 0.88]
+    HOLDOUT blinded     0.00  [2.27 0.00 2.34 -0.08]
+    verbs [walk,turn_around,rest,drop,eat,feed] sharp 1.00 pull 0.00 | live: scorer ctx 228 feat 306 verb 61 out 9, job 117, memory 224, emit 24 (of 2310)
+ 31    2.66    1.36    1.00  [7.14 0.99 7.35 0.88]  17  links 967
+    HOLDOUT champion    1.59  [2.66 0.95 2.74 0.84]
+    HOLDOUT start       1.17  [1.36 1.00 1.40 0.88]
+    HOLDOUT blinded     0.00  [2.07 0.00 2.13 -0.09]
+    verbs [walk,turn_around,rest,drop,eat,feed] sharp 1.00 pull 0.00 | live: scorer ctx 226 feat 306 verb 60 out 8, job 116, memory 226, emit 25 (of 2310)
+ 32    2.77    1.23    1.02  [7.92 0.97 8.15 0.85]  55  links 917
+    HOLDOUT champion    1.55  [2.46 0.98 2.53 0.86]
+    HOLDOUT start       1.17  [1.36 1.00 1.40 0.88]
+    HOLDOUT blinded     0.01  [6.15 0.00 6.33 -0.06]
+    verbs [walk,turn_around,rest,drop,eat,feed] sharp 1.00 pull 0.00 | live: scorer ctx 215 feat 277 verb 57 out 7, job 120, memory 220, emit 21 (of 2310)
+ 33    2.49    0.97    0.99  [7.14 0.87 7.35 0.76]  17  links 856
+    HOLDOUT champion    1.63  [3.04 0.87 3.13 0.77]
+    HOLDOUT start       1.17  [1.36 1.00 1.40 0.88]
+    HOLDOUT blinded     0.01  [3.33 0.00 3.42 -0.09]
+    verbs [walk,turn_around,rest,drop,eat,feed] sharp 1.00 pull 0.00 | live: scorer ctx 198 feat 264 verb 55 out 7, job 105, memory 206, emit 21 (of 2310)
+ 34    3.72    1.59    0.99  [14.91 0.93 15.35 0.82]  20  links 1053
+    HOLDOUT champion    2.36  [6.07 0.92 6.25 0.81]
+    HOLDOUT start       1.17  [1.36 1.00 1.40 0.88]
+    HOLDOUT blinded     0.00  [2.45 0.00 2.52 -0.10]
+    verbs [walk,turn_around,rest,drop,eat,feed] sharp 2.19 pull 0.00 | live: scorer ctx 239 feat 342 verb 60 out 9, job 125, memory 255, emit 23 (of 2310)
+ 35    2.65    1.60    1.00  [7.53 0.93 7.75 0.82]  18  links 1053
+    HOLDOUT champion    2.36  [6.07 0.92 6.25 0.81]
+    HOLDOUT start       1.17  [1.36 1.00 1.40 0.88]
+    HOLDOUT blinded     0.00  [2.45 0.00 2.52 -0.10]
+    verbs [walk,turn_around,rest,drop,eat,feed] sharp 2.19 pull 0.00 | live: scorer ctx 239 feat 342 verb 60 out 9, job 125, memory 255, emit 23 (of 2310)
+ 36    1.76    1.23    1.01  [3.26 0.95 3.35 0.84]  98  links 856
+    HOLDOUT champion    1.63  [3.04 0.87 3.13 0.77]
+    HOLDOUT start       1.17  [1.36 1.00 1.40 0.88]
+    HOLDOUT blinded     0.01  [3.33 0.00 3.42 -0.09]
+    verbs [walk,turn_around,rest,drop,eat,feed] sharp 1.00 pull 0.00 | live: scorer ctx 198 feat 264 verb 55 out 7, job 105, memory 206, emit 21 (of 2310)
+ 37    2.53    0.68    0.68  [7.82 0.82 8.05 0.72]  17  links 891
+    HOLDOUT champion    1.38  [2.18 0.87 2.25 0.77]
+    HOLDOUT start       1.17  [1.36 1.00 1.40 0.88]
+    HOLDOUT blinded     0.01  [5.84 0.00 6.01 -0.05]
+    verbs [walk,turn_around,rest,drop,eat,feed] sharp 1.00 pull 0.00 | live: scorer ctx 208 feat 275 verb 56 out 7, job 112, memory 211, emit 22 (of 2310)
+ 38    1.89    1.22    1.27  [3.64 0.98 3.75 0.87]  17  links 918
+    HOLDOUT champion    1.88  [3.73 0.95 3.84 0.84]
+    HOLDOUT start       1.17  [1.36 1.00 1.40 0.88]
+    HOLDOUT blinded     0.01  [2.87 0.00 2.96 -0.06]
+    verbs [walk,turn_around,rest,drop,eat,feed] sharp 1.00 pull 0.00 | live: scorer ctx 218 feat 286 verb 63 out 8, job 101, memory 217, emit 25 (of 2310)
+ 39    1.77    0.99    0.98  [3.26 0.97 3.35 0.85]  20  links 917
+    HOLDOUT champion    1.55  [2.46 0.98 2.53 0.86]
+    HOLDOUT start       1.17  [1.36 1.00 1.40 0.88]
+    HOLDOUT blinded     0.01  [6.15 0.00 6.33 -0.06]
+    verbs [walk,turn_around,rest,drop,eat,feed] sharp 1.00 pull 0.00 | live: scorer ctx 215 feat 277 verb 57 out 7, job 120, memory 220, emit 21 (of 2310)
+ 40    2.69    1.26    1.03  [7.14 1.01 7.35 0.89]  17  links 917
+    HOLDOUT champion    1.55  [2.46 0.98 2.53 0.86]
+    HOLDOUT start       1.17  [1.36 1.00 1.40 0.88]
+    HOLDOUT blinded     0.01  [6.15 0.00 6.33 -0.06]
+    verbs [walk,turn_around,rest,drop,eat,feed] sharp 1.00 pull 0.00 | live: scorer ctx 215 feat 277 verb 57 out 7, job 120, memory 220, emit 21 (of 2310)
+ 41    2.56    0.99    1.04  [7.14 0.92 7.35 0.81]  48  links 1008
+    HOLDOUT champion    1.57  [2.99 0.83 3.08 0.73]
+    HOLDOUT start       1.17  [1.36 1.00 1.40 0.88]
+    HOLDOUT blinded     0.01  [2.62 0.00 2.70 -0.06]
+    verbs [walk,turn_around,rest,drop,eat,feed] sharp 1.00 pull 0.00 | live: scorer ctx 217 feat 312 verb 65 out 9, job 130, memory 251, emit 24 (of 2310)
+ 42    1.58    0.14    1.51  [3.06 0.81 3.15 0.72]  15  links 910
+    HOLDOUT champion    1.52  [2.41 0.96 2.48 0.85]
+    HOLDOUT start       1.17  [1.36 1.00 1.40 0.88]
+    HOLDOUT blinded     0.01  [2.77 0.00 2.85 -0.05]
+    verbs [walk,turn_around,rest,drop,eat,feed] sharp 1.00 pull 0.00 | live: scorer ctx 203 feat 276 verb 53 out 8, job 115, memory 231, emit 24 (of 2310)
+ 43    1.68    0.97    0.97  [3.06 0.92 3.15 0.82]  19  links 910
+    HOLDOUT champion    1.52  [2.41 0.96 2.48 0.85]
+    HOLDOUT start       1.17  [1.36 1.00 1.40 0.88]
+    HOLDOUT blinded     0.01  [2.77 0.00 2.85 -0.05]
+    verbs [walk,turn_around,rest,drop,eat,feed] sharp 1.00 pull 0.00 | live: scorer ctx 203 feat 276 verb 53 out 8, job 115, memory 231, emit 24 (of 2310)
+ 44    1.67    0.91    0.97  [2.87 0.97 2.95 0.86]  15  links 948
+    HOLDOUT champion    1.69  [2.90 0.98 2.98 0.87]
+    HOLDOUT start       1.17  [1.36 1.00 1.40 0.88]
+    HOLDOUT blinded     0.00  [1.98 0.00 2.03 -0.04]
+    verbs [walk,turn_around,rest,drop,eat,feed] sharp 1.00 pull 0.00 | live: scorer ctx 217 feat 287 verb 58 out 8, job 118, memory 235, emit 25 (of 2310)
+STOPPED flat: no hold-out best 0.02 above the last since generation 14 (2.575), 45 generations, patience 30
+challenge=suite unit=Colony ants=6 frames=6000 Settings { gens: 60, pop: 96, layouts: 2, pm: 0.03, sigma: 1.0, cross: 0.3, holdout: 12, every: 1, seed: 2, threads: 4, pictures: true, prune: 0.3, wire: 0.001, grow: 1.0, patience: 30 } banned=[Impulse, Fly, Attack, Provision, Lay, EmitA, EmitB] trainable_slots=2297
+45 of 60 generations in 1212 s (hold-out best 2.575 at generation 14)
+hold-out champion 1.69, start 1.17, blinded 0.00
+verbs [walk,turn_around,rest,drop,eat,feed] sharp 1.00 pull 0.00 | live: scorer ctx 217 feat 287 verb 58 out 8, job 118, memory 235, emit 25 (of 2310)
+
+run files in /home/runner/work/_temp/out

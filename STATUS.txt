@@ -1,0 +1,11 @@
+name: near-pop96-s2
+commit: 347e0268a0373fb2d7b847f6f8a9f70608b1ca18
+built from: 2c28113200984c251c4865bbf9eff807395de64b
+run: https://github.com/sgladstein/Pixel_Physics/actions/runs/39097306589
+args: brain=mind challenge=suite arenas=fetch,trail keep=trail forget=0.8 clones=1 start=/home/runner/work/Pixel_Physics/Pixel_Physics/training/starts/mind-s2.txt dist=10 pop=96 layouts=2 pm=0.03 sigma=1 cross=0.3 gens=60 patience=30 holdout=12 every=1 seed=2 threads=4
+started: 2026-10-18T04:31:54Z
+CPU(s):                                  4
+Model name:                              AMD EPYC 9V45 96-Core Processor
+Thread(s) per core:                      2
+Core(s) per socket:                      2
+finished: 2026-10-18T04:52:08Z
