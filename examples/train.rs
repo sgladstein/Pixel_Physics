@@ -269,10 +269,12 @@ fn main() {
                     .map(|t| t.parse().unwrap_or_else(|_| panic!("dist={v}: <n> or <lo>,<hi>")))
                     .collect();
                 dist = (p[0], *p.get(1).unwrap_or(&p[0]));
-                // The bed is 256 wide with the nest in the middle.
+                // The bed is 256 wide with the nest in the middle; nearer
+                // than `Scarce::DIST_MIN` the nest's doorstep is the heap.
+                let lo = Scarce::DIST_MIN;
                 assert!(
-                    dist.0 >= 8 && dist.1 >= dist.0 && dist.1 <= 110,
-                    "dist={v}: want 8 <= lo <= hi <= 110"
+                    dist.0 >= lo && dist.1 >= dist.0 && dist.1 <= 110,
+                    "dist={v}: want {lo} <= lo <= hi <= 110"
                 );
             }
             "steps" => {

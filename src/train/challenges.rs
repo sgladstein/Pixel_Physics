@@ -469,7 +469,7 @@ impl Challenge for Forage {
 /// number it cannot trade away*), so a colony that buys steps with its ants
 /// shows it there. **But heads are a readout beside the steps, not a gate**:
 /// a colony that dies with every founder reaching, picking up, carrying and
-/// arriving, and one cell home, scores 15.5, above the live hand-built
+/// arriving, and one cell home, scores 15.75, above the live hand-built
 /// forager (12.6) and the game ant's heads alone (14.5) (review of PR 717,
 /// N1). Gating the steps on survival (times `kept`) is the owner's call.
 ///
@@ -504,7 +504,9 @@ pub struct Scarce {
     pub brake: Option<creature::FoodBrake>,
     /// **How far out the food lands, in columns**: `lo`, `hi` and two
     /// between, one per mirrored pair in turn ([`SCARCE_DIST`] unless
-    /// `dist=` sets it), so every generation meets the whole range. Drawn
+    /// `dist=` sets it), so a generation of 8 layouts, or any multiple of
+    /// 8, meets the whole range; fewer meet it over successive generations
+    /// (review of PR 717, N10). Drawn
     /// per layout from the seed, a generation could draw only far food: a
     /// fetch run at 10-80 columns found an ant that reached and picked up
     /// in generations 0-1 (fetch 1.53 on its layouts, 1.27 on the
@@ -539,6 +541,13 @@ pub struct Scarce {
 pub const SCARCE_DIST: (i32, i32) = (80, 80);
 
 impl Scarce {
+    /// **The nearest the food may land, in columns.** Below it the far half
+    /// of the way no longer keeps the nest's doorstep out of [`Trip::HEAP`]:
+    /// at 8 columns a cell shuffled across the nest's edge reads as taken at
+    /// the heap, and 50 laps book 50 cells home (review of PR 717, N9).
+    /// `a_cell_shuffled_across_the_nest_edge_pays_nothing` holds from here.
+    pub const DIST_MIN: i32 = 10;
+
     /// The nest's column, the food spot's and its distance, for one layout.
     fn geometry(&self, layout: Layout) -> (i32, i32, i32) {
         let side = if layout.k.is_multiple_of(2) { 1 } else { -1 };
@@ -855,7 +864,9 @@ impl Trip {
                 continue;
             }
             // **Distance closed**, not nearness: a load taken at the heap's
-            // near foot starts part of the way home (N3).
+            // near foot starts part of the way home (N3). One taken past the
+            // food spot reads full about `HEAP` columns short of the nest,
+            // where arriving takes over (N12).
             self.carried = self.carried.max((f64::from(l.taken - from_nest) / way).clamp(0.0, 1.0));
             if creature::at_nest(w, id) {
                 mark(&mut self.arrived, id);
@@ -1978,9 +1989,25 @@ mod tests {
     /// B1). The mind's swallow marks any food taken off the nest as from a
     /// trip, so before the heap's own count these 50 laps booked 50 cells
     /// home, worth more than a real delivery. The ant is moved and its crop
-    /// written as the swallow and the put-down write them.
+    /// written as the swallow and the put-down write them, with the food from
+    /// [`Scarce::DIST_MIN`] out to the bed's edge.
     #[test]
     fn a_cell_shuffled_across_the_nest_edge_pays_nothing() {
+        for d in [Scarce::DIST_MIN, 40, 110] {
+            let (laps, home, want) = shuffle(d);
+            assert_eq!(laps, (0, 0, 0, 0.0), "50 laps across the edge at {d}");
+            assert_eq!(home, want, "one cell home from the heap, then 50 more laps, at {d}");
+        }
+        // The floor is load-bearing: below it the doorstep is the heap.
+        assert!(shuffle(Scarce::DIST_MIN - 2).0.0 > 0, "laps pay below the floor");
+    }
+
+    /// A trip as (home, picked, arrived, carried).
+    type TripRead = (u64, usize, usize, f64);
+
+    /// The 50 laps alone, then one cell from the heap and 50 more laps, and
+    /// what the second should read.
+    fn shuffle(d: i32) -> (TripRead, TripRead, TripRead) {
         let ch = Scarce {
             ants: 1,
             frames: 3000,
@@ -1988,7 +2015,7 @@ mod tests {
             every: 1000,
             game_walk: false,
             brake: None,
-            dist: (40, 40),
+            dist: (d, d),
             steps: true,
             fed: true,
         };
@@ -2047,11 +2074,7 @@ mod tests {
         };
         laps(&mut w, &mut trip, &mut put);
         assert_eq!(put, 50, "the world booked every lap");
-        assert_eq!(
-            (trip.home, trip.picked.len(), trip.arrived.len(), trip.carried),
-            (0, 0, 0, 0.0),
-            "50 laps across the edge"
-        );
+        let first = (trip.home, trip.picked.len(), trip.arrived.len(), trip.carried);
         let mut x = food_x;
         while x != inside.0 {
             look(&mut w, (x, y), 1, put, &mut trip);
@@ -2062,11 +2085,8 @@ mod tests {
         laps(&mut w, &mut trip, &mut put);
         // Last read loaded one column out, before the put-down at the nest.
         let walked = f64::from(dist - (outside.0 - nest_x).abs()) / f64::from(dist);
-        assert_eq!(
-            (trip.home, trip.picked.len(), trip.arrived.len(), trip.carried),
-            (1, 1, 1, walked),
-            "one cell home from the heap, then 50 more laps"
-        );
+        let second = (trip.home, trip.picked.len(), trip.arrived.len(), trip.carried);
+        (first, second, (1, 1, 1, walked))
     }
 
     /// **The fetch arena reads the trip** (`Scarce::fed`): one ant that
