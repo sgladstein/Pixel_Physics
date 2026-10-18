@@ -1,0 +1,10 @@
+name: timing-threads4
+commit: ed4815b35f1786324084d3f3dd644326a9dbac81
+run: https://github.com/sgladstein/Pixel_Physics/actions/runs/39093938467
+args: brain=mind challenge=trail clones=1 start=blank gens=6 pop=100 layouts=8 sigma=1.0 holdout=12 every=1 seed=1 threads=4
+started: 2026-10-18T03:35:09Z
+CPU(s):                                  4
+Model name:                              AMD EPYC 7763 64-Core Processor
+Thread(s) per core:                      2
+Core(s) per socket:                      2
+finished: 2026-10-18T03:47:26Z
