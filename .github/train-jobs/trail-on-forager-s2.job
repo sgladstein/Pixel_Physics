@@ -1,0 +1,2 @@
+# Brain lane, 2026-10-18: trail-on-forager track. Teach the forager lineage (near-forager-s3 gen 80) to follow trails while keeping its fetch. Trainer = PR 719 head ea1a1b7b (saves hold-best.txt).
+ref=ea1a1b7bbcf552e14f049254102ff871a7da041c brain=mind challenge=suite arenas=fetch,trail keep=fetch forget=0.8 clones=1 start=training/starts/near-forager-s3-gen080.txt dist=10 pop=48 layouts=6 pm=0.03 sigma=1 cross=0.3 gens=100 patience=30 holdout=12 every=1 seed=2 threads=4
