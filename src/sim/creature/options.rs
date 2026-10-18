@@ -33,7 +33,7 @@ use super::{
     spoil_site_open, stacker_of, under_cover, BodyShape, CreatureDef, DIRS,
 };
 use super::{crop_to_feed, diet_yield, gut_of, organism_crop_capacity, EAT_YIELD_THRESHOLD};
-use super::{flipped_body, landing_is_placeable_through_tissue, spoil_footing_drop};
+use super::{flipped_body, landing_is_placeable_through_tissue};
 use crate::sim::cell::OrganismId;
 use crate::sim::material::{self, MaterialId, MaterialKind};
 use crate::sim::pheromone::{self, Channel};
@@ -358,8 +358,16 @@ pub fn build(world: &World, organism: OrganismId, def: &CreatureDef, out: &mut V
         }
         // A pellet goes down where it will stay (the spoil rule); a crop
         // cell in any free cell, as the food drop's first rule puts one.
+        // **On ground, always** (`SPOIL_FOOTING=ground`'s test), though the
+        // game ships that switch off: off, "two of the three cells below
+        // are filled" passes on the carrier's own back, on a nestmate and
+        // over a hole between two diagonals, and those pellets turn loose
+        // and fall (64% of them, `dead-ends.md` 1206). Where a mind's soil
+        // goes is its choice only if it stays where it was put. These
+        // options serve minds alone, so the game is untouched (review of
+        // the dig rung design, finding 6).
         let drop = if st.spoil.is_some() {
-            spoil_site_open(world, t.0, t.1, spoil_footing_drop())
+            spoil_site_open(world, t.0, t.1, true)
         } else {
             crop.is_some_and(|c| c.cells > 0) && world.is_empty(t.0, t.1)
         };
@@ -694,7 +702,7 @@ mod tests {
                     assert!(jaws || crop, "frame {f} ant {id}: a drop with nothing to drop");
                     if jaws {
                         assert!(
-                            spoil_site_open(&w, t.0, t.1, spoil_footing_drop()),
+                            spoil_site_open(&w, t.0, t.1, true),
                             "frame {f} ant {id}: pellet down at {t:?}"
                         );
                     } else {

@@ -41,6 +41,7 @@ use super::{
     blend_with_kin, crop_take, crop_to_feed, food_at_home, food_value, nest_within_reach, note_drop, note_feed,
     quantise_worth, DropWhy, FEED_SHARE, SHARE_FRACTION,
 };
+use super::{cut_cell, jaw_can_cut, spoil_site_open};
 use crate::sim::cell::Cell;
 use crate::sim::cell::OrganismId;
 use crate::sim::organism::{self, BroodStage, Crop, DeathCause};
@@ -565,7 +566,7 @@ impl Verb {
     pub fn acts(self) -> bool {
         matches!(
             self,
-            Verb::Walk | Verb::TurnAround | Verb::Rest | Verb::Eat | Verb::Drop | Verb::Feed
+            Verb::Walk | Verb::TurnAround | Verb::Rest | Verb::Eat | Verb::Drop | Verb::Feed | Verb::Dig
         )
     }
 }
@@ -623,6 +624,9 @@ pub struct MindCounts {
     pub fed_adult: u64,
     pub fed_larva_crop: u64,
     pub fed_larva_bank: u64,
+    /// Soil: cells cut into the jaws, and pellets put down.
+    pub dug: u64,
+    pub dumped: u64,
 }
 
 /// **Every mind in the world**, by ant: a side table on the world, as the
@@ -633,6 +637,12 @@ pub struct Minds {
     ants: HashMap<OrganismId, Mind>,
     pruned_at: u64,
     pub counts: MindCounts,
+    /// **Every pellet a mind puts down**, as `(x, y, frame, ant)`: the soil
+    /// trip's other end, beside `World::cut_log`'s cut. Off (`None`) unless
+    /// a reader sets `Some(Vec::new())`; recording draws nothing and changes
+    /// nothing. Kept here rather than on `World` because only a mind's
+    /// put-down writes it.
+    pub dump_log: Option<Vec<(i32, i32, u64, OrganismId)>>,
     /// **Build the game ant's ways out even in a world of minds**
     /// ([`every_ant_has_one`]): the control for the skip, off unless a
     /// paired check sets it.
@@ -1055,6 +1065,14 @@ pub(super) fn tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def:
                 world.book(colony, Account::Metabolized, work as f64);
                 world.creature_stats.share_energy += work as f64;
             }
+            // **A cut is jaw work, priced as the game prices one**
+            // (`creature_tick`'s dig bill), to the same account.
+            if did && opt.verb == Verb::Dig && def.dig_cost_in_moves > 0.0 {
+                let cost = def.move_cost_per_cell * body_cells * def.dig_cost_in_moves;
+                spent += cost;
+                world.book(colony, Account::Metabolized, cost as f64);
+                world.creature_stats.dig_energy += cost as f64;
+            }
             if did {
                 moved = matches!(opt.verb, Verb::Walk | Verb::TurnAround);
                 if opt.verb == Verb::Walk {
@@ -1102,6 +1120,7 @@ fn act(world: &mut World, organism: OrganismId, def: &CreatureDef, opt: Opt, dra
         Verb::Eat => swallow(world, organism, def, opt.target, draw),
         Verb::Drop => put_down(world, organism, def, opt.target),
         Verb::Feed => feed(world, organism, def, opt.target),
+        Verb::Dig => dig(world, organism, def, opt.target),
         _ => false,
     }
 }
@@ -1200,6 +1219,64 @@ fn swallow(
     true
 }
 
+/// **Cut one cell of ground into the jaws**, by the game's own cut
+/// (`cut_cell`): the pellet into the jaws, the cell emptied, the burrow
+/// lined. **None of the game's vetoes** -- the heap cue, the face, the roof,
+/// shaft rooms, company: which cell is the mind's, by the owner's ruling
+/// that a spatial need is a brain input, not a predicate in the act
+/// (`dead-ends.md`, the two hand-written placement rules). The list offered
+/// only cells the jaw can cut, with free jaws and an empty crop
+/// (`options::build`); the checks here are the ones the world could have
+/// changed since. The caller bills the jaw work.
+fn dig(world: &mut World, organism: OrganismId, def: &CreatureDef, (tx, ty): (i32, i32)) -> bool {
+    let Some((head, free)) = world
+        .organism(organism)
+        .and_then(|s| s.chain.first().map(|&h| (h, s.spoil.is_none() && s.crop.is_none())))
+    else {
+        return false;
+    };
+    let cell = world.get(tx, ty);
+    if !free || !jaw_can_cut(world, def, organism, cell) {
+        return false;
+    }
+    cut_cell(world, organism, head, (tx, ty), cell);
+    if let Some(m) = world.minds.as_mut() {
+        m.counts.dug += 1;
+    }
+    true
+}
+
+/// **Put the pellet in the jaws down**, by the game's spoil drop (`act`'s
+/// spoil branch): the cell goes down as it was cut -- tamped, so it needs
+/// ground under it (`spoil_site_open` with the footing rule's test, which
+/// the list already checked) -- and the jaws are free to cut again. **None of the game's placement
+/// rules** (first empty neighbour, the lift, the door column's sky test):
+/// where soil goes is the mind's, held and carried as food is (owner,
+/// `dead-ends.md`'s two hand-written placement rules).
+fn put_down_pellet(world: &mut World, organism: OrganismId, (dx, dy): (i32, i32)) -> bool {
+    let Some(spoil) = world.organism(organism).and_then(|s| s.spoil) else {
+        return false;
+    };
+    // On ground, as the list offered it (`options::build`).
+    if !spoil_site_open(world, dx, dy, true) {
+        return false;
+    }
+    world.set(dx, dy, spoil.cell);
+    if let Some(state) = world.organism_mut(organism) {
+        state.spoil = None;
+        state.spoil_ring = None;
+    }
+    world.creature_stats.spoil_dumped += 1;
+    let frame = world.frame;
+    if let Some(m) = world.minds.as_mut() {
+        m.counts.dumped += 1;
+        if let Some(log) = m.dump_log.as_mut() {
+            log.push((dx, dy, frame, organism));
+        }
+    }
+    true
+}
+
 /// **Put one crop cell down in a free cell**, by the game's food drop
 /// (`act`'s drop branch): the cell leaves at `unit - digesting`, a seed
 /// riding in the crop goes down whole with its fruit, and the chewing goes
@@ -1207,6 +1284,11 @@ fn swallow(
 /// delivery, counted as the game counts one. None of the game's holds,
 /// relays, store or door rules: where the food goes is the mind's.
 fn put_down(world: &mut World, organism: OrganismId, def: &CreatureDef, (dx, dy): (i32, i32)) -> bool {
+    // A pellet in the jaws goes down first: the list offered the drop at a
+    // spoil site (`options::build`), and a crop never empties past one.
+    if world.organism(organism).is_some_and(|s| s.spoil.is_some()) {
+        return put_down_pellet(world, organism, (dx, dy));
+    }
     let Some((held, (hx, hy))) = world
         .organism(organism)
         .and_then(|s| s.chain.first().map(|&h| (s.crop.filter(|c| c.cells > 0), h)))
@@ -1214,7 +1296,7 @@ fn put_down(world: &mut World, organism: OrganismId, def: &CreatureDef, (dx, dy)
         return false;
     };
     let Some(held) = held else { return false };
-    if world.organism(organism).is_some_and(|s| s.spoil.is_some()) || !world.is_empty(dx, dy) {
+    if !world.is_empty(dx, dy) {
         return false;
     }
     let at_nest = nest_within_reach(world, organism, hx, hy, def);
@@ -1530,8 +1612,8 @@ mod tests {
         }
         let ctx: [f32; CONTEXT] = std::array::from_fn(|i| i as f32 / CONTEXT as f32);
         let base: Vec<Opt> = walks().into_iter().filter(|o| o.verb != Verb::TurnAround).collect();
-        // The same list with two off verbs that act (turning around, putting
-        // down) and one that does not act yet (dig) threaded through it.
+        // The same list with three off verbs that act (turning around,
+        // putting down, digging) threaded through it.
         let more = vec![
             base[0],
             opt(Verb::Dig, (1, 1), 0.3),
@@ -1701,6 +1783,68 @@ mod tests {
             assert!(!act(&mut w, b, &def, on(Verb::Feed, cell), &mut draw), "fed uphill");
         }
         assert_eq!(w.minds.as_ref().expect("minds").counts.fed_adult, 1);
+    }
+
+    /// **The soil verbs move soil by the world's rules**: a cut takes the
+    /// cell into the jaws as a pellet and empties it; full jaws cannot cut
+    /// again; the pellet goes down only where it will stand
+    /// (`spoil_site_open`), as the cell it was cut as, and the put-down is
+    /// logged when a reader asked for it. A crop of food is not soil: with
+    /// the jaws empty a put-down is the food drop's, untouched.
+    #[test]
+    fn the_soil_verbs_move_soil_by_the_worlds_rules() {
+        let (mut w, def, ids) = mind_box();
+        w.minds.as_mut().expect("minds").dump_log = Some(Vec::new());
+        let (id, cut) = ids
+            .iter()
+            .find_map(|&id| {
+                let (x, y) = head_of(&w, id);
+                DIRS.iter()
+                    .map(|&(dx, dy)| (x + dx, y + dy))
+                    .find(|&(tx, ty)| jaw_can_cut(&w, &def, id, w.get(tx, ty)))
+                    .map(|t| (id, t))
+            })
+            .expect("an ant beside ground it can cut");
+        let ground = w.get(cut.0, cut.1);
+        let (digs, dumped) = (w.creature_stats.digs, w.creature_stats.spoil_dumped);
+        let mut draw = rng::stream(1, id as u64, 0, RNG_SLOT_ACT);
+        assert!(act(&mut w, id, &def, on(Verb::Dig, cut), &mut draw), "the cut");
+        assert!(w.is_empty(cut.0, cut.1), "the cut cell is still ground");
+        let pellet = w.organism(id).and_then(|s| s.spoil).expect("a pellet in the jaws");
+        assert_eq!(w.creature_stats.digs, digs + 1);
+        // Full jaws cannot cut: any other cuttable cell is refused.
+        let near = |w: &World| {
+            let (x, y) = head_of(w, id);
+            (-3..=3)
+                .flat_map(|dy| (-3..=3).map(move |dx| (x + dx, y + dy)))
+                .find(|&(tx, ty)| jaw_can_cut(w, &def, id, w.get(tx, ty)))
+        };
+        if let Some(t) = near(&w) {
+            assert!(!act(&mut w, id, &def, on(Verb::Dig, t), &mut draw), "cut with full jaws");
+        }
+        // Not where it would hang: a cell of open air with nothing under it.
+        let (hx, hy) = head_of(&w, id);
+        let air = (0..hy)
+            .rev()
+            .map(|y| (hx, y))
+            .find(|&(x, y)| !spoil_site_open(&w, x, y, true) && w.is_empty(x, y))
+            .expect("open air above the ant");
+        assert!(!act(&mut w, id, &def, on(Verb::Drop, air), &mut draw), "a pellet hung in the air");
+        assert!(w.organism(id).is_some_and(|s| s.spoil.is_some()), "a refused put-down let go");
+        // Where it will stand: the cut cell's own hole, if it has a footing,
+        // or the nearest site that does.
+        let site = (-6..=6)
+            .flat_map(|dy| (-6..=6).map(move |dx| (hx + dx, hy + dy)))
+            .find(|&(x, y)| spoil_site_open(&w, x, y, true))
+            .expect("a site a pellet can stand on");
+        assert!(act(&mut w, id, &def, on(Verb::Drop, site), &mut draw), "the pellet put-down");
+        assert_eq!(w.get(site.0, site.1), pellet.cell, "the pellet went down as something else");
+        assert!(w.organism(id).is_some_and(|s| s.spoil.is_none() && s.spoil_ring.is_none()));
+        assert_eq!(w.creature_stats.spoil_dumped, dumped + 1);
+        let m = w.minds.as_ref().expect("minds");
+        assert_eq!((m.counts.dug, m.counts.dumped, m.counts.put_down), (1, 1, 0));
+        assert_eq!(m.dump_log.as_deref(), Some(&[(site.0, site.1, w.frame, id)][..]));
+        assert_ne!(ground.material, crate::sim::material::EMPTY);
     }
 
     /// **A rung's entry**: the verbs the earlier rung banned come on, an
