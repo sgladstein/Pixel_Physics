@@ -1859,6 +1859,14 @@ impl Challenge for Soil {
 /// one side of the nest, and an odd `k` mirrors them across it, so a pair
 /// differs only by the side and is scored by its worse side.
 ///
+/// **Not an exact mirror** (review of PR 722, N4): the shaft is the two
+/// columns `NEST_X` and `NEST_X + 1`, an east feature starts at `NEST_X + d`
+/// and its west twin ends at `NEST_X - d - 1`, so the east one sits two
+/// columns nearer the shaft. The worse-side fold leans slightly east for
+/// it. Dig's colony arena has drawn its beds this way since it took them;
+/// left as it is, since moving the west side would change every bed it
+/// has scored.
+///
 /// **Every bed has at least one one-sided feature**: the step is forced on
 /// a bed that drew no lens. The probe's one bed with neither gave two
 /// identical runs to the cell, a pair that tests nothing about a one-way

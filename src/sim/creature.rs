@@ -34084,6 +34084,41 @@ mod tests {
         assert!(targets > 100 && fired.len() >= 2, "{} of {targets} cuts drop a roof cell: {fired:?}", fired.len());
     }
 
+    /// **A roof cell already failing is not the cut's doing**
+    /// ([`cut_drops_roof`]'s "stood before the cut" term; review of PR 722,
+    /// N3). A lined cell with air beneath and the soil to be cut beside it:
+    /// with two more contacts it stands at exactly the crumb rule's three and
+    /// the cut takes the third, so the sense fires; with one more it is
+    /// already down to two before anything is cut, and calling that the
+    /// cut's doing would charge a digger for a cell the world drops anyway.
+    /// The founding-cut test above never builds the second case -- around a
+    /// lined cut every worked cell stands until something is taken from it
+    /// -- so it stayed green with the term left out. Watched red with
+    /// `&& !gives(&bare, n)` taken out of [`cut_drops_roof`].
+    #[test]
+    fn a_roof_cell_already_failing_is_not_the_cuts_doing() {
+        let w0 = World::new(Rect::new(0, 0, 19, 19));
+        let soil = w0.materials.id_of("soil").expect("soil material");
+        let lined = w0.materials.get(soil).packs_into.expect("soil packs into a lining");
+        let m = w0.materials.get(lined);
+        assert!(
+            m.kind == MaterialKind::Powder && m.self_supporting && m.slumps_into.is_some() && !m.needs_footing,
+            "the lining falls by the crumb rule, not the footing rule"
+        );
+        let stone = Cell::new(material::STONE, 0);
+        let build = |contacts: &[(i32, i32)]| {
+            let mut w = World::new(Rect::new(0, 0, 19, 19));
+            w.set(10, 10, Cell::new(lined, 0));
+            w.set(9, 10, Cell::new(soil, 0));
+            for &(x, y) in contacts {
+                w.set(x, y, stone);
+            }
+            w
+        };
+        assert!(cut_drops_roof(&build(&[(10, 9), (11, 10)]), (9, 10)), "the cut takes the lined cell's third contact");
+        assert!(!cut_drops_roof(&build(&[(10, 9)]), (9, 10)), "a cell already down to two contacts called the cut's doing");
+    }
+
     /// **No pellet is set down over the door** under [`door_column_of`]: a
     /// cell over the shaft's mouth and one a column beside it are refused by
     /// the ordinary drop ([`spoil_site_open`]) and the lean or need drop

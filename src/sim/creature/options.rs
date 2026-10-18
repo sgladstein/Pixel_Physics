@@ -693,17 +693,6 @@ mod tests {
         assert!((3.0..40.0).contains(&per), "{per:.1} options a decision");
     }
 
-    /// **The options are the body's own**: at every decision sampled from a
-    /// working colony, rest is offered once at the head; the footed steps
-    /// are exactly the walk's own (`usable_headings`); the digs are exactly
-    /// the cells the jaws can cut (`targets::dig_candidates`) and only with
-    /// empty jaws and crop; a load goes down only from a carrier and only
-    /// on real ground (`spoil_site_open` with the footing rule: the minds'
-    /// own, stricter than the game's spoil branch, whose footing switch
-    /// ships off); one colony has nobody to bite;
-    /// each target is one kind of thing; every feature is in -1..1. Then food
-    /// is put beside a head, and a pick-up and a meal appear on it: the
-    /// positive control for the reach scan.
     /// **An option's hole is the soil score's hole** (`f::CUT`,
     /// [`in_the_hole`]): over 3,000 frames of a digging colony, every option
     /// at every 25th frame reads `f::CUT` exactly when its cell was open in
@@ -740,8 +729,13 @@ mod tests {
             if f % 25 != 0 {
                 continue;
             }
-            let cut: std::collections::HashSet<(i32, i32)> =
-                w.cut_log.iter().flatten().map(|c| (c.0, c.1)).filter(|c| ground0.contains(c)).collect();
+            let cut: std::collections::HashSet<(i32, i32)> = w
+                .cut_log
+                .iter()
+                .flatten()
+                .map(|c| (c.0, c.1))
+                .filter(|c| ground0.contains(c))
+                .collect();
             for id in w.live_organism_ids() {
                 if !w.organism(id).is_some_and(|s| s.species == sp && s.brood.is_none()) {
                     continue;
@@ -749,18 +743,35 @@ mod tests {
                 build(&w, id, &def, &mut opts);
                 for o in &opts {
                     let want = founding0.contains(&o.target) || cut.contains(&o.target);
-                    assert_eq!(o.feats[f::CUT] == 1.0, want, "frame {f} ant {id}: {:?} at {:?}", o.verb, o.target);
+                    assert_eq!(
+                        o.feats[f::CUT] == 1.0,
+                        want,
+                        "frame {f} ant {id}: {:?} at {:?}",
+                        o.verb,
+                        o.target
+                    );
                     hole += usize::from(want);
                     let lined = w.get(o.target.0, o.target.1).material == packed;
                     assert_eq!(o.feats[f::LINED] == 1.0, lined, "frame {f}: wall at {:?}", o.target);
-                    assert!(!(lined && o.feats[f::SPOIL] == 1.0), "frame {f}: wall read as spoil at {:?}", o.target);
+                    assert!(
+                        !(lined && o.feats[f::SPOIL] == 1.0),
+                        "frame {f}: wall read as spoil at {:?}",
+                        o.target
+                    );
                     wall += usize::from(lined);
                     n += 1;
                 }
             }
         }
-        assert!(hole > 100 && wall > 100, "{hole} hole options and {wall} wall options of {n}");
-        assert!(w.cut_log.as_ref().is_some_and(|l| l.len() > 20), "the colony dug {:?}", w.cut_log.as_ref().map(Vec::len));
+        assert!(
+            hole > 100 && wall > 100,
+            "{hole} hole options and {wall} wall options of {n}"
+        );
+        assert!(
+            w.cut_log.as_ref().is_some_and(|l| l.len() > 20),
+            "the colony dug {:?}",
+            w.cut_log.as_ref().map(Vec::len)
+        );
         // A pellet cut back out of a heap is not the hole: the colony above
         // never did that, so put the case in by hand -- a cut a row above
         // the ground as built, and one a row below it.
@@ -772,6 +783,17 @@ mod tests {
         assert!(in_the_hole(&w, x, top + 1), "a cut into the ground");
     }
 
+    /// **The options are the body's own**: at every decision sampled from a
+    /// working colony, rest is offered once at the head; the footed steps
+    /// are exactly the walk's own (`usable_headings`); the digs are exactly
+    /// the cells the jaws can cut (`targets::dig_candidates`) and only with
+    /// empty jaws and crop; a load goes down only from a carrier and only
+    /// on real ground (`spoil_site_open` with the footing rule: the minds'
+    /// own, stricter than the game's spoil branch, whose footing switch
+    /// ships off); one colony has nobody to bite;
+    /// each target is one kind of thing; every feature is in -1..1. Then food
+    /// is put beside a head, and a pick-up and a meal appear on it: the
+    /// positive control for the reach scan.
     #[test]
     fn the_options_are_the_bodys_own() {
         let mut w = colony_box();
