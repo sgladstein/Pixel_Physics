@@ -376,8 +376,8 @@ pub fn enter_rung(g: &mut [f32], verbs: &[Verb], emits: [bool; EMITS]) -> Vec<St
 /// (`review-brain-architecture.md` E8). Returns what it changed.
 fn enter_dig(g: &mut [f32]) -> Vec<String> {
     let dig = Verb::Dig as usize;
-    let mut drifted = vec![JOB + dig * J_IN..JOB + (dig + 1) * J_IN];
-    drifted.extend((0..UNITS).map(|u| S_VERB + u * VERBS + dig..S_VERB + u * VERBS + dig + 1));
+    let mut drifted: Vec<std::ops::Range<usize>> = (0..UNITS).map(|u| S_VERB + u * VERBS + dig..S_VERB + u * VERBS + dig + 1).collect();
+    drifted.push(JOB + dig * J_IN..JOB + (dig + 1) * J_IN);
     drifted.extend((0..MEMORY).map(|m| {
         let k = MEM + m * M_IN + CONTEXT + 2 + dig;
         k..k + 1
@@ -2035,6 +2035,7 @@ mod tests {
             })
             .expect("an ant beside ground it can cut");
         let ground = w.get(cut.0, cut.1);
+        assert_ne!(ground.material, crate::sim::material::EMPTY);
         let (digs, dumped) = (w.creature_stats.digs, w.creature_stats.spoil_dumped);
         let mut draw = rng::stream(1, id as u64, 0, RNG_SLOT_ACT);
         assert!(act(&mut w, id, &def, on(Verb::Dig, cut), &mut draw), "the cut");
@@ -2048,9 +2049,8 @@ mod tests {
                 .flat_map(|dy| (-3..=3).map(move |dx| (x + dx, y + dy)))
                 .find(|&(tx, ty)| jaw_can_cut(w, &def, id, w.get(tx, ty)))
         };
-        if let Some(t) = near(&w) {
-            assert!(!act(&mut w, id, &def, on(Verb::Dig, t), &mut draw), "cut with full jaws");
-        }
+        let t = near(&w).expect("another cell the jaws could cut, to refuse");
+        assert!(!act(&mut w, id, &def, on(Verb::Dig, t), &mut draw), "cut with full jaws");
         // Not where it would hang: a cell of open air with nothing under it.
         let (hx, hy) = head_of(&w, id);
         let air = (0..hy)
@@ -2073,7 +2073,6 @@ mod tests {
         let m = w.minds.as_ref().expect("minds");
         assert_eq!((m.counts.dug, m.counts.dumped, m.counts.put_down), (1, 1, 0));
         assert_eq!(m.dump_log.as_deref(), Some(&[(site.0, site.1, w.frame, id)][..]));
-        assert_ne!(ground.material, crate::sim::material::EMPTY);
     }
 
     /// **A rung's entry**: the verbs the earlier rung banned come on, an

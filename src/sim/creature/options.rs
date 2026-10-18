@@ -651,7 +651,9 @@ mod tests {
     /// are exactly the walk's own (`usable_headings`); the digs are exactly
     /// the cells the jaws can cut (`targets::dig_candidates`) and only with
     /// empty jaws and crop; a load goes down only from a carrier and only
-    /// where the spoil branch would put it; one colony has nobody to bite;
+    /// on real ground (`spoil_site_open` with the footing rule: the minds'
+    /// own, stricter than the game's spoil branch, whose footing switch
+    /// ships off); one colony has nobody to bite;
     /// each target is one kind of thing; every feature is in -1..1. Then food
     /// is put beside a head, and a pick-up and a meal appear on it: the
     /// positive control for the reach scan.
