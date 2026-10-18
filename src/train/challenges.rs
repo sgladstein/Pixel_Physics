@@ -1416,7 +1416,8 @@ pub const SOIL_POINTS: [f64; 4] = [1.0, 2.0, 4.0, 8.0];
 /// something and the eighth row as much as the first.
 pub const SOIL_UP_ROWS: i32 = 8;
 
-/// **Pellets an ant is paid for at a stage under the one being learned.**
+/// **Pellets an ant is paid for at a stage under the one being learned**
+/// (from step 4, its deepest: [`soil_trip`]).
 /// A farmer that cuts and drops at the face for the whole run earns the
 /// cap and no more, so the next stage is always worth reaching (design,
 /// section 4).
@@ -1464,6 +1465,15 @@ pub struct SoilTrip {
     /// or less): rim quarrying, counted at every step and paid nothing from
     /// step 4 (`dig-rung-design.md` rev 2.4).
     pub rim: usize,
+    /// **Loads up and out, depth-weighted** (`dig-rung-design.md` rev 2.6,
+    /// the step 4 bar): each S4 pellet counts `min(1, rows paid /
+    /// full_depth)`, so a pellet carried up from a pit 2 rows deep at a
+    /// 4-row shaft is half a load. `load_base` is the same weight over the
+    /// first cuts below the surface (`min(1, depth / full_depth)`), and
+    /// `loads / load_base`, pooled over worlds, is the bar's 0.75 share.
+    /// Prints only, at every step.
+    pub loads: f64,
+    pub load_base: f64,
     /// Pellets whose cut earned S1 and that were never put down: still in
     /// the jaws at the bell, or lost with their ant.
     pub held: usize,
@@ -1505,6 +1515,19 @@ pub struct SoilTrip {
 ///   any stage, and a deep pellet put down away pays 7 and its S4. On bare
 ///   ground (step 7) a new hole's first cut pays nothing and the one under
 ///   it pays in full.
+/// * **From step 4, S1-S3 pay by depth** (`dig-rung-design.md` line 149,
+///   the response fixed in advance for review N2): each pellet's S1, S2
+///   and S3 points are scaled by `min(1, depth / full_depth)`, and the
+///   arena passes its shaft's rows, so at a 4-row shaft a cut one row
+///   under the top pays a quarter and one at the shaft's foot in full.
+///   The trap came back one row down, as N2 warned: on the gated scoring
+///   seed 83's hold-best brought up 4.5 pellets a world against its
+///   start's 1.67 (12 sealed worlds), each climbing 1.89 rows against the
+///   start's 2.90, from a pit 1-2 rows deep widened beside the shaft
+///   (`stage2/dig/step4-gate-README.md`). Under the cap an ant's deepest
+///   pellets are the ones paid. A rim cut has depth 0 or less and pays
+///   nothing, as above; `full_depth` 1 is rev 2.4's rule, every cut below
+///   the top row in full.
 /// * **S2 let go**: the pellet was put down (on ground: the put-down
 ///   checks that, `mind::put_down_pellet`).
 /// * **S4 up and out** (from step 4): a pellet that reached S3 earns
@@ -1534,8 +1557,10 @@ pub struct SoilTrip {
 /// cell that is ground again (`ground_now`, read after the settle) costs
 /// [`SOIL_REFILL`]. The score is not floored: a run that fills its own
 /// hole reads below one that never dug.
+#[allow(clippy::too_many_arguments)]
 pub fn soil_trip(
     step: u8,
+    full_depth: i32,
     was_ground: impl Fn(i32, i32) -> bool,
     ground_now: impl Fn(i32, i32) -> bool,
     depth: impl Fn(i32, i32) -> i32,
@@ -1554,11 +1579,19 @@ pub fn soil_trip(
     type Acts = Vec<(u64, Option<(bool, i32)>, (i32, i32))>;
     let mut per_ant: BTreeMap<OrganismId, Acts> = BTreeMap::new();
     let step = step.clamp(1, 4) as usize;
+    // What a pellet's S1-S3 are worth, by its cut's depth: in full under
+    // step 4, and from step 4 in proportion down to `full_depth`.
+    let weight = |d: i32| (f64::from(d) / f64::from(full_depth.max(1))).clamp(0.0, 1.0);
+    let pay = |d: i32| if step < 4 { 1.0 } else { weight(d) };
+    let mut load_base = 0.0;
     let (mut deep_cuts, mut rim_cuts) = (0, 0);
     for &(x, y, f, id) in &cuts {
         let first = was_ground(x, y) && cut_before.insert((x, y));
         let d = depth(x, y);
         deep_cuts += usize::from(first && d > 0);
+        if first && d > 0 {
+            load_base += weight(d);
+        }
         rim_cuts += usize::from(first && d <= 0);
         let s1 = first && (step < 4 || d > 0);
         per_ant.entry(id).or_default().push((f, Some((s1, d)), (x, y)));
@@ -1567,12 +1600,14 @@ pub fn soil_trip(
         per_ant.entry(id).or_default().push((f, None, (x, y)));
     }
     let away = |at: (i32, i32)| soil_away(&hole, at);
-    let mut trip = SoilTrip { cuts: cuts.len(), dumped: dumps.len(), deep: deep_cuts, rim: rim_cuts, ..SoilTrip::default() };
+    let mut trip = SoilTrip { cuts: cuts.len(), dumped: dumps.len(), deep: deep_cuts, rim: rim_cuts, load_base, ..SoilTrip::default() };
     for events in per_ant.values_mut() {
         // A cut and a put-down never share an ant's frame: one act a
         // decision.
         events.sort_by_key(|e| (e.0, e.1.is_none()));
-        let mut n = [0usize; 3];
+        // Each stage's pellets, by what each is worth ([`soil_trip`]'s
+        // depth pay).
+        let mut n: [Vec<f64>; 3] = Default::default();
         // Each S4 pellet's rows, in the order they were put down.
         let mut ups: Vec<i32> = Vec::new();
         // What the jaws hold: whether its cut earned S1, the cut's depth
@@ -1585,13 +1620,15 @@ pub fn soil_trip(
                         trip.held += 1;
                     }
                     jaws = Some((s1, deep, at.1));
-                    n[0] += usize::from(s1);
+                    if s1 {
+                        n[0].push(pay(deep));
+                    }
                 }
                 None => {
                     if let Some((true, deep, cut_y)) = jaws {
-                        n[1] += 1;
+                        n[1].push(pay(deep));
                         if away(at) {
-                            n[2] += 1;
+                            n[2].push(pay(deep));
                             let rows = (cut_y - at.1).min(deep).min(SOIL_UP_ROWS);
                             if rows > 0 {
                                 ups.push(rows);
@@ -1608,12 +1645,17 @@ pub fn soil_trip(
             std::cmp::Ordering::Equal => n,
             std::cmp::Ordering::Greater => 0,
         };
-        for k in 0..3 {
-            trip.stages[k] += n[k];
-            trip.score += SOIL_POINTS[k] * paid(k, n[k]) as f64;
+        // Under the cap, an ant's deepest pellets are the ones paid: one
+        // more pellet never lowers its pay, and a shallow one cut first
+        // does not crowd out a deep one cut later.
+        for (k, pellets) in n.iter_mut().enumerate() {
+            trip.stages[k] += pellets.len();
+            pellets.sort_by(|a, b| b.total_cmp(a));
+            trip.score += SOIL_POINTS[k] * pellets.iter().take(paid(k, pellets.len())).sum::<f64>();
         }
         trip.up += ups.len();
         trip.up_rows += ups.iter().sum::<i32>() as usize;
+        trip.loads += ups.iter().map(|&r| weight(r)).sum::<f64>();
         let climbed = ups.iter().take(paid(3, ups.len())).sum::<i32>();
         trip.score += SOIL_POINTS[3] * f64::from(climbed) / f64::from(SOIL_UP_ROWS);
     }
@@ -1781,7 +1823,7 @@ impl Challenge for Soil {
         self.frames
     }
     fn parts(&self) -> &'static [&'static str] {
-        &["score", "cuts", "s1", "s2", "s3", "held", "dumped", "refill_pellet", "refill_fall", "away_share", "alive", "energy_left", "dig_j", "holding", "spent", "chamber_fill", "fall_putdown", "s4", "up_rows", "deep_cuts", "rim_cuts"]
+        &["score", "cuts", "s1", "s2", "s3", "held", "dumped", "refill_pellet", "refill_fall", "away_share", "alive", "energy_left", "dig_j", "holding", "spent", "chamber_fill", "fall_putdown", "s4", "up_rows", "deep_cuts", "rim_cuts", "loads", "load_base", "load_share"]
     }
     fn banned(&self) -> &'static [O] {
         NOT_ANT_VERBS
@@ -1854,7 +1896,7 @@ impl Challenge for Soil {
         look(self.frames + DIG_SETTLE, &w);
         let cuts = w.cut_log.clone().unwrap_or_default();
         let dumps = w.minds.as_ref().and_then(|m| m.dump_log.clone()).unwrap_or_default();
-        let trip = soil_trip(self.step, |x, y| at(x, y).is_some_and(|i| ground0[i]), |x, y| is_ground(&w, x, y), deep, &founding, &cuts, &dumps);
+        let trip = soil_trip(self.step, self.shaft, |x, y| at(x, y).is_some_and(|i| ground0[i]), |x, y| is_ground(&w, x, y), deep, &founding, &cuts, &dumps);
         let away_share = if trip.stages[1] > 0 { trip.stages[2] as f64 / trip.stages[1] as f64 } else { 0.0 };
         vec![Score {
             fit: trip.score,
@@ -1880,6 +1922,9 @@ impl Challenge for Soil {
                 trip.up_rows as f64,
                 trip.deep as f64,
                 trip.rim as f64,
+                trip.loads,
+                trip.load_base,
+                if trip.load_base > 0.0 { trip.loads / trip.load_base } else { 0.0 },
             ],
         }]
     }
@@ -3461,16 +3506,16 @@ mod tests {
         let cuts: Vec<_> = (0..20).map(|i| (50 + i, 5, 10 * i as u64, 7)).collect();
         let dumps: Vec<_> = (0..20).map(|i| (100 + i, 5, 10 * i as u64 + 5, 7)).collect();
         for step in 1..=3 {
-            let t = soil_trip(step, below_10, |_, _| false, |_, _| 0, &[], &cuts, &dumps);
+            let t = soil_trip(step, 1, below_10, |_, _| false, |_, _| 0, &[], &cuts, &dumps);
             assert_eq!((t.score, t.stages), (0.0, [0, 0, 0]), "step {step}: {t:?}");
         }
         let honest: Vec<_> = cuts.iter().map(|&(x, _, f, id)| (x, 12, f, id)).collect();
-        let t = soil_trip(3, below_10, |_, _| false, |_, _| 0, &[], &honest, &dumps);
+        let t = soil_trip(3, 1, below_10, |_, _| false, |_, _| 0, &[], &honest, &dumps);
         assert_eq!(t.stages, [20, 20, 20]);
         assert_eq!(t.score, 4.0 * 20.0 + 2.0 * SOIL_CAP as f64 + SOIL_CAP as f64);
         // A cell counts once: the same cell cut twice is one S1.
         let twice = [(60, 12, 0, 7), (60, 12, 20, 7)];
-        let t = soil_trip(1, below_10, |_, _| false, |_, _| 0, &[], &twice, &[(100, 5, 10, 7)]);
+        let t = soil_trip(1, 1, below_10, |_, _| false, |_, _| 0, &[], &twice, &[(100, 5, 10, 7)]);
         assert_eq!((t.cuts, t.stages[0]), (2, 1));
     }
 
@@ -3482,7 +3527,7 @@ mod tests {
     fn the_cut_and_drop_farmer_hits_the_cap() {
         let cuts: Vec<_> = (0..40).map(|i| (60, 10 + i, 10 * i as u64, 7)).collect();
         let dumps: Vec<_> = (0..40).map(|i| (61, 10 + i, 10 * i as u64 + 5, 7)).collect();
-        let at = |step| soil_trip(step, below_10, |_, _| false, |_, _| 0, &[], &cuts, &dumps);
+        let at = |step| soil_trip(step, 1, below_10, |_, _| false, |_, _| 0, &[], &cuts, &dumps);
         assert_eq!(at(1).stages, [40, 40, 0]);
         assert_eq!(at(1).score, 40.0);
         assert_eq!(at(2).score, SOIL_CAP as f64 + 2.0 * 40.0);
@@ -3493,7 +3538,7 @@ mod tests {
         more.push((60, 50, 1000, 7));
         let mut away = dumps.clone();
         away.push((80, 5, 1005, 7));
-        assert_eq!(soil_trip(3, below_10, |_, _| false, |_, _| 0, &[], &more, &away).score, farmer + SOIL_POINTS[2]);
+        assert_eq!(soil_trip(3, 1, below_10, |_, _| false, |_, _| 0, &[], &more, &away).score, farmer + SOIL_POINTS[2]);
     }
 
     /// **Down the shaft is not away, and costs its refill** (review R9): the
@@ -3508,13 +3553,13 @@ mod tests {
         let cuts: Vec<_> = (0..8).map(|i| (60 + i % 2, 14 + i / 2, 10 * i as u64, 7)).collect();
         let dumps: Vec<_> = (0..8).map(|i| (60 + i % 2, 10, 10 * i as u64 + 5, 7)).collect();
         let top_filled = |x: i32, y: i32| (x == 60 || x == 61) && y == 10;
-        let t = soil_trip(3, below_10, top_filled, |_, _| 0, &founding, &cuts, &dumps);
+        let t = soil_trip(3, 1, below_10, top_filled, |_, _| 0, &founding, &cuts, &dumps);
         assert_eq!(t.stages, [8, 8, 0]);
         assert_eq!((t.refill_pellet, t.refill_fall), (2, 0));
         assert_eq!(t.score, 8.0 + 2.0 * 8.0 - 2.0 * SOIL_REFILL);
-        assert_eq!(soil_trip(3, below_10, top_filled, |_, _| 0, &[], &cuts, &dumps).stages, [8, 8, 8]);
+        assert_eq!(soil_trip(3, 1, below_10, top_filled, |_, _| 0, &[], &cuts, &dumps).stages, [8, 8, 8]);
         // Refill is step 3's: at step 2 putting the pellet down anywhere is the lesson.
-        assert_eq!(soil_trip(2, below_10, top_filled, |_, _| 0, &founding, &cuts, &dumps).score, 8.0 + 2.0 * 8.0);
+        assert_eq!(soil_trip(2, 1, below_10, top_filled, |_, _| 0, &founding, &cuts, &dumps).score, 8.0 + 2.0 * 8.0);
     }
 
     /// **The nest filling, and what set each fall off** (step 4's prints,
@@ -3528,15 +3573,15 @@ mod tests {
         let founding: Vec<_> = (10..14).flat_map(|y| [(60, y), (61, y)]).collect();
         let cuts = [(60, 14, 0, 7)];
         let filled = |x: i32, y: i32| (x, y) == (60, 11) || (x, y) == (60, 14);
-        let t = soil_trip(3, below_10, filled, |_, _| 0, &founding, &cuts, &[]);
+        let t = soil_trip(3, 1, below_10, filled, |_, _| 0, &founding, &cuts, &[]);
         assert_eq!((t.refill_fall, t.chamber_fill, t.fall_putdown), (2, 1, 0));
         // A pellet put down at the mouth and gone by the end rolled in.
         let rolled = [(61, 9, 5, 7)];
-        let t = soil_trip(3, below_10, filled, |_, _| 0, &founding, &cuts, &rolled);
+        let t = soil_trip(3, 1, below_10, filled, |_, _| 0, &founding, &cuts, &rolled);
         assert_eq!((t.refill_fall, t.chamber_fill, t.fall_putdown), (2, 1, 1));
         // ...unless the ant cut it back up.
         let recut = [(60, 14, 0, 7), (61, 9, 9, 7)];
-        assert_eq!(soil_trip(3, below_10, filled, |_, _| 0, &founding, &recut, &rolled).fall_putdown, 0);
+        assert_eq!(soil_trip(3, 1, below_10, filled, |_, _| 0, &founding, &recut, &rolled).fall_putdown, 0);
     }
 
     /// **A pellet is paired with its own ant's next put-down**, and one cut
@@ -3548,7 +3593,7 @@ mod tests {
         // down; ant 8's put-down is its own.
         let cuts = [(60, 12, 0, 7), (70, 12, 5, 8), (61, 12, 20, 7)];
         let dumps = [(90, 5, 10, 8), (100, 5, 30, 7)];
-        let t = soil_trip(3, below_10, |_, _| false, |_, _| 0, &[], &cuts, &dumps);
+        let t = soil_trip(3, 1, below_10, |_, _| false, |_, _| 0, &[], &cuts, &dumps);
         assert_eq!((t.stages, t.held), ([3, 2, 2], 1));
     }
 
@@ -3565,14 +3610,14 @@ mod tests {
         let depth = |_x: i32, y: i32| y - 10;
         let cuts = [(60, 18, 0, 7), (70, 13, 0, 8), (80, 10, 0, 9), (90, 18, 0, 10)];
         let dumps = [(120, 9, 5, 7), (130, 4, 5, 8), (140, 9, 5, 9), (91, 17, 5, 10)];
-        let t = soil_trip(4, below_10, |_, _| false, depth, &[], &cuts, &dumps);
+        let t = soil_trip(4, 1, below_10, |_, _| false, depth, &[], &cuts, &dumps);
         assert_eq!((t.stages, t.up, t.up_rows), ([3, 3, 2], 2, 8 + 3));
         // Three of the four cuts were below the surface: the share's base.
         assert_eq!((t.deep, t.rim), (3, 1));
         let below = 3.0 * SOIL_POINTS[0] + 3.0 * SOIL_POINTS[1] + 2.0 * SOIL_POINTS[2];
         assert_eq!(t.score, below + SOIL_POINTS[3] * 11.0 / f64::from(SOIL_UP_ROWS));
         // At step 3 the surface pellet still pays its three stages.
-        let t3 = soil_trip(3, below_10, |_, _| false, depth, &[], &cuts, &dumps);
+        let t3 = soil_trip(3, 1, below_10, |_, _| false, depth, &[], &cuts, &dumps);
         let below3 = 4.0 * SOIL_POINTS[0] + 4.0 * SOIL_POINTS[1] + 3.0 * SOIL_POINTS[2];
         assert_eq!((t3.stages, t3.up, t3.up_rows, t3.score), ([4, 4, 3], 2, 11, below3));
         // A full climb outweighs every stage under it together.
@@ -3581,7 +3626,7 @@ mod tests {
         // carried 8 rows up and away, pay S1-S3 for 10 and S4 for all 12.
         let cuts: Vec<_> = (0..12).map(|i| (60 + i, 18, 10 * i as u64, 7)).collect();
         let dumps: Vec<_> = (0..12).map(|i| (100 + 4 * i, 9, 10 * i as u64 + 5, 7)).collect();
-        let t = soil_trip(4, below_10, |_, _| false, depth, &[], &cuts, &dumps);
+        let t = soil_trip(4, 1, below_10, |_, _| false, depth, &[], &cuts, &dumps);
         assert_eq!((t.stages, t.up, t.deep), ([12, 12, 12], 12, 12));
         let capped = SOIL_CAP as f64 * SOIL_POINTS[..3].iter().sum::<f64>();
         assert_eq!(t.score, capped + 12.0 * SOIL_POINTS[3]);
@@ -3604,17 +3649,71 @@ mod tests {
             (cuts, dumps)
         };
         let (cuts, dumps) = trips(10);
-        let t = soil_trip(4, below_10, |_, _| false, depth, &[], &cuts, &dumps);
+        let t = soil_trip(4, 1, below_10, |_, _| false, depth, &[], &cuts, &dumps);
         assert_eq!((t.score, t.stages, t.up, t.deep, t.rim), (0.0, [0, 0, 0], 0, 0, 12), "{t:?}");
-        let t3 = soil_trip(3, below_10, |_, _| false, depth, &[], &cuts, &dumps);
+        let t3 = soil_trip(3, 1, below_10, |_, _| false, depth, &[], &cuts, &dumps);
         assert_eq!((t3.stages, t3.rim), ([12, 12, 12], 12));
         assert_eq!(t3.score, 12.0 * SOIL_POINTS[2] + SOIL_CAP as f64 * (SOIL_POINTS[0] + SOIL_POINTS[1]));
         let (lower, dumps) = trips(11);
-        let t = soil_trip(4, below_10, |_, _| false, depth, &[], &lower, &dumps);
+        let t = soil_trip(4, 1, below_10, |_, _| false, depth, &[], &lower, &dumps);
         assert_eq!((t.stages, t.deep, t.rim), ([12, 12, 12], 12, 0));
         let face = |_x: i32, y: i32| y - 12;
-        let t = soil_trip(4, below_10, |_, _| false, face, &[], &lower, &dumps);
+        let t = soil_trip(4, 1, below_10, |_, _| false, face, &[], &lower, &dumps);
         assert_eq!((t.score, t.rim), (0.0, 12), "a cut above the lowest surface near it is not a pit");
+    }
+
+    /// **From step 4, S1-S3 pay by depth, down to the shaft's foot**
+    /// (`dig-rung-design.md` line 149, review N2). At a 4-row shaft, 12
+    /// pellets cut 2 rows down and carried well away pay half their S1-S3
+    /// for the 10 under the cap and S4 for 2 rows each, 59; the same trips
+    /// 4 rows down pay 118, and 1 row down 29.5. The control: at
+    /// `full_depth` 1 (rev 2.4's rule) the 2-row trips fill the cap, 94. And
+    /// under the cap the deepest pellets are paid, whatever order they were
+    /// cut in: 10 shallow pellets then 10 deep ones pay the deep ones' S1-S3
+    /// in full.
+    #[test]
+    fn from_step_four_s1_to_s3_pay_by_depth() {
+        type Moves = Vec<(i32, i32, u64, OrganismId)>;
+        let depth = |_x: i32, y: i32| y - 10;
+        let trips = |rows: &[i32]| -> (Moves, Moves) {
+            let cuts = rows.iter().enumerate().map(|(i, &row)| (60 + i as i32, row, 10 * i as u64, 7)).collect();
+            let dumps = (0..rows.len()).map(|i| (100 + 4 * i as i32, 9, 10 * i as u64 + 5, 7)).collect();
+            (cuts, dumps)
+        };
+        let below = SOIL_POINTS[..3].iter().sum::<f64>();
+        let score = |full: i32, rows: &[i32]| {
+            let (cuts, dumps) = trips(rows);
+            soil_trip(4, full, below_10, |_, _| false, depth, &[], &cuts, &dumps)
+        };
+        let t = score(4, &[12; 12]);
+        assert_eq!((t.stages, t.up, t.up_rows, t.deep), ([12, 12, 12], 12, 24, 12));
+        assert_eq!(t.score, SOIL_CAP as f64 * 0.5 * below + 12.0 * SOIL_POINTS[3] * 2.0 / f64::from(SOIL_UP_ROWS));
+        assert_eq!(t.score, 59.0);
+        // Half a load each: carried up 2 rows at a 4-row shaft.
+        assert_eq!((t.loads, t.load_base), (6.0, 6.0));
+        let t = score(4, &[14; 12]);
+        assert_eq!((t.score, t.loads, t.load_base), (118.0, 12.0, 12.0));
+        assert_eq!(score(1, &[12; 12]).score, 94.0);
+        // The 2-row scrape (review N2): twelve rim cuts and twelve a row
+        // under them pays 29.5 where it filled the cap (82), and comes to 3
+        // loads.
+        let t = score(4, &[[10; 12], [11; 12]].concat());
+        assert_eq!((t.score, t.rim, t.loads, t.load_base), (29.5, 12, 3.0, 3.0));
+        // Ten shallow then ten deep: S4 pays every one (1 row and 4 rows),
+        // S1-S3 the ten deep ones in full.
+        let mixed: Vec<i32> = [[11; 10], [14; 10]].concat();
+        let t = score(4, &mixed);
+        assert_eq!(t.score, SOIL_CAP as f64 * below + SOIL_POINTS[3] * (10.0 + 40.0) / f64::from(SOIL_UP_ROWS));
+        // Deep pellets put down beside their cut are not loads, though they
+        // count in the base.
+        let (cuts, _) = trips(&[14; 4]);
+        let near: Moves = cuts.iter().map(|&(x, y, f, id)| (x, y - 1, f + 5, id)).collect();
+        let t = soil_trip(4, 4, below_10, |_, _| false, depth, &[], &cuts, &near);
+        assert_eq!((t.up, t.loads, t.load_base), (0, 0.0, 4.0));
+        // Under step 4 depth does not scale: step 3 pays the 2-row trips in full.
+        let (cuts, dumps) = trips(&[12; 12]);
+        let t3 = soil_trip(3, 4, below_10, |_, _| false, depth, &[], &cuts, &dumps);
+        assert_eq!(t3.score, 12.0 * SOIL_POINTS[2] + SOIL_CAP as f64 * (SOIL_POINTS[0] + SOIL_POINTS[1]));
     }
 
     /// **From step 4 the soil bed is the generator's, mirrored** (design
@@ -3792,7 +3891,7 @@ mod tests {
         // Ant 1 cuts (0,5) and puts it 3 off; ant 2 cuts (0,6) and puts it 2 off.
         let cuts = [(0, 5, 1, 1), (0, 6, 3, 2)];
         let dumps = [(3, 2, 2, 1), (2, 3, 4, 2)];
-        let t = soil_trip(3, ground, |_, _| false, |_, _| 0, &[], &cuts, &dumps);
+        let t = soil_trip(3, 1, ground, |_, _| false, |_, _| 0, &[], &cuts, &dumps);
         assert_eq!(t.stages, [2, 2, 1]);
     }
 }
