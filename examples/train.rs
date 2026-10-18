@@ -34,7 +34,10 @@
 //! connection a genome holds (`Settings::wire`, 1e-3 unless set); `grow=` is
 //! the chance a mutation on an empty slot makes a connection
 //! (`Settings::grow`, 1 unless set). `prune=0 wire=0` is the rig before the
-//! cost, draw for draw.
+//! cost, draw for draw. `patience=` stops a run once its hold-out has had
+//! no new best for that many generations (`train::flat`: never before 40,
+//! nor before the flat stretch is as long as the climb), 30 unless set;
+//! `patience=0` runs every generation.
 //! `challenge=forage-far` puts the heap 120-200 columns out on a wider bed,
 //! 12,000 frames unless set: the near distances never show a scout's
 //! reserve as a leash, so `arenas=forage,forage-far` is how a reserve is
@@ -56,11 +59,19 @@
 //! `brake=on` (the default) is the food cap `creature::FoodBrake::FORAGE`;
 //! `brake=off` lets the colony lay whatever its food, and
 //! `brake=<lo>,<hi>,<small>[,plain]` sets the ramp, the small-colony gate
-//! and, with `plain`, leaves brood out of the burn.
+//! and, with `plain`, leaves brood out of the burn. `dist=<lo>,<hi>` (or
+//! `dist=<n>`) sets how many columns out the food lands, 80 unless set:
+//! nearer food is the forage rung's stepping stone (`Scarce::dist`).
+//! `steps=off` scores the scarce colony on its heads alone, without the
+//! step points for each part of the way home, heading out towards the
+//! food first (`challenges::forage_steps`).
+//! `challenge=fetch` is the same bed with one ant that cannot starve and
+//! no births, scored on those steps alone, 6,000 frames unless set
+//! (`Scarce::fed`).
 //! Every argument is echoed; an unknown one stops the run.
 
 use pixel_physics::sim::creature;
-use pixel_physics::train::challenges::{Dig, Forage, Scarce, Suite, Trail};
+use pixel_physics::train::challenges::{self, Dig, Forage, Scarce, Suite, Trail};
 use pixel_physics::train::{self, Challenge, Settings, Start};
 use std::path::PathBuf;
 use std::time::Instant;
@@ -75,6 +86,8 @@ struct Arena {
     targets: bool,
     free: creature::targets::Free,
     brake: Option<creature::FoodBrake>,
+    dist: (i32, i32),
+    steps: bool,
 }
 
 fn arena(name: &str, a: &Arena) -> Box<dyn Challenge> {
@@ -87,6 +100,8 @@ fn arena(name: &str, a: &Arena) -> Box<dyn Challenge> {
         targets,
         free,
         brake,
+        dist,
+        steps,
     } = *a;
     match name {
         "forage" | "forage-far" => Box::new(Forage {
@@ -124,8 +139,23 @@ fn arena(name: &str, a: &Arena) -> Box<dyn Challenge> {
             every: 1000,
             game_walk,
             brake,
+            dist,
+            steps,
+            fed: false,
         }),
-        _ => panic!("challenge={name}: forage|forage-far|trail|dig|scarce|suite"),
+        // The scarce bed with one fed ant: the way home alone.
+        "fetch" => Box::new(Scarce {
+            ants: ants.unwrap_or(1),
+            frames: frames.unwrap_or(6000),
+            drip: 5,
+            every: 1000,
+            game_walk,
+            brake,
+            dist,
+            steps: true,
+            fed: true,
+        }),
+        _ => panic!("challenge={name}: forage|forage-far|trail|dig|scarce|fetch|suite"),
     }
 }
 
@@ -150,11 +180,23 @@ fn parse_brake(v: &str) -> Option<creature::FoodBrake> {
                 brood: p.get(3) != Some(&"plain"),
             };
             assert!(
-                b.hi > b.lo && b.lo > 0.0 && b.small > 0.0,
-                "brake={v}: want hi > lo > 0 and small > 0 (it divides the colony's size)"
+                b.hi > b.lo && b.lo > 0.0 && b.small > 0.0 && b.hi.is_finite() && b.small.is_finite(),
+                "brake={v}: want hi > lo > 0 and small > 0, all finite (it divides the colony's size)"
             );
             Some(b)
         }
+    }
+}
+
+/// **A switch reads 1 or 0** (`true`/`false`, `on`/`off` alike); anything
+/// else stops the run. `clones=true` once read as off, silently, because
+/// only `1` turned it on: five near-food runs and two cloud jobs started
+/// without whole-clone trail arenas and were restarted (2026-10-18).
+fn on(k: &str, v: &str) -> bool {
+    match v {
+        "1" | "true" | "on" => true,
+        "0" | "false" | "off" => false,
+        _ => panic!("{k}={v}: want 1 or 0"),
     }
 }
 
@@ -184,6 +226,8 @@ fn main() {
     let mut walkset = String::new();
     let mut mind = false;
     let mut brake = Some(creature::FoodBrake::FORAGE);
+    let mut dist = challenges::SCARCE_DIST;
+    let mut steps = true;
     for a in std::env::args().skip(1) {
         let (k, v) = a.split_once('=').unwrap_or((a.as_str(), "1"));
         match k {
@@ -210,26 +254,48 @@ fn main() {
             "every" => set.every = v.parse().unwrap(),
             "seed" => set.seed = v.parse().unwrap(),
             "threads" => set.threads = v.parse().unwrap(),
-            "pics" => set.pictures = v == "1",
+            "pics" => set.pictures = on(k, v),
             "frames" => frames = Some(v.parse().unwrap()),
             "ants" => ants = Some(v.parse().unwrap()),
-            "walk" => game_walk = v == "game",
-            "clones" => clones = v == "1",
-            "cost" => cost = v == "1",
+            "walk" => {
+                assert!(v == "game" || v == "brain", "walk={v}: game|brain");
+                game_walk = v == "game";
+            }
+            "clones" => clones = on(k, v),
+            "cost" => cost = on(k, v),
             "score" => score = Some(v.into()),
-            "noise" => noise = v == "1",
+            "noise" => noise = on(k, v),
             "targets" => targets = v.into(),
             "pic" => pic = Some(v.into()),
             "trace" => trace = Some(v.parse().unwrap()),
             "free" => free = v.into(),
-            "sealed" => sealed = v == "1",
+            "sealed" => sealed = on(k, v),
             "genes" => genes = v.into(),
             "walkset" => walkset = v.into(),
             "prune" => set.prune = v.parse().unwrap(),
             "wire" => set.wire = v.parse().unwrap(),
             "grow" => set.grow = v.parse().unwrap(),
+            "patience" => set.patience = v.parse().unwrap(),
             "heap" => heap = v.parse().unwrap(),
             "brake" => brake = parse_brake(v),
+            "dist" => {
+                let p: Vec<i32> = v
+                    .split(',')
+                    .map(|t| t.parse().unwrap_or_else(|_| panic!("dist={v}: <n> or <lo>,<hi>")))
+                    .collect();
+                dist = (p[0], *p.get(1).unwrap_or(&p[0]));
+                // The bed is 256 wide with the nest in the middle; nearer
+                // than `Scarce::DIST_MIN` the nest's doorstep is the heap.
+                let lo = Scarce::DIST_MIN;
+                assert!(
+                    dist.0 >= lo && dist.1 >= dist.0 && dist.1 <= 110,
+                    "dist={v}: want {lo} <= lo <= hi <= 110"
+                );
+            }
+            "steps" => {
+                assert!(v == "on" || v == "off", "steps={v}: on|off");
+                steps = v == "on";
+            }
             "brain" => {
                 assert!(v == "mind" || v == "today", "brain={v}: mind|today");
                 mind = v == "mind";
@@ -241,12 +307,13 @@ fn main() {
     // without it once left two "game" rows in one file with nothing to say
     // which walk made which (`design/review-rev2.md` N10).
     println!(
-        "train brain={} challenge={challenge} arenas={arenas} keep={keep} forget={forget} start={start} walk={} clones={clones} frames={frames:?} ants={ants:?} score={score:?} noise={noise} targets={targets} free={free} brake={brake:?} pic={pic:?} trace={trace:?} sealed={sealed} heap={heap} genes={genes} walkset={walkset} prune={} wire={} grow={} seed={} pop={} gens={} layouts={} pm={} sigma={} cross={} holdout={} threads={}",
+        "train brain={} challenge={challenge} arenas={arenas} keep={keep} forget={forget} start={start} walk={} clones={clones} frames={frames:?} ants={ants:?} score={score:?} noise={noise} targets={targets} free={free} brake={brake:?} dist={dist:?} steps={steps} pic={pic:?} trace={trace:?} sealed={sealed} heap={heap} genes={genes} walkset={walkset} prune={} wire={} grow={} patience={} seed={} pop={} gens={} layouts={} pm={} sigma={} cross={} holdout={} threads={}",
         if mind { "mind" } else { "today" },
         if game_walk { "game" } else { "brain" },
         set.prune,
         set.wire,
         set.grow,
+        set.patience,
         set.seed,
         set.pop,
         set.gens,
@@ -274,6 +341,8 @@ fn main() {
         targets: !targets.is_empty(),
         free: creature::targets::Free::parse(&free),
         brake,
+        dist,
+        steps,
     };
     let mut ch: Box<dyn Challenge> = if challenge == "suite" {
         let list: Vec<(Box<dyn Challenge>, bool)> = arenas
@@ -369,7 +438,17 @@ fn main() {
         s => s.as_deref(),
     };
     let g0 = if mind {
-        train::start_mind(ch.as_ref(), &start)
+        let mut g = train::start_mind(ch.as_ref(), &start);
+        // A training start only: a champion scored by `score=` runs as it
+        // was trained. `start=` with `trace=`, `noise=` or `pic=` (and the
+        // suite's calibration and the hold-out's "start" row) runs this
+        // reopened genome, so a champion is traced as trained by `score=`
+        // (review of PR 717, N4).
+        let did = creature::mind::reopen(&mut g, ch.verbs());
+        if !did.is_empty() {
+            println!("{start} reopens, quietly: {}", did.join(", "));
+        }
+        g
     } else {
         set_walk(train::start_genome(
             &st,

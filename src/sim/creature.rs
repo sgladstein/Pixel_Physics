@@ -13331,6 +13331,20 @@ pub fn step_nest_rest(world: &mut World) {
     }
     world.nest_ways = (0..world.nest_sites.len()).filter_map(|i| build_nest_way(world, i)).collect();
     keep_store_place(world);
+    // **A world of minds builds no way out** ([`mind::every_ant_has_one`]):
+    // the mound's ways and the open air's serve the game ant's hand rules
+    // alone, and building them was a third of a scarce training arena's time
+    // (mound 15%, open air 18%; ladder lane's profile, 2026-10-18). Skipped,
+    // every mind score came out identical to the digit and the fetch arena
+    // ran 1.65x faster; today's brain, which walks by them, moved (lived 0.29
+    // against 0.28), so a world with one such ant in it builds them still.
+    // The way in (`nest_ways`) is built for everyone. An ant without a mind
+    // that appears between two refreshes reads no ways until the next, up to
+    // 29 frames (review of PR 717, N13); none does today, as every adult is
+    // given a mind (`clone_minds`) and a hatchling takes its layer's.
+    let minds_only = mind::every_ant_has_one(world);
+    let mound = mound && !minds_only;
+    let escape = escape && !minds_only;
     // The mound's ways ([`MoundOut`]), only while it is on: off, nothing
     // reads them and nothing is built.
     world.mound_ways = if mound {
@@ -13339,7 +13353,7 @@ pub fn step_nest_rest(world: &mut World) {
         Vec::new()
     };
     // The mound's ways in, for carriers ([`mound_in_of`]), likewise.
-    world.mound_in_ways = if mound_in_of(world) {
+    world.mound_in_ways = if mound_in_of(world) && !minds_only {
         (0..world.nest_sites.len()).filter_map(|i| build_mound_in_way(world, i)).collect()
     } else {
         Vec::new()
@@ -18735,6 +18749,17 @@ fn nest_within_reach(world: &World, organism: OrganismId, x: i32, y: i32, def: &
     // whole plant; `chain` is the ordered body the movement code walks, and it
     // is what `adjacent_food_counted` uses.
     state.chain.iter().skip(1).any(|&(cx, cy)| adjacent_nest(world, cx, cy, def))
+}
+
+/// **Whether an animal stands where a put-down would be a delivery**
+/// ([`nest_within_reach`] at its head, its species' own def), for a harness
+/// that scores the way home without the game's own rules: the training
+/// rig's forage steps (`train::challenges::forage_steps`).
+pub fn at_nest(world: &World, organism: OrganismId) -> bool {
+    let Some(st) = world.organism(organism) else { return false };
+    let Some(&(x, y)) = st.chain.first() else { return false };
+    let Some(def) = world.species.get(st.species).creature.as_ref() else { return false };
+    nest_within_reach(world, organism, x, y, def)
 }
 
 /// **Whether "at the nest" reaches from the whole body** —
