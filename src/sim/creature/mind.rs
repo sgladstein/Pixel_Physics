@@ -662,6 +662,12 @@ impl Minds {
     pub fn is_empty(&self) -> bool {
         self.ants.is_empty()
     }
+    /// Take one ant's mind away, so it walks by the game's own rules: the
+    /// mixed world the way skip must notice ([`every_ant_has_one`]).
+    #[cfg(test)]
+    pub(crate) fn forget(&mut self, id: OrganismId) {
+        self.ants.remove(&id);
+    }
 }
 
 /// **Give `organism` a mind**: from its next decision it decides by

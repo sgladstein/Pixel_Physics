@@ -1917,6 +1917,7 @@ mod tests {
     /// colony of hand-built foragers that breeds, and one fed forager at 12
     /// columns that puts food down at the nest. The skip fired on every
     /// refresh, hatchlings included: only the built runs have a way out.
+    /// And a world with one ant that has no mind builds them again.
     #[test]
     fn a_world_of_minds_skips_the_ways_out_and_plays_the_same() {
         let colony = Scarce {
@@ -1982,6 +1983,27 @@ mod tests {
         let (built, some, _) = play(&fetch, k, true);
         assert_eq!((none, some > 0), (0, true), "the fetch skip fired on layout {k}");
         assert_eq!(skipped, built, "fetch, layout {k}");
+        // One ant that walks by the game's rules brings them back (review of
+        // PR 717, N14): a skip blind to mindless ants passes all of the above.
+        let layout = Layout {
+            seed: 50_000,
+            k: 0,
+            blind: false,
+            legal: false,
+        };
+        let sc = colony.bed(layout);
+        let (mut w, _, _) = sc.build();
+        let sp = clone_minds(&mut w, &forager, layout, colony.verbs(), colony.mind_emits());
+        assert!(creature::mind::every_ant_has_one(&w), "every ant has a mind");
+        let first = ants_of(&w, sp)[0];
+        w.minds.as_mut().expect("minds").forget(first);
+        assert!(!creature::mind::every_ant_has_one(&w), "one ant without one");
+        let mut ways = 0;
+        for _ in 0..2 * creature::REST_REFRESH {
+            frame_timed(&mut w, &sc, true);
+            ways = ways.max(w.mound_ways.len() + w.mound_in_ways.len() + w.out_ways.len());
+        }
+        assert!(ways > 0, "a mixed world builds the ways out");
     }
 
     /// **A cell shuffled across the nest's edge pays nothing, and one

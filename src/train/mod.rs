@@ -633,7 +633,8 @@ pub struct Settings {
     /// **Stop a run once its hold-out has gone flat** ([`flat`]): after
     /// this many generations with no new hold-out best, and never before
     /// [`STOP_MIN`] or before the flat stretch is as long as the climb to
-    /// the best. 0 runs every generation; 30 unless `patience=` sets it.
+    /// the best. 0 runs every generation; 30 unless `patience=` sets it --
+    /// on by default, as features here are (owner, 2026-09-27).
     pub patience: usize,
 }
 
@@ -646,9 +647,10 @@ pub const STOP_GAIN: f64 = 0.02;
 
 /// **Whether a run has gone flat**: `patience` generations since the last
 /// hold-out best (`best_gen`, a best being [`STOP_GAIN`] above the last),
-/// at least [`STOP_MIN`] run, and the flat stretch as long as the climb, so
-/// a best at generation 25 runs to 50 at least (owner, 2026-10-18: "make
-/// sure we have a smart measure ... take into account variability").
+/// at least [`STOP_MIN`] run, and the flat stretch at least as long as the
+/// climb, counted in generations run, so a best at generation 25 (the 26th
+/// run) runs to 51 at least (owner, 2026-10-18: "make sure we have a smart
+/// measure ... take into account variability").
 ///
 /// **Why these numbers.** Curves here are staircases, not power laws: a
 /// climb in the first 5-20 generations, then long flats with a step now
@@ -657,11 +659,15 @@ pub const STOP_GAIN: f64 = 0.02;
 /// generations and then gained 4%, two mind forage runs 19-20 and then
 /// 3-5%, and a forage seed started at 0.17 and reached 5.3 by generation
 /// 22. A plain 20-generation stop would have ended 9 of the 23, one before
-/// its last 4% step; this one stops none of them before they ended. Steps
-/// under 2% are inside a champion's own spread there (0-20% between
-/// successive champions on a flat stretch).
+/// its last 4% step. Those runs were all 40 generations, so [`STOP_MIN`]
+/// alone keeps this rule from ending any of them early, and that backtest
+/// could not have failed (review of PR 717, N17). **The margin is thin**:
+/// the trail staircase's 4% came at generation 38, and with its best at 8
+/// this rule would have stopped it at 39. Steps under 2% are inside a
+/// champion's own spread there (0-20% between successive champions on a
+/// flat stretch).
 pub fn flat(gen: usize, best_gen: usize, patience: usize) -> bool {
-    patience > 0 && gen + 1 >= STOP_MIN && gen - best_gen >= patience && gen >= 2 * best_gen
+    patience > 0 && gen + 1 >= STOP_MIN && gen - best_gen >= patience && gen > 2 * best_gen
 }
 
 /// Whether `fit` is a new hold-out best over `best` ([`STOP_GAIN`]).
@@ -1109,6 +1115,9 @@ fn start_brain(start: &Start, species_genome: &[f32], banned: &[BrainOutput], se
 ///   layouts, every `every` generations;
 /// * `champions/gen-NNN.txt` -- each generation's top genome;
 /// * `best.txt` -- the last champion; `pic-gen-NNN.png` -- its picture;
+/// * `hold-best.txt` -- the champion that scored highest on the hold-out,
+///   which a flat stop can leave well above the last (review of PR 717,
+///   N16): the one to start a next stage from;
 /// * `curves.svg` -- the learning curves, redrawn at every hold-out;
 /// * `summary.txt` -- what the run was and how it ended.
 pub fn train(ch: &dyn Challenge, start: Vec<f32>, set: &Settings, out: &Path) -> std::io::Result<Vec<f32>> {
@@ -1141,8 +1150,11 @@ pub fn train(ch: &dyn Challenge, start: Vec<f32>, set: &Settings, out: &Path) ->
     let t0 = Instant::now();
     let mut champion = start.clone();
     let mut last_hold = String::new();
-    // The hold-out best so far and its generation, for [`flat`].
+    // The hold-out best so far and its generation, for [`flat`], and the
+    // highest hold-out champion, which a creep under [`STOP_GAIN`] can lift
+    // past the best [`flat`] counts.
     let (mut best_hold, mut best_gen) = (f64::NEG_INFINITY, 0);
+    let (mut top, mut top_gen, mut top_genome) = (f64::NEG_INFINITY, 0, start.clone());
     let mut ran = set.gens;
     println!("gen   best  median  control  [{}]  secs", parts.join(" "));
     for gen in 0..set.gens {
@@ -1180,6 +1192,9 @@ pub fn train(ch: &dyn Challenge, start: Vec<f32>, set: &Settings, out: &Path) ->
                     if new_best(s.fit, best_hold) {
                         (best_hold, best_gen) = (s.fit, gen);
                     }
+                    if s.fit > top {
+                        (top, top_gen, top_genome) = (s.fit, gen, champion.clone());
+                    }
                 } else {
                     last_hold.push_str(&format!(", {who} {:.2}", s.fit));
                 }
@@ -1211,8 +1226,9 @@ pub fn train(ch: &dyn Challenge, start: Vec<f32>, set: &Settings, out: &Path) ->
         }
     }
     save_genome(&out.join("best.txt"), &champion)?;
+    save_genome(&out.join("hold-best.txt"), &top_genome)?;
     let summary = format!(
-        "{head}\n{ran} of {} generations in {:.0} s (hold-out best {best_hold:.3} at generation {best_gen})\n{last_hold}\n{}\n",
+        "{head}\n{ran} of {} generations in {:.0} s (hold-out best {top:.3} at generation {top_gen}, hold-best.txt; last gain over {STOP_GAIN} at generation {best_gen})\n{last_hold}\n{}\n",
         set.gens,
         t0.elapsed().as_secs_f64(),
         describe(&champion)
@@ -1391,7 +1407,7 @@ mod tests {
         assert_eq!(stops(&stair, 30), None, "flat from 38 to 59 is 21 generations: still running");
         let mut long = stair.clone();
         long.resize(100, 0.873);
-        assert_eq!(stops(&long, 30), Some(76), "a best at 38 runs to 76 (twice the climb)");
+        assert_eq!(stops(&long, 30), Some(77), "a best at 38 (the 39th run) runs to 77 (flat 39 more)");
         let early: Vec<f64> = (0..100).map(|g| if g < 3 { g as f64 } else { 2.0 }).collect();
         assert_eq!(stops(&early, 30), Some(39), "never before generation 40");
         let creep: Vec<f64> = (0..100).map(|g| 1.0 + 0.0002 * g as f64).collect();

@@ -13338,7 +13338,10 @@ pub fn step_nest_rest(world: &mut World) {
     // every mind score came out identical to the digit and the fetch arena
     // ran 1.65x faster; today's brain, which walks by them, moved (lived 0.29
     // against 0.28), so a world with one such ant in it builds them still.
-    // The way in (`nest_ways`) is built for everyone.
+    // The way in (`nest_ways`) is built for everyone. An ant without a mind
+    // that appears between two refreshes reads no ways until the next, up to
+    // 29 frames (review of PR 717, N13); none does today, as every adult is
+    // given a mind (`clone_minds`) and a hatchling takes its layer's.
     let minds_only = mind::every_ant_has_one(world);
     let mound = mound && !minds_only;
     let escape = escape && !minds_only;
