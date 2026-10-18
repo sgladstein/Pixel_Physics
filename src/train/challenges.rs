@@ -1440,11 +1440,16 @@ pub struct SoilTrip {
     /// capped at [`SOIL_UP_ROWS`]. Counted at every step, paid from step 4.
     pub up: usize,
     pub up_rows: usize,
-    /// **S1 cuts from below the original ground** (depth above 0): the
-    /// pellets that could earn S4, so `up / deep` is step 4's share (at
-    /// least 0.75, pooled; ladder lane, `dig-rung-design.md` step 4).
+    /// **First cuts of original ground from below its surface** (depth
+    /// above 0): the pellets that could earn S4, so `up / deep` is step 4's
+    /// share (at least 0.75, pooled; ladder lane, `dig-rung-design.md` step
+    /// 4).
     pub deep: usize,
-    /// Pellets cut from the original ground and never put down: still in
+    /// **First cuts of original ground in its top row or above** (depth 0
+    /// or less): rim quarrying, counted at every step and paid nothing from
+    /// step 4 (`dig-rung-design.md` rev 2.4).
+    pub rim: usize,
+    /// Pellets whose cut earned S1 and that were never put down: still in
     /// the jaws at the bell, or lost with their ant.
     pub held: usize,
     pub dumped: usize,
@@ -1473,7 +1478,18 @@ pub struct SoilTrip {
 /// * **S1 cut**: the cell was ground at frame 0 (`was_ground`) and nobody
 ///   had cut it earlier in the run. **Every later stage needs S1** (review
 ///   R7): an ant that cuts its own tailings back up and puts them down
-///   again ("the tailings shuffler") earns nothing at any stage.
+///   again ("the tailings shuffler") earns nothing at any stage. **From
+///   step 4, also below the original surface** (`depth` 1 or more, as S4
+///   reads it; ladder lane, `dig-rung-design.md` rev 2.4): step 4's first
+///   four runs cut about 4 cells in 5 from the top row, 12-13.5 cuts a
+///   world against 2-2.8 deep, and stopped just past the cap, since a rim
+///   pellet carried away filled S1-S3 as well as a deep one
+///   (`stage2/dig/step4-sh4-README.md`). It is the trap `dead-ends.md`
+///   records for the game ant's dig roll: paying for breaking original
+///   ground pays for scraping a flat surface. So a rim cut earns nothing at
+///   any stage, and a deep pellet put down away pays 7 and its S4. On bare
+///   ground (step 7) a new hole's first cut pays nothing and the one under
+///   it pays in full.
 /// * **S2 let go**: the pellet was put down (on ground: the put-down
 ///   checks that, `mind::put_down_pellet`).
 /// * **S4 up and out** (from step 4): a pellet that reached S3 earns
@@ -1522,16 +1538,21 @@ pub fn soil_trip(
     // deep it was, or a put-down (`None`), and where.
     type Acts = Vec<(u64, Option<(bool, i32)>, (i32, i32))>;
     let mut per_ant: BTreeMap<OrganismId, Acts> = BTreeMap::new();
+    let step = step.clamp(1, 4) as usize;
+    let (mut deep_cuts, mut rim_cuts) = (0, 0);
     for &(x, y, f, id) in &cuts {
-        let s1 = was_ground(x, y) && cut_before.insert((x, y));
-        per_ant.entry(id).or_default().push((f, Some((s1, depth(x, y))), (x, y)));
+        let first = was_ground(x, y) && cut_before.insert((x, y));
+        let d = depth(x, y);
+        deep_cuts += usize::from(first && d > 0);
+        rim_cuts += usize::from(first && d <= 0);
+        let s1 = first && (step < 4 || d > 0);
+        per_ant.entry(id).or_default().push((f, Some((s1, d)), (x, y)));
     }
     for &(x, y, f, id) in dumps {
         per_ant.entry(id).or_default().push((f, None, (x, y)));
     }
     let away = |at: (i32, i32)| soil_away(&hole, at);
-    let mut trip = SoilTrip { cuts: cuts.len(), dumped: dumps.len(), ..SoilTrip::default() };
-    let step = step.clamp(1, 4) as usize;
+    let mut trip = SoilTrip { cuts: cuts.len(), dumped: dumps.len(), deep: deep_cuts, rim: rim_cuts, ..SoilTrip::default() };
     for events in per_ant.values_mut() {
         // A cut and a put-down never share an ant's frame: one act a
         // decision.
@@ -1550,7 +1571,6 @@ pub fn soil_trip(
                     }
                     jaws = Some((s1, deep, at.1));
                     n[0] += usize::from(s1);
-                    trip.deep += usize::from(s1 && deep > 0);
                 }
                 None => {
                     if let Some((true, deep, cut_y)) = jaws {
@@ -1746,7 +1766,7 @@ impl Challenge for Soil {
         self.frames
     }
     fn parts(&self) -> &'static [&'static str] {
-        &["score", "cuts", "s1", "s2", "s3", "held", "dumped", "refill_pellet", "refill_fall", "away_share", "alive", "energy_left", "dig_j", "holding", "spent", "chamber_fill", "fall_putdown", "s4", "up_rows", "deep_cuts"]
+        &["score", "cuts", "s1", "s2", "s3", "held", "dumped", "refill_pellet", "refill_fall", "away_share", "alive", "energy_left", "dig_j", "holding", "spent", "chamber_fill", "fall_putdown", "s4", "up_rows", "deep_cuts", "rim_cuts"]
     }
     fn banned(&self) -> &'static [O] {
         NOT_ANT_VERBS
@@ -1844,6 +1864,7 @@ impl Challenge for Soil {
                 trip.up as f64,
                 trip.up_rows as f64,
                 trip.deep as f64,
+                trip.rim as f64,
             ],
         }]
     }
@@ -2101,6 +2122,20 @@ pub fn dug_cells(w: &World, spec: &crate::lab::scene::LabBox) -> Vec<((i32, i32)
 /// it. The forage rung's pilot from the trail champion hit the cap on
 /// scarce (reference 0.21) by its second generation, at fits of 0.6-1.4
 /// against the game ant's 19.5, and selection had nothing left to climb.
+///
+/// **Gated** ([`Suite::gated`], from the dig rung's step 4): a kept arena
+/// is a pass/fail gate. Above its floor it counts 1 and its ratio never
+/// enters the product; under it, the same tenth. So the fit is the
+/// learned arenas' alone, and a lone learned arena's fit is exactly its
+/// ratio. Step 4's first four runs (`stage2/dig/step4-sh4-README.md`)
+/// selected on the kept colony's luck: its ratio ran 0.44-1.61, about 0.32
+/// in log fitness against about 0.015 for one more pellet carried up, and
+/// s81's last champion gave up soil 62.7 -> 41.3 for it. Clamping at
+/// `min(ratio, 1)` keeps the downside noise (log ratios to about -0.82,
+/// still about twenty pellets), so the ladder lane chose the gate
+/// (`dig-rung-design.md` rev 2.4). Each kept arena adds an `_under` part,
+/// 1 where it is under its floor, so a run can print how often each gate
+/// vetoes: a gate that vetoes often is a noise source of its own.
 pub struct Suite {
     pub arenas: Vec<(Box<dyn Challenge>, bool)>,
     pub refs: Vec<f64>,
@@ -2110,6 +2145,8 @@ pub struct Suite {
     /// The share of its reference under which a `keep` arena counts as
     /// forgotten.
     pub forget: f64,
+    /// Kept arenas are pass/fail gates, not ratios ([`Suite::gated`]).
+    pub gates: bool,
     names: &'static [&'static str],
     banned: &'static [O],
     /// Every verb any arena offers: a mind's genome carries them all, and
@@ -2172,6 +2209,9 @@ impl Suite {
         for (a, _) in &arenas {
             names.push(Box::leak(format!("{}_fit", a.name()).into_boxed_str()));
         }
+        for (a, _) in arenas.iter().filter(|(_, keep)| *keep) {
+            names.push(Box::leak(format!("{}_under", a.name()).into_boxed_str()));
+        }
         // Banned everywhere if banned anywhere: one brain has one set of verbs.
         let mut banned: Vec<O> = vec![];
         for (a, _) in &arenas {
@@ -2192,9 +2232,36 @@ impl Suite {
             refs,
             sds,
             forget,
+            gates: false,
             names: Box::leak(names.into_boxed_slice()),
             banned: Box::leak(banned.into_boxed_slice()),
             verbs: Box::leak(verbs.into_boxed_slice()),
+        }
+    }
+
+    /// The same suite with its kept arenas as pass/fail gates (see
+    /// [`Suite`]).
+    pub fn gated(mut self) -> Self {
+        self.gates = true;
+        self
+    }
+
+    /// The fit from each arena's ratio: the geometric mean over every
+    /// arena, or with [`Suite::gates`] over the learned arenas alone (a
+    /// kept arena counts 1), and a tenth where a kept arena is under its
+    /// floor.
+    fn product(&self, ratios: &[f64], forgot: bool) -> f64 {
+        let counted: Vec<f64> =
+            ratios.iter().zip(&self.arenas).filter(|(_, (_, keep))| !(self.gates && *keep)).map(|(r, _)| *r).collect();
+        let fit = if counted.is_empty() {
+            1.0
+        } else {
+            (counted.iter().map(|r| r.max(1e-3).ln()).sum::<f64>() / counted.len() as f64).exp()
+        };
+        if forgot {
+            fit * 0.1
+        } else {
+            fit
         }
     }
 }
@@ -2251,43 +2318,47 @@ impl Challenge for Suite {
         let g = genomes[0];
         let mut ratios = vec![];
         let mut fits = vec![];
-        for (i, (a, _)) in self.arenas.iter().enumerate() {
+        let mut under = vec![];
+        for (i, (a, keep)) in self.arenas.iter().enumerate() {
             let gs: Vec<&[f32]> = vec![g; if a.unit() == Unit::Ant { a.ants() } else { 1 }];
             let mut quiet = |_: u64, _: &World| {};
             let watcher: &mut dyn FnMut(u64, &World) = if i == 0 { &mut *look } else { &mut quiet };
             let s = super::mean_score(&a.run(layout, &gs, watcher));
             ratios.push(self.ratio(i, s.fit));
             fits.push(s.fit);
+            if *keep {
+                under.push(f64::from(u8::from(s.fit < self.floor(i, 1))));
+            }
         }
-        let fit = (ratios.iter().map(|r| r.max(1e-3).ln()).sum::<f64>() / ratios.len() as f64).exp();
+        let fit = self.product(&ratios, false);
         ratios.extend(fits);
+        ratios.extend(under);
         vec![Score { fit, parts: ratios }]
     }
 
     /// Each arena folded on its own ([`super::worse_side`] on its raw fits),
-    /// then the geometric mean of the capped ratios, with the forget floor
-    /// read on each `keep` arena's folded score: under `forget` of its
-    /// reference.
-    /// `parts` are each arena's folded ratio, then its folded fit.
+    /// then the geometric mean of the capped ratios ([`Suite::product`]: of
+    /// the learned arenas only when gated), with the forget floor read on
+    /// each `keep` arena's folded score: under `forget` of its reference.
+    /// `parts` are each arena's folded ratio, then its folded fit, then for
+    /// each kept arena 1 where it is under its floor.
     fn combine(&self, v: &[Score], layouts: &[Layout]) -> Score {
         let n = self.arenas.len();
         let mut ratios = vec![];
         let mut fits = vec![];
-        let mut forgot = false;
+        let mut under = vec![];
         for (i, (a, keep)) in self.arenas.iter().enumerate() {
             let own: Vec<Score> = v.iter().map(|s| Score { fit: s.parts[n + i], parts: vec![] }).collect();
             let f = super::worse_side(a.mirrored(), &own, layouts).fit;
-            if *keep && f < self.floor(i, super::sides(a.mirrored(), layouts).len()) {
-                forgot = true;
+            if *keep {
+                under.push(f64::from(u8::from(f < self.floor(i, super::sides(a.mirrored(), layouts).len()))));
             }
             ratios.push(self.ratio(i, f));
             fits.push(f);
         }
-        let mut fit = (ratios.iter().map(|r| r.max(1e-3).ln()).sum::<f64>() / n as f64).exp();
-        if forgot {
-            fit *= 0.1;
-        }
+        let fit = self.product(&ratios, under.iter().any(|&u| u > 0.0));
         ratios.extend(fits);
+        ratios.extend(under);
         Score { fit, parts: ratios }
     }
 
@@ -3271,6 +3342,42 @@ mod tests {
         assert!((score(&noisy) - 0.1 / 1.5).abs() < 1e-9, "past two standard errors, forgotten: {}", score(&noisy));
     }
 
+    /// **A gated suite scores its learned arena alone** ([`Suite::gated`],
+    /// `dig-rung-design.md` rev 2.4): above every floor the fit is exactly
+    /// the learned arena's ratio, and a luckier kept arena moves nothing;
+    /// under a floor it is a tenth of that, and the kept arena's `_under`
+    /// part reads 1. The control: ungated, the same kept ratio enters the
+    /// product.
+    #[test]
+    fn a_gated_suite_scores_the_learned_arena_alone() {
+        let lay = [Layout { seed: 1, k: 0, blind: false, legal: false }, Layout { seed: 1, k: 1, blind: false, legal: false }];
+        let g = vec![0.0f32; 1];
+        let score = |s: &Suite| crate::train::score_clones(s, &g, &lay, 1);
+        let suite = |kept: f64, gated: bool| {
+            let mut s = Suite::new(
+                vec![(Box::new(Sided { east: 6.0, west: 6.0, se: false }), false), (Box::new(Sided { east: kept, west: kept, se: false }), true)],
+                0.8,
+            );
+            s.refs = vec![2.0, 1.0];
+            if gated {
+                s.gated()
+            } else {
+                s
+            }
+        };
+        assert_eq!(suite(1.0, false).parts().len(), 5, "two ratios, two fits, one gate");
+        let ungated = score(&suite(2.0, false));
+        assert!((ungated.fit - 6f64.sqrt()).abs() < 1e-9, "ungated, the kept ratio enters: {}", ungated.fit);
+        for kept in [1.0, 2.0, 2.9] {
+            let s = score(&suite(kept, true));
+            assert!((s.fit - 3.0).abs() < 1e-9, "kept at {kept}: gated, the fit is the learned ratio alone, read {}", s.fit);
+            assert_eq!(s.parts[4], 0.0);
+        }
+        let under = score(&suite(0.5, true));
+        assert!((under.fit - 0.3).abs() < 1e-9, "under its floor: a tenth, read {}", under.fit);
+        assert_eq!(under.parts[4], 1.0, "the gate's veto is not reported");
+    }
+
     /// The soil trip's ground for the guards below: every cell from row 10
     /// down was ground at frame 0.
     fn below_10(_x: i32, y: i32) -> bool {
@@ -3383,22 +3490,25 @@ mod tests {
     /// S4; design section 4, review R8). The ground's surface is row 10: a
     /// pellet cut 8 rows down and put down away, 9 rows up, earns S4 in
     /// full (its depth caps the climb); one cut 3 rows down and carried 9
-    /// rows up onto a heap earns 3 rows; one cut at the surface earns none;
-    /// a deep one put down beside its own cut is not away and earns none.
-    /// Counted at step 3, paid from step 4.
+    /// rows up onto a heap earns 3 rows; one cut at the surface earns none,
+    /// and from step 4 nothing at any stage (rev 2.4); a deep one put down
+    /// beside its own cut is not away and earns none. Counted at step 3,
+    /// paid from step 4.
     #[test]
     fn up_and_out_pays_per_row_climbed_out_of_the_ground() {
         let depth = |_x: i32, y: i32| y - 10;
         let cuts = [(60, 18, 0, 7), (70, 13, 0, 8), (80, 10, 0, 9), (90, 18, 0, 10)];
         let dumps = [(120, 9, 5, 7), (130, 4, 5, 8), (140, 9, 5, 9), (91, 17, 5, 10)];
         let t = soil_trip(4, below_10, |_, _| false, depth, &[], &cuts, &dumps);
-        assert_eq!((t.stages, t.up, t.up_rows), ([4, 4, 3], 2, 8 + 3));
+        assert_eq!((t.stages, t.up, t.up_rows), ([3, 3, 2], 2, 8 + 3));
         // Three of the four cuts were below the surface: the share's base.
-        assert_eq!(t.deep, 3);
-        let below = 4.0 * SOIL_POINTS[0] + 4.0 * SOIL_POINTS[1] + 3.0 * SOIL_POINTS[2];
+        assert_eq!((t.deep, t.rim), (3, 1));
+        let below = 3.0 * SOIL_POINTS[0] + 3.0 * SOIL_POINTS[1] + 2.0 * SOIL_POINTS[2];
         assert_eq!(t.score, below + SOIL_POINTS[3] * 11.0 / f64::from(SOIL_UP_ROWS));
+        // At step 3 the surface pellet still pays its three stages.
         let t3 = soil_trip(3, below_10, |_, _| false, depth, &[], &cuts, &dumps);
-        assert_eq!((t3.up, t3.up_rows, t3.score), (2, 11, below));
+        let below3 = 4.0 * SOIL_POINTS[0] + 4.0 * SOIL_POINTS[1] + 3.0 * SOIL_POINTS[2];
+        assert_eq!((t3.stages, t3.up, t3.up_rows, t3.score), ([4, 4, 3], 2, 11, below3));
         // A full climb outweighs every stage under it together.
         assert!(SOIL_POINTS[3] > SOIL_POINTS[..3].iter().sum::<f64>());
         // Under step 4 the stages below are capped: 12 deep pellets, each
@@ -3409,6 +3519,36 @@ mod tests {
         assert_eq!((t.stages, t.up, t.deep), ([12, 12, 12], 12, 12));
         let capped = SOIL_CAP as f64 * SOIL_POINTS[..3].iter().sum::<f64>();
         assert_eq!(t.score, capped + 12.0 * SOIL_POINTS[3]);
+    }
+
+    /// **From step 4 the rim pays nothing** (`dig-rung-design.md` rev 2.4,
+    /// the step-4 readout): 12 pellets cut from the top row of the ground
+    /// and carried well away score 0 at step 4, every one counted as a rim
+    /// cut. The control: the same trips pay S1-S3 at step 3, so the cap,
+    /// not the trips, is what step 4 takes away; and the same trips cut a
+    /// row lower pay at step 4. A cut in a raised step's face (depth below
+    /// 0) is rim too.
+    #[test]
+    fn from_step_four_rim_pellets_score_nothing() {
+        type Moves = Vec<(i32, i32, u64, OrganismId)>;
+        let depth = |_x: i32, y: i32| y - 10;
+        let trips = |row: i32| -> (Moves, Moves) {
+            let cuts = (0..12).map(|i| (60 + i, row, 10 * i as u64, 7)).collect();
+            let dumps = (0..12).map(|i| (100 + 4 * i, 9, 10 * i as u64 + 5, 7)).collect();
+            (cuts, dumps)
+        };
+        let (cuts, dumps) = trips(10);
+        let t = soil_trip(4, below_10, |_, _| false, depth, &[], &cuts, &dumps);
+        assert_eq!((t.score, t.stages, t.up, t.deep, t.rim), (0.0, [0, 0, 0], 0, 0, 12), "{t:?}");
+        let t3 = soil_trip(3, below_10, |_, _| false, depth, &[], &cuts, &dumps);
+        assert_eq!((t3.stages, t3.rim), ([12, 12, 12], 12));
+        assert_eq!(t3.score, 12.0 * SOIL_POINTS[2] + SOIL_CAP as f64 * (SOIL_POINTS[0] + SOIL_POINTS[1]));
+        let (lower, dumps) = trips(11);
+        let t = soil_trip(4, below_10, |_, _| false, depth, &[], &lower, &dumps);
+        assert_eq!((t.stages, t.deep, t.rim), ([12, 12, 12], 12, 0));
+        let face = |_x: i32, y: i32| y - 12;
+        let t = soil_trip(4, below_10, |_, _| false, face, &[], &lower, &dumps);
+        assert_eq!((t.score, t.rim), (0.0, 12), "a cut above the lowest surface near it is not a pit");
     }
 
     /// **From step 4 the soil bed is the generator's, mirrored** (design

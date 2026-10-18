@@ -74,7 +74,9 @@
 //! trip it got -- cut, put down, put down away from the hole, carried up
 //! out of the ground -- with `step=1|2|3|4` the stage being learned
 //! (`challenges::Soil`), 6,000 frames unless set. Step 4 runs on the dig
-//! generator's mirrored beds, at `shaft=4`, then 8, then 12.
+//! generator's mirrored beds, at `shaft=4`, then 8, then 12. **From step
+//! 4 a suite holding soil is gated** (`Suite::gated`): each kept arena is a
+//! pass/fail floor, never a ratio in the product.
 //! Every argument is echoed; an unknown one stops the run.
 
 use pixel_physics::sim::creature;
@@ -411,7 +413,16 @@ fn main() {
             })
             .collect();
         assert!(!list.is_empty(), "challenge=suite needs arenas=a,b,...");
-        Box::new(Suite::new(list, forget))
+        let suite = Suite::new(list, forget);
+        // From the dig rung's step 4 the kept arenas are gates
+        // (`dig-rung-design.md` rev 2.4): the colony's luck carried
+        // selection in the first step-4 runs.
+        if step >= 4 && arenas.split(',').any(|n| n == "soil") {
+            println!("suite gated: from step 4 each kept arena is a pass/fail floor, its ratio left out of the product");
+            Box::new(suite.gated())
+        } else {
+            Box::new(suite)
+        }
     } else {
         arena(&challenge, &spec)
     };
