@@ -1,0 +1,40 @@
+mutation off: births inherit exactly (measuring default is off; PIXEL_PHYSICS_MUTATION=on|off)
+train brain=mind challenge=trail arenas= keep= forget=0.8 start=blank walk=brain clones=true frames=None ants=None score=None noise=false targets= free= brake=Some(FoodBrake { lo: 1.0, hi: 1.5, small: 6.0, brood: true }) pic=None trace=None sealed=false heap=300 genes= walkset= prune=0.3 wire=0.001 grow=1 seed=1 pop=100 gens=6 layouts=8 pm=0.03 sigma=1 cross=0.3 holdout=12 threads=1
+challenge=trail unit=Colony ants=6 frames=6000 Settings { gens: 6, pop: 100, layouts: 8, pm: 0.03, sigma: 1.0, cross: 0.3, holdout: 12, every: 1, seed: 1, threads: 1, pictures: true, prune: 0.3, wire: 0.001, grow: 1.0 } banned=[Impulse, Fly, Attack, Provision, Lay, EmitA, EmitB] trainable_slots=2228
+gen   best  median  control  [along reach end walked right]  secs
+  0    0.11   -0.02   -0.03  [0.11 0.26 0.24 504.04 0.96]  263  links 68
+    HOLDOUT champion    0.15  [0.15 0.32 0.31 494.28 0.97]
+    HOLDOUT start      -0.03  [-0.03 0.07 -0.04 487.94 0.14]
+    HOLDOUT blinded    -0.01  [-0.01 0.08 -0.03 483.58 0.19]
+    verbs [walk,turn_around,rest] sharp 1.00 pull 0.00 | live: scorer ctx 13 feat 19 verb 6 out 4, job 9, memory 17, emit 0 (of 2310)
+  1    0.12   -0.01   -0.02  [0.12 0.28 0.25 481.21 0.83]  316  links 68
+    HOLDOUT champion    0.15  [0.15 0.32 0.31 494.28 0.97]
+    HOLDOUT start      -0.03  [-0.03 0.07 -0.04 487.94 0.14]
+    HOLDOUT blinded    -0.01  [-0.01 0.08 -0.03 483.58 0.19]
+    verbs [walk,turn_around,rest] sharp 1.00 pull 0.00 | live: scorer ctx 13 feat 19 verb 6 out 4, job 9, memory 17, emit 0 (of 2310)
+  2    0.12   -0.01   -0.02  [0.12 0.26 0.25 491.38 0.88]  393  links 68
+    HOLDOUT champion    0.15  [0.15 0.32 0.31 494.28 0.97]
+    HOLDOUT start      -0.03  [-0.03 0.07 -0.04 487.94 0.14]
+    HOLDOUT blinded    -0.01  [-0.01 0.08 -0.03 483.58 0.19]
+    verbs [walk,turn_around,rest] sharp 1.00 pull 0.00 | live: scorer ctx 13 feat 19 verb 6 out 4, job 9, memory 17, emit 0 (of 2310)
+  3    0.19   -0.00   -0.02  [0.19 0.43 0.42 425.67 1.00]  140  links 137
+    HOLDOUT champion    0.22  [0.22 0.48 0.46 421.75 0.97]
+    HOLDOUT start      -0.03  [-0.03 0.07 -0.04 487.94 0.14]
+    HOLDOUT blinded    -0.01  [-0.01 0.10 -0.03 417.19 0.17]
+    verbs [walk,turn_around,rest] sharp 1.00 pull 0.00 | live: scorer ctx 35 feat 41 verb 13 out 4, job 18, memory 26, emit 0 (of 2310)
+  4    0.39    0.04   -0.01  [0.39 0.70 0.68 453.88 1.00]  202  links 253
+    HOLDOUT champion    0.40  [0.40 0.70 0.69 467.83 1.00]
+    HOLDOUT start      -0.03  [-0.03 0.07 -0.04 487.94 0.14]
+    HOLDOUT blinded    -0.03  [-0.03 0.09 -0.05 500.28 0.14]
+    verbs [walk,turn_around,rest] sharp 1.00 pull 0.00 | live: scorer ctx 59 feat 77 verb 16 out 7, job 30, memory 64, emit 0 (of 2310)
+  5    0.80    0.10   -0.02  [0.80 1.00 1.00 694.08 1.00]  282  links 380
+    HOLDOUT champion    0.80  [0.80 1.00 1.00 689.03 1.00]
+    HOLDOUT start      -0.03  [-0.03 0.07 -0.04 487.94 0.14]
+    HOLDOUT blinded    -0.06  [-0.06 0.17 -0.10 681.19 0.22]
+    verbs [walk] sharp 1.00 pull 0.00 | live: scorer ctx 98 feat 120 verb 23 out 2, job 47, memory 90, emit 0 (of 2310)
+challenge=trail unit=Colony ants=6 frames=6000 Settings { gens: 6, pop: 100, layouts: 8, pm: 0.03, sigma: 1.0, cross: 0.3, holdout: 12, every: 1, seed: 1, threads: 1, pictures: true, prune: 0.3, wire: 0.001, grow: 1.0 } banned=[Impulse, Fly, Attack, Provision, Lay, EmitA, EmitB] trainable_slots=2228
+6 generations in 1710 s
+hold-out champion 0.80, start -0.03, blinded -0.06
+verbs [walk] sharp 1.00 pull 0.00 | live: scorer ctx 98 feat 120 verb 23 out 2, job 47, memory 90, emit 0 (of 2310)
+
+run files in /home/runner/work/_temp/out
