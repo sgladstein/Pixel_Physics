@@ -569,7 +569,7 @@ impl Challenge for Scarce {
         self.frames
     }
     fn parts(&self) -> &'static [&'static str] {
-        &["score", "adults", "kept", "starved", "births", "brood", "eaten", "delivered", "larvae_j", "held", "dist", "lived", "heads", "steps", "reach", "picked", "carried", "arrived", "home"]
+        &["score", "adults", "kept", "starved", "births", "brood", "eaten", "delivered", "larvae_j", "held_ticks", "dist", "lived", "heads", "steps", "reach", "picked", "carried", "arrived", "home"]
     }
     fn banned(&self) -> &'static [O] {
         NOT_ANT_VERBS
@@ -641,7 +641,7 @@ impl Challenge for Scarce {
         let mut scores = Vec::new();
         // The same read over the whole run, for the floor ([`scarce_floor`]).
         let lived_every = (self.frames / 64).max(1);
-        let mut lived = (0.0, 0u32);
+        let mut lived_sum = (0.0, 0u32);
         let mut trip = Trip::default();
         for f in 0..self.frames {
             frame_timed(&mut w, &sc, true);
@@ -656,8 +656,8 @@ impl Challenge for Scarce {
                     scores.push(now.len() as f64 * kept);
                 }
                 if (f + 1).is_multiple_of(lived_every) {
-                    lived.0 += now.len() as f64 * kept;
-                    lived.1 += 1;
+                    lived_sum.0 += now.len() as f64 * kept;
+                    lived_sum.1 += 1;
                 }
             }
         }
@@ -670,7 +670,7 @@ impl Challenge for Scarce {
         let st = &w.creature_stats;
         let brood = ants_of(&w, sp).len() - now.len();
         let larvae_j = st.brood_crop_fed_j + st.brood_ate_j + st.brood_shared_j + st.brood_nursed_j;
-        let lived = lived.0 / lived.1.max(1) as f64 / founders.len().max(1) as f64;
+        let lived = lived_sum.0 / lived_sum.1.max(1) as f64 / founders.len().max(1) as f64;
         let heads = scarce_floor(scores.iter().sum::<f64>() / scores.len() as f64, lived, founders.len());
         let n = founders.len().max(1) as f64;
         let (reach, picked, arrived) = (
@@ -805,7 +805,10 @@ fn never_starve(def: &mut organism::CreatureDef) {
 /// otherwise `lived` (the same adults-times-founders-kept read every 64th
 /// of the run, over the founders) scaled under the least score a live
 /// colony can read, a single founder at one of the four reads, so a dead
-/// colony never outranks a live one and no live score moves.
+/// colony never outranks a live one on heads and no live score moves. On
+/// heads only: the scarce arena's own steps ([`forage_steps`]) can lift a
+/// dead colony over a live one, and so, in a suite, can another arena's
+/// ratio (review of PR 715, N2).
 ///
 /// **Why**: today's brain started the forage rung from its trail champion,
 /// which never picks food up; its colonies starved by frame 6,000 of

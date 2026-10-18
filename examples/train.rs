@@ -176,8 +176,8 @@ fn parse_brake(v: &str) -> Option<creature::FoodBrake> {
                 brood: p.get(3) != Some(&"plain"),
             };
             assert!(
-                b.hi > b.lo && b.lo > 0.0 && b.small > 0.0,
-                "brake={v}: want hi > lo > 0 and small > 0 (it divides the colony's size)"
+                b.hi > b.lo && b.lo > 0.0 && b.small > 0.0 && b.hi.is_finite() && b.small.is_finite(),
+                "brake={v}: want hi > lo > 0 and small > 0, all finite (it divides the colony's size)"
             );
             Some(b)
         }
