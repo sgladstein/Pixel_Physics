@@ -573,10 +573,12 @@ impl Scarce {
 }
 
 /// The verbs a forager uses: the trail rung's walk, turn and rest, and the
-/// food verbs.
+/// food verbs. **Pick up** since fix plan step 1, which gave it the
+/// swallow Eat had: before that it was listed by the body, banned here
+/// and never acted.
 const SCARCE_VERBS: &[creature::options::Verb] = {
     use creature::options::Verb as V;
-    &[V::Walk, V::TurnAround, V::Rest, V::Eat, V::Drop, V::Feed]
+    &[V::Walk, V::TurnAround, V::Rest, V::PickUp, V::Eat, V::Drop, V::Feed]
 };
 
 impl Challenge for Scarce {
@@ -599,7 +601,7 @@ impl Challenge for Scarce {
         self.frames
     }
     fn parts(&self) -> &'static [&'static str] {
-        &["score", "adults", "kept", "starved", "births", "brood", "eaten", "delivered", "larvae_j", "held_ticks", "dist", "lived", "heads", "steps", "reach", "picked", "carried", "arrived", "home", "out"]
+        &["score", "adults", "kept", "starved", "births", "brood", "pickups", "delivered", "larvae_j", "held_ticks", "dist", "lived", "heads", "steps", "reach", "picked", "carried", "arrived", "home", "out", "ate", "starved_soil", "stuck"]
     }
     fn banned(&self) -> &'static [O] {
         NOT_ANT_VERBS
@@ -720,6 +722,16 @@ impl Challenge for Scarce {
             trip.arrived.len() as f64 / n,
         );
         let steps = forage_steps(trip.out, reach, picked, trip.carried, arrived, home);
+        // **Fix plan step 1's reads.** `pickups` is every cell taken into a
+        // crop (it was labelled `eaten` until then, and counted pick-ups);
+        // `home` is food home net of churn, the cells from the heap put down
+        // at the nest, where `delivered` counts every put-down there (one
+        // colony counted 413 against 40.5 home). `ate` is food eaten from
+        // the crop by choice (`MindCounts::ate`), which should fall towards
+        // zero as `home` rises; the crop's own digestion is not in it.
+        // `starved_soil` counts ants that starved holding soil, and `stuck`
+        // those of them with food in reach (`MindCounts::starved_soil`).
+        let (ate, stuck) = w.minds.as_ref().map_or((0, (0, 0)), |m| (m.counts.ate, (m.counts.starved_soil, m.counts.starved_soil_food)));
         let score = heads + if self.steps { STEP_SCALE * steps } else { 0.0 };
         vec![Score {
             fit: score,
@@ -744,6 +756,9 @@ impl Challenge for Scarce {
                 arrived,
                 home,
                 trip.out,
+                ate as f64,
+                stuck.0 as f64,
+                stuck.1 as f64,
             ],
         }]
     }
@@ -1386,7 +1401,7 @@ pub struct Soil {
 /// over two (dig design, section 0).
 const SOIL_VERBS: &[creature::options::Verb] = {
     use creature::options::Verb as V;
-    &[V::Walk, V::TurnAround, V::Rest, V::Eat, V::Drop, V::Feed, V::Dig]
+    &[V::Walk, V::TurnAround, V::Rest, V::PickUp, V::Eat, V::Drop, V::Feed, V::Dig]
 };
 
 /// What a pellet earns at each stage of the soil trip: cut, put down, put
@@ -2450,9 +2465,37 @@ mod tests {
         let cut = arena_mind(&g, trail_verbs, trail_emits);
         assert!(whole.live > 0 && cut.live == 0, "the scent layer is {} live weights whole, {} cut", whole.live, cut.live);
         // The verb switches lead the genome.
-        for v in [Verb::Eat, Verb::Drop, Verb::Feed] {
+        for v in [Verb::PickUp, Verb::Eat, Verb::Drop, Verb::Feed] {
             assert!(cut.w[v as usize] < 0.0 && whole.w[v as usize] > 0.0, "{} on the trail arena", v.name());
         }
+    }
+
+    /// **A mind file names its layout, and one saved before Pick up had its
+    /// act converts once** (fix plan step 1; `save_genome`,
+    /// `mind::split_pick_up`): an unmarked file loads as the converter
+    /// leaves it, and saved again it carries `layout=4` and loads unchanged,
+    /// so a champion is never converted twice.
+    #[test]
+    fn a_mind_file_names_its_layout_and_an_old_one_converts_once() {
+        let ch = Scarce { ants: 2, frames: 0, drip: 5, every: 1000, game_walk: false, brake: None, dist: SCARCE_DIST, steps: true, fed: false, dig: false };
+        let n = creature::mind::GENOME_LEN;
+        let old: Vec<f32> = (0..n).map(|i| ((i * 7919 % 1000) as f32 / 500.0 - 1.0) * 0.5).collect();
+        let dir = std::env::temp_dir().join(format!("train-layout-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (unmarked, marked) = (dir.join("old.txt"), dir.join("new.txt"));
+        let body: String = old.iter().enumerate().map(|(i, w)| format!("{i} {w}\n")).collect();
+        std::fs::write(&unmarked, format!("genome {n}\n{body}")).unwrap();
+        assert_eq!(super::super::genome_file_layout(&unmarked), None);
+        let mut want = old.clone();
+        creature::mind::split_pick_up(&mut want);
+        creature::mind::apply_bans(&mut want, ch.verbs(), ch.mind_emits());
+        let got = super::super::start_mind_saved(&ch, unmarked.to_str().unwrap());
+        assert_eq!(got, want, "an unmarked file converts");
+        assert_ne!(got, { let mut o = old.clone(); creature::mind::apply_bans(&mut o, ch.verbs(), ch.mind_emits()); o }, "the conversion did something");
+        super::super::save_genome(&marked, &got).unwrap();
+        assert_eq!(super::super::genome_file_layout(&marked), Some(creature::mind::LAYOUT));
+        assert_eq!(super::super::start_mind_saved(&ch, marked.to_str().unwrap()), got, "a marked file converted twice");
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     /// **The scarce arena's food arrives on the timeline**: five cells of

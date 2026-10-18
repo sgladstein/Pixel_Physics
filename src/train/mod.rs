@@ -232,6 +232,16 @@ fn load_mind(ch: &dyn Challenge, start: &str, enter: bool) -> Vec<f32> {
                     mind::GENOME_LEN_V2
                 )
             });
+            // Saved before Pick up had its own act: once, whether it is
+            // trained from or scored, so a champion runs as it was trained
+            // to pick up (fix plan step 1).
+            match genome_file_layout(p) {
+                None => {
+                    mind::split_pick_up(&mut g);
+                    println!("{start}: saved before Pick up had its own act; Eat's links copied to Pick up, Eat quieted");
+                }
+                Some(l) => assert!(l <= mind::LAYOUT, "{start}: layout {l} is newer than this build's {}", mind::LAYOUT),
+            }
             if enter {
                 let live = |g: &[f32]| mind::MindGenome::new(g.to_vec()).live;
                 let before = live(&g);
@@ -536,9 +546,17 @@ pub enum Start {
 }
 
 /// Write a genome sparse: a header line, then `slot value` for every non-zero
-/// slot. A champion with forty live weights is forty lines, not 12,416.
+/// slot. A champion with forty live weights is forty lines, not 12,416. A
+/// mind's header names its layout (`genome 2797 layout=4`,
+/// [`mind::LAYOUT`]), so a reader knows whether it was saved before Pick up
+/// had its own act; a binary from before the mark refuses the file rather
+/// than read it as its own.
 pub fn save_genome(path: &Path, g: &[f32]) -> std::io::Result<()> {
-    let mut s = format!("genome {}\n", g.len());
+    let mut s = if is_mind(g.len()) {
+        format!("genome {} layout={}\n", g.len(), mind::LAYOUT)
+    } else {
+        format!("genome {}\n", g.len())
+    };
     for (i, &w) in g.iter().enumerate() {
         if w != 0.0 {
             s.push_str(&format!("{i} {w}\n"));
@@ -552,9 +570,23 @@ pub fn save_genome(path: &Path, g: &[f32]) -> std::io::Result<()> {
 pub fn genome_file_len(path: &Path) -> usize {
     let text = std::fs::read_to_string(path).unwrap_or_else(|e| panic!("genome file {}: {e}", path.display()));
     match text.lines().next().and_then(|l| l.strip_prefix("genome ")) {
-        Some(n) => n.trim().parse().unwrap_or_else(|_| panic!("genome file {}: bad header", path.display())),
+        Some(n) => n
+            .split_whitespace()
+            .next()
+            .and_then(|n| n.parse().ok())
+            .unwrap_or_else(|| panic!("genome file {}: bad header", path.display())),
         None => text.lines().count(),
     }
+}
+
+/// **The layout a genome file names** (`layout=N` in its header,
+/// [`save_genome`]), or `None` for one saved before the mark.
+pub fn genome_file_layout(path: &Path) -> Option<u32> {
+    let text = std::fs::read_to_string(path).unwrap_or_else(|e| panic!("genome file {}: {e}", path.display()));
+    let head = text.lines().next()?.strip_prefix("genome ")?;
+    head.split_whitespace().find_map(|t| t.strip_prefix("layout=")).map(|n| {
+        n.parse().unwrap_or_else(|_| panic!("genome file {}: bad layout {n}", path.display()))
+    })
 }
 
 /// Read either form: the sparse one [`save_genome`] writes, or one value per
@@ -1460,8 +1492,19 @@ fn trace_one(ch: &dyn Challenge, g: &[f32], layout: Layout, every: u64) {
         if let Some(m) = &w.minds {
             let k = &m.counts;
             print!(
-                " | mind chose {:?} swallowed={} put_down={} delivered={} fed_adult={} fed_larva_crop={} fed_larva_bank={} failed={}",
-                k.chose, k.swallowed, k.put_down, k.delivered, k.fed_adult, k.fed_larva_crop, k.fed_larva_bank, k.failed
+                " | mind decisions={} chose {:?} picked_up={} ate={} put_down={} delivered={} fed_adult={} fed_larva_crop={} fed_larva_bank={} starved_soil={} stuck={} failed={}",
+                k.decisions,
+                k.chose,
+                k.swallowed,
+                k.ate,
+                k.put_down,
+                k.delivered,
+                k.fed_adult,
+                k.fed_larva_crop,
+                k.fed_larva_bank,
+                k.starved_soil,
+                k.starved_soil_food,
+                k.failed
             );
         }
         println!();
