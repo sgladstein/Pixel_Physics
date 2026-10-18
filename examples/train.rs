@@ -68,12 +68,13 @@
 //! `challenge=fetch` is the same bed with one ant that cannot starve and
 //! no births, scored on those steps alone, 6,000 frames unless set
 //! (`Scarce::fed`).
-//! `challenge=soil` is stage 2's dig rung, steps 1-3: one mind ant beside a
+//! `challenge=soil` is stage 2's dig rung, steps 1-4: one mind ant beside a
 //! two-row shaft (`shaft=`) on a flat bed, on a budget of energy
 //! (`budget=<J>`, or `fed`), each pellet scored by how far along the soil
-//! trip it got -- cut, put down, put down away from the hole -- with
-//! `step=1|2|3` the stage being learned (`challenges::Soil`), 6,000 frames
-//! unless set.
+//! trip it got -- cut, put down, put down away from the hole, carried up
+//! out of the ground -- with `step=1|2|3|4` the stage being learned
+//! (`challenges::Soil`), 6,000 frames unless set. Step 4 runs on the dig
+//! generator's mirrored beds, at `shaft=4`, then 8, then 12.
 //! Every argument is echoed; an unknown one stops the run.
 
 use pixel_physics::sim::creature;
@@ -335,7 +336,7 @@ fn main() {
                 steps = v == "on";
             }
             "step" => {
-                step = v.parse().ok().filter(|s| (1..=3).contains(s)).unwrap_or_else(|| panic!("step={v}: the soil trip's stage being learned, 1-3"));
+                step = v.parse().ok().filter(|s| (1..=4).contains(s)).unwrap_or_else(|| panic!("step={v}: the soil trip's stage being learned, 1-4"));
             }
             "shaft" => {
                 shaft = v.parse().ok().filter(|&r: &i32| r >= 0).unwrap_or_else(|| panic!("shaft={v}: rows of founding shaft, 0 or more"));
