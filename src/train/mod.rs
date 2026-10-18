@@ -1200,6 +1200,16 @@ pub fn train(ch: &dyn Challenge, start: Vec<f32>, set: &Settings, out: &Path) ->
     let (mut best_hold, mut best_gen) = (f64::NEG_INFINITY, 0);
     let (mut top, mut top_gen, mut top_genome) = (f64::NEG_INFINITY, 0, start.clone());
     let mut ran = set.gens;
+    // **How often each floor vetoes** (ladder lane, `dig-rung-design.md`
+    // rev 2.4): a suite's `_under` parts, 1 where a kept arena is under its
+    // floor. Counted over the population each generation and over the
+    // hold-out champions, since a gate that vetoes often is a noise source
+    // of its own.
+    let gates: Vec<(usize, &str)> =
+        parts.iter().enumerate().filter_map(|(i, p)| p.strip_suffix("_under").map(|n| (i, n))).collect();
+    let mut vetoed_pop = vec![0usize; gates.len()];
+    let mut vetoed_hold = vec![0usize; gates.len()];
+    let (mut scored_pop, mut scored_hold) = (0usize, 0usize);
     println!("gen   best  median  control  [{}]  secs", parts.join(" "));
     for gen in 0..set.gens {
         let tg = Instant::now();
@@ -1222,6 +1232,19 @@ pub fn train(ch: &dyn Challenge, start: Vec<f32>, set: &Settings, out: &Path) ->
         let (best, median) = (means[b].fit, means[ranked[set.pop / 2].1].fit);
         writeln!(progress, "{gen},{best:.3},{median:.3},{control:.3},{secs:.1},{},{}", bp.join(","), links[b])?;
         println!("{gen:3} {best:7.2} {median:7.2} {control:7.2}  [{}]  {secs:.0}  links {}", bp.join(" "), links[b]);
+        if !gates.is_empty() {
+            let shares: Vec<String> = gates
+                .iter()
+                .zip(vetoed_pop.iter_mut())
+                .map(|(&(i, name), n)| {
+                    let k = means[..set.pop].iter().filter(|m| m.parts[i] > 0.0).count();
+                    *n += k;
+                    format!("{name} {:.0}%", 100.0 * k as f64 / set.pop as f64)
+                })
+                .collect();
+            scored_pop += set.pop;
+            println!("    vetoed by a floor: {}", shares.join(", "));
+        }
         save_genome(&out.join(format!("champions/gen-{gen:03}.txt")), &champion)?;
 
         if (gen + 1) % set.every.max(1) == 0 || gen + 1 == set.gens {
@@ -1232,6 +1255,10 @@ pub fn train(ch: &dyn Challenge, start: Vec<f32>, set: &Settings, out: &Path) ->
                 writeln!(holdout, "{gen},{who},{:.3},{}", s.fit, p.join(","))?;
                 println!("    HOLDOUT {who:8} {:7.2}  [{}]", s.fit, p.join(" "));
                 if who == "champion" {
+                    scored_hold += 1;
+                    for (&(i, _), n) in gates.iter().zip(vetoed_hold.iter_mut()) {
+                        *n += usize::from(s.parts[i] > 0.0);
+                    }
                     last_hold = format!("hold-out champion {:.2}", s.fit);
                     if new_best(s.fit, best_hold) {
                         (best_hold, best_gen) = (s.fit, gen);
@@ -1271,8 +1298,24 @@ pub fn train(ch: &dyn Challenge, start: Vec<f32>, set: &Settings, out: &Path) ->
     }
     save_genome(&out.join("best.txt"), &champion)?;
     save_genome(&out.join("hold-best.txt"), &top_genome)?;
+    let vetoes = if gates.is_empty() {
+        String::new()
+    } else {
+        let each: Vec<String> = gates
+            .iter()
+            .enumerate()
+            .map(|(k, &(_, name))| {
+                format!(
+                    "{name} {} of {scored_hold} hold-out champions, {:.1}% of the population",
+                    vetoed_hold[k],
+                    100.0 * vetoed_pop[k] as f64 / scored_pop.max(1) as f64
+                )
+            })
+            .collect();
+        format!("vetoed by a floor: {}\n", each.join("; "))
+    };
     let summary = format!(
-        "{head}\n{ran} of {} generations in {:.0} s (hold-out best {top:.3} at generation {top_gen}, hold-best.txt; last gain over {STOP_GAIN} at generation {best_gen})\n{last_hold}\n{}\n",
+        "{head}\n{ran} of {} generations in {:.0} s (hold-out best {top:.3} at generation {top_gen}, hold-best.txt; last gain over {STOP_GAIN} at generation {best_gen})\n{last_hold}\n{vetoes}{}\n",
         set.gens,
         t0.elapsed().as_secs_f64(),
         describe(&champion)
