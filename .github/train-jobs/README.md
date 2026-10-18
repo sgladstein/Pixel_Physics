@@ -37,4 +37,5 @@ brain=mind challenge=suite arenas=fetch,trail gens=100 pop=100 layouts=8 seed=2 
 - No run survives the 6 h limit; there is no resume yet. 100 generations of the
   fetch+trail suite took ~3.6 h at 4 threads on the runner pool.
 - The 20-job pool is shared with PR CI. If CI starts queueing, lower `max-parallel`.
-- The first three jobs here are a thread-scaling timing probe, not training.
+- The hosted "4-core" runner is 2 physical cores: threads=2 is 1.98x faster than 1, threads=4 only 1.18x faster than 2 (measured on a 6-generation probe; scores are identical at every thread count). The runner CPU also varies by run (an EPYC 9V45 did a generation in ~17 s where an EPYC 7763 took ~44 s on the same kind of job).
+- Past about a dozen generations per hour you want more cores than this: see `brain-training/cloud-compute/cost-research-2026-10-18.md` for Modal timings.
