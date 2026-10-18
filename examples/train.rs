@@ -320,11 +320,18 @@ fn main() {
                 steps = v == "on";
             }
             "step" => {
-                step = v.parse().unwrap();
-                assert!((1..=3).contains(&step), "step={v}: the soil trip's stage being learned, 1-3");
+                step = v.parse().ok().filter(|s| (1..=3).contains(s)).unwrap_or_else(|| panic!("step={v}: the soil trip's stage being learned, 1-3"));
             }
-            "shaft" => shaft = v.parse().unwrap(),
-            "budget" => budget = if v == "fed" { None } else { Some(v.parse().unwrap()) },
+            "shaft" => {
+                shaft = v.parse().ok().filter(|&r: &i32| r >= 0).unwrap_or_else(|| panic!("shaft={v}: rows of founding shaft, 0 or more"));
+            }
+            "budget" => {
+                budget = if v == "fed" {
+                    None
+                } else {
+                    Some(v.parse().ok().filter(|&j: &f32| j.is_finite() && j > 0.0).unwrap_or_else(|| panic!("budget={v}: fed, or a finite number of joules above 0")))
+                }
+            }
             "brain" => {
                 assert!(v == "mind" || v == "today", "brain={v}: mind|today");
                 mind = v == "mind";

@@ -62,6 +62,8 @@ pub const MEMORY: usize = 12;
 /// Scents the ant can lay alongside its verb: A, B and alarm. The building
 /// scent comes later, with the dig rung.
 pub const EMITS: usize = 3;
+/// Hidden units in the job head ([`HID`]).
+pub const HIDDEN: usize = 8;
 const EMIT_CHANNELS: [Channel; EMITS] = [Channel::A, Channel::B, Channel::Alarm];
 
 /// What the mind reads about the ant itself, once a decision.
@@ -170,8 +172,35 @@ const M_IN: usize = CONTEXT + 2 + VERBS + MEMORY + 1;
 /// Emits: each scent's strength from context, memory and a bias.
 const EMIT: usize = MEM + MEMORY * M_IN;
 const E_IN: usize = CONTEXT + MEMORY + 1;
+/// **The job head's hidden units**: each reads this decision's context,
+/// memory and a bias, squashed as a memory unit is (no sharpness), and
+/// feeds every job ([`HID_OUT`]). **Why**: a job is a weighted sum, and "put
+/// food down at the nest, never soil" is an XOR that no sum holds -- one
+/// `Drop` serves both. Memory cannot carry it (it updates after the pick,
+/// so the decision just after a cut puts the pellet down beside the face
+/// about half the time), and a scorer unit read through a job's `best`
+/// can veto but not raise: `best` sits at 0.95-0.99 in every state
+/// (ladder lane, `dig-rung-design.md` 5; `review-brain-architecture.md`
+/// E5-E8). Appended last, so every earlier slot keeps its index, and all
+/// zero in a genome saved before them ([`pad`]).
+///
+/// **A unit nobody wired is a two-step valley for evolution**: its fan-in
+/// does nothing until a job reads it (an unread unit is skipped), and a
+/// job's weight on it does nothing while its fan-in is empty (`squash(0)`
+/// is 0), yet each is a live link the brain is taxed for. So recruiting
+/// one of units 2-7 takes two coincident mutations that selection removes
+/// one at a time: "the net never used them" is not evidence they are
+/// useless (review of PR 721, N5).
+const HID: usize = EMIT + EMITS * E_IN;
+const H_IN: usize = CONTEXT + MEMORY + 1;
+/// Each job's weight on each hidden unit, one row of [`HIDDEN`] per verb.
+const HID_OUT: usize = HID + HIDDEN * H_IN;
 /// The whole genome.
-pub const GENOME_LEN: usize = EMIT + EMITS * E_IN;
+pub const GENOME_LEN: usize = HID_OUT + VERBS * HIDDEN;
+/// **A genome saved before the job head had hidden units** (2026-10-18):
+/// [`pad`] reads it as one whose hidden units are all zero, which run
+/// exactly as it did.
+pub const GENOME_LEN_V1: usize = HID;
 
 /// A weight below this is not a connection: it costs nothing and is not
 /// counted ([`MindGenome::live`]), as `brain::W_EPS` is for today's brain.
@@ -215,6 +244,21 @@ impl MindGenome {
     }
 }
 
+/// **A saved genome in today's layout**: one written before the job head
+/// had hidden units ([`GENOME_LEN_V1`]) gains them, all zero -- which
+/// [`decide`] skips, so it picks exactly as it did -- and one already
+/// [`GENOME_LEN`] long is returned as it is. `None` for any other length.
+pub fn pad(mut g: Vec<f32>) -> Option<Vec<f32>> {
+    match g.len() {
+        GENOME_LEN => Some(g),
+        GENOME_LEN_V1 => {
+            g.resize(GENOME_LEN, 0.0);
+            Some(g)
+        }
+        _ => None,
+    }
+}
+
 /// **A blank genome**: every weight 0, so every option scores the same, with
 /// `verbs` switched on and the rest off.
 pub fn blank(verbs: &[Verb]) -> Vec<f32> {
@@ -233,7 +277,7 @@ pub fn trainable(verbs: &[Verb], emits: [bool; EMITS]) -> Vec<usize> {
     (0..GENOME_LEN)
         .filter(|&i| match i {
             i if i < SHARP => verbs.contains(&Verb::ALL[i - SWITCH]),
-            i if i >= EMIT => emits[(i - EMIT) / E_IN],
+            i if (EMIT..HID).contains(&i) => emits[(i - EMIT) / E_IN],
             _ => true,
         })
         .collect()
@@ -295,14 +339,17 @@ pub fn reopen(g: &mut [f32], verbs: &[Verb]) -> Vec<&'static str> {
 /// the genome has never laid it, B gets the hand-built layer: laid while
 /// the crop holds food (design rev3, *Scents need senders and receivers
 /// together*: today's brain has that rule by hand, so the new one starts
-/// with it and mutation may change it). Returns what it changed, for the
-/// run's log.
-pub fn enter_rung(g: &mut [f32], verbs: &[Verb], emits: [bool; EMITS]) -> Vec<&'static str> {
+/// with it and mutation may change it); and where Dig comes on, the dig
+/// start ([`enter_dig`]). Returns what it changed, for the run's log.
+pub fn enter_rung(g: &mut [f32], verbs: &[Verb], emits: [bool; EMITS]) -> Vec<String> {
     let mut did = vec![];
     for v in Verb::ALL {
         if verbs.contains(&v) && g[SWITCH + v as usize] == -1.0 {
             g[SWITCH + v as usize] = 1.0;
-            did.push(v.name());
+            did.push(v.name().to_string());
+            if v == Verb::Dig {
+                did.extend(enter_dig(g));
+            }
         }
     }
     let b = EMIT + E_IN..EMIT + 2 * E_IN;
@@ -310,7 +357,86 @@ pub fn enter_rung(g: &mut [f32], verbs: &[Verb], emits: [bool; EMITS]) -> Vec<&'
         // One cell (a sixth of the crop) lays at 0.79; nothing lays 0.
         g[b.start + c::CROP] = 40.0;
         g[b.end - 1] = -3.0;
-        did.push("scent B while carrying");
+        did.push("scent B while carrying".to_string());
+    }
+    did
+}
+
+/// **The dig start, for a genome whose Dig was banned until now** (ladder
+/// lane, `dig-rung-design.md` 5, rev 2.1; keyed on the ban, R11):
+///
+/// * **what drifted, zeroed**: every weight that only ever met a zero while
+///   Dig was banned -- Dig's job row and its weights on the hidden units,
+///   the scorer's Dig column, memory's read of "Dig was chosen", and every
+///   read of `c::SPOIL` (nothing held soil). Mutation moved them and
+///   selection never saw them; a drifted Dig weight on hidden unit 0 or 1
+///   left in place would also read as "in use" and stop the gate below
+///   being laid (review of PR 721, S1);
+/// * **Dig's job**: at the nest, cut (`AT_NEST` +6, offset -4, the
+///   forager's Drop numbers);
+/// * **where soil goes down, on hidden units 0 and 1** when both are
+///   empty: h0 is "soil, and at the nest or under cover", h1 "soil, and
+///   far from home" (crosses 0 about 8 cells out). Drop reads h0 at -10
+///   and h1 at +6, **added** to the start's own Drop row, and its offset
+///   moves by what the two read with food at the nest (about -3.7), so a
+///   forager's food put-down at the nest is where it was. A genome that
+///   already uses either unit keeps them, and the log says the gate was
+///   not laid.
+///
+/// The numbers are rev 1's, which in the review's toy corridor delivered
+/// food at 1.30 (start 1.20), soil +0.95, and put 1 pellet in 64 down at
+/// the nest from generation 0, the best start of every arm tried there
+/// (`review-brain-architecture.md` E8). Returns what it changed.
+fn enter_dig(g: &mut [f32]) -> Vec<String> {
+    let dig = Verb::Dig as usize;
+    let mut drifted: Vec<std::ops::Range<usize>> = (0..UNITS).map(|u| S_VERB + u * VERBS + dig..S_VERB + u * VERBS + dig + 1).collect();
+    drifted.push(JOB + dig * J_IN..JOB + (dig + 1) * J_IN);
+    drifted.push(HID_OUT + dig * HIDDEN..HID_OUT + (dig + 1) * HIDDEN);
+    drifted.extend((0..MEMORY).map(|m| {
+        let k = MEM + m * M_IN + CONTEXT + 2 + dig;
+        k..k + 1
+    }));
+    for (base, rows, width) in [
+        (S_CTX, UNITS, S_IN),
+        (JOB, VERBS, J_IN),
+        (MEM, MEMORY, M_IN),
+        (EMIT, EMITS, E_IN),
+        (HID, HIDDEN, H_IN),
+    ] {
+        drifted.extend((0..rows).map(|r| base + r * width + c::SPOIL..base + r * width + c::SPOIL + 1));
+    }
+    let mut zeroed = 0;
+    for r in drifted {
+        zeroed += g[r.clone()].iter().filter(|w| **w != 0.0).count();
+        g[r].fill(0.0);
+    }
+    let job = |v: Verb, k: usize| JOB + v as usize * J_IN + k;
+    g[job(Verb::Dig, c::AT_NEST)] = 6.0;
+    g[job(Verb::Dig, CONTEXT + MEMORY + 1)] = -4.0;
+    let mut did = vec![format!("{zeroed} drifted Dig and soil links zeroed"), "Dig at the nest".to_string()];
+
+    let unit = |h: usize| HID + h * H_IN..HID + (h + 1) * H_IN;
+    let read = |g: &[f32], h: usize| (0..VERBS).any(|v| g[HID_OUT + v * HIDDEN + h] != 0.0);
+    if g[unit(0).start..unit(2).start].iter().all(|w| *w == 0.0) && !read(g, 0) && !read(g, 1) {
+        let (h0, h1) = (unit(0), unit(1));
+        g[h0.start + c::SPOIL] = 40.0;
+        g[h0.start + c::AT_NEST] = 20.0;
+        g[h0.start + c::ROOFED] = 20.0;
+        g[h0.end - 1] = -45.0;
+        g[h1.start + c::SPOIL] = 40.0;
+        g[h1.start + c::HOME_DIST] = 40.0;
+        g[h1.end - 1] = -48.0;
+        let (w0, w1) = (-10.0, 6.0);
+        let drop = HID_OUT + Verb::Drop as usize * HIDDEN;
+        g[drop] += w0;
+        g[drop + 1] += w1;
+        // What h0 and h1 add to Drop with food at the nest in the open
+        // (no soil, at home): put back, so that row reads as the start's.
+        let at_nest = w0 * squash(20.0 - 45.0) + w1 * squash(-48.0);
+        g[job(Verb::Drop, CONTEXT + MEMORY + 1)] -= at_nest;
+        did.push(format!("soil put down away (hidden 0 and 1; Drop offset {:+.2})", -at_nest));
+    } else {
+        did.push("soil gate not laid: hidden 0 or 1 already in use".to_string());
     }
     did
 }
@@ -343,7 +469,7 @@ pub fn blinded(g: &[f32]) -> Vec<f32> {
             v[S_FEAT + u * FEATURES + k] = 0.0;
         }
     }
-    for (base, rows, width) in [(JOB, VERBS, J_IN), (MEM, MEMORY, M_IN), (EMIT, EMITS, E_IN)] {
+    for (base, rows, width) in [(JOB, VERBS, J_IN), (MEM, MEMORY, M_IN), (EMIT, EMITS, E_IN), (HID, HIDDEN, H_IN)] {
         for r in 0..rows {
             for k in SCENT_CTX {
                 v[base + r * width + k] = 0.0;
@@ -503,7 +629,8 @@ pub fn preset(name: &str, verbs: &[Verb]) -> Option<Vec<f32>> {
 
 /// **Which slots cross over together**: one scorer unit's whole fan-in and
 /// its output weight; one job row; one memory row with its rate; one emit
-/// row; each switch and bound on its own. The rig takes each group whole
+/// row; one job hidden unit's fan-in with its weight into every job; each
+/// switch and bound on its own. The rig takes each group whole
 /// from one parent, as it takes today's brain's output rows.
 pub fn crossover_group(slot: usize) -> usize {
     const UNIT_BASE: usize = 1000;
@@ -517,7 +644,9 @@ pub fn crossover_group(slot: usize) -> usize {
         s if s < JOB => UNIT_BASE + 200,
         s if s < MEM => UNIT_BASE + 300 + (s - JOB) / J_IN,
         s if s < EMIT => UNIT_BASE + 100 + (s - MEM) / M_IN,
-        s => UNIT_BASE + 400 + (s - EMIT) / E_IN,
+        s if s < HID => UNIT_BASE + 400 + (s - EMIT) / E_IN,
+        s if s < HID_OUT => UNIT_BASE + 500 + (s - HID) / H_IN,
+        s => UNIT_BASE + 500 + (s - HID_OUT) % HIDDEN,
     }
 }
 
@@ -530,7 +659,7 @@ pub fn describe(g: &[f32]) -> String {
         .collect();
     let live = |a: usize, b: usize| g[a..b].iter().filter(|v| v.abs() >= W_EPS).count();
     format!(
-        "verbs [{}] sharp {:.2} pull {:.2} | live: scorer ctx {} feat {} verb {} out {}, job {}, memory {}, emit {} (of {})",
+        "verbs [{}] sharp {:.2} pull {:.2} | live: scorer ctx {} feat {} verb {} out {}, job {}, memory {}, emit {}, job hidden {} (of {})",
         on.join(","),
         sharpness(g),
         pull(g),
@@ -540,7 +669,8 @@ pub fn describe(g: &[f32]) -> String {
         live(S_OUT, JOB),
         live(JOB, MEM),
         live(MEM, EMIT),
-        live(EMIT, GENOME_LEN),
+        live(EMIT, HID),
+        live(HID, GENOME_LEN),
         GENOME_LEN - S_CTX,
     )
 }
@@ -830,6 +960,27 @@ pub struct Decision {
     pub emits: [f32; EMITS],
 }
 
+/// **The job head's hidden units for one decision**, from its context and
+/// the memory before this decision's update, each squashed with its bias
+/// ([`HID`]): only those some job reads, so a genome without them runs as
+/// it did.
+fn hidden_units(g: &[f32], ctx: &[f32; CONTEXT], mem: &[f32; MEMORY]) -> [f32; HIDDEN] {
+    let mut hid = [0.0f32; HIDDEN];
+    let read = |h: usize| (0..VERBS).any(|v| g[HID_OUT + v * HIDDEN + h] != 0.0);
+    for (h, slot) in hid.iter_mut().enumerate().filter(|(h, _)| read(*h)) {
+        let row = &g[HID + h * H_IN..HID + (h + 1) * H_IN];
+        let mut sum = row[H_IN - 1];
+        for (w, x) in row[..CONTEXT].iter().zip(ctx) {
+            sum += w * x;
+        }
+        for (w, x) in row[CONTEXT..CONTEXT + MEMORY].iter().zip(mem) {
+            sum += w * x;
+        }
+        *slot = squash(sum);
+    }
+    hid
+}
+
 /// **One decision**: score every option, pick the job, pick its target,
 /// update memory. `None` when nothing the mind may pick is on the list
 /// (every verb with a target switched off).
@@ -891,8 +1042,10 @@ pub fn decide(
     let all_best = best.iter().copied().fold(f32::NEG_INFINITY, f32::max);
     let all_mean = all_sum / all_n as f32;
 
-    // The job: context, memory, the verb's best target, its offset, and
-    // the pull towards last time's verb.
+    let hid = hidden_units(g, ctx, &state.mem);
+
+    // The job: context, memory, the hidden units, the verb's best target,
+    // its offset, and the pull towards last time's verb.
     let mut jobs = [None; VERBS];
     let mut weights = [0.0f32; VERBS];
     let pulled = pull(g);
@@ -907,6 +1060,11 @@ pub fn decide(
         }
         for (w, x) in row[CONTEXT..CONTEXT + MEMORY].iter().zip(&state.mem) {
             sum += w * x;
+        }
+        for (w, x) in g[HID_OUT + v * HIDDEN..HID_OUT + (v + 1) * HIDDEN].iter().zip(&hid) {
+            if *w != 0.0 {
+                sum += w * x;
+            }
         }
         if state.last_verb == Some(Verb::ALL[v]) {
             sum += pulled;
@@ -1650,6 +1808,134 @@ mod tests {
         );
     }
 
+    /// **The job head's hidden units cost a genome saved before them
+    /// nothing**: it pads with them at zero ([`pad`]); a unit with a fan-in
+    /// that no job reads is skipped, so every pick, memory and emit is
+    /// bit-identical to the same genome without it; and the positive
+    /// control, one job's weight on that unit, moves the picks.
+    #[test]
+    fn unread_hidden_units_leave_every_choice_bit_identical() {
+        let mut g = blank(&[Verb::Walk, Verb::TurnAround, Verb::Rest]);
+        for (i, w) in g.iter_mut().enumerate().take(HID).skip(S_CTX) {
+            *w = ((i * 7919 % 1000) as f32 / 500.0 - 1.0) * 0.5;
+        }
+        assert_eq!(pad(g[..GENOME_LEN_V1].to_vec()).as_deref(), Some(&g[..]));
+        assert_eq!(pad(g.clone()).as_deref(), Some(&g[..]));
+        assert!(pad(vec![0.0; GENOME_LEN_V1 - 1]).is_none());
+        let mut h = g.clone();
+        for (i, w) in h.iter_mut().enumerate().take(HID_OUT).skip(HID) {
+            *w = (i * 104_729 % 1000) as f32 / 250.0 - 2.0;
+        }
+        let ctx: [f32; CONTEXT] = std::array::from_fn(|i| i as f32 / CONTEXT as f32);
+        let run = |h: &[f32], i: u64| {
+            let (mut s1, mut s2) = (MindState::default(), MindState::default());
+            (0..5).all(|step| {
+                let mut d1 = rng::stream(3, 9, i * 10 + step, RNG_SLOT_MIND);
+                let mut d2 = rng::stream(3, 9, i * 10 + step, RNG_SLOT_MIND);
+                let a = decide(&g, &ctx, &walks(), &mut s1, &mut d1).expect("pick");
+                let b = decide(h, &ctx, &walks(), &mut s2, &mut d2).expect("pick");
+                a.pick == b.pick
+                    && a.jobs.map(|j| j.map(f32::to_bits)) == b.jobs.map(|j| j.map(f32::to_bits))
+                    && s1.mem.map(f32::to_bits) == s2.mem.map(f32::to_bits)
+                    && a.emits.map(f32::to_bits) == b.emits.map(f32::to_bits)
+            })
+        };
+        let moved = (0..2_000).filter(|&i| !run(&h, i)).count();
+        assert_eq!(moved, 0, "unread hidden units moved a decision in {moved} of 2000 runs");
+        h[HID_OUT + Verb::Walk as usize * HIDDEN + 3] = 2.0;
+        let moved = (0..2_000).filter(|&i| !run(&h, i)).count();
+        assert!(moved > 500, "a read hidden unit must move the walk's job: {moved} of 2000 runs moved");
+    }
+
+    /// **A hidden unit reads its bias, this decision's context and the
+    /// memory before the update** ([`hidden_units`]), and an unread one stays
+    /// 0 whatever its fan-in (review of PR 721, N1: removing the memory read
+    /// left every test green).
+    #[test]
+    fn a_hidden_unit_reads_bias_context_and_memory() {
+        let mut g = blank(&[Verb::Walk, Verb::TurnAround, Verb::Rest]);
+        let (h, m) = (2, 4);
+        let row = HID + h * H_IN;
+        g[row + H_IN - 1] = 0.3;
+        g[row + c::CROP] = 1.0;
+        g[row + CONTEXT + m] = 2.0;
+        g[HID_OUT + Verb::Walk as usize * HIDDEN + h] = 1.0;
+        g[HID + 5 * H_IN + c::CROP] = 9.0;
+        let mut ctx = [0.0; CONTEXT];
+        ctx[c::CROP] = 0.25;
+        let mut mem = [0.0; MEMORY];
+        mem[m] = 0.5;
+        let hid = hidden_units(&g, &ctx, &mem);
+        assert_eq!(hid[h], squash(0.3 + 0.25 + 1.0), "bias + context + memory");
+        assert_eq!(hid[5], 0.0, "unit 5 has a fan-in but no job reads it");
+        assert!(hid.iter().enumerate().all(|(k, x)| k == h || *x == 0.0));
+    }
+
+    /// **Entering the dig rung** ([`enter_dig`]): the weights that drifted
+    /// while Dig was banned are zeroed, Dig cuts at the nest, and the soil
+    /// gate on hidden units 0 and 1 leaves food's put-down at the nest
+    /// where the start had it while soil is held at the nest and put down
+    /// far out (`dig-rung-design.md` 5's truth table, on the forager).
+    #[test]
+    fn entering_dig_zeroes_the_drift_and_lays_the_soil_gate() {
+        let forage = [Verb::Walk, Verb::TurnAround, Verb::Rest, Verb::Eat, Verb::Drop, Verb::Feed];
+        let soil = [Verb::Walk, Verb::TurnAround, Verb::Rest, Verb::Eat, Verb::Drop, Verb::Feed, Verb::Dig];
+        let start = preset("forager", &forage).expect("forager");
+        let dig = Verb::Dig as usize;
+        let drift = [
+            JOB + dig * J_IN + c::ENERGY,
+            S_CTX + 5 * S_IN + c::SPOIL,
+            JOB + Verb::Walk as usize * J_IN + c::SPOIL,
+            MEM + 2 * M_IN + CONTEXT + 2 + dig,
+            S_VERB + 4 * VERBS + dig,
+            HID + 6 * H_IN + c::SPOIL,
+            // Dig's weight on h0 (review of PR 721, S1): left in place it
+            // would read as h0 in use, and no gate would be laid.
+            HID_OUT + dig * HIDDEN,
+        ];
+        let mut g = start.clone();
+        for (k, &i) in drift.iter().enumerate() {
+            g[i] = 0.3 + k as f32;
+        }
+        let did = enter_rung(&mut g, &soil, [true, true, false]);
+        assert_eq!(did[..3], ["dig", "7 drifted Dig and soil links zeroed", "Dig at the nest"]);
+        assert!(did[3].starts_with("soil put down away"), "{did:?}");
+        assert!(drift.iter().all(|&i| g[i] == 0.0));
+        assert_eq!(enter_rung(&mut g, &soil, [true, true, false]), Vec::<&str>::new(), "entered twice");
+        // A genome whose Walk already reads h0 keeps it, and says the gate
+        // was not laid (review of PR 721, N3).
+        let mut busy = start.clone();
+        busy[HID_OUT + Verb::Walk as usize * HIDDEN] = 1.0;
+        let did = enter_rung(&mut busy, &soil, [true, true, false]);
+        assert_eq!(did[3], "soil gate not laid: hidden 0 or 1 already in use", "{did:?}");
+        assert_eq!(busy[HID + c::SPOIL], 0.0);
+
+        let drop_job = |g: &[f32], set: &[(usize, f32)]| {
+            let mut ctx = [0.0; CONTEXT];
+            for &(k, v) in set {
+                ctx[k] = v;
+            }
+            let opts = [opt(Verb::Walk, (1, 0), 0.0), opt(Verb::Drop, (1, 1), 0.0)];
+            let mut draw = rng::stream(1, 1, 1, RNG_SLOT_MIND);
+            decide(g, &ctx, &opts, &mut MindState::default(), &mut draw).expect("pick").jobs[Verb::Drop as usize].expect("drop")
+        };
+        let food = 1.0 / 6.0;
+        for (row, set) in [
+            ("food at the nest", vec![(c::CROP, food), (c::AT_NEST, 1.0)]),
+            ("food away", vec![(c::CROP, food), (c::HOME_DIST, 0.3)]),
+        ] {
+            let (was, now) = (drop_job(&start, &set), drop_job(&g, &set));
+            assert!((was - now).abs() < 0.02, "{row}: Drop's job {was} at the start, {now} entered");
+        }
+        let at_nest = drop_job(&g, &[(c::SPOIL, 1.0), (c::AT_NEST, 1.0)]);
+        let roofed = drop_job(&g, &[(c::SPOIL, 1.0), (c::ROOFED, 1.0), (c::HOME_DIST, 0.1)]);
+        let near = drop_job(&g, &[(c::SPOIL, 1.0), (c::HOME_DIST, 0.05)]);
+        let far = drop_job(&g, &[(c::SPOIL, 1.0), (c::HOME_DIST, 0.4)]);
+        // On the forager's sharpness (4): food at the nest reads +0.89.
+        assert!(at_nest < -0.97 && roofed < -0.97, "soil at the nest {at_nest}, under cover {roofed}: must hold");
+        assert!(near < -0.9 && far > 0.9, "soil near home {near}, far out {far}");
+    }
+
     /// A lab box's colony after 300 frames of the game, every adult then
     /// given a blank mind with the forage rung's verbs.
     fn mind_box() -> (World, CreatureDef, Vec<OrganismId>) {
@@ -1806,6 +2092,7 @@ mod tests {
             })
             .expect("an ant beside ground it can cut");
         let ground = w.get(cut.0, cut.1);
+        assert_ne!(ground.material, crate::sim::material::EMPTY);
         let (digs, dumped) = (w.creature_stats.digs, w.creature_stats.spoil_dumped);
         let mut draw = rng::stream(1, id as u64, 0, RNG_SLOT_ACT);
         assert!(act(&mut w, id, &def, on(Verb::Dig, cut), &mut draw), "the cut");
@@ -1819,9 +2106,8 @@ mod tests {
                 .flat_map(|dy| (-3..=3).map(move |dx| (x + dx, y + dy)))
                 .find(|&(tx, ty)| jaw_can_cut(w, &def, id, w.get(tx, ty)))
         };
-        if let Some(t) = near(&w) {
-            assert!(!act(&mut w, id, &def, on(Verb::Dig, t), &mut draw), "cut with full jaws");
-        }
+        let t = near(&w).expect("another cell the jaws could cut, to refuse");
+        assert!(!act(&mut w, id, &def, on(Verb::Dig, t), &mut draw), "cut with full jaws");
         // Not where it would hang: a cell of open air with nothing under it.
         let (hx, hy) = head_of(&w, id);
         let air = (0..hy)
@@ -1844,7 +2130,6 @@ mod tests {
         let m = w.minds.as_ref().expect("minds");
         assert_eq!((m.counts.dug, m.counts.dumped, m.counts.put_down), (1, 1, 0));
         assert_eq!(m.dump_log.as_deref(), Some(&[(site.0, site.1, w.frame, id)][..]));
-        assert_ne!(ground.material, crate::sim::material::EMPTY);
     }
 
     /// **A rung's entry**: the verbs the earlier rung banned come on, an
@@ -1921,12 +2206,16 @@ mod tests {
 
     #[test]
     fn the_layout_adds_up_and_crosses_in_whole_rows() {
-        assert_eq!(GENOME_LEN, EMIT + EMITS * E_IN);
+        assert_eq!(GENOME_LEN, EMIT + EMITS * E_IN + HIDDEN * H_IN + VERBS * HIDDEN);
+        assert_eq!((GENOME_LEN_V1, GENOME_LEN), (2333, 2669), "saved genomes are 2,333 slots");
         let mut groups: Vec<usize> = (0..GENOME_LEN).map(crossover_group).collect();
         groups.dedup();
         let n = groups.iter().collect::<std::collections::BTreeSet<_>>().len();
-        // switches, sharp, pull; units; output bias; jobs; memory rows; emits
-        assert_eq!(n, VERBS + 2 + UNITS + 1 + VERBS + MEMORY + EMITS, "crossover groups");
+        // switches, sharp, pull; units; output bias; jobs; memory rows; emits; job hidden units
+        assert_eq!(n, VERBS + 2 + UNITS + 1 + VERBS + MEMORY + EMITS + HIDDEN, "crossover groups");
+        // A job hidden unit's fan-in and its weights into the jobs travel together.
+        assert_eq!(crossover_group(HID + 2 * H_IN + 4), crossover_group(HID_OUT + 5 * HIDDEN + 2));
+        assert_ne!(crossover_group(HID + 2 * H_IN), crossover_group(HID_OUT + 5 * HIDDEN + 3));
         // Memory unit m's rate travels with its row.
         assert_eq!(crossover_group(RATE + 3), crossover_group(MEM + 3 * M_IN + 5));
         // A scorer unit's fan-in and its output weight travel together.
@@ -1938,6 +2227,7 @@ mod tests {
         let t = trainable(&[Verb::Walk, Verb::Rest], [false, true, false]);
         assert!(t.contains(&(SWITCH + Verb::Walk as usize)) && !t.contains(&(SWITCH + Verb::Dig as usize)));
         assert!(t.contains(&(EMIT + E_IN)) && !t.contains(&EMIT) && !t.contains(&(EMIT + 2 * E_IN)));
+        assert!(t.contains(&HID) && t.contains(&(GENOME_LEN - 1)), "the job hidden units are not an emit row");
         assert_eq!(
             MindGenome::new(blank(&Verb::ALL)).live,
             0,
