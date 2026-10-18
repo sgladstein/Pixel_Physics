@@ -188,6 +188,18 @@ fn parse_brake(v: &str) -> Option<creature::FoodBrake> {
     }
 }
 
+/// **A switch reads 1 or 0** (`true`/`false`, `on`/`off` alike); anything
+/// else stops the run. `clones=true` once read as off, silently, because
+/// only `1` turned it on: five near-food runs and two cloud jobs started
+/// without whole-clone trail arenas and were restarted (2026-10-18).
+fn on(k: &str, v: &str) -> bool {
+    match v {
+        "1" | "true" | "on" => true,
+        "0" | "false" | "off" => false,
+        _ => panic!("{k}={v}: want 1 or 0"),
+    }
+}
+
 fn main() {
     creature::mutation_off_for_measuring();
     let mut set = Settings::default();
@@ -242,19 +254,22 @@ fn main() {
             "every" => set.every = v.parse().unwrap(),
             "seed" => set.seed = v.parse().unwrap(),
             "threads" => set.threads = v.parse().unwrap(),
-            "pics" => set.pictures = v == "1",
+            "pics" => set.pictures = on(k, v),
             "frames" => frames = Some(v.parse().unwrap()),
             "ants" => ants = Some(v.parse().unwrap()),
-            "walk" => game_walk = v == "game",
-            "clones" => clones = v == "1",
-            "cost" => cost = v == "1",
+            "walk" => {
+                assert!(v == "game" || v == "brain", "walk={v}: game|brain");
+                game_walk = v == "game";
+            }
+            "clones" => clones = on(k, v),
+            "cost" => cost = on(k, v),
             "score" => score = Some(v.into()),
-            "noise" => noise = v == "1",
+            "noise" => noise = on(k, v),
             "targets" => targets = v.into(),
             "pic" => pic = Some(v.into()),
             "trace" => trace = Some(v.parse().unwrap()),
             "free" => free = v.into(),
-            "sealed" => sealed = v == "1",
+            "sealed" => sealed = on(k, v),
             "genes" => genes = v.into(),
             "walkset" => walkset = v.into(),
             "prune" => set.prune = v.parse().unwrap(),
