@@ -60,7 +60,8 @@
 //! `dist=<n>`) sets how many columns out the food lands, 80 unless set:
 //! nearer food is the forage rung's stepping stone (`Scarce::dist`).
 //! `steps=off` scores the scarce colony on its heads alone, without the
-//! step points for each part of the way home (`challenges::forage_steps`).
+//! step points for each part of the way home, heading out towards the
+//! food first (`challenges::forage_steps`).
 //! `challenge=fetch` is the same bed with one ant that cannot starve and
 //! no births, scored on those steps alone, 6,000 frames unless set
 //! (`Scarce::fed`).

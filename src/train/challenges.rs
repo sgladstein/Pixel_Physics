@@ -457,7 +457,8 @@ impl Challenge for Forage {
 /// quarter reads [`scarce_floor`]: how long it lasted, under any live one.
 ///
 /// **Plus a step on the way home for each part of the trip it has learned**
-/// ([`forage_steps`], `steps=off` takes it away): reaching the food,
+/// ([`forage_steps`], `steps=off` takes it away): heading out towards the
+/// food, reaching it,
 /// picking some up, carrying it towards the nest, arriving with it, putting
 /// it down there (owner, 2026-10-18). Trained on heads alone, at 80 columns
 /// for 16 generations of 100 brains, no champion ever carried a cell home:
@@ -569,7 +570,7 @@ impl Challenge for Scarce {
         self.frames
     }
     fn parts(&self) -> &'static [&'static str] {
-        &["score", "adults", "kept", "starved", "births", "brood", "eaten", "delivered", "larvae_j", "held_ticks", "dist", "lived", "heads", "steps", "reach", "picked", "carried", "arrived", "home"]
+        &["score", "adults", "kept", "starved", "births", "brood", "eaten", "delivered", "larvae_j", "held_ticks", "dist", "lived", "heads", "steps", "reach", "picked", "carried", "arrived", "home", "out"]
     }
     fn banned(&self) -> &'static [O] {
         NOT_ANT_VERBS
@@ -679,7 +680,7 @@ impl Challenge for Scarce {
             trip.arrived.len() as f64 / n,
         );
         let home = st.trip_deliveries as f64;
-        let steps = forage_steps(reach, picked, trip.carried, arrived, home);
+        let steps = forage_steps(trip.out, reach, picked, trip.carried, arrived, home);
         let score = heads + if self.steps { STEP_SCALE * steps } else { 0.0 };
         vec![Score {
             fit: score,
@@ -703,20 +704,30 @@ impl Challenge for Scarce {
                 trip.carried,
                 arrived,
                 home,
+                trip.out,
             ],
         }]
     }
 }
 
-/// **The way home, step by step** (owner, 2026-10-18): reaching the food,
-/// picking some up, carrying it towards the nest, arriving with it, putting
-/// it down there. Each step outweighs every step below it together
-/// (1 + 2 + 4 + 8 = 15 < 16), so stacking the easy ones never beats one
-/// cell home.
-pub const STEP_WEIGHTS: [f64; 5] = [1.0, 2.0, 4.0, 8.0, 16.0];
+/// **The way home, step by step** (owner, 2026-10-18): heading out towards
+/// the food, reaching it, picking some up, carrying it towards the nest,
+/// arriving with it, putting it down there. Each step outweighs every step
+/// below it together (0.5 + 1 + 2 + 4 + 8 = 15.5 < 16), so stacking the
+/// easy ones never beats one cell home.
+///
+/// **Heading out is a step because reaching the food was all or nothing.**
+/// Scored from reaching up, one ant at 80 columns, judged on the worse of
+/// two mirrored layouts, read 1.00 for every brain of four 100-brain runs:
+/// no start ant reached the food on both sides of the nest, so the fetch
+/// score was flat and the runs were selected on the trail alone (gens 0-11,
+/// `brain-training/stage2/fetch`, 2026-10-18). Graded like `carried`, the
+/// furthest an ant got out pays a searcher that goes both ways and not one
+/// that walks off in one direction, which the worse side reads as 0.
+pub const STEP_WEIGHTS: [f64; 6] = [0.5, 1.0, 2.0, 4.0, 8.0, 16.0];
 
 /// What one step point adds to a scarce colony's score, in heads: the whole
-/// way short of the nest (15 points) is worth seven and a half ants kept, a
+/// way short of the nest (15.5 points) is worth under eight ants kept, a
 /// first cell home eight.
 pub const STEP_SCALE: f64 = 0.5;
 
@@ -725,20 +736,23 @@ pub const STEP_SCALE: f64 = 0.5;
 const STEP_EVERY: u64 = 4;
 
 /// **How far the colony got on the way home, in step points**
-/// ([`STEP_WEIGHTS`]). `reach`, `picked` and `arrived` are the share of
+/// ([`STEP_WEIGHTS`]). `out` is the furthest any ant got from the nest
+/// towards the food, as a share of the way there; `reach`, `picked` and
+/// `arrived` are the share of
 /// the founders that ever reached the food, picked food up away from home
 /// and stood at the nest still carrying it; `carried` is the furthest any
 /// load got towards the nest, as a share of the way from the food spot;
 /// `home` the cells from a trip put down at the nest, each doubling worth a
 /// quarter of the first. Shares past 1 (a colony that bred) count as 1.
-pub fn forage_steps(reach: f64, picked: f64, carried: f64, arrived: f64, home: f64) -> f64 {
+pub fn forage_steps(out: f64, reach: f64, picked: f64, carried: f64, arrived: f64, home: f64) -> f64 {
     let w = STEP_WEIGHTS;
     let delivered = if home >= 1.0 { 1.0 + home.log2() / 4.0 } else { 0.0 };
-    w[0] * reach.clamp(0.0, 1.0)
-        + w[1] * picked.clamp(0.0, 1.0)
-        + w[2] * carried.clamp(0.0, 1.0)
-        + w[3] * arrived.clamp(0.0, 1.0)
-        + w[4] * delivered
+    w[0] * out.clamp(0.0, 1.0)
+        + w[1] * reach.clamp(0.0, 1.0)
+        + w[2] * picked.clamp(0.0, 1.0)
+        + w[3] * carried.clamp(0.0, 1.0)
+        + w[4] * arrived.clamp(0.0, 1.0)
+        + w[5] * delivered
 }
 
 /// **What the scarce colony did on the way home**, read every
@@ -747,6 +761,7 @@ pub fn forage_steps(reach: f64, picked: f64, carried: f64, arrived: f64, home: f
 /// so food taken at the nest carries nothing.
 #[derive(Default)]
 struct Trip {
+    out: f64,
     reached: Vec<OrganismId>,
     picked: Vec<OrganismId>,
     arrived: Vec<OrganismId>,
@@ -766,6 +781,8 @@ impl Trip {
         for &id in adults {
             let Some(st) = w.organism(id) else { continue };
             let Some(&(hx, _)) = st.chain.first() else { continue };
+            let out = 1.0 - (hx - food_x).abs() as f64 / dist.max(1) as f64;
+            self.out = self.out.max(out.clamp(0.0, 1.0));
             if (hx - food_x).abs() <= Self::REACH {
                 mark(&mut self.reached, id);
             }
@@ -1782,36 +1799,35 @@ mod tests {
     /// and a colony that never left home scores nothing.
     #[test]
     fn each_step_home_outweighs_every_step_below_it() {
-        assert_eq!(forage_steps(0.0, 0.0, 0.0, 0.0, 0.0), 0.0);
+        assert_eq!(forage_steps(0.0, 0.0, 0.0, 0.0, 0.0, 0.0), 0.0);
         let below = |k: usize| {
-            forage_steps(
-                f64::from(u8::from(k > 0)),
-                f64::from(u8::from(k > 1)),
-                f64::from(u8::from(k > 2)),
-                f64::from(u8::from(k > 3)),
-                0.0,
-            )
+            let s: Vec<f64> = (0..5).map(|j| f64::from(u8::from(j < k))).collect();
+            forage_steps(s[0], s[1], s[2], s[3], s[4], 0.0)
         };
         let one = |k: usize| {
-            let mut s = [0.0; 5];
+            let mut s = [0.0; 6];
             s[k] = 1.0;
-            forage_steps(s[0], s[1], s[2], s[3], s[4])
+            forage_steps(s[0], s[1], s[2], s[3], s[4], s[5])
         };
-        for k in 1..5 {
+        for k in 1..6 {
             assert!(one(k) > below(k), "step {k}: {} against {} below it", one(k), below(k));
         }
-        assert!(forage_steps(1.0, 1.0, 1.0, 1.0, 8.0) > forage_steps(1.0, 1.0, 1.0, 1.0, 1.0));
+        assert!(forage_steps(1.0, 1.0, 1.0, 1.0, 1.0, 8.0) > forage_steps(1.0, 1.0, 1.0, 1.0, 1.0, 1.0));
         assert!(
-            forage_steps(0.0, 0.0, 0.4, 0.0, 0.0) > forage_steps(0.0, 0.0, 0.2, 0.0, 0.0),
+            forage_steps(0.0, 0.0, 0.0, 0.4, 0.0, 0.0) > forage_steps(0.0, 0.0, 0.0, 0.2, 0.0, 0.0),
             "carrying further pays"
         );
+        assert!(
+            forage_steps(0.4, 0.0, 0.0, 0.0, 0.0, 0.0) > forage_steps(0.2, 0.0, 0.0, 0.0, 0.0, 0.0),
+            "heading further out pays"
+        );
         assert_eq!(
-            forage_steps(3.0, 3.0, 3.0, 3.0, 0.0),
-            15.0,
+            forage_steps(3.0, 3.0, 3.0, 3.0, 3.0, 0.0),
+            15.5,
             "a share past 1 counts as 1"
         );
         assert_eq!(
-            forage_steps(0.0, 0.0, 0.0, 0.0, 0.5),
+            forage_steps(0.0, 0.0, 0.0, 0.0, 0.0, 0.5),
             0.0,
             "no cell home is no cell home"
         );
