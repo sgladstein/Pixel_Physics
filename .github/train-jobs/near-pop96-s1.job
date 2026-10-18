@@ -1,2 +1,2 @@
 # Brain lane, 2026-10-18: pop 96 vs the pop 24 runs on runners C and B (does more brains per generation help). Builds the brain lane's 2c281132.
-ref=2c28113200984c251c4865bbf9eff807395de64b brain=mind challenge=suite arenas=fetch,trail keep=trail forget=0.8 clones=true start=training/starts/mind-s1.txt dist=10 pop=96 layouts=2 pm=0.03 sigma=1 cross=0.3 gens=60 patience=30 holdout=12 every=1 seed=1 threads=4
+ref=2c28113200984c251c4865bbf9eff807395de64b brain=mind challenge=suite arenas=fetch,trail keep=trail forget=0.8 clones=1 start=training/starts/mind-s1.txt dist=10 pop=96 layouts=2 pm=0.03 sigma=1 cross=0.3 gens=60 patience=30 holdout=12 every=1 seed=1 threads=4
