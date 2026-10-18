@@ -21,8 +21,19 @@ name: Train
 #
 # **Cost to everyone else.** PR CI queues on the same 20-job pool
 # (`Reports/` ci-wall-time note, 2026-10-03: runner start lag was already the
-# long pole). `max-parallel: 10` leaves half the pool for CI. Do not raise it
-# without checking the CI queue.
+# long pole). `max-parallel: 10` is the limit **per workflow run**, not for the
+# repository: two pushes of job files at once can hold all 20 slots. Push job
+# files to a `train/<anything>` branch, not `claude/**`: a push to `claude/**`
+# also starts the full CI matrix on the same pool. Do not raise it without
+# checking the CI queue.
+#
+# **Token.** The workflow default is read-only; only the `train` job gets
+# `contents: write`, to force-push `train-results/<name>`. Checkout does not
+# leave the token in `.git/config`, and the step that runs the trainer has no
+# token in its environment; a separate background step does the publishing.
+# This is hygiene, not a sandbox: the trainer is built from a ref somebody with
+# write access chose, and anything that runs as the same user can read another
+# process's environment. Who can push a job is the control.
 on:
   workflow_dispatch:
     inputs:
@@ -40,7 +51,7 @@ on:
     paths: ['.github/train-jobs/*.job']
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   # Turn the pushed job files (or the dispatch inputs) into a matrix. The job
@@ -66,6 +77,13 @@ jobs:
     needs: plan
     if: ${{ needs.plan.outputs.matrix != '[]' }}
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    # one run per job name at a time: the same name pushed from two branches
+    # would otherwise force-push over each other's train-results branch
+    concurrency:
+      group: train-${{ matrix.name }}
+      cancel-in-progress: false
     timeout-minutes: 350
     strategy:
       fail-fast: false
@@ -78,10 +96,12 @@ jobs:
       CARGO_TARGET_DIR: ${{ github.workspace }}/target
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: dtolnay/rust-toolchain@1.98
       - uses: Swatinem/rust-cache@v2
       - name: curves.png support
-        run: python3 -m pip install --quiet cairosvg || true
+        run: python3 -m pip install --quiet cairosvg==2.7.1 || true
       # `ref=` in a job file builds the trainer from another branch or commit
       # (the brain lane trains on PR 717's branch, not on the commit that
       # carries the job file). Start genomes are read from the pushed commit.
@@ -98,15 +118,28 @@ jobs:
           fi
       - name: build train
         run: cd "$CODE_DIR" && cargo build --release --locked --example train
+      # The snapshot publisher is its own background step so that the step
+      # that runs the trainer never has the token in its environment. It
+      # survives into later steps; the final step stops it.
+      - name: start snapshot publisher
+        env:
+          NAME: ${{ matrix.name }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          OUT="$RUNNER_TEMP/out"; mkdir -p "$OUT"
+          echo "OUT=$OUT" >> "$GITHUB_ENV"
+          # every 10 min, so a lane can look at the curves while the run is
+          # going, not only at the end
+          OUT="$OUT" NAME="$NAME" nohup setsid bash -c \
+            'while sleep 600; do bash "$GITHUB_WORKSPACE/scripts/train_publish.sh" "$OUT" "$NAME" || true; done' \
+            > "$RUNNER_TEMP/publisher.log" 2>&1 < /dev/null &
+          echo $! > "$RUNNER_TEMP/publisher.pid"
       - name: run
         env:
           NAME: ${{ matrix.name }}
           ARGS: ${{ matrix.args }}
-          GH_TOKEN: ${{ github.token }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
-          set -o pipefail
-          OUT="$RUNNER_TEMP/out"; mkdir -p "$OUT"
           read -r -a ARR <<< "$ARGS"
           # a file named in the args lives in the pushed commit: make it absolute
           for i in "${!ARR[@]}"; do
@@ -121,17 +154,32 @@ jobs:
             echo "args: ${ARR[*]}"; echo "started: $(date -u +%FT%TZ)"
             lscpu | grep -E 'Model name|^CPU\(s\)|Thread|Core'
           } > "$OUT/STATUS.txt"
-          # Publish a snapshot every 10 min so a lane can look at the curves
-          # while the run is going, not only at the end.
-          ( while sleep 600; do bash scripts/train_publish.sh "$OUT" "$NAME" || true; done ) &
+          set +e
           "$CARGO_TARGET_DIR/release/examples/train" "${ARR[@]}" out="$OUT" 2>&1 | tee "$OUT/train.log"
-          echo "finished: $(date -u +%FT%TZ)" >> "$OUT/STATUS.txt"
+          rc=${PIPESTATUS[0]}
+          set -e
+          # a crash must not look like a run that is still going
+          { echo "finished: $(date -u +%FT%TZ)"; echo "exit code: $rc"; } >> "$OUT/STATUS.txt"
+          exit "$rc"
       - name: publish results
         if: always()
         env:
           NAME: ${{ matrix.name }}
           GH_TOKEN: ${{ github.token }}
-        run: bash scripts/train_publish.sh "$RUNNER_TEMP/out" "$NAME"
+        run: |
+          pid=$(cat "$RUNNER_TEMP/publisher.pid" 2>/dev/null || true)
+          if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+            echo "snapshot publisher still alive at the end: yes"
+            kill -- "-$pid" 2>/dev/null || kill "$pid" 2>/dev/null || true
+            sleep 2
+          else
+            echo "snapshot publisher still alive at the end: NO (pid '$pid')"
+          fi
+          cat "$RUNNER_TEMP/publisher.log" 2>/dev/null || true
+          if [ -f "$OUT/STATUS.txt" ] && ! grep -q '^exit code:' "$OUT/STATUS.txt"; then
+            echo "exit code: none (cancelled, timed out or runner lost before the trainer ended)" >> "$OUT/STATUS.txt"
+          fi
+          bash scripts/train_publish.sh "$OUT" "$NAME"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
