@@ -499,8 +499,15 @@ pub struct Scarce {
     /// once it burns what it earns. [`creature::FoodBrake::FORAGE`] unless
     /// `brake=off`.
     pub brake: Option<creature::FoodBrake>,
-    /// **How far out the food lands, in columns**: drawn per layout from
-    /// `lo..=hi` ([`SCARCE_DIST`] unless `dist=` sets it). Nearer food is
+    /// **How far out the food lands, in columns**: `lo`, `hi` and two
+    /// between, one per mirrored pair in turn ([`SCARCE_DIST`] unless
+    /// `dist=` sets it), so every generation meets the whole range. Drawn
+    /// per layout from the seed, a generation could draw only far food: a
+    /// fetch run at 10-80 columns found an ant that reached and picked up
+    /// in generations 0-1 (fetch 1.53 on its layouts, 1.27 on the
+    /// hold-outs) and lost it by generation 2, when every brain read about
+    /// 1.0 and the trail alone chose (`stage2/fetch2/mind-s3`, the run
+    /// before this). Nearer food is
     /// the forage rung's stepping stone: trained as planned, at 80 columns
     /// for 40 generations, the mind's colonies walked one way past the food
     /// to the far wall and never carried any home (scarce alone 1.0-1.9,
@@ -533,7 +540,7 @@ impl Scarce {
     fn geometry(&self, layout: Layout) -> (i32, i32, i32) {
         let side = if layout.k.is_multiple_of(2) { 1 } else { -1 };
         let (lo, hi) = self.dist;
-        let dist = lo + ((layout.seed.wrapping_mul(0x9E37_79B9_7F4A_7C15) >> 32) % (hi - lo + 1) as u64) as i32;
+        let dist = lo + (hi - lo) * (layout.k / 2 % 4) as i32 / 3;
         (NEST_X, NEST_X + side * dist, dist)
     }
 
@@ -674,12 +681,12 @@ impl Challenge for Scarce {
         let lived = lived_sum.0 / lived_sum.1.max(1) as f64 / founders.len().max(1) as f64;
         let heads = scarce_floor(scores.iter().sum::<f64>() / scores.len() as f64, lived, founders.len());
         let n = founders.len().max(1) as f64;
+        let home = trip.home as f64;
         let (reach, picked, arrived) = (
             trip.reached.len() as f64 / n,
             trip.picked.len() as f64 / n,
             trip.arrived.len() as f64 / n,
         );
-        let home = st.trip_deliveries as f64;
         let steps = forage_steps(trip.out, reach, picked, trip.carried, arrived, home);
         let score = heads + if self.steps { STEP_SCALE * steps } else { 0.0 };
         vec![Score {
@@ -738,12 +745,12 @@ const STEP_EVERY: u64 = 4;
 /// **How far the colony got on the way home, in step points**
 /// ([`STEP_WEIGHTS`]). `out` is the furthest any ant got from the nest
 /// towards the food, as a share of the way there; `reach`, `picked` and
-/// `arrived` are the share of
-/// the founders that ever reached the food, picked food up away from home
-/// and stood at the nest still carrying it; `carried` is the furthest any
-/// load got towards the nest, as a share of the way from the food spot;
-/// `home` the cells from a trip put down at the nest, each doubling worth a
-/// quarter of the first. Shares past 1 (a colony that bred) count as 1.
+/// `arrived` are the share of the founders that ever reached the heap,
+/// picked food up there and stood at the nest still carrying it (or put it
+/// down there); `carried` is the most way home any load from the heap
+/// closed, as a share of the way; `home` the cells from the heap put down
+/// at the nest, each doubling worth a quarter of the first (all read by
+/// `Trip`). Shares past 1 (a colony that bred) count as 1.
 pub fn forage_steps(out: f64, reach: f64, picked: f64, carried: f64, arrived: f64, home: f64) -> f64 {
     let w = STEP_WEIGHTS;
     let delivered = if home >= 1.0 { 1.0 + home.log2() / 4.0 } else { 0.0 };
@@ -756,9 +763,15 @@ pub fn forage_steps(out: f64, reach: f64, picked: f64, carried: f64, arrived: f6
 }
 
 /// **What the scarce colony did on the way home**, read every
-/// [`STEP_EVERY`] frames. A load is food in the crop from away from home
-/// (`trip_cells`, which the game's pickup and a mind's swallow both mark),
-/// so food taken at the nest carries nothing.
+/// [`STEP_EVERY`] frames. **A load counts only from food taken at the
+/// heap** ([`Trip::HEAP`]). The trip mark (`trip_cells`, which the game's
+/// pickup and a mind's swallow both set) is any food taken away from home,
+/// and the mind's swallow has no trip minimum, so one cell swallowed a
+/// column outside the nest and put down inside booked a trip delivery on
+/// every lap -- 50 laps, 50 deliveries (review of PR 717 at `edb9137e`,
+/// B1). So each ant's cells taken at the heap are kept apart (`held`), and
+/// a delivery pays only out of them: a cell shuffled across the nest's edge
+/// pays nothing, and a cell carried home pays once.
 #[derive(Default)]
 struct Trip {
     out: f64,
@@ -766,11 +779,31 @@ struct Trip {
     picked: Vec<OrganismId>,
     arrived: Vec<OrganismId>,
     carried: f64,
+    loads: std::collections::BTreeMap<OrganismId, Load>,
+    /// Cells taken at the heap and put down at the nest.
+    home: u64,
+}
+
+/// One ant's crop as the trip saw it at the last read.
+#[derive(Default)]
+struct Load {
+    /// Its trip cells.
+    cells: u16,
+    /// Its trip deliveries so far (`LifeCounters::trip_deliveries`).
+    put: u32,
+    /// How many of its trip cells it took at the heap.
+    held: u16,
+    /// How far from the nest it was when it took them.
+    taken: i32,
 }
 
 impl Trip {
-    /// Within this many columns of the food spot is at the food.
-    const REACH: i32 = 4;
+    /// **At the food is within this many columns of the food spot, on the
+    /// far half of the way.** The heap is a pyramid that spreads past four
+    /// columns of where it drips, so the old ±4 read an ant picking up at
+    /// its foot as picking up without reaching (review of PR 717, N3); the
+    /// far half keeps the nest's doorstep out at 10 columns.
+    const HEAP: i32 = 10;
 
     fn look(&mut self, w: &World, adults: &[OrganismId], nest_x: i32, food_x: i32, dist: i32) {
         let mark = |v: &mut Vec<OrganismId>, id: OrganismId| {
@@ -778,20 +811,45 @@ impl Trip {
                 v.insert(i, id);
             }
         };
+        let way = dist.max(1) as f64;
         for &id in adults {
             let Some(st) = w.organism(id) else { continue };
             let Some(&(hx, _)) = st.chain.first() else { continue };
-            let out = 1.0 - (hx - food_x).abs() as f64 / dist.max(1) as f64;
+            let from_nest = (hx - nest_x).abs();
+            let out = 1.0 - (hx - food_x).abs() as f64 / way;
             self.out = self.out.max(out.clamp(0.0, 1.0));
-            if (hx - food_x).abs() <= Self::REACH {
+            let at_heap = (hx - food_x).abs() <= Self::HEAP && 2 * from_nest >= dist;
+            if at_heap {
                 mark(&mut self.reached, id);
             }
-            if st.trip_cells == 0 || st.crop.is_none_or(|c| c.cells == 0) {
+            let cells = if st.crop.is_none_or(|c| c.cells == 0) {
+                0
+            } else {
+                st.trip_cells
+            };
+            let put = st.life.trip_deliveries;
+            let l = self.loads.entry(id).or_insert(Load { put, ..Load::default() });
+            // Deliveries since the last read pay out of the heap's cells.
+            let paid = put.saturating_sub(l.put).min(u32::from(l.held)) as u16;
+            if paid > 0 {
+                self.home += u64::from(paid);
+                mark(&mut self.arrived, id);
+            }
+            l.held = (l.held - paid).min(cells);
+            if cells > l.cells && at_heap {
+                if l.held == 0 {
+                    l.taken = from_nest;
+                }
+                l.held += cells - l.cells;
+                mark(&mut self.picked, id);
+            }
+            (l.cells, l.put) = (cells, put);
+            if l.held == 0 {
                 continue;
             }
-            mark(&mut self.picked, id);
-            let way = 1.0 - (hx - nest_x).abs() as f64 / dist.max(1) as f64;
-            self.carried = self.carried.max(way.clamp(0.0, 1.0));
+            // **Distance closed**, not nearness: a load taken at the heap's
+            // near foot starts part of the way home (N3).
+            self.carried = self.carried.max((f64::from(l.taken - from_nest) / way).clamp(0.0, 1.0));
             if creature::at_nest(w, id) {
                 mark(&mut self.arrived, id);
             }
@@ -1830,6 +1888,102 @@ mod tests {
             forage_steps(0.0, 0.0, 0.0, 0.0, 0.0, 0.5),
             0.0,
             "no cell home is no cell home"
+        );
+    }
+
+    /// **A cell shuffled across the nest's edge pays nothing, and one
+    /// carried home from the heap pays once** (`Trip`, review of PR 717,
+    /// B1). The mind's swallow marks any food taken off the nest as from a
+    /// trip, so before the heap's own count these 50 laps booked 50 cells
+    /// home, worth more than a real delivery. The ant is moved and its crop
+    /// written as the swallow and the put-down write them.
+    #[test]
+    fn a_cell_shuffled_across_the_nest_edge_pays_nothing() {
+        let ch = Scarce {
+            ants: 1,
+            frames: 3000,
+            drip: 5,
+            every: 1000,
+            game_walk: false,
+            brake: None,
+            dist: (40, 40),
+            steps: true,
+            fed: true,
+        };
+        let layout = Layout {
+            seed: 50_000,
+            k: 0,
+            blind: false,
+            legal: false,
+        };
+        let (nest_x, food_x, dist) = ch.geometry(layout);
+        let (mut w, _, _) = ch.bed(layout).build();
+        let rest = creature::mind::preset("rest", ch.verbs()).expect("rest");
+        let sp = clone_minds(&mut w, &rest, layout, ch.verbs(), ch.mind_emits());
+        let id = ants_of(&w, sp)[0];
+        // The whole body on one cell, so the nest's reach reads that cell.
+        let set = |w: &mut World, (x, y): (i32, i32), cells: u16, put: u32| {
+            let s = w.organism_mut(id).expect("ant");
+            s.chain.iter_mut().for_each(|c| *c = (x, y));
+            s.trip_cells = cells;
+            s.crop = (cells > 0).then_some(organism::Crop {
+                material: material::EMPTY,
+                shade: 0,
+                unit: 1.0,
+                cells,
+                digesting: 0.0,
+                passenger: None,
+            });
+            s.life.trip_deliveries = put;
+        };
+        // The nest's edge: the last cell at the nest towards the food on the
+        // first row the nest reaches, and the next one out.
+        let side = (food_x - nest_x).signum();
+        let at = |w: &mut World, p: (i32, i32)| {
+            set(w, p, 0, 0);
+            creature::at_nest(w, id)
+        };
+        let y = (0..128).find(|&y| at(&mut w, (nest_x, y))).expect("a nest at nest_x");
+        let inside = (0..dist)
+            .map(|d| (nest_x + side * d, y))
+            .take_while(|&p| at(&mut w, p))
+            .last()
+            .expect("nest");
+        let outside = (inside.0 + side, y);
+        let mut trip = Trip::default();
+        let mut put = 0;
+        let look = |w: &mut World, p: (i32, i32), cells: u16, put: u32, trip: &mut Trip| {
+            set(w, p, cells, put);
+            trip.look(w, &[id], nest_x, food_x, dist);
+        };
+        let laps = |w: &mut World, trip: &mut Trip, put: &mut u32| {
+            for _ in 0..50 {
+                look(w, outside, 1, *put, trip);
+                *put += 1;
+                look(w, inside, 0, *put, trip);
+            }
+        };
+        laps(&mut w, &mut trip, &mut put);
+        assert_eq!(put, 50, "the world booked every lap");
+        assert_eq!(
+            (trip.home, trip.picked.len(), trip.arrived.len(), trip.carried),
+            (0, 0, 0, 0.0),
+            "50 laps across the edge"
+        );
+        let mut x = food_x;
+        while x != inside.0 {
+            look(&mut w, (x, y), 1, put, &mut trip);
+            x -= side;
+        }
+        put += 1;
+        look(&mut w, inside, 0, put, &mut trip);
+        laps(&mut w, &mut trip, &mut put);
+        // Last read loaded one column out, before the put-down at the nest.
+        let walked = f64::from(dist - (outside.0 - nest_x).abs()) / f64::from(dist);
+        assert_eq!(
+            (trip.home, trip.picked.len(), trip.arrived.len(), trip.carried),
+            (1, 1, 1, walked),
+            "one cell home from the heap, then 50 more laps"
         );
     }
 
