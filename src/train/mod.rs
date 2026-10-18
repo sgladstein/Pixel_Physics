@@ -187,7 +187,8 @@ pub fn is_mind(len: usize) -> bool {
 /// `zero`, `rest`, `follower`, `persist`, `forager`) over the arena's
 /// verbs, or a genome file this rig wrote -- an earlier rung's champion,
 /// which enters this rung by [`mind::enter_rung`] -- the arena's bans
-/// applied.
+/// applied. A file saved before the job head had hidden units is read with
+/// them at zero ([`mind::pad`]).
 pub fn start_mind(ch: &dyn Challenge, start: &str) -> Vec<f32> {
     assert!(ch.minds(), "{} cannot run minds yet", ch.name());
     let name = if start == "zero" { "blank" } else { start };
@@ -196,8 +197,13 @@ pub fn start_mind(ch: &dyn Challenge, start: &str) -> Vec<f32> {
         None => {
             let p = Path::new(start);
             let len = genome_file_len(p);
-            assert!(is_mind(len), "{start}: a genome of {len} slots is not a mind ({}); start= blank|rest|follower|persist|forager|<mind file>", mind::GENOME_LEN);
-            let mut g = load_genome(p, len);
+            let mut g = mind::pad(load_genome(p, len)).unwrap_or_else(|| {
+                panic!(
+                    "{start}: a genome of {len} slots is not a mind ({}, or {} saved before the job's hidden units); start= blank|rest|follower|persist|forager|<mind file>",
+                    mind::GENOME_LEN,
+                    mind::GENOME_LEN_V1
+                )
+            });
             let did = mind::enter_rung(&mut g, ch.verbs(), ch.mind_emits());
             if !did.is_empty() {
                 println!("{start} enters {}: {}", ch.name(), did.join(", "));
