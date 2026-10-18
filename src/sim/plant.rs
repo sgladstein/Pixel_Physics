@@ -13840,13 +13840,15 @@ fn buried_remains_enabled() -> bool {
 /// repay. **This leans on every shoot `Grow` carrying `penetration_force:
 /// 0.0`**: `growable` then refuses it every powder cell, so only a root ever
 /// reaches `displace_soil_water` and books a loan. A species that gave a
-/// shoot real penetration would book loans that only its roots could repay. The loan stays world-wide (the root that borrowed and the root that
+/// shoot real penetration would book loans that only its roots could repay.
+/// The loan stays world-wide (the root that borrowed and the root that
 /// repays may differ), but only a root repays, so ground goes back below the
 /// line where it came from.
 ///
-/// Mixed bed at 450k, today against this: species with 100+ leaf cells were
-/// 3,3,3,4 against 4,6,4,4 on seeds 1-4, and soil above the sown line was
-/// 9,121-11,887 against 3,171-4,398.
+/// Mixed bed at 450k, 12 seeds, the old rule against this: soil above the
+/// sown line 9,121-13,890 against 3,171-5,436 (lower on 12 of 12); herb,
+/// scrambler, shrub and creeper leaf 1,463 against 4,025 in total (higher on
+/// 10 of 12); species with 100+ leaf cells better on 5, same on 6, worse on 1.
 fn buried_remains_roots_only() -> bool {
     static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *ON.get_or_init(|| std::env::var("PIXEL_PHYSICS_BURIED_REMAINS").as_deref() != Ok("any"))
