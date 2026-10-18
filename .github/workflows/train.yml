@@ -32,6 +32,9 @@ on:
       args:
         description: "train arguments, one line, e.g. brain=mind challenge=trail gens=20 pop=100 layouts=8"
         required: true
+      ref:
+        description: "branch or commit to build the trainer from (default: the commit pushed)"
+        required: false
   push:
     branches: ['claude/**', 'train/**']
     paths: ['.github/train-jobs/*.job']
@@ -56,6 +59,7 @@ jobs:
           EVENT: ${{ github.event_name }}
           IN_NAME: ${{ inputs.name }}
           IN_ARGS: ${{ inputs.args }}
+          IN_REF: ${{ inputs.ref }}
         run: python3 scripts/train_plan.py
 
   train:
@@ -69,14 +73,31 @@ jobs:
       matrix:
         include: ${{ fromJson(needs.plan.outputs.matrix) }}
     name: train ${{ matrix.name }}
+    env:
+      # one target dir whatever tree is built, so rust-cache still helps
+      CARGO_TARGET_DIR: ${{ github.workspace }}/target
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@1.98
       - uses: Swatinem/rust-cache@v2
       - name: curves.png support
         run: python3 -m pip install --quiet cairosvg || true
+      # `ref=` in a job file builds the trainer from another branch or commit
+      # (the brain lane trains on PR 717's branch, not on the commit that
+      # carries the job file). Start genomes are read from the pushed commit.
+      - name: code to build
+        env:
+          REF: ${{ matrix.ref }}
+        run: |
+          if [ -n "$REF" ]; then
+            git fetch --no-tags --depth 1 origin "$REF"
+            git worktree add --detach "$RUNNER_TEMP/code" FETCH_HEAD
+            echo "CODE_DIR=$RUNNER_TEMP/code" >> "$GITHUB_ENV"
+          else
+            echo "CODE_DIR=$GITHUB_WORKSPACE" >> "$GITHUB_ENV"
+          fi
       - name: build train
-        run: cargo build --release --locked --example train
+        run: cd "$CODE_DIR" && cargo build --release --locked --example train
       - name: run
         env:
           NAME: ${{ matrix.name }}
@@ -87,16 +108,23 @@ jobs:
           set -o pipefail
           OUT="$RUNNER_TEMP/out"; mkdir -p "$OUT"
           read -r -a ARR <<< "$ARGS"
+          # a file named in the args lives in the pushed commit: make it absolute
+          for i in "${!ARR[@]}"; do
+            v="${ARR[$i]#*=}"
+            if [ "$v" != "${ARR[$i]}" ] && [[ "$v" == */* ]] && [ -f "$GITHUB_WORKSPACE/$v" ]; then
+              ARR[$i]="${ARR[$i]%%=*}=$GITHUB_WORKSPACE/$v"
+            fi
+          done
           case " ${ARR[*]} " in *" threads="*) ;; *) ARR+=("threads=$(nproc)");; esac
           {
-            echo "name: $NAME"; echo "commit: $GITHUB_SHA"; echo "run: $RUN_URL"
+            echo "name: $NAME"; echo "commit: $GITHUB_SHA"; echo "built from: $(git -C "$CODE_DIR" rev-parse HEAD)"; echo "run: $RUN_URL"
             echo "args: ${ARR[*]}"; echo "started: $(date -u +%FT%TZ)"
             lscpu | grep -E 'Model name|^CPU\(s\)|Thread|Core'
           } > "$OUT/STATUS.txt"
           # Publish a snapshot every 10 min so a lane can look at the curves
           # while the run is going, not only at the end.
           ( while sleep 600; do bash scripts/train_publish.sh "$OUT" "$NAME" || true; done ) &
-          ./target/release/examples/train "${ARR[@]}" out="$OUT" 2>&1 | tee "$OUT/train.log"
+          "$CARGO_TARGET_DIR/release/examples/train" "${ARR[@]}" out="$OUT" 2>&1 | tee "$OUT/train.log"
           echo "finished: $(date -u +%FT%TZ)" >> "$OUT/STATUS.txt"
       - name: publish results
         if: always()

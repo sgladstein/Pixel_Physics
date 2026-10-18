@@ -3,8 +3,7 @@
 # `train-results/<name>` as ONE orphan commit, force-pushed each time, so the
 # branch always holds the latest snapshot and no history. A lane reads it with
 #   git fetch origin train-results/<name> && git checkout FETCH_HEAD -- .
-# Keeps text, csv, curves and the last two pictures; the full folder (every
-# picture) is the run's artifact. Needs GH_TOKEN and GITHUB_REPOSITORY, which
+# Keeps the whole out folder; the run's artifact has it too (14 days). Needs GH_TOKEN and GITHUB_REPOSITORY, which
 # Actions provides. Usage: scripts/train_publish.sh <out dir> <name>
 set -euo pipefail
 out=$1 name=$2
@@ -18,11 +17,8 @@ cd "$work"
 git init -q . && git checkout -q -b "$branch"
 git config user.name "train-run" && git config user.email "train-run@users.noreply.github.com"
 cp -r "$out"/. .
-# every picture but the last two. `find`, not `ls`: pictures are written every
-# 5th generation, so the first 15-minute snapshot of a slow run has none, `ls`
-# failed under pipefail, and the script exited silently -- the snapshot at
-# 03:50 of the 2026-10-18 threads=1 probe never happened.
-find . -maxdepth 1 -name 'pic-gen-*.png' | sort | head -n -2 | xargs -r rm -f
+# Every picture is kept (about 350 KB each, one per 5 generations): the brain lane reads
+# them from this branch, and the branch is one force-pushed commit, so no history grows.
 # curves.png beside the svg the trainer redraws every generation (owner,
 # 2026-10-17: curves for every generation from gen 0). Redrawn here with the
 # job name as title (the trainer's title is the folder name, "out"). Best
