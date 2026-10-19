@@ -116,6 +116,13 @@ embedded one (hash of the bed after N frames). Second, a mutated child's
 staged file, re-registered, grows bit-identically to the in-memory child
 that was scored. *What was scored is what ships.*
 
+**Measured before the plan was reviewed** (a scratch harness, since
+deleted): the shipped herb parsed, written by `to_ron` and registered again
+grows a **bit-identical bed** to the embedded herb (whole-grid hash after
+12,000 frames, seeds 1–3). So does a copy **renamed** `herbcopy`. A
+species' name and registry slot do not enter its growth, so every child can
+carry its own name without that being a variable.
+
 ## 5. The arena
 
 **5.1 The lab bed is the default** (review §4.3: outdoors, the shipped herb
