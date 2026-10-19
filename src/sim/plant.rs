@@ -3618,38 +3618,6 @@ fn draw_band(bands: organism::PaletteBands, rng: &mut Rng) -> u8 {
     bands.first + rng.below(bands.count as u32) as u8
 }
 
-/// Scratch (2026-10-18): `PIXEL_PHYSICS_GERMINATE_GAP=on` -- a waiting seed
-/// with anything on it waits; `=notgrass` the same for every species but grass.
-fn gap_blocks(world: &World, x: i32, y: i32, species_id: organism::SpeciesId) -> bool {
-    use std::sync::OnceLock;
-    static MODE: OnceLock<u8> = OnceLock::new();
-    let mode = *MODE.get_or_init(|| match std::env::var("PIXEL_PHYSICS_GERMINATE_GAP").as_deref() {
-        Ok("on") => 1,
-        Ok("notgrass") => 2,
-        _ => 0,
-    });
-    if mode == 0 || world.is_empty(x, y - 1) {
-        return false;
-    }
-    mode == 1 || world.species.get(species_id).name != "grass"
-}
-
-/// Scratch: `PIXEL_PHYSICS_SEED_PRICE=grass:4` charges that species' parent
-/// 4x per seed while the seedling's endowment stays `seed_cost`.
-fn seed_price_mult(species: &str) -> f32 {
-    use std::sync::OnceLock;
-    static MODE: OnceLock<Option<(String, f32)>> = OnceLock::new();
-    let m = MODE.get_or_init(|| {
-        let v = std::env::var("PIXEL_PHYSICS_SEED_PRICE").ok()?;
-        let (s, x) = v.split_once(':')?;
-        Some((s.to_string(), x.parse().ok()?))
-    });
-    match m {
-        Some((s, x)) if s == species => *x,
-        _ => 1.0,
-    }
-}
-
 /// The substream slot the organ-band draws take inside `bear_seed_at`'s
 /// `(generation, slot)` key.
 ///
@@ -7204,7 +7172,7 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: OrganismId, sta
                     // would read well watered.
                     let holds_water = world.materials.get(below.material).water_capacity > 0;
                     let soil_water = if holds_water { update::plant_available_fraction(below) } else { 0.0 };
-                    light >= light_threshold && soil_water >= soil_water_threshold && !gap_blocks(world, x, y, species_id)
+                    light >= light_threshold && soil_water >= soil_water_threshold
                 });
                 if ready && !excluded_column(x) {
                     return germinate(world, x, y, organism_id, cell, &mut rng);
@@ -12853,7 +12821,7 @@ fn organism_upkeep(world: &mut World, organism_id: OrganismId) {
                         // which is why the pricing lives here and not inside
                         // `set_seed`: three call sites, one value, no way for
                         // them to drift apart.
-                        let charge = seed_cost * launch_price(seed_launch) * seed_price_mult(&world.species.get(species_id).name);
+                        let charge = seed_cost * launch_price(seed_launch);
                         if budget >= charge {
                             world.seed_budget_available += 1;
                         } else {
