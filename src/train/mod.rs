@@ -723,7 +723,10 @@ pub struct Settings {
     /// at its next hold-out unless `patience` is 0. At `every` above 1 a
     /// leg's last generation is held out, as every run's is, where a run
     /// straight through may not hold that one out: the population is the
-    /// same either way, the hold-out best may not be.
+    /// same either way, the hold-out best may not be. A state saved on
+    /// another arena ([`Settings::arena`]) or with other parts, or one cut
+    /// short, is refused (review of PR 726, S1, S2); other settings only
+    /// warn ([`RunState::load`]).
     ///
     /// **Why**: a run saved only each generation's champion, so carrying
     /// one on meant a fresh population of one ant's children, a dip, and
@@ -731,6 +734,15 @@ pub struct Settings {
     /// exactly where it was and just add an extra 50 generations"). A
     /// cloud container that restarts mid-run lost its run the same way.
     pub resume: bool,
+    /// **The arena's own arguments**, as the command line gave them
+    /// (`examples/train.rs`: challenge, arenas, step, shaft, frames, dist,
+    /// budget and the rest), for [`RunState`]: a resume under another
+    /// arena is refused rather than carrying this one's hold-out best,
+    /// [`flat`]'s clock and `hold-best.txt` into it (review of PR 726, S1:
+    /// `step=3` on a step-4 state went on silently and mixed both rungs in
+    /// one `holdout.csv`). The challenge's own name, ants, frames and banned
+    /// outputs are stored beside it whatever it holds, so empty is safe.
+    pub arena: String,
 }
 
 /// No run stops before this many generations, however flat ([`flat`]).
@@ -789,6 +801,7 @@ impl Default for Settings {
             grow: 1.0,
             patience: 30,
             resume: false,
+            arena: String::new(),
         }
     }
 }
@@ -1224,7 +1237,7 @@ pub fn train(ch: &dyn Challenge, start: Vec<f32>, set: &Settings, out: &Path) ->
     assert!(blocks(start.len()).walk.is_none() || ch.unit() == Unit::Colony, "walk genes need a colony arena: the scout's reserve is the world's");
     let mut rng = Rng(set.seed.wrapping_mul(0xA24B_AED4_963E_E407) ^ 0x7EA1);
     let parts = ch.parts();
-    let resumed = set.resume.then(|| RunState::load(&out.join(STATE_FILE), set, &start));
+    let resumed = set.resume.then(|| RunState::load(&out.join(STATE_FILE), ch, set, &start));
     let first = resumed.as_ref().map_or(0, |r| r.next);
     let mut progress = rows_before(&out.join("progress.csv"), &format!("gen,best,median,control,secs,{},links", parts.join(",")), first)?;
     let mut holdout = rows_before(&out.join("holdout.csv"), &format!("gen,who,fit,{}", parts.join(",")), first)?;
@@ -1366,6 +1379,8 @@ pub fn train(ch: &dyn Challenge, start: Vec<f32>, set: &Settings, out: &Path) ->
             next: gen + 1,
             rng: rng.0,
             start: fingerprint(&start),
+            arena: RunState::arena(ch, set),
+            parts: parts.join(","),
             best_hold,
             best_gen,
             top,
@@ -1466,11 +1481,19 @@ pub struct RunState {
     /// references were taken from, so a state saved from another start is
     /// another run.
     pub start: u64,
+    /// The arena ([`RunState::arena`]) and its parts, the columns of
+    /// `progress.csv` and `holdout.csv`: a resume must share both. Empty in
+    /// a state saved before they were kept (`run-state 1`).
+    pub arena: String,
+    pub parts: String,
     pub best_hold: f64,
     pub best_gen: usize,
     pub top: f64,
     pub top_gen: usize,
-    /// The floors the hold-out top was under, for the summary.
+    /// The floors the hold-out top was under, for the summary. It, the
+    /// veto counts and `last_hold` feed only `summary.txt`, and the test
+    /// arena has no floors, so nothing guards their restore (review of
+    /// PR 726, N3).
     pub top_under: Vec<String>,
     pub scored_pop: usize,
     pub scored_hold: usize,
@@ -1487,6 +1510,14 @@ pub struct RunState {
 }
 
 impl RunState {
+    /// **Which arena a run is on**: the challenge's own name, ants, frames
+    /// and banned outputs, then [`Settings::arena`].
+    fn arena(ch: &dyn Challenge, set: &Settings) -> String {
+        format!("challenge={} unit={:?} ants={} frames={} banned={:?} {}", ch.name(), ch.unit(), ch.ants(), ch.frames(), ch.banned(), set.arena)
+            .trim_end()
+            .to_string()
+    }
+
     /// The settings that make a run this run: all but `gens`, `patience`,
     /// `every`, `threads`, `pictures` and `resume`, which a resume may
     /// change without drawing a different population.
@@ -1500,10 +1531,12 @@ impl RunState {
     fn save(&self, path: &Path) -> std::io::Result<()> {
         let list = |v: &[usize]| v.iter().map(|n| n.to_string()).collect::<Vec<_>>().join(" ");
         let mut s = format!(
-            "run-state 1\nnext {}\nrng {:x}\nstart {:x}\nbest_hold {:x} {}\ntop {:x} {}\ntop_under {}\nscored {} {}\nvetoed_pop {}\nvetoed_hold {}\nsecs {:x}\nlast_hold {}\nsettings {}\n",
+            "run-state 2\nnext {}\nrng {:x}\nstart {:x}\narena {}\nparts {}\nbest_hold {:x} {}\ntop {:x} {}\ntop_under {}\nscored {} {}\nvetoed_pop {}\nvetoed_hold {}\nsecs {:x}\nlast_hold {}\nsettings {}\n",
             self.next,
             self.rng,
             self.start,
+            self.arena,
+            self.parts,
             self.best_hold.to_bits(),
             self.best_gen,
             self.top.to_bits(),
@@ -1530,19 +1563,33 @@ impl RunState {
         for p in &self.parents {
             genome("parent", p);
         }
+        // **The end mark** (review of PR 726, S2): without it any prefix
+        // with one parent line in it loaded, so a copy cut short in a tar
+        // or a sync resumed quietly with a parent zeroed or missing.
+        s.push_str(&format!("end {}\n", self.parents.len()));
         let tmp = path.with_extension("tmp");
-        std::fs::write(&tmp, s)?;
+        let mut f = std::fs::File::create(&tmp)?;
+        f.write_all(s.as_bytes())?;
+        // On the disk before the rename makes it the state.
+        f.sync_all()?;
         std::fs::rename(&tmp, path)
     }
 
-    /// Read the state a run of `set` from `start` saved. Panics on a state
-    /// from another start or of another genome length, which is another
-    /// run; a setting that differs only warns, since the run can go on,
-    /// but not as the one that never stopped.
-    fn load(path: &Path, set: &Settings, start: &[f32]) -> RunState {
+    /// Read the state a run of `set` on `ch` from `start` saved. Panics on
+    /// a state from another start, another arena, with other parts or of
+    /// another genome length, which is another run, and on one with no end
+    /// mark, which was cut short; a setting that differs only warns, since
+    /// the run can go on, but not as the one that never stopped. A state
+    /// from before the arena and the end mark were kept (`run-state 1`)
+    /// loads with a warning that neither was checked.
+    fn load(path: &Path, ch: &dyn Challenge, set: &Settings, start: &[f32]) -> RunState {
         let text = std::fs::read_to_string(path).unwrap_or_else(|e| panic!("resume: {}: {e}", path.display()));
         let mut lines = text.lines();
-        assert_eq!(lines.next(), Some("run-state 1"), "resume: {} is not a run state", path.display());
+        let version = match lines.next() {
+            Some("run-state 1") => 1,
+            Some("run-state 2") => 2,
+            _ => panic!("resume: {} is not a run state", path.display()),
+        };
         let mut field = |key: &str| -> String {
             let l = lines.next().unwrap_or_else(|| panic!("resume: no {key} line"));
             let rest = l.strip_prefix(key).unwrap_or_else(|| panic!("resume: {key} expected, found {l}"));
@@ -1557,6 +1604,7 @@ impl RunState {
         let next = field("next").parse().unwrap();
         let rng = hex(&field("rng"));
         let fp = hex(&field("start"));
+        let (arena, parts) = if version >= 2 { (field("arena"), field("parts")) } else { (String::new(), String::new()) };
         let (best_hold, best_gen) = pair(field("best_hold"));
         let (top, top_gen) = pair(field("top"));
         let top_under = field("top_under").split_whitespace().map(str::to_string).collect();
@@ -1566,12 +1614,22 @@ impl RunState {
         let last_hold = field("last_hold");
         let settings = field("settings");
         assert_eq!(fp, fingerprint(start), "resume: the state in {} was saved from another start", path.display());
+        if version >= 2 {
+            assert_eq!(arena, RunState::arena(ch, set), "resume: the state in {} was saved on another arena", path.display());
+            assert_eq!(parts, ch.parts().join(","), "resume: the state in {} was saved with other parts", path.display());
+        } else {
+            println!("resume: WARNING {} predates the arena and end checks: neither is checked", path.display());
+        }
         if settings != RunState::settings(set) {
             println!("resume: WARNING the saved run had {settings}: this run goes on, but not as the run that never stopped");
         }
         let mut genomes: Vec<(String, Vec<f32>)> = vec![];
+        let mut end = None;
         for l in lines {
-            if let Some(head) = l.strip_prefix("genome ") {
+            assert!(end.is_none(), "resume: {l} after the end mark in {}", path.display());
+            if let Some(n) = l.strip_prefix("end ") {
+                end = Some(n.parse::<usize>().unwrap_or_else(|_| panic!("resume: end mark {l}")));
+            } else if let Some(head) = l.strip_prefix("genome ") {
                 let (name, len) = head.split_once(' ').expect("resume: a genome's name and length");
                 let len: usize = len.parse().unwrap();
                 assert_eq!(len, start.len(), "resume: a {len}-slot genome in a run of {}-slot genomes", start.len());
@@ -1595,10 +1653,15 @@ impl RunState {
             })
             .collect();
         assert!(!parents.is_empty(), "resume: no parents in {}", path.display());
+        if version >= 2 {
+            assert_eq!(end, Some(parents.len()), "resume: {} was cut short ({} parents read)", path.display(), parents.len());
+        }
         RunState {
             next,
             rng,
             start: fp,
+            arena,
+            parts,
             best_hold: f64::from_bits(best_hold),
             best_gen,
             top: f64::from_bits(top),
@@ -1947,7 +2010,7 @@ mod tests {
         for f in ["holdout.csv", "best.txt", "hold-best.txt", "champions/gen-005.txt"] {
             assert_eq!(read(&straight, f), read(&split, f), "{f}");
         }
-        let state = |d: &Path| RunState { secs: 0.0, ..RunState::load(&d.join(STATE_FILE), &set, &start) };
+        let state = |d: &Path| RunState { secs: 0.0, ..RunState::load(&d.join(STATE_FILE), &bowl, &set, &start) };
         let (a, b) = (state(&straight), state(&split));
         assert_eq!(a, b);
         // ...and not because nothing moved, and with the hold-out best in
@@ -1956,6 +2019,49 @@ mod tests {
         assert!(a.top_gen < 3 && a.best_gen < 3, "hold-out best at {} and {}", a.top_gen, a.best_gen);
         assert!(a.champion != start, "the champion moved off the start");
         assert!(a.parents.iter().any(|p| p != &a.parents[0]), "the parents differ");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// **A resume is refused on another arena, with other parts, or from a
+    /// state cut short** (review of PR 726, S1, S2): each of those resumed
+    /// quietly, carrying one rung's hold-out best into another or breeding
+    /// from a parent with its tail zeroed. The whole file is the control,
+    /// and a state from before the checks still loads.
+    #[test]
+    fn a_resume_is_refused_on_another_arena_or_a_state_cut_short() {
+        let dir = std::env::temp_dir().join(format!("train-refuse-{}", std::process::id()));
+        let start = mind::blank(&[Verb::Walk, Verb::Rest]);
+        let bowl = Bowl { aim: start.iter().map(|&w| f64::from(w)).sum::<f64>() + 8.0 };
+        let set = Settings { gens: 2, pop: 8, layouts: 2, holdout: 2, seed: 5, threads: 2, pictures: false, patience: 0, wire: 0.0, arena: "step=4 shaft=4".into(), ..Settings::default() };
+        train(&bowl, start.clone(), &set, &dir).unwrap();
+        let text = std::fs::read_to_string(dir.join(STATE_FILE)).unwrap();
+        let load = |text: &str, set: &Settings| {
+            let path = dir.join("probe.txt");
+            std::fs::write(&path, text).unwrap();
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| RunState::load(&path, &bowl, set, &start)))
+        };
+        let whole = load(&text, &set).expect("the whole state loads");
+        assert_eq!(whole.parents.len(), 2);
+        assert!(load(&text, &Settings { arena: "step=3 shaft=4".into(), ..set.clone() }).is_err(), "another arena");
+        assert!(load(&text.replace("\nparts seed\n", "\nparts seed,loads\n"), &set).is_err(), "other parts");
+        let lines: Vec<&str> = text.lines().collect();
+        let second = lines.iter().rposition(|l| l.starts_with("genome parent")).unwrap();
+        let cuts = [
+            ("the end mark", lines[..lines.len() - 1].join("\n")),
+            ("the last 3 bytes", text[..text.len() - 3].to_string()),
+            ("after the first parent", lines[..second].join("\n")),
+            ("midway through the second parent", lines[..(second + lines.len()) / 2].join("\n")),
+            ("a wrong count", text.replace("\nend 2\n", "\nend 3\n")),
+        ];
+        for (cut, t) in cuts {
+            assert!(load(&t, &set).is_err(), "a state cut at {cut} loaded");
+        }
+        // A state saved by the first resume, before the arena, parts and end
+        // mark were kept, loads unchecked, as the same run.
+        let old: Vec<&str> = text.lines().filter(|l| !l.starts_with("arena ") && !l.starts_with("parts ") && !l.starts_with("end ")).collect();
+        let old = old.join("\n").replace("run-state 2", "run-state 1");
+        let v1 = load(&old, &Settings { arena: "anything".into(), ..set.clone() }).expect("a run-state 1 file loads");
+        assert_eq!(RunState { arena: whole.arena.clone(), parts: whole.parts.clone(), ..v1 }, whole);
         std::fs::remove_dir_all(&dir).ok();
     }
 
