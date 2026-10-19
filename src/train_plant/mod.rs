@@ -396,4 +396,41 @@ mod tests {
         let c = arena::grow(&arena::bed_for(teeth[0].ron.as_deref(), &teeth[0].name, layout, &spec), &spec);
         assert!(c.peak_shoot < spec.n_est, "{c:?}");
     }
+
+    /// **A run is a function of its settings** (plan §7.7): the same
+    /// arguments write the same `progress.csv`, `holdout.csv` and champion,
+    /// byte for byte, whatever the thread count. A tiny run, so the test is
+    /// about the loop's bookkeeping (mutation draws, ranking ties, parent
+    /// picks), not about plants.
+    #[test]
+    fn a_run_is_a_function_of_its_settings() {
+        let dir = std::env::temp_dir().join(format!("plantrain-determinism-{}", std::process::id()));
+        let settings = |out: PathBuf| Settings {
+            start: PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/assets/species/herb.ron")),
+            control: "herb".into(),
+            groups: vec![Group::Shape, Group::Leaf],
+            pop: 4,
+            gens: 2,
+            keep: 0.5,
+            layouts: 1,
+            holdout: 1,
+            final_set: 1,
+            sigma: 0.9,
+            max_genes: 3,
+            seed: 3,
+            select: Select::Score,
+            teeth: false,
+            bed: BedSpec { frames: 1_500, ..BedSpec::default() },
+            constants: Constants { n_est: 20, k_seed: 24, size_floor: 55 },
+            out,
+        };
+        let a = run(&settings(dir.join("a"))).expect("run a");
+        let b = run(&settings(dir.join("b"))).expect("run b");
+        assert_eq!(a.champion_ron, b.champion_ron);
+        for f in ["progress.csv", "holdout.csv"] {
+            let read = |d: &str| std::fs::read_to_string(dir.join(d).join(f)).expect("written");
+            assert_eq!(read("a"), read("b"), "{f} differs between two identical runs");
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

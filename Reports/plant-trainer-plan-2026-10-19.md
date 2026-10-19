@@ -670,3 +670,32 @@ inert under the mister; `branch_angle` at every tier, the tier-3 values and
 they come alive only once another gene makes it branch. Those stay in the
 table, since epistasis is the point, but a run spends a draw on them for
 nothing until then.
+
+**Determinism guard, and a red build fixed.** `a_run_is_a_function_of_its_settings`:
+two tiny runs with the same settings write byte-identical `progress.csv`,
+`holdout.csv` and champion. CI was red from `3c7ad5e9` to `5a46cb86`:
+`examples/lab_resolution.rs` builds its `LabBox` exhaustively on purpose,
+and the new seams were missing from it. My scan of `LabBox` literals before
+adding fields read a range inside that literal as a struct update; the
+compiler, `cargo clippy --all-targets`, is the scan to trust.
+
+**P1 status (2026-10-19).**
+
+- **Done:**
+  - the seams;
+  - the trainer core with every control in §7 except the blind arm;
+  - the run constants measured;
+  - the precocity probe passed;
+  - the acceptance task passed on one seed per arm and posted to the owner;
+  - the heritability gate measured;
+  - gene liveness, which answered whether the box has wind.
+- **Left for P1:**
+  - the blind control, redesigned around a lamp moved off-axis (§7.2) and
+    first checked for whether a herb leans toward an off-axis lamp at all;
+  - mean against min of a genome's layouts, measured on the probe's variants
+    before choosing (§5.3);
+  - the acceptance task on two more seeds.
+- **Carried to P2:**
+  - stand beds;
+  - a plant job type on the Actions workflow. A 10-generation run of 12
+    genomes takes about 100 minutes on two threads here.
