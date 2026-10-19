@@ -1,0 +1,252 @@
+{
+  "id": "20261019T023940954Z-8859bb",
+  "created": "2026-10-19T02:39:40Z",
+  "board": "plants",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/ant-evolution-plant-inspiration-24mykv",
+    "commit": "f61833af",
+    "agent": null,
+    "session_id": "df583918-793a-554e-8af3-235040252c3a",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "What else can a herb look like? 15 random herbs beside the shipped one",
+  "question": "Which herb is the most interesting plant to you? Say in the comment which, if any, look wrong — and what makes the good one good.",
+  "context_md": "First look for the **plant trainer** line (a trainer that breeds new species files, herb first).\n\nEach column is one herb, grown **alone** in an outdoor test bed for 20,000 frames, drawn at full daylight. The **three rows are three different worlds** with the same plant — a look that holds down a column is the plant's; one that changes between rows is the weather. Its seedlings are left out of the picture.\n\nEach variant moves five of the shoot's numbers at random (caption). What I measured: the variant explains **76% of the spread in plant size and 66% in leaf share** across these 48 beds, so the trainer can see shape. What I want ignored: **no herb flowers here** except variant 7 — the shipped herb only flowers under the lab's lamps, which is where the trainer will run. And every plant is still a one-pixel stick with speckled leaves; that is fixed in the engine, not in these numbers, and is the next thing the plan addresses.",
+  "kind": "gallery",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "shipped herb",
+      "files": [
+        "20261019T023940954Z-8859bb/000-v00.png"
+      ],
+      "caption": "the herb as it ships",
+      "meta": {
+        "plant size, cells above ground (3 beds)": "88 / 57 / 172",
+        "height in rows": "42 / 17 / 47",
+        "flower and fruit cells": "0 / 0 / 0",
+        "leaf share %": "42 / 63 / 41"
+      },
+      "focus": null
+    },
+    {
+      "label": "variant 1",
+      "files": [
+        "20261019T023940954Z-8859bb/001-v01.png"
+      ],
+      "caption": "leaf spacing 5→10, leaf sprays as lines (0-1) 0→0.794, stem straightness 0.93→0.712, pull upward 0.98→0.904, nodes before it flowers 8→13",
+      "meta": {
+        "plant size, cells above ground (3 beds)": "143 / 97 / 67",
+        "height in rows": "54 / 42 / 43",
+        "flower and fruit cells": "0 / 0 / 0",
+        "leaf share %": "34 / 38 / 30"
+      },
+      "focus": null
+    },
+    {
+      "label": "variant 2",
+      "files": [
+        "20261019T023940954Z-8859bb/002-v02.png"
+      ],
+      "caption": "leaves per node 8→16, flower head size 12→5, pull toward light 0.06→0.028, height reach 0.46→0.457, stem thickening ratio 14→7.104, nodes before it flowers 8→12",
+      "meta": {
+        "plant size, cells above ground (3 beds)": "192 / 82 / 92",
+        "height in rows": "60 / 26 / 45",
+        "flower and fruit cells": "0 / 0 / 0",
+        "leaf share %": "53 / 62 / 51"
+      },
+      "focus": null
+    },
+    {
+      "label": "variant 3",
+      "files": [
+        "20261019T023940954Z-8859bb/003-v03.png"
+      ],
+      "caption": "branching chance 0→0.119, leaves per node 8→7, leaf sprays as lines (0-1) 0→0.53, pull upward 0.98→1.06, pull toward light 0.06→0.094, nodes before it flowers 8→5",
+      "meta": {
+        "plant size, cells above ground (3 beds)": "108 / 42 / 194",
+        "height in rows": "51 / 12 / 47",
+        "flower and fruit cells": "1 / 0 / 1",
+        "leaf share %": "44 / 57 / 42"
+      },
+      "focus": null
+    },
+    {
+      "label": "variant 4",
+      "files": [
+        "20261019T023940954Z-8859bb/004-v04.png"
+      ],
+      "caption": "leaves per node 8→15, leaf sprays as lines (0-1) 0→0.159, stem straightness 0.93→0.921, pull upward 0.98→0.686, pull toward light 0.06→0.031, nodes before it flowers 8→13",
+      "meta": {
+        "plant size, cells above ground (3 beds)": "147 / 187 / 83",
+        "height in rows": "53 / 30 / 38",
+        "flower and fruit cells": "0 / 0 / 0",
+        "leaf share %": "53 / 54 / 52"
+      },
+      "focus": null
+    },
+    {
+      "label": "variant 5",
+      "files": [
+        "20261019T023940954Z-8859bb/005-v05.png"
+      ],
+      "caption": "growing tips allowed 2→8, stem length between nodes 3→1, leaves per node 8→13, flower head size 12→13, buds break near the top 1.8→2.677, nodes before it flowers 8→19",
+      "meta": {
+        "plant size, cells above ground (3 beds)": "861 / 767 / 338",
+        "height in rows": "60 / 62 / 50",
+        "flower and fruit cells": "0 / 0 / 0",
+        "leaf share %": "35 / 51 / 37"
+      },
+      "focus": null
+    },
+    {
+      "label": "variant 6",
+      "files": [
+        "20261019T023940954Z-8859bb/006-v06.png"
+      ],
+      "caption": "stem length between nodes 3→7, leaves per node 8→11, leaf sprays as lines (0-1) 0→0.471, pull upward 0.98→1.225, stem thickening ratio 14→26.771, nodes before it flowers 8→16",
+      "meta": {
+        "plant size, cells above ground (3 beds)": "132 / 65 / 190",
+        "height in rows": "59 / 20 / 44",
+        "flower and fruit cells": "0 / 0 / 0",
+        "leaf share %": "45 / 60 / 46"
+      },
+      "focus": null
+    },
+    {
+      "label": "variant 7",
+      "files": [
+        "20261019T023940954Z-8859bb/007-v07.png"
+      ],
+      "caption": "growing tips allowed 2→11, leaves per node 8→4, flower head size 12→7, pull upward 0.98→1.504, stem thickening ratio 14→23.192, nodes before it flowers 8→3",
+      "meta": {
+        "plant size, cells above ground (3 beds)": "445 / 783 / 242",
+        "height in rows": "49 / 38 / 37",
+        "flower and fruit cells": "18 / 30 / 4",
+        "leaf share %": "27 / 32 / 28"
+      },
+      "focus": null
+    },
+    {
+      "label": "variant 8",
+      "files": [
+        "20261019T023940954Z-8859bb/008-v08.png"
+      ],
+      "caption": "growing tips allowed 2→11, branch angle 40→46.938, stem straightness 0.93→0.629, pull upward 0.98→0.915, nodes before it flowers 8→18",
+      "meta": {
+        "plant size, cells above ground (3 beds)": "772 / 841 / 505",
+        "height in rows": "56 / 46 / 47",
+        "flower and fruit cells": "0 / 0 / 0",
+        "leaf share %": "33 / 39 / 36"
+      },
+      "focus": null
+    },
+    {
+      "label": "variant 9",
+      "files": [
+        "20261019T023940954Z-8859bb/009-v09.png"
+      ],
+      "caption": "leaf spacing 5→2, branch angle 40→96.365, leaves per node 8→7, flower head size 12→11, pull upward 0.98→1.097, nodes before it flowers 8→11",
+      "meta": {
+        "plant size, cells above ground (3 beds)": "112 / 90 / 66",
+        "height in rows": "11 / 9 / 19",
+        "flower and fruit cells": "0 / 0 / 0",
+        "leaf share %": "70 / 64 / 64"
+      },
+      "focus": null
+    },
+    {
+      "label": "variant 10",
+      "files": [
+        "20261019T023940954Z-8859bb/010-v10.png"
+      ],
+      "caption": "flower head size 12→6, leaf sprays as lines (0-1) 0→0.239, stem straightness 0.93→0.465, pull toward light 0.06→0.062, stem thickening ratio 14→16.366, nodes before it flowers 8→5",
+      "meta": {
+        "plant size, cells above ground (3 beds)": "189 / 60 / 253",
+        "height in rows": "43 / 11 / 47",
+        "flower and fruit cells": "3 / 0 / 3",
+        "leaf share %": "48 / 67 / 42"
+      },
+      "focus": null
+    },
+    {
+      "label": "variant 11",
+      "files": [
+        "20261019T023940954Z-8859bb/011-v11.png"
+      ],
+      "caption": "growing tips allowed 2→10, branch angle 40→61.437, leaves per node 8→9, flower head size 12→13, pull toward light 0.06→0.125, nodes before it flowers 8→7",
+      "meta": {
+        "plant size, cells above ground (3 beds)": "797 / 778 / 175",
+        "height in rows": "56 / 46 / 46",
+        "flower and fruit cells": "2 / 3 / 1",
+        "leaf share %": "39 / 50 / 37"
+      },
+      "focus": null
+    },
+    {
+      "label": "variant 12",
+      "files": [
+        "20261019T023940954Z-8859bb/012-v12.png"
+      ],
+      "caption": "branch angle 40→24.65, stem straightness 0.93→0.901, height reach 0.46→0.319, buds break near the top 1.8→0.976, stem thickening ratio 14→30.646, nodes before it flowers 8→11",
+      "meta": {
+        "plant size, cells above ground (3 beds)": "76 / 57 / 94",
+        "height in rows": "29 / 17 / 30",
+        "flower and fruit cells": "0 / 0 / 0",
+        "leaf share %": "47 / 63 / 44"
+      },
+      "focus": null
+    },
+    {
+      "label": "variant 13",
+      "files": [
+        "20261019T023940954Z-8859bb/013-v13.png"
+      ],
+      "caption": "growing tips allowed 2→3, stem straightness 0.93→0.588, pull upward 0.98→0.416, height reach 0.46→0.913, buds break near the top 1.8→1.316, nodes before it flowers 8→12",
+      "meta": {
+        "plant size, cells above ground (3 beds)": "83 / 83 / 63",
+        "height in rows": "22 / 19 / 21",
+        "flower and fruit cells": "0 / 0 / 0",
+        "leaf share %": "54 / 51 / 40"
+      },
+      "focus": null
+    },
+    {
+      "label": "variant 14",
+      "files": [
+        "20261019T023940954Z-8859bb/014-v14.png"
+      ],
+      "caption": "growing tips allowed 2→3, leaf sprays as lines (0-1) 0→0.681, pull toward light 0.06→0.044, height reach 0.46→0.833, buds break near the top 1.8→3.817, nodes before it flowers 8→14",
+      "meta": {
+        "plant size, cells above ground (3 beds)": "268 / 80 / 263",
+        "height in rows": "52 / 17 / 78",
+        "flower and fruit cells": "0 / 0 / 0",
+        "leaf share %": "40 / 56 / 41"
+      },
+      "focus": null
+    },
+    {
+      "label": "variant 15",
+      "files": [
+        "20261019T023940954Z-8859bb/015-v15.png"
+      ],
+      "caption": "branching chance 0→0.029, leaf spacing 5→4, branch angle 40→31.913, stem straightness 0.93→0.39, buds break near the top 1.8→1.532, nodes before it flowers 8→14",
+      "meta": {
+        "plant size, cells above ground (3 beds)": "87 / 157 / 119",
+        "height in rows": "33 / 12 / 44",
+        "flower and fruit cells": "0 / 0 / 0",
+        "leaf share %": "42 / 53 / 44"
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": false,
+    "comment": true,
+    "annotations": true
+  }
+}
