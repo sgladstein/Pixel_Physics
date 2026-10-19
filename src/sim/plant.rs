@@ -25332,6 +25332,32 @@ mis-wired {miswired_root}, so `slot_1_is_a_root_locus_and_not_a_shoot_one` would
         assert!(!run_arm(LIFE, OLD), "a plant {OLD} frames into an {LIFE}-frame life must be dead: survival is 1.3% by the model");
     }
 
+    /// **Grass is mortal** (2026-10-19, `grass.ron`'s `life_half_life`
+    /// note). Immortal grass was a one-way ratchet on the mixed bed: it took
+    /// the low plants' columns and never gave one back, on a mound of its own
+    /// seed. The hazard itself is pinned by the test above on `tree`; what
+    /// this pins is that grass *authors* one, inside the band that was
+    /// measured (30,000 ships; 20,000 cost the ant colony a third of its
+    /// food; 40,000 cut grass only 15% and raised the ground). The band is a
+    /// tuning tripwire rather than a behaviour guard: it says "re-measure
+    /// before you move this", not what happens at any value inside it.
+    /// Skipped under `PIXEL_PHYSICS_LIFE_HALF_LIFE`, which sets the field on
+    /// purpose.
+    #[test]
+    fn grass_dies_of_old_age() {
+        let w = test_world();
+        let grass = w.species.id_of("grass").expect("grass is compiled in");
+        let life = w.species.get(grass).life_half_life;
+        if std::env::var_os("PIXEL_PHYSICS_LIFE_HALF_LIFE").is_some() {
+            return;
+        }
+        assert!(life > 0.0, "grass must author a lifespan: immortal grass holds every column it takes (`grass.ron`)");
+        assert!(
+            life > 20_000.0 && life < 40_000.0,
+            "grass life {life} is outside the measured band: 20,000 starved the colony, 40,000 barely thinned the sward"
+        );
+    }
+
     /// **Leaf lost to a mouth buys a bud flush; the same leaf lost any other
     /// way does not** -- `graze_regrow` (on by default), end to end: the
     /// `Eaten` write in `World::set` records it on `grazed_leaf`, and
@@ -25615,6 +25641,11 @@ mis-wired {miswired_root}, so `slot_1_is_a_root_locus_and_not_a_shoot_one` would
             }
         }
         let species = w.species.id_of("grass").expect("grass");
+        // Old age off: these guards run 45,000 frames, past grass's
+        // `life_half_life` (30,000 since 2026-10-19), and what they measure is
+        // the water rule, not a lifespan. With it on, both arms and the
+        // rooted control all died of age and the switch-off arm read 0 of 8.
+        w.species.get_mut(species).life_half_life = 0.0;
         let pocket = w.push_organism(species).expect("an organism slot is free");
         for x in 14..22 {
             w.set(x, 32, Cell::EMPTY);
@@ -25665,6 +25696,9 @@ mis-wired {miswired_root}, so `slot_1_is_a_root_locus_and_not_a_shoot_one` would
             c.rootless_dries = rootless_dries;
             c.plant_load_failure = false;
             c.weather_override = Some(crate::sim::weather::Weather::CLEAR);
+            // Old age off, as in `rootless_grass_scene`.
+            let grass = c.species.id_of("grass").expect("grass");
+            c.species.get_mut(grass).life_half_life = 0.0;
             let soil = c.materials.id_of("soil").expect("soil is compiled in");
             for x in 0..64 {
                 c.set(x, 40, Cell::new(material::STONE, 0));

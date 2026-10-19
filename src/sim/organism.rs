@@ -8213,6 +8213,35 @@ impl std::fmt::Display for SpeciesError {
 
 impl std::error::Error for SpeciesError {}
 
+
+/// **`PIXEL_PHYSICS_LIFE_HALF_LIFE=name:frames[,name:frames...]`** -- an
+/// A/B lever over a plant species' `life_half_life`, read once per process.
+/// `grass:0` puts back the immortal grass that shipped before 2026-10-19
+/// (`grass.ron`'s `life_half_life` note has the measurement). It is applied
+/// as each species is registered (`SpeciesRegistry::upsert`), so a value a
+/// scene or a lab parameter writes afterwards wins over it.
+///
+/// **Strict, because a typo here is a silent wrong answer.** The first
+/// version skipped anything it could not read, so `Grass:0` or `grass=0` ran
+/// the shipped game under an "off" label (review of PR 727). Now a malformed
+/// entry panics here and an unknown name panics in `builtin`.
+fn life_half_life_override() -> &'static [(String, f32)] {
+    use std::sync::OnceLock;
+    static OVERRIDE: OnceLock<Vec<(String, f32)>> = OnceLock::new();
+    OVERRIDE.get_or_init(|| {
+        let Ok(v) = std::env::var("PIXEL_PHYSICS_LIFE_HALF_LIFE") else { return Vec::new() };
+        v.split(',')
+            .filter(|kv| !kv.trim().is_empty())
+            .map(|kv| {
+                let parsed = kv.split_once(':').and_then(|(k, x)| Some((k.trim().to_string(), x.trim().parse::<f32>().ok()?)));
+                match parsed {
+                    Some((name, life)) if !name.is_empty() && life.is_finite() && life >= 0.0 => (name, life),
+                    _ => panic!("PIXEL_PHYSICS_LIFE_HALF_LIFE entry `{kv}` is not `name:frames` with frames >= 0 (e.g. grass:0)"),
+                }
+            })
+            .collect()
+    })
+}
 impl SpeciesRegistry {
     fn empty() -> Self {
         Self { species: Vec::new(), by_name: HashMap::new(), cell_scale: 1.0 }
@@ -8267,6 +8296,12 @@ impl SpeciesRegistry {
                 }
                 Err(e) => panic!("embedded species {i} is malformed: {e}"),
             }
+        }
+        for (name, _) in life_half_life_override() {
+            assert!(
+                reg.id_of(name).is_some(),
+                "PIXEL_PHYSICS_LIFE_HALF_LIFE names `{name}`, which is not a species (names are lower case, as in assets/species)"
+            );
         }
         reg
     }
@@ -8330,6 +8365,12 @@ impl SpeciesRegistry {
 
     fn upsert(&mut self, def: SpeciesDef) {
         let mut species = Species::from(def);
+        // `PIXEL_PHYSICS_LIFE_HALF_LIFE` lands here, on the way in, so it
+        // reads as if the `.ron` had said it: anything that writes the field
+        // afterwards -- a test scene, a lab parameter -- wins over it.
+        if let Some(&(_, life)) = life_half_life_override().iter().find(|(name, _)| *name == species.name) {
+            species.life_half_life = life;
+        }
         // **A species arriving after the world was generated still has to be
         // the right size.** F5 re-reads `assets/species` into here, and a
         // harness registering a probe species mid-run goes through the same

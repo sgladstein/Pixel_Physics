@@ -3,7 +3,7 @@
 *What plants do, and what it looks like when they are working. No code, no
 file names — see `Reports/` for why any of it is built the way it is.*
 
-*Current as of: 2026-10-17 (**a buried grass blade rots as litter, not as soil**, so a meadow no longer builds hills over its low plants -- see *The forest floor*). Also 2026-10-14 (**a seed waiting on dry ground keeps much longer, and a waiting seed is not yet a plant**, so a bed that dries out can come back with more than grass when the rain returns -- see *The seed bank*). Also 2026-10-13 (**a grass with no root in the ground dries out** instead of living for ever -- see *Drought*, under what kills a plant). Also 2026-10-10 (**a herb dies after it has set seed**, and the bed renews itself from seed -- it empties if rain is off; see *A herb lives one season*). Also 2026-10-10 (**a plant grows back leaf that was bitten off**, paid from what it has stored, so a grazed bed keeps a middle between full and bare -- see *A plant that has been bitten*). Also 2026-10-07 (**a plant's page says why its tips stopped growing** -- the height its water reaches, no room, too poor and the rest -- see *What a healthy stand looks like*). Also 2026-10-06 (**the list of the dead says what killed each plant** -- shaded out, dried out, eaten, old age and the rest; *felled* now means felled, and a seed that rots unsprouted is counted but not listed -- see *Fire and death*). Also 2026-10-05 (**grass grows back** -- a tussock that loses its blades sends up new ones from its crown, so a meadow keeps seeding instead of fading -- see *Species*). Also 2026-10-03 (**water runs through a plant along real paths**:
+*Current as of: 2026-10-19 (**a grass tussock dies of old age**, so a meadow gives ground back and the low plants get some of it -- see *Species*). Also 2026-10-17 (**a buried grass blade rots as litter, not as soil**, so a meadow no longer builds hills over its low plants -- see *The forest floor*). Also 2026-10-14 (**a seed waiting on dry ground keeps much longer, and a waiting seed is not yet a plant**, so a bed that dries out can come back with more than grass when the rain returns -- see *The seed bank*). Also 2026-10-13 (**a grass with no root in the ground dries out** instead of living for ever -- see *Drought*, under what kills a plant). Also 2026-10-10 (**a herb dies after it has set seed**, and the bed renews itself from seed -- it empties if rain is off; see *A herb lives one season*). Also 2026-10-10 (**a plant grows back leaf that was bitten off**, paid from what it has stored, so a grazed bed keeps a middle between full and bare -- see *A plant that has been bitten*). Also 2026-10-07 (**a plant's page says why its tips stopped growing** -- the height its water reaches, no room, too poor and the rest -- see *What a healthy stand looks like*). Also 2026-10-06 (**the list of the dead says what killed each plant** -- shaded out, dried out, eaten, old age and the rest; *felled* now means felled, and a seed that rots unsprouted is counted but not listed -- see *Fire and death*). Also 2026-10-05 (**grass grows back** -- a tussock that loses its blades sends up new ones from its crown, so a meadow keeps seeding instead of fading -- see *Species*). Also 2026-10-03 (**water runs through a plant along real paths**:
 up the roots, up the trunk, out along the branches, and a dry spell browns the
 far tips first -- see *How water moves through a plant*). Also 2026-10-03 (**plants can be born harder to eat**, paying for
 it in growth -- see *Plants that are worse to eat*). Also 2026-10-03 (**a seed with ground on top of it is out of the
@@ -682,6 +682,22 @@ Three consequences follow from that, and none of them is a rule about grass:
   by late in a long session it held a fifth of its food and almost no loose
   seed. Now the same garden is still a seeding meadow from wall to wall at
   the end, and a colony living on it does not run out of food.
+- And **it dies of old age** (2026-10-19). A tussock now has a lifespan,
+  the way a tree always has: half are gone by 30,000 frames of their own
+  growth (about 60,000 frames of a bed running at half pace, as the lab
+  does) and very few see twice that, so a meadow is always a mix of young
+  and old tufts rather than the same tufts for ever. Before, nothing but shade could kill
+  a grass plant, and once a tussock held a patch of ground it never gave it
+  back: in the mixed bed grass held two fifths of the floor and kept every
+  column it ever took, while the low plants grew where the grass let them.
+  Now a dead tussock leaves a gap, and a gap is a place for anything's seed.
+  In that bed at 450k frames, grass leaf fell by about a third, its seed
+  heaps by more, and the low plants held about three times as many columns
+  of ground and grew two thirds more leaf. Grass still seeds fast enough to
+  fill most of the gaps it leaves, so a meadow stays a meadow. The lifespan
+  is set where an ant colony living on the bed eats about as well as it did
+  before, taken over a dozen beds: a shorter one thinned the grass harder
+  but took a third of the colony's food with it.
 
 Grass cannot get into dry sand, though, and neither can a tree: sand is
 simply harder to push a root through than either of them can manage.
