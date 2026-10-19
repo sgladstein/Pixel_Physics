@@ -85,7 +85,9 @@
 //! (`challenges::Soil`), 6,000 frames unless set. Step 4 runs on the dig
 //! generator's mirrored beds, at `shaft=4`, then 8, then 12. **From step
 //! 4 a suite holding soil is gated** (`Suite::gated`): each kept arena is a
-//! pass/fail floor, never a ratio in the product.
+//! pass/fail floor, never a ratio in the product. `foot=1` is step 4b
+//! (`Soil::foot`): only a first cut at the shaft's foot, `shaft=` rows
+//! down or more, pays, so wall cuts earn nothing (rev 2.9).
 //! Every argument is echoed; an unknown one stops the run.
 
 use pixel_physics::sim::creature;
@@ -109,6 +111,7 @@ struct Arena {
     step: u8,
     shaft: i32,
     budget: Option<f32>,
+    foot: bool,
 }
 
 fn arena(name: &str, a: &Arena) -> Box<dyn Challenge> {
@@ -126,6 +129,7 @@ fn arena(name: &str, a: &Arena) -> Box<dyn Challenge> {
         step,
         shaft,
         budget,
+        foot,
     } = *a;
     match name {
         "forage" | "forage-far" => Box::new(Forage {
@@ -201,6 +205,7 @@ fn arena(name: &str, a: &Arena) -> Box<dyn Challenge> {
             step,
             shaft,
             budget,
+            foot,
         }),
         _ => panic!("challenge={name}: forage|forage-far|trail|dig|scarce|scarce-dig|fetch|soil|suite"),
     }
@@ -277,6 +282,7 @@ fn main() {
     let mut steps = true;
     let mut step = 1;
     let mut shaft = 2;
+    let mut foot = false;
     let mut budget = Some(challenges::SOIL_BUDGET);
     for a in std::env::args().skip(1) {
         let (k, v) = a.split_once('=').unwrap_or((a.as_str(), "1"));
@@ -353,6 +359,10 @@ fn main() {
             "shaft" => {
                 shaft = v.parse().ok().filter(|&r: &i32| r >= 0).unwrap_or_else(|| panic!("shaft={v}: rows of founding shaft, 0 or more"));
             }
+            "foot" => {
+                assert!(v == "0" || v == "1", "foot={v}: 1 pays only first cuts at the shaft's foot from step 4 (step 4b), 0 every cut under the top row");
+                foot = v == "1";
+            }
             "budget" => {
                 budget = if v == "fed" {
                     None
@@ -371,7 +381,7 @@ fn main() {
     // without it once left two "game" rows in one file with nothing to say
     // which walk made which (`design/review-rev2.md` N10).
     println!(
-        "train brain={} challenge={challenge} arenas={arenas} keep={keep} forget={forget} start={start} walk={} clones={clones} frames={frames:?} ants={ants:?} score={score:?} noise={noise} targets={targets} free={free} brake={brake:?} dist={dist:?} steps={steps} step={step} shaft={shaft} budget={budget:?} pic={pic:?} trace={trace:?} sealed={sealed} heap={heap} genes={genes} walkset={walkset} prune={} wire={} grow={} patience={} resume={} seed={} pop={} gens={} layouts={} pm={} sigma={} cross={} holdout={} threads={}",
+        "train brain={} challenge={challenge} arenas={arenas} keep={keep} forget={forget} start={start} walk={} clones={clones} frames={frames:?} ants={ants:?} score={score:?} noise={noise} targets={targets} free={free} brake={brake:?} dist={dist:?} steps={steps} step={step} shaft={shaft} foot={foot} budget={budget:?} pic={pic:?} trace={trace:?} sealed={sealed} heap={heap} genes={genes} walkset={walkset} prune={} wire={} grow={} patience={} resume={} seed={} pop={} gens={} layouts={} pm={} sigma={} cross={} holdout={} threads={}",
         if mind { "mind" } else { "today" },
         if game_walk { "game" } else { "brain" },
         set.prune,
@@ -399,6 +409,11 @@ fn main() {
         if mind { "mind" } else { "today" },
         if game_walk { "game" } else { "brain" },
     );
+    // Only when on, so a rev 2.8 run's state still resumes on this build.
+    if foot {
+        set.arena += " foot=1";
+    }
+    assert!(!foot || step == 4, "foot=1 is step 4b: it needs step=4");
 
     // The genome's scorer goes into every world it is cloned into, so a
     // suite would carry it into the forage and trail worlds too (coordinator
@@ -421,6 +436,7 @@ fn main() {
         step,
         shaft,
         budget,
+        foot,
     };
     let mut ch: Box<dyn Challenge> = if challenge == "suite" {
         let list: Vec<(Box<dyn Challenge>, bool)> = arenas
