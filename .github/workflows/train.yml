@@ -118,6 +118,31 @@ jobs:
           fi
       - name: build train
         run: cd "$CODE_DIR" && cargo build --release --locked --example train
+      # `resume=1` carries on the run this job name last published
+      # (`Settings::resume`): its `train-results/<name>` snapshot becomes the
+      # out folder, so the trainer finds `state.txt` and trims the csvs back
+      # to the generation it saved. Push the same job file again with
+      # `resume=1` and a higher `gens=` (the total, not the extra), the same
+      # `ref=` and nothing else changed; `concurrency` holds it until the leg
+      # still running has published its last snapshot, so a second leg can
+      # be queued behind the first. Earlier legs' `STATUS.txt` and
+      # `train.log` are kept as `STATUS-earlier.txt` and `train-earlier.log`.
+      - name: carry on a stopped run
+        env:
+          NAME: ${{ matrix.name }}
+          ARGS: ${{ matrix.args }}
+        run: |
+          case " $ARGS " in *" resume=1 "*|*" resume=true "*|*" resume=on "*) ;; *) exit 0 ;; esac
+          OUT="$RUNNER_TEMP/out"; mkdir -p "$OUT"
+          git fetch --no-tags --depth 1 origin "train-results/$NAME"
+          git archive FETCH_HEAD | tar -x -C "$OUT"
+          for f in STATUS.txt train.log; do
+            if [ -f "$OUT/$f" ]; then
+              cat "$OUT/$f" >> "$OUT/${f%.*}-earlier.${f##*.}"
+              rm "$OUT/$f"
+            fi
+          done
+          echo "carrying on train-results/$NAME from its $(grep -m1 '^next ' "$OUT/state.txt")"
       # The snapshot publisher is its own background step so that the step
       # that runs the trainer never has the token in its environment. It
       # survives into later steps; the final step stops it.
