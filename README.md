@@ -8098,7 +8098,7 @@ PIXEL_PHYSICS_WET_COLLAPSE=waterlogged     # wet ground takes a worked wall apar
 PIXEL_PHYSICS_WET_COLLAPSE=fieldcapacity   # ...at the line that shipped before that
 PIXEL_PHYSICS_BURIED_REMAINS=litter        # buried tissue sheds to litter again
 PIXEL_PHYSICS_BURIED_REMAINS=any           # buried shoot repays the bed as well as root (the rule before 2026-10-17)
-PIXEL_PHYSICS_LIFE_HALF_LIFE=grass:0        # grass never dies of old age (the rule before 2026-10-19); name:frames, any species
+PIXEL_PHYSICS_LIFE_HALF_LIFE=grass:0        # grass never dies of old age (the rule before 2026-10-19); name:frames, any plant species, frames of organism age; a malformed entry or unknown name panics
 ```
 
 ## Chronicle status — the box tells you who did what, at any population

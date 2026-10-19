@@ -4562,28 +4562,6 @@ const MAX_BEHAVIORS_PER_CELL_TYPE: usize = 8;
 /// nothing worth measuring.
 pub const SEED_TICK_INTERVAL: u64 = 4;
 
-/// **A species' median lifespan, with `PIXEL_PHYSICS_LIFE_HALF_LIFE`
-/// applied** -- `name:frames[,name:frames...]`, so
-/// `PIXEL_PHYSICS_LIFE_HALF_LIFE=grass:0` puts back the immortal grass that
-/// shipped before 2026-10-19 (`grass.ron`'s `life_half_life` note has the
-/// measurement). Unset, this is the authored value and costs one cached
-/// `Option` check. A name it does not know is ignored rather than a panic,
-/// because the override is an A/B lever and a typo should read as "no
-/// change" in the result, which the census then shows.
-fn life_half_life_of(world: &World, species_id: organism::SpeciesId) -> f32 {
-    use std::sync::OnceLock;
-    static OVERRIDE: OnceLock<Option<Vec<(String, f32)>>> = OnceLock::new();
-    let species = world.species.get(species_id);
-    let over = OVERRIDE.get_or_init(|| {
-        let v = std::env::var("PIXEL_PHYSICS_LIFE_HALF_LIFE").ok()?;
-        Some(v.split(',').filter_map(|kv| kv.split_once(':')).filter_map(|(k, x)| Some((k.trim().to_string(), x.trim().parse().ok()?))).collect())
-    });
-    match over {
-        Some(list) => list.iter().find(|(name, _)| *name == species.name).map_or(species.life_half_life, |&(_, v)| v),
-        None => species.life_half_life,
-    }
-}
-
 /// Per-check probability that turns a **half-life in frames** into a roll
 /// this dispatch can make, for a mechanism checked every `interval` frames.
 ///
@@ -12116,7 +12094,7 @@ fn organism_upkeep(world: &mut World, organism_id: OrganismId) {
     // the same reason each of them gives: `moss` does not earn, is not
     // modelled by any of this, and a retired moss cell is not a corpse.
     let dies_of_age = has_economy && !resting_seed && {
-        let life = life_half_life_of(world, species_id);
+        let life = world.species.get(species_id).life_half_life;
         // `age_ticks` before the increment below, so a plant's first tick
         // rolls at age zero -- a hazard of exactly nothing, which is right.
         let age_frames = world.organism(organism_id).map_or(0, |s| s.age_ticks) as f32 * ORGANISM_TICK_INTERVAL as f32;
@@ -25353,22 +25331,24 @@ mis-wired {miswired_root}, so `slot_1_is_a_root_locus_and_not_a_shoot_one` would
     /// seed. The hazard itself is pinned by the test above on `tree`; what
     /// this pins is that grass *authors* one, inside the band that was
     /// measured (30,000 ships; 20,000 cost the ant colony a third of its
-    /// food; 40,000 cut grass only 15% and raised the ground), and that the
-    /// call site reads it unchanged when
-    /// `PIXEL_PHYSICS_LIFE_HALF_LIFE` is unset.
+    /// food; 40,000 cut grass only 15% and raised the ground). The band is a
+    /// tuning tripwire rather than a behaviour guard: it says "re-measure
+    /// before you move this", not what happens at any value inside it.
+    /// Skipped under `PIXEL_PHYSICS_LIFE_HALF_LIFE`, which sets the field on
+    /// purpose.
     #[test]
     fn grass_dies_of_old_age() {
         let w = test_world();
         let grass = w.species.id_of("grass").expect("grass is compiled in");
         let life = w.species.get(grass).life_half_life;
+        if std::env::var_os("PIXEL_PHYSICS_LIFE_HALF_LIFE").is_some() {
+            return;
+        }
         assert!(life > 0.0, "grass must author a lifespan: immortal grass holds every column it takes (`grass.ron`)");
         assert!(
             life > 20_000.0 && life < 40_000.0,
             "grass life {life} is outside the measured band: 20,000 starved the colony, 40,000 barely thinned the sward"
         );
-        if std::env::var("PIXEL_PHYSICS_LIFE_HALF_LIFE").is_err() {
-            assert_eq!(life_half_life_of(&w, grass), life, "with no override the old-age roll must read the authored value");
-        }
     }
 
     /// **Leaf lost to a mouth buys a bud flush; the same leaf lost any other

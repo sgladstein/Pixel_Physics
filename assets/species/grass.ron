@@ -132,7 +132,10 @@
     stomatal_reserve: 0.2,
     // **A tuft dies of old age, so the sward lets go of ground** (owner's
     // pick, 2026-10-19, of four ways to keep grass in check). Median
-    // lifespan 30,000 frames of organism age -- see
+    // lifespan 30,000 frames of organism age, which `dies_of_age` counts as
+    // `age_ticks * ORGANISM_TICK_INTERVAL`: wall frames for a tuft at full
+    // pace, but the lab and the planted bed run plants at half pace, so there
+    // it is about 60,000 wall frames (reviewer's measurement, PR 727). See
     // `SpeciesDef::life_half_life` for the hazard, which a seedling all but
     // escapes. Before this grass was the one plant that never died of
     // anything but starvation or shade, and on the mixed planted bed (mix7,
@@ -150,6 +153,10 @@
     // ate 2,075,436 -> 1,992,494 (5 up, 3 down), mean adults 100k-440k
     // 2,524 -> 2,668 (5 up, 3 down), low-plant leaf 449 -> 1,343 (5 up,
     // 2 down), and the colony survived on both seeds where main's died out.
+    // The review's own seeds 13-16 swung both ways (one PR colony boomed to
+    // 1,087 adults on a litter pulse and starved out; main lost s16 the same
+    // way), so over 12 worlds the colony is level in total with per-world
+    // swings about a placebo's width, not "better".
     // Outdoor world (`flora_census frames=60000`, 12 worlds): grass cells
     // 64,043 -> 36,907 (lower in all 10 worlds that grow it), plants
     // established 4,101 -> 3,925; woody species swing hard per world both
@@ -158,8 +165,9 @@
     //
     // **20,000 and 40,000 were measured and both are wrong.** 20,000 thinned
     // grass harder (leaf -52%, 12/12) but cost the colony its food: eaten
-    // 926,713 -> 581,975 over seeds 1-4, lower 4/4, because grass seed and
-    // blades are much of what the ants eat. 40,000 cut grass only 15% and
+    // 926,713 -> 581,975 over seeds 1-4, lower 4/4. Why is not traced: the
+    // diet ledger puts grass blades under 1% of what the ants eat, and seed
+    // of every species at 5-17% (review of PR 727). 40,000 cut grass only 15% and
     // raised the ground under it on 4/4. Every cheaper way to thin the seed
     // mound -- 4x seed cost, a quarter of the allocation, a 4x price with
     // the same seedling, rotting the heap, sprouts lifting the seed on
