@@ -25650,6 +25650,11 @@ mis-wired {miswired_root}, so `slot_1_is_a_root_locus_and_not_a_shoot_one` would
             }
         }
         let species = w.species.id_of("grass").expect("grass");
+        // Old age off: these guards run 45,000 frames, past grass's
+        // `life_half_life` (20,000 since 2026-10-19), and what they measure is
+        // the water rule, not a lifespan. With it on, both arms and the
+        // rooted control all died of age and the switch-off arm read 0 of 8.
+        w.species.get_mut(species).life_half_life = 0.0;
         let pocket = w.push_organism(species).expect("an organism slot is free");
         for x in 14..22 {
             w.set(x, 32, Cell::EMPTY);
@@ -25700,6 +25705,9 @@ mis-wired {miswired_root}, so `slot_1_is_a_root_locus_and_not_a_shoot_one` would
             c.rootless_dries = rootless_dries;
             c.plant_load_failure = false;
             c.weather_override = Some(crate::sim::weather::Weather::CLEAR);
+            // Old age off, as in `rootless_grass_scene`.
+            let grass = c.species.id_of("grass").expect("grass");
+            c.species.get_mut(grass).life_half_life = 0.0;
             let soil = c.materials.id_of("soil").expect("soil is compiled in");
             for x in 0..64 {
                 c.set(x, 40, Cell::new(material::STONE, 0));
