@@ -1,0 +1,4 @@
+# Brain lane, 2026-10-19: Scott's auto-stop question, "what happens to the runs that stopped if they hadn't stopped" (cmsg_016bYH3Ybq4z6xkGqHujo4HWKkNBdctgiUU7uX5bciYJG5).
+# trail-on-forager-s1 replayed from scratch with the stop off: its own build and args, patience=0, gens=100 as before.
+# Same build, same seed, same threads: generations 0-58 must match train-results/trail-on-forager-s1 exactly (that run stopped at 59).
+ref=ea1a1b7bbcf552e14f049254102ff871a7da041c brain=mind challenge=suite arenas=fetch,trail keep=fetch forget=0.8 clones=1 start=training/starts/near-forager-s3-gen080.txt dist=10 pop=48 layouts=6 pm=0.03 sigma=1 cross=0.3 gens=100 patience=0 holdout=12 every=1 seed=1 threads=4

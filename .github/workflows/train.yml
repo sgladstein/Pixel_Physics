@@ -122,20 +122,57 @@ jobs:
       # (`Settings::resume`): its `train-results/<name>` snapshot becomes the
       # out folder, so the trainer finds `state.txt` and trims the csvs back
       # to the generation it saved. Push the same job file again with
-      # `resume=1` and a higher `gens=` (the total, not the extra), the same
-      # `ref=` and nothing else changed; `concurrency` holds it until the leg
-      # still running has published its last snapshot, so a second leg can
-      # be queued behind the first. Earlier legs' `STATUS.txt` and
-      # `train.log` are kept as `STATUS-earlier.txt` and `train-earlier.log`.
+      # `resume=1` and a higher `gens=` (the total, not the extra) and nothing
+      # else changed; `concurrency` holds it until the leg still running has
+      # published its last snapshot, so one more leg can wait behind the
+      # first (a third push of the name cancels the waiting one). Earlier
+      # legs' `STATUS.txt` and `train.log` are kept as `STATUS-earlier.txt`
+      # and `train-earlier.log`.
+      #
+      # **Refused here, before anything is published over the snapshot**
+      # (review of PR 728): code other than the earlier leg's -- its `built
+      # from:` commit and this build differing in `src/`, `examples/`,
+      # `assets/` or the build files -- since the trainer cannot see a pay
+      # change that keeps the arena line and the parts (S1); and a symlink in
+      # the snapshot, which the appends below would follow (N11). Any
+      # `resume=` value but 0/false/off unpacks, so a mistyped one is refused
+      # by the trainer with the snapshot in place instead of skipping the
+      # unpack and publishing an empty folder over it (S2).
       - name: carry on a stopped run
         env:
           NAME: ${{ matrix.name }}
           ARGS: ${{ matrix.args }}
         run: |
-          case " $ARGS " in *" resume=1 "*|*" resume=true "*|*" resume=on "*) ;; *) exit 0 ;; esac
+          read -r -a ARR <<< "$ARGS"
+          # " " until a resume= token is seen, so an empty `resume=` unpacks
+          # and is refused by the trainer like any other bad value (N18). No
+          # token can hold a space (read -a splits on it), so no spelling of
+          # resume= collides with the sentinel, as "-" did with `resume=-` (N20)
+          r=" "; for t in "${ARR[@]}"; do case "$t" in resume=*) r="${t#resume=}" ;; esac; done
+          case "$r" in " "|0|false|off) exit 0 ;; esac
           OUT="$RUNNER_TEMP/out"; mkdir -p "$OUT"
-          git fetch --no-tags --depth 1 origin "train-results/$NAME"
+          git fetch --no-tags --depth 1 origin "refs/heads/train-results/$NAME"
+          # a symlink (mode 120000) is refused before anything is extracted,
+          # so none reaches the out folder or the artifact uploaded from it.
+          # $(...) reads all of awk's output: `| grep -q .` exits on the first
+          # line, awk dies of SIGPIPE, and under pipefail the check is skipped (N21)
+          if [ -n "$(git ls-tree -r FETCH_HEAD | awk '$1 == "120000"')" ]; then echo "refused: a symlink in train-results/$NAME"; exit 1; fi
           git archive FETCH_HEAD | tar -x -C "$OUT"
+          if [ -n "$(find "$OUT" -type l)" ]; then echo "refused: a symlink in train-results/$NAME"; exit 1; fi
+          was=$({ cat "$OUT/STATUS-earlier.txt" "$OUT/STATUS.txt" 2>/dev/null || true; } | sed -n 's/^built from: //p' | tail -n 1)
+          now=$(git -C "$CODE_DIR" rev-parse HEAD)
+          # a full sha and nothing else reaches git: `HEAD` would pass the
+          # compare below, and a leading `-` would read as an option (N19)
+          if ! [[ "$was" =~ ^[0-9a-f]{40}$ ]]; then echo "refused: train-results/$NAME does not name the commit it was built from (built from: '$was')"; exit 1; fi
+          if [ "$was" != "$now" ]; then
+            git -C "$CODE_DIR" fetch --no-tags --depth 1 origin "$was"
+            for p in src examples assets Cargo.toml Cargo.lock build.rs rust-toolchain.toml; do
+              if [ "$(git -C "$CODE_DIR" rev-parse -q --verify "$was:$p")" != "$(git -C "$CODE_DIR" rev-parse -q --verify "HEAD:$p")" ]; then
+                echo "refused: $p differs between the earlier leg's build ($was) and this one ($now); pin ref= to $was"; exit 1
+              fi
+            done
+            echo "built from $now, the earlier leg from $was: the same code"
+          fi
           for f in STATUS.txt train.log; do
             if [ -f "$OUT/$f" ]; then
               cat "$OUT/$f" >> "$OUT/${f%.*}-earlier.${f##*.}"
@@ -183,6 +220,9 @@ jobs:
           "$CARGO_TARGET_DIR/release/examples/train" "${ARR[@]}" out="$OUT" 2>&1 | tee "$OUT/train.log"
           rc=${PIPESTATUS[0]}
           set -e
+          # a resume's warn-only differences (another pop=, seed=...) where
+          # they are seen, not only in train.log (review of PR 728, N14)
+          grep 'resume: WARNING' "$OUT/train.log" >> "$OUT/STATUS.txt" || true
           # a crash must not look like a run that is still going
           { echo "finished: $(date -u +%FT%TZ)"; echo "exit code: $rc"; } >> "$OUT/STATUS.txt"
           exit "$rc"
