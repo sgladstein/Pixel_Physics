@@ -1,0 +1,30 @@
+plantrain lean: start=/home/user/Pixel_Physics/assets/species/herb.ron layouts=4 base=7000000 offsets=+-[4, 8] spacing=bed default heavy=4 stops=[8000, 16000, 24000]
+
+-- frame 8000: lean towards the lamp, columns (shoot centroid / crown); n = founders alive with a shoot
+arm    offset     n    centroid mean       crown mean      lamp left     lamp right    shoot
+start       4     8     +1.43 +-0.70      +1.89 +-1.25      +2.64 (n4)     +1.14 (n4)     94.2
+start       8     8     -0.29 +-1.89      +0.51 +-3.72      -4.33 (n4)     +5.34 (n4)    100.5
+blind       4     8     +1.43 +-0.70      +1.89 +-1.25      +2.64 (n4)     +1.14 (n4)     94.2
+blind       8     8     -0.29 +-1.89      +0.51 +-3.72      -4.33 (n4)     +5.34 (n4)    100.5
+heavy       4     8     +1.43 +-0.70      +1.89 +-1.25      +2.64 (n4)     +1.14 (n4)     94.2
+heavy       8     8     -0.29 +-1.89      +0.51 +-3.72      -4.33 (n4)     +5.34 (n4)    100.5
+
+-- frame 16000: lean towards the lamp, columns (shoot centroid / crown); n = founders alive with a shoot
+arm    offset     n    centroid mean       crown mean      lamp left     lamp right    shoot
+start       4     8     +0.87 +-0.89      +0.94 +-1.14      +1.17 (n4)     +0.70 (n4)    113.2
+start       8     8     +1.50 +-3.41      +3.88 +-6.46      -4.29 (n4)    +12.05 (n4)    139.0
+blind       4     8     +0.87 +-0.89      +0.94 +-1.14      +1.17 (n4)     +0.70 (n4)    113.2
+blind       8     8     +1.40 +-3.44      +3.88 +-6.41      -4.21 (n4)    +11.97 (n4)    139.2
+heavy       4     8     +0.87 +-0.89      +0.94 +-1.14      +1.17 (n4)     +0.70 (n4)    113.2
+heavy       8     8     +1.62 +-3.49      +4.16 +-6.61      -4.29 (n4)    +12.62 (n4)    138.0
+
+-- frame 24000: lean towards the lamp, columns (shoot centroid / crown); n = founders alive with a shoot
+arm    offset     n    centroid mean       crown mean      lamp left     lamp right    shoot
+start       4     7     +0.58 +-1.64      +0.60 +-1.79      +1.17 (n4)     -0.16 (n3)    136.0
+start       8     8     +1.75 +-3.59      +4.16 +-6.70      -4.27 (n4)    +12.59 (n4)    142.4
+blind       4     7     +0.66 +-1.50      +0.60 +-1.79      +1.17 (n4)     -0.16 (n3)    135.0
+blind       8     8     +1.52 +-3.63      +3.77 +-6.57      -4.14 (n4)    +11.67 (n4)    148.9
+heavy       4     7     +0.69 +-1.44      +0.56 +-1.86      +1.17 (n4)     -0.26 (n3)    134.9
+heavy       8     8     +2.01 +-3.76      +4.58 +-6.92      -4.27 (n4)    +13.43 (n4)    144.8
+
+(+- is 2 sd/sqrt(n). `lamp left`/`lamp right` are the crown lean of the founders on each side: a bed habit reads as opposite signs there, a lean as the same sign.)

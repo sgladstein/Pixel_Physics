@@ -1,0 +1,30 @@
+plantrain ranking: control=herb genomes=16 sigma=0.9 genes=8 groups=shape,leaf,flower,height layouts=12+12 base=9000000 keep=4 frames=40000 k_seed=24 size_floor=55
+
+arm   mean A   min A  mean B   min B  worst off B
+ship   3.911   2.999   4.069   2.999        3.802
+c01    3.915   2.999   4.062   2.999        3.750
+c02    3.781   2.999   4.458   2.999        4.333
+c03    3.915   2.999   4.034   2.999        3.781
+c04    3.736   2.999   3.538   2.999        3.385
+c05    3.600   2.999   3.621   2.999        3.385
+c06    3.889   2.999   4.187   2.999        3.979
+c07    3.593   2.999   3.892   2.999        3.697
+c08    3.901   2.999   4.160   2.999        3.822
+c09    3.760   2.999   3.624   2.999        3.333
+c10    3.976   3.062   3.965   3.000        3.745
+c11    3.884   2.999   4.080   2.999        3.864
+c12    3.877   2.999   4.339   3.354        4.323
+c13    3.763   2.999   3.972   2.999        3.802
+c14    3.743   2.999   4.066   2.999        3.802
+c15    4.102   2.999   4.371   2.999        4.114
+c16    3.840   2.999   3.868   2.999        3.802
+
+distinct min-A values over 17 arms: 2 ([2.999, 3.0625])
+
+how well set A's statistic predicts set B (Spearman):
+  mean A  -> mean B +0.50 | min B +0.25 | worst offset B +0.40
+  min A   -> mean B -0.15 | min B +0.64 | worst offset B -0.20
+
+top 4 on A by mean [15, 10, 1, 3], by min [10, 15, 1, 3]: 4 in common
+  picked by mean  on B: mean 4.108  min 2.999  worst offset 3.847 (the weakest pick's 3.745)
+  picked by min   on B: mean 4.108  min 2.999  worst offset 3.847 (the weakest pick's 3.745)

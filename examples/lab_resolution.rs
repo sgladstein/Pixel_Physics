@@ -128,6 +128,11 @@ fn spec_from_args() -> LabBox {
         // measuring the garden, not the resolution.
         plant_pace: pixel_physics::lab::pace::PlantPace::default(),
         windfall_rots: pixel_physics::sim::decay::windfall_rots_default(),
+        // Held: founders are spread by count, which `founders` above scales
+        // with nothing; explicit columns would pin them to one resolution.
+        founder_at: None,
+        // Held: the shipped species by name, never a runtime one.
+        species_ron: None,
         // **Exhaustive on purpose -- no `..LabBox::default()`.** Two lanes
         // repaired the same red build here at once, one by adding
         // `lamp_spacing` and one by adding a struct update, and together they

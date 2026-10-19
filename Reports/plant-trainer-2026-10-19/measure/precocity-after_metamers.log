@@ -1,0 +1,13 @@
+plantrain sweep: gene=after_metamers values=[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 10.0, 12.0] layouts=12 base=4000000 frames=40000 n_est=20 k_seed=24 size_floor=55
+                 shipped: score mean 4.139 min 2.999 | flowered 9/12 shoot@flower p50 73 | peak p50 135 | seedlings p50 13
+        after_metamers=1: score mean 1.117 min 1.050 | flowered 9/12 shoot@flower p50 2 | peak p50 2 | seedlings p50 0
+        after_metamers=2: score mean 1.824 min 1.200 | flowered 11/12 shoot@flower p50 11 | peak p50 12 | seedlings p50 0
+        after_metamers=3: score mean 2.652 min 1.900 | flowered 12/12 shoot@flower p50 23 | peak p50 23 | seedlings p50 1
+        after_metamers=4: score mean 3.102 min 3.000 | flowered 12/12 shoot@flower p50 32 | peak p50 49 | seedlings p50 4
+        after_metamers=5: score mean 3.413 min 3.021 | flowered 12/12 shoot@flower p50 43 | peak p50 65 | seedlings p50 7
+        after_metamers=6: score mean 3.437 min 2.999 | flowered 11/12 shoot@flower p50 52 | peak p50 79 | seedlings p50 6
+        after_metamers=7: score mean 4.061 min 2.999 | flowered 10/12 shoot@flower p50 61 | peak p50 109 | seedlings p50 14
+        after_metamers=8: score mean 4.139 min 2.999 | flowered 9/12 shoot@flower p50 73 | peak p50 135 | seedlings p50 13
+       after_metamers=10: score mean 3.131 min 2.999 | flowered 1/12 shoot@flower p50 85 | peak p50 173 | seedlings p50 14
+       after_metamers=12: score mean 3.121 min 2.999 | flowered 1/12 shoot@flower p50 100 | peak p50 173 | seedlings p50 15
+wall 269s

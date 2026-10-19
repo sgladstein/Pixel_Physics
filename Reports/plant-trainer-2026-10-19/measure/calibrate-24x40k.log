@@ -1,0 +1,33 @@
+plantrain calibrate: control=herb layouts=24 base=3000000 width=96 frames=40000 every=250 n_est=20 mutation_off=true
+     seed   offset  germ   peak   high  flower@  shoot@flr  fruit seedlings  alive
+  3000000    under  true    133     47     5250         63   true        10   true
+  3000001  quarter  true    180     40        -          0  false         7   true
+  3000002  between  true     39     23        -          0  false         0  false
+  3000003    under  true    131     34     5250         77   true        14   true
+  3000004  quarter  true    233     42     6750         74   true         6   true
+  3000005  between  true     66     21        -          0  false        15   true
+  3000006    under  true     58     33     5250         58   true         0   true
+  3000007  quarter  true    158     49     8250         78   true        12   true
+  3000008  between  true    111     50        -          0  false         6   true
+  3000009    under  true    207     53     7000         92   true        10   true
+  3000010  quarter  true    182     47     5500         75   true        10   true
+  3000011  between  true    148     55     6750         76   true        14   true
+  3000012    under  true     73     49     7750         72   true         3  false
+  3000013  quarter  true    235     52     6750         74   true        13   true
+  3000014  between  true    140     37     5750         85   true         8   true
+  3000015    under  true    260     51     7000         92   true        15   true
+  3000016  quarter  true    128     42        -          0  false        15   true
+  3000017  between  true    161     57     7500         83   true        23   true
+  3000018    under  true    148     33        -          0  false        23   true
+  3000019  quarter  true    203     48     5250         63   true         9   true
+  3000020  between  true     91     36        -          0  false        14   true
+  3000021    under  true    127     45     7000         72   true        18   true
+  3000022  quarter  true    225     40     5500         75   true        17   true
+  3000023  between  true    203     53     7750        103   true        15   true
+germinated 24 of 24; flowered 17 of 24; fruited 17 of 24; founder alive at the end 22 of 24
+peak shoot cells       p25     127 p50     148 p75     203
+frame of first flower  p25    5500 p50    6750 p75    7000
+shoot at first flower  p25      72 p50      75 p75      83  (size_floor candidate: p25)
+seedlings established  p25       8 p50      13 p75      15  (k_seed candidate: p50, at least 1)
+score at k_seed=4 size_floor=0: mean 4.364 min 2.999 sd 0.918  [5.0, 2.999, 2.999, 5.0, 5.0, 2.999, 4.0, 5.0, 2.999, 5.0, 5.0, 5.0, 4.75, 5.0, 5.0, 5.0, 2.999, 5.0, 2.999, 5.0, 2.999, 5.0, 5.0, 5.0]
+wall 71s
