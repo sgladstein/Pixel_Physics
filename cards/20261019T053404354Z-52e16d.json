@@ -1,0 +1,50 @@
+{
+  "id": "20261019T053404354Z-52e16d",
+  "created": "2026-10-19T05:34:04Z",
+  "board": "plants",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/ant-evolution-plant-inspiration-24mykv",
+    "commit": "6894e922",
+    "agent": null,
+    "session_id": "df583918-793a-554e-8af3-235040252c3a",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Plant trainer, first test: can you tell the shipped herb from one the trainer rebuilt?",
+  "question": "One side is the shipped herb. The other is a herb whose photosynthesis was cut in half and then rebuilt by the trainer in 10 generations. Pick the one you think is the shipped herb — or say in the comment that you can't tell.",
+  "context_md": "The **plant trainer's acceptance test** (breeding species files instead of writing them; herb first, in the lab bed).\n\nI crippled a copy of the herb (both photosynthesis rates halved) and let the trainer change only its leaf numbers. It brought them back: shoot 0.275 -> 0.44 (shipped 0.55), leaf 0.225 -> 0.49 (shipped 0.45), and it settled on 5 leaves a node instead of 8.\n\nEach side is **three lab beds**, each shown at frame 8,000 (one young herb) and frame 40,000 (the herb and its seedlings). Same beds, same seeds on both sides.\n\nMeasured on 12 beds read once: shipped **3.88**, crippled start **3.33**, rebuilt **3.80** (inside the shipped herb's noise), and the same run with parents picked at random **3.42**. One run each, so this is a first pass, not a verdict on the trainer.",
+  "kind": "ab",
+  "blind": true,
+  "blocking": false,
+  "items": [
+    {
+      "label": "shipped herb",
+      "files": [
+        "20261019T053404354Z-52e16d/000-shipped.png"
+      ],
+      "caption": "the herb as it ships",
+      "meta": {
+        "score on 12 beds read once (germinate=1 ... 5 = flowered, fruited, 24 seedlings)": 3.88
+      },
+      "focus": null
+    },
+    {
+      "label": "rebuilt herb",
+      "files": [
+        "20261019T053404354Z-52e16d/001-recovered.png"
+      ],
+      "caption": "photosynthesis halved, then rebuilt by the trainer",
+      "meta": {
+        "score on 12 beds read once (germinate=1 ... 5 = flowered, fruited, 24 seedlings)": 3.8
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": false,
+    "comment": true,
+    "annotations": true
+  }
+}
