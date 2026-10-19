@@ -16,7 +16,13 @@ work=$(mktemp -d)
 cd "$work"
 git init -q . && git checkout -q -b "$branch"
 git config user.name "train-run" && git config user.email "train-run@users.noreply.github.com"
+# state.txt first and put back last: the trainer may write a generation's
+# csv rows and its next state while this copies, and a state older than the
+# csvs only redoes a generation on resume (its rows are trimmed), where a
+# newer one would leave a gap in progress.csv (review of PR 728, N15).
+[ -f "$out/state.txt" ] && cp "$out/state.txt" .state-first
 cp -r "$out"/. .
+[ -f .state-first ] && mv .state-first state.txt
 # Every picture is kept (about 350 KB each, one per 5 generations): the brain lane reads
 # them from this branch, and the branch is one force-pushed commit, so no history grows.
 # curves.png beside the svg the trainer redraws every generation (owner,

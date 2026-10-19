@@ -5516,6 +5516,14 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   genome. Four beetles kill a lone queen 12 of 12 within 800 frames. Design
   docs are Claude Docs linked from the report.
 
+- [brain-training/README.md](brain-training/README.md) — **the stage 2 brain
+  notes, copied verbatim from the shared folder 2026-10-19.** The general
+  brain design (rev 3, the design of record: one option-scoring brain, ladder
+  trail → forage → dig → brood), the stage 1 scorer results, the trail-rung
+  controls, the scarce-food forage arena, the dig rung design (rev 2.7) and
+  the external-compute cost research. The shared-folder copies are the live
+  ones; the README lists each file's source date.
+
 ## Licensing and distribution
 
 - [dependency-license-audit.md](dependency-license-audit.md) — **settled
