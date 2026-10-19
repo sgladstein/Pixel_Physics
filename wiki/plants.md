@@ -683,17 +683,20 @@ Three consequences follow from that, and none of them is a rule about grass:
   seed. Now the same garden is still a seeding meadow from wall to wall at
   the end, and a colony living on it does not run out of food.
 - And **it dies of old age** (2026-10-19). A tussock now has a lifespan,
-  the way a tree always has: half are gone by 20,000 frames and very few
+  the way a tree always has: half are gone by 30,000 frames and very few
   see twice that, so a meadow is always a mix of young and old tufts
   rather than the same tufts for ever. Before, nothing but shade could kill
   a grass plant, and once a tussock held a patch of ground it never gave it
   back: in the mixed bed grass held two fifths of the floor and kept every
   column it ever took, while the low plants grew where the grass let them.
   Now a dead tussock leaves a gap, and a gap is a place for anything's seed.
-  In that bed at 450k frames, grass leaf fell by about half in every one of
-  twelve runs, its seed heaps halved with it, and the low plants held about
-  two and a half times as many columns of ground. Grass still seeds fast
-  enough to fill most of the gaps it leaves, so a meadow stays a meadow.
+  In that bed at 450k frames, grass leaf fell by about a third, its seed
+  heaps by more, and the low plants held about three times as many columns
+  of ground and grew two thirds more leaf. Grass still seeds fast enough to
+  fill most of the gaps it leaves, so a meadow stays a meadow. The lifespan
+  is set where an ant colony living on the bed eats about as well as it did
+  before: a shorter one thinned the grass harder but took a third of the
+  colony's food with it, because grass seed is much of what ants eat.
 
 Grass cannot get into dry sand, though, and neither can a tree: sand is
 simply harder to push a root through than either of them can manage.

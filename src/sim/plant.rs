@@ -25352,8 +25352,9 @@ mis-wired {miswired_root}, so `slot_1_is_a_root_locus_and_not_a_shoot_one` would
     /// the low plants' columns and never gave one back, on a mound of its own
     /// seed. The hazard itself is pinned by the test above on `tree`; what
     /// this pins is that grass *authors* one, inside the band that was
-    /// measured (20,000 ships; 40,000 cut grass only 15% and raised the
-    /// ground), and that the call site reads it unchanged when
+    /// measured (30,000 ships; 20,000 cost the ant colony a third of its
+    /// food; 40,000 cut grass only 15% and raised the ground), and that the
+    /// call site reads it unchanged when
     /// `PIXEL_PHYSICS_LIFE_HALF_LIFE` is unset.
     #[test]
     fn grass_dies_of_old_age() {
@@ -25361,7 +25362,10 @@ mis-wired {miswired_root}, so `slot_1_is_a_root_locus_and_not_a_shoot_one` would
         let grass = w.species.id_of("grass").expect("grass is compiled in");
         let life = w.species.get(grass).life_half_life;
         assert!(life > 0.0, "grass must author a lifespan: immortal grass holds every column it takes (`grass.ron`)");
-        assert!(life <= 30_000.0, "grass life {life} is outside the measured band: 40,000 barely thinned the sward");
+        assert!(
+            life > 20_000.0 && life < 40_000.0,
+            "grass life {life} is outside the measured band: 20,000 starved the colony, 40,000 barely thinned the sward"
+        );
         if std::env::var("PIXEL_PHYSICS_LIFE_HALF_LIFE").is_err() {
             assert_eq!(life_half_life_of(&w, grass), life, "with no override the old-age roll must read the authored value");
         }
@@ -25651,7 +25655,7 @@ mis-wired {miswired_root}, so `slot_1_is_a_root_locus_and_not_a_shoot_one` would
         }
         let species = w.species.id_of("grass").expect("grass");
         // Old age off: these guards run 45,000 frames, past grass's
-        // `life_half_life` (20,000 since 2026-10-19), and what they measure is
+        // `life_half_life` (30,000 since 2026-10-19), and what they measure is
         // the water rule, not a lifespan. With it on, both arms and the
         // rooted control all died of age and the switch-off arm read 0 of 8.
         w.species.get_mut(species).life_half_life = 0.0;
