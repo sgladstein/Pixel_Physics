@@ -618,6 +618,39 @@ by somebody about to try it on creatures.
 
 ## Plants and trees  ·  `engine`
 
+- [plant-training-brainstorm-2026-10-19.md](plant-training-brainstorm-2026-10-19.md)
+  — **brainstorm, 2026-10-19; step 1 of the plant-trainer line.** What a
+  trainer that breeds species files could train, as a ladder: one dial with a
+  known answer (the trainer's own positive controls), one behaviour block (a
+  shape), a whole species for a niche, the fate table (new body plans), looks,
+  competition, a plant "mind", and animals (out of scope while plant-only).
+  Records the owner's four rulings of 2026-10-19 (**a trained plant is a
+  species file; the trainer may change shape and look; herb first; a
+  plant-only bed may shed overhead**), eight ways to put a number on a look,
+  the cheats to design against, and one generation of `selection_arena` timed
+  (herb 1.3 s, tree 13.8 s).
+- [plant-engine-trainability-review-2026-10-19.md](plant-engine-trainability-review-2026-10-19.md)
+  — **review, measured, 2026-10-19; step 2.** For every look, growth pattern
+  and visible mechanic: what the species file sets, what is heritable in play,
+  what is hardcoded. **The species file reaches most of a plant (101 values
+  in herb); the ceiling on looks is hardcoded geometry** — leaf placement,
+  head shape, stem width, palettes, a 0.5 root share for every species.
+  Measured with `examples/herb_morphs.rs` (16 random herbs x 3 beds,
+  [sheet](plant-trainer-2026-10-19/herb-morphs-16x3.png)): the variant explains
+  76% of the spread in size and 66% in leaf share; **outdoors the shipped
+  herb never flowers** (its leader stops short of the ninth node), so the
+  trainer's bed is the lab's; the root cap binds on 34 of 48 beds; weather is
+  a bigger noise than development.
+- [plant-trainer-plan-2026-10-19.md](plant-trainer-plan-2026-10-19.md)
+  — **plan, 2026-10-19; step 3, with the adversarial review's findings in
+  its §12.** The genome is the species file; gene groups instead of banned
+  verbs; a one-founder lab bed with mirrored layouts, a sealed hold-out and
+  the ant trainer's controls; viability scored in steps; **looks optimised
+  with no beauty number** — an atlas of distinct viable plants
+  (quality-diversity) plus owner-steered rounds through the review queue;
+  un-walling the hardcoded looks as species fields that default to today
+  bit-identically; milestones P1-P6.
+
 - [lab-vs-druid-plant-mechanics-2026-09-15.md](lab-vs-druid-plant-mechanics-2026-09-15.md)
   — **measured and then fixed, 2026-09-15. `engine`, `lab`, `held`.**
   The owner's *"I thought they were identical... way more leaves piling up on

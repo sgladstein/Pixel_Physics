@@ -1,0 +1,51 @@
+herb_morphs: n=16 seeds=3 frames=20000 sigma=0.9 k=5 seed0=1 width=96 up=80 dev=world solo=true out=Reports/plant-trainer-2026-10-19/herb-morphs-16x3.png
+  v seed  orgs  above wood% leaf% organ   root  high  wide   age  orph  tips stopped                                 moved
+  0    1     1     88  58.0  42.0     0     88    42    15   444     0  tip_cap:64,no_good_direction:14,height_limit:9 shipped herb
+  0    2     1     57  36.8  63.2     0     61    17    12   444     0  tip_cap:5,boxed:1                            
+  0    3     1    172  59.3  40.7     0    173    47    21   444     0  height_limit:19,tip_cap:15,no_good_direction:14 
+  1    1     1    143  66.4  33.6     0    143    54    22   444     0  boxed:52,tip_cap:14,height_limit:10          plastochron:5.000->10.000 leaf_cluster:8.000->8.000 leaf_spread:0.000->0.794 heading_inertia:0.930->0.712 upward_weight:0.980->0.904 after_metamers:8->13
+  1    2     1     97  61.9  38.1     0     97    42    21   444     0  tip_cap:14,height_limit:11,no_good_direction:5 
+  1    3     1     67  70.1  29.9     0     65    43    17   444     0  height_limit:5,no_good_direction:2,too_poor:1 
+  2    1     1    192  47.4  52.6     0    192    60    25   444     0  tip_cap:7,height_limit:7,boxed:6             leaf_cluster:8.000->16.000 organ_cluster:12.000->5.000 light_weight:0.060->0.028 turgor_source:0.460->0.457 pipe_ratio:14.000->7.104 after_metamers:8->12
+  2    2     1     82  37.8  62.2     0     88    26    16   444     0  tip_cap:40,no_good_direction:9,height_limit:9 
+  2    3     1     92  48.9  51.1     0     92    45    12   444     0  height_limit:2,too_poor:1,no_good_direction:1 
+  3    1     1    108  54.6  44.4     1    108    51    14   444     0  tip_cap:35,no_good_direction:8,too_poor:5    branch_chance:0.000->0.119 leaf_cluster:8.000->7.000 leaf_spread:0.000->0.530 upward_weight:0.980->1.060 light_weight:0.060->0.094 after_metamers:8->5
+  3    2     1     42  42.9  57.1     0     42    12    13   444     0  tip_cap:4,boxed:1                            
+  3    3     1    194  57.7  41.8     1    190    47    40   444     0  tip_cap:10,height_limit:7,no_good_direction:5 
+  4    1     1    147  46.9  53.1     0    149    53    18   444     0  tip_cap:18,height_limit:12,no_good_direction:11 leaf_cluster:8.000->15.000 leaf_spread:0.000->0.159 heading_inertia:0.930->0.921 upward_weight:0.980->0.686 light_weight:0.060->0.031 after_metamers:8->13
+  4    2     1    187  45.5  54.5     0    189    30    48   444     0  tip_cap:52,no_good_direction:9,boxed:8       
+  4    3     1     83  48.2  51.8     0     82    38    15   444     0  height_limit:17,no_good_direction:4,boxed:3  
+  5    1     1    861  64.6  35.4     0    360    60    54   444     0  height_limit:50,no_good_direction:35,boxed:15 max_active_tips:2.000->8.000 internode:3.000->1.000 leaf_cluster:8.000->13.000 organ_cluster:12.000->13.000 acrotony:1.800->2.677 after_metamers:8->19
+  5    2     1    767  49.2  50.8     0    762    62    62   444     0  height_limit:52,no_good_direction:43,boxed:25 
+  5    3     1    338  63.3  36.7     0    327    50    30   444     0  no_good_direction:15,height_limit:14,boxed:9 
+  6    1     1    132  55.3  44.7     0    132    59    16   444     0  boxed:13,tip_cap:8,no_good_direction:5       internode:3.000->7.000 leaf_cluster:8.000->11.000 leaf_spread:0.000->0.471 upward_weight:0.980->1.225 pipe_ratio:14.000->26.771 after_metamers:8->16
+  6    2     1     65  40.0  60.0     0     66    20    18   444     0  tip_cap:56,no_good_direction:12,boxed:5      
+  6    3     1    190  53.7  46.3     0    190    44    23   444     0  height_limit:23,tip_cap:10,no_good_direction:8 
+  7    1     1    445  68.8  27.2    18    319    49    33   444     0  boxed:328,too_poor:96,no_good_direction:44   max_active_tips:2.000->11.000 leaf_cluster:8.000->4.000 organ_cluster:12.000->7.000 upward_weight:0.980->1.504 pipe_ratio:14.000->23.192 after_metamers:8->3
+  7    2     1    783  63.7  32.4    30    756    38    86   444     0  boxed:34,no_good_direction:24,tip_cap:19     
+  7    3     1    242  70.2  28.1     4    242    37    28   444     0  no_good_direction:11,height_limit:9,boxed:8  
+  8    1     1    772  67.4  32.6     0    430    56    41   444     0  boxed:185,no_good_direction:137,height_limit:59 branch_chance:0.000->0.000 max_active_tips:2.000->11.000 branch_angle:40.000->46.938 heading_inertia:0.930->0.629 upward_weight:0.980->0.915 after_metamers:8->18
+  8    2     1    841  60.8  39.2     0    813    46    84   444     0  height_limit:58,boxed:52,no_good_direction:39 
+  8    3     1    505  64.2  35.8     0    332    47    38   444     0  height_limit:59,no_good_direction:29,boxed:22 
+  9    1     1    112  29.5  70.5     0    112    11    21   444     0  tip_cap:150,boxed:104,no_good_direction:20   plastochron:5.000->2.000 branch_angle:40.000->96.365 leaf_cluster:8.000->7.000 organ_cluster:12.000->11.000 upward_weight:0.980->1.097 after_metamers:8->11
+  9    2     1     90  35.6  64.4     0     91     9    24   444     0  tip_cap:118,boxed:15,no_good_direction:9     
+  9    3     1     66  36.4  63.6     0     70    19    16   444     0  tip_cap:112,boxed:28,no_good_direction:16    
+ 10    1     1    189  50.8  47.6     3    180    43    32   444     0  boxed:38,tip_cap:20,too_poor:14              organ_cluster:12.000->6.000 leaf_spread:0.000->0.239 heading_inertia:0.930->0.465 light_weight:0.060->0.062 pipe_ratio:14.000->16.366 after_metamers:8->5
+ 10    2     1     60  33.3  66.7     0     59    11    12   444     0  tip_cap:4,no_good_direction:2                
+ 10    3     1    253  56.9  41.9     3    253    47    38   444     0  tip_cap:11,height_limit:7,no_good_direction:4 
+ 11    1     1    797  61.1  38.6     2    400    56    54   444     0  tip_cap:428,boxed:168,no_good_direction:126  max_active_tips:2.000->10.000 branch_angle:40.000->61.437 leaf_cluster:8.000->9.000 organ_cluster:12.000->13.000 light_weight:0.060->0.125 after_metamers:8->7
+ 11    2     1    778  50.1  49.5     3    787    46    62   444     0  height_limit:150,no_good_direction:92,boxed:42 
+ 11    3     1    175  62.9  36.6     1    175    46    19   444     0  height_limit:25,no_good_direction:18,boxed:11 
+ 12    1     1     76  52.6  47.4     0     76    29    19   444     0  tip_cap:26,height_limit:23,boxed:16          branch_angle:40.000->24.650 heading_inertia:0.930->0.901 turgor_source:0.460->0.319 acrotony:1.800->0.976 pipe_ratio:14.000->30.646 after_metamers:8->11
+ 12    2     1     57  36.8  63.2     0     61    17    12   444     0  tip_cap:5,boxed:1                            
+ 12    3     1     94  56.4  43.6     0     95    30    11   444     0  height_limit:16,tip_cap:13,no_good_direction:4 
+ 13    1     1     83  45.8  54.2     0    151    22    24   444     0  tip_cap:110,boxed:39,no_good_direction:25    max_active_tips:2.000->3.000 heading_inertia:0.930->0.588 upward_weight:0.980->0.416 turgor_source:0.460->0.913 acrotony:1.800->1.316 after_metamers:8->12
+ 13    2     1     83  49.4  50.6     0     81    19    21   444     0  tip_cap:171,no_good_direction:36,boxed:24    
+ 13    3     1     63  60.3  39.7     0    256    21    12   444     0  tip_cap:46,height_limit:19,no_good_direction:9 
+ 14    1     1    268  59.7  40.3     0    481    52    43   444     0  tip_cap:79,no_good_direction:40,boxed:15     max_active_tips:2.000->3.000 leaf_spread:0.000->0.681 light_weight:0.060->0.044 turgor_source:0.460->0.833 acrotony:1.800->3.817 after_metamers:8->14
+ 14    2     1     80  43.8  56.2     0     79    17    16   444     0  tip_cap:109,no_good_direction:21,boxed:18    
+ 14    3     1    263  59.3  40.7     0    264    78    38   444     0  height_limit:37,tip_cap:23,no_good_direction:11 
+ 15    1     1     87  57.5  42.5     0    106    33    18   444     0  tip_cap:70,no_good_direction:9,too_poor:8    branch_chance:0.000->0.029 plastochron:5.000->4.000 branch_angle:40.000->31.913 heading_inertia:0.930->0.390 acrotony:1.800->1.532 after_metamers:8->14
+ 15    2     1    157  47.1  52.9     0    152    12    57   444     0  tip_cap:42,boxed:13,no_good_direction:9      
+ 15    3     1    119  55.5  44.5     0    122    44    22   444     0  tip_cap:31,height_limit:24,boxed:16          
+herb_morphs: wrote Reports/plant-trainer-2026-10-19/herb-morphs-16x3.png (3106x572): columns are variants (0 = shipped herb), rows are world seeds
