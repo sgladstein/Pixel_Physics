@@ -38,6 +38,15 @@
 //! no new best for that many generations (`train::flat`: never before 40,
 //! nor before the flat stretch is as long as the climb), 30 unless set;
 //! `patience=0` runs every generation.
+//! `resume=1` carries a run on from the `state.txt` in its `out=` exactly
+//! where it stopped (`Settings::resume`): the same parents, random stream,
+//! hold-out best and patience clock, so a run of 5 then 5 resumed writes
+//! what 10 straight do. `gens=` is the total, not the extra, and it needs
+//! the same `start=`, `holdout=` and arena arguments (challenge, arenas,
+//! step, shaft, frames, dist, budget...), or it is refused, as is a state
+//! from before those checks; another `pop=`, `seed=` or the like only
+//! warns. A run that stopped flat stops again at
+//! its next hold-out unless `patience=0`.
 //! `challenge=forage-far` puts the heap 120-200 columns out on a wider bed,
 //! 12,000 frames unless set: the near distances never show a scout's
 //! reserve as a leash, so `arenas=forage,forage-far` is how a reserve is
@@ -317,6 +326,7 @@ fn main() {
             "wire" => set.wire = v.parse().unwrap(),
             "grow" => set.grow = v.parse().unwrap(),
             "patience" => set.patience = v.parse().unwrap(),
+            "resume" => set.resume = on(k, v),
             "heap" => heap = v.parse().unwrap(),
             "brake" => brake = parse_brake(v),
             "dist" => {
@@ -361,13 +371,14 @@ fn main() {
     // without it once left two "game" rows in one file with nothing to say
     // which walk made which (`design/review-rev2.md` N10).
     println!(
-        "train brain={} challenge={challenge} arenas={arenas} keep={keep} forget={forget} start={start} walk={} clones={clones} frames={frames:?} ants={ants:?} score={score:?} noise={noise} targets={targets} free={free} brake={brake:?} dist={dist:?} steps={steps} step={step} shaft={shaft} budget={budget:?} pic={pic:?} trace={trace:?} sealed={sealed} heap={heap} genes={genes} walkset={walkset} prune={} wire={} grow={} patience={} seed={} pop={} gens={} layouts={} pm={} sigma={} cross={} holdout={} threads={}",
+        "train brain={} challenge={challenge} arenas={arenas} keep={keep} forget={forget} start={start} walk={} clones={clones} frames={frames:?} ants={ants:?} score={score:?} noise={noise} targets={targets} free={free} brake={brake:?} dist={dist:?} steps={steps} step={step} shaft={shaft} budget={budget:?} pic={pic:?} trace={trace:?} sealed={sealed} heap={heap} genes={genes} walkset={walkset} prune={} wire={} grow={} patience={} resume={} seed={} pop={} gens={} layouts={} pm={} sigma={} cross={} holdout={} threads={}",
         if mind { "mind" } else { "today" },
         if game_walk { "game" } else { "brain" },
         set.prune,
         set.wire,
         set.grow,
         set.patience,
+        set.resume,
         set.seed,
         set.pop,
         set.gens,
@@ -377,6 +388,16 @@ fn main() {
         set.cross,
         set.holdout,
         set.threads
+    );
+
+    // What a resume must share besides `Settings` (review of PR 726, S1):
+    // the arena's own arguments. The start's are checked by its
+    // fingerprint, and run-only ones (gens, patience, threads, pics, out,
+    // score, trace) may change.
+    set.arena = format!(
+        "brain={} challenge={challenge} arenas={arenas} keep={keep} forget={forget} walk={} clones={clones} frames={frames:?} ants={ants:?} targets={targets} free={free} brake={brake:?} dist={dist:?} steps={steps} step={step} shaft={shaft} budget={budget:?} heap={heap} genes={genes} walkset={walkset}",
+        if mind { "mind" } else { "today" },
+        if game_walk { "game" } else { "brain" },
     );
 
     // The genome's scorer goes into every world it is cloned into, so a
