@@ -109,8 +109,37 @@ impl Settings {
     }
 }
 
-/// Layout seeds per set, far enough apart never to meet: training layouts
-/// are redrawn every generation, the hold-out and final sets never move.
+impl Settings {
+    /// **Settings a run can be trusted under, refused otherwise.** The layout
+    /// seeds of the three sets are `base + seed * stride + i`, so they stay
+    /// apart only inside these limits: `seed=1000` would score its hold-out on
+    /// `seed=0`'s final set, and 101 training layouts would reuse the next
+    /// generation's. A zero count panics further in rather than meaning
+    /// anything.
+    pub fn check(&self) -> Result<(), String> {
+        let limits: [(&str, usize, usize, usize); 6] = [
+            ("seed", self.seed as usize, 0, 999),
+            ("layouts", self.layouts, 1, 100),
+            ("gens", self.gens, 1, 1_000),
+            ("holdout", self.holdout, 1, 1_000),
+            ("final", self.final_set, 1, 1_000),
+            ("pop", self.pop, 1, usize::MAX),
+        ];
+        for (name, v, lo, hi) in limits {
+            if v < lo || v > hi {
+                return Err(format!("{name}={v} is outside {lo}..={hi}: the run's layout sets would overlap or be empty"));
+            }
+        }
+        if self.bed.every == 0 || self.bed.frames == 0 {
+            return Err("every= and frames= must be at least 1".into());
+        }
+        Ok(())
+    }
+}
+
+/// Layout seeds per set, far enough apart never to meet ([`Settings::check`]
+/// holds a run inside the limits that keeps them so): training layouts are
+/// redrawn every generation, the hold-out and final sets never move.
 const HOLDOUT_BASE: u64 = 1_000_000;
 const FINAL_BASE: u64 = 2_000_000;
 const TRAIN_BASE: u64 = 10_000_000;
@@ -199,6 +228,7 @@ pub struct Outcome {
 /// `champion-gNNN.ron` (each generation's, kept) and `final.txt` under
 /// `settings.out`.
 pub fn run(s: &Settings) -> Result<Outcome, String> {
+    s.check()?;
     std::fs::create_dir_all(&s.out).map_err(|e| e.to_string())?;
     let line = s.line();
     println!("{line}");
@@ -431,7 +461,10 @@ mod tests {
             out,
         };
         let a = run(&settings(dir.join("a"))).expect("run a");
-        let b = run(&settings(dir.join("b"))).expect("run b");
+        // The second run on one thread, so a result that depended on which
+        // bed finished first would differ here.
+        let one = rayon::ThreadPoolBuilder::new().num_threads(1).build().expect("a one-thread pool");
+        let b = one.install(|| run(&settings(dir.join("b")))).expect("run b");
         assert_eq!(a.champion_ron, b.champion_ron);
         for f in ["progress.csv", "holdout.csv", "champion-g000.ron", "champion-g001.ron"] {
             let read = |d: &str| std::fs::read_to_string(dir.join(d).join(f)).unwrap_or_else(|_| panic!("{f} written"));

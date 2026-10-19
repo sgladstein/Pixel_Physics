@@ -64,7 +64,7 @@ fn get<T: std::str::FromStr>(m: &BTreeMap<String, String>, k: &str, default: T) 
 
 fn bed(m: &BTreeMap<String, String>) -> BedSpec {
     let d = BedSpec::default();
-    BedSpec {
+    let b = BedSpec {
         width: get(m, "width", d.width),
         frames: get(m, "frames", d.frames),
         every: get(m, "every", d.every),
@@ -74,7 +74,12 @@ fn bed(m: &BTreeMap<String, String>) -> BedSpec {
             Some("on") => false,
             Some(v) => panic!("mutation={v} is not on|off"),
         },
+    };
+    if b.every == 0 || b.frames == 0 {
+        eprintln!("plantrain: every= and frames= must be at least 1");
+        std::process::exit(2);
     }
+    b
 }
 
 /// The run's yardsticks. **Defaults measured on the shipped herb**, 24 lab
@@ -173,7 +178,12 @@ fn sweep(m: &BTreeMap<String, String>) {
     let base: u64 = get(m, "base", 4_000_000);
     let layouts = arena::layouts(base, n);
     println!("plantrain sweep: gene={gene_name} values={values:?} layouts={n} base={base} frames={} n_est={} k_seed={} size_floor={}", b.frames, k.n_est, k.k_seed, k.size_floor);
-    let mut arms = vec![Arm::shipped(&start.name)];
+    // The baseline is the start itself, renamed and registered like the
+    // arms: by name it would be planted only if it were a shipped species,
+    // and a trained `best.ron` is not.
+    let mut base_def = genome::clone_def(&start);
+    base_def.name = genome::child_name(&start.name, 77, 1, 0);
+    let mut arms = vec![Arm::of(&base_def)];
     for (i, &v) in values.iter().enumerate() {
         let mut d = genome::clone_def(&start);
         d.name = genome::child_name(&start.name, 77, 0, i);
@@ -182,7 +192,7 @@ fn sweep(m: &BTreeMap<String, String>) {
     }
     let cs = train_plant::census_all(&arms, &layouts, &b);
     for (i, row) in cs.iter().enumerate() {
-        let label = if i == 0 { "shipped".to_string() } else { format!("{gene_name}={}", values[i - 1]) };
+        let label = if i == 0 { "start".to_string() } else { format!("{gene_name}={}", values[i - 1]) };
         let scores: Vec<f32> = row.iter().map(|c| score::bed_score(c, &k)).collect();
         let (mean, min) = score::fold(&scores);
         let flowered = row.iter().filter(|c| c.first_flower.is_some()).count();
@@ -295,8 +305,17 @@ fn lean(m: &BTreeMap<String, String>) {
     let heavy: f32 = get(m, "heavy", 4.0);
     let spacing: i32 = get(m, "spacing", 0);
     let offsets: Vec<i32> = m.get("offsets").map_or(vec![4, 8], |v| v.split(',').map(|x| x.parse().expect("a column offset")).collect());
-    let stops: Vec<u64> = m.get("stops").map_or(vec![8_000, 16_000, 24_000], |v| v.split(',').map(|x| x.parse().expect("a frame")).collect());
-    let last = *stops.iter().max().expect("at least one stop");
+    let mut stops: Vec<u64> = m.get("stops").map_or(vec![8_000, 16_000, 24_000], |v| v.split(',').map(|x| x.parse().expect("a frame")).collect());
+    // Read in frame order and printed by position, so the list must be in
+    // frame order too: `stops=16000,8000` once printed one frame's lean under
+    // the other's heading.
+    stops.sort_unstable();
+    stops.dedup();
+    if stops.first() == Some(&0) {
+        eprintln!("plantrain: a stop is a frame number, at least 1");
+        std::process::exit(2);
+    }
+    let last = *stops.last().expect("at least one stop");
     let light = |def: &pixel_physics::sim::organism::SpeciesDef, f: f32, tag: usize| {
         let mut d = genome::clone_def(def);
         d.name = genome::child_name(&def.name, 981, tag, 0);
@@ -424,6 +443,10 @@ fn ranking(m: &BTreeMap<String, String>) {
         let (mut d, _) = genome::mutate(&start, &genes, &free, sigma, max_genes, &mut rng);
         d.name = genome::child_name(&start.name, 970, 0, i);
         arms.push(Arm::of(&d));
+    }
+    if n < arena::Offset::ALL.len() {
+        eprintln!("plantrain: ranking needs layouts >= {} so every light position has a bed", arena::Offset::ALL.len());
+        std::process::exit(2);
     }
     let (set_a, set_b) = (arena::layouts(base, n), arena::layouts(base + 500_000, n));
     println!(
@@ -563,12 +586,15 @@ fn heritability(m: &BTreeMap<String, String>) {
         b.frames,
         b.mutation_off
     );
-    let quantities: [Quantity; 5] = [
+    // The score is read with the run's own constants (`k_seed=`, `size_floor=`,
+    // `n_est=`), so it is computed beside the census quantities rather than
+    // as one of them: a plain `fn` cannot see `k`.
+    let k = constants(m, &b);
+    let quantities: [Quantity; 4] = [
         ("peak shoot cells", |c| c.peak_shoot as f32),
         ("peak height", |c| c.peak_height as f32),
         ("shoot at first flower (0 = none)", |c| c.shoot_at_first_flower as f32),
         ("seedlings established", |c| c.seedlings_established as f32),
-        ("score", |c| score::bed_score(c, &Constants { n_est: 20, k_seed: 24, size_floor: 55 })),
     ];
     for (si, &sigma) in sigmas.iter().enumerate() {
         let mut rng = pixel_physics::sim::rng::Rng::new(0x5EED_0000 + si as u64);
@@ -581,8 +607,11 @@ fn heritability(m: &BTreeMap<String, String>) {
             .collect();
         let cs = train_plant::census_all(&arms, &layouts, &b);
         let mut line = format!("sigma {sigma:<5}");
-        for (name, f) in &quantities {
-            let rows: Vec<Vec<f32>> = cs.iter().map(|r| r.iter().map(f).collect()).collect();
+        let columns = quantities
+            .iter()
+            .map(|(name, f)| (*name, cs.iter().map(|r| r.iter().map(f).collect()).collect::<Vec<Vec<f32>>>()))
+            .chain(std::iter::once(("score", cs.iter().map(|r| r.iter().map(|c| score::bed_score(c, &k)).collect()).collect())));
+        for (name, rows) in columns {
             let all: Vec<f32> = rows.iter().flatten().copied().collect();
             let var = |v: &[f32]| {
                 let mean = v.iter().sum::<f32>() / v.len().max(1) as f32;

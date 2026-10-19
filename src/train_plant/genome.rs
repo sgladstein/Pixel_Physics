@@ -131,6 +131,14 @@ impl Gene {
 ///   cell and rotted).
 /// - `heading_inertia`, `turgor_taper` and the probabilities are blends or
 ///   chances on [0, 1].
+/// - `juvenile_branch` is a **multiplier** on `branch_chance`, not a chance:
+///   above 1 a sapling branches more freely, and every shipped species but
+///   herb authors 1.2-1.5. [0, 4] holds them all with room; at 4 a juvenile
+///   at the `branch_chance` cap of 0.5 branches every time it may.
+/// - **A relative range keeps the sign of the shipped value.** Shrub's and
+///   scrambler's `acrotony` is negative (basitonous: buds near the base break
+///   first), and a range built from `|v|` clamped it positive on its first
+///   step, turning the habit inside out (found in review, 2026-10-19).
 /// - The rest move within a factor of 8 of the shipped value (`lo`/`hi` here
 ///   are multiples, applied in [`gene_table`]), which is wider than any gap
 ///   between two shipped species on these fields and narrow enough that a
@@ -149,7 +157,7 @@ const LEVERS: &[(ParamId, Group, Step, Bound)] = &[
     (ParamId::CrowdingWeight, Group::Shape, Step::Factor, Bound::Rel(0.125, 8.0)),
     (ParamId::BudBreakAcrotony, Group::Shape, Step::Factor, Bound::Rel(0.125, 8.0)),
     (ParamId::JuvenileSize, Group::Shape, Step::Count, Bound::Abs(1.0, 64.0)),
-    (ParamId::JuvenileBranch, Group::Shape, Step::Add, Bound::Abs(0.0, 1.0)),
+    (ParamId::JuvenileBranch, Group::Shape, Step::Add, Bound::Abs(0.0, 4.0)),
     (ParamId::LeafCluster, Group::Leaf, Step::Count, Bound::Abs(1.0, 24.0)),
     (ParamId::LeafSpread, Group::Leaf, Step::Add, Bound::Abs(0.0, 1.0)),
     (ParamId::PhotosynthesizeRate, Group::Leaf, Step::Factor, Bound::Rel(0.125, 8.0)),
@@ -228,7 +236,9 @@ pub fn gene_table(def: &SpeciesDef) -> Vec<Gene> {
                 }
                 let (lo, hi) = match bound {
                     Bound::Abs(lo, hi) => (lo, hi),
-                    Bound::Rel(lo, hi) => (v.abs() * lo, v.abs() * hi),
+                    // A factor step never changes sign, so the range must not.
+                    Bound::Rel(lo, hi) if v < 0.0 => (v * hi, v * lo),
+                    Bound::Rel(lo, hi) => (v * lo, v * hi),
                 };
                 out.push(Gene { addr: Addr::Param { cell, param, tier }, group: group_of(cell, group), step, lo, hi });
             }
@@ -432,6 +442,39 @@ mod tests {
         assert!(!names.iter().any(|n| n == "GrowingTip.penetration_force"), "{names:?}");
         // ...while branch chance, additive, may start at zero and move off it.
         assert!(names.iter().any(|n| n.starts_with("GrowingTip.branch_chance")), "{names:?}");
+    }
+
+    /// **Every shipped plant's own values lie inside its own ranges, sign
+    /// included.** A range that excludes the authored value is clamped onto
+    /// the child on its first step, so the trainer would move a species
+    /// before selection ever saw it. It caught both review findings of
+    /// 2026-10-19: shrub's and scrambler's negative `acrotony` against a range
+    /// built from `|v|`, and every non-herb `juvenile_branch` (1.2-1.5)
+    /// against a [0, 1] cap.
+    #[test]
+    fn every_shipped_plant_starts_inside_its_own_ranges() {
+        let plants: [(&str, &str); 9] = [
+            ("conifer", include_str!("../../assets/species/conifer.ron")),
+            ("creeper", include_str!("../../assets/species/creeper.ron")),
+            ("grass", include_str!("../../assets/species/grass.ron")),
+            ("herb", include_str!("../../assets/species/herb.ron")),
+            ("moss", include_str!("../../assets/species/moss.ron")),
+            ("reed", include_str!("../../assets/species/reed.ron")),
+            ("scrambler", include_str!("../../assets/species/scrambler.ron")),
+            ("shrub", include_str!("../../assets/species/shrub.ron")),
+            ("tree", include_str!("../../assets/species/tree.ron")),
+        ];
+        let mut outside = Vec::new();
+        for (name, text) in plants {
+            let def: SpeciesDef = ron::from_str(text).unwrap_or_else(|e| panic!("{name}.ron parses: {e}"));
+            for g in gene_table(&def) {
+                let v = read(&def, g.addr).expect("a gene in the table reads back");
+                if !(g.lo..=g.hi).contains(&v) {
+                    outside.push(format!("{name} {} = {v} outside [{}, {}]", g.name(), g.lo, g.hi));
+                }
+            }
+        }
+        assert!(outside.is_empty(), "{outside:#?}");
     }
 
     #[test]

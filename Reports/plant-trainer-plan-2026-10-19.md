@@ -807,3 +807,35 @@ final layouts, which is why their shipped rows match.
 
 The blind control was dropped by its own precondition (see the lean test
 above). Ranking is by mean.
+
+**Independent code review before merge (2026-10-19).** No problem in the
+shared game code: the seams are default-off, `tick_world` is exactly the old
+`Lab::tick`, and saved boxes round-trip byte-identically. Two real bugs in
+the gene ranges, both now fixed and guarded by
+`every_shipped_plant_starts_inside_its_own_ranges`, which was watched red
+with both faults put back (9 values outside their ranges):
+
+- **A relative range was built from `|v|`.** Shrub's and scrambler's
+  negative `acrotony` (−1.6, −1.4) would have been clamped positive on the
+  first step, turning a basitonous habit acrotonous. Ranges now keep the
+  sign.
+- **`juvenile_branch` was capped at 1.** It is a multiplier, and every
+  shipped plant but herb authors 1.2–1.5. Its range is now [0, 4].
+
+Neither touches the P1 results on herb: herb authors no negative relative
+gene, and the sabotage runs left the shape group fixed. The heritability
+and ranking runs did free it with the old cap, under which herb's
+`juvenile_branch` (1.0) could only fall: one gene of about 40, not rerun.
+
+Also fixed from the review, all in `plantrain`:
+- `lean` prints stops in frame order;
+- `heritability` scores with the run's own `k_seed`, `size_floor` and
+  `n_est`, which it had silently ignored;
+- `sweep` takes the start file itself as its baseline, so a trained file
+  works;
+- `ranking` refuses fewer than 3 layouts.
+
+A run refuses a seed of 1000 or more, more than 100 layouts, and other
+settings under which its three layout sets would overlap or be empty. The
+determinism guard now runs its second run on one thread, as its doc
+claimed.
