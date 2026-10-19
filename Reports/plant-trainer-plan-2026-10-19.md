@@ -758,3 +758,52 @@ Not measured: ranking by the worst light position's mean, which is graded
 where the min is not. It needs only the per-bed scores this run already
 computes. It is the alternative to try if a trained champion turns out to
 hold up only under a lamp.
+
+**The acceptance task on three seeds: selection beats random search on
+all three.** The same settings as seed 11 (herb, photosynthesis halved, the
+`leaf` group free, 12 genomes x 10 generations, 6 training layouts, 8
+hold-out, a final set of 12 read once), at seeds 12 and 13, both arms. Each
+run took 35–41 minutes on four threads. Files: `recover/*-s12-*`,
+`recover/*-s13-*`. The selection and random arms at one seed share the same
+final layouts, which is why their shipped rows match.
+
+| seed | shipped | start vs shipped | selection vs shipped | random vs shipped | selection − random |
+|---|---|---|---|---|---|
+| 11 | 3.882 | −0.548 | −0.083 ± 0.293 | −0.463 ± 0.610 | +0.380 |
+| 12 | 4.552 | −0.997 | −0.007 ± 0.119 | −1.002 ± 0.323 | +0.995 |
+| 13 | 3.854 | −0.467 | −0.203 ± 0.528 | −0.528 ± 0.345 | +0.325 |
+
+- **Selection recovered 85%, 99% and 57% of the sabotage, and random 16%,
+  0% and −13%.** Selection's interval holds zero on every seed; random's
+  excludes it on seeds 12 and 13. The plan's bar, *recovers and beats random search
+  at equal compute*, is met: 3 of 3 by sign, 2 of 3 clearly.
+- **The champions do not all take the same route back.**
+  - Seed 11 put the rate back on both leaves and the shoot.
+  - Seed 12 overshot on the shoot (tip photosynthesis 0.275 → 0.580, the
+    shipped herb's is 0.55) and let leaf photosynthesis fall to 0.134.
+  - Seed 13 raised the shoot only and cut the leaf cluster 8 → 5.
+
+  The score cannot tell green stem from leaf. Whether the owner can is a
+  question for P3's colour and leaf-shape work.
+- **Seed 13 shows where the trainer is weak: which champion it hands
+  back.** The champion is the last generation's best on 6 fresh layouts. At
+  12 genomes that is a best-of-12 on a noisy sample. On the monitoring
+  hold-out, generation 4's champion read +0.67 paired and generation 9's, the
+  one returned, −0.10. The hold-out must not choose it (F10), so this goes to
+  P2:
+  - **more layouts per generation** (racing, §9);
+  - or **the staged champions re-scored on a validation set** that is
+    neither the hold-out nor the final set, with the best taken. The staged
+    files now exist (`champion-gNNN.ron`).
+
+**P1 is complete.** Every item in §10's P1 acceptance is met:
+- the round trip and every seam guard pass, and were watched failing;
+- teeth pass;
+- the paired bar and the selection-only null print;
+- runs are deterministic;
+- the sabotage task recovers and beats random search on three seeds;
+- the champion beside the shipped herb is with the owner as a blind A/B
+  card.
+
+The blind control was dropped by its own precondition (see the lean test
+above). Ranking is by mean.

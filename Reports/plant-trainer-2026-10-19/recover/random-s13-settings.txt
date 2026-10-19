@@ -1,0 +1,1 @@
+plantrain: start=training/plants/starts/herb-halfphoto.ron control=herb groups=leaf pop=12 gens=10 keep=0.25 layouts=6 holdout=8 final=12 sigma=0.4 genes=3 seed=13 select=Random teeth=true width=96 frames=40000 every=250 mutation_off=true n_est=20 k_seed=24 size_floor=55 out=/tmp/claude-0/-home-user-Pixel-Physics/df583918-793a-554e-8af3-235040252c3a/scratchpad/recover-random-s13

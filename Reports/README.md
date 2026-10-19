@@ -653,7 +653,12 @@ by somebody about to try it on creatures.
   **heritability gate**, because at small steps herb size is 0.00-0.05
   heritable and choosing among small variants is choosing among noise (the
   blocker). Asks the owner two things: may a species carry its own palette,
-  and own its developmental key.
+  and own its developmental key. **P1 built and accepted (its §13):**
+  sabotaged herb (photosynthesis halved) recovered 85/99/57% of the loss on
+  three seeds under selection, against 16/0/-13% for random selection at
+  equal compute. The blind control was dropped, because a tip reads light
+  only as up or nothing (a plant that turns to its light is now U7). A genome
+  is ranked by mean, because the min of a stepped score ties on 16 of 17.
 
 - [lab-vs-druid-plant-mechanics-2026-09-15.md](lab-vs-druid-plant-mechanics-2026-09-15.md)
   — **measured and then fixed, 2026-09-15. `engine`, `lab`, `held`.**
