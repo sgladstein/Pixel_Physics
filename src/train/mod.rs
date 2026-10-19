@@ -724,9 +724,9 @@ pub struct Settings {
     /// leg's last generation is held out, as every run's is, where a run
     /// straight through may not hold that one out: the population is the
     /// same either way, the hold-out best may not be. A state saved on
-    /// another arena ([`Settings::arena`]) or with other parts, or one cut
-    /// short, is refused (review of PR 726, S1, S2); other settings only
-    /// warn ([`RunState::load`]).
+    /// another arena ([`Settings::arena`]), with other parts or another
+    /// `holdout`, or one cut short, is refused (review of PR 726, S1, S2,
+    /// N10); other settings only warn ([`RunState::load`]).
     ///
     /// **Why**: a run saved only each generation's champion, so carrying
     /// one on meant a fresh population of one ant's children, a dip, and
@@ -1482,8 +1482,7 @@ pub struct RunState {
     /// another run.
     pub start: u64,
     /// The arena ([`RunState::arena`]) and its parts, the columns of
-    /// `progress.csv` and `holdout.csv`: a resume must share both. Empty in
-    /// a state saved before they were kept (`run-state 1`).
+    /// `progress.csv` and `holdout.csv`: a resume must share both.
     pub arena: String,
     pub parts: String,
     pub best_hold: f64,
@@ -1511,7 +1510,10 @@ pub struct RunState {
 
 impl RunState {
     /// **Which arena a run is on**: the challenge's own name, ants, frames
-    /// and banned outputs, then [`Settings::arena`].
+    /// and banned outputs, then [`Settings::arena`]. Its format is part of
+    /// every saved state: a change here refuses every state saved before it,
+    /// so the hold-out's size is checked from the settings line instead
+    /// ([`RunState::load`]).
     fn arena(ch: &dyn Challenge, set: &Settings) -> String {
         format!("challenge={} unit={:?} ants={} frames={} banned={:?} {}", ch.name(), ch.unit(), ch.ants(), ch.frames(), ch.banned(), set.arena)
             .trim_end()
@@ -1580,16 +1582,19 @@ impl RunState {
     /// another genome length, which is another run, and on one with no end
     /// mark, which was cut short; a setting that differs only warns, since
     /// the run can go on, but not as the one that never stopped. A state
-    /// from before the arena and the end mark were kept (`run-state 1`)
-    /// loads with a warning that neither was checked.
+    /// from before the arena and the end mark were kept (`run-state 1`) is
+    /// refused too: only PR 726's first head wrote one, never merged, and
+    /// every such soil state is rev 2.6's linear pay with 24 parts, so it
+    /// resumed with exit 0 into ragged rows and a best from the old pay
+    /// (review of PR 726, N8).
     fn load(path: &Path, ch: &dyn Challenge, set: &Settings, start: &[f32]) -> RunState {
         let text = std::fs::read_to_string(path).unwrap_or_else(|e| panic!("resume: {}: {e}", path.display()));
         let mut lines = text.lines();
-        let version = match lines.next() {
-            Some("run-state 1") => 1,
-            Some("run-state 2") => 2,
+        match lines.next() {
+            Some("run-state 2") => {}
+            Some("run-state 1") => panic!("resume: {} predates the arena and end checks and rev 2.8's pay: start the run afresh", path.display()),
             _ => panic!("resume: {} is not a run state", path.display()),
-        };
+        }
         let mut field = |key: &str| -> String {
             let l = lines.next().unwrap_or_else(|| panic!("resume: no {key} line"));
             let rest = l.strip_prefix(key).unwrap_or_else(|| panic!("resume: {key} expected, found {l}"));
@@ -1604,7 +1609,7 @@ impl RunState {
         let next = field("next").parse().unwrap();
         let rng = hex(&field("rng"));
         let fp = hex(&field("start"));
-        let (arena, parts) = if version >= 2 { (field("arena"), field("parts")) } else { (String::new(), String::new()) };
+        let (arena, parts) = (field("arena"), field("parts"));
         let (best_hold, best_gen) = pair(field("best_hold"));
         let (top, top_gen) = pair(field("top"));
         let top_under = field("top_under").split_whitespace().map(str::to_string).collect();
@@ -1614,12 +1619,14 @@ impl RunState {
         let last_hold = field("last_hold");
         let settings = field("settings");
         assert_eq!(fp, fingerprint(start), "resume: the state in {} was saved from another start", path.display());
-        if version >= 2 {
-            assert_eq!(arena, RunState::arena(ch, set), "resume: the state in {} was saved on another arena", path.display());
-            assert_eq!(parts, ch.parts().join(","), "resume: the state in {} was saved with other parts", path.display());
-        } else {
-            println!("resume: WARNING {} predates the arena and end checks: neither is checked", path.display());
-        }
+        assert_eq!(arena, RunState::arena(ch, set), "resume: the state in {} was saved on another arena", path.display());
+        assert_eq!(parts, ch.parts().join(","), "resume: the state in {} was saved with other parts", path.display());
+        // The hold-out's size alone sets [`holdout_layouts`], so another
+        // `holdout=` is another set for the saved best and [`flat`]'s clock
+        // to be compared against: S1's fault, refused rather than warned
+        // (review of PR 726, N10). `seed=` does not move that set.
+        let saved_holdout = settings.split_whitespace().find_map(|w| w.strip_prefix("holdout="));
+        assert_eq!(saved_holdout, Some(set.holdout.to_string().as_str()), "resume: the state in {} was saved with another hold-out", path.display());
         if settings != RunState::settings(set) {
             println!("resume: WARNING the saved run had {settings}: this run goes on, but not as the run that never stopped");
         }
@@ -1653,9 +1660,7 @@ impl RunState {
             })
             .collect();
         assert!(!parents.is_empty(), "resume: no parents in {}", path.display());
-        if version >= 2 {
-            assert_eq!(end, Some(parents.len()), "resume: {} was cut short ({} parents read)", path.display(), parents.len());
-        }
+        assert_eq!(end, Some(parents.len()), "resume: {} was cut short ({} parents read)", path.display(), parents.len());
         RunState {
             next,
             rng,
@@ -2022,11 +2027,12 @@ mod tests {
         std::fs::remove_dir_all(&dir).ok();
     }
 
-    /// **A resume is refused on another arena, with other parts, or from a
-    /// state cut short** (review of PR 726, S1, S2): each of those resumed
-    /// quietly, carrying one rung's hold-out best into another or breeding
-    /// from a parent with its tail zeroed. The whole file is the control,
-    /// and a state from before the checks still loads.
+    /// **A resume is refused on another arena, another hold-out, with other
+    /// parts, from a state cut short or from one saved before these checks**
+    /// (review of PR 726, S1, S2, N8, N10): each of those resumed quietly,
+    /// carrying one rung's hold-out best into another or breeding from a
+    /// parent with its tail zeroed. The whole file is the control, and
+    /// another `pop=` still only warns.
     #[test]
     fn a_resume_is_refused_on_another_arena_or_a_state_cut_short() {
         let dir = std::env::temp_dir().join(format!("train-refuse-{}", std::process::id()));
@@ -2040,9 +2046,14 @@ mod tests {
             std::fs::write(&path, text).unwrap();
             std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| RunState::load(&path, &bowl, set, &start)))
         };
+        // The refusal's own words, so a state refused for another reason
+        // further down (a v1 file has no arena line) cannot stand in for it.
+        let why = |r: std::thread::Result<RunState>| r.err().and_then(|e| e.downcast_ref::<String>().cloned()).unwrap_or_default();
         let whole = load(&text, &set).expect("the whole state loads");
         assert_eq!(whole.parents.len(), 2);
         assert!(load(&text, &Settings { arena: "step=3 shaft=4".into(), ..set.clone() }).is_err(), "another arena");
+        assert!(why(load(&text, &Settings { holdout: 4, ..set.clone() })).contains("another hold-out"), "another hold-out");
+        assert!(load(&text, &Settings { pop: 12, ..set.clone() }).is_ok(), "another population only warns");
         assert!(load(&text.replace("\nparts seed\n", "\nparts seed,loads\n"), &set).is_err(), "other parts");
         let lines: Vec<&str> = text.lines().collect();
         let second = lines.iter().rposition(|l| l.starts_with("genome parent")).unwrap();
@@ -2056,12 +2067,11 @@ mod tests {
         for (cut, t) in cuts {
             assert!(load(&t, &set).is_err(), "a state cut at {cut} loaded");
         }
-        // A state saved by the first resume, before the arena, parts and end
-        // mark were kept, loads unchecked, as the same run.
+        // A state saved by PR 726's first head, before the arena, parts and
+        // end mark were kept, is refused rather than loaded unchecked.
         let old: Vec<&str> = text.lines().filter(|l| !l.starts_with("arena ") && !l.starts_with("parts ") && !l.starts_with("end ")).collect();
         let old = old.join("\n").replace("run-state 2", "run-state 1");
-        let v1 = load(&old, &Settings { arena: "anything".into(), ..set.clone() }).expect("a run-state 1 file loads");
-        assert_eq!(RunState { arena: whole.arena.clone(), parts: whole.parts.clone(), ..v1 }, whole);
+        assert!(why(load(&old, &set)).contains("start the run afresh"), "a run-state 1 file");
         std::fs::remove_dir_all(&dir).ok();
     }
 

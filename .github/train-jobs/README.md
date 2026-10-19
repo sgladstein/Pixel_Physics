@@ -34,7 +34,7 @@ brain=mind challenge=suite arenas=fetch,trail gens=100 pop=100 layouts=8 seed=2 
 
 ## Limits worth knowing
 
-- No run survives the 6 h limit; there is no resume yet. 100 generations of the
+- No run survives the 6 h limit, but a run can be carried on: push the same job file again with `resume=1` and a higher `gens=` (the total, not the extra), the same `ref=` and nothing else changed. The workflow unpacks `train-results/<name>` as the out folder and the trainer goes on from its `state.txt` exactly as if it had never stopped (`Settings::resume`; a different arena, start, hold-out or parts is refused, other settings only warn). It may be pushed while the first leg is still running: `concurrency` queues it behind that leg. A hosted runner fits about 24 generations of the step-4 dig suite (soil, fetch, trail; pop 100, 16 layouts) into one 6 h leg. 100 generations of the
   fetch+trail suite took ~3.6 h at 4 threads on the runner pool.
 - The 20-job pool is shared with PR CI, and `max-parallel: 10` is per workflow run, not for the repo: two pushes can hold all 20 slots. If CI starts queueing, lower it or wait.
 - One run per job name at a time (`concurrency`): the same name pushed from two branches queues instead of overwriting the other's results branch.

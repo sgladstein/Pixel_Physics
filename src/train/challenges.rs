@@ -1948,6 +1948,10 @@ impl Challenge for Soil {
                 if trip.load_base > 0.0 { trip.loads / trip.load_base } else { 0.0 },
                 trip.full_loads as f64,
                 trip.full_cuts as f64,
+                // This world's share, 0 with no full cut. Averaged over the
+                // worlds it is **not** the bar's pooled share, mean(full_loads)
+                // / mean(full_cuts): s81's hold-best reads 0.50 here and 1.00
+                // pooled, and `load_share` is the same (review of PR 726, N9).
                 if trip.full_cuts > 0 { trip.full_loads as f64 / trip.full_cuts as f64 } else { 0.0 },
             ],
         }]

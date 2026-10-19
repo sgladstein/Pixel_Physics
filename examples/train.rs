@@ -42,9 +42,10 @@
 //! where it stopped (`Settings::resume`): the same parents, random stream,
 //! hold-out best and patience clock, so a run of 5 then 5 resumed writes
 //! what 10 straight do. `gens=` is the total, not the extra, and it needs
-//! the same `start=` and the same arena arguments (challenge, arenas,
-//! step, shaft, frames, dist, budget...), or it is refused; another `pop=`,
-//! `seed=` or the like only warns. A run that stopped flat stops again at
+//! the same `start=`, `holdout=` and arena arguments (challenge, arenas,
+//! step, shaft, frames, dist, budget...), or it is refused, as is a state
+//! from before those checks; another `pop=`, `seed=` or the like only
+//! warns. A run that stopped flat stops again at
 //! its next hold-out unless `patience=0`.
 //! `challenge=forage-far` puts the heap 120-200 columns out on a wider bed,
 //! 12,000 frames unless set: the near distances never show a scout's
