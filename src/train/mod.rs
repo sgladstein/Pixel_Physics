@@ -712,8 +712,10 @@ pub struct Settings {
     /// **Stop a run once its hold-out has gone flat** ([`flat`]): after
     /// this many generations with no new hold-out best, and never before
     /// [`STOP_MIN`] or before the flat stretch is as long as the climb to
-    /// the best. 0 runs every generation; 30 unless `patience=` sets it --
-    /// on by default, as features here are (owner, 2026-09-27).
+    /// the best. 0 runs every generation; 50 unless `patience=` sets it --
+    /// on by default, as features here are (owner, 2026-09-27), and 50 not
+    /// 30 since 2026-10-19 (owner, on the card: "Patience 50"; "Lets be
+    /// patient for now, but we will re-evaluate when we have more data").
     pub patience: usize,
     /// **Carry on a run from its `state.txt`** ([`RunState`]) in the same
     /// `out` directory, as if it had never stopped: the generation count,
@@ -773,6 +775,24 @@ pub const STOP_GAIN: f64 = 0.02;
 /// this rule would have stopped it at 39. Steps under 2% are inside a
 /// champion's own spread there (0-20% between successive champions on a
 /// flat stretch).
+///
+/// **Why the default waits 50, not 30** (2026-10-19; numbers from the 129
+/// runs kept in `brain-training/stage2`, chart in
+/// `brain-training/stage2/auto-stop/`). The owner asked whether the stop
+/// cut runs that would still have improved. Mostly not, but the bar is
+/// set by one lucky champion: successive hold-out champions differ by a
+/// median 7.3% (quartiles 2.9-15%) against the 2% a best needs, and of 65
+/// flat stretches of 30 or more only 4 later found a new best (+2.1% to
+/// +3.9%), while in 12 of the 55 runs it stopped, the 10-generation mean
+/// of the champions was at its highest at the stop. Waiting 50 runs those
+/// 55 at least 32% longer (2,868 generations to at least 3,777); of the
+/// 74 runs that ran on past where 30 would fire, or that it never fired
+/// on, it ends only one early, the one 30 ends too
+/// (`near_forager-s3-cont2`, +0.2% in the 60 generations it ran on).
+/// Watching the 10-generation mean instead was offered and not
+/// taken; the runs replayed past their stop with `patience=0`
+/// (`dig-sq-s113-nostop`, `near-pop96-s1-nostop`,
+/// `trail-on-forager-s1-nostop`) are the data to revisit it with.
 pub fn flat(gen: usize, best_gen: usize, patience: usize) -> bool {
     patience > 0 && gen + 1 >= STOP_MIN && gen - best_gen >= patience && gen > 2 * best_gen
 }
@@ -799,7 +819,7 @@ impl Default for Settings {
             prune: 0.3,
             wire: 1e-3,
             grow: 1.0,
-            patience: 30,
+            patience: 50,
             resume: false,
             arena: String::new(),
         }
@@ -1937,6 +1957,9 @@ mod tests {
         let slow: Vec<f64> = (0..100).map(|g| 1.0 + 0.001 * g as f64).collect();
         assert_eq!(stops(&slow, 30), None, "2% every 21 generations is still climbing");
         assert_eq!(stops(&long, 0), None, "patience 0 runs every generation");
+        let wait = Settings::default().patience;
+        assert_eq!(stops(&early, wait), Some(52), "the default waits 50 flat generations (owner, 2026-10-19)");
+        assert_eq!(stops(&long, wait), Some(88), "a best at 38 runs to 88 at the default");
         assert!(new_best(-0.01, -0.019) && !new_best(1.01, 1.0) && new_best(0.0, f64::NEG_INFINITY));
     }
 

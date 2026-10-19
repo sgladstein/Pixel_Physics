@@ -36,7 +36,7 @@
 //! (`Settings::grow`, 1 unless set). `prune=0 wire=0` is the rig before the
 //! cost, draw for draw. `patience=` stops a run once its hold-out has had
 //! no new best for that many generations (`train::flat`: never before 40,
-//! nor before the flat stretch is as long as the climb), 30 unless set;
+//! nor before the flat stretch is as long as the climb), 50 unless set;
 //! `patience=0` runs every generation.
 //! `resume=1` carries a run on from the `state.txt` in its `out=` exactly
 //! where it stopped (`Settings::resume`): the same parents, random stream,
