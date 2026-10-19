@@ -995,20 +995,41 @@ pub fn score_clones(ch: &dyn Challenge, g: &[f32], layouts: &[Layout], threads: 
 /// fixed brain's score swings between layouts, and that swing is the bar a
 /// difference between two brains has to clear.
 pub fn score_each(ch: &dyn Challenge, g: &[f32], layouts: &[Layout], threads: usize) -> Vec<Score> {
+    score_each_rows(ch, &[(g, layouts)], threads).remove(0)
+}
+
+/// [`score_each`] for several genomes, each on its own layouts, as **one
+/// pool of jobs**: how the hold-out scores [`controls`]' rows, so the
+/// champion's layouts and the blinded control's share the threads rather
+/// than taking turns. One row at a time, 12 hold-out layouts kept at most
+/// 12 threads busy and cost one arena length a row: 22 s of every
+/// 6-generation trail run at 16, 32 and 64 vCPU alike, 46% of the run at 64
+/// (cloud lane, `cpu-use-and-the-serial-part-2026-10-19.md`). Row `k`'s
+/// scores come back in its layouts' order, as [`score_each`] gives them,
+/// and each job is the run [`score_each`] makes, so no score moves.
+pub fn score_each_rows(ch: &dyn Challenge, rows: &[(&[f32], &[Layout])], threads: usize) -> Vec<Vec<Score>> {
+    let jobs: Vec<(usize, usize)> = rows.iter().enumerate().flat_map(|(k, r)| (0..r.1.len()).map(move |j| (k, j))).collect();
     let next = std::sync::atomic::AtomicUsize::new(0);
-    let out = std::sync::Mutex::new(vec![Score::default(); layouts.len()]);
+    let out = std::sync::Mutex::new(rows.iter().map(|r| vec![Score::default(); r.1.len()]).collect::<Vec<_>>());
     std::thread::scope(|s| {
         for _ in 0..threads.max(1) {
             s.spawn(|| loop {
-                let j = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                let Some(&l) = layouts.get(j) else { break };
+                let i = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                let Some(&(k, j)) = jobs.get(i) else { break };
+                let (g, layouts) = rows[k];
                 let gs: Vec<&[f32]> = vec![g; if ch.unit() == Unit::Ant { ch.ants() } else { 1 }];
-                let r = mean_score(&ch.run(l, &gs, &mut |_, _| {}));
-                out.lock().unwrap()[j] = r;
+                let r = mean_score(&ch.run(layouts[j], &gs, &mut |_, _| {}));
+                out.lock().unwrap()[k][j] = r;
             });
         }
     });
     out.into_inner().unwrap()
+}
+
+/// [`score_clones`] for each of `rows`, every row's layouts in one pool
+/// ([`score_each_rows`]).
+pub fn score_rows(ch: &dyn Challenge, rows: &[(&[f32], &[Layout])], threads: usize) -> Vec<Score> {
+    score_each_rows(ch, rows, threads).iter().zip(rows).map(|(each, r)| fold(ch, each, r.1)).collect()
 }
 
 /// The mutation operator: each trainable slot moves with probability `pm`
@@ -1280,6 +1301,7 @@ pub fn train(ch: &dyn Challenge, start: Vec<f32>, set: &Settings, out: &Path) ->
     // PR 724, N4).
     let mut top_under: Vec<&str> = Vec::new();
     let mut secs_before = 0.0;
+    let mut start_hold: Option<Score> = None;
     let mut popn: Vec<Vec<f32>> = match resumed {
         Some(r) => {
             println!("resumed at generation {} from {}", r.next, out.join(STATE_FILE).display());
@@ -1336,9 +1358,24 @@ pub fn train(ch: &dyn Challenge, start: Vec<f32>, set: &Settings, out: &Path) ->
 
         let mut stop = false;
         if (gen + 1) % set.every.max(1) == 0 || gen + 1 == set.gens {
-            for (who, g, lay) in controls(ch, &champion, &start, &hold) {
+            // The rows in one pool (`score_rows`), and `start` scored once:
+            // the same genome on the same hold-out layouts every generation
+            // is the same score every generation, and re-running it was a
+            // third of the hold-out's time (cloud lane, 2026-10-19). A
+            // resume scores it again, once.
+            let rows = controls(ch, &champion, &start, &hold);
+            let todo: Vec<(&[f32], &[Layout])> =
+                rows.iter().filter(|r| !(r.0 == "start" && start_hold.is_some())).map(|r| (r.1.as_slice(), r.2.as_slice())).collect();
+            let mut fresh = score_rows(ch, &todo, set.threads).into_iter();
+            for &(who, _, _) in &rows {
+                let s = match &start_hold {
+                    Some(s) if who == "start" => s.clone(),
+                    _ => fresh.next().expect("a score for every row not reused"),
+                };
+                if who == "start" {
+                    start_hold = Some(s.clone());
+                }
                 let who = if who == "genome" { "champion" } else { who };
-                let s = score_clones(ch, &g, &lay, set.threads);
                 let p: Vec<String> = s.parts.iter().map(|p| format!("{p:.2}")).collect();
                 writeln!(holdout, "{gen},{who},{:.3},{}", s.fit, p.join(","))?;
                 println!("    HOLDOUT {who:8} {:7.2}  [{}]", s.fit, p.join(" "));
@@ -2126,6 +2163,55 @@ mod tests {
         assert_eq!(score_clones(&both, &[], &layouts, 2).fit, 7.0);
         // An odd count leaves the last layout to count alone.
         assert_eq!(score_clones(&habit, &[], &layouts[..3], 2).fit, 15.0);
+    }
+
+    /// A colony arena whose score names the genome and the layout it ran:
+    /// 100 x the genome's first weight, plus the layout's `k`.
+    struct Echo;
+    impl Challenge for Echo {
+        fn name(&self) -> &'static str {
+            "echo"
+        }
+        fn unit(&self) -> Unit {
+            Unit::Colony
+        }
+        fn ants(&self) -> usize {
+            1
+        }
+        fn parts(&self) -> &'static [&'static str] {
+            &["k"]
+        }
+        fn banned(&self) -> &'static [BrainOutput] {
+            &[]
+        }
+        fn mirrored(&self) -> bool {
+            false
+        }
+        fn run(&self, l: Layout, g: &[&[f32]], _: &mut dyn FnMut(u64, &World)) -> Vec<Score> {
+            vec![Score { fit: 100.0 * f64::from(g[0][0]) + l.k as f64, parts: vec![l.k as f64] }]
+        }
+        fn frames(&self) -> u64 {
+            1
+        }
+    }
+
+    /// **Pooled rows keep their own scores.** The hold-out scores its
+    /// controls' rows in one pool (`score_each_rows`), so a job that read
+    /// another row's genome or layout would move every HOLDOUT line. Rows of
+    /// three lengths, more jobs than threads, and the fold matches one row
+    /// at a time.
+    #[test]
+    fn pooled_rows_score_each_row_on_its_own_layouts() {
+        let lay = training_layouts(5, 0, 8);
+        let (a, b, c) = ([1.0f32], [2.0f32], [3.0f32]);
+        let rows: Vec<(&[f32], &[Layout])> = vec![(&a, &lay[..5]), (&b, &lay[2..3]), (&c, &lay)];
+        let got = score_each_rows(&Echo, &rows, 3);
+        for (r, each) in rows.iter().zip(&got) {
+            let want: Vec<f64> = r.1.iter().map(|l| 100.0 * f64::from(r.0[0]) + l.k as f64).collect();
+            assert_eq!(each.iter().map(|s| s.fit).collect::<Vec<_>>(), want, "row of genome {}", r.0[0]);
+        }
+        let one_by_one: Vec<f64> = rows.iter().map(|r| score_clones(&Echo, r.0, r.1, 1).fit).collect();
+        assert_eq!(score_rows(&Echo, &rows, 3).iter().map(|s| s.fit).collect::<Vec<_>>(), one_by_one);
     }
 
     /// **Each genome keeps its own arena's score, whatever the threads do.**
