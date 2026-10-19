@@ -130,6 +130,51 @@
     // the ramp than its tip.
     bark_bands: (first: 0, count: 3),
     stomatal_reserve: 0.2,
+    // **A tuft dies of old age, so the sward lets go of ground** (owner's
+    // pick, 2026-10-19, of four ways to keep grass in check). Median
+    // lifespan 30,000 frames of organism age, which `dies_of_age` counts as
+    // `age_ticks * ORGANISM_TICK_INTERVAL`: wall frames for a tuft at full
+    // pace, but the lab and the planted bed run plants at half pace, so there
+    // it is about 60,000 wall frames (reviewer's measurement, PR 727). See
+    // `SpeciesDef::life_half_life` for the hazard, which a seedling all but
+    // escapes. Before this grass was the one plant that never died of
+    // anything but starvation or shade, and on the mixed planted bed (mix7,
+    // light rain, half pace, 450k) it worked as a one-way ratchet: per 50k
+    // frames 21% of the columns a low plant topped went to grass and 0% of
+    // grass columns went to anything else, and grass sat on a mound of its
+    // own waiting seed 30-60 rows deep.
+    //
+    // **No ants, 12 seeds against main:** grass leaf 47,667 -> 32,024
+    // (lower 11/12, never below 1,345), seed lying above the soil line
+    // 142,258 -> 86,684 (12/12), columns a low plant tops 258 -> 827
+    // (higher 8, lower 2), low-plant leaf 4,025 -> 6,920 (7 up, 4 down),
+    // species with 100+ leaf 47 -> 50, ground raised above the sown line
+    // level (51,505 -> 51,925, 6/6). **With ants, 8 seeds:** food the colony
+    // ate 2,075,436 -> 1,992,494 (5 up, 3 down), mean adults 100k-440k
+    // 2,524 -> 2,668 (5 up, 3 down), low-plant leaf 449 -> 1,343 (5 up,
+    // 2 down), and the colony survived on both seeds where main's died out.
+    // The review's own seeds 13-16 swung both ways (one PR colony boomed to
+    // 1,087 adults on a litter pulse and starved out; main lost s16 the same
+    // way), so over 12 worlds the colony is level in total with per-world
+    // swings about a placebo's width, not "better".
+    // Outdoor world (`flora_census frames=60000`, 12 worlds): grass cells
+    // 64,043 -> 36,907 (lower in all 10 worlds that grow it), plants
+    // established 4,101 -> 3,925; woody species swing hard per world both
+    // ways (tree cells 6 up, 4 down; conifer 5 up, 5 down; shrub 175
+    // established against 109).
+    //
+    // **20,000 and 40,000 were measured and both are wrong.** 20,000 thinned
+    // grass harder (leaf -52%, 12/12) but cost the colony its food: eaten
+    // 926,713 -> 581,975 over seeds 1-4, lower 4/4. Why is not traced: the
+    // diet ledger puts grass blades under 1% of what the ants eat, and seed
+    // of every species at 5-17% (review of PR 727). 40,000 cut grass only 15% and
+    // raised the ground under it on 4/4. Every cheaper way to thin the seed
+    // mound -- 4x seed cost, a quarter of the allocation, a 4x price with
+    // the same seedling, rotting the heap, sprouts lifting the seed on
+    // them, seeds waiting while covered -- made grass *bigger*, because the
+    // mound was the only thing holding grass back (`Reports/dead-ends.md`).
+    // `PIXEL_PHYSICS_LIFE_HALF_LIFE=grass:0` restores immortal grass.
+    life_half_life: 30000.0,
     // **The pioneer's bank outlasts the pioneer.** Twice the woody default
     // (9,000), the way a small-seeded ruderal's persistent seed bank
     // outlasts a large-seeded tree's transient one -- so grass's answer to
