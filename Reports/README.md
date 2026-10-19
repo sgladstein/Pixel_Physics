@@ -642,14 +642,18 @@ by somebody about to try it on creatures.
   trainer's bed is the lab's; the root cap binds on 34 of 48 beds; weather is
   a bigger noise than development.
 - [plant-trainer-plan-2026-10-19.md](plant-trainer-plan-2026-10-19.md)
-  — **plan, 2026-10-19; step 3, with the adversarial review's findings in
-  its §12.** The genome is the species file; gene groups instead of banned
-  verbs; a one-founder lab bed with mirrored layouts, a sealed hold-out and
-  the ant trainer's controls; viability scored in steps; **looks optimised
-  with no beauty number** — an atlas of distinct viable plants
-  (quality-diversity) plus owner-steered rounds through the review queue;
-  un-walling the hardcoded looks as species fields that default to today
-  bit-identically; milestones P1-P6.
+  — **plan, revision 2, 2026-10-19; steps 3 and 4.** Revised after an
+  independent adversarial review (its §12: 1 blocker, 13 major, 7 minor, each
+  answered). The genome is the species file, renamed and validated per child,
+  with use-site bounds and arithmetic-only mutation; the bed is the **lab's
+  own** (`LabBox` plus a shared `lab::tick_world`) from the first milestone;
+  viability scored in steps against constants of the run, with a size floor
+  against dwarf early flowering; **looks optimised with no beauty number** --
+  an atlas of distinct viable plants and blind A/B owner rounds -- behind a
+  **heritability gate**, because at small steps herb size is 0.00-0.05
+  heritable and choosing among small variants is choosing among noise (the
+  blocker). Asks the owner two things: may a species carry its own palette,
+  and own its developmental key.
 
 - [lab-vs-druid-plant-mechanics-2026-09-15.md](lab-vs-druid-plant-mechanics-2026-09-15.md)
   — **measured and then fixed, 2026-09-15. `engine`, `lab`, `held`.**
