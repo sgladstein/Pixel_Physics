@@ -144,15 +144,26 @@ jobs:
           ARGS: ${{ matrix.args }}
         run: |
           read -r -a ARR <<< "$ARGS"
-          r=""; for t in "${ARR[@]}"; do case "$t" in resume=*) r="${t#resume=}" ;; esac; done
-          case "$r" in ""|0|false|off) exit 0 ;; esac
+          # " " until a resume= token is seen, so an empty `resume=` unpacks
+          # and is refused by the trainer like any other bad value (N18). No
+          # token can hold a space (read -a splits on it), so no spelling of
+          # resume= collides with the sentinel, as "-" did with `resume=-` (N20)
+          r=" "; for t in "${ARR[@]}"; do case "$t" in resume=*) r="${t#resume=}" ;; esac; done
+          case "$r" in " "|0|false|off) exit 0 ;; esac
           OUT="$RUNNER_TEMP/out"; mkdir -p "$OUT"
           git fetch --no-tags --depth 1 origin "refs/heads/train-results/$NAME"
+          # a symlink (mode 120000) is refused before anything is extracted,
+          # so none reaches the out folder or the artifact uploaded from it.
+          # $(...) reads all of awk's output: `| grep -q .` exits on the first
+          # line, awk dies of SIGPIPE, and under pipefail the check is skipped (N21)
+          if [ -n "$(git ls-tree -r FETCH_HEAD | awk '$1 == "120000"')" ]; then echo "refused: a symlink in train-results/$NAME"; exit 1; fi
           git archive FETCH_HEAD | tar -x -C "$OUT"
           if [ -n "$(find "$OUT" -type l)" ]; then echo "refused: a symlink in train-results/$NAME"; exit 1; fi
           was=$({ cat "$OUT/STATUS-earlier.txt" "$OUT/STATUS.txt" 2>/dev/null || true; } | sed -n 's/^built from: //p' | tail -n 1)
           now=$(git -C "$CODE_DIR" rev-parse HEAD)
-          if [ -z "$was" ]; then echo "refused: train-results/$NAME does not say which commit it was built from"; exit 1; fi
+          # a full sha and nothing else reaches git: `HEAD` would pass the
+          # compare below, and a leading `-` would read as an option (N19)
+          if ! [[ "$was" =~ ^[0-9a-f]{40}$ ]]; then echo "refused: train-results/$NAME does not name the commit it was built from (built from: '$was')"; exit 1; fi
           if [ "$was" != "$now" ]; then
             git -C "$CODE_DIR" fetch --no-tags --depth 1 origin "$was"
             for p in src examples assets Cargo.toml Cargo.lock build.rs rust-toolchain.toml; do
