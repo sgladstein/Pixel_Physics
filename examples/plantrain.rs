@@ -13,6 +13,8 @@
 //! cargo run --release --example plantrain -- mode=sweep gene=after_metamers values=1,3,5,8,12 layouts=6
 //! # species files scored against the shipped species on the hold-out, paired
 //! cargo run --release --example plantrain -- mode=score files=training/plants/run1/best.ron layouts=12
+//! # a picture: the shipped species and each file, on N layouts, at chosen frames
+//! cargo run --release --example plantrain -- mode=pic files=training/plants/run1/best.ron layouts=3 stops=8000,40000 out=pic.png
 //! ```
 //!
 //! **Every argument it does not know is refused**, not ignored: an unknown
@@ -28,7 +30,7 @@ use std::path::PathBuf;
 
 const KNOWN: &[&str] = &[
     "mode", "start", "control", "groups", "pop", "gens", "keep", "layouts", "holdout", "final", "sigma", "genes", "seed", "select", "teeth",
-    "width", "frames", "every", "mutation", "n_est", "k_seed", "size_floor", "out", "gene", "values", "files", "base",
+    "width", "frames", "every", "mutation", "n_est", "k_seed", "size_floor", "out", "gene", "values", "files", "base", "stops", "up", "scale",
 ];
 
 fn args() -> BTreeMap<String, String> {
@@ -208,12 +210,103 @@ fn score_files(m: &BTreeMap<String, String>) {
     }
 }
 
+/// One sheet cell, `(arm, layout)`, and one drawn tile's RGBA.
+type Cell = (usize, usize);
+type Tile = Vec<u8>;
+
+/// **The picture a card is made of**: the shipped species in the first column
+/// and each file after it, one row per layout and stop, the founder's bed
+/// drawn through the shipped `Renderer` (the box's own interior, lamps and
+/// all) and cropped to the rows above and just below the ground.
+fn pic(m: &BTreeMap<String, String>) {
+    use pixel_physics::render::Renderer;
+    use pixel_physics::sim::explosion::Blasts;
+    use pixel_physics::sim::particle::ParticleSystem;
+    use pixel_physics::sim::player;
+    let b = bed(m);
+    let control: String = get(m, "control", "herb".to_string());
+    let n: usize = get(m, "layouts", 3);
+    let base: u64 = get(m, "base", 6_000_000);
+    let up: i32 = get(m, "up", 100);
+    let scale: usize = get(m, "scale", 3);
+    let out: String = get(m, "out", "plantrain-pic.png".to_string());
+    let stops: Vec<u64> = m.get("stops").map_or(vec![b.frames], |v| v.split(',').map(|x| x.parse().expect("a frame")).collect());
+    let layouts = arena::layouts(base, n);
+    let mut arms = vec![Arm::shipped(&control)];
+    if let Some(files) = m.get("files") {
+        for f in files.split(',') {
+            arms.push(Arm::of(&train_plant::load(std::path::Path::new(f)).expect("the file loads")));
+        }
+    }
+    println!("plantrain pic: control={control} arms={} layouts={n} base={base} stops={stops:?} up={up} out={out}", arms.len());
+    let below = 12;
+    let (tw, th) = (b.width as usize, (up + below) as usize);
+    // One task per (arm, layout); each returns a tile per stop.
+    let tasks: Vec<(usize, usize)> = (0..arms.len()).flat_map(|a| (0..n).map(move |l| (a, l))).collect();
+    use rayon::prelude::*;
+    let tiles: Vec<(Cell, Vec<Tile>)> = tasks
+        .par_iter()
+        .map(|&(a, l)| {
+            let bedbox = arena::bed_for(arms[a].ron.as_deref(), &arms[a].name, layouts[l], &b);
+            let (mut w, _) = arena::build(&bedbox, &b);
+            let (mut particles, mut blasts, tuning) = (ParticleSystem::new(), Blasts::new(), player::Tuning::default());
+            let mut renderer = Renderer::new();
+            let (fw, fh) = (bedbox.width as u32, bedbox.height as u32);
+            let mut out = Vec::new();
+            let last = *stops.iter().max().unwrap_or(&0);
+            for f in 1..=last {
+                pixel_physics::lab::tick_world(&mut w, &mut particles, &mut blasts, &tuning, &bedbox, None);
+                if stops.contains(&f) {
+                    let mut frame = vec![0u8; (fw * fh * 4) as usize];
+                    let touched = w.take_touched_chunks();
+                    renderer.draw(&w, &particles, &touched, &mut frame, (fw, fh), true);
+                    let top = (bedbox.ground_y - up).max(0) as usize;
+                    let mut tile = vec![0u8; tw * th * 4];
+                    for ty in 0..th {
+                        let src = ((top + ty) * fw as usize) * 4;
+                        tile[ty * tw * 4..(ty + 1) * tw * 4].copy_from_slice(&frame[src..src + tw * 4]);
+                    }
+                    out.push(tile);
+                }
+            }
+            ((a, l), out)
+        })
+        .collect();
+    let gap = 3usize;
+    let rows = n * stops.len();
+    let (sw, sh) = (arms.len() * (tw * scale + gap) + gap, rows * (th * scale + gap) + gap);
+    let mut sheet = vec![0u8; sw * sh * 4];
+    for px in sheet.chunks_exact_mut(4) {
+        px.copy_from_slice(&[24, 24, 28, 255]);
+    }
+    for ((a, l), stack) in &tiles {
+        for (si, tile) in stack.iter().enumerate() {
+            let (ox, oy) = (gap + a * (tw * scale + gap), gap + (l * stops.len() + si) * (th * scale + gap));
+            for ty in 0..th {
+                for tx in 0..tw {
+                    let p = &tile[(ty * tw + tx) * 4..(ty * tw + tx) * 4 + 3];
+                    for dy in 0..scale {
+                        for dx in 0..scale {
+                            let i = ((oy + ty * scale + dy) * sw + ox + tx * scale + dx) * 4;
+                            sheet[i..i + 3].copy_from_slice(p);
+                            sheet[i + 3] = 255;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    image::save_buffer(&out, &sheet, sw as u32, sh as u32, image::ColorType::Rgba8).expect("writing the picture");
+    println!("plantrain pic: wrote {out} ({sw}x{sh}): column 0 is {control}, then each file; rows are layouts x stops");
+}
+
 fn main() {
     let m = args();
     match m.get("mode").map(String::as_str).unwrap_or("train") {
         "calibrate" => calibrate(&m),
         "sweep" => sweep(&m),
         "score" => score_files(&m),
+        "pic" => pic(&m),
         "train" => {
             let b = bed(&m);
             let groups: Vec<Group> = m
@@ -249,7 +342,7 @@ fn main() {
             }
         }
         other => {
-            eprintln!("plantrain: mode={other} is not train|calibrate|sweep|score");
+            eprintln!("plantrain: mode={other} is not train|calibrate|sweep|score|pic");
             std::process::exit(2);
         }
     }

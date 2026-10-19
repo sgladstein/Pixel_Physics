@@ -610,3 +610,29 @@ pays for the herb's identity, not its survival.
 photosynthesis rates halved, `training/plants/starts/herb-halfphoto.ron`)
 scores **1.160 ± 0.354 below the shipped herb, behind on 11 of 12 layouts**:
 a gap the trainer has to close.
+
+**The acceptance task: sabotage and recover, passed on one seed per arm**
+(records in [`plant-trainer-2026-10-19/recover/`](plant-trainer-2026-10-19/recover/)).
+Start: the herb with both photosynthesis rates halved; `groups=leaf`, pop 12,
+10 generations, 6 training layouts, a hold-out of 8, a final set of 12 read
+once, σ 0.4, run seed 11; the null identical but `select=random`; both on
+two threads side by side, about 100 minutes each.
+
+| arm (final set, 12 layouts) | score | minus the shipped herb |
+|---|---|---|
+| shipped herb | 3.882 | — |
+| sabotaged start | 3.334 | −0.548 |
+| **selection** | **3.799** | **−0.083 ± 0.293** (ahead 5, behind 4) |
+| random-selection null | 3.418 | −0.463 ± 0.610 (ahead 2, behind 7) |
+
+The champion **rediscovered the sabotage**: shoot photosynthesis
+0.275 → 0.438 (shipped 0.55), leaf 0.225 → 0.494 (shipped 0.45), and settled on 5
+leaves a node instead of 8. Its hold-out was level with the shipped herb from
+generation 1 on (paired −0.209 to +0.232, generations 1–9). The null never
+got there: −0.250 to −0.393 on every generation, and in generation 2 its best
+*training* score (4.090) beat the shipped herb's (4.014) while its hold-out
+trailed by 0.380. That is the best-of-many luck the paired bar and the hold-out
+exist to catch, seen happening. **One seed per arm is a pass, not a measure
+of the trainer**; P2 repeats it on three. Picture of all four on three beds
+at frames 8,000 and 40,000 to the owner as a blind A/B card (shipped
+against rebuilt), `20261019T053404354Z-52e16d`.
