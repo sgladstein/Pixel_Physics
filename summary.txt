@@ -1,0 +1,4 @@
+challenge=suite unit=Colony ants=6 frames=6000 Settings { gens: 100, pop: 96, layouts: 2, pm: 0.03, sigma: 1.0, cross: 0.3, holdout: 12, every: 1, seed: 1, threads: 4, pictures: true, prune: 0.3, wire: 0.001, grow: 1.0, patience: 0 } banned=[Impulse, Fly, Attack, Provision, Lay, EmitA, EmitB] trainable_slots=2297
+100 of 100 generations in 5790 s (hold-out best 4.546 at generation 91)
+hold-out champion 4.55, start 1.16, blinded 0.00
+verbs [walk,turn_around,rest,drop,eat,feed] sharp 3.74 pull 0.00 | live: scorer ctx 346 feat 421 verb 99 out 8, job 184, memory 311, emit 38 (of 2310)

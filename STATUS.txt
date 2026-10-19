@@ -1,0 +1,12 @@
+name: near-pop96-s1-nostop
+commit: 9135a1bdf048901dce6d8892bff2c69229a9591b
+built from: 2c28113200984c251c4865bbf9eff807395de64b
+run: https://github.com/sgladstein/Pixel_Physics/actions/runs/39305846089
+args: brain=mind challenge=suite arenas=fetch,trail keep=trail forget=0.8 clones=1 start=/home/runner/work/Pixel_Physics/Pixel_Physics/training/starts/mind-s1.txt dist=10 pop=96 layouts=2 pm=0.03 sigma=1 cross=0.3 gens=100 patience=0 holdout=12 every=1 seed=1 threads=4
+started: 2026-10-19T18:53:44Z
+CPU(s):                                  4
+Model name:                              AMD EPYC 7763 64-Core Processor
+Thread(s) per core:                      2
+Core(s) per socket:                      2
+finished: 2026-10-19T20:30:18Z
+exit code: 0
