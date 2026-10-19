@@ -10,12 +10,19 @@
 //! up or eat, each free cell to put a load down in, each nestmate or larva
 //! to feed and each stranger to bite. A typical ant has 10-25.
 //!
-//! **Built as a shadow, and only a shadow**: nothing reads the list, so the
-//! game is unchanged with it on. It exists to be timed at lab scale before
-//! any brain uses it -- the design estimated that building the options would
-//! cost more than the network itself, and the whole new ant has to fit in
-//! 1.3x the game ant's frame (`needscost arms=off,shadow`). Off unless
+//! **A mind chooses from this list** (`mind::tick`); the game ant never
+//! reads it. For the game ant it is built only as a shadow, so the game is
+//! unchanged with it on: that exists to time it at lab scale -- the design
+//! estimated that building the options would cost more than the network
+//! itself, and the whole new ant has to fit in 1.3x the game ant's frame
+//! (`needscost arms=off,shadow`). The shadow is off unless
 //! [`World::option_shadow`] is set.
+//!
+//! **Each verb does one thing** (fix plan step 1, 2026-10-18; the actions
+//! audit, `brain-training/ladder/actions-audit.md`): Pick up takes food into
+//! the crop, Eat eats from the crop, Dig cuts ground, Put down puts down
+//! what the jaws or the crop hold. What the body forbids on purpose, so no
+//! rung trains it, is listed at [`Verb`].
 //!
 //! **Features that need something the engine does not have yet read 0**:
 //! the building scent (it comes with its emit) and the way back to the last
@@ -41,6 +48,27 @@ use crate::sim::World;
 use std::cell::RefCell;
 
 /// What the body can do, the design's "must" verbs for the first ant.
+///
+/// **What the body forbids on purpose**, so no rung tries to train it (fix
+/// plan step 1): these are physics or the game's settled rules, not choices
+/// a mind is meant to learn, and an option the body forbids is never listed.
+///
+/// - **Soil goes down only where it will stay**: on ground, with three
+///   empty rows above it, never in the door column (`spoil_site_open` with
+///   the footing test). So an ant holding soil in a two-row tunnel carries
+///   it until it reaches headroom.
+/// - **One thing in the jaws, one food in the crop.** Jaws holding soil
+///   cannot pick food up, and a crop holding one food takes no other.
+/// - **Jaws holding soil feed nobody from the crop** (`crop_to_feed`); the
+///   ant may still eat from its own crop, and still share from its bank.
+/// - **A dead ant is not picked up** until carrying one is built, and is
+///   not cut: Dig is for ground.
+/// - **A live seed is not cut** (`jaw_can_cut`).
+/// - **Feed is offered only when it would give something**: a nestmate
+///   poorer than the ant, or a hungry larva that the crop or the bank can
+///   feed.
+/// - **Laying is the body's**, at its energy bar; and **the crop digests on
+///   its own** whatever the ant chooses (Eat only hurries it).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Verb {
     /// One of the eight headings the body can enter.
@@ -48,20 +76,32 @@ pub enum Verb {
     /// A long body reverses rather than stepping into its own neck.
     TurnAround,
     Rest,
+    /// A cell of ground in reach the jaws can cut, with the jaws free: not
+    /// food, a dead ant or a live seed. Until fix plan step 1 the jaws could
+    /// also cut food or a dead ant and carry it undigested, so putting it
+    /// down counted no delivery; and Dig needed an empty crop, a rule rather
+    /// than physics (the jaws cut, the crop is inside).
     Dig,
-    /// Food or a corpse in reach (brood carrying is a hand rule, off).
+    /// Food in reach into the crop, with the jaws free: room for one more
+    /// cell, the crop's one material, and a bite worth taking to this gut.
+    /// Food only (fix plan step 1): a dead ant waits for a carry of its own.
     PickUp,
     /// A load put down beside the head: a pellet where the spoil rule would
-    /// leave it, a crop cell in any free cell.
+    /// leave it, a crop cell in any free cell. The jaws first: what goes
+    /// down is what the jaws hold, else the crop's food.
     Drop,
-    /// Food in reach that the crop can take (room, its one material, worth
-    /// the bite to this gut), or the crop's own (target: the head).
+    /// **The crop's own, now** (target: the head): finish the cell being
+    /// digested. Until fix plan step 1 it also swallowed food in reach,
+    /// which made carrying and eating one choice (trained ants ate 73 of
+    /// 75 cells they picked up, `actions-audit.md`).
     Eat,
     /// A nestmate poorer than the ant, from its bank; or a hungry larva,
     /// from the crop if the crop holds food a larva can take, else from the
     /// bank, poorer than the ant (energy runs downhill, as a share does).
+    /// Listed only when it would give something.
     Feed,
-    /// A stranger in reach.
+    /// A stranger in reach. **No act yet** (fights are parked): never
+    /// picked ([`Verb::acts`](super::mind)).
     Attack,
 }
 
@@ -358,35 +398,33 @@ pub fn build_with(world: &World, organism: OrganismId, def: &CreatureDef, roof: 
     let jaws_free = st.spoil.is_none();
     let crop = st.crop;
     let crop_food = crop.is_some();
-    // **What the swallow allows** (`act`'s ingest): room for one more cell
+    // **What the pick-up allows** (`act`'s ingest): room for one more cell
     // at the crop's own unit, the crop's one material, and a bite worth
     // taking to this gut. Only legal options are listed, so a mind never
-    // picks a swallow the body would refuse.
+    // picks a pick-up the body would refuse.
     let gut = gut_of(world, organism, def);
     let room = crop.is_none_or(|c| c.worth() + c.unit <= organism_crop_capacity(world, organism, def));
-    let feedable = crop_to_feed(world, st).is_some();
+    let feedable = crop_to_feed(world, st);
     for &(dx, dy) in DIRS.iter() {
         let t = (head.0 + dx, head.1 + dy);
         let cell = world.get(t.0, t.1);
-        let m = world.materials.get(cell.material);
-        let food = m.food_energy > 0.0 && cell.organism_id() == 0;
-        let corpse = here.mats.corpse.is_some_and(|c| cell.material == c);
-        if jaws_free && !crop_food && jaw_can_cut(world, def, organism, cell) {
+        let food = world.materials.get(cell.material).food_energy > 0.0 && cell.organism_id() == 0;
+        if jaws_free && diggable(world, def, organism, cell) {
             push(Verb::Dig, t, &|feats| {
                 if roof {
                     feats[f::ROOF_DROP] = f32::from(u8::from(super::cut_drops_roof(world, t)));
                 }
             });
         }
-        if jaws_free && (food || corpse) {
-            push(Verb::PickUp, t, &|_| {});
-        }
-        if food
+        let corpse = here.mats.corpse.is_some_and(|c| cell.material == c);
+        if jaws_free
+            && food
+            && !corpse
             && room
             && crop.is_none_or(|c| c.material == cell.material)
             && diet_yield(world, cell, gut.bias) > EAT_YIELD_THRESHOLD
         {
-            push(Verb::Eat, t, &|_| {});
+            push(Verb::PickUp, t, &|_| {});
         }
         // A pellet goes down where it will stay (the spoil rule); a crop
         // cell in any free cell, as the food drop's first rule puts one.
@@ -412,14 +450,24 @@ pub fn build_with(world: &World, organism: OrganismId, def: &CreatureDef, roof: 
                 if o.colony == here.colony {
                     // Downhill for a bank, and a larva only while it is a
                     // larva and short of its target: an egg or a pupa is not
-                    // fed (`kin_deficit`).
+                    // fed (`kin_deficit`). **Only when it would give
+                    // something** (fix plan step 1): the crop route gives
+                    // what the larva keeps of the cell still to chew
+                    // (`brood::crop_feed_from`), so nothing for a food its
+                    // gut cannot use or a cell chewed through, and then the
+                    // bank must be richer. Until then such a Feed was listed,
+                    // picked and did nothing (`MindCounts::failed`).
                     let poorer = o.energy < st.energy;
+                    let crop_gives = feedable.is_some_and(|c| {
+                        let (quality, overhead) = super::yield_of(world, other, def, c.material);
+                        quality * (1.0 - overhead) > 0.0 && c.unit - c.digesting > 0.0
+                    });
                     let fed = match o.brood {
                         None => poorer,
                         Some(b) => {
                             b.stage == crate::sim::organism::BroodStage::Larva
                                 && o.energy < b.target
-                                && (feedable || poorer)
+                                && (crop_gives || poorer)
                         }
                     };
                     if fed {
@@ -434,6 +482,17 @@ pub fn build_with(world: &World, organism: OrganismId, def: &CreatureDef, roof: 
     if crop_food {
         push(Verb::Eat, head, &|_| {});
     }
+}
+
+/// **Ground a mind's jaws can cut**: what `jaw_can_cut` allows, less food
+/// and dead ants. A corpse is food too (`food_energy` 120), so the one test
+/// keeps both out. **Why**: `jaw_can_cut` takes any loose cell no harder
+/// than the jaw, so a mind's Dig could cut a food cell or a dead ant and
+/// carry it in the jaws undigested, and its put-down counted no delivery
+/// (actions audit, confirmed by the review's probe): a second way to carry
+/// food. The game ant's own cut is untouched.
+pub(super) fn diggable(world: &World, def: &CreatureDef, organism: OrganismId, cell: crate::sim::cell::Cell) -> bool {
+    world.materials.get(cell.material).food_energy <= 0.0 && jaw_can_cut(world, def, organism, cell)
 }
 
 /// **Whether `(x, y)` is part of a hole**: dug at or below the ground as
@@ -799,6 +858,7 @@ mod tests {
         let mut w = colony_box();
         let sp = w.species.id_of("ant").expect("ant");
         let def = w.species.get(sp).creature.clone().expect("creature");
+        let corpse = w.materials.id_of("corpse");
         let mut opts = Vec::new();
         let (mut decisions, mut carrying) = (0, 0);
         for f in 0..3000 {
@@ -831,12 +891,27 @@ mod tests {
                     footed, usable,
                     "frame {f} ant {id}: footed steps against the walk's own"
                 );
-                let digs = if jaws || crop {
+                // The body's own cut, less food and dead ants, with free
+                // jaws: a full crop no longer stops it (fix plan step 1).
+                let digs: Vec<(i32, i32)> = if jaws {
                     Vec::new()
                 } else {
                     targets::dig_candidates(&w, &def, id, head)
+                        .into_iter()
+                        .filter(|t| w.materials.get(w.get(t.0, t.1).material).food_energy <= 0.0)
+                        .collect()
                 };
                 assert_eq!(of(Verb::Dig), digs, "frame {f} ant {id}: digs");
+                for t in of(Verb::PickUp) {
+                    let cell = w.get(t.0, t.1);
+                    assert!(!jaws, "frame {f} ant {id}: a pick-up with soil in the jaws");
+                    assert!(
+                        w.materials.get(cell.material).food_energy > 0.0 && Some(cell.material) != corpse,
+                        "frame {f} ant {id}: a pick-up of {} at {t:?}",
+                        w.materials.get(cell.material).name
+                    );
+                }
+                assert!(of(Verb::Eat).iter().all(|&t| t == head) && (of(Verb::Eat).len() == usize::from(crop)), "frame {f} ant {id}: eat is the crop's own");
                 for t in of(Verb::Drop) {
                     assert!(jaws || crop, "frame {f} ant {id}: a drop with nothing to drop");
                     if jaws {
@@ -898,12 +973,19 @@ mod tests {
         );
         w.set(t.0, t.1, Cell::new(food, 0));
         build(&w, id, &def, &mut opts);
-        for v in [Verb::PickUp, Verb::Eat] {
-            let o = opts
-                .iter()
-                .find(|o| o.target == t && o.verb == v)
-                .unwrap_or_else(|| panic!("no {} on the food", v.name()));
-            assert_eq!(o.feats[f::FOOD], 1.0, "the food reads as food");
+        let o = opts
+            .iter()
+            .find(|o| o.target == t && o.verb == Verb::PickUp)
+            .expect("no pick-up on the food");
+        assert_eq!(o.feats[f::FOOD], 1.0, "the food reads as food");
+        // One verb each (fix plan step 1): the food is picked up, never
+        // eaten where it lies nor cut into the jaws.
+        for v in [Verb::Eat, Verb::Dig] {
+            assert!(
+                !opts.iter().any(|o| o.target == t && o.verb == v),
+                "{} offered on food",
+                v.name()
+            );
         }
     }
 }

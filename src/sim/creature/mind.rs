@@ -16,10 +16,12 @@
 //! so the game is unchanged with this module compiled in. The rig gives
 //! minds to its arenas' ants (`train::mind_genome`).
 //!
-//! **The verbs come in one at a time.** Walk, turn around and rest act now,
-//! because the first rung of the ladder is the trail; the others are listed
-//! and described by `options`, but [`Verb::acts`] keeps them out of every
-//! pick until their act lands, whatever the switch genes say.
+//! **The verbs come in one at a time.** Every verb but Attack acts now
+//! (walk, turn around, rest, dig, pick up, put down, eat, feed); Attack is
+//! listed and described by `options`, but [`Verb::acts`] keeps it out of
+//! every pick until its act lands, whatever the switch genes say. **Each
+//! does one thing** (fix plan step 1): Pick up takes food into the crop,
+//! Eat eats from the crop, Dig cuts ground ([`act`]).
 //!
 //! **A blank mind picks uniformly**: every weight 0 scores every option the
 //! same, so the job is a fair draw among the verbs with a target and the
@@ -41,7 +43,7 @@ use super::{
     blend_with_kin, crop_take, crop_to_feed, food_at_home, food_value, nest_within_reach, note_drop, note_feed,
     quantise_worth, DropWhy, FEED_SHARE, SHARE_FRACTION,
 };
-use super::{cut_cell, jaw_can_cut, spoil_site_open};
+use super::{cut_cell, spoil_site_open};
 use crate::sim::cell::Cell;
 use crate::sim::cell::OrganismId;
 use crate::sim::organism::{self, BroodStage, Crop, DeathCause};
@@ -371,6 +373,63 @@ fn newly_live() -> Vec<usize> {
     out
 }
 
+/// **The layout a genome file names in its header from fix plan step 1 on**
+/// (`train::save_genome`: `genome 2797 layout=4`). **Why a mark**: step 1
+/// moved the swallow from Eat to Pick up without changing the genome's
+/// length, so the length can no longer say which a file is (review of the
+/// actions audit, item 3). A file with no mark is read as layout 3 or
+/// older and converted once ([`split_pick_up`]); a marked one is not.
+/// Layouts 1-3 are [`GENOME_LEN_V1`], [`GENOME_LEN_V2`] and today's length
+/// before step 1 ([`pad`]).
+pub const LAYOUT: u32 = 4;
+
+/// **A genome saved before Pick up had its own act, as one that has it**
+/// (fix plan step 1; review of the actions audit, fix 1). Until then Eat
+/// aimed at food in reach swallowed it, which is how every forager and
+/// fetch champion picks up, and Pick up's genes did nothing but drift.
+/// Every link Eat had is copied to Pick up -- its switch, its column in
+/// every scorer unit, its job row, memory's "Eat was chosen" input and its
+/// weights on the hidden units -- so a converted ant picks up where it
+/// swallowed. Then **Eat is quieted**: its job row zeroed with its constant
+/// at [`QUIET`], and its weights on the hidden units zeroed; otherwise a
+/// converted champion eats its load wherever it used to pick up (trap 1 of
+/// `trace-trained-ant.md`). Eat keeps its scorer column (it scores the one
+/// eat-now target, which still feeds memory's best and mean) and memory's
+/// read of it (an eat-now is still an eat). Quieting Eat starves nobody
+/// while the crop digests on its own; the brood rung reopens it.
+pub fn split_pick_up(g: &mut [f32]) {
+    let (eat, pick) = (Verb::Eat as usize, Verb::PickUp as usize);
+    g[SWITCH + pick] = g[SWITCH + eat];
+    for u in 0..UNITS {
+        g[S_VERB + u * VERBS + pick] = g[S_VERB + u * VERBS + eat];
+    }
+    g.copy_within(JOB + eat * J_IN..JOB + (eat + 1) * J_IN, JOB + pick * J_IN);
+    for m in 0..MEMORY {
+        let chose = MEM + m * M_IN + CONTEXT + 2;
+        g[chose + pick] = g[chose + eat];
+    }
+    g.copy_within(HID_OUT + eat * HIDDEN..HID_OUT + (eat + 1) * HIDDEN, HID_OUT + pick * HIDDEN);
+    g[JOB + eat * J_IN..JOB + (eat + 1) * J_IN].fill(0.0);
+    g[JOB + eat * J_IN + CONTEXT + MEMORY + 1] = QUIET;
+    g[HID_OUT + eat * HIDDEN..HID_OUT + (eat + 1) * HIDDEN].fill(0.0);
+}
+
+/// **Every link that belongs to one verb**: its column in each scorer unit,
+/// its job row, memory's "it was chosen" input and its weights on the
+/// hidden units. What drifts while the verb is banned: mutation moves
+/// them and selection never sees them, yet each is billed as a live link.
+fn verb_links(v: Verb) -> Vec<std::ops::Range<usize>> {
+    let v = v as usize;
+    let mut out: Vec<std::ops::Range<usize>> = (0..UNITS).map(|u| S_VERB + u * VERBS + v..S_VERB + u * VERBS + v + 1).collect();
+    out.push(JOB + v * J_IN..JOB + (v + 1) * J_IN);
+    out.push(HID_OUT + v * HIDDEN..HID_OUT + (v + 1) * HIDDEN);
+    out.extend((0..MEMORY).map(|m| {
+        let k = MEM + m * M_IN + CONTEXT + 2 + v;
+        k..k + 1
+    }));
+    out
+}
+
 /// **A blank genome**: every weight 0, so every option scores the same, with
 /// `verbs` switched on and the rest off.
 pub fn blank(verbs: &[Verb]) -> Vec<f32> {
@@ -468,6 +527,24 @@ pub fn enter_rung(g: &mut [f32], verbs: &[Verb], emits: [bool; EMITS]) -> Vec<St
                 did.extend(enter_dig(g));
                 opened = true;
             }
+            // Pick up and Attack had genes and no act, so every run moved
+            // them and billed them (review of the actions audit, item 11):
+            // they come on blank (fix plan step 1), as Dig's drift does.
+            // **Eat too** (review of PR 724, N7): a genome saved before step
+            // 1 is converted and enters with Eat quiet ([`split_pick_up`]),
+            // but a trail genome saved after it is not converted, and
+            // without this its Eat came on with whatever drifted onto it
+            // while banned.
+            if matches!(v, Verb::PickUp | Verb::Attack | Verb::Eat) {
+                let mut zeroed = 0;
+                for r in verb_links(v) {
+                    zeroed += g[r.clone()].iter().filter(|w| **w != 0.0).count();
+                    g[r].fill(0.0);
+                }
+                if zeroed > 0 {
+                    did.push(format!("{zeroed} drifted {} links zeroed", v.name()));
+                }
+            }
         }
     }
     let b = EMIT + E_IN..EMIT + 2 * E_IN;
@@ -545,16 +622,9 @@ pub fn enter_rung(g: &mut [f32], verbs: &[Verb], emits: [bool; EMITS]) -> Vec<St
 /// the nest from generation 0, the best start of every arm tried there
 /// (`review-brain-architecture.md` E8). Returns what it changed.
 fn enter_dig(g: &mut [f32]) -> Vec<String> {
-    let dig = Verb::Dig as usize;
-    let mut drifted: Vec<std::ops::Range<usize>> = (0..UNITS).map(|u| S_VERB + u * VERBS + dig..S_VERB + u * VERBS + dig + 1).collect();
+    let mut drifted = verb_links(Verb::Dig);
     drifted.extend((0..UNITS).map(|u| {
         let k = S_FEAT + u * FEATURES + options::f::ROOF_DROP;
-        k..k + 1
-    }));
-    drifted.push(JOB + dig * J_IN..JOB + (dig + 1) * J_IN);
-    drifted.push(HID_OUT + dig * HIDDEN..HID_OUT + (dig + 1) * HIDDEN);
-    drifted.extend((0..MEMORY).map(|m| {
-        let k = MEM + m * M_IN + CONTEXT + 2 + dig;
         k..k + 1
     }));
     for (base, rows, width) in [
@@ -905,7 +975,7 @@ pub fn preset(name: &str, verbs: &[Verb]) -> Option<Vec<f32>> {
         // **The forage rung's hand-built forager** (`challenges::Scarce`):
         // home while the crop holds food or the bank could pay for an egg,
         // otherwise on the way it faces, wall to wall, and up out of the
-        // nest; eat food in reach, put food down at the nest, feed a larva
+        // nest; pick food up in reach, put food down at the nest, feed a larva
         // before a nestmate. The pass arm the rung needs before anything
         // trains. Every weight inside the rig's bound of 40 but the score's
         // bias, so a trained mind could reach it.
@@ -999,8 +1069,12 @@ pub fn preset(name: &str, verbs: &[Verb]) -> Option<Vec<f32>> {
             g[job(Verb::TurnAround, best)] = 3.0;
             g[job(Verb::TurnAround, offset)] = -6.0;
             g[job(Verb::Rest, offset)] = -3.0;
-            g[job(Verb::Eat, best)] = 4.0;
-            g[job(Verb::Eat, offset)] = -1.0;
+            // Pick up what is in reach; eat from the crop hardly ever (fix
+            // plan step 1: these were Eat's, which then also swallowed, and
+            // Eat is quiet as [`split_pick_up`] leaves a converted ant).
+            g[job(Verb::PickUp, best)] = 4.0;
+            g[job(Verb::PickUp, offset)] = -1.0;
+            g[job(Verb::Eat, offset)] = QUIET;
             g[job(Verb::Drop, c::AT_NEST)] = 6.0;
             g[job(Verb::Drop, offset)] = -4.0;
             // Feed while the bank is past the egg bar.
@@ -1120,11 +1194,12 @@ fn every(opts: &[Opt], verb: Verb, feature: usize) -> f32 {
 }
 
 /// The verbs whose act has landed ([`act`]); the rest are never picked.
+/// Pick up landed with fix plan step 1, taking the swallow from Eat.
 impl Verb {
     pub fn acts(self) -> bool {
         matches!(
             self,
-            Verb::Walk | Verb::TurnAround | Verb::Rest | Verb::Eat | Verb::Drop | Verb::Feed | Verb::Dig
+            Verb::Walk | Verb::TurnAround | Verb::Rest | Verb::PickUp | Verb::Eat | Verb::Drop | Verb::Feed | Verb::Dig
         )
     }
 }
@@ -1173,8 +1248,10 @@ pub struct MindCounts {
     pub failed: u64,
     /// Scent laid, in [`pheromone::DEPOSIT`] units.
     pub laid: [f64; EMITS],
-    /// Food: cells swallowed, crop cells put down (and of those, at the
-    /// nest), and feeds -- to a nestmate's bank, to a larva from the crop,
+    /// Food: cells picked up into the crop, crop cells put down (and of
+    /// those, at the nest), cells eaten from the crop by choice ([`eat_now`];
+    /// the crop also digests on its own, which only `creature_stats.eats`
+    /// sees), and feeds -- to a nestmate's bank, to a larva from the crop,
     /// to a larva from the bank.
     pub swallowed: u64,
     pub put_down: u64,
@@ -1182,9 +1259,19 @@ pub struct MindCounts {
     pub fed_adult: u64,
     pub fed_larva_crop: u64,
     pub fed_larva_bank: u64,
+    pub ate: u64,
     /// Soil: cells cut into the jaws, and pellets put down.
     pub dug: u64,
     pub dumped: u64,
+    /// **Ants that starved holding soil**, and of those, with food in
+    /// reach (one of the eight cells round the head). **Why**: jaws
+    /// holding soil cannot pick food up (fix plan step 1), and soil goes
+    /// down only under three empty rows, so in a two-row tunnel an ant can
+    /// starve beside food it cannot take until it finds headroom (review
+    /// of the fix plan, finding 4). Dig step 4's colony prints it; if it is
+    /// not zero, a hungry ant may put soil down on any footed cell.
+    pub starved_soil: u64,
+    pub starved_soil_food: u64,
 }
 
 /// **Every mind in the world**, by ant: a side table on the world, as the
@@ -1699,8 +1786,25 @@ pub(super) fn tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def:
         .organism(organism)
         .and_then(|s| s.chain.first().copied())
         .unwrap_or((x, y));
+    // **Starved holding soil** ([`MindCounts::starved_soil`]): read before
+    // the settle, since a dead ant's body is corpse, and corpse is food.
+    let soil = world.organism(organism).is_some_and(|s| s.spoil.is_some());
+    let food_near = soil && {
+        let corpse = world.materials.id_of("corpse");
+        DIRS.iter().any(|&(dx, dy)| {
+            let cell = world.get(hx + dx, hy + dy);
+            world.materials.get(cell.material).food_energy > 0.0 && cell.organism_id() == 0 && Some(cell.material) != corpse
+        })
+    };
     // No brain outputs gate birth: what the body's own bars allow, it does.
-    settle(world, organism, def, (hx, hy), colony, at_nest, spent, 0.0, 0.0)
+    let sites = settle(world, organism, def, (hx, hy), colony, at_nest, spent, 0.0, 0.0);
+    if soil && world.organism(organism).is_none() {
+        if let Some(m) = world.minds.as_mut() {
+            m.counts.starved_soil += 1;
+            m.counts.starved_soil_food += u64::from(food_near);
+        }
+    }
+    sites
 }
 
 /// **Do the chosen option by the world's rules.** `false` when the body
@@ -1712,8 +1816,8 @@ fn act(world: &mut World, organism: OrganismId, def: &CreatureDef, opt: Opt, dra
         Verb::Rest => true,
         Verb::Walk => walk(world, organism, def, opt.target),
         Verb::TurnAround => turn_around(world, organism, def),
-        Verb::Eat if head == Some(opt.target) => eat_now(world, organism),
-        Verb::Eat => swallow(world, organism, def, opt.target, draw),
+        Verb::PickUp => pick_up(world, organism, def, opt.target, draw),
+        Verb::Eat => head == Some(opt.target) && eat_now(world, organism),
         Verb::Drop => put_down(world, organism, def, opt.target),
         Verb::Feed => feed(world, organism, def, opt.target),
         Verb::Dig => dig(world, organism, def, opt.target),
@@ -1724,45 +1828,61 @@ fn act(world: &mut World, organism: OrganismId, def: &CreatureDef, opt: Opt, dra
 /// **Eat from the crop**: finish the cell being digested this tick
 /// (`eat_lunch_now`). Digestion runs whatever the ant chose, so this only
 /// hurries it; the crop is not a choice to keep food from the body.
+/// Counted as [`MindCounts::ate`]: food eaten by choice, which the settle's
+/// `eats` (every cell finished, chosen or not) cannot tell apart.
 fn eat_now(world: &mut World, organism: OrganismId) -> bool {
     match world.organism_mut(organism) {
         Some(s) if s.crop.is_some() => {
             s.eat_lunch_now = true;
+            if let Some(m) = world.minds.as_mut() {
+                m.counts.ate += 1;
+            }
             true
         }
         _ => false,
     }
 }
 
-/// **Swallow a loose cell of food into the crop**, by the game's own
+/// **Pick up a loose cell of food into the crop**, by the game's own
 /// physics (`act`'s ingest): a windfall's seed asks whether it survives the
 /// mouth, the cell leaves the world as `Eaten`, and the crop takes it at face
 /// value (`crop_take`), to be paid out by digestion. The list offered only
-/// what the swallow allows (`options::build`), so the checks here are the
-/// ones the world could have changed since.
+/// what the pick-up allows (`options::build`), so the checks here are the
+/// ones the world could have changed since, and the jaws: a pellet held
+/// there takes no food.
+///
+/// **Until fix plan step 1 this was Eat's** (aimed at food in reach): one
+/// choice both carried and ate, and trained ants ate 73 of 75 cells they
+/// picked up (`brain-training/ladder/actions-audit.md`). Pick up had genes
+/// and no act.
 ///
 /// **None of the game's food rules**: no store keep, no pile, no sated
 /// leave, no pellet block. Its counters, so a harness reads a mind's
-/// foraging as it reads the game's: `pickups` (and at the nest), `eats`,
+/// foraging as it reads the game's: `pickups` (and at the nest),
 /// `best_bite`, the life's `bites`, and the trip marks a delivery books
 /// (`trip_load`, `trip_cells`) -- written here for any food taken away from
-/// home, the game's trip reach and minimum being walk rules.
-fn swallow(
+/// home, the game's trip reach and minimum being walk rules. **Not
+/// `eats`**: a pick-up is not an eat, and the settle counts every cell the
+/// crop finishes (`creature_stats.eats`), so counting here too read about
+/// twice the pick-ups (review of the actions audit, item 9).
+fn pick_up(
     world: &mut World,
     organism: OrganismId,
     def: &CreatureDef,
     (fx, fy): (i32, i32),
     draw: &mut rng::Rng,
 ) -> bool {
-    let Some((crop, (hx, hy))) = world
+    let Some((crop, jaws, (hx, hy))) = world
         .organism(organism)
-        .and_then(|s| s.chain.first().map(|&h| (s.crop, h)))
+        .and_then(|s| s.chain.first().map(|&h| (s.crop, s.spoil.is_some(), h)))
     else {
         return false;
     };
     let bite = world.get(fx, fy);
     let food = bite.material;
-    if world.materials.get(food).food_energy <= 0.0
+    if jaws
+        || world.materials.get(food).food_energy <= 0.0
+        || world.materials.id_of("corpse") == Some(food)
         || bite.organism_id() != 0
         || crop.is_some_and(|c| c.material != food || c.worth() + c.unit > organism_crop_capacity(world, organism, def))
     {
@@ -1807,7 +1927,6 @@ fn swallow(
     let st = &mut world.creature_stats;
     st.pickups += 1;
     st.pickups_at_nest += u64::from(at_home);
-    st.eats += 1;
     st.best_bite = st.best_bite.max(worth);
     if let Some(m) = world.minds.as_mut() {
         m.counts.swallowed += 1;
@@ -1821,18 +1940,24 @@ fn swallow(
 /// shaft rooms, company: which cell is the mind's, by the owner's ruling
 /// that a spatial need is a brain input, not a predicate in the act
 /// (`dead-ends.md`, the two hand-written placement rules). The list offered
-/// only cells the jaw can cut, with free jaws and an empty crop
-/// (`options::build`); the checks here are the ones the world could have
-/// changed since. The caller bills the jaw work.
+/// only ground the jaw can cut, with free jaws (`options::diggable`); the
+/// checks here are the ones the world could have changed since. The caller
+/// bills the jaw work.
+///
+/// **Ground only, and a full crop no longer stops it** (fix plan step 1):
+/// the jaws cut, and the crop is inside. Until then a mind could cut food
+/// or a dead ant into the jaws, a second way to carry food that counted no
+/// delivery, and an ant that had picked food up could not dig until the
+/// crop had chewed all of it.
 fn dig(world: &mut World, organism: OrganismId, def: &CreatureDef, (tx, ty): (i32, i32)) -> bool {
     let Some((head, free)) = world
         .organism(organism)
-        .and_then(|s| s.chain.first().map(|&h| (h, s.spoil.is_none() && s.crop.is_none())))
+        .and_then(|s| s.chain.first().map(|&h| (h, s.spoil.is_none())))
     else {
         return false;
     };
     let cell = world.get(tx, ty);
-    if !free || !jaw_can_cut(world, def, organism, cell) {
+    if !free || !options::diggable(world, def, organism, cell) {
         return false;
     }
     cut_cell(world, organism, head, (tx, ty), cell);
@@ -2136,6 +2261,7 @@ fn lay(
 
 #[cfg(test)]
 mod tests {
+    use super::super::jaw_can_cut;
     use super::*;
 
     /// An option whose only feature is how much stronger scent B is there.
@@ -2408,8 +2534,8 @@ mod tests {
     /// far out (`dig-rung-design.md` 5's truth table, on the forager).
     #[test]
     fn entering_dig_zeroes_the_drift_and_lays_the_soil_gate() {
-        let forage = [Verb::Walk, Verb::TurnAround, Verb::Rest, Verb::Eat, Verb::Drop, Verb::Feed];
-        let soil = [Verb::Walk, Verb::TurnAround, Verb::Rest, Verb::Eat, Verb::Drop, Verb::Feed, Verb::Dig];
+        let forage = [Verb::Walk, Verb::TurnAround, Verb::Rest, Verb::PickUp, Verb::Eat, Verb::Drop, Verb::Feed];
+        let soil = [Verb::Walk, Verb::TurnAround, Verb::Rest, Verb::PickUp, Verb::Eat, Verb::Drop, Verb::Feed, Verb::Dig];
         let start = preset("forager", &forage).expect("forager");
         let dig = Verb::Dig as usize;
         let drift = [
@@ -2602,6 +2728,78 @@ mod tests {
             "a live link zeroed must move decisions: {moved} of 2000 runs moved"
         );
     }
+    /// **A genome saved before Pick up had its act picks up where it
+    /// swallowed** ([`split_pick_up`]): wired everywhere, with food aimed
+    /// at by Eat before and by Pick up after, over 2,000 decisions from
+    /// varied context, memory and last verb, every option scores and every
+    /// job weighs bit for bit as before (Eat's job read as Pick up's), so
+    /// each verb and target is drawn with the same chance; and wherever the
+    /// two pick the same option, memory and the scents laid are bit for bit
+    /// the same too. Not the same pick for the same draw: the job is drawn
+    /// in [`Verb::ALL`]'s order, where Pick up sits before Put down and Eat
+    /// after it, so one draw lands on a different verb about half the time
+    /// (1,027 of 2,000 when this test first asked for that). Eat is quiet
+    /// (its job reads nothing, its constant is [`QUIET`]) and reads no
+    /// hidden unit. Positive control: the same conversion without Eat's job
+    /// row copied moves the jobs.
+    #[test]
+    fn a_saved_forager_converts_to_pick_up_and_picks_as_it_swallowed() {
+        let offered = [Verb::Walk, Verb::TurnAround, Verb::Rest, Verb::PickUp, Verb::Eat, Verb::Drop, Verb::Feed];
+        let mut old = blank(&offered);
+        for (i, w) in old.iter_mut().enumerate().skip(S_CTX) {
+            *w = ((i * 7919 % 1000) as f32 / 500.0 - 1.0) * 0.5;
+        }
+        // Saved before step 1: Pick up banned, its links drifted.
+        old[SWITCH + Verb::PickUp as usize] = -1.0;
+        let (eat, pick) = (Verb::Eat as usize, Verb::PickUp as usize);
+        let mut new = old.clone();
+        split_pick_up(&mut new);
+        assert_eq!(new[SWITCH + pick], old[SWITCH + eat]);
+        let eat_job = &new[JOB + eat * J_IN..JOB + (eat + 1) * J_IN];
+        assert!(eat_job[..J_IN - 1].iter().all(|w| *w == 0.0) && eat_job[J_IN - 1] == QUIET, "Eat quiet");
+        assert!(new[HID_OUT + eat * HIDDEN..HID_OUT + (eat + 1) * HIDDEN].iter().all(|w| *w == 0.0));
+        let was = [Verb::Walk, Verb::Walk, Verb::TurnAround, Verb::Rest, Verb::Eat, Verb::Eat, Verb::Drop, Verb::Feed];
+        let opts = |eat_is: Verb| -> Vec<Opt> {
+            was.iter()
+                .enumerate()
+                .map(|(o, &verb)| {
+                    let feats: [f32; FEATURES] = std::array::from_fn(|k| ((o * 31 + k * 17) % 11) as f32 / 10.0);
+                    let verb = if verb == Verb::Eat { eat_is } else { verb };
+                    Opt { verb, target: (o as i32, 0), feats }
+                })
+                .collect()
+        };
+        let (before, after) = (opts(Verb::Eat), opts(Verb::PickUp));
+        let agreed = std::cell::Cell::new(0);
+        let same = |h: &[f32], i: u64| {
+            let mem: [f32; MEMORY] = std::array::from_fn(|k| ((i as usize * 13 + k * 7) % 17) as f32 / 8.0 - 1.0);
+            let last = [Verb::Walk, Verb::Rest, Verb::Eat, Verb::Drop][i as usize % 4];
+            let mut s1 = MindState { mem, last_verb: Some(last), ..MindState::default() };
+            let renamed = if last == Verb::Eat { Verb::PickUp } else { last };
+            let mut s2 = MindState { mem, last_verb: Some(renamed), ..MindState::default() };
+            let ctx: [f32; CONTEXT] = std::array::from_fn(|k| ((i * 7) as usize + k * 5) as f32 % 9.0 / 8.0);
+            let mut d1 = rng::stream(3, 9, i, RNG_SLOT_MIND);
+            let mut d2 = rng::stream(3, 9, i, RNG_SLOT_MIND);
+            let a = decide(&old, &ctx, &before, &mut s1, &mut d1).expect("pick");
+            let b = decide(h, &ctx, &after, &mut s2, &mut d2).expect("pick");
+            let mut jobs = a.jobs;
+            jobs.swap(eat, pick);
+            agreed.set(agreed.get() + usize::from(a.pick == b.pick));
+            a.scores.iter().map(|x| x.to_bits()).eq(b.scores.iter().map(|x| x.to_bits()))
+                && jobs.map(|j| j.map(f32::to_bits)) == b.jobs.map(|j| j.map(f32::to_bits))
+                && (a.pick != b.pick
+                    || (a.emits.map(f32::to_bits) == b.emits.map(f32::to_bits) && s1.mem.map(f32::to_bits) == s2.mem.map(f32::to_bits)))
+        };
+        let moved = (0..2_000).filter(|&i| !same(&new, i)).count();
+        assert_eq!(moved, 0, "the converted genome moved a score or a job in {moved} of 2000 decisions");
+        assert!(agreed.get() > 500, "the memory check ran on {} decisions", agreed.get());
+        let mut half = new.clone();
+        half.copy_within(JOB + pick * J_IN..JOB + (pick + 1) * J_IN, JOB + eat * J_IN);
+        half[JOB + pick * J_IN..JOB + (pick + 1) * J_IN].copy_from_slice(&old[JOB + pick * J_IN..JOB + (pick + 1) * J_IN]);
+        let moved = (0..2_000).filter(|&i| !same(&half, i)).count();
+        assert!(moved > 100, "Pick up's own drifted job row must move the jobs: {moved} of 2000 decisions moved");
+    }
+
     /// **The soil vetoes** ([`lay_vetoes`]), on the forager entering the
     /// dig rung: they take the two highest scorer units it leaves unread;
     /// with soil, a Drop target in the hole scores below one out of it,
@@ -2618,6 +2816,7 @@ mod tests {
             Verb::Walk,
             Verb::TurnAround,
             Verb::Rest,
+            Verb::PickUp,
             Verb::Eat,
             Verb::Drop,
             Verb::Feed,
@@ -2626,6 +2825,7 @@ mod tests {
             Verb::Walk,
             Verb::TurnAround,
             Verb::Rest,
+            Verb::PickUp,
             Verb::Eat,
             Verb::Drop,
             Verb::Feed,
@@ -2817,6 +3017,7 @@ mod tests {
             Verb::Walk,
             Verb::TurnAround,
             Verb::Rest,
+            Verb::PickUp,
             Verb::Eat,
             Verb::Drop,
             Verb::Feed,
@@ -2831,6 +3032,51 @@ mod tests {
             give(&mut w, id, g.clone());
         }
         (w, def, ids)
+    }
+
+    /// **An ant that starves holding soil is counted, and with food in
+    /// reach as stuck** ([`MindCounts::starved_soil`]): jaws holding soil
+    /// cannot pick food up, so this is the count that says whether that
+    /// rule starves anyone. Three ants run out of energy on one tick: one
+    /// holding soil beside food, one holding soil with none in reach, and
+    /// the control, beside food with free jaws, which dies uncounted.
+    #[test]
+    fn an_ant_that_starves_holding_soil_is_counted() {
+        let (mut w, def, ids) = mind_box();
+        let food = w.materials.id_of("provisions").expect("provisions");
+        let soil = w.materials.id_of("soil").expect("soil");
+        let open: Vec<(OrganismId, (i32, i32))> = ids
+            .iter()
+            .map(|&id| (id, head_of(&w, id)))
+            .filter(|&(_, (x, y))| w.get(x + 1, y).material == crate::sim::material::EMPTY)
+            .collect();
+        assert!(open.len() >= 3, "{} ants with open ground ahead", open.len());
+        let cases = [(true, true), (true, false), (false, true)];
+        for (&(id, (hx, hy)), &(holding, beside)) in open.iter().zip(&cases) {
+            // Clear the head's ring of food first, so "none in reach" is.
+            for &(dx, dy) in DIRS.iter() {
+                if w.materials.get(w.get(hx + dx, hy + dy).material).food_energy > 0.0 && w.get(hx + dx, hy + dy).organism_id() == 0 {
+                    w.set(hx + dx, hy + dy, Cell::EMPTY);
+                }
+            }
+            // Food in every open cell of the ring, so the ant's own move on
+            // this tick cannot leave it out of reach.
+            if beside {
+                for &(dx, dy) in DIRS.iter() {
+                    if w.get(hx + dx, hy + dy).material == crate::sim::material::EMPTY {
+                        w.set(hx + dx, hy + dy, Cell::new(food, 0));
+                    }
+                }
+            }
+            let st = w.organism_mut(id).expect("ant");
+            st.spoil = holding.then(|| organism::Spoil { cell: Cell::new(soil, 0), store: false });
+            st.energy = 0.0;
+            st.crop = None;
+            let _ = tick(&mut w, hx, hy, id, &def);
+            assert!(w.organism(id).is_none(), "ant {id} (soil {holding}, food {beside}) lived on no energy");
+        }
+        let k = w.minds.as_ref().expect("minds").counts;
+        assert_eq!((k.starved_soil, k.starved_soil_food), (2, 1));
     }
 
     /// **A mind knows how deep it is** ([`depth_at`]): rows below the ground
@@ -2886,12 +3132,15 @@ mod tests {
         }
     }
 
-    /// **The food verbs move food by the world's rules**: a swallow takes
-    /// the cell into the crop and counts a pick-up; a put-down puts it back
-    /// as a cell and counts a delivery exactly when the head is at the nest
-    /// (`nest_within_reach`); an empty crop has nothing to put down, and
-    /// soil is not swallowed. A richer ant feeds a poorer one a quarter of
-    /// the gap (`SHARE_FRACTION`), and the poorer cannot feed back uphill.
+    /// **The food verbs move food by the world's rules, one job each**: a
+    /// pick-up takes the cell into the crop and counts a pick-up, not an
+    /// eat; Eat does not take food where it lies, and eats from the crop
+    /// only aimed at the head, counted as eaten by choice; a put-down puts
+    /// it back as a cell and counts a delivery exactly when the head is at
+    /// the nest (`nest_within_reach`); an empty crop has nothing to put
+    /// down, and soil, a dead ant, or food with soil in the jaws is not
+    /// picked up. A richer ant feeds a poorer one a quarter of the gap
+    /// (`SHARE_FRACTION`), and the poorer cannot feed back uphill.
     #[test]
     fn the_food_verbs_move_food_by_the_worlds_rules() {
         let (mut w, def, ids) = mind_box();
@@ -2903,15 +3152,18 @@ mod tests {
             .expect("an ant with open ground ahead");
         let t = (head.0 + 1, head.1);
         let mut draw = rng::stream(1, id as u64, 0, RNG_SLOT_ACT);
-        let pickups = w.creature_stats.pickups;
+        let (pickups, eats) = (w.creature_stats.pickups, w.creature_stats.eats);
         w.set(t.0, t.1, Cell::new(food, 0));
-        assert!(act(&mut w, id, &def, on(Verb::Eat, t), &mut draw), "the swallow");
+        assert!(!act(&mut w, id, &def, on(Verb::Eat, t), &mut draw), "eaten where it lay");
+        assert_eq!(w.get(t.0, t.1).material, food);
+        assert!(act(&mut w, id, &def, on(Verb::PickUp, t), &mut draw), "the pick-up");
         assert_ne!(w.get(t.0, t.1).material, food, "the cell is still there");
         assert!(w
             .organism(id)
             .and_then(|s| s.crop)
             .is_some_and(|c| c.worth() > 0.0 && c.cells == 1));
         assert_eq!(w.creature_stats.pickups, pickups + 1);
+        assert_eq!(w.creature_stats.eats, eats, "a pick-up counted as an eat");
         let at_nest = nest_within_reach(&w, id, head.0, head.1, &def);
         let deliveries = w.creature_stats.deliveries;
         assert!(act(&mut w, id, &def, on(Verb::Drop, t), &mut draw), "the put-down");
@@ -2928,10 +3180,21 @@ mod tests {
         );
         let soil = w.materials.id_of("soil").expect("soil");
         w.set(t.0, t.1, Cell::new(soil, 0));
-        assert!(
-            !act(&mut w, id, &def, on(Verb::Eat, t), &mut draw),
-            "soil was swallowed"
-        );
+        assert!(!act(&mut w, id, &def, on(Verb::PickUp, t), &mut draw), "soil was picked up");
+        let corpse = w.materials.id_of("corpse").expect("corpse");
+        w.set(t.0, t.1, Cell::new(corpse, 0));
+        assert!(!act(&mut w, id, &def, on(Verb::PickUp, t), &mut draw), "a dead ant was picked up");
+        // Soil in the jaws: no food goes into the crop.
+        w.set(t.0, t.1, Cell::new(food, 0));
+        w.organism_mut(id).expect("ant").spoil = Some(organism::Spoil { cell: Cell::new(soil, 0), store: false });
+        assert!(!act(&mut w, id, &def, on(Verb::PickUp, t), &mut draw), "food picked up past a pellet");
+        w.organism_mut(id).expect("ant").spoil = None;
+        // Eat is the crop's own, aimed at the head, and counts as eaten by
+        // choice.
+        assert!(act(&mut w, id, &def, on(Verb::PickUp, t), &mut draw), "the second pick-up");
+        assert!(act(&mut w, id, &def, on(Verb::Eat, head), &mut draw), "eat from the crop");
+        assert!(w.organism(id).is_some_and(|s| s.eat_lunch_now));
+        assert_eq!(w.minds.as_ref().expect("minds").counts.ate, 1);
 
         // Two ants touching: a's head beside a cell of b's body.
         let (a, b, at) = ids
@@ -3024,11 +3287,40 @@ mod tests {
         let m = w.minds.as_ref().expect("minds");
         assert_eq!((m.counts.dug, m.counts.dumped, m.counts.put_down), (1, 1, 0));
         assert_eq!(m.dump_log.as_deref(), Some(&[(site.0, site.1, w.frame, id)][..]));
+
+        // **Ground only, and a crop of food does not stop a cut** (fix plan
+        // step 1): food and a dead ant are not cut, though the jaw could
+        // take the food (the positive control: it would have before); with
+        // food picked up, the jaws still cut ground.
+        let food = w.materials.id_of("provisions").expect("provisions");
+        let corpse = w.materials.id_of("corpse").expect("corpse");
+        let open = DIRS
+            .iter()
+            .map(|&(dx, dy)| (hx + dx, hy + dy))
+            .find(|&(x, y)| w.is_empty(x, y))
+            .expect("an open cell beside the head");
+        w.set(open.0, open.1, Cell::new(food, 0));
+        assert!(jaw_can_cut(&w, &def, id, w.get(open.0, open.1)), "the jaw can take food: the control");
+        for m in [food, corpse] {
+            w.set(open.0, open.1, Cell::new(m, 0));
+            assert!(!act(&mut w, id, &def, on(Verb::Dig, open), &mut draw), "{} cut into the jaws", w.materials.get(m).name);
+        }
+        w.set(open.0, open.1, Cell::new(food, 0));
+        assert!(act(&mut w, id, &def, on(Verb::PickUp, open), &mut draw), "the pick-up");
+        assert!(w.organism(id).is_some_and(|s| s.crop.is_some()));
+        let ground = (-3..=3)
+            .flat_map(|dy| (-3..=3).map(move |dx| (hx + dx, hy + dy)))
+            .find(|&(x, y)| options::diggable(&w, &def, id, w.get(x, y)))
+            .expect("ground to cut");
+        assert!(act(&mut w, id, &def, on(Verb::Dig, ground), &mut draw), "a crop of food stopped the cut");
     }
 
     /// **A rung's entry**: the verbs the earlier rung banned come on, an
-    /// evolved-off switch stays off, and scent B gets the carrying layer
-    /// only where the arena allows it and the genome never laid it.
+    /// evolved-off switch stays off, Pick up and Eat come on blank whatever
+    /// drifted while they were banned (fix plan step 1; review of PR 724,
+    /// N7), and scent B gets the
+    /// carrying layer only where the arena allows it and the genome never
+    /// laid it.
     #[test]
     fn a_rung_switches_on_its_new_verbs_and_the_carrying_scent() {
         let trail = [Verb::Walk, Verb::TurnAround, Verb::Rest];
@@ -3036,14 +3328,29 @@ mod tests {
             Verb::Walk,
             Verb::TurnAround,
             Verb::Rest,
+            Verb::PickUp,
             Verb::Eat,
             Verb::Drop,
             Verb::Feed,
         ];
         let mut g = blank(&trail);
         g[SWITCH + Verb::TurnAround as usize] = -0.4; // evolved off
+        let pick = Verb::PickUp as usize;
+        let drift = [
+            JOB + pick * J_IN + c::ENERGY,
+            JOB + pick * J_IN + CONTEXT + MEMORY + 1,
+            S_VERB + 3 * VERBS + pick,
+            MEM + 4 * M_IN + CONTEXT + 2 + pick,
+            HID_OUT + pick * HIDDEN + 5,
+        ];
+        let eat = Verb::Eat as usize;
+        let eat_drift = [JOB + eat * J_IN + c::CROP, HID_OUT + eat * HIDDEN + 2];
+        for &i in drift.iter().chain(&eat_drift) {
+            g[i] = 0.7;
+        }
         let did = enter_rung(&mut g, &forage, [true, true, false]);
-        assert_eq!(did, vec!["drop", "eat", "feed", "scent B while carrying"]);
+        assert_eq!(did, vec!["pick_up", "5 drifted pick_up links zeroed", "drop", "eat", "2 drifted eat links zeroed", "feed", "scent B while carrying"]);
+        assert!(drift.iter().chain(&eat_drift).all(|&i| g[i] == 0.0));
         assert!(g[SWITCH + Verb::Eat as usize] > 0.0 && g[SWITCH + Verb::TurnAround as usize] == -0.4);
         assert_eq!(
             g[SWITCH + Verb::Dig as usize],

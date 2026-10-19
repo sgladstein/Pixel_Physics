@@ -1874,6 +1874,14 @@ pub struct CreatureStats {
     /// incrementing this per tick instead would silently turn "how many
     /// bites did the colony take" into "how many ticks did it spend
     /// digesting" while every reader went on reading it as the first.
+    ///
+    /// **What it actually counts** (review of the actions audit, item 9):
+    /// the settle also adds one each time a crop cell is finished
+    /// (`creature::settle`, "one mouthful, one event"), so for the game ant
+    /// it reads about twice `pickups`. A mind's pick-up adds nothing here
+    /// since fix plan step 1, so for a mind it counts finished cells only,
+    /// chosen or not; `MindCounts::ate` is the eats a mind chose. Do not
+    /// read either as "Eat was chosen".
     pub eats: u64,
     /// **Face value absorbed out of crops**, in joules -- the continuous
     /// counterpart to `eats`.
