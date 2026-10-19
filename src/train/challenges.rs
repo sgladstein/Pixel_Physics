@@ -1471,9 +1471,19 @@ pub struct SoilTrip {
     /// 4-row shaft is half a load. `load_base` is the same weight over the
     /// first cuts below the surface (`min(1, depth / full_depth)`), and
     /// `loads / load_base`, pooled over worlds, is the bar's 0.75 share.
-    /// Prints only, at every step.
+    /// Prints only, at every step. **It does not gate** (rev 2.8): it rose
+    /// with total rows climbed whatever the depth, so 6 pellets from 1.67
+    /// rows (2.5 loads) beat 4 from 2.25 (2.25; review of PR 726, D1).
     pub loads: f64,
     pub load_base: f64,
+    /// **Full loads** (`dig-rung-design.md` rev 2.8, the step 4 bar): S4
+    /// pellets cut at `full_depth` or deeper and carried at least that many
+    /// rows up, counted before [`SOIL_UP_ROWS`] caps the rows paid, so a
+    /// 12-row shaft can have them. `full_cuts` are first cuts of original
+    /// ground at `full_depth` or deeper, and `full_loads / full_cuts`,
+    /// pooled, is the bar's 0.75 share. Prints only, at every step.
+    pub full_loads: usize,
+    pub full_cuts: usize,
     /// Pellets whose cut earned S1 and that were never put down: still in
     /// the jaws at the bell, or lost with their ant.
     pub held: usize,
@@ -1527,7 +1537,14 @@ pub struct SoilTrip {
 ///   (`stage2/dig/step4-gate-README.md`). Under the cap an ant's deepest
 ///   pellets are the ones paid. A rim cut has depth 0 or less and pays
 ///   nothing, as above; `full_depth` 1 is rev 2.4's rule, every cut below
-///   the top row in full.
+///   the top row in full. **The weight is squared** (rev 2.8): linear,
+///   below the cap a pellet from `d` rows paid 2.75 `d` at a 4-row shaft
+///   (1.75 from S1-S3, 1 from S4), so two pellets from 2 rows paid what
+///   one from 4 did, and the depth-pay batch's diggers got more loads by
+///   digging shallower (review of PR 726, D1: s101 2.2 -> 1.7 rows a
+///   pellet, s102 2.3 -> 1.8). Squared, one pellet pays 1.44 / 3.75 / 6.94
+///   / 11 from 1 / 2 / 3 / 4 rows, so eight from 2 rows pay 30 against
+///   four from 4 rows' 44.
 /// * **S2 let go**: the pellet was put down (on ground: the put-down
 ///   checks that, `mind::put_down_pellet`).
 /// * **S4 up and out** (from step 4): a pellet that reached S3 earns
@@ -1579,12 +1596,13 @@ pub fn soil_trip(
     type Acts = Vec<(u64, Option<(bool, i32)>, (i32, i32))>;
     let mut per_ant: BTreeMap<OrganismId, Acts> = BTreeMap::new();
     let step = step.clamp(1, 4) as usize;
-    // What a pellet's S1-S3 are worth, by its cut's depth: in full under
-    // step 4, and from step 4 in proportion down to `full_depth`.
+    // How much of the shaft's depth `d` rows are, for the loads; a
+    // pellet's S1-S3 are worth that squared from step 4, and in full under
+    // it.
     let weight = |d: i32| (f64::from(d) / f64::from(full_depth.max(1))).clamp(0.0, 1.0);
-    let pay = |d: i32| if step < 4 { 1.0 } else { weight(d) };
+    let pay = |d: i32| if step < 4 { 1.0 } else { weight(d).powi(2) };
     let mut load_base = 0.0;
-    let (mut deep_cuts, mut rim_cuts) = (0, 0);
+    let (mut deep_cuts, mut rim_cuts, mut full_cuts) = (0, 0, 0);
     for &(x, y, f, id) in &cuts {
         let first = was_ground(x, y) && cut_before.insert((x, y));
         let d = depth(x, y);
@@ -1593,6 +1611,7 @@ pub fn soil_trip(
             load_base += weight(d);
         }
         rim_cuts += usize::from(first && d <= 0);
+        full_cuts += usize::from(first && d >= full_depth.max(1));
         let s1 = first && (step < 4 || d > 0);
         per_ant.entry(id).or_default().push((f, Some((s1, d)), (x, y)));
     }
@@ -1600,7 +1619,7 @@ pub fn soil_trip(
         per_ant.entry(id).or_default().push((f, None, (x, y)));
     }
     let away = |at: (i32, i32)| soil_away(&hole, at);
-    let mut trip = SoilTrip { cuts: cuts.len(), dumped: dumps.len(), deep: deep_cuts, rim: rim_cuts, load_base, ..SoilTrip::default() };
+    let mut trip = SoilTrip { cuts: cuts.len(), dumped: dumps.len(), deep: deep_cuts, rim: rim_cuts, load_base, full_cuts, ..SoilTrip::default() };
     for events in per_ant.values_mut() {
         // A cut and a put-down never share an ant's frame: one act a
         // decision.
@@ -1629,9 +1648,11 @@ pub fn soil_trip(
                         n[1].push(pay(deep));
                         if away(at) {
                             n[2].push(pay(deep));
-                            let rows = (cut_y - at.1).min(deep).min(SOIL_UP_ROWS);
+                            let lift = (cut_y - at.1).min(deep);
+                            let rows = lift.min(SOIL_UP_ROWS);
                             if rows > 0 {
                                 ups.push(rows);
+                                trip.full_loads += usize::from(lift >= full_depth.max(1));
                             }
                         }
                     }
@@ -1823,7 +1844,7 @@ impl Challenge for Soil {
         self.frames
     }
     fn parts(&self) -> &'static [&'static str] {
-        &["score", "cuts", "s1", "s2", "s3", "held", "dumped", "refill_pellet", "refill_fall", "away_share", "alive", "energy_left", "dig_j", "holding", "spent", "chamber_fill", "fall_putdown", "s4", "up_rows", "deep_cuts", "rim_cuts", "loads", "load_base", "load_share"]
+        &["score", "cuts", "s1", "s2", "s3", "held", "dumped", "refill_pellet", "refill_fall", "away_share", "alive", "energy_left", "dig_j", "holding", "spent", "chamber_fill", "fall_putdown", "s4", "up_rows", "deep_cuts", "rim_cuts", "loads", "load_base", "load_share", "full_loads", "full_cuts", "full_share"]
     }
     fn banned(&self) -> &'static [O] {
         NOT_ANT_VERBS
@@ -1925,6 +1946,9 @@ impl Challenge for Soil {
                 trip.loads,
                 trip.load_base,
                 if trip.load_base > 0.0 { trip.loads / trip.load_base } else { 0.0 },
+                trip.full_loads as f64,
+                trip.full_cuts as f64,
+                if trip.full_cuts > 0 { trip.full_loads as f64 / trip.full_cuts as f64 } else { 0.0 },
             ],
         }]
     }
@@ -3662,15 +3686,18 @@ mod tests {
         assert_eq!((t.score, t.rim), (0.0, 12), "a cut above the lowest surface near it is not a pit");
     }
 
-    /// **From step 4, S1-S3 pay by depth, down to the shaft's foot**
-    /// (`dig-rung-design.md` line 149, review N2). At a 4-row shaft, 12
-    /// pellets cut 2 rows down and carried well away pay half their S1-S3
-    /// for the 10 under the cap and S4 for 2 rows each, 59; the same trips
-    /// 4 rows down pay 118, and 1 row down 29.5. The control: at
-    /// `full_depth` 1 (rev 2.4's rule) the 2-row trips fill the cap, 94. And
-    /// under the cap the deepest pellets are paid, whatever order they were
-    /// cut in: 10 shallow pellets then 10 deep ones pay the deep ones' S1-S3
-    /// in full.
+    /// **From step 4, S1-S3 pay by depth squared, down to the shaft's foot**
+    /// (`dig-rung-design.md` rev 2.8, its worked numbers). At a 4-row
+    /// shaft, 12 pellets cut 2 rows down and carried well away pay a
+    /// quarter of their S1-S3 for the 10 under the cap and S4 for 2 rows
+    /// each, 41.5; the same trips 4 rows down pay 118, and a 2-row scrape
+    /// 16.375. Eight from 2 rows pay 30 against four from 4 rows' 44, where
+    /// linear pay tied them (review of PR 726, D1). The control: at
+    /// `full_depth` 1 (rev 2.4's rule) the 2-row trips fill the cap, 94.
+    /// And under the cap the deepest pellets are paid, whatever order they
+    /// were cut in: 10 shallow pellets then 10 deep ones pay the deep ones'
+    /// S1-S3 in full. Only pellets from the shaft's depth carried its
+    /// height are full loads.
     #[test]
     fn from_step_four_s1_to_s3_pay_by_depth() {
         type Moves = Vec<(i32, i32, u64, OrganismId)>;
@@ -3687,18 +3714,33 @@ mod tests {
         };
         let t = score(4, &[12; 12]);
         assert_eq!((t.stages, t.up, t.up_rows, t.deep), ([12, 12, 12], 12, 24, 12));
-        assert_eq!(t.score, SOIL_CAP as f64 * 0.5 * below + 12.0 * SOIL_POINTS[3] * 2.0 / f64::from(SOIL_UP_ROWS));
-        assert_eq!(t.score, 59.0);
-        // Half a load each: carried up 2 rows at a 4-row shaft.
-        assert_eq!((t.loads, t.load_base), (6.0, 6.0));
+        assert_eq!(t.score, SOIL_CAP as f64 * 0.25 * below + 12.0 * SOIL_POINTS[3] * 2.0 / f64::from(SOIL_UP_ROWS));
+        assert_eq!(t.score, 41.5);
+        // Half a load each, carried up 2 rows at a 4-row shaft, and none of
+        // them full.
+        assert_eq!((t.loads, t.load_base, t.full_loads, t.full_cuts), (6.0, 6.0, 0, 0));
         let t = score(4, &[14; 12]);
-        assert_eq!((t.score, t.loads, t.load_base), (118.0, 12.0, 12.0));
+        assert_eq!((t.score, t.loads, t.load_base, t.full_loads, t.full_cuts), (118.0, 12.0, 12.0, 12, 12));
         assert_eq!(score(1, &[12; 12]).score, 94.0);
+        // Shallow no longer ties deep: under linear pay both were 44.
+        let (shallow, deep) = (score(4, &[12; 8]), score(4, &[14; 4]));
+        assert_eq!((shallow.score, shallow.full_loads), (30.0, 0));
+        assert_eq!((deep.score, deep.full_loads), (44.0, 4));
         // The 2-row scrape (review N2): twelve rim cuts and twelve a row
-        // under them pays 29.5 where it filled the cap (82), and comes to 3
-        // loads.
+        // under them pays 16.375 where it filled the cap (82), and comes to
+        // 3 loads, none full.
         let t = score(4, &[[10; 12], [11; 12]].concat());
-        assert_eq!((t.score, t.rim, t.loads, t.load_base), (29.5, 12, 3.0, 3.0));
+        assert_eq!((t.score, t.rim, t.loads, t.load_base, t.full_loads), (16.375, 12, 3.0, 3.0, 0));
+        // A full load is counted from the climb, not the rows paid: at a
+        // 12-row shaft, cut 13 rows down and carried 13 up, the S4 rows stop
+        // at 8 and it is still full.
+        let t = score(12, &[23; 2]);
+        assert_eq!((t.up_rows, t.full_loads, t.full_cuts), (16, 2, 2));
+        // Cut at the shaft's foot but put down after 3 of its 4 rows: a full
+        // cut, not a full load (ladder lane, rev 2.8).
+        let (cuts, _) = trips(&[14]);
+        let t = soil_trip(4, 4, below_10, |_, _| false, depth, &[], &cuts, &[(100, 11, 5, 7)]);
+        assert_eq!((t.up, t.up_rows, t.full_loads, t.full_cuts), (1, 3, 0, 1));
         // Ten shallow then ten deep: S4 pays every one (1 row and 4 rows),
         // S1-S3 the ten deep ones in full.
         let mixed: Vec<i32> = [[11; 10], [14; 10]].concat();
