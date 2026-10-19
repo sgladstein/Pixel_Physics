@@ -27,5 +27,6 @@ pub mod render;
 pub mod sky;
 pub mod sim;
 pub mod train;
+pub mod train_plant;
 pub mod tunables;
 pub mod worldgen;

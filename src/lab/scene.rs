@@ -201,6 +201,30 @@ pub struct LabBox {
     /// food never rots whatever this says (`provisions`).
     #[serde(default = "windfall_rots_default")]
     pub windfall_rots: bool,
+    /// **Where the founders go, if not where `spread` puts them** -- the
+    /// plant trainer's seam (`Reports/plant-trainer-plan-2026-10-19.md`
+    /// §5.1). `None`, the default, is today's bed: `spread(founders)`, which
+    /// for a single founder is always the compartment midpoint, and that
+    /// sits under a lamp whenever the lamp count is odd. A trainer scoring a
+    /// plant on one spot under the light would be scoring the spot. With
+    /// `Some`, these columns are planted instead and `founders` is not read.
+    ///
+    /// Never written to a saved box or a scenario file unless set, so every
+    /// file written before this existed reads back identically.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub founder_at: Option<Vec<i32>>,
+    /// **A species defined at runtime, registered before anything is
+    /// planted** -- the trainer's other seam, and `PlantScene::species_ron`'s
+    /// pattern (`examples/common`). The ordering is the reason it is a field:
+    /// founders are planted by name inside `build`, so a species registered
+    /// after it lands in a world where nothing was planted -- a silent empty
+    /// stand that reads exactly like a nonviable plant (that harness's own
+    /// record). The text goes through `SpeciesRegistry::register_ron`, the
+    /// shipped parser, which **replaces** any species of the same name and
+    /// validates nothing: a caller must name it apart from every shipped
+    /// species. `None` is today's bed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub species_ron: Option<String>,
 }
 
 /// `LabBox::windfall_rots`' serde default: the engine's own, so a missing key
@@ -320,6 +344,8 @@ impl Default for LabBox {
             rain: super::rain::Rain::default(),
             plant_pace: super::pace::PlantPace::default(),
             windfall_rots: windfall_rots_default(),
+            founder_at: None,
+            species_ron: None,
         }
     }
 }
@@ -594,9 +620,13 @@ impl LabBox {
         out
     }
 
-    /// Columns the founders are planted at.
+    /// Columns the founders are planted at: [`LabBox::founder_at`] when it is
+    /// set, else `founders` spread across the compartments.
     pub fn founder_columns(&self) -> Vec<i32> {
-        self.spread(self.founders)
+        match &self.founder_at {
+            Some(cols) => cols.clone(),
+            None => self.spread(self.founders),
+        }
     }
 
     /// Columns the ant colonies are founded at.
@@ -836,6 +866,13 @@ impl LabBox {
     pub fn build_counted(&self) -> (World, Planted) {
         let mut w = World::new(crate::sim::chunk::Rect::new(0, 0, self.width - 1, self.height - 1));
         w.seed = self.seed;
+        // Before anything is planted -- see the field's doc for why the
+        // order is the whole point.
+        if let Some(source) = &self.species_ron {
+            if let Err(e) = w.species.register_ron(source) {
+                panic!("LabBox::species_ron does not parse as a species: {e:?}");
+            }
+        }
         // **The lab's own answer to two plant-mechanics rows, and not the
         // engine's.** Owner, 2026-09-04: *"I kind of like the idea of the
         // bigger plants get the fewer ticks they have... we can turn off
@@ -1048,7 +1085,11 @@ impl LabBox {
             w.pheromones.set_channel_rho(Channel::B, pheromone::b_rho_switch().unwrap_or(pheromone::LAB_B_RHO));
             w.pheromones.set_channel_diffuse(Channel::B, pheromone::b_diffuse_switch().unwrap_or(pheromone::LAB_B_DIFFUSE));
         }
-        (w, Planted { asked: self.founders, planted, ants, beetles })
+        // Asked is what the bed was told to plant: the explicit columns when
+        // they are set, else `founders` (which `spread` can return fewer of
+        // only when there is no compartment at all).
+        let asked = self.founder_at.as_ref().map_or(self.founders, Vec::len);
+        (w, Planted { asked, planted, ants, beetles })
     }
 }
 

@@ -1730,7 +1730,13 @@ pub fn genotype(world: &World, organism_id: OrganismId, slot: usize, variance: f
 /// turn over (`genome_drift` warns below generation 2, and measured depth is
 /// 1-2). Until then 0.25 stands as a placeholder that is deliberately not
 /// tuned against a picture, because the picture cannot see it.
-const FOUNDER_VARIANT_CHANCE: f32 = 0.25;
+///
+/// **Read through `World::founder_variant_chance`**, which defaults to this,
+/// so the plant trainer can found a bed's plants on their species file's
+/// alleles exactly (`Reports/plant-trainer-plan-2026-10-19.md` §5.4): with
+/// variants on, a one-founder bed scores a random mixture over four loci
+/// rather than the species file it was asked to score.
+pub const FOUNDER_VARIANT_CHANCE: f32 = 0.25;
 
 /// **The built-in production rule** — what a cell becomes when its species
 /// declares no fate table of its own.
@@ -2421,13 +2427,14 @@ pub fn seed_genotype(world: &mut World, organism_id: OrganismId, x: i32, y: i32)
     // Streams 66-69: genotype slots take 0..`GENOTYPE_TRAITS` and the two
     // colour/strategy draws above take 64 and 65, so these collide with
     // nothing within a run.
+    let variant_chance = world.founder_variant_chance;
     let vary = |locus: usize, base: u8, stream: u64| -> u8 {
         let n = organism::LOCUS_ALLELES[locus].max(1);
         if n <= 1 {
             return base;
         }
         let mut rng = rng::stream(world_seed, x as u64, y as u64, stream);
-        if !rng.chance(FOUNDER_VARIANT_CHANCE) {
+        if !rng.chance(variant_chance) {
             return base;
         }
         (base + 1 + rng.below(n as u32 - 1) as u8) % n

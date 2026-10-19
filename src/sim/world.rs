@@ -6500,6 +6500,14 @@ pub struct World {
     /// design and it is the shape `CLAUDE.md` records as *a knob nobody can
     /// tune in either direction may be a counterweight*.
     pub param_mutation_sigma: f32,
+    /// **The chance a founder carries something other than its species'
+    /// authored allele**, at each of the four discrete loci that have no
+    /// positional founding draw -- `plant::FOUNDER_VARIANT_CHANCE`, which it
+    /// defaults to. A field so the plant trainer can set it to 0 and score a
+    /// species file rather than a random mixture of its variants
+    /// (`Reports/plant-trainer-plan-2026-10-19.md` §5.4). Founding only: a
+    /// bred seed inherits its parent's alleles whatever this says.
+    pub founder_variant_chance: f32,
     /// How long a disturbance keeps licensing failures near it, in frames.
     /// Generous by default: a cave-in that arrives a few seconds after you
     /// undermine something is the mechanic, not a bug.
@@ -7448,6 +7456,7 @@ impl World {
             fate_mutation_chance: super::plant::fate_mutation_chance_seed(),
             param_mutation_chance: super::plant::param_mutation_chance_seed(),
             param_mutation_sigma: super::plant::PARAM_MUTATION_SIGMA,
+            founder_variant_chance: super::plant::FOUNDER_VARIANT_CHANCE,
             chain_window: crate::sim::structural::CHAIN_WINDOW_FRAMES,
             disturbances: std::collections::VecDeque::new(),
             staged_fractures: std::collections::VecDeque::new(),

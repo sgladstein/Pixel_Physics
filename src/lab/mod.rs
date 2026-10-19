@@ -1584,29 +1584,18 @@ impl Lab {
     /// splitting that across two callers is how a speed dial stops being
     /// honest about what it achieved.
     fn tick(&mut self) {
-        frame::step(
+        // **The simulation half of the tick is [`tick_world`]**, shared with
+        // every harness that needs the box's own sequence (the plant trainer
+        // first), so a copy of it outside this file cannot drift. What
+        // follows it here only feeds the window.
+        tick_world(
             &mut self.world,
             &mut self.particles,
             &mut self.blasts,
-            player::PlayerInput::default(),
             &self.player_tuning,
+            &self.spec,
+            self.scenario.as_ref(),
         );
-        // **Immediately after `frame::step`, per `scenario::tick_timeline`'s
-        // own doc on why that ordering is the timing contract.** Cheap when
-        // there is nothing to do: `Scenario::due` returns before touching
-        // its timeline at all unless one is non-empty, so a box with no
-        // scenario -- or one whose timeline is empty, `gauses_jar` among the
-        // shipped set -- pays one `Option` check and nothing else.
-        if let Some(scenario) = &self.scenario {
-            scenario::tick_timeline(scenario, &mut self.world, &self.spec);
-        }
-        // **The mister, same timing contract as the timeline above: right
-        // after `frame::step`, so a drop this tick sees this tick's own
-        // settled state.** `rain::tick` is its own due-gate on `World::
-        // frame` and returns 0 immediately for `Rain::Off`, so a box with
-        // the mister off pays one `match` and nothing else. The shipped
-        // default is Light (`Rain::default()`), not off.
-        rain::tick(&mut self.world, &self.spec, self.spec.rain);
         // **Both series are sampled here, per simulated tick, and they used
         // to be sampled in `advance` after the whole batch.** Each has its
         // own cadence gate on `World::frame`, and a gate cannot fire more
@@ -4218,6 +4207,50 @@ fn draw_help(hc: crate::render::Hud, frame: &mut [u8]) {
         let colour = if i == 0 { [235, 235, 200, 255] } else { [200, 200, 200, 255] };
         hc.text(frame, x0 + 12, y0 + 12 + i as i32 * 10, line, colour);
     }
+}
+
+
+/// **One simulated tick of a lab box: the world's half of [`Lab::tick`]**,
+/// and the one copy of it. `frame::step`, then whatever the scenario's
+/// timeline has due, then the mister -- in that order, each comment in
+/// `Lab::tick`'s history recording why (`scenario::tick_timeline`'s doc is
+/// the timing contract; `rain::tick` lands right after it so a drop this tick
+/// sees this tick's own settled state).
+///
+/// Factored out on 2026-10-19 for the plant trainer
+/// (`Reports/plant-trainer-plan-2026-10-19.md` §5.1), whose review found the
+/// trainer's first draft stepping `frame::step` and the mister but not the
+/// timeline: a private copy of the box, which is what `scene.rs` says a
+/// harness must never make. **It is not the only such copy.** `labforage`,
+/// `chronicle`, `labdefence`, `windfall_probe`, the ant trainer's arenas and
+/// `batch` each type the sequence themselves, and `batch` leaves the mister
+/// out entirely -- so a batch run of a box whose rain is on never rains.
+/// Moving them onto this is their owners' change to make; this function only
+/// makes it possible.
+///
+/// What `Lab::tick` does after this -- colony regrouping, the stats, UI, food
+/// and dig observers -- feeds the window and its pages, and stays there.
+pub fn tick_world(
+    world: &mut World,
+    particles: &mut ParticleSystem,
+    blasts: &mut Blasts,
+    player_tuning: &player::Tuning,
+    spec: &scene::LabBox,
+    scenario: Option<&scenario::Scenario>,
+) {
+    frame::step(world, particles, blasts, player::PlayerInput::default(), player_tuning);
+    // **Immediately after `frame::step`, per `scenario::tick_timeline`'s own
+    // doc on why that ordering is the timing contract.** Cheap when there is
+    // nothing to do: `Scenario::due` returns before touching its timeline at
+    // all unless one is non-empty, so a box with no scenario -- or one whose
+    // timeline is empty -- pays one `Option` check and nothing else.
+    if let Some(scenario) = scenario {
+        scenario::tick_timeline(scenario, world, spec);
+    }
+    // **The mister, same timing contract as the timeline above.** `rain::tick`
+    // is its own due-gate on `World::frame` and returns 0 immediately for
+    // `Rain::Off`. The shipped default is Light, not off.
+    rain::tick(world, spec, spec.rain);
 }
 
 #[cfg(test)]
