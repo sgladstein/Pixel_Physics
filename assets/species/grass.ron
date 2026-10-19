@@ -130,6 +130,35 @@
     // the ramp than its tip.
     bark_bands: (first: 0, count: 3),
     stomatal_reserve: 0.2,
+    // **A tuft dies of old age, so the sward lets go of ground** (owner's
+    // pick, 2026-10-19, of four ways to keep grass in check). Median
+    // lifespan 20,000 frames of organism age -- see
+    // `SpeciesDef::life_half_life` for the hazard, which a seedling all but
+    // escapes. Before this grass was the one plant that never died of
+    // anything but starvation or shade, and on the mixed planted bed (mix7,
+    // light rain, half pace, no ants, 450k) it worked as a one-way ratchet:
+    // per 50k frames 21% of the columns a low plant topped went to grass and
+    // 0% of grass columns went to anything else, and grass sat on a mound of
+    // its own waiting seed 30-60 rows deep.
+    //
+    // **12 seeds against main:** grass leaf 47,667 -> 22,827 (lower 12/12,
+    // never below 731), seed lying above the soil line 142,258 -> 69,190
+    // (12/12), ground raised above the sown line 51,505 -> 46,025 (11/12),
+    // columns a low plant tops 258 -> 673 (higher 8, lower 2), low-plant
+    // leaf 4,025 -> 4,254 (6/6), species with 100+ leaf 47 -> 46.
+    // Outdoor world (`flora_census frames=60000`, 12 worlds): grass cells
+    // 64,043 -> 27,266 (lower in all 10 worlds that grow it), grass plants
+    // established 2,828 -> 2,669, every other species within its spread.
+    //
+    // **40,000 was measured too and is too long**: on 4 seeds it cut grass
+    // 15% and raised the ground under it on 4/4. Every cheaper way to thin
+    // the seed mound -- 4x seed cost, a quarter of the allocation, a 4x
+    // price with the same seedling, rotting the heap, sprouts lifting the
+    // seed on them, seeds waiting while covered -- made grass *bigger*,
+    // because the mound was the only thing holding grass back
+    // (`Reports/dead-ends.md`). `PIXEL_PHYSICS_LIFE_HALF_LIFE=grass:0`
+    // restores immortal grass.
+    life_half_life: 20000.0,
     // **The pioneer's bank outlasts the pioneer.** Twice the woody default
     // (9,000), the way a small-seeded ruderal's persistent seed bank
     // outlasts a large-seeded tree's transient one -- so grass's answer to
