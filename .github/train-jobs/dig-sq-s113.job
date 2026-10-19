@@ -1,0 +1,4 @@
+# Dig step 4 on rev 2.8 pay (depth squared, full loads), built from main 6a65a026f (PR 726 merged).
+# Start: the forage retrain's hold-best fretrain-s93. Same arguments as the paused
+# step4-depth batch but for the seed. Brain lane, 2026-10-19.
+ref=6a65a026f1eb600235617f707ad520ed44beb03c brain=mind challenge=suite arenas=soil,fetch,trail keep=fetch,trail forget=0.8 dist=10,30 step=4 shaft=4 budget=1200 prune=0.3 wire=0.001 grow=0.1 patience=30 seed=113 pop=100 gens=70 layouts=16 pm=0.03 sigma=0.3 cross=0.3 holdout=12 start=training/starts/fretrain-s93.txt
