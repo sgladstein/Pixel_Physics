@@ -688,8 +688,9 @@ fn main() {
         } else {
             train::holdout_layouts(set.holdout)
         };
-        for (who, g, lay) in train::controls(ch.as_ref(), &g, &g0, &hold) {
-            let s = train::score_clones(ch.as_ref(), &g, &lay, set.threads);
+        let rows = train::controls(ch.as_ref(), &g, &g0, &hold);
+        let todo: Vec<(&[f32], &[train::Layout])> = rows.iter().map(|r| (r.1.as_slice(), r.2.as_slice())).collect();
+        for ((who, _, _), s) in rows.iter().zip(train::score_rows(ch.as_ref(), &todo, set.threads)) {
             println!("HOLDOUT {who:12} {:.3}  {:?}  {:?}", s.fit, ch.parts(), s.parts);
         }
         return;
