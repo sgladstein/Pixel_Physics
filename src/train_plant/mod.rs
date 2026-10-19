@@ -363,30 +363,8 @@ mod tests {
         include_str!("../../assets/species/herb.ron")
     }
 
-    /// The whole bed after `frames`, as one number: every cell's material,
-    /// shade, aux and organism id. A census of the founder is too coarse to
-    /// guard a round trip -- measured: a 1% change to leaf photosynthesis
-    /// left a 3,000-frame census identical, so the first version of the test
-    /// below stayed green under exactly the fault it was named for.
     fn bed_hash(arm: &Arm, layout: Layout, spec: &BedSpec) -> u64 {
-        let bed = arena::bed_for(arm.ron.as_deref(), &arm.name, layout, spec);
-        let (mut w, _) = arena::build(&bed, spec);
-        let mut particles = crate::sim::particle::ParticleSystem::new();
-        let mut blasts = crate::sim::explosion::Blasts::new();
-        let tuning = crate::sim::player::Tuning::default();
-        for _ in 0..spec.frames {
-            crate::lab::tick_world(&mut w, &mut particles, &mut blasts, &tuning, &bed, None);
-        }
-        let mut h: u64 = 0xcbf2_9ce4_8422_2325;
-        for y in 0..bed.height {
-            for x in 0..bed.width {
-                let c = w.get(x, y);
-                for v in [c.material.0 as u64, c.shade as u64, c.aux() as u64, c.organism_id() as u64] {
-                    h = (h ^ v).wrapping_mul(0x0000_0100_0000_01b3);
-                }
-            }
-        }
-        h
+        arena::grow_hash(&arena::bed_for(arm.ron.as_deref(), &arm.name, layout, spec), spec)
     }
 
     /// **What is scored is what ships**: a renamed copy of the shipped herb,

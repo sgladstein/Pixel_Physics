@@ -636,3 +636,37 @@ exist to catch, seen happening. **One seed per arm is a pass, not a measure
 of the trainer**; P2 repeats it on three. Picture of all four on three beds
 at frames 8,000 and 40,000 to the owner as a blind A/B card (shipped
 against rebuilt), `20261019T053404354Z-52e16d`.
+
+**The heritability gate, measured** (§6.4, the review's blocker; `plantrain
+mode=heritability`, 10 children of the herb per row, each grown on the same 6
+lab layouts, 40,000 frames). The share of the spread between children that is
+their genome, `1 − mean within-child variance / total variance`:
+
+| children | shoot size | height | size at first flower | score |
+|---|---|---|---|---|
+| 1–3 genes, σ 0.05 / 0.1 / 0.2 | 0.06 / 0.02 / 0.01 | 0.03 / 0.02 / 0.00 | 0.09 / 0.02 / 0.00 | 0.08 / 0.05 / 0.00 |
+| 1–3 genes, σ 0.4 / 0.9 | 0.20 / 0.01 | 0.11 / 0.06 | 0.23 / 0.09 | 0.21 / 0.08 |
+| 8 genes, σ 0.4, mixed light / all under a lamp | 0.03 / 0.04 | 0.03 / 0.07 | 0.02 / 0.24 | 0.03 / 0.25 |
+| **8 genes, σ 0.9, mixed light / all under a lamp** | **0.69 / 0.70** | 0.34 / 0.41 | 0.46 / 0.61 | **0.37 / 0.56** |
+
+**The review's blocker is real and now has a number.** A child one round of
+1–3 genes away from the herb is invisible to selection at any step size: the
+bed decides what it grows into. Children **8 genes at σ 0.9** apart are
+visible (size 0.69–0.70), and fixing the light position helps second
+(score 0.37 → 0.56). So the rule for look rounds is: candidates at least that
+far from the shipped herb, compared within a light position. The sabotage run
+still worked with 1–3-gene children because selection accumulates over
+generations on one strong gene (photosynthesis); a look round cannot lean on
+that.
+
+**Gene liveness** (`plantrain mode=liveness`: each gene pushed to both ends
+of its range, 2 layouts × 20,000 frames, bed hash against the herb's own):
+**56 of 74 genes move the bed; 18 are inert** in a herb's lab bed. Three were
+table bugs, leaf and head fields on a root's `Grow` block, now excluded. The
+rest say something about the bed or the herb: **`wind_weight` is inert, so the
+sealed box has no wind** (§5's open question, answered); `drought_death` is
+inert under the mister; `branch_angle` at every tier, the tier-3 values and
+`juvenile_branch` are inert because the herb never branches from its tip, and
+they come alive only once another gene makes it branch. Those stay in the
+table, since epistasis is the point, but a run spends a draw on them for
+nothing until then.

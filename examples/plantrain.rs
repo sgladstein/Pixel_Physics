@@ -13,6 +13,10 @@
 //! cargo run --release --example plantrain -- mode=sweep gene=after_metamers values=1,3,5,8,12 layouts=6
 //! # species files scored against the shipped species on the hold-out, paired
 //! cargo run --release --example plantrain -- mode=score files=training/plants/run1/best.ron layouts=12
+//! # the heritability gate: how much of the spread between children is their genome, per step size
+//! cargo run --release --example plantrain -- mode=heritability sigmas=0.05,0.1,0.2,0.4,0.9 genomes=10 layouts=6
+//! # which genes move anything at all: each pushed to both ends of its range, the bed hashed
+//! cargo run --release --example plantrain -- mode=liveness layouts=2 frames=20000
 //! # a picture: the shipped species and each file, on N layouts, at chosen frames
 //! cargo run --release --example plantrain -- mode=pic files=training/plants/run1/best.ron layouts=3 stops=8000,40000 out=pic.png
 //! ```
@@ -30,7 +34,7 @@ use std::path::PathBuf;
 
 const KNOWN: &[&str] = &[
     "mode", "start", "control", "groups", "pop", "gens", "keep", "layouts", "holdout", "final", "sigma", "genes", "seed", "select", "teeth",
-    "width", "frames", "every", "mutation", "n_est", "k_seed", "size_floor", "out", "gene", "values", "files", "base", "stops", "up", "scale",
+    "width", "frames", "every", "mutation", "n_est", "k_seed", "size_floor", "out", "gene", "values", "files", "base", "stops", "up", "scale", "sigmas", "genomes", "offset",
 ];
 
 fn args() -> BTreeMap<String, String> {
@@ -210,6 +214,132 @@ fn score_files(m: &BTreeMap<String, String>) {
     }
 }
 
+/// **Which genes move anything at all** (`genome_reach`'s dynamic arm, for a
+/// species file): every gene pushed to the bottom and the top of its range,
+/// each grown on `layouts` beds and hashed against the start's own bed. A gene
+/// whose every push leaves every bed's hash unchanged is **inert in this bed**
+/// -- conclusive, since an unchanged hash means nothing moved -- and a run
+/// that mutates it spends a draw on nothing. A changed hash is weak evidence
+/// of importance and is reported as "moves", nothing more.
+fn liveness(m: &BTreeMap<String, String>) {
+    let b = bed(m);
+    let mut start = train_plant::load(&start_path(m)).expect("the start species loads");
+    start.name = genome::child_name(&start.name, 990, 0, 0);
+    let genes = genome::gene_table(&start);
+    let n: usize = get(m, "layouts", 2);
+    let base: u64 = get(m, "base", 8_000_000);
+    let layouts = arena::layouts(base, n);
+    println!("plantrain liveness: {} genes, layouts={n} base={base} frames={}", genes.len(), b.frames);
+    let mut arms = vec![Arm::of(&start)];
+    for (i, g) in genes.iter().enumerate() {
+        for (j, v) in [g.lo, g.hi].into_iter().enumerate() {
+            let mut d = genome::clone_def(&start);
+            d.name = genome::child_name(&start.name, 991, i, j);
+            genome::write(&mut d, g.addr, v);
+            arms.push(Arm::of(&d));
+        }
+    }
+    use rayon::prelude::*;
+    let tasks: Vec<(usize, usize)> = (0..arms.len()).flat_map(|a| (0..n).map(move |l| (a, l))).collect();
+    let hashes: Vec<u64> = tasks
+        .par_iter()
+        .map(|&(a, l)| arena::grow_hash(&arena::bed_for(arms[a].ron.as_deref(), &arms[a].name, layouts[l], &b), &b))
+        .collect();
+    let base_hash = &hashes[..n];
+    let (mut live, mut dead) = (Vec::new(), Vec::new());
+    for (i, g) in genes.iter().enumerate() {
+        let moved = (0..2).any(|j| {
+            let a = 1 + i * 2 + j;
+            (0..n).any(|l| hashes[a * n + l] != base_hash[l])
+        });
+        if moved {
+            live.push(g.name());
+        } else {
+            dead.push(g.name());
+        }
+    }
+    println!("moves the bed ({}): {}", live.len(), live.join(" "));
+    println!("INERT here ({}): {}", dead.len(), dead.join(" "));
+}
+
+/// A named number read off a bed's census.
+type Quantity = (&'static str, fn(&Census) -> f32);
+
+/// **The heritability gate** (plan §6.4, the review's blocker): for each step
+/// size, `genomes` children of the start, each one mutation round of up to
+/// `genes` genes from `groups`, grown on the same `layouts`; for each
+/// quantity, `1 - mean within-genome variance / total variance`. Near 0, the
+/// bed decides what a child looks like and choosing among children is choosing
+/// among noise; a look round may not use a step size below the one where the
+/// quantity it judges is heritable.
+fn heritability(m: &BTreeMap<String, String>) {
+    let b = bed(m);
+    let start = train_plant::load(&start_path(m)).expect("the start species loads");
+    let sigmas: Vec<f32> = m.get("sigmas").map_or(vec![0.05, 0.1, 0.2, 0.4, 0.9], |v| v.split(',').map(|x| x.parse().expect("a sigma")).collect());
+    let g: usize = get(m, "genomes", 10);
+    let n: usize = get(m, "layouts", 6);
+    let base: u64 = get(m, "base", 7_000_000);
+    let max_genes: usize = get(m, "genes", 3);
+    let groups: Vec<Group> = m
+        .get("groups")
+        .map(|v| v.split(',').map(|x| Group::parse(x).unwrap_or_else(|| panic!("unknown group `{x}`"))).collect())
+        .unwrap_or_else(|| vec![Group::Shape, Group::Leaf, Group::Flower, Group::Height]);
+    let genes = genome::gene_table(&start);
+    let free: Vec<usize> = (0..genes.len()).filter(|&i| groups.contains(&genes[i].group)).collect();
+    // `offset=under|quarter|between` puts every bed at one light position,
+    // so the between-bed spread is the soil, the mister and development
+    // only -- the control for "is it the light, or the genome?".
+    let mut layouts = arena::layouts(base, n);
+    if let Some(o) = m.get("offset") {
+        let off = arena::Offset::ALL.into_iter().find(|x| x.name() == o).unwrap_or_else(|| panic!("offset={o} is not under|quarter|between"));
+        for l in &mut layouts {
+            l.offset = off;
+        }
+    }
+    println!(
+        "plantrain heritability: offset={}",
+        m.get("offset").map_or("mixed", String::as_str)
+    );
+    println!(
+        "plantrain heritability: sigmas={sigmas:?} genomes={g} layouts={n} base={base} genes={max_genes} groups={} frames={} mutation_off={}",
+        groups.iter().map(|x| x.name()).collect::<Vec<_>>().join(","),
+        b.frames,
+        b.mutation_off
+    );
+    let quantities: [Quantity; 5] = [
+        ("peak shoot cells", |c| c.peak_shoot as f32),
+        ("peak height", |c| c.peak_height as f32),
+        ("shoot at first flower (0 = none)", |c| c.shoot_at_first_flower as f32),
+        ("seedlings established", |c| c.seedlings_established as f32),
+        ("score", |c| score::bed_score(c, &Constants { n_est: 20, k_seed: 24, size_floor: 55 })),
+    ];
+    for (si, &sigma) in sigmas.iter().enumerate() {
+        let mut rng = pixel_physics::sim::rng::Rng::new(0x5EED_0000 + si as u64);
+        let arms: Vec<Arm> = (0..g)
+            .map(|i| {
+                let (mut d, _) = genome::mutate(&start, &genes, &free, sigma, max_genes, &mut rng);
+                d.name = genome::child_name(&start.name, 900 + si as u64, 0, i);
+                Arm::of(&d)
+            })
+            .collect();
+        let cs = train_plant::census_all(&arms, &layouts, &b);
+        let mut line = format!("sigma {sigma:<5}");
+        for (name, f) in &quantities {
+            let rows: Vec<Vec<f32>> = cs.iter().map(|r| r.iter().map(f).collect()).collect();
+            let all: Vec<f32> = rows.iter().flatten().copied().collect();
+            let var = |v: &[f32]| {
+                let mean = v.iter().sum::<f32>() / v.len().max(1) as f32;
+                v.iter().map(|x| (x - mean) * (x - mean)).sum::<f32>() / v.len().max(1) as f32
+            };
+            let total = var(&all);
+            let within = rows.iter().map(|r| var(r)).sum::<f32>() / rows.len().max(1) as f32;
+            let h2 = if total > 0.0 { 1.0 - within / total } else { 0.0 };
+            line.push_str(&format!(" | {name} {h2:.2}"));
+        }
+        println!("{line}");
+    }
+}
+
 /// One sheet cell, `(arm, layout)`, and one drawn tile's RGBA.
 type Cell = (usize, usize);
 type Tile = Vec<u8>;
@@ -307,6 +437,8 @@ fn main() {
         "sweep" => sweep(&m),
         "score" => score_files(&m),
         "pic" => pic(&m),
+        "heritability" => heritability(&m),
+        "liveness" => liveness(&m),
         "train" => {
             let b = bed(&m);
             let groups: Vec<Group> = m
@@ -342,7 +474,7 @@ fn main() {
             }
         }
         other => {
-            eprintln!("plantrain: mode={other} is not train|calibrate|sweep|score|pic");
+            eprintln!("plantrain: mode={other} is not train|calibrate|sweep|score|pic|heritability|liveness");
             std::process::exit(2);
         }
     }

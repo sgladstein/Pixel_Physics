@@ -210,6 +210,12 @@ pub fn gene_table(def: &SpeciesDef) -> Vec<Gene> {
             continue;
         };
         for &(param, group, step, bound) in LEVERS {
+            // A root has no leaves and no flower head: these fields parse on a
+            // root's `Grow` block and are read by nothing there (measured
+            // inert, `plantrain mode=liveness`, 2026-10-19).
+            if cell == CellType::RootTip && matches!(param, ParamId::LeafCluster | ParamId::LeafSpread | ParamId::OrganCluster) {
+                continue;
+            }
             let tiers = if organism::param_is_tiered(param) { BRANCH_ORDERS as u8 } else { 1 };
             for tier in 0..tiers {
                 let Some(v) = behaviors.iter().find_map(|b| organism::read_param(b, param, tier)) else {

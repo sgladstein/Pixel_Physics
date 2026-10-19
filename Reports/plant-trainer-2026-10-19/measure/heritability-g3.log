@@ -1,0 +1,7 @@
+plantrain heritability: sigmas=[0.05, 0.1, 0.2, 0.4, 0.9] genomes=10 layouts=6 base=7000000 genes=3 groups=shape,leaf,flower,height frames=40000 mutation_off=true
+sigma 0.05  | peak shoot cells 0.06 | peak height 0.03 | shoot at first flower (0 = none) 0.09 | seedlings established 0.10 | score 0.08
+sigma 0.1   | peak shoot cells 0.02 | peak height 0.02 | shoot at first flower (0 = none) 0.02 | seedlings established 0.16 | score 0.05
+sigma 0.2   | peak shoot cells 0.01 | peak height 0.00 | shoot at first flower (0 = none) 0.00 | seedlings established 0.02 | score 0.00
+sigma 0.4   | peak shoot cells 0.20 | peak height 0.11 | shoot at first flower (0 = none) 0.23 | seedlings established 0.13 | score 0.21
+sigma 0.9   | peak shoot cells 0.01 | peak height 0.06 | shoot at first flower (0 = none) 0.09 | seedlings established 0.04 | score 0.08
+wall 666s

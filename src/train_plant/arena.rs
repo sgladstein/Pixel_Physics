@@ -215,6 +215,34 @@ pub fn grow(bed: &LabBox, spec: &BedSpec) -> Census {
     c
 }
 
+/// **The whole bed after `spec.frames`, as one number**: every cell's
+/// material, shade, aux and organism id, over the box. A census of the founder
+/// is too coarse to say whether two species grow the same plant (measured: a
+/// 1% leaf photosynthesis change left a 3,000-frame census identical), so a
+/// round trip, or whether a gene moves anything at all, is asked of this.
+/// **An unchanged hash is conclusive that nothing moved; a changed one says
+/// only that something did** (`genome_reach`'s rule), since a bed is chaotic
+/// in every draw.
+pub fn grow_hash(bed: &LabBox, spec: &BedSpec) -> u64 {
+    let (mut w, _) = build(bed, spec);
+    let mut particles = ParticleSystem::new();
+    let mut blasts = Blasts::new();
+    let tuning = player::Tuning::default();
+    for _ in 0..spec.frames {
+        crate::lab::tick_world(&mut w, &mut particles, &mut blasts, &tuning, bed, None);
+    }
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for y in 0..bed.height {
+        for x in 0..bed.width {
+            let c = w.get(x, y);
+            for v in [c.material.0 as u64, c.shade as u64, c.aux() as u64, c.organism_id() as u64] {
+                h = (h ^ v).wrapping_mul(0x0000_0100_0000_01b3);
+            }
+        }
+    }
+    h
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -1,0 +1,5 @@
+plantrain heritability: offset=mixed
+plantrain heritability: sigmas=[0.4, 0.9] genomes=10 layouts=6 base=7000000 genes=8 groups=shape,leaf,flower,height frames=40000 mutation_off=true
+sigma 0.4   | peak shoot cells 0.03 | peak height 0.03 | shoot at first flower (0 = none) 0.02 | seedlings established 0.07 | score 0.03
+sigma 0.9   | peak shoot cells 0.69 | peak height 0.34 | shoot at first flower (0 = none) 0.46 | seedlings established 0.14 | score 0.37
+done
