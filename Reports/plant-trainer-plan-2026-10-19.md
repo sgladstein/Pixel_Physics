@@ -562,3 +562,51 @@ built).
 - the root share as a "free one rule" experiment;
 - the measured compute options;
 - "every log keeps its settings line".
+
+## 13. Build log (P1)
+
+*Appended as P1 lands; measurements, not plans.*
+
+**2026-10-19, commit `3c7ad5e9`: the core.** Library seams (`LabBox::founder_at`,
+`LabBox::species_ron`, `lab::tick_world`, `World::founder_variant_chance`), all
+defaulting to today: `lab::` 299 tests and `tests/determinism.rs` 4 pass.
+`src/train_plant/` (genome, arena, score, run loop) and `examples/plantrain.rs`.
+Two corrections to §5.4 found while building: the per-birth genotype jitter
+already has a world dial (`World::mutation_sigma`), so only gene flips
+(`DISCRETE_MUTATION_CHANCE`) lack one; and the lab's batch runner
+(`lab::batch`) steps the world without `rain::tick`, so a batch run of a box
+with the mister on never rains. Recorded, not changed.
+
+**The round-trip guard, watched failing.** A renamed herb written by `to_ron`
+and registered again grows a whole-bed hash identical to the shipped herb's.
+Its first version compared the founder's census and stayed green under a 1%
+change to leaf photosynthesis: blind. Rewritten to hash the bed, it stayed
+green under that fault and under one more leaf per node (8 → 9), and went red
+under plastochron 5 → 4. **A parameter can be flat in a young bed**: carbon
+caps a node's leaf spray below 8, so 9 changes nothing, and a sweep of
+`leaf_cluster` 24 grew like the shipped 8.
+
+**The shipped herb in the lab** (`mode=calibrate`, 24 layouts × 40,000
+frames, 71 s on four threads, about 3 s a bed): germinated 24/24; flowered
+17/24, by light position 7/8 under a lamp, 6/8 a quarter out, 4/8 between
+lamps; first flower p50 at frame 6,750, at 58–103 shoot cells; 0–23
+seedlings established. Run constants set from it with headroom:
+`size_floor` 55 (under the smallest that flowered), `k_seed` 24 (over the
+largest). At the first guess, `k_seed` 4, 14 of 24 shipped beds sat on the
+cap.
+
+**The precocity probe** (§6.1; `mode=sweep gene=after_metamers`, 12
+layouts): the score peaks at the shipped 8 (4.139), with 7 close (4.061).
+Earlier flowering scores lower: 1 → 1.117, 3 → 2.652, 5 → 3.413. **Passes:
+the score does not pay a dwarf for flowering early.** Two side findings:
+`after_metamers` 8 reproduced the shipped herb's row exactly (the round trip
+at scale); and herbs that never reach their flowering node (10 or 12) still
+establish 14–15 seedlings through the mature-stem seed route. **In the lab,
+flowering buys a herb almost no fitness**, so the score's flowering step
+pays for the herb's identity, not its survival.
+
+**Teeth** (smoke run, 3 hold-out layouts): shipped 3.861, `seedbound` 1.100,
+`starved` 2.191. The sabotaged start for the acceptance task (both
+photosynthesis rates halved, `training/plants/starts/herb-halfphoto.ron`)
+scores **1.160 ± 0.354 below the shipped herb, behind on 11 of 12 layouts**:
+a gap the trainer has to close.
