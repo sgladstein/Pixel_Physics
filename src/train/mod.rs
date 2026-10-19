@@ -715,6 +715,34 @@ pub struct Settings {
     /// the best. 0 runs every generation; 30 unless `patience=` sets it --
     /// on by default, as features here are (owner, 2026-09-27).
     pub patience: usize,
+    /// **Carry on a run from its `state.txt`** ([`RunState`]) in the same
+    /// `out` directory, as if it had never stopped: the generation count,
+    /// the population's parents, the random stream, the hold-out best and
+    /// [`flat`]'s clock all pick up where the last whole generation left
+    /// them. Raise `gens` to run more; a run that stopped flat stops again
+    /// at its next hold-out unless `patience` is 0. At `every` above 1 a
+    /// leg's last generation is held out, as every run's is, where a run
+    /// straight through may not hold that one out: the population is the
+    /// same either way, the hold-out best may not be. A state saved on
+    /// another arena ([`Settings::arena`]) or with other parts, or one cut
+    /// short, is refused (review of PR 726, S1, S2); other settings only
+    /// warn ([`RunState::load`]).
+    ///
+    /// **Why**: a run saved only each generation's champion, so carrying
+    /// one on meant a fresh population of one ant's children, a dip, and
+    /// `patience`'s clock back at 0 (owner, 2026-10-19: "restart one
+    /// exactly where it was and just add an extra 50 generations"). A
+    /// cloud container that restarts mid-run lost its run the same way.
+    pub resume: bool,
+    /// **The arena's own arguments**, as the command line gave them
+    /// (`examples/train.rs`: challenge, arenas, step, shaft, frames, dist,
+    /// budget and the rest), for [`RunState`]: a resume under another
+    /// arena is refused rather than carrying this one's hold-out best,
+    /// [`flat`]'s clock and `hold-best.txt` into it (review of PR 726, S1:
+    /// `step=3` on a step-4 state went on silently and mixed both rungs in
+    /// one `holdout.csv`). The challenge's own name, ants, frames and banned
+    /// outputs are stored beside it whatever it holds, so empty is safe.
+    pub arena: String,
 }
 
 /// No run stops before this many generations, however flat ([`flat`]).
@@ -772,6 +800,8 @@ impl Default for Settings {
             wire: 1e-3,
             grow: 1.0,
             patience: 30,
+            resume: false,
+            arena: String::new(),
         }
     }
 }
@@ -1198,6 +1228,8 @@ fn start_brain(start: &Start, species_genome: &[f32], banned: &[BrainOutput], se
 ///   which a flat stop can leave well above the last (review of PR 717,
 ///   N16): the one to start a next stage from;
 /// * `curves.svg` -- the learning curves, redrawn at every hold-out;
+/// * `state.txt` -- what [`Settings::resume`] carries on from
+///   ([`RunState`]), overwritten every generation;
 /// * `summary.txt` -- what the run was and how it ended.
 pub fn train(ch: &dyn Challenge, start: Vec<f32>, set: &Settings, out: &Path) -> std::io::Result<Vec<f32>> {
     std::fs::create_dir_all(out.join("champions"))?;
@@ -1205,10 +1237,10 @@ pub fn train(ch: &dyn Challenge, start: Vec<f32>, set: &Settings, out: &Path) ->
     assert!(blocks(start.len()).walk.is_none() || ch.unit() == Unit::Colony, "walk genes need a colony arena: the scout's reserve is the world's");
     let mut rng = Rng(set.seed.wrapping_mul(0xA24B_AED4_963E_E407) ^ 0x7EA1);
     let parts = ch.parts();
-    let mut progress = std::fs::File::create(out.join("progress.csv"))?;
-    writeln!(progress, "gen,best,median,control,secs,{},links", parts.join(","))?;
-    let mut holdout = std::fs::File::create(out.join("holdout.csv"))?;
-    writeln!(holdout, "gen,who,fit,{}", parts.join(","))?;
+    let resumed = set.resume.then(|| RunState::load(&out.join(STATE_FILE), ch, set, &start));
+    let first = resumed.as_ref().map_or(0, |r| r.next);
+    let mut progress = rows_before(&out.join("progress.csv"), &format!("gen,best,median,control,secs,{},links", parts.join(",")), first)?;
+    let mut holdout = rows_before(&out.join("holdout.csv"), &format!("gen,who,fit,{}", parts.join(",")), first)?;
     let head = format!(
         "challenge={} unit={:?} ants={} frames={} {:?} banned={:?} trainable_slots={}",
         ch.name(),
@@ -1222,9 +1254,6 @@ pub fn train(ch: &dyn Challenge, start: Vec<f32>, set: &Settings, out: &Path) ->
     println!("{head}");
     let hold = holdout_layouts(set.holdout);
 
-    let mut popn: Vec<Vec<f32>> = (0..set.pop)
-        .map(|k| if k == 0 { start.clone() } else { mutate(&start, &slots, set.pm, set.sigma, set.prune, set.grow, &mut rng) })
-        .collect();
     let elites = (set.pop / 4).max(1);
     let t0 = Instant::now();
     let mut champion = start.clone();
@@ -1250,8 +1279,26 @@ pub fn train(ch: &dyn Challenge, start: Vec<f32>, set: &Settings, out: &Path) ->
     // N3). Print-only: nothing reads it back, so it has no guard (review of
     // PR 724, N4).
     let mut top_under: Vec<&str> = Vec::new();
+    let mut secs_before = 0.0;
+    let mut popn: Vec<Vec<f32>> = match resumed {
+        Some(r) => {
+            println!("resumed at generation {} from {}", r.next, out.join(STATE_FILE).display());
+            rng = Rng(r.rng);
+            (best_hold, best_gen, top, top_gen, top_genome) = (r.best_hold, r.best_gen, r.top, r.top_gen, r.top_genome);
+            (champion, last_hold, secs_before) = (r.champion, r.last_hold, r.secs);
+            (scored_pop, scored_hold) = (r.scored_pop, r.scored_hold);
+            if r.vetoed_pop.len() == gates.len() && r.vetoed_hold.len() == gates.len() {
+                (vetoed_pop, vetoed_hold) = (r.vetoed_pop, r.vetoed_hold);
+            }
+            top_under = gates.iter().filter(|g| r.top_under.iter().any(|n| n == g.1)).map(|g| g.1).collect();
+            breed(&r.parents, set, &slots, &mut rng)
+        }
+        None => (0..set.pop)
+            .map(|k| if k == 0 { start.clone() } else { mutate(&start, &slots, set.pm, set.sigma, set.prune, set.grow, &mut rng) })
+            .collect(),
+    };
     println!("gen   best  median  control  [{}]  secs", parts.join(" "));
-    for gen in 0..set.gens {
+    for gen in first..set.gens {
         let tg = Instant::now();
         let layouts = training_layouts(set.seed, gen, set.layouts);
         let mut all = popn.clone();
@@ -1287,6 +1334,7 @@ pub fn train(ch: &dyn Challenge, start: Vec<f32>, set: &Settings, out: &Path) ->
         }
         save_genome(&out.join(format!("champions/gen-{gen:03}.txt")), &champion)?;
 
+        let mut stop = false;
         if (gen + 1) % set.every.max(1) == 0 || gen + 1 == set.gens {
             for (who, g, lay) in controls(ch, &champion, &start, &hold) {
                 let who = if who == "genome" { "champion" } else { who };
@@ -1316,30 +1364,46 @@ pub fn train(ch: &dyn Challenge, start: Vec<f32>, set: &Settings, out: &Path) ->
                 }
             }
             println!("    {}", describe(&champion));
-            let stop = flat(gen, best_gen, set.patience);
+            stop = flat(gen, best_gen, set.patience);
             if set.pictures && ((gen + 1) % PICTURE_EVERY == 0 || gen + 1 == set.gens || stop) {
                 picture(ch, &champion, hold[0], &out.join(format!("pic-gen-{gen:03}.png")));
             }
             curves(out);
-            if stop {
-                println!("STOPPED flat: no hold-out best {STOP_GAIN} above the last since generation {best_gen} ({best_hold:.3}), {} generations, patience {}", gen + 1, set.patience);
-                ran = gen + 1;
-                break;
-            }
         }
 
         let parents: Vec<Vec<f32>> = ranked[..elites].iter().map(|&(_, g)| popn[g].clone()).collect();
-        popn = parents.clone();
-        while popn.len() < set.pop {
-            let a = &parents[rng.below(elites)];
-            let child = if elites > 1 && rng.unit() < set.cross {
-                let b = &parents[rng.below(elites)];
-                cross(a, b, &mut rng)
-            } else {
-                a.clone()
-            };
-            popn.push(mutate(&child, &slots, set.pm, set.sigma, set.prune, set.grow, &mut rng));
+        // Saved before the children are drawn, with the stream where they
+        // will be drawn from: a resume breeds these parents from this
+        // stream, so its generation `gen + 1` is this run's.
+        let state = RunState {
+            next: gen + 1,
+            rng: rng.0,
+            start: fingerprint(&start),
+            arena: RunState::arena(ch, set),
+            parts: parts.join(","),
+            best_hold,
+            best_gen,
+            top,
+            top_gen,
+            top_under: top_under.iter().map(|n| n.to_string()).collect(),
+            scored_pop,
+            scored_hold,
+            vetoed_pop: vetoed_pop.clone(),
+            vetoed_hold: vetoed_hold.clone(),
+            secs: secs_before + t0.elapsed().as_secs_f64(),
+            last_hold: last_hold.clone(),
+            settings: RunState::settings(set),
+            champion: champion.clone(),
+            top_genome: top_genome.clone(),
+            parents,
+        };
+        state.save(&out.join(STATE_FILE))?;
+        if stop {
+            println!("STOPPED flat: no hold-out best {STOP_GAIN} above the last since generation {best_gen} ({best_hold:.3}), {} generations, patience {}", gen + 1, set.patience);
+            ran = gen + 1;
+            break;
         }
+        popn = breed(&state.parents, set, &slots, &mut rng);
     }
     save_genome(&out.join("best.txt"), &champion)?;
     save_genome(&out.join("hold-best.txt"), &top_genome)?;
@@ -1367,12 +1431,280 @@ pub fn train(ch: &dyn Challenge, start: Vec<f32>, set: &Settings, out: &Path) ->
     let summary = format!(
         "{head}\n{ran} of {} generations in {:.0} s (hold-out best {top:.3} at generation {top_gen}, hold-best.txt; last gain over {STOP_GAIN} at generation {best_gen})\n{last_hold}\n{vetoes}{}\n",
         set.gens,
-        t0.elapsed().as_secs_f64(),
+        secs_before + t0.elapsed().as_secs_f64(),
         describe(&champion)
     );
     std::fs::write(out.join("summary.txt"), &summary)?;
     println!("{summary}");
     Ok(champion)
+}
+
+/// **The next generation from its parents**: the parents themselves, then
+/// children -- each a parent, or a uniform cross of two with probability
+/// `cross`, mutated -- until the population is full.
+fn breed(parents: &[Vec<f32>], set: &Settings, slots: &[usize], rng: &mut Rng) -> Vec<Vec<f32>> {
+    let elites = parents.len();
+    let mut popn = parents.to_vec();
+    while popn.len() < set.pop {
+        let a = &parents[rng.below(elites)];
+        let child = if elites > 1 && rng.unit() < set.cross {
+            let b = &parents[rng.below(elites)];
+            cross(a, b, rng)
+        } else {
+            a.clone()
+        };
+        popn.push(mutate(&child, slots, set.pm, set.sigma, set.prune, set.grow, rng));
+    }
+    popn
+}
+
+/// Where [`train`] keeps its [`RunState`], in the run's directory.
+pub const STATE_FILE: &str = "state.txt";
+
+/// **A run between two generations** ([`Settings::resume`]): everything
+/// [`train`] carries from one generation to the next. One file a run,
+/// overwritten every generation by a rename, so a run killed mid-write
+/// keeps the last whole one, and a run adds one file to the shared
+/// folder's cap, not one a generation.
+///
+/// Every number is written as its bits: a resumed run is the run that
+/// never stopped only if the weights, the scores [`flat`] compares and the
+/// random stream come back to the last bit, and a decimal print can drop
+/// one (a weight of -0.0 among them, which [`save_genome`] leaves out).
+#[derive(Debug, PartialEq)]
+pub struct RunState {
+    /// The generation a resume runs first.
+    pub next: usize,
+    /// The random stream where the children of `parents` are drawn from.
+    pub rng: u64,
+    /// The start genome's [`fingerprint`]: the control, and what a suite's
+    /// references were taken from, so a state saved from another start is
+    /// another run.
+    pub start: u64,
+    /// The arena ([`RunState::arena`]) and its parts, the columns of
+    /// `progress.csv` and `holdout.csv`: a resume must share both. Empty in
+    /// a state saved before they were kept (`run-state 1`).
+    pub arena: String,
+    pub parts: String,
+    pub best_hold: f64,
+    pub best_gen: usize,
+    pub top: f64,
+    pub top_gen: usize,
+    /// The floors the hold-out top was under, for the summary. It, the
+    /// veto counts and `last_hold` feed only `summary.txt`, and the test
+    /// arena has no floors, so nothing guards their restore (review of
+    /// PR 726, N3).
+    pub top_under: Vec<String>,
+    pub scored_pop: usize,
+    pub scored_hold: usize,
+    pub vetoed_pop: Vec<usize>,
+    pub vetoed_hold: Vec<usize>,
+    /// Seconds run so far, for the summary.
+    pub secs: f64,
+    pub last_hold: String,
+    /// The settings a resume must share to be this run ([`RunState::settings`]).
+    pub settings: String,
+    pub champion: Vec<f32>,
+    pub top_genome: Vec<f32>,
+    pub parents: Vec<Vec<f32>>,
+}
+
+impl RunState {
+    /// **Which arena a run is on**: the challenge's own name, ants, frames
+    /// and banned outputs, then [`Settings::arena`].
+    fn arena(ch: &dyn Challenge, set: &Settings) -> String {
+        format!("challenge={} unit={:?} ants={} frames={} banned={:?} {}", ch.name(), ch.unit(), ch.ants(), ch.frames(), ch.banned(), set.arena)
+            .trim_end()
+            .to_string()
+    }
+
+    /// The settings that make a run this run: all but `gens`, `patience`,
+    /// `every`, `threads`, `pictures` and `resume`, which a resume may
+    /// change without drawing a different population.
+    fn settings(set: &Settings) -> String {
+        format!(
+            "pop={} layouts={} pm={} sigma={} cross={} holdout={} seed={} prune={} wire={} grow={}",
+            set.pop, set.layouts, set.pm, set.sigma, set.cross, set.holdout, set.seed, set.prune, set.wire, set.grow
+        )
+    }
+
+    fn save(&self, path: &Path) -> std::io::Result<()> {
+        let list = |v: &[usize]| v.iter().map(|n| n.to_string()).collect::<Vec<_>>().join(" ");
+        let mut s = format!(
+            "run-state 2\nnext {}\nrng {:x}\nstart {:x}\narena {}\nparts {}\nbest_hold {:x} {}\ntop {:x} {}\ntop_under {}\nscored {} {}\nvetoed_pop {}\nvetoed_hold {}\nsecs {:x}\nlast_hold {}\nsettings {}\n",
+            self.next,
+            self.rng,
+            self.start,
+            self.arena,
+            self.parts,
+            self.best_hold.to_bits(),
+            self.best_gen,
+            self.top.to_bits(),
+            self.top_gen,
+            self.top_under.join(" "),
+            self.scored_pop,
+            self.scored_hold,
+            list(&self.vetoed_pop),
+            list(&self.vetoed_hold),
+            self.secs.to_bits(),
+            self.last_hold,
+            self.settings,
+        );
+        let mut genome = |name: &str, g: &[f32]| {
+            s.push_str(&format!("genome {name} {}\n", g.len()));
+            for (i, w) in g.iter().enumerate() {
+                if w.to_bits() != 0 {
+                    s.push_str(&format!("{i} {:x}\n", w.to_bits()));
+                }
+            }
+        };
+        genome("champion", &self.champion);
+        genome("top", &self.top_genome);
+        for p in &self.parents {
+            genome("parent", p);
+        }
+        // **The end mark** (review of PR 726, S2): without it any prefix
+        // with one parent line in it loaded, so a copy cut short in a tar
+        // or a sync resumed quietly with a parent zeroed or missing.
+        s.push_str(&format!("end {}\n", self.parents.len()));
+        let tmp = path.with_extension("tmp");
+        let mut f = std::fs::File::create(&tmp)?;
+        f.write_all(s.as_bytes())?;
+        // On the disk before the rename makes it the state.
+        f.sync_all()?;
+        std::fs::rename(&tmp, path)
+    }
+
+    /// Read the state a run of `set` on `ch` from `start` saved. Panics on
+    /// a state from another start, another arena, with other parts or of
+    /// another genome length, which is another run, and on one with no end
+    /// mark, which was cut short; a setting that differs only warns, since
+    /// the run can go on, but not as the one that never stopped. A state
+    /// from before the arena and the end mark were kept (`run-state 1`)
+    /// loads with a warning that neither was checked.
+    fn load(path: &Path, ch: &dyn Challenge, set: &Settings, start: &[f32]) -> RunState {
+        let text = std::fs::read_to_string(path).unwrap_or_else(|e| panic!("resume: {}: {e}", path.display()));
+        let mut lines = text.lines();
+        let version = match lines.next() {
+            Some("run-state 1") => 1,
+            Some("run-state 2") => 2,
+            _ => panic!("resume: {} is not a run state", path.display()),
+        };
+        let mut field = |key: &str| -> String {
+            let l = lines.next().unwrap_or_else(|| panic!("resume: no {key} line"));
+            let rest = l.strip_prefix(key).unwrap_or_else(|| panic!("resume: {key} expected, found {l}"));
+            rest.strip_prefix(' ').unwrap_or(rest).to_string()
+        };
+        let hex = |t: &str| u64::from_str_radix(t, 16).unwrap_or_else(|_| panic!("resume: {t} is not hex"));
+        let pair = |t: String| -> (u64, usize) {
+            let (a, b) = t.split_once(' ').expect("resume: bits and a generation");
+            (hex(a), b.parse().unwrap())
+        };
+        let list = |t: String| -> Vec<usize> { t.split_whitespace().map(|n| n.parse().unwrap()).collect() };
+        let next = field("next").parse().unwrap();
+        let rng = hex(&field("rng"));
+        let fp = hex(&field("start"));
+        let (arena, parts) = if version >= 2 { (field("arena"), field("parts")) } else { (String::new(), String::new()) };
+        let (best_hold, best_gen) = pair(field("best_hold"));
+        let (top, top_gen) = pair(field("top"));
+        let top_under = field("top_under").split_whitespace().map(str::to_string).collect();
+        let scored = list(field("scored"));
+        let (vetoed_pop, vetoed_hold) = (list(field("vetoed_pop")), list(field("vetoed_hold")));
+        let secs = f64::from_bits(hex(&field("secs")));
+        let last_hold = field("last_hold");
+        let settings = field("settings");
+        assert_eq!(fp, fingerprint(start), "resume: the state in {} was saved from another start", path.display());
+        if version >= 2 {
+            assert_eq!(arena, RunState::arena(ch, set), "resume: the state in {} was saved on another arena", path.display());
+            assert_eq!(parts, ch.parts().join(","), "resume: the state in {} was saved with other parts", path.display());
+        } else {
+            println!("resume: WARNING {} predates the arena and end checks: neither is checked", path.display());
+        }
+        if settings != RunState::settings(set) {
+            println!("resume: WARNING the saved run had {settings}: this run goes on, but not as the run that never stopped");
+        }
+        let mut genomes: Vec<(String, Vec<f32>)> = vec![];
+        let mut end = None;
+        for l in lines {
+            assert!(end.is_none(), "resume: {l} after the end mark in {}", path.display());
+            if let Some(n) = l.strip_prefix("end ") {
+                end = Some(n.parse::<usize>().unwrap_or_else(|_| panic!("resume: end mark {l}")));
+            } else if let Some(head) = l.strip_prefix("genome ") {
+                let (name, len) = head.split_once(' ').expect("resume: a genome's name and length");
+                let len: usize = len.parse().unwrap();
+                assert_eq!(len, start.len(), "resume: a {len}-slot genome in a run of {}-slot genomes", start.len());
+                genomes.push((name.to_string(), vec![0.0; len]));
+            } else {
+                let (i, w) = l.split_once(' ').expect("resume: a slot and its bits");
+                let g = &mut genomes.last_mut().expect("resume: a slot before any genome").1;
+                g[i.parse::<usize>().unwrap()] = f32::from_bits(u32::from_str_radix(w, 16).unwrap());
+            }
+        }
+        let mut take = |name: &str| {
+            let k = genomes.iter().position(|(n, _)| n == name).unwrap_or_else(|| panic!("resume: no {name} genome"));
+            genomes.remove(k).1
+        };
+        let (champion, top_genome) = (take("champion"), take("top"));
+        let parents: Vec<Vec<f32>> = genomes
+            .into_iter()
+            .map(|(n, g)| {
+                assert_eq!(n, "parent", "resume: an unknown genome {n}");
+                g
+            })
+            .collect();
+        assert!(!parents.is_empty(), "resume: no parents in {}", path.display());
+        if version >= 2 {
+            assert_eq!(end, Some(parents.len()), "resume: {} was cut short ({} parents read)", path.display(), parents.len());
+        }
+        RunState {
+            next,
+            rng,
+            start: fp,
+            arena,
+            parts,
+            best_hold: f64::from_bits(best_hold),
+            best_gen,
+            top: f64::from_bits(top),
+            top_gen,
+            top_under,
+            scored_pop: scored[0],
+            scored_hold: scored[1],
+            vetoed_pop,
+            vetoed_hold,
+            secs,
+            last_hold,
+            settings,
+            champion,
+            top_genome,
+            parents,
+        }
+    }
+}
+
+/// FNV-1a over a genome's bits: which start a [`RunState`] belongs to.
+pub fn fingerprint(g: &[f32]) -> u64 {
+    g.iter().flat_map(|w| w.to_bits().to_le_bytes()).fold(0xCBF2_9CE4_8422_2325, |h, b| (h ^ u64::from(b)).wrapping_mul(0x100_0000_01B3))
+}
+
+/// **A run file opened for writing from generation `first`**: created with
+/// its `head` line on a fresh run (`first` 0), and on a resume rewritten
+/// with only the rows of generations before `first`. A run killed partway
+/// through a generation wrote some of that generation's rows before its
+/// state was saved; the resume runs that generation again, so its rows are
+/// written once.
+fn rows_before(path: &Path, head: &str, first: usize) -> std::io::Result<std::fs::File> {
+    let mut kept = format!("{head}\n");
+    if first > 0 {
+        let old = std::fs::read_to_string(path)?;
+        for l in old.lines().skip(1) {
+            if l.split(',').next().and_then(|g| g.parse::<usize>().ok()).is_some_and(|g| g < first) {
+                kept.push_str(l);
+                kept.push('\n');
+            }
+        }
+    }
+    std::fs::write(path, kept)?;
+    std::fs::OpenOptions::new().append(true).open(path)
 }
 
 /// A picture of the champion every this many generations, and after the
@@ -1601,6 +1933,136 @@ mod tests {
         fn frames(&self) -> u64 {
             1
         }
+    }
+
+    /// A mind arena scored by the genome alone, so a test can run whole
+    /// generations in no time. On a training layout, the sum of its
+    /// weights, so half of all steps gain, plus a share that depends on the
+    /// layout, so each generation's draw counts; on a hold-out layout, how
+    /// near that sum is to `aim`, so the hold-out climbs while training
+    /// passes `aim` and falls after, and its best stays where it was found.
+    /// Run it at `wire` 0: here a link's cost is a share of a score that is
+    /// mostly the layout's.
+    struct Bowl {
+        aim: f64,
+    }
+    impl Challenge for Bowl {
+        fn name(&self) -> &'static str {
+            "bowl"
+        }
+        fn unit(&self) -> Unit {
+            Unit::Colony
+        }
+        fn ants(&self) -> usize {
+            1
+        }
+        fn parts(&self) -> &'static [&'static str] {
+            &["seed"]
+        }
+        fn banned(&self) -> &'static [BrainOutput] {
+            &[]
+        }
+        fn minds(&self) -> bool {
+            true
+        }
+        fn verbs(&self) -> &'static [Verb] {
+            &[Verb::Walk, Verb::Rest]
+        }
+        fn run(&self, l: Layout, g: &[&[f32]], _: &mut dyn FnMut(u64, &World)) -> Vec<Score> {
+            let sum: f64 = g[0].iter().map(|&w| f64::from(w)).sum();
+            // Hold-out layouts are numbered under 100,000 (`training_layouts`).
+            let fit = if l.seed < 100_000 { -(sum - self.aim).abs() } else { (l.seed % 7) as f64 + sum };
+            vec![Score { fit, parts: vec![l.seed as f64] }]
+        }
+        fn frames(&self) -> u64 {
+            1
+        }
+    }
+
+    /// **A resumed run is the run that never stopped** ([`Settings::resume`],
+    /// owner 2026-10-19): six generations straight, and three then three
+    /// more resumed from `state.txt`, write the same rows, the same
+    /// champions and the same state to the bit, but for the clock. The
+    /// first leg also leaves a row of generation 3 behind, as a run killed
+    /// partway through it would, and the resume writes that generation once.
+    #[test]
+    fn a_resumed_run_is_the_run_that_never_stopped() {
+        let dir = std::env::temp_dir().join(format!("train-resume-{}", std::process::id()));
+        let (straight, split) = (dir.join("straight"), dir.join("split"));
+        let start = mind::blank(&[Verb::Walk, Verb::Rest]);
+        let bowl = Bowl { aim: start.iter().map(|&w| f64::from(w)).sum::<f64>() + 8.0 };
+        let set = Settings { gens: 6, pop: 8, layouts: 2, holdout: 2, seed: 5, threads: 2, pictures: false, patience: 0, wire: 0.0, ..Settings::default() };
+        train(&bowl, start.clone(), &set, &straight).unwrap();
+        train(&bowl, start.clone(), &Settings { gens: 3, ..set.clone() }, &split).unwrap();
+        for (f, row) in [("progress.csv", "3,9,9,9,9\n"), ("holdout.csv", "3,champion,9\n")] {
+            let mut file = std::fs::OpenOptions::new().append(true).open(split.join(f)).unwrap();
+            file.write_all(row.as_bytes()).unwrap();
+        }
+        train(&bowl, start.clone(), &Settings { resume: true, ..set.clone() }, &split).unwrap();
+        let read = |d: &Path, f: &str| std::fs::read_to_string(d.join(f)).unwrap();
+        // `secs`, progress's fifth column, is the clock's.
+        let untimed = |t: String| {
+            let rows = t.lines().map(|l| l.split(',').enumerate().filter(|&(i, _)| i != 4).map(|(_, c)| c).collect::<Vec<_>>().join(","));
+            rows.collect::<Vec<_>>().join("\n")
+        };
+        assert_eq!(untimed(read(&straight, "progress.csv")), untimed(read(&split, "progress.csv")));
+        assert_eq!(read(&split, "progress.csv").lines().count(), 7, "a header and six generations, the killed one once");
+        for f in ["holdout.csv", "best.txt", "hold-best.txt", "champions/gen-005.txt"] {
+            assert_eq!(read(&straight, f), read(&split, f), "{f}");
+        }
+        let state = |d: &Path| RunState { secs: 0.0, ..RunState::load(&d.join(STATE_FILE), &bowl, &set, &start) };
+        let (a, b) = (state(&straight), state(&split));
+        assert_eq!(a, b);
+        // ...and not because nothing moved, and with the hold-out best in
+        // the first leg, so the resume had to carry it.
+        assert_eq!((a.next, a.parents.len()), (6, 2));
+        assert!(a.top_gen < 3 && a.best_gen < 3, "hold-out best at {} and {}", a.top_gen, a.best_gen);
+        assert!(a.champion != start, "the champion moved off the start");
+        assert!(a.parents.iter().any(|p| p != &a.parents[0]), "the parents differ");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// **A resume is refused on another arena, with other parts, or from a
+    /// state cut short** (review of PR 726, S1, S2): each of those resumed
+    /// quietly, carrying one rung's hold-out best into another or breeding
+    /// from a parent with its tail zeroed. The whole file is the control,
+    /// and a state from before the checks still loads.
+    #[test]
+    fn a_resume_is_refused_on_another_arena_or_a_state_cut_short() {
+        let dir = std::env::temp_dir().join(format!("train-refuse-{}", std::process::id()));
+        let start = mind::blank(&[Verb::Walk, Verb::Rest]);
+        let bowl = Bowl { aim: start.iter().map(|&w| f64::from(w)).sum::<f64>() + 8.0 };
+        let set = Settings { gens: 2, pop: 8, layouts: 2, holdout: 2, seed: 5, threads: 2, pictures: false, patience: 0, wire: 0.0, arena: "step=4 shaft=4".into(), ..Settings::default() };
+        train(&bowl, start.clone(), &set, &dir).unwrap();
+        let text = std::fs::read_to_string(dir.join(STATE_FILE)).unwrap();
+        let load = |text: &str, set: &Settings| {
+            let path = dir.join("probe.txt");
+            std::fs::write(&path, text).unwrap();
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| RunState::load(&path, &bowl, set, &start)))
+        };
+        let whole = load(&text, &set).expect("the whole state loads");
+        assert_eq!(whole.parents.len(), 2);
+        assert!(load(&text, &Settings { arena: "step=3 shaft=4".into(), ..set.clone() }).is_err(), "another arena");
+        assert!(load(&text.replace("\nparts seed\n", "\nparts seed,loads\n"), &set).is_err(), "other parts");
+        let lines: Vec<&str> = text.lines().collect();
+        let second = lines.iter().rposition(|l| l.starts_with("genome parent")).unwrap();
+        let cuts = [
+            ("the end mark", lines[..lines.len() - 1].join("\n")),
+            ("the last 3 bytes", text[..text.len() - 3].to_string()),
+            ("after the first parent", lines[..second].join("\n")),
+            ("midway through the second parent", lines[..(second + lines.len()) / 2].join("\n")),
+            ("a wrong count", text.replace("\nend 2\n", "\nend 3\n")),
+        ];
+        for (cut, t) in cuts {
+            assert!(load(&t, &set).is_err(), "a state cut at {cut} loaded");
+        }
+        // A state saved by the first resume, before the arena, parts and end
+        // mark were kept, loads unchecked, as the same run.
+        let old: Vec<&str> = text.lines().filter(|l| !l.starts_with("arena ") && !l.starts_with("parts ") && !l.starts_with("end ")).collect();
+        let old = old.join("\n").replace("run-state 2", "run-state 1");
+        let v1 = load(&old, &Settings { arena: "anything".into(), ..set.clone() }).expect("a run-state 1 file loads");
+        assert_eq!(RunState { arena: whole.arena.clone(), parts: whole.parts.clone(), ..v1 }, whole);
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     /// A sided arena that returns a fixed score per side.

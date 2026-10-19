@@ -530,11 +530,15 @@ pub fn enter_rung(g: &mut [f32], verbs: &[Verb], emits: [bool; EMITS]) -> Vec<St
             // Pick up and Attack had genes and no act, so every run moved
             // them and billed them (review of the actions audit, item 11):
             // they come on blank (fix plan step 1), as Dig's drift does.
-            // **Eat too** (review of PR 724, N7): a genome saved before step
-            // 1 is converted and enters with Eat quiet ([`split_pick_up`]),
-            // but a trail genome saved after it is not converted, and
-            // without this its Eat came on with whatever drifted onto it
-            // while banned.
+            // **Eat too** (review of PR 724, N7): a trail genome saved after
+            // step 1 is not converted, and without this its Eat came on
+            // with whatever drifted onto it while banned. A converted one
+            // whose Eat was banned comes on blank here too, constant 0, not
+            // at the [`QUIET`] that [`split_pick_up`] left (N7a); only an
+            // Eat that was already on, as every forager's is, stays quiet.
+            // The cost: a forager sent back to a trail-only rung and then
+            // to a food rung loses its trained Eat and Pick up here. No
+            // suite in use takes that route (review of PR 724).
             if matches!(v, Verb::PickUp | Verb::Attack | Verb::Eat) {
                 let mut zeroed = 0;
                 for r in verb_links(v) {
