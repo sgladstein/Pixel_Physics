@@ -17,6 +17,10 @@
 //! cargo run --release --example plantrain -- mode=heritability sigmas=0.05,0.1,0.2,0.4,0.9 genomes=10 layouts=6
 //! # which genes move anything at all: each pushed to both ends of its range, the bed hashed
 //! cargo run --release --example plantrain -- mode=liveness layouts=2 frames=20000
+//! # does a herb lean towards a lamp beside it, and does zeroing light_weight take it away (the blind control's precondition)
+//! cargo run --release --example plantrain -- mode=lean layouts=4 offsets=4,8 stops=8000,16000,24000
+//! # rank genomes by mean or by worst layout: which pick holds up on a second, disjoint set?
+//! cargo run --release --example plantrain -- mode=ranking genomes=16 layouts=12 sigma=0.9 genes=8
 //! # a picture: the shipped species and each file, on N layouts, at chosen frames
 //! cargo run --release --example plantrain -- mode=pic files=training/plants/run1/best.ron layouts=3 stops=8000,40000 out=pic.png
 //! ```
@@ -35,6 +39,7 @@ use std::path::PathBuf;
 const KNOWN: &[&str] = &[
     "mode", "start", "control", "groups", "pop", "gens", "keep", "layouts", "holdout", "final", "sigma", "genes", "seed", "select", "teeth",
     "width", "frames", "every", "mutation", "n_est", "k_seed", "size_floor", "out", "gene", "values", "files", "base", "stops", "up", "scale", "sigmas", "genomes", "offset",
+    "heavy", "spacing", "offsets", "top",
 ];
 
 fn args() -> BTreeMap<String, String> {
@@ -262,6 +267,258 @@ fn liveness(m: &BTreeMap<String, String>) {
     println!("INERT here ({}): {}", dead.len(), dead.join(" "));
 }
 
+/// One lean bed: arm, layout, and the founder's signed offset from the lamp.
+type LeanBed = (usize, usize, i32);
+/// At one stop: shoot cells, then the shoot centroid's and the crown's lean,
+/// in columns towards the lamp. `None` once the founder is gone.
+type Lean = (usize, f32, f32);
+
+/// **The blind control's precondition** (plan §7.2): does a herb lean towards
+/// a lamp beside it, and does zeroing `light_weight` take the lean away? The
+/// founder is planted `offsets` columns to each side of the lamp nearest the
+/// middle (both signs, so a left/right habit of the bed reads as the same
+/// sign on both sides rather than as a lean), with fixtures `spacing` apart.
+/// Arms: the start species, the start **blind** (`light_weight` 0 at every
+/// tier), and the start with `light_weight` x`heavy`. Read at each of `stops`:
+/// the shoot's centroid and its crown's (the top quarter of its rows), in
+/// columns towards the lamp. Only the founder's own cells are read.
+fn lean(m: &BTreeMap<String, String>) {
+    use pixel_physics::sim::explosion::Blasts;
+    use pixel_physics::sim::organism::{CellType, ParamId};
+    use pixel_physics::sim::particle::ParticleSystem;
+    use pixel_physics::sim::player;
+    let b = bed(m);
+    let mut start = train_plant::load(&start_path(m)).expect("the start species loads");
+    start.name = genome::child_name(&start.name, 980, 0, 0);
+    let n: usize = get(m, "layouts", 4);
+    let base: u64 = get(m, "base", 7_000_000);
+    let heavy: f32 = get(m, "heavy", 4.0);
+    let spacing: i32 = get(m, "spacing", 0);
+    let offsets: Vec<i32> = m.get("offsets").map_or(vec![4, 8], |v| v.split(',').map(|x| x.parse().expect("a column offset")).collect());
+    let stops: Vec<u64> = m.get("stops").map_or(vec![8_000, 16_000, 24_000], |v| v.split(',').map(|x| x.parse().expect("a frame")).collect());
+    let last = *stops.iter().max().expect("at least one stop");
+    let light = |def: &pixel_physics::sim::organism::SpeciesDef, f: f32, tag: usize| {
+        let mut d = genome::clone_def(def);
+        d.name = genome::child_name(&def.name, 981, tag, 0);
+        for tier in 0..4 {
+            let addr = genome::Addr::Param { cell: CellType::GrowingTip, param: ParamId::LightWeight, tier: tier as u8 };
+            if let Some(v) = genome::read(&d, addr) {
+                genome::write(&mut d, addr, v * f);
+            }
+        }
+        d
+    };
+    let arms = [("start", Arm::of(&start)), ("blind", Arm::of(&light(&start, 0.0, 0))), ("heavy", Arm::of(&light(&start, heavy, 1)))];
+    println!(
+        "plantrain lean: start={} layouts={n} base={base} offsets=+-{offsets:?} spacing={} heavy={heavy} stops={stops:?}",
+        start_path(m).display(),
+        if spacing > 0 { spacing.to_string() } else { "bed default".into() }
+    );
+    // (arm, layout, signed offset)
+    let mut tasks: Vec<(usize, usize, i32)> = Vec::new();
+    for a in 0..arms.len() {
+        for l in 0..n {
+            for &d in &offsets {
+                tasks.extend([(a, l, -d), (a, l, d)]);
+            }
+        }
+    }
+    use rayon::prelude::*;
+    let rows: Vec<(LeanBed, Vec<Option<Lean>>)> = tasks
+        .par_iter()
+        .map(|&(a, l, d)| {
+            let mut bedbox = arena::bed_for(arms[a].1.ron.as_deref(), &arms[a].1.name, arena::layouts(base + l as u64, 1)[0], &b);
+            if spacing > 0 {
+                bedbox.lamp_spacing = spacing;
+            }
+            let (lamps, _) = bedbox.lamp_columns();
+            let mid = bedbox.width / 2;
+            let lamp = *lamps.iter().min_by_key(|&&c| (c - mid).abs()).expect("a lamp");
+            let col = lamp + d;
+            bedbox.founder_at = Some(vec![col]);
+            let (mut w, founder) = arena::build(&bedbox, &b);
+            let species = w.organism(founder).map(|s| s.species).expect("the founder exists");
+            let (mut particles, mut blasts, tuning) = (ParticleSystem::new(), Blasts::new(), player::Tuning::default());
+            let toward = (lamp - col).signum() as f32;
+            let mut out = Vec::new();
+            for f in 1..=last {
+                pixel_physics::lab::tick_world(&mut w, &mut particles, &mut blasts, &tuning, &bedbox, None);
+                if !stops.contains(&f) {
+                    continue;
+                }
+                let read = w.organism(founder).filter(|s| s.species == species).and_then(|s| {
+                    let shoot: Vec<(i32, i32)> = s.cells.keys().copied().filter(|&(_, y)| y < bedbox.ground_y).collect();
+                    if shoot.is_empty() {
+                        return None;
+                    }
+                    let top = shoot.iter().map(|&(_, y)| y).min().unwrap_or(0);
+                    let crown_cut = top + (bedbox.ground_y - top) / 4;
+                    let mean = |v: &[(i32, i32)]| v.iter().map(|&(x, _)| (x - col) as f32).sum::<f32>() / v.len().max(1) as f32;
+                    let crown: Vec<(i32, i32)> = shoot.iter().copied().filter(|&(_, y)| y <= crown_cut).collect();
+                    Some((shoot.len(), mean(&shoot) * toward, mean(&crown) * toward))
+                });
+                out.push(read);
+            }
+            ((a, l, d), out)
+        })
+        .collect();
+    for (si, stop) in stops.iter().enumerate() {
+        println!("\n-- frame {stop}: lean towards the lamp, columns (shoot centroid / crown); n = founders alive with a shoot");
+        println!("{:<6} {:>6} {:>5} {:>16} {:>16} {:>14} {:>14} {:>8}", "arm", "offset", "n", "centroid mean", "crown mean", "lamp left", "lamp right", "shoot");
+        for (a, (name, _)) in arms.iter().enumerate() {
+            for &d in &offsets {
+                let pick = |sign: i32| -> Vec<Lean> {
+                    rows.iter().filter(|((ra, _, rd), _)| *ra == a && *rd == sign * d).filter_map(|(_, v)| v[si]).collect()
+                };
+                let (left, right) = (pick(1), pick(-1)); // founder right of the lamp: the lamp is to its left
+                let all: Vec<Lean> = left.iter().chain(right.iter()).copied().collect();
+                let cm: Vec<f32> = all.iter().map(|r| r.1).collect();
+                let cr: Vec<f32> = all.iter().map(|r| r.2).collect();
+                let mean = |v: &[f32]| v.iter().sum::<f32>() / v.len().max(1) as f32;
+                let sd2 = |v: &[f32]| 2.0 * sd(v) / (v.len().max(1) as f32).sqrt();
+                let side = |v: &[Lean]| format!("{:+.2} (n{})", mean(&v.iter().map(|r| r.2).collect::<Vec<_>>()), v.len());
+                let shoot = mean(&all.iter().map(|r| r.0 as f32).collect::<Vec<_>>());
+                println!(
+                    "{name:<6} {d:>6} {:>5} {:>+9.2} +-{:<5.2} {:>+9.2} +-{:<5.2} {:>14} {:>14} {shoot:>8.1}",
+                    all.len(),
+                    mean(&cm),
+                    sd2(&cm),
+                    mean(&cr),
+                    sd2(&cr),
+                    side(&left),
+                    side(&right)
+                );
+            }
+        }
+    }
+    println!("\n(+- is 2 sd/sqrt(n). `lamp left`/`lamp right` are the crown lean of the founders on each side: a bed habit reads as opposite signs there, a lean as the same sign.)");
+}
+
+/// **Mean against min** (plan §5.3): should a genome be ranked by the mean of
+/// its layouts' scores or by its worst? The shipped species and `genomes`
+/// children of it (`sigma`, up to `genes` genes from `groups`) are scored on
+/// two disjoint sets of `layouts`. Each statistic picks its top `keep` on set
+/// A; the picks are judged on set B, where "holds up on every offset" is the
+/// worst of the three light positions' mean scores. Min is kept only if its
+/// picks hold up better on B than the mean's do, by more than the spread.
+fn ranking(m: &BTreeMap<String, String>) {
+    let b = bed(m);
+    let k = constants(m, &b);
+    let start = train_plant::load(&start_path(m)).expect("the start species loads");
+    let g: usize = get(m, "genomes", 16);
+    let n: usize = get(m, "layouts", 12);
+    let base: u64 = get(m, "base", 9_000_000);
+    let sigma: f32 = get(m, "sigma", 0.9);
+    let max_genes: usize = get(m, "genes", 8);
+    let keep: usize = get(m, "top", 4);
+    let groups: Vec<Group> = m
+        .get("groups")
+        .map(|v| v.split(',').map(|x| Group::parse(x).unwrap_or_else(|| panic!("unknown group `{x}`"))).collect())
+        .unwrap_or_else(|| vec![Group::Shape, Group::Leaf, Group::Flower, Group::Height]);
+    let genes = genome::gene_table(&start);
+    let free: Vec<usize> = (0..genes.len()).filter(|&i| groups.contains(&genes[i].group)).collect();
+    let mut rng = pixel_physics::sim::rng::Rng::new(get(m, "seed", 0x5EED_1000));
+    let control: String = get(m, "control", "herb".to_string());
+    let mut arms = vec![Arm::shipped(&control)];
+    for i in 0..g {
+        let (mut d, _) = genome::mutate(&start, &genes, &free, sigma, max_genes, &mut rng);
+        d.name = genome::child_name(&start.name, 970, 0, i);
+        arms.push(Arm::of(&d));
+    }
+    let (set_a, set_b) = (arena::layouts(base, n), arena::layouts(base + 500_000, n));
+    println!(
+        "plantrain ranking: control={control} genomes={g} sigma={sigma} genes={max_genes} groups={} layouts={n}+{n} base={base} keep={keep} frames={} k_seed={} size_floor={}",
+        groups.iter().map(|x| x.name()).collect::<Vec<_>>().join(","),
+        b.frames,
+        k.k_seed,
+        k.size_floor
+    );
+    let both: Vec<arena::Layout> = set_a.iter().chain(set_b.iter()).copied().collect();
+    let scores = train_plant::score_all(&arms, &both, &b, &k);
+    let mean = |v: &[f32]| v.iter().sum::<f32>() / v.len().max(1) as f32;
+    // Per arm: mean A, min A, mean B, min B, worst offset's mean on B.
+    let stats: Vec<[f32; 5]> = scores
+        .iter()
+        .map(|r| {
+            let (a, bb) = r.split_at(n);
+            let (ma, mina) = score::fold(a);
+            let (mb, minb) = score::fold(bb);
+            let worst = arena::Offset::ALL
+                .iter()
+                .map(|&o| mean(&bb.iter().zip(&set_b).filter(|(_, l)| l.offset == o).map(|(s, _)| *s).collect::<Vec<_>>()))
+                .fold(f32::INFINITY, f32::min);
+            [ma, mina, mb, minb, worst]
+        })
+        .collect();
+    println!("\n{:<4} {:>7} {:>7} {:>7} {:>7} {:>12}", "arm", "mean A", "min A", "mean B", "min B", "worst off B");
+    for (i, s) in stats.iter().enumerate() {
+        let tag = if i == 0 { "ship".to_string() } else { format!("c{i:02}") };
+        println!("{tag:<4} {:>7.3} {:>7.3} {:>7.3} {:>7.3} {:>12.3}", s[0], s[1], s[2], s[3], s[4]);
+    }
+    // Ties at the minimum are what a min over a stepped score is made of:
+    // count them, since a statistic with every arm tied ranks nothing.
+    let mut mins: Vec<f32> = stats.iter().map(|s| s[1]).collect();
+    mins.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    mins.dedup();
+    println!("\ndistinct min-A values over {} arms: {} ({:?})", stats.len(), mins.len(), mins);
+    let rank = |col: usize| -> Vec<f32> {
+        let mut idx: Vec<usize> = (0..stats.len()).collect();
+        idx.sort_by(|&x, &y| stats[x][col].partial_cmp(&stats[y][col]).unwrap_or(std::cmp::Ordering::Equal));
+        // Average rank over ties, so a tied block is not ordered by index.
+        let mut r = vec![0.0; stats.len()];
+        let mut i = 0;
+        while i < idx.len() {
+            let mut j = i;
+            while j + 1 < idx.len() && stats[idx[j + 1]][col] == stats[idx[i]][col] {
+                j += 1;
+            }
+            for &t in &idx[i..=j] {
+                r[t] = (i + j) as f32 / 2.0;
+            }
+            i = j + 1;
+        }
+        r
+    };
+    let spearman = |x: usize, y: usize| {
+        let (rx, ry) = (rank(x), rank(y));
+        let (mx, my) = (mean(&rx), mean(&ry));
+        let cov: f32 = rx.iter().zip(&ry).map(|(a, b)| (a - mx) * (b - my)).sum();
+        let vx: f32 = rx.iter().map(|a| (a - mx) * (a - mx)).sum();
+        let vy: f32 = ry.iter().map(|b| (b - my) * (b - my)).sum();
+        cov / (vx * vy).sqrt().max(f32::EPSILON)
+    };
+    println!("\nhow well set A's statistic predicts set B (Spearman):");
+    for (xa, xn) in [(0, "mean A"), (1, "min A")] {
+        println!(
+            "  {xn:<7} -> mean B {:+.2} | min B {:+.2} | worst offset B {:+.2}",
+            spearman(xa, 2),
+            spearman(xa, 3),
+            spearman(xa, 4)
+        );
+    }
+    // Top `keep` by each statistic on A, ties broken by the other statistic
+    // so neither pick depends on arm order.
+    let top = |first: usize, then: usize| -> Vec<usize> {
+        let mut idx: Vec<usize> = (0..stats.len()).collect();
+        idx.sort_by(|&x, &y| {
+            stats[y][first]
+                .partial_cmp(&stats[x][first])
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then(stats[y][then].partial_cmp(&stats[x][then]).unwrap_or(std::cmp::Ordering::Equal))
+        });
+        idx.truncate(keep);
+        idx
+    };
+    let (by_mean, by_min) = (top(0, 1), top(1, 0));
+    let overlap = by_mean.iter().filter(|i| by_min.contains(i)).count();
+    println!("\ntop {keep} on A by mean {by_mean:?}, by min {by_min:?}: {overlap} in common");
+    for (name, pick) in [("by mean", &by_mean), ("by min", &by_min)] {
+        let on = |c: usize| mean(&pick.iter().map(|&i| stats[i][c]).collect::<Vec<_>>());
+        let worst = pick.iter().map(|&i| stats[i][4]).fold(f32::INFINITY, f32::min);
+        println!("  picked {name:<8} on B: mean {:.3}  min {:.3}  worst offset {:.3} (the weakest pick's {:.3})", on(2), on(3), on(4), worst);
+    }
+}
+
 /// A named number read off a bed's census.
 type Quantity = (&'static str, fn(&Census) -> f32);
 
@@ -439,6 +696,8 @@ fn main() {
         "pic" => pic(&m),
         "heritability" => heritability(&m),
         "liveness" => liveness(&m),
+        "lean" => lean(&m),
+        "ranking" => ranking(&m),
         "train" => {
             let b = bed(&m);
             let groups: Vec<Group> = m
@@ -474,7 +733,7 @@ fn main() {
             }
         }
         other => {
-            eprintln!("plantrain: mode={other} is not train|calibrate|sweep|score|pic|heritability|liveness");
+            eprintln!("plantrain: mode={other} is not train|calibrate|sweep|score|pic|heritability|liveness|lean|ranking");
             std::process::exit(2);
         }
     }

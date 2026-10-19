@@ -355,7 +355,8 @@ is the ant trainer's three-generation cheating applied to looks.
    nearly up, so zeroing the light weight mostly re-normalises into the up
    weight. It is run with the lamp moved off-axis (`LabBox::move_lamp`), and
    P1 first checks that the shipped herb leans towards it. Otherwise it is
-   dropped.
+   dropped. **Dropped (P1, §13): the herb's lean does not depend on
+   `light_weight`, so a blind herb is the same herb.** It comes back with U7.
 3. **The champion is staged by training score**, never by the hold-out, and
    the **final set** is read once at the end (F10).
 4. **Teeth, before generation 0**: `lethal` (the shoot's `Grew` child becomes
@@ -418,9 +419,11 @@ can see is never built (F17).
 | U2 | `leaf_shape` | breadth-first spray; `leaf_spread` blob ↔ line | `spray` (today), `fan`, `tuft`, `blade` | none |
 | U4 | `organ_shape` | random blob | `blob` (today), `spike`, `umbel`, `disc` | organ costs already apply |
 | U6 | species-owned developmental key | world setting | **D2** | none |
+| U7 | `phototropism` | a tip reads light as straight up or nothing (`organism::phototropism_dir`), so no plant can lean towards a lamp beside it: measured, §13 | `up` (today), `gradient`: the banked patch of `plant-phototropism-lateral-2026-08-27.md`, opted into per species | its own: a stem steered sideways reaches seed maturity later. That is what withdrew the patch engine-wide (tree reproduction to zero at authored `light_weight`); per species, with the trainer re-finding `light_weight` under it, it is the re-derivation that report says the fix needs |
 
 Order: U0 inside P3 (no engine change). Then U5 if D1 says yes, U3, and U1,
-U2, U4 in the order their mocks win.
+U2, U4, U7 in the order their mocks win. U7's mock is the patch itself on
+one herb beside an off-axis lamp; it needs no hand edit.
 
 ## 9. Speed and compute
 
@@ -699,3 +702,31 @@ compiler, `cargo clippy --all-targets`, is the scan to trust.
   - stand beds;
   - a plant job type on the Actions workflow. A 10-generation run of 12
     genomes takes about 100 minutes on two threads here.
+
+**The blind control's lean test: dropped, by construction and by
+measurement.** `organism::phototropism_dir` returns `(0,-1)` or `(0,0)`, so
+light steering can only pull up and the blind arm has nothing to remove. The
+lateral repair was built and withdrawn on 2026-08-27
+(`plant-phototropism-lateral-2026-08-27.md`). Measured anyway
+(`plantrain mode=lean`, `measure/lean-bed17.log`, 72 s): herb, 4 world
+seeds, founders 4 and 8 columns either side of the lamp nearest the middle
+(lamps 17 apart), arms start, blind (`light_weight` 0 at every tier) and
+heavy (x4):
+
+- **Through frame 8,000 the three arms are the same plant to the cell**: the
+  same shoot and the same lean in every row.
+- After that they differ by under half a column (frame 24,000, offset 8,
+  crown lean +3.77 to +4.58, against 2 sd/sqrt(n) of 6.6).
+- **There is a lean towards a lamp 4 columns away, and it is not steering**:
+  crown +1.89 columns at frame 8,000, the same sign from both sides
+  (+2.64, +1.14), and the same in the blind arm. The lit side of the plant
+  earns more and grows more.
+- At 8 columns, half way to the next lamp, the two sides read opposite
+  signs (-4.3, +12.1): a rightward habit of the bed, not a lean. It is the
+  reason the test mirrors.
+
+So the blind arm is the same herb and is dropped (§7.2). A plant that turns
+to its light is now **U7** in §8. The withdrawn patch failed because every
+authored `light_weight` was calibrated against a lever that could only say
+"up". Re-finding those values under new physics is what this trainer is
+for.
