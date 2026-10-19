@@ -2193,6 +2193,47 @@ mod tests {
         }
     }
 
+    /// **A mind is offered Feed only when it would give something** (fix
+    /// plan step 1, `creature::options::build`; review of PR 724, S1).
+    /// Beside a hungry larva, with a bank no richer than the larva's, a
+    /// carrier is offered Feed while its crop holds a cell the larva keeps
+    /// something of ([`crop_feed_from`]'s `gain > 0`), and not when the
+    /// cell in progress is chewed through. Until step 1 such a Feed was
+    /// listed, picked and did nothing (`MindCounts::failed`). The controls:
+    /// the fresh cell is offered, and a richer bank still feeds whatever the
+    /// crop holds. The rule's other refusal, a food the larva's gut keeps
+    /// nothing of, has no case here: every food material in the shipped
+    /// set yields the larva something (checked when this was written, so an
+    /// arm for it would never have run).
+    #[test]
+    fn a_mind_is_offered_feed_only_when_crop_or_bank_would_give() {
+        use creature::options::{build, Verb};
+        let (mut w, ant, def) = bed(true);
+        let block = def.brood.clone().expect("brood");
+        let site = creature::try_bud(&mut w, ant, &def, 0.0, 0.0).expect("lays");
+        let larva = the_egg(&w);
+        w.frame = block.egg_frames;
+        brood_tick(&mut w, &site);
+        assert_eq!(w.organism(larva).and_then(|s| s.brood).map(|b| b.stage), Some(BroodStage::Larva));
+        let fruit = w.materials.id_of("fruit").expect("fruit");
+        let fresh = organism::Crop { material: fruit, cells: 2, digesting: 0.0, unit: 960.0, shade: 0, passenger: None };
+        let larva_bank = w.organism(larva).expect("larva").energy;
+        let mut offered = |crop: organism::Crop, bank: f32| {
+            let s = w.organism_mut(ant).expect("live");
+            (s.crop, s.energy) = (Some(crop), bank);
+            let mut opts = Vec::new();
+            build(&w, ant, &def, &mut opts);
+            opts.iter().any(|o| o.verb == Verb::Feed && o.target == (site.x, site.y))
+        };
+        assert!(offered(fresh, larva_bank), "a fresh fruit cell beside a hungry larva is not offered");
+        // The cell in progress chewed through, its second untouched: still
+        // `crop_to_feed`'s, so only the new rule refuses it.
+        let chewed = organism::Crop { digesting: fresh.unit, ..fresh };
+        assert!(chewed.worth() > 0.0, "test setup: the chewed crop must still be feedable");
+        assert!(!offered(chewed, larva_bank), "Feed offered from a cell chewed through");
+        assert!(offered(chewed, larva_bank + 50.0), "a richer bank feeds whatever the crop holds");
+    }
+
     /// **The feed trace changes nothing it logs** (`World::feed_log`): one
     /// larva fed every way this bed can feed it -- food beside it, its
     /// parent's crop and its parent's bank -- ends in the same state to the

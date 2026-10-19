@@ -550,7 +550,10 @@ pub enum Start {
 /// mind's header names its layout (`genome 2797 layout=4`,
 /// [`mind::LAYOUT`]), so a reader knows whether it was saved before Pick up
 /// had its own act; a binary from before the mark refuses the file rather
-/// than read it as its own.
+/// than read it as its own. **An unmarked file is read as old and converted**
+/// (review of PR 724, N3), so a mind file written by hand, or in
+/// `brainfit`'s one-per-line form, needs `layout=4` in its header or its
+/// Pick up row is overwritten by Eat's.
 pub fn save_genome(path: &Path, g: &[f32]) -> std::io::Result<()> {
     let mut s = if is_mind(g.len()) {
         format!("genome {} layout={}\n", g.len(), mind::LAYOUT)
@@ -1244,7 +1247,8 @@ pub fn train(ch: &dyn Challenge, start: Vec<f32>, set: &Settings, out: &Path) ->
     let (mut scored_pop, mut scored_hold) = (0usize, 0usize);
     // A veto is x0.1, not exclusion, so hold-best.txt can be a vetoed
     // genome; the summary says which floors it was under (review of PR 723,
-    // N3).
+    // N3). Print-only: nothing reads it back, so it has no guard (review of
+    // PR 724, N4).
     let mut top_under: Vec<&str> = Vec::new();
     println!("gen   best  median  control  [{}]  secs", parts.join(" "));
     for gen in 0..set.gens {

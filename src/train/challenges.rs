@@ -3393,14 +3393,9 @@ mod tests {
         assert!((score(&noisy) - 0.1 / 1.5).abs() < 1e-9, "past two standard errors, forgotten: {}", score(&noisy));
     }
 
-    /// **A gated suite scores its learned arena alone** ([`Suite::gated`],
-    /// `dig-rung-design.md` rev 2.4): above every floor the fit is exactly
-    /// the learned arena's ratio, and a luckier kept arena moves nothing;
-    /// under a floor it is a tenth of that, and the kept arena's `_under`
-    /// part reads 1. The control: ungated, the same kept ratio enters the
-    /// product.
-    /// The step-4 switch: on from step 4 with soil learned, off before it,
-    /// off without soil, and off with soil only kept.
+    /// **The step-4 switch** ([`Suite::gated_at`]): on from step 4 with soil
+    /// learned, off before it, off without soil, and off with soil only
+    /// kept.
     #[test]
     fn a_suite_is_gated_from_step_four_when_it_learns_soil() {
         let all = "soil,fetch,trail,scarce-dig";
@@ -3413,6 +3408,12 @@ mod tests {
         assert!(!Suite::gated_at(4, all, "soil,fetch"));
     }
 
+    /// **A gated suite scores its learned arena alone** ([`Suite::gated`],
+    /// `dig-rung-design.md` rev 2.4): above every floor the fit is exactly
+    /// the learned arena's ratio, and a luckier kept arena moves nothing;
+    /// under a floor it is a tenth of that, and the kept arena's `_under`
+    /// part reads 1. The control: ungated, the same kept ratio enters the
+    /// product.
     #[test]
     fn a_gated_suite_scores_the_learned_arena_alone() {
         let lay = [Layout { seed: 1, k: 0, blind: false, legal: false }, Layout { seed: 1, k: 1, blind: false, legal: false }];

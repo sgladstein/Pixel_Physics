@@ -530,7 +530,12 @@ pub fn enter_rung(g: &mut [f32], verbs: &[Verb], emits: [bool; EMITS]) -> Vec<St
             // Pick up and Attack had genes and no act, so every run moved
             // them and billed them (review of the actions audit, item 11):
             // they come on blank (fix plan step 1), as Dig's drift does.
-            if matches!(v, Verb::PickUp | Verb::Attack) {
+            // **Eat too** (review of PR 724, N7): a genome saved before step
+            // 1 is converted and enters with Eat quiet ([`split_pick_up`]),
+            // but a trail genome saved after it is not converted, and
+            // without this its Eat came on with whatever drifted onto it
+            // while banned.
+            if matches!(v, Verb::PickUp | Verb::Attack | Verb::Eat) {
                 let mut zeroed = 0;
                 for r in verb_links(v) {
                     zeroed += g[r.clone()].iter().filter(|w| **w != 0.0).count();
@@ -3311,8 +3316,9 @@ mod tests {
     }
 
     /// **A rung's entry**: the verbs the earlier rung banned come on, an
-    /// evolved-off switch stays off, Pick up comes on blank whatever
-    /// drifted while it was banned (fix plan step 1), and scent B gets the
+    /// evolved-off switch stays off, Pick up and Eat come on blank whatever
+    /// drifted while they were banned (fix plan step 1; review of PR 724,
+    /// N7), and scent B gets the
     /// carrying layer only where the arena allows it and the genome never
     /// laid it.
     #[test]
@@ -3337,12 +3343,14 @@ mod tests {
             MEM + 4 * M_IN + CONTEXT + 2 + pick,
             HID_OUT + pick * HIDDEN + 5,
         ];
-        for &i in &drift {
+        let eat = Verb::Eat as usize;
+        let eat_drift = [JOB + eat * J_IN + c::CROP, HID_OUT + eat * HIDDEN + 2];
+        for &i in drift.iter().chain(&eat_drift) {
             g[i] = 0.7;
         }
         let did = enter_rung(&mut g, &forage, [true, true, false]);
-        assert_eq!(did, vec!["pick_up", "5 drifted pick_up links zeroed", "drop", "eat", "feed", "scent B while carrying"]);
-        assert!(drift.iter().all(|&i| g[i] == 0.0));
+        assert_eq!(did, vec!["pick_up", "5 drifted pick_up links zeroed", "drop", "eat", "2 drifted eat links zeroed", "feed", "scent B while carrying"]);
+        assert!(drift.iter().chain(&eat_drift).all(|&i| g[i] == 0.0));
         assert!(g[SWITCH + Verb::Eat as usize] > 0.0 && g[SWITCH + Verb::TurnAround as usize] == -0.4);
         assert_eq!(
             g[SWITCH + Verb::Dig as usize],
