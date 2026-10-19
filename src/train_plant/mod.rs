@@ -195,8 +195,9 @@ pub struct Outcome {
 }
 
 /// One whole run. Writes `settings.txt`, `progress.csv`, `holdout.csv`,
-/// `best.ron` (the champion by training score, every generation) and
-/// `final.txt` under `settings.out`.
+/// `best.ron` (the champion by training score, every generation),
+/// `champion-gNNN.ron` (each generation's, kept) and `final.txt` under
+/// `settings.out`.
 pub fn run(s: &Settings) -> Result<Outcome, String> {
     std::fs::create_dir_all(&s.out).map_err(|e| e.to_string())?;
     let line = s.line();
@@ -293,8 +294,13 @@ pub fn run(s: &Settings) -> Result<Outcome, String> {
         );
         std::fs::write(s.out.join("progress.csv"), &progress).map_err(|e| e.to_string())?;
         std::fs::write(s.out.join("holdout.csv"), &holdout_csv).map_err(|e| e.to_string())?;
-        std::fs::write(s.out.join("best.ron"), crate::sim::species_export::to_ron(&champion.0).map_err(|e| format!("{e:?}"))?)
-            .map_err(|e| e.to_string())?;
+        let champion_ron = crate::sim::species_export::to_ron(&champion.0).map_err(|e| format!("{e:?}"))?;
+        std::fs::write(s.out.join("best.ron"), &champion_ron).map_err(|e| e.to_string())?;
+        // **Staged**: every generation's champion is kept, so the lineage can
+        // be drawn afterwards (`plantrain mode=pic files=out/champion-g*.ron`)
+        // and a regression located to the generation that made it.
+        // `best.ron` alone kept only the last.
+        std::fs::write(s.out.join(format!("champion-g{g:03}.ron")), &champion_ron).map_err(|e| e.to_string())?;
 
         if g + 1 == s.gens {
             break;
@@ -427,10 +433,13 @@ mod tests {
         let a = run(&settings(dir.join("a"))).expect("run a");
         let b = run(&settings(dir.join("b"))).expect("run b");
         assert_eq!(a.champion_ron, b.champion_ron);
-        for f in ["progress.csv", "holdout.csv"] {
-            let read = |d: &str| std::fs::read_to_string(dir.join(d).join(f)).expect("written");
+        for f in ["progress.csv", "holdout.csv", "champion-g000.ron", "champion-g001.ron"] {
+            let read = |d: &str| std::fs::read_to_string(dir.join(d).join(f)).unwrap_or_else(|_| panic!("{f} written"));
             assert_eq!(read("a"), read("b"), "{f} differs between two identical runs");
         }
+        // The last staged champion is the one `best.ron` holds.
+        let read = |f: &str| std::fs::read_to_string(dir.join("a").join(f)).expect("written");
+        assert_eq!(read("champion-g001.ron"), read("best.ron"));
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
