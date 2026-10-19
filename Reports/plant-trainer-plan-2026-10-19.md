@@ -216,7 +216,8 @@ So a layout is **(world seed, founder offset from the nearest lamp ∈
 offsets. The score is the mean, with the minimum printed beside it.
 **Before choosing mean or min**, P1 ranks the shipped herb and 16 probe
 variants both ways and keeps min only if it changes the ranking towards
-plants that hold up on every offset. Training layouts are redrawn each
+plants that hold up on every offset. **Measured (§13): it changes nothing,
+so the rank is the mean.** The min is still printed. Training layouts are redrawn each
 generation. **Two sealed sets**: a monitoring hold-out read every
 generation, and a **final set read once**, at the end (F10).
 
@@ -730,3 +731,30 @@ to its light is now **U7** in §8. The withdrawn patch failed because every
 authored `light_weight` was calibrated against a lever that could only say
 "up". Re-finding those values under new physics is what this trainer is
 for.
+
+**Mean against min: the mean.** `plantrain mode=ranking`
+(`measure/ranking-16x12.log`, 1,004 s): the herb and 16 children (σ 0.9,
+up to 8 genes from shape, leaf, flower and height, the step the heritability
+gate says is visible), scored on two disjoint sets of 12 layouts. Each
+statistic picks its top four on set A, and the picks are judged on set B.
+
+- **The min ranks nothing.** 16 of 17 genomes have a worst bed of exactly
+  2.999, and that tidiness is the tell. It is the cap of the step below
+  flowering: established, past the 55-cell size floor, and never flowered,
+  the dim bed between two lamps. With every min tied, ranking by min falls
+  through to its tie-break and picks the same four genomes as the mean
+  (4 of 4 in common, identical on B).
+- **The mean predicts a fresh set moderately**: rank correlation from mean
+  on A to mean on B +0.50, and to the worst light position's mean on B
+  +0.40. Min on A predicts neither (-0.15, -0.20). Its +0.64 against min on
+  B is two genomes off the tie and nothing else.
+- **Three children scored above the shipped herb on set B**: c02 4.458,
+  c15 4.371 and c12 4.339, against 4.069. c15 also led set A (4.102 against
+  3.911). That is 3 of 16 random 8-gene steps, not tested against the paired
+  bar. It suggests there is room to climb, and proves nothing about any one
+  of them.
+
+Not measured: ranking by the worst light position's mean, which is graded
+where the min is not. It needs only the per-bed scores this run already
+computes. It is the alternative to try if a trained champion turns out to
+hold up only under a lamp.
