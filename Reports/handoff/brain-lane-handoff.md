@@ -1,6 +1,6 @@
 # Handoff: training the ant's brain (stage 2), for an agent with only this repo
 
-**Last updated: 2026-10-20 01:45 UTC.** Written by the session that has run
+**Last updated: 2026-10-20 02:30 UTC.** Written by the session that has run
 this work since 2026-10-17, because the owner's account was about to run out
 of usage. It is updated in place through the night as each task finishes:
 read the **Log** at the bottom first to see what changed since this header.
@@ -257,6 +257,21 @@ The owner is **Scott** (GitHub `sgladstein`). He uses a Mac terminal, so give zs
 ## Log
 
 Newest first. Each entry says what changed and what is now true.
+
+- **2026-10-20 02:30 UTC.**
+  - **s133 and s134 finished.** Both were stopped flat by the auto-stop: s133 at generation 79, best at 28; s134 at generation 85, best at 34.
+  - Sealed-world scores under `foot=1`, against s111 g226 (soil 22.5, full loads per world averaged over all 12 worlds 2.83, 2 of 12 worlds at 5 or more):
+
+    | seed | soil | full loads, mean / worse side | worlds at 5+ | blinded soil / full loads |
+    |---|---|---|---|---|
+    | s131 | 25.3 | 2.58 / 2.00 | 1 of 12 | 9.0 / 0.67 |
+    | s133 | 27.7 | 3.08 / 2.00 | 2 of 12 | 8.0 / 0.50 |
+    | **s134** | **38.0** | **3.67 / 3.00** | **3 of 12** | 3.5 / 0.33 |
+
+  - **s134 is the first real step since s111.** It is past the agreed "3 full loads by generation 100" mark, so the pay rule was part of what held s111 back.
+  - It is still short of the bar of 5 full loads on 11 of 12 worlds. Its blind control is low, so the gain comes from what it senses.
+  - Its hold-best is the start for the next leg: `Reports/brain-training/stage2/dig/4b/dig-4b-s134-hold-best.txt`.
+  - s132 is still running.
 
 - **2026-10-20 01:45 UTC.**
   - **s131 finished.** The auto-stop ended it at generation 63, flat since its best at generation 12.
