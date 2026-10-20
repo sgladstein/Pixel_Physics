@@ -5535,7 +5535,9 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   (90% of foot cuts become full loads), but 37% of trips carry soil that pays nothing, half of all time is an empty ant
   walking the surface, and loads go about 3x farther than the rule needs. Part 2 (what it reads): it digs when it feels
   "at the nest" (on along the whole shaft) and its target scorer cannot see a cell's depth, so on an 8-row shaft it cuts
-  the wall more than the foot. Parts 3-5 (why fetch erodes, selection reliability, training methods) to follow.
+  the wall more than the foot. Part 3 (why fetch erodes): pruning plus the per-connection energy cost deletes links
+  that only the protected skills use -- s161's "don't eat the cargo" constant went from -10 to 0, and it eats 4x the food.
+  Parts 4-5 (selection reliability, training methods) to follow.
 
 ## Licensing and distribution
 

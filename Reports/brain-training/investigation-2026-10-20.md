@@ -1,6 +1,6 @@
 # Investigation: the dig brain and the training process, before the 8-row step
 
-*Started 2026-10-20, after the owner passed dig step 4 on s161 gen 336. Status: in progress (parts 1-2 of 5 done). The plan and
+*Started 2026-10-20, after the owner passed dig step 4 on s161 gen 336. Status: in progress (parts 1-3 of 5 done). The plan and
 its decisions are in `Reports/handoff/brain-lane-handoff.md`, section 3, item 1.*
 
 Why: about 8 dig steps remain, deeper shafts make full loads rarer, and step 4 alone took about 600 generations along the
@@ -82,3 +82,29 @@ which cell to cut without seeing the cell's depth. That is why it cuts the wall,
 cut* does not. Two levers follow, both for part 5 to weigh: let the target scorer see depth (wire `DEPTH` in, or pay a
 wall cut less than nothing), and give the dig decision a reason to prefer the foot. Either is cheaper than waiting for
 selection to find it through 0.45 noise.
+
+## Part 3: why fetch wears down
+
+**Answer: training deletes the connections that only matter for the protected skills.** Pruning (`prune=0.3`) zeroes
+connections at random and every connection costs energy (`wire=`), so a link that never matters while digging is a small
+pure gain to delete. Only the kept-skill floor resists, and until `keepref=` that floor followed each run's start.
+
+![Part 3](investigation/part3-why-fetch-wears.png)
+
+- **Stage by stage** (fetch, 24 sealed worlds, s91 against s161 gen 336, paired): reaches the food 1.00 and 1.00;
+  picks it up 0.96 and 0.79 (-0.17, s.e. 0.08); the load gets towards the nest 0.87 and 0.61 (-0.27, 0.06); **food home
+  14.8 and 5.7 (-9.1, 1.2); food the ant ate 1.8 and 7.1 (+5.4, 1.0)**. The fetch ant cannot starve (energy reads a
+  constant 0.5), so eating gains it nothing.
+- **Traced** (every fetch decision of both brains on the same worlds; their scores reproduce, 23.27 and 17.32): s91
+  carries food in 49% of its decisions and walks it home; s161 carries it in 11%, and while carrying it drops it 23% of
+  the time, picks it up again 8.5% and eats it 5.5%, mostly at the nest. Both put food down at the nest (95% and 97% of
+  drops), so the drop rule itself still serves food.
+- **The cause, in the genome.** s91's eat job carries a constant of -10.0 ("don't eat the cargo"); it holds at -10.0 to
+  -10.5 down the line to s161 gen 91, and is **0.00 in s161 gen 336** -- deleted. s162 gen 338 kept it (-9.9), and
+  s162's fetch held better (0.83 of s91 against 0.75). s91's walk constant (+2.02) was deleted the same way by s111,
+  where fetch first dipped.
+
+**What it means:** the fixed floor (`keepref=`) stops the losses compounding across runs but not the pressure: every run
+will strip what the floor allows. Levers for part 5: count the kept skills in the score rather than only as a floor;
+or stop pruning (and taxing) connections that serve only verbs the learning arena never offers -- Eat has no target
+while digging.
