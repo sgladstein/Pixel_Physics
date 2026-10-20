@@ -174,6 +174,160 @@ among grown herbs, so its growth there is not a feasibility question.
 
 ## 6. The community beds (M0.4–M0.6)
 
-*Running: mix7 and the four roles, 12 seeds without ants and 8 with, 450,000
-frames, plus the crippled-shrub and mister-off controls. This section is
-filled in when they finish.*
+**Setup** (`plant_m0 mode=community`):
+
+- **The bed:** a 512-wide lab bed with lamps 33 apart (as the played bed),
+  light rain, the lab's half pace, in-bed mutation off, and plant load
+  failure on (the lab's default).
+- **The sowing:** mix7 (2 each of herb, scrambler, shrub, creeper, grass,
+  conifer, tree) or the four roles (3 each of shrub, creeper, herb, grass), at
+  evenly spread columns that keep 210–310 bare.
+- **Ants:** 52, founded at frame 6,000 in the ant arms.
+- **The runs:** 450,000 frames, censused every 25,000; 12 world seeds without
+  ants and 8 with.
+- **Cost:** about 9 minutes a bed on one thread without ants, about 20 with.
+
+Logs are in `m0/runs/`. Every figure is a median over seeds unless it says
+otherwise.
+
+### 6.1 Diversity today
+
+| bed | kinds with 100+ leaf at 450k (min / p25 / median / max) | of those, still producing new plants in the last 100k | evenness (effective kinds ÷ sown) |
+|---|---|---|---|
+| four roles, no ants | 1 / 1 / **2** / 2 | **0** | 0.54 |
+| four roles, with ants | 0 / 1 / **1** / 2 | 1 | 0.51 |
+| mix7, no ants | 1 / 2 / **3** / 4 | 1 | 0.27 |
+| mix7, with ants | 1 / 2 / **2** / 3 | 1 | 0.29 |
+
+Seeds out of 12 (8 with ants) on which each kind holds 100+ leaf at 450k:
+
+| kind | roles4 | roles4 + ants | mix7 | mix7 + ants |
+|---|---|---|---|---|
+| shrub | 9 | 4 | 3 | 2 |
+| creeper | 11 | 1 | 2 | 0 |
+| herb | **0** | **5** | 0 | 0 |
+| grass | **0** | **0** | 1 | **0** |
+| scrambler | — | — | 6 | 3 |
+| tree | — | — | 10 | 5 |
+| conifer | — | — | 10 | 7 |
+
+- **Today's bed holds one to three kinds, and the survivors are mostly not
+  replacing themselves.** In the four-role bed without ants, the median
+  number of surviving kinds still producing new plants in the last 100,000
+  frames is zero. The bed is living on its old individuals.
+- **The canopy trees take mix7.** Tree and conifer survive on 10 of 12
+  seeds; the low plants mostly do not.
+- **Ants make room for the annual.** Herb holds on in 5 of 8 four-role beds
+  with ants and 0 of 12 without. That is the annual colonist role living on
+  disturbance (Grime's ruderal), and the clearest sign yet that the plan's
+  roles exist in this engine.
+- **Grass is lost everywhere**, falling in the second half on 12 of 12
+  four-role beds (§6.2).
+
+### 6.2 Why grass dies out
+
+Traced over every grass on the played bed, seed 1, 450,000 frames, no ants
+(`planttrace life=1`, `m0/grasstrace/`):
+
+| stage | grass | lost there |
+|---|---|---|
+| set as seed | 20,188 | **16,512 rotted waiting**, 224 overrun |
+| germinated | 2,860 (14%) | **1,322 felled at a median age of 142 frames**, 817 old age, 567 lost their tissue |
+| established | 128 (0.6% of seed) | all set seed; 90 then died of old age |
+
+**Grass fails at recruitment.**
+
+- Most seed waits until it rots. The piles are this seed (§6.3).
+- Most seedlings are felled within 142 frames of germinating. "Felled"
+  means the seedling's tissue was cut loose and dropped as a falling body,
+  which happens when a plant has no support path to the ground. A seedling
+  that germinates on top of a seed pile has nothing solid under it, and the
+  lab ships with plant load failure on.
+- The owner's own playtest bed ran with load failure off (`replay.rs`). §6.7
+  checks whether that alone keeps grass alive.
+
+Since 2026-10-19 grass dies of old age (median about 60,000 frames). So a
+grass stand that cannot recruit dies out.
+
+### 6.3 Seed piles
+
+| bed | seed cells above the soil, peak | deepest column, peak | at 450k |
+|---|---|---|---|
+| four roles, no ants | 2,612 (max 4,165) | 21 (max 28) | 35 |
+| four roles, with ants | 1,564 | 19 | 65 |
+| mix7, no ants | 1,178 (max 3,145) | 21 (max 31) | 70 |
+| mix7, with ants | 726 | 11 | 81 |
+
+- **The pile is living seed**, every seed cell carrying a waiting organism
+  (`seedlive` equals `seed` at every row checked). It is mostly grass.
+- **It peaks between frames 75,000 and 300,000, then shrinks as the grass
+  dies out.** A pile that shrinks only because the plant making it died is
+  not a fix.
+- **Ants take some of it**: the peak is 40% lower with ants in both beds.
+- Pictures of the four-role bed at frames 75,000 and 150,000 are in
+  `m0/pics/`.
+
+### 6.4 Water
+
+**With the mister on Light, water is never short anywhere.** The driest any
+band ever got is 0.616–0.629 of saturation in every bed, which is field
+capacity, where the engine treats water as fully available. At 450,000 frames
+the soil is wetter still (0.86–0.98). **There is no water niche in today's lab
+bed.**
+
+**With the mister off** (control, one seed), the top band dries to 0.24 by
+450,000 frames while the deep bands hold 0.52–0.81. That is a real vertical
+profile: dry above, wet below. It is the condition a shallow-against-deep
+rooting niche needs, and the owner has allowed the watering to change. **For
+M1: intermittent watering**, wet spells and dry spells, so the topsoil dries
+between them and the deep soil does not. Measured by this profile before any
+plant work relies on it. Rain off for good also killed herb and grass in that
+bed, so off is not the answer.
+
+### 6.5 The slice
+
+| bed | shoot tips touching another plant | tips whose way up is blocked by another plant | gaps (3+ bare columns) per 100 columns, 450k |
+|---|---|---|---|
+| four roles, no ants | **0.62** | **0.24** | 2.6 |
+| four roles, with ants | 0.50 | 0.14 | 2.0 |
+| mix7, no ants | 0.21 | 0.08 | 1.8 |
+| mix7, with ants | 0.28 | 0.09 | 1.2 |
+
+- **The slice is crowded.** In the four-role bed, 62% of growing tips are
+  touching another plant, and a quarter have their way up closed by one.
+  The count includes kin (a plant's own seedlings are other organisms), so
+  it is the crowding a plant meets, not only the crowding between kinds.
+- That is high enough to justify **A6's passage rule**, which lets a tip push
+  through another plant's leaf as it could in 3D. A6 measures it again after.
+- Gaps of 3+ bare columns are rare: about 2 per 100 columns.
+
+**Light at the soil**, as a fraction of the same column 100 rows up:
+
+| bed | under a canopy | in the open |
+|---|---|---|
+| mix7, no ants | **0.31** | 0.80 |
+| four roles, no ants | 0.86 | 0.89 |
+
+- **Trees and conifers make a real understory:** a third of the light
+  reaches the soil under them. That is in the range of an open woodland, a
+  little bright for a closed one.
+- **Shrubs barely shade** (0.86). The four-role bed's canopy role, started
+  from the shrub, does not yet make the shade an understory role needs. The
+  canopy role either starts from a denser species or is trained for it.
+
+### 6.6 Controls
+
+- **Crippled shrub** (photosynthesis ×0.1, four roles, seed 1): shrub leaf 0
+  at 450k, against a median of 273 for the shipped shrub. The persistence
+  measure sees a lost species.
+- **Mister off:** the top band reads 0.24 against 0.62 or more with it on.
+  The water measure sees a drying bed.
+- **Determinism:** two runs of one bed are byte-identical (smoke test).
+- **Not done here:** the 150,000-against-450,000 proxy check. It ranks
+  *candidates*, and M0 has none; it moves to M2, where the first trained
+  candidates exist.
+
+### 6.7 Load failure off (the owner's setting)
+
+*Running: four of the four-role beds with plant load failure off. Filled in
+when they finish.*

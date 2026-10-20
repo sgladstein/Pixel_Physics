@@ -37,7 +37,7 @@ use pixel_physics::sim::world::World;
 use pixel_physics::train_plant::genome;
 use std::collections::{BTreeMap, HashMap};
 
-const KNOWN: &[&str] = &["mode", "mix", "seed", "frames", "sample", "ants", "cripple", "rain", "width", "species", "widths", "lengths", "shots", "out"];
+const KNOWN: &[&str] = &["mode", "mix", "seed", "frames", "sample", "ants", "cripple", "rain", "width", "species", "widths", "lengths", "shots", "out", "loadfail"];
 
 fn args() -> BTreeMap<String, String> {
     let mut m = BTreeMap::new();
@@ -164,12 +164,17 @@ fn community(m: &BTreeMap<String, String>) {
     // species, not of whatever they mutate into over 450,000 frames.
     w.fate_mutation_chance = 0.0;
     w.param_mutation_chance = 0.0;
+    // `loadfail=0` is the owner's own setting (`PLANT_LOAD_FAILURE=false` in
+    // the 2026-10-09 playtest, `examples/replay.rs`): a plant with no support
+    // path is not felled. On by default, as the lab ships.
+    w.plant_load_failure = get(m, "loadfail", 1u8) != 0;
     println!(
-        "plant_m0 community: mix={mix_name} {:?} seed={seed} frames={frames} sample={sample} ants={ants} rain={:?} cripple={} plants_placed={}",
+        "plant_m0 community: mix={mix_name} {:?} seed={seed} frames={frames} sample={sample} ants={ants} rain={:?} cripple={} plants_placed={} load_failure={}",
         species,
         bed.rain,
         cripple.as_deref().unwrap_or("none"),
-        placed.plants
+        placed.plants,
+        w.plant_load_failure
     );
     let (mut particles, mut blasts, tuning) = (ParticleSystem::new(), Blasts::new(), player::Tuning::default());
     let mut established: HashMap<(OrganismId, u64), u64> = HashMap::new();
