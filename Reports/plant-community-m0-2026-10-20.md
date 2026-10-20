@@ -399,3 +399,33 @@ Standing water above the soil (census `standing=`), seed 2, no ants
   "no new plants in the last 100k" are read after the lake forms. **Every
   §6.1 number is therefore a baseline of today's bed, flood included, not of
   the plants alone.** The M1 watering change re-runs them.
+
+
+## 7. Corrections after the independent review (2026-10-20)
+
+The review is in `plant-community-plan-2026-10-20.md` §12. What it changes
+here:
+
+- **Heredity was only partly off in the community beds** (§6). Fate and
+  parameter mutation were zeroed. Per-birth jitter (σ 0.08) and founder
+  variants (0.25) stayed on, because the harness never called
+  `mutation_off_for_measuring`. The traces (`planttrace`) ran with mutation
+  off, so they describe a slightly different world from the census they
+  explain. **Every §6 number is "today's bed, heredity partly on"**; M1
+  re-baselines with it off.
+- **"Shrubs pass 86% of the light" is withdrawn.** The bed with the shrub
+  crippled out reads the same (0.919 under "canopy" against 0.889 open), so
+  the measure could not see shrubs. "Canopy" counted any organism cell,
+  waiting seeds in 17–28-deep piles included, and rows were averaged across
+  the flood. The tree and conifer figure (0.31) comes from beds where they are
+  the tallest thing by far. It stands as indicative, not calibrated.
+- **The contact counts (§6.5) include seeds and kin.** A seed is an
+  organism, and the piles are all live seed. The "blocked upward" test also
+  counts water as filled. The 62–86% figures are an upper bound on
+  plant-to-plant crowding, not a measure of it.
+- **"Water is never short anywhere" is a band mean across the whole width,**
+  including the 100-column bare colony band, so it cannot see depletion under
+  roots.
+- **Sample sizes:** standing water, seed 2 only (saturation 0.86–0.98 on every
+  seed supports the flood); mister off and the crippled shrub, one seed each;
+  load failure off, 4 seeds. Acceptable as controls, not as estimates.

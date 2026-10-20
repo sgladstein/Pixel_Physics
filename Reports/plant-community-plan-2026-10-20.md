@@ -1,8 +1,8 @@
-# Plants that grow like plants, and a bed where different kinds coexist: plan (2026-10-20, revision 3)
+# Plants that grow like plants, and a bed where different kinds coexist: plan (2026-10-20, revision 4)
 
-**Status: plan, revision 3. The owner has answered every open question (§1),
-and the world being a 2D cross-section is dealt with up front in §2.4.
-Nothing here is built yet; M0 is next.** It supersedes P2–P6 of
+**Status: plan, revision 4, after M0 and an independent adversarial review
+of it (§12: 2 blockers, 9 major, 4 minor, all accepted). M1 starts with
+changes; two owner decisions are open (§9).** It supersedes P2–P6 of
 [`plant-trainer-plan-2026-10-19.md`](plant-trainer-plan-2026-10-19.md). That
 plan's P1, the trainer core, is on `main` (PR #731) and is reused throughout.
 
@@ -307,10 +307,10 @@ starting point, not the answer:
 
 | role | ecological need it fills | trade-off that keeps it from winning everywhere | starts from |
 |---|---|---|---|
-| **Canopy perennial** (competitor) | takes the light at the top, holds ground for a long time | slow to establish, needs bright light, few seeds, pays for wood | shrub |
-| **Shade-tolerant understory** (stress-tolerator for light) | lives under the canopy on dim light | slow, low top speed, loses in the open to the fast | creeper (or moss) |
+| **Canopy perennial** (competitor) | takes the light at the top, holds ground for a long time | slow to establish, needs bright light, few seeds, pays for wood | tree or conifer (revised after the review: they persist on 10/12 beds and shade the soil to 0.31) |
+| **Shade-tolerant understory** (stress-tolerator for light) | lives under the canopy on dim light | slow, low top speed, loses in the open to the fast | shrub, once A3 fixes its stall and A5 gives shade tolerance a price (revised; was creeper) |
 | **Annual colonist** (ruderal) | fills gaps fast after death and disturbance; keeps a seed bank | short life, loses any long contest, needs open ground | herb |
-| **Clonal ground cover** | spreads sideways, holds open, bright ground near the surface | shallow-rooted, poor in shade, few seeds | grass |
+| **Clonal ground cover** | spreads sideways, holds open, bright ground near the surface | shallow-rooted, poor in shade, few seeds | creeper, a ground runner (revised; grass spreads only by seed and sets the most of it) |
 
 **What "diverse" means, in numbers:**
 
@@ -505,20 +505,44 @@ This session cannot launch anything.
 
 M0 and M1 run here, with no Google Cloud needed.
 
-**M0 is done (2026-10-20):** `plant-community-m0-2026-10-20.md`. Its results
-reorder M1:
+**M0 is done (2026-10-20):** `plant-community-m0-2026-10-20.md`. After it and
+the review (§12), **M1 runs in this order**:
 
-1. **Watering first.** The default mister floods every bed past about
-   200,000 frames (§Z38), so every later community number would measure a
-   lake. Wet and dry spells replace it.
-2. **Then A3's bud-break and tip rules**, which the shrub trace pins down.
-3. **Then A6's seed and passage rules.** Grass's recruitment failure *is*
-   the seed pile, and 62–86% of tips touch another plant.
-4. **Then A2's development keying.** The per-plant key does not shrink the
-   dice.
+1. **A1 first: confirm or fix the shared generator.** The leaf-litter shade
+   and the rain mister may draw from one stream. If they do, changing the
+   watering reshuffles every plant's dice, and no before-and-after
+   comparison can be attributed.
+2. **Watering**: wet and dry spells replace the steady mister (§Z38), judged
+   on ≥4 seeds by:
+   - standing water;
+   - the soil-water profile per column under each species' roots;
+   - a shallow-rooted and a deep-rooted plant that actually differ in water
+     status.
+3. **Re-baseline the community** with in-bed heredity truly off. That means
+   `mutation_off_for_measuring` plus founder variants at 0, printed in the
+   log header (M0 left per-birth jitter and founder variants on; §12, M7).
+   Also count contact split by seed, own kind and other kind, and light under
+   each species' own leaf.
+4. **A6, where a seed may germinate, and the piles**:
+   - a seed sprouts only in contact with soil, as a real seed does;
+   - seed past a set depth leaves the slice into a bank that ants can still
+     reach and that the census counts;
+   - a species-mix guard, because removing the pile may bring back the grass
+     ratchet.
 
-The light arm of the development instrument is redesigned with a real shade
-before A5's light responses are judged.
+   Waits on the load-failure ruling (§9).
+5. **A3, bud break reads stored carbon** (the shrub trace).
+6. **A5.1–A5.2: shade avoidance against tolerance, sun and shade leaves.**
+   These make an understory possible at all, and are priced.
+7. **A2, development keying.**
+
+**Rungs 4–6 and M4 wait** for three things:
+
+- a resident bed that holds steady without the candidate;
+- role-specific scoring (§5, revised in §12);
+- a repeatability and heritability gate on the community rungs.
+
+The light arm of the development instrument is redesigned with a real shade.
 
 ### 8.1 M0, item by item, each with its control
 
@@ -537,16 +561,33 @@ requires. A measurement whose control fails is not reported.
 | **M0.7 arena cost** | core-seconds per bed by width and length, one thread | `mode=cost` | — | cost must scale with area × frames, or the §6.2 table is wrong |
 | **M0.8 copying a bed** | a grown bed, copied, then stepped on: identical to the original; then a new species registered into the copy and sown: it germinates | `mode=copy` | copy and original are hash-equal after 5,000 more frames | — |
 
-## 9. Questions: all answered (2026-10-20)
+## 9. Questions
 
-1. **The four roles:** kept.
-2. **The budget:** $40 a month for plants, of the $100 shared with the ant
-   lane.
-3. **Watering:** may be changed so water has a profile, if M0 shows it never
-   runs short at depth.
-4. **The 2D cross-section:** handled up front (§2.4).
+**Answered (2026-10-20):**
 
-None remain open. M0 is next and needs no further decision.
+- the four roles are kept;
+- $40 a month for plants;
+- the watering may change;
+- the 2D cross-section is handled up front (§2.4);
+- Part A ships on for every plant.
+
+**Open, after the review (§12):**
+
+1. **Plant load failure, in the world the community is trained in** (B2).
+   With it on (the lab's default), grass seedlings that sprout on the seed
+   pile are felled and grass dies out. With it off (your setting), grass
+   carpets the bed and its pile never clears.
+   - **Recommendation: off**, the way you play. Felling a seedling because
+     it sprouted on loose seed is not something a real plant suffers, and the
+     pile problem is visible there, so a fix can be judged where it shows.
+   - Rung 7 is validated under both either way.
+2. **Shrub and creeper never die of old age** (B1); they have no lifespan.
+   Without one, the residents of a bed can't be displaced and there's no
+   room for the colonist role.
+   - **Recommendation:** give both a lifespan, the way grass got one on
+     2026-10-19, with the value set by measurement and shown to you before
+     it ships. It changes two shipped species in both games, so it's yours to
+     decide.
 
 ## 10. Risks
 
@@ -592,3 +633,43 @@ This repository:
   `Reports/handoff/brain-lane-handoff.md`.
 - The code survey of `plant.rs` (line numbers in §2.1) and the records survey:
   research agents, 2026-10-20.
+
+
+## 12. Independent review after M0 (2026-10-20) and responses
+
+One adversarial reviewer read this plan and the M0 report in full and checked
+the cited code. Every finding below was checked against the code before
+being accepted, and each one is accepted. The changes are already in M1's
+order above and in §9.
+
+| # | severity | finding | response |
+|---|---|---|---|
+| B1 | BLOCKER | The invasion test cannot mean anything against today's residents. They decline (median 0 kinds still producing new plants), cannot be displaced (shrub and creeper never die of age: no `life_half_life`, checked), or are under water. Grass's ~60,000-frame lifespan is shorter than the 80,000-frame window. | **Accepted.** Rung 6 is gated on a resident-only copy over the same window showing no trend, and the invader is scored against that paired control. The line is counted in established plants, never organisms (seeds are organisms). ≥4 resident beds, so no single gap layout is fitted. Perennial lifespans for shrub and creeper go to the owner (§9). |
+| B2 | BLOCKER | The ladder's world is undefined on a switch that decides the outcome: load failure on means grass is extinct, off means grass carpets the bed with a pile that never clears. | **Accepted.** Owner ruling (§9). Training runs in the chosen setting, and rung 7 is validated under both. |
+| M3 | MAJOR | A score ordered so that recruitment outranks everything, over 3,000–40,000-frame windows, pushes every role towards the fast annual. Rung 2 rewards growth rate and has no neighbour, so shade avoidance cannot be learned there. A rung-predicts-rung rule would punish the very trade-offs the roles exist for. | **Accepted.** Each role is scored on its own objective at the horizon its strategy pays: the canopy on light captured and persistence; the understory on carbon balance and survival in the dim station; the colonist on seedlings per frame in a disturbed station. The rung check runs per role, and a negative correlation for a trade-off role is information, not a reason to redesign. Rung 2 gets neighbour and shade stations. |
+| M4 | MAJOR | Three starting species contradict their roles. Creeper is a ground runner, not shade-tolerant. Grass spreads only by seed (tillers regrow inside one organism) and set 20,188 seeds, the opposite of "few seeds". Shrub is the stall lottery, while tree and conifer persist (10/12) and make shade (0.31). | **Accepted. Remapped:** canopy perennial from **tree or conifer**; clonal ground cover from **creeper**; annual colonist from **herb**; shade-tolerant understory from **shrub**, after A3 fixes its stall and A5 gives shade tolerance a price. Grass stays in the game, outside the trained four. |
+| M5 | MAJOR | "Shrubs pass 86%" is an instrument artifact. The bed with the shrub crippled out reads the same (0.919 against 0.889). "Canopy" counted any organism cell, waiting seeds included, and rows were averaged across the flood. | **Accepted; the 86% figure is withdrawn.** Light is re-measured per species, under that species' own leaf, excluding seed organisms, before any flood. |
+| M6 | MAJOR | The contact counts behind A6's passage rule count seeds, kin and water. | **Accepted.** Contact is split into seed, own kind and other kind, and leaf against stem, and recounted after the watering fix. If passage is built, it is priced (a tall plant shedding the understory's leaves is not free), shipped as a runtime selector, and judged by pictures. |
+| M7 | MAJOR | M0's community beds ran with per-birth jitter (σ 0.08) and founder variants (0.25) still on, and the traces ran with mutation off: two different worlds. | **Accepted.** Re-baseline in M1 step 3. M0's community numbers stand as "today's bed, heredity partly on", and the M0 report says so. |
+| M8 | MAJOR | Nothing checks that community-rung scores are heritable. P1's blocker returns at rungs 4–6, and invasion from a few seeds into about 2 gaps per 100 columns is mostly luck. | **Accepted.** Before M4: rung 6's repeatability (same genome, K seed draws, ≥4 resident beds) and its heritability, both gated. The copy test is re-run on a real resident bed at 300,000+ frames, with ants. |
+| M9 | MAJOR | The only evidence for the annual role depends on ants, which the training rungs leave out, and it was read from a count rather than traced. | **Accepted.** Herb is traced individually in both arms first. Then a disturbance station, or ants in rungs 5–6, priced at about 2× cost. |
+| M10 | MAJOR | "Water is never short anywhere" was read from band means across the full width, including the bare colony band. Mister off was one seed, and intermittent watering is unmeasured. | **Accepted.** Water per column under each species' roots. Watering judged on ≥4 seeds, including a shallow- against deep-rooted plant, before rooting depth counts as a role axis. |
+| M11 | MAJOR | The M1 order misses what M0 found: recruitment failure. A1 is unconfirmed and would confound the watering change. "Germinate only on soil" is missing. Moving seed into a numeric bank hides it from ants and favours the heaviest seeder. | **Accepted.** That is the new M1 order above. |
+| m12 | MINOR | The cost table is off: rung 6 on a full 512-wide bed is about 96 core-seconds per 80,000 frames, not 25, and rung 3 runs at about 50 generations an hour, not 15. | **Accepted.** §6.2 is corrected below. $40 a month still covers it. |
+| m13 | MINOR | The seed and seedling caps were measured on herb; grass saturates them at once. | **Accepted.** Caps are set per role. |
+| m14 | MINOR | A6's light-transmission calibration has no evidence behind it and would re-baseline every species. Trees already pass 0.31. | **Accepted.** Dropped unless the per-species light measure calls for it. |
+| m15 | MINOR | Several conclusions rest on one seed. | **Accepted.** The n is cited beside each claim in the M0 report. |
+
+**Corrected costs (m12)**, for 12 genomes × 8 stations a generation on a
+16-core machine:
+
+| rung | per bed | generations an hour |
+|---|---|---|
+| 1 | ~0.1 core-s | thousands (overhead-limited) |
+| 2 | ~0.8 core-s | ~700 |
+| 3 | ~12 core-s | ~50 |
+| 6, full 512-wide resident bed | ~96 core-s per 80,000 frames | ~6 |
+
+Rung 6 on a narrower resident bed (192 wide) is roughly 2.5× cheaper, if the
+rung check shows it predicts the full bed. Estimates; pinned when the rungs
+are built.

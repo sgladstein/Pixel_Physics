@@ -659,9 +659,15 @@ by somebody about to try it on creatures.
   small arena costs about 0.1 core-seconds.
 
 - [plant-community-plan-2026-10-20.md](plant-community-plan-2026-10-20.md)
-  — **plan, revision 3: every owner question answered, and the 2D
-  cross-section handled up front (its §2.4); supersedes the trainer plan's
-  P2–P6.** The goal: a lab bed where **four
+  — **plan, revision 4, after M0 and an independent review (its §12: 2
+  blockers, 9 major, 4 minor, all accepted); supersedes the trainer plan's
+  P2–P6.** Revision 4 reorders M1: confirm the shared random stream, then the
+  watering, then a re-baseline with heredity truly off, then seeds sprouting
+  only on soil. Each role is scored on its own objective. The starting
+  species are remapped (canopy from tree or conifer, ground cover from
+  creeper, understory from shrub). The community rungs are gated on a steady
+  resident bed and a heritability check. Two owner questions are open: load
+  failure in the training world, and lifespans for shrub and creeper. The goal: a lab bed where **four
   roles** coexist (canopy perennial, shade-tolerant understory, annual
   colonist, clonal ground cover), proven by **mutual invasibility** rather than
   a species count. **Part A** rebuilds development from how real plants grow:
