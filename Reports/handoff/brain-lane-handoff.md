@@ -1,6 +1,6 @@
 # Handoff: training the ant's brain (stage 2), for an agent with only this repo
 
-**Last updated: 2026-10-20 04:40 UTC.** Written by the session that has run
+**Last updated: 2026-10-20 04:50 UTC.** Written by the session that has run
 this work since 2026-10-17, because the owner's account was about to run out
 of usage. It is updated in place through the night as each task finishes:
 read the **Log** at the bottom first to see what changed since this header.
@@ -81,7 +81,7 @@ Seeds 112 and 114 stayed flat (hold-out about 1.0-1.5). Seed 113 auto-stopped at
 **Running now: round 4, three times as many worlds per test.**
 
 *Two new seeds from s134's best (`training/starts/s134-4b-g34.txt`), `foot=1`, 100 generations, with `layouts=48` (was 16) and `holdout=24` (was 12). Everything else is as in round 2.*
-- Names `dig-4b4-s161` and `dig-4b4-s162`. Google, **`c4d-highcpu-32`** each (two of them fill the 64-CPU quota), ref `d4c2275082c8bd5e409d406637d4ce83167768e8` (main). Asked for at 04:40 UTC. Each generation costs about 3x round 2's, so expect about 3 minutes a generation and 100 generations in about 5-6 hours (estimate, not measured), unless the auto-stop ends one sooner.
+- Names `dig-4b4-s161` and `dig-4b4-s162`. Google, **`c4d-highcpu-32`** each (two of them fill the 64-CPU quota), ref `d4c2275082c8bd5e409d406637d4ce83167768e8` (main). Training began about 04:40 UTC at a measured **138 s a generation**, so 100 generations finish about **08:35 UTC** unless the auto-stop ends one sooner.
   - Each VM writes a snapshot to the bucket every 5 minutes, as `runs/<name>/latest.tgz`, and a `DONE` marker at the end. The VMs need no session to keep running.
   - Fetch with the launcher (section 5): `python3 Reports/brain-training/cloud-compute/gcp/gcp_train_job.py fetch dig-4b4-s161 <dir>`. That saves `<dir>/dig-4b4-s161-snap.tar.gz` holding `hold-best.txt`, `best.txt`, `progress.csv`, `holdout.csv`, `train.log`, `curves.svg` and `state.txt`.
   - Then `status dig-4b4-s161` should say the VM is gone. If it doesn't, run `delete dig-4b4-s161` (a VM left running costs money).
@@ -267,6 +267,10 @@ The owner is **Scott** (GitHub `sgladstein`). He uses a Mac terminal, so give zs
 ## Log
 
 Newest first. Each entry says what changed and what is now true.
+
+- **2026-10-20 04:50 UTC.**
+  - **Round 4 running** (`dig-4b4-s161`, `s162`, two `c4d-highcpu-32`), 138 s a generation, due about 08:35 UTC. Round 3's VMs were stopped at generations 10-12 and deleted. Their bundles are in the bucket and the shared folder only, not the repo, since nothing in them is worth resuming.
+  - **The noise reading, confirmed:** on round 4's 24 hold-out layouts the start (s134) scores **1.08**, against the 1.63 it scored on the 12 layouts it was picked on. So round 4's hold-out comparisons are fairer, but still read gains paired per world on the sealed set.
 
 - **2026-10-20 04:40 UTC. The noise reading; round 3 stopped; round 4 launched.**
   - **Round 3's early champions** (generations 0-8, hold-out, start 1.629):
