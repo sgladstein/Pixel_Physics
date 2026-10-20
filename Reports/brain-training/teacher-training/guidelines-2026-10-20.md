@@ -2,8 +2,8 @@
 
 *Written 2026-10-20 by the teacher-approach session (claims checked through PubMed and SciSpace the same day:
 [`notes/verification-pass.md`](notes/verification-pass.md), 14 of 17 verified, 2 corrected and applied here), at the owner's request, after the discussion opened by
-`Reports/handoff/teacher-approach-handoff.md` (on `claude/brain-investigation`). Status: **plan and guidelines, nothing
-built.** The evidence is [`literature-2026-10-20.md`](literature-2026-10-20.md) (a review of ~80 papers, mostly read at
+`Reports/handoff/teacher-approach-handoff.md` (on `claude/brain-investigation`). Status: **plan and guidelines; steps 0a and 0b measured
+the same day ([`measurements-2026-10-20.md`](measurements-2026-10-20.md)), nothing else built.** The evidence is [`literature-2026-10-20.md`](literature-2026-10-20.md) (a review of ~80 papers, mostly read at
 abstract level -- see its caveat) and the brain lane's investigation (`Reports/brain-training/investigation-2026-10-20.md`
 on the same branch), cited below as "investigation part N".*
 
@@ -23,14 +23,17 @@ published group-evolution runs closest to ours took **500 and 2,000 generations*
 hand-built rule blocks (Waibel, Floreano & Keller 2011; Ferrante et al. 2015). A Ferrante-sized run with 4 ants at 12,000
 frames would cost roughly $40-50 at today's settings ($0.65 x 1.7 for four ants x 2 for the longer run, per 100
 generations) -- half the budget for one experiment. With the levers below it is plausibly $5-15 -- an estimate, which
-holds only if pairing and racing together deliver 3-8x on our simulator. Without them, colony training happens once or twice, total.
+needs racing and copying together to deliver 3-8x on our simulator (paired worlds, once counted among them, measured no
+saving: see below). Without them, colony training happens once or twice, total.
 
 **Three cheap measurements decide how the budget should be split**, and all three can be taken locally, without VMs:
 
-1. **How correlated two near-identical brains are on the same world** (rho). It sets how much paired worlds and racing
-   can save: rho 0.75 halves the worlds a brain needs, rho 0.9 cuts them about fivefold.
+1. **How correlated two near-identical brains are on the same world** (rho). It sets how much paired worlds can save:
+   rho 0.75 halves the worlds a brain needs, rho 0.9 cuts them about fivefold. **Measured the same day: 0.05 for the
+   trainer's children -- no saving; pairing would cost about 2x** ([`measurements-2026-10-20.md`](measurements-2026-10-20.md)).
 2. **Which decisions a teacher can actually teach** (the copyability probe, guideline T5). It sets which skills copying
-   can speed up.
+   can speed up. **Measured: all three dig corrections, 94-100% from the brain's own inputs on held-out worlds, where the
+   brain today agrees 53-55% on put-down and walk-home** (same report).
 3. **Whether a 2-4-ant short run ranks brains the way a full colony does.** It sets whether colony training is
    affordable at all.
 
@@ -84,7 +87,9 @@ Where the teacher has no confident answer it **abstains**, and that decision con
 what keeps the long tail out (the ant on a ledge, the pellet falling back, two rules fighting): the teacher writes rules
 only for the decisions we can state exactly. For the 8-row dig step that is three, all from investigation part 1:
 
-1. **Which cell to cut**: the foot, not the wall one row short (3.2 wasted trips a world at 4 rows, 5.6 at 8).
+1. **Where to dig**: only where a foot cell is in reach (3.2 wasted wall trips a world at 4 rows, 5.6 at 8). Measured:
+   this is a dig-or-not call, not a pick among cells -- the cells in reach are almost never a mix, and 65% of s161's
+   digs at 8 rows are made with no foot cell in reach.
 2. **When to put a load down**: about 4-5 columns out, not the median 10.
 3. **When an empty ant turns back**: sooner (45% of its surface time is 10+ columns out).
 
@@ -122,7 +127,8 @@ chosen option's features; extend it to the whole option list first** (handoff, "
 ### T6. Judge by the score on paired worlds, never by agreement
 
 Low copy loss proves nothing: an agent can match its teacher's labels and still do badly when it drives itself (Pfrommer
-et al. 2023). Every copied brain is judged against its parent on the same sealed worlds, paired per world (full loads,
+et al. 2023). Every copied brain is judged against its parent on the same sealed worlds -- by mean and standard error over enough
+worlds, since a brain that behaves differently decorrelates from its source and pairing does not cut the noise (full loads,
 unpaid trips, put-down distance), with fetch and trail against the fixed s91 floor -- and **a GIF for the owner before
 anything passes**.
 
@@ -251,7 +257,7 @@ modular, but the modules do not line up with skills, and a link no current arena
 | Lever | What it saves (literature) | Measure first, on our simulator |
 |---|---|---|
 | Copying (individual skills) | "Almost 10x" fewer steps with several teachers (Schmitt et al. 2018); an order of magnitude (Nair et al. 2018) | Copyability per decision type (T5) |
-| Paired worlds | Worlds needed x 2(1 - rho) against a well-measured parent | rho of two near-identical brains |
+| ~~Paired worlds~~ | Worlds needed x 2(1 - rho) against a well-measured parent | **Measured: rho 0.05 for the trainer's children, so no saving (about 2x worse); it pays only for children a weight or two from the parent** |
 | Racing to the cut line | Ours already 48 to 22 worlds a brain. Related: setting evaluation length per candidate cost 29-76% less than the best fixed length on four simulated landscapes (Martin & Collins 2026) | Most mutants are clearly worse (4.9 vs 6.6 loads): let them leave after 1-4 worlds; parents carry their worlds forward |
 | Cheap rungs (few ants, short runs) | Successive halving 5-30x (Hyperband; a distant domain) | Rank correlation of cheap vs full on ~50 brains |
 | Inherited fitness | Few-sample evolution competitive on 1,000+ weights (Morse & Stanley 2016) | Bias from lucky early scores |
@@ -260,10 +266,12 @@ modular, but the modules do not line up with skills, and a link no current arena
 
 Two notes on the table:
 
-- **Our paired worlds are already built right.** The usual failure is one shared random stream, where the first
-  different decision reshuffles every later draw and the pairing is lost (arXiv 2409.02086). Every brain choice here
-  draws from its own stream, keyed by world seed, ant, frame and purpose (`mind.rs:1732`). What is left is physical
-  divergence once brains act differently, and rho measures exactly that.
+- **Paired worlds were built right and still do not pay.** The usual failure, one shared random stream (arXiv
+  2409.02086), is designed out: every draw is keyed by world seed, ant, frame and purpose (`mind.rs:1732`), and a copy of
+  the parent reproduces it on every world exactly. But a child made by the trainer's rule changes behaviour enough to
+  reshuffle every world's luck (median rho 0.05), and two good brains agree on which worlds go well only at 0.12. The
+  noise is the run's own luck, not the world's difficulty -- so evaluation can only buy precision with more or longer
+  worlds, and a per-decision signal is worth more than this table's literature figures suggest.
 - **Before choosing between racing and novelty search, find out what blocked the 600-generation step.** If better mutants
   appeared and were thrown away, it was noise, and racing and pairing fix it. If none appeared, it was a dead end in the
   search, and shaping or quality-diversity fixes it. A trace of the line's mutants separates the two.
@@ -272,10 +280,10 @@ Two notes on the table:
 
 | Step | What | Needs VMs? | Decides |
 |---|---|---|---|
-| 0a | Measure rho: parent and a one-mutation child on the same 100 sealed worlds | No | How much pairing and racing can save |
-| 0b | Extend the mind logger to every option; run the copyability probe on the three dig corrections, with both controls | No | Whether the hand teacher can teach them |
-| 1 | The one-day partial teacher and self-imitation, copied offline, judged paired against s161 with the round-trip control (T8) | No | Whether copying beats selection for a dig step |
-| 2 | Racing to the cut line on paired differences, A/B'd against the current trainer | Yes, short | The evaluation saving, measured |
+| 0a | **Done**: rho of parent and children on the same 96 worlds | No | Pairing saves nothing at the trainer's step size |
+| 0b | **Done**: logger extended to every option; copyability probe on the three dig corrections, both controls | No | All three are teachable from the brain's own inputs |
+| 1 | The one-day partial teacher and self-imitation, copied offline, judged against s161 over 96 worlds with the round-trip control (T8) | No | Whether copying beats selection for a dig step |
+| 2 | Racing to the cut line on raw scores, A/B'd against the current trainer | Yes, short | The evaluation saving, measured |
 | 3 | First colony arena, **varying the world**: 4 ants, two work sites, with and without a switching cost; does a split appear with a solo-trained brain plus `SELF`/`AGE`? Measure the cheap-vs-full rank correlation alongside | Yes | Whether colony training is affordable, and whether the arena makes castes pay |
 | 4 | Room sizing at 2-8 ants with the crowding threshold teacher; acceptance test N vs 2N | Yes | Whether crowd behaviour can be taught |
 | later | Reinforcement learning head-to-head with selection on one step, design doc first (standing ruling) | -- | -- |

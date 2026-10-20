@@ -5540,8 +5540,14 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   already supply what castes need), and the three cheap measurements that
   decide the budget. Built on
   [literature-2026-10-20.md](brain-training/teacher-training/literature-2026-10-20.md),
-  a ~80-paper review read mostly at abstract level, with per-thread notes in
-  `notes/`.
+  a ~80-paper review read mostly at abstract level (key claims checked in
+  `notes/verification-pass.md`), with per-thread notes in `notes/`.
+  [measurements-2026-10-20.md](brain-training/teacher-training/measurements-2026-10-20.md)
+  — **measured, local:** paired worlds save nothing at the trainer's
+  mutation size (child-parent correlation 0.05; two good brains 0.12 — the
+  noise is the run's own luck); all three dig corrections are copyable from
+  the brain's own inputs (94-100% held out, brain today 53-55%), and 65% of
+  s161's digs at 8 rows are made with no foot cell in reach.
 
 ## Licensing and distribution
 
