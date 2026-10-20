@@ -1,0 +1,9 @@
+
+=== /tmp/claude-0/-home-user-Pixel-Physics/df583918-793a-554e-8af3-235040252c3a/scratchpad/m0/shrubtrace/s1
+  shrub      root      6,361 visits:  root_share 75%, too_poor 18%, grew 6%, no_good_direction 0%, boxed 0%
+                         891 retired: root_share 80%, too_poor 19%, no_good_direction 1%, tip_cap 0%, boxed 0%
+  shrub      shoot     1,537 visits:  taper_roll 30%, grew 23%, too_poor 21%, boxed 19%, no_good_direction 3%
+                         185 retired: height_limit 48%, boxed 41%, no_good_direction 9%, too_poor 3%
+  plants by the reason most of their tips stopped on:
+    shrub      shoot none stopped 7, boxed 5, no_good_direction 2, too_poor 2, height_limit 1
+    shrub      root  root_share 7, none stopped 5, too_poor 3, no_good_direction 2

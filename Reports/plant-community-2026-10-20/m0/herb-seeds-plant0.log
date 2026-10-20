@@ -1,0 +1,15 @@
+clone_variance: species=herb founders=8 frames=12000 worldseed=None shift=0 param_mutation_chance=0
+  developmental key: Plant { coarseness: 0 }
+
+  one founder, alone, same genome, same spot, a different developmental seed each run (8 seeds):
+                       cells     height      width    slender   foliage%      root%  folcentre
+  seed 0             128.000     32.000     16.000      2.000      0.289      0.500      0.641
+  seed 1             236.000     34.000     28.000      1.214      0.263      0.508      0.706
+  seed 2             282.000     51.000     35.000      1.457      0.262      0.500      0.579
+  seed 3             332.000     63.000     32.000      1.969      0.241      0.500      0.669
+  seed 4             202.000     42.000     16.000      2.625      0.262      0.510      0.573
+  seed 5             353.000     60.000     38.000      1.579      0.263      0.501      0.647
+  seed 6             382.000     59.000     41.000      1.439      0.272      0.503      0.571
+  seed 7             283.000     45.000     40.000      1.125      0.269      0.502      0.653
+  CV                   0.306      0.247      0.326      0.296      0.050      0.008      0.080
+  -- one genome, one spot: whatever spread this shows is the developmental dice alone.

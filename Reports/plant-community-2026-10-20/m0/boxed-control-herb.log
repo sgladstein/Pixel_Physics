@@ -1,0 +1,12 @@
+  alone              f=  2000 tips=1 contact_other=0 up_blocked_other=0 | herb plants=1 bank=0 leaf=37 est=1
+  alone              f=  4000 tips=1 contact_other=0 up_blocked_other=0 | herb plants=5 bank=0 leaf=58 est=0
+  alone              f=  6000 tips=3 contact_other=0 up_blocked_other=0 | herb plants=7 bank=0 leaf=72 est=0
+  alone              f=  8000 tips=4 contact_other=2 up_blocked_other=1 | herb plants=16 bank=0 leaf=137 est=4
+  two columns apart  f=  2000 tips=2 contact_other=0 up_blocked_other=0 | herb plants=2 bank=0 leaf=23 est=2
+  two columns apart  f=  4000 tips=2 contact_other=0 up_blocked_other=0 | herb plants=2 bank=0 leaf=47 est=0
+  two columns apart  f=  6000 tips=2 contact_other=0 up_blocked_other=0 | herb plants=8 bank=0 leaf=69 est=0
+  two columns apart  f=  8000 tips=2 contact_other=1 up_blocked_other=0 | herb plants=14 bank=0 leaf=89 est=1
+  touching rows      f=  2000 tips=4 contact_other=2 up_blocked_other=0 | herb plants=6 bank=0 leaf=69 est=4
+  touching rows      f=  4000 tips=4 contact_other=1 up_blocked_other=0 | herb plants=7 bank=0 leaf=135 est=0
+  touching rows      f=  6000 tips=8 contact_other=4 up_blocked_other=1 | herb plants=22 bank=1 leaf=215 est=1
+  touching rows      f=  8000 tips=5 contact_other=4 up_blocked_other=0 | herb plants=29 bank=1 leaf=254 est=2

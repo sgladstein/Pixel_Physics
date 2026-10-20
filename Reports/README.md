@@ -641,6 +641,17 @@ by somebody about to try it on creatures.
   herb never flowers** (its leader stops short of the ninth node), so the
   trainer's bed is the lab's; the root cap binds on 34 of 48 beds; weather is
   a bigger noise than development.
+- [plant-community-m0-2026-10-20.md](plant-community-m0-2026-10-20.md)
+  — **M0 of the community plan, in progress.** The per-plant developmental
+  key freezes the dice without shrinking them: one herb genome in one spot
+  over 8 developmental seeds ranges 128–382 cells. The shrub's
+  stall-or-take-off has a traced cause: dice in a seedling's first 1,000
+  frames decide whether its few tips survive, and bud break reads income per
+  tick (it needs about 12× a seedling's leaf area) rather than savings, so a
+  bad roll is permanent. Water moves roots the right way, by more than the
+  noise. Light, as tested, did not (the lamps light the bench evenly). Arena
+  cost tracks activity, not area, and a grown bed copies exactly.
+
 - [plant-community-plan-2026-10-20.md](plant-community-plan-2026-10-20.md)
   — **plan, revision 3: every owner question answered, and the 2D
   cross-section handled up front (its §2.4); supersedes the trainer plan's
