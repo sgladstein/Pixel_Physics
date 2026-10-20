@@ -1,6 +1,6 @@
 # Handoff: training the ant's brain (stage 2), for an agent with only this repo
 
-**Last updated: 2026-10-20 01:00 UTC.** Written by the session that has run
+**Last updated: 2026-10-20 01:05 UTC.** Written by the session that has run
 this work since 2026-10-17, because the owner's account was about to run out
 of usage. It is updated in place through the night as each task finishes:
 read the **Log** at the bottom first to see what changed since this header.
@@ -81,10 +81,7 @@ Seeds 112 and 114 stayed flat (hold-out about 1.0-1.5). Seed 113 auto-stopped at
   - Fetch with the launcher (section 5): `python3 Reports/brain-training/cloud-compute/gcp/gcp_train_job.py fetch dig-4b-s131 <dir>`. That saves `<dir>/dig-4b-s131-snap.tar.gz` holding `hold-best.txt`, `best.txt`, `progress.csv`, `holdout.csv`, `train.log`, `curves.svg` and `state.txt`.
   - Then `status dig-4b-s131` should say the VM is gone. If it doesn't, run `delete dig-4b-s131`.
   - **Early hold-out numbers.** These come from the training hold-out (12 layouts, not the sealed set), on the soil score under `foot=1`, where the start scores 38.2. At about generation 28: s131 best 51.7 (gen 12), s132 49.2 (gen 19), s133 43.8 (gen 20), s134 46.8 (gen 18). None of this is a pass reading yet.
-- **GitHub Actions: a free backup copy.** The same four runs, from branch `train/dig-4b`, land in the repo by themselves.
-  - Results: branch `train-results/dig-4b-s13X`.
-  - One leg is capped at 6 h, which is roughly 24-50 generations. To carry on, push the same job file again with `resume=1` added (section 5).
-  - Results are identical at any thread count, so the Actions copy reproduces the Google run generation for generation.
+- **Google only.** An Actions copy of the same four runs was started and then cancelled at 00:55 UTC, because the owner said not to double up: "Just pick one". Its partial `train-results/dig-4b-s13X` branches are stale; ignore them. Run each job in one place only.
 
 **Stop rule, agreed in advance.** If no seed is past **3 full loads a world by
 generation 100**, the pay rule is not what holds it back. More generations won't
@@ -261,6 +258,8 @@ The owner is **Scott** (GitHub `sgladstein`). He uses a Mac terminal, so give zs
 
 Newest first. Each entry says what changed and what is now true.
 
+- **2026-10-20 01:05 UTC.**
+  - The Actions copies of the 4b runs were cancelled ("Don't double up... Just pick one"). Google is the only copy.
 - **2026-10-20 01:00 UTC.**
   - The owner confirmed the next agent will have the Google key, so Google is the main compute and the Actions copies are a backup.
   - The 4b runs are at about generation 28, with early hold-out numbers in section 2.
