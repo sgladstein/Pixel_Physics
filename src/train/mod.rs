@@ -177,6 +177,19 @@ pub trait Challenge: Sync {
     fn verbs(&self) -> &'static [Verb] {
         &[Verb::Walk, Verb::TurnAround, Verb::Rest]
     }
+    /// **The verbs that can act here**: those of [`Challenge::verbs`] that
+    /// ever have a target in this arena's worlds. All of them unless an
+    /// arena knows better (the soil box has no food or larvae, so Pick up,
+    /// Eat and Feed never have one there; a guard test watches it).
+    fn acting_verbs(&self) -> Vec<Verb> {
+        self.verbs().to_vec()
+    }
+    /// **Verbs this challenge offers but cannot test while it learns**: in a
+    /// suite, those only its kept arenas can use. Their connections are
+    /// left alone under [`Settings::protect`]. None for a single arena.
+    fn untested_verbs(&self) -> Vec<Verb> {
+        Vec::new()
+    }
     /// The scents a mind may lay here (A, B, alarm): A and B as the brain's
     /// `EmitA`/`EmitB` bans say, alarm off.
     fn mind_emits(&self) -> [bool; mind::EMITS] {
@@ -736,6 +749,13 @@ pub struct Settings {
     /// exactly where it was and just add an extra 50 generations"). A
     /// cloud container that restarts mid-run lost its run the same way.
     pub resume: bool,
+    /// **Leave untestable verbs' connections alone** (`protect=`, on by
+    /// default; owner, 2026-10-20): a mind's slots that serve only a verb
+    /// the challenge cannot test ([`Challenge::untested_verbs`]: in a suite,
+    /// a verb only its kept arenas can use) are taken out of the trainable
+    /// slots, so mutation and pruning never touch them ([`mind::protect`]).
+    /// Off is the rig before it.
+    pub protect: bool,
     /// **The arena's own arguments**, as the command line gave them
     /// (`examples/train.rs`: challenge, arenas, step, shaft, frames, dist,
     /// budget and the rest), for [`RunState`]: a resume under another
@@ -821,6 +841,7 @@ impl Default for Settings {
             grow: 1.0,
             patience: 50,
             resume: false,
+            protect: true,
             arena: String::new(),
         }
     }
@@ -1274,7 +1295,15 @@ fn start_brain(start: &Start, species_genome: &[f32], banned: &[BrainOutput], se
 /// * `summary.txt` -- what the run was and how it ended.
 pub fn train(ch: &dyn Challenge, start: Vec<f32>, set: &Settings, out: &Path) -> std::io::Result<Vec<f32>> {
     std::fs::create_dir_all(out.join("champions"))?;
-    let slots = trainable_for(ch, start.len());
+    let mut slots = trainable_for(ch, start.len());
+    if set.protect && is_mind(start.len()) {
+        let untested = ch.untested_verbs();
+        if !untested.is_empty() {
+            let n = mind::protect(&mut slots, &untested);
+            println!("protect: {n} slots serving only {untested:?} left alone (no target in the learning arena)");
+        }
+    }
+    let slots = slots;
     assert!(blocks(start.len()).walk.is_none() || ch.unit() == Unit::Colony, "walk genes need a colony arena: the scout's reserve is the world's");
     let mut rng = Rng(set.seed.wrapping_mul(0xA24B_AED4_963E_E407) ^ 0x7EA1);
     let parts = ch.parts();
@@ -2321,6 +2350,40 @@ mod tests {
         save_genome(&p, &g).unwrap();
         assert_eq!(load_genome(&p, g.len()), g);
         std::fs::remove_file(&p).ok();
+    }
+
+    /// **Protection keeps an untestable verb's links from mutation and
+    /// pruning** (`Settings::protect`): every slot live, 1,000 mutations at
+    /// the dig runs' rates. Unprotected, Eat's slots change -- the positive
+    /// control, so the protected arm cannot pass by mutating nothing --
+    /// and other slots go on changing under protection.
+    #[test]
+    fn protect_keeps_untestable_verbs_links_from_mutation() {
+        use crate::sim::creature::options::Verb;
+        let verbs: Vec<Verb> = Verb::ALL.into_iter().filter(|v| *v != Verb::Attack).collect();
+        let g = vec![0.5f32; mind::GENOME_LEN];
+        let eat = mind::verb_slots(Verb::Eat);
+        assert_eq!(eat.len(), 1 + (mind::CONTEXT + mind::MEMORY + 2) + mind::HIDDEN + mind::UNITS + mind::MEMORY);
+        let dig = mind::verb_slots(Verb::Dig);
+        assert!(eat.iter().all(|i| !dig.contains(i)), "two verbs share a slot");
+        let open = mind::trainable(&verbs, [true, true, true]);
+        let mut shut = open.clone();
+        assert_eq!(mind::protect(&mut shut, &[Verb::Eat]), eat.len());
+        for (slots, protected) in [(&open, false), (&shut, true)] {
+            let mut rng = Rng(7);
+            let (mut eat_changed, mut other_changed) = (0, 0);
+            for _ in 0..1000 {
+                let c = mutate(&g, slots, 0.03, 0.3, 0.3, 0.1, &mut rng);
+                eat_changed += eat.iter().filter(|&&i| c[i] != g[i]).count();
+                other_changed += dig.iter().filter(|&&i| c[i] != g[i]).count();
+            }
+            assert!(other_changed > 0, "protected={protected}: nothing else mutated either");
+            if protected {
+                assert_eq!(eat_changed, 0, "a protected slot mutated");
+            } else {
+                assert!(eat_changed > 0, "the unprotected control never touched Eat's slots");
+            }
+        }
     }
 
     #[test]

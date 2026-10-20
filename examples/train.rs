@@ -55,6 +55,9 @@
 //! bigger heap slumps into home at the near distances and into the wall at
 //! the far ones. `forget=0.8` is the share of its reference under which a
 //! suite's kept arena counts as forgotten (design rev3's 80%).
+//! `protect=0|1` (1 unless set): leave the connections of verbs a suite's
+//! learning arena can never use (Eat while digging) out of mutation and
+//! pruning (`train::Settings::protect`).
 //! `keepref=<mind file>` measures that reference on a fixed brain instead of
 //! the run's `start=`: a chain of runs, each refused only under 80% of its
 //! own start, could otherwise give up 20% of a kept skill per link (owner,
@@ -377,6 +380,10 @@ fn main() {
                 }
             }
             "keepref" => keepref = v.into(),
+            "protect" => {
+                assert!(v == "0" || v == "1", "protect={v}: 1 leaves untestable verbs' connections alone (the default), 0 trains every slot");
+                set.protect = v == "1";
+            }
             "brain" => {
                 assert!(v == "mind" || v == "today", "brain={v}: mind|today");
                 mind = v == "mind";
@@ -399,7 +406,7 @@ fn main() {
     // without it once left two "game" rows in one file with nothing to say
     // which walk made which (`design/review-rev2.md` N10).
     println!(
-        "train brain={} challenge={challenge} arenas={arenas} keep={keep} forget={forget} keepref={keepref} start={start} walk={} clones={clones} frames={frames:?} ants={ants:?} score={score:?} noise={noise} targets={targets} free={free} brake={brake:?} dist={dist:?} steps={steps} step={step} shaft={shaft} foot={foot} budget={budget:?} pic={pic:?} trace={trace:?} sealed={sealed} heap={heap} genes={genes} walkset={walkset} prune={} wire={} grow={} patience={} resume={} seed={} pop={} gens={} layouts={} pm={} sigma={} cross={} holdout={} threads={}",
+        "train brain={} challenge={challenge} arenas={arenas} keep={keep} forget={forget} keepref={keepref} start={start} walk={} clones={clones} frames={frames:?} ants={ants:?} score={score:?} noise={noise} targets={targets} free={free} brake={brake:?} dist={dist:?} steps={steps} step={step} shaft={shaft} foot={foot} budget={budget:?} pic={pic:?} trace={trace:?} sealed={sealed} heap={heap} genes={genes} walkset={walkset} prune={} wire={} grow={} patience={} resume={} protect={} seed={} pop={} gens={} layouts={} pm={} sigma={} cross={} holdout={} threads={}",
         if mind { "mind" } else { "today" },
         if game_walk { "game" } else { "brain" },
         set.prune,
@@ -407,6 +414,7 @@ fn main() {
         set.grow,
         set.patience,
         set.resume,
+        set.protect,
         set.seed,
         set.pop,
         set.gens,
@@ -435,6 +443,11 @@ fn main() {
     // resume must keep it.
     if !keepref.is_empty() {
         set.arena += &format!(" keepref={keepref}");
+    }
+    // On by default, so it is written when on: a state saved before it (or
+    // with protect=0) resumes only with protect=0, never silently under it.
+    if set.protect {
+        set.arena += " protect=1";
     }
 
     // The genome's scorer goes into every world it is cloned into, so a
