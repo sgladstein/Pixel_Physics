@@ -1728,9 +1728,15 @@ pub(super) fn tick(world: &mut World, x: i32, y: i32, organism: OrganismId, def:
                 mind.genome.w[SWITCH + Verb::Dig as usize] > 0.0,
                 &mut opts,
             );
-            let (ctx, now) = context(world, organism, def, &mind.state, &opts);
+            let (mut ctx, now) = context(world, organism, def, &mind.state, &opts);
+            // SCRATCH (investigation, not for main): PP_ABLATE=name,name zeroes those senses before every decision.
+            scratch_log::ablate(&mut ctx);
             let mut draw = rng::stream(world.seed, organism as u64, world.frame, RNG_SLOT_MIND);
+            let (mem0, last0) = (mind.state.mem, mind.state.last_verb);
             let d = decide(&mind.genome.w, &ctx, &opts, &mut mind.state, &mut draw);
+            if let Some(d) = d.as_ref() {
+                scratch_log::decision(world.seed, world.frame, organism, (x, y), &ctx, &mem0, last0, &opts, d);
+            }
             mind.state.last = Some(now);
             d.map(|d| (opts[d.pick], d.emits, opts.len()))
         });
@@ -3442,5 +3448,58 @@ mod tests {
             0,
             "a blank mind costs nothing to run"
         );
+    }
+}
+
+
+/// SCRATCH (box-rank / investigation, not for main): `PP_MIND_LOG=<file>` writes one row per mind decision
+/// and the soil arena's cut and put-down events, for tracing individuals offline.
+pub mod scratch_log {
+    use super::*;
+    use std::io::Write;
+    use std::sync::{Mutex, OnceLock};
+    fn out() -> Option<&'static Mutex<std::io::LineWriter<std::fs::File>>> {
+        static F: OnceLock<Option<Mutex<std::io::LineWriter<std::fs::File>>>> = OnceLock::new();
+        F.get_or_init(|| {
+            std::env::var("PP_MIND_LOG").ok().map(|p| Mutex::new(std::io::LineWriter::new(std::fs::File::create(p).expect("log"))))
+        })
+        .as_ref()
+    }
+    pub fn ablate(ctx: &mut [f32; CONTEXT]) {
+        static IDX: OnceLock<Vec<usize>> = OnceLock::new();
+        let idx = IDX.get_or_init(|| {
+            let names = context_names();
+            std::env::var("PP_ABLATE").unwrap_or_default().split(',').filter(|n| !n.is_empty())
+                .map(|n| names.iter().position(|m| *m == n).unwrap_or_else(|| panic!("PP_ABLATE: no sense {n}"))).collect()
+        });
+        for &i in idx {
+            ctx[i] = 0.0;
+        }
+    }
+    pub fn line(s: String) {
+        if let Some(f) = out() {
+            let _ = writeln!(f.lock().unwrap(), "{s}");
+        }
+    }
+    #[allow(clippy::too_many_arguments)]
+    pub fn decision(seed: u64, frame: u64, id: OrganismId, at: (i32, i32), ctx: &[f32; CONTEXT], mem: &[f32; MEMORY], last: Option<Verb>, opts: &[Opt], d: &Decision) {
+        if out().is_none() {
+            return;
+        }
+        let o = &opts[d.pick];
+        let mut best = [f32::NAN; VERBS];
+        for (k, op) in opts.iter().enumerate() {
+            let v = op.verb as usize;
+            if best[v].is_nan() || d.scores[k] > best[v] {
+                best[v] = d.scores[k];
+            }
+        }
+        let f = |v: &[f32]| v.iter().map(|x| format!("{x:.4}")).collect::<Vec<_>>().join(" ");
+        let jobs: Vec<String> = d.jobs.iter().map(|j| j.map_or("nan".into(), |j| format!("{j:.4}"))).collect();
+        line(format!(
+            "M,{seed},{frame},{id},{},{},{},{},{},{},{},{},{},{}",
+            at.0, at.1, o.verb as usize, o.target.0, o.target.1,
+            last.map_or(-1, |v| v as i32), f(ctx), f(mem), jobs.join(" "), f(&best)
+        ) + &format!(",{}", f(&o.feats)));
     }
 }

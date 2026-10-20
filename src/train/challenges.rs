@@ -1949,6 +1949,17 @@ impl Challenge for Soil {
         let dumps = w.minds.as_ref().and_then(|m| m.dump_log.clone()).unwrap_or_default();
         let s1_rows = if self.foot { self.shaft.max(1) } else { 1 };
         let trip = soil_trip_at(self.step, self.shaft, s1_rows, |x, y| at(x, y).is_some_and(|i| ground0[i]), |x, y| is_ground(&w, x, y), deep, &founding, &cuts, &dumps);
+        // SCRATCH (investigation, not for main): every cut and put-down, for tracing pellets offline.
+        if std::env::var("PP_MIND_LOG").is_ok() {
+            let hole = soil_hole(|x, y| at(x, y).is_some_and(|i| ground0[i]), &founding, &cuts);
+            for &(x, y, f, id) in &cuts {
+                creature::mind::scratch_log::line(format!("C,{},{f},{id},{x},{y},{},{}", w.seed, deep(x, y), u8::from(at(x, y).is_some_and(|i| ground0[i]))));
+            }
+            for &(x, y, f, id) in &dumps {
+                creature::mind::scratch_log::line(format!("D,{},{f},{id},{x},{y},{}", w.seed, u8::from(soil_away(&hole, (x, y)))));
+            }
+            creature::mind::scratch_log::line(format!("E,{},{},{}", w.seed, trip.full_loads, trip.full_cuts));
+        }
         let away_share = if trip.stages[1] > 0 { trip.stages[2] as f64 / trip.stages[1] as f64 } else { 0.0 };
         vec![Score {
             fit: trip.score,
