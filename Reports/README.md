@@ -5538,8 +5538,9 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   notes, copied verbatim from the shared folder 2026-10-19.** The general
   brain design (rev 3, the design of record: one option-scoring brain, ladder
   trail → forage → dig → brood), the stage 1 scorer results, the trail-rung
-  controls, the scarce-food forage arena, the dig rung design (rev 2.7) and
-  the external-compute cost research. The shared-folder copies are the live
+  controls, the scarce-food forage arena, the dig rung design (rev 2.9) and
+  its results, the external-compute cost research, the Google launcher and
+  the GIF tool. The shared-folder copies are the live
   ones; the README lists each file's source date.
 
 ## Licensing and distribution
@@ -5706,6 +5707,14 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   no supply line (739 starved against 8). On the playtest line ~11 of ~150
   cells a 1,000 frames reach the store; the low store belongs to the
   recruiting colony (fits `follow-food-home-2026-10-10`).
+- [handoff/brain-lane-handoff.md](handoff/brain-lane-handoff.md) — **the
+  handoff for the stage 2 brain work (training the ant's mind up the ladder
+  trail → forage → dig → brood), 2026-10-20; start here for brain training.**
+  Written for an agent with only the repo: where each rung stands (trail
+  accepted, forage at 80 not passed, dig at step 4b), the runs in flight and
+  where their results land, how to score, train and make a GIF, Actions and
+  Google compute, the owner's standing rulings on the brain work, and the
+  ordered next steps. Updated in place; its log says what changed.
 - [handoff/PLAN-2026-10-07.md](handoff/PLAN-2026-10-07.md) — **the account
   handoff and plan for the ant program, 2026-10-07 (main 9c362015); start here.**
   Written for a new account with only the repo: the owner's goals, every working

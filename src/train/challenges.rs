@@ -1393,6 +1393,17 @@ pub struct Soil {
     pub step: u8,
     pub shaft: i32,
     pub budget: Option<f32>,
+    /// **Step 4b: only the shaft's foot pays** (`foot=1`, ladder lane,
+    /// `dig-rung-design.md` rev 2.9; owner, 2026-10-19: "Take that and
+    /// continue training"): from step 4 a first cut earns S1 only at least
+    /// `shaft` rows down, so a cut into the shaft's walls pays nothing at
+    /// any stage, as a top-row cut has since rev 2.4. Seed 111's gen-226
+    /// hold-best carried 2.83 of its 3.25 foot cuts a world all the way
+    /// out but made 4.0 wall cuts besides, 34% of its score; carrying was
+    /// solved and where it cut was not. Off is rev 2.8, which step 4's
+    /// guards and numbers are written against. At `shaft` 0 the foot is
+    /// the first row under the top, so on is rev 2.8 there too.
+    pub foot: bool,
 }
 
 /// The soil trip's verbs: the forager's ([`SCARCE_VERBS`]) and the cut.
@@ -1585,6 +1596,25 @@ pub fn soil_trip(
     cuts: &[(i32, i32, u64, OrganismId)],
     dumps: &[(i32, i32, u64, OrganismId)],
 ) -> SoilTrip {
+    soil_trip_at(step, full_depth, 1, was_ground, ground_now, depth, founding, cuts, dumps)
+}
+
+/// [`soil_trip`], with **the fewest rows down a first cut earns S1 from
+/// step 4** (`s1_rows`): 1 is rev 2.4's rule, every cut under the top row;
+/// the shaft's rows are step 4b's ([`Soil::foot`]), the foot only. Under
+/// step 4 every first cut earns S1 whatever this says.
+#[allow(clippy::too_many_arguments)]
+pub fn soil_trip_at(
+    step: u8,
+    full_depth: i32,
+    s1_rows: i32,
+    was_ground: impl Fn(i32, i32) -> bool,
+    ground_now: impl Fn(i32, i32) -> bool,
+    depth: impl Fn(i32, i32) -> i32,
+    founding: &[(i32, i32)],
+    cuts: &[(i32, i32, u64, OrganismId)],
+    dumps: &[(i32, i32, u64, OrganismId)],
+) -> SoilTrip {
     use std::collections::{BTreeMap, HashSet};
     let mut cuts = cuts.to_vec();
     cuts.sort_by_key(|c| c.2);
@@ -1612,7 +1642,7 @@ pub fn soil_trip(
         }
         rim_cuts += usize::from(first && d <= 0);
         full_cuts += usize::from(first && d >= full_depth.max(1));
-        let s1 = first && (step < 4 || d > 0);
+        let s1 = first && (step < 4 || d >= s1_rows.max(1));
         per_ant.entry(id).or_default().push((f, Some((s1, d)), (x, y)));
     }
     for &(x, y, f, id) in dumps {
@@ -1917,7 +1947,8 @@ impl Challenge for Soil {
         look(self.frames + DIG_SETTLE, &w);
         let cuts = w.cut_log.clone().unwrap_or_default();
         let dumps = w.minds.as_ref().and_then(|m| m.dump_log.clone()).unwrap_or_default();
-        let trip = soil_trip(self.step, self.shaft, |x, y| at(x, y).is_some_and(|i| ground0[i]), |x, y| is_ground(&w, x, y), deep, &founding, &cuts, &dumps);
+        let s1_rows = if self.foot { self.shaft.max(1) } else { 1 };
+        let trip = soil_trip_at(self.step, self.shaft, s1_rows, |x, y| at(x, y).is_some_and(|i| ground0[i]), |x, y| is_ground(&w, x, y), deep, &founding, &cuts, &dumps);
         let away_share = if trip.stages[1] > 0 { trip.stages[2] as f64 / trip.stages[1] as f64 } else { 0.0 };
         vec![Score {
             fit: trip.score,
@@ -3762,6 +3793,46 @@ mod tests {
         assert_eq!(t3.score, 12.0 * SOIL_POINTS[2] + SOIL_CAP as f64 * (SOIL_POINTS[0] + SOIL_POINTS[1]));
     }
 
+    /// **Step 4b pays only the shaft's foot** ([`Soil::foot`], ladder lane,
+    /// `dig-rung-design.md` rev 2.9). At a 4-row shaft, 12 pellets cut 2
+    /// rows down (the shaft's wall) and carried well away score 41.5 under
+    /// rev 2.8 and nothing at step 4b, at any stage, though they are still
+    /// read as deep cuts; the same trips from the foot pay 118 either way.
+    /// Six from the wall and six from the foot: 4b pays the six foot
+    /// pellets alone, 42 for S1-S3 and 24 for S4, where rev 2.8 also paid
+    /// four wall pellets' S1-S3 under the cap and all six walls' S4, 85.
+    /// The control: `s1_rows` 1 is [`soil_trip`] exactly, and under step 4
+    /// the rows asked for change nothing.
+    #[test]
+    fn step_four_b_pays_only_the_shaft_foot() {
+        type Moves = Vec<(i32, i32, u64, OrganismId)>;
+        let depth = |_x: i32, y: i32| y - 10;
+        let trips = |rows: &[i32]| -> (Moves, Moves) {
+            let cuts = rows.iter().enumerate().map(|(i, &row)| (60 + i as i32, row, 10 * i as u64, 7)).collect();
+            let dumps = (0..rows.len()).map(|i| (100 + 4 * i as i32, 9, 10 * i as u64 + 5, 7)).collect();
+            (cuts, dumps)
+        };
+        let score = |step: u8, s1_rows: i32, rows: &[i32]| {
+            let (cuts, dumps) = trips(rows);
+            soil_trip_at(step, 4, s1_rows, below_10, |_, _| false, depth, &[], &cuts, &dumps)
+        };
+        let wall = score(4, 4, &[12; 12]);
+        assert_eq!((wall.score, wall.stages, wall.up, wall.full_loads), (0.0, [0, 0, 0], 0, 0), "{wall:?}");
+        assert_eq!((wall.deep, wall.rim, wall.cuts), (12, 0, 12), "a wall cut is still a deep cut in the readout");
+        assert_eq!(score(4, 1, &[12; 12]).score, 41.5, "rev 2.8 pays the wall");
+        assert_eq!(score(4, 4, &[14; 12]).score, 118.0);
+        assert_eq!(score(4, 1, &[14; 12]).score, 118.0);
+        let mixed: Vec<i32> = [[12; 6], [14; 6]].concat();
+        let t = score(4, 4, &mixed);
+        assert_eq!((t.score, t.stages, t.up, t.full_loads), (66.0, [6, 6, 6], 6, 6));
+        assert_eq!(score(4, 1, &mixed).score, 85.0);
+        for rows in [&[12; 12][..], &[14; 12], &mixed, &[10; 12]] {
+            let (cuts, dumps) = trips(rows);
+            assert_eq!(score(4, 1, rows), soil_trip(4, 4, below_10, |_, _| false, depth, &[], &cuts, &dumps));
+            assert_eq!(score(3, 4, rows), score(3, 1, rows), "step 3 pays every first cut");
+        }
+    }
+
     /// **From step 4 the soil bed is the generator's, mirrored** (design
     /// section 3), and depth is read from the ground the step raised: on a
     /// layout whose [`DigBed`] drew a raised step, step 4's bed has it on
@@ -3777,7 +3848,7 @@ mod tests {
         let seed = (0..64).find(|&s| DigBed::of(lay(s, 0)).step.is_some_and(|(x, _)| (x - NEST_X).abs() >= 12)).expect("a bed with a step");
         for k in [0, 1] {
             let world = |step: u8| {
-                let soil = Soil { ants: 1, frames: 1, step, shaft: 8, budget: None };
+                let soil = Soil { ants: 1, frames: 1, step, shaft: 8, budget: None, foot: false };
                 assert_eq!(soil.mirrored(), step >= 4);
                 soil.world(lay(seed, k), &g)
             };
@@ -3824,7 +3895,7 @@ mod tests {
             (bottom - top + 1, cells.iter().filter(|c| c.1 >= bottom - 1).count())
         };
         let short = |shaft: i32| -> Vec<(u64, u64, (i32, usize))> {
-            let soil = Soil { ants: 1, frames: 1, step: 4, shaft, budget: None };
+            let soil = Soil { ants: 1, frames: 1, step: 4, shaft, budget: None, foot: false };
             let flat = cut(&Soil { step: 3, ..soil }, lay(0, 0));
             assert_eq!(flat.0, shaft + 2, "the flat bed's shaft");
             let mut out = vec![];
@@ -3852,7 +3923,7 @@ mod tests {
         let lay = Layout { seed: 3, k: 0, blind: false, legal: false };
         let g = creature::mind::blank(SOIL_VERBS);
         let deepest = |w: &World, sc: &Scenario| founding_cut(w, &sc.bed).iter().map(|&(x, y)| y - census::surface_of(w, &sc.bed, x) + 1).max();
-        let soil = |shaft| Soil { ants: 1, frames: 1, step: 1, shaft, budget: None };
+        let soil = |shaft| Soil { ants: 1, frames: 1, step: 1, shaft, budget: None, foot: false };
         let (w, sc, _, _) = soil(0).world(lay, &g);
         assert_eq!(deepest(&w, &sc), None, "no shaft asked for, and a hole at frame 0");
         let (w, sc, _, _) = soil(2).world(lay, &g);
@@ -3877,7 +3948,7 @@ mod tests {
     #[test]
     fn the_soil_picture_paints_near_and_away_as_the_score_does() {
         let lay = Layout { seed: 3, k: 0, blind: false, legal: false };
-        let soil = Soil { ants: 1, frames: 1, step: 3, shaft: 2, budget: None };
+        let soil = Soil { ants: 1, frames: 1, step: 3, shaft: 2, budget: None, foot: false };
         let (mut w, sc, _, _) = soil.world(lay, &creature::mind::blank(SOIL_VERBS));
         let chamber = *founding_cut(&w, &sc.bed).last().expect("a founding cut");
         let x = chamber.0 + 20;
@@ -3897,7 +3968,7 @@ mod tests {
     #[test]
     fn the_soil_ledger_matches_the_world_counts() {
         let lay = Layout { seed: 3, k: 0, blind: false, legal: false };
-        let soil = Soil { ants: 1, frames: 3000, step: 1, shaft: 2, budget: Some(SOIL_BUDGET) };
+        let soil = Soil { ants: 1, frames: 3000, step: 1, shaft: 2, budget: Some(SOIL_BUDGET), foot: false };
         let (mut w, _, sp, _) = soil.world(lay, &creature::mind::blank(SOIL_VERBS));
         let (digs, dumped, dig_j) = (w.creature_stats.digs, w.creature_stats.spoil_dumped, w.creature_stats.dig_energy);
         for _ in 0..soil.frames {
