@@ -1864,6 +1864,14 @@ impl Challenge for Soil {
     fn name(&self) -> &'static str {
         "soil"
     }
+    /// **No food and no larvae in the soil box**, so Pick up, Eat and Feed
+    /// never have a target: measured on s161 gen 336's 38,028 decisions over
+    /// the 24 sealed worlds (investigation 2026-10-20), and guarded by
+    /// `soil_never_offers_food_verbs`.
+    fn acting_verbs(&self) -> Vec<creature::options::Verb> {
+        use creature::options::Verb as V;
+        SOIL_VERBS.iter().copied().filter(|v| !matches!(v, V::PickUp | V::Eat | V::Feed)).collect()
+    }
     fn unit(&self) -> Unit {
         Unit::Colony
     }
@@ -2422,6 +2430,10 @@ impl Challenge for Suite {
     }
     fn verbs(&self) -> &'static [creature::options::Verb] {
         self.verbs
+    }
+    fn untested_verbs(&self) -> Vec<creature::options::Verb> {
+        let learning: Vec<creature::options::Verb> = self.arenas.iter().filter(|(_, keep)| !keep).flat_map(|(a, _)| a.acting_verbs()).collect();
+        self.verbs.iter().copied().filter(|v| !learning.contains(v)).collect()
     }
     fn mind_emits(&self) -> [bool; creature::mind::EMITS] {
         let mut on = [false; creature::mind::EMITS];
@@ -4010,5 +4022,60 @@ mod tests {
         let dumps = [(3, 2, 2, 1), (2, 3, 4, 2)];
         let t = soil_trip(3, 1, ground, |_, _| false, |_, _| 0, &[], &cuts, &dumps);
         assert_eq!(t.stages, [2, 2, 1]);
+    }
+
+    /// **The soil box never offers the food verbs** (`Soil::acting_verbs`,
+    /// the protection in `Settings::protect`): a mind with every verb on,
+    /// one ant on a step-4 bed for 3,000 frames. The counter is checked
+    /// against verbs that do act (walking, cutting, putting down), so a
+    /// blind counter fails here too; if food or larvae ever reach the soil
+    /// box this fails, and the protection must be revisited, not silenced.
+    #[test]
+    fn soil_never_offers_food_verbs() {
+        use creature::options::Verb as V;
+        let soil = Soil { ants: 1, frames: 3000, step: 4, shaft: 4, budget: Some(1200.0), foot: true };
+        let g = super::super::start_mind(&soil, "training/starts/s134-4b-g34.txt");
+        for k in 0..2 {
+            let (mut w, _, _, _) = soil.world(Layout { seed: 70_000, k, blind: false, legal: false }, &g);
+            for _ in 0..soil.frames {
+                frame(&mut w, true);
+            }
+            let c = w.minds.as_ref().expect("minds").counts;
+            for v in [V::Walk, V::Dig, V::Drop] {
+                assert!(c.offered[v as usize] > 0, "k={k}: {v:?} never offered -- the counter is blind");
+            }
+            for v in [V::PickUp, V::Eat, V::Feed] {
+                assert_eq!(c.offered[v as usize], 0, "k={k}: {v:?} had a target in the soil box");
+            }
+            let acting = soil.acting_verbs();
+            assert!(SOIL_VERBS.iter().all(|v| acting.contains(v) == (c.offered[*v as usize] > 0)), "k={k}: acting_verbs {acting:?} disagrees with what acted");
+        }
+    }
+
+    /// **A digging suite cannot test the food verbs, a foraging one can**
+    /// (`Suite::untested_verbs`): soil learned with fetch and trail kept
+    /// leaves Pick up, Eat and Feed untested; with fetch learned, nothing.
+    #[test]
+    fn a_digging_suite_leaves_the_food_verbs_untested() {
+        use creature::options::Verb as V;
+        let soil = || Soil { ants: 1, frames: 10, step: 4, shaft: 4, budget: Some(1200.0), foot: true };
+        let fetch = || Scarce {
+            ants: 1,
+            frames: 10,
+            drip: 5,
+            every: 1000,
+            game_walk: false,
+            brake: Some(creature::FoodBrake::FORAGE),
+            dist: (10, 30),
+            steps: true,
+            fed: true,
+            dig: false,
+        };
+        let digging = Suite::new(vec![(Box::new(soil()), false), (Box::new(fetch()), true), (Box::new(Trail { ants: 2, frames: 10, clones: true }), true)], 0.8);
+        let mut u = digging.untested_verbs();
+        u.sort_by_key(|v| *v as usize);
+        assert_eq!(u, vec![V::PickUp, V::Eat, V::Feed]);
+        let foraging = Suite::new(vec![(Box::new(fetch()), false), (Box::new(soil()), true)], 0.8);
+        assert!(foraging.untested_verbs().iter().all(|v| *v == V::Dig), "{:?}", foraging.untested_verbs());
     }
 }
