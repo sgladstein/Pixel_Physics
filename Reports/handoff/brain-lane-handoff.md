@@ -1,6 +1,6 @@
 # Handoff: training the ant's brain (stage 2), for an agent with only this repo
 
-**Last updated: 2026-10-20 04:10 UTC.** Written by the session that has run
+**Last updated: 2026-10-20 04:40 UTC.** Written by the session that has run
 this work since 2026-10-17, because the owner's account was about to run out
 of usage. It is updated in place through the night as each task finishes:
 read the **Log** at the bottom first to see what changed since this header.
@@ -72,21 +72,20 @@ Seeds 112 and 114 stayed flat (hold-out about 1.0-1.5). Seed 113 auto-stopped at
 - `foot=0` is the default and is the old rule, called rev 2.8.
 - s111 gen 226 rescored under 4b: soil 22.5 against its start's 4.5, blinded 9.2, full loads 1.67.
 
-**Round 1 of step 4b is done** (s131-s134, from s111 gen 226, `foot=1`). Only **s134** gained: 3.67 full loads per world on the sealed worlds against its start's 2.83, 3 of 12 worlds at 5 or more. Full table in the Log (02:30 entry). Files: `Reports/brain-training/stage2/dig/4b/`.
+**Round 1 of step 4b is done** (s131-s134, from s111 gen 226, `foot=1`). **s134** scored best: 3.67 full loads per world on the sealed worlds against its start's 2.83, 3 of 12 worlds at 5 or more. **But that gain is within the noise** (log 04:40): per world it beat its start on 6 worlds, tied 3 and lost 3, a mean +0.83 with a paired standard error of 0.58. It was also the best of four seeds picked on those same worlds. The other three scored 1.92-3.08 around the start's 2.83. Treat s134 as about as good as s111 gen 226, not proven better. Full table in the Log (02:30 entry). Files: `Reports/brain-training/stage2/dig/4b/`.
 
-**Round 2 is done: no gain** (s141-s144, from s134, same settings as round 1). After about 50 generations no seed's hold-out champion beat the start: best 1.52 / 1.55 / 1.59 / 1.51 against s134's 1.63 (training hold-out, combined score). s142 auto-stopped at generation 53; s141, s143 and s144 were stopped at generations 53, 55 and 51 to free the CPUs. Log entry 04:05 has the reading. Run bundles (no hold-best beat the start, so none is worth resuming): `Reports/brain-training/stage2/dig/4b2/`.
+**Round 2 is done: no gain** (s141-s144, from s134, same settings as round 1). After about 50 generations no seed's hold-out champion beat the start: best 1.52 / 1.55 / 1.59 / 1.51 against s134's 1.63 (training hold-out, combined score). s142 auto-stopped at generation 53; s141, s143 and s144 were stopped at generations 53, 55 and 51 to free the CPUs. Log entry 04:05 had a reading that 04:40 overturned. Run bundles (no hold-best beat the start, so none is worth resuming): `Reports/brain-training/stage2/dig/4b2/`.
 
-**Running tonight: round 3, fine-tuning with smaller mutations.**
+**Round 3 was stopped early** (s151-s154, from s134 with smaller mutations: `sigma=0.1` or `pm=0.01`). By generation 8 its first champions were as far below the start as round 2's: 0.81-1.17 on hold-out against 1.63. So mutation size is not what holds training back. See log 04:40 for the reading, which is **noise**.
 
-*Four new seeds from s134's best (`training/starts/s134-4b-g34.txt`), `foot=1`, 100 generations each. Two settings, two seeds each:*
-- `dig-4b3-s151`, `dig-4b3-s152`: `pm=0.03 sigma=0.1` (each mutation a third the size);
-- `dig-4b3-s153`, `dig-4b3-s154`: `pm=0.01 sigma=0.3` (a third as many weights touched).
+**Running now: round 4, three times as many worlds per test.**
 
-Everything else is as in rounds 1-2. Google, `c4d-highcpu-16`, ref `96b8271b72e1d9c87d594edc44a531d17577ab3e` (main). Started 04:07 UTC; expect them done about 07:10 UTC unless the auto-stop ends one sooner.
+*Two new seeds from s134's best (`training/starts/s134-4b-g34.txt`), `foot=1`, 100 generations, with `layouts=48` (was 16) and `holdout=24` (was 12). Everything else is as in round 2.*
+- Names `dig-4b4-s161` and `dig-4b4-s162`. Google, **`c4d-highcpu-32`** each (two of them fill the 64-CPU quota), ref `d4c2275082c8bd5e409d406637d4ce83167768e8` (main). Asked for at 04:40 UTC. Each generation costs about 3x round 2's, so expect about 3 minutes a generation and 100 generations in about 5-6 hours (estimate, not measured), unless the auto-stop ends one sooner.
   - Each VM writes a snapshot to the bucket every 5 minutes, as `runs/<name>/latest.tgz`, and a `DONE` marker at the end. The VMs need no session to keep running.
-  - Fetch with the launcher (section 5): `python3 Reports/brain-training/cloud-compute/gcp/gcp_train_job.py fetch dig-4b3-s151 <dir>`. That saves `<dir>/dig-4b3-s151-snap.tar.gz` holding `hold-best.txt`, `best.txt`, `progress.csv`, `holdout.csv`, `train.log`, `curves.svg` and `state.txt`.
-  - Then `status dig-4b3-s151` should say the VM is gone. If it doesn't, run `delete dig-4b3-s151` (a VM left running costs money).
-  - **What to read first:** `holdout.csv`, rows `who=champion` against `who=start` (1.629). Generation 0's champion is the quick test of the idea: in round 2 it was 0.94, far below the start.
+  - Fetch with the launcher (section 5): `python3 Reports/brain-training/cloud-compute/gcp/gcp_train_job.py fetch dig-4b4-s161 <dir>`. That saves `<dir>/dig-4b4-s161-snap.tar.gz` holding `hold-best.txt`, `best.txt`, `progress.csv`, `holdout.csv`, `train.log`, `curves.svg` and `state.txt`.
+  - Then `status dig-4b4-s161` should say the VM is gone. If it doesn't, run `delete dig-4b4-s161` (a VM left running costs money).
+  - **What to read:** the champions' hold-out against the start's in `holdout.csv`, then the hold-best **on the sealed worlds against s134 and s111 gen 226, paired per world** (section 4). Call a gain real only if it is bigger than about twice the paired standard error (about 1.2 full loads per world on 12 worlds), or hold it on a second set of worlds.
 - **Run each job in one place only** (the owner, 00:53: "Don't double up that is a waste of work. Just pick one"). The stale `train-results/dig-4b-s13X` branches on GitHub are from a cancelled Actions copy; ignore them.
 
 **Stop rule, agreed in advance.** If no seed is past **3 full loads a world by
@@ -95,7 +94,7 @@ fix it; the rung needs a design change. Take that to the owner.
 
 ## 3. What to do next, in order
 
-1. **When the round-3 runs (s151-s154) finish**, take each run's `hold-best.txt`. Score each on the 12 sealed worlds with `foot=1`, against `training/starts/s134-4b-g34.txt` (command in section 4 and the Log's 01:45 entry). Read `full_loads` per world against the bar (5 on 11 of 12 worlds), then the blinded row. The number to beat is s134's: 3.67 full loads per world, 3 of 12 worlds at 5 or more.
+1. **When the round-4 runs (s161, s162) finish**, take each run's `hold-best.txt`. Score each on the 12 sealed worlds with `foot=1`, against `training/starts/s134-4b-g34.txt` (command in section 4 and the Log's 01:45 entry). Read `full_loads` per world against the bar (5 on 11 of 12 worlds), then the blinded row. The number to beat is s134's: 3.67 full loads per world, 3 of 12 worlds at 5 or more. Compare per world, paired, and mind the noise (log 04:40): on 12 worlds a difference under about 1.2 full loads per world is not evidence.
 2. **Make a before/after GIF** (section 4) and a training-curves picture (`curves.png` comes with every run). Send both to the owner with the numbers. **Never call a rung passed before the owner has seen the pictures and the GIF.**
 3. **If no seed passes but some climb**, resume the best one (exact resume, section 5) rather than starting fresh. **If none is past 3 full loads by gen 100**, stop and bring the owner a design question with your recommendation.
 3b. **Option the owner raised (02:45-02:48): several ants in one box, each with a different brain, to score more candidates per run.** Not started; it is moderate code, so it was left for later.
@@ -268,6 +267,28 @@ The owner is **Scott** (GitHub `sgladstein`). He uses a Mac terminal, so give zs
 ## Log
 
 Newest first. Each entry says what changed and what is now true.
+
+- **2026-10-20 04:40 UTC. The noise reading; round 3 stopped; round 4 launched.**
+  - **Round 3's early champions** (generations 0-8, hold-out, start 1.629):
+    - `sigma=0.1`: s151 best 1.24, s152 best 1.08;
+    - `pm=0.01`: s153 best 1.54, s154 best 1.31.
+    - Generation 0: 0.88, 0.81, 1.17, 0.95, the same as round 2's 0.83-1.17. Smaller mutations do not keep the champions near the start, so the 04:05 reading (mutations too big) was wrong.
+  - **Why the start looks unbeatable:** the hold-out layouts are the same in every run (the start scores 1.629 in every seed). s134's hold-best was chosen as the best of about 85 hold-out scores on exactly those layouts. So its 1.63 is a lucky high, and near-copies of it score lower on those layouts. Comparisons against the start's hold-out are tilted toward the start.
+  - **Sealed worlds** (12, `foot=1`, full loads per world):
+    - s142's hold-best 1.42;
+    - s134 3.67: per world [5,6,3,2,3,4,3,3,4,4,6,1];
+    - s111 g226 2.83: [6,2,4,2,6,2,1,3,2,2,3,1];
+    - s133 3.08, s131 2.58.
+  - s134 minus s111 g226, paired per world: +0.83, standard deviation 1.99, standard error 0.58 (t 1.45), with 6 wins, 3 ties and 3 losses. **Not distinguishable from noise.**
+  - Per-world standard deviation is about 1.5-2 full loads, about what you would expect from counting 3-ish rare events per world. A brain's score on 16 layouts therefore has a standard error of about 0.4-0.5 full loads. That is more than the gains selection is looking for, so **selection is mostly picking lucky brains.**
+  - **What follows:**
+    - Round 4 tests each brain on 48 layouts and uses 24 hold-out layouts (section 2).
+    - If round 4 still doesn't move, the next levers are:
+      - longer runs per world, so each world counts more loads (section 2: 4x the frames gave 1.7x the loads);
+      - several brains per box (item 3b), to pay for more worlds;
+      - a pay rule with more events per world.
+    - All of this also applies to reading **any** result here: compare paired per world, and on more than 12 worlds when the gap is small.
+  - **Correction:** the 02:30 entry and the message to the owner called s134 "the first real gain since s111". By this test it is not proven.
 
 - **2026-10-20 04:10 UTC.**
   - Round 3 (`dig-4b3-s151` ... `s154`) confirmed started at 04:07 UTC on Google. Round 2's four VMs are deleted, and their bundles are in `Reports/brain-training/stage2/dig/4b2/`.
