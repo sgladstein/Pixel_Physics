@@ -642,17 +642,19 @@ by somebody about to try it on creatures.
   trainer's bed is the lab's; the root cap binds on 34 of 48 beds; weather is
   a bigger noise than development.
 - [plant-community-plan-2026-10-20.md](plant-community-plan-2026-10-20.md)
-  — **plan, awaiting the owner's decisions (its §8); supersedes the trainer
-  plan's P2–P6.** The owner's goal: a lab bed where many kinds of plant
-  thrive over a long run, reached in small trained steps. It cannot start
-  yet: clones of one herb a column apart range 134–387 cells, so selection
-  would select dice. **Part A** makes plants develop like plants: dice keyed
-  on the plant's own development, the four lasting coin flips replaced by
-  state rules, and graded responses to light and water. **Part B** turns "a
-  diverse bed that thrives" into a graded score over 12 seeds. **Part C**
-  trains one species at a time, worst first, up a ladder of beds, on Google
-  Cloud spot VMs. Measured here: a 450,000-frame bed costs about 8–12
-  core-minutes, and runs fastest one bed per core.
+  — **plan, revision 2 (after the owner's review), open questions in its §9;
+  supersedes the trainer plan's P2–P6.** The goal: a lab bed where **four
+  roles** coexist (canopy perennial, shade-tolerant understory, annual
+  colonist, clonal ground cover), proven by **mutual invasibility** rather than
+  a species count. **Part A** rebuilds development from how real plants grow:
+  phyllotaxis by rule, buds by apical dominance, sugar and light, shade
+  avoidance against tolerance, sun and shade leaves, root foraging, each
+  trait a **reaction norm** (a base gene and a sensitivity gene). It comes
+  first because clones a column apart range 134–387 cells today. **Part C** is
+  an ant-style ladder of seven rungs, from establishing in a pocket of soil
+  (about 0.3 core-seconds a bed) to invading a pre-grown bed copied per
+  candidate. Whole long beds are validation only. Google Cloud through PR 734's
+  launcher, about $40 of a shared $100 a month.
 
 - [plant-trainer-plan-2026-10-19.md](plant-trainer-plan-2026-10-19.md)
   — **plan, revision 2, 2026-10-19; steps 3 and 4.** Revised after an
