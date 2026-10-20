@@ -1,6 +1,6 @@
 # Handoff: training the ant's brain (stage 2), for an agent with only this repo
 
-**Last updated: 2026-10-20 01:15 UTC.** Written by the session that has run
+**Last updated: 2026-10-20 02:40 UTC.** Written by the session that has run
 this work since 2026-10-17, because the owner's account was about to run out
 of usage. It is updated in place through the night as each task finishes:
 read the **Log** at the bottom first to see what changed since this header.
@@ -72,16 +72,17 @@ Seeds 112 and 114 stayed flat (hold-out about 1.0-1.5). Seed 113 auto-stopped at
 - `foot=0` is the default and is the old rule, called rev 2.8.
 - s111 gen 226 rescored under 4b: soil 22.5 against its start's 4.5, blinded 9.2, full loads 1.67.
 
-**Running tonight.**
+**Round 1 of step 4b is done** (s131-s134, from s111 gen 226, `foot=1`). Only **s134** gained: 3.67 full loads per world on the sealed worlds against its start's 2.83, 3 of 12 worlds at 5 or more. Full table in the Log (02:30 entry). Files: `Reports/brain-training/stage2/dig/4b/`.
 
-*Four new seeds, s131-s134, all started from s111's gen-226 best with `foot=1`, 100 generations each.*
+**Running tonight: round 2.**
 
-- **Google Cloud: the main copy.** The four VMs started 00:03-00:05 UTC and run at about 1.8 minutes a generation, so they should finish about 03:00 UTC unless the auto-stop ends one sooner.
-  - Each VM writes a snapshot to the bucket every 5 minutes, as `runs/dig-4b-s13X/latest.tgz`, and a `DONE` marker at the end. The VMs need no session to keep running.
-  - Fetch with the launcher (section 5): `python3 Reports/brain-training/cloud-compute/gcp/gcp_train_job.py fetch dig-4b-s131 <dir>`. That saves `<dir>/dig-4b-s131-snap.tar.gz` holding `hold-best.txt`, `best.txt`, `progress.csv`, `holdout.csv`, `train.log`, `curves.svg` and `state.txt`.
-  - Then `status dig-4b-s131` should say the VM is gone. If it doesn't, run `delete dig-4b-s131`.
-  - **Early hold-out numbers.** These come from the training hold-out (12 layouts, not the sealed set), on the soil score under `foot=1`, where the start scores 38.2. At about generation 28: s131 best 51.7 (gen 12), s132 49.2 (gen 19), s133 43.8 (gen 20), s134 46.8 (gen 18). None of this is a pass reading yet.
-- **Google only.** An Actions copy of the same four runs was started and then cancelled at 00:55 UTC, because the owner said not to double up: "Just pick one". Its partial `train-results/dig-4b-s13X` branches are stale; ignore them. Run each job in one place only.
+*Four new seeds, s141-s144, all started from s134's best (`training/starts/s134-4b-g34.txt`) with `foot=1`, 100 generations each.*
+
+- **Google Cloud only.** Names `dig-4b2-s141` ... `dig-4b2-s144`, `c4d-highcpu-16`, ref `85592edfaf0d442e7f9b5f1cd06ec768ad8cecc5`. The VMs started about 02:30 UTC and run at about 1.8 minutes a generation, so they should finish about **05:30 UTC** unless the auto-stop ends one sooner.
+  - Each VM writes a snapshot to the bucket every 5 minutes, as `runs/dig-4b2-s14X/latest.tgz`, and a `DONE` marker at the end. The VMs need no session to keep running.
+  - Fetch with the launcher (section 5): `python3 Reports/brain-training/cloud-compute/gcp/gcp_train_job.py fetch dig-4b2-s141 <dir>`. That saves `<dir>/dig-4b2-s141-snap.tar.gz` holding `hold-best.txt`, `best.txt`, `progress.csv`, `holdout.csv`, `train.log`, `curves.svg` and `state.txt`.
+  - Then `status dig-4b2-s141` should say the VM is gone. If it doesn't, run `delete dig-4b2-s141` (a VM left running costs money).
+- **Run each job in one place only** (the owner, 00:53: "Don't double up that is a waste of work. Just pick one"). The stale `train-results/dig-4b-s13X` branches on GitHub are from a cancelled Actions copy; ignore them.
 
 **Stop rule, agreed in advance.** If no seed is past **3 full loads a world by
 generation 100**, the pay rule is not what holds it back. More generations won't
@@ -89,7 +90,7 @@ fix it; the rung needs a design change. Take that to the owner.
 
 ## 3. What to do next, in order
 
-1. **When the 4b runs finish**, take each run's `hold-best.txt`. Score the best of them on the 12 sealed worlds with `foot=1`, against `training/starts/s111-g226.txt` (command in section 4). Read `full_loads` against the bar, then the blinded row.
+1. **When the round-2 runs (s141-s144) finish**, take each run's `hold-best.txt`. Score each on the 12 sealed worlds with `foot=1`, against `training/starts/s134-4b-g34.txt` (command in section 4 and the Log's 01:45 entry). Read `full_loads` per world against the bar (5 on 11 of 12 worlds), then the blinded row. The number to beat is s134's: 3.67 full loads per world, 3 of 12 worlds at 5 or more.
 2. **Make a before/after GIF** (section 4) and a training-curves picture (`curves.png` comes with every run). Send both to the owner with the numbers. **Never call a rung passed before the owner has seen the pictures and the GIF.**
 3. **If no seed passes but some climb**, resume the best one (exact resume, section 5) rather than starting fresh. **If none is past 3 full loads by gen 100**, stop and bring the owner a design question with your recommendation.
 4. **If step 4 passes**, go on to the next step in `dig-rung-design.md`: deeper shafts (8, then 12 rows), then door, bare ground, roof, 12 ants, rooms, more chambers, and dig plus scarce food. The rule for each step is that a **hand-built digger passes it first** (positive control) and rest/blank/blind controls score about 0.
@@ -204,10 +205,10 @@ The owner is **Scott** (GitHub `sgladstein`). He uses a Mac terminal, so give zs
 - **Writing to him**: lead with what it does and where it is going, in the world's words (ants, soil, shaft) rather than code's, then the mechanism. Keep it short.
 - **Big redesigns** need a design doc and an adversarial review before building.
 
-## 7. Repo and PR state (2026-10-20 00:40 UTC)
+## 7. Repo and PR state (2026-10-20 02:40 UTC)
 
-- `main` is at `7f39dcfda` (PR 733, step 4b, merged 00:23).
-- The handoff and the copied notes ride on `claude/project-thread-eewfjj` in their own PR. Scott can merge it whenever CI is green.
+- `main` is at `870e0a31f` (PR 734: this handoff, the copied notes and step 4b's should-fixes, merged 01:23). Step 4b itself is PR 733.
+- PR 735 (round-1 results and this handoff's later log) is open on `claude/project-thread-eewfjj`; it is docs and data only, so it can merge whenever CI is green. Later handoff updates go on the same branch: if 735 has merged, restart the branch from `origin/main` first and open a new PR.
 - Open PRs that are **Scott's call** and not part of this work: 705, 706, 702, 697, 686.
 - Merging:
   - `CLAUDE.md` lets an independent session merge its own PR on green CI. Ask Scott once whether he wants you to.
@@ -257,6 +258,44 @@ The owner is **Scott** (GitHub `sgladstein`). He uses a Mac terminal, so give zs
 ## Log
 
 Newest first. Each entry says what changed and what is now true.
+
+- **2026-10-20 02:40 UTC.**
+  - **Round 2 confirmed running.** All four VMs (`dig-4b2-s141` ... `s144`) booted and began building at 02:30 UTC. Section 2 now describes round 2; round 1's results are in the 02:30 entry below.
+
+- **2026-10-20 02:35 UTC.**
+  - **s132 finished** (02:27). On the sealed worlds it scored worse than its start: soil 19.7 against 22.5, full loads per world 1.92 against 2.83. So the round's only gain is **s134**.
+  - **Next round launched from s134's best** (`training/starts/s134-4b-g34.txt`): seeds 141-144 on Google, `c4d-highcpu-16`, with the same arguments as the 4b round otherwise (section 4's train line with `seed=` and `start=` changed, `gens=100`). Names `dig-4b2-s141` ... `dig-4b2-s144`. Expected about 3 h; the auto-stop may end some sooner.
+  - It is the same move that found s134: new seeds from the current best.
+  - When they finish, score each hold-best with the command in the 01:45 entry and compare it with s134 (3.67 full loads per world, 3 of 12 worlds at 5 or more). The bar is still 5 on 11 of 12.
+
+- **2026-10-20 02:30 UTC.**
+  - **s133 and s134 finished.** Both were stopped flat by the auto-stop: s133 at generation 79, best at 28; s134 at generation 85, best at 34.
+  - Sealed-world scores under `foot=1`, against s111 g226 (soil 22.5, full loads per world averaged over all 12 worlds 2.83, 2 of 12 worlds at 5 or more):
+
+    | seed | soil | full loads, mean / worse side | worlds at 5+ | blinded soil / full loads |
+    |---|---|---|---|---|
+    | s131 | 25.3 | 2.58 / 2.00 | 1 of 12 | 9.0 / 0.67 |
+    | s133 | 27.7 | 3.08 / 2.00 | 2 of 12 | 8.0 / 0.50 |
+    | **s134** | **38.0** | **3.67 / 3.00** | **3 of 12** | 3.5 / 0.33 |
+
+  - **s134 is the first real step since s111.** It is past the agreed "3 full loads by generation 100" mark, so the pay rule was part of what held s111 back.
+  - It is still short of the bar of 5 full loads on 11 of 12 worlds. Its blind control is low, so the gain comes from what it senses.
+  - Its hold-best is the start for the next leg: `Reports/brain-training/stage2/dig/4b/dig-4b-s134-hold-best.txt`.
+  - GIF of s134 against its start on hold-out world 0: `Reports/brain-training/stage2/dig/4b/s134-vs-start.gif`, made with the GIF tool from `main` plus the frame patch. By the end of the run, s134 has cut at the foot of the shaft and widened its floor, and put 12 pellets down away from the hole against the start's 7.
+  - s132 is still running.
+
+- **2026-10-20 01:45 UTC.**
+  - **s131 finished.** The auto-stop ended it at generation 63, flat since its best at generation 12.
+  - Its hold-best, scored on the 12 sealed worlds under `foot=1` against s111 g226:
+    - soil 25.3 against 22.5;
+    - full loads a world, averaged over all 12 worlds: 2.58 against g226's 2.83;
+    - worlds at 5 or more full loads: 1 of 12, against 2 of 12;
+    - wall cuts 5.0 against 4.5 (worse side);
+    - blinded 9.0.
+  - So step 4b has not moved s131 so far.
+  - Files are in `Reports/brain-training/stage2/dig/4b/`: the bundle, hold-best and curves.
+  - s132-s134 are still running: their best hold-outs so far are 1.17-1.22 times the start, set at generations 28-45.
+  - To score any hold-best the same way: `PIXEL_PHYSICS_MUTATION=off target/release/examples/train brain=mind challenge=soil step=4 shaft=4 foot=1 budget=1200 holdout=12 sealed=1 start=training/starts/s111-g226.txt score=<file> threads=4`. Add `noise=1` for the per-world rows.
 
 - **2026-10-20 01:15 UTC.**
   - The coordinator's review should-fixes for PR 733 are done in this PR.
