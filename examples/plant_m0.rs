@@ -222,7 +222,12 @@ fn census(w: &World, bed: &LabBox, species: &[&str], est: &mut HashMap<(Organism
         let def = w.species.get(st.species);
         let name = def.name.as_str();
         let Some(row) = per.get_mut(name) else { continue };
-        if st.shoot_cells == 0 {
+        // **A waiting seed is the bank, not a plant.** Its one cell counts as
+        // a shoot cell, so `shoot_cells == 0` missed it and the first census
+        // counted ~2,800 grass seeds lying on the bed as 2,890 "plants".
+        // A plant is an organism with any cell that is not a seed.
+        let germinated = st.cells.keys().any(|&(x, y)| organism::cell_type(w.get(x, y).aux()) != Some(CellType::Seed));
+        if st.shoot_cells == 0 || !germinated {
             row[1] += 1;
             continue;
         }
@@ -300,7 +305,7 @@ fn census(w: &World, bed: &LabBox, species: &[&str], est: &mut HashMap<(Organism
         water.push(if n > 0 { sum / n as f64 } else { -1.0 });
     }
     // Seed and litter lying above the soil line, and the deepest column.
-    let (mut seed_cells, mut seed_max, mut litter_cells, mut litter_max) = (0u64, 0u64, 0u64, 0u64);
+    let (mut seed_cells, mut seed_max, mut litter_cells, mut litter_max, mut seed_live) = (0u64, 0u64, 0u64, 0u64, 0u64);
     for x in 0..bed.width {
         let (mut sc, mut lc) = (0u64, 0u64);
         for y in 0..ground {
@@ -308,6 +313,12 @@ fn census(w: &World, bed: &LabBox, species: &[&str], est: &mut HashMap<(Organism
             if c.organism_id() == 0 || seeds.contains(&c.material) {
                 if seeds.contains(&c.material) {
                     sc += 1;
+                    // A seed cell that still carries an organism is a waiting
+                    // seed (the bank); one that does not is spent seed
+                    // material lying on the bed.
+                    if c.organism_id() != 0 {
+                        seed_live += 1;
+                    }
                 } else if litter.contains(&c.material) {
                     lc += 1;
                 }
@@ -370,7 +381,7 @@ fn census(w: &World, bed: &LabBox, species: &[&str], est: &mut HashMap<(Organism
         s.push_str(&format!(" | {name} plants={} bank={} leaf={} est={}", r[0], r[1], r[2], r[3]));
     }
     s.push_str(&format!(
-        " | water={} | seed={seed_cells} seedmax={seed_max} litter={litter_cells} littermax={litter_max} | gaps100={gaps_per_100:.2} | tips={tips} contact_other={contact} up_blocked_other={up_blocked} boxed_own={boxed_own} boxed_other={boxed_other} | light_cov={:.3} n={nc} light_open={:.3} n={no} | window={sample}",
+        " | water={} | seed={seed_cells} seedlive={seed_live} seedmax={seed_max} litter={litter_cells} littermax={litter_max} | gaps100={gaps_per_100:.2} | tips={tips} contact_other={contact} up_blocked_other={up_blocked} boxed_own={boxed_own} boxed_other={boxed_other} | light_cov={:.3} n={nc} light_open={:.3} n={no} | window={sample}",
         water.iter().map(|v| format!("{v:.3}")).collect::<Vec<_>>().join(","),
         if nc > 0 { lc / nc as f64 } else { -1.0 },
         if no > 0 { lo / no as f64 } else { -1.0 },
