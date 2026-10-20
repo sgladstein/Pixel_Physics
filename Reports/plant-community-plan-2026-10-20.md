@@ -587,6 +587,40 @@ the review (§12), **M1 runs in this order**:
    - the soil-water profile per column under each species' roots;
    - a shallow-rooted and a deep-rooted plant that actually differ in water
      status.
+
+   **Done, 2026-10-20.** The flood's root cause was not the rate: the box
+   conserves water and the mister makes it, so a box with no sink can only
+   fill. **A floor drain** (`LabBox::drain`, on by default in every lab
+   bed) lets the bottom soil row give up what it holds above field
+   capacity. **Spells** (`LabBox::spells`) are 20,000 wet frames at
+   `Steady` and 40,000 dry, vented, which is the same mean rain as `Light`.
+   Spells are off in the played box, where the owner ruled drought is the
+   player's to cause, and **on in the training world**. Four seeds, 480,000
+   frames, load failure off:
+
+   | at 480,000 | mister, no drain | mister + drain | drain + spells |
+   |---|---|---|---|
+   | standing water, per seed | 7,187-8,692, rising | 900-1,650, level | 311-1,121 after dry, 1,670-2,067 after wet |
+   | soil water, top -> floor | 0.95 -> 0.97 | 0.63 -> 0.62 | 0.62 -> 0.62 |
+   | water at grass roots (shallow), after dry / wet | 0.77 / 0.78 | 0.58 / 0.59 | **0.52 / 0.61** |
+   | at shrub roots (deep) | 0.83 / 0.82 | 0.81 / 0.81 | 0.80 / 0.81 |
+   | grass plants | 622-890 | 1,576-1,709 | 896-1,276 |
+   | herb plants | 0-7 | 0-4 | 0-1 |
+
+   **What it shows.**
+   - Only the spells make a shallow and a deep root live through different
+     weather.
+   - The drain alone doubles grass, and with it the seed mounds (A6's job).
+   - Herb fails in every arm, so its failure is not the water.
+   - After the first cycles the top band barely dries in a dry spell
+     (0.62-0.64). The signal is at the shallow roots, not in the bulk soil.
+     A longer dry spell would deepen it, and the training world can set one.
+   - **Still open:** pools stand over dense root masses through a whole dry
+     spell, because soil water moves only between soil cells and a root mat
+     is a floor to it. Real water runs down beside roots. This is a
+     candidate for step E.
+   - Frame cost of the drain, paired: within +/-3% both ways.
+   - Pictures: `Reports/plant-community-2026-10-20/m1/watering-s1.png`.
 3. **E: the environment carries signals** (§3.4): texture and density
    patches, gentle relief, nutrient patches, shown to the owner as a lab bed
    option. Judged by the spread of each signal and by clones that differ by

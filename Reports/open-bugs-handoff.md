@@ -11,7 +11,7 @@ Read `CLAUDE.md` first; it holds the method these bugs keep re-teaching.
 
 <!-- BEGIN GENERATED INDEX -- regenerate with scripts/bugindex.py -->
 
-**69 open, 135 bugs** (plus 20 landing-note items,
+**68 open, 135 bugs** (plus 20 landing-note items,
 marked `note`). Generated from the headings by
 `scripts/bugindex.py` -- a bug's verdict is written into its own heading, so
 this is derived, never maintained by hand. Entries are never moved when they
@@ -180,7 +180,7 @@ point.
 | W8 | **OPEN** | 14011 | A root grows into another plant's dormant seed and destroys it (engine/plants) |
 | V5 | **OPEN** | 14036 | A dormant seed of a leafy species dies on the grown-plant starvation clock, beside its ow... |
 | Z37 | **OPEN** | 14055 | A batch run of a lab box never rains (engine/lab) |
-| Z38 | **OPEN** | 14081 | The lab's default mister floods a bed over a long run (engine/lab) |
+| Z38 | closed | 14081 | The lab's default mister floods a bed over a long run (engine/lab) |
 
 <!-- END GENERATED INDEX -->
 
@@ -14078,7 +14078,7 @@ it:** one batch setting run both ways (the loop as it is, and stepping through
 `lab::tick_world`) on the played bed, reading plants standing and the soil's
 water at 120,000 frames over 6 seeds; the fix, if wanted, is the one call.
 
-### Z38. The lab's default mister floods a bed over a long run (engine/lab) — **OPEN, measured 2026-10-20; registered, not changed**
+### Z38. The lab's default mister floods a bed over a long run (engine/lab) — **FIXED 2026-10-20, found the same day**
 
 **Symptom, measured.** With the mister on its shipped setting (`Rain::Light`),
 standing water above the soil line rises steadily through a 450,000-frame
@@ -14114,3 +14114,25 @@ steady mister with wet and dry spells, measured by this table and the
 soil-water profile before any plant work relies on it. **What would settle
 it:** the same three beds after that change, read for standing water at
 450,000 frames over 4 seeds, against this table.
+
+**Fixed, 2026-10-20: the bed drains through its floor** (`LabBox::drain`,
+on by default; `lab::rain::drain`). **Root cause:** the box conserves water
+(a vented lid banks it in `World::atmospheric_bank`), and the mister makes
+water from nothing, so the box had a source and no sink. No mister rate
+could hold a long run; the rate only set how soon the lake came. The bottom
+row of soil now gives up whatever it holds above field capacity, the way a
+pot drains, and never touches soil drier than that. Wet and dry spells
+(`LabBox::spells`) ship beside it, off in the played box. Measured on the
+four-role bed (load failure off, 4 seeds, 480,000 frames, `plant_m0`):
+
+| at 480,000 frames | mister, no drain | mister + drain | drain + spells |
+|---|---|---|---|
+| standing water, per seed | 7,187-8,692, rising all run | 900-1,650, level from ~240,000 | 311-1,121 after a dry spell |
+| soil water, top band -> floor | 0.95 -> 0.97 | 0.63 -> 0.62 | 0.62 -> 0.62 |
+
+What still stands is caught on grass mats, leaves and seed mounds, plus
+pools over root masses: soil water moves only between soil cells, so a
+dense root mat is a floor it cannot drain through. That is a separate
+limitation and is not filed. Frame cost, paired on one thread over three
+beds: within +/-3% in both directions. Full record:
+`Reports/plant-community-plan-2026-10-20.md` §8.1, M1 step 2.

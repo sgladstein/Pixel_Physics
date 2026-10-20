@@ -104,6 +104,48 @@
 //! than the owner's own 120,000 frames — `CLAUDE.md`'s ethos law is still
 //! why this is four rates and not one on/off switch.
 //!
+//! # A drain in the floor, and wet and dry spells (2026-10-20)
+//!
+//! **The table above stops at 120,000 frames, and the box floods after
+//! that.** Open bug Z38: on the plant community bed, standing water under
+//! the default mister climbed to 6,864-9,436 cells by 450,000 frames and
+//! never levelled, and the soil filled from the floor up to 0.95 of
+//! saturation. Not a tuning problem: the box conserves water (a vented lid
+//! banks what it lets out, `World::atmospheric_bank`), and the mister makes
+//! water from nothing, so a box with any steady rain and no sink can only
+//! fill. Two bed settings (M1 step 2 of
+//! `Reports/plant-community-plan-2026-10-20.md`):
+//!
+//! - **`LabBox::drain`, on by default** -- the bottom row of soil gives up
+//!   whatever it holds above field capacity, the way a pot drains through
+//!   its hole. Soil drier than that is never touched. See [`drain`].
+//! - **`LabBox::spells`, off by default** -- the mister on a timer: `wet`
+//!   frames at the box's rate, then `dry` frames off with the lid vented.
+//!   See [`Spells`]. Off in the played box because the owner's ruling of
+//!   2026-10-03 makes a drought the player's to cause (*"mister dial
+//!   only"*); the plant training world turns it on.
+//!
+//! Measured on the four-role community bed (`examples/plant_m0.rs`,
+//! herb/grass/shrub/creeper, load failure off, 4 seeds, 480,000 frames;
+//! spells 20,000 wet at `Steady` and 40,000 dry, the same mean rain as
+//! `Light`):
+//!
+//! | at 480,000 frames | `Light`, no drain | `Light` + drain | drain + spells |
+//! |---|---|---|---|
+//! | standing water, cells, per seed | 7,187-8,692, rising all run | 900-1,650, level from ~240,000 | 311-1,121 after a dry spell, 1,670-2,067 after a wet one |
+//! | soil water, top band -> floor | 0.95 -> 0.97 | 0.63 -> 0.62 | 0.62-0.64 -> 0.62 |
+//! | water around shallow (grass) roots, after dry / wet | 0.77 / 0.78 | 0.58 / 0.59 | **0.52 / 0.61** |
+//! | ... around deep (shrub) roots | 0.83 / 0.82 | 0.81 / 0.81 | 0.80 / 0.81 |
+//!
+//! The drain ends the lake; what still stands is caught on grass mats,
+//! leaves and seed mounds, and over root masses the soil water cannot pass
+//! through (it moves only between soil cells). The spells are what make a
+//! shallow root and a deep one live through different weather. **Frame
+//! cost of the drain, paired** from one grown bed on one thread, 20,000
+//! ticks each way, three beds: 1,743 -> 1,731, 1,546 -> 1,592 and 2,157 ->
+//! 2,122 us/tick, inside +/-3% both ways, while the soil-water phase walks
+//! 18% more cells (`plant_m0 mode=draincost`).
+//!
 //! # The mechanism
 //!
 //! Every sim tick (`Lab::tick`, right after `frame::step` — the same timing
@@ -306,6 +348,14 @@ pub fn lid_vent_enabled() -> bool {
 }
 
 pub fn tick(world: &mut World, spec: &LabBox, rate: Rain) -> u32 {
+    drain(world, spec);
+    // **A dry spell is the mister off**, lid vented and all: the same
+    // drought a player makes by turning the dial, on a timer. See
+    // [`Spells`].
+    let rate = match spec.spells {
+        Some(spells) if !spells.wet_at(world.frame) => Rain::Off,
+        _ => rate,
+    };
     // **Off vents the lid** (`World::lid_vented`): with the mister off the
     // box loses what its plants breathe out and dries, which is the whole
     // reason a player turns it off. Before the early return, so `Off` --
@@ -359,6 +409,80 @@ pub fn tick(world: &mut World, spec: &LabBox, rate: Rain) -> u32 {
     placed
 }
 
+/// **Wet and dry spells: the mister on a timer** (M1 step 2,
+/// `Reports/plant-community-plan-2026-10-20.md` §8.1). `wet` frames at the
+/// box's own rain setting, then `dry` frames with the mister off and the
+/// lid vented, the drought `Rain::Off` already is; then again.
+///
+/// **Why the box needs weather at all.** A steady mister gives a plant
+/// nothing to answer: the soil sits at one wetness for ever, the same under
+/// every plant and at every age. Real ground is wetted by pulses and dries
+/// between them, from the top down, so a shallow root has water after rain
+/// and a deep one has it in a drought -- one of the oldest ways plants that
+/// want the same things manage to share a bed (plan §4). Regular, not
+/// random, so a census can be taken at the same phase of the cycle on
+/// every seed (`CLAUDE.md`: a designed oscillator must be divided out of
+/// every number it reaches).
+///
+/// `None` (the default) is the steady mister, as before.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct Spells {
+    pub wet: u64,
+    pub dry: u64,
+}
+
+impl Spells {
+    /// Is `frame` inside a wet spell? A cycle starts wet. A zero-length
+    /// cycle is always wet, which is the steady mister.
+    pub fn wet_at(self, frame: u64) -> bool {
+        let period = self.wet + self.dry;
+        period == 0 || frame % period < self.wet
+    }
+}
+
+/// How often the floor drain runs. The drain only takes what soil holds
+/// above field capacity, so its rate is set by how fast that excess sinks
+/// to the bottom row, not by this; 20 frames keeps it out of the frame cost.
+const DRAIN_INTERVAL_FRAMES: u64 = 20;
+
+/// **The bed drains through its floor, the way a pot drains through its
+/// hole** (`LabBox::drain`; M1 step 2, open bug Z38).
+///
+/// The box conserves water -- even a vented lid only banks what it lets out
+/// (`World::atmospheric_bank`) -- and the mister makes water from nothing.
+/// So the box had a source and no sink, and any steady rain had to end
+/// under a lake: measured, the default mister's standing water climbed to
+/// 6,864-9,436 cells by 450,000 frames and never levelled, and the soil
+/// profile filled from the floor up to 0.95 of saturation. Real ground
+/// does not do that because water past what soil can hold against gravity
+/// (field capacity) keeps sinking and leaves.
+///
+/// So the bottom row of soil, the one lying on the stone floor, gives up
+/// whatever it holds above field capacity, every `DRAIN_INTERVAL_FRAMES`.
+/// Soil already drier than that is untouched: the drain can only take
+/// water that would have run out of a real pot, never dry a bed out.
+/// Counted in `World::drained_water`, the far side of `rain_cells`.
+fn drain(world: &mut World, spec: &LabBox) {
+    if !spec.drain || !world.frame.is_multiple_of(DRAIN_INTERVAL_FRAMES) {
+        return;
+    }
+    let y = spec.ground_y + spec.soil_depth - 1;
+    for x in 0..spec.width {
+        let cell = world.get(x, y);
+        let material = world.materials.get(cell.material);
+        if material.kind != crate::sim::material::MaterialKind::Powder || material.water_capacity == 0 {
+            continue;
+        }
+        let held = cell.aux();
+        let keep = crate::sim::material::SOIL_FIELD_CAPACITY.min(material.water_capacity);
+        if held <= keep {
+            continue;
+        }
+        world.drained_water += (held - keep) as u64;
+        world.set_soil_moisture(x, y, cell.with_aux(keep));
+    }
+}
+
 /// Separates the mister's per-frame dice from every other `rng::stream`
 /// caller. See `tick`.
 const RAIN_SALT: u64 = 0x5261_696E_4D69_7374; // "RainMist"
@@ -377,6 +501,64 @@ mod tests {
         let spec = LabBox { founders: 0, colonies: 0, ..LabBox::default() };
         let world = spec.build();
         (world, spec)
+    }
+
+    /// **The drain takes only what soil holds past field capacity, and only
+    /// with the drain on** (`LabBox::drain`, M1 step 2). One bottom-row cell
+    /// saturated and one drier than field capacity: on, the first comes back
+    /// to field capacity and the excess is counted, the second is untouched
+    /// -- a drain must never dry a bed out. Off, nothing moves at all.
+    #[test]
+    fn the_drain_takes_only_the_excess_and_only_when_on() {
+        use crate::sim::material::{SOIL_FIELD_CAPACITY, SOIL_SATURATED};
+        for on in [false, true] {
+            let (mut world, mut spec) = bare_bed();
+            spec.drain = on;
+            let floor = spec.ground_y + spec.soil_depth - 1;
+            let (wet_x, dry_x) = (spec.width / 2, spec.width / 2 + 10);
+            let soil = world.materials.id_of("soil").expect("soil ships");
+            for x in [wet_x, dry_x] {
+                assert_eq!(world.get(x, floor).material, soil, "test setup: the bottom row should be soil at x {x}");
+            }
+            world.set_soil_moisture(wet_x, floor, world.get(wet_x, floor).with_aux(SOIL_SATURATED));
+            world.set_soil_moisture(dry_x, floor, world.get(dry_x, floor).with_aux(300));
+            world.frame = DRAIN_INTERVAL_FRAMES;
+            tick(&mut world, &spec, Rain::Off);
+            let (wet_after, dry_after) = (world.get(wet_x, floor).aux(), world.get(dry_x, floor).aux());
+            if on {
+                assert_eq!(wet_after, SOIL_FIELD_CAPACITY, "saturated floor soil should drain to field capacity");
+                assert_eq!(world.drained_water, (SOIL_SATURATED - SOIL_FIELD_CAPACITY) as u64, "the counter must be what left");
+            } else {
+                assert_eq!(wet_after, SOIL_SATURATED, "with the drain off the floor must keep its water");
+                assert_eq!(world.drained_water, 0);
+            }
+            assert_eq!(dry_after, 300, "soil drier than field capacity is never the drain's to take (drain {on})");
+        }
+    }
+
+    /// **A dry spell is the mister off with the lid vented; a wet one is the
+    /// box's own rate** (`Spells`, M1 step 2). Two 1,000-frame spells at
+    /// `Steady`: rain in the first, none in the second and the lid open for
+    /// all of it -- the drought `Rain::Off` is, on a timer.
+    #[test]
+    fn a_dry_spell_turns_the_mister_off_and_vents_the_lid() {
+        let (mut world, mut spec) = bare_bed();
+        spec.spells = Some(Spells { wet: 1_000, dry: 1_000 });
+        let (mut wet, mut dry) = (0u32, 0u32);
+        for f in 0..2_000u64 {
+            world.frame = f;
+            let placed = tick(&mut world, &spec, Rain::Steady);
+            if f < 1_000 {
+                wet += placed;
+                assert!(!world.lid_vented, "the lid must be sealed in a wet spell (frame {f})");
+            } else {
+                dry += placed;
+                assert!(world.lid_vented || !lid_vent_enabled(), "a dry spell must vent the lid (frame {f})");
+            }
+        }
+        assert!(wet.abs_diff(Rain::Steady.cells_per_1000_frames()) <= 15, "the wet spell rained {wet}, not Steady's rate");
+        assert_eq!(dry, 0, "the dry spell rained");
+        assert!(Spells { wet: 0, dry: 0 }.wet_at(12_345), "a zero-length cycle is the steady mister");
     }
 
     /// **Sensitivity, per setting: does the rate actually move, and by

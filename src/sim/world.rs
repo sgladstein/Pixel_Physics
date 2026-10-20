@@ -6612,6 +6612,12 @@ pub struct World {
     /// there for the whole run, same as `structural_failures` does on a
     /// world with nothing built in it.
     pub rain_cells: u64,
+    /// **Water the lab bed's floor drain has let out**, in soil-water units
+    /// (one full water cell is `material::LIQUID_FULL`), summed since this
+    /// world was built: the far side of `rain_cells`. Written only by
+    /// `lab::rain::drain`, and only on a bed with `LabBox::drain` on, so it
+    /// stays 0 outdoors and on every bed as it shipped before.
+    pub drained_water: u64,
 }
 
 /// The seed a world has when nothing has given it one. Arbitrary, fixed,
@@ -7482,6 +7488,7 @@ impl World {
             enclosure: None,
             sky_lighting: true,
             rain_cells: 0,
+            drained_water: 0,
         };
         world.ensure_chunks_for(bounds);
         world

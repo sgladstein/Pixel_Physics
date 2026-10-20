@@ -225,6 +225,31 @@ pub struct LabBox {
     /// species. `None` is today's bed.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub species_ron: Option<String>,
+    /// **The bed drains through its floor**, as a pot does through its hole
+    /// (`super::rain::drain`; M1 step 2 of
+    /// `Reports/plant-community-plan-2026-10-20.md`, bug Z38). **On by
+    /// default**: without it the box is a source of water with no sink, and
+    /// the shipped mister put the bed under a lake by 480,000 frames on 4
+    /// of 4 seeds (`super::rain`'s header has the table). Off is the box as
+    /// it was. A missing key reads as on, and on is never written, so every
+    /// file before this reads back as a draining bed and round-trips
+    /// unchanged; a box saved with the drain off says so.
+    #[serde(default = "drain_default", skip_serializing_if = "is_drain_default")]
+    pub drain: bool,
+    /// **Wet and dry spells** (`super::rain::Spells`): the mister at `rain`'s
+    /// rate for `wet` frames, then off with the lid vented for `dry`. `None`
+    /// is the steady mister.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub spells: Option<super::rain::Spells>,
+}
+
+/// `LabBox::drain`'s default, on: see that field.
+fn drain_default() -> bool {
+    true
+}
+
+fn is_drain_default(drain: &bool) -> bool {
+    *drain == drain_default()
 }
 
 /// `LabBox::windfall_rots`' serde default: the engine's own, so a missing key
@@ -346,6 +371,8 @@ impl Default for LabBox {
             windfall_rots: windfall_rots_default(),
             founder_at: None,
             species_ron: None,
+            drain: drain_default(),
+            spells: None,
         }
     }
 }

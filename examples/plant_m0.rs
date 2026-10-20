@@ -28,7 +28,7 @@
 //! whether another plant's cells are among those boxing it), `light` (at the
 //! soil surface, columns under plant cover against open ones).
 
-use pixel_physics::lab::rain::Rain;
+use pixel_physics::lab::rain::{Rain, Spells};
 use pixel_physics::lab::scenario::{Event, Placement, Scenario};
 use pixel_physics::lab::scene::LabBox;
 use pixel_physics::sim::cell::OrganismId;
@@ -40,7 +40,7 @@ use pixel_physics::sim::world::World;
 use pixel_physics::train_plant::genome;
 use std::collections::{BTreeMap, HashMap};
 
-const KNOWN: &[&str] = &["mode", "mix", "seed", "frames", "sample", "ants", "cripple", "rain", "width", "species", "widths", "lengths", "shots", "out", "loadfail", "at"];
+const KNOWN: &[&str] = &["mode", "mix", "seed", "frames", "sample", "ants", "cripple", "rain", "width", "species", "widths", "lengths", "shots", "out", "loadfail", "at", "drain", "spells", "grow", "blocks", "block"];
 
 fn args() -> BTreeMap<String, String> {
     let mut m = BTreeMap::new();
@@ -145,6 +145,12 @@ fn community_bed(m: &BTreeMap<String, String>) -> (World, LabBox, Scenario, Vec<
         lamp_spacing: 33,
         seed,
         rain: rain(m),
+        // The bed's own default (on since 2026-10-20) unless `drain=0`.
+        drain: get(m, "drain", u8::from(LabBox::default().drain)) != 0,
+        spells: m.get("spells").map(|v| {
+            let (wet, dry) = v.split_once(',').expect("spells=WET,DRY in frames");
+            Spells { wet: wet.parse().expect("wet frames"), dry: dry.parse().expect("dry frames") }
+        }),
         species_ron: cripple.as_deref().map(|c| crippled(c, 0.1)),
         ..LabBox::default()
     };
@@ -233,6 +239,9 @@ fn census(w: &World, bed: &LabBox, species: &[&str], est: &mut HashMap<(Organism
     // Per species: plants alive, waiting seeds, leaf cells, newly established.
     let mut per: BTreeMap<&str, [u64; 4]> = species.iter().map(|s| (*s, [0u64; 4])).collect();
     let mut covered = vec![false; bed.width as usize];
+    // Per species: (soil water summed over root-adjacent soil cells, cells,
+    // deepest root summed over plants, plants).
+    let mut roots: BTreeMap<&str, (f64, u64, u64, u64)> = BTreeMap::new();
     let (mut tips, mut boxed_own, mut boxed_other, mut contact, mut up_blocked) = (0u64, 0u64, 0u64, 0u64, 0u64);
     for id in w.live_organism_ids() {
         let Some(st) = w.organism(id) else { continue };
@@ -250,6 +259,27 @@ fn census(w: &World, bed: &LabBox, species: &[&str], est: &mut HashMap<(Organism
         }
         row[0] += 1;
         let leaf = id_of(&def.leaf_material);
+        // **Water where this plant's roots are, and how deep they go**: a
+        // shallow and a deep rooter must read differently through a dry
+        // spell, or the spells give roots nothing to answer.
+        let mut deepest = 0i32;
+        for &(x, y) in st.cells.keys() {
+            if y < ground {
+                continue;
+            }
+            deepest = deepest.max(y - ground);
+            for (dx, dy) in [(-1, 0), (1, 0), (0, -1), (0, 1)] {
+                let n = w.get(x + dx, y + dy);
+                if soil.contains(&n.material) {
+                    let r = roots.entry(name).or_insert((0.0, 0, 0, 0));
+                    r.0 += n.aux() as f64 / pixel_physics::sim::material::SOIL_SATURATED as f64;
+                    r.1 += 1;
+                }
+            }
+        }
+        let r = roots.entry(name).or_insert((0.0, 0, 0, 0));
+        r.2 += deepest as u64;
+        r.3 += 1;
         for &(x, y) in st.cells.keys() {
             let c = w.get(x, y);
             if Some(c.material) == leaf {
@@ -321,6 +351,25 @@ fn census(w: &World, bed: &LabBox, species: &[&str], est: &mut HashMap<(Organism
         }
         water.push(if n > 0 { sum / n as f64 } else { -1.0 });
     }
+    // **Is there a moisture signal across the bed?** The spread, over
+    // columns, of each column's mean soil water in the top band: zero on a
+    // uniform bed, which is what a plant has nothing to answer
+    // (plan §3.4).
+    let top: Vec<f64> = (0..bed.width)
+        .filter_map(|x| {
+            let (mut sum, mut n) = (0.0f64, 0u64);
+            for y in ground..ground + 10 {
+                let c = w.get(x, y);
+                if soil.contains(&c.material) {
+                    sum += c.aux() as f64 / pixel_physics::sim::material::SOIL_SATURATED as f64;
+                    n += 1;
+                }
+            }
+            (n > 0).then(|| sum / n as f64)
+        })
+        .collect();
+    let top_mean = top.iter().sum::<f64>() / top.len().max(1) as f64;
+    let top_sd = (top.iter().map(|v| (v - top_mean).powi(2)).sum::<f64>() / top.len().max(1) as f64).sqrt();
     // Seed and litter lying above the soil line, and the deepest column.
     let (mut seed_cells, mut seed_max, mut litter_cells, mut litter_max, mut seed_live) = (0u64, 0u64, 0u64, 0u64, 0u64);
     for x in 0..bed.width {
@@ -361,6 +410,28 @@ fn census(w: &World, bed: &LabBox, species: &[&str], est: &mut HashMap<(Organism
         standing += col;
         standing_max = standing_max.max(col);
     }
+    // **What standing water is standing on**: the cell under each column's
+    // lowest water cell, by material, and for soil whether it is full.
+    // Water over unsaturated soil should soak in, so a lake over dry
+    // ground is lying on something else.
+    let mut under: BTreeMap<String, u64> = BTreeMap::new();
+    for x in 0..bed.width {
+        for y in 0..ground + 2 {
+            if Some(w.get(x, y).material) == water_id && Some(w.get(x, y + 1).material) != water_id {
+                let below = w.get(x, y + 1);
+                let mut name = w.materials.get(below.material).name.clone();
+                if soil.contains(&below.material) {
+                    name.push_str(if below.aux() >= pixel_physics::sim::material::SOIL_SATURATED { "(full)" } else { "(room)" });
+                } else if below.organism_id() != 0 {
+                    name.push_str("(plant)");
+                }
+                *under.entry(name).or_insert(0) += 1;
+            }
+        }
+    }
+    let mut under: Vec<(String, u64)> = under.into_iter().collect();
+    under.sort_by_key(|e| std::cmp::Reverse(e.1));
+    let under = under.iter().take(5).map(|(k, v)| format!("{k}:{v}")).collect::<Vec<_>>().join(",");
     // Gaps: runs of 3+ columns with no plant shoot, per 100 columns.
     let (mut gaps, mut run) = (0u64, 0u64);
     for &c in &covered[8..(bed.width - 8) as usize] {
@@ -410,11 +481,24 @@ fn census(w: &World, bed: &LabBox, species: &[&str], est: &mut HashMap<(Organism
     }
     let mut s = format!("f={frame}");
     for (name, r) in &per {
-        s.push_str(&format!(" | {name} plants={} bank={} leaf={} est={}", r[0], r[1], r[2], r[3]));
+        let (wet, n, depth, plants) = roots.get(name).copied().unwrap_or((0.0, 0, 0, 0));
+        s.push_str(&format!(
+            " | {name} plants={} bank={} leaf={} est={} rootwet={:.3} rootdepth={:.1}",
+            r[0],
+            r[1],
+            r[2],
+            r[3],
+            if n > 0 { wet / n as f64 } else { -1.0 },
+            if plants > 0 { depth as f64 / plants as f64 } else { -1.0 }
+        ));
     }
     s.push_str(&format!(
-        " | water={} | standing={standing} standingmax={standing_max} | seed={seed_cells} seedlive={seed_live} seedmax={seed_max} litter={litter_cells} littermax={litter_max} | gaps100={gaps_per_100:.2} | tips={tips} contact_other={contact} up_blocked_other={up_blocked} boxed_own={boxed_own} boxed_other={boxed_other} | light_cov={:.3} n={nc} light_open={:.3} n={no} | window={sample}",
+        " | water={} topsd={top_sd:.3} | standing={standing} standingmax={standing_max} rained={} drained={} vapour={:.0} spell={} on={under} | seed={seed_cells} seedlive={seed_live} seedmax={seed_max} litter={litter_cells} littermax={litter_max} | gaps100={gaps_per_100:.2} | tips={tips} contact_other={contact} up_blocked_other={up_blocked} boxed_own={boxed_own} boxed_other={boxed_other} | light_cov={:.3} n={nc} light_open={:.3} n={no} | window={sample}",
         water.iter().map(|v| format!("{v:.3}")).collect::<Vec<_>>().join(","),
+        w.rain_cells,
+        w.drained_water / pixel_physics::sim::material::LIQUID_FULL as u64,
+        w.atmospheric_bank,
+        bed.spells.map_or("none", |sp| if sp.wet_at(frame) { "wet" } else { "dry" }),
         if nc > 0 { lc / nc as f64 } else { -1.0 },
         if no > 0 { lo / no as f64 } else { -1.0 },
     ));
@@ -696,6 +780,49 @@ fn nudge(m: &BTreeMap<String, String>) {
     println!("plant_m0 done: first difference {}", first.map_or("never".to_string(), |f| f.to_string()));
 }
 
+/// **What the floor drain costs a frame** (M1 step 2). One bed grown `grow`
+/// frames with the arm's own watering, then copied: the copy with the
+/// drain off and the copy with it on are stepped in alternating `block`-frame
+/// blocks, `blocks` times each, so machine load lands on both alike. Prints
+/// microseconds per tick and the soil-water phase's own work counter
+/// (`World::soil_water_stats.visited`, cells walked per tick), which does not
+/// move with load. Run with `RAYON_NUM_THREADS` pinned.
+fn drain_cost(m: &BTreeMap<String, String>) {
+    let (mut w, bed, scenario, _, mix_name, _) = community_bed(m);
+    let (grow, blocks, block) = (get(m, "grow", 60_000u64), get(m, "blocks", 10u32), get(m, "block", 2_000u64));
+    let tuning = player::Tuning::default();
+    let (mut p, mut b) = (ParticleSystem::new(), Blasts::new());
+    for _ in 0..grow {
+        pixel_physics::lab::tick_world(&mut w, &mut p, &mut b, &tuning, &bed, Some(&scenario));
+    }
+    let arms = [LabBox { drain: false, ..bed.clone() }, LabBox { drain: true, ..bed.clone() }];
+    let mut worlds = [w.clone(), w];
+    let mut state = [(ParticleSystem::new(), Blasts::new()), (ParticleSystem::new(), Blasts::new())];
+    let (mut micros, mut visited, mut changed) = ([0f64; 2], [0u64; 2], [0u64; 2]);
+    for _ in 0..blocks {
+        for i in 0..2 {
+            let t = std::time::Instant::now();
+            for _ in 0..block {
+                pixel_physics::lab::tick_world(&mut worlds[i], &mut state[i].0, &mut state[i].1, &tuning, &arms[i], Some(&scenario));
+                visited[i] += worlds[i].soil_water_stats.visited;
+                changed[i] += worlds[i].soil_water_stats.changed;
+            }
+            micros[i] += t.elapsed().as_secs_f64() * 1e6;
+        }
+    }
+    let ticks = (blocks as u64 * block) as f64;
+    println!("plant_m0 draincost: mix={mix_name} seed={} grow={grow} blocks={blocks}x{block} rain={:?} spells={:?}", bed.seed, bed.rain, bed.spells);
+    for (i, name) in ["drain off", "drain on"].iter().enumerate() {
+        println!(
+            "{name:>9}: {:.0} us/tick  soil-water cells walked/tick {:.0}  changed/tick {:.0}  drained {} cells",
+            micros[i] / ticks,
+            visited[i] as f64 / ticks,
+            changed[i] as f64 / ticks,
+            worlds[i].drained_water / pixel_physics::sim::material::LIQUID_FULL as u64
+        );
+    }
+}
+
 fn main() {
     let m = args();
     match m.get("mode").map(String::as_str).unwrap_or("community") {
@@ -705,8 +832,9 @@ fn main() {
         "cost" => cost(&m),
         "copy" => copy(&m),
         "nudge" => nudge(&m),
+        "draincost" => drain_cost(&m),
         other => {
-            eprintln!("plant_m0: mode={other} is not community|boxed|plastic|cost|copy|nudge");
+            eprintln!("plant_m0: mode={other} is not community|boxed|plastic|cost|copy|nudge|draincost");
             std::process::exit(2);
         }
     }
