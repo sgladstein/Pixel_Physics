@@ -500,6 +500,23 @@ This session cannot launch anything.
 
 M0 and M1 run here, with no Google Cloud needed.
 
+### 8.1 M0, item by item, each with its control
+
+Every number below is checked against a case known to be fine
+(specificity) and a case known to be broken (sensitivity), as `CLAUDE.md`
+requires. A measurement whose control fails is not reported.
+
+| item | measures | instrument | known-fine case | known-broken case |
+|---|---|---|---|---|
+| **M0.1 dice** | size, height and width spread of clones: spot arm (today's key and the per-plant key), and a **seed arm** (one spot, the per-plant key, N developmental seeds) | `clone_variance shift=1`, plus a new `seeds=` arm | the same seed in the same spot twice reads exactly zero | the seed arm reads non-zero under the per-plant key: different seeds must give different plants |
+| **M0.2 surroundings** | each trait's shift from bright to dim (under a lamp ↔ between lamps) and wet to dry (mister on ↔ off), divided by the dice spread; herb, shrub, grass | `examples/plant_m0.rs mode=plastic` | two arms differing only in world seed read inside the noise | bright against dim must move size (P1: herb flowered 7/8 under a lamp, 4/8 between) |
+| **M0.3 genes** | heritability of size, width and leaf share | `clone_variance`'s existing pop, clone and spread arms; P1's `plantrain mode=heritability` for herb | — | the spread arm, the two most distant genomes, must read high |
+| **M0.4 community** | per species: plants alive (not waiting seed), leaf cells, seedlings in the last 100,000 frames, leaf-share trend over the second half; species with 100+ leaf; evenness. mix7 and the four-role bed, 12 seeds without ants and 8 with, 450,000 frames | `examples/plant_m0.rs mode=community` | two runs of one seed are byte-identical | a species crippled at sowing (photosynthesis ×0.1) must read as lost |
+| **M0.5 water** | soil water by 10-row band below the surface, over time | same harness | — | a bed with the mister off reads drier than one on Light |
+| **M0.6 the slice** | (a) growing tips with no free neighbour, split by whose cells box them (own or another plant's); (b) light at the soil surface under plant cover against open columns; (c) seed and litter depth per column; (d) gaps (3+ bare columns) per 100 columns | same harness | (a) a lone plant reads zero "boxed by another" | (a) two plants sown two columns apart read non-zero; (b) a column under solid rock reads near zero |
+| **M0.7 arena cost** | core-seconds per bed by width and length, one thread | `mode=cost` | — | cost must scale with area × frames, or the §6.2 table is wrong |
+| **M0.8 copying a bed** | a grown bed, copied, then stepped on: identical to the original; then a new species registered into the copy and sown: it germinates | `mode=copy` | copy and original are hash-equal after 5,000 more frames | — |
+
 ## 9. Questions: all answered (2026-10-20)
 
 1. **The four roles:** kept.
