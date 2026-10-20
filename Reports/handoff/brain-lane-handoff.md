@@ -1,6 +1,6 @@
 # Handoff: training the ant's brain (stage 2), for an agent with only this repo
 
-**Last updated: 2026-10-20 08:50 UTC.** Written by the session that has run
+**Last updated: 2026-10-20 19:15 UTC.** Written by the session that has run
 this work since 2026-10-17, because the owner's account was about to run out
 of usage. It is updated in place through the night as each task finishes:
 read the **Log** at the bottom first to see what changed since this header.
@@ -38,7 +38,7 @@ design (goal, 12 baby steps, scoring, bars) is
 |---|---|
 | Trail | **Accepted** by the owner (signed trail score 0.94 on 3 seeds). |
 | Forage (scarce food, 80 columns out) | **Not passed.** Ants find food but make too few laden trips home. A one-ant "fetch" arena is the stepping stone, and it is trained alongside dig as a kept skill. |
-| Dig | **In progress, step 4.** Step 4 is "carry soil up and out of the shaft". Steps 1-3 (cut, let go, put down away from the hole) are behind it. |
+| Dig | **Step 4 passed** (owner, 2026-10-20, on s161 gen 336: numbers and GIFs in log 19:15). Step 4 is "carry soil up and out of the shaft"; steps 1-3 (cut, let go, put down away from the hole) are behind it. **Next step (8-row shaft) waits on the investigation in section 3.** |
 | Brood | Not started. |
 
 **Dig step 4, the numbers.**
@@ -92,9 +92,7 @@ Seeds 112 and 114 stayed flat (hold-out about 1.0-1.5). Seed 113 auto-stopped at
 - Both round-4 brains lead the old best by about half a load a world. Two independent seeds agree in sign, but each gap is within one standard error. The bar is 5 a world on 11 of 12 worlds, so it is still far off.
 - s134 is no better than s111 gen 226 on 24 worlds. On the 12 worlds it was not picked on, it is worse (-1.17). The 04:40 noise reading was right.
 
-**Running now: round 4 continued** (`dig-4b4-s161-long`, `dig-4b4-s162-long`): an exact resume of both to generation 200 on the same settings and ref `d4c2275082c8bd5e409d406637d4ce83167768e8`, two `c4d-highcpu-32`. Asked for at 08:50 UTC; about 3.9 h for 100 generations, so due about 12:45 UTC unless the auto-stop (50 generations after the last best) ends one sooner.
-  - Fetch with the launcher (section 5), for example `python3 Reports/brain-training/cloud-compute/gcp/gcp_train_job.py fetch dig-4b4-s161-long <dir>`, then check `status` says the VM is gone (`delete` if not).
-  - **How to judge it:** score each final hold-best on the 24 sealed worlds, paired per world against `training/starts/s161-4b4-g91.txt` and `training/starts/s111-g226.txt`, with the commands in log 08:50. Call a gain real when it is over about twice the paired standard error (about 1 full load a world on 24 worlds), or when both seeds move the same way and the pooled gap clears that.
+**Round 4 continued to generation 340: done; step 4 passed.** `dig-4b4-s16X-long` (to gen 200) and `dig-4b4-s16X-g340` (to gen 340), exact resumes on ref `d4c2275`. On 24 sealed worlds, full loads per world: **s161 gen 336 7.21** (20 of 24 at 5+), s162 gen 338 6.21. On the bar's 12: s161 gen 336 has 11 of 12 at 5+, pooled share 0.89, blinded 1.00. Brains: `Reports/brain-training/stage2/dig/4b4/dig-4b4-s16X-g340-hold-best.txt`. The whole lineage's curves: `Reports/brain-training/stage2/dig/dig-lineage-s91-to-s161-s162-curves.png`. GIFs: `4b4/s161-g336-vs-s134-sealed{0,1}.gif`.
 - **Run each job in one place only** (the owner, 00:53: "Don't double up that is a waste of work. Just pick one"). The stale `train-results/dig-4b-s13X` branches on GitHub are from a cancelled Actions copy; ignore them.
 
 **Stop rule, agreed in advance.** If no seed is past **3 full loads a world by
@@ -103,15 +101,16 @@ fix it; the rung needs a design change. Take that to the owner.
 
 ## 3. What to do next, in order
 
-1. **When the round-4 continuations (`dig-4b4-s161-long`, `dig-4b4-s162-long`) finish**, take each run's `hold-best.txt`. Score each on the 12 sealed worlds with `foot=1`, against `training/starts/s134-4b-g34.txt` (command in section 4 and the Log's 01:45 entry). Read `full_loads` per world against the bar (5 on 11 of 12 worlds), then the blinded row. The numbers to beat are s161's on **24** sealed worlds (`holdout=24 sealed=1`): 4.00 full loads per world, 7 of 24 worlds at 5 or more. Compare per world, paired, and mind the noise (log 04:40): on 24 worlds a difference under about 1 full load per world is not evidence.
-2. **Make a before/after GIF** (section 4) and a training-curves picture (`curves.png` comes with every run). Send both to the owner with the numbers. **Never call a rung passed before the owner has seen the pictures and the GIF.**
-3. **If no seed passes but some climb**, resume the best one (exact resume, section 5) rather than starting fresh. **If none is past 3 full loads by gen 100**, stop and bring the owner a design question with your recommendation.
-3b. **Option the owner raised (02:45-02:48): several ants in one box, each with a different brain, to score more candidates per run.** Not started; it is moderate code, so it was left for later.
-   - **Cost, measured** (one timing, 12 sealed worlds, `threads=1`, s134's brain): 1 ant per box 11.3 s, 4 ants per box 18.8 s. So 4 ants cost 1.7x one ant, not 4x, and 4 brains per box would score 4 candidates for 1.7x the time: about **2.4x the throughput**.
-   - **Crowding, measured** (same run, 4 copies of s134): cuts per world 23.5 against 10.3, but full loads per world 2.67 against 3.0. They cut more but carry no more out. The likely reason (not traced) is that the shaft is one cell wide and `foot=1` pays only foot cuts, so they queue there.
-   - **What it needs before training:** (1) score each ant on its own trips, not the box total (check how the soil score credits trips with more than one ant); (2) the trainer groups candidates into boxes and reshuffles boxmates every generation, so a brain is not judged by one bad neighbour; (3) the bar (5 full loads per world) becomes per ant. It also trains ants that cope with company, which the plan needs anyway at step 9 (twelve ants).
-   - Ask the owner before building it.
-4. **If step 4 passes**, go on to the next step in `dig-rung-design.md`: deeper shafts (8, then 12 rows), then door, bare ground, roof, 12 ants, rooms, more chambers, and dig plus scarce food. The rule for each step is that a **hand-built digger passes it first** (positive control) and rest/blank/blind controls score about 0.
+1. **The investigation the owner approved (2026-10-20), before the 8-row step.** Plan: `/root/.claude/plans/first-write-up-a-precious-pizza.md` in the session that wrote it; its parts, so a new session can carry it on:
+   - **Part 1, where loads are lost.** Done so far: 8.0 foot cuts a world become 7.21 full loads (90%), so carrying is solved and *how many foot cuts* is the limit; about 35% of cuts are wasted (3.2 wall + 1.7 top-row a world). Run length (s161 g336, 24 sealed): 4.2 / 7.2 / 12.3 / 17.0 full loads at 3k / 6k / 12k / 24k frames, per-world sd/mean 0.40 / 0.31 / 0.27 / 0.28, so more worlds beats longer runs for ranking at 4 rows. Next: trace individual wasted cuts and lost pellets (the `funnel` skill), world 0 (4 loads) against world 1 (8).
+   - **Part 2, what the brain attends to:** a static connection map from the genome, then the exact job-score contributions (`w * x` before `squash`) on logged decisions, then switching off only what those flag, with intact, blind and `rest` controls.
+   - **Part 3, why fetch wears down:** fetch's stages, s91 against s161, and whether digging and fetching share senses or the Drop verb.
+   - **Part 4, selection reliability:** about 40 brains from s161's final population on two independent 48-world sets; how many worlds a test needs; the run-length test again at `shaft=8`.
+   - **Part 5, training efficiency:** literature (Consensus / SciSpace connectors) and cheap offline tests -- racing / successive halving, ES or CMA-ES on the same genome, a hand-built `digger` as teacher, a smoother second metric, separate shafts per ant, and RL and NEAT reopened (owner, 2026-10-20: earlier rejections may be revisited on the evidence; a big redesign still needs a design doc and an adversarial review).
+   - Deliverable: `Reports/brain-training/investigation-2026-10-20.md` with a picture per part and a recommended setup; then the owner decides what is next.
+2. **From the next training run on, pass `keepref=training/starts/fretrain-s91.txt`** (section 4). s161 gen 336 is already slightly under a 0.8-of-s91 fetch floor, so its first generations will be gated until fetch recovers; the pre-flight line says so at launch.
+3. **Several brains per box sharing one shaft does not work** (tested 2026-10-20, log 13:30): the shaft caps the box at one ant's output and boxed scores rank no better than chance. Separate shafts per ant get only a timing check in part 5.
+4. **After the investigation**, the next step in `dig-rung-design.md`: deeper shafts (8, then 12 rows), then door, bare ground, roof, 12 ants, rooms, more chambers, and dig plus scarce food. The rule for each step is that a **hand-built digger passes it first** (positive control) and rest/blank/blind controls score about 0.
 5. **Parked, not started** (from the owner-approved brain fix plan; steps 0-1 are done as PRs 721-722):
    - weigh a champion against the run's best;
    - a brain "price table", which is the owner's call;
@@ -158,7 +157,8 @@ step=4 shaft=4 foot=1 budget=1200 prune=0.3 wire=0.001 grow=0.1 seed=131 pop=100
 layouts=16 pm=0.03 sigma=0.3 cross=0.3 holdout=12 start=training/starts/s111-g226.txt
 ```
 
-- The suite trains digging while **keeping** fetch and trail. Each kept arena is a pass/fail floor at 80% of the start's level, so a dig gain that forgets foraging is refused.
+- Round 4 on used `layouts=48 holdout=24` (and two `c4d-highcpu-32`); the gain came only then. **From the next run on, add `keepref=training/starts/fretrain-s91.txt`.**
+- The suite trains digging while **keeping** fetch and trail. Each kept arena is a pass/fail floor at 80% of its reference, so a dig gain that forgets foraging is refused. The reference is the start unless `keepref=` names a fixed brain; relative to each run's start, a chain of runs gave up 17-25% of fetch (log 19:15), so use `keepref=`.
 - `wire=` is the brain's energy cost per connection. The owner wants it kept.
 - The auto-stop is `patience=` and defaults to **50**, by the owner's choice; leave it there. A run stops once its hold-out has gone 50 generations with no 2% gain, never before generation 40, and only once the flat stretch is at least as long as the climb.
 - Each run writes these files:
@@ -223,10 +223,9 @@ The owner is **Scott** (GitHub `sgladstein`). He uses a Mac terminal, so give zs
 - **Writing to him**: lead with what it does and where it is going, in the world's words (ants, soil, shaft) rather than code's, then the mechanism. Keep it short.
 - **Big redesigns** need a design doc and an adversarial review before building.
 
-## 7. Repo and PR state (2026-10-20 02:40 UTC)
+## 7. Repo and PR state (2026-10-20 19:15 UTC)
 
-- `main` is at `870e0a31f` (PR 734: this handoff, the copied notes and step 4b's should-fixes, merged 01:23). Step 4b itself is PR 733.
-- PR 735 (round-1 results and this handoff's later log) is open on `claude/project-thread-eewfjj`; it is docs and data only, so it can merge whenever CI is green. Later handoff updates go on the same branch: if 735 has merged, restart the branch from `origin/main` first and open a new PR.
+- `main` is at `918721b` (PR 740). This session's work is on `claude/brain-lane-r4-long` (round-4 continuation data, gen-340 brains, the lineage curves, GIFs, `keepref=`, this handoff), in its own PR; the old `claude/project-thread-eewfjj` belongs to the session before.
 - Open PRs that are **Scott's call** and not part of this work: 705, 706, 702, 697, 686.
 - Merging:
   - `CLAUDE.md` lets an independent session merge its own PR on green CI. Ask Scott once whether he wants you to.
@@ -267,6 +266,8 @@ The owner is **Scott** (GitHub `sgladstein`). He uses a Mac terminal, so give zs
   - `foot=1` is part of the arena string, but only when it is on, so rev 2.8 runs still resume.
   - Pin `ref=` to a sha for anything you might resume.
 - **Arena setup.** `foot=1` needs `step=4`. A shaft up to 12 rows is clean on every generated bed; stone first bites at 16 rows.
+- **`top`, not `best_hold`, is the hold-best's generation.** `state.txt` carries both: `best_hold` is the auto-stop's clock (moves only on a 2% gain), `top` is the highest hold-out score, the one written to `hold-best.txt` and stored as the `genome top` block (weights as hex bits). A run cut short has no `hold-best.txt`, but its `genome top` block is the same brain (checked on s162: identical).
+- **Delete a VM only after its `DONE` marker is confirmed**, never in the same command as a fetch: s161's gen-340 run lost its last 3 generations that way. s162's VM was still RUNNING about 20 minutes after `@@DONE`, so the post-DONE shutdown is not reliable either: check `status` and `delete` once the result is fetched.
 - **Stale binaries.** `cargo build --release` leaves the example binary stale; build `--example train`. The tell is identical output across a change.
 - **Piping cargo hides its exit code.** Use `set -o pipefail` when piping `cargo` into `tail` or `grep`.
 - **Waiting on processes.** Never wait with `pgrep -f`, because it matches its own shell; use `pgrep -x`.
@@ -276,6 +277,21 @@ The owner is **Scott** (GitHub `sgladstein`). He uses a Mac terminal, so give zs
 ## Log
 
 Newest first. Each entry says what changed and what is now true.
+
+- **2026-10-20 19:15 UTC. Step 4 passed; investigation started.**
+  - **Gen 340** (exact resumes from gen 200): s162 finished at 18:10; s161 was deleted at gen 337 of 340 by mistake (fetch and delete in one step) and its gen-336 `top` brain recovered from `state.txt`. 24 sealed worlds, full loads per world: s161 g336 **7.21** (20/24 at 5+; +1.83 over its g199, se 0.44), s162 g338 6.21 (+0.50, se 0.63). On the bar's 12 sealed worlds s161 g336: **11 of 12 at 5+, pooled share 0.89, blinded 1.00**. The owner saw the GIFs (sealed worlds 0 and 1, chosen before looking) and ruled **pass**.
+  - **Kept skills eroded more than the 12-world check showed.** On 24 sealed worlds, as a share of s91: fetch s134 0.76, s161 g336 0.75, s162 g338 0.83 (low 0.65 at s162 g190); trail 0.83-0.97 along the line, 0.83 / 0.87 at the newest. Real foraging (`challenge=scarce`, food 80 out) delivers nothing for any brain, s91 included. A first lineage plot chained each run's hold-out ratio back to s91 and read 0.6 for fetch; one 24-world set flips the order of s162 g338 and s134 on fetch, so a four-link chain compounds that bias and was dropped.
+  - **`keepref=` added** (`a2b035a`): kept-arena floors measured against a fixed brain. Positive control on s162 g338: references move to s91's (fetch 19.15 -> 23.15, trail 0.70 -> 0.80; soil unchanged); pre-flight reads fetch 19.15 vs floor 18.52, trail 0.70 vs 0.64. Tests 56/56, clippy clean.
+  - **Investigation approved** (section 3, item 1); part 1's first results are there.
+- **2026-10-20 13:30 UTC. Taken over by a new session. Round 4's continuation is a real gain; continued again to generation 340.**
+  - `dig-4b4-s161-long` and `s162-long` both ran to generation 200 (exit 0, 12:22 and 12:19 UTC; VMs gone). Hold-out best: s161 1.83 at gen 199, s162 2.23 at gen 190, against the start's 1.08. Bundles, hold-bests and curves: `Reports/brain-training/stage2/dig/4b4/dig-4b4-s16X-long-*`.
+  - **Sealed, 24 worlds, `foot=1`, full loads per world** (the s111 g226 and s161 g91 lists were re-scored in this session and match the 08:50 entry exactly):
+    - s161 gen 199: mean **5.38**, 17 of 24 worlds at 5+ [6,8,5,4,6,2,5,6,7,7,5,4,5,6,2,2,6,6,6,4,4,5,9,9]; blinded 0.75 (worse side);
+    - s162 gen 190: mean **5.71**, 18 of 24 at 5+ [5,5,8,3,1,6,5,3,10,10,7,3,3,5,5,5,9,9,7,6,7,6,2,7]; blinded 0.33;
+    - s162 gen 97 (round 4's end) 3.92, 9 of 24; s161 gen 91 4.00, 7 of 24; s111 g226 3.50, 9 of 24.
+  - Paired per world: s161 g199 - g91 **+1.38** (se 0.52); s162 g190 - g97 **+1.79** (se 0.72); pooled +1.58 (se 0.44, n 48). Against s111 g226: +1.88 (se 0.52) and +2.21 (se 0.72). Both seeds moved the same way and past the ~1 load/world bar in section 2, so **this is the first gain on the dig rung that clears the noise.** Pooled full_share 0.87. Not passed: the bar is 5+ on 11 of 12 worlds, about 22 of 24 here.
+  - **Continued** as exact resumes to `gens=340`: `dig-4b4-s161-g340`, `dig-4b4-s162-g340`, ref `d4c2275`, two `c4d-highcpu-32`, `--hours 6`, started 13:14 UTC, both logged "resumed at generation 200". Launched with `start`, not `watch`, so **a spot preemption is not restarted**: if `status` says gone with no `DONE`, resume from the bucket copy (`fetch`, then `start` a new name with `--seed`). Due about 18:30 UTC unless the auto-stop ends one sooner.
+  - **Item 3b (several brains per box) does not work as specified.** Tested 2026-10-20 03:15 on 40 brains (harness on branch `scratch/boxrank-test`, not for main): four different brains sharing the one-cell shaft carry 0.9 full loads each, against 2.6 alone, so the box carries what one ant does. A brain's boxed score ranks brains no better than chance against its solo score on new worlds (Spearman -0.08 to +0.11 over the 33 round-2 brains, against +0.29 solo vs solo). Until then the soil arena gave **every** ant `genomes[0]`, so the 02:50 timing was four clones. Separate shafts per ant would be the variant to try, at step 9 (twelve ants) at the earliest.
 
 - **2026-10-20 08:50 UTC. Round 4 done: a small, unproven gain; continued to generation 200.**
   - Both runs went 100 of 100 generations. s161 took 14,328 s, hold-out best 1.590 at gen 91. s162 took 13,335 s, best 1.581 at gen 97. The start scored 1.08 and blinded about 0.03. The fetch floor vetoed 11 and 17 of 100 champions; the trail floor vetoed none. CPU was 98% busy on 32 vCPUs, so 48 layouts keep every core working.

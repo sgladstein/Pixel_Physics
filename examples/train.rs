@@ -55,6 +55,11 @@
 //! bigger heap slumps into home at the near distances and into the wall at
 //! the far ones. `forget=0.8` is the share of its reference under which a
 //! suite's kept arena counts as forgotten (design rev3's 80%).
+//! `keepref=<mind file>` measures that reference on a fixed brain instead of
+//! the run's `start=`: a chain of runs, each refused only under 80% of its
+//! own start, could otherwise give up 20% of a kept skill per link (owner,
+//! 2026-10-20: dig runs from s91 to s162 had cost fetch 8% and trail 10%,
+//! and s162's run sat at 0.81 of its start's fetch). Off unless given.
 //! `brain=mind` trains stage 2's general brain (`creature::mind`) instead
 //! of today's (`brain=today`, the default): `start=` is then `blank` (or
 //! `zero`), `rest`, `follower`, `persist` (`mind::preset`, the rung's
@@ -259,6 +264,7 @@ fn main() {
     let mut arenas = String::new();
     let mut keep = String::new();
     let mut forget = 0.8;
+    let mut keepref = String::new();
     let mut start = "zero".to_string();
     let mut out: Option<PathBuf> = None;
     let mut frames = None;
@@ -370,6 +376,7 @@ fn main() {
                     Some(v.parse().ok().filter(|&j: &f32| j.is_finite() && j > 0.0).unwrap_or_else(|| panic!("budget={v}: fed, or a finite number of joules above 0")))
                 }
             }
+            "keepref" => keepref = v.into(),
             "brain" => {
                 assert!(v == "mind" || v == "today", "brain={v}: mind|today");
                 mind = v == "mind";
@@ -384,11 +391,15 @@ fn main() {
         !foot || challenge == "soil" || (challenge == "suite" && arenas.split(',').any(|a| a == "soil")),
         "foot=1 is the soil trip's: it needs challenge=soil or a suite holding soil"
     );
+    assert!(
+        keepref.is_empty() || (mind && challenge == "suite" && !keep.is_empty()),
+        "keepref= is the kept arenas' reference brain: it needs brain=mind, challenge=suite and keep="
+    );
     // **Every setting, every time**, score and noise runs included: a log
     // without it once left two "game" rows in one file with nothing to say
     // which walk made which (`design/review-rev2.md` N10).
     println!(
-        "train brain={} challenge={challenge} arenas={arenas} keep={keep} forget={forget} start={start} walk={} clones={clones} frames={frames:?} ants={ants:?} score={score:?} noise={noise} targets={targets} free={free} brake={brake:?} dist={dist:?} steps={steps} step={step} shaft={shaft} foot={foot} budget={budget:?} pic={pic:?} trace={trace:?} sealed={sealed} heap={heap} genes={genes} walkset={walkset} prune={} wire={} grow={} patience={} resume={} seed={} pop={} gens={} layouts={} pm={} sigma={} cross={} holdout={} threads={}",
+        "train brain={} challenge={challenge} arenas={arenas} keep={keep} forget={forget} keepref={keepref} start={start} walk={} clones={clones} frames={frames:?} ants={ants:?} score={score:?} noise={noise} targets={targets} free={free} brake={brake:?} dist={dist:?} steps={steps} step={step} shaft={shaft} foot={foot} budget={budget:?} pic={pic:?} trace={trace:?} sealed={sealed} heap={heap} genes={genes} walkset={walkset} prune={} wire={} grow={} patience={} resume={} seed={} pop={} gens={} layouts={} pm={} sigma={} cross={} holdout={} threads={}",
         if mind { "mind" } else { "today" },
         if game_walk { "game" } else { "brain" },
         set.prune,
@@ -419,6 +430,11 @@ fn main() {
     // Only when on, so a rev 2.8 run's state still resumes on this build.
     if foot {
         set.arena += " foot=1";
+    }
+    // Likewise only when set: the reference changes every kept floor, so a
+    // resume must keep it.
+    if !keepref.is_empty() {
+        set.arena += &format!(" keepref={keepref}");
     }
 
     // The genome's scorer goes into every world it is cloned into, so a
@@ -578,9 +594,10 @@ fn main() {
     // was the raw fit pinned at the cap, so both printed 3.000 (review of
     // PR 712, N1). A single arena's calibration does nothing.
     // A kept arena is measured on the start as saved, before the rung's
-    // entry (R12): `start_mind_saved`, reopened as `g0` was.
+    // entry (R12): `start_mind_saved`, reopened as `g0` was -- or on
+    // `keepref=`'s brain, the same way, when one is given.
     let saved = if mind {
-        let mut g = train::start_mind_saved(ch.as_ref(), &start);
+        let mut g = train::start_mind_saved(ch.as_ref(), if keepref.is_empty() { &start } else { &keepref });
         creature::mind::reopen(&mut g, ch.verbs());
         g
     } else {

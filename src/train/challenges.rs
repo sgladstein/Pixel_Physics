@@ -2513,7 +2513,7 @@ impl Challenge for Suite {
             let name = a.name();
             self.refs[i] = mean.max(REF_FLOOR);
             self.sds[i] = (units.iter().map(|u| (u - mean).powi(2)).sum::<f64>() / (m - 1.0).max(1.0)).sqrt();
-            let whose = if keep && saved != g { " (the start as saved)" } else { "" };
+            let whose = if keep && saved != g { " (the start as saved, or keepref=)" } else { "" };
             println!("suite reference {name}: {:.3}{whose}, spread {:.3} over {} units", self.refs[i], self.sds[i], units.len());
             if keep && saved != g {
                 let now = folded(g);
