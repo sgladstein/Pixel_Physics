@@ -334,6 +334,21 @@ fn census(w: &World, bed: &LabBox, species: &[&str], est: &mut HashMap<(Organism
         seed_max = seed_max.max(sc);
         litter_max = litter_max.max(lc);
     }
+    // Standing water above the soil line, and the deepest column of it. The
+    // rain mister was calibrated over 120,000 frames (`lab/rain.rs`); by
+    // 450,000 the default bed is under a lake (M0 pictures, 2026-10-20).
+    let water_id = id_of("water");
+    let (mut standing, mut standing_max) = (0u64, 0u64);
+    for x in 0..bed.width {
+        let mut col = 0u64;
+        for y in 0..ground {
+            if Some(w.get(x, y).material) == water_id {
+                col += 1;
+            }
+        }
+        standing += col;
+        standing_max = standing_max.max(col);
+    }
     // Gaps: runs of 3+ columns with no plant shoot, per 100 columns.
     let (mut gaps, mut run) = (0u64, 0u64);
     for &c in &covered[8..(bed.width - 8) as usize] {
@@ -386,7 +401,7 @@ fn census(w: &World, bed: &LabBox, species: &[&str], est: &mut HashMap<(Organism
         s.push_str(&format!(" | {name} plants={} bank={} leaf={} est={}", r[0], r[1], r[2], r[3]));
     }
     s.push_str(&format!(
-        " | water={} | seed={seed_cells} seedlive={seed_live} seedmax={seed_max} litter={litter_cells} littermax={litter_max} | gaps100={gaps_per_100:.2} | tips={tips} contact_other={contact} up_blocked_other={up_blocked} boxed_own={boxed_own} boxed_other={boxed_other} | light_cov={:.3} n={nc} light_open={:.3} n={no} | window={sample}",
+        " | water={} | standing={standing} standingmax={standing_max} | seed={seed_cells} seedlive={seed_live} seedmax={seed_max} litter={litter_cells} littermax={litter_max} | gaps100={gaps_per_100:.2} | tips={tips} contact_other={contact} up_blocked_other={up_blocked} boxed_own={boxed_own} boxed_other={boxed_other} | light_cov={:.3} n={nc} light_open={:.3} n={no} | window={sample}",
         water.iter().map(|v| format!("{v:.3}")).collect::<Vec<_>>().join(","),
         if nc > 0 { lc / nc as f64 } else { -1.0 },
         if no > 0 { lo / no as f64 } else { -1.0 },
