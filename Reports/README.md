@@ -5533,8 +5533,9 @@ design guide's §7b-i calls "already data" are Rust `const`s.
 - [brain-training/investigation-2026-10-20.md](brain-training/investigation-2026-10-20.md) — **in progress: what the
   dig brain does and how to train it cheaper, before the 8-row step.** Part 1 (where loads are lost): carrying is solved
   (90% of foot cuts become full loads), but 37% of trips carry soil that pays nothing, half of all time is an empty ant
-  walking the surface, and loads go about 3x farther than the rule needs. Parts 2-5 (what the brain reads, why fetch
-  erodes, selection reliability, training methods) to follow.
+  walking the surface, and loads go about 3x farther than the rule needs. Part 2 (what it reads): it digs when it feels
+  "at the nest" (on along the whole shaft) and its target scorer cannot see a cell's depth, so on an 8-row shaft it cuts
+  the wall more than the foot. Parts 3-5 (why fetch erodes, selection reliability, training methods) to follow.
 
 ## Licensing and distribution
 

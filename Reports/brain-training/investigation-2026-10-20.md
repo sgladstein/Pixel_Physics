@@ -1,6 +1,6 @@
 # Investigation: the dig brain and the training process, before the 8-row step
 
-*Started 2026-10-20, after the owner passed dig step 4 on s161 gen 336. Status: in progress (part 1 of 5 done). The plan and
+*Started 2026-10-20, after the owner passed dig step 4 on s161 gen 336. Status: in progress (parts 1-2 of 5 done). The plan and
 its decisions are in `Reports/handoff/brain-lane-handoff.md`, section 3, item 1.*
 
 Why: about 8 dig steps remain, deeper shafts make full loads rarer, and step 4 alone took about 600 generations along the
@@ -42,3 +42,43 @@ cut joined to the decision that made it.
 (overshoot, distant put-downs, unpaid cuts) is unchanged. Cutting that waste would buy loads at both depths: as an upper
 bound, turning the 4.8 unpaid trips into foot trips is up to +4.8 loads a world (+66%), before any shortening of the walk.
 Part 2 asks what the brain reads when it makes these choices.
+
+## Part 2: what the brain reads
+
+**Answer: it reads the situation, not a motor habit -- but it decides to dig from "am I beside the hole", and it picks
+which cell to cut without seeing the cell's depth. That is why it cuts the wall, and the wall gets worse with depth.**
+
+![Part 2](investigation/part2-what-it-reads.png)
+
+- **The wiring** (s161 gen 336): 706 live links. 8 of the scorer's 16 units reach the score, 6 of the 8 hidden units are
+  read by a job. Every situation input but one has some path to a decision, so a static map alone rules little out. One
+  gap matters: **no live link carries a target's `DEPTH` feature into the scorer.** When it chooses which cell to cut it
+  cannot see how deep that cell is (it reads `UP`, `HEADROOM`, `LINED` and others).
+- **The math on real decisions.** A verb's job score is a plain sum before `squash`, so each input's `weight x value` is
+  its exact share. Recomputed from the genome file for all 105,854 job scores the brain logged on the 24 sealed worlds:
+  median error 0.000025, 0.2% over 0.001 (f32 rounding), so this is the brain that ran.
+  - **Dig instead of walk** (empty, below ground): `at_nest` +6.5 against a constant -6.3 and memory -4.0; depth +0.4.
+    It digs when it feels at the nest.
+  - **Drop instead of walk** (carrying, on the surface): hidden units +20.7 against a constant -18.7. Two hidden units
+    make the call: h0 is "not at the nest" (about -0.85 away from it, -0.07 beside it, through a -10.6 weight), h1 is
+    "far enough from home" (-48 + 39.5 x carrying + about 40 x `home_dist`; on once `home_dist` passes about 0.2). Loads
+    go down at `home_dist` 0.18 on average, against 0.06 while it still walks: that threshold is the 10-column carry.
+  - Walking is mostly memory (+3.8 to +4.4) and the best target's score.
+- **Switching senses off** (each reads 0 at every decision; 24 sealed worlds, paired against intact 7.21; s.e. about
+  0.5): `at_nest` 0.00, carrying (`spoil`) 0.17, `home_dist`+`d_home` 1.08, `depth` 5.29, `roofed` 5.54, scent 6.42;
+  time since nest, the hole and roof warnings, energy and age about 7.2 (unused for digging). Controls: `crowd`, which
+  is always 0 with one ant, changes nothing to the last digit (the switch does not leak); a never-moving brain reads 0;
+  the blind brain 1.0.
+- **What `at_nest` is.** Under the default `NestHome::Dug` it is "within one cell of any open cell of the dug hole that
+  the door reaches", out to `DUG_HOME_REACH` = 60 rows (`src/sim/creature.rs` `adjacent_nest`, `World::nest_dug`). So it
+  is on along the whole shaft and its mouth: the brain's dig trigger is "beside the hole", and the depth-blind scorer
+  chooses among foot, wall and rim cells.
+- **The prediction, tested on an 8-row shaft** (never trained there; 24 sealed worlds, every pellet traced): wall cuts
+  5.6 a world against 4.3 at the foot (47% of cuts pay nothing, against 23% at 4 rows), and 3.7 full loads a world at
+  6,000 frames (6.6 at 12,000). Per-world sd/mean 0.45 at both lengths, against 0.31 at 4 rows: noise grows with depth,
+  and longer runs do not cut it.
+
+**What it means:** the carrying, the drop rule and the way home transfer to deeper shafts; the choice of *which cell to
+cut* does not. Two levers follow, both for part 5 to weigh: let the target scorer see depth (wire `DEPTH` in, or pay a
+wall cut less than nothing), and give the dig decision a reason to prefer the foot. Either is cheaper than waiting for
+selection to find it through 0.45 noise.
