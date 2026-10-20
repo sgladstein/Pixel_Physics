@@ -1,6 +1,7 @@
 # Teacher training: guidelines, and whether colony behaviours are affordable
 
-*Written 2026-10-20 by the teacher-approach session, at the owner's request, after the discussion opened by
+*Written 2026-10-20 by the teacher-approach session (claims checked through PubMed and SciSpace the same day:
+[`notes/verification-pass.md`](notes/verification-pass.md), 14 of 17 verified, 2 corrected and applied here), at the owner's request, after the discussion opened by
 `Reports/handoff/teacher-approach-handoff.md` (on `claude/brain-investigation`). Status: **plan and guidelines, nothing
 built.** The evidence is [`literature-2026-10-20.md`](literature-2026-10-20.md) (a review of ~80 papers, mostly read at
 abstract level -- see its caveat) and the brain lane's investigation (`Reports/brain-training/investigation-2026-10-20.md`
@@ -12,13 +13,13 @@ on the same branch), cited below as "investigation part N".*
 the simulation is slow. It is that training throws away almost everything a simulation tells it.** Each world gives the
 genetic algorithm one noisy number. The same world contains hundreds of decisions, and a teacher can say for each one
 what the ant should have done -- with no world-to-world luck in that answer. Copying a teacher is the one lever the
-literature has measured at about 10x, repeatedly (kickstarting: 10x fewer steps and 42% better at the end; Nair et al.
-2018: an order of magnitude on long sparse tasks). The rest of the saving comes from stacking several 2-5x levers on
+literature has measured at about 10x, repeatedly (kickstarting: "almost 10x" fewer steps and 42% better at the end, with
+several teachers on DMLab-30; Nair et al. 2018: an order of magnitude on long sparse tasks). The rest of the saving comes from stacking several 2-5x levers on
 evaluation, each of which has to be measured on our simulator before it is trusted.
 
 The budget makes the stakes concrete. A 32-vCPU VM does 100 generations of the solo dig suite for about $0.65, so the
 $100 buys about **15,000 solo generations**, or about **9,000 in a 4-ant box** (measured at 1.7x a solo box). The two
-published colony-evolution runs closest to ours took **500 and 2,000 generations**, with networks of 33 weights or
+published group-evolution runs closest to ours took **500 and 2,000 generations**, with networks of 33 weights or
 hand-built rule blocks (Waibel, Floreano & Keller 2011; Ferrante et al. 2015). A Ferrante-sized run with 4 ants at 12,000
 frames would cost roughly $40-50 at today's settings ($0.65 x 1.7 for four ants x 2 for the longer run, per 100
 generations) -- half the budget for one experiment. With the levers below it is plausibly $5-15 -- an estimate, which
@@ -49,7 +50,7 @@ could plausibly remember.** This is the one place the owner's "god-like teacher"
 decides from something the student cannot sense, the student does not learn the teacher's behaviour; it learns the
 teacher's *average* behaviour over every situation that looks the same to it (Weihs et al. 2021, "the imitation gap";
 Swamy et al. 2022). Worse, it never learns to *search*, because a teacher that knows where the food is never searches
-(Vuorio et al. 2024).
+(Vuorio et al.; the review cites arXiv 2407.00495, the verification pass found the 2022 "Deconfounded Imitation Learning", arXiv 2211.02667 -- which version, unconfirmed).
 
 The famous privileged-teacher successes do not contradict this: in "Learning by Cheating" (driving, 100% on the CARLA
 benchmark) and the legged-robot teachers, the privileged input was either visible in the student's own camera or slowly
@@ -65,10 +66,12 @@ varying and recoverable from history (terrain, friction). Ours sorts the same wa
 
 ### T2. Label the brain's own runs, never the teacher's
 
-Train on decisions from runs the *brain* drove, with the teacher labelling each one (DAgger, Ross et al. 2011). This is
-mandatory for us, not a refinement, because the brain has 12 memory units: a student with memory trained on the
-teacher's own trajectories learns to repeat its own last action ("latching") and gets **worse** when given more history
-(Swamy et al. 2022; the "copycat" problem, Wen et al. 2020). The teacher is a program, so a label costs CPU, not a person:
+Train on decisions from runs the *brain* drove, with the teacher labelling each one (DAgger, Ross et al. 2011): copying
+the teacher's own runs lets small errors carry the student into states the teacher never visited. The 12 memory units
+make it sharper: a student given history can learn to predict the teacher's *previous* action instead of the next one
+(the "copycat" problem, Wen et al. 2020). Swamy et al. 2022 prove the strongest version ("latching": off-policy copying
+with history performs *worse*) for a teacher acting on information the student lacks -- which T1 forbids, so for us it
+is the warning for a teacher that breaks T1, not the main reason. The teacher is a program, so a label costs CPU, not a person:
 label every decision the brain makes.
 
 ### T3. Score every option, and let the teacher abstain
@@ -151,22 +154,31 @@ The handoff's test stands, with three additions:
 
 ### C1. Clone the colony and score the colony
 
-Every ant shares one genome, so the colony is a clone and scoring the colony is the textbook setting: same-genome teams
-selected as a team do best on cooperative tasks (Waibel, Keller & Floreano 2009, *IEEE Trans. Evol. Comput.*), and with
-relatedness 1 helping the colony is always favoured (Waibel, Floreano & Keller 2011, *PLoS Biology*). There is no
+Every ant shares one genome, so the colony is a clone and scoring the colony is the textbook setting. Waibel, Keller &
+Floreano 2009 (*IEEE Trans. Evol. Comput.*) crossed team make-up with level of selection and found the best combination
+"depends on the amount of cooperation required by the task" (the abstract does not say more, and the full text was not
+reachable); the field's default for cooperative tasks is same-genome teams (Floreano & Keller 2010). With relatedness 1,
+helping the colony is always favoured: altruism evolved whenever relatedness exceeded cost/benefit (Waibel, Floreano &
+Keller 2011, *PLoS Biology* -- a selection-on-individuals study with relatedness set by cloning). There is no
 altruism problem, only a search problem: one number per colony. Cut its noise with a **decomposed colony score** (cells
-dug + food home + brood raised, each attributable) rather than one end-state number.
+dug + food home + brood raised, each attributable) rather than one end-state number. **Keep it a count of work done,
+not a target split of jobs**: costly switching produces division of labour when selection is strongest on the amount of
+work performed, and less when it is on how workers are spread over tasks (Duarte, Pen, Keller & Weissing 2012).
 
 ### C2. The world must charge for switching jobs, or no division of labour will appear
 
-**This is the most important result for castes, and it is about the arena, not the learner.** Ferrante et al. 2015
-evolved identical 4-robot teams on team score alone: on a slope, where carrying items down cost less than walking them,
-13 of 22 runs evolved a split into droppers and collectors. **On flat ground, none did.** Digital organisms (Goldsby et
-al. 2012) and threshold models (Duarte et al. 2012) agree: if switching tasks costs nothing, a generalist wins, and no
-training method will produce castes. So **the first colony experiment varies the world, not the brain**: separate the
+**This is the most important result for division of labour, and it is about the arena, not the learner.** Ferrante
+et al. 2015 evolved identical 4-robot teams on team score alone. On a slope -- where robots climb at a tenth of their
+flat speed and an item dropped at the top slides down by itself -- 13 of 22 runs evolved a split into droppers and
+collectors. **On flat ground, none did.** The split they evolved was **not fixed roles**: it was a dynamic allocation
+that followed the size of the item cache. The fixed 2 droppers + 2 collectors optimum came from an exhaustive search over
+hand-built blocks, not from evolution. Digital organisms (Goldsby et al. 2012) and threshold models (Duarte et al. 2012)
+agree: if switching tasks costs nothing, a generalist wins, and no training method will divide the work. Expect, then,
+that the first thing to appear is *graded, switching* roles; lifelong castes are a further step that may need the
+caste input below. So **the first colony experiment varies the world, not the brain**: separate the
 work sites in space, make a load costly to hand over, or put a warm-up on a new task.
 
-### C3. The ingredients for castes are already wired -- protect them through the solo ladder
+### C3. The ingredients for division of labour are already wired -- protect them through the solo ladder
 
 Identical brains can only behave differently if something differs between ants, and the brain already has all three
 things the literature says are needed:
@@ -196,8 +208,10 @@ cavity (Toffin et al. 2009). So:
   cheap, but its crowd is smoother than a real one, so it must be checked once in a real colony.)
 - A teacher rule such as "dig while crowding at the face is above c" is **copyable by construction**: its label is a
   function of what the ant senses. It is a threshold rule, not a planner.
-- **The acceptance test is cheap**: the same brain in colonies of N and 2N, and the dug area should roughly double, on a
-  saturating time course. Unequal workload is expected (Aguilar et al. 2018: tunnels dig best when some ants idle).
+- **The acceptance test is cheap**: the same brain in colonies of N and 2N, and the dug area should grow with N, on a
+  saturating time course. "Roughly doubles" is the *Messor* result; in Argentine ants and leaf-cutters nest size grows
+  less than linearly with workers (Halley et al. 2005; Römer & Roces 2015), so the bar is "grows clearly with N", not a
+  ratio. Unequal workload is expected (Aguilar et al. 2018: tunnels dig best when some ants idle).
 
 ### C5. A planner-teacher works in a crowd only through a sense that stands in for the group
 
@@ -212,7 +226,7 @@ planner; where it fails, add a local sense rather than a bigger brain, and fall 
 
 ### C6. Train small, vary the size, check at full size
 
-Ferrante's controllers evolved at 4 robots ran at 20 with 4.4x the output (5x ideal); the swarm-bot work drew team size
+Ferrante's best 8 controllers evolved at 4 robots ran at 20 with 4.4x the output (5x ideal); the swarm-bot work drew team size
 at random between 4 and 8 and held at larger sizes. It breaks where crowding changes behaviour -- exactly the room-sizing
 regime -- so train across the density range, and post-check only the elites at full colony size. Carry **several
 lineages** into the colony rungs: the best small-colony brains are not always the best seeds for larger colonies (Long
@@ -236,9 +250,9 @@ modular, but the modules do not line up with skills, and a link no current arena
 
 | Lever | What it saves (literature) | Measure first, on our simulator |
 |---|---|---|
-| Copying (individual skills) | ~10x fewer steps (Schmitt et al. 2018; Nair et al. 2018) | Copyability per decision type (T5) |
+| Copying (individual skills) | "Almost 10x" fewer steps with several teachers (Schmitt et al. 2018); an order of magnitude (Nair et al. 2018) | Copyability per decision type (T5) |
 | Paired worlds | Worlds needed x 2(1 - rho) against a well-measured parent | rho of two near-identical brains |
-| Racing to the cut line | 29-76% below the best fixed world count (Martin & Collins 2026); ours already 48 to 22 | Most mutants are clearly worse (4.9 vs 6.6 loads): let them leave after 1-4 worlds; parents carry their worlds forward |
+| Racing to the cut line | Ours already 48 to 22 worlds a brain. Related: setting evaluation length per candidate cost 29-76% less than the best fixed length on four simulated landscapes (Martin & Collins 2026) | Most mutants are clearly worse (4.9 vs 6.6 loads): let them leave after 1-4 worlds; parents carry their worlds forward |
 | Cheap rungs (few ants, short runs) | Successive halving 5-30x (Hyperband; a distant domain) | Rank correlation of cheap vs full on ~50 brains |
 | Inherited fitness | Few-sample evolution competitive on 1,000+ weights (Morse & Stanley 2016) | Bias from lucky early scores |
 | A surrogate that only discards | "Several times fewer" evaluations (Gaier et al. 2018) | Never let it promote |
