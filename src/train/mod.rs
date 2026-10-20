@@ -756,6 +756,11 @@ pub struct Settings {
     /// slots, so mutation and pruning never touch them ([`mind::protect`]).
     /// Off is the rig before it.
     pub protect: bool,
+    /// **Racing** (`race=N`, off at 0, the default): each generation's
+    /// genomes on the first N of its layouts, the better half on the rest
+    /// ([`race`]). Off until an A/B run measures it (investigation
+    /// 2026-10-20, part 5).
+    pub race: usize,
     /// **The arena's own arguments**, as the command line gave them
     /// (`examples/train.rs`: challenge, arenas, step, shaft, frames, dist,
     /// budget and the rest), for [`RunState`]: a resume under another
@@ -842,6 +847,7 @@ impl Default for Settings {
             patience: 50,
             resume: false,
             protect: true,
+            race: 0,
             arena: String::new(),
         }
     }
@@ -960,6 +966,46 @@ pub fn score_all(ch: &dyn Challenge, genomes: &[Vec<f32>], layouts: &[Layout], t
         .into_iter()
         .map(|row| row.into_iter().map(|s| s.expect("every genome scored on every layout")).collect())
         .collect()
+}
+
+/// **Racing** (`race=`, [`Settings::race`]): every genome on the first
+/// `first` layouts, the better half of the population kept, and only those
+/// on the rest. Returns each genome's folded score (over every layout for
+/// a survivor, over the first round for one dropped) and who survived.
+/// The control (the last genome) always survives, so its line stays
+/// comparable. **Why**: in a realistic generation (25 parents and 75
+/// mutants, two independent 48-world sets) most mutants are plainly
+/// worse, and 8 worlds, keep half, +40 picked parents as good as 48 worlds
+/// each for well under the cost (investigation 2026-10-20, part 5); the
+/// hard part, ordering near-equals, gets every world it got before.
+/// `first` must be even on a mirrored challenge, so no pair is split.
+#[allow(clippy::too_many_arguments)]
+pub fn race(ch: &dyn Challenge, genomes: &[Vec<f32>], layouts: &[Layout], first: usize, wire: f64, threads: usize, rng: &mut Rng) -> (Vec<Score>, Vec<bool>) {
+    assert!(first > 0 && first < layouts.len(), "race={first}: needs 0 < race < layouts ({})", layouts.len());
+    assert!(!ch.mirrored() || first.is_multiple_of(2), "race={first}: a mirrored challenge needs an even first round");
+    let (a, b) = layouts.split_at(first);
+    let n = genomes.len();
+    let control = n - 1;
+    let s1 = score_all(ch, genomes, a, threads, rng);
+    let m1: Vec<Score> = s1.iter().map(|s| fold(ch, s, a)).collect();
+    let mut order: Vec<usize> = (0..control).collect();
+    order.sort_by(|&x, &y| {
+        wired(m1[y].fit, connections(&genomes[y]), wire).partial_cmp(&wired(m1[x].fit, connections(&genomes[x]), wire)).unwrap().then(x.cmp(&y))
+    });
+    let mut survived = vec![false; n];
+    for &g in order.iter().take(control.div_ceil(2)) {
+        survived[g] = true;
+    }
+    survived[control] = true;
+    let keep: Vec<usize> = (0..n).filter(|&g| survived[g]).collect();
+    let pool: Vec<Vec<f32>> = keep.iter().map(|&g| genomes[g].clone()).collect();
+    let s2 = score_all(ch, &pool, b, threads, rng);
+    let mut means = m1;
+    for (k, &g) in keep.iter().enumerate() {
+        let whole: Vec<Score> = s1[g].iter().chain(&s2[k]).cloned().collect();
+        means[g] = fold(ch, &whole, layouts);
+    }
+    (means, survived)
 }
 
 /// A genome's whole score at once: the mean over the layouts it met, fit and
@@ -1377,12 +1423,21 @@ pub fn train(ch: &dyn Challenge, start: Vec<f32>, set: &Settings, out: &Path) ->
         // `Unit::Ant` it is one more member of the shuffle, so it meets the
         // same neighbours the population does.
         all.push(start.clone());
-        let scores = score_all(ch, &all, &layouts, set.threads, &mut rng);
-        let means: Vec<Score> = scores.iter().map(|s| fold(ch, s, &layouts)).collect();
+        let (means, survived) = if set.race > 0 {
+            let (m, s) = race(ch, &all, &layouts, set.race, set.wire, set.threads, &mut rng);
+            let kept = s[..set.pop].iter().filter(|&&k| k).count();
+            println!("    race: {kept} of {} kept after {} of {} layouts", set.pop, set.race, layouts.len());
+            (m, s)
+        } else {
+            let scores = score_all(ch, &all, &layouts, set.threads, &mut rng);
+            (scores.iter().map(|s| fold(ch, s, &layouts)).collect::<Vec<Score>>(), vec![true; all.len()])
+        };
         let control = means[set.pop].fit;
         let links: Vec<usize> = popn.iter().map(|g| connections(g)).collect();
         let mut ranked: Vec<(f64, usize)> = (0..set.pop).map(|g| (wired(means[g].fit, links[g], set.wire), g)).collect();
-        ranked.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap().then(a.1.cmp(&b.1)));
+        // Under racing a survivor outranks every genome dropped, whatever
+        // its score: a dropped one was scored on the first round alone.
+        ranked.sort_by(|a, b| survived[b.1].cmp(&survived[a.1]).then(b.0.partial_cmp(&a.0).unwrap()).then(a.1.cmp(&b.1)));
         let b = ranked[0].1;
         champion = popn[b].clone();
         let secs = tg.elapsed().as_secs_f64();
@@ -2027,6 +2082,75 @@ mod tests {
         fn frames(&self) -> u64 {
             1
         }
+    }
+
+    /// **A ruler**: a genome's first weight on every layout, plus a small
+    /// layout term, counting every run, so racing's cut, cost and scores can
+    /// be checked exactly.
+    struct Ruler {
+        runs: std::sync::atomic::AtomicUsize,
+    }
+    impl Challenge for Ruler {
+        fn name(&self) -> &'static str {
+            "ruler"
+        }
+        fn unit(&self) -> Unit {
+            Unit::Colony
+        }
+        fn ants(&self) -> usize {
+            1
+        }
+        fn parts(&self) -> &'static [&'static str] {
+            &[]
+        }
+        fn banned(&self) -> &'static [BrainOutput] {
+            &[]
+        }
+        fn run(&self, l: Layout, g: &[&[f32]], _: &mut dyn FnMut(u64, &World)) -> Vec<Score> {
+            self.runs.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            vec![Score { fit: f64::from(g[0][0]) + 0.001 * (l.k % 10) as f64, parts: vec![] }]
+        }
+        fn frames(&self) -> u64 {
+            1
+        }
+    }
+
+    /// **Racing keeps the better half and scores it on every layout**
+    /// ([`race`]): 20 genomes and a control, 4 of 10 layouts in the first
+    /// round. The survivors are exactly the top 10 and the control; a
+    /// survivor's score is its mean over all 10, a dropped one's over the
+    /// first 4; and it costs 21 x 4 + 11 x 6 runs, not 21 x 10.
+    #[test]
+    fn race_keeps_the_better_half_and_scores_it_on_every_layout() {
+        let ruler = Ruler { runs: std::sync::atomic::AtomicUsize::new(0) };
+        let mut genomes: Vec<Vec<f32>> = (0..20).map(|i| vec![((i * 7) % 20) as f32]).collect();
+        genomes.push(vec![-5.0]);
+        let layouts = training_layouts(1, 0, 10);
+        let (means, survived) = race(&ruler, &genomes, &layouts, 4, 0.0, 2, &mut Rng(1));
+        let mean_k = |ks: &[Layout]| ks.iter().map(|l| 0.001 * (l.k % 10) as f64).sum::<f64>() / ks.len() as f64;
+        for (g, gen) in genomes.iter().enumerate() {
+            let top = g == 20 || gen[0] >= 10.0;
+            assert_eq!(survived[g], top, "genome {g} (first weight {})", gen[0]);
+            let want = f64::from(gen[0]) + if top { mean_k(&layouts) } else { mean_k(&layouts[..4]) };
+            assert!((means[g].fit - want).abs() < 1e-9, "genome {g}: {} against {want}", means[g].fit);
+        }
+        assert_eq!(ruler.runs.load(std::sync::atomic::Ordering::Relaxed), 21 * 4 + 11 * 6);
+    }
+
+    /// **A raced run trains**: `race=` through [`train`] on the bowl, to a
+    /// champion off the start, with the arena string naming it so a resume
+    /// cannot mix raced and unraced generations.
+    #[test]
+    fn a_raced_run_trains_and_says_so() {
+        let dir = std::env::temp_dir().join(format!("train-race-{}", std::process::id()));
+        let start = mind::blank(&[Verb::Walk, Verb::Rest]);
+        let bowl = Bowl { aim: start.iter().map(|&w| f64::from(w)).sum::<f64>() + 8.0 };
+        let set = Settings { gens: 4, pop: 8, layouts: 4, holdout: 2, seed: 5, threads: 2, pictures: false, patience: 0, wire: 0.0, race: 2, arena: "race=2".into(), ..Settings::default() };
+        train(&bowl, start.clone(), &set, &dir).unwrap();
+        let state = RunState::load(&dir.join(STATE_FILE), &bowl, &set, &start);
+        assert_eq!(state.next, 4);
+        assert!(state.champion != start, "the champion moved off the start");
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     /// A mind arena scored by the genome alone, so a test can run whole
