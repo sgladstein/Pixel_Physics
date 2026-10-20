@@ -1,6 +1,6 @@
 # Handoff: training the ant's brain (stage 2), for an agent with only this repo
 
-**Last updated: 2026-10-20 02:50 UTC.** Written by the session that has run
+**Last updated: 2026-10-20 02:55 UTC.** Written by the session that has run
 this work since 2026-10-17, because the owner's account was about to run out
 of usage. It is updated in place through the night as each task finishes:
 read the **Log** at the bottom first to see what changed since this header.
@@ -93,7 +93,11 @@ fix it; the rung needs a design change. Take that to the owner.
 1. **When the round-2 runs (s141-s144) finish**, take each run's `hold-best.txt`. Score each on the 12 sealed worlds with `foot=1`, against `training/starts/s134-4b-g34.txt` (command in section 4 and the Log's 01:45 entry). Read `full_loads` per world against the bar (5 on 11 of 12 worlds), then the blinded row. The number to beat is s134's: 3.67 full loads per world, 3 of 12 worlds at 5 or more.
 2. **Make a before/after GIF** (section 4) and a training-curves picture (`curves.png` comes with every run). Send both to the owner with the numbers. **Never call a rung passed before the owner has seen the pictures and the GIF.**
 3. **If no seed passes but some climb**, resume the best one (exact resume, section 5) rather than starting fresh. **If none is past 3 full loads by gen 100**, stop and bring the owner a design question with your recommendation.
-3b. **Option the owner raised (02:45): several ants digging in one box.** Not started. It is an argument change, not code: the soil arena takes `ants=` (e.g. `ants=4`). The plan has it at step 9 (twelve ants). For it: the ants share one brain, so the colony's score is the brain's score (no free-riding), and more digging per world means less noisy scores. Catches to handle first: the shaft is one cell wide and `foot=1` pays only foot cuts, so ants will queue there; the bar of 5 full loads per world must become per ant; per-world cost rises with the ant count (not measured); and check that the soil score credits each ant's trips correctly with more than one ant. Suggested use: one 4-ant probe run from the best brain if round 2 does not clear the bar. Ask the owner before spending on it.
+3b. **Option the owner raised (02:45-02:48): several ants in one box, each with a different brain, to score more candidates per run.** Not started; it is moderate code, so it was left for later.
+   - **Cost, measured** (one timing, 12 sealed worlds, `threads=1`, s134's brain): 1 ant per box 11.3 s, 4 ants per box 18.8 s. So 4 ants cost 1.7x one ant, not 4x, and 4 brains per box would score 4 candidates for 1.7x the time: about **2.4x the throughput**.
+   - **Crowding, measured** (same run, 4 copies of s134): cuts per world 23.5 against 10.3, but full loads per world 2.67 against 3.0. They cut more but carry no more out. The likely reason (not traced) is that the shaft is one cell wide and `foot=1` pays only foot cuts, so they queue there.
+   - **What it needs before training:** (1) score each ant on its own trips, not the box total (check how the soil score credits trips with more than one ant); (2) the trainer groups candidates into boxes and reshuffles boxmates every generation, so a brain is not judged by one bad neighbour; (3) the bar (5 full loads per world) becomes per ant. It also trains ants that cope with company, which the plan needs anyway at step 9 (twelve ants).
+   - Ask the owner before building it.
 4. **If step 4 passes**, go on to the next step in `dig-rung-design.md`: deeper shafts (8, then 12 rows), then door, bare ground, roof, 12 ants, rooms, more chambers, and dig plus scarce food. The rule for each step is that a **hand-built digger passes it first** (positive control) and rest/blank/blind controls score about 0.
 5. **Parked, not started** (from the owner-approved brain fix plan; steps 0-1 are done as PRs 721-722):
    - weigh a champion against the run's best;
@@ -261,7 +265,7 @@ The owner is **Scott** (GitHub `sgladstein`). He uses a Mac terminal, so give zs
 Newest first. Each entry says what changed and what is now true.
 
 - **2026-10-20 02:50 UTC.**
-  - The owner asked for thoughts on training with several ants digging in one box. Answer and the catches are now item 3b of section 3. Nothing started.
+  - The owner asked about training with several ants in one box, each with a different brain, to score more candidates per run. Timed it: a 4-ant box costs 1.7x a 1-ant box, so about 2.4x the throughput, but it needs per-ant scoring and boxmate reshuffling first. Details and numbers are item 3b of section 3. Nothing started.
 
 - **2026-10-20 02:40 UTC.**
   - **Round 2 confirmed running.** All four VMs (`dig-4b2-s141` ... `s144`) booted and began building at 02:30 UTC. Section 2 now describes round 2; round 1's results are in the 02:30 entry below.
