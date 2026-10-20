@@ -1401,7 +1401,8 @@ pub struct Soil {
     /// hold-best carried 2.83 of its 3.25 foot cuts a world all the way
     /// out but made 4.0 wall cuts besides, 34% of its score; carrying was
     /// solved and where it cut was not. Off is rev 2.8, which step 4's
-    /// guards and numbers are written against.
+    /// guards and numbers are written against. At `shaft` 0 the foot is
+    /// the first row under the top, so on is rev 2.8 there too.
     pub foot: bool,
 }
 

@@ -377,6 +377,13 @@ fn main() {
             _ => panic!("unknown argument {a}"),
         }
     }
+    // `foot=1` is the soil trip's step 4b: refused anywhere else, before
+    // anything is echoed or the arena is named (review of PR 733).
+    assert!(!foot || step == 4, "foot=1 is step 4b: it needs step=4");
+    assert!(
+        !foot || challenge == "soil" || (challenge == "suite" && arenas.split(',').any(|a| a == "soil")),
+        "foot=1 is the soil trip's: it needs challenge=soil or a suite holding soil"
+    );
     // **Every setting, every time**, score and noise runs included: a log
     // without it once left two "game" rows in one file with nothing to say
     // which walk made which (`design/review-rev2.md` N10).
@@ -413,7 +420,6 @@ fn main() {
     if foot {
         set.arena += " foot=1";
     }
-    assert!(!foot || step == 4, "foot=1 is step 4b: it needs step=4");
 
     // The genome's scorer goes into every world it is cloned into, so a
     // suite would carry it into the forage and trail worlds too (coordinator
