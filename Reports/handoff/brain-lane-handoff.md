@@ -1,6 +1,6 @@
 # Handoff: training the ant's brain (stage 2), for an agent with only this repo
 
-**Last updated: 2026-10-20 08:50 UTC.** Written by the session that has run
+**Last updated: 2026-10-20 13:30 UTC.** Written by the session that has run
 this work since 2026-10-17, because the owner's account was about to run out
 of usage. It is updated in place through the night as each task finishes:
 read the **Log** at the bottom first to see what changed since this header.
@@ -276,6 +276,16 @@ The owner is **Scott** (GitHub `sgladstein`). He uses a Mac terminal, so give zs
 ## Log
 
 Newest first. Each entry says what changed and what is now true.
+
+- **2026-10-20 13:30 UTC. Taken over by a new session. Round 4's continuation is a real gain; continued again to generation 340.**
+  - `dig-4b4-s161-long` and `s162-long` both ran to generation 200 (exit 0, 12:22 and 12:19 UTC; VMs gone). Hold-out best: s161 1.83 at gen 199, s162 2.23 at gen 190, against the start's 1.08. Bundles, hold-bests and curves: `Reports/brain-training/stage2/dig/4b4/dig-4b4-s16X-long-*`.
+  - **Sealed, 24 worlds, `foot=1`, full loads per world** (the s111 g226 and s161 g91 lists were re-scored in this session and match the 08:50 entry exactly):
+    - s161 gen 199: mean **5.38**, 17 of 24 worlds at 5+ [6,8,5,4,6,2,5,6,7,7,5,4,5,6,2,2,6,6,6,4,4,5,9,9]; blinded 0.75 (worse side);
+    - s162 gen 190: mean **5.71**, 18 of 24 at 5+ [5,5,8,3,1,6,5,3,10,10,7,3,3,5,5,5,9,9,7,6,7,6,2,7]; blinded 0.33;
+    - s162 gen 97 (round 4's end) 3.92, 9 of 24; s161 gen 91 4.00, 7 of 24; s111 g226 3.50, 9 of 24.
+  - Paired per world: s161 g199 - g91 **+1.38** (se 0.52); s162 g190 - g97 **+1.79** (se 0.72); pooled +1.58 (se 0.44, n 48). Against s111 g226: +1.88 (se 0.52) and +2.21 (se 0.72). Both seeds moved the same way and past the ~1 load/world bar in section 2, so **this is the first gain on the dig rung that clears the noise.** Pooled full_share 0.87. Not passed: the bar is 5+ on 11 of 12 worlds, about 22 of 24 here.
+  - **Continued** as exact resumes to `gens=340`: `dig-4b4-s161-g340`, `dig-4b4-s162-g340`, ref `d4c2275`, two `c4d-highcpu-32`, `--hours 6`, started 13:14 UTC, both logged "resumed at generation 200". Launched with `start`, not `watch`, so **a spot preemption is not restarted**: if `status` says gone with no `DONE`, resume from the bucket copy (`fetch`, then `start` a new name with `--seed`). Due about 18:30 UTC unless the auto-stop ends one sooner.
+  - **Item 3b (several brains per box) does not work as specified.** Tested 2026-10-20 03:15 on 40 brains (harness on branch `scratch/boxrank-test`, not for main): four different brains sharing the one-cell shaft carry 0.9 full loads each, against 2.6 alone, so the box carries what one ant does. A brain's boxed score ranks brains no better than chance against its solo score on new worlds (Spearman -0.08 to +0.11 over the 33 round-2 brains, against +0.29 solo vs solo). Until then the soil arena gave **every** ant `genomes[0]`, so the 02:50 timing was four clones. Separate shafts per ant would be the variant to try, at step 9 (twelve ants) at the earliest.
 
 - **2026-10-20 08:50 UTC. Round 4 done: a small, unproven gain; continued to generation 200.**
   - Both runs went 100 of 100 generations. s161 took 14,328 s, hold-out best 1.590 at gen 91. s162 took 13,335 s, best 1.581 at gen 97. The start scored 1.08 and blinded about 0.03. The fetch floor vetoed 11 and 17 of 100 champions; the trail floor vetoed none. CPU was 98% busy on 32 vCPUs, so 48 layouts keep every core working.
