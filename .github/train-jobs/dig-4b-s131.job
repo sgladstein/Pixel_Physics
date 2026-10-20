@@ -1,0 +1,4 @@
+# Brain lane, 2026-10-20: dig step 4b (foot=1: only cuts at the shaft's foot pay), started from s111's gen-226 hold-best.
+# Same run as the Google job of the same name (results identical at any thread count); this copy lands in the repo by itself.
+# 6 h cap: carry on by pushing this file again with resume=1 and nothing else changed (gens= is the total).
+ref=3c611710d255b493a6a23c0bd3b8b82dab997615 brain=mind challenge=suite arenas=soil,fetch,trail keep=fetch,trail forget=0.8 dist=10,30 step=4 shaft=4 foot=1 budget=1200 prune=0.3 wire=0.001 grow=0.1 seed=131 pop=100 gens=100 layouts=16 pm=0.03 sigma=0.3 cross=0.3 holdout=12 start=training/starts/s111-g226.txt threads=4
