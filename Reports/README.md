@@ -5530,6 +5530,19 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   the GIF tool. The shared-folder copies are the live
   ones; the README lists each file's source date.
 
+- [brain-training/teacher-training/guidelines-2026-10-20.md](brain-training/teacher-training/guidelines-2026-10-20.md)
+  — **plan and guidelines, nothing built (2026-10-20).** How to teach the
+  trained ant brain by copying, and whether colony behaviours are affordable:
+  teacher rules (privileged computation, never privileged information; label
+  the brain's own runs; score every option and abstain; check copyability
+  before training), colony rules (clone and score the colony; the world must
+  charge for switching jobs or no castes appear; `SELF`, `AGE` and memory
+  already supply what castes need), and the three cheap measurements that
+  decide the budget. Built on
+  [literature-2026-10-20.md](brain-training/teacher-training/literature-2026-10-20.md),
+  a ~80-paper review read mostly at abstract level, with per-thread notes in
+  `notes/`.
+
 ## Licensing and distribution
 
 - [dependency-license-audit.md](dependency-license-audit.md) — **settled
