@@ -37,6 +37,13 @@ herb is a new species beside it, as the stage-2 ant is a new ant beside the
 frozen game ant. It replaces nothing until it beats the shipped plant on the
 lab's own bars and the owner's eye.
 
+**Superseded in part, 2026-10-20.** P1 is on `main` (PR #731). The owner
+then ruled that colour is a species' own (D1, with limits), reframed D2 as
+"plants should develop like real ones: genes and surroundings matter, dice
+little", and set the next goal as a diverse bed that thrives over a long run,
+not looks. P2–P6 below are replaced by
+[`plant-community-plan-2026-10-20.md`](plant-community-plan-2026-10-20.md).
+
 **Two decisions for the owner**, asked now because each changes what the
 trainer can reach, though P1 needs neither:
 

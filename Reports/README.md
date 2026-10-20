@@ -641,6 +641,19 @@ by somebody about to try it on creatures.
   herb never flowers** (its leader stops short of the ninth node), so the
   trainer's bed is the lab's; the root cap binds on 34 of 48 beds; weather is
   a bigger noise than development.
+- [plant-community-plan-2026-10-20.md](plant-community-plan-2026-10-20.md)
+  — **plan, awaiting the owner's decisions (its §8); supersedes the trainer
+  plan's P2–P6.** The owner's goal: a lab bed where many kinds of plant
+  thrive over a long run, reached in small trained steps. It cannot start
+  yet: clones of one herb a column apart range 134–387 cells, so selection
+  would select dice. **Part A** makes plants develop like plants: dice keyed
+  on the plant's own development, the four lasting coin flips replaced by
+  state rules, and graded responses to light and water. **Part B** turns "a
+  diverse bed that thrives" into a graded score over 12 seeds. **Part C**
+  trains one species at a time, worst first, up a ladder of beds, on Google
+  Cloud spot VMs. Measured here: a 450,000-frame bed costs about 8–12
+  core-minutes, and runs fastest one bed per core.
+
 - [plant-trainer-plan-2026-10-19.md](plant-trainer-plan-2026-10-19.md)
   — **plan, revision 2, 2026-10-19; steps 3 and 4.** Revised after an
   independent adversarial review (its §12: 1 blocker, 13 major, 7 minor, each
