@@ -1,6 +1,6 @@
 # Handoff: training the ant's brain (stage 2), for an agent with only this repo
 
-**Last updated: 2026-10-20 04:05 UTC.** Written by the session that has run
+**Last updated: 2026-10-20 04:10 UTC.** Written by the session that has run
 this work since 2026-10-17, because the owner's account was about to run out
 of usage. It is updated in place through the night as each task finishes:
 read the **Log** at the bottom first to see what changed since this header.
@@ -74,7 +74,7 @@ Seeds 112 and 114 stayed flat (hold-out about 1.0-1.5). Seed 113 auto-stopped at
 
 **Round 1 of step 4b is done** (s131-s134, from s111 gen 226, `foot=1`). Only **s134** gained: 3.67 full loads per world on the sealed worlds against its start's 2.83, 3 of 12 worlds at 5 or more. Full table in the Log (02:30 entry). Files: `Reports/brain-training/stage2/dig/4b/`.
 
-**Round 2 is done: no gain** (s141-s144, from s134, same settings as round 1). After about 50 generations no seed's hold-out champion beat the start: best 1.52 / 1.55 / 1.59 / 1.51 against s134's 1.63 (training hold-out, combined score). s142 auto-stopped at generation 53; the other three were stopped at about generation 50 to free the CPUs. Log entry 04:05 has the reading.
+**Round 2 is done: no gain** (s141-s144, from s134, same settings as round 1). After about 50 generations no seed's hold-out champion beat the start: best 1.52 / 1.55 / 1.59 / 1.51 against s134's 1.63 (training hold-out, combined score). s142 auto-stopped at generation 53; s141, s143 and s144 were stopped at generations 53, 55 and 51 to free the CPUs. Log entry 04:05 has the reading. Run bundles (no hold-best beat the start, so none is worth resuming): `Reports/brain-training/stage2/dig/4b2/`.
 
 **Running tonight: round 3, fine-tuning with smaller mutations.**
 
@@ -82,7 +82,7 @@ Seeds 112 and 114 stayed flat (hold-out about 1.0-1.5). Seed 113 auto-stopped at
 - `dig-4b3-s151`, `dig-4b3-s152`: `pm=0.03 sigma=0.1` (each mutation a third the size);
 - `dig-4b3-s153`, `dig-4b3-s154`: `pm=0.01 sigma=0.3` (a third as many weights touched).
 
-Everything else is as in rounds 1-2. Google, `c4d-highcpu-16`, ref `96b8271b72e1d9c87d594edc44a531d17577ab3e` (main). Asked for at 04:05 UTC; expect about 3 h from start unless the auto-stop ends one sooner.
+Everything else is as in rounds 1-2. Google, `c4d-highcpu-16`, ref `96b8271b72e1d9c87d594edc44a531d17577ab3e` (main). Started 04:07 UTC; expect them done about 07:10 UTC unless the auto-stop ends one sooner.
   - Each VM writes a snapshot to the bucket every 5 minutes, as `runs/<name>/latest.tgz`, and a `DONE` marker at the end. The VMs need no session to keep running.
   - Fetch with the launcher (section 5): `python3 Reports/brain-training/cloud-compute/gcp/gcp_train_job.py fetch dig-4b3-s151 <dir>`. That saves `<dir>/dig-4b3-s151-snap.tar.gz` holding `hold-best.txt`, `best.txt`, `progress.csv`, `holdout.csv`, `train.log`, `curves.svg` and `state.txt`.
   - Then `status dig-4b3-s151` should say the VM is gone. If it doesn't, run `delete dig-4b3-s151` (a VM left running costs money).
@@ -268,6 +268,9 @@ The owner is **Scott** (GitHub `sgladstein`). He uses a Mac terminal, so give zs
 ## Log
 
 Newest first. Each entry says what changed and what is now true.
+
+- **2026-10-20 04:10 UTC.**
+  - Round 3 (`dig-4b3-s151` ... `s154`) confirmed started at 04:07 UTC on Google. Round 2's four VMs are deleted, and their bundles are in `Reports/brain-training/stage2/dig/4b2/`.
 
 - **2026-10-20 04:05 UTC.**
   - **Round 2 gave no gain.** After about 50 generations, the best hold-out champions were s141 1.515 (gen 39), s142 1.546 (gen 2), s143 1.588 (gen 46), s144 1.505 (gen 11), all below the start s134 at 1.629 (training hold-out, combined score). s142 auto-stopped at generation 53 with best at gen 2. The other three were asked stopped at about gen 50 to free the CPUs.
