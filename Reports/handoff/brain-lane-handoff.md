@@ -1,6 +1,6 @@
 # Handoff: training the ant's brain (stage 2), for an agent with only this repo
 
-**Last updated: 2026-10-20 08:50 UTC.** Written by the session that has run
+**Last updated: 2026-10-20 09:05 UTC.** Written by the session that has run
 this work since 2026-10-17, because the owner's account was about to run out
 of usage. It is updated in place through the night as each task finishes:
 read the **Log** at the bottom first to see what changed since this header.
@@ -92,7 +92,7 @@ Seeds 112 and 114 stayed flat (hold-out about 1.0-1.5). Seed 113 auto-stopped at
 - Both round-4 brains lead the old best by about half a load a world. Two independent seeds agree in sign, but each gap is within one standard error. The bar is 5 a world on 11 of 12 worlds, so it is still far off.
 - s134 is no better than s111 gen 226 on 24 worlds. On the 12 worlds it was not picked on, it is worse (-1.17). The 04:40 noise reading was right.
 
-**Running now: round 4 continued** (`dig-4b4-s161-long`, `dig-4b4-s162-long`): an exact resume of both to generation 200 on the same settings and ref `d4c2275082c8bd5e409d406637d4ce83167768e8`, two `c4d-highcpu-32`. Asked for at 08:50 UTC; about 3.9 h for 100 generations, so due about 12:45 UTC unless the auto-stop (50 generations after the last best) ends one sooner.
+**Running now: round 4 continued** (`dig-4b4-s161-long`, `dig-4b4-s162-long`): an exact resume of both to generation 200 on the same settings and ref `d4c2275082c8bd5e409d406637d4ce83167768e8`, two `c4d-highcpu-32`. Both resumed at generation 100 at 09:00 UTC (logs say "resumed at generation 100"), about 135 s a generation, so due about **14:40 UTC** unless the auto-stop (50 generations after the last best) ends one sooner. Results land in the bucket as `runs/dig-4b4-s161-long/` and `runs/dig-4b4-s162-long/`.
   - Fetch with the launcher (section 5), for example `python3 Reports/brain-training/cloud-compute/gcp/gcp_train_job.py fetch dig-4b4-s161-long <dir>`, then check `status` says the VM is gone (`delete` if not).
   - **How to judge it:** score each final hold-best on the 24 sealed worlds, paired per world against `training/starts/s161-4b4-g91.txt` and `training/starts/s111-g226.txt`, with the commands in log 08:50. Call a gain real when it is over about twice the paired standard error (about 1 full load a world on 24 worlds), or when both seeds move the same way and the pooled gap clears that.
 - **Run each job in one place only** (the owner, 00:53: "Don't double up that is a waste of work. Just pick one"). The stale `train-results/dig-4b-s13X` branches on GitHub are from a cancelled Actions copy; ignore them.
@@ -276,6 +276,9 @@ The owner is **Scott** (GitHub `sgladstein`). He uses a Mac terminal, so give zs
 ## Log
 
 Newest first. Each entry says what changed and what is now true.
+
+- **2026-10-20 09:05 UTC.**
+  - Round 4's continuation is running. Both runs resumed at generation 100 at about 135 s a generation and are due about 14:40 UTC. Round 4's results are on `main` (PR 740).
 
 - **2026-10-20 08:50 UTC. Round 4 done: a small, unproven gain; continued to generation 200.**
   - Both runs went 100 of 100 generations. s161 took 14,328 s, hold-out best 1.590 at gen 91. s162 took 13,335 s, best 1.581 at gen 97. The start scored 1.08 and blinded about 0.03. The fetch floor vetoed 11 and 17 of 100 champions; the trail floor vetoed none. CPU was 98% busy on 32 vCPUs, so 48 layouts keep every core working.
