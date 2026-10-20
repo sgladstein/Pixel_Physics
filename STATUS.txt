@@ -1,0 +1,11 @@
+name: dig-4b-s132
+commit: 7087caa2363cab4673d8c356adf266b1073bf62b
+built from: 3c611710d255b493a6a23c0bd3b8b82dab997615
+run: https://github.com/sgladstein/Pixel_Physics/actions/runs/39346916562
+args: brain=mind challenge=suite arenas=soil,fetch,trail keep=fetch,trail forget=0.8 dist=10,30 step=4 shaft=4 foot=1 budget=1200 prune=0.3 wire=0.001 grow=0.1 seed=132 pop=100 gens=100 layouts=16 pm=0.03 sigma=0.3 cross=0.3 holdout=12 start=/home/runner/work/Pixel_Physics/Pixel_Physics/training/starts/s111-g226.txt threads=4
+started: 2026-10-20T00:21:40Z
+CPU(s):                                  4
+Model name:                              AMD EPYC 9V45 96-Core Processor
+Thread(s) per core:                      2
+Core(s) per socket:                      2
+exit code: none (cancelled, timed out or runner lost before the trainer ended)
