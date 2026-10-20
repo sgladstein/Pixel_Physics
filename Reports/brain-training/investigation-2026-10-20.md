@@ -1,6 +1,6 @@
 # Investigation: the dig brain and the training process, before the 8-row step
 
-*Started 2026-10-20, after the owner passed dig step 4 on s161 gen 336. Status: in progress (parts 1-4 of 5 done). The plan and
+*Started 2026-10-20, after the owner passed dig step 4 on s161 gen 336. Status: parts 1-5 done; part 6 (copying tests) decided, not started. The 8-row runs it informed are in the handoff's log (20:30 UTC). The plan and
 its decisions are in `Reports/handoff/brain-lane-handoff.md`, section 3, item 1.*
 
 Why: about 8 dig steps remain, deeper shafts make full loads rarer, and step 4 alone took about 600 generations along the
@@ -145,3 +145,48 @@ generations), each scored solo on two independent 48-world sets drawn the way tr
   generation. Part 5 repeats the test on a generation with fresh mutants.
 - **Parents are re-scored every generation** on new worlds (`breed` keeps them in the population;
   `src/train/mod.rs`), so no lucky score is carried forward. Nothing to change there.
+
+## Part 5: how to train faster and cheaper
+
+**Answer: the cheapest real saving is in evaluation, not in the search method; the biggest open lever is teaching by
+copying, which the owner has asked to test in two forms.** Ranked:
+
+| Lever | Evidence here | Literature | Status |
+|---|---|---|---|
+| **Racing**: everyone on ~8 worlds, drop the clearly worse half, the rest on the contenders | A realistic generation (s161's 25 parents + 75 mutants made with the trainer's own rule, two 48-world sets): 8 -> keep half -> +16 -> keep half -> +24 picks parents as good as 48 uniform worlds (true full loads 6.45 and 6.45; best possible 6.64) for **22 worlds a brain, under half the cost** | Heidrich-Meisner & Igel 2009 (CMA-ES with racing, faster and more robust); Martin & Collins 2026 (24-65% faster, 29-76% cheaper) | Confirm with an A/B run before adopting: one generation cannot tell how much of round 4's gain was its 48 worlds and how much its 24-world hold-out |
+| **Protect connections the arena cannot test** | Part 3: pruning deleted "don't eat the cargo" | Early 2019 (weight protection); Ellefsen, Mouret & Clune 2015 (connection cost helps only when old skills are in the fitness) | Approved by the owner; to build |
+| **Fixed kept-skill floor** (`keepref=`) | Part 3; the 8-row runs start under it on fetch (16.1 vs 17.1) and their champions climb back above (0.88-0.93 of s91) | -- | Done, in use |
+| **12,000-frame runs at 8 rows** | Part 4: worlds for a 0.7-reliable ranking 105 -> 47 for 1.8x CPU | Martin & Collins 2026 (evaluation length vs noise) | In use |
+| **Rank on the dig score, keep full loads as the bar** | Part 4: 122 vs 210 worlds | -- | Already so |
+| **Teaching by copying**: (A) self-imitation of the brain's own successful trips, (B) a hand-written teacher time-boxed to a day | Part 1 labels every pellet's fate; part 2 reproduces the brain's math exactly in Python, so copying can be trained offline | Nair et al. 2018 (demonstrations: ~10x on long sparse tasks, learner beats the demonstrator); Oh et al. 2018 (self-imitation) | Owner: test both (part 6) |
+| **Reinforcement learning** | none yet | no direct comparison found for a small creature brain | Owner: after part 6 builds the gradient code, head to head with selection on one step, design doc first |
+| A different search method (CMA-ES, DE) on the same genome | none | Okada 2023-24 (DE beat GA and ES on small controllers); Such et al. 2017 (plain GA competitive at scale) | Not first: the evaluation is the bottleneck, not the variation operator |
+| Several brains per box, shared shaft | ranked brains no better than chance | -- | Rejected by the owner; separate shafts not timed (low priority) |
+| Re-scoring parents | `breed` already re-scores them on new worlds | Rakshit et al. 2017 (resampling) | Nothing to change |
+
+- **Most mutants are clearly worse than their parents** (mean 4.9 full loads against about 6.6): the generation's work
+  is mostly culling broken children, which a few worlds do, and then guessing among near-equals, which 48 worlds barely
+  helps (part 4). That is the case for racing, and for watching whether gains come from the hold-out rather than from
+  the training worlds.
+- **Not done:** the timing of separate shafts per ant (the owner ruled out the shared-shaft version; the separate-shaft
+  version is a timing check only, behind racing and copying).
+
+### Bibliography notes (SciSpace; Consensus's monthly quota ran out during the search)
+
+- Such, Madhavan, Conti, Lehman, Stanley, Clune 2017, "Deep Neuroevolution: GAs are a competitive alternative..." arXiv 1712.06567 (787 cites). A plain truncation GA (our method's family) trains 4M-weight nets on Atari/humanoid; faster than ES/A3C/DQN in wall-clock; GA+novelty search solves deceptive tasks reward-maximisers fail. => our GA is not the wrong family; exploration (novelty) is a known add-on.
+- Okada 2023/2024 (pendulum, acrobot): Differential Evolution beat GA and ES significantly on small NN controllers and was robust to hyperparameters. Small-network evidence that the variation operator matters.
+- Chen et al. IJCAI 2019: restart rank-1 ES with adaptive step size beats plain ES (fixed sigma like ours).
+- Rakshit, Konar, Das 2017 survey (Swarm & Evol. Comp., 161 cites): five noise strategies -- resampling, fitness estimation, dynamic population size, adaptive search, modified selection.
+- Di Pietro, While, Barone CEC 2004 (99 cites): vary samples per candidate by local noise; beats fixed resampling. Branke et al. GECCO 2001: estimate fitness by regression over neighbours.
+- Nair, McGrew, Andrychowicz, Zaremba, Abbeel ICRA 2018 (993 cites): a few demonstrations give an order-of-magnitude speedup on long multi-step tasks with sparse reward, and the learner ends up beating the demonstrator. Taylor et al. 2011 (HAT): demonstrations as a baseline policy refined by RL beat learning from scratch. Qiu et al. 2022: even non-expert demonstrations pretrain multi-agent learners usefully.
+- D'Silva, Janik, Chrien, Stanley, Miikkulainen AIIDE 2005 (rtNEAT / NERO): training a sequence of tasks loses old skills; a **milestone pool** -- keep the fittest individuals when a skill is learned, and periodically insert their offspring into the population -- retains them. Directly applicable: keep s91-era fetch champions as a milestone pool.
+- Early 2019, "Reducing catastrophic forgetting when evolving neural networks" (arXiv 1904.03178): **weight protection** (EWC adapted to evolution: lower mutation on weights important to old tasks) reduces forgetting across RL tasks. Applicable: do not prune or mutate links that the kept arenas need.
+- Ellefsen, Mouret, Clune 2015, PLOS Comp Biol (178 cites): a **connection cost** makes evolved networks modular, and modular networks learn new skills while retaining old ones. Contrast with ours: our per-connection cost is *deleting* links only the kept skills use -- the cost helps only when the kept skills are in the fitness, not just a floor.
+- Wang, Lehman, Clune, Stanley 2019 POET (GECCO, 101 cites): co-evolving environments and agents, with solutions transferred between environments, solves tasks that neither direct optimisation nor a direct-path curriculum can. Our ladder is a hand-built direct-path curriculum; POET's lesson is keeping several stepping stones and transferring between them.
+- Klink et al. NeurIPS 2020; Bassich et al. 2020: automatic curricula that move the task as the agent improves beat fixed curricula; pacing by the agent's own performance.
+- PPO search: no paper compared PPO with evolution on a small simulated-creature brain like ours; recent work hybridises PPO with evolutionary mutation for exploration. Evidence on RL here would have to come from our own test.
+- Heidrich-Meisner & Igel, ICML 2009 (153 cites) "Hoeffding and Bernstein races for selecting policies in evolutionary direct policy search"; and GECCO 2009 UH-CMA-ES: CMA-ES with racing adjusts the number of episodes per policy so the ranking is just good enough -- faster and more robust. **Closest published match to our problem** (noisy episodic fitness, small neural policy, evolutionary search).
+- Martin & Collins 2026 (arXiv 2601.09594) AS-CMA: evaluation time per candidate set by predicted sorting difficulty: 24-65% faster convergence, 29-76% lower total cost than the best static evaluation time.
+- Morse & Stanley GECCO 2016 (LEEA): evaluating each individual on few examples per generation, with fitness inherited across generations, rivals SGD on 1,000+-weight networks -- cheap noisy evaluations can be fine if fitness is smoothed over generations.
+- Xu et al. AAMAS 2014: estimate a new individual's fitness from correlated past individuals and skip evaluating predicted-poor ones (CMA-NeuroES): better sample efficiency.
+- Lehman, Chen, Clune, Stanley 2017 "ES is more than a finite-difference approximator": ES finds parameter-robust policies (robust to mutation), unlike gradient RL.

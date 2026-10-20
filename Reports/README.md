@@ -5538,7 +5538,9 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   the wall more than the foot. Part 3 (why fetch erodes): pruning plus the per-connection energy cost deletes links
   that only the protected skills use -- s161's "don't eat the cargo" constant went from -10 to 0, and it eats 4x the food.
   Part 4 (selection reliability): a run's final brains differ by a tenth of the noise; the dig score ranks better than
-  full loads; at 8 rows longer runs per world rank better per CPU than more worlds. Part 5 (training methods) to follow.
+  full loads; at 8 rows longer runs per world rank better per CPU than more worlds. Part 5 (training methods): racing
+  matches 48 uniform worlds at under half the cost on a realistic generation; protect untestable links; test teaching by
+  copying in two forms (part 6), RL after it.
 
 ## Licensing and distribution
 
