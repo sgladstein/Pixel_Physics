@@ -114,11 +114,14 @@
 //! it places [`Rain::drop`]'s cell count along [`super::scene::LabBox::
 //! room_top`] — the first row of air under the ceiling, the same row a
 //! fixture's beam starts from — spread in even bins across the bed's width
-//! and jittered *within* each bin from `world.rng`, the world's own
-//! deterministic stream (the same one `World::paint_capsule_as` already
-//! draws its shade and its density check from), so two runs of the same
+//! and jittered *within* each bin from a stream keyed on the world's seed
+//! and the frame (`rng::stream`, lent to `World::paint_capsule_as` for the
+//! call so the drop's shade comes from it too), so two runs of the same
 //! seed rain on the same columns in the same order — `CLAUDE.md`:
-//! determinism is required, same build.
+//! determinism is required, same build. **Not `World::rng`**, which it
+//! used until 2026-10-20: that stream is shared, so what else drew from it
+//! moved every drop, and every drop moved what drew after it (M1 A1; see
+//! [`tick`]).
 //!
 //! **Never fires while paused.** `TimeControl::plan` sets `ticks` to zero in
 //! [`super::time::Phase::Paused`], so `Lab::advance`'s loop never calls
@@ -315,10 +318,21 @@ pub fn tick(world: &mut World, spec: &LabBox, rate: Rain) -> u32 {
     let Some(water) = world.materials.id_of("water") else { return 0 };
     let y = spec.room_top();
     let width = spec.width.max(1);
-    // Even bins across the width, jittered inside each bin from the world's
-    // own `Rng` -- the same stream `paint_capsule_as` already draws its
-    // shade from, so this is one more deterministic reader of it rather
-    // than a second source of randomness the replay would have to track.
+    // Even bins across the width, jittered inside each bin.
+    //
+    // **The mister rolls its own dice, keyed on the frame, and lends them to
+    // the brush for the duration.** It used to jitter from `World::rng`
+    // directly, reasoning that the stream `paint_capsule_as` draws its shade
+    // from was one more deterministic reader rather than a new source. It
+    // is deterministic, and that was never the problem: the shade is drawn
+    // only for a drop that lands (a column holding a grown plant refuses it
+    // and draws nothing), so where the plants stood decided how far the
+    // stream advanced, and everything that draws after it -- every litter
+    // and pip cell's rot roll in `decay::tick` -- re-rolled with it. And one
+    // extra draw anywhere moved every later drop. M1 A1,
+    // `Reports/plant-community-plan-2026-10-20.md`; `plant_m0 mode=nudge` is
+    // the measurement. Swapped back below, so nothing else sees the swap.
+    let shared = std::mem::replace(&mut world.rng, crate::sim::rng::stream(world.seed ^ RAIN_SALT, world.frame, 0, 0));
     let bin = (width / cells.max(1) as i32).max(1);
     let mut placed = 0u32;
     for i in 0..cells {
@@ -340,9 +354,14 @@ pub fn tick(world: &mut World, spec: &LabBox, rate: Rain) -> u32 {
             placed += 1;
         }
     }
+    world.rng = shared;
     world.rain_cells += placed as u64;
     placed
 }
+
+/// Separates the mister's per-frame dice from every other `rng::stream`
+/// caller. See `tick`.
+const RAIN_SALT: u64 = 0x5261_696E_4D69_7374; // "RainMist"
 
 #[cfg(test)]
 mod tests {

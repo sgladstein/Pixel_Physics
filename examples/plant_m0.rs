@@ -9,6 +9,9 @@
 //! cargo run --release --example plant_m0 -- mode=community mix=roles4 seed=1 cripple=shrub
 //! # M0.6(a)'s control: two plants two columns apart against one alone
 //! cargo run --release --example plant_m0 -- mode=boxed
+//! # M1 A1: two copies of one bed in lockstep, one draw taken from the
+//! # copy's shared world stream at frame `at` and nothing else changed
+//! cargo run --release --example plant_m0 -- mode=nudge mix=roles4 loadfail=0 at=1000 frames=60000 sample=2000
 //! ```
 //!
 //! **Every unknown argument is refused** (`Reports/instruments.md`: an ignored
@@ -37,7 +40,7 @@ use pixel_physics::sim::world::World;
 use pixel_physics::train_plant::genome;
 use std::collections::{BTreeMap, HashMap};
 
-const KNOWN: &[&str] = &["mode", "mix", "seed", "frames", "sample", "ants", "cripple", "rain", "width", "species", "widths", "lengths", "shots", "out", "loadfail"];
+const KNOWN: &[&str] = &["mode", "mix", "seed", "frames", "sample", "ants", "cripple", "rain", "width", "species", "widths", "lengths", "shots", "out", "loadfail", "at"];
 
 fn args() -> BTreeMap<String, String> {
     let mut m = BTreeMap::new();
@@ -116,12 +119,13 @@ fn rain(m: &BTreeMap<String, String>) -> Rain {
     }
 }
 
-fn community(m: &BTreeMap<String, String>) {
+/// The community bed `community` and `nudge` both run: built, heredity off,
+/// load failure as `loadfail=` says.
+fn community_bed(m: &BTreeMap<String, String>) -> (World, LabBox, Scenario, Vec<&'static str>, String, usize) {
     let mix_name: String = get(m, "mix", "roles4".to_string());
     let species = mix(&mix_name);
     let seed: u64 = get(m, "seed", 1);
     let frames: u64 = get(m, "frames", 450_000);
-    let sample: u64 = get(m, "sample", 25_000);
     let ants = get(m, "ants", 0u8) != 0;
     let width: i32 = get(m, "width", 512);
     let cripple = m.get("cripple").cloned();
@@ -158,7 +162,6 @@ fn community(m: &BTreeMap<String, String>) {
         },
         horizon: frames,
     };
-    let started = std::time::Instant::now();
     let (mut w, _, placed) = scenario.build();
     // In-bed heredity off, as on the bed of record: a census of today's
     // species, not of whatever they mutate into over 450,000 frames.
@@ -168,12 +171,21 @@ fn community(m: &BTreeMap<String, String>) {
     // the 2026-10-09 playtest, `examples/replay.rs`): a plant with no support
     // path is not felled. On by default, as the lab ships.
     w.plant_load_failure = get(m, "loadfail", 1u8) != 0;
+    (w, bed, scenario, species, mix_name, placed.plants)
+}
+
+fn community(m: &BTreeMap<String, String>) {
+    let started = std::time::Instant::now();
+    let (mut w, bed, scenario, species, mix_name, placed) = community_bed(m);
+    let (seed, frames, sample) = (bed.seed, get(m, "frames", 450_000u64), get(m, "sample", 25_000u64));
+    let ants = get(m, "ants", 0u8) != 0;
+    let cripple = m.get("cripple").cloned();
     println!(
         "plant_m0 community: mix={mix_name} {:?} seed={seed} frames={frames} sample={sample} ants={ants} rain={:?} cripple={} plants_placed={} load_failure={}",
         species,
         bed.rain,
         cripple.as_deref().unwrap_or("none"),
-        placed.plants,
+        placed,
         w.plant_load_failure
     );
     let (mut particles, mut blasts, tuning) = (ParticleSystem::new(), Blasts::new(), player::Tuning::default());
@@ -619,6 +631,71 @@ fn copy(_m: &BTreeMap<String, String>) {
     println!("  new species registered into the copy and sown: placed {} plant(s); after 5,000 frames {} live, shoot cells {:?}", placed.plants, grown.len(), grown);
 }
 
+/// **Does one draw from the shared world stream reshuffle the bed?** Two
+/// copies of one community bed, stepped in lockstep. At frame `at` the copy
+/// takes one `World::rng` draw and throws it away: no cell, field or
+/// organism is touched, so any difference after that is the stream's
+/// coupling and nothing else. Each row: cells that differ (material,
+/// organism, or water), the columns they fall in, and plants per species in
+/// each copy. The first frame at which any cell differs is printed once.
+///
+/// **Control:** without the nudge (`at=0`) the copies must stay identical
+/// for the whole run, or the engine is not reproducible and the row means
+/// nothing.
+fn nudge(m: &BTreeMap<String, String>) {
+    let (mut a, bed, scenario, species, mix_name, _) = community_bed(m);
+    let mut b = a.clone();
+    let (frames, sample, at) = (get(m, "frames", 60_000u64), get(m, "sample", 2_000u64), get(m, "at", 1_000u64));
+    println!("plant_m0 nudge: mix={mix_name} seed={} frames={frames} sample={sample} at={at} load_failure={}", bed.seed, a.plant_load_failure);
+    let mut pa = (ParticleSystem::new(), Blasts::new());
+    let mut pb = (ParticleSystem::new(), Blasts::new());
+    let tuning = player::Tuning::default();
+    let mut first: Option<u64> = None;
+    // Germinated plants per species, by `census`'s own test.
+    let plants = |w: &World| -> Vec<usize> {
+        let mut n = vec![0usize; species.len()];
+        for id in w.live_organism_ids() {
+            let Some(st) = w.organism(id) else { continue };
+            let Some(i) = species.iter().position(|s| *s == w.species.get(st.species).name) else { continue };
+            if st.shoot_cells > 0 && st.cells.keys().any(|&(x, y)| organism::cell_type(w.get(x, y).aux()) != Some(CellType::Seed)) {
+                n[i] += 1;
+            }
+        }
+        n
+    };
+    for f in 1..=frames {
+        if f == at {
+            let _ = b.rng.next_u64();
+        }
+        pixel_physics::lab::tick_world(&mut a, &mut pa.0, &mut pa.1, &tuning, &bed, Some(&scenario));
+        pixel_physics::lab::tick_world(&mut b, &mut pb.0, &mut pb.1, &tuning, &bed, Some(&scenario));
+        let check = first.is_none() || f % sample == 0 || f == frames;
+        if !check {
+            continue;
+        }
+        let (mut cells, mut cols) = (0u32, 0u32);
+        for x in 0..bed.width {
+            let mut col = false;
+            for y in 0..bed.height {
+                let (ca, cb) = (a.get(x, y), b.get(x, y));
+                if ca.material != cb.material || ca.organism_id() != cb.organism_id() || ca.aux() != cb.aux() {
+                    cells += 1;
+                    col = true;
+                }
+            }
+            cols += col as u32;
+        }
+        if cells > 0 && first.is_none() {
+            first = Some(f);
+            println!("first difference at f={f}: {cells} cells in {cols} columns");
+        }
+        if f % sample == 0 || f == frames {
+            println!("f={f} differ cells={cells} cols={cols} | plants a={:?} b={:?}", plants(&a), plants(&b));
+        }
+    }
+    println!("plant_m0 done: first difference {}", first.map_or("never".to_string(), |f| f.to_string()));
+}
+
 fn main() {
     let m = args();
     match m.get("mode").map(String::as_str).unwrap_or("community") {
@@ -627,8 +704,9 @@ fn main() {
         "plastic" => plastic(&m),
         "cost" => cost(&m),
         "copy" => copy(&m),
+        "nudge" => nudge(&m),
         other => {
-            eprintln!("plant_m0: mode={other} is not community|boxed|plastic|cost|copy");
+            eprintln!("plant_m0: mode={other} is not community|boxed|plastic|cost|copy|nudge");
             std::process::exit(2);
         }
     }

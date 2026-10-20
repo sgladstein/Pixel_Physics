@@ -13574,6 +13574,20 @@ fn shed_cut_off_tissue(world: &mut World, organism_id: OrganismId, contact_roots
             queue.push(p);
         }
     }
+    // **No drinking root left is the empty list above, not a cut.** The
+    // list is the walk's, and die-back and root turnover run between the
+    // walk and here, so a seedling whose one drinking root was turned over
+    // this tick arrived with a list naming a cell it no longer owns, reached
+    // nothing, and had every cell it owns booked as severed -- shed at the
+    // cap tick after tick, a plant that lost its water read as a plant cut
+    // in two. Traced 2026-10-20 (M1 A1): a 28-cell seedling inside the
+    // founder's crown in this file's `a_severed_crown_is_shed_and_an_
+    // intact_plant_is_not`, its only contact root at (108, 61) already
+    // litter. Exempt for the empty list's own reason: thirst is not this
+    // rule's to judge.
+    if queue.is_empty() {
+        return 0;
+    }
     while let Some((x, y)) = queue.pop() {
         for (dx, dy) in NEIGHBOURS_8 {
             let n = (x + dx, y + dy);
@@ -13605,6 +13619,12 @@ fn shed_cut_off_tissue(world: &mut World, organism_id: OrganismId, contact_roots
     shed
 }
 
+/// Separates the shade a shed leaf lands with from every other
+/// `rng::stream` caller (M1 A1, `Reports/plant-community-plan-2026-10-20.md`):
+/// before it, a fallen leaf drew from `World::rng` and so shifted the decay
+/// and rain draws that come after it in the same tick.
+const LITTER_SHADE_SALT: u64 = 0x4C69_7474_6572_5348; // "LitterSH"
+
 /// `cause` is what this shedding is, for `OrganismState::last_loss`: if this
 /// clear empties a living plant, that is what the plant died of. It labels
 /// and does nothing else -- `World::loss_context` is read by no rule.
@@ -13620,7 +13640,11 @@ fn shed_to_litter(world: &mut World, x: i32, y: i32, cause: organism::DeathCause
     // speckles. Litter has one family today, so these agree -- reading the
     // right one now means this does not silently break if that changes.
     let shades = world.materials.get(litter).base_shades.max(1) as u32;
-    let shade = world.rng.below(shades) as u8;
+    // **Keyed on the leaf's own cell and frame, never `World::rng`.** A
+    // draw from the shared stream moved every later draw in the world by
+    // one: one leaf falling here re-rolled whether a pip rotted across the
+    // bed and where the lab's next raindrop landed (`LITTER_SHADE_SALT`).
+    let shade = rng::stream(world.seed ^ LITTER_SHADE_SALT, x as u32 as u64, y as u32 as u64, world.frame).below(shades) as u8;
     // Root tissue is told apart by material (`reinforces_powder`) or by a
     // live `RootTip`, the same test `step_organisms` counts `root_cells` by.
     let was_root = {
@@ -13729,7 +13753,9 @@ fn shed_to_litter(world: &mut World, x: i32, y: i32, cause: organism::DeathCause
             // `decay::tick` reads `base_shades`, and the same reason the
             // litter shade above does.
             let shades = world.materials.get(ground).base_shades.max(1) as u32;
-            let shade = world.rng.below(shades) as u8;
+            // Keyed, as the litter shade above is, and on the same key with
+            // the order swapped so the two never draw the same number.
+            let shade = rng::stream(world.seed ^ LITTER_SHADE_SALT, y as u32 as u64, x as u32 as u64, world.frame).below(shades) as u8;
             // **It takes its water back out of the ground, which is
             // `displace_soil_water` run backwards** — and leaving it dry
             // instead is not a small difference, it inverts the result of a
@@ -17242,6 +17268,34 @@ they are the same world. Got {median}, which means something other than the leve
             w.step_active_sites();
             field::step(w);
         }
+    }
+
+    /// **A plant whose only drinking root went earlier this tick is thirsty,
+    /// not cut in two.** `shed_cut_off_tissue` is handed the walk's list of
+    /// drinking roots, and root turnover and die-back run between the walk
+    /// and the check. Before the exemption a list naming only a root the
+    /// plant no longer owned reached nothing, and every cell the plant had
+    /// was booked as severed and shed at the cap -- traced 2026-10-20 on a
+    /// seedling in `a_severed_crown_is_shed_and_an_intact_plant_is_not`.
+    #[test]
+    fn a_plant_whose_only_drinking_root_went_this_tick_is_not_read_as_cut() {
+        let mut w = test_world();
+        w.plant_load_failure = false;
+        plant_tree_on_ground(&mut w, 100, 60);
+        let id = w.get(100, 60).organism_id();
+        run_with_fields(&mut w, 2_000);
+        let root = w
+            .organism(id)
+            .and_then(|s| s.cells.keys().copied().filter(|&(x, y)| w.materials.get(w.get(x, y).material).reinforces_powder).min_by_key(|&(x, y)| (y, x)))
+            .expect("test setup: the plant should have grown a root");
+        let soil = w.materials.id_of("soil").expect("soil ships");
+        w.set(root.0, root.1, Cell::new(soil, 0).with_aux(material::SOIL_FIELD_CAPACITY));
+        assert!(w.organism(id).is_some_and(|s| s.cells.len() > 5), "test setup: the plant should still be standing");
+        assert_eq!(
+            shed_cut_off_tissue(&mut w, id, &[root]),
+            0,
+            "a list naming only a root the plant no longer owns booked the whole plant as cut off"
+        );
     }
 
     /// **A tree that dies of old age is booked OLD AGE.** Until 2026-10-06
@@ -21384,8 +21438,44 @@ this costs more than the bug"
                 }
             }
             let before = w.plant_cut_off_cells_shed;
-            run_with_fields(&mut w, 6_000);
+            // **Only this tree, every frame of the counted window.** The
+            // counter is world-wide and the arms below assert an exact
+            // zero, so any seedling in the scene can trip it with a genuine
+            // cut-off of its own. `seed_dry_keeps` above narrowed that and
+            // did not close it: traced 2026-10-20, with decay's dice keyed
+            // (M1 A1) the intact arm's run changed and two seedlings sprouted
+            // anyway -- organism 2, whose two root cells were left an island
+            // when the cell joining them became litter (a real cut-off, the
+            // pair's only same-plant neighbour each other), and organism 3,
+            // the stale-list case `shed_cut_off_tissue` now exempts. The
+            // third seedling to trip this guard, so the scope is enforced
+            // rather than encouraged: every other organism is taken out
+            // before each frame, roots back to soil.
+            for _ in 0..6_000 {
+                keep_only(&mut w, id);
+                run_with_fields(&mut w, 1);
+            }
             (w.plant_cut_off_cells_shed - before, w.organism(id).map_or(0, |s| s.cells.len()))
+        }
+
+        fn keep_only(w: &mut World, id: OrganismId) {
+            let soil = w.materials.id_of("soil").expect("soil ships");
+            let others: Vec<OrganismId> = w.live_organism_ids().into_iter().filter(|&o| o != id).collect();
+            for other in others {
+                let cells: Vec<(i32, i32)> = w.organism(other).map(|s| s.cells.keys().copied().collect()).unwrap_or_default();
+                for (x, y) in cells {
+                    let c = w.get(x, y);
+                    if c.organism_id() != other {
+                        continue;
+                    }
+                    let back = if w.materials.get(c.material).reinforces_powder {
+                        Cell::new(soil, 0).with_aux(material::SOIL_FIELD_CAPACITY)
+                    } else {
+                        Cell::EMPTY
+                    };
+                    w.set(x, y, back);
+                }
+            }
         }
 
         let (intact_shed, intact_cells) = run(false, false, false);

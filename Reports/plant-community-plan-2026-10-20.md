@@ -236,7 +236,7 @@ and a frame-cost check.
 
 1. **A1: separate the plants' dice from the weather's.** The leaf-litter
    shade and the rain mister appear to share one generator
-   (`plant.rs:13623`, `lab/rain.rs:332`; INFERRED, confirmed first).
+   (`plant.rs:13623`, `lab/rain.rs:332`; CONFIRMED and fixed 2026-10-20, §8.1 M1 step 1).
 2. **A2: key dice on developmental position** (the plant's seed, axis, node),
    not on world position and the clock. A plant one tick behind then rolls the
    same numbers when it gets there.
@@ -562,7 +562,25 @@ the review (§12), **M1 runs in this order**:
 1. **A1 first: confirm or fix the shared generator.** The leaf-litter shade
    and the rain mister may draw from one stream. If they do, changing the
    watering reshuffles every plant's dice, and no before-and-after
-   comparison can be attributed.
+   comparison can be attributed. **Done, 2026-10-20.** Confirmed, and wider
+   than inferred: the mister's drop positions, the shade the brush gives
+   each drop (drawn only for a drop that lands, so where plants stand moved
+   the stream), every litter and pip cell's rot roll in `decay::tick`, and
+   the litter shade all drew from `World::rng`. A plant's own growth dice
+   were already keyed (`rng::stream`). **Measured** (`plant_m0 mode=nudge`,
+   roles4, load failure off): one discarded draw at frame 1,000, nothing
+   else changed. Before: 4 cells differ that frame, 20,899 cells in 504 of
+   512 columns by 60,000, herbs 7 against 32. After keying all four on
+   (seed, place, frame): identical for all 60,000 frames; the control copy
+   without the nudge identical in both builds. Guard:
+   `a_draw_from_the_shared_world_stream_does_not_reach_the_bed`, red with
+   the mister or the decay roll put back. **It changes every bed's dice
+   once**, as any reshuffle does, and that exposed one real bug:
+   `shed_cut_off_tissue` read a plant whose only drinking root was shed
+   earlier in the same tick as a plant cut in two, and shed it at the cap
+   tick after tick (a seedling, traced). Exempt now, as a plant with no
+   drinking root already was; test
+   `a_plant_whose_only_drinking_root_went_this_tick_is_not_read_as_cut`.
 2. **Watering**: wet and dry spells replace the steady mister (§Z38), judged
    on ≥4 seeds by:
    - standing water;
