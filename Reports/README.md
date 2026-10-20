@@ -5530,6 +5530,12 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   the GIF tool. The shared-folder copies are the live
   ones; the README lists each file's source date.
 
+- [brain-training/investigation-2026-10-20.md](brain-training/investigation-2026-10-20.md) — **in progress: what the
+  dig brain does and how to train it cheaper, before the 8-row step.** Part 1 (where loads are lost): carrying is solved
+  (90% of foot cuts become full loads), but 37% of trips carry soil that pays nothing, half of all time is an empty ant
+  walking the surface, and loads go about 3x farther than the rule needs. Parts 2-5 (what the brain reads, why fetch
+  erodes, selection reliability, training methods) to follow.
+
 ## Licensing and distribution
 
 - [dependency-license-audit.md](dependency-license-audit.md) — **settled
