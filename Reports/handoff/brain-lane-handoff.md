@@ -1,6 +1,6 @@
 # Handoff: training the ant's brain (stage 2), for an agent with only this repo
 
-**Last updated: 2026-10-20 02:30 UTC.** Written by the session that has run
+**Last updated: 2026-10-20 02:35 UTC.** Written by the session that has run
 this work since 2026-10-17, because the owner's account was about to run out
 of usage. It is updated in place through the night as each task finishes:
 read the **Log** at the bottom first to see what changed since this header.
@@ -257,6 +257,12 @@ The owner is **Scott** (GitHub `sgladstein`). He uses a Mac terminal, so give zs
 ## Log
 
 Newest first. Each entry says what changed and what is now true.
+
+- **2026-10-20 02:35 UTC.**
+  - **s132 finished** (02:27). On the sealed worlds it scored worse than its start: soil 19.7 against 22.5, full loads per world 1.92 against 2.83. So the round's only gain is **s134**.
+  - **Next round launched from s134's best** (`training/starts/s134-4b-g34.txt`): seeds 141-144 on Google, `c4d-highcpu-16`, with the same arguments as the 4b round otherwise (section 4's train line with `seed=` and `start=` changed, `gens=100`). Names `dig-4b2-s141` ... `dig-4b2-s144`. Expected about 3 h; the auto-stop may end some sooner.
+  - It is the same move that found s134: new seeds from the current best.
+  - When they finish, score each hold-best with the command in the 01:45 entry and compare it with s134 (3.67 full loads per world, 3 of 12 worlds at 5 or more). The bar is still 5 on 11 of 12.
 
 - **2026-10-20 02:30 UTC.**
   - **s133 and s134 finished.** Both were stopped flat by the auto-stop: s133 at generation 79, best at 28; s134 at generation 85, best at 34.
