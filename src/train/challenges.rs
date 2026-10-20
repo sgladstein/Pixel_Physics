@@ -1515,6 +1515,9 @@ pub struct SoilTrip {
     /// Read from the end state, not traced frame by frame, so a pellet that
     /// rolled somewhere else beside a fall is counted as its source.
     pub fall_putdown: usize,
+    /// Scratch (box-rank test): each ant's own trip score and full loads,
+    /// before the box-level refill penalty.
+    pub per_ant: Vec<(OrganismId, f64, usize)>,
 }
 
 /// **Each pellet's trip, from the two logs** (`World::cut_log` and
@@ -1650,7 +1653,8 @@ pub fn soil_trip_at(
     }
     let away = |at: (i32, i32)| soil_away(&hole, at);
     let mut trip = SoilTrip { cuts: cuts.len(), dumped: dumps.len(), deep: deep_cuts, rim: rim_cuts, load_base, full_cuts, ..SoilTrip::default() };
-    for events in per_ant.values_mut() {
+    for (&ant_id, events) in per_ant.iter_mut() {
+        let (score0, full0) = (trip.score, trip.full_loads);
         // A cut and a put-down never share an ant's frame: one act a
         // decision.
         events.sort_by_key(|e| (e.0, e.1.is_none()));
@@ -1709,6 +1713,7 @@ pub fn soil_trip_at(
         trip.loads += ups.iter().map(|&r| weight(r)).sum::<f64>();
         let climbed = ups.iter().take(paid(3, ups.len())).sum::<i32>();
         trip.score += SOIL_POINTS[3] * f64::from(climbed) / f64::from(SOIL_UP_ROWS);
+        trip.per_ant.push((ant_id, trip.score - score0, trip.full_loads - full0));
     }
     let dumped: HashSet<(i32, i32)> = dumps.iter().map(|d| (d.0, d.1)).collect();
     let chamber: HashSet<(i32, i32)> = founding.iter().copied().collect();
@@ -1907,6 +1912,13 @@ impl Challenge for Soil {
     fn run(&self, layout: Layout, genomes: &[&[f32]], look: &mut dyn FnMut(u64, &World)) -> Vec<Score> {
         let (mut w, sc, sp, full) = self.world(layout, genomes[0]);
         let placed = ants_of(&w, sp);
+        // Scratch (box-rank test): several genomes -> one each, scored per ant.
+        if genomes.len() > 1 {
+            assert_eq!(placed.len(), genomes.len(), "one genome per ant");
+            for (&id, g) in placed.iter().zip(genomes) {
+                creature::mind::give(&mut w, id, arena_mind(g, self.verbs(), self.mind_emits()));
+            }
+        }
         // The ground and the hole as they stand before the first frame.
         let (xs, ys) = census::extents(&w, &sc.bed);
         let (x0, y0, nw) = (*xs.start(), *ys.start(), (xs.end() - xs.start() + 1) as usize);
@@ -1950,6 +1962,15 @@ impl Challenge for Soil {
         let s1_rows = if self.foot { self.shaft.max(1) } else { 1 };
         let trip = soil_trip_at(self.step, self.shaft, s1_rows, |x, y| at(x, y).is_some_and(|i| ground0[i]), |x, y| is_ground(&w, x, y), deep, &founding, &cuts, &dumps);
         let away_share = if trip.stages[1] > 0 { trip.stages[2] as f64 / trip.stages[1] as f64 } else { 0.0 };
+        if genomes.len() > 1 {
+            return placed
+                .iter()
+                .map(|id| {
+                    let (s, fl) = trip.per_ant.iter().find(|a| a.0 == *id).map_or((0.0, 0), |a| (a.1, a.2));
+                    Score { fit: s, parts: vec![s, fl as f64, trip.score, trip.full_loads as f64] }
+                })
+                .collect();
+        }
         vec![Score {
             fit: trip.score,
             parts: vec![
