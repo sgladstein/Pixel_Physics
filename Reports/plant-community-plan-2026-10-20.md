@@ -1,8 +1,10 @@
 # Plants that grow like plants, and a bed where different kinds coexist: plan (2026-10-20, revision 4)
 
-**Status: plan, revision 4, after M0 and an independent adversarial review
-of it (§12: 2 blockers, 9 major, 4 minor, all accepted). M1 starts with
-changes; two owner decisions are open (§9).** It supersedes P2–P6 of
+**Status: plan, revision 5. M1 has started. Revision 4 answered the
+independent review after M0 (§12: 2 blockers, 9 major, 4 minor, all accepted).
+Revision 5 records the owner's two rulings (§9), and two considerations from
+the owner: the environment must give plants something to respond to (§3.4),
+and training cost grows as the ladder climbs (§13).** It supersedes P2–P6 of
 [`plant-trainer-plan-2026-10-19.md`](plant-trainer-plan-2026-10-19.md). That
 plan's P1, the trainer core, is on `main` (PR #731) and is reused throughout.
 
@@ -277,6 +279,55 @@ After Part A, **today's species are re-fitted by the trainer, not by hand.**
 Their constants were tuned against dice. That re-fit is also the first real
 training job.
 
+### 3.4 The environment has to carry the signals
+
+**Owner, 2026-10-20:** *"We need to make sure that our environment provides
+the signals for our plants to respond to. If our soil bed is fully uniform
+... then there is no signal for the plant to respond in interesting ways."*
+
+**Today it is fully uniform.** `LabBox::build_counted` fills every soil cell
+with one material, at field capacity, under a flat surface
+(`src/lab/scene.rs:939–942`). Nutrients start equal everywhere. The only
+variation is the cosmetic shade byte. Apart from lamp position and
+neighbours, a root has nothing to choose between, which is the other half of
+why plants differ by dice rather than by place.
+
+**Real ground varies at every scale**, and each variation is something a
+plant answers:
+
+| signal | where it comes from in real ground | what a plant does with it | in the lab |
+|---|---|---|---|
+| **Texture and density** | sand, loam and clay in patches and layers: topsoil over a denser subsoil | roots push through loose soil and avoid hard; sandy patches drain and dry, clay holds water | one material everywhere. `packedsoil` and `gravel` exist as materials |
+| **Relief** | hollows and rises | water and seed collect in hollows; rises dry out | flat |
+| **Moisture** | relief, texture, depth, and wet and dry spells | roots follow water; drought shifts growth to roots | uniform at field capacity, then floods (§Z38) |
+| **Nutrients** | litter rotting in place, old root channels, patches | roots proliferate in rich patches | uniform at the start; litter adds locally |
+| **Light** | gaps in the canopy, lamp spacing | shade avoidance or tolerance; leaves to the light | lamps evenly spaced; canopy shade only |
+| **Disturbance** | animals digging, falls, deaths | gaps for colonists | ants, plant deaths |
+
+**So M1 adds an environment step (E), right after the watering**, and builds
+it the same way as everything else:
+
+- **Patches of soil texture and density, and gentle relief.** Smooth noise
+  from the world seed, so one seed is one ground, and different seeds give
+  different grounds. Uses existing materials where they fit (`packedsoil`
+  for a dense subsoil, a loose loam).
+- **Starting nutrients in patches.**
+- **Wet and dry spells** (the watering step) acting on that ground, so
+  moisture varies by place, depth and time.
+- **Measured as signal, not looks:** for each signal, the spread across the
+  bed (per-column moisture, nutrients, density, surface light), and **a clone
+  test**. The same genome planted on a rich patch and a poor one, a wet
+  hollow and a dry rise, must differ, in the direction a real plant would and
+  by more than its dice. That is §3.2's "surroundings" number, and it is what
+  makes it non-zero.
+- **It changes how the lab looks**, so the owner sees it before it ships, as
+  a lab bed option first and the default after the owner's go.
+
+**The 2D rule still applies** (§2.4). A patch in the slice is a patch in the
+3D ground the slice cuts through, so patches are wide enough for a plant to
+feel, not single-cell noise. A coarse-field read would turn single-cell noise
+into nothing anyway (`.claude/rules/src-sim-cells.md`).
+
 ## 4. Part B: a diverse bed, ecologically
 
 ### 4.1 What lets different plants live together
@@ -518,23 +569,28 @@ the review (§12), **M1 runs in this order**:
    - the soil-water profile per column under each species' roots;
    - a shallow-rooted and a deep-rooted plant that actually differ in water
      status.
-3. **Re-baseline the community** with in-bed heredity truly off. That means
+3. **E: the environment carries signals** (§3.4): texture and density
+   patches, gentle relief, nutrient patches, shown to the owner as a lab bed
+   option. Judged by the spread of each signal and by clones that differ by
+   place more than by dice.
+4. **Re-baseline the community** with in-bed heredity truly off. That means
    `mutation_off_for_measuring` plus founder variants at 0, printed in the
    log header (M0 left per-birth jitter and founder variants on; §12, M7).
    Also count contact split by seed, own kind and other kind, and light under
    each species' own leaf.
-4. **A6, where a seed may germinate, and the piles**:
+5. **A6, where a seed may germinate, and the piles**:
    - a seed sprouts only in contact with soil, as a real seed does;
    - seed past a set depth leaves the slice into a bank that ants can still
      reach and that the census counts;
    - a species-mix guard, because removing the pile may bring back the grass
      ratchet.
 
-   Waits on the load-failure ruling (§9).
-5. **A3, bud break reads stored carbon** (the shrub trace).
-6. **A5.1–A5.2: shade avoidance against tolerance, sun and shade leaves.**
+   Runs with load failure off (owner, 2026-10-20).
+6. **A3, bud break reads stored carbon** (the shrub trace), and **lifespans
+   for shrub and creeper** (owner, 2026-10-20).
+7. **A5.1–A5.2: shade avoidance against tolerance, sun and shade leaves.**
    These make an understory possible at all, and are priced.
-7. **A2, development keying.**
+8. **A2, development keying.**
 
 **Rungs 4–6 and M4 wait** for three things:
 
@@ -571,7 +627,13 @@ requires. A measurement whose control fails is not reported.
 - the 2D cross-section is handled up front (§2.4);
 - Part A ships on for every plant.
 
-**Open, after the review (§12):**
+**Answered, 2026-10-20, after the review:**
+
+- **Plant load failure is off** in the world the community is trained in, as
+  the owner plays. Rung 7 is still validated under both settings.
+- **Shrub and creeper get lifespans**, measured and shown before they ship.
+
+**As asked** (kept for the record):
 
 1. **Plant load failure, in the world the community is trained in** (B2).
    With it on (the lab's default), grass seedlings that sprout on the seed
@@ -673,3 +735,72 @@ order above and in §9.
 Rung 6 on a narrower resident bed (192 wide) is roughly 2.5× cheaper, if the
 rung check shows it predicts the full bed. Estimates; pinned when the rungs
 are built.
+
+
+## 13. The training-cost problem: harder behaviours, slower generations
+
+**Owner, 2026-10-20:** *"As we progress through our training rungs, we are
+trying to train more complex behaviors (which likely require more
+generations of training) at the same time our generations/hour decreases as
+we need longer runs in larger, more complex ... environments. This might lead
+to an exponential problem."* It affects the ant line as much as this one. It
+is not solved here; this section is the thinking and the instruments that
+will tell us early.
+
+**Why it is real.** Two curves cross:
+
+- generations needed rise with what a rung asks;
+- generations per hour fall from about a thousand at rung 1 to about 6 at
+  rung 6 (§12's cost table).
+
+At $40 a month (about 180 machine-hours of a 16-core spot VM), a rung needing
+500 generations at 6 an hour is 80 hours: half a month for one rung, with no
+retries.
+
+**The levers, roughly in order of how much they buy:**
+
+1. **Do not train at the top.** Train each piece where it is cheap, and let
+   the top rungs only *select* among a few finished candidates. The ant line
+   learned this: the forager was trained in small arenas, and the colony was
+   never the training ground. Here, rungs 1–3 (per species, per role) do
+   nearly all the generations. Rungs 5–6 run a handful of generations on a
+   short list, and rung 7 runs none: it validates.
+2. **Warm starts.** Each rung starts from the last rung's champions, never
+   from scratch, so a rung's generation count is the cost of the *new*
+   behaviour only. Measured per rung: generations to plateau from a warm
+   start against a cold one.
+3. **Shrink the expensive arena until its ranking breaks.** M0 found cost
+   tracks activity, not area. A rung-6 resident bed 192 wide instead of 512
+   is about 2.5× cheaper. Keep shrinking while the rung-predicts-rung check
+   holds, and stop where it does not.
+4. **Grow once, copy many** (M0.8). A pre-grown resident bed is paid once per
+   round, not per candidate. Only the window after the copy is paid.
+5. **Racing, and stopping early.** Score candidates at a quarter of the
+   window and drop the clearly worse ones before paying for the rest. A
+   candidate already dead or flooded is not run to the end. Validated like
+   any proxy: the early ranking must agree with the full one.
+6. **Fewer, larger steps where heritability allows.** P1 found 1–3-gene
+   steps invisible and 8-gene steps visible. After Part A shrinks the dice,
+   small steps may become visible, which cuts the generations per behaviour.
+   Re-measured, not assumed.
+7. **Train one species at a time, and only re-score what changed.** In a
+   community rung, the residents' own outcomes on a fixed copy are paid once.
+8. **A cheaper model of the expensive rung.** If a rung's outcome can be
+   predicted from cheap measurements (rungs 1–3 plus a few trait numbers)
+   well enough to rank candidates, it becomes a filter. Kept only while it
+   ranks as well as the rung on held-out candidates.
+
+**The instrument that tells us early: a compute budget per rung.** Each rung
+gets a budget in core-hours, written down before it runs. It also gets a
+plateau test: the champion's score on the monitoring hold-out has not improved
+for N generations. A rung that hits its budget before its plateau is not run
+longer. It is redesigned: split into smaller rungs, given a cheaper arena, or
+given a warm start. Every round logs generations-to-plateau and core-hours
+per rung, so the curve of "how much does each rung really cost" is measured
+as the ladder climbs, not guessed. **If that curve bends upward faster than
+the levers above can flatten it, the plan says so early,** at rung 3 or 4,
+rather than discovering it at rung 6 with the budget gone.
+
+**Shared with the ant line.** The same budget-per-rung and plateau log fits
+the ant trainer as is. When this section is built, it is offered to that lane
+as a shared tool, not a plant-only one.
