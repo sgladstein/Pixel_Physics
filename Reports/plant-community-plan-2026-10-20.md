@@ -1,7 +1,8 @@
-# Plants that grow like plants, and a bed where different kinds coexist: plan (2026-10-20, revision 2)
+# Plants that grow like plants, and a bed where different kinds coexist: plan (2026-10-20, revision 3)
 
-**Status: plan, revised after the owner's review the same day; the open
-questions are in §9. Nothing here is built yet.** It supersedes P2–P6 of
+**Status: plan, revision 3. The owner has answered every open question (§1),
+and the world being a 2D cross-section is dealt with up front in §2.4.
+Nothing here is built yet; M0 is next.** It supersedes P2–P6 of
 [`plant-trainer-plan-2026-10-19.md`](plant-trainer-plan-2026-10-19.md). That
 plan's P1, the trainer core, is on `main` (PR #731) and is reused throughout.
 
@@ -18,6 +19,10 @@ run long. The owner asked for:
 
 Revision 2 also uses the project's existing Google Cloud setup and its $100 a
 month (§7).
+
+**Revision 3** records the owner's answers and treats the 2D cross-section as
+a constraint up front (§2.4). The answers: keep the four roles, $40 a month,
+and the lab's watering may be changed.
 
 ## 0. In one paragraph
 
@@ -60,6 +65,13 @@ trade-offs separate them, and the test that proves they coexist.
 - **Compute:** Google Cloud, through the launcher the ant lane built (PR 734),
   aiming at **$100 a month**.
 - **Images:** they come in the chat, or in a report readable in the chat.
+- **Answers to revision 2:**
+  - keep the four roles (§4.2);
+  - plants get **$40 a month** of the $100;
+  - **the lab's watering may be changed** if the bed needs a water profile
+    for a rooting-depth niche;
+  - *"we are simulating this in a 2d cross section world … consider this
+    limitation up front"* (§2.4).
 
 **Standing rulings:**
 
@@ -139,6 +151,37 @@ small beds side by side, one per core. A full 450,000-frame bed is about 8–12
 core-minutes. P1's single-plant bed (96 wide, 40,000 frames) is about 12
 core-seconds.
 
+### 2.4 The world is a cross-section: what that changes, up front
+
+The lab is a 2D slice. A real plant stands among neighbours on every side and
+grows into depth that cannot be drawn here. Each real-world way out below is
+missing in the slice, and each one changes the plan:
+
+| in a real stand | in the slice | what it does to this plan | how the plan handles it |
+|---|---|---|---|
+| **Neighbours stand all round, with gaps between them.** Light, seed and roots pass through the gaps | **Ground is a line.** Two neighbours can box a plant in completely, and one plant can close a gap | Competition is harsher and more all-or-nothing, exclusion is faster, and a rare invader needs a gap in a line | Density is judged per 100 columns, never against real-world densities. The invasion rung (6) sows into the gaps the resident bed actually has, and M0 counts them |
+| **Crowns interleave in depth.** A crown has volume, about R³ | **A crown has area, about R².** The same branching is R times denser, and neighbouring crowns collide instead of interleaving | Branches meet other plants far more often than in life | **Crown shyness** already exists: a tip steers away from any plant's foliage (`plant.rs:1021`, written for exactly this). M0 measures how often a tip stops because *another* plant is in the way. The census's `boxed` reason does not yet say whose cells boxed it, so M0 adds that split |
+| **Saplings grow up through gaps** in the understory, and roots of neighbours intermingle | **A tip cannot pass another plant's cell.** It must find a gap in the slice | The canopy role may be unable to get up through the understory, and neighbouring root systems wall each other off | **A6** (§3.3): thin, soft structures pass where a 3D plant would. A growing tip may push through another plant's leaf, shedding it at a cost, and a root tip may pass another's fine root. Built only if M0's count says blocking is common, and chosen by pictures |
+| **Light reaches the understory** through gaps in depth and at angles. A closed forest floor gets about 1–5% of open light, open woodland 5–20% (from memory, not re-read) | **Light passes foliage only through the field's per-column transmission** (Beer–Lambert, `field.rs:325–346`) | **The shade-tolerant role exists only if a canopy passes some light.** Too opaque and nothing lives under it; too clear and there is no understory niche | M0 measures the light under one canopy plant against open light. The leaf's transmission is **calibrated to the slice**, standing for the gaps in depth that cannot be drawn. That is a calibration of the world, not a tuning of any species |
+| **Seeds and litter spread over an area** | **Seeds and litter stack in one column.** Today's seed heaps are 45–59 deep and bury sprouts (76 of 89 covered sprouts died) | The heap itself is something the slice invents. But **removing heaps alone is measured not to help**: `SEED_HEAP_ROT` (heaped seed rots fast, built and left off 2026-10-17) halved the heaps and added no species, and every seed-thinning lever grew grass instead (`dead-ends.md`). The low plants lose for ecological reasons too | Part of **A6**, for realism, not as a rescue. Past a set depth per column, extra seed joins the seed bank as a number rather than a physical heap, and litter thins. The plan expects no species from this alone. The roles and their trade-offs (§4) are what have to make room for the low plants |
+| **Biomass grows with height × crown area**, and costs scale with volume | **Biomass grows with height × width** | Tall and wide cost differently from life, so real-world trade-off numbers do not transfer | Trade-offs are priced from measurements in the engine (the cheat watch and the ladder's checks), never copied from real values |
+
+**The rule this sets for every part of the plan:** read the slice as a thin
+transect through a 3D stand. Any rule by which one plant affects another
+(shading, blocking, crowding, burying) answers *"what would happen in the
+depth we cannot see?"* and is calibrated to that, not to what the slice
+literally shows.
+
+What the slice already shows correctly stays as it is. A filled crown
+silhouette is right in 2D (`dead-ends.md`, tree-architecture §7b), and so is
+the look of a cross-section.
+
+**Where it bites on the ladder.** Rungs 1–3 grow one plant alone, so the slice
+costs almost nothing there. **Rungs 4–6, a neighbour, a stand and an invasion,
+are where it decides outcomes.** So the calibrations above (light under a
+canopy, passage, stacking) are measured in M0 and settled in A6 before those
+rungs are built.
+
 ## 3. Part A: development the way plants develop
 
 ### 3.1 How real plants grow: what the engine should copy
@@ -214,6 +257,16 @@ and a frame-cost check.
    Each response comes with its cost, or a free response becomes uniform.
    For example, elongating in shade costs stem strength and seed set, and
    tolerance means a slower top speed.
+6. **A6: the slice's rules** (§2.4). A6 is built from M0's counts, each piece
+   only if its count shows the problem is real:
+   - **passage:** a growing tip may push through another plant's leaf (the
+     leaf is shed, and the tip pays for it), and a root tip may pass another
+     plant's fine root;
+   - **stacking:** seed and litter past a set depth per column leave the
+     slice (seed joins the bank as a number). This is for realism: the 2026-10-17
+     heap-rot switch showed that fewer heaps alone add no species;
+   - **light through foliage:** the transmission is calibrated so the light
+     under a canopy plant falls in a realistic band.
 
 After Part A, **today's species are re-fitted by the trainer, not by hand.**
 Their constants were tuned against dice. That re-fit is also the first real
@@ -239,7 +292,7 @@ Niches come from **trade-offs**: being good at one thing must cost another.
 | **Light, vertically** | grow fast in bright light ↔ survive in shade (the growth–survival trade-off; rankings reverse between gaps and understory) ([Baraloto et al. 2005](https://deepblue.lib.umich.edu/bitstream/2027.42/117031/1/ecy20058692461.pdf)) | a tall light-taker over a shade-tolerant understory | **yes**: ceiling lamps make a vertical light gradient under every canopy |
 | **Time and disturbance** | a fast annual that seeds a lot ↔ a slow perennial that holds ground (Grime's ruderal ↔ competitor; Tilman's colonisation ↔ competition) ([CSR overview](https://aj.tubitak.gov.tr/botany/issues/bot-10-34-6/bot-34-6-6-0912-270.pdf)) | annuals fill the gaps perennials leave when they die, or where ants dig and graze | **yes**: ants dig and eat; plants age and die (grass since 2026-10-19) |
 | **Spreading** | clonal, vegetative spread (holds ground, few seeds) ↔ seed dispersal (reaches new gaps) | a tillering ground cover against seeders | **yes**: grass tillers; the rest seed |
-| **Rooting depth** | shallow fibrous roots that take rain first ↔ deep roots that reach stored water (Walter's two-layer idea for grasses and woody plants) | grass shallow, shrub deep | **unknown**: the bed starts at field capacity and the mister wets the top. **M0 measures the soil-water profile over a long run**; if water is never short at depth this niche does not exist here |
+| **Rooting depth** | shallow fibrous roots that take rain first ↔ deep roots that reach stored water (Walter's two-layer idea for grasses and woody plants) | grass shallow, shrub deep | **unknown**: the bed starts at field capacity and the mister wets the top. **M0 measures the soil-water profile over a long run.** If water never runs short at depth, the lab's watering is changed so it has a profile (owner, 2026-10-20). For example, a light mister over a deeper store that recharges slowly. Measured before and after, and shown |
 | **Being eaten** | defended and slow ↔ palatable and fast | the ants' choices shift the balance | partly: ants eat mostly dead leaf |
 
 ### 4.2 The roles: four, not nine
@@ -416,8 +469,8 @@ to settle. That is the plant version of a short ant rung.
 - **`c4d-highcpu-16` is the default for plant jobs.** Plant work is many
   independent beds, which favours more machines over bigger ones.
 
-**Budget.** The $100 a month is assumed to be shared with the ant lane, with
-plants planning for about **$40 a month**, to be confirmed (§9). At spot
+**Budget.** The $100 a month is shared with the ant lane; **plants get $40 a
+month** (owner, 2026-10-20). At spot
 prices that is roughly **180 machine-hours of a 16-vCPU VM**, about 2,000
 bed-core-hours. A rung-1–3 round of four roles costs well under $1. A
 rung-6 round is a few dollars. A single rung-7 validation (12 seeds × 4
@@ -438,8 +491,8 @@ This session cannot launch anything.
 
 | | what | done when |
 |---|---|---|
-| **M0** | **Baselines and feasibility, no engine change:** the development report (§3.2) for herb, shrub and grass; mix7 and a four-role bed, 12 seeds × 450,000 frames, with and without ants; **the soil-water profile over a long run** (§4.1); the cost of a small arena by size and length; a copied bed starting the same as its original | pictures and numbers in the chat; §3.2's bars set; §6.2's costs measured; the rooting-depth niche confirmed or dropped |
-| **M1** | **Part A**, A1–A5, one PR each | each meets its bar, with strips shown |
+| **M0** | **Baselines and feasibility, no engine change:** the development report (§3.2) for herb, shrub and grass; mix7 and a four-role bed, 12 seeds × 450,000 frames, with and without ants; **the soil-water profile over a long run** (§4.1); **the slice's counts** (§2.4: tips stopped by another plant, split from those stopped by their own plant; light under one canopy plant against open light; seed and litter depth per column; gaps per 100 columns); the cost of a small arena by size and length; a copied bed starting the same as its original | pictures and numbers in the chat; §3.2's bars set; §6.2's costs measured; the watering decision made from the water profile; A6's pieces chosen by the slice's counts |
+| **M1** | **Part A**, A1–A6, one PR each, and the lab's watering if M0 calls for it | each meets its bar, with strips shown |
 | **M2** | rungs 1–3 as `plantrain` modes, with station sets; the rung-predicts-rung check; the four roles re-fitted to the new engine | each re-fitted role completes its life in its own stations at least as well as the shipped species did on the old engine |
 | **M3** | the launcher runs plant jobs (new session, with the key) | an M2 job reproduces byte for byte on Google Cloud |
 | **M4** | rungs 4–6, the crippled-species known answer, and training rounds | all four roles invade each other from rare |
@@ -447,16 +500,16 @@ This session cannot launch anything.
 
 M0 and M1 run here, with no Google Cloud needed.
 
-## 9. Open questions for the owner
+## 9. Questions: all answered (2026-10-20)
 
-1. **The four roles** (§4.2): canopy perennial, shade-tolerant understory,
-   annual colonist, clonal ground cover. Cut one, add one (a climber, or a
-   deep-rooted drought plant), or keep them?
-2. **The budget split:** of the $100 a month, is about $40 for plants right,
-   given the ant lane uses the same account and quota?
-3. **If M0 finds water is never short at depth:** drop the rooting-depth
-   niche, or change the lab's watering so water has a profile? The second is a
-   change to the game, not to the plants, and is yours to make.
+1. **The four roles:** kept.
+2. **The budget:** $40 a month for plants, of the $100 shared with the ant
+   lane.
+3. **Watering:** may be changed so water has a profile, if M0 shows it never
+   runs short at depth.
+4. **The 2D cross-section:** handled up front (§2.4).
+
+None remain open. M0 is next and needs no further decision.
 
 ## 10. Risks
 
@@ -469,6 +522,10 @@ M0 and M1 run here, with no Google Cloud needed.
   check before each rung is used.
 - **Small arenas are not the bed.** A pocket of soil has edges a real bed does
   not. Answered by the same check, and by rung 7.
+- **The slice makes plant-to-plant effects harsher than life** (§2.4). Two
+  neighbours box a plant in, a canopy can block all light, and seed stacks.
+  Answered by measuring each effect in M0, and by A6 calibrating it as the
+  depth we cannot see, before rungs 4–6 rely on it.
 - **Part A moves every plant in both games.** One PR per change, pictures
   first, M0 baselines to compare against.
 

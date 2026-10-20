@@ -642,8 +642,9 @@ by somebody about to try it on creatures.
   trainer's bed is the lab's; the root cap binds on 34 of 48 beds; weather is
   a bigger noise than development.
 - [plant-community-plan-2026-10-20.md](plant-community-plan-2026-10-20.md)
-  — **plan, revision 2 (after the owner's review), open questions in its §9;
-  supersedes the trainer plan's P2–P6.** The goal: a lab bed where **four
+  — **plan, revision 3: every owner question answered, and the 2D
+  cross-section handled up front (its §2.4); supersedes the trainer plan's
+  P2–P6.** The goal: a lab bed where **four
   roles** coexist (canopy perennial, shade-tolerant understory, annual
   colonist, clonal ground cover), proven by **mutual invasibility** rather than
   a species count. **Part A** rebuilds development from how real plants grow:
@@ -654,7 +655,10 @@ by somebody about to try it on creatures.
   an ant-style ladder of seven rungs, from establishing in a pocket of soil
   (about 0.3 core-seconds a bed) to invading a pre-grown bed copied per
   candidate. Whole long beds are validation only. Google Cloud through PR 734's
-  launcher, about $40 of a shared $100 a month.
+  launcher, $40 a month of a shared $100. The 2D slice is read as a thin
+transect through a 3D stand: light through foliage, passage past another
+plant, and seed stacking are each measured, then calibrated as the depth that
+cannot be drawn.
 
 - [plant-trainer-plan-2026-10-19.md](plant-trainer-plan-2026-10-19.md)
   — **plan, revision 2, 2026-10-19; steps 3 and 4.** Revised after an
