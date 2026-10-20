@@ -271,6 +271,7 @@ Newest first. Each entry says what changed and what is now true.
   - **s134 is the first real step since s111.** It is past the agreed "3 full loads by generation 100" mark, so the pay rule was part of what held s111 back.
   - It is still short of the bar of 5 full loads on 11 of 12 worlds. Its blind control is low, so the gain comes from what it senses.
   - Its hold-best is the start for the next leg: `Reports/brain-training/stage2/dig/4b/dig-4b-s134-hold-best.txt`.
+  - GIF of s134 against its start on hold-out world 0: `Reports/brain-training/stage2/dig/4b/s134-vs-start.gif`, made with the GIF tool from `main` plus the frame patch. By the end of the run, s134 has cut at the foot of the shaft and widened its floor, and put 12 pellets down away from the hole against the start's 7.
   - s132 is still running.
 
 - **2026-10-20 01:45 UTC.**
