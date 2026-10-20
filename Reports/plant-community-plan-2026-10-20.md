@@ -129,7 +129,9 @@ after: the likely amplifier §6.13 never found (INFERRED).
 - **Grass is the ratchet.** It once took 21% of the low plants' columns every
   50,000 frames and gave none back.
 - **Low plants lose to seed heaps and burial** (76 of 89 covered sprouts
-  died). Every seed-thinning lever tried grew more grass.
+  died). Every seed-thinning lever tried grew more grass. **The soil rising
+  over them is fixed** (PR 716: only roots turn back into soil). **The seed
+  piles are not** (owner, 2026-10-20).
 - **Herbs** (annual) are still declining at 450,000 frames. With rain off they
   die out, and a 49.7M-frame playtest ended as grass alone.
 - **Ants** live mainly on dead leaf (60% of their energy) and move seed (188
@@ -163,7 +165,7 @@ missing in the slice, and each one changes the plan:
 | **Crowns interleave in depth.** A crown has volume, about R³ | **A crown has area, about R².** The same branching is R times denser, and neighbouring crowns collide instead of interleaving | Branches meet other plants far more often than in life | **Crown shyness** already exists: a tip steers away from any plant's foliage (`plant.rs:1021`, written for exactly this). M0 measures how often a tip stops because *another* plant is in the way. The census's `boxed` reason does not yet say whose cells boxed it, so M0 adds that split |
 | **Saplings grow up through gaps** in the understory, and roots of neighbours intermingle | **A tip cannot pass another plant's cell.** It must find a gap in the slice | The canopy role may be unable to get up through the understory, and neighbouring root systems wall each other off | **A6** (§3.3): thin, soft structures pass where a 3D plant would. A growing tip may push through another plant's leaf, shedding it at a cost, and a root tip may pass another's fine root. Built only if M0's count says blocking is common, and chosen by pictures |
 | **Light reaches the understory** through gaps in depth and at angles. A closed forest floor gets about 1–5% of open light, open woodland 5–20% (from memory, not re-read) | **Light passes foliage only through the field's per-column transmission** (Beer–Lambert, `field.rs:325–346`) | **The shade-tolerant role exists only if a canopy passes some light.** Too opaque and nothing lives under it; too clear and there is no understory niche | M0 measures the light under one canopy plant against open light. The leaf's transmission is **calibrated to the slice**, standing for the gaps in depth that cannot be drawn. That is a calibration of the world, not a tuning of any species |
-| **Seeds and litter spread over an area** | **Seeds and litter stack in one column.** Today's seed heaps are 45–59 deep and bury sprouts (76 of 89 covered sprouts died) | The heap itself is something the slice invents. But **removing heaps alone is measured not to help**: `SEED_HEAP_ROT` (heaped seed rots fast, built and left off 2026-10-17) halved the heaps and added no species, and every seed-thinning lever grew grass instead (`dead-ends.md`). The low plants lose for ecological reasons too | Part of **A6**, for realism, not as a rescue. Past a set depth per column, extra seed joins the seed bank as a number rather than a physical heap, and litter thins. The plan expects no species from this alone. The roles and their trade-offs (§4) are what have to make room for the low plants |
+| **Seeds and litter spread over an area.** In a real stand most seed is eaten, rots, or is washed or carried off and buried within a season | **Seeds and litter stack in one column.** Seed heaps reach 13–24 deep in M0's default bed and 45–59 in the planted-balance bed, and they bury sprouts (76 of 89 covered sprouts died). **The owner, 2026-10-20: "Huge piles of seed still build up"**: the soil rising over the low plants was fixed (PR 716, roots-only), but the seed piles were not | **The piles are a defect in their own right**: on screen, and because they bury sprouts. They are also partly something the slice invents. `SEED_HEAP_ROT` (heaped seed rots fast) halved the heaps and added no species, so a heap fix is **judged by pile depth and seed lying above the soil**, not by species count; the dead-end's re-test condition is met (`dead-ends.md`, written back 2026-10-20) | **A6, as a fix, not only for realism**: seed past a set depth per column leaves the slice (joins the bank as a number); seed that lands settles into the soil (the parked `SEED_SETTLE` rule, re-measured); litter thins. Each judged on pile depth, seed above the soil and sprout burial, with a picture of the bed at its peak pile |
 | **Biomass grows with height × crown area**, and costs scale with volume | **Biomass grows with height × width** | Tall and wide cost differently from life, so real-world trade-off numbers do not transfer | Trade-offs are priced from measurements in the engine (the cheat watch and the ladder's checks), never copied from real values |
 
 **The rule this sets for every part of the plan:** read the slice as a thin
@@ -262,9 +264,12 @@ and a frame-cost check.
    - **passage:** a growing tip may push through another plant's leaf (the
      leaf is shed, and the tip pays for it), and a root tip may pass another
      plant's fine root;
-   - **stacking:** seed and litter past a set depth per column leave the
-     slice (seed joins the bank as a number). This is for realism: the 2026-10-17
-     heap-rot switch showed that fewer heaps alone add no species;
+   - **seed piles** (owner, 2026-10-20: *"huge piles of seed still build
+     up"*): seed past a set depth per column leaves the slice (joins the bank
+     as a number), landed seed settles into the soil, and litter thins. Judged
+     on pile depth, seed lying above the soil and sprouts buried, never on
+     species count (the 2026-10-17 heap-rot switch showed that measure cannot
+     see a heap fix);
    - **light through foliage:** the transmission is calibrated so the light
      under a canopy plant falls in a realistic band.
 

@@ -37,7 +37,7 @@ use pixel_physics::sim::world::World;
 use pixel_physics::train_plant::genome;
 use std::collections::{BTreeMap, HashMap};
 
-const KNOWN: &[&str] = &["mode", "mix", "seed", "frames", "sample", "ants", "cripple", "rain", "width", "species", "widths", "lengths"];
+const KNOWN: &[&str] = &["mode", "mix", "seed", "frames", "sample", "ants", "cripple", "rain", "width", "species", "widths", "lengths", "shots", "out"];
 
 fn args() -> BTreeMap<String, String> {
     let mut m = BTreeMap::new();
@@ -173,11 +173,34 @@ fn community(m: &BTreeMap<String, String>) {
     );
     let (mut particles, mut blasts, tuning) = (ParticleSystem::new(), Blasts::new(), player::Tuning::default());
     let mut established: HashMap<(OrganismId, u64), u64> = HashMap::new();
+    // `shots=F,F,..` draws the bed through the shipped renderer at those
+    // frames (rows 100 above the soil to 20 below, 2 px a cell) into `out=`.
+    let shots: Vec<u64> = m.get("shots").map_or(vec![], |v| v.split(',').map(|x| x.parse().expect("a frame")).collect());
+    let out: String = get(m, "out", "plant_m0".to_string());
+    let mut renderer = pixel_physics::render::Renderer::new();
     for f in 1..=frames {
         pixel_physics::lab::tick_world(&mut w, &mut particles, &mut blasts, &tuning, &bed, Some(&scenario));
         if f % sample == 0 || f == frames {
             let row = census(&w, &bed, &species, &mut established, f, sample);
             println!("{row}");
+        }
+        if shots.contains(&f) {
+            let (fw, fh) = (bed.width as u32, bed.height as u32);
+            let mut frame = vec![0u8; (fw * fh * 4) as usize];
+            let touched = w.take_touched_chunks();
+            renderer.draw(&w, &particles, &touched, &mut frame, (fw, fh), true);
+            let (top, rows, sc) = ((bed.ground_y - 100).max(0) as usize, 120usize, 2usize);
+            let (tw, th) = (fw as usize * sc, rows * sc);
+            let mut img = vec![0u8; tw * th * 4];
+            for y in 0..th {
+                for x in 0..tw {
+                    let src = ((top + y / sc) * fw as usize + x / sc) * 4;
+                    img[(y * tw + x) * 4..(y * tw + x) * 4 + 4].copy_from_slice(&frame[src..src + 4]);
+                }
+            }
+            let path = format!("{out}_f{f}.png");
+            image::save_buffer(&path, &img, tw as u32, th as u32, image::ColorType::Rgba8).expect("write png");
+            println!("plant_m0: wrote {path}");
         }
     }
     println!("plant_m0 done: {:.1} s", started.elapsed().as_secs_f64());
