@@ -222,6 +222,13 @@ The owner is **Scott** (GitHub `sgladstein`). He uses a Mac terminal, so give zs
 - **Questions**: ask so they can be answered in one word, give your recommendation with pros and cons, and give ETAs from measured pace. **He dislikes repeats**, so check `Reports/dead-ends.md` (grep the mechanism) and these notes before proposing anything. **Give the real reason**; he spots circular reasoning.
 - **Writing to him**: lead with what it does and where it is going, in the world's words (ants, soil, shaft) rather than code's, then the mechanism. Keep it short.
 - **Big redesigns** need a design doc and an adversarial review before building.
+- **Rulings of 2026-10-20** (owner, in the session that took the lane over):
+  - **Dig step 4: pass** (s161 gen 336, after the GIFs).
+  - **Kept-skill floors against a fixed brain: yes** -- `keepref=` (s91) from the next run on.
+  - **Several brains in one box sharing a shaft: no** (it ranks brains no better than chance); separate shafts only as a timing check.
+  - **Earlier rejections may be revisited on the evidence**: "you are allowed to revisit any ideas that seem promising regardless of previous rejections" (RL, NEAT and big-network ES were rejected by reasoning in the design of record, never by test).
+  - **Protect connections the learning arena cannot test: yes** -- do not prune or mutate links that serve only verbs the arena never offers (the deletion that cost s161 its "don't eat the cargo" link; investigation part 3).
+  - **Reinforcement learning: yes, but after teaching-by-copying, not before** -- clone a hand-built digger first (it builds the gradient-through-the-brain code and has the stronger evidence), then test RL head-to-head against selection on one dig step, with a design doc first.
 
 ## 7. Repo and PR state (2026-10-20 19:15 UTC)
 
