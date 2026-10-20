@@ -1,0 +1,32 @@
+mutation off: births inherit exactly (measuring default is off; PIXEL_PHYSICS_MUTATION=on|off)
+train brain=mind challenge=suite arenas=soil,fetch,trail keep=fetch,trail forget=0.8 start=/home/runner/work/Pixel_Physics/Pixel_Physics/training/starts/s111-g226.txt walk=brain clones=false frames=None ants=None score=None noise=false targets= free= brake=Some(FoodBrake { lo: 1.0, hi: 1.5, small: 6.0, brood: true }) dist=(10, 30) steps=true step=4 shaft=4 foot=true budget=Some(1200.0) pic=None trace=None sealed=false heap=300 genes= walkset= prune=0.3 wire=0.001 grow=0.1 patience=50 resume=false seed=134 pop=100 gens=100 layouts=16 pm=0.03 sigma=0.3 cross=0.3 holdout=12 threads=4
+suite gated: from step 4 each kept arena is a pass/fail floor, its ratio left out of the product
+suite reference soil: 42.333, spread 23.914 over 6 units
+suite reference fetch: 18.977, spread 8.564 over 6 units
+suite reference trail: 0.776, spread 0.065 over 6 units
+challenge=suite unit=Colony ants=6 frames=6000 Settings { gens: 100, pop: 100, layouts: 16, pm: 0.03, sigma: 0.3, cross: 0.3, holdout: 12, every: 1, seed: 134, threads: 4, pictures: true, prune: 0.3, wire: 0.001, grow: 0.1, patience: 50, resume: false, arena: "brain=mind challenge=suite arenas=soil,fetch,trail keep=fetch,trail forget=0.8 walk=brain clones=false frames=None ants=None targets= free= brake=Some(FoodBrake { lo: 1.0, hi: 1.5, small: 6.0, brood: true }) dist=(10, 30) steps=true step=4 shaft=4 budget=Some(1200.0) heap=300 genes= walkset= foot=1" } banned=[Impulse, Fly, Attack, Provision, Lay, EmitA, EmitB] trainable_slots=2761
+gen   best  median  control  [soil_ratio fetch_ratio trail_ratio soil_fit fetch_fit trail_fit fetch_under trail_under]  secs
+  0    0.82    0.49    0.66  [0.82 1.10 0.99 34.62 20.81 0.77 0.00 0.00]  373  links 613
+    vetoed by a floor: fetch 28%, trail 3%
+    HOLDOUT champion    0.93  [0.93 1.00 0.98 39.17 19.06 0.76 0.00 0.00]
+    HOLDOUT start       0.90  [0.90 1.16 0.96 38.17 21.96 0.75 0.00 0.00]
+    HOLDOUT blinded     0.03  [0.27 0.88 0.00 11.33 16.79 -0.08 0.00 1.00]
+    verbs [walk,turn_around,rest,dig,pick_up,drop,eat,feed] sharp 4.00 pull 1.00 | live: scorer ctx 121 feat 152 verb 25 out 8, job 81, memory 136, emit 15, job hidden 75 (of 2774)
+  1    1.04    0.60    0.08  [1.04 1.01 1.05 44.00 19.20 0.82 0.00 0.00]  378  links 612
+    vetoed by a floor: fetch 22%, trail 5%
+    HOLDOUT champion    0.83  [0.83 1.17 1.04 35.17 22.24 0.81 0.00 0.00]
+    HOLDOUT start       0.90  [0.90 1.16 0.96 38.17 21.96 0.75 0.00 0.00]
+    HOLDOUT blinded     0.03  [0.31 0.65 0.00 13.00 12.41 -0.11 1.00 1.00]
+    verbs [walk,turn_around,rest,dig,pick_up,drop,eat,feed] sharp 4.00 pull 1.00 | live: scorer ctx 121 feat 155 verb 25 out 8, job 81, memory 137, emit 15, job hidden 70 (of 2774)
+  2    0.96    0.51    0.56  [0.96 0.89 1.02 40.62 16.91 0.79 0.00 0.00]  376  links 613
+    vetoed by a floor: fetch 28%, trail 8%
+    HOLDOUT champion    0.83  [0.83 0.99 0.97 35.17 18.79 0.75 0.00 0.00]
+    HOLDOUT start       0.90  [0.90 1.16 0.96 38.17 21.96 0.75 0.00 0.00]
+    HOLDOUT blinded     0.03  [0.29 0.46 0.00 12.33 8.75 -0.13 1.00 1.00]
+    verbs [walk,turn_around,rest,dig,pick_up,drop,eat,feed] sharp 4.00 pull 1.00 | live: scorer ctx 123 feat 152 verb 26 out 8, job 80, memory 136, emit 15, job hidden 73 (of 2774)
+  3    1.00    0.47    0.69  [1.00 0.85 1.06 42.12 16.17 0.82 0.00 0.00]  371  links 609
+    vetoed by a floor: fetch 33%, trail 3%
+    HOLDOUT champion    0.82  [0.82 0.99 1.05 34.67 18.88 0.82 0.00 0.00]
+    HOLDOUT start       0.90  [0.90 1.16 0.96 38.17 21.96 0.75 0.00 0.00]
+    HOLDOUT blinded     0.02  [0.17 0.27 0.00 7.00 5.06 -0.11 1.00 1.00]
+    verbs [walk,turn_around,rest,dig,pick_up,drop,eat,feed] sharp 4.00 pull 1.00 | live: scorer ctx 119 feat 152 verb 23 out 9, job 80, memory 138, emit 15, job hidden 73 (of 2774)
