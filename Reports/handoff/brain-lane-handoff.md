@@ -1,6 +1,6 @@
 # Handoff: training the ant's brain (stage 2), for an agent with only this repo
 
-**Last updated: 2026-10-20 04:50 UTC.** Written by the session that has run
+**Last updated: 2026-10-20 06:25 UTC.** Written by the session that has run
 this work since 2026-10-17, because the owner's account was about to run out
 of usage. It is updated in place through the night as each task finishes:
 read the **Log** at the bottom first to see what changed since this header.
@@ -267,6 +267,10 @@ The owner is **Scott** (GitHub `sgladstein`). He uses a Mac terminal, so give zs
 ## Log
 
 Newest first. Each entry says what changed and what is now true.
+
+- **2026-10-20 06:25 UTC.**
+  - **Round 4 at generation 40: champions now beat the start on hold-out.** This is the first round since s134 to do so. s161 best 1.36 (gen 22) and s162 best 1.27 (gen 21), against the start's 1.08 on the same 24 layouts. Treat it as promising, not proven: it is still the best of about 40 scores on fixed layouts. The test is the hold-best on the sealed worlds, paired per world against s134 and s111 gen 226.
+  - The snapshots hold no `hold-best.txt` mid-run; it is written when the run ends. Expect both done by about 08:35 UTC, or about 07:30 if the auto-stop fires 50 generations after a best at gen 22.
 
 - **2026-10-20 04:50 UTC.**
   - **Round 4 running** (`dig-4b4-s161`, `s162`, two `c4d-highcpu-32`), 138 s a generation, due about 08:35 UTC. Round 3's VMs were stopped at generations 10-12 and deleted. Their bundles are in the bucket and the shared folder only, not the repo, since nothing in them is worth resuming.
