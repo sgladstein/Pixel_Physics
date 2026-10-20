@@ -286,7 +286,7 @@ The owner is **Scott** (GitHub `sgladstein`). He uses a Mac terminal, so give zs
 
 Newest first. Each entry says what changed and what is now true.
 
-- **2026-10-20 22:30 UTC. Link protection built (`protect=`, on by default).**
+- **2026-10-20 22:05 UTC. Link protection built (`protect=`, on by default).**
   - The trainer now leaves alone every slot that serves only a verb the learning arena can never use: in a digging suite (soil learned, fetch and trail kept) that is Pick up, Eat and Feed, 219 slots (73 each: switch, job row, hidden-to-job row, scorer verb weights, memory's "just chose it" weights), so trainable slots go from 2,761 to 2,542. Mutation and pruning never touch them, so a run can no longer delete "don't eat the cargo" (investigation part 3).
   - Which verbs can act is per arena (`Challenge::acting_verbs`): the soil box has no food or larvae, measured on 38,028 decisions and guarded by `soil_never_offers_food_verbs`, which fails if those verbs ever get a target there. A suite's `untested_verbs` are the verbs only its kept arenas can use.
   - Tests: `protect_keeps_untestable_verbs_links_from_mutation` (positive control: unprotected, Eat's slots do mutate), the soil guard (its counter is checked against verbs that do act), `a_digging_suite_leaves_the_food_verbs_untested`. 59/59 trainer tests, 17/17 mind tests, clippy clean. End to end: a suite run prints `protect: 219 slots serving only [PickUp, Eat, Feed] left alone`.
