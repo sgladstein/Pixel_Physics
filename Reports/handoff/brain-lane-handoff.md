@@ -1,6 +1,6 @@
 # Handoff: training the ant's brain (stage 2), for an agent with only this repo
 
-**Last updated: 2026-10-20 01:05 UTC.** Written by the session that has run
+**Last updated: 2026-10-20 01:15 UTC.** Written by the session that has run
 this work since 2026-10-17, because the owner's account was about to run out
 of usage. It is updated in place through the night as each task finishes:
 read the **Log** at the bottom first to see what changed since this header.
@@ -258,6 +258,10 @@ The owner is **Scott** (GitHub `sgladstein`). He uses a Mac terminal, so give zs
 
 Newest first. Each entry says what changed and what is now true.
 
+- **2026-10-20 01:15 UTC.**
+  - The coordinator's review should-fixes for PR 733 are done in this PR.
+  - `foot=1` is now refused before anything is echoed, both without `step=4` and outside a soil arena.
+  - The doc notes that at `shaft=0`, `foot=1` behaves exactly as rev 2.8.
 - **2026-10-20 01:05 UTC.**
   - The Actions copies of the 4b runs were cancelled ("Don't double up... Just pick one"). Google is the only copy.
 - **2026-10-20 01:00 UTC.**
