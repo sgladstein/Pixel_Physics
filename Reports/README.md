@@ -642,15 +642,21 @@ by somebody about to try it on creatures.
   trainer's bed is the lab's; the root cap binds on 34 of 48 beds; weather is
   a bigger noise than development.
 - [plant-community-m0-2026-10-20.md](plant-community-m0-2026-10-20.md)
-  — **M0 of the community plan, in progress.** The per-plant developmental
-  key freezes the dice without shrinking them: one herb genome in one spot
-  over 8 developmental seeds ranges 128–382 cells. The shrub's
-  stall-or-take-off has a traced cause: dice in a seedling's first 1,000
-  frames decide whether its few tips survive, and bud break reads income per
-  tick (it needs about 12× a seedling's leaf area) rather than savings, so a
-  bad roll is permanent. Water moves roots the right way, by more than the
-  noise. Light, as tested, did not (the lamps light the bench evenly). Arena
-  cost tracks activity, not area, and a grown bed copies exactly.
+  — **M0 of the community plan, complete.**
+  **Today's lab bed holds one to three kinds of plant**, and the survivors
+  mostly do not replace themselves (42 beds, 450,000 frames). **Ants make room
+  for the annual herb** (5 of 8 beds with ants, 0 of 12 without).
+  **Grass fails at recruitment, and the seed piles are that failure.** Under
+  the lab default, seedlings on the pile are felled and grass dies out.
+  Under the owner's setting (load failure off) the pile never clears (40
+  deep) and grass carpets the bed. **The default mister floods every bed past
+  about 200,000 frames** (§Z38).
+  **The per-plant developmental key freezes the dice without shrinking them**
+  (one herb genome, one spot: 128–382 cells). **The shrub's stall-or-take-off
+  is traced:** bud break reads income per tick, not savings, so a seedling
+  that loses its tips early never restarts.
+  62–86% of shoot tips touch another plant. A grown bed copies exactly, and a
+  small arena costs about 0.1 core-seconds.
 
 - [plant-community-plan-2026-10-20.md](plant-community-plan-2026-10-20.md)
   — **plan, revision 3: every owner question answered, and the 2D

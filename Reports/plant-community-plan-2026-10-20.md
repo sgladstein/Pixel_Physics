@@ -505,6 +505,21 @@ This session cannot launch anything.
 
 M0 and M1 run here, with no Google Cloud needed.
 
+**M0 is done (2026-10-20):** `plant-community-m0-2026-10-20.md`. Its results
+reorder M1:
+
+1. **Watering first.** The default mister floods every bed past about
+   200,000 frames (§Z38), so every later community number would measure a
+   lake. Wet and dry spells replace it.
+2. **Then A3's bud-break and tip rules**, which the shrub trace pins down.
+3. **Then A6's seed and passage rules.** Grass's recruitment failure *is*
+   the seed pile, and 62–86% of tips touch another plant.
+4. **Then A2's development keying.** The per-plant key does not shrink the
+   dice.
+
+The light arm of the development instrument is redesigned with a real shade
+before A5's light responses are judged.
+
 ### 8.1 M0, item by item, each with its control
 
 Every number below is checked against a case known to be fine

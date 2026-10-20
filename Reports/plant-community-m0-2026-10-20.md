@@ -1,12 +1,33 @@
 # M0 of the plant community plan: baselines and feasibility (2026-10-20)
 
-**Status: in progress.** The development, cost, copy and shrub readings are
-complete. The community beds (M0.4–M0.6, 42 runs of 450,000 frames) are
-running; their section is filled in when they finish. Plan of record:
+**Status: complete.** Development, cost, copy, the shrub trace, the 42
+community beds, the load-failure check and the flood curve are all in. Plan of record:
 [`plant-community-plan-2026-10-20.md`](plant-community-plan-2026-10-20.md)
 §8.1. Logs: `Reports/plant-community-2026-10-20/m0/`.
 
 ## 1. What this changes in the plan, in short
+
+**The community results** (§6), first:
+
+- **Today's bed holds one to three kinds**, and the survivors mostly do not
+  replace themselves.
+- **Ants make room for the annual herb** (5 of 8 beds with ants, 0 of 12
+  without). The colonist role exists.
+- **Grass fails at recruitment, and the seed pile is the same failure.**
+  Under the lab default, seedlings sprouting on the pile are felled and grass
+  dies out. Under the owner's setting (load failure off), they live, the pile
+  never clears (40 deep), and grass carpets the bed.
+- **The default mister floods every bed past about 200,000 frames** (§Z38),
+  so the first M1 step is the watering. With the mister off, the soil has
+  the dry-top, wet-deep profile a rooting-depth niche needs.
+- **The slice is crowded.** 62–86% of shoot tips touch another plant, and a
+  quarter to a half are blocked from growing up. A6's passage rule is
+  warranted.
+- **Tree and conifer canopies pass a third of the light** to the soil (an
+  understory is possible). **Shrubs pass 86%**: the canopy role needs a
+  denser start or training.
+
+**The development and feasibility results** (§2–§5):
 
 1. **The per-plant key freezes the dice; it does not shrink them.** One herb
    genome, one spot, eight developmental seeds: 128–382 cells, a spread of
@@ -329,5 +350,52 @@ bed, so off is not the answer.
 
 ### 6.7 Load failure off (the owner's setting)
 
-*Running: four of the four-role beds with plant load failure off. Filled in
-when they finish.*
+The owner's playtest bed runs with plant load failure off (`replay.rs`). The
+same four four-role beds (seeds 1–4, no ants), on and off (`m0/loadfail-off/`):
+
+| | load failure on (lab default) | load failure off (owner) |
+|---|---|---|
+| grass leaf at 450k | 1 (extinct, 0 of 4) | **2,369 (4 of 4)** |
+| seed cells on the soil, peak | 3,675 | **8,302** |
+| deepest seed column | 25 | **40** |
+| seed still on the soil at 450k | 34 | **8,302**: the pile never clears |
+| kinds with 100+ leaf | 2 | 3 (herb gone in both) |
+| reproducing in the last 100k (median) | 0 | 1 |
+| shoot tips touching another plant / blocked upward | 0.62 / 0.24 | 0.86 / 0.54 |
+
+**One switch flips grass from extinct to dominant, and neither is a mixed
+bed.**
+
+- **With load failure off**, a seedling that sprouts on the seed pile is
+  not felled. Grass grows on top of its own seed, keeps the pile, and carpets
+  the bed. That is the owner's "huge piles of seed" (picture:
+  `m0/pics/seed-mound-loadfail-off.png`, a mound several times the plants'
+  height with water trapped inside).
+- **With it on**, those seedlings are felled and grass dies out.
+
+**For the plan:** the seed pile is not a separate defect from grass's
+recruitment. It is the same seed, either piling up and burying the bed or
+rotting while grass dies. A6's seed fix is judged under the owner's setting,
+where the pile is visible, as well as the lab default.
+
+### 6.8 The mister floods the bed
+
+Standing water above the soil (census `standing=`), seed 2, no ants
+(`m0/flood/`):
+
+| frame | four roles | four roles, load failure off | mix7 |
+|---|---|---|---|
+| 50,000 | 376 | 339 | 493 |
+| 250,000 | 2,645 | 2,051 | 3,738 |
+| 450,000 | **9,436** (deepest 25) | **6,864** (31) | **8,622** (58) |
+
+- **It never levels off.** The mister was signed off over 120,000 frames
+  (`lab/rain.rs`); past that the bed fills until every plant is under water
+  (`m0/pics/flood-sequence.png`).
+- **It is registered as bug §Z38**, because it touches every long run on a
+  mister-on bed, the ant lane's included.
+- **Some of what §6.1 calls late decline may be plants under water.** The
+  four-role beds' "falling in the second half" (grass 12/12, herb 7/12) and
+  "no new plants in the last 100k" are read after the lake forms. **Every
+  §6.1 number is therefore a baseline of today's bed, flood included, not of
+  the plants alone.** The M1 watering change re-runs them.
