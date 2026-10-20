@@ -222,6 +222,14 @@ The owner is **Scott** (GitHub `sgladstein`). He uses a Mac terminal, so give zs
 - **Questions**: ask so they can be answered in one word, give your recommendation with pros and cons, and give ETAs from measured pace. **He dislikes repeats**, so check `Reports/dead-ends.md` (grep the mechanism) and these notes before proposing anything. **Give the real reason**; he spots circular reasoning.
 - **Writing to him**: lead with what it does and where it is going, in the world's words (ants, soil, shaft) rather than code's, then the mechanism. Keep it short.
 - **Big redesigns** need a design doc and an adversarial review before building.
+- **Rulings of 2026-10-20** (owner, in the session that took the lane over):
+  - **Dig step 4: pass** (s161 gen 336, after the GIFs).
+  - **Kept-skill floors against a fixed brain: yes** -- `keepref=` (s91) from the next run on.
+  - **Several brains in one box sharing a shaft: no** (it ranks brains no better than chance); separate shafts only as a timing check.
+  - **Earlier rejections may be revisited on the evidence**: "you are allowed to revisit any ideas that seem promising regardless of previous rejections" (RL, NEAT and big-network ES were rejected by reasoning in the design of record, never by test).
+  - **Protect connections the learning arena cannot test: yes** -- do not prune or mutate links that serve only verbs the arena never offers (the deletion that cost s161 its "don't eat the cargo" link; investigation part 3).
+  - **Teaching by copying: test both label sources, side by side** -- (A) self-imitation: the brain's own decisions from trips that became full loads, filtered by the scorer; (B) a hand-written teacher, time-boxed to one day of building (the owner's caution: weeks of hand-encoded behaviour failed before training replaced it, so B's difficulty is part of what is measured). Same copying code for both; offline first (24 sealed worlds at 4 and 8 rows, against s161, kept skills against `keepref=s91`), then a short 8-row training run from each survivor beside plain s161, with GIFs for the owner.
+  - **Reinforcement learning: yes, but after teaching-by-copying, not before** -- clone a hand-built digger first (it builds the gradient-through-the-brain code and has the stronger evidence), then test RL head-to-head against selection on one dig step, with a design doc first.
 
 ## 7. Repo and PR state (2026-10-20 19:15 UTC)
 
@@ -278,6 +286,12 @@ The owner is **Scott** (GitHub `sgladstein`). He uses a Mac terminal, so give zs
 
 Newest first. Each entry says what changed and what is now true.
 
+- **2026-10-20 20:30 UTC. Dig step 5 (8-row shaft) training started.**
+  - `dig-8-s171`, `dig-8-s172` on Google (`c4d-highcpu-32`, `--hours 8`, launched with `start`, so a spot preemption is not restarted), ref `48c67a0` (has `keepref=`), from s161 gen 336 (`Reports/brain-training/stage2/dig/4b4/dig-4b4-s161-g340-hold-best.txt`). Arguments as round 4 but `shaft=8 frames=12000 budget=2400 keepref=training/starts/fretrain-s91.txt gens=100`. About 4 min a generation (estimate), due about 03:30 UTC.
+  - **Why these settings:** investigation part 4 -- at 8 rows a 12,000-frame run separates brains better per CPU than more worlds; the dig score ranks better than full loads; the worse-side fold costs nothing at 12,000 frames.
+  - **The 8-row bar (owner, 2026-10-20): a pace** -- 5 full loads per 6,000 frames, so **10 per 12,000, on 11 of 12 sealed worlds**, plus the step-4 share and blind conditions. Untrained s161 reads 6.6 per 12,000 (3.7 per 6,000; 24 sealed worlds), so it starts well short.
+  - **Not in these runs:** the approved protection of untestable links (not built yet). Watch fetch and trail against the `keepref=` floor in `holdout.csv`.
+  - Score each hold-best with `holdout=24 sealed=1 shaft=8 frames=12000 budget=2400 noise=1`, paired per world against s161 gen 336 at the same settings.
 - **2026-10-20 19:15 UTC. Step 4 passed; investigation started.**
   - **Gen 340** (exact resumes from gen 200): s162 finished at 18:10; s161 was deleted at gen 337 of 340 by mistake (fetch and delete in one step) and its gen-336 `top` brain recovered from `state.txt`. 24 sealed worlds, full loads per world: s161 g336 **7.21** (20/24 at 5+; +1.83 over its g199, se 0.44), s162 g338 6.21 (+0.50, se 0.63). On the bar's 12 sealed worlds s161 g336: **11 of 12 at 5+, pooled share 0.89, blinded 1.00**. The owner saw the GIFs (sealed worlds 0 and 1, chosen before looking) and ruled **pass**.
   - **Kept skills eroded more than the 12-world check showed.** On 24 sealed worlds, as a share of s91: fetch s134 0.76, s161 g336 0.75, s162 g338 0.83 (low 0.65 at s162 g190); trail 0.83-0.97 along the line, 0.83 / 0.87 at the newest. Real foraging (`challenge=scarce`, food 80 out) delivers nothing for any brain, s91 included. A first lineage plot chained each run's hold-out ratio back to s91 and read 0.6 for fetch; one 24-world set flips the order of s162 g338 and s134 on fetch, so a four-link chain compounds that bias and was dropped.
