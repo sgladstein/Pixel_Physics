@@ -1,6 +1,6 @@
 # Handoff: training the ant's brain (stage 2), for an agent with only this repo
 
-**Last updated: 2026-10-20 02:40 UTC.** Written by the session that has run
+**Last updated: 2026-10-20 02:50 UTC.** Written by the session that has run
 this work since 2026-10-17, because the owner's account was about to run out
 of usage. It is updated in place through the night as each task finishes:
 read the **Log** at the bottom first to see what changed since this header.
@@ -93,6 +93,7 @@ fix it; the rung needs a design change. Take that to the owner.
 1. **When the round-2 runs (s141-s144) finish**, take each run's `hold-best.txt`. Score each on the 12 sealed worlds with `foot=1`, against `training/starts/s134-4b-g34.txt` (command in section 4 and the Log's 01:45 entry). Read `full_loads` per world against the bar (5 on 11 of 12 worlds), then the blinded row. The number to beat is s134's: 3.67 full loads per world, 3 of 12 worlds at 5 or more.
 2. **Make a before/after GIF** (section 4) and a training-curves picture (`curves.png` comes with every run). Send both to the owner with the numbers. **Never call a rung passed before the owner has seen the pictures and the GIF.**
 3. **If no seed passes but some climb**, resume the best one (exact resume, section 5) rather than starting fresh. **If none is past 3 full loads by gen 100**, stop and bring the owner a design question with your recommendation.
+3b. **Option the owner raised (02:45): several ants digging in one box.** Not started. It is an argument change, not code: the soil arena takes `ants=` (e.g. `ants=4`). The plan has it at step 9 (twelve ants). For it: the ants share one brain, so the colony's score is the brain's score (no free-riding), and more digging per world means less noisy scores. Catches to handle first: the shaft is one cell wide and `foot=1` pays only foot cuts, so ants will queue there; the bar of 5 full loads per world must become per ant; per-world cost rises with the ant count (not measured); and check that the soil score credits each ant's trips correctly with more than one ant. Suggested use: one 4-ant probe run from the best brain if round 2 does not clear the bar. Ask the owner before spending on it.
 4. **If step 4 passes**, go on to the next step in `dig-rung-design.md`: deeper shafts (8, then 12 rows), then door, bare ground, roof, 12 ants, rooms, more chambers, and dig plus scarce food. The rule for each step is that a **hand-built digger passes it first** (positive control) and rest/blank/blind controls score about 0.
 5. **Parked, not started** (from the owner-approved brain fix plan; steps 0-1 are done as PRs 721-722):
    - weigh a champion against the run's best;
@@ -258,6 +259,9 @@ The owner is **Scott** (GitHub `sgladstein`). He uses a Mac terminal, so give zs
 ## Log
 
 Newest first. Each entry says what changed and what is now true.
+
+- **2026-10-20 02:50 UTC.**
+  - The owner asked for thoughts on training with several ants digging in one box. Answer and the catches are now item 3b of section 3. Nothing started.
 
 - **2026-10-20 02:40 UTC.**
   - **Round 2 confirmed running.** All four VMs (`dig-4b2-s141` ... `s144`) booted and began building at 02:30 UTC. Section 2 now describes round 2; round 1's results are in the 02:30 entry below.
