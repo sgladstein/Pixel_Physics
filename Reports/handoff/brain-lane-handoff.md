@@ -1,6 +1,6 @@
 # Handoff: training the ant's brain (stage 2), for an agent with only this repo
 
-**Last updated: 2026-10-20 00:40 UTC.** Written by the session that has run
+**Last updated: 2026-10-20 01:00 UTC.** Written by the session that has run
 this work since 2026-10-17, because the owner's account was about to run out
 of usage. It is updated in place through the night as each task finishes:
 read the **Log** at the bottom first to see what changed since this header.
@@ -76,8 +76,12 @@ Seeds 112 and 114 stayed flat (hold-out about 1.0-1.5). Seed 113 auto-stopped at
 
 *Four new seeds, s131-s134, all started from s111's gen-226 best with `foot=1`, 100 generations each.*
 
-- **Google Cloud** (fast, about 2.5 h; started about 00:00 UTC). Results go to the bucket only, as `runs/dig-4b-s13X/latest.tgz` plus a `DONE` marker (section 6). Fetching them needs the Google key.
-- **GitHub Actions** (free, slow). The same four runs, from branch `train/dig-4b`, as a copy that lands in the repo by itself.
+- **Google Cloud: the main copy.** The four VMs started 00:03-00:05 UTC and run at about 1.8 minutes a generation, so they should finish about 03:00 UTC unless the auto-stop ends one sooner.
+  - Each VM writes a snapshot to the bucket every 5 minutes, as `runs/dig-4b-s13X/latest.tgz`, and a `DONE` marker at the end. The VMs need no session to keep running.
+  - Fetch with the launcher (section 5): `python3 Reports/brain-training/cloud-compute/gcp/gcp_train_job.py fetch dig-4b-s131 <dir>`. That saves `<dir>/dig-4b-s131-snap.tar.gz` holding `hold-best.txt`, `best.txt`, `progress.csv`, `holdout.csv`, `train.log`, `curves.svg` and `state.txt`.
+  - Then `status dig-4b-s131` should say the VM is gone. If it doesn't, run `delete dig-4b-s131`.
+  - **Early hold-out numbers.** These come from the training hold-out (12 layouts, not the sealed set), on the soil score under `foot=1`, where the start scores 38.2. At about generation 28: s131 best 51.7 (gen 12), s132 49.2 (gen 19), s133 43.8 (gen 20), s134 46.8 (gen 18). None of this is a pass reading yet.
+- **GitHub Actions: a free backup copy.** The same four runs, from branch `train/dig-4b`, land in the repo by themselves.
   - Results: branch `train-results/dig-4b-s13X`.
   - One leg is capped at 6 h, which is roughly 24-50 generations. To carry on, push the same job file again with `resume=1` added (section 5).
   - Results are identical at any thread count, so the Actions copy reproduces the Google run generation for generation.
@@ -161,7 +165,7 @@ layouts=16 pm=0.03 sigma=0.3 cross=0.3 holdout=12 start=training/starts/s111-g22
 
 Tonight's four jobs are on `train/dig-4b` as examples.
 
-**Google Cloud (paid, fast).** You need the owner's go and his service-account key.
+**Google Cloud (paid, fast): the main compute.** The owner will give you the service-account key, and his $100 go covers runs on this ladder.
 - The launcher is `Reports/brain-training/cloud-compute/gcp/gcp_train_job.py`; its header documents it.
 - The key is passed as base64 in the environment variable `GCP_SA_KEY_B64`. Never put it in a file, a commit, a log or chat.
 - Setup and launch:
@@ -257,6 +261,10 @@ The owner is **Scott** (GitHub `sgladstein`). He uses a Mac terminal, so give zs
 
 Newest first. Each entry says what changed and what is now true.
 
+- **2026-10-20 01:00 UTC.**
+  - The owner confirmed the next agent will have the Google key, so Google is the main compute and the Actions copies are a backup.
+  - The 4b runs are at about generation 28, with early hold-out numbers in section 2.
+  - Expected finish is about 03:00 UTC.
 - **2026-10-20 00:40 UTC.**
   - Handoff written.
   - Step 4b merged to `main` (PR 733); this handoff is in its own PR.
