@@ -28,6 +28,9 @@ Without the bucket it falls back to the serial console and says so at start. A n
 is refused unless it is a continuation.
 Safety: the VM deletes itself after --hours + 1 h (max_run_duration), is labelled purpose=pixel-train, and `delete`
 removes it.  Spot VMs can be preempted: `status` says 'gone'.
+The post-DONE `shutdown` is not reliable (2026-10-20: a VM was still RUNNING ~20 min after @@DONE), so after a final
+fetch, check `status` and `delete`. Delete only once the bucket's DONE marker is confirmed, never in the same command as a
+fetch: a run deleted at generation 337 of 340 lost its last 3 generations and its hold-best.txt.
 
 Carrying a run on (the trainer's exact resume, `resume=1`): every snapshot holds `state.txt`, so `start NAME "... resume=1"
 --seed <a NAME-snap.tar.gz from fetch, or a tar of a train-results/<name> branch>` puts that run's state.txt, progress.csv
