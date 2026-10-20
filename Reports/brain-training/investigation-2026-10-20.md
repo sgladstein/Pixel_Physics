@@ -1,6 +1,6 @@
 # Investigation: the dig brain and the training process, before the 8-row step
 
-*Started 2026-10-20, after the owner passed dig step 4 on s161 gen 336. Status: in progress (parts 1-3 of 5 done). The plan and
+*Started 2026-10-20, after the owner passed dig step 4 on s161 gen 336. Status: in progress (parts 1-4 of 5 done). The plan and
 its decisions are in `Reports/handoff/brain-lane-handoff.md`, section 3, item 1.*
 
 Why: about 8 dig steps remain, deeper shafts make full loads rarer, and step 4 alone took about 600 generations along the
@@ -35,8 +35,8 @@ cut joined to the decision that made it.
   (s161 g336, 24 sealed worlds): 4.2, 7.2, 12.3 and 17.0 full loads at 3,000, 6,000, 12,000 and 24,000 frames (budget
   scaled; at 12,000 frames on 1,200 J every ant runs dry and it reads 9.1).
 - **Noise against run length:** per-world sd/mean 0.40, 0.31, 0.27, 0.28 at those lengths. Doubling the frames cuts it
-  less than doubling the worlds would (0.27 against about 0.22 for the same CPU), so **at 4 rows, more worlds beats longer
-  runs** for ranking brains. Part 4 repeats this at 8 rows.
+  less than doubling the worlds would (0.27 against about 0.22 for the same CPU). **Corrected by part 4:** noise alone
+  is the wrong test, because brains also pull apart over a longer run; at 8 rows longer runs rank better per CPU.
 
 **What it means for the 8-row step:** the below-ground part of every trip roughly doubles, while the surface waste
 (overshoot, distant put-downs, unpaid cuts) is unchanged. Cutting that waste would buy loads at both depths: as an upper
@@ -108,3 +108,40 @@ pure gain to delete. Only the kept-skill floor resists, and until `keepref=` tha
 will strip what the floor allows. Levers for part 5: count the kept skills in the score rather than only as a floor;
 or stop pruning (and taxing) connections that serve only verbs the learning arena never offers -- Eat has no target
 while digging.
+
+## Part 4: can training tell good brains from lucky ones?
+
+**Answer: barely, among the near-equal brains a run ends with; the score it ranks on is the right one; and at 8 rows
+longer runs per world rank better per CPU than more worlds.** 50 brains (the 25 parents of s161's and of s162's final
+generations), each scored solo on two independent 48-world sets drawn the way training draws a generation's
+(`training_layouts`, mirrored pairs), 4,800 rows per condition, every row checked present. Scratch harness
+`examples/reliab.rs` (not on `main`).
+
+![Part 4](investigation/part4-reliability.png)
+
+| Condition | Measure | Spread between brains (sd) | Per-world noise (sd) | Agreement of two 48-world tests | Worlds for agreement 0.7 |
+|---|---|---|---|---|---|
+| 4 rows, 6,000 frames | full loads | 0.21 | 2.02 | 0.38 | 210 |
+| 4 rows, 6,000 frames | dig score | 3.5 | 25.4 | 0.50 | 122 |
+| 8 rows, 6,000 frames | full loads | 0.24 | 1.63 | 0.52 | 105 |
+| 8 rows, 12,000 frames | full loads | 0.57 | 2.55 | 0.52 | 47 |
+| 8 rows, 12,000 frames | dig score | 8.2 | 35.5 | 0.50 | 44 |
+
+("Worlds for agreement 0.7" is the test length at which a brain's mean would be 0.7 reliable, from the variance split.)
+
+- **The brains a run ends with differ by a tenth of the noise.** That is why selection on 16 worlds was mostly picking
+  luck (the 04:40 reading), and why the gain came only at 48.
+- **The dig score is the better ranking number.** At 4 rows it agrees 0.50 between independent sets against 0.38 for
+  full loads (122 worlds for 0.7 against 210): it pays partial progress, so it is smoother. Training already ranks on it;
+  keep full loads as the bar, not as the selection score.
+- **At 8 rows, longer runs win.** Doubling the frames more than doubles the true differences between brains (0.24 to
+  0.57 full loads) while the noise grows by half, so the worlds needed fall from 105 to 47 for 1.8x the CPU a world. At
+  equal compute 12,000 frames ranks a little better (about 0.71 against 0.65). Part 1's "more worlds beats longer runs"
+  was read from noise alone and does not hold at depth.
+- **The worse-side fold costs ranking at depth.** At 8 rows and 6,000 frames ranking by each mirrored pair's worse side
+  (as training does, against one-sided cheats) agrees 0.41 with the independent set, against 0.52 for the plain mean:
+  it uses half the worlds. At 12,000 frames the two agree equally (0.53 and 0.52).
+- **Caveat:** these are a run's parents, already its top quarter, so the spread is narrower than within a whole
+  generation. Part 5 repeats the test on a generation with fresh mutants.
+- **Parents are re-scored every generation** on new worlds (`breed` keeps them in the population;
+  `src/train/mod.rs`), so no lucky score is carried forward. Nothing to change there.
