@@ -3,7 +3,7 @@
 *What plants do, and what it looks like when they are working. No code, no
 file names — see `Reports/` for why any of it is built the way it is.*
 
-*Current as of: 2026-10-21 (**seed no longer heaps up in the lab**: a seed that comes to rest on a heap two deep is taken to have fallen beside the bed instead, so the tan mounds are gone and the ground shows -- see *The seed bank*). Also 2026-10-19 (**a grass tussock dies of old age**, so a meadow gives ground back and the low plants get some of it -- see *Species*). Also 2026-10-17 (**a buried grass blade rots as litter, not as soil**, so a meadow no longer builds hills over its low plants -- see *The forest floor*). Also 2026-10-14 (**a seed waiting on dry ground keeps much longer, and a waiting seed is not yet a plant**, so a bed that dries out can come back with more than grass when the rain returns -- see *The seed bank*). Also 2026-10-13 (**a grass with no root in the ground dries out** instead of living for ever -- see *Drought*, under what kills a plant). Also 2026-10-10 (**a herb dies after it has set seed**, and the bed renews itself from seed -- it empties if rain is off; see *A herb lives one season*). Also 2026-10-10 (**a plant grows back leaf that was bitten off**, paid from what it has stored, so a grazed bed keeps a middle between full and bare -- see *A plant that has been bitten*). Also 2026-10-07 (**a plant's page says why its tips stopped growing** -- the height its water reaches, no room, too poor and the rest -- see *What a healthy stand looks like*). Also 2026-10-06 (**the list of the dead says what killed each plant** -- shaded out, dried out, eaten, old age and the rest; *felled* now means felled, and a seed that rots unsprouted is counted but not listed -- see *Fire and death*). Also 2026-10-05 (**grass grows back** -- a tussock that loses its blades sends up new ones from its crown, so a meadow keeps seeding instead of fading -- see *Species*). Also 2026-10-03 (**water runs through a plant along real paths**:
+*Current as of: 2026-10-21 (**a plant that has lost every growing shoot starts a new one from what it has stored**, so a shrub no longer stops for good at a few cells, and **a shrub dies of old age** -- see *A plant that has lost its shoots*). Also 2026-10-21 (**seed no longer heaps up in the lab**: a seed that comes to rest on a heap two deep is taken to have fallen beside the bed instead, so the tan mounds are gone and the ground shows -- see *The seed bank*). Also 2026-10-19 (**a grass tussock dies of old age**, so a meadow gives ground back and the low plants get some of it -- see *Species*). Also 2026-10-17 (**a buried grass blade rots as litter, not as soil**, so a meadow no longer builds hills over its low plants -- see *The forest floor*). Also 2026-10-14 (**a seed waiting on dry ground keeps much longer, and a waiting seed is not yet a plant**, so a bed that dries out can come back with more than grass when the rain returns -- see *The seed bank*). Also 2026-10-13 (**a grass with no root in the ground dries out** instead of living for ever -- see *Drought*, under what kills a plant). Also 2026-10-10 (**a herb dies after it has set seed**, and the bed renews itself from seed -- it empties if rain is off; see *A herb lives one season*). Also 2026-10-10 (**a plant grows back leaf that was bitten off**, paid from what it has stored, so a grazed bed keeps a middle between full and bare -- see *A plant that has been bitten*). Also 2026-10-07 (**a plant's page says why its tips stopped growing** -- the height its water reaches, no room, too poor and the rest -- see *What a healthy stand looks like*). Also 2026-10-06 (**the list of the dead says what killed each plant** -- shaded out, dried out, eaten, old age and the rest; *felled* now means felled, and a seed that rots unsprouted is counted but not listed -- see *Fire and death*). Also 2026-10-05 (**grass grows back** -- a tussock that loses its blades sends up new ones from its crown, so a meadow keeps seeding instead of fading -- see *Species*). Also 2026-10-03 (**water runs through a plant along real paths**:
 up the roots, up the trunk, out along the branches, and a dry spell browns the
 far tips first -- see *How water moves through a plant*). Also 2026-10-03 (**plants can be born harder to eat**, paying for
 it in growth -- see *Plants that are worse to eat*). Also 2026-10-03 (**a seed with ground on top of it is out of the
@@ -438,6 +438,24 @@ ants are there or not, so the ants are not choosing which plants survive.
 With mutation turned up fourfold the grazed garden does climb far above the
 same garden with no ants, so the pressure is real; it is too slow to show at
 the speed seeds vary today.
+
+## A plant that has lost its shoots
+
+**A plant whose growing shoots have all stopped starts a new one from what it
+has stored** -- in the lab. A plant starts new shoots from what it earns, and a
+small one earns very little; once every shoot tip had stopped, it had nothing
+to earn with and could never start another, however much it had saved. That
+is why shrubs used to grow hit or miss: about half stopped for good at a few
+cells, while their neighbours from the same seed grew into full bushes. Now a
+plant with no growing shoot and enough laid by breaks one bud, the way a real
+plant's stored sugar breaks its buds after frost or browsing. Shrubs come up
+three times the size, all of a similar size, and a bed of four kinds keeps
+all four. It starts one shoot at a time, never a crown, so a plant cannot
+grow without bound on its savings.
+
+**A shrub dies of old age.** It used to live for ever. Now its risk of dying
+rises as it ages, between a grass's and a tree's, so a shrubland renews
+itself from seed rather than standing unchanged.
 
 ## A plant that has been bitten
 

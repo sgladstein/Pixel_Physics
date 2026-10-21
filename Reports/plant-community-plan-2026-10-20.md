@@ -761,6 +761,45 @@ the review (§12), **M1 runs in this order**:
    Runs with load failure off (owner, 2026-10-20).
 6. **A3, bud break reads stored carbon** (the shrub trace), and **lifespans
    for shrub and creeper** (owner, 2026-10-20).
+
+   **Done for A3 and the shrub, 2026-10-21; the creeper is held for the
+   owner.**
+   - **A3** (`World::bud_break_reserve`, on by default in every lab bed): a
+     plant with no growing tip and four steps' carbon in store breaks one
+     bud. Before, buds were paid for by this tick's income alone, so a
+     plant that lost every tip could never earn one back.
+   - **Not the rejected "stock in the numerator"** (`dead-ends.md`: the
+     stand fused into one canopy). This never sizes the crown from the
+     store; it gives a tipless plant one tip.
+   - **Clone test** (lone shrub, 16 dice per ground, 60,000 frames): size
+     233+-419 -> 777+-404 cells on loam, coefficient of variation 1.8 ->
+     0.5 on every ground. The shrub stops being hit or miss. With the dice
+     shrunk, rich against sandy ground moves shrub roots by -2.05 spreads
+     against a 0.34 noise floor. **That is §3.4's clone test passing for
+     roots.**
+   - **Community** (training world, heaps at 2, 4 seeds, 480,000 frames),
+     against heaps alone:
+
+     | | heaps only | + A3 | + A3 + lifespans (shrub 45k, creeper 40k) |
+     |---|---|---|---|
+     | kinds with 100+ leaf, per seed | 3,4,3,2 | **4,4,4,4** | 2,3,3,2 |
+     | herb plants (recruits, last 100k) | 0-26 (0-20) | 8-18 (3-9) | 0-35 (0-39) |
+     | shrub plants | 0-7 | 4-18 | 2-13 |
+     | creeper plants | 12-24 | 8-30 | 0-18 |
+     | grass leaf | 1,643-2,930 | 1,297-2,531 | 1,805-3,017 |
+
+     **A3 is the first bed where all four roles last the run on every
+     seed.** There is no runaway: shrub leaf stays at or under 1,030, and
+     grass falls.
+   - **Lifespans.** The shrub's ships at 45,000 plant-time frames
+     (`shrub.ron`); it holds 2-13 plants and recruits on 2 seeds.
+   - **The creeper's is held.** At 40,000 it dies out or nearly so on 3 of
+     4 seeds. A creeper organism is its whole clone, so a lifespan kills
+     the clone, where a real clone renews through new ramets. **Owner's
+     call:** a much longer creeper lifespan, or ramets that root and become
+     their own plants first.
+   - Picture: `Reports/plant-community-2026-10-20/m1/a3-s1.png`. Data:
+     `.../m1/a3/`.
 7. **A5.1–A5.2: shade avoidance against tolerance, sun and shade leaves.**
    These make an understory possible at all, and are priced.
 8. **A2, development keying.**

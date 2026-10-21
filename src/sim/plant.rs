@@ -24733,6 +24733,42 @@ mis-wired {miswired_root}, so `slot_1_is_a_root_locus_and_not_a_shoot_one` would
         }
     }
 
+    /// **A plant with no growing tip and carbon in store breaks a bud, with
+    /// `World::bud_break_reserve` on, and only then** (A3). A grown tree has
+    /// every tip retired and its upkeep set above anything it earns, so its
+    /// income can pay for no tip. Its cells are then filled with carbon. Off, `break_buds` flushes nothing -- the stall the shrub
+    /// trace found. On, it flushes one.
+    #[test]
+    fn a_tipless_plant_with_stored_carbon_breaks_a_bud_only_with_reserve_on() {
+        for on in [false, true] {
+            let mut w = test_world();
+            w.seed = 1;
+            plant_tree_on_ground(&mut w, 100, 60);
+            let id = w.get(100, 60).organism_id();
+            run_with_fields(&mut w, 4_000);
+            let cells: Vec<(i32, i32)> = w.organism(id).map(|s| s.cells.keys().copied().collect()).unwrap_or_default();
+            let buds = cells.iter().filter(|&&(x, y)| organism::cell_type(w.get(x, y).aux()) == Some(CellType::DormantBud)).count();
+            assert!(buds > 0, "test setup: the tree should hold dormant buds, has {buds} of {} cells", cells.len());
+            for &(x, y) in &cells {
+                let c = w.get(x, y);
+                if organism::cell_type(c.aux()) == Some(CellType::GrowingTip) {
+                    w.set(x, y, c.with_aux(organism::pack_cell_type(CellType::MatureBody)));
+                }
+            }
+            // Upkeep above anything it could earn, so income pays for no tip
+            // -- the stalled seedling's condition, without staging its shade.
+            w.organism_mut(id).expect("alive").maintenance = 1.0e6;
+            for &(x, y) in &cells {
+                write_carbon(&mut w, x, y, 1.0);
+            }
+            w.bud_break_reserve = on;
+            let before = w.buds_flushed;
+            break_buds(&mut w, id);
+            let flushed = w.buds_flushed - before;
+            assert_eq!(flushed, u32::from(on), "reserve {on}: a tipless, unlit tree with full stores flushed {flushed} buds");
+        }
+    }
+
     struct SeedBed {
         germinated: bool,
         after_waiting: u32,

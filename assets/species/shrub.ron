@@ -87,6 +87,16 @@
     // any one site cycling fast -- closer to how a real flowering shrub
     // blooms a season at a time than to a bedding annual's turnover.
     rebloom_after: 16000,
+    // **How long a shrub lives** -- see `SpeciesDef::life_half_life`. The
+    // owner's ruling, 2026-10-20: shrub and creeper get lifespans (before
+    // it, a shrub lived for ever). 45,000 plant-time frames, between grass
+    // (30,000) and tree (60,000). Measured on the four-role training bed
+    // with A3 on (`Reports/plant-community-plan-2026-10-20.md` §8.1 step 6;
+    // 4 seeds, 480,000 frames): shrubs 2-13 at the end against 4-18
+    // without, recruiting on 2 of 4 seeds. The same value for creeper
+    // took the creeper out on 3 of 4 seeds, because a creeper organism is
+    // its whole clone; that one is held for the owner.
+    life_half_life: 45000.0,
     // See tree.ron: the stock fraction where stomata start closing,
     // multiplied per individual by genotype slot 7.
     stomatal_reserve: 0.2,

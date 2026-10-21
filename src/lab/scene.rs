@@ -255,6 +255,23 @@ pub struct LabBox {
     /// grow without bound. Written only when it differs from the default.
     #[serde(default = "seed_pile_depth_default", skip_serializing_if = "is_seed_pile_depth_default")]
     pub seed_pile_depth: u8,
+    /// **A plant with no growing tip breaks a bud on stored carbon**
+    /// (`World::bud_break_reserve`; A3 of the plant community plan). **On by
+    /// default**: on the four-role training bed it took the kinds with 100+
+    /// leaf to 4 of 4 on every seed (from 3,4,3,2), with herb alive and
+    /// recruiting on all four and no runaway; a lone shrub's size went from
+    /// 233+-419 to 777+-404 cells. Written only when off.
+    #[serde(default = "bud_break_reserve_default", skip_serializing_if = "is_bud_break_reserve_default")]
+    pub bud_break_reserve: bool,
+}
+
+/// `LabBox::bud_break_reserve`'s default: see that field.
+fn bud_break_reserve_default() -> bool {
+    true
+}
+
+fn is_bud_break_reserve_default(on: &bool) -> bool {
+    *on == bud_break_reserve_default()
 }
 
 /// `LabBox::seed_pile_depth`'s default: see that field.
@@ -463,6 +480,7 @@ impl Default for LabBox {
             spells: None,
             ground: Ground::Uniform,
             seed_pile_depth: seed_pile_depth_default(),
+            bud_break_reserve: bud_break_reserve_default(),
         }
     }
 }
@@ -1096,6 +1114,7 @@ impl LabBox {
         };
         let textured = self.ground != Ground::Uniform;
         w.seed_pile_depth = self.seed_pile_depth;
+        w.bud_break_reserve = self.bud_break_reserve;
         w.soil_texture = textured;
         w.soil_drains_around = textured;
         for x in 0..self.width {
